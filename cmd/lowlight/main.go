@@ -3,9 +3,11 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"lowlight/internal/driver"
+	"lowlight/internal/lsp"
 )
 
 func main() {
@@ -92,6 +94,9 @@ func runCLI(args []string) int {
 		}
 		return code
 
+	case "lsp":
+		return runLSP(rest)
+
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown subcommand %q\n\n", sub)
 		printUsage(os.Stderr)
@@ -149,6 +154,34 @@ func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.
 	return opts, progArgs, nil
 }
 
+func runLSP(args []string) int {
+	var logW io.Writer
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--stdio":
+			// Default transport; accepted for compatibility with VS Code / LSP clients
+		case "--log":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "error: missing file path for --log")
+				return 1
+			}
+			i++
+			f, err := os.OpenFile(args[i], os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error opening LSP log %s: %v\n", args[i], err)
+				return 1
+			}
+			defer f.Close()
+			logW = f
+		default:
+			fmt.Fprintf(os.Stderr, "error: unknown `lowlight lsp` flag %q\n", args[i])
+			return 1
+		}
+	}
+	srv := lsp.NewServer(os.Stdin, os.Stdout, logW)
+	return srv.Serve()
+}
+
 func printUsage(w *os.File) {
 	fmt.Fprint(w, `Lowlight v1.0 Compiler
 
@@ -157,6 +190,7 @@ Usage:
   lowlight run   [--release] [--cc <compiler>] <file.ll> [-- <args...>]
   lowlight emit-c [-o <file.c>] [--release] <file.ll>
   lowlight check <file.ll>
+  lowlight lsp   [--stdio] [--log <file>]
   lowlight version
   lowlight help
 
@@ -164,5 +198,7 @@ Flags:
   -o <path>        Output executable or C11 source path
   --release        Optimize generated C (-O2) and elide runtime bounds/shift checks
   --cc <compiler>  C11 compiler executable (default: $LOWLIGHT_CC, $CC, or cc)
+  --stdio          Run Language Server Protocol (LSP 3.17) over stdin/stdout
+  --log <file>     Append JSON-RPC LSP trace logs to <file>
 `)
 }

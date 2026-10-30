@@ -54,11 +54,29 @@ Commands:
   run     [--release] [--cc <cc>] <file.ll> [-- args...] Compile and execute immediately
   emit-c  [-o <out.c>] [--release] <file.ll>             Emit portable ISO C11 source code
   check   <file.ll>                                      Type-check and verify ownership/borrows
+  lsp     [--stdio] [--log <file>]                       Start Language Server Protocol (LSP 3.17) server
   version                                                Print compiler version
 ```
 
 * **Debug builds (default)**: Compile with `-g -O0` and deterministic runtime bounds/shift checks with Lowlight `.ll:line` panic locations.
 * **Release builds (`--release`)**: Compile with `-O2` and elide slice/index bounds checks for peak throughput.
+
+---
+
+## VS Code Extension & Language Server (LSP)
+
+Lowlight ships with a built-in, zero-dependency **LSP 3.17** server (`lowlight lsp --stdio`) and a ready-to-drop-in **VS Code / Cursor extension** ([`editors/vscode/`](./editors/vscode)):
+
+* **Real-time diagnostics** as you type (syntax, types, generics, Model 2A ownership/moves/borrows, `Arena` escapes, and `?T` / `name?` optional rules).
+* **Context-aware autocomplete** for `.` / `?.` fields & UFCS methods (with auto-`?` insertion on optional chains), `Struct[...]` remaining fields, `: Type` annotations, `import "..."` modules, narrowed `if (x?)` locals, intrinsics, and snippets.
+* **Hover inspector**, **cross-module Go-to-Definition**, **UFCS signature help**, **document outline symbols**, **8 quick-fix code actions** (`Cmd+.`), TextMate syntax highlighting, and an editor **Run (`▶`)** button.
+
+### Drop-In Install into VS Code
+* **From VS Code UI**: Press `Cmd+Shift+P` → **`Extensions: Install from VSIX...`** → select `editors/vscode/lowlight-vscode-1.0.0.vsix` (or regenerate anytime with `python3 editors/vscode/package_vsix.py`).
+* **One-line installer**:
+  ```sh
+  ./editors/vscode/install.sh
+  ```
 
 ---
 
@@ -139,15 +157,17 @@ The Go compiler is structured with clean, explicit data structures and zero exte
 | :--- | :--- |
 | [`SPECIFICATION.md`](./SPECIFICATION.md) | Finalized Lowlight v1.0 Language Specification |
 | [`DECISIONS.md`](./DECISIONS.md) | Item-by-item resolution of every design question from [`SPEC_CRITIQUE.md`](./SPEC_CRITIQUE.md) |
-| [`cmd/lowlight/`](./cmd/lowlight) | CLI entrypoint (`build`, `run`, `emit-c`, `check`, `version`) |
+| [`cmd/lowlight/`](./cmd/lowlight) | CLI entrypoint (`build`, `run`, `emit-c`, `check`, `lsp`, `version`) |
 | [`internal/diag/`](./internal/diag) | Source spans and caret diagnostics with hints |
 | [`internal/token/`](./internal/token) & [`internal/lexer/`](./internal/lexer) | Lexer (`name?` optional idents, string interpolation, contextual Go-style semicolon insertion) |
 | [`internal/ast/`](./internal/ast) & [`internal/parser/`](./internal/parser) | Recursive-descent + Pratt expression parser with multiline trailing-comma enforcement |
 | [`internal/types/`](./internal/types) | Type representations, Plain vs. Resource classification, recursive `?Struct` cycle detection |
-| [`internal/sema/`](./internal/sema) | Multi-module imports, monomorphization, Model 2A move/drop tracking, borrow exclusivity, `Arena` escape analysis |
+| [`internal/sema/`](./internal/sema) | Multi-module imports, monomorphization, Model 2A move/drop tracking, borrow exclusivity, `Arena` escape analysis, tolerant IDE check mode |
+| [`internal/lsp/`](./internal/lsp) | Zero-dependency LSP 3.17 server (live diagnostics, autocomplete, hover, definition, signature help, outline, quick fixes) |
 | [`internal/ir/`](./internal/ir) | Mid-Level IR (MIR) lowering with explicit scope unwind drop edges, closure environments, and vtables |
 | [`internal/codegen/`](./internal/codegen) | Human-readable ISO C11 emitter + embedded UB-free runtime header |
 | [`internal/driver/`](./internal/driver) | End-to-end compilation & C11 toolchain driver |
+| [`editors/vscode/`](./editors/vscode) | Zero-dependency drop-in VS Code extension, `.vsix` packager, and 1-command installer |
 | [`std/`](./std) | Standard library: [`math.ll`](./std/math.ll), [`fs.ll`](./std/fs.ll) (`Result[T, E]`), [`pool.ll`](./std/pool.ll) (`Pool[T]` / `Handle[T]`) |
 | [`examples/`](./examples) | 8 end-to-end showcase programs covering every language subsystem |
 | [`tests/`](./tests) | Strict E2E suite compiling with `-std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined` + `LOWLIGHT_CHECK_LEAKS=1` |
@@ -164,4 +184,5 @@ The test suite runs:
 1. Lexer unit tests (unwind `<-` vs `< -`, string interpolation, auto-semicolon rules).
 2. Parser unit tests (full grammar, trailing-comma rules, unwind placement restrictions).
 3. Semantic safety tests (use-after-move, `bind` deep immutability, `&` borrow conflicts, `Arena` escapes, `name?` rules, exhaustiveness, `unsafe` gating).
-4. Strict end-to-end native compilation & execution across all 8 showcase programs (in both debug and `--release` modes) and feature suites under **`-std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined`** and **`LOWLIGHT_CHECK_LEAKS=1`**.
+4. LSP end-to-end tests (JSON-RPC framing, real-time syntax/ownership/optional diagnostics, all autocomplete contexts, hover, cross-file go-to-definition, UFCS signature help, document symbols, and quick fixes).
+5. Strict end-to-end native compilation & execution across all 8 showcase programs (in both debug and `--release` modes) and feature suites under **`-std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined`** and **`LOWLIGHT_CHECK_LEAKS=1`**.

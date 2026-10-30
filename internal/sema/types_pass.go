@@ -99,7 +99,7 @@ func (a *Analyzer) runTypeAndSymbolRegistration() {
 	for _, mod := range a.Prog.Modules {
 		a.registerModuleTypeHeaders(mod)
 	}
-	if a.Rep.HasErrors() {
+	if a.Rep.HasErrors() && !a.ideMode {
 		return
 	}
 
@@ -113,13 +113,13 @@ func (a *Analyzer) runTypeAndSymbolRegistration() {
 	for _, mod := range a.Prog.Modules {
 		a.resolveStructFields(mod)
 	}
-	if a.Rep.HasErrors() {
+	if a.Rep.HasErrors() && !a.ideMode {
 		return
 	}
 
 	// Pass 1D: Detect value vs optional cycles across structs (marking BoxedOptional on recursive `?Struct`).
 	a.checkStructRecursion()
-	if a.Rep.HasErrors() {
+	if a.Rep.HasErrors() && !a.ideMode {
 		return
 	}
 
@@ -238,6 +238,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			mod.Types[td.Name] = st
 			a.Prog.StructDecls[st] = td
 			a.Prog.StructMods[st] = mod
+			a.Prog.TypeSpans[st] = td.Span
 			a.Prog.Structs = append(a.Prog.Structs, st)
 
 		case *ast.EnumDecl:
@@ -250,6 +251,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				Underlying: types.TypeInt,
 			}
 			mod.Types[td.Name] = en
+			a.Prog.TypeSpans[en] = td.Span
 			a.Prog.Enums = append(a.Prog.Enums, en)
 
 		case *ast.InterfaceDecl:
@@ -265,6 +267,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				CName: "ll_iface_" + td.Name,
 			}
 			mod.Types[td.Name] = ifc
+			a.Prog.TypeSpans[ifc] = td.Span
 			a.Prog.Interfaces = append(a.Prog.Interfaces, ifc)
 
 		case *ast.DistinctTypeDecl:
@@ -274,8 +277,10 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			dt := &types.Distinct{
 				Name:  td.Name,
 				CName: "ll_d_" + td.Name,
+				Base:  types.TypeInvalid,
 			}
 			mod.Types[td.Name] = dt
+			a.Prog.TypeSpans[dt] = td.Span
 			a.Prog.Distincts = append(a.Prog.Distincts, dt)
 		}
 	}
@@ -803,6 +808,7 @@ func (a *Analyzer) instantiateStruct(tmpl *GenericStructTemplate, typeArgs []typ
 	if !hasTypeParam {
 		a.Prog.StructDecls[inst] = tmpl.Decl
 		a.Prog.StructMods[inst] = tmpl.Mod
+		a.Prog.TypeSpans[inst] = tmpl.Decl.Span
 		a.Prog.Structs = append(a.Prog.Structs, inst)
 		a.checkSingleStructRecursion(inst)
 		// Check bounds after registration so methods are available if called during body checking
@@ -893,6 +899,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 			// Top-level static function `bind name = (params)[: Ret] body`
 			if fl, isFn := decl.Value.(*ast.FuncLit); isFn && decl.IsBind {
 				fi := a.buildFuncInstanceFromLit(mod, decl.Name, fl, nil)
+				fi.DeclSpan = decl.Span
 				a.Prog.Funcs = append(a.Prog.Funcs, fi)
 				mod.Symbols[decl.Name] = &Symbol{
 					Name:       decl.Name,
@@ -999,11 +1006,13 @@ func (a *Analyzer) validateMainSig(fi *FuncInstance, span diag.Span) {
 func (a *Analyzer) buildFuncInstanceFromLit(mod *Module, name string, fl *ast.FuncLit, subst map[string]types.Type) *FuncInstance {
 	var ps []types.FuncParam
 	var pnames []string
+	var pspans []diag.Span
 	for _, p := range fl.Params {
 		pm, pt := a.resolveParamType(mod, p.Type, subst, false)
 		a.checkOptionalIdentRule(p.Name, p.IsOptName, pt, p.Span, "parameter")
 		ps = append(ps, types.FuncParam{Name: p.Name, Mode: pm, Type: pt})
 		pnames = append(pnames, p.Name)
+		pspans = append(pspans, p.Span)
 	}
 	ret := types.Type(types.TypeVoid)
 	if fl.Ret != nil {
@@ -1018,6 +1027,7 @@ func (a *Analyzer) buildFuncInstanceFromLit(mod *Module, name string, fl *ast.Fu
 		CName:      cname,
 		Sig:        &types.Func{Params: ps, Ret: ret},
 		ParamNames: pnames,
+		ParamSpans: pspans,
 		Body:       fl.Body,
 		Mod:        mod,
 		TypeSubst:  subst,
@@ -1027,6 +1037,7 @@ func (a *Analyzer) buildFuncInstanceFromLit(mod *Module, name string, fl *ast.Fu
 func (a *Analyzer) buildMethodInstance(mod *Module, recvTy types.Type, decl *ast.MethodDecl, subst map[string]types.Type) *FuncInstance {
 	var ps []types.FuncParam
 	var pnames []string
+	var pspans []diag.Span
 	isStatic := decl.RecvMode == ast.ReceiverMode(-1)
 
 	if !isStatic {
@@ -1042,6 +1053,7 @@ func (a *Analyzer) buildMethodInstance(mod *Module, recvTy types.Type, decl *ast
 			Type: recvTy,
 		})
 		pnames = append(pnames, "self")
+		pspans = append(pspans, decl.Span)
 	}
 
 	for _, p := range decl.Params {
@@ -1049,6 +1061,7 @@ func (a *Analyzer) buildMethodInstance(mod *Module, recvTy types.Type, decl *ast
 		a.checkOptionalIdentRule(p.Name, p.IsOptName, pt, p.Span, "parameter")
 		ps = append(ps, types.FuncParam{Name: p.Name, Mode: pm, Type: pt})
 		pnames = append(pnames, p.Name)
+		pspans = append(pspans, p.Span)
 	}
 	ret := types.Type(types.TypeVoid)
 	if decl.Ret != nil {
@@ -1073,9 +1086,11 @@ func (a *Analyzer) buildMethodInstance(mod *Module, recvTy types.Type, decl *ast
 		RecvType:      recvTy,
 		RecvMode:      decl.RecvMode,
 		ParamNames:    pnames,
+		ParamSpans:    pspans,
 		Body:          decl.Body,
 		Mod:           mod,
 		TypeSubst:     subst,
+		DeclSpan:      decl.Span,
 	}
 }
 
@@ -1204,6 +1219,7 @@ func (a *Analyzer) instantiateGenericFunc(tmpl *GenericFuncTemplate, typeArgs []
 	fl := decl.Value.(*ast.FuncLit)
 	instName := fmt.Sprintf("%s[%s]", decl.Name, strings.Join(parts, ","))
 	fi := a.buildFuncInstanceFromLit(tmpl.Mod, instName, fl, subst)
+	fi.DeclSpan = decl.Span
 	fi.CName = fmt.Sprintf("ll_gfn_%s__%s", decl.Name, key)
 	tmpl.Instances[key] = fi
 	a.Prog.Funcs = append(a.Prog.Funcs, fi)

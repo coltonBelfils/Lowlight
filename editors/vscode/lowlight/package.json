@@ -1,0 +1,90 @@
+{
+  "name": "lowlight",
+  "displayName": "Lowlight Language Support",
+  "description": "Official Lowlight v1.0 IDE support: real-time syntax/type/ownership diagnostics, autocomplete, hover, go-to-definition, signature help, outline symbols, quick fixes, and syntax highlighting.",
+  "version": "1.0.0",
+  "publisher": "lowlight-lang",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:lowlight"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "lowlight",
+        "aliases": [
+          "Lowlight",
+          "lowlight"
+        ],
+        "extensions": [
+          ".ll"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "lowlight",
+        "scopeName": "source.lowlight",
+        "path": "./syntaxes/lowlight.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "lowlight",
+        "path": "./snippets/lowlight.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "lowlight.restartServer",
+        "title": "Lowlight: Restart Language Server"
+      },
+      {
+        "command": "lowlight.runFile",
+        "title": "Lowlight: Run Current File",
+        "icon": "$(play)"
+      },
+      {
+        "command": "lowlight.showOutput",
+        "title": "Lowlight: Show Language Server Output"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "when": "resourceLangId == lowlight",
+          "command": "lowlight.runFile",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Lowlight",
+      "properties": {
+        "lowlight.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to the `lowlight` compiler binary. When empty, uses the bundled binary inside the extension, workspace `./lowlight`, or `lowlight` on PATH."
+        },
+        "lowlight.stdlibPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to the directory containing Lowlight's `std/` modules."
+        },
+        "lowlight.trace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log raw JSON-RPC LSP messages to the Lowlight Output channel."
+        }
+      }
+    }
+  }
+}

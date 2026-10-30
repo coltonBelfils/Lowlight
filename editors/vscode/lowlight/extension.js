@@ -1,0 +1,1082 @@
+'use strict';
+
+const vscode = require('vscode');
+const cp = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+/** @type {LowlightClient | null} */
+let client = null;
+/** @type {vscode.OutputChannel | null} */
+let outputChannel = null;
+/** @type {vscode.DiagnosticCollection | null} */
+let diagnosticCollection = null;
+/** @type {vscode.StatusBarItem | null} */
+let statusBarItem = null;
+/** @type {vscode.Terminal | null} */
+let runTerminal = null;
+
+/**
+ * Resolves the `lowlight` compiler/LSP executable path.
+ * Search order:
+ *   1. `lowlight.serverPath` user/workspace setting
+ *   2. Bundled binary inside the extension (`<ext>/bin/lowlight`)
+ *   3. Workspace folder root (`<workspace>/lowlight`)
+ *   4. Repository root relative to `<repo>/editors/vscode/lowlight`
+ *   5. `lowlight` on system PATH
+ *
+ * @param {vscode.ExtensionContext} context
+ * @returns {string}
+ */
+function resolveServerBinary(context) {
+  const cfg = vscode.workspace.getConfiguration('lowlight');
+  const configured = (cfg.get('serverPath') || '').trim();
+  if (configured.length > 0) {
+    return configured;
+  }
+
+  const exeName = process.platform === 'win32' ? 'lowlight.exe' : 'lowlight';
+  const candidates = [
+    path.join(context.extensionPath, 'bin', exeName),
+  ];
+
+  const folders = vscode.workspace.workspaceFolders || [];
+  for (const folder of folders) {
+    candidates.push(path.join(folder.uri.fsPath, exeName));
+  }
+
+  candidates.push(path.resolve(context.extensionPath, '..', '..', '..', exeName));
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+        return candidate;
+      }
+    } catch (_) {
+      // Ignore inaccessible path candidates
+    }
+  }
+
+  return exeName;
+}
+
+/**
+ * Resolves `LOWLIGHT_ROOT` (the directory containing `std/*.ll`) so `import "std/..."`
+ * works regardless of which directory the user opens in VS Code.
+ *
+ * @param {vscode.ExtensionContext} context
+ * @returns {string}
+ */
+function resolveStdlibRoot(context) {
+  const cfg = vscode.workspace.getConfiguration('lowlight');
+  const configured = (cfg.get('stdlibPath') || '').trim();
+  if (configured.length > 0) {
+    if (path.basename(configured) === 'std' && fs.existsSync(path.join(configured, 'math.ll'))) {
+      return path.dirname(configured);
+    }
+    return configured;
+  }
+
+  const roots = [];
+  const folders = vscode.workspace.workspaceFolders || [];
+  for (const folder of folders) {
+    roots.push(folder.uri.fsPath);
+  }
+  roots.push(context.extensionPath);
+  roots.push(path.resolve(context.extensionPath, '..', '..', '..'));
+
+  for (const root of roots) {
+    try {
+      const stdDir = path.join(root, 'std');
+      if (fs.existsSync(stdDir) && fs.statSync(stdDir).isDirectory()) {
+        return root;
+      }
+    } catch (_) {
+      // Ignore inaccessible candidates
+    }
+  }
+
+  return '';
+}
+
+/**
+ * Zero-dependency JSON-RPC 2.0 LSP client over stdio (`lowlight lsp --stdio`).
+ */
+class LowlightClient {
+  /**
+   * @param {vscode.ExtensionContext} context
+   * @param {vscode.OutputChannel} out
+   * @param {vscode.DiagnosticCollection} diagnostics
+   * @param {vscode.StatusBarItem} status
+   */
+  constructor(context, out, diagnostics, status) {
+    this.context = context;
+    this.out = out;
+    this.diagnostics = diagnostics;
+    this.status = status;
+
+    /** @type {cp.ChildProcessWithoutNullStreams | null} */
+    this.proc = null;
+    this.nextId = 1;
+    /** @type {Map<number, { resolve: (val: any) => void, reject: (err: Error) => void, method: string }>} */
+    this.pending = new Map();
+    this.rxBuf = Buffer.alloc(0);
+    this.ready = false;
+    this.stopping = false;
+    /** @type {Promise<boolean> | null} */
+    this.startPromise = null;
+    /** @type {Set<string>} */
+    this.syncedUris = new Set();
+    /** @type {Map<string, vscode.Uri>} */
+    this.fsPathToUri = new Map();
+  }
+
+  /**
+   * @returns {boolean}
+   */
+  isTraceEnabled() {
+    return Boolean(vscode.workspace.getConfiguration('lowlight').get('trace', false));
+  }
+
+  /**
+   * @param {string} msg
+   */
+  log(msg) {
+    const ts = new Date().toISOString().slice(11, 23);
+    this.out.appendLine(`[${ts}] ${msg}`);
+  }
+
+  /**
+   * Starts the `lowlight lsp --stdio` child process and performs the LSP handshake.
+   * @returns {Promise<boolean>}
+   */
+  start() {
+    if (this.startPromise) {
+      return this.startPromise;
+    }
+    this.startPromise = this._doStart();
+    return this.startPromise;
+  }
+
+  /**
+   * @returns {Promise<boolean>}
+   */
+  async _doStart() {
+    this.stopping = false;
+    this.ready = false;
+    this.syncedUris.clear();
+
+    const binPath = resolveServerBinary(this.context);
+    const stdRoot = resolveStdlibRoot(this.context);
+
+    if (process.platform !== 'win32' && path.isAbsolute(binPath) && fs.existsSync(binPath)) {
+      try {
+        fs.chmodSync(binPath, 0o755);
+      } catch (_) {
+        // Ignore chmod errors on read-only mounts
+      }
+    }
+
+    const env = Object.assign({}, process.env);
+    if (stdRoot) {
+      env.LOWLIGHT_ROOT = stdRoot;
+    }
+
+    this.status.text = '$(sync~spin) Lowlight';
+    this.status.tooltip = `Starting Lowlight LSP (${binPath})...`;
+    this.status.show();
+
+    this.log(`Starting Lowlight LSP: "${binPath}" lsp --stdio (LOWLIGHT_ROOT=${stdRoot || '<auto>'})`);
+
+    let child;
+    try {
+      child = cp.spawn(binPath, ['lsp', '--stdio'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env,
+      });
+    } catch (err) {
+      this._handleSpawnFailure(binPath, err);
+      return false;
+    }
+
+    this.proc = child;
+
+    child.stdout.on('data', (chunk) => {
+      this._onStdoutData(chunk);
+    });
+
+    child.stderr.on('data', (chunk) => {
+      const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      for (const line of text.split(/\r?\n/)) {
+        if (line.trim().length > 0) {
+          this.log(`[server] ${line}`);
+        }
+      }
+    });
+
+    child.on('error', (err) => {
+      if (!this.stopping) {
+        this._handleSpawnFailure(binPath, err);
+      }
+    });
+
+    child.on('exit', (code, signal) => {
+      this.log(`Lowlight LSP exited (code=${code}, signal=${signal})`);
+      this._rejectAllPending(new Error(`Lowlight LSP exited (code=${code}, signal=${signal})`));
+      this.proc = null;
+      this.ready = false;
+      this.startPromise = null;
+      this.syncedUris.clear();
+      if (!this.stopping) {
+        this.status.text = '$(warning) Lowlight';
+        this.status.tooltip = 'Lowlight LSP stopped unexpectedly. Click to view logs or run "Lowlight: Restart Language Server".';
+      }
+    });
+
+    const folders = vscode.workspace.workspaceFolders || [];
+    const rootUri = folders.length > 0 ? folders[0].uri.toString() : '';
+    const rootPath = folders.length > 0 ? folders[0].uri.fsPath : '';
+    const workspaceFolders = folders.map((f) => ({
+      uri: f.uri.toString(),
+      name: f.name,
+    }));
+
+    try {
+      const initResult = await this.sendRequest('initialize', {
+        processId: process.pid,
+        rootUri,
+        rootPath,
+        workspaceFolders,
+        capabilities: {},
+      });
+
+      this.sendNotification('initialized', {});
+      this.ready = true;
+
+      const version = (initResult && initResult.serverInfo && initResult.serverInfo.version) || '1.0.0';
+      this.status.text = '$(check) Lowlight';
+      this.status.tooltip = `Lowlight Language Server v${version} running\nBinary: ${binPath}`;
+      this.log(`Lowlight LSP v${version} initialized.`);
+
+      // Synchronize all currently open `.ll` buffers immediately.
+      for (const doc of vscode.workspace.textDocuments) {
+        this.didOpen(doc);
+      }
+      return true;
+    } catch (err) {
+      this.log(`Failed to initialize Lowlight LSP: ${err && err.message ? err.message : String(err)}`);
+      this.status.text = '$(error) Lowlight';
+      this.status.tooltip = `Lowlight LSP failed to initialize: ${err && err.message ? err.message : String(err)}`;
+      return false;
+    }
+  }
+
+  /**
+   * @param {string} binPath
+   * @param {any} err
+   */
+  _handleSpawnFailure(binPath, err) {
+    const msg = err && err.message ? err.message : String(err);
+    this.log(`Unable to launch Lowlight binary "${binPath}": ${msg}`);
+    this._rejectAllPending(new Error(msg));
+    this.proc = null;
+    this.ready = false;
+    this.startPromise = null;
+    this.status.text = '$(error) Lowlight';
+    this.status.tooltip = `Cannot find or execute "${binPath}". Configure "lowlight.serverPath" in VS Code settings.`;
+    vscode.window.showErrorMessage(
+      `Lowlight LSP could not start ("${binPath}"): ${msg}. Set "lowlight.serverPath" or run editors/vscode/install.sh.`,
+      'Open Settings',
+      'Show Logs'
+    ).then((choice) => {
+      if (choice === 'Open Settings') {
+        vscode.commands.executeCommand('workbench.action.openSettings', 'lowlight.serverPath');
+      } else if (choice === 'Show Logs') {
+        this.out.show(true);
+      }
+    });
+  }
+
+  /**
+   * Gracefully shuts down the LSP child process.
+   * @returns {Promise<void>}
+   */
+  async stop() {
+    this.stopping = true;
+    this.ready = false;
+    this.startPromise = null;
+    this.syncedUris.clear();
+    this.diagnostics.clear();
+
+    const proc = this.proc;
+    if (!proc) {
+      return;
+    }
+
+    try {
+      await Promise.race([
+        this.sendRequest('shutdown', null),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      this.sendNotification('exit', null);
+    } catch (_) {
+      // Ignore shutdown errors if pipe is already closed
+    }
+
+    await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        try {
+          proc.kill();
+        } catch (_) {}
+        resolve();
+      }, 300);
+      proc.once('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+
+    this.proc = null;
+  }
+
+  /**
+   * @param {Error} err
+   */
+  _rejectAllPending(err) {
+    for (const [, entry] of this.pending) {
+      entry.reject(err);
+    }
+    this.pending.clear();
+  }
+
+  /**
+   * Parses incoming `Content-Length` framed JSON-RPC messages over raw UTF-8 byte buffers.
+   * @param {Buffer | string} chunk
+   */
+  _onStdoutData(chunk) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf8');
+    this.rxBuf = this.rxBuf.length === 0 ? buf : Buffer.concat([this.rxBuf, buf]);
+
+    while (true) {
+      const sepIdx = this.rxBuf.indexOf('\r\n\r\n');
+      if (sepIdx === -1) {
+        break;
+      }
+
+      const headerStr = this.rxBuf.subarray(0, sepIdx).toString('ascii');
+      const match = /Content-Length:\s*(\d+)/i.exec(headerStr);
+      if (!match) {
+        this.log(`Malformed LSP header, skipping: ${JSON.stringify(headerStr)}`);
+        this.rxBuf = this.rxBuf.subarray(sepIdx + 4);
+        continue;
+      }
+
+      const contentLength = parseInt(match[1], 10);
+      const bodyStart = sepIdx + 4;
+      const bodyEnd = bodyStart + contentLength;
+      if (this.rxBuf.length < bodyEnd) {
+        // Wait for remaining payload bytes.
+        break;
+      }
+
+      const jsonBytes = this.rxBuf.subarray(bodyStart, bodyEnd);
+      this.rxBuf = this.rxBuf.subarray(bodyEnd);
+
+      const jsonText = jsonBytes.toString('utf8');
+      if (this.isTraceEnabled()) {
+        this.log(`<- ${jsonText}`);
+      }
+
+      let msg;
+      try {
+        msg = JSON.parse(jsonText);
+      } catch (err) {
+        this.log(`Invalid JSON from server: ${err}`);
+        continue;
+      }
+
+      this._dispatchMessage(msg);
+    }
+  }
+
+  /**
+   * @param {any} msg
+   */
+  _dispatchMessage(msg) {
+    if (
+      msg &&
+      msg.id !== undefined &&
+      msg.id !== null &&
+      (Object.prototype.hasOwnProperty.call(msg, 'result') || Object.prototype.hasOwnProperty.call(msg, 'error'))
+    ) {
+      const entry = this.pending.get(msg.id);
+      if (entry) {
+        this.pending.delete(msg.id);
+        if (msg.error) {
+          entry.reject(new Error(msg.error.message || `LSP error ${msg.error.code}`));
+        } else {
+          entry.resolve(msg.result);
+        }
+      }
+      return;
+    }
+
+    if (msg && typeof msg.method === 'string') {
+      if (msg.method === 'textDocument/publishDiagnostics' && msg.params) {
+        this._handleDiagnostics(msg.params);
+      }
+    }
+  }
+
+  /**
+   * @param {any} payload
+   */
+  _writeFrame(payload) {
+    if (!this.proc || !this.proc.stdin || this.proc.stdin.destroyed) {
+      throw new Error('Lowlight LSP stdin is not writable');
+    }
+    const jsonText = JSON.stringify(payload);
+    if (this.isTraceEnabled()) {
+      this.log(`-> ${jsonText}`);
+    }
+    const body = Buffer.from(jsonText, 'utf8');
+    const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'ascii');
+    this.proc.stdin.write(Buffer.concat([header, body]));
+  }
+
+  /**
+   * Sends a JSON-RPC request and awaits its response.
+   * @param {string} method
+   * @param {any} params
+   * @returns {Promise<any>}
+   */
+  sendRequest(method, params) {
+    const id = this.nextId++;
+    const payload = {
+      jsonrpc: '2.0',
+      id,
+      method,
+      params,
+    };
+
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject, method });
+      try {
+        this._writeFrame(payload);
+      } catch (err) {
+        this.pending.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  /**
+   * Sends a JSON-RPC notification (no response expected).
+   * @param {string} method
+   * @param {any} params
+   */
+  sendNotification(method, params) {
+    const payload = {
+      jsonrpc: '2.0',
+      method,
+      params,
+    };
+    try {
+      this._writeFrame(payload);
+    } catch (err) {
+      this.log(`Notification "${method}" failed: ${err}`);
+    }
+  }
+
+  /**
+   * @param {vscode.TextDocument} doc
+   * @returns {boolean}
+   */
+  isLowlightDoc(doc) {
+    return Boolean(doc && doc.languageId === 'lowlight' && doc.uri.scheme === 'file');
+  }
+
+  /**
+   * Resolves a server URI string back into the canonical `vscode.Uri` (reusing open tab URIs).
+   * @param {string} uriStr
+   * @returns {vscode.Uri}
+   */
+  toVsUri(uriStr) {
+    const parsed = vscode.Uri.parse(uriStr);
+    const normalized = path.normalize(parsed.fsPath);
+    const existing = this.fsPathToUri.get(normalized);
+    return existing || parsed;
+  }
+
+  /**
+   * @param {vscode.TextDocument} doc
+   */
+  didOpen(doc) {
+    if (!this.ready || !this.isLowlightDoc(doc)) {
+      return;
+    }
+    const uriStr = doc.uri.toString();
+    this.fsPathToUri.set(path.normalize(doc.uri.fsPath), doc.uri);
+    this.syncedUris.add(uriStr);
+    this.sendNotification('textDocument/didOpen', {
+      textDocument: {
+        uri: uriStr,
+        languageId: 'lowlight',
+        version: doc.version,
+        text: doc.getText(),
+      },
+    });
+  }
+
+  /**
+   * @param {vscode.TextDocument} doc
+   */
+  didChange(doc) {
+    if (!this.ready || !this.isLowlightDoc(doc)) {
+      return;
+    }
+    const uriStr = doc.uri.toString();
+    if (!this.syncedUris.has(uriStr)) {
+      this.didOpen(doc);
+      return;
+    }
+    this.sendNotification('textDocument/didChange', {
+      textDocument: {
+        uri: uriStr,
+        version: doc.version,
+      },
+      contentChanges: [
+        {
+          text: doc.getText(),
+        },
+      ],
+    });
+  }
+
+  /**
+   * @param {vscode.TextDocument} doc
+   */
+  didSave(doc) {
+    if (!this.ready || !this.isLowlightDoc(doc)) {
+      return;
+    }
+    this.sendNotification('textDocument/didSave', {
+      textDocument: {
+        uri: doc.uri.toString(),
+      },
+      text: doc.getText(),
+    });
+  }
+
+  /**
+   * @param {vscode.TextDocument} doc
+   */
+  didClose(doc) {
+    if (!this.isLowlightDoc(doc)) {
+      return;
+    }
+    const uriStr = doc.uri.toString();
+    this.syncedUris.delete(uriStr);
+    this.fsPathToUri.delete(path.normalize(doc.uri.fsPath));
+    this.diagnostics.delete(doc.uri);
+    if (this.ready) {
+      this.sendNotification('textDocument/didClose', {
+        textDocument: {
+          uri: uriStr,
+        },
+      });
+    }
+  }
+
+  /**
+   * Ensures the server is running and `doc` has been opened on the server.
+   * @param {vscode.TextDocument} doc
+   * @returns {Promise<boolean>}
+   */
+  async ensureReadyForDoc(doc) {
+    if (!this.isLowlightDoc(doc)) {
+      return false;
+    }
+    if (!this.ready) {
+      const ok = await this.start();
+      if (!ok) {
+        return false;
+      }
+    }
+    const uriStr = doc.uri.toString();
+    if (!this.syncedUris.has(uriStr)) {
+      this.didOpen(doc);
+    }
+    return true;
+  }
+
+  /**
+   * Converts incoming `textDocument/publishDiagnostics` notifications into VS Code squiggles.
+   * @param {{ uri: string, diagnostics: Array<any> }} params
+   */
+  _handleDiagnostics(params) {
+    if (!params || typeof params.uri !== 'string') {
+      return;
+    }
+    const targetUri = this.toVsUri(params.uri);
+    const rawList = Array.isArray(params.diagnostics) ? params.diagnostics : [];
+    const vsDiags = rawList.map((d) => {
+      const range = toVsRange(d.range);
+      const sev = toVsSeverity(d.severity);
+      const diag = new vscode.Diagnostic(range, d.message || '', sev);
+      diag.source = d.source || 'lowlight';
+      if (d.code !== undefined && d.code !== null && d.code !== '') {
+        diag.code = d.code;
+      }
+      return diag;
+    });
+    this.diagnostics.set(targetUri, vsDiags);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Coordinate & Type Conversion Helpers (LSP 3.17 <-> VS Code API)
+// -----------------------------------------------------------------------------
+
+/**
+ * @param {{ line: number, character: number } | undefined} p
+ * @returns {vscode.Position}
+ */
+function toVsPosition(p) {
+  if (!p) {
+    return new vscode.Position(0, 0);
+  }
+  return new vscode.Position(Math.max(0, p.line || 0), Math.max(0, p.character || 0));
+}
+
+/**
+ * @param {{ start: { line: number, character: number }, end: { line: number, character: number } } | undefined} r
+ * @returns {vscode.Range}
+ */
+function toVsRange(r) {
+  if (!r) {
+    return new vscode.Range(0, 0, 0, 0);
+  }
+  return new vscode.Range(toVsPosition(r.start), toVsPosition(r.end));
+}
+
+/**
+ * @param {vscode.Position} pos
+ * @returns {{ line: number, character: number }}
+ */
+function fromVsPosition(pos) {
+  return { line: pos.line, character: pos.character };
+}
+
+/**
+ * @param {vscode.Range} range
+ * @returns {{ start: { line: number, character: number }, end: { line: number, character: number } }}
+ */
+function fromVsRange(range) {
+  return {
+    start: fromVsPosition(range.start),
+    end: fromVsPosition(range.end),
+  };
+}
+
+/**
+ * @param {number | undefined} sev
+ * @returns {vscode.DiagnosticSeverity}
+ */
+function toVsSeverity(sev) {
+  switch (sev) {
+    case 1:
+      return vscode.DiagnosticSeverity.Error;
+    case 2:
+      return vscode.DiagnosticSeverity.Warning;
+    case 3:
+      return vscode.DiagnosticSeverity.Information;
+    case 4:
+      return vscode.DiagnosticSeverity.Hint;
+    default:
+      return vscode.DiagnosticSeverity.Error;
+  }
+}
+
+/**
+ * @param {vscode.DiagnosticSeverity} sev
+ * @returns {number}
+ */
+function fromVsSeverity(sev) {
+  switch (sev) {
+    case vscode.DiagnosticSeverity.Error:
+      return 1;
+    case vscode.DiagnosticSeverity.Warning:
+      return 2;
+    case vscode.DiagnosticSeverity.Information:
+      return 3;
+    case vscode.DiagnosticSeverity.Hint:
+      return 4;
+    default:
+      return 1;
+  }
+}
+
+/**
+ * @param {{ kind?: string, value?: string } | string | undefined} doc
+ * @returns {vscode.MarkdownString | string | undefined}
+ */
+function toVsDocumentation(doc) {
+  if (!doc) {
+    return undefined;
+  }
+  if (typeof doc === 'string') {
+    return doc;
+  }
+  if (doc.value) {
+    if (doc.kind === 'markdown') {
+      return new vscode.MarkdownString(doc.value);
+    }
+    return doc.value;
+  }
+  return undefined;
+}
+
+/**
+ * Recursively converts an LSP `DocumentSymbol` into a `vscode.DocumentSymbol`.
+ * @param {any} sym
+ * @returns {vscode.DocumentSymbol}
+ */
+function toVsDocumentSymbol(sym) {
+  const kind = typeof sym.kind === 'number' && sym.kind >= 1
+    ? sym.kind - 1
+    : vscode.SymbolKind.Variable;
+  const selRange = toVsRange(sym.selectionRange || sym.range);
+  const fullRange = toVsRange(sym.range || sym.selectionRange).union(selRange);
+  const vsSym = new vscode.DocumentSymbol(
+    sym.name || '<anonymous>',
+    sym.detail || '',
+    kind,
+    fullRange,
+    selRange
+  );
+  if (Array.isArray(sym.children) && sym.children.length > 0) {
+    vsSym.children = sym.children.map(toVsDocumentSymbol);
+  }
+  return vsSym;
+}
+
+// -----------------------------------------------------------------------------
+// Extension Lifecycle (`activate` / `deactivate`)
+// -----------------------------------------------------------------------------
+
+/**
+ * @param {vscode.ExtensionContext} context
+ */
+function activate(context) {
+  outputChannel = vscode.window.createOutputChannel('Lowlight Language Server');
+  diagnosticCollection = vscode.languages.createDiagnosticCollection('lowlight');
+  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBarItem.command = 'lowlight.showOutput';
+
+  client = new LowlightClient(context, outputChannel, diagnosticCollection, statusBarItem);
+  client.start();
+
+  const selector = [{ language: 'lowlight', scheme: 'file' }];
+
+  // Document synchronization listeners
+  context.subscriptions.push(
+    outputChannel,
+    diagnosticCollection,
+    statusBarItem,
+    vscode.workspace.onDidOpenTextDocument((doc) => client && client.didOpen(doc)),
+    vscode.workspace.onDidChangeTextDocument((ev) => client && client.didChange(ev.document)),
+    vscode.workspace.onDidSaveTextDocument((doc) => client && client.didSave(doc)),
+    vscode.workspace.onDidCloseTextDocument((doc) => client && client.didClose(doc)),
+    vscode.workspace.onDidChangeConfiguration(async (ev) => {
+      if (
+        ev.affectsConfiguration('lowlight.serverPath') ||
+        ev.affectsConfiguration('lowlight.stdlibPath')
+      ) {
+        if (client) {
+          await client.stop();
+          await client.start();
+        }
+      }
+    })
+  );
+
+  // 1. Context-Aware Autocomplete Provider
+  context.subscriptions.push(
+    vscode.languages.registerCompletionItemProvider(
+      selector,
+      {
+        async provideCompletionItems(document, position, token, completionContext) {
+          if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+            return null;
+          }
+          const res = await client.sendRequest('textDocument/completion', {
+            textDocument: { uri: document.uri.toString() },
+            position: fromVsPosition(position),
+            context: {
+              triggerKind: (completionContext && completionContext.triggerKind ? completionContext.triggerKind : 0) + 1,
+              triggerCharacter: completionContext ? completionContext.triggerCharacter : undefined,
+            },
+          });
+          if (!res) {
+            return null;
+          }
+          const rawItems = Array.isArray(res) ? res : (Array.isArray(res.items) ? res.items : []);
+          const items = rawItems.map((item) => {
+            const kind = typeof item.kind === 'number' && item.kind >= 1
+              ? item.kind - 1
+              : vscode.CompletionItemKind.Text;
+            const ci = new vscode.CompletionItem(item.label, kind);
+            if (item.detail) {
+              ci.detail = item.detail;
+            }
+            const doc = toVsDocumentation(item.documentation);
+            if (doc) {
+              ci.documentation = doc;
+            }
+            if (item.sortText) {
+              ci.sortText = item.sortText;
+            }
+            if (item.filterText) {
+              ci.filterText = item.filterText;
+            }
+            const rawInsert = (item.textEdit && item.textEdit.newText !== undefined)
+              ? item.textEdit.newText
+              : (item.insertText !== undefined ? item.insertText : item.label);
+            if (item.insertTextFormat === 2) {
+              ci.insertText = new vscode.SnippetString(rawInsert);
+            } else {
+              ci.insertText = rawInsert;
+            }
+            if (item.textEdit && item.textEdit.range) {
+              ci.range = toVsRange(item.textEdit.range);
+            }
+            if (Array.isArray(item.additionalTextEdits) && item.additionalTextEdits.length > 0) {
+              ci.additionalTextEdits = item.additionalTextEdits.map((ed) =>
+                vscode.TextEdit.replace(toVsRange(ed.range), ed.newText || '')
+              );
+            }
+            return ci;
+          });
+          return new vscode.CompletionList(items, Boolean(res.isIncomplete));
+        },
+      },
+      '.', '?', '[', ':', '"', '/'
+    )
+  );
+
+  // 2. Hover Type & Ownership Inspector
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(selector, {
+      async provideHover(document, position, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return null;
+        }
+        const res = await client.sendRequest('textDocument/hover', {
+          textDocument: { uri: document.uri.toString() },
+          position: fromVsPosition(position),
+        });
+        if (!res || !res.contents) {
+          return null;
+        }
+        const doc = toVsDocumentation(res.contents);
+        if (!doc) {
+          return null;
+        }
+        return new vscode.Hover(doc, res.range ? toVsRange(res.range) : undefined);
+      },
+    })
+  );
+
+  // 3. Cross-Module Go-to-Definition
+  context.subscriptions.push(
+    vscode.languages.registerDefinitionProvider(selector, {
+      async provideDefinition(document, position, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return null;
+        }
+        const res = await client.sendRequest('textDocument/definition', {
+          textDocument: { uri: document.uri.toString() },
+          position: fromVsPosition(position),
+        });
+        if (!res) {
+          return null;
+        }
+        const list = Array.isArray(res) ? res : [res];
+        return list
+          .filter((loc) => loc && loc.uri && loc.range)
+          .map((loc) => new vscode.Location(client.toVsUri(loc.uri), toVsRange(loc.range)));
+      },
+    })
+  );
+
+  // 4. UFCS-Aware Signature Help
+  context.subscriptions.push(
+    vscode.languages.registerSignatureHelpProvider(
+      selector,
+      {
+        async provideSignatureHelp(document, position, token) {
+          if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+            return null;
+          }
+          const res = await client.sendRequest('textDocument/signatureHelp', {
+            textDocument: { uri: document.uri.toString() },
+            position: fromVsPosition(position),
+          });
+          if (!res || !Array.isArray(res.signatures) || res.signatures.length === 0) {
+            return null;
+          }
+          const sh = new vscode.SignatureHelp();
+          sh.signatures = res.signatures.map((sig) => {
+            const si = new vscode.SignatureInformation(
+              sig.label,
+              toVsDocumentation(sig.documentation)
+            );
+            if (Array.isArray(sig.parameters)) {
+              si.parameters = sig.parameters.map((p) => new vscode.ParameterInformation(p.label));
+            }
+            return si;
+          });
+          sh.activeSignature = typeof res.activeSignature === 'number' ? res.activeSignature : 0;
+          sh.activeParameter = typeof res.activeParameter === 'number' ? res.activeParameter : 0;
+          return sh;
+        },
+      },
+      '(', ','
+    )
+  );
+
+  // 5. Hierarchical Document Symbols (Outline & Breadcrumbs)
+  context.subscriptions.push(
+    vscode.languages.registerDocumentSymbolProvider(selector, {
+      async provideDocumentSymbols(document, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return [];
+        }
+        const res = await client.sendRequest('textDocument/documentSymbol', {
+          textDocument: { uri: document.uri.toString() },
+        });
+        if (!Array.isArray(res)) {
+          return [];
+        }
+        return res.map(toVsDocumentSymbol);
+      },
+    })
+  );
+
+  // 6. Quick-Fix Code Actions (`Cmd+.` / `Ctrl+.`)
+  context.subscriptions.push(
+    vscode.languages.registerCodeActionsProvider(
+      selector,
+      {
+        async provideCodeActions(document, range, codeActionContext, token) {
+          if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+            return [];
+          }
+          const lspDiags = (codeActionContext && Array.isArray(codeActionContext.diagnostics))
+            ? codeActionContext.diagnostics.map((d) => ({
+                range: fromVsRange(d.range),
+                severity: fromVsSeverity(d.severity),
+                code: typeof d.code === 'string' ? d.code : '',
+                source: d.source || 'lowlight',
+                message: d.message || '',
+              }))
+            : [];
+
+          const res = await client.sendRequest('textDocument/codeAction', {
+            textDocument: { uri: document.uri.toString() },
+            range: fromVsRange(range),
+            context: { diagnostics: lspDiags },
+          });
+          if (!Array.isArray(res)) {
+            return [];
+          }
+          return res.map((act) => {
+            const ca = new vscode.CodeAction(act.title, vscode.CodeActionKind.QuickFix);
+            ca.isPreferred = Boolean(act.isPreferred);
+            if (act.edit && act.edit.changes) {
+              const wsEdit = new vscode.WorkspaceEdit();
+              for (const [editUriStr, edits] of Object.entries(act.edit.changes)) {
+                const targetUri = client.toVsUri(editUriStr);
+                if (Array.isArray(edits)) {
+                  for (const te of edits) {
+                    wsEdit.replace(targetUri, toVsRange(te.range), te.newText || '');
+                  }
+                }
+              }
+              ca.edit = wsEdit;
+            }
+            return ca;
+          });
+        },
+      },
+      {
+        providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
+      }
+    )
+  );
+
+  // 7. User Commands (`Restart Server`, `Run Current File`, `Show Output`)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('lowlight.restartServer', async () => {
+      if (!client) {
+        return;
+      }
+      outputChannel.appendLine('Restarting Lowlight Language Server...');
+      await client.stop();
+      const ok = await client.start();
+      if (ok) {
+        vscode.window.setStatusBarMessage('Lowlight Language Server restarted', 3000);
+      }
+    }),
+
+    vscode.commands.registerCommand('lowlight.showOutput', () => {
+      if (outputChannel) {
+        outputChannel.show(true);
+      }
+    }),
+
+    vscode.commands.registerCommand('lowlight.runFile', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || editor.document.languageId !== 'lowlight') {
+        vscode.window.showInformationMessage('Open a Lowlight (.ll) file to run it.');
+        return;
+      }
+      if (editor.document.isDirty) {
+        await editor.document.save();
+      }
+      const binPath = resolveServerBinary(context);
+      const stdRoot = resolveStdlibRoot(context);
+      const filePath = editor.document.uri.fsPath;
+
+      if (!runTerminal || runTerminal.exitStatus !== undefined) {
+        const env = {};
+        if (stdRoot) {
+          env.LOWLIGHT_ROOT = stdRoot;
+        }
+        runTerminal = vscode.window.createTerminal({
+          name: 'Lowlight',
+          env,
+        });
+      }
+      runTerminal.show(true);
+      const q = (s) => `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
+      runTerminal.sendText(`${q(binPath)} run ${q(filePath)}`);
+    })
+  );
+}
+
+/**
+ * @returns {Promise<void>}
+ */
+async function deactivate() {
+  if (client) {
+    await client.stop();
+    client = null;
+  }
+}
+
+module.exports = {
+  activate,
+  deactivate,
+};

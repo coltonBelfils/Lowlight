@@ -1,0 +1,251 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Lowlight",
+  "scopeName": "source.lowlight",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#chars" },
+    { "include": "#numbers" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#builtins" },
+    { "include": "#operators" },
+    { "include": "#calls" },
+    { "include": "#optional-identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.lowlight",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.lowlight",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "captures": {
+            "0": { "name": "punctuation.definition.comment.lowlight" }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.lowlight",
+          "begin": "\"",
+          "end": "\"",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.lowlight" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.lowlight" }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.lowlight",
+              "match": "\\\\([nrt\\\\'\"0$]|x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]{1,6}\\})"
+            },
+            {
+              "name": "meta.embedded.line.lowlight",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "beginCaptures": {
+                "0": { "name": "punctuation.section.embedded.begin.lowlight" }
+              },
+              "endCaptures": {
+                "0": { "name": "punctuation.section.embedded.end.lowlight" }
+              },
+              "patterns": [
+                { "include": "$self" }
+              ]
+            },
+            {
+              "name": "variable.other.interpolated.lowlight",
+              "match": "\\$[a-zA-Z_][a-zA-Z0-9_]*\\??"
+            }
+          ]
+        }
+      ]
+    },
+    "chars": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.lowlight",
+          "match": "'(\\\\([nrt\\\\'\"0]|x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]{1,6}\\})|[^'\\\\])'"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.lowlight",
+          "match": "\\b0[xX][0-9a-fA-F_]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.lowlight",
+          "match": "\\b0[bB][01_]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.lowlight",
+          "match": "\\b[0-9][0-9_]*(\\.[0-9][0-9_]*)?([eE][+-]?[0-9_]+)\\b|\\b[0-9][0-9_]*\\.[0-9][0-9_]*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.lowlight",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(define)\\s+(?:(packed)\\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.type.lowlight" },
+            "2": { "name": "storage.modifier.lowlight" },
+            "3": { "name": "entity.name.type.lowlight" }
+          }
+        },
+        {
+          "match": "\\b(bind)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\[[^\\]]*\\])?\\.([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.lowlight" },
+            "2": { "name": "entity.name.type.lowlight" },
+            "3": { "name": "entity.name.function.method.lowlight" }
+          }
+        },
+        {
+          "match": "\\b(bind)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(\\[[^\\]]*\\])?\\s*=\\s*\\()",
+          "captures": {
+            "1": { "name": "keyword.declaration.lowlight" },
+            "2": { "name": "entity.name.function.lowlight" }
+          }
+        },
+        {
+          "match": "\\b(extern)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s+(as)\\s+([A-Za-z_][A-Za-z0-9_]*))?",
+          "captures": {
+            "1": { "name": "keyword.other.extern.lowlight" },
+            "2": { "name": "entity.name.function.extern.lowlight" },
+            "3": { "name": "keyword.control.as.lowlight" },
+            "4": { "name": "entity.name.function.lowlight" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.lowlight",
+          "match": "\\b(if|else|for|in|match|when|next|func|as)(?!\\?)\\b"
+        },
+        {
+          "name": "keyword.declaration.lowlight",
+          "match": "\\b(let|bind|define|struct|enum|interface|import|extern)(?!\\?)\\b"
+        },
+        {
+          "name": "storage.modifier.ownership.lowlight",
+          "match": "\\b(own|unsafe)(?!\\?)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.lowlight",
+          "match": "\\b(and|or|not)(?!\\?)\\b"
+        },
+        {
+          "name": "constant.language.lowlight",
+          "match": "\\b(true|false|none)(?!\\?)\\b"
+        },
+        {
+          "name": "variable.language.self.lowlight",
+          "match": "\\b(self|Self)(?!\\?)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.lowlight",
+          "match": "\\b(int|i8|i16|i32|i64|u8|u16|u32|u64|float|f32|f64|bool|char|string|Arena|ptr|ref)(?!\\?)\\b"
+        },
+        {
+          "name": "entity.name.type.interface.lowlight",
+          "match": "\\b(Printable|Copyable|Drop)(?!\\?)\\b"
+        },
+        {
+          "name": "entity.name.type.lowlight",
+          "match": "\\b[A-Z][A-Za-z0-9_]*(?!\\?)\\b"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.lowlight",
+          "match": "\\b(print|println|eprint|eprintln|panic|assert|exit|parse_int|parse_float|sqrt|abs|min|max|read_file|write_file|args)(?=\\s*\\()"
+        },
+        {
+          "name": "support.function.intrinsic.lowlight",
+          "match": "\\b(size_of|align_of|alloc_raw|realloc_raw|free_raw|null_ptr|is_null|addr_of|ptr_add|ptr_read|ptr_write|ptr_cast|ptr_addr|copy_bytes|zero_bytes)(?=\\s*(\\[|\\())"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.control.unwind.lowlight",
+          "match": "(?<=^|\\s)<-(?=\\s|;|\\}|\\)|,|$|//|/\\*)"
+        },
+        {
+          "name": "keyword.operator.optional.lowlight",
+          "match": "\\?\\?|\\?\\."
+        },
+        {
+          "name": "keyword.operator.range.lowlight",
+          "match": "\\.\\.=|\\.\\."
+        },
+        {
+          "name": "keyword.operator.comparison.lowlight",
+          "match": "==|!=|<=|>="
+        },
+        {
+          "name": "keyword.operator.assignment.lowlight",
+          "match": "\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=|="
+        },
+        {
+          "name": "keyword.operator.bitwise.lowlight",
+          "match": "<<|>>|&|\\||\\^|~"
+        },
+        {
+          "name": "keyword.operator.arithmetic.lowlight",
+          "match": "\\+|-|\\*|/|%|<|>"
+        }
+      ]
+    },
+    "calls": {
+      "patterns": [
+        {
+          "match": "(?:\\.|\\?\\.)([a-zA-Z_][a-zA-Z0-9_]*)(?=\\s*(\\[[^\\]]*\\])?\\s*\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.method.lowlight" }
+          }
+        },
+        {
+          "match": "\\b([a-z_][a-zA-Z0-9_]*)(?=\\s*\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.call.lowlight" }
+          }
+        }
+      ]
+    },
+    "optional-identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.optional.lowlight",
+          "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\?(?!\\?|\\.)"
+        }
+      ]
+    }
+  }
+}

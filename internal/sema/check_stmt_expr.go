@@ -167,7 +167,13 @@ func (a *Analyzer) checkFuncInstance(fi *FuncInstance) {
 			bkind = BindReadBorrow
 			isBind = true // Spec C2: read-only parameters are deeply immutable like `bind`!
 		}
-		sym := fc.declareLocal(pname, fp.Type, isBind, bkind, diag.Span{})
+		var pspan diag.Span
+		if i < len(fi.ParamSpans) {
+			pspan = fi.ParamSpans[i]
+		} else {
+			pspan = fi.DeclSpan
+		}
+		sym := fc.declareLocal(pname, fp.Type, isBind, bkind, pspan)
 		fi.ParamSyms = append(fi.ParamSyms, sym)
 		fc.moves[sym] = MoveAlive
 	}
@@ -2176,7 +2182,7 @@ func (fc *funcChecker) checkFuncLit(fl *ast.FuncLit, _ types.Type) types.Type {
 	fc.hasMutArenaParam = false
 	fc.pushScope()
 	var paramSyms []*Symbol
-	for _, fp := range ps {
+	for idx, fp := range ps {
 		bkind := BindReadBorrow
 		isBind := true
 		switch fp.Mode {
@@ -2190,7 +2196,11 @@ func (fc *funcChecker) checkFuncLit(fl *ast.FuncLit, _ types.Type) types.Type {
 			bkind = BindOwned
 			isBind = false
 		}
-		sym := fc.declareLocal(fp.Name, fp.Type, isBind, bkind, fl.Span)
+		pspan := fl.Span
+		if idx < len(fl.Params) {
+			pspan = fl.Params[idx].Span
+		}
+		sym := fc.declareLocal(fp.Name, fp.Type, isBind, bkind, pspan)
 		paramSyms = append(paramSyms, sym)
 		fc.moves[sym] = MoveAlive
 	}

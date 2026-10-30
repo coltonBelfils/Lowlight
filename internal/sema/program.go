@@ -85,12 +85,14 @@ type FuncInstance struct {
 	RecvType      types.Type // non-nil for methods / associated functions
 	RecvMode      ast.ReceiverMode
 	ParamNames    []string  // includes receiver `"self"` at index 0 if IsMethod && !IsStaticAssoc
+	ParamSpans    []diag.Span
 	ParamSyms     []*Symbol // resolved parameter symbols populated during body checking
 	Body          ast.Expr
 	Mod           *Module
 	TypeSubst     map[string]types.Type
 	FuncTargetID  int
 	BodyMaps      *BodyMaps
+	DeclSpan      diag.Span
 	Checked       bool
 }
 
@@ -247,6 +249,8 @@ type CheckedProgram struct {
 	TopBodyMaps    *BodyMaps
 	StructBodyMaps map[*types.Struct]*BodyMaps
 	MethodTable    map[string]map[string]*FuncInstance
+	GenMethods     map[string]map[string]*GenericFuncTemplate
+	TypeSpans      map[types.Type]diag.Span
 
 	// Built-in interfaces
 	IfacePrintable *types.Interface
@@ -264,6 +268,8 @@ type Analyzer struct {
 
 	loadedMods   map[string]*Module
 	loadingStack map[string]bool
+	overlays     map[string]string
+	ideMode      bool
 
 	// Method tables: key is canonical type key (e.g. `"Point"`, `"int"`, `"string"`, `"vec"`, `"Pair"`).
 	methods      map[string]map[string]*FuncInstance
@@ -276,6 +282,49 @@ type Analyzer struct {
 
 // Check parses and semantically validates `entryPath` and all its transitive imports.
 func Check(entryPath, srcOverride, projectRoot string, rep *diag.Reporter) *CheckedProgram {
+	var overlays map[string]string
+	if srcOverride != "" {
+		absEntry, err := filepath.Abs(entryPath)
+		if err != nil {
+			absEntry = entryPath
+		}
+		overlays = map[string]string{absEntry: srcOverride}
+	}
+	return runCheck(entryPath, overlays, projectRoot, rep, false)
+}
+
+// CheckForIDE runs tolerant semantic analysis for LSP / IDE tooling:
+// - Uses live in-memory `overlays` (including empty buffers and unsaved imported files).
+// - Continues through type registration and body checking even when syntax or header errors exist,
+//   so autocomplete, hover, go-to-definition, and real-time type/ownership diagnostics stay live while typing.
+func CheckForIDE(entryPath string, overlays map[string]string, projectRoot string, rep *diag.Reporter) (prog *CheckedProgram) {
+	normOverlays := make(map[string]string, len(overlays))
+	for k, v := range overlays {
+		if abs, err := filepath.Abs(k); err == nil {
+			normOverlays[abs] = v
+		} else {
+			normOverlays[k] = v
+		}
+	}
+	defer func() {
+		if r := recover(); r != nil && prog == nil {
+			prog = &CheckedProgram{
+				StructDecls:    make(map[*types.Struct]*ast.StructDecl),
+				StructMods:     make(map[*types.Struct]*Module),
+				VTables:        make(map[string]*VTableImpl),
+				TopBodyMaps:    NewBodyMaps(),
+				StructBodyMaps: make(map[*types.Struct]*BodyMaps),
+				MethodTable:    make(map[string]map[string]*FuncInstance),
+				GenMethods:     make(map[string]map[string]*GenericFuncTemplate),
+				TypeSpans:      make(map[types.Type]diag.Span),
+			}
+		}
+	}()
+	prog = runCheck(entryPath, normOverlays, projectRoot, rep, true)
+	return prog
+}
+
+func runCheck(entryPath string, overlays map[string]string, projectRoot string, rep *diag.Reporter, ideMode bool) *CheckedProgram {
 	absEntry, err := filepath.Abs(entryPath)
 	if err != nil {
 		absEntry = entryPath
@@ -286,6 +335,7 @@ func Check(entryPath, srcOverride, projectRoot string, rep *diag.Reporter) *Chec
 	stdDir := filepath.Join(projectRoot, "std")
 
 	topBM := NewBodyMaps()
+	genMethods := make(map[string]map[string]*GenericFuncTemplate)
 	prog := &CheckedProgram{
 		StructDecls:    make(map[*types.Struct]*ast.StructDecl),
 		StructMods:     make(map[*types.Struct]*Module),
@@ -293,6 +343,8 @@ func Check(entryPath, srcOverride, projectRoot string, rep *diag.Reporter) *Chec
 		TopBodyMaps:    topBM,
 		StructBodyMaps: make(map[*types.Struct]*BodyMaps),
 		MethodTable:    make(map[string]map[string]*FuncInstance),
+		GenMethods:     genMethods,
+		TypeSpans:      make(map[types.Type]diag.Span),
 	}
 
 	a := &Analyzer{
@@ -303,19 +355,24 @@ func Check(entryPath, srcOverride, projectRoot string, rep *diag.Reporter) *Chec
 		curBM:        topBM,
 		loadedMods:   make(map[string]*Module),
 		loadingStack: make(map[string]bool),
+		overlays:     overlays,
+		ideMode:      ideMode,
 		methods:      make(map[string]map[string]*FuncInstance),
-		genMethods:   make(map[string]map[string]*GenericFuncTemplate),
+		genMethods:   genMethods,
 	}
 
 	a.initBuiltinInterfaces()
-	entryMod := a.loadModule(absEntry, srcOverride, diag.Span{})
-	if entryMod == nil || rep.HasErrors() {
+	entryMod := a.loadModule(absEntry, diag.Span{})
+	if entryMod == nil {
 		return prog
 	}
 	prog.EntryMod = entryMod
+	if rep.HasErrors() && !ideMode {
+		return prog
+	}
 
 	a.runTypeAndSymbolRegistration()
-	if rep.HasErrors() {
+	if rep.HasErrors() && !ideMode {
 		return prog
 	}
 
@@ -394,7 +451,7 @@ func (a *Analyzer) initBuiltinInterfaces() {
 	a.Prog.Interfaces = append(a.Prog.Interfaces, a.Prog.IfacePrintable, a.Prog.IfaceCopyable, a.Prog.IfaceDrop)
 }
 
-func (a *Analyzer) loadModule(absPath, srcOverride string, importSpan diag.Span) *Module {
+func (a *Analyzer) loadModule(absPath string, importSpan diag.Span) *Module {
 	if existing, ok := a.loadedMods[absPath]; ok {
 		return existing
 	}
@@ -406,8 +463,8 @@ func (a *Analyzer) loadModule(absPath, srcOverride string, importSpan diag.Span)
 	defer delete(a.loadingStack, absPath)
 
 	var content string
-	if srcOverride != "" {
-		content = srcOverride
+	if ov, hasOverlay := a.overlays[absPath]; hasOverlay {
+		content = ov
 	} else {
 		bytes, err := os.ReadFile(absPath)
 		if err != nil {
@@ -445,7 +502,7 @@ func (a *Analyzer) loadModule(absPath, srcOverride string, importSpan diag.Span)
 			a.Rep.Errorf(imp.Span, "cannot find module %q", imp.Path)
 			continue
 		}
-		child := a.loadModule(resolved, "", imp.Span)
+		child := a.loadModule(resolved, imp.Span)
 		if child == nil {
 			continue
 		}

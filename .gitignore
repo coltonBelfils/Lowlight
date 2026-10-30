@@ -5,6 +5,9 @@
 /lowlight
 /bin/
 /.build/
+/editors/vscode/lowlight/bin/
+/editors/vscode/lowlight/std/
+*.vsix
 *.o
 *.out
 *.exe
