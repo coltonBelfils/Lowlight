@@ -1,5 +1,12 @@
 # Lowlight Spec Critique & Audit (v0.7, against Draft v0.5)
 
+> [!NOTE]
+> **Resolved on Branch `auto-v1-prototype` (Lowlight v1.0)**
+> Every open question, audit item, memory-model gap, and C-ism checklist item in this document has been resolved on the `auto-v1-prototype` branch and implemented in the working Go compiler (`cmd/lowlight`, `internal/*`).
+> * For the complete item-by-item resolution record, see [`DECISIONS.md`](./DECISIONS.md).
+> * For the finalized language specification, see [`SPECIFICATION.md`](./SPECIFICATION.md) (archived at [`version_history/specification/v1.0_SPECIFICATION.md`](./version_history/specification/v1.0_SPECIFICATION.md)).
+> * Note: Branch `main` remains untouched at Draft v0.5 / Critique v0.7 so each question can still be revisited interactively from scratch whenever desired.
+
 This is the single working review document for [SPECIFICATION.md](file:///Users/thekingoflimbs/Developer/Lowlight/SPECIFICATION.md). It merges the v0.6 critique (open questions from Round 6) with the v0.6 full audit, and adds a new section, **Part M**, covering the memory model and the native, self-hosted roadmap.
 
 The spec itself hasn't been changed. Every item below is either a question for you or a recommendation waiting for your approval.

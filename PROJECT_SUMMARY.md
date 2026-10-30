@@ -12,8 +12,15 @@
 
 ## 1. Quick Navigation & Folder Contents
 
-* **[`./SPECIFICATION.md`](./SPECIFICATION.md)** — **Current Language Specification (Draft v0.2)**. Contains the formal 13-section specification of Lowlight, incorporating all design phases and all resolved decisions from Critique Rounds 1, 2, and 3.
-* **[`./SPEC_CRITIQUE.md`](./SPEC_CRITIQUE.md)** — **Current Critique & Open Questions Document (v0.3 Final)**. Contains the remaining open design questions awaiting user review in **Part 1 (Sections A, B, C, D, E Follow-Up, and F Follow-Up 1)** and **Part 2 (Section-by-Section Critique, §1–§13)**.
+> [!NOTE]
+> **Branch Status (`auto-v1-prototype` vs. `main`)**
+> * **`auto-v1-prototype` (Current Branch)**: All open design questions from `SPEC_CRITIQUE.md` have been resolved in [`DECISIONS.md`](./DECISIONS.md), formalized in [`SPECIFICATION.md`](./SPECIFICATION.md) (**v1.0**), and implemented end-to-end in the working Go reference compiler (`cmd/lowlight/`, `internal/`, `std/`, `examples/`, `tests/`). See [`README.md`](./README.md) to build and run Lowlight programs.
+> * **`main` Branch**: Preserved untouched at Draft v0.5 / Critique v0.7 (`f82b473`) so every open design question can later be revisited and decided interactively from scratch.
+
+* **[`./README.md`](./README.md)** — **Quickstart, CLI Reference, Language Tour & Compiler Architecture**.
+* **[`./SPECIFICATION.md`](./SPECIFICATION.md)** — **Finalized Language Specification (v1.0)**.
+* **[`./DECISIONS.md`](./DECISIONS.md)** — **Complete v1.0 Design Resolution Log** covering every item from `SPEC_CRITIQUE.md` (Parts 0, A, M, B, C, D, E, N) and implementation refinements.
+* **[`./SPEC_CRITIQUE.md`](./SPEC_CRITIQUE.md)** — **Historical Critique & Audit Document (v0.7)** that drove the v1.0 resolutions.
 * **[`./VERSION_HISTORY.md`](./VERSION_HISTORY.md)** — **Complete Changelog & Diff Guide** across every version of both the specification and the critique document.
 * **[`./version_history/`](./version_history/)** — **Verbatim Historical Archive**:
   * `specification/v0.0_initial_seed_sample.md` — The user's original seed code sample (Oct 16, 2026).

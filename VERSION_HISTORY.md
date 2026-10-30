@@ -8,10 +8,17 @@ This document tracks the complete chronological evolution of the **Lowlight** (o
 
 ```text
 Lowlight-Export/
+├── DECISIONS.md                   # Complete item-by-item resolution log for v1.0 (on auto-v1-prototype)
 ├── PROJECT_SUMMARY.md             # Master onboarding & full design history
-├── SPECIFICATION.md               # Latest Language Specification (Draft v0.5)
-├── SPEC_CRITIQUE.md               # Latest Critique & Audit (v0.7) — single working review document
+├── README.md                      # Quickstart, CLI guide, language tour & compiler architecture
+├── SPECIFICATION.md               # Finalized Language Specification (v1.0 on auto-v1-prototype)
+├── SPEC_CRITIQUE.md               # Critique & Audit (v0.7, resolved on auto-v1-prototype)
 ├── VERSION_HISTORY.md             # This file: complete version history & diffs
+├── cmd/lowlight/                  # Lowlight v1.0 CLI entrypoint (`build`, `run`, `emit-c`, `check`, `version`)
+├── internal/                      # Complete Go compiler pipeline (`token`, `lexer`, `ast`, `parser`, `types`, `sema`, `ir`, `codegen`, `driver`)
+├── std/                           # Standard library modules (`math.ll`, `fs.ll`, `pool.ll`)
+├── examples/                      # End-to-end showcase Lowlight programs
+├── tests/                         # Strict C11 (`-Wall -Wextra -Werror`), ASan/UBSan & zero-leak E2E test suite
 └── version_history/
     ├── specification/
     │   ├── v0.0_initial_seed_sample.md      # Oct 16, 2026 (16:12 PDT) — Original user seed code
@@ -20,7 +27,8 @@ Lowlight-Export/
     │   ├── v0.2_SPECIFICATION.md            # Oct 21, 2026 (15:25 PDT) — Updated spec (Draft v0.2)
     │   ├── v0.3_SPECIFICATION.md            # Oct 21, 2026 (23:38 PDT) — Updated spec (Draft v0.3)
     │   ├── v0.4_SPECIFICATION.md            # Oct 22, 2026 (13:15 PDT) — Updated spec (Draft v0.4)
-    │   └── v0.5_SPECIFICATION.md            # Oct 22, 2026 (15:52 PDT) — Updated spec (Draft v0.5)
+    │   ├── v0.5_SPECIFICATION.md            # Oct 22, 2026 (15:52 PDT) — Updated spec (Draft v0.5)
+    │   └── v1.0_SPECIFICATION.md            # Finalized Lowlight v1.0 Specification (branch auto-v1-prototype)
     └── critique/
         ├── v0.1_spec_critique.md            # Oct 17, 2026 (17:48 PDT) — Initial critique of Spec v0.1
         ├── round1_user_comments.md          # Oct 20, 2026 (17:39 PDT) — 21 inline user comments on v0.1
@@ -264,3 +272,20 @@ Lowlight-Export/
   * Added **Part M (Memory Model & Native / Self-Hosting Roadmap)** after a discussion of ownership and borrowing. It records these constraints: all memory management is decided at compile time, with no GC, refcounting, or copy-on-write. Second-class references are retained. The long-term goal is a native, self-hosted compiler.
   * Part M covers: `own` consume mode (M1); indices, pools with generational handles, and arenas for multi-path data (M2); arenas as user-definable typed regions, Option B (M3); unwinding as cleanup edges (M4); `Drop` (M5); an allocator interface (M6); generics as a prerequisite (M7); an `unsafe`/intrinsics layer (M8); FFI/syscalls (M9); a shared mid-level IR (M10); a specified memory layout (M11); and concurrency (M12).
   * Added **Part N ("C-isms" checklist)** of C-inherited behaviour Lowlight must define itself, plus rule C14 (drop order). Added self-hosting notes to A3, A5, B9, C8, C13, and Part D, with a recommended phase order.
+
+---
+
+### Lowlight v1.0 Specification & Complete Go Reference Compiler (Branch `auto-v1-prototype`)
+* **Files**:
+  * Decision Log: [`./DECISIONS.md`](./DECISIONS.md)
+  * Finalized Specification: [`./SPECIFICATION.md`](./SPECIFICATION.md) and [`./version_history/specification/v1.0_SPECIFICATION.md`](./version_history/specification/v1.0_SPECIFICATION.md)
+  * Reference Compiler & Tests: `cmd/lowlight/`, `internal/`, `std/`, `examples/`, `tests/`
+* **Summary**:
+  * Preserved `main` untouched at the Draft v0.5 / Critique v0.7 checkpoint (`f82b473`) so interactive step-by-step design can later resume cleanly from `main`.
+  * On `auto-v1-prototype`, resolved every open item across Parts 0, A, M, B, C, D, E, and N of `SPEC_CRITIQUE.md`, balancing lightweight ergonomics with low-level systems control:
+    * Model 2A ownership (`T` read-only default borrow, `&T` call-site visible mutable borrow, `own T` move/consume), custom `Drop`, and synthesized `.copy()`.
+    * Lifetime-free memory safety + lexical region `Arena` / `ref[T]` (with compile-time escape verification) + generational `Pool[T]` / `Handle[T]` in `std/pool.ll`.
+    * Monomorphized generics (`[T: Bound1 + Bound2]`), stack fat-pointer borrowed interfaces + owned boxed interface values (`Shape(c)`), and first-class closures (Plain copy capture + Resource move capture).
+    * Full low-level systems escape hatch: `unsafe { ... }`, `ptr[T]` & memory intrinsics, `define packed Name struct [...]`, and `extern "header.h"` / `extern sym [as alias]: ...` C ABI interop.
+    * Backend-independent arithmetic & layout rules (UB-free wrapping signed/unsigned arithmetic, deterministic insertion-order sets/maps, UTF-8 strings + slices).
+  * Implemented and verified the complete, zero-dependency Go reference compiler (`lexer -> parser -> sema -> ir -> C11 codegen -> driver`), `std/` modules, 8 showcase programs, and strict ASan/UBSan + `LOWLIGHT_CHECK_LEAKS=1` E2E test suite.
