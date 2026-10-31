@@ -14,7 +14,6 @@ extern ll_os_num_cpus: (): int
 extern ll_os_name: (): string
 extern ll_os_arch: (): string
 extern ll_str_from_raw: (data: ptr[u8], len: int): string
-extern ll_fmt_float_prec: (v: float, prec: int): string
 
 define ExecResult struct [
     stdout: string,

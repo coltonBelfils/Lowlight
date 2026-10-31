@@ -1387,46 +1387,9 @@ static inline int64_t ll_time_make_epoch(int64_t year, int64_t month, int64_t da
     }
 }
 
-static inline ll_string ll_time_strftime(int64_t epoch_sec, bool is_local, const char* fmt_str) {
-    if (!fmt_str) return ll_str_lit("", 0);
-    time_t sec = (time_t)epoch_sec;
-    struct tm t;
-    if (is_local) {
-        localtime_r(&sec, &t);
-    } else {
-        gmtime_r(&sec, &t);
-    }
-    char buf[256];
-    size_t n = strftime(buf, sizeof(buf), fmt_str, &t);
-    if (n == 0) return ll_str_lit("", 0);
-    return ll_copy__string(ll_str_lit(buf, (int64_t)n));
-}
-
 /* ============================================================================
  * 11. String Formatting & Conversion Runtime
  * ========================================================================== */
-
-static inline bool ll_str_parse_int_radix(const char* s, int64_t len, int64_t radix, int64_t* out_val) {
-    if (!s || len <= 0 || radix < 2 || radix > 36) return false;
-    while (len > 0 && (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r')) { s++; len--; }
-    while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\n' || s[len - 1] == '\r')) { len--; }
-    if (len <= 0) return false;
-    char buf[128];
-    char* buf_ptr = buf;
-    if (len >= (int64_t)sizeof(buf)) {
-        buf_ptr = (char*)malloc((size_t)(len + 1));
-        if (!buf_ptr) return false;
-    }
-    memcpy(buf_ptr, s, (size_t)len);
-    buf_ptr[len] = '\0';
-    char* endptr = NULL;
-    errno = 0;
-    long long v = strtoll(buf_ptr, &endptr, (int)radix);
-    bool ok = (errno == 0 && endptr == buf_ptr + len);
-    if (buf_ptr != buf) free(buf_ptr);
-    if (ok && out_val) *out_val = (int64_t)v;
-    return ok;
-}
 
 static inline bool ll_str_parse_float_strict(const char* s, int64_t len, double* out_val) {
     if (!s || len <= 0) return false;
@@ -1450,101 +1413,10 @@ static inline bool ll_str_parse_float_strict(const char* s, int64_t len, double*
     return ok;
 }
 
-static inline ll_string ll_str_to_radix(int64_t val, int64_t radix, bool upper) {
-    if (radix < 2 || radix > 36) return ll_str_lit("", 0);
-    char buf[70];
-    int idx = 69;
-    buf[idx] = '\0';
-    uint64_t uval;
-    bool is_neg = false;
-    if (radix == 10) {
-        if (val < 0) {
-            is_neg = true;
-            uval = (uint64_t)(-val);
-        } else {
-            uval = (uint64_t)val;
-        }
-    } else {
-        uval = (uint64_t)val;
-    }
-    const char* digits = upper ? "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" : "0123456789abcdefghijklmnopqrstuvwxyz";
-    if (uval == 0) {
-        buf[--idx] = '0';
-    } else {
-        while (uval > 0) {
-            buf[--idx] = digits[uval % (uint64_t)radix];
-            uval /= (uint64_t)radix;
-        }
-    }
-    if (is_neg) {
-        buf[--idx] = '-';
-    }
-    int64_t len = 69 - idx;
-    return ll_copy__string(ll_str_lit(buf + idx, len));
-}
-
 static inline ll_string ll_fmt_exp_f64(double v, int64_t prec) {
     char buf[64];
     int p = (prec < 0) ? 6 : (prec > 15 ? 15 : (int)prec);
     int n = snprintf(buf, sizeof(buf), "%.*e", p, v);
     return ll_copy__string(ll_str_lit(buf, (int64_t)n));
-}
-
-static inline ll_string ll_fmt_commas_i64(int64_t val) {
-    char raw[32];
-    int n = snprintf(raw, sizeof(raw), "%lld", (long long)val);
-    if (n <= 0) return ll_str_lit("0", 1);
-    char buf[48];
-    int r_idx = n - 1;
-    int b_idx = 47;
-    buf[b_idx] = '\0';
-    int count = 0;
-    while (r_idx >= 0) {
-        if (raw[r_idx] == '-') {
-            buf[--b_idx] = '-';
-            break;
-        }
-        if (count == 3) {
-            buf[--b_idx] = ',';
-            count = 0;
-        }
-        buf[--b_idx] = raw[r_idx--];
-        count++;
-    }
-    int64_t len = 47 - b_idx;
-    return ll_copy__string(ll_str_lit(buf + b_idx, len));
-}
-
-static inline ll_string ll_fmt_commas_f64(double val, int64_t prec) {
-    char raw[64];
-    int p = (prec < 0) ? 2 : (prec > 15 ? 15 : (int)prec);
-    int n = snprintf(raw, sizeof(raw), "%.*f", p, val);
-    if (n <= 0) return ll_str_lit("0", 1);
-    char* dot = strchr(raw, '.');
-    int int_len = dot ? (int)(dot - raw) : n;
-    char buf[80];
-    int b_idx = 79;
-    buf[b_idx] = '\0';
-    if (dot) {
-        int frac_len = n - int_len;
-        b_idx -= frac_len;
-        memcpy(buf + b_idx, dot, (size_t)frac_len);
-    }
-    int r_idx = int_len - 1;
-    int count = 0;
-    while (r_idx >= 0) {
-        if (raw[r_idx] == '-') {
-            buf[--b_idx] = '-';
-            break;
-        }
-        if (count == 3) {
-            buf[--b_idx] = ',';
-            count = 0;
-        }
-        buf[--b_idx] = raw[r_idx--];
-        count++;
-    }
-    int64_t len = 79 - b_idx;
-    return ll_copy__string(ll_str_lit(buf + b_idx, len));
 }
 `

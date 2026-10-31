@@ -1,11 +1,8 @@
 // Lowlight Standard Library: std/strfmt.ll
 // String formatting, alignment, padding, case conversions, and tabular layout.
+// Written predominantly in pure Lowlight for zero GC overhead and native C speed.
 
-extern ll_str_to_upper: (s: string): string
-extern ll_str_to_lower: (s: string): string
 extern ll_fmt_float_prec: (v: float, prec: int): string
-extern ll_fmt_commas_i64: (val: int): string
-extern ll_fmt_commas_f64: (val: float, prec: int): string
 
 // -----------------------------------------------------------------------------
 // Number & Data Formatting Functions
@@ -19,16 +16,75 @@ bind format_float = (v: float, precision: int): string {
     }
 }
 
-bind format_float_commas = (v: float, precision: int): string {
-    unsafe ll_fmt_commas_f64(v, precision)
-}
-
 bind format_int = (v: int): string {
     "$v"
 }
 
 bind format_int_commas = (v: int): string {
-    unsafe ll_fmt_commas_i64(v)
+    let is_neg = v < 0
+    let abs_val = if (is_neg) -v else v
+    let s = "$abs_val"
+    let n = s.len()
+    if (n <= 3) {
+        if (is_neg) "-$s" else s
+    } else {
+        let out = if (is_neg) "-" else ""
+        let rem = n % 3
+        if (rem > 0) {
+            out.push(s[0..rem])
+            if (rem < n) out.push(",")
+        }
+        let i = rem
+        for (i < n) {
+            out.push(s[i..(i + 3)])
+            i += 3
+            if (i < n) out.push(",")
+        }
+        out
+    }
+}
+
+bind format_float_commas = (v: float, precision: int): string {
+    let s = format_float(v, precision)
+    let dot_pos? = s.index_of(".")
+    if (dot_pos? as dot) {
+        let int_part = s[0..dot]
+        let frac_part = s[dot..s.len()]
+        let is_neg = int_part.starts_with("-")
+        let digits = if (is_neg) int_part[1..int_part.len()] else int_part
+        let n = digits.len()
+        let out = if (is_neg) "-" else ""
+        let rem = n % 3
+        if (rem > 0) {
+            out.push(digits[0..rem])
+            if (rem < n) out.push(",")
+        }
+        let i = rem
+        for (i < n) {
+            out.push(digits[i..(i + 3)])
+            i += 3
+            if (i < n) out.push(",")
+        }
+        out.push(frac_part)
+        out
+    } else {
+        let is_neg = s.starts_with("-")
+        let digits = if (is_neg) s[1..s.len()] else s
+        let n = digits.len()
+        let out = if (is_neg) "-" else ""
+        let rem = n % 3
+        if (rem > 0) {
+            out.push(digits[0..rem])
+            if (rem < n) out.push(",")
+        }
+        let i = rem
+        for (i < n) {
+            out.push(digits[i..(i + 3)])
+            i += 3
+            if (i < n) out.push(",")
+        }
+        out
+    }
 }
 
 bind format_bytes = (bytes: int): string {
@@ -150,11 +206,27 @@ bind string.reverse = (self): string {
 }
 
 bind string.to_upper = (self): string {
-    unsafe ll_str_to_upper(self)
+    let out = ""
+    for (ch in self) {
+        if (ch >= 'a' and ch <= 'z') {
+            out.push_char(char(int(ch) - 32))
+        } else {
+            out.push_char(ch)
+        }
+    }
+    out
 }
 
 bind string.to_lower = (self): string {
-    unsafe ll_str_to_lower(self)
+    let out = ""
+    for (ch in self) {
+        if (ch >= 'A' and ch <= 'Z') {
+            out.push_char(char(int(ch) + 32))
+        } else {
+            out.push_char(ch)
+        }
+    }
+    out
 }
 
 bind string.to_title = (self): string {

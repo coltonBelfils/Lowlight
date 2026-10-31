@@ -1,9 +1,8 @@
 // Lowlight Standard Library: std/strconv.ll
 // Type conversions between strings, numbers, and booleans with visual optional safety (?T).
+// Implemented predominantly in pure Lowlight for zero GC overhead and native C speed.
 
-extern ll_str_parse_int_radix: (s: ptr[u8], len: int, radix: int, out_val: ptr[int]): bool
 extern ll_str_parse_float_strict: (s: ptr[u8], len: int, out_val: ptr[float]): bool
-extern ll_str_to_radix: (val: int, radix: int, upper: bool): string
 extern ll_fmt_exp_f64: (v: float, prec: int): string
 extern ll_fmt_float_prec: (v: float, prec: int): string
 
@@ -12,9 +11,52 @@ extern ll_fmt_float_prec: (v: float, prec: int): string
 // -----------------------------------------------------------------------------
 
 bind parse_int_radix = (s: string, radix: int): ?int {
-    let out_val = 0
-    let ok = unsafe ll_str_parse_int_radix(s.c_str(), s.len(), radix, addr_of(out_val))
-    if (ok) out_val else none
+    if (radix < 2 or radix > 36) func <- none
+    let trimmed = s.trim()
+    let n = trimmed.len()
+    if (n == 0) func <- none
+
+    let i = 0
+    let is_neg = false
+    let b0 = trimmed.byte_at(0)
+    if (b0 == u8(45)) { // '-'
+        is_neg = true
+        i += 1
+    } else if (b0 == u8(43)) { // '+'
+        i += 1
+    }
+    if (i >= n) func <- none
+
+    // Optional 0x / 0b / 0o prefix handling
+    if (i + 2 <= n and trimmed.byte_at(i) == u8(48)) { // starts with '0'
+        let p = trimmed.byte_at(i + 1)
+        if (radix == 16 and (p == u8(120) or p == u8(88))) { // 'x' or 'X'
+            i += 2
+        } else if (radix == 2 and (p == u8(98) or p == u8(66))) { // 'b' or 'B'
+            i += 2
+        } else if (radix == 8 and (p == u8(111) or p == u8(79))) { // 'o' or 'O'
+            i += 2
+        }
+    }
+    if (i >= n) func <- none
+
+    let acc = 0
+    for (i < n) {
+        let b = trimmed.byte_at(i)
+        let digit = -1
+        if (b >= u8(48) and b <= u8(57)) { // '0'..'9'
+            digit = int(b) - 48
+        } else if (b >= u8(97) and b <= u8(122)) { // 'a'..'z'
+            digit = int(b) - 97 + 10
+        } else if (b >= u8(65) and b <= u8(90)) { // 'A'..'Z'
+            digit = int(b) - 65 + 10
+        }
+        if (digit < 0 or digit >= radix) func <- none
+        acc = acc * radix + digit
+        i += 1
+    }
+
+    if (is_neg) -acc else acc
 }
 
 bind parse_int_safe = (s: string): ?int {
@@ -42,28 +84,51 @@ bind parse_bool = (s: string): ?bool {
 // Formatting Functions (Value -> String)
 // -----------------------------------------------------------------------------
 
+bind int_to_radix_with_case = (v: int, radix: int, upper: bool): string {
+    if (radix < 2 or radix > 36) func <- ""
+    if (v == 0) func <- "0"
+    let is_neg = v < 0
+    let n = if (is_neg) -v else v
+    let chars = if (upper) "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" else "0123456789abcdefghijklmnopqrstuvwxyz"
+    let rev = ""
+    for (n > 0) {
+        let rem = n % radix
+        rev.push_byte(chars.byte_at(rem))
+        n /= radix
+    }
+    if (is_neg) rev.push("-")
+    let out = ""
+    let n_rev = rev.len()
+    let i = n_rev - 1
+    for (i >= 0) {
+        out.push(rev[i..(i + 1)])
+        i -= 1
+    }
+    out
+}
+
 bind int_to_str = (v: int): string {
-    unsafe ll_str_to_radix(v, 10, false)
+    "$v"
 }
 
 bind int_to_radix = (v: int, radix: int): string {
-    unsafe ll_str_to_radix(v, radix, false)
+    int_to_radix_with_case(v, radix, false)
 }
 
 bind int_to_radix_upper = (v: int, radix: int): string {
-    unsafe ll_str_to_radix(v, radix, true)
+    int_to_radix_with_case(v, radix, true)
 }
 
 bind int_to_hex = (v: int, upper: bool): string {
-    unsafe ll_str_to_radix(v, 16, upper)
+    int_to_radix_with_case(v, 16, upper)
 }
 
 bind int_to_bin = (v: int): string {
-    unsafe ll_str_to_radix(v, 2, false)
+    int_to_radix_with_case(v, 2, false)
 }
 
 bind int_to_oct = (v: int): string {
-    unsafe ll_str_to_radix(v, 8, false)
+    int_to_radix_with_case(v, 8, false)
 }
 
 bind float_to_str = (v: float, precision: int): string {

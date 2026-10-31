@@ -310,6 +310,42 @@ bind DateTime.is_leap_year = (self): bool {
 }
 
 // -----------------------------------------------------------------------------
+// Time Format Constants (Mirroring Go Reference Formats & Standard Conventions)
+// -----------------------------------------------------------------------------
+
+bind Layout = "01/02 03:04:05PM '06 -0700"
+bind ANSIC = "Mon Jan _2 15:04:05 2006"
+bind UnixDate = "Mon Jan _2 15:04:05 MST 2006"
+bind RubyDate = "Mon Jan 02 15:04:05 -0700 2006"
+bind RFC822 = "02 Jan 06 15:04 MST"
+bind RFC822Z = "02 Jan 06 15:04 -0700"
+bind RFC850 = "Monday, 02-Jan-06 15:04:05 MST"
+bind RFC1123 = "Mon, 02 Jan 2006 15:04:05 MST"
+bind RFC1123Z = "Mon, 02 Jan 2006 15:04:05 -0700"
+bind RFC3339 = "2006-01-02T15:04:05Z07:00"
+bind RFC3339Nano = "2006-01-02T15:04:05.999999999Z07:00"
+bind Kitchen = "3:04PM"
+bind Stamp = "Jan _2 15:04:05"
+bind StampMilli = "Jan _2 15:04:05.000"
+bind StampMicro = "Jan _2 15:04:05.000000"
+bind StampNano = "Jan _2 15:04:05.000000000"
+bind DateTimeFormat = "2006-01-02 15:04:05"
+bind DateOnly = "2006-01-02"
+bind TimeOnly = "15:04:05"
+bind ISO8601 = "2006-01-02T15:04:05Z07:00"
+bind RFC2822 = "Mon, 02 Jan 2006 15:04:05 -0700"
+
+// POSIX / C (strftime) Format Constants
+bind C_FMT_ISO8601 = "%Y-%m-%dT%H:%M:%SZ"
+bind C_FMT_DATETIME = "%Y-%m-%d %H:%M:%S"
+bind C_FMT_DATE_ONLY = "%Y-%m-%d"
+bind C_FMT_TIME_ONLY = "%H:%M:%S"
+bind C_FMT_RFC2822 = "%a, %d %b %Y %H:%M:%S %z"
+bind C_FMT_ANSIC = "%a %b %e %H:%M:%S %Y"
+bind C_FMT_KITCHEN = "%I:%M %p"
+bind C_FMT_12HOUR = "%I:%M:%S %p"
+
+// -----------------------------------------------------------------------------
 // Standard 1: C / POSIX / strftime Format Standard (`%` specifiers)
 // -----------------------------------------------------------------------------
 
@@ -471,6 +507,20 @@ bind DateTime.format_go = (self, layout: string): string {
                 out.push(format_tz_offset(self.offset_secs, true))
             }
             i += 6
+        } else if (rem.starts_with("Z0700")) {
+            if (self.offset_secs == 0) {
+                out.push("Z")
+            } else {
+                out.push(format_tz_offset(self.offset_secs, false))
+            }
+            i += 5
+        } else if (rem.starts_with("Z07")) {
+            if (self.offset_secs == 0) {
+                out.push("Z")
+            } else {
+                out.push(format_tz_offset(self.offset_secs, false)[0..3])
+            }
+            i += 3
         } else if (rem.starts_with("-07:00")) {
             out.push(format_tz_offset(self.offset_secs, true))
             i += 6
@@ -515,40 +565,194 @@ bind DateTime.format_go = (self, layout: string): string {
 }
 
 // -----------------------------------------------------------------------------
-// Convenience ISO / RFC Formatting
+// Pure Lowlight Companion Formatting Methods (Zero GC, Native Speed)
 // -----------------------------------------------------------------------------
 
-bind DateTime.to_iso = (self): string {
-    let date_str = "${pad_int_zeros(self.year, 4)}-${pad_int_zeros(self.month, 2)}-${pad_int_zeros(self.day, 2)}"
-    let time_str = "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}"
-    let tz_str = if (self.offset_secs == 0) "Z" else format_tz_offset(self.offset_secs, true)
-    "${date_str}T${time_str}${tz_str}"
+bind DateTime.to_layout = (self): string {
+    let mo = pad_int_zeros(self.month, 2)
+    let dy = pad_int_zeros(self.day, 2)
+    let h12 = if (self.hour == 0) 12 else if (self.hour > 12) self.hour - 12 else self.hour
+    let hr = pad_int_zeros(h12, 2)
+    let mi = pad_int_zeros(self.minute, 2)
+    let sc = pad_int_zeros(self.second, 2)
+    let ampm = if (self.hour < 12) "AM" else "PM"
+    let yr = pad_int_zeros(self.year % 100, 2)
+    let tz = format_tz_offset(self.offset_secs, false)
+    "$mo/$dy $hr:$mi:$sc$ampm '$yr $tz"
 }
 
-bind DateTime.to_rfc3339 = (self): string {
-    self.to_iso()
+bind DateTime.to_ansic = (self): string {
+    let w = weekday_abbr(self.weekday)
+    let m = month_abbr(self.month)
+    let d = pad_int_spaces(self.day, 2)
+    let h = pad_int_zeros(self.hour, 2)
+    let mi = pad_int_zeros(self.minute, 2)
+    let s = pad_int_zeros(self.second, 2)
+    let y = pad_int_zeros(self.year, 4)
+    "$w $m $d $h:$mi:$s $y"
 }
 
-bind DateTime.to_rfc2822 = (self): string {
+bind DateTime.to_unix_date = (self): string {
+    let w = weekday_abbr(self.weekday)
+    let m = month_abbr(self.month)
+    let d = pad_int_spaces(self.day, 2)
+    let h = pad_int_zeros(self.hour, 2)
+    let mi = pad_int_zeros(self.minute, 2)
+    let s = pad_int_zeros(self.second, 2)
+    let y = pad_int_zeros(self.year, 4)
+    "$w $m $d $h:$mi:$s ${self.zone_name} $y"
+}
+
+bind DateTime.to_ruby_date = (self): string {
     let w = weekday_abbr(self.weekday)
     let m = month_abbr(self.month)
     let d = pad_int_zeros(self.day, 2)
-    let y = pad_int_zeros(self.year, 4)
-    let tm = "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}"
+    let h = pad_int_zeros(self.hour, 2)
+    let mi = pad_int_zeros(self.minute, 2)
+    let s = pad_int_zeros(self.second, 2)
     let tz = format_tz_offset(self.offset_secs, false)
-    "$w, $d $m $y $tm $tz"
+    let y = pad_int_zeros(self.year, 4)
+    "$w $m $d $h:$mi:$s $tz $y"
 }
 
-bind DateTime.to_date_string = (self): string {
-    "${pad_int_zeros(self.year, 4)}-${pad_int_zeros(self.month, 2)}-${pad_int_zeros(self.day, 2)}"
+bind DateTime.to_rfc822 = (self): string {
+    let d = pad_int_zeros(self.day, 2)
+    let m = month_abbr(self.month)
+    let y = pad_int_zeros(self.year % 100, 2)
+    let h = pad_int_zeros(self.hour, 2)
+    let mi = pad_int_zeros(self.minute, 2)
+    "$d $m $y $h:$mi ${self.zone_name}"
 }
 
-bind DateTime.to_time_string = (self): string {
-    "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}"
+bind DateTime.to_rfc822z = (self): string {
+    let d = pad_int_zeros(self.day, 2)
+    let m = month_abbr(self.month)
+    let y = pad_int_zeros(self.year % 100, 2)
+    let h = pad_int_zeros(self.hour, 2)
+    let mi = pad_int_zeros(self.minute, 2)
+    let tz = format_tz_offset(self.offset_secs, false)
+    "$d $m $y $h:$mi $tz"
+}
+
+bind DateTime.to_rfc850 = (self): string {
+    let w = weekday_full(self.weekday)
+    let d = pad_int_zeros(self.day, 2)
+    let m = month_abbr(self.month)
+    let y = pad_int_zeros(self.year % 100, 2)
+    let h = pad_int_zeros(self.hour, 2)
+    let mi = pad_int_zeros(self.minute, 2)
+    let s = pad_int_zeros(self.second, 2)
+    "$w, $d-$m-$y $h:$mi:$s ${self.zone_name}"
+}
+
+bind DateTime.to_rfc1123 = (self): string {
+    let w = weekday_abbr(self.weekday)
+    let d = pad_int_zeros(self.day, 2)
+    let m = month_abbr(self.month)
+    let y = pad_int_zeros(self.year, 4)
+    let h = pad_int_zeros(self.hour, 2)
+    let mi = pad_int_zeros(self.minute, 2)
+    let s = pad_int_zeros(self.second, 2)
+    "$w, $d $m $y $h:$mi:$s ${self.zone_name}"
+}
+
+bind DateTime.to_rfc1123z = (self): string {
+    let w = weekday_abbr(self.weekday)
+    let d = pad_int_zeros(self.day, 2)
+    let m = month_abbr(self.month)
+    let y = pad_int_zeros(self.year, 4)
+    let h = pad_int_zeros(self.hour, 2)
+    let mi = pad_int_zeros(self.minute, 2)
+    let s = pad_int_zeros(self.second, 2)
+    let tz = format_tz_offset(self.offset_secs, false)
+    "$w, $d $m $y $h:$mi:$s $tz"
+}
+
+bind DateTime.to_rfc3339 = (self): string {
+    let d = "${pad_int_zeros(self.year, 4)}-${pad_int_zeros(self.month, 2)}-${pad_int_zeros(self.day, 2)}"
+    let tm = "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}"
+    let tz = if (self.offset_secs == 0) "Z" else format_tz_offset(self.offset_secs, true)
+    "${d}T${tm}${tz}"
+}
+
+bind DateTime.to_iso = (self): string {
+    self.to_rfc3339()
+}
+
+bind DateTime.to_rfc3339_nano = (self): string {
+    let d = "${pad_int_zeros(self.year, 4)}-${pad_int_zeros(self.month, 2)}-${pad_int_zeros(self.day, 2)}"
+    let ns = pad_int_zeros(self.nanosecond, 9)
+    let tm = "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}.${ns}"
+    let tz = if (self.offset_secs == 0) "Z" else format_tz_offset(self.offset_secs, true)
+    "${d}T${tm}${tz}"
+}
+
+bind DateTime.to_kitchen = (self): string {
+    let h12 = if (self.hour == 0) 12 else if (self.hour > 12) self.hour - 12 else self.hour
+    let mi = pad_int_zeros(self.minute, 2)
+    let ampm = if (self.hour < 12) "AM" else "PM"
+    "$h12:$mi$ampm"
+}
+
+bind DateTime.to_stamp = (self): string {
+    let m = month_abbr(self.month)
+    let d = pad_int_spaces(self.day, 2)
+    let tm = "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}"
+    "$m $d $tm"
+}
+
+bind DateTime.to_stamp_milli = (self): string {
+    let m = month_abbr(self.month)
+    let d = pad_int_spaces(self.day, 2)
+    let ms = pad_int_zeros(self.nanosecond / 1000000, 3)
+    let tm = "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}.$ms"
+    "$m $d $tm"
+}
+
+bind DateTime.to_stamp_micro = (self): string {
+    let m = month_abbr(self.month)
+    let d = pad_int_spaces(self.day, 2)
+    let us = pad_int_zeros(self.nanosecond / 1000, 6)
+    let tm = "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}.$us"
+    "$m $d $tm"
+}
+
+bind DateTime.to_stamp_nano = (self): string {
+    let m = month_abbr(self.month)
+    let d = pad_int_spaces(self.day, 2)
+    let ns = pad_int_zeros(self.nanosecond, 9)
+    let tm = "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}.$ns"
+    "$m $d $tm"
+}
+
+bind DateTime.to_datetime_string = (self): string {
+    let d = "${pad_int_zeros(self.year, 4)}-${pad_int_zeros(self.month, 2)}-${pad_int_zeros(self.day, 2)}"
+    let tm = "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}"
+    "$d $tm"
 }
 
 bind DateTime.to_string = (self): string {
-    "${self.to_date_string()} ${self.to_time_string()}"
+    self.to_datetime_string()
+}
+
+bind DateTime.to_date_only = (self): string {
+    "${pad_int_zeros(self.year, 4)}-${pad_int_zeros(self.month, 2)}-${pad_int_zeros(self.day, 2)}"
+}
+
+bind DateTime.to_date_string = (self): string {
+    self.to_date_only()
+}
+
+bind DateTime.to_time_only = (self): string {
+    "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}"
+}
+
+bind DateTime.to_time_string = (self): string {
+    self.to_time_only()
+}
+
+bind DateTime.to_rfc2822 = (self): string {
+    self.to_rfc1123z()
 }
 
 bind DateTime.add_duration = (self, d: Duration): DateTime {
