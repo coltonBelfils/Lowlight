@@ -5,6 +5,8 @@
 /lowlight
 /bin/
 /.build/
+/benchmarks/bin/
+/benchmarks/runner_ll
 /editors/vscode/lowlight/bin/
 /editors/vscode/lowlight/std/
 *.vsix
