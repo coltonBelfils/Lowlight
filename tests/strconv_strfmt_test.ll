@@ -82,18 +82,19 @@ bind main = () {
     assert(f.format_float_commas(2) == "1,234,567.89")
     assert((0.8526).format_percent(1) == "85.3%")
     assert((1234.5).format_currency("\$", 2) == "\$1,234.50")
-    assert(f.to_str(2) == "1234567.89")
+    assert(f.format(2) == "1234567.89")
+    assert(f.to_string() != "")
 
     let i = 1234567
     assert(i.format_commas() == "1,234,567")
     assert(i.format_int_commas() == "1,234,567")
     assert((1048576).format_bytes() == "1.00 MB")
-    assert(i.to_str() == "1234567")
+    assert(i.to_string() == "1234567")
     assert((255).to_hex(true) == "FF")
     assert((255).to_bin() == "11111111")
     assert((255).to_oct() == "377")
-    assert(true.to_str() == "true")
-    assert(false.to_str() == "false")
+    assert(true.to_string() == "true")
+    assert(false.to_string() == "false")
 
     println("All strconv and strfmt tests passed successfully!")
 }

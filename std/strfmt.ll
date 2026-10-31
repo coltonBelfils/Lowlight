@@ -154,6 +154,42 @@ bind format_currency = (amount: float, symbol: string, precision: int): string {
 }
 
 // -----------------------------------------------------------------------------
+// Integer Padding Functions & Methods
+// -----------------------------------------------------------------------------
+
+bind pad_int_zeros = (val: int, width: int): string {
+    let s = "$val"
+    let diff = width - s.len()
+    if (diff <= 0) func <- s
+    let out = ""
+    for (i in 0..diff) {
+        out.push("0")
+    }
+    out.push(s)
+    out
+}
+
+bind pad_int_spaces = (val: int, width: int): string {
+    let s = "$val"
+    let diff = width - s.len()
+    if (diff <= 0) func <- s
+    let out = ""
+    for (i in 0..diff) {
+        out.push(" ")
+    }
+    out.push(s)
+    out
+}
+
+bind int.pad_zeros = (self, width: int): string {
+    pad_int_zeros(self, width)
+}
+
+bind int.pad_spaces = (self, width: int): string {
+    pad_int_spaces(self, width)
+}
+
+// -----------------------------------------------------------------------------
 // String Extension Methods (Uniform Method Call Syntax)
 // -----------------------------------------------------------------------------
 

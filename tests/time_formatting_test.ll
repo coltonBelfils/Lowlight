@@ -115,22 +115,25 @@ bind main = () {
         assert(false)
     }
 
-    // 7. Methods on int/float in time library
-    let d_from_int = 3600.secs()
-    assert(d_from_int.to_secs() == 3600.0)
+    // 7. Idiomatic duration constructors and strfmt padding
+    let d_from_secs = time.Duration.from_secs(3600.0)
+    assert(d_from_secs.to_secs() == 3600.0)
 
-    let d_from_float = (1.5).secs()
+    let d_from_float = time.Duration.from_secs(1.5)
     assert(d_from_float.to_secs() == 1.5)
 
-    let d_millis = 250.millis()
+    let d_millis = time.Duration.from_millis(250.0)
     assert(d_millis.to_nanos() == 250000000)
 
+    // Integer padding (provided by strfmt)
     assert((7).pad_zeros(3) == "007")
     assert((7).pad_spaces(3) == "  7")
-    assert((10).to_month_abbr() == "Oct")
-    assert((10).to_month_full() == "October")
-    assert((6).to_weekday_abbr() == "Sat")
-    assert((6).to_weekday_full() == "Saturday")
+
+    // Standalone calendar helpers (not polluting int methods)
+    assert(time.month_abbr(10) == "Oct")
+    assert(time.month_full(10) == "October")
+    assert(time.weekday_abbr(6) == "Sat")
+    assert(time.weekday_full(6) == "Saturday")
 
     println("All time formatting tests (C-standard & Go-standard) passed successfully!")
 }

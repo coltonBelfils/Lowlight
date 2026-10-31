@@ -107,10 +107,6 @@ bind int_to_radix_with_case = (v: int, radix: int, upper: bool): string {
     out
 }
 
-bind int.to_str = (self): string {
-    "$self"
-}
-
 bind int.to_radix = (self, radix: int): string {
     int_to_radix_with_case(self, radix, false)
 }
@@ -131,25 +127,13 @@ bind int.to_oct = (self): string {
     int_to_radix_with_case(self, 8, false)
 }
 
-bind float.to_str = (self, precision: int): string {
-    if (precision < 0) {
-        "$self"
-    } else {
-        unsafe ll_fmt_float_prec(self, precision)
-    }
-}
-
 bind float.to_exp = (self, precision: int): string {
     unsafe ll_fmt_exp_f64(self, precision)
 }
 
-bind bool.to_str = (self): string {
-    if (self) "true" else "false"
-}
-
 // Standalone function forwarders for backwards-compatibility
 bind int_to_str = (v: int): string {
-    v.to_str()
+    "$v"
 }
 
 bind int_to_radix = (v: int, radix: int): string {
@@ -173,7 +157,11 @@ bind int_to_oct = (v: int): string {
 }
 
 bind float_to_str = (v: float, precision: int): string {
-    v.to_str(precision)
+    if (precision < 0) {
+        "$v"
+    } else {
+        unsafe ll_fmt_float_prec(v, precision)
+    }
 }
 
 bind float_to_exp = (v: float, precision: int): string {
