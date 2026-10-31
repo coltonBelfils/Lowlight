@@ -66,7 +66,7 @@ bind main = () {
     assert("banana".count_occurrences("na") == 2)
     assert("aaaa".count_occurrences("aa") == 2)
 
-    // 7. Data formatters
+    // 7. Data formatters (both standalone and primitive method syntax)
     assert(fmt.format_int_commas(1234567) == "1,234,567")
     assert(fmt.format_float_commas(1234567.89, 2) == "1,234,567.89")
     assert(fmt.format_bytes(1024) == "1.00 KB")
@@ -74,6 +74,26 @@ bind main = () {
     assert(fmt.format_bytes(5368709120) == "5.00 GB")
     assert(fmt.format_percent(0.8526, 1) == "85.3%")
     assert(fmt.format_currency(1234.5, "\$", 2) == "\$1,234.50")
+
+    // 8. Methods on primitive float & int types
+    let f = 1234567.89
+    assert(f.format_float(2) == "1234567.89")
+    assert(f.format_commas(2) == "1,234,567.89")
+    assert(f.format_float_commas(2) == "1,234,567.89")
+    assert((0.8526).format_percent(1) == "85.3%")
+    assert((1234.5).format_currency("\$", 2) == "\$1,234.50")
+    assert(f.to_str(2) == "1234567.89")
+
+    let i = 1234567
+    assert(i.format_commas() == "1,234,567")
+    assert(i.format_int_commas() == "1,234,567")
+    assert((1048576).format_bytes() == "1.00 MB")
+    assert(i.to_str() == "1234567")
+    assert((255).to_hex(true) == "FF")
+    assert((255).to_bin() == "11111111")
+    assert((255).to_oct() == "377")
+    assert(true.to_str() == "true")
+    assert(false.to_str() == "false")
 
     println("All strconv and strfmt tests passed successfully!")
 }

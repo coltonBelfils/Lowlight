@@ -81,7 +81,7 @@ bind parse_bool = (s: string): ?bool {
 }
 
 // -----------------------------------------------------------------------------
-// Formatting Functions (Value -> String)
+// Formatting Methods on Primitive Types (int, float, bool)
 // -----------------------------------------------------------------------------
 
 bind int_to_radix_with_case = (v: int, radix: int, upper: bool): string {
@@ -107,40 +107,77 @@ bind int_to_radix_with_case = (v: int, radix: int, upper: bool): string {
     out
 }
 
-bind int_to_str = (v: int): string {
-    "$v"
+bind int.to_str = (self): string {
+    "$self"
 }
 
-bind int_to_radix = (v: int, radix: int): string {
-    int_to_radix_with_case(v, radix, false)
+bind int.to_radix = (self, radix: int): string {
+    int_to_radix_with_case(self, radix, false)
 }
 
-bind int_to_radix_upper = (v: int, radix: int): string {
-    int_to_radix_with_case(v, radix, true)
+bind int.to_radix_upper = (self, radix: int): string {
+    int_to_radix_with_case(self, radix, true)
 }
 
-bind int_to_hex = (v: int, upper: bool): string {
-    int_to_radix_with_case(v, 16, upper)
+bind int.to_hex = (self, upper: bool): string {
+    int_to_radix_with_case(self, 16, upper)
 }
 
-bind int_to_bin = (v: int): string {
-    int_to_radix_with_case(v, 2, false)
+bind int.to_bin = (self): string {
+    int_to_radix_with_case(self, 2, false)
 }
 
-bind int_to_oct = (v: int): string {
-    int_to_radix_with_case(v, 8, false)
+bind int.to_oct = (self): string {
+    int_to_radix_with_case(self, 8, false)
 }
 
-bind float_to_str = (v: float, precision: int): string {
+bind float.to_str = (self, precision: int): string {
     if (precision < 0) {
-        "$v"
+        "$self"
     } else {
-        unsafe ll_fmt_float_prec(v, precision)
+        unsafe ll_fmt_float_prec(self, precision)
     }
 }
 
+bind float.to_exp = (self, precision: int): string {
+    unsafe ll_fmt_exp_f64(self, precision)
+}
+
+bind bool.to_str = (self): string {
+    if (self) "true" else "false"
+}
+
+// Standalone function forwarders for backwards-compatibility
+bind int_to_str = (v: int): string {
+    v.to_str()
+}
+
+bind int_to_radix = (v: int, radix: int): string {
+    v.to_radix(radix)
+}
+
+bind int_to_radix_upper = (v: int, radix: int): string {
+    v.to_radix_upper(radix)
+}
+
+bind int_to_hex = (v: int, upper: bool): string {
+    v.to_hex(upper)
+}
+
+bind int_to_bin = (v: int): string {
+    v.to_bin()
+}
+
+bind int_to_oct = (v: int): string {
+    v.to_oct()
+}
+
+bind float_to_str = (v: float, precision: int): string {
+    v.to_str(precision)
+}
+
 bind float_to_exp = (v: float, precision: int): string {
-    unsafe ll_fmt_exp_f64(v, precision)
+    v.to_exp(precision)
 }
 
 bind bool_to_str = (v: bool): string {

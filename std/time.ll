@@ -64,6 +64,34 @@ bind Duration.to_string = (self): string {
     }
 }
 
+// -----------------------------------------------------------------------------
+// Duration Ergonomic Constructor Methods on Primitive Types (int & float)
+// -----------------------------------------------------------------------------
+
+bind int.nanos = (self): Duration {
+    Duration.from_nanos(self)
+}
+
+bind int.micros = (self): Duration {
+    Duration.from_micros(self)
+}
+
+bind int.millis = (self): Duration {
+    Duration.from_nanos(self * 1000000)
+}
+
+bind float.millis = (self): Duration {
+    Duration.from_millis(self)
+}
+
+bind int.secs = (self): Duration {
+    Duration.from_nanos(self * 1000000000)
+}
+
+bind float.secs = (self): Duration {
+    Duration.from_secs(self)
+}
+
 define Instant struct [
     nanos: int,
 ]
@@ -95,16 +123,20 @@ bind now_millis = (): float {
     float(unsafe ll_time_monotonic_nanos()) / 1000000.0
 }
 
+bind int.sleep_ms = (self) {
+    unsafe ll_time_sleep_ms(self)
+}
+
 bind sleep_ms = (ms: int) {
-    unsafe ll_time_sleep_ms(ms)
+    ms.sleep_ms()
 }
 
 // -----------------------------------------------------------------------------
-// Helper Format Functions
+// Helper Format Functions & Methods on int
 // -----------------------------------------------------------------------------
 
-bind pad_int_zeros = (val: int, width: int): string {
-    let s = "$val"
+bind int.pad_zeros = (self, width: int): string {
+    let s = "$self"
     let diff = width - s.len()
     if (diff <= 0) func <- s
     let out = ""
@@ -115,8 +147,8 @@ bind pad_int_zeros = (val: int, width: int): string {
     out
 }
 
-bind pad_int_spaces = (val: int, width: int): string {
-    let s = "$val"
+bind int.pad_spaces = (self, width: int): string {
+    let s = "$self"
     let diff = width - s.len()
     if (diff <= 0) func <- s
     let out = ""
@@ -125,6 +157,14 @@ bind pad_int_spaces = (val: int, width: int): string {
     }
     out.push(s)
     out
+}
+
+bind pad_int_zeros = (val: int, width: int): string {
+    val.pad_zeros(width)
+}
+
+bind pad_int_spaces = (val: int, width: int): string {
+    val.pad_spaces(width)
 }
 
 bind month_abbr = (m: int): string {
@@ -179,6 +219,22 @@ bind weekday_full = (w: int): string {
     else if (w == 5) "Friday"
     else if (w == 6) "Saturday"
     else ""
+}
+
+bind int.to_month_abbr = (self): string {
+    month_abbr(self)
+}
+
+bind int.to_month_full = (self): string {
+    month_full(self)
+}
+
+bind int.to_weekday_abbr = (self): string {
+    weekday_abbr(self)
+}
+
+bind int.to_weekday_full = (self): string {
+    weekday_full(self)
 }
 
 bind format_tz_offset = (offset_secs: int, with_colon: bool): string {

@@ -115,5 +115,22 @@ bind main = () {
         assert(false)
     }
 
+    // 7. Methods on int/float in time library
+    let d_from_int = 3600.secs()
+    assert(d_from_int.to_secs() == 3600.0)
+
+    let d_from_float = (1.5).secs()
+    assert(d_from_float.to_secs() == 1.5)
+
+    let d_millis = 250.millis()
+    assert(d_millis.to_nanos() == 250000000)
+
+    assert((7).pad_zeros(3) == "007")
+    assert((7).pad_spaces(3) == "  7")
+    assert((10).to_month_abbr() == "Oct")
+    assert((10).to_month_full() == "October")
+    assert((6).to_weekday_abbr() == "Sat")
+    assert((6).to_weekday_full() == "Saturday")
+
     println("All time formatting tests (C-standard & Go-standard) passed successfully!")
 }

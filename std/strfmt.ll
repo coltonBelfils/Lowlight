@@ -5,24 +5,28 @@
 extern ll_fmt_float_prec: (v: float, prec: int): string
 
 // -----------------------------------------------------------------------------
-// Number & Data Formatting Functions
+// Number & Data Formatting Methods on Primitive Types (float & int)
 // -----------------------------------------------------------------------------
 
-bind format_float = (v: float, precision: int): string {
+bind float.format_float = (self, precision: int): string {
     if (precision < 0) {
-        "$v"
+        "$self"
     } else {
-        unsafe ll_fmt_float_prec(v, precision)
+        unsafe ll_fmt_float_prec(self, precision)
     }
 }
 
-bind format_int = (v: int): string {
-    "$v"
+bind float.format = (self, precision: int): string {
+    self.format_float(precision)
 }
 
-bind format_int_commas = (v: int): string {
-    let is_neg = v < 0
-    let abs_val = if (is_neg) -v else v
+bind int.format_int = (self): string {
+    "$self"
+}
+
+bind int.format_commas = (self): string {
+    let is_neg = self < 0
+    let abs_val = if (is_neg) -self else self
     let s = "$abs_val"
     let n = s.len()
     if (n <= 3) {
@@ -44,8 +48,12 @@ bind format_int_commas = (v: int): string {
     }
 }
 
-bind format_float_commas = (v: float, precision: int): string {
-    let s = format_float(v, precision)
+bind int.format_int_commas = (self): string {
+    self.format_commas()
+}
+
+bind float.format_commas = (self, precision: int): string {
+    let s = self.format_float(precision)
     let dot_pos? = s.index_of(".")
     if (dot_pos? as dot) {
         let int_part = s[0..dot]
@@ -87,29 +95,62 @@ bind format_float_commas = (v: float, precision: int): string {
     }
 }
 
-bind format_bytes = (bytes: int): string {
-    if (bytes < 1024) {
-        "${bytes} B"
-    } else if (bytes < 1048576) {
-        let kb = float(bytes) / 1024.0
-        "${format_float(kb, 2)} KB"
-    } else if (bytes < 1073741824) {
-        let mb = float(bytes) / 1048576.0
-        "${format_float(mb, 2)} MB"
+bind float.format_float_commas = (self, precision: int): string {
+    self.format_commas(precision)
+}
+
+bind int.format_bytes = (self): string {
+    if (self < 1024) {
+        "${self} B"
+    } else if (self < 1048576) {
+        let kb = float(self) / 1024.0
+        "${kb.format_float(2)} KB"
+    } else if (self < 1073741824) {
+        let mb = float(self) / 1048576.0
+        "${mb.format_float(2)} MB"
     } else {
-        let gb = float(bytes) / 1073741824.0
-        "${format_float(gb, 2)} GB"
+        let gb = float(self) / 1073741824.0
+        "${gb.format_float(2)} GB"
     }
 }
 
+bind float.format_percent = (self, precision: int): string {
+    let pct = self * 100.0
+    "${pct.format_float(precision)}%"
+}
+
+bind float.format_currency = (self, symbol: string, precision: int): string {
+    let formatted = self.format_commas(precision)
+    "$symbol$formatted"
+}
+
+// Standalone function wrappers for backwards-compatibility
+bind format_float = (v: float, precision: int): string {
+    v.format_float(precision)
+}
+
+bind format_int = (v: int): string {
+    v.format_int()
+}
+
+bind format_int_commas = (v: int): string {
+    v.format_commas()
+}
+
+bind format_float_commas = (v: float, precision: int): string {
+    v.format_commas(precision)
+}
+
+bind format_bytes = (bytes: int): string {
+    bytes.format_bytes()
+}
+
 bind format_percent = (v: float, precision: int): string {
-    let pct = v * 100.0
-    "${format_float(pct, precision)}%"
+    v.format_percent(precision)
 }
 
 bind format_currency = (amount: float, symbol: string, precision: int): string {
-    let formatted = format_float_commas(amount, precision)
-    "$symbol$formatted"
+    amount.format_currency(symbol, precision)
 }
 
 // -----------------------------------------------------------------------------
