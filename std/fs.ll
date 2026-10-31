@@ -37,6 +37,10 @@ bind Result[T, E].unwrap_or = (own self, fallback: own T): T {
     self.value? ?? own fallback
 }
 
+bind Result[T, E].unwrap = (own self): T {
+    self.value? ?? panic("called Result.unwrap on an error")
+}
+
 bind exists = (path: string): bool {
     unsafe {
         let fp = c_fopen(path.c_str(), "rb".c_str())

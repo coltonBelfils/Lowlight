@@ -173,6 +173,8 @@ func (a *Analyzer) evalConstInt(mod *Module, e ast.Expr) (int64, bool) {
 		case token.Tilde:
 			return ^sub, true
 		}
+	case *ast.UnsafeExpr:
+		return a.evalConstInt(mod, v.Expr)
 	case *ast.BinaryExpr:
 		l, ok1 := a.evalConstInt(mod, v.Left)
 		r, ok2 := a.evalConstInt(mod, v.Right)

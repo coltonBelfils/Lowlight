@@ -159,17 +159,24 @@ func (p *Parser) parseImportDecl() *ast.ImportDecl {
 
 func (p *Parser) parseExternDecl() ast.Decl {
 	kw := p.expect(token.KwExtern, "in extern")
-	if p.cur().Kind == token.StringLit {
+	if p.cur().Kind == token.StringLit && p.peekAt(1).Kind != token.KwAs {
 		hdr := p.advance()
 		return &ast.ExternHeaderDecl{
 			Header: hdr.Text,
 			Span:   diag.Span{Start: kw.Span.Start, End: hdr.Span.End},
 		}
 	}
-	nameTok := p.expect(token.Ident, "function name after `extern`")
+	var nameTok token.Token
+	if p.cur().Kind == token.Ident || p.cur().Kind == token.StringLit || (p.cur().Kind >= token.KwLet && p.cur().Kind <= token.KwImport) {
+		nameTok = p.advance()
+	} else {
+		nameTok = p.expect(token.Ident, "function name after `extern`")
+	}
 	alias := ""
 	if _, ok := p.match(token.KwAs); ok {
 		alias = p.expect(token.Ident, "alias identifier after `as`").Text
+	} else if nameTok.Kind >= token.KwLet && nameTok.Kind <= token.KwImport {
+		p.rep.Errorf(nameTok.Span, "reserved keyword %q requires an alias: `extern %s as <alias>: ...`", nameTok.Text, nameTok.Text)
 	}
 	p.expect(token.Colon, "after extern function name")
 	params, endPos := p.parseParamList(true)
@@ -1145,6 +1152,13 @@ func (p *Parser) parseBinaryExpr(minPrec int) ast.Expr {
 func (p *Parser) parseUnaryExpr() ast.Expr {
 	start := p.cur().Span.Start
 	switch p.cur().Kind {
+	case token.KwUnsafe:
+		kw := p.advance()
+		operand := p.parseUnaryExpr()
+		return &ast.UnsafeExpr{
+			Expr: operand,
+			Span: diag.Span{Start: kw.Span.Start, End: operand.GetSpan().End},
+		}
 	case token.Minus, token.KwNot, token.Tilde, token.Amp, token.KwOwn, token.Star:
 		op := p.advance().Kind
 		operand := p.parseUnaryExpr()
@@ -1534,10 +1548,6 @@ func (p *Parser) parsePrimaryExpr() ast.Expr {
 
 	case token.LBrace:
 		return p.parseBlockExpr("", false, tk.Span.Start)
-
-	case token.KwUnsafe:
-		kw := p.advance()
-		return p.parseBlockExpr("", true, kw.Span.Start)
 
 	case token.KwIf:
 		return p.parseIfExpr()

@@ -594,6 +594,15 @@ type FuncLit struct {
 func (*FuncLit) exprNode()            {}
 func (e *FuncLit) GetSpan() diag.Span { return e.Span }
 
+// UnsafeExpr: `unsafe <expr>` (e.g., `unsafe { ... }`, `unsafe foo()`, `unsafe *p`)
+type UnsafeExpr struct {
+	Expr Expr
+	Span diag.Span
+}
+
+func (*UnsafeExpr) exprNode()            {}
+func (e *UnsafeExpr) GetSpan() diag.Span { return e.Span }
+
 // BlockExpr: `{ stmts... [Tail] }` or `unsafe { ... }` or labeled `blk: { ... }`
 type BlockExpr struct {
 	Label  string

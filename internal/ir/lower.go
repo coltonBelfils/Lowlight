@@ -578,8 +578,12 @@ func (fl *funcLowerer) extractOwnedOptionalInto(optSlot *Local, optTy *types.Opt
 }
 
 func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
+	tgt := s.Target
+	if ue, isUnsafe := tgt.(*ast.UnsafeExpr); isUnsafe {
+		tgt = ue.Expr
+	}
 	// Shorthand `map[key] = val` -> `ll_map_insert(&map, key, val)`
-	if idx, isIdx := s.Target.(*ast.IndexExpr); isIdx && s.Op == token.Assign && s.FallbackUnwind == nil {
+	if idx, isIdx := tgt.(*ast.IndexExpr); isIdx && s.Op == token.Assign && s.FallbackUnwind == nil {
 		if mapTy, isMap := fl.info(idx.Base).Type.(*types.Map); isMap {
 			fl.tc.visit(mapTy)
 			mPtr := fl.lowerLValueAddr(idx.Base)
@@ -637,6 +641,9 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 }
 
 func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type, newValExpr string) {
+	if ue, isUnsafe := target.(*ast.UnsafeExpr); isUnsafe {
+		target = ue.Expr
+	}
 	if id, isId := target.(*ast.IdentExpr); isId {
 		if sym := fl.info(id).Sym; sym != nil {
 			if loc, ok := fl.symLocals[sym]; ok && !loc.IsMutPtr {

@@ -137,7 +137,7 @@ func Build(opts Options) (string, error) {
 	}
 	// Suppress benign parenthesization/unused-parameter noise by default while keeping user ExtraCFlags authoritative.
 	args = append(args, opts.ExtraCFlags...)
-	args = append(args, "-o", absOut, cFile, "-lm")
+	args = append(args, "-o", absOut, cFile, "-lm", "-ldl")
 
 	var ccStderr bytes.Buffer
 	cmd := exec.Command(cc, args...)

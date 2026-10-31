@@ -34,11 +34,12 @@ go build -o lowlight ./cmd/lowlight
 ./lowlight run examples/arena_graph.ll
 ./lowlight run examples/unsafe_and_ffi.ll
 ./lowlight run examples/mini_lexer_eval.ll
+./lowlight run examples/http_server_and_client.ll
 ```
 
 Verify **zero heap memory leaks** at exit on any program by setting `LOWLIGHT_CHECK_LEAKS=1`:
 ```sh
-LOWLIGHT_CHECK_LEAKS=1 ./lowlight run examples/mini_lexer_eval.ll
+LOWLIGHT_CHECK_LEAKS=1 ./lowlight run examples/http_server_and_client.ll
 ```
 
 ---
@@ -168,8 +169,8 @@ The Go compiler is structured with clean, explicit data structures and zero exte
 | [`internal/codegen/`](./internal/codegen) | Human-readable ISO C11 emitter + embedded UB-free runtime header |
 | [`internal/driver/`](./internal/driver) | End-to-end compilation & C11 toolchain driver |
 | [`editors/vscode/`](./editors/vscode) | Zero-dependency drop-in VS Code extension, `.vsix` packager, and 1-command installer |
-| [`std/`](./std) | Standard library: [`math.ll`](./std/math.ll), [`fs.ll`](./std/fs.ll) (`Result[T, E]`), [`pool.ll`](./std/pool.ll) (`Pool[T]` / `Handle[T]`) |
-| [`examples/`](./examples) | 8 end-to-end showcase programs covering every language subsystem |
+| [`std/`](./std) | Standard library: [`math.ll`](./std/math.ll), [`fs.ll`](./std/fs.ll) (`Result[T, E]`), [`pool.ll`](./std/pool.ll) (`Pool[T]` / `Handle[T]`), [`net.ll`](./std/net.ll) (`TcpStream` / `TcpListener`), [`http.ll`](./std/http.ll) (Go-like HTTP client/server) |
+| [`examples/`](./examples) | 9 end-to-end showcase programs covering every language subsystem |
 | [`tests/`](./tests) | Strict E2E suite compiling with `-std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined` + `LOWLIGHT_CHECK_LEAKS=1` |
 
 ---

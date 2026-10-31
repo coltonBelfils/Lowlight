@@ -18,6 +18,8 @@ func (fl *funcLowerer) lowerVoidExpr(e ast.Expr) {
 		return
 	}
 	switch v := e.(type) {
+	case *ast.UnsafeExpr:
+		fl.lowerVoidExpr(v.Expr)
 	case *ast.BlockExpr:
 		_ = fl.lowerBlockExpr(v, false)
 	case *ast.StmtBodyExpr:
@@ -219,6 +221,8 @@ func (fl *funcLowerer) isFreshResourceRValue(e ast.Expr, inf *sema.ExprInfo) boo
 			return false // `*p` dereferences in place
 		}
 		return true
+	case *ast.UnsafeExpr:
+		return fl.isFreshResourceRValue(v.Expr, fl.info(v.Expr))
 	default:
 		// `InterpStringExpr`, `BinaryExpr` (`s1 + s2`, `??`), `CallExpr`, `SliceExpr` (non-view),
 		// `VecLit`, `SetLit`, `MapLit`, `StructLit`, `FuncLit`, `BlockExpr`, `IfExpr`, `ForExpr`, `MatchExpr`
@@ -236,6 +240,8 @@ func isAddressableAST(e ast.Expr) bool {
 		return true
 	case *ast.UnaryExpr:
 		return v.Op == token.Star
+	case *ast.UnsafeExpr:
+		return isAddressableAST(v.Expr)
 	default:
 		return false
 	}
@@ -245,6 +251,8 @@ func isAddressableAST(e ast.Expr) bool {
 func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) string {
 	inf := fl.info(e)
 	switch v := e.(type) {
+	case *ast.UnsafeExpr:
+		return fl.lowerLValueAddr(v.Expr)
 	case *ast.IdentExpr:
 		sym := inf.Sym
 		if sym != nil {
@@ -403,6 +411,9 @@ func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bo
 
 	case *ast.FuncLit:
 		return fl.lowerFuncLitExpr(v, inf)
+
+	case *ast.UnsafeExpr:
+		return fl.lowerRawExpr(v.Expr, expected, forOwned)
 
 	case *ast.BlockExpr:
 		return fl.lowerBlockExpr(v, true)

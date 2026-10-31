@@ -330,12 +330,20 @@ func (fc *funcChecker) consumeValue(expr ast.Expr, ty types.Type, requireExplici
 		return
 	}
 
-	// Unwrap `own x` unary marker if present
+	// Unwrap `own x` unary marker or `unsafe` wrapper if present
 	hasOwnMarker := false
 	inner := expr
-	if u, ok := expr.(*ast.UnaryExpr); ok && u.Op == token.KwOwn {
-		hasOwnMarker = true
-		inner = u.Operand
+	for {
+		if ue, ok := inner.(*ast.UnsafeExpr); ok {
+			inner = ue.Expr
+			continue
+		}
+		if u, ok := inner.(*ast.UnaryExpr); ok && u.Op == token.KwOwn {
+			hasOwnMarker = true
+			inner = u.Operand
+			continue
+		}
+		break
 	}
 
 	switch v := inner.(type) {
@@ -466,6 +474,9 @@ func (fc *funcChecker) analyzePlace(e ast.Expr) (root *Symbol, isLval bool, isMu
 			// `*p` in unsafe block is a mutable lvalue!
 			return nil, true, true, ""
 		}
+
+	case *ast.UnsafeExpr:
+		return fc.analyzePlace(v.Expr)
 	}
 	return nil, false, false, "rvalue expression"
 }
@@ -476,6 +487,8 @@ func (fc *funcChecker) rootSymbolOfExpr(e ast.Expr) *Symbol {
 		return fc.lookupVar(v.Name)
 	case *ast.UnaryExpr:
 		return fc.rootSymbolOfExpr(v.Operand)
+	case *ast.UnsafeExpr:
+		return fc.rootSymbolOfExpr(v.Expr)
 	case *ast.MemberExpr:
 		return fc.rootSymbolOfExpr(v.Base)
 	case *ast.IndexExpr:
@@ -496,6 +509,8 @@ func (fc *funcChecker) arenaDepthOfExpr(e ast.Expr) int {
 		if sym := fc.lookupVar(v.Name); sym != nil {
 			return sym.ArenaDepth
 		}
+	case *ast.UnsafeExpr:
+		return fc.arenaDepthOfExpr(v.Expr)
 	case *ast.CallExpr:
 		inf := fc.a.infoFor(v)
 		if inf.CallKind == CallBuiltinMethod && inf.BuiltinName == "Arena.alloc" && inf.MethodRecv != nil {
@@ -597,6 +612,13 @@ func (fc *funcChecker) verifyAssignable(got, expected types.Type, expr ast.Expr,
 
 func (fc *funcChecker) checkVoidOrDiscardedBody(e ast.Expr) types.Type {
 	switch b := e.(type) {
+	case *ast.UnsafeExpr:
+		fc.unsafeDepth++
+		defer func() { fc.unsafeDepth-- }()
+		ty := fc.checkVoidOrDiscardedBody(b.Expr)
+		inf := fc.a.infoFor(b)
+		inf.Type = ty
+		return ty
 	case *ast.BlockExpr:
 		return fc.checkBlockExpr(b, types.TypeVoid, false)
 	case *ast.StmtBodyExpr:
@@ -610,6 +632,15 @@ func (fc *funcChecker) checkVoidOrDiscardedBody(e ast.Expr) types.Type {
 	default:
 		return fc.checkExpr(e, false)
 	}
+}
+
+func (fc *funcChecker) checkUnsafeExpr(ue *ast.UnsafeExpr, expected types.Type, needValue bool) types.Type {
+	fc.unsafeDepth++
+	defer func() { fc.unsafeDepth-- }()
+	ty := fc.checkExprExpect(ue.Expr, expected, needValue)
+	inf := fc.a.infoFor(ue)
+	inf.Type = ty
+	return ty
 }
 
 func (fc *funcChecker) checkBlockExpr(b *ast.BlockExpr, expected types.Type, needValue bool) types.Type {
@@ -1265,6 +1296,9 @@ func (fc *funcChecker) checkExprExpect(e ast.Expr, expected types.Type, needValu
 	case *ast.FuncLit:
 		return fc.checkFuncLit(v, expected)
 
+	case *ast.UnsafeExpr:
+		return fc.checkUnsafeExpr(v, expected, needValue)
+
 	case *ast.BlockExpr:
 		return fc.checkBlockExpr(v, expected, needValue)
 
@@ -1359,7 +1393,7 @@ func (fc *funcChecker) checkUnaryExpr(u *ast.UnaryExpr, expected types.Type) typ
 
 	case token.Star:
 		if fc.unsafeDepth == 0 {
-			fc.a.Rep.Errorf(u.Span, "raw pointer dereference `*p` requires an `unsafe { ... }` block")
+			fc.a.Rep.Errorf(u.Span, "raw pointer dereference `*p` requires `unsafe`")
 		}
 		sub := fc.checkExpr(u.Operand, true)
 		pt, ok := sub.(*types.Ptr)
@@ -1791,7 +1825,7 @@ func (fc *funcChecker) checkIndexExpr(idx *ast.IndexExpr) types.Type {
 
 	case *types.Ptr:
 		if fc.unsafeDepth == 0 {
-			fc.a.Rep.Errorf(idx.Span, "raw pointer indexing `p[i]` requires `unsafe { ... }`")
+			fc.a.Rep.Errorf(idx.Span, "raw pointer indexing `p[i]` requires `unsafe`")
 		}
 		kTy := fc.checkExprExpect(idx.Index, types.TypeInt, true)
 		fc.verifyAssignable(kTy, types.TypeInt, idx.Index, idx.Index.GetSpan(), "pointer index")
@@ -2748,6 +2782,8 @@ func isSearchStmtBody(e ast.Expr) bool {
 		return v.Else == nil
 	case *ast.BlockExpr:
 		return v.Tail == nil || isSearchStmtBody(v.Tail)
+	case *ast.UnsafeExpr:
+		return isSearchStmtBody(v.Expr)
 	default:
 		return false
 	}

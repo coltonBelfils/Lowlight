@@ -357,6 +357,9 @@ func hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMaps,
 	case *ast.UnaryExpr:
 		return hoverInExpr(prog, mod, bm, v.Operand, offset, tok)
 
+	case *ast.UnsafeExpr:
+		return hoverInExpr(prog, mod, bm, v.Expr, offset, tok)
+
 	case *ast.IndexExpr:
 		if md := hoverInExpr(prog, mod, bm, v.Base, offset, tok); md != "" {
 			return md
@@ -941,6 +944,9 @@ func definitionSpanInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.
 
 	case *ast.UnaryExpr:
 		return definitionSpanInExpr(prog, mod, bm, v.Operand, offset, tok)
+
+	case *ast.UnsafeExpr:
+		return definitionSpanInExpr(prog, mod, bm, v.Expr, offset, tok)
 
 	case *ast.IndexExpr:
 		if sp := definitionSpanInExpr(prog, mod, bm, v.Base, offset, tok); sp.Start.File != "" {

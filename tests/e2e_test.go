@@ -612,3 +612,33 @@ bind main = (): int {
 		t.Fatalf("`lowlight run` output mismatch: err=%v out=%q", err, string(runOut))
 	}
 }
+
+// -----------------------------------------------------------------------------
+// 9. Standard Library `std/http.ll` & `std/net.ll`
+// -----------------------------------------------------------------------------
+
+func TestStdHttpPackage(t *testing.T) {
+	root := projectRoot(t)
+	httpTestPath := filepath.Join(root, "tests", "http_test.ll")
+	httpTestBytes, err := os.ReadFile(httpTestPath)
+	if err != nil {
+		t.Fatalf("failed to read %s: %v", httpTestPath, err)
+	}
+
+	for _, release := range []bool{false, true} {
+		out := runInlineStrict(t, "http_test", string(httpTestBytes), release)
+		if !strings.Contains(out, "All 7 std/http test suites passed with 0 leaks!") {
+			t.Fatalf("[release=%v] expected test success message, got:\n%s", release, out)
+		}
+	}
+
+	examplePath := filepath.Join(root, "examples", "http_server_and_client.ll")
+	exampleBytes, err := os.ReadFile(examplePath)
+	if err != nil {
+		t.Fatalf("failed to read %s: %v", examplePath, err)
+	}
+	outEx := runInlineStrict(t, "http_showcase", string(exampleBytes), false)
+	if !strings.Contains(outEx, "All HTTP client and server showcase demonstrations completed successfully!") {
+		t.Fatalf("showcase output mismatch:\n%s", outEx)
+	}
+}

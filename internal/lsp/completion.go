@@ -152,8 +152,10 @@ func (s *Server) completeImportPath(filePath string, src string, offset int) *Co
 		"std/math.ll": "Lowlight standard math module (PI, sin, cos, clamp_int, lerp, ...)",
 		"std/fs.ll":   "Lowlight standard filesystem module (exists, read_lines, join_path, ...)",
 		"std/pool.ll": "Lowlight generational handle pool (`Pool[T]`, `Handle`)",
+		"std/net.ll":  "Lowlight standard TCP networking module (`TcpStream`, `TcpListener`, `socketpair`)",
+		"std/http.ll": "Lowlight standard HTTP module (`Request`, `Response`, `ResponseWriter`, `ServeMux`, `Client`, `Server`)",
 	}
-	for _, stdMod := range []string{"std/math.ll", "std/fs.ll", "std/pool.ll"} {
+	for _, stdMod := range []string{"std/math.ll", "std/fs.ll", "std/pool.ll", "std/net.ll", "std/http.ll"} {
 		addCandidate(stdMod, stdDescriptions[stdMod], "0")
 	}
 	if root := s.projectRootFor(filePath); root != "" {
@@ -1549,6 +1551,9 @@ func walkExprScopes(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMa
 	case *ast.UnaryExpr:
 		walkExprScopes(prog, mod, bm, e.Operand, offset, out)
 
+	case *ast.UnsafeExpr:
+		walkExprScopes(prog, mod, bm, e.Expr, offset, out)
+
 	case *ast.StmtBodyExpr:
 		if s, ok := e.Stmt.(*ast.ExprStmt); ok {
 			walkExprScopes(prog, mod, bm, s.Expr, offset, out)
@@ -1721,6 +1726,8 @@ func findSentinelInExpr(e ast.Expr) *ast.MemberExpr {
 		return findSentinelInExpr(v.Right)
 	case *ast.UnaryExpr:
 		return findSentinelInExpr(v.Operand)
+	case *ast.UnsafeExpr:
+		return findSentinelInExpr(v.Expr)
 	case *ast.IndexExpr:
 		if m := findSentinelInExpr(v.Base); m != nil {
 			return m

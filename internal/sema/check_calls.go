@@ -64,7 +64,7 @@ func (fc *funcChecker) checkCallExpr(call *ast.CallExpr, expected types.Type) ty
 			fc.a.infoFor(id).Type = sym.Type
 			if sym.ExternFn != nil {
 				if fc.unsafeDepth == 0 {
-					fc.a.Rep.Errorf(call.Span, "calling `extern` C function %q requires an `unsafe { ... }` block", sym.Name)
+					fc.a.Rep.Errorf(call.Span, "calling `extern` C function %q requires `unsafe`", sym.Name)
 				}
 				fc.checkSignatureArgs(sym.ExternFn.Sig.Params, call.Args, nil, call.Span)
 				inf.CallKind = CallExternC
@@ -891,7 +891,7 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 			return wrapRet(types.TypeString)
 		case "c_str":
 			if fc.unsafeDepth == 0 {
-				fc.a.Rep.Errorf(call.Span, "`string.c_str()` returns raw `ptr[u8]` and requires an `unsafe { ... }` block")
+				fc.a.Rep.Errorf(call.Span, "`string.c_str()` returns raw `ptr[u8]` and requires `unsafe`")
 			}
 			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
 			inf.BuiltinName = "string.c_str"
@@ -1265,7 +1265,7 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 
 	requireUnsafe := func() {
 		if fc.unsafeDepth == 0 {
-			fc.a.Rep.Errorf(call.Span, "low-level memory intrinsic `%s` requires an `unsafe { ... }` block", name)
+			fc.a.Rep.Errorf(call.Span, "low-level memory intrinsic `%s` requires `unsafe`", name)
 		}
 	}
 

@@ -286,7 +286,7 @@ var stdCHeaderFuncs = map[string]bool{
 func (g *cEmitter) emitForwardPrototypes() {
 	if len(g.prog.ExternHeaders) == 0 && len(g.prog.ExternFuncs) > 0 {
 		for _, ef := range g.prog.ExternFuncs {
-			if stdCHeaderFuncs[ef.Name] {
+			if stdCHeaderFuncs[ef.Name] || strings.HasPrefix(ef.Name, "ll_") {
 				continue
 			}
 			var ps []string
