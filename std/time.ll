@@ -1,8 +1,17 @@
 // Lowlight Standard Library: std/time.ll
-// Monotonic high-resolution timing, durations, and sleeping.
+// Robust monotonic timing, durations, DateTime manipulation, and multi-standard formatting.
+
+import "std/strconv.ll"
 
 extern ll_time_monotonic_nanos: (): int
 extern ll_time_sleep_ms: (ms: int)
+extern ll_time_epoch_nanos_now: (): int
+extern ll_time_breakdown: (epoch_sec: int, is_local: bool, out_fields: ptr[int], out_zone: ptr[u8], zone_len: int)
+extern ll_time_make_epoch: (year: int, month: int, day: int, hour: int, minute: int, second: int, is_local: bool): int
+
+// -----------------------------------------------------------------------------
+// Duration & Instant
+// -----------------------------------------------------------------------------
 
 define Duration struct [
     nanos: int,
@@ -40,6 +49,21 @@ bind Duration.to_secs = (self): float {
     float(self.nanos) / 1000000000.0
 }
 
+bind Duration.to_string = (self): string {
+    if (self.nanos < 1000) {
+        "${self.nanos} ns"
+    } else if (self.nanos < 1000000) {
+        let us = float(self.nanos) / 1000.0
+        "${float_to_str(us, 2)} µs"
+    } else if (self.nanos < 1000000000) {
+        let ms = float(self.nanos) / 1000000.0
+        "${float_to_str(ms, 2)} ms"
+    } else {
+        let s = float(self.nanos) / 1000000000.0
+        "${float_to_str(s, 3)} s"
+    }
+}
+
 define Instant struct [
     nanos: int,
 ]
@@ -58,6 +82,11 @@ bind Instant.elapsed_millis = (self): float {
     d.to_millis()
 }
 
+bind Instant.elapsed_nanos = (self): int {
+    let d = self.elapsed()
+    d.to_nanos()
+}
+
 bind now_nanos = (): int {
     unsafe ll_time_monotonic_nanos()
 }
@@ -68,4 +97,495 @@ bind now_millis = (): float {
 
 bind sleep_ms = (ms: int) {
     unsafe ll_time_sleep_ms(ms)
+}
+
+// -----------------------------------------------------------------------------
+// Helper Format Functions
+// -----------------------------------------------------------------------------
+
+bind pad_int_zeros = (val: int, width: int): string {
+    let s = "$val"
+    let diff = width - s.len()
+    if (diff <= 0) func <- s
+    let out = ""
+    for (i in 0..diff) {
+        out.push("0")
+    }
+    out.push(s)
+    out
+}
+
+bind pad_int_spaces = (val: int, width: int): string {
+    let s = "$val"
+    let diff = width - s.len()
+    if (diff <= 0) func <- s
+    let out = ""
+    for (i in 0..diff) {
+        out.push(" ")
+    }
+    out.push(s)
+    out
+}
+
+bind month_abbr = (m: int): string {
+    if (m == 1) "Jan"
+    else if (m == 2) "Feb"
+    else if (m == 3) "Mar"
+    else if (m == 4) "Apr"
+    else if (m == 5) "May"
+    else if (m == 6) "Jun"
+    else if (m == 7) "Jul"
+    else if (m == 8) "Aug"
+    else if (m == 9) "Sep"
+    else if (m == 10) "Oct"
+    else if (m == 11) "Nov"
+    else if (m == 12) "Dec"
+    else ""
+}
+
+bind month_full = (m: int): string {
+    if (m == 1) "January"
+    else if (m == 2) "February"
+    else if (m == 3) "March"
+    else if (m == 4) "April"
+    else if (m == 5) "May"
+    else if (m == 6) "June"
+    else if (m == 7) "July"
+    else if (m == 8) "August"
+    else if (m == 9) "September"
+    else if (m == 10) "October"
+    else if (m == 11) "November"
+    else if (m == 12) "December"
+    else ""
+}
+
+bind weekday_abbr = (w: int): string {
+    if (w == 0) "Sun"
+    else if (w == 1) "Mon"
+    else if (w == 2) "Tue"
+    else if (w == 3) "Wed"
+    else if (w == 4) "Thu"
+    else if (w == 5) "Fri"
+    else if (w == 6) "Sat"
+    else ""
+}
+
+bind weekday_full = (w: int): string {
+    if (w == 0) "Sunday"
+    else if (w == 1) "Monday"
+    else if (w == 2) "Tuesday"
+    else if (w == 3) "Wednesday"
+    else if (w == 4) "Thursday"
+    else if (w == 5) "Friday"
+    else if (w == 6) "Saturday"
+    else ""
+}
+
+bind format_tz_offset = (offset_secs: int, with_colon: bool): string {
+    let is_neg = offset_secs < 0
+    let total_mins = (if (is_neg) -offset_secs else offset_secs) / 60
+    let hours = total_mins / 60
+    let mins = total_mins % 60
+    let sign = if (is_neg) "-" else "+"
+    let h_str = pad_int_zeros(hours, 2)
+    let m_str = pad_int_zeros(mins, 2)
+    if (with_colon) {
+        "$sign$h_str:$m_str"
+    } else {
+        "$sign$h_str$m_str"
+    }
+}
+
+// -----------------------------------------------------------------------------
+// DateTime Struct & Methods
+// -----------------------------------------------------------------------------
+
+define DateTime struct [
+    year: int,
+    month: int,        // 1..12
+    day: int,          // 1..31
+    hour: int,         // 0..23
+    minute: int,       // 0..59
+    second: int,       // 0..59
+    nanosecond: int,   // 0..999,999,999
+    weekday: int,      // 0=Sun..6=Sat
+    yday: int,         // 1..366
+    offset_secs: int,  // UTC offset in seconds
+    zone_name: string, // e.g. "UTC", "PDT"
+    unix_secs: int,    // seconds since Unix epoch
+    is_local: bool,
+]
+
+bind build_datetime_from_epoch = (epoch_sec: int, nano: int, is_local: bool): DateTime {
+    unsafe {
+        let raw_fields = alloc_raw[int](9)
+        let raw_zone = alloc_raw[u8](32)
+        zero_bytes(raw_zone, 32)
+        ll_time_breakdown(epoch_sec, is_local, raw_fields, raw_zone, 32)
+
+        let yr = *ptr_add(raw_fields, 0)
+        let mo = *ptr_add(raw_fields, 1)
+        let dy = *ptr_add(raw_fields, 2)
+        let hr = *ptr_add(raw_fields, 3)
+        let mi = *ptr_add(raw_fields, 4)
+        let sc = *ptr_add(raw_fields, 5)
+        let wd = *ptr_add(raw_fields, 6)
+        let yd = *ptr_add(raw_fields, 7)
+        let off = *ptr_add(raw_fields, 8)
+
+        // Read zone name string
+        let zone = ""
+        let zi = 0
+        for (zi < 32) {
+            let b = *ptr_add(raw_zone, zi)
+            if (b == u8(0)) {
+                for <-
+            }
+            zone.push_byte(b)
+            zi += 1
+        }
+        if (zone.len() == 0) {
+            zone = if (is_local) "LOCAL" else "UTC"
+        }
+
+        free_raw(raw_fields)
+        free_raw(raw_zone)
+
+        DateTime[
+            year: yr,
+            month: mo,
+            day: dy,
+            hour: hr,
+            minute: mi,
+            second: sc,
+            nanosecond: nano,
+            weekday: wd,
+            yday: yd,
+            offset_secs: off,
+            zone_name: zone,
+            unix_secs: epoch_sec,
+            is_local: is_local,
+        ]
+    }
+}
+
+bind DateTime.now_utc = (): DateTime {
+    let now_nanos = unsafe ll_time_epoch_nanos_now()
+    let sec = now_nanos / 1000000000
+    let nano = now_nanos % 1000000000
+    build_datetime_from_epoch(sec, nano, false)
+}
+
+bind DateTime.now_local = (): DateTime {
+    let now_nanos = unsafe ll_time_epoch_nanos_now()
+    let sec = now_nanos / 1000000000
+    let nano = now_nanos % 1000000000
+    build_datetime_from_epoch(sec, nano, true)
+}
+
+bind DateTime.from_unix_secs = (secs: int, is_local: bool): DateTime {
+    build_datetime_from_epoch(secs, 0, is_local)
+}
+
+bind DateTime.from_unix_millis = (ms: int, is_local: bool): DateTime {
+    let sec = ms / 1000
+    let nano = (ms % 1000) * 1000000
+    build_datetime_from_epoch(sec, nano, is_local)
+}
+
+bind DateTime.from_unix_nanos = (nanos: int, is_local: bool): DateTime {
+    let sec = nanos / 1000000000
+    let nano = nanos % 1000000000
+    build_datetime_from_epoch(sec, nano, is_local)
+}
+
+bind DateTime.new = (year: int, month: int, day: int, hour: int, minute: int, second: int, is_local: bool): DateTime {
+    let sec = unsafe ll_time_make_epoch(year, month, day, hour, minute, second, is_local)
+    build_datetime_from_epoch(sec, 0, is_local)
+}
+
+bind DateTime.is_leap_year = (self): bool {
+    let y = self.year
+    (y % 4 == 0 and y % 100 != 0) or (y % 400 == 0)
+}
+
+// -----------------------------------------------------------------------------
+// Standard 1: C / POSIX / strftime Format Standard (`%` specifiers)
+// -----------------------------------------------------------------------------
+
+bind DateTime.format = (self, pattern: string): string {
+    let out = ""
+    let n = pattern.len()
+    let i = 0
+
+    for (i < n) {
+        let ch = pattern[i..(i + 1)]
+        if (ch == "%" and i + 1 < n) {
+            let spec = pattern[(i + 1)..(i + 2)]
+            if (spec == "Y") {
+                out.push(pad_int_zeros(self.year, 4))
+                i += 2
+            } else if (spec == "y") {
+                out.push(pad_int_zeros(self.year % 100, 2))
+                i += 2
+            } else if (spec == "m") {
+                out.push(pad_int_zeros(self.month, 2))
+                i += 2
+            } else if (spec == "d") {
+                out.push(pad_int_zeros(self.day, 2))
+                i += 2
+            } else if (spec == "e") {
+                out.push(pad_int_spaces(self.day, 2))
+                i += 2
+            } else if (spec == "H") {
+                out.push(pad_int_zeros(self.hour, 2))
+                i += 2
+            } else if (spec == "I") {
+                let h12 = if (self.hour == 0) 12 else if (self.hour > 12) self.hour - 12 else self.hour
+                out.push(pad_int_zeros(h12, 2))
+                i += 2
+            } else if (spec == "M") {
+                out.push(pad_int_zeros(self.minute, 2))
+                i += 2
+            } else if (spec == "S") {
+                out.push(pad_int_zeros(self.second, 2))
+                i += 2
+            } else if (spec == "L") {
+                out.push(pad_int_zeros(self.nanosecond / 1000000, 3))
+                i += 2
+            } else if (spec == "f") {
+                out.push(pad_int_zeros(self.nanosecond / 1000, 6))
+                i += 2
+            } else if (spec == "p") {
+                out.push(if (self.hour < 12) "AM" else "PM")
+                i += 2
+            } else if (spec == "P") {
+                out.push(if (self.hour < 12) "am" else "pm")
+                i += 2
+            } else if (spec == "z") {
+                out.push(format_tz_offset(self.offset_secs, false))
+                i += 2
+            } else if (spec == "Z") {
+                out.push(self.zone_name)
+                i += 2
+            } else if (spec == "a") {
+                out.push(weekday_abbr(self.weekday))
+                i += 2
+            } else if (spec == "A") {
+                out.push(weekday_full(self.weekday))
+                i += 2
+            } else if (spec == "b" or spec == "h") {
+                out.push(month_abbr(self.month))
+                i += 2
+            } else if (spec == "B") {
+                out.push(month_full(self.month))
+                i += 2
+            } else if (spec == "F") {
+                out.push("${pad_int_zeros(self.year, 4)}-${pad_int_zeros(self.month, 2)}-${pad_int_zeros(self.day, 2)}")
+                i += 2
+            } else if (spec == "T") {
+                out.push("${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}")
+                i += 2
+            } else if (spec == "R") {
+                out.push("${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}")
+                i += 2
+            } else if (spec == "%") {
+                out.push("%")
+                i += 2
+            } else {
+                out.push(ch)
+                i += 1
+            }
+        } else {
+            out.push(ch)
+            i += 1
+        }
+    }
+    out
+}
+
+// -----------------------------------------------------------------------------
+// Standard 2: Go Reference Layout Format Standard (`Mon Jan 2 15:04:05 MST 2006`)
+// -----------------------------------------------------------------------------
+
+bind DateTime.format_go = (self, layout: string): string {
+    let out = ""
+    let n = layout.len()
+    let i = 0
+
+    for (i < n) {
+        let rem = layout[i..n]
+        if (rem.starts_with("January")) {
+            out.push(month_full(self.month))
+            i += 7
+        } else if (rem.starts_with("Jan")) {
+            out.push(month_abbr(self.month))
+            i += 3
+        } else if (rem.starts_with("Monday")) {
+            out.push(weekday_full(self.weekday))
+            i += 6
+        } else if (rem.starts_with("Mon")) {
+            out.push(weekday_abbr(self.weekday))
+            i += 3
+        } else if (rem.starts_with("2006")) {
+            out.push(pad_int_zeros(self.year, 4))
+            i += 4
+        } else if (rem.starts_with("06")) {
+            out.push(pad_int_zeros(self.year % 100, 2))
+            i += 2
+        } else if (rem.starts_with("01")) {
+            out.push(pad_int_zeros(self.month, 2))
+            i += 2
+        } else if (rem.starts_with("02")) {
+            out.push(pad_int_zeros(self.day, 2))
+            i += 2
+        } else if (rem.starts_with("_2")) {
+            out.push(pad_int_spaces(self.day, 2))
+            i += 2
+        } else if (rem.starts_with("15")) {
+            out.push(pad_int_zeros(self.hour, 2))
+            i += 2
+        } else if (rem.starts_with("03")) {
+            let h12 = if (self.hour == 0) 12 else if (self.hour > 12) self.hour - 12 else self.hour
+            out.push(pad_int_zeros(h12, 2))
+            i += 2
+        } else if (rem.starts_with("04")) {
+            out.push(pad_int_zeros(self.minute, 2))
+            i += 2
+        } else if (rem.starts_with("05")) {
+            out.push(pad_int_zeros(self.second, 2))
+            i += 2
+        } else if (rem.starts_with("PM")) {
+            out.push(if (self.hour < 12) "AM" else "PM")
+            i += 2
+        } else if (rem.starts_with("pm")) {
+            out.push(if (self.hour < 12) "am" else "pm")
+            i += 2
+        } else if (rem.starts_with("MST")) {
+            out.push(self.zone_name)
+            i += 3
+        } else if (rem.starts_with("Z07:00")) {
+            if (self.offset_secs == 0) {
+                out.push("Z")
+            } else {
+                out.push(format_tz_offset(self.offset_secs, true))
+            }
+            i += 6
+        } else if (rem.starts_with("-07:00")) {
+            out.push(format_tz_offset(self.offset_secs, true))
+            i += 6
+        } else if (rem.starts_with("-0700")) {
+            out.push(format_tz_offset(self.offset_secs, false))
+            i += 5
+        } else if (rem.starts_with("-07")) {
+            let full_off = format_tz_offset(self.offset_secs, false)
+            out.push(full_off[0..3])
+            i += 3
+        } else if (rem.starts_with(".000000000") or rem.starts_with(".999999999")) {
+            out.push("." + pad_int_zeros(self.nanosecond, 9))
+            i += 10
+        } else if (rem.starts_with(".000000") or rem.starts_with(".999999")) {
+            out.push("." + pad_int_zeros(self.nanosecond / 1000, 6))
+            i += 7
+        } else if (rem.starts_with(".000") or rem.starts_with(".999")) {
+            out.push("." + pad_int_zeros(self.nanosecond / 1000000, 3))
+            i += 4
+        } else if (rem.starts_with("1")) {
+            out.push("${self.month}")
+            i += 1
+        } else if (rem.starts_with("2")) {
+            out.push("${self.day}")
+            i += 1
+        } else if (rem.starts_with("3")) {
+            let h12 = if (self.hour == 0) 12 else if (self.hour > 12) self.hour - 12 else self.hour
+            out.push("$h12")
+            i += 1
+        } else if (rem.starts_with("4")) {
+            out.push("${self.minute}")
+            i += 1
+        } else if (rem.starts_with("5")) {
+            out.push("${self.second}")
+            i += 1
+        } else {
+            out.push(layout[i..(i + 1)])
+            i += 1
+        }
+    }
+    out
+}
+
+// -----------------------------------------------------------------------------
+// Convenience ISO / RFC Formatting
+// -----------------------------------------------------------------------------
+
+bind DateTime.to_iso = (self): string {
+    let date_str = "${pad_int_zeros(self.year, 4)}-${pad_int_zeros(self.month, 2)}-${pad_int_zeros(self.day, 2)}"
+    let time_str = "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}"
+    let tz_str = if (self.offset_secs == 0) "Z" else format_tz_offset(self.offset_secs, true)
+    "${date_str}T${time_str}${tz_str}"
+}
+
+bind DateTime.to_rfc3339 = (self): string {
+    self.to_iso()
+}
+
+bind DateTime.to_rfc2822 = (self): string {
+    let w = weekday_abbr(self.weekday)
+    let m = month_abbr(self.month)
+    let d = pad_int_zeros(self.day, 2)
+    let y = pad_int_zeros(self.year, 4)
+    let tm = "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}"
+    let tz = format_tz_offset(self.offset_secs, false)
+    "$w, $d $m $y $tm $tz"
+}
+
+bind DateTime.to_date_string = (self): string {
+    "${pad_int_zeros(self.year, 4)}-${pad_int_zeros(self.month, 2)}-${pad_int_zeros(self.day, 2)}"
+}
+
+bind DateTime.to_time_string = (self): string {
+    "${pad_int_zeros(self.hour, 2)}:${pad_int_zeros(self.minute, 2)}:${pad_int_zeros(self.second, 2)}"
+}
+
+bind DateTime.to_string = (self): string {
+    "${self.to_date_string()} ${self.to_time_string()}"
+}
+
+bind DateTime.add_duration = (self, d: Duration): DateTime {
+    let new_nanos = (self.unix_secs * 1000000000 + self.nanosecond) + d.nanos
+    DateTime.from_unix_nanos(new_nanos, self.is_local)
+}
+
+bind DateTime.sub_duration = (self, d: Duration): DateTime {
+    let new_nanos = (self.unix_secs * 1000000000 + self.nanosecond) - d.nanos
+    DateTime.from_unix_nanos(new_nanos, self.is_local)
+}
+
+bind DateTime.diff = (self, other: DateTime): Duration {
+    let t1 = self.unix_secs * 1000000000 + self.nanosecond
+    let t2 = other.unix_secs * 1000000000 + other.nanosecond
+    Duration[nanos: t1 - t2]
+}
+
+// -----------------------------------------------------------------------------
+// String Extension for Parsing DateTime
+// -----------------------------------------------------------------------------
+
+bind string.to_datetime = (self): ?DateTime {
+    let trimmed = self.trim()
+    if (trimmed.len() < 10) func <- none
+    let y = trimmed[0..4].to_int() ?? func <- none
+    let m = trimmed[5..7].to_int() ?? func <- none
+    let d = trimmed[8..10].to_int() ?? func <- none
+
+    if (trimmed.len() == 10) {
+        DateTime.new(y, m, d, 0, 0, 0, false)
+    } else if (trimmed.len() >= 19) {
+        let h = trimmed[11..13].to_int() ?? func <- none
+        let min = trimmed[14..16].to_int() ?? func <- none
+        let s = trimmed[17..19].to_int() ?? func <- none
+        DateTime.new(y, m, d, h, min, s, false)
+    } else {
+        none
+    }
 }

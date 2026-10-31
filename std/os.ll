@@ -83,7 +83,3 @@ bind os_name = (): string {
 bind arch = (): string {
     unsafe ll_os_arch()
 }
-
-bind format_float = (v: float, precision: int): string {
-    unsafe ll_fmt_float_prec(v, precision)
-}

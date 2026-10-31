@@ -1314,4 +1314,237 @@ static inline ll_string ll_fmt_float_prec(double v, int64_t prec) {
     int n = snprintf(buf, sizeof(buf), "%.*f", p, v);
     return ll_copy__string(ll_str_lit(buf, (int64_t)n));
 }
+
+/* ============================================================================
+ * 10. Date & Time Runtime
+ * ========================================================================== */
+
+static inline int64_t ll_time_epoch_now(void) {
+    return (int64_t)time(NULL);
+}
+
+static inline int64_t ll_time_epoch_nanos_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
+}
+
+static inline void ll_time_breakdown(int64_t epoch_sec, bool is_local, int64_t* out_fields, char* out_zone, int64_t zone_len) {
+    time_t sec = (time_t)epoch_sec;
+    struct tm t;
+    if (is_local) {
+        localtime_r(&sec, &t);
+    } else {
+        gmtime_r(&sec, &t);
+    }
+    if (out_fields) {
+        out_fields[0] = (int64_t)t.tm_year + 1900LL; // year
+        out_fields[1] = (int64_t)t.tm_mon + 1LL;     // month (1..12)
+        out_fields[2] = (int64_t)t.tm_mday;          // day (1..31)
+        out_fields[3] = (int64_t)t.tm_hour;          // hour (0..23)
+        out_fields[4] = (int64_t)t.tm_min;           // minute (0..59)
+        out_fields[5] = (int64_t)t.tm_sec;           // second (0..59)
+        out_fields[6] = (int64_t)t.tm_wday;          // weekday (0=Sun..6=Sat)
+        out_fields[7] = (int64_t)t.tm_yday + 1LL;    // day of year (1..366)
+#if defined(__APPLE__) || defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+        out_fields[8] = (int64_t)t.tm_gmtoff;        // offset from UTC in seconds
+#else
+        out_fields[8] = 0LL;
+#endif
+    }
+    if (out_zone && zone_len > 0) {
+#if defined(__APPLE__) || defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+        if (t.tm_zone) {
+            snprintf(out_zone, (size_t)zone_len, "%s", t.tm_zone);
+        } else {
+            out_zone[0] = '\0';
+        }
+#else
+        out_zone[0] = '\0';
+#endif
+    }
+}
+
+static inline int64_t ll_time_make_epoch(int64_t year, int64_t month, int64_t day,
+                                         int64_t hour, int64_t minute, int64_t second, bool is_local) {
+    struct tm t;
+    memset(&t, 0, sizeof(t));
+    t.tm_year = (int)(year - 1900);
+    t.tm_mon  = (int)(month - 1);
+    t.tm_mday = (int)day;
+    t.tm_hour = (int)hour;
+    t.tm_min  = (int)minute;
+    t.tm_sec  = (int)second;
+    t.tm_isdst = -1;
+    if (is_local) {
+        return (int64_t)mktime(&t);
+    } else {
+#if defined(__APPLE__) || defined(_GNU_SOURCE) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+        return (int64_t)timegm(&t);
+#else
+        return (int64_t)mktime(&t);
+#endif
+    }
+}
+
+static inline ll_string ll_time_strftime(int64_t epoch_sec, bool is_local, const char* fmt_str) {
+    if (!fmt_str) return ll_str_lit("", 0);
+    time_t sec = (time_t)epoch_sec;
+    struct tm t;
+    if (is_local) {
+        localtime_r(&sec, &t);
+    } else {
+        gmtime_r(&sec, &t);
+    }
+    char buf[256];
+    size_t n = strftime(buf, sizeof(buf), fmt_str, &t);
+    if (n == 0) return ll_str_lit("", 0);
+    return ll_copy__string(ll_str_lit(buf, (int64_t)n));
+}
+
+/* ============================================================================
+ * 11. String Formatting & Conversion Runtime
+ * ========================================================================== */
+
+static inline bool ll_str_parse_int_radix(const char* s, int64_t len, int64_t radix, int64_t* out_val) {
+    if (!s || len <= 0 || radix < 2 || radix > 36) return false;
+    while (len > 0 && (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r')) { s++; len--; }
+    while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\n' || s[len - 1] == '\r')) { len--; }
+    if (len <= 0) return false;
+    char buf[128];
+    char* buf_ptr = buf;
+    if (len >= (int64_t)sizeof(buf)) {
+        buf_ptr = (char*)malloc((size_t)(len + 1));
+        if (!buf_ptr) return false;
+    }
+    memcpy(buf_ptr, s, (size_t)len);
+    buf_ptr[len] = '\0';
+    char* endptr = NULL;
+    errno = 0;
+    long long v = strtoll(buf_ptr, &endptr, (int)radix);
+    bool ok = (errno == 0 && endptr == buf_ptr + len);
+    if (buf_ptr != buf) free(buf_ptr);
+    if (ok && out_val) *out_val = (int64_t)v;
+    return ok;
+}
+
+static inline bool ll_str_parse_float_strict(const char* s, int64_t len, double* out_val) {
+    if (!s || len <= 0) return false;
+    while (len > 0 && (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r')) { s++; len--; }
+    while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\n' || s[len - 1] == '\r')) { len--; }
+    if (len <= 0) return false;
+    char buf[128];
+    char* buf_ptr = buf;
+    if (len >= (int64_t)sizeof(buf)) {
+        buf_ptr = (char*)malloc((size_t)(len + 1));
+        if (!buf_ptr) return false;
+    }
+    memcpy(buf_ptr, s, (size_t)len);
+    buf_ptr[len] = '\0';
+    char* endptr = NULL;
+    errno = 0;
+    double v = strtod(buf_ptr, &endptr);
+    bool ok = (errno == 0 && endptr == buf_ptr + len);
+    if (buf_ptr != buf) free(buf_ptr);
+    if (ok && out_val) *out_val = v;
+    return ok;
+}
+
+static inline ll_string ll_str_to_radix(int64_t val, int64_t radix, bool upper) {
+    if (radix < 2 || radix > 36) return ll_str_lit("", 0);
+    char buf[70];
+    int idx = 69;
+    buf[idx] = '\0';
+    uint64_t uval;
+    bool is_neg = false;
+    if (radix == 10) {
+        if (val < 0) {
+            is_neg = true;
+            uval = (uint64_t)(-val);
+        } else {
+            uval = (uint64_t)val;
+        }
+    } else {
+        uval = (uint64_t)val;
+    }
+    const char* digits = upper ? "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" : "0123456789abcdefghijklmnopqrstuvwxyz";
+    if (uval == 0) {
+        buf[--idx] = '0';
+    } else {
+        while (uval > 0) {
+            buf[--idx] = digits[uval % (uint64_t)radix];
+            uval /= (uint64_t)radix;
+        }
+    }
+    if (is_neg) {
+        buf[--idx] = '-';
+    }
+    int64_t len = 69 - idx;
+    return ll_copy__string(ll_str_lit(buf + idx, len));
+}
+
+static inline ll_string ll_fmt_exp_f64(double v, int64_t prec) {
+    char buf[64];
+    int p = (prec < 0) ? 6 : (prec > 15 ? 15 : (int)prec);
+    int n = snprintf(buf, sizeof(buf), "%.*e", p, v);
+    return ll_copy__string(ll_str_lit(buf, (int64_t)n));
+}
+
+static inline ll_string ll_fmt_commas_i64(int64_t val) {
+    char raw[32];
+    int n = snprintf(raw, sizeof(raw), "%lld", (long long)val);
+    if (n <= 0) return ll_str_lit("0", 1);
+    char buf[48];
+    int r_idx = n - 1;
+    int b_idx = 47;
+    buf[b_idx] = '\0';
+    int count = 0;
+    while (r_idx >= 0) {
+        if (raw[r_idx] == '-') {
+            buf[--b_idx] = '-';
+            break;
+        }
+        if (count == 3) {
+            buf[--b_idx] = ',';
+            count = 0;
+        }
+        buf[--b_idx] = raw[r_idx--];
+        count++;
+    }
+    int64_t len = 47 - b_idx;
+    return ll_copy__string(ll_str_lit(buf + b_idx, len));
+}
+
+static inline ll_string ll_fmt_commas_f64(double val, int64_t prec) {
+    char raw[64];
+    int p = (prec < 0) ? 2 : (prec > 15 ? 15 : (int)prec);
+    int n = snprintf(raw, sizeof(raw), "%.*f", p, val);
+    if (n <= 0) return ll_str_lit("0", 1);
+    char* dot = strchr(raw, '.');
+    int int_len = dot ? (int)(dot - raw) : n;
+    char buf[80];
+    int b_idx = 79;
+    buf[b_idx] = '\0';
+    if (dot) {
+        int frac_len = n - int_len;
+        b_idx -= frac_len;
+        memcpy(buf + b_idx, dot, (size_t)frac_len);
+    }
+    int r_idx = int_len - 1;
+    int count = 0;
+    while (r_idx >= 0) {
+        if (raw[r_idx] == '-') {
+            buf[--b_idx] = '-';
+            break;
+        }
+        if (count == 3) {
+            buf[--b_idx] = ',';
+            count = 0;
+        }
+        buf[--b_idx] = raw[r_idx--];
+        count++;
+    }
+    int64_t len = 79 - b_idx;
+    return ll_copy__string(ll_str_lit(buf + b_idx, len));
+}
 `

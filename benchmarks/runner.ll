@@ -5,6 +5,7 @@
 import "std/time.ll" as time
 import "std/os.ll" as os
 import "std/fs.ll" as fs
+import "std/strfmt.ll" as strfmt
 
 define BenchCase struct [
     name: string,
@@ -52,22 +53,11 @@ bind sort_floats = (arr: &[float]) {
 }
 
 bind pad_right = (s: string, width: int): string {
-    let out = s.copy()
-    let pad = width - s.len()
-    for (i in 0..pad) {
-        out.push(" ")
-    }
-    out
+    s.pad_right(width)
 }
 
 bind pad_left = (s: string, width: int): string {
-    let pad = width - s.len()
-    let out = ""
-    for (i in 0..pad) {
-        out.push(" ")
-    }
-    out.push(s)
-    out
+    s.pad_left(width)
 }
 
 bind build_command = (tag: string, bin_path: string, bc: BenchCase): string {
@@ -218,12 +208,12 @@ bind main = () {
             }
             let std_dev_ms = sqrt(var_sum / float(runs.len()))
 
-            let mean_s = pad_left(os.format_float(mean_ms, 2) + " ms", 11)
-            let min_s = pad_left(os.format_float(min_ms, 2), 7)
-            let max_s = pad_left(os.format_float(max_ms, 2), 7)
-            let std_s = pad_left(os.format_float(std_dev_ms, 2) + " ms", 9)
+            let mean_s = pad_left(strfmt.format_float(mean_ms, 2) + " ms", 11)
+            let min_s = pad_left(strfmt.format_float(min_ms, 2), 7)
+            let max_s = pad_left(strfmt.format_float(max_ms, 2), 7)
+            let std_s = pad_left(strfmt.format_float(std_dev_ms, 2) + " ms", 9)
             let kb_s = pad_left("${bin_kb} KB", 8)
-            let build_s = pad_left(os.format_float(compile_ms, 0) + " ms", 8)
+            let build_s = pad_left(strfmt.format_float(compile_ms, 0) + " ms", 8)
 
             println("  [$valid_mark] ${pad_right(cfg.name, 22)}: $mean_s  (min: $min_s, max: $max_s, σ: $std_s) | bin: $kb_s | build: $build_s")
 
@@ -286,28 +276,28 @@ bind main = () {
             for (r in all_results) {
                 if (r.case_name == bc.name and r.config_name == cfg.name) {
                     let vs_c_str = if (base_c_mean > 0.0) {
-                        os.format_float(r.mean_ms / base_c_mean, 2) + "x"
+                        strfmt.format_float(r.mean_ms / base_c_mean, 2) + "x"
                     } else {
                         "-"
                     }
                     let vs_go_str = if (base_go_mean > 0.0) {
-                        os.format_float(r.mean_ms / base_go_mean, 2) + "x"
+                        strfmt.format_float(r.mean_ms / base_go_mean, 2) + "x"
                     } else {
                         "-"
                     }
 
-                    let mean_s = pad_left(os.format_float(r.mean_ms, 2) + " ms", 10)
+                    let mean_s = pad_left(strfmt.format_float(r.mean_ms, 2) + " ms", 10)
                     let vs_c_s = pad_left(vs_c_str, 10)
                     let vs_go_s = pad_left(vs_go_str, 10)
                     let bin_s = pad_left("${r.binary_size_kb} KB", 11)
-                    let bld_s = pad_left(os.format_float(r.compile_time_ms, 1) + " ms", 10)
+                    let bld_s = pad_left(strfmt.format_float(r.compile_time_ms, 1) + " ms", 10)
 
                     println("${pad_right(cfg.name, 24)} | $mean_s | $vs_c_s | $vs_go_s | $bin_s | $bld_s")
 
-                    let min_f = os.format_float(r.min_ms, 2)
-                    let max_f = os.format_float(r.max_ms, 2)
-                    let mean_f = os.format_float(r.mean_ms, 2)
-                    let bld_f = os.format_float(r.compile_time_ms, 1)
+                    let min_f = strfmt.format_float(r.min_ms, 2)
+                    let max_f = strfmt.format_float(r.max_ms, 2)
+                    let mean_f = strfmt.format_float(r.mean_ms, 2)
+                    let bld_f = strfmt.format_float(r.compile_time_ms, 1)
 
                     report.push("| **${cfg.name}** | ${cfg.category} | **${mean_f} ms** | ${min_f} / ${max_f} ms | **${vs_c_str}** | **${vs_go_str}** | ${r.binary_size_kb} KB | ${bld_f} ms |\n")
                 }
