@@ -301,6 +301,9 @@ func (l *Lexer) scanOne() {
 			return
 		}
 		l.emit(token.Question, "?", start, l.pos())
+	case '@':
+		l.advance()
+		l.emit(token.At, "@", start, l.pos())
 	case '=':
 		l.advance()
 		if l.peek() == '=' {

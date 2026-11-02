@@ -36,6 +36,7 @@ const (
 	QuestDot  // ?.
 	DotDot    // ..
 	DotDotEq  // ..=
+	At        // @
 
 	// Operators & Unwind
 	Unwind     // <- (whitespace-delimited)
@@ -130,6 +131,7 @@ var kindNames = map[Kind]string{
 	QuestDot:    "?.",
 	DotDot:      "..",
 	DotDotEq:    "..=",
+	At:          "@",
 	Unwind:      "<-",
 	Question:    "?",
 	QuestQuest:  "??",

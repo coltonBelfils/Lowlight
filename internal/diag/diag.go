@@ -28,6 +28,7 @@ type Span struct {
 }
 
 func (s Span) Pos() Pos { return s.Start }
+func (s Span) String() string { return s.Start.String() }
 
 // Severity indicates whether a diagnostic is an error or a warning.
 type Severity int

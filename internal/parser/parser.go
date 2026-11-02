@@ -116,22 +116,72 @@ func (p *Parser) parseFile() *ast.File {
 	}
 }
 
+func (p *Parser) parseAttributes() []ast.Attribute {
+	var attrs []ast.Attribute
+	for p.cur().Kind == token.At {
+		atTok := p.advance() // consume '@'
+		nameTok := p.expect(token.Ident, "attribute name after `@`")
+		var args []string
+		end := nameTok.Span.End
+		if p.cur().Kind == token.LParen {
+			p.advance() // consume '('
+			for p.cur().Kind != token.RParen && p.cur().Kind != token.EOF {
+				var argVal string
+				if p.cur().Kind == token.StringLit {
+					argVal = p.advance().Text
+				} else if p.cur().Kind == token.Ident {
+					argVal = p.advance().Text
+				} else {
+					tok := p.advance()
+					argVal = tok.Text
+				}
+				args = append(args, argVal)
+				if p.cur().Kind == token.Comma {
+					p.advance()
+				} else {
+					break
+				}
+			}
+			rParen := p.expect(token.RParen, "to close attribute argument list")
+			end = rParen.Span.End
+		}
+		attrs = append(attrs, ast.Attribute{
+			Name: nameTok.Text,
+			Args: args,
+			Span: diag.Span{Start: atTok.Span.Start, End: end},
+		})
+		p.skipSemis()
+	}
+	return attrs
+}
+
 func (p *Parser) parseTopDecl() ast.Decl {
+	attrs := p.parseAttributes()
+	var decl ast.Decl
 	switch p.cur().Kind {
 	case token.KwImport:
-		return p.parseImportDecl()
+		decl = p.parseImportDecl()
 	case token.KwExtern:
-		return p.parseExternDecl()
+		decl = p.parseExternDecl()
 	case token.KwDefine:
-		return p.parseDefineDecl()
+		decl = p.parseDefineDecl()
 	case token.KwBind, token.KwLet:
-		return p.parseTopVarOrMethodDecl()
+		decl = p.parseTopVarOrMethodDecl()
 	default:
+		if len(attrs) > 0 {
+			p.rep.Errorf(attrs[0].Span, "attributes must be attached to a declaration (`define`, `bind`, `let`, `extern`, or `import`)")
+		}
 		bad := p.advance()
 		p.rep.Errorf(bad.Span, "expected top-level declaration (`import`, `extern`, `define`, `bind`, or `let`), got %s (%q)", bad.Kind.String(), bad.Text)
 		p.syncToStmtBoundary()
 		return nil
 	}
+	if len(attrs) > 0 && decl != nil {
+		if ad, ok := decl.(ast.AttributedDecl); ok {
+			ad.SetAttributes(attrs)
+		}
+	}
+	return decl
 }
 
 func (p *Parser) syncToStmtBoundary() {

@@ -29,36 +29,77 @@ type Decl interface {
 	GetSpan() diag.Span
 }
 
-// ImportDecl: `import "path.ll"` or `import "path.ll" as alias`
-type ImportDecl struct {
-	Path  string
-	Alias string
-	Span  diag.Span
+// Attribute: `@name` or `@name("arg")` or `@name(a, b, ...)`
+type Attribute struct {
+	Name string
+	Args []string
+	Span diag.Span
 }
 
-func (*ImportDecl) declNode()            {}
-func (d *ImportDecl) GetSpan() diag.Span { return d.Span }
+func (a Attribute) HasArg(arg string) bool {
+	for _, x := range a.Args {
+		if x == arg {
+			return true
+		}
+	}
+	return false
+}
+
+func FindAttribute(attrs []Attribute, name string) *Attribute {
+	for i := range attrs {
+		if attrs[i].Name == name {
+			return &attrs[i]
+		}
+	}
+	return nil
+}
+
+// AttributedDecl is implemented by any AST declaration that can carry attributes.
+type AttributedDecl interface {
+	Decl
+	GetAttributes() []Attribute
+	SetAttributes([]Attribute)
+}
+
+// ImportDecl: `import "path.ll"` or `import "path.ll" as alias`
+type ImportDecl struct {
+	Path       string
+	Alias      string
+	Span       diag.Span
+	Attributes []Attribute
+}
+
+func (*ImportDecl) declNode()                      {}
+func (d *ImportDecl) GetSpan() diag.Span           { return d.Span }
+func (d *ImportDecl) GetAttributes() []Attribute   { return d.Attributes }
+func (d *ImportDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 
 // ExternHeaderDecl: `extern "stdio.h"`
 type ExternHeaderDecl struct {
-	Header string
-	Span   diag.Span
+	Header     string
+	Span       diag.Span
+	Attributes []Attribute
 }
 
-func (*ExternHeaderDecl) declNode()            {}
-func (d *ExternHeaderDecl) GetSpan() diag.Span { return d.Span }
+func (*ExternHeaderDecl) declNode()                      {}
+func (d *ExternHeaderDecl) GetSpan() diag.Span           { return d.Span }
+func (d *ExternHeaderDecl) GetAttributes() []Attribute   { return d.Attributes }
+func (d *ExternHeaderDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 
 // ExternFnDecl: `extern puts: (s: ptr[u8]): i32` or `extern sin as c_sin: (x: float): float`
 type ExternFnDecl struct {
-	Name   string
-	Alias  string
-	Params []Param
-	Ret    TypeExpr // nil for void
-	Span   diag.Span
+	Name       string
+	Alias      string
+	Params     []Param
+	Ret        TypeExpr // nil for void
+	Span       diag.Span
+	Attributes []Attribute
 }
 
-func (*ExternFnDecl) declNode()            {}
-func (d *ExternFnDecl) GetSpan() diag.Span { return d.Span }
+func (*ExternFnDecl) declNode()                      {}
+func (d *ExternFnDecl) GetSpan() diag.Span           { return d.Span }
+func (d *ExternFnDecl) GetAttributes() []Attribute   { return d.Attributes }
+func (d *ExternFnDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 
 // StructDecl: `define [packed] Name[T] struct [ field: Type = default, ... ]`
 type StructDecl struct {
@@ -67,6 +108,7 @@ type StructDecl struct {
 	TypeParams []TypeParam
 	Fields     []StructField
 	Span       diag.Span
+	Attributes []Attribute
 }
 
 type StructField struct {
@@ -77,15 +119,18 @@ type StructField struct {
 	Span    diag.Span
 }
 
-func (*StructDecl) declNode()            {}
-func (d *StructDecl) GetSpan() diag.Span { return d.Span }
+func (*StructDecl) declNode()                      {}
+func (d *StructDecl) GetSpan() diag.Span           { return d.Span }
+func (d *StructDecl) GetAttributes() []Attribute   { return d.Attributes }
+func (d *StructDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 
 // EnumDecl: `define Name enum [u8] [ A = 1, B, ... ]`
 type EnumDecl struct {
-	Name     string
-	BaseType TypeExpr // optional underlying integer type (defaults to `int`)
-	Variants []EnumVariant
-	Span     diag.Span
+	Name       string
+	BaseType   TypeExpr // optional underlying integer type (defaults to `int`)
+	Variants   []EnumVariant
+	Span       diag.Span
+	Attributes []Attribute
 }
 
 type EnumVariant struct {
@@ -94,14 +139,17 @@ type EnumVariant struct {
 	Span  diag.Span
 }
 
-func (*EnumDecl) declNode()            {}
-func (d *EnumDecl) GetSpan() diag.Span { return d.Span }
+func (*EnumDecl) declNode()                      {}
+func (d *EnumDecl) GetSpan() diag.Span           { return d.Span }
+func (d *EnumDecl) GetAttributes() []Attribute   { return d.Attributes }
+func (d *EnumDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 
 // InterfaceDecl: `define Name interface [ m: (self, x: int): string, ... ]`
 type InterfaceDecl struct {
-	Name    string
-	Methods []InterfaceMethod
-	Span    diag.Span
+	Name       string
+	Methods    []InterfaceMethod
+	Span       diag.Span
+	Attributes []Attribute
 }
 
 type ReceiverMode int
@@ -120,18 +168,23 @@ type InterfaceMethod struct {
 	Span     diag.Span
 }
 
-func (*InterfaceDecl) declNode()            {}
-func (d *InterfaceDecl) GetSpan() diag.Span { return d.Span }
+func (*InterfaceDecl) declNode()                      {}
+func (d *InterfaceDecl) GetSpan() diag.Span           { return d.Span }
+func (d *InterfaceDecl) GetAttributes() []Attribute   { return d.Attributes }
+func (d *InterfaceDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 
 // DistinctTypeDecl: `define UserID int`
 type DistinctTypeDecl struct {
-	Name string
-	Base TypeExpr
-	Span diag.Span
+	Name       string
+	Base       TypeExpr
+	Span       diag.Span
+	Attributes []Attribute
 }
 
-func (*DistinctTypeDecl) declNode()            {}
-func (d *DistinctTypeDecl) GetSpan() diag.Span { return d.Span }
+func (*DistinctTypeDecl) declNode()                      {}
+func (d *DistinctTypeDecl) GetSpan() diag.Span           { return d.Span }
+func (d *DistinctTypeDecl) GetAttributes() []Attribute   { return d.Attributes }
+func (d *DistinctTypeDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 
 // MethodDecl: `bind Point.translate = (&self, dx: int, dy: int) { ... }`
 // Also supports generic receivers `bind Pair[A, B].swap[C] = ...`
@@ -146,10 +199,13 @@ type MethodDecl struct {
 	Ret            TypeExpr // nil for void
 	Body           Expr
 	Span           diag.Span
+	Attributes     []Attribute
 }
 
-func (*MethodDecl) declNode()            {}
-func (d *MethodDecl) GetSpan() diag.Span { return d.Span }
+func (*MethodDecl) declNode()                      {}
+func (d *MethodDecl) GetSpan() diag.Span           { return d.Span }
+func (d *MethodDecl) GetAttributes() []Attribute   { return d.Attributes }
+func (d *MethodDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 
 // VarDecl: top-level `bind` or `let` (including `bind main = ...` and generic `bind foo[T] = ...`)
 type VarDecl struct {
@@ -160,10 +216,13 @@ type VarDecl struct {
 	Type       TypeExpr // optional explicit type
 	Value      Expr
 	Span       diag.Span
+	Attributes []Attribute
 }
 
-func (*VarDecl) declNode()            {}
-func (d *VarDecl) GetSpan() diag.Span { return d.Span }
+func (*VarDecl) declNode()                      {}
+func (d *VarDecl) GetSpan() diag.Span           { return d.Span }
+func (d *VarDecl) GetAttributes() []Attribute   { return d.Attributes }
+func (d *VarDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 
 // Param represents a function or lambda parameter.
 type Param struct {

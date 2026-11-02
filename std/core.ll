@@ -7,16 +7,19 @@
 // -----------------------------------------------------------------------------
 
 // Printable: Universal interface for types that can produce a human-readable string.
+@lang("printable")
 define Printable interface [
     to_string: (self): string,
 ]
 
 // Copyable: Universal interface for types that can explicitly duplicate their state.
+@lang("copyable")
 define Copyable interface [
     copy: (self): Self,
 ]
 
 // Drop: Universal interface for types requiring custom deterministic cleanup when falling out of scope.
+@lang("drop")
 define Drop interface [
     drop: (&self): void,
 ]

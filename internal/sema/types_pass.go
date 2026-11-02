@@ -217,6 +217,9 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 	for _, d := range mod.File.Decls {
 		switch td := d.(type) {
 		case *ast.StructDecl:
+			if langAttr := ast.FindAttribute(td.Attributes, "lang"); langAttr != nil {
+				a.Rep.Errorf(langAttr.Span, "@lang attribute cannot be applied to a struct declaration")
+			}
 			if len(td.TypeParams) > 0 {
 				if _, dup := mod.GenericStructs[td.Name]; dup {
 					a.Rep.Errorf(td.Span, "duplicate type definition %q", td.Name)
@@ -244,6 +247,9 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			a.Prog.Structs = append(a.Prog.Structs, st)
 
 		case *ast.EnumDecl:
+			if langAttr := ast.FindAttribute(td.Attributes, "lang"); langAttr != nil {
+				a.Rep.Errorf(langAttr.Span, "@lang attribute cannot be applied to an enum declaration")
+			}
 			if a.checkDupType(mod, td.Name, td.Span) {
 				continue
 			}
@@ -257,19 +263,53 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			a.Prog.Enums = append(a.Prog.Enums, en)
 
 		case *ast.InterfaceDecl:
-			// Allow re-declaring Printable / Copyable / Drop compatibly as in core.ll / spec examples.
-			if td.Name == "Printable" {
+			var langItem string
+			if langAttr := ast.FindAttribute(td.Attributes, "lang"); langAttr != nil {
+				if len(langAttr.Args) == 0 {
+					a.Rep.Errorf(langAttr.Span, "@lang attribute requires a string argument (e.g. @lang(\"printable\"))")
+					continue
+				}
+				langItem = strings.Trim(langAttr.Args[0], "\"")
+			}
+
+			if langItem == "printable" || td.Name == "Printable" {
+				if a.Prog.TypeSpans[a.Prog.IfacePrintable].Start.File != "" && a.Prog.TypeSpans[a.Prog.IfacePrintable].Start.File != td.Span.Start.File {
+					a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"printable\") (already defined at %s)", a.Prog.TypeSpans[a.Prog.IfacePrintable].String())
+					continue
+				}
+				a.Prog.IfacePrintable.Name = td.Name
 				a.Prog.TypeSpans[a.Prog.IfacePrintable] = td.Span
+				mod.Types[td.Name] = a.Prog.IfacePrintable
 				continue
 			}
-			if td.Name == "Copyable" {
+
+			if langItem == "copyable" || td.Name == "Copyable" {
+				if a.Prog.TypeSpans[a.Prog.IfaceCopyable].Start.File != "" && a.Prog.TypeSpans[a.Prog.IfaceCopyable].Start.File != td.Span.Start.File {
+					a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"copyable\") (already defined at %s)", a.Prog.TypeSpans[a.Prog.IfaceCopyable].String())
+					continue
+				}
+				a.Prog.IfaceCopyable.Name = td.Name
 				a.Prog.TypeSpans[a.Prog.IfaceCopyable] = td.Span
+				mod.Types[td.Name] = a.Prog.IfaceCopyable
 				continue
 			}
-			if td.Name == "Drop" {
+
+			if langItem == "drop" || td.Name == "Drop" {
+				if a.Prog.TypeSpans[a.Prog.IfaceDrop].Start.File != "" && a.Prog.TypeSpans[a.Prog.IfaceDrop].Start.File != td.Span.Start.File {
+					a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"drop\") (already defined at %s)", a.Prog.TypeSpans[a.Prog.IfaceDrop].String())
+					continue
+				}
+				a.Prog.IfaceDrop.Name = td.Name
 				a.Prog.TypeSpans[a.Prog.IfaceDrop] = td.Span
+				mod.Types[td.Name] = a.Prog.IfaceDrop
 				continue
 			}
+
+			if langItem != "" {
+				a.Rep.Errorf(td.Span, "unknown interface lang item @lang(%q); supported interface lang items: \"printable\", \"copyable\", \"drop\"", langItem)
+				continue
+			}
+
 			if a.checkDupType(mod, td.Name, td.Span) {
 				continue
 			}
@@ -282,6 +322,9 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			a.Prog.Interfaces = append(a.Prog.Interfaces, ifc)
 
 		case *ast.DistinctTypeDecl:
+			if langAttr := ast.FindAttribute(td.Attributes, "lang"); langAttr != nil {
+				a.Rep.Errorf(langAttr.Span, "@lang attribute cannot be applied to a distinct type declaration")
+			}
 			if a.checkDupType(mod, td.Name, td.Span) {
 				continue
 			}
@@ -889,6 +932,19 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 			}
 
 		case *ast.VarDecl:
+			if langAttr := ast.FindAttribute(decl.Attributes, "lang"); langAttr != nil {
+				if len(langAttr.Args) == 0 {
+					a.Rep.Errorf(langAttr.Span, "@lang attribute requires a string argument (e.g. @lang(\"panic\"))")
+				} else {
+					kind := strings.Trim(langAttr.Args[0], "\"")
+					switch kind {
+					case "panic", "assert":
+						// valid function lang item
+					default:
+						a.Rep.Errorf(langAttr.Span, "unknown function lang item @lang(%q); supported function lang items: \"panic\", \"assert\"", kind)
+					}
+				}
+			}
 			if len(decl.TypeParams) > 0 {
 				if !decl.IsBind {
 					a.Rep.Errorf(decl.Span, "generic functions must be declared with `bind`")
