@@ -257,8 +257,17 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			a.Prog.Enums = append(a.Prog.Enums, en)
 
 		case *ast.InterfaceDecl:
-			// Allow re-declaring Printable / Copyable / Drop compatibly as in spec examples.
-			if td.Name == "Printable" || td.Name == "Copyable" || td.Name == "Drop" {
+			// Allow re-declaring Printable / Copyable / Drop compatibly as in core.ll / spec examples.
+			if td.Name == "Printable" {
+				a.Prog.TypeSpans[a.Prog.IfacePrintable] = td.Span
+				continue
+			}
+			if td.Name == "Copyable" {
+				a.Prog.TypeSpans[a.Prog.IfaceCopyable] = td.Span
+				continue
+			}
+			if td.Name == "Drop" {
+				a.Prog.TypeSpans[a.Prog.IfaceDrop] = td.Span
 				continue
 			}
 			if a.checkDupType(mod, td.Name, td.Span) {

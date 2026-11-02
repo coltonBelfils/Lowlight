@@ -270,6 +270,8 @@ type Analyzer struct {
 	loadingStack map[string]bool
 	overlays     map[string]string
 	ideMode      bool
+	coreAbs      string
+	coreMod      *Module
 
 	// Method tables: key is canonical type key (e.g. `"Point"`, `"int"`, `"string"`, `"vec"`, `"Pair"`).
 	methods      map[string]map[string]*FuncInstance
@@ -362,6 +364,14 @@ func runCheck(entryPath string, overlays map[string]string, projectRoot string, 
 	}
 
 	a.initBuiltinInterfaces()
+
+	// If std/core.ll exists, load it as the fundamental prelude module.
+	coreAbs := filepath.Join(stdDir, "core.ll")
+	if st, err := os.Stat(coreAbs); err == nil && !st.IsDir() {
+		a.coreAbs = coreAbs
+		a.coreMod = a.loadModule(coreAbs, diag.Span{})
+	}
+
 	entryMod := a.loadModule(absEntry, diag.Span{})
 	if entryMod == nil {
 		return prog
@@ -514,6 +524,20 @@ func (a *Analyzer) loadModule(absPath string, importSpan diag.Span) *Module {
 			mod.Aliased[imp.Alias] = child
 		} else {
 			mod.Imports = append(mod.Imports, child)
+		}
+	}
+
+	// Implicitly import std/core.ll for all modules other than core itself
+	if a.coreMod != nil && mod != a.coreMod {
+		hasCore := false
+		for _, imp := range mod.Imports {
+			if imp == a.coreMod {
+				hasCore = true
+				break
+			}
+		}
+		if !hasCore {
+			mod.Imports = append(mod.Imports, a.coreMod)
 		}
 	}
 

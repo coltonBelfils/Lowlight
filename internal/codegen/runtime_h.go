@@ -1310,8 +1310,13 @@ static inline ll_string ll_str_from_raw(const uint8_t* data, int64_t len) {
 
 static inline ll_string ll_fmt_float_prec(double v, int64_t prec) {
     char buf[64];
-    int p = (prec < 0) ? 0 : (prec > 15 ? 15 : (int)prec);
-    int n = snprintf(buf, sizeof(buf), "%.*f", p, v);
+    int n;
+    if (prec < 0) {
+        n = snprintf(buf, sizeof(buf), "%g", v);
+    } else {
+        int p = (prec > 15 ? 15 : (int)prec);
+        n = snprintf(buf, sizeof(buf), "%.*f", p, v);
+    }
     return ll_copy__string(ll_str_lit(buf, (int64_t)n));
 }
 
