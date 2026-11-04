@@ -362,7 +362,14 @@ func (g *cEmitter) emitForwardPrototypes() {
 	g.line("/* Function & Synthesized Helper Prototypes */")
 	for _, fn := range g.prog.Funcs {
 		if g.isCompanion {
-			g.line("extern %s;", g.funcSignatureExtern(fn))
+			if strings.HasSuffix(fn.CName, "_to_string") && len(fn.Params) == 1 && fn.RetType.Equals(types.TypeString) {
+				cRet := CType(fn.RetType)
+				cParam := CType(fn.Params[0].Type)
+				g.line("extern void %s_p(%s* res, const %s* self);", fn.CName, cRet, cParam)
+				g.line("static inline %s %s_call(%s val) { %s res; %s_p(&res, &val); return res; }", cRet, fn.CName, cParam, cRet, fn.CName)
+			} else {
+				g.line("extern %s;", g.funcSignatureExtern(fn))
+			}
 		} else {
 			g.line("%s;", funcSignatureC(fn))
 		}
@@ -441,7 +448,7 @@ func (g *cEmitter) emitSynthesizedTypeHelpers() {
 		g.line("static inline uint64_t %s(%s v) { return ll_fn_hash_mix_u64((uint64_t)v); }", ir.HashFnName(en), cEn)
 		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(en), cEn)
 		if custom := g.prog.Checked.LookupConcreteMethod(en, "to_string"); custom != nil {
-			g.line("    return %s(v);", custom.CName)
+			g.line("    return %s(v);", g.toStrFn(en))
 		} else {
 			g.line("    switch (v) {")
 			for _, vr := range en.Variants {
@@ -536,7 +543,7 @@ func (g *cEmitter) emitDistinctHelpers(d *types.Distinct) {
 	}
 	if g.canToString(d) {
 		if custom := g.prog.Checked.LookupConcreteMethod(d, "to_string"); custom != nil {
-			g.line("static inline ll_string %s(%s v) { return %s(v); }", ir.ToStrFnName(d), cD, custom.CName)
+			g.line("static inline ll_string %s(%s v) { return %s(v); }", ir.ToStrFnName(d), cD, g.toStrFn(d))
 		} else {
 			g.line("static inline ll_string %s(%s v) { return %s((%s)v); }", ir.ToStrFnName(d), cD, g.toStrFn(d.Base), cBase)
 		}
@@ -660,7 +667,7 @@ func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
 	if g.canToString(en) {
 		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(en), cEn)
 		if custom := g.prog.Checked.LookupConcreteMethod(en, "to_string"); custom != nil {
-			g.line("    return %s(v);", custom.CName)
+			g.line("    return %s(v);", g.toStrFn(en))
 		} else {
 			g.line("    switch (v.tag) {")
 			for _, vr := range en.Variants {
@@ -770,7 +777,7 @@ func (g *cEmitter) emitStructHelpers(st *types.Struct) {
 	// to_string (only if custom `to_string` defined)
 	if g.canToString(st) {
 		if custom := g.prog.Checked.LookupConcreteMethod(st, "to_string"); custom != nil {
-			g.line("static inline ll_string %s(%s v) { return %s(v); }", ir.ToStrFnName(st), cSt, custom.CName)
+			g.line("static inline ll_string %s(%s v) { return %s(v); }", ir.ToStrFnName(st), cSt, g.toStrFn(st))
 		}
 	}
 
@@ -2235,7 +2242,13 @@ func canCopyVisited(prog *ir.Program, t types.Type, seen map[types.Type]bool) bo
 }
 
 func (g *cEmitter) toStrFn(t types.Type) string {
+	if _, isPrim := t.(*types.Primitive); isPrim {
+		return ir.ToStrFnName(t)
+	}
 	if custom := g.prog.Checked.LookupConcreteMethod(t, "to_string"); custom != nil {
+		if g.isCompanion {
+			return custom.CName + "_call"
+		}
 		return custom.CName
 	}
 	return ir.ToStrFnName(t)

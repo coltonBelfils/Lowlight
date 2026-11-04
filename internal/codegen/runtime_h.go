@@ -548,6 +548,41 @@ static inline uint8_t* ll_str_c_str(ll_string s) {
     return (uint8_t*)s.data;
 }
 
+/* ============================================================================
+ * 4. Primitive 'to_string' Helpers
+ * ========================================================================== */
+
+static inline ll_string ll_tostr__string(ll_string s) { return ll_copy__string(s); }
+static inline ll_string ll_tostr__bool(bool b) { return b ? ll_str_lit("true", 4) : ll_str_lit("false", 5); }
+static inline ll_string ll_tostr__char(uint32_t ch) { return ll_str_from_char(ch); }
+
+static inline ll_string ll_fmt_i64(int64_t v) {
+    char buf[32];
+    int n = snprintf(buf, sizeof(buf), "%lld", (long long)v);
+    return ll_copy__string(ll_str_lit(buf, (int64_t)n));
+}
+static inline ll_string ll_fmt_u64(uint64_t v) {
+    char buf[32];
+    int n = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)v);
+    return ll_copy__string(ll_str_lit(buf, (int64_t)n));
+}
+static inline ll_string ll_fmt_f64(double v) {
+    char buf[64];
+    int n = snprintf(buf, sizeof(buf), "%g", v);
+    return ll_copy__string(ll_str_lit(buf, (int64_t)n));
+}
+
+static inline ll_string ll_tostr__i8(int8_t v)   { return ll_fmt_i64((int64_t)v); }
+static inline ll_string ll_tostr__i16(int16_t v) { return ll_fmt_i64((int64_t)v); }
+static inline ll_string ll_tostr__i32(int32_t v) { return ll_fmt_i64((int64_t)v); }
+static inline ll_string ll_tostr__int(int64_t v) { return ll_fmt_i64(v); }
+static inline ll_string ll_tostr__u8(uint8_t v)   { return ll_fmt_u64((uint64_t)v); }
+static inline ll_string ll_tostr__u16(uint16_t v) { return ll_fmt_u64((uint64_t)v); }
+static inline ll_string ll_tostr__u32(uint32_t v) { return ll_fmt_u64((uint64_t)v); }
+static inline ll_string ll_tostr__u64(uint64_t v) { return ll_fmt_u64(v); }
+static inline ll_string ll_tostr__f32(float v)    { return ll_fmt_f64((double)v); }
+static inline ll_string ll_tostr__float(double v) { return ll_fmt_f64(v); }
+
 
 /* ============================================================================
  * 5. Parsing & File I/O Raw Helpers

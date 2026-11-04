@@ -986,6 +986,19 @@ func (g *llvmEmitter) emitFunction(fn *ir.Function) {
 
 	g.line("}")
 	g.line("")
+
+	if strings.HasSuffix(fn.CName, "_to_string") && len(fn.Params) == 1 && fn.RetType.Equals(types.TypeString) {
+		pTy := g.llvmType(fn.Params[0].Type)
+		align := g.typeAlign(fn.Params[0].Type)
+		g.line("define void @%s_p(ptr %%res, ptr %%self) {", fn.CName)
+		g.line("entry:")
+		g.indentLine(1, "%%val = load %s, ptr %%self, align %d", pTy, align)
+		g.indentLine(1, "%%ret = call %%struct.ll_string @%s(%s %%val)", fn.CName, pTy)
+		g.indentRaw(1, "store %struct.ll_string %ret, ptr %res, align 8")
+		g.indentRaw(1, "ret void")
+		g.line("}")
+		g.line("")
+	}
 }
 
 func (g *llvmEmitter) emitInstr(instr ir.Instr) {
