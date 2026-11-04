@@ -132,6 +132,9 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 		if (fi.IsTest || fi.IsTestOnly) && !testMode {
 			continue
 		}
+		if fi.IsTest && prog.EntryMod != nil && fi.Mod != prog.EntryMod {
+			continue
+		}
 		fn := lowerFuncInstance(prog, fi, tc, release, registerThunk)
 		irp.Funcs = append(irp.Funcs, fn)
 		if fi == prog.MainFunc {

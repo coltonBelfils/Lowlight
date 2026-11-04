@@ -383,6 +383,31 @@ bind test_main = () {
 // 11. Test scoping: Single file without tests outputs [no tests to run] and exits 0
 func TestTestScopeSingleFileWithoutTests(t *testing.T) {
 	root := projectRoot(t)
+	filePath := filepath.Join(root, "examples", "hello.ll")
+
+	opts := driver.Options{
+		EntryPath:   filePath,
+		ProjectRoot: root,
+		TestMode:    true,
+	}
+
+	var stdout, stderr bytes.Buffer
+	code, err := driver.Test(opts, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("driver.Test on hello.ll returned error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("expected exit code 0 on file without tests, got %d", code)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "[no tests to run]") {
+		t.Errorf("expected '[no tests to run]' in output:\n%s", out)
+	}
+}
+
+// 11b. Test scoping: Multiple tests sharing the same function name compile without C symbol collisions
+func TestMultipleTestsWithSameName(t *testing.T) {
+	root := projectRoot(t)
 	minPath := filepath.Join(root, "examples", "minimum.ll")
 
 	opts := driver.Options{
@@ -394,14 +419,21 @@ func TestTestScopeSingleFileWithoutTests(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code, err := driver.Test(opts, &stdout, &stderr)
 	if err != nil {
-		t.Fatalf("driver.Test on minimum.ll returned error: %v", err)
+		t.Fatalf("driver.Test failed with compilation error: %v\nstderr: %s", err, stderr.String())
 	}
-	if code != 0 {
-		t.Fatalf("expected exit code 0 on file without tests, got %d", code)
+	// minimum.ll has 1 passing test and 1 failing test, so exit code should be 1
+	if code != 1 {
+		t.Fatalf("expected exit code 1 due to failing test, got %d", code)
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "[no tests to run]") {
-		t.Errorf("expected '[no tests to run]' in output:\n%s", out)
+	if !strings.Contains(out, "=== RUN   pass") || !strings.Contains(out, "--- PASS: pass") {
+		t.Errorf("expected pass test to run and pass, got:\n%s", out)
+	}
+	if !strings.Contains(out, "=== RUN   fail") || !strings.Contains(out, "--- FAIL: fail") {
+		t.Errorf("expected fail test to run and fail, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Test results: 1 passed, 1 failed (total 2)") {
+		t.Errorf("expected summary '1 passed, 1 failed', got:\n%s", out)
 	}
 }
 
@@ -457,10 +489,14 @@ bind test_isolated = () {
 // 13. Test scoping: Directory without tests outputs [no tests to run] and exits 0
 func TestTestScopeDirectoryWithoutTests(t *testing.T) {
 	root := projectRoot(t)
-	examplesDir := filepath.Join(root, "examples")
+	noTestsDir := t.TempDir()
+	dummyFile := filepath.Join(noTestsDir, "app.ll")
+	if err := os.WriteFile(dummyFile, []byte("bind main = () {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	opts := driver.Options{
-		EntryPath:   examplesDir,
+		EntryPath:   noTestsDir,
 		ProjectRoot: root,
 		TestMode:    true,
 	}

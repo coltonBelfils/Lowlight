@@ -103,6 +103,13 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 				fi.IsTest = true
 				fi.TestDesc = desc
 				a.Prog.TestFuncs = append(a.Prog.TestFuncs, fi)
+				testIdx := len(a.Prog.TestFuncs)
+				tag := a.moduleTag(fi.Mod)
+				if tag != "" {
+					fi.CName = fmt.Sprintf("ll_test_%s_%d_%s", tag, testIdx, sanitizeSymbolName(fi.Name))
+				} else {
+					fi.CName = fmt.Sprintf("ll_test_%d_%s", testIdx, sanitizeSymbolName(fi.Name))
+				}
 			} else if sym, ok := target.(*Symbol); ok {
 				if desc == "" {
 					desc = sym.Name
@@ -1821,7 +1828,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				fi.DeclSpan = decl.Span
 				a.checkAttributes(decl.Attributes, fi, decl.Span, "function")
 				a.Prog.Funcs = append(a.Prog.Funcs, fi)
-				mod.Symbols[decl.Name] = &Symbol{
+				sym := &Symbol{
 					Name:          decl.Name,
 					CName:         fi.CName,
 					Type:          fi.Sig,
@@ -1836,6 +1843,11 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					IsTest:        fi.IsTest,
 					IsTestOnly:    fi.IsTestOnly,
 					TestDesc:      fi.TestDesc,
+				}
+				if existing, exists := mod.Symbols[decl.Name]; !exists || !existing.IsTest {
+					if !fi.IsTest || !exists {
+						mod.Symbols[decl.Name] = sym
+					}
 				}
 				if mod == a.Prog.EntryMod && decl.Name == "main" {
 					a.validateMainSig(fi, decl.Span)
