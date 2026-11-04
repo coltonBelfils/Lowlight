@@ -322,6 +322,47 @@ During the post-v1.0 codebase audit and fuzzing pass, 12 key compiler and standa
    - Extended collections: `Set[T].to_sorted_list()` and `Map[K, V].to_sorted_keys()`.
    - Standalone functions: `sort(&list)`, `sort_by(&list, cmp)`, `is_sorted(list)`, `binary_search(list, target)`.
 
+---
+
+## 13. Testing System & Standard Testing Library (`@test`, `@test_only`, `std/test.ll`, `lowlight test`)
+
+1. **Marking Tests & Test Utilities (`@test`, `@test_only`)**:
+   - `@test` (and `@test("description")`) marks a top-level function as a test case. Tests take no arguments and return `void`. Any function name is valid—the attribute designates it as a test.
+   - `@test_only` marks helper functions, mock structs, enums, interfaces, distinct types, or globals intended strictly for testing.
+
+2. **Dual Entry Point (`main` vs Test Runner / `test_main`)**:
+   - In production builds (`lowlight build`, `lowlight run`), execution begins at `bind main = ()`. Test functions are not compiled.
+   - In test mode (`lowlight test`), execution enters the test harness. If `bind test_main = ()` is explicitly defined, it serves as the custom test entry point. Otherwise, the compiler synthesizes a test runner executing all discovered `@test` functions across the entry module and imported dependencies.
+
+3. **Compile-Time Call-Graph Isolation**:
+   - Functions and symbols not marked with `@test` or `@test_only` (production code) **cannot call or access** any function, type, or variable marked `@test` or `@test_only`. Violations trigger static compile errors (e.g. `cannot call test-only function '...' from non-test context '...'`).
+   - Test functions and helpers are free to call and exercise all production code.
+
+4. **Release & Non-Test Build Stripping**:
+   - During normal builds (`lowlight build` or `--release`), test functions, `@test_only` helpers, and test data structures are skipped during MIR lowering and completely excluded from emitted C code and binaries.
+
+5. **Integrated Test Harness with Leak Detection & Panic Recovery**:
+   - Per-test memory leak checking: evaluates `ll_rt_live_allocs` before and after each test. Leaked heap allocations report `--- FAIL: ... (leaked N heap allocation(s))`.
+   - Panic isolation: uses C `setjmp`/`longjmp` in test mode so failed assertions or panics report `--- FAIL: ... (panic: message)` without terminating the test runner prematurely, allowing subsequent tests to execute to completion.
+   - High-resolution execution timing measured and reported in microseconds.
+
+6. **Standard Testing Library (`std/test.ll`)**:
+   - `assert_eq[T: Equatable + Printable](actual: T, expected: T)`
+   - `assert_eq_msg[T: Equatable + Printable](actual: T, expected: T, msg: string)`
+   - `assert_ne[T: Equatable + Printable](actual: T, unexpected: T)`
+   - `assert_ne_msg[T: Equatable + Printable](actual: T, unexpected: T, msg: string)`
+   - `assert_true(cond: bool)` / `assert_true_msg(cond: bool, msg: string)`
+   - `assert_false(cond: bool)` / `assert_false_msg(cond: bool, msg: string)`
+   - `assert_gt[T: Comparable + Printable](actual: T, expected: T)`
+   - `assert_lt[T: Comparable + Printable](actual: T, expected: T)`
+   - `assert_ge[T: Comparable + Printable](actual: T, expected: T)`
+   - `assert_le[T: Comparable + Printable](actual: T, expected: T)`
+   - `assert_is_ok[T, E: Printable](res: &Result[T, E])` / `assert_is_ok_msg(...)`
+   - `assert_is_err[T, E](res: &Result[T, E])` / `assert_is_err_msg(...)`
+   - `assert_some[T](val?: ?T)`
+   - `assert_none[T](val?: ?T)`
+
+
 
 
 

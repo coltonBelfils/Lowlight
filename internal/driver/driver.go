@@ -31,6 +31,7 @@ type Options struct {
 	Release     bool
 	ExtraCFlags []string
 	Env         []string // Optional extra environment variables when running
+	TestMode    bool     // Compile and run test entry point / test harness
 }
 
 // CompileError wraps formatted Lowlight compiler diagnostics.
@@ -63,7 +64,7 @@ func EmitC(opts Options) (string, *sema.CheckedProgram, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	mirProg := ir.Lower(checked, opts.Release)
+	mirProg := ir.Lower(checked, opts.Release, opts.TestMode)
 	cSource := codegen.EmitC(mirProg)
 	return cSource, checked, nil
 }
@@ -101,8 +102,14 @@ func Build(opts Options) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if checked.MainFunc == nil {
-		return "", fmt.Errorf("%s: cannot build executable: entry module defines no 'main' function", opts.EntryPath)
+	if opts.TestMode {
+		if checked.TestMainFunc == nil && len(checked.TestFuncs) == 0 {
+			return "", fmt.Errorf("%s: cannot build test executable: entry module and its imports define no @test functions or 'test_main'", opts.EntryPath)
+		}
+	} else {
+		if checked.MainFunc == nil {
+			return "", fmt.Errorf("%s: cannot build executable: entry module defines no 'main' function", opts.EntryPath)
+		}
 	}
 
 	outBin := opts.OutPath
@@ -189,4 +196,10 @@ func Run(opts Options, progArgs []string, stdout, stderr io.Writer) (int, error)
 		return 1, runErr
 	}
 	return 0, nil
+}
+
+// Test compiles a Lowlight test executable and runs all tests, streaming results to stdout/stderr.
+func Test(opts Options, stdout, stderr io.Writer) (int, error) {
+	opts.TestMode = true
+	return Run(opts, nil, stdout, stderr)
 }

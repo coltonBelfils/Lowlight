@@ -114,8 +114,8 @@ func (g *cEmitter) emitAll() {
 		g.emitFunction(fn)
 	}
 
-	// 10. C11 `main` Entry Point (if `MainFunc` is present)
-	if g.prog.MainFunc != nil {
+	// 10. C11 `main` Entry Point (if `MainFunc` is present or in `TestMode`)
+	if g.prog.MainFunc != nil || g.prog.TestMode {
 		g.emitCMain()
 	}
 }
@@ -1362,6 +1362,10 @@ func (g *cEmitter) emitInstrList(indent int, ins []ir.Instr) {
 }
 
 func (g *cEmitter) emitCMain() {
+	if g.prog.TestMode {
+		g.emitCTestMain()
+		return
+	}
 	g.line("int main(int argc, char** argv) {")
 	g.line("    ll_rt_argc = argc;")
 	g.line("    ll_rt_argv = argv;")
@@ -1394,6 +1398,105 @@ func (g *cEmitter) emitCMain() {
 		g.line("    %s();", g.prog.MainFunc.CName)
 	} else {
 		g.line("    _ll_rc = (int)%s();", g.prog.MainFunc.CName)
+	}
+
+	// Deterministically drop top-level Resource constants in reverse initialization order!
+	for i := len(g.prog.Globals) - 1; i >= 0; i-- {
+		gl := g.prog.Globals[i]
+		if !gl.Type.IsPlain() {
+			g.line("    %s(&%s);", ir.DropFnName(gl.Type), gl.CName)
+		}
+	}
+
+	g.line("    ll_check_leaks_at_exit();")
+	g.line("    return _ll_rc;")
+	g.line("}")
+}
+
+func (g *cEmitter) emitCTestMain() {
+	g.line("int main(int argc, char** argv) {")
+	g.line("    ll_rt_argc = argc;")
+	g.line("    ll_rt_argv = argv;")
+	g.line("")
+
+	// Initialize top-level `bind` constants
+	for _, gl := range g.prog.Globals {
+		if len(gl.InitInstr) > 0 || len(gl.Locals) > 0 {
+			g.line("    {")
+			for _, loc := range gl.Locals {
+				tyStr := ir.CType(loc.Type)
+				if loc.IsMutPtr {
+					g.indentLine(2, "%s* %s = NULL;", tyStr, loc.CName)
+				} else {
+					g.indentLine(2, "%s %s = (%s){0};", tyStr, loc.CName, tyStr)
+				}
+				if loc.MovedFlag != "" {
+					g.indentLine(2, "bool %s = true; (void)%s;", loc.MovedFlag, loc.MovedFlag)
+				}
+			}
+			g.emitInstrList(2, gl.InitInstr)
+			g.line("        %s = %s;", gl.CName, gl.InitExpr)
+			g.line("    }")
+		} else {
+			g.line("    %s = %s;", gl.CName, gl.InitExpr)
+		}
+	}
+
+	g.line("")
+	if g.prog.TestMainFunc != nil {
+		g.line("    int _ll_rc = 0;")
+		if g.prog.TestMainFunc.RetType.Equals(types.TypeVoid) {
+			g.line("    %s();", g.prog.TestMainFunc.CName)
+		} else {
+			g.line("    _ll_rc = (int)%s();", g.prog.TestMainFunc.CName)
+		}
+	} else if len(g.prog.TestFuncs) == 0 {
+		g.line("    printf(\"No tests found.\\n\");")
+		g.line("    int _ll_rc = 0;")
+	} else {
+		g.line("    int _ll_test_passed = 0;")
+		g.line("    int _ll_test_failed = 0;")
+		g.line("    int _ll_test_total = %d;", len(g.prog.TestFuncs))
+		g.line("    jmp_buf _ll_test_jmp;")
+		g.line("    ll_test_current_jmp = &_ll_test_jmp;")
+		g.line("")
+
+		for _, fn := range g.prog.TestFuncs {
+			desc := fn.TestDesc
+			if desc == "" {
+				desc = fn.Name
+			}
+			quotedDesc := ir.QuoteCString(desc)
+			g.line("    // Test: %s", fn.Name)
+			g.line("    printf(\"=== RUN   %%s\\n\", %s);", quotedDesc)
+			g.line("    fflush(stdout);")
+			g.line("    int64_t _ll_allocs_before_%s = ll_rt_live_allocs;", fn.CName)
+			g.line("    struct timespec _ll_t0_%s, _ll_t1_%s;", fn.CName, fn.CName)
+			g.line("    clock_gettime(CLOCK_MONOTONIC, &_ll_t0_%s);", fn.CName)
+			g.line("    if (setjmp(_ll_test_jmp) == 0) {")
+			g.line("        %s();", fn.CName)
+			g.line("        clock_gettime(CLOCK_MONOTONIC, &_ll_t1_%s);", fn.CName)
+			g.line("        int64_t _ll_elapsed_us = (_ll_t1_%s.tv_sec - _ll_t0_%s.tv_sec) * 1000000LL + (_ll_t1_%s.tv_nsec - _ll_t0_%s.tv_nsec) / 1000LL;", fn.CName, fn.CName, fn.CName, fn.CName)
+			g.line("        int64_t _ll_allocs_after = ll_rt_live_allocs;")
+			g.line("        int64_t _ll_leaked = _ll_allocs_after - _ll_allocs_before_%s;", fn.CName)
+			g.line("        if (_ll_leaked > 0) {")
+			g.line("            printf(\"--- FAIL: %%s (leaked %%lld heap allocation(s))\\n\", %s, (long long)_ll_leaked);", quotedDesc)
+			g.line("            _ll_test_failed++;")
+			g.line("        } else {")
+			g.line("            printf(\"--- PASS: %%s (%%lldµs, 0 leaks)\\n\", %s, (long long)_ll_elapsed_us);", quotedDesc)
+			g.line("            _ll_test_passed++;")
+			g.line("        }")
+			g.line("    } else {")
+			g.line("        clock_gettime(CLOCK_MONOTONIC, &_ll_t1_%s);", fn.CName)
+			g.line("        printf(\"--- FAIL: %%s (%%s)\\n\", %s, ll_test_last_panic);", quotedDesc)
+			g.line("        _ll_test_failed++;")
+			g.line("    }")
+			g.line("    fflush(stdout);")
+		}
+
+		g.line("    ll_test_current_jmp = NULL;")
+		g.line("%s", "    printf(\"\\nTest results: %d passed, %d failed (total %d)\\n\", _ll_test_passed, _ll_test_failed, _ll_test_total);")
+		g.line("    int _ll_rc = (_ll_test_failed > 0) ? 1 : 0;")
 	}
 
 	// Deterministically drop top-level Resource constants in reverse initialization order!

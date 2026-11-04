@@ -82,6 +82,48 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 			if st, ok := target.(*types.Struct); ok {
 				st.Packed = true
 			}
+		case "test":
+			if kind != "function" {
+				a.Rep.Errorf(attr.Span, "@test attribute cannot be applied to a %s declaration", kind)
+			}
+			desc := ""
+			if len(attr.Args) > 0 {
+				desc = strings.Trim(attr.Args[0], "\"")
+			}
+			if fi, ok := target.(*FuncInstance); ok {
+				if fi.IsMethod {
+					a.Rep.Errorf(attr.Span, "@test attribute cannot be applied to a method")
+				}
+				if len(fi.Sig.Params) > 0 {
+					a.Rep.Errorf(attr.Span, "@test function %q must not take parameters", fi.Name)
+				}
+				if desc == "" {
+					desc = fi.Name
+				}
+				fi.IsTest = true
+				fi.TestDesc = desc
+				a.Prog.TestFuncs = append(a.Prog.TestFuncs, fi)
+			} else if sym, ok := target.(*Symbol); ok {
+				if desc == "" {
+					desc = sym.Name
+				}
+				sym.IsTest = true
+				sym.TestDesc = desc
+			}
+		case "test_only":
+			if fi, ok := target.(*FuncInstance); ok {
+				fi.IsTestOnly = true
+			} else if sym, ok := target.(*Symbol); ok {
+				sym.IsTestOnly = true
+			} else if st, ok := target.(*types.Struct); ok {
+				st.IsTestOnly = true
+			} else if en, ok := target.(*types.Enum); ok {
+				en.IsTestOnly = true
+			} else if dt, ok := target.(*types.Distinct); ok {
+				dt.IsTestOnly = true
+			} else if ifc, ok := target.(*types.Interface); ok {
+				ifc.IsTestOnly = true
+			}
 		case "doc":
 			// documentation string attribute, valid on all declarations
 		case "lang":
@@ -1183,7 +1225,6 @@ func (a *Analyzer) checkSingleStructRecursion(root *types.Struct) {
 	// 2. Direct/mutual OPTIONAL cycle -> auto-heap-box `?root`!
 	if a.reachesStructViaOptional(root, root, false, make(map[string]bool)) {
 		root.BoxedOptional = true
-		root.Fields = root.Fields // invalidate cached plainness if any
 	}
 }
 
@@ -1792,10 +1833,17 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					MustUse:       fi.MustUse,
 					Deprecated:    fi.Deprecated,
 					DeprecatedMsg: fi.DeprecatedMsg,
+					IsTest:        fi.IsTest,
+					IsTestOnly:    fi.IsTestOnly,
+					TestDesc:      fi.TestDesc,
 				}
 				if mod == a.Prog.EntryMod && decl.Name == "main" {
 					a.validateMainSig(fi, decl.Span)
 					a.Prog.MainFunc = fi
+				}
+				if mod == a.Prog.EntryMod && decl.Name == "test_main" {
+					a.validateTestMainSig(fi, decl.Span)
+					a.Prog.TestMainFunc = fi
 				}
 				continue
 			}
@@ -1895,6 +1943,15 @@ func (a *Analyzer) validateMainSig(fi *FuncInstance, span diag.Span) {
 	}
 	if !fi.Sig.Ret.Equals(types.TypeVoid) && !fi.Sig.Ret.Equals(types.TypeInt) {
 		a.Rep.Errorf(span, "`main` return type must be omitted (`void`) or `int`, got %s", fi.Sig.Ret.String())
+	}
+}
+
+func (a *Analyzer) validateTestMainSig(fi *FuncInstance, span diag.Span) {
+	if len(fi.Sig.Params) != 0 {
+		a.Rep.Errorf(span, "`test_main` must take 0 parameters")
+	}
+	if !fi.Sig.Ret.Equals(types.TypeVoid) && !fi.Sig.Ret.Equals(types.TypeInt) {
+		a.Rep.Errorf(span, "`test_main` return type must be omitted (`void`) or `int`, got %s", fi.Sig.Ret.String())
 	}
 }
 

@@ -12,12 +12,21 @@ import (
 
 func (fc *funcChecker) recordTargetFunc(inf *ExprInfo, fi *FuncInstance, span diag.Span) {
 	inf.TargetFunc = fi
-	if fi != nil && fi.Deprecated {
-		msg := ""
-		if fi.DeprecatedMsg != "" {
-			msg = ": " + fi.DeprecatedMsg
+	if fi != nil {
+		if fi.Deprecated {
+			msg := ""
+			if fi.DeprecatedMsg != "" {
+				msg = ": " + fi.DeprecatedMsg
+			}
+			fc.a.Rep.Warnf(span, "use of deprecated function or method %q%s", fi.Name, msg)
 		}
-		fc.a.Rep.Warnf(span, "use of deprecated function or method %q%s", fi.Name, msg)
+		if (fi.IsTest || fi.IsTestOnly || (fc.a.Prog.TestMainFunc != nil && fi == fc.a.Prog.TestMainFunc)) && !fc.isTestContext() {
+			callerName := "<top-level>"
+			if fc.curFn != nil {
+				callerName = fc.curFn.Name
+			}
+			fc.a.Rep.Errorf(span, "cannot call test-only function %q from non-test context %q", fi.Name, callerName)
+		}
 	}
 }
 

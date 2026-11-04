@@ -94,6 +94,24 @@ func runCLI(args []string) int {
 		}
 		return code
 
+	case "test":
+		opts, _, err := parseCommonFlags(rest, false, false)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		opts.TestMode = true
+		if opts.EntryPath == "" {
+			fmt.Fprintln(os.Stderr, "error: missing input .ll source file to test")
+			return 1
+		}
+		code, err := driver.Test(opts, os.Stdout, os.Stderr)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			return 1
+		}
+		return code
+
 	case "lsp":
 		return runLSP(rest)
 
@@ -188,6 +206,7 @@ func printUsage(w *os.File) {
 Usage:
   lowlight build [-o <bin>] [--release] [--cc <compiler>] <file.ll>
   lowlight run   [--release] [--cc <compiler>] <file.ll> [-- <args...>]
+  lowlight test  [--release] [--cc <compiler>] <file.ll>
   lowlight emit-c [-o <file.c>] [--release] <file.ll>
   lowlight check <file.ll>
   lowlight lsp   [--stdio] [--log <file>]

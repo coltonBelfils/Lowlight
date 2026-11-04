@@ -13,7 +13,7 @@ import (
 // Lower translates a semantically validated CheckedProgram into Mid-Level IR (MIR),
 // making monomorphized types, temporary lifetimes, move zeroing, and LIFO scope/unwind
 // Drop sequences completely explicit before C11 emission.
-func Lower(prog *sema.CheckedProgram, release bool) *Program {
+func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 	tc := newTypeCollector()
 
 	// Seed type collector with declared & instantiated types
@@ -89,6 +89,7 @@ func Lower(prog *sema.CheckedProgram, release bool) *Program {
 		ExternFuncs:   prog.ExternFuncs,
 		VTables:       vtables,
 		Release:       release,
+		TestMode:      testMode,
 	}
 
 	seenThunks := make(map[string]bool)
@@ -108,6 +109,9 @@ func Lower(prog *sema.CheckedProgram, release bool) *Program {
 
 	// 1. Lower top-level `bind` constants
 	for _, tv := range prog.TopVars {
+		if tv.Sym.IsTestOnly && !testMode {
+			continue
+		}
 		fl := newFuncLowerer(prog, prog.TopBodyMaps, tc, release, registerThunk)
 		fl.pushScope(0, "", "", nil, nil, false)
 		exprStr := fl.lowerExprOwned(tv.Decl.Value, tv.Sym.Type)
@@ -125,10 +129,19 @@ func Lower(prog *sema.CheckedProgram, release bool) *Program {
 
 	// 2. Lower all concrete & monomorphized functions/methods
 	for _, fi := range prog.Funcs {
+		if (fi.IsTest || fi.IsTestOnly) && !testMode {
+			continue
+		}
 		fn := lowerFuncInstance(prog, fi, tc, release, registerThunk)
 		irp.Funcs = append(irp.Funcs, fn)
 		if fi == prog.MainFunc {
 			irp.MainFunc = fn
+		}
+		if fi == prog.TestMainFunc {
+			irp.TestMainFunc = fn
+		}
+		if fi.IsTest {
+			irp.TestFuncs = append(irp.TestFuncs, fn)
 		}
 	}
 
@@ -251,6 +264,9 @@ func lowerFuncInstance(
 		Body:           pruneUnusedLabels(fl.rootInstrs(), fl.usedLabels),
 		IsAlwaysInline: fi.IsAlwaysInline,
 		IsNoInline:     fi.IsNoInline,
+		IsTest:         fi.IsTest,
+		IsTestOnly:     fi.IsTestOnly,
+		TestDesc:       fi.TestDesc,
 	}
 }
 

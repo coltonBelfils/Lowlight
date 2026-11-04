@@ -49,6 +49,9 @@ type Symbol struct {
 	MustUse       bool
 	Deprecated    bool
 	DeprecatedMsg string
+	IsTest        bool
+	IsTestOnly    bool
+	TestDesc      string
 	FuncInst      *FuncInstance
 	GenFunc       *GenericFuncTemplate
 	ExternFn      *ExternFunc
@@ -116,6 +119,9 @@ type FuncInstance struct {
 	MustUse        bool
 	Deprecated     bool
 	DeprecatedMsg  string
+	IsTest         bool
+	IsTestOnly     bool
+	TestDesc       string
 }
 
 // BodyMaps holds per-monomorphized-body AST side tables so multiple generic
@@ -278,6 +284,8 @@ type CheckedProgram struct {
 	Lambdas        []*LambdaInfo
 	VTables        map[string]*VTableImpl
 	MainFunc       *FuncInstance
+	TestMainFunc   *FuncInstance
+	TestFuncs      []*FuncInstance
 
 	TopBodyMaps    *BodyMaps
 	StructBodyMaps map[*types.Struct]*BodyMaps

@@ -1554,6 +1554,43 @@ define Result[T, E] struct [
 
 Because `Result` is marked `@must_use`, ignoring a returned `Result` without inspection is a static compile error.
 
+### 9.7 Testing System & Standard Testing Library (`std/test.ll`)
+
+Lowlight provides an integrated compile-time testing framework and standard assertion library:
+
+#### Test Annotations (`@test`, `@test_only`)
+- `@test` / `@test("description")`: Marks a top-level function as a test case. The function takes 0 parameters and returns `void`. The function identifier can have any name—the `@test` attribute marks it as a test.
+- `@test_only`: Marks helper functions, mock structs, enums, interfaces, distinct types, or globals intended exclusively for test code.
+
+#### Compile-Time Isolation & Build Stripping
+- **Call-Graph Restriction**: Any function or declaration not marked `@test` or `@test_only` (production code) is strictly prohibited from calling or referencing any symbol marked `@test` or `@test_only`. Attempting to access test symbols from production code produces a static compile-time error.
+- **Release & Non-Test Build Stripping**: In standard application builds (`lowlight build` or `--release`), all test functions and `@test_only` items are omitted during MIR lowering and completely excluded from generated C code and binaries.
+
+#### Dedicated Test Entry Point & Runner (`lowlight test`)
+Running `lowlight test <file.ll>` activates test compilation mode:
+- If `bind test_main = ()` is explicitly defined, it serves as the test entry point.
+- Otherwise, the compiler automatically synthesizes a C11 test runner that discovers and executes all `@test` functions across the entry module and imported modules.
+- **Per-Test Leak Checking**: The runner evaluates `ll_rt_live_allocs` before and after each test function. Any test that leaks heap memory fails with: `--- FAIL: <test> (leaked N heap allocation(s))`.
+- **Panic Recovery**: Test execution is guarded with C `setjmp`/`longjmp`. Failed assertions or panics report failure diagnostics and continue running remaining tests in the suite rather than terminating the test process prematurely.
+- **High-Resolution Timing**: Reports execution duration per test in microseconds.
+
+#### Standard Testing Assertions (`std/test.ll`)
+Importing `std/test.ll` provides comprehensive test assertion utilities:
+- `assert_eq[T: Equatable + Printable](actual: T, expected: T)`
+- `assert_eq_msg[T: Equatable + Printable](actual: T, expected: T, msg: string)`
+- `assert_ne[T: Equatable + Printable](actual: T, unexpected: T)`
+- `assert_ne_msg[T: Equatable + Printable](actual: T, unexpected: T, msg: string)`
+- `assert_true(cond: bool)` / `assert_true_msg(cond: bool, msg: string)`
+- `assert_false(cond: bool)` / `assert_false_msg(cond: bool, msg: string)`
+- `assert_gt[T: Comparable + Printable](actual: T, expected: T)`
+- `assert_lt[T: Comparable + Printable](actual: T, expected: T)`
+- `assert_ge[T: Comparable + Printable](actual: T, expected: T)`
+- `assert_le[T: Comparable + Printable](actual: T, expected: T)`
+- `assert_is_ok[T, E: Printable](res: &Result[T, E])` / `assert_is_ok_msg(...)`
+- `assert_is_err[T, E](res: &Result[T, E])` / `assert_is_err_msg(...)`
+- `assert_some[T](val?: ?T)`
+- `assert_none[T](val?: ?T)`
+
 ---
 
 ## 10. Unsafe Operations & Foreign ABI Interoperability

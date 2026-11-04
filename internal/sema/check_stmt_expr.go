@@ -56,6 +56,25 @@ type funcChecker struct {
 
 	// For lambda capture tracking: stack of active lambda frames
 	lambdaStack []*lambdaFrame
+
+	curFn     *FuncInstance
+	curTopVar *TopVarInit
+}
+
+func (fc *funcChecker) isTestContext() bool {
+	if fc.curFn != nil {
+		if fc.curFn.IsTest || fc.curFn.IsTestOnly {
+			return true
+		}
+		if fc.a.Prog.TestMainFunc != nil && fc.curFn == fc.a.Prog.TestMainFunc {
+			return true
+		}
+		return false
+	}
+	if fc.curTopVar != nil && fc.curTopVar.Sym != nil {
+		return fc.curTopVar.Sym.IsTest || fc.curTopVar.Sym.IsTestOnly
+	}
+	return false
 }
 
 type lambdaFrame struct {
@@ -182,6 +201,7 @@ func (a *Analyzer) resolveTopVar(sym *Symbol) {
 	a.curBM = a.Prog.TopBodyMaps
 
 	fc := a.newFuncChecker(tv.Mod, nil)
+	fc.curTopVar = tv
 	fc.pushScope()
 	var got types.Type
 	if tv.Sym.Type != nil && tv.Sym.Type != types.TypeInvalid {
@@ -231,6 +251,7 @@ func (a *Analyzer) checkFuncInstance(fi *FuncInstance) {
 	defer func() { a.curBM = prevBM }()
 
 	fc := a.newFuncChecker(fi.Mod, fi.TypeSubst)
+	fc.curFn = fi
 	fc.pushScope()
 
 	for i, fp := range fi.Sig.Params {
@@ -1696,6 +1717,13 @@ func (fc *funcChecker) checkExprExpect(e ast.Expr, expected types.Type, needValu
 			}
 			fc.a.Rep.Warnf(v.Span, "use of deprecated identifier %q%s", sym.Name, msg)
 		}
+		if (sym.IsTest || sym.IsTestOnly || (sym.FuncInst != nil && sym.FuncInst == fc.a.Prog.TestMainFunc)) && !fc.isTestContext() {
+			callerName := "<top-level>"
+			if fc.curFn != nil {
+				callerName = fc.curFn.Name
+			}
+			fc.a.Rep.Errorf(v.Span, "cannot access test symbol %q from non-test context %q", sym.Name, callerName)
+		}
 		fc.checkSymReadable(sym, v.Span)
 		// Check lambda capture if referencing a local from an enclosing function scope!
 		if !sym.IsTopLevel && sym.DeclFuncDepth < fc.funcDepth {
@@ -2238,6 +2266,13 @@ func (fc *funcChecker) checkMemberExpr(m *ast.MemberExpr, expected types.Type) t
 						}
 						fc.a.Rep.Warnf(m.Span, "use of deprecated identifier %q%s", sym.Name, msg)
 					}
+					if (sym.IsTest || sym.IsTestOnly || (sym.FuncInst != nil && sym.FuncInst == fc.a.Prog.TestMainFunc)) && !fc.isTestContext() {
+						callerName := "<top-level>"
+						if fc.curFn != nil {
+							callerName = fc.curFn.Name
+						}
+						fc.a.Rep.Errorf(m.Span, "cannot access test symbol %q from non-test context %q", sym.Name, callerName)
+					}
 					inf.Sym = sym
 					inf.Type = sym.Type
 					if sym.Type == nil {
@@ -2739,6 +2774,14 @@ func (fc *funcChecker) checkStructLit(sl *ast.StructLit, expected types.Type) ty
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
 		}
+	}
+
+	if st.IsTestOnly && !fc.isTestContext() {
+		callerName := "<top-level>"
+		if fc.curFn != nil {
+			callerName = fc.curFn.Name
+		}
+		fc.a.Rep.Errorf(sl.Span, "cannot use test-only struct %q in non-test context %q", st.Name, callerName)
 	}
 
 	provided := make(map[string]bool)

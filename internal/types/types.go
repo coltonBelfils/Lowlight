@@ -393,6 +393,7 @@ type Struct struct {
 	MustUse       bool
 	Deprecated    bool
 	DeprecatedMsg string
+	IsTestOnly    bool
 	Fields        []StructField
 	HasCustomDrop bool
 	BoxedOptional bool // true if `?ThisStruct` closes a recursive cycle and compiles to `ThisStruct*`
@@ -488,6 +489,7 @@ type Enum struct {
 	MustUse       bool
 	Deprecated    bool
 	DeprecatedMsg string
+	IsTestOnly    bool
 	IsTagged      bool       // true when any variant carries a payload or enum has generic type parameters
 	TypeArgs      []Type     // populated for monomorphized generic enums
 	HasCustomDrop bool
@@ -565,9 +567,10 @@ func (e *Enum) VariantByName(name string) (*EnumVariant, bool) {
 
 // Distinct represents `define UserID int`.
 type Distinct struct {
-	Name  string
-	CName string
-	Base  Type
+	Name       string
+	CName      string
+	IsTestOnly bool
+	Base       Type
 }
 
 func (d *Distinct) String() string  { return d.Name }
@@ -689,10 +692,11 @@ func (*SelfPlaceholder) IsPlain() bool           { return true }
 
 // Interface represents `define Printable interface [...]`.
 type Interface struct {
-	Name     string
-	CName    string
-	Methods  []InterfaceMethod
-	UsesSelf bool // if true (e.g. Copyable), usable as generic bound `[T: Copyable]`, not runtime fat pointer
+	Name       string
+	CName      string
+	IsTestOnly bool
+	Methods    []InterfaceMethod
+	UsesSelf   bool // if true (e.g. Copyable), usable as generic bound `[T: Copyable]`, not runtime fat pointer
 }
 
 func (i *Interface) String() string  { return i.Name }

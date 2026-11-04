@@ -1793,7 +1793,7 @@ func formatCFloatLit(val float64, ty types.Type) string {
 	return fmt.Sprintf("((%s)%s)", cTy, s)
 }
 
-func quoteCString(s string) string {
+func QuoteCString(s string) string {
 	var sb strings.Builder
 	sb.WriteByte('"')
 	for i := 0; i < len(s); i++ {
@@ -1822,6 +1822,10 @@ func quoteCString(s string) string {
 	}
 	sb.WriteByte('"')
 	return sb.String()
+}
+
+func quoteCString(s string) string {
+	return QuoteCString(s)
 }
 
 func unsignedCTypeForWidth(bits int) string {

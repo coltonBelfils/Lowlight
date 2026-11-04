@@ -256,7 +256,8 @@ All open design items from [`SPEC_CRITIQUE.md`](./SPEC_CRITIQUE.md) (Rounds 1–
    * `std/math.ll`: Safe C math wrappers.
    * `std/pool.ll`: Generational object pool (`Pool[T]`, `Handle[T]`).
    * `std/json.ll`: Fast JSON parser and serializer.
-   * `std/testing.ll`: Testing assertions and harness.
+   * `std/test.ll`: Native testing assertion library (`assert_eq`, `assert_eq_msg`, `assert_ne`, `assert_ne_msg`, `assert_true`, `assert_false`, `assert_gt`, `assert_lt`, `assert_ge`, `assert_le`, `assert_is_ok`, `assert_is_err`, `assert_some`, `assert_none`).
+   * Built-in Testing System (`lowlight test`): Dedicated test runner entry point supporting inline tests and dedicated test files via `@test` and `@test_only`. Test functions are statically isolated from non-test callers and automatically stripped from release/non-test builds. The runner includes per-test heap allocation leak checks and panic recovery via `setjmp`/`longjmp`.
 
 ### Self-Hosting Roadmap
 1. **Stage 0 (Current)**: Go Bootstrap Compiler (`lowlight build`, `run`, `emit-c`, `check`, `lsp`) targeting ISO C11.

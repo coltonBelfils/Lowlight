@@ -39,6 +39,9 @@ type Program struct {
 	Funcs        []*Function
 	StaticThunks []*StaticThunk
 	MainFunc     *Function
+	TestMainFunc *Function
+	TestFuncs    []*Function
+	TestMode     bool
 
 	// Release disables runtime bounds/shift checks when --release is passed.
 	Release bool
@@ -82,6 +85,9 @@ type Function struct {
 	LambdaInfo     *sema.LambdaInfo
 	IsAlwaysInline bool
 	IsNoInline     bool
+	IsTest         bool
+	IsTestOnly     bool
+	TestDesc       string
 }
 
 // -----------------------------------------------------------------------------
