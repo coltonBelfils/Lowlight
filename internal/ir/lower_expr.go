@@ -537,7 +537,10 @@ func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) string {
 
 	switch ie.CondKind {
 	case ast.IfCondBool:
-		condExpr = fl.lowerExprRead(ie.Cond)
+		rawCond := fl.lowerExprRead(ie.Cond)
+		condSlot := fl.allocSlot("_ll_ifcond", types.TypeBool)
+		fl.assignLocal(condSlot, rawCond)
+		condExpr = condSlot.CName
 
 	case ast.IfCondOptVar:
 		origSym := fl.bm.IfOriginSyms[ie]

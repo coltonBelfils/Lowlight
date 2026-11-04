@@ -57,6 +57,10 @@ static int64_t ll_rt_live_allocs = 0;
 static int ll_rt_argc = 0;
 static char** ll_rt_argv = NULL;
 
+static inline int64_t ll_os_argc(void) {
+    return (int64_t)ll_rt_argc;
+}
+
 static inline void* ll_alloc(int64_t size) {
     size_t n = (size > 0) ? (size_t)size : 1u;
     void* p = calloc(1u, n);
@@ -210,6 +214,13 @@ static inline ll_string ll_str_lit(const char* s, int64_t len) {
     out.len = len;
     out.cap = 0;
     return out;
+}
+
+static inline ll_string ll_os_argv(int64_t idx) {
+    if (idx < 0 || idx >= ll_rt_argc || ll_rt_argv == NULL) {
+        return (ll_string){0};
+    }
+    return ll_str_lit(ll_rt_argv[idx], (int64_t)strlen(ll_rt_argv[idx]));
 }
 
 static inline void ll_drop__string(ll_string* s) {

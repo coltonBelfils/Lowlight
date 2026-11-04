@@ -260,10 +260,18 @@ func (a *Analyzer) collectTopLevelIntConsts(mod *Module) {
 			continue
 		}
 		if val, ok2 := a.evalConstInt(mod, vd.Value); ok2 {
+			ty := types.TypeInt
+			if vd.Type != nil {
+				if nt, isNt := vd.Type.(*ast.NamedType); isNt && nt.Module == "" && len(nt.TypeArgs) == 0 {
+					if p := types.LookupPrimitive(nt.Name); p != nil && p.IsInteger() {
+						ty = p
+					}
+				}
+			}
 			mod.Symbols[vd.Name] = &Symbol{
 				Name:        vd.Name,
 				CName:       types.SanitizeCIdent(vd.Name),
-				Type:        types.TypeInt,
+				Type:        ty,
 				IsBind:      true,
 				BindKind:    BindOwned,
 				IsTopLevel:  true,

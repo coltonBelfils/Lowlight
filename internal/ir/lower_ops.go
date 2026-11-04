@@ -264,6 +264,9 @@ func (fl *funcLowerer) lowerLoopDriver(
 		forScope := fl.pushScope(targetID, exitLbl, contLbl, resSlot, hasValSlot, false)
 		forScope.loopElemTy = loopElemTy
 		forScope.isForNoElse = isForNoElse
+		if colHoldSlot != nil && !colHoldSlot.Type.IsPlain() {
+			forScope.ownedLocals = append(forScope.ownedLocals, colHoldSlot)
+		}
 
 		fl.pushInstrBuf()
 		for _, si := range stepInit {
@@ -499,10 +502,6 @@ func (fl *funcLowerer) lowerLoopDriver(
 			}
 			stepAdv := []Instr{&InstrAssign{Dst: idxVar.CName, Expr: idxVar.CName + " + 1LL"}}
 			emitBodyIteration(stepInit, stepAdv, fmt.Sprintf("(%s < (%s)->ent_len)", idxVar.CName, colPtr))
-		}
-
-		if colHoldSlot != nil && !colHoldSlot.Type.IsPlain() {
-			fl.emit(&InstrDrop{Var: colHoldSlot.CName, Type: colHoldSlot.Type, MovedFlag: colHoldSlot.MovedFlag})
 		}
 	}
 }

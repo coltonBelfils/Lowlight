@@ -1354,9 +1354,9 @@ define Container[T] struct [
 
 ## 9. Standard Library Contract & Built-in Operations
 
-Conforming Lowlight implementations provide a built-in standard runtime contract.
+Conforming Lowlight implementations provide a built-in standard runtime contract along with native standard library modules implemented directly in Lowlight.
 
-### 9.1 Built-in Primitive Methods
+### 9.1 Built-in Primitive Methods & Character Module (`std/chars.ll`)
 
 All primitive types provide canonical conversion and formatting methods:
 - `int.to_string(): string`
@@ -1364,23 +1364,75 @@ All primitive types provide canonical conversion and formatting methods:
 - `bool.to_string(): string`
 - `char.to_string(): string`
 
-### 9.2 String Built-ins
+The `std/chars.ll` module provides comprehensive character classification, ASCII case conversion, radix conversions, and UTF-8 encoding measurements:
 
-The `string` type provides the following core inherent methods:
+#### Character Inherent Methods
+- `ch.is_digit(): bool`: Returns `true` if `ch` is an ASCII decimal digit (`'0'..'9'`).
+- `ch.is_alpha(): bool`: Returns `true` if `ch` is an ASCII letter (`'a'..'z'` or `'A'..'Z'`).
+- `ch.is_alnum(): bool`: Returns `true` if `ch` is alphanumeric.
+- `ch.is_whitespace(): bool`: Returns `true` if `ch` is ASCII whitespace (`' '`, `'\t'`, `'\n'`, `'\r'`, `0x0B`, `0x0C`).
+- `ch.is_ascii(): bool`: Returns `true` if `ch <= 0x7F`.
+- `ch.is_ascii_upper(): bool`: Returns `true` if `ch` is an uppercase ASCII letter.
+- `ch.is_ascii_lower(): bool`: Returns `true` if `ch` is a lowercase ASCII letter.
+- `ch.is_control(): bool`: Returns `true` if `ch` is an ASCII control character (`< 32` or `127`).
+- `ch.is_punctuation(): bool`: Returns `true` if `ch` is ASCII punctuation.
+- `ch.to_ascii_upper(): char`: Converts ASCII lowercase to uppercase; non-ASCII/uppercase characters unchanged.
+- `ch.to_ascii_lower(): char`: Converts ASCII uppercase to lowercase; non-ASCII/lowercase characters unchanged.
+- `ch.to_digit(radix: int): ?int`: Parses `ch` as a digit in radix $2 \le \text{radix} \le 36$; returns `none` if invalid.
+- `ch.len_utf8(): int`: Returns the UTF-8 byte length required to encode `ch` (1 to 4 bytes).
+
+#### Character Static & Free Functions
+- `char.from_digit(digit: int, radix: int): ?char`: Converts numeric value into character digit.
+- Standalone free functions: `chars.is_digit(ch)`, `chars.is_alpha(ch)`, `chars.is_alnum(ch)`, `chars.is_whitespace(ch)`, `chars.to_ascii_upper(ch)`, `chars.to_ascii_lower(ch)`, `chars.to_digit(ch, radix)`, `chars.from_digit(digit, radix)`.
+
+### 9.2 String Built-ins & Standard Strings Module (`std/strings.ll`)
+
+The `string` type represents an immutable UTF-8 text sequence. The standard library module `std/strings.ll` provides a complete suite of string methods:
+
+#### Inherent String Operations
 - `s.len(): int`: Returns Unicode scalar count.
 - `s.byte_len(): int`: Returns UTF-8 byte count.
 - `s.byte_at(i: int): u8`: Returns the byte at index `i` (bounds-checked).
+- `s.is_empty(): bool`: Returns `true` if `s.byte_len() == 0`.
+- `s.is_whitespace(): bool`: Returns `true` if all characters are whitespace.
+- `s.is_ascii(): bool`: Returns `true` if all characters are ASCII.
+
+#### Search & Inspection
 - `s.starts_with(prefix: string): bool`
 - `s.ends_with(suffix: string): bool`
 - `s.contains(sub: string): bool`
-- `s.index_of(sub: string): ?int`
-- `s.trim(): string`
-- `s.to_lowercase(): string`
-- `s.to_uppercase(): string`
-- `s.split(delim: string): [string]`
-- `s.replace(old: string, new: string): string`
+- `s.index_of(sub: string): ?int`: Returns start index of first occurrence of `sub`, or `none`.
+- `s.last_index_of(sub: string): ?int`: Returns start index of last occurrence of `sub`, or `none`.
+- `s.count(sub: string): int`: Returns non-overlapping occurrence count of `sub`.
 
-### 9.3 Collection Operations
+#### Trimming
+- `s.trim(): string`: Trims leading and trailing whitespace.
+- `s.trim_start(): string`: Trims leading whitespace.
+- `s.trim_end(): string`: Trims trailing whitespace.
+
+#### Case & Transformation
+- `s.to_lower(): string`: Returns lowercase string (also `to_lowercase()`).
+- `s.to_upper(): string`: Returns uppercase string (also `to_uppercase()`).
+- `s.capitalize(): string`: Capitalizes first character and lowercases remainder.
+- `s.repeat(n: int): string`: Repeats string `n` times.
+- `s.reverse(): string`: Reverses character order.
+- `s.replace(old: string, new: string): string`: Replaces first occurrence of `old` with `new`.
+- `s.replace_all(old: string, new: string): string`: Replaces all occurrences of `old` with `new`.
+
+#### Padding & Formatting
+- `s.pad_left(width: int, pad_ch: char = ' '): string`
+- `s.pad_right(width: int, pad_ch: char = ' '): string`
+- `s.center(width: int, pad_ch: char = ' '): string`
+
+#### Splitting, Joining & Conversions
+- `s.split(delim: string): [string]`: Splits `s` by `delim`.
+- `s.split_whitespace(): [string]`: Splits `s` by contiguous whitespace runs.
+- `s.lines(): [string]`: Splits `s` into lines across `\n` and `\r\n`.
+- `s.chars_list(): [char]`: Returns an owned list of Unicode `char` scalars.
+- `s.bytes_list(): [u8]`: Returns an owned list of raw `u8` bytes.
+- `strings.join(parts: [string], sep: string): string`: Joins list of strings with `sep`.
+
+### 9.3 Collection Operations & Sorting (`std/sort.ll`)
 
 #### Dynamic Lists (`[T]` / `List[T]`)
 - `lst.len(): int`: Element count.
@@ -1390,14 +1442,14 @@ The `string` type provides the following core inherent methods:
 - `lst.get(i: int): ?T`: Retrieves element at index `i` as optional `?T`.
 - `lst.clear()`: Drops all elements and resets length to zero.
 
-#### Sets (`#[T]`)
+#### Sets (`#[T]` / `Set[T: Hashable]`)
 - `s.len(): int`
 - `s.insert(val: own T): bool`: Inserts `val`; returns `true` if inserted, `false` if already present.
 - `s.contains(val: T): bool`
 - `s.remove(val: T): bool`
 - `s.clear()`
 
-#### Maps (`#[K: V]`)
+#### Maps (`#[K: V]` / `Map[K: Hashable, V]`)
 - `m.len(): int`
 - `m.get(key: K): ?V`: Returns a read-only borrow of the value for `key`, or `none`.
 - `m.has(key: K): bool`
@@ -1407,7 +1459,79 @@ The `string` type provides the following core inherent methods:
 - `m.values(): [V]`
 - `m.clear()`
 
-### 9.4 The `Result[T, E]` Standard Type
+#### The `Sortable` Interface & Collection Sorting (`std/sort.ll`)
+The `std/sort.ll` module provides high-performance in-place sorting based on Quicksort with median-of-three Lomuto partitioning and insertion sort optimization for sub-partitions $\le 16$ elements:
+
+```lowlight
+define Sortable interface [
+    sort: (&self),
+]
+```
+
+- `lst.sort()`: Sorts list in-place in ascending order (requires `T: Comparable`).
+- `lst.sort_by(cmp_fn: (a: &T, b: &T): int)`: In-place sorts using custom comparator function returning negative, zero, or positive integer.
+- `lst.is_sorted(): bool`: Checks whether list is sorted in non-decreasing order.
+- `lst.binary_search(target: &T): ?int`: Binary search on sorted list; returns index of match or `none`.
+- `lst.reverse()`: Reverses list in-place.
+- `s.to_sorted_list(): [T]`: Converts set elements to a newly allocated sorted list.
+- `m.to_sorted_keys(): [K]`: Extracts map keys into a newly allocated sorted list.
+- Standalone functions: `sort.sort(&lst)`, `sort.sort_by(&lst, cmp_fn)`, `sort.is_sorted(lst)`, `sort.binary_search(lst, target)`.
+
+### 9.4 File System Operations (`std/fs.ll`)
+
+Lowlight provides robust native file system and file stream operations through `std/fs.ll`:
+
+#### The `File` Resource Struct
+```lowlight
+define File struct [
+    handle: ptr[void],
+    is_open: bool,
+]
+```
+- Implements `Drop` via `File.drop(&self)`: Automatically closes any open file descriptor upon scope exit, preventing file descriptor leaks under all control flow paths (including early returns and panics).
+
+#### Constructors
+- `File.open(path: string, mode: string): Result[File, string]`
+- `File.open_read(path: string): Result[File, string]` (mode `"rb"`)
+- `File.open_write(path: string): Result[File, string]` (mode `"wb"`)
+- `File.open_append(path: string): Result[File, string]` (mode `"ab"`)
+- `File.open_read_write(path: string): Result[File, string]` (mode `"w+b"`)
+
+#### Stream Methods
+- `file.close(): bool`: Closes stream explicitly.
+- `file.flush(): bool`: Flushes internal buffers.
+- `file.seek(offset: int, whence: i32): bool`: Seeks to position using `SEEK_SET = 0`, `SEEK_CUR = 1`, or `SEEK_END = 2`.
+- `file.tell(): int`: Returns current stream position offset.
+- `file.size(): int`: Returns total file size in bytes.
+- `file.write_string(s: string): Result[int, string]`: Writes UTF-8 text to stream.
+- `file.write_bytes(bytes: [u8]): Result[int, string]`: Writes byte slice to stream.
+- `file.read_bytes(max_bytes: int): Result[[u8], string]`: Reads up to `max_bytes` into an owned list.
+- `file.read_to_string(): Result[string, string]`: Reads remaining file stream contents to end as string.
+
+#### Top-Level Convenience Functions
+- `fs.read_file(path: string): Result[string, string]` (alias `fs.read_to_string`, `fs.read_text`)
+- `fs.write_file(path: string, content: string): Result[bool, string]` (alias `fs.write_to_file`, `fs.write_text`)
+- `fs.append_file(path: string, content: string): Result[bool, string]`
+- `fs.read_bytes(path: string): Result[[u8], string]`
+- `fs.write_bytes(path: string, bytes: [u8]): Result[bool, string]`
+- `fs.exists(path: string): bool`
+- `fs.file_size(path: string): int`
+- `fs.remove_file(path: string): bool`
+- `fs.rename_file(old_path: string, new_path: string): bool`
+- `fs.copy_file(src_path: string, dst_path: string): Result[bool, string]`
+
+### 9.5 Operating System & Universe Functions (`std/os.ll`)
+
+The following functions are available globally in all scopes:
+- `print(val: Printable)`: Writes string representation to standard output without newline.
+- `println(val: Printable)`: Writes string representation to standard output with trailing newline.
+- `eprint(val: Printable)`: Writes string representation to standard error.
+- `eprintln(val: Printable)`: Writes string representation to standard error with trailing newline.
+- `panic(msg: string): never`: Terminates process execution immediately with an error message.
+- `assert(cond: bool [, msg: string])`: Evaluates `cond`; panics if `cond` is `false`.
+- `args(): [string]`: Returns command-line invocation arguments as an owned `[string]` list. Implemented in pure native Lowlight in `std/os.ll` by iterating runtime argument counts and accessing argument vector elements.
+
+### 9.6 The `Result[T, E]` Standard Type
 
 The standard prelude defines the canonical error-handling type `Result[T, E]`:
 
@@ -1429,17 +1553,6 @@ define Result[T, E] struct [
 - `res.unwrap_or(default: own T): T`: Returns value if ok; otherwise returns `default`.
 
 Because `Result` is marked `@must_use`, ignoring a returned `Result` without inspection is a static compile error.
-
-### 9.5 Universe Built-in Functions
-
-The following functions are available globally in all scopes:
-- `print(val: Printable)`: Writes string representation to standard output without newline.
-- `println(val: Printable)`: Writes string representation to standard output with trailing newline.
-- `eprint(val: Printable)`: Writes string representation to standard error.
-- `eprintln(val: Printable)`: Writes string representation to standard error with trailing newline.
-- `panic(msg: string): never`: Terminates process execution immediately with an error message.
-- `assert(cond: bool [, msg: string])`: Evaluates `cond`; panics if `cond` is `false`.
-- `args(): [string]`: Returns command-line invocation arguments.
 
 ---
 

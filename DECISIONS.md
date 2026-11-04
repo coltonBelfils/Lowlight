@@ -283,5 +283,45 @@ During the post-v1.0 codebase audit and fuzzing pass, 12 key compiler and standa
    - `clamp[T: Comparable + Copyable] = (val: T, low: T, high: T): T`
    - Bounded by `Comparable + Copyable`, guaranteeing compile-time type safety while operating on primitives (`int`, `float`, `char`, `string`) and custom user structs alike.
 
+---
+
+## 12. Standard Libraries: Native Lowlight `strings`, `chars`, `fs`, `os.args()`, and `sort`
+
+1. **Character Suite (`std/chars.ll`)**:
+   - Comprehensive character classification and conversion methods on `char` (`is_digit`, `is_alpha`, `is_alnum`, `is_whitespace`, `is_ascii`, `is_ascii_upper`, `is_ascii_lower`, `is_control`, `is_punctuation`, `to_ascii_upper`, `to_ascii_lower`, `to_digit`, `from_digit`, `len_utf8`).
+   - Free functions mirrored for functional style (`is_digit('5')`, `to_ascii_upper('a')`, etc.).
+   - All character logic is pure native Lowlight with zero C helper dependencies.
+
+2. **String Suite (`std/strings.ll`)**:
+   - String predicates (`is_empty`, `is_whitespace`, `is_ascii`).
+   - Prefix/suffix matching (`starts_with`, `ends_with`).
+   - Search & count (`index_of`, `last_index_of`, `contains`, `count`).
+   - Whitespace trimming (`trim`, `trim_start`, `trim_end`).
+   - Case transformations (`to_upper`, `to_lower`, `capitalize`).
+   - String manipulation (`replace`, `replace_all`, `repeat`, `reverse`).
+   - Padding & alignment (`pad_left`, `pad_right`, `center`).
+   - Tokenization & decomposition (`split`, `split_whitespace`, `lines`, `join`, `chars_list`, `bytes_list`).
+
+3. **Robust File System Library (`std/fs.ll`)**:
+   - `File` struct with RAII `Drop` implementation (`File.drop(&self)`) that automatically closes open file streams upon scope exit.
+   - Stream constructors: `File.open`, `File.open_read`, `File.open_write`, `File.open_append`, `File.open_read_write`.
+   - Stream operations: `close`, `flush`, `seek` (with `SEEK_SET`, `SEEK_CUR`, `SEEK_END`), `tell`, `size`, `write_string`, `write_bytes`, `read_bytes`, `read_to_string`.
+   - Top-level convenience functions: `read_file`, `read_to_string`, `read_text`, `write_file`, `write_to_file`, `write_text`, `append_file`, `read_bytes`, `write_bytes`, `exists`, `file_size`, `remove_file`, `rename_file`, `copy_file`.
+
+4. **Native OS Arguments (`std/os.ll`)**:
+   - Command-line arguments `args(): [string]` implemented as pure native Lowlight looping over C runtime globals `ll_os_argc()` and `ll_os_argv(i)` to produce a safe owned Lowlight list `[string]`.
+
+5. **Sorting Library & `Sortable` Interface (`std/sort.ll`)**:
+   - `define Sortable interface [ sort: (&self) ]`: universal sorting interface for collections that sort in place.
+   - Quicksort algorithm with 3-way median-of-three partitioning and insertion sort optimization for partitions $\le 16$ elements.
+   - `List[T].sort()`: in-place ascending sorting requiring `Comparable` elements.
+   - `List[T].sort_by(cmp_fn)`: in-place sorting with custom comparator callback `(T, T): int`.
+   - `List[T].is_sorted()`: verification of ascending sort order.
+   - `List[T].binary_search(target)`: logarithmic search returning `?int` index on sorted lists.
+   - `List[T].reverse()`: in-place list reversal.
+   - Extended collections: `Set[T].to_sorted_list()` and `Map[K, V].to_sorted_keys()`.
+   - Standalone functions: `sort(&list)`, `sort_by(&list, cmp)`, `is_sorted(list)`, `binary_search(list, target)`.
+
+
 
 

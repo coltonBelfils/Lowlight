@@ -13,6 +13,8 @@ extern ll_os_remove_all: (path: ptr[u8]): int
 extern ll_os_num_cpus: (): int
 extern ll_os_name: (): string
 extern ll_os_arch: (): string
+extern ll_os_argc: (): int
+extern ll_os_argv: (idx: int): string
 extern ll_str_from_raw: (data: ptr[u8], len: int): string
 
 define ExecResult struct [
@@ -79,4 +81,14 @@ bind os_name = (): string {
 
 bind arch = (): string {
     unsafe ll_os_arch()
+}
+
+// Returns the command-line arguments passed to the program as a List[string].
+bind args = (): [string] {
+    let count = unsafe ll_os_argc()
+    let out: [string] = []
+    for (i in 0..count) {
+        out.push(unsafe ll_os_argv(i))
+    }
+    out
 }
