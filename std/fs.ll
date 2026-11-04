@@ -1,45 +1,11 @@
 // Lowlight Standard Library: std/fs.ll
-// Generic Result[T, E] error-handling value type and safe file I/O helpers.
+// Safe file I/O helpers and filesystem operations.
 
 extern "stdio.h"
 
 extern fopen as c_fopen: (path: ptr[u8], mode: ptr[u8]): ptr[u8]
 extern fclose as c_fclose: (fp: ptr[u8]): i32
 extern remove as c_remove: (path: ptr[u8]): i32
-
-define Result[T, E] struct [
-    value?: ?T,
-    err?: ?E,
-    ok_flag: bool,
-]
-
-bind Result[T, E].ok = (val: own T): Result[T, E] {
-    Result[T, E][
-        value?: own val,
-        err?: none,
-        ok_flag: true,
-    ]
-}
-
-bind Result[T, E].fail = (e: own E): Result[T, E] {
-    Result[T, E][
-        value?: none,
-        err?: own e,
-        ok_flag: false,
-    ]
-}
-
-bind Result[T, E].is_ok = (self): bool { self.ok_flag }
-
-bind Result[T, E].is_err = (self): bool { not self.ok_flag }
-
-bind Result[T, E].unwrap_or = (own self, fallback: own T): T {
-    self.value? ?? own fallback
-}
-
-bind Result[T, E].unwrap = (own self): T {
-    self.value? ?? panic("called Result.unwrap on an error")
-}
 
 bind exists = (path: string): bool {
     unsafe {

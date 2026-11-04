@@ -46,6 +46,9 @@ type Symbol struct {
 	ScopeDepth    int
 	ArenaDepth    int // > 0 if this value holds `ref[T]` tied to a local Arena at ArenaDepth
 	DeclFuncDepth int // function/lambda nesting level where declared
+	MustUse       bool
+	Deprecated    bool
+	DeprecatedMsg string
 	FuncInst      *FuncInstance
 	GenFunc       *GenericFuncTemplate
 	ExternFn      *ExternFunc
@@ -64,6 +67,20 @@ type GenericStructTemplate struct {
 	Decl      *ast.StructDecl
 	Mod       *Module
 	Instances map[string]*types.Struct
+}
+
+// GenericEnumTemplate stores an uninstantiated `define Name[T...] enum [...]`.
+type GenericEnumTemplate struct {
+	Decl      *ast.EnumDecl
+	Mod       *Module
+	Instances map[string]*types.Enum
+}
+
+// GenericInterfaceTemplate stores an uninstantiated `define Name[T...] interface [...]`.
+type GenericInterfaceTemplate struct {
+	Decl      *ast.InterfaceDecl
+	Mod       *Module
+	Instances map[string]*types.Interface
 }
 
 // GenericFuncTemplate stores an uninstantiated generic `bind fn[T...] = ...` or method.
@@ -94,6 +111,11 @@ type FuncInstance struct {
 	BodyMaps      *BodyMaps
 	DeclSpan      diag.Span
 	Checked       bool
+	IsAlwaysInline bool
+	IsNoInline     bool
+	MustUse        bool
+	Deprecated     bool
+	DeprecatedMsg  string
 }
 
 // BodyMaps holds per-monomorphized-body AST side tables so multiple generic
@@ -103,8 +125,10 @@ type BodyMaps struct {
 	UnwindInfos  map[*ast.UnwindStmt]*UnwindInfo
 	VarSymbols   map[*ast.VarStmt]*Symbol
 	ForSymbols   map[*ast.ForExpr][2]*Symbol // [Var1Sym, Var2Sym]
+	WhileSymbols map[*ast.WhileExpr][2]*Symbol // [Var1Sym, Var2Sym]
 	IfUnwrapSyms map[*ast.IfExpr]*Symbol
 	IfOriginSyms map[*ast.IfExpr]*Symbol
+	PatternSyms  map[*ast.VariantPattern][]*Symbol
 }
 
 // NewBodyMaps allocates a fresh set of per-body AST side tables.
@@ -114,8 +138,10 @@ func NewBodyMaps() *BodyMaps {
 		UnwindInfos:  make(map[*ast.UnwindStmt]*UnwindInfo),
 		VarSymbols:   make(map[*ast.VarStmt]*Symbol),
 		ForSymbols:   make(map[*ast.ForExpr][2]*Symbol),
+		WhileSymbols: make(map[*ast.WhileExpr][2]*Symbol),
 		IfUnwrapSyms: make(map[*ast.IfExpr]*Symbol),
 		IfOriginSyms: make(map[*ast.IfExpr]*Symbol),
+		PatternSyms:  make(map[*ast.VariantPattern][]*Symbol),
 	}
 }
 
@@ -154,6 +180,7 @@ const (
 	CallBuiltinMethod                 // built-in method on primitive/string/vec/array/set/map/Arena/enum/struct
 	CallInterfaceMethod               // dynamic dispatch through interface fat pointer vtable
 	CallIntrinsic                     // `size_of`, `align_of`, `alloc_raw`, `ptr_read`, etc.
+	CallEnumVariant                   // tuple-payload enum variant constructor (`Result.Ok(42)`)
 )
 
 // ExprInfo stores semantic resolution results per AST expression node.
@@ -188,7 +215,9 @@ type ExprInfo struct {
 	Lambda        *LambdaInfo
 
 	// Target ID for control-flow constructs (`BlockExpr`, `IfExpr`, `MatchExpr`, `ForExpr`)
-	TargetID      int
+	TargetID        int
+	YieldArenaDepth int  // max ArenaDepth yielded/captured by BlockExpr, IfExpr, MatchExpr, ForExpr, or FuncLit
+	MatchMutScrut   bool // true on MatchExpr when any arm destructures with `&` mutable borrow
 }
 
 // UnwindInfo records which enclosing construct an `*ast.UnwindStmt` jumps to.
@@ -214,11 +243,13 @@ type Module struct {
 	File          *ast.File
 	Imports       []*Module            // unqualified `import "foo.ll"`
 	Aliased       map[string]*Module   // `import "foo.ll" as alias`
-	Types         map[string]types.Type
-	GenericStructs map[string]*GenericStructTemplate
-	Symbols       map[string]*Symbol
-	GenericFuncs  map[string]*GenericFuncTemplate
-	ExternHeaders []string
+	Types          map[string]types.Type
+	GenericStructs    map[string]*GenericStructTemplate
+	GenericEnums      map[string]*GenericEnumTemplate
+	GenericInterfaces map[string]*GenericInterfaceTemplate
+	Symbols        map[string]*Symbol
+	GenericFuncs   map[string]*GenericFuncTemplate
+	ExternHeaders  []string
 }
 
 // TopVarInit represents a non-function top-level `bind` constant to be emitted in C.
@@ -238,6 +269,8 @@ type CheckedProgram struct {
 	StructDecls    map[*types.Struct]*ast.StructDecl
 	StructMods     map[*types.Struct]*Module
 	Enums          []*types.Enum
+	EnumDecls      map[*types.Enum]*ast.EnumDecl
+	EnumMods       map[*types.Enum]*Module
 	Distincts      []*types.Distinct
 	Interfaces     []*types.Interface
 	TopVars        []*TopVarInit
@@ -248,14 +281,27 @@ type CheckedProgram struct {
 
 	TopBodyMaps    *BodyMaps
 	StructBodyMaps map[*types.Struct]*BodyMaps
+	EnumBodyMaps   map[*types.Enum]*BodyMaps
 	MethodTable    map[string]map[string]*FuncInstance
 	GenMethods     map[string]map[string]*GenericFuncTemplate
 	TypeSpans      map[types.Type]diag.Span
 
 	// Built-in interfaces
-	IfacePrintable *types.Interface
-	IfaceCopyable  *types.Interface
-	IfaceDrop      *types.Interface
+	IfacePrintable      *types.Interface
+	IfaceCopyable       *types.Interface
+	IfaceDrop           *types.Interface
+	IfaceHashable       *types.Interface
+	IfaceEquatable      *types.Interface
+	IfaceComparable     *types.Interface
+	IfaceCollectable    *types.Interface
+	IfaceIterable       *types.Interface
+	IfaceIterator       *types.Interface
+	GenIfaceCollectable *GenericInterfaceTemplate
+	GenIfaceIterable    *GenericInterfaceTemplate
+	GenIfaceIterator    *GenericInterfaceTemplate
+	GenStructList       *GenericStructTemplate
+	GenStructSet        *GenericStructTemplate
+	GenStructMap        *GenericStructTemplate
 }
 
 // Analyzer orchestrates all semantic passes.
@@ -280,6 +326,11 @@ type Analyzer struct {
 	inBodyPass   bool
 	nextTargetID int
 	nextLambdaID int
+
+	topVarMap      map[*Symbol]*TopVarInit
+	topVarStates   map[*TopVarInit]int // 0 = unvisited, 1 = visiting, 2 = visited
+	orderedTopVars []*TopVarInit
+	monoDepth      int
 }
 
 // Check parses and semantically validates `entryPath` and all its transitive imports.
@@ -313,9 +364,12 @@ func CheckForIDE(entryPath string, overlays map[string]string, projectRoot strin
 			prog = &CheckedProgram{
 				StructDecls:    make(map[*types.Struct]*ast.StructDecl),
 				StructMods:     make(map[*types.Struct]*Module),
+				EnumDecls:      make(map[*types.Enum]*ast.EnumDecl),
+				EnumMods:       make(map[*types.Enum]*Module),
 				VTables:        make(map[string]*VTableImpl),
 				TopBodyMaps:    NewBodyMaps(),
 				StructBodyMaps: make(map[*types.Struct]*BodyMaps),
+				EnumBodyMaps:   make(map[*types.Enum]*BodyMaps),
 				MethodTable:    make(map[string]map[string]*FuncInstance),
 				GenMethods:     make(map[string]map[string]*GenericFuncTemplate),
 				TypeSpans:      make(map[types.Type]diag.Span),
@@ -341,9 +395,12 @@ func runCheck(entryPath string, overlays map[string]string, projectRoot string, 
 	prog := &CheckedProgram{
 		StructDecls:    make(map[*types.Struct]*ast.StructDecl),
 		StructMods:     make(map[*types.Struct]*Module),
+		EnumDecls:      make(map[*types.Enum]*ast.EnumDecl),
+		EnumMods:       make(map[*types.Enum]*Module),
 		VTables:        make(map[string]*VTableImpl),
 		TopBodyMaps:    topBM,
 		StructBodyMaps: make(map[*types.Struct]*BodyMaps),
+		EnumBodyMaps:   make(map[*types.Enum]*BodyMaps),
 		MethodTable:    make(map[string]map[string]*FuncInstance),
 		GenMethods:     genMethods,
 		TypeSpans:      make(map[types.Type]diag.Span),
@@ -458,7 +515,29 @@ func (a *Analyzer) initBuiltinInterfaces() {
 			Ret:      types.TypeVoid,
 		}},
 	}
-	a.Prog.Interfaces = append(a.Prog.Interfaces, a.Prog.IfacePrintable, a.Prog.IfaceCopyable, a.Prog.IfaceDrop)
+	a.Prog.IfaceEquatable = &types.Interface{
+		Name:     "Equatable",
+		CName:    "ll_iface_Equatable",
+		UsesSelf: true,
+		Methods: []types.InterfaceMethod{{
+			Name:     "eq",
+			RecvMode: types.ModeRead,
+			Params:   []types.FuncParam{{Name: "other", Mode: types.ModeRead, Type: types.TypeSelf}},
+			Ret:      types.TypeBool,
+		}},
+	}
+	a.Prog.IfaceComparable = &types.Interface{
+		Name:     "Comparable",
+		CName:    "ll_iface_Comparable",
+		UsesSelf: true,
+		Methods: []types.InterfaceMethod{{
+			Name:     "cmp",
+			RecvMode: types.ModeRead,
+			Params:   []types.FuncParam{{Name: "other", Mode: types.ModeRead, Type: types.TypeSelf}},
+			Ret:      types.TypeInt,
+		}},
+	}
+	a.Prog.Interfaces = append(a.Prog.Interfaces, a.Prog.IfacePrintable, a.Prog.IfaceCopyable, a.Prog.IfaceDrop, a.Prog.IfaceEquatable, a.Prog.IfaceComparable)
 }
 
 func (a *Analyzer) loadModule(absPath string, importSpan diag.Span) *Module {
@@ -491,7 +570,9 @@ func (a *Analyzer) loadModule(absPath string, importSpan diag.Span) *Module {
 		File:           astFile,
 		Aliased:        make(map[string]*Module),
 		Types:          make(map[string]types.Type),
-		GenericStructs: make(map[string]*GenericStructTemplate),
+		GenericStructs:    make(map[string]*GenericStructTemplate),
+		GenericEnums:      make(map[string]*GenericEnumTemplate),
+		GenericInterfaces: make(map[string]*GenericInterfaceTemplate),
 		Symbols:        make(map[string]*Symbol),
 		GenericFuncs:   make(map[string]*GenericFuncTemplate),
 	}
@@ -499,6 +580,8 @@ func (a *Analyzer) loadModule(absPath string, importSpan diag.Span) *Module {
 	mod.Types["Printable"] = a.Prog.IfacePrintable
 	mod.Types["Copyable"] = a.Prog.IfaceCopyable
 	mod.Types["Drop"] = a.Prog.IfaceDrop
+	mod.Types["Equatable"] = a.Prog.IfaceEquatable
+	mod.Types["Comparable"] = a.Prog.IfaceComparable
 
 	a.loadedMods[absPath] = mod
 

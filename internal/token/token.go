@@ -75,7 +75,7 @@ const (
 	Gt  // >
 	Gte // >=
 
-	// Reserved Keywords (27)
+	// Reserved Keywords (28)
 	KwLet
 	KwBind
 	KwDefine
@@ -85,6 +85,7 @@ const (
 	KwIf
 	KwElse
 	KwFor
+	KwWhile
 	KwIn
 	KwMatch
 	KwWhen
@@ -172,6 +173,7 @@ var kindNames = map[Kind]string{
 	KwIf:        "if",
 	KwElse:      "else",
 	KwFor:       "for",
+	KwWhile:     "while",
 	KwIn:        "in",
 	KwMatch:     "match",
 	KwWhen:      "when",
@@ -209,10 +211,10 @@ var keywords = map[string]Kind{
 	"if":        KwIf,
 	"else":      KwElse,
 	"for":       KwFor,
+	"while":     KwWhile,
 	"in":        KwIn,
 	"match":     KwMatch,
 	"when":      KwWhen,
-	"next":      KwNext,
 	"func":      KwFunc,
 	"none":      KwNone,
 	"true":      KwTrue,

@@ -4,19 +4,19 @@
 // `for ... else`, and `?? func <-` optional guard returns.
 
 bind find_first_divisible = (nums: [int], divisor: int): int {
-    // `for (...) { ... } else ...` produces a value directly!
-    for (n in nums) {
+    // `while (...) { ... } else ...` produces a scalar value directly!
+    while (n in nums): int {
         if (n <= 0) {
             next <-
         }
         if (n % divisor == 0) {
-            for <- n
+            while <- n
         }
     } else -1
 }
 
 bind find_in_grid = (grid: [[int]], target: int): string {
-    let coords = outer: for (r, row in grid) {
+    let coords = outer: while (r, row in grid): string {
         for (c, cell in row) {
             if (cell < 0) {
                 // Skip rest of this row and jump to next outer row!

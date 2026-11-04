@@ -517,6 +517,7 @@ func BuiltinMethodsForType(recvTy types.Type, isOptChain bool) []BuiltinMethodDo
 		add(BuiltinMethodDoc{Name: "push", RecvMode: "&self", Signature: "(&self, suffix: string)", Params: []string{"suffix: string"}, ReturnType: "void", Snippet: "push($1)", Summary: "Appends `suffix` to mutable `let` string in place."})
 		add(BuiltinMethodDoc{Name: "push_char", RecvMode: "&self", Signature: "(&self, ch: char)", Params: []string{"ch: char"}, ReturnType: "void", Snippet: "push_char($1)", Summary: "UTF-8 encodes and appends `ch` in place."})
 		add(BuiltinMethodDoc{Name: "push_byte", RecvMode: "&self", Signature: "(&self, b: u8)", Params: []string{"b: u8"}, ReturnType: "void", Snippet: "push_byte($1)", Summary: "Appends raw byte `b` in place."})
+		add(BuiltinMethodDoc{Name: "push_bytes", RecvMode: "&self", Signature: "(&self, bytes: ptr[u8], count: int)", Params: []string{"bytes: ptr[u8]", "count: int"}, ReturnType: "void", Snippet: "push_bytes($1, $2)", Summary: "Appends `count` raw bytes from `bytes` pointer in place."})
 		add(BuiltinMethodDoc{Name: "clear", RecvMode: "&self", Signature: "(&self)", ReturnType: "void", Snippet: "clear()", Summary: "Resets string length to 0 while retaining allocated capacity."})
 		add(BuiltinMethodDoc{Name: "c_str", RecvMode: "self", Signature: "(self): ptr[u8]", ReturnType: "ptr[u8]", Snippet: "c_str()", NeedsUnsafe: true, Summary: "Returns NUL-terminated `ptr[u8]` pointer for C FFI. Requires `unsafe`."})
 	}

@@ -48,23 +48,27 @@ bind bfs_order = (start: ref[GraphNode]): [string] {
 bind main = () {
     let arena = Arena.with_capacity(2048)
 
-    // Phase 1: Build a directed cyclic graph A <-> B -> C -> A
-    let a = GraphNode.alloc(&arena, 1, "Alpha")
-    let b = GraphNode.alloc(&arena, 2, "Beta")
-    let c = GraphNode.alloc(&arena, 3, "Gamma")
-    let d = GraphNode.alloc(&arena, 4, "Delta")
+    // Phase 1: Build a directed cyclic graph A <-> B -> C -> A inside a scoped phase block
+    // so all Phase 1 `ref[GraphNode]` handles go out of scope before `arena.reset()`.
+    let phase1_bytes = 0
+    let path_str = {
+        let a = GraphNode.alloc(&arena, 1, "Alpha")
+        let b = GraphNode.alloc(&arena, 2, "Beta")
+        let c = GraphNode.alloc(&arena, 3, "Gamma")
+        let d = GraphNode.alloc(&arena, 4, "Delta")
 
-    connect(a, b)
-    connect(b, a) // Direct cycle!
-    connect(b, c)
-    connect(c, a) // Back-edge cycle!
-    connect(c, d)
+        connect(a, b)
+        connect(b, a) // Direct cycle!
+        connect(b, c)
+        connect(c, a) // Back-edge cycle!
+        connect(c, d)
 
-    let visited_names = bfs_order(a)
-    let path_str = visited_names.join(" -> ")
+        let visited_names = bfs_order(a)
+        phase1_bytes = arena.bytes_used()
+        assert(phase1_bytes > 0)
+        visited_names.join(" -> ")
+    }
     assert(path_str == "Alpha -> Beta -> Gamma -> Delta")
-    let phase1_bytes = arena.bytes_used()
-    assert(phase1_bytes > 0)
 
     // Phase 2: Reset arena in O(1) — runs destructors on `label` strings & `edges` vectors,
     // then reuses the underlying arena slab for a brand new graph!

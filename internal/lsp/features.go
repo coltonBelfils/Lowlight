@@ -60,6 +60,12 @@ func (s *Server) computeHover(filePath string, src string, pos Position) *Hover 
 			Range:    &rng,
 		}
 	}
+	if gen := lookupGenEnum(mod, "", word); gen != nil {
+		return &Hover{
+			Contents: MarkupContent{Kind: "markdown", Value: formatEnumDeclHover(gen.Decl)},
+			Range:    &rng,
+		}
+	}
 
 	// 3. Check top-level functions, generic functions, constants & module aliases
 	if sym := lookupTopSym(mod, word); sym != nil {
@@ -153,7 +159,7 @@ func hoverFromAST(prog *sema.CheckedProgram, mod *sema.Module, offset int, tok t
 				for _, v := range decl.Variants {
 					if spanContainsOffset(v.Span, offset) && tok.Text == v.Name {
 						if ev, ok2 := en.VariantByName(v.Name); ok2 {
-							return fmt.Sprintf("```lowlight\n%s.%s = %d // %s\n```", en.Name, ev.Name, ev.Value, en.Underlying.String())
+							return formatEnumVariantHover(en, ev)
 						}
 					}
 				}
@@ -251,6 +257,18 @@ func hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMaps,
 		}
 		return hoverInExpr(prog, mod, bm, v.Else, offset, tok)
 
+	case *ast.WhileExpr:
+		if md := hoverInExpr(prog, mod, bm, v.CondOrIter, offset, tok); md != "" {
+			return md
+		}
+		if md := hoverInExpr(prog, mod, bm, v.RangeEnd, offset, tok); md != "" {
+			return md
+		}
+		if v.Body != nil && spanContainsOffset(v.Body.GetSpan(), offset) {
+			return hoverInExpr(prog, mod, bm, v.Body, offset, tok)
+		}
+		return hoverInExpr(prog, mod, bm, v.Else, offset, tok)
+
 	case *ast.MatchExpr:
 		if md := hoverInExpr(prog, mod, bm, v.Scrutinee, offset, tok); md != "" {
 			return md
@@ -259,6 +277,19 @@ func hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMaps,
 			for _, pat := range arm.Patterns {
 				if ep, ok := pat.(*ast.ExprPattern); ok && spanContainsOffset(ep.Span, offset) {
 					if md := hoverInExpr(prog, mod, bm, ep.Expr, offset, tok); md != "" {
+						return md
+					}
+				}
+				if vp, ok := pat.(*ast.VariantPattern); ok && spanContainsOffset(vp.Span, offset) {
+					if bm != nil {
+						syms := bm.PatternSyms[vp]
+						for i, b := range vp.Bindings {
+							if spanContainsOffset(b.Span, offset) && tok.Text == b.BindName && i < len(syms) && syms[i] != nil {
+								return formatSymbolHover(syms[i])
+							}
+						}
+					}
+					if md := hoverInExpr(prog, mod, bm, vp.Target, offset, tok); md != "" {
 						return md
 					}
 				}
@@ -310,8 +341,7 @@ func hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMaps,
 		inf := exprInfoFromBM(prog, bm, v)
 		if inf != nil {
 			if inf.EnumVariant != nil && inf.EnumType != nil {
-				return fmt.Sprintf("```lowlight\n%s.%s = %d // enum %s (%s)\n```",
-					inf.EnumType.Name, inf.EnumVariant.Name, inf.EnumVariant.Value, inf.EnumType.Name, inf.EnumType.Underlying.String())
+				return formatEnumVariantHover(inf.EnumType, inf.EnumVariant)
 			}
 			if inf.Sym != nil {
 				return formatSymbolHover(inf.Sym)
@@ -332,15 +362,32 @@ func hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMaps,
 				return hoverInExpr(prog, mod, bm, f.Value, offset, tok)
 			}
 			if spanContainsOffset(f.Span, offset) && tok.Text == f.Name {
-				if inf := exprInfoFromBM(prog, bm, v); inf != nil && inf.StructType != nil {
-					if sf, _ := inf.StructType.FieldByName(f.Name); sf != nil {
-						return formatStructFieldHover(inf.StructType.String(), sf.Name, sf.Type)
+				if inf := exprInfoFromBM(prog, bm, v); inf != nil {
+					if inf.StructType != nil {
+						if sf, _ := inf.StructType.FieldByName(f.Name); sf != nil {
+							return formatStructFieldHover(inf.StructType.String(), sf.Name, sf.Type)
+						}
+					}
+					if inf.EnumVariant != nil && inf.EnumType != nil {
+						if sf, _ := inf.EnumVariant.FieldByName(f.Name); sf != nil {
+							return formatStructFieldHover(inf.EnumType.String()+"."+inf.EnumVariant.Name, sf.Name, sf.Type)
+						}
 					}
 				}
 			}
 		}
-		if inf := exprInfoFromBM(prog, bm, v); inf != nil && inf.StructType != nil && tok.Text == v.TypeName {
-			return formatNominalTypeHover(prog, inf.StructType)
+		if inf := exprInfoFromBM(prog, bm, v); inf != nil {
+			if inf.StructType != nil && tok.Text == v.TypeName {
+				return formatNominalTypeHover(prog, inf.StructType)
+			}
+			if inf.EnumType != nil && inf.EnumVariant != nil {
+				if tok.Text == v.VariantName {
+					return formatEnumVariantHover(inf.EnumType, inf.EnumVariant)
+				}
+				if tok.Text == v.TypeName {
+					return formatNominalTypeHover(prog, inf.EnumType)
+				}
+			}
 		}
 
 	case *ast.IdentExpr:
@@ -506,8 +553,38 @@ func formatCallHover(call *ast.CallExpr, inf *sema.ExprInfo) string {
 		if mem, ok := call.Callee.(*ast.MemberExpr); ok {
 			return fmt.Sprintf("```lowlight\n.%s(...) -> %s\n```\nBuilt-in method `%s`.", mem.Member, inf.Type.String(), inf.BuiltinName)
 		}
+	case sema.CallEnumVariant:
+		if inf.EnumType != nil && inf.EnumVariant != nil {
+			return formatEnumVariantHover(inf.EnumType, inf.EnumVariant)
+		}
 	}
 	return ""
+}
+
+func formatEnumVariantHover(en *types.Enum, ev *types.EnumVariant) string {
+	if en == nil || ev == nil {
+		return ""
+	}
+	if !en.IsTagged {
+		return fmt.Sprintf("```lowlight\n%s.%s = %d // enum %s (%s)\n```",
+			en.Name, ev.Name, ev.Value, en.Name, en.Underlying.String())
+	}
+	switch ev.Kind {
+	case types.VariantTuple:
+		pStr := "any"
+		if ev.Payload != nil {
+			pStr = ev.Payload.String()
+		}
+		return fmt.Sprintf("```lowlight\n%s.%s(%s)\n```\nTagged union variant.", en.String(), ev.Name, pStr)
+	case types.VariantStruct:
+		var fs []string
+		for _, sf := range ev.Fields {
+			fs = append(fs, fmt.Sprintf("%s: %s", sf.Name, sf.Type.String()))
+		}
+		return fmt.Sprintf("```lowlight\n%s.%s[%s]\n```\nTagged union struct variant.", en.String(), ev.Name, strings.Join(fs, ", "))
+	default:
+		return fmt.Sprintf("```lowlight\n%s.%s\n```\nTagged union unit variant.", en.String(), ev.Name)
+	}
 }
 
 func formatStructFieldHover(structName, fieldName string, fieldTy types.Type) string {
@@ -549,12 +626,39 @@ func formatNominalTypeHover(prog *sema.CheckedProgram, ty types.Type) string {
 
 	case *types.Enum:
 		var lines []string
-		lines = append(lines, fmt.Sprintf("define %s enum %s [", v.Name, v.Underlying.String()))
+		if !v.IsTagged {
+			lines = append(lines, fmt.Sprintf("define %s enum %s [", v.Name, v.Underlying.String()))
+			for _, ev := range v.Variants {
+				lines = append(lines, fmt.Sprintf("    %s = %d,", ev.Name, ev.Value))
+			}
+			lines = append(lines, "]")
+			return fmt.Sprintf("```lowlight\n%s\n```\nPlain tag enum.", strings.Join(lines, "\n"))
+		}
+		lines = append(lines, fmt.Sprintf("define %s enum [", v.String()))
 		for _, ev := range v.Variants {
-			lines = append(lines, fmt.Sprintf("    %s = %d,", ev.Name, ev.Value))
+			switch ev.Kind {
+			case types.VariantTuple:
+				pStr := "any"
+				if ev.Payload != nil {
+					pStr = ev.Payload.String()
+				}
+				lines = append(lines, fmt.Sprintf("    %s: %s,", ev.Name, pStr))
+			case types.VariantStruct:
+				var fs []string
+				for _, sf := range ev.Fields {
+					fs = append(fs, fmt.Sprintf("%s: %s", sf.Name, sf.Type.String()))
+				}
+				lines = append(lines, fmt.Sprintf("    %s: [%s],", ev.Name, strings.Join(fs, ", ")))
+			default:
+				lines = append(lines, fmt.Sprintf("    %s,", ev.Name))
+			}
 		}
 		lines = append(lines, "]")
-		return fmt.Sprintf("```lowlight\n%s\n```\nPlain tag enum.", strings.Join(lines, "\n"))
+		kindNote := "Plain tagged union (bitwise copyable)"
+		if !v.IsPlain() {
+			kindNote = "Resource tagged union (single owner, deterministic drop)"
+		}
+		return fmt.Sprintf("```lowlight\n%s\n```\n%s", strings.Join(lines, "\n"), kindNote)
 
 	case *types.Interface:
 		var lines []string
@@ -585,6 +689,37 @@ func formatStructDeclHover(decl *ast.StructDecl, _ map[string]string) string {
 	lines = append(lines, fmt.Sprintf("define %s%s struct [", decl.Name, tpStr))
 	for _, f := range decl.Fields {
 		lines = append(lines, fmt.Sprintf("    %s: %s,", f.Name, formatTypeExpr(f.Type)))
+	}
+	lines = append(lines, "]")
+	return fmt.Sprintf("```lowlight\n%s\n```", strings.Join(lines, "\n"))
+}
+
+func formatEnumDeclHover(decl *ast.EnumDecl) string {
+	if decl == nil {
+		return ""
+	}
+	var tps []string
+	for _, tp := range decl.TypeParams {
+		tps = append(tps, tp.Name)
+	}
+	tpStr := ""
+	if len(tps) > 0 {
+		tpStr = "[" + strings.Join(tps, ", ") + "]"
+	}
+	var lines []string
+	lines = append(lines, fmt.Sprintf("define %s%s enum [", decl.Name, tpStr))
+	for _, v := range decl.Variants {
+		if v.PayloadType != nil {
+			lines = append(lines, fmt.Sprintf("    %s: %s,", v.Name, formatTypeExpr(v.PayloadType)))
+		} else if v.HasFields {
+			var fs []string
+			for _, sf := range v.Fields {
+				fs = append(fs, fmt.Sprintf("%s: %s", sf.Name, formatTypeExpr(sf.Type)))
+			}
+			lines = append(lines, fmt.Sprintf("    %s: [%s],", v.Name, strings.Join(fs, ", ")))
+		} else {
+			lines = append(lines, fmt.Sprintf("    %s,", v.Name))
+		}
 	}
 	lines = append(lines, "]")
 	return fmt.Sprintf("```lowlight\n%s\n```", strings.Join(lines, "\n"))
@@ -625,6 +760,9 @@ func (s *Server) computeDefinition(filePath string, src string, pos Position) *L
 	}
 	if gst := lookupGenStruct(mod, "", word); gst != nil && gst.Decl != nil {
 		return s.spanToLocation(gst.Decl.Span)
+	}
+	if gen := lookupGenEnum(mod, "", word); gen != nil && gen.Decl != nil {
+		return s.spanToLocation(gen.Decl.Span)
 	}
 
 	// 3. Check top-level symbols, generic functions, and module aliases
@@ -737,6 +875,9 @@ func definitionSpanInTypeExpr(prog *sema.CheckedProgram, mod *sema.Module, te as
 			if gst := lookupGenStruct(mod, v.Module, v.Name); gst != nil {
 				return gst.Decl.Span
 			}
+			if gen := lookupGenEnum(mod, v.Module, v.Name); gen != nil {
+				return gen.Decl.Span
+			}
 		}
 	case *ast.OptionalType:
 		return definitionSpanInTypeExpr(prog, mod, v.Elem, offset, tok)
@@ -815,6 +956,18 @@ func definitionSpanInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.
 		return definitionSpanInExpr(prog, mod, bm, v.Else, offset, tok)
 
 	case *ast.ForExpr:
+		if sp := definitionSpanInExpr(prog, mod, bm, v.CondOrIter, offset, tok); sp.Start.File != "" {
+			return sp
+		}
+		if sp := definitionSpanInExpr(prog, mod, bm, v.RangeEnd, offset, tok); sp.Start.File != "" {
+			return sp
+		}
+		if sp := definitionSpanInExpr(prog, mod, bm, v.Body, offset, tok); sp.Start.File != "" {
+			return sp
+		}
+		return definitionSpanInExpr(prog, mod, bm, v.Else, offset, tok)
+
+	case *ast.WhileExpr:
 		if sp := definitionSpanInExpr(prog, mod, bm, v.CondOrIter, offset, tok); sp.Start.File != "" {
 			return sp
 		}

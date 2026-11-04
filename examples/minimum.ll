@@ -1,17 +1,12 @@
 import "std/net.ll"
 import "std/http.ll"
 import "std/fs.ll"
+import "std/strfmt.ll"
 
 bind main = () {
-	println(abc(1))
-	println()
-	println(abc(2))
-	println()
-	println(abc(3))
+	let ll = for (i in l): #[int: int] MapEntry[key: i, value: i * 2]
+
+	println(ll)
 }
 
-bind abc = (i: int): int {
-    println(i)
-    if (i > 10000) <- -1
-    i + abc(i*i+1)
-}
+bind l = for (x in 1..=4): [int] x

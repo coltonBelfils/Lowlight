@@ -3,7 +3,6 @@
 // ResponseWriter, and ServeMux multiplexer.
 // Idiomatic Lowlight design inspired by Go's `net/http`.
 
-import "std/fs.ll"
 import "std/net.ll" as net
 
 extern ll_tls_available: (): int
@@ -748,9 +747,7 @@ bind read_http_message = (fd: int, timeout_ms: int): Result[string, string] {
             if (n == 0) {
                 for <-
             }
-            for (i in 0..n) {
-                buf.push_byte(*ptr_add(raw_chunk, i))
-            }
+            buf.push_bytes(raw_chunk, n)
 
             if (not sep_found) {
                 let sep? = buf.index_of("\r\n\r\n")
@@ -872,9 +869,7 @@ bind read_http_message_tls = (session: ptr[u8], timeout_ms: int): Result[string,
             if (n == 0) {
                 for <-
             }
-            for (i in 0..n) {
-                buf.push_byte(*ptr_add(raw_chunk, i))
-            }
+            buf.push_bytes(raw_chunk, n)
 
             if (not sep_found) {
                 let sep? = buf.index_of("\r\n\r\n")

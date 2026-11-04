@@ -314,9 +314,6 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 		if packed {
 			p.rep.Errorf(kw.Span, "`packed` modifier is only valid on `struct` definitions")
 		}
-		if len(tparams) > 0 {
-			p.rep.Errorf(kw.Span, "enums cannot have generic type parameters (enums are pure tag types)")
-		}
 		p.advance()
 		var baseTy ast.TypeExpr
 		if p.cur().Kind == token.Ident {
@@ -327,18 +324,34 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 		var variants []ast.EnumVariant
 		var lastEnd diag.Pos
 		hadComma := false
+		hasPayloads := false
 		for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
 			vTok := p.expect(token.Ident, "enum variant name")
 			vEnd := vTok.Span.End
 			var valExpr ast.Expr
+			var payloadTy ast.TypeExpr
+			var vFields []ast.StructField
+			hasFields := false
 			if _, ok := p.match(token.Assign); ok {
 				valExpr = p.parseExpr()
 				vEnd = valExpr.GetSpan().End
+			} else if _, ok := p.match(token.Colon); ok {
+				hasPayloads = true
+				if p.looksLikeVariantFieldList() {
+					hasFields = true
+					vFields, vEnd = p.parseStructDefFields("enum variant fields")
+				} else {
+					payloadTy = p.parseTypeExpr()
+					vEnd = payloadTy.GetSpan().End
+				}
 			}
 			variants = append(variants, ast.EnumVariant{
-				Name:  vTok.Text,
-				Value: valExpr,
-				Span:  diag.Span{Start: vTok.Span.Start, End: vEnd},
+				Name:        vTok.Text,
+				Value:       valExpr,
+				PayloadType: payloadTy,
+				Fields:      vFields,
+				HasFields:   hasFields,
+				Span:        diag.Span{Start: vTok.Span.Start, End: vEnd},
 			})
 			lastEnd = vEnd
 			if _, ok := p.match(token.Comma); ok {
@@ -352,16 +365,27 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 		if len(variants) > 0 {
 			p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "enum definition")
 		}
+		if hasPayloads || len(tparams) > 0 {
+			if baseTy != nil {
+				p.rep.Errorf(baseTy.GetSpan(), "tagged or generic enums cannot specify an integer underlying type")
+			}
+			for _, v := range variants {
+				if v.Value != nil {
+					p.rep.Errorf(v.Value.GetSpan(), "tagged or generic enum variants cannot specify `= value` discriminants")
+				}
+			}
+		}
 		return &ast.EnumDecl{
-			Name:     nameTok.Text,
-			BaseType: baseTy,
-			Variants: variants,
-			Span:     diag.Span{Start: kw.Span.Start, End: closeBr.Span.End},
+			Name:       nameTok.Text,
+			TypeParams: tparams,
+			BaseType:   baseTy,
+			Variants:   variants,
+			Span:       diag.Span{Start: kw.Span.Start, End: closeBr.Span.End},
 		}
 
 	case token.KwInterface:
-		if packed || len(tparams) > 0 {
-			p.rep.Errorf(kw.Span, "interfaces do not support `packed` or type parameters in v1.0")
+		if packed {
+			p.rep.Errorf(kw.Span, "interfaces do not support `packed`")
 		}
 		p.advance()
 		openBr := p.expect(token.LBracket, "after `interface`")
@@ -397,9 +421,10 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 			p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "interface definition")
 		}
 		return &ast.InterfaceDecl{
-			Name:    nameTok.Text,
-			Methods: methods,
-			Span:    diag.Span{Start: kw.Span.Start, End: closeBr.Span.End},
+			Name:       nameTok.Text,
+			TypeParams: tparams,
+			Methods:    methods,
+			Span:       diag.Span{Start: kw.Span.Start, End: closeBr.Span.End},
 		}
 
 	default:
@@ -411,6 +436,63 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 			Span: diag.Span{Start: kw.Span.Start, End: base.GetSpan().End},
 		}
 	}
+}
+
+func (p *Parser) looksLikeVariantFieldList() bool {
+	if p.cur().Kind != token.LBracket {
+		return false
+	}
+	k1 := p.peekAt(1).Kind
+	k2 := p.peekAt(2).Kind
+	if k1 == token.RBracket {
+		return true
+	}
+	return (k1 == token.Ident || k1 == token.OptIdent) && k2 == token.Colon
+}
+
+func (p *Parser) parseStructDefFields(ctx string) ([]ast.StructField, diag.Pos) {
+	openBr := p.expect(token.LBracket, "opening "+ctx+" `[`")
+	var fields []ast.StructField
+	var lastEnd diag.Pos
+	hadComma := false
+	for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
+		fStart := p.cur().Span.Start
+		var fname string
+		isOpt := false
+		if p.cur().Kind == token.OptIdent {
+			isOpt = true
+			fname = p.advance().Text
+		} else {
+			fname = p.expect(token.Ident, "field name").Text
+		}
+		p.expect(token.Colon, "after field name")
+		fty := p.parseTypeExpr()
+		fEnd := fty.GetSpan().End
+		var defExpr ast.Expr
+		if _, ok := p.match(token.Assign); ok {
+			defExpr = p.parseExpr()
+			fEnd = defExpr.GetSpan().End
+		}
+		fields = append(fields, ast.StructField{
+			Name:    fname,
+			IsOpt:   isOpt,
+			Type:    fty,
+			Default: defExpr,
+			Span:    diag.Span{Start: fStart, End: fEnd},
+		})
+		lastEnd = fEnd
+		if _, ok := p.match(token.Comma); ok {
+			hadComma = true
+		} else {
+			hadComma = false
+			break
+		}
+	}
+	closeBr := p.expect(token.RBracket, "closing "+ctx)
+	if len(fields) > 0 {
+		p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, ctx)
+	}
+	return fields, closeBr.Span.End
 }
 
 func (p *Parser) looksLikeTypeParamsInDefine() bool {
@@ -755,6 +837,12 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 		}
 	case token.LBracket:
 		openBr := p.advance()
+		if closeBr, ok := p.match(token.RBracket); ok {
+			return &ast.VectorType{
+				Elem: nil,
+				Span: diag.Span{Start: openBr.Span.Start, End: closeBr.Span.End},
+			}
+		}
 		// Could be `[T]` (VectorType) or `[N: T]` (StackArrayType)!
 		// Notice in `[N: T]`, `N` is an integer literal or constant identifier followed by `:`!
 		if (p.cur().Kind == token.IntLit || p.cur().Kind == token.Ident) && p.peekAt(1).Kind == token.Colon {
@@ -915,10 +1003,10 @@ func (p *Parser) isUnwindStart() bool {
 	if c == token.Unwind {
 		return true
 	}
-	if (c == token.KwIf || c == token.KwMatch || c == token.KwFor || c == token.KwNext || c == token.KwFunc || c == token.Ident) && n1 == token.Unwind {
+	if (c == token.KwIf || c == token.KwMatch || c == token.KwFor || c == token.KwWhile || c == token.KwFunc || c == token.Ident) && n1 == token.Unwind {
 		return true
 	}
-	if c == token.KwNext && n1 == token.Ident && n2 == token.Unwind {
+	if c == token.Ident && p.cur().Text == "next" && n1 == token.Ident && n2 == token.Unwind {
 		return true
 	}
 	return false
@@ -945,24 +1033,30 @@ func (p *Parser) parseUnwindStmt() *ast.UnwindStmt {
 		p.advance()
 		p.expect(token.Unwind, "after `for`")
 		target = ast.UnwindFor
+	case token.KwWhile:
+		p.advance()
+		p.expect(token.Unwind, "after `while`")
+		target = ast.UnwindWhile
 	case token.KwFunc:
 		p.advance()
 		p.expect(token.Unwind, "after `func`")
 		target = ast.UnwindFunc
-	case token.KwNext:
-		p.advance()
-		if p.cur().Kind == token.Ident {
-			label = p.advance().Text
-			p.expect(token.Unwind, "after `next <label>`")
-			target = ast.UnwindNextLabel
-		} else {
-			p.expect(token.Unwind, "after `next`")
-			target = ast.UnwindNext
-		}
 	case token.Ident:
-		label = p.advance().Text
-		p.expect(token.Unwind, "after label")
-		target = ast.UnwindLabel
+		tok := p.advance()
+		if tok.Text == "next" {
+			if p.cur().Kind == token.Ident {
+				label = p.advance().Text
+				p.expect(token.Unwind, "after `next <label>`")
+				target = ast.UnwindNextLabel
+			} else {
+				p.expect(token.Unwind, "after `next`")
+				target = ast.UnwindNext
+			}
+		} else {
+			label = tok.Text
+			p.expect(token.Unwind, "after label")
+			target = ast.UnwindLabel
+		}
 	}
 
 	endPos := p.peekAt(-1).Span.End
@@ -1259,23 +1353,25 @@ func (p *Parser) parsePostfixExpr() ast.Expr {
 			}
 
 		case token.LBracket:
-			// Check 1: Struct literal `TypeName[field: expr, ...]` or `TypeName[]`
-			if mod, tname, ok := extractStructLitTarget(left); ok && p.looksLikeStructLitFields() {
+			// Check 1: Struct literal `TypeName[field: expr, ...]`, `TypeName[]`, `Expr.Add[...]`, or `Tree[int].Branch[...]`
+			if mod, tname, enumTArgs, varName, ok := extractStructLitTarget(left); ok && p.looksLikeStructLitFields() {
 				fields, endPos := p.parseStructLitFields()
 				left = &ast.StructLit{
-					Module:   mod,
-					TypeName: tname,
-					Fields:   fields,
-					Span:     diag.Span{Start: left.GetSpan().Start, End: endPos},
+					Module:       mod,
+					TypeName:     tname,
+					EnumTypeArgs: enumTArgs,
+					VariantName:  varName,
+					Fields:       fields,
+					Span:         diag.Span{Start: left.GetSpan().Start, End: endPos},
 				}
 				continue
 			}
 
-			// Check 2: Generic type arguments `foo[T1, T2](...)`, `Pair[int, string][first: 1, ...]`, or `Pool[Node].new()`
-			if p.looksLikeGenericTypeArgs() {
+			// Check 2: Generic type arguments `foo[T1, T2](...)`, `Pair[int, string][first: 1, ...]`, `Pool[Node].new()`, or `Result[int, string].Ok(...)`
+			if p.looksLikeGenericTypeArgs(left) {
 				targs := p.parseTypeArgBracket()
 				if p.cur().Kind == token.LBracket {
-					if mod, tname, ok := extractStructLitTarget(left); ok && p.looksLikeStructLitFields() {
+					if mod, tname, _, varName, ok := extractStructLitTarget(left); ok && varName == "" && p.looksLikeStructLitFields() {
 						fields, endPos := p.parseStructLitFields()
 						left = &ast.StructLit{
 							Module:   mod,
@@ -1298,21 +1394,26 @@ func (p *Parser) parsePostfixExpr() ast.Expr {
 					continue
 				}
 				if p.cur().Kind == token.Dot {
-					// e.g. `Pool[Node].new()` — encode generic base as a synthetic StructLit/Call or Member on generic Ident!
 					p.advance()
-					mTok := p.expect(token.Ident, "method name after generic type `.`")
-					// Represent `Pool[Node].new(...)` cleanly: if followed by `(`, Callee is MemberExpr with TypeArgs on CallExpr!
-					mem := &ast.MemberExpr{
-						Base:   left,
-						Member: mTok.Text,
-						Span:   diag.Span{Start: left.GetSpan().Start, End: mTok.Span.End},
+					hasOpt := false
+					var member string
+					var endPos diag.Pos
+					if p.cur().Kind == token.OptIdent {
+						hasOpt = true
+						tk := p.advance()
+						member = tk.Text
+						endPos = tk.Span.End
+					} else {
+						mTok := p.expect(token.Ident, "member or method name after `.`")
+						member = mTok.Text
+						endPos = mTok.Span.End
 					}
-					args, endPos := p.parseArgList()
-					left = &ast.CallExpr{
-						Callee:   mem,
-						TypeArgs: targs,
-						Args:     args,
-						Span:     diag.Span{Start: left.GetSpan().Start, End: endPos},
+					left = &ast.MemberExpr{
+						Base:         left,
+						BaseTypeArgs: targs,
+						Member:       member,
+						MemberHasOpt: hasOpt,
+						Span:         diag.Span{Start: left.GetSpan().Start, End: endPos},
 					}
 					continue
 				}
@@ -1347,18 +1448,47 @@ func (p *Parser) parsePostfixExpr() ast.Expr {
 	}
 }
 
-func extractStructLitTarget(e ast.Expr) (mod, name string, ok bool) {
+func extractStructLitTarget(e ast.Expr) (mod, name string, enumTArgs []ast.TypeExpr, variantName string, ok bool) {
 	switch v := e.(type) {
 	case *ast.IdentExpr:
-		if !v.IsOpt {
-			return "", v.Name, true
+		if !v.IsOpt && v.Name != "self" {
+			return "", v.Name, nil, "", true
 		}
 	case *ast.MemberExpr:
-		if id, ok2 := v.Base.(*ast.IdentExpr); ok2 && !id.IsOpt && !v.QuestDot && !v.MemberHasOpt {
-			return id.Name, v.Member, true
+		if v.QuestDot || v.MemberHasOpt {
+			return "", "", nil, "", false
+		}
+		if id, ok2 := v.Base.(*ast.IdentExpr); ok2 && !id.IsOpt && id.Name != "self" {
+			if len(v.BaseTypeArgs) > 0 {
+				// `Tree[int].Branch[...]`
+				return "", id.Name, v.BaseTypeArgs, v.Member, true
+			}
+			// `mod.Point[...]` or `Expr.Add[...]`
+			return id.Name, v.Member, nil, "", true
+		}
+		if inner, ok2 := v.Base.(*ast.MemberExpr); ok2 && !inner.QuestDot && !inner.MemberHasOpt && len(inner.BaseTypeArgs) == 0 {
+			if modId, ok3 := inner.Base.(*ast.IdentExpr); ok3 && !modId.IsOpt && modId.Name != "self" {
+				// `mod.Expr.Add[...]` or `mod.Tree[int].Branch[...]`
+				return modId.Name, inner.Member, v.BaseTypeArgs, v.Member, true
+			}
 		}
 	}
-	return "", "", false
+	return "", "", nil, "", false
+}
+
+func canTakeTypeArgsBeforeDot(left ast.Expr) bool {
+	switch v := left.(type) {
+	case *ast.IdentExpr:
+		return !v.IsOpt && v.Name != "self"
+	case *ast.MemberExpr:
+		if v.QuestDot || v.MemberHasOpt || len(v.BaseTypeArgs) > 0 {
+			return false
+		}
+		id, ok := v.Base.(*ast.IdentExpr)
+		return ok && !id.IsOpt && id.Name != "self"
+	default:
+		return false
+	}
 }
 
 func (p *Parser) looksLikeStructLitFields() bool {
@@ -1412,17 +1542,15 @@ func (p *Parser) parseStructLitFields() ([]ast.StructFieldInit, diag.Pos) {
 }
 
 // looksLikeGenericTypeArgs speculatively checks whether `[...]` parses cleanly as non-empty TypeExpr(s)
-// followed immediately by `(`, `[` (struct lit), or `.` (`Pool[Node].new()`).
-func (p *Parser) looksLikeGenericTypeArgs() bool {
+// followed immediately by `(`, `[` (struct lit), or `.` (`Pool[Node].new()`, `Result[int, string].Ok(...)`).
+func (p *Parser) looksLikeGenericTypeArgs(left ast.Expr) bool {
 	if p.cur().Kind != token.LBracket {
 		return false
 	}
-	return p.scanGenericBracketLookahead(p.pos)
+	return p.scanGenericBracketLookahead(p.pos, canTakeTypeArgsBeforeDot(left))
 }
 
-func (p *Parser) scanGenericBracketLookahead(startIdx int) bool {
-	// Save real reporter and swap in a throwaway reporter so speculative parsing produces zero diagnostics.
-	// Wait: `looksLikeGenericTypeArgs` already swapped `p.rep`; let's write this directly without touching `p.rep`!
+func (p *Parser) scanGenericBracketLookahead(startIdx int, allowDot bool) bool {
 	savePos := p.pos
 	realRep := p.rep
 	tempRep := diag.NewReporter()
@@ -1461,7 +1589,7 @@ func (p *Parser) scanGenericBracketLookahead(startIdx int) bool {
 	if next == token.LBracket && p.looksLikeStructLitFields() {
 		return true
 	}
-	if next == token.Dot && p.peekAt(1).Kind == token.Ident && p.peekAt(2).Kind == token.LParen {
+	if allowDot && next == token.Dot && (p.peekAt(1).Kind == token.Ident || p.peekAt(1).Kind == token.OptIdent) {
 		return true
 	}
 	return false
@@ -1569,12 +1697,15 @@ func (p *Parser) parsePrimaryExpr() ast.Expr {
 		return &ast.IdentExpr{Name: tk.Text, IsOpt: true, Span: tk.Span}
 
 	case token.Ident:
-		// Check for labeled loop or labeled block: `outer: for (...)` or `blk: { ... }`
-		if p.peekAt(1).Kind == token.Colon && (p.peekAt(2).Kind == token.KwFor || p.peekAt(2).Kind == token.LBrace) {
+		// Check for labeled loop or labeled block: `outer: for (...)`, `outer: while (...)`, or `blk: { ... }`
+		if p.peekAt(1).Kind == token.Colon && (p.peekAt(2).Kind == token.KwFor || p.peekAt(2).Kind == token.KwWhile || p.peekAt(2).Kind == token.LBrace) {
 			lblTok := p.advance()
 			p.advance() // `:`
 			if p.cur().Kind == token.KwFor {
 				return p.parseForExpr(lblTok.Text, lblTok.Span.Start)
+			}
+			if p.cur().Kind == token.KwWhile {
+				return p.parseWhileExpr(lblTok.Text, lblTok.Span.Start)
 			}
 			return p.parseBlockExpr(lblTok.Text, false, lblTok.Span.Start)
 		}
@@ -1604,6 +1735,9 @@ func (p *Parser) parsePrimaryExpr() ast.Expr {
 
 	case token.KwFor:
 		return p.parseForExpr("", tk.Span.Start)
+
+	case token.KwWhile:
+		return p.parseWhileExpr("", tk.Span.Start)
 
 	case token.KwMatch:
 		return p.parseMatchExpr()
@@ -1677,11 +1811,29 @@ func (p *Parser) parseVecOrRepeatArrayLit() ast.Expr {
 	}
 	first := p.parseExpr()
 	if _, ok := p.match(token.Colon); ok {
-		val := p.parseExpr()
-		closeBr := p.expect(token.RBracket, "closing `[N: value]`")
-		return &ast.RepeatArrayLit{
+		firstVal := p.parseExpr()
+		elems := []ast.Expr{firstVal}
+		lastEnd := firstVal.GetSpan().End
+		hadComma := false
+		if _, ok2 := p.match(token.Comma); ok2 {
+			hadComma = true
+			for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
+				el := p.parseExpr()
+				elems = append(elems, el)
+				lastEnd = el.GetSpan().End
+				if _, ok3 := p.match(token.Comma); ok3 {
+					hadComma = true
+				} else {
+					hadComma = false
+					break
+				}
+			}
+		}
+		closeBr := p.expect(token.RBracket, "closing `]`")
+		p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "stack array literal")
+		return &ast.ArrayLit{
 			Count: first,
-			Value: val,
+			Elems: elems,
 			Span:  diag.Span{Start: openBr.Span.Start, End: closeBr.Span.End},
 		}
 	}
@@ -1917,6 +2069,9 @@ func (p *Parser) parseForExpr(label string, startPos diag.Pos) *ast.ForExpr {
 	}
 
 	p.expect(token.RParen, "closing `for (...)`")
+	if _, ok := p.match(token.Colon); ok {
+		fe.EvalType = p.parseTypeExpr()
+	}
 	fe.Body = p.parseActionBody()
 	endPos := fe.Body.GetSpan().End
 
@@ -1927,6 +2082,61 @@ func (p *Parser) parseForExpr(label string, startPos diag.Pos) *ast.ForExpr {
 	}
 	fe.Span = diag.Span{Start: startPos, End: endPos}
 	return fe
+}
+
+func (p *Parser) parseWhileExpr(label string, startPos diag.Pos) *ast.WhileExpr {
+	kw := p.expect(token.KwWhile, "in `while`")
+	if label == "" {
+		startPos = kw.Span.Start
+	}
+	p.expect(token.LParen, "after `while`")
+
+	we := &ast.WhileExpr{Label: label}
+	if p.looksLikeForInHeader() {
+		// Parse `[&]var1 [, [&]var2] in ...`
+		if _, ok := p.match(token.Amp); ok {
+			we.Var1Mut = true
+		}
+		we.Var1, we.Var1IsOpt = p.parseLoopVarName()
+		if _, ok := p.match(token.Comma); ok {
+			if we.Var1Mut {
+				p.rep.Errorf(kw.Span, "in two-variable `while (i, &item in ...)`, `&` goes on the second variable, not the index/key")
+			}
+			if _, ok2 := p.match(token.Amp); ok2 {
+				we.Var2Mut = true
+			}
+			we.Var2, we.Var2IsOpt = p.parseLoopVarName()
+		}
+		p.expect(token.KwIn, "in `while (... in ...)`")
+		firstExpr := p.parseExpr()
+		if p.cur().Kind == token.DotDot || p.cur().Kind == token.DotDotEq {
+			we.Kind = ast.ForRange
+			we.Inclusive = p.advance().Kind == token.DotDotEq
+			we.CondOrIter = firstExpr
+			we.RangeEnd = p.parseExpr()
+		} else {
+			we.Kind = ast.ForIter
+			we.CondOrIter = firstExpr
+		}
+	} else {
+		we.Kind = ast.ForCond
+		we.CondOrIter = p.parseExpr()
+	}
+
+	p.expect(token.RParen, "closing `while (...)`")
+	if _, ok := p.match(token.Colon); ok {
+		we.EvalType = p.parseTypeExpr()
+	}
+	we.Body = p.parseActionBody()
+	endPos := we.Body.GetSpan().End
+
+	if p.cur().Kind == token.KwElse && !p.elseBelongsToMatch() {
+		p.advance()
+		we.Else = p.parseActionBody()
+		endPos = we.Else.GetSpan().End
+	}
+	we.Span = diag.Span{Start: startPos, End: endPos}
+	return we
 }
 
 func (p *Parser) parseLoopVarName() (string, bool) {
@@ -1985,27 +2195,36 @@ func (p *Parser) parseMatchExpr() *ast.MatchExpr {
 		})
 	}
 
-	elseTok := p.expect(token.KwElse, "terminating `match` expression (`every match must end with else:` or `else Variant:`)")
-	var elsePats []ast.Pattern
-	if p.cur().Kind != token.Colon {
-		elsePats = p.parseMatchPatternList()
-	}
-	p.expect(token.Colon, "after `else` in `match`")
-	p.inMatchArm++
-	elseBody := p.parseActionBody()
-	p.inMatchArm--
+	if p.cur().Kind == token.KwElse {
+		elseTok := p.advance()
+		var elsePats []ast.Pattern
+		if p.cur().Kind != token.Colon {
+			elsePats = p.parseMatchPatternList()
+		}
+		p.expect(token.Colon, "after `else` in `match`")
+		p.inMatchArm++
+		elseBody := p.parseActionBody()
+		p.inMatchArm--
 
-	arms = append(arms, ast.MatchArm{
-		Patterns: elsePats,
-		IsElse:   true,
-		Body:     elseBody,
-		Span:     diag.Span{Start: elseTok.Span.Start, End: elseBody.GetSpan().End},
-	})
+		arms = append(arms, ast.MatchArm{
+			Patterns: elsePats,
+			IsElse:   true,
+			Body:     elseBody,
+			Span:     diag.Span{Start: elseTok.Span.Start, End: elseBody.GetSpan().End},
+		})
+	} else if len(arms) == 0 {
+		bad := p.expect(token.KwWhen, "at least one `when` or `else` arm in `match`")
+		return &ast.MatchExpr{
+			Scrutinee: scrut,
+			Arms:      arms,
+			Span:      diag.Span{Start: kw.Span.Start, End: bad.Span.End},
+		}
+	}
 
 	return &ast.MatchExpr{
 		Scrutinee: scrut,
 		Arms:      arms,
-		Span:      diag.Span{Start: kw.Span.Start, End: elseBody.GetSpan().End},
+		Span:      diag.Span{Start: kw.Span.Start, End: arms[len(arms)-1].Span.End},
 	}
 }
 
@@ -2023,6 +2242,26 @@ func (p *Parser) parseMatchPatternList() []ast.Pattern {
 
 func (p *Parser) parseSinglePattern() ast.Pattern {
 	first := p.parsePatternAtom()
+	if _, isMem := first.(*ast.MemberExpr); isMem {
+		if p.cur().Kind == token.LParen {
+			bindings, endPos := p.parseTupleVariantPatternBindings()
+			return &ast.VariantPattern{
+				Target:   first,
+				IsStruct: false,
+				Bindings: bindings,
+				Span:     diag.Span{Start: first.GetSpan().Start, End: endPos},
+			}
+		}
+		if p.cur().Kind == token.LBracket {
+			bindings, endPos := p.parseStructVariantPatternBindings()
+			return &ast.VariantPattern{
+				Target:   first,
+				IsStruct: true,
+				Bindings: bindings,
+				Span:     diag.Span{Start: first.GetSpan().Start, End: endPos},
+			}
+		}
+	}
 	if p.cur().Kind == token.DotDot || p.cur().Kind == token.DotDotEq {
 		incl := p.advance().Kind == token.DotDotEq
 		high := p.parsePatternAtom()
@@ -2050,14 +2289,152 @@ func (p *Parser) parsePatternAtom() ast.Expr {
 		}
 	}
 	base := p.parsePrimaryExpr()
-	for p.cur().Kind == token.Dot {
-		p.advance()
-		mem := p.expect(token.Ident, "enum variant in pattern")
-		base = &ast.MemberExpr{
-			Base:   base,
-			Member: mem.Text,
-			Span:   diag.Span{Start: base.GetSpan().Start, End: mem.Span.End},
+	for {
+		if p.cur().Kind == token.LBracket && p.scanGenericBracketLookahead(p.pos, canTakeTypeArgsBeforeDot(base)) && p.peekAfterBracketIsDot() {
+			targs := p.parseTypeArgBracket()
+			p.expect(token.Dot, "after generic enum type arguments in pattern")
+			mem := p.expect(token.Ident, "enum variant in pattern")
+			base = &ast.MemberExpr{
+				Base:         base,
+				BaseTypeArgs: targs,
+				Member:       mem.Text,
+				Span:         diag.Span{Start: base.GetSpan().Start, End: mem.Span.End},
+			}
+			continue
 		}
+		if p.cur().Kind == token.Dot {
+			p.advance()
+			mem := p.expect(token.Ident, "enum variant in pattern")
+			base = &ast.MemberExpr{
+				Base:   base,
+				Member: mem.Text,
+				Span:   diag.Span{Start: base.GetSpan().Start, End: mem.Span.End},
+			}
+			continue
+		}
+		break
 	}
 	return base
+}
+
+func (p *Parser) peekAfterBracketIsDot() bool {
+	depth := 0
+	for i := p.pos; i < len(p.toks); i++ {
+		switch p.toks[i].Kind {
+		case token.LBracket, token.HashBrack:
+			depth++
+		case token.RBracket:
+			depth--
+			if depth == 0 {
+				return i+1 < len(p.toks) && p.toks[i+1].Kind == token.Dot
+			}
+		case token.EOF:
+			return false
+		}
+	}
+	return false
+}
+
+func (p *Parser) parsePatternBindAtom() ast.VariantPatternBinding {
+	start := p.cur().Span.Start
+	if p.cur().Kind == token.Ident && p.cur().Text == "_" {
+		tk := p.advance()
+		return ast.VariantPatternBinding{
+			IsWildcard: true,
+			Span:       tk.Span,
+		}
+	}
+	mode := ast.PatternBindRead
+	if _, ok := p.match(token.Amp); ok {
+		mode = ast.PatternBindMut
+	} else if _, ok := p.match(token.KwOwn); ok {
+		mode = ast.PatternBindOwn
+	}
+	isOpt := false
+	var bname string
+	var endPos diag.Pos
+	if p.cur().Kind == token.OptIdent {
+		isOpt = true
+		tk := p.advance()
+		bname = tk.Text
+		endPos = tk.Span.End
+	} else {
+		tk := p.expect(token.Ident, "pattern binding variable name")
+		bname = tk.Text
+		endPos = tk.Span.End
+	}
+	return ast.VariantPatternBinding{
+		BindName:  bname,
+		IsOptName: isOpt,
+		Mode:      mode,
+		Span:      diag.Span{Start: start, End: endPos},
+	}
+}
+
+func (p *Parser) parseTupleVariantPatternBindings() ([]ast.VariantPatternBinding, diag.Pos) {
+	openP := p.expect(token.LParen, "opening variant destructuring `(`")
+	var bindings []ast.VariantPatternBinding
+	var lastEnd diag.Pos
+	hadComma := false
+	for p.cur().Kind != token.RParen && p.cur().Kind != token.EOF {
+		b := p.parsePatternBindAtom()
+		bindings = append(bindings, b)
+		lastEnd = b.Span.End
+		if _, ok := p.match(token.Comma); ok {
+			hadComma = true
+		} else {
+			hadComma = false
+			break
+		}
+	}
+	closeP := p.expect(token.RParen, "closing variant destructuring `)`")
+	if len(bindings) > 0 {
+		p.checkTrailingComma(openP, closeP, lastEnd, hadComma, "variant pattern")
+	}
+	return bindings, closeP.Span.End
+}
+
+func (p *Parser) parseStructVariantPatternBindings() ([]ast.VariantPatternBinding, diag.Pos) {
+	openBr := p.expect(token.LBracket, "opening struct variant destructuring `[`")
+	var bindings []ast.VariantPatternBinding
+	var lastEnd diag.Pos
+	hadComma := false
+	for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
+		fStart := p.cur().Span.Start
+		var b ast.VariantPatternBinding
+		if p.cur().Kind == token.Ident && p.cur().Text == "_" && p.peekAt(1).Kind != token.Colon {
+			tk := p.advance()
+			b = ast.VariantPatternBinding{
+				IsWildcard: true,
+				Span:       tk.Span,
+			}
+		} else if (p.cur().Kind == token.Ident || p.cur().Kind == token.OptIdent) && p.peekAt(1).Kind == token.Colon {
+			fOpt := p.cur().Kind == token.OptIdent
+			fname := p.advance().Text
+			p.advance() // `:`
+			b = p.parsePatternBindAtom()
+			b.FieldName = fname
+			b.FieldIsOpt = fOpt
+			b.Span = diag.Span{Start: fStart, End: b.Span.End}
+		} else {
+			b = p.parsePatternBindAtom()
+			if !b.IsWildcard {
+				b.FieldName = b.BindName
+				b.FieldIsOpt = b.IsOptName
+			}
+		}
+		bindings = append(bindings, b)
+		lastEnd = b.Span.End
+		if _, ok := p.match(token.Comma); ok {
+			hadComma = true
+		} else {
+			hadComma = false
+			break
+		}
+	}
+	closeBr := p.expect(token.RBracket, "closing struct variant destructuring `]`")
+	if len(bindings) > 0 {
+		p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "struct variant pattern")
+	}
+	return bindings, closeBr.Span.End
 }

@@ -56,6 +56,7 @@ type Global struct {
 	Name      string
 	CName     string
 	Type      types.Type
+	Locals    []*Local
 	InitInstr []Instr
 	InitExpr  string
 }
@@ -71,14 +72,16 @@ type Local struct {
 
 // Function is a lowered function, method, or lambda body in MIR.
 type Function struct {
-	Name       string
-	CName      string
-	Params     []*Local
-	RetType    types.Type
-	Locals     []*Local
-	Body       []Instr
-	IsLambda   bool
-	LambdaInfo *sema.LambdaInfo
+	Name           string
+	CName          string
+	Params         []*Local
+	RetType        types.Type
+	Locals         []*Local
+	Body           []Instr
+	IsLambda       bool
+	LambdaInfo     *sema.LambdaInfo
+	IsAlwaysInline bool
+	IsNoInline     bool
 }
 
 // -----------------------------------------------------------------------------
@@ -193,17 +196,19 @@ type typeCollector struct {
 	enSeen   map[*types.Enum]bool
 	distSeen map[*types.Distinct]bool
 
-	opts    []*types.Optional
-	vecs    []*types.Vector
-	arrs    []*types.StackArray
-	sets    []*types.Set
-	maps    []*types.Map
-	fns     []*types.Func
-	ifcs    []*types.Interface
-	sts     []*types.Struct
-	ens     []*types.Enum
-	dists   []*types.Distinct
-	ordered []types.Type
+	opts     []*types.Optional
+	vecs     []*types.Vector
+	arrs     []*types.StackArray
+	sets     []*types.Set
+	maps     []*types.Map
+	fns      []*types.Func
+	ifcs     []*types.Interface
+	sts      []*types.Struct
+	ens      []*types.Enum
+	dists    []*types.Distinct
+	ordered  []types.Type
+	deferred []types.Type
+	inVisit  int
 }
 
 func newTypeCollector() *typeCollector {
@@ -221,7 +226,28 @@ func newTypeCollector() *typeCollector {
 	}
 }
 
+func (tc *typeCollector) deferVisit(t types.Type) {
+	if t != nil {
+		tc.deferred = append(tc.deferred, t)
+	}
+}
+
 func (tc *typeCollector) visit(t types.Type) {
+	tc.inVisit++
+	tc.visitValue(t)
+	tc.inVisit--
+	if tc.inVisit == 0 {
+		for len(tc.deferred) > 0 {
+			next := tc.deferred[0]
+			tc.deferred = tc.deferred[1:]
+			tc.inVisit++
+			tc.visitValue(next)
+			tc.inVisit--
+		}
+	}
+}
+
+func (tc *typeCollector) visitValue(t types.Type) {
 	if t == nil || t == types.TypeInvalid || t == types.TypeVoid || t == types.TypeNever {
 		return
 	}
@@ -236,18 +262,32 @@ func (tc *typeCollector) visit(t types.Type) {
 	case *types.Primitive:
 		return
 	case *types.Ptr:
-		tc.visit(v.Elem)
+		tc.deferVisit(v.Elem)
 	case *types.Ref:
-		tc.visit(v.Elem)
+		tc.deferVisit(v.Elem)
 	case *types.Enum:
 		if !tc.enSeen[v] {
 			tc.enSeen[v] = true
-			tc.ens = append(tc.ens, v)
+			if !v.IsTagged {
+				tc.ens = append(tc.ens, v)
+			} else {
+				for _, vr := range v.Variants {
+					switch vr.Kind {
+					case types.VariantTuple:
+						tc.visitValue(vr.Payload)
+					case types.VariantStruct:
+						for _, sf := range vr.Fields {
+							tc.visitValue(sf.Type)
+						}
+					}
+				}
+				tc.ordered = append(tc.ordered, v)
+			}
 		}
 	case *types.Distinct:
 		if !tc.distSeen[v] {
 			tc.distSeen[v] = true
-			tc.visit(v.Base)
+			tc.visitValue(v.Base)
 			tc.dists = append(tc.dists, v)
 			tc.ordered = append(tc.ordered, v)
 		}
@@ -255,17 +295,19 @@ func (tc *typeCollector) visit(t types.Type) {
 		if !tc.stSeen[v] {
 			tc.stSeen[v] = true
 			for _, f := range v.Fields {
-				tc.visit(f.Type)
+				tc.visitValue(f.Type)
 			}
 			tc.sts = append(tc.sts, v)
 			tc.ordered = append(tc.ordered, v)
 		}
 	case *types.Optional:
-		tc.visit(v.Elem)
-		if !v.IsBoxed() {
+		if v.IsBoxed() {
+			tc.deferVisit(v.Elem)
+		} else {
 			k := v.Mangled()
 			if _, ok := tc.optSeen[k]; !ok {
 				tc.optSeen[k] = v
+				tc.visitValue(v.Elem)
 				tc.opts = append(tc.opts, v)
 				tc.ordered = append(tc.ordered, v)
 			}
@@ -274,7 +316,7 @@ func (tc *typeCollector) visit(t types.Type) {
 		k := v.Mangled()
 		if _, ok := tc.vecSeen[k]; !ok {
 			tc.vecSeen[k] = v
-			tc.visit(v.Elem)
+			tc.deferVisit(v.Elem)
 			tc.vecs = append(tc.vecs, v)
 			tc.ordered = append(tc.ordered, v)
 		}
@@ -282,7 +324,7 @@ func (tc *typeCollector) visit(t types.Type) {
 		k := v.Mangled()
 		if _, ok := tc.arrSeen[k]; !ok {
 			tc.arrSeen[k] = v
-			tc.visit(v.Elem)
+			tc.visitValue(v.Elem)
 			tc.arrs = append(tc.arrs, v)
 			tc.ordered = append(tc.ordered, v)
 		}
@@ -290,7 +332,7 @@ func (tc *typeCollector) visit(t types.Type) {
 		k := v.Mangled()
 		if _, ok := tc.setSeen[k]; !ok {
 			tc.setSeen[k] = v
-			tc.visit(v.Elem)
+			tc.deferVisit(v.Elem)
 			tc.sets = append(tc.sets, v)
 			tc.ordered = append(tc.ordered, v)
 		}
@@ -298,8 +340,8 @@ func (tc *typeCollector) visit(t types.Type) {
 		k := v.Mangled()
 		if _, ok := tc.mapSeen[k]; !ok {
 			tc.mapSeen[k] = v
-			tc.visit(v.Key)
-			tc.visit(v.Value)
+			tc.deferVisit(v.Key)
+			tc.deferVisit(v.Value)
 			tc.maps = append(tc.maps, v)
 			tc.ordered = append(tc.ordered, v)
 		}
@@ -308,9 +350,9 @@ func (tc *typeCollector) visit(t types.Type) {
 		if _, ok := tc.fnSeen[k]; !ok {
 			tc.fnSeen[k] = v
 			for _, p := range v.Params {
-				tc.visit(p.Type)
+				tc.deferVisit(p.Type)
 			}
-			tc.visit(v.Ret)
+			tc.deferVisit(v.Ret)
 			tc.fns = append(tc.fns, v)
 			tc.ordered = append(tc.ordered, v)
 		}
@@ -323,9 +365,9 @@ func (tc *typeCollector) visit(t types.Type) {
 			tc.ifcSeen[k] = v
 			for _, m := range v.Methods {
 				for _, p := range m.Params {
-					tc.visit(p.Type)
+					tc.deferVisit(p.Type)
 				}
-				tc.visit(m.Ret)
+				tc.deferVisit(m.Ret)
 			}
 			tc.ifcs = append(tc.ifcs, v)
 			tc.ordered = append(tc.ordered, v)

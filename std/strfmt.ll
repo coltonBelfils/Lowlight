@@ -25,6 +25,9 @@ bind int.format_int = (self): string {
 }
 
 bind int.format_commas = (self): string {
+    if (self == -9223372036854775807 - 1) {
+        func <- "-9,223,372,036,854,775,808"
+    }
     let is_neg = self < 0
     let abs_val = if (is_neg) -self else self
     let s = "$abs_val"

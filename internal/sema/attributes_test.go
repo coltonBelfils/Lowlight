@@ -56,7 +56,7 @@ define MyStruct struct [
 ]
 bind main = () {}
 `,
-			expectedErr: `@lang attribute cannot be applied to a struct declaration`,
+			expectedErr: `unknown struct lang item @lang("printable")`,
 		},
 		{
 			name: "lang missing argument",

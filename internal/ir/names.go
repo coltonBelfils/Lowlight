@@ -131,6 +131,10 @@ func EqFnName(t types.Type) string {
 	return "ll_eq__" + t.Mangled()
 }
 
+func CmpFnName(t types.Type) string {
+	return "ll_cmp__" + t.Mangled()
+}
+
 func ToStrFnName(t types.Type) string {
 	return "ll_tostr__" + t.Mangled()
 }

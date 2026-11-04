@@ -40,7 +40,12 @@ bind parse_int_radix = (s: string, radix: int): ?int {
     }
     if (i >= n) func <- none
 
-    let acc = 0
+    let cutoff: u64 = if (is_neg) (u64(9223372036854775807) + u64(1)) else u64(9223372036854775807)
+    let r_u64 = u64(radix)
+    let max_div = cutoff / r_u64
+    let max_rem = cutoff % r_u64
+
+    let acc: u64 = u64(0)
     for (i < n) {
         let b = trimmed.byte_at(i)
         let digit = -1
@@ -52,11 +57,21 @@ bind parse_int_radix = (s: string, radix: int): ?int {
             digit = int(b) - 65 + 10
         }
         if (digit < 0 or digit >= radix) func <- none
-        acc = acc * radix + digit
+        let d_u64 = u64(digit)
+        if (acc > max_div or (acc == max_div and d_u64 > max_rem)) {
+            func <- none
+        }
+        acc = acc * r_u64 + d_u64
         i += 1
     }
 
-    if (is_neg) -acc else acc
+    if (is_neg) {
+        if (acc == u64(9223372036854775807) + u64(1)) {
+            func <- -9223372036854775807 - 1
+        }
+        func <- -int(acc)
+    }
+    int(acc)
 }
 
 bind parse_int_safe = (s: string): ?int {
@@ -88,13 +103,14 @@ bind int_to_radix_with_case = (v: int, radix: int, upper: bool): string {
     if (radix < 2 or radix > 36) func <- ""
     if (v == 0) func <- "0"
     let is_neg = v < 0
-    let n = if (is_neg) -v else v
+    let mag: u64 = if (is_neg) (u64(0) - u64(v)) else u64(v)
+    let r: u64 = u64(radix)
     let chars = if (upper) "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" else "0123456789abcdefghijklmnopqrstuvwxyz"
     let rev = ""
-    for (n > 0) {
-        let rem = n % radix
+    for (mag > u64(0)) {
+        let rem = int(mag % r)
         rev.push_byte(chars.byte_at(rem))
-        n /= radix
+        mag /= r
     }
     if (is_neg) rev.push("-")
     let out = ""

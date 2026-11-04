@@ -16,21 +16,29 @@ import (
 // Loops (`ForExpr`) & Pattern Matching (`MatchExpr`)
 // -----------------------------------------------------------------------------
 
-func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
-	inf := fl.info(fe)
+func (fl *funcLowerer) lookupMethod(recvTy types.Type, name string) *sema.FuncInstance {
+	key := sema.TypeMethodKey(recvTy)
+	if mset, ok := fl.prog.MethodTable[key]; ok {
+		return mset[name]
+	}
+	return nil
+}
+
+func (fl *funcLowerer) lowerWhileExpr(we *ast.WhileExpr, needValue bool) string {
+	inf := fl.info(we)
 	exitLbl := fmt.Sprintf("_ll_exit_%d", inf.TargetID)
 	contLbl := fmt.Sprintf("_ll_cont_%d", inf.TargetID)
 
 	var resSlot *Local
 	var hasValSlot *Local
 	var loopElemTy types.Type
-	isForNoElse := fe.Else == nil
+	isWhileNoElse := we.Else == nil && we.EvalType == nil
 
 	if needValue && inf.Type != nil && !inf.Type.Equals(types.TypeVoid) && !inf.Type.Equals(types.TypeNever) {
-		resSlot = fl.allocSlot("_ll_for_val", inf.Type)
-		hasValSlot = fl.allocSlot("_ll_for_has", types.TypeBool)
+		resSlot = fl.allocSlot("_ll_while_val", inf.Type)
+		hasValSlot = fl.allocSlot("_ll_while_has", types.TypeBool)
 		fl.assignLocal(hasValSlot, "false")
-		if isForNoElse {
+		if isWhileNoElse {
 			optTy := inf.Type.(*types.Optional)
 			loopElemTy = optTy.Elem
 			fl.assignLocal(resSlot, optNoneExpr(optTy))
@@ -39,10 +47,9 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
 		}
 	}
 
-	syms := fl.bm.ForSymbols[fe]
+	syms := fl.bm.WhileSymbols[we]
 	sym1, sym2 := syms[0], syms[1]
 
-	// Register loop variables as locals
 	var loc1, loc2 *Local
 	if sym1 != nil {
 		loc1 = &Local{
@@ -63,10 +70,198 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
 		fl.symLocals[sym2] = loc2
 	}
 
-	// Outer holder for any rvalue collection (`for (x in make_vec())`) so it drops after the loop
+	bodyRunner := func(loopScope *mirScope) {
+		bodyTy := fl.info(we.Body).Type
+		if !needValue || resSlot == nil || bodyTy == nil || bodyTy.Equals(types.TypeVoid) || bodyTy.Equals(types.TypeNever) {
+			fl.lowerVoidExpr(we.Body)
+			fl.flushStmtTemps()
+		} else {
+			iterVal := fl.lowerExprOwned(we.Body, loopElemTy)
+			iterTmp := fl.allocSlot("_ll_itval", loopElemTy)
+			fl.assignLocal(iterTmp, iterVal)
+			fl.flushStmtTemps()
+			fl.storeLoopRunningResult(loopScope, iterTmp.CName)
+		}
+	}
+
+	fl.lowerLoopDriver(we.Kind, we.CondOrIter, we.RangeEnd, we.Inclusive, sym1, sym2, loc1, loc2, inf.TargetID, exitLbl, contLbl, resSlot, hasValSlot, loopElemTy, isWhileNoElse, bodyRunner)
+
+	if we.Else != nil {
+		if resSlot != nil && hasValSlot != nil {
+			fl.pushInstrBuf()
+			fl.pushScope(0, "", "", nil, nil, false)
+			eTy := fl.info(we.Else).Type
+			if eTy == types.TypeNever {
+				fl.lowerVoidExpr(we.Else)
+				fl.flushStmtTemps()
+			} else {
+				eVal := fl.lowerExprOwned(we.Else, resSlot.Type)
+				fl.assignLocal(resSlot, eVal)
+				fl.flushStmtTemps()
+			}
+			if !endsWithTerm(fl.curInstrs()) {
+				fl.popScopeEmitDrops()
+			} else {
+				fl.scopes = fl.scopes[:len(fl.scopes)-1]
+			}
+			elseBranch := fl.popInstrBuf()
+			fl.emit(&InstrIf{
+				Cond: "!" + hasValSlot.CName,
+				Then: elseBranch,
+			})
+		} else {
+			fl.lowerVoidExpr(we.Else)
+			fl.flushStmtTemps()
+		}
+	}
+
+	if resSlot != nil {
+		return resSlot.CName
+	}
+	return ""
+}
+
+func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
+	inf := fl.info(fe)
+	exitLbl := fmt.Sprintf("_ll_exit_%d", inf.TargetID)
+	contLbl := fmt.Sprintf("_ll_cont_%d", inf.TargetID)
+
+	var colSlot *Local
+	var elemTy types.Type
+
+	if needValue && inf.Type != nil && !inf.Type.Equals(types.TypeVoid) && !inf.Type.Equals(types.TypeNever) {
+		colSlot = fl.allocSlot("_ll_col", inf.Type)
+		fl.tc.visit(inf.Type)
+		if colSlot.MovedFlag != "" {
+			fl.emit(&InstrAssign{Dst: colSlot.MovedFlag, Expr: "false"})
+		}
+		elemTy = fl.info(fe.Body).Type
+	}
+
+	syms := fl.bm.ForSymbols[fe]
+	sym1, sym2 := syms[0], syms[1]
+
+	var loc1, loc2 *Local
+	if sym1 != nil {
+		loc1 = &Local{
+			CName:    sym1.CName,
+			Type:     sym1.Type,
+			IsMutPtr: sym1.BindKind == sema.BindMutBorrow,
+		}
+		fl.locals = append(fl.locals, loc1)
+		fl.symLocals[sym1] = loc1
+	}
+	if sym2 != nil {
+		loc2 = &Local{
+			CName:    sym2.CName,
+			Type:     sym2.Type,
+			IsMutPtr: sym2.BindKind == sema.BindMutBorrow,
+		}
+		fl.locals = append(fl.locals, loc2)
+		fl.symLocals[sym2] = loc2
+	}
+
+	bodyRunner := func(loopScope *mirScope) {
+		bodyTy := fl.info(fe.Body).Type
+		if !needValue || colSlot == nil || bodyTy == nil || bodyTy.Equals(types.TypeVoid) || bodyTy.Equals(types.TypeNever) {
+			fl.lowerVoidExpr(fe.Body)
+			fl.flushStmtTemps()
+		} else {
+			itemVal := fl.lowerExprOwned(fe.Body, elemTy)
+			fl.flushStmtTemps()
+			fl.emitPushToCol(colSlot, itemVal, elemTy)
+		}
+	}
+
+	fl.lowerLoopDriver(fe.Kind, fe.CondOrIter, fe.RangeEnd, fe.Inclusive, sym1, sym2, loc1, loc2, inf.TargetID, exitLbl, contLbl, colSlot, nil, elemTy, false, bodyRunner)
+
+	if fe.Else != nil {
+		if needValue && colSlot != nil {
+			var isEmptyCond string
+			switch colSlot.Type.(type) {
+			case *types.Vector:
+				isEmptyCond = fmt.Sprintf("(%s.len == 0LL)", colSlot.CName)
+			case *types.Set:
+				isEmptyCond = fmt.Sprintf("(%s.len == 0LL)", colSlot.CName)
+			case *types.Map:
+				isEmptyCond = fmt.Sprintf("(%s.len == 0LL)", colSlot.CName)
+			}
+			if isEmptyCond != "" {
+				fl.pushInstrBuf()
+				fl.pushScope(0, "", "", nil, nil, false)
+				eVal := fl.lowerExprOwned(fe.Else, colSlot.Type)
+				fl.assignLocal(colSlot, eVal)
+				fl.flushStmtTemps()
+				if !endsWithTerm(fl.curInstrs()) {
+					fl.popScopeEmitDrops()
+				} else {
+					fl.scopes = fl.scopes[:len(fl.scopes)-1]
+				}
+				elseBranch := fl.popInstrBuf()
+				fl.emit(&InstrIf{
+					Cond: isEmptyCond,
+					Then: elseBranch,
+				})
+			} else {
+				fl.lowerVoidExpr(fe.Else)
+				fl.flushStmtTemps()
+			}
+		} else {
+			fl.lowerVoidExpr(fe.Else)
+			fl.flushStmtTemps()
+		}
+	}
+
+	if colSlot != nil {
+		return colSlot.CName
+	}
+	return ""
+}
+
+func (fl *funcLowerer) emitPushToCol(colSlot *Local, itemVal string, elemTy types.Type) {
+	switch ct := colSlot.Type.(type) {
+	case *types.Vector:
+		fl.emit(&InstrExpr{
+			Expr: fmt.Sprintf("ll_vec_push__%s(&%s, %s)", ct.Mangled(), colSlot.CName, itemVal),
+		})
+	case *types.Set:
+		fl.emit(&InstrExpr{
+			Expr: fmt.Sprintf("ll_set_insert__%s(&%s, %s)", ct.Mangled(), colSlot.CName, itemVal),
+		})
+	case *types.Map:
+		entrySlot := fl.allocSlot("_ll_entry", elemTy)
+		fl.assignLocal(entrySlot, itemVal)
+		fl.emit(&InstrExpr{
+			Expr: fmt.Sprintf("ll_map_insert__%s(&%s, %s.ll_key, %s.ll_value)", ct.Mangled(), colSlot.CName, entrySlot.CName, entrySlot.CName),
+		})
+	default:
+		fi := fl.lookupMethod(ct, "push")
+		if fi != nil {
+			fl.emit(&InstrExpr{
+				Expr: fmt.Sprintf("%s(&%s, %s)", fi.CName, colSlot.CName, itemVal),
+			})
+		}
+	}
+}
+
+func (fl *funcLowerer) lowerLoopDriver(
+	kind ast.ForKind,
+	condOrIter ast.Expr,
+	rangeEnd ast.Expr,
+	inclusive bool,
+	sym1, sym2 *sema.Symbol,
+	loc1, loc2 *Local,
+	targetID int,
+	exitLbl, contLbl string,
+	resSlot, hasValSlot *Local,
+	loopElemTy types.Type,
+	isForNoElse bool,
+	bodyRunner func(loopScope *mirScope),
+) {
 	var colHoldSlot *Local
+
 	emitBodyIteration := func(stepInit []Instr, stepAdv []Instr, whileCond string) {
-		forScope := fl.pushScope(inf.TargetID, exitLbl, contLbl, resSlot, hasValSlot, false)
+		forScope := fl.pushScope(targetID, exitLbl, contLbl, resSlot, hasValSlot, false)
 		forScope.loopElemTy = loopElemTy
 		forScope.isForNoElse = isForNoElse
 
@@ -75,19 +270,9 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
 			fl.emit(si)
 		}
 
-		// Inner body scope (cleaned up on normal iteration end AND on `next <-`!)
+		// Inner body scope
 		fl.pushScope(0, "", "", nil, nil, false)
-		bodyTy := fl.info(fe.Body).Type
-		if !needValue || resSlot == nil || bodyTy == nil || bodyTy.Equals(types.TypeVoid) || bodyTy.Equals(types.TypeNever) {
-			fl.lowerVoidExpr(fe.Body)
-			fl.flushStmtTemps()
-		} else {
-			iterVal := fl.lowerExprOwned(fe.Body, loopElemTy)
-			iterTmp := fl.allocSlot("_ll_itval", loopElemTy)
-			fl.assignLocal(iterTmp, iterVal)
-			fl.flushStmtTemps()
-			fl.storeLoopRunningResult(forScope, iterTmp.CName)
-		}
+		bodyRunner(forScope)
 
 		if !endsWithTerm(fl.curInstrs()) {
 			fl.popScopeEmitDrops()
@@ -106,15 +291,14 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
 		fl.emit(&InstrLabel{Name: exitLbl})
 	}
 
-	switch fe.Kind {
+	switch kind {
 	case ast.ForCond:
-		// Re-evaluate `fe.CondOrIter` at the start of every iteration!
-		forScope := fl.pushScope(inf.TargetID, exitLbl, contLbl, resSlot, hasValSlot, false)
+		forScope := fl.pushScope(targetID, exitLbl, contLbl, resSlot, hasValSlot, false)
 		forScope.loopElemTy = loopElemTy
 		forScope.isForNoElse = isForNoElse
 
 		fl.pushInstrBuf()
-		condExpr := fl.lowerExprRead(fe.CondOrIter)
+		condExpr := fl.lowerExprRead(condOrIter)
 		condSlot := fl.allocSlot("_ll_lcond", types.TypeBool)
 		fl.assignLocal(condSlot, condExpr)
 		fl.flushStmtTemps()
@@ -125,17 +309,7 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
 		fl.usedLabels[exitLbl] = true
 
 		fl.pushScope(0, "", "", nil, nil, false)
-		bodyTy := fl.info(fe.Body).Type
-		if !needValue || resSlot == nil || bodyTy == nil || bodyTy.Equals(types.TypeVoid) || bodyTy.Equals(types.TypeNever) {
-			fl.lowerVoidExpr(fe.Body)
-			fl.flushStmtTemps()
-		} else {
-			iterVal := fl.lowerExprOwned(fe.Body, loopElemTy)
-			iterTmp := fl.allocSlot("_ll_itval", loopElemTy)
-			fl.assignLocal(iterTmp, iterVal)
-			fl.flushStmtTemps()
-			fl.storeLoopRunningResult(forScope, iterTmp.CName)
-		}
+		bodyRunner(forScope)
 		if !endsWithTerm(fl.curInstrs()) {
 			fl.popScopeEmitDrops()
 		} else {
@@ -150,14 +324,14 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
 
 	case ast.ForRange:
 		loTy := sym1.Type
-		loExpr := fl.lowerExprRead(fe.CondOrIter)
-		hiExpr := fl.lowerExprRead(fe.RangeEnd)
+		loExpr := fl.lowerExprRead(condOrIter)
+		hiExpr := fl.lowerExprRead(rangeEnd)
 		curIdx := fl.allocSlot("_ll_rcur", loTy)
 		endIdx := fl.allocSlot("_ll_rend", loTy)
 		doneSlot := fl.allocSlot("_ll_rdone", types.TypeBool)
 		fl.assignLocal(curIdx, loExpr)
 		fl.assignLocal(endIdx, hiExpr)
-		if fe.Inclusive {
+		if inclusive {
 			fl.assignLocal(doneSlot, fmt.Sprintf("(%s > %s)", curIdx.CName, endIdx.CName))
 		} else {
 			fl.assignLocal(doneSlot, fmt.Sprintf("(%s >= %s)", curIdx.CName, endIdx.CName))
@@ -170,8 +344,7 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
 		var stepAdv []Instr
 		prim := types.UnderlyingPrimitive(loTy)
 		incExpr := fl.buildArithBinary(token.Plus, loTy, prim, curIdx.CName, formatCIntLit(1, false, loTy), "", 0)
-		if fe.Inclusive {
-			// Safe against `i == MAX_INT` in `0..=MAX_INT`: if `cur == end`, set `done = true` without overflowing!
+		if inclusive {
 			stepAdv = []Instr{
 				&InstrIf{
 					Cond: fmt.Sprintf("(%s == %s)", curIdx.CName, endIdx.CName),
@@ -191,7 +364,7 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
 		emitBodyIteration(stepInit, stepAdv, "!"+doneSlot.CName)
 
 	case ast.ForIter:
-		rawColTy := fl.info(fe.CondOrIter).Type
+		rawColTy := fl.info(condOrIter).Type
 		colTy := rawColTy
 		isArenaRef := false
 		if rf, ok := rawColTy.(*types.Ref); ok {
@@ -199,19 +372,18 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
 			isArenaRef = true
 		}
 
-		// Obtain a stable pointer `colPtr` to the iterated collection for the duration of the loop
 		var colPtr string
 		if isArenaRef {
 			ptrTmp := fl.allocSlot("_ll_colp", rawColTy)
-			fl.assignLocal(ptrTmp, fl.lowerExprRead(fe.CondOrIter))
+			fl.assignLocal(ptrTmp, fl.lowerExprRead(condOrIter))
 			colPtr = ptrTmp.CName
-		} else if isAddressableAST(fe.CondOrIter) {
+		} else if fl.isAddressable(condOrIter) {
 			ptrTmp := fl.allocSlot("_ll_colp", &types.Ptr{Elem: colTy})
-			fl.assignLocal(ptrTmp, fl.lowerLValueAddr(fe.CondOrIter))
+			fl.assignLocal(ptrTmp, fl.lowerLValueAddr(condOrIter))
 			colPtr = ptrTmp.CName
 		} else {
 			colHoldSlot = fl.allocSlot("_ll_colhold", colTy)
-			fl.assignLocal(colHoldSlot, fl.lowerRawExpr(fe.CondOrIter, colTy, true))
+			fl.assignLocal(colHoldSlot, fl.lowerRawExpr(condOrIter, colTy, true))
 			colPtr = "&" + colHoldSlot.CName
 		}
 		fl.flushStmtTemps()
@@ -301,18 +473,24 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
 			idxVar := fl.allocSlot("_ll_mi", types.TypeInt)
 			fl.assignLocal(idxVar, "0LL")
 			fl.usedLabels[contLbl] = true
-			stepInit := []Instr{
-				&InstrIf{
-					Cond: fmt.Sprintf("!(%s)->entries[%s].alive", colPtr, idxVar.CName),
-					Then: []Instr{&InstrGoto{Label: contLbl}},
-				},
-				&InstrAssign{
+			keyAccess := fmt.Sprintf("(%s)->entries[%s].key", colPtr, idxVar.CName)
+			valAccess := fmt.Sprintf("(%s)->entries[%s].val", colPtr, idxVar.CName)
+			var stepInit []Instr
+			stepInit = append(stepInit, &InstrIf{
+				Cond: fmt.Sprintf("!(%s)->entries[%s].alive", colPtr, idxVar.CName),
+				Then: []Instr{&InstrGoto{Label: contLbl}},
+			})
+			if loc2 == nil {
+				fl.tc.visit(loc1.Type)
+				stepInit = append(stepInit, &InstrAssign{
 					Dst:  loc1.CName,
-					Expr: fmt.Sprintf("(%s)->entries[%s].key", colPtr, idxVar.CName),
-				},
-			}
-			if loc2 != nil {
-				valAccess := fmt.Sprintf("(%s)->entries[%s].val", colPtr, idxVar.CName)
+					Expr: fmt.Sprintf("(%s){ .ll_key = %s, .ll_value = %s }", CType(loc1.Type), keyAccess, valAccess),
+				})
+			} else {
+				stepInit = append(stepInit, &InstrAssign{
+					Dst:  loc1.CName,
+					Expr: keyAccess,
+				})
 				if loc2.IsMutPtr {
 					stepInit = append(stepInit, &InstrAssign{Dst: loc2.CName, Expr: "&(" + valAccess + ")"})
 				} else {
@@ -327,38 +505,6 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) string {
 			fl.emit(&InstrDrop{Var: colHoldSlot.CName, Type: colHoldSlot.Type, MovedFlag: colHoldSlot.MovedFlag})
 		}
 	}
-
-	// Lower `else` fallback if present and loop is value-producing (or even in void position if `for ... else` has side effects!)
-	if fe.Else != nil {
-		if resSlot != nil && hasValSlot != nil {
-			fl.pushInstrBuf()
-			fl.pushScope(0, "", "", nil, nil, false)
-			eTy := fl.info(fe.Else).Type
-			if eTy == types.TypeNever {
-				fl.lowerVoidExpr(fe.Else)
-				fl.flushStmtTemps()
-			} else {
-				eVal := fl.lowerExprOwned(fe.Else, resSlot.Type)
-				fl.assignLocal(resSlot, eVal)
-				fl.flushStmtTemps()
-			}
-			if !endsWithTerm(fl.curInstrs()) {
-				fl.popScopeEmitDrops()
-			} else {
-				fl.scopes = fl.scopes[:len(fl.scopes)-1]
-			}
-			elseBranch := fl.popInstrBuf()
-			fl.emit(&InstrIf{
-				Cond: "!" + hasValSlot.CName,
-				Then: elseBranch,
-			})
-		}
-	}
-
-	if resSlot != nil {
-		return resSlot.CName
-	}
-	return ""
 }
 
 func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) string {
@@ -370,13 +516,39 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) string 
 		resSlot = fl.allocSlot("_ll_match", inf.Type)
 	}
 
-	scrutTy := fl.info(me.Scrutinee).Type
-	scrutExpr := fl.lowerExprRead(me.Scrutinee)
-	scrutSlot := fl.allocSlot("_ll_scrut", scrutTy)
-	fl.assignLocal(scrutSlot, scrutExpr)
+	rawScrutTy := fl.info(me.Scrutinee).Type
+	scrutTy := rawScrutTy
+	isArenaRefScrut := false
+	if rf, ok := rawScrutTy.(*types.Ref); ok {
+		if _, isEn := rf.Elem.(*types.Enum); isEn {
+			scrutTy = rf.Elem
+			isArenaRefScrut = true
+		}
+	}
+	fl.tc.visit(scrutTy)
+
+	var scrutPtrExpr string
+	var scrutHoldSlot *Local
+	if isArenaRefScrut {
+		scrutPtrSlot := fl.allocSlot("_ll_scrutp", rawScrutTy)
+		fl.assignLocal(scrutPtrSlot, fl.lowerExprRead(me.Scrutinee))
+		scrutPtrExpr = scrutPtrSlot.CName
+	} else if !fl.info(me.Scrutinee).WrapOptional && fl.isAddressable(me.Scrutinee) {
+		scrutPtrSlot := fl.allocSlot("_ll_scrutp", &types.Ptr{Elem: scrutTy})
+		fl.assignLocal(scrutPtrSlot, fl.lowerLValueAddr(me.Scrutinee))
+		scrutPtrExpr = scrutPtrSlot.CName
+	} else {
+		scrutHoldSlot = fl.allocSlot("_ll_scrut", scrutTy)
+		fl.assignLocal(scrutHoldSlot, fl.lowerExprOwned(me.Scrutinee, scrutTy))
+		scrutPtrExpr = "&" + scrutHoldSlot.CName
+	}
 	fl.flushStmtTemps()
+	scrutValExpr := fmt.Sprintf("(*%s)", scrutPtrExpr)
 
 	fl.pushScope(inf.TargetID, exitLbl, "", resSlot, nil, false)
+	if scrutHoldSlot != nil && !scrutTy.IsPlain() {
+		fl.scopes[len(fl.scopes)-1].ownedLocals = append(fl.scopes[len(fl.scopes)-1].ownedLocals, scrutHoldSlot)
+	}
 
 	// Build nested `if / else if / else` chain across `me.Arms`
 	var buildArmChain func(armIdx int) []Instr
@@ -386,9 +558,14 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) string 
 		}
 		arm := me.Arms[armIdx]
 
-		// Lower arm body
+		// Lower arm body (initializing any destructured variant bindings inside the arm scope!)
 		fl.pushInstrBuf()
-		fl.pushScope(0, "", "", nil, nil, false)
+		armScope := fl.pushScope(0, "", "", nil, nil, false)
+		for _, pat := range arm.Patterns {
+			if vp, isVP := pat.(*ast.VariantPattern); isVP {
+				fl.emitVariantPatternBindings(vp, scrutTy, scrutPtrExpr, scrutValExpr, armScope)
+			}
+		}
 		if !needValue || resSlot == nil {
 			fl.lowerVoidExpr(arm.Body)
 			fl.flushStmtTemps()
@@ -410,10 +587,9 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) string 
 		}
 		armBody := fl.popInstrBuf()
 
-		// Final `else` arm (either catch-all `else:` or exhaustive `else Variant:`):
-		// Since `sema` already verified exhaustiveness, the final `else` arm always executes if reached!
-		if arm.IsElse {
-			// Evaluate any pattern expressions purely if needed (they are side-effect-free constants/literals)
+		// Final arm (catch-all `else:`, exhaustive `else Variant:`, or final `when` of an exhaustive enum match):
+		// Since `sema` already verified exhaustiveness, the final arm always executes if reached!
+		if arm.IsElse || armIdx == len(me.Arms)-1 {
 			return armBody
 		}
 
@@ -425,22 +601,30 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) string 
 			case *ast.ExprPattern:
 				if _, isNone := p.Expr.(*ast.NoneLit); isNone {
 					optScrut := scrutTy.(*types.Optional)
-					condParts = append(condParts, "!"+optHasValueExpr(scrutSlot.CName, optScrut))
+					condParts = append(condParts, "!"+optHasValueExpr(scrutValExpr, optScrut))
+				} else if en, isEn := scrutTy.(*types.Enum); isEn && en.IsTagged && fl.info(p.Expr).EnumVariant != nil {
+					vr := fl.info(p.Expr).EnumVariant
+					condParts = append(condParts, fmt.Sprintf("((%s)->tag == %d)", scrutPtrExpr, vr.Value))
 				} else {
 					pExpr := fl.lowerExprRead(p.Expr)
 					if fl.info(p.Expr).WrapOptional {
 						optScrut := scrutTy.(*types.Optional)
 						pExpr = fl.wrapInOptionalExpr(pExpr, optScrut)
 					}
-					condParts = append(condParts, fl.buildEqualityExpr(scrutTy, scrutSlot.CName, pExpr, false))
+					condParts = append(condParts, fl.buildEqualityExpr(scrutTy, scrutValExpr, pExpr, false))
 				}
 			case *ast.RangePattern:
 				loExpr := fl.lowerExprRead(p.Low)
 				hiExpr := fl.lowerExprRead(p.High)
 				if p.Inclusive {
-					condParts = append(condParts, fmt.Sprintf("(%s >= %s && %s <= %s)", scrutSlot.CName, loExpr, scrutSlot.CName, hiExpr))
+					condParts = append(condParts, fmt.Sprintf("(%s >= %s && %s <= %s)", scrutValExpr, loExpr, scrutValExpr, hiExpr))
 				} else {
-					condParts = append(condParts, fmt.Sprintf("(%s >= %s && %s < %s)", scrutSlot.CName, loExpr, scrutSlot.CName, hiExpr))
+					condParts = append(condParts, fmt.Sprintf("(%s >= %s && %s < %s)", scrutValExpr, loExpr, scrutValExpr, hiExpr))
+				}
+			case *ast.VariantPattern:
+				mem := p.Target.(*ast.MemberExpr)
+				if vr := fl.info(mem).EnumVariant; vr != nil {
+					condParts = append(condParts, fmt.Sprintf("((%s)->tag == %d)", scrutPtrExpr, vr.Value))
 				}
 			}
 		}
@@ -470,6 +654,132 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) string 
 		return resSlot.CName
 	}
 	return ""
+}
+
+func (fl *funcLowerer) emitVariantPatternBindings(
+	vp *ast.VariantPattern,
+	scrutTy types.Type,
+	scrutPtrExpr string,
+	scrutValExpr string,
+	armScope *mirScope,
+) {
+	en, ok := scrutTy.(*types.Enum)
+	if !ok {
+		return
+	}
+	mem, ok := vp.Target.(*ast.MemberExpr)
+	if !ok {
+		return
+	}
+	vr := fl.info(mem).EnumVariant
+	if vr == nil {
+		return
+	}
+	syms := fl.bm.PatternSyms[vp]
+
+	if !vp.IsStruct {
+		if len(vp.Bindings) != 1 || len(syms) != 1 || syms[0] == nil {
+			return
+		}
+		b := vp.Bindings[0]
+		sym := syms[0]
+		fl.tc.visit(sym.Type)
+		hasOwnRes := b.Mode == ast.PatternBindOwn && !vr.Payload.IsPlain()
+		loc := &Local{
+			CName:    sym.CName,
+			Type:     sym.Type,
+			IsMutPtr: b.Mode == ast.PatternBindMut,
+		}
+		if hasOwnRes && NeedsMovedFlag(sym.Type) {
+			loc.MovedFlag = sym.CName + "_moved"
+		}
+		fl.locals = append(fl.locals, loc)
+		fl.symLocals[sym] = loc
+
+		if loc.IsMutPtr {
+			fl.emit(&InstrAssign{
+				Dst:  loc.CName,
+				Expr: fmt.Sprintf("&((%s)->data.%s)", scrutPtrExpr, vr.CName),
+			})
+		} else if hasOwnRes {
+			fl.assignLocal(loc, fmt.Sprintf("(%s).data.%s", scrutValExpr, vr.CName))
+			fl.emit(&InstrAssign{Dst: scrutValExpr, Expr: fmt.Sprintf("(%s){0}", CType(en))})
+			armScope.ownedLocals = append(armScope.ownedLocals, loc)
+		} else {
+			fl.assignLocal(loc, fmt.Sprintf("(%s).data.%s", scrutValExpr, vr.CName))
+		}
+		return
+	}
+
+	// Named-field struct variant (`when Expr.Add[left, right]:`)
+	hasOwnRes := false
+	boundByField := make(map[string]int, len(vp.Bindings))
+	for i, b := range vp.Bindings {
+		if b.FieldName != "" {
+			boundByField[b.FieldName] = i
+		}
+		if !b.IsWildcard && b.Mode == ast.PatternBindOwn {
+			if sf, _ := vr.FieldByName(b.FieldName); sf != nil && !sf.Type.IsPlain() {
+				hasOwnRes = true
+			}
+		}
+	}
+
+	if !hasOwnRes {
+		for i, b := range vp.Bindings {
+			if i >= len(syms) || syms[i] == nil {
+				continue
+			}
+			sym := syms[i]
+			sf, _ := vr.FieldByName(b.FieldName)
+			if sf == nil {
+				continue
+			}
+			fl.tc.visit(sym.Type)
+			loc := &Local{
+				CName:    sym.CName,
+				Type:     sym.Type,
+				IsMutPtr: b.Mode == ast.PatternBindMut,
+			}
+			fl.locals = append(fl.locals, loc)
+			fl.symLocals[sym] = loc
+			if loc.IsMutPtr {
+				fl.emit(&InstrAssign{
+					Dst:  loc.CName,
+					Expr: fmt.Sprintf("&((%s)->data.%s.%s)", scrutPtrExpr, vr.CName, sf.CName),
+				})
+			} else {
+				fl.assignLocal(loc, fmt.Sprintf("(%s).data.%s.%s", scrutValExpr, vr.CName, sf.CName))
+			}
+		}
+		return
+	}
+
+	// Destructive `own` move out of struct variant: extract bound fields, drop unbound/wildcard Resource fields, then zero `*scrutPtr`!
+	for _, sf := range vr.Fields {
+		if bIdx, isBound := boundByField[sf.Name]; isBound && bIdx < len(syms) && syms[bIdx] != nil {
+			sym := syms[bIdx]
+			fl.tc.visit(sym.Type)
+			loc := &Local{
+				CName: sym.CName,
+				Type:  sym.Type,
+			}
+			if !sf.Type.IsPlain() && NeedsMovedFlag(sym.Type) {
+				loc.MovedFlag = sym.CName + "_moved"
+			}
+			fl.locals = append(fl.locals, loc)
+			fl.symLocals[sym] = loc
+			fl.assignLocal(loc, fmt.Sprintf("(%s).data.%s.%s", scrutValExpr, vr.CName, sf.CName))
+			if !sf.Type.IsPlain() {
+				armScope.ownedLocals = append(armScope.ownedLocals, loc)
+			}
+		} else if !sf.Type.IsPlain() {
+			fl.emit(&InstrExpr{
+				Expr: fmt.Sprintf("%s(&((%s)->data.%s.%s))", DropFnName(sf.Type), scrutPtrExpr, vr.CName, sf.CName),
+			})
+		}
+	}
+	fl.emit(&InstrAssign{Dst: scrutValExpr, Expr: fmt.Sprintf("(%s){0}", CType(en))})
 }
 
 // -----------------------------------------------------------------------------
@@ -646,10 +956,28 @@ func (fl *funcLowerer) lowerBinaryExpr(b *ast.BinaryExpr, inf *sema.ExprInfo, fo
 		rhs := fl.lowerExprRead(b.Right)
 		lty := fl.info(b.Left).Type
 		opStr := b.Op.String()
-		if p := types.UnderlyingPrimitive(lty); p != nil && p.Kind == types.PrimString {
-			return fmt.Sprintf("(ll_str_cmp((ll_string)(%s), (ll_string)(%s)) %s 0)", lhs, rhs, opStr)
+		if p := types.UnderlyingPrimitive(lty); p != nil {
+			if p.Kind == types.PrimString {
+				return fmt.Sprintf("(ll_str_cmp((ll_string)(%s), (ll_string)(%s)) %s 0)", lhs, rhs, opStr)
+			}
+			return fmt.Sprintf("((%s) %s (%s))", lhs, opStr, rhs)
 		}
-		return fmt.Sprintf("((%s) %s (%s))", lhs, opStr, rhs)
+		if custom := fl.prog.LookupConcreteMethod(lty, "cmp"); custom != nil {
+			return fmt.Sprintf("(%s(%s, %s) %s 0)", custom.CName, lhs, rhs, opStr)
+		}
+		if d, isDist := lty.(*types.Distinct); isDist {
+			cBase := CType(d.Base)
+			if customBase := fl.prog.LookupConcreteMethod(d.Base, "cmp"); customBase != nil {
+				return fmt.Sprintf("(%s((%s)(%s), (%s)(%s)) %s 0)", customBase.CName, cBase, lhs, cBase, rhs, opStr)
+			}
+			if p := types.UnderlyingPrimitive(d.Base); p != nil {
+				if p.Kind == types.PrimString {
+					return fmt.Sprintf("(ll_str_cmp((ll_string)(%s), (ll_string)(%s)) %s 0)", lhs, rhs, opStr)
+				}
+				return fmt.Sprintf("(((%s)(%s)) %s ((%s)(%s)))", cBase, lhs, opStr, cBase, rhs)
+			}
+		}
+		return fmt.Sprintf("(%s(%s, %s) %s 0)", CmpFnName(lty), lhs, rhs, opStr)
 	}
 
 	// 5. Shifts `<<` / `>>`
@@ -687,6 +1015,32 @@ func (fl *funcLowerer) lowerBinaryExpr(b *ast.BinaryExpr, inf *sema.ExprInfo, fo
 
 func (fl *funcLowerer) buildEqualityExpr(ty types.Type, lhs, rhs string, isNeq bool) string {
 	fl.tc.visit(ty)
+	if p := types.UnderlyingPrimitive(ty); p != nil {
+		var eq string
+		if p.Kind == types.PrimString {
+			eq = fmt.Sprintf("ll_str_eq(%s, %s)", lhs, rhs)
+		} else {
+			eq = fmt.Sprintf("((%s) == (%s))", lhs, rhs)
+		}
+		if isNeq {
+			return "!" + eq
+		}
+		return eq
+	}
+
+	if custom := fl.prog.LookupConcreteMethod(ty, "eq"); custom != nil {
+		if isNeq {
+			return fmt.Sprintf("(!%s(%s, %s))", custom.CName, lhs, rhs)
+		}
+		return fmt.Sprintf("%s(%s, %s)", custom.CName, lhs, rhs)
+	}
+	if customCmp := fl.prog.LookupConcreteMethod(ty, "cmp"); customCmp != nil {
+		if isNeq {
+			return fmt.Sprintf("(%s(%s, %s) != 0)", customCmp.CName, lhs, rhs)
+		}
+		return fmt.Sprintf("(%s(%s, %s) == 0)", customCmp.CName, lhs, rhs)
+	}
+
 	var eq string
 	switch v := ty.(type) {
 	case *types.Primitive:
@@ -695,7 +1049,13 @@ func (fl *funcLowerer) buildEqualityExpr(ty types.Type, lhs, rhs string, isNeq b
 		} else {
 			eq = fmt.Sprintf("((%s) == (%s))", lhs, rhs)
 		}
-	case *types.Enum, *types.Ptr, *types.Ref:
+	case *types.Enum:
+		if v.IsTagged {
+			eq = fmt.Sprintf("%s(%s, %s)", EqFnName(ty), lhs, rhs)
+		} else {
+			eq = fmt.Sprintf("((%s) == (%s))", lhs, rhs)
+		}
+	case *types.Ptr, *types.Ref:
 		eq = fmt.Sprintf("((%s) == (%s))", lhs, rhs)
 	case *types.Distinct:
 		return fl.buildEqualityExpr(v.Base, fmt.Sprintf("((%s)(%s))", CType(v.Base), lhs), fmt.Sprintf("((%s)(%s))", CType(v.Base), rhs), isNeq)
@@ -742,17 +1102,11 @@ func (fl *funcLowerer) buildArithBinary(op token.Kind, resTy types.Type, prim *t
 		return fmt.Sprintf("((%s)((%s)(%s) * (%s)(%s)))", cRes, uType, lhs, uType, rhs)
 	case token.Slash:
 		if prim != nil && prim.IsUnsignedInt() {
-			if fl.release {
-				return fmt.Sprintf("((%s)((%s) / (%s)))", cRes, lhs, rhs)
-			}
 			return fmt.Sprintf("((%s)ll_div_u64((uint64_t)(%s), (uint64_t)(%s), %q, %d))", cRes, lhs, rhs, file, line)
 		}
 		return fmt.Sprintf("((%s)ll_div_i%d((int%d_t)(%s), (int%d_t)(%s), %q, %d))", cRes, bits, bits, lhs, bits, rhs, file, line)
 	case token.Percent:
 		if prim != nil && prim.IsUnsignedInt() {
-			if fl.release {
-				return fmt.Sprintf("((%s)((%s) %% (%s)))", cRes, lhs, rhs)
-			}
 			return fmt.Sprintf("((%s)ll_mod_u64((uint64_t)(%s), (uint64_t)(%s), %q, %d))", cRes, lhs, rhs, file, line)
 		}
 		return fmt.Sprintf("((%s)ll_mod_i%d((int%d_t)(%s), (int%d_t)(%s), %q, %d))", cRes, bits, bits, lhs, bits, rhs, file, line)
@@ -767,20 +1121,24 @@ func (fl *funcLowerer) buildShiftExpr(op token.Kind, resTy types.Type, prim *typ
 		bits = prim.BitWidth()
 	}
 	if op == token.Shl {
-		return fmt.Sprintf("((%s)ll_shl_u%d((uint%d_t)(%s), (int64_t)(%s), %d, %q, %d))",
-			cRes, bits, bits, lhs, rhs, boolToInt(!fl.release), file, line)
+		return fmt.Sprintf("((%s)ll_shl_u%d((uint%d_t)(%s), (int64_t)(%s), 1, %q, %d))",
+			cRes, bits, bits, lhs, rhs, file, line)
 	}
 	if prim != nil && prim.IsUnsignedInt() {
-		return fmt.Sprintf("((%s)ll_shr_u%d((uint%d_t)(%s), (int64_t)(%s), %d, %q, %d))",
-			cRes, bits, bits, lhs, rhs, boolToInt(!fl.release), file, line)
+		return fmt.Sprintf("((%s)ll_shr_u%d((uint%d_t)(%s), (int64_t)(%s), 1, %q, %d))",
+			cRes, bits, bits, lhs, rhs, file, line)
 	}
-	return fmt.Sprintf("((%s)ll_shr_i%d((int%d_t)(%s), (int64_t)(%s), %d, %q, %d))",
-		cRes, bits, bits, lhs, rhs, boolToInt(!fl.release), file, line)
+	return fmt.Sprintf("((%s)ll_shr_i%d((int%d_t)(%s), (int64_t)(%s), 1, %q, %d))",
+		cRes, bits, bits, lhs, rhs, file, line)
 }
 
 func (fl *funcLowerer) lowerMemberExpr(m *ast.MemberExpr, inf *sema.ExprInfo, forOwned bool) string {
-	// 1. Enum Variant (`Status.Pending` or `mod.Status.Pending`)
+	// 1. Enum Variant (`Status.Pending`, `Result[int, string].Empty`, or `mod.Status.Pending`)
 	if inf.EnumVariant != nil && inf.EnumType != nil {
+		fl.tc.visit(inf.EnumType)
+		if inf.EnumType.IsTagged {
+			return fmt.Sprintf("((%s){ .tag = %d })", CType(inf.EnumType), inf.EnumVariant.Value)
+		}
 		return fmt.Sprintf("((%s)%dLL)", CType(inf.EnumType), inf.EnumVariant.Value)
 	}
 	// 2. Module-qualified top-level constant or static function (`mod.PI` or `mod.fn`)
@@ -883,7 +1241,7 @@ func (fl *funcLowerer) lowerIndexExpr(idx *ast.IndexExpr, inf *sema.ExprInfo, _ 
 			fl.assignLocal(iTmp, fl.checkedIndexExpr(idxVal, pTmp.CName+"->len", file, line))
 			return fmt.Sprintf("(%s->data[%s])", pTmp.CName, iTmp.CName)
 		}
-		if isAddressableAST(idx.Base) {
+		if fl.isAddressable(idx.Base) {
 			bPtr := fl.lowerLValueAddr(idx.Base)
 			pTmp := fl.allocSlot("_ll_vp", &types.Ptr{Elem: v})
 			fl.assignLocal(pTmp, bPtr)
@@ -905,7 +1263,7 @@ func (fl *funcLowerer) lowerIndexExpr(idx *ast.IndexExpr, inf *sema.ExprInfo, _ 
 			ptr := fl.lowerExprRead(idx.Base)
 			return fmt.Sprintf("((%s)->data[%s])", ptr, iTmp.CName)
 		}
-		if isAddressableAST(idx.Base) {
+		if fl.isAddressable(idx.Base) {
 			bPtr := fl.lowerLValueAddr(idx.Base)
 			return fmt.Sprintf("((%s)->data[%s])", bPtr, iTmp.CName)
 		}
@@ -926,7 +1284,7 @@ func (fl *funcLowerer) lowerIndexExpr(idx *ast.IndexExpr, inf *sema.ExprInfo, _ 
 		var mPtr string
 		if isArenaRef {
 			mPtr = fl.lowerExprRead(idx.Base)
-		} else if isAddressableAST(idx.Base) {
+		} else if fl.isAddressable(idx.Base) {
 			mPtr = fl.lowerLValueAddr(idx.Base)
 		} else {
 			bVal := fl.lowerExprRead(idx.Base)
@@ -951,7 +1309,7 @@ func (fl *funcLowerer) lowerSliceExpr(sl *ast.SliceExpr, inf *sema.ExprInfo) str
 		hiVal = fmt.Sprintf("((%s) + 1LL)", hiVal)
 	}
 	file, line := formatSpanLoc(sl)
-	check := boolToInt(!fl.release)
+	check := 1
 
 	switch v := baseTy.(type) {
 	case *types.Primitive: // `string`
@@ -973,7 +1331,7 @@ func (fl *funcLowerer) lowerSliceExpr(sl *ast.SliceExpr, inf *sema.ExprInfo) str
 		vecTy := inf.Type.(*types.Vector)
 		fl.tc.visit(vecTy)
 		var arrPtr string
-		if isAddressableAST(sl.Base) {
+		if fl.isAddressable(sl.Base) {
 			arrPtr = fl.lowerLValueAddr(sl.Base)
 		} else {
 			tmp := fl.allocSlot("_ll_slarr", v)
@@ -1076,17 +1434,17 @@ func (fl *funcLowerer) lowerVecOrArrayLit(v *ast.VecLit, inf *sema.ExprInfo) str
 	return slot.CName
 }
 
-func (fl *funcLowerer) lowerRepeatArrayLit(r *ast.RepeatArrayLit, inf *sema.ExprInfo) string {
+func (fl *funcLowerer) lowerArrayLit(r *ast.ArrayLit, inf *sema.ExprInfo) string {
 	arrTy := inf.Type.(*types.StackArray)
 	fl.tc.visit(arrTy)
-	slot := fl.allocSlot("_ll_rarr", arrTy)
-	valExpr := fl.lowerExprOwned(r.Value, arrTy.Elem)
-	valTmp := fl.allocSlot("_ll_rseed", arrTy.Elem)
-	fl.assignLocal(valTmp, valExpr)
 
-	if arrTy.Size == 1 {
-		fl.emit(&InstrAssign{Dst: slot.CName + ".data[0]", Expr: valTmp.CName})
-	} else {
+	// Repeat constructor
+	if len(r.Elems) == 1 && arrTy.Size > 1 {
+		slot := fl.allocSlot("_ll_rarr", arrTy)
+		valExpr := fl.lowerExprOwned(r.Elems[0], arrTy.Elem)
+		valTmp := fl.allocSlot("_ll_rseed", arrTy.Elem)
+		fl.assignLocal(valTmp, valExpr)
+
 		idx := fl.allocSlot("_ll_ri", types.TypeInt)
 		fl.assignLocal(idx, "0LL")
 		// Copy into indices `0 .. Size-2`, and move `valTmp` into index `Size-1`!
@@ -1103,6 +1461,20 @@ func (fl *funcLowerer) lowerRepeatArrayLit(r *ast.RepeatArrayLit, inf *sema.Expr
 		fl.emit(&InstrAssign{
 			Dst:  fmt.Sprintf("%s.data[%d]", slot.CName, arrTy.Size-1),
 			Expr: valTmp.CName,
+		})
+		if slot.MovedFlag != "" {
+			fl.emit(&InstrAssign{Dst: slot.MovedFlag, Expr: "false"})
+		}
+		return slot.CName
+	}
+
+	// Explicit elements (including single element when Size == 1)
+	slot := fl.allocSlot("_ll_arr", arrTy)
+	for i, el := range r.Elems {
+		elVal := fl.lowerExprOwned(el, arrTy.Elem)
+		fl.emit(&InstrAssign{
+			Dst:  fmt.Sprintf("%s.data[%d]", slot.CName, i),
+			Expr: elVal,
 		})
 	}
 	if slot.MovedFlag != "" {
@@ -1145,6 +1517,9 @@ func (fl *funcLowerer) lowerMapLit(m *ast.MapLit, inf *sema.ExprInfo) string {
 }
 
 func (fl *funcLowerer) lowerStructLit(sl *ast.StructLit, inf *sema.ExprInfo) string {
+	if inf.EnumVariant != nil && inf.EnumType != nil {
+		return fl.lowerEnumStructVariantLit(sl, inf)
+	}
 	st := inf.StructType
 	fl.tc.visit(st)
 	slot := fl.allocSlot("_ll_st", st)
@@ -1188,6 +1563,63 @@ func (fl *funcLowerer) lowerStructLit(sl *ast.StructLit, inf *sema.ExprInfo) str
 	}
 	if slot.MovedFlag != "" {
 		fl.emit(&InstrAssign{Dst: slot.MovedFlag, Expr: "false"})
+	}
+	return slot.CName
+}
+
+func (fl *funcLowerer) lowerEnumStructVariantLit(sl *ast.StructLit, inf *sema.ExprInfo) string {
+	en := inf.EnumType
+	vr := inf.EnumVariant
+	fl.tc.visit(en)
+	slot := fl.allocSlot("_ll_esv", en)
+
+	// Preserve evaluation order of explicitly written fields first!
+	providedVals := make(map[string]string, len(sl.Fields))
+	for _, fi := range sl.Fields {
+		sf, _ := vr.FieldByName(fi.Name)
+		if sf != nil {
+			valStr := fl.lowerExprOwned(fi.Value, sf.Type)
+			ftmp := fl.allocSlot("_ll_esf", sf.Type)
+			fl.assignLocal(ftmp, valStr)
+			providedVals[fi.Name] = ftmp.CName
+		}
+	}
+
+	var astVar *ast.EnumVariant
+	if decl := fl.prog.EnumDecls[en]; decl != nil {
+		for i := range decl.Variants {
+			if decl.Variants[i].Name == vr.Name {
+				astVar = &decl.Variants[i]
+				break
+			}
+		}
+	}
+
+	fl.emit(&InstrAssign{
+		Dst:  fmt.Sprintf("%s.tag", slot.CName),
+		Expr: fmt.Sprintf("%d", vr.Value),
+	})
+	for idx, sf := range vr.Fields {
+		var fExpr string
+		if valName, ok := providedVals[sf.Name]; ok {
+			fExpr = valName
+		} else if astVar != nil && idx < len(astVar.Fields) && astVar.Fields[idx].Default != nil {
+			prevBM := fl.bm
+			if ebm := fl.prog.EnumBodyMaps[en]; ebm != nil {
+				fl.bm = ebm
+			}
+			fExpr = fl.lowerStructDefaultExpr(astVar.Fields[idx].Default, sf.Type)
+			fl.bm = prevBM
+		} else if optF, isOpt := sf.Type.(*types.Optional); isOpt {
+			fl.tc.visit(optF)
+			fExpr = optNoneExpr(optF)
+		} else {
+			fExpr = fmt.Sprintf("(%s){0}", CType(sf.Type))
+		}
+		fl.emit(&InstrAssign{
+			Dst:  fmt.Sprintf("%s.data.%s.%s", slot.CName, vr.CName, sf.CName),
+			Expr: fExpr,
+		})
 	}
 	return slot.CName
 }

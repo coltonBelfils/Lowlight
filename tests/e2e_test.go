@@ -215,7 +215,7 @@ bind main = () {
     assert(fixed.contains(20))
     assert(sum_slice(fixed) == 80)
 
-    // Vector range slice 'v[lo..hi]' & inclusive 'v[lo..=hi]'
+    // List range slice 'v[lo..hi]' & inclusive 'v[lo..=hi]'
     let vec = [1, 2, 3, 4, 5]
     let mid = vec[1..4]
     assert(sum_slice(vec[1..=3]) == 9)

@@ -46,10 +46,11 @@ Lowlight is a custom low-level systems programming language designed to **transp
 2. **Deterministic Memory Safety Without Garbage Collection**:
    * Single ownership with move semantics for heap-allocated types (`string`, vectors `[T]`, maps `#[K: V]`, sets `#[T]`, and structs containing them).
    * Automatic, deterministic scope-based deallocation (`free_*` calls emitted by the compiler at scope exit and before any jump/unwind).
-   * Compile-time borrow checking with read-only borrows (`&T`) and mutable borrows (`&-T`).
-3. **Call-Site Mutation Transparency (`&-`)**:
-   * Mutating a value through a function argument requires `&-` both in the function signature and at the call site (`push(&-my_list, 4)`), so a reader can see every state mutation without looking up function definitions.
-   * UFCS method calls (`pt.translate(5, 5)`) auto-borrow the receiver (`pt`) according to the method's `self` parameter (`&Point` or `&-Point`), verifying `pt` was declared with `let` if `self` is `&-`.
+   * Compile-time borrow checking with read-only borrows (`(x: T)` by default) and mutable borrows (`(x: &T)`).
+3. **Call-Site Mutation Transparency (`&`) & Ownership Transfer (`own`)**:
+   * Mutating a value through a function argument requires `&` both in the function parameter and at the call site (`push(&my_list, 4)`), so a reader can see every state mutation without looking up function definitions.
+   * Transferring ownership of a named Resource variable requires `own` at the call site (`consume(own my_resource)`), making caller variable invalidation completely visible.
+   * UFCS method calls (`pt.translate(5, 5)`) auto-borrow the receiver (`pt`) according to the method's `self` parameter (`(self)` or `(&self)`), verifying `pt` was declared with `let` if `self` is `(&self)`.
 4. **Expression-Oriented Blocks & Targeted Unwinding (`<-`)**:
    * Blocks `{ ... }`, `if`/`else`, `for`, and `match` are expressions.
    * Statements (`let`, `bind`, `define`, `=`, `<-`) are strictly distinct from expressions.
@@ -77,15 +78,16 @@ Starting from [`v0.0_initial_seed_sample.md`](./version_history/specification/v0
 1. **Memory Management**:
    * *Options considered*: Manual `free`/`defer` (Zig-style) vs. Reference Counting (ARC) vs. Scope-based Ownership/RAII (Rust/C++ style).
    * *Decision*: **Single ownership + deterministic scope-based drop + move semantics + borrowing**.
-   * *User's Borrow Syntax Invention*: The user designed `&T` for immutable references and **`&-T` for mutable references**, requiring `&-` at the call site (`push(&-my_list, 4)`) so mutations are never hidden.
+   * *Borrow Syntax Evolution*: Initially explored `&T` / `&-T` during Phase 1. In Round 6 (v0.6/v0.7) and the v1.0 specification, the syntax was streamlined: parameter defaults are read-only borrows (`(x: T)`), mutable borrows require `(x: &T)` and explicit call-site `&` (`push(&my_list, 4)`), and ownership moves require `(x: own T)` and explicit call-site `own` (`consume(own item)`).
 
-2. **Fixed-Size Stack Arrays vs. Dynamic Heap Vectors**:
+2. **Fixed Arrays vs. Dynamic Lists**:
    * *Problem*: The seed sample had `[3][1, 2, 3]`, which looks like indexing a 2D array.
    * *Rejected alternatives*: `[3][1, 2, 3]` and `stack[1, 2, 3]`.
    * *Decision*: Use a colon inside brackets to separate the compile-time size from the elements:
-     * `[1, 2, 3]` $\rightarrow$ Dynamic heap vector of type `[int]`.
-     * `[3: 1, 2, 3]` $\rightarrow$ Fixed-size stack array of 3 elements (`[3: int]`).
-     * `[100: 0]` $\rightarrow$ Fixed-size stack array of 100 elements initialized to `0` (`[100: int]`).
+     * `[1, 2, 3]` $\rightarrow$ Dynamic heap list of type `[int]` (`List[int]`).
+     * `[3: 1, 2, 3]` $\rightarrow$ Fixed-size stack array of 3 elements (`[3: int]` / `Array`).
+     * `[100: 0]` $\rightarrow$ Fixed-size stack array of 100 elements initialized to `0` (`[100: int]` / `Array`).
+     * *(Note: `Array` is the name of the fixed array type; `List` is the name of the dynamic list type. `Vector` is not an alias to either and is removed.)*
 
 3. **Block Unwinding (`<-`) & Function Returns**:
    * *Initial exploration*: Considered `<-` (1 block) + `<--` (function return), plus whether every path must return a value.
@@ -126,7 +128,7 @@ Starting from [`v0.0_initial_seed_sample.md`](./version_history/specification/v0
    * *Decision*: **Namespaced Method Syntax (`bind Point.length = (self &Point): float { ... }`)** with **UFCS (Uniform Function Call Syntax)** so `pt.length()` and `Point.length(&pt)` are interchangeable.
 
 2. **`let` vs. `bind` Immutability Depth**:
-   * *Initial Decision in Phase 2*: `bind` structs are **deeply immutable** (cannot mutate fields of a `bind` struct), while `bind` Maps/Sets/Vectors were initially marked as shallowly immutable (cannot reassign the variable, but can call `.insert()`/`.push()`). *(Note: In Critique Part 2 §3, there is an open suggestion to make `bind` deeply immutable for collections too; awaiting user review.)*
+   * *Initial Decision in Phase 2*: `bind` structs are **deeply immutable** (cannot mutate fields of a `bind` struct), while `bind` Maps/Sets/Lists were initially marked as shallowly immutable (cannot reassign the variable, but can call `.insert()`/`.push()`). *(Note: In Critique Part 2 §3, there is an open suggestion to make `bind` deeply immutable for collections too; awaiting user review.)*
 
 3. **Built-in Hash Maps & Hash Sets (`#[...]`)**:
    * *Decision*:
@@ -158,8 +160,8 @@ Starting from [`v0.0_initial_seed_sample.md`](./version_history/specification/v0
 1. **String Model & Interpolation**:
    * *Decision*:
      * `string`: Owned, growable heap-allocated UTF-8 string (`{ char* data; int64_t len; int64_t capacity; }`).
-     * `&string`: Borrowed read-only string view/slice (`{ const char* data; int64_t len; }`) — zero-copy.
-     * `&-string`: Borrowed mutable string reference (`String*`), allowing in-place `.push(...)` mutation without moving ownership.
+     * `string` parameter mode: Borrowed read-only string view/slice (`{ const char* data; int64_t len; }`) — zero-copy.
+     * `&string`: Borrowed mutable string reference, allowing in-place `.push(...)` and `.push_bytes(...)` mutation without moving ownership.
      * String interpolation uses `$ident` for simple non-optional variables and `${expr}` for arbitrary expressions.
 
 2. **Interfaces (Implicit / Structural Polymorphism)**:
@@ -214,36 +216,46 @@ After writing `SPECIFICATION.md` (Draft v0.1), a comprehensive architectural cri
 
 ---
 
-## 5. What Remains to Be Done Next (Active Roadmap)
+## 5. Status: v1.0 Specification & Bootstrap Compiler (`auto-v1-prototype`)
 
-When resuming work in a new session, pick up directly in **[`./SPEC_CRITIQUE.md`](./SPEC_CRITIQUE.md)**. Here is the exact checklist of pending items:
+All open design items from [`SPEC_CRITIQUE.md`](./SPEC_CRITIQUE.md) (Rounds 1–6 and Parts 0, A, M, B, C, N) were resolved autonomously and logged in [`DECISIONS.md`](./DECISIONS.md). The complete language specification is published in [`SPECIFICATION.md`](./SPECIFICATION.md) (v1.0).
 
-### Step 1: Finish Reviewing Part 1 of `SPEC_CRITIQUE.md`
-The user has not yet commented on **Sections A–D** or the two follow-up questions in **Sections E & F** of [`./SPEC_CRITIQUE.md`](./SPEC_CRITIQUE.md):
-1. **[Section A — Lifetimes](./SPEC_CRITIQUE.md#L9-L59)**: Choose between **Option 1** (Rust-style `'a` lifetimes), **Option 2** (strict second-class references), or **Option 2.5** (second-class references + tied return borrows from `self` or sole borrowed parameter).
-2. **[Section B — Reborrowing](./SPEC_CRITIQUE.md#L62-L82)**: Confirm the recommended **Reference Flattening (Reborrowing)** rule when passing `&-list` inside a function that already took `list &-[int]`.
-3. **[Section C — Go-Style Semicolon / Newline Insertion](./SPEC_CRITIQUE.md#L85-L103)**: Confirm the adapted Go-style automatic semicolon insertion rules and next-line continuation exceptions (`else`, `when`, `.`).
-4. **[Section D — Terminating `match`](./SPEC_CRITIQUE.md#L106-L145)**: Choose between **Option 1** (`match (x) { ... }`), **Option 2** (`match (x) [ ... ]`), or **Option 3** (greedy `when`/`else` continuation with `(...)` for nested matches).
-5. **[Section E Follow-Up — `if (user?)` Borrow Syntax](./SPEC_CRITIQUE.md#L159-L185)**: Choose between **Option 1** (implicit immutable borrow `if (user?)` + explicit mutable borrow `if (&-user?)`) vs. **Option 2** (`if (&user?)` vs. `if (&-user?)` vs. `if (user?)`).
-6. **[Section F Follow-Up 1 — Rethinking `for` Loops as Expressions](./SPEC_CRITIQUE.md#L196-L253)**: Choose how each iteration's expression relates to the overall `for` loop expression (**Design 1: Collect to `[T]`**, **Design 2: Accumulator/Fold per iteration**, or **Design 3: Combined**).
+### Key v1.0 Additions & Standard Prelude
+1. **Implicit Standard Prelude (`std/core.ll`)**:
+   * Automatically loaded in every module without explicit `import`.
+   * Defines the foundational `Result[T, E]` type and constructors/methods:
+     * `Result[T, E].ok(val: T): Result[T, E]`
+     * `Result[T, E].fail(err: E): Result[T, E]`
+     * `.is_ok(): bool` and `.is_err(): bool`
+     * `.unwrap(): T` (panics with error message on Err)
+     * `.unwrap_or(fallback: T): T`
+   * Built-in interfaces: `Printable`, `Drop` (`drop: (&self)`), `Hashable`, `Equatable` (`eq: (self, other: Self): bool`), `Comparable` (`cmp: (self, other: Self): int`), `Collectable[T]`, `Iterable[T]`, `Iterator[T]`.
+   * Operator Backing & Prelude Math: `==` / `!=` backed by `Equatable` (and derived from `Comparable`), `<`, `<=`, `>`, `>=` backed by `Comparable`. Core functions `min`, `max`, `clamp` bounded by `[T: Comparable + Copyable]`.
+2. **Compiler Attributes**:
+   * Functions & methods:
+     * `@inline`: Hint compiler backend to inline. Emits `inline __attribute__((always_inline))` in C.
+     * `@noinline`: Forbid inlining. Emits `__attribute__((noinline))` in C.
+     * `@must_use` / `@nodiscard`: Emits a compile-time warning if the return value of a call expression is discarded.
+     * `@deprecated("message")`: Emits a compile-time warning whenever the function, method, enum, or struct is referenced.
+   * Structs:
+     * `@packed`: Disable alignment padding. Emits `__attribute__((packed))` on the generated C struct.
+     * `@doc("string")`: Attaches documentation metadata to types, functions, and fields.
+3. **High-Performance Buffer Operations**:
+   * `string.push_bytes(ptr[u8], int)`: Copies raw bytes directly into an owned string's heap buffer via `memmove` with dynamic capacity growth, avoiding quadratic character-by-character loops.
+4. **Standard Library**:
+   * `std/core.ll`: Core prelude, assertions, `Result[T, E]`, `Drop`, `Hashable`, pure Lowlight 64-bit hashing stack (`hash_mix_u64`, primitive `.hash()` methods, string FNV-1a, float IEEE bit-cast), and pure Lowlight dynamic collections `@lang("list") List[T]`, `@lang("set") Set[T: Hashable]`, and `@lang("map") Map[K: Hashable, V]` with `Iterator[T]`, `Iterable[T]`, `Collectable[T]`, `Printable`, `Copyable`. (Compiler intrinsic `hash_of` completely retired).
+   * `std/fs.ll`: File I/O (`File.open_read`, `File.open_write`, `read_to_string`, `write_from_string`).
+   * `std/os.ll`: Command arguments, environment variables, native POSIX directory management (`mkdir_p`, `remove_all`, `file_exists`).
+   * `std/net.ll`: TCP networking (`TcpListener`, `TcpStream`).
+   * `std/http.ll`: High-performance HTTP 1.1 server engine and client request primitives.
+   * `std/strconv.ll` & `std/strfmt.ll`: Integer/float parsing and radix conversions with full two's-complement overflow safety (handling `INT64_MIN`).
+   * `std/time.ll`: Epoch timestamps and time formatting.
+   * `std/math.ll`: Safe C math wrappers.
+   * `std/pool.ll`: Generational object pool (`Pool[T]`, `Handle[T]`).
+   * `std/json.ll`: Fast JSON parser and serializer.
+   * `std/testing.ll`: Testing assertions and harness.
 
-### Step 2: Review Part 2 of `SPEC_CRITIQUE.md` (Section-by-Section Details, §1–§13)
-Once Part 1 is complete, walk through **[Part 2 of `./SPEC_CRITIQUE.md`](./SPEC_CRITIQUE.md#L288-L417)**:
-* **§1 Principles**: Wording of Principle 1 ("zero hidden runtime overhead" vs. heap string defaults) and raw pointers/C interop.
-* **§2 Lexical**: Multi-line comments, character literals, escape sequences, hex/binary/underscore numbers.
-* **§3 `let` / `bind`**: Making `bind` deeply immutable for collections (`[T]`, `#[K: V]`, `#[T]`, `string`) just like structs; parameter colon consistency `(a int)` vs. `(a: int)`; general variable shadowing rules.
-* **§3.3 / §10 Functions & Closures**: Function type syntax `(int, int): int`; whether anonymous lambdas can capture local variables or are non-capturing C function pointers; forbidding `let Type.method`.
-* **§4.1 Numerics**: Defaulting untyped literals to `int`/`float` while adapting to target types (`u8`, `i16`); explicit type casting syntax; Copy vs. Move semantics for plain-old-data structs/stack arrays.
-* **§4.2 Strings**: `&string` (`StringView`) vs. `&-string` (`String*`) C representation; picking a single `$` escape (`\$`); avoiding infinite recursion in `int.to_string`.
-* **§5 Ownership**: Whether `for (item in my_list)` borrows `my_list` and yields `&T` by default; recursive structs (`Node` with `?Node`).
-* **§7 Compound Data Structures**: Disambiguating `[1: 5]` / `[3: 5]` stack array syntax; vector out-of-bounds indexing (`T` with panic vs. `?T`); empty collection type annotations (`let v: [int] = []`).
-* **§8 `define`**: Enum variant qualification (`Shape.Point` vs. `Point`); named vs. positional enum destructuring in `match`; `&self` vs. `&-self` in `interface` definitions; whether `define UserID int` is a transparent alias or distinct type.
-* **§11 Control Flow**: Whitespace disambiguation for `x <- 5` vs. `x < -5`; exclusive (`0..10`) vs. inclusive (`0..=10`) ranges; index+value iteration `for (i, item in my_list)` on vectors.
-
-### Step 3: Future Design Phases (Before Implementation)
-After resolving `SPEC_CRITIQUE.md`, design the remaining systems-language features:
-1. **Generics / Type Parameters** (for user-defined structs, enums, interfaces, and functions).
-2. **Error Handling** (whether errors use optionals, result enums/unions, or targeted unwinding).
-3. **Modules, Packages & Visibility** (multi-file imports, namespaces, public/private visibility).
-4. **C FFI & Unsafe/Raw Pointers** (calling C headers directly, `extern` declarations, raw pointers for systems programming).
-5. **Compiler / Transpiler Implementation Plan** (only after the user signs off on the complete specification).
+### Self-Hosting Roadmap
+1. **Stage 0 (Current)**: Go Bootstrap Compiler (`lowlight build`, `run`, `emit-c`, `check`, `lsp`) targeting ISO C11.
+2. **Stage 1**: Standard library expansion and verification against ASan/UBSan with strict warning flags (`-Wall -Wextra -Werror`).
+3. **Stage 2**: Self-hosted Lowlight compiler written in Lowlight, transpiling itself to clean C11, achieving complete language self-sufficiency.

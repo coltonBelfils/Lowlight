@@ -20,11 +20,7 @@ func (g *cEmitter) emitVectorMethods(v *types.Vector) {
 	g.line("    if (v->cap == 0) {")
 	g.line("        %s* nd = (%s*)ll_alloc(ncap * (int64_t)sizeof(%s));", cElem, cElem, cElem)
 	g.line("        if (v->len > 0 && v->data) {")
-	if v.Elem.IsPlain() {
-		g.line("            memcpy(nd, v->data, (size_t)v->len * sizeof(%s));", cElem)
-	} else {
-		g.line("            for (int64_t i = 0; i < v->len; i++) nd[i] = %s(v->data[i]);", g.copyExpr(v.Elem))
-	}
+	g.line("            memcpy(nd, v->data, (size_t)v->len * sizeof(%s));", cElem)
 	g.line("        }")
 	g.line("        v->data = nd;")
 	g.line("        v->cap = ncap;")
@@ -71,7 +67,7 @@ func (g *cEmitter) emitVectorMethods(v *types.Vector) {
 
 	// slice_view & slice_owned
 	g.line("static inline %s ll_vec_slice_view__%s(%s v, int64_t lo, int64_t hi, int check, const char* f, int l) {", cVec, m, cVec)
-	g.line("    if (check && (lo < 0 || hi < lo || hi > v.len)) ll_panic_cstr(\"vector slice bounds out of range\", f, l);")
+	g.line("    if (LL_UNLIKELY(check && (lo < 0 || hi < lo || hi > v.len))) ll_panic_cstr(\"vector slice bounds out of range\", f, l);")
 	g.line("    return (%s){ .data = v.data ? (v.data + lo) : NULL, .len = hi - lo, .cap = 0 };", cVec)
 	g.line("}")
 
@@ -149,6 +145,16 @@ func (g *cEmitter) emitSetMethods(s *types.Set) {
 
 	// rehash helper
 	g.line("static inline void ll_set_rehash__%s(%s* s, int64_t new_bcap) {", m, cSet)
+	g.line("    if (s->len < s->ent_len) {")
+	g.line("        int64_t w = 0;")
+	g.line("        for (int64_t r = 0; r < s->ent_len; r++) {")
+	g.line("            if (s->entries[r].alive) {")
+	g.line("                if (w != r) s->entries[w] = s->entries[r];")
+	g.line("                w++;")
+	g.line("            }")
+	g.line("        }")
+	g.line("        s->ent_len = w;")
+	g.line("    }")
 	g.line("    int64_t* nb = (int64_t*)ll_alloc(new_bcap * (int64_t)sizeof(int64_t));")
 	g.line("    for (int64_t i = 0; i < new_bcap; i++) nb[i] = -1LL;")
 	g.line("    int64_t mask = new_bcap - 1LL;")
@@ -193,7 +199,8 @@ func (g *cEmitter) emitSetMethods(s *types.Set) {
 	g.line("        return false;")
 	g.line("    }")
 	g.line("    if (s->buck_cap == 0 || (s->ent_len + 1) * 10 >= s->buck_cap * 7) {")
-	g.line("        ll_set_rehash__%s(s, s->buck_cap > 0 ? s->buck_cap * 2 : 16LL);", m)
+	g.line("        int64_t target_bcap = s->buck_cap > 0 ? ((s->len * 2 >= s->buck_cap) ? s->buck_cap * 2 : s->buck_cap) : 16LL;")
+	g.line("        ll_set_rehash__%s(s, target_bcap);", m)
 	g.line("    }")
 	g.line("    if (s->ent_len + 1 > s->ent_cap) {")
 	g.line("        int64_t ncap = s->ent_cap > 0 ? s->ent_cap * 2 : 8LL;")
@@ -273,6 +280,16 @@ func (g *cEmitter) emitMapMethods(mp *types.Map) {
 
 	// rehash
 	g.line("static inline void ll_map_rehash__%s(%s* m, int64_t new_bcap) {", m, cMap)
+	g.line("    if (m->len < m->ent_len) {")
+	g.line("        int64_t w = 0;")
+	g.line("        for (int64_t r = 0; r < m->ent_len; r++) {")
+	g.line("            if (m->entries[r].alive) {")
+	g.line("                if (w != r) m->entries[w] = m->entries[r];")
+	g.line("                w++;")
+	g.line("            }")
+	g.line("        }")
+	g.line("        m->ent_len = w;")
+	g.line("    }")
 	g.line("    int64_t* nb = (int64_t*)ll_alloc(new_bcap * (int64_t)sizeof(int64_t));")
 	g.line("    for (int64_t i = 0; i < new_bcap; i++) nb[i] = -1LL;")
 	g.line("    int64_t mask = new_bcap - 1LL;")
@@ -322,7 +339,8 @@ func (g *cEmitter) emitMapMethods(mp *types.Map) {
 	g.line("        return;")
 	g.line("    }")
 	g.line("    if (m->buck_cap == 0 || (m->ent_len + 1) * 10 >= m->buck_cap * 7) {")
-	g.line("        ll_map_rehash__%s(m, m->buck_cap > 0 ? m->buck_cap * 2 : 16LL);", m)
+	g.line("        int64_t target_bcap = m->buck_cap > 0 ? ((m->len * 2 >= m->buck_cap) ? m->buck_cap * 2 : m->buck_cap) : 16LL;")
+	g.line("        ll_map_rehash__%s(m, target_bcap);", m)
 	g.line("    }")
 	g.line("    if (m->ent_len + 1 > m->ent_cap) {")
 	g.line("        int64_t ncap = m->ent_cap > 0 ? m->ent_cap * 2 : 8LL;")

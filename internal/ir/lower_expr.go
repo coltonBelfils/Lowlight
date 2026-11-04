@@ -28,6 +28,8 @@ func (fl *funcLowerer) lowerVoidExpr(e ast.Expr) {
 		_ = fl.lowerIfExpr(v, false)
 	case *ast.ForExpr:
 		_ = fl.lowerForExpr(v, false)
+	case *ast.WhileExpr:
+		_ = fl.lowerWhileExpr(v, false)
 	case *ast.MatchExpr:
 		_ = fl.lowerMatchExpr(v, false)
 	default:
@@ -136,7 +138,7 @@ func (fl *funcLowerer) lowerExprRead(e ast.Expr) string {
 			vecTy := &types.Vector{Elem: arrTy.Elem}
 			fl.tc.visit(vecTy)
 			var arrAddr string
-			if isAddressableAST(e) {
+			if fl.isAddressable(e) {
 				arrAddr = fl.lowerLValueAddr(e)
 			} else {
 				tmp := fl.allocSlot("_ll_arrview", arrTy)
@@ -150,7 +152,7 @@ func (fl *funcLowerer) lowerExprRead(e ast.Expr) string {
 		// 2. Concrete value passed to read-only `Interface` parameter -> zero-allocation stack fat pointer!
 		if inf.BoxInterface != nil && !inf.Type.Equals(inf.BoxInterface) {
 			var addr string
-			if isAddressableAST(e) {
+			if fl.isAddressable(e) {
 				addr = fl.lowerLValueAddr(e)
 			} else {
 				// Materialize rvalue in a temp (dropped at statement end if Resource!)
@@ -206,8 +208,9 @@ func (fl *funcLowerer) isFreshResourceRValue(e ast.Expr, inf *sema.ExprInfo) boo
 		// Reading a variable or static function thunk does NOT allocate!
 		return false
 	case *ast.MemberExpr:
-		// Optional chaining `u?.city` clones `city` if Resource; plain `u.city` reads in-place!
-		return inf.IsOptChain
+		// Optional chaining `u?.city` clones `city` if Resource; tagged unit variant constructs a fresh enum;
+		// plain `u.city` reads in-place!
+		return inf.IsOptChain || (inf.EnumVariant != nil && inf.EnumType != nil && inf.EnumType.IsTagged)
 	case *ast.IndexExpr:
 		// `map[k]` clones `?V`, whereas `vec[i]` / `arr[i]` reads in-place!
 		baseTy := fl.info(v.Base).Type
@@ -230,18 +233,30 @@ func (fl *funcLowerer) isFreshResourceRValue(e ast.Expr, inf *sema.ExprInfo) boo
 	}
 }
 
-func isAddressableAST(e ast.Expr) bool {
+func (fl *funcLowerer) isAddressable(e ast.Expr) bool {
 	switch v := e.(type) {
 	case *ast.IdentExpr:
-		return true
+		inf := fl.info(v)
+		return inf.Sym == nil || inf.Sym.FuncInst == nil
 	case *ast.MemberExpr:
-		return !v.QuestDot
+		inf := fl.info(v)
+		return !v.QuestDot && !inf.IsOptChain && inf.EnumVariant == nil && inf.Sym == nil
 	case *ast.IndexExpr:
-		return true
+		baseTy := fl.info(v.Base).Type
+		if rf, ok := baseTy.(*types.Ref); ok {
+			baseTy = rf.Elem
+		}
+		switch baseTy.(type) {
+		case *types.Vector, *types.StackArray, *types.Ptr:
+			return true
+		default:
+			// `map[k]` and `str[i]` return computed/cloned rvalues, NOT addressable places!
+			return false
+		}
 	case *ast.UnaryExpr:
 		return v.Op == token.Star
 	case *ast.UnsafeExpr:
-		return isAddressableAST(v.Expr)
+		return fl.isAddressable(v.Expr)
 	default:
 		return false
 	}
@@ -324,9 +339,6 @@ func (fl *funcLowerer) indexElementPtr(colTy types.Type, colPtr, idxExpr, file s
 }
 
 func (fl *funcLowerer) checkedIndexExpr(idxExpr, lenExpr, file string, line int) string {
-	if fl.release {
-		return idxExpr
-	}
 	return fmt.Sprintf("ll_check_bounds(%s, %s, %q, %d)", idxExpr, lenExpr, file, line)
 }
 
@@ -393,8 +405,8 @@ func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bo
 	case *ast.VecLit:
 		return fl.lowerVecOrArrayLit(v, inf)
 
-	case *ast.RepeatArrayLit:
-		return fl.lowerRepeatArrayLit(v, inf)
+	case *ast.ArrayLit:
+		return fl.lowerArrayLit(v, inf)
 
 	case *ast.SetLit:
 		return fl.lowerSetLit(v, inf)
@@ -427,6 +439,9 @@ func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bo
 
 	case *ast.ForExpr:
 		return fl.lowerForExpr(v, true)
+
+	case *ast.WhileExpr:
+		return fl.lowerWhileExpr(v, true)
 
 	case *ast.MatchExpr:
 		return fl.lowerMatchExpr(v, true)
@@ -563,7 +578,7 @@ func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) string {
 		} else {
 			// Evaluate `ie.Cond` into a dedicated slot kept alive across the `then` branch!
 			// Note: if `ie.Cond` is an lvalue (`user?`), borrow it without copying; if rvalue (`m["k"]`), own & drop after `if`!
-			if isAddressableAST(ie.Cond) {
+			if fl.isAddressable(ie.Cond) {
 				condPtr := fl.lowerLValueAddr(ie.Cond)
 				ptrTmp := fl.allocSlot("_ll_ifoptp", &types.Ptr{Elem: optTy})
 				fl.assignLocal(ptrTmp, condPtr)

@@ -124,19 +124,23 @@ func (d *StructDecl) GetSpan() diag.Span           { return d.Span }
 func (d *StructDecl) GetAttributes() []Attribute   { return d.Attributes }
 func (d *StructDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 
-// EnumDecl: `define Name enum [u8] [ A = 1, B, ... ]`
+// EnumDecl: `define Name[T] enum [u8] [ A = 1, B: T, C: [x: int, y: int], ... ]`
 type EnumDecl struct {
 	Name       string
-	BaseType   TypeExpr // optional underlying integer type (defaults to `int`)
+	TypeParams []TypeParam
+	BaseType   TypeExpr // optional underlying integer type (defaults to `int` for pure tag enums)
 	Variants   []EnumVariant
 	Span       diag.Span
 	Attributes []Attribute
 }
 
 type EnumVariant struct {
-	Name  string
-	Value Expr // optional explicit discriminant
-	Span  diag.Span
+	Name        string
+	Value       Expr          // optional explicit discriminant (pure tag enums only)
+	PayloadType TypeExpr      // optional single-value payload (`Ok: T`)
+	Fields      []StructField // optional multi-field payload (`Add: [left: ref[Expr], right: ref[Expr]]`)
+	HasFields   bool          // true when payload was written as `[field: Type, ...]` or `[]`
+	Span        diag.Span
 }
 
 func (*EnumDecl) declNode()                      {}
@@ -144,9 +148,10 @@ func (d *EnumDecl) GetSpan() diag.Span           { return d.Span }
 func (d *EnumDecl) GetAttributes() []Attribute   { return d.Attributes }
 func (d *EnumDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 
-// InterfaceDecl: `define Name interface [ m: (self, x: int): string, ... ]`
+// InterfaceDecl: `define Name[T] interface [ m: (self, x: int): string, ... ]`
 type InterfaceDecl struct {
 	Name       string
+	TypeParams []TypeParam
 	Methods    []InterfaceMethod
 	Span       diag.Span
 	Attributes []Attribute
@@ -370,6 +375,7 @@ const (
 	UnwindIf                                // `if <- val`
 	UnwindMatch                             // `match <- [val]`
 	UnwindFor                               // `for <- [val]`
+	UnwindWhile                             // `while <- [val]`
 	UnwindNext                              // `next <- [val]`
 	UnwindFunc                              // `func <- [val]`
 	UnwindLabel                             // `label <- [val]`
@@ -397,6 +403,8 @@ func (s *UnwindStmt) TargetName() string {
 		return "match <-"
 	case UnwindFor:
 		return "for <-"
+	case UnwindWhile:
+		return "while <-"
 	case UnwindNext:
 		return "next <-"
 	case UnwindFunc:
@@ -525,9 +533,10 @@ type BinaryExpr struct {
 func (*BinaryExpr) exprNode()            {}
 func (e *BinaryExpr) GetSpan() diag.Span { return e.Span }
 
-// MemberExpr: `base.member` or `base?.member`
+// MemberExpr: `base.member`, `base?.member`, or `Type[T].member`
 type MemberExpr struct {
 	Base         Expr
+	BaseTypeArgs []TypeExpr // optional type arguments before `.` (`Result[int, string].Empty` or disambiguated `words[i].len()`)
 	Member       string
 	MemberHasOpt bool // true if member token itself had trailing `?` (e.g. `u.address?` or `u?.address?.city`)
 	QuestDot     bool // true if `?.` token was used explicitly (`find(id)?.name`)
@@ -579,15 +588,18 @@ type VecLit struct {
 func (*VecLit) exprNode()            {}
 func (e *VecLit) GetSpan() diag.Span { return e.Span }
 
-// RepeatArrayLit: `[100: 0]`
-type RepeatArrayLit struct {
+// ArrayLit: `[4: 1, 2, 3, 4]` or repeat constructor `[100: 0]`
+type ArrayLit struct {
 	Count Expr
-	Value Expr
+	Elems []Expr
 	Span  diag.Span
 }
 
-func (*RepeatArrayLit) exprNode()            {}
-func (e *RepeatArrayLit) GetSpan() diag.Span { return e.Span }
+func (*ArrayLit) exprNode()            {}
+func (e *ArrayLit) GetSpan() diag.Span { return e.Span }
+
+// RepeatArrayLit is kept as a compatibility alias for ArrayLit
+type RepeatArrayLit = ArrayLit
 
 // SetLit: `#[1, 2, 3]`
 type SetLit struct {
@@ -630,13 +642,16 @@ type StructFieldInit struct {
 	Span  diag.Span
 }
 
-// StructLit: `Point[x: 1, y: 2]` or `Pair[int, string][first: 1, second: "s"]`
+// StructLit: `Point[x: 1, y: 2]`, `Pair[int, string][first: 1, second: "s"]`,
+// or struct-payload enum variant `Expr.Add[left: a, right: b]` / `Tree[int].Branch[left: l, right: r]`.
 type StructLit struct {
-	Module   string
-	TypeName string
-	TypeArgs []TypeExpr
-	Fields   []StructFieldInit
-	Span     diag.Span
+	Module       string
+	TypeName     string
+	TypeArgs     []TypeExpr
+	EnumTypeArgs []TypeExpr // populated for `Tree[int].Branch[...]` or `mod.Tree[int].Branch[...]`
+	VariantName  string     // populated for `mod.Expr.Add[...]` or `Tree[int].Branch[...]`
+	Fields       []StructFieldInit
+	Span         diag.Span
 }
 
 func (*StructLit) exprNode()            {}
@@ -715,7 +730,7 @@ const (
 	ForIter                 // `for (item in col)` / `for (&item in col)` / `for (k, v in col)` / `for (k, &v in col)`
 )
 
-// ForExpr: `[label:] for (...) body [else elseBody]`
+// ForExpr: `[label:] for (...) [: Type] body [else elseBody]`
 type ForExpr struct {
 	Label      string
 	Kind       ForKind
@@ -728,6 +743,7 @@ type ForExpr struct {
 	CondOrIter Expr // boolean condition (ForCond), range start (ForRange), or collection (ForIter)
 	RangeEnd   Expr // range end (ForRange)
 	Inclusive  bool // `..=` vs `..` (ForRange)
+	EvalType   TypeExpr // optional `: Type` (e.g. `: []` or `: Collectable`)
 	Body       Expr
 	Else       Expr // optional `else` expression
 	Span       diag.Span
@@ -735,6 +751,28 @@ type ForExpr struct {
 
 func (*ForExpr) exprNode()            {}
 func (e *ForExpr) GetSpan() diag.Span { return e.Span }
+
+// WhileExpr: `[label:] while (...) [: Type] body [else elseBody]`
+type WhileExpr struct {
+	Label      string
+	Kind       ForKind
+	Var1       string // loop var (`i`, `item`, or `k`)
+	Var1IsOpt  bool
+	Var1Mut    bool   // `&item` when Var2 is empty
+	Var2       string // optional second var (`item` in `i, item` or `v` in `k, v`)
+	Var2IsOpt  bool
+	Var2Mut    bool // `&item` / `&v` when 2 vars
+	CondOrIter Expr // boolean condition (ForCond), range start (ForRange), or collection (ForIter)
+	RangeEnd   Expr // range end (ForRange)
+	Inclusive  bool // `..=` vs `..` (ForRange)
+	EvalType   TypeExpr // optional `: Type`
+	Body       Expr
+	Else       Expr // optional `else` expression
+	Span       diag.Span
+}
+
+func (*WhileExpr) exprNode()            {}
+func (e *WhileExpr) GetSpan() diag.Span { return e.Span }
 
 // Pattern represents a `match` arm pattern.
 type Pattern interface {
@@ -761,6 +799,35 @@ type RangePattern struct {
 
 func (*RangePattern) patternNode()         {}
 func (p *RangePattern) GetSpan() diag.Span { return p.Span }
+
+type PatternBindMode int
+
+const (
+	PatternBindRead PatternBindMode = iota // `val`
+	PatternBindMut                         // `&val`
+	PatternBindOwn                         // `own val`
+)
+
+type VariantPatternBinding struct {
+	FieldName  string // populated for struct-style `[field: bind]` or punned `[field]`
+	FieldIsOpt bool   // true if field name ended with `?`
+	BindName   string // bound local variable name (empty when IsWildcard is true)
+	IsOptName  bool   // true if bound variable identifier ended with `?`
+	Mode       PatternBindMode
+	IsWildcard bool // true for `_`
+	Span       diag.Span
+}
+
+// VariantPattern matches a tagged union variant with tuple `(x)` or struct `[f: x]` destructuring.
+type VariantPattern struct {
+	Target   Expr // MemberExpr (`Result.Ok`, `Result[int, string].Ok`, `mod.Result.Ok`, etc.)
+	IsStruct bool // true for `Variant[...]`, false for `Variant(...)`
+	Bindings []VariantPatternBinding
+	Span     diag.Span
+}
+
+func (*VariantPattern) patternNode()         {}
+func (p *VariantPattern) GetSpan() diag.Span { return p.Span }
 
 type MatchArm struct {
 	Patterns []Pattern // empty ONLY for open catch-all `else:`

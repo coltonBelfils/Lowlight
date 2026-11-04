@@ -1,8 +1,6 @@
 // Lowlight Standard Library: std/net.ll
 // TCP networking primitives: TcpStream, TcpListener, socketpair, and connection helpers.
 
-import "std/fs.ll"
-
 extern ll_net_tcp_listen: (host: ptr[u8], port: int, backlog: int): int
 extern ll_net_tcp_port: (fd: int): int
 extern ll_net_tcp_accept: (server_fd: int, timeout_ms: int): int

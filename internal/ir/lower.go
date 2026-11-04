@@ -73,6 +73,9 @@ func Lower(prog *sema.CheckedProgram, release bool) *Program {
 	for _, st := range prog.Structs {
 		visitBodyMaps(prog.StructBodyMaps[st])
 	}
+	for _, en := range prog.Enums {
+		visitBodyMaps(prog.EnumBodyMaps[en])
+	}
 	for _, fi := range prog.Funcs {
 		visitBodyMaps(fi.BodyMaps)
 	}
@@ -114,6 +117,7 @@ func Lower(prog *sema.CheckedProgram, release bool) *Program {
 			Name:      tv.Sym.Name,
 			CName:     tv.Sym.CName,
 			Type:      tv.Sym.Type,
+			Locals:    fl.locals,
 			InitInstr: fl.rootInstrs(),
 			InitExpr:  exprStr,
 		})
@@ -239,12 +243,14 @@ func lowerFuncInstance(
 	fl.lowerFunctionBody(fi.Body, fi.Sig.Ret, fnScope)
 
 	return &Function{
-		Name:    fi.Name,
-		CName:   fi.CName,
-		Params:  params,
-		RetType: fi.Sig.Ret,
-		Locals:  fl.locals,
-		Body:    pruneUnusedLabels(fl.rootInstrs(), fl.usedLabels),
+		Name:           fi.Name,
+		CName:          fi.CName,
+		Params:         params,
+		RetType:        fi.Sig.Ret,
+		Locals:         fl.locals,
+		Body:           pruneUnusedLabels(fl.rootInstrs(), fl.usedLabels),
+		IsAlwaysInline: fi.IsAlwaysInline,
+		IsNoInline:     fi.IsNoInline,
 	}
 }
 
@@ -644,6 +650,10 @@ func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type
 	if ue, isUnsafe := target.(*ast.UnsafeExpr); isUnsafe {
 		target = ue.Expr
 	}
+	isRawDeref := false
+	if u, ok := target.(*ast.UnaryExpr); ok && u.Op == token.Star {
+		isRawDeref = true
+	}
 	if id, isId := target.(*ast.IdentExpr); isId {
 		if sym := fl.info(id).Sym; sym != nil {
 			if loc, ok := fl.symLocals[sym]; ok && !loc.IsMutPtr {
@@ -656,7 +666,7 @@ func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type
 		}
 	}
 	lhsPtr := fl.lowerLValueAddr(target)
-	if !targetTy.IsPlain() {
+	if !targetTy.IsPlain() && !isRawDeref {
 		fl.emit(&InstrExpr{Expr: fmt.Sprintf("%s(%s)", DropFnName(targetTy), lhsPtr)})
 	}
 	fl.emit(&InstrAssign{Dst: fmt.Sprintf("(*%s)", lhsPtr), Expr: newValExpr})

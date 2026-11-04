@@ -239,19 +239,30 @@ func (s *Server) completeDotMember(
 					Items:        completeArenaStatics(prefix, replaceRange),
 				}
 			}
-			// Generic struct template `Pool.`
+			// Generic struct template `Pool.` or `Pool[int].`
 			if genSt := lookupGenStruct(mod, "", baseId.Name); genSt != nil {
 				return &CompletionList{
 					IsIncomplete: false,
 					Items:        completeTypeNamespace(prog, nil, genSt.Decl.Name, nil, prefix, replaceRange),
 				}
 			}
+			// Generic enum template `Result.` or `Result[int, string].`
+			if genEn := lookupGenEnum(mod, "", baseId.Name); genEn != nil {
+				items := completeGenericEnumVariants(genEn.Decl, prefix, replaceRange)
+				items = append(items, completeTypeNamespace(prog, nil, genEn.Decl.Name, nil, prefix, replaceRange)...)
+				return &CompletionList{
+					IsIncomplete: false,
+					Items:        items,
+				}
+			}
 			// Concrete nominal type (`Enum.`, `Point.`, `UserID.`)
 			if nomTy := lookupNominalType(mod, "", baseId.Name); nomTy != nil {
 				if en, isEn := nomTy.(*types.Enum); isEn {
+					items := completeEnumVariants(en, prefix, replaceRange)
+					items = append(items, completeTypeNamespace(prog, en, baseId.Name, nil, prefix, replaceRange)...)
 					return &CompletionList{
 						IsIncomplete: false,
-						Items:        completeEnumVariants(en, prefix, replaceRange),
+						Items:        items,
 					}
 				}
 				return &CompletionList{
@@ -272,6 +283,15 @@ func (s *Server) completeDotMember(
 					Items:        completeTypeNamespace(prog, nil, genSt.Decl.Name, targs, prefix, replaceRange),
 				}
 			}
+			if genEn := lookupGenEnum(mod, "", id.Name); genEn != nil {
+				targs := tryResolveIndexAsTypeArgs(mod, idxBase)
+				items := completeGenericEnumVariants(genEn.Decl, prefix, replaceRange)
+				items = append(items, completeTypeNamespace(prog, nil, genEn.Decl.Name, targs, prefix, replaceRange)...)
+				return &CompletionList{
+					IsIncomplete: false,
+					Items:        items,
+				}
+			}
 		}
 		if bm, isBM := idxBase.Base.(*ast.MemberExpr); isBM {
 			if modId, isId := bm.Base.(*ast.IdentExpr); isId {
@@ -281,6 +301,15 @@ func (s *Server) completeDotMember(
 						return &CompletionList{
 							IsIncomplete: false,
 							Items:        completeTypeNamespace(prog, nil, genSt.Decl.Name, targs, prefix, replaceRange),
+						}
+					}
+					if genEn, ok := targetMod.GenericEnums[bm.Member]; ok {
+						targs := tryResolveIndexAsTypeArgs(mod, idxBase)
+						items := completeGenericEnumVariants(genEn.Decl, prefix, replaceRange)
+						items = append(items, completeTypeNamespace(prog, nil, genEn.Decl.Name, targs, prefix, replaceRange)...)
+						return &CompletionList{
+							IsIncomplete: false,
+							Items:        items,
 						}
 					}
 				}
@@ -293,9 +322,25 @@ func (s *Server) completeDotMember(
 		if modId, isId := bm.Base.(*ast.IdentExpr); isId {
 			if targetMod, isMod := mod.Aliased[modId.Name]; isMod {
 				if en, isEn := targetMod.Types[bm.Member].(*types.Enum); isEn {
+					items := completeEnumVariants(en, prefix, replaceRange)
+					items = append(items, completeTypeNamespace(prog, en, bm.Member, nil, prefix, replaceRange)...)
 					return &CompletionList{
 						IsIncomplete: false,
-						Items:        completeEnumVariants(en, prefix, replaceRange),
+						Items:        items,
+					}
+				}
+				if genSt, ok := targetMod.GenericStructs[bm.Member]; ok {
+					return &CompletionList{
+						IsIncomplete: false,
+						Items:        completeTypeNamespace(prog, nil, genSt.Decl.Name, nil, prefix, replaceRange),
+					}
+				}
+				if genEn, ok := targetMod.GenericEnums[bm.Member]; ok {
+					items := completeGenericEnumVariants(genEn.Decl, prefix, replaceRange)
+					items = append(items, completeTypeNamespace(prog, nil, genEn.Decl.Name, nil, prefix, replaceRange)...)
+					return &CompletionList{
+						IsIncomplete: false,
+						Items:        items,
 					}
 				}
 			}
@@ -523,18 +568,83 @@ func completeEnumVariants(en *types.Enum, prefix string, replaceRange Range) []C
 		if !matchesPrefix(v.Name, prefix) {
 			continue
 		}
+		insFmt := InsertPlainText
+		newText := v.Name
+		detail := fmt.Sprintf("%s.%s", en.String(), v.Name)
+		docCode := detail
+		if !en.IsTagged {
+			detail = fmt.Sprintf("%s.%s = %d (%s)", en.Name, v.Name, v.Value, en.Underlying.String())
+			docCode = fmt.Sprintf("%s.%s // discriminant = %d", en.Name, v.Name, v.Value)
+		} else {
+			switch v.Kind {
+			case types.VariantTuple:
+				insFmt = InsertSnippet
+				newText = v.Name + "($1)"
+				if v.Payload != nil {
+					detail = fmt.Sprintf("%s.%s(%s)", en.String(), v.Name, v.Payload.String())
+					docCode = detail
+				}
+			case types.VariantStruct:
+				insFmt = InsertSnippet
+				newText = v.Name + "[$1]"
+				var fs []string
+				for _, sf := range v.Fields {
+					fs = append(fs, fmt.Sprintf("%s: %s", sf.Name, sf.Type.String()))
+				}
+				detail = fmt.Sprintf("%s.%s[%s]", en.String(), v.Name, strings.Join(fs, ", "))
+				docCode = detail
+			}
+		}
 		items = append(items, CompletionItem{
 			Label:            v.Name,
 			Kind:             KindEnumMember,
-			Detail:           fmt.Sprintf("%s.%s = %d (%s)", en.Name, v.Name, v.Value, en.Underlying.String()),
+			Detail:           detail,
 			SortText:         fmt.Sprintf("0_%03d_%s", idx, v.Name),
 			FilterText:       v.Name,
-			InsertTextFormat: InsertPlainText,
-			TextEdit:         &TextEdit{Range: replaceRange, NewText: v.Name},
+			InsertTextFormat: insFmt,
+			TextEdit:         &TextEdit{Range: replaceRange, NewText: newText},
 			Documentation: &MarkupContent{
 				Kind:  "markdown",
-				Value: fmt.Sprintf("```lowlight\n%s.%s // discriminant = %d\n```", en.Name, v.Name, v.Value),
+				Value: fmt.Sprintf("```lowlight\n%s\n```", docCode),
 			},
+		})
+	}
+	return items
+}
+
+func completeGenericEnumVariants(decl *ast.EnumDecl, prefix string, replaceRange Range) []CompletionItem {
+	if decl == nil {
+		return nil
+	}
+	var items []CompletionItem
+	for idx, v := range decl.Variants {
+		if !matchesPrefix(v.Name, prefix) {
+			continue
+		}
+		insFmt := InsertPlainText
+		newText := v.Name
+		detail := fmt.Sprintf("%s.%s", decl.Name, v.Name)
+		if v.PayloadType != nil {
+			insFmt = InsertSnippet
+			newText = v.Name + "($1)"
+			detail = fmt.Sprintf("%s.%s(%s)", decl.Name, v.Name, formatTypeExpr(v.PayloadType))
+		} else if v.HasFields {
+			insFmt = InsertSnippet
+			newText = v.Name + "[$1]"
+			var fs []string
+			for _, sf := range v.Fields {
+				fs = append(fs, fmt.Sprintf("%s: %s", sf.Name, formatTypeExpr(sf.Type)))
+			}
+			detail = fmt.Sprintf("%s.%s[%s]", decl.Name, v.Name, strings.Join(fs, ", "))
+		}
+		items = append(items, CompletionItem{
+			Label:            v.Name,
+			Kind:             KindEnumMember,
+			Detail:           detail,
+			SortText:         fmt.Sprintf("0_%03d_%s", idx, v.Name),
+			FilterText:       v.Name,
+			InsertTextFormat: insFmt,
+			TextEdit:         &TextEdit{Range: replaceRange, NewText: newText},
 		})
 	}
 	return items
@@ -738,6 +848,14 @@ func completeModuleExports(_ *sema.CheckedProgram, targetMod *sema.Module, prefi
 		}
 		seen[name] = true
 		items = append(items, makeGenericStructCompletionItem(gst.Decl, replaceRange, "2_"))
+	}
+
+	for name, gen := range targetMod.GenericEnums {
+		if seen[name] || !matchesPrefix(name, prefix) {
+			continue
+		}
+		seen[name] = true
+		items = append(items, makeGenericEnumCompletionItem(gen.Decl, replaceRange, "2_"))
 	}
 
 	sortCompletionItems(items)
@@ -1082,6 +1200,13 @@ func (s *Server) completeTypeNames(
 				seen[name] = true
 				items = append(items, makeGenericStructCompletionItem(gst.Decl, replaceRange, sortPrefix))
 			}
+			for name, gen := range m.GenericEnums {
+				if seen[name] || !matchesPrefix(name, prefix) {
+					continue
+				}
+				seen[name] = true
+				items = append(items, makeGenericEnumCompletionItem(gen.Decl, replaceRange, sortPrefix))
+			}
 		}
 		addTypesFromMod(mod, "0_")
 		for _, imp := range mod.Imports {
@@ -1243,6 +1368,13 @@ func (s *Server) completeScopedSymbols(
 				}
 				seen[name] = true
 				items = append(items, makeGenericStructCompletionItem(gst.Decl, replaceRange, "2_type"))
+			}
+			for name, gen := range m.GenericEnums {
+				if seen[name] || !matchesPrefix(name, prefix) {
+					continue
+				}
+				seen[name] = true
+				items = append(items, makeGenericEnumCompletionItem(gen.Decl, replaceRange, "2_type"))
 			}
 		}
 
@@ -1514,10 +1646,40 @@ func walkExprScopes(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMa
 			walkExprScopes(prog, mod, bm, e.Else, offset, out)
 		}
 
+	case *ast.WhileExpr:
+		walkExprScopes(prog, mod, bm, e.CondOrIter, offset, out)
+		walkExprScopes(prog, mod, bm, e.RangeEnd, offset, out)
+		if e.Body != nil && spanContainsOffset(e.Body.GetSpan(), offset) {
+			if bm != nil {
+				pair := bm.WhileSymbols[e]
+				if pair[0] != nil {
+					*out = append(*out, scopedSymEntry{sym: pair[0], badge: "loop"})
+				}
+				if pair[1] != nil {
+					*out = append(*out, scopedSymEntry{sym: pair[1], badge: "loop"})
+				}
+			}
+			walkExprScopes(prog, mod, bm, e.Body, offset, out)
+		}
+		if e.Else != nil && spanContainsOffset(e.Else.GetSpan(), offset) {
+			walkExprScopes(prog, mod, bm, e.Else, offset, out)
+		}
+
 	case *ast.MatchExpr:
 		walkExprScopes(prog, mod, bm, e.Scrutinee, offset, out)
 		for _, arm := range e.Arms {
 			if arm.Body != nil && spanContainsOffset(arm.Body.GetSpan(), offset) {
+				if bm != nil {
+					for _, pat := range arm.Patterns {
+						if vp, isVP := pat.(*ast.VariantPattern); isVP {
+							for _, sym := range bm.PatternSyms[vp] {
+								if sym != nil {
+									*out = append(*out, scopedSymEntry{sym: sym, badge: "pattern"})
+								}
+							}
+						}
+					}
+				}
 				walkExprScopes(prog, mod, bm, arm.Body, offset, out)
 			}
 		}
@@ -1710,6 +1872,17 @@ func findSentinelInExpr(e ast.Expr) *ast.MemberExpr {
 			return m
 		}
 		return findSentinelInExpr(v.Else)
+	case *ast.WhileExpr:
+		if m := findSentinelInExpr(v.CondOrIter); m != nil {
+			return m
+		}
+		if m := findSentinelInExpr(v.RangeEnd); m != nil {
+			return m
+		}
+		if m := findSentinelInExpr(v.Body); m != nil {
+			return m
+		}
+		return findSentinelInExpr(v.Else)
 	case *ast.MatchExpr:
 		if m := findSentinelInExpr(v.Scrutinee); m != nil {
 			return m
@@ -1849,6 +2022,27 @@ func lookupGenStruct(mod *sema.Module, alias string, name string) *sema.GenericS
 	return nil
 }
 
+func lookupGenEnum(mod *sema.Module, alias string, name string) *sema.GenericEnumTemplate {
+	if mod == nil {
+		return nil
+	}
+	if alias != "" {
+		if tm, ok := mod.Aliased[alias]; ok {
+			return tm.GenericEnums[name]
+		}
+		return nil
+	}
+	if g, ok := mod.GenericEnums[name]; ok {
+		return g
+	}
+	for _, imp := range mod.Imports {
+		if g, ok := imp.GenericEnums[name]; ok {
+			return g
+		}
+	}
+	return nil
+}
+
 func tryResolveIndexAsTypeArgs(mod *sema.Module, idx *ast.IndexExpr) []types.Type {
 	if id, ok := idx.Index.(*ast.IdentExpr); ok {
 		if t := lookupNominalType(mod, "", id.Name); t != nil {
@@ -1892,7 +2086,7 @@ func baseTypeNameAndArgs(t types.Type) (string, []types.Type) {
 	case *types.Distinct:
 		return v.Name, nil
 	case *types.Enum:
-		return v.Name, nil
+		return v.Name, v.TypeArgs
 	case *types.Primitive:
 		return v.String(), nil
 	default:
@@ -2142,6 +2336,22 @@ func makeGenericStructCompletionItem(decl *ast.StructDecl, replaceRange Range, s
 		Label:            decl.Name,
 		Kind:             KindStruct,
 		Detail:           fmt.Sprintf("struct %s[%s]", decl.Name, strings.Join(tps, ", ")),
+		SortText:         sortPrefix + "_" + decl.Name,
+		FilterText:       decl.Name,
+		InsertTextFormat: InsertPlainText,
+		TextEdit:         &TextEdit{Range: replaceRange, NewText: decl.Name},
+	}
+}
+
+func makeGenericEnumCompletionItem(decl *ast.EnumDecl, replaceRange Range, sortPrefix string) CompletionItem {
+	var tps []string
+	for _, tp := range decl.TypeParams {
+		tps = append(tps, tp.Name)
+	}
+	return CompletionItem{
+		Label:            decl.Name,
+		Kind:             KindEnum,
+		Detail:           fmt.Sprintf("enum %s[%s]", decl.Name, strings.Join(tps, ", ")),
 		SortText:         sortPrefix + "_" + decl.Name,
 		FilterText:       decl.Name,
 		InsertTextFormat: InsertPlainText,

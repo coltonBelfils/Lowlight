@@ -7,7 +7,6 @@
 // - Kernel socketpair testing and HTTP client requests
 
 import "std/http.ll" as http
-import "std/fs.ll"
 
 bind main = () {
     // 2. Set up ServeMux router
@@ -43,11 +42,9 @@ bind main = () {
         res.write("{\"echo_body\": \"${req.body}\", \"received_bytes\": ${req.body.len()}}")
     })
 
-    let serv = http.Server.new(":8080")
+    println("1. Initialized HTTP ServeMux routes for: /, /api/hello, /api/echo")
+    println("2. Testing routes with in-memory request dispatch:")
 
-    serv.serve()
-
-    /*
     let m1 = mux.copy()
     let req_home = http.Request.new("GET", "/", "")
     let res_home = http.test_handler((r: http.Request, w: &http.ResponseWriter) {
@@ -91,5 +88,4 @@ bind main = () {
     assert(resp.body.contains("Hello from client over kernel socket!"))
 
     println("\n✓ All HTTP client and server showcase demonstrations completed successfully!")
-    */
 }

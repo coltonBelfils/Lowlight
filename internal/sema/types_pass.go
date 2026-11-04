@@ -2,6 +2,7 @@ package sema
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"lowlight/internal/ast"
@@ -9,6 +10,91 @@ import (
 	"lowlight/internal/token"
 	"lowlight/internal/types"
 )
+
+const MaxMonomorphDepth = 128
+
+func (a *Analyzer) moduleTag(mod *Module) string {
+	if mod == nil || mod == a.Prog.EntryMod || mod == a.coreMod {
+		return ""
+	}
+	base := filepath.Base(mod.Path)
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	return types.SanitizeCIdent(base)
+}
+
+func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.Span, kind string) {
+	hasInline := false
+	hasNoInline := false
+
+	for _, attr := range attrs {
+		switch attr.Name {
+		case "inline":
+			if kind != "function" && kind != "method" {
+				a.Rep.Errorf(attr.Span, "@inline attribute cannot be applied to a %s declaration", kind)
+			}
+			hasInline = true
+			if fi, ok := target.(*FuncInstance); ok {
+				fi.IsAlwaysInline = true
+			}
+		case "noinline":
+			if kind != "function" && kind != "method" {
+				a.Rep.Errorf(attr.Span, "@noinline attribute cannot be applied to a %s declaration", kind)
+			}
+			hasNoInline = true
+			if fi, ok := target.(*FuncInstance); ok {
+				fi.IsNoInline = true
+			}
+		case "must_use", "nodiscard":
+			if kind != "function" && kind != "method" && kind != "struct" && kind != "enum" {
+				a.Rep.Errorf(attr.Span, "@%s attribute cannot be applied to a %s declaration", attr.Name, kind)
+			}
+			if fi, ok := target.(*FuncInstance); ok {
+				fi.MustUse = true
+			} else if sym, ok := target.(*Symbol); ok {
+				sym.MustUse = true
+			} else if st, ok := target.(*types.Struct); ok {
+				st.MustUse = true
+			} else if en, ok := target.(*types.Enum); ok {
+				en.MustUse = true
+			}
+		case "deprecated":
+			msg := ""
+			if len(attr.Args) > 0 {
+				msg = strings.Trim(attr.Args[0], "\"")
+			}
+			if fi, ok := target.(*FuncInstance); ok {
+				fi.Deprecated = true
+				fi.DeprecatedMsg = msg
+			} else if sym, ok := target.(*Symbol); ok {
+				sym.Deprecated = true
+				sym.DeprecatedMsg = msg
+			} else if st, ok := target.(*types.Struct); ok {
+				st.Deprecated = true
+				st.DeprecatedMsg = msg
+			} else if en, ok := target.(*types.Enum); ok {
+				en.Deprecated = true
+				en.DeprecatedMsg = msg
+			}
+		case "packed":
+			if kind != "struct" {
+				a.Rep.Errorf(attr.Span, "@packed attribute cannot be applied to a %s declaration", kind)
+			}
+			if st, ok := target.(*types.Struct); ok {
+				st.Packed = true
+			}
+		case "doc":
+			// documentation string attribute, valid on all declarations
+		case "lang":
+			// handled specially on interfaces and top-level func/symbols
+		default:
+			a.Rep.Errorf(attr.Span, "unknown attribute @%s", attr.Name)
+		}
+	}
+
+	if hasInline && hasNoInline {
+		a.Rep.Errorf(span, "cannot specify both @inline and @noinline")
+	}
+}
 
 func (a *Analyzer) lookupTypeInModule(mod *Module, moduleAlias, name string) types.Type {
 	if moduleAlias != "" {
@@ -45,6 +131,44 @@ func (a *Analyzer) lookupGenStructInModule(mod *Module, moduleAlias, name string
 	}
 	for _, imp := range mod.Imports {
 		if g, ok := imp.GenericStructs[name]; ok {
+			return g
+		}
+	}
+	return nil
+}
+
+func (a *Analyzer) lookupGenEnumInModule(mod *Module, moduleAlias, name string) *GenericEnumTemplate {
+	if moduleAlias != "" {
+		target, ok := mod.Aliased[moduleAlias]
+		if !ok {
+			return nil
+		}
+		return target.GenericEnums[name]
+	}
+	if g, ok := mod.GenericEnums[name]; ok {
+		return g
+	}
+	for _, imp := range mod.Imports {
+		if g, ok := imp.GenericEnums[name]; ok {
+			return g
+		}
+	}
+	return nil
+}
+
+func (a *Analyzer) lookupGenInterfaceInModule(mod *Module, moduleAlias, name string) *GenericInterfaceTemplate {
+	if moduleAlias != "" {
+		target, ok := mod.Aliased[moduleAlias]
+		if !ok {
+			return nil
+		}
+		return target.GenericInterfaces[name]
+	}
+	if g, ok := mod.GenericInterfaces[name]; ok {
+		return g
+	}
+	for _, imp := range mod.Imports {
+		if g, ok := imp.GenericInterfaces[name]; ok {
 			return g
 		}
 	}
@@ -217,29 +341,67 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 	for _, d := range mod.File.Decls {
 		switch td := d.(type) {
 		case *ast.StructDecl:
+			var langItem string
 			if langAttr := ast.FindAttribute(td.Attributes, "lang"); langAttr != nil {
-				a.Rep.Errorf(langAttr.Span, "@lang attribute cannot be applied to a struct declaration")
+				if len(langAttr.Args) == 0 {
+					a.Rep.Errorf(langAttr.Span, "@lang attribute requires a string argument (e.g. @lang(\"list\"))")
+				} else {
+					langItem = strings.Trim(langAttr.Args[0], "\"")
+					switch langItem {
+					case "list":
+						if a.Prog.GenStructList != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"list\")")
+						}
+					case "set":
+						if a.Prog.GenStructSet != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"set\")")
+						}
+					case "map":
+						if a.Prog.GenStructMap != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"map\")")
+						}
+					default:
+						a.Rep.Errorf(td.Span, "unknown struct lang item @lang(%q); supported struct lang items: \"list\", \"set\", \"map\"", langItem)
+					}
+				}
 			}
 			if len(td.TypeParams) > 0 {
 				if _, dup := mod.GenericStructs[td.Name]; dup {
 					a.Rep.Errorf(td.Span, "duplicate type definition %q", td.Name)
 					continue
 				}
-				mod.GenericStructs[td.Name] = &GenericStructTemplate{
+				tmpl := &GenericStructTemplate{
 					Decl:      td,
 					Mod:       mod,
 					Instances: make(map[string]*types.Struct),
 				}
+				mod.GenericStructs[td.Name] = tmpl
+				switch langItem {
+				case "list":
+					a.Prog.GenStructList = tmpl
+				case "set":
+					a.Prog.GenStructSet = tmpl
+				case "map":
+					a.Prog.GenStructMap = tmpl
+				}
 				continue
+			}
+			if langItem != "" {
+				a.Rep.Errorf(td.Span, "struct lang item @lang(%q) must be a generic struct", langItem)
 			}
 			if a.checkDupType(mod, td.Name, td.Span) {
 				continue
 			}
+			cname := "ll_s_" + td.Name
+			if tag := a.moduleTag(mod); tag != "" {
+				cname = fmt.Sprintf("ll_s_%s_%s", tag, td.Name)
+			}
 			st := &types.Struct{
 				Name:   td.Name,
-				CName:  "ll_s_" + td.Name,
-				Packed: td.Packed,
+				CName:  cname,
+				Packed: td.Packed || ast.FindAttribute(td.Attributes, "packed") != nil,
 			}
+			a.checkAttributes(td.Attributes, st, td.Span, "struct")
 			mod.Types[td.Name] = st
 			a.Prog.StructDecls[st] = td
 			a.Prog.StructMods[st] = mod
@@ -250,15 +412,43 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			if langAttr := ast.FindAttribute(td.Attributes, "lang"); langAttr != nil {
 				a.Rep.Errorf(langAttr.Span, "@lang attribute cannot be applied to an enum declaration")
 			}
+			isTagged := len(td.TypeParams) > 0
+			if !isTagged {
+				for _, v := range td.Variants {
+					if v.PayloadType != nil || v.HasFields {
+						isTagged = true
+						break
+					}
+				}
+			}
+			if len(td.TypeParams) > 0 {
+				if a.checkDupType(mod, td.Name, td.Span) {
+					continue
+				}
+				mod.GenericEnums[td.Name] = &GenericEnumTemplate{
+					Decl:      td,
+					Mod:       mod,
+					Instances: make(map[string]*types.Enum),
+				}
+				continue
+			}
 			if a.checkDupType(mod, td.Name, td.Span) {
 				continue
 			}
+			cname := "ll_e_" + td.Name
+			if tag := a.moduleTag(mod); tag != "" {
+				cname = fmt.Sprintf("ll_e_%s_%s", tag, td.Name)
+			}
 			en := &types.Enum{
 				Name:       td.Name,
-				CName:      "ll_e_" + td.Name,
+				CName:      cname,
+				IsTagged:   isTagged,
 				Underlying: types.TypeInt,
 			}
+			a.checkAttributes(td.Attributes, en, td.Span, "enum")
 			mod.Types[td.Name] = en
+			a.Prog.EnumDecls[en] = td
+			a.Prog.EnumMods[en] = mod
 			a.Prog.TypeSpans[en] = td.Span
 			a.Prog.Enums = append(a.Prog.Enums, en)
 
@@ -270,6 +460,28 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 					continue
 				}
 				langItem = strings.Trim(langAttr.Args[0], "\"")
+			}
+
+			if len(td.TypeParams) > 0 {
+				if a.checkDupType(mod, td.Name, td.Span) {
+					continue
+				}
+				tmpl := &GenericInterfaceTemplate{
+					Decl:      td,
+					Mod:       mod,
+					Instances: make(map[string]*types.Interface),
+				}
+				mod.GenericInterfaces[td.Name] = tmpl
+				if langItem == "collectable" || td.Name == "Collectable" {
+					a.Prog.GenIfaceCollectable = tmpl
+				} else if langItem == "iterable" || td.Name == "Iterable" {
+					a.Prog.GenIfaceIterable = tmpl
+				} else if langItem == "iterator" || td.Name == "Iterator" {
+					a.Prog.GenIfaceIterator = tmpl
+				} else if langItem != "" {
+					a.Rep.Errorf(td.Span, "unknown generic interface lang item @lang(%q); supported: \"collectable\", \"iterable\", \"iterator\"", langItem)
+				}
+				continue
 			}
 
 			if langItem == "printable" || td.Name == "Printable" {
@@ -305,18 +517,68 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				continue
 			}
 
-			if langItem != "" {
-				a.Rep.Errorf(td.Span, "unknown interface lang item @lang(%q); supported interface lang items: \"printable\", \"copyable\", \"drop\"", langItem)
+			if langItem == "hashable" || td.Name == "Hashable" {
+				if a.Prog.IfaceHashable != nil && a.Prog.TypeSpans[a.Prog.IfaceHashable].Start.File != "" && a.Prog.TypeSpans[a.Prog.IfaceHashable].Start.File != td.Span.Start.File {
+					a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"hashable\") (already defined at %s)", a.Prog.TypeSpans[a.Prog.IfaceHashable].String())
+					continue
+				}
+				if a.Prog.IfaceHashable == nil {
+					a.Prog.IfaceHashable = &types.Interface{Name: td.Name, CName: "ll_iface_" + td.Name}
+					a.Prog.Interfaces = append(a.Prog.Interfaces, a.Prog.IfaceHashable)
+				} else {
+					a.Prog.IfaceHashable.Name = td.Name
+				}
+				a.Prog.TypeSpans[a.Prog.IfaceHashable] = td.Span
+				mod.Types[td.Name] = a.Prog.IfaceHashable
+				continue
+			}
+
+			if langItem == "equatable" || td.Name == "Equatable" {
+				if a.Prog.TypeSpans[a.Prog.IfaceEquatable].Start.File != "" && a.Prog.TypeSpans[a.Prog.IfaceEquatable].Start.File != td.Span.Start.File {
+					a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"equatable\") (already defined at %s)", a.Prog.TypeSpans[a.Prog.IfaceEquatable].String())
+					continue
+				}
+				a.Prog.IfaceEquatable.Name = td.Name
+				a.Prog.TypeSpans[a.Prog.IfaceEquatable] = td.Span
+				mod.Types[td.Name] = a.Prog.IfaceEquatable
+				continue
+			}
+
+			if langItem == "comparable" || td.Name == "Comparable" {
+				if a.Prog.TypeSpans[a.Prog.IfaceComparable].Start.File != "" && a.Prog.TypeSpans[a.Prog.IfaceComparable].Start.File != td.Span.Start.File {
+					a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"comparable\") (already defined at %s)", a.Prog.TypeSpans[a.Prog.IfaceComparable].String())
+					continue
+				}
+				a.Prog.IfaceComparable.Name = td.Name
+				a.Prog.TypeSpans[a.Prog.IfaceComparable] = td.Span
+				mod.Types[td.Name] = a.Prog.IfaceComparable
+				continue
+			}
+
+			if langItem != "" && langItem != "collectable" && langItem != "iterable" && langItem != "iterator" {
+				a.Rep.Errorf(td.Span, "unknown interface lang item @lang(%q); supported interface lang items: \"printable\", \"copyable\", \"drop\", \"hashable\", \"equatable\", \"comparable\", \"collectable\", \"iterable\", \"iterator\"", langItem)
 				continue
 			}
 
 			if a.checkDupType(mod, td.Name, td.Span) {
 				continue
 			}
+			cname := "ll_iface_" + td.Name
+			if tag := a.moduleTag(mod); tag != "" {
+				cname = fmt.Sprintf("ll_iface_%s_%s", tag, td.Name)
+			}
 			ifc := &types.Interface{
 				Name:  td.Name,
-				CName: "ll_iface_" + td.Name,
+				CName: cname,
 			}
+			if langItem == "collectable" || td.Name == "Collectable" {
+				a.Prog.IfaceCollectable = ifc
+			} else if langItem == "iterable" || td.Name == "Iterable" {
+				a.Prog.IfaceIterable = ifc
+			} else if langItem == "iterator" || td.Name == "Iterator" {
+				a.Prog.IfaceIterator = ifc
+			}
+			a.checkAttributes(td.Attributes, ifc, td.Span, "interface")
 			mod.Types[td.Name] = ifc
 			a.Prog.TypeSpans[ifc] = td.Span
 			a.Prog.Interfaces = append(a.Prog.Interfaces, ifc)
@@ -328,11 +590,16 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			if a.checkDupType(mod, td.Name, td.Span) {
 				continue
 			}
+			cname := "ll_d_" + td.Name
+			if tag := a.moduleTag(mod); tag != "" {
+				cname = fmt.Sprintf("ll_d_%s_%s", tag, td.Name)
+			}
 			dt := &types.Distinct{
 				Name:  td.Name,
-				CName: "ll_d_" + td.Name,
+				CName: cname,
 				Base:  types.TypeInvalid,
 			}
+			a.checkAttributes(td.Attributes, dt, td.Span, "distinct type")
 			mod.Types[td.Name] = dt
 			a.Prog.TypeSpans[dt] = td.Span
 			a.Prog.Distincts = append(a.Prog.Distincts, dt)
@@ -346,12 +613,16 @@ func (a *Analyzer) checkDupType(mod *Module, name string, span diag.Span) bool {
 		return true
 	}
 	if existing, ok := mod.Types[name]; ok && existing != nil {
-		if name != "Printable" && name != "Copyable" && name != "Drop" {
+		if name != "Printable" && name != "Copyable" && name != "Drop" && name != "Hashable" && name != "Equatable" && name != "Comparable" {
 			a.Rep.Errorf(span, "duplicate type definition %q", name)
 			return true
 		}
 	}
 	if _, ok := mod.GenericStructs[name]; ok {
+		a.Rep.Errorf(span, "duplicate type definition %q", name)
+		return true
+	}
+	if _, ok := mod.GenericEnums[name]; ok {
 		a.Rep.Errorf(span, "duplicate type definition %q", name)
 		return true
 	}
@@ -373,8 +644,11 @@ func (a *Analyzer) resolveDistinctsAndEnums(mod *Module) {
 			dt.Base = base
 
 		case *ast.EnumDecl:
+			if len(td.TypeParams) > 0 {
+				continue
+			}
 			en, ok := mod.Types[td.Name].(*types.Enum)
-			if !ok {
+			if !ok || en.IsTagged {
 				continue
 			}
 			if td.BaseType != nil {
@@ -413,7 +687,9 @@ func (a *Analyzer) resolveDistinctsAndEnums(mod *Module) {
 				}
 				en.Variants = append(en.Variants, types.EnumVariant{
 					Name:  v.Name,
+					CName: "v_" + types.SanitizeCIdent(v.Name),
 					Value: nextVal,
+					Kind:  types.VariantUnit,
 				})
 				nextVal++
 			}
@@ -484,15 +760,104 @@ func recvModeToParamMode(rm ast.ReceiverMode) types.ParamMode {
 
 func (a *Analyzer) resolveStructFields(mod *Module) {
 	for _, d := range mod.File.Decls {
-		td, ok := d.(*ast.StructDecl)
-		if !ok || len(td.TypeParams) > 0 {
+		switch td := d.(type) {
+		case *ast.StructDecl:
+			if len(td.TypeParams) > 0 {
+				continue
+			}
+			st, ok := mod.Types[td.Name].(*types.Struct)
+			if !ok {
+				continue
+			}
+			a.populateStructFields(mod, st, td, nil)
+		case *ast.EnumDecl:
+			if len(td.TypeParams) > 0 {
+				continue
+			}
+			en, ok := mod.Types[td.Name].(*types.Enum)
+			if !ok || !en.IsTagged {
+				continue
+			}
+			a.populateEnumVariants(mod, en, td, nil)
+		}
+	}
+}
+
+func (a *Analyzer) populateEnumVariants(mod *Module, en *types.Enum, td *ast.EnumDecl, subst map[string]types.Type) {
+	seen := make(map[string]bool)
+	var tagVal int64 = 1 // 1-based tags for tagged unions so `0` is always the inert moved/dropped sentinel
+	for _, v := range td.Variants {
+		if seen[v.Name] {
+			a.Rep.Errorf(v.Span, "duplicate variant %q in enum %s", v.Name, en.String())
 			continue
 		}
-		st, ok := mod.Types[td.Name].(*types.Struct)
-		if !ok {
+		seen[v.Name] = true
+		vcname := "v_" + types.SanitizeCIdent(v.Name)
+		if !v.HasFields && v.PayloadType == nil {
+			en.Variants = append(en.Variants, types.EnumVariant{
+				Name:  v.Name,
+				CName: vcname,
+				Value: tagVal,
+				Kind:  types.VariantUnit,
+			})
+			tagVal++
 			continue
 		}
-		a.populateStructFields(mod, st, td, nil)
+		if v.PayloadType != nil {
+			pty := a.resolveValueType(mod, v.PayloadType, subst, false)
+			en.Variants = append(en.Variants, types.EnumVariant{
+				Name:    v.Name,
+				CName:   vcname,
+				Value:   tagVal,
+				Kind:    types.VariantTuple,
+				Payload: pty,
+			})
+			tagVal++
+			continue
+		}
+		// v.HasFields: disambiguate `[CONST_INT: T]` stack array vs named variant fields `[field: T, ...]`
+		if len(v.Fields) == 1 && !v.Fields[0].IsOpt && v.Fields[0].Default == nil {
+			if sym := a.lookupTopSymbol(mod, "", v.Fields[0].Name); sym != nil && sym.IsConstInt {
+				if sym.ConstIntVal <= 0 {
+					a.Rep.Errorf(v.Fields[0].Span, "stack array size in `[N: T]` must be a positive compile-time integer constant")
+				}
+				elem := a.resolveValueType(mod, v.Fields[0].Type, subst, false)
+				en.Variants = append(en.Variants, types.EnumVariant{
+					Name:    v.Name,
+					CName:   vcname,
+					Value:   tagVal,
+					Kind:    types.VariantTuple,
+					Payload: &types.StackArray{Size: sym.ConstIntVal, Elem: elem},
+				})
+				tagVal++
+				continue
+			}
+		}
+		fseen := make(map[string]bool)
+		var rfields []types.StructField
+		for _, f := range v.Fields {
+			if fseen[f.Name] {
+				a.Rep.Errorf(f.Span, "duplicate field %q in variant %s.%s", f.Name, en.String(), v.Name)
+				continue
+			}
+			fseen[f.Name] = true
+			fty := a.resolveValueType(mod, f.Type, subst, false)
+			a.checkOptionalIdentRule(f.Name, f.IsOpt, fty, f.Span, "variant field")
+			rfields = append(rfields, types.StructField{
+				Name:       f.Name,
+				CName:      types.SanitizeCIdent(f.Name),
+				Type:       fty,
+				HasDefault: f.Default != nil,
+			})
+		}
+		en.Variants = append(en.Variants, types.EnumVariant{
+			Name:   v.Name,
+			CName:  vcname,
+			Value:  tagVal,
+			Kind:   types.VariantStruct,
+			Fields: rfields,
+		})
+		tagVal++
 	}
 }
 
@@ -618,9 +983,12 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 		if elem == types.TypeInvalid {
 			return types.TypeInvalid
 		}
-		if _, isTP := elem.(*types.TypeParamVar); !isTP && !types.IsHashable(elem) {
-			a.Rep.Errorf(v.Elem.GetSpan(), "set element type %s is not hashable", elem.String())
-			return types.TypeInvalid
+		if _, isTP := elem.(*types.TypeParamVar); !isTP {
+			isH := types.IsHashable(elem) || (a.Prog.IfaceHashable != nil && a.ImplementsInterface(elem, a.Prog.IfaceHashable))
+			if !isH {
+				a.Rep.Errorf(v.Elem.GetSpan(), "set element type %s is not hashable", elem.String())
+				return types.TypeInvalid
+			}
 		}
 		return &types.Set{Elem: elem}
 
@@ -630,9 +998,12 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 		if kt == types.TypeInvalid || vt == types.TypeInvalid {
 			return types.TypeInvalid
 		}
-		if _, isTP := kt.(*types.TypeParamVar); !isTP && !types.IsHashable(kt) {
-			a.Rep.Errorf(v.Key.GetSpan(), "map key type %s is not hashable", kt.String())
-			return types.TypeInvalid
+		if _, isTP := kt.(*types.TypeParamVar); !isTP {
+			isH := types.IsHashable(kt) || (a.Prog.IfaceHashable != nil && a.ImplementsInterface(kt, a.Prog.IfaceHashable))
+			if !isH {
+				a.Rep.Errorf(v.Key.GetSpan(), "map key type %s is not hashable", kt.String())
+				return types.TypeInvalid
+			}
 		}
 		return &types.Map{Key: kt, Value: vt}
 
@@ -709,7 +1080,53 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 					return types.TypeInvalid
 				}
 			}
-			return a.instantiateStruct(genSt, targs, v.Span)
+			stInst := a.instantiateStruct(genSt, targs, v.Span)
+			if stInst == nil {
+				return types.TypeInvalid
+			}
+			return stInst
+		}
+
+		// Generic enum instantiation `Result[int, string]`
+		if genEn := a.lookupGenEnumInModule(mod, v.Module, v.Name); genEn != nil {
+			if len(v.TypeArgs) != len(genEn.Decl.TypeParams) {
+				a.Rep.Errorf(v.Span, "generic enum %s expects %d type argument(s), got %d",
+					v.Name, len(genEn.Decl.TypeParams), len(v.TypeArgs))
+				return types.TypeInvalid
+			}
+			targs := make([]types.Type, len(v.TypeArgs))
+			for i, ta := range v.TypeArgs {
+				targs[i] = a.resolveValueType(mod, ta, subst, allowSelf)
+				if targs[i] == types.TypeInvalid {
+					return types.TypeInvalid
+				}
+			}
+			enInst := a.instantiateEnum(genEn, targs, v.Span)
+			if enInst == nil {
+				return types.TypeInvalid
+			}
+			return enInst
+		}
+
+		// Generic interface instantiation `Iterator[int]`
+		if genIfc := a.lookupGenInterfaceInModule(mod, v.Module, v.Name); genIfc != nil {
+			if len(v.TypeArgs) != len(genIfc.Decl.TypeParams) {
+				a.Rep.Errorf(v.Span, "generic interface %s expects %d type argument(s), got %d",
+					v.Name, len(genIfc.Decl.TypeParams), len(v.TypeArgs))
+				return types.TypeInvalid
+			}
+			targs := make([]types.Type, len(v.TypeArgs))
+			for i, ta := range v.TypeArgs {
+				targs[i] = a.resolveValueType(mod, ta, subst, allowSelf)
+				if targs[i] == types.TypeInvalid {
+					return types.TypeInvalid
+				}
+			}
+			ifcInst := a.instantiateInterface(genIfc, targs, v.Span)
+			if ifcInst == nil {
+				return types.TypeInvalid
+			}
+			return ifcInst
 		}
 
 		if len(v.TypeArgs) > 0 {
@@ -731,19 +1148,25 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 	return types.TypeInvalid
 }
 
-// checkStructRecursion detects illegal infinite-size value cycles (`next: Node`)
+// checkStructRecursion detects illegal infinite-size value cycles (`next: Node`, `BadEnum -> BadEnum`)
 // and marks optional cycles (`next?: ?Node` or mutual `A -> ?B -> ?A`) with `BoxedOptional = true`.
 func (a *Analyzer) checkStructRecursion() {
 	for _, st := range a.Prog.Structs {
 		a.checkSingleStructRecursion(st)
 	}
+	for _, en := range a.Prog.Enums {
+		if en.IsTagged {
+			a.checkSingleEnumRecursion(en)
+		}
+	}
 }
 
 func (a *Analyzer) checkSingleStructRecursion(root *types.Struct) {
-	// 1. Direct/mutual VALUE cycle (through Struct, StackArray, or Distinct without `?`, `[]`, `ref`, `ptr`)
-	if a.reachesStructByValue(root, root, make(map[*types.Struct]bool)) {
+	span := a.Prog.TypeSpans[root]
+	// 1. Direct/mutual VALUE cycle (through Struct, tagged Enum, StackArray, or Distinct without `?`, `[]`, `ref`, `ptr`)
+	if a.reachesStructByValue(root, root, make(map[types.Type]bool)) {
 		a.Rep.ErrorWithHint(
-			diag.Span{},
+			span,
 			fmt.Sprintf("recursive struct %q contains itself by value (infinite size)", root.String()),
 			fmt.Sprintf("use an optional field (`?%s`) for automatic heap boxing, `[%s]`, or `ref[%s]`", root.Name, root.Name, root.Name),
 		)
@@ -756,7 +1179,21 @@ func (a *Analyzer) checkSingleStructRecursion(root *types.Struct) {
 	}
 }
 
-func (a *Analyzer) reachesStructByValue(curr, target *types.Struct, visited map[*types.Struct]bool) bool {
+func (a *Analyzer) checkSingleEnumRecursion(root *types.Enum) {
+	if !root.IsTagged {
+		return
+	}
+	span := a.Prog.TypeSpans[root]
+	if a.reachesEnumByCValue(root, root, make(map[types.Type]bool)) {
+		a.Rep.ErrorWithHint(
+			span,
+			fmt.Sprintf("recursive enum %q contains itself by value (infinite size)", root.String()),
+			fmt.Sprintf("wrap recursive payloads in `ref[%s]` (with an `Arena`) or `[%s]`", root.String(), root.String()),
+		)
+	}
+}
+
+func (a *Analyzer) reachesStructByValue(curr, target *types.Struct, visited map[types.Type]bool) bool {
 	if visited[curr] {
 		return false
 	}
@@ -769,21 +1206,95 @@ func (a *Analyzer) reachesStructByValue(curr, target *types.Struct, visited map[
 	return false
 }
 
-func (a *Analyzer) typeContainsStructByValue(t types.Type, target *types.Struct, visited map[*types.Struct]bool) bool {
+func (a *Analyzer) typeContainsStructByValue(t types.Type, target *types.Struct, visited map[types.Type]bool) bool {
 	switch v := t.(type) {
 	case *types.Struct:
 		if v == target {
 			return true
 		}
 		return a.reachesStructByValue(v, target, visited)
+	case *types.Enum:
+		if !v.IsTagged || visited[v] {
+			return false
+		}
+		visited[v] = true
+		for _, vr := range v.Variants {
+			switch vr.Kind {
+			case types.VariantTuple:
+				if vr.Payload != nil && a.typeContainsStructByValue(vr.Payload, target, visited) {
+					return true
+				}
+			case types.VariantStruct:
+				for _, f := range vr.Fields {
+					if a.typeContainsStructByValue(f.Type, target, visited) {
+						return true
+					}
+				}
+			}
+		}
+		return false
 	case *types.StackArray:
 		return a.typeContainsStructByValue(v.Elem, target, visited)
 	case *types.Distinct:
 		return a.typeContainsStructByValue(v.Base, target, visited)
 	default:
-		// Note: Optional `?T` is checked next: if `?T` is NOT boxed, `Opt_T` embeds `T` by value!
-		// Wait: if `Opt_T` embeds `T`, and `T` reaches `target`, then marking `target.BoxedOptional = true`
-		// breaks the cycle! So only non-optional edges are unbreakable infinite-size errors!
+		return false
+	}
+}
+
+func (a *Analyzer) reachesEnumByCValue(curr, target *types.Enum, visited map[types.Type]bool) bool {
+	if visited[curr] {
+		return false
+	}
+	visited[curr] = true
+	for _, vr := range curr.Variants {
+		switch vr.Kind {
+		case types.VariantTuple:
+			if vr.Payload != nil && a.typeContainsEnumByCValue(vr.Payload, target, visited) {
+				return true
+			}
+		case types.VariantStruct:
+			for _, f := range vr.Fields {
+				if a.typeContainsEnumByCValue(f.Type, target, visited) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (a *Analyzer) typeContainsEnumByCValue(t types.Type, target *types.Enum, visited map[types.Type]bool) bool {
+	switch v := t.(type) {
+	case *types.Enum:
+		if !v.IsTagged {
+			return false
+		}
+		if v == target {
+			return true
+		}
+		return a.reachesEnumByCValue(v, target, visited)
+	case *types.Struct:
+		if visited[v] {
+			return false
+		}
+		visited[v] = true
+		for _, f := range v.Fields {
+			if a.typeContainsEnumByCValue(f.Type, target, visited) {
+				return true
+			}
+		}
+		return false
+	case *types.Optional:
+		if v.IsBoxed() {
+			return false
+		}
+		return a.typeContainsEnumByCValue(v.Elem, target, visited)
+	case *types.StackArray:
+		return a.typeContainsEnumByCValue(v.Elem, target, visited)
+	case *types.Distinct:
+		return a.typeContainsEnumByCValue(v.Base, target, visited)
+	default:
 		return false
 	}
 }
@@ -815,6 +1326,30 @@ func (a *Analyzer) typeReachesViaOpt(t types.Type, target *types.Struct, passedO
 			return false
 		}
 		return a.reachesStructViaOptional(v, target, passedOpt, visited)
+	case *types.Enum:
+		if !v.IsTagged {
+			return false
+		}
+		key := fmt.Sprintf("en:%p:%v", v, passedOpt)
+		if visited[key] {
+			return false
+		}
+		visited[key] = true
+		for _, vr := range v.Variants {
+			switch vr.Kind {
+			case types.VariantTuple:
+				if vr.Payload != nil && a.typeReachesViaOpt(vr.Payload, target, passedOpt, visited) {
+					return true
+				}
+			case types.VariantStruct:
+				for _, f := range vr.Fields {
+					if a.typeReachesViaOpt(f.Type, target, passedOpt, visited) {
+						return true
+					}
+				}
+			}
+		}
+		return false
 	case *types.StackArray:
 		return a.typeReachesViaOpt(v.Elem, target, passedOpt, visited)
 	case *types.Distinct:
@@ -824,8 +1359,36 @@ func (a *Analyzer) typeReachesViaOpt(t types.Type, target *types.Struct, passedO
 	}
 }
 
+func (a *Analyzer) verifyNonOptionalTypeArg(tpName string, concrete types.Type, span diag.Span, contextName string) bool {
+	if concrete == nil || concrete == types.TypeInvalid {
+		return true
+	}
+	if opt, isOpt := concrete.(*types.Optional); isOpt {
+		a.Rep.ErrorWithHint(
+			span,
+			fmt.Sprintf("generic type parameter %q in %s cannot be instantiated with optional type %s", tpName, contextName, concrete.String()),
+			fmt.Sprintf("generic type parameters `T` always represent non-optional values; instantiate with `%s` or declare optional slots with `?%s`", opt.Elem.String(), tpName),
+		)
+		return false
+	}
+	return true
+}
+
 // instantiateStruct monomorphizes `define Name[T...] struct [...]` for concrete `typeArgs`.
 func (a *Analyzer) instantiateStruct(tmpl *GenericStructTemplate, typeArgs []types.Type, span diag.Span) *types.Struct {
+	if a.monoDepth >= MaxMonomorphDepth {
+		a.Rep.Errorf(span, "generic instantiation recursion depth limit (%d) exceeded while instantiating %s", MaxMonomorphDepth, tmpl.Decl.Name)
+		return nil
+	}
+	a.monoDepth++
+	defer func() { a.monoDepth-- }()
+
+	for i, tp := range tmpl.Decl.TypeParams {
+		if i < len(typeArgs) && !a.verifyNonOptionalTypeArg(tp.Name, typeArgs[i], span, tmpl.Decl.Name) {
+			return nil
+		}
+	}
+
 	// If any typeArg is still an uninstantiated TypeParamVar, create an uncached symbolic Struct for template checking.
 	hasTypeParam := false
 	parts := make([]string, len(typeArgs))
@@ -848,12 +1411,17 @@ func (a *Analyzer) instantiateStruct(tmpl *GenericStructTemplate, typeArgs []typ
 		subst[tp.Name] = typeArgs[i]
 	}
 
+	cname := fmt.Sprintf("ll_gs_%s__%s", tmpl.Decl.Name, key)
+	if tag := a.moduleTag(tmpl.Mod); tag != "" {
+		cname = fmt.Sprintf("ll_gs_%s_%s__%s", tag, tmpl.Decl.Name, key)
+	}
 	inst := &types.Struct{
 		Name:     tmpl.Decl.Name,
-		CName:    fmt.Sprintf("ll_gs_%s__%s", tmpl.Decl.Name, key),
-		Packed:   tmpl.Decl.Packed,
+		CName:    cname,
+		Packed:   tmpl.Decl.Packed || ast.FindAttribute(tmpl.Decl.Attributes, "packed") != nil,
 		TypeArgs: typeArgs,
 	}
+	a.checkAttributes(tmpl.Decl.Attributes, inst, tmpl.Decl.Span, "struct")
 	if !hasTypeParam {
 		tmpl.Instances[key] = inst
 	}
@@ -880,6 +1448,241 @@ func (a *Analyzer) instantiateStruct(tmpl *GenericStructTemplate, typeArgs []typ
 			}
 		}
 		// Check if generic Drop method exists on this template
+		if gm, ok := a.genMethods[tmpl.Decl.Name]["drop"]; ok {
+			_ = a.instantiateMethod(gm, inst, nil, span)
+			inst.HasCustomDrop = true
+		}
+	}
+	return inst
+}
+
+func typeListString(tys []types.Type) string {
+	strs := make([]string, len(tys))
+	for i, t := range tys {
+		if t != nil {
+			strs[i] = t.String()
+		}
+	}
+	return strings.Join(strs, ", ")
+}
+
+// instantiateInterface monomorphizes `define Name[T...] interface [...]` for concrete `typeArgs`.
+func (a *Analyzer) instantiateInterface(tmpl *GenericInterfaceTemplate, typeArgs []types.Type, span diag.Span) *types.Interface {
+	if a.monoDepth >= MaxMonomorphDepth {
+		a.Rep.Errorf(span, "generic instantiation recursion depth limit (%d) exceeded while instantiating %s", MaxMonomorphDepth, tmpl.Decl.Name)
+		return nil
+	}
+	a.monoDepth++
+	defer func() { a.monoDepth-- }()
+
+	for i, tp := range tmpl.Decl.TypeParams {
+		if i < len(typeArgs) && !a.verifyNonOptionalTypeArg(tp.Name, typeArgs[i], span, tmpl.Decl.Name) {
+			return nil
+		}
+	}
+
+	hasTypeParam := false
+	parts := make([]string, len(typeArgs))
+	for i, ta := range typeArgs {
+		parts[i] = ta.Mangled()
+		if _, ok := ta.(*types.TypeParamVar); ok {
+			hasTypeParam = true
+		}
+	}
+	key := strings.Join(parts, "__")
+	if !hasTypeParam {
+		if inst, ok := tmpl.Instances[key]; ok {
+			return inst
+		}
+	}
+
+	subst := make(map[string]types.Type, len(typeArgs))
+	for i, tp := range tmpl.Decl.TypeParams {
+		subst[tp.Name] = typeArgs[i]
+	}
+
+	cname := fmt.Sprintf("ll_giface_%s__%s", tmpl.Decl.Name, key)
+	if tag := a.moduleTag(tmpl.Mod); tag != "" {
+		cname = fmt.Sprintf("ll_giface_%s_%s__%s", tag, tmpl.Decl.Name, key)
+	}
+	inst := &types.Interface{
+		Name:  fmt.Sprintf("%s[%s]", tmpl.Decl.Name, typeListString(typeArgs)),
+		CName: cname,
+	}
+	a.checkAttributes(tmpl.Decl.Attributes, inst, tmpl.Decl.Span, "interface")
+	if !hasTypeParam {
+		tmpl.Instances[key] = inst
+		a.Prog.TypeSpans[inst] = tmpl.Decl.Span
+		a.Prog.Interfaces = append(a.Prog.Interfaces, inst)
+	}
+
+	for _, m := range tmpl.Decl.Methods {
+		var fparams []types.FuncParam
+		for _, p := range m.Params {
+			pmode, pty := a.resolveParamType(tmpl.Mod, p.Type, subst, true)
+			if _, isSelf := pty.(*types.SelfPlaceholder); isSelf {
+				inst.UsesSelf = true
+			}
+			fparams = append(fparams, types.FuncParam{
+				Name: p.Name,
+				Mode: pmode,
+				Type: pty,
+			})
+		}
+		ret := types.Type(types.TypeVoid)
+		if m.Ret != nil {
+			ret = a.resolveValueType(tmpl.Mod, m.Ret, subst, true)
+			if _, isSelf := ret.(*types.SelfPlaceholder); isSelf {
+				inst.UsesSelf = true
+			}
+		}
+		inst.Methods = append(inst.Methods, types.InterfaceMethod{
+			Name:     m.Name,
+			RecvMode: recvModeToParamMode(m.RecvMode),
+			Params:   fparams,
+			Ret:      ret,
+		})
+	}
+	return inst
+}
+
+func (a *Analyzer) isCollectableType(t types.Type) bool {
+	if t == nil || t == types.TypeInvalid {
+		return false
+	}
+	switch v := t.(type) {
+	case *types.Vector:
+		return true
+	case *types.Set:
+		return true
+	case *types.Map:
+		return true
+	case *types.Struct:
+		if fi := a.LookupMethod(v, "push", nil, diag.Span{}); fi != nil {
+			return len(fi.Sig.Params) == 2 && fi.Sig.Params[0].Mode == types.ModeMut
+		}
+		return false
+	case *types.Interface:
+		if a.Prog.GenIfaceCollectable != nil && strings.HasPrefix(v.Name, a.Prog.GenIfaceCollectable.Decl.Name) {
+			return true
+		}
+		for _, m := range v.Methods {
+			if m.Name == "push" && m.RecvMode == types.ModeMut && len(m.Params) == 1 {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func (a *Analyzer) collectableItemType(t types.Type) types.Type {
+	if t == nil || t == types.TypeInvalid {
+		return types.TypeInvalid
+	}
+	switch v := t.(type) {
+	case *types.Vector:
+		return v.Elem
+	case *types.Set:
+		return v.Elem
+	case *types.Map:
+		stTmpl := a.lookupGenStructInModule(a.Prog.EntryMod, "", "MapEntry")
+		if stTmpl == nil && a.coreMod != nil {
+			stTmpl = a.coreMod.GenericStructs["MapEntry"]
+		}
+		if stTmpl == nil {
+			for _, m := range a.Prog.Modules {
+				if stTmpl = a.lookupGenStructInModule(m, "", "MapEntry"); stTmpl != nil {
+					break
+				}
+			}
+		}
+		if stTmpl != nil {
+			entry := a.instantiateStruct(stTmpl, []types.Type{v.Key, v.Value}, diag.Span{})
+			if entry != nil {
+				return entry
+			}
+		}
+		return types.TypeInvalid
+	case *types.Struct:
+		if fi := a.LookupMethod(v, "push", nil, diag.Span{}); fi != nil && len(fi.Sig.Params) == 2 {
+			return fi.Sig.Params[1].Type
+		}
+		return types.TypeInvalid
+	case *types.Interface:
+		for _, m := range v.Methods {
+			if m.Name == "push" && len(m.Params) == 1 {
+				return m.Params[0].Type
+			}
+		}
+		return types.TypeInvalid
+	default:
+		return types.TypeInvalid
+	}
+}
+
+// instantiateEnum monomorphizes `define Name[T...] enum [...]` for concrete `typeArgs`.
+func (a *Analyzer) instantiateEnum(tmpl *GenericEnumTemplate, typeArgs []types.Type, span diag.Span) *types.Enum {
+	if a.monoDepth >= MaxMonomorphDepth {
+		a.Rep.Errorf(span, "generic instantiation recursion depth limit (%d) exceeded while instantiating %s", MaxMonomorphDepth, tmpl.Decl.Name)
+		return nil
+	}
+	a.monoDepth++
+	defer func() { a.monoDepth-- }()
+
+	for i, tp := range tmpl.Decl.TypeParams {
+		if i < len(typeArgs) && !a.verifyNonOptionalTypeArg(tp.Name, typeArgs[i], span, tmpl.Decl.Name) {
+			return nil
+		}
+	}
+
+	hasTypeParam := false
+	parts := make([]string, len(typeArgs))
+	for i, ta := range typeArgs {
+		parts[i] = ta.Mangled()
+		if _, ok := ta.(*types.TypeParamVar); ok {
+			hasTypeParam = true
+		}
+	}
+	key := strings.Join(parts, "__")
+	if !hasTypeParam {
+		if inst, ok := tmpl.Instances[key]; ok {
+			return inst
+		}
+	}
+
+	subst := make(map[string]types.Type, len(typeArgs))
+	for i, tp := range tmpl.Decl.TypeParams {
+		subst[tp.Name] = typeArgs[i]
+	}
+
+	cname := fmt.Sprintf("ll_ge_%s__%s", tmpl.Decl.Name, key)
+	if tag := a.moduleTag(tmpl.Mod); tag != "" {
+		cname = fmt.Sprintf("ll_ge_%s_%s__%s", tag, tmpl.Decl.Name, key)
+	}
+	inst := &types.Enum{
+		Name:       tmpl.Decl.Name,
+		CName:      cname,
+		IsTagged:   true,
+		TypeArgs:   typeArgs,
+		Underlying: types.TypeInt,
+	}
+	a.checkAttributes(tmpl.Decl.Attributes, inst, tmpl.Decl.Span, "enum")
+	if !hasTypeParam {
+		tmpl.Instances[key] = inst
+	}
+
+	a.populateEnumVariants(tmpl.Mod, inst, tmpl.Decl, subst)
+	if !hasTypeParam {
+		a.Prog.EnumDecls[inst] = tmpl.Decl
+		a.Prog.EnumMods[inst] = tmpl.Mod
+		a.Prog.TypeSpans[inst] = tmpl.Decl.Span
+		a.Prog.Enums = append(a.Prog.Enums, inst)
+		a.checkSingleEnumRecursion(inst)
+		for i, tp := range tmpl.Decl.TypeParams {
+			a.verifyBounds(tmpl.Mod, tp, typeArgs[i], span, tmpl.Decl.Name)
+		}
 		if gm, ok := a.genMethods[tmpl.Decl.Name]["drop"]; ok {
 			_ = a.instantiateMethod(gm, inst, nil, span)
 			inst.HasCustomDrop = true
@@ -967,16 +1770,20 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 			if fl, isFn := decl.Value.(*ast.FuncLit); isFn && decl.IsBind {
 				fi := a.buildFuncInstanceFromLit(mod, decl.Name, fl, nil)
 				fi.DeclSpan = decl.Span
+				a.checkAttributes(decl.Attributes, fi, decl.Span, "function")
 				a.Prog.Funcs = append(a.Prog.Funcs, fi)
 				mod.Symbols[decl.Name] = &Symbol{
-					Name:       decl.Name,
-					CName:      fi.CName,
-					Type:       fi.Sig,
-					IsBind:     true,
-					BindKind:   BindOwned,
-					IsTopLevel: true,
-					FuncInst:   fi,
-					Span:       decl.Span,
+					Name:          decl.Name,
+					CName:         fi.CName,
+					Type:          fi.Sig,
+					IsBind:        true,
+					BindKind:      BindOwned,
+					IsTopLevel:    true,
+					FuncInst:      fi,
+					Span:          decl.Span,
+					MustUse:       fi.MustUse,
+					Deprecated:    fi.Deprecated,
+					DeprecatedMsg: fi.DeprecatedMsg,
 				}
 				if mod == a.Prog.EntryMod && decl.Name == "main" {
 					a.validateMainSig(fi, decl.Span)
@@ -1001,16 +1808,23 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				if decl.Type != nil {
 					explicitTy = a.resolveValueType(mod, decl.Type, nil, false)
 				}
+				cname := "ll_g_" + types.SanitizeCIdent(decl.Name)
+				if tag := a.moduleTag(mod); tag != "" {
+					cname = fmt.Sprintf("ll_g_%s_%s", tag, types.SanitizeCIdent(decl.Name))
+				}
 				sym = &Symbol{
 					Name:       decl.Name,
-					CName:      "ll_g_" + types.SanitizeCIdent(decl.Name),
+					CName:      cname,
 					Type:       explicitTy,
 					IsBind:     true,
 					BindKind:   BindOwned,
 					IsTopLevel: true,
 					Span:       decl.Span,
 				}
+				a.checkAttributes(decl.Attributes, sym, decl.Span, "variable")
 				mod.Symbols[decl.Name] = sym
+			} else {
+				a.checkAttributes(decl.Attributes, sym, decl.Span, "variable")
 			}
 			a.Prog.TopVars = append(a.Prog.TopVars, &TopVarInit{Sym: sym, Decl: decl, Mod: mod})
 
@@ -1049,12 +1863,18 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 			a.Prog.MethodTable[key][decl.Name] = fi
 			a.Prog.Funcs = append(a.Prog.Funcs, fi)
 
-			// Check if this is `Drop` (`bind MyStruct.drop = (&self)`)
+			// Check if this is `Drop` (`bind MyStruct.drop = (&self)` or `bind MyEnum.drop = (&self)`)
 			if st, isSt := recvTy.(*types.Struct); isSt && decl.Name == "drop" {
 				if decl.RecvMode != ast.RecvMut || len(decl.Params) != 0 || decl.Ret != nil {
 					a.Rep.Errorf(decl.Span, "`%s.drop` must have signature `(&self)` with no extra parameters and void return", st.Name)
 				} else {
 					st.HasCustomDrop = true
+				}
+			} else if en, isEn := recvTy.(*types.Enum); isEn && decl.Name == "drop" {
+				if decl.RecvMode != ast.RecvMut || len(decl.Params) != 0 || decl.Ret != nil {
+					a.Rep.Errorf(decl.Span, "`%s.drop` must have signature `(&self)` with no extra parameters and void return", en.Name)
+				} else {
+					en.HasCustomDrop = true
 				}
 			}
 		}
@@ -1088,6 +1908,8 @@ func (a *Analyzer) buildFuncInstanceFromLit(mod *Module, name string, fl *ast.Fu
 	cname := "ll_fn_" + sanitizeSymbolName(name)
 	if name == "main" && mod == a.Prog.EntryMod {
 		cname = "ll_user_main"
+	} else if tag := a.moduleTag(mod); tag != "" {
+		cname = fmt.Sprintf("ll_fn_%s_%s", tag, sanitizeSymbolName(name))
 	}
 	return &FuncInstance{
 		Name:       name,
@@ -1144,7 +1966,7 @@ func (a *Analyzer) buildMethodInstance(mod *Module, recvTy types.Type, decl *ast
 		cSuffix += "__" + strings.Join(keys, "__")
 	}
 
-	return &FuncInstance{
+	fi := &FuncInstance{
 		Name:          fmt.Sprintf("%s.%s", recvTy.String(), decl.Name),
 		CName:         fmt.Sprintf("ll_m_%s_%s", recvTy.Mangled(), sanitizeSymbolName(cSuffix)),
 		Sig:           &types.Func{Params: ps, Ret: ret},
@@ -1159,6 +1981,8 @@ func (a *Analyzer) buildMethodInstance(mod *Module, recvTy types.Type, decl *ast
 		TypeSubst:     subst,
 		DeclSpan:      decl.Span,
 	}
+	a.checkAttributes(decl.Attributes, fi, decl.Span, "method")
+	return fi
 }
 
 func extractSortedSubst(subst map[string]types.Type) []string {
@@ -1220,6 +2044,13 @@ func (a *Analyzer) LookupMethod(recvTy types.Type, methodName string, methodType
 }
 
 func (a *Analyzer) instantiateMethod(tmpl *GenericFuncTemplate, recvTy types.Type, methodTypeArgs []types.Type, span diag.Span) *FuncInstance {
+	if a.monoDepth >= MaxMonomorphDepth {
+		a.Rep.Errorf(span, "generic instantiation recursion depth limit (%d) exceeded while instantiating %s.%s", MaxMonomorphDepth, tmpl.MethodDecl.RecvType, tmpl.MethodDecl.Name)
+		return nil
+	}
+	a.monoDepth++
+	defer func() { a.monoDepth-- }()
+
 	decl := tmpl.MethodDecl
 	subst := make(map[string]types.Type)
 	var keyParts []string
@@ -1229,6 +2060,10 @@ func (a *Analyzer) instantiateMethod(tmpl *GenericFuncTemplate, recvTy types.Typ
 		for i, rp := range decl.RecvTypeParams {
 			subst[rp] = st.TypeArgs[i]
 		}
+	} else if en, isEn := recvTy.(*types.Enum); isEn && len(decl.RecvTypeParams) == len(en.TypeArgs) {
+		for i, rp := range decl.RecvTypeParams {
+			subst[rp] = en.TypeArgs[i]
+		}
 	}
 	if len(decl.TypeParams) > 0 {
 		if len(methodTypeArgs) != len(decl.TypeParams) {
@@ -1237,6 +2072,9 @@ func (a *Analyzer) instantiateMethod(tmpl *GenericFuncTemplate, recvTy types.Typ
 			return nil
 		}
 		for i, tp := range decl.TypeParams {
+			if !a.verifyNonOptionalTypeArg(tp.Name, methodTypeArgs[i], span, decl.RecvType+"."+decl.Name) {
+				return nil
+			}
 			subst[tp.Name] = methodTypeArgs[i]
 			keyParts = append(keyParts, methodTypeArgs[i].Mangled())
 			a.verifyBounds(tmpl.Mod, tp, methodTypeArgs[i], span, decl.Name)
@@ -1265,6 +2103,13 @@ func (a *Analyzer) instantiateMethod(tmpl *GenericFuncTemplate, recvTy types.Typ
 }
 
 func (a *Analyzer) instantiateGenericFunc(tmpl *GenericFuncTemplate, typeArgs []types.Type, span diag.Span) *FuncInstance {
+	if a.monoDepth >= MaxMonomorphDepth {
+		a.Rep.Errorf(span, "generic instantiation recursion depth limit (%d) exceeded while instantiating %s", MaxMonomorphDepth, tmpl.VarDecl.Name)
+		return nil
+	}
+	a.monoDepth++
+	defer func() { a.monoDepth-- }()
+
 	decl := tmpl.VarDecl
 	if len(typeArgs) != len(decl.TypeParams) {
 		a.Rep.Errorf(span, "generic function %q expects %d type argument(s), got %d",
@@ -1274,6 +2119,9 @@ func (a *Analyzer) instantiateGenericFunc(tmpl *GenericFuncTemplate, typeArgs []
 	subst := make(map[string]types.Type, len(typeArgs))
 	parts := make([]string, len(typeArgs))
 	for i, tp := range decl.TypeParams {
+		if !a.verifyNonOptionalTypeArg(tp.Name, typeArgs[i], span, decl.Name) {
+			return nil
+		}
 		subst[tp.Name] = typeArgs[i]
 		parts[i] = typeArgs[i].Mangled()
 		a.verifyBounds(tmpl.Mod, tp, typeArgs[i], span, decl.Name)
@@ -1287,7 +2135,12 @@ func (a *Analyzer) instantiateGenericFunc(tmpl *GenericFuncTemplate, typeArgs []
 	instName := fmt.Sprintf("%s[%s]", decl.Name, strings.Join(parts, ","))
 	fi := a.buildFuncInstanceFromLit(tmpl.Mod, instName, fl, subst)
 	fi.DeclSpan = decl.Span
-	fi.CName = fmt.Sprintf("ll_gfn_%s__%s", decl.Name, key)
+	cname := fmt.Sprintf("ll_gfn_%s__%s", decl.Name, key)
+	if tag := a.moduleTag(tmpl.Mod); tag != "" {
+		cname = fmt.Sprintf("ll_gfn_%s_%s__%s", tag, decl.Name, key)
+	}
+	fi.CName = cname
+	a.checkAttributes(decl.Attributes, fi, decl.Span, "function")
 	tmpl.Instances[key] = fi
 	a.Prog.Funcs = append(a.Prog.Funcs, fi)
 	if a.inBodyPass {
@@ -1332,7 +2185,46 @@ func (a *Analyzer) ImplementsInterface(concrete types.Type, ifc *types.Interface
 		if st, ok := concrete.(*types.Struct); ok && st.HasCustomDrop {
 			return true
 		}
+		if en, ok := concrete.(*types.Enum); ok && en.HasCustomDrop {
+			return true
+		}
 		return false
+	}
+	if ifc == a.Prog.IfaceHashable {
+		if types.IsHashable(concrete) {
+			return true
+		}
+		if a.LookupMethod(concrete, "hash", nil, diag.Span{}) != nil {
+			return true
+		}
+		return false
+	}
+	if ifc == a.Prog.IfaceEquatable {
+		return a.supportsEq(concrete)
+	}
+	if ifc == a.Prog.IfaceComparable {
+		return a.supportsCmp(concrete)
+	}
+	if a.Prog.GenIfaceCollectable != nil && strings.HasPrefix(ifc.Name, a.Prog.GenIfaceCollectable.Decl.Name) {
+		if a.isCollectableType(concrete) {
+			itemTy := a.collectableItemType(concrete)
+			if len(ifc.Methods) > 0 && len(ifc.Methods[0].Params) == 1 {
+				reqItem := ifc.Methods[0].Params[0].Type
+				if itemTy != nil && itemTy != types.TypeInvalid && (reqItem == nil || itemTy.Equals(reqItem)) {
+					return true
+				}
+			}
+		}
+	}
+	if a.Prog.GenIfaceIterable != nil && strings.HasPrefix(ifc.Name, a.Prog.GenIfaceIterable.Decl.Name) {
+		switch c := concrete.(type) {
+		case *types.Vector, *types.StackArray, *types.Set, *types.Map:
+			return true
+		case *types.Primitive:
+			if c.Kind == types.PrimString {
+				return true
+			}
+		}
 	}
 
 	impls := make([]*FuncInstance, len(ifc.Methods))
@@ -1406,6 +2298,10 @@ func (a *Analyzer) RegisterVTable(concrete types.Type, ifc *types.Interface) {
 }
 
 func (a *Analyzer) supportsToString(t types.Type) bool {
+	return a.supportsToStringVisited(t, make(map[types.Type]bool))
+}
+
+func (a *Analyzer) supportsToStringVisited(t types.Type, seen map[types.Type]bool) bool {
 	if a.LookupMethod(t, "to_string", nil, diag.Span{}) != nil {
 		return true
 	}
@@ -1413,19 +2309,37 @@ func (a *Analyzer) supportsToString(t types.Type) bool {
 	case *types.Primitive:
 		return v.Kind != types.PrimVoid && v.Kind != types.PrimArena
 	case *types.Enum:
+		if !v.IsTagged || seen[v] {
+			return true
+		}
+		seen[v] = true
+		for _, vr := range v.Variants {
+			switch vr.Kind {
+			case types.VariantTuple:
+				if vr.Payload != nil && !a.supportsToStringVisited(vr.Payload, seen) {
+					return false
+				}
+			case types.VariantStruct:
+				for _, f := range vr.Fields {
+					if !a.supportsToStringVisited(f.Type, seen) {
+						return false
+					}
+				}
+			}
+		}
 		return true
 	case *types.Distinct:
-		return a.supportsToString(v.Base)
+		return a.supportsToStringVisited(v.Base, seen)
 	case *types.Vector:
-		return a.supportsToString(v.Elem)
+		return a.supportsToStringVisited(v.Elem, seen)
 	case *types.StackArray:
-		return a.supportsToString(v.Elem)
+		return a.supportsToStringVisited(v.Elem, seen)
 	case *types.Set:
-		return a.supportsToString(v.Elem)
+		return a.supportsToStringVisited(v.Elem, seen)
 	case *types.Map:
-		return a.supportsToString(v.Key) && a.supportsToString(v.Value)
+		return a.supportsToStringVisited(v.Key, seen) && a.supportsToStringVisited(v.Value, seen)
 	case *types.Optional:
-		return a.supportsToString(v.Elem)
+		return a.supportsToStringVisited(v.Elem, seen)
 	case *types.Interface:
 		return v == a.Prog.IfacePrintable
 	default:
@@ -1434,10 +2348,10 @@ func (a *Analyzer) supportsToString(t types.Type) bool {
 }
 
 func (a *Analyzer) supportsCopy(t types.Type) bool {
-	return a.supportsCopyVisited(t, make(map[*types.Struct]bool))
+	return a.supportsCopyVisited(t, make(map[types.Type]bool))
 }
 
-func (a *Analyzer) supportsCopyVisited(t types.Type, seen map[*types.Struct]bool) bool {
+func (a *Analyzer) supportsCopyVisited(t types.Type, seen map[types.Type]bool) bool {
 	if t.IsPlain() {
 		return true
 	}
@@ -1463,6 +2377,29 @@ func (a *Analyzer) supportsCopyVisited(t types.Type, seen map[*types.Struct]bool
 		return !v.UsesSelf
 	case *types.Func:
 		return true
+	case *types.Enum:
+		if v.HasCustomDrop {
+			return false
+		}
+		if !v.IsTagged || seen[v] {
+			return true
+		}
+		seen[v] = true
+		for _, vr := range v.Variants {
+			switch vr.Kind {
+			case types.VariantTuple:
+				if vr.Payload != nil && !a.supportsCopyVisited(vr.Payload, seen) {
+					return false
+				}
+			case types.VariantStruct:
+				for _, f := range vr.Fields {
+					if !a.supportsCopyVisited(f.Type, seen) {
+						return false
+					}
+				}
+			}
+		}
+		return true
 	case *types.Struct:
 		if v.HasCustomDrop {
 			// Structs with custom Drop only copy if user explicitly defines `.copy()`
@@ -1481,4 +2418,50 @@ func (a *Analyzer) supportsCopyVisited(t types.Type, seen map[*types.Struct]bool
 	default:
 		return false
 	}
+}
+
+func (a *Analyzer) supportsEq(t types.Type) bool {
+	if t == nil || t == types.TypeInvalid {
+		return false
+	}
+	if types.SupportsEq(t) {
+		return true
+	}
+	if a.LookupMethod(t, "eq", nil, diag.Span{}) != nil {
+		return true
+	}
+	if a.LookupMethod(t, "cmp", nil, diag.Span{}) != nil {
+		return true
+	}
+	if tp, isTP := t.(*types.TypeParamVar); isTP {
+		for _, b := range tp.Bounds {
+			if b == a.Prog.IfaceEquatable || b == a.Prog.IfaceComparable || b.Name == "Equatable" || b.Name == "Comparable" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (a *Analyzer) supportsCmp(t types.Type) bool {
+	if t == nil || t == types.TypeInvalid {
+		return false
+	}
+	if p := types.UnderlyingPrimitive(t); p != nil {
+		return p.IsNumeric() || p.Kind == types.PrimChar || p.Kind == types.PrimString
+	}
+	if a.LookupMethod(t, "cmp", nil, diag.Span{}) != nil {
+		return true
+	}
+	if d, isDist := t.(*types.Distinct); isDist {
+		return a.supportsCmp(d.Base)
+	}
+	if tp, isTP := t.(*types.TypeParamVar); isTP {
+		for _, b := range tp.Bounds {
+			if b == a.Prog.IfaceComparable || b.Name == "Comparable" {
+				return true
+			}
+		}
+	}
+	return false
 }

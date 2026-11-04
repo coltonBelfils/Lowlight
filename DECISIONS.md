@@ -136,3 +136,152 @@
    * Added `.contains(k)` on `#[T]` and `#[K: V]` as an ergonomic alias alongside `.has(k)`, unifying membership checks across `[T]`, `[N: T]`, `string`, `#[T]`, and `#[K: V]`.
 3. **Search `for` Loops with Statement Bodies**:
    * A `for` loop with an `else` fallback (or yielding values solely via `for <- val` inside its body) whose body ends in a statement (`if (cond) { for <- x }`) checks its body as statement-valued while collecting all `for <- val` exits into the loop's result type `T` (with `else`) or `?T` (without `else`).
+
+---
+
+## 7. Post-v1.0 Security Audit & Robustness Resolutions
+
+During the post-v1.0 codebase audit and fuzzing pass, 12 key compiler and standard library areas were identified, hardened, and verified:
+
+1. **Top-Level Constant Dependency Resolution & Topological Ordering (Bugs 1 & 2)**:
+   * Fixed compiler nil-pointer crash and C uninitialized variable emission on out-of-order and forward-referenced top-level `bind` constants.
+   * Semantic analyzer topologically sorts top-level variable dependencies and detects cyclic definitions (`A = B + 1`, `B = A + 1`) at compile time with a clean diagnostic error instead of crashing.
+2. **Move Semantics on Dynamic Vector Reallocations (`[NonCopyable]`) (Bug 3)**:
+   * Fixed C compilation failure when instantiating vectors containing non-copyable Resource types (e.g. types with `Drop`).
+   * `ll_vec_reserve` uses raw memory relocation (`memcpy`) without dropping or duplicating slots, adhering strictly to Lowlight move semantics.
+3. **Full Two's-Complement `INT64_MIN` Overflow Hardening (Bug 4 & Security Hole 6)**:
+   * Handled `-9223372036854775807 - 1` without arithmetic wrap in `std/strconv.ll:to_radix` (using `u64(0) - u64(v)`) and `std/strfmt.ll:format_commas`.
+   * Added strict 64-bit integer overflow detection in `std/strconv.ll:parse_int_radix` returning `none` on overflow.
+4. **Recursive Arena Escape Analysis (Security Hole 1)**:
+   * Extended `arenaDepthOfExpr` in `check_stmt_expr.go` to deeply recurse into `MemberExpr`, `IndexExpr`, `SliceExpr`, `UnaryExpr`, `IfExpr`, `BlockExpr`, and `MatchExpr`, preventing `ref[T]` pointers from escaping an `Arena` scope through struct fields, if/else branches, or block values.
+5. **C Namespace Isolation & Module Mangling (Security Hole 2)**:
+   * Non-entry, non-core modules mangle top-level functions and generic instantiations with a deterministic module tag (`ll_fn_<module>_<name>`), preventing C ABI symbol collisions across multi-module projects.
+6. **Generic Monomorphization Recursion Depth Limit (Security Hole 3)**:
+   * Implemented a compile-time recursion limit (`MaxMonomorphDepth = 128`) on generic struct, function, and method monomorphizations, preventing compiler stack overflows or hangs on recursive generic bombs.
+7. **Tombstone Compaction in Hash Collections (Security Hole 4)**:
+   * In `ll_map_rehash` and `ll_set_rehash`, live entries are compacted into contiguous memory when `len < ent_len`, preventing tombstone leaks from repeated insertions and deletions. Rehashes in place when load factor is dominated by tombstones.
+8. **Native POSIX Directory Operations (Security Hole 5)**:
+   * Removed shell-based execution (`system("/bin/sh -c ...")`) from `std/os.ll:mkdir_p` and `remove_all`.
+   * Replaced with secure, native POSIX implementations `ll_os_mkdir_p` and `ll_os_remove_all` in `runtime_h.go`, eliminating command injection vulnerabilities.
+9. **Raw Pointer Assignment Without Dropping Uninitialized Memory (Security Hole 7)**:
+   * Assigning to a raw pointer dereference `*p = val` in `unsafe` blocks now omits the prior drop of `*p`, ensuring newly allocated raw memory from `alloc_raw[T]` can be safely initialized.
+10. **Prelude Unification (`Result[T, E]`) & Interface Signature Fixes**:
+    * Moved `Result[T, E]` to `std/core.ll` (implicit standard prelude), available globally without imports across `std/fs.ll`, `std/net.ll`, `std/os.ll`, and `std/http.ll`.
+    * Fixed `Drop` interface return signature in `std/core.ll` to `drop: (&self),` without `: void`.
+11. **Attributes Support**:
+    * Full compiler and codegen support for `@inline`, `@noinline`, `@must_use`, `@nodiscard`, `@deprecated`, `@packed`, and `@doc` on functions, methods, structs, and enums.
+12. **High-Performance String Byte Push**:
+    * Added `string.push_bytes(ptr[u8], int)` primitive in runtime and compiler, replacing slow byte loops in `std/http.ll`.
+
+---
+
+## 8. Separation of `while` (Scalar) and `for` (Collection) & Interface Unification
+
+1. **Stack Array Literals (`[N: value]` vs `[N: e0, e1, ...]`)**:
+   * Fixed-size stack array literals distinguish between repeat constructor `[N: value]` (when single element provided and $N > 1$) and explicit elements `[N: e0, e1, ...]`.
+   * Single-element array `[1: 0]` is valid under either interpretation.
+   * Element count mismatch when $M > 1$ and $M \ne N$ (e.g. `[4: 1, 2]`) is rejected at compile time.
+2. **`Iterator[T]`, `Iterable[T]`, and `Collectable[T]` Interfaces in Core**:
+   * Added generic interface declarations in `std/core.ll`.
+   * Built-in collections (`[T]`, `[N: T]`, `string`, `#[T]`, `#[K: V]`) implement `Iterable[T]` and `Collectable[T]`.
+3. **Map Iteration and Uniform `MapEntry[K, V]`**:
+   * Single-variable map iteration `for (entry in my_map)` binds `entry` as `MapEntry[K, V]` with fields `key: K` and `value: V`.
+   * Maps implement `Collectable[MapEntry[K, V]]` via `.push(entry)`.
+   * Two-variable iteration `for (k, v in my_map)` is retained for convenience.
+4. **`while` Loops Evaluate to Scalars**:
+   * Syntax: `while (<cond>|<var> in <iter>)[: <eval_type>] <body> [else <else_body>]`.
+   * Evaluates to scalar `T` with `else`, or `?T` without `else`.
+   * Infinite condition `while(true): T` evaluates to `T` without requiring `else`.
+   * Early exit via `while <- val` yields the scalar and terminates the loop.
+   * In statement/void position, runs purely for side effects without allocating.
+5. **`for` Loops Evaluate to Collections (`Collectable`)**:
+   * Syntax: `for (<cond>|<var> in <iter>)[: <eval_type>: Collectable] <body>`.
+   * In value position, evaluates to a collection where each iteration's expression is added via `push`.
+   * Default collection is dynamic List `[Elem]`; explicit list shorthand is `: []`.
+   * Non-`Collectable` annotations (e.g., `for (true): int`) are rejected with compile-time errors.
+   * `next <-` filters/skips iteration without adding to the collection.
+   * `for <-` breaks early, yielding the collection accumulated up to that point.
+   * In statement/void position, runs purely for side effects without allocating.
+6. **Pure Lowlight Collections Architecture & Interface Migration**:
+   * Dynamic collection types (`List[T]`, `Set[T]`, `Map[K, V]`) are implemented directly in `std/core.ll` in pure Lowlight using raw memory primitives (`alloc_raw`, `realloc_raw`, `free_raw`, `ptr[T]`, `ptr_read`, `ptr_write`).
+   * All core capabilities (`Printable`, `Copyable`, `Drop`, `Collectable`, `Iterable`, `Iterator`) are standard Lowlight interface implementations rather than Go compiler macro synthesis.
+   * Bracket type syntax (`[T]`, `#[T]`, `#[K: V]`), literals (`[]`, `[a, b, c]`, `#[...]`), indexing (`lst[i]`, `m[k]`), and loops (`for (x in col)`) serve as pure compiler syntactic sugar over `List[T]`, `Set[T]`, and `Map[K, V]`.
+
+---
+
+## 9. `@lang` Attribute on Structs, `List` vs `Array` Nomenclature, Vector Removal & `Hashable` Constraints
+
+1. **`@lang` Attribute on Generic Struct Declarations**:
+   - The compiler recognizes `@lang("list")`, `@lang("set")`, and `@lang("map")` on generic struct declarations in `std/core.ll`.
+   - Binds compiler syntax sugar (`[T]`, `[]`, `[1, 2, 3]`, `lst[i]`, `#[T]`, `#[K: V]`, `m[k]`, and collection comprehensions) to standard library structs.
+2. **Collection Nomenclature: `Array` vs `List`, Complete Removal of `Vector`**:
+   - `Array`: Fixed-size stack array type (`[N: T]`).
+   - `List`: Dynamically resizable heap list type (`[T]` / `List[T]`).
+   - `Vector` is not an alias to either and is completely removed from the language, standard library (`std/core.ll`), and compiler.
+3. **`Map` Key Type Constrained to `K: Hashable`**:
+   - Generic struct declarations enforce `K: Hashable`:
+     - `define MapSlot[K: Hashable, V] struct`
+     - `@lang("map") define Map[K: Hashable, V] struct`
+     - `define MapIterator[K: Hashable, V] struct`
+     - `define MapEntry[K: Hashable, V] struct`
+   - Rejects non-Hashable key types at compile time.
+4. **`Set` Type Constrained to `T: Hashable`**:
+   - Generic struct declarations enforce `T: Hashable`:
+     - `define SetEntry[T: Hashable] struct`
+     - `@lang("set") define Set[T: Hashable] struct`
+     - `define SetIterator[T: Hashable] struct`
+   - Rejects non-Hashable element types at compile time.
+5. **`Hashable` Interface & Method-Based Hashing**:
+   - `@lang("hashable") define Hashable interface [ hash: (self): u64 ]` in `std/core.ll`.
+   - Pre-bound `.hash = (self): u64` for all primitive types (`int`, `bool`, `string`, `char`, `float`, `u8`..`u64`, `i8`..`i32`).
+   - Custom structs/enums implementing `.hash = (self): u64` automatically satisfy `Hashable` and generate appropriate C hashing delegates (`ll_hash__...`).
+6. **Pure Lowlight Implementations & Safety**:
+   - `List[T]`, `Set[T: Hashable]`, and `Map[K: Hashable, V]` implemented in pure Lowlight.
+   - Non-consuming methods borrow in-place via pointer indexing (`self.data[i]`, `self.entries[i]`), preventing premature drops and double-free hazards.
+   - Removal operations (`remove`, `clear`, `drop`) invoke destructors on dead resource slots via `ptr_read`, ensuring zero leaks under `LOWLIGHT_CHECK_LEAKS=1`.
+
+---
+
+## 10. Complete Retirement of `hash_of()` Intrinsic & Pure Lowlight Hashing Stack
+
+1. **Complete Retirement of `hash_of()`**:
+   - The compiler intrinsic `hash_of(val)` has been retired completely from `sema/check_calls.go`, `ir/lower_calls.go`, and runtime headers.
+   - Any attempt to invoke `hash_of(...)` is rejected as an undeclared identifier at compile time.
+   - Code computes hashes uniformly via `.hash()` method calls: `val.hash()`, `key.hash()`, `self.id.hash()`.
+2. **Pure Lowlight Hashing Stack in `std/core.ll`**:
+   - `bind hash_mix_u64 = (x: u64): u64`: SplitMix64 64-bit integer hash mixer implemented directly in Lowlight.
+   - Primitive integer hashing: `int.hash`, `i8.hash`..`i32.hash`, `u8.hash`..`u64.hash`, `char.hash`, `bool.hash` pass their 64-bit value to `hash_mix_u64`.
+   - Float hashing: `float.hash` normalizes `-0.0` to `+0.0`, bit-casts the 64-bit float IEEE representation to `u64` via `addr_of` and `ptr_cast[u64]`, and mixes via `hash_mix_u64`.
+   - String hashing: `string.hash` implements the 64-bit FNV-1a hash algorithm directly in pure Lowlight looping over string byte length (`self.len()`) and byte indexing (`u64(self[i])`).
+3. **C Runtime Simplification**:
+   - Removed C implementations `ll_hash_u64_mix`, `ll_fnv1a_bytes`, and primitive `ll_hash__*` from `runtime_h.go`.
+   - Zero C compiler affordances or helper functions are required for hashing; all hashing code lives in Lowlight.
+   - C delegates in `cgen.go` invoke the pure Lowlight methods `ll_m_<prim>_hash` and `ll_fn_hash_mix_u64`.
+
+---
+
+## 11. Separation of `Equatable` and `Comparable` Interfaces & Operator Backing
+
+1. **Architectural Separation**:
+   - `Equatable`: Universal interface for equivalence relation checking (`==` and `!=`). Required method: `eq: (self, other: Self): bool`.
+   - `Comparable`: Universal interface for total ordering (`<`, `<=`, `>`, `>=`). Required method: `cmp: (self, other: Self): int` (negative for `<`, `0` for `==`, positive for `>`).
+   - Types that have natural equality but no meaningful total order (e.g. `bool`, `Point`, `Set`, `Map`) implement `Equatable` without being forced to define an arbitrary sorting order.
+   - Any type implementing `Comparable` automatically satisfies `Equatable` (`a == b` $\iff$ `a.cmp(b) == 0`).
+2. **Backing Behind Comparison & Ordering Operators**:
+   - `==` and `!=` operators check for equality capability:
+     - Primitives compile directly to native C equality operators (`((a) == (b))`) or `ll_str_eq` with zero function call overhead.
+     - Custom structs and user types invoke `.eq()` or delegate to `(.cmp() == 0)`.
+     - Generic bodies bounded by `[T: Equatable]` or `[T: Comparable]` permit `==` and `!=`.
+   - `<`, `<=`, `>`, `>=` operators check for ordering capability:
+     - Primitives (numeric, char, string) compile directly to native C comparison operators or `ll_str_cmp`.
+     - Custom structs and user types invoke `.cmp()`.
+     - Generic bodies bounded by `[T: Comparable]` permit ordering operators.
+     - Types that do not implement `Comparable` (e.g. `bool`, unorderable structs) produce a compile-time diagnostic error when used with relational operators.
+3. **Core Utility Functions (`min`, `max`, `clamp`)**:
+   - `min[T: Comparable + Copyable] = (a: T, b: T): T`
+   - `max[T: Comparable + Copyable] = (a: T, b: T): T`
+   - `clamp[T: Comparable + Copyable] = (val: T, low: T, high: T): T`
+   - Bounded by `Comparable + Copyable`, guaranteeing compile-time type safety while operating on primitives (`int`, `float`, `char`, `string`) and custom user structs alike.
+
+
+

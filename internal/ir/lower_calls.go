@@ -30,8 +30,27 @@ func (fl *funcLowerer) lowerCallExpr(call *ast.CallExpr, inf *sema.ExprInfo) str
 		return fl.lowerBuiltinMethodCall(call, inf)
 	case sema.CallIntrinsic:
 		return fl.lowerIntrinsicCall(call, inf)
+	case sema.CallEnumVariant:
+		return fl.lowerEnumVariantCall(call, inf)
 	}
 	return ""
+}
+
+func (fl *funcLowerer) lowerEnumVariantCall(call *ast.CallExpr, inf *sema.ExprInfo) string {
+	en := inf.EnumType
+	vr := inf.EnumVariant
+	fl.tc.visit(en)
+	slot := fl.allocSlot("_ll_evar", en)
+	payloadVal := fl.lowerExprOwned(call.Args[0], vr.Payload)
+	fl.emit(&InstrAssign{
+		Dst:  fmt.Sprintf("%s.tag", slot.CName),
+		Expr: fmt.Sprintf("%d", vr.Value),
+	})
+	fl.emit(&InstrAssign{
+		Dst:  fmt.Sprintf("%s.data.%s", slot.CName, vr.CName),
+		Expr: payloadVal,
+	})
+	return slot.CName
 }
 
 func (fl *funcLowerer) lowerCallArgs(params []types.FuncParam, args []ast.Expr) []string {
@@ -645,6 +664,10 @@ func (fl *funcLowerer) emitMutBuiltinMethodOnPtr(
 	case "string.push_byte":
 		b := fl.lowerExprRead(call.Args[0])
 		return fmt.Sprintf("ll_str_push_byte(%s, %s)", recvPtr, b)
+	case "string.push_bytes":
+		p := fl.lowerExprRead(call.Args[0])
+		cnt := fl.lowerExprRead(call.Args[1])
+		return fmt.Sprintf("ll_str_push_bytes(%s, %s, %s)", recvPtr, p, cnt)
 	case "string.clear":
 		return fmt.Sprintf("ll_str_clear(%s)", recvPtr)
 
@@ -660,11 +683,11 @@ func (fl *funcLowerer) emitMutBuiltinMethodOnPtr(
 	case "vec.remove":
 		vecTy := recvTy.(*types.Vector)
 		idx := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_vec_remove__%s(%s, %s, %d, %q, %d)", vecTy.Mangled(), recvPtr, idx, boolToInt(!fl.release), file, line)
+		return fmt.Sprintf("ll_vec_remove__%s(%s, %s, 1, %q, %d)", vecTy.Mangled(), recvPtr, idx, file, line)
 	case "vec.swap_remove":
 		vecTy := recvTy.(*types.Vector)
 		idx := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_vec_swap_remove__%s(%s, %s, %d, %q, %d)", vecTy.Mangled(), recvPtr, idx, boolToInt(!fl.release), file, line)
+		return fmt.Sprintf("ll_vec_swap_remove__%s(%s, %s, 1, %q, %d)", vecTy.Mangled(), recvPtr, idx, file, line)
 	case "vec.clear":
 		vecTy := recvTy.(*types.Vector)
 		return fmt.Sprintf("ll_vec_clear__%s(%s)", vecTy.Mangled(), recvPtr)
@@ -692,6 +715,13 @@ func (fl *funcLowerer) emitMutBuiltinMethodOnPtr(
 		k := fl.lowerExprOwned(call.Args[0], mapTy.Key)
 		v := fl.lowerExprOwned(call.Args[1], mapTy.Value)
 		return fmt.Sprintf("ll_map_insert__%s(%s, %s, %s)", mapTy.Mangled(), recvPtr, k, v)
+	case "map.push":
+		mapTy := recvTy.(*types.Map)
+		entryTy := fl.info(call.Args[0]).Type
+		entryVal := fl.lowerExprOwned(call.Args[0], entryTy)
+		entrySlot := fl.allocSlot("_ll_entry", entryTy)
+		fl.assignLocal(entrySlot, entryVal)
+		return fmt.Sprintf("ll_map_insert__%s(%s, %s.ll_key, %s.ll_value)", mapTy.Mangled(), recvPtr, entrySlot.CName, entrySlot.CName)
 	case "map.remove":
 		mapTy := recvTy.(*types.Map)
 		fl.tc.visit(inf.Type)

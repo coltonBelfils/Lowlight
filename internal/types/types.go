@@ -390,6 +390,9 @@ type Struct struct {
 	Name          string
 	CName         string
 	Packed        bool
+	MustUse       bool
+	Deprecated    bool
+	DeprecatedMsg string
 	Fields        []StructField
 	HasCustomDrop bool
 	BoxedOptional bool // true if `?ThisStruct` closes a recursive cycle and compiles to `ThisStruct*`
@@ -450,27 +453,106 @@ func (s *Struct) FieldByName(name string) (*StructField, int) {
 	return nil, -1
 }
 
-// EnumVariant describes a named constant in an Enum.
+type EnumVariantKind int
+
+const (
+	VariantUnit   EnumVariantKind = iota // `Empty`
+	VariantTuple                         // `Ok: T`
+	VariantStruct                        // `Add: [left: ref[Expr], right: ref[Expr]]`
+)
+
+// EnumVariant describes a variant in a pure tag enum or a tagged union enum.
 type EnumVariant struct {
-	Name  string
-	Value int64
+	Name    string
+	CName   string
+	Value   int64 // 0-based (or explicit) for pure tag enums; 1..N for tagged unions (0 = inert moved/dropped sentinel)
+	Kind    EnumVariantKind
+	Payload Type          // non-nil for VariantTuple
+	Fields  []StructField // populated for VariantStruct
 }
 
-// Enum represents a strongly-typed tag enum (`define Status enum ...`).
+func (v *EnumVariant) FieldByName(name string) (*StructField, int) {
+	for i := range v.Fields {
+		if v.Fields[i].Name == name {
+			return &v.Fields[i], i
+		}
+	}
+	return nil, -1
+}
+
+// Enum represents a strongly-typed tag enum (`define Status enum ...`)
+// or a payload-carrying / generic tagged union (`define Result[T, E] enum ...`).
 type Enum struct {
-	Name       string
-	CName      string
-	Underlying *Primitive // integer type, default `TypeInt`
-	Variants   []EnumVariant
+	Name          string
+	CName         string
+	MustUse       bool
+	Deprecated    bool
+	DeprecatedMsg string
+	IsTagged      bool       // true when any variant carries a payload or enum has generic type parameters
+	TypeArgs      []Type     // populated for monomorphized generic enums
+	HasCustomDrop bool
+	Underlying    *Primitive // integer type for pure tag enums, default `TypeInt`
+	Variants      []EnumVariant
+
+	plainComputed bool
+	plainCached   bool
+	plainVisiting bool
 }
 
-func (e *Enum) String() string  { return e.Name }
+func (e *Enum) String() string {
+	if len(e.TypeArgs) == 0 {
+		return e.Name
+	}
+	parts := make([]string, len(e.TypeArgs))
+	for i, ta := range e.TypeArgs {
+		parts[i] = ta.String()
+	}
+	return fmt.Sprintf("%s[%s]", e.Name, strings.Join(parts, ", "))
+}
+
 func (e *Enum) Mangled() string { return e.CName }
 func (e *Enum) Equals(other Type) bool {
 	o, ok := other.(*Enum)
 	return ok && e == o
 }
-func (e *Enum) IsPlain() bool { return true }
+func (e *Enum) IsPlain() bool {
+	if e.HasCustomDrop {
+		return false
+	}
+	if !e.IsTagged {
+		return true
+	}
+	if e.plainComputed {
+		return e.plainCached
+	}
+	if e.plainVisiting {
+		return true
+	}
+	e.plainVisiting = true
+	res := true
+	for _, v := range e.Variants {
+		switch v.Kind {
+		case VariantTuple:
+			if v.Payload != nil && !v.Payload.IsPlain() {
+				res = false
+			}
+		case VariantStruct:
+			for _, f := range v.Fields {
+				if !f.Type.IsPlain() {
+					res = false
+					break
+				}
+			}
+		}
+		if !res {
+			break
+		}
+	}
+	e.plainVisiting = false
+	e.plainComputed = true
+	e.plainCached = res
+	return res
+}
 
 func (e *Enum) VariantByName(name string) (*EnumVariant, bool) {
 	for i := range e.Variants {
@@ -644,7 +726,9 @@ func IsHashable(t Type) bool {
 	switch v := t.(type) {
 	case *Primitive:
 		return v.IsInteger() || v.Kind == PrimBool || v.Kind == PrimChar || v.Kind == PrimString
-	case *Enum, *Ptr:
+	case *Enum:
+		return !v.IsTagged
+	case *Ptr:
 		return true
 	case *Distinct:
 		return IsHashable(v.Base)
@@ -655,14 +739,34 @@ func IsHashable(t Type) bool {
 
 // SupportsEq reports whether `==` and `!=` are defined on `t`.
 func SupportsEq(t Type) bool {
-	return supportsEqVisited(t, make(map[*Struct]bool))
+	return supportsEqVisited(t, make(map[Type]bool))
 }
 
-func supportsEqVisited(t Type, seen map[*Struct]bool) bool {
+func supportsEqVisited(t Type, seen map[Type]bool) bool {
 	switch v := t.(type) {
 	case *Primitive:
 		return v.Kind != PrimVoid && v.Kind != PrimArena
-	case *Enum, *Ptr, *Ref:
+	case *Ptr, *Ref:
+		return true
+	case *Enum:
+		if !v.IsTagged || seen[v] {
+			return true
+		}
+		seen[v] = true
+		for _, vr := range v.Variants {
+			switch vr.Kind {
+			case VariantTuple:
+				if vr.Payload != nil && !supportsEqVisited(vr.Payload, seen) {
+					return false
+				}
+			case VariantStruct:
+				for _, f := range vr.Fields {
+					if !supportsEqVisited(f.Type, seen) {
+						return false
+					}
+				}
+			}
+		}
 		return true
 	case *Distinct:
 		return supportsEqVisited(v.Base, seen)
@@ -686,10 +790,10 @@ func supportsEqVisited(t Type, seen map[*Struct]bool) bool {
 
 // ContainsArenaRef reports whether `t` is `ref[U]` or transitively contains a `ref[U]`.
 func ContainsArenaRef(t Type) bool {
-	return containsRefVisited(t, make(map[*Struct]bool))
+	return containsRefVisited(t, make(map[Type]bool))
 }
 
-func containsRefVisited(t Type, seen map[*Struct]bool) bool {
+func containsRefVisited(t Type, seen map[Type]bool) bool {
 	switch v := t.(type) {
 	case *Ref:
 		return true
@@ -705,6 +809,26 @@ func containsRefVisited(t Type, seen map[*Struct]bool) bool {
 		return containsRefVisited(v.Key, seen) || containsRefVisited(v.Value, seen)
 	case *Distinct:
 		return containsRefVisited(v.Base, seen)
+	case *Enum:
+		if !v.IsTagged || seen[v] {
+			return false
+		}
+		seen[v] = true
+		for _, vr := range v.Variants {
+			switch vr.Kind {
+			case VariantTuple:
+				if vr.Payload != nil && containsRefVisited(vr.Payload, seen) {
+					return true
+				}
+			case VariantStruct:
+				for _, f := range vr.Fields {
+					if containsRefVisited(f.Type, seen) {
+						return true
+					}
+				}
+			}
+		}
+		return false
 	case *Struct:
 		if seen[v] {
 			return false
