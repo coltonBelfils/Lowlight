@@ -462,8 +462,17 @@ func (fl *funcLowerer) lowerLoopDriver(
 			idxVar := fl.allocSlot("_ll_si", types.TypeInt)
 			fl.assignLocal(idxVar, NewLitInt(0, false, types.TypeInt))
 			fl.usedLabels[contLbl] = true
-			entriesField := &ExprField{Base: colPtrExpr, FieldName: "entries", Typ: &types.Ptr{Elem: types.TypeVoid}, IsPtr: true}
-			entryAccess := &ExprIndex{Base: entriesField, Index: NewLocalExpr(idxVar)}
+			setEntSt := &types.Struct{
+				Name:  "ll_" + c.Mangled() + "_ent",
+				CName: "ll_" + c.Mangled() + "_ent",
+				Fields: []types.StructField{
+					{Name: "alive", CName: "alive", Type: types.TypeBool},
+					{Name: "hash", CName: "hash", Type: types.TypeU64},
+					{Name: "key", CName: "key", Type: c.Elem},
+				},
+			}
+			entriesField := &ExprField{Base: colPtrExpr, FieldName: "entries", Typ: &types.Ptr{Elem: setEntSt}, IsPtr: true}
+			entryAccess := &ExprIndex{Base: entriesField, Index: NewLocalExpr(idxVar), Typ: setEntSt}
 			aliveField := &ExprField{Base: entryAccess, FieldName: "alive", Typ: types.TypeBool}
 			notAlive := &ExprUnary{Op: token.KwNot, Operand: aliveField, Typ: types.TypeBool}
 			keyField := &ExprField{Base: entryAccess, FieldName: "key", Typ: c.Elem}
@@ -481,8 +490,18 @@ func (fl *funcLowerer) lowerLoopDriver(
 			idxVar := fl.allocSlot("_ll_mi", types.TypeInt)
 			fl.assignLocal(idxVar, NewLitInt(0, false, types.TypeInt))
 			fl.usedLabels[contLbl] = true
-			entriesField := &ExprField{Base: colPtrExpr, FieldName: "entries", Typ: &types.Ptr{Elem: types.TypeVoid}, IsPtr: true}
-			entryAccess := &ExprIndex{Base: entriesField, Index: NewLocalExpr(idxVar)}
+			mapEntSt := &types.Struct{
+				Name:  "ll_" + c.Mangled() + "_ent",
+				CName: "ll_" + c.Mangled() + "_ent",
+				Fields: []types.StructField{
+					{Name: "alive", CName: "alive", Type: types.TypeBool},
+					{Name: "hash", CName: "hash", Type: types.TypeU64},
+					{Name: "key", CName: "key", Type: c.Key},
+					{Name: "val", CName: "val", Type: c.Value},
+				},
+			}
+			entriesField := &ExprField{Base: colPtrExpr, FieldName: "entries", Typ: &types.Ptr{Elem: mapEntSt}, IsPtr: true}
+			entryAccess := &ExprIndex{Base: entriesField, Index: NewLocalExpr(idxVar), Typ: mapEntSt}
 			aliveField := &ExprField{Base: entryAccess, FieldName: "alive", Typ: types.TypeBool}
 			notAlive := &ExprUnary{Op: token.KwNot, Operand: aliveField, Typ: types.TypeBool}
 			keyAccess := &ExprField{Base: entryAccess, FieldName: "key", Typ: c.Key}
@@ -853,7 +872,7 @@ func (fl *funcLowerer) symbolAddr(sym *sema.Symbol) Expr {
 		}
 		return &ExprAddrOf{Place: NewLocalExpr(loc), Typ: &types.Ptr{Elem: loc.Type}}
 	}
-	return &ExprAddrOf{Place: &ExprGlobal{Global: &Global{Name: sym.CName, Type: sym.Type}}, Typ: &types.Ptr{Elem: sym.Type}}
+	return &ExprAddrOf{Place: &ExprGlobal{Global: &Global{Name: sym.CName, CName: sym.CName, Type: sym.Type}}, Typ: &types.Ptr{Elem: sym.Type}}
 }
 
 func (fl *funcLowerer) lowerIdentExpr(v *ast.IdentExpr, inf *sema.ExprInfo) Expr {
@@ -1231,7 +1250,7 @@ func (fl *funcLowerer) lowerMemberExpr(m *ast.MemberExpr, inf *sema.ExprInfo, fo
 				FuncType: fnTy,
 			}
 		}
-		return &ExprGlobal{Global: &Global{Name: inf.Sym.CName, Type: inf.Sym.Type}}
+		return &ExprGlobal{Global: &Global{Name: inf.Sym.CName, CName: inf.Sym.CName, Type: inf.Sym.Type}}
 	}
 
 	// 3. Optional chaining (`u?.address?.city` or `find(id)?.name`)
@@ -1380,8 +1399,9 @@ func (fl *funcLowerer) lowerIndexExpr(idx *ast.IndexExpr, inf *sema.ExprInfo, _ 
 		fl.assignLocal(iTmp, fl.checkedIndexExpr(idxVal, lenExpr, file, line))
 		dataPtr := &ExprField{Base: NewLocalExpr(sTmp), FieldName: "data", Typ: &types.Ptr{Elem: types.TypeU8}, IsPtr: false}
 		return &ExprCast{
-			Val: &ExprIndex{Base: dataPtr, Index: NewLocalExpr(iTmp), Typ: types.TypeU8},
-			To:  types.TypeU8,
+			Val:  &ExprIndex{Base: dataPtr, Index: NewLocalExpr(iTmp), Typ: types.TypeU8},
+			From: types.TypeU8,
+			To:   types.TypeU8,
 		}
 
 	case *types.Map:
@@ -1899,7 +1919,7 @@ func (fl *funcLowerer) lowerFuncLitExpr(_ *ast.FuncLit, inf *sema.ExprInfo) Expr
 				}
 			}
 		} else {
-			valExpr = &ExprGlobal{Global: &Global{Name: capItem.OuterSym.CName, Type: capItem.Type}}
+			valExpr = &ExprGlobal{Global: &Global{Name: capItem.OuterSym.CName, CName: capItem.OuterSym.CName, Type: capItem.Type}}
 		}
 		fl.emit(&InstrAssign{
 			Dst:  &ExprField{Base: NewLocalExpr(envSlot), FieldName: capItem.CName, Typ: capItem.Type, IsPtr: true},

@@ -24,6 +24,14 @@ import (
 // Version is the semantic version of this Lowlight compiler implementation.
 const Version = "1.0.0"
 
+// BackendKind specifies which codegen backend stack to target.
+type BackendKind string
+
+const (
+	BackendC11  BackendKind = "c11"
+	BackendLLVM BackendKind = "llvm"
+)
+
 // Options configures a compilation, emission, build, or run invocation.
 type Options struct {
 	EntryPath   string
@@ -32,10 +40,27 @@ type Options struct {
 	ProjectRoot string
 	OutPath     string
 	CC          string
+	Backend     BackendKind // Target backend: "c11" (default) or "llvm"
 	Release     bool
 	ExtraCFlags []string
 	Env         []string // Optional extra environment variables when running
 	TestMode    bool     // Compile and run test entry point / test harness
+}
+
+// EffectiveBackend returns the active BackendKind considering options and LOWLIGHT_BACKEND env.
+func (o Options) EffectiveBackend() BackendKind {
+	if o.Backend != "" {
+		return o.Backend
+	}
+	if env := os.Getenv("LOWLIGHT_BACKEND"); env != "" {
+		switch strings.ToLower(strings.TrimSpace(env)) {
+		case "llvm", "ll":
+			return BackendLLVM
+		case "c", "c11":
+			return BackendC11
+		}
+	}
+	return BackendC11
 }
 
 // ErrNoTests indicates that an entry module defines no @test functions or custom test_main.
@@ -76,6 +101,28 @@ func EmitC(opts Options) (string, *sema.CheckedProgram, error) {
 	return cSource, checked, nil
 }
 
+// EmitLLVM runs semantic checking, lowers to MIR, and emits pure, portable LLVM IR text (.ll).
+func EmitLLVM(opts Options) (string, *sema.CheckedProgram, error) {
+	checked, _, err := Check(opts)
+	if err != nil {
+		return "", nil, err
+	}
+	mirProg := ir.Lower(checked, opts.Release, opts.TestMode)
+	llvmSource := codegen.EmitLLVM(mirProg)
+	return llvmSource, checked, nil
+}
+
+// EmitCompanion runs semantic checking, lowers to MIR, and emits the C companion runtime.
+func EmitCompanion(opts Options) (string, *sema.CheckedProgram, error) {
+	checked, _, err := Check(opts)
+	if err != nil {
+		return "", nil, err
+	}
+	mirProg := ir.Lower(checked, opts.Release, opts.TestMode)
+	compSource := codegen.EmitCompanionRuntime(mirProg)
+	return compSource, checked, nil
+}
+
 // ResolveCC selects the C11 compiler executable to invoke.
 func ResolveCC(explicit string) string {
 	if explicit != "" {
@@ -103,8 +150,11 @@ func DefaultOutputBin(entryPath string) string {
 	return base
 }
 
-// Build compiles a Lowlight entry module into a native executable via the system C11 compiler.
+// Build compiles a Lowlight entry module into a native executable via C11 or LLVM IR.
 func Build(opts Options) (string, error) {
+	if opts.EffectiveBackend() == BackendLLVM {
+		return buildLLVM(opts)
+	}
 	cSource, checked, err := EmitC(opts)
 	if err != nil {
 		return "", err
@@ -159,6 +209,80 @@ func Build(opts Options) (string, error) {
 	cmd.Stdout = &ccStderr
 	if runErr := cmd.Run(); runErr != nil {
 		return "", fmt.Errorf("C11 backend compilation failed (%s %s):\n%s\n%w",
+			cc, strings.Join(args, " "), strings.TrimSpace(ccStderr.String()), runErr)
+	}
+	return absOut, nil
+}
+
+func buildLLVM(opts Options) (string, error) {
+	checked, _, err := Check(opts)
+	if err != nil {
+		return "", err
+	}
+	if opts.TestMode {
+		if checked.TestMainFunc == nil && len(checked.TestFuncs) == 0 {
+			return "", ErrNoTests
+		}
+	} else {
+		if checked.MainFunc == nil {
+			return "", fmt.Errorf("%s: cannot build executable: entry module defines no 'main' function", opts.EntryPath)
+		}
+	}
+
+	mirProg := ir.Lower(checked, opts.Release, opts.TestMode)
+	llvmSource := codegen.EmitLLVM(mirProg)
+	companionSource := codegen.EmitCompanionRuntime(mirProg)
+
+	outBin := opts.OutPath
+	if outBin == "" {
+		outBin = DefaultOutputBin(opts.EntryPath)
+	}
+	absOut, err := filepath.Abs(outBin)
+	if err != nil {
+		absOut = outBin
+	}
+	if err := os.MkdirAll(filepath.Dir(absOut), 0o755); err != nil {
+		return "", fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "lowlight-llvm-build-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp build directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	llFile := filepath.Join(tmpDir, "program.ll")
+	if err := os.WriteFile(llFile, []byte(llvmSource), 0o644); err != nil {
+		return "", fmt.Errorf("failed to write temporary LLVM file: %w", err)
+	}
+
+	companionFile := filepath.Join(tmpDir, "companion_rt.c")
+	if err := os.WriteFile(companionFile, []byte(companionSource), 0o644); err != nil {
+		return "", fmt.Errorf("failed to write temporary companion runtime file: %w", err)
+	}
+
+	cc := ResolveCC(opts.CC)
+	if cc == "cc" {
+		if clangPath, err := exec.LookPath("clang"); err == nil && clangPath != "" {
+			cc = clangPath
+		}
+	}
+
+	args := []string{"-Wno-override-module"}
+	if opts.Release {
+		args = append(args, "-O2")
+	} else {
+		args = append(args, "-g", "-O0")
+	}
+	args = append(args, opts.ExtraCFlags...)
+	args = append(args, "-o", absOut, llFile, companionFile, "-lm", "-ldl")
+
+	var ccStderr bytes.Buffer
+	cmd := exec.Command(cc, args...)
+	cmd.Stderr = &ccStderr
+	cmd.Stdout = &ccStderr
+	if runErr := cmd.Run(); runErr != nil {
+		return "", fmt.Errorf("LLVM backend compilation failed (%s %s):\n%s\n%w",
 			cc, strings.Join(args, " "), strings.TrimSpace(ccStderr.String()), runErr)
 	}
 	return absOut, nil

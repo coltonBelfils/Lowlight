@@ -36,10 +36,16 @@ func EmitC(prog *ir.Program) string {
 }
 
 type cEmitter struct {
-	prog   *ir.Program
-	sb     strings.Builder
-	optSet map[string]bool
-	vecSet map[string]bool
+	prog        *ir.Program
+	sb          strings.Builder
+	optSet      map[string]bool
+	vecSet      map[string]bool
+	isCompanion bool
+}
+
+func (g *cEmitter) raw(s string) {
+	g.sb.WriteString(s)
+	g.sb.WriteByte('\n')
 }
 
 func (g *cEmitter) line(format string, args ...any) {
@@ -355,9 +361,17 @@ func (g *cEmitter) emitForwardPrototypes() {
 
 	g.line("/* Function & Synthesized Helper Prototypes */")
 	for _, fn := range g.prog.Funcs {
-		g.line("%s;", funcSignatureC(fn))
+		if g.isCompanion {
+			g.line("extern %s;", g.funcSignatureExtern(fn))
+		} else {
+			g.line("%s;", funcSignatureC(fn))
+		}
 		if fn.IsLambda {
-			g.line("static inline %s;", lambdaEntrySigC(fn.LambdaInfo))
+			if g.isCompanion {
+				g.line("extern %s;", lambdaEntrySigC(fn.LambdaInfo))
+			} else {
+				g.line("static inline %s;", lambdaEntrySigC(fn.LambdaInfo))
+			}
 		}
 	}
 
@@ -1221,8 +1235,12 @@ func (g *cEmitter) emitVTables() {
 			g.line("}")
 		}
 
-		// static const vtable instance
-		g.line("static const %s %s = {", vtTy, vtInst)
+		// const vtable instance (exported in companion mode)
+		vtStorage := "static const"
+		if g.isCompanion {
+			vtStorage = "const"
+		}
+		g.line("%s %s %s = {", vtStorage, vtTy, vtInst)
 		g.line("    .drop_box = %s,", dropName)
 		g.line("    .clone_box = %s,", cloneName)
 		for _, mp := range mPtrNames {
@@ -1236,6 +1254,24 @@ func (g *cEmitter) emitVTables() {
 // -----------------------------------------------------------------------------
 // Section 9 & 10: MIR Function Printing & C11 `main`
 // -----------------------------------------------------------------------------
+
+func (g *cEmitter) funcSignatureExtern(fn *ir.Function) string {
+	var ps []string
+	if fn.IsLambda {
+		ps = append(ps, "void* _ll_env")
+	}
+	for _, p := range fn.Params {
+		tyStr := CType(p.Type)
+		if p.IsMutPtr {
+			tyStr += "*"
+		}
+		ps = append(ps, fmt.Sprintf("%s %s", tyStr, p.CName))
+	}
+	if len(ps) == 0 {
+		ps = []string{"void"}
+	}
+	return fmt.Sprintf("%s %s(%s)", CType(fn.RetType), fn.CName, strings.Join(ps, ", "))
+}
 
 func funcSignatureC(fn *ir.Function) string {
 	var ps []string
@@ -2101,6 +2137,9 @@ func (g *cEmitter) eqInlineExpr(t types.Type, a, b string) string {
 }
 
 func (g *cEmitter) hashInlineExpr(t types.Type, expr string) string {
+	if prim := types.UnderlyingPrimitive(t); prim != nil && prim.Kind == types.PrimString {
+		return fmt.Sprintf("ll_str_hash(%s)", expr)
+	}
 	if custom := g.prog.Checked.LookupConcreteMethod(t, "hash"); custom != nil {
 		return fmt.Sprintf("%s(%s)", custom.CName, expr)
 	}
@@ -2116,35 +2155,39 @@ func (g *cEmitter) hashInlineExpr(t types.Type, expr string) string {
 	}
 }
 
-func (g *cEmitter) canCopy(t types.Type) bool {
-	return g.canCopyVisited(t, make(map[types.Type]bool))
+func CanCopyType(prog *ir.Program, t types.Type) bool {
+	return canCopyVisited(prog, t, make(map[types.Type]bool))
 }
 
-func (g *cEmitter) canCopyVisited(t types.Type, seen map[types.Type]bool) bool {
+func (g *cEmitter) canCopy(t types.Type) bool {
+	return CanCopyType(g.prog, t)
+}
+
+func canCopyVisited(prog *ir.Program, t types.Type, seen map[types.Type]bool) bool {
 	if t == nil {
 		return false
 	}
 	if t.IsPlain() {
 		return true
 	}
-	if g.prog.Checked.LookupConcreteMethod(t, "copy") != nil {
+	if prog.Checked.LookupConcreteMethod(t, "copy") != nil {
 		return true
 	}
 	switch v := t.(type) {
 	case *types.Primitive:
 		return v.Kind == types.PrimString
 	case *types.Vector:
-		return g.canCopyVisited(v.Elem, seen)
+		return canCopyVisited(prog, v.Elem, seen)
 	case *types.StackArray:
-		return g.canCopyVisited(v.Elem, seen)
+		return canCopyVisited(prog, v.Elem, seen)
 	case *types.Set:
-		return g.canCopyVisited(v.Elem, seen)
+		return canCopyVisited(prog, v.Elem, seen)
 	case *types.Map:
-		return g.canCopyVisited(v.Key, seen) && g.canCopyVisited(v.Value, seen)
+		return canCopyVisited(prog, v.Key, seen) && canCopyVisited(prog, v.Value, seen)
 	case *types.Optional:
-		return g.canCopyVisited(v.Elem, seen)
+		return canCopyVisited(prog, v.Elem, seen)
 	case *types.Distinct:
-		return g.canCopyVisited(v.Base, seen)
+		return canCopyVisited(prog, v.Base, seen)
 	case *types.Interface:
 		return !v.UsesSelf
 	case *types.Func:
@@ -2160,12 +2203,12 @@ func (g *cEmitter) canCopyVisited(t types.Type, seen map[types.Type]bool) bool {
 		for _, vr := range v.Variants {
 			switch vr.Kind {
 			case types.VariantTuple:
-				if vr.Payload != nil && !g.canCopyVisited(vr.Payload, seen) {
+				if vr.Payload != nil && !canCopyVisited(prog, vr.Payload, seen) {
 					return false
 				}
 			case types.VariantStruct:
 				for _, sf := range vr.Fields {
-					if !g.canCopyVisited(sf.Type, seen) {
+					if !canCopyVisited(prog, sf.Type, seen) {
 						return false
 					}
 				}
@@ -2181,7 +2224,7 @@ func (g *cEmitter) canCopyVisited(t types.Type, seen map[types.Type]bool) bool {
 		}
 		seen[v] = true
 		for _, f := range v.Fields {
-			if !g.canCopyVisited(f.Type, seen) {
+			if !canCopyVisited(prog, f.Type, seen) {
 				return false
 			}
 		}

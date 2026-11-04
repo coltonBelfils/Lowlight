@@ -173,7 +173,7 @@ func (fl *funcLowerer) lowerClosureValueCall(call *ast.CallExpr, _ *sema.ExprInf
 	fl.assignLocal(fnTmp, calleeVal)
 
 	cArgs := make([]Expr, 0, 1+len(call.Args))
-	cArgs = append(cArgs, &ExprField{Base: NewLocalExpr(fnTmp), FieldName: "env", Typ: types.TypeVoid})
+	cArgs = append(cArgs, &ExprField{Base: NewLocalExpr(fnTmp), FieldName: "env", Typ: &types.Ptr{Elem: types.TypeVoid}})
 	for _, a := range fl.lowerCallArgs(calleeTy.Params, call.Args) {
 		cArgs = append(cArgs, a)
 	}
@@ -277,7 +277,7 @@ func (fl *funcLowerer) lowerInterfaceMethodCall(call *ast.CallExpr, inf *sema.Ex
 		fl.assignLocal(ifcTmp, ifcVal)
 
 		cArgs := make([]Expr, 0, 1+len(call.Args))
-		cArgs = append(cArgs, &ExprField{Base: NewLocalExpr(ifcTmp), FieldName: "data", Typ: types.TypeVoid})
+		cArgs = append(cArgs, &ExprField{Base: NewLocalExpr(ifcTmp), FieldName: "data", Typ: &types.Ptr{Elem: types.TypeVoid}})
 		for _, a := range fl.lowerCallArgs(im.Params, call.Args) {
 			cArgs = append(cArgs, a)
 		}
@@ -322,7 +322,7 @@ func (fl *funcLowerer) lowerInterfaceMethodCall(call *ast.CallExpr, inf *sema.Ex
 	fl.assignLocal(ifcTmp, ifcExpr)
 
 	cArgs := make([]Expr, 0, 1+len(call.Args))
-	cArgs = append(cArgs, &ExprField{Base: NewLocalExpr(ifcTmp), FieldName: "data", Typ: types.TypeVoid})
+	cArgs = append(cArgs, &ExprField{Base: NewLocalExpr(ifcTmp), FieldName: "data", Typ: &types.Ptr{Elem: types.TypeVoid}})
 	for _, a := range fl.lowerCallArgs(im.Params, call.Args) {
 		cArgs = append(cArgs, a)
 	}

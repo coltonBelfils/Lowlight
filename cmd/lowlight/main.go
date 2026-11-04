@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"lowlight/internal/driver"
 	"lowlight/internal/lsp"
@@ -69,6 +70,49 @@ func runCLI(args []string) int {
 		}
 		return 0
 
+	case "emit-llvm":
+		opts, _, err := parseCommonFlags(rest, true, false)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		opts.Backend = driver.BackendLLVM
+		llvmSrc, _, err := driver.EmitLLVM(opts)
+		if err != nil {
+			fmt.Fprint(os.Stderr, err.Error())
+			return 1
+		}
+		if opts.OutPath != "" {
+			if err := os.WriteFile(opts.OutPath, []byte(llvmSrc), 0o644); err != nil {
+				fmt.Fprintf(os.Stderr, "error writing %s: %v\n", opts.OutPath, err)
+				return 1
+			}
+		} else {
+			fmt.Print(llvmSrc)
+		}
+		return 0
+
+	case "emit-companion":
+		opts, _, err := parseCommonFlags(rest, true, false)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		compSrc, _, err := driver.EmitCompanion(opts)
+		if err != nil {
+			fmt.Fprint(os.Stderr, err.Error())
+			return 1
+		}
+		if opts.OutPath != "" {
+			if err := os.WriteFile(opts.OutPath, []byte(compSrc), 0o644); err != nil {
+				fmt.Fprintf(os.Stderr, "error writing %s: %v\n", opts.OutPath, err)
+				return 1
+			}
+		} else {
+			fmt.Print(compSrc)
+		}
+		return 0
+
 	case "build":
 		opts, _, err := parseCommonFlags(rest, true, false)
 		if err != nil {
@@ -119,6 +163,9 @@ func runCLI(args []string) int {
 
 func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.Options, []string, error) {
 	var opts driver.Options
+	if cflags := os.Getenv("LOWLIGHT_CFLAGS"); cflags != "" {
+		opts.ExtraCFlags = append(opts.ExtraCFlags, strings.Fields(cflags)...)
+	}
 	var progArgs []string
 
 	for i := 0; i < len(args); i++ {
@@ -130,6 +177,19 @@ func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.
 		switch arg {
 		case "--release":
 			opts.Release = true
+		case "--backend":
+			if i+1 >= len(args) {
+				return opts, nil, fmt.Errorf("missing argument for --backend")
+			}
+			i++
+			switch strings.ToLower(args[i]) {
+			case "llvm", "ll":
+				opts.Backend = driver.BackendLLVM
+			case "c", "c11":
+				opts.Backend = driver.BackendC11
+			default:
+				return opts, nil, fmt.Errorf("unknown backend %q (expected 'c11' or 'llvm')", args[i])
+			}
 		case "--cc":
 			if i+1 >= len(args) {
 				return opts, nil, fmt.Errorf("missing argument for --cc")
@@ -146,6 +206,18 @@ func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.
 			i++
 			opts.OutPath = args[i]
 		default:
+			if strings.HasPrefix(arg, "--backend=") {
+				val := strings.TrimPrefix(arg, "--backend=")
+				switch strings.ToLower(val) {
+				case "llvm", "ll":
+					opts.Backend = driver.BackendLLVM
+				case "c", "c11":
+					opts.Backend = driver.BackendC11
+				default:
+					return opts, nil, fmt.Errorf("unknown backend %q (expected 'c11' or 'llvm')", val)
+				}
+				continue
+			}
 			if len(arg) > 0 && arg[0] == '-' {
 				return opts, nil, fmt.Errorf("unknown flag %q", arg)
 			}
@@ -169,6 +241,9 @@ func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.
 
 func parseTestFlags(args []string) (driver.Options, error) {
 	var opts driver.Options
+	if cflags := os.Getenv("LOWLIGHT_CFLAGS"); cflags != "" {
+		opts.ExtraCFlags = append(opts.ExtraCFlags, strings.Fields(cflags)...)
+	}
 	opts.TestMode = true
 	var targets []string
 
@@ -177,6 +252,19 @@ func parseTestFlags(args []string) (driver.Options, error) {
 		switch arg {
 		case "--release":
 			opts.Release = true
+		case "--backend":
+			if i+1 >= len(args) {
+				return opts, fmt.Errorf("missing argument for --backend")
+			}
+			i++
+			switch strings.ToLower(args[i]) {
+			case "llvm", "ll":
+				opts.Backend = driver.BackendLLVM
+			case "c", "c11":
+				opts.Backend = driver.BackendC11
+			default:
+				return opts, fmt.Errorf("unknown backend %q (expected 'c11' or 'llvm')", args[i])
+			}
 		case "--cc":
 			if i+1 >= len(args) {
 				return opts, fmt.Errorf("missing argument for --cc")
@@ -184,6 +272,18 @@ func parseTestFlags(args []string) (driver.Options, error) {
 			i++
 			opts.CC = args[i]
 		default:
+			if strings.HasPrefix(arg, "--backend=") {
+				val := strings.TrimPrefix(arg, "--backend=")
+				switch strings.ToLower(val) {
+				case "llvm", "ll":
+					opts.Backend = driver.BackendLLVM
+				case "c", "c11":
+					opts.Backend = driver.BackendC11
+				default:
+					return opts, fmt.Errorf("unknown backend %q (expected 'c11' or 'llvm')", val)
+				}
+				continue
+			}
 			if len(arg) > 0 && arg[0] == '-' {
 				return opts, fmt.Errorf("unknown flag %q", arg)
 			}
@@ -233,9 +333,10 @@ func printUsage(w *os.File) {
 	fmt.Fprint(w, `Lowlight v1.0 Compiler
 
 Usage:
-  lowlight build [-o <bin>] [--release] [--cc <compiler>] <file.ll>
-  lowlight run   [--release] [--cc <compiler>] <file.ll> [-- <args...>]
-  lowlight test  [--release] [--cc <compiler>] [<path...>]
+  lowlight build [-o <bin>] [--backend <c11|llvm>] [--release] [--cc <compiler>] <file.ll>
+  lowlight run   [--backend <c11|llvm>] [--release] [--cc <compiler>] <file.ll> [-- <args...>]
+  lowlight test  [--backend <c11|llvm>] [--release] [--cc <compiler>] [<path...>]
+  lowlight emit-llvm [-o <file.ll>] [--release] <file.ll>
   lowlight emit-c [-o <file.c>] [--release] <file.ll>
   lowlight check <file.ll>
   lowlight lsp   [--stdio] [--log <file>]
@@ -243,9 +344,10 @@ Usage:
   lowlight help
 
 Flags:
-  -o <path>        Output executable or C11 source path
-  --release        Optimize generated C (-O2) and elide runtime bounds/shift checks
-  --cc <compiler>  C11 compiler executable (default: $LOWLIGHT_CC, $CC, or cc)
+  -o <path>        Output executable, LLVM IR, or C11 source path
+  --backend <kind> Codegen backend: "c11" (default) or "llvm" (direct LLVM IR)
+  --release        Optimize (-O2) and elide runtime bounds/shift checks
+  --cc <compiler>  C/LLVM compiler executable (default: $LOWLIGHT_CC, $CC, or clang/cc)
   --stdio          Run Language Server Protocol (LSP 3.17) over stdin/stdout
   --log <file>     Append JSON-RPC LSP trace logs to <file>
 `)

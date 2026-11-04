@@ -290,9 +290,10 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) Expr {
 				}
 				return &ExprAddrOf{Place: NewLocalExpr(loc), Typ: &types.Ptr{Elem: loc.Type}}
 			}
-			return &ExprAddrOf{Place: &ExprGlobal{Global: &Global{Name: sym.CName, Type: sym.Type}}, Typ: &types.Ptr{Elem: sym.Type}}
+			return &ExprAddrOf{Place: &ExprGlobal{Global: &Global{Name: sym.CName, CName: sym.CName, Type: sym.Type}}, Typ: &types.Ptr{Elem: sym.Type}}
 		}
-		return &ExprAddrOf{Place: &ExprGlobal{Global: &Global{Name: types.SanitizeCIdent(v.Name), Type: inf.Type}}, Typ: &types.Ptr{Elem: inf.Type}}
+		cName := types.SanitizeCIdent(v.Name)
+		return &ExprAddrOf{Place: &ExprGlobal{Global: &Global{Name: cName, CName: cName, Type: inf.Type}}, Typ: &types.Ptr{Elem: inf.Type}}
 
 	case *ast.UnaryExpr:
 		if v.Op == token.Star {
@@ -417,7 +418,7 @@ func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bo
 
 	case *ast.StringLit:
 		if d, isDist := inf.Type.(*types.Distinct); isDist {
-			return &ExprCast{Val: &ExprLitString{Val: v.Val}, To: d}
+			return &ExprCast{Val: &ExprLitString{Val: v.Val}, From: types.TypeString, To: d}
 		}
 		return &ExprLitString{Val: v.Val}
 
