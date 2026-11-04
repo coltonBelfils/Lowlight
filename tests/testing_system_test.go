@@ -408,10 +408,22 @@ func TestTestScopeSingleFileWithoutTests(t *testing.T) {
 // 11b. Test scoping: Duplicate test declaration produces a Lowlight semantic error
 func TestDuplicateTestDeclarationError(t *testing.T) {
 	root := projectRoot(t)
-	minPath := filepath.Join(root, "examples", "minimum.ll")
+	tmpDir := t.TempDir()
+	dupPath := filepath.Join(tmpDir, "dup_test.ll")
+	src := `import "std/test.ll"
+
+@test("pass")
+bind t = () assert_eq(1, 1)
+
+@test("fail")
+bind t = () assert_eq(1, 2)
+`
+	if err := os.WriteFile(dupPath, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	opts := driver.Options{
-		EntryPath:   minPath,
+		EntryPath:   dupPath,
 		ProjectRoot: root,
 		TestMode:    true,
 	}
@@ -424,6 +436,40 @@ func TestDuplicateTestDeclarationError(t *testing.T) {
 	errStr := err.Error()
 	if !strings.Contains(errStr, `duplicate declaration of "t"`) {
 		t.Errorf("expected error message to contain 'duplicate declaration of \"t\"', got:\n%s", errStr)
+	}
+}
+
+// 11b2. Test scoping: Duplicate local declaration in a function produces a Lowlight semantic error
+func TestDuplicateLocalDeclarationError(t *testing.T) {
+	root := projectRoot(t)
+	tmpDir := t.TempDir()
+	dupPath := filepath.Join(tmpDir, "dup_local.ll")
+	src := `bind main = () {
+	bind a = 1
+	bind a = 2
+	let b = 1
+	let b = 2
+}
+`
+	if err := os.WriteFile(dupPath, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := driver.Options{
+		EntryPath:   dupPath,
+		ProjectRoot: root,
+	}
+
+	_, err := driver.Build(opts)
+	if err == nil {
+		t.Fatalf("expected compilation error due to duplicate 'a' and 'b' declarations, got nil")
+	}
+	errStr := err.Error()
+	if !strings.Contains(errStr, `duplicate declaration of "a"`) {
+		t.Errorf("expected error message to contain 'duplicate declaration of \"a\"', got:\n%s", errStr)
+	}
+	if !strings.Contains(errStr, `duplicate declaration of "b"`) {
+		t.Errorf("expected error message to contain 'duplicate declaration of \"b\"', got:\n%s", errStr)
 	}
 }
 

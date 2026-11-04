@@ -7,6 +7,13 @@ import "std/test.ll"
 bind main = () {
 	let ll = for (i in l): #[int: int] MapEntry[key: i, value: i * 2]
 
+	bind a = 1
+	bind a = 2
+
+	let b = 1
+	let b = 2
+
+
 	println(ll)
 }
 
@@ -17,4 +24,4 @@ bind t = () assert_eq(1, 1)
 
 
 @test("fail")
-bind t = () assert_eq(1, 2)
+bind tt = () assert_eq(1, 2)

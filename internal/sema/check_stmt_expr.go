@@ -449,6 +449,19 @@ func (fc *funcChecker) curDepth() int {
 }
 
 func (fc *funcChecker) declareLocal(name string, ty types.Type, isBind bool, bkind BindKind, span diag.Span) *Symbol {
+	frame := fc.scopes[len(fc.scopes)-1]
+	if name != "_" {
+		for i := len(fc.scopes) - 1; i >= 0; i-- {
+			if existing, dup := fc.scopes[i].vars[name]; dup && existing != nil && existing.Span != span {
+				if existing.Span.Start.File != "" {
+					fc.a.Rep.Errorf(span, "duplicate declaration of %q (previously declared at %s)", name, existing.Span.String())
+				} else {
+					fc.a.Rep.Errorf(span, "duplicate declaration of %q", name)
+				}
+				break
+			}
+		}
+	}
 	fc.nextLocalID++
 	cname := fmt.Sprintf("%s_%d", types.SanitizeCIdent(name), fc.nextLocalID)
 	sym := &Symbol{
@@ -461,7 +474,6 @@ func (fc *funcChecker) declareLocal(name string, ty types.Type, isBind bool, bki
 		DeclFuncDepth: fc.funcDepth,
 		Span:          span,
 	}
-	frame := fc.scopes[len(fc.scopes)-1]
 	frame.vars[name] = sym
 	fc.moves[sym] = MoveAlive
 	return sym

@@ -712,3 +712,66 @@ bind test_fail = () assert_eq(1, 2)
 		t.Fatalf("expected 0 diagnostics after fixing duplicate declaration, got %+v", diags)
 	}
 }
+
+func TestLSPDuplicateLocalDeclarationDiagnostics(t *testing.T) {
+	h := newHarness(t)
+	root := repoRoot(t)
+
+	var initRes lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{RootURI: lsp.PathToURI(root)}, &initRes)
+	h.notify("initialized", map[string]any{})
+
+	docPath := filepath.Join(t.TempDir(), "dup_local_test.ll")
+	uri := lsp.PathToURI(docPath)
+
+	dupSrc := `bind main = () {
+	bind a = 1
+	bind a = 2
+
+	let b = 1
+	let b = 2
+}
+`
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        uri,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       dupSrc,
+		},
+	})
+
+	diags := h.waitDiagnostics(uri)
+	if len(diags) < 2 {
+		t.Fatalf("expected at least 2 duplicate declaration diagnostics in LSP, got %d: %+v", len(diags), diags)
+	}
+	joined := ""
+	for _, d := range diags {
+		joined += d.Message + "\n"
+	}
+	if !strings.Contains(joined, `duplicate declaration of "a"`) {
+		t.Errorf("missing duplicate declaration of \"a\" in:\n%s", joined)
+	}
+	if !strings.Contains(joined, `duplicate declaration of "b"`) {
+		t.Errorf("missing duplicate declaration of \"b\" in:\n%s", joined)
+	}
+
+	// Fix via didChange
+	fixedSrc := `bind main = () {
+	bind a1 = 1
+	bind a2 = 2
+
+	let b1 = 1
+	let b2 = 2
+}
+`
+	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
+		TextDocument:   lsp.VersionedTextDocumentIdentifier{URI: uri, Version: 2},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: fixedSrc}},
+	})
+
+	diags = h.waitDiagnostics(uri)
+	if len(diags) != 0 {
+		t.Fatalf("expected 0 diagnostics after fixing duplicate local declarations, got %+v", diags)
+	}
+}
