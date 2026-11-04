@@ -405,8 +405,8 @@ func TestTestScopeSingleFileWithoutTests(t *testing.T) {
 	}
 }
 
-// 11b. Test scoping: Multiple tests sharing the same function name compile without C symbol collisions
-func TestMultipleTestsWithSameName(t *testing.T) {
+// 11b. Test scoping: Duplicate test declaration produces a Lowlight semantic error
+func TestDuplicateTestDeclarationError(t *testing.T) {
 	root := projectRoot(t)
 	minPath := filepath.Join(root, "examples", "minimum.ll")
 
@@ -418,12 +418,45 @@ func TestMultipleTestsWithSameName(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code, err := driver.Test(opts, &stdout, &stderr)
-	if err != nil {
-		t.Fatalf("driver.Test failed with compilation error: %v\nstderr: %s", err, stderr.String())
+	if err == nil {
+		t.Fatalf("expected compilation error due to duplicate 't' declaration, got nil (code=%d)", code)
 	}
-	// minimum.ll has 1 passing test and 1 failing test, so exit code should be 1
+	errStr := err.Error()
+	if !strings.Contains(errStr, `duplicate declaration of "t"`) {
+		t.Errorf("expected error message to contain 'duplicate declaration of \"t\"', got:\n%s", errStr)
+	}
+}
+
+// 11c. Test scoping: Multiple tests with distinct names compile and run successfully
+func TestMultipleTestsWithDistinctNames(t *testing.T) {
+	root := projectRoot(t)
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "distinct_tests.ll")
+	src := `import "std/test.ll"
+
+@test("pass")
+bind test_pass = () assert_eq(1, 1)
+
+@test("fail")
+bind test_fail = () assert_eq(1, 2)
+`
+	if err := os.WriteFile(filePath, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := driver.Options{
+		EntryPath:   filePath,
+		ProjectRoot: root,
+		TestMode:    true,
+	}
+
+	var stdout, stderr bytes.Buffer
+	code, err := driver.Test(opts, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("expected successful compilation, got error: %v", err)
+	}
 	if code != 1 {
-		t.Fatalf("expected exit code 1 due to failing test, got %d", code)
+		t.Fatalf("expected exit code 1 due to 1 test failure, got %d", code)
 	}
 	out := stdout.String()
 	if !strings.Contains(out, "=== RUN   pass") || !strings.Contains(out, "--- PASS: pass") {

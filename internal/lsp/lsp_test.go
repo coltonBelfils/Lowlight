@@ -649,3 +649,66 @@ func TestSubprocessCLIStdioRoundtrip(t *testing.T) {
 		t.Fatalf("expected initialize response from `lowlight lsp --stdio`, got:\n%s", string(out))
 	}
 }
+
+func TestLSPDuplicateDeclarationDiagnostics(t *testing.T) {
+	h := newHarness(t)
+	root := repoRoot(t)
+
+	var initRes lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{RootURI: lsp.PathToURI(root)}, &initRes)
+	h.notify("initialized", map[string]any{})
+
+	docPath := filepath.Join(t.TempDir(), "dup_test.ll")
+	uri := lsp.PathToURI(docPath)
+
+	dupSrc := `import "std/test.ll"
+
+@test("pass")
+bind t = () assert_eq(1, 1)
+
+@test("fail")
+bind t = () assert_eq(1, 2)
+`
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        uri,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       dupSrc,
+		},
+	})
+
+	diags := h.waitDiagnostics(uri)
+	if len(diags) == 0 {
+		t.Fatalf("expected duplicate declaration diagnostic in LSP, got 0")
+	}
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, `duplicate declaration of "t"`) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected diagnostic containing `duplicate declaration of \"t\"`, got %+v", diags)
+	}
+
+	// Fix test name via didChange -> 0 diagnostics
+	fixedSrc := `import "std/test.ll"
+
+@test("pass")
+bind test_pass = () assert_eq(1, 1)
+
+@test("fail")
+bind test_fail = () assert_eq(1, 2)
+`
+	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
+		TextDocument:   lsp.VersionedTextDocumentIdentifier{URI: uri, Version: 2},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: fixedSrc}},
+	})
+
+	diags = h.waitDiagnostics(uri)
+	if len(diags) != 0 {
+		t.Fatalf("expected 0 diagnostics after fixing duplicate declaration, got %+v", diags)
+	}
+}

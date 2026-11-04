@@ -309,6 +309,9 @@ func (a *Analyzer) collectTopLevelIntConsts(mod *Module) {
 			continue
 		}
 		if val, ok2 := a.evalConstInt(mod, vd.Value); ok2 {
+			if a.checkDupDecl(mod, vd.Name, vd.Span) {
+				continue
+			}
 			ty := types.TypeInt
 			if vd.Type != nil {
 				if nt, isNt := vd.Type.(*ast.NamedType); isNt && nt.Module == "" && len(nt.TypeArgs) == 0 {
@@ -671,16 +674,88 @@ func (a *Analyzer) checkDupType(mod *Module, name string, span diag.Span) bool {
 	}
 	if existing, ok := mod.Types[name]; ok && existing != nil {
 		if name != "Printable" && name != "Copyable" && name != "Drop" && name != "Hashable" && name != "Equatable" && name != "Comparable" {
-			a.Rep.Errorf(span, "duplicate type definition %q", name)
+			if prevSpan, hasSpan := a.Prog.TypeSpans[existing]; hasSpan && prevSpan.Start.File != "" {
+				a.Rep.Errorf(span, "duplicate type definition %q (previously defined at %s)", name, prevSpan.String())
+			} else {
+				a.Rep.Errorf(span, "duplicate type definition %q", name)
+			}
 			return true
 		}
 	}
-	if _, ok := mod.GenericStructs[name]; ok {
-		a.Rep.Errorf(span, "duplicate type definition %q", name)
+	if gs, ok := mod.GenericStructs[name]; ok && gs != nil && gs.Decl != nil && gs.Decl.Span != span {
+		a.Rep.Errorf(span, "duplicate type definition %q (previously defined at %s)", name, gs.Decl.Span.String())
 		return true
 	}
-	if _, ok := mod.GenericEnums[name]; ok {
-		a.Rep.Errorf(span, "duplicate type definition %q", name)
+	if ge, ok := mod.GenericEnums[name]; ok && ge != nil && ge.Decl != nil && ge.Decl.Span != span {
+		a.Rep.Errorf(span, "duplicate type definition %q (previously defined at %s)", name, ge.Decl.Span.String())
+		return true
+	}
+	if gi, ok := mod.GenericInterfaces[name]; ok && gi != nil && gi.Decl != nil && gi.Decl.Span != span {
+		a.Rep.Errorf(span, "duplicate type definition %q (previously defined at %s)", name, gi.Decl.Span.String())
+		return true
+	}
+	if sym, ok := mod.Symbols[name]; ok && sym != nil && sym.Span != span {
+		if sym.Span.Start.File != "" {
+			a.Rep.Errorf(span, "duplicate declaration of %q (previously declared at %s)", name, sym.Span.String())
+		} else {
+			a.Rep.Errorf(span, "duplicate declaration of %q", name)
+		}
+		return true
+	}
+	return false
+}
+
+func (a *Analyzer) checkDupDecl(mod *Module, name string, span diag.Span) bool {
+	if types.LookupPrimitive(name) != nil {
+		a.Rep.Errorf(span, "cannot redefine built-in type %q", name)
+		return true
+	}
+	if existing, ok := mod.Symbols[name]; ok && existing != nil && existing.Span != span {
+		if existing.Span.Start.File != "" {
+			a.Rep.Errorf(span, "duplicate declaration of %q (previously declared at %s)", name, existing.Span.String())
+		} else {
+			a.Rep.Errorf(span, "duplicate declaration of %q", name)
+		}
+		return true
+	}
+	if gf, ok := mod.GenericFuncs[name]; ok && gf != nil && gf.VarDecl != nil && gf.VarDecl.Span != span {
+		if gf.VarDecl.Span.Start.File != "" {
+			a.Rep.Errorf(span, "duplicate declaration of %q (previously declared at %s)", name, gf.VarDecl.Span.String())
+		} else {
+			a.Rep.Errorf(span, "duplicate declaration of %q", name)
+		}
+		return true
+	}
+	if ty, ok := mod.Types[name]; ok && ty != nil {
+		if prevSpan, hasSpan := a.Prog.TypeSpans[ty]; hasSpan && prevSpan.Start.File != "" {
+			a.Rep.Errorf(span, "duplicate declaration of %q (previously declared at %s)", name, prevSpan.String())
+		} else {
+			a.Rep.Errorf(span, "duplicate declaration of %q (previously declared as a type)", name)
+		}
+		return true
+	}
+	if gs, ok := mod.GenericStructs[name]; ok && gs != nil && gs.Decl != nil && gs.Decl.Span != span {
+		if gs.Decl.Span.Start.File != "" {
+			a.Rep.Errorf(span, "duplicate declaration of %q (previously declared at %s)", name, gs.Decl.Span.String())
+		} else {
+			a.Rep.Errorf(span, "duplicate declaration of %q", name)
+		}
+		return true
+	}
+	if ge, ok := mod.GenericEnums[name]; ok && ge != nil && ge.Decl != nil && ge.Decl.Span != span {
+		if ge.Decl.Span.Start.File != "" {
+			a.Rep.Errorf(span, "duplicate declaration of %q (previously declared at %s)", name, ge.Decl.Span.String())
+		} else {
+			a.Rep.Errorf(span, "duplicate declaration of %q", name)
+		}
+		return true
+	}
+	if gi, ok := mod.GenericInterfaces[name]; ok && gi != nil && gi.Decl != nil && gi.Decl.Span != span {
+		if gi.Decl.Span.Start.File != "" {
+			a.Rep.Errorf(span, "duplicate declaration of %q (previously declared at %s)", name, gi.Decl.Span.String())
+		} else {
+			a.Rep.Errorf(span, "duplicate declaration of %q", name)
+		}
 		return true
 	}
 	return false
@@ -1762,6 +1837,13 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 			}
 
 		case *ast.ExternFnDecl:
+			localName := decl.Name
+			if decl.Alias != "" {
+				localName = decl.Alias
+			}
+			if a.checkDupDecl(mod, localName, decl.Span) {
+				continue
+			}
 			var ps []types.FuncParam
 			for _, p := range decl.Params {
 				pm, pt := a.resolveParamType(mod, p.Type, nil, false)
@@ -1775,10 +1857,6 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 			sig := &types.Func{Params: ps, Ret: ret}
 			ef := &ExternFunc{Name: decl.Name, Sig: sig, Span: decl.Span}
 			a.Prog.ExternFuncs = append(a.Prog.ExternFuncs, ef)
-			localName := decl.Name
-			if decl.Alias != "" {
-				localName = decl.Alias
-			}
 			mod.Symbols[localName] = &Symbol{
 				Name:       localName,
 				CName:      decl.Name, // exact C ABI symbol!
@@ -1813,6 +1891,9 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					a.Rep.Errorf(decl.Span, "generic top-level `bind` must be a function")
 					continue
 				}
+				if a.checkDupDecl(mod, decl.Name, decl.Span) {
+					continue
+				}
 				mod.GenericFuncs[decl.Name] = &GenericFuncTemplate{
 					Name:      decl.Name,
 					VarDecl:   decl,
@@ -1824,6 +1905,9 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 
 			// Top-level static function `bind name = (params)[: Ret] body`
 			if fl, isFn := decl.Value.(*ast.FuncLit); isFn && decl.IsBind {
+				if a.checkDupDecl(mod, decl.Name, decl.Span) {
+					continue
+				}
 				fi := a.buildFuncInstanceFromLit(mod, decl.Name, fl, nil)
 				fi.DeclSpan = decl.Span
 				a.checkAttributes(decl.Attributes, fi, decl.Span, "function")
@@ -1844,11 +1928,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					IsTestOnly:    fi.IsTestOnly,
 					TestDesc:      fi.TestDesc,
 				}
-				if existing, exists := mod.Symbols[decl.Name]; !exists || !existing.IsTest {
-					if !fi.IsTest || !exists {
-						mod.Symbols[decl.Name] = sym
-					}
-				}
+				mod.Symbols[decl.Name] = sym
 				if mod == a.Prog.EntryMod && decl.Name == "main" {
 					a.validateMainSig(fi, decl.Span)
 					a.Prog.MainFunc = fi
@@ -1867,6 +1947,9 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					"mutable global `let` variables are not allowed at top level",
 					"use `bind` for top-level constants and functions, and pass mutable state explicitly with `&`",
 				)
+				continue
+			}
+			if a.checkDupDecl(mod, decl.Name, decl.Span) {
 				continue
 			}
 			// If not already registered as a simple int constant, resolve during body pass
