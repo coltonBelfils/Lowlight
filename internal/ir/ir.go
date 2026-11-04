@@ -6,6 +6,7 @@ package ir
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"lowlight/internal/sema"
 	"lowlight/internal/token"
@@ -61,16 +62,17 @@ type Global struct {
 	Type      types.Type
 	Locals    []*Local
 	InitInstr []Instr
-	InitExpr  string
+	InitExpr  Expr
 }
 
 // Local represents a function-scoped variable or compiler-synthesized slot.
 type Local struct {
-	CName     string
-	Type      types.Type
-	IsMutPtr  bool   // true when C representation is `T*` (`&T` parameter or mutable unwrap `if (&u?)`)
-	MovedFlag string // non-empty C bool var name when `Type` is a Struct with custom `Drop`
-	IsParam   bool
+	CName      string
+	Type       types.Type
+	IsMutPtr   bool   // true when C representation is `T*` (`&T` parameter or mutable unwrap `if (&u?)`)
+	MovedFlag  string // non-empty C bool var name when `Type` is a Struct with custom `Drop`
+	MovedLocal *Local // typed MIR local holding the moved boolean flag
+	IsParam    bool
 }
 
 // Function is a lowered function, method, or lambda body in MIR.
@@ -100,8 +102,8 @@ type Instr interface {
 
 // InstrAssign: `Dst = Expr;`
 type InstrAssign struct {
-	Dst  string
-	Expr string
+	Dst  Expr
+	Expr Expr
 }
 
 func (*InstrAssign) irInstr() {}
@@ -110,40 +112,58 @@ func (*InstrAssign) irInstr() {}
 type InstrCompoundAssign struct {
 	Op   token.Kind
 	Type types.Type
-	Dst  string
-	Expr string
+	Dst  Expr
+	Expr Expr
+	File string
+	Line int
 }
 
 func (*InstrCompoundAssign) irInstr() {}
 
 // InstrExpr: standalone void call or side-effect expression `Expr;`
 type InstrExpr struct {
-	Expr string
+	Expr Expr
 }
 
 func (*InstrExpr) irInstr() {}
 
 // InstrZero: zeroes a moved local variable slot so subsequent scope-exit Drop is a no-op.
 type InstrZero struct {
-	Var       string
+	Var       *Local
+	VarName   string
 	Type      types.Type
 	MovedFlag string
 }
 
 func (*InstrZero) irInstr() {}
 
+func (z *InstrZero) Name() string {
+	if z.Var != nil {
+		return z.Var.CName
+	}
+	return z.VarName
+}
+
 // InstrDrop: deterministically drops `Var` if live.
 type InstrDrop struct {
-	Var       string
+	Var       *Local
+	VarName   string
 	Type      types.Type
 	MovedFlag string
 }
 
 func (*InstrDrop) irInstr() {}
 
+func (d *InstrDrop) Name() string {
+	if d.Var != nil {
+		return d.Var.CName
+	}
+	return d.VarName
+}
+
 // InstrIf: `if (Cond) { Then... } else { Else... }`
 type InstrIf struct {
-	Cond string
+	Cond Expr
 	Then []Instr
 	Else []Instr
 }
@@ -152,7 +172,7 @@ func (*InstrIf) irInstr() {}
 
 // InstrWhile: `while (Cond) { Body... }`
 type InstrWhile struct {
-	Cond string
+	Cond Expr
 	Body []Instr
 }
 
@@ -181,7 +201,7 @@ func (*InstrGoto) irInstr() {}
 
 // InstrReturn: `return [Expr];` (always preceded by explicit InstrDrop cleanup!)
 type InstrReturn struct {
-	Expr string
+	Expr Expr
 }
 
 func (*InstrReturn) irInstr() {}
@@ -298,6 +318,9 @@ func (tc *typeCollector) visitValue(t types.Type) {
 			tc.ordered = append(tc.ordered, v)
 		}
 	case *types.Struct:
+		if strings.HasPrefix(v.CName, "ll_lambda_env_") {
+			return
+		}
 		if !tc.stSeen[v] {
 			tc.stSeen[v] = true
 			for _, f := range v.Fields {

@@ -123,7 +123,7 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 			Type:      tv.Sym.Type,
 			Locals:    fl.locals,
 			InitInstr: fl.rootInstrs(),
-			InitExpr:  exprStr,
+			InitExpr:  EnsureExpr(exprStr, tv.Sym.Type),
 		})
 	}
 
@@ -194,7 +194,7 @@ type funcLowerer struct {
 
 	locals        []*Local
 	symLocals     map[*sema.Symbol]*Local
-	captureFields map[*sema.Symbol]string // inside lambda: outer Symbol -> `_ll_env-><field>`
+	captureFields map[*sema.Symbol]Expr // inside lambda: outer Symbol -> `_ll_env-><field>`
 	scopes        []*mirScope
 	stmtTemps     []*Local
 	emitStack     [][]Instr
@@ -219,7 +219,7 @@ func newFuncLowerer(
 		release:       release,
 		registerThunk: registerThunk,
 		symLocals:     make(map[*sema.Symbol]*Local),
-		captureFields: make(map[*sema.Symbol]string),
+		captureFields: make(map[*sema.Symbol]Expr),
 		emitStack:     [][]Instr{{}},
 		usedLabels:    make(map[string]bool),
 	}
@@ -249,6 +249,7 @@ func lowerFuncInstance(
 		if fp.Mode == types.ModeOwn && !fp.Type.IsPlain() {
 			if NeedsMovedFlag(fp.Type) {
 				pLoc.MovedFlag = pLoc.CName + "_moved"
+				pLoc.MovedLocal = &Local{CName: pLoc.MovedFlag, Type: types.TypeBool}
 			}
 			fnScope.ownedLocals = append(fnScope.ownedLocals, pLoc)
 		}
@@ -281,8 +282,19 @@ func lowerLambda(
 	registerThunk func(*sema.FuncInstance, *types.Func) string,
 ) *Function {
 	fl := newFuncLowerer(prog, li.BodyMaps, tc, release, registerThunk)
+	envLocal := &Local{CName: "_ll_env", Type: &types.Ptr{Elem: types.TypeVoid}}
+	envTyped := &ExprCast{
+		Val:  NewLocalExpr(envLocal),
+		From: &types.Ptr{Elem: types.TypeVoid},
+		To:   &types.Ptr{Elem: &types.Struct{CName: li.EnvCName}},
+	}
 	for _, capItem := range li.Captures {
-		fl.captureFields[capItem.OuterSym] = fmt.Sprintf("((%s*)_ll_env)->%s", li.EnvCName, capItem.CName)
+		fl.captureFields[capItem.OuterSym] = &ExprField{
+			Base:      envTyped,
+			FieldName: capItem.CName,
+			Typ:       capItem.Type,
+			IsPtr:     true,
+		}
 	}
 
 	fnScope := fl.pushScope(li.FuncTargetID, "", "", nil, nil, true)
@@ -299,6 +311,7 @@ func lowerLambda(
 		if fp.Mode == types.ModeOwn && !fp.Type.IsPlain() {
 			if NeedsMovedFlag(fp.Type) {
 				pLoc.MovedFlag = pLoc.CName + "_moved"
+				pLoc.MovedLocal = &Local{CName: pLoc.MovedFlag, Type: types.TypeBool}
 			}
 			fnScope.ownedLocals = append(fnScope.ownedLocals, pLoc)
 		}
@@ -348,7 +361,7 @@ func (fl *funcLowerer) lowerFunctionBody(body ast.Expr, retTy types.Type, fnScop
 	fl.flushStmtTemps()
 	if !endsWithTerm(fl.curInstrs()) {
 		fl.popScopeEmitDrops()
-		fl.emit(&InstrReturn{Expr: retSlot.CName})
+		fl.emit(&InstrReturn{Expr: NewLocalExpr(retSlot)})
 	} else {
 		fl.scopes = fl.scopes[:len(fl.scopes)-1]
 	}
@@ -392,24 +405,25 @@ func (fl *funcLowerer) allocSlot(prefix string, ty types.Type) *Local {
 	}
 	if NeedsMovedFlag(ty) {
 		loc.MovedFlag = cname + "_moved"
+		loc.MovedLocal = &Local{CName: loc.MovedFlag, Type: types.TypeBool}
 	}
 	fl.locals = append(fl.locals, loc)
 	return loc
 }
 
-func (fl *funcLowerer) allocStmtTemp(ty types.Type, initExpr string) string {
+func (fl *funcLowerer) allocStmtTemp(ty types.Type, initExpr Expr) *Local {
 	loc := fl.allocSlot("_ll_tmp", ty)
 	fl.assignLocal(loc, initExpr)
 	if !ty.IsPlain() {
 		fl.stmtTemps = append(fl.stmtTemps, loc)
 	}
-	return loc.CName
+	return loc
 }
 
-func (fl *funcLowerer) assignLocal(loc *Local, expr string) {
-	fl.emit(&InstrAssign{Dst: loc.CName, Expr: expr})
-	if loc.MovedFlag != "" {
-		fl.emit(&InstrAssign{Dst: loc.MovedFlag, Expr: "false"})
+func (fl *funcLowerer) assignLocal(loc *Local, expr Expr) {
+	fl.emit(&InstrAssign{Dst: NewLocalExpr(loc), Expr: EnsureExpr(expr, loc.Type)})
+	if loc.MovedLocal != nil {
+		fl.emit(&InstrAssign{Dst: NewLocalExpr(loc.MovedLocal), Expr: NewLitBool(false)})
 	}
 }
 
@@ -421,7 +435,7 @@ func (fl *funcLowerer) flushStmtTemps() {
 	fl.stmtTemps = nil
 	for i := len(temps) - 1; i >= 0; i-- {
 		t := temps[i]
-		fl.emit(&InstrDrop{Var: t.CName, Type: t.Type, MovedFlag: t.MovedFlag})
+		fl.emit(&InstrDrop{Var: t, VarName: t.CName, Type: t.Type, MovedFlag: t.MovedFlag})
 	}
 }
 
@@ -444,7 +458,7 @@ func (fl *funcLowerer) popScopeEmitDrops() {
 	fl.scopes = fl.scopes[:top]
 	for i := len(sc.ownedLocals) - 1; i >= 0; i-- {
 		loc := sc.ownedLocals[i]
-		fl.emit(&InstrDrop{Var: loc.CName, Type: loc.Type, MovedFlag: loc.MovedFlag})
+		fl.emit(&InstrDrop{Var: loc, VarName: loc.CName, Type: loc.Type, MovedFlag: loc.MovedFlag})
 	}
 }
 
@@ -453,7 +467,7 @@ func (fl *funcLowerer) emitDropsDownTo(stopIdx int) {
 		sc := fl.scopes[s]
 		for i := len(sc.ownedLocals) - 1; i >= 0; i-- {
 			loc := sc.ownedLocals[i]
-			fl.emit(&InstrDrop{Var: loc.CName, Type: loc.Type, MovedFlag: loc.MovedFlag})
+			fl.emit(&InstrDrop{Var: loc, VarName: loc.CName, Type: loc.Type, MovedFlag: loc.MovedFlag})
 		}
 	}
 }
@@ -552,6 +566,7 @@ func (fl *funcLowerer) lowerVarStmt(s *ast.VarStmt) {
 	}
 	if NeedsMovedFlag(sym.Type) {
 		loc.MovedFlag = sym.CName + "_moved"
+		loc.MovedLocal = &Local{CName: loc.MovedFlag, Type: types.TypeBool}
 	}
 	fl.locals = append(fl.locals, loc)
 	fl.symLocals[sym] = loc
@@ -569,7 +584,7 @@ func (fl *funcLowerer) lowerVarStmt(s *ast.VarStmt) {
 		elseBranch := fl.popInstrBuf()
 
 		fl.emit(&InstrIf{
-			Cond: "!" + optHasValueExpr(optTmp.CName, optTy),
+			Cond: &ExprUnary{Op: token.KwNot, Operand: optHasValueExpr(optTmp, optTy), Typ: types.TypeBool},
 			Then: elseBranch,
 		})
 		// Extract owned value out of `optTmp` (freeing outer heap box if `optTy.IsBoxed()`)!
@@ -593,12 +608,12 @@ func (fl *funcLowerer) lowerVarStmt(s *ast.VarStmt) {
 func (fl *funcLowerer) extractOwnedOptionalInto(optSlot *Local, optTy *types.Optional, dst *Local) {
 	if optTy.IsBoxed() {
 		// Deref `*optSlot`, assign to `dst`, and free ONLY the heap shell (not inner fields)!
-		fl.assignLocal(dst, fmt.Sprintf("(*%s)", optSlot.CName))
-		fl.emit(&InstrExpr{Expr: fmt.Sprintf("ll_free(%s)", optSlot.CName)})
-		fl.emit(&InstrAssign{Dst: optSlot.CName, Expr: "NULL"})
+		fl.assignLocal(dst, &ExprDeref{Ptr: NewLocalExpr(optSlot), Typ: optTy.Elem})
+		fl.emit(&InstrExpr{Expr: &ExprFree{Ptr: NewLocalExpr(optSlot)}})
+		fl.emit(&InstrAssign{Dst: NewLocalExpr(optSlot), Expr: NewLitNone(optTy)})
 	} else {
-		fl.assignLocal(dst, fmt.Sprintf("%s.value", optSlot.CName))
-		fl.emit(&InstrAssign{Dst: optSlot.CName + ".has_value", Expr: "false"})
+		fl.assignLocal(dst, &ExprField{Base: NewLocalExpr(optSlot), FieldName: "value", Typ: optTy.Elem})
+		fl.emit(&InstrAssign{Dst: &ExprField{Base: NewLocalExpr(optSlot), FieldName: "has_value", Typ: types.TypeBool}, Expr: NewLitBool(false)})
 	}
 }
 
@@ -615,7 +630,12 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 			kExpr := fl.lowerExprOwned(idx.Index, mapTy.Key)
 			vExpr := fl.lowerExprOwned(s.Value, mapTy.Value)
 			fl.emit(&InstrExpr{
-				Expr: fmt.Sprintf("ll_map_insert__%s(%s, %s, %s)", mapTy.Mangled(), mPtr, kExpr, vExpr),
+				Expr: &ExprMapInsert{
+					MapPtr:  EnsureExpr(mPtr, &types.Ptr{Elem: mapTy}),
+					Key:     EnsureExpr(kExpr, mapTy.Key),
+					Val:     EnsureExpr(vExpr, mapTy.Value),
+					MapType: mapTy,
+				},
 			})
 			fl.flushStmtTemps()
 			return
@@ -636,13 +656,13 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 		elseBranch := fl.popInstrBuf()
 
 		fl.emit(&InstrIf{
-			Cond: "!" + optHasValueExpr(optTmp.CName, optTy),
+			Cond: &ExprUnary{Op: token.KwNot, Operand: optHasValueExpr(optTmp, optTy), Typ: types.TypeBool},
 			Then: elseBranch,
 		})
 
 		unwrappedTmp := fl.allocSlot("_ll_asgn_val", optTy.Elem)
 		fl.extractOwnedOptionalInto(optTmp, optTy, unwrappedTmp)
-		fl.assignToTargetLValue(s.Target, targetTy, unwrappedTmp.CName)
+		fl.assignToTargetLValue(s.Target, targetTy, NewLocalExpr(unwrappedTmp))
 		return
 	}
 
@@ -653,7 +673,7 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 		rhsTmp := fl.allocSlot("_ll_rhs", targetTy)
 		fl.assignLocal(rhsTmp, valExpr)
 		fl.flushStmtTemps()
-		fl.assignToTargetLValue(s.Target, targetTy, rhsTmp.CName)
+		fl.assignToTargetLValue(s.Target, targetTy, NewLocalExpr(rhsTmp))
 		return
 	}
 
@@ -665,7 +685,7 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 	fl.flushStmtTemps()
 }
 
-func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type, newValExpr string) {
+func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type, newValExpr Expr) {
 	if ue, isUnsafe := target.(*ast.UnsafeExpr); isUnsafe {
 		target = ue.Expr
 	}
@@ -677,7 +697,7 @@ func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type
 		if sym := fl.info(id).Sym; sym != nil {
 			if loc, ok := fl.symLocals[sym]; ok && !loc.IsMutPtr {
 				if !targetTy.IsPlain() {
-					fl.emit(&InstrDrop{Var: loc.CName, Type: targetTy, MovedFlag: loc.MovedFlag})
+					fl.emit(&InstrDrop{Var: loc, VarName: loc.CName, Type: targetTy, MovedFlag: loc.MovedFlag})
 				}
 				fl.assignLocal(loc, newValExpr)
 				return
@@ -686,42 +706,53 @@ func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type
 	}
 	lhsPtr := fl.lowerLValueAddr(target)
 	if !targetTy.IsPlain() && !isRawDeref {
-		fl.emit(&InstrExpr{Expr: fmt.Sprintf("%s(%s)", DropFnName(targetTy), lhsPtr)})
+		fl.emit(&InstrExpr{Expr: &ExprDrop{Ptr: EnsureExpr(lhsPtr, targetTy), ValType: targetTy}})
 	}
-	fl.emit(&InstrAssign{Dst: fmt.Sprintf("(*%s)", lhsPtr), Expr: newValExpr})
+	fl.emit(&InstrAssign{Dst: &ExprDeref{Ptr: EnsureExpr(lhsPtr, targetTy), Typ: targetTy}, Expr: EnsureExpr(newValExpr, targetTy)})
 }
 
-func (fl *funcLowerer) emitCompoundAssign(op token.Kind, ty types.Type, lhsPtr, rhsExpr, file string, line int) {
+func (fl *funcLowerer) emitCompoundAssign(op token.Kind, ty types.Type, lhsPtr Expr, rhsExpr Expr, file string, line int) {
 	if op == token.PlusEq && ty.Equals(types.TypeString) {
-		fl.emit(&InstrExpr{Expr: fmt.Sprintf("ll_str_push(%s, %s)", lhsPtr, rhsExpr)})
+		fl.emit(&InstrExpr{Expr: &ExprStringPush{StrPtr: EnsureExpr(lhsPtr, types.TypeString), Item: EnsureExpr(rhsExpr, types.TypeString)}})
 		return
 	}
-	prim := types.UnderlyingPrimitive(ty)
-	lhsVal := fmt.Sprintf("(*%s)", lhsPtr)
-	var computed string
+	var binOp token.Kind
 	switch op {
 	case token.PlusEq:
-		computed = fl.buildArithBinary(token.Plus, ty, prim, lhsVal, rhsExpr, file, line)
+		binOp = token.Plus
 	case token.MinusEq:
-		computed = fl.buildArithBinary(token.Minus, ty, prim, lhsVal, rhsExpr, file, line)
+		binOp = token.Minus
 	case token.StarEq:
-		computed = fl.buildArithBinary(token.Star, ty, prim, lhsVal, rhsExpr, file, line)
+		binOp = token.Star
 	case token.SlashEq:
-		computed = fl.buildArithBinary(token.Slash, ty, prim, lhsVal, rhsExpr, file, line)
+		binOp = token.Slash
 	case token.PercentEq:
-		computed = fl.buildArithBinary(token.Percent, ty, prim, lhsVal, rhsExpr, file, line)
+		binOp = token.Percent
 	case token.AmpEq:
-		computed = fmt.Sprintf("((%s)(%s & %s))", CType(ty), lhsVal, rhsExpr)
+		binOp = token.Amp
 	case token.PipeEq:
-		computed = fmt.Sprintf("((%s)(%s | %s))", CType(ty), lhsVal, rhsExpr)
+		binOp = token.Pipe
 	case token.CaretEq:
-		computed = fmt.Sprintf("((%s)(%s ^ %s))", CType(ty), lhsVal, rhsExpr)
+		binOp = token.Caret
 	case token.ShlEq:
-		computed = fl.buildShiftExpr(token.Shl, ty, prim, lhsVal, rhsExpr, file, line)
+		binOp = token.Shl
 	case token.ShrEq:
-		computed = fl.buildShiftExpr(token.Shr, ty, prim, lhsVal, rhsExpr, file, line)
+		binOp = token.Shr
+	default:
+		panic(fmt.Sprintf("unsupported compound assign op %v", op))
 	}
-	fl.emit(&InstrAssign{Dst: lhsVal, Expr: computed})
+	lhsDeref := &ExprDeref{Ptr: EnsureExpr(lhsPtr, ty), Typ: ty}
+	fl.emit(&InstrAssign{
+		Dst: lhsDeref,
+		Expr: &ExprBinary{
+			Op:    binOp,
+			Left:  lhsDeref,
+			Right: EnsureExpr(rhsExpr, ty),
+			Typ:   ty,
+			File:  file,
+			Line:  line,
+		},
+	})
 }
 
 func (fl *funcLowerer) lowerUnwindStmt(u *ast.UnwindStmt) {
@@ -754,7 +785,7 @@ func (fl *funcLowerer) lowerUnwindStmt(u *ast.UnwindStmt) {
 			fl.flushStmtTemps()
 
 			// Drop any prior iteration value held in `tgt.resultVar` before overwriting!
-			fl.storeLoopRunningResult(tgt, valTmp.CName)
+			fl.storeLoopRunningResult(tgt, NewLocalExpr(valTmp))
 		} else {
 			destTy := tgt.resultVar.Type
 			valExpr := fl.lowerExprOwned(u.Value, destTy)
@@ -778,7 +809,7 @@ func (fl *funcLowerer) lowerUnwindStmt(u *ast.UnwindStmt) {
 	if tgt.isFunc {
 		fl.emitDropsDownTo(targetIdx)
 		if tgt.resultVar != nil {
-			fl.emit(&InstrReturn{Expr: tgt.resultVar.CName})
+			fl.emit(&InstrReturn{Expr: NewLocalExpr(tgt.resultVar)})
 		} else {
 			fl.emit(&InstrReturn{})
 		}
@@ -792,17 +823,18 @@ func (fl *funcLowerer) lowerUnwindStmt(u *ast.UnwindStmt) {
 	fl.emit(&InstrGoto{Label: tgt.breakLabel})
 }
 
-func (fl *funcLowerer) storeLoopRunningResult(loopScope *mirScope, elemExpr string) {
+func (fl *funcLowerer) storeLoopRunningResult(loopScope *mirScope, elemExpr Expr) {
 	if loopScope.resultVar == nil || loopScope.hasValVar == nil {
 		return
 	}
 	// If a previous iteration already wrote a Resource value into `resultVar`, drop it first!
 	if !loopScope.resultVar.Type.IsPlain() {
 		fl.emit(&InstrIf{
-			Cond: loopScope.hasValVar.CName,
+			Cond: NewLocalExpr(loopScope.hasValVar),
 			Then: []Instr{
 				&InstrDrop{
-					Var:       loopScope.resultVar.CName,
+					Var:       loopScope.resultVar,
+					VarName:   loopScope.resultVar.CName,
 					Type:      loopScope.resultVar.Type,
 					MovedFlag: loopScope.resultVar.MovedFlag,
 				},
@@ -815,5 +847,5 @@ func (fl *funcLowerer) storeLoopRunningResult(loopScope *mirScope, elemExpr stri
 	} else {
 		fl.assignLocal(loopScope.resultVar, elemExpr)
 	}
-	fl.emit(&InstrAssign{Dst: loopScope.hasValVar.CName, Expr: "true"})
+	fl.emit(&InstrAssign{Dst: NewLocalExpr(loopScope.hasValVar), Expr: NewLitBool(true)})
 }

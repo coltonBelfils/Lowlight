@@ -9,8 +9,8 @@ import (
 
 func (g *cEmitter) emitVectorMethods(v *types.Vector) {
 	m := v.Mangled()
-	cVec := ir.CType(v)
-	cElem := ir.CType(v.Elem)
+	cVec := CType(v)
+	cElem := CType(v.Elem)
 
 	// reserve
 	g.line("static inline void ll_vec_reserve__%s(%s* v, int64_t want) {", m, cVec)
@@ -87,7 +87,7 @@ func (g *cEmitter) emitVectorMethods(v *types.Vector) {
 	// pop & get (only when `opt_<Elem>` is instantiated in the program)
 	optElem := types.NewOptional(v.Elem)
 	if g.hasOptionalType(optElem) {
-		cOpt := ir.CType(optElem)
+		cOpt := CType(optElem)
 		g.line("static inline %s ll_vec_pop__%s(%s* v) {", cOpt, m, cVec)
 		g.line("    if (v->len <= 0) return %s;", optNoneC(optElem))
 		g.line("    v->len--;")
@@ -116,12 +116,12 @@ func (g *cEmitter) emitVectorMethods(v *types.Vector) {
 
 func (g *cEmitter) emitStackArrayMethods(a *types.StackArray) {
 	m := a.Mangled()
-	cArr := ir.CType(a)
-	cElem := ir.CType(a.Elem)
+	cArr := CType(a)
+	cElem := CType(a.Elem)
 
 	optElem := types.NewOptional(a.Elem)
 	if g.hasOptionalType(optElem) && g.canCopy(a.Elem) {
-		cOpt := ir.CType(optElem)
+		cOpt := CType(optElem)
 		g.line("static inline %s ll_arr_get__%s(%s a, int64_t idx) {", cOpt, m, cArr)
 		g.line("    if (idx < 0 || idx >= %dLL) return %s;", a.Size, optNoneC(optElem))
 		g.line("    return %s;", optSomeC(optElem, fmt.Sprintf("%s(a.data[idx])", g.copyExpr(a.Elem))))
@@ -139,8 +139,8 @@ func (g *cEmitter) emitStackArrayMethods(a *types.StackArray) {
 
 func (g *cEmitter) emitSetMethods(s *types.Set) {
 	m := s.Mangled()
-	cSet := ir.CType(s)
-	cElem := ir.CType(s.Elem)
+	cSet := CType(s)
+	cElem := CType(s.Elem)
 	cEnt := cSet + "_ent"
 
 	// rehash helper
@@ -257,7 +257,7 @@ func (g *cEmitter) emitSetMethods(s *types.Set) {
 	// to_vec (if `vec_<Elem>` exists)
 	vecElem := &types.Vector{Elem: s.Elem}
 	if g.hasVectorType(vecElem) && g.canCopy(s.Elem) {
-		cVec := ir.CType(vecElem)
+		cVec := CType(vecElem)
 		vm := vecElem.Mangled()
 		g.line("static inline %s ll_set_to_vec__%s(const %s* s) {", cVec, m, cSet)
 		g.line("    %s out = (%s){0};", cVec, cVec)
@@ -273,9 +273,9 @@ func (g *cEmitter) emitSetMethods(s *types.Set) {
 
 func (g *cEmitter) emitMapMethods(mp *types.Map) {
 	m := mp.Mangled()
-	cMap := ir.CType(mp)
-	cKey := ir.CType(mp.Key)
-	cVal := ir.CType(mp.Value)
+	cMap := CType(mp)
+	cKey := CType(mp.Key)
+	cVal := CType(mp.Value)
 	cEnt := cMap + "_ent"
 
 	// rehash
@@ -359,7 +359,7 @@ func (g *cEmitter) emitMapMethods(mp *types.Map) {
 	// get (`m[k] -> ?V`) & remove (`m.remove(k) -> ?V`)
 	optVal := types.NewOptional(mp.Value)
 	if g.hasOptionalType(optVal) {
-		cOpt := ir.CType(optVal)
+		cOpt := CType(optVal)
 		if g.canCopy(mp.Value) {
 			g.line("static inline %s ll_map_get__%s(const %s* m, %s key) {", cOpt, m, cMap, cKey)
 			g.line("    uint64_t h = %s;", g.hashInlineExpr(mp.Key, "key"))
@@ -416,7 +416,7 @@ func (g *cEmitter) emitMapMethods(mp *types.Map) {
 	// keys & values
 	vecKey := &types.Vector{Elem: mp.Key}
 	if g.hasVectorType(vecKey) && g.canCopy(mp.Key) {
-		cVec := ir.CType(vecKey)
+		cVec := CType(vecKey)
 		vm := vecKey.Mangled()
 		g.line("static inline %s ll_map_keys__%s(const %s* m) {", cVec, m, cMap)
 		g.line("    %s out = (%s){0};", cVec, cVec)
@@ -429,7 +429,7 @@ func (g *cEmitter) emitMapMethods(mp *types.Map) {
 	}
 	vecVal := &types.Vector{Elem: mp.Value}
 	if g.hasVectorType(vecVal) && g.canCopy(mp.Value) {
-		cVec := ir.CType(vecVal)
+		cVec := CType(vecVal)
 		vm := vecVal.Mangled()
 		g.line("static inline %s ll_map_values__%s(const %s* m) {", cVec, m, cMap)
 		g.line("    %s out = (%s){0};", cVec, cVec)
@@ -564,9 +564,9 @@ func (g *cEmitter) emitBuiltinCompositeWrappers() {
 
 func optNoneC(opt *types.Optional) string {
 	if opt.IsBoxed() {
-		return fmt.Sprintf("((%s)NULL)", ir.CType(opt))
+		return fmt.Sprintf("((%s)NULL)", CType(opt))
 	}
-	return fmt.Sprintf("(%s){ .has_value = false }", ir.CType(opt))
+	return fmt.Sprintf("(%s){ .has_value = false }", CType(opt))
 }
 
 func optSomeC(opt *types.Optional, valExpr string) string {
@@ -574,5 +574,5 @@ func optSomeC(opt *types.Optional, valExpr string) string {
 		st := opt.Elem.(*types.Struct)
 		return fmt.Sprintf("%s(%s)", ir.BoxOptFnName(st), valExpr)
 	}
-	return fmt.Sprintf("(%s){ .has_value = true, .value = %s }", ir.CType(opt), valExpr)
+	return fmt.Sprintf("(%s){ .has_value = true, .value = %s }", CType(opt), valExpr)
 }

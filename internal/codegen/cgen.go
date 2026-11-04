@@ -2,10 +2,13 @@ package codegen
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"lowlight/internal/ir"
 	"lowlight/internal/sema"
+	"lowlight/internal/token"
 	"lowlight/internal/types"
 )
 
@@ -103,7 +106,7 @@ func (g *cEmitter) emitAll() {
 	if len(g.prog.Globals) > 0 {
 		g.line("/* Top-Level Constants */")
 		for _, gl := range g.prog.Globals {
-			g.line("static %s %s;", ir.CType(gl.Type), gl.CName)
+			g.line("static %s %s;", CType(gl.Type), gl.CName)
 		}
 		g.line("")
 	}
@@ -128,7 +131,7 @@ func (g *cEmitter) emitEnumsAndForwardDecls() {
 	if len(g.prog.Enums) > 0 {
 		g.line("/* Enum Types */")
 		for _, en := range g.prog.Enums {
-			g.line("typedef %s %s;", ir.CType(en.Underlying), en.CName)
+			g.line("typedef %s %s;", CType(en.Underlying), en.CName)
 			for _, v := range en.Variants {
 				g.line("#define %s__%s ((%s)%dLL)", en.CName, v.Name, en.CName, v.Value)
 			}
@@ -142,28 +145,31 @@ func (g *cEmitter) emitEnumsAndForwardDecls() {
 		case *types.Enum:
 			g.line("typedef struct %s %s;", v.CName, v.CName)
 		case *types.Struct:
+			if strings.HasPrefix(v.CName, "ll_lambda_env_") {
+				continue
+			}
 			g.line("typedef struct %s %s;", v.CName, v.CName)
 		case *types.Optional:
 			if !v.IsBoxed() {
-				cn := ir.CType(v)
+				cn := CType(v)
 				g.line("typedef struct %s %s;", cn, cn)
 			}
 		case *types.StackArray:
-			cn := ir.CType(v)
+			cn := CType(v)
 			g.line("typedef struct %s %s;", cn, cn)
 		case *types.Vector:
-			cn := ir.CType(v)
+			cn := CType(v)
 			g.line("typedef struct %s %s;", cn, cn)
 		case *types.Set:
-			cn := ir.CType(v)
+			cn := CType(v)
 			g.line("typedef struct %s_ent %s_ent;", cn, cn)
 			g.line("typedef struct %s %s;", cn, cn)
 		case *types.Map:
-			cn := ir.CType(v)
+			cn := CType(v)
 			g.line("typedef struct %s_ent %s_ent;", cn, cn)
 			g.line("typedef struct %s %s;", cn, cn)
 		case *types.Func:
-			cn := ir.CType(v)
+			cn := CType(v)
 			g.line("typedef struct %s %s;", cn, cn)
 		case *types.Interface:
 			vt := ir.VTableTypeName(v)
@@ -173,7 +179,7 @@ func (g *cEmitter) emitEnumsAndForwardDecls() {
 	}
 	for _, t := range g.prog.OrderedTypes {
 		if v, ok := t.(*types.Distinct); ok {
-			g.line("typedef %s %s;", ir.CType(v.Base), v.CName)
+			g.line("typedef %s %s;", CType(v.Base), v.CName)
 		}
 	}
 	g.line("")
@@ -198,14 +204,14 @@ func (g *cEmitter) emitOrderedTypeDefs() {
 				for _, vr := range v.Variants {
 					switch vr.Kind {
 					case types.VariantTuple:
-						g.line("        %s %s;", ir.CType(vr.Payload), vr.CName)
+						g.line("        %s %s;", CType(vr.Payload), vr.CName)
 					case types.VariantStruct:
 						g.line("        struct {")
 						if len(vr.Fields) == 0 {
 							g.line("            uint8_t _ll_empty;")
 						} else {
 							for _, sf := range vr.Fields {
-								g.line("            %s %s;", ir.CType(sf.Type), sf.CName)
+								g.line("            %s %s;", CType(sf.Type), sf.CName)
 							}
 						}
 						g.line("        } %s;", vr.CName)
@@ -216,6 +222,9 @@ func (g *cEmitter) emitOrderedTypeDefs() {
 			g.line("};")
 
 		case *types.Struct:
+			if strings.HasPrefix(v.CName, "ll_lambda_env_") {
+				continue
+			}
 			attr := ""
 			if v.Packed {
 				attr = " __attribute__((packed))"
@@ -225,41 +234,41 @@ func (g *cEmitter) emitOrderedTypeDefs() {
 				g.line("    uint8_t _ll_empty;")
 			} else {
 				for _, f := range v.Fields {
-					g.line("    %s %s;", ir.CType(f.Type), f.CName)
+					g.line("    %s %s;", CType(f.Type), f.CName)
 				}
 			}
 			g.line("};")
 
 		case *types.Optional:
 			if !v.IsBoxed() {
-				cn := ir.CType(v)
-				g.line("struct %s { bool has_value; %s value; };", cn, ir.CType(v.Elem))
+				cn := CType(v)
+				g.line("struct %s { bool has_value; %s value; };", cn, CType(v.Elem))
 			}
 
 		case *types.StackArray:
-			cn := ir.CType(v)
-			g.line("struct %s { %s data[%d]; };", cn, ir.CType(v.Elem), v.Size)
+			cn := CType(v)
+			g.line("struct %s { %s data[%d]; };", cn, CType(v.Elem), v.Size)
 
 		case *types.Vector:
-			cn := ir.CType(v)
-			g.line("struct %s { %s* data; int64_t len; int64_t cap; };", cn, ir.CType(v.Elem))
+			cn := CType(v)
+			g.line("struct %s { %s* data; int64_t len; int64_t cap; };", cn, CType(v.Elem))
 
 		case *types.Set:
-			cn := ir.CType(v)
+			cn := CType(v)
 			g.line("struct %s { int64_t* buckets; int64_t buck_cap; %s_ent* entries; int64_t ent_len; int64_t ent_cap; int64_t len; };", cn, cn)
 
 		case *types.Map:
-			cn := ir.CType(v)
+			cn := CType(v)
 			g.line("struct %s { int64_t* buckets; int64_t buck_cap; %s_ent* entries; int64_t ent_len; int64_t ent_cap; int64_t len; };", cn, cn)
 
 		case *types.Func:
-			cn := ir.CType(v)
+			cn := CType(v)
 			pTypes := []string{"void*"}
 			for _, p := range v.Params {
 				pTypes = append(pTypes, paramCType(p.Mode, p.Type))
 			}
 			g.line("struct %s {", cn)
-			g.line("    %s (*fn)(%s);", ir.CType(v.Ret), strings.Join(pTypes, ", "))
+			g.line("    %s (*fn)(%s);", CType(v.Ret), strings.Join(pTypes, ", "))
 			g.line("    void* env;")
 			g.line("    void* (*copy_env)(const void*);")
 			g.line("    void (*drop_env)(void*);")
@@ -275,7 +284,7 @@ func (g *cEmitter) emitOrderedTypeDefs() {
 				for _, p := range m.Params {
 					pTypes = append(pTypes, paramCType(p.Mode, p.Type))
 				}
-				g.line("    %s (*m_%s)(%s);", ir.CType(m.Ret), m.Name, strings.Join(pTypes, ", "))
+				g.line("    %s (*m_%s)(%s);", CType(m.Ret), m.Name, strings.Join(pTypes, ", "))
 			}
 			g.line("};")
 			g.line("struct %s { void* data; const %s* vtable; bool owned; };", v.CName, vt)
@@ -284,11 +293,11 @@ func (g *cEmitter) emitOrderedTypeDefs() {
 	for _, t := range g.prog.OrderedTypes {
 		switch v := t.(type) {
 		case *types.Set:
-			cn := ir.CType(v)
-			g.line("struct %s_ent { bool alive; uint64_t hash; %s key; };", cn, ir.CType(v.Elem))
+			cn := CType(v)
+			g.line("struct %s_ent { bool alive; uint64_t hash; %s key; };", cn, CType(v.Elem))
 		case *types.Map:
-			cn := ir.CType(v)
-			g.line("struct %s_ent { bool alive; uint64_t hash; %s key; %s val; };", cn, ir.CType(v.Key), ir.CType(v.Value))
+			cn := CType(v)
+			g.line("struct %s_ent { bool alive; uint64_t hash; %s key; %s val; };", cn, CType(v.Key), CType(v.Value))
 		}
 	}
 	g.line("")
@@ -305,7 +314,7 @@ func (g *cEmitter) emitLambdaEnvStructs() {
 		}
 		g.line("typedef struct %s {", li.EnvCName)
 		for _, c := range li.Captures {
-			g.line("    %s %s;", ir.CType(c.Type), c.CName)
+			g.line("    %s %s;", CType(c.Type), c.CName)
 		}
 		g.line("} %s;", li.EnvCName)
 	}
@@ -340,7 +349,7 @@ func (g *cEmitter) emitForwardPrototypes() {
 			if len(ps) == 0 {
 				ps = []string{"void"}
 			}
-			g.line("extern %s %s(%s);", ir.CType(ef.Sig.Ret), ef.Name, strings.Join(ps, ", "))
+			g.line("extern %s %s(%s);", CType(ef.Sig.Ret), ef.Name, strings.Join(ps, ", "))
 		}
 	}
 
@@ -353,41 +362,41 @@ func (g *cEmitter) emitForwardPrototypes() {
 	}
 
 	for _, en := range g.prog.Enums {
-		g.line("static inline ll_string %s(%s v);", ir.ToStrFnName(en), ir.CType(en))
-		g.line("static inline uint64_t %s(%s v);", ir.HashFnName(en), ir.CType(en))
+		g.line("static inline ll_string %s(%s v);", ir.ToStrFnName(en), CType(en))
+		g.line("static inline uint64_t %s(%s v);", ir.HashFnName(en), CType(en))
 	}
 
 	for _, t := range g.prog.OrderedTypes {
 		if !t.IsPlain() {
-			g.line("static inline void %s(%s* p);", ir.DropFnName(t), ir.CType(t))
+			g.line("static inline void %s(%s* p);", ir.DropFnName(t), CType(t))
 		}
 		if g.canCopy(t) && !t.IsPlain() {
-			g.line("static inline %s %s(%s v);", ir.CType(t), ir.CopyFnName(t), ir.CType(t))
+			g.line("static inline %s %s(%s v);", CType(t), ir.CopyFnName(t), CType(t))
 		}
 		hasEq := types.SupportsEq(t) || g.prog.Checked.LookupConcreteMethod(t, "eq") != nil || g.prog.Checked.LookupConcreteMethod(t, "cmp") != nil
 		if hasEq {
 			switch t.(type) {
 			case *types.Struct, *types.Optional, *types.Enum:
-				g.line("static inline bool %s(%s a, %s b);", ir.EqFnName(t), ir.CType(t), ir.CType(t))
+				g.line("static inline bool %s(%s a, %s b);", ir.EqFnName(t), CType(t), CType(t))
 			}
 		}
 		if g.prog.Checked.LookupConcreteMethod(t, "cmp") != nil {
-			g.line("static inline int64_t %s(%s a, %s b);", ir.CmpFnName(t), ir.CType(t), ir.CType(t))
+			g.line("static inline int64_t %s(%s a, %s b);", ir.CmpFnName(t), CType(t), CType(t))
 		} else if d, isDist := t.(*types.Distinct); isDist {
 			if g.prog.Checked.LookupConcreteMethod(d.Base, "cmp") != nil || types.UnderlyingPrimitive(d.Base) != nil {
-				g.line("static inline int64_t %s(%s a, %s b);", ir.CmpFnName(t), ir.CType(t), ir.CType(t))
+				g.line("static inline int64_t %s(%s a, %s b);", ir.CmpFnName(t), CType(t), CType(t))
 			}
 		}
 		if types.IsHashable(t) {
 			if _, isDist := t.(*types.Distinct); isDist {
-				g.line("static inline uint64_t %s(%s v);", ir.HashFnName(t), ir.CType(t))
+				g.line("static inline uint64_t %s(%s v);", ir.HashFnName(t), CType(t))
 			}
 		}
 		if g.prog.Checked.LookupConcreteMethod(t, "hash") != nil {
-			g.line("static inline uint64_t %s(%s v);", ir.HashFnName(t), ir.CType(t))
+			g.line("static inline uint64_t %s(%s v);", ir.HashFnName(t), CType(t))
 		}
 		if g.canToString(t) {
-			g.line("static inline ll_string %s(%s v);", ir.ToStrFnName(t), ir.CType(t))
+			g.line("static inline ll_string %s(%s v);", ir.ToStrFnName(t), CType(t))
 		}
 		if st, isSt := t.(*types.Struct); isSt && st.BoxedOptional {
 			optSt := types.NewOptional(st)
@@ -414,7 +423,7 @@ func (g *cEmitter) emitForwardPrototypes() {
 func (g *cEmitter) emitSynthesizedTypeHelpers() {
 	// Enum helpers
 	for _, en := range g.prog.Enums {
-		cEn := ir.CType(en)
+		cEn := CType(en)
 		g.line("static inline uint64_t %s(%s v) { return ll_fn_hash_mix_u64((uint64_t)v); }", ir.HashFnName(en), cEn)
 		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(en), cEn)
 		if custom := g.prog.Checked.LookupConcreteMethod(en, "to_string"); custom != nil {
@@ -485,8 +494,8 @@ func (g *cEmitter) emitSynthesizedTypeHelpers() {
 }
 
 func (g *cEmitter) emitDistinctHelpers(d *types.Distinct) {
-	cD := ir.CType(d)
-	cBase := ir.CType(d.Base)
+	cD := CType(d)
+	cBase := CType(d.Base)
 	if !d.IsPlain() {
 		g.line("static inline void %s(%s* p) { %s((%s*)p); }", ir.DropFnName(d), cD, ir.DropFnName(d.Base), cBase)
 	}
@@ -521,7 +530,7 @@ func (g *cEmitter) emitDistinctHelpers(d *types.Distinct) {
 }
 
 func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
-	cEn := ir.CType(en)
+	cEn := CType(en)
 
 	// drop: if `p->tag == 0`, already moved/empty; run custom `Drop.drop(&self)` first if defined, then drop active variant!
 	if !en.IsPlain() {
@@ -683,7 +692,7 @@ func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
 }
 
 func (g *cEmitter) emitStructHelpers(st *types.Struct) {
-	cSt := ir.CType(st)
+	cSt := CType(st)
 
 	// drop: run custom `Drop.drop(&self)` FIRST (while fields are intact), then drop Resource fields in reverse order!
 	if !st.IsPlain() {
@@ -800,7 +809,7 @@ func (g *cEmitter) emitBoxedOptionalHelpers(st *types.Struct) {
 }
 
 func (g *cEmitter) emitFlatOptionalHelpers(o *types.Optional) {
-	cOpt := ir.CType(o)
+	cOpt := CType(o)
 	if !o.IsPlain() {
 		g.line("static inline void %s(%s* p) {", ir.DropFnName(o), cOpt)
 		g.line("    if (p && p->has_value) { %s(&p->value); p->has_value = false; }", ir.DropFnName(o.Elem))
@@ -828,7 +837,7 @@ func (g *cEmitter) emitFlatOptionalHelpers(o *types.Optional) {
 }
 
 func (g *cEmitter) emitStackArrayHelpers(a *types.StackArray) {
-	cArr := ir.CType(a)
+	cArr := CType(a)
 	if !a.IsPlain() {
 		g.line("static inline void %s(%s* p) {", ir.DropFnName(a), cArr)
 		g.line("    if (!p) return;")
@@ -858,8 +867,8 @@ func (g *cEmitter) emitStackArrayHelpers(a *types.StackArray) {
 }
 
 func (g *cEmitter) emitVectorHelpers(v *types.Vector) {
-	cVec := ir.CType(v)
-	cElem := ir.CType(v.Elem)
+	cVec := CType(v)
+	cElem := CType(v.Elem)
 
 	// drop (`cap > 0` owns heap buffer; `cap == 0` is borrowed view -> no-op!)
 	g.line("static inline void %s(%s* p) {", ir.DropFnName(v), cVec)
@@ -904,7 +913,7 @@ func (g *cEmitter) emitVectorHelpers(v *types.Vector) {
 }
 
 func (g *cEmitter) emitSetHelpers(s *types.Set) {
-	cSet := ir.CType(s)
+	cSet := CType(s)
 	cEnt := cSet + "_ent"
 	g.line("static inline void %s(%s* p) {", ir.DropFnName(s), cSet)
 	g.line("    if (!p) return;")
@@ -957,7 +966,7 @@ func (g *cEmitter) emitSetHelpers(s *types.Set) {
 }
 
 func (g *cEmitter) emitMapHelpers(m *types.Map) {
-	cMap := ir.CType(m)
+	cMap := CType(m)
 	cEnt := cMap + "_ent"
 	g.line("static inline void %s(%s* p) {", ir.DropFnName(m), cMap)
 	g.line("    if (!p) return;")
@@ -1023,7 +1032,7 @@ func (g *cEmitter) emitMapHelpers(m *types.Map) {
 }
 
 func (g *cEmitter) emitFuncClosureHelpers(fn *types.Func) {
-	cFn := ir.CType(fn)
+	cFn := CType(fn)
 	g.line("static inline void %s(%s* p) {", ir.DropFnName(fn), cFn)
 	g.line("    if (p && p->env && p->drop_env) p->drop_env(p->env);")
 	g.line("    if (p) *p = (%s){0};", cFn)
@@ -1036,7 +1045,7 @@ func (g *cEmitter) emitFuncClosureHelpers(fn *types.Func) {
 }
 
 func (g *cEmitter) emitInterfaceHelpers(ifc *types.Interface) {
-	cIfc := ir.CType(ifc)
+	cIfc := CType(ifc)
 	g.line("static inline void %s(%s* p) {", ir.DropFnName(ifc), cIfc)
 	g.line("    if (p && p->owned && p->data && p->vtable && p->vtable->drop_box) {")
 	g.line("        p->vtable->drop_box(p->data);")
@@ -1113,7 +1122,7 @@ func (g *cEmitter) emitLambdaAndThunkHelpers() {
 			pDecls = append(pDecls, fmt.Sprintf("%s %s", paramCType(p.Mode, p.Type), pn))
 			pArgs = append(pArgs, pn)
 		}
-		g.line("static inline %s %s_entry(%s) {", ir.CType(li.Sig.Ret), li.CName, strings.Join(pDecls, ", "))
+		g.line("static inline %s %s_entry(%s) {", CType(li.Sig.Ret), li.CName, strings.Join(pDecls, ", "))
 		if li.Sig.Ret.Equals(types.TypeVoid) {
 			g.line("    %s(%s);", li.CName, strings.Join(pArgs, ", "))
 		} else {
@@ -1132,7 +1141,7 @@ func (g *cEmitter) emitLambdaAndThunkHelpers() {
 			pDecls = append(pDecls, fmt.Sprintf("%s %s", paramCType(p.Mode, p.Type), pn))
 			pArgs = append(pArgs, pn)
 		}
-		g.line("static inline %s %s(%s) {", ir.CType(st.FuncType.Ret), st.ThunkCName, strings.Join(pDecls, ", "))
+		g.line("static inline %s %s(%s) {", CType(st.FuncType.Ret), st.ThunkCName, strings.Join(pDecls, ", "))
 		g.line("    (void)_ll_env;")
 		if st.FuncType.Ret.Equals(types.TypeVoid) {
 			g.line("    %s(%s);", st.TargetFunc.CName, strings.Join(pArgs, ", "))
@@ -1150,7 +1159,7 @@ func (g *cEmitter) emitVTables() {
 	}
 	g.line("/* Interface VTables */")
 	for _, vt := range g.prog.VTables {
-		cCon := ir.CType(vt.Concrete)
+		cCon := CType(vt.Concrete)
 		vtInst := ir.VTableInstanceName(vt.Concrete, vt.Iface)
 		vtTy := ir.VTableTypeName(vt.Iface)
 
@@ -1196,7 +1205,7 @@ func (g *cEmitter) emitVTables() {
 				callArgs = append(callArgs, pn)
 			}
 
-			g.line("static inline %s %s(%s) {", ir.CType(im.Ret), wName, strings.Join(pDecls, ", "))
+			g.line("static inline %s %s(%s) {", CType(im.Ret), wName, strings.Join(pDecls, ", "))
 			fi := vt.Methods[idx]
 			targetFn := ""
 			if fi != nil {
@@ -1234,7 +1243,7 @@ func funcSignatureC(fn *ir.Function) string {
 		ps = append(ps, "void* _ll_env")
 	}
 	for _, p := range fn.Params {
-		tyStr := ir.CType(p.Type)
+		tyStr := CType(p.Type)
 		if p.IsMutPtr {
 			tyStr += "*"
 		}
@@ -1249,7 +1258,7 @@ func funcSignatureC(fn *ir.Function) string {
 	} else if fn.IsNoInline {
 		attr = "__attribute__((noinline)) "
 	}
-	return fmt.Sprintf("static %s%s %s(%s)", attr, ir.CType(fn.RetType), fn.CName, strings.Join(ps, ", "))
+	return fmt.Sprintf("static %s%s %s(%s)", attr, CType(fn.RetType), fn.CName, strings.Join(ps, ", "))
 }
 
 func lambdaEntrySigC(li *sema.LambdaInfo) string {
@@ -1258,14 +1267,14 @@ func lambdaEntrySigC(li *sema.LambdaInfo) string {
 	for idx, p := range li.Sig.Params {
 		ps = append(ps, fmt.Sprintf("%s _p%d", paramCType(p.Mode, p.Type), idx))
 	}
-	return fmt.Sprintf("%s %s_entry(%s)", ir.CType(li.Sig.Ret), li.CName, strings.Join(ps, ", "))
+	return fmt.Sprintf("%s %s_entry(%s)", CType(li.Sig.Ret), li.CName, strings.Join(ps, ", "))
 }
 
 func paramCType(mode types.ParamMode, ty types.Type) string {
 	if mode == types.ModeMut {
-		return ir.CType(ty) + "*"
+		return CType(ty) + "*"
 	}
-	return ir.CType(ty)
+	return CType(ty)
 }
 
 func (g *cEmitter) emitFunction(fn *ir.Function) {
@@ -1281,7 +1290,7 @@ func (g *cEmitter) emitFunction(fn *ir.Function) {
 		}
 	}
 	for _, loc := range fn.Locals {
-		tyStr := ir.CType(loc.Type)
+		tyStr := CType(loc.Type)
 		if loc.IsMutPtr {
 			g.indentLine(1, "%s* %s = NULL;", tyStr, loc.CName)
 		} else {
@@ -1298,19 +1307,540 @@ func (g *cEmitter) emitFunction(fn *ir.Function) {
 	g.line("")
 }
 
+func (g *cEmitter) emitExpr(e ir.Expr) string {
+	if e == nil {
+		return ""
+	}
+	switch v := e.(type) {
+	case *ir.ExprLocal:
+		if v.Local == nil {
+			return ""
+		}
+		return v.Local.CName
+	case *ir.ExprGlobal:
+		if v.Global == nil {
+			return ""
+		}
+		if v.Global.CName != "" {
+			return v.Global.CName
+		}
+		return v.Global.Name
+	case *ir.ExprFuncRef:
+		return v.Name
+	case *ir.ExprLitInt:
+		return formatCIntLit(v.Val, v.Negated, v.Typ)
+	case *ir.ExprLitFloat:
+		return formatCFloatLit(v.Val, v.Typ)
+	case *ir.ExprLitBool:
+		if v.Val {
+			return "true"
+		}
+		return "false"
+	case *ir.ExprLitChar:
+		return fmt.Sprintf("%du", uint32(v.Val))
+	case *ir.ExprLitString:
+		return fmt.Sprintf("ll_str_lit(%s, %dLL)", quoteCString(v.Val), len(v.Val))
+	case *ir.ExprLitCString:
+		return quoteCString(v.Val)
+	case *ir.ExprLitNone:
+		if v.OptType != nil && v.OptType.IsBoxed() {
+			return fmt.Sprintf("((%s)NULL)", CType(v.OptType))
+		}
+		return fmt.Sprintf("(%s){ .has_value = false }", CType(v.OptType))
+	case *ir.ExprLitZero:
+		if isPtrRef(v.Typ) {
+			return "NULL"
+		}
+		return fmt.Sprintf("((%s){0})", CType(v.Typ))
+	case *ir.ExprField:
+		baseCode := g.emitExpr(v.Base)
+		if isPtrRef(v.Base.Type()) || v.IsPtr {
+			return fmt.Sprintf("(%s)->%s", baseCode, v.FieldName)
+		}
+		return fmt.Sprintf("(%s).%s", baseCode, v.FieldName)
+	case *ir.ExprIndex:
+		baseCode := g.emitExpr(v.Base)
+		idxCode := g.emitExpr(v.Index)
+		return fmt.Sprintf("(%s)[%s]", baseCode, idxCode)
+	case *ir.ExprDeref:
+		ptrCode := g.emitExpr(v.Ptr)
+		return fmt.Sprintf("(*(%s))", ptrCode)
+	case *ir.ExprAddrOf:
+		placeCode := g.emitExpr(v.Place)
+		return fmt.Sprintf("(&(%s))", placeCode)
+	case *ir.ExprBinary:
+		return g.emitBinaryExpr(v)
+	case *ir.ExprUnary:
+		return g.emitUnaryExpr(v)
+	case *ir.ExprCast:
+		valCode := g.emitExpr(v.Val)
+		fromIsPtr := isPtrRef(v.From) || (v.Val.Type() != nil && isPtrRef(v.Val.Type()))
+		toIsPtr := isPtrRef(v.To)
+		if fromIsPtr && toIsPtr {
+			return fmt.Sprintf("((%s)(void*)(uintptr_t)(%s))", CType(v.To), valCode)
+		}
+		if fromIsPtr && (v.To.Equals(types.TypeU64) || v.To.Equals(types.TypeInt)) {
+			return fmt.Sprintf("((%s)(uintptr_t)(%s))", CType(v.To), valCode)
+		}
+		if !fromIsPtr && toIsPtr {
+			return fmt.Sprintf("((%s)(uintptr_t)(%s))", CType(v.To), valCode)
+		}
+		return fmt.Sprintf("((%s)(%s))", CType(v.To), valCode)
+	case *ir.ExprCall:
+		calleeCode := g.emitExpr(v.Callee)
+		args := make([]string, len(v.Args))
+		for i, a := range v.Args {
+			args[i] = g.emitExpr(a)
+		}
+		return fmt.Sprintf("%s(%s)", calleeCode, strings.Join(args, ", "))
+	case *ir.ExprConstructStruct:
+		fields := make([]string, len(v.Fields))
+		for i, f := range v.Fields {
+			fields[i] = fmt.Sprintf(".%s = %s", f.Name, g.emitExpr(f.Value))
+		}
+		return fmt.Sprintf("(%s){ %s }", CType(v.StructType), strings.Join(fields, ", "))
+	case *ir.ExprConstructEnum:
+		if v.EnumType.IsTagged {
+			if v.Payload != nil {
+				return fmt.Sprintf("(%s){ .tag = %d, .data = { .%s = %s } }",
+					CType(v.EnumType), v.Variant.Value, v.Variant.CName, g.emitExpr(v.Payload))
+			}
+			return fmt.Sprintf("(%s){ .tag = %d }", CType(v.EnumType), v.Variant.Value)
+		}
+		return fmt.Sprintf("((%s)%dLL)", CType(v.EnumType), v.Variant.Value)
+	case *ir.ExprConstructArray:
+		elems := make([]string, len(v.Elems))
+		for i, el := range v.Elems {
+			elems[i] = g.emitExpr(el)
+		}
+		return fmt.Sprintf("(%s){ .data = { %s } }", CType(v.ArrayType), strings.Join(elems, ", "))
+	case *ir.ExprConstructClosure:
+		envStr := "NULL"
+		if v.EnvPtr != nil {
+			envStr = fmt.Sprintf("(void*)%s", g.emitExpr(v.EnvPtr))
+		}
+		copyStr := "NULL"
+		if v.CopyFn != "" {
+			copyStr = v.CopyFn
+		}
+		dropStr := "NULL"
+		if v.DropFn != "" {
+			dropStr = v.DropFn
+		}
+		return fmt.Sprintf("(%s){ .fn = %s, .env = %s, .copy_env = %s, .drop_env = %s }",
+			CType(v.FuncType), v.EntryFn, envStr, copyStr, dropStr)
+	case *ir.ExprWrapOptional:
+		valCode := g.emitExpr(v.Value)
+		if v.OptType.IsBoxed() {
+			st := v.OptType.Elem.(*types.Struct)
+			return fmt.Sprintf("%s(%s)", ir.BoxOptFnName(st), valCode)
+		}
+		return fmt.Sprintf("(%s){ .has_value = true, .value = %s }", CType(v.OptType), valCode)
+	case *ir.ExprOptionalHasValue:
+		optCode := g.emitExpr(v.Opt)
+		if optTy, isOpt := v.Opt.Type().(*types.Optional); isOpt && optTy.IsBoxed() {
+			return fmt.Sprintf("((%s) != NULL)", optCode)
+		}
+		return fmt.Sprintf("((%s).has_value)", optCode)
+	case *ir.ExprOptionalValue:
+		optCode := g.emitExpr(v.Opt)
+		if v.IsBoxed {
+			return fmt.Sprintf("(*(%s))", optCode)
+		}
+		return fmt.Sprintf("((%s).value)", optCode)
+	case *ir.ExprOptionalValuePtr:
+		ptrCode := g.emitExpr(v.OptPtr)
+		if v.IsBoxed {
+			return fmt.Sprintf("(*(%s))", ptrCode)
+		}
+		return fmt.Sprintf("(&((%s)->value))", ptrCode)
+	case *ir.ExprSliceView:
+		return fmt.Sprintf("(%s){ .data = (%s*)%s, .len = %s, .cap = 0 }",
+			CType(v.VecType), CType(v.VecType.Elem), g.emitExpr(v.DataPtr), g.emitExpr(v.Len))
+	case *ir.ExprBoxInterface:
+		valCode := g.emitExpr(v.Value)
+		if v.ConcreteType != nil && v.ConcreteType.Equals(v.IfcType) {
+			return fmt.Sprintf("(%s){ .data = (%s).data, .vtable = (%s).vtable, .owned = false }",
+				CType(v.IfcType), valCode, valCode)
+		}
+		vtName := ir.VTableInstanceName(v.ConcreteType, v.IfcType)
+		ownedStr := "false"
+		if v.Owned {
+			ownedStr = "true"
+		}
+		return fmt.Sprintf("(%s){ .data = (void*)%s, .vtable = &%s, .owned = %s }",
+			CType(v.IfcType), valCode, vtName, ownedStr)
+	case *ir.ExprAlloc:
+		if v.Count != nil {
+			return fmt.Sprintf("((%s*)ll_alloc((%s) * (int64_t)sizeof(%s)))", CType(v.AllocType), g.emitExpr(v.Count), CType(v.AllocType))
+		}
+		return fmt.Sprintf("((%s*)ll_alloc((int64_t)sizeof(%s)))", CType(v.AllocType), CType(v.AllocType))
+	case *ir.ExprArenaAlloc:
+		dtorArg := "NULL"
+		if v.DtorFn != "" {
+			dtorArg = fmt.Sprintf("(void (*)(void*))%s", v.DtorFn)
+		}
+		cElem := CType(v.AllocType)
+		return fmt.Sprintf("((%s*)ll_arena_alloc(%s, (int64_t)sizeof(%s), (int64_t)_Alignof(%s), %s))",
+			cElem, g.emitExpr(v.Arena), cElem, cElem, dtorArg)
+	case *ir.ExprRealloc:
+		return fmt.Sprintf("((%s*)ll_realloc((void*)(%s), (%s) * (int64_t)sizeof(%s)))",
+			CType(v.AllocType), g.emitExpr(v.Ptr), g.emitExpr(v.Count), CType(v.AllocType))
+	case *ir.ExprFree:
+		return fmt.Sprintf("ll_free(%s)", g.emitExpr(v.Ptr))
+	case *ir.ExprCopyBytes:
+		return fmt.Sprintf("ll_copy_bytes(%s, %s, %s)", g.emitExpr(v.Dst), g.emitExpr(v.Src), g.emitExpr(v.Count))
+	case *ir.ExprSizeOf:
+		return fmt.Sprintf("((int64_t)sizeof(%s))", CType(v.QueryType))
+	case *ir.ExprAlignOf:
+		return fmt.Sprintf("((int64_t)_Alignof(%s))", CType(v.QueryType))
+	case *ir.ExprStringConcat:
+		return fmt.Sprintf("ll_str_concat(%s, %s)", g.emitExpr(v.Left), g.emitExpr(v.Right))
+	case *ir.ExprStringPush:
+		return fmt.Sprintf("ll_str_push(%s, %s)", g.emitExpr(v.StrPtr), g.emitExpr(v.Item))
+	case *ir.ExprToString:
+		return fmt.Sprintf("%s(%s)", g.toStrFn(v.ValType), g.emitExpr(v.Val))
+	case *ir.ExprDrop:
+		return fmt.Sprintf("%s(%s)", ir.DropFnName(v.ValType), g.emitExpr(v.Ptr))
+	case *ir.ExprCopy:
+		return fmt.Sprintf("%s(%s)", ir.CopyFnName(v.ValType), g.emitExpr(v.Val))
+	case *ir.ExprEq:
+		return fmt.Sprintf("%s(%s, %s)", ir.EqFnName(v.ValType), g.emitExpr(v.Left), g.emitExpr(v.Right))
+	case *ir.ExprCmp:
+		return fmt.Sprintf("%s(%s, %s)", ir.CmpFnName(v.ValType), g.emitExpr(v.Left), g.emitExpr(v.Right))
+	case *ir.ExprHash:
+		return fmt.Sprintf("%s(%s)", ir.HashFnName(v.ValType), g.emitExpr(v.Val))
+	case *ir.ExprVecPush:
+		return fmt.Sprintf("ll_vec_push__%s(%s, %s)", v.VecType.Mangled(), g.emitExpr(v.VecPtr), g.emitExpr(v.Item))
+	case *ir.ExprMapInsert:
+		return fmt.Sprintf("ll_map_insert__%s(%s, %s, %s)", v.MapType.Mangled(), g.emitExpr(v.MapPtr), g.emitExpr(v.Key), g.emitExpr(v.Val))
+	case *ir.ExprSetInsert:
+		return fmt.Sprintf("ll_set_insert__%s(%s, %s)", v.SetType.Mangled(), g.emitExpr(v.SetPtr), g.emitExpr(v.Item))
+	default:
+		return fmt.Sprintf("%v", e)
+	}
+}
+
+func (g *cEmitter) emitBinaryExpr(b *ir.ExprBinary) string {
+	cRes := CType(b.Typ)
+	prim := types.UnderlyingPrimitive(b.Typ)
+	lhs := g.emitExpr(b.Left)
+	rhs := g.emitExpr(b.Right)
+
+	if prim != nil && prim.IsFloat() {
+		switch b.Op {
+		case token.Plus:
+			return fmt.Sprintf("((%s)((%s) + (%s)))", cRes, lhs, rhs)
+		case token.Minus:
+			return fmt.Sprintf("((%s)((%s) - (%s)))", cRes, lhs, rhs)
+		case token.Star:
+			return fmt.Sprintf("((%s)((%s) * (%s)))", cRes, lhs, rhs)
+		case token.Slash:
+			return fmt.Sprintf("((%s)((%s) / (%s)))", cRes, lhs, rhs)
+		case token.Percent:
+			return fmt.Sprintf("((%s)fmod((double)(%s), (double)(%s)))", cRes, lhs, rhs)
+		}
+	}
+
+	if isPtrRef(b.Typ) {
+		switch b.Op {
+		case token.Plus:
+			return fmt.Sprintf("((%s)((%s) + (%s)))", cRes, lhs, rhs)
+		case token.Minus:
+			return fmt.Sprintf("((%s)((%s) - (%s)))", cRes, lhs, rhs)
+		}
+	}
+
+	bits := 64
+	if prim != nil {
+		bits = prim.BitWidth()
+	}
+	uType := unsignedCTypeForWidth(bits)
+
+	switch b.Op {
+	case token.Plus:
+		return fmt.Sprintf("((%s)((%s)(%s) + (%s)(%s)))", cRes, uType, lhs, uType, rhs)
+	case token.Minus:
+		return fmt.Sprintf("((%s)((%s)(%s) - (%s)(%s)))", cRes, uType, lhs, uType, rhs)
+	case token.Star:
+		return fmt.Sprintf("((%s)((%s)(%s) * (%s)(%s)))", cRes, uType, lhs, uType, rhs)
+	case token.Slash:
+		if prim != nil && prim.IsUnsignedInt() {
+			return fmt.Sprintf("((%s)ll_div_u64((uint64_t)(%s), (uint64_t)(%s), %q, %d))", cRes, lhs, rhs, b.File, b.Line)
+		}
+		return fmt.Sprintf("((%s)ll_div_i%d((int%d_t)(%s), (int%d_t)(%s), %q, %d))", cRes, bits, bits, lhs, bits, rhs, b.File, b.Line)
+	case token.Percent:
+		if prim != nil && prim.IsUnsignedInt() {
+			return fmt.Sprintf("((%s)ll_mod_u64((uint64_t)(%s), (uint64_t)(%s), %q, %d))", cRes, lhs, rhs, b.File, b.Line)
+		}
+		return fmt.Sprintf("((%s)ll_mod_i%d((int%d_t)(%s), (int%d_t)(%s), %q, %d))", cRes, bits, bits, lhs, bits, rhs, b.File, b.Line)
+	case token.Shl:
+		return fmt.Sprintf("((%s)ll_shl_u%d((uint%d_t)(%s), (int64_t)(%s), 1, %q, %d))",
+			cRes, bits, bits, lhs, rhs, b.File, b.Line)
+	case token.Shr:
+		if prim != nil && prim.IsUnsignedInt() {
+			return fmt.Sprintf("((%s)ll_shr_u%d((uint%d_t)(%s), (int64_t)(%s), 1, %q, %d))",
+				cRes, bits, bits, lhs, rhs, b.File, b.Line)
+		}
+		return fmt.Sprintf("((%s)ll_shr_i%d((int%d_t)(%s), (int64_t)(%s), 1, %q, %d))",
+			cRes, bits, bits, lhs, rhs, b.File, b.Line)
+	case token.Amp:
+		return fmt.Sprintf("((%s)(%s & %s))", cRes, lhs, rhs)
+	case token.Pipe:
+		return fmt.Sprintf("((%s)(%s | %s))", cRes, lhs, rhs)
+	case token.Caret:
+		return fmt.Sprintf("((%s)(%s ^ %s))", cRes, lhs, rhs)
+	case token.Eq:
+		if b.Left.Type() != nil && b.Left.Type().Equals(types.TypeString) {
+			return fmt.Sprintf("ll_str_eq(%s, %s)", lhs, rhs)
+		}
+		return fmt.Sprintf("((%s) == (%s))", lhs, rhs)
+	case token.Neq:
+		if b.Left.Type() != nil && b.Left.Type().Equals(types.TypeString) {
+			return fmt.Sprintf("(!ll_str_eq(%s, %s))", lhs, rhs)
+		}
+		return fmt.Sprintf("((%s) != (%s))", lhs, rhs)
+	case token.Lt:
+		if b.Left.Type() != nil && b.Left.Type().Equals(types.TypeString) {
+			return fmt.Sprintf("(ll_str_cmp(%s, %s) < 0)", lhs, rhs)
+		}
+		return fmt.Sprintf("((%s) < (%s))", lhs, rhs)
+	case token.Lte:
+		if b.Left.Type() != nil && b.Left.Type().Equals(types.TypeString) {
+			return fmt.Sprintf("(ll_str_cmp(%s, %s) <= 0)", lhs, rhs)
+		}
+		return fmt.Sprintf("((%s) <= (%s))", lhs, rhs)
+	case token.Gt:
+		if b.Left.Type() != nil && b.Left.Type().Equals(types.TypeString) {
+			return fmt.Sprintf("(ll_str_cmp(%s, %s) > 0)", lhs, rhs)
+		}
+		return fmt.Sprintf("((%s) > (%s))", lhs, rhs)
+	case token.Gte:
+		if b.Left.Type() != nil && b.Left.Type().Equals(types.TypeString) {
+			return fmt.Sprintf("(ll_str_cmp(%s, %s) >= 0)", lhs, rhs)
+		}
+		return fmt.Sprintf("((%s) >= (%s))", lhs, rhs)
+	case token.KwAnd:
+		return fmt.Sprintf("((%s) && (%s))", lhs, rhs)
+	case token.KwOr:
+		return fmt.Sprintf("((%s) || (%s))", lhs, rhs)
+	default:
+		return fmt.Sprintf("((%s) %s (%s))", lhs, b.Op.String(), rhs)
+	}
+}
+
+func (g *cEmitter) emitUnaryExpr(u *ir.ExprUnary) string {
+	operand := g.emitExpr(u.Operand)
+	switch u.Op {
+	case token.Minus:
+		prim := types.UnderlyingPrimitive(u.Typ)
+		cTy := CType(u.Typ)
+		if prim != nil && prim.IsFloat() {
+			return fmt.Sprintf("(-(%s))", operand)
+		}
+		bits := 64
+		if prim != nil {
+			bits = prim.BitWidth()
+		}
+		uType := unsignedCTypeForWidth(bits)
+		return fmt.Sprintf("((%s)(-(%s)(%s)))", cTy, uType, operand)
+	case token.KwNot:
+		return fmt.Sprintf("(!(%s))", operand)
+	case token.Tilde:
+		return fmt.Sprintf("(~(%s))", operand)
+	case token.Star:
+		return fmt.Sprintf("(*(%s))", operand)
+	case token.Amp:
+		return fmt.Sprintf("(&(%s))", operand)
+	default:
+		return fmt.Sprintf("(%s(%s))", u.Op.String(), operand)
+	}
+}
+
+// CType returns the exact C11 type name used for `t` in generated code.
+func CType(t types.Type) string {
+	if t == nil {
+		return "void"
+	}
+	switch v := t.(type) {
+	case *types.Primitive:
+		switch v.Kind {
+		case types.PrimVoid, types.PrimNever:
+			return "void"
+		case types.PrimBool:
+			return "bool"
+		case types.PrimChar:
+			return "uint32_t"
+		case types.PrimI8:
+			return "int8_t"
+		case types.PrimI16:
+			return "int16_t"
+		case types.PrimI32:
+			return "int32_t"
+		case types.PrimI64:
+			return "int64_t"
+		case types.PrimU8:
+			return "uint8_t"
+		case types.PrimU16:
+			return "uint16_t"
+		case types.PrimU32:
+			return "uint32_t"
+		case types.PrimU64:
+			return "uint64_t"
+		case types.PrimF32:
+			return "float"
+		case types.PrimF64:
+			return "double"
+		case types.PrimString:
+			return "ll_string"
+		case types.PrimArena:
+			return "ll_arena"
+		default:
+			return "int64_t"
+		}
+	case *types.Ptr:
+		if v.Elem.Equals(types.TypeVoid) {
+			return "void*"
+		}
+		return CType(v.Elem) + "*"
+	case *types.Ref:
+		return CType(v.Elem) + "*"
+	case *types.Enum:
+		return v.CName
+	case *types.Distinct:
+		return v.CName
+	case *types.Struct:
+		return v.CName
+	case *types.Optional:
+		if v.IsBoxed() {
+			return CType(v.Elem) + "*"
+		}
+		return "ll_" + v.Mangled()
+	case *types.Vector:
+		return "ll_" + v.Mangled()
+	case *types.StackArray:
+		return "ll_" + v.Mangled()
+	case *types.Set:
+		return "ll_" + v.Mangled()
+	case *types.Map:
+		return "ll_" + v.Mangled()
+	case *types.Func:
+		return "ll_" + v.Mangled()
+	case *types.Interface:
+		return v.CName
+	default:
+		return "int64_t"
+	}
+}
+
+func unsignedCTypeForWidth(bits int) string {
+	switch bits {
+	case 8:
+		return "uint8_t"
+	case 16:
+		return "uint16_t"
+	case 32:
+		return "uint32_t"
+	default:
+		return "uint64_t"
+	}
+}
+
+func formatCIntLit(val uint64, negated bool, ty types.Type) string {
+	cTy := CType(ty)
+	prim := types.UnderlyingPrimitive(ty)
+	if negated {
+		if val == 9223372036854775808 {
+			return fmt.Sprintf("((%s)(-9223372036854775807LL - 1LL))", cTy)
+		}
+		if val == 2147483648 && prim != nil && prim.Kind == types.PrimI32 {
+			return fmt.Sprintf("((%s)(-2147483647 - 1))", cTy)
+		}
+		return fmt.Sprintf("((%s)(-%dLL))", cTy, int64(val))
+	}
+	if prim != nil && prim.IsUnsignedInt() {
+		return fmt.Sprintf("((%s)%dULL)", cTy, val)
+	}
+	return fmt.Sprintf("((%s)%dLL)", cTy, val)
+}
+
+func formatCFloatLit(val float64, ty types.Type) string {
+	cTy := CType(ty)
+	if math.IsInf(val, 1) {
+		return fmt.Sprintf("((%s)INFINITY)", cTy)
+	}
+	if math.IsInf(val, -1) {
+		return fmt.Sprintf("((%s)(-INFINITY))", cTy)
+	}
+	if math.IsNaN(val) {
+		return fmt.Sprintf("((%s)NAN)", cTy)
+	}
+	s := strconv.FormatFloat(val, 'g', 17, 64)
+	if !strings.ContainsAny(s, ".eE") {
+		s += ".0"
+	}
+	return fmt.Sprintf("((%s)%s)", cTy, s)
+}
+
+func quoteCString(s string) string {
+	var sb strings.Builder
+	sb.WriteByte('"')
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		switch b {
+		case '\\':
+			sb.WriteString(`\\`)
+		case '"':
+			sb.WriteString(`\"`)
+		case '\n':
+			sb.WriteString(`\n`)
+		case '\r':
+			sb.WriteString(`\r`)
+		case '\t':
+			sb.WriteString(`\t`)
+		case 0:
+			sb.WriteString(`\0`)
+		default:
+			if b >= 0x20 && b <= 0x7e {
+				sb.WriteByte(b)
+			} else {
+				sb.WriteString(fmt.Sprintf("\\%03o", b))
+			}
+		}
+	}
+	sb.WriteByte('"')
+	return sb.String()
+}
+
+func isPtrRef(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	_, isPtr := t.(*types.Ptr)
+	_, isRef := t.(*types.Ref)
+	return isPtr || isRef
+}
+
 func (g *cEmitter) emitInstrList(indent int, ins []ir.Instr) {
 	for _, in := range ins {
 		switch v := in.(type) {
 		case *ir.InstrAssign:
-			g.indentLine(indent, "%s = %s;", v.Dst, v.Expr)
+			g.indentLine(indent, "%s = %s;", g.emitExpr(v.Dst), g.emitExpr(v.Expr))
+
+		case *ir.InstrCompoundAssign:
+			g.indentLine(indent, "%s = %s;", g.emitExpr(v.Dst), g.emitExpr(v.Expr))
 
 		case *ir.InstrExpr:
-			if v.Expr != "" {
-				g.indentLine(indent, "%s;", v.Expr)
+			if v.Expr != nil {
+				code := g.emitExpr(v.Expr)
+				if code != "" {
+					g.indentLine(indent, "%s;", code)
+				}
 			}
 
 		case *ir.InstrZero:
-			g.indentLine(indent, "%s = (%s){0};", v.Var, ir.CType(v.Type))
+			vName := v.Name()
+			g.indentLine(indent, "%s = (%s){0};", vName, CType(v.Type))
 			if v.MovedFlag != "" {
 				g.indentLine(indent, "%s = true;", v.MovedFlag)
 			}
@@ -1319,15 +1849,16 @@ func (g *cEmitter) emitInstrList(indent int, ins []ir.Instr) {
 			if v.Type.IsPlain() {
 				continue
 			}
+			vName := v.Name()
 			if v.MovedFlag != "" {
 				g.indentLine(indent, "if (!%s) { %s = true; %s(&%s); }",
-					v.MovedFlag, v.MovedFlag, ir.DropFnName(v.Type), v.Var)
+					v.MovedFlag, v.MovedFlag, ir.DropFnName(v.Type), vName)
 			} else {
-				g.indentLine(indent, "%s(&%s);", ir.DropFnName(v.Type), v.Var)
+				g.indentLine(indent, "%s(&%s);", ir.DropFnName(v.Type), vName)
 			}
 
 		case *ir.InstrIf:
-			g.indentLine(indent, "if (%s) {", stripOuterParens(v.Cond))
+			g.indentLine(indent, "if (%s) {", stripOuterParens(g.emitExpr(v.Cond)))
 			g.emitInstrList(indent+1, v.Then)
 			if len(v.Else) > 0 {
 				g.indentLine(indent, "} else {")
@@ -1336,7 +1867,7 @@ func (g *cEmitter) emitInstrList(indent int, ins []ir.Instr) {
 			g.indentLine(indent, "}")
 
 		case *ir.InstrWhile:
-			g.indentLine(indent, "while (%s) {", stripOuterParens(v.Cond))
+			g.indentLine(indent, "while (%s) {", stripOuterParens(g.emitExpr(v.Cond)))
 			g.emitInstrList(indent+1, v.Body)
 			g.indentLine(indent, "}")
 
@@ -1352,10 +1883,15 @@ func (g *cEmitter) emitInstrList(indent int, ins []ir.Instr) {
 			g.indentLine(indent, "goto %s;", v.Label)
 
 		case *ir.InstrReturn:
-			if v.Expr == "" {
+			if v.Expr == nil {
 				g.indentLine(indent, "return;")
 			} else {
-				g.indentLine(indent, "return %s;", v.Expr)
+				code := g.emitExpr(v.Expr)
+				if code == "" {
+					g.indentLine(indent, "return;")
+				} else {
+					g.indentLine(indent, "return %s;", code)
+				}
 			}
 		}
 	}
@@ -1375,7 +1911,7 @@ func (g *cEmitter) emitCMain() {
 		if len(gl.InitInstr) > 0 || len(gl.Locals) > 0 {
 			g.line("    {")
 			for _, loc := range gl.Locals {
-				tyStr := ir.CType(loc.Type)
+				tyStr := CType(loc.Type)
 				if loc.IsMutPtr {
 					g.indentLine(2, "%s* %s = NULL;", tyStr, loc.CName)
 				} else {
@@ -1386,10 +1922,10 @@ func (g *cEmitter) emitCMain() {
 				}
 			}
 			g.emitInstrList(2, gl.InitInstr)
-			g.line("        %s = %s;", gl.CName, gl.InitExpr)
+			g.line("        %s = %s;", gl.CName, g.emitExpr(gl.InitExpr))
 			g.line("    }")
 		} else {
-			g.line("    %s = %s;", gl.CName, gl.InitExpr)
+			g.line("    %s = %s;", gl.CName, g.emitExpr(gl.InitExpr))
 		}
 	}
 
@@ -1424,7 +1960,7 @@ func (g *cEmitter) emitCTestMain() {
 		if len(gl.InitInstr) > 0 || len(gl.Locals) > 0 {
 			g.line("    {")
 			for _, loc := range gl.Locals {
-				tyStr := ir.CType(loc.Type)
+				tyStr := CType(loc.Type)
 				if loc.IsMutPtr {
 					g.indentLine(2, "%s* %s = NULL;", tyStr, loc.CName)
 				} else {
@@ -1435,10 +1971,10 @@ func (g *cEmitter) emitCTestMain() {
 				}
 			}
 			g.emitInstrList(2, gl.InitInstr)
-			g.line("        %s = %s;", gl.CName, gl.InitExpr)
+			g.line("        %s = %s;", gl.CName, g.emitExpr(gl.InitExpr))
 			g.line("    }")
 		} else {
-			g.line("    %s = %s;", gl.CName, gl.InitExpr)
+			g.line("    %s = %s;", gl.CName, g.emitExpr(gl.InitExpr))
 		}
 	}
 
@@ -1466,7 +2002,7 @@ func (g *cEmitter) emitCTestMain() {
 			if desc == "" {
 				desc = fn.Name
 			}
-			quotedDesc := ir.QuoteCString(desc)
+			quotedDesc := quoteCString(desc)
 			g.line("    // Test: %s", fn.Name)
 			g.line("    printf(\"=== RUN   %%s\\n\", %s);", quotedDesc)
 			g.line("    fflush(stdout);")
@@ -1555,7 +2091,7 @@ func (g *cEmitter) eqInlineExpr(t types.Type, a, b string) string {
 	case *types.Ptr, *types.Ref:
 		return fmt.Sprintf("((%s) == (%s))", a, b)
 	case *types.Distinct:
-		cBase := ir.CType(v.Base)
+		cBase := CType(v.Base)
 		return g.eqInlineExpr(v.Base, fmt.Sprintf("((%s)(%s))", cBase, a), fmt.Sprintf("((%s)(%s))", cBase, b))
 	case *types.Struct, *types.Optional:
 		return fmt.Sprintf("%s(%s, %s)", ir.EqFnName(t), a, b)

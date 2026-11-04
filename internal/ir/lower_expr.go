@@ -36,26 +36,26 @@ func (fl *funcLowerer) lowerVoidExpr(e ast.Expr) {
 		inf := fl.info(e)
 		if inf.Type == nil || inf.Type.Equals(types.TypeVoid) || inf.Type.Equals(types.TypeNever) {
 			raw := fl.lowerRawExpr(e, nil, false)
-			if raw != "" {
+			if raw != nil {
 				fl.emit(&InstrExpr{Expr: raw})
 			}
 			return
 		}
 		// Expression returns a value that is discarded in statement position:
 		// lower via `lowerExprRead` so any fresh Resource rvalue is registered in `stmtTemps` and dropped!
-		exprStr := fl.lowerExprRead(e)
+		readExpr := fl.lowerExprRead(e)
 		// Ensure side-effecting Plain calls still execute if not already materialized into a temp
-		if inf.Type.IsPlain() && exprStr != "" {
-			fl.emit(&InstrExpr{Expr: fmt.Sprintf("(void)(%s)", exprStr)})
+		if inf.Type.IsPlain() && readExpr != nil {
+			fl.emit(&InstrExpr{Expr: readExpr})
 		}
 	}
 }
 
 // lowerExprOwned lowers `e` producing an OWNED value of `targetTy` (moving out of
 // any `MovedLocal`, wrapping `T -> ?T` if `WrapOptional`, or boxing `Concrete -> Interface` if `BoxInterface`).
-func (fl *funcLowerer) lowerExprOwned(e ast.Expr, targetTy types.Type) string {
+func (fl *funcLowerer) lowerExprOwned(e ast.Expr, targetTy types.Type) Expr {
 	if e == nil {
-		return ""
+		return nil
 	}
 	inf := fl.info(e)
 	if targetTy == nil {
@@ -74,9 +74,9 @@ func (fl *funcLowerer) lowerExprOwned(e ast.Expr, targetTy types.Type) string {
 	if inf.MovedLocal != nil {
 		if loc, ok := fl.symLocals[inf.MovedLocal]; ok {
 			mvTmp := fl.allocSlot("_ll_mv", loc.Type)
-			fl.assignLocal(mvTmp, loc.CName)
-			fl.emit(&InstrZero{Var: loc.CName, Type: loc.Type, MovedFlag: loc.MovedFlag})
-			return fl.applyOwnedCoercions(e, inf, mvTmp.CName, targetTy)
+			fl.assignLocal(mvTmp, NewLocalExpr(loc))
+			fl.emit(&InstrZero{Var: loc, VarName: loc.CName, Type: loc.Type, MovedFlag: loc.MovedFlag})
+			return fl.applyOwnedCoercions(e, inf, NewLocalExpr(mvTmp), targetTy)
 		}
 	}
 
@@ -88,11 +88,11 @@ func (fl *funcLowerer) lowerExprOwned(e ast.Expr, targetTy types.Type) string {
 					st := selfLoc.Type.(*types.Struct)
 					sf, _ := st.FieldByName(mem.Member)
 					if sf != nil {
-						fieldLval := fmt.Sprintf("%s.%s", selfLoc.CName, sf.CName)
+						fieldLval := &ExprField{Base: NewLocalExpr(selfLoc), FieldName: sf.CName, Typ: sf.Type, IsPtr: false}
 						mvTmp := fl.allocSlot("_ll_fmove", sf.Type)
 						fl.assignLocal(mvTmp, fieldLval)
-						fl.emit(&InstrAssign{Dst: fieldLval, Expr: fmt.Sprintf("(%s){0}", CType(sf.Type))})
-						return fl.applyOwnedCoercions(e, inf, mvTmp.CName, targetTy)
+						fl.emit(&InstrAssign{Dst: fieldLval, Expr: &ExprLitZero{Typ: sf.Type}})
+						return fl.applyOwnedCoercions(e, inf, NewLocalExpr(mvTmp), targetTy)
 					}
 				}
 			}
@@ -103,7 +103,7 @@ func (fl *funcLowerer) lowerExprOwned(e ast.Expr, targetTy types.Type) string {
 	return fl.applyOwnedCoercions(e, inf, raw, targetTy)
 }
 
-func (fl *funcLowerer) applyOwnedCoercions(_ ast.Expr, inf *sema.ExprInfo, valExpr string, targetTy types.Type) string {
+func (fl *funcLowerer) applyOwnedCoercions(_ ast.Expr, inf *sema.ExprInfo, valExpr Expr, targetTy types.Type) Expr {
 	// Owned Interface boxing (`let s: Shape = my_circle` or `[Printable(x)]`)
 	if inf.BoxInterface != nil && !inf.BorrowAsView && !inf.Type.Equals(inf.BoxInterface) {
 		return fl.boxConcreteIntoInterface(valExpr, inf.Type, inf.BoxInterface)
@@ -124,9 +124,9 @@ func (fl *funcLowerer) applyOwnedCoercions(_ ast.Expr, inf *sema.ExprInfo, valEx
 // lowerExprRead lowers `e` for read-only consumption.
 // If `e` creates a fresh heap Resource rvalue (e.g. `"hi $x"`, `make_vec()`, `m["k"]`),
 // it is stored in a statement temporary (`stmtTemps`) so `flushStmtTemps()` frees it cleanly!
-func (fl *funcLowerer) lowerExprRead(e ast.Expr) string {
+func (fl *funcLowerer) lowerExprRead(e ast.Expr) Expr {
 	if e == nil {
-		return ""
+		return nil
 	}
 	inf := fl.info(e)
 	fl.tc.visit(inf.Type)
@@ -137,32 +137,38 @@ func (fl *funcLowerer) lowerExprRead(e ast.Expr) string {
 		if arrTy, isArr := inf.Type.(*types.StackArray); isArr {
 			vecTy := &types.Vector{Elem: arrTy.Elem}
 			fl.tc.visit(vecTy)
-			var arrAddr string
+			var arrAddr Expr
 			if fl.isAddressable(e) {
 				arrAddr = fl.lowerLValueAddr(e)
 			} else {
 				tmp := fl.allocSlot("_ll_arrview", arrTy)
 				fl.assignLocal(tmp, fl.lowerRawExpr(e, arrTy, false))
-				arrAddr = "&" + tmp.CName
+				arrAddr = &ExprAddrOf{Place: NewLocalExpr(tmp), Typ: &types.Ptr{Elem: arrTy}}
 			}
-			return fmt.Sprintf("(%s){ .data = (%s*)(%s)->data, .len = %d, .cap = 0 }",
-				CType(vecTy), CType(arrTy.Elem), arrAddr, arrTy.Size)
+			return &ExprSliceView{
+				VecType: vecTy,
+				DataPtr: &ExprField{Base: arrAddr, FieldName: "data", Typ: &types.Ptr{Elem: arrTy.Elem}, IsPtr: true},
+				Len:     NewLitInt(uint64(arrTy.Size), false, types.TypeInt),
+			}
 		}
 
 		// 2. Concrete value passed to read-only `Interface` parameter -> zero-allocation stack fat pointer!
 		if inf.BoxInterface != nil && !inf.Type.Equals(inf.BoxInterface) {
-			var addr string
+			var addr Expr
 			if fl.isAddressable(e) {
 				addr = fl.lowerLValueAddr(e)
 			} else {
 				// Materialize rvalue in a temp (dropped at statement end if Resource!)
 				baseVal := fl.lowerRawExpr(e, inf.Type, false)
 				tname := fl.allocStmtTemp(inf.Type, baseVal)
-				addr = "&" + tname
+				addr = &ExprAddrOf{Place: NewLocalExpr(tname), Typ: &types.Ptr{Elem: inf.Type}}
 			}
-			vtName := VTableInstanceName(inf.Type, inf.BoxInterface)
-			return fmt.Sprintf("(%s){ .data = (void*)(%s), .vtable = &%s, .owned = false }",
-				CType(inf.BoxInterface), addr, vtName)
+			return &ExprBoxInterface{
+				IfcType:      inf.BoxInterface,
+				ConcreteType: inf.Type,
+				Value:        addr,
+				Owned:        false,
+			}
 		}
 
 		// 3. Owned `Interface` variable passed to read-only `Interface` parameter -> unowned fat pointer copy!
@@ -170,8 +176,12 @@ func (fl *funcLowerer) lowerExprRead(e ast.Expr) string {
 			raw := fl.lowerRawExpr(e, inf.Type, false)
 			tmp := fl.allocSlot("_ll_ifcb", ifc)
 			fl.assignLocal(tmp, raw)
-			return fmt.Sprintf("(%s){ .data = %s.data, .vtable = %s.vtable, .owned = false }",
-				CType(ifc), tmp.CName, tmp.CName)
+			return &ExprBoxInterface{
+				IfcType:      ifc,
+				ConcreteType: ifc,
+				Value:        NewLocalExpr(tmp),
+				Owned:        false,
+			}
 		}
 	}
 
@@ -179,7 +189,7 @@ func (fl *funcLowerer) lowerExprRead(e ast.Expr) string {
 
 	// If `e` produced a fresh owned Resource rvalue, bind it into `stmtTemps` for automatic cleanup!
 	if inf.Type != nil && !inf.Type.IsPlain() && fl.isFreshResourceRValue(e, inf) {
-		raw = fl.allocStmtTemp(inf.Type, raw)
+		raw = NewLocalExpr(fl.allocStmtTemp(inf.Type, raw))
 	}
 
 	if inf.WrapOptional {
@@ -262,8 +272,8 @@ func (fl *funcLowerer) isAddressable(e ast.Expr) bool {
 	}
 }
 
-// lowerLValueAddr lowers an addressable place expression `e` to a C pointer `T*`.
-func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) string {
+// lowerLValueAddr lowers an addressable place expression `e` to a typed pointer expression `T*`.
+func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) Expr {
 	inf := fl.info(e)
 	switch v := e.(type) {
 	case *ast.UnsafeExpr:
@@ -272,21 +282,21 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) string {
 		sym := inf.Sym
 		if sym != nil {
 			if capField, ok := fl.captureFields[sym]; ok {
-				return "&(" + capField + ")"
+				return &ExprAddrOf{Place: capField, Typ: &types.Ptr{Elem: sym.Type}}
 			}
 			if loc, ok := fl.symLocals[sym]; ok {
 				if loc.IsMutPtr {
-					return loc.CName
+					return NewLocalExpr(loc)
 				}
-				return "&" + loc.CName
+				return &ExprAddrOf{Place: NewLocalExpr(loc), Typ: &types.Ptr{Elem: loc.Type}}
 			}
-			return "&" + sym.CName
+			return &ExprAddrOf{Place: &ExprGlobal{Global: &Global{Name: sym.CName, Type: sym.Type}}, Typ: &types.Ptr{Elem: sym.Type}}
 		}
-		return "&" + types.SanitizeCIdent(v.Name)
+		return &ExprAddrOf{Place: &ExprGlobal{Global: &Global{Name: types.SanitizeCIdent(v.Name), Type: inf.Type}}, Typ: &types.Ptr{Elem: inf.Type}}
 
 	case *ast.UnaryExpr:
 		if v.Op == token.Star {
-			return fl.lowerExprRead(v.Operand)
+			return EnsureExpr(fl.lowerExprRead(v.Operand), &types.Ptr{Elem: inf.Type})
 		}
 		if v.Op == token.Amp {
 			return fl.lowerLValueAddr(v.Operand)
@@ -298,12 +308,28 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) string {
 			st := rf.Elem.(*types.Struct)
 			sf, _ := st.FieldByName(v.Member)
 			ptr := fl.lowerExprRead(v.Base)
-			return fmt.Sprintf("&(%s->%s)", ptr, sf.CName)
+			return &ExprAddrOf{
+				Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: sf.CName, Typ: sf.Type, IsPtr: true},
+				Typ:   &types.Ptr{Elem: sf.Type},
+			}
+		}
+		if p, isPtr := baseTy.(*types.Ptr); isPtr {
+			if st, ok := p.Elem.(*types.Struct); ok {
+				sf, _ := st.FieldByName(v.Member)
+				ptr := fl.lowerExprRead(v.Base)
+				return &ExprAddrOf{
+					Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: sf.CName, Typ: sf.Type, IsPtr: true},
+					Typ:   &types.Ptr{Elem: sf.Type},
+				}
+			}
 		}
 		st := baseTy.(*types.Struct)
 		sf, _ := st.FieldByName(v.Member)
 		basePtr := fl.lowerLValueAddr(v.Base)
-		return fmt.Sprintf("&((%s)->%s)", basePtr, sf.CName)
+		return &ExprAddrOf{
+			Place: &ExprField{Base: basePtr, FieldName: sf.CName, Typ: sf.Type, IsPtr: true},
+			Typ:   &types.Ptr{Elem: sf.Type},
+		}
 
 	case *ast.IndexExpr:
 		baseTy := fl.info(v.Base).Type
@@ -315,7 +341,7 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) string {
 		}
 		if _, isPtr := baseTy.(*types.Ptr); isPtr {
 			ptr := fl.lowerExprRead(v.Base)
-			return fmt.Sprintf("(%s + %s)", ptr, idxExpr)
+			return &ExprBinary{Op: token.Plus, Left: EnsureExpr(ptr, baseTy), Right: EnsureExpr(idxExpr, types.TypeInt), Typ: baseTy}
 		}
 		basePtr := fl.lowerLValueAddr(v.Base)
 		return fl.indexElementPtr(baseTy, basePtr, idxExpr, file, line)
@@ -323,55 +349,77 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) string {
 	// Fallback: materialize into a temporary slot and return its address
 	tmp := fl.allocSlot("_ll_lval", inf.Type)
 	fl.assignLocal(tmp, fl.lowerRawExpr(e, inf.Type, false))
-	return "&" + tmp.CName
+	return &ExprAddrOf{Place: NewLocalExpr(tmp), Typ: &types.Ptr{Elem: inf.Type}}
 }
 
-func (fl *funcLowerer) indexElementPtr(colTy types.Type, colPtr, idxExpr, file string, line int) string {
+func (fl *funcLowerer) indexElementPtr(colTy types.Type, colPtr, idxExpr Expr, file string, line int) Expr {
 	switch c := colTy.(type) {
 	case *types.Vector:
-		checkedIdx := fl.checkedIndexExpr(idxExpr, fmt.Sprintf("(%s)->len", colPtr), file, line)
-		return fmt.Sprintf("&((%s)->data[%s])", colPtr, checkedIdx)
+		lenExpr := &ExprField{Base: EnsureExpr(colPtr, &types.Ptr{Elem: c}), FieldName: "len", Typ: types.TypeInt, IsPtr: true}
+		checkedIdx := fl.checkedIndexExpr(idxExpr, lenExpr, file, line)
+		dataPtr := &ExprField{Base: EnsureExpr(colPtr, &types.Ptr{Elem: c}), FieldName: "data", Typ: &types.Ptr{Elem: c.Elem}, IsPtr: true}
+		return &ExprAddrOf{
+			Place: &ExprIndex{
+				Base:  dataPtr,
+				Index: checkedIdx,
+				Typ:   c.Elem,
+			},
+			Typ: &types.Ptr{Elem: c.Elem},
+		}
 	case *types.StackArray:
-		checkedIdx := fl.checkedIndexExpr(idxExpr, fmt.Sprintf("%dLL", c.Size), file, line)
-		return fmt.Sprintf("&((%s)->data[%s])", colPtr, checkedIdx)
+		lenExpr := NewLitInt(uint64(c.Size), false, types.TypeInt)
+		checkedIdx := fl.checkedIndexExpr(idxExpr, lenExpr, file, line)
+		dataPtr := &ExprField{Base: EnsureExpr(colPtr, &types.Ptr{Elem: c}), FieldName: "data", Typ: &types.Ptr{Elem: c.Elem}, IsPtr: true}
+		return &ExprAddrOf{
+			Place: &ExprIndex{
+				Base:  dataPtr,
+				Index: checkedIdx,
+				Typ:   c.Elem,
+			},
+			Typ: &types.Ptr{Elem: c.Elem},
+		}
 	}
-	return colPtr
+	return EnsureExpr(colPtr, &types.Ptr{Elem: colTy})
 }
 
-func (fl *funcLowerer) checkedIndexExpr(idxExpr, lenExpr, file string, line int) string {
-	return fmt.Sprintf("ll_check_bounds(%s, %s, %q, %d)", idxExpr, lenExpr, file, line)
+func (fl *funcLowerer) checkedIndexExpr(idxExpr, lenExpr Expr, file string, line int) Expr {
+	return &ExprCall{
+		Callee: &ExprFuncRef{Name: "ll_check_bounds"},
+		Args: []Expr{
+			EnsureExpr(idxExpr, types.TypeInt),
+			EnsureExpr(lenExpr, types.TypeInt),
+			&ExprLitCString{Val: file},
+			NewLitInt(uint64(line), false, types.TypeInt),
+		},
+		Typ: types.TypeInt,
+	}
 }
 
 // -----------------------------------------------------------------------------
 // Core Expression Dispatcher (`lowerRawExpr`)
 // -----------------------------------------------------------------------------
 
-func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bool) string {
+func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bool) Expr {
 	inf := fl.info(e)
 
 	switch v := e.(type) {
 	case *ast.IntLit:
-		return formatCIntLit(v.Val, false, inf.Type)
+		return NewLitInt(v.Val, false, inf.Type)
 
 	case *ast.FloatLit:
-		return formatCFloatLit(v.Val, inf.Type)
+		return NewLitFloat(v.Val, inf.Type)
 
 	case *ast.BoolLit:
-		if v.Val {
-			return "true"
-		}
-		return "false"
+		return NewLitBool(v.Val)
 
 	case *ast.CharLit:
-		return fmt.Sprintf("((uint32_t)%dU)", uint32(v.Val))
+		return NewLitChar(v.Val)
 
 	case *ast.StringLit:
-		cstr := quoteCString(v.Val)
-		expr := fmt.Sprintf("ll_str_lit(%s, %dLL)", cstr, len(v.Val))
 		if d, isDist := inf.Type.(*types.Distinct); isDist {
-			return fmt.Sprintf("((%s)%s)", CType(d), expr)
+			return &ExprCast{Val: &ExprLitString{Val: v.Val}, To: d}
 		}
-		return expr
+		return &ExprLitString{Val: v.Val}
 
 	case *ast.InterpStringExpr:
 		return fl.lowerInterpString(v)
@@ -379,7 +427,7 @@ func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bo
 	case *ast.NoneLit:
 		optTy := inf.Type.(*types.Optional)
 		fl.tc.visit(optTy)
-		return optNoneExpr(optTy)
+		return &ExprLitNone{OptType: optTy}
 
 	case *ast.IdentExpr:
 		return fl.lowerIdentExpr(v, inf)
@@ -416,7 +464,7 @@ func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bo
 
 	case *ast.EmptyHashLit:
 		fl.tc.visit(inf.Type)
-		return fmt.Sprintf("(%s){0}", CType(inf.Type))
+		return &ExprLitZero{Typ: inf.Type}
 
 	case *ast.StructLit:
 		return fl.lowerStructLit(v, inf)
@@ -432,7 +480,7 @@ func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bo
 
 	case *ast.StmtBodyExpr:
 		fl.lowerStmt(v.Stmt)
-		return ""
+		return nil
 
 	case *ast.IfExpr:
 		return fl.lowerIfExpr(v, true)
@@ -448,14 +496,14 @@ func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bo
 	}
 
 	_ = expected
-	return ""
+	return nil
 }
 
 // -----------------------------------------------------------------------------
 // Control-Flow Expressions: Block, If, For, Match
 // -----------------------------------------------------------------------------
 
-func (fl *funcLowerer) lowerBlockExpr(b *ast.BlockExpr, needValue bool) string {
+func (fl *funcLowerer) lowerBlockExpr(b *ast.BlockExpr, needValue bool) Expr {
 	inf := fl.info(b)
 	exitLbl := fmt.Sprintf("_ll_exit_%d", inf.TargetID)
 
@@ -502,12 +550,12 @@ func (fl *funcLowerer) lowerBlockExpr(b *ast.BlockExpr, needValue bool) string {
 	fl.emit(&InstrLabel{Name: exitLbl})
 
 	if resSlot != nil {
-		return resSlot.CName
+		return NewLocalExpr(resSlot)
 	}
-	return ""
+	return nil
 }
 
-func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) string {
+func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) Expr {
 	inf := fl.info(ie)
 	exitLbl := fmt.Sprintf("_ll_exit_%d", inf.TargetID)
 
@@ -530,7 +578,7 @@ func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) string {
 		}
 	}
 
-	var condExpr string
+	var condExpr Expr
 	var bindHoldSlot *Local
 	unwrapSym := fl.bm.IfUnwrapSyms[ie]
 	var unwrapInitInstr Instr
@@ -540,14 +588,14 @@ func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) string {
 		rawCond := fl.lowerExprRead(ie.Cond)
 		condSlot := fl.allocSlot("_ll_ifcond", types.TypeBool)
 		fl.assignLocal(condSlot, rawCond)
-		condExpr = condSlot.CName
+		condExpr = NewLocalExpr(condSlot)
 
 	case ast.IfCondOptVar:
 		origSym := fl.bm.IfOriginSyms[ie]
 		optTy := origSym.Type.(*types.Optional)
 		origAddr := fl.symbolAddr(origSym)
-		origVal := fmt.Sprintf("(*%s)", origAddr)
-		condExpr = optHasValueExpr(origVal, optTy)
+		derefVal := &ExprDeref{Ptr: origAddr, Typ: optTy}
+		condExpr = optHasValueExpr(derefVal, optTy)
 
 		if unwrapSym != nil {
 			uLoc := &Local{
@@ -558,9 +606,9 @@ func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) string {
 			fl.locals = append(fl.locals, uLoc)
 			fl.symLocals[unwrapSym] = uLoc
 			if ie.MutUnwrap {
-				unwrapInitInstr = &InstrAssign{Dst: uLoc.CName, Expr: optUnwrapPtrExpr(origAddr, optTy)}
+				unwrapInitInstr = &InstrAssign{Dst: NewLocalExpr(uLoc), Expr: EnsureExpr(optUnwrapPtrExpr(origAddr, optTy), uLoc.Type)}
 			} else {
-				unwrapInitInstr = &InstrAssign{Dst: uLoc.CName, Expr: optUnwrapValExpr(origVal, optTy)}
+				unwrapInitInstr = &InstrAssign{Dst: NewLocalExpr(uLoc), Expr: EnsureExpr(optUnwrapValExpr(derefVal, optTy), uLoc.Type)}
 			}
 		}
 
@@ -571,12 +619,12 @@ func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) string {
 			condPtr := fl.lowerLValueAddr(ie.Cond)
 			ptrTmp := fl.allocSlot("_ll_ifoptp", &types.Ptr{Elem: optTy})
 			fl.assignLocal(ptrTmp, condPtr)
-			condExpr = optHasValueExpr(fmt.Sprintf("(*%s)", ptrTmp.CName), optTy)
+			condExpr = optHasValueExpr(&ExprDeref{Ptr: NewLocalExpr(ptrTmp), Typ: optTy}, optTy)
 			if unwrapSym != nil {
 				uLoc := &Local{CName: unwrapSym.CName, Type: unwrapSym.Type, IsMutPtr: true}
 				fl.locals = append(fl.locals, uLoc)
 				fl.symLocals[unwrapSym] = uLoc
-				unwrapInitInstr = &InstrAssign{Dst: uLoc.CName, Expr: optUnwrapPtrExpr(ptrTmp.CName, optTy)}
+				unwrapInitInstr = &InstrAssign{Dst: NewLocalExpr(uLoc), Expr: EnsureExpr(optUnwrapPtrExpr(NewLocalExpr(ptrTmp), optTy), uLoc.Type)}
 			}
 		} else {
 			// Evaluate `ie.Cond` into a dedicated slot kept alive across the `then` branch!
@@ -585,23 +633,23 @@ func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) string {
 				condPtr := fl.lowerLValueAddr(ie.Cond)
 				ptrTmp := fl.allocSlot("_ll_ifoptp", &types.Ptr{Elem: optTy})
 				fl.assignLocal(ptrTmp, condPtr)
-				condExpr = optHasValueExpr(fmt.Sprintf("(*%s)", ptrTmp.CName), optTy)
+				condExpr = optHasValueExpr(&ExprDeref{Ptr: NewLocalExpr(ptrTmp), Typ: optTy}, optTy)
 				if unwrapSym != nil {
 					uLoc := &Local{CName: unwrapSym.CName, Type: unwrapSym.Type}
 					fl.locals = append(fl.locals, uLoc)
 					fl.symLocals[unwrapSym] = uLoc
-					unwrapInitInstr = &InstrAssign{Dst: uLoc.CName, Expr: optUnwrapValExpr(fmt.Sprintf("(*%s)", ptrTmp.CName), optTy)}
+					unwrapInitInstr = &InstrAssign{Dst: NewLocalExpr(uLoc), Expr: EnsureExpr(optUnwrapValExpr(&ExprDeref{Ptr: NewLocalExpr(ptrTmp), Typ: optTy}, optTy), uLoc.Type)}
 				}
 			} else {
 				bindHoldSlot = fl.allocSlot("_ll_ifbind", optTy)
 				valStr := fl.lowerRawExpr(ie.Cond, optTy, true)
 				fl.assignLocal(bindHoldSlot, valStr)
-				condExpr = optHasValueExpr(bindHoldSlot.CName, optTy)
+				condExpr = optHasValueExpr(NewLocalExpr(bindHoldSlot), optTy)
 				if unwrapSym != nil {
 					uLoc := &Local{CName: unwrapSym.CName, Type: unwrapSym.Type}
 					fl.locals = append(fl.locals, uLoc)
 					fl.symLocals[unwrapSym] = uLoc
-					unwrapInitInstr = &InstrAssign{Dst: uLoc.CName, Expr: optUnwrapValExpr(bindHoldSlot.CName, optTy)}
+					unwrapInitInstr = &InstrAssign{Dst: NewLocalExpr(uLoc), Expr: EnsureExpr(optUnwrapValExpr(NewLocalExpr(bindHoldSlot), optTy), uLoc.Type)}
 				}
 			}
 		}
@@ -672,14 +720,14 @@ func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) string {
 		elseBody = fl.popInstrBuf()
 	}
 
-	fl.emit(&InstrIf{Cond: condExpr, Then: thenBody, Else: elseBody})
+	fl.emit(&InstrIf{Cond: EnsureExpr(condExpr, types.TypeBool), Then: thenBody, Else: elseBody})
 
 	// Pop outer `if` scope (dropping `bindHoldSlot` if not already unwound)
 	fl.popScopeEmitDrops()
 	fl.emit(&InstrLabel{Name: exitLbl})
 
 	if resSlot != nil {
-		return resSlot.CName
+		return NewLocalExpr(resSlot)
 	}
-	return ""
+	return nil
 }

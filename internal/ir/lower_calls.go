@@ -1,7 +1,6 @@
 package ir
 
 import (
-	"fmt"
 	"strings"
 
 	"lowlight/internal/ast"
@@ -10,7 +9,7 @@ import (
 	"lowlight/internal/types"
 )
 
-func (fl *funcLowerer) lowerCallExpr(call *ast.CallExpr, inf *sema.ExprInfo) string {
+func (fl *funcLowerer) lowerCallExpr(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
 	switch inf.CallKind {
 	case sema.CallDirectFunc:
 		return fl.lowerDirectFuncCall(call, inf)
@@ -33,28 +32,23 @@ func (fl *funcLowerer) lowerCallExpr(call *ast.CallExpr, inf *sema.ExprInfo) str
 	case sema.CallEnumVariant:
 		return fl.lowerEnumVariantCall(call, inf)
 	}
-	return ""
+	return nil
 }
 
-func (fl *funcLowerer) lowerEnumVariantCall(call *ast.CallExpr, inf *sema.ExprInfo) string {
+func (fl *funcLowerer) lowerEnumVariantCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
 	en := inf.EnumType
 	vr := inf.EnumVariant
 	fl.tc.visit(en)
-	slot := fl.allocSlot("_ll_evar", en)
 	payloadVal := fl.lowerExprOwned(call.Args[0], vr.Payload)
-	fl.emit(&InstrAssign{
-		Dst:  fmt.Sprintf("%s.tag", slot.CName),
-		Expr: fmt.Sprintf("%d", vr.Value),
-	})
-	fl.emit(&InstrAssign{
-		Dst:  fmt.Sprintf("%s.data.%s", slot.CName, vr.CName),
-		Expr: payloadVal,
-	})
-	return slot.CName
+	return &ExprConstructEnum{
+		EnumType: en,
+		Variant:  vr,
+		Payload:  EnsureExpr(payloadVal, vr.Payload),
+	}
 }
 
-func (fl *funcLowerer) lowerCallArgs(params []types.FuncParam, args []ast.Expr) []string {
-	out := make([]string, len(args))
+func (fl *funcLowerer) lowerCallArgs(params []types.FuncParam, args []ast.Expr) []Expr {
+	out := make([]Expr, len(args))
 	for i, arg := range args {
 		p := params[i]
 		fl.tc.visit(p.Type)
@@ -74,7 +68,7 @@ func (fl *funcLowerer) lowerCallArgs(params []types.FuncParam, args []ast.Expr) 
 	return out
 }
 
-func (fl *funcLowerer) lowerMethodReceiverArg(recv ast.Expr, mode types.ParamMode, targetRecvTy types.Type) string {
+func (fl *funcLowerer) lowerMethodReceiverArg(recv ast.Expr, mode types.ParamMode, targetRecvTy types.Type) Expr {
 	rawRecvTy := fl.info(recv).Type
 	if rf, isRef := rawRecvTy.(*types.Ref); isRef {
 		_ = rf
@@ -82,7 +76,7 @@ func (fl *funcLowerer) lowerMethodReceiverArg(recv ast.Expr, mode types.ParamMod
 		if mode == types.ModeMut {
 			return ptr
 		}
-		return fmt.Sprintf("(*(%s))", ptr)
+		return &ExprDeref{Ptr: EnsureExpr(ptr, rawRecvTy), Typ: rf.Elem}
 	}
 	switch mode {
 	case types.ModeMut:
@@ -98,7 +92,7 @@ func (fl *funcLowerer) lowerMethodReceiverArg(recv ast.Expr, mode types.ParamMod
 // Direct, Closure, Extern, Conversion, & Interface Calls
 // -----------------------------------------------------------------------------
 
-func (fl *funcLowerer) lowerDirectFuncCall(call *ast.CallExpr, inf *sema.ExprInfo) string {
+func (fl *funcLowerer) lowerDirectFuncCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
 	fi := inf.TargetFunc
 
 	// Handle UFCS optional-chained method call (`user?.full_name()`)
@@ -119,73 +113,104 @@ func (fl *funcLowerer) lowerDirectFuncCall(call *ast.CallExpr, inf *sema.ExprInf
 		}
 
 		fl.pushInstrBuf()
-		unwrapped := optUnwrapValExpr(recvTmp.CName, optRecv)
+		var unwrapped Expr = optUnwrapValExpr(recvTmp, optRecv)
 		if rf, isRef := optRecv.Elem.(*types.Ref); isRef {
 			_ = rf
-			unwrapped = fmt.Sprintf("(*(%s))", unwrapped)
+			unwrapped = &ExprDeref{Ptr: unwrapped, Typ: rf.Elem}
 		}
-		cArgs := make([]string, 0, 1+len(call.Args))
+		cArgs := make([]Expr, 0, 1+len(call.Args))
 		cArgs = append(cArgs, unwrapped)
-		cArgs = append(cArgs, fl.lowerCallArgs(fi.Sig.Params[1:], call.Args)...)
-		callStr := fmt.Sprintf("%s(%s)", fi.CName, strings.Join(cArgs, ", "))
+		for _, a := range fl.lowerCallArgs(fi.Sig.Params[1:], call.Args) {
+			cArgs = append(cArgs, a)
+		}
+		callExpr := &ExprCall{
+			Callee:  &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
+			Args:    cArgs,
+			Typ:     fi.Sig.Ret,
+		}
 		if resSlot != nil {
 			if _, retAlreadyOpt := fi.Sig.Ret.(*types.Optional); retAlreadyOpt {
-				fl.assignLocal(resSlot, callStr)
+				fl.assignLocal(resSlot, callExpr)
 			} else {
-				fl.assignLocal(resSlot, fl.wrapInOptionalExpr(callStr, resOpt))
+				fl.assignLocal(resSlot, fl.wrapInOptionalExpr(callExpr, resOpt))
 			}
 		} else {
-			fl.emit(&InstrExpr{Expr: callStr})
+			fl.emit(&InstrExpr{Expr: callExpr})
 		}
 		thenBuf := fl.popInstrBuf()
 
-		fl.emit(&InstrIf{Cond: optHasValueExpr(recvTmp.CName, optRecv), Then: thenBuf})
+		fl.emit(&InstrIf{Cond: optHasValueExpr(recvTmp, optRecv), Then: thenBuf})
 		if resSlot != nil {
-			return resSlot.CName
+			return NewLocalExpr(resSlot)
 		}
-		return ""
+		return nil
 	}
 
-	var cArgs []string
+	var cArgs []Expr
 	if inf.MethodRecv != nil {
 		recvArg := fl.lowerMethodReceiverArg(inf.MethodRecv, inf.MethodRecvMode, fi.Sig.Params[0].Type)
 		cArgs = append(cArgs, recvArg)
-		cArgs = append(cArgs, fl.lowerCallArgs(fi.Sig.Params[1:], call.Args)...)
+		for _, a := range fl.lowerCallArgs(fi.Sig.Params[1:], call.Args) {
+			cArgs = append(cArgs, a)
+		}
 	} else {
-		cArgs = fl.lowerCallArgs(fi.Sig.Params, call.Args)
+		for _, a := range fl.lowerCallArgs(fi.Sig.Params, call.Args) {
+			cArgs = append(cArgs, a)
+		}
 	}
-	return fmt.Sprintf("%s(%s)", fi.CName, strings.Join(cArgs, ", "))
+	return &ExprCall{
+		Callee: &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
+		Args:   cArgs,
+		Typ:    fi.Sig.Ret,
+	}
 }
 
-func (fl *funcLowerer) lowerClosureValueCall(call *ast.CallExpr, _ *sema.ExprInfo) string {
+func (fl *funcLowerer) lowerClosureValueCall(call *ast.CallExpr, _ *sema.ExprInfo) Expr {
 	calleeTy := fl.info(call.Callee).Type.(*types.Func)
 	fl.tc.visit(calleeTy)
 	calleeVal := fl.lowerExprRead(call.Callee)
 	fnTmp := fl.allocSlot("_ll_clos", calleeTy)
 	fl.assignLocal(fnTmp, calleeVal)
 
-	cArgs := make([]string, 0, 1+len(call.Args))
-	cArgs = append(cArgs, fnTmp.CName+".env")
-	cArgs = append(cArgs, fl.lowerCallArgs(calleeTy.Params, call.Args)...)
-	return fmt.Sprintf("%s.fn(%s)", fnTmp.CName, strings.Join(cArgs, ", "))
+	cArgs := make([]Expr, 0, 1+len(call.Args))
+	cArgs = append(cArgs, &ExprField{Base: NewLocalExpr(fnTmp), FieldName: "env", Typ: types.TypeVoid})
+	for _, a := range fl.lowerCallArgs(calleeTy.Params, call.Args) {
+		cArgs = append(cArgs, a)
+	}
+	return &ExprCall{
+		Callee: &ExprField{Base: NewLocalExpr(fnTmp), FieldName: "fn", Typ: calleeTy},
+		Args:   cArgs,
+		Typ:    calleeTy.Ret,
+	}
 }
 
-func (fl *funcLowerer) lowerExternCCall(call *ast.CallExpr, inf *sema.ExprInfo) string {
+func (fl *funcLowerer) lowerExternCCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
 	ef := inf.TargetExtern
-	cArgs := fl.lowerCallArgs(ef.Sig.Params, call.Args)
+	rawArgs := fl.lowerCallArgs(ef.Sig.Params, call.Args)
+	cArgs := make([]Expr, len(rawArgs))
 	for i, p := range ef.Sig.Params {
+		argExpr := rawArgs[i]
 		if _, isPtr := p.Type.(*types.Ptr); isPtr {
-			cArgs[i] = fmt.Sprintf("((void*)(uintptr_t)(%s))", cArgs[i])
+			argExpr = &ExprCast{Val: argExpr, From: p.Type, To: &types.Ptr{Elem: types.TypeVoid}}
 		}
+		cArgs[i] = argExpr
 	}
-	callExpr := fmt.Sprintf("%s(%s)", ef.Name, strings.Join(cArgs, ", "))
-	if _, retPtr := ef.Sig.Ret.(*types.Ptr); retPtr {
-		return fmt.Sprintf("((%s)(void*)(uintptr_t)(%s))", CType(ef.Sig.Ret), callExpr)
+	var callExpr Expr = &ExprCall{
+		Callee: &ExprFuncRef{Name: ef.Name, ExternFunc: ef, FuncType: ef.Sig},
+		Args:   cArgs,
+		Typ:    ef.Sig.Ret,
+	}
+	if _, isPtr := ef.Sig.Ret.(*types.Ptr); isPtr {
+		callExpr = &ExprCast{
+			Val:  callExpr,
+			From: &types.Ptr{Elem: types.TypeVoid},
+			To:   ef.Sig.Ret,
+		}
 	}
 	return callExpr
 }
 
-func (fl *funcLowerer) lowerTypeConvertCall(call *ast.CallExpr, inf *sema.ExprInfo) string {
+func (fl *funcLowerer) lowerTypeConvertCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
 	arg := call.Args[0]
 	argTy := fl.info(arg).Type
 	targetTy := inf.Type
@@ -194,21 +219,24 @@ func (fl *funcLowerer) lowerTypeConvertCall(call *ast.CallExpr, inf *sema.ExprIn
 	// `string(ch)` where `ch: char` -> UTF-8 single-character string
 	if targetTy.Equals(types.TypeString) && argTy.Equals(types.TypeChar) {
 		chVal := fl.lowerExprRead(arg)
-		return fmt.Sprintf("ll_str_from_char(%s)", chVal)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_str_from_char", FuncType: &types.Func{Params: []types.FuncParam{{Type: types.TypeChar}}, Ret: types.TypeString}},
+			Args:   []Expr{chVal},
+			Typ:    types.TypeString,
+		}
 	}
 
 	// Distinct conversion (`UserID(x)` or `Base(uid)`): preserve ownership if Resource!
 	if !targetTy.IsPlain() {
 		val := fl.lowerExprOwned(arg, argTy)
-		return fmt.Sprintf("((%s)(%s))", CType(targetTy), val)
+		return &ExprCast{Val: val, From: argTy, To: targetTy}
 	}
 
 	val := fl.lowerExprRead(arg)
-	// Float -> Int conversion: cast directly in C
-	return fmt.Sprintf("((%s)(%s))", CType(targetTy), val)
+	return &ExprCast{Val: val, From: argTy, To: targetTy}
 }
 
-func (fl *funcLowerer) lowerInterfaceBoxCall(call *ast.CallExpr, inf *sema.ExprInfo) string {
+func (fl *funcLowerer) lowerInterfaceBoxCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
 	arg := call.Args[0]
 	argTy := fl.info(arg).Type
 	ifc := inf.BoxInterface
@@ -221,7 +249,7 @@ func (fl *funcLowerer) lowerInterfaceBoxCall(call *ast.CallExpr, inf *sema.ExprI
 	return fl.boxConcreteIntoInterface(valExpr, argTy, ifc)
 }
 
-func (fl *funcLowerer) lowerInterfaceMethodCall(call *ast.CallExpr, inf *sema.ExprInfo) string {
+func (fl *funcLowerer) lowerInterfaceMethodCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
 	im := inf.InterfaceMeth
 	rawRecvTy := fl.info(inf.MethodRecv).Type
 
@@ -244,41 +272,47 @@ func (fl *funcLowerer) lowerInterfaceMethodCall(call *ast.CallExpr, inf *sema.Ex
 		}
 
 		fl.pushInstrBuf()
-		ifcVal := optUnwrapValExpr(recvTmp.CName, optRecv)
+		ifcVal := optUnwrapValExpr(recvTmp, optRecv)
 		ifcTmp := fl.allocSlot("_ll_iv", ifc)
 		fl.assignLocal(ifcTmp, ifcVal)
-		cArgs := make([]string, 0, 1+len(call.Args))
-		cArgs = append(cArgs, ifcTmp.CName+".data")
-		cArgs = append(cArgs, fl.lowerCallArgs(im.Params, call.Args)...)
-		callStr := fmt.Sprintf("%s.vtable->m_%s(%s)", ifcTmp.CName, im.Name, strings.Join(cArgs, ", "))
+
+		cArgs := make([]Expr, 0, 1+len(call.Args))
+		cArgs = append(cArgs, &ExprField{Base: NewLocalExpr(ifcTmp), FieldName: "data", Typ: types.TypeVoid})
+		for _, a := range fl.lowerCallArgs(im.Params, call.Args) {
+			cArgs = append(cArgs, a)
+		}
+		vtField := &ExprField{Base: NewLocalExpr(ifcTmp), FieldName: "vtable", Typ: &types.Ptr{Elem: types.TypeVoid}}
+		fnField := &ExprField{Base: vtField, FieldName: "m_" + im.Name, Typ: &types.Func{Params: im.Params, Ret: im.Ret}}
+		callExpr := &ExprCall{Callee: fnField, Args: cArgs, Typ: im.Ret}
+
 		if resSlot != nil {
 			if _, retOpt := im.Ret.(*types.Optional); retOpt {
-				fl.assignLocal(resSlot, callStr)
+				fl.assignLocal(resSlot, callExpr)
 			} else {
-				fl.assignLocal(resSlot, fl.wrapInOptionalExpr(callStr, resOpt))
+				fl.assignLocal(resSlot, fl.wrapInOptionalExpr(callExpr, resOpt))
 			}
 		} else {
-			fl.emit(&InstrExpr{Expr: callStr})
+			fl.emit(&InstrExpr{Expr: callExpr})
 		}
 		thenBuf := fl.popInstrBuf()
-		fl.emit(&InstrIf{Cond: optHasValueExpr(recvTmp.CName, optRecv), Then: thenBuf})
+		fl.emit(&InstrIf{Cond: optHasValueExpr(recvTmp, optRecv), Then: thenBuf})
 		if resSlot != nil {
-			return resSlot.CName
+			return NewLocalExpr(resSlot)
 		}
-		return ""
+		return nil
 	}
 
-	var ifcExpr string
+	var ifcExpr Expr
 	var ifc *types.Interface
 	if rf, isRef := rawRecvTy.(*types.Ref); isRef {
 		ifc = rf.Elem.(*types.Interface)
 		ptr := fl.lowerExprRead(inf.MethodRecv)
-		ifcExpr = fmt.Sprintf("(*(%s))", ptr)
+		ifcExpr = &ExprDeref{Ptr: ptr, Typ: ifc}
 	} else {
 		ifc = rawRecvTy.(*types.Interface)
 		if inf.MethodRecvMode == types.ModeMut {
 			ptr := fl.lowerLValueAddr(inf.MethodRecv)
-			ifcExpr = fmt.Sprintf("(*(%s))", ptr)
+			ifcExpr = &ExprDeref{Ptr: ptr, Typ: ifc}
 		} else {
 			ifcExpr = fl.lowerExprRead(inf.MethodRecv)
 		}
@@ -287,76 +321,138 @@ func (fl *funcLowerer) lowerInterfaceMethodCall(call *ast.CallExpr, inf *sema.Ex
 	ifcTmp := fl.allocSlot("_ll_ifc", ifc)
 	fl.assignLocal(ifcTmp, ifcExpr)
 
-	cArgs := make([]string, 0, 1+len(call.Args))
-	cArgs = append(cArgs, ifcTmp.CName+".data")
-	cArgs = append(cArgs, fl.lowerCallArgs(im.Params, call.Args)...)
-	return fmt.Sprintf("%s.vtable->m_%s(%s)", ifcTmp.CName, im.Name, strings.Join(cArgs, ", "))
+	cArgs := make([]Expr, 0, 1+len(call.Args))
+	cArgs = append(cArgs, &ExprField{Base: NewLocalExpr(ifcTmp), FieldName: "data", Typ: types.TypeVoid})
+	for _, a := range fl.lowerCallArgs(im.Params, call.Args) {
+		cArgs = append(cArgs, a)
+	}
+	vtField := &ExprField{Base: NewLocalExpr(ifcTmp), FieldName: "vtable", Typ: &types.Ptr{Elem: types.TypeVoid}}
+	fnField := &ExprField{Base: vtField, FieldName: "m_" + im.Name, Typ: &types.Func{Params: im.Params, Ret: im.Ret}}
+	return &ExprCall{Callee: fnField, Args: cArgs, Typ: im.Ret}
 }
 
 // -----------------------------------------------------------------------------
 // Universe Built-in Functions
 // -----------------------------------------------------------------------------
 
-func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprInfo) string {
+func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
 	file, line := formatSpanLoc(call)
 	switch inf.BuiltinName {
 	case "print", "println", "eprint", "eprintln":
 		isErr := strings.HasPrefix(inf.BuiltinName, "e")
 		isLn := strings.HasSuffix(inf.BuiltinName, "ln")
 		if len(call.Args) == 0 {
-			return fmt.Sprintf("ll_print_str(ll_str_lit(\"\", 0LL), %d, %d)", boolToInt(isErr), boolToInt(isLn))
+			return &ExprCall{
+				Callee: &ExprFuncRef{Name: "ll_print_str"},
+				Args: []Expr{
+					NewLitString(""),
+					NewLitBool(isErr),
+					NewLitBool(isLn),
+				},
+				Typ: types.TypeVoid,
+			}
 		}
 		arg := call.Args[0]
 		argTy := fl.info(arg).Type
 		argExpr := fl.lowerExprRead(arg)
 		if argTy.Equals(types.TypeString) {
-			return fmt.Sprintf("ll_print_str(%s, %d, %d)", argExpr, boolToInt(isErr), boolToInt(isLn))
+			return &ExprCall{
+				Callee: &ExprFuncRef{Name: "ll_print_str"},
+				Args: []Expr{
+					EnsureExpr(argExpr, types.TypeString),
+					NewLitBool(isErr),
+					NewLitBool(isLn),
+				},
+				Typ: types.TypeVoid,
+			}
 		}
 		strExpr := fl.toStringCallExpr(argTy, argExpr)
 		strTmp := fl.allocStmtTemp(types.TypeString, strExpr)
-		return fmt.Sprintf("ll_print_str(%s, %d, %d)", strTmp, boolToInt(isErr), boolToInt(isLn))
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_print_str"},
+			Args: []Expr{
+				EnsureExpr(strTmp, types.TypeString),
+				NewLitBool(isErr),
+				NewLitBool(isLn),
+			},
+			Typ: types.TypeVoid,
+		}
 
 	case "panic":
 		msg := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_panic_str(%s, %q, %d)", msg, file, line)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_panic_str"},
+			Args: []Expr{
+				EnsureExpr(msg, types.TypeString),
+				&ExprLitCString{Val: file},
+				NewLitInt(uint64(line), false, types.TypeInt),
+			},
+			Typ: types.TypeNever,
+		}
 
 	case "assert":
 		cond := fl.lowerExprRead(call.Args[0])
-		msg := `ll_str_lit("assertion failed", 16LL)`
+		var msg Expr = NewLitString("assertion failed")
 		if len(call.Args) == 2 {
 			msg = fl.lowerExprRead(call.Args[1])
 		}
-		return fmt.Sprintf("ll_assert(%s, %s, %q, %d)", cond, msg, file, line)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_assert"},
+			Args: []Expr{
+				EnsureExpr(cond, types.TypeBool),
+				EnsureExpr(msg, types.TypeString),
+				&ExprLitCString{Val: file},
+				NewLitInt(uint64(line), false, types.TypeInt),
+			},
+			Typ: types.TypeVoid,
+		}
 
 	case "parse_int":
 		fl.tc.visit(inf.Type)
 		s := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_parse_int(%s)", s)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_parse_int"},
+			Args:   []Expr{EnsureExpr(s, types.TypeString)},
+			Typ:    inf.Type,
+		}
 
 	case "parse_float":
 		fl.tc.visit(inf.Type)
 		s := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_parse_float(%s)", s)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_parse_float"},
+			Args:   []Expr{EnsureExpr(s, types.TypeString)},
+			Typ:    inf.Type,
+		}
 
 	case "sqrt":
 		x := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("sqrt(%s)", x)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "sqrt"},
+			Args:   []Expr{EnsureExpr(x, types.TypeFloat)},
+			Typ:    types.TypeFloat,
+		}
 
 	case "abs":
 		x := fl.lowerExprRead(call.Args[0])
 		prim := types.UnderlyingPrimitive(inf.Type)
 		if prim != nil && prim.IsFloat() {
-			return fmt.Sprintf("((%s)fabs((double)(%s)))", CType(inf.Type), x)
+			return &ExprCall{
+				Callee: &ExprFuncRef{Name: "fabs"},
+				Args:   []Expr{EnsureExpr(x, inf.Type)},
+				Typ:    inf.Type,
+			}
 		}
-		bits := 64
-		if prim != nil {
-			bits = prim.BitWidth()
-		}
-		uTy := unsignedCTypeForWidth(bits)
 		tmp := fl.allocSlot("_ll_abs", inf.Type)
 		fl.assignLocal(tmp, x)
-		return fmt.Sprintf("((%s) < 0 ? (%s)((%s)0U - (%s)(%s)) : (%s))",
-			tmp.CName, CType(inf.Type), uTy, uTy, tmp.CName, tmp.CName)
+		res := fl.allocSlot("_ll_abs_res", inf.Type)
+		neg := &ExprUnary{Op: token.Minus, Operand: NewLocalExpr(tmp), Typ: inf.Type}
+		fl.emit(&InstrIf{
+			Cond: &ExprBinary{Op: token.Lt, Left: NewLocalExpr(tmp), Right: NewLitInt(0, false, inf.Type), Typ: types.TypeBool},
+			Then: []Instr{NewAssign(res, neg)},
+			Else: []Instr{NewAssign(res, tmp)},
+		})
+		return NewLocalExpr(res)
 
 	case "min", "max":
 		a := fl.lowerExprRead(call.Args[0])
@@ -365,45 +461,76 @@ func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprIn
 		tb := fl.allocSlot("_ll_mm_b", inf.Type)
 		fl.assignLocal(ta, a)
 		fl.assignLocal(tb, b)
-		op := "<"
+		op := token.Lt
 		if inf.BuiltinName == "max" {
-			op = ">"
+			op = token.Gt
 		}
-		return fmt.Sprintf("((%s %s %s) ? %s : %s)", ta.CName, op, tb.CName, ta.CName, tb.CName)
+		cond := &ExprBinary{Op: op, Left: NewLocalExpr(ta), Right: NewLocalExpr(tb), Typ: types.TypeBool}
+		res := fl.allocSlot("_ll_mm_res", inf.Type)
+		fl.emit(&InstrIf{
+			Cond: cond,
+			Then: []Instr{NewAssign(res, ta)},
+			Else: []Instr{NewAssign(res, tb)},
+		})
+		return NewLocalExpr(res)
 
 	case "read_file":
 		fl.tc.visit(inf.Type)
 		p := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_read_file(%s)", p)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_read_file"},
+			Args:   []Expr{EnsureExpr(p, types.TypeString)},
+			Typ:    inf.Type,
+		}
 
 	case "write_file":
 		p := fl.lowerExprRead(call.Args[0])
 		c := fl.lowerExprRead(call.Args[1])
-		return fmt.Sprintf("ll_write_file(%s, %s)", p, c)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_write_file"},
+			Args:   []Expr{EnsureExpr(p, types.TypeString), EnsureExpr(c, types.TypeString)},
+			Typ:    inf.Type,
+		}
 
 	case "args":
 		fl.tc.visit(inf.Type)
-		return "ll_get_cli_args()"
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_get_cli_args"},
+			Args:   nil,
+			Typ:    inf.Type,
+		}
 
 	case "exit":
 		code := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_exit(%s)", code)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_exit"},
+			Args:   []Expr{EnsureExpr(code, types.TypeInt)},
+			Typ:    types.TypeNever,
+		}
 	}
-	return ""
+	return nil
 }
 
 // -----------------------------------------------------------------------------
 // Built-in Methods & Raw Memory Intrinsics
 // -----------------------------------------------------------------------------
 
-func (fl *funcLowerer) lowerBuiltinMethodCall(call *ast.CallExpr, inf *sema.ExprInfo) string {
+func (fl *funcLowerer) lowerBuiltinMethodCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
 	// Static `Arena` constructors (`Arena.new()`, `Arena.with_capacity(n)`) have `MethodRecv == nil`!
 	if inf.BuiltinName == "Arena.new" {
-		return "ll_arena_new(4096LL)"
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_arena_new"},
+			Args:   []Expr{NewLitInt(4096, false, types.TypeInt)},
+			Typ:    inf.Type,
+		}
 	}
 	if inf.BuiltinName == "Arena.with_capacity" {
 		capVal := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_arena_new(%s)", capVal)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_arena_new"},
+			Args:   []Expr{EnsureExpr(capVal, types.TypeInt)},
+			Typ:    inf.Type,
+		}
 	}
 
 	// Optional-chained built-in method (`opt?.len()`, `opt?.to_string()`, `opt?.copy()`, etc.)!
@@ -420,12 +547,14 @@ func (fl *funcLowerer) lowerBuiltinMethodCall(call *ast.CallExpr, inf *sema.Expr
 
 		fl.pushInstrBuf()
 		innerTy := optRecv.Elem
-		unwrappedExpr := optUnwrapValExpr(recvTmp.CName, optRecv)
+		unwrapped := optUnwrapValExpr(recvTmp, optRecv)
 		if rf, isRef := innerTy.(*types.Ref); isRef {
 			innerTy = rf.Elem
-			unwrappedExpr = fmt.Sprintf("(*(%s))", unwrappedExpr)
+			unwrapped = &ExprDeref{Ptr: unwrapped, Typ: innerTy}
 		}
-		innerCall, innerRetTy := fl.emitReadBuiltinMethodOnVal(call, inf, innerTy, unwrappedExpr)
+		uTmp := fl.allocSlot("_ll_buw", innerTy)
+		fl.assignLocal(uTmp, unwrapped)
+		innerCall, innerRetTy := fl.emitReadBuiltinMethodOnVal(call, inf, innerTy, NewLocalExpr(uTmp))
 		if _, retAlreadyOpt := innerRetTy.(*types.Optional); retAlreadyOpt {
 			fl.assignLocal(resSlot, innerCall)
 		} else {
@@ -433,8 +562,8 @@ func (fl *funcLowerer) lowerBuiltinMethodCall(call *ast.CallExpr, inf *sema.Expr
 		}
 		thenBuf := fl.popInstrBuf()
 
-		fl.emit(&InstrIf{Cond: optHasValueExpr(recvTmp.CName, optRecv), Then: thenBuf})
-		return resSlot.CName
+		fl.emit(&InstrIf{Cond: optHasValueExpr(recvTmp, optRecv), Then: thenBuf})
+		return NewLocalExpr(resSlot)
 	}
 
 	rawRecvTy := fl.info(inf.MethodRecv).Type
@@ -447,7 +576,7 @@ func (fl *funcLowerer) lowerBuiltinMethodCall(call *ast.CallExpr, inf *sema.Expr
 
 	// Mutating built-in methods (`&self`)
 	if inf.MethodRecvMode == types.ModeMut {
-		var recvPtr string
+		var recvPtr Expr
 		if isArenaRef {
 			recvPtr = fl.lowerExprRead(inf.MethodRecv)
 		} else {
@@ -457,23 +586,23 @@ func (fl *funcLowerer) lowerBuiltinMethodCall(call *ast.CallExpr, inf *sema.Expr
 	}
 
 	// Read-only built-in methods (`self`)
-	var recvVal string
+	var recvVal Expr
 	if isArenaRef {
 		ptr := fl.lowerExprRead(inf.MethodRecv)
-		recvVal = fmt.Sprintf("(*(%s))", ptr)
+		recvVal = &ExprDeref{Ptr: ptr, Typ: recvTy}
 	} else {
 		recvVal = fl.lowerExprRead(inf.MethodRecv)
 	}
-	resStr, _ := fl.emitReadBuiltinMethodOnVal(call, inf, recvTy, recvVal)
-	return resStr
+	resExpr, _ := fl.emitReadBuiltinMethodOnVal(call, inf, recvTy, recvVal)
+	return resExpr
 }
 
 func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 	call *ast.CallExpr,
 	inf *sema.ExprInfo,
 	recvTy types.Type,
-	recvVal string,
-) (string, types.Type) {
+	recvVal Expr,
+) (Expr, types.Type) {
 	file, line := formatSpanLoc(call)
 	fl.tc.visit(recvTy)
 
@@ -486,170 +615,218 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 
 	// `char` methods
 	case "char.is_alpha":
-		return fmt.Sprintf("ll_char_is_alpha(%s)", recvVal), types.TypeBool
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_char_is_alpha"}, Args: []Expr{EnsureExpr(recvVal, types.TypeChar)}, Typ: types.TypeBool}, types.TypeBool
 	case "char.is_digit":
-		return fmt.Sprintf("ll_char_is_digit(%s)", recvVal), types.TypeBool
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_char_is_digit"}, Args: []Expr{EnsureExpr(recvVal, types.TypeChar)}, Typ: types.TypeBool}, types.TypeBool
 	case "char.is_alnum":
-		return fmt.Sprintf("ll_char_is_alnum(%s)", recvVal), types.TypeBool
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_char_is_alnum"}, Args: []Expr{EnsureExpr(recvVal, types.TypeChar)}, Typ: types.TypeBool}, types.TypeBool
 	case "char.is_whitespace":
-		return fmt.Sprintf("ll_char_is_whitespace(%s)", recvVal), types.TypeBool
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_char_is_whitespace"}, Args: []Expr{EnsureExpr(recvVal, types.TypeChar)}, Typ: types.TypeBool}, types.TypeBool
 	case "char.to_int":
-		return fmt.Sprintf("((int64_t)(%s))", recvVal), types.TypeInt
+		return &ExprCast{Val: EnsureExpr(recvVal, types.TypeChar), From: types.TypeChar, To: types.TypeInt}, types.TypeInt
 
 	// `string` read methods
 	case "string.len":
-		return fmt.Sprintf("((%s).len)", recvVal), types.TypeInt
+		return &ExprField{Base: EnsureExpr(recvVal, types.TypeString), FieldName: "len", Typ: types.TypeInt}, types.TypeInt
 	case "string.is_empty":
-		return fmt.Sprintf("((%s).len == 0LL)", recvVal), types.TypeBool
+		return &ExprBinary{Op: token.Eq, Left: &ExprField{Base: EnsureExpr(recvVal, types.TypeString), FieldName: "len", Typ: types.TypeInt}, Right: NewLitInt(0, false, types.TypeInt), Typ: types.TypeBool}, types.TypeBool
 	case "string.byte_at":
 		idx := fl.lowerExprRead(call.Args[0])
 		sTmp := fl.allocSlot("_ll_sba", types.TypeString)
 		fl.assignLocal(sTmp, recvVal)
-		cIdx := fl.checkedIndexExpr(idx, sTmp.CName+".len", file, line)
-		return fmt.Sprintf("((uint8_t)%s.data[%s])", sTmp.CName, cIdx), types.TypeU8
+		cIdx := fl.checkedIndexExpr(idx, &ExprField{Base: NewLocalExpr(sTmp), FieldName: "len", Typ: types.TypeInt, IsPtr: false}, file, line)
+		return &ExprIndex{
+			Base:  &ExprField{Base: NewLocalExpr(sTmp), FieldName: "data", Typ: &types.Ptr{Elem: types.TypeU8}},
+			Index: EnsureExpr(cIdx, types.TypeInt),
+			Typ:   types.TypeU8,
+		}, types.TypeU8
 	case "string.get_byte":
 		optU8 := types.NewOptional(types.TypeU8)
 		fl.tc.visit(optU8)
 		idx := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_str_get_byte(%s, %s)", recvVal, idx), optU8
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_get_byte"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(idx, types.TypeInt)}, Typ: optU8}, optU8
 	case "string.bytes":
 		vecU8 := &types.Vector{Elem: types.TypeU8}
 		fl.tc.visit(vecU8)
-		return fmt.Sprintf("ll_str_bytes(%s)", recvVal), vecU8
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_bytes"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString)}, Typ: vecU8}, vecU8
 	case "string.chars":
 		vecCh := &types.Vector{Elem: types.TypeChar}
 		fl.tc.visit(vecCh)
-		return fmt.Sprintf("ll_str_chars(%s)", recvVal), vecCh
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_chars"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString)}, Typ: vecCh}, vecCh
 	case "string.contains":
 		sub := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_str_contains(%s, %s)", recvVal, sub), types.TypeBool
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_contains"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(sub, types.TypeString)}, Typ: types.TypeBool}, types.TypeBool
 	case "string.starts_with":
 		sub := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_str_starts_with(%s, %s)", recvVal, sub), types.TypeBool
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_starts_with"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(sub, types.TypeString)}, Typ: types.TypeBool}, types.TypeBool
 	case "string.ends_with":
 		sub := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_str_ends_with(%s, %s)", recvVal, sub), types.TypeBool
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_ends_with"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(sub, types.TypeString)}, Typ: types.TypeBool}, types.TypeBool
 	case "string.index_of":
 		optInt := types.NewOptional(types.TypeInt)
 		fl.tc.visit(optInt)
 		sub := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_str_index_of(%s, %s)", recvVal, sub), optInt
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_index_of"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(sub, types.TypeString)}, Typ: optInt}, optInt
 	case "string.trim":
-		return fmt.Sprintf("ll_str_trim(%s)", recvVal), types.TypeString
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_trim"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString)}, Typ: types.TypeString}, types.TypeString
 	case "string.to_upper":
-		return fmt.Sprintf("ll_str_to_upper(%s)", recvVal), types.TypeString
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_to_upper"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString)}, Typ: types.TypeString}, types.TypeString
 	case "string.to_lower":
-		return fmt.Sprintf("ll_str_to_lower(%s)", recvVal), types.TypeString
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_to_lower"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString)}, Typ: types.TypeString}, types.TypeString
 	case "string.split":
 		vecStr := &types.Vector{Elem: types.TypeString}
 		fl.tc.visit(vecStr)
 		sep := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_str_split(%s, %s)", recvVal, sep), vecStr
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_split"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(sep, types.TypeString)}, Typ: vecStr}, vecStr
 	case "string.replace":
 		oldS := fl.lowerExprRead(call.Args[0])
 		newS := fl.lowerExprRead(call.Args[1])
-		return fmt.Sprintf("ll_str_replace(%s, %s, %s)", recvVal, oldS, newS), types.TypeString
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_replace"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(oldS, types.TypeString), EnsureExpr(newS, types.TypeString)}, Typ: types.TypeString}, types.TypeString
 	case "string.c_str":
-		return fmt.Sprintf("ll_str_c_str(%s)", recvVal), &types.Ptr{Elem: types.TypeU8}
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_c_str"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString)}, Typ: &types.Ptr{Elem: types.TypeU8}}, &types.Ptr{Elem: types.TypeU8}
 
 	// `Vector` read methods
 	case "vec.len":
-		return fmt.Sprintf("((%s).len)", recvVal), types.TypeInt
+		return &ExprField{Base: EnsureExpr(recvVal, recvTy), FieldName: "len", Typ: types.TypeInt}, types.TypeInt
 	case "vec.cap":
-		return fmt.Sprintf("((%s).cap)", recvVal), types.TypeInt
+		return &ExprField{Base: EnsureExpr(recvVal, recvTy), FieldName: "cap", Typ: types.TypeInt}, types.TypeInt
 	case "vec.is_empty":
-		return fmt.Sprintf("((%s).len == 0LL)", recvVal), types.TypeBool
+		return &ExprBinary{Op: token.Eq, Left: &ExprField{Base: EnsureExpr(recvVal, recvTy), FieldName: "len", Typ: types.TypeInt}, Right: NewLitInt(0, false, types.TypeInt), Typ: types.TypeBool}, types.TypeBool
 	case "vec.get":
 		vecTy := recvTy.(*types.Vector)
 		optElem := types.NewOptional(vecTy.Elem)
 		fl.tc.visit(optElem)
 		idx := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_vec_get__%s(%s, %s)", vecTy.Mangled(), recvVal, idx), optElem
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_vec_get__" + vecTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvVal, vecTy), EnsureExpr(idx, types.TypeInt)},
+			Typ:    optElem,
+		}, optElem
 	case "vec.contains":
 		vecTy := recvTy.(*types.Vector)
 		needle := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_vec_contains__%s(%s, %s)", vecTy.Mangled(), recvVal, needle), types.TypeBool
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_vec_contains__" + vecTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvVal, vecTy), EnsureExpr(needle, vecTy.Elem)},
+			Typ:    types.TypeBool,
+		}, types.TypeBool
 	case "vec.join":
 		sep := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_vec_join_str(%s, %s)", recvVal, sep), types.TypeString
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_vec_join_str"},
+			Args:   []Expr{EnsureExpr(recvVal, recvTy), EnsureExpr(sep, types.TypeString)},
+			Typ:    types.TypeString,
+		}, types.TypeString
 
 	// `StackArray` read methods
 	case "arr.len":
 		arrTy := recvTy.(*types.StackArray)
-		return fmt.Sprintf("%dLL", arrTy.Size), types.TypeInt
+		return NewLitInt(uint64(arrTy.Size), false, types.TypeInt), types.TypeInt
 	case "arr.is_empty":
-		return "false", types.TypeBool
+		return NewLitBool(false), types.TypeBool
 	case "arr.get":
 		arrTy := recvTy.(*types.StackArray)
 		optElem := types.NewOptional(arrTy.Elem)
 		fl.tc.visit(optElem)
 		idx := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_arr_get__%s(%s, %s)", arrTy.Mangled(), recvVal, idx), optElem
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_arr_get__" + arrTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvVal, arrTy), EnsureExpr(idx, types.TypeInt)},
+			Typ:    optElem,
+		}, optElem
 	case "arr.contains":
 		arrTy := recvTy.(*types.StackArray)
 		needle := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_arr_contains__%s(%s, %s)", arrTy.Mangled(), recvVal, needle), types.TypeBool
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_arr_contains__" + arrTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvVal, arrTy), EnsureExpr(needle, arrTy.Elem)},
+			Typ:    types.TypeBool,
+		}, types.TypeBool
 
 	// `Set` read methods
 	case "set.len":
-		return fmt.Sprintf("((%s).len)", recvVal), types.TypeInt
+		return &ExprField{Base: EnsureExpr(recvVal, recvTy), FieldName: "len", Typ: types.TypeInt}, types.TypeInt
 	case "set.is_empty":
-		return fmt.Sprintf("((%s).len == 0LL)", recvVal), types.TypeBool
+		return &ExprBinary{Op: token.Eq, Left: &ExprField{Base: EnsureExpr(recvVal, recvTy), FieldName: "len", Typ: types.TypeInt}, Right: NewLitInt(0, false, types.TypeInt), Typ: types.TypeBool}, types.TypeBool
 	case "set.has":
 		setTy := recvTy.(*types.Set)
 		val := fl.lowerExprRead(call.Args[0])
 		sTmp := fl.allocSlot("_ll_sh", setTy)
 		fl.assignLocal(sTmp, recvVal)
-		return fmt.Sprintf("ll_set_has__%s(&%s, %s)", setTy.Mangled(), sTmp.CName, val), types.TypeBool
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_set_has__" + setTy.Mangled()},
+			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(sTmp), Typ: &types.Ptr{Elem: setTy}}, EnsureExpr(val, setTy.Elem)},
+			Typ:    types.TypeBool,
+		}, types.TypeBool
 	case "set.to_vec":
 		setTy := recvTy.(*types.Set)
 		vecTy := &types.Vector{Elem: setTy.Elem}
 		fl.tc.visit(vecTy)
 		sTmp := fl.allocSlot("_ll_stv", setTy)
 		fl.assignLocal(sTmp, recvVal)
-		return fmt.Sprintf("ll_set_to_vec__%s(&%s)", setTy.Mangled(), sTmp.CName), vecTy
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_set_to_vec__" + setTy.Mangled()},
+			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(sTmp), Typ: &types.Ptr{Elem: setTy}}},
+			Typ:    vecTy,
+		}, vecTy
 
 	// `Map` read methods
 	case "map.len":
-		return fmt.Sprintf("((%s).len)", recvVal), types.TypeInt
+		return &ExprField{Base: EnsureExpr(recvVal, recvTy), FieldName: "len", Typ: types.TypeInt}, types.TypeInt
 	case "map.is_empty":
-		return fmt.Sprintf("((%s).len == 0LL)", recvVal), types.TypeBool
+		return &ExprBinary{Op: token.Eq, Left: &ExprField{Base: EnsureExpr(recvVal, recvTy), FieldName: "len", Typ: types.TypeInt}, Right: NewLitInt(0, false, types.TypeInt), Typ: types.TypeBool}, types.TypeBool
 	case "map.has":
 		mapTy := recvTy.(*types.Map)
 		key := fl.lowerExprRead(call.Args[0])
 		mTmp := fl.allocSlot("_ll_mh", mapTy)
 		fl.assignLocal(mTmp, recvVal)
-		return fmt.Sprintf("ll_map_has__%s(&%s, %s)", mapTy.Mangled(), mTmp.CName, key), types.TypeBool
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_map_has__" + mapTy.Mangled()},
+			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(mTmp), Typ: &types.Ptr{Elem: mapTy}}, EnsureExpr(key, mapTy.Key)},
+			Typ:    types.TypeBool,
+		}, types.TypeBool
 	case "map.keys":
 		mapTy := recvTy.(*types.Map)
 		vecTy := &types.Vector{Elem: mapTy.Key}
 		fl.tc.visit(vecTy)
 		mTmp := fl.allocSlot("_ll_mk", mapTy)
 		fl.assignLocal(mTmp, recvVal)
-		return fmt.Sprintf("ll_map_keys__%s(&%s)", mapTy.Mangled(), mTmp.CName), vecTy
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_map_keys__" + mapTy.Mangled()},
+			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(mTmp), Typ: &types.Ptr{Elem: mapTy}}},
+			Typ:    vecTy,
+		}, vecTy
 	case "map.values":
 		mapTy := recvTy.(*types.Map)
 		vecTy := &types.Vector{Elem: mapTy.Value}
 		fl.tc.visit(vecTy)
 		mTmp := fl.allocSlot("_ll_mv", mapTy)
 		fl.assignLocal(mTmp, recvVal)
-		return fmt.Sprintf("ll_map_values__%s(&%s)", mapTy.Mangled(), mTmp.CName), vecTy
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_map_values__" + mapTy.Mangled()},
+			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(mTmp), Typ: &types.Ptr{Elem: mapTy}}},
+			Typ:    vecTy,
+		}, vecTy
 
 	// `Arena` read methods
 	case "Arena.bytes_used":
 		aTmp := fl.allocSlot("_ll_abu", types.TypeArena)
 		fl.assignLocal(aTmp, recvVal)
-		return fmt.Sprintf("ll_arena_bytes_used(&%s)", aTmp.CName), types.TypeInt
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_arena_bytes_used"},
+			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(aTmp), Typ: &types.Ptr{Elem: types.TypeArena}}},
+			Typ:    types.TypeInt,
+		}, types.TypeInt
 	}
-	return "", types.TypeVoid
+	return nil, types.TypeVoid
 }
 
 func (fl *funcLowerer) emitMutBuiltinMethodOnPtr(
 	call *ast.CallExpr,
 	inf *sema.ExprInfo,
 	recvTy types.Type,
-	recvPtr string,
-) string {
+	recvPtr Expr,
+) Expr {
 	file, line := formatSpanLoc(call)
 	fl.tc.visit(recvTy)
 
@@ -657,164 +834,228 @@ func (fl *funcLowerer) emitMutBuiltinMethodOnPtr(
 	// `string` mutating methods
 	case "string.push":
 		suf := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_str_push(%s, %s)", recvPtr, suf)
+		return &ExprStringPush{StrPtr: EnsureExpr(recvPtr, types.TypeString), Item: EnsureExpr(suf, types.TypeString)}
 	case "string.push_char":
 		ch := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_str_push_char(%s, %s)", recvPtr, ch)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_str_push_char"},
+			Args:   []Expr{EnsureExpr(recvPtr, types.TypeString), EnsureExpr(ch, types.TypeChar)},
+			Typ:    types.TypeVoid,
+		}
 	case "string.push_byte":
 		b := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_str_push_byte(%s, %s)", recvPtr, b)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_str_push_byte"},
+			Args:   []Expr{EnsureExpr(recvPtr, types.TypeString), EnsureExpr(b, types.TypeU8)},
+			Typ:    types.TypeVoid,
+		}
 	case "string.push_bytes":
 		p := fl.lowerExprRead(call.Args[0])
 		cnt := fl.lowerExprRead(call.Args[1])
-		return fmt.Sprintf("ll_str_push_bytes(%s, %s, %s)", recvPtr, p, cnt)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_str_push_bytes"},
+			Args:   []Expr{EnsureExpr(recvPtr, types.TypeString), EnsureExpr(p, &types.Ptr{Elem: types.TypeU8}), EnsureExpr(cnt, types.TypeInt)},
+			Typ:    types.TypeVoid,
+		}
 	case "string.clear":
-		return fmt.Sprintf("ll_str_clear(%s)", recvPtr)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_str_clear"},
+			Args:   []Expr{EnsureExpr(recvPtr, types.TypeString)},
+			Typ:    types.TypeVoid,
+		}
 
 	// `Vector` mutating methods
 	case "vec.push":
 		vecTy := recvTy.(*types.Vector)
 		val := fl.lowerExprOwned(call.Args[0], vecTy.Elem)
-		return fmt.Sprintf("ll_vec_push__%s(%s, %s)", vecTy.Mangled(), recvPtr, val)
+		return &ExprVecPush{VecPtr: EnsureExpr(recvPtr, &types.Ptr{Elem: vecTy}), Item: EnsureExpr(val, vecTy.Elem), VecType: vecTy}
 	case "vec.pop":
 		vecTy := recvTy.(*types.Vector)
 		fl.tc.visit(inf.Type)
-		return fmt.Sprintf("ll_vec_pop__%s(%s)", vecTy.Mangled(), recvPtr)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_vec_pop__" + vecTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: vecTy})},
+			Typ:    inf.Type,
+		}
 	case "vec.remove":
 		vecTy := recvTy.(*types.Vector)
 		idx := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_vec_remove__%s(%s, %s, 1, %q, %d)", vecTy.Mangled(), recvPtr, idx, file, line)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_vec_remove__" + vecTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: vecTy}), EnsureExpr(idx, types.TypeInt), NewLitInt(1, false, types.TypeInt), &ExprLitCString{Val: file}, NewLitInt(uint64(line), false, types.TypeInt)},
+			Typ:    inf.Type,
+		}
 	case "vec.swap_remove":
 		vecTy := recvTy.(*types.Vector)
 		idx := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_vec_swap_remove__%s(%s, %s, 1, %q, %d)", vecTy.Mangled(), recvPtr, idx, file, line)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_vec_swap_remove__" + vecTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: vecTy}), EnsureExpr(idx, types.TypeInt), NewLitInt(1, false, types.TypeInt), &ExprLitCString{Val: file}, NewLitInt(uint64(line), false, types.TypeInt)},
+			Typ:    inf.Type,
+		}
 	case "vec.clear":
 		vecTy := recvTy.(*types.Vector)
-		return fmt.Sprintf("ll_vec_clear__%s(%s)", vecTy.Mangled(), recvPtr)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_vec_clear__" + vecTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: vecTy})},
+			Typ:    types.TypeVoid,
+		}
 	case "vec.reserve":
 		vecTy := recvTy.(*types.Vector)
 		capVal := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_vec_reserve__%s(%s, %s)", vecTy.Mangled(), recvPtr, capVal)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_vec_reserve__" + vecTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: vecTy}), EnsureExpr(capVal, types.TypeInt)},
+			Typ:    types.TypeVoid,
+		}
 
 	// `Set` mutating methods
 	case "set.insert":
 		setTy := recvTy.(*types.Set)
 		val := fl.lowerExprOwned(call.Args[0], setTy.Elem)
-		return fmt.Sprintf("ll_set_insert__%s(%s, %s)", setTy.Mangled(), recvPtr, val)
+		return &ExprSetInsert{SetPtr: EnsureExpr(recvPtr, &types.Ptr{Elem: setTy}), Item: EnsureExpr(val, setTy.Elem), SetType: setTy}
 	case "set.remove":
 		setTy := recvTy.(*types.Set)
 		val := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_set_remove__%s(%s, %s)", setTy.Mangled(), recvPtr, val)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_set_remove__" + setTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: setTy}), EnsureExpr(val, setTy.Elem)},
+			Typ:    types.TypeBool,
+		}
 	case "set.clear":
 		setTy := recvTy.(*types.Set)
-		return fmt.Sprintf("ll_set_clear__%s(%s)", setTy.Mangled(), recvPtr)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_set_clear__" + setTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: setTy})},
+			Typ:    types.TypeVoid,
+		}
 
 	// `Map` mutating methods
 	case "map.insert":
 		mapTy := recvTy.(*types.Map)
 		k := fl.lowerExprOwned(call.Args[0], mapTy.Key)
 		v := fl.lowerExprOwned(call.Args[1], mapTy.Value)
-		return fmt.Sprintf("ll_map_insert__%s(%s, %s, %s)", mapTy.Mangled(), recvPtr, k, v)
+		return &ExprMapInsert{MapPtr: EnsureExpr(recvPtr, &types.Ptr{Elem: mapTy}), Key: EnsureExpr(k, mapTy.Key), Val: EnsureExpr(v, mapTy.Value), MapType: mapTy}
 	case "map.push":
 		mapTy := recvTy.(*types.Map)
 		entryTy := fl.info(call.Args[0]).Type
 		entryVal := fl.lowerExprOwned(call.Args[0], entryTy)
 		entrySlot := fl.allocSlot("_ll_entry", entryTy)
 		fl.assignLocal(entrySlot, entryVal)
-		return fmt.Sprintf("ll_map_insert__%s(%s, %s.ll_key, %s.ll_value)", mapTy.Mangled(), recvPtr, entrySlot.CName, entrySlot.CName)
+		return &ExprMapInsert{
+			MapPtr:  EnsureExpr(recvPtr, &types.Ptr{Elem: mapTy}),
+			Key:     &ExprField{Base: NewLocalExpr(entrySlot), FieldName: "ll_key", Typ: mapTy.Key},
+			Val:     &ExprField{Base: NewLocalExpr(entrySlot), FieldName: "ll_value", Typ: mapTy.Value},
+			MapType: mapTy,
+		}
 	case "map.remove":
 		mapTy := recvTy.(*types.Map)
 		fl.tc.visit(inf.Type)
 		k := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_map_remove__%s(%s, %s)", mapTy.Mangled(), recvPtr, k)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_map_remove__" + mapTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: mapTy}), EnsureExpr(k, mapTy.Key)},
+			Typ:    inf.Type,
+		}
 	case "map.clear":
 		mapTy := recvTy.(*types.Map)
-		return fmt.Sprintf("ll_map_clear__%s(%s)", mapTy.Mangled(), recvPtr)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_map_clear__" + mapTy.Mangled()},
+			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: mapTy})},
+			Typ:    types.TypeVoid,
+		}
 
 	// `Arena` mutating methods
 	case "Arena.alloc":
 		elemTy := inf.IntrinsicType
 		fl.tc.visit(elemTy)
-		cElem := CType(elemTy)
 		valExpr := fl.lowerExprOwned(call.Args[0], elemTy)
-		dtorArg := "NULL"
+		dtorFn := ""
 		if !elemTy.IsPlain() {
-			dtorArg = fmt.Sprintf("(void (*)(void*))%s", DropFnName(elemTy))
+			dtorFn = DropFnName(elemTy)
 		}
 		ptrSlot := fl.allocSlot("_ll_aptr", &types.Ref{Elem: elemTy})
-		fl.assignLocal(ptrSlot, fmt.Sprintf("(%s*)ll_arena_alloc(%s, (int64_t)sizeof(%s), (int64_t)_Alignof(%s), %s)",
-			cElem, recvPtr, cElem, cElem, dtorArg))
-		fl.emit(&InstrAssign{Dst: fmt.Sprintf("(*%s)", ptrSlot.CName), Expr: valExpr})
-		return ptrSlot.CName
+		fl.assignLocal(ptrSlot, &ExprArenaAlloc{
+			Arena:     EnsureExpr(recvPtr, &types.Ptr{Elem: types.TypeArena}),
+			AllocType: elemTy,
+			DtorFn:    dtorFn,
+			Typ:       &types.Ref{Elem: elemTy},
+		})
+		fl.emit(&InstrAssign{Dst: &ExprDeref{Ptr: NewLocalExpr(ptrSlot), Typ: elemTy}, Expr: EnsureExpr(valExpr, elemTy)})
+		return NewLocalExpr(ptrSlot)
 
 	case "Arena.reset":
-		return fmt.Sprintf("ll_arena_reset(%s)", recvPtr)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_arena_reset"},
+			Args:   []Expr{EnsureExpr(recvPtr, types.TypeArena)},
+			Typ:    types.TypeVoid,
+		}
 	}
-	return ""
+	return nil
 }
 
-func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo) string {
+func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
 	switch inf.BuiltinName {
 	case "size_of":
 		fl.tc.visit(inf.IntrinsicType)
-		return fmt.Sprintf("((int64_t)sizeof(%s))", CType(inf.IntrinsicType))
+		return &ExprSizeOf{QueryType: inf.IntrinsicType}
 	case "align_of":
 		fl.tc.visit(inf.IntrinsicType)
-		return fmt.Sprintf("((int64_t)_Alignof(%s))", CType(inf.IntrinsicType))
+		return &ExprAlignOf{QueryType: inf.IntrinsicType}
 	case "alloc_raw":
 		fl.tc.visit(inf.IntrinsicType)
-		cElem := CType(inf.IntrinsicType)
 		cnt := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("((%s*)ll_alloc((%s) * (int64_t)sizeof(%s)))", cElem, cnt, cElem)
+		return &ExprAlloc{AllocType: inf.IntrinsicType, Count: EnsureExpr(cnt, types.TypeInt), Typ: inf.Type}
 	case "realloc_raw":
 		fl.tc.visit(inf.IntrinsicType)
-		cElem := CType(inf.IntrinsicType)
 		p := fl.lowerExprRead(call.Args[0])
 		cnt := fl.lowerExprRead(call.Args[1])
-		return fmt.Sprintf("((%s*)ll_realloc((void*)(%s), (%s) * (int64_t)sizeof(%s)))", cElem, p, cnt, cElem)
+		return &ExprRealloc{Ptr: EnsureExpr(p, &types.Ptr{Elem: types.TypeVoid}), AllocType: inf.IntrinsicType, Count: EnsureExpr(cnt, types.TypeInt), Typ: inf.Type}
 	case "free_raw":
 		p := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("ll_free((void*)(%s))", p)
+		return &ExprFree{Ptr: EnsureExpr(p, &types.Ptr{Elem: types.TypeVoid})}
 	case "null_ptr":
-		return fmt.Sprintf("((%s)NULL)", CType(inf.Type))
+		return &ExprLitZero{Typ: inf.Type}
 	case "is_null":
 		p := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("((%s) == NULL)", p)
+		pTy := fl.info(call.Args[0]).Type
+		return &ExprBinary{Op: token.Eq, Left: EnsureExpr(p, pTy), Right: &ExprLitZero{Typ: pTy}, Typ: types.TypeBool}
 	case "addr_of":
 		return fl.lowerLValueAddr(call.Args[0])
 	case "ptr_add":
 		p := fl.lowerExprRead(call.Args[0])
 		off := fl.lowerExprRead(call.Args[1])
-		return fmt.Sprintf("((%s) + (%s))", p, off)
+		return &ExprBinary{Op: token.Plus, Left: EnsureExpr(p, inf.Type), Right: EnsureExpr(off, types.TypeInt), Typ: inf.Type}
 	case "ptr_read":
 		p := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("(*(%s))", p)
+		return &ExprDeref{Ptr: EnsureExpr(p, &types.Ptr{Elem: inf.Type}), Typ: inf.Type}
 	case "ptr_write":
 		p := fl.lowerExprRead(call.Args[0])
 		v := fl.lowerExprOwned(call.Args[1], inf.IntrinsicType)
 		pTmp := fl.allocSlot("_ll_pw", fl.info(call.Args[0]).Type)
 		fl.assignLocal(pTmp, p)
-		fl.emit(&InstrAssign{Dst: fmt.Sprintf("(*%s)", pTmp.CName), Expr: v})
-		return ""
+		fl.emit(&InstrAssign{Dst: &ExprDeref{Ptr: NewLocalExpr(pTmp), Typ: inf.IntrinsicType}, Expr: EnsureExpr(v, inf.IntrinsicType)})
+		return nil
 	case "ptr_cast":
 		src := fl.lowerExprRead(call.Args[0])
 		srcTy := fl.info(call.Args[0]).Type
-		if _, isP := srcTy.(*types.Ptr); isP {
-			return fmt.Sprintf("((%s)(%s))", CType(inf.Type), src)
-		}
-		return fmt.Sprintf("((%s)(uintptr_t)(%s))", CType(inf.Type), src)
+		return &ExprCast{Val: EnsureExpr(src, srcTy), From: srcTy, To: inf.Type}
 	case "ptr_addr":
 		p := fl.lowerExprRead(call.Args[0])
-		return fmt.Sprintf("((uint64_t)(uintptr_t)(%s))", p)
+		return &ExprCast{Val: EnsureExpr(p, inf.Type), From: inf.Type, To: types.TypeU64}
 	case "copy_bytes":
 		dst := fl.lowerExprRead(call.Args[0])
 		src := fl.lowerExprRead(call.Args[1])
 		cnt := fl.lowerExprRead(call.Args[2])
-		return fmt.Sprintf("ll_copy_bytes(%s, %s, %s)", dst, src, cnt)
+		return &ExprCopyBytes{Dst: EnsureExpr(dst, types.TypeVoid), Src: EnsureExpr(src, types.TypeVoid), Count: EnsureExpr(cnt, types.TypeInt)}
 	case "zero_bytes":
 		dst := fl.lowerExprRead(call.Args[0])
 		cnt := fl.lowerExprRead(call.Args[1])
-		return fmt.Sprintf("ll_zero_bytes(%s, %s)", dst, cnt)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_zero_bytes"},
+			Args:   []Expr{EnsureExpr(dst, types.TypeVoid), EnsureExpr(cnt, types.TypeInt)},
+			Typ:    types.TypeVoid,
+		}
 	}
-	return ""
+	return nil
 }
