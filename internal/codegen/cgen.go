@@ -515,7 +515,7 @@ func (g *cEmitter) emitDistinctHelpers(d *types.Distinct) {
 		if custom := g.prog.Checked.LookupConcreteMethod(d, "to_string"); custom != nil {
 			g.line("static inline ll_string %s(%s v) { return %s(v); }", ir.ToStrFnName(d), cD, custom.CName)
 		} else {
-			g.line("static inline ll_string %s(%s v) { return %s((%s)v); }", ir.ToStrFnName(d), cD, ir.ToStrFnName(d.Base), cBase)
+			g.line("static inline ll_string %s(%s v) { return %s((%s)v); }", ir.ToStrFnName(d), cD, g.toStrFn(d.Base), cBase)
 		}
 	}
 }
@@ -649,7 +649,7 @@ func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
 					prefix := fmt.Sprintf("%s.%s(", en.Name, vr.Name)
 					g.line("        case %d: {", vr.Value)
 					g.line("            ll_string s = ll_str_lit(%q, %dLL);", prefix, len(prefix))
-					g.line("            ll_string p0 = %s(v.data.%s);", ir.ToStrFnName(vr.Payload), vr.CName)
+					g.line("            ll_string p0 = %s(v.data.%s);", g.toStrFn(vr.Payload), vr.CName)
 					g.line("            ll_str_push(&s, p0);")
 					g.line("            ll_drop__string(&p0);")
 					g.line("            ll_str_push(&s, ll_str_lit(\")\", 1LL));")
@@ -665,7 +665,7 @@ func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
 						}
 						flbl := sf.Name + ": "
 						g.line("            ll_str_push(&s, ll_str_lit(%q, %dLL));", flbl, len(flbl))
-						g.line("            ll_string pf_%d = %s(v.data.%s.%s);", i, ir.ToStrFnName(sf.Type), vr.CName, sf.CName)
+						g.line("            ll_string pf_%d = %s(v.data.%s.%s);", i, g.toStrFn(sf.Type), vr.CName, sf.CName)
 						g.line("            ll_str_push(&s, pf_%d);", i)
 						g.line("            ll_drop__string(&pf_%d);", i)
 					}
@@ -794,7 +794,7 @@ func (g *cEmitter) emitBoxedOptionalHelpers(st *types.Struct) {
 	if g.canToString(optSt) {
 		g.line("static inline ll_string %s(%s* p) {", ir.ToStrFnName(optSt), cSt)
 		g.line("    if (!p) return ll_str_lit(\"none\", 4LL);")
-		g.line("    return %s(*p);", ir.ToStrFnName(st))
+		g.line("    return %s(*p);", g.toStrFn(st))
 		g.line("}")
 	}
 }
@@ -822,7 +822,7 @@ func (g *cEmitter) emitFlatOptionalHelpers(o *types.Optional) {
 	if g.canToString(o) {
 		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(o), cOpt)
 		g.line("    if (!v.has_value) return ll_str_lit(\"none\", 4LL);")
-		g.line("    return %s(v.value);", ir.ToStrFnName(o.Elem))
+		g.line("    return %s(v.value);", g.toStrFn(o.Elem))
 		g.line("}")
 	}
 }
@@ -847,7 +847,7 @@ func (g *cEmitter) emitStackArrayHelpers(a *types.StackArray) {
 		g.line("    ll_string s = ll_str_lit(\"[\", 1LL);")
 		g.line("    for (int64_t i = 0; i < %dLL; i++) {", a.Size)
 		g.line("        if (i > 0) ll_str_push(&s, ll_str_lit(\", \", 2LL));")
-		g.line("        ll_string el = %s(v.data[i]);", ir.ToStrFnName(a.Elem))
+		g.line("        ll_string el = %s(v.data[i]);", g.toStrFn(a.Elem))
 		g.line("        ll_str_push(&s, el);")
 		g.line("        ll_drop__string(&el);")
 		g.line("    }")
@@ -893,7 +893,7 @@ func (g *cEmitter) emitVectorHelpers(v *types.Vector) {
 		g.line("    ll_string s = ll_str_lit(\"[\", 1LL);")
 		g.line("    for (int64_t i = 0; i < v.len; i++) {")
 		g.line("        if (i > 0) ll_str_push(&s, ll_str_lit(\", \", 2LL));")
-		g.line("        ll_string el = %s(v.data[i]);", ir.ToStrFnName(v.Elem))
+		g.line("        ll_string el = %s(v.data[i]);", g.toStrFn(v.Elem))
 		g.line("        ll_str_push(&s, el);")
 		g.line("        ll_drop__string(&el);")
 		g.line("    }")
@@ -946,7 +946,7 @@ func (g *cEmitter) emitSetHelpers(s *types.Set) {
 		g.line("        if (!v.entries[i].alive) continue;")
 		g.line("        if (!first) ll_str_push(&out, ll_str_lit(\", \", 2LL));")
 		g.line("        first = false;")
-		g.line("        ll_string el = %s(v.entries[i].key);", ir.ToStrFnName(s.Elem))
+		g.line("        ll_string el = %s(v.entries[i].key);", g.toStrFn(s.Elem))
 		g.line("        ll_str_push(&out, el);")
 		g.line("        ll_drop__string(&el);")
 		g.line("    }")
@@ -1008,8 +1008,8 @@ func (g *cEmitter) emitMapHelpers(m *types.Map) {
 		g.line("        if (!v.entries[i].alive) continue;")
 		g.line("        if (!first) ll_str_push(&out, ll_str_lit(\", \", 2LL));")
 		g.line("        first = false;")
-		g.line("        ll_string ks = %s(v.entries[i].key);", ir.ToStrFnName(m.Key))
-		g.line("        ll_string vs = %s(v.entries[i].val);", ir.ToStrFnName(m.Value))
+		g.line("        ll_string ks = %s(v.entries[i].key);", g.toStrFn(m.Key))
+		g.line("        ll_string vs = %s(v.entries[i].val);", g.toStrFn(m.Value))
 		g.line("        ll_str_push(&out, ks);")
 		g.line("        ll_str_push(&out, ll_str_lit(\": \", 2LL));")
 		g.line("        ll_str_push(&out, vs);")
@@ -1202,7 +1202,7 @@ func (g *cEmitter) emitVTables() {
 			if fi != nil {
 				targetFn = fi.CName
 			} else if im.Name == "to_string" {
-				targetFn = ir.ToStrFnName(vt.Concrete)
+				targetFn = g.toStrFn(vt.Concrete)
 			}
 			if im.Ret.Equals(types.TypeVoid) {
 				g.line("    %s(%s);", targetFn, strings.Join(callArgs, ", "))
@@ -1653,6 +1653,13 @@ func (g *cEmitter) canCopyVisited(t types.Type, seen map[types.Type]bool) bool {
 	default:
 		return false
 	}
+}
+
+func (g *cEmitter) toStrFn(t types.Type) string {
+	if custom := g.prog.Checked.LookupConcreteMethod(t, "to_string"); custom != nil {
+		return custom.CName
+	}
+	return ir.ToStrFnName(t)
 }
 
 func (g *cEmitter) canToString(t types.Type) bool {
