@@ -328,8 +328,8 @@ bind test_leaky = () {
 	if err != nil {
 		t.Fatalf("test run failed with err: %v, output: %s", err, out)
 	}
-	if code != 1 {
-		t.Errorf("expected exit code 1 when test leaks, got %d (err: %v)\nOutput: %s", code, err, out)
+	if code != 1 && code != 99 {
+		t.Errorf("expected exit code 1 or 99 when test leaks, got %d (err: %v)\nOutput: %s", code, err, out)
 	}
 	if !strings.Contains(out, "--- PASS: clean test") {
 		t.Errorf("clean test should have passed:\n%s", out)

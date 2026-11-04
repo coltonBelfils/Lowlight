@@ -140,7 +140,7 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 		if fi == prog.TestMainFunc {
 			irp.TestMainFunc = fn
 		}
-		if fi.IsTest {
+		if fi.IsTest && (prog.EntryMod == nil || fi.Mod == prog.EntryMod) {
 			irp.TestFuncs = append(irp.TestFuncs, fn)
 		}
 	}

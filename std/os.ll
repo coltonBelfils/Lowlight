@@ -92,3 +92,43 @@ bind args = (): [string] {
     }
     out
 }
+
+// -----------------------------------------------------------------------------
+// Inline Unit Tests
+// -----------------------------------------------------------------------------
+
+@test("os system metadata: num_cpus, os_name, arch, and args")
+bind test_os_metadata = () {
+    assert(num_cpus() >= 1, "num_cpus >= 1")
+    let os = os_name()
+    assert(os.len() > 0, "os_name non-empty")
+    let a = arch()
+    assert(a.len() > 0, "arch non-empty")
+
+    let cmd_args = args()
+    assert(cmd_args.len() >= 1, "args contains at least argv[0]")
+}
+
+@test("os process execution: exec and ExitResult")
+bind test_os_exec = () {
+    let res = exec("echo hello_os_test")
+    assert(res.ok(), "exec ok")
+    assert(res.exit_code == 0, "exit code 0")
+    assert(res.stdout.contains("hello_os_test"), "stdout contains expected string")
+}
+
+@test("os directory operations: mkdir_p, file_exists, remove_all")
+bind test_os_filesystem = () {
+    let base = "/tmp/lowlight_test_os_dir"
+    let nested = "/tmp/lowlight_test_os_dir/sub1/sub2"
+
+    let _ = remove_all(base)
+    assert(not file_exists(nested), "nested does not exist before mkdir_p")
+
+    assert(mkdir_p(nested), "mkdir_p succeeds")
+    assert(file_exists(nested), "nested exists after mkdir_p")
+
+    assert(remove_all(base), "remove_all succeeds")
+    assert(not file_exists(base), "base does not exist after remove_all")
+}
+

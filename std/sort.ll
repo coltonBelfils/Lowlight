@@ -247,3 +247,130 @@ bind is_sorted[T] = (list: List[T]): bool {
 bind binary_search[T] = (list: List[T], target: T): ?int {
     list.binary_search(target)
 }
+
+// -----------------------------------------------------------------------------
+// Inline Unit Tests
+// -----------------------------------------------------------------------------
+
+@test("sort list in-place and verify is_sorted, reverse")
+bind test_sort_list_comparable = () {
+    let empty_list = List[int].new()
+    empty_list.sort()
+    assert(empty_list.is_sorted(), "empty list is sorted")
+
+    let single = List[int].new()
+    single.push(42)
+    single.sort()
+    assert(single.is_sorted(), "single element is sorted")
+
+    let nums = List[int].new()
+    nums.push(50)
+    nums.push(20)
+    nums.push(40)
+    nums.push(10)
+    nums.push(30)
+    assert(not nums.is_sorted(), "nums initially not sorted")
+
+    nums.sort()
+    assert(nums.is_sorted(), "nums sorted")
+    assert(nums.len() == 5, "nums len 5")
+    assert(nums.get(0) == 10, "nums[0] == 10")
+    assert(nums.get(1) == 20, "nums[1] == 20")
+    assert(nums.get(2) == 30, "nums[2] == 30")
+    assert(nums.get(3) == 40, "nums[3] == 40")
+    assert(nums.get(4) == 50, "nums[4] == 50")
+
+    nums.reverse()
+    assert(nums.get(0) == 50, "reversed nums[0] == 50")
+    assert(nums.get(4) == 10, "reversed nums[4] == 10")
+
+    // Test larger list to exercise quicksort partitioning
+    let large = List[int].new()
+    let i = 25
+    while (i > 0) {
+        large.push(i)
+        i -= 1
+    }
+    assert(not large.is_sorted(), "large initially reversed")
+    large.sort()
+    assert(large.is_sorted(), "large sorted")
+    assert(large.get(0) == 1, "large[0] == 1")
+    assert(large.get(24) == 25, "large[24] == 25")
+}
+
+@test("sort list with custom comparator (descending)")
+bind test_sort_custom_comparator = () {
+    let nums = List[int].new()
+    nums.push(15)
+    nums.push(3)
+    nums.push(99)
+    nums.push(42)
+
+    let cmp_desc = (a: int, b: int): int {
+        if (a > b) -1
+        else if (a < b) 1
+        else 0
+    }
+
+    nums.sort_by(cmp_desc)
+    assert(nums.get(0) == 99, "desc[0] == 99")
+    assert(nums.get(1) == 42, "desc[1] == 42")
+    assert(nums.get(2) == 15, "desc[2] == 15")
+    assert(nums.get(3) == 3, "desc[3] == 3")
+}
+
+@test("binary search on sorted list")
+bind test_sort_binary_search = () {
+    let list = List[int].new()
+    list.push(10)
+    list.push(20)
+    list.push(30)
+    list.push(40)
+    list.push(50)
+
+    let idx1? = list.binary_search(30)
+    assert(idx1? == 2, "binary_search 30 is index 2")
+
+    let idx2? = list.binary_search(10)
+    assert(idx2? == 0, "binary_search 10 is index 0")
+
+    let idx3? = list.binary_search(50)
+    assert(idx3? == 4, "binary_search 50 is index 4")
+
+    let idx4? = list.binary_search(25)
+    assert(idx4? == none, "binary_search 25 is none")
+
+    let idx5? = list.binary_search(0)
+    assert(idx5? == none, "binary_search 0 is none")
+
+    let idx6? = list.binary_search(100)
+    assert(idx6? == none, "binary_search 100 is none")
+}
+
+@test("collection sorting extensions: Set.to_sorted_list and Map.to_sorted_keys")
+bind test_sort_collections = () {
+    let s = Set[int].new()
+    s.insert(50)
+    s.insert(10)
+    s.insert(40)
+    s.insert(20)
+
+    let sorted_s = s.to_sorted_list()
+    assert(sorted_s.is_sorted(), "sorted_s is sorted")
+    assert(sorted_s.len() == 4, "sorted_s len is 4")
+    assert(sorted_s.get(0) == 10, "sorted_s[0] == 10")
+    assert(sorted_s.get(3) == 50, "sorted_s[3] == 50")
+
+    let m = Map[string, int].new()
+    m.insert("zebra", 1)
+    m.insert("apple", 2)
+    m.insert("mango", 3)
+
+    let sorted_k = m.to_sorted_keys()
+    assert(sorted_k.is_sorted(), "sorted_k is sorted")
+    assert(sorted_k.len() == 3, "sorted_k len is 3")
+    assert(sorted_k.get(0) == "apple", "sorted_k[0] == apple")
+    assert(sorted_k.get(1) == "mango", "sorted_k[1] == mango")
+    assert(sorted_k.get(2) == "zebra", "sorted_k[2] == zebra")
+}
+

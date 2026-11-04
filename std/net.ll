@@ -166,3 +166,62 @@ bind dial_tcp = (host: string, port: int): Result[TcpStream, string] {
 bind listen_tcp = (host: string, port: int): Result[TcpListener, string] {
     TcpListener.listen(host, port)
 }
+
+// -----------------------------------------------------------------------------
+// Inline Unit Tests
+// -----------------------------------------------------------------------------
+
+@test("net bidirectional data transfer over socketpair")
+bind test_net_socketpair_bidirectional = () {
+    let pair_res = socketpair()
+    assert(pair_res.is_ok(), "socketpair succeeds")
+    let pair = pair_res.unwrap()
+
+    assert(pair.first.is_open(), "pair.first is open")
+    assert(pair.second.is_open(), "pair.second is open")
+
+    let send1_res = pair.first.send("ping from first")
+    assert(send1_res.is_ok(), "send from first succeeds")
+
+    let recv1_res = pair.second.recv(1024, 1000)
+    assert(recv1_res.is_ok(), "recv on second succeeds")
+    assert(recv1_res.unwrap() == "ping from first", "second received expected payload")
+
+    let send2_res = pair.second.send("pong from second")
+    assert(send2_res.is_ok(), "send from second succeeds")
+
+    let recv2_res = pair.first.recv(1024, 1000)
+    assert(recv2_res.is_ok(), "recv on first succeeds")
+    assert(recv2_res.unwrap() == "pong from second", "first received expected payload")
+
+    pair.first.close()
+    pair.second.close()
+    assert(not pair.first.is_open(), "first is closed")
+    assert(not pair.second.is_open(), "second is closed")
+}
+
+@test("net TcpListener ephemeral port binding and teardown")
+bind test_net_listener_bind_and_port = () {
+    let l_res = TcpListener.listen("127.0.0.1", 0)
+    assert(l_res.is_ok(), "listen on ephemeral port 0 succeeds")
+    let l = l_res.unwrap()
+
+    let bound_p = l.port()
+    assert(bound_p > 0, "ephemeral port is positive integer")
+
+    l.close()
+    assert(l.fd == -1, "listener fd invalidated after close")
+}
+
+@test("net closed TcpStream error handling")
+bind test_net_closed_stream_errors = () {
+    let s = TcpStream[fd: -1]
+    assert(not s.is_open(), "stream with fd -1 is not open")
+
+    let send_res = s.send("test")
+    assert(send_res.is_err(), "send on closed stream returns error")
+
+    let recv_res = s.recv(512, 100)
+    assert(recv_res.is_err(), "recv on closed stream returns error")
+}
+

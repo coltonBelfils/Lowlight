@@ -452,6 +452,15 @@ func runCheck(entryPath string, overlays map[string]string, projectRoot string, 
 	}
 
 	a.runBodyChecking()
+	if prog.EntryMod != nil {
+		var entryTests []*FuncInstance
+		for _, fi := range prog.TestFuncs {
+			if fi.Mod == prog.EntryMod {
+				entryTests = append(entryTests, fi)
+			}
+		}
+		prog.TestFuncs = entryTests
+	}
 	return prog
 }
 

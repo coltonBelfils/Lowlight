@@ -766,3 +766,65 @@ bind string.to_datetime = (self): ?DateTime {
         none
     }
 }
+
+// -----------------------------------------------------------------------------
+// Inline Unit Tests
+// -----------------------------------------------------------------------------
+
+@test("time duration conversions, getters, and formatting")
+bind test_time_duration = () {
+    let d_ns = Duration.from_nanos(500)
+    assert(d_ns.to_nanos() == 500, "duration nanos")
+
+    let d_us = Duration.from_micros(5)
+    assert(d_us.to_nanos() == 5000, "duration micros to nanos")
+    assert(d_us.to_micros() == 5, "duration to_micros")
+
+    let d_ms = Duration.from_millis(2.5)
+    assert(d_ms.to_nanos() == 2500000, "duration millis to nanos")
+    assert(d_ms.to_millis() == 2.5, "duration to_millis")
+
+    let d_s = Duration.from_secs(1.5)
+    assert(d_s.to_nanos() == 1500000000, "duration secs to nanos")
+    assert(d_s.to_secs() == 1.5, "duration to_secs")
+
+    assert(Duration.from_nanos(50).to_string() == "50 ns", "duration string ns")
+}
+
+@test("time Instant and monotonic clock")
+bind test_time_instant = () {
+    let start = Instant.now()
+    assert(start.nanos > 0, "start nanos positive")
+
+    let elapsed = start.elapsed()
+    assert(elapsed.to_nanos() >= 0, "elapsed non-negative")
+    assert(start.elapsed_millis() >= 0.0, "elapsed millis non-negative")
+    assert(now_nanos() > 0, "now_nanos positive")
+    assert(now_millis() > 0.0, "now_millis positive")
+}
+
+@test("time DateTime creation, formatting, duration arithmetic, and parsing")
+bind test_time_datetime_and_parse = () {
+    let dt = DateTime.new(2026, 11, 4, 15, 30, 45, false)
+    assert(dt.year == 2026, "year matches")
+    assert(dt.month == 11, "month matches")
+    assert(dt.day == 4, "day matches")
+    assert(dt.hour == 15, "hour matches")
+    assert(dt.minute == 30, "minute matches")
+    assert(dt.second == 45, "second matches")
+
+    assert(dt.to_date_string() == "2026-11-04", "to_date_string")
+    assert(dt.to_time_string() == "15:30:45", "to_time_string")
+    assert(dt.to_datetime_string() == "2026-11-04 15:30:45", "to_datetime_string")
+
+    let parsed? = "2026-11-04 15:30:45".to_datetime()
+    assert(parsed? != none, "to_datetime succeeds")
+    let p = parsed? ?? dt.copy()
+    assert(p.year == 2026 and p.month == 11 and p.day == 4, "parsed date matches")
+    assert(p.hour == 15 and p.minute == 30 and p.second == 45, "parsed time matches")
+
+    let dt_plus = dt.copy().add_duration(Duration.from_secs(15.0))
+    let diff = dt_plus.diff(dt)
+    assert(diff.to_secs() == 15.0, "diff is 15 seconds")
+}
+

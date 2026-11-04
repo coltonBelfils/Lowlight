@@ -237,3 +237,136 @@ bind string.is_oct = (self): bool {
     let o? = parse_int_radix(self, 8)
     if (o?) true else false
 }
+
+// -----------------------------------------------------------------------------
+// Inline Unit Tests
+// -----------------------------------------------------------------------------
+
+@test("strconv integer parsing (decimal and boundaries)")
+bind test_strconv_parse_int = () {
+    let n0? = "0".to_int()
+    assert(n0? == 0, "0 to_int")
+
+    let n1? = "42".to_int()
+    assert(n1? == 42, "42 to_int")
+
+    let n2? = "-123".to_int()
+    assert(n2? == -123, "-123 to_int")
+
+    let n3? = "+77".to_int()
+    assert(n3? == 77, "+77 to_int")
+
+    let n4? = "   999 \t".to_int()
+    assert(n4? == 999, "trimmed to_int")
+
+    let bad1? = "".to_int()
+    assert(bad1? == none, "empty is none")
+
+    let bad2? = "abc".to_int()
+    assert(bad2? == none, "alpha is none")
+
+    let bad3? = "12a34".to_int()
+    assert(bad3? == none, "mixed is none")
+
+    let max_int? = "9223372036854775807".to_int()
+    assert(max_int? == 9223372036854775807, "INT64_MAX to_int")
+
+    let min_int? = "-9223372036854775808".to_int()
+    assert(min_int? == -9223372036854775807 - 1, "INT64_MIN to_int")
+}
+
+@test("strconv radix parsing (binary, octal, hex, base36)")
+bind test_strconv_radix = () {
+    let b1? = "1011".to_int_radix(2)
+    assert(b1? == 11, "bin 1011")
+
+    let b2? = "0b1011".to_int_radix(2)
+    assert(b2? == 11, "bin 0b1011")
+
+    let o1? = "77".to_int_radix(8)
+    assert(o1? == 63, "oct 77")
+
+    let o2? = "0o77".to_int_radix(8)
+    assert(o2? == 63, "oct 0o77")
+
+    let h1? = "FF".to_int_radix(16)
+    assert(h1? == 255, "hex FF")
+
+    let h2? = "0x1A".to_int_radix(16)
+    assert(h2? == 26, "hex 0x1A")
+
+    let h3? = "-0xff".to_int_radix(16)
+    assert(h3? == -255, "hex -0xff")
+
+    let z? = "z".to_int_radix(36)
+    assert(z? == 35, "base36 z")
+
+    let inv1? = "10".to_int_radix(1)
+    assert(inv1? == none, "radix 1 is none")
+
+    let inv2? = "10".to_int_radix(37)
+    assert(inv2? == none, "radix 37 is none")
+}
+
+@test("strconv integer formatting: to_bin, to_oct, to_hex, to_radix")
+bind test_strconv_format_int = () {
+    assert(42.to_bin() == "101010", "42 to_bin")
+    assert(63.to_oct() == "77", "63 to_oct")
+    assert(255.to_hex(false) == "ff", "255 to_hex lower")
+    assert(255.to_hex(true) == "FF", "255 to_hex upper")
+    assert((-255).to_hex(true) == "-FF", "-255 to_hex upper")
+    assert(35.to_radix(36) == "z", "35 to_radix 36")
+    assert(0.to_bin() == "0", "0 to_bin")
+    assert(0.to_hex(false) == "0", "0 to_hex")
+}
+
+@test("strconv float and boolean parsing/formatting")
+bind test_strconv_float_and_bool = () {
+    let f? = "3.1415".to_float()
+    assert(f? != none, "parse valid float")
+
+    let bad_f? = "not_a_float".to_float()
+    assert(bad_f? == none, "parse invalid float is none")
+
+    assert(float_to_str(3.14159, 2) == "3.14", "float_to_str precision 2")
+
+    let b_true? = "true".to_bool()
+    assert(b_true? == true, "parse true")
+
+    let b_yes? = "yes".to_bool()
+    assert(b_yes? == true, "parse yes")
+
+    let b_one? = "1".to_bool()
+    assert(b_one? == true, "parse 1")
+
+    let b_false? = "false".to_bool()
+    assert(b_false? == false, "parse false")
+
+    let b_no? = "no".to_bool()
+    assert(b_no? == false, "parse no")
+
+    let b_zero? = "0".to_bool()
+    assert(b_zero? == false, "parse 0")
+
+    let b_invalid? = "maybe".to_bool()
+    assert(b_invalid? == none, "parse maybe is none")
+}
+
+@test("strconv string type check predicates")
+bind test_strconv_predicates = () {
+    assert("12345".is_int(), "12345 is_int")
+    assert(not "123.45".is_int(), "123.45 is not is_int")
+
+    assert("123.45".is_float(), "123.45 is_float")
+    assert(not "abc".is_float(), "abc is not is_float")
+
+    assert("10101".is_bin(), "10101 is_bin")
+    assert(not "10201".is_bin(), "10201 is not is_bin")
+
+    assert("1a2f".is_hex(), "1a2f is_hex")
+    assert(not "1a2g".is_hex(), "1a2g is not is_hex")
+
+    assert("77".is_oct(), "77 is_oct")
+    assert(not "88".is_oct(), "88 is not is_oct")
+}
+

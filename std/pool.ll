@@ -113,3 +113,81 @@ bind Pool[T].free = (&self, h: Handle[T]): bool {
     self.live_count -= 1
     func <- true
 }
+
+// -----------------------------------------------------------------------------
+// Inline Unit Tests
+// -----------------------------------------------------------------------------
+
+@test("generational pool allocation, retrieval, mutation, and len")
+bind test_pool_alloc_and_get = () {
+    let pool = Pool[string].new()
+    assert(pool.len() == 0, "initial len 0")
+
+    let h1 = pool.alloc("first")
+    let h2 = pool.alloc("second")
+    assert(pool.len() == 2, "len after 2 allocs")
+
+    assert(pool.has(h1), "pool has h1")
+    assert(pool.has(h2), "pool has h2")
+
+    let v1? = pool.get(h1)
+    assert(v1? == "first", "v1 matches")
+    let v2? = pool.get(h2)
+    assert(v2? == "second", "v2 matches")
+
+    assert(pool.set(h1, "first_updated"), "set succeeds")
+    let v1_up? = pool.get(h1)
+    assert(v1_up? == "first_updated", "v1 updated matches")
+
+    let read_len? = pool.with[int](h2, (s: string): int { s.len() })
+    assert(read_len? == 6, "with reader returned string length")
+}
+
+@test("generational pool free, reuse, and stale handle invalidation")
+bind test_pool_free_and_reuse = () {
+    let pool = Pool[string].new()
+    let h1 = pool.alloc("slot_0")
+    let h2 = pool.alloc("slot_1")
+
+    assert(pool.free(h1), "free h1 succeeds")
+    assert(not pool.free(h1), "double free h1 returns false")
+    assert(pool.len() == 1, "len after 1 free")
+
+    // Stale handle detection
+    assert(not pool.has(h1), "has stale h1 returns false")
+    let stale? = pool.get(h1)
+    assert(stale? == none, "get stale h1 returns none")
+
+    // Allocate again: should reuse slot index of h1 with incremented generation
+    let h3 = pool.alloc("slot_0_reused")
+    assert(pool.len() == 2, "len after reusing slot")
+    assert(h3.index == h1.index, "reused same slot index")
+    assert(h3.generation > h1.generation, "generation incremented")
+
+    // Original handle h1 still cannot access the new item in the same slot
+    assert(not pool.has(h1), "old handle h1 still invalid")
+    let old_v? = pool.get(h1)
+    assert(old_v? == none, "old handle get returns none")
+
+    // New handle h3 can access it cleanly
+    assert(pool.has(h3), "new handle h3 valid")
+    let new_v? = pool.get(h3)
+    assert(new_v? == "slot_0_reused", "new handle get succeeds")
+}
+
+@test("generational handle equality and out of bounds checks")
+bind test_pool_handle_equality = () {
+    let pool = Pool[int].new()
+    let h1 = pool.alloc(100)
+    let h2 = pool.alloc(200)
+
+    assert(h1.equals(h1), "h1 equals h1")
+    assert(not h1.equals(h2), "h1 not equals h2")
+
+    let out_of_bounds = Handle[int][index: 9999, generation: 1]
+    assert(not pool.has(out_of_bounds), "out of bounds has is false")
+    let oob? = pool.get(out_of_bounds)
+    assert(oob? == none, "out of bounds get is none")
+    assert(not pool.free(out_of_bounds), "out of bounds free is false")
+}
+

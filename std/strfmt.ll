@@ -471,3 +471,54 @@ bind string.count_occurrences = (self, sub: string): int {
     }
     count
 }
+
+// -----------------------------------------------------------------------------
+// Inline Unit Tests
+// -----------------------------------------------------------------------------
+
+@test("strfmt numeric formatting: commas, bytes, percent, currency")
+bind test_strfmt_numeric_formatting = () {
+    assert(1000000.format_commas() == "1,000,000", "1,000,000 commas")
+    assert((-1234567).format_commas() == "-1,234,567", "negative commas")
+    assert(123.format_commas() == "123", "short number commas")
+
+    assert(500.format_bytes() == "500 B", "format bytes B")
+    assert(1048576.format_bytes() == "1.00 MB", "format bytes MB")
+
+    assert((0.125).format_percent(1) == "12.5%", "format percent")
+    assert((49.99).format_currency("\$", 2) == "\$49.99", "format currency")
+}
+
+@test("strfmt padding, alignment, and truncation")
+bind test_strfmt_padding_and_truncation = () {
+    assert(pad_int_zeros(42, 5) == "00042", "pad_int_zeros")
+    assert(pad_int_spaces(42, 5) == "   42", "pad_int_spaces")
+
+    assert("hello".pad_left(8) == "   hello", "pad_left")
+    assert("hello".pad_right(8) == "hello   ", "pad_right")
+    assert("hello".center(9) == "  hello  ", "center")
+
+    assert("very long string here".truncate(10) == "very lo...", "truncate long")
+    assert("short".truncate(10) == "short", "truncate short")
+}
+
+@test("strfmt case conversions: title, snake, kebab, camel")
+bind test_strfmt_casing_and_transforms = () {
+    assert("hello world".to_title() == "Hello World", "to_title")
+    assert("helloWorld".to_snake_case() == "hello_world", "to_snake_case")
+    assert("helloWorld".to_kebab_case() == "hello-world", "to_kebab_case")
+    assert("hello_world".to_camel_case() == "helloWorld", "to_camel_case")
+}
+
+@test("strfmt quote, unquote, and indentation")
+bind test_strfmt_quote_and_indent = () {
+    let quoted = "hello\nworld".quote()
+    assert(quoted == "\"hello\\nworld\"", "quote")
+
+    let unquoted? = quoted.unquote()
+    assert(unquoted? == "hello\nworld", "unquote")
+
+    let indented = "line1\nline2".indent(2)
+    assert(indented == "  line1\n  line2", "indent")
+}
+

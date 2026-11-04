@@ -146,3 +146,60 @@ bind assert_none[T] = (val?: ?T) {
         panic("assertion failed: expected optional to be none, got value")
     }
 }
+
+// -----------------------------------------------------------------------------
+// Inline Tests for std/test.ll
+// -----------------------------------------------------------------------------
+
+@test("assert_eq and assert_ne basic assertions")
+bind test_equality_assertions = () {
+    assert_eq(42, 42)
+    assert_eq("hello", "hello")
+    assert_eq(true, true)
+    assert_eq('A', 'A')
+    assert_eq_msg(100, 100, "hundred equals hundred")
+
+    assert_ne(1, 2)
+    assert_ne("foo", "bar")
+    assert_ne(true, false)
+    assert_ne('a', 'b')
+    assert_ne_msg(10, 20, "ten not equal twenty")
+}
+
+@test("assert_true and assert_false boolean assertions")
+bind test_boolean_assertions = () {
+    assert_true(1 < 2)
+    assert_true_msg(10 > 5, "ten is greater than five")
+    assert_false(1 > 2)
+    assert_false_msg(5 > 10, "five is not greater than ten")
+}
+
+@test("assert comparisons (gt, lt, ge, le)")
+bind test_comparison_assertions = () {
+    assert_gt(10, 5)
+    assert_lt(5, 10)
+    assert_ge(10, 10)
+    assert_ge(11, 10)
+    assert_le(10, 10)
+    assert_le(9, 10)
+}
+
+@test("assert_is_ok and assert_is_err result assertions")
+bind test_result_assertions = () {
+    let ok_res = Result[int, string].ok(123)
+    assert_is_ok(&ok_res)
+    assert_is_ok_msg(&ok_res, "result should be ok")
+
+    let err_res = Result[int, string].fail("failure")
+    assert_is_err(&err_res)
+    assert_is_err_msg(&err_res, "result should be err")
+}
+
+@test("assert_some and assert_none optional assertions")
+bind test_optional_assertions = () {
+    let val?: ?int = 42
+    assert_some(val?)
+
+    let empty?: ?int = none
+    assert_none(empty?)
+}

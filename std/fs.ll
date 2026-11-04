@@ -351,3 +351,105 @@ bind copy_file = (src_path: string, dst_path: string): Result[int, string] {
         Result[int, string].ok(total_copied)
     }
 }
+
+// -----------------------------------------------------------------------------
+// Inline Unit Tests
+// -----------------------------------------------------------------------------
+
+@test("filesystem high-level operations: write, read, append, copy, rename, remove")
+bind test_fs_high_level = () {
+    let p1 = "/tmp/lowlight_test_fs_hl.txt"
+    let p2 = "/tmp/lowlight_test_fs_hl_copy.txt"
+    let p3 = "/tmp/lowlight_test_fs_hl_renamed.txt"
+
+    // Clean up any stale files from previous runs
+    let _ = remove_file(p1)
+    let _ = remove_file(p2)
+    let _ = remove_file(p3)
+
+    assert(write_file(p1, "hello lowlight\n").is_ok(), "write_file succeeds")
+    assert(exists(p1), "file exists after write")
+
+    let sz_res = file_size(p1)
+    assert(sz_res.is_ok(), "file_size succeeds")
+    assert(sz_res.unwrap() == 15, "file_size is 15")
+
+    let content_res = read_file(p1)
+    assert(content_res.is_ok(), "read_file succeeds")
+    assert(content_res.unwrap() == "hello lowlight\n", "content matches")
+
+    assert(append_file(p1, "appended line\n").is_ok(), "append_file succeeds")
+    let app_res = read_file(p1)
+    assert(app_res.is_ok(), "read_file after append succeeds")
+    assert(app_res.unwrap() == "hello lowlight\nappended line\n", "appended content matches")
+
+    let cp_res = copy_file(p1, p2)
+    assert(cp_res.is_ok(), "copy_file succeeds")
+    assert(exists(p2), "copied file exists")
+    let cp_content = read_file(p2).unwrap()
+    assert(cp_content == "hello lowlight\nappended line\n", "copied content matches")
+
+    assert(rename_file(p2, p3), "rename_file succeeds")
+    assert(not exists(p2), "old path does not exist after rename")
+    assert(exists(p3), "new path exists after rename")
+
+    assert(remove_file(p1), "remove_file p1 succeeds")
+    assert(remove_file(p3), "remove_file p3 succeeds")
+    assert(not exists(p1), "p1 does not exist after remove")
+    assert(not exists(p3), "p3 does not exist after remove")
+}
+
+@test("filesystem binary byte I/O: write_bytes, read_bytes")
+bind test_fs_bytes = () {
+    let path = "/tmp/lowlight_test_fs_bytes.bin"
+    let _ = remove_file(path)
+
+    let test_data: [u8] = [u8(0), u8(127), u8(128), u8(255), u8(42)]
+    let w_res = write_bytes(path, test_data)
+    assert(w_res.is_ok(), "write_bytes succeeds")
+
+    let r_res = read_bytes(path)
+    assert(r_res.is_ok(), "read_bytes succeeds")
+    let read_data = r_res.unwrap()
+    assert(read_data.len() == 5, "read_data length matches")
+    assert(read_data[0] == u8(0), "byte 0 matches")
+    assert(read_data[1] == u8(127), "byte 1 matches")
+    assert(read_data[2] == u8(128), "byte 2 matches")
+    assert(read_data[3] == u8(255), "byte 3 matches")
+    assert(read_data[4] == u8(42), "byte 4 matches")
+
+    assert(remove_file(path), "remove binary test file")
+}
+
+@test("filesystem File stream operations: seek, tell, read, write, flush, close")
+bind test_fs_file_stream = () {
+    let path = "/tmp/lowlight_test_fs_stream.txt"
+    let _ = remove_file(path)
+
+    let f_write_res = File.open_write(path)
+    assert(f_write_res.is_ok(), "File.open_write succeeds")
+    let f_w = f_write_res.unwrap()
+    assert(f_w.is_valid(), "file stream is valid")
+    let w1_res = f_w.write_string("ABCDEF012345")
+    assert(w1_res.is_ok(), "write_string succeeds")
+    assert(f_w.flush(), "flush succeeds")
+    assert(f_w.close(), "close succeeds")
+
+    let f_rw_res = File.open_read_write(path)
+    assert(f_rw_res.is_ok(), "File.open_read_write succeeds")
+    let f_rw = f_rw_res.unwrap()
+
+    let seek_res = f_rw.seek(6, SEEK_SET)
+    assert(seek_res.is_ok(), "seek to offset 6")
+    let tell_res = f_rw.tell()
+    assert(tell_res.is_ok(), "tell succeeds")
+    assert(tell_res.unwrap() == 6, "position is 6")
+
+    let rem_res = f_rw.read_to_string()
+    assert(rem_res.is_ok(), "read_to_string succeeds")
+    assert(rem_res.unwrap() == "012345", "read from offset matches")
+
+    let _ = f_rw.close()
+    assert(remove_file(path), "remove stream test file")
+}
+

@@ -1271,3 +1271,107 @@ bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request): Resul
     let client_wire = client_read_res.unwrap()
     Response.parse(client_wire)
 }
+
+// -----------------------------------------------------------------------------
+// Inline Unit Tests
+// -----------------------------------------------------------------------------
+
+@test("http status codes and standard RFC status text")
+bind test_http_status_codes_and_texts = () {
+    assert(status_text(STATUS_OK) == "OK", "200 is OK")
+    assert(status_text(STATUS_CREATED) == "Created", "201 is Created")
+    assert(status_text(STATUS_BAD_REQUEST) == "Bad Request", "400 is Bad Request")
+    assert(status_text(STATUS_NOT_FOUND) == "Not Found", "404 is Not Found")
+    assert(status_text(STATUS_INTERNAL_SERVER_ERROR) == "Internal Server Error", "500 is Internal Server Error")
+}
+
+@test("http URL parsing: scheme, hostname, port, path, query parameters")
+bind test_http_url_parsing = () {
+    let u_res = parse_url("http://api.example.com:8080/v1/users?page=2&limit=50")
+    assert(u_res.is_ok(), "parse_url succeeds")
+    let u = u_res.unwrap()
+
+    assert(u.scheme == "http", "scheme is http")
+    assert(u.hostname == "api.example.com", "hostname matches")
+    assert(u.port == 8080, "port is 8080")
+    assert(u.path == "/v1/users", "path matches")
+
+    let p? = u.query_param("page")
+    assert(p? == "2", "query param page is 2")
+    let lim? = u.query_param("limit")
+    assert(lim? == "50", "query param limit is 50")
+    let missing? = u.query_param("nonexistent")
+    assert(missing? == none, "missing query param is none")
+}
+
+@test("http Request and Response serialization and wire parsing")
+bind test_http_request_response_wire = () {
+    let req = Request.new("POST", "/submit", "sample payload")
+    let wire = req.format()
+
+    let parsed_req_res = Request.parse(wire)
+    assert(parsed_req_res.is_ok(), "Request.parse succeeds")
+    let pr = parsed_req_res.unwrap()
+    assert(pr.method == "POST", "parsed method is POST")
+    assert(pr.path == "/submit", "parsed path is /submit")
+    assert(pr.body == "sample payload", "parsed body matches")
+
+    let resp = Response.new(200, "{\"ok\":true}")
+    assert(resp.is_success(), "200 is success")
+    let resp_wire = resp.format()
+
+    let parsed_resp_res = Response.parse(resp_wire)
+    assert(parsed_resp_res.is_ok(), "Response.parse succeeds")
+    let pres = parsed_resp_res.unwrap()
+    assert(pres.status_code == 200, "parsed status_code is 200")
+    assert(pres.body == "{\"ok\":true}", "parsed response body matches")
+}
+
+@test("http ServeMux routing and ResponseRecorder in-memory handling")
+bind test_http_serve_mux_and_handler = () {
+    let mux = ServeMux.new()
+    mux.handle_func("/hello", (req: Request, rw: &ResponseWriter) {
+        rw.write_header(STATUS_OK)
+        rw.write("hello from mux")
+    })
+    mux.handle_func("/greet", (req: Request, rw: &ResponseWriter) {
+        rw.write_header(STATUS_CREATED)
+        rw.write("greetings")
+    })
+
+    let req1 = Request.new("GET", "/hello", "")
+    let rec1 = ResponseRecorder.new()
+    mux.serve_http(req1, &rec1.writer)
+    let resp1 = rec1.result()
+    assert(resp1.status_code == 200, "status 200 for /hello")
+    assert(resp1.body == "hello from mux", "body matches for /hello")
+
+    let req2 = Request.new("GET", "/greet", "")
+    let rec2 = ResponseRecorder.new()
+    mux.serve_http(req2, &rec2.writer)
+    let resp2 = rec2.result()
+    assert(resp2.status_code == 201, "status 201 for /greet")
+    assert(resp2.body == "greetings", "body matches for /greet")
+
+    let req3 = Request.new("GET", "/nonexistent", "")
+    let rec3 = ResponseRecorder.new()
+    mux.serve_http(req3, &rec3.writer)
+    let resp3 = rec3.result()
+    assert(resp3.status_code == 404, "status 404 for unknown route")
+}
+
+@test("http client-server roundtrip over socketpair")
+bind test_http_socketpair_roundtrip = () {
+    let handler = (req: Request, rw: &ResponseWriter) {
+        rw.write_header(STATUS_OK)
+        rw.write("echo: ${req.body}")
+    }
+
+    let req = Request.new("POST", "/echo", "hello world")
+    let resp_res = test_roundtrip(handler, req)
+    assert(resp_res.is_ok(), "test_roundtrip succeeds")
+    let resp = resp_res.unwrap()
+    assert(resp.status_code == 200, "roundtrip status 200")
+    assert(resp.body == "echo: hello world", "roundtrip echo body matches")
+}
+

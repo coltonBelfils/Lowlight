@@ -129,3 +129,152 @@ bind to_ascii_upper = (c: char): char c.to_ascii_upper()
 bind to_ascii_lower = (c: char): char c.to_ascii_lower()
 bind is_control = (c: char): bool c.is_control()
 bind is_punctuation = (c: char): bool c.is_punctuation()
+
+// -----------------------------------------------------------------------------
+// Inline Tests for std/chars.ll
+// -----------------------------------------------------------------------------
+
+@test("character classification: digits, letters, alnum, whitespace, control, punct")
+bind test_char_classification = () {
+    // Digits
+    assert(('0').is_digit())
+    assert(('5').is_digit())
+    assert(('9').is_digit())
+    assert(not ('/').is_digit())
+    assert(not (':').is_digit())
+    assert(not ('a').is_digit())
+    assert(is_digit('7'))
+    assert(not is_digit('x'))
+
+    // Alphabetic
+    assert(('a').is_alpha())
+    assert(('z').is_alpha())
+    assert(('A').is_alpha())
+    assert(('Z').is_alpha())
+    assert(not ('0').is_alpha())
+    assert(not ('@').is_alpha())
+    assert(not ('[').is_alpha())
+    assert(is_alpha('M'))
+    assert(not is_alpha('!'))
+
+    // Alphanumeric
+    assert(('a').is_alnum())
+    assert(('Z').is_alnum())
+    assert(('3').is_alnum())
+    assert(not ('_').is_alnum())
+    assert(not (' ').is_alnum())
+    assert(is_alnum('9'))
+
+    // Whitespace
+    assert((' ').is_whitespace())
+    assert(('\t').is_whitespace())
+    assert(('\n').is_whitespace())
+    assert(('\r').is_whitespace())
+    assert(char(11).is_whitespace())
+    assert(char(12).is_whitespace())
+    assert(not ('a').is_whitespace())
+    assert(not ('_').is_whitespace())
+    assert(is_whitespace(' '))
+
+    // ASCII range
+    assert(('A').is_ascii())
+    assert(char(0).is_ascii())
+    assert(char(127).is_ascii())
+    assert(not char(128).is_ascii())
+    assert(not char(256).is_ascii())
+
+    // ASCII case predicates
+    assert(('A').is_ascii_upper())
+    assert(('Z').is_ascii_upper())
+    assert(not ('a').is_ascii_upper())
+    assert(not ('0').is_ascii_upper())
+    assert(('a').is_ascii_lower())
+    assert(('z').is_ascii_lower())
+    assert(not ('A').is_ascii_lower())
+    assert(not ('0').is_ascii_lower())
+
+    // Control & Punctuation
+    assert(char(0).is_control())
+    assert(char(31).is_control())
+    assert(char(127).is_control())
+    assert(not (' ').is_control())
+    assert(not ('A').is_control())
+    assert(('!').is_punctuation())
+    assert(('.').is_punctuation())
+    assert((',').is_punctuation())
+    assert((';').is_punctuation())
+    assert(not ('a').is_punctuation())
+    assert(not ('1').is_punctuation())
+    assert(not (' ').is_punctuation())
+}
+
+@test("character case transformations")
+bind test_char_case_conversion = () {
+    assert(('a').to_ascii_upper() == 'A')
+    assert(('z').to_ascii_upper() == 'Z')
+    assert(('A').to_ascii_upper() == 'A')
+    assert(('1').to_ascii_upper() == '1')
+    assert(('!').to_ascii_upper() == '!')
+    assert(to_ascii_upper('k') == 'K')
+
+    assert(('A').to_ascii_lower() == 'a')
+    assert(('Z').to_ascii_lower() == 'z')
+    assert(('a').to_ascii_lower() == 'a')
+    assert(('9').to_ascii_lower() == '9')
+    assert(('?').to_ascii_lower() == '?')
+    assert(to_ascii_lower('G') == 'g')
+}
+
+@test("character radix and digit conversion")
+bind test_char_radix_conversion = () {
+    // char.to_digit
+    assert(('0').to_digit(10) == 0)
+    assert(('5').to_digit(10) == 5)
+    assert(('9').to_digit(10) == 9)
+    assert(('a').to_digit(10) == none)
+    assert(('a').to_digit(16) == 10)
+    assert(('f').to_digit(16) == 15)
+    assert(('F').to_digit(16) == 15)
+    assert(('g').to_digit(16) == none)
+    assert(('z').to_digit(36) == 35)
+    assert(('Z').to_digit(36) == 35)
+    assert(('0').to_digit(1) == none)
+    assert(('0').to_digit(37) == none)
+
+    // from_digit
+    assert(from_digit(0, 10) == '0')
+    assert(from_digit(7, 10) == '7')
+    assert(from_digit(9, 10) == '9')
+    assert(from_digit(10, 16) == 'a')
+    assert(from_digit(15, 16) == 'f')
+    assert(from_digit(35, 36) == 'z')
+    assert(from_digit(10, 10) == none)
+    assert(from_digit(2, 2) == none)
+    assert(from_digit(-1, 10) == none)
+    assert(from_digit(5, 1) == none)
+    assert(from_digit(5, 37) == none)
+}
+
+@test("character UTF-8 encoded byte lengths")
+bind test_char_utf8_length = () {
+    assert(('a').len_utf8() == 1)
+    assert(char(0).len_utf8() == 1)
+    assert(char(127).len_utf8() == 1)
+
+    assert(char(128).len_utf8() == 2)
+    assert(char(2047).len_utf8() == 2)
+
+    assert(char(2048).len_utf8() == 3)
+    assert(char(65535).len_utf8() == 3)
+
+    assert(char(65536).len_utf8() == 4)
+    assert(char(1114111).len_utf8() == 4)
+
+    // Surrogates return 0
+    assert(char(55296).len_utf8() == 0)
+    assert(char(57343).len_utf8() == 0)
+
+    // Out-of-bounds return 0
+    assert(char(1114112).len_utf8() == 0)
+    assert(char(-1).len_utf8() == 0)
+}
