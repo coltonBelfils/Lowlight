@@ -95,14 +95,9 @@ func runCLI(args []string) int {
 		return code
 
 	case "test":
-		opts, _, err := parseCommonFlags(rest, false, false)
+		opts, err := parseTestFlags(rest)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
-		}
-		opts.TestMode = true
-		if opts.EntryPath == "" {
-			fmt.Fprintln(os.Stderr, "error: missing input .ll source file to test")
 			return 1
 		}
 		code, err := driver.Test(opts, os.Stdout, os.Stderr)
@@ -172,6 +167,40 @@ func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.
 	return opts, progArgs, nil
 }
 
+func parseTestFlags(args []string) (driver.Options, error) {
+	var opts driver.Options
+	opts.TestMode = true
+	var targets []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--release":
+			opts.Release = true
+		case "--cc":
+			if i+1 >= len(args) {
+				return opts, fmt.Errorf("missing argument for --cc")
+			}
+			i++
+			opts.CC = args[i]
+		default:
+			if len(arg) > 0 && arg[0] == '-' {
+				return opts, fmt.Errorf("unknown flag %q", arg)
+			}
+			targets = append(targets, arg)
+		}
+	}
+
+	if len(targets) == 0 {
+		targets = []string{"."}
+	}
+	opts.Targets = targets
+	if len(targets) == 1 {
+		opts.EntryPath = targets[0]
+	}
+	return opts, nil
+}
+
 func runLSP(args []string) int {
 	var logW io.Writer
 	for i := 0; i < len(args); i++ {
@@ -206,7 +235,7 @@ func printUsage(w *os.File) {
 Usage:
   lowlight build [-o <bin>] [--release] [--cc <compiler>] <file.ll>
   lowlight run   [--release] [--cc <compiler>] <file.ll> [-- <args...>]
-  lowlight test  [--release] [--cc <compiler>] <file.ll>
+  lowlight test  [--release] [--cc <compiler>] [<path...>]
   lowlight emit-c [-o <file.c>] [--release] <file.ll>
   lowlight check <file.ll>
   lowlight lsp   [--stdio] [--log <file>]

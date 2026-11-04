@@ -379,3 +379,162 @@ bind test_main = () {
 		t.Errorf("custom test_main was not executed:\n%s", out)
 	}
 }
+
+// 11. Test scoping: Single file without tests outputs [no tests to run] and exits 0
+func TestTestScopeSingleFileWithoutTests(t *testing.T) {
+	root := projectRoot(t)
+	minPath := filepath.Join(root, "examples", "minimum.ll")
+
+	opts := driver.Options{
+		EntryPath:   minPath,
+		ProjectRoot: root,
+		TestMode:    true,
+	}
+
+	var stdout, stderr bytes.Buffer
+	code, err := driver.Test(opts, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("driver.Test on minimum.ll returned error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("expected exit code 0 on file without tests, got %d", code)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "[no tests to run]") {
+		t.Errorf("expected '[no tests to run]' in output:\n%s", out)
+	}
+}
+
+// 12. Test scoping: Single file with tests only runs its own tests (does NOT run imported tests)
+func TestTestScopeSingleFileWithTestsOnlyRunsItsOwnTests(t *testing.T) {
+	root := projectRoot(t)
+	tmpDir := t.TempDir()
+	testPath := filepath.Join(tmpDir, "scoped_test.ll")
+
+	src := `
+import "std/core.ll"
+import "std/strings.ll"
+import "std/fs.ll"
+
+@test("isolated local test only")
+bind test_isolated = () {
+    assert(10 + 5 == 15)
+}
+`
+	if err := os.WriteFile(testPath, []byte(src), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	opts := driver.Options{
+		EntryPath:   testPath,
+		ProjectRoot: root,
+		TestMode:    true,
+	}
+
+	var stdout, stderr bytes.Buffer
+	code, err := driver.Test(opts, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("driver.Test error: %v\nOutput: %s\nStderr: %s", err, stdout.String(), stderr.String())
+	}
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d\nOutput: %s", code, stdout.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "=== RUN   isolated local test only") {
+		t.Errorf("expected local test to run:\n%s", out)
+	}
+	if !strings.Contains(out, "Test results: 1 passed, 0 failed (total 1)") {
+		t.Errorf("expected exactly 1 test result in summary:\n%s", out)
+	}
+	if strings.Contains(out, "core primitive string conversions") {
+		t.Errorf("should NOT have run tests from imported std/core.ll:\n%s", out)
+	}
+	if strings.Contains(out, "string predicates: is_empty") {
+		t.Errorf("should NOT have run tests from imported std/strings.ll:\n%s", out)
+	}
+}
+
+// 13. Test scoping: Directory without tests outputs [no tests to run] and exits 0
+func TestTestScopeDirectoryWithoutTests(t *testing.T) {
+	root := projectRoot(t)
+	examplesDir := filepath.Join(root, "examples")
+
+	opts := driver.Options{
+		EntryPath:   examplesDir,
+		ProjectRoot: root,
+		TestMode:    true,
+	}
+
+	var stdout, stderr bytes.Buffer
+	code, err := driver.Test(opts, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("driver.Test on examples dir returned error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("expected exit code 0 on directory without tests, got %d", code)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "[no tests to run]") {
+		t.Errorf("expected '[no tests to run]' in output:\n%s", out)
+	}
+}
+
+// 14. Test scoping: Directory with multiple test files runs tests in all test files and prints total summary
+func TestTestScopeDirectoryWithMultipleTestFiles(t *testing.T) {
+	root := projectRoot(t)
+	tmpDir := t.TempDir()
+
+	file1 := filepath.Join(tmpDir, "test_suite_a.ll")
+	src1 := `
+@test("suite A test 1")
+bind test_a1 = () { assert(true) }
+@test("suite A test 2")
+bind test_a2 = () { assert(true) }
+`
+	if err := os.WriteFile(file1, []byte(src1), 0o644); err != nil {
+		t.Fatalf("write file1: %v", err)
+	}
+
+	file2 := filepath.Join(tmpDir, "test_suite_b.ll")
+	src2 := `
+@test("suite B test 1")
+bind test_b1 = () { assert(1 == 1) }
+`
+	if err := os.WriteFile(file2, []byte(src2), 0o644); err != nil {
+		t.Fatalf("write file2: %v", err)
+	}
+
+	file3NoTests := filepath.Join(tmpDir, "helper.ll")
+	src3 := `
+bind helper_fn = (): int { 42 }
+`
+	if err := os.WriteFile(file3NoTests, []byte(src3), 0o644); err != nil {
+		t.Fatalf("write file3: %v", err)
+	}
+
+	opts := driver.Options{
+		EntryPath:   tmpDir,
+		ProjectRoot: root,
+		TestMode:    true,
+	}
+
+	var stdout, stderr bytes.Buffer
+	code, err := driver.Test(opts, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("driver.Test error: %v\nOutput: %s", err, stdout.String())
+	}
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d\nOutput: %s", code, stdout.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "suite A test 1") || !strings.Contains(out, "suite A test 2") {
+		t.Errorf("missing suite A tests in output:\n%s", out)
+	}
+	if !strings.Contains(out, "suite B test 1") {
+		t.Errorf("missing suite B tests in output:\n%s", out)
+	}
+	if !strings.Contains(out, "Total test results: 3 passed, 0 failed across 2 file(s) (total 3)") {
+		t.Errorf("expected 3 passed across 2 files in summary:\n%s", out)
+	}
+}
+
