@@ -32,16 +32,16 @@ define Pair[A, B] struct [
     second: B,
 ]
 
-bind Pair[A, B].into_second = (own self): B {
+bind Pair[A, B].into_second = (own self): B -> {
     self.second
 }
 
-bind push_twice = (xs: &[int], v: int) {
+bind push_twice = (xs: &[int], v: int) -> {
     xs.push(v)
     xs.push(v + 1)
 }
 
-bind main = (): int {
+bind main = (): int -> {
     let list = [1, 2, 3]
     push_twice(&list, 4)
 
@@ -78,48 +78,48 @@ func TestSemaSafetyRulesRejected(t *testing.T) {
 	}{
 		{
 			name: "missing ? on optional variable",
-			src:  `bind main = () { let bad = parse_int("42") }`,
+			src:  `bind main = () -> { let bad = parse_int("42") }`,
 			want: "must end with `?`",
 		},
 		{
 			name: "extra ? on non-optional variable",
-			src:  `bind main = () { let bad?: int = 42 }`,
+			src:  `bind main = () -> { let bad?: int = 42 }`,
 			want: "non-optional type",
 		},
 		{
 			name: "deep immutability of bind map",
-			src:  `bind main = () { bind m = #["a": 1]; m.insert("b", 2) }`,
+			src:  `bind main = () -> { bind m = #["a": 1]; m.insert("b", 2) }`,
 			want: "deeply immutable `bind`",
 		},
 		{
 			name: "missing & at mutable call site",
 			src: `
-bind bump = (x: &int) { x += 1 }
-bind main = () { let a = 5; bump(a) }
+bind bump = (x: &int) -> { x += 1 }
+bind main = () -> { let a = 5; bump(a) }
 `,
 			want: "requires `&` at the call site",
 		},
 		{
 			name: "missing own at consuming call site",
 			src: `
-bind sink = (s: own string) { println(s) }
-bind main = () { let s = "hi"; sink(s) }
+bind sink = (s: own string) -> { println(s) }
+bind main = () -> { let s = "hi"; sink(s) }
 `,
 			want: "requires `own s` at the call site",
 		},
 		{
 			name: "use after move",
 			src: `
-bind sink = (s: own string) { println(s) }
-bind main = () { let s = "hi"; sink(own s); println(s) }
+bind sink = (s: own string) -> { println(s) }
+bind main = () -> { let s = "hi"; sink(own s); println(s) }
 `,
 			want: "use of moved variable",
 		},
 		{
 			name: "conditional move then read",
 			src: `
-bind sink = (s: own string) { println(s) }
-bind main = () {
+bind sink = (s: own string) -> { println(s) }
+bind main = () -> {
     let s = "hi"
     if (true) { sink(own s) }
     println(s)
@@ -130,15 +130,15 @@ bind main = () {
 		{
 			name: "borrow conflict &x and x in same call",
 			src: `
-bind bad = (a: &[int], b: [int]) { a.push(b.len()) }
-bind main = () { let xs = [1, 2]; bad(&xs, xs) }
+bind bad = (a: &[int], b: [int]) -> { a.push(b.len()) }
+bind main = () -> { let xs = [1, 2]; bad(&xs, xs) }
 `,
 			want: "mutably borrowed",
 		},
 		{
 			name: "mutate vector while iterating",
 			src: `
-bind main = () {
+bind main = () -> {
     let xs = [1, 2, 3]
     for (x in xs) {
         xs.push(x)
@@ -151,7 +151,7 @@ bind main = () {
 			name: "arena ref escaping outer scope",
 			src: `
 define BoxedInt struct [ v: int ]
-bind main = () {
+bind main = () -> {
     let escaped: [ref[BoxedInt]] = []
     {
         let arena = Arena.new()
@@ -166,19 +166,19 @@ bind main = () {
 			name: "arena ref returned without &Arena param",
 			src: `
 define BoxedInt struct [ v: int ]
-bind leak = (): ref[BoxedInt] {
+bind leak = (): ref[BoxedInt] -> {
     let arena = Arena.new()
     arena.alloc(BoxedInt[v: 1])
 }
-bind main = () {}
+bind main = () -> {}
 `,
 			want: "unless it takes an `&Arena` parameter",
 		},
 		{
 			name: "unwind across lambda boundary",
 			src: `
-bind main = (): int {
-    let f = (): int {
+bind main = (): int -> {
+    let f = (): int -> {
         if (true) {
             for <- 5
         }
@@ -196,7 +196,7 @@ bind main = (): int {
 			name: "non-exhaustive enum match",
 			src: `
 define Color enum [ Red, Green, Blue ]
-bind main = (): int {
+bind main = (): int -> {
     let c = Color.Red
     match (c)
         when Color.Red: 1
@@ -208,7 +208,7 @@ bind main = (): int {
 		{
 			name: "non-value block assigned to variable",
 			src: `
-bind main = () {
+bind main = () -> {
     let x = {
         let a = 1
         let b = 2
@@ -220,11 +220,37 @@ bind main = () {
 		{
 			name: "unsafe pointer op outside unsafe block",
 			src: `
-bind main = () {
+bind main = () -> {
     let p = null_ptr[u8]()
 }
 `,
 			want: "unsafe",
+		},
+		{
+			name: "duplicate string pattern in match",
+			src: `
+bind main = () -> {
+    let s = "hello"
+    match (s)
+        when "hello": 1
+        when "hello": 2
+        else: 0
+}
+`,
+			want: `duplicate string pattern "hello" in ` + "`match`",
+		},
+		{
+			name: "duplicate int pattern in match",
+			src: `
+bind main = () -> {
+    let x = 42
+    match (x)
+        when 42: 1
+        when 42: 2
+        else: 0
+}
+`,
+			want: "duplicate integer pattern `42` in `match`",
 		},
 	}
 

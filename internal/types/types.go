@@ -389,6 +389,7 @@ type StructField struct {
 type Struct struct {
 	Name          string
 	CName         string
+	PkgDir        string
 	Packed        bool
 	MustUse       bool
 	Deprecated    bool
@@ -486,6 +487,7 @@ func (v *EnumVariant) FieldByName(name string) (*StructField, int) {
 type Enum struct {
 	Name          string
 	CName         string
+	PkgDir        string
 	MustUse       bool
 	Deprecated    bool
 	DeprecatedMsg string
@@ -569,6 +571,7 @@ func (e *Enum) VariantByName(name string) (*EnumVariant, bool) {
 type Distinct struct {
 	Name       string
 	CName      string
+	PkgDir     string
 	IsTestOnly bool
 	Base       Type
 }
@@ -592,6 +595,35 @@ func UnderlyingPrimitive(t Type) *Primitive {
 		default:
 			return nil
 		}
+	}
+}
+
+// TypePkgDir returns the package directory where type `t` was defined, or empty string.
+func TypePkgDir(t Type) string {
+	if t == nil {
+		return ""
+	}
+	switch v := t.(type) {
+	case *Struct:
+		return v.PkgDir
+	case *Enum:
+		return v.PkgDir
+	case *Interface:
+		return v.PkgDir
+	case *Distinct:
+		return v.PkgDir
+	case *Ptr:
+		return TypePkgDir(v.Elem)
+	case *Ref:
+		return TypePkgDir(v.Elem)
+	case *Optional:
+		return TypePkgDir(v.Elem)
+	case *Vector:
+		return TypePkgDir(v.Elem)
+	case *StackArray:
+		return TypePkgDir(v.Elem)
+	default:
+		return ""
 	}
 }
 
@@ -694,6 +726,7 @@ func (*SelfPlaceholder) IsPlain() bool           { return true }
 type Interface struct {
 	Name       string
 	CName      string
+	PkgDir     string
 	IsTestOnly bool
 	Methods    []InterfaceMethod
 	UsesSelf   bool // if true (e.g. Copyable), usable as generic bound `[T: Copyable]`, not runtime fat pointer

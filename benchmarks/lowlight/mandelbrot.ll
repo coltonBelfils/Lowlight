@@ -1,7 +1,7 @@
 // benchmarks/lowlight/mandelbrot.ll
 // Mandelbrot set computational benchmark.
 
-bind mandelbrot_checksum = (width: int, height: int, max_iter: int): int {
+bind mandelbrot_checksum = (width: int, height: int, max_iter: int): int -> {
     let sum = 0
     let w_float = float(width)
     let h_float = float(height)
@@ -29,7 +29,7 @@ bind mandelbrot_checksum = (width: int, height: int, max_iter: int): int {
     sum
 }
 
-bind main = () {
+bind main = () -> {
     let s = mandelbrot_checksum(1500, 1500, 500)
     println("mandelbrot(1500, 1500, 500) = $s")
 }

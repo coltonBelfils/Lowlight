@@ -124,7 +124,7 @@ LL_RT_FN void ll_check_leaks_at_exit(void) {
 }
 
 static jmp_buf* ll_test_current_jmp = NULL;
-static char ll_test_last_panic[512] = {0};
+static char ll_test_last_panic[8192] = {0};
 
 LL_RT_FN _Noreturn void ll_panic_cstr(const char* msg, const char* file, int line) {
     if (ll_test_current_jmp != NULL) {
@@ -147,8 +147,14 @@ LL_RT_FN _Noreturn void ll_exit(int64_t code) {
 
 LL_RT_FN int64_t ll_check_bounds(int64_t idx, int64_t len, const char* file, int64_t line) {
     if (LL_UNLIKELY(idx < 0 || idx >= len)) {
+        if (ll_test_current_jmp != NULL) {
+            snprintf(ll_test_last_panic, sizeof(ll_test_last_panic),
+                     "%s:%lld: index %lld out of bounds for length %lld",
+                     file ? file : "<unknown>", (long long)line, (long long)idx, (long long)len);
+            longjmp(*ll_test_current_jmp, 1);
+        }
         fprintf(stderr, "lowlight panic at %s:%lld: index %lld out of bounds for length %lld\n",
-                file, (long long)line, (long long)idx, (long long)len);
+                file ? file : "<unknown>", (long long)line, (long long)idx, (long long)len);
         exit(1);
     }
     return idx;
@@ -218,24 +224,24 @@ LL_DEF_UNSIGNED_SHIFT(64, uint64_t)
  * ========================================================================== */
 
 typedef struct ll_string {
-    char* data;
+    uint8_t* data;
     int64_t len;
     int64_t cap;
 } ll_string;
 
 static inline ll_string ll_str_lit(const char* s, int64_t len) {
     ll_string out;
-    out.data = (char*)(uintptr_t)s;
+    out.data = (uint8_t*)(uintptr_t)s;
     out.len = len;
     out.cap = 0;
     return out;
 }
 
-static inline ll_string ll_os_argv(int64_t idx) {
-    if (idx < 0 || idx >= ll_rt_argc || ll_rt_argv == NULL) {
-        return (ll_string){0};
+static inline uint8_t* ll_os_argv_cstr(int64_t idx) {
+    if (idx < 0 || idx >= ll_rt_argc || ll_rt_argv == NULL || ll_rt_argv[idx] == NULL) {
+        return (uint8_t*)(uintptr_t)"";
     }
-    return ll_str_lit(ll_rt_argv[idx], (int64_t)strlen(ll_rt_argv[idx]));
+    return (uint8_t*)ll_rt_argv[idx];
 }
 
 static inline void ll_drop__string(ll_string* s) {
@@ -252,61 +258,61 @@ static inline ll_string ll_copy__string(ll_string s) {
         return ll_str_lit("", 0);
     }
     int64_t cap = s.len + 1;
-    char* buf = (char*)ll_alloc(cap);
+    uint8_t* buf = (uint8_t*)ll_alloc(cap);
     memcpy(buf, s.data, (size_t)s.len);
     buf[s.len] = '\0';
     return (ll_string){ .data = buf, .len = s.len, .cap = cap };
 }
 
-static inline bool ll_str_eq(ll_string a, ll_string b) {
-    if (a.len != b.len) return false;
-    if (a.len == 0) return true;
-    return memcmp(a.data, b.data, (size_t)a.len) == 0;
-}
-
-static inline bool ll_eq__string(ll_string a, ll_string b) {
-    return ll_str_eq(a, b);
-}
-
-static inline uint64_t ll_str_hash(ll_string s) {
-    uint64_t h = 14695981039346656037ULL;
-    uint64_t prime = 1099511628211ULL;
-    for (int64_t i = 0; i < s.len; i++) {
-        h = (h ^ (uint64_t)(uint8_t)s.data[i]) * prime;
-    }
-    return h;
-}
-
-static inline uint64_t ll_hash__string(ll_string s) {
-    return ll_str_hash(s);
-}
-
-static inline int ll_str_cmp(ll_string a, ll_string b) {
-    int64_t min_len = (a.len < b.len) ? a.len : b.len;
-    if (min_len > 0) {
-        int c = memcmp(a.data, b.data, (size_t)min_len);
-        if (c != 0) return c;
-    }
-    if (a.len < b.len) return -1;
-    if (a.len > b.len) return 1;
-    return 0;
-}
-
-static inline _Noreturn void ll_panic_str(ll_string msg, const char* file, int line) {
+static inline _Noreturn void ll_panic_str(ll_string msg, ll_string file, int64_t line, int64_t col) {
     if (ll_test_current_jmp != NULL) {
-        snprintf(ll_test_last_panic, sizeof(ll_test_last_panic), "%s:%d: %.*s",
-                 file ? file : "<unknown>", line, (int)msg.len, msg.data ? msg.data : "");
+        if (col > 0) {
+            snprintf(ll_test_last_panic, sizeof(ll_test_last_panic), "%.*s:%lld:%lld: %.*s",
+                     (int)file.len, file.data ? (const char*)file.data : "<unknown>",
+                     (long long)line, (long long)col,
+                     (int)msg.len, msg.data ? (const char*)msg.data : "");
+        } else {
+            snprintf(ll_test_last_panic, sizeof(ll_test_last_panic), "%.*s:%lld: %.*s",
+                     (int)file.len, file.data ? (const char*)file.data : "<unknown>",
+                     (long long)line,
+                     (int)msg.len, msg.data ? (const char*)msg.data : "");
+        }
         longjmp(*ll_test_current_jmp, 1);
     }
-    fprintf(stderr, "lowlight panic at %s:%d: %.*s\n",
-            file ? file : "<unknown>", line, (int)msg.len, msg.data ? msg.data : "");
+    if (col > 0) {
+        fprintf(stderr, "lowlight panic at %.*s:%lld:%lld: %.*s\n",
+                (int)file.len, file.data ? (const char*)file.data : "<unknown>",
+                (long long)line, (long long)col,
+                (int)msg.len, msg.data ? (const char*)msg.data : "");
+    } else {
+        fprintf(stderr, "lowlight panic at %.*s:%lld: %.*s\n",
+                (int)file.len, file.data ? (const char*)file.data : "<unknown>",
+                (long long)line,
+                (int)msg.len, msg.data ? (const char*)msg.data : "");
+    }
     exit(1);
 }
 
-static inline void ll_assert(bool cond, ll_string msg, const char* file, int line) {
+static inline void ll_assert(bool cond, ll_string msg, ll_string file, int64_t line, int64_t col) {
     if (!cond) {
-        ll_panic_str(msg, file, line);
+        ll_panic_str(msg, file, line, col);
     }
+}
+
+static inline ll_string ll_format_loc(ll_string file, int64_t line, int64_t col) {
+    char buf[512];
+    int n = 0;
+    if (col > 0) {
+        n = snprintf(buf, sizeof(buf), "%.*s:%lld:%lld",
+                     (int)file.len, file.data ? (const char*)file.data : "<unknown>",
+                     (long long)line, (long long)col);
+    } else {
+        n = snprintf(buf, sizeof(buf), "%.*s:%lld",
+                     (int)file.len, file.data ? (const char*)file.data : "<unknown>",
+                     (long long)line);
+    }
+    if (n < 0) n = 0;
+    return ll_copy__string(ll_str_lit(buf, (int64_t)n));
 }
 
 static inline void ll_print_str(ll_string s, int to_err, int newline) {
@@ -323,7 +329,7 @@ static inline ll_string ll_str_concat(ll_string a, ll_string b) {
     int64_t total = a.len + b.len;
     if (total == 0) return ll_str_lit("", 0);
     int64_t cap = total + 1;
-    char* buf = (char*)ll_alloc(cap);
+    uint8_t* buf = (uint8_t*)ll_alloc(cap);
     if (a.len > 0) memcpy(buf, a.data, (size_t)a.len);
     if (b.len > 0) memcpy(buf + a.len, b.data, (size_t)b.len);
     buf[total] = '\0';
@@ -335,13 +341,13 @@ static inline void ll_str_ensure_owned_cap(ll_string* s, int64_t needed) {
     int64_t new_cap = (s->cap > 0) ? s->cap : 16;
     while (new_cap < needed) new_cap *= 2;
     if (s->cap == 0) {
-        char* buf = (char*)ll_alloc(new_cap);
+        uint8_t* buf = (uint8_t*)ll_alloc(new_cap);
         if (s->len > 0 && s->data) memcpy(buf, s->data, (size_t)s->len);
         buf[s->len] = '\0';
         s->data = buf;
         s->cap = new_cap;
     } else {
-        s->data = (char*)ll_realloc(s->data, new_cap);
+        s->data = (uint8_t*)ll_realloc(s->data, new_cap);
         s->cap = new_cap;
     }
 }
@@ -358,7 +364,7 @@ static inline void ll_str_push(ll_string* s, ll_string suffix) {
 
 static inline void ll_str_push_byte(ll_string* s, uint8_t b) {
     ll_str_ensure_owned_cap(s, s->len + 2);
-    s->data[s->len++] = (char)b;
+    s->data[s->len++] = b;
     s->data[s->len] = '\0';
 }
 
@@ -371,37 +377,31 @@ static inline void ll_str_push_bytes(ll_string* s, const uint8_t* bytes, int64_t
 }
 
 static inline void ll_str_push_char(ll_string* s, uint32_t ch) {
-    char utf8[4];
+    uint8_t utf8[4];
     int64_t n = 0;
     if (ch <= 0x7Fu) {
-        utf8[0] = (char)ch;
+        utf8[0] = (uint8_t)ch;
         n = 1;
     } else if (ch <= 0x7FFu) {
-        utf8[0] = (char)(0xC0u | (ch >> 6));
-        utf8[1] = (char)(0x80u | (ch & 0x3Fu));
+        utf8[0] = (uint8_t)(0xC0u | (ch >> 6));
+        utf8[1] = (uint8_t)(0x80u | (ch & 0x3Fu));
         n = 2;
     } else if (ch <= 0xFFFFu) {
-        utf8[0] = (char)(0xE0u | (ch >> 12));
-        utf8[1] = (char)(0x80u | ((ch >> 6) & 0x3Fu));
-        utf8[2] = (char)(0x80u | (ch & 0x3Fu));
+        utf8[0] = (uint8_t)(0xE0u | (ch >> 12));
+        utf8[1] = (uint8_t)(0x80u | ((ch >> 6) & 0x3Fu));
+        utf8[2] = (uint8_t)(0x80u | (ch & 0x3Fu));
         n = 3;
     } else {
-        utf8[0] = (char)(0xF0u | (ch >> 18));
-        utf8[1] = (char)(0x80u | ((ch >> 12) & 0x3Fu));
-        utf8[2] = (char)(0x80u | ((ch >> 6) & 0x3Fu));
-        utf8[3] = (char)(0x80u | (ch & 0x3Fu));
+        utf8[0] = (uint8_t)(0xF0u | (ch >> 18));
+        utf8[1] = (uint8_t)(0x80u | ((ch >> 12) & 0x3Fu));
+        utf8[2] = (uint8_t)(0x80u | ((ch >> 6) & 0x3Fu));
+        utf8[3] = (uint8_t)(0x80u | (ch & 0x3Fu));
         n = 4;
     }
     ll_str_ensure_owned_cap(s, s->len + n + 1);
     memcpy(s->data + s->len, utf8, (size_t)n);
     s->len += n;
     s->data[s->len] = '\0';
-}
-
-static inline ll_string ll_str_from_char(uint32_t ch) {
-    ll_string s = ll_str_lit("", 0);
-    ll_str_push_char(&s, ch);
-    return s;
 }
 
 static inline void ll_str_clear(ll_string* s) {
@@ -411,40 +411,6 @@ static inline void ll_str_clear(ll_string* s) {
     } else {
         *s = ll_str_lit("", 0);
     }
-}
-
-static inline uint32_t ll_str_utf8_next(ll_string s, int64_t off, int64_t* next_off) {
-    if (off >= s.len) {
-        *next_off = s.len;
-        return 0u;
-    }
-    uint8_t b0 = (uint8_t)s.data[off];
-    if ((b0 & 0x80u) == 0u) {
-        *next_off = off + 1;
-        return (uint32_t)b0;
-    }
-    if ((b0 & 0xE0u) == 0xC0u && off + 1 < s.len) {
-        uint32_t cp = ((uint32_t)(b0 & 0x1Fu) << 6) | (uint32_t)((uint8_t)s.data[off + 1] & 0x3Fu);
-        *next_off = off + 2;
-        return cp;
-    }
-    if ((b0 & 0xF0u) == 0xE0u && off + 2 < s.len) {
-        uint32_t cp = ((uint32_t)(b0 & 0x0Fu) << 12) |
-                      ((uint32_t)((uint8_t)s.data[off + 1] & 0x3Fu) << 6) |
-                      (uint32_t)((uint8_t)s.data[off + 2] & 0x3Fu);
-        *next_off = off + 3;
-        return cp;
-    }
-    if ((b0 & 0xF8u) == 0xF0u && off + 3 < s.len) {
-        uint32_t cp = ((uint32_t)(b0 & 0x07u) << 18) |
-                      ((uint32_t)((uint8_t)s.data[off + 1] & 0x3Fu) << 12) |
-                      ((uint32_t)((uint8_t)s.data[off + 2] & 0x3Fu) << 6) |
-                      (uint32_t)((uint8_t)s.data[off + 3] & 0x3Fu);
-        *next_off = off + 4;
-        return cp;
-    }
-    *next_off = off + 1;
-    return 0xFFFDu;
 }
 
 static inline ll_string ll_str_slice_view(ll_string s, int64_t lo, int64_t hi, int check, const char* f, int l) {
@@ -459,188 +425,62 @@ static inline ll_string ll_str_slice_owned(ll_string s, int64_t lo, int64_t hi, 
     return ll_copy__string(v);
 }
 
-static inline int64_t ll_raw_index_of(ll_string s, ll_string sub) {
-    if (sub.len == 0) return 0;
-    if (sub.len > s.len) return -1;
-    for (int64_t i = 0; i <= s.len - sub.len; i++) {
-        if (memcmp(s.data + i, sub.data, (size_t)sub.len) == 0) return i;
-    }
-    return -1;
-}
-
-static inline bool ll_str_contains(ll_string s, ll_string sub) {
-    return ll_raw_index_of(s, sub) >= 0;
-}
-
-static inline bool ll_str_starts_with(ll_string s, ll_string sub) {
-    if (sub.len == 0) return true;
-    if (sub.len > s.len) return false;
-    return memcmp(s.data, sub.data, (size_t)sub.len) == 0;
-}
-
-static inline bool ll_str_ends_with(ll_string s, ll_string sub) {
-    if (sub.len == 0) return true;
-    if (sub.len > s.len) return false;
-    return memcmp(s.data + (s.len - sub.len), sub.data, (size_t)sub.len) == 0;
-}
-
-static inline bool ll_char_is_whitespace(uint32_t ch) {
-    return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\v' || ch == '\f';
-}
-static inline bool ll_char_is_alpha(uint32_t ch) {
-    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
-}
-static inline bool ll_char_is_digit(uint32_t ch) {
-    return ch >= '0' && ch <= '9';
-}
-static inline bool ll_char_is_alnum(uint32_t ch) {
-    return ll_char_is_alpha(ch) || ll_char_is_digit(ch);
-}
-
-static inline ll_string ll_str_trim(ll_string s) {
-    int64_t lo = 0;
-    int64_t hi = s.len;
-    while (lo < hi && ll_char_is_whitespace((uint8_t)s.data[lo])) lo++;
-    while (hi > lo && ll_char_is_whitespace((uint8_t)s.data[hi - 1])) hi--;
-    return ll_str_slice_owned(s, lo, hi, 0, "", 0);
-}
-
-static inline ll_string ll_str_to_upper(ll_string s) {
-    ll_string out = ll_copy__string(s);
-    for (int64_t i = 0; i < out.len; i++) {
-        char c = out.data[i];
-        if (c >= 'a' && c <= 'z') out.data[i] = (char)(c - ('a' - 'A'));
-    }
-    return out;
-}
-
-static inline ll_string ll_str_to_lower(ll_string s) {
-    ll_string out = ll_copy__string(s);
-    for (int64_t i = 0; i < out.len; i++) {
-        char c = out.data[i];
-        if (c >= 'A' && c <= 'Z') out.data[i] = (char)(c + ('a' - 'A'));
-    }
-    return out;
-}
-
-static inline ll_string ll_str_replace(ll_string s, ll_string old_s, ll_string new_s) {
-    if (old_s.len == 0) return ll_copy__string(s);
-    ll_string out = ll_str_lit("", 0);
-    int64_t i = 0;
-    while (i <= s.len - old_s.len) {
-        if (memcmp(s.data + i, old_s.data, (size_t)old_s.len) == 0) {
-            ll_str_push(&out, new_s);
-            i += old_s.len;
-        } else {
-            ll_str_push_byte(&out, (uint8_t)s.data[i]);
-            i++;
-        }
-    }
-    while (i < s.len) {
-        ll_str_push_byte(&out, (uint8_t)s.data[i]);
-        i++;
-    }
-    return out;
-}
-
 static inline uint8_t* ll_str_c_str(ll_string s) {
     if (!s.data) return (uint8_t*)(uintptr_t)"";
-    return (uint8_t*)s.data;
+    return s.data;
 }
 
 /* ============================================================================
- * 4. Primitive 'to_string' Helpers
+ * 4. Low-Level File I/O Syscall Intrinsics ('ll_sys_*')
  * ========================================================================== */
 
-static inline ll_string ll_tostr__string(ll_string s) { return ll_copy__string(s); }
-static inline ll_string ll_tostr__bool(bool b) { return b ? ll_str_lit("true", 4) : ll_str_lit("false", 5); }
-static inline ll_string ll_tostr__char(uint32_t ch) { return ll_str_from_char(ch); }
-
-static inline ll_string ll_fmt_i64(int64_t v) {
-    char buf[32];
-    int n = snprintf(buf, sizeof(buf), "%lld", (long long)v);
-    return ll_copy__string(ll_str_lit(buf, (int64_t)n));
-}
-static inline ll_string ll_fmt_u64(uint64_t v) {
-    char buf[32];
-    int n = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)v);
-    return ll_copy__string(ll_str_lit(buf, (int64_t)n));
-}
-static inline ll_string ll_fmt_f64(double v) {
-    char buf[64];
-    int n = snprintf(buf, sizeof(buf), "%g", v);
-    return ll_copy__string(ll_str_lit(buf, (int64_t)n));
+static inline uint8_t* ll_sys_fopen(const uint8_t* path, const uint8_t* mode) {
+    if (!path || !mode) return NULL;
+    return (uint8_t*)fopen((const char*)path, (const char*)mode);
 }
 
-static inline ll_string ll_tostr__i8(int8_t v)   { return ll_fmt_i64((int64_t)v); }
-static inline ll_string ll_tostr__i16(int16_t v) { return ll_fmt_i64((int64_t)v); }
-static inline ll_string ll_tostr__i32(int32_t v) { return ll_fmt_i64((int64_t)v); }
-static inline ll_string ll_tostr__int(int64_t v) { return ll_fmt_i64(v); }
-static inline ll_string ll_tostr__u8(uint8_t v)   { return ll_fmt_u64((uint64_t)v); }
-static inline ll_string ll_tostr__u16(uint16_t v) { return ll_fmt_u64((uint64_t)v); }
-static inline ll_string ll_tostr__u32(uint32_t v) { return ll_fmt_u64((uint64_t)v); }
-static inline ll_string ll_tostr__u64(uint64_t v) { return ll_fmt_u64(v); }
-static inline ll_string ll_tostr__f32(float v)    { return ll_fmt_f64((double)v); }
-static inline ll_string ll_tostr__float(double v) { return ll_fmt_f64(v); }
-
-
-/* ============================================================================
- * 5. Parsing & File I/O Raw Helpers
- * ========================================================================== */
-
-static inline bool ll_raw_parse_int(ll_string s, int64_t* out) {
-    if (s.len <= 0 || !s.data) return false;
-    ll_string c = ll_copy__string(s);
-    char* end = NULL;
-    errno = 0;
-    long long v = strtoll(c.data, &end, 0);
-    bool ok = (errno == 0 && end && *end == '\0' && end != c.data);
-    ll_drop__string(&c);
-    if (ok) *out = (int64_t)v;
-    return ok;
+static inline int32_t ll_sys_fclose(uint8_t* fp) {
+    if (!fp) return -1;
+    return (int32_t)fclose((FILE*)fp);
 }
 
-static inline bool ll_raw_parse_float(ll_string s, double* out) {
-    if (s.len <= 0 || !s.data) return false;
-    ll_string c = ll_copy__string(s);
-    char* end = NULL;
-    errno = 0;
-    double v = strtod(c.data, &end);
-    bool ok = (errno == 0 && end && *end == '\0' && end != c.data);
-    ll_drop__string(&c);
-    if (ok) *out = v;
-    return ok;
+static inline int64_t ll_sys_fread(uint8_t* buf, int64_t size, int64_t count, uint8_t* fp) {
+    if (!buf || !fp || size <= 0 || count <= 0) return 0LL;
+    return (int64_t)fread(buf, (size_t)size, (size_t)count, (FILE*)fp);
 }
 
-static inline bool ll_raw_read_file(ll_string path, ll_string* out) {
-    ll_string cpath = ll_copy__string(path);
-    FILE* f = fopen(cpath.data, "rb");
-    ll_drop__string(&cpath);
-    if (!f) return false;
-    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return false; }
-    long sz = ftell(f);
-    if (sz < 0) { fclose(f); return false; }
-    rewind(f);
-    char* buf = (char*)ll_alloc((int64_t)sz + 1);
-    size_t rd = (sz > 0) ? fread(buf, 1u, (size_t)sz, f) : 0u;
-    fclose(f);
-    buf[rd] = '\0';
-    *out = (ll_string){ .data = buf, .len = (int64_t)rd, .cap = (int64_t)sz + 1 };
-    return true;
+static inline int64_t ll_sys_fwrite(const uint8_t* buf, int64_t size, int64_t count, uint8_t* fp) {
+    if (!buf || !fp || size <= 0 || count <= 0) return 0LL;
+    return (int64_t)fwrite(buf, (size_t)size, (size_t)count, (FILE*)fp);
 }
 
-static inline bool ll_write_file(ll_string path, ll_string content) {
-    ll_string cpath = ll_copy__string(path);
-    FILE* f = fopen(cpath.data, "wb");
-    ll_drop__string(&cpath);
-    if (!f) return false;
-    size_t wr = (content.len > 0 && content.data) ? fwrite(content.data, 1u, (size_t)content.len, f) : 0u;
-    int rc = fclose(f);
-    return (wr == (size_t)content.len) && (rc == 0);
+static inline int32_t ll_sys_fseek(uint8_t* fp, int64_t offset, int32_t whence) {
+    if (!fp) return -1;
+    return (int32_t)fseek((FILE*)fp, (long)offset, (int)whence);
+}
+
+static inline int64_t ll_sys_ftell(uint8_t* fp) {
+    if (!fp) return -1LL;
+    return (int64_t)ftell((FILE*)fp);
+}
+
+static inline int32_t ll_sys_fflush(uint8_t* fp) {
+    if (!fp) return -1;
+    return (int32_t)fflush((FILE*)fp);
+}
+
+static inline int32_t ll_sys_remove(const uint8_t* path) {
+    if (!path) return -1;
+    return (int32_t)remove((const char*)path);
+}
+
+static inline int32_t ll_sys_rename(const uint8_t* old_path, const uint8_t* new_path) {
+    if (!old_path || !new_path) return -1;
+    return (int32_t)rename((const char*)old_path, (const char*)new_path);
 }
 
 /* ============================================================================
- * 6. Region Bump Allocator ('Arena') with Resource Destructor Chain
+ * 5. Region Bump Allocator ('Arena') with Resource Destructor Chain
  * ========================================================================== */
 
 typedef struct ll_arena_chunk {
@@ -761,7 +601,8 @@ static inline void ll_drop__Arena(ll_arena* a) {
  * 7. POSIX Socket & Networking Runtime
  * ========================================================================== */
 
-static inline int64_t ll_net_tcp_listen(const char* host, int64_t port, int64_t backlog) {
+static inline int64_t ll_net_tcp_listen(const uint8_t* host_u8, int64_t port, int64_t backlog) {
+    const char* host = (const char*)host_u8;
     char port_str[32];
     snprintf(port_str, sizeof(port_str), "%lld", (long long)port);
 
@@ -828,7 +669,8 @@ static inline int64_t ll_net_tcp_accept(int64_t server_fd, int64_t timeout_ms) {
     return (int64_t)client_fd;
 }
 
-static inline int64_t ll_net_tcp_connect(const char* host, int64_t port, int64_t timeout_ms) {
+static inline int64_t ll_net_tcp_connect(const uint8_t* host_u8, int64_t port, int64_t timeout_ms) {
+    const char* host = (const char*)host_u8;
     if (!host) return -1LL;
     char port_str[32];
     snprintf(port_str, sizeof(port_str), "%lld", (long long)port);
@@ -1078,7 +920,7 @@ static inline int64_t ll_tls_available(void) {
     return ll_tls_init() ? 1LL : 0LL;
 }
 
-static inline void* ll_tls_client_handshake(int64_t fd, const uint8_t* host_cstr) {
+static inline uint8_t* ll_tls_client_handshake(int64_t fd, const uint8_t* host_cstr) {
     if (!ll_tls_init() || fd < 0) return NULL;
     const void* meth = ll_ssl_d.TLS_client_method();
     if (!meth) return NULL;
@@ -1108,10 +950,10 @@ static inline void* ll_tls_client_handshake(int64_t fd, const uint8_t* host_cstr
     sess->ctx = ctx;
     sess->ssl = ssl;
     sess->fd = (int)fd;
-    return (void*)sess;
+    return (uint8_t*)sess;
 }
 
-static inline int64_t ll_tls_send_all(void* session_ptr, const uint8_t* data, int64_t len) {
+static inline int64_t ll_tls_send_all(uint8_t* session_ptr, const uint8_t* data, int64_t len) {
     if (!session_ptr || !data || len < 0) return -1LL;
     ll_tls_session_t* sess = (ll_tls_session_t*)session_ptr;
     if (!sess->ssl) return -1LL;
@@ -1135,7 +977,7 @@ static inline int64_t ll_tls_send_all(void* session_ptr, const uint8_t* data, in
     return 0LL;
 }
 
-static inline int64_t ll_tls_recv(void* session_ptr, uint8_t* buf, int64_t max_len, int64_t timeout_ms) {
+static inline int64_t ll_tls_recv(uint8_t* session_ptr, uint8_t* buf, int64_t max_len, int64_t timeout_ms) {
     if (!session_ptr || !buf || max_len <= 0) return -1LL;
     ll_tls_session_t* sess = (ll_tls_session_t*)session_ptr;
     if (!sess->ssl) return -1LL;
@@ -1176,7 +1018,7 @@ static inline int64_t ll_tls_recv(void* session_ptr, uint8_t* buf, int64_t max_l
     }
 }
 
-static inline void ll_tls_close(void* session_ptr) {
+static inline void ll_tls_close(uint8_t* session_ptr) {
     if (!session_ptr) return;
     ll_tls_session_t* sess = (ll_tls_session_t*)session_ptr;
     if (sess->ssl) {
@@ -1191,7 +1033,7 @@ static inline void ll_tls_close(void* session_ptr) {
     ll_free(sess);
 }
 
-static inline void* ll_tls_server_ctx_new(const uint8_t* cert_file, const uint8_t* key_file) {
+static inline uint8_t* ll_tls_server_ctx_new(const uint8_t* cert_file, const uint8_t* key_file) {
     if (!ll_tls_init()) return NULL;
     const void* meth = ll_ssl_d.TLS_server_method();
     if (!meth) return NULL;
@@ -1205,18 +1047,18 @@ static inline void* ll_tls_server_ctx_new(const uint8_t* cert_file, const uint8_
         ll_ssl_d.SSL_CTX_free(ctx);
         return NULL;
     }
-    return ctx;
+    return (uint8_t*)ctx;
 }
 
-static inline void ll_tls_server_ctx_free(void* ctx) {
+static inline void ll_tls_server_ctx_free(uint8_t* ctx) {
     if (ctx && ll_tls_init()) {
-        ll_ssl_d.SSL_CTX_free(ctx);
+        ll_ssl_d.SSL_CTX_free((void*)ctx);
     }
 }
 
-static inline void* ll_tls_server_handshake(void* server_ctx, int64_t fd) {
+static inline uint8_t* ll_tls_server_handshake(uint8_t* server_ctx, int64_t fd) {
     if (!server_ctx || fd < 0 || !ll_tls_init()) return NULL;
-    void* ssl = ll_ssl_d.SSL_new(server_ctx);
+    void* ssl = ll_ssl_d.SSL_new((void*)server_ctx);
     if (!ssl) return NULL;
     if (!ll_ssl_d.SSL_set_fd(ssl, (int)fd)) {
         ll_ssl_d.SSL_free(ssl);
@@ -1231,7 +1073,7 @@ static inline void* ll_tls_server_handshake(void* server_ctx, int64_t fd) {
     sess->ctx = NULL;
     sess->ssl = ssl;
     sess->fd = (int)fd;
-    return (void*)sess;
+    return (uint8_t*)sess;
 }
 
 /* ============================================================================
@@ -1248,6 +1090,12 @@ static inline int64_t ll_time_monotonic_nanos(void) {
     return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
 }
 
+static inline int64_t ll_time_epoch_nanos(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
+}
+
 static inline void ll_time_sleep_ms(int64_t ms) {
     if (ms > 0) {
         struct timespec req;
@@ -1257,12 +1105,23 @@ static inline void ll_time_sleep_ms(int64_t ms) {
     }
 }
 
-static inline void* ll_os_popen(const char* cmd) {
-    if (!cmd) return NULL;
-    return (void*)popen(cmd, "r");
+static inline int64_t ll_time_local_offset(int64_t epoch_sec) {
+    time_t sec = (time_t)epoch_sec;
+    struct tm t;
+    localtime_r(&sec, &t);
+#if defined(__APPLE__) || defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+    return (int64_t)t.tm_gmtoff;
+#else
+    return 0LL;
+#endif
 }
 
-static inline int64_t ll_os_pclose(void* stream) {
+static inline uint8_t* ll_os_popen(const uint8_t* cmd) {
+    if (!cmd) return NULL;
+    return (uint8_t*)popen((const char*)cmd, "r");
+}
+
+static inline int64_t ll_os_pclose(uint8_t* stream) {
     if (!stream) return -1LL;
     int status = pclose((FILE*)stream);
     if (status == -1) return -1LL;
@@ -1270,64 +1129,42 @@ static inline int64_t ll_os_pclose(void* stream) {
     return (int64_t)status;
 }
 
-static inline int64_t ll_os_pread(void* stream, uint8_t* buf, int64_t max_len) {
+static inline int64_t ll_os_pread(uint8_t* stream, uint8_t* buf, int64_t max_len) {
     if (!stream || !buf || max_len <= 0) return 0LL;
     size_t n = fread(buf, 1u, (size_t)max_len, (FILE*)stream);
     return (int64_t)n;
 }
 
-static inline int64_t ll_os_system(const char* cmd) {
+static inline int64_t ll_os_system(const uint8_t* cmd) {
     if (!cmd) return -1LL;
-    int status = system(cmd);
+    int status = system((const char*)cmd);
     if (status == -1) return -1LL;
     if (WIFEXITED(status)) return (int64_t)WEXITSTATUS(status);
     return (int64_t)status;
 }
 
-static inline int64_t ll_os_file_size(const char* path) {
+static inline int64_t ll_os_file_size(const uint8_t* path) {
     if (!path) return -1LL;
     struct stat st;
-    if (stat(path, &st) == 0) {
+    if (stat((const char*)path, &st) == 0) {
         return (int64_t)st.st_size;
     }
     return -1LL;
 }
 
-static inline bool ll_os_file_exists(const char* path) {
+static inline bool ll_os_file_exists(const uint8_t* path) {
     if (!path) return false;
     struct stat st;
-    return (stat(path, &st) == 0);
+    return (stat((const char*)path, &st) == 0);
 }
 
-static inline int64_t ll_os_mkdir(const char* path) {
+static inline int64_t ll_os_mkdir(const uint8_t* path) {
     if (!path) return -1LL;
-    return (int64_t)mkdir(path, 0755);
+    return (int64_t)mkdir((const char*)path, 0755);
 }
 
-static inline int64_t ll_os_mkdir_p(const char* path) {
-    if (!path || !*path) return -1LL;
-    char tmp[1024];
-    size_t len = strlen(path);
-    if (len >= sizeof(tmp)) return -1LL;
-    memcpy(tmp, path, len + 1);
-    for (char* p = tmp + 1; *p; p++) {
-        if (*p == '/') {
-            *p = '\0';
-            struct stat st;
-            if (stat(tmp, &st) != 0) {
-                if (mkdir(tmp, 0755) != 0 && errno != EEXIST) return -1LL;
-            }
-            *p = '/';
-        }
-    }
-    struct stat st;
-    if (stat(tmp, &st) != 0) {
-        if (mkdir(tmp, 0755) != 0 && errno != EEXIST) return -1LL;
-    }
-    return 0LL;
-}
-
-static inline int64_t ll_os_remove_all(const char* path) {
+static inline int64_t ll_os_remove_all(const uint8_t* path_u8) {
+    const char* path = (const char*)path_u8;
     if (!path || !*path) return -1LL;
     struct stat st;
     if (lstat(path, &st) != 0) {
@@ -1344,7 +1181,7 @@ static inline int64_t ll_os_remove_all(const char* path) {
         if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
         char sub[1024];
         snprintf(sub, sizeof(sub), "%s/%s", path, de->d_name);
-        if (ll_os_remove_all(sub) != 0) {
+        if (ll_os_remove_all((const uint8_t*)sub) != 0) {
             err = -1;
         }
     }
@@ -1359,151 +1196,25 @@ static inline int64_t ll_os_num_cpus(void) {
     return 1LL;
 }
 
-static inline ll_string ll_os_name(void) {
+static inline uint8_t* ll_os_name_cstr(void) {
 #if defined(__APPLE__)
-    return ll_str_lit("darwin", 6);
+    return (uint8_t*)(uintptr_t)"darwin";
 #elif defined(__linux__)
-    return ll_str_lit("linux", 5);
+    return (uint8_t*)(uintptr_t)"linux";
 #elif defined(_WIN32)
-    return ll_str_lit("windows", 7);
+    return (uint8_t*)(uintptr_t)"windows";
 #else
-    return ll_str_lit("unknown", 7);
+    return (uint8_t*)(uintptr_t)"unknown";
 #endif
 }
 
-static inline ll_string ll_os_arch(void) {
+static inline uint8_t* ll_os_arch_cstr(void) {
 #if defined(__aarch64__) || defined(__arm64__)
-    return ll_str_lit("arm64", 5);
+    return (uint8_t*)(uintptr_t)"arm64";
 #elif defined(__x86_64__) || defined(_M_X64)
-    return ll_str_lit("amd64", 5);
+    return (uint8_t*)(uintptr_t)"amd64";
 #else
-    return ll_str_lit("unknown", 7);
+    return (uint8_t*)(uintptr_t)"unknown";
 #endif
-}
-
-static inline ll_string ll_str_from_raw(const uint8_t* data, int64_t len) {
-    if (!data || len <= 0) return ll_str_lit("", 0);
-    int64_t cap = len + 1;
-    char* buf = (char*)ll_alloc(cap);
-    memcpy(buf, data, (size_t)len);
-    buf[len] = '\0';
-    return (ll_string){ .data = buf, .len = len, .cap = cap };
-}
-
-static inline ll_string ll_fmt_float_prec(double v, int64_t prec) {
-    char buf[64];
-    int n;
-    if (prec < 0) {
-        n = snprintf(buf, sizeof(buf), "%g", v);
-    } else {
-        int p = (prec > 15 ? 15 : (int)prec);
-        n = snprintf(buf, sizeof(buf), "%.*f", p, v);
-    }
-    return ll_copy__string(ll_str_lit(buf, (int64_t)n));
-}
-
-/* ============================================================================
- * 10. Date & Time Runtime
- * ========================================================================== */
-
-static inline int64_t ll_time_epoch_now(void) {
-    return (int64_t)time(NULL);
-}
-
-static inline int64_t ll_time_epoch_nanos_now(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
-}
-
-static inline void ll_time_breakdown(int64_t epoch_sec, bool is_local, int64_t* out_fields, char* out_zone, int64_t zone_len) {
-    time_t sec = (time_t)epoch_sec;
-    struct tm t;
-    if (is_local) {
-        localtime_r(&sec, &t);
-    } else {
-        gmtime_r(&sec, &t);
-    }
-    if (out_fields) {
-        out_fields[0] = (int64_t)t.tm_year + 1900LL; // year
-        out_fields[1] = (int64_t)t.tm_mon + 1LL;     // month (1..12)
-        out_fields[2] = (int64_t)t.tm_mday;          // day (1..31)
-        out_fields[3] = (int64_t)t.tm_hour;          // hour (0..23)
-        out_fields[4] = (int64_t)t.tm_min;           // minute (0..59)
-        out_fields[5] = (int64_t)t.tm_sec;           // second (0..59)
-        out_fields[6] = (int64_t)t.tm_wday;          // weekday (0=Sun..6=Sat)
-        out_fields[7] = (int64_t)t.tm_yday + 1LL;    // day of year (1..366)
-#if defined(__APPLE__) || defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-        out_fields[8] = (int64_t)t.tm_gmtoff;        // offset from UTC in seconds
-#else
-        out_fields[8] = 0LL;
-#endif
-    }
-    if (out_zone && zone_len > 0) {
-#if defined(__APPLE__) || defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-        if (t.tm_zone) {
-            snprintf(out_zone, (size_t)zone_len, "%s", t.tm_zone);
-        } else {
-            out_zone[0] = '\0';
-        }
-#else
-        out_zone[0] = '\0';
-#endif
-    }
-}
-
-static inline int64_t ll_time_make_epoch(int64_t year, int64_t month, int64_t day,
-                                         int64_t hour, int64_t minute, int64_t second, bool is_local) {
-    struct tm t;
-    memset(&t, 0, sizeof(t));
-    t.tm_year = (int)(year - 1900);
-    t.tm_mon  = (int)(month - 1);
-    t.tm_mday = (int)day;
-    t.tm_hour = (int)hour;
-    t.tm_min  = (int)minute;
-    t.tm_sec  = (int)second;
-    t.tm_isdst = -1;
-    if (is_local) {
-        return (int64_t)mktime(&t);
-    } else {
-#if defined(__APPLE__) || defined(_GNU_SOURCE) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-        return (int64_t)timegm(&t);
-#else
-        return (int64_t)mktime(&t);
-#endif
-    }
-}
-
-/* ============================================================================
- * 11. String Formatting & Conversion Runtime
- * ========================================================================== */
-
-static inline bool ll_str_parse_float_strict(const char* s, int64_t len, double* out_val) {
-    if (!s || len <= 0) return false;
-    while (len > 0 && (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r')) { s++; len--; }
-    while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\n' || s[len - 1] == '\r')) { len--; }
-    if (len <= 0) return false;
-    char buf[128];
-    char* buf_ptr = buf;
-    if (len >= (int64_t)sizeof(buf)) {
-        buf_ptr = (char*)malloc((size_t)(len + 1));
-        if (!buf_ptr) return false;
-    }
-    memcpy(buf_ptr, s, (size_t)len);
-    buf_ptr[len] = '\0';
-    char* endptr = NULL;
-    errno = 0;
-    double v = strtod(buf_ptr, &endptr);
-    bool ok = (errno == 0 && endptr == buf_ptr + len);
-    if (buf_ptr != buf) free(buf_ptr);
-    if (ok && out_val) *out_val = v;
-    return ok;
-}
-
-static inline ll_string ll_fmt_exp_f64(double v, int64_t prec) {
-    char buf[64];
-    int p = (prec < 0) ? 6 : (prec > 15 ? 15 : (int)prec);
-    int n = snprintf(buf, sizeof(buf), "%.*e", p, v);
-    return ll_copy__string(ll_str_lit(buf, (int64_t)n));
 }
 `

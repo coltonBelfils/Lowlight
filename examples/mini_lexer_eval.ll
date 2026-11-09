@@ -21,7 +21,7 @@ define Token struct [
     num: float,
 ]
 
-bind tokenize = (src: string): [Token] {
+bind tokenize = (src: string): [Token] -> {
     let toks: [Token] = []
     let i = 0
     let n = src.len()
@@ -99,11 +99,11 @@ define ParserState struct [
     pos: int,
 ]
 
-bind ParserState.peek = (self): TokKind {
+bind ParserState.peek = (self): TokKind -> {
     self.tokens[self.pos].kind
 }
 
-bind parse_expr = (arena: &Arena, st: &ParserState): ref[ExprNode] {
+bind parse_expr = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
     let lhs = parse_term(&arena, &st)
     for (st.peek() == TokKind.Plus or st.peek() == TokKind.Minus) {
         let op = st.peek()
@@ -121,7 +121,7 @@ bind parse_expr = (arena: &Arena, st: &ParserState): ref[ExprNode] {
     lhs
 }
 
-bind parse_term = (arena: &Arena, st: &ParserState): ref[ExprNode] {
+bind parse_term = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
     let lhs = parse_unary(&arena, &st)
     for (st.peek() == TokKind.Star or st.peek() == TokKind.Slash) {
         let op = st.peek()
@@ -139,7 +139,7 @@ bind parse_term = (arena: &Arena, st: &ParserState): ref[ExprNode] {
     lhs
 }
 
-bind parse_unary = (arena: &Arena, st: &ParserState): ref[ExprNode] {
+bind parse_unary = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
     if (st.peek() == TokKind.Minus) {
         st.pos += 1
         let sub = parse_unary(&arena, &st)
@@ -155,7 +155,7 @@ bind parse_unary = (arena: &Arena, st: &ParserState): ref[ExprNode] {
     parse_primary(&arena, &st)
 }
 
-bind parse_primary = (arena: &Arena, st: &ParserState): ref[ExprNode] {
+bind parse_primary = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
     let k = st.peek()
     if (k == TokKind.Num) {
         let v = st.tokens[st.pos].num
@@ -191,7 +191,7 @@ bind parse_primary = (arena: &Arena, st: &ParserState): ref[ExprNode] {
     panic("unexpected token in primary expression")
 }
 
-bind eval_node = (node: ref[ExprNode], env: #[string: float]): float {
+bind eval_node = (node: ref[ExprNode], env: #[string: float]): float -> {
     match (node.kind)
     when NodeKind.Lit: node.num
     when NodeKind.Var: env[node.name] ?? panic("unbound variable: ${node.name}")
@@ -212,7 +212,7 @@ bind eval_node = (node: ref[ExprNode], env: #[string: float]): float {
     }
 }
 
-bind evaluate = (src: string, env: #[string: float]): float {
+bind evaluate = (src: string, env: #[string: float]): float -> {
     let arena = Arena.new()
     let st = ParserState[tokens: tokenize(src), pos: 0]
     let root = parse_expr(&arena, &st)
@@ -220,7 +220,7 @@ bind evaluate = (src: string, env: #[string: float]): float {
     eval_node(root, env)
 }
 
-bind main = () {
+bind main = () -> {
     let vars = #[
         "x": 10.0,
         "y": 3.5,

@@ -14,20 +14,20 @@ define Entity struct [
     y: float,
 ]
 
-bind Entity.to_string = (self): string {
+bind Entity.to_string = (self): string -> {
     "${self.name}(hp=${self.hp} @ ${self.x},${self.y})"
 }
 
-bind duplicate_and_format[T: Printable + Copyable] = (item: T): string {
+bind duplicate_and_format[T: Printable + Copyable] = (item: T): string -> {
     let cloned = item.copy()
     "${item.to_string()} == ${cloned.to_string()}"
 }
 
-bind distance = (a: Entity, b: Entity): float {
+bind distance = (a: Entity, b: Entity): float -> {
     hypot(b.x - a.x, b.y - a.y)
 }
 
-bind main = () {
+bind main = () -> {
     // 1. Generic function with `Printable + Copyable` bounds
     let hero = Entity[name: "Ranger", hp: 100, x: 0.0, y: 0.0]
     let banner = duplicate_and_format(hero)
@@ -60,7 +60,7 @@ bind main = () {
 
     // Stale `h_goblin` handle STILL safely returns `none`, never aliasing Dragon!
     assert(world.get(h_goblin) == none)
-    let dragon_name = world.with[string](h_dragon, (e: Entity): string { e.name.copy() }) ?? "none"
+    let dragon_name = world.with[string](h_dragon, (e: Entity): string -> { e.name.copy() }) ?? "none"
     assert(dragon_name == "Dragon")
 
     // 3. Generic Result[T, E] round-trip

@@ -441,8 +441,13 @@ func (fl *funcLowerer) lowerLoopDriver(
 			var stepInit []Instr
 			strDeref := &ExprDeref{Ptr: colPtrExpr, Typ: types.TypeString}
 			nextOffAddr := &ExprAddrOf{Place: NewLocalExpr(nextOff), Typ: &types.Ptr{Elem: types.TypeInt}}
+			utf8Fn := fl.lookupCoreFunc("str_utf8_next")
+			callee := &ExprFuncRef{Name: "ll_fn_str_utf8_next"}
+			if utf8Fn != nil {
+				callee = &ExprFuncRef{Name: utf8Fn.CName, TargetFunc: utf8Fn, FuncType: utf8Fn.Sig}
+			}
 			utf8Call := &ExprCall{
-				Callee: &ExprFuncRef{Name: "ll_str_utf8_next"},
+				Callee: callee,
 				Args:   []Expr{strDeref, NewLocalExpr(byteOff), nextOffAddr},
 				Typ:    types.TypeChar,
 			}
@@ -660,18 +665,8 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) Expr {
 				if p.Inclusive {
 					hiOp = token.Lte
 				}
-				geExpr := &ExprBinary{
-					Op:    token.Gte,
-					Left:  EnsureExpr(scrutValExpr, scrutTy),
-					Right: EnsureExpr(loExpr, scrutTy),
-					Typ:   types.TypeBool,
-				}
-				hiCheck := &ExprBinary{
-					Op:    hiOp,
-					Left:  EnsureExpr(scrutValExpr, scrutTy),
-					Right: EnsureExpr(hiExpr, scrutTy),
-					Typ:   types.TypeBool,
-				}
+				geExpr := fl.buildOrderingExpr(token.Gte, scrutTy, scrutValExpr, loExpr)
+				hiCheck := fl.buildOrderingExpr(hiOp, scrutTy, scrutValExpr, hiExpr)
 				condParts = append(condParts, &ExprBinary{
 					Op:    token.KwAnd,
 					Left:  geExpr,
@@ -815,8 +810,8 @@ func (fl *funcLowerer) emitVariantPatternBindings(
 			fl.locals = append(fl.locals, loc)
 			fl.symLocals[sym] = loc
 
-			fieldPtr := &ExprField{Base: varPtr, FieldName: sf.CName, Typ: sym.Type}
-			fieldVal := &ExprField{Base: varVal, FieldName: sf.CName, Typ: sym.Type}
+			fieldPtr := &ExprField{Base: varPtr, FieldName: sf.CName, FieldIdx: i, Typ: sym.Type}
+			fieldVal := &ExprField{Base: varVal, FieldName: sf.CName, FieldIdx: i, Typ: sym.Type}
 			if loc.IsMutPtr {
 				fl.emit(&InstrAssign{Dst: NewLocalExpr(loc), Expr: &ExprAddrOf{Place: fieldPtr, Typ: sym.Type}})
 			} else {
@@ -1039,62 +1034,7 @@ func (fl *funcLowerer) lowerBinaryExpr(b *ast.BinaryExpr, inf *sema.ExprInfo, fo
 		lhs := fl.lowerExprRead(b.Left)
 		rhs := fl.lowerExprRead(b.Right)
 		lty := fl.info(b.Left).Type
-		lhsExpr := EnsureExpr(lhs, lty)
-		rhsExpr := EnsureExpr(rhs, lty)
-
-		if p := types.UnderlyingPrimitive(lty); p != nil {
-			return &ExprBinary{
-				Op:    b.Op,
-				Left:  lhsExpr,
-				Right: rhsExpr,
-				Typ:   types.TypeBool,
-			}
-		}
-		if custom := fl.prog.LookupConcreteMethod(lty, "cmp"); custom != nil {
-			call := &ExprCall{
-				Callee: &ExprFuncRef{Name: custom.CName, TargetFunc: custom, FuncType: custom.Sig},
-				Args:   []Expr{lhsExpr, rhsExpr},
-				Typ:    types.TypeInt,
-			}
-			return &ExprBinary{
-				Op:    b.Op,
-				Left:  call,
-				Right: &ExprLitInt{Val: 0, Typ: types.TypeInt},
-				Typ:   types.TypeBool,
-			}
-		}
-		if d, isDist := lty.(*types.Distinct); isDist {
-			castL := &ExprCast{Val: lhsExpr, From: lty, To: d.Base}
-			castR := &ExprCast{Val: rhsExpr, From: lty, To: d.Base}
-			if customBase := fl.prog.LookupConcreteMethod(d.Base, "cmp"); customBase != nil {
-				call := &ExprCall{
-					Callee: &ExprFuncRef{Name: customBase.CName, TargetFunc: customBase, FuncType: customBase.Sig},
-					Args:   []Expr{castL, castR},
-					Typ:    types.TypeInt,
-				}
-				return &ExprBinary{
-					Op:    b.Op,
-					Left:  call,
-					Right: &ExprLitInt{Val: 0, Typ: types.TypeInt},
-					Typ:   types.TypeBool,
-				}
-			}
-			if p := types.UnderlyingPrimitive(d.Base); p != nil {
-				return &ExprBinary{
-					Op:    b.Op,
-					Left:  castL,
-					Right: castR,
-					Typ:   types.TypeBool,
-				}
-			}
-		}
-		cmpExpr := &ExprCmp{Left: lhsExpr, Right: rhsExpr, ValType: lty}
-		return &ExprBinary{
-			Op:    b.Op,
-			Left:  cmpExpr,
-			Right: &ExprLitInt{Val: 0, Typ: types.TypeInt},
-			Typ:   types.TypeBool,
-		}
+		return fl.buildOrderingExpr(b.Op, lty, lhs, rhs)
 	}
 
 	// 5. Shifts `<<` / `>>`
@@ -1135,6 +1075,54 @@ func (fl *funcLowerer) lowerBinaryExpr(b *ast.BinaryExpr, inf *sema.ExprInfo, fo
 	}
 }
 
+func (fl *funcLowerer) buildOrderingExpr(op token.Kind, lty types.Type, lhs, rhs any) Expr {
+	fl.tc.visit(lty)
+	lhsExpr := EnsureExpr(lhs, lty)
+	rhsExpr := EnsureExpr(rhs, lty)
+
+	if p, isPrim := lty.(*types.Primitive); isPrim && p.Kind != types.PrimString {
+		return &ExprBinary{
+			Op:    op,
+			Left:  lhsExpr,
+			Right: rhsExpr,
+			Typ:   types.TypeBool,
+		}
+	}
+	if en, isEn := lty.(*types.Enum); isEn && !en.IsTagged {
+		return &ExprBinary{
+			Op:    op,
+			Left:  lhsExpr,
+			Right: rhsExpr,
+			Typ:   types.TypeBool,
+		}
+	}
+	if custom := fl.prog.LookupConcreteMethod(lty, "cmp"); custom != nil {
+		call := &ExprCall{
+			Callee: &ExprFuncRef{Name: custom.CName, TargetFunc: custom, FuncType: custom.Sig},
+			Args:   []Expr{lhsExpr, rhsExpr},
+			Typ:    types.TypeInt,
+		}
+		return &ExprBinary{
+			Op:    op,
+			Left:  call,
+			Right: &ExprLitInt{Val: 0, Typ: types.TypeInt},
+			Typ:   types.TypeBool,
+		}
+	}
+	if d, isDist := lty.(*types.Distinct); isDist {
+		castL := &ExprCast{Val: lhsExpr, From: lty, To: d.Base}
+		castR := &ExprCast{Val: rhsExpr, From: lty, To: d.Base}
+		return fl.buildOrderingExpr(op, d.Base, castL, castR)
+	}
+	cmpExpr := &ExprCmp{Left: lhsExpr, Right: rhsExpr, ValType: lty}
+	return &ExprBinary{
+		Op:    op,
+		Left:  cmpExpr,
+		Right: &ExprLitInt{Val: 0, Typ: types.TypeInt},
+		Typ:   types.TypeBool,
+	}
+}
+
 func (fl *funcLowerer) buildEqualityExpr(ty types.Type, lhs, rhs any, isNeq bool) Expr {
 	fl.tc.visit(ty)
 	op := token.Eq
@@ -1144,7 +1132,7 @@ func (fl *funcLowerer) buildEqualityExpr(ty types.Type, lhs, rhs any, isNeq bool
 	lhsExpr := EnsureExpr(lhs, ty)
 	rhsExpr := EnsureExpr(rhs, ty)
 
-	if p := types.UnderlyingPrimitive(ty); p != nil {
+	if p, isPrim := ty.(*types.Primitive); isPrim && p.Kind != types.PrimString {
 		return &ExprBinary{
 			Op:    op,
 			Left:  lhsExpr,
@@ -1845,6 +1833,7 @@ func (fl *funcLowerer) lowerEnumStructVariantLit(sl *ast.StructLit, inf *sema.Ex
 					IsPtr:     false,
 				},
 				FieldName: sf.CName,
+				FieldIdx:  idx,
 				Typ:       sf.Type,
 				IsPtr:     false,
 			},

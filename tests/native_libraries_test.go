@@ -19,7 +19,7 @@ func TestCharsSuite(t *testing.T) {
 	src := `
 import "std/chars.ll"
 
-bind main = () {
+bind main = () -> {
     // 1. Character classification methods
     assert(('0').is_digit())
     assert(('9').is_digit())
@@ -95,7 +95,7 @@ func TestStringsSuite(t *testing.T) {
 	src := `
 import "std/strings.ll"
 
-bind main = () {
+bind main = () -> {
     // 1. Predicates
     assert("".is_empty())
     assert(not "hello".is_empty())
@@ -206,7 +206,7 @@ func TestFsSuite(t *testing.T) {
 	src := `
 import "std/fs.ll"
 
-bind main = () {
+bind main = () -> {
     let path = "` + p1 + `"
     let copy_p = "` + p2 + `"
     let renamed_p = "` + p3 + `"
@@ -300,7 +300,7 @@ func TestOsArgsNative(t *testing.T) {
 	src := `
 import "std/os.ll"
 
-bind main = () {
+bind main = () -> {
     let cli_args = args()
     // The first argument is always the binary executable path
     assert(cli_args.len() >= 1)
@@ -319,17 +319,17 @@ define Score struct [
     pts: int,
 ]
 
-bind Score.copy = (self): Score {
+bind Score.copy = (self): Score -> {
     Score[pts: self.pts]
 }
 
-bind Score.cmp = (self, other: Score): int {
+bind Score.cmp = (self, other: Score): int -> {
     if (self.pts < other.pts) -1
     else if (self.pts > other.pts) 1
     else 0
 }
 
-bind main = () {
+bind main = () -> {
     // 1. Primitive integer list sorting
     let nums = List[int].new()
     nums.push(5)
@@ -439,7 +439,7 @@ bind main = () {
     desc_nums.push(20)
     desc_nums.push(40)
     desc_nums.push(30)
-    let desc_cmp = (a: int, b: int): int {
+    let desc_cmp = (a: int, b: int): int -> {
         if (a > b) -1
         else if (a < b) 1
         else 0

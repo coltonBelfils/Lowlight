@@ -3,11 +3,7 @@
 // - `define packed` binary wire-header layout (`size_of` / `align_of`)
 // - Explicit `unsafe { ... }` blocks with typed raw pointers (`ptr[T]`)
 // - `alloc_raw`, `ptr_write`, `ptr_read`, `ptr_add`, `ptr_cast`, `copy_bytes`, `zero_bytes`, `free_raw`
-// - Direct zero-overhead C FFI (`extern "string.h"`)
-
-extern "string.h"
-extern strlen as c_strlen: (s: ptr[u8]): u64
-extern memcmp as c_memcmp: (a: ptr[u8], b: ptr[u8], n: u64): i32
+// - Pure Lowlight raw byte-buffer operations (`raw_strlen` / `raw_memcmp`)
 
 define packed WireHeader struct [
     magic: u16,
@@ -16,7 +12,7 @@ define packed WireHeader struct [
     payload_len: u32,
 ]
 
-bind checksum_bytes = (buf: ptr[u8], count: int): u32 {
+bind checksum_bytes = (buf: ptr[u8], count: int): u32 -> {
     unsafe {
         let sum: u32 = 0
         for (i in 0..count) {
@@ -27,7 +23,7 @@ bind checksum_bytes = (buf: ptr[u8], count: int): u32 {
     }
 }
 
-bind main = () {
+bind main = () -> {
     // 1. Packed wire layout verification: 2 + 1 + 1 + 4 == 8 bytes exact, alignment == 1!
     assert(size_of[WireHeader]() == 8)
     assert(align_of[WireHeader]() == 1)
@@ -59,9 +55,9 @@ bind main = () {
         assert(decoded.flags == u8(0x07))
         assert(int(decoded.payload_len) == payload.len())
 
-        let c_len = c_strlen(payload.c_str())
-        assert(int(c_len) == payload.len())
-        assert(c_memcmp(body_ptr, payload.c_str(), c_len) == i32(0))
+        let c_len = raw_strlen(payload.c_str())
+        assert(c_len == payload.len())
+        assert(raw_memcmp(body_ptr, payload.c_str(), c_len) == i32(0))
 
         let csum = checksum_bytes(raw_buf, total_len)
         assert(csum > u32(0))

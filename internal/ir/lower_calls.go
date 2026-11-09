@@ -1,6 +1,7 @@
 package ir
 
 import (
+	"fmt"
 	"strings"
 
 	"lowlight/internal/ast"
@@ -123,6 +124,22 @@ func (fl *funcLowerer) lowerDirectFuncCall(call *ast.CallExpr, inf *sema.ExprInf
 		for _, a := range fl.lowerCallArgs(fi.Sig.Params[1:], call.Args) {
 			cArgs = append(cArgs, a)
 		}
+		if fi.TrackCaller {
+			if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerFileLoc != nil {
+				cArgs = append(cArgs,
+					NewLocalExpr(fl.callerFileLoc),
+					NewLocalExpr(fl.callerLineLoc),
+					NewLocalExpr(fl.callerColLoc),
+				)
+			} else {
+				file, line, col := formatSpanPos(call)
+				cArgs = append(cArgs,
+					NewLitString(file),
+					NewLitInt(uint64(line), false, types.TypeInt),
+					NewLitInt(uint64(col), false, types.TypeInt),
+				)
+			}
+		}
 		callExpr := &ExprCall{
 			Callee:  &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
 			Args:    cArgs,
@@ -156,6 +173,22 @@ func (fl *funcLowerer) lowerDirectFuncCall(call *ast.CallExpr, inf *sema.ExprInf
 	} else {
 		for _, a := range fl.lowerCallArgs(fi.Sig.Params, call.Args) {
 			cArgs = append(cArgs, a)
+		}
+	}
+	if fi.TrackCaller {
+		if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerFileLoc != nil {
+			cArgs = append(cArgs,
+				NewLocalExpr(fl.callerFileLoc),
+				NewLocalExpr(fl.callerLineLoc),
+				NewLocalExpr(fl.callerColLoc),
+			)
+		} else {
+			file, line, col := formatSpanPos(call)
+			cArgs = append(cArgs,
+				NewLitString(file),
+				NewLitInt(uint64(line), false, types.TypeInt),
+				NewLitInt(uint64(col), false, types.TypeInt),
+			)
 		}
 	}
 	return &ExprCall{
@@ -210,19 +243,30 @@ func (fl *funcLowerer) lowerExternCCall(call *ast.CallExpr, inf *sema.ExprInfo) 
 	return callExpr
 }
 
+func (fl *funcLowerer) lookupCoreFunc(name string) *sema.FuncInstance {
+	for _, mod := range fl.prog.Modules {
+		if sym, ok := mod.Symbols[name]; ok && sym.FuncInst != nil {
+			return sym.FuncInst
+		}
+	}
+	return nil
+}
+
 func (fl *funcLowerer) lowerTypeConvertCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
 	arg := call.Args[0]
 	argTy := fl.info(arg).Type
 	targetTy := inf.Type
 	fl.tc.visit(targetTy)
 
-	// `string(ch)` where `ch: char` -> UTF-8 single-character string
+	// `string(ch)` where `ch: char` -> UTF-8 single-character string via `char.to_string` in `std/core.ll`
 	if targetTy.Equals(types.TypeString) && argTy.Equals(types.TypeChar) {
 		chVal := fl.lowerExprRead(arg)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_str_from_char", FuncType: &types.Func{Params: []types.FuncParam{{Type: types.TypeChar}}, Ret: types.TypeString}},
-			Args:   []Expr{chVal},
-			Typ:    types.TypeString,
+		if fi := fl.lookupMethod(types.TypeChar, "to_string"); fi != nil {
+			return &ExprCall{
+				Callee: &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
+				Args:   []Expr{EnsureExpr(chVal, types.TypeChar)},
+				Typ:    types.TypeString,
+			}
 		}
 	}
 
@@ -336,7 +380,6 @@ func (fl *funcLowerer) lowerInterfaceMethodCall(call *ast.CallExpr, inf *sema.Ex
 // -----------------------------------------------------------------------------
 
 func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
-	file, line := formatSpanLoc(call)
 	switch inf.BuiltinName {
 	case "print", "println", "eprint", "eprintln":
 		isErr := strings.HasPrefix(inf.BuiltinName, "e")
@@ -380,12 +423,24 @@ func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprIn
 
 	case "panic":
 		msg := fl.lowerExprRead(call.Args[0])
+		var fileExpr, lineExpr, colExpr Expr
+		if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerFileLoc != nil {
+			fileExpr = NewLocalExpr(fl.callerFileLoc)
+			lineExpr = NewLocalExpr(fl.callerLineLoc)
+			colExpr = NewLocalExpr(fl.callerColLoc)
+		} else {
+			f, l, c := formatSpanPos(call)
+			fileExpr = NewLitString(f)
+			lineExpr = NewLitInt(uint64(l), false, types.TypeInt)
+			colExpr = NewLitInt(uint64(c), false, types.TypeInt)
+		}
 		return &ExprCall{
 			Callee: &ExprFuncRef{Name: "ll_panic_str"},
 			Args: []Expr{
 				EnsureExpr(msg, types.TypeString),
-				&ExprLitCString{Val: file},
-				NewLitInt(uint64(line), false, types.TypeInt),
+				EnsureExpr(fileExpr, types.TypeString),
+				lineExpr,
+				colExpr,
 			},
 			Typ: types.TypeNever,
 		}
@@ -396,59 +451,88 @@ func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprIn
 		if len(call.Args) == 2 {
 			msg = fl.lowerExprRead(call.Args[1])
 		}
+		var fileExpr, lineExpr, colExpr Expr
+		if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerFileLoc != nil {
+			fileExpr = NewLocalExpr(fl.callerFileLoc)
+			lineExpr = NewLocalExpr(fl.callerLineLoc)
+			colExpr = NewLocalExpr(fl.callerColLoc)
+		} else {
+			f, l, c := formatSpanPos(call)
+			fileExpr = NewLitString(f)
+			lineExpr = NewLitInt(uint64(l), false, types.TypeInt)
+			colExpr = NewLitInt(uint64(c), false, types.TypeInt)
+		}
 		return &ExprCall{
 			Callee: &ExprFuncRef{Name: "ll_assert"},
 			Args: []Expr{
 				EnsureExpr(cond, types.TypeBool),
 				EnsureExpr(msg, types.TypeString),
-				&ExprLitCString{Val: file},
-				NewLitInt(uint64(line), false, types.TypeInt),
+				EnsureExpr(fileExpr, types.TypeString),
+				lineExpr,
+				colExpr,
 			},
 			Typ: types.TypeVoid,
 		}
 
-	case "parse_int":
-		fl.tc.visit(inf.Type)
-		s := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_parse_int"},
-			Args:   []Expr{EnsureExpr(s, types.TypeString)},
-			Typ:    inf.Type,
+	case "caller_location":
+		if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerFileLoc != nil {
+			return &ExprCall{
+				Callee: &ExprFuncRef{Name: "ll_format_loc"},
+				Args: []Expr{
+					NewLocalExpr(fl.callerFileLoc),
+					NewLocalExpr(fl.callerLineLoc),
+					NewLocalExpr(fl.callerColLoc),
+				},
+				Typ: types.TypeString,
+			}
 		}
+		f, l, c := formatSpanPos(call)
+		return NewLitString(fmt.Sprintf("%s:%d:%d", f, l, c))
 
-	case "parse_float":
-		fl.tc.visit(inf.Type)
-		s := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_parse_float"},
-			Args:   []Expr{EnsureExpr(s, types.TypeString)},
-			Typ:    inf.Type,
+	case "caller_file":
+		if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerFileLoc != nil {
+			return NewLocalExpr(fl.callerFileLoc)
 		}
+		f, _, _ := formatSpanPos(call)
+		return NewLitString(f)
+
+	case "caller_line":
+		if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerLineLoc != nil {
+			return NewLocalExpr(fl.callerLineLoc)
+		}
+		_, l, _ := formatSpanPos(call)
+		return NewLitInt(uint64(l), false, types.TypeInt)
+
+	case "caller_col":
+		if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerColLoc != nil {
+			return NewLocalExpr(fl.callerColLoc)
+		}
+		_, _, c := formatSpanPos(call)
+		return NewLitInt(uint64(c), false, types.TypeInt)
 
 	case "sqrt":
 		x := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "sqrt"},
-			Args:   []Expr{EnsureExpr(x, types.TypeFloat)},
-			Typ:    types.TypeFloat,
+		if fi := fl.lookupCoreFunc("core_sqrt"); fi != nil {
+			return &ExprCall{
+				Callee: &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
+				Args:   []Expr{EnsureExpr(x, types.TypeFloat)},
+				Typ:    types.TypeFloat,
+			}
 		}
+		return nil
 
 	case "abs":
 		x := fl.lowerExprRead(call.Args[0])
-		prim := types.UnderlyingPrimitive(inf.Type)
-		if prim != nil && prim.IsFloat() {
-			return &ExprCall{
-				Callee: &ExprFuncRef{Name: "fabs"},
-				Args:   []Expr{EnsureExpr(x, inf.Type)},
-				Typ:    inf.Type,
-			}
-		}
 		tmp := fl.allocSlot("_ll_abs", inf.Type)
 		fl.assignLocal(tmp, x)
 		res := fl.allocSlot("_ll_abs_res", inf.Type)
 		neg := &ExprUnary{Op: token.Minus, Operand: NewLocalExpr(tmp), Typ: inf.Type}
+		var zeroExpr Expr = NewLitInt(0, false, inf.Type)
+		if prim := types.UnderlyingPrimitive(inf.Type); prim != nil && prim.IsFloat() {
+			zeroExpr = NewLitFloat(0.0, inf.Type)
+		}
 		fl.emit(&InstrIf{
-			Cond: &ExprBinary{Op: token.Lt, Left: NewLocalExpr(tmp), Right: NewLitInt(0, false, inf.Type), Typ: types.TypeBool},
+			Cond: &ExprBinary{Op: token.Lt, Left: NewLocalExpr(tmp), Right: zeroExpr, Typ: types.TypeBool},
 			Then: []Instr{NewAssign(res, neg)},
 			Else: []Instr{NewAssign(res, tmp)},
 		})
@@ -477,28 +561,37 @@ func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprIn
 	case "read_file":
 		fl.tc.visit(inf.Type)
 		p := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_read_file"},
-			Args:   []Expr{EnsureExpr(p, types.TypeString)},
-			Typ:    inf.Type,
+		if fi := fl.lookupCoreFunc("core_read_file"); fi != nil {
+			return &ExprCall{
+				Callee: &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
+				Args:   []Expr{EnsureExpr(p, types.TypeString)},
+				Typ:    inf.Type,
+			}
 		}
+		return nil
 
 	case "write_file":
 		p := fl.lowerExprRead(call.Args[0])
 		c := fl.lowerExprRead(call.Args[1])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_write_file"},
-			Args:   []Expr{EnsureExpr(p, types.TypeString), EnsureExpr(c, types.TypeString)},
-			Typ:    inf.Type,
+		if fi := fl.lookupCoreFunc("core_write_file"); fi != nil {
+			return &ExprCall{
+				Callee: &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
+				Args:   []Expr{EnsureExpr(p, types.TypeString), EnsureExpr(c, types.TypeString)},
+				Typ:    inf.Type,
+			}
 		}
+		return nil
 
 	case "args":
 		fl.tc.visit(inf.Type)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_get_cli_args"},
-			Args:   nil,
-			Typ:    inf.Type,
+		if fi := fl.lookupCoreFunc("core_cli_args"); fi != nil {
+			return &ExprCall{
+				Callee: &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
+				Args:   nil,
+				Typ:    inf.Type,
+			}
 		}
+		return nil
 
 	case "exit":
 		code := fl.lowerExprRead(call.Args[0])
@@ -613,23 +706,9 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 	case "any.to_string":
 		return fl.toStringCallExpr(recvTy, recvVal), types.TypeString
 
-	// `char` methods
-	case "char.is_alpha":
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_char_is_alpha"}, Args: []Expr{EnsureExpr(recvVal, types.TypeChar)}, Typ: types.TypeBool}, types.TypeBool
-	case "char.is_digit":
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_char_is_digit"}, Args: []Expr{EnsureExpr(recvVal, types.TypeChar)}, Typ: types.TypeBool}, types.TypeBool
-	case "char.is_alnum":
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_char_is_alnum"}, Args: []Expr{EnsureExpr(recvVal, types.TypeChar)}, Typ: types.TypeBool}, types.TypeBool
-	case "char.is_whitespace":
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_char_is_whitespace"}, Args: []Expr{EnsureExpr(recvVal, types.TypeChar)}, Typ: types.TypeBool}, types.TypeBool
-	case "char.to_int":
-		return &ExprCast{Val: EnsureExpr(recvVal, types.TypeChar), From: types.TypeChar, To: types.TypeInt}, types.TypeInt
-
 	// `string` read methods
 	case "string.len":
 		return &ExprField{Base: EnsureExpr(recvVal, types.TypeString), FieldName: "len", Typ: types.TypeInt}, types.TypeInt
-	case "string.is_empty":
-		return &ExprBinary{Op: token.Eq, Left: &ExprField{Base: EnsureExpr(recvVal, types.TypeString), FieldName: "len", Typ: types.TypeInt}, Right: NewLitInt(0, false, types.TypeInt), Typ: types.TypeBool}, types.TypeBool
 	case "string.byte_at":
 		idx := fl.lowerExprRead(call.Args[0])
 		sTmp := fl.allocSlot("_ll_sba", types.TypeString)
@@ -640,48 +719,6 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 			Index: EnsureExpr(cIdx, types.TypeInt),
 			Typ:   types.TypeU8,
 		}, types.TypeU8
-	case "string.get_byte":
-		optU8 := types.NewOptional(types.TypeU8)
-		fl.tc.visit(optU8)
-		idx := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_get_byte"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(idx, types.TypeInt)}, Typ: optU8}, optU8
-	case "string.bytes":
-		vecU8 := &types.Vector{Elem: types.TypeU8}
-		fl.tc.visit(vecU8)
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_bytes"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString)}, Typ: vecU8}, vecU8
-	case "string.chars":
-		vecCh := &types.Vector{Elem: types.TypeChar}
-		fl.tc.visit(vecCh)
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_chars"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString)}, Typ: vecCh}, vecCh
-	case "string.contains":
-		sub := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_contains"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(sub, types.TypeString)}, Typ: types.TypeBool}, types.TypeBool
-	case "string.starts_with":
-		sub := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_starts_with"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(sub, types.TypeString)}, Typ: types.TypeBool}, types.TypeBool
-	case "string.ends_with":
-		sub := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_ends_with"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(sub, types.TypeString)}, Typ: types.TypeBool}, types.TypeBool
-	case "string.index_of":
-		optInt := types.NewOptional(types.TypeInt)
-		fl.tc.visit(optInt)
-		sub := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_index_of"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(sub, types.TypeString)}, Typ: optInt}, optInt
-	case "string.trim":
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_trim"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString)}, Typ: types.TypeString}, types.TypeString
-	case "string.to_upper":
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_to_upper"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString)}, Typ: types.TypeString}, types.TypeString
-	case "string.to_lower":
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_to_lower"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString)}, Typ: types.TypeString}, types.TypeString
-	case "string.split":
-		vecStr := &types.Vector{Elem: types.TypeString}
-		fl.tc.visit(vecStr)
-		sep := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_split"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(sep, types.TypeString)}, Typ: vecStr}, vecStr
-	case "string.replace":
-		oldS := fl.lowerExprRead(call.Args[0])
-		newS := fl.lowerExprRead(call.Args[1])
-		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_replace"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString), EnsureExpr(oldS, types.TypeString), EnsureExpr(newS, types.TypeString)}, Typ: types.TypeString}, types.TypeString
 	case "string.c_str":
 		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_str_c_str"}, Args: []Expr{EnsureExpr(recvVal, types.TypeString)}, Typ: &types.Ptr{Elem: types.TypeU8}}, &types.Ptr{Elem: types.TypeU8}
 
@@ -712,11 +749,14 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 		}, types.TypeBool
 	case "vec.join":
 		sep := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_vec_join_str"},
-			Args:   []Expr{EnsureExpr(recvVal, recvTy), EnsureExpr(sep, types.TypeString)},
-			Typ:    types.TypeString,
-		}, types.TypeString
+		if fi := fl.lookupCoreFunc("join_strings"); fi != nil {
+			return &ExprCall{
+				Callee: &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
+				Args:   []Expr{EnsureExpr(recvVal, recvTy), EnsureExpr(sep, types.TypeString)},
+				Typ:    types.TypeString,
+			}, types.TypeString
+		}
+		return nil, types.TypeString
 
 	// `StackArray` read methods
 	case "arr.len":
@@ -1055,6 +1095,65 @@ func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo
 			Callee: &ExprFuncRef{Name: "ll_zero_bytes"},
 			Args:   []Expr{EnsureExpr(dst, types.TypeVoid), EnsureExpr(cnt, types.TypeInt)},
 			Typ:    types.TypeVoid,
+		}
+	}
+
+	sysSymbolMap := map[string]string{
+		"sys_fopen":                "ll_sys_fopen",
+		"sys_fclose":               "ll_sys_fclose",
+		"sys_fread":                "ll_sys_fread",
+		"sys_fwrite":               "ll_sys_fwrite",
+		"sys_fseek":                "ll_sys_fseek",
+		"sys_ftell":                "ll_sys_ftell",
+		"sys_fflush":               "ll_sys_fflush",
+		"sys_remove":               "ll_sys_remove",
+		"sys_rename":               "ll_sys_rename",
+		"sys_popen":                "ll_os_popen",
+		"sys_pclose":               "ll_os_pclose",
+		"sys_pread":                "ll_os_pread",
+		"sys_system":               "ll_os_system",
+		"sys_file_size":            "ll_os_file_size",
+		"sys_file_exists":          "ll_os_file_exists",
+		"sys_mkdir":                "ll_os_mkdir",
+		"sys_remove_all":           "ll_os_remove_all",
+		"sys_num_cpus":             "ll_os_num_cpus",
+		"sys_os_name":              "ll_os_name_cstr",
+		"sys_os_arch":              "ll_os_arch_cstr",
+		"sys_argc":                 "ll_os_argc",
+		"sys_argv":                 "ll_os_argv_cstr",
+		"sys_monotonic_nanos":      "ll_time_monotonic_nanos",
+		"sys_epoch_nanos_now":      "ll_time_epoch_nanos",
+		"sys_sleep_ms":             "ll_time_sleep_ms",
+		"sys_local_tz_offset":      "ll_time_local_offset",
+		"sys_tcp_listen":           "ll_net_tcp_listen",
+		"sys_tcp_port":             "ll_net_tcp_port",
+		"sys_tcp_accept":           "ll_net_tcp_accept",
+		"sys_tcp_connect":          "ll_net_tcp_connect",
+		"sys_net_send_all":         "ll_net_send_all",
+		"sys_net_recv":             "ll_net_recv",
+		"sys_net_close":            "ll_net_close",
+		"sys_net_shutdown":         "ll_net_shutdown",
+		"sys_net_set_timeout":      "ll_net_set_timeout",
+		"sys_net_socketpair":       "ll_net_socketpair",
+		"sys_tls_available":        "ll_tls_available",
+		"sys_tls_client_handshake": "ll_tls_client_handshake",
+		"sys_tls_send_all":         "ll_tls_send_all",
+		"sys_tls_recv":             "ll_tls_recv",
+		"sys_tls_close":            "ll_tls_close",
+		"sys_tls_server_ctx_new":   "ll_tls_server_ctx_new",
+		"sys_tls_server_ctx_free":  "ll_tls_server_ctx_free",
+		"sys_tls_server_handshake": "ll_tls_server_handshake",
+	}
+	if rtSym, ok := sysSymbolMap[inf.BuiltinName]; ok {
+		cArgs := make([]Expr, len(call.Args))
+		for i, a := range call.Args {
+			aTy := fl.info(a).Type
+			cArgs[i] = EnsureExpr(fl.lowerExprRead(a), aTy)
+		}
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: rtSym},
+			Args:   cArgs,
+			Typ:    inf.Type,
 		}
 	}
 	return nil

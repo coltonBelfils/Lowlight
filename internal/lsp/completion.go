@@ -229,7 +229,7 @@ func (s *Server) completeDotMember(
 			if targetMod, isMod := mod.Aliased[baseId.Name]; isMod {
 				return &CompletionList{
 					IsIncomplete: false,
-					Items:        completeModuleExports(prog, targetMod, prefix, replaceRange),
+					Items:        completeModuleExports(prog, mod, targetMod, prefix, replaceRange),
 				}
 			}
 			// `Arena.` static constructors
@@ -243,13 +243,13 @@ func (s *Server) completeDotMember(
 			if genSt := lookupGenStruct(mod, "", baseId.Name); genSt != nil {
 				return &CompletionList{
 					IsIncomplete: false,
-					Items:        completeTypeNamespace(prog, nil, genSt.Decl.Name, nil, prefix, replaceRange),
+					Items:        completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, nil, prefix, replaceRange),
 				}
 			}
 			// Generic enum template `Result.` or `Result[int, string].`
 			if genEn := lookupGenEnum(mod, "", baseId.Name); genEn != nil {
-				items := completeGenericEnumVariants(genEn.Decl, prefix, replaceRange)
-				items = append(items, completeTypeNamespace(prog, nil, genEn.Decl.Name, nil, prefix, replaceRange)...)
+				items := completeGenericEnumVariants(prog, mod, genEn.Mod, genEn.Decl, prefix, replaceRange)
+				items = append(items, completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, nil, prefix, replaceRange)...)
 				return &CompletionList{
 					IsIncomplete: false,
 					Items:        items,
@@ -258,8 +258,8 @@ func (s *Server) completeDotMember(
 			// Concrete nominal type (`Enum.`, `Point.`, `UserID.`)
 			if nomTy := lookupNominalType(mod, "", baseId.Name); nomTy != nil {
 				if en, isEn := nomTy.(*types.Enum); isEn {
-					items := completeEnumVariants(en, prefix, replaceRange)
-					items = append(items, completeTypeNamespace(prog, en, baseId.Name, nil, prefix, replaceRange)...)
+					items := completeEnumVariants(prog, mod, en, prefix, replaceRange)
+					items = append(items, completeTypeNamespace(prog, mod, en, baseId.Name, nil, prefix, replaceRange)...)
 					return &CompletionList{
 						IsIncomplete: false,
 						Items:        items,
@@ -267,7 +267,7 @@ func (s *Server) completeDotMember(
 				}
 				return &CompletionList{
 					IsIncomplete: false,
-					Items:        completeTypeNamespace(prog, nomTy, baseId.Name, nil, prefix, replaceRange),
+					Items:        completeTypeNamespace(prog, mod, nomTy, baseId.Name, nil, prefix, replaceRange),
 				}
 			}
 		}
@@ -280,13 +280,13 @@ func (s *Server) completeDotMember(
 				targs := tryResolveIndexAsTypeArgs(mod, idxBase)
 				return &CompletionList{
 					IsIncomplete: false,
-					Items:        completeTypeNamespace(prog, nil, genSt.Decl.Name, targs, prefix, replaceRange),
+					Items:        completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, targs, prefix, replaceRange),
 				}
 			}
 			if genEn := lookupGenEnum(mod, "", id.Name); genEn != nil {
 				targs := tryResolveIndexAsTypeArgs(mod, idxBase)
-				items := completeGenericEnumVariants(genEn.Decl, prefix, replaceRange)
-				items = append(items, completeTypeNamespace(prog, nil, genEn.Decl.Name, targs, prefix, replaceRange)...)
+				items := completeGenericEnumVariants(prog, mod, genEn.Mod, genEn.Decl, prefix, replaceRange)
+				items = append(items, completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, targs, prefix, replaceRange)...)
 				return &CompletionList{
 					IsIncomplete: false,
 					Items:        items,
@@ -300,13 +300,13 @@ func (s *Server) completeDotMember(
 						targs := tryResolveIndexAsTypeArgs(mod, idxBase)
 						return &CompletionList{
 							IsIncomplete: false,
-							Items:        completeTypeNamespace(prog, nil, genSt.Decl.Name, targs, prefix, replaceRange),
+							Items:        completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, targs, prefix, replaceRange),
 						}
 					}
 					if genEn, ok := targetMod.GenericEnums[bm.Member]; ok {
 						targs := tryResolveIndexAsTypeArgs(mod, idxBase)
-						items := completeGenericEnumVariants(genEn.Decl, prefix, replaceRange)
-						items = append(items, completeTypeNamespace(prog, nil, genEn.Decl.Name, targs, prefix, replaceRange)...)
+						items := completeGenericEnumVariants(prog, mod, targetMod, genEn.Decl, prefix, replaceRange)
+						items = append(items, completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, targs, prefix, replaceRange)...)
 						return &CompletionList{
 							IsIncomplete: false,
 							Items:        items,
@@ -322,8 +322,8 @@ func (s *Server) completeDotMember(
 		if modId, isId := bm.Base.(*ast.IdentExpr); isId {
 			if targetMod, isMod := mod.Aliased[modId.Name]; isMod {
 				if en, isEn := targetMod.Types[bm.Member].(*types.Enum); isEn {
-					items := completeEnumVariants(en, prefix, replaceRange)
-					items = append(items, completeTypeNamespace(prog, en, bm.Member, nil, prefix, replaceRange)...)
+					items := completeEnumVariants(prog, mod, en, prefix, replaceRange)
+					items = append(items, completeTypeNamespace(prog, mod, en, bm.Member, nil, prefix, replaceRange)...)
 					return &CompletionList{
 						IsIncomplete: false,
 						Items:        items,
@@ -332,12 +332,12 @@ func (s *Server) completeDotMember(
 				if genSt, ok := targetMod.GenericStructs[bm.Member]; ok {
 					return &CompletionList{
 						IsIncomplete: false,
-						Items:        completeTypeNamespace(prog, nil, genSt.Decl.Name, nil, prefix, replaceRange),
+						Items:        completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, nil, prefix, replaceRange),
 					}
 				}
 				if genEn, ok := targetMod.GenericEnums[bm.Member]; ok {
-					items := completeGenericEnumVariants(genEn.Decl, prefix, replaceRange)
-					items = append(items, completeTypeNamespace(prog, nil, genEn.Decl.Name, nil, prefix, replaceRange)...)
+					items := completeGenericEnumVariants(prog, mod, targetMod, genEn.Decl, prefix, replaceRange)
+					items = append(items, completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, nil, prefix, replaceRange)...)
 					return &CompletionList{
 						IsIncomplete: false,
 						Items:        items,
@@ -377,12 +377,13 @@ func (s *Server) completeDotMember(
 		recvTy = refTy.Elem
 	}
 
-	items := completeValueMembers(prog, recvTy, isOptChain, isArenaRef, prefix, replaceRange, autoInsertQuestEdit)
+	items := completeValueMembers(prog, mod, recvTy, isOptChain, isArenaRef, prefix, replaceRange, autoInsertQuestEdit)
 	return &CompletionList{IsIncomplete: false, Items: items}
 }
 
 func completeValueMembers(
 	prog *sema.CheckedProgram,
+	curMod *sema.Module,
 	recvTy types.Type,
 	isOptChain bool,
 	isArenaRef bool,
@@ -405,7 +406,11 @@ func completeValueMembers(
 
 	// 1. Struct fields
 	if st, isSt := recvTy.(*types.Struct); isSt {
+		samePkg := curMod == nil || prog == nil || prog.SamePackageDir(curMod, st.PkgDir, "") || prog.SamePackage(curMod, prog.StructMods[st])
 		for idx, f := range st.Fields {
+			if !samePkg && !sema.IsExported(f.Name) {
+				continue
+			}
 			if !matchesPrefix(f.Name, prefix) {
 				continue
 			}
@@ -430,7 +435,11 @@ func completeValueMembers(
 
 	// 2. Interface methods
 	if ifc, isIfc := recvTy.(*types.Interface); isIfc {
+		samePkg := curMod == nil || prog == nil || prog.SamePackageDir(curMod, ifc.PkgDir, "") || prog.SamePackage(curMod, prog.InterfaceMods[ifc])
 		for _, m := range ifc.Methods {
+			if !samePkg && !sema.IsExported(m.Name) {
+				continue
+			}
 			if isOptChain && m.RecvMode != types.ModeRead {
 				continue
 			}
@@ -460,6 +469,9 @@ func completeValueMembers(
 	if prog != nil {
 		if mset, ok := prog.MethodTable[sema.TypeMethodKey(recvTy)]; ok {
 			for mName, fi := range mset {
+				if curMod != nil && !sema.IsExported(mName) && !prog.SamePackage(curMod, fi.Mod) && !prog.SamePackageDir(curMod, types.TypePkgDir(recvTy), "") {
+					continue
+				}
 				if fi.IsStaticAssoc || seen[mName] || !matchesPrefix(mName, prefix) {
 					continue
 				}
@@ -500,6 +512,9 @@ func completeValueMembers(
 		if baseName != "" {
 			if gset, ok := prog.GenMethods[baseName]; ok {
 				for mName, gtmpl := range gset {
+					if curMod != nil && !sema.IsExported(mName) && !prog.SamePackage(curMod, gtmpl.Mod) {
+						continue
+					}
 					decl := gtmpl.MethodDecl
 					if decl == nil || decl.RecvMode == ast.ReceiverMode(-1) || seen[mName] || !matchesPrefix(mName, prefix) {
 						continue
@@ -562,9 +577,13 @@ func completeValueMembers(
 	return items
 }
 
-func completeEnumVariants(en *types.Enum, prefix string, replaceRange Range) []CompletionItem {
+func completeEnumVariants(prog *sema.CheckedProgram, curMod *sema.Module, en *types.Enum, prefix string, replaceRange Range) []CompletionItem {
 	var items []CompletionItem
+	samePkg := curMod == nil || en == nil || prog == nil || prog.SamePackageDir(curMod, en.PkgDir, "") || prog.SamePackage(curMod, prog.EnumMods[en])
 	for idx, v := range en.Variants {
+		if !samePkg && !sema.IsExported(v.Name) {
+			continue
+		}
 		if !matchesPrefix(v.Name, prefix) {
 			continue
 		}
@@ -612,12 +631,16 @@ func completeEnumVariants(en *types.Enum, prefix string, replaceRange Range) []C
 	return items
 }
 
-func completeGenericEnumVariants(decl *ast.EnumDecl, prefix string, replaceRange Range) []CompletionItem {
+func completeGenericEnumVariants(prog *sema.CheckedProgram, curMod, targetMod *sema.Module, decl *ast.EnumDecl, prefix string, replaceRange Range) []CompletionItem {
 	if decl == nil {
 		return nil
 	}
+	samePkg := curMod == nil || targetMod == nil || prog == nil || prog.SamePackage(curMod, targetMod)
 	var items []CompletionItem
 	for idx, v := range decl.Variants {
+		if !samePkg && !sema.IsExported(v.Name) {
+			continue
+		}
 		if !matchesPrefix(v.Name, prefix) {
 			continue
 		}
@@ -687,6 +710,7 @@ func completeArenaStatics(prefix string, replaceRange Range) []CompletionItem {
 
 func completeTypeNamespace(
 	prog *sema.CheckedProgram,
+	curMod *sema.Module,
 	nomTy types.Type,
 	typeName string,
 	typeArgs []types.Type,
@@ -701,6 +725,9 @@ func completeTypeNamespace(
 	if nomTy != nil {
 		if mset, ok := prog.MethodTable[sema.TypeMethodKey(nomTy)]; ok {
 			for mName, fi := range mset {
+				if curMod != nil && !sema.IsExported(mName) && !prog.SamePackage(curMod, fi.Mod) && !prog.SamePackageDir(curMod, types.TypePkgDir(nomTy), "") {
+					continue
+				}
 				if !matchesPrefix(mName, prefix) {
 					continue
 				}
@@ -727,6 +754,9 @@ func completeTypeNamespace(
 	}
 	if gset, ok := prog.GenMethods[typeName]; ok {
 		for mName, gtmpl := range gset {
+			if curMod != nil && !sema.IsExported(mName) && !prog.SamePackage(curMod, gtmpl.Mod) {
+				continue
+			}
 			if seen[mName] || gtmpl.MethodDecl == nil || !matchesPrefix(mName, prefix) {
 				continue
 			}
@@ -760,11 +790,15 @@ func completeTypeNamespace(
 	return items
 }
 
-func completeModuleExports(_ *sema.CheckedProgram, targetMod *sema.Module, prefix string, replaceRange Range) []CompletionItem {
+func completeModuleExports(prog *sema.CheckedProgram, curMod, targetMod *sema.Module, prefix string, replaceRange Range) []CompletionItem {
 	var items []CompletionItem
 	seen := make(map[string]bool)
+	samePkg := curMod != nil && targetMod != nil && prog != nil && prog.SamePackage(curMod, targetMod)
 
 	for name, sym := range targetMod.Symbols {
+		if !samePkg && !sema.IsExported(name) {
+			continue
+		}
 		if !matchesPrefix(name, prefix) {
 			continue
 		}
@@ -815,6 +849,9 @@ func completeModuleExports(_ *sema.CheckedProgram, targetMod *sema.Module, prefi
 	}
 
 	for name, gfn := range targetMod.GenericFuncs {
+		if !samePkg && !sema.IsExported(name) {
+			continue
+		}
 		if seen[name] || !matchesPrefix(name, prefix) {
 			continue
 		}
@@ -832,6 +869,9 @@ func completeModuleExports(_ *sema.CheckedProgram, targetMod *sema.Module, prefi
 	}
 
 	for name, ty := range targetMod.Types {
+		if !samePkg && !sema.IsExported(name) {
+			continue
+		}
 		if name == "Printable" || name == "Copyable" || name == "Drop" {
 			continue
 		}
@@ -843,6 +883,9 @@ func completeModuleExports(_ *sema.CheckedProgram, targetMod *sema.Module, prefi
 	}
 
 	for name, gst := range targetMod.GenericStructs {
+		if !samePkg && !sema.IsExported(name) {
+			continue
+		}
 		if seen[name] || !matchesPrefix(name, prefix) {
 			continue
 		}
@@ -851,6 +894,9 @@ func completeModuleExports(_ *sema.CheckedProgram, targetMod *sema.Module, prefi
 	}
 
 	for name, gen := range targetMod.GenericEnums {
+		if !samePkg && !sema.IsExported(name) {
+			continue
+		}
 		if seen[name] || !matchesPrefix(name, prefix) {
 			continue
 		}
@@ -867,7 +913,7 @@ func completeModuleExports(_ *sema.CheckedProgram, targetMod *sema.Module, prefi
 // -----------------------------------------------------------------------------
 
 func (s *Server) tryCompleteStructLitFields(
-	_ *sema.CheckedProgram,
+	prog *sema.CheckedProgram,
 	mod *sema.Module,
 	toks []token.Token,
 	prefix string,
@@ -958,7 +1004,11 @@ func (s *Server) tryCompleteStructLitFields(
 	var fields []structFieldCandidate
 	if nom := lookupNominalType(mod, modAlias, typeName); nom != nil {
 		if st, ok := nom.(*types.Struct); ok {
+			samePkg := mod == nil || prog == nil || prog.SamePackageDir(mod, st.PkgDir, "") || prog.SamePackage(mod, prog.StructMods[st])
 			for _, f := range st.Fields {
+				if !samePkg && !sema.IsExported(f.Name) {
+					continue
+				}
 				fields = append(fields, structFieldCandidate{
 					Name:       f.Name,
 					TypeStr:    f.Type.String(),
@@ -967,12 +1017,55 @@ func (s *Server) tryCompleteStructLitFields(
 			}
 		}
 	} else if gst := lookupGenStruct(mod, modAlias, typeName); gst != nil {
+		samePkg := mod == nil || prog == nil || prog.SamePackage(mod, gst.Mod)
 		for _, f := range gst.Decl.Fields {
+			if !samePkg && !sema.IsExported(f.Name) {
+				continue
+			}
 			fields = append(fields, structFieldCandidate{
 				Name:       f.Name,
 				TypeStr:    formatTypeExpr(f.Type),
 				HasDefault: f.Default != nil,
 			})
+		}
+	}
+
+	// Also check if `modAlias` is an Enum and `typeName` is a struct variant (e.g. `JsonValue.Obj[...]`)!
+	if len(fields) == 0 && modAlias != "" {
+		if nom := lookupNominalType(mod, "", modAlias); nom != nil {
+			if en, ok := nom.(*types.Enum); ok {
+				samePkg := mod == nil || prog == nil || prog.SamePackageDir(mod, en.PkgDir, "") || prog.SamePackage(mod, prog.EnumMods[en])
+				for _, v := range en.Variants {
+					if v.Name == typeName && v.Kind == types.VariantStruct {
+						for _, f := range v.Fields {
+							if !samePkg && !sema.IsExported(f.Name) {
+								continue
+							}
+							fields = append(fields, structFieldCandidate{
+								Name:    f.Name,
+								TypeStr: f.Type.String(),
+							})
+						}
+						break
+					}
+				}
+			}
+		} else if gen := lookupGenEnum(mod, "", modAlias); gen != nil && gen.Decl != nil {
+			samePkg := mod == nil || prog == nil || prog.SamePackage(mod, gen.Mod)
+			for _, v := range gen.Decl.Variants {
+				if v.Name == typeName && len(v.Fields) > 0 {
+					for _, f := range v.Fields {
+						if !samePkg && !sema.IsExported(f.Name) {
+							continue
+						}
+						fields = append(fields, structFieldCandidate{
+							Name:    f.Name,
+							TypeStr: formatTypeExpr(f.Type),
+						})
+					}
+					break
+				}
+			}
 		}
 	}
 	if len(fields) == 0 {
@@ -1135,7 +1228,7 @@ func isParamTypeContext(toks []token.Token) bool {
 }
 
 func (s *Server) completeTypeNames(
-	_ *sema.CheckedProgram,
+	prog *sema.CheckedProgram,
 	mod *sema.Module,
 	prefix string,
 	replaceRange Range,
@@ -1186,7 +1279,11 @@ func (s *Server) completeTypeNames(
 	// User types in current module and unqualified imports
 	if mod != nil {
 		addTypesFromMod := func(m *sema.Module, sortPrefix string) {
+			samePkg := m == mod || prog == nil || prog.SamePackage(mod, m)
 			for name, ty := range m.Types {
+				if !samePkg && !sema.IsExported(name) {
+					continue
+				}
 				if seen[name] || !matchesPrefix(name, prefix) {
 					continue
 				}
@@ -1194,6 +1291,9 @@ func (s *Server) completeTypeNames(
 				items = append(items, makeUserTypeCompletionItem(name, ty, replaceRange, sortPrefix))
 			}
 			for name, gst := range m.GenericStructs {
+				if !samePkg && !sema.IsExported(name) {
+					continue
+				}
 				if seen[name] || !matchesPrefix(name, prefix) {
 					continue
 				}
@@ -1201,6 +1301,9 @@ func (s *Server) completeTypeNames(
 				items = append(items, makeGenericStructCompletionItem(gst.Decl, replaceRange, sortPrefix))
 			}
 			for name, gen := range m.GenericEnums {
+				if !samePkg && !sema.IsExported(name) {
+					continue
+				}
 				if seen[name] || !matchesPrefix(name, prefix) {
 					continue
 				}
@@ -1334,10 +1437,17 @@ func (s *Server) completeScopedSymbols(
 	// 5B. Top-level functions, constants, types, generic functions & module aliases
 	if mod != nil {
 		addModDecls := func(m *sema.Module, sortGroup string) {
+			samePkg := m == mod || prog == nil || prog.SamePackage(mod, m)
 			for _, sym := range m.Symbols {
+				if !samePkg && !sema.IsExported(sym.Name) {
+					continue
+				}
 				addSym(sym, sortGroup, "")
 			}
 			for name, gfn := range m.GenericFuncs {
+				if !samePkg && !sema.IsExported(name) {
+					continue
+				}
 				if seen[name] || !matchesPrefix(name, prefix) {
 					continue
 				}
@@ -1353,6 +1463,9 @@ func (s *Server) completeScopedSymbols(
 				})
 			}
 			for name, ty := range m.Types {
+				if !samePkg && !sema.IsExported(name) {
+					continue
+				}
 				if name == "Printable" || name == "Copyable" || name == "Drop" {
 					continue
 				}
@@ -1363,6 +1476,9 @@ func (s *Server) completeScopedSymbols(
 				items = append(items, makeUserTypeCompletionItem(name, ty, replaceRange, "2_type"))
 			}
 			for name, gst := range m.GenericStructs {
+				if !samePkg && !sema.IsExported(name) {
+					continue
+				}
 				if seen[name] || !matchesPrefix(name, prefix) {
 					continue
 				}
@@ -1370,6 +1486,9 @@ func (s *Server) completeScopedSymbols(
 				items = append(items, makeGenericStructCompletionItem(gst.Decl, replaceRange, "2_type"))
 			}
 			for name, gen := range m.GenericEnums {
+				if !samePkg && !sema.IsExported(name) {
+					continue
+				}
 				if seen[name] || !matchesPrefix(name, prefix) {
 					continue
 				}
@@ -1448,7 +1567,7 @@ func (s *Server) completeScopedSymbols(
 		if !matchesPrefix(sn.Label, prefix) {
 			continue
 		}
-		if atTopLevel && !strings.HasPrefix(sn.Label, "bind") && !strings.HasPrefix(sn.Label, "define") {
+		if atTopLevel && !strings.HasPrefix(sn.Label, "bind") && !strings.HasPrefix(sn.Label, "define") && !strings.HasPrefix(sn.Label, "test") {
 			continue
 		}
 		items = append(items, CompletionItem{

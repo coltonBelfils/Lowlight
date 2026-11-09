@@ -93,7 +93,34 @@ func (s *Server) computeHover(filePath string, src string, pos Position) *Hover 
 		}
 	}
 
-	// 4. Built-in functions, intrinsics, built-in types & keywords
+	// 4. Built-in functions, intrinsics, built-in types, keywords & attributes
+	if (word == "test" || word == "test_only" || word == "track_caller") && tok.Span.Start.Offset > 0 && src[tok.Span.Start.Offset-1] == '@' {
+		if word == "test" {
+			return &Hover{
+				Contents: MarkupContent{
+					Kind:  "markdown",
+					Value: "### `@test` / `@test(\"description\")`\nMarks a top-level function as an automated test case.\n\n- **Signature**: `() -> void` (takes 0 arguments, returns void)\n- **Run with**: `lowlight test <file.ll>`\n- **Features**: Automatic heap allocation leak checking, panic/assertion recovery, execution timer.",
+				},
+				Range: &rng,
+			}
+		}
+		if word == "track_caller" {
+			return &Hover{
+				Contents: MarkupContent{
+					Kind:  "markdown",
+					Value: "### `@track_caller`\nTracks the caller's source location (file, line, column). Any assertions, panics, or nested `@track_caller` helpers report the outer caller's call site.",
+				},
+				Range: &rng,
+			}
+		}
+		return &Hover{
+			Contents: MarkupContent{
+				Kind:  "markdown",
+				Value: "### `@test_only`\nMarks helper functions, mock structs, enums, or variables intended exclusively for test code.\n\n- **Compile-time isolated**: Production code cannot reference `@test_only` symbols.\n- **Stripped**: Automatically omitted from production binaries and `--release` builds.",
+			},
+			Range: &rng,
+		}
+	}
 	if bf := LookupBuiltinFunc(word); bf != nil {
 		badge := "Built-in function"
 		if bf.IsIntrinsic {
@@ -1272,6 +1299,21 @@ func (s *Server) computeDocumentSymbols(filePath string, src string) []DocumentS
 					detail = fmt.Sprintf("(%s): %s", strings.Join(ps, ", "), formatTypeExpr(fl.Ret))
 				}
 			}
+			for _, attr := range decl.Attributes {
+				if attr.Name == "test" {
+					kind = SymFunction
+					if len(attr.Args) > 0 {
+						detail = fmt.Sprintf("@test %q", attr.Args[0])
+					} else {
+						detail = "@test"
+					}
+					break
+				}
+			}
+			if decl.Name == "test_main" {
+				kind = SymFunction
+				detail = "test_main"
+			}
 			symbols = append(symbols, DocumentSymbol{
 				Name:           decl.Name,
 				Detail:         detail,
@@ -1406,9 +1448,61 @@ func (s *Server) computeSignatureHelp(filePath string, src string, pos Position)
 					return makeSimpleSigHelp("Arena.with_capacity(bytes: int): Arena", []string{"bytes: int"}, activeParam, "Pre-sizes a new Arena region.")
 				}
 				if nom := lookupNominalType(mod, "", recvIdent); nom != nil {
+					if en, ok := nom.(*types.Enum); ok {
+						for _, v := range en.Variants {
+							if v.Name == calleeName {
+								var ps []string
+								var pInfos []ParameterInformation
+								if v.Payload != nil {
+									pStr := fmt.Sprintf("payload: %s", v.Payload.String())
+									ps = append(ps, pStr)
+									pInfos = append(pInfos, ParameterInformation{Label: pStr})
+								}
+								lbl := fmt.Sprintf("%s.%s(%s): %s", en.Name, v.Name, strings.Join(ps, ", "), en.Name)
+								return &SignatureHelp{
+									Signatures: []SignatureInformation{{
+										Label: lbl,
+										Documentation: &MarkupContent{
+											Kind:  "markdown",
+											Value: fmt.Sprintf("Constructs `%s.%s` enum variant.", en.Name, v.Name),
+										},
+										Parameters: pInfos,
+									}},
+									ActiveSignature: 0,
+									ActiveParameter: activeParam,
+								}
+							}
+						}
+					}
 					if mset, ok := prog.MethodTable[sema.TypeMethodKey(nom)]; ok {
 						if fi := mset[calleeName]; fi != nil {
 							return makeSigHelpFromFuncInst(fi, false, activeParam)
+						}
+					}
+				}
+				if gen := lookupGenEnum(mod, "", recvIdent); gen != nil && gen.Decl != nil {
+					for _, v := range gen.Decl.Variants {
+						if v.Name == calleeName {
+							var ps []string
+							var pInfos []ParameterInformation
+							if v.PayloadType != nil {
+								pStr := fmt.Sprintf("payload: %s", formatTypeExpr(v.PayloadType))
+								ps = append(ps, pStr)
+								pInfos = append(pInfos, ParameterInformation{Label: pStr})
+							}
+							lbl := fmt.Sprintf("%s.%s(%s): %s", gen.Decl.Name, v.Name, strings.Join(ps, ", "), gen.Decl.Name)
+							return &SignatureHelp{
+								Signatures: []SignatureInformation{{
+									Label: lbl,
+									Documentation: &MarkupContent{
+										Kind:  "markdown",
+										Value: fmt.Sprintf("Constructs generic enum variant `%s.%s`.", gen.Decl.Name, v.Name),
+									},
+									Parameters: pInfos,
+								}},
+								ActiveSignature: 0,
+								ActiveParameter: activeParam,
+							}
 						}
 					}
 				}
@@ -1752,7 +1846,147 @@ func (s *Server) computeCodeActions(filePath string, src string, params CodeActi
 				})
 			}
 		}
+
+		// 9. Non-exhaustive `match` on enum
+		if strings.Contains(msg, "non-exhaustive `match` on enum") && strings.Contains(msg, "missing variant(s):") {
+			missingIdx := strings.Index(msg, "missing variant(s):")
+			if missingIdx >= 0 {
+				rawMissing := strings.TrimSpace(msg[missingIdx+len("missing variant(s):"):])
+				if nl := strings.IndexByte(rawMissing, '\n'); nl >= 0 {
+					rawMissing = strings.TrimSpace(rawMissing[:nl])
+				}
+				variantNames := strings.Split(rawMissing, ", ")
+				if len(variantNames) > 0 {
+					prog := s.getOrCheckProgram(filePath, src)
+					mod := findModuleForPath(prog, filePath)
+					indent := getLineIndent(src, d.Range.Start.Line)
+					armIndent := indent + "    "
+					insertPos, hasExistingElse := findMatchInsertionPoint(src, d.Range)
+
+					var whenArms []string
+					for _, vn := range variantNames {
+						vn = strings.TrimSpace(vn)
+						if vn != "" {
+							whenArms = append(whenArms, formatVariantPatternForMatch(prog, mod, vn))
+						}
+					}
+
+					if len(whenArms) > 0 {
+						if hasExistingElse {
+							var sb strings.Builder
+							for _, pat := range whenArms {
+								sb.WriteString(armIndent)
+								sb.WriteString("when ")
+								sb.WriteString(pat)
+								sb.WriteString(": panic(\"todo\")\n")
+							}
+							actions = append(actions, CodeAction{
+								Title:       "Generate missing match arms",
+								Kind:        "quickfix",
+								Diagnostics: []Diagnostic{d},
+								IsPreferred: true,
+								Edit: &WorkspaceEdit{
+									Changes: map[string][]TextEdit{
+										uri: {{Range: Range{Start: insertPos, End: insertPos}, NewText: sb.String()}},
+									},
+								},
+							})
+						} else {
+							// Option 1: Exhaustive with final `else Pattern:`
+							var sbExhaustive strings.Builder
+							for i, pat := range whenArms {
+								sbExhaustive.WriteString("\n")
+								sbExhaustive.WriteString(armIndent)
+								if i == len(whenArms)-1 {
+									sbExhaustive.WriteString("else ")
+								} else {
+									sbExhaustive.WriteString("when ")
+								}
+								sbExhaustive.WriteString(pat)
+								sbExhaustive.WriteString(": panic(\"todo\")")
+							}
+							actions = append(actions, CodeAction{
+								Title:       "Generate missing match arms (exhaustive 'else Pattern')",
+								Kind:        "quickfix",
+								Diagnostics: []Diagnostic{d},
+								IsPreferred: true,
+								Edit: &WorkspaceEdit{
+									Changes: map[string][]TextEdit{
+										uri: {{Range: Range{Start: insertPos, End: insertPos}, NewText: sbExhaustive.String()}},
+									},
+								},
+							})
+
+							// Option 2: Fallback `else:`
+							var sbFallback strings.Builder
+							for _, pat := range whenArms {
+								sbFallback.WriteString("\n")
+								sbFallback.WriteString(armIndent)
+								sbFallback.WriteString("when ")
+								sbFallback.WriteString(pat)
+								sbFallback.WriteString(": panic(\"todo\")")
+							}
+							sbFallback.WriteString("\n")
+							sbFallback.WriteString(armIndent)
+							sbFallback.WriteString("else: panic(\"todo\")")
+							actions = append(actions, CodeAction{
+								Title:       "Generate missing match arms (with fallback 'else:')",
+								Kind:        "quickfix",
+								Diagnostics: []Diagnostic{d},
+								IsPreferred: false,
+								Edit: &WorkspaceEdit{
+									Changes: map[string][]TextEdit{
+										uri: {{Range: Range{Start: insertPos, End: insertPos}, NewText: sbFallback.String()}},
+									},
+								},
+							})
+						}
+					}
+				}
+			}
+		}
+
+		// 10. Non-exhaustive `match` on `bool`
+		if strings.Contains(msg, "non-exhaustive `match` on `bool`") {
+			indent := getLineIndent(src, d.Range.Start.Line)
+			armIndent := indent + "    "
+			insertPos, hasExistingElse := findMatchInsertionPoint(src, d.Range)
+			if !hasExistingElse {
+				actions = append(actions, CodeAction{
+					Title:       "Generate missing boolean match arms",
+					Kind:        "quickfix",
+					Diagnostics: []Diagnostic{d},
+					IsPreferred: true,
+					Edit: &WorkspaceEdit{
+						Changes: map[string][]TextEdit{
+							uri: {{Range: Range{Start: insertPos, End: insertPos}, NewText: "\n" + armIndent + "when true: panic(\"todo\")\n" + armIndent + "else: panic(\"todo\")"}},
+						},
+					},
+				})
+			}
+		}
+
+		// 11. `match` on non-enum type missing catch-all `else:`
+		if strings.Contains(msg, "must end with an open catch-all `else:` arm") {
+			indent := getLineIndent(src, d.Range.Start.Line)
+			armIndent := indent + "    "
+			insertPos, _ := findMatchInsertionPoint(src, d.Range)
+			actions = append(actions, CodeAction{
+				Title:       "Add catch-all 'else:' arm",
+				Kind:        "quickfix",
+				Diagnostics: []Diagnostic{d},
+				IsPreferred: true,
+				Edit: &WorkspaceEdit{
+					Changes: map[string][]TextEdit{
+						uri: {{Range: Range{Start: insertPos, End: insertPos}, NewText: "\n" + armIndent + "else: panic(\"todo\")"}},
+					},
+				},
+			})
+		}
 	}
+
+	testActions := s.computeTestCodeActions(filePath, src, params.Range)
+	actions = append(actions, testActions...)
 
 	return actions
 }
@@ -1903,4 +2137,114 @@ func findWordRangeInSpan(src string, rng Range, word string) (Range, bool) {
 		Start: OffsetToLSP(src, wStart),
 		End:   OffsetToLSP(src, wEnd),
 	}, true
+}
+
+func getLineIndent(src string, lineIdx int) string {
+	lines := strings.Split(src, "\n")
+	if lineIdx < 0 || lineIdx >= len(lines) {
+		return ""
+	}
+	line := lines[lineIdx]
+	trimmed := strings.TrimLeft(line, " \t")
+	return line[:len(line)-len(trimmed)]
+}
+
+func findMatchInsertionPoint(src string, matchRange Range) (Position, bool) {
+	startOff := LSPToOffset(src, matchRange.Start)
+	endOff := LSPToOffset(src, matchRange.End)
+	if endOff > len(src) {
+		endOff = len(src)
+	}
+	matchText := src[startOff:endOff]
+	lines := strings.Split(matchText, "\n")
+	for i, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if strings.HasPrefix(trimmed, "else:") || (strings.HasPrefix(trimmed, "else ") && strings.HasSuffix(trimmed, ":")) {
+			lineNum := matchRange.Start.Line + i
+			return Position{Line: lineNum, Character: 0}, true
+		}
+	}
+	return matchRange.End, false
+}
+
+func formatVariantPatternForMatch(prog *sema.CheckedProgram, mod *sema.Module, variantName string) string {
+	parts := strings.Split(variantName, ".")
+	if len(parts) != 2 || mod == nil {
+		return variantName
+	}
+	enumName := parts[0]
+	vName := parts[1]
+
+	if nom := lookupNominalType(mod, "", enumName); nom != nil {
+		if en, ok := nom.(*types.Enum); ok {
+			for _, v := range en.Variants {
+				if v.Name == vName {
+					if v.Kind == types.VariantUnit {
+						return variantName
+					}
+					if v.Kind == types.VariantTuple {
+						argName := "val"
+						if v.Payload != nil {
+							pStr := v.Payload.String()
+							switch pStr {
+							case "bool":
+								argName = "b"
+							case "int", "i64", "i32", "u8":
+								argName = "n"
+							case "float", "f64", "f32":
+								argName = "n"
+							case "string":
+								argName = "s"
+							default:
+								if strings.HasPrefix(pStr, "[") {
+									argName = "items"
+								} else if strings.HasPrefix(pStr, "#[") {
+									argName = "map"
+								}
+							}
+						}
+						if v.Name == "Ok" {
+							argName = "val"
+						} else if v.Name == "Err" {
+							argName = "err"
+						}
+						return fmt.Sprintf("%s(%s)", variantName, argName)
+					}
+					if v.Kind == types.VariantStruct {
+						var fs []string
+						for _, f := range v.Fields {
+							fs = append(fs, f.Name)
+						}
+						return fmt.Sprintf("%s[%s]", variantName, strings.Join(fs, ", "))
+					}
+				}
+			}
+		}
+	}
+
+	if gen := lookupGenEnum(mod, "", enumName); gen != nil && gen.Decl != nil {
+		for _, v := range gen.Decl.Variants {
+			if v.Name == vName {
+				if v.PayloadType != nil {
+					argName := "val"
+					if v.Name == "Ok" {
+						argName = "val"
+					} else if v.Name == "Err" {
+						argName = "err"
+					}
+					return fmt.Sprintf("%s(%s)", variantName, argName)
+				}
+				if len(v.Fields) > 0 {
+					var fs []string
+					for _, f := range v.Fields {
+						fs = append(fs, f.Name)
+					}
+					return fmt.Sprintf("%s[%s]", variantName, strings.Join(fs, ", "))
+				}
+				return variantName
+			}
+		}
+	}
+
+	return variantName
 }

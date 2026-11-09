@@ -47,9 +47,10 @@ This document serves as the complete, authoritative, and implementation-independ
    - [4.1 Compilation Units & File Resolution](#41-compilation-units--file-resolution)
    - [4.2 Order-Independent Top-Level Declarations](#42-order-independent-top-level-declarations)
    - [4.3 Modules & Imports](#43-modules--imports)
-   - [4.4 Program Entry Point (`main`)](#44-program-entry-point-main)
-   - [4.5 Compiler Attributes](#45-compiler-attributes)
-   - [4.6 Implicit Standard Prelude](#46-implicit-standard-prelude)
+   - [4.4 Encapsulation & Visibility](#44-encapsulation--visibility)
+   - [4.5 Program Entry Point (`main`)](#45-program-entry-point-main)
+   - [4.6 Compiler Attributes](#46-compiler-attributes)
+   - [4.7 Implicit Standard Prelude](#47-implicit-standard-prelude)
 5. [Ownership, Borrowing, & Lifetime Mechanics](#5-ownership-borrowing--lifetime-mechanics)
    - [5.1 Affine Value Ownership](#51-affine-value-ownership)
    - [5.2 Value Moves & The Explicit `own` Qualifier](#52-value-moves--the-explicit-own-qualifier)
@@ -246,10 +247,12 @@ A character literal is enclosed in single quotes `'` and represents a single 32-
 
 ### 2.8 String Literals & String Interpolation
 
-String literals are enclosed in double quotes `"..."` and represent immutable sequences of UTF-8 encoded bytes (`string`).
+Lowlight supports two forms of string literals: double-quoted strings (`"..."`) and multiline backtick strings (``` `...` ```). Both produce immutable sequences of UTF-8 encoded bytes (`string`).
 
-#### Escape Sequences
-Within a string literal, the following escape sequences are recognized:
+#### 2.8.1 Double-Quoted Strings
+Double-quoted strings are enclosed in double quotes `"..."`. Literal newlines cannot appear unescaped within double-quoted strings.
+
+Within a double-quoted string literal, the following escape sequences are recognized:
 - `\n` (newline, `0x0A`)
 - `\r` (carriage return, `0x0D`)
 - `\t` (tab, `0x09`)
@@ -261,7 +264,15 @@ Within a string literal, the following escape sequences are recognized:
 - `\xHH` (hexadecimal byte value)
 - `\u{HEX}` (Unicode scalar value in UTF-8)
 
-#### String Interpolation
+#### 2.8.2 Multiline Backtick Strings
+Multiline backtick strings are enclosed in backticks (``` `...` ```). They have the following properties:
+- **Preserved Literal Newlines:** Newlines in source code are preserved verbatim without requiring `\n` escape sequences. Line endings are normalized to LF (`\n`).
+- **Unescaped Quotes:** Both double quotes (`"`) and single quotes (`'`) may appear unescaped anywhere within backticks, making backtick strings ideal for JSON, HTML, SQL, and code generation templates.
+- **Backtick Escapes:** A literal backtick inside a backtick string is written as `\` followed by a backtick (``` \` ```).
+- **Verbatim Backslashes:** Standard escape sequences (`\n`, `\r`, `\t`, `\0`, `\\`, `\'`, `\"`, `\xHH`, and `\u{HEX}`) are decoded. Any other backslash sequence (such as `\d`, `\s`, or file paths like `C:\path`) is preserved verbatim without triggering an unknown-escape error.
+- **Interpolation:** Backtick strings natively support identical interpolation semantics as double-quoted strings (`$ident` and `${expr}`). Literal dollar signs must be escaped as `\$`.
+
+#### 2.8.3 String Interpolation
 Lowlight strings natively support embedded expression interpolation:
 - **Identifier Interpolation:** `$ident` interpolates the string representation of an in-scope variable. If the variable is an optional, `$ident` stops before a trailing `?` unless wrapped in braces.
 - **Self Interpolation:** `$self` interpolates the receiver within instance methods.
@@ -280,7 +291,7 @@ Lowlight reserves the following punctuation symbols:
 =       +=      -=      *=      /=      %=      
 &=      |=      ^=      <<=     >>=     
 .       ?.      ..      ..=     ::      
-?       ??      <-      
+?       ??      <-      ->
 (       )       [       ]       {       }       #[
 :       ,       ;       @       $
 ```
@@ -436,7 +447,7 @@ Lowlight collection nomenclature distinguishes between:
 *(Note: `Vector` is not an alias to either and is not part of Lowlight.)*
 
 #### 3.6.1 Dynamic Lists (`[T]` / `List[T]`)
-A list `[T]` (defined in `std/core.ll` as `@lang("list") List[T]`) is a dynamically resizable, heap-allocated contiguous sequence of elements of type $T$.
+A list `[T]` (defined in `std/core/list.ll` as `@lang("list") List[T]`) is a dynamically resizable, heap-allocated contiguous sequence of elements of type $T$.
 - Lists are Resource types. Dropping a list drops every element in the list and frees its backing buffer.
 - Empty list literal: `[]`.
 - Populated list literal: `[1, 2, 3]`.
@@ -452,13 +463,13 @@ A fixed array `[N: T]` represents an inline, fixed-size contiguous sequence of e
 - **Automatic Sequence View Coercion:** An array `[N: T]` or `&[N: T]` can be passed directly to any function expecting a read-only sequence view `[T]`, enabling zero-cost generic algorithms across fixed and dynamic sequences.
 
 #### 3.6.3 Sets (`#[T]` / `Set[T: Hashable]`)
-A set `#[T]` (defined in `std/core.ll` as `@lang("set") Set[T: Hashable]`) is an unordered collection of unique elements of type $T$.
+A set `#[T]` (defined in `std/core/set.ll` as `@lang("set") Set[T: Hashable]`) is an unordered collection of unique elements of type $T$.
 - **Constraint:** Requires $T$ to satisfy the built-in `Hashable` interface (`T: Hashable`, providing `hash(): u64` and equality `==`).
 - Sets are Resource types.
 - Literal syntax: `#[1, 2, 3]`. Empty set: `#[]` (resolved from expected type context).
 
 #### 3.6.4 Maps (`#[K: V]` / `Map[K: Hashable, V]`)
-A map `#[K: V]` (defined in `std/core.ll` as `@lang("map") Map[K: Hashable, V]`) is a hash table associating unique keys of type $K$ with values of type $V$.
+A map `#[K: V]` (defined in `std/core/map.ll` as `@lang("map") Map[K: Hashable, V]`) is a hash table associating unique keys of type $K$ with values of type $V$.
 - **Constraint:** Requires key type $K$ to satisfy `Hashable` (`K: Hashable`).
 - Maps preserve insertion order during iteration.
 - Maps are Resource types.
@@ -588,7 +599,7 @@ An interface can be used as a dynamically dispatched trait object:
 - `Writer`: An owned interface fat pointer (carrying a pointer to the value and a pointer to the compiler-generated virtual method table).
 - `&Writer`: A borrowed interface view. Calling `.copy()` on an owned interface duplicates the underlying value via the vtable's copy function.
 
-#### Core Built-in Interfaces (`std/core.ll`)
+#### Core Built-in Interfaces (`std/core/interfaces.ll`)
 The standard prelude provides universal interfaces wired to compiler semantics and language operators via `@lang(...)`:
 - **`@lang("printable") Printable`**: Universal stringification (`to_string: (self): string`).
 - **`@lang("copyable") Copyable`**: Explicit value replication (`copy: (self): Self`).
@@ -605,14 +616,14 @@ The standard prelude provides universal interfaces wired to compiler semantics a
 Functions in Lowlight are first-class citizens. Function types are denoted `(ParamTypes): RetType` (or `(ParamTypes)` for functions yielding no value):
 
 ```lowlight
-bind filter_nums = (nums: [int], predicate: (int): bool): [int] { ... }
+bind filter_nums = (nums: [int], predicate: (int): bool): [int] -> { ... }
 ```
 
-A function literal (lambda) is written `(params)[: Ret] bodyExpr`, where `bodyExpr` is an executable block `{ ... }` or a single expression:
+A function literal (lambda) is written `(params)[: Ret] -> bodyExpr`, where `bodyExpr` is an executable block `{ ... }` or a single expression:
 
 ```lowlight
-let is_positive = (x: int): bool x > 0
-let add = (a: int, b: int): int { a + b }
+let is_positive = (x: int): bool -> x > 0
+let add = (a: int, b: int): int -> { a + b }
 ```
 
 #### Closures as Resource Types
@@ -662,7 +673,7 @@ A Lowlight program consists of one or more source files with the `.ll` extension
 
 Source files contain top-level declarations:
 - Constant and function bindings: `bind NAME = expr`
-- Method and associated function bindings: `bind TypeName.method = (self, ...) [: Ret] { ... }`
+- Method and associated function bindings: `bind TypeName.method = (self, ...) [: Ret] -> { ... }`
 - Distinct types: `define Name = BaseType`
 - Struct declarations: `define Name struct [ ... ]`
 - Enum declarations: `define Name enum [ ... ]`
@@ -676,22 +687,22 @@ Methods are declared at the top level by binding a function to a type name using
 
 ```lowlight
 // Inherent method with read-only borrow receiver (self):
-bind User.display = (self): string {
+bind User.display = (self): string -> {
     "$self.name <$self.email?>"
 }
 
 // Inherent method with mutable borrow receiver (&self):
-bind User.set_email = (&self, new_email: string) {
+bind User.set_email = (&self, new_email: string) -> {
     self.email? = new_email
 }
 
 // Inherent method with consuming ownership receiver (own self):
-bind User.into_name = (own self): string {
+bind User.into_name = (own self): string -> {
     own self.name
 }
 
 // Associated (static) constructor function (omits self receiver):
-bind User.new = (id: int, name: string): User {
+bind User.new = (id: int, name: string): User -> {
     User[id, name, email?: none, role: "viewer"]
 }
 ```
@@ -721,7 +732,67 @@ import "./models/user.ll"
 - **Aliased Import (`import "path.ll" as name`):** Namespaces the imported symbols under `name` (e.g., `math.sin(math.PI)`).
 - **Method Visibility:** Methods attached to structs, enums, and interfaces are automatically visible wherever the type itself is in scope, regardless of whether the module was imported openly or with an alias.
 
-### 4.4 Program Entry Point (`main`)
+### 4.4 Encapsulation & Visibility
+
+Lowlight implements Go-style encapsulation with lexical scoping rules based on a leading underscore (`_`) naming convention and directory-as-package boundaries.
+
+#### 4.4.1 Exported vs. Unexported Identifiers
+- **Exported Identifiers:** Any top-level symbol, struct field, enum variant, or method whose identifier does **not** begin with an underscore `_` (e.g., `Point`, `x`, `y`, `new`, `distance`) is exported and accessible by external packages.
+- **Unexported Identifiers:** Any top-level symbol, struct field, enum variant, or method whose identifier begins with an underscore `_` (e.g., `_secret`, `_id`, `_tag?`, `_validate`, `_InternalState`) is unexported and private to the defining package.
+
+#### 4.4.2 Package Boundary & Multi-File Package Sharing
+- **Directory as Package:** The package boundary in Lowlight is the physical source directory containing the `.ll` files.
+- **Multi-File Package Sharing:** All source files residing in the same directory belong to the same package. Declarations and members within the same package can freely access each other's unexported types, functions, constants, struct fields, methods, and enum variants without restriction.
+- **Inter-Package Isolation:** Files residing in different directories constitute distinct packages. An external package importing a module cannot access any unexported items from that module or its package.
+- **Standard Library Packages:** Files residing directly in the standard library root `std/` are individually isolated packages (e.g., `std/fs.ll` and `std/net.ll` are distinct packages), while the `std/core/` package is implicitly loaded into every compilation unit as the standard prelude. Multi-file packages in subdirectories (such as `std/core/`) share package-private declarations across all `.ll` files in that directory.
+
+#### 4.4.3 Struct Field Access & Construction Invariants
+- **Member Access:** Outside the defining package, reading (`val._field`) or writing (`val._field = x`) an unexported struct field is a compile error.
+- **Struct Literal Invariant Protection:** Outside packages cannot initialize unexported fields in struct literals (`Struct[..., _field: val]`).
+- **Constructor Enforcement:**
+  - If a struct declares one or more unexported fields that do not have explicit default values and are not optional (`?T`), outside packages **cannot** construct the struct via struct literals (`Struct[...]`). Any attempt to do so produces a compile-time error directing the caller to an exported constructor or factory function (e.g., `Struct.new(...)`).
+  - If all unexported fields have explicit default initializers (e.g., `_id: int = 0`) or are optional (e.g., `_tag?: ?string`), external packages may construct the struct literal by supplying only the exported fields; the unexported fields are automatically initialized to their default or `none` values.
+
+```lowlight
+// pkg/counter.ll
+define Counter struct [
+    name: string,
+    _count: int = 0,
+    _token: int,
+]
+
+// Outside packages cannot write Counter[name: "requests", _token: 1] because _token is unexported.
+// Counter must provide an exported constructor:
+bind Counter.new = (name: string, token: int): Counter -> {
+    Counter[name: name, _count: 0, _token: token]
+}
+```
+
+#### 4.4.4 Method Encapsulation
+- Methods bound to types using a leading underscore (e.g., `bind Counter._bump = (&self) -> { ... }`) are package-private.
+- Calling an unexported method from outside its defining package—whether as an instance method (`c._bump()`), a namespaced call (`Counter._bump(&c)`), or a module-qualified call (`pkg.Counter._bump(&c)`)—is rejected at compile time.
+
+#### 4.4.5 Enum Variant Encapsulation
+- Enum variants declared with a leading underscore (e.g., `define Token enum [ Ident(string), _Eof ]`) are private to the declaring package.
+- External packages cannot instantiate, pattern match against, or reference unexported enum variants.
+
+#### 4.4.6 Sealed Interfaces
+- An interface is **sealed** if it declares one or more unexported methods (e.g., `_seal: (self): void` or `_token: (self): int`).
+- Only types defined within the **same package** as the sealed interface can implement it and satisfy its vtable requirements.
+- External packages cannot satisfy sealed interfaces, guaranteeing closed type hierarchies and preventing third-party extension when exhaustive dispatch or internal safety invariants are required.
+
+```lowlight
+// internal/ast.ll
+define AstNode interface [
+    span: (self): Span,
+    _seal: (self): int, // Unexported method seals this interface
+]
+```
+
+#### 4.4.7 Tooling & Language Server Protocol (LSP)
+- The Lowlight Language Server (`internal/lsp`) automatically filters unexported symbols, types, struct fields, methods, and enum variants during autocompletion and hover inspections when requested from outside the defining package, ensuring IDE suggestions accurately reflect legal visibility.
+
+### 4.5 Program Entry Point (`main`)
 
 The execution entry point of a Lowlight program is the `main` function defined at the top level of the primary module:
 
@@ -734,7 +805,7 @@ bind main = () {
 - **Parameters:** `main` must accept exactly zero parameters. Command-line arguments are accessed via the universe function `args(): [string]`.
 - **Return Value:** `main` must either omit the return type (yielding no value, exiting with process status code `0`) or return an `int` (used as the process exit code). Note that `void` is strictly an internal compiler type and cannot be written in user code.
 
-### 4.5 Compiler Attributes
+### 4.6 Compiler Attributes
 
 Attributes apply compiler metadata and layout directives to declarations using the `@name` or `@name(...)` syntax:
 
@@ -764,9 +835,9 @@ Attributes apply compiler metadata and layout directives to declarations using t
     - `@lang("drop")`: Designates the interface whose `.drop(&self)` method is automatically invoked during deterministic LIFO destruction.
     - `@lang("panic")` and `@lang("assert")`: Bind the universe error and assertion functions.
 
-### 4.6 Implicit Standard Prelude
+### 4.7 Implicit Standard Prelude
 
-Every Lowlight compilation unit automatically imports the core standard prelude (`std/core.ll`). The prelude defines essential language interfaces and universe functions:
+Every Lowlight compilation unit automatically imports the core standard prelude package (`std/core/core.ll`). The prelude defines essential language interfaces and universe functions:
 
 ```lowlight
 @lang("printable")
@@ -1194,7 +1265,7 @@ for (<condition> | <identifier> in <iterable>) [: <evaluation_type>: Collectable
    When a `for` loop is placed in statement or void position, it executes purely for side effects without allocating any collection.
 
 #### 7.5.3 Collection Iteration & Uniform Map Interface
-Lowlight provides the universal `Iterable[T]`, `Iterator[T]`, and `Collectable[T]` interfaces in `std/core.ll`.
+Lowlight provides the universal `Iterable[T]`, `Iterator[T]`, and `Collectable[T]` interfaces in `std/core/interfaces.ll`.
 
 All built-in collections (`[T]`, `[N: T]`, `string`, `#[T]`, and `#[K: V]`) implement `Iterable[T]` and `Collectable[T]`:
 1. **Single-Variable Map Iteration:**
@@ -1540,7 +1611,7 @@ The standard prelude defines the canonical error-handling type `Result[T, E]`:
 define Result[T, E] struct [
     value?: ?T,
     err?: ?E,
-    ok_flag: bool,
+    _ok_flag: bool,
 ]
 ```
 
@@ -1558,9 +1629,16 @@ Because `Result` is marked `@must_use`, ignoring a returned `Result` without ins
 
 Lowlight provides an integrated compile-time testing framework and standard assertion library:
 
-#### Test Annotations (`@test`, `@test_only`)
+#### Test Annotations (`@test`, `@test_only`, `@track_caller`)
 - `@test` / `@test("description")`: Marks a top-level function as a test case. The function takes 0 parameters and returns `void`. The function identifier can have any name—the `@test` attribute marks it as a test.
 - `@test_only`: Marks helper functions, mock structs, enums, interfaces, distinct types, or globals intended exclusively for test code.
+- `@track_caller`: Instructs the compiler to implicitly track and propagate the caller's source location (`file:line:col`). When an assertion or `panic` occurs inside a `@track_caller` function, the failure diagnostic reports the caller's call-site location instead of the internal function body. Nested `@track_caller` helpers forward the outer caller's call site seamlessly.
+
+#### Builtin Caller Inspection
+- `caller_location(): string`: Returns the caller's source position formatted as `file:line:col`.
+- `caller_file(): string`: Returns the caller's source file path.
+- `caller_line(): int`: Returns the caller's 1-based source line.
+- `caller_col(): int`: Returns the caller's 1-based source column.
 
 #### Compile-Time Isolation & Build Stripping
 - **Call-Graph Restriction**: Any function or declaration not marked `@test` or `@test_only` (production code) is strictly prohibited from calling or referencing any symbol marked `@test` or `@test_only`. Attempting to access test symbols from production code produces a static compile-time error.
@@ -1569,13 +1647,13 @@ Lowlight provides an integrated compile-time testing framework and standard asse
 #### Dedicated Test Entry Point & Runner (`lowlight test`)
 Running `lowlight test <file.ll>` activates test compilation mode:
 - If `bind test_main = ()` is explicitly defined, it serves as the test entry point.
-- Otherwise, the compiler automatically synthesizes a C11 test runner that discovers and executes all `@test` functions across the entry module and imported modules.
+- Otherwise, the compiler automatically synthesizes a test runner (supporting both the default LLVM IR backend and the C11 backend) that discovers and executes all `@test` functions across the entry module and imported modules.
 - **Per-Test Leak Checking**: The runner evaluates `ll_rt_live_allocs` before and after each test function. Any test that leaks heap memory fails with: `--- FAIL: <test> (leaked N heap allocation(s))`.
 - **Panic Recovery**: Test execution is guarded with C `setjmp`/`longjmp`. Failed assertions or panics report failure diagnostics and continue running remaining tests in the suite rather than terminating the test process prematurely.
 - **High-Resolution Timing**: Reports execution duration per test in microseconds.
 
 #### Standard Testing Assertions (`std/test.ll`)
-Importing `std/test.ll` provides comprehensive test assertion utilities:
+Importing `std/test.ll` provides comprehensive test assertion utilities with automatic caller location tracking (`@track_caller`), column-aligned value formatting, and character-level or multiline visual diff markers:
 - `assert_eq[T: Equatable + Printable](actual: T, expected: T)`
 - `assert_eq_msg[T: Equatable + Printable](actual: T, expected: T, msg: string)`
 - `assert_ne[T: Equatable + Printable](actual: T, unexpected: T)`
@@ -1590,6 +1668,16 @@ Importing `std/test.ll` provides comprehensive test assertion utilities:
 - `assert_is_err[T, E](res: &Result[T, E])` / `assert_is_err_msg(...)`
 - `assert_some[T](val?: ?T)`
 - `assert_none[T](val?: ?T)`
+
+Failed assertions display:
+```
+--- FAIL: my_test
+    my_test.ll:15:5: assertion failed: values are not equal
+  expected: hello there
+       got: hello world
+                  ^ diff at index 6
+```
+For multiline strings (e.g. JSON payloads), assertions report the mismatched line number, aligned strings, and intra-line difference indicator.
 
 ---
 

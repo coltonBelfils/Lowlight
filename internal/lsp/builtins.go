@@ -48,7 +48,7 @@ type KeywordDoc struct {
 
 var BuiltinKeywords = []KeywordDoc{
 	{Word: "let", Detail: "mutable owned local variable", Summary: "Declares a mutable owned local variable (`let x = 10` or `let v: [int] = []`)."},
-	{Word: "bind", Detail: "deeply immutable binding or function", Summary: "Declares a deeply immutable value, constant, function, or method (`bind add = (a: int, b: int): int { a + b }`)."},
+	{Word: "bind", Detail: "deeply immutable binding or function", Summary: "Declares a deeply immutable value, constant, function, or method (`bind add = (a: int, b: int): int -> { a + b }`)."},
 	{Word: "define", Detail: "nominal type declaration", Summary: "Defines a `struct`, `enum`, `interface`, or distinct derived type (`define UserID int`)."},
 	{Word: "struct", Detail: "product value type `[field: T, ...]`", Summary: "Declares a value-type struct (`define Point struct [x: float, y: float]`). Prefix `packed` for unpadded C ABI layout."},
 	{Word: "enum", Detail: "tag enum `[A, B, ...]`", Summary: "Declares a strongly-typed integer tag enum (`define Status enum u8 [Ok = 0, Err = 1]`)."},
@@ -87,7 +87,7 @@ var BuiltinSnippets = []CodeSnippet{
 	{
 		Label:   "bind main",
 		Detail:  "Program entry point",
-		Snippet: "bind main = () {\n\t$0\n}",
+		Snippet: "bind main = () -> {\n\t$0\n}",
 		Summary: "Defines the Lowlight entry point function `main`.",
 	},
 	{
@@ -101,6 +101,24 @@ var BuiltinSnippets = []CodeSnippet{
 		Detail:  "Define a tag enum",
 		Snippet: "define ${1:Status} enum [\n\t${2:Ok},\n\t${3:Err},\n]",
 		Summary: "Defines a strongly-typed integer tag enum.",
+	},
+	{
+		Label:   "define union enum",
+		Detail:  "Define a tagged union enum with payloads",
+		Snippet: "define ${1:JsonValue} enum [\n\t${2:Null},\n\t${3:Bool}: bool,\n\t${4:Number}: float,\n\t${5:Str}: string,\n\t${6:Arr}: [$1],\n\t${7:Obj}: #[string: $1],\n]",
+		Summary: "Defines a sum type / tagged union enum carrying typed data payloads.",
+	},
+	{
+		Label:   "define func",
+		Detail:  "Define a top-level function",
+		Snippet: "define ${1:name} = (${2:params}): ${3:void} -> {\n\t$0\n}",
+		Summary: "Defines a top-level function with explicit parameter and return types.",
+	},
+	{
+		Label:   "define method",
+		Detail:  "Define a method on a type",
+		Snippet: "define ${1:name} = (&self: ${2:Type}, ${3:params}): ${4:void} -> {\n\t$0\n}",
+		Summary: "Defines a method on a type with a borrowed `&self` receiver.",
 	},
 	{
 		Label:   "define interface",
@@ -126,6 +144,24 @@ var BuiltinSnippets = []CodeSnippet{
 		Snippet: "match (${1:val})\nwhen ${2:pattern}: {\n\t$3\n}\nelse: {\n\t$0\n}",
 		Summary: "Exhaustively matches a scrutinee across `when` arms and an `else` arm.",
 	},
+	{
+		Label:   "match enum",
+		Detail:  "Exhaustively match enum variants",
+		Snippet: "match (${1:val})\nwhen ${2:Type}.${3:Variant}: {\n\t$0\n}\nelse: {\n\t\n}",
+		Summary: "Exhaustively matches over enum variants.",
+	},
+	{
+		Label:   "match result",
+		Detail:  "Exhaustively match Result[T, E]",
+		Snippet: "match (${1:res})\nwhen Result.Ok(${2:val}): {\n\t$3\n}\nelse Result.Err(${4:err}): {\n\t$0\n}",
+		Summary: "Exhaustively matches `Result.Ok` and `Result.Err` variants.",
+	},
+	{
+		Label:   "test",
+		Detail:  "Define a unit test",
+		Snippet: "define test_${1:name} = () -> {\n\t$0\n}",
+		Summary: "Defines a test function runnable via `lowlight test`.",
+	},
 }
 
 var BuiltinTypes = []BuiltinTypeDoc{
@@ -149,7 +185,7 @@ var BuiltinTypes = []BuiltinTypeDoc{
 	{Name: "ref", Kind: KindStruct, Detail: "ref[T] — safe arena reference", Snippet: "ref[${1:Node}]", Summary: "Non-null, plain-copyable reference `ref[T]` allocated inside an `Arena`. Statically verified never to outlive its `Arena`."},
 	{Name: "Printable", Kind: KindInterface, Detail: "built-in interface `[to_string: (self): string]`", Summary: "Built-in interface satisfied by all primitives, enums, strings, collections of `Printable`, and user types defining `to_string`."},
 	{Name: "Copyable", Kind: KindInterface, Detail: "built-in generic bound `[copy: (self): Self]`", Summary: "Generic constraint (`[T: Copyable]`) satisfied by all Plain types, `string`, collections of `Copyable`, and structs without custom `Drop` (or with explicit `.copy()`)."},
-	{Name: "Drop", Kind: KindInterface, Detail: "custom destructor `[drop: (&self)]`", Summary: "Implemented via `bind MyType.drop = (&self) { ... }` to run custom cleanup deterministically before fields are freed."},
+	{Name: "Drop", Kind: KindInterface, Detail: "custom destructor `[drop: (&self)]`", Summary: "Implemented via `bind MyType.drop = (&self) -> { ... }` to run custom cleanup deterministically before fields are freed."},
 }
 
 var BuiltinFunctions = []BuiltinFuncDoc{
@@ -200,6 +236,38 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 		ReturnType: "never",
 		Snippet:    "panic($1)",
 		Summary:    "Prints a fatal error message to stderr and aborts execution immediately (`never` type).",
+	},
+	{
+		Name:       "caller_location",
+		Signature:  "caller_location(): string",
+		Params:     []string{},
+		ReturnType: "string",
+		Snippet:    "caller_location()",
+		Summary:    "Returns the caller's source location as `file:line:col` (tracks caller across `@track_caller` boundaries).",
+	},
+	{
+		Name:       "caller_file",
+		Signature:  "caller_file(): string",
+		Params:     []string{},
+		ReturnType: "string",
+		Snippet:    "caller_file()",
+		Summary:    "Returns the caller's source file name.",
+	},
+	{
+		Name:       "caller_line",
+		Signature:  "caller_line(): int",
+		Params:     []string{},
+		ReturnType: "int",
+		Snippet:    "caller_line()",
+		Summary:    "Returns the caller's 1-based source line number.",
+	},
+	{
+		Name:       "caller_col",
+		Signature:  "caller_col(): int",
+		Params:     []string{},
+		ReturnType: "int",
+		Snippet:    "caller_col()",
+		Summary:    "Returns the caller's 1-based source column number.",
 	},
 	{
 		Name:       "exit",

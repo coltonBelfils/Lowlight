@@ -20,23 +20,23 @@ define Point struct [
     y: int,
 ]
 
-bind Point.copy = (self): Point {
+bind Point.copy = (self): Point -> {
     Point[x: self.x, y: self.y]
 }
 
-bind Point.eq = (self, other: Point): bool {
+bind Point.eq = (self, other: Point): bool -> {
     self.x == other.x and self.y == other.y
 }
 
-bind are_equal[T: Equatable] = (a: T, b: T): bool {
+bind are_equal[T: Equatable] = (a: T, b: T): bool -> {
     a == b
 }
 
-bind are_not_equal[T: Equatable] = (a: T, b: T): bool {
+bind are_not_equal[T: Equatable] = (a: T, b: T): bool -> {
     a != b
 }
 
-bind main = () {
+bind main = () -> {
     let p1 = Point[x: 10, y: 20]
     let p2 = Point[x: 10, y: 20]
     let p3 = Point[x: 10, y: 25]
@@ -67,29 +67,29 @@ define Score struct [
     pts: int,
 ]
 
-bind Score.copy = (self): Score {
+bind Score.copy = (self): Score -> {
     Score[pts: self.pts]
 }
 
-bind Score.cmp = (self, other: Score): int {
+bind Score.cmp = (self, other: Score): int -> {
     if (self.pts < other.pts) -1
     else if (self.pts > other.pts) 1
     else 0
 }
 
-bind is_less[T: Comparable] = (a: T, b: T): bool {
+bind is_less[T: Comparable] = (a: T, b: T): bool -> {
     a < b
 }
 
-bind is_greater[T: Comparable] = (a: T, b: T): bool {
+bind is_greater[T: Comparable] = (a: T, b: T): bool -> {
     a > b
 }
 
-bind is_equal_via_cmp[T: Comparable] = (a: T, b: T): bool {
+bind is_equal_via_cmp[T: Comparable] = (a: T, b: T): bool -> {
     a == b
 }
 
-bind main = () {
+bind main = () -> {
     let s1 = Score[pts: 100]
     let s2 = Score[pts: 200]
     let s3 = Score[pts: 100]
@@ -141,15 +141,15 @@ bind main = () {
 
 func TestPrimitiveEquatableAndComparable(t *testing.T) {
 	src := `
-bind test_generic_eq[T: Equatable] = (a: T, b: T): bool {
+bind test_generic_eq[T: Equatable] = (a: T, b: T): bool -> {
     a == b
 }
 
-bind test_generic_cmp[T: Comparable] = (a: T, b: T): int {
+bind test_generic_cmp[T: Comparable] = (a: T, b: T): int -> {
     a.cmp(b)
 }
 
-bind main = () {
+bind main = () -> {
     // 1. bool (Equatable only)
     assert(true.eq(true))
     assert(not true.eq(false))
@@ -251,7 +251,7 @@ func TestDistinctComparableAndEquatable(t *testing.T) {
 define Meters int
 define Seconds int
 
-bind main = () {
+bind main = () -> {
     let m1 = Meters(10)
     let m2 = Meters(25)
     let m3 = Meters(10)
@@ -286,7 +286,7 @@ func TestCompileTimeNegativeEquatableComparable(t *testing.T) {
 		{
 			name: "bool_ordering_disallowed",
 			src: `
-bind main = () {
+bind main = () -> {
     let a = true
     let b = false
     let c = a < b
@@ -297,7 +297,7 @@ bind main = () {
 		{
 			name: "bool_not_comparable_for_min",
 			src: `
-bind main = () {
+bind main = () -> {
     let m = min(true, false)
 }
 `,
@@ -310,7 +310,7 @@ define Pair struct [
     a: int,
     b: int,
 ]
-bind main = () {
+bind main = () -> {
     let p1 = Pair[a: 1, b: 2]
     let p2 = Pair[a: 2, b: 3]
     let check = p1 < p2
@@ -325,10 +325,10 @@ define Pair struct [
     a: int,
     b: int,
 ]
-bind find_min[T: Comparable] = (x: T, y: T): T {
+bind find_min[T: Comparable] = (x: T, y: T): T -> {
     if (x < y) x else y
 }
-bind main = () {
+bind main = () -> {
     let p1 = Pair[a: 1, b: 2]
     let p2 = Pair[a: 2, b: 3]
     find_min(p1, p2)

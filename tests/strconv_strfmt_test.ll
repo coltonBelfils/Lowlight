@@ -1,7 +1,7 @@
 import "std/strconv.ll"
 import "std/strfmt.ll" as fmt
 
-bind main = () {
+bind main = () -> {
     // 1. strconv methods on string
     let num_str = "12345"
     let n? = num_str.to_int()

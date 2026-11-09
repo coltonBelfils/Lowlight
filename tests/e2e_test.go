@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,7 +29,7 @@ var strictCFlags = []string{
 	"-fsanitize=address,undefined",
 }
 
-func runInlineStrict(t *testing.T, name string, src string, release bool) string {
+func runInlineStrictBackend(t *testing.T, name string, src string, release bool, backend driver.BackendKind) string {
 	t.Helper()
 	root := projectRoot(t)
 	entry := filepath.Join(t.TempDir(), name+".ll")
@@ -38,6 +39,7 @@ func runInlineStrict(t *testing.T, name string, src string, release bool) string
 		EntryPath:   entry,
 		SrcOverride: src,
 		ProjectRoot: root,
+		Backend:     backend,
 		Release:     release,
 		ExtraCFlags: strictCFlags,
 		Env: []string{
@@ -46,16 +48,26 @@ func runInlineStrict(t *testing.T, name string, src string, release bool) string
 		},
 	}, nil, &stdout, &stderr)
 	if err != nil {
-		t.Fatalf("[%s release=%v] compilation/execution error:\n%v\nstderr:\n%s", name, release, err, stderr.String())
+		t.Fatalf("[%s backend=%s release=%v] compilation/execution error:\n%v\nstderr:\n%s", name, backend, release, err, stderr.String())
 	}
 	if rc != 0 {
-		t.Fatalf("[%s release=%v] exited with code %d\nstdout:\n%s\nstderr:\n%s", name, release, rc, stdout.String(), stderr.String())
+		t.Fatalf("[%s backend=%s release=%v] exited with code %d\nstdout:\n%s\nstderr:\n%s", name, backend, release, rc, stdout.String(), stderr.String())
 	}
 	return stdout.String()
 }
 
+func runInlineStrict(t *testing.T, name string, src string, release bool) string {
+	t.Helper()
+	outLLVM := runInlineStrictBackend(t, name+"_llvm", src, release, driver.BackendLLVM)
+	outC11 := runInlineStrictBackend(t, name+"_c11", src, release, driver.BackendC11)
+	if outLLVM != outC11 {
+		t.Fatalf("[%s release=%v] backend parity mismatch between LLVM and C11:\nLLVM output:\n%s\nC11 output:\n%s", name, release, outLLVM, outC11)
+	}
+	return outLLVM
+}
+
 // -----------------------------------------------------------------------------
-// 1. All Showcase Examples (`examples/*.ll`) under Strict C11 + ASan/UBSan + Leak Check
+// 1. All Showcase Examples (`examples/*.ll`) under Strict LLVM + C11 + ASan/UBSan + Leak Check
 // -----------------------------------------------------------------------------
 
 func TestAllShowcaseExamplesStrict(t *testing.T) {
@@ -73,34 +85,38 @@ func TestAllShowcaseExamplesStrict(t *testing.T) {
 
 	for _, base := range showcaseNames {
 		file := filepath.Join(root, "examples", base)
-		for _, release := range []bool{false, true} {
-			mode := "debug"
-			if release {
-				mode = "release"
+		for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
+			for _, release := range []bool{false, true} {
+				mode := "debug"
+				if release {
+					mode = "release"
+				}
+				testName := fmt.Sprintf("%s_%s_%s", base, backend, mode)
+				t.Run(testName, func(t *testing.T) {
+					var stdout, stderr bytes.Buffer
+					rc, runErr := driver.Run(driver.Options{
+						EntryPath:   file,
+						ProjectRoot: root,
+						Backend:     backend,
+						Release:     release,
+						ExtraCFlags: strictCFlags,
+						Env: []string{
+							"LOWLIGHT_CHECK_LEAKS=1",
+							"ASAN_OPTIONS=detect_leaks=0",
+						},
+					}, nil, &stdout, &stderr)
+					if runErr != nil {
+						t.Fatalf("%s (%s %s) failed to build/run:\n%v\nstderr:\n%s", base, backend, mode, runErr, stderr.String())
+					}
+					if rc != 0 {
+						t.Fatalf("%s (%s %s) exited with non-zero status %d\nstdout:\n%s\nstderr:\n%s",
+							base, backend, mode, rc, stdout.String(), stderr.String())
+					}
+					if strings.TrimSpace(stdout.String()) == "" {
+						t.Fatalf("%s (%s %s) produced empty stdout", base, backend, mode)
+					}
+				})
 			}
-			t.Run(base+"_"+mode, func(t *testing.T) {
-				var stdout, stderr bytes.Buffer
-				rc, runErr := driver.Run(driver.Options{
-					EntryPath:   file,
-					ProjectRoot: root,
-					Release:     release,
-					ExtraCFlags: strictCFlags,
-					Env: []string{
-						"LOWLIGHT_CHECK_LEAKS=1",
-						"ASAN_OPTIONS=detect_leaks=0",
-					},
-				}, nil, &stdout, &stderr)
-				if runErr != nil {
-					t.Fatalf("%s (%s) failed to build/run:\n%v\nstderr:\n%s", base, mode, runErr, stderr.String())
-				}
-				if rc != 0 {
-					t.Fatalf("%s (%s) exited with non-zero status %d\nstdout:\n%s\nstderr:\n%s",
-						base, mode, rc, stdout.String(), stderr.String())
-				}
-				if strings.TrimSpace(stdout.String()) == "" {
-					t.Fatalf("%s (%s) produced empty stdout", base, mode)
-				}
-			})
 		}
 	}
 }
@@ -114,15 +130,13 @@ func TestPrimitivesBitwiseEnumsDistinct(t *testing.T) {
 define Color enum [Red, Green, Blue]
 define UserId int
 
-bind UserId.is_admin = (self): bool {
+bind UserId.is_admin = (self): bool -> {
     int(self) == 1
 }
 
 // Order-independent top-level mutual recursion with expression bodies
-bind is_even = (n: int): bool if (n == 0) true else is_odd(n - 1)
-bind is_odd  = (n: int): bool if (n == 0) false else is_even(n - 1)
-
-bind main = () {
+bind is_even = (n: int): bool -> if (n == 0) true else is_odd(n - 1)bind is_odd  = (n: int): bool -> if (n == 0) false else is_even(n - 1)
+bind main = () -> {
     // Fixed-width integers & wrapping two's-complement corner cases (UBSan must NOT trap!)
     let min_i64: int = -9223372036854775807 - 1
     let neg_one: int = -1
@@ -181,7 +195,7 @@ bind main = () {
 
 func TestStringsAndCollections(t *testing.T) {
 	src := `
-bind sum_slice = (xs: [int]): int {
+bind sum_slice = (xs: [int]): int -> {
     let total = 0
     for (x in xs) {
         total += x
@@ -189,7 +203,7 @@ bind sum_slice = (xs: [int]): int {
     total
 }
 
-bind main = () {
+bind main = () -> {
     // UTF-8 codepoint iteration + byte slicing + CoW promotion on mutation
     let greeting = "Hi 🌍!"
     let chars: [char] = []
@@ -278,17 +292,17 @@ define Account struct [
     profile?: ?Profile,
 ]
 
-bind Account.bonus = (self): int {
+bind Account.bonus = (self): int -> {
     (self.profile? ?.score ?? 0) + 10
 }
 
-bind parse_pair = (a: string, b: string): ?int {
+bind parse_pair = (a: string, b: string): ?int -> {
     let x = parse_int(a) ?? func <- none
     let y = parse_int(b) ?? func <- none
     x + y
 }
 
-bind main = () {
+bind main = () -> {
     // Mutable optional unwrap 'if (&opt?)' mutates inner value in place!
     let count?: ?int = 10
     if (&count?) {
@@ -342,27 +356,27 @@ func TestClosuresAndResourceCaptures(t *testing.T) {
 	src := `
 import "std/math" as math
 
-bind double_it = (x: int): int { x * 2 }
+bind double_it = (x: int): int -> { x * 2 }
 
-bind apply_int = (f: (int): int, v: int): int {
+bind apply_int = (f: (int): int, v: int): int -> {
     f(v)
 }
 
-bind make_greeter = (prefix: own string): (string): string {
+bind make_greeter = (prefix: own string): (string): string -> {
     // Captures Resource 'prefix' by move into heap closure environment;
     // automatically freed when the closure value itself is dropped!
-    (name: string): string {
+    (name: string): string -> {
         "$prefix, $name!"
     }
 }
 
-bind main = () {
+bind main = () -> {
     // 1. Coercing static 'bind' function into closure value
     assert(apply_int(double_it, 21) == 42)
 
     // 2. Capturing Plain value by copy & returning closure
     let factor = 10
-    let mul = (x: int): int { x * factor }
+    let mul = (x: int): int -> { x * factor }
     factor = 999 // Plain capture copied 10 at creation time!
     assert(apply_int(mul, 7) == 70)
 
@@ -401,8 +415,8 @@ func TestCompileTimeSafetyRejections(t *testing.T) {
 		{
 			name: "use_after_move_resource",
 			src: `
-bind consume = (s: own string) {}
-bind main = () {
+bind consume = (s: own string) -> {}
+bind main = () -> {
     let msg = "hello".copy()
     consume(own msg)
     println(msg)
@@ -413,7 +427,7 @@ bind main = () {
 		{
 			name: "mutate_immutable_bind",
 			src: `
-bind main = () {
+bind main = () -> {
     bind x = 10
     x = 20
 }
@@ -423,12 +437,12 @@ bind main = () {
 		{
 			name: "mutable_borrow_aliasing_conflict",
 			src: `
-bind swap_ints = (a: &int, b: &int) {
+bind swap_ints = (a: &int, b: &int) -> {
     let t = a
     a = b
     b = t
 }
-bind main = () {
+bind main = () -> {
     let v = 1
     swap_ints(&v, &v)
 }
@@ -438,8 +452,8 @@ bind main = () {
 		{
 			name: "missing_amp_at_mut_call_site",
 			src: `
-bind bump = (x: &int) { x += 1 }
-bind main = () {
+bind bump = (x: &int) -> { x += 1 }
+bind main = () -> {
     let n = 5
     bump(n)
 }
@@ -449,7 +463,7 @@ bind main = () {
 		{
 			name: "optional_identifier_missing_question_mark",
 			src: `
-bind main = () {
+bind main = () -> {
     let bad: ?int = 5
 }
 `,
@@ -459,7 +473,7 @@ bind main = () {
 			name: "arena_ref_escapes_inner_scope",
 			src: `
 define Node struct [val: int]
-bind main = () {
+bind main = () -> {
     let outer = Arena.new()
     let escaped = outer.alloc(Node[val: 1])
     {
@@ -473,10 +487,10 @@ bind main = () {
 		{
 			name: "raw_pointer_deref_outside_unsafe",
 			src: `
-bind read_ptr = (p: ptr[int]): int {
+bind read_ptr = (p: ptr[int]): int -> {
     *p
 }
-bind main = () {}
+bind main = () -> {}
 `,
 			wantErrPart: "unsafe",
 		},
@@ -484,7 +498,7 @@ bind main = () {}
 			name: "non_exhaustive_match_missing_else",
 			src: `
 define Color enum [Red, Green, Blue]
-bind main = () {
+bind main = () -> {
     let c = Color.Red
     let x = match (c)
         when Color.Red: 1
@@ -521,27 +535,32 @@ bind main = () {
 func TestRuntimeBoundsPanicInDebug(t *testing.T) {
 	root := projectRoot(t)
 	src := `
-bind main = () {
+bind main = () -> {
     let xs = [10, 20, 30]
     let boom = xs[5]
     println(boom)
 }
 `
-	var stdout, stderr bytes.Buffer
-	rc, err := driver.Run(driver.Options{
-		EntryPath:   filepath.Join(t.TempDir(), "bounds_panic.ll"),
-		SrcOverride: src,
-		ProjectRoot: root,
-		Release:     false,
-	}, nil, &stdout, &stderr)
-	if err != nil {
-		t.Fatalf("unexpected build error: %v", err)
-	}
-	if rc == 0 {
-		t.Fatalf("expected non-zero exit code on out-of-bounds index, got 0")
-	}
-	if !strings.Contains(stderr.String(), "out of bounds") {
-		t.Fatalf("expected bounds panic message on stderr, got: %q", stderr.String())
+	for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
+		t.Run(string(backend), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			rc, err := driver.Run(driver.Options{
+				EntryPath:   filepath.Join(t.TempDir(), "bounds_panic.ll"),
+				SrcOverride: src,
+				ProjectRoot: root,
+				Backend:     backend,
+				Release:     false,
+			}, nil, &stdout, &stderr)
+			if err != nil {
+				t.Fatalf("[%s] unexpected build error: %v", backend, err)
+			}
+			if rc == 0 {
+				t.Fatalf("[%s] expected non-zero exit code on out-of-bounds index, got 0", backend)
+			}
+			if !strings.Contains(stderr.String(), "out of bounds") {
+				t.Fatalf("[%s] expected bounds panic message on stderr, got: %q", backend, stderr.String())
+			}
+		})
 	}
 }
 
@@ -569,7 +588,7 @@ func TestCLISubcommands(t *testing.T) {
 	// 2. Write a small program using `args()`
 	progPath := filepath.Join(tmp, "cli_prog.ll")
 	progSrc := `
-bind main = (): int {
+bind main = (): int -> {
     let a = args()
     println("argc=${a.len()} arg1=${a[1]}")
     0
@@ -594,22 +613,36 @@ bind main = (): int {
 		t.Fatalf("expected emitted C11 main in %s", cPath)
 	}
 
-	// 5. `build` + execute
-	appBin := filepath.Join(tmp, "cli_prog_bin")
-	if out, err := exec.Command(cliBin, "build", "-o", appBin, progPath).CombinedOutput(); err != nil {
-		t.Fatalf("`lowlight build` failed: %v\n%s", err, string(out))
-	}
-	appOut, err := exec.Command(appBin, "hello-arg").CombinedOutput()
-	if err != nil || strings.TrimSpace(string(appOut)) != "argc=2 arg1=hello-arg" {
-		t.Fatalf("built binary output mismatch: err=%v out=%q", err, string(appOut))
+	// 5. `build` + execute (both default LLVM and --backend c11)
+	for _, backend := range []string{"", "--backend=c11", "--backend=llvm"} {
+		appBin := filepath.Join(tmp, "cli_prog_bin_"+backend)
+		buildArgs := []string{"build", "-o", appBin}
+		if backend != "" {
+			buildArgs = append(buildArgs, backend)
+		}
+		buildArgs = append(buildArgs, progPath)
+		if out, err := exec.Command(cliBin, buildArgs...).CombinedOutput(); err != nil {
+			t.Fatalf("`lowlight build %s` failed: %v\n%s", backend, err, string(out))
+		}
+		appOut, err := exec.Command(appBin, "hello-arg").CombinedOutput()
+		if err != nil || strings.TrimSpace(string(appOut)) != "argc=2 arg1=hello-arg" {
+			t.Fatalf("built binary [%s] output mismatch: err=%v out=%q", backend, err, string(appOut))
+		}
 	}
 
-	// 6. `run` with forwarded arguments
-	runCmd := exec.Command(cliBin, "run", progPath, "--", "world-arg")
-	runCmd.Env = append(os.Environ(), "LOWLIGHT_CHECK_LEAKS=1")
-	runOut, err := runCmd.CombinedOutput()
-	if err != nil || strings.TrimSpace(string(runOut)) != "argc=2 arg1=world-arg" {
-		t.Fatalf("`lowlight run` output mismatch: err=%v out=%q", err, string(runOut))
+	// 6. `run` with forwarded arguments (both default LLVM and --backend c11)
+	for _, backend := range []string{"", "--backend=c11", "--backend=llvm"} {
+		runArgs := []string{"run"}
+		if backend != "" {
+			runArgs = append(runArgs, backend)
+		}
+		runArgs = append(runArgs, progPath, "--", "world-arg")
+		runCmd := exec.Command(cliBin, runArgs...)
+		runCmd.Env = append(os.Environ(), "LOWLIGHT_CHECK_LEAKS=1")
+		runOut, err := runCmd.CombinedOutput()
+		if err != nil || strings.TrimSpace(string(runOut)) != "argc=2 arg1=world-arg" {
+			t.Fatalf("`lowlight run %s` output mismatch: err=%v out=%q", backend, err, string(runOut))
+		}
 	}
 }
 

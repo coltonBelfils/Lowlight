@@ -598,6 +598,7 @@ func (p *Parser) parseTopVarOrMethodDecl() ast.Decl {
 			if _, ok := p.match(token.Colon); ok {
 				ret = p.parseTypeExpr()
 			}
+			p.expect(token.RArrow, "before method body (`->`)")
 			body := p.parseExpr()
 			return &ast.MethodDecl{
 				RecvType:       recvTok.Text,
@@ -621,6 +622,7 @@ func (p *Parser) parseTopVarOrMethodDecl() ast.Decl {
 		if _, ok := p.match(token.Colon); ok {
 			ret = p.parseTypeExpr()
 		}
+		p.expect(token.RArrow, "before method body (`->`)")
 		body := p.parseExpr()
 		return &ast.MethodDecl{
 			RecvType:       recvTok.Text,
@@ -1778,10 +1780,19 @@ func (p *Parser) looksLikeFuncLit() bool {
 	k1 := p.peekAt(1).Kind
 	k2 := p.peekAt(2).Kind
 	if k1 == token.RParen {
-		return true // `(): int ...` or `() { ... }`
+		return true // `(): int ...` or `() { ... }` or `() -> ...`
 	}
 	if (k1 == token.Ident || k1 == token.OptIdent) && k2 == token.Colon {
 		return true // `(a: int, ...)`
+	}
+	if k1 == token.KwSelf && (k2 == token.RParen || k2 == token.Comma || k2 == token.Colon) {
+		return true
+	}
+	if (k1 == token.Amp || k1 == token.KwOwn) && k2 == token.KwSelf {
+		k3 := p.peekAt(3).Kind
+		if k3 == token.RParen || k3 == token.Comma || k3 == token.Colon {
+			return true
+		}
 	}
 	return false
 }
@@ -1793,6 +1804,7 @@ func (p *Parser) parseFuncLit() *ast.FuncLit {
 	if _, ok := p.match(token.Colon); ok {
 		ret = p.parseTypeExpr()
 	}
+	p.expect(token.RArrow, "before function body (`->`)")
 	body := p.parseExpr()
 	return &ast.FuncLit{
 		Params: params,

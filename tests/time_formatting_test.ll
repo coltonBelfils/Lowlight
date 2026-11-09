@@ -1,6 +1,6 @@
 import "std/time.ll" as time
 
-bind main = () {
+bind main = () -> {
     // 1. Fixed test date: 2026-10-31 15:30:45 UTC
     let dt = time.DateTime.new(2026, 10, 31, 15, 30, 45, false)
 

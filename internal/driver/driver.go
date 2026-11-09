@@ -40,7 +40,7 @@ type Options struct {
 	ProjectRoot string
 	OutPath     string
 	CC          string
-	Backend     BackendKind // Target backend: "c11" (default) or "llvm"
+	Backend     BackendKind // Target backend: "llvm" (default) or "c11"
 	Release     bool
 	ExtraCFlags []string
 	Env         []string // Optional extra environment variables when running
@@ -60,7 +60,7 @@ func (o Options) EffectiveBackend() BackendKind {
 			return BackendC11
 		}
 	}
-	return BackendC11
+	return BackendLLVM
 }
 
 // ErrNoTests indicates that an entry module defines no @test functions or custom test_main.
@@ -110,17 +110,6 @@ func EmitLLVM(opts Options) (string, *sema.CheckedProgram, error) {
 	mirProg := ir.Lower(checked, opts.Release, opts.TestMode)
 	llvmSource := codegen.EmitLLVM(mirProg)
 	return llvmSource, checked, nil
-}
-
-// EmitCompanion runs semantic checking, lowers to MIR, and emits the C companion runtime.
-func EmitCompanion(opts Options) (string, *sema.CheckedProgram, error) {
-	checked, _, err := Check(opts)
-	if err != nil {
-		return "", nil, err
-	}
-	mirProg := ir.Lower(checked, opts.Release, opts.TestMode)
-	compSource := codegen.EmitCompanionRuntime(mirProg)
-	return compSource, checked, nil
 }
 
 // ResolveCC selects the C11 compiler executable to invoke.
@@ -231,7 +220,6 @@ func buildLLVM(opts Options) (string, error) {
 
 	mirProg := ir.Lower(checked, opts.Release, opts.TestMode)
 	llvmSource := codegen.EmitLLVM(mirProg)
-	companionSource := codegen.EmitCompanionRuntime(mirProg)
 
 	outBin := opts.OutPath
 	if outBin == "" {
@@ -256,11 +244,6 @@ func buildLLVM(opts Options) (string, error) {
 		return "", fmt.Errorf("failed to write temporary LLVM file: %w", err)
 	}
 
-	companionFile := filepath.Join(tmpDir, "companion_rt.c")
-	if err := os.WriteFile(companionFile, []byte(companionSource), 0o644); err != nil {
-		return "", fmt.Errorf("failed to write temporary companion runtime file: %w", err)
-	}
-
 	cc := ResolveCC(opts.CC)
 	if cc == "cc" {
 		if clangPath, err := exec.LookPath("clang"); err == nil && clangPath != "" {
@@ -275,7 +258,7 @@ func buildLLVM(opts Options) (string, error) {
 		args = append(args, "-g", "-O0")
 	}
 	args = append(args, opts.ExtraCFlags...)
-	args = append(args, "-o", absOut, llFile, companionFile, "-lm", "-ldl")
+	args = append(args, "-o", absOut, llFile, "-lm", "-ldl")
 
 	var ccStderr bytes.Buffer
 	cmd := exec.Command(cc, args...)

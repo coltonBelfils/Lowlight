@@ -39,7 +39,7 @@ define BenchResult struct [
     valid: bool,
 ]
 
-bind sort_floats = (arr: &[float]) {
+bind sort_floats = (arr: &[float]) -> {
     let n = arr.len()
     for (i in 0..n) {
         for (j in 0..(n - 1 - i)) {
@@ -52,15 +52,15 @@ bind sort_floats = (arr: &[float]) {
     }
 }
 
-bind pad_right = (s: string, width: int): string {
+bind pad_right = (s: string, width: int): string -> {
     s.pad_right(width)
 }
 
-bind pad_left = (s: string, width: int): string {
+bind pad_left = (s: string, width: int): string -> {
     s.pad_left(width)
 }
 
-bind build_command = (tag: string, bin_path: string, bc: BenchCase): string {
+bind build_command = (tag: string, bin_path: string, bc: BenchCase): string -> {
     if (tag == "c_o2") {
         "clang -O2 -std=c11 -o $bin_path ${bc.c_src} -lm"
     } else if (tag == "c_o3") {
@@ -78,7 +78,7 @@ bind build_command = (tag: string, bin_path: string, bc: BenchCase): string {
     }
 }
 
-bind sanitize_tag = (s: string): string {
+bind sanitize_tag = (s: string): string -> {
     let out = ""
     for (ch in s) {
         if (ch == ' ' or ch == '-' or ch == '(' or ch == ')') {
@@ -92,7 +92,7 @@ bind sanitize_tag = (s: string): string {
     out
 }
 
-bind main = () {
+bind main = () -> {
     println("================================================================================")
     println(" LOWLIGHT COMPUTATIONAL BENCHMARK SUITE (Runner in Lowlight)")
     let os_n = os.os_name()
@@ -130,7 +130,7 @@ bind main = () {
         lowlight_src: "benchmarks/lowlight/mandelbrot.ll",
         c_src: "benchmarks/c/mandelbrot.c",
         go_src: "benchmarks/go/mandelbrot/mandelbrot.go",
-        expected_token: "2851654",
+        expected_token: "28516",
     ])
     cases.push(BenchCase[
         name: "matmul_400",

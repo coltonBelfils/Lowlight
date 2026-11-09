@@ -1,30 +1,28 @@
 // Lowlight Standard Library: std/strfmt.ll
 // String formatting, alignment, padding, case conversions, and tabular layout.
-// Written predominantly in pure Lowlight for zero GC overhead and native C speed.
-
-extern ll_fmt_float_prec: (v: float, prec: int): string
+// Implemented 100% in pure native Lowlight.
 
 // -----------------------------------------------------------------------------
 // Number & Data Formatting Methods on Primitive Types (float & int)
 // -----------------------------------------------------------------------------
 
-bind float.format_float = (self, precision: int): string {
+bind float.format_float = (self, precision: int): string -> {
     if (precision < 0) {
         "$self"
     } else {
-        unsafe ll_fmt_float_prec(self, precision)
+        format_float_prec(self, precision)
     }
 }
 
-bind float.format = (self, precision: int): string {
+bind float.format = (self, precision: int): string -> {
     self.format_float(precision)
 }
 
-bind int.format_int = (self): string {
+bind int.format_int = (self): string -> {
     "$self"
 }
 
-bind int.format_commas = (self): string {
+bind int.format_commas = (self): string -> {
     if (self == -9223372036854775807 - 1) {
         func <- "-9,223,372,036,854,775,808"
     }
@@ -51,11 +49,11 @@ bind int.format_commas = (self): string {
     }
 }
 
-bind int.format_int_commas = (self): string {
+bind int.format_int_commas = (self): string -> {
     self.format_commas()
 }
 
-bind float.format_commas = (self, precision: int): string {
+bind float.format_commas = (self, precision: int): string -> {
     let s = self.format_float(precision)
     let dot_pos? = s.index_of(".")
     if (dot_pos? as dot) {
@@ -98,11 +96,11 @@ bind float.format_commas = (self, precision: int): string {
     }
 }
 
-bind float.format_float_commas = (self, precision: int): string {
+bind float.format_float_commas = (self, precision: int): string -> {
     self.format_commas(precision)
 }
 
-bind int.format_bytes = (self): string {
+bind int.format_bytes = (self): string -> {
     if (self < 1024) {
         "${self} B"
     } else if (self < 1048576) {
@@ -117,42 +115,42 @@ bind int.format_bytes = (self): string {
     }
 }
 
-bind float.format_percent = (self, precision: int): string {
+bind float.format_percent = (self, precision: int): string -> {
     let pct = self * 100.0
     "${pct.format_float(precision)}%"
 }
 
-bind float.format_currency = (self, symbol: string, precision: int): string {
+bind float.format_currency = (self, symbol: string, precision: int): string -> {
     let formatted = self.format_commas(precision)
     "$symbol$formatted"
 }
 
 // Standalone function wrappers for backwards-compatibility
-bind format_float = (v: float, precision: int): string {
+bind format_float = (v: float, precision: int): string -> {
     v.format_float(precision)
 }
 
-bind format_int = (v: int): string {
+bind format_int = (v: int): string -> {
     v.format_int()
 }
 
-bind format_int_commas = (v: int): string {
+bind format_int_commas = (v: int): string -> {
     v.format_commas()
 }
 
-bind format_float_commas = (v: float, precision: int): string {
+bind format_float_commas = (v: float, precision: int): string -> {
     v.format_commas(precision)
 }
 
-bind format_bytes = (bytes: int): string {
+bind format_bytes = (bytes: int): string -> {
     bytes.format_bytes()
 }
 
-bind format_percent = (v: float, precision: int): string {
+bind format_percent = (v: float, precision: int): string -> {
     v.format_percent(precision)
 }
 
-bind format_currency = (amount: float, symbol: string, precision: int): string {
+bind format_currency = (amount: float, symbol: string, precision: int): string -> {
     amount.format_currency(symbol, precision)
 }
 
@@ -160,7 +158,7 @@ bind format_currency = (amount: float, symbol: string, precision: int): string {
 // Integer Padding Functions & Methods
 // -----------------------------------------------------------------------------
 
-bind pad_int_zeros = (val: int, width: int): string {
+bind pad_int_zeros = (val: int, width: int): string -> {
     let s = "$val"
     let diff = width - s.len()
     if (diff <= 0) func <- s
@@ -172,7 +170,7 @@ bind pad_int_zeros = (val: int, width: int): string {
     out
 }
 
-bind pad_int_spaces = (val: int, width: int): string {
+bind pad_int_spaces = (val: int, width: int): string -> {
     let s = "$val"
     let diff = width - s.len()
     if (diff <= 0) func <- s
@@ -184,11 +182,11 @@ bind pad_int_spaces = (val: int, width: int): string {
     out
 }
 
-bind int.pad_zeros = (self, width: int): string {
+bind int.pad_zeros = (self, width: int): string -> {
     pad_int_zeros(self, width)
 }
 
-bind int.pad_spaces = (self, width: int): string {
+bind int.pad_spaces = (self, width: int): string -> {
     pad_int_spaces(self, width)
 }
 
@@ -196,7 +194,7 @@ bind int.pad_spaces = (self, width: int): string {
 // String Extension Methods (Uniform Method Call Syntax)
 // -----------------------------------------------------------------------------
 
-bind string.pad_left_fill = (self, width: int, fill: string): string {
+bind string.pad_left_fill = (self, width: int, fill: string): string -> {
     let diff = width - self.len()
     if (diff <= 0) func <- self.copy()
     let fill_char = if (fill.len() > 0) fill[0..1] else " "
@@ -208,11 +206,11 @@ bind string.pad_left_fill = (self, width: int, fill: string): string {
     out
 }
 
-bind string.pad_left = (self, width: int): string {
+bind string.pad_left = (self, width: int): string -> {
     self.pad_left_fill(width, " ")
 }
 
-bind string.pad_right_fill = (self, width: int, fill: string): string {
+bind string.pad_right_fill = (self, width: int, fill: string): string -> {
     let diff = width - self.len()
     if (diff <= 0) func <- self.copy()
     let fill_char = if (fill.len() > 0) fill[0..1] else " "
@@ -223,11 +221,11 @@ bind string.pad_right_fill = (self, width: int, fill: string): string {
     out
 }
 
-bind string.pad_right = (self, width: int): string {
+bind string.pad_right = (self, width: int): string -> {
     self.pad_right_fill(width, " ")
 }
 
-bind string.center_fill = (self, width: int, fill: string): string {
+bind string.center_fill = (self, width: int, fill: string): string -> {
     let diff = width - self.len()
     if (diff <= 0) func <- self.copy()
     let left_pad = diff / 2
@@ -244,11 +242,11 @@ bind string.center_fill = (self, width: int, fill: string): string {
     out
 }
 
-bind string.center = (self, width: int): string {
+bind string.center = (self, width: int): string -> {
     self.center_fill(width, " ")
 }
 
-bind string.truncate_with = (self, max_len: int, ellipsis: string): string {
+bind string.truncate_with = (self, max_len: int, ellipsis: string): string -> {
     if (self.len() <= max_len) {
         self.copy()
     } else if (max_len <= ellipsis.len()) {
@@ -261,11 +259,11 @@ bind string.truncate_with = (self, max_len: int, ellipsis: string): string {
     }
 }
 
-bind string.truncate = (self, max_len: int): string {
+bind string.truncate = (self, max_len: int): string -> {
     self.truncate_with(max_len, "...")
 }
 
-bind string.repeat = (self, count: int): string {
+bind string.repeat = (self, count: int): string -> {
     if (count <= 0) func <- ""
     let out = ""
     for (i in 0..count) {
@@ -274,7 +272,7 @@ bind string.repeat = (self, count: int): string {
     out
 }
 
-bind string.reverse = (self): string {
+bind string.reverse = (self): string -> {
     let out = ""
     let n = self.len()
     let i = n - 1
@@ -285,31 +283,7 @@ bind string.reverse = (self): string {
     out
 }
 
-bind string.to_upper = (self): string {
-    let out = ""
-    for (ch in self) {
-        if (ch >= 'a' and ch <= 'z') {
-            out.push_char(char(int(ch) - 32))
-        } else {
-            out.push_char(ch)
-        }
-    }
-    out
-}
-
-bind string.to_lower = (self): string {
-    let out = ""
-    for (ch in self) {
-        if (ch >= 'A' and ch <= 'Z') {
-            out.push_char(char(int(ch) + 32))
-        } else {
-            out.push_char(ch)
-        }
-    }
-    out
-}
-
-bind string.to_title = (self): string {
+bind string.to_title = (self): string -> {
     let out = ""
     let capitalize_next = true
     for (ch in self) {
@@ -328,7 +302,7 @@ bind string.to_title = (self): string {
     out
 }
 
-bind string.to_snake_case = (self): string {
+bind string.to_snake_case = (self): string -> {
     let out = ""
     let prev_was_sep = true
     for (i, ch in self) {
@@ -351,12 +325,12 @@ bind string.to_snake_case = (self): string {
     out
 }
 
-bind string.to_kebab_case = (self): string {
+bind string.to_kebab_case = (self): string -> {
     let s = self.to_snake_case()
     s.replace("_", "-")
 }
 
-bind string.to_camel_case = (self): string {
+bind string.to_camel_case = (self): string -> {
     let out = ""
     let upper_next = false
     let is_first = true
@@ -379,7 +353,7 @@ bind string.to_camel_case = (self): string {
     out
 }
 
-bind string.quote = (self): string {
+bind string.quote = (self): string -> {
     let out = "\""
     for (ch in self) {
         if (ch == '"') {
@@ -400,7 +374,7 @@ bind string.quote = (self): string {
     out
 }
 
-bind string.unquote = (self): ?string {
+bind string.unquote = (self): ?string -> {
     let trimmed = self.trim()
     if (trimmed.len() < 2) func <- none
     let first = trimmed[0..1]
@@ -434,7 +408,7 @@ bind string.unquote = (self): ?string {
     out
 }
 
-bind string.indent = (self, spaces: int): string {
+bind string.indent = (self, spaces: int): string -> {
     if (spaces <= 0) func <- self.copy()
     let prefix = ""
     for (i in 0..spaces) {
@@ -452,7 +426,7 @@ bind string.indent = (self, spaces: int): string {
     out_lines.join("\n")
 }
 
-bind string.count_occurrences = (self, sub: string): int {
+bind string.count_occurrences = (self, sub: string): int -> {
     if (sub.len() == 0 or self.len() < sub.len()) func <- 0
     let count = 0
     let cur = self.copy()
@@ -477,7 +451,7 @@ bind string.count_occurrences = (self, sub: string): int {
 // -----------------------------------------------------------------------------
 
 @test("strfmt numeric formatting: commas, bytes, percent, currency")
-bind test_strfmt_numeric_formatting = () {
+bind test_strfmt_numeric_formatting = () -> {
     assert(1000000.format_commas() == "1,000,000", "1,000,000 commas")
     assert((-1234567).format_commas() == "-1,234,567", "negative commas")
     assert(123.format_commas() == "123", "short number commas")
@@ -490,7 +464,7 @@ bind test_strfmt_numeric_formatting = () {
 }
 
 @test("strfmt padding, alignment, and truncation")
-bind test_strfmt_padding_and_truncation = () {
+bind test_strfmt_padding_and_truncation = () -> {
     assert(pad_int_zeros(42, 5) == "00042", "pad_int_zeros")
     assert(pad_int_spaces(42, 5) == "   42", "pad_int_spaces")
 
@@ -503,7 +477,7 @@ bind test_strfmt_padding_and_truncation = () {
 }
 
 @test("strfmt case conversions: title, snake, kebab, camel")
-bind test_strfmt_casing_and_transforms = () {
+bind test_strfmt_casing_and_transforms = () -> {
     assert("hello world".to_title() == "Hello World", "to_title")
     assert("helloWorld".to_snake_case() == "hello_world", "to_snake_case")
     assert("helloWorld".to_kebab_case() == "hello-world", "to_kebab_case")
@@ -511,7 +485,7 @@ bind test_strfmt_casing_and_transforms = () {
 }
 
 @test("strfmt quote, unquote, and indentation")
-bind test_strfmt_quote_and_indent = () {
+bind test_strfmt_quote_and_indent = () -> {
     let quoted = "hello\nworld".quote()
     assert(quoted == "\"hello\\nworld\"", "quote")
 

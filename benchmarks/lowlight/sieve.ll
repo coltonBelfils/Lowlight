@@ -1,7 +1,7 @@
 // benchmarks/lowlight/sieve.ll
 // Prime Sieve of Eratosthenes computational benchmark.
 
-bind count_primes = (limit: int): int {
+bind count_primes = (limit: int): int -> {
     let is_prime: [bool] = []
     for (i in 0..=limit) {
         is_prime.push(true)
@@ -30,7 +30,7 @@ bind count_primes = (limit: int): int {
     count
 }
 
-bind main = () {
+bind main = () -> {
     let total = 0
     for (pass in 0..5) {
         total = count_primes(10000000)

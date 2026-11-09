@@ -8,11 +8,11 @@
 import "std/http.ll" as http
 import "std/fs.ll"
 
-bind main = () {
+bind main = () -> {
     let mux = http.ServeMux.new()
 
     // 1. Root route: serve HTML
-    mux.handle_func("/", (req: http.Request, res: &http.ResponseWriter) {
+    mux.handle_func("/", (req: http.Request, res: &http.ResponseWriter) -> {
         if (req.path != "/") {
             res.write_header(http.STATUS_NOT_FOUND)
             res.set_header("Content-Type", "text/plain; charset=utf-8")
@@ -24,14 +24,14 @@ bind main = () {
     })
 
     // 2. JSON API endpoint with query parameters
-    mux.handle_func("/api/hello", (req: http.Request, res: &http.ResponseWriter) {
+    mux.handle_func("/api/hello", (req: http.Request, res: &http.ResponseWriter) -> {
         let name = req.query_param("name") ?? "World"
         res.set_header("Content-Type", "application/json")
         res.write("{\"message\": \"Hello, ${name}!\"}\n")
     })
 
     // 3. POST endpoint reading request body
-    mux.handle_func("/api/echo", (req: http.Request, res: &http.ResponseWriter) {
+    mux.handle_func("/api/echo", (req: http.Request, res: &http.ResponseWriter) -> {
         if (req.method != "POST") {
             res.write_header(http.STATUS_METHOD_NOT_ALLOWED)
             res.write("Method Not Allowed\n")

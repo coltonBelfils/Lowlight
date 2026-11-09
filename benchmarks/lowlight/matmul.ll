@@ -1,7 +1,7 @@
 // benchmarks/lowlight/matmul.ll
 // Dense matrix multiplication (400x400) computational benchmark.
 
-bind matmul = (n: int): float {
+bind matmul = (n: int): float -> {
     let a: [float] = []
     let b: [float] = []
     let c: [float] = []
@@ -28,7 +28,7 @@ bind matmul = (n: int): float {
     sum
 }
 
-bind main = () {
+bind main = () -> {
     let s = matmul(400)
     println("matmul(400) = $s")
 }

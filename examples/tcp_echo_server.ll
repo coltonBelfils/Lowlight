@@ -9,7 +9,7 @@
 import "std/net.ll" as net
 import "std/fs.ll"
 
-bind main = () {
+bind main = () -> {
     let host = "127.0.0.1"
     let port = 9000
 

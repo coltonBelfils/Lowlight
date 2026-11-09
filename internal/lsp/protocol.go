@@ -55,6 +55,7 @@ const (
 	ErrCodeMethodNotFound = -32601
 	ErrCodeInvalidParams  = -32602
 	ErrCodeInternalError  = -32603
+	ErrCodeRequestFailed  = -32803
 )
 
 // -----------------------------------------------------------------------------
@@ -112,13 +113,26 @@ type ServerInfo struct {
 }
 
 type ServerCapabilities struct {
-	TextDocumentSync       TextDocumentSyncOptions `json:"textDocumentSync"`
-	CompletionProvider     *CompletionOptions      `json:"completionProvider,omitempty"`
-	HoverProvider          bool                    `json:"hoverProvider,omitempty"`
-	DefinitionProvider     bool                    `json:"definitionProvider,omitempty"`
-	DocumentSymbolProvider bool                    `json:"documentSymbolProvider,omitempty"`
-	SignatureHelpProvider  *SignatureHelpOptions   `json:"signatureHelpProvider,omitempty"`
-	CodeActionProvider     bool                    `json:"codeActionProvider,omitempty"`
+	TextDocumentSync           TextDocumentSyncOptions `json:"textDocumentSync"`
+	CompletionProvider         *CompletionOptions      `json:"completionProvider,omitempty"`
+	HoverProvider              bool                    `json:"hoverProvider,omitempty"`
+	DefinitionProvider         bool                    `json:"definitionProvider,omitempty"`
+	DocumentSymbolProvider     bool                    `json:"documentSymbolProvider,omitempty"`
+	SignatureHelpProvider      *SignatureHelpOptions   `json:"signatureHelpProvider,omitempty"`
+	CodeActionProvider         bool                    `json:"codeActionProvider,omitempty"`
+	CodeLensProvider           *CodeLensOptions        `json:"codeLensProvider,omitempty"`
+	ExecuteCommandProvider     *ExecuteCommandOptions  `json:"executeCommandProvider,omitempty"`
+	DocumentFormattingProvider bool                    `json:"documentFormattingProvider,omitempty"`
+	InlayHintProvider          bool                    `json:"inlayHintProvider,omitempty"`
+	RenameProvider             any                     `json:"renameProvider,omitempty"`
+}
+
+type CodeLensOptions struct {
+	ResolveProvider bool `json:"resolveProvider,omitempty"`
+}
+
+type ExecuteCommandOptions struct {
+	Commands []string `json:"commands"`
 }
 
 type TextDocumentSyncOptions struct {
@@ -337,10 +351,83 @@ type CodeActionContext struct {
 
 type CodeAction struct {
 	Title       string         `json:"title"`
-	Kind        string         `json:"kind,omitempty"` // "quickfix"
+	Kind        string         `json:"kind,omitempty"` // "quickfix", "refactor", "run"
 	Diagnostics []Diagnostic   `json:"diagnostics,omitempty"`
 	IsPreferred bool           `json:"isPreferred,omitempty"`
 	Edit        *WorkspaceEdit `json:"edit,omitempty"`
+	Command     *Command       `json:"command,omitempty"`
+}
+
+type Command struct {
+	Title     string `json:"title"`
+	Command   string `json:"command"`
+	Arguments []any  `json:"arguments,omitempty"`
+}
+
+type CodeLensParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+type CodeLens struct {
+	Range   Range    `json:"range"`
+	Command *Command `json:"command,omitempty"`
+	Data    any      `json:"data,omitempty"`
+}
+
+type ExecuteCommandParams struct {
+	Command   string            `json:"command"`
+	Arguments []json.RawMessage `json:"arguments,omitempty"`
+}
+
+// -----------------------------------------------------------------------------
+// Formatting, Inlay Hints & Rename
+// -----------------------------------------------------------------------------
+
+type RenameOptions struct {
+	PrepareProvider bool `json:"prepareProvider,omitempty"`
+}
+
+type DocumentFormattingParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Options      FormattingOptions      `json:"options"`
+}
+
+type FormattingOptions struct {
+	TabSize                int  `json:"tabSize"`
+	InsertSpaces           bool `json:"insertSpaces"`
+	TrimTrailingWhitespace bool `json:"trimTrailingWhitespace,omitempty"`
+	InsertFinalNewline     bool `json:"insertFinalNewline,omitempty"`
+}
+
+type InlayHintParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Range        Range                  `json:"range"`
+}
+
+type InlayHintKind int
+
+const (
+	InlayHintType      InlayHintKind = 1
+	InlayHintParameter InlayHintKind = 2
+)
+
+type InlayHint struct {
+	Position     Position      `json:"position"`
+	Label        string        `json:"label"`
+	Kind         InlayHintKind `json:"kind,omitempty"`
+	PaddingLeft  bool          `json:"paddingLeft,omitempty"`
+	PaddingRight bool          `json:"paddingRight,omitempty"`
+}
+
+type RenameParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+	NewName      string                 `json:"newName"`
+}
+
+type PrepareRenameParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
 }
 
 // -----------------------------------------------------------------------------

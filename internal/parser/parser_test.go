@@ -32,14 +32,14 @@ define Pair[A: Printable, B] struct [
     note?: ?string,
 ]
 
-bind Pair[A, B].swap = (own self): Pair[B, A] {
+bind Pair[A, B].swap = (own self): Pair[B, A] -> {
     Pair[B, A][
         first: self.second,
         second: self.first,
     ]
 }
 
-bind main = (): int {
+bind main = (): int -> {
     let p = Pair[int, string][
         first: 42,
         second: "answer",
@@ -106,7 +106,7 @@ define Bad struct [
 
 func TestForbidNestedUnwindInArgList(t *testing.T) {
 	src := `
-bind main = () {
+bind main = () -> {
     println(func <-)
 }
 `

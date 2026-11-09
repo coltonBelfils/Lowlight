@@ -1016,6 +1016,126 @@ function activate(context) {
     )
   );
 
+  // 7. Document Formatting (`Shift+Alt+F`)
+  context.subscriptions.push(
+    vscode.languages.registerDocumentFormattingEditProvider(selector, {
+      async provideDocumentFormattingEdits(document, options, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return [];
+        }
+        const res = await client.sendRequest('textDocument/formatting', {
+          textDocument: { uri: document.uri.toString() },
+          options: {
+            tabSize: options.tabSize || 4,
+            insertSpaces: options.insertSpaces !== false,
+          },
+        });
+        if (!Array.isArray(res)) {
+          return [];
+        }
+        return res.map((te) => new vscode.TextEdit(toVsRange(te.range), te.newText || ''));
+      },
+    })
+  );
+
+  // 8. Inlay Hints (Type & Parameter Name hints)
+  context.subscriptions.push(
+    vscode.languages.registerInlayHintsProvider(selector, {
+      async provideInlayHints(document, range, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return [];
+        }
+        const res = await client.sendRequest('textDocument/inlayHint', {
+          textDocument: { uri: document.uri.toString() },
+          range: fromVsRange(range),
+        });
+        if (!Array.isArray(res)) {
+          return [];
+        }
+        return res.map((hint) => {
+          const vh = new vscode.InlayHint(
+            toVsPosition(hint.position),
+            hint.label,
+            hint.kind === 1 ? vscode.InlayHintKind.Type : vscode.InlayHintKind.Parameter
+          );
+          vh.paddingLeft = Boolean(hint.paddingLeft);
+          vh.paddingRight = Boolean(hint.paddingRight);
+          return vh;
+        });
+      },
+    })
+  );
+
+  // 9. Rename Symbol (`F2`)
+  context.subscriptions.push(
+    vscode.languages.registerRenameProvider(selector, {
+      async prepareRename(document, position, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return null;
+        }
+        const res = await client.sendRequest('textDocument/prepareRename', {
+          textDocument: { uri: document.uri.toString() },
+          position: fromVsPosition(position),
+        });
+        if (!res || !res.start || !res.end) {
+          return null;
+        }
+        return toVsRange(res);
+      },
+      async provideRenameEdits(document, position, newName, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return null;
+        }
+        const res = await client.sendRequest('textDocument/rename', {
+          textDocument: { uri: document.uri.toString() },
+          position: fromVsPosition(position),
+          newName,
+        });
+        if (!res || !res.changes) {
+          return null;
+        }
+        const wsEdit = new vscode.WorkspaceEdit();
+        for (const [editUriStr, edits] of Object.entries(res.changes)) {
+          const targetUri = client.toVsUri(editUriStr);
+          if (Array.isArray(edits)) {
+            for (const te of edits) {
+              wsEdit.replace(targetUri, toVsRange(te.range), te.newText || '');
+            }
+          }
+        }
+        return wsEdit;
+      },
+    })
+  );
+
+  // 10. Test Code Lenses (`▶ Run Test`, `▶ Run All Tests in File`)
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(selector, {
+      async provideCodeLenses(document, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return [];
+        }
+        const res = await client.sendRequest('textDocument/codeLens', {
+          textDocument: { uri: document.uri.toString() },
+        });
+        if (!Array.isArray(res)) {
+          return [];
+        }
+        return res.map((cl) => {
+          const lens = new vscode.CodeLens(toVsRange(cl.range));
+          if (cl.command) {
+            lens.command = {
+              title: cl.command.title,
+              command: cl.command.command,
+              arguments: cl.command.arguments || [],
+            };
+          }
+          return lens;
+        });
+      },
+    })
+  );
+
   // 7. User Commands (`Restart Server`, `Run Current File`, `Show Output`)
   context.subscriptions.push(
     vscode.commands.registerCommand('lowlight.restartServer', async () => {
@@ -1062,6 +1182,60 @@ function activate(context) {
       runTerminal.show(true);
       const q = (s) => `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
       runTerminal.sendText(`${q(binPath)} run ${q(filePath)}`);
+    }),
+
+    vscode.commands.registerCommand('lowlight.runTest', async (filePath, testName) => {
+      const editor = vscode.window.activeTextEditor;
+      const targetFile = filePath || (editor && editor.document.uri.fsPath);
+      if (!targetFile) {
+        return;
+      }
+      if (editor && editor.document.isDirty) {
+        await editor.document.save();
+      }
+      const binPath = resolveServerBinary(context);
+      const stdRoot = resolveStdlibRoot(context);
+
+      if (!runTerminal || runTerminal.exitStatus !== undefined) {
+        const env = {};
+        if (stdRoot) {
+          env.LOWLIGHT_ROOT = stdRoot;
+        }
+        runTerminal = vscode.window.createTerminal({
+          name: 'Lowlight Test',
+          env,
+        });
+      }
+      runTerminal.show(true);
+      const q = (s) => `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
+      runTerminal.sendText(`${q(binPath)} test ${q(targetFile)}`);
+    }),
+
+    vscode.commands.registerCommand('lowlight.runAllTests', async (filePath) => {
+      const editor = vscode.window.activeTextEditor;
+      const targetFile = filePath || (editor && editor.document.uri.fsPath);
+      if (!targetFile) {
+        return;
+      }
+      if (editor && editor.document.isDirty) {
+        await editor.document.save();
+      }
+      const binPath = resolveServerBinary(context);
+      const stdRoot = resolveStdlibRoot(context);
+
+      if (!runTerminal || runTerminal.exitStatus !== undefined) {
+        const env = {};
+        if (stdRoot) {
+          env.LOWLIGHT_ROOT = stdRoot;
+        }
+        runTerminal = vscode.window.createTerminal({
+          name: 'Lowlight Test',
+          env,
+        });
+      }
+      runTerminal.show(true);
+      const q = (s) => `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
+      runTerminal.sendText(`${q(binPath)} test ${q(targetFile)}`);
     })
   );
 }

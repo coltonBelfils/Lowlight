@@ -36,11 +36,10 @@ func EmitC(prog *ir.Program) string {
 }
 
 type cEmitter struct {
-	prog        *ir.Program
-	sb          strings.Builder
-	optSet      map[string]bool
-	vecSet      map[string]bool
-	isCompanion bool
+	prog   *ir.Program
+	sb     strings.Builder
+	optSet map[string]bool
+	vecSet map[string]bool
 }
 
 func (g *cEmitter) raw(s string) {
@@ -102,7 +101,6 @@ func (g *cEmitter) emitAll() {
 
 	// 6. Synthesized Type Lifecycle Helpers (`drop`, `copy`, `eq`, `hash`, `to_string`, collections)
 	g.emitSynthesizedTypeHelpers()
-	g.emitBuiltinCompositeWrappers()
 
 	// 7. Lambda Env Helpers, Static Closure Thunks, & Interface VTables
 	g.emitLambdaAndThunkHelpers()
@@ -361,24 +359,9 @@ func (g *cEmitter) emitForwardPrototypes() {
 
 	g.line("/* Function & Synthesized Helper Prototypes */")
 	for _, fn := range g.prog.Funcs {
-		if g.isCompanion {
-			if strings.HasSuffix(fn.CName, "_to_string") && len(fn.Params) == 1 && fn.RetType.Equals(types.TypeString) {
-				cRet := CType(fn.RetType)
-				cParam := CType(fn.Params[0].Type)
-				g.line("extern void %s_p(%s* res, const %s* self);", fn.CName, cRet, cParam)
-				g.line("static inline %s %s_call(%s val) { %s res; %s_p(&res, &val); return res; }", cRet, fn.CName, cParam, cRet, fn.CName)
-			} else {
-				g.line("extern %s;", g.funcSignatureExtern(fn))
-			}
-		} else {
-			g.line("%s;", funcSignatureC(fn))
-		}
+		g.line("%s;", funcSignatureC(fn))
 		if fn.IsLambda {
-			if g.isCompanion {
-				g.line("extern %s;", lambdaEntrySigC(fn.LambdaInfo))
-			} else {
-				g.line("static inline %s;", lambdaEntrySigC(fn.LambdaInfo))
-			}
+			g.line("static inline %s;", lambdaEntrySigC(fn.LambdaInfo))
 		}
 	}
 
@@ -441,11 +424,22 @@ func (g *cEmitter) emitForwardPrototypes() {
 // Section 6: Synthesized `drop`, `copy`, `eq`, `hash`, `to_string` & Collections
 // -----------------------------------------------------------------------------
 
+func (g *cEmitter) hashMixFnName() string {
+	if g.prog.Checked != nil {
+		for _, fi := range g.prog.Checked.Funcs {
+			if fi.Name == "_hash_mix_u64" || fi.Name == "hash_mix_u64" {
+				return fi.CName
+			}
+		}
+	}
+	return "ll_fn__hash_mix_u64"
+}
+
 func (g *cEmitter) emitSynthesizedTypeHelpers() {
 	// Enum helpers
 	for _, en := range g.prog.Enums {
 		cEn := CType(en)
-		g.line("static inline uint64_t %s(%s v) { return ll_fn_hash_mix_u64((uint64_t)v); }", ir.HashFnName(en), cEn)
+		g.line("static inline uint64_t %s(%s v) { return %s((uint64_t)v); }", ir.HashFnName(en), cEn, g.hashMixFnName())
 		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(en), cEn)
 		if custom := g.prog.Checked.LookupConcreteMethod(en, "to_string"); custom != nil {
 			g.line("    return %s(v);", g.toStrFn(en))
@@ -536,7 +530,9 @@ func (g *cEmitter) emitDistinctHelpers(d *types.Distinct) {
 		g.line("static inline int64_t %s(%s a, %s b) { return %s((%s)a, (%s)b); }", ir.CmpFnName(d), cD, cD, customBase.CName, cBase, cBase)
 	} else if p := types.UnderlyingPrimitive(d.Base); p != nil {
 		if p.Kind == types.PrimString {
-			g.line("static inline int64_t %s(%s a, %s b) { return ll_str_cmp((ll_string)a, (ll_string)b); }", ir.CmpFnName(d), cD, cD)
+			if cmpM := g.prog.Checked.LookupConcreteMethod(types.TypeString, "cmp"); cmpM != nil {
+				g.line("static inline int64_t %s(%s a, %s b) { return %s((ll_string)a, (ll_string)b); }", ir.CmpFnName(d), cD, cD, cmpM.CName)
+			}
 		} else {
 			g.line("static inline int64_t %s(%s a, %s b) { return (a < b) ? -1 : ((a > b) ? 1 : 0); }", ir.CmpFnName(d), cD, cD)
 		}
@@ -874,7 +870,8 @@ func (g *cEmitter) emitStackArrayHelpers(a *types.StackArray) {
 	}
 	if g.canToString(a) {
 		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(a), cArr)
-		g.line("    ll_string s = ll_str_lit(\"[\", 1LL);")
+		prefix := fmt.Sprintf("[%d: ", a.Size)
+		g.line("    ll_string s = ll_str_lit(%q, %dLL);", prefix, len(prefix))
 		g.line("    for (int64_t i = 0; i < %dLL; i++) {", a.Size)
 		g.line("        if (i > 0) ll_str_push(&s, ll_str_lit(\", \", 2LL));")
 		g.line("        ll_string el = %s(v.data[i]);", g.toStrFn(a.Elem))
@@ -1242,12 +1239,8 @@ func (g *cEmitter) emitVTables() {
 			g.line("}")
 		}
 
-		// const vtable instance (exported in companion mode)
-		vtStorage := "static const"
-		if g.isCompanion {
-			vtStorage = "const"
-		}
-		g.line("%s %s %s = {", vtStorage, vtTy, vtInst)
+		// const vtable instance
+		g.line("static const %s %s = {", vtTy, vtInst)
 		g.line("    .drop_box = %s,", dropName)
 		g.line("    .clone_box = %s,", cloneName)
 		for _, mp := range mPtrNames {
@@ -1261,24 +1254,6 @@ func (g *cEmitter) emitVTables() {
 // -----------------------------------------------------------------------------
 // Section 9 & 10: MIR Function Printing & C11 `main`
 // -----------------------------------------------------------------------------
-
-func (g *cEmitter) funcSignatureExtern(fn *ir.Function) string {
-	var ps []string
-	if fn.IsLambda {
-		ps = append(ps, "void* _ll_env")
-	}
-	for _, p := range fn.Params {
-		tyStr := CType(p.Type)
-		if p.IsMutPtr {
-			tyStr += "*"
-		}
-		ps = append(ps, fmt.Sprintf("%s %s", tyStr, p.CName))
-	}
-	if len(ps) == 0 {
-		ps = []string{"void"}
-	}
-	return fmt.Sprintf("%s %s(%s)", CType(fn.RetType), fn.CName, strings.Join(ps, ", "))
-}
 
 func funcSignatureC(fn *ir.Function) string {
 	var ps []string
@@ -1635,32 +1610,44 @@ func (g *cEmitter) emitBinaryExpr(b *ir.ExprBinary) string {
 		return fmt.Sprintf("((%s)(%s ^ %s))", cRes, lhs, rhs)
 	case token.Eq:
 		if b.Left.Type() != nil && b.Left.Type().Equals(types.TypeString) {
-			return fmt.Sprintf("ll_str_eq(%s, %s)", lhs, rhs)
+			if eqM := g.prog.Checked.LookupConcreteMethod(types.TypeString, "eq"); eqM != nil {
+				return fmt.Sprintf("%s(%s, %s)", eqM.CName, lhs, rhs)
+			}
 		}
 		return fmt.Sprintf("((%s) == (%s))", lhs, rhs)
 	case token.Neq:
 		if b.Left.Type() != nil && b.Left.Type().Equals(types.TypeString) {
-			return fmt.Sprintf("(!ll_str_eq(%s, %s))", lhs, rhs)
+			if eqM := g.prog.Checked.LookupConcreteMethod(types.TypeString, "eq"); eqM != nil {
+				return fmt.Sprintf("(!%s(%s, %s))", eqM.CName, lhs, rhs)
+			}
 		}
 		return fmt.Sprintf("((%s) != (%s))", lhs, rhs)
 	case token.Lt:
 		if b.Left.Type() != nil && b.Left.Type().Equals(types.TypeString) {
-			return fmt.Sprintf("(ll_str_cmp(%s, %s) < 0)", lhs, rhs)
+			if cmpM := g.prog.Checked.LookupConcreteMethod(types.TypeString, "cmp"); cmpM != nil {
+				return fmt.Sprintf("(%s(%s, %s) < 0)", cmpM.CName, lhs, rhs)
+			}
 		}
 		return fmt.Sprintf("((%s) < (%s))", lhs, rhs)
 	case token.Lte:
 		if b.Left.Type() != nil && b.Left.Type().Equals(types.TypeString) {
-			return fmt.Sprintf("(ll_str_cmp(%s, %s) <= 0)", lhs, rhs)
+			if cmpM := g.prog.Checked.LookupConcreteMethod(types.TypeString, "cmp"); cmpM != nil {
+				return fmt.Sprintf("(%s(%s, %s) <= 0)", cmpM.CName, lhs, rhs)
+			}
 		}
 		return fmt.Sprintf("((%s) <= (%s))", lhs, rhs)
 	case token.Gt:
 		if b.Left.Type() != nil && b.Left.Type().Equals(types.TypeString) {
-			return fmt.Sprintf("(ll_str_cmp(%s, %s) > 0)", lhs, rhs)
+			if cmpM := g.prog.Checked.LookupConcreteMethod(types.TypeString, "cmp"); cmpM != nil {
+				return fmt.Sprintf("(%s(%s, %s) > 0)", cmpM.CName, lhs, rhs)
+			}
 		}
 		return fmt.Sprintf("((%s) > (%s))", lhs, rhs)
 	case token.Gte:
 		if b.Left.Type() != nil && b.Left.Type().Equals(types.TypeString) {
-			return fmt.Sprintf("(ll_str_cmp(%s, %s) >= 0)", lhs, rhs)
+			if cmpM := g.prog.Checked.LookupConcreteMethod(types.TypeString, "cmp"); cmpM != nil {
+				return fmt.Sprintf("(%s(%s, %s) >= 0)", cmpM.CName, lhs, rhs)
+			}
 		}
 		return fmt.Sprintf("((%s) >= (%s))", lhs, rhs)
 	case token.KwAnd:
@@ -2068,7 +2055,11 @@ func (g *cEmitter) emitCTestMain() {
 			g.line("            }")
 			g.line("        } else {")
 			g.line("            clock_gettime(CLOCK_MONOTONIC, &_ll_t1);")
-			g.line("            printf(\"--- FAIL: %%s (%%s)\\n\", %s, ll_test_last_panic);", quotedDesc)
+			g.line("            if (strchr(ll_test_last_panic, '\\n') != NULL) {")
+			g.line("                printf(\"--- FAIL: %%s\\n    %%s\\n\", %s, ll_test_last_panic);", quotedDesc)
+			g.line("            } else {")
+			g.line("                printf(\"--- FAIL: %%s (%%s)\\n\", %s, ll_test_last_panic);", quotedDesc)
+			g.line("            }")
 			g.line("            _ll_test_failed++;")
 			g.line("        }")
 			g.line("        fflush(stdout);")
@@ -2108,10 +2099,7 @@ func (g *cEmitter) copyExpr(t types.Type) string {
 }
 
 func (g *cEmitter) eqInlineExpr(t types.Type, a, b string) string {
-	if p := types.UnderlyingPrimitive(t); p != nil {
-		if p.Kind == types.PrimString {
-			return fmt.Sprintf("ll_str_eq(%s, %s)", a, b)
-		}
+	if p, isPrim := t.(*types.Primitive); isPrim && p.Kind != types.PrimString {
 		return fmt.Sprintf("((%s) == (%s))", a, b)
 	}
 	if custom := g.prog.Checked.LookupConcreteMethod(t, "eq"); custom != nil {
@@ -2122,9 +2110,6 @@ func (g *cEmitter) eqInlineExpr(t types.Type, a, b string) string {
 	}
 	switch v := t.(type) {
 	case *types.Primitive:
-		if v.Kind == types.PrimString {
-			return fmt.Sprintf("ll_str_eq(%s, %s)", a, b)
-		}
 		return fmt.Sprintf("((%s) == (%s))", a, b)
 	case *types.Enum:
 		if v.IsTagged {
@@ -2144,9 +2129,6 @@ func (g *cEmitter) eqInlineExpr(t types.Type, a, b string) string {
 }
 
 func (g *cEmitter) hashInlineExpr(t types.Type, expr string) string {
-	if prim := types.UnderlyingPrimitive(t); prim != nil && prim.Kind == types.PrimString {
-		return fmt.Sprintf("ll_str_hash(%s)", expr)
-	}
 	if custom := g.prog.Checked.LookupConcreteMethod(t, "hash"); custom != nil {
 		return fmt.Sprintf("%s(%s)", custom.CName, expr)
 	}
@@ -2154,11 +2136,11 @@ func (g *cEmitter) hashInlineExpr(t types.Type, expr string) string {
 	case *types.Distinct:
 		return fmt.Sprintf("%s(%s)", ir.HashFnName(v), expr)
 	case *types.Enum:
-		return fmt.Sprintf("ll_fn_hash_mix_u64((uint64_t)(%s))", expr)
+		return fmt.Sprintf("%s((uint64_t)(%s))", g.hashMixFnName(), expr)
 	case *types.Ptr:
-		return fmt.Sprintf("ll_fn_hash_mix_u64((uint64_t)(uintptr_t)(%s))", expr)
+		return fmt.Sprintf("%s((uint64_t)(uintptr_t)(%s))", g.hashMixFnName(), expr)
 	default:
-		return fmt.Sprintf("ll_fn_hash_mix_u64((uint64_t)(%s))", expr)
+		return fmt.Sprintf("%s((uint64_t)(%s))", g.hashMixFnName(), expr)
 	}
 }
 
@@ -2242,13 +2224,7 @@ func canCopyVisited(prog *ir.Program, t types.Type, seen map[types.Type]bool) bo
 }
 
 func (g *cEmitter) toStrFn(t types.Type) string {
-	if _, isPrim := t.(*types.Primitive); isPrim {
-		return ir.ToStrFnName(t)
-	}
 	if custom := g.prog.Checked.LookupConcreteMethod(t, "to_string"); custom != nil {
-		if g.isCompanion {
-			return custom.CName + "_call"
-		}
 		return custom.CName
 	}
 	return ir.ToStrFnName(t)

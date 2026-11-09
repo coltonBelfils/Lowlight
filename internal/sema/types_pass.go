@@ -131,6 +131,15 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 			} else if ifc, ok := target.(*types.Interface); ok {
 				ifc.IsTestOnly = true
 			}
+		case "track_caller":
+			if kind != "function" && kind != "method" {
+				a.Rep.Errorf(attr.Span, "@track_caller attribute cannot be applied to a %s declaration", kind)
+			}
+			if fi, ok := target.(*FuncInstance); ok {
+				fi.TrackCaller = true
+			} else if sym, ok := target.(*Symbol); ok {
+				sym.TrackCaller = true
+			}
 		case "doc":
 			// documentation string attribute, valid on all declarations
 		case "lang":
@@ -151,6 +160,9 @@ func (a *Analyzer) lookupTypeInModule(mod *Module, moduleAlias, name string) typ
 		if !ok {
 			return nil
 		}
+		if !a.SamePackage(mod, target) && !IsExported(name) {
+			return nil
+		}
 		return target.Types[name]
 	}
 	if p := types.LookupPrimitive(name); p != nil {
@@ -160,6 +172,9 @@ func (a *Analyzer) lookupTypeInModule(mod *Module, moduleAlias, name string) typ
 		return t
 	}
 	for _, imp := range mod.Imports {
+		if !a.SamePackage(mod, imp) && !IsExported(name) {
+			continue
+		}
 		if t, ok := imp.Types[name]; ok {
 			return t
 		}
@@ -173,12 +188,18 @@ func (a *Analyzer) lookupGenStructInModule(mod *Module, moduleAlias, name string
 		if !ok {
 			return nil
 		}
+		if !a.SamePackage(mod, target) && !IsExported(name) {
+			return nil
+		}
 		return target.GenericStructs[name]
 	}
 	if g, ok := mod.GenericStructs[name]; ok {
 		return g
 	}
 	for _, imp := range mod.Imports {
+		if !a.SamePackage(mod, imp) && !IsExported(name) {
+			continue
+		}
 		if g, ok := imp.GenericStructs[name]; ok {
 			return g
 		}
@@ -192,12 +213,18 @@ func (a *Analyzer) lookupGenEnumInModule(mod *Module, moduleAlias, name string) 
 		if !ok {
 			return nil
 		}
+		if !a.SamePackage(mod, target) && !IsExported(name) {
+			return nil
+		}
 		return target.GenericEnums[name]
 	}
 	if g, ok := mod.GenericEnums[name]; ok {
 		return g
 	}
 	for _, imp := range mod.Imports {
+		if !a.SamePackage(mod, imp) && !IsExported(name) {
+			continue
+		}
 		if g, ok := imp.GenericEnums[name]; ok {
 			return g
 		}
@@ -211,12 +238,18 @@ func (a *Analyzer) lookupGenInterfaceInModule(mod *Module, moduleAlias, name str
 		if !ok {
 			return nil
 		}
+		if !a.SamePackage(mod, target) && !IsExported(name) {
+			return nil
+		}
 		return target.GenericInterfaces[name]
 	}
 	if g, ok := mod.GenericInterfaces[name]; ok {
 		return g
 	}
 	for _, imp := range mod.Imports {
+		if !a.SamePackage(mod, imp) && !IsExported(name) {
+			continue
+		}
 		if g, ok := imp.GenericInterfaces[name]; ok {
 			return g
 		}
@@ -230,12 +263,18 @@ func (a *Analyzer) lookupTopSymbol(mod *Module, moduleAlias, name string) *Symbo
 		if !ok {
 			return nil
 		}
+		if !a.SamePackage(mod, target) && !IsExported(name) {
+			return nil
+		}
 		return target.Symbols[name]
 	}
 	if s, ok := mod.Symbols[name]; ok {
 		return s
 	}
 	for _, imp := range mod.Imports {
+		if !a.SamePackage(mod, imp) && !IsExported(name) {
+			continue
+		}
 		if s, ok := imp.Symbols[name]; ok {
 			return s
 		}
@@ -249,12 +288,18 @@ func (a *Analyzer) lookupGenFunc(mod *Module, moduleAlias, name string) *Generic
 		if !ok {
 			return nil
 		}
+		if !a.SamePackage(mod, target) && !IsExported(name) {
+			return nil
+		}
 		return target.GenericFuncs[name]
 	}
 	if g, ok := mod.GenericFuncs[name]; ok {
 		return g
 	}
 	for _, imp := range mod.Imports {
+		if !a.SamePackage(mod, imp) && !IsExported(name) {
+			continue
+		}
 		if g, ok := imp.GenericFuncs[name]; ok {
 			return g
 		}
@@ -323,6 +368,7 @@ func (a *Analyzer) collectTopLevelIntConsts(mod *Module) {
 			mod.Symbols[vd.Name] = &Symbol{
 				Name:        vd.Name,
 				CName:       types.SanitizeCIdent(vd.Name),
+				Mod:         mod,
 				Type:        ty,
 				IsBind:      true,
 				BindKind:    BindOwned,
@@ -459,6 +505,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			st := &types.Struct{
 				Name:   td.Name,
 				CName:  cname,
+				PkgDir: mod.Dir,
 				Packed: td.Packed || ast.FindAttribute(td.Attributes, "packed") != nil,
 			}
 			a.checkAttributes(td.Attributes, st, td.Span, "struct")
@@ -502,6 +549,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			en := &types.Enum{
 				Name:       td.Name,
 				CName:      cname,
+				PkgDir:     mod.Dir,
 				IsTagged:   isTagged,
 				Underlying: types.TypeInt,
 			}
@@ -628,8 +676,9 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				cname = fmt.Sprintf("ll_iface_%s_%s", tag, td.Name)
 			}
 			ifc := &types.Interface{
-				Name:  td.Name,
-				CName: cname,
+				Name:   td.Name,
+				CName:  cname,
+				PkgDir: mod.Dir,
 			}
 			if langItem == "collectable" || td.Name == "Collectable" {
 				a.Prog.IfaceCollectable = ifc
@@ -641,6 +690,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			a.checkAttributes(td.Attributes, ifc, td.Span, "interface")
 			mod.Types[td.Name] = ifc
 			a.Prog.TypeSpans[ifc] = td.Span
+			a.Prog.InterfaceMods[ifc] = mod
 			a.Prog.Interfaces = append(a.Prog.Interfaces, ifc)
 
 		case *ast.DistinctTypeDecl:
@@ -655,13 +705,15 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				cname = fmt.Sprintf("ll_d_%s_%s", tag, td.Name)
 			}
 			dt := &types.Distinct{
-				Name:  td.Name,
-				CName: cname,
-				Base:  types.TypeInvalid,
+				Name:   td.Name,
+				CName:  cname,
+				PkgDir: mod.Dir,
+				Base:   types.TypeInvalid,
 			}
 			a.checkAttributes(td.Attributes, dt, td.Span, "distinct type")
 			mod.Types[td.Name] = dt
 			a.Prog.TypeSpans[dt] = td.Span
+			a.Prog.DistinctMods[dt] = mod
 			a.Prog.Distincts = append(a.Prog.Distincts, dt)
 		}
 	}
@@ -1549,6 +1601,7 @@ func (a *Analyzer) instantiateStruct(tmpl *GenericStructTemplate, typeArgs []typ
 	inst := &types.Struct{
 		Name:     tmpl.Decl.Name,
 		CName:    cname,
+		PkgDir:   tmpl.Mod.Dir,
 		Packed:   tmpl.Decl.Packed || ast.FindAttribute(tmpl.Decl.Attributes, "packed") != nil,
 		TypeArgs: typeArgs,
 	}
@@ -1637,13 +1690,15 @@ func (a *Analyzer) instantiateInterface(tmpl *GenericInterfaceTemplate, typeArgs
 		cname = fmt.Sprintf("ll_giface_%s_%s__%s", tag, tmpl.Decl.Name, key)
 	}
 	inst := &types.Interface{
-		Name:  fmt.Sprintf("%s[%s]", tmpl.Decl.Name, typeListString(typeArgs)),
-		CName: cname,
+		Name:   fmt.Sprintf("%s[%s]", tmpl.Decl.Name, typeListString(typeArgs)),
+		CName:  cname,
+		PkgDir: tmpl.Mod.Dir,
 	}
 	a.checkAttributes(tmpl.Decl.Attributes, inst, tmpl.Decl.Span, "interface")
 	if !hasTypeParam {
 		tmpl.Instances[key] = inst
 		a.Prog.TypeSpans[inst] = tmpl.Decl.Span
+		a.Prog.InterfaceMods[inst] = tmpl.Mod
 		a.Prog.Interfaces = append(a.Prog.Interfaces, inst)
 	}
 
@@ -1795,6 +1850,7 @@ func (a *Analyzer) instantiateEnum(tmpl *GenericEnumTemplate, typeArgs []types.T
 	inst := &types.Enum{
 		Name:       tmpl.Decl.Name,
 		CName:      cname,
+		PkgDir:     tmpl.Mod.Dir,
 		IsTagged:   true,
 		TypeArgs:   typeArgs,
 		Underlying: types.TypeInt,
@@ -1864,6 +1920,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				IsBind:     true,
 				BindKind:   BindOwned,
 				IsTopLevel: true,
+				Mod:        mod,
 				ExternFn:   ef,
 				Span:       decl.Span,
 			}
@@ -1919,6 +1976,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					IsBind:        true,
 					BindKind:      BindOwned,
 					IsTopLevel:    true,
+					Mod:           mod,
 					FuncInst:      fi,
 					Span:          decl.Span,
 					MustUse:       fi.MustUse,
@@ -1926,6 +1984,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					DeprecatedMsg: fi.DeprecatedMsg,
 					IsTest:        fi.IsTest,
 					IsTestOnly:    fi.IsTestOnly,
+					TrackCaller:   fi.TrackCaller,
 					TestDesc:      fi.TestDesc,
 				}
 				mod.Symbols[decl.Name] = sym
@@ -1970,6 +2029,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					IsBind:     true,
 					BindKind:   BindOwned,
 					IsTopLevel: true,
+					Mod:        mod,
 					Span:       decl.Span,
 				}
 				a.checkAttributes(decl.Attributes, sym, decl.Span, "variable")
@@ -2387,6 +2447,25 @@ func (a *Analyzer) ImplementsInterface(concrete types.Type, ifc *types.Interface
 		}
 	}
 
+	// Sealed interface check: if the interface has any unexported methods,
+	// only types defined in the same package directory can implement it.
+	for _, req := range ifc.Methods {
+		if !IsExported(req.Name) {
+			ifcMod := a.Prog.InterfaceMods[ifc]
+			concreteMod := a.typeModule(concrete)
+			samePkg := false
+			if ifcMod != nil && concreteMod != nil && a.SamePackage(concreteMod, ifcMod) {
+				samePkg = true
+			} else if ifc.PkgDir != "" && types.TypePkgDir(concrete) != "" && filepath.Clean(ifc.PkgDir) == filepath.Clean(types.TypePkgDir(concrete)) {
+				samePkg = true
+			}
+			if !samePkg {
+				return false
+			}
+			break
+		}
+	}
+
 	impls := make([]*FuncInstance, len(ifc.Methods))
 	for idx, req := range ifc.Methods {
 		// Special-case built-in `to_string` if a user interface includes `to_string: (self): string`
@@ -2446,6 +2525,25 @@ func (a *Analyzer) RegisterVTable(concrete types.Type, ifc *types.Interface) {
 	if _, exists := a.Prog.VTables[vtKey]; exists {
 		return
 	}
+	// Sealed interface check: if the interface has any unexported methods,
+	// only types defined in the same package directory can implement it.
+	for _, req := range ifc.Methods {
+		if !IsExported(req.Name) {
+			ifcMod := a.Prog.InterfaceMods[ifc]
+			concreteMod := a.typeModule(concrete)
+			samePkg := false
+			if ifcMod != nil && concreteMod != nil && a.SamePackage(concreteMod, ifcMod) {
+				samePkg = true
+			} else if ifc.PkgDir != "" && types.TypePkgDir(concrete) != "" && filepath.Clean(ifc.PkgDir) == filepath.Clean(types.TypePkgDir(concrete)) {
+				samePkg = true
+			}
+			if !samePkg {
+				return
+			}
+			break
+		}
+	}
+
 	impls := make([]*FuncInstance, len(ifc.Methods))
 	for idx, req := range ifc.Methods {
 		impls[idx] = a.LookupMethod(concrete, req.Name, nil, diag.Span{})

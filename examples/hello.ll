@@ -7,21 +7,21 @@ define Grade enum [
     NeedsWork,
 ]
 
-bind classify_score = (score: int): Grade {
+bind classify_score = (score: int): Grade -> {
     match (score)
     when 90..=100: Grade.Excellent
     when 70..90:   Grade.Solid
     else:          Grade.NeedsWork
 }
 
-bind describe = (g: Grade): string {
+bind describe = (g: Grade): string -> {
     match (g)
     when Grade.Excellent: "excellent"
     when Grade.Solid:     "solid"
     else Grade.NeedsWork: "needs work"
 }
 
-bind main = () {
+bind main = () -> {
     let language = "Lowlight"
     let version = 1
     println("Hello from $language v$version.0!")

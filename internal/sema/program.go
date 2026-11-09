@@ -33,10 +33,17 @@ const (
 	MoveMaybeMoved
 )
 
+// IsExported reports whether an identifier is exported outside its package.
+// In Lowlight (Option 1), any name starting with an underscore `_` is unexported.
+func IsExported(name string) bool {
+	return !strings.HasPrefix(name, "_")
+}
+
 // Symbol represents a named entity (variable, constant, function, parameter).
 type Symbol struct {
 	Name          string
 	CName         string
+	Mod           *Module
 	Type          types.Type
 	IsBind        bool // true = deeply immutable (`bind`, read-only param, read-only loop var, capture)
 	BindKind      BindKind
@@ -51,6 +58,7 @@ type Symbol struct {
 	DeprecatedMsg string
 	IsTest        bool
 	IsTestOnly    bool
+	TrackCaller   bool
 	TestDesc      string
 	FuncInst      *FuncInstance
 	GenFunc       *GenericFuncTemplate
@@ -121,6 +129,7 @@ type FuncInstance struct {
 	DeprecatedMsg  string
 	IsTest         bool
 	IsTestOnly     bool
+	TrackCaller    bool
 	TestDesc       string
 }
 
@@ -278,7 +287,9 @@ type CheckedProgram struct {
 	EnumDecls      map[*types.Enum]*ast.EnumDecl
 	EnumMods       map[*types.Enum]*Module
 	Distincts      []*types.Distinct
+	DistinctMods   map[*types.Distinct]*Module
 	Interfaces     []*types.Interface
+	InterfaceMods  map[*types.Interface]*Module
 	TopVars        []*TopVarInit
 	Funcs          []*FuncInstance
 	Lambdas        []*LambdaInfo
@@ -293,6 +304,8 @@ type CheckedProgram struct {
 	MethodTable    map[string]map[string]*FuncInstance
 	GenMethods     map[string]map[string]*GenericFuncTemplate
 	TypeSpans      map[types.Type]diag.Span
+	StdDir         string
+	CoreMod        *Module
 
 	// Built-in interfaces
 	IfacePrintable      *types.Interface
@@ -374,6 +387,8 @@ func CheckForIDE(entryPath string, overlays map[string]string, projectRoot strin
 				StructMods:     make(map[*types.Struct]*Module),
 				EnumDecls:      make(map[*types.Enum]*ast.EnumDecl),
 				EnumMods:       make(map[*types.Enum]*Module),
+				InterfaceMods:  make(map[*types.Interface]*Module),
+				DistinctMods:   make(map[*types.Distinct]*Module),
 				VTables:        make(map[string]*VTableImpl),
 				TopBodyMaps:    NewBodyMaps(),
 				StructBodyMaps: make(map[*types.Struct]*BodyMaps),
@@ -405,6 +420,8 @@ func runCheck(entryPath string, overlays map[string]string, projectRoot string, 
 		StructMods:     make(map[*types.Struct]*Module),
 		EnumDecls:      make(map[*types.Enum]*ast.EnumDecl),
 		EnumMods:       make(map[*types.Enum]*Module),
+		InterfaceMods:  make(map[*types.Interface]*Module),
+		DistinctMods:   make(map[*types.Distinct]*Module),
 		VTables:        make(map[string]*VTableImpl),
 		TopBodyMaps:    topBM,
 		StructBodyMaps: make(map[*types.Struct]*BodyMaps),
@@ -412,6 +429,7 @@ func runCheck(entryPath string, overlays map[string]string, projectRoot string, 
 		MethodTable:    make(map[string]map[string]*FuncInstance),
 		GenMethods:     genMethods,
 		TypeSpans:      make(map[types.Type]diag.Span),
+		StdDir:         stdDir,
 	}
 
 	a := &Analyzer{
@@ -430,11 +448,15 @@ func runCheck(entryPath string, overlays map[string]string, projectRoot string, 
 
 	a.initBuiltinInterfaces()
 
-	// If std/core.ll exists, load it as the fundamental prelude module.
-	coreAbs := filepath.Join(stdDir, "core.ll")
+	// If std/core/core.ll exists (or fallback to std/core.ll), load it as the fundamental prelude module.
+	coreAbs := filepath.Join(stdDir, "core", "core.ll")
+	if st, err := os.Stat(coreAbs); err != nil || st.IsDir() {
+		coreAbs = filepath.Join(stdDir, "core.ll")
+	}
 	if st, err := os.Stat(coreAbs); err == nil && !st.IsDir() {
 		a.coreAbs = coreAbs
 		a.coreMod = a.loadModule(coreAbs, diag.Span{})
+		prog.CoreMod = a.coreMod
 	}
 
 	entryMod := a.loadModule(absEntry, diag.Span{})
@@ -627,17 +649,22 @@ func (a *Analyzer) loadModule(absPath string, importSpan diag.Span) *Module {
 		}
 	}
 
-	// Implicitly import std/core.ll for all modules other than core itself
-	if a.coreMod != nil && mod != a.coreMod {
-		hasCore := false
-		for _, imp := range mod.Imports {
-			if imp == a.coreMod {
-				hasCore = true
-				break
+	// Implicitly import core prelude modules for all modules outside the core package itself
+	isCorePackageMod := a.coreMod != nil && (mod == a.coreMod || (mod.Dir != "" && a.coreMod.Dir != "" && filepath.Clean(mod.Dir) == filepath.Clean(a.coreMod.Dir)))
+	if a.coreMod != nil && !isCorePackageMod {
+		coreList := []*Module{a.coreMod}
+		coreList = append(coreList, a.coreMod.Imports...)
+		for _, cMod := range coreList {
+			already := false
+			for _, imp := range mod.Imports {
+				if imp == cMod {
+					already = true
+					break
+				}
 			}
-		}
-		if !hasCore {
-			mod.Imports = append(mod.Imports, a.coreMod)
+			if !already {
+				mod.Imports = append(mod.Imports, cMod)
+			}
 		}
 	}
 
@@ -657,6 +684,9 @@ func (a *Analyzer) resolveImportPath(fromDir, raw string) string {
 	}
 	if strings.HasPrefix(path, "std/") {
 		candidates = append(candidates, filepath.Join(a.StdDir, strings.TrimPrefix(path, "std/")))
+	}
+	if path == "std/core.ll" || path == "core.ll" {
+		candidates = append(candidates, filepath.Join(a.StdDir, "core", "core.ll"))
 	}
 	for _, c := range candidates {
 		abs, err := filepath.Abs(c)
@@ -720,5 +750,88 @@ func TypeMethodKey(t types.Type) string {
 		return v.CName
 	default:
 		return fmt.Sprintf("ty_%s", t.Mangled())
+	}
+}
+
+// SamePackage reports whether two modules belong to the same package (directory).
+func (prog *CheckedProgram) SamePackage(modA, modB *Module) bool {
+	if modA == nil || modB == nil {
+		return true
+	}
+	if modA == modB {
+		return true
+	}
+	dirA := filepath.Clean(modA.Dir)
+	dirB := filepath.Clean(modB.Dir)
+	if dirA == "" || dirB == "" {
+		return modA.Path == modB.Path
+	}
+	if prog != nil && prog.StdDir != "" && dirA == filepath.Clean(prog.StdDir) && dirB == filepath.Clean(prog.StdDir) {
+		return modA.Path == modB.Path
+	}
+	return dirA == dirB
+}
+
+// SamePackageDir reports whether `curMod` and a target directory belong to the same package.
+func (prog *CheckedProgram) SamePackageDir(curMod *Module, targetDir, targetPath string) bool {
+	if curMod == nil || targetDir == "" {
+		return true
+	}
+	dirCur := filepath.Clean(curMod.Dir)
+	dirTarget := filepath.Clean(targetDir)
+	if prog != nil && prog.StdDir != "" && dirCur == filepath.Clean(prog.StdDir) && dirTarget == filepath.Clean(prog.StdDir) {
+		return curMod.Path == targetPath
+	}
+	return dirCur == dirTarget
+}
+
+// SamePackage reports whether two modules belong to the same package (directory).
+func (a *Analyzer) SamePackage(modA, modB *Module) bool {
+	if a.Prog != nil {
+		return a.Prog.SamePackage(modA, modB)
+	}
+	if modA == nil || modB == nil || modA == modB {
+		return true
+	}
+	return filepath.Clean(modA.Dir) == filepath.Clean(modB.Dir)
+}
+
+// SamePackageDir reports whether `curMod` and a target directory belong to the same package.
+func (a *Analyzer) SamePackageDir(curMod *Module, targetDir, targetPath string) bool {
+	if a.Prog != nil {
+		return a.Prog.SamePackageDir(curMod, targetDir, targetPath)
+	}
+	if curMod == nil || targetDir == "" {
+		return true
+	}
+	return filepath.Clean(curMod.Dir) == filepath.Clean(targetDir)
+}
+
+// typeModule returns the defining module of a given type, if known.
+func (a *Analyzer) typeModule(t types.Type) *Module {
+	if t == nil || a.Prog == nil {
+		return nil
+	}
+	switch v := t.(type) {
+	case *types.Struct:
+		return a.Prog.StructMods[v]
+	case *types.Enum:
+		return a.Prog.EnumMods[v]
+	case *types.Interface:
+		return a.Prog.InterfaceMods[v]
+	case *types.Distinct:
+		return a.Prog.DistinctMods[v]
+	case *types.Ptr:
+		return a.typeModule(v.Elem)
+	case *types.Ref:
+		return a.typeModule(v.Elem)
+	case *types.Optional:
+		return a.typeModule(v.Elem)
+	case *types.Vector:
+		return a.typeModule(v.Elem)
+	case *types.StackArray:
+		return a.typeModule(v.Elem)
+	default:
+		return nil
 	}
 }

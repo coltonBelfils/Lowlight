@@ -283,6 +283,11 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 	// 1. Check module-qualified calls (`mod.fn(...)`, `mod.GenericFn[T](...)`, `mod.Type(x)`)
 	if baseId, isId := mem.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && len(mem.BaseTypeArgs) == 0 && fc.lookupVar(baseId.Name) == nil {
 		if targetMod, isMod := fc.mod.Aliased[baseId.Name]; isMod {
+			if !fc.a.SamePackage(fc.mod, targetMod) && !IsExported(mem.Member) {
+				fc.a.Rep.Errorf(mem.Span, "cannot access unexported symbol %q from package %q", mem.Member, targetMod.Path)
+				inf.Type = types.TypeInvalid
+				return types.TypeInvalid
+			}
 			if genFn, ok := targetMod.GenericFuncs[mem.Member]; ok {
 				return fc.checkGenericFuncCall(genFn, call, expected)
 			}
@@ -342,6 +347,11 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 				inf.Type = types.TypeInvalid
 				return types.TypeInvalid
 			}
+			if !IsExported(mem.Member) && !fc.a.SamePackage(fc.mod, fi.Mod) && !fc.a.SamePackageDir(fc.mod, types.TypePkgDir(recvTy), "") {
+				fc.a.Rep.Errorf(call.Span, "cannot call unexported method %q on type %s outside its package", mem.Member, recvTy.String())
+				inf.Type = types.TypeInvalid
+				return types.TypeInvalid
+			}
 			// Namespaced call (`Point.translate(&pt, 5, 5)`): requires explicit `&` / `own` on arg 0!
 			fc.checkSignatureArgs(fi.Sig.Params, call.Args, nil, call.Span)
 			inf.CallKind = CallDirectFunc
@@ -355,6 +365,11 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 	if baseMem, isBM := mem.Base.(*ast.MemberExpr); isBM && len(baseMem.BaseTypeArgs) == 0 {
 		if modId, isId := baseMem.Base.(*ast.IdentExpr); isId && !modId.IsOpt && fc.lookupVar(modId.Name) == nil {
 			if targetMod, isMod := fc.mod.Aliased[modId.Name]; isMod {
+				if !fc.a.SamePackage(fc.mod, targetMod) && !IsExported(baseMem.Member) {
+					fc.a.Rep.Errorf(baseMem.Span, "cannot access unexported type %q from package %q", baseMem.Member, targetMod.Path)
+					inf.Type = types.TypeInvalid
+					return types.TypeInvalid
+				}
 				if genSt, ok := targetMod.GenericStructs[baseMem.Member]; ok {
 					return fc.checkGenericTypeAssocCall(genSt, mem.BaseTypeArgs, mem.Member, call, expected)
 				}
@@ -365,6 +380,11 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 					}
 					fi := fc.a.LookupMethod(recvTy, mem.Member, mTypeArgs, call.Span)
 					if fi != nil {
+						if !IsExported(mem.Member) && !fc.a.SamePackage(fc.mod, fi.Mod) && !fc.a.SamePackageDir(fc.mod, types.TypePkgDir(recvTy), "") {
+							fc.a.Rep.Errorf(call.Span, "cannot call unexported method %q on type %s outside its package", mem.Member, recvTy.String())
+							inf.Type = types.TypeInvalid
+							return types.TypeInvalid
+						}
 						fc.checkSignatureArgs(fi.Sig.Params, call.Args, nil, call.Span)
 						inf.CallKind = CallDirectFunc
 						fc.recordTargetFunc(inf, fi, call.Span)
@@ -393,6 +413,11 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 	}
 	if st, isSt := innerStructTy.(*types.Struct); isSt {
 		if sf, _ := st.FieldByName(mem.Member); sf != nil {
+			if !IsExported(mem.Member) && !fc.a.SamePackageDir(fc.mod, st.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(st)) {
+				fc.a.Rep.Errorf(mem.Span, "cannot access unexported field %q of struct %s outside its package", sf.Name, st.String())
+				inf.Type = types.TypeInvalid
+				return types.TypeInvalid
+			}
 			if _, isFn := sf.Type.(*types.Func); isFn {
 				return fc.checkClosureValueCall(call)
 			}
@@ -445,6 +470,11 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 		mTypeArgs = append(mTypeArgs, fc.a.resolveValueType(fc.mod, ta, fc.subst, false))
 	}
 	if fi := fc.a.LookupMethod(actualRecvTy, mem.Member, mTypeArgs, call.Span); fi != nil && !fi.IsStaticAssoc {
+		if !IsExported(mem.Member) && !fc.a.SamePackage(fc.mod, fi.Mod) && !fc.a.SamePackageDir(fc.mod, types.TypePkgDir(actualRecvTy), "") {
+			fc.a.Rep.Errorf(call.Span, "cannot call unexported method %q on type %s outside its package", mem.Member, actualRecvTy.String())
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
 		recvMode := fi.Sig.Params[0].Mode
 		if isOptChain && recvMode != types.ModeRead {
 			fc.a.Rep.Errorf(call.Span, "cannot call mutating or consuming method %q via optional `?.` chain", mem.Member)
@@ -609,6 +639,11 @@ func (fc *funcChecker) checkEnumMemberCall(en *types.Enum, genEn *GenericEnumTem
 	}
 
 	if v, isVar := en.VariantByName(mem.Member); isVar {
+		if !IsExported(mem.Member) && !fc.a.SamePackageDir(fc.mod, en.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(en)) {
+			fc.a.Rep.Errorf(call.Span, "cannot access unexported enum variant `%s.%s` outside its package", en.Name, mem.Member)
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
 		if en.Deprecated {
 			msg := ""
 			if en.DeprecatedMsg != "" {
@@ -680,6 +715,11 @@ func (fc *funcChecker) checkEnumMemberCall(en *types.Enum, genEn *GenericEnumTem
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
 	}
+	if !IsExported(mem.Member) && !fc.a.SamePackage(fc.mod, fi.Mod) && !fc.a.SamePackageDir(fc.mod, en.PkgDir, "") {
+		fc.a.Rep.Errorf(call.Span, "cannot call unexported method %q on enum %s outside its package", mem.Member, en.String())
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
 	fc.checkSignatureArgs(fi.Sig.Params, call.Args, nil, call.Span)
 	inf.CallKind = CallDirectFunc
 	fc.recordTargetFunc(inf, fi, call.Span)
@@ -737,6 +777,11 @@ func (fc *funcChecker) checkGenericTypeAssocCall(genSt *GenericStructTemplate, r
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
 	}
+	if !IsExported(method) && !fc.a.SamePackage(fc.mod, fi.Mod) && !fc.a.SamePackageDir(fc.mod, instSt.PkgDir, "") {
+		fc.a.Rep.Errorf(call.Span, "cannot call unexported associated function %q on type %s outside its package", method, instSt.String())
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
 	fc.checkSignatureArgs(fi.Sig.Params, call.Args, nil, call.Span)
 	inf.CallKind = CallDirectFunc
 	fc.recordTargetFunc(inf, fi, call.Span)
@@ -747,6 +792,11 @@ func (fc *funcChecker) checkGenericTypeAssocCall(genSt *GenericStructTemplate, r
 func (fc *funcChecker) checkGenericFuncCall(genFn *GenericFuncTemplate, call *ast.CallExpr, expected types.Type) types.Type {
 	inf := fc.a.infoFor(call)
 	decl := genFn.VarDecl
+	if !IsExported(decl.Name) && !fc.a.SamePackage(fc.mod, genFn.Mod) {
+		fc.a.Rep.Errorf(call.Span, "cannot access unexported generic function %q from package %q", decl.Name, genFn.Mod.Path)
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
 	var targs []types.Type
 
 	if len(call.TypeArgs) > 0 {
@@ -842,6 +892,21 @@ func (fc *funcChecker) checkInterfaceMethodCall(ifc *types.Interface, mem *ast.M
 		fc.a.Rep.Errorf(mem.Span, "interface %s has no method %q", ifc.Name, mem.Member)
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
+	}
+
+	if !IsExported(mem.Member) {
+		ifcMod := fc.a.Prog.InterfaceMods[ifc]
+		samePkg := false
+		if ifcMod != nil && fc.a.SamePackage(fc.mod, ifcMod) {
+			samePkg = true
+		} else if ifc.PkgDir != "" && fc.a.SamePackageDir(fc.mod, ifc.PkgDir, "") {
+			samePkg = true
+		}
+		if !samePkg {
+			fc.a.Rep.Errorf(call.Span, "cannot call unexported interface method %q outside its package", mem.Member)
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
 	}
 
 	var mutRoot *Symbol
@@ -1216,21 +1281,7 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 		return wrapRet(types.TypeString)
 	}
 
-	// `char` methods
-	if recvTy.Equals(types.TypeChar) {
-		switch mem.Member {
-		case "is_alpha", "is_digit", "is_alnum", "is_whitespace":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "char." + mem.Member
-			return wrapRet(types.TypeBool)
-		case "to_int":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "char.to_int"
-			return wrapRet(types.TypeInt)
-		}
-	}
-
-	// `string` methods
+	// `string` built-in primitive representation methods (higher-level string & char methods live in `std/core.ll`)
 	if recvTy.Equals(types.TypeString) {
 		fc.markViewIfApplicable(mem.Base, types.TypeString)
 		switch mem.Member {
@@ -1238,10 +1289,6 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
 			inf.BuiltinName = "string.len"
 			return wrapRet(types.TypeInt)
-		case "is_empty":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "string.is_empty"
-			return wrapRet(types.TypeBool)
 		case "push":
 			mr := requireMutRecv()
 			fc.checkSignatureArgs([]types.FuncParam{{Name: "suffix", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, mr, call.Span)
@@ -1275,41 +1322,6 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 			fc.checkSignatureArgs([]types.FuncParam{{Name: "idx", Mode: types.ModeRead, Type: types.TypeInt}}, call.Args, nil, call.Span)
 			inf.BuiltinName = "string.byte_at"
 			return wrapRet(types.TypeU8)
-		case "get_byte":
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "idx", Mode: types.ModeRead, Type: types.TypeInt}}, call.Args, nil, call.Span)
-			inf.BuiltinName = "string.get_byte"
-			return wrapRet(types.NewOptional(types.TypeU8))
-		case "bytes":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "string.bytes"
-			return wrapRet(&types.Vector{Elem: types.TypeU8})
-		case "chars":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "string.chars"
-			return wrapRet(&types.Vector{Elem: types.TypeChar})
-		case "contains", "starts_with", "ends_with":
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "sub", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, nil, call.Span)
-			inf.BuiltinName = "string." + mem.Member
-			return wrapRet(types.TypeBool)
-		case "index_of":
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "sub", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, nil, call.Span)
-			inf.BuiltinName = "string.index_of"
-			return wrapRet(types.NewOptional(types.TypeInt))
-		case "trim", "to_upper", "to_lower":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "string." + mem.Member
-			return wrapRet(types.TypeString)
-		case "split":
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "sep", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, nil, call.Span)
-			inf.BuiltinName = "string.split"
-			return wrapRet(&types.Vector{Elem: types.TypeString})
-		case "replace":
-			fc.checkSignatureArgs([]types.FuncParam{
-				{Name: "old", Mode: types.ModeRead, Type: types.TypeString},
-				{Name: "new_str", Mode: types.ModeRead, Type: types.TypeString},
-			}, call.Args, nil, call.Span)
-			inf.BuiltinName = "string.replace"
-			return wrapRet(types.TypeString)
 		case "c_str":
 			if fc.unsafeDepth == 0 {
 				fc.a.Rep.Errorf(call.Span, "`string.c_str()` returns raw `ptr[u8]` and requires `unsafe`")
@@ -1612,21 +1624,41 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 		inf.Type = types.TypeVoid
 		return true, types.TypeVoid
 
-	case "parse_int":
-		fc.checkSignatureArgs([]types.FuncParam{{Name: "s", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, nil, call.Span)
+	case "caller_location":
+		if len(call.Args) != 0 {
+			fc.a.Rep.Errorf(call.Span, "`caller_location()` takes 0 arguments")
+		}
 		inf.CallKind = CallBuiltinFunc
-		inf.BuiltinName = "parse_int"
-		res := types.NewOptional(types.TypeInt)
-		inf.Type = res
-		return true, res
+		inf.BuiltinName = "caller_location"
+		inf.Type = types.TypeString
+		return true, types.TypeString
 
-	case "parse_float":
-		fc.checkSignatureArgs([]types.FuncParam{{Name: "s", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, nil, call.Span)
+	case "caller_file":
+		if len(call.Args) != 0 {
+			fc.a.Rep.Errorf(call.Span, "`caller_file()` takes 0 arguments")
+		}
 		inf.CallKind = CallBuiltinFunc
-		inf.BuiltinName = "parse_float"
-		res := types.NewOptional(types.TypeFloat)
-		inf.Type = res
-		return true, res
+		inf.BuiltinName = "caller_file"
+		inf.Type = types.TypeString
+		return true, types.TypeString
+
+	case "caller_line":
+		if len(call.Args) != 0 {
+			fc.a.Rep.Errorf(call.Span, "`caller_line()` takes 0 arguments")
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "caller_line"
+		inf.Type = types.TypeInt
+		return true, types.TypeInt
+
+	case "caller_col":
+		if len(call.Args) != 0 {
+			fc.a.Rep.Errorf(call.Span, "`caller_col()` takes 0 arguments")
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "caller_col"
+		inf.Type = types.TypeInt
+		return true, types.TypeInt
 
 	case "sqrt":
 		fc.checkSignatureArgs([]types.FuncParam{{Name: "x", Mode: types.ModeRead, Type: types.TypeFloat}}, call.Args, nil, call.Span)
@@ -1954,6 +1986,150 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 		inf.BuiltinName = "zero_bytes"
 		inf.Type = types.TypeVoid
 		return true, types.TypeVoid
+	}
+
+	u8p := &types.Ptr{Elem: types.TypeU8}
+	intp := &types.Ptr{Elem: types.TypeInt}
+	sysIntrinsic := func(params []types.FuncParam, ret types.Type) (bool, types.Type) {
+		requireUnsafe()
+		fc.checkSignatureArgs(params, call.Args, nil, call.Span)
+		inf.CallKind = CallIntrinsic
+		inf.BuiltinName = name
+		inf.Type = ret
+		return true, ret
+	}
+
+	switch name {
+	case "sys_fopen":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "path", Mode: types.ModeRead, Type: u8p},
+			{Name: "mode", Mode: types.ModeRead, Type: u8p},
+		}, u8p)
+	case "sys_fclose", "sys_fflush", "sys_remove":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "arg", Mode: types.ModeRead, Type: u8p},
+		}, types.TypeI32)
+	case "sys_fread", "sys_fwrite":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "buf", Mode: types.ModeRead, Type: u8p},
+			{Name: "size", Mode: types.ModeRead, Type: types.TypeInt},
+			{Name: "count", Mode: types.ModeRead, Type: types.TypeInt},
+			{Name: "fp", Mode: types.ModeRead, Type: u8p},
+		}, types.TypeInt)
+	case "sys_fseek":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "fp", Mode: types.ModeRead, Type: u8p},
+			{Name: "offset", Mode: types.ModeRead, Type: types.TypeInt},
+			{Name: "whence", Mode: types.ModeRead, Type: types.TypeI32},
+		}, types.TypeI32)
+	case "sys_ftell", "sys_pclose", "sys_system", "sys_file_size", "sys_mkdir", "sys_remove_all":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "arg", Mode: types.ModeRead, Type: u8p},
+		}, types.TypeInt)
+	case "sys_rename":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "old_path", Mode: types.ModeRead, Type: u8p},
+			{Name: "new_path", Mode: types.ModeRead, Type: u8p},
+		}, types.TypeI32)
+	case "sys_popen":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "cmd", Mode: types.ModeRead, Type: u8p},
+		}, u8p)
+	case "sys_pread":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "stream", Mode: types.ModeRead, Type: u8p},
+			{Name: "buf", Mode: types.ModeRead, Type: u8p},
+			{Name: "max_len", Mode: types.ModeRead, Type: types.TypeInt},
+		}, types.TypeInt)
+	case "sys_file_exists":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "path", Mode: types.ModeRead, Type: u8p},
+		}, types.TypeBool)
+	case "sys_num_cpus", "sys_argc", "sys_monotonic_nanos", "sys_epoch_nanos_now", "sys_tls_available":
+		return sysIntrinsic(nil, types.TypeInt)
+	case "sys_os_name", "sys_os_arch":
+		return sysIntrinsic(nil, u8p)
+	case "sys_argv":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "idx", Mode: types.ModeRead, Type: types.TypeInt},
+		}, u8p)
+	case "sys_sleep_ms":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "ms", Mode: types.ModeRead, Type: types.TypeInt},
+		}, types.TypeVoid)
+	case "sys_local_tz_offset", "sys_tcp_port":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "arg", Mode: types.ModeRead, Type: types.TypeInt},
+		}, types.TypeInt)
+	case "sys_tcp_listen", "sys_tcp_connect":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "host", Mode: types.ModeRead, Type: u8p},
+			{Name: "port", Mode: types.ModeRead, Type: types.TypeInt},
+			{Name: "arg3", Mode: types.ModeRead, Type: types.TypeInt},
+		}, types.TypeInt)
+	case "sys_tcp_accept", "sys_net_set_timeout":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
+			{Name: "timeout_ms", Mode: types.ModeRead, Type: types.TypeInt},
+		}, types.TypeInt)
+	case "sys_net_send_all":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
+			{Name: "data", Mode: types.ModeRead, Type: u8p},
+			{Name: "len", Mode: types.ModeRead, Type: types.TypeInt},
+		}, types.TypeInt)
+	case "sys_net_recv":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
+			{Name: "buf", Mode: types.ModeRead, Type: u8p},
+			{Name: "max_len", Mode: types.ModeRead, Type: types.TypeInt},
+			{Name: "timeout_ms", Mode: types.ModeRead, Type: types.TypeInt},
+		}, types.TypeInt)
+	case "sys_net_close":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
+		}, types.TypeVoid)
+	case "sys_net_shutdown":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
+			{Name: "how", Mode: types.ModeRead, Type: types.TypeInt},
+		}, types.TypeVoid)
+	case "sys_net_socketpair":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "out_fds", Mode: types.ModeRead, Type: intp},
+		}, types.TypeInt)
+	case "sys_tls_client_handshake":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
+			{Name: "host", Mode: types.ModeRead, Type: u8p},
+		}, u8p)
+	case "sys_tls_send_all":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "session", Mode: types.ModeRead, Type: u8p},
+			{Name: "data", Mode: types.ModeRead, Type: u8p},
+			{Name: "len", Mode: types.ModeRead, Type: types.TypeInt},
+		}, types.TypeInt)
+	case "sys_tls_recv":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "session", Mode: types.ModeRead, Type: u8p},
+			{Name: "buf", Mode: types.ModeRead, Type: u8p},
+			{Name: "max_len", Mode: types.ModeRead, Type: types.TypeInt},
+			{Name: "timeout_ms", Mode: types.ModeRead, Type: types.TypeInt},
+		}, types.TypeInt)
+	case "sys_tls_close", "sys_tls_server_ctx_free":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "ptr", Mode: types.ModeRead, Type: u8p},
+		}, types.TypeVoid)
+	case "sys_tls_server_ctx_new":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "cert_file", Mode: types.ModeRead, Type: u8p},
+			{Name: "key_file", Mode: types.ModeRead, Type: u8p},
+		}, u8p)
+	case "sys_tls_server_handshake":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "server_ctx", Mode: types.ModeRead, Type: u8p},
+			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
+		}, u8p)
 	}
 
 	_ = strings.TrimSpace

@@ -16,10 +16,11 @@ import (
 type delimKind int
 
 const (
-	delimBrace   delimKind = iota // '{'
-	delimParen                    // '('
-	delimBracket                  // '['
-	delimInterp                   // '${' inside an interpolated string
+	delimBrace          delimKind = iota // '{'
+	delimParen                           // '('
+	delimBracket                         // '['
+	delimInterp                          // '${' inside an interpolated double-quoted string
+	delimBacktickInterp                  // '${' inside an interpolated backtick string
 )
 
 type rawToken struct {
@@ -224,6 +225,12 @@ func (l *Lexer) scanOne() {
 		return
 	}
 
+	// Backtick String Literal (multiline, plain or interpolated)
+	if ch == '`' {
+		l.scanBacktickString()
+		return
+	}
+
 	// Hash-bracket #[
 	if ch == '#' && l.peekAt(1) == '[' {
 		l.advance()
@@ -256,12 +263,21 @@ func (l *Lexer) scanOne() {
 		l.emit(token.LBrace, "{", start, l.pos())
 	case '}':
 		// If the innermost delimiter is '${' from string interpolation,
-		// return control to scanStringRest instead of emitting RBrace!
-		if len(l.delims) > 0 && l.delims[len(l.delims)-1] == delimInterp {
-			l.advance()
-			l.popDelim(delimInterp)
-			l.scanStringContinuation()
-			return
+		// return control to scanStringContinuation or scanBacktickContinuation instead of emitting RBrace!
+		if len(l.delims) > 0 {
+			top := l.delims[len(l.delims)-1]
+			if top == delimInterp {
+				l.advance()
+				l.popDelim(delimInterp)
+				l.scanStringContinuation()
+				return
+			}
+			if top == delimBacktickInterp {
+				l.advance()
+				l.popDelim(delimBacktickInterp)
+				l.scanBacktickContinuation()
+				return
+			}
 		}
 		l.advance()
 		l.popDelim(delimBrace)
@@ -339,6 +355,11 @@ func (l *Lexer) scanOne() {
 		if l.peek() == '=' {
 			l.advance()
 			l.emit(token.MinusEq, "-=", start, l.pos())
+			return
+		}
+		if l.peek() == '>' {
+			l.advance()
+			l.emit(token.RArrow, "->", start, l.pos())
 			return
 		}
 		l.emit(token.Minus, "-", start, l.pos())
@@ -627,6 +648,8 @@ func (l *Lexer) scanEscape(inString bool) rune {
 		return '\''
 	case '"':
 		return '"'
+	case '`':
+		return '`'
 	case '0':
 		return 0
 	case '$':
@@ -789,6 +812,213 @@ func (l *Lexer) scanStringSegment(isFirst bool) {
 			l.rep.ErrorWithHint(
 				diag.Span{Start: errStart, End: l.pos()},
 				"unescaped '$' in string literal",
+				`write \$ for a literal dollar sign, or $name / ${expr} for interpolation`,
+			)
+			sb.WriteByte('$')
+			continue
+		}
+
+		r := l.advance()
+		sb.WriteRune(r)
+	}
+}
+
+// scanBacktickString scans a multiline string starting at opening '`'.
+func (l *Lexer) scanBacktickString() {
+	start := l.pos()
+	l.advance() // consume opening '`'
+	l.scanBacktickSegment(start, true)
+}
+
+// scanBacktickContinuation resumes scanning a backtick string literal immediately after the closing `}` of `${...}`.
+func (l *Lexer) scanBacktickContinuation() {
+	l.scanBacktickSegment(l.pos(), false)
+}
+
+func (l *Lexer) scanBacktickSegment(segStart diag.Pos, isFirst bool) {
+	var sb strings.Builder
+
+	for {
+		if l.eof() {
+			l.rep.Errorf(diag.Span{Start: segStart, End: l.pos()}, "unterminated backtick string literal")
+			if isFirst {
+				l.emit(token.StringLit, sb.String(), segStart, l.pos())
+			} else {
+				l.emit(token.InterpEnd, sb.String(), segStart, l.pos())
+			}
+			return
+		}
+
+		ch := l.peek()
+		if ch == '`' {
+			l.advance()
+			if isFirst {
+				l.emit(token.StringLit, sb.String(), segStart, l.pos())
+			} else {
+				l.emit(token.InterpEnd, sb.String(), segStart, l.pos())
+			}
+			return
+		}
+
+		// Normalize CRLF to LF in multiline strings
+		if ch == '\r' && l.peekAt(1) == '\n' {
+			l.advance() // skip '\r'
+			l.advance() // advance '\n'
+			sb.WriteByte('\n')
+			continue
+		}
+
+		if ch == '\\' {
+			nextCh := l.peekAt(1)
+			switch nextCh {
+			case '`':
+				l.advance() // '\\'
+				l.advance() // '`'
+				sb.WriteByte('`')
+				continue
+			case '$':
+				l.advance() // '\\'
+				l.advance() // '$'
+				sb.WriteByte('$')
+				continue
+			case '\\':
+				l.advance() // '\\'
+				l.advance() // '\\'
+				sb.WriteByte('\\')
+				continue
+			case 'n':
+				l.advance()
+				l.advance()
+				sb.WriteByte('\n')
+				continue
+			case 'r':
+				l.advance()
+				l.advance()
+				sb.WriteByte('\r')
+				continue
+			case 't':
+				l.advance()
+				l.advance()
+				sb.WriteByte('\t')
+				continue
+			case '0':
+				l.advance()
+				l.advance()
+				sb.WriteByte(0)
+				continue
+			case '\'':
+				l.advance()
+				l.advance()
+				sb.WriteByte('\'')
+				continue
+			case '"':
+				l.advance()
+				l.advance()
+				sb.WriteByte('"')
+				continue
+			case 'x':
+				if isHexDigit(l.peekAt(2)) && isHexDigit(l.peekAt(3)) {
+					l.advance() // '\\'
+					l.advance() // 'x'
+					h1 := l.advance()
+					h2 := l.advance()
+					val, _ := strconv.ParseUint(string([]rune{h1, h2}), 16, 8)
+					sb.WriteByte(byte(val))
+					continue
+				}
+				l.advance()
+				sb.WriteByte('\\')
+				continue
+			case 'u':
+				if l.peekAt(2) == '{' {
+					escStart := l.pos()
+					l.advance() // '\\'
+					l.advance() // 'u'
+					l.advance() // '{'
+					hexStart := l.offset
+					for !l.eof() && isHexDigit(l.peek()) {
+						l.advance()
+					}
+					hexStr := l.src[hexStart:l.offset]
+					if l.peek() != '}' || len(hexStr) == 0 || len(hexStr) > 6 {
+						l.rep.Errorf(diag.Span{Start: escStart, End: l.pos()}, `invalid Unicode escape \u{...}`)
+						if l.peek() == '}' {
+							l.advance()
+						}
+						continue
+					}
+					l.advance() // '}'
+					val, err := strconv.ParseUint(hexStr, 16, 32)
+					if err != nil || val > unicode.MaxRune || (val >= 0xD800 && val <= 0xDFFF) {
+						l.rep.Errorf(diag.Span{Start: escStart, End: l.pos()}, "invalid Unicode scalar value in escape")
+						continue
+					}
+					sb.WriteRune(rune(val))
+					continue
+				}
+				l.advance()
+				sb.WriteByte('\\')
+				continue
+			default:
+				l.advance() // consume '\\'
+				sb.WriteByte('\\')
+				continue
+			}
+		}
+
+		if ch == '$' {
+			// `${expr}` interpolation
+			if l.peekAt(1) == '{' {
+				segEnd := l.pos()
+				if isFirst {
+					l.emit(token.InterpStart, sb.String(), segStart, segEnd)
+				} else {
+					l.emit(token.InterpMid, sb.String(), segStart, segEnd)
+				}
+				l.advance() // '$'
+				l.advance() // '{'
+				l.pushDelim(delimBacktickInterp)
+				l.prevWasSpaceOrStart = true
+				return
+			}
+
+			// `$ident` interpolation (never consumes trailing `?`, per Spec §4.2!)
+			if isIdentStart(l.peekAt(1)) {
+				segEnd := l.pos()
+				if isFirst {
+					l.emit(token.InterpStart, sb.String(), segStart, segEnd)
+				} else {
+					l.emit(token.InterpMid, sb.String(), segStart, segEnd)
+				}
+				l.advance() // consume '$'
+				idStart := l.pos()
+				idStartOff := l.offset
+				for !l.eof() && isIdentCont(l.peek()) {
+					l.advance()
+				}
+				idWord := l.src[idStartOff:l.offset]
+				kw := token.LookupKeyword(idWord)
+				if kw != token.Ident && kw != token.KwSelf {
+					l.rep.Errorf(diag.Span{Start: idStart, End: l.pos()}, "cannot interpolate reserved keyword %q", idWord)
+				}
+				if kw == token.KwSelf {
+					l.emit(token.KwSelf, idWord, idStart, l.pos())
+				} else {
+					l.emit(token.Ident, idWord, idStart, l.pos())
+				}
+				// Immediately continue scanning the rest of this backtick string literal!
+				isFirst = false
+				segStart = l.pos()
+				sb.Reset()
+				continue
+			}
+
+			// Bare `$` not followed by `{` or identifier start is an error (use `\$`)
+			errStart := l.pos()
+			l.advance()
+			l.rep.ErrorWithHint(
+				diag.Span{Start: errStart, End: l.pos()},
+				"unescaped '$' in backtick string literal",
 				`write \$ for a literal dollar sign, or $name / ${expr} for interpolation`,
 			)
 			sb.WriteByte('$')

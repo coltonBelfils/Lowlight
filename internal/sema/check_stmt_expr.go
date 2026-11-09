@@ -1719,6 +1719,11 @@ func (fc *funcChecker) checkExprExpect(e ast.Expr, expected types.Type, needValu
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
 		}
+		if sym.Mod != nil && !IsExported(sym.Name) && !fc.a.SamePackage(fc.mod, sym.Mod) {
+			fc.a.Rep.Errorf(v.Span, "cannot access unexported identifier %q from package %q", sym.Name, sym.Mod.Path)
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
 		if sym.IsTopLevel && fc.a.inBodyPass {
 			fc.a.resolveTopVar(sym)
 		}
@@ -2268,6 +2273,11 @@ func (fc *funcChecker) checkMemberExpr(m *ast.MemberExpr, expected types.Type) t
 		if fc.lookupVar(baseId.Name) == nil {
 			if targetMod, isMod := fc.mod.Aliased[baseId.Name]; isMod {
 				if sym, ok := targetMod.Symbols[m.Member]; ok {
+					if !IsExported(m.Member) && !fc.a.SamePackage(fc.mod, targetMod) {
+						fc.a.Rep.Errorf(m.Span, "cannot access unexported symbol %q from package %q", m.Member, targetMod.Path)
+						inf.Type = types.TypeInvalid
+						return types.TypeInvalid
+					}
 					if sym.IsTopLevel && fc.a.inBodyPass {
 						fc.a.resolveTopVar(sym)
 					}
@@ -2317,6 +2327,11 @@ func (fc *funcChecker) checkMemberExpr(m *ast.MemberExpr, expected types.Type) t
 		v, ok := en.VariantByName(m.Member)
 		if !ok {
 			fc.a.Rep.Errorf(m.Span, "enum %s has no variant %q", en.String(), m.Member)
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		if !IsExported(m.Member) && !fc.a.SamePackageDir(fc.mod, en.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(en)) {
+			fc.a.Rep.Errorf(m.Span, "cannot access unexported enum variant `%s.%s` outside its package", en.Name, m.Member)
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
 		}
@@ -2407,6 +2422,11 @@ func (fc *funcChecker) checkMemberExpr(m *ast.MemberExpr, expected types.Type) t
 	}
 	if f == nil {
 		fc.a.Rep.Errorf(m.Span, "struct %s has no field %q", st.String(), m.Member)
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	if !IsExported(f.Name) && !fc.a.SamePackageDir(fc.mod, st.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(st)) {
+		fc.a.Rep.Errorf(m.Span, "cannot access unexported field %q of struct %s outside its package", f.Name, st.String())
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
 	}
@@ -2796,8 +2816,23 @@ func (fc *funcChecker) checkStructLit(sl *ast.StructLit, expected types.Type) ty
 		fc.a.Rep.Errorf(sl.Span, "cannot use test-only struct %q in non-test context %q", st.Name, callerName)
 	}
 
+	samePkg := fc.a.SamePackageDir(fc.mod, st.PkgDir, "") || fc.a.SamePackage(fc.mod, fc.a.typeModule(st))
+	if !samePkg {
+		for _, sf := range st.Fields {
+			if !IsExported(sf.Name) && !sf.HasDefault {
+				if _, isOpt := sf.Type.(*types.Optional); !isOpt {
+					fc.a.Rep.Errorf(sl.Span, "cannot construct struct %s outside its package: unexported field %q has no default value (use a constructor function)", st.String(), sf.Name)
+					break
+				}
+			}
+		}
+	}
+
 	provided := make(map[string]bool)
 	for _, fi := range sl.Fields {
+		if !samePkg && !IsExported(fi.Name) {
+			fc.a.Rep.Errorf(fi.Span, "cannot initialize unexported field %q of struct %s outside its package", fi.Name, st.String())
+		}
 		if provided[fi.Name] {
 			fc.a.Rep.Errorf(fi.Span, "duplicate field %q in %s literal", fi.Name, st.String())
 			continue
@@ -2893,8 +2928,26 @@ func (fc *funcChecker) checkEnumStructVariantLit(modAlias, enumName, varName str
 		return types.TypeInvalid
 	}
 
+	samePkg := fc.a.SamePackageDir(fc.mod, en.PkgDir, "") || fc.a.SamePackage(fc.mod, fc.a.typeModule(en))
+	if !samePkg && !IsExported(varName) {
+		fc.a.Rep.Errorf(sl.Span, "cannot access unexported enum variant `%s.%s` outside its package", en.Name, varName)
+	}
+	if !samePkg {
+		for _, sf := range v.Fields {
+			if !IsExported(sf.Name) && !sf.HasDefault {
+				if _, isOpt := sf.Type.(*types.Optional); !isOpt {
+					fc.a.Rep.Errorf(sl.Span, "cannot construct variant `%s.%s` outside its package: unexported field %q has no default value (use a constructor function)", en.Name, varName, sf.Name)
+					break
+				}
+			}
+		}
+	}
+
 	provided := make(map[string]bool)
 	for _, fi := range sl.Fields {
+		if !samePkg && !IsExported(fi.Name) {
+			fc.a.Rep.Errorf(fi.Span, "cannot initialize unexported field %q of variant `%s.%s` outside its package", fi.Name, en.Name, varName)
+		}
 		if provided[fi.Name] {
 			fc.a.Rep.Errorf(fi.Span, "duplicate field %q in `%s.%s` literal", fi.Name, en.String(), varName)
 			continue
@@ -4232,14 +4285,23 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 			}
 		} else {
 			var missing []string
+			hasUnexported := false
 			for _, v := range enumScrut.Variants {
+				if !IsExported(v.Name) {
+					hasUnexported = true
+				}
 				if !coveredVariants[v.Name] {
 					missing = append(missing, enumScrut.Name+"."+v.Name)
 				}
 			}
 			if len(missing) > 0 {
-				fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` on enum %s: missing variant(s): %s",
-					enumScrut.String(), strings.Join(missing, ", "))
+				samePkg := fc.a.SamePackageDir(fc.mod, enumScrut.PkgDir, "") || fc.a.SamePackage(fc.mod, fc.a.typeModule(enumScrut))
+				if !samePkg && hasUnexported {
+					fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` on enum %s: enum declares unexported variants, requiring an `else:` catch-all arm when matched outside its package", enumScrut.String())
+				} else {
+					fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` on enum %s: missing variant(s): %s",
+						enumScrut.String(), strings.Join(missing, ", "))
+				}
 			}
 		}
 	}
@@ -4309,6 +4371,38 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 				}
 				covered[bkey] = true
 			}
+		} else if sl, ok := p.Expr.(*ast.StringLit); ok {
+			key := "str:" + sl.Val
+			if covered[key] {
+				fc.a.Rep.Errorf(p.Span, "duplicate string pattern %q in `match`", sl.Val)
+			}
+			covered[key] = true
+		} else if il, ok := p.Expr.(*ast.IntLit); ok {
+			key := fmt.Sprintf("int:%d", il.Val)
+			if covered[key] {
+				fc.a.Rep.Errorf(p.Span, "duplicate integer pattern `%d` in `match`", il.Val)
+			}
+			covered[key] = true
+		} else if u, ok := p.Expr.(*ast.UnaryExpr); ok && u.Op == token.Minus {
+			if il, ok := u.Operand.(*ast.IntLit); ok {
+				key := fmt.Sprintf("int:-%d", il.Val)
+				if covered[key] {
+					fc.a.Rep.Errorf(p.Span, "duplicate integer pattern `-%d` in `match`", il.Val)
+				}
+				covered[key] = true
+			}
+		} else if cl, ok := p.Expr.(*ast.CharLit); ok {
+			key := fmt.Sprintf("char:%d", cl.Val)
+			if covered[key] {
+				fc.a.Rep.Errorf(p.Span, "duplicate character pattern '%c' in `match`", cl.Val)
+			}
+			covered[key] = true
+		} else if _, ok := p.Expr.(*ast.NoneLit); ok {
+			key := "none"
+			if covered[key] {
+				fc.a.Rep.Errorf(p.Span, "duplicate `none` pattern in `match`")
+			}
+			covered[key] = true
 		}
 		return false, false, false
 
@@ -4352,6 +4446,11 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 		v, ok := enumScrut.VariantByName(mem.Member)
 		if !ok {
 			fc.a.Rep.Errorf(p.Span, "enum %s has no variant %q", enumScrut.String(), mem.Member)
+			return false, false, false
+		}
+		samePkg := fc.a.SamePackageDir(fc.mod, enumScrut.PkgDir, "") || fc.a.SamePackage(fc.mod, fc.a.typeModule(enumScrut))
+		if !samePkg && !IsExported(mem.Member) {
+			fc.a.Rep.Errorf(p.Span, "cannot match unexported enum variant %q of %s outside its package", mem.Member, enumScrut.String())
 			return false, false, false
 		}
 		fc.a.infoFor(mem).EnumType = enumScrut

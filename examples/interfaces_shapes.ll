@@ -18,28 +18,28 @@ define Circle struct [
     radius: float,
 ]
 
-bind Circle.name = (self): string { self.label.copy() }
-bind Circle.area = (self): float { PI * self.radius * self.radius }
-bind Circle.scale = (&self, factor: float) { self.radius *= factor }
+bind Circle.name = (self): string -> { self.label.copy() }
+bind Circle.area = (self): float -> { PI * self.radius * self.radius }
+bind Circle.scale = (&self, factor: float) -> { self.radius *= factor }
 
 define Rect struct [
     w: float,
     h: float,
 ]
 
-bind Rect.name = (self): string { "rect(${self.w}x${self.h})" }
-bind Rect.area = (self): float { self.w * self.h }
-bind Rect.scale = (&self, factor: float) {
+bind Rect.name = (self): string -> { "rect(${self.w}x${self.h})" }
+bind Rect.area = (self): float -> { self.w * self.h }
+bind Rect.scale = (&self, factor: float) -> {
     self.w *= factor
     self.h *= factor
 }
 
 // Zero-allocation read-only fat-pointer borrow!
-bind describe_shape = (s: Shape): string {
+bind describe_shape = (s: Shape): string -> {
     "${s.name()}: area=${round(s.area() * 100.0) / 100.0}"
 }
 
-bind main = () {
+bind main = () -> {
     let c = Circle[label: "unit-disc", radius: 1.0]
     let r = Rect[w: 3.0, h: 4.0]
 

@@ -8,109 +8,109 @@ define Handle[T] struct [
     generation: int,
 ]
 
-bind Handle[T].equals = (self, other: Handle[T]): bool {
+bind Handle[T].equals = (self, other: Handle[T]): bool -> {
     self.index == other.index and self.generation == other.generation
 }
 
-define PoolSlot[T] struct [
+define _PoolSlot[T] struct [
     value?: ?T,
     generation: int,
     alive: bool,
 ]
 
 define Pool[T] struct [
-    slots: [PoolSlot[T]],
-    free_indices: [int],
-    live_count: int,
+    _slots: [_PoolSlot[T]],
+    _free_indices: [int],
+    _live_count: int,
 ]
 
-bind Pool[T].new = (): Pool[T] {
+bind Pool[T].new = (): Pool[T] -> {
     Pool[T][
-        slots: [],
-        free_indices: [],
-        live_count: 0,
+        _slots: [],
+        _free_indices: [],
+        _live_count: 0,
     ]
 }
 
-bind Pool[T].len = (self): int { self.live_count }
+bind Pool[T].len = (self): int -> { self._live_count }
 
-bind Pool[T].capacity = (self): int { self.slots.len() }
+bind Pool[T].capacity = (self): int -> { self._slots.len() }
 
-bind Pool[T].alloc = (&self, val: own T): Handle[T] {
-    if (self.free_indices.len() > 0) {
-        let idx = self.free_indices.pop() ?? 0
-        let gen = self.slots[idx].generation
-        self.slots[idx].value? = own val
-        self.slots[idx].alive = true
-        self.live_count += 1
+bind Pool[T].alloc = (&self, val: own T): Handle[T] -> {
+    if (self._free_indices.len() > 0) {
+        let idx = self._free_indices.pop() ?? 0
+        let gen = self._slots[idx].generation
+        self._slots[idx].value? = own val
+        self._slots[idx].alive = true
+        self._live_count += 1
         func <- Handle[T][index: idx, generation: gen]
     }
-    let idx = self.slots.len()
-    self.slots.push(PoolSlot[T][
+    let idx = self._slots.len()
+    self._slots.push(_PoolSlot[T][
         value?: own val,
         generation: 1,
         alive: true,
     ])
-    self.live_count += 1
+    self._live_count += 1
     func <- Handle[T][index: idx, generation: 1]
 }
 
-bind Pool[T].has = (self, h: Handle[T]): bool {
-    if (h.index < 0 or h.index >= self.slots.len()) {
+bind Pool[T].has = (self, h: Handle[T]): bool -> {
+    if (h.index < 0 or h.index >= self._slots.len()) {
         func <- false
     }
-    func <- self.slots[h.index].alive and self.slots[h.index].generation == h.generation
+    func <- self._slots[h.index].alive and self._slots[h.index].generation == h.generation
 }
 
-bind Pool[T].get = (self, h: Handle[T]): ?T {
-    if (h.index < 0 or h.index >= self.slots.len()) {
+bind Pool[T].get = (self, h: Handle[T]): ?T -> {
+    if (h.index < 0 or h.index >= self._slots.len()) {
         func <- none
     }
-    if (not self.slots[h.index].alive or self.slots[h.index].generation != h.generation) {
+    if (not self._slots[h.index].alive or self._slots[h.index].generation != h.generation) {
         func <- none
     }
-    if (self.slots[h.index].value? as val) {
+    if (self._slots[h.index].value? as val) {
         func <- val.copy()
     }
     func <- none
 }
 
-bind Pool[T].with[R] = (self, h: Handle[T], reader: (T): R): ?R {
-    if (h.index < 0 or h.index >= self.slots.len()) {
+bind Pool[T].with[R] = (self, h: Handle[T], reader: (T): R): ?R -> {
+    if (h.index < 0 or h.index >= self._slots.len()) {
         func <- none
     }
-    if (not self.slots[h.index].alive or self.slots[h.index].generation != h.generation) {
+    if (not self._slots[h.index].alive or self._slots[h.index].generation != h.generation) {
         func <- none
     }
-    if (self.slots[h.index].value? as val) {
+    if (self._slots[h.index].value? as val) {
         func <- reader(val)
     }
     func <- none
 }
 
-bind Pool[T].set = (&self, h: Handle[T], val: own T): bool {
-    if (h.index < 0 or h.index >= self.slots.len()) {
+bind Pool[T].set = (&self, h: Handle[T], val: own T): bool -> {
+    if (h.index < 0 or h.index >= self._slots.len()) {
         func <- false
     }
-    if (not self.slots[h.index].alive or self.slots[h.index].generation != h.generation) {
+    if (not self._slots[h.index].alive or self._slots[h.index].generation != h.generation) {
         func <- false
     }
-    self.slots[h.index].value? = own val
+    self._slots[h.index].value? = own val
     func <- true
 }
 
-bind Pool[T].free = (&self, h: Handle[T]): bool {
-    if (h.index < 0 or h.index >= self.slots.len()) {
+bind Pool[T].free = (&self, h: Handle[T]): bool -> {
+    if (h.index < 0 or h.index >= self._slots.len()) {
         func <- false
     }
-    if (not self.slots[h.index].alive or self.slots[h.index].generation != h.generation) {
+    if (not self._slots[h.index].alive or self._slots[h.index].generation != h.generation) {
         func <- false
     }
-    self.slots[h.index].value? = none
-    self.slots[h.index].alive = false
-    self.slots[h.index].generation += 1
-    self.free_indices.push(h.index)
-    self.live_count -= 1
+    self._slots[h.index].value? = none
+    self._slots[h.index].alive = false
+    self._slots[h.index].generation += 1
+    self._free_indices.push(h.index)
+    self._live_count -= 1
     func <- true
 }
 
@@ -119,7 +119,7 @@ bind Pool[T].free = (&self, h: Handle[T]): bool {
 // -----------------------------------------------------------------------------
 
 @test("generational pool allocation, retrieval, mutation, and len")
-bind test_pool_alloc_and_get = () {
+bind test_pool_alloc_and_get = () -> {
     let pool = Pool[string].new()
     assert(pool.len() == 0, "initial len 0")
 
@@ -139,12 +139,12 @@ bind test_pool_alloc_and_get = () {
     let v1_up? = pool.get(h1)
     assert(v1_up? == "first_updated", "v1 updated matches")
 
-    let read_len? = pool.with[int](h2, (s: string): int { s.len() })
+    let read_len? = pool.with[int](h2, (s: string): int -> { s.len() })
     assert(read_len? == 6, "with reader returned string length")
 }
 
 @test("generational pool free, reuse, and stale handle invalidation")
-bind test_pool_free_and_reuse = () {
+bind test_pool_free_and_reuse = () -> {
     let pool = Pool[string].new()
     let h1 = pool.alloc("slot_0")
     let h2 = pool.alloc("slot_1")
@@ -176,7 +176,7 @@ bind test_pool_free_and_reuse = () {
 }
 
 @test("generational handle equality and out of bounds checks")
-bind test_pool_handle_equality = () {
+bind test_pool_handle_equality = () -> {
     let pool = Pool[int].new()
     let h1 = pool.alloc(100)
     let h2 = pool.alloc(200)

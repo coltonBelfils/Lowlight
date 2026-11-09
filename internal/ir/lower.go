@@ -3,6 +3,7 @@ package ir
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"lowlight/internal/ast"
 	"lowlight/internal/sema"
@@ -200,6 +201,11 @@ type funcLowerer struct {
 	emitStack     [][]Instr
 	usedLabels    map[string]bool
 	nextTempID    int
+
+	currFunc      *sema.FuncInstance
+	callerFileLoc *Local
+	callerLineLoc *Local
+	callerColLoc  *Local
 }
 
 func newFuncLowerer(
@@ -233,6 +239,7 @@ func lowerFuncInstance(
 	registerThunk func(*sema.FuncInstance, *types.Func) string,
 ) *Function {
 	fl := newFuncLowerer(prog, fi.BodyMaps, tc, release, registerThunk)
+	fl.currFunc = fi
 	var params []*Local
 
 	fnScope := fl.pushScope(fi.FuncTargetID, "", "", nil, nil, true)
@@ -255,6 +262,25 @@ func lowerFuncInstance(
 		}
 		params = append(params, pLoc)
 		fl.symLocals[sym] = pLoc
+	}
+
+	if fi.TrackCaller {
+		fl.callerFileLoc = &Local{
+			CName:   "_ll_caller_file",
+			Type:    types.TypeString,
+			IsParam: true,
+		}
+		fl.callerLineLoc = &Local{
+			CName:   "_ll_caller_line",
+			Type:    types.TypeInt,
+			IsParam: true,
+		}
+		fl.callerColLoc = &Local{
+			CName:   "_ll_caller_col",
+			Type:    types.TypeInt,
+			IsParam: true,
+		}
+		params = append(params, fl.callerFileLoc, fl.callerLineLoc, fl.callerColLoc)
 	}
 
 	fl.lowerFunctionBody(fi.Body, fi.Sig.Ret, fnScope)
@@ -484,15 +510,24 @@ func (fl *funcLowerer) info(e ast.Expr) *sema.ExprInfo {
 	return &sema.ExprInfo{Type: types.TypeVoid}
 }
 
-func formatSpanLoc(e ast.Expr) (string, int) {
+func formatSpanPos(e ast.Expr) (string, int, int) {
 	if e == nil {
-		return "<unknown>", 0
+		return "<unknown>", 0, 0
 	}
 	sp := e.GetSpan()
 	if sp.Start.File == "" {
-		return "<input>", sp.Start.Line
+		return "<input>", sp.Start.Line, sp.Start.Col
 	}
-	return filepath.Base(sp.Start.File), sp.Start.Line
+	cleanPath := filepath.Clean(sp.Start.File)
+	if rel, err := filepath.Rel(".", cleanPath); err == nil && !strings.HasPrefix(rel, "..") {
+		return rel, sp.Start.Line, sp.Start.Col
+	}
+	return filepath.Base(cleanPath), sp.Start.Line, sp.Start.Col
+}
+
+func formatSpanLoc(e ast.Expr) (string, int) {
+	f, l, _ := formatSpanPos(e)
+	return f, l
 }
 
 func endsWithTerm(ins []Instr) bool {

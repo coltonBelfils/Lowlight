@@ -6,7 +6,7 @@
 import "std/http.ll" as http
 import "std/fs.ll"
 
-bind main = () {
+bind main = () -> {
     // =========================================================================
     // 1. Quick GET Request using convenience `http.get(url)`
     // =========================================================================

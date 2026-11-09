@@ -69,20 +69,19 @@ func emitC(t *testing.T, src string, testMode bool, release bool) (string, error
 // 1. Tests in the same file as production code
 func TestInlineUnitTests(t *testing.T) {
 	src := `
-bind add = (a: int, b: int): int a + b
-bind mul = (a: int, b: int): int a * b
-
-bind main = () {
+bind add = (a: int, b: int): int -> a + b
+bind mul = (a: int, b: int): int -> a * b
+bind main = () -> {
     println("production main")
 }
 
 @test("addition works")
-bind test_add = () {
+bind test_add = () -> {
     assert(add(2, 3) == 5)
 }
 
 @test
-bind test_multiplication = () {
+bind test_multiplication = () -> {
     assert(mul(4, 5) == 20)
 }
 `
@@ -120,7 +119,7 @@ func TestDedicatedTestFileWithoutMain(t *testing.T) {
 import "std/test.ll" as test
 
 @test("testing assertion library")
-bind test_assertions = () {
+bind test_assertions = () -> {
     test.assert_eq(10 + 20, 30)
     test.assert_ne(10, 20)
     test.assert_true(true)
@@ -159,15 +158,15 @@ bind test_assertions = () {
 func TestNonTestCallingTestFunctionRejected(t *testing.T) {
 	src := `
 @test("secret test")
-bind my_test = () {
+bind my_test = () -> {
     assert(1 == 1)
 }
 
-bind production_func = () {
+bind production_func = () -> {
     my_test()
 }
 
-bind main = () {
+bind main = () -> {
     production_func()
 }
 `
@@ -184,15 +183,15 @@ bind main = () {
 func TestNonTestCallingTestOnlyHelperRejected(t *testing.T) {
 	src := `
 @test_only
-bind setup_database_fixture = (): int {
+bind setup_database_fixture = (): int -> {
     42
 }
 
-bind calculate_metrics = (): int {
+bind calculate_metrics = (): int -> {
     setup_database_fixture()
 }
 
-bind main = () {
+bind main = () -> {
     calculate_metrics()
 }
 `
@@ -214,11 +213,11 @@ define MockUser struct [
     name: string,
 ]
 
-bind create_admin = () {
+bind create_admin = () -> {
     let u = MockUser[id: 1, name: "Admin"]
 }
 
-bind main = () {
+bind main = () -> {
     create_admin()
 }
 `
@@ -234,14 +233,13 @@ bind main = () {
 // 6. Test exclusion in non-test / release builds
 func TestTestsOmittedFromNonTestBuild(t *testing.T) {
 	src := `
-bind helper = (): int 123
-
+bind helper = (): int -> 123
 @test("should not be compiled in release")
-bind test_secret_logic = () {
+bind test_secret_logic = () -> {
     assert(helper() == 123)
 }
 
-bind main = (): int {
+bind main = (): int -> {
     helper()
 }
 `
@@ -271,17 +269,17 @@ bind main = (): int {
 func TestTestRunnerContinuesAfterFailure(t *testing.T) {
 	src := `
 @test("first test passes")
-bind test_one = () {
+bind test_one = () -> {
     assert(1 == 1)
 }
 
 @test("second test fails")
-bind test_two = () {
+bind test_two = () -> {
     assert(1 == 2, "intentional failure")
 }
 
 @test("third test passes")
-bind test_three = () {
+bind test_three = () -> {
     assert(3 == 3)
 }
 `
@@ -311,13 +309,13 @@ bind test_three = () {
 func TestTestRunnerDetectsMemoryLeaks(t *testing.T) {
 	src := `
 @test("clean test")
-bind test_clean = () {
+bind test_clean = () -> {
     let lst = [1, 2, 3, 4, 5]
     assert(lst.len() == 5)
 }
 
 @test("leaky test")
-bind test_leaky = () {
+bind test_leaky = () -> {
     // Manually allocate raw heap memory without freeing to simulate leak
     unsafe {
         let _p = alloc_raw[u8](64)
@@ -342,10 +340,9 @@ bind test_leaky = () {
 // 9. Tests run and pass in release mode with optimizations
 func TestTestsRunInReleaseMode(t *testing.T) {
 	src := `
-bind square = (x: int): int x * x
-
+bind square = (x: int): int -> x * x
 @test("optimized math in release mode")
-bind test_square = () {
+bind test_square = () -> {
     assert(square(12) == 144)
 }
 `
@@ -364,7 +361,7 @@ bind test_square = () {
 // 10. Custom test_main entry point
 func TestCustomTestMain(t *testing.T) {
 	src := `
-bind test_main = () {
+bind test_main = () -> {
     println("custom test_main entry point executed")
 }
 `
@@ -413,11 +410,9 @@ func TestDuplicateTestDeclarationError(t *testing.T) {
 	src := `import "std/test.ll"
 
 @test("pass")
-bind t = () assert_eq(1, 1)
-
+bind t = () -> assert_eq(1, 1)
 @test("fail")
-bind t = () assert_eq(1, 2)
-`
+bind t = () -> assert_eq(1, 2)`
 	if err := os.WriteFile(dupPath, []byte(src), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +439,7 @@ func TestDuplicateLocalDeclarationError(t *testing.T) {
 	root := projectRoot(t)
 	tmpDir := t.TempDir()
 	dupPath := filepath.Join(tmpDir, "dup_local.ll")
-	src := `bind main = () {
+	src := `bind main = () -> {
 	bind a = 1
 	bind a = 2
 	let b = 1
@@ -481,11 +476,9 @@ func TestMultipleTestsWithDistinctNames(t *testing.T) {
 	src := `import "std/test.ll"
 
 @test("pass")
-bind test_pass = () assert_eq(1, 1)
-
+bind test_pass = () -> assert_eq(1, 1)
 @test("fail")
-bind test_fail = () assert_eq(1, 2)
-`
+bind test_fail = () -> assert_eq(1, 2)`
 	if err := os.WriteFile(filePath, []byte(src), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +521,7 @@ import "std/strings.ll"
 import "std/fs.ll"
 
 @test("isolated local test only")
-bind test_isolated = () {
+bind test_isolated = () -> {
     assert(10 + 5 == 15)
 }
 `
@@ -570,7 +563,7 @@ func TestTestScopeDirectoryWithoutTests(t *testing.T) {
 	root := projectRoot(t)
 	noTestsDir := t.TempDir()
 	dummyFile := filepath.Join(noTestsDir, "app.ll")
-	if err := os.WriteFile(dummyFile, []byte("bind main = () {}\n"), 0644); err != nil {
+	if err := os.WriteFile(dummyFile, []byte("bind main = () -> {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -602,9 +595,9 @@ func TestTestScopeDirectoryWithMultipleTestFiles(t *testing.T) {
 	file1 := filepath.Join(tmpDir, "test_suite_a.ll")
 	src1 := `
 @test("suite A test 1")
-bind test_a1 = () { assert(true) }
+bind test_a1 = () -> { assert(true) }
 @test("suite A test 2")
-bind test_a2 = () { assert(true) }
+bind test_a2 = () -> { assert(true) }
 `
 	if err := os.WriteFile(file1, []byte(src1), 0o644); err != nil {
 		t.Fatalf("write file1: %v", err)
@@ -613,7 +606,7 @@ bind test_a2 = () { assert(true) }
 	file2 := filepath.Join(tmpDir, "test_suite_b.ll")
 	src2 := `
 @test("suite B test 1")
-bind test_b1 = () { assert(1 == 1) }
+bind test_b1 = () -> { assert(1 == 1) }
 `
 	if err := os.WriteFile(file2, []byte(src2), 0o644); err != nil {
 		t.Fatalf("write file2: %v", err)
@@ -621,7 +614,7 @@ bind test_b1 = () { assert(1 == 1) }
 
 	file3NoTests := filepath.Join(tmpDir, "helper.ll")
 	src3 := `
-bind helper_fn = (): int { 42 }
+bind helper_fn = (): int -> { 42 }
 `
 	if err := os.WriteFile(file3NoTests, []byte(src3), 0o644); err != nil {
 		t.Fatalf("write file3: %v", err)
@@ -650,6 +643,114 @@ bind helper_fn = (): int { 42 }
 	}
 	if !strings.Contains(out, "Total test results: 3 passed, 0 failed across 2 file(s) (total 3)") {
 		t.Errorf("expected 3 passed across 2 files in summary:\n%s", out)
+	}
+}
+
+// 15. Rich assertion failure diagnostics: Caller location (file, line, col), aligned values, and diff markers
+func TestAssertionFailureCallerLocationAndDiff(t *testing.T) {
+	src := `import "std/test.ll" as test
+
+@test("equality failure with diff")
+bind test_diff = () -> {
+    test.assert_eq("hello world", "hello there")
+}
+`
+	out, code, err := runLowlightTest(t, src, false)
+	if code != 1 {
+		t.Fatalf("expected code 1 on assertion failure, got %d (err: %v)\nOutput: %s", code, err, out)
+	}
+	// Caller location must point to test_file.ll:5:5 (not test.ll)
+	if !strings.Contains(out, "test_file.ll:5:5:") {
+		t.Errorf("missing caller location test_file.ll:5:5: in output:\n%s", out)
+	}
+	if strings.Contains(out, "test.ll:8:") {
+		t.Errorf("failure message erroneously pointed to std/test.ll instead of caller:\n%s", out)
+	}
+	// Verify aligned got and expected
+	if !strings.Contains(out, "expected: hello there") {
+		t.Errorf("missing expected: hello there in output:\n%s", out)
+	}
+	if !strings.Contains(out, "got: hello world") {
+		t.Errorf("missing got: hello world in output:\n%s", out)
+	}
+	// Verify diff pointer
+	if !strings.Contains(out, "^ diff at index 6") {
+		t.Errorf("missing '^ diff at index 6' in output:\n%s", out)
+	}
+}
+
+// 16. Multiline diffing in assertion failure
+func TestAssertionFailureMultilineDiff(t *testing.T) {
+	src := `import "std/test.ll" as test
+
+@test("multiline failure diff")
+bind test_multi = () -> {
+    let act = "line1\nline2_bad\nline3"
+    let exp = "line1\nline2_good\nline3"
+    test.assert_eq(act, exp)
+}
+`
+	out, code, err := runLowlightTest(t, src, false)
+	if code != 1 {
+		t.Fatalf("expected code 1 on assertion failure, got %d (err: %v)\nOutput: %s", code, err, out)
+	}
+	if !strings.Contains(out, "first mismatch at line 2:") {
+		t.Errorf("missing 'first mismatch at line 2:' in output:\n%s", out)
+	}
+	if !strings.Contains(out, "expected: line2_good") {
+		t.Errorf("missing 'expected: line2_good' in output:\n%s", out)
+	}
+	if !strings.Contains(out, "got: line2_bad") {
+		t.Errorf("missing 'got: line2_bad' in output:\n%s", out)
+	}
+}
+
+// 17. Custom @track_caller helper forwards caller location
+func TestTrackCallerHelperForwarding(t *testing.T) {
+	src := `import "std/test.ll" as test
+
+@test_only
+@track_caller
+bind assert_even = (x: int) -> {
+    test.assert_eq(x % 2, 0)
+}
+
+@test("track caller through custom helper")
+bind test_even = () -> {
+    assert_even(3)
+}
+`
+	out, code, err := runLowlightTest(t, src, false)
+	if code != 1 {
+		t.Fatalf("expected code 1 on assertion failure, got %d (err: %v)\nOutput: %s", code, err, out)
+	}
+	// Caller location must point to line 11 (the call site in test_even), not line 6 (inside assert_even)
+	if !strings.Contains(out, "test_file.ll:11:5:") {
+		t.Errorf("expected caller location test_file.ll:11:5: in output, got:\n%s", out)
+	}
+}
+
+// 18. Multiline backtick strings with interpolation and escapes
+func TestMultilineBacktickStringsEndToEnd(t *testing.T) {
+	src := "import \"std/test.ll\" as test\n\n" +
+		"@test(\"backtick multiline, interpolation, and escapes\")\n" +
+		"bind test_backtick = () -> {\n" +
+		"    let name = \"World\"\n" +
+		"    let val = 42\n" +
+		"    let s = `line 1: $name\n" +
+		"line 2: ${val * 2}\n" +
+		"\"quotes\" and 'apostrophes'\n" +
+		"\\`escaped backticks\\`\n" +
+		"\\$100`\n\n" +
+		"    let expected = \"line 1: World\\nline 2: 84\\n\\\"quotes\\\" and 'apostrophes'\\n`escaped backticks`\\n\\$100\"\n" +
+		"    test.assert_eq(s, expected)\n" +
+		"}\n"
+	out, code, err := runLowlightTest(t, src, false)
+	if code != 0 || err != nil {
+		t.Fatalf("expected code 0, got %d (err: %v)\nOutput: %s", code, err, out)
+	}
+	if !strings.Contains(out, "1 passed, 0 failed") {
+		t.Errorf("expected test to pass, got:\n%s", out)
 	}
 }
 

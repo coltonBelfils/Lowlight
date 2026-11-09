@@ -16,7 +16,7 @@ bind C = B + 1
 bind B = A * 2
 bind A = 10
 
-bind main = () {
+bind main = () -> {
     assert(A == 10)
     assert(B == 20)
     assert(C == 21)
@@ -29,7 +29,7 @@ bind main = () {
 bind A = B + 1
 bind B = A + 1
 
-bind main = () {
+bind main = () -> {
     println(A)
 }
 `
@@ -54,11 +54,11 @@ define NonCopyable struct [
     id: int,
 ]
 
-bind NonCopyable.drop = (&self) {
+bind NonCopyable.drop = (&self) -> {
     self.id = 0
 }
 
-bind main = () {
+bind main = () -> {
     let v: [NonCopyable] = []
     // Push 10 elements to trigger dynamic reallocations in ll_vec_reserve
     for (i in 0..10) {
@@ -78,7 +78,7 @@ func TestInt64MinFormatting(t *testing.T) {
 import "std/strconv.ll" as strconv
 import "std/strfmt.ll" as strfmt
 
-bind main = () {
+bind main = () -> {
     let min_i64 = -9223372036854775807 - 1
 
     // to_radix in base 10
@@ -111,7 +111,7 @@ func TestParseIntOverflow(t *testing.T) {
 	src := `
 import "std/strconv.ll" as strconv
 
-bind main = () {
+bind main = () -> {
     // Exact bounds
     let max_ok? = strconv.parse_int_safe("9223372036854775807")
     assert(max_ok? != none)
@@ -146,7 +146,7 @@ func TestArenaEscapeAnalysisRecursion(t *testing.T) {
 define Node struct [ val: int ]
 define Holder struct [ node: ref[Node] ]
 
-bind main = () {
+bind main = () -> {
     let outer_ref: ?ref[Node] = none
     {
         let a = Arena.new()
@@ -172,7 +172,7 @@ bind main = () {
 	srcIf := `
 define Node struct [ val: int ]
 
-bind main = () {
+bind main = () -> {
     let outer_ref: ?ref[Node] = none
     let a1 = Arena.new()
     let n1 = a1.alloc(Node[val: 1])
@@ -199,11 +199,11 @@ bind main = () {
 // 6. Security Hole 3: Unbounded Generic Monomorphization Limit
 func TestGenericRecursionLimit(t *testing.T) {
 	src := `
-bind recurse[T] = () {
+bind recurse[T] = () -> {
     recurse[[T]]()
 }
 
-bind main = () {
+bind main = () -> {
     recurse[int]()
 }
 `
@@ -224,7 +224,7 @@ bind main = () {
 // 7. Security Hole 4: Tombstone memory compaction in Maps and Sets
 func TestMapAndSetTombstoneCompaction(t *testing.T) {
 	src := `
-bind main = () {
+bind main = () -> {
     let m = #[ "key": 0 ]
     m.clear()
 
@@ -270,7 +270,7 @@ func TestPosixDirectoryOperations(t *testing.T) {
 	src := `
 import "std/os.ll" as os
 
-bind main = () {
+bind main = () -> {
     let test_dir = "/tmp/ll_test_mkdir_p/nested/dir/level3"
     let ok = os.mkdir_p(test_dir)
     assert(ok)
@@ -291,11 +291,11 @@ define Res struct [
     name: string,
 ]
 
-bind Res.drop = (&self) {
+bind Res.drop = (&self) -> {
     self.name = ""
 }
 
-bind main = () {
+bind main = () -> {
     unsafe {
         let p = alloc_raw[Res](1)
         // Assigning to raw uninitialized memory *p must NOT attempt to drop uninitialized *p!
@@ -312,7 +312,7 @@ bind main = () {
 // 10. Item 6: Result[T, E] in prelude without import
 func TestResultInPrelude(t *testing.T) {
 	src := `
-bind divide = (a: int, b: int): Result[int, string] {
+bind divide = (a: int, b: int): Result[int, string] -> {
     if (b == 0) {
         Result[int, string].fail("division by zero")
     } else {
@@ -320,7 +320,7 @@ bind divide = (a: int, b: int): Result[int, string] {
     }
 }
 
-bind main = () {
+bind main = () -> {
     let ok_res = divide(10, 2)
     assert(ok_res.is_ok())
     assert(not ok_res.is_err())
@@ -345,26 +345,26 @@ define Coord struct [
 ]
 
 @must_use
-bind compute_val = (x: int): int {
+bind compute_val = (x: int): int -> {
     x * 2
 }
 
 @inline
-bind fast_add = (a: int, b: int): int {
+bind fast_add = (a: int, b: int): int -> {
     a + b
 }
 
 @noinline
-bind slow_add = (a: int, b: int): int {
+bind slow_add = (a: int, b: int): int -> {
     a + b
 }
 
 @deprecated("use compute_val instead")
-bind old_calc = (x: int): int {
+bind old_calc = (x: int): int -> {
     x * 2
 }
 
-bind main = () {
+bind main = () -> {
     let c = Coord[x: i32(10), y: i32(20)]
     assert(int(c.x) == 10)
     assert(int(c.y) == 20)
@@ -385,8 +385,8 @@ bind main = () {
 	srcConflict := `
 @inline
 @noinline
-bind bad_fn = () {}
-bind main = () {}
+bind bad_fn = () -> {}
+bind main = () -> {}
 `
 	root := projectRoot(t)
 	_, _, err := driver.Check(driver.Options{
@@ -409,15 +409,15 @@ define CustomFile struct [
     fd: int,
 ]
 
-bind CustomFile.drop = (&self) {
+bind CustomFile.drop = (&self) -> {
     self.fd = -1
 }
 
-bind test_drop[T: Drop] = (item: own T) {
+bind test_drop[T: Drop] = (item: own T) -> {
     // item is dropped at the end of this scope
 }
 
-bind main = () {
+bind main = () -> {
     let f = CustomFile[fd: 10]
     test_drop[CustomFile](own f)
 }
@@ -428,7 +428,7 @@ bind main = () {
 // 13. Item 9: string.push_bytes(ptr[u8], int)
 func TestStringPushBytes(t *testing.T) {
 	src := `
-bind main = () {
+bind main = () -> {
     let s = "Hello"
     unsafe {
         let raw = alloc_raw[u8](7)
@@ -454,7 +454,7 @@ func TestTopLevelComplexConstants(t *testing.T) {
 	src := `
 bind l = [1, 2, 3, 4, 5, 6]
 
-bind main = () {
+bind main = () -> {
     let ll? = while (i in l) i + 1
     if (ll?) {
         assert(ll == 7)

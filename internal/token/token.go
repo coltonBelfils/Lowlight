@@ -40,6 +40,7 @@ const (
 
 	// Operators & Unwind
 	Unwind     // <- (whitespace-delimited)
+	RArrow     // -> (function/method body separator)
 	Question   // ?  (prefix optional type `?T`)
 	QuestQuest // ?? (optional fallback)
 	Assign     // =
@@ -134,6 +135,7 @@ var kindNames = map[Kind]string{
 	DotDotEq:    "..=",
 	At:          "@",
 	Unwind:      "<-",
+	RArrow:      "->",
 	Question:    "?",
 	QuestQuest:  "??",
 	Assign:      "=",
@@ -266,7 +268,7 @@ func (k Kind) TriggersAutoSemi() bool {
 // suppresses an automatic semicolon from the previous line under Spec §2.3 Rule 3.
 func (k Kind) SuppressesAutoSemiOnNextLine() bool {
 	switch k {
-	case KwElse, KwWhen, Dot, QuestDot:
+	case KwElse, KwWhen, Dot, QuestDot, RArrow:
 		return true
 	default:
 		return false

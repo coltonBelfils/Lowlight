@@ -205,7 +205,7 @@ func TestLSPRealtimeDiagnosticsAndLifecycle(t *testing.T) {
 	uri := lsp.PathToURI(docPath)
 
 	// 1. Open valid Lowlight program -> 0 diagnostics
-	validSrc := `bind main = () {
+	validSrc := `bind main = () -> {
 	let x = 42
 	println(x)
 }
@@ -224,11 +224,11 @@ func TestLSPRealtimeDiagnosticsAndLifecycle(t *testing.T) {
 	}
 
 	// 2. Introduce ownership move error + missing `?` error in live buffer
-	errSrc := `bind consume = (s: own string) {
+	errSrc := `bind consume = (s: own string) -> {
 	println(s)
 }
 
-bind main = () {
+bind main = () -> {
 	let msg = "hello"
 	consume(own msg)
 	println(msg)
@@ -255,11 +255,11 @@ bind main = () {
 	}
 
 	// 3. Fix errors via didChange -> 0 diagnostics
-	fixedSrc := `bind consume = (s: own string) {
+	fixedSrc := `bind consume = (s: own string) -> {
 	println(s)
 }
 
-bind main = () {
+bind main = () -> {
 	let msg = "hello"
 	consume(msg.copy())
 	println(msg)
@@ -336,7 +336,7 @@ func TestLSPAutocompleteAllContexts(t *testing.T) {
 
 	// 1. Import path completion (`import "std/|"` -> `std/math.ll`, `std/fs.ll`, `std/pool.ll`)
 	impItems := openAndComplete(`import "std//*CURSOR*/"
-bind main = () {}
+bind main = () -> {}
 `)
 	for _, want := range []string{"std/math.ll", "std/fs.ll", "std/pool.ll"} {
 		if hasLabel(impItems, want) == nil {
@@ -350,12 +350,12 @@ bind main = () {}
 	y: float,
 ]
 
-bind Point.translate = (&self, dx: float, dy: float) {
+bind Point.translate = (&self, dx: float, dy: float) -> {
 	self.x += dx
 	self.y += dy
 }
 
-bind main = () {
+bind main = () -> {
 	let pt = Point[x: 1.0, y: 2.0]
 	pt./*CURSOR*/
 }
@@ -367,7 +367,7 @@ bind main = () {
 	}
 
 	// 3. Vector `[string]` built-in method completion (including string-specific `join`!)
-	vecItems := openAndComplete(`bind main = () {
+	vecItems := openAndComplete(`bind main = () -> {
 	let words = ["low", "light"]
 	words./*CURSOR*/
 }
@@ -381,7 +381,7 @@ bind main = () {
 	// 4. Generic `Pool[int]` dot-completion on uninstantiated generic methods (`alloc`, `get`, `free`)!
 	poolItems := openAndComplete(`import "std/pool.ll"
 
-bind main = () {
+bind main = () -> {
 	let p = Pool[int].new()
 	p./*CURSOR*/
 }
@@ -399,15 +399,15 @@ bind main = () {
 	name: string,
 ]
 
-bind User.rename = (&self, next: string) {
+bind User.rename = (&self, next: string) -> {
 	self.name = next
 }
 
-bind User.greet = (self): string {
+bind User.greet = (self): string -> {
 	"hi " + self.name
 }
 
-bind main = () {
+bind main = () -> {
 	let user?: ?User = User[name: "Ada"]
 	user?./*CURSOR*/
 }
@@ -427,7 +427,7 @@ bind main = () {
 	// 6. Enum variant completion (`Color.|`), `Arena.|`, and module alias `math.|`
 	enumItems := openAndComplete(`import "std/math.ll" as math
 define Color enum [Red, Green, Blue]
-bind main = () {
+bind main = () -> {
 	let c = Color./*CURSOR*/
 }
 `)
@@ -438,7 +438,7 @@ bind main = () {
 	}
 
 	modItems := openAndComplete(`import "std/math.ll" as math
-bind main = () {
+bind main = () -> {
 	let v = math./*CURSOR*/
 }
 `)
@@ -453,7 +453,7 @@ bind main = () {
 	x: float,
 	y: float,
 ]
-bind main = () {
+bind main = () -> {
 	let pt = Point[x: 1.0, /*CURSOR*/]
 }
 `)
@@ -465,7 +465,7 @@ bind main = () {
 	}
 
 	// 8. Narrowed optional scope inside `if (account?) { acc| }`
-	narrowItems := openAndComplete(`bind main = () {
+	narrowItems := openAndComplete(`bind main = () -> {
 	let account?: ?string = "pro"
 	if (account?) {
 		println(acc/*CURSOR*/)
@@ -501,11 +501,11 @@ define Counter struct [
 	value: int,
 ]
 
-bind Counter.add = (&self, delta: int, scale: int) {
+bind Counter.add = (&self, delta: int, scale: int) -> {
 	self.value += delta * scale
 }
 
-bind main = () {
+bind main = () -> {
 	let c = Counter[value: 10]
 	c.add(5, 2)
 	let clamped = math.clamp_int(15, 0, 10)
@@ -579,9 +579,9 @@ bind main = () {
 	}
 
 	// 6. Quick-Fix Code Actions (missing `&`, missing `own`, `!` -> `not `)
-	fixSrc := `bind bump = (n: &int) { n += 1 }
-bind sink = (s: own string) { println(s) }
-bind main = () {
+	fixSrc := `bind bump = (n: &int) -> { n += 1 }
+bind sink = (s: own string) -> { println(s) }
+bind main = () -> {
 	let x = 1
 	bump(x)
 	let name = "ll"
@@ -664,11 +664,9 @@ func TestLSPDuplicateDeclarationDiagnostics(t *testing.T) {
 	dupSrc := `import "std/test.ll"
 
 @test("pass")
-bind t = () assert_eq(1, 1)
-
+bind t = () -> assert_eq(1, 1)
 @test("fail")
-bind t = () assert_eq(1, 2)
-`
+bind t = () -> assert_eq(1, 2)`
 	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
 		TextDocument: lsp.TextDocumentItem{
 			URI:        uri,
@@ -697,11 +695,9 @@ bind t = () assert_eq(1, 2)
 	fixedSrc := `import "std/test.ll"
 
 @test("pass")
-bind test_pass = () assert_eq(1, 1)
-
+bind test_pass = () -> assert_eq(1, 1)
 @test("fail")
-bind test_fail = () assert_eq(1, 2)
-`
+bind test_fail = () -> assert_eq(1, 2)`
 	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
 		TextDocument:   lsp.VersionedTextDocumentIdentifier{URI: uri, Version: 2},
 		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: fixedSrc}},
@@ -724,7 +720,7 @@ func TestLSPDuplicateLocalDeclarationDiagnostics(t *testing.T) {
 	docPath := filepath.Join(t.TempDir(), "dup_local_test.ll")
 	uri := lsp.PathToURI(docPath)
 
-	dupSrc := `bind main = () {
+	dupSrc := `bind main = () -> {
 	bind a = 1
 	bind a = 2
 
@@ -757,7 +753,7 @@ func TestLSPDuplicateLocalDeclarationDiagnostics(t *testing.T) {
 	}
 
 	// Fix via didChange
-	fixedSrc := `bind main = () {
+	fixedSrc := `bind main = () -> {
 	bind a1 = 1
 	bind a2 = 2
 
@@ -773,5 +769,306 @@ func TestLSPDuplicateLocalDeclarationDiagnostics(t *testing.T) {
 	diags = h.waitDiagnostics(uri)
 	if len(diags) != 0 {
 		t.Fatalf("expected 0 diagnostics after fixing duplicate local declarations, got %+v", diags)
+	}
+}
+
+func TestLSPAdvancedFeatures(t *testing.T) {
+	h := newHarness(t)
+	root := repoRoot(t)
+
+	var initRes lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{
+		RootURI: lsp.PathToURI(root),
+	}, &initRes)
+	if !initRes.Capabilities.DocumentFormattingProvider || !initRes.Capabilities.InlayHintProvider {
+		t.Fatalf("missing new capabilities: %+v", initRes.Capabilities)
+	}
+	h.notify("initialized", map[string]any{})
+
+	jsonSrc := `define JsonValue enum [
+	Null,
+	Bool: bool,
+	Number: float,
+	Str: string,
+	Arr: [JsonValue],
+	Obj: [
+		keys: [string],
+		values: [JsonValue],
+	],
+]
+
+bind check = (val: JsonValue) -> {
+	match (val)
+}
+
+bind test_calls = () -> {
+	let n = JsonValue.Number(3.14)
+}
+`
+	tmpDir := t.TempDir()
+	uri := lsp.PathToURI(filepath.Join(tmpDir, "json.ll"))
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        uri,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       jsonSrc,
+		},
+	})
+
+	diags := h.waitDiagnostics(uri)
+	// There should be a non-exhaustive match diagnostic on `match (val)`
+	var nonExhaustiveDiag *lsp.Diagnostic
+	for i := range diags {
+		if strings.Contains(diags[i].Message, "non-exhaustive `match` on enum JsonValue") {
+			nonExhaustiveDiag = &diags[i]
+			break
+		}
+	}
+	if nonExhaustiveDiag == nil {
+		t.Fatalf("expected non-exhaustive match diagnostic, got: %+v", diags)
+	}
+
+	// 1. Test Code Action: "Generate missing match arms"
+	var actions []lsp.CodeAction
+	h.request("textDocument/codeAction", lsp.CodeActionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Range:        nonExhaustiveDiag.Range,
+		Context:      lsp.CodeActionContext{Diagnostics: []lsp.Diagnostic{*nonExhaustiveDiag}},
+	}, &actions)
+
+	foundArmGen := false
+	for _, act := range actions {
+		if strings.Contains(act.Title, "Generate missing match arms") {
+			foundArmGen = true
+			if act.Edit == nil || len(act.Edit.Changes) == 0 {
+				t.Fatalf("expected workspace edit in match arms action: %+v", act)
+			}
+			edits := act.Edit.Changes[uri]
+			if len(edits) == 0 || !strings.Contains(edits[0].NewText, "JsonValue.Null") {
+				t.Errorf("unexpected edit text: %+v", edits)
+			}
+		}
+	}
+	if !foundArmGen {
+		t.Fatalf("missing 'Generate missing match arms' quickfix in %+v", actions)
+	}
+
+	// 2. Test Signature Help for Enum Variant Constructor `JsonValue.Number(`
+	sigPos := strings.Index(jsonSrc, "JsonValue.Number(") + len("JsonValue.Number(")
+	var sigHelp lsp.SignatureHelp
+	h.request("textDocument/signatureHelp", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(jsonSrc, sigPos),
+	}, &sigHelp)
+
+	if len(sigHelp.Signatures) == 0 {
+		t.Fatalf("expected signature help for JsonValue.Number, got none")
+	}
+	if !strings.Contains(sigHelp.Signatures[0].Label, "JsonValue.Number") {
+		t.Errorf("unexpected signature label: %s", sigHelp.Signatures[0].Label)
+	}
+
+	// 3. Test Inlay Hints
+	var hints []lsp.InlayHint
+	h.request("textDocument/inlayHint", lsp.InlayHintParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Range: lsp.Range{
+			Start: lsp.Position{Line: 0, Character: 0},
+			End:   lsp.Position{Line: 25, Character: 0},
+		},
+	}, &hints)
+
+	foundTypeHint := false
+	for _, h := range hints {
+		if h.Kind == lsp.InlayHintType && strings.Contains(h.Label, "JsonValue") {
+			foundTypeHint = true
+		}
+	}
+	if !foundTypeHint {
+		t.Errorf("expected type hint for `let n = JsonValue.Number(...)`, got %+v", hints)
+	}
+
+	// 4. Test Document Formatting
+	messyURI := lsp.PathToURI(filepath.Join(tmpDir, "messy.ll"))
+	messySrc := "bind main = () -> {\nlet x = 1\nlet y = 2\n}\n"
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        messyURI,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       messySrc,
+		},
+	})
+	_ = h.waitDiagnostics(messyURI)
+
+	var edits []lsp.TextEdit
+	h.request("textDocument/formatting", lsp.DocumentFormattingParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: messyURI},
+		Options: lsp.FormattingOptions{
+			TabSize:      4,
+			InsertSpaces: true,
+		},
+	}, &edits)
+	if len(edits) == 0 {
+		t.Fatalf("expected formatting edits, got none")
+	}
+	if !strings.Contains(edits[0].NewText, "    let x = 1") {
+		t.Errorf("expected 4-space indentation in formatted text, got: %q", edits[0].NewText)
+	}
+
+	// 5. Test Prepare Rename & Rename
+	renameTarget := strings.Index(jsonSrc, "check")
+	var prepRange lsp.Range
+	h.request("textDocument/prepareRename", lsp.PrepareRenameParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(jsonSrc, renameTarget),
+	}, &prepRange)
+
+	var wsEdit lsp.WorkspaceEdit
+	h.request("textDocument/rename", lsp.RenameParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(jsonSrc, renameTarget),
+		NewName:      "validate_json",
+	}, &wsEdit)
+
+	if len(wsEdit.Changes[uri]) == 0 {
+		t.Fatalf("expected rename edits for `check`, got none")
+	}
+	if wsEdit.Changes[uri][0].NewText != "validate_json" {
+		t.Errorf("expected newText `validate_json`, got %s", wsEdit.Changes[uri][0].NewText)
+	}
+}
+
+func TestLSPTestingFeatures(t *testing.T) {
+	h := newHarness(t)
+	root := repoRoot(t)
+
+	var initRes lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{
+		RootURI: lsp.PathToURI(root),
+	}, &initRes)
+	if initRes.Capabilities.CodeLensProvider == nil || initRes.Capabilities.ExecuteCommandProvider == nil {
+		t.Fatalf("missing test capabilities in server capabilities: %+v", initRes.Capabilities)
+	}
+	h.notify("initialized", map[string]any{})
+
+	testSrc := `bind add = (a: int, b: int): int -> { a + b }
+
+@test("addition works")
+bind test_add = () -> {
+	let r = add(2, 3)
+	assert(r == 5)
+}
+
+@test
+bind test_simple = () -> {
+	assert(true)
+}
+`
+	tmpDir := t.TempDir()
+	uri := lsp.PathToURI(filepath.Join(tmpDir, "math_test.ll"))
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        uri,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       testSrc,
+		},
+	})
+
+	_ = h.waitDiagnostics(uri)
+
+	// 1. Code Lens: Check that CodeLenses are generated for the file and each @test
+	var lenses []lsp.CodeLens
+	h.request("textDocument/codeLens", lsp.CodeLensParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+	}, &lenses)
+
+	if len(lenses) != 3 {
+		t.Fatalf("expected 3 code lenses, got %d: %+v", len(lenses), lenses)
+	}
+	if !strings.Contains(lenses[0].Command.Title, "Run All Tests in File") {
+		t.Errorf("unexpected file-level code lens: %+v", lenses[0])
+	}
+	if !strings.Contains(lenses[1].Command.Title, "addition works") {
+		t.Errorf("unexpected test code lens: %+v", lenses[1])
+	}
+
+	// 2. Hover on @test
+	atTestOffset := strings.Index(testSrc, "@test") + 1
+	var hov lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(testSrc, atTestOffset),
+	}, &hov)
+	if !strings.Contains(hov.Contents.Value, "`@test`") {
+		t.Errorf("expected hover for @test, got: %s", hov.Contents.Value)
+	}
+
+	// 3. Code Actions: Check test execution action when on @test
+	testFnOffset := strings.Index(testSrc, "test_add")
+	var actions []lsp.CodeAction
+	h.request("textDocument/codeAction", lsp.CodeActionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Range: lsp.Range{
+			Start: lsp.OffsetToLSP(testSrc, testFnOffset),
+			End:   lsp.OffsetToLSP(testSrc, testFnOffset),
+		},
+		Context: lsp.CodeActionContext{Diagnostics: []lsp.Diagnostic{}},
+	}, &actions)
+
+	foundRunAction := false
+	for _, act := range actions {
+		if strings.Contains(act.Title, "Run test 'test_add'") {
+			foundRunAction = true
+			if act.Command == nil || act.Command.Command != "lowlight.runTest" {
+				t.Errorf("unexpected command in run test code action: %+v", act)
+			}
+		}
+	}
+	if !foundRunAction {
+		t.Errorf("missing 'Run test' code action in %+v", actions)
+	}
+
+	// 4. Code Action: Generate test for non-test function `add`
+	addFnOffset := strings.Index(testSrc, "add =")
+	var addActions []lsp.CodeAction
+	h.request("textDocument/codeAction", lsp.CodeActionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Range: lsp.Range{
+			Start: lsp.OffsetToLSP(testSrc, addFnOffset),
+			End:   lsp.OffsetToLSP(testSrc, addFnOffset),
+		},
+		Context: lsp.CodeActionContext{Diagnostics: []lsp.Diagnostic{}},
+	}, &addActions)
+
+	foundGenAction := false
+	for _, act := range addActions {
+		if strings.Contains(act.Title, "Generate @test for 'add'") {
+			foundGenAction = true
+			if act.Edit == nil || len(act.Edit.Changes) == 0 {
+				t.Errorf("expected edit in generate test action: %+v", act)
+			}
+		}
+	}
+	if !foundGenAction {
+		t.Errorf("missing 'Generate @test for add' code action in %+v", addActions)
+	}
+
+	// 5. Document Symbols: Check that @test functions have @test detail in outline
+	var docSyms []lsp.DocumentSymbol
+	h.request("textDocument/documentSymbol", lsp.DocumentSymbolParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+	}, &docSyms)
+
+	foundTestSym := false
+	for _, sym := range docSyms {
+		if sym.Name == "test_add" && strings.Contains(sym.Detail, "@test") {
+			foundTestSym = true
+		}
+	}
+	if !foundTestSym {
+		t.Errorf("expected test_add to have @test detail in document symbols: %+v", docSyms)
 	}
 }

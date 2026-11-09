@@ -27,30 +27,31 @@ type stringLitEntry struct {
 	length int
 }
 
-type companionDecl struct {
+type helperDecl struct {
 	fn         string
 	retTy      string
 	paramTypes string
 }
 
 type llvmEmitter struct {
-	prog           *ir.Program
-	sb             strings.Builder
-	strings        map[string]*stringLitEntry
-	stringList     []*stringLitEntry
-	nextStrID      int
-	nextRegID      int
-	nextBlockID    int
-	isTerminated   bool
-	currentBlock   string
-	localSlots     map[*ir.Local]string
-	movedSlots     map[string]string
-	declaredFns    map[string]bool
-	declaredTyps   map[string]bool
-	funcSet        map[string]bool
-	companionDecls []companionDecl
-	structMap      map[string]*types.Struct
-	lambdaEnvMap   map[string]*sema.LambdaInfo
+	prog         *ir.Program
+	sb           strings.Builder
+	strings      map[string]*stringLitEntry
+	stringList   []*stringLitEntry
+	nextStrID    int
+	nextRegID    int
+	nextBlockID  int
+	isTerminated bool
+	currentBlock string
+	localSlots   map[*ir.Local]string
+	movedSlots   map[string]string
+	entryAllocas []string
+	declaredFns  map[string]bool
+	declaredTyps map[string]bool
+	funcSet      map[string]bool
+	helperDecls  []helperDecl
+	structMap    map[string]*types.Struct
+	lambdaEnvMap map[string]*sema.LambdaInfo
 }
 
 func newLLVMEmitter(prog *ir.Program) *llvmEmitter {
@@ -102,7 +103,7 @@ func (g *llvmEmitter) indentRaw(indent int, s string) {
 
 func (g *llvmEmitter) line(format string, args ...any) {
 	if len(args) == 0 {
-		g.sb.WriteString(format)
+		g.sb.WriteString(strings.ReplaceAll(format, "%%", "%"))
 		g.sb.WriteByte('\n')
 		return
 	}
@@ -120,6 +121,15 @@ func (g *llvmEmitter) indentLine(indent int, format string, args ...any) {
 func (g *llvmEmitter) newReg() string {
 	r := fmt.Sprintf("%%t.%d", g.nextRegID)
 	g.nextRegID++
+	return r
+}
+
+func (g *llvmEmitter) allocaEntry(tyStr string, align int) string {
+	r := g.newReg()
+	if align <= 0 {
+		align = 8
+	}
+	g.entryAllocas = append(g.entryAllocas, fmt.Sprintf("    %s = alloca %s, align %d", r, tyStr, align))
 	return r
 }
 
@@ -152,36 +162,35 @@ func (g *llvmEmitter) emitAll() {
 	// 3. Collect String Literals from the Program
 	g.collectAllStrings()
 
-	// 4. Emit String Literals Pool
-	g.emitStringPool()
+	// 4. External and Native Runtime Definitions
+	g.emitRuntimeAndDeclarations()
 
-	// 5. External and Companion Runtime Declarations
-	g.emitDeclarations()
-
-	// 6. Top-Level Global Constants Storage
+	// 5. Top-Level Global Constants Storage
 	g.emitGlobals()
 
-	// 7. Lowered MIR Function and Method Bodies
+	// 6. Lowered MIR Function and Method Bodies
 	g.line("; Lowered Lowlight Functions")
 	for _, fn := range g.prog.Funcs {
 		g.emitFunction(fn)
 	}
 
-	// 8. Static Function Closure Thunks
+	// 7. Static Function Closure Thunks
 	g.emitStaticThunks()
 
-	// 9. Interface VTable Method Wrappers and Instances
+	// 8. Interface VTable Method Wrappers and Instances
 	g.emitVTables()
 
-	// 10. Main Entry Point / Test Harness Runner
+	// 9. Main Entry Point / Test Harness Runner
 	if g.prog.MainFunc != nil || g.prog.TestMode {
 		g.emitMain()
 	}
 
-	// 9. Synthesized Companion Runtime Helper Declarations
-	if len(g.companionDecls) > 0 {
-		g.line("; Synthesized Companion Helper Declarations")
-		for _, cd := range g.companionDecls {
+	// 10. Synthesized Composite and Collection Runtime Helpers
+	g.emitSynthesizedHelpersLLVM()
+
+	// 11. Any Remaining External Declarations
+	if len(g.helperDecls) > 0 {
+		for _, cd := range g.helperDecls {
 			if g.funcSet[cd.fn] {
 				continue
 			}
@@ -189,6 +198,9 @@ func (g *llvmEmitter) emitAll() {
 		}
 		g.line("")
 	}
+
+	// 12. Emit String Literals Pool (at the end so all dynamically interned strings are included)
+	g.emitStringPool()
 }
 
 func (g *llvmEmitter) emitHeader() {
@@ -290,6 +302,7 @@ func (g *llvmEmitter) emitTypeDefs() {
 	g.line("")
 
 	g.line("; Monomorphized Type Definitions")
+	emittedOptStructs := make(map[string]bool)
 	for _, t := range g.prog.OrderedTypes {
 		switch v := t.(type) {
 		case *types.Enum:
@@ -341,14 +354,33 @@ func (g *llvmEmitter) emitTypeDefs() {
 		case *types.Optional:
 			if !v.IsBoxed() {
 				cn := CType(v)
-				g.line("%%struct.%s = type { i1, %s }", cn, g.llvmType(v.Elem))
+				if !emittedOptStructs[cn] {
+					emittedOptStructs[cn] = true
+					g.line("%%struct.%s = type { i1, %s }", cn, g.llvmType(v.Elem))
+				}
 			}
 		case *types.StackArray:
 			cn := CType(v)
 			g.line("%%struct.%s = type { [%d x %s] }", cn, v.Size, g.llvmType(v.Elem))
+			optElem := types.NewOptional(v.Elem)
+			if !optElem.IsBoxed() {
+				optCn := CType(optElem)
+				if !emittedOptStructs[optCn] {
+					emittedOptStructs[optCn] = true
+					g.line("%%struct.%s = type { i1, %s }", optCn, g.llvmType(v.Elem))
+				}
+			}
 		case *types.Vector:
 			cn := CType(v)
 			g.line("%%struct.%s = type { ptr, i64, i64 }", cn)
+			optElem := types.NewOptional(v.Elem)
+			if !optElem.IsBoxed() {
+				optCn := CType(optElem)
+				if !emittedOptStructs[optCn] {
+					emittedOptStructs[optCn] = true
+					g.line("%%struct.%s = type { i1, %s }", optCn, g.llvmType(v.Elem))
+				}
+			}
 		case *types.Set:
 			cn := CType(v)
 			g.line("%%struct.%s_ent = type { i1, i64, %s }", cn, g.llvmType(v.Elem))
@@ -357,6 +389,14 @@ func (g *llvmEmitter) emitTypeDefs() {
 			cn := CType(v)
 			g.line("%%struct.%s_ent = type { i1, i64, %s, %s }", cn, g.llvmType(v.Key), g.llvmType(v.Value))
 			g.line("%%struct.%s = type { ptr, i64, ptr, i64, i64, i64 }", cn)
+			optVal := types.NewOptional(v.Value)
+			if !optVal.IsBoxed() {
+				optCn := CType(optVal)
+				if !emittedOptStructs[optCn] {
+					emittedOptStructs[optCn] = true
+					g.line("%%struct.%s = type { i1, %s }", optCn, g.llvmType(v.Value))
+				}
+			}
 		case *types.Interface:
 			g.line("%%struct.%s = type { ptr, ptr, i1 }", v.CName)
 			var vtFields []string
@@ -686,6 +726,9 @@ func (g *llvmEmitter) collectExprStrings(e ir.Expr) {
 	case *ir.ExprLitCString:
 		g.internString(v.Val)
 	case *ir.ExprBinary:
+		if v.File != "" {
+			g.internString(v.File)
+		}
 		g.collectExprStrings(v.Left)
 		g.collectExprStrings(v.Right)
 	case *ir.ExprUnary:
@@ -809,79 +852,6 @@ func (g *llvmEmitter) declareBuiltin(name, decl string) {
 	g.declaredFns[name] = true
 }
 
-func (g *llvmEmitter) emitDeclarations() {
-	g.line("; External C & Runtime Declarations")
-	g.line("@ll_rt_argc = external global i32")
-	g.line("@ll_rt_argv = external global ptr")
-	g.line("@ll_rt_live_allocs = external global i64")
-	g.line("")
-
-	g.declareBuiltin("ll_alloc", "declare ptr @ll_alloc(i64)")
-	g.declareBuiltin("ll_realloc", "declare ptr @ll_realloc(ptr, i64)")
-	g.declareBuiltin("ll_free", "declare void @ll_free(ptr)")
-	g.declareBuiltin("ll_check_bounds", "declare i64 @ll_check_bounds(i64, i64, ptr, i64)")
-	g.declareBuiltin("ll_panic_cstr", "declare void @ll_panic_cstr(ptr, ptr, i32)")
-	g.declareBuiltin("ll_check_leaks_at_exit", "declare void @ll_check_leaks_at_exit()")
-	g.declareBuiltin("ll_copy_bytes", "declare void @ll_copy_bytes(ptr, ptr, i64)")
-	g.declareBuiltin("ll_zero_bytes", "declare void @ll_zero_bytes(ptr, i64)")
-	g.line("")
-
-
-	g.declareBuiltin("ll_print_str_p", "declare void @ll_print_str_p(ptr, i32, i32)")
-	g.declareBuiltin("ll_panic_str_p", "declare void @ll_panic_str_p(ptr, ptr, i32)")
-	g.declareBuiltin("ll_str_lit_p", "declare void @ll_str_lit_p(ptr, ptr, i64)")
-	g.declareBuiltin("ll_str_concat_p", "declare void @ll_str_concat_p(ptr, ptr, ptr)")
-	g.declareBuiltin("ll_str_clone_p", "declare void @ll_str_clone_p(ptr, ptr)")
-	g.declareBuiltin("ll_str_free_p", "declare void @ll_str_free_p(ptr)")
-	g.declareBuiltin("ll_str_eq_p", "declare i1 @ll_str_eq_p(ptr, ptr)")
-	g.declareBuiltin("ll_str_cmp_p", "declare i64 @ll_str_cmp_p(ptr, ptr)")
-	g.declareBuiltin("ll_str_utf8_next_p", "declare i32 @ll_str_utf8_next_p(ptr, i64, ptr)")
-	g.declareBuiltin("ll_str_trim_p", "declare void @ll_str_trim_p(ptr, ptr)")
-	g.declareBuiltin("ll_str_to_upper_p", "declare void @ll_str_to_upper_p(ptr, ptr)")
-	g.declareBuiltin("ll_str_to_lower_p", "declare void @ll_str_to_lower_p(ptr, ptr)")
-	g.declareBuiltin("ll_str_replace_p", "declare void @ll_str_replace_p(ptr, ptr, ptr, ptr)")
-	g.declareBuiltin("ll_str_contains_p", "declare i1 @ll_str_contains_p(ptr, ptr)")
-	g.declareBuiltin("ll_str_starts_with_p", "declare i1 @ll_str_starts_with_p(ptr, ptr)")
-	g.declareBuiltin("ll_str_ends_with_p", "declare i1 @ll_str_ends_with_p(ptr, ptr)")
-	g.declareBuiltin("ll_str_push_char_p", "declare void @ll_str_push_char_p(ptr, i32)")
-	g.declareBuiltin("ll_str_push_byte_p", "declare void @ll_str_push_byte_p(ptr, i8)")
-	g.declareBuiltin("ll_str_push_bytes_p", "declare void @ll_str_push_bytes_p(ptr, ptr, i64)")
-	g.declareBuiltin("ll_str_clear_p", "declare void @ll_str_clear_p(ptr)")
-	g.declareBuiltin("ll_read_file_p", "declare void @ll_read_file_p(ptr, ptr)")
-	g.declareBuiltin("ll_write_file_p", "declare i1 @ll_write_file_p(ptr, ptr)")
-	g.declareBuiltin("ll_exit", "declare void @ll_exit(i64)")
-	g.line("")
-
-	g.declareBuiltin("sqrt", "declare double @sqrt(double)")
-	g.declareBuiltin("fabs", "declare double @fabs(double)")
-	g.declareBuiltin("puts", "declare i32 @puts(ptr)")
-	g.declareBuiltin("printf", "declare i32 @printf(ptr, ...)")
-	g.declareBuiltin("fflush", "declare i32 @fflush(ptr)")
-	g.line("")
-
-	g.declareBuiltin("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
-	g.declareBuiltin("llvm.memset.p0.i64", "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)")
-	g.line("")
-
-	g.declareBuiltin("ll_run_test_case", "declare i32 @ll_run_test_case(ptr, ptr)")
-	g.declareBuiltin("ll_report_test_summary", "declare void @ll_report_test_summary(i32, i32, i32)")
-	g.line("")
-
-	// User extern functions
-	if len(g.prog.ExternFuncs) > 0 {
-		g.line("; User Declared Extern Functions")
-		for _, ef := range g.prog.ExternFuncs {
-			var paramTypes []string
-			for _, p := range ef.Sig.Params {
-				paramTypes = append(paramTypes, g.llvmType(p.Type))
-			}
-			retTy := g.llvmType(ef.Sig.Ret)
-			g.declareBuiltin(ef.Name, fmt.Sprintf("declare %s @%s(%s)", retTy, ef.Name, strings.Join(paramTypes, ", ")))
-		}
-		g.line("")
-	}
-}
-
 func (g *llvmEmitter) emitGlobals() {
 	if len(g.prog.Globals) == 0 {
 		return
@@ -902,6 +872,7 @@ func (g *llvmEmitter) emitFunction(fn *ir.Function) {
 	g.movedSlots = make(map[string]string)
 	g.nextRegID = 0
 	g.isTerminated = false
+	g.entryAllocas = nil
 
 	var paramDecls []string
 	if fn.IsLambda {
@@ -916,13 +887,14 @@ func (g *llvmEmitter) emitFunction(fn *ir.Function) {
 	}
 	retTy := g.llvmType(fn.RetType)
 
-	g.line("define %s @%s(%s) {", retTy, fn.CName, strings.Join(paramDecls, ", "))
-	g.line("entry:")
-	g.currentBlock = "entry"
+	var headerSB strings.Builder
+	headerSB.WriteString(fmt.Sprintf("define %s @%s(%s) {\n", retTy, fn.CName, strings.Join(paramDecls, ", ")))
+	headerSB.WriteString("entry:\n")
 
+	var paramInitSB strings.Builder
 	if fn.IsLambda {
-		g.indentRaw(1, "%_ll_env.slot = alloca ptr, align 8")
-		g.indentRaw(1, "store ptr %_ll_env.param, ptr %_ll_env.slot, align 8")
+		headerSB.WriteString("    %_ll_env.slot = alloca ptr, align 8\n")
+		paramInitSB.WriteString("    store ptr %_ll_env.param, ptr %_ll_env.slot, align 8\n")
 	}
 
 	// 1. Allocate stack slots for all parameters
@@ -933,16 +905,16 @@ func (g *llvmEmitter) emitFunction(fn *ir.Function) {
 		if p.IsMutPtr {
 			pTy = "ptr"
 		}
-		g.indentLine(1, "%s = alloca %s, align 8", slot, pTy)
-		g.indentLine(1, "store %s %%%s.param, ptr %s, align 8", pTy, p.CName, slot)
+		headerSB.WriteString(fmt.Sprintf("    %s = alloca %s, align 8\n", slot, pTy))
+		paramInitSB.WriteString(fmt.Sprintf("    store %s %%%s.param, ptr %s, align 8\n", pTy, p.CName, slot))
 		if p.MovedFlag != "" {
 			flagSlot := fmt.Sprintf("%%%s.slot", p.MovedFlag)
 			g.movedSlots[p.MovedFlag] = flagSlot
 			if p.MovedLocal != nil {
 				g.localSlots[p.MovedLocal] = flagSlot
 			}
-			g.indentLine(1, "%s = alloca i1, align 1", flagSlot)
-			g.indentLine(1, "store i1 false, ptr %s, align 1", flagSlot)
+			headerSB.WriteString(fmt.Sprintf("    %s = alloca i1, align 1\n", flagSlot))
+			paramInitSB.WriteString(fmt.Sprintf("    store i1 false, ptr %s, align 1\n", flagSlot))
 		}
 	}
 
@@ -954,9 +926,8 @@ func (g *llvmEmitter) emitFunction(fn *ir.Function) {
 		if loc.IsMutPtr {
 			locTy = "ptr"
 		}
-		g.indentLine(1, "%s = alloca %s, align 8", slot, locTy)
-		// Zero-initialize slot
-		g.indentLine(1, "store %s zeroinitializer, ptr %s, align 8", locTy, slot)
+		headerSB.WriteString(fmt.Sprintf("    %s = alloca %s, align 8\n", slot, locTy))
+		paramInitSB.WriteString(fmt.Sprintf("    store %s zeroinitializer, ptr %s, align 8\n", locTy, slot))
 
 		if loc.MovedFlag != "" {
 			flagSlot := fmt.Sprintf("%%%s.slot", loc.MovedFlag)
@@ -964,10 +935,14 @@ func (g *llvmEmitter) emitFunction(fn *ir.Function) {
 			if loc.MovedLocal != nil {
 				g.localSlots[loc.MovedLocal] = flagSlot
 			}
-			g.indentLine(1, "%s = alloca i1, align 1", flagSlot)
-			g.indentLine(1, "store i1 true, ptr %s, align 1", flagSlot)
+			headerSB.WriteString(fmt.Sprintf("    %s = alloca i1, align 1\n", flagSlot))
+			paramInitSB.WriteString(fmt.Sprintf("    store i1 true, ptr %s, align 1\n", flagSlot))
 		}
 	}
+
+	savedSB := g.sb
+	g.sb = strings.Builder{}
+	g.currentBlock = "entry"
 
 	// 3. Emit instruction sequence
 	for _, instr := range fn.Body {
@@ -984,10 +959,20 @@ func (g *llvmEmitter) emitFunction(fn *ir.Function) {
 		g.isTerminated = true
 	}
 
+	bodyStr := g.sb.String()
+	g.sb = savedSB
+
+	g.sb.WriteString(headerSB.String())
+	for _, alloc := range g.entryAllocas {
+		g.sb.WriteString(alloc)
+		g.sb.WriteByte('\n')
+	}
+	g.sb.WriteString(paramInitSB.String())
+	g.sb.WriteString(bodyStr)
 	g.line("}")
 	g.line("")
 
-	if strings.HasSuffix(fn.CName, "_to_string") && len(fn.Params) == 1 && fn.RetType.Equals(types.TypeString) {
+	if (strings.HasSuffix(fn.CName, "_to_string") || strings.Contains(fn.CName, "_to_string") || strings.HasSuffix(fn.Name, ".to_string")) && len(fn.Params) == 1 && fn.RetType != nil && fn.RetType.Equals(types.TypeString) {
 		pTy := g.llvmType(fn.Params[0].Type)
 		align := g.typeAlign(fn.Params[0].Type)
 		g.line("define void @%s_p(ptr %%res, ptr %%self) {", fn.CName)
@@ -1012,7 +997,19 @@ func (g *llvmEmitter) emitInstr(instr ir.Instr) {
 	switch v := instr.(type) {
 	case *ir.InstrAssign:
 		if loc, ok := v.Dst.(*ir.ExprLocal); ok && loc.Local.IsMutPtr {
-			if _, isPtr := v.Expr.Type().(*types.Ptr); isPtr {
+			isAddr := false
+			if _, isAddrOf := v.Expr.(*ir.ExprAddrOf); isAddrOf {
+				isAddr = true
+			} else if u, isUnary := v.Expr.(*ir.ExprUnary); isUnary && u.Op == token.Amp {
+				isAddr = true
+			} else if v.Expr.Type() != nil {
+				if _, isPtr := v.Expr.Type().(*types.Ptr); isPtr {
+					isAddr = true
+				} else if _, isRef := v.Expr.Type().(*types.Ref); isRef {
+					isAddr = true
+				}
+			}
+			if isAddr {
 				val := g.emitExpr(v.Expr)
 				slot := g.localSlots[loc.Local]
 				if slot == "" {
@@ -1034,7 +1031,7 @@ func (g *llvmEmitter) emitInstr(instr ir.Instr) {
 		addr := g.emitLValueAddr(v.Dst)
 		currVal := g.emitLoad(addr, v.Dst.Type())
 		rhsVal := g.emitExpr(v.Expr)
-		resVal := g.emitBinaryOp(v.Op, currVal, rhsVal, v.Dst.Type())
+		resVal := g.emitBinaryOp(v.Op, currVal, rhsVal, v.Dst.Type(), "", 0, v.Expr.Type())
 		g.indentLine(1, "store %s %s, ptr %s, align 8", g.llvmType(v.Dst.Type()), resVal, addr)
 
 	case *ir.InstrExpr:
@@ -1178,17 +1175,17 @@ func (g *llvmEmitter) emitTypeDrop(ptrSlot string, t types.Type) {
 		if v.Kind == types.PrimString {
 			g.indentLine(1, "call void @ll_str_free_p(ptr %s)", ptrSlot)
 		} else if v.Kind == types.PrimArena {
-			g.declareCompanionHelper("ll_drop__Arena", "void", "ptr")
+			g.declareHelper("ll_drop__Arena", "void", "ptr")
 			g.indentLine(1, "call void @ll_drop__Arena(ptr %s)", ptrSlot)
 		}
-	case *types.Vector, *types.Map, *types.Set, *types.Struct, *types.Interface, *types.StackArray, *types.Optional, *types.Func:
+	case *types.Vector, *types.Map, *types.Set, *types.Struct, *types.Distinct, *types.Interface, *types.StackArray, *types.Optional, *types.Func:
 		fn := ir.DropFnName(v)
-		g.declareCompanionHelper(fn, "void", "ptr")
+		g.declareHelper(fn, "void", "ptr")
 		g.indentLine(1, "call void @%s(ptr %s)", fn, ptrSlot)
 	case *types.Enum:
 		if v.IsTagged {
 			fn := ir.DropFnName(v)
-			g.declareCompanionHelper(fn, "void", "ptr")
+			g.declareHelper(fn, "void", "ptr")
 			g.indentLine(1, "call void @%s(ptr %s)", fn, ptrSlot)
 		}
 	}
@@ -1202,7 +1199,7 @@ func (g *llvmEmitter) emitCopyVal(destAddr, srcAddr string, t types.Type) {
 		return
 	}
 	if t.Mangled() == "string" {
-		g.declareCompanionHelper("ll_copy_p__string", "void", "ptr, ptr")
+		g.declareHelper("ll_copy_p__string", "void", "ptr, ptr")
 		g.indentLine(1, "call void @ll_copy_p__string(ptr %s, ptr %s)", destAddr, srcAddr)
 		return
 	}
@@ -1281,16 +1278,16 @@ func (g *llvmEmitter) emitCopyVal(destAddr, srcAddr string, t types.Type) {
 		return
 	}
 	fn := "ll_copy_p__" + t.Mangled()
-	g.declareCompanionHelper(fn, "void", "ptr, ptr")
+	g.declareHelper(fn, "void", "ptr, ptr")
 	g.indentLine(1, "call void @%s(ptr %s, ptr %s)", fn, destAddr, srcAddr)
 }
 
-func (g *llvmEmitter) declareCompanionHelper(fn, retTy, paramTypes string) {
+func (g *llvmEmitter) declareHelper(fn, retTy, paramTypes string) {
 	if g.funcSet[fn] || g.declaredFns[fn] {
 		return
 	}
 	g.declaredFns[fn] = true
-	g.companionDecls = append(g.companionDecls, companionDecl{
+	g.helperDecls = append(g.helperDecls, helperDecl{
 		fn:         fn,
 		retTy:      retTy,
 		paramTypes: paramTypes,
@@ -1336,6 +1333,10 @@ func (g *llvmEmitter) resolveFieldIdx(baseTy types.Type, fieldName string, expli
 					}
 				}
 			}
+		}
+	case *types.StackArray:
+		if fieldName == "data" {
+			return 0
 		}
 	case *types.Vector:
 		switch fieldName {
@@ -1408,6 +1409,48 @@ func (g *llvmEmitter) resolveFieldIdx(baseTy types.Type, fieldName string, expli
 	return explicitIdx
 }
 
+func (g *llvmEmitter) resolveVariantFieldOffset(v *ir.ExprField) (int, bool) {
+	parent, ok := v.Base.(*ir.ExprField)
+	if !ok {
+		return 0, false
+	}
+	grandparent, ok := parent.Base.(*ir.ExprField)
+	if !ok || grandparent.FieldName != "data" {
+		return 0, false
+	}
+	enTy := grandparent.Base.Type()
+	if enTy == nil {
+		return 0, false
+	}
+	if p, isPtr := enTy.(*types.Ptr); isPtr {
+		enTy = p.Elem
+	} else if r, isRef := enTy.(*types.Ref); isRef {
+		enTy = r.Elem
+	}
+	en, ok := enTy.(*types.Enum)
+	if !ok {
+		return 0, false
+	}
+	for _, vr := range en.Variants {
+		if vr.CName == parent.FieldName || vr.Name == parent.FieldName {
+			if vr.Kind == types.VariantStruct {
+				offset := 0
+				for _, f := range vr.Fields {
+					fAlign := g.typeAlign(f.Type)
+					offset = (offset + fAlign - 1) & -fAlign
+					if f.CName == v.FieldName || f.Name == v.FieldName {
+						return offset, true
+					}
+					offset += g.typeSize(f.Type)
+				}
+			} else if vr.Kind == types.VariantTuple {
+				return 0, true
+			}
+		}
+	}
+	return 0, false
+}
+
 func (g *llvmEmitter) emitAsPtr(e ir.Expr) string {
 	if _, isPtr := e.Type().(*types.Ptr); isPtr {
 		return g.emitExpr(e)
@@ -1437,6 +1480,12 @@ func (g *llvmEmitter) emitLValueAddr(e ir.Expr) string {
 		return "@" + sym
 
 	case *ir.ExprField:
+		if byteOffset, ok := g.resolveVariantFieldOffset(v); ok {
+			baseAddr := g.emitLValueAddr(v.Base)
+			fReg := g.newReg()
+			g.indentLine(1, "%s = getelementptr inbounds i8, ptr %s, i64 %d", fReg, baseAddr, byteOffset)
+			return fReg
+		}
 		baseTy := v.Base.Type()
 		var baseAddr string
 		if p, ok := baseTy.(*types.Ptr); ok {
@@ -1449,6 +1498,15 @@ func (g *llvmEmitter) emitLValueAddr(e ir.Expr) string {
 			baseAddr = g.emitExpr(v.Base)
 		} else {
 			baseAddr = g.emitLValueAddr(v.Base)
+		}
+		if baseTy == nil || baseTy.Equals(types.TypeVoid) {
+			idx := v.FieldIdx
+			if idx <= 0 {
+				return baseAddr
+			}
+			fReg := g.newReg()
+			g.indentLine(1, "%s = getelementptr inbounds i64, ptr %s, i64 %d", fReg, baseAddr, idx)
+			return fReg
 		}
 		fieldIdx := g.resolveFieldIdx(baseTy, v.FieldName, v.FieldIdx)
 		fReg := g.newReg()
@@ -1508,8 +1566,7 @@ func (g *llvmEmitter) emitLValueAddr(e ir.Expr) string {
 			return g.emitLValueAddr(v.Operand)
 		}
 		val := g.emitExpr(e)
-		tmpSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %s, align 8", tmpSlot, g.llvmType(e.Type()))
+		tmpSlot := g.allocaEntry(g.llvmType(e.Type()), 8)
 		g.indentLine(1, "store %s %s, ptr %s, align 8", g.llvmType(e.Type()), val, tmpSlot)
 		return tmpSlot
 
@@ -1519,8 +1576,7 @@ func (g *llvmEmitter) emitLValueAddr(e ir.Expr) string {
 	default:
 		// For non-memory places, allocate a temporary stack slot
 		val := g.emitExpr(e)
-		tmpSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %s, align 8", tmpSlot, g.llvmType(e.Type()))
+		tmpSlot := g.allocaEntry(g.llvmType(e.Type()), 8)
 		g.indentLine(1, "store %s %s, ptr %s, align 8", g.llvmType(e.Type()), val, tmpSlot)
 		return tmpSlot
 	}
@@ -1572,8 +1628,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 
 	case *ir.ExprLitString:
 		entry := g.internString(v.Val)
-		sSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", sSlot)
+		sSlot := g.allocaEntry("%struct.ll_string", 8)
 		p0 := g.newReg()
 		p1 := g.newReg()
 		p2 := g.newReg()
@@ -1595,8 +1650,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		if v.OptType != nil && v.OptType.IsBoxed() {
 			return "null"
 		}
-		optSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %s, align 8", optSlot, g.llvmType(v.Type()))
+		optSlot := g.allocaEntry(g.llvmType(v.Type()), 8)
 		g.indentLine(1, "store %s zeroinitializer, ptr %s, align 8", g.llvmType(v.Type()), optSlot)
 		r := g.newReg()
 		g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(v.Type()), optSlot)
@@ -1613,8 +1667,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		if strings.HasPrefix(tyStr, "i") || tyStr == "float" || tyStr == "double" {
 			return "0"
 		}
-		zSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %s, align 8", zSlot, tyStr)
+		zSlot := g.allocaEntry(tyStr, 8)
 		g.indentLine(1, "store %s zeroinitializer, ptr %s, align 8", tyStr, zSlot)
 		r := g.newReg()
 		g.indentLine(1, "%s = load %s, ptr %s, align 8", r, tyStr, zSlot)
@@ -1650,6 +1703,22 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		fReg := g.emitLValueAddr(v)
 		fTy := v.Typ
 		if v.Base.Type() != nil {
+			baseTy := v.Base.Type()
+			if p, ok := baseTy.(*types.Ptr); ok {
+				baseTy = p.Elem
+			} else if r, ok := baseTy.(*types.Ref); ok {
+				baseTy = r.Elem
+			}
+			if _, isArr := baseTy.(*types.StackArray); isArr && v.FieldName == "data" {
+				return fReg
+			}
+			if _, isEn := baseTy.(*types.Enum); isEn && v.FieldName == "tag" {
+				f32 := g.newReg()
+				g.indentLine(1, "%s = load i32, ptr %s, align 4", f32, fReg)
+				r := g.newReg()
+				g.indentLine(1, "%s = zext i32 %s to i64", r, f32)
+				return r
+			}
 			if _, isFunc := v.Base.Type().(*types.Func); isFunc {
 				fTy = &types.Ptr{Elem: types.TypeVoid}
 			}
@@ -1730,8 +1799,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 				g.indentLine(1, "%s = icmp sge i64 %s, 0", r, cmp)
 				return r
 			case token.Plus:
-				resSlot := g.newReg()
-				g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
+				resSlot := g.allocaEntry("%struct.ll_string", 8)
 				g.indentLine(1, "call void @ll_str_concat_p(ptr %s, ptr %s, ptr %s)", resSlot, leftAddr, rightAddr)
 				r := g.newReg()
 				g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
@@ -1742,7 +1810,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 			leftAddr := g.emitLValueAddr(v.Left)
 			rightAddr := g.emitLValueAddr(v.Right)
 			fn := "ll_eq_p__" + v.Left.Type().Mangled()
-			g.declareCompanionHelper(fn, "i1", "ptr, ptr")
+			g.declareHelper(fn, "i1", "ptr, ptr")
 			eqReg := g.newReg()
 			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", eqReg, fn, leftAddr, rightAddr)
 			if v.Op == token.Eq {
@@ -1754,7 +1822,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		}
 		leftVal := g.emitExpr(v.Left)
 		rightVal := g.emitExpr(v.Right)
-		return g.emitBinaryOp(v.Op, leftVal, rightVal, v.Left.Type())
+		return g.emitBinaryOp(v.Op, leftVal, rightVal, v.Left.Type(), v.File, v.Line, v.Right.Type())
 
 	case *ir.ExprUnary:
 		if v.Op == token.Amp {
@@ -1775,13 +1843,16 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		return g.emitCall(v)
 
 	case *ir.ExprConstructStruct:
-		sSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %s, align 8", sSlot, g.llvmType(v.StructType))
+		sSlot := g.allocaEntry(g.llvmType(v.StructType), 8)
 		for _, f := range v.Fields {
 			fVal := g.emitExpr(f.Value)
+			fIdx := f.Index
+			if f.Name != "" {
+				fIdx = g.resolveFieldIdx(v.StructType, f.Name, f.Index)
+			}
 			fp := g.newReg()
 			g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 %d",
-				fp, g.llvmType(v.StructType), sSlot, f.Index)
+				fp, g.llvmType(v.StructType), sSlot, fIdx)
 			g.indentLine(1, "store %s %s, ptr %s, align 8", g.llvmType(f.Value.Type()), fVal, fp)
 		}
 		r := g.newReg()
@@ -1792,8 +1863,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		if !v.EnumType.IsTagged {
 			return fmt.Sprintf("%d", v.Variant.Value)
 		}
-		eSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %s, align 8", eSlot, g.llvmType(v.EnumType))
+		eSlot := g.allocaEntry(g.llvmType(v.EnumType), 8)
 		g.indentLine(1, "store %s zeroinitializer, ptr %s, align 8", g.llvmType(v.EnumType), eSlot)
 		tagPtr := g.newReg()
 		g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 0",
@@ -1811,8 +1881,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		return r
 
 	case *ir.ExprConstructArray:
-		arrSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %s, align 8", arrSlot, g.llvmType(v.ArrayType))
+		arrSlot := g.allocaEntry(g.llvmType(v.ArrayType), 8)
 		for i, el := range v.Elems {
 			elVal := g.emitExpr(el)
 			ep := g.newReg()
@@ -1825,15 +1894,14 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		return r
 
 	case *ir.ExprConstructVector:
-		vecSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %s, align 8", vecSlot, g.llvmType(v.VecType))
+		vecSlot := g.allocaEntry(g.llvmType(v.VecType), 8)
 		g.indentLine(1, "store %s zeroinitializer, ptr %s, align 8", g.llvmType(v.VecType), vecSlot)
 		if len(v.Elems) > 0 {
 			resFn := "ll_vec_reserve__" + v.VecType.Mangled()
-			g.declareCompanionHelper(resFn, "void", "ptr, i64")
+			g.declareHelper(resFn, "void", "ptr, i64")
 			g.indentLine(1, "call void @%s(ptr %s, i64 %d)", resFn, vecSlot, len(v.Elems))
 			pushFn := "ll_vec_push_p__" + v.VecType.Mangled()
-			g.declareCompanionHelper(pushFn, "void", "ptr, ptr")
+			g.declareHelper(pushFn, "void", "ptr, ptr")
 			for _, el := range v.Elems {
 				elAddr := g.emitLValueAddr(el)
 				g.indentLine(1, "call void @%s(ptr %s, ptr %s)", pushFn, vecSlot, elAddr)
@@ -1852,17 +1920,16 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 			}
 		}
 		if entryFn != "" && !g.funcSet[entryFn] {
-			g.declareCompanionHelper(entryFn, "void", "...")
+			g.declareHelper(entryFn, "void", "...")
 		}
 		if v.CopyFn != "" && !g.funcSet[v.CopyFn] {
-			g.declareCompanionHelper(v.CopyFn, "ptr", "ptr")
+			g.declareHelper(v.CopyFn, "ptr", "ptr")
 		}
 		if v.DropFn != "" && !g.funcSet[v.DropFn] {
-			g.declareCompanionHelper(v.DropFn, "void", "ptr")
+			g.declareHelper(v.DropFn, "void", "ptr")
 		}
 
-		closSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %%struct.ll_closure, align 8", closSlot)
+		closSlot := g.allocaEntry("%struct.ll_closure", 8)
 		p0 := g.newReg()
 		p1 := g.newReg()
 		p2 := g.newReg()
@@ -1903,8 +1970,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 			g.indentLine(1, "store %s %s, ptr %s, align 8", g.llvmType(st), val, allocReg)
 			return allocReg
 		}
-		optSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %s, align 8", optSlot, g.llvmType(v.OptType))
+		optSlot := g.allocaEntry(g.llvmType(v.OptType), 8)
 		pHas := g.newReg()
 		pVal := g.newReg()
 		g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 0", pHas, g.llvmType(v.OptType), optSlot)
@@ -1959,8 +2025,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 	case *ir.ExprSliceView:
 		dataVal := g.emitExpr(v.DataPtr)
 		lenVal := g.emitExpr(v.Len)
-		vecSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %s, align 8", vecSlot, g.llvmType(v.VecType))
+		vecSlot := g.allocaEntry(g.llvmType(v.VecType), 8)
 		p0 := g.newReg()
 		p1 := g.newReg()
 		p2 := g.newReg()
@@ -1975,8 +2040,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		return r
 
 	case *ir.ExprBoxInterface:
-		ifcSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %s, align 8", ifcSlot, g.llvmType(v.IfcType))
+		ifcSlot := g.allocaEntry(g.llvmType(v.IfcType), 8)
 		p0 := g.newReg()
 		p1 := g.newReg()
 		p2 := g.newReg()
@@ -2040,10 +2104,10 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		sz := g.typeSize(v.AllocType)
 		dtorVal := "null"
 		if v.DtorFn != "" {
-			g.declareCompanionHelper(v.DtorFn, "void", "ptr")
+			g.declareHelper(v.DtorFn, "void", "ptr")
 			dtorVal = "@" + v.DtorFn
 		}
-		g.declareCompanionHelper("ll_arena_alloc", "ptr", "ptr, i64, i64, ptr")
+		g.declareHelper("ll_arena_alloc", "ptr", "ptr, i64, i64, ptr")
 		r := g.newReg()
 		g.indentLine(1, "%s = call ptr @ll_arena_alloc(ptr %s, i64 %d, i64 8, ptr %s)", r, arenaPtr, sz, dtorVal)
 		return r
@@ -2083,8 +2147,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 	case *ir.ExprStringConcat:
 		leftAddr := g.emitLValueAddr(v.Left)
 		rightAddr := g.emitLValueAddr(v.Right)
-		resSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
+		resSlot := g.allocaEntry("%struct.ll_string", 8)
 		g.indentLine(1, "call void @ll_str_concat_p(ptr %s, ptr %s, ptr %s)", resSlot, leftAddr, rightAddr)
 		r := g.newReg()
 		g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
@@ -2093,16 +2156,31 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 	case *ir.ExprStringPush:
 		strPtr := g.emitExpr(v.StrPtr)
 		suffixAddr := g.emitLValueAddr(v.Item)
-		g.declareCompanionHelper("ll_str_push_p", "void", "ptr, ptr")
+		g.declareHelper("ll_str_push_p", "void", "ptr, ptr")
 		g.indentLine(1, "call void @ll_str_push_p(ptr %s, ptr %s)", strPtr, suffixAddr)
 		return "void"
 
 	case *ir.ExprToString:
+		if _, isPtr := v.ValType.(*types.Ptr); isPtr {
+			val := g.emitExpr(v.Val)
+			resSlot := g.allocaEntry("%struct.ll_string", 8)
+			g.indentLine(1, "call void @ll_tostr_ptr_p(ptr %s, ptr %s)", resSlot, val)
+			r := g.newReg()
+			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
+			return r
+		}
+		if _, isRef := v.ValType.(*types.Ref); isRef {
+			val := g.emitExpr(v.Val)
+			resSlot := g.allocaEntry("%struct.ll_string", 8)
+			g.indentLine(1, "call void @ll_tostr_ptr_p(ptr %s, ptr %s)", resSlot, val)
+			r := g.newReg()
+			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
+			return r
+		}
 		srcAddr := g.emitLValueAddr(v.Val)
 		fn := "ll_tostr_p__" + v.ValType.Mangled()
-		g.declareCompanionHelper(fn, "void", "ptr, ptr")
-		resSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
+		g.declareHelper(fn, "void", "ptr, ptr")
+		resSlot := g.allocaEntry("%struct.ll_string", 8)
 		g.indentLine(1, "call void @%s(ptr %s, ptr %s)", fn, resSlot, srcAddr)
 		r := g.newReg()
 		g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
@@ -2118,8 +2196,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 			return g.emitExpr(v.Val)
 		}
 		valAddr := g.emitLValueAddr(v.Val)
-		resSlot := g.newReg()
-		g.indentLine(1, "%s = alloca %s, align %d", resSlot, g.llvmType(v.ValType), g.typeAlign(v.ValType))
+		resSlot := g.allocaEntry(g.llvmType(v.ValType), g.typeAlign(v.ValType))
 		g.emitCopyVal(resSlot, valAddr, v.ValType)
 		r := g.newReg()
 		g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(v.ValType), resSlot, g.typeAlign(v.ValType))
@@ -2143,7 +2220,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		leftAddr := g.emitLValueAddr(v.Left)
 		rightAddr := g.emitLValueAddr(v.Right)
 		fn := "ll_eq_p__" + v.ValType.Mangled()
-		g.declareCompanionHelper(fn, "i1", "ptr, ptr")
+		g.declareHelper(fn, "i1", "ptr, ptr")
 		r := g.newReg()
 		g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, fn, leftAddr, rightAddr)
 		return r
@@ -2151,8 +2228,13 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 	case *ir.ExprCmp:
 		leftAddr := g.emitLValueAddr(v.Left)
 		rightAddr := g.emitLValueAddr(v.Right)
+		if v.ValType != nil && v.ValType.Equals(types.TypeString) {
+			r := g.newReg()
+			g.indentLine(1, "%s = call i64 @ll_str_cmp_p(ptr %s, ptr %s)", r, leftAddr, rightAddr)
+			return r
+		}
 		fn := "ll_cmp_p__" + v.ValType.Mangled()
-		g.declareCompanionHelper(fn, "i64", "ptr, ptr")
+		g.declareHelper(fn, "i64", "ptr, ptr")
 		r := g.newReg()
 		g.indentLine(1, "%s = call i64 @%s(ptr %s, ptr %s)", r, fn, leftAddr, rightAddr)
 		return r
@@ -2161,13 +2243,29 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		if v.ValType != nil && v.ValType.Equals(types.TypeString) {
 			addr := g.emitLValueAddr(v.Val)
 			r := g.newReg()
-			g.declareCompanionHelper("ll_str_hash_p", "i64", "ptr")
+			g.declareHelper("ll_str_hash_p", "i64", "ptr")
 			g.indentLine(1, "%s = call i64 @ll_str_hash_p(ptr %s)", r, addr)
+			return r
+		}
+		if _, isPtr := v.ValType.(*types.Ptr); isPtr {
+			val := g.emitExpr(v.Val)
+			i := g.newReg()
+			r := g.newReg()
+			g.indentLine(1, "%s = ptrtoint ptr %s to i64", i, val)
+			g.indentLine(1, "%s = call i64 @ll_hash_mix64(i64 %s)", r, i)
+			return r
+		}
+		if _, isRef := v.ValType.(*types.Ref); isRef {
+			val := g.emitExpr(v.Val)
+			i := g.newReg()
+			r := g.newReg()
+			g.indentLine(1, "%s = ptrtoint ptr %s to i64", i, val)
+			g.indentLine(1, "%s = call i64 @ll_hash_mix64(i64 %s)", r, i)
 			return r
 		}
 		val := g.emitExpr(v.Val)
 		fn := ir.HashFnName(v.ValType)
-		g.declareCompanionHelper(fn, "i64", g.llvmType(v.ValType))
+		g.declareHelper(fn, "i64", g.llvmType(v.ValType))
 		r := g.newReg()
 		g.indentLine(1, "%s = call i64 @%s(%s %s)", r, fn, g.llvmType(v.ValType), val)
 		return r
@@ -2176,7 +2274,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		vecAddr := g.emitExpr(v.VecPtr)
 		itemAddr := g.emitLValueAddr(v.Item)
 		fn := "ll_vec_push_p__" + v.VecType.Mangled()
-		g.declareCompanionHelper(fn, "void", "ptr, ptr")
+		g.declareHelper(fn, "void", "ptr, ptr")
 		g.indentLine(1, "call void @%s(ptr %s, ptr %s)", fn, vecAddr, itemAddr)
 		return "void"
 
@@ -2185,7 +2283,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		keyAddr := g.emitLValueAddr(v.Key)
 		valAddr := g.emitLValueAddr(v.Val)
 		fn := "ll_map_insert_p__" + v.MapType.Mangled()
-		g.declareCompanionHelper(fn, "void", "ptr, ptr, ptr")
+		g.declareHelper(fn, "void", "ptr, ptr, ptr")
 		g.indentLine(1, "call void @%s(ptr %s, ptr %s, ptr %s)", fn, mapAddr, keyAddr, valAddr)
 		return "void"
 
@@ -2193,9 +2291,10 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		setAddr := g.emitExpr(v.SetPtr)
 		itemAddr := g.emitLValueAddr(v.Item)
 		fn := "ll_set_insert_p__" + v.SetType.Mangled()
-		g.declareCompanionHelper(fn, "void", "ptr, ptr")
-		g.indentLine(1, "call void @%s(ptr %s, ptr %s)", fn, setAddr, itemAddr)
-		return "void"
+		g.declareHelper(fn, "i1", "ptr, ptr")
+		r := g.newReg()
+		g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, fn, setAddr, itemAddr)
+		return r
 
 	default:
 		return "0"
@@ -2207,21 +2306,21 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 // -----------------------------------------------------------------------------
 
 func (g *llvmEmitter) isIntegerType(t types.Type) bool {
-	if prim, ok := t.(*types.Primitive); ok {
+	if prim := types.UnderlyingPrimitive(t); prim != nil {
 		return prim.IsInteger()
 	}
 	return false
 }
 
 func (g *llvmEmitter) isFloat(t types.Type) bool {
-	if prim, ok := t.(*types.Primitive); ok {
+	if prim := types.UnderlyingPrimitive(t); prim != nil {
 		return prim.Kind == types.PrimF32 || prim.Kind == types.PrimF64
 	}
 	return false
 }
 
 func (g *llvmEmitter) isUnsigned(t types.Type) bool {
-	if prim, ok := t.(*types.Primitive); ok {
+	if prim := types.UnderlyingPrimitive(t); prim != nil {
 		return prim.IsUnsignedInt()
 	}
 	return false
@@ -2233,7 +2332,7 @@ func (g *llvmEmitter) isScalar(t types.Type) bool {
 	}
 	switch v := t.(type) {
 	case *types.Primitive:
-		return v.Kind != types.PrimVoid && !g.isFloat(t)
+		return v.Kind != types.PrimVoid && v.Kind != types.PrimString && v.Kind != types.PrimArena && !g.isFloat(t)
 	case *types.Ptr, *types.Ref:
 		return true
 	case *types.Enum:
@@ -2245,14 +2344,12 @@ func (g *llvmEmitter) isScalar(t types.Type) bool {
 	}
 }
 
-func (g *llvmEmitter) emitBinaryOp(op token.Kind, lVal, rVal string, t types.Type) string {
+func (g *llvmEmitter) emitBinaryOp(op token.Kind, lVal, rVal string, t types.Type, file string, line int, rType types.Type) string {
 	if t != nil && t.Equals(types.TypeString) {
-		slotL := g.newReg()
-		g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", slotL)
+		slotL := g.allocaEntry("%struct.ll_string", 8)
 		g.indentLine(1, "store %%struct.ll_string %s, ptr %s, align 8", lVal, slotL)
 
-		slotR := g.newReg()
-		g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", slotR)
+		slotR := g.allocaEntry("%struct.ll_string", 8)
 		g.indentLine(1, "store %%struct.ll_string %s, ptr %s, align 8", rVal, slotR)
 
 		switch op {
@@ -2291,8 +2388,7 @@ func (g *llvmEmitter) emitBinaryOp(op token.Kind, lVal, rVal string, t types.Typ
 			g.indentLine(1, "%s = icmp sge i64 %s, 0", r, cmp)
 			return r
 		case token.Plus:
-			slotRes := g.newReg()
-			g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", slotRes)
+			slotRes := g.allocaEntry("%struct.ll_string", 8)
 			g.indentLine(1, "call void @ll_str_concat_p(ptr %s, ptr %s, ptr %s)", slotRes, slotL, slotR)
 			r := g.newReg()
 			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, slotRes)
@@ -2353,19 +2449,101 @@ func (g *llvmEmitter) emitBinaryOp(op token.Kind, lVal, rVal string, t types.Typ
 	case token.Slash:
 		if isFloat {
 			g.indentLine(1, "%s = fdiv %s %s, %s", r, tyStr, lVal, rVal)
-		} else if isSigned {
-			g.indentLine(1, "%s = sdiv %s %s, %s", r, tyStr, lVal, rVal)
-		} else {
-			g.indentLine(1, "%s = udiv %s %s, %s", r, tyStr, lVal, rVal)
+			return r
 		}
+		fileVal := "null"
+		if file != "" {
+			fileVal = g.internString(file).symbol
+		}
+		prim := types.UnderlyingPrimitive(t)
+		bits := 64
+		if prim != nil {
+			bits = prim.BitWidth()
+		}
+		if rType == nil {
+			rType = t
+		}
+		rTyStr := g.llvmType(rType)
+		if prim != nil && prim.IsUnsignedInt() {
+			g.declareHelper("ll_div_u64", "i64", "i64, i64, ptr, i32")
+			lVal64 := lVal
+			if tyStr != "i64" {
+				lVal64 = g.newReg()
+				g.indentLine(1, "%s = zext %s %s to i64", lVal64, tyStr, lVal)
+			}
+			rVal64 := rVal
+			if rTyStr != "i64" {
+				rVal64 = g.newReg()
+				g.indentLine(1, "%s = zext %s %s to i64", rVal64, rTyStr, rVal)
+			}
+			callReg := g.newReg()
+			g.indentLine(1, "%s = call i64 @ll_div_u64(i64 %s, i64 %s, ptr %s, i32 %d)", callReg, lVal64, rVal64, fileVal, line)
+			if tyStr != "i64" {
+				g.indentLine(1, "%s = trunc i64 %s to %s", r, callReg, tyStr)
+				return r
+			}
+			return callReg
+		}
+		fn := fmt.Sprintf("ll_div_i%d", bits)
+		g.declareHelper(fn, tyStr, fmt.Sprintf("%s, %s, ptr, i32", tyStr, tyStr))
+		rValTy := rVal
+		if rTyStr != tyStr {
+			rValTy = g.newReg()
+			if bits > g.typeSize(rType)*8 {
+				g.indentLine(1, "%s = sext %s %s to %s", rValTy, rTyStr, rVal, tyStr)
+			} else {
+				g.indentLine(1, "%s = trunc %s %s to %s", rValTy, rTyStr, rVal, tyStr)
+			}
+		}
+		g.indentLine(1, "%s = call %s @%s(%s %s, %s %s, ptr %s, i32 %d)", r, tyStr, fn, tyStr, lVal, tyStr, rValTy, fileVal, line)
 		return r
 
 	case token.Percent:
-		if isSigned {
-			g.indentLine(1, "%s = srem %s %s, %s", r, tyStr, lVal, rVal)
-		} else {
-			g.indentLine(1, "%s = urem %s %s, %s", r, tyStr, lVal, rVal)
+		fileVal := "null"
+		if file != "" {
+			fileVal = g.internString(file).symbol
 		}
+		prim := types.UnderlyingPrimitive(t)
+		bits := 64
+		if prim != nil {
+			bits = prim.BitWidth()
+		}
+		if rType == nil {
+			rType = t
+		}
+		rTyStr := g.llvmType(rType)
+		if prim != nil && prim.IsUnsignedInt() {
+			g.declareHelper("ll_mod_u64", "i64", "i64, i64, ptr, i32")
+			lVal64 := lVal
+			if tyStr != "i64" {
+				lVal64 = g.newReg()
+				g.indentLine(1, "%s = zext %s %s to i64", lVal64, tyStr, lVal)
+			}
+			rVal64 := rVal
+			if rTyStr != "i64" {
+				rVal64 = g.newReg()
+				g.indentLine(1, "%s = zext %s %s to i64", rVal64, rTyStr, rVal)
+			}
+			callReg := g.newReg()
+			g.indentLine(1, "%s = call i64 @ll_mod_u64(i64 %s, i64 %s, ptr %s, i32 %d)", callReg, lVal64, rVal64, fileVal, line)
+			if tyStr != "i64" {
+				g.indentLine(1, "%s = trunc i64 %s to %s", r, callReg, tyStr)
+				return r
+			}
+			return callReg
+		}
+		fn := fmt.Sprintf("ll_mod_i%d", bits)
+		g.declareHelper(fn, tyStr, fmt.Sprintf("%s, %s, ptr, i32", tyStr, tyStr))
+		rValTy := rVal
+		if rTyStr != tyStr {
+			rValTy = g.newReg()
+			if bits > g.typeSize(rType)*8 {
+				g.indentLine(1, "%s = sext %s %s to %s", rValTy, rTyStr, rVal, tyStr)
+			} else {
+				g.indentLine(1, "%s = trunc %s %s to %s", rValTy, rTyStr, rVal, tyStr)
+			}
+		}
+		g.indentLine(1, "%s = call %s @%s(%s %s, %s %s, ptr %s, i32 %d)", r, tyStr, fn, tyStr, lVal, tyStr, rValTy, fileVal, line)
 		return r
 
 	case token.Amp:
@@ -2381,15 +2559,56 @@ func (g *llvmEmitter) emitBinaryOp(op token.Kind, lVal, rVal string, t types.Typ
 		return r
 
 	case token.Shl:
-		g.indentLine(1, "%s = shl %s %s, %s", r, tyStr, lVal, rVal)
+		fileVal := "null"
+		if file != "" {
+			fileVal = g.internString(file).symbol
+		}
+		prim := types.UnderlyingPrimitive(t)
+		bits := 64
+		if prim != nil {
+			bits = prim.BitWidth()
+		}
+		if rType == nil {
+			rType = t
+		}
+		rTyStr := g.llvmType(rType)
+		fn := fmt.Sprintf("ll_shl_u%d", bits)
+		g.declareHelper(fn, tyStr, fmt.Sprintf("%s, i64, i32, ptr, i32", tyStr))
+		rVal64 := rVal
+		if rTyStr != "i64" {
+			rVal64 = g.newReg()
+			g.indentLine(1, "%s = sext %s %s to i64", rVal64, rTyStr, rVal)
+		}
+		g.indentLine(1, "%s = call %s @%s(%s %s, i64 %s, i32 1, ptr %s, i32 %d)", r, tyStr, fn, tyStr, lVal, rVal64, fileVal, line)
 		return r
 
 	case token.Shr:
-		if isSigned {
-			g.indentLine(1, "%s = ashr %s %s, %s", r, tyStr, lVal, rVal)
-		} else {
-			g.indentLine(1, "%s = lshr %s %s, %s", r, tyStr, lVal, rVal)
+		fileVal := "null"
+		if file != "" {
+			fileVal = g.internString(file).symbol
 		}
+		prim := types.UnderlyingPrimitive(t)
+		bits := 64
+		if prim != nil {
+			bits = prim.BitWidth()
+		}
+		if rType == nil {
+			rType = t
+		}
+		rTyStr := g.llvmType(rType)
+		var fn string
+		if prim != nil && prim.IsUnsignedInt() {
+			fn = fmt.Sprintf("ll_shr_u%d", bits)
+		} else {
+			fn = fmt.Sprintf("ll_shr_i%d", bits)
+		}
+		g.declareHelper(fn, tyStr, fmt.Sprintf("%s, i64, i32, ptr, i32", tyStr))
+		rVal64 := rVal
+		if rTyStr != "i64" {
+			rVal64 = g.newReg()
+			g.indentLine(1, "%s = sext %s %s to i64", rVal64, rTyStr, rVal)
+		}
+		g.indentLine(1, "%s = call %s @%s(%s %s, i64 %s, i32 1, ptr %s, i32 %d)", r, tyStr, fn, tyStr, lVal, rVal64, fileVal, line)
 		return r
 
 	// Comparisons
@@ -2399,14 +2618,12 @@ func (g *llvmEmitter) emitBinaryOp(op token.Kind, lVal, rVal string, t types.Typ
 		} else if g.isScalar(t) {
 			g.indentLine(1, "%s = icmp eq %s %s, %s", r, tyStr, lVal, rVal)
 		} else {
-			slotL := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align %d", slotL, tyStr, g.typeAlign(t))
+			slotL := g.allocaEntry(tyStr, g.typeAlign(t))
 			g.indentLine(1, "store %s %s, ptr %s, align %d", tyStr, lVal, slotL, g.typeAlign(t))
-			slotR := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align %d", slotR, tyStr, g.typeAlign(t))
+			slotR := g.allocaEntry(tyStr, g.typeAlign(t))
 			g.indentLine(1, "store %s %s, ptr %s, align %d", tyStr, rVal, slotR, g.typeAlign(t))
 			fn := "ll_eq_p__" + t.Mangled()
-			g.declareCompanionHelper(fn, "i1", "ptr, ptr")
+			g.declareHelper(fn, "i1", "ptr, ptr")
 			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, fn, slotL, slotR)
 		}
 		return r
@@ -2417,14 +2634,12 @@ func (g *llvmEmitter) emitBinaryOp(op token.Kind, lVal, rVal string, t types.Typ
 		} else if g.isScalar(t) {
 			g.indentLine(1, "%s = icmp ne %s %s, %s", r, tyStr, lVal, rVal)
 		} else {
-			slotL := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align %d", slotL, tyStr, g.typeAlign(t))
+			slotL := g.allocaEntry(tyStr, g.typeAlign(t))
 			g.indentLine(1, "store %s %s, ptr %s, align %d", tyStr, lVal, slotL, g.typeAlign(t))
-			slotR := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align %d", slotR, tyStr, g.typeAlign(t))
+			slotR := g.allocaEntry(tyStr, g.typeAlign(t))
 			g.indentLine(1, "store %s %s, ptr %s, align %d", tyStr, rVal, slotR, g.typeAlign(t))
 			fn := "ll_eq_p__" + t.Mangled()
-			g.declareCompanionHelper(fn, "i1", "ptr, ptr")
+			g.declareHelper(fn, "i1", "ptr, ptr")
 			eqReg := g.newReg()
 			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", eqReg, fn, slotL, slotR)
 			g.indentLine(1, "%s = xor i1 %s, true", r, eqReg)
@@ -2658,107 +2873,29 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 		}
 		if fnRef.Name == "ll_panic_str" && len(call.Args) >= 1 {
 			strAddr := g.emitLValueAddr(call.Args[0])
-			fileSym := "null"
+			fileAddr := "null"
 			lineVal := "0"
-			if len(call.Args) >= 3 {
-				fileSym = g.emitExpr(call.Args[1])
+			colVal := "0"
+			if len(call.Args) >= 4 {
+				fileAddr = g.emitLValueAddr(call.Args[1])
+				lineVal = g.emitExpr(call.Args[2])
+				colVal = g.emitExpr(call.Args[3])
+			} else if len(call.Args) >= 3 {
+				fileAddr = g.emitLValueAddr(call.Args[1])
 				lineVal = g.emitExpr(call.Args[2])
 			}
-			g.indentLine(1, "call void @ll_panic_str_p(ptr %s, ptr %s, i32 %s)", strAddr, fileSym, lineVal)
+			g.indentLine(1, "call void @ll_panic_str_p(ptr %s, ptr %s, i64 %s, i64 %s)", strAddr, fileAddr, lineVal, colVal)
 			g.indentLine(1, "unreachable")
 			g.isTerminated = true
 			return "void"
 		}
 		if fnRef.Name == "ll_arena_new" && len(call.Args) >= 1 {
 			capVal := g.emitExpr(call.Args[0])
-			arenaSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %%struct.ll_arena, align 8", arenaSlot)
-			g.declareCompanionHelper("ll_arena_new_p", "void", "ptr, i64")
+			arenaSlot := g.allocaEntry("%struct.ll_arena", 8)
+			g.declareHelper("ll_arena_new_p", "void", "ptr, i64")
 			g.indentLine(1, "call void @ll_arena_new_p(ptr %s, i64 %s)", arenaSlot, capVal)
 			r := g.newReg()
 			g.indentLine(1, "%s = load %%struct.ll_arena, ptr %s, align 8", r, arenaSlot)
-			return r
-		}
-		if fnRef.Name == "ll_vec_join_str" && len(call.Args) == 2 {
-			vecAddr := g.emitLValueAddr(call.Args[0])
-			sepAddr := g.emitLValueAddr(call.Args[1])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
-			g.declareCompanionHelper("ll_vec_join_str_p", "void", "ptr, ptr, ptr")
-			g.indentLine(1, "call void @ll_vec_join_str_p(ptr %s, ptr %s, ptr %s)", resSlot, vecAddr, sepAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_os_name" {
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
-			g.declareCompanionHelper("ll_os_name_p", "void", "ptr")
-			g.indentLine(1, "call void @ll_os_name_p(ptr %s)", resSlot)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_os_arch" {
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
-			g.declareCompanionHelper("ll_os_arch_p", "void", "ptr")
-			g.indentLine(1, "call void @ll_os_arch_p(ptr %s)", resSlot)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_os_argv" && len(call.Args) == 1 {
-			idxVal := g.emitExpr(call.Args[0])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
-			g.declareCompanionHelper("ll_os_argv_p", "void", "ptr, i64")
-			g.indentLine(1, "call void @ll_os_argv_p(ptr %s, i64 %s)", resSlot, idxVal)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_from_char" && len(call.Args) == 1 {
-			chVal := g.emitExpr(call.Args[0])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
-			g.declareCompanionHelper("ll_str_from_char_p", "void", "ptr, i32")
-			g.indentLine(1, "call void @ll_str_from_char_p(ptr %s, i32 %s)", resSlot, chVal)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_from_raw" && len(call.Args) == 2 {
-			dataVal := g.emitExpr(call.Args[0])
-			lenVal := g.emitExpr(call.Args[1])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
-			g.declareCompanionHelper("ll_str_from_raw_p", "void", "ptr, ptr, i64")
-			g.indentLine(1, "call void @ll_str_from_raw_p(ptr %s, ptr %s, i64 %s)", resSlot, dataVal, lenVal)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_fmt_float_prec" && len(call.Args) == 2 {
-			vVal := g.emitExpr(call.Args[0])
-			precVal := g.emitExpr(call.Args[1])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
-			g.declareCompanionHelper("ll_fmt_float_prec_p", "void", "ptr, double, i64")
-			g.indentLine(1, "call void @ll_fmt_float_prec_p(ptr %s, double %s, i64 %s)", resSlot, vVal, precVal)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_fmt_exp_f64" && len(call.Args) == 2 {
-			vVal := g.emitExpr(call.Args[0])
-			precVal := g.emitExpr(call.Args[1])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
-			g.declareCompanionHelper("ll_fmt_exp_f64_p", "void", "ptr, double, i64")
-			g.indentLine(1, "call void @ll_fmt_exp_f64_p(ptr %s, double %s, i64 %s)", resSlot, vVal, precVal)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
 			return r
 		}
 		if fnRef.Name == "ll_str_slice_view" && len(call.Args) >= 3 {
@@ -2773,9 +2910,8 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 				fileVal = g.emitExpr(call.Args[4])
 				lineVal = g.emitExpr(call.Args[5])
 			}
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
-			g.declareCompanionHelper("ll_str_slice_view_p", "void", "ptr, ptr, i64, i64, i32, ptr, i64")
+			resSlot := g.allocaEntry("%struct.ll_string", 8)
+			g.declareHelper("ll_str_slice_view_p", "void", "ptr, ptr, i64, i64, i32, ptr, i64")
 			g.indentLine(1, "call void @ll_str_slice_view_p(ptr %s, ptr %s, i64 %s, i64 %s, i32 %s, ptr %s, i64 %s)",
 				resSlot, strAddr, loVal, hiVal, checkVal, fileVal, lineVal)
 			r := g.newReg()
@@ -2794,205 +2930,82 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 				fileVal = g.emitExpr(call.Args[4])
 				lineVal = g.emitExpr(call.Args[5])
 			}
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %%struct.ll_string, align 8", resSlot)
-			g.declareCompanionHelper("ll_str_slice_owned_p", "void", "ptr, ptr, i64, i64, i32, ptr, i64")
+			resSlot := g.allocaEntry("%struct.ll_string", 8)
+			g.declareHelper("ll_str_slice_owned_p", "void", "ptr, ptr, i64, i64, i32, ptr, i64")
 			g.indentLine(1, "call void @ll_str_slice_owned_p(ptr %s, ptr %s, i64 %s, i64 %s, i32 %s, ptr %s, i64 %s)",
 				resSlot, strAddr, loVal, hiVal, checkVal, fileVal, lineVal)
 			r := g.newReg()
 			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
 			return r
 		}
+		if strings.HasPrefix(fnRef.Name, "ll_vec_slice_view__") && len(call.Args) >= 3 {
+			mangled := strings.TrimPrefix(fnRef.Name, "ll_vec_slice_view__")
+			wrapper := "ll_vec_slice_view_p__" + mangled
+			vecAddr := g.emitLValueAddr(call.Args[0])
+			loVal := g.emitExpr(call.Args[1])
+			hiVal := g.emitExpr(call.Args[2])
+			checkVal := "1"
+			fileVal := "null"
+			lineVal := "0"
+			if len(call.Args) >= 6 {
+				checkVal = g.emitExpr(call.Args[3])
+				fileVal = g.emitExpr(call.Args[4])
+				lineVal = g.emitExpr(call.Args[5])
+			}
+			resSlot := g.allocaEntry(g.llvmType(call.Typ), 8)
+			g.declareHelper(wrapper, "void", "ptr, ptr, i64, i64, i32, ptr, i64")
+			g.indentLine(1, "call void @%s(ptr %s, ptr %s, i64 %s, i64 %s, i32 %s, ptr %s, i64 %s)",
+				wrapper, resSlot, vecAddr, loVal, hiVal, checkVal, fileVal, lineVal)
+			r := g.newReg()
+			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
+			return r
+		}
+		if strings.HasPrefix(fnRef.Name, "ll_vec_slice_owned__") && len(call.Args) >= 3 {
+			mangled := strings.TrimPrefix(fnRef.Name, "ll_vec_slice_owned__")
+			wrapper := "ll_vec_slice_owned_p__" + mangled
+			vecAddr := g.emitLValueAddr(call.Args[0])
+			loVal := g.emitExpr(call.Args[1])
+			hiVal := g.emitExpr(call.Args[2])
+			checkVal := "1"
+			fileVal := "null"
+			lineVal := "0"
+			if len(call.Args) >= 6 {
+				checkVal = g.emitExpr(call.Args[3])
+				fileVal = g.emitExpr(call.Args[4])
+				lineVal = g.emitExpr(call.Args[5])
+			}
+			resSlot := g.allocaEntry(g.llvmType(call.Typ), 8)
+			g.declareHelper(wrapper, "void", "ptr, ptr, i64, i64, i32, ptr, i64")
+			g.indentLine(1, "call void @%s(ptr %s, ptr %s, i64 %s, i64 %s, i32 %s, ptr %s, i64 %s)",
+				wrapper, resSlot, vecAddr, loVal, hiVal, checkVal, fileVal, lineVal)
+			r := g.newReg()
+			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
+			return r
+		}
 		if fnRef.Name == "ll_assert" && len(call.Args) >= 4 {
 			condVal := g.emitExpr(call.Args[0])
 			msgAddr := g.emitLValueAddr(call.Args[1])
-			fileVal := g.emitExpr(call.Args[2])
+			fileAddr := g.emitLValueAddr(call.Args[2])
 			lineVal := g.emitExpr(call.Args[3])
-			g.declareCompanionHelper("ll_assert_p", "void", "i1, ptr, ptr, i64")
-			g.indentLine(1, "call void @ll_assert_p(i1 %s, ptr %s, ptr %s, i64 %s)", condVal, msgAddr, fileVal, lineVal)
+			colVal := "0"
+			if len(call.Args) >= 5 {
+				colVal = g.emitExpr(call.Args[4])
+			}
+			g.declareHelper("ll_assert_p", "void", "i1, ptr, ptr, i64, i64")
+			g.indentLine(1, "call void @ll_assert_p(i1 %s, ptr %s, ptr %s, i64 %s, i64 %s)", condVal, msgAddr, fileAddr, lineVal, colVal)
 			return "void"
-		}
-		if fnRef.Name == "ll_parse_int" && len(call.Args) == 1 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_parse_int_p", "void", "ptr, ptr")
-			g.indentLine(1, "call void @ll_parse_int_p(ptr %s, ptr %s)", resSlot, strAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_parse_float" && len(call.Args) == 1 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_parse_float_p", "void", "ptr, ptr")
-			g.indentLine(1, "call void @ll_parse_float_p(ptr %s, ptr %s)", resSlot, strAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_read_file" && len(call.Args) == 1 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_read_file_p", "void", "ptr, ptr")
-			g.indentLine(1, "call void @ll_read_file_p(ptr %s, ptr %s)", resSlot, strAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_write_file" && len(call.Args) == 2 {
-			pathAddr := g.emitLValueAddr(call.Args[0])
-			contAddr := g.emitLValueAddr(call.Args[1])
-			g.declareCompanionHelper("ll_write_file_p", "i1", "ptr, ptr")
-			r := g.newReg()
-			g.indentLine(1, "%s = call i1 @ll_write_file_p(ptr %s, ptr %s)", r, pathAddr, contAddr)
-			return r
-		}
-		if fnRef.Name == "ll_get_cli_args" {
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_get_cli_args_p", "void", "ptr")
-			g.indentLine(1, "call void @ll_get_cli_args_p(ptr %s)", resSlot)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_index_of" && len(call.Args) == 2 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			subAddr := g.emitLValueAddr(call.Args[1])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_str_index_of_p", "void", "ptr, ptr, ptr")
-			g.indentLine(1, "call void @ll_str_index_of_p(ptr %s, ptr %s, ptr %s)", resSlot, strAddr, subAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_contains" && len(call.Args) == 2 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			subAddr := g.emitLValueAddr(call.Args[1])
-			g.declareCompanionHelper("ll_str_contains_p", "i1", "ptr, ptr")
-			r := g.newReg()
-			g.indentLine(1, "%s = call i1 @ll_str_contains_p(ptr %s, ptr %s)", r, strAddr, subAddr)
-			return r
-		}
-		if fnRef.Name == "ll_str_starts_with" && len(call.Args) == 2 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			subAddr := g.emitLValueAddr(call.Args[1])
-			g.declareCompanionHelper("ll_str_starts_with_p", "i1", "ptr, ptr")
-			r := g.newReg()
-			g.indentLine(1, "%s = call i1 @ll_str_starts_with_p(ptr %s, ptr %s)", r, strAddr, subAddr)
-			return r
-		}
-		if fnRef.Name == "ll_str_ends_with" && len(call.Args) == 2 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			subAddr := g.emitLValueAddr(call.Args[1])
-			g.declareCompanionHelper("ll_str_ends_with_p", "i1", "ptr, ptr")
-			r := g.newReg()
-			g.indentLine(1, "%s = call i1 @ll_str_ends_with_p(ptr %s, ptr %s)", r, strAddr, subAddr)
-			return r
-		}
-		if fnRef.Name == "ll_str_trim" && len(call.Args) == 1 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_str_trim_p", "void", "ptr, ptr")
-			g.indentLine(1, "call void @ll_str_trim_p(ptr %s, ptr %s)", resSlot, strAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_to_upper" && len(call.Args) == 1 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_str_to_upper_p", "void", "ptr, ptr")
-			g.indentLine(1, "call void @ll_str_to_upper_p(ptr %s, ptr %s)", resSlot, strAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_to_lower" && len(call.Args) == 1 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_str_to_lower_p", "void", "ptr, ptr")
-			g.indentLine(1, "call void @ll_str_to_lower_p(ptr %s, ptr %s)", resSlot, strAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_replace" && len(call.Args) == 3 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			oldAddr := g.emitLValueAddr(call.Args[1])
-			newAddr := g.emitLValueAddr(call.Args[2])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_str_replace_p", "void", "ptr, ptr, ptr, ptr")
-			g.indentLine(1, "call void @ll_str_replace_p(ptr %s, ptr %s, ptr %s, ptr %s)", resSlot, strAddr, oldAddr, newAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_get_byte" && len(call.Args) == 2 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			idxVal := g.emitExpr(call.Args[1])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_str_get_byte_p", "void", "ptr, ptr, i64")
-			g.indentLine(1, "call void @ll_str_get_byte_p(ptr %s, ptr %s, i64 %s)", resSlot, strAddr, idxVal)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_bytes" && len(call.Args) == 1 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_str_bytes_p", "void", "ptr, ptr")
-			g.indentLine(1, "call void @ll_str_bytes_p(ptr %s, ptr %s)", resSlot, strAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_chars" && len(call.Args) == 1 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_str_chars_p", "void", "ptr, ptr")
-			g.indentLine(1, "call void @ll_str_chars_p(ptr %s, ptr %s)", resSlot, strAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_split" && len(call.Args) == 2 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			sepAddr := g.emitLValueAddr(call.Args[1])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper("ll_str_split_p", "void", "ptr, ptr, ptr")
-			g.indentLine(1, "call void @ll_str_split_p(ptr %s, ptr %s, ptr %s)", resSlot, strAddr, sepAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
 		}
 		if fnRef.Name == "ll_str_c_str" && len(call.Args) == 1 {
 			strAddr := g.emitLValueAddr(call.Args[0])
 			gep := g.newReg()
 			g.indentLine(1, "%s = getelementptr inbounds %%struct.ll_string, ptr %s, i32 0, i32 0", gep, strAddr)
+			rawPtr := g.newReg()
+			g.indentLine(1, "%s = load ptr, ptr %s, align 8", rawPtr, gep)
+			isNull := g.newReg()
+			g.indentLine(1, "%s = icmp eq ptr %s, null", isNull, rawPtr)
+			emptySym := g.internString("").symbol
 			r := g.newReg()
-			g.indentLine(1, "%s = load ptr, ptr %s, align 8", r, gep)
-			return r
-		}
-		if (fnRef.Name == "ll_str_utf8_next" || fnRef.Name == "ll_str_utf8_next_p") && len(call.Args) == 3 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			offVal := g.emitExpr(call.Args[1])
-			nextOffAddr := g.emitExpr(call.Args[2])
-			g.declareCompanionHelper("ll_str_utf8_next_p", "i32", "ptr, i64, ptr")
-			r := g.newReg()
-			g.indentLine(1, "%s = call i32 @ll_str_utf8_next_p(ptr %s, i64 %s, ptr %s)", r, strAddr, offVal, nextOffAddr)
+			g.indentLine(1, "%s = select i1 %s, ptr %s, ptr %s", r, isNull, emptySym, rawPtr)
 			return r
 		}
 		if strings.HasPrefix(fnRef.Name, "ll_vec_push__") && len(call.Args) == 2 {
@@ -3000,15 +3013,14 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			itemAddr := g.emitLValueAddr(call.Args[1])
 			mangled := strings.TrimPrefix(fnRef.Name, "ll_vec_push__")
 			wrapper := "ll_vec_push_p__" + mangled
-			g.declareCompanionHelper(wrapper, "void", "ptr, ptr")
+			g.declareHelper(wrapper, "void", "ptr, ptr")
 			g.indentLine(1, "call void @%s(ptr %s, ptr %s)", wrapper, vecAddr, itemAddr)
 			return "void"
 		}
 		if strings.HasPrefix(fnRef.Name, "ll_vec_get__") && len(call.Args) == 2 {
 			vecAddr := g.emitAsPtr(call.Args[0])
 			idxVal := g.emitExpr(call.Args[1])
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
+			resSlot := g.allocaEntry(g.llvmType(call.Typ), 8)
 			optTy, _ := call.Typ.(*types.Optional)
 			elemTy := optTy.Elem
 
@@ -3084,18 +3096,27 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			itemAddr := g.emitLValueAddr(call.Args[1])
 			mangled := strings.TrimPrefix(fnRef.Name, "ll_vec_contains__")
 			wrapper := "ll_vec_contains_p__" + mangled
-			g.declareCompanionHelper(wrapper, "i1", "ptr, ptr")
+			g.declareHelper(wrapper, "i1", "ptr, ptr")
 			r := g.newReg()
 			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, wrapper, vecAddr, itemAddr)
+			return r
+		}
+		if strings.HasPrefix(fnRef.Name, "ll_arr_contains__") && len(call.Args) == 2 {
+			arrAddr := g.emitLValueAddr(call.Args[0])
+			itemAddr := g.emitLValueAddr(call.Args[1])
+			mangled := strings.TrimPrefix(fnRef.Name, "ll_arr_contains__")
+			wrapper := "ll_arr_contains_p__" + mangled
+			g.declareHelper(wrapper, "i1", "ptr, ptr")
+			r := g.newReg()
+			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, wrapper, arrAddr, itemAddr)
 			return r
 		}
 		if strings.HasPrefix(fnRef.Name, "ll_vec_pop__") && len(call.Args) == 1 {
 			vecAddr := g.emitAsPtr(call.Args[0])
 			mangled := strings.TrimPrefix(fnRef.Name, "ll_vec_pop__")
 			wrapper := "ll_vec_pop_p__" + mangled
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper(wrapper, "void", "ptr, ptr")
+			resSlot := g.allocaEntry(g.llvmType(call.Typ), 8)
+			g.declareHelper(wrapper, "void", "ptr, ptr")
 			g.indentLine(1, "call void @%s(ptr %s, ptr %s)", wrapper, resSlot, vecAddr)
 			r := g.newReg()
 			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
@@ -3106,16 +3127,17 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			keyAddr := g.emitLValueAddr(call.Args[1])
 			mangled := strings.TrimPrefix(fnRef.Name, "ll_set_insert__")
 			wrapper := "ll_set_insert_p__" + mangled
-			g.declareCompanionHelper(wrapper, "void", "ptr, ptr")
-			g.indentLine(1, "call void @%s(ptr %s, ptr %s)", wrapper, setAddr, keyAddr)
-			return "void"
+			g.declareHelper(wrapper, "i1", "ptr, ptr")
+			r := g.newReg()
+			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, wrapper, setAddr, keyAddr)
+			return r
 		}
 		if strings.HasPrefix(fnRef.Name, "ll_set_has__") && len(call.Args) == 2 {
 			setAddr := g.emitAsPtr(call.Args[0])
 			keyAddr := g.emitLValueAddr(call.Args[1])
 			mangled := strings.TrimPrefix(fnRef.Name, "ll_set_has__")
 			wrapper := "ll_set_has_p__" + mangled
-			g.declareCompanionHelper(wrapper, "i1", "ptr, ptr")
+			g.declareHelper(wrapper, "i1", "ptr, ptr")
 			r := g.newReg()
 			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, wrapper, setAddr, keyAddr)
 			return r
@@ -3125,7 +3147,7 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			keyAddr := g.emitLValueAddr(call.Args[1])
 			mangled := strings.TrimPrefix(fnRef.Name, "ll_set_remove__")
 			wrapper := "ll_set_remove_p__" + mangled
-			g.declareCompanionHelper(wrapper, "i1", "ptr, ptr")
+			g.declareHelper(wrapper, "i1", "ptr, ptr")
 			r := g.newReg()
 			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, wrapper, setAddr, keyAddr)
 			return r
@@ -3136,7 +3158,7 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			valAddr := g.emitLValueAddr(call.Args[2])
 			mangled := strings.TrimPrefix(fnRef.Name, "ll_map_insert__")
 			wrapper := "ll_map_insert_p__" + mangled
-			g.declareCompanionHelper(wrapper, "void", "ptr, ptr, ptr")
+			g.declareHelper(wrapper, "void", "ptr, ptr, ptr")
 			g.indentLine(1, "call void @%s(ptr %s, ptr %s, ptr %s)", wrapper, mapAddr, keyAddr, valAddr)
 			return "void"
 		}
@@ -3145,9 +3167,8 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			keyAddr := g.emitLValueAddr(call.Args[1])
 			mangled := strings.TrimPrefix(fnRef.Name, "ll_map_get__")
 			wrapper := "ll_map_get_p__" + mangled
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper(wrapper, "void", "ptr, ptr, ptr")
+			resSlot := g.allocaEntry(g.llvmType(call.Typ), 8)
+			g.declareHelper(wrapper, "void", "ptr, ptr, ptr")
 			g.indentLine(1, "call void @%s(ptr %s, ptr %s, ptr %s)", wrapper, resSlot, mapAddr, keyAddr)
 			r := g.newReg()
 			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
@@ -3158,7 +3179,7 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			keyAddr := g.emitLValueAddr(call.Args[1])
 			mangled := strings.TrimPrefix(fnRef.Name, "ll_map_has__")
 			wrapper := "ll_map_has_p__" + mangled
-			g.declareCompanionHelper(wrapper, "i1", "ptr, ptr")
+			g.declareHelper(wrapper, "i1", "ptr, ptr")
 			r := g.newReg()
 			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, wrapper, mapAddr, keyAddr)
 			return r
@@ -3168,9 +3189,8 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			keyAddr := g.emitLValueAddr(call.Args[1])
 			mangled := strings.TrimPrefix(fnRef.Name, "ll_map_remove__")
 			wrapper := "ll_map_remove_p__" + mangled
-			resSlot := g.newReg()
-			g.indentLine(1, "%s = alloca %s, align 8", resSlot, g.llvmType(call.Typ))
-			g.declareCompanionHelper(wrapper, "void", "ptr, ptr, ptr")
+			resSlot := g.allocaEntry(g.llvmType(call.Typ), 8)
+			g.declareHelper(wrapper, "void", "ptr, ptr, ptr")
 			g.indentLine(1, "call void @%s(ptr %s, ptr %s, ptr %s)", wrapper, resSlot, mapAddr, keyAddr)
 			r := g.newReg()
 			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
@@ -3187,7 +3207,7 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			for _, a := range call.Args {
 				argTys = append(argTys, g.exprLLVMType(a))
 			}
-			g.declareCompanionHelper(fnRef.Name, g.llvmType(call.Typ), strings.Join(argTys, ", "))
+			g.declareHelper(fnRef.Name, g.llvmType(call.Typ), strings.Join(argTys, ", "))
 		}
 	} else {
 		calleeSymbol = g.emitExpr(call.Callee)
@@ -3266,7 +3286,7 @@ func (g *llvmEmitter) emitVTables() {
 		g.line("doDrop:")
 		if !vt.Concrete.IsPlain() {
 			dropFn := ir.DropFnName(vt.Concrete)
-			g.declareCompanionHelper(dropFn, "void", "ptr")
+			g.declareHelper(dropFn, "void", "ptr")
 			g.indentLine(1, "call void @%s(ptr %%_data.param)", dropFn)
 		}
 		g.indentRaw(1, "call void @ll_free(ptr %_data.param)")
@@ -3284,7 +3304,7 @@ func (g *llvmEmitter) emitVTables() {
 			sz := g.typeSize(vt.Concrete)
 			g.indentLine(1, "%%nb = call ptr @ll_alloc(i64 %d)", sz)
 			copyP := "ll_copy_p__" + vt.Concrete.Mangled()
-			g.declareCompanionHelper(copyP, "void", "ptr, ptr")
+			g.declareHelper(copyP, "void", "ptr, ptr")
 			g.indentLine(1, "call void @%s(ptr %%nb, ptr %%_data.param)", copyP)
 			g.indentRaw(1, "ret ptr %nb")
 		} else {
@@ -3341,7 +3361,7 @@ func (g *llvmEmitter) emitVTables() {
 			} else if im.Name == "to_string" {
 				g.indentRaw(1, "%_tostr_res = alloca %struct.ll_string, align 8")
 				toStrP := "ll_tostr_p__" + vt.Concrete.Mangled()
-				g.declareCompanionHelper(toStrP, "void", "ptr, ptr")
+				g.declareHelper(toStrP, "void", "ptr, ptr")
 				g.indentLine(1, "call void @%s(ptr %%_tostr_res, ptr %%_self.param)", toStrP)
 				g.indentRaw(1, "%res = load %struct.ll_string, ptr %_tostr_res, align 8")
 				g.indentRaw(1, "ret %struct.ll_string %res")
@@ -3377,33 +3397,41 @@ func (g *llvmEmitter) emitMain() {
 	g.movedSlots = make(map[string]string)
 	g.nextRegID = 0
 	g.isTerminated = false
+	g.entryAllocas = nil
 
-	g.line("; Program Entry Point")
-	g.raw("define i32 @main(i32 %argc, ptr %argv) {")
-	g.line("entry:")
-	g.currentBlock = "entry"
+	var headerSB strings.Builder
+	headerSB.WriteString("; Program Entry Point\n")
+	headerSB.WriteString("define i32 @main(i32 %argc, ptr %argv) {\n")
+	headerSB.WriteString("entry:\n")
 
-	// 1. Store argc & argv into runtime globals
-	g.indentRaw(1, "store i32 %argc, ptr @ll_rt_argc, align 4")
-	g.indentRaw(1, "store ptr %argv, ptr @ll_rt_argv, align 8")
+	var initSB strings.Builder
+	initSB.WriteString("    store i32 %argc, ptr @ll_rt_argc, align 4\n")
+	initSB.WriteString("    store ptr %argv, ptr @ll_rt_argv, align 8\n")
 
 	// 2. Initialize top-level `bind` constants in declaration order
 	for _, gl := range g.prog.Globals {
 		for _, loc := range gl.Locals {
 			slot := fmt.Sprintf("%%%s.slot", loc.CName)
 			g.localSlots[loc] = slot
-			g.indentLine(1, "%s = alloca %s, align 8", slot, g.llvmType(loc.Type))
-			g.indentLine(1, "store %s zeroinitializer, ptr %s, align 8", g.llvmType(loc.Type), slot)
+			headerSB.WriteString(fmt.Sprintf("    %s = alloca %s, align 8\n", slot, g.llvmType(loc.Type)))
+			initSB.WriteString(fmt.Sprintf("    store %s zeroinitializer, ptr %s, align 8\n", g.llvmType(loc.Type), slot))
 			if loc.MovedFlag != "" {
 				flagSlot := fmt.Sprintf("%%%s.slot", loc.MovedFlag)
 				g.movedSlots[loc.MovedFlag] = flagSlot
 				if loc.MovedLocal != nil {
 					g.localSlots[loc.MovedLocal] = flagSlot
 				}
-				g.indentLine(1, "%s = alloca i1, align 1", flagSlot)
-				g.indentLine(1, "store i1 true, ptr %s, align 1", flagSlot)
+				headerSB.WriteString(fmt.Sprintf("    %s = alloca i1, align 1\n", flagSlot))
+				initSB.WriteString(fmt.Sprintf("    store i1 true, ptr %s, align 1\n", flagSlot))
 			}
 		}
+	}
+
+	savedSB := g.sb
+	g.sb = strings.Builder{}
+	g.currentBlock = "entry"
+
+	for _, gl := range g.prog.Globals {
 		for _, in := range gl.InitInstr {
 			g.emitInstr(in)
 		}
@@ -3430,11 +3458,9 @@ func (g *llvmEmitter) emitMain() {
 			g.indentLine(1, "call i32 (ptr, ...) @printf(ptr %s)", noTestsEntry.symbol)
 			g.emitMainCleanup("0")
 		} else {
-			// Run each test function via companion runner
-			passSlot := g.newReg()
-			failSlot := g.newReg()
-			g.indentLine(1, "%s = alloca i32, align 4", passSlot)
-			g.indentLine(1, "%s = alloca i32, align 4", failSlot)
+			// Run each test function via test runner
+			passSlot := g.allocaEntry("i32", 4)
+			failSlot := g.allocaEntry("i32", 4)
 			g.indentLine(1, "store i32 0, ptr %s, align 4", passSlot)
 			g.indentLine(1, "store i32 0, ptr %s, align 4", failSlot)
 
@@ -3502,6 +3528,16 @@ func (g *llvmEmitter) emitMain() {
 		}
 	}
 
+	mainBodyStr := g.sb.String()
+	g.sb = savedSB
+
+	g.sb.WriteString(headerSB.String())
+	for _, alloc := range g.entryAllocas {
+		g.sb.WriteString(alloc)
+		g.sb.WriteByte('\n')
+	}
+	g.sb.WriteString(initSB.String())
+	g.sb.WriteString(mainBodyStr)
 	g.line("}")
 	g.line("")
 }

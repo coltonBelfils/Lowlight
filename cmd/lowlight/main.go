@@ -30,7 +30,7 @@ func runCLI(args []string) int {
 		return 0
 
 	case "version", "-v", "--version":
-		fmt.Printf("lowlight %s (v1.0 specification, ISO C11 backend)\n", driver.Version)
+		fmt.Printf("lowlight %s (v1.0 specification, direct LLVM IR backend)\n", driver.Version)
 		return 0
 
 	case "check":
@@ -89,27 +89,6 @@ func runCLI(args []string) int {
 			}
 		} else {
 			fmt.Print(llvmSrc)
-		}
-		return 0
-
-	case "emit-companion":
-		opts, _, err := parseCommonFlags(rest, true, false)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
-		}
-		compSrc, _, err := driver.EmitCompanion(opts)
-		if err != nil {
-			fmt.Fprint(os.Stderr, err.Error())
-			return 1
-		}
-		if opts.OutPath != "" {
-			if err := os.WriteFile(opts.OutPath, []byte(compSrc), 0o644); err != nil {
-				fmt.Fprintf(os.Stderr, "error writing %s: %v\n", opts.OutPath, err)
-				return 1
-			}
-		} else {
-			fmt.Print(compSrc)
 		}
 		return 0
 
@@ -333,9 +312,9 @@ func printUsage(w *os.File) {
 	fmt.Fprint(w, `Lowlight v1.0 Compiler
 
 Usage:
-  lowlight build [-o <bin>] [--backend <c11|llvm>] [--release] [--cc <compiler>] <file.ll>
-  lowlight run   [--backend <c11|llvm>] [--release] [--cc <compiler>] <file.ll> [-- <args...>]
-  lowlight test  [--backend <c11|llvm>] [--release] [--cc <compiler>] [<path...>]
+  lowlight build [-o <bin>] [--backend <llvm|c11>] [--release] [--cc <compiler>] <file.ll>
+  lowlight run   [--backend <llvm|c11>] [--release] [--cc <compiler>] <file.ll> [-- <args...>]
+  lowlight test  [--backend <llvm|c11>] [--release] [--cc <compiler>] [<path...>]
   lowlight emit-llvm [-o <file.ll>] [--release] <file.ll>
   lowlight emit-c [-o <file.c>] [--release] <file.ll>
   lowlight check <file.ll>
@@ -345,7 +324,7 @@ Usage:
 
 Flags:
   -o <path>        Output executable, LLVM IR, or C11 source path
-  --backend <kind> Codegen backend: "c11" (default) or "llvm" (direct LLVM IR)
+  --backend <kind> Codegen backend: "llvm" (default) or "c11" (ISO C11 backend)
   --release        Optimize (-O2) and elide runtime bounds/shift checks
   --cc <compiler>  C/LLVM compiler executable (default: $LOWLIGHT_CC, $CC, or clang/cc)
   --stdio          Run Language Server Protocol (LSP 3.17) over stdin/stdout

@@ -27,7 +27,7 @@ define Outcome[T, E] enum [
     Detail: [code: int, msg: E],
 ]
 
-bind Outcome[T, E].is_ok = (self): bool {
+bind Outcome[T, E].is_ok = (self): bool -> {
     match (self)
         when Outcome.Ok(_): true
         else: false
@@ -43,7 +43,7 @@ define Expr enum [
 ]
 
 // Match directly on ref[Expr] scrutinee!
-bind eval = (e: ref[Expr]): int {
+bind eval = (e: ref[Expr]): int -> {
     match (e)
         when Expr.Null: 0
         when Expr.Num(n): n
@@ -62,7 +62,7 @@ bind eval = (e: ref[Expr]): int {
 }
 
 // Mutate payload in place directly through ref[Expr] using & binding!
-bind scale_leaf = (e: ref[Expr], factor: int) {
+bind scale_leaf = (e: ref[Expr], factor: int) -> {
     match (e)
         when Expr.Num(&n): {
             n = n * factor
@@ -84,7 +84,7 @@ define Event enum [
     Packet: [count: int, label: string],
 ]
 
-bind make_event = (): Event {
+bind make_event = (): Event -> {
     Event.Login[
         user: "alice_" + "admin",
         token: "tok_" + "12345",
@@ -92,7 +92,7 @@ bind make_event = (): Event {
     ]
 }
 
-bind main = () {
+bind main = () -> {
     // 1. Plain C enum compatibility
     let c = Color.Green
     assert(int(c) == 1)
@@ -190,11 +190,11 @@ define Status enum [
     Err: string,
 ]
 
-bind check_it = (): Status {
+bind check_it = (): Status -> {
     Status.Err("problem")
 }
 
-bind main = () {
+bind main = () -> {
     check_it()
 }
 `
@@ -222,7 +222,7 @@ func TestTaggedUnionsNegative(t *testing.T) {
 			name: "non_exhaustive_tagged_match",
 			src: `
 define Res enum [Ok: int, Err: string, Pending]
-bind main = () {
+bind main = () -> {
     let r = Res.Ok(1)
     let x = match (r)
         when Res.Ok(v): v
@@ -239,7 +239,7 @@ define Bad enum [
     End,
     Loop: Bad,
 ]
-bind main = () {}
+bind main = () -> {}
 `,
 			wantErrPart: "recursive",
 		},
@@ -253,7 +253,7 @@ define A enum [
 define B struct [
     inner: A,
 ]
-bind main = () {}
+bind main = () -> {}
 `,
 			wantErrPart: "recursive",
 		},
@@ -261,7 +261,7 @@ bind main = () {}
 			name: "int_cast_on_tagged_enum_rejected",
 			src: `
 define Msg enum [Ping, Text: string]
-bind main = () {
+bind main = () -> {
     let m = Msg.Ping
     let x = int(m)
     println(x)
@@ -273,7 +273,7 @@ bind main = () {
 			name: "tagged_enum_not_hashable_in_set",
 			src: `
 define Msg enum [Ping, Code: int]
-bind main = () {
+bind main = () -> {
     let s = #[Msg.Ping]
     println(s.len())
 }
@@ -284,7 +284,7 @@ bind main = () {
 			name: "use_after_own_move_in_match",
 			src: `
 define BoxedStr enum [Empty, Val: string]
-bind main = () {
+bind main = () -> {
     let b = BoxedStr.Val("hello")
     let s = match (b)
         when BoxedStr.Empty: ""
@@ -299,12 +299,12 @@ bind main = () {
 			name: "own_move_from_borrowed_enum_rejected",
 			src: `
 define BoxedStr enum [Empty, Val: string]
-bind inspect = (b: BoxedStr): string {
+bind inspect = (b: BoxedStr): string -> {
     match (b)
         when BoxedStr.Empty: ""
         when BoxedStr.Val(own text): text
 }
-bind main = () {}
+bind main = () -> {}
 `,
 			wantErrPart: "cannot move",
 		},
@@ -312,12 +312,12 @@ bind main = () {}
 			name: "own_move_from_arena_ref_enum_rejected",
 			src: `
 define BoxedStr enum [Empty, Val: string]
-bind inspect = (b: ref[BoxedStr]): string {
+bind inspect = (b: ref[BoxedStr]): string -> {
     match (b)
         when BoxedStr.Empty: ""
         when BoxedStr.Val(own text): text
 }
-bind main = () {}
+bind main = () -> {}
 `,
 			wantErrPart: "cannot move",
 		},
@@ -325,7 +325,7 @@ bind main = () {}
 			name: "mix_mut_and_own_in_single_variant_pattern_rejected",
 			src: `
 define PairMsg enum [Both: [a: string, b: string]]
-bind main = () {
+bind main = () -> {
     let p = PairMsg.Both[a: "x", b: "y"]
     match (p)
         when PairMsg.Both[&a, own b]: {
@@ -367,11 +367,11 @@ define Node struct [
     edges: [ref[Node]],
 ]
 
-bind alloc_helper = (a: &Arena, id: int, name: string): ref[Node] {
+bind alloc_helper = (a: &Arena, id: int, name: string): ref[Node] -> {
     a.alloc(Node[id: id, name: name.copy(), edges: []])
 }
 
-bind main = () {
+bind main = () -> {
     let arena = Arena.new()
 
     // Phase 1: allocate and wire nodes inside a block, extract Plain/String summary
@@ -396,7 +396,7 @@ bind main = () {
 
     // Reassign and own-move when unpinned
     arena = Arena.new()
-    let consume = (a: own Arena) {}
+    let consume = (a: own Arena) -> {}
     consume(own arena)
 }
 `
@@ -415,7 +415,7 @@ func TestArenaPinningAndEscapeHolesNegative(t *testing.T) {
 			name: "reset_while_pinned_in_same_scope",
 			src: `
 define Node struct [val: int]
-bind main = () {
+bind main = () -> {
     let arena = Arena.new()
     let n = arena.alloc(Node[val: 10])
     arena.reset()
@@ -428,7 +428,7 @@ bind main = () {
 			name: "reassign_while_pinned",
 			src: `
 define Node struct [val: int]
-bind main = () {
+bind main = () -> {
     let arena = Arena.new()
     let n = arena.alloc(Node[val: 10])
     arena = Arena.new()
@@ -441,8 +441,8 @@ bind main = () {
 			name: "move_own_arena_while_pinned",
 			src: `
 define Node struct [val: int]
-bind drop_arena = (a: own Arena) {}
-bind main = () {
+bind drop_arena = (a: own Arena) -> {}
+bind main = () -> {
     let arena = Arena.new()
     let n = arena.alloc(Node[val: 10])
     drop_arena(own arena)
@@ -455,10 +455,10 @@ bind main = () {
 			name: "closure_capture_move_arena_while_pinned",
 			src: `
 define Node struct [val: int]
-bind main = () {
+bind main = () -> {
     let arena = Arena.new()
     let n = arena.alloc(Node[val: 10])
-    let f = (): Arena {
+    let f = (): Arena -> {
         own arena
     }
     println(n.val)
@@ -470,7 +470,7 @@ bind main = () {
 			name: "inner_alloc_pushed_to_outer_vec_keeps_arena_pinned",
 			src: `
 define Node struct [val: int]
-bind main = () {
+bind main = () -> {
     let arena = Arena.new()
     let keep: [ref[Node]] = []
     {
@@ -487,20 +487,20 @@ bind main = () {
 		{
 			name: "borrowed_mut_arena_param_reset_forbidden",
 			src: `
-bind wipe = (a: &Arena) {
+bind wipe = (a: &Arena) -> {
     a.reset()
 }
-bind main = () {}
+bind main = () -> {}
 `,
 			wantErrPart: "cannot call `.reset()` on borrowed",
 		},
 		{
 			name: "borrowed_mut_arena_param_reassign_forbidden",
 			src: `
-bind swap_out = (a: &Arena) {
+bind swap_out = (a: &Arena) -> {
     a = Arena.new()
 }
-bind main = () {}
+bind main = () -> {}
 `,
 			wantErrPart: "cannot reassign borrowed `&Arena`",
 		},
@@ -508,7 +508,7 @@ bind main = () {}
 			name: "unwind_escape_from_block_with_local_arena",
 			src: `
 define Node struct [val: int]
-bind main = () {
+bind main = () -> {
     let escaped = {
         let a = Arena.new()
         let n = a.alloc(Node[val: 7])
@@ -523,11 +523,11 @@ bind main = () {
 			name: "return_local_arena_ref_even_when_unrelated_arena_param_exists",
 			src: `
 define Node struct [val: int]
-bind sneaky = (caller_arena: &Arena): ref[Node] {
+bind sneaky = (caller_arena: &Arena): ref[Node] -> {
     let local_arena = Arena.new()
     local_arena.alloc(Node[val: 42])
 }
-bind main = () {}
+bind main = () -> {}
 `,
 			wantErrPart: "cannot escape",
 		},
@@ -535,11 +535,11 @@ bind main = () {}
 			name: "closure_capturing_inner_arena_ref_escaping_block",
 			src: `
 define Node struct [val: int]
-bind main = () {
+bind main = () -> {
     let reader = {
         let a = Arena.new()
         let n = a.alloc(Node[val: 123])
-        (): int { n.val }
+        (): int -> { n.val }
     }
     println(reader())
 }
@@ -550,7 +550,7 @@ bind main = () {
 			name: "map_index_assign_inner_arena_escape",
 			src: `
 define Node struct [val: int]
-bind main = () {
+bind main = () -> {
     let a1 = Arena.new()
     let m = #["root": a1.alloc(Node[val: 1])]
     {
@@ -565,7 +565,7 @@ bind main = () {
 			name: "mutating_method_on_outer_ref_field_inner_arena_escape",
 			src: `
 define Node struct [val: int, edges: [ref[Node]]]
-bind main = () {
+bind main = () -> {
     let a1 = Arena.new()
     let root = a1.alloc(Node[val: 1, edges: []])
     {
@@ -581,10 +581,10 @@ bind main = () {
 			name: "helper_call_mixing_outer_and_inner_arena_refs",
 			src: `
 define Node struct [val: int, edges: [ref[Node]]]
-bind connect = (parent: ref[Node], child: ref[Node]) {
+bind connect = (parent: ref[Node], child: ref[Node]) -> {
     parent.edges.push(child)
 }
-bind main = () {
+bind main = () -> {
     let a1 = Arena.new()
     let root = a1.alloc(Node[val: 1, edges: []])
     {
@@ -632,7 +632,7 @@ define Account struct [
     profile?: ?Profile,
 ]
 
-bind find_account = (id: int): ?Account {
+bind find_account = (id: int): ?Account -> {
     if (id == 1) {
         Account[
             name: "Ada",
@@ -658,7 +658,7 @@ define Counter struct [
     cur: int,
 ]
 
-bind Counter.next = (&self): int {
+bind Counter.next = (&self): int -> {
     self.cur += 1
     self.cur
 }
@@ -669,7 +669,7 @@ define MaybeBox[T] struct [
     fallback: T,
 ]
 
-bind unwrap_or_default[T: Copyable] = (val?: ?T, fallback: T): T {
+bind unwrap_or_default[T: Copyable] = (val?: ?T, fallback: T): T -> {
     if (val?) {
         val.copy()
     } else {
@@ -677,7 +677,7 @@ bind unwrap_or_default[T: Copyable] = (val?: ?T, fallback: T): T {
     }
 }
 
-bind main = () {
+bind main = () -> {
     // 1. Item 3A: . optional chaining without spaces (plus ?. on calls)
     let a1? = find_account(1)
     let a2? = find_account(2)
@@ -772,7 +772,7 @@ func TestStrictlyNonOptionalGenericsNegative(t *testing.T) {
 			name: "generic_struct_explicit_optional_type_arg",
 			src: `
 define Box[T] struct [val: T]
-bind main = () {
+bind main = () -> {
     let b = Box[?int][val: 1]
 }
 `,
@@ -782,7 +782,7 @@ bind main = () {
 			name: "generic_enum_explicit_optional_type_arg",
 			src: `
 define Maybe[T] enum [None, Some: T]
-bind main = () {
+bind main = () -> {
     let m = Maybe[?string].None
 }
 `,
@@ -791,8 +791,8 @@ bind main = () {
 		{
 			name: "generic_fn_explicit_optional_type_arg",
 			src: `
-bind id[T] = (x: T): T { x }
-bind main = () {
+bind id[T] = (x: T): T -> { x }
+bind main = () -> {
     let x?: ?int = 5
     let y? = id[?int](x?)
 }
@@ -802,8 +802,8 @@ bind main = () {
 		{
 			name: "generic_fn_inferred_optional_for_T_rejected",
 			src: `
-bind take_non_opt[T] = (x: T): int { 1 }
-bind main = () {
+bind take_non_opt[T] = (x: T): int -> { 1 }
+bind main = () -> {
     let x?: ?int = 5
     println(take_non_opt(x?))
 }
@@ -843,7 +843,7 @@ func TestReleaseModePreservesAllSafetyTraps(t *testing.T) {
 		{
 			name: "vec_index_out_of_bounds_in_release",
 			src: `
-bind main = () {
+bind main = () -> {
     let xs = [10, 20, 30]
     let idx = 3
     println(xs[idx])
@@ -854,7 +854,7 @@ bind main = () {
 		{
 			name: "vec_slice_out_of_bounds_in_release",
 			src: `
-bind main = () {
+bind main = () -> {
     let xs = [1, 2, 3, 4]
     let hi = 10
     let sub = xs[1..hi]
@@ -866,7 +866,7 @@ bind main = () {
 		{
 			name: "string_slice_out_of_bounds_in_release",
 			src: `
-bind main = () {
+bind main = () -> {
     let s = "hello"
     let hi = 9
     println(s[0..hi])
@@ -877,7 +877,7 @@ bind main = () {
 		{
 			name: "u64_division_by_zero_in_release",
 			src: `
-bind main = () {
+bind main = () -> {
     let a = u64(100)
     let z = u64(0)
     println(a / z)
@@ -888,7 +888,7 @@ bind main = () {
 		{
 			name: "shift_count_out_of_range_in_release",
 			src: `
-bind main = () {
+bind main = () -> {
     let x = 1
     let amt = 64
     println(x << amt)

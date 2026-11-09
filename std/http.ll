@@ -5,15 +5,6 @@
 
 import "std/net.ll" as net
 
-extern ll_tls_available: (): int
-extern ll_tls_client_handshake: (fd: int, host: ptr[u8]): ptr[u8]
-extern ll_tls_send_all: (session: ptr[u8], data: ptr[u8], len: int): int
-extern ll_tls_recv: (session: ptr[u8], buf: ptr[u8], max_len: int, timeout_ms: int): int
-extern ll_tls_close: (session: ptr[u8])
-extern ll_tls_server_ctx_new: (cert_file: ptr[u8], key_file: ptr[u8]): ptr[u8]
-extern ll_tls_server_ctx_free: (ctx: ptr[u8])
-extern ll_tls_server_handshake: (server_ctx: ptr[u8], fd: int): ptr[u8]
-
 // ============================================================================
 // 1. HTTP Status Codes & Status Texts
 // ============================================================================
@@ -62,7 +53,7 @@ bind STATUS_GATEWAY_TIMEOUT = 504
 bind STATUS_HTTP_VERSION_NOT_SUPPORTED = 505
 
 // status_text returns the standard RFC status message for an HTTP status code.
-bind status_text = (code: int): string {
+bind status_text = (code: int): string -> {
     match (code)
         when 100: "Continue"
         when 101: "Switching Protocols"
@@ -120,11 +111,11 @@ define URL struct [
     query: #[string: string],
 ]
 
-bind URL.query_param = (self, key: string): ?string {
+bind URL.query_param = (self, key: string): ?string -> {
     self.query[key]
 }
 
-bind URL.to_string = (self): string {
+bind URL.to_string = (self): string -> {
     if (self.scheme.is_empty()) {
         if (self.raw_query.is_empty()) self.path.copy() else "${self.path}?${self.raw_query}"
     } else {
@@ -133,7 +124,7 @@ bind URL.to_string = (self): string {
     }
 }
 
-bind hex_digit_val = (b: u8): ?int {
+bind _hex_digit_val = (b: u8): ?int -> {
     if (b >= 48 and b <= 57) {
         int(b - 48)
     } else if (b >= 97 and b <= 102) {
@@ -145,7 +136,7 @@ bind hex_digit_val = (b: u8): ?int {
     }
 }
 
-bind byte_to_hex_str = (b: u8): string {
+bind _byte_to_hex_str = (b: u8): string -> {
     let digits = "0123456789ABCDEF"
     let hi = int(b >> 4)
     let lo = int(b & 0x0F)
@@ -155,38 +146,38 @@ bind byte_to_hex_str = (b: u8): string {
     out
 }
 
-bind is_url_unreserved = (b: u8): bool {
+bind _is_url_unreserved = (b: u8): bool -> {
     (b >= 65 and b <= 90) or
     (b >= 97 and b <= 122) or
     (b >= 48 and b <= 57) or
     b == 45 or b == 95 or b == 46 or b == 126
 }
 
-bind url_encode = (s: string): string {
+bind url_encode = (s: string): string -> {
     let out = ""
     let bytes = s.bytes()
     for (b in bytes) {
-        if (is_url_unreserved(b)) {
+        if (_is_url_unreserved(b)) {
             out.push_byte(b)
         } else if (b == 32) {
             out.push("%20")
         } else {
             out.push("%")
-            out.push(byte_to_hex_str(b))
+            out.push(_byte_to_hex_str(b))
         }
     }
     out
 }
 
-bind url_decode = (s: string): string {
+bind url_decode = (s: string): string -> {
     let out = ""
     let n = s.len()
     let i = 0
     for (i < n) {
         let b = s.byte_at(i)
         if (b == 37 and i + 2 < n) {
-            let h1? = hex_digit_val(s.byte_at(i + 1))
-            let h2? = hex_digit_val(s.byte_at(i + 2))
+            let h1? = _hex_digit_val(s.byte_at(i + 1))
+            let h2? = _hex_digit_val(s.byte_at(i + 2))
             if (h1? != none and h2? != none) {
                 let dec_byte = u8(((h1? ?? 0) << 4) | (h2? ?? 0))
                 out.push_byte(dec_byte)
@@ -204,7 +195,7 @@ bind url_decode = (s: string): string {
     out
 }
 
-bind parse_url = (raw: string): Result[URL, string] {
+bind parse_url = (raw: string): Result[URL, string] -> {
     let scheme = ""
     let rest = raw.copy()
     let default_port = 80
@@ -310,7 +301,7 @@ define Request struct [
     remote_addr: string,
 ]
 
-bind Request.new = (method: string, raw_url: string, body: string): Request {
+bind Request.new = (method: string, raw_url: string, body: string): Request -> {
     let url_res = parse_url(raw_url)
     let u = if (url_res.is_ok()) url_res.unwrap() else URL[
         raw: raw_url.copy(),
@@ -343,7 +334,7 @@ bind Request.new = (method: string, raw_url: string, body: string): Request {
     ]
 }
 
-bind Request.header = (self, name: string): ?string {
+bind Request.header = (self, name: string): ?string -> {
     let lower = name.to_lower()
     let direct? = self.headers[lower]
     if (direct? != none) func <- direct?
@@ -355,15 +346,15 @@ bind Request.header = (self, name: string): ?string {
     none
 }
 
-bind Request.set_header = (&self, name: string, value: string) {
+bind Request.set_header = (&self, name: string, value: string) -> {
     self.headers[name.to_lower()] = value.copy()
 }
 
-bind Request.query_param = (self, name: string): ?string {
+bind Request.query_param = (self, name: string): ?string -> {
     self.query[name]
 }
 
-bind Request.format = (self): string {
+bind Request.format = (self): string -> {
     let out = ""
     let m = if (self.method.is_empty()) "GET" else self.method.copy()
     let p = if (self.path.is_empty()) "/" else self.path.copy()
@@ -379,7 +370,7 @@ bind Request.format = (self): string {
     out
 }
 
-bind Request.parse = (raw: string): Result[Request, string] {
+bind Request.parse = (raw: string): Result[Request, string] -> {
     let header_end? = raw.index_of("\r\n\r\n")
     let sep_len = 4
     let header_end = 0
@@ -463,7 +454,7 @@ define Response struct [
     body: string,
 ]
 
-bind Response.new = (status_code: int, body: string): Response {
+bind Response.new = (status_code: int, body: string): Response -> {
     let hdrs: #[string: string] = #[]
     hdrs["content-length"] = "${body.len()}"
     hdrs["content-type"] = "text/plain; charset=utf-8"
@@ -477,7 +468,7 @@ bind Response.new = (status_code: int, body: string): Response {
     ]
 }
 
-bind Response.header = (self, name: string): ?string {
+bind Response.header = (self, name: string): ?string -> {
     let lower = name.to_lower()
     let direct? = self.headers[lower]
     if (direct? != none) func <- direct?
@@ -489,19 +480,19 @@ bind Response.header = (self, name: string): ?string {
     none
 }
 
-bind Response.set_header = (&self, name: string, value: string) {
+bind Response.set_header = (&self, name: string, value: string) -> {
     self.headers[name.to_lower()] = value.copy()
 }
 
-bind Response.is_success = (self): bool {
+bind Response.is_success = (self): bool -> {
     self.status_code >= 200 and self.status_code < 300
 }
 
-bind Response.text = (self): string {
+bind Response.text = (self): string -> {
     self.body.copy()
 }
 
-bind Response.format = (self): string {
+bind Response.format = (self): string -> {
     let out = ""
     let pr = if (self.proto.is_empty()) "HTTP/1.1" else self.proto.copy()
     let code = if (self.status_code <= 0) 200 else self.status_code
@@ -517,7 +508,7 @@ bind Response.format = (self): string {
     out
 }
 
-bind Response.parse = (raw: string): Result[Response, string] {
+bind Response.parse = (raw: string): Result[Response, string] -> {
     let header_end? = raw.index_of("\r\n\r\n")
     let sep_len = 4
     let header_end = 0
@@ -593,41 +584,41 @@ define ResponseWriter struct [
     status_code: int,
     headers: #[string: string],
     body: string,
-    header_written: bool,
+    _header_written: bool,
 ]
 
-bind ResponseWriter.new = (): ResponseWriter {
+bind ResponseWriter.new = (): ResponseWriter -> {
     ResponseWriter[
         status_code: 200,
         headers: #[],
         body: "",
-        header_written: false,
+        _header_written: false,
     ]
 }
 
-bind ResponseWriter.write_header = (&self, code: int) {
-    if (not self.header_written) {
+bind ResponseWriter.write_header = (&self, code: int) -> {
+    if (not self._header_written) {
         self.status_code = code
-        self.header_written = true
+        self._header_written = true
     }
 }
 
-bind ResponseWriter.set_header = (&self, key: string, val: string) {
+bind ResponseWriter.set_header = (&self, key: string, val: string) -> {
     self.headers[key.to_lower()] = val.copy()
 }
 
-bind ResponseWriter.header = (self, key: string): ?string {
+bind ResponseWriter.header = (self, key: string): ?string -> {
     self.headers[key.to_lower()]
 }
 
-bind ResponseWriter.write = (&self, text: string) {
-    if (not self.header_written) {
+bind ResponseWriter.write = (&self, text: string) -> {
+    if (not self._header_written) {
         self.write_header(200)
     }
     self.body.push(text)
 }
 
-bind ResponseWriter.finish = (self): Response {
+bind ResponseWriter.finish = (self): Response -> {
     let hdrs = self.headers.copy()
     if (hdrs["content-length"] == none) {
         hdrs["content-length"] = "${self.body.len()}"
@@ -649,14 +640,14 @@ bind ResponseWriter.finish = (self): Response {
 // 6. Router & Multiplexer (ServeMux)
 // ============================================================================
 
-define Route struct [
+define _Route struct [
     pattern: string,
     is_prefix: bool,
     handler: (Request, &ResponseWriter),
 ]
 
-bind Route.copy = (self): Route {
-    Route[
+bind _Route.copy = (self): _Route -> {
+    _Route[
         pattern: self.pattern.copy(),
         is_prefix: self.is_prefix,
         handler: self.handler.copy(),
@@ -664,33 +655,33 @@ bind Route.copy = (self): Route {
 }
 
 define ServeMux struct [
-    routes: [Route],
+    _routes: [_Route],
 ]
 
-bind ServeMux.new = (): ServeMux {
-    ServeMux[routes: []]
+bind ServeMux.new = (): ServeMux -> {
+    ServeMux[_routes: []]
 }
 
-bind ServeMux.copy = (self): ServeMux {
-    let copied: [Route] = []
-    for (r in self.routes) {
+bind ServeMux.copy = (self): ServeMux -> {
+    let copied: [_Route] = []
+    for (r in self._routes) {
         copied.push(r.copy())
     }
-    ServeMux[routes: own copied]
+    ServeMux[_routes: own copied]
 }
 
-bind ServeMux.handle_func = (&self, pattern: string, handler: (Request, &ResponseWriter)) {
+bind ServeMux.handle_func = (&self, pattern: string, handler: (Request, &ResponseWriter)) -> {
     let is_prefix = pattern.ends_with("/")
-    self.routes.push(Route[
+    self._routes.push(_Route[
         pattern: pattern.copy(),
         is_prefix: is_prefix,
         handler: handler.copy(),
     ])
 }
 
-bind ServeMux.serve_http = (self, req: Request, res: &ResponseWriter) {
+bind ServeMux.serve_http = (self, req: Request, res: &ResponseWriter) -> {
     // 1. Check exact match
-    for (r in self.routes) {
+    for (r in self._routes) {
         if (not r.is_prefix and r.pattern == req.path) {
             let h = r.handler.copy()
             h(req, &res)
@@ -701,7 +692,7 @@ bind ServeMux.serve_http = (self, req: Request, res: &ResponseWriter) {
     // 2. Check prefix match (prefer longest prefix)
     let best_idx?: ?int = none
     let best_len = -1
-    for (i, r in self.routes) {
+    for (i, r in self._routes) {
         if (r.is_prefix and req.path.starts_with(r.pattern)) {
             if (r.pattern.len() > best_len) {
                 best_len = r.pattern.len()
@@ -711,7 +702,7 @@ bind ServeMux.serve_http = (self, req: Request, res: &ResponseWriter) {
     }
 
     if (best_idx?) {
-        let route? = self.routes.get(best_idx)
+        let route? = self._routes.get(best_idx)
         if (route?) {
             let h = route.handler.copy()
             h(req, &res)
@@ -729,7 +720,7 @@ bind ServeMux.serve_http = (self, req: Request, res: &ResponseWriter) {
 // 7. Internal Socket Message Reading Helper
 // ============================================================================
 
-bind read_http_message = (fd: int, timeout_ms: int): Result[string, string] {
+bind _read_http_message = (fd: int, timeout_ms: int): Result[string, string] -> {
     let buf = ""
     let chunk_size = 4096
     unsafe {
@@ -738,7 +729,7 @@ bind read_http_message = (fd: int, timeout_ms: int): Result[string, string] {
         let sep_found = false
 
         for (true) {
-            let n = net.ll_net_recv(fd, raw_chunk, chunk_size, timeout_ms)
+            let n = sys_net_recv(fd, raw_chunk, chunk_size, timeout_ms)
             if (n < 0) {
                 free_raw(raw_chunk)
                 if (n == -2) func <- Result[string, string].fail("timeout waiting for HTTP data")
@@ -814,35 +805,35 @@ bind read_http_message = (fd: int, timeout_ms: int): Result[string, string] {
     }
 }
 
-// TlsSession wraps an active TLS session and ensures proper cleanup via Drop.
-define TlsSession struct [
-    raw: ptr[u8],
+// _TlsSession wraps an active TLS session and ensures proper cleanup via Drop.
+define _TlsSession struct [
+    _raw: ptr[u8],
 ]
 
-bind TlsSession.drop = (&self) {
+bind _TlsSession.drop = (&self) -> {
     unsafe {
-        if (self.raw != null_ptr[u8]()) {
-            ll_tls_close(self.raw)
-            self.raw = null_ptr[u8]()
+        if (self._raw != null_ptr[u8]()) {
+            sys_tls_close(self._raw)
+            self._raw = null_ptr[u8]()
         }
     }
 }
 
-bind TlsSession.close = (&self) {
+bind _TlsSession.close = (&self) -> {
     unsafe {
-        if (self.raw != null_ptr[u8]()) {
-            ll_tls_close(self.raw)
-            self.raw = null_ptr[u8]()
+        if (self._raw != null_ptr[u8]()) {
+            sys_tls_close(self._raw)
+            self._raw = null_ptr[u8]()
         }
     }
 }
 
-bind TlsSession.send = (&self, data: string): Result[int, string] {
-    let is_null = unsafe (self.raw == null_ptr[u8]())
+bind _TlsSession.send = (&self, data: string): Result[int, string] -> {
+    let is_null = unsafe (self._raw == null_ptr[u8]())
     if (is_null) {
         func <- Result[int, string].fail("send on closed TLS session")
     }
-    let res = unsafe ll_tls_send_all(self.raw, data.c_str(), data.len())
+    let res = unsafe sys_tls_send_all(self._raw, data.c_str(), data.len())
     if (res == 0) {
         Result[int, string].ok(data.len())
     } else {
@@ -850,7 +841,7 @@ bind TlsSession.send = (&self, data: string): Result[int, string] {
     }
 }
 
-bind read_http_message_tls = (session: ptr[u8], timeout_ms: int): Result[string, string] {
+bind _read_http_message_tls = (session: ptr[u8], timeout_ms: int): Result[string, string] -> {
     let buf = ""
     let chunk_size = 4096
     let total_needed = -1
@@ -860,7 +851,7 @@ bind read_http_message_tls = (session: ptr[u8], timeout_ms: int): Result[string,
         let raw_chunk = alloc_raw[u8](chunk_size)
 
         for (true) {
-            let n = ll_tls_recv(session, raw_chunk, chunk_size, timeout_ms)
+            let n = sys_tls_recv(session, raw_chunk, chunk_size, timeout_ms)
             if (n < 0) {
                 free_raw(raw_chunk)
                 if (n == -2) func <- Result[string, string].fail("timeout waiting for HTTP data over TLS")
@@ -945,14 +936,14 @@ define Client struct [
     headers: #[string: string],
 ]
 
-bind Client.new = (): Client {
+bind Client.new = (): Client -> {
     Client[
         timeout_ms: 15000,
         headers: #[],
     ]
 }
 
-bind Client.do = (self, req: Request): Result[Response, string] {
+bind Client.do = (self, req: Request): Result[Response, string] -> {
     let url_res = parse_url(req.url)
     if (url_res.is_err()) {
         func <- Result[Response, string].fail("invalid request URL: ${req.url}")
@@ -992,23 +983,23 @@ bind Client.do = (self, req: Request): Result[Response, string] {
     let stream = stream_res.unwrap()
 
     if (is_tls) {
-        let avail = unsafe ll_tls_available()
+        let avail = unsafe sys_tls_available()
         if (avail == 0) {
             func <- Result[Response, string].fail("HTTPS requires libssl (OpenSSL 1.1 / 3.0), which could not be loaded dynamically")
         }
-        let raw_sess = unsafe ll_tls_client_handshake(stream.fd, host.c_str())
+        let raw_sess = unsafe sys_tls_client_handshake(stream.raw_fd(), host.c_str())
         let is_null = unsafe (raw_sess == null_ptr[u8]())
         if (is_null) {
             func <- Result[Response, string].fail("TLS handshake failed connecting to ${host}:${port}")
         }
-        let tls_sess = TlsSession[raw: raw_sess]
+        let tls_sess = _TlsSession[_raw: raw_sess]
 
         let send_res = tls_sess.send(wire)
         if (send_res.is_err()) {
             func <- Result[Response, string].fail("failed to send HTTP request over TLS")
         }
 
-        let msg_res = read_http_message_tls(tls_sess.raw, self.timeout_ms)
+        let msg_res = _read_http_message_tls(tls_sess._raw, self.timeout_ms)
         if (msg_res.is_err()) {
             func <- Result[Response, string].fail(msg_res.err?.copy() ?? "failed to read HTTP response over TLS")
         }
@@ -1020,7 +1011,7 @@ bind Client.do = (self, req: Request): Result[Response, string] {
             func <- Result[Response, string].fail("failed to send HTTP request")
         }
 
-        let msg_res = read_http_message(stream.fd, self.timeout_ms)
+        let msg_res = _read_http_message(stream.raw_fd(), self.timeout_ms)
         if (msg_res.is_err()) {
             func <- Result[Response, string].fail(msg_res.err?.copy() ?? "failed to read HTTP response")
         }
@@ -1029,23 +1020,23 @@ bind Client.do = (self, req: Request): Result[Response, string] {
     }
 }
 
-bind Client.get = (self, url: string): Result[Response, string] {
+bind Client.get = (self, url: string): Result[Response, string] -> {
     let req = Request.new("GET", url, "")
     self.do(req)
 }
 
-bind Client.post = (self, url: string, content_type: string, body: string): Result[Response, string] {
+bind Client.post = (self, url: string, content_type: string, body: string): Result[Response, string] -> {
     let req = Request.new("POST", url, body)
     req.set_header("Content-Type", content_type)
     self.do(req)
 }
 
-bind get = (url: string): Result[Response, string] {
+bind get = (url: string): Result[Response, string] -> {
     let c = Client.new()
     c.get(url)
 }
 
-bind post = (url: string, content_type: string, body: string): Result[Response, string] {
+bind post = (url: string, content_type: string, body: string): Result[Response, string] -> {
     let c = Client.new()
     c.post(url, content_type, body)
 }
@@ -1062,7 +1053,7 @@ define Server struct [
     write_timeout_ms: int,
 ]
 
-bind Server.new = (addr: string): Server {
+bind Server.new = (addr: string): Server -> {
     Server[
         addr: addr.copy(),
         port: 0,
@@ -1072,18 +1063,18 @@ bind Server.new = (addr: string): Server {
     ]
 }
 
-bind Server.drop = (&self) {
+bind Server.drop = (&self) -> {
     self.close()
 }
 
-bind Server.close = (&self) {
+bind Server.close = (&self) -> {
     if (self.listener_fd >= 0) {
-        unsafe { net.ll_net_close(self.listener_fd) }
+        unsafe { sys_net_close(self.listener_fd) }
         self.listener_fd = -1
     }
 }
 
-bind Server.listen = (&self): Result[int, string] {
+bind Server.listen = (&self): Result[int, string] -> {
     let host = "0.0.0.0"
     let port = 8080
 
@@ -1110,21 +1101,21 @@ bind Server.listen = (&self): Result[int, string] {
     }
 
     let sfd = unsafe {
-        net.ll_net_tcp_listen(host.c_str(), port, 128)
+        sys_tcp_listen(host.c_str(), port, 128)
     }
     if (sfd < 0) {
         func <- Result[int, string].fail("failed to bind server on ${self.addr}")
     }
     self.listener_fd = sfd
-    let actual_port = unsafe { net.ll_net_tcp_port(sfd) }
+    let actual_port = unsafe { sys_tcp_port(sfd) }
     self.port = if (actual_port > 0) actual_port else port
     Result[int, string].ok(self.port)
 }
 
-bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWriter)): bool {
-    let raw_req_res = read_http_message(conn_fd, self.read_timeout_ms)
+bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWriter)): bool -> {
+    let raw_req_res = _read_http_message(conn_fd, self.read_timeout_ms)
     if (raw_req_res.is_err()) {
-        unsafe { net.ll_net_close(conn_fd) }
+        unsafe { sys_net_close(conn_fd) }
         func <- false
     }
     let raw_req = raw_req_res.unwrap()
@@ -1132,8 +1123,8 @@ bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWrite
     if (req_res.is_err()) {
         let bad_resp = "HTTP/1.1 400 Bad Request\r\nContent-Length: 15\r\nConnection: close\r\n\r\n400 Bad Request"
         unsafe {
-            net.ll_net_send_all(conn_fd, bad_resp.c_str(), bad_resp.len())
-            net.ll_net_close(conn_fd)
+            let _ = sys_net_send_all(conn_fd, bad_resp.c_str(), bad_resp.len())
+            sys_net_close(conn_fd)
         }
         func <- false
     }
@@ -1144,13 +1135,13 @@ bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWrite
     let resp = rw.finish()
     let wire = resp.format()
     unsafe {
-        net.ll_net_send_all(conn_fd, wire.c_str(), wire.len())
-        net.ll_net_close(conn_fd)
+        let _ = sys_net_send_all(conn_fd, wire.c_str(), wire.len())
+        sys_net_close(conn_fd)
     }
     true
 }
 
-bind Server.serve_one = (&self, handler: (Request, &ResponseWriter), timeout_ms: int): Result[bool, string] {
+bind Server.serve_one = (&self, handler: (Request, &ResponseWriter), timeout_ms: int): Result[bool, string] -> {
     if (self.listener_fd < 0) {
         let lr = self.listen()
         if (lr.is_err()) {
@@ -1158,7 +1149,7 @@ bind Server.serve_one = (&self, handler: (Request, &ResponseWriter), timeout_ms:
         }
     }
     let client_fd = unsafe {
-        net.ll_net_tcp_accept(self.listener_fd, timeout_ms)
+        sys_tcp_accept(self.listener_fd, timeout_ms)
     }
     if (client_fd < 0) {
         if (client_fd == -2) func <- Result[bool, string].fail("timeout waiting for connection")
@@ -1168,7 +1159,7 @@ bind Server.serve_one = (&self, handler: (Request, &ResponseWriter), timeout_ms:
     Result[bool, string].ok(ok)
 }
 
-bind Server.serve = (&self, handler: (Request, &ResponseWriter), max_requests: int): Result[int, string] {
+bind Server.serve = (&self, handler: (Request, &ResponseWriter), max_requests: int): Result[int, string] -> {
     if (self.listener_fd < 0) {
         let lr = self.listen()
         if (lr.is_err()) {
@@ -1178,7 +1169,7 @@ bind Server.serve = (&self, handler: (Request, &ResponseWriter), max_requests: i
     let served = 0
     for (max_requests <= 0 or served < max_requests) {
         let client_fd = unsafe {
-            net.ll_net_tcp_accept(self.listener_fd, -1)
+            sys_tcp_accept(self.listener_fd, -1)
         }
         if (client_fd >= 0) {
             let ok = self.serve_conn(client_fd, handler)
@@ -1190,7 +1181,7 @@ bind Server.serve = (&self, handler: (Request, &ResponseWriter), max_requests: i
     Result[int, string].ok(served)
 }
 
-bind listen_and_serve = (addr: string, handler: (Request, &ResponseWriter)): Result[bool, string] {
+bind listen_and_serve = (addr: string, handler: (Request, &ResponseWriter)): Result[bool, string] -> {
     let s = Server.new(addr)
     let res = s.serve(handler, 0)
     if (res.is_ok()) {
@@ -1200,9 +1191,9 @@ bind listen_and_serve = (addr: string, handler: (Request, &ResponseWriter)): Res
     }
 }
 
-bind listen_and_serve_mux = (addr: string, mux: ServeMux): Result[bool, string] {
-    bind mux_copy = mux.copy()
-    listen_and_serve(addr, (req: Request, res: &ResponseWriter) {
+bind listen_and_serve_mux = (addr: string, mux: ServeMux): Result[bool, string] -> {
+    let mux_copy = mux.copy()
+    listen_and_serve(addr, (req: Request, res: &ResponseWriter) -> {
         mux_copy.serve_http(req, &res)
     })
 }
@@ -1215,23 +1206,23 @@ define ResponseRecorder struct [
     writer: ResponseWriter,
 ]
 
-bind ResponseRecorder.new = (): ResponseRecorder {
+bind ResponseRecorder.new = (): ResponseRecorder -> {
     ResponseRecorder[writer: ResponseWriter.new()]
 }
 
-bind ResponseRecorder.result = (self): Response {
+bind ResponseRecorder.result = (self): Response -> {
     self.writer.finish()
 }
 
 // test_handler directly executes an HTTP handler function against a request in memory.
-bind test_handler = (handler: (Request, &ResponseWriter), req: Request): Response {
+bind test_handler = (handler: (Request, &ResponseWriter), req: Request): Response -> {
     let rw = ResponseWriter.new()
     handler(req, &rw)
     rw.finish()
 }
 
 // test_roundtrip tests client and server logic over a kernel socketpair without external network ports.
-bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request): Result[Response, string] {
+bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request): Result[Response, string] -> {
     let pair_res = net.socketpair()
     if (pair_res.is_err()) {
         func <- Result[Response, string].fail("socketpair failed")
@@ -1244,7 +1235,7 @@ bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request): Resul
         func <- Result[Response, string].fail("failed to send request to socketpair")
     }
 
-    let srv_req_res = read_http_message(pair.second.fd, 2000)
+    let srv_req_res = _read_http_message(pair.second.raw_fd(), 2000)
     if (srv_req_res.is_err()) {
         func <- Result[Response, string].fail("server failed to read request")
     }
@@ -1264,7 +1255,7 @@ bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request): Resul
         func <- Result[Response, string].fail("server failed to send response")
     }
 
-    let client_read_res = read_http_message(pair.first.fd, 2000)
+    let client_read_res = _read_http_message(pair.first.raw_fd(), 2000)
     if (client_read_res.is_err()) {
         func <- Result[Response, string].fail("client failed to read response")
     }
@@ -1277,7 +1268,7 @@ bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request): Resul
 // -----------------------------------------------------------------------------
 
 @test("http status codes and standard RFC status text")
-bind test_http_status_codes_and_texts = () {
+bind test_http_status_codes_and_texts = () -> {
     assert(status_text(STATUS_OK) == "OK", "200 is OK")
     assert(status_text(STATUS_CREATED) == "Created", "201 is Created")
     assert(status_text(STATUS_BAD_REQUEST) == "Bad Request", "400 is Bad Request")
@@ -1286,7 +1277,7 @@ bind test_http_status_codes_and_texts = () {
 }
 
 @test("http URL parsing: scheme, hostname, port, path, query parameters")
-bind test_http_url_parsing = () {
+bind test_http_url_parsing = () -> {
     let u_res = parse_url("http://api.example.com:8080/v1/users?page=2&limit=50")
     assert(u_res.is_ok(), "parse_url succeeds")
     let u = u_res.unwrap()
@@ -1305,7 +1296,7 @@ bind test_http_url_parsing = () {
 }
 
 @test("http Request and Response serialization and wire parsing")
-bind test_http_request_response_wire = () {
+bind test_http_request_response_wire = () -> {
     let req = Request.new("POST", "/submit", "sample payload")
     let wire = req.format()
 
@@ -1328,13 +1319,13 @@ bind test_http_request_response_wire = () {
 }
 
 @test("http ServeMux routing and ResponseRecorder in-memory handling")
-bind test_http_serve_mux_and_handler = () {
+bind test_http_serve_mux_and_handler = () -> {
     let mux = ServeMux.new()
-    mux.handle_func("/hello", (req: Request, rw: &ResponseWriter) {
+    mux.handle_func("/hello", (req: Request, rw: &ResponseWriter) -> {
         rw.write_header(STATUS_OK)
         rw.write("hello from mux")
     })
-    mux.handle_func("/greet", (req: Request, rw: &ResponseWriter) {
+    mux.handle_func("/greet", (req: Request, rw: &ResponseWriter) -> {
         rw.write_header(STATUS_CREATED)
         rw.write("greetings")
     })
@@ -1361,8 +1352,8 @@ bind test_http_serve_mux_and_handler = () {
 }
 
 @test("http client-server roundtrip over socketpair")
-bind test_http_socketpair_roundtrip = () {
-    let handler = (req: Request, rw: &ResponseWriter) {
+bind test_http_socketpair_roundtrip = () -> {
+    let handler = (req: Request, rw: &ResponseWriter) -> {
         rw.write_header(STATUS_OK)
         rw.write("echo: ${req.body}")
     }

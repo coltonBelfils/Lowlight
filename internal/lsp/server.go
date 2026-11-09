@@ -94,7 +94,12 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 					TriggerCharacters:   []string{"(", ","},
 					RetriggerCharacters: []string{","},
 				},
-				CodeActionProvider: true,
+				CodeActionProvider:         true,
+				CodeLensProvider:           &CodeLensOptions{ResolveProvider: false},
+				ExecuteCommandProvider:     &ExecuteCommandOptions{Commands: []string{"lowlight.runTest", "lowlight.runAllTests"}},
+				DocumentFormattingProvider: true,
+				InlayHintProvider:          true,
+				RenameProvider:             RenameOptions{PrepareProvider: true},
 			},
 			ServerInfo: &ServerInfo{
 				Name:    "lowlight-lsp",
@@ -278,6 +283,117 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 			acts = []CodeAction{}
 		}
 		_ = s.conn.SendResponse(*msg.ID, acts, nil)
+
+	case "textDocument/formatting":
+		if msg.ID == nil {
+			return
+		}
+		var params DocumentFormattingParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		path := URIToPath(params.TextDocument.URI)
+		src := s.readSourceForPath(path)
+		edits := s.computeDocumentFormatting(src, params.Options)
+		if edits == nil {
+			edits = []TextEdit{}
+		}
+		_ = s.conn.SendResponse(*msg.ID, edits, nil)
+
+	case "textDocument/inlayHint":
+		if msg.ID == nil {
+			return
+		}
+		var params InlayHintParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		path := URIToPath(params.TextDocument.URI)
+		src := s.readSourceForPath(path)
+		hints := s.computeInlayHints(path, src, params.Range)
+		if hints == nil {
+			hints = []InlayHint{}
+		}
+		_ = s.conn.SendResponse(*msg.ID, hints, nil)
+
+	case "textDocument/prepareRename":
+		if msg.ID == nil {
+			return
+		}
+		var params PrepareRenameParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		path := URIToPath(params.TextDocument.URI)
+		src := s.readSourceForPath(path)
+		rng, err := s.computePrepareRename(path, src, params.Position)
+		if err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeRequestFailed, Message: err.Error()})
+			return
+		}
+		_ = s.conn.SendResponse(*msg.ID, rng, nil)
+
+	case "textDocument/rename":
+		if msg.ID == nil {
+			return
+		}
+		var params RenameParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		path := URIToPath(params.TextDocument.URI)
+		src := s.readSourceForPath(path)
+		edit, err := s.computeRename(path, src, params.Position, params.NewName)
+		if err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeRequestFailed, Message: err.Error()})
+			return
+		}
+		_ = s.conn.SendResponse(*msg.ID, edit, nil)
+
+	case "textDocument/codeLens":
+		if msg.ID == nil {
+			return
+		}
+		var params CodeLensParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		path := URIToPath(params.TextDocument.URI)
+		src := s.readSourceForPath(path)
+		lenses := s.computeCodeLenses(path, src)
+		if lenses == nil {
+			lenses = []CodeLens{}
+		}
+		_ = s.conn.SendResponse(*msg.ID, lenses, nil)
+
+	case "workspace/executeCommand":
+		if msg.ID == nil {
+			return
+		}
+		var params ExecuteCommandParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		switch params.Command {
+		case "lowlight.runTest", "lowlight.runAllTests":
+			res, err := s.executeTestCommand(params.Command, params.Arguments)
+			if err != nil {
+				_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeRequestFailed, Message: err.Error()})
+				return
+			}
+			_ = s.conn.SendResponse(*msg.ID, res, nil)
+		default:
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{
+				Code:    ErrCodeMethodNotFound,
+				Message: fmt.Sprintf("unsupported command %q", params.Command),
+			})
+		}
 
 	default:
 		// Ignore unknown notifications (`$/cancelRequest`, `$/setTrace`, etc.); respond to unknown requests cleanly

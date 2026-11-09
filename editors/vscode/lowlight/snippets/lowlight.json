@@ -2,7 +2,7 @@
   "Main Entry Point": {
     "prefix": "main",
     "body": [
-      "bind main = () {",
+      "bind main = () -> {",
       "\t$0",
       "}"
     ],
@@ -11,7 +11,7 @@
   "Function Binding": {
     "prefix": "fn",
     "body": [
-      "bind ${1:name} = (${2:params})${3:: int} {",
+      "bind ${1:name} = (${2:params})${3:: int} -> {",
       "\t$0",
       "}"
     ],
@@ -20,7 +20,7 @@
   "Method Binding": {
     "prefix": "meth",
     "body": [
-      "bind ${1:Type}.${2:method} = (${3:self}) {",
+      "bind ${1:Type}.${2:method} = (${3:self}) -> {",
       "\t$0",
       "}"
     ],
