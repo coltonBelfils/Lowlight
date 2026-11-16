@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"lowlight/internal/ast"
@@ -433,6 +434,42 @@ func completeValueMembers(
 		}
 	}
 
+	// 1b. Tuple elements (e.g. .0, .1, ...)
+	var tup *types.Tuple
+	typeName := recvTy.String()
+	if t, isTup := recvTy.(*types.Tuple); isTup {
+		tup = t
+	} else if d, isDist := recvTy.(*types.Distinct); isDist {
+		if dtTup, isTup := d.Base.(*types.Tuple); isTup {
+			tup = dtTup
+			typeName = d.Name
+		}
+	}
+	if tup != nil {
+		for idx, el := range tup.Elems {
+			idxStr := strconv.Itoa(idx)
+			if !matchesPrefix(idxStr, prefix) {
+				continue
+			}
+			seen[idxStr] = true
+			elemTyStr := wrapOptTypeStr(el)
+			items = append(items, CompletionItem{
+				Label:               idxStr,
+				Kind:                KindField,
+				Detail:              fmt.Sprintf("element %s: %s", idxStr, elemTyStr),
+				SortText:            fmt.Sprintf("0_%03d_%s", idx, idxStr),
+				FilterText:          idxStr,
+				InsertTextFormat:    InsertPlainText,
+				TextEdit:            &TextEdit{Range: replaceRange, NewText: idxStr},
+				AdditionalTextEdits: extraEdits,
+				Documentation: &MarkupContent{
+					Kind:  "markdown",
+					Value: fmt.Sprintf("```lowlight\n%s.%s: %s\n```", typeName, idxStr, elemTyStr),
+				},
+			})
+		}
+	}
+
 	// 2. Interface methods
 	if ifc, isIfc := recvTy.(*types.Interface); isIfc {
 		samePkg := curMod == nil || prog == nil || prog.SamePackageDir(curMod, ifc.PkgDir, "") || prog.SamePackage(curMod, prog.InterfaceMods[ifc])
@@ -595,23 +632,13 @@ func completeEnumVariants(prog *sema.CheckedProgram, curMod *sema.Module, en *ty
 			detail = fmt.Sprintf("%s.%s = %d (%s)", en.Name, v.Name, v.Value, en.Underlying.String())
 			docCode = fmt.Sprintf("%s.%s // discriminant = %d", en.Name, v.Name, v.Value)
 		} else {
-			switch v.Kind {
-			case types.VariantTuple:
+			if v.Kind == types.VariantTuple {
 				insFmt = InsertSnippet
 				newText = v.Name + "($1)"
 				if v.Payload != nil {
 					detail = fmt.Sprintf("%s.%s(%s)", en.String(), v.Name, v.Payload.String())
 					docCode = detail
 				}
-			case types.VariantStruct:
-				insFmt = InsertSnippet
-				newText = v.Name + "[$1]"
-				var fs []string
-				for _, sf := range v.Fields {
-					fs = append(fs, fmt.Sprintf("%s: %s", sf.Name, sf.Type.String()))
-				}
-				detail = fmt.Sprintf("%s.%s[%s]", en.String(), v.Name, strings.Join(fs, ", "))
-				docCode = detail
 			}
 		}
 		items = append(items, CompletionItem{
@@ -651,14 +678,6 @@ func completeGenericEnumVariants(prog *sema.CheckedProgram, curMod, targetMod *s
 			insFmt = InsertSnippet
 			newText = v.Name + "($1)"
 			detail = fmt.Sprintf("%s.%s(%s)", decl.Name, v.Name, formatTypeExpr(v.PayloadType))
-		} else if v.HasFields {
-			insFmt = InsertSnippet
-			newText = v.Name + "[$1]"
-			var fs []string
-			for _, sf := range v.Fields {
-				fs = append(fs, fmt.Sprintf("%s: %s", sf.Name, formatTypeExpr(sf.Type)))
-			}
-			detail = fmt.Sprintf("%s.%s[%s]", decl.Name, v.Name, strings.Join(fs, ", "))
 		}
 		items = append(items, CompletionItem{
 			Label:            v.Name,
@@ -679,14 +698,14 @@ func completeArenaStatics(prefix string, replaceRange Range) []CompletionItem {
 		items = append(items, CompletionItem{
 			Label:            "new",
 			Kind:             KindConstructor,
-			Detail:           "(): Arena",
+			Detail:           "() Arena",
 			SortText:         "0_new",
 			FilterText:       "new",
 			InsertTextFormat: InsertSnippet,
 			TextEdit:         &TextEdit{Range: replaceRange, NewText: "new()"},
 			Documentation: &MarkupContent{
 				Kind:  "markdown",
-				Value: "```lowlight\nArena.new(): Arena\n```\nCreates a new bump-allocated `Arena` region with default chunk capacity (64 KiB).",
+				Value: "```lowlight\nArena.new() Arena\n```\nCreates a new bump-allocated `Arena` region with default chunk capacity (64 KiB).",
 			},
 		})
 	}
@@ -694,14 +713,14 @@ func completeArenaStatics(prefix string, replaceRange Range) []CompletionItem {
 		items = append(items, CompletionItem{
 			Label:            "with_capacity",
 			Kind:             KindConstructor,
-			Detail:           "(bytes: int): Arena",
+			Detail:           "(bytes: int) Arena",
 			SortText:         "1_with_capacity",
 			FilterText:       "with_capacity",
 			InsertTextFormat: InsertSnippet,
 			TextEdit:         &TextEdit{Range: replaceRange, NewText: "with_capacity(${1:65536})"},
 			Documentation: &MarkupContent{
 				Kind:  "markdown",
-				Value: "```lowlight\nArena.with_capacity(bytes: int): Arena\n```\nCreates a new `Arena` pre-sized with initial chunk capacity `bytes`.",
+				Value: "```lowlight\nArena.with_capacity(bytes: int) Arena\n```\nCreates a new `Arena` pre-sized with initial chunk capacity `bytes`.",
 			},
 		})
 	}
@@ -931,7 +950,7 @@ func (s *Server) tryCompleteStructLitFields(
 	var stack []openDelim
 	for i, tk := range toks {
 		switch tk.Kind {
-		case token.LParen, token.LBracket, token.HashBrack, token.LBrace:
+		case token.LParen, token.LBracket, token.HashBrack, token.PlusBrack, token.LBrace:
 			stack = append(stack, openDelim{idx: i, kind: tk.Kind})
 		case token.RParen, token.RBracket, token.RBrace:
 			if len(stack) > 0 {
@@ -1030,44 +1049,6 @@ func (s *Server) tryCompleteStructLitFields(
 		}
 	}
 
-	// Also check if `modAlias` is an Enum and `typeName` is a struct variant (e.g. `JsonValue.Obj[...]`)!
-	if len(fields) == 0 && modAlias != "" {
-		if nom := lookupNominalType(mod, "", modAlias); nom != nil {
-			if en, ok := nom.(*types.Enum); ok {
-				samePkg := mod == nil || prog == nil || prog.SamePackageDir(mod, en.PkgDir, "") || prog.SamePackage(mod, prog.EnumMods[en])
-				for _, v := range en.Variants {
-					if v.Name == typeName && v.Kind == types.VariantStruct {
-						for _, f := range v.Fields {
-							if !samePkg && !sema.IsExported(f.Name) {
-								continue
-							}
-							fields = append(fields, structFieldCandidate{
-								Name:    f.Name,
-								TypeStr: f.Type.String(),
-							})
-						}
-						break
-					}
-				}
-			}
-		} else if gen := lookupGenEnum(mod, "", modAlias); gen != nil && gen.Decl != nil {
-			samePkg := mod == nil || prog == nil || prog.SamePackage(mod, gen.Mod)
-			for _, v := range gen.Decl.Variants {
-				if v.Name == typeName && len(v.Fields) > 0 {
-					for _, f := range v.Fields {
-						if !samePkg && !sema.IsExported(f.Name) {
-							continue
-						}
-						fields = append(fields, structFieldCandidate{
-							Name:    f.Name,
-							TypeStr: formatTypeExpr(f.Type),
-						})
-					}
-					break
-				}
-			}
-		}
-	}
 	if len(fields) == 0 {
 		return nil, false
 	}
@@ -1077,7 +1058,7 @@ func (s *Server) tryCompleteStructLitFields(
 	d := 0
 	for k := inner.idx + 1; k < len(toks); k++ {
 		switch toks[k].Kind {
-		case token.LParen, token.LBracket, token.HashBrack, token.LBrace:
+		case token.LParen, token.LBracket, token.HashBrack, token.PlusBrack, token.LBrace:
 			d++
 		case token.RParen, token.RBracket, token.RBrace:
 			d--
@@ -1145,6 +1126,13 @@ func isTypeAnnotationContext(toks []token.Token) bool {
 	if last.Kind == token.LBracket && n >= 2 && isTypeAnnotationContext(toks[:n-1]) {
 		return true
 	}
+	// Right after `)` of a function/lambda/signature or `if (...)` / `for (...)` / `while (...)` / `match (...)` header
+	if last.Kind == token.RParen {
+		if openIdx, ok := matchingLParenIdx(toks, n-1); ok {
+			return isReturnOrEvalTypeHead(toks, openIdx, n-1)
+		}
+		return false
+	}
 	if last.Kind != token.Colon {
 		return false
 	}
@@ -1152,10 +1140,6 @@ func isTypeAnnotationContext(toks []token.Token) bool {
 		return false
 	}
 	prev := toks[n-2]
-	// `): |` -> function return type!
-	if prev.Kind == token.RParen {
-		return true
-	}
 	// `let x: |` or `bind x: |`
 	if n >= 3 && (prev.Kind == token.Ident || prev.Kind == token.OptIdent) &&
 		(toks[n-3].Kind == token.KwLet || toks[n-3].Kind == token.KwBind) {
@@ -1169,7 +1153,7 @@ func isTypeAnnotationContext(toks []token.Token) bool {
 	var stack []delim
 	for i := 0; i < n-1; i++ {
 		switch toks[i].Kind {
-		case token.LParen, token.LBracket, token.HashBrack, token.LBrace:
+		case token.LParen, token.LBracket, token.HashBrack, token.PlusBrack, token.LBrace:
 			stack = append(stack, delim{idx: i, kind: toks[i].Kind})
 		case token.RParen, token.RBracket, token.RBrace:
 			if len(stack) > 0 {
@@ -1197,6 +1181,51 @@ func isTypeAnnotationContext(toks []token.Token) bool {
 	return false
 }
 
+func matchingLParenIdx(toks []token.Token, closeIdx int) (int, bool) {
+	depth := 0
+	for i := closeIdx; i >= 0; i-- {
+		switch toks[i].Kind {
+		case token.RParen:
+			depth++
+		case token.LParen:
+			depth--
+			if depth == 0 {
+				return i, true
+			}
+		}
+	}
+	return -1, false
+}
+
+func isReturnOrEvalTypeHead(toks []token.Token, openIdx, closeIdx int) bool {
+	if openIdx > 0 {
+		prev := toks[openIdx-1].Kind
+		if prev == token.KwIf || prev == token.KwFor || prev == token.KwWhile || prev == token.KwMatch {
+			return true
+		}
+		if isTypeAnnotationContext(toks[:openIdx]) {
+			return true
+		}
+		if openIdx >= 3 && prev == token.Colon && toks[openIdx-2].Kind == token.Ident && toks[openIdx-3].Kind == token.KwExtern {
+			return true
+		}
+		switch prev {
+		case token.Assign, token.Comma, token.Colon, token.LParen, token.LBracket, token.LBrace:
+		default:
+			return false
+		}
+	}
+	if closeIdx == openIdx+1 {
+		return true
+	}
+	for i := openIdx + 1; i < closeIdx; i++ {
+		if toks[i].Kind == token.Colon || toks[i].Kind == token.KwSelf {
+			return true
+		}
+	}
+	return false
+}
+
 func isParamTypeContext(toks []token.Token) bool {
 	n := len(toks)
 	if n < 3 {
@@ -1217,7 +1246,7 @@ func isParamTypeContext(toks []token.Token) bool {
 				return true
 			}
 			depth--
-		case token.LBracket, token.HashBrack, token.LBrace:
+		case token.LBracket, token.HashBrack, token.PlusBrack, token.LBrace:
 			if depth == 0 {
 				return false
 			}
@@ -1699,7 +1728,13 @@ func walkExprScopes(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMa
 				case *ast.VarStmt:
 					walkExprScopes(prog, mod, bm, s.Value, offset, out)
 				case *ast.AssignStmt:
-					walkExprScopes(prog, mod, bm, s.Target, offset, out)
+					if s.IsUnpack {
+						for _, tgt := range s.UnpackTargets {
+							walkExprScopes(prog, mod, bm, tgt, offset, out)
+						}
+					} else {
+						walkExprScopes(prog, mod, bm, s.Target, offset, out)
+					}
 					walkExprScopes(prog, mod, bm, s.Value, offset, out)
 				case *ast.UnwindStmt:
 					walkExprScopes(prog, mod, bm, s.Value, offset, out)
@@ -1710,6 +1745,31 @@ func walkExprScopes(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMa
 			}
 			// Statement ended strictly before `offset` -> if it's a `VarStmt`, its variable is in scope!
 			if vs, ok := st.(*ast.VarStmt); ok && vs.Span.End.Offset <= offset {
+				if vs.IsUnpack {
+					if bm != nil {
+						if syms := bm.UnpackVarSymbols[vs]; len(syms) > 0 {
+							for _, sym := range syms {
+								if sym != nil {
+									*out = append(*out, scopedSymEntry{sym: sym})
+								}
+							}
+							continue
+						}
+					}
+					for _, uv := range vs.UnpackVars {
+						if uv.Name == "_" {
+							continue
+						}
+						*out = append(*out, scopedSymEntry{
+							sym: &sema.Symbol{
+								Name:   uv.Name,
+								Type:   resolveFallbackTypeExpr(mod, uv.Type),
+								IsBind: vs.IsBind,
+							},
+						})
+					}
+					continue
+				}
 				if bm != nil {
 					if sym := bm.VarSymbols[vs]; sym != nil {
 						*out = append(*out, scopedSymEntry{sym: sym})
@@ -1785,11 +1845,13 @@ func walkExprScopes(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMa
 		}
 
 	case *ast.MatchExpr:
-		walkExprScopes(prog, mod, bm, e.Scrutinee, offset, out)
+		for _, s := range e.Scrutinees {
+			walkExprScopes(prog, mod, bm, s, offset, out)
+		}
 		for _, arm := range e.Arms {
 			if arm.Body != nil && spanContainsOffset(arm.Body.GetSpan(), offset) {
 				if bm != nil {
-					for _, pat := range arm.Patterns {
+					for _, pat := range arm.AllPatterns() {
 						if vp, isVP := pat.(*ast.VariantPattern); isVP {
 							for _, sym := range bm.PatternSyms[vp] {
 								if sym != nil {
@@ -2003,10 +2065,24 @@ func findSentinelInExpr(e ast.Expr) *ast.MemberExpr {
 		}
 		return findSentinelInExpr(v.Else)
 	case *ast.MatchExpr:
-		if m := findSentinelInExpr(v.Scrutinee); m != nil {
-			return m
+		for _, s := range v.Scrutinees {
+			if m := findSentinelInExpr(s); m != nil {
+				return m
+			}
 		}
 		for _, arm := range v.Arms {
+			for _, pat := range arm.AllPatterns() {
+				switch p := pat.(type) {
+				case *ast.ExprPattern:
+					if m := findSentinelInExpr(p.Expr); m != nil {
+						return m
+					}
+				case *ast.ContainsPattern:
+					if m := findSentinelInExpr(p.Container); m != nil {
+						return m
+					}
+				}
+			}
 			if m := findSentinelInExpr(arm.Body); m != nil {
 				return m
 			}
@@ -2033,6 +2109,23 @@ func findSentinelInExpr(e ast.Expr) *ast.MemberExpr {
 			return m
 		}
 		return findSentinelInExpr(v.High)
+	case *ast.RangeExpr:
+		if m := findSentinelInExpr(v.Low); m != nil {
+			return m
+		}
+		return findSentinelInExpr(v.High)
+	case *ast.TupleLit:
+		for _, el := range v.Elems {
+			if m := findSentinelInExpr(el); m != nil {
+				return m
+			}
+		}
+	case *ast.ArrayLit:
+		for _, el := range v.Elems {
+			if m := findSentinelInExpr(el); m != nil {
+				return m
+			}
+		}
 	case *ast.VecLit:
 		for _, el := range v.Elems {
 			if m := findSentinelInExpr(el); m != nil {
@@ -2080,7 +2173,13 @@ func findSentinelInStmt(st ast.Stmt) *ast.MemberExpr {
 			return findSentinelInExpr(s.FallbackUnwind.Value)
 		}
 	case *ast.AssignStmt:
-		if m := findSentinelInExpr(s.Target); m != nil {
+		if s.IsUnpack {
+			for _, tgt := range s.UnpackTargets {
+				if m := findSentinelInExpr(tgt); m != nil {
+					return m
+				}
+			}
+		} else if m := findSentinelInExpr(s.Target); m != nil {
 			return m
 		}
 		return findSentinelInExpr(s.Value)
@@ -2162,6 +2261,27 @@ func lookupGenEnum(mod *sema.Module, alias string, name string) *sema.GenericEnu
 	return nil
 }
 
+func lookupGenInterface(mod *sema.Module, alias string, name string) *sema.GenericInterfaceTemplate {
+	if mod == nil {
+		return nil
+	}
+	if alias != "" {
+		if tm, ok := mod.Aliased[alias]; ok {
+			return tm.GenericInterfaces[name]
+		}
+		return nil
+	}
+	if g, ok := mod.GenericInterfaces[name]; ok {
+		return g
+	}
+	for _, imp := range mod.Imports {
+		if g, ok := imp.GenericInterfaces[name]; ok {
+			return g
+		}
+	}
+	return nil
+}
+
 func tryResolveIndexAsTypeArgs(mod *sema.Module, idx *ast.IndexExpr) []types.Type {
 	if id, ok := idx.Index.(*ast.IdentExpr); ok {
 		if t := lookupNominalType(mod, "", id.Name); t != nil {
@@ -2190,6 +2310,12 @@ func resolveFallbackTypeExpr(mod *sema.Module, te ast.TypeExpr) types.Type {
 		if sub != types.TypeInvalid {
 			return &types.Vector{Elem: sub}
 		}
+	case *ast.TupleType:
+		elems := make([]types.Type, len(v.Elems))
+		for i, el := range v.Elems {
+			elems[i] = resolveFallbackTypeExpr(mod, el)
+		}
+		return types.NewTuple(elems)
 	case *ast.MutBorrowType:
 		return resolveFallbackTypeExpr(mod, v.Elem)
 	case *ast.OwnType:
@@ -2239,7 +2365,7 @@ func formatFullFuncSig(fi *sema.FuncInstance) string {
 	if fi.Sig.Ret == nil || fi.Sig.Ret.Equals(types.TypeVoid) {
 		return "(" + strings.Join(ps, ", ") + ")"
 	}
-	return fmt.Sprintf("(%s): %s", strings.Join(ps, ", "), fi.Sig.Ret.String())
+	return fmt.Sprintf("(%s) %s", strings.Join(ps, ", "), fi.Sig.Ret.String())
 }
 
 func formatMethodInstanceSig(fi *sema.FuncInstance, optChain bool) string {
@@ -2268,7 +2394,7 @@ func formatMethodInstanceSig(fi *sema.FuncInstance, optChain bool) string {
 	if ret == nil || ret.Equals(types.TypeVoid) {
 		return "(" + strings.Join(ps, ", ") + ")"
 	}
-	return fmt.Sprintf("(%s): %s", strings.Join(ps, ", "), ret.String())
+	return fmt.Sprintf("(%s) %s", strings.Join(ps, ", "), ret.String())
 }
 
 func formatInterfaceMethodSig(m types.InterfaceMethod, optChain bool) string {
@@ -2291,7 +2417,7 @@ func formatInterfaceMethodSig(m types.InterfaceMethod, optChain bool) string {
 	if ret == nil || ret.Equals(types.TypeVoid) {
 		return "(" + strings.Join(ps, ", ") + ")"
 	}
-	return fmt.Sprintf("(%s): %s", strings.Join(ps, ", "), ret.String())
+	return fmt.Sprintf("(%s) %s", strings.Join(ps, ", "), ret.String())
 }
 
 func formatGenericMethodDeclSig(decl *ast.MethodDecl, recvTypeArgs []types.Type, optChain bool) string {
@@ -2330,7 +2456,7 @@ func formatGenericMethodDeclSig(decl *ast.MethodDecl, recvTypeArgs []types.Type,
 	if optChain && !strings.HasPrefix(retStr, "?") {
 		retStr = "?" + retStr
 	}
-	return fmt.Sprintf("%s(%s): %s", tparamsPrefix, strings.Join(ps, ", "), retStr)
+	return fmt.Sprintf("%s(%s) %s", tparamsPrefix, strings.Join(ps, ", "), retStr)
 }
 
 func formatGenericVarDeclSig(vd *ast.VarDecl) string {
@@ -2356,7 +2482,7 @@ func formatGenericVarDeclSig(vd *ast.VarDecl) string {
 	if fl.Ret == nil {
 		return fmt.Sprintf("[%s](%s)", strings.Join(tps, ", "), strings.Join(ps, ", "))
 	}
-	return fmt.Sprintf("[%s](%s): %s", strings.Join(tps, ", "), strings.Join(ps, ", "), formatTypeExpr(fl.Ret))
+	return fmt.Sprintf("[%s](%s) %s", strings.Join(tps, ", "), strings.Join(ps, ", "), formatTypeExpr(fl.Ret))
 }
 
 func formatTypeExpr(te ast.TypeExpr) string {
@@ -2400,6 +2526,12 @@ func formatTypeExprSubst(te ast.TypeExpr, subst map[string]string) string {
 		return "[" + formatTypeExprSubst(v.Elem, subst) + "]"
 	case *ast.StackArrayType:
 		return "[N: " + formatTypeExprSubst(v.Elem, subst) + "]"
+	case *ast.TupleType:
+		var elems []string
+		for _, el := range v.Elems {
+			elems = append(elems, formatTypeExprSubst(el, subst))
+		}
+		return "+[" + strings.Join(elems, ", ") + "]"
 	case *ast.SetType:
 		return "#[" + formatTypeExprSubst(v.Elem, subst) + "]"
 	case *ast.MapType:
@@ -2412,7 +2544,7 @@ func formatTypeExprSubst(te ast.TypeExpr, subst map[string]string) string {
 		if v.Ret == nil {
 			return "(" + strings.Join(ps, ", ") + ")"
 		}
-		return fmt.Sprintf("(%s): %s", strings.Join(ps, ", "), formatTypeExprSubst(v.Ret, subst))
+		return fmt.Sprintf("(%s) %s", strings.Join(ps, ", "), formatTypeExprSubst(v.Ret, subst))
 	default:
 		return "any"
 	}

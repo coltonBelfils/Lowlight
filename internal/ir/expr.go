@@ -326,6 +326,17 @@ func (e *ExprConstructVector) Type() types.Type {
 	return e.VecType
 }
 
+// ExprConstructTuple builds a stack-allocated tuple (`+[e0, e1, ...]`).
+type ExprConstructTuple struct {
+	TupleType *types.Tuple
+	Elems     []Expr
+}
+
+func (*ExprConstructTuple) irExpr() {}
+func (e *ExprConstructTuple) Type() types.Type {
+	return e.TupleType
+}
+
 // MapEntryInit holds an initialized key-value pair for map construction.
 type MapEntryInit struct {
 	Key Expr

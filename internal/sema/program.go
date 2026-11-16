@@ -120,8 +120,13 @@ type FuncInstance struct {
 	TypeSubst     map[string]types.Type
 	FuncTargetID  int
 	BodyMaps      *BodyMaps
-	DeclSpan      diag.Span
-	Checked       bool
+	DeclSpan       diag.Span
+	Checked        bool
+	RetInferred    bool
+	InferState     int // 0 = unvisited, 1 = inferring, 2 = resolved
+	IsDrop         bool
+	IsMain         bool
+	IsTestMain     bool
 	IsAlwaysInline bool
 	IsNoInline     bool
 	MustUse        bool
@@ -136,27 +141,31 @@ type FuncInstance struct {
 // BodyMaps holds per-monomorphized-body AST side tables so multiple generic
 // instantiations sharing the same AST nodes never overwrite each other.
 type BodyMaps struct {
-	ExprInfos    map[ast.Expr]*ExprInfo
-	UnwindInfos  map[*ast.UnwindStmt]*UnwindInfo
-	VarSymbols   map[*ast.VarStmt]*Symbol
-	ForSymbols   map[*ast.ForExpr][2]*Symbol // [Var1Sym, Var2Sym]
-	WhileSymbols map[*ast.WhileExpr][2]*Symbol // [Var1Sym, Var2Sym]
-	IfUnwrapSyms map[*ast.IfExpr]*Symbol
-	IfOriginSyms map[*ast.IfExpr]*Symbol
-	PatternSyms  map[*ast.VariantPattern][]*Symbol
+	ExprInfos        map[ast.Expr]*ExprInfo
+	UnwindInfos      map[*ast.UnwindStmt]*UnwindInfo
+	VarSymbols       map[*ast.VarStmt]*Symbol
+	UnpackVarSymbols map[*ast.VarStmt][]*Symbol
+	ForSymbols       map[*ast.ForExpr][2]*Symbol   // [Var1Sym, Var2Sym]
+	WhileSymbols     map[*ast.WhileExpr][2]*Symbol // [Var1Sym, Var2Sym]
+	IfUnwrapSyms     map[*ast.IfExpr]*Symbol
+	IfOriginSyms     map[*ast.IfExpr]*Symbol
+	PatternSyms      map[*ast.VariantPattern][]*Symbol
+	ContainsPatterns map[*ast.ContainsPattern]*ContainsInfo
 }
 
 // NewBodyMaps allocates a fresh set of per-body AST side tables.
 func NewBodyMaps() *BodyMaps {
 	return &BodyMaps{
-		ExprInfos:    make(map[ast.Expr]*ExprInfo),
-		UnwindInfos:  make(map[*ast.UnwindStmt]*UnwindInfo),
-		VarSymbols:   make(map[*ast.VarStmt]*Symbol),
-		ForSymbols:   make(map[*ast.ForExpr][2]*Symbol),
-		WhileSymbols: make(map[*ast.WhileExpr][2]*Symbol),
-		IfUnwrapSyms: make(map[*ast.IfExpr]*Symbol),
-		IfOriginSyms: make(map[*ast.IfExpr]*Symbol),
-		PatternSyms:  make(map[*ast.VariantPattern][]*Symbol),
+		ExprInfos:        make(map[ast.Expr]*ExprInfo),
+		UnwindInfos:      make(map[*ast.UnwindStmt]*UnwindInfo),
+		VarSymbols:       make(map[*ast.VarStmt]*Symbol),
+		UnpackVarSymbols: make(map[*ast.VarStmt][]*Symbol),
+		ForSymbols:       make(map[*ast.ForExpr][2]*Symbol),
+		WhileSymbols:     make(map[*ast.WhileExpr][2]*Symbol),
+		IfUnwrapSyms:     make(map[*ast.IfExpr]*Symbol),
+		IfOriginSyms:     make(map[*ast.IfExpr]*Symbol),
+		PatternSyms:      make(map[*ast.VariantPattern][]*Symbol),
+		ContainsPatterns: make(map[*ast.ContainsPattern]*ContainsInfo),
 	}
 }
 
@@ -222,6 +231,7 @@ type ExprInfo struct {
 	EnumType      *types.Enum
 	IsOptChain    bool // true when `.` / `?.` short-circuits on an optional base (`?Base -> ?Result`)
 	DerefStructPtr bool // true when accessing field on boxed `?RecursiveStruct` or `ref[Struct]`
+	TupleFieldIdx  int  // 0-based field index when MemberExpr or IndexExpr accesses a tuple element
 
 	// Struct literal resolution (for *ast.StructLit)
 	StructType    *types.Struct
@@ -233,6 +243,30 @@ type ExprInfo struct {
 	TargetID        int
 	YieldArenaDepth int  // max ArenaDepth yielded/captured by BlockExpr, IfExpr, MatchExpr, ForExpr, or FuncLit
 	MatchMutScrut   bool // true on MatchExpr when any arm destructures with `&` mutable borrow
+}
+
+// ContainsKind identifies how a `when in <expr>` match pattern checks membership.
+type ContainsKind int
+
+const (
+	ContainsInvalid ContainsKind = iota
+	ContainsMethod               // static method call: Range[T], List[T], Array[T], Set[T], Map[K, V], string, user nominal type
+	ContainsInterface            // dynamic dispatch through Containable[T] (or an interface with contains)
+	ContainsBuiltinVec           // built-in vector `[T]` (ll_vec_contains__)
+	ContainsBuiltinArr           // built-in stack array `[N: T]` (ll_arr_contains__)
+	ContainsBuiltinSet           // built-in set `#[T]` (ll_set_has__)
+	ContainsBuiltinMap           // built-in map `#[K: V]` (ll_map_has__)
+)
+
+// ContainsInfo stores semantic resolution results for `*ast.ContainsPattern`.
+type ContainsInfo struct {
+	Kind          ContainsKind
+	ContainerType types.Type
+	ElemType      types.Type
+	WrapOptional  bool
+	TargetFunc    *FuncInstance
+	InterfaceMeth *types.InterfaceMethod
+	BoxInterface  *types.Interface
 }
 
 // UnwindInfo records which enclosing construct an `*ast.UnwindStmt` jumps to.
@@ -308,21 +342,42 @@ type CheckedProgram struct {
 	CoreMod        *Module
 
 	// Built-in interfaces
-	IfacePrintable      *types.Interface
-	IfaceCopyable       *types.Interface
-	IfaceDrop           *types.Interface
-	IfaceHashable       *types.Interface
-	IfaceEquatable      *types.Interface
-	IfaceComparable     *types.Interface
-	IfaceCollectable    *types.Interface
-	IfaceIterable       *types.Interface
-	IfaceIterator       *types.Interface
-	GenIfaceCollectable *GenericInterfaceTemplate
-	GenIfaceIterable    *GenericInterfaceTemplate
-	GenIfaceIterator    *GenericInterfaceTemplate
-	GenStructList       *GenericStructTemplate
-	GenStructSet        *GenericStructTemplate
-	GenStructMap        *GenericStructTemplate
+	IfacePrintable       *types.Interface
+	IfaceCopyable        *types.Interface
+	IfaceDrop            *types.Interface
+	IfaceHashable        *types.Interface
+	IfaceEquatable       *types.Interface
+	IfaceComparable      *types.Interface
+	IfaceCollectable     *types.Interface
+	IfaceIterable        *types.Interface
+	IfaceIterator        *types.Interface
+	IfaceIndexable       *types.Interface
+	IfaceKeyIndexable    *types.Interface
+	IfaceContainable     *types.Interface
+	GenIfaceCollectable  *GenericInterfaceTemplate
+	GenIfaceIterable     *GenericInterfaceTemplate
+	GenIfaceIterator     *GenericInterfaceTemplate
+	GenIfaceIndexable    *GenericInterfaceTemplate
+	GenIfaceKeyIndexable *GenericInterfaceTemplate
+	GenIfaceContainable  *GenericInterfaceTemplate
+	GenStructList        *GenericStructTemplate
+	GenStructArray       *GenericStructTemplate
+	GenStructSet         *GenericStructTemplate
+	GenStructMap         *GenericStructTemplate
+	GenStructRange       *GenericStructTemplate
+	GenStructs           []*GenericStructTemplate
+	GenInterfaces        []*GenericInterfaceTemplate
+
+	implementsFn        func(concrete types.Type, ifc *types.Interface) bool
+	isIndexableFn       func(t types.Type) bool
+	indexableItemFn     func(t types.Type) types.Type
+	isKeyIndexableFn    func(t types.Type) bool
+	keyIndexableTypesFn func(t types.Type) (types.Type, types.Type)
+	isIterableFn        func(t types.Type) bool
+	iterableItemFn      func(t types.Type) types.Type
+	isContainableFn     func(t types.Type) bool
+	containableItemFn   func(t types.Type) types.Type
+	instantiateIfcFn    func(tmpl *GenericInterfaceTemplate, typeArgs []types.Type, span diag.Span) *types.Interface
 }
 
 // Analyzer orchestrates all semantic passes.
@@ -348,10 +403,18 @@ type Analyzer struct {
 	nextTargetID int
 	nextLambdaID int
 
-	topVarMap      map[*Symbol]*TopVarInit
-	topVarStates   map[*TopVarInit]int // 0 = unvisited, 1 = visiting, 2 = visited
-	orderedTopVars []*TopVarInit
-	monoDepth      int
+	topVarMap           map[*Symbol]*TopVarInit
+	topVarStates        map[*TopVarInit]int // 0 = unvisited, 1 = visiting, 2 = visited
+	orderedTopVars      []*TopVarInit
+	deferredIfaceChecks []deferredIfaceCheck
+	monoDepth           int
+}
+
+type deferredIfaceCheck struct {
+	Concrete types.Type
+	Iface    *types.Interface
+	Span     diag.Span
+	Context  string
 }
 
 // Check parses and semantically validates `entryPath` and all its transitive imports.
@@ -447,6 +510,17 @@ func runCheck(entryPath string, overlays map[string]string, projectRoot string, 
 	}
 
 	a.initBuiltinInterfaces()
+
+	prog.implementsFn = a.ImplementsInterface
+	prog.isIndexableFn = a.isIndexableType
+	prog.indexableItemFn = a.indexableItemType
+	prog.isKeyIndexableFn = a.isKeyIndexableType
+	prog.keyIndexableTypesFn = a.keyIndexableTypes
+	prog.isIterableFn = a.isIterableType
+	prog.iterableItemFn = a.iterableItemType
+	prog.isContainableFn = a.isContainableType
+	prog.containableItemFn = a.containableItemType
+	prog.instantiateIfcFn = a.instantiateInterface
 
 	// If std/core/core.ll exists (or fallback to std/core.ll), load it as the fundamental prelude module.
 	coreAbs := filepath.Join(stdDir, "core", "core.ll")
@@ -834,4 +908,500 @@ func (a *Analyzer) typeModule(t types.Type) *Module {
 	default:
 		return nil
 	}
+}
+
+// -----------------------------------------------------------------------------
+// Interface Reflection & Discovery API
+// -----------------------------------------------------------------------------
+
+// ImplementsInterface reports whether concrete satisfies all contracts of ifc.
+func (p *CheckedProgram) ImplementsInterface(concrete types.Type, ifc *types.Interface) bool {
+	if p == nil || concrete == nil || ifc == nil {
+		return false
+	}
+	if p.implementsFn != nil {
+		return p.implementsFn(concrete, ifc)
+	}
+	return false
+}
+
+// AllInterfaces returns all declared and built-in interfaces in the program.
+func (p *CheckedProgram) AllInterfaces() []*types.Interface {
+	if p == nil {
+		return nil
+	}
+	var res []*types.Interface
+	seen := make(map[string]bool)
+	add := func(ifc *types.Interface) {
+		if ifc != nil && !seen[ifc.Name] {
+			seen[ifc.Name] = true
+			res = append(res, ifc)
+		}
+	}
+	add(p.IfacePrintable)
+	add(p.IfaceCopyable)
+	add(p.IfaceDrop)
+	add(p.IfaceHashable)
+	add(p.IfaceEquatable)
+	add(p.IfaceComparable)
+	add(p.IfaceCollectable)
+	add(p.IfaceIterable)
+	add(p.IfaceIterator)
+	add(p.IfaceIndexable)
+	add(p.IfaceKeyIndexable)
+	add(p.IfaceContainable)
+	for _, ifc := range p.Interfaces {
+		add(ifc)
+	}
+	return res
+}
+
+// AllNominalTypes returns all declared structs, distinct types, and enums in the program.
+func (p *CheckedProgram) AllNominalTypes() []types.Type {
+	if p == nil {
+		return nil
+	}
+	var res []types.Type
+	seen := make(map[string]bool)
+	add := func(t types.Type) {
+		if t != nil && !seen[t.String()] {
+			seen[t.String()] = true
+			res = append(res, t)
+		}
+	}
+	for _, st := range p.Structs {
+		add(st)
+	}
+	for _, dt := range p.Distincts {
+		add(dt)
+	}
+	for _, en := range p.Enums {
+		add(en)
+	}
+	return res
+}
+
+// ImplementedInterfaces returns the interfaces implemented by concrete.
+func (p *CheckedProgram) ImplementedInterfaces(concrete types.Type) []*types.Interface {
+	if p == nil || concrete == nil {
+		return nil
+	}
+	var res []*types.Interface
+	seen := make(map[string]bool)
+	add := func(ifc *types.Interface) {
+		if ifc != nil && !seen[ifc.Name] {
+			seen[ifc.Name] = true
+			res = append(res, ifc)
+		}
+	}
+
+	for _, ifc := range p.AllInterfaces() {
+		if p.ImplementsInterface(concrete, ifc) {
+			add(ifc)
+		}
+	}
+
+	// Generic interfaces: Indexable, KeyIndexable, Iterable
+	if p.isIndexableFn != nil && p.isIndexableFn(concrete) && p.GenIfaceIndexable != nil && p.instantiateIfcFn != nil {
+		itemTy := p.indexableItemFn(concrete)
+		if itemTy != nil && itemTy != types.TypeInvalid {
+			inst := p.instantiateIfcFn(p.GenIfaceIndexable, []types.Type{itemTy}, diag.Span{})
+			if inst != nil {
+				add(inst)
+			}
+		}
+	}
+	if p.isKeyIndexableFn != nil && p.isKeyIndexableFn(concrete) && p.GenIfaceKeyIndexable != nil && p.instantiateIfcFn != nil {
+		k, v := p.keyIndexableTypesFn(concrete)
+		if k != nil && k != types.TypeInvalid && v != nil && v != types.TypeInvalid {
+			inst := p.instantiateIfcFn(p.GenIfaceKeyIndexable, []types.Type{k, v}, diag.Span{})
+			if inst != nil {
+				add(inst)
+			}
+		}
+	}
+	if p.isIterableFn != nil && p.isIterableFn(concrete) && p.GenIfaceIterable != nil && p.instantiateIfcFn != nil {
+		itemTy := p.iterableItemFn(concrete)
+		if itemTy != nil && itemTy != types.TypeInvalid {
+			inst := p.instantiateIfcFn(p.GenIfaceIterable, []types.Type{itemTy}, diag.Span{})
+			if inst != nil {
+				add(inst)
+			}
+		}
+	}
+	if p.isContainableFn != nil && p.isContainableFn(concrete) && p.GenIfaceContainable != nil && p.instantiateIfcFn != nil {
+		itemTy := p.containableItemFn(concrete)
+		if _, isOpt := itemTy.(*types.Optional); !isOpt && itemTy != nil && itemTy != types.TypeInvalid {
+			inst := p.instantiateIfcFn(p.GenIfaceContainable, []types.Type{itemTy}, diag.Span{})
+			if inst != nil {
+				add(inst)
+			}
+		}
+	}
+
+	return res
+}
+
+// ImplementingTypes returns all declared nominal types that implement ifc.
+func (p *CheckedProgram) ImplementingTypes(ifc *types.Interface) []types.Type {
+	if p == nil || ifc == nil {
+		return nil
+	}
+	var res []types.Type
+	seen := make(map[string]bool)
+	add := func(t types.Type) {
+		if t != nil && !seen[t.String()] {
+			seen[t.String()] = true
+			res = append(res, t)
+		}
+	}
+
+	for _, t := range p.AllNominalTypes() {
+		if p.ImplementsInterface(t, ifc) {
+			add(t)
+		}
+	}
+
+	// Check core collections and primitives
+	candidates := []types.Type{
+		types.TypeString,
+		&types.Vector{Elem: types.TypeInt},
+		&types.StackArray{Size: 4, Elem: types.TypeInt},
+		&types.Map{Key: types.TypeString, Value: types.TypeInt},
+		&types.Set{Elem: types.TypeInt},
+	}
+	for _, c := range candidates {
+		if p.ImplementsInterface(c, ifc) {
+			add(c)
+		}
+	}
+
+	return res
+}
+
+// ImplementationTarget describes a target interface or implementing type.
+type ImplementationTarget struct {
+	Name      string
+	Span      diag.Span
+	IsBuiltin bool
+}
+
+// AllGenericStructs returns all generic struct templates across all modules.
+func (p *CheckedProgram) AllGenericStructs() []*GenericStructTemplate {
+	if p == nil {
+		return nil
+	}
+	var res []*GenericStructTemplate
+	seen := make(map[string]bool)
+	for _, m := range p.Modules {
+		for _, gst := range m.GenericStructs {
+			if !seen[gst.Decl.Name] {
+				seen[gst.Decl.Name] = true
+				res = append(res, gst)
+			}
+		}
+	}
+	for _, gst := range p.GenStructs {
+		if !seen[gst.Decl.Name] {
+			seen[gst.Decl.Name] = true
+			res = append(res, gst)
+		}
+	}
+	return res
+}
+
+// AllGenericInterfaces returns all generic interface templates across all modules.
+func (p *CheckedProgram) AllGenericInterfaces() []*GenericInterfaceTemplate {
+	if p == nil {
+		return nil
+	}
+	var res []*GenericInterfaceTemplate
+	seen := make(map[string]bool)
+	for _, m := range p.Modules {
+		for _, gi := range m.GenericInterfaces {
+			if !seen[gi.Decl.Name] {
+				seen[gi.Decl.Name] = true
+				res = append(res, gi)
+			}
+		}
+	}
+	for _, gi := range p.GenInterfaces {
+		if !seen[gi.Decl.Name] {
+			seen[gi.Decl.Name] = true
+			res = append(res, gi)
+		}
+	}
+	return res
+}
+
+// GenericStructImplementedInterfaces returns all interfaces satisfied by a generic struct template.
+func (p *CheckedProgram) GenericStructImplementedInterfaces(gst *GenericStructTemplate) []ImplementationTarget {
+	if p == nil || gst == nil || gst.Decl == nil {
+		return nil
+	}
+	var res []ImplementationTarget
+	seen := make(map[string]bool)
+	add := func(name string, sp diag.Span) {
+		if name != "" && !seen[name] {
+			seen[name] = true
+			res = append(res, ImplementationTarget{Name: name, Span: sp})
+		}
+	}
+
+	gMethods := p.GenMethods[gst.Decl.Name]
+
+	// 1. Check Indexable[T]
+	if p.GenIfaceIndexable != nil {
+		hasLen := false
+		hasGet := false
+		hasHas := false
+		if gMethods != nil {
+			if m, ok := gMethods["len"]; ok && m.MethodDecl != nil && len(m.MethodDecl.Params) == 0 {
+				hasLen = true
+			}
+			if m, ok := gMethods["get"]; ok && m.MethodDecl != nil && len(m.MethodDecl.Params) == 1 {
+				hasGet = true
+			}
+			if _, ok := gMethods["has"]; ok {
+				hasHas = true
+			}
+		}
+		if gst.Decl.Name == "List" || gst.Decl.Name == "Array" || (gst.Decl.Name != "Map" && hasLen && hasGet && !hasHas) {
+			add("Indexable[T]", p.GenIfaceIndexable.Decl.Span)
+		}
+	}
+
+	// 2. Check KeyIndexable[K, V]
+	if p.GenIfaceKeyIndexable != nil {
+		hasLen := false
+		hasGet := false
+		hasHas := false
+		if gMethods != nil {
+			if m, ok := gMethods["len"]; ok && m.MethodDecl != nil && len(m.MethodDecl.Params) == 0 {
+				hasLen = true
+			}
+			if _, ok := gMethods["get"]; ok {
+				hasGet = true
+			}
+			if m, ok := gMethods["has"]; ok && m.MethodDecl != nil && len(m.MethodDecl.Params) == 1 {
+				hasHas = true
+			}
+		}
+		if gst.Decl.Name == "Map" || (hasLen && hasGet && hasHas) {
+			add("KeyIndexable[K, V]", p.GenIfaceKeyIndexable.Decl.Span)
+		}
+	}
+
+	// 3. Check Collectable[T]
+	if p.GenIfaceCollectable != nil {
+		hasPush := false
+		if gMethods != nil {
+			if m, ok := gMethods["push"]; ok && m.MethodDecl != nil && len(m.MethodDecl.Params) == 1 {
+				hasPush = true
+			}
+		}
+		if gst.Decl.Name == "List" || gst.Decl.Name == "Set" || hasPush {
+			add("Collectable[T]", p.GenIfaceCollectable.Decl.Span)
+		}
+	}
+
+	// 4. Check Iterable[T]
+	if p.GenIfaceIterable != nil {
+		hasIter := false
+		if gMethods != nil {
+			if _, ok := gMethods["iter"]; ok {
+				hasIter = true
+			}
+		}
+		if gst.Decl.Name == "List" || gst.Decl.Name == "Array" || hasIter {
+			add("Iterable[T]", p.GenIfaceIterable.Decl.Span)
+		} else if gst.Decl.Name == "Map" {
+			add("Iterable[MapEntry[K, V]]", p.GenIfaceIterable.Decl.Span)
+		}
+	}
+
+	// 5. Check Containable[T]
+	if p.GenIfaceContainable != nil {
+		hasContains := false
+		if gMethods != nil {
+			if m, ok := gMethods["contains"]; ok && m.MethodDecl != nil && len(m.MethodDecl.Params) == 1 {
+				hasContains = true
+			}
+		}
+		if gst.Decl.Name == "Map" {
+			add("Containable[K]", p.GenIfaceContainable.Decl.Span)
+		} else if gst.Decl.Name == "List" || gst.Decl.Name == "Array" || gst.Decl.Name == "Set" || gst.Decl.Name == "Range" || hasContains {
+			add("Containable[T]", p.GenIfaceContainable.Decl.Span)
+		}
+	}
+
+	// 6. Check Copyable
+	if p.IfaceCopyable != nil {
+		add("Copyable", p.TypeSpans[p.IfaceCopyable])
+	}
+
+	// 6. Check Drop
+	if p.IfaceDrop != nil {
+		hasDrop := false
+		if gMethods != nil {
+			if _, ok := gMethods["drop"]; ok {
+				hasDrop = true
+			}
+		}
+		if gst.Decl.Name == "List" || gst.Decl.Name == "Map" || hasDrop {
+			add("Drop", p.TypeSpans[p.IfaceDrop])
+		}
+	}
+
+	// 7. Check Equatable
+	if p.IfaceEquatable != nil {
+		add("Equatable", p.TypeSpans[p.IfaceEquatable])
+	}
+
+	// 8. Check any other generic interface templates
+	for _, gi := range p.AllGenericInterfaces() {
+		if gi == p.GenIfaceIndexable || gi == p.GenIfaceKeyIndexable || gi == p.GenIfaceCollectable || gi == p.GenIfaceIterable || gi == p.GenIfaceContainable {
+			continue
+		}
+		allMatch := true
+		for _, req := range gi.Decl.Methods {
+			if gMethods == nil || gMethods[req.Name] == nil {
+				allMatch = false
+				break
+			}
+		}
+		if allMatch && len(gi.Decl.Methods) > 0 {
+			add(gi.Decl.Name, gi.Decl.Span)
+		}
+	}
+
+	// 9. Check any non-generic interfaces
+	for _, ifc := range p.AllInterfaces() {
+		if ifc == p.IfaceCopyable || ifc == p.IfaceDrop || ifc == p.IfaceEquatable || strings.Contains(ifc.Name, "[") {
+			continue
+		}
+		allMatch := true
+		for _, req := range ifc.Methods {
+			if gMethods == nil || gMethods[req.Name] == nil {
+				allMatch = false
+				break
+			}
+		}
+		if allMatch && len(ifc.Methods) > 0 {
+			add(ifc.Name, p.TypeSpans[ifc])
+		}
+	}
+
+	return res
+}
+
+// TypeImplementedInterfaceTargets returns all interfaces satisfied by nominal type or generic struct.
+func (p *CheckedProgram) TypeImplementedInterfaceTargets(name string, mod *Module) []ImplementationTarget {
+	if p == nil || name == "" {
+		return nil
+	}
+	if mod != nil {
+		if gst, ok := mod.GenericStructs[name]; ok {
+			return p.GenericStructImplementedInterfaces(gst)
+		}
+	}
+	for _, gst := range p.AllGenericStructs() {
+		if gst.Decl.Name == name {
+			return p.GenericStructImplementedInterfaces(gst)
+		}
+	}
+
+	var nom types.Type
+	if mod != nil {
+		nom = mod.Types[name]
+	}
+	if nom == nil {
+		for _, t := range p.AllNominalTypes() {
+			if t.String() == name {
+				nom = t
+				break
+			}
+		}
+	}
+	if nom != nil {
+		var res []ImplementationTarget
+		seen := make(map[string]bool)
+		for _, ifc := range p.ImplementedInterfaces(nom) {
+			if !seen[ifc.Name] {
+				seen[ifc.Name] = true
+				res = append(res, ImplementationTarget{
+					Name: ifc.Name,
+					Span: p.TypeSpans[ifc],
+				})
+			}
+		}
+		return res
+	}
+
+	return nil
+}
+
+// InterfaceImplementingTargets returns all types implementing the specified interface.
+func (p *CheckedProgram) InterfaceImplementingTargets(ifcName string, mod *Module) []ImplementationTarget {
+	if p == nil || ifcName == "" {
+		return nil
+	}
+	var res []ImplementationTarget
+	seen := make(map[string]bool)
+	add := func(name string, sp diag.Span, isBuiltin bool) {
+		if name != "" && !seen[name] {
+			seen[name] = true
+			res = append(res, ImplementationTarget{Name: name, Span: sp, IsBuiltin: isBuiltin})
+		}
+	}
+
+	// 1. Check all generic structs in the program
+	for _, gst := range p.AllGenericStructs() {
+		ifcs := p.GenericStructImplementedInterfaces(gst)
+		for _, it := range ifcs {
+			if it.Name == ifcName || strings.HasPrefix(it.Name, ifcName+"[") {
+				tName := gst.Decl.Name
+				if len(gst.Decl.TypeParams) > 0 {
+					var tpNames []string
+					for _, tp := range gst.Decl.TypeParams {
+						tpNames = append(tpNames, tp.Name)
+					}
+					tName = fmt.Sprintf("%s[%s]", gst.Decl.Name, strings.Join(tpNames, ", "))
+				}
+				add(tName, gst.Decl.Span, false)
+				break
+			}
+		}
+	}
+
+	// 2. Check all nominal types in the program
+	for _, t := range p.AllNominalTypes() {
+		for _, ifc := range p.ImplementedInterfaces(t) {
+			if ifc.Name == ifcName || strings.HasPrefix(ifc.Name, ifcName+"[") {
+				add(t.String(), p.TypeSpans[t], false)
+				break
+			}
+		}
+	}
+
+	// 3. Language built-ins
+	switch ifcName {
+	case "Indexable":
+		add("Vector[T]", diag.Span{}, true)
+		add("StackArray[N, T]", diag.Span{}, true)
+		add("string", diag.Span{}, true)
+	case "KeyIndexable":
+		add("Map[K, V]", diag.Span{}, true)
+	case "Collectable":
+		add("Vector[T]", diag.Span{}, true)
+		add("Set[T]", diag.Span{}, true)
+	case "Iterable":
+		add("Vector[T]", diag.Span{}, true)
+		add("StackArray[N, T]", diag.Span{}, true)
+		add("Set[T]", diag.Span{}, true)
+		add("Map[K, V]", diag.Span{}, true)
+		add("string", diag.Span{}, true)
+	}
+
+	return res
 }

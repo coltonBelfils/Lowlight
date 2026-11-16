@@ -152,6 +152,10 @@ func (g *cEmitter) emitEnumsAndForwardDecls() {
 			if strings.HasPrefix(v.CName, "ll_lambda_env_") {
 				continue
 			}
+			if (v.Name == "List" || strings.HasPrefix(v.Name, "List[")) && len(v.TypeArgs) == 1 {
+				g.line("typedef struct ll_vec_%s %s;", v.TypeArgs[0].Mangled(), v.CName)
+				continue
+			}
 			g.line("typedef struct %s %s;", v.CName, v.CName)
 		case *types.Optional:
 			if !v.IsBoxed() {
@@ -159,6 +163,9 @@ func (g *cEmitter) emitEnumsAndForwardDecls() {
 				g.line("typedef struct %s %s;", cn, cn)
 			}
 		case *types.StackArray:
+			cn := CType(v)
+			g.line("typedef struct %s %s;", cn, cn)
+		case *types.Tuple:
 			cn := CType(v)
 			g.line("typedef struct %s %s;", cn, cn)
 		case *types.Vector:
@@ -206,19 +213,8 @@ func (g *cEmitter) emitOrderedTypeDefs() {
 			if hasPayload {
 				g.line("    union {")
 				for _, vr := range v.Variants {
-					switch vr.Kind {
-					case types.VariantTuple:
+					if vr.Kind == types.VariantTuple {
 						g.line("        %s %s;", CType(vr.Payload), vr.CName)
-					case types.VariantStruct:
-						g.line("        struct {")
-						if len(vr.Fields) == 0 {
-							g.line("            uint8_t _ll_empty;")
-						} else {
-							for _, sf := range vr.Fields {
-								g.line("            %s %s;", CType(sf.Type), sf.CName)
-							}
-						}
-						g.line("        } %s;", vr.CName)
 					}
 				}
 				g.line("    } data;")
@@ -227,6 +223,9 @@ func (g *cEmitter) emitOrderedTypeDefs() {
 
 		case *types.Struct:
 			if strings.HasPrefix(v.CName, "ll_lambda_env_") {
+				continue
+			}
+			if (v.Name == "List" || strings.HasPrefix(v.Name, "List[")) && len(v.TypeArgs) == 1 {
 				continue
 			}
 			attr := ""
@@ -252,6 +251,18 @@ func (g *cEmitter) emitOrderedTypeDefs() {
 		case *types.StackArray:
 			cn := CType(v)
 			g.line("struct %s { %s data[%d]; };", cn, CType(v.Elem), v.Size)
+
+		case *types.Tuple:
+			cn := CType(v)
+			g.line("struct %s {", cn)
+			if len(v.Elems) == 0 {
+				g.line("    uint8_t _ll_empty;")
+			} else {
+				for i, el := range v.Elems {
+					g.line("    %s _%d;", CType(el), i)
+				}
+			}
+			g.line("};")
 
 		case *types.Vector:
 			cn := CType(v)
@@ -341,7 +352,7 @@ var stdCHeaderFuncs = map[string]bool{
 }
 
 func (g *cEmitter) emitForwardPrototypes() {
-	if len(g.prog.ExternHeaders) == 0 && len(g.prog.ExternFuncs) > 0 {
+	if len(g.prog.ExternFuncs) > 0 {
 		for _, ef := range g.prog.ExternFuncs {
 			if stdCHeaderFuncs[ef.Name] || strings.HasPrefix(ef.Name, "ll_") {
 				continue
@@ -377,10 +388,10 @@ func (g *cEmitter) emitForwardPrototypes() {
 		if g.canCopy(t) && !t.IsPlain() {
 			g.line("static inline %s %s(%s v);", CType(t), ir.CopyFnName(t), CType(t))
 		}
-		hasEq := types.SupportsEq(t) || g.prog.Checked.LookupConcreteMethod(t, "eq") != nil || g.prog.Checked.LookupConcreteMethod(t, "cmp") != nil
+		hasEq := CanEqType(g.prog, t)
 		if hasEq {
 			switch t.(type) {
-			case *types.Struct, *types.Optional, *types.Enum:
+			case *types.Struct, *types.Optional, *types.Enum, *types.Tuple:
 				g.line("static inline bool %s(%s a, %s b);", ir.EqFnName(t), CType(t), CType(t))
 			}
 		}
@@ -390,9 +401,14 @@ func (g *cEmitter) emitForwardPrototypes() {
 			if g.prog.Checked.LookupConcreteMethod(d.Base, "cmp") != nil || types.UnderlyingPrimitive(d.Base) != nil {
 				g.line("static inline int64_t %s(%s a, %s b);", ir.CmpFnName(t), CType(t), CType(t))
 			}
+		} else if tup, isTup := t.(*types.Tuple); isTup {
+			if g.canCmp(tup) {
+				g.line("static inline int64_t %s(%s a, %s b);", ir.CmpFnName(t), CType(t), CType(t))
+			}
 		}
 		if types.IsHashable(t) {
-			if _, isDist := t.(*types.Distinct); isDist {
+			switch t.(type) {
+			case *types.Distinct, *types.Tuple:
 				g.line("static inline uint64_t %s(%s v);", ir.HashFnName(t), CType(t))
 			}
 		}
@@ -409,7 +425,7 @@ func (g *cEmitter) emitForwardPrototypes() {
 			if g.canCopy(optSt) {
 				g.line("static inline %s* %s(%s* p);", st.CName, ir.CopyFnName(optSt), st.CName)
 			}
-			if types.SupportsEq(optSt) || g.prog.Checked.LookupConcreteMethod(st, "eq") != nil || g.prog.Checked.LookupConcreteMethod(st, "cmp") != nil {
+			if CanEqType(g.prog, optSt) {
 				g.line("static inline bool %s(%s* a, %s* b);", ir.EqFnName(optSt), st.CName, st.CName)
 			}
 			if g.canToString(optSt) {
@@ -456,6 +472,16 @@ func (g *cEmitter) emitSynthesizedTypeHelpers() {
 		g.line("}")
 	}
 
+	g.line("static inline ll_string ll_tostr_ptr(const void* v) {")
+	g.line("    if (!v) return ll_str_lit(\"0x0\", 3LL);")
+	g.line("    char buf[32];")
+	g.line("%s", "    int n = snprintf(buf, sizeof(buf), \"%p\", v);")
+	g.line("    if (n < 0) n = 0;")
+	g.line("    if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;")
+	g.line("    return ll_copy__string(ll_str_lit(buf, (int64_t)n));")
+	g.line("}")
+	g.line("")
+
 	// 6a. Ordered composite lifecycle & trait helpers (`drop`, `copy`, `eq`, `hash`, `to_string`)
 	for _, t := range g.prog.OrderedTypes {
 		switch v := t.(type) {
@@ -474,6 +500,8 @@ func (g *cEmitter) emitSynthesizedTypeHelpers() {
 			}
 		case *types.StackArray:
 			g.emitStackArrayHelpers(v)
+		case *types.Tuple:
+			g.emitTupleHelpers(v)
 		case *types.Vector:
 			g.emitVectorHelpers(v)
 		case *types.Set:
@@ -528,6 +556,8 @@ func (g *cEmitter) emitDistinctHelpers(d *types.Distinct) {
 		g.line("static inline int64_t %s(%s a, %s b) { return %s(a, b); }", ir.CmpFnName(d), cD, cD, customCmp.CName)
 	} else if customBase := g.prog.Checked.LookupConcreteMethod(d.Base, "cmp"); customBase != nil {
 		g.line("static inline int64_t %s(%s a, %s b) { return %s((%s)a, (%s)b); }", ir.CmpFnName(d), cD, cD, customBase.CName, cBase, cBase)
+	} else if tup, isTup := d.Base.(*types.Tuple); isTup && g.canCmp(tup) {
+		g.line("static inline int64_t %s(%s a, %s b) { return %s((%s)a, (%s)b); }", ir.CmpFnName(d), cD, cD, ir.CmpFnName(tup), cBase, cBase)
 	} else if p := types.UnderlyingPrimitive(d.Base); p != nil {
 		if p.Kind == types.PrimString {
 			if cmpM := g.prog.Checked.LookupConcreteMethod(types.TypeString, "cmp"); cmpM != nil {
@@ -560,29 +590,8 @@ func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
 		}
 		g.line("    switch (p->tag) {")
 		for _, vr := range en.Variants {
-			switch vr.Kind {
-			case types.VariantTuple:
-				if vr.Payload != nil && !vr.Payload.IsPlain() {
-					g.line("        case %d: %s(&p->data.%s); break;", vr.Value, ir.DropFnName(vr.Payload), vr.CName)
-				}
-			case types.VariantStruct:
-				hasRes := false
-				for _, sf := range vr.Fields {
-					if !sf.Type.IsPlain() {
-						hasRes = true
-						break
-					}
-				}
-				if hasRes {
-					g.line("        case %d:", vr.Value)
-					for i := len(vr.Fields) - 1; i >= 0; i-- {
-						sf := vr.Fields[i]
-						if !sf.Type.IsPlain() {
-							g.line("            %s(&p->data.%s.%s);", ir.DropFnName(sf.Type), vr.CName, sf.CName)
-						}
-					}
-					g.line("            break;")
-				}
+			if vr.Kind == types.VariantTuple && vr.Payload != nil && !vr.Payload.IsPlain() {
+				g.line("        case %d: %s(&p->data.%s); break;", vr.Value, ir.DropFnName(vr.Payload), vr.CName)
 			}
 		}
 		g.line("        default: break;")
@@ -601,26 +610,11 @@ func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
 			g.line("    out.tag = v.tag;")
 			g.line("    switch (v.tag) {")
 			for _, vr := range en.Variants {
-				switch vr.Kind {
-				case types.VariantTuple:
-					if vr.Payload != nil {
-						if vr.Payload.IsPlain() {
-							g.line("        case %d: out.data.%s = v.data.%s; break;", vr.Value, vr.CName, vr.CName)
-						} else {
-							g.line("        case %d: out.data.%s = %s(v.data.%s); break;", vr.Value, vr.CName, g.copyExpr(vr.Payload), vr.CName)
-						}
-					}
-				case types.VariantStruct:
-					if len(vr.Fields) > 0 {
-						g.line("        case %d:", vr.Value)
-						for _, sf := range vr.Fields {
-							if sf.Type.IsPlain() {
-								g.line("            out.data.%s.%s = v.data.%s.%s;", vr.CName, sf.CName, vr.CName, sf.CName)
-							} else {
-								g.line("            out.data.%s.%s = %s(v.data.%s.%s);", vr.CName, sf.CName, g.copyExpr(sf.Type), vr.CName, sf.CName)
-							}
-						}
-						g.line("            break;")
+				if vr.Kind == types.VariantTuple && vr.Payload != nil {
+					if vr.Payload.IsPlain() {
+						g.line("        case %d: out.data.%s = v.data.%s; break;", vr.Value, vr.CName, vr.CName)
+					} else {
+						g.line("        case %d: out.data.%s = %s(v.data.%s); break;", vr.Value, vr.CName, g.copyExpr(vr.Payload), vr.CName)
 					}
 				}
 			}
@@ -632,26 +626,13 @@ func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
 	}
 
 	// eq
-	if types.SupportsEq(en) {
+	if CanEqType(g.prog, en) {
 		g.line("static inline bool %s(%s a, %s b) {", ir.EqFnName(en), cEn, cEn)
 		g.line("    if (a.tag != b.tag) return false;")
 		g.line("    switch (a.tag) {")
 		for _, vr := range en.Variants {
-			switch vr.Kind {
-			case types.VariantTuple:
-				if vr.Payload != nil {
-					g.line("        case %d: return %s;", vr.Value, g.eqInlineExpr(vr.Payload, "a.data."+vr.CName, "b.data."+vr.CName))
-				}
-			case types.VariantStruct:
-				if len(vr.Fields) > 0 {
-					g.line("        case %d:", vr.Value)
-					for _, sf := range vr.Fields {
-						lhs := fmt.Sprintf("a.data.%s.%s", vr.CName, sf.CName)
-						rhs := fmt.Sprintf("b.data.%s.%s", vr.CName, sf.CName)
-						g.line("            if (!(%s)) return false;", stripOuterParens(g.eqInlineExpr(sf.Type, lhs, rhs)))
-					}
-					g.line("            return true;")
-				}
+			if vr.Kind == types.VariantTuple && vr.Payload != nil {
+				g.line("        case %d: return %s;", vr.Value, g.eqInlineExpr(vr.Payload, "a.data."+vr.CName, "b.data."+vr.CName))
 			}
 		}
 		g.line("        default: return true;")
@@ -679,23 +660,6 @@ func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
 					g.line("            ll_str_push(&s, p0);")
 					g.line("            ll_drop__string(&p0);")
 					g.line("            ll_str_push(&s, ll_str_lit(\")\", 1LL));")
-					g.line("            return s;")
-					g.line("        }")
-				case types.VariantStruct:
-					prefix := fmt.Sprintf("%s.%s[", en.Name, vr.Name)
-					g.line("        case %d: {", vr.Value)
-					g.line("            ll_string s = ll_str_lit(%q, %dLL);", prefix, len(prefix))
-					for i, sf := range vr.Fields {
-						if i > 0 {
-							g.line("            ll_str_push(&s, ll_str_lit(\", \", 2LL));")
-						}
-						flbl := sf.Name + ": "
-						g.line("            ll_str_push(&s, ll_str_lit(%q, %dLL));", flbl, len(flbl))
-						g.line("            ll_string pf_%d = %s(v.data.%s.%s);", i, g.toStrFn(sf.Type), vr.CName, sf.CName)
-						g.line("            ll_str_push(&s, pf_%d);", i)
-						g.line("            ll_drop__string(&pf_%d);", i)
-					}
-					g.line("            ll_str_push(&s, ll_str_lit(\"]\", 1LL));")
 					g.line("            return s;")
 					g.line("        }")
 				}
@@ -755,7 +719,7 @@ func (g *cEmitter) emitStructHelpers(st *types.Struct) {
 		g.line("static inline bool %s(%s a, %s b) { return %s(a, b); }", ir.EqFnName(st), cSt, cSt, custom.CName)
 	} else if customCmp := g.prog.Checked.LookupConcreteMethod(st, "cmp"); customCmp != nil {
 		g.line("static inline bool %s(%s a, %s b) { return %s(a, b) == 0; }", ir.EqFnName(st), cSt, cSt, customCmp.CName)
-	} else if types.SupportsEq(st) {
+	} else if CanEqType(g.prog, st) {
 		g.line("static inline bool %s(%s a, %s b) {", ir.EqFnName(st), cSt, cSt)
 		g.line("    (void)a; (void)b;")
 		for _, f := range st.Fields {
@@ -809,11 +773,11 @@ func (g *cEmitter) emitBoxedOptionalHelpers(st *types.Struct) {
 		g.line("}")
 	}
 
-	if types.SupportsEq(optSt) {
+	if CanEqType(g.prog, optSt) {
 		g.line("static inline bool %s(%s* a, %s* b) {", ir.EqFnName(optSt), cSt, cSt)
 		g.line("    if (!a && !b) return true;")
 		g.line("    if (!a || !b) return false;")
-		g.line("    return %s(*a, *b);", ir.EqFnName(st))
+		g.line("    return %s;", g.eqInlineExpr(st, "*a", "*b"))
 		g.line("}")
 	}
 
@@ -838,7 +802,7 @@ func (g *cEmitter) emitFlatOptionalHelpers(o *types.Optional) {
 		g.line("    return (%s){ .has_value = true, .value = %s(v.value) };", cOpt, g.copyExpr(o.Elem))
 		g.line("}")
 	}
-	if types.SupportsEq(o) {
+	if CanEqType(g.prog, o) {
 		g.line("static inline bool %s(%s a, %s b) {", ir.EqFnName(o), cOpt, cOpt)
 		g.line("    if (!a.has_value && !b.has_value) return true;")
 		g.line("    if (!a.has_value || !b.has_value) return false;")
@@ -880,6 +844,81 @@ func (g *cEmitter) emitStackArrayHelpers(a *types.StackArray) {
 		g.line("    }")
 		g.line("    ll_str_push(&s, ll_str_lit(\"]\", 1LL));")
 		g.line("    return s;")
+		g.line("}")
+	}
+}
+
+func (g *cEmitter) emitTupleHelpers(tup *types.Tuple) {
+	cTup := CType(tup)
+	if !tup.IsPlain() {
+		g.line("static inline void %s(%s* p) {", ir.DropFnName(tup), cTup)
+		g.line("    if (!p) return;")
+		for i := len(tup.Elems) - 1; i >= 0; i-- {
+			el := tup.Elems[i]
+			if !el.IsPlain() {
+				g.line("    %s(&p->_%d);", ir.DropFnName(el), i)
+			}
+		}
+		g.line("}")
+	}
+	if g.canCopy(tup) && !tup.IsPlain() {
+		g.line("static inline %s %s(%s v) {", cTup, ir.CopyFnName(tup), cTup)
+		g.line("    %s res;", cTup)
+		for i, el := range tup.Elems {
+			if el.IsPlain() {
+				g.line("    res._%d = v._%d;", i, i)
+			} else {
+				g.line("    res._%d = %s(v._%d);", i, g.copyExpr(el), i)
+			}
+		}
+		if len(tup.Elems) == 0 {
+			g.line("    res._ll_empty = 0;")
+		}
+		g.line("    return res;")
+		g.line("}")
+	}
+	if CanEqType(g.prog, tup) {
+		g.line("static inline bool %s(%s a, %s b) {", ir.EqFnName(tup), cTup, cTup)
+		g.line("    (void)a; (void)b;")
+		for i, el := range tup.Elems {
+			g.line("    if (!(%s)) return false;", stripOuterParens(g.eqInlineExpr(el, fmt.Sprintf("a._%d", i), fmt.Sprintf("b._%d", i))))
+		}
+		g.line("    return true;")
+		g.line("}")
+	}
+	if g.canCmp(tup) {
+		g.line("static inline int64_t %s(%s a, %s b) {", ir.CmpFnName(tup), cTup, cTup)
+		g.line("    (void)a; (void)b;")
+		for i, el := range tup.Elems {
+			g.line("    { int64_t c = %s; if (c != 0) return c; }", g.cmpInlineExpr(el, fmt.Sprintf("a._%d", i), fmt.Sprintf("b._%d", i)))
+		}
+		g.line("    return 0;")
+		g.line("}")
+	}
+	if g.canToString(tup) {
+		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(tup), cTup)
+		g.line("    (void)v;")
+		g.line("    ll_string s = ll_str_lit(\"+[\", 2LL);")
+		for i, el := range tup.Elems {
+			if i > 0 {
+				g.line("    ll_str_push(&s, ll_str_lit(\", \", 2LL));")
+			}
+			g.line("    ll_string p%d = %s(v._%d);", i, g.toStrFn(el), i)
+			g.line("    ll_str_push(&s, p%d);", i)
+			g.line("    ll_drop__string(&p%d);", i)
+		}
+		g.line("    ll_str_push(&s, ll_str_lit(\"]\", 1LL));")
+		g.line("    return s;")
+		g.line("}")
+	}
+	if types.IsHashable(tup) {
+		g.line("static inline uint64_t %s(%s v) {", ir.HashFnName(tup), cTup)
+		g.line("    (void)v;")
+		g.line("    uint64_t h = 1469598103934665603ULL;")
+		for i, el := range tup.Elems {
+			g.line("    h = (h ^ %s) * 1099511628211ULL;", g.hashInlineExpr(el, fmt.Sprintf("v._%d", i)))
+		}
+		g.line("    return h;")
 		g.line("}")
 	}
 }
@@ -1224,6 +1263,70 @@ func (g *cEmitter) emitVTables() {
 			}
 
 			g.line("static inline %s %s(%s) {", CType(im.Ret), wName, strings.Join(pDecls, ", "))
+			if vec, isVec := vt.Concrete.(*types.Vector); isVec {
+				if im.Name == "contains" {
+					g.line("    return ll_vec_contains__%s(*(const %s*)_self, _p0);", vec.Mangled(), cCon)
+					g.line("}")
+					continue
+				}
+			}
+			if arr, isArr := vt.Concrete.(*types.StackArray); isArr {
+				if im.Name == "len" {
+					g.line("    (void)_self; return (int64_t)%dLL;", arr.Size)
+					g.line("}")
+					continue
+				}
+				if im.Name == "get" {
+					g.line("    return ll_arr_get__%s(*(const %s*)_self, _p0);", arr.Mangled(), cCon)
+					g.line("}")
+					continue
+				}
+				if im.Name == "contains" {
+					g.line("    return ll_arr_contains__%s(*(const %s*)_self, _p0);", arr.Mangled(), cCon)
+					g.line("}")
+					continue
+				}
+			}
+			if setTy, isSet := vt.Concrete.(*types.Set); isSet {
+				if im.Name == "contains" {
+					g.line("    return ll_set_has__%s((const %s*)_self, _p0);", setTy.Mangled(), cCon)
+					g.line("}")
+					continue
+				}
+			}
+			if p, isP := vt.Concrete.(*types.Primitive); isP && p.Kind == types.PrimString {
+				if im.Name == "len" {
+					g.line("    return ((const ll_string*)_self)->len;")
+					g.line("}")
+					continue
+				}
+				if im.Name == "get" {
+					optVal := im.Ret.(*types.Optional)
+					g.line("    int64_t idx = _p0;")
+					g.line("    const ll_string* s = (const ll_string*)_self;")
+					g.line("    if (idx < 0 || idx >= s->len) return %s;", optNoneC(optVal))
+					g.line("    return %s;", optSomeC(optVal, "(uint8_t)s->data[idx]"))
+					g.line("}")
+					continue
+				}
+			}
+			if mp, isMp := vt.Concrete.(*types.Map); isMp {
+				if im.Name == "len" {
+					g.line("    return ((const %s*)_self)->len;", cCon)
+					g.line("}")
+					continue
+				}
+				if im.Name == "get" {
+					g.line("    return ll_map_get__%s((const %s*)_self, _p0);", mp.Mangled(), cCon)
+					g.line("}")
+					continue
+				}
+				if im.Name == "has" || im.Name == "contains" {
+					g.line("    return ll_map_has__%s((const %s*)_self, _p0);", mp.Mangled(), cCon)
+					g.line("}")
+					continue
+				}
+			}
 			fi := vt.Methods[idx]
 			targetFn := ""
 			if fi != nil {
@@ -1432,6 +1535,15 @@ func (g *cEmitter) emitExpr(e ir.Expr) string {
 			elems[i] = g.emitExpr(el)
 		}
 		return fmt.Sprintf("(%s){ .data = { %s } }", CType(v.ArrayType), strings.Join(elems, ", "))
+	case *ir.ExprConstructTuple:
+		if len(v.Elems) == 0 {
+			return fmt.Sprintf("(%s){0}", CType(v.TupleType))
+		}
+		fields := make([]string, len(v.Elems))
+		for i, el := range v.Elems {
+			fields[i] = fmt.Sprintf("._%d = %s", i, g.emitExpr(el))
+		}
+		return fmt.Sprintf("(%s){ %s }", CType(v.TupleType), strings.Join(fields, ", "))
 	case *ir.ExprConstructClosure:
 		envStr := "NULL"
 		if v.EnvPtr != nil {
@@ -1740,6 +1852,9 @@ func CType(t types.Type) string {
 	case *types.Distinct:
 		return v.CName
 	case *types.Struct:
+		if (v.Name == "List" || strings.HasPrefix(v.Name, "List[")) && len(v.TypeArgs) == 1 {
+			return "ll_vec_" + v.TypeArgs[0].Mangled()
+		}
 		return v.CName
 	case *types.Optional:
 		if v.IsBoxed() {
@@ -1749,6 +1864,8 @@ func CType(t types.Type) string {
 	case *types.Vector:
 		return "ll_" + v.Mangled()
 	case *types.StackArray:
+		return "ll_" + v.Mangled()
+	case *types.Tuple:
 		return "ll_" + v.Mangled()
 	case *types.Set:
 		return "ll_" + v.Mangled()
@@ -1974,7 +2091,7 @@ func (g *cEmitter) emitCMain() {
 		}
 	}
 
-	g.line("    ll_check_leaks_at_exit();")
+	g.line("    if (_ll_rc == 0) ll_check_leaks_at_exit();")
 	g.line("    return _ll_rc;")
 	g.line("}")
 }
@@ -2079,7 +2196,7 @@ func (g *cEmitter) emitCTestMain() {
 		}
 	}
 
-	g.line("    ll_check_leaks_at_exit();")
+	g.line("    if (_ll_rc == 0) ll_check_leaks_at_exit();")
 	g.line("    return _ll_rc;")
 	g.line("}")
 }
@@ -2087,6 +2204,57 @@ func (g *cEmitter) emitCTestMain() {
 // -----------------------------------------------------------------------------
 // Capability & Inline Expression Helpers
 // -----------------------------------------------------------------------------
+
+func (g *cEmitter) canCmp(t types.Type) bool {
+	if custom := g.prog.Checked.LookupConcreteMethod(t, "cmp"); custom != nil {
+		return true
+	}
+	if p, isPrim := t.(*types.Primitive); isPrim {
+		return p.IsNumeric() || p.Kind == types.PrimBool || p.Kind == types.PrimChar || p.Kind == types.PrimString
+	}
+	switch v := t.(type) {
+	case *types.Distinct:
+		return g.canCmp(v.Base)
+	case *types.Enum:
+		return !v.IsTagged
+	case *types.Tuple:
+		if len(v.Elems) == 0 {
+			return false
+		}
+		for _, el := range v.Elems {
+			if !g.canCmp(el) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func (g *cEmitter) cmpInlineExpr(t types.Type, a, b string) string {
+	if customCmp := g.prog.Checked.LookupConcreteMethod(t, "cmp"); customCmp != nil {
+		return fmt.Sprintf("%s(%s, %s)", customCmp.CName, a, b)
+	}
+	if p, isPrim := t.(*types.Primitive); isPrim {
+		if p.Kind == types.PrimString {
+			if cmpM := g.prog.Checked.LookupConcreteMethod(types.TypeString, "cmp"); cmpM != nil {
+				return fmt.Sprintf("%s(%s, %s)", cmpM.CName, a, b)
+			}
+		}
+		return fmt.Sprintf("(((%s) < (%s)) ? -1LL : (((%s) > (%s)) ? 1LL : 0LL))", a, b, a, b)
+	}
+	switch v := t.(type) {
+	case *types.Distinct:
+		return g.cmpInlineExpr(v.Base, fmt.Sprintf("(%s)(%s)", CType(v.Base), a), fmt.Sprintf("(%s)(%s)", CType(v.Base), b))
+	case *types.Tuple:
+		return fmt.Sprintf("%s(%s, %s)", ir.CmpFnName(v), a, b)
+	case *types.Enum:
+		if !v.IsTagged {
+			return fmt.Sprintf("(((%s) < (%s)) ? -1LL : (((%s) > (%s)) ? 1LL : 0LL))", a, b, a, b)
+		}
+	}
+	return "0LL"
+}
 
 func (g *cEmitter) copyExpr(t types.Type) string {
 	if custom := g.prog.Checked.LookupConcreteMethod(t, "copy"); custom != nil {
@@ -2110,6 +2278,11 @@ func (g *cEmitter) eqInlineExpr(t types.Type, a, b string) string {
 	}
 	switch v := t.(type) {
 	case *types.Primitive:
+		if v.Kind == types.PrimString {
+			if eqM := g.prog.Checked.LookupConcreteMethod(types.TypeString, "eq"); eqM != nil {
+				return fmt.Sprintf("%s(%s, %s)", eqM.CName, a, b)
+			}
+		}
 		return fmt.Sprintf("((%s) == (%s))", a, b)
 	case *types.Enum:
 		if v.IsTagged {
@@ -2121,7 +2294,7 @@ func (g *cEmitter) eqInlineExpr(t types.Type, a, b string) string {
 	case *types.Distinct:
 		cBase := CType(v.Base)
 		return g.eqInlineExpr(v.Base, fmt.Sprintf("((%s)(%s))", cBase, a), fmt.Sprintf("((%s)(%s))", cBase, b))
-	case *types.Struct, *types.Optional:
+	case *types.Struct, *types.Optional, *types.Tuple:
 		return fmt.Sprintf("%s(%s, %s)", ir.EqFnName(t), a, b)
 	default:
 		return fmt.Sprintf("((%s) == (%s))", a, b)
@@ -2134,6 +2307,8 @@ func (g *cEmitter) hashInlineExpr(t types.Type, expr string) string {
 	}
 	switch v := t.(type) {
 	case *types.Distinct:
+		return fmt.Sprintf("%s(%s)", ir.HashFnName(v), expr)
+	case *types.Tuple:
 		return fmt.Sprintf("%s(%s)", ir.HashFnName(v), expr)
 	case *types.Enum:
 		return fmt.Sprintf("%s((uint64_t)(%s))", g.hashMixFnName(), expr)
@@ -2169,6 +2344,13 @@ func canCopyVisited(prog *ir.Program, t types.Type, seen map[types.Type]bool) bo
 		return canCopyVisited(prog, v.Elem, seen)
 	case *types.StackArray:
 		return canCopyVisited(prog, v.Elem, seen)
+	case *types.Tuple:
+		for _, el := range v.Elems {
+			if !canCopyVisited(prog, el, seen) {
+				return false
+			}
+		}
+		return true
 	case *types.Set:
 		return canCopyVisited(prog, v.Elem, seen)
 	case *types.Map:
@@ -2190,17 +2372,8 @@ func canCopyVisited(prog *ir.Program, t types.Type, seen map[types.Type]bool) bo
 		}
 		seen[v] = true
 		for _, vr := range v.Variants {
-			switch vr.Kind {
-			case types.VariantTuple:
-				if vr.Payload != nil && !canCopyVisited(prog, vr.Payload, seen) {
-					return false
-				}
-			case types.VariantStruct:
-				for _, sf := range vr.Fields {
-					if !canCopyVisited(prog, sf.Type, seen) {
-						return false
-					}
-				}
+			if vr.Kind == types.VariantTuple && vr.Payload != nil && !canCopyVisited(prog, vr.Payload, seen) {
+				return false
 			}
 		}
 		return true
@@ -2227,6 +2400,10 @@ func (g *cEmitter) toStrFn(t types.Type) string {
 	if custom := g.prog.Checked.LookupConcreteMethod(t, "to_string"); custom != nil {
 		return custom.CName
 	}
+	switch t.(type) {
+	case *types.Ptr, *types.Ref:
+		return "ll_tostr_ptr"
+	}
 	return ir.ToStrFnName(t)
 }
 
@@ -2244,23 +2421,16 @@ func (g *cEmitter) canToStringVisited(t types.Type, seen map[types.Type]bool) bo
 	switch v := t.(type) {
 	case *types.Primitive:
 		return v.Kind != types.PrimVoid && v.Kind != types.PrimArena
+	case *types.Ptr, *types.Ref:
+		return true
 	case *types.Enum:
 		if !v.IsTagged || seen[v] {
 			return true
 		}
 		seen[v] = true
 		for _, vr := range v.Variants {
-			switch vr.Kind {
-			case types.VariantTuple:
-				if vr.Payload != nil && !g.canToStringVisited(vr.Payload, seen) {
-					return false
-				}
-			case types.VariantStruct:
-				for _, sf := range vr.Fields {
-					if !g.canToStringVisited(sf.Type, seen) {
-						return false
-					}
-				}
+			if vr.Kind == types.VariantTuple && vr.Payload != nil && !g.canToStringVisited(vr.Payload, seen) {
+				return false
 			}
 		}
 		return true
@@ -2270,6 +2440,13 @@ func (g *cEmitter) canToStringVisited(t types.Type, seen map[types.Type]bool) bo
 		return g.canToStringVisited(v.Elem, seen)
 	case *types.StackArray:
 		return g.canToStringVisited(v.Elem, seen)
+	case *types.Tuple:
+		for _, el := range v.Elems {
+			if !g.canToStringVisited(el, seen) {
+				return false
+			}
+		}
+		return true
 	case *types.Set:
 		return g.canToStringVisited(v.Elem, seen)
 	case *types.Map:

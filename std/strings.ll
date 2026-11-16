@@ -11,18 +11,18 @@ import "std/chars.ll"
 // -----------------------------------------------------------------------------
 
 // Returns true if the string is non-empty and contains only whitespace characters.
-bind string.is_whitespace = (self): bool -> {
-    if (self.len() == 0) func <- false
-    for (ch in self.chars()) {
-        if (not ch.is_whitespace()) func <- false
+bind string.is_whitespace = (self) bool: {
+    if (self.len() == 0): func <- false
+    for (ch in self.chars()): {
+        if (not ch.is_whitespace()): func <- false
     }
     true
 }
 
 // Returns true if all bytes in the string are valid 7-bit ASCII (<= 127).
-bind string.is_ascii = (self): bool -> {
-    for (i in 0..self.len()) {
-        if (self[i] > 127) func <- false
+bind string.is_ascii = (self) bool: {
+    for (i in 0..self.len()): {
+        if (self[i] > 127): func <- false
     }
     true
 }
@@ -32,13 +32,13 @@ bind string.is_ascii = (self): bool -> {
 // -----------------------------------------------------------------------------
 
 // Returns the byte offset of the last occurrence of `sub`, or `none` if not found.
-bind string.last_index_of = (self, sub: string): ?int -> {
-    if (sub.len() == 0) func <- self.len()
-    if (self.len() < sub.len()) func <- none
+bind string.last_index_of = (self, sub: string) ?int: {
+    if (sub.len() == 0): func <- self.len()
+    if (self.len() < sub.len()): func <- none
     let limit = self.len() - sub.len()
     let i = limit
-    while (i >= 0) {
-        if (self[i..i + sub.len()] == sub) {
+    while (i >= 0): {
+        if (self[i..i + sub.len()] == sub): {
             func <- i
         }
         i -= 1
@@ -47,16 +47,16 @@ bind string.last_index_of = (self, sub: string): ?int -> {
 }
 
 // Counts the number of non-overlapping occurrences of `sub` in the string.
-bind string.count = (self, sub: string): int -> {
-    if (sub.len() == 0 or self.len() < sub.len()) func <- 0
+bind string.count = (self, sub: string) int: {
+    if (sub.len() == 0 or self.len() < sub.len()): func <- 0
     let count = 0
     let i = 0
     let limit = self.len() - sub.len()
-    while (i <= limit) {
-        if (self[i..i + sub.len()] == sub) {
+    while (i <= limit): {
+        if (self[i..i + sub.len()] == sub): {
             count += 1
             i += sub.len()
-        } else {
+        } else: {
             i += 1
         }
     }
@@ -68,20 +68,20 @@ bind string.count = (self, sub: string): int -> {
 // -----------------------------------------------------------------------------
 
 // Capitalizes the first ASCII character and converts the remainder to lowercase.
-bind string.capitalize = (self): string -> {
-    if (self.len() == 0) func <- ""
+bind string.capitalize = (self) string: {
+    if (self.len() == 0): func <- ""
     let out = ""
     let first = self[0]
-    if (first >= 97 and first <= 122) {
+    if (first >= 97 and first <= 122): {
         out.push_byte(first - 32)
-    } else {
+    } else: {
         out.push_byte(first)
     }
-    for (i in 1..self.len()) {
+    for (i in 1..self.len()): {
         let b = self[i]
-        if (b >= 65 and b <= 90) {
+        if (b >= 65 and b <= 90): {
             out.push_byte(b + 32)
-        } else {
+        } else: {
             out.push_byte(b)
         }
     }
@@ -93,21 +93,21 @@ bind string.capitalize = (self): string -> {
 // -----------------------------------------------------------------------------
 
 // Repeats the string `count` times.
-bind string.repeat = (self, count: int): string -> {
-    if (count <= 0 or self.len() == 0) func <- ""
+bind string.repeat = (self, count: int) string: {
+    if (count <= 0 or self.len() == 0): func <- ""
     let out = ""
-    for (i in 0..count) {
+    for (i in 0..count): {
         out.push(self)
     }
     out
 }
 
 // Returns a new string reversed byte-by-byte.
-bind string.reverse = (self): string -> {
-    if (self.len() <= 1) func <- self.copy()
+bind string.reverse = (self) string: {
+    if (self.len() <= 1): func <- self.copy()
     let out = ""
     let i = self.len() - 1
-    while (i >= 0) {
+    while (i >= 0): {
         out.push_byte(self[i])
         i -= 1
     }
@@ -119,8 +119,8 @@ bind string.reverse = (self): string -> {
 // -----------------------------------------------------------------------------
 
 // Pads the string on the left with `pad_char` until it reaches `total_len`.
-bind string.pad_left = (self, total_len: int, pad_char: char): string -> {
-    if (self.len() >= total_len) func <- self.copy()
+bind string.pad_left_char = (self, total_len: int, pad_char: char) string: {
+    if (self.len() >= total_len): func <- self.copy()
     let pad_count = total_len - self.len()
     let pad_str = pad_char.to_string().repeat(pad_count)
     let out = ""
@@ -130,8 +130,8 @@ bind string.pad_left = (self, total_len: int, pad_char: char): string -> {
 }
 
 // Pads the string on the right with `pad_char` until it reaches `total_len`.
-bind string.pad_right = (self, total_len: int, pad_char: char): string -> {
-    if (self.len() >= total_len) func <- self.copy()
+bind string.pad_right_char = (self, total_len: int, pad_char: char) string: {
+    if (self.len() >= total_len): func <- self.copy()
     let pad_count = total_len - self.len()
     let pad_str = pad_char.to_string().repeat(pad_count)
     let out = ""
@@ -141,8 +141,8 @@ bind string.pad_right = (self, total_len: int, pad_char: char): string -> {
 }
 
 // Centers the string within a string of length `total_len` using `pad_char`.
-bind string.center = (self, total_len: int, pad_char: char): string -> {
-    if (self.len() >= total_len) func <- self.copy()
+bind string.center_char = (self, total_len: int, pad_char: char) string: {
+    if (self.len() >= total_len): func <- self.copy()
     let total_pad = total_len - self.len()
     let left_pad = total_pad / 2
     let right_pad = total_pad - left_pad
@@ -158,39 +158,39 @@ bind string.center = (self, total_len: int, pad_char: char): string -> {
 // -----------------------------------------------------------------------------
 
 // Splits the string by contiguous runs of ASCII whitespace into a `List[string]`.
-bind string.split_whitespace = (self): [string] -> {
+bind string.split_whitespace = (self) [string]: {
     let out: [string] = []
     let in_token = false
     let start = 0
-    for (i in 0..self.len()) {
+    for (i in 0..self.len()): {
         let b = self[i]
         let is_ws = b == 32 or b == 9 or b == 10 or b == 13 or b == 11 or b == 12
-        if (is_ws) {
-            if (in_token) {
+        if (is_ws): {
+            if (in_token): {
                 out.push(self[start..i].to_string())
                 in_token = false
             }
-        } else {
-            if (not in_token) {
+        } else: {
+            if (not in_token): {
                 start = i
                 in_token = true
             }
         }
     }
-    if (in_token) {
+    if (in_token): {
         out.push(self[start..self.len()].to_string())
     }
     out
 }
 
 // Splits the string into lines separated by `\n`, stripping optional trailing `\r`.
-bind string.lines = (self): [string] -> {
+bind string.lines = (self) [string]: {
     let raw_lines = self.split("\n")
     let out: [string] = []
-    for (line in raw_lines) {
-        if (line.ends_with("\r")) {
+    for (line in raw_lines): {
+        if (line.ends_with("\r")): {
             out.push(line[0..line.len() - 1].to_string())
-        } else {
+        } else: {
             out.push(line.copy())
         }
     }
@@ -198,17 +198,17 @@ bind string.lines = (self): [string] -> {
 }
 
 // Joins a list of strings with `sep`.
-bind join = (list: [string], sep: string): string -> {
+bind join = (list: [string], sep: string) string: {
     join_strings(list, sep)
 }
 
 // Returns a `List[char]` containing all Unicode characters in the string.
-bind string.chars_list = (self): [char] -> {
+bind string.chars_list = (self) [char]: {
     self.chars()
 }
 
 // Returns a `List[u8]` containing all raw bytes in the string.
-bind string.bytes_list = (self): [u8] -> {
+bind string.bytes_list = (self) [u8]: {
     self.bytes()
 }
 
@@ -217,7 +217,7 @@ bind string.bytes_list = (self): [u8] -> {
 // -----------------------------------------------------------------------------
 
 @test("string predicates: is_empty, is_whitespace, is_ascii")
-bind test_strings_predicates = () -> {
+bind test_strings_predicates = (): {
     assert("".is_empty(), "empty string is_empty")
     assert(not "hello".is_empty(), "non-empty string is not is_empty")
 
@@ -230,7 +230,7 @@ bind test_strings_predicates = () -> {
 }
 
 @test("string search: starts_with, ends_with, index_of, last_index_of, contains, count")
-bind test_strings_search = () -> {
+bind test_strings_search = (): {
     assert("hello world".starts_with("hello"), "starts_with prefix")
     assert(not "hello world".starts_with("world"), "starts_with non-prefix")
     assert("hello".starts_with(""), "starts_with empty")
@@ -263,21 +263,21 @@ bind test_strings_search = () -> {
 }
 
 @test("string trimming and padding")
-bind test_strings_trim_pad = () -> {
+bind test_strings_trim_pad = (): {
     assert("  \t hello \n ".trim_start() == "hello \n ", "trim_start")
     assert("  \t hello \n ".trim_end() == "  \t hello", "trim_end")
     assert("  \t hello \n ".trim() == "hello", "trim")
 
-    assert("abc".pad_left(6, '0') == "000abc", "pad_left")
-    assert("abc".pad_left(2, '0') == "abc", "pad_left no-op when shorter")
-    assert("abc".pad_right(6, '-') == "abc---", "pad_right")
-    assert("abc".pad_right(3, '-') == "abc", "pad_right no-op")
-    assert("abc".center(7, '=') == "==abc==", "center odd")
-    assert("abc".center(6, '=') == "=abc==", "center even")
+    assert("abc".pad_left_char(6, '0') == "000abc", "pad_left_char")
+    assert("abc".pad_left_char(2, '0') == "abc", "pad_left_char no-op when shorter")
+    assert("abc".pad_right_char(6, '-') == "abc---", "pad_right_char")
+    assert("abc".pad_right_char(3, '-') == "abc", "pad_right_char no-op")
+    assert("abc".center_char(7, '=') == "==abc==", "center_char odd")
+    assert("abc".center_char(6, '=') == "=abc==", "center_char even")
 }
 
 @test("string transformations: case, repeat, reverse, replace")
-bind test_strings_transform = () -> {
+bind test_strings_transform = (): {
     assert("Hello, World!".to_upper() == "HELLO, WORLD!", "to_upper")
     assert("Hello, World!".to_lower() == "hello, world!", "to_lower")
     assert("hello world".capitalize() == "Hello world", "capitalize lower")
@@ -295,7 +295,7 @@ bind test_strings_transform = () -> {
 }
 
 @test("string tokenization and joining: split, lines, join, chars/bytes")
-bind test_strings_split_join = () -> {
+bind test_strings_split_join = (): {
     let parts = "apple,banana,cherry".split(",")
     assert(parts.len() == 3, "split count")
     assert(parts[0] == "apple", "split 0")

@@ -1,6 +1,6 @@
 # Lowlight Implementation Guide: Architecture, Runtime, & Toolchain
 
-**Implementation Target:** ISO C11 Transpiler & Toolchain  
+**Implementation Targets:** Direct LLVM IR Backend (Default) & Portable ISO C11 Codegen  
 **Compiler Implementation Language:** Go (Standard Library Only, Zero 3rd-Party Dependencies)  
 **Document Status:** Complete Implementation Specification  
 
@@ -8,14 +8,14 @@
 
 ## 1. Overview & Architectural Philosophy
 
-The canonical implementation of the Lowlight language is an optimizing compiler and developer toolchain written in Go. It compiles Lowlight source files (`.ll`) into single-translation-unit ISO C11 source code, which is then compiled to native machine binaries by any standard C compiler (such as Clang or GCC).
+The canonical implementation of the Lowlight language is an optimizing compiler and developer toolchain written in Go. It compiles Lowlight source files (`.ll`) directly to portable **LLVM IR** (the default high-performance path) or into single-translation-unit **ISO C11** source code (for maximum portability and inspection), which is then assembled into native machine binaries via Clang or any system C compiler (such as GCC).
 
 The architectural philosophy of this implementation centers on four strict tenets:
 
-1. **Zero External Dependencies:** The entire Lowlight compiler, standard library, Language Server Protocol (LSP) server, and VS Code extension require zero third-party Go packages and zero NPM dependencies. The toolchain compiles with standard Go 1.20+ and runs everywhere.
-2. **Deterministic, Hermetic Compilation:** The compilation process is entirely self-contained. The C code generator bundles its own minimal, header-only runtime (`runtime_h.go`), requiring no external shared libraries or runtime runtime daemons. Dynamic capabilities (such as TLS via OpenSSL) load dynamically at runtime via `dlopen`/`dlsym` without build-time header dependencies.
-3. **Strict Memory & UB Verification:** The compiler and its test suite enforce zero undefined behavior and zero memory leaks. Every end-to-end test compiles with Clang's AddressSanitizer (`-fsanitize=address,undefined`) and executes with runtime leak detection enabled (`LOWLIGHT_CHECK_LEAKS=1`), verifying exact 0-leak heap balance upon program termination.
-4. **Safety Traps in All Optimization Modes:** Unlike standard C compilers that treat boundary violations as undefined behavior under optimization, the Lowlight C generator emits explicit trap guards that are strictly preserved in both debug (`-O0`) and release (`-O2`) modes. Bounds violations, division by zero, and invalid bit-shifts always trap deterministically.
+1. **Zero External Dependencies:** The entire Lowlight compiler, standard library, Language Server Protocol (LSP) server, and VS Code extension require zero third-party Go packages and zero NPM dependencies. The toolchain compiles with standard Go 1.22+ and runs everywhere.
+2. **Deterministic, Hermetic Compilation:** The compilation process is entirely self-contained. The compiler directly emits LLVM IR modules with explicit data layouts and target triples, and the C code generator bundles its own minimal, header-only runtime (`runtime_h.go`), requiring no external shared libraries or runtime daemons. Dynamic capabilities (such as TLS via OpenSSL) load dynamically at runtime via `dlopen`/`dlsym` without build-time header dependencies.
+3. **Strict Memory & UB Verification:** The compiler and its test suite enforce zero undefined behavior and zero memory leaks. Every end-to-end test compiles with Clang's AddressSanitizer (`-fsanitize=address,undefined`) and executes with runtime leak detection enabled (`LOWLIGHT_CHECK_LEAKS=1`), verifying exact 0-leak heap balance upon program termination across both LLVM and C11 backends.
+4. **Safety Traps in All Optimization Modes:** Unlike standard C compilers that treat boundary violations as undefined behavior under optimization, Lowlight emits explicit trap guards that are strictly preserved in both debug (`-O0`) and release (`-O2`) modes. Bounds violations, division by zero, and invalid bit-shifts always trap deterministically.
 
 ---
 
@@ -28,7 +28,7 @@ Lowlight/
 ├── cmd/
 │   └── lowlight/                  # Main CLI entry point (main.go)
 ├── internal/
-│   ├── diag/                      # Source positions, spans, error reporting, color output
+│   ├── diag/                      # Source positions, spans, error reporting, structured codes
 │   ├── token/                     # Token definitions, keywords, operator precedence
 │   ├── lexer/                     # UTF-8 tokenizer & Automatic Semicolon Insertion (ASI)
 │   ├── ast/                       # Abstract Syntax Tree node definitions
@@ -36,11 +36,11 @@ Lowlight/
 │   ├── types/                     # Semantic type system definitions & Plain/Resource logic
 │   ├── sema/                      # Semantic analysis, type checking, borrow & move checker
 │   ├── ir/                        # Mid-Level Intermediate Representation (MIR)
-│   ├── codegen/                   # ISO C11 code generator & embedded runtime
-│   ├── driver/                    # Orchestration, C compiler discovery, file build runner
+│   ├── codegen/                   # Direct LLVM IR generator (llvmgen.go) & ISO C11 emitter (cgen.go)
+│   ├── driver/                    # Orchestration, LLVM/C toolchain discovery, cross-target build runner
 │   └── lsp/                       # Built-in Language Server Protocol (LSP 3.17) server
 ├── std/                           # Standard library source modules (*.ll)
-│   ├── core.ll                    # Implicit prelude (Printable, Copyable, Drop, Result, etc.)
+│   ├── core/                      # Core prelude (core.ll, list.ll, array.ll)
 │   ├── fs.ll                      # File system operations
 │   ├── os.ll                      # OS processes, environment, and paths
 │   ├── math.ll                    # Math functions and constants
@@ -51,7 +51,8 @@ Lowlight/
 │   ├── net.ll                     # TCP stream, listener, and socketpair networking
 │   └── http.ll                    # Full HTTP/1.1 and HTTPS client/server stack
 ├── editors/
-│   └── vscode/                    # Zero-NPM VS Code / Cursor extension
+│   ├── vscode/                    # Zero-NPM VS Code / Cursor extension
+│   └── nvim/                      # Neovim syntax highlighting
 ├── tests/                         # E2E test suites, ASan/UBSan harness, unit tests
 └── benchmarks/                    # Benchmark suite (fib, sieve, mandelbrot, matmul)
 ```
@@ -87,22 +88,27 @@ Lowlight/
                       |     (MIR Lowering)          |  LIFO drop lowering,
                       +-----------------------------+  closure envs & vtables
                                      |
-                                     v
-                      +-----------------------------+
-                      |     internal/codegen        |  10-section ISO C11 TU,
-                      |  (C11 Code Generation)      |  embedded runtime header
-                      +-----------------------------+
-                                     |
-                                     v
-                      +-----------------------------+
-                      |      System C Compiler      |  Clang / GCC
-                      |     (Clang / GCC / MSVC)    |  (-O0 debug or -O2 release)
-                      +-----------------------------+
-                                     |
-                                     v
-                      +-----------------------------+
-                      |    Native Executable / OS   |
-                      +-----------------------------+
+                                     +-----------------------+
+                                     |                       |
+                                     v                       v
+                      +-----------------------------+ +-----------------------------+
+                      |     internal/codegen        | |     internal/codegen        |
+                      |   (Direct LLVM IR Gen)      | |     (ISO C11 Emitter)       |
+                      +-----------------------------+ +-----------------------------+
+                                     |                               |
+                                     v                               v
+                      +-----------------------------+ +-----------------------------+
+                      |      Clang / LLVM           | |      System C Compiler      |
+                      |   (Target machine code)     | |    (Clang / GCC / MSVC)     |
+                      +-----------------------------+ +-----------------------------+
+                                     |                               |
+                                     +---------------+---------------+
+                                                     |
+                                                     v
+                                      +-----------------------------+
+                                      |    Native Executable / OS   |
+                                      +-----------------------------+
+```
 ```
 
 ---
@@ -228,9 +234,24 @@ The 8 unwind forms (`<-`, `func <-`, `for <-`, `next <-`, etc.) are lowered into
 
 ---
 
-## 6. ISO C11 Code Generator (`internal/codegen`)
+## 6. Code Generation Subsystems (`internal/codegen`)
 
-The code generator (`cEmitter`) emits a single, self-contained `.c` file organized into 10 structured sections:
+Lowlight provides two complete, decoupled code generation backends:
+
+1. **Direct LLVM IR Backend (`llvmgen.go` - Default):** Generates pure, portable LLVM IR (.ll) text with platform datalayouts and target triples. Directly optimized and assembled into machine code via LLVM/Clang.
+2. **ISO C11 Code Generator (`cgen.go`):** Emits a single, self-contained `.c` translation unit organized into 10 structured sections with an embedded runtime header.
+
+### 6.1 Direct LLVM IR Backend Architecture (`internal/codegen/llvmgen.go`)
+
+The LLVM emitter constructs SSA LLVM IR directly from lowered MIR:
+- **Header:** Emits `target datalayout` and `target triple` configured via CLI `--target <triple>` or detected from host platform.
+- **Type Definitions:** Emits LLVM struct types for structs, tagged enums, closures (`{ ptr, ptr, ptr, ptr }`), fat interfaces (`{ ptr, ptr, i1 }`), and collections (`{ ptr, i64, i64 }`).
+- **Alloca Entry Hoisting:** Function entry allocates local storage with alignment and generates SSA registers.
+- **Synthesized Intrinsics:** Generates SSA bounds checks, division checks, shift checks, string interpolation, and collection helpers directly in LLVM IR.
+
+### 6.2 ISO C11 Code Generator (`internal/codegen/cgen.go`)
+
+The C11 code generator (`cEmitter`) emits a single, self-contained `.c` file organized into 10 structured sections:
 
 ```
 +---------------------------------------------------------------+
@@ -256,7 +277,7 @@ The code generator (`cEmitter`) emits a single, self-contained `.c` file organiz
 +---------------------------------------------------------------+
 ```
 
-### 6.1 Lowlight Type Mapping to C11
+### 6.3 Lowlight Type Mapping to LLVM & C11
 
 | Lowlight Type | Generated C11 Representation |
 | :--- | :--- |
@@ -280,6 +301,13 @@ The code generator (`cEmitter`) emits a single, self-contained `.c` file organiz
 | `Arena` | `ll_arena` (chunked bump pointer list with destructor list) |
 | `ref[T]` | `T*` |
 | `ptr[T]` | `T*` |
+
+### 6.1 Core Built-in Interfaces & Dynamic Dispatch
+The standard library defines universal interfaces in `std/core/interfaces.ll` hooked directly into the compiler via `@lang(...)`:
+- **`@lang("indexable") Indexable[T]`**: Exposes `len: (self): int` and `get: (self, idx: int): ?T`. Implemented inherently by `List[T]` / `[T]`, `Array` / `[N: T]`, `string` (`Indexable[u8]`), and custom sequence types with integer index.
+- **`@lang("key_indexable") KeyIndexable[K, V]`**: Exposes `len: (self): int`, `has: (self, key: K): bool`, and `get: (self, key: K): ?V`. Implemented inherently by `Map[K, V]` / `#[K: V]` and custom associative types, avoiding accidental structural collision with positional sequence indexing.
+- **Synthesized VTables**: For native runtime structures like `[N: T]`, `string`, and `#[K: V]`, method wrappers for `len` and `get` are synthesized directly in code generation (C11 and LLVM IR) to provide zero-overhead dispatch without requiring runtime indirection or conversions.
+- **Direct Indexing**: Indexing expressions `c[idx]` on values of interface type `Indexable[T]` or `KeyIndexable[K, V]` (or generic type parameters bounded by them) lower directly into dynamic dispatch to `.get(...)`, evaluating to `?T` or `?V`. Zero-allocation stack borrowing avoids heap allocation when passing arguments to read-only interface parameters.
 
 ---
 
@@ -334,22 +362,26 @@ The runtime provides HTTPS networking without static dependencies:
 
 ## 8. Driver, CLI, & Compilation Orchestration (`internal/driver`)
 
-The main executable `lowlight` (`cmd/lowlight`) provides six primary commands:
+The main executable `lowlight` (`cmd/lowlight`) provides eight primary commands:
 
 ```bash
-lowlight check <file.ll>        # Type-check and verify source without compiling
-lowlight emit-c <file.ll>       # Emit generated ISO C11 code to stdout or file
-lowlight build <file.ll>        # Compile source to native machine executable
+lowlight build <file.ll>        # Compile source to native machine executable (LLVM default)
 lowlight run <file.ll>          # Compile and immediately run binary
+lowlight test [<path...>]       # Discover and run @test functions and harnesses
+lowlight emit-llvm <file.ll>    # Emit pure, portable LLVM IR text (.ll)
+lowlight emit-c <file.ll>       # Emit generated ISO C11 code to stdout or file
+lowlight check <file.ll>        # Type-check and verify source without compiling
 lowlight lsp                    # Start Language Server Protocol (LSP 3.17) over stdio
 lowlight version                # Print compiler and language edition info
 ```
 
-### Compiler Discovery & Invocation
-1. Checks the `LOWLIGHT_CC` environment variable.
-2. Checks the standard `CC` environment variable.
-3. Probes the host system `PATH` for `clang`, then `gcc`.
-4. Invokes the C compiler:
+### Compiler Discovery, Cross-Targeting & Flags
+1. **Target Triple (`--target <triple>`):** Passes the target triple directly to LLVM emission (`target triple = "..."`) and clang/cc (`--target=...`) for seamless cross-compilation.
+2. **Backend Selection (`--backend <llvm|c11>`):** LLVM IR is the default backend; C11 can be selected for portable C compilation.
+3. Checks the `LOWLIGHT_CC` environment variable.
+4. Checks the standard `CC` environment variable.
+5. Probes the host system `PATH` for `clang`, then `gcc`.
+6. Invokes the compiler:
    - **Debug mode (default):** `-g -O0`
    - **Release mode (`--release`):** `-O2`
    - Preserves all safety trap guards in both modes.
@@ -362,7 +394,7 @@ The Lowlight standard library consists of 10 modules implemented in pure Lowligh
 
 | Module | Lines | Description |
 | :--- | :---: | :--- |
-| `std/core.ll` | 185 | Implicit prelude: `Printable`, `Copyable`, `Drop`, `Result[T, E]`, math utils |
+| `std/core/` | 385 | Implicit prelude: `Printable`, `Copyable`, `Drop`, `Result[T, E]`, `List[T]`, `Array[T]` |
 | `std/fs.ll` | 38 | Safe file operations (`read_text`, `write_text`, `exists`, `remove_file`) |
 | `std/os.ll` | 82 | Subprocesses (`exec`, `system_run`), directories (`mkdir_p`), system info |
 | `std/math.ll` | 64 | Mathematical constants (`PI`, `E`), trig, exp, log, and rounding functions |

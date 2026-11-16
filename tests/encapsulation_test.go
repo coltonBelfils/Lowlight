@@ -75,11 +75,11 @@ define BankAccount struct [
     _balance: int,
 ]
 
-bind BankAccount.new = (owner: string, initial: int): BankAccount -> {
+bind BankAccount.new = (owner: string, initial: int) BankAccount: {
     BankAccount[owner: owner.copy(), _balance: initial]
 }
 
-bind BankAccount.balance = (self): int -> {
+bind BankAccount.balance = (self) int: {
     self._balance
 }
 `
@@ -89,7 +89,7 @@ bind BankAccount.balance = (self): int -> {
 	mainReadSrc := `
 import "./pkg_bank/bank.ll" as bank
 
-bind main = () -> {
+bind main = (): {
     let acc = bank.BankAccount.new("Alice", 100)
     let b = acc._balance
     println(b)
@@ -111,7 +111,7 @@ bind main = () -> {
 	mainWriteSrc := `
 import "./pkg_bank/bank.ll" as bank
 
-bind main = () -> {
+bind main = (): {
     let acc = bank.BankAccount.new("Alice", 100)
     acc._balance = 500
 }
@@ -148,7 +148,7 @@ define BankAccount struct [
 	mainExplicitFieldSrc := `
 import "./pkg_bank/bank.ll" as bank
 
-bind main = () -> {
+bind main = (): {
     let acc = bank.BankAccount[owner: "Alice", _balance: 1000]
     println(acc.owner)
 }
@@ -169,7 +169,7 @@ bind main = () -> {
 	mainOmitFieldSrc := `
 import "./pkg_bank/bank.ll" as bank
 
-bind main = () -> {
+bind main = (): {
     let acc = bank.BankAccount[owner: "Alice"]
     println(acc.owner)
 }
@@ -202,7 +202,7 @@ define ServiceConfig struct [
     _tag?: ?string,
 ]
 
-bind ServiceConfig.get_id = (self): int -> {
+bind ServiceConfig.get_id = (self) int: {
     self._id
 }
 `
@@ -211,7 +211,7 @@ bind ServiceConfig.get_id = (self): int -> {
 	mainSrc := `
 import "./pkg_config/config.ll" as cfg
 
-bind main = () -> {
+bind main = (): {
     let c = cfg.ServiceConfig[host: "localhost", port: 8080]
     assert(c.host == "localhost")
     assert(c.port == 8080)
@@ -243,11 +243,11 @@ define Counter struct [
     value: int = 0,
 ]
 
-bind Counter.increment = (&self) -> {
+bind Counter.increment = (&self): {
     self._bump()
 }
 
-bind Counter._bump = (&self) -> {
+bind Counter._bump = (&self): {
     self.value = self.value + 1
 }
 `
@@ -256,7 +256,7 @@ bind Counter._bump = (&self) -> {
 	mainSrc := `
 import "./pkg_counter/counter.ll" as cnt
 
-bind main = () -> {
+bind main = (): {
     let c = cnt.Counter[value: 10]
     c._bump()
 }
@@ -288,11 +288,11 @@ define PublicData struct [
     info: string,
 ]
 
-bind _secret_fn = (): int -> {
+bind _secret_fn = () int: {
     999
 }
 
-bind public_fn = (): int -> {
+bind public_fn = () int: {
     _secret_fn()
 }
 `
@@ -302,7 +302,7 @@ bind public_fn = (): int -> {
 	mainCallFnSrc := `
 import "./pkg_internal/lib.ll" as lib
 
-bind main = () -> {
+bind main = (): {
     let x = lib._secret_fn()
     println(x)
 }
@@ -323,7 +323,7 @@ bind main = () -> {
 	mainOpenImportTypeSrc := `
 import "./pkg_internal/lib.ll"
 
-bind main = () -> {
+bind main = (): {
     let s: _SecretData = _SecretData[secret: 1]
     println(s.secret)
 }
@@ -351,7 +351,7 @@ define ServiceState struct [
     active: bool,
 ]
 
-bind _internal_helper = (k: int): int -> {
+bind _internal_helper = (k: int) int: {
     k * 2
 }
 `
@@ -360,7 +360,7 @@ bind _internal_helper = (k: int): int -> {
 	methodsSrc := `
 import "./state.ll"
 
-bind ServiceState.new = (key: int): ServiceState -> {
+bind ServiceState.new = (key: int) ServiceState: {
     // Both files are in pkg_shared, so initializing _secret_key is valid!
     ServiceState[
         _secret_key: _internal_helper(key),
@@ -368,7 +368,7 @@ bind ServiceState.new = (key: int): ServiceState -> {
     ]
 }
 
-bind ServiceState.key = (self): int -> {
+bind ServiceState.key = (self) int: {
     // Both files in pkg_shared, so reading _secret_key is valid!
     self._secret_key
 }
@@ -379,7 +379,7 @@ bind ServiceState.key = (self): int -> {
 import "./pkg_shared/state.ll" as svc
 import "./pkg_shared/methods.ll"
 
-bind main = () -> {
+bind main = (): {
     let s = svc.ServiceState.new(21)
     assert(s.active == true)
     assert(s.key() == 42)
@@ -403,7 +403,7 @@ bind main = () -> {
 	badMainSrc := `
 import "./pkg_shared/state.ll" as svc
 
-bind main = () -> {
+bind main = (): {
     let x = svc._internal_helper(10)
 }
 `
@@ -426,23 +426,23 @@ func TestEncapsulationSealedInterface(t *testing.T) {
 
 	sealedSrc := `
 define InternalNode interface [
-    id: (self): int,
-    _token: (self): int,
+    id: (self) int,
+    _token: (self) int,
 ]
 
 define ValidNode struct [
     my_id: int,
 ]
 
-bind ValidNode.id = (self): int -> {
+bind ValidNode.id = (self) int: {
     self.my_id
 }
 
-bind ValidNode._token = (self): int -> {
+bind ValidNode._token = (self) int: {
     self.my_id * 10
 }
 
-bind process_node = (node: InternalNode): int -> {
+bind process_node = (node: InternalNode) int: {
     node.id()
 }
 `
@@ -456,15 +456,15 @@ define OutsideNode struct [
     my_id: int,
 ]
 
-bind OutsideNode.id = (self): int -> {
+bind OutsideNode.id = (self) int: {
     self.my_id
 }
 
-bind OutsideNode._token = (self): int -> {
+bind OutsideNode._token = (self) int: {
     123
 }
 
-bind main = () -> {
+bind main = (): {
     let out = OutsideNode[my_id: 5]
     // OutsideNode cannot satisfy sealed InternalNode!
     let res = sealed.process_node(out)
@@ -484,7 +484,7 @@ bind main = () -> {
 	mainValidSrc := `
 import "./pkg_sealed/sealed.ll" as sealed
 
-bind main = () -> {
+bind main = (): {
     let valid = sealed.ValidNode[my_id: 7]
     let res = sealed.process_node(valid)
     assert(res == 7)
@@ -516,7 +516,7 @@ define Wallet struct [
     _history_count: int = 0,
 ]
 
-bind Wallet.new = (owner: string, initial_coins: int): Wallet -> {
+bind Wallet.new = (owner: string, initial_coins: int) Wallet: {
     Wallet[
         owner: owner.copy(),
         _coins: initial_coins,
@@ -524,32 +524,32 @@ bind Wallet.new = (owner: string, initial_coins: int): Wallet -> {
     ]
 }
 
-bind Wallet.coins = (self): int -> {
+bind Wallet.coins = (self) int: {
     self._coins
 }
 
-bind Wallet.transactions = (self): int -> {
+bind Wallet.transactions = (self) int: {
     self._history_count
 }
 
-bind Wallet.credit = (&self, amount: int) -> {
-    if (amount > 0) {
+bind Wallet.credit = (&self, amount: int): {
+    if (amount > 0): {
         self._coins = self._coins + amount
         self._record_tx()
     }
 }
 
-bind Wallet.debit = (&self, amount: int): bool -> {
-    if (amount > 0 and self._coins >= amount) {
+bind Wallet.debit = (&self, amount: int) bool: {
+    if (amount > 0 and self._coins >= amount): {
         self._coins = self._coins - amount
         self._record_tx()
         true
-    } else {
+    } else: {
         false
     }
 }
 
-bind Wallet._record_tx = (&self) -> {
+bind Wallet._record_tx = (&self): {
     self._history_count = self._history_count + 1
 }
 `
@@ -558,7 +558,7 @@ bind Wallet._record_tx = (&self) -> {
 	mainSrc := `
 import "./pkg_wallet/wallet.ll" as w
 
-bind main = () -> {
+bind main = (): {
     let wallet = w.Wallet.new("Alice", 100)
     assert(wallet.owner == "Alice")
     assert(wallet.coins() == 100)
@@ -594,7 +594,7 @@ bind main = () -> {
 
 // 9. Enum Variant Encapsulation:
 // Unexported enum variants (_Variant) cannot be constructed, accessed, or matched outside their defining package.
-// Outside match expressions on enums with unexported variants require an `else:` catch-all arm.
+// Outside match expressions on enums with unexported variants require a `default:` catch-all arm.
 func TestEncapsulationEnumVariants(t *testing.T) {
 	tmp := t.TempDir()
 	root := projectRoot(t)
@@ -607,16 +607,16 @@ define Token enum [
     _Eof,
 ]
 
-bind Token.make_eof = (): Token -> {
+bind Token.make_eof = () Token: {
     Token._Eof
 }
 
-bind Token.describe = (self): string -> {
-    match (self)
+bind Token.describe = (self) string: {
+    match (self):
         when Token.Ident(s): "ident:" + s
         when Token.Number(n): "num"
         when Token._Internal(code): "internal"
-        else: "eof"
+        default: "eof"
 }
 `
 	writeTestFile(t, tmp, "pkg_tok/token.ll", tokenSrc)
@@ -625,12 +625,12 @@ bind Token.describe = (self): string -> {
 	mainSrc := `
 import "./pkg_tok/token.ll" as tok
 
-bind main = () -> {
+bind main = (): {
     let t = tok.Token.Ident("foo")
-    let kind = match (t)
+    let kind = match (t):
         when tok.Token.Ident(s): "got_ident"
         when tok.Token.Number(n): "got_num"
-        else: "other"
+        default: "other"
     assert(kind == "got_ident")
 
     let eof = tok.Token.make_eof()
@@ -652,10 +652,10 @@ bind main = () -> {
 	badMatchSrc := `
 import "./pkg_tok/token.ll" as tok
 
-bind test_bad = (t: tok.Token): int -> {
-    match (t)
+bind test_bad = (t: tok.Token) int: {
+    match (t):
         when tok.Token._Internal(c): 0
-        else: 1
+        default: 1
 }
 `
 	badMatch := writeTestFile(t, tmp, "bad_match.ll", badMatchSrc)
@@ -671,8 +671,8 @@ bind test_bad = (t: tok.Token): int -> {
 	badNoElseSrc := `
 import "./pkg_tok/token.ll" as tok
 
-bind test_bad = (t: tok.Token): int -> {
-    match (t)
+bind test_bad = (t: tok.Token) int: {
+    match (t):
         when tok.Token.Ident(s): 0
         when tok.Token.Number(n): 1
 }
@@ -694,8 +694,8 @@ func TestEncapsulationCorePackageProtection(t *testing.T) {
 
 	// Valid usage of std/core exported types and functions
 	validSrc := `
-bind main = () -> {
-    let r = Result[int, string].ok(42)
+bind main = (): {
+    let r = Result[int].ok(42)
     assert(r.is_ok())
     assert(r.unwrap() == 42)
 }
@@ -712,7 +712,7 @@ bind main = () -> {
 
 	// Direct call to unexported _hash_mix_u64 must fail
 	badCallSrc := `
-bind main = () -> {
+bind main = (): {
     let h = _hash_mix_u64(u64(123))
     println(h)
 }
@@ -726,12 +726,11 @@ bind main = () -> {
 		t.Fatal("expected error calling unexported _hash_mix_u64 from outside std/core, but check succeeded")
 	}
 
-	// Direct access to unexported Result._ok_flag field must fail
+	// Direct access to unexported ErrorFrame._file field must fail
 	badFieldSrc := `
-bind main = () -> {
-    let r = Result[int, string].ok(10)
-    let f = r._ok_flag
-    println(f)
+bind main = (): {
+    let f = ErrorFrame.new("a.ll", 1, 1, none)
+    println(f._file)
 }
 `
 	entryBadField := writeTestFile(t, tmp, "bad_core_field.ll", badFieldSrc)
@@ -740,6 +739,38 @@ bind main = () -> {
 		ProjectRoot: root,
 	})
 	if err == nil {
-		t.Fatal("expected error accessing unexported field _ok_flag from outside std/core, but check succeeded")
+		t.Fatal("expected error accessing unexported field _file from outside std/core, but check succeeded")
+	}
+
+	// Direct access to unexported Error._message field must fail
+	badErrFieldSrc := `
+bind main = (): {
+    let e = Error.new("boom")
+    println(e._message)
+}
+`
+	entryBadErrField := writeTestFile(t, tmp, "bad_error_field.ll", badErrFieldSrc)
+	_, _, err = driver.Check(driver.Options{
+		EntryPath:   entryBadErrField,
+		ProjectRoot: root,
+	})
+	if err == nil {
+		t.Fatal("expected error accessing unexported field _message from outside std/core, but check succeeded")
+	}
+
+	// Direct struct literal construction of Error without unexported fields must fail
+	badErrLitSrc := `
+bind main = (): {
+    let e = Error[]
+    println(e.message())
+}
+`
+	entryBadErrLit := writeTestFile(t, tmp, "bad_error_lit.ll", badErrLitSrc)
+	_, _, err = driver.Check(driver.Options{
+		EntryPath:   entryBadErrLit,
+		ProjectRoot: root,
+	})
+	if err == nil {
+		t.Fatal("expected error constructing Error struct literal from outside std/core, but check succeeded")
 	}
 }

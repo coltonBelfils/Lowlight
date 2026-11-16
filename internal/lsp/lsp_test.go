@@ -205,7 +205,7 @@ func TestLSPRealtimeDiagnosticsAndLifecycle(t *testing.T) {
 	uri := lsp.PathToURI(docPath)
 
 	// 1. Open valid Lowlight program -> 0 diagnostics
-	validSrc := `bind main = () -> {
+	validSrc := `bind main = (): {
 	let x = 42
 	println(x)
 }
@@ -224,11 +224,11 @@ func TestLSPRealtimeDiagnosticsAndLifecycle(t *testing.T) {
 	}
 
 	// 2. Introduce ownership move error + missing `?` error in live buffer
-	errSrc := `bind consume = (s: own string) -> {
+	errSrc := `bind consume = (s: own string): {
 	println(s)
 }
 
-bind main = () -> {
+bind main = (): {
 	let msg = "hello"
 	consume(own msg)
 	println(msg)
@@ -255,16 +255,16 @@ bind main = () -> {
 	}
 
 	// 3. Fix errors via didChange -> 0 diagnostics
-	fixedSrc := `bind consume = (s: own string) -> {
+	fixedSrc := `bind consume = (s: own string): {
 	println(s)
 }
 
-bind main = () -> {
+bind main = (): {
 	let msg = "hello"
 	consume(msg.copy())
 	println(msg)
 	let good_opt?: ?int = none
-	if (good_opt?) {
+	if (good_opt?): {
 		println(good_opt)
 	}
 }
@@ -336,7 +336,7 @@ func TestLSPAutocompleteAllContexts(t *testing.T) {
 
 	// 1. Import path completion (`import "std/|"` -> `std/math.ll`, `std/fs.ll`, `std/pool.ll`)
 	impItems := openAndComplete(`import "std//*CURSOR*/"
-bind main = () -> {}
+bind main = (): {}
 `)
 	for _, want := range []string{"std/math.ll", "std/fs.ll", "std/pool.ll"} {
 		if hasLabel(impItems, want) == nil {
@@ -350,12 +350,12 @@ bind main = () -> {}
 	y: float,
 ]
 
-bind Point.translate = (&self, dx: float, dy: float) -> {
+bind Point.translate = (&self, dx: float, dy: float): {
 	self.x += dx
 	self.y += dy
 }
 
-bind main = () -> {
+bind main = (): {
 	let pt = Point[x: 1.0, y: 2.0]
 	pt./*CURSOR*/
 }
@@ -367,7 +367,7 @@ bind main = () -> {
 	}
 
 	// 3. Vector `[string]` built-in method completion (including string-specific `join`!)
-	vecItems := openAndComplete(`bind main = () -> {
+	vecItems := openAndComplete(`bind main = (): {
 	let words = ["low", "light"]
 	words./*CURSOR*/
 }
@@ -381,7 +381,7 @@ bind main = () -> {
 	// 4. Generic `Pool[int]` dot-completion on uninstantiated generic methods (`alloc`, `get`, `free`)!
 	poolItems := openAndComplete(`import "std/pool.ll"
 
-bind main = () -> {
+bind main = (): {
 	let p = Pool[int].new()
 	p./*CURSOR*/
 }
@@ -399,15 +399,15 @@ bind main = () -> {
 	name: string,
 ]
 
-bind User.rename = (&self, next: string) -> {
+bind User.rename = (&self, next: string): {
 	self.name = next
 }
 
-bind User.greet = (self): string -> {
+bind User.greet = (self) string: {
 	"hi " + self.name
 }
 
-bind main = () -> {
+bind main = (): {
 	let user?: ?User = User[name: "Ada"]
 	user?./*CURSOR*/
 }
@@ -427,7 +427,7 @@ bind main = () -> {
 	// 6. Enum variant completion (`Color.|`), `Arena.|`, and module alias `math.|`
 	enumItems := openAndComplete(`import "std/math.ll" as math
 define Color enum [Red, Green, Blue]
-bind main = () -> {
+bind main = (): {
 	let c = Color./*CURSOR*/
 }
 `)
@@ -438,7 +438,7 @@ bind main = () -> {
 	}
 
 	modItems := openAndComplete(`import "std/math.ll" as math
-bind main = () -> {
+bind main = (): {
 	let v = math./*CURSOR*/
 }
 `)
@@ -453,7 +453,7 @@ bind main = () -> {
 	x: float,
 	y: float,
 ]
-bind main = () -> {
+bind main = (): {
 	let pt = Point[x: 1.0, /*CURSOR*/]
 }
 `)
@@ -464,10 +464,10 @@ bind main = () -> {
 		t.Errorf("struct literal completion should omit already-initialized field `x`")
 	}
 
-	// 8. Narrowed optional scope inside `if (account?) { acc| }`
-	narrowItems := openAndComplete(`bind main = () -> {
+	// 8. Narrowed optional scope inside `if (account?): { acc| }`
+	narrowItems := openAndComplete(`bind main = (): {
 	let account?: ?string = "pro"
-	if (account?) {
+	if (account?): {
 		println(acc/*CURSOR*/)
 	}
 }
@@ -501,11 +501,11 @@ define Counter struct [
 	value: int,
 ]
 
-bind Counter.add = (&self, delta: int, scale: int) -> {
+bind Counter.add = (&self, delta: int, scale: int): {
 	self.value += delta * scale
 }
 
-bind main = () -> {
+bind main = (): {
 	let c = Counter[value: 10]
 	c.add(5, 2)
 	let clamped = math.clamp_int(15, 0, 10)
@@ -579,9 +579,9 @@ bind main = () -> {
 	}
 
 	// 6. Quick-Fix Code Actions (missing `&`, missing `own`, `!` -> `not `)
-	fixSrc := `bind bump = (n: &int) -> { n += 1 }
-bind sink = (s: own string) -> { println(s) }
-bind main = () -> {
+	fixSrc := `bind bump = (n: &int): { n += 1 }
+bind sink = (s: own string): { println(s) }
+bind main = (): {
 	let x = 1
 	bump(x)
 	let name = "ll"
@@ -664,9 +664,9 @@ func TestLSPDuplicateDeclarationDiagnostics(t *testing.T) {
 	dupSrc := `import "std/test.ll"
 
 @test("pass")
-bind t = () -> assert_eq(1, 1)
+bind t = (): assert_eq(1, 1)
 @test("fail")
-bind t = () -> assert_eq(1, 2)`
+bind t = (): assert_eq(1, 2)`
 	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
 		TextDocument: lsp.TextDocumentItem{
 			URI:        uri,
@@ -695,9 +695,9 @@ bind t = () -> assert_eq(1, 2)`
 	fixedSrc := `import "std/test.ll"
 
 @test("pass")
-bind test_pass = () -> assert_eq(1, 1)
+bind test_pass = (): assert_eq(1, 1)
 @test("fail")
-bind test_fail = () -> assert_eq(1, 2)`
+bind test_fail = (): assert_eq(1, 2)`
 	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
 		TextDocument:   lsp.VersionedTextDocumentIdentifier{URI: uri, Version: 2},
 		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: fixedSrc}},
@@ -720,7 +720,7 @@ func TestLSPDuplicateLocalDeclarationDiagnostics(t *testing.T) {
 	docPath := filepath.Join(t.TempDir(), "dup_local_test.ll")
 	uri := lsp.PathToURI(docPath)
 
-	dupSrc := `bind main = () -> {
+	dupSrc := `bind main = (): {
 	bind a = 1
 	bind a = 2
 
@@ -753,7 +753,7 @@ func TestLSPDuplicateLocalDeclarationDiagnostics(t *testing.T) {
 	}
 
 	// Fix via didChange
-	fixedSrc := `bind main = () -> {
+	fixedSrc := `bind main = (): {
 	bind a1 = 1
 	bind a2 = 2
 
@@ -797,11 +797,11 @@ func TestLSPAdvancedFeatures(t *testing.T) {
 	],
 ]
 
-bind check = (val: JsonValue) -> {
-	match (val)
+bind check = (val: JsonValue): {
+	match (val):
 }
 
-bind test_calls = () -> {
+bind test_calls = (): {
 	let n = JsonValue.Number(3.14)
 }
 `
@@ -891,7 +891,7 @@ bind test_calls = () -> {
 
 	// 4. Test Document Formatting
 	messyURI := lsp.PathToURI(filepath.Join(tmpDir, "messy.ll"))
-	messySrc := "bind main = () -> {\nlet x = 1\nlet y = 2\n}\n"
+	messySrc := "bind main = (): {\nlet x = 1\nlet y = 2\n}\n"
 	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
 		TextDocument: lsp.TextDocumentItem{
 			URI:        messyURI,
@@ -915,6 +915,96 @@ bind test_calls = () -> {
 	}
 	if !strings.Contains(edits[0].NewText, "    let x = 1") {
 		t.Errorf("expected 4-space indentation in formatted text, got: %q", edits[0].NewText)
+	}
+
+	// 4b. Test Match When Indentation and Nested Match Formatting
+	matchURI := lsp.PathToURI(filepath.Join(tmpDir, "match_format.ll"))
+	matchSrc := "bind foo = (): {\nmatch (self):\nwhen 1: match (other):\nwhen 1: true\ndefault: false\ndefault: false\n}\n"
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        matchURI,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       matchSrc,
+		},
+	})
+	_ = h.waitDiagnostics(matchURI)
+	var matchEdits []lsp.TextEdit
+	h.request("textDocument/formatting", lsp.DocumentFormattingParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: matchURI},
+		Options: lsp.FormattingOptions{
+			TabSize:      4,
+			InsertSpaces: true,
+		},
+	}, &matchEdits)
+	if len(matchEdits) == 0 {
+		t.Fatalf("expected match formatting edits, got none")
+	}
+	formattedMatch := matchEdits[0].NewText
+	expectedLines := []string{
+		"bind foo = (): {",
+		"    match (self):",
+		"        when 1: match (other):",
+		"            when 1: true",
+		"            default: false",
+		"        default: false",
+		"}",
+	}
+	expectedMatch := strings.Join(expectedLines, "\n") + "\n"
+	if formattedMatch != expectedMatch {
+		t.Errorf("unexpected match formatting:\nGOT:\n%s\nWANT:\n%s", formattedMatch, expectedMatch)
+	}
+
+	// 4c. Test Nested Closers Indentation (]) and })
+	nestedURI := lsp.PathToURI(filepath.Join(tmpDir, "nested_closers.ll"))
+	nestedSrc := `bind main = (): {
+let json_value = Json.Object(#[
+"abc": Json.Number(Number.Int(123)),
+"def": Json.Object(#[
+"abc": Json.Array([
+Json.Number(Number.Int(1)),
+Json.Bool(true),
+]),
+]),
+])
+}
+`
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        nestedURI,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       nestedSrc,
+		},
+	})
+	_ = h.waitDiagnostics(nestedURI)
+	var nestedEdits []lsp.TextEdit
+	h.request("textDocument/formatting", lsp.DocumentFormattingParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: nestedURI},
+		Options: lsp.FormattingOptions{
+			TabSize:      4,
+			InsertSpaces: true,
+		},
+	}, &nestedEdits)
+	if len(nestedEdits) == 0 {
+		t.Fatalf("expected nested formatting edits, got none")
+	}
+	expectedNestedLines := []string{
+		"bind main = (): {",
+		"    let json_value = Json.Object(#[",
+		"        \"abc\": Json.Number(Number.Int(123)),",
+		"        \"def\": Json.Object(#[",
+		"            \"abc\": Json.Array([",
+		"                Json.Number(Number.Int(1)),",
+		"                Json.Bool(true),",
+		"            ]),",
+		"        ]),",
+		"    ])",
+		"}",
+	}
+	expectedNested := strings.Join(expectedNestedLines, "\n") + "\n"
+	if nestedEdits[0].NewText != expectedNested {
+		t.Errorf("unexpected nested closer formatting:\nGOT:\n%s\nWANT:\n%s", nestedEdits[0].NewText, expectedNested)
 	}
 
 	// 5. Test Prepare Rename & Rename
@@ -953,16 +1043,16 @@ func TestLSPTestingFeatures(t *testing.T) {
 	}
 	h.notify("initialized", map[string]any{})
 
-	testSrc := `bind add = (a: int, b: int): int -> { a + b }
+	testSrc := `bind add = (a: int, b: int) int: { a + b }
 
 @test("addition works")
-bind test_add = () -> {
+bind test_add = (): {
 	let r = add(2, 3)
 	assert(r == 5)
 }
 
 @test
-bind test_simple = () -> {
+bind test_simple = (): {
 	assert(true)
 }
 `
@@ -1072,3 +1162,593 @@ bind test_simple = () -> {
 		t.Errorf("expected test_add to have @test detail in document symbols: %+v", docSyms)
 	}
 }
+
+func TestLSPInterfaceAndImplementationDiscovery(t *testing.T) {
+	h := newHarness(t)
+	root := repoRoot(t)
+
+	// Initialize LSP
+	var initResp lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{
+		RootURI: lsp.PathToURI(root),
+	}, &initResp)
+	if !initResp.Capabilities.ImplementationProvider {
+		t.Fatalf("expected ImplementationProvider capability to be true")
+	}
+	h.notify("initialized", map[string]any{})
+
+	tmpDir := t.TempDir()
+	docPath := filepath.Join(tmpDir, "ifc_test.ll")
+	uri := lsp.PathToURI(docPath)
+
+	src := `define Greeter interface [
+    greet: (self),
+]
+
+define Bot struct [
+    name: string,
+]
+
+bind Bot.greet = (self): {
+    print(self.name)
+}
+
+bind main = (): {
+    let b = Bot[name: "Alice"]
+    b.greet()
+}
+`
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        uri,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       src,
+		},
+	})
+	diags := h.waitDiagnostics(uri)
+	for _, d := range diags {
+		t.Logf("DIAG: %s", d.Message)
+	}
+
+	// 1. Hover on interface `Greeter` -> displays `**Implemented by:**` `Bot`
+	ifcOffset := strings.Index(src, "Greeter")
+	var ifcHover lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, ifcOffset),
+	}, &ifcHover)
+	if !strings.Contains(ifcHover.Contents.Value, "**Implemented by:**") || !strings.Contains(ifcHover.Contents.Value, "`Bot`") {
+		t.Errorf("expected interface hover to list implementing types, got:\n%s", ifcHover.Contents.Value)
+	}
+
+	// 2. Hover on struct `Bot` -> displays `**Implements:**` `Greeter`
+	botOffset := strings.Index(src, "Bot")
+	var botHover lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, botOffset),
+	}, &botHover)
+	if !strings.Contains(botHover.Contents.Value, "**Implements:**") || !strings.Contains(botHover.Contents.Value, "`Greeter`") {
+		t.Errorf("expected struct hover to list implemented interfaces, got:\n%s", botHover.Contents.Value)
+	}
+
+	// 3. textDocument/implementation on interface `Greeter` -> jumps to `Bot`
+	var ifcImpls []lsp.Location
+	h.request("textDocument/implementation", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, ifcOffset),
+	}, &ifcImpls)
+	if len(ifcImpls) == 0 {
+		t.Fatalf("expected implementation locations for Greeter, got none")
+	}
+	botLine := 4 // 0-based line for struct Bot
+	if ifcImpls[0].Range.Start.Line != botLine {
+		t.Errorf("expected implementation location to point to line %d, got %d", botLine, ifcImpls[0].Range.Start.Line)
+	}
+
+	// 4. textDocument/implementation on struct `Bot` -> returns implemented interfaces (including Greeter)
+	var structImpls []lsp.Location
+	h.request("textDocument/implementation", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, botOffset),
+	}, &structImpls)
+	if len(structImpls) == 0 {
+		t.Fatalf("expected implementation locations for Bot, got none")
+	}
+	foundGreeterLoc := false
+	for _, loc := range structImpls {
+		if loc.Range.Start.Line == 0 {
+			foundGreeterLoc = true
+			break
+		}
+	}
+	if !foundGreeterLoc {
+		t.Errorf("expected struct implementation locations to contain Greeter at line 0, got: %+v", structImpls)
+	}
+
+	// 5. textDocument/codeLens -> includes interface implementations count & struct implements lens
+	var lenses []lsp.CodeLens
+	h.request("textDocument/codeLens", lsp.CodeLensParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+	}, &lenses)
+
+	foundIfcLens := false
+	foundStructLens := false
+	for _, l := range lenses {
+		if l.Command != nil {
+			if strings.Contains(l.Command.Title, "1 implementation") {
+				foundIfcLens = true
+				if l.Command.Command != "lowlight.showImplementationsQuickPick" {
+					t.Errorf("expected command lowlight.showImplementationsQuickPick, got %s", l.Command.Command)
+				}
+			}
+			if strings.Contains(l.Command.Title, "implements") {
+				foundStructLens = true
+				if l.Command.Command != "lowlight.showImplementationsQuickPick" {
+					t.Errorf("expected command lowlight.showImplementationsQuickPick, got %s", l.Command.Command)
+				}
+				raw, _ := json.Marshal(l.Command.Arguments)
+				if !strings.Contains(string(raw), "Greeter") {
+					t.Errorf("expected Bot dropdown items to include Greeter, got %s", string(raw))
+				}
+			}
+		}
+	}
+	if !foundIfcLens {
+		t.Errorf("expected interface CodeLens '1 implementation', got lenses: %+v", lenses)
+	}
+	if !foundStructLens {
+		t.Errorf("expected struct CodeLens implements, got lenses: %+v", lenses)
+	}
+}
+
+func TestLSPCoreListAndInterfacesDiscovery(t *testing.T) {
+	h := newHarness(t)
+	root := repoRoot(t)
+
+	var initResp lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{
+		RootURI: lsp.PathToURI(root),
+	}, &initResp)
+	h.notify("initialized", map[string]any{})
+
+	listPath := filepath.Join(root, "std", "core", "list.ll")
+	listBytes, err := os.ReadFile(listPath)
+	if err != nil {
+		t.Fatalf("failed to read list.ll: %v", err)
+	}
+	listSrc := string(listBytes)
+	listURI := lsp.PathToURI(listPath)
+
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        listURI,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       listSrc,
+		},
+	})
+	_ = h.waitDiagnostics(listURI)
+
+	// 1. Check CodeLens on List[T] in list.ll
+	var listLenses []lsp.CodeLens
+	h.request("textDocument/codeLens", lsp.CodeLensParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: listURI},
+	}, &listLenses)
+
+	foundListImplLens := false
+	for _, l := range listLenses {
+		if l.Command != nil && strings.Contains(l.Command.Title, "implements") {
+			raw, _ := json.Marshal(l.Command.Arguments)
+			if strings.Contains(string(raw), "Interfaces implemented by List") {
+				foundListImplLens = true
+				if l.Command.Command != "lowlight.showImplementationsQuickPick" {
+					t.Errorf("expected lowlight.showImplementationsQuickPick command, got %s", l.Command.Command)
+				}
+				if !strings.Contains(string(raw), "Indexable[T]") {
+					t.Errorf("expected List[T] dropdown items to include Indexable[T], got %s", string(raw))
+				}
+				break
+			}
+		}
+	}
+	if !foundListImplLens {
+		t.Errorf("expected List[T] to have CodeLens implementing Indexable[T], got: %+v", listLenses)
+	}
+
+	// 2. Check Hover on List[T]
+	listOffset := strings.Index(listSrc, "define List[T]")
+	if listOffset < 0 {
+		t.Fatalf("could not find 'define List[T]' in list.ll")
+	}
+	listNameOffset := listOffset + len("define ")
+	var listHover lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: listURI},
+		Position:     lsp.OffsetToLSP(listSrc, listNameOffset),
+	}, &listHover)
+	if !strings.Contains(listHover.Contents.Value, "**Implements:**") || !strings.Contains(listHover.Contents.Value, "`Indexable[T]`") {
+		t.Errorf("expected List[T] hover to list implemented interfaces, got:\n%s", listHover.Contents.Value)
+	}
+
+	// 3. Check Go to Implementation on List[T] -> jumps to interfaces.ll (Indexable, Collectable, etc.)
+	var listImpls []lsp.Location
+	h.request("textDocument/implementation", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: listURI},
+		Position:     lsp.OffsetToLSP(listSrc, listNameOffset),
+	}, &listImpls)
+	if len(listImpls) == 0 {
+		t.Fatalf("expected implementation locations for List[T], got none")
+	}
+	foundIfcLocation := false
+	for _, loc := range listImpls {
+		if strings.HasSuffix(loc.URI, "interfaces.ll") {
+			foundIfcLocation = true
+			break
+		}
+	}
+	if !foundIfcLocation {
+		t.Errorf("expected List[T] implementations to point to interfaces.ll, got: %+v", listImpls)
+	}
+
+	// 4. Check interfaces.ll
+	ifcPath := filepath.Join(root, "std", "core", "interfaces.ll")
+	ifcBytes, err := os.ReadFile(ifcPath)
+	if err != nil {
+		t.Fatalf("failed to read interfaces.ll: %v", err)
+	}
+	ifcSrc := string(ifcBytes)
+	ifcURI := lsp.PathToURI(ifcPath)
+
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        ifcURI,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       ifcSrc,
+		},
+	})
+	_ = h.waitDiagnostics(ifcURI)
+
+	// Check CodeLens on Indexable[T] in interfaces.ll
+	var ifcLenses []lsp.CodeLens
+	h.request("textDocument/codeLens", lsp.CodeLensParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: ifcURI},
+	}, &ifcLenses)
+
+	foundIndexableImplCount := false
+	for _, l := range ifcLenses {
+		if l.Command != nil && strings.Contains(l.Command.Title, "implementations") {
+			raw, _ := json.Marshal(l.Command.Arguments)
+			if strings.Contains(string(raw), "Implementations of Indexable") {
+				foundIndexableImplCount = true
+				if l.Command.Command != "lowlight.showImplementationsQuickPick" {
+					t.Errorf("expected lowlight.showImplementationsQuickPick command, got %s", l.Command.Command)
+				}
+				if !strings.Contains(string(raw), "List[T]") {
+					t.Errorf("expected Indexable[T] dropdown items to include List[T], got %s", string(raw))
+				}
+				break
+			}
+		}
+	}
+	if !foundIndexableImplCount {
+		t.Errorf("expected Indexable[T] summary CodeLens to list implementing types (including List[T]), got: %+v", ifcLenses)
+	}
+
+	// Check Hover on Indexable[T]
+	idxOffset := strings.Index(ifcSrc, "define Indexable[T]")
+	if idxOffset < 0 {
+		t.Fatalf("could not find 'define Indexable[T]' in interfaces.ll")
+	}
+	idxNameOffset := idxOffset + len("define ")
+	var idxHover lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: ifcURI},
+		Position:     lsp.OffsetToLSP(ifcSrc, idxNameOffset),
+	}, &idxHover)
+	if !strings.Contains(idxHover.Contents.Value, "**Implemented by:**") || !strings.Contains(idxHover.Contents.Value, "`List[T]`") {
+		t.Errorf("expected Indexable[T] hover to list implemented by List[T], got:\n%s", idxHover.Contents.Value)
+	}
+
+	// Verify that KeyIndexable does NOT list List[T]
+	keyIdxOffset := strings.Index(ifcSrc, "define KeyIndexable[K, V]")
+	if keyIdxOffset < 0 {
+		t.Fatalf("could not find 'define KeyIndexable[K, V]' in interfaces.ll")
+	}
+	keyIdxNameOffset := keyIdxOffset + len("define ")
+	var keyIdxHover lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: ifcURI},
+		Position:     lsp.OffsetToLSP(ifcSrc, keyIdxNameOffset),
+	}, &keyIdxHover)
+	if strings.Contains(keyIdxHover.Contents.Value, "`List[T]`") {
+		t.Errorf("KeyIndexable must NOT list List[T] as an implementation, got:\n%s", keyIdxHover.Contents.Value)
+	}
+
+	// 5. Check interface_test.ll discovery & reflection
+	testPath := filepath.Join(root, "interface_test.ll")
+	testBytes, err := os.ReadFile(testPath)
+	if err == nil {
+		testSrc := string(testBytes)
+		testURI := lsp.PathToURI(testPath)
+		h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+			TextDocument: lsp.TextDocumentItem{
+				URI:        testURI,
+				LanguageID: "lowlight",
+				Version:    1,
+				Text:       testSrc,
+			},
+		})
+		_ = h.waitDiagnostics(testURI)
+
+		// CodeLens on interface_test.ll -> type 't' has 'implements: Indexable[int]'
+		var testLenses []lsp.CodeLens
+		h.request("textDocument/codeLens", lsp.CodeLensParams{
+			TextDocument: lsp.TextDocumentIdentifier{URI: testURI},
+		}, &testLenses)
+
+		foundTLens := false
+		for _, l := range testLenses {
+			if l.Command != nil && strings.Contains(l.Command.Title, "implements") {
+				raw, _ := json.Marshal(l.Command.Arguments)
+				if strings.Contains(string(raw), "Indexable[int]") {
+					foundTLens = true
+					break
+				}
+			}
+		}
+		if !foundTLens {
+			t.Errorf("expected type 't' in interface_test.ll to have CodeLens implementing Indexable[int], got: %+v", testLenses)
+		}
+
+		// Re-check Indexable[T] CodeLens -> should now include type 't' from interface_test.ll!
+		var updatedIfcLenses []lsp.CodeLens
+		h.request("textDocument/codeLens", lsp.CodeLensParams{
+			TextDocument: lsp.TextDocumentIdentifier{URI: ifcURI},
+		}, &updatedIfcLenses)
+
+		foundTInIfc := false
+		for _, l := range updatedIfcLenses {
+			if l.Command != nil && strings.Contains(l.Command.Title, "implementations") {
+				raw, _ := json.Marshal(l.Command.Arguments)
+				if strings.Contains(string(raw), "t") {
+					foundTInIfc = true
+					break
+				}
+			}
+		}
+		if !foundTInIfc {
+			t.Errorf("expected Indexable[T] CodeLens dropdown to discover type 't' from interface_test.ll, got: %+v", updatedIfcLenses)
+		}
+	}
+}
+
+func TestLSPMainRunCodeLens(t *testing.T) {
+	h := newHarness(t)
+	root := repoRoot(t)
+
+	var initResp lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{
+		RootURI: lsp.PathToURI(root),
+	}, &initResp)
+	h.notify("initialized", map[string]any{})
+
+	testPath := filepath.Join(root, "examples", "hello.ll")
+	testBytes, err := os.ReadFile(testPath)
+	if err != nil {
+		t.Fatalf("could not read examples/hello.ll: %v", err)
+	}
+	testSrc := string(testBytes)
+	testURI := lsp.PathToURI(testPath)
+
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        testURI,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       testSrc,
+		},
+	})
+	_ = h.waitDiagnostics(testURI)
+
+	var lenses []lsp.CodeLens
+	h.request("textDocument/codeLens", lsp.CodeLensParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: testURI},
+	}, &lenses)
+
+	foundMainRun := false
+	for _, l := range lenses {
+		if l.Command != nil && l.Command.Title == "▶ Run" {
+			if l.Command.Command == "lowlight.runFile" || l.Command.Command == "lowlight.runMain" {
+				foundMainRun = true
+				if len(l.Command.Arguments) == 0 {
+					t.Errorf("expected run command to have file argument, got empty arguments: %+v", l.Command)
+				}
+				break
+			}
+		}
+	}
+	if !foundMainRun {
+		t.Fatalf("expected '▶ Run' CodeLens on main in examples/hello.ll, got: %+v", lenses)
+	}
+
+	// Verify executing 'lowlight.runFile' via workspace/executeCommand
+	argBytes, _ := json.Marshal(testPath)
+	var execRes interface{}
+	h.request("workspace/executeCommand", lsp.ExecuteCommandParams{
+		Command:   "lowlight.runFile",
+		Arguments: []json.RawMessage{argBytes},
+	}, &execRes)
+}
+
+func TestLSPTuples(t *testing.T) {
+	h := newHarness(t)
+	root := repoRoot(t)
+
+	var initResp lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{
+		RootURI: lsp.PathToURI(root),
+	}, &initResp)
+	h.notify("initialized", map[string]any{})
+
+	tmpDir := t.TempDir()
+	docPath := filepath.Join(tmpDir, "tuple_lsp_test.ll")
+	testSrc := `define MyPair +[int, string]
+bind MyPair.first = (self) int: self.0
+bind test_fn = (pair: +[int, string], count: int) int: { count }
+bind main = () int: {
+    let my_val = 42
+    let pair = +[my_val, "hello"]
+    let y = pair.0
+    let res = test_fn(+[10, "arg"], 0)
+    let p_dist: MyPair = +[100, "world"]
+    let z = p_dist.0
+    let unp_num, unp_str = unpack pair
+    0
+}
+`
+	if err := os.WriteFile(docPath, []byte(testSrc), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+	testURI := lsp.PathToURI(docPath)
+
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        testURI,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       testSrc,
+		},
+	})
+	_ = h.waitDiagnostics(testURI)
+
+	// 1. Completion after `pair.` (line 6, character 17: right between . and 0)
+	var compList lsp.CompletionList
+	h.request("textDocument/completion", lsp.CompletionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: testURI},
+		Position:     lsp.Position{Line: 6, Character: 17},
+	}, &compList)
+
+	found0 := false
+	found1 := false
+	foundCopy := false
+	foundToStr := false
+	for _, item := range compList.Items {
+		if item.Label == "0" {
+			found0 = true
+			if !strings.Contains(item.Detail, "int") {
+				t.Errorf("expected completion 0 to have detail with int, got %q", item.Detail)
+			}
+		}
+		if item.Label == "1" {
+			found1 = true
+			if !strings.Contains(item.Detail, "string") {
+				t.Errorf("expected completion 1 to have detail with string, got %q", item.Detail)
+			}
+		}
+		if item.Label == "copy" {
+			foundCopy = true
+		}
+		if item.Label == "to_string" {
+			foundToStr = true
+		}
+	}
+	if !found0 || !found1 {
+		t.Errorf("expected completions '0' and '1' for tuple, got: %+v", compList.Items)
+	}
+	if !foundCopy || !foundToStr {
+		t.Errorf("expected built-ins 'copy' and 'to_string' for tuple, got: %+v", compList.Items)
+	}
+
+	// 2. Hover inside tuple literal on `my_val` (line 5, column 19)
+	var hov lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: testURI},
+		Position:     lsp.Position{Line: 5, Character: 19},
+	}, &hov)
+	if hov.Contents.Value == "" || !strings.Contains(hov.Contents.Value, "my_val") {
+		t.Errorf("expected hover on 'my_val' inside tuple literal, got: %q", hov.Contents.Value)
+	}
+
+	// 3. Definition on `my_val` inside tuple literal (line 5, column 19)
+	var defLoc lsp.Location
+	h.request("textDocument/definition", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: testURI},
+		Position:     lsp.Position{Line: 5, Character: 19},
+	}, &defLoc)
+	if defLoc.URI == "" {
+		t.Errorf("expected definition location for 'my_val' inside tuple literal")
+	} else if defLoc.Range.Start.Line != 4 {
+		t.Errorf("expected definition to point to line 4 (let my_val), got line %d", defLoc.Range.Start.Line)
+	}
+
+	// 4. Hover on tuple dot element `pair.0` (line 6, character 17)
+	var hovElem lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: testURI},
+		Position:     lsp.Position{Line: 6, Character: 17},
+	}, &hovElem)
+	if !strings.Contains(hovElem.Contents.Value, "tuple element") {
+		t.Errorf("expected hover on 'pair.0' to describe tuple element, got: %q", hovElem.Contents.Value)
+	}
+
+	// 5. Signature Help inside `test_fn(+[10, "arg"], 0)` (line 7, column 36)
+	var sigHelp lsp.SignatureHelp
+	h.request("textDocument/signatureHelp", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: testURI},
+		Position:     lsp.Position{Line: 7, Character: 36},
+	}, &sigHelp)
+	if len(sigHelp.Signatures) == 0 {
+		t.Errorf("expected signature help for test_fn after tuple literal argument")
+	} else if sigHelp.ActiveParameter != 1 {
+		t.Errorf("expected active parameter 1 (count: int) after tuple argument, got parameter %d", sigHelp.ActiveParameter)
+	}
+
+	// 6. Distinct tuple completion after `p_dist.` (line 9, character 19)
+	var distCompList lsp.CompletionList
+	h.request("textDocument/completion", lsp.CompletionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: testURI},
+		Position:     lsp.Position{Line: 9, Character: 19},
+	}, &distCompList)
+
+	foundDist0 := false
+	foundDist1 := false
+	foundDistFirst := false
+	for _, item := range distCompList.Items {
+		if item.Label == "0" {
+			foundDist0 = true
+		}
+		if item.Label == "1" {
+			foundDist1 = true
+		}
+		if item.Label == "first" {
+			foundDistFirst = true
+		}
+	}
+	if !foundDist0 || !foundDist1 || !foundDistFirst {
+		t.Errorf("expected completions '0', '1', and 'first' for distinct tuple MyPair, got: %+v", distCompList.Items)
+	}
+
+	// 7. Distinct tuple hover on `p_dist.0` (line 9, character 19)
+	var hovDistElem lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: testURI},
+		Position:     lsp.Position{Line: 9, Character: 19},
+	}, &hovDistElem)
+	if !strings.Contains(hovDistElem.Contents.Value, "MyPair.0") {
+		t.Errorf("expected hover on 'p_dist.0' to describe MyPair.0, got: %q", hovDistElem.Contents.Value)
+	}
+
+	// 8. Hover on unpacked variable `unp_str` (line 10, character 18)
+	var hovUnp lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: testURI},
+		Position:     lsp.Position{Line: 10, Character: 18},
+	}, &hovUnp)
+	if !strings.Contains(hovUnp.Contents.Value, "unp_str: string") {
+		t.Errorf("expected hover on unpacked variable 'unp_str' to show 'unp_str: string', got: %q", hovUnp.Contents.Value)
+	}
+}
+

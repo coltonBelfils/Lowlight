@@ -1,10 +1,9 @@
 // examples/generics_and_pool.ll
 // Showcases monomorphized generics with interface bounds (`[T: Printable + Copyable]`),
-// generic `Result[T, E]` from `std/fs.ll`, and the generational `Pool[T]` / `Handle[T]`
+// generic `Result[T, E]` from the core prelude, and the generational `Pool[T]` / `Handle[T]`
 // from `std/pool.ll` (stale-handle safety + O(1) slot reuse).
 
 import "std/pool.ll"
-import "std/fs.ll"
 import "std/math.ll"
 
 define Entity struct [
@@ -14,20 +13,20 @@ define Entity struct [
     y: float,
 ]
 
-bind Entity.to_string = (self): string -> {
+bind Entity.to_string = (self) string: {
     "${self.name}(hp=${self.hp} @ ${self.x},${self.y})"
 }
 
-bind duplicate_and_format[T: Printable + Copyable] = (item: T): string -> {
+bind duplicate_and_format[T: Printable + Copyable] = (item: T) string: {
     let cloned = item.copy()
     "${item.to_string()} == ${cloned.to_string()}"
 }
 
-bind distance = (a: Entity, b: Entity): float -> {
+bind distance = (a: Entity, b: Entity) float: {
     hypot(b.x - a.x, b.y - a.y)
 }
 
-bind main = () -> {
+bind main = (): {
     // 1. Generic function with `Printable + Copyable` bounds
     let hero = Entity[name: "Ranger", hp: 100, x: 0.0, y: 0.0]
     let banner = duplicate_and_format(hero)
@@ -60,12 +59,12 @@ bind main = () -> {
 
     // Stale `h_goblin` handle STILL safely returns `none`, never aliasing Dragon!
     assert(world.get(h_goblin) == none)
-    let dragon_name = world.with[string](h_dragon, (e: Entity): string -> { e.name.copy() }) ?? "none"
+    let dragon_name = world.with[string](h_dragon, (e: Entity) string: { e.name.copy() }) ?? "none"
     assert(dragon_name == "Dragon")
 
-    // 3. Generic Result[T, E] round-trip
-    let ok_res = Result[int, string].ok(42)
-    let err_res = Result[int, string].fail("offline")
+    // 3. Generic Result[T] round-trip
+    let ok_res = Result[int].ok(42)
+    let err_res = Result[int].fail(Error.new("offline"))
     assert(ok_res.is_ok())
     assert(err_res.is_err())
     assert(ok_res.unwrap_or(0) == 42)

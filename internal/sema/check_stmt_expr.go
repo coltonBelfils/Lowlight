@@ -2,6 +2,7 @@ package sema
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"lowlight/internal/ast"
@@ -21,6 +22,12 @@ const (
 	cfFunc
 )
 
+type inferredYield struct {
+	expr ast.Expr
+	ty   types.Type
+	span diag.Span
+}
+
 type cfTarget struct {
 	id                 int
 	kind               cfKind
@@ -30,7 +37,10 @@ type cfTarget struct {
 	maxYieldArenaDepth int
 	expectedType       types.Type   // nil if inferred bottom-up
 	isForNoElse        bool         // true when `for` has no `else`, so loop yields `?Elem` while `for <- v` supplies `Elem`
+	isInferredFunc     bool         // true when checking a function/lambda whose return type is inferred
+	hasVoidUnwind      bool         // true if bare `func <-` targeted this inferred function
 	yieldTypes         []types.Type // collected types from unwinds to unify/infer
+	yieldExprs         []inferredYield
 	hitValueExit       bool
 }
 
@@ -57,8 +67,17 @@ type funcChecker struct {
 	// For lambda capture tracking: stack of active lambda frames
 	lambdaStack []*lambdaFrame
 
-	curFn     *FuncInstance
-	curTopVar *TopVarInit
+	curFn            *FuncInstance
+	curTopVar        *TopVarInit
+	inferVoidOrValue bool
+}
+
+func (fc *funcChecker) checkInferOrValue(e ast.Expr, expected types.Type) types.Type {
+	prev := fc.inferVoidOrValue
+	fc.inferVoidOrValue = true
+	ty := fc.checkExprExpect(e, expected, true)
+	fc.inferVoidOrValue = prev
+	return ty
 }
 
 func (fc *funcChecker) isTestContext() bool {
@@ -85,6 +104,16 @@ type lambdaFrame struct {
 
 func (a *Analyzer) runBodyChecking() {
 	a.inBodyPass = true
+	for i := 0; i < len(a.deferredIfaceChecks); i++ {
+		chk := a.deferredIfaceChecks[i]
+		if !a.ImplementsInterface(chk.Concrete, chk.Iface) {
+			if chk.Context != "" {
+				a.Rep.Errorf(chk.Span, "type %s does not satisfy interface %s (%s)", chk.Concrete.String(), chk.Iface.Name, chk.Context)
+			} else {
+				a.Rep.Errorf(chk.Span, "type %s does not satisfy interface %s", chk.Concrete.String(), chk.Iface.Name)
+			}
+		}
+	}
 
 	// 1. Check struct field default expressions
 	for i := 0; i < len(a.Prog.Structs); i++ {
@@ -118,47 +147,6 @@ func (a *Analyzer) runBodyChecking() {
 		a.curBM = prevBM
 	}
 
-	// 1b. Check tagged enum struct-variant field default expressions
-	for i := 0; i < len(a.Prog.Enums); i++ {
-		en := a.Prog.Enums[i]
-		if !en.IsTagged {
-			continue
-		}
-		decl := a.Prog.EnumDecls[en]
-		mod := a.Prog.EnumMods[en]
-		if decl == nil || mod == nil {
-			continue
-		}
-		var subst map[string]types.Type
-		if len(decl.TypeParams) == len(en.TypeArgs) && len(en.TypeArgs) > 0 {
-			subst = make(map[string]types.Type, len(en.TypeArgs))
-			for j, tp := range decl.TypeParams {
-				subst[tp.Name] = en.TypeArgs[j]
-			}
-		}
-		bm := NewBodyMaps()
-		a.Prog.EnumBodyMaps[en] = bm
-		prevBM := a.curBM
-		a.curBM = bm
-		fc := a.newFuncChecker(mod, subst)
-		fc.pushScope()
-		for vi, dv := range decl.Variants {
-			if !dv.HasFields || vi >= len(en.Variants) || en.Variants[vi].Kind != types.VariantStruct {
-				continue
-			}
-			rv := &en.Variants[vi]
-			for fi, df := range dv.Fields {
-				if df.Default != nil && fi < len(rv.Fields) {
-					fty := rv.Fields[fi].Type
-					got := fc.checkExprExpect(df.Default, fty, true)
-					fc.verifyAssignable(got, fty, df.Default, df.Default.GetSpan(), "variant default field")
-				}
-			}
-		}
-		fc.popScope()
-		a.curBM = prevBM
-	}
-
 	// 2. Check top-level `bind` constants in topological dependency order
 	a.topVarMap = make(map[*Symbol]*TopVarInit)
 	a.topVarStates = make(map[*TopVarInit]int)
@@ -174,7 +162,11 @@ func (a *Analyzer) runBodyChecking() {
 	// 3. Check all concrete & monomorphized functions (growing dynamically as generics instantiate!)
 	for i := 0; i < len(a.Prog.Funcs); i++ {
 		fi := a.Prog.Funcs[i]
-		a.checkFuncInstance(fi)
+		if fi.RetInferred {
+			_ = a.ensureFuncRetResolved(fi, fi.DeclSpan)
+		} else {
+			a.checkFuncInstance(fi)
+		}
 	}
 }
 
@@ -303,30 +295,147 @@ func (a *Analyzer) checkFuncInstance(fi *FuncInstance) {
 		funcDepth:       fc.funcDepth,
 		outerScopeDepth: 0,
 		expectedType:    fi.Sig.Ret,
+		isInferredFunc:  fi.RetInferred,
 	}
 	fc.cfStack = append(fc.cfStack, fnTarget)
 
-	if fi.Sig.Ret.Equals(types.TypeVoid) {
-		_ = fc.checkVoidOrDiscardedBody(fi.Body)
-	} else {
-		bodyTy := fc.checkExprExpect(fi.Body, fi.Sig.Ret, true)
-		if bodyTy == types.TypeVoid {
-			a.Rep.Errorf(fi.Body.GetSpan(), "function %q must return a value of type %s on all execution paths", fi.Name, fi.Sig.Ret.String())
-		} else {
-			fc.verifyAssignable(bodyTy, fi.Sig.Ret, fi.Body, fi.Body.GetSpan(), fmt.Sprintf("return value of %q", fi.Name))
-			if ad := fc.arenaDepthOfExpr(fi.Body); ad > 0 {
+	retTy := fc.checkFuncBodyAndReturn(fi.Name, fi.Body, fi.Sig.Ret, fi.RetInferred, fi.DeclSpan, fnTarget)
+	if fi.RetInferred {
+		if fi.InferState != 2 {
+			fi.Sig.Ret = retTy
+		}
+		if fi.Sig.Ret != nil && fi.Sig.Ret != types.TypeInvalid {
+			if types.ContainsArenaRef(fi.Sig.Ret) && !fc.hasMutArenaParam {
 				a.Rep.ErrorWithHint(
 					fi.Body.GetSpan(),
-					fmt.Sprintf("arena reference `ref[T]` allocated from a local or owned `Arena` cannot escape function %q", fi.Name),
-					"allocate into a caller-provided `&Arena` parameter instead of a local `Arena`",
+					fmt.Sprintf("function %q cannot return %s containing `ref[T]` unless it takes an `&Arena` parameter", fi.Name, fi.Sig.Ret.String()),
+					"pass `(arena: &Arena, ...)` from the caller so the arena outlives the returned `ref[T]`",
 				)
 			}
-			fc.consumeValue(fi.Body, fi.Sig.Ret, false)
+			if fi.IsMain {
+				a.validateMainSig(fi, fi.DeclSpan)
+			}
+			if fi.IsTestMain {
+				a.validateTestMainSig(fi, fi.DeclSpan)
+			}
+			if fi.IsDrop {
+				a.validateDropSig(fi, fi.DeclSpan)
+			}
 		}
 	}
 
 	fc.cfStack = fc.cfStack[:len(fc.cfStack)-1]
 	fc.popScope()
+}
+
+func (a *Analyzer) ensureFuncRetResolved(fi *FuncInstance, useSpan diag.Span) types.Type {
+	if fi == nil {
+		return types.TypeInvalid
+	}
+	if !fi.RetInferred {
+		return fi.Sig.Ret
+	}
+	if fi.InferState == 2 {
+		return fi.Sig.Ret
+	}
+	if !a.inBodyPass {
+		return types.TypeInvalid
+	}
+	if fi.InferState == 1 {
+		a.Rep.ErrorWithHint(
+			useSpan,
+			fmt.Sprintf("cannot infer return type of recursive function %q", fi.Name),
+			"add an explicit return type (or `void`) on at least one function in the cycle",
+		)
+		fi.Sig.Ret = types.TypeInvalid
+		fi.InferState = 2
+		return types.TypeInvalid
+	}
+	fi.InferState = 1
+	a.checkFuncInstance(fi)
+	if fi.Sig.Ret == nil {
+		fi.Sig.Ret = types.TypeInvalid
+	}
+	fi.InferState = 2
+	return fi.Sig.Ret
+}
+
+func (fc *funcChecker) checkFuncBodyAndReturn(name string, body ast.Expr, expRet types.Type, inferRet bool, declSpan diag.Span, tgt *cfTarget) types.Type {
+	if !inferRet {
+		if expRet.Equals(types.TypeVoid) {
+			_ = fc.checkVoidOrDiscardedBody(body)
+			return types.TypeVoid
+		}
+		bodyTy := fc.checkExprExpect(body, expRet, true)
+		if bodyTy == types.TypeVoid {
+			fc.a.Rep.Errorf(body.GetSpan(), "function %q must return a value of type %s on all execution paths", name, expRet.String())
+		} else {
+			fc.verifyAssignable(bodyTy, expRet, body, body.GetSpan(), fmt.Sprintf("return value of %q", name))
+			if ad := fc.arenaDepthOfExpr(body); ad > tgt.outerScopeDepth {
+				fc.a.Rep.ErrorWithHint(
+					body.GetSpan(),
+					fmt.Sprintf("arena reference `ref[T]` allocated from a local or owned `Arena` cannot escape function %q", name),
+					"allocate into a caller-provided `&Arena` parameter instead of a local `Arena`",
+				)
+			}
+			fc.consumeValue(body, expRet, false)
+		}
+		return expRet
+	}
+
+	bodyTy := fc.checkInferOrValue(body, nil)
+	if bodyTy == types.TypeInvalid {
+		return types.TypeInvalid
+	}
+	fallsThroughVoid := bodyTy == types.TypeVoid
+	var valTypes []types.Type
+	for _, yt := range tgt.yieldTypes {
+		if yt != nil && yt != types.TypeInvalid {
+			valTypes = append(valTypes, yt)
+		}
+	}
+	if bodyTy != types.TypeVoid && bodyTy != types.TypeNever {
+		valTypes = append(valTypes, bodyTy)
+	}
+
+	if tgt.hasVoidUnwind && len(valTypes) > 0 {
+		fc.a.Rep.ErrorWithHint(
+			body.GetSpan(),
+			fmt.Sprintf("function %q mixes bare `func <-` (void) with non-void return value", name),
+			"add an explicit return type or ensure all return paths produce consistent values",
+		)
+		return types.TypeInvalid
+	}
+	if fallsThroughVoid && len(valTypes) > 0 {
+		fc.a.Rep.Errorf(body.GetSpan(), "function %q returns a value via `func <-` on some paths, but does not return a value on all execution paths", name)
+		return types.TypeInvalid
+	}
+	if len(valTypes) == 0 {
+		return types.TypeVoid
+	}
+
+	inferred := unifyYieldTypes(valTypes)
+	if inferred == types.TypeInvalid {
+		return types.TypeInvalid
+	}
+	for _, y := range tgt.yieldExprs {
+		if y.ty != types.TypeInvalid {
+			fc.verifyAssignable(y.ty, inferred, y.expr, y.span, fmt.Sprintf("return value of %q", name))
+		}
+	}
+	if bodyTy != types.TypeVoid && bodyTy != types.TypeNever {
+		fc.verifyAssignable(bodyTy, inferred, body, body.GetSpan(), fmt.Sprintf("return value of %q", name))
+		if ad := fc.arenaDepthOfExpr(body); ad > tgt.outerScopeDepth {
+			fc.a.Rep.ErrorWithHint(
+				body.GetSpan(),
+				fmt.Sprintf("arena reference `ref[T]` allocated from a local or owned `Arena` cannot escape function %q", name),
+				"allocate into a caller-provided `&Arena` parameter instead of a local `Arena`",
+			)
+		}
+		fc.consumeValue(body, inferred, false)
+	}
+	_ = declSpan
+	return inferred
 }
 
 // -----------------------------------------------------------------------------
@@ -402,6 +511,13 @@ func typeMayHoldArenaRefVisited(t types.Type, seen map[types.Type]bool) bool {
 		return typeMayHoldArenaRefVisited(v.Elem, seen)
 	case *types.StackArray:
 		return typeMayHoldArenaRefVisited(v.Elem, seen)
+	case *types.Tuple:
+		for _, el := range v.Elems {
+			if typeMayHoldArenaRefVisited(el, seen) {
+				return true
+			}
+		}
+		return false
 	case *types.Set:
 		return typeMayHoldArenaRefVisited(v.Elem, seen)
 	case *types.Map:
@@ -414,17 +530,8 @@ func typeMayHoldArenaRefVisited(t types.Type, seen map[types.Type]bool) bool {
 		}
 		seen[v] = true
 		for _, vr := range v.Variants {
-			switch vr.Kind {
-			case types.VariantTuple:
-				if vr.Payload != nil && typeMayHoldArenaRefVisited(vr.Payload, seen) {
-					return true
-				}
-			case types.VariantStruct:
-				for _, f := range vr.Fields {
-					if typeMayHoldArenaRefVisited(f.Type, seen) {
-						return true
-					}
-				}
+			if vr.Kind == types.VariantTuple && vr.Payload != nil && typeMayHoldArenaRefVisited(vr.Payload, seen) {
+				return true
 			}
 		}
 		return false
@@ -578,8 +685,17 @@ func (fc *funcChecker) consumeValue(expr ast.Expr, ty types.Type, requireExplici
 		if sym == nil {
 			sym = fc.lookupVar(v.Name)
 		}
-		if sym == nil || sym.IsTopLevel {
-			// Note: top-level `bind` functions (`static_add`) are stateless global symbols, never moved!
+		if sym == nil {
+			return
+		}
+		if sym.IsTopLevel {
+			if sym.FuncInst == nil && sym.GenFunc == nil && sym.ExternFn == nil {
+				fc.a.Rep.ErrorWithHint(
+					expr.GetSpan(),
+					fmt.Sprintf("cannot transfer ownership of immutable top-level constant %q", sym.Name),
+					fmt.Sprintf("write `%s.copy()` to create an independent owned copy", sym.Name),
+				)
+			}
 			return
 		}
 		if sym.BindKind != BindOwned {
@@ -619,6 +735,12 @@ func (fc *funcChecker) consumeValue(expr ast.Expr, ty types.Type, requireExplici
 		// whereas vector/array indexing `users[0]` refers to an owned element inside the vector!
 		baseTy := fc.a.infoFor(v.Base).Type
 		if _, isMap := baseTy.(*types.Map); isMap {
+			return
+		}
+		if fc.a.isIndexableType(baseTy) || fc.a.isKeyIndexableType(baseTy) {
+			return
+		}
+		if fc.a.infoFor(v).TargetFunc != nil {
 			return
 		}
 		fc.a.Rep.ErrorWithHint(
@@ -868,6 +990,14 @@ func (fc *funcChecker) arenaDepthOfExpr(e ast.Expr) int {
 			}
 		}
 		return maxD
+	case *ast.TupleLit:
+		maxD := 0
+		for _, el := range v.Elems {
+			if d := fc.arenaDepthOfExpr(el); d > maxD {
+				maxD = d
+			}
+		}
+		return maxD
 	}
 	return 0
 }
@@ -958,6 +1088,8 @@ func (fc *funcChecker) checkUnsafeExpr(ue *ast.UnsafeExpr, expected types.Type, 
 }
 
 func (fc *funcChecker) checkBlockExpr(b *ast.BlockExpr, expected types.Type, needValue bool) types.Type {
+	allowVoid := fc.inferVoidOrValue
+	fc.inferVoidOrValue = false
 	id := fc.a.allocTargetID()
 	inf := fc.a.infoFor(b)
 	inf.TargetID = id
@@ -1031,7 +1163,23 @@ func (fc *funcChecker) checkBlockExpr(b *ast.BlockExpr, expected types.Type, nee
 			return blkExp
 		}
 
-		tailTy = fc.checkExpr(b.Tail, true)
+		if allowVoid {
+			var tailExp types.Type
+			if len(tgt.yieldTypes) > 0 {
+				tailExp = tgt.yieldTypes[0]
+			}
+			tailTy = fc.checkInferOrValue(b.Tail, tailExp)
+			if tailTy == types.TypeVoid && !tgt.hitValueExit {
+				if diverged {
+					inf.Type = types.TypeNever
+					return types.TypeNever
+				}
+				inf.Type = types.TypeVoid
+				return types.TypeVoid
+			}
+		} else {
+			tailTy = fc.checkExpr(b.Tail, true)
+		}
 		if tailTy == types.TypeVoid {
 			fc.a.Rep.Errorf(b.Span, "block used as a value does not produce a value")
 			inf.Type = types.TypeInvalid
@@ -1081,6 +1229,10 @@ func (fc *funcChecker) checkBlockExpr(b *ast.BlockExpr, expected types.Type, nee
 	if diverged {
 		inf.Type = types.TypeNever
 		return types.TypeNever
+	}
+	if allowVoid {
+		inf.Type = types.TypeVoid
+		return types.TypeVoid
 	}
 
 	// Spec §6.4 / §7.3: Non-Value Block Safety!
@@ -1188,7 +1340,7 @@ func (fc *funcChecker) checkLocalTypeDecl(d ast.Decl) {
 		}
 		isTagged := false
 		for _, v := range td.Variants {
-			if v.PayloadType != nil || v.HasFields {
+			if v.PayloadType != nil {
 				isTagged = true
 				break
 			}
@@ -1230,6 +1382,9 @@ func (fc *funcChecker) checkLocalTypeDecl(d ast.Decl) {
 }
 
 func (fc *funcChecker) checkVarStmt(s *ast.VarStmt) types.Type {
+	if s.IsUnpack {
+		return fc.checkUnpackVarStmt(s)
+	}
 	var declTy types.Type
 	if s.Type != nil {
 		declTy = fc.a.resolveValueType(fc.mod, s.Type, fc.subst, false)
@@ -1292,7 +1447,106 @@ func (fc *funcChecker) checkVarStmt(s *ast.VarStmt) types.Type {
 	return types.TypeVoid
 }
 
+func (fc *funcChecker) checkUnpackVarStmt(s *ast.VarStmt) types.Type {
+	declTypes := make([]types.Type, len(s.UnpackVars))
+	allAnnotated := len(s.UnpackVars) >= 2
+	anyAnnotated := false
+	for i, uv := range s.UnpackVars {
+		if uv.Type != nil {
+			declTypes[i] = fc.a.resolveValueType(fc.mod, uv.Type, fc.subst, false)
+			if declTypes[i] == types.TypeInvalid {
+				allAnnotated = false
+			}
+			anyAnnotated = true
+		} else {
+			allAnnotated = false
+		}
+	}
+
+	var expectedTup types.Type
+	if allAnnotated {
+		expectedTup = &types.Tuple{Elems: declTypes}
+	} else if anyAnnotated && s.FallbackUnwind == nil {
+		if _, isTL := s.Value.(*ast.TupleLit); isTL {
+			expectedTup = &types.Tuple{Elems: declTypes}
+		}
+	}
+
+	var valTy types.Type
+	var unwrappedTy types.Type
+	if s.FallbackUnwind != nil {
+		var expOpt types.Type
+		if expectedTup != nil {
+			expOpt = types.NewOptional(expectedTup)
+		}
+		valTy = fc.checkExprExpect(s.Value, expOpt, true)
+		_ = fc.checkUnwindStmt(s.FallbackUnwind)
+		unwrappedTy = types.TypeInvalid
+		if o, ok := valTy.(*types.Optional); ok {
+			unwrappedTy = o.Elem
+		} else if valTy != types.TypeInvalid {
+			fc.a.Rep.Errorf(s.Value.GetSpan(), "left-hand side of `??` must be an optional `?T`, got %s", valTy.String())
+		}
+	} else {
+		valTy = fc.checkExprExpect(s.Value, expectedTup, true)
+		unwrappedTy = valTy
+	}
+
+	var tupTy *types.Tuple
+	if t, isTup := unwrappedTy.(*types.Tuple); isTup {
+		tupTy = t
+	} else if dist, isDist := unwrappedTy.(*types.Distinct); isDist {
+		if t, isTup := dist.Base.(*types.Tuple); isTup {
+			tupTy = t
+		}
+	}
+
+	if tupTy == nil {
+		if unwrappedTy != types.TypeInvalid && unwrappedTy != types.TypeNever {
+			fc.a.Rep.Errorf(s.Value.GetSpan(), "cannot unpack non-tuple type %s", unwrappedTy.String())
+		}
+	} else if len(s.UnpackVars) != len(tupTy.Elems) {
+		fc.a.Rep.Errorf(s.Span, "cannot unpack %d-element tuple %s into %d variables", len(tupTy.Elems), unwrappedTy.String(), len(s.UnpackVars))
+	}
+
+	fc.consumeValue(s.Value, valTy, false)
+	valArenaDepth := fc.arenaDepthOfExpr(s.Value)
+
+	syms := make([]*Symbol, len(s.UnpackVars))
+	for i, uv := range s.UnpackVars {
+		elemTy := types.Type(types.TypeInvalid)
+		if tupTy != nil && i < len(tupTy.Elems) {
+			elemTy = tupTy.Elems[i]
+		}
+		if declTypes[i] != nil && declTypes[i] != types.TypeInvalid {
+			if elemTy != types.TypeInvalid {
+				fc.verifyAssignable(elemTy, declTypes[i], nil, uv.Span, fmt.Sprintf("declaration of %q", uv.Name))
+			}
+			elemTy = declTypes[i]
+		}
+		if uv.Name == "_" {
+			if uv.IsOptName {
+				fc.a.Rep.Errorf(uv.Span, "wildcard `_` cannot have optional `?` suffix")
+			}
+			syms[i] = nil
+			continue
+		}
+		fc.a.checkOptionalIdentRule(uv.Name, uv.IsOptName, elemTy, uv.Span, "variable")
+		sym := fc.declareLocal(uv.Name, elemTy, s.IsBind, BindOwned, uv.Span)
+		sym.ArenaDepth = valArenaDepth
+		syms[i] = sym
+	}
+	fc.a.curBM.UnpackVarSymbols[s] = syms
+	if valTy == types.TypeNever {
+		return types.TypeNever
+	}
+	return types.TypeVoid
+}
+
 func (fc *funcChecker) checkAssignStmt(s *ast.AssignStmt) types.Type {
+	if s.IsUnpack {
+		return fc.checkUnpackAssignStmt(s)
+	}
 	// Special shorthand: `map[key] = value` (Spec §7.2 / §8.2: shorthand for `map.insert(own k, own v)`)!
 	if idx, isIdx := s.Target.(*ast.IndexExpr); isIdx && s.Op == token.Assign && s.FallbackUnwind == nil {
 		baseTy := fc.checkExpr(idx.Base, true)
@@ -1435,6 +1689,154 @@ func (fc *funcChecker) checkAssignStmt(s *ast.AssignStmt) types.Type {
 	return types.TypeVoid
 }
 
+func (fc *funcChecker) checkUnpackAssignStmt(s *ast.AssignStmt) types.Type {
+	targetTypes := make([]types.Type, len(s.UnpackTargets))
+	rootSyms := make([]*Symbol, len(s.UnpackTargets))
+	allTyped := len(s.UnpackTargets) >= 2
+	anyTyped := false
+
+	for i, tgt := range s.UnpackTargets {
+		if id, isId := tgt.(*ast.IdentExpr); isId {
+			if id.Name == "_" {
+				fc.a.infoFor(id).Type = types.TypeVoid
+				allTyped = false
+				continue
+			}
+			sym := fc.lookupVar(id.Name)
+			if sym == nil {
+				fc.a.Rep.Errorf(id.Span, "cannot assign to undeclared variable %q", id.Name)
+				targetTypes[i] = types.TypeInvalid
+				allTyped = false
+				continue
+			}
+			if sym.IsBind {
+				fc.a.Rep.Errorf(id.Span, "cannot reassign deeply immutable `bind` variable %q", sym.Name)
+			}
+			if sym.Type != nil && sym.Type.Equals(types.TypeArena) {
+				if sym.BindKind != BindOwned {
+					fc.a.Rep.Errorf(id.Span, "cannot reassign borrowed `&Arena` parameter %q (caller may hold live `ref[T]` allocations)", sym.Name)
+				} else if fc.isArenaPinned(sym) {
+					fc.a.Rep.ErrorWithHint(
+						id.Span,
+						fmt.Sprintf("cannot reassign `Arena` %q while `ref[T]` allocations from this scope may still be live", sym.Name),
+						"wrap the phase that allocates `ref[T]` in a `{ ... }` block so references go out of scope before replacing the arena",
+					)
+				}
+			}
+			if fc.activeBorrows[sym] > 0 {
+				fc.a.Rep.Errorf(id.Span, "cannot reassign %q while it is borrowed", sym.Name)
+			}
+			fc.a.infoFor(id).Sym = sym
+			fc.a.infoFor(id).Type = sym.Type
+			targetTypes[i] = sym.Type
+			rootSyms[i] = sym
+			if sym.Type == nil || sym.Type == types.TypeInvalid {
+				allTyped = false
+			} else {
+				anyTyped = true
+			}
+		} else {
+			tTy := fc.checkExpr(tgt, true)
+			rSym := fc.checkMutablePlace(tgt, "mutate")
+			targetTypes[i] = tTy
+			rootSyms[i] = rSym
+			if tTy == nil || tTy == types.TypeInvalid {
+				allTyped = false
+			} else {
+				anyTyped = true
+			}
+		}
+	}
+
+	var expectedTup types.Type
+	if allTyped {
+		expectedTup = &types.Tuple{Elems: targetTypes}
+	} else if anyTyped && s.FallbackUnwind == nil {
+		if _, isTL := s.Value.(*ast.TupleLit); isTL {
+			expectedTup = &types.Tuple{Elems: targetTypes}
+		}
+	}
+
+	var valTy types.Type
+	var unwrappedTy types.Type
+	if s.FallbackUnwind != nil {
+		var expOpt types.Type
+		if expectedTup != nil {
+			expOpt = types.NewOptional(expectedTup)
+		}
+		valTy = fc.checkExprExpect(s.Value, expOpt, true)
+		_ = fc.checkUnwindStmt(s.FallbackUnwind)
+		unwrappedTy = types.TypeInvalid
+		if o, ok := valTy.(*types.Optional); ok {
+			unwrappedTy = o.Elem
+		} else if valTy != types.TypeInvalid {
+			fc.a.Rep.Errorf(s.Value.GetSpan(), "left-hand side of `??` must be optional, got %s", valTy.String())
+		}
+	} else {
+		valTy = fc.checkExprExpect(s.Value, expectedTup, true)
+		unwrappedTy = valTy
+	}
+
+	var tupTy *types.Tuple
+	if t, isTup := unwrappedTy.(*types.Tuple); isTup {
+		tupTy = t
+	} else if dist, isDist := unwrappedTy.(*types.Distinct); isDist {
+		if t, isTup := dist.Base.(*types.Tuple); isTup {
+			tupTy = t
+		}
+	}
+
+	if tupTy == nil {
+		if unwrappedTy != types.TypeInvalid && unwrappedTy != types.TypeNever {
+			fc.a.Rep.Errorf(s.Value.GetSpan(), "cannot unpack non-tuple type %s", unwrappedTy.String())
+		}
+	} else if len(s.UnpackTargets) != len(tupTy.Elems) {
+		fc.a.Rep.Errorf(s.Span, "cannot unpack %d-element tuple %s into %d targets", len(tupTy.Elems), unwrappedTy.String(), len(s.UnpackTargets))
+	}
+
+	fc.consumeValue(s.Value, valTy, false)
+	exprArenaDepth := fc.arenaDepthOfExpr(s.Value)
+
+	for i, tgt := range s.UnpackTargets {
+		if id, isId := tgt.(*ast.IdentExpr); isId && id.Name == "_" {
+			continue
+		}
+		tTy := targetTypes[i]
+		rSym := rootSyms[i]
+		if tupTy != nil && i < len(tupTy.Elems) && tTy != nil && tTy != types.TypeInvalid {
+			fc.verifyAssignable(tupTy.Elems[i], tTy, nil, tgt.GetSpan(), "assignment")
+		}
+		placeRoot := fc.rootSymbolOfExpr(tgt)
+		targetArenaDepth := fc.arenaDepthOfExpr(tgt)
+		if exprArenaDepth > 0 {
+			if targetArenaDepth > 0 && targetArenaDepth < exprArenaDepth {
+				fc.a.Rep.Errorf(s.Span, "arena reference `ref[T]` from an inner `Arena` cannot escape into an outer `Arena` allocation")
+			} else if placeRoot != nil && placeRoot.ScopeDepth < exprArenaDepth {
+				fc.a.Rep.Errorf(s.Span, "arena reference `ref[T]` cannot escape into %q declared in an outer scope", placeRoot.Name)
+			} else if placeRoot == nil && targetArenaDepth == 0 && fc.unsafeDepth == 0 {
+				fc.a.Rep.Errorf(s.Span, "arena reference `ref[T]` cannot escape into an outer reference target")
+			}
+		}
+		if tTy != nil && typeMayHoldArenaRef(tTy) {
+			if placeRoot != nil {
+				fc.lowerPinnedArenasTo(placeRoot.ScopeDepth)
+			} else {
+				fc.lowerPinnedArenasTo(1)
+			}
+		}
+		if rSym != nil {
+			if _, isId := tgt.(*ast.IdentExpr); isId {
+				if exprArenaDepth > rSym.ArenaDepth {
+					rSym.ArenaDepth = exprArenaDepth
+				}
+				fc.moves[rSym] = MoveAlive
+			}
+		}
+	}
+
+	return types.TypeVoid
+}
+
 func (fc *funcChecker) checkCompoundAssignTypes(op token.Kind, lhs, rhs types.Type, span diag.Span) {
 	if lhs == types.TypeInvalid || rhs == types.TypeInvalid {
 		return
@@ -1489,7 +1891,9 @@ func (fc *funcChecker) checkUnwindStmt(u *ast.UnwindStmt) types.Type {
 
 	if u.Value == nil {
 		// Bare unwind (`<-`, `next <-`, `for <-`, `func <-`)
-		if !isCont && exp != nil && !exp.Equals(types.TypeVoid) {
+		if tgt.kind == cfFunc && tgt.isInferredFunc {
+			tgt.hasVoidUnwind = true
+		} else if !isCont && exp != nil && !exp.Equals(types.TypeVoid) {
 			fc.a.Rep.Errorf(u.Span, "unwind `%s` requires a value of type %s", u.TargetName(), exp.String())
 		}
 	} else {
@@ -1509,9 +1913,28 @@ func (fc *funcChecker) checkUnwindStmt(u *ast.UnwindStmt) types.Type {
 				fc.consumeValue(u.Value, valTy, false)
 			}
 		} else {
-			// Inferring block/loop yield type bottom-up!
-			valTy = fc.checkExpr(u.Value, true)
+			// Inferring block/loop/func yield type bottom-up!
+			var expHint types.Type
+			if tgt.isInferredFunc && len(tgt.yieldTypes) > 0 {
+				cand := tgt.yieldTypes[0]
+				if cand != nil && cand != types.TypeInvalid && cand != types.TypeNever {
+					expHint = cand
+					if _, isNone := u.Value.(*ast.NoneLit); isNone {
+						expHint = types.NewOptional(cand)
+					}
+				}
+			}
+			if expHint != nil {
+				valTy = fc.checkExprExpect(u.Value, expHint, true)
+			} else {
+				valTy = fc.checkExpr(u.Value, true)
+			}
+			if tgt.isInferredFunc && valTy == types.TypeVoid {
+				fc.a.Rep.Errorf(u.Span, "cannot yield `void` value from `func <-`; use bare `func <-` instead")
+				valTy = types.TypeInvalid
+			}
 			tgt.yieldTypes = append(tgt.yieldTypes, valTy)
+			tgt.yieldExprs = append(tgt.yieldExprs, inferredYield{expr: u.Value, ty: valTy, span: u.Span})
 			tgt.hitValueExit = true
 			fc.consumeValue(u.Value, valTy, false)
 		}
@@ -1727,6 +2150,9 @@ func (fc *funcChecker) checkExprExpect(e ast.Expr, expected types.Type, needValu
 		if sym.IsTopLevel && fc.a.inBodyPass {
 			fc.a.resolveTopVar(sym)
 		}
+		if sym.FuncInst != nil && fc.a.inBodyPass {
+			_ = fc.a.ensureFuncRetResolved(sym.FuncInst, v.Span)
+		}
 		if sym.Deprecated {
 			msg := ""
 			if sym.DeprecatedMsg != "" {
@@ -1772,6 +2198,9 @@ func (fc *funcChecker) checkExprExpect(e ast.Expr, expected types.Type, needValu
 	case *ast.SliceExpr:
 		return fc.checkSliceExpr(v)
 
+	case *ast.RangeExpr:
+		return fc.checkRangeExpr(v, expected)
+
 	case *ast.VecLit:
 		return fc.checkVecOrArrayLit(v, expected)
 
@@ -1786,6 +2215,9 @@ func (fc *funcChecker) checkExprExpect(e ast.Expr, expected types.Type, needValu
 
 	case *ast.EmptyHashLit:
 		return fc.checkEmptyHashLit(v, expected)
+
+	case *ast.TupleLit:
+		return fc.checkTupleLit(v, expected)
 
 	case *ast.StructLit:
 		return fc.checkStructLit(v, expected)
@@ -2262,6 +2694,30 @@ func (fc *funcChecker) tryResolveEnumMemberTarget(m *ast.MemberExpr, expected ty
 	return nil, nil, false
 }
 
+// IsCanonicalTupleIndex checks if s is a canonical non-negative integer ("0", "1", "2", ...)
+// Disallowing leading zeros ("00"), underscores ("0_1"), negative signs ("-1"), and non-decimal characters.
+func IsCanonicalTupleIndex(s string) (int, bool) {
+	if len(s) == 0 {
+		return 0, false
+	}
+	if s == "0" {
+		return 0, true
+	}
+	if s[0] == '0' {
+		return 0, false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
+		}
+	}
+	val, err := strconv.Atoi(s)
+	if err != nil || val < 0 {
+		return 0, false
+	}
+	return val, true
+}
+
 // checkMemberExpr resolves `Enum.Variant`, `Result[T, E].Empty`, `mod.Symbol`, `struct.field`, `ref[Struct].field`,
 // and optional dot-chaining (`user?.name`, `self.profile?.score`, `acc?.nick.len()`, `find_user(id)?.name`).
 func (fc *funcChecker) checkMemberExpr(m *ast.MemberExpr, expected types.Type) types.Type {
@@ -2280,6 +2736,9 @@ func (fc *funcChecker) checkMemberExpr(m *ast.MemberExpr, expected types.Type) t
 					}
 					if sym.IsTopLevel && fc.a.inBodyPass {
 						fc.a.resolveTopVar(sym)
+					}
+					if sym.FuncInst != nil && fc.a.inBodyPass {
+						_ = fc.a.ensureFuncRetResolved(sym.FuncInst, m.Span)
 					}
 					if sym.Deprecated {
 						msg := ""
@@ -2341,12 +2800,6 @@ func (fc *funcChecker) checkMemberExpr(m *ast.MemberExpr, expected types.Type) t
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
 		}
-		if v.Kind == types.VariantStruct {
-			fc.a.Rep.Errorf(m.Span, "variant `%s.%s` carries named fields; construct with `%s.%s[...]`",
-				en.String(), v.Name, en.Name, v.Name)
-			inf.Type = types.TypeInvalid
-			return types.TypeInvalid
-		}
 		inf.EnumType = en
 		inf.EnumVariant = v
 		inf.Type = en
@@ -2397,6 +2850,59 @@ func (fc *funcChecker) checkMemberExpr(m *ast.MemberExpr, expected types.Type) t
 	if refTy, isRef := innerTy.(*types.Ref); isRef {
 		innerTy = refTy.Elem
 		inf.DerefStructPtr = true
+	}
+
+	if vec, isVec := innerTy.(*types.Vector); isVec {
+		if m.Member == "len" || m.Member == "cap" {
+			inf.Type = types.TypeInt
+			return types.TypeInt
+		}
+		if m.Member == "data" {
+			ptrTy := &types.Ptr{Elem: vec.Elem}
+			inf.Type = ptrTy
+			return ptrTy
+		}
+	}
+	if arr, isArr := innerTy.(*types.StackArray); isArr {
+		if m.Member == "len" {
+			inf.Type = types.TypeInt
+			return types.TypeInt
+		}
+		if m.Member == "data" {
+			ptrTy := &types.Ptr{Elem: arr.Elem}
+			inf.Type = ptrTy
+			return ptrTy
+		}
+	}
+	var tup *types.Tuple
+	typeName := innerTy.String()
+	if t, isTup := innerTy.(*types.Tuple); isTup {
+		tup = t
+	} else if d, isDist := innerTy.(*types.Distinct); isDist {
+		if dtTup, isTup := d.Base.(*types.Tuple); isTup {
+			tup = dtTup
+			typeName = d.Name
+		}
+	}
+	if tup != nil {
+		idx, ok := IsCanonicalTupleIndex(m.Member)
+		if !ok {
+			fc.a.Rep.Errorf(m.Span, "invalid tuple element index %q: must be a non-negative canonical integer", m.Member)
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		if idx >= len(tup.Elems) {
+			fc.a.Rep.Errorf(m.Span, "tuple %s has no element %d (index out of bounds)", typeName, idx)
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		inf.TupleFieldIdx = idx
+		resTy := tup.Elems[idx]
+		if isOptBase {
+			resTy = types.NewOptional(resTy)
+		}
+		inf.Type = resTy
+		return resTy
 	}
 
 	st, isSt := innerTy.(*types.Struct)
@@ -2465,6 +2971,16 @@ func (fc *funcChecker) checkIndexExpr(idx *ast.IndexExpr) types.Type {
 		inf.Type = v.Elem
 		return v.Elem
 
+	case *types.Tuple:
+		fc.a.Rep.Errorf(idx.Span, "tuple indexing with brackets is not supported; use dot access (e.g. '.0') instead")
+		return types.TypeInvalid
+
+	case *types.Distinct:
+		if _, isTup := v.Base.(*types.Tuple); isTup {
+			fc.a.Rep.Errorf(idx.Span, "tuple indexing with brackets is not supported; use dot access (e.g. '.0') instead")
+			return types.TypeInvalid
+		}
+
 	case *types.Primitive:
 		if v.Kind == types.PrimString {
 			kTy := fc.checkExprExpect(idx.Index, types.TypeInt, true)
@@ -2491,6 +3007,71 @@ func (fc *funcChecker) checkIndexExpr(idx *ast.IndexExpr) types.Type {
 		fc.verifyAssignable(kTy, types.TypeInt, idx.Index, idx.Index.GetSpan(), "pointer index")
 		inf.Type = v.Elem
 		return v.Elem
+
+	case *types.Struct:
+		if (v.Name == "List" || strings.HasPrefix(v.Name, "List[")) && len(v.TypeArgs) == 1 {
+			kTy := fc.checkExprExpect(idx.Index, types.TypeInt, true)
+			fc.verifyAssignable(kTy, types.TypeInt, idx.Index, idx.Index.GetSpan(), "list index")
+			inf.Type = v.TypeArgs[0]
+			return v.TypeArgs[0]
+		}
+		if (v.Name == "Array" || strings.HasPrefix(v.Name, "Array[")) && len(v.TypeArgs) >= 1 {
+			kTy := fc.checkExprExpect(idx.Index, types.TypeInt, true)
+			fc.verifyAssignable(kTy, types.TypeInt, idx.Index, idx.Index.GetSpan(), "array index")
+			elem := v.TypeArgs[len(v.TypeArgs)-1]
+			inf.Type = elem
+			return elem
+		}
+
+	case *types.Interface:
+		if fc.a.isIndexableType(v) {
+			kTy := fc.checkExprExpect(idx.Index, types.TypeInt, true)
+			fc.verifyAssignable(kTy, types.TypeInt, idx.Index, idx.Index.GetSpan(), "indexable index")
+			itemTy := fc.a.indexableItemType(v)
+			res := types.NewOptional(itemTy)
+			inf.Type = res
+			return res
+		}
+		if fc.a.isKeyIndexableType(v) {
+			keyTy, valTy := fc.a.keyIndexableTypes(v)
+			kTy := fc.checkExprExpect(idx.Index, keyTy, true)
+			fc.verifyAssignable(kTy, keyTy, idx.Index, idx.Index.GetSpan(), "key_indexable key")
+			res := types.NewOptional(valTy)
+			inf.Type = res
+			return res
+		}
+
+	case *types.TypeParamVar:
+		for _, b := range v.Bounds {
+			if fc.a.isIndexableType(b) {
+				kTy := fc.checkExprExpect(idx.Index, types.TypeInt, true)
+				fc.verifyAssignable(kTy, types.TypeInt, idx.Index, idx.Index.GetSpan(), "indexable index")
+				itemTy := fc.a.indexableItemType(b)
+				res := types.NewOptional(itemTy)
+				inf.Type = res
+				return res
+			}
+			if fc.a.isKeyIndexableType(b) {
+				keyTy, valTy := fc.a.keyIndexableTypes(b)
+				kTy := fc.checkExprExpect(idx.Index, keyTy, true)
+				fc.verifyAssignable(kTy, keyTy, idx.Index, idx.Index.GetSpan(), "key_indexable key")
+				res := types.NewOptional(valTy)
+				inf.Type = res
+				return res
+			}
+		}
+	}
+
+	if fi := fc.a.LookupMethod(baseTy, "get", nil, idx.Span); fi != nil && len(fi.Sig.Params) == 2 {
+		if fi.Sig.Params[0].Mode == types.ModeMut {
+			_ = fc.checkMutablePlace(idx.Base, "mutable index receiver")
+		}
+		kTy := fc.checkExprExpect(idx.Index, fi.Sig.Params[1].Type, true)
+		fc.verifyAssignable(kTy, fi.Sig.Params[1].Type, idx.Index, idx.Index.GetSpan(), "index")
+		inf.TargetFunc = fi
+		retTy := fc.a.ensureFuncRetResolved(fi, idx.Span)
+		inf.Type = retTy
+		return retTy
 	}
 
 	fc.a.Rep.Errorf(idx.Span, "cannot index value of type %s", baseTy.String())
@@ -2501,10 +3082,14 @@ func (fc *funcChecker) checkIndexExpr(idx *ast.IndexExpr) types.Type {
 func (fc *funcChecker) checkSliceExpr(sl *ast.SliceExpr) types.Type {
 	inf := fc.a.infoFor(sl)
 	baseTy := fc.checkExpr(sl.Base, true)
-	loTy := fc.checkExprExpect(sl.Low, types.TypeInt, true)
-	hiTy := fc.checkExprExpect(sl.High, types.TypeInt, true)
-	fc.verifyAssignable(loTy, types.TypeInt, sl.Low, sl.Low.GetSpan(), "slice start")
-	fc.verifyAssignable(hiTy, types.TypeInt, sl.High, sl.High.GetSpan(), "slice end")
+	if sl.Low != nil {
+		loTy := fc.checkExprExpect(sl.Low, types.TypeInt, true)
+		fc.verifyAssignable(loTy, types.TypeInt, sl.Low, sl.Low.GetSpan(), "slice start")
+	}
+	if sl.High != nil {
+		hiTy := fc.checkExprExpect(sl.High, types.TypeInt, true)
+		fc.verifyAssignable(hiTy, types.TypeInt, sl.High, sl.High.GetSpan(), "slice end")
+	}
 
 	switch v := baseTy.(type) {
 	case *types.Primitive:
@@ -2527,6 +3112,53 @@ func (fc *funcChecker) checkSliceExpr(sl *ast.SliceExpr) types.Type {
 	return types.TypeInvalid
 }
 
+func (fc *funcChecker) checkRangeExpr(re *ast.RangeExpr, expected types.Type) types.Type {
+	inf := fc.a.infoFor(re)
+	if fc.a.Prog.GenStructRange == nil {
+		fc.a.Rep.Errorf(re.Span, "`Range[T]` is not defined in the core prelude")
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+
+	var hintTy types.Type = types.TypeInt
+	if expected != nil {
+		target := expected
+		if opt, isOpt := target.(*types.Optional); isOpt {
+			target = opt.Elem
+		}
+		if st, isSt := target.(*types.Struct); isSt && fc.a.isStdStructTemplate(st, fc.a.Prog.GenStructRange) && len(st.TypeArgs) == 1 {
+			hintTy = st.TypeArgs[0]
+		}
+	}
+
+	loTy, hiTy := fc.checkOperandPairWithAdaptation(re.Low, re.High, hintTy)
+	if loTy == types.TypeInvalid || hiTy == types.TypeInvalid {
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	if !loTy.Equals(hiTy) {
+		fc.a.Rep.Errorf(re.Span, "range bounds in `a..b` must have matching types, got %s and %s", loTy.String(), hiTy.String())
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	prim := types.UnderlyingPrimitive(loTy)
+	if prim == nil || (!prim.IsInteger() && prim.Kind != types.PrimChar) {
+		fc.a.Rep.Errorf(re.Span, "range bounds require an integer or `char` type, got %s", loTy.String())
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	fc.consumeValue(re.Low, loTy, false)
+	fc.consumeValue(re.High, hiTy, false)
+
+	rangeTy := fc.a.instantiateStruct(fc.a.Prog.GenStructRange, []types.Type{loTy}, re.Span)
+	if rangeTy == nil {
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	inf.Type = rangeTy
+	return rangeTy
+}
+
 // -----------------------------------------------------------------------------
 // Collection, Struct, & Lambda Literals
 // -----------------------------------------------------------------------------
@@ -2536,6 +3168,12 @@ func (fc *funcChecker) checkVecOrArrayLit(v *ast.VecLit, expected types.Type) ty
 	target := expected
 	if opt, ok := target.(*types.Optional); ok {
 		target = opt.Elem
+	}
+
+	if st, isSt := target.(*types.Struct); isSt {
+		if (st.Name == "Array" || strings.HasPrefix(st.Name, "Array[")) && len(st.TypeArgs) >= 1 {
+			target = &types.StackArray{Size: int64(len(v.Elems)), Elem: st.TypeArgs[len(st.TypeArgs)-1]}
+		}
 	}
 
 	// Explicit-element stack array: `let s: [3: int] = [1, 2, 3]` (Spec §7.1 / §8.1)!
@@ -2556,6 +3194,8 @@ func (fc *funcChecker) checkVecOrArrayLit(v *ast.VecLit, expected types.Type) ty
 	var elemHint types.Type
 	if vecTy, isVec := target.(*types.Vector); isVec {
 		elemHint = vecTy.Elem
+	} else if st, isSt := target.(*types.Struct); isSt && (st.Name == "List" || strings.HasPrefix(st.Name, "List[")) && len(st.TypeArgs) == 1 {
+		elemHint = st.TypeArgs[0]
 	}
 
 	if len(v.Elems) == 0 {
@@ -2605,6 +3245,8 @@ func (fc *funcChecker) checkArrayLit(r *ast.ArrayLit, expected types.Type) types
 	var elemHint types.Type
 	if arr, isArr := expected.(*types.StackArray); isArr {
 		elemHint = arr.Elem
+	} else if st, isSt := expected.(*types.Struct); isSt && (st.Name == "Array" || strings.HasPrefix(st.Name, "Array[")) && len(st.TypeArgs) >= 1 {
+		elemHint = st.TypeArgs[len(st.TypeArgs)-1]
 	}
 
 	// Repeat constructor: `[N: value]` where N > 1 and len(Elems) == 1
@@ -2743,30 +3385,70 @@ func (fc *funcChecker) checkEmptyHashLit(e *ast.EmptyHashLit, expected types.Typ
 	}
 }
 
+func (fc *funcChecker) checkTupleLit(v *ast.TupleLit, expected types.Type) types.Type {
+	inf := fc.a.infoFor(v)
+	expTarget := expected
+	if opt, ok := expTarget.(*types.Optional); ok {
+		expTarget = opt.Elem
+	}
+	var distTarget *types.Distinct
+	if dist, isDist := expTarget.(*types.Distinct); isDist {
+		if dtTup, isTup := dist.Base.(*types.Tuple); isTup {
+			distTarget = dist
+			expTarget = dtTup
+		}
+	}
+	expTup, _ := expTarget.(*types.Tuple)
+	var elemTypes []types.Type
+	for i, el := range v.Elems {
+		var expElem types.Type
+		if expTup != nil && i < len(expTup.Elems) {
+			expElem = expTup.Elems[i]
+		}
+		t := fc.checkExprExpect(el, expElem, true)
+		if t == types.TypeInvalid {
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		targetElem := t
+		if expElem != nil {
+			fc.verifyAssignable(t, expElem, el, el.GetSpan(), fmt.Sprintf("tuple element %d", i))
+			targetElem = expElem
+		}
+		fc.consumeValue(el, targetElem, false)
+		elemTypes = append(elemTypes, targetElem)
+	}
+	tupTy := &types.Tuple{Elems: elemTypes}
+	resTy := types.Type(tupTy)
+	if distTarget != nil && tupTy.Equals(distTarget.Base) {
+		resTy = distTarget
+	}
+	inf.Type = resTy
+	partialExpected := false
+	if expTup != nil {
+		for _, el := range expTup.Elems {
+			if el == nil {
+				partialExpected = true
+				break
+			}
+		}
+	}
+	if !partialExpected {
+		if expTarget != nil && !tupTy.Equals(expTarget) {
+			fc.verifyAssignable(tupTy, expTarget, v, v.Span, "tuple literal")
+		}
+		if expected != nil && !resTy.Equals(expected) {
+			fc.verifyAssignable(resTy, expected, v, v.Span, "tuple literal")
+		}
+	}
+	return resTy
+}
+
 func (fc *funcChecker) checkStructLit(sl *ast.StructLit, expected types.Type) types.Type {
 	inf := fc.a.infoFor(sl)
 	expTarget := expected
 	if opt, ok := expTarget.(*types.Optional); ok {
 		expTarget = opt.Elem
-	}
-
-	// Check struct-payload enum variant:
-	// 1. `Tree[int].Branch[...]` / `mod.Expr.Add[...]` / `mod.Tree[int].Branch[...]` (`sl.VariantName != ""`)
-	// 2. `Expr.Add[...]` (`sl.VariantName == ""` and `sl.Module` is an Enum/GenericEnum in `fc.mod`, not an import alias)
-	if sl.VariantName != "" {
-		return fc.checkEnumStructVariantLit(sl.Module, sl.TypeName, sl.VariantName, sl, expTarget)
-	}
-	if sl.Module != "" {
-		if _, isMod := fc.mod.Aliased[sl.Module]; !isMod {
-			if fc.a.lookupGenEnumInModule(fc.mod, "", sl.Module) != nil {
-				return fc.checkEnumStructVariantLit("", sl.Module, sl.TypeName, sl, expTarget)
-			}
-			if ty := fc.a.lookupTypeInModule(fc.mod, "", sl.Module); ty != nil {
-				if _, isEn := ty.(*types.Enum); isEn {
-					return fc.checkEnumStructVariantLit("", sl.Module, sl.TypeName, sl, expTarget)
-				}
-			}
-		}
 	}
 
 	var st *types.Struct
@@ -2865,166 +3547,6 @@ func (fc *funcChecker) checkStructLit(sl *ast.StructLit, expected types.Type) ty
 	return st
 }
 
-func (fc *funcChecker) checkEnumStructVariantLit(modAlias, enumName, varName string, sl *ast.StructLit, expTarget types.Type) types.Type {
-	inf := fc.a.infoFor(sl)
-	var en *types.Enum
-
-	if genEn := fc.a.lookupGenEnumInModule(fc.mod, modAlias, enumName); genEn != nil {
-		if len(sl.EnumTypeArgs) > 0 {
-			if len(sl.EnumTypeArgs) != len(genEn.Decl.TypeParams) {
-				fc.a.Rep.Errorf(sl.Span, "generic enum %s expects %d type argument(s), got %d",
-					enumName, len(genEn.Decl.TypeParams), len(sl.EnumTypeArgs))
-				inf.Type = types.TypeInvalid
-				return types.TypeInvalid
-			}
-			targs := make([]types.Type, len(sl.EnumTypeArgs))
-			for i, ta := range sl.EnumTypeArgs {
-				targs[i] = fc.a.resolveValueType(fc.mod, ta, fc.subst, false)
-				if targs[i] == types.TypeInvalid {
-					inf.Type = types.TypeInvalid
-					return types.TypeInvalid
-				}
-			}
-			en = fc.a.instantiateEnum(genEn, targs, sl.Span)
-		} else if expEn, ok := expTarget.(*types.Enum); ok && expEn.Name == genEn.Decl.Name && len(expEn.TypeArgs) == len(genEn.Decl.TypeParams) {
-			en = expEn
-		} else {
-			en = fc.inferGenericEnumStructLit(genEn, varName, sl)
-		}
-		if en == nil {
-			inf.Type = types.TypeInvalid
-			return types.TypeInvalid
-		}
-	} else {
-		if len(sl.EnumTypeArgs) > 0 {
-			fc.a.Rep.Errorf(sl.Span, "enum %s is not generic", enumName)
-		}
-		ty := fc.a.lookupTypeInModule(fc.mod, modAlias, enumName)
-		var ok bool
-		en, ok = ty.(*types.Enum)
-		if !ok || en == nil {
-			fc.a.Rep.Errorf(sl.Span, "%q is not an enum type", enumName)
-			inf.Type = types.TypeInvalid
-			return types.TypeInvalid
-		}
-	}
-
-	v, ok := en.VariantByName(varName)
-	if !ok {
-		fc.a.Rep.Errorf(sl.Span, "enum %s has no variant %q", en.String(), varName)
-		inf.Type = types.TypeInvalid
-		return types.TypeInvalid
-	}
-	if v.Kind == types.VariantUnit {
-		fc.a.Rep.Errorf(sl.Span, "variant `%s.%s` takes no payload; write `%s.%s` without `[...]`",
-			en.String(), varName, en.Name, varName)
-		inf.Type = types.TypeInvalid
-		return types.TypeInvalid
-	}
-	if v.Kind == types.VariantTuple {
-		fc.a.Rep.Errorf(sl.Span, "variant `%s.%s` carries a single payload of type %s; construct with `%s.%s(...)` instead of `[...]`",
-			en.String(), varName, v.Payload.String(), en.Name, varName)
-		inf.Type = types.TypeInvalid
-		return types.TypeInvalid
-	}
-
-	samePkg := fc.a.SamePackageDir(fc.mod, en.PkgDir, "") || fc.a.SamePackage(fc.mod, fc.a.typeModule(en))
-	if !samePkg && !IsExported(varName) {
-		fc.a.Rep.Errorf(sl.Span, "cannot access unexported enum variant `%s.%s` outside its package", en.Name, varName)
-	}
-	if !samePkg {
-		for _, sf := range v.Fields {
-			if !IsExported(sf.Name) && !sf.HasDefault {
-				if _, isOpt := sf.Type.(*types.Optional); !isOpt {
-					fc.a.Rep.Errorf(sl.Span, "cannot construct variant `%s.%s` outside its package: unexported field %q has no default value (use a constructor function)", en.Name, varName, sf.Name)
-					break
-				}
-			}
-		}
-	}
-
-	provided := make(map[string]bool)
-	for _, fi := range sl.Fields {
-		if !samePkg && !IsExported(fi.Name) {
-			fc.a.Rep.Errorf(fi.Span, "cannot initialize unexported field %q of variant `%s.%s` outside its package", fi.Name, en.Name, varName)
-		}
-		if provided[fi.Name] {
-			fc.a.Rep.Errorf(fi.Span, "duplicate field %q in `%s.%s` literal", fi.Name, en.String(), varName)
-			continue
-		}
-		provided[fi.Name] = true
-		sf, _ := v.FieldByName(fi.Name)
-		if sf == nil {
-			fc.a.Rep.Errorf(fi.Span, "variant `%s.%s` has no field %q", en.String(), varName, fi.Name)
-			_ = fc.checkExpr(fi.Value, true)
-			continue
-		}
-		got := fc.checkExprExpect(fi.Value, sf.Type, true)
-		fc.verifyAssignable(got, sf.Type, fi.Value, fi.Value.GetSpan(), fmt.Sprintf("field %q of %s.%s", fi.Name, en.String(), varName))
-		fc.consumeValue(fi.Value, sf.Type, false)
-	}
-
-	for _, sf := range v.Fields {
-		if provided[sf.Name] || sf.HasDefault {
-			continue
-		}
-		if _, isOpt := sf.Type.(*types.Optional); isOpt {
-			continue
-		}
-		fc.a.Rep.Errorf(sl.Span, "missing required field %q (type %s) in `%s.%s` literal", sf.Name, sf.Type.String(), en.String(), varName)
-	}
-
-	inf.EnumType = en
-	inf.EnumVariant = v
-	inf.Type = en
-	return en
-}
-
-func (fc *funcChecker) inferGenericEnumStructLit(genEn *GenericEnumTemplate, varName string, sl *ast.StructLit) *types.Enum {
-	var declVar *ast.EnumVariant
-	for i := range genEn.Decl.Variants {
-		if genEn.Decl.Variants[i].Name == varName {
-			declVar = &genEn.Decl.Variants[i]
-			break
-		}
-	}
-	if declVar == nil || !declVar.HasFields {
-		fc.a.Rep.Errorf(sl.Span, "cannot infer generic type parameters for `%s.%s`; specify `%s[...].%s` explicitly",
-			genEn.Decl.Name, varName, genEn.Decl.Name, varName)
-		return nil
-	}
-	fieldTypes := make(map[string]types.Type)
-	for _, fi := range sl.Fields {
-		if _, isNone := fi.Value.(*ast.NoneLit); isNone {
-			continue
-		}
-		savedMoves := fc.cloneMoves()
-		fieldTypes[fi.Name] = fc.checkExpr(fi.Value, true)
-		fc.moves = savedMoves
-	}
-	inferred := make(map[string]types.Type)
-	tpNames := make(map[string]bool)
-	for _, tp := range genEn.Decl.TypeParams {
-		tpNames[tp.Name] = true
-	}
-	for _, df := range declVar.Fields {
-		if got, ok := fieldTypes[df.Name]; ok && got != types.TypeInvalid {
-			matchTypeExprForInference(df.Type, got, tpNames, inferred)
-		}
-	}
-	targs := make([]types.Type, len(genEn.Decl.TypeParams))
-	for i, tp := range genEn.Decl.TypeParams {
-		ta, ok := inferred[tp.Name]
-		if !ok {
-			fc.a.Rep.Errorf(sl.Span, "cannot infer generic type parameter %s for `%s.%s`; specify `%s[...].%s` explicitly",
-				tp.Name, genEn.Decl.Name, varName, genEn.Decl.Name, varName)
-			return nil
-		}
-		targs[i] = ta
-	}
-	return fc.a.instantiateEnum(genEn, targs, sl.Span)
-}
-
 func (fc *funcChecker) inferGenericStructLit(genSt *GenericStructTemplate, sl *ast.StructLit) *types.Struct {
 	fieldTypes := make(map[string]types.Type)
 	for _, fi := range sl.Fields {
@@ -3080,6 +3602,26 @@ func matchTypeExprForInference(pat ast.TypeExpr, concrete types.Type, tpNames ma
 				matchTypeExprForInference(p.TypeArgs[0], rf.Elem, tpNames, out)
 			}
 		}
+		if p.Name == "Indexable" && len(p.TypeArgs) == 1 {
+			if vec, ok := concrete.(*types.Vector); ok {
+				matchTypeExprForInference(p.TypeArgs[0], vec.Elem, tpNames, out)
+			} else if arr, ok := concrete.(*types.StackArray); ok {
+				matchTypeExprForInference(p.TypeArgs[0], arr.Elem, tpNames, out)
+			} else if prim, ok := concrete.(*types.Primitive); ok && prim.Kind == types.PrimString {
+				matchTypeExprForInference(p.TypeArgs[0], types.TypeU8, tpNames, out)
+			} else if st, ok := concrete.(*types.Struct); ok && len(st.TypeArgs) >= 1 {
+				matchTypeExprForInference(p.TypeArgs[0], st.TypeArgs[len(st.TypeArgs)-1], tpNames, out)
+			}
+		}
+		if p.Name == "KeyIndexable" && len(p.TypeArgs) == 2 {
+			if mp, ok := concrete.(*types.Map); ok {
+				matchTypeExprForInference(p.TypeArgs[0], mp.Key, tpNames, out)
+				matchTypeExprForInference(p.TypeArgs[1], mp.Value, tpNames, out)
+			} else if st, ok := concrete.(*types.Struct); ok && st.Name == "Map" && len(st.TypeArgs) == 2 {
+				matchTypeExprForInference(p.TypeArgs[0], st.TypeArgs[0], tpNames, out)
+				matchTypeExprForInference(p.TypeArgs[1], st.TypeArgs[1], tpNames, out)
+			}
+		}
 		if st, ok := concrete.(*types.Struct); ok && st.Name == p.Name && len(p.TypeArgs) == len(st.TypeArgs) {
 			for i := range p.TypeArgs {
 				matchTypeExprForInference(p.TypeArgs[i], st.TypeArgs[i], tpNames, out)
@@ -3115,6 +3657,12 @@ func matchTypeExprForInference(pat ast.TypeExpr, concrete types.Type, tpNames ma
 			matchTypeExprForInference(p.Key, mt.Key, tpNames, out)
 			matchTypeExprForInference(p.Value, mt.Value, tpNames, out)
 		}
+	case *ast.TupleType:
+		if tup, ok := concrete.(*types.Tuple); ok && len(p.Elems) == len(tup.Elems) {
+			for i := range p.Elems {
+				matchTypeExprForInference(p.Elems[i], tup.Elems[i], tpNames, out)
+			}
+		}
 	case *ast.FuncType:
 		if fn, ok := concrete.(*types.Func); ok && len(p.Params) == len(fn.Params) {
 			for i := range p.Params {
@@ -3131,7 +3679,7 @@ func matchTypeExprForInference(pat ast.TypeExpr, concrete types.Type, tpNames ma
 	}
 }
 
-func (fc *funcChecker) checkFuncLit(fl *ast.FuncLit, _ types.Type) types.Type {
+func (fc *funcChecker) checkFuncLit(fl *ast.FuncLit, expected types.Type) types.Type {
 	inf := fc.a.infoFor(fl)
 	var ps []types.FuncParam
 	for _, p := range fl.Params {
@@ -3139,11 +3687,16 @@ func (fc *funcChecker) checkFuncLit(fl *ast.FuncLit, _ types.Type) types.Type {
 		fc.a.checkOptionalIdentRule(p.Name, p.IsOptName, pt, p.Span, "lambda parameter")
 		ps = append(ps, types.FuncParam{Name: p.Name, Mode: pm, Type: pt})
 	}
-	ret := types.Type(types.TypeVoid)
+	var expRet types.Type
+	inferRet := false
 	if fl.Ret != nil {
-		ret = fc.a.resolveValueType(fc.mod, fl.Ret, fc.subst, false)
+		expRet = fc.a.resolveReturnType(fc.mod, fl.Ret, fc.subst, false)
+	} else if fnExp, ok := expected.(*types.Func); ok && fnExp.Ret != nil && fnExp.Ret != types.TypeInvalid {
+		expRet = fnExp.Ret
+	} else {
+		inferRet = true
 	}
-	sig := &types.Func{Params: ps, Ret: ret}
+	sig := &types.Func{Params: ps, Ret: expRet}
 
 	// Push lambda boundary & capture tracker!
 	fc.funcDepth++
@@ -3190,29 +3743,16 @@ func (fc *funcChecker) checkFuncLit(fl *ast.FuncLit, _ types.Type) types.Type {
 		kind:            cfFunc,
 		funcDepth:       fc.funcDepth,
 		outerScopeDepth: lamOuterDepth,
-		expectedType:    ret,
+		expectedType:    expRet,
+		isInferredFunc:  inferRet,
 	}
 	fc.cfStack = append(fc.cfStack, lamTarget)
 
-	if ret.Equals(types.TypeVoid) {
-		_ = fc.checkVoidOrDiscardedBody(fl.Body)
-	} else {
-		bty := fc.checkExprExpect(fl.Body, ret, true)
-		if bty == types.TypeVoid {
-			fc.a.Rep.Errorf(fl.Body.GetSpan(), "lambda must return a value of type %s on all paths", ret.String())
-		} else {
-			fc.verifyAssignable(bty, ret, fl.Body, fl.Body.GetSpan(), "lambda return")
-			fc.consumeValue(fl.Body, ret, false)
-			bAd := fc.arenaDepthOfExpr(fl.Body)
-			if bAd > lamOuterDepth {
-				fc.a.Rep.ErrorWithHint(
-					fl.Body.GetSpan(),
-					"arena reference `ref[T]` allocated from a lambda-local or owned `Arena` cannot escape the lambda",
-					"allocate into an outer or caller-provided `&Arena` instead",
-				)
-			} else if types.ContainsArenaRef(ret) && !fc.hasMutArenaParam && !prevHasArena && bAd == 0 {
-				fc.a.Rep.Errorf(fl.Body.GetSpan(), "lambda cannot return %s containing `ref[T]` unless it takes an `&Arena` parameter", ret.String())
-			}
+	ret := fc.checkFuncBodyAndReturn("<lambda>", fl.Body, expRet, inferRet, fl.Span, lamTarget)
+	sig.Ret = ret
+	if ret != nil && ret != types.TypeInvalid && types.ContainsArenaRef(ret) && !fc.hasMutArenaParam && !prevHasArena {
+		if fc.a.infoFor(fl.Body).Type != types.TypeNever && fc.arenaDepthOfExpr(fl.Body) == 0 {
+			fc.a.Rep.Errorf(fl.Body.GetSpan(), "lambda cannot return %s containing `ref[T]` unless it takes an `&Arena` parameter", ret.String())
 		}
 	}
 
@@ -3306,9 +3846,32 @@ func (fc *funcChecker) checkIfExpr(ie *ast.IfExpr, expected types.Type, needValu
 	id := fc.a.allocTargetID()
 	inf.TargetID = id
 
+	allowVoid := fc.inferVoidOrValue
+	fc.inferVoidOrValue = false
+
+	var evalTy types.Type
+	if ie.EvalType != nil {
+		evalTy = fc.a.resolveValueType(fc.mod, ie.EvalType, fc.subst, false)
+		allowVoid = false
+		if ie.Else == nil && evalTy != nil && evalTy != types.TypeInvalid {
+			if _, isOpt := evalTy.(*types.Optional); !isOpt {
+				fc.a.Rep.ErrorWithHint(
+					ie.EvalType.GetSpan(),
+					fmt.Sprintf("`if` without an `else` branch must have an optional evaluation type (got %s)", evalTy.String()),
+					fmt.Sprintf("use `?%s` or add an `else` branch", evalTy.String()),
+				)
+				evalTy = types.NewOptional(evalTy)
+			}
+		}
+	}
+
+	wantValue := needValue || evalTy != nil
+
 	// Determine target expected type for `if <- val`:
 	var branchExp types.Type
-	if needValue && expected != nil && expected != types.TypeVoid {
+	if evalTy != nil && evalTy != types.TypeInvalid {
+		branchExp = evalTy
+	} else if needValue && expected != nil && expected != types.TypeVoid {
 		branchExp = expected
 		if ie.Else == nil {
 			if opt, ok := expected.(*types.Optional); ok {
@@ -3429,16 +3992,22 @@ func (fc *funcChecker) checkIfExpr(ie *ast.IfExpr, expected types.Type, needValu
 	}
 
 	var thenTy types.Type
-	if !needValue {
+	if !wantValue {
 		thenTy = fc.checkVoidOrDiscardedBody(ie.Then)
 	} else {
-		thenTy = fc.checkExprExpect(ie.Then, branchExp, true)
+		if allowVoid && branchExp == nil {
+			thenTy = fc.checkInferOrValue(ie.Then, nil)
+		} else {
+			thenTy = fc.checkExprExpect(ie.Then, branchExp, true)
+		}
 		if thenTy == types.TypeVoid {
-			fc.a.Rep.Errorf(ie.Then.GetSpan(), "`if` branch used as a value must evaluate to a value")
-		} else if branchExp != nil {
+			if !(allowVoid && branchExp == nil) {
+				fc.a.Rep.Errorf(ie.Then.GetSpan(), "`if` branch used as a value must evaluate to a value")
+			}
+		} else if branchExp != nil && thenTy != types.TypeNever && thenTy != types.TypeInvalid {
 			fc.verifyAssignable(thenTy, branchExp, ie.Then, ie.Then.GetSpan(), "`if` then-branch")
 			fc.consumeValue(ie.Then, branchExp, false)
-		} else {
+		} else if thenTy != types.TypeNever && thenTy != types.TypeInvalid {
 			fc.consumeValue(ie.Then, thenTy, false)
 		}
 	}
@@ -3447,10 +4016,10 @@ func (fc *funcChecker) checkIfExpr(ie *ast.IfExpr, expected types.Type, needValu
 		fc.activeBorrows[lockedOrigin]--
 	}
 	thenAd := fc.arenaDepthOfExpr(ie.Then)
-	if needValue && thenAd > outerDepth {
+	if wantValue && thenTy != types.TypeVoid && thenTy != types.TypeNever && thenAd > outerDepth {
 		fc.a.Rep.Errorf(ie.Then.GetSpan(), "arena reference `ref[T]` cannot escape `if` branch scope")
 	}
-	if needValue && thenAd > tgt.maxYieldArenaDepth {
+	if wantValue && thenTy != types.TypeVoid && thenTy != types.TypeNever && thenAd > tgt.maxYieldArenaDepth {
 		tgt.maxYieldArenaDepth = thenAd
 	}
 	fc.popScope()
@@ -3471,6 +4040,25 @@ func (fc *funcChecker) checkIfExpr(ie *ast.IfExpr, expected types.Type, needValu
 			inf.Type = types.TypeVoid
 			return types.TypeVoid
 		}
+		if allowVoid && evalTy == nil {
+			if thenTy == types.TypeInvalid {
+				inf.Type = types.TypeInvalid
+				return types.TypeInvalid
+			}
+			if thenTy == types.TypeVoid {
+				if len(tgt.yieldTypes) > 0 {
+					fc.a.Rep.Errorf(ie.Then.GetSpan(), "`if` branch yields a value via `if <-` on some paths, but does not evaluate to a value on all paths")
+					inf.Type = types.TypeInvalid
+					return types.TypeInvalid
+				}
+				inf.Type = types.TypeVoid
+				return types.TypeVoid
+			}
+			if thenTy == types.TypeNever && len(tgt.yieldTypes) == 0 {
+				inf.Type = types.TypeVoid
+				return types.TypeVoid
+			}
+		}
 		elemTy := branchExp
 		if elemTy == nil {
 			elemTy = unifyYieldTypes(append(tgt.yieldTypes, thenTy))
@@ -3487,23 +4075,35 @@ func (fc *funcChecker) checkIfExpr(ie *ast.IfExpr, expected types.Type, needValu
 	// Has `else` branch!
 	fc.pushScope()
 	var elseTy types.Type
-	if !needValue {
+	if !wantValue {
 		elseTy = fc.checkVoidOrDiscardedBody(ie.Else)
 	} else {
 		hint := branchExp
-		if hint == nil && thenTy != types.TypeNever && thenTy != types.TypeInvalid {
+		if hint == nil && thenTy != types.TypeVoid && thenTy != types.TypeNever && thenTy != types.TypeInvalid {
 			hint = thenTy
+			if _, isNone := ie.Else.(*ast.NoneLit); isNone {
+				hint = types.NewOptional(thenTy)
+			}
 		}
-		elseTy = fc.checkExprExpect(ie.Else, hint, true)
+		if allowVoid && hint == nil {
+			elseTy = fc.checkInferOrValue(ie.Else, nil)
+		} else {
+			elseTy = fc.checkExprExpect(ie.Else, hint, true)
+		}
 		if elseTy == types.TypeVoid {
-			fc.a.Rep.Errorf(ie.Else.GetSpan(), "`else` branch used as a value must evaluate to a value")
+			if !(allowVoid && branchExp == nil) {
+				fc.a.Rep.Errorf(ie.Else.GetSpan(), "`else` branch used as a value must evaluate to a value")
+			}
+		} else if branchExp != nil && elseTy != types.TypeNever && elseTy != types.TypeInvalid {
+			fc.verifyAssignable(elseTy, branchExp, ie.Else, ie.Else.GetSpan(), "`if` else-branch")
+			fc.consumeValue(ie.Else, branchExp, false)
 		}
 	}
 	elseAd := fc.arenaDepthOfExpr(ie.Else)
-	if needValue && elseAd > outerDepth {
+	if wantValue && elseTy != types.TypeVoid && elseTy != types.TypeNever && elseAd > outerDepth {
 		fc.a.Rep.Errorf(ie.Else.GetSpan(), "arena reference `ref[T]` cannot escape `else` branch scope")
 	}
-	if needValue && elseAd > tgt.maxYieldArenaDepth {
+	if wantValue && elseTy != types.TypeVoid && elseTy != types.TypeNever && elseAd > tgt.maxYieldArenaDepth {
 		tgt.maxYieldArenaDepth = elseAd
 	}
 	fc.popScope()
@@ -3522,7 +4122,7 @@ func (fc *funcChecker) checkIfExpr(ie *ast.IfExpr, expected types.Type, needValu
 	}
 
 	if !needValue {
-		if thenTy == types.TypeNever && elseTy == types.TypeNever {
+		if thenTy == types.TypeNever && elseTy == types.TypeNever && !tgt.hitValueExit {
 			inf.Type = types.TypeNever
 			return types.TypeNever
 		}
@@ -3530,16 +4130,49 @@ func (fc *funcChecker) checkIfExpr(ie *ast.IfExpr, expected types.Type, needValu
 		return types.TypeVoid
 	}
 
+	if allowVoid && branchExp == nil {
+		if thenTy == types.TypeInvalid || elseTy == types.TypeInvalid {
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		isThenVoid := thenTy == types.TypeVoid
+		isElseVoid := elseTy == types.TypeVoid
+		if isThenVoid && isElseVoid {
+			if len(tgt.yieldTypes) > 0 {
+				fc.a.Rep.Errorf(ie.Span, "`if` expression mixes `void` and value-producing paths")
+				inf.Type = types.TypeInvalid
+				return types.TypeInvalid
+			}
+			inf.Type = types.TypeVoid
+			return types.TypeVoid
+		}
+		if isThenVoid || isElseVoid {
+			otherTy := elseTy
+			if isElseVoid {
+				otherTy = thenTy
+			}
+			if otherTy == types.TypeNever && len(tgt.yieldTypes) == 0 {
+				inf.Type = types.TypeVoid
+				return types.TypeVoid
+			}
+			fc.a.Rep.Errorf(ie.Span, "`if` and `else` branches must both evaluate to a value or both be `void`")
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+	}
+
 	resTy := branchExp
 	if resTy == nil {
 		resTy = unifyYieldTypes(append(tgt.yieldTypes, thenTy, elseTy))
 	}
-	if thenTy != types.TypeVoid && thenTy != types.TypeInvalid {
-		fc.verifyAssignable(thenTy, resTy, ie.Then, ie.Then.GetSpan(), "`if` then-branch")
-	}
-	if elseTy != types.TypeVoid && elseTy != types.TypeInvalid {
-		fc.verifyAssignable(elseTy, resTy, ie.Else, ie.Else.GetSpan(), "`if` else-branch")
-		fc.consumeValue(ie.Else, resTy, false)
+	if branchExp == nil {
+		if thenTy != types.TypeVoid && thenTy != types.TypeNever && thenTy != types.TypeInvalid {
+			fc.verifyAssignable(thenTy, resTy, ie.Then, ie.Then.GetSpan(), "`if` then-branch")
+		}
+		if elseTy != types.TypeVoid && elseTy != types.TypeNever && elseTy != types.TypeInvalid {
+			fc.verifyAssignable(elseTy, resTy, ie.Else, ie.Else.GetSpan(), "`if` else-branch")
+			fc.consumeValue(ie.Else, resTy, false)
+		}
 	}
 	if thenTy == types.TypeNever && elseTy == types.TypeNever && !tgt.hitValueExit {
 		inf.Type = types.TypeNever
@@ -3587,11 +4220,10 @@ func (fc *funcChecker) checkLoopHeader(h loopHeaderInfo, id int) (sym1, sym2 *Sy
 		}
 
 	case ast.ForRange:
-		loTy := fc.checkExprExpect(h.condOrIter, types.TypeInt, true)
-		hiTy := fc.checkExprExpect(h.rangeEnd, loTy, true)
+		loTy, hiTy := fc.checkOperandPairWithAdaptation(h.condOrIter, h.rangeEnd, types.TypeInt)
 		p := types.UnderlyingPrimitive(loTy)
-		if loTy != types.TypeInvalid && (p == nil || !p.IsInteger() || !loTy.Equals(hiTy)) {
-			fc.a.Rep.Errorf(h.span, "range bounds in loop `(%s in a..b)` must be matching integer types, got %s and %s",
+		if loTy != types.TypeInvalid && hiTy != types.TypeInvalid && (p == nil || (!p.IsInteger() && p.Kind != types.PrimChar) || !loTy.Equals(hiTy)) {
+			fc.a.Rep.Errorf(h.span, "range bounds in loop `(%s in a..b)` must be matching integer or `char` types, got %s and %s",
 				h.var1, loTy.String(), hiTy.String())
 		}
 		if h.var2 != "" || h.var1Mut {
@@ -3691,6 +4323,28 @@ func (fc *funcChecker) resolveIterVars(h loopHeaderInfo, colTy types.Type, id in
 			return mkSym(h.var1, h.var1IsOpt, entryTy, h.var1Mut), nil
 		}
 		return mkSym(h.var1, h.var1IsOpt, c.Key, false), mkSym(h.var2, h.var2IsOpt, c.Value, h.var2Mut)
+
+	case *types.Struct:
+		if fc.a.isStdStructTemplate(c, fc.a.Prog.GenStructRange) && len(c.TypeArgs) == 1 {
+			if h.var2 != "" || h.var1Mut {
+				fc.a.Rep.Errorf(h.span, "range loop only binds a single read-only variable (`(i in r)`)")
+			}
+			return mkSym(h.var1, h.var1IsOpt, c.TypeArgs[0], false), nil
+		}
+		if (c.Name == "List" || strings.HasPrefix(c.Name, "List[")) && len(c.TypeArgs) == 1 {
+			elem := c.TypeArgs[0]
+			if h.var2 == "" {
+				return mkSym(h.var1, h.var1IsOpt, elem, h.var1Mut), nil
+			}
+			return mkSym(h.var1, h.var1IsOpt, types.TypeInt, false), mkSym(h.var2, h.var2IsOpt, elem, h.var2Mut)
+		}
+		if (c.Name == "Array" || strings.HasPrefix(c.Name, "Array[")) && len(c.TypeArgs) >= 1 {
+			elem := c.TypeArgs[len(c.TypeArgs)-1]
+			if h.var2 == "" {
+				return mkSym(h.var1, h.var1IsOpt, elem, h.var1Mut), nil
+			}
+			return mkSym(h.var1, h.var1IsOpt, types.TypeInt, false), mkSym(h.var2, h.var2IsOpt, elem, h.var2Mut)
+		}
 	}
 
 	if colTy != types.TypeInvalid {
@@ -3703,6 +4357,9 @@ func (fc *funcChecker) checkForExpr(fe *ast.ForExpr, expected types.Type, needVa
 	inf := fc.a.infoFor(fe)
 	id := fc.a.allocTargetID()
 	inf.TargetID = id
+
+	allowVoid := fc.inferVoidOrValue
+	fc.inferVoidOrValue = false
 
 	h := loopHeaderInfo{
 		kind:       fe.Kind,
@@ -3721,7 +4378,14 @@ func (fc *funcChecker) checkForExpr(fe *ast.ForExpr, expected types.Type, needVa
 	sym1, sym2, lockedCol, isInfiniteTrue := fc.checkLoopHeader(h, id)
 	fc.a.curBM.ForSymbols[fe] = [2]*Symbol{sym1, sym2}
 
-	if !needValue {
+	var evalTy types.Type
+	if fe.EvalType != nil {
+		evalTy = fc.a.resolveValueType(fc.mod, fe.EvalType, fc.subst, false)
+		allowVoid = false
+	}
+	wantValue := needValue || evalTy != nil
+
+	if !wantValue {
 		outerDepth := fc.curDepth()
 		tgt := &cfTarget{
 			id:              id,
@@ -3783,20 +4447,15 @@ func (fc *funcChecker) checkForExpr(fe *ast.ForExpr, expected types.Type, needVa
 	var expectedItemTy types.Type
 	isVectorInferred := false
 
-	if fe.EvalType != nil {
-		if vecAst, isVec := fe.EvalType.(*ast.VectorType); isVec && vecAst.Elem == nil {
-			isVectorInferred = true
-		} else {
-			colTy := fc.a.resolveValueType(fc.mod, fe.EvalType, nil, false)
-			if colTy != types.TypeInvalid && !fc.a.isCollectableType(colTy) {
-				fc.a.Rep.Errorf(fe.EvalType.GetSpan(), "type %s does not implement Collectable", colTy.String())
-				inf.Type = types.TypeInvalid
-				return types.TypeInvalid
-			}
-			targetColTy = colTy
-			if colTy != types.TypeInvalid {
-				expectedItemTy = fc.a.collectableItemType(colTy)
-			}
+	if evalTy != nil {
+		if evalTy != types.TypeInvalid && !fc.a.isCollectableType(evalTy) {
+			fc.a.Rep.Errorf(fe.EvalType.GetSpan(), "type %s does not implement Collectable", evalTy.String())
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		targetColTy = evalTy
+		if evalTy != types.TypeInvalid {
+			expectedItemTy = fc.a.collectableItemType(evalTy)
 		}
 	} else if expected != nil && expected != types.TypeVoid && expected != types.TypeInvalid && fc.a.isCollectableType(expected) {
 		targetColTy = expected
@@ -3833,7 +4492,12 @@ func (fc *funcChecker) checkForExpr(fe *ast.ForExpr, expected types.Type, needVa
 		fc.activeBorrows[lockedCol]++
 	}
 
-	bodyTy := fc.checkExprExpect(fe.Body, expectedItemTy, true)
+	var bodyTy types.Type
+	if allowVoid && expectedItemTy == nil {
+		bodyTy = fc.checkInferOrValue(fe.Body, nil)
+	} else {
+		bodyTy = fc.checkExprExpect(fe.Body, expectedItemTy, true)
+	}
 
 	if lockedCol != nil {
 		fc.activeBorrows[lockedCol]--
@@ -3861,8 +4525,31 @@ func (fc *funcChecker) checkForExpr(fe *ast.ForExpr, expected types.Type, needVa
 	fc.moves = mergeMoveMaps(preLoopMoves, postBodyMoves)
 
 	if isVectorInferred {
-		if bodyTy == types.TypeVoid || bodyTy == types.TypeNever || bodyTy == types.TypeInvalid {
+		if bodyTy == types.TypeVoid || bodyTy == types.TypeNever {
+			if allowVoid {
+				if fe.Else != nil {
+					fc.pushScope()
+					elseTy := fc.checkInferOrValue(fe.Else, nil)
+					fc.popScope()
+					if elseTy != types.TypeVoid && elseTy != types.TypeNever && elseTy != types.TypeInvalid {
+						fc.a.Rep.Errorf(fe.Else.GetSpan(), "`for ... else` branch must be `void` when `for` body is `void`")
+						inf.Type = types.TypeInvalid
+						return types.TypeInvalid
+					}
+				}
+				if len(tgt.yieldTypes) > 0 {
+					fc.a.Rep.Errorf(fe.Span, "`for` loop yields a value via `for <-` on some paths, but body evaluates to `void`")
+					inf.Type = types.TypeInvalid
+					return types.TypeInvalid
+				}
+				inf.Type = types.TypeVoid
+				return types.TypeVoid
+			}
 			fc.a.Rep.Errorf(fe.Body.GetSpan(), "`for` loop expression producing a list must evaluate to a non-void value")
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		if bodyTy == types.TypeInvalid {
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
 		}
@@ -3883,6 +4570,10 @@ func (fc *funcChecker) checkForExpr(fe *ast.ForExpr, expected types.Type, needVa
 		fc.consumeValue(fe.Else, targetColTy, false)
 	}
 
+	if !needValue {
+		inf.Type = types.TypeVoid
+		return types.TypeVoid
+	}
 	inf.YieldArenaDepth = tgt.maxYieldArenaDepth
 	if typeMayHoldArenaRef(targetColTy) {
 		fc.lowerPinnedArenasTo(outerDepth)
@@ -3895,6 +4586,9 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 	inf := fc.a.infoFor(we)
 	id := fc.a.allocTargetID()
 	inf.TargetID = id
+
+	allowVoid := fc.inferVoidOrValue
+	fc.inferVoidOrValue = false
 
 	h := loopHeaderInfo{
 		kind:       we.Kind,
@@ -3915,8 +4609,20 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 
 	var evalTy types.Type
 	if we.EvalType != nil {
-		evalTy = fc.a.resolveValueType(fc.mod, we.EvalType, nil, false)
+		evalTy = fc.a.resolveValueType(fc.mod, we.EvalType, fc.subst, false)
+		allowVoid = false
+		if we.Else == nil && !isInfiniteTrue && evalTy != nil && evalTy != types.TypeInvalid {
+			if _, isOpt := evalTy.(*types.Optional); !isOpt {
+				fc.a.Rep.ErrorWithHint(
+					we.EvalType.GetSpan(),
+					fmt.Sprintf("`while` loop without an `else` branch must have an optional evaluation type (got %s)", evalTy.String()),
+					fmt.Sprintf("use `?%s`, add an `else` branch, or use `while (true)`", evalTy.String()),
+				)
+				evalTy = types.NewOptional(evalTy)
+			}
+		}
 	}
+	wantValue := needValue || evalTy != nil
 
 	var elemExp types.Type
 	if evalTy != nil && evalTy != types.TypeInvalid {
@@ -3932,10 +4638,12 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 	}
 
 	var tgtExp types.Type
-	if !needValue {
+	if !wantValue {
 		tgtExp = types.TypeVoid
+	} else if evalTy != nil && evalTy != types.TypeInvalid {
+		tgtExp = evalTy
 	} else if elemExp != nil {
-		if we.Else == nil && evalTy == nil {
+		if we.Else == nil {
 			tgtExp = types.NewOptional(elemExp)
 		} else {
 			tgtExp = elemExp
@@ -3972,8 +4680,14 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 	}
 
 	var bodyTy types.Type
-	if !needValue {
+	if !wantValue {
 		bodyTy = fc.checkVoidOrDiscardedBody(we.Body)
+	} else if allowVoid && elemExp == nil {
+		if isDefiniteStmtBody(we.Body) {
+			bodyTy = fc.checkVoidOrDiscardedBody(we.Body)
+		} else {
+			bodyTy = fc.checkInferOrValue(we.Body, nil)
+		}
 	} else {
 		bodyTy = fc.checkLoopBodyExpr(we.Body, elemExp)
 	}
@@ -3981,7 +4695,7 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 	if lockedCol != nil {
 		fc.activeBorrows[lockedCol]--
 	}
-	if needValue && bodyTy != types.TypeVoid && bodyTy != types.TypeNever && bodyTy != types.TypeInvalid {
+	if wantValue && bodyTy != types.TypeVoid && bodyTy != types.TypeNever && bodyTy != types.TypeInvalid {
 		bodyAd := fc.arenaDepthOfExpr(we.Body)
 		if bodyAd > outerDepth {
 			fc.a.Rep.Errorf(we.Body.GetSpan(), "arena reference `ref[T]` cannot escape `while` loop scope")
@@ -4002,12 +4716,11 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 	}
 	postBodyMoves := fc.cloneMoves()
 
-	if !needValue {
+	if !wantValue {
 		fc.moves = mergeMoveMaps(preLoopMoves, postBodyMoves)
 		if we.Else != nil {
 			fc.checkVoidOrDiscardedBody(we.Else)
 		}
-		_ = isInfiniteTrue
 		inf.Type = types.TypeVoid
 		return types.TypeVoid
 	}
@@ -4035,7 +4748,7 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 			fc.pushScope()
 			elseTy := fc.checkExprExpect(we.Else, evalTy, true)
 			elseAd := fc.arenaDepthOfExpr(we.Else)
-			if elseAd > outerDepth {
+			if wantValue && elseAd > outerDepth {
 				fc.a.Rep.Errorf(we.Else.GetSpan(), "arena reference `ref[T]` cannot escape `while ... else` scope")
 			} else if elseAd > tgt.maxYieldArenaDepth {
 				tgt.maxYieldArenaDepth = elseAd
@@ -4045,6 +4758,10 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 			fc.moves = mergeMoveMaps(postBodyMoves, elseMoves)
 			fc.verifyAssignable(elseTy, evalTy, we.Else, we.Else.GetSpan(), "`while ... else` fallback")
 			fc.consumeValue(we.Else, evalTy, false)
+			if !needValue {
+				inf.Type = types.TypeVoid
+				return types.TypeVoid
+			}
 			inf.YieldArenaDepth = tgt.maxYieldArenaDepth
 			if typeMayHoldArenaRef(evalTy) {
 				fc.lowerPinnedArenasTo(outerDepth)
@@ -4053,6 +4770,10 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 			return evalTy
 		} else {
 			fc.moves = mergeMoveMaps(preLoopMoves, postBodyMoves)
+			if !needValue {
+				inf.Type = types.TypeVoid
+				return types.TypeVoid
+			}
 			inf.YieldArenaDepth = tgt.maxYieldArenaDepth
 			if typeMayHoldArenaRef(evalTy) {
 				fc.lowerPinnedArenasTo(outerDepth)
@@ -4065,6 +4786,14 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 	if we.Else == nil {
 		fc.moves = mergeMoveMaps(preLoopMoves, postBodyMoves)
 		if inferredElem == nil {
+			if allowVoid {
+				if bodyTy == types.TypeInvalid {
+					inf.Type = types.TypeInvalid
+					return types.TypeInvalid
+				}
+				inf.Type = types.TypeVoid
+				return types.TypeVoid
+			}
 			fc.a.Rep.Errorf(we.Span, "`while` loop used as a value produces no iteration value and has no `while <- val` exit")
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
@@ -4081,7 +4810,12 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 	// Has `else` clause -> guaranteed type `T`!
 	fc.moves = fc.cloneMovesFrom(preLoopMoves)
 	fc.pushScope()
-	elseTy := fc.checkExprExpect(we.Else, inferredElem, true)
+	var elseTy types.Type
+	if allowVoid && inferredElem == nil {
+		elseTy = fc.checkInferOrValue(we.Else, nil)
+	} else {
+		elseTy = fc.checkExprExpect(we.Else, inferredElem, true)
+	}
 	elseAd := fc.arenaDepthOfExpr(we.Else)
 	if elseAd > outerDepth {
 		fc.a.Rep.Errorf(we.Else.GetSpan(), "arena reference `ref[T]` cannot escape `while ... else` scope")
@@ -4093,6 +4827,10 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 	fc.moves = mergeMoveMaps(postBodyMoves, elseMoves)
 
 	if inferredElem == nil {
+		if allowVoid && (elseTy == types.TypeVoid || elseTy == types.TypeNever) {
+			inf.Type = types.TypeVoid
+			return types.TypeVoid
+		}
 		inferredElem = elseTy
 	}
 	if inferredElem == nil || inferredElem == types.TypeVoid {
@@ -4110,14 +4848,33 @@ func (fc *funcChecker) checkWhileExpr(we *ast.WhileExpr, expected types.Type, ne
 	return inferredElem
 }
 
-// checkLoopBodyExpr allows a value-position `for` loop body to EITHER evaluate to an iteration value `T`
-// OR be a `void` search body that uses `for <- val`!
+// checkLoopBodyExpr allows a value-position `while` loop body to EITHER evaluate to an iteration value `T`
+// OR be a `void` search body that uses `while <- val`!
 func (fc *funcChecker) checkLoopBodyExpr(body ast.Expr, elemExp types.Type) types.Type {
 	_, elemIsOpt := elemExp.(*types.Optional)
-	if !elemIsOpt && isSearchStmtBody(body) {
+	if (!elemIsOpt && isSearchStmtBody(body)) || isDefiniteStmtBody(body) {
 		return fc.checkVoidOrDiscardedBody(body)
 	}
 	return fc.checkExprExpect(body, elemExp, true)
+}
+
+func isDefiniteStmtBody(e ast.Expr) bool {
+	switch v := e.(type) {
+	case *ast.StmtBodyExpr:
+		return true
+	case *ast.IfExpr:
+		return v.Else == nil && isDefiniteStmtBody(v.Then)
+	case *ast.ForExpr:
+		return v.Else == nil && isDefiniteStmtBody(v.Body)
+	case *ast.WhileExpr:
+		return v.Else == nil && isDefiniteStmtBody(v.Body)
+	case *ast.BlockExpr:
+		return v.Tail == nil || isDefiniteStmtBody(v.Tail)
+	case *ast.UnsafeExpr:
+		return isDefiniteStmtBody(v.Expr)
+	default:
+		return false
+	}
 }
 
 func isSearchStmtBody(e ast.Expr) bool {
@@ -4144,11 +4901,48 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 	id := fc.a.allocTargetID()
 	inf.TargetID = id
 
-	scrutTy := fc.checkExpr(me.Scrutinee, true)
-	scrutRoot := fc.rootSymbolOfExpr(me.Scrutinee)
-	scrutArenaDepth := fc.arenaDepthOfExpr(me.Scrutinee)
+	allowVoid := fc.inferVoidOrValue
+	fc.inferVoidOrValue = false
+
+	numScrut := len(me.Scrutinees)
+	scrutTys := make([]types.Type, numScrut)
+	scrutRoots := make([]*Symbol, numScrut)
+	scrutArenaDepths := make([]int, numScrut)
+	isExplicitOwnScrut := make([]bool, numScrut)
+	isRefScrut := make([]bool, numScrut)
+	enumScrut := make([]*types.Enum, numScrut)
+
+	for i, s := range me.Scrutinees {
+		st := fc.checkExpr(s, true)
+		scrutRoots[i] = fc.rootSymbolOfExpr(s)
+		scrutArenaDepths[i] = fc.arenaDepthOfExpr(s)
+		if u, isOwn := s.(*ast.UnaryExpr); isOwn && u.Op == token.KwOwn {
+			isExplicitOwnScrut[i] = true
+			fc.consumeValue(s, st, false)
+		}
+		if rf, ok := st.(*types.Ref); ok {
+			if _, isEn := rf.Elem.(*types.Enum); isEn {
+				st = rf.Elem
+				isRefScrut[i] = true
+			}
+		}
+		if en, isEn := st.(*types.Enum); isEn {
+			enumScrut[i] = en
+		}
+		scrutTys[i] = st
+	}
+
+	var evalTy types.Type
+	if me.EvalType != nil {
+		evalTy = fc.a.resolveValueType(fc.mod, me.EvalType, fc.subst, false)
+		allowVoid = false
+	}
+	wantValue := needValue || evalTy != nil
+
 	var armExp types.Type
-	if needValue && expected != nil && expected != types.TypeVoid {
+	if evalTy != nil && evalTy != types.TypeInvalid {
+		armExp = evalTy
+	} else if needValue && expected != nil && expected != types.TypeVoid {
 		armExp = expected
 	}
 
@@ -4163,25 +4957,19 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 	fc.cfStack = append(fc.cfStack, tgt)
 	defer func() { fc.cfStack = fc.cfStack[:len(fc.cfStack)-1] }()
 
-	// Track enum variant (and bool) coverage for exhaustive `else Enum.FinalVariant:` (Spec §10.3 / B3)!
-	isRefScrut := false
-	if rf, ok := scrutTy.(*types.Ref); ok {
-		if _, isEn := rf.Elem.(*types.Enum); isEn {
-			scrutTy = rf.Elem
-			isRefScrut = true
-		}
-	}
-	enumScrut, isEnum := scrutTy.(*types.Enum)
-	coveredVariants := make(map[string]bool)
+	coveredVariants1 := make(map[string]bool)
 	hasCatchAllElse := false
 
 	preMoves := fc.cloneMoves()
 	var liveBranchMoves []map[*Symbol]MoveState
 	var armTypes []types.Type
 	allDiverge := true
+	hasVoidArm := false
+	hasNonVoidArm := false
+	hasInvalidArm := false
 
 	for _, arm := range me.Arms {
-		if arm.IsElse && len(arm.Patterns) == 0 {
+		if arm.IsDefault && len(arm.Cases) == 0 {
 			hasCatchAllElse = true
 		}
 
@@ -4189,73 +4977,139 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 		fc.pushScope()
 
 		hasBindings := false
-		hasMutBind := false
-		hasOwnResourceBind := false
-		hasReadOrMutBind := false
-		for _, pat := range arm.Patterns {
-			pHasBind, pHasMut, pHasOwnRes := fc.checkMatchPattern(pat, scrutTy, enumScrut, scrutArenaDepth, coveredVariants)
-			if pHasBind {
-				hasBindings = true
+		var activeRoots []*Symbol
+		rootMutCount := make(map[*Symbol]int)
+		rootOwnCount := make(map[*Symbol]int)
+		rootReadCount := make(map[*Symbol]int)
+
+		if numScrut == 0 {
+			for _, c := range arm.Cases {
+				if len(c.Patterns) != 1 {
+					fc.a.Rep.Errorf(c.Span, "expected 1 condition in 0-argument match branch, got %d", len(c.Patterns))
+					continue
+				}
+				ep, ok := c.Patterns[0].(*ast.ExprPattern)
+				if !ok {
+					fc.a.Rep.Errorf(c.Span, "expected boolean condition expression in 0-argument match branch")
+					continue
+				}
+				cTy := fc.checkExpr(ep.Expr, true)
+				fc.verifyAssignable(cTy, types.TypeBool, ep.Expr, ep.Span, "match condition")
 			}
-			if pHasMut {
-				hasMutBind = true
+		} else {
+			for _, c := range arm.Cases {
+				if len(c.Patterns) != numScrut {
+					fc.a.Rep.Errorf(c.Span, "match case has %d patterns, expected %d", len(c.Patterns), numScrut)
+					continue
+				}
+				for i, pat := range c.Patterns {
+					var covMap map[string]bool
+					if numScrut == 1 {
+						covMap = coveredVariants1
+					}
+					pHasBind, pHasMut, pHasOwnRes := fc.checkMatchPattern(pat, scrutTys[i], enumScrut[i], scrutArenaDepths[i], covMap)
+					if pHasBind {
+						hasBindings = true
+					}
+					if pHasMut {
+						inf.MatchMutScrut = true
+						if !isRefScrut[i] {
+							_ = fc.checkMutablePlace(me.Scrutinees[i], "mutably destructure")
+						}
+					}
+					if pHasOwnRes {
+						if isRefScrut[i] {
+							fc.a.Rep.Errorf(arm.Span, "cannot move `own` resource payload out of arena reference `ref[%s]`", scrutTys[i].String())
+						} else if enumScrut[i] != nil && enumScrut[i].HasCustomDrop {
+							fc.a.Rep.Errorf(arm.Span, "cannot move `own` payload out of enum %s because it implements custom `Drop`", enumScrut[i].String())
+						} else if !isExplicitOwnScrut[i] {
+							fc.consumeValue(me.Scrutinees[i], scrutTys[i], false)
+						}
+					}
+					r := scrutRoots[i]
+					if r != nil {
+						if pHasMut {
+							rootMutCount[r]++
+						}
+						if pHasOwnRes {
+							rootOwnCount[r]++
+						}
+						if !pHasMut && !pHasOwnRes && pHasBind {
+							rootReadCount[r]++
+						}
+						if pHasMut || (!pHasOwnRes && pHasBind) {
+							hasActive := false
+							for _, ar := range activeRoots {
+								if ar == r {
+									hasActive = true
+									break
+								}
+							}
+							if !hasActive {
+								activeRoots = append(activeRoots, r)
+							}
+						}
+					}
+				}
 			}
-			if pHasOwnRes {
-				hasOwnResourceBind = true
+			if len(arm.Cases) > 1 && hasBindings {
+				fc.a.Rep.Errorf(arm.Span, "cannot bind variables in a multi-pattern arm; use `_` wildcards or separate `when` arms")
 			}
-			if pHasBind && !pHasOwnRes {
-				hasReadOrMutBind = true
+			for r, mc := range rootMutCount {
+				if mc > 1 || (mc > 0 && (rootOwnCount[r] > 0 || rootReadCount[r] > 0)) {
+					fc.a.Rep.Errorf(arm.Span, "conflicting borrows/moves of variable %q in `match` arm", r.Name)
+				}
 			}
-		}
-		if len(arm.Patterns) > 1 && hasBindings {
-			fc.a.Rep.Errorf(arm.Span, "cannot bind variables in a multi-pattern `when A, B:` arm; use `_` wildcards or separate `when` arms")
-		}
-		if hasMutBind {
-			inf.MatchMutScrut = true
-			if !isRefScrut {
-				_ = fc.checkMutablePlace(me.Scrutinee, "mutably destructure")
-			}
-		}
-		if hasOwnResourceBind {
-			if isRefScrut {
-				fc.a.Rep.Errorf(arm.Span, "cannot move `own` resource payload out of arena reference `ref[%s]`", scrutTy.String())
-			} else if enumScrut != nil && enumScrut.HasCustomDrop {
-				fc.a.Rep.Errorf(arm.Span, "cannot move `own` payload out of enum %s because it implements custom `Drop`", enumScrut.String())
-			} else {
-				fc.consumeValue(me.Scrutinee, scrutTy, false)
+			for r, oc := range rootOwnCount {
+				if oc > 1 || (oc > 0 && rootReadCount[r] > 0) {
+					fc.a.Rep.Errorf(arm.Span, "conflicting borrows/moves of variable %q in `match` arm", r.Name)
+				}
 			}
 		}
 
-		lockedScrut := (*Symbol)(nil)
-		if scrutRoot != nil && (hasMutBind || (hasReadOrMutBind && !hasOwnResourceBind)) {
-			lockedScrut = scrutRoot
-			fc.activeBorrows[lockedScrut]++
+		for _, r := range activeRoots {
+			fc.activeBorrows[r]++
 		}
 
 		var aty types.Type
-		if !needValue {
+		if !wantValue {
 			aty = fc.checkVoidOrDiscardedBody(arm.Body)
 		} else {
 			hint := armExp
 			if hint == nil && len(armTypes) > 0 {
 				hint = armTypes[0]
+				if _, isNone := arm.Body.(*ast.NoneLit); isNone {
+					hint = types.NewOptional(hint)
+				}
 			}
-			aty = fc.checkExprExpect(arm.Body, hint, true)
+			if allowVoid && hint == nil {
+				aty = fc.checkInferOrValue(arm.Body, nil)
+			} else {
+				aty = fc.checkExprExpect(arm.Body, hint, true)
+			}
 			if aty == types.TypeVoid {
-				fc.a.Rep.Errorf(arm.Body.GetSpan(), "`match` arm used as a value must produce a value")
-			} else if aty != types.TypeNever && aty != types.TypeInvalid {
+				if allowVoid && armExp == nil {
+					hasVoidArm = true
+				} else {
+					fc.a.Rep.Errorf(arm.Body.GetSpan(), "`match` arm used as a value must produce a value")
+				}
+			} else if aty == types.TypeInvalid {
+				hasInvalidArm = true
+			} else if aty != types.TypeNever {
+				hasNonVoidArm = true
 				armTypes = append(armTypes, aty)
 				fc.consumeValue(arm.Body, aty, false)
 			}
 		}
 
-		if lockedScrut != nil {
-			fc.activeBorrows[lockedScrut]--
+		for _, r := range activeRoots {
+			fc.activeBorrows[r]--
 		}
+
 		armAd := fc.arenaDepthOfExpr(arm.Body)
-		if needValue && armAd > outerDepth {
+		if wantValue && aty != types.TypeVoid && aty != types.TypeNever && armAd > outerDepth {
 			fc.a.Rep.Errorf(arm.Body.GetSpan(), "arena reference `ref[T]` cannot escape `match` arm scope")
-		} else if needValue && armAd > tgt.maxYieldArenaDepth {
+		} else if wantValue && aty != types.TypeVoid && aty != types.TypeNever && armAd > tgt.maxYieldArenaDepth {
 			tgt.maxYieldArenaDepth = armAd
 		}
 		fc.popScope()
@@ -4266,42 +5120,67 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 		}
 	}
 
-	// Exhaustiveness check when `else` had an explicit pattern (`else Status.Closed:`)!
+	if len(me.Arms) == 0 || !me.Arms[len(me.Arms)-1].IsDefault {
+		fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` expression: must terminate with a `default` arm")
+	}
+
+	// Exhaustiveness check when `default` had explicit patterns (`default ...:`)
 	if !hasCatchAllElse {
-		if !isEnum {
-			if scrutTy.Equals(types.TypeBool) {
-				var missingBool []string
-				if !coveredVariants["true"] {
-					missingBool = append(missingBool, "true")
+		if numScrut == 0 {
+			fc.a.Rep.Errorf(me.Span, "0-argument `match` expression must end with an open catch-all `default:` arm")
+		} else if numScrut == 1 {
+			scrutTy := scrutTys[0]
+			es := enumScrut[0]
+			if !coveredVariants1["*"] {
+				if es == nil {
+					if scrutTy.Equals(types.TypeBool) {
+						var missingBool []string
+						if !coveredVariants1["true"] {
+							missingBool = append(missingBool, "true")
+						}
+						if !coveredVariants1["false"] {
+							missingBool = append(missingBool, "false")
+						}
+						if len(missingBool) > 0 {
+							fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` on `bool`: missing %s", strings.Join(missingBool, ", "))
+						}
+					} else if scrutTy != types.TypeInvalid {
+						fc.a.Rep.Errorf(me.Span, "`match` on non-enum type %s must end with an open catch-all `default:` arm", scrutTy.String())
+					}
+				} else {
+					var missing []string
+					hasUnexported := false
+					for _, v := range es.Variants {
+						if !IsExported(v.Name) {
+							hasUnexported = true
+						}
+						if !coveredVariants1[v.Name] {
+							missing = append(missing, es.Name+"."+v.Name)
+						}
+					}
+					if len(missing) > 0 {
+						samePkg := fc.a.SamePackageDir(fc.mod, es.PkgDir, "") || fc.a.SamePackage(fc.mod, fc.a.typeModule(es))
+						if !samePkg && hasUnexported {
+							fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` on enum %s: enum declares unexported variants, requiring a `default:` catch-all arm when matched outside its package", es.String())
+						} else {
+							fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` on enum %s: missing variant(s): %s",
+								es.String(), strings.Join(missing, ", "))
+						}
+					}
 				}
-				if !coveredVariants["false"] {
-					missingBool = append(missingBool, "false")
-				}
-				if len(missingBool) > 0 {
-					fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` on `bool`: missing %s", strings.Join(missingBool, ", "))
-				}
-			} else if scrutTy != types.TypeInvalid {
-				fc.a.Rep.Errorf(me.Span, "`match` on non-enum type %s must end with an open catch-all `else:` arm", scrutTy.String())
 			}
 		} else {
-			var missing []string
-			hasUnexported := false
-			for _, v := range enumScrut.Variants {
-				if !IsExported(v.Name) {
-					hasUnexported = true
-				}
-				if !coveredVariants[v.Name] {
-					missing = append(missing, enumScrut.Name+"."+v.Name)
+			allEnumOrBool := true
+			for i := 0; i < numScrut; i++ {
+				if enumScrut[i] == nil && !scrutTys[i].Equals(types.TypeBool) {
+					allEnumOrBool = false
+					break
 				}
 			}
-			if len(missing) > 0 {
-				samePkg := fc.a.SamePackageDir(fc.mod, enumScrut.PkgDir, "") || fc.a.SamePackage(fc.mod, fc.a.typeModule(enumScrut))
-				if !samePkg && hasUnexported {
-					fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` on enum %s: enum declares unexported variants, requiring an `else:` catch-all arm when matched outside its package", enumScrut.String())
-				} else {
-					fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` on enum %s: missing variant(s): %s",
-						enumScrut.String(), strings.Join(missing, ", "))
-				}
+			if !allEnumOrBool {
+				fc.a.Rep.Errorf(me.Span, "multi-argument `match` on non-enum/bool types must end with an open catch-all `default:` arm")
+			} else {
+				fc.checkMultiArgExhaustiveness(me, scrutTys, enumScrut)
 			}
 		}
 	}
@@ -4310,13 +5189,29 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 		fc.moves = mergeMoveMaps(liveBranchMoves...)
 	}
 
-	if !needValue {
+	if !wantValue {
 		if allDiverge && !tgt.hitValueExit {
 			inf.Type = types.TypeNever
 			return types.TypeNever
 		}
 		inf.Type = types.TypeVoid
 		return types.TypeVoid
+	}
+
+	if allowVoid && armExp == nil {
+		if hasVoidArm && (hasNonVoidArm || len(tgt.yieldTypes) > 0) {
+			fc.a.Rep.Errorf(me.Span, "`match` expression mixes `void` and value-producing arms")
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		if hasInvalidArm && !hasNonVoidArm && len(tgt.yieldTypes) == 0 {
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		if hasVoidArm {
+			inf.Type = types.TypeVoid
+			return types.TypeVoid
+		}
 	}
 
 	resTy := armExp
@@ -4328,6 +5223,14 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 		if aty != nil && aty != types.TypeVoid && aty != types.TypeNever && aty != types.TypeInvalid {
 			fc.verifyAssignable(aty, resTy, arm.Body, arm.Body.GetSpan(), "`match` arm")
 		}
+	}
+	if !needValue {
+		if allDiverge && !tgt.hitValueExit {
+			inf.Type = types.TypeNever
+			return types.TypeNever
+		}
+		inf.Type = types.TypeVoid
+		return types.TypeVoid
 	}
 	if allDiverge && !tgt.hitValueExit {
 		inf.Type = types.TypeNever
@@ -4341,12 +5244,132 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 	return resTy
 }
 
+func (fc *funcChecker) checkMultiArgExhaustiveness(me *ast.MatchExpr, scrutTys []types.Type, enumScrut []*types.Enum) {
+	numScrut := len(scrutTys)
+	slotVariants := make([][]string, numScrut)
+	for i := 0; i < numScrut; i++ {
+		if enumScrut[i] != nil {
+			for _, v := range enumScrut[i].Variants {
+				slotVariants[i] = append(slotVariants[i], v.Name)
+			}
+		} else {
+			slotVariants[i] = []string{"true", "false"}
+		}
+	}
+
+	var combinations [][]string
+	var gen func(idx int, cur []string)
+	gen = func(idx int, cur []string) {
+		if idx == numScrut {
+			combo := make([]string, len(cur))
+			copy(combo, cur)
+			combinations = append(combinations, combo)
+			return
+		}
+		for _, v := range slotVariants[idx] {
+			gen(idx+1, append(cur, v))
+		}
+	}
+	gen(0, nil)
+
+	patMatches := func(pat ast.Pattern, vName string) bool {
+		switch p := pat.(type) {
+		case *ast.WildcardPattern:
+			return true
+		case *ast.ExprPattern:
+			if bl, ok := p.Expr.(*ast.BoolLit); ok {
+				return (bl.Val && vName == "true") || (!bl.Val && vName == "false")
+			}
+			if inf := fc.a.infoFor(p.Expr); inf.EnumVariant != nil {
+				return inf.EnumVariant.Name == vName
+			}
+			return false
+		case *ast.VariantPattern:
+			if mem, ok := p.Target.(*ast.MemberExpr); ok {
+				if vr := fc.a.infoFor(mem).EnumVariant; vr != nil {
+					return vr.Name == vName
+				}
+			}
+			return false
+		default:
+			return false
+		}
+	}
+
+	caseMatchesCombo := func(c ast.MatchCase, combo []string) bool {
+		if len(c.Patterns) != len(combo) {
+			return false
+		}
+		for i := 0; i < len(combo); i++ {
+			if !patMatches(c.Patterns[i], combo[i]) {
+				return false
+			}
+		}
+		return true
+	}
+
+	var missing []string
+	for _, combo := range combinations {
+		covered := false
+		for _, arm := range me.Arms {
+			for _, c := range arm.Cases {
+				if caseMatchesCombo(c, combo) {
+					covered = true
+					break
+				}
+			}
+			if covered {
+				break
+			}
+		}
+		if !covered {
+			var parts []string
+			for i, v := range combo {
+				if enumScrut[i] != nil {
+					parts = append(parts, enumScrut[i].Name+"."+v)
+				} else {
+					parts = append(parts, v)
+				}
+			}
+			missing = append(missing, strings.Join(parts, ", "))
+		}
+	}
+
+	if len(missing) > 0 {
+		fc.a.Rep.Errorf(me.Span, "non-exhaustive `match`: missing combination(s): %s", strings.Join(missing, "; "))
+	}
+}
+
 func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, enumScrut *types.Enum, scrutArenaDepth int, covered map[string]bool) (hasBind, hasMut, hasOwnRes bool) {
 	switch p := pat.(type) {
+	case *ast.WildcardPattern:
+		if covered != nil {
+			covered["*"] = true
+		}
+		return false, false, false
+
 	case *ast.ExprPattern:
 		pty := fc.checkExprExpect(p.Expr, scrutTy, true)
 		if scrutTy == types.TypeInvalid || pty == types.TypeInvalid {
 			return false, false, false
+		}
+		if _, isRange := p.Expr.(*ast.RangeExpr); isRange {
+			scrutBase := scrutTy
+			if opt, isOpt := scrutBase.(*types.Optional); isOpt {
+				scrutBase = opt.Elem
+			}
+			isRangeScrut := false
+			if st, isSt := scrutBase.(*types.Struct); isSt && fc.a.isStdStructTemplate(st, fc.a.Prog.GenStructRange) {
+				isRangeScrut = true
+			}
+			if !isRangeScrut {
+				fc.a.Rep.ErrorWithHint(
+					p.Span,
+					fmt.Sprintf("type mismatch in `match` pattern: expected `%s`, got `%s`", scrutTy.String(), pty.String()),
+					"use `when in ...:` to check membership in a range (for example, `when in '0'..='9':`)",
+				)
+				return false, false, false
+			}
 		}
 		fc.verifyAssignable(pty, scrutTy, p.Expr, p.Span, "`match` pattern")
 		if _, isNone := p.Expr.(*ast.NoneLit); !isNone && fc.a.infoFor(p.Expr).EnumVariant == nil && !types.SupportsEq(scrutTy) {
@@ -4355,10 +5378,12 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 		if enumScrut != nil {
 			if inf := fc.a.infoFor(p.Expr); inf.EnumVariant != nil {
 				vname := inf.EnumVariant.Name
-				if covered[vname] {
-					fc.a.Rep.Errorf(p.Span, "duplicate enum variant `%s.%s` in `match`", enumScrut.Name, vname)
+				if covered != nil {
+					if covered[vname] {
+						fc.a.Rep.Errorf(p.Span, "duplicate enum variant `%s.%s` in `match`", enumScrut.Name, vname)
+					}
+					covered[vname] = true
 				}
-				covered[vname] = true
 			}
 		} else if scrutTy.Equals(types.TypeBool) {
 			if bl, ok := p.Expr.(*ast.BoolLit); ok {
@@ -4366,54 +5391,84 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 				if bl.Val {
 					bkey = "true"
 				}
-				if covered[bkey] {
-					fc.a.Rep.Errorf(p.Span, "duplicate boolean pattern `%s` in `match`", bkey)
+				if covered != nil {
+					if covered[bkey] {
+						fc.a.Rep.Errorf(p.Span, "duplicate boolean pattern `%s` in `match`", bkey)
+					}
+					covered[bkey] = true
 				}
-				covered[bkey] = true
 			}
 		} else if sl, ok := p.Expr.(*ast.StringLit); ok {
 			key := "str:" + sl.Val
-			if covered[key] {
-				fc.a.Rep.Errorf(p.Span, "duplicate string pattern %q in `match`", sl.Val)
-			}
-			covered[key] = true
-		} else if il, ok := p.Expr.(*ast.IntLit); ok {
-			key := fmt.Sprintf("int:%d", il.Val)
-			if covered[key] {
-				fc.a.Rep.Errorf(p.Span, "duplicate integer pattern `%d` in `match`", il.Val)
-			}
-			covered[key] = true
-		} else if u, ok := p.Expr.(*ast.UnaryExpr); ok && u.Op == token.Minus {
-			if il, ok := u.Operand.(*ast.IntLit); ok {
-				key := fmt.Sprintf("int:-%d", il.Val)
+			if covered != nil {
 				if covered[key] {
-					fc.a.Rep.Errorf(p.Span, "duplicate integer pattern `-%d` in `match`", il.Val)
+					fc.a.Rep.Errorf(p.Span, "duplicate string pattern %q in `match`", sl.Val)
 				}
 				covered[key] = true
 			}
+		} else if il, ok := p.Expr.(*ast.IntLit); ok {
+			key := fmt.Sprintf("int:%d", il.Val)
+			if covered != nil {
+				if covered[key] {
+					fc.a.Rep.Errorf(p.Span, "duplicate integer pattern `%d` in `match`", il.Val)
+				}
+				covered[key] = true
+			}
+		} else if u, ok := p.Expr.(*ast.UnaryExpr); ok && u.Op == token.Minus {
+			if il, ok := u.Operand.(*ast.IntLit); ok {
+				key := fmt.Sprintf("int:-%d", il.Val)
+				if covered != nil {
+					if covered[key] {
+						fc.a.Rep.Errorf(p.Span, "duplicate integer pattern `-%d` in `match`", il.Val)
+					}
+					covered[key] = true
+				}
+			}
 		} else if cl, ok := p.Expr.(*ast.CharLit); ok {
 			key := fmt.Sprintf("char:%d", cl.Val)
-			if covered[key] {
-				fc.a.Rep.Errorf(p.Span, "duplicate character pattern '%c' in `match`", cl.Val)
+			if covered != nil {
+				if covered[key] {
+					fc.a.Rep.Errorf(p.Span, "duplicate character pattern '%c' in `match`", cl.Val)
+				}
+				covered[key] = true
 			}
-			covered[key] = true
 		} else if _, ok := p.Expr.(*ast.NoneLit); ok {
 			key := "none"
-			if covered[key] {
-				fc.a.Rep.Errorf(p.Span, "duplicate `none` pattern in `match`")
+			if covered != nil {
+				if covered[key] {
+					fc.a.Rep.Errorf(p.Span, "duplicate `none` pattern in `match`")
+				}
+				covered[key] = true
 			}
-			covered[key] = true
 		}
 		return false, false, false
 
-	case *ast.RangePattern:
-		loTy := fc.checkExprExpect(p.Low, scrutTy, true)
-		hiTy := fc.checkExprExpect(p.High, scrutTy, true)
-		fc.verifyAssignable(loTy, scrutTy, p.Low, p.Low.GetSpan(), "`match` range pattern start")
-		fc.verifyAssignable(hiTy, scrutTy, p.High, p.High.GetSpan(), "`match` range pattern end")
-		prim := types.UnderlyingPrimitive(scrutTy)
-		if scrutTy != types.TypeInvalid && (prim == nil || (!prim.IsInteger() && prim.Kind != types.PrimChar)) {
-			fc.a.Rep.Errorf(p.Span, "range pattern in `match` requires integer or `char` scrutinee, got %s", scrutTy.String())
+	case *ast.ContainsPattern:
+		var expect types.Type
+		if scrutTy != nil && scrutTy != types.TypeInvalid {
+			switch p.Container.(type) {
+			case *ast.RangeExpr:
+				if fc.a.Prog.GenStructRange != nil {
+					if prim := types.UnderlyingPrimitive(scrutTy); prim != nil && (prim.IsInteger() || prim.Kind == types.PrimChar) {
+						if rTy := fc.a.instantiateStruct(fc.a.Prog.GenStructRange, []types.Type{scrutTy}, p.Span); rTy != nil {
+							expect = rTy
+						}
+					}
+				}
+			case *ast.VecLit:
+				expect = &types.Vector{Elem: scrutTy}
+			case *ast.ArrayLit:
+				expect = &types.StackArray{Size: 1, Elem: scrutTy}
+			case *ast.SetLit:
+				expect = &types.Set{Elem: scrutTy}
+			}
+		}
+		contTy := fc.checkExprExpect(p.Container, expect, true)
+		if contTy == types.TypeInvalid || scrutTy == types.TypeInvalid {
+			return false, false, false
+		}
+		if cinfo, ok := fc.resolveContainsPattern(p, contTy, scrutTy); ok && fc.a.curBM != nil {
+			fc.a.curBM.ContainsPatterns[p] = cinfo
 		}
 		return false, false, false
 
@@ -4457,10 +5512,12 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 		fc.a.infoFor(mem).EnumVariant = v
 		fc.a.infoFor(mem).Type = enumScrut
 
-		if covered[v.Name] {
-			fc.a.Rep.Errorf(p.Span, "duplicate enum variant `%s.%s` in `match`", enumScrut.Name, v.Name)
+		if covered != nil {
+			if covered[v.Name] {
+				fc.a.Rep.Errorf(p.Span, "duplicate enum variant `%s.%s` in `match`", enumScrut.Name, v.Name)
+			}
+			covered[v.Name] = true
 		}
-		covered[v.Name] = true
 
 		declarePatBinding := func(b ast.VariantPatternBinding, fty types.Type) *Symbol {
 			if b.IsWildcard {
@@ -4497,43 +5554,15 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 		}
 
 		syms := make([]*Symbol, len(p.Bindings))
-		if !p.IsStruct {
-			if v.Kind == types.VariantUnit {
-				fc.a.Rep.Errorf(p.Span, "variant `%s.%s` has no payload; match with `when %s.%s:`", enumScrut.String(), v.Name, enumScrut.Name, v.Name)
-				return false, false, false
-			}
-			if v.Kind == types.VariantStruct {
-				fc.a.Rep.Errorf(p.Span, "variant `%s.%s` has named fields; destructure with `when %s.%s[...]:` instead of `(...)`", enumScrut.String(), v.Name, enumScrut.Name, v.Name)
-				return false, false, false
-			}
-			if len(p.Bindings) != 1 {
-				fc.a.Rep.Errorf(p.Span, "variant `%s.%s` expects 1 payload binding, got %d", enumScrut.String(), v.Name, len(p.Bindings))
-				return false, false, false
-			}
-			syms[0] = declarePatBinding(p.Bindings[0], v.Payload)
-		} else {
-			if v.Kind != types.VariantStruct {
-				fc.a.Rep.Errorf(p.Span, "variant `%s.%s` does not have named fields; cannot destructure with `[...]`", enumScrut.String(), v.Name)
-				return false, false, false
-			}
-			seenFields := make(map[string]bool)
-			for i, b := range p.Bindings {
-				if b.IsWildcard && b.FieldName == "" {
-					continue
-				}
-				if seenFields[b.FieldName] {
-					fc.a.Rep.Errorf(b.Span, "duplicate field %q in variant pattern `%s.%s`", b.FieldName, enumScrut.String(), v.Name)
-					continue
-				}
-				seenFields[b.FieldName] = true
-				sf, _ := v.FieldByName(b.FieldName)
-				if sf == nil {
-					fc.a.Rep.Errorf(b.Span, "variant `%s.%s` has no field %q", enumScrut.String(), v.Name, b.FieldName)
-					continue
-				}
-				syms[i] = declarePatBinding(b, sf.Type)
-			}
+		if v.Kind == types.VariantUnit {
+			fc.a.Rep.Errorf(p.Span, "variant `%s.%s` has no payload; match with `when %s.%s:`", enumScrut.String(), v.Name, enumScrut.Name, v.Name)
+			return false, false, false
 		}
+		if len(p.Bindings) != 1 {
+			fc.a.Rep.Errorf(p.Span, "variant `%s.%s` expects 1 payload binding, got %d", enumScrut.String(), v.Name, len(p.Bindings))
+			return false, false, false
+		}
+		syms[0] = declarePatBinding(p.Bindings[0], v.Payload)
 		if hasMut && hasOwnRes {
 			fc.a.Rep.Errorf(p.Span, "cannot mix mutable borrow (`&`) and ownership move (`own`) in the same variant pattern")
 		}
@@ -4541,4 +5570,104 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 		return hasBind, hasMut, hasOwnRes
 	}
 	return false, false, false
+}
+
+func (fc *funcChecker) resolveContainsPattern(p *ast.ContainsPattern, contTy, scrutTy types.Type) (*ContainsInfo, bool) {
+	if _, isOpt := contTy.(*types.Optional); isOpt {
+		fc.a.Rep.Errorf(p.Span, "cannot use optional value of type `%s` in `when in` pattern", contTy.String())
+		return nil, false
+	}
+
+	fc.markViewIfApplicable(p.Container, contTy)
+	info := &ContainsInfo{
+		ContainerType: contTy,
+	}
+
+	switch c := contTy.(type) {
+	case *types.Vector:
+		if !fc.a.supportsEq(c.Elem) {
+			fc.a.Rep.Errorf(p.Span, "cannot use `when in` with `%s` because element type `%s` does not support equality", c.String(), c.Elem.String())
+			return nil, false
+		}
+		info.Kind = ContainsBuiltinVec
+		info.ElemType = c.Elem
+
+	case *types.StackArray:
+		if !fc.a.supportsEq(c.Elem) {
+			fc.a.Rep.Errorf(p.Span, "cannot use `when in` with `%s` because element type `%s` does not support equality", c.String(), c.Elem.String())
+			return nil, false
+		}
+		info.Kind = ContainsBuiltinArr
+		info.ElemType = c.Elem
+
+	case *types.Set:
+		info.Kind = ContainsBuiltinSet
+		info.ElemType = c.Elem
+
+	case *types.Map:
+		info.Kind = ContainsBuiltinMap
+		info.ElemType = c.Key
+
+	case *types.Interface:
+		var cMeth *types.InterfaceMethod
+		for i := range c.Methods {
+			if c.Methods[i].Name == "contains" {
+				cMeth = &c.Methods[i]
+				break
+			}
+		}
+		if cMeth == nil {
+			fc.a.Rep.Errorf(p.Span, "interface `%s` does not implement `Containable` (`contains: (self, item: T) bool`)", c.String())
+			return nil, false
+		}
+		if cMeth.RecvMode != types.ModeRead || len(cMeth.Params) != 1 || cMeth.Params[0].Mode != types.ModeRead || !cMeth.Ret.Equals(types.TypeBool) {
+			fc.a.Rep.Errorf(p.Span, "`%s.contains` must have signature `(self, item: T) bool` to use with `when in`", c.Name)
+			return nil, false
+		}
+		if _, isSelf := cMeth.Params[0].Type.(*types.SelfPlaceholder); isSelf {
+			fc.a.Rep.Errorf(p.Span, "cannot use interface `%s` in `when in` because `contains` takes `Self`", c.Name)
+			return nil, false
+		}
+		info.Kind = ContainsInterface
+		info.InterfaceMeth = cMeth
+		info.BoxInterface = c
+		info.ElemType = cMeth.Params[0].Type
+
+	default:
+		if st, isSt := contTy.(*types.Struct); isSt &&
+			(fc.a.isStdStructTemplate(st, fc.a.Prog.GenStructList) || fc.a.isStdStructTemplate(st, fc.a.Prog.GenStructArray)) &&
+			len(st.TypeArgs) == 1 && !fc.a.supportsEq(st.TypeArgs[0]) {
+			fc.a.Rep.Errorf(p.Span, "cannot use `when in` with `%s` because element type `%s` does not support equality", st.String(), st.TypeArgs[0].String())
+			return nil, false
+		}
+		fi := fc.a.LookupMethod(contTy, "contains", nil, p.Span)
+		if fi == nil {
+			fc.a.Rep.Errorf(p.Span, "type `%s` does not implement `Containable` (`contains: (self, item: T) bool`)", contTy.String())
+			return nil, false
+		}
+		if fi.IsStaticAssoc || len(fi.Sig.Params) != 2 || fi.Sig.Params[0].Mode != types.ModeRead || fi.Sig.Params[1].Mode != types.ModeRead {
+			fc.a.Rep.Errorf(p.Span, "`%s.contains` must have signature `(self, item: T) bool` to use with `when in`", contTy.String())
+			return nil, false
+		}
+		retTy := fc.a.ensureFuncRetResolved(fi, p.Span)
+		if retTy == nil || !retTy.Equals(types.TypeBool) {
+			retStr := "invalid"
+			if retTy != nil {
+				retStr = retTy.String()
+			}
+			fc.a.Rep.Errorf(p.Span, "`%s.contains` must return `bool` for `when in`, got `%s`", contTy.String(), retStr)
+			return nil, false
+		}
+		info.Kind = ContainsMethod
+		info.TargetFunc = fi
+		info.ElemType = fi.Sig.Params[1].Type
+	}
+
+	if opt, isOpt := info.ElemType.(*types.Optional); isOpt && scrutTy.Equals(opt.Elem) {
+		info.WrapOptional = true
+	} else if !scrutTy.Equals(info.ElemType) {
+		fc.a.Rep.Errorf(p.Span, "type mismatch in `when in` pattern: container holds `%s`, cannot test value of type `%s`", info.ElemType.String(), scrutTy.String())
+		return nil, false
+	}
+	return info, true
 }

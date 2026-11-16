@@ -83,7 +83,7 @@ This document serves as the complete, authoritative, and implementation-independ
    - [9.1 Built-in Primitive Methods](#91-built-in-primitive-methods)
    - [9.2 String Built-ins](#92-string-built-ins)
    - [9.3 Collection Operations](#93-collection-operations)
-   - [9.4 The `Result[T, E]` Standard Type](#94-the-resultt-e-standard-type)
+   - [9.6 The `Result[T]` and `Error` Standard Types](#96-the-resultt-and-error-standard-types)
    - [9.5 Universe Built-in Functions](#95-universe-built-in-functions)
 10. [Unsafe Operations & Foreign ABI Interoperability](#10-unsafe-operations--foreign-abi-interoperability)
     - [10.1 The `unsafe` Block and Prefix Expression](#101-the-unsafe-block-and-prefix-expression)
@@ -104,7 +104,7 @@ The language architecture adheres to seven foundational axioms:
 2. **Values vs. Resources:** Every type in Lowlight is statically partitioned into either a *Plain* type or a *Resource* type. Plain types are freely copyable bitwise values without destructors. Resource types represent unique capabilities that cannot be copied implicitly; they obey affine ownership rules and are dropped exactly once at the end of their owning scope.
 3. **No Null References:** The concept of `null` or `nil` does not exist. The absence of a value is expressed strictly via optional types (`?T`). Optionals do not nest, cannot wrap other optionals, and require explicit syntactic acknowledgment (`?`) at declaration, assignment, unwrap, and access.
 4. **No Lifetime Annotations:** Safe Lowlight enforces reference validity through static borrow exclusivity, lexical tree nesting, and scoped arena pinning. Programmers never write lifetime variables (such as `'a`), yet references can never outlive the data they borrow.
-5. **Expression Orientation with Syntactic Clarity:** Every block, conditional branch, match arm, and loop is an expression capable of yielding a value. Braces (`{}`) delimit compound blocks and scopes, parentheses (`()`) delimit headers and tuples, brackets (`[]`) delimit type parameters, indexing, struct fields, and vectors, and hash-brackets (`#[ ]`) delimit sets and maps.
+5. **Expression Orientation with Syntactic Clarity:** Every block, conditional branch, match arm, and loop is an expression capable of yielding a value. Braces (`{}`) delimit compound blocks and scopes, parentheses (`()`) delimit headers and argument lists, brackets (`[]`) delimit type parameters, indexing, struct fields, and lists, hash-brackets (`#[ ]`) delimit sets and maps, and plus-brackets (`+[ ]`) delimit tuples.
 6. **Explicit Mutation and Consumption:** Functions cannot mutate caller arguments unless the caller explicitly prefixes the argument with `&` at the call site. Similarly, an existing owned resource cannot be moved into another owner without explicit qualification via the `own` keyword.
 7. **Target Neutrality:** The semantics of Lowlight are entirely decoupled from any specific machine representation, intermediate representation, or transpiler backend. A conforming implementation may lower to machine instructions, bytecode, or high-level source code, provided the observable behaviors, ownership invariants, and runtime trap guarantees defined in this specification are preserved.
 
@@ -212,11 +212,12 @@ when        and
 ```
 
 #### Contextual Keywords
-The tokens `next` and `packed` are contextual keywords. They retain identifier status in general expression and declaration contexts, but trigger special parsing under specific grammatical rules:
+The tokens `next`, `packed`, and `default` are contextual keywords. They retain identifier status in general expression and declaration contexts, but trigger special parsing under specific grammatical rules:
 - `next`: Treated as a loop continue keyword strictly when followed by `<-` (i.e., `next <-` or `next <label> <-`). In all other positions (e.g., `let next = 10`, `item.next()`, `let next? = find()`), `next` is a regular identifier.
 - `packed`: Treated as a struct layout modifier strictly when appearing between `define` and the struct name (e.g., `define packed Header struct [ ... ]`).
+- `default`: Treated as the terminal closing arm of a `match` expression when followed by `:` or `<MatchClauses>:` (`default:` or `default Status.Closed:`). Outside `match`'s terminal arm (e.g., `let default = 0` or struct field `default: int`), `default` is a regular identifier.
 
-The type names `void` and `never` are internal semantic types and are not surface keywords.
+The type name `never` is an internal semantic type and is not a surface keyword. While `void` is not a reserved keyword either, it is accepted specifically in function, method, interface, `extern`, and closure return-type positions to denote an empty return; using `void` as a value, variable, parameter, field, container element, or control-flow evaluation type is a compile-time error.
 
 ### 2.7 Literals
 
@@ -278,7 +279,7 @@ Lowlight strings natively support embedded expression interpolation:
 - **Self Interpolation:** `$self` interpolates the receiver within instance methods.
 - **Arbitrary Expression Interpolation:** `${expr}` evaluates any valid Lowlight expression and embeds its string representation.
 
-Any type interpolated into a string must implement the standard `Printable` interface (defining `.to_string(): string`). Interpolation is expanded at compile time into formatted string concatenation without runtime reflection.
+Any type interpolated into a string must implement the standard `Printable` interface (defining `.to_string() string`). Interpolation is expanded at compile time into formatted string concatenation without runtime reflection.
 
 ### 2.9 Operators & Delimiters
 
@@ -291,7 +292,7 @@ Lowlight reserves the following punctuation symbols:
 =       +=      -=      *=      /=      %=      
 &=      |=      ^=      <<=     >>=     
 .       ?.      ..      ..=     ::      
-?       ??      <-      ->
+?       ??      <-
 (       )       [       ]       {       }       #[
 :       ,       ;       @       $
 ```
@@ -426,7 +427,7 @@ let invalid?: int = 20      // Compile Error: non-optional cannot end with `?`
 A non-optional value of type $T$ implicitly coerces to `?T` when assigned or passed to a function parameter:
 
 ```lowlight
-bind find_id = (): ?int 100   // 100 implicitly wraps into ?int
+bind find_id = () ?int: 100   // 100 implicitly wraps into ?int
 ```
 
 #### 3.5.4 Recursive Struct Boxing
@@ -454,7 +455,7 @@ A list `[T]` (defined in `std/core/list.ll` as `@lang("list") List[T]`) is a dyn
 - Indexing `lst[i]` is bounds-checked at runtime and panics on out-of-bounds access.
 
 #### 3.6.2 Fixed Arrays (`[N: T]` / `Array`)
-A fixed array `[N: T]` represents an inline, fixed-size contiguous sequence of exactly $N$ elements of type $T$, where $N$ is a compile-time constant integer $\ge 0$.
+A fixed array `[N: T]` represents an inline, fixed-size contiguous sequence of exactly $N$ elements of type $T$, where $N$ is a compile-time constant integer $> 0$.
 - An array carries **zero heap allocation overhead**.
 - Category: An array is Plain if $T$ is Plain; it is a Resource if $T$ is a Resource.
 - **Repeat constructor:** `[N: value]` initializes $N$ elements with `value` (e.g., `[4: 0]` creates `[0, 0, 0, 0]`). If $N > 1$, $T$ must implement `Copyable`.
@@ -464,7 +465,7 @@ A fixed array `[N: T]` represents an inline, fixed-size contiguous sequence of e
 
 #### 3.6.3 Sets (`#[T]` / `Set[T: Hashable]`)
 A set `#[T]` (defined in `std/core/set.ll` as `@lang("set") Set[T: Hashable]`) is an unordered collection of unique elements of type $T$.
-- **Constraint:** Requires $T$ to satisfy the built-in `Hashable` interface (`T: Hashable`, providing `hash(): u64` and equality `==`).
+- **Constraint:** Requires $T$ to satisfy the built-in `Hashable` interface (`T: Hashable`, providing `hash() u64` and equality `==`).
 - Sets are Resource types.
 - Literal syntax: `#[1, 2, 3]`. Empty set: `#[]` (resolved from expected type context).
 
@@ -476,6 +477,25 @@ A map `#[K: V]` (defined in `std/core/map.ll` as `@lang("map") Map[K: Hashable, 
 - Literal syntax: `#["a": 1, "b": 2]`. Empty map: `#[]` (resolved from expected type context).
 - **Access & Lookup:** Calling `m.get(key)` returns an optional `?V`. Alternatively, map index lookup syntax `m[key]` is syntactic sugar for `m.get(key)` (yielding `?V`, containing the value if present, or `none` if absent).
 - **Mutation & Insertion:** Calling `m.insert(key, val)` updates or inserts an entry. Alternatively, assignment syntax `m[key] = val` is syntactic sugar for `m.insert(key, val)`.
+
+#### 3.6.5 Tuples (`+[T0, T1, ...]`)
+A tuple `+[T0, T1, ...]` is an ordered, fixed-size heterogeneous product type with at least 2 elements and zero heap allocation overhead.
+- **Value Literal:** `+[e0, e1, ...]`, e.g., `+[5, "abc"]`.
+- **Type Syntax:** `+[T0, T1, ...]`, e.g., `let t: +[int, string] = +[5, "abc"]`.
+- **Field Access:** Tuple elements are 0-indexed and accessed via canonical non-negative integer dot syntax (`t.0`, `t.1`). Bracket indexing (`t[0]`) is not permitted on tuples.
+- **Unpacking:** Tuple and distinct-tuple values can be unpacked into comma-separated bindings or assignment targets using the `unpack` keyword (`let x, y = unpack +[5, 7]`, `bind a, _ = unpack pair`, `x, y = unpack +[y, x]`).
+- **Category:** A tuple is Plain if every element type is Plain; it is a Resource type if any element is a Resource type. When a resource tuple is dropped, non-plain elements are dropped in reverse order.
+- **Traits & Equality:**
+  - A tuple automatically implements `Printable` (`.to_string()`), formatting as `+[<e0>, <e1>, ...]`, if all element types implement `Printable`.
+  - A tuple automatically supports equality (`==`, `!=`) if all element types support equality.
+  - A tuple is `Hashable` if all element types are `Hashable`, allowing tuples to be used as `Map` keys (e.g., `#[+[int, int]: string]`) or `Set` elements (e.g., `#[+[int, string]]`).
+
+#### 3.6.6 Ranges (`Range[T]`)
+A `Range[T]` value (`defined` in `std/core/range.ll` as `@lang("range") Range[T]`) is a compact Plain struct (`[start: T, end: T, inclusive: bool]`) representing a half-open (`start..end`) or closed (`start..=end`) interval over discrete ordered types:
+- **Syntax:** `lo..hi` (half-open $[lo, hi)$) or `lo..=hi` (closed $[lo, hi]$). Both expressions yield first-class `Range[T]` values that can be bound to variables, passed to functions, iterated in loops, or matched with `when in`.
+- **Element Constraint (`T`):** `T` must be a primitive integer type (`int`, `i8`–`i64`, `u8`–`u64`), a distinct type with an integer underlying type, or `char`. Floating-point ranges (`f32`, `f64`/`float`) are rejected at compile time.
+- **Category & Traits:** `Range[T]` is Plain (zero heap allocation), satisfies structural equality (`==`, `!=`), implements `Printable` (`.to_string()` formats as `"start..end"` or `"start..=end"`), `Iterable[T]` (`for`/`while`), and `Containable[T]` (`r.contains(val)` and `when in r:`).
+- **Methods:** `r.contains(item: T) bool`, `r.is_empty() bool`, `r.len() int`, `r.iter() Iterator[T]`, `r.to_string() string`.
 
 ### 3.7 Structs & Field Punning
 
@@ -540,23 +560,24 @@ define Status enum i32 [
 A tagged union represents a value that can take on one of several distinct variant shapes, each optionally carrying data payloads:
 
 ```lowlight
+define JsonObj struct [
+    keys: [string],
+    values: [JsonValue],
+]
+
 define JsonValue enum [
     Null,
     Bool: bool,
     Number: float,
     Str: string,
     Arr: [JsonValue],
-    Obj: [
-        keys: [string],
-        values: [JsonValue],
-    ],
+    Obj: JsonObj,
 ]
 ```
 
-Variants support three shapes:
+Variants support two shapes:
 1. **Unit Variant:** Carries no payload (e.g., `Null`). Constructed as `JsonValue.Null`.
-2. **Tuple Variant:** Carries an unnamed payload (e.g., `Number: float`). Constructed as `JsonValue.Number(3.14)`.
-3. **Struct Variant:** Carries named fields (e.g., `Obj: [keys: [string], values: [JsonValue]]`). Constructed as `JsonValue.Obj[keys: k, values: v]`.
+2. **Payload Variant:** Carries a single value payload (e.g., `Number: float`, `Obj: JsonObj`, or a tuple `Pair: +[int, string]`). Constructed as `JsonValue.Number(3.14)` or `JsonValue.Obj(JsonObj[keys: k, values: v])`.
 
 Tagged unions are Resource types if any variant carries a Resource. They do not have an integer base type, cannot have manual discriminants assigned, cannot be converted to `int`, and cannot be used as map keys. Tagged union variants are inspected and destructured using `match`.
 
@@ -565,11 +586,19 @@ Tagged unions are Resource types if any variant carries a Resource. They do not 
 A distinct type defines a new nominal type wrapping an existing base type without runtime overhead:
 
 ```lowlight
-define UserId = int
-define OrderId = int
+define UserId int
+define OrderId int
+define Pair +[int, string]
 ```
 
-`UserId` and `OrderId` share the same memory representation as `int`, but cannot be implicitly mixed or compared. Explicit conversion is required: `UserId(42)` or `int(my_user_id)`. Distinct types inherit the value category (Plain vs. Resource) of their underlying base type.
+`UserId` and `OrderId` share the same memory representation as `int`, but cannot be implicitly mixed or compared. Distinct types can be constructed using a type-conversion call (e.g., `UserId(42)` or `Pair(+[10, "abc"])`) or initialized directly from a matching literal when type-annotated (`let p: Pair = +[10, "abc"]`). Explicit conversion is required to unwrap primitives: `int(my_user_id)`. For distinct tuples, positional elements can be accessed directly (`p.0`, `p.1`), and inherent custom methods can be attached to the distinct type:
+
+```lowlight
+bind Pair.first = (self) int: self.0
+bind Pair.second = (self) string: self.1.copy()
+```
+
+Distinct types inherit the value category (Plain vs. Resource) of their underlying base type.
 
 ### 3.10 Structural Interfaces & `Self`
 
@@ -577,7 +606,7 @@ An interface specifies a set of method signatures that a type must implement:
 
 ```lowlight
 define Writer interface [
-    write: (&self, data: string): int,
+    write: (&self, data: string) int,
     flush: (&self),
 ]
 ```
@@ -601,29 +630,33 @@ An interface can be used as a dynamically dispatched trait object:
 
 #### Core Built-in Interfaces (`std/core/interfaces.ll`)
 The standard prelude provides universal interfaces wired to compiler semantics and language operators via `@lang(...)`:
-- **`@lang("printable") Printable`**: Universal stringification (`to_string: (self): string`).
-- **`@lang("copyable") Copyable`**: Explicit value replication (`copy: (self): Self`).
+- **`@lang("printable") Printable`**: Universal stringification (`to_string: (self) string`).
+- **`@lang("copyable") Copyable`**: Explicit value replication (`copy: (self) Self`).
 - **`@lang("drop") Drop`**: Deterministic RAII destruction (`drop: (&self)`).
-- **`@lang("hashable") Hashable`**: 64-bit hashing (`hash: (self): u64`). Required by `Set[T: Hashable]` elements and `Map[K: Hashable, V]` keys.
-- **`@lang("equatable") Equatable`**: Universal equivalence relation checking (`eq: (self, other: Self): bool`). Backs `==` and `!=`.
-- **`@lang("comparable") Comparable`**: Universal total ordering (`cmp: (self, other: Self): int`). Returns `< 0` for Less, `0` for Equal, and `> 0` for Greater. Backs `<`, `<=`, `>`, `>=`. Any type implementing `Comparable` automatically satisfies `Equatable`.
-- **`@lang("collectable") Collectable[T]`**: Target for collection accumulators and comprehensions (`push: (&self, item: T)`).
-- **`@lang("iterable") Iterable[T]`**: Sequences producing iterators (`iter: (self): Iterator[T]`).
-- **`@lang("iterator") Iterator[T]`**: Stateful iteration cursor (`next: (&self): ?T`).
+- **`@lang("hashable") Hashable`**: 64-bit hashing (`hash: (self) u64`). Required by `Set[T: Hashable]` elements and `Map[K: Hashable, V]` keys.
+- **`@lang("equatable") Equatable`**: Universal equivalence relation checking (`eq: (self, other: Self) bool`). Backs `==` and `!=`.
+- **`@lang("comparable") Comparable`**: Universal total ordering (`cmp: (self, other: Self) int`). Returns `< 0` for Less, `0` for Equal, and `> 0` for Greater. Backs `<`, `<=`, `>`, `>=`. Any type implementing `Comparable` automatically satisfies `Equatable`.
+- **`@lang("collectable") Collectable[T]`**: Target for `for`-loop collection accumulators (`push: (&self, item: T)`).
+- **`@lang("iterable") Iterable[T]`**: Sequences producing iterators (`iter: (self) Iterator[T]`).
+- **`@lang("iterator") Iterator[T]`**: Stateful iteration cursor (`next: (&self) ?T`).
+- **`@lang("indexable") Indexable[T]`**: Uniform sequential random access interface (`len: (self) int`, `get: (self, idx: int) ?T`). Satisfied by `List[T]` / `[T]`, `[N: T]`, `string` (`Indexable[u8]`), and custom sequence types implementing `len` and integer `get`.
+- **`@lang("key_indexable") KeyIndexable[K, V]`**: Uniform associative key lookup interface (`len: (self) int`, `has: (self, key: K) bool`, `get: (self, key: K) ?V`). Satisfied by `Map[K, V]` / `#[K: V]` and custom associative types implementing `len`, `has`, and `get`. This cleanly distinguishes sequential indexing from associative key lookup, avoiding accidental structural interface collisions.
+- **`@lang("containable") Containable[T]`**: Uniform membership testing interface (`contains: (self, item: T) bool`). Backs `when in <expr>` containment patterns in `match`. Satisfied by `Range[T]`, `[T]` / `List[T]` (for element types supporting equality), `[N: T]` / `Array[T]` (for element types supporting equality), `#[T]` / `Set[T]`, `#[K: V]` / `Map[K, V]` (as `Containable[K]`, checking key presence), `string` (as `Containable[string]`, checking substring containment), and any user type implementing `contains: (self, item: T) bool`.
 
 ### 3.11 First-Class Functions & Closures
 
-Functions in Lowlight are first-class citizens. Function types are denoted `(ParamTypes): RetType` (or `(ParamTypes)` for functions yielding no value):
+Functions in Lowlight are first-class citizens. Function types are denoted `(ParamTypes) RetType` (or `(ParamTypes)` / `(ParamTypes) void` for functions yielding no value):
 
 ```lowlight
-bind filter_nums = (nums: [int], predicate: (int): bool): [int] -> { ... }
+bind filter_nums = (nums: [int], predicate: (int) bool) [int]: { ... }
 ```
 
-A function literal (lambda) is written `(params)[: Ret] -> bodyExpr`, where `bodyExpr` is an executable block `{ ... }` or a single expression:
+A function literal (lambda) is written `(params) [Ret]: bodyExpr`, where `bodyExpr` is any expression (either a block `{ ... }` or a single expression). If `Ret` is omitted, the compiler infers the return type from contextual expectations or the body expression (requiring an explicit return type only when recursive dependencies form an inference cycle):
 
 ```lowlight
-let is_positive = (x: int): bool -> x > 0
-let add = (a: int, b: int): int -> { a + b }
+let is_positive = (x: int) bool: x > 0
+let add = (a: int, b: int) int: { a + b }
+let inferred_double = (x: int): x * 2
 ```
 
 #### Closures as Resource Types
@@ -658,7 +691,7 @@ let r = arena.alloc(User[id: 1, name: "Alice"])
 
 ### 3.14 Internal & Control Types (`void`, `never`)
 
-- **`void`:** The unit type, indicating the absence of a meaningful value. Blocks ending with a semicolon, functions without an explicit return type, and statements evaluate to `void`.
+- **`void`:** The unit type, indicating the absence of a meaningful value. Blocks ending with a semicolon, functions returning `void` (explicitly via `void` or inferred from a void-typed body/context), and side-effect statements evaluate to `void`. `void` is allowed only in return-type positions and is rejected in value, variable, parameter, field, container, and evaluation-type positions.
 - **`never`:** The bottom type. Represents computations that never terminate or yield control to their subsequent statement (e.g., `panic()`, infinite loops without breaks, unconditional `<-` unwinds). A subexpression of type `never` is compatible with any expected type.
 
 ---
@@ -673,8 +706,8 @@ A Lowlight program consists of one or more source files with the `.ll` extension
 
 Source files contain top-level declarations:
 - Constant and function bindings: `bind NAME = expr`
-- Method and associated function bindings: `bind TypeName.method = (self, ...) [: Ret] -> { ... }`
-- Distinct types: `define Name = BaseType`
+- Method and associated function bindings: `bind TypeName.method = (self, ...) [Ret]: <expr>`
+- Distinct types: `define Name BaseType`
 - Struct declarations: `define Name struct [ ... ]`
 - Enum declarations: `define Name enum [ ... ]`
 - Interface declarations: `define Name interface [ ... ]`
@@ -687,22 +720,22 @@ Methods are declared at the top level by binding a function to a type name using
 
 ```lowlight
 // Inherent method with read-only borrow receiver (self):
-bind User.display = (self): string -> {
+bind User.display = (self) string: {
     "$self.name <$self.email?>"
 }
 
 // Inherent method with mutable borrow receiver (&self):
-bind User.set_email = (&self, new_email: string) -> {
+bind User.set_email = (&self, new_email: string): {
     self.email? = new_email
 }
 
 // Inherent method with consuming ownership receiver (own self):
-bind User.into_name = (own self): string -> {
+bind User.into_name = (own self) string: {
     own self.name
 }
 
 // Associated (static) constructor function (omits self receiver):
-bind User.new = (id: int, name: string): User -> {
+bind User.new = (id: int, name: string) User: {
     User[id, name, email?: none, role: "viewer"]
 }
 ```
@@ -711,7 +744,7 @@ bind User.new = (id: int, name: string): User -> {
   - `(self)`: Read-only borrow. The method borrows the instance immutably.
   - `(&self)`: Exclusive mutable borrow. The method can modify the receiver's fields. The caller's receiver is automatically borrowed by reference (`&`).
   - `(own self)`: Ownership consuming. Consumes the receiver instance, invalidating the caller's variable upon call.
-- **Associated Functions:** Functions declared on a type without a `self` receiver (such as `bind Point.origin = (): Point`) act as namespaced functions called as `Point.origin()`.
+- **Associated Functions:** Functions declared on a type without a `self` receiver (such as `bind Point.origin = () Point: ...`) act as namespaced functions called as `Point.origin()`.
 - **Target Types:** Methods may be attached to structs, enums, distinct types, and primitive types (e.g., `int`, `float`, `string`).
 - **Visibility:** Inherent and attached methods are part of the type's inherent API and are automatically visible wherever the type itself is in scope, regardless of whether the defining module was imported openly or with an alias.
 
@@ -763,13 +796,13 @@ define Counter struct [
 
 // Outside packages cannot write Counter[name: "requests", _token: 1] because _token is unexported.
 // Counter must provide an exported constructor:
-bind Counter.new = (name: string, token: int): Counter -> {
+bind Counter.new = (name: string, token: int) Counter: {
     Counter[name: name, _count: 0, _token: token]
 }
 ```
 
 #### 4.4.4 Method Encapsulation
-- Methods bound to types using a leading underscore (e.g., `bind Counter._bump = (&self) -> { ... }`) are package-private.
+- Methods bound to types using a leading underscore (e.g., `bind Counter._bump = (&self): { ... }`) are package-private.
 - Calling an unexported method from outside its defining package—whether as an instance method (`c._bump()`), a namespaced call (`Counter._bump(&c)`), or a module-qualified call (`pkg.Counter._bump(&c)`)—is rejected at compile time.
 
 #### 4.4.5 Enum Variant Encapsulation
@@ -777,15 +810,15 @@ bind Counter.new = (name: string, token: int): Counter -> {
 - External packages cannot instantiate, pattern match against, or reference unexported enum variants.
 
 #### 4.4.6 Sealed Interfaces
-- An interface is **sealed** if it declares one or more unexported methods (e.g., `_seal: (self): void` or `_token: (self): int`).
+- An interface is **sealed** if it declares one or more unexported methods (e.g., `_seal: (self) void` or `_token: (self) int`).
 - Only types defined within the **same package** as the sealed interface can implement it and satisfy its vtable requirements.
 - External packages cannot satisfy sealed interfaces, guaranteeing closed type hierarchies and preventing third-party extension when exhaustive dispatch or internal safety invariants are required.
 
 ```lowlight
 // internal/ast.ll
 define AstNode interface [
-    span: (self): Span,
-    _seal: (self): int, // Unexported method seals this interface
+    span: (self) Span,
+    _seal: (self) int, // Unexported method seals this interface
 ]
 ```
 
@@ -797,13 +830,13 @@ define AstNode interface [
 The execution entry point of a Lowlight program is the `main` function defined at the top level of the primary module:
 
 ```lowlight
-bind main = () {
+bind main = (): {
     println("Hello, Lowlight!")
 }
 ```
 
-- **Parameters:** `main` must accept exactly zero parameters. Command-line arguments are accessed via the universe function `args(): [string]`.
-- **Return Value:** `main` must either omit the return type (yielding no value, exiting with process status code `0`) or return an `int` (used as the process exit code). Note that `void` is strictly an internal compiler type and cannot be written in user code.
+- **Parameters:** `main` must accept exactly zero parameters. Command-line arguments are accessed via the universe function `args() [string]`.
+- **Return Value:** `main` must return `void` (either explicitly via `() void:` or inferred via `():` when yielding no value, exiting with process status code `0`) or `int` (used as the process exit code). Note that `void` is only permitted in return-type position and cannot be used as a value, variable, field, or container type.
 
 ### 4.6 Compiler Attributes
 
@@ -830,9 +863,11 @@ Attributes apply compiler metadata and layout directives to declarations using t
   - `@packed` disables all alignment padding. The compiler arranges fields consecutively in memory byte-for-byte. This layout is critical when modeling hardware registers, binary network packet headers, or serialized disk structures.
 - **Compiler-Known Hooks (`@lang("...")`):**
   - A **compiler hook** is an internal mechanism that links a user-space declaration with core language semantics and runtime behaviors. Lowlight does not hard-code standard library names into the compiler; instead, declarations marked with `@lang` inform the compiler how to synthesize operations:
-    - `@lang("printable")`: Designates the interface whose `.to_string(): string` method is invoked during string interpolation (`${expr}`) and universe printing (`print`/`println`).
-    - `@lang("copyable")`: Designates the interface providing the `.copy(): Self` method for deep duplication.
+    - `@lang("printable")`: Designates the interface whose `.to_string() string` method is invoked during string interpolation (`${expr}`) and universe printing (`print`/`println`).
+    - `@lang("copyable")`: Designates the interface providing the `.copy() Self` method for deep duplication.
     - `@lang("drop")`: Designates the interface whose `.drop(&self)` method is automatically invoked during deterministic LIFO destruction.
+    - `@lang("range")`: Binds the generic `Range[T]` struct constructed by `..` and `..=` range expressions.
+    - `@lang("containable")`: Binds the `Containable[T]` interface used to typecheck and lower `when in <expr>` match patterns.
     - `@lang("panic")` and `@lang("assert")`: Bind the universe error and assertion functions.
 
 ### 4.7 Implicit Standard Prelude
@@ -842,12 +877,12 @@ Every Lowlight compilation unit automatically imports the core standard prelude 
 ```lowlight
 @lang("printable")
 define Printable interface [
-    to_string: (self): string,
+    to_string: (self) string,
 ]
 
 @lang("copyable")
 define Copyable interface [
-    copy: (self): Self,
+    copy: (self) Self,
 ]
 
 @lang("drop")
@@ -856,7 +891,7 @@ define Drop interface [
 ]
 ```
 
-The prelude also supplies primitive `.to_string()` implementations for all basic types, the canonical `Result[T, E]` type, and universe math functions (`min`, `max`, `abs`, `clamp`).
+The prelude also supplies primitive `.to_string()` implementations for all basic types, the canonical `Result[T]` and `Error` types, and universe math functions (`min`, `max`, `abs`, `clamp`).
 
 ---
 
@@ -894,7 +929,7 @@ let list = [own u]       // Explicit `own` required to move existing local
 Rvalues (temporary expressions that have no persistent binding name), function return tail expressions, and `<-` unwinds move implicitly without requiring `own`:
 
 ```lowlight
-bind make_user = (): User {
+bind make_user = () User: {
     let u = User[id: 2, name: "Bob"]
     u                    // Valid: tail return moves implicitly
 }
@@ -991,10 +1026,10 @@ The following table defines operator precedence from highest (binding tightest) 
 | :---: | :--- | :--- | :---: |
 | **12** | `.` `?.` `()` `[]` | Member access, optional chaining, call, index | Left-to-right |
 | **11** | `-` `not` `~` `*` `&` `unsafe` | Unary negation, logical not, bitwise not, pointer deref, borrow, unsafe prefix | Right-to-left |
-| **10** | `as` | Type casting / unwrapping | Left-to-right |
-| **9** | `*` `/` `%` | Multiplicative arithmetic | Left-to-right |
-| **8** | `+` `-` | Additive arithmetic | Left-to-right |
-| **7** | `<<` `>>` | Bitwise shift left, shift right | Left-to-right |
+| **10** | `*` `/` `%` | Multiplicative arithmetic | Left-to-right |
+| **9** | `+` `-` | Additive arithmetic | Left-to-right |
+| **8** | `<<` `>>` | Bitwise shift left, shift right | Left-to-right |
+| **7** | `..` `..=` | Half-open and closed range construction (`Range[T]`) | Non-associative |
 | **6** | `<` `<=` `>` `>=` | Relational comparisons | Non-associative |
 | **5** | `==` `!=` | Structural equality and inequality | Non-associative |
 | **4** | `&` | Bitwise AND | Left-to-right |
@@ -1002,8 +1037,11 @@ The following table defines operator precedence from highest (binding tightest) 
 | **2** | `\|` | Bitwise OR | Left-to-right |
 | **1** | `and` | Short-circuit logical AND | Left-to-right |
 | **0** | `or` | Short-circuit logical OR | Left-to-right |
-| **-1** | `??` | Optional null-coalescing fallback | Left-to-right |
+| **-1** | `??` | Optional null-coalescing fallback | Right-to-left |
 | **-2** | `<-` | Lexical unwind (return, break, continue) | Right-to-left |
+
+> [!NOTE]
+> There is no infix `as` operator for type casting. All type conversions are written explicitly using constructor-style syntax (e.g., `int(x)`, `u8(x)`, `float(x)`). The keyword `as` is reserved exclusively for import aliases (`import "path" as name`), foreign function aliases (`extern name as alias`), and optional pattern unwrapping in conditional bindings (`if (expr? as val)`).
 
 Subexpressions are strictly evaluated from left to right.
 
@@ -1026,28 +1064,29 @@ Bitwise shift operations (`<<`, `>>`) require the right-hand shift operand $S$ t
 - **`==` and `!=` (Equality):** Checked via the `Equatable` interface:
   - Primitives (`int`, `float`, `char`, `bool`, fixed-width integers) lower directly to native C equality operators (`((a) == (b))`) with zero runtime overhead.
   - Strings compare byte-by-byte via `ll_str_eq(a, b)` (or `.eq(other)`).
-  - Custom structs and user types satisfy equality by implementing `.eq(self, other: Self): bool` or `.cmp(self, other: Self): int` (where `a == b` $\iff$ `a.cmp(b) == 0`).
+  - Custom structs and user types satisfy equality by implementing `.eq(self, other: Self) bool` or `.cmp(self, other: Self) int` (where `a == b` $\iff$ `a.cmp(b) == 0`).
   - Structural equality is automatically synthesized for Plain structs, tagged enums, optionals, and distinct types whose fields satisfy equality.
   - Generic parameters bounded by `[T: Equatable]` or `[T: Comparable]` permit `==` and `!=`.
 - **`<`, `<=`, `>`, `>=` (Ordering):** Checked via the `Comparable` interface:
   - Primitives (`int`, `float`, `char`, fixed-width integers) lower directly to native C relational operators (`((a) < (b))`) with zero runtime overhead.
   - Strings compare lexicographically by byte values via `ll_str_cmp(a, b)` (or `.cmp(other)`).
-  - Custom structs and user types satisfy ordering by implementing `.cmp(self, other: Self): int` (returning negative for `<`, zero for `==`, and positive for `>`).
+  - Custom structs and user types satisfy ordering by implementing `.cmp(self, other: Self) int` (returning negative for `<`, zero for `==`, and positive for `>`).
   - Generic parameters bounded by `[T: Comparable]` permit relational operators (`<`, `<=`, `>`, `>=`).
   - Types that do not implement `Comparable` (such as `bool` or unorderable structs) cannot be used with relational operators and produce a compile-time diagnostic error.
 - **Prelude Order Utilities (`min`, `max`, `clamp`):**
-  - `min[T: Comparable + Copyable](a: T, b: T): T`: Returns the smaller value.
-  - `max[T: Comparable + Copyable](a: T, b: T): T`: Returns the larger value.
-  - `clamp[T: Comparable + Copyable](val: T, low: T, high: T): T`: Clamps `val` within `[low, high]`.
+  - `min[T: Comparable + Copyable](a: T, b: T) T`: Returns the smaller value.
+  - `max[T: Comparable + Copyable](a: T, b: T) T`: Returns the larger value.
+  - `clamp[T: Comparable + Copyable](val: T, low: T, high: T) T`: Clamps `val` within `[low, high]`.
 
 
 ### 6.4 Indexing & Slicing
 
 #### Indexing
-Collection indexing `c[i]` applies to dynamic lists `[T]`, fixed arrays `[N: T]`, strings, maps `#[K: V]`, and raw pointers `ptr[T]`:
+Collection indexing `c[i]` applies to dynamic lists `[T]`, fixed arrays `[N: T]`, strings, maps `#[K: V]`, `Indexable[T]` and `KeyIndexable[K, V]` interfaces, and raw pointers `ptr[T]`:
 - **Lists (`[T]`) & Arrays (`[N: T]`):** `c[i]` yields the element at index $i$ (or allows mutable in-place assignment `c[i] = val` when `c` is a mutable place). The index $i$ must satisfy $0 \le i < \text{len}$. Out-of-bounds access **deterministically traps with a safety panic**.
 - **Strings (`string`):** `s[i]` yields the raw `u8` byte at byte offset $i$ (bounds checked: $0 \le i < \text{byte\_len}$). Traps on out-of-bounds access.
 - **Maps (`#[K: V]`):** `m[key]` looks up `key` in map `m` and yields an optional `?V` (syntactic sugar for `m.get(key)`). If `key` is present in `m`, `m[key]` evaluates to the corresponding value wrapped in `?V`; if absent, it evaluates to `none`. Assigning to a map index `m[key] = val` is syntactic sugar for `m.set(key, val)`.
+- **`Indexable[T]` & `KeyIndexable[K, V]`:** When `c` is an interface value of type `Indexable[T]` (or a generic type parameter bounded by `Indexable[T]`), `c[i]` dynamically dispatches through the vtable to `c.get(i)`, returning an optional `?T`. Similarly, for `KeyIndexable[K, V]`, `m[k]` dynamically dispatches to `m.get(k)` returning an optional `?V`.
 - **Raw Pointers (`ptr[T]`):** In `unsafe` expressions, `p[i]` performs raw pointer arithmetic and dereferences the memory location at address $p + i \times \text{sizeof}(T)$.
 
 #### Slicing
@@ -1145,15 +1184,15 @@ Assignment (`=`) and compound operators (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=
 An `if` statement evaluates a condition and selects a branch:
 
 ```lowlight
-let message = if (score >= 50) "Pass" else "Fail"
+let message = if (score >= 50): "Pass" else: "Fail"
 ```
 
 #### Evaluation Rules
-When an `if` construct is evaluated as a value expression:
+Every conditional uses the unified header form `if (<condition>) [<evaluation_type>]: <body_expr> [else if (<condition>) [<evaluation_type>]: <branch>]* [else: <else_expr>]`, where `<body_expr>` may be either a block `{ ... }` or any single expression. When an `if` construct is evaluated as a value expression:
 - **With `else` Branch (Type `T`):** Both branches must evaluate to compatible types, and the `if` expression evaluates to their unified type `T`.
-- **Without `else` Branch (Type `?T`):** If the `else` branch is omitted, the `if` expression evaluates to an optional `?T` of the `then` branch value. If the condition is true, it yields the evaluated value wrapped in `?T`; if false, it evaluates to `none`:
+- **Without `else` Branch (Type `?T`):** If the `else` branch is omitted, the `if` expression evaluates to an optional `?T` of the `then` branch value. Writing a non-optional explicit `<evaluation_type>` without an `else` branch is a compile-time error, whereas `?T` is permitted. If the condition is true, it yields the evaluated value wrapped in `?T`; if false, it evaluates to `none`:
   ```lowlight
-  let bonus?: ?int = if (completed_on_time) 500
+  let bonus?: ?int = if (completed_on_time): 500
   ```
 When an `if` expression is used in statement position (not assigned to a variable or yielded from a block), the branches execute purely for side effects and evaluate to `void`.
 
@@ -1163,7 +1202,7 @@ Lowlight provides concise, type-narrowing unwrapping directly inside `if` condit
 ##### Form A: Direct Optional Variable Narrowing
 ```lowlight
 let opt?: ?string = get_name()
-if (opt?) {
+if (opt?): {
     // Inside this block, `opt` is narrowed to non-optional `string`
     println("Hello, " + opt)
 }
@@ -1171,7 +1210,7 @@ if (opt?) {
 
 ##### Form B: Mutable Optional Borrow
 ```lowlight
-if (&opt?) {
+if (&opt?): {
     // Inside this block, `opt` is narrowed to mutable `&string`
     opt.push_str(" (verified)")
 }
@@ -1179,12 +1218,12 @@ if (&opt?) {
 
 ##### Form C: Expression Binding Unwrapping (`as`)
 ```lowlight
-if (get_user() as u) {
+if (get_user() as u): {
     // `u` is bound to the unwrapped, non-optional User value
     println(u.name)
 }
 
-if (&get_user() as u) {
+if (&get_user() as u): {
     // `u` is bound as a mutable borrow `&User`
 }
 ```
@@ -1194,10 +1233,10 @@ Like boolean `if` expressions, optional unwrapping `if` expressions can produce 
 
 ```lowlight
 // Used as a value expression:
-let display_name: string = if (opt?) "User: $opt" else "Anonymous"
+let display_name: string = if (opt?): "User: $opt" else: "Anonymous"
 
 // Used as a statement (value not captured):
-if (opt?) {
+if (opt?): {
     println("Welcome back, $opt")
 }
 ```
@@ -1208,58 +1247,57 @@ Lowlight distinguishes between two distinct loop forms based on their evaluated 
 - **`while`**: Evaluates to a **scalar** value (`T` with `else`, or `?T` without `else`).
 - **`for`**: Evaluates to a **collection** satisfying `Collectable[T]` (defaulting to dynamic vector `[T]`).
 
-Both forms share the same loop headers: boolean conditions (`(cond)`), integer ranges (`(i in lo..hi)`), and collection iterators (`(x in collection)`).
+Both forms share the same loop headers: boolean conditions (`(cond)`), range literals or `Range[T]` expressions over integer/`char` types (`(i in lo..hi)`, `(ch in 'a'..='z')`, `(i in my_range)`), and collection iterators (`(x in collection)`).
 
 #### 7.5.1 Scalar Loops (`while`)
 The `while` loop construct evaluates to a scalar:
 ```lowlight
-while (<condition> | <identifier> in <iterable>) [: <evaluation_type>] <body> [else <else_body>]
+while (<condition> | <identifier> in <iterable>) [<evaluation_type>]: <body> [else: <else_body>]
 ```
 
 1. **Scalar Value Semantics:**
    - With `else`: Evaluates to `T` (scalar guaranteed). If zero iterations run, or no break executes, evaluates to `else_body`.
    - Without `else`: Evaluates to `?T` (scalar optional). If zero iterations run, evaluates to `none`.
-   - Infinite Loops: `while(true): T <expr>` evaluates to `T` directly without requiring an `else` clause.
+   - Infinite Loops: `while (true) T: <expr>` evaluates to `T` directly without requiring an `else` clause (otherwise, specifying a non-optional `<evaluation_type>` on a `while` without `else` is a compile-time error, while `?T` is permitted).
 2. **Early Exit (`while <- val`):**
    Executing `while <- val` immediately terminates the loop and evaluates the entire `while` expression to `val`.
 3. **Examples:**
    ```lowlight
-   let res1? = while (true) 1
-   let res2: int = while (true): int 1
-   let found: bool = while (x in 1..10): bool {
-       if (x == 5) while <- true
-   } else false
+   let res1? = while (true): 1
+   let res2: int = while (true) int: 1
+   let found: bool = while (x in 1..10) bool: {
+       if (x == 5): while <- true
+   } else: false
    ```
 4. **Statement Position:**
    When placed in void or statement position, `while` executes purely for side effects without allocating.
 
-#### 7.5.2 Collection Loops & Comprehensions (`for`)
+#### 7.5.2 Collection Loops (`for`)
 The `for` loop construct evaluates to a collection:
 ```lowlight
-for (<condition> | <identifier> in <iterable>) [: <evaluation_type>: Collectable] <body>
+for (<condition> | <identifier> in <iterable>) [<evaluation_type>: Collectable]: <body> [else: <else_body>]
 ```
 
 1. **Collection Value Semantics:**
    - Evaluates to `T: Collectable` where each iteration's body expression is pushed into the collection via `.push()`.
    - Default Collection: If no type annotation is provided, `for` evaluates to dynamic List `[Elem]` with element type inferred from the body.
-   - List Shorthand: `: []` explicitly specifies a dynamic list whose element type is inferred from the body.
-   - Specific Collections: Any type implementing `Collectable` (e.g. `#[int]` or `#[string: int]`) can be specified.
-   - Non-Collectable Error: Annotating with a non-`Collectable` type (e.g., `for (true): int`) is a compile-time error (`type int does not implement Collectable`).
+   - Specific Collections: Any type implementing `Collectable` (e.g. `[int]`, `#[int]`, or `#[string: int]`) can be specified.
+   - Non-Collectable Error: Annotating with a non-`Collectable` type (e.g., `for (true) int: { ... }`) is a compile-time error (`type int does not implement Collectable`).
 2. **Filtering (`next <-`):**
    Calling `next <-` inside the loop skips the rest of the current iteration without adding anything to the collection.
 3. **Early Break (`for <-`):**
    Calling `for <-` terminates the loop early and yields the collection accumulated up to that point.
 4. **Examples:**
    ```lowlight
-   bind v = for (x in 1..=4) x              // [1, 2, 3, 4]
-   let v2 = for (x in 0..10): [] x          // [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+   bind v = for (x in 1..=4): x              // [1, 2, 3, 4]
+   let v2 = for (x in 0..10) [int]: x       // [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
-   let evens = for (x in 0..10): [] {
-       if (x % 2 != 0) next <-              // Filters out odds
+   let evens = for (x in 0..10): {
+       if (x % 2 != 0): next <-              // Filters out odds
        x
    }                                        // [0, 2, 4, 6, 8]
 
-   let s = for (x in 0..5): #[int] (x % 3)  // #[0, 1, 2]
+   let s = for (x in 0..5) #[int]: (x % 3)  // #[0, 1, 2]
    ```
 5. **Statement Position:**
    When a `for` loop is placed in statement or void position, it executes purely for side effects without allocating any collection.
@@ -1267,11 +1305,11 @@ for (<condition> | <identifier> in <iterable>) [: <evaluation_type>: Collectable
 #### 7.5.3 Collection Iteration & Uniform Map Interface
 Lowlight provides the universal `Iterable[T]`, `Iterator[T]`, and `Collectable[T]` interfaces in `std/core/interfaces.ll`.
 
-All built-in collections (`[T]`, `[N: T]`, `string`, `#[T]`, and `#[K: V]`) implement `Iterable[T]` and `Collectable[T]`:
+All built-in collections (`[T]`, `[N: T]`, `string`, `#[T]`, `#[K: V]`) and `Range[T]` implement `Iterable[T]`, and built-in collections implement `Collectable[T]`:
 1. **Single-Variable Map Iteration:**
    Maps yield key-value pairs wrapped in the standard `MapEntry[K, V]` struct (`[key: K, value: V]`):
    ```lowlight
-   for (entry in my_map) {
+   for (entry in my_map): {
        println(entry.key)
        println(entry.value)
    }
@@ -1279,54 +1317,95 @@ All built-in collections (`[T]`, `[N: T]`, `string`, `#[T]`, and `#[K: V]`) impl
 2. **Two-Variable Map Iteration:**
    For backward compatibility and convenience, two-variable iteration `for (k, v in my_map)` remains fully supported.
 3. **Map Collection via `push`:**
-   Maps implement `Collectable[MapEntry[K, V]]` via `my_map.push(entry)` and can be constructed in comprehensions:
+   Maps implement `Collectable[MapEntry[K, V]]` via `my_map.push(entry)` and can be constructed directly with `for`:
    ```lowlight
-   let doubled = for (entry in my_map): #[string: int] {
+   let doubled = for (entry in my_map) #[string: int]: {
        MapEntry[string, int][key: entry.key.copy(), value: entry.value * 2]
    }
    ```
 
 ### 7.6 Pattern Matching (`match` / `when`)
 
-Lowlight provides a clean, **container-free** pattern matching expression delimited by `match (scrutinee)` and terminated strictly by an `else:` or `else Pattern:` arm:
+Lowlight provides a clean, **container-free** pattern matching expression delimited by `match [(scrutinees)] [<evaluation_type>]:` (or `match:` for 0 scrutinees without an evaluation type) and terminated strictly by a `default:` or exhaustive `default Pattern:` arm:
 
 ```lowlight
-let label = match (status)
+let label = match (status):
     when Status.Pending: "Waiting"
     when Status.Active: "Running"
     when Status.Suspended: "Paused"
-    else: "Unknown"
+    default: "Unknown"
 ```
 
-Notice that `match` does **not** use enclosing curly braces `{}`. Arms begin with `when`, followed by a pattern and a colon `:`, followed by an action body (which can be a single expression or a `{ ... }` block).
+Notice that `match` does **not** use enclosing curly braces `{}`. Arms begin with `when` (or `default` for the final arm), followed by match clause(s) and a colon `:`, followed by an action body (which can be a single expression or a `{ ... }` block).
 
-#### 7.6.1 Variant Destructuring
-`match` destructures tuple and struct variants of tagged unions:
+#### 7.6.1 0-Argument, 1-Argument, and Multi-Argument Forms
+Lowlight's `match` expression supports 0, 1, or multiple scrutinee arguments:
+
+1. **0-Argument `match` (`match:` or `match () [<type>]:`):**
+   Acts as a streamlined conditional chain where each `when` arm evaluates one or more comma-separated boolean condition expressions (evaluated left-to-right with `or` semantics):
+   ```lowlight
+   let tier = match ():
+       when score >= 90: "A"
+       when score >= 80, extra_credit: "B"
+       default: "C"
+   ```
+   A 0-argument `match` must always terminate with an open fallback `default:`.
+
+2. **1-Argument `match (x) [<type>]:`:**
+   Matches a single scrutinee against one or more comma-separated alternative patterns (matching if any pattern matches):
+   ```lowlight
+   let category = match (ch):
+       when ' ', '\t', '\n': "whitespace"
+       when in '0'..='9': "digit"
+       when _: "other"
+       default: "unreachable"
+   ```
+   - **Containment pattern (`when in <expr>`):** Checks membership in any container expression satisfying `Containable[T]` (evaluating `<expr>.contains(scrutinee)` lazily left-to-right and short-circuiting on the first match). Valid containers include `Range[T]` literals and variables (`when in '0'..='9':`, `when in r:`), lists (`when in ['1', '2', '3']:`), fixed arrays (`[N: T]`), sets (`#[T]`), maps (`#[K: V]`, matching against map keys), strings (`string`, checking substring containment via `when in s:`), boxed `Containable[T]` interface values, and custom types implementing `contains(self, item: T) bool`. Bare range expressions in patterns (e.g. `when 1..=5:`) are rejected when matching a non-`Range` scrutinee and must use `when in 1..=5:`. Can be mixed freely with literal/variant patterns (`when 0, in 1..=5, in [10, 20]:`) and used in multi-argument `match` arms (`when in 1..=5, in 10..=20:`). For optional scrutinees `?T`, a container may hold either `?T` or unwrapped `T` (matching `some(v)` when `v` is contained).
+
+3. **Multi-Argument `match (s1, s2, ...) [<type>]:` ($N \ge 2$):**
+   Matches multiple scrutinees positionally. All scrutinees are evaluated left-to-right once upon entering the `match`:
+   - **Single-combination arm:** A list of $N$ comma-separated patterns, matching each argument positionally:
+     ```lowlight
+     match (self, other):
+         when Json.String(s), Json.String(os): s == os
+         when Json.Bool(b), Json.Bool(ob): b == ob
+         default: false
+     ```
+   - **Multi-combination OR arm:** When an arm handles multiple argument combinations, each combination is enclosed in parentheses:
+     ```lowlight
+     match (self, other):
+         when (Json.Empty, Json.Empty), (Json.Null, Json.Null): true
+         when Json.String(s), Json.String(os): s == os
+         default: false
+     ```
+   - **Wildcard pattern (`_`):** Matches any value in that argument position without performing an equality check.
+
+#### 7.6.2 Variant Destructuring
+`match` destructures payload variants of tagged unions:
 
 ```lowlight
-match (expr)
+match (expr):
     when Expr.Num(n): println("Number: $n")
-    when Expr.Add(a, b): println("Addition")
-    else Expr.Var[name, id: local_id]: println("Var: $name #$local_id")
+    when Expr.Add(pair): println("Addition: ${pair.left} + ${pair.right}")
+    default Expr.Var(name): println("Var: $name")
 ```
 
-#### 7.6.2 Partial Moves & Sibling Drops
-When matching on an owned tagged union, an arm may move out specific variant fields using `own` (e.g., `when Msg.Data[own payload, id]: ...`). In this case:
-1. The moved field `payload` is transferred to the arm scope.
-2. All unmoved Resource fields (such as `id` if Resource) are **immediately and deterministically dropped**.
-3. The parent enum instance is marked moved and inert.
-4. Mixing `&` borrows and `own` moves in the same pattern is a compile error.
+#### 7.6.3 Ownership & Moves in Patterns
+When matching on an owned tagged union, an arm may move out the variant payload using `own` (e.g., `when Msg.Data(own payload): ...`). In this case:
+1. Ownership of `payload` is transferred to the arm scope.
+2. The parent enum instance is marked moved and inert.
+3. Conflicting `&` borrows or `own` moves on the same root variable across a multi-argument `match` arm are statically rejected.
 
-#### 7.6.3 Exhaustiveness & The Mandatory `else` Arm
-Every `match` expression must be exhaustive and **must terminate with an `else` arm**, guaranteeing unambiguous end-of-match resolution even when nested:
-- **Open Fallback (`else:`):** Matches any remaining values with a default action:
+#### 7.6.4 Exhaustiveness & The Mandatory `default` Arm
+Every `match` expression must be exhaustive and **must terminate with a `default` arm**, guaranteeing unambiguous end-of-match resolution even when nested (and keeping `else` unambiguous inside unbraced `when` arms):
+- **Open Fallback (`default:`):** Matches any remaining values with a default action:
   ```lowlight
-  let label = match (code)
+  let label = match (code):
       when 200: "OK"
       when 404: "Not Found"
-      else: "Other"
+      default: "Other"
   ```
-- **Exhaustive Variant Arm (`else Pattern:`):** When all possible variants of an enum are handled explicitly, the final variant is placed on the `else` arm (`else Status.Closed: 300`). The compiler statically verifies that every variant is covered.
+- **Exhaustive Variant Arm (`default Pattern:`):** When all possible variants (or combinations of variants across multi-argument matches) of enum/bool scrutinees are handled explicitly, the final variant or combination is placed on the `default` arm (e.g., `default Status.Closed: 300` or `default Color.Blue, Status.Closed: 4`). The compiler statically verifies that every combination in the Cartesian product is covered.
 
 ### 7.7 Targeted Lexical Unwinding (`<-`)
 
@@ -1382,7 +1461,7 @@ define Stack[T] struct [
     items: [T],
 ]
 
-bind swap[T] = (a: &T, b: &T) {
+bind swap[T] = (a: &T, b: &T): {
     let tmp = own *a
     *a = own *b
     *b = own tmp
@@ -1394,8 +1473,8 @@ bind swap[T] = (a: &T, b: &T) {
 Generic type parameters can be constrained by one or more interfaces using the `:` syntax:
 
 ```lowlight
-bind print_all[T: Printable + Copyable] = (items: [T]) {
-    for (item in items) {
+bind print_all[T: Printable + Copyable] = (items: [T]): {
+    for (item in items): {
         println(item.to_string())
     }
 }
@@ -1430,30 +1509,30 @@ Conforming Lowlight implementations provide a built-in standard runtime contract
 ### 9.1 Built-in Primitive Methods & Character Module (`std/chars.ll`)
 
 All primitive types provide canonical conversion and formatting methods:
-- `int.to_string(): string`
-- `float.to_string(): string`
-- `bool.to_string(): string`
-- `char.to_string(): string`
+- `int.to_string() string`
+- `float.to_string() string`
+- `bool.to_string() string`
+- `char.to_string() string`
 
 The `std/chars.ll` module provides comprehensive character classification, ASCII case conversion, radix conversions, and UTF-8 encoding measurements:
 
 #### Character Inherent Methods
-- `ch.is_digit(): bool`: Returns `true` if `ch` is an ASCII decimal digit (`'0'..'9'`).
-- `ch.is_alpha(): bool`: Returns `true` if `ch` is an ASCII letter (`'a'..'z'` or `'A'..'Z'`).
-- `ch.is_alnum(): bool`: Returns `true` if `ch` is alphanumeric.
-- `ch.is_whitespace(): bool`: Returns `true` if `ch` is ASCII whitespace (`' '`, `'\t'`, `'\n'`, `'\r'`, `0x0B`, `0x0C`).
-- `ch.is_ascii(): bool`: Returns `true` if `ch <= 0x7F`.
-- `ch.is_ascii_upper(): bool`: Returns `true` if `ch` is an uppercase ASCII letter.
-- `ch.is_ascii_lower(): bool`: Returns `true` if `ch` is a lowercase ASCII letter.
-- `ch.is_control(): bool`: Returns `true` if `ch` is an ASCII control character (`< 32` or `127`).
-- `ch.is_punctuation(): bool`: Returns `true` if `ch` is ASCII punctuation.
-- `ch.to_ascii_upper(): char`: Converts ASCII lowercase to uppercase; non-ASCII/uppercase characters unchanged.
-- `ch.to_ascii_lower(): char`: Converts ASCII uppercase to lowercase; non-ASCII/lowercase characters unchanged.
-- `ch.to_digit(radix: int): ?int`: Parses `ch` as a digit in radix $2 \le \text{radix} \le 36$; returns `none` if invalid.
-- `ch.len_utf8(): int`: Returns the UTF-8 byte length required to encode `ch` (1 to 4 bytes).
+- `ch.is_digit() bool`: Returns `true` if `ch` is an ASCII decimal digit (`'0'..'9'`).
+- `ch.is_alpha() bool`: Returns `true` if `ch` is an ASCII letter (`'a'..'z'` or `'A'..'Z'`).
+- `ch.is_alnum() bool`: Returns `true` if `ch` is alphanumeric.
+- `ch.is_whitespace() bool`: Returns `true` if `ch` is ASCII whitespace (`' '`, `'\t'`, `'\n'`, `'\r'`, `0x0B`, `0x0C`).
+- `ch.is_ascii() bool`: Returns `true` if `ch <= 0x7F`.
+- `ch.is_ascii_upper() bool`: Returns `true` if `ch` is an uppercase ASCII letter.
+- `ch.is_ascii_lower() bool`: Returns `true` if `ch` is a lowercase ASCII letter.
+- `ch.is_control() bool`: Returns `true` if `ch` is an ASCII control character (`< 32` or `127`).
+- `ch.is_punctuation() bool`: Returns `true` if `ch` is ASCII punctuation.
+- `ch.to_ascii_upper() char`: Converts ASCII lowercase to uppercase; non-ASCII/uppercase characters unchanged.
+- `ch.to_ascii_lower() char`: Converts ASCII uppercase to lowercase; non-ASCII/lowercase characters unchanged.
+- `ch.to_digit(radix: int) ?int`: Parses `ch` as a digit in radix $2 \le \text{radix} \le 36$; returns `none` if invalid.
+- `ch.len_utf8() int`: Returns the UTF-8 byte length required to encode `ch` (1 to 4 bytes).
 
 #### Character Static & Free Functions
-- `char.from_digit(digit: int, radix: int): ?char`: Converts numeric value into character digit.
+- `char.from_digit(digit: int, radix: int) ?char`: Converts numeric value into character digit.
 - Standalone free functions: `chars.is_digit(ch)`, `chars.is_alpha(ch)`, `chars.is_alnum(ch)`, `chars.is_whitespace(ch)`, `chars.to_ascii_upper(ch)`, `chars.to_ascii_lower(ch)`, `chars.to_digit(ch, radix)`, `chars.from_digit(digit, radix)`.
 
 ### 9.2 String Built-ins & Standard Strings Module (`std/strings.ll`)
@@ -1461,73 +1540,88 @@ The `std/chars.ll` module provides comprehensive character classification, ASCII
 The `string` type represents an immutable UTF-8 text sequence. The standard library module `std/strings.ll` provides a complete suite of string methods:
 
 #### Inherent String Operations
-- `s.len(): int`: Returns Unicode scalar count.
-- `s.byte_len(): int`: Returns UTF-8 byte count.
-- `s.byte_at(i: int): u8`: Returns the byte at index `i` (bounds-checked).
-- `s.is_empty(): bool`: Returns `true` if `s.byte_len() == 0`.
-- `s.is_whitespace(): bool`: Returns `true` if all characters are whitespace.
-- `s.is_ascii(): bool`: Returns `true` if all characters are ASCII.
+- `s.len() int`: Returns Unicode scalar count.
+- `s.byte_len() int`: Returns UTF-8 byte count.
+- `s.byte_at(i: int) u8`: Returns the byte at index `i` (bounds-checked).
+- `s.is_empty() bool`: Returns `true` if `s.byte_len() == 0`.
+- `s.is_whitespace() bool`: Returns `true` if all characters are whitespace.
+- `s.is_ascii() bool`: Returns `true` if all characters are ASCII.
 
 #### Search & Inspection
-- `s.starts_with(prefix: string): bool`
-- `s.ends_with(suffix: string): bool`
-- `s.contains(sub: string): bool`
-- `s.index_of(sub: string): ?int`: Returns start index of first occurrence of `sub`, or `none`.
-- `s.last_index_of(sub: string): ?int`: Returns start index of last occurrence of `sub`, or `none`.
-- `s.count(sub: string): int`: Returns non-overlapping occurrence count of `sub`.
+- `s.starts_with(prefix: string) bool`
+- `s.ends_with(suffix: string) bool`
+- `s.contains(sub: string) bool`
+- `s.index_of(sub: string) ?int`: Returns start index of first occurrence of `sub`, or `none`.
+- `s.last_index_of(sub: string) ?int`: Returns start index of last occurrence of `sub`, or `none`.
+- `s.count(sub: string) int`: Returns non-overlapping occurrence count of `sub`.
 
 #### Trimming
-- `s.trim(): string`: Trims leading and trailing whitespace.
-- `s.trim_start(): string`: Trims leading whitespace.
-- `s.trim_end(): string`: Trims trailing whitespace.
+- `s.trim() string`: Trims leading and trailing whitespace.
+- `s.trim_start() string`: Trims leading whitespace.
+- `s.trim_end() string`: Trims trailing whitespace.
 
 #### Case & Transformation
-- `s.to_lower(): string`: Returns lowercase string (also `to_lowercase()`).
-- `s.to_upper(): string`: Returns uppercase string (also `to_uppercase()`).
-- `s.capitalize(): string`: Capitalizes first character and lowercases remainder.
-- `s.repeat(n: int): string`: Repeats string `n` times.
-- `s.reverse(): string`: Reverses character order.
-- `s.replace(old: string, new: string): string`: Replaces first occurrence of `old` with `new`.
-- `s.replace_all(old: string, new: string): string`: Replaces all occurrences of `old` with `new`.
+- `s.to_lower() string`: Returns lowercase string (also `to_lowercase()`).
+- `s.to_upper() string`: Returns uppercase string (also `to_uppercase()`).
+- `s.capitalize() string`: Capitalizes first character and lowercases remainder.
+- `s.repeat(n: int) string`: Repeats string `n` times.
+- `s.reverse() string`: Reverses character order.
+- `s.replace(old: string, new: string) string`: Replaces first occurrence of `old` with `new`.
+- `s.replace_all(old: string, new: string) string`: Replaces all occurrences of `old` with `new`.
 
 #### Padding & Formatting
-- `s.pad_left(width: int, pad_ch: char = ' '): string`
-- `s.pad_right(width: int, pad_ch: char = ' '): string`
-- `s.center(width: int, pad_ch: char = ' '): string`
+- `s.pad_left(width: int, pad_ch: char = ' ') string`
+- `s.pad_right(width: int, pad_ch: char = ' ') string`
+- `s.center(width: int, pad_ch: char = ' ') string`
 
 #### Splitting, Joining & Conversions
-- `s.split(delim: string): [string]`: Splits `s` by `delim`.
-- `s.split_whitespace(): [string]`: Splits `s` by contiguous whitespace runs.
-- `s.lines(): [string]`: Splits `s` into lines across `\n` and `\r\n`.
-- `s.chars_list(): [char]`: Returns an owned list of Unicode `char` scalars.
-- `s.bytes_list(): [u8]`: Returns an owned list of raw `u8` bytes.
-- `strings.join(parts: [string], sep: string): string`: Joins list of strings with `sep`.
+- `s.split(delim: string) [string]`: Splits `s` by `delim`.
+- `s.split_whitespace() [string]`: Splits `s` by contiguous whitespace runs.
+- `s.lines() [string]`: Splits `s` into lines across `\n` and `\r\n`.
+- `s.chars_list() [char]`: Returns an owned list of Unicode `char` scalars.
+- `s.bytes_list() [u8]`: Returns an owned list of raw `u8` bytes.
+- `strings.join(parts: [string], sep: string) string`: Joins list of strings with `sep`.
 
 ### 9.3 Collection Operations & Sorting (`std/sort.ll`)
 
 #### Dynamic Lists (`[T]` / `List[T]`)
-- `lst.len(): int`: Element count.
-- `lst.cap(): int`: Allocated capacity.
+- `lst.len() int`: Element count.
+- `lst.cap() int`: Allocated capacity.
 - `lst.push(val: own T)`: Appends `val` to the list.
-- `lst.pop(): ?T`: Removes and returns the last element, or `none` if empty.
-- `lst.get(i: int): ?T`: Retrieves element at index `i` as optional `?T`.
+- `lst.pop() ?T`: Removes and returns the last element, or `none` if empty.
+- `lst.get(i: int) ?T`: Retrieves element at index `i` as optional `?T`.
+- `lst.contains(val: T) bool`: Returns `true` if `val` appears in the list (requires element equality).
 - `lst.clear()`: Drops all elements and resets length to zero.
 
+#### Fixed Arrays (`[N: T]` / `Array[T]`)
+- `arr.len() int`: Compile-time array length `N`.
+- `arr.is_empty() bool`: Returns `true` if the array has zero elements.
+- `arr.get(i: int) ?T`: Retrieves element at index `i` as optional `?T`.
+- `arr.contains(val: T) bool`: Returns `true` if `val` appears in the array (requires element equality).
+
+#### Ranges (`Range[T]`)
+- `r.contains(item: T) bool`: Returns `true` if `item` lies within `[start, end)` (`inclusive == false`) or `[start, end]` (`inclusive == true`).
+- `r.is_empty() bool`: Returns `true` if the range contains no elements.
+- `r.len() int`: Returns the number of elements in the range.
+- `r.iter() Iterator[T]`: Returns an iterator yielding each element in ascending order.
+- `r.to_string() string`: Formats `"start..end"` or `"start..=end"`.
+
 #### Sets (`#[T]` / `Set[T: Hashable]`)
-- `s.len(): int`
-- `s.insert(val: own T): bool`: Inserts `val`; returns `true` if inserted, `false` if already present.
-- `s.contains(val: T): bool`
-- `s.remove(val: T): bool`
+- `s.len() int`
+- `s.insert(val: own T) bool`: Inserts `val`; returns `true` if inserted, `false` if already present.
+- `s.contains(val: T) bool`
+- `s.remove(val: T) bool`
 - `s.clear()`
 
 #### Maps (`#[K: V]` / `Map[K: Hashable, V]`)
-- `m.len(): int`
-- `m.get(key: K): ?V`: Returns a read-only borrow of the value for `key`, or `none`.
-- `m.has(key: K): bool`
-- `m.set(key: own K, val: own V): ?V`: Inserts or updates the entry; returns prior value if replaced.
-- `m.remove(key: K): ?V`: Removes key and returns prior value.
-- `m.keys(): [K]`
-- `m.values(): [V]`
+- `m.len() int`
+- `m.get(key: K) ?V`: Returns a read-only borrow of the value for `key`, or `none`.
+- `m.has(key: K) bool`
+- `m.contains(key: K) bool`: Returns `true` if `key` is present in the map, implementing `Containable[K]`.
+- `m.set(key: own K, val: own V) ?V`: Inserts or updates the entry; returns prior value if replaced.
+- `m.remove(key: K) ?V`: Removes key and returns prior value.
+- `m.keys() [K]`
+- `m.values() [V]`
 - `m.clear()`
 
 #### The `Sortable` Interface & Collection Sorting (`std/sort.ll`)
@@ -1540,12 +1634,12 @@ define Sortable interface [
 ```
 
 - `lst.sort()`: Sorts list in-place in ascending order (requires `T: Comparable`).
-- `lst.sort_by(cmp_fn: (a: &T, b: &T): int)`: In-place sorts using custom comparator function returning negative, zero, or positive integer.
-- `lst.is_sorted(): bool`: Checks whether list is sorted in non-decreasing order.
-- `lst.binary_search(target: &T): ?int`: Binary search on sorted list; returns index of match or `none`.
+- `lst.sort_by(cmp_fn: (a: &T, b: &T) int)`: In-place sorts using custom comparator function returning negative, zero, or positive integer.
+- `lst.is_sorted() bool`: Checks whether list is sorted in non-decreasing order.
+- `lst.binary_search(target: &T) ?int`: Binary search on sorted list; returns index of match or `none`.
 - `lst.reverse()`: Reverses list in-place.
-- `s.to_sorted_list(): [T]`: Converts set elements to a newly allocated sorted list.
-- `m.to_sorted_keys(): [K]`: Extracts map keys into a newly allocated sorted list.
+- `s.to_sorted_list() [T]`: Converts set elements to a newly allocated sorted list.
+- `m.to_sorted_keys() [K]`: Extracts map keys into a newly allocated sorted list.
 - Standalone functions: `sort.sort(&lst)`, `sort.sort_by(&lst, cmp_fn)`, `sort.is_sorted(lst)`, `sort.binary_search(lst, target)`.
 
 ### 9.4 File System Operations (`std/fs.ll`)
@@ -1555,41 +1649,41 @@ Lowlight provides robust native file system and file stream operations through `
 #### The `File` Resource Struct
 ```lowlight
 define File struct [
-    handle: ptr[void],
+    handle: ptr[u8],
     is_open: bool,
 ]
 ```
 - Implements `Drop` via `File.drop(&self)`: Automatically closes any open file descriptor upon scope exit, preventing file descriptor leaks under all control flow paths (including early returns and panics).
 
 #### Constructors
-- `File.open(path: string, mode: string): Result[File, string]`
-- `File.open_read(path: string): Result[File, string]` (mode `"rb"`)
-- `File.open_write(path: string): Result[File, string]` (mode `"wb"`)
-- `File.open_append(path: string): Result[File, string]` (mode `"ab"`)
-- `File.open_read_write(path: string): Result[File, string]` (mode `"w+b"`)
+- `File.open(path: string, mode: string) Result[File]`
+- `File.open_read(path: string) Result[File]` (mode `"rb"`)
+- `File.open_write(path: string) Result[File]` (mode `"wb"`)
+- `File.open_append(path: string) Result[File]` (mode `"ab"`)
+- `File.open_read_write(path: string) Result[File]` (mode `"w+b"`)
 
 #### Stream Methods
-- `file.close(): bool`: Closes stream explicitly.
-- `file.flush(): bool`: Flushes internal buffers.
-- `file.seek(offset: int, whence: i32): bool`: Seeks to position using `SEEK_SET = 0`, `SEEK_CUR = 1`, or `SEEK_END = 2`.
-- `file.tell(): int`: Returns current stream position offset.
-- `file.size(): int`: Returns total file size in bytes.
-- `file.write_string(s: string): Result[int, string]`: Writes UTF-8 text to stream.
-- `file.write_bytes(bytes: [u8]): Result[int, string]`: Writes byte slice to stream.
-- `file.read_bytes(max_bytes: int): Result[[u8], string]`: Reads up to `max_bytes` into an owned list.
-- `file.read_to_string(): Result[string, string]`: Reads remaining file stream contents to end as string.
+- `file.close() bool`: Closes stream explicitly.
+- `file.flush() bool`: Flushes internal buffers.
+- `file.seek(offset: int, whence: i32) Result[int]`: Seeks to position using `SEEK_SET = 0`, `SEEK_CUR = 1`, or `SEEK_END = 2`.
+- `file.tell() Result[int]`: Returns current stream position offset.
+- `file.size() Result[int]`: Returns total file size in bytes.
+- `file.write_string(s: string) Result[int]`: Writes UTF-8 text to stream.
+- `file.write_bytes(bytes: [u8]) Result[int]`: Writes byte slice to stream.
+- `file.read_bytes(max_bytes: int) Result[[u8]]`: Reads up to `max_bytes` into an owned list.
+- `file.read_to_string() Result[string]`: Reads remaining file stream contents to end as string.
 
 #### Top-Level Convenience Functions
-- `fs.read_file(path: string): Result[string, string]` (alias `fs.read_to_string`, `fs.read_text`)
-- `fs.write_file(path: string, content: string): Result[bool, string]` (alias `fs.write_to_file`, `fs.write_text`)
-- `fs.append_file(path: string, content: string): Result[bool, string]`
-- `fs.read_bytes(path: string): Result[[u8], string]`
-- `fs.write_bytes(path: string, bytes: [u8]): Result[bool, string]`
-- `fs.exists(path: string): bool`
-- `fs.file_size(path: string): int`
-- `fs.remove_file(path: string): bool`
-- `fs.rename_file(old_path: string, new_path: string): bool`
-- `fs.copy_file(src_path: string, dst_path: string): Result[bool, string]`
+- `fs.read_file(path: string) Result[string]` (alias `fs.read_to_string`, `fs.read_text`)
+- `fs.write_file(path: string, content: string) Result[bool]` (alias `fs.write_to_file`, `fs.write_text`)
+- `fs.append_file(path: string, content: string) Result[bool]`
+- `fs.read_bytes(path: string) Result[[u8]]`
+- `fs.write_bytes(path: string, bytes: [u8]) Result[bool]`
+- `fs.exists(path: string) bool`
+- `fs.file_size(path: string) Result[int]`
+- `fs.remove_file(path: string) bool`
+- `fs.rename_file(old_path: string, new_path: string) bool`
+- `fs.copy_file(src_path: string, dst_path: string) Result[int]`
 
 ### 9.5 Operating System & Universe Functions (`std/os.ll`)
 
@@ -1598,32 +1692,64 @@ The following functions are available globally in all scopes:
 - `println(val: Printable)`: Writes string representation to standard output with trailing newline.
 - `eprint(val: Printable)`: Writes string representation to standard error.
 - `eprintln(val: Printable)`: Writes string representation to standard error with trailing newline.
-- `panic(msg: string): never`: Terminates process execution immediately with an error message.
+- `panic(msg: string) never`: Terminates process execution immediately with an error message.
 - `assert(cond: bool [, msg: string])`: Evaluates `cond`; panics if `cond` is `false`.
-- `args(): [string]`: Returns command-line invocation arguments as an owned `[string]` list. Implemented in pure native Lowlight in `std/os.ll` by iterating runtime argument counts and accessing argument vector elements.
+- `args() [string]`: Returns command-line invocation arguments as an owned `[string]` list. Implemented in pure native Lowlight in `std/os.ll` by iterating runtime argument counts and accessing argument vector elements.
 
-### 9.6 The `Result[T, E]` Standard Type
+### 9.6 The `Result[T]` and `Error` Standard Types
 
-The standard prelude defines the canonical error-handling type `Result[T, E]`:
+The standard prelude defines the canonical error-handling types `Result[T]` and `Error` (`std/core/error.ll` and `std/core/result.ll`):
 
 ```lowlight
+define ErrorFrame struct [
+    _file: string,
+    _line: int,
+    _col: int,
+    _note?: ?string,
+]
+
+define Error struct [
+    _message: string,
+    _code?: ?string,
+    _cause?: ?Error,
+    _frames: [ErrorFrame],
+]
+
 @must_use
-define Result[T, E] struct [
-    value?: ?T,
-    err?: ?E,
-    _ok_flag: bool,
+define Result[T] enum [
+    Ok: T,
+    Err: Error,
 ]
 ```
 
-#### Inherent Methods
-- `Result[T, E].ok(val: own T): Result[T, E]`
-- `Result[T, E].fail(err: own E): Result[T, E]`
-- `res.is_ok(): bool`
-- `res.is_err(): bool`
-- `res.unwrap(): T`: Returns value if ok; panics with error if failed.
-- `res.unwrap_or(default: own T): T`: Returns value if ok; otherwise returns `default`.
+#### `Error` Inherent Methods
+- `Error.new(msg: string) Error` (`@track_caller`): Creates an error capturing the call-site `file:line:col` frame.
+- `Error.coded(code: string, msg: string) Error` (`@track_caller`): Creates a coded/sentinel error with `_code?` set.
+- `err.wrap(msg: string) Error` (`@track_caller`): Wraps `err` as `_cause?` with a new context message and call-site frame.
+- `err.trace() Error` (`@track_caller`): Appends the current call-site frame to the error's trace without adding a new wrapper layer.
+- `err.with_code(code: string) Error`: Returns a copy with `_code?` attached.
+- `err.is(target: Error) bool`: Walks the `_cause?` chain (matching sentinel codes or uncoded messages).
+- `err.has_code(code: string) bool`: Returns `true` if any layer in the chain carries `code`.
+- `err.cause() ?Error`: Returns the direct wrapped cause, if any.
+- `err.root() Error`: Returns the innermost originating `Error` in the chain.
+- `err.message() string` / `err.code() ?string` / `err.frames() [ErrorFrame]`
+- `err.summary() string`: Single-line colon-joined chain (`outer: middle: root`).
+- `err.to_string() string`: Multi-line formatted error summary and location trace (`Printable`).
 
-Because `Result` is marked `@must_use`, ignoring a returned `Result` without inspection is a static compile error.
+#### `Result[T]` Inherent Methods
+- `Result[T].ok(val: own T) Result[T]`
+- `Result[T].fail(err: own Error) Result[T]`
+- `Result[T].fail_msg(msg: string) Result[T]` (`@track_caller`)
+- `res.is_ok() bool` / `res.is_err() bool`
+- `res.unwrap() T`: Returns value if ok; panics with formatted error trace if failed.
+- `res.expect(msg: string) T` (`@track_caller`): Returns value if ok; panics with `msg`, caller location, and error trace if failed.
+- `res.unwrap_or(fallback: own T) T`: Returns value if ok; otherwise returns `fallback`.
+- `res.unwrap_err() Error`: Returns `Error` if failed; panics if ok.
+- `res.into_ok() ?T` / `res.into_err() ?Error` / `res.peek_err() ?Error`
+- `res.wrap_err(msg: string) Result[T]` (`@track_caller`): Wraps the error with `msg` and caller frame if failed.
+- `res.trace_err() Result[T]` (`@track_caller`): Appends a caller frame to the error if failed.
+
+Because `Result` is marked `@must_use`, ignoring a returned `Result` without inspection generates a compiler warning/check.
 
 ### 9.7 Testing System & Standard Testing Library (`std/test.ll`)
 
@@ -1635,10 +1761,10 @@ Lowlight provides an integrated compile-time testing framework and standard asse
 - `@track_caller`: Instructs the compiler to implicitly track and propagate the caller's source location (`file:line:col`). When an assertion or `panic` occurs inside a `@track_caller` function, the failure diagnostic reports the caller's call-site location instead of the internal function body. Nested `@track_caller` helpers forward the outer caller's call site seamlessly.
 
 #### Builtin Caller Inspection
-- `caller_location(): string`: Returns the caller's source position formatted as `file:line:col`.
-- `caller_file(): string`: Returns the caller's source file path.
-- `caller_line(): int`: Returns the caller's 1-based source line.
-- `caller_col(): int`: Returns the caller's 1-based source column.
+- `caller_location() string`: Returns the caller's source position formatted as `file:line:col`.
+- `caller_file() string`: Returns the caller's source file path.
+- `caller_line() int`: Returns the caller's 1-based source line.
+- `caller_col() int`: Returns the caller's 1-based source column.
 
 #### Compile-Time Isolation & Build Stripping
 - **Call-Graph Restriction**: Any function or declaration not marked `@test` or `@test_only` (production code) is strictly prohibited from calling or referencing any symbol marked `@test` or `@test_only`. Attempting to access test symbols from production code produces a static compile-time error.
@@ -1664,8 +1790,8 @@ Importing `std/test.ll` provides comprehensive test assertion utilities with aut
 - `assert_lt[T: Comparable + Printable](actual: T, expected: T)`
 - `assert_ge[T: Comparable + Printable](actual: T, expected: T)`
 - `assert_le[T: Comparable + Printable](actual: T, expected: T)`
-- `assert_is_ok[T, E: Printable](res: &Result[T, E])` / `assert_is_ok_msg(...)`
-- `assert_is_err[T, E](res: &Result[T, E])` / `assert_is_err_msg(...)`
+- `assert_is_ok[T](res: &Result[T])` / `assert_is_ok_msg(...)`
+- `assert_is_err[T](res: &Result[T])` / `assert_is_err_msg(...)`
 - `assert_some[T](val?: ?T)`
 - `assert_none[T](val?: ?T)`
 
@@ -1712,20 +1838,20 @@ Within an `unsafe` expression, the programmer assumes full responsibility for po
 ### 10.2 Raw Pointer Mechanics (`ptr[T]`)
 
 Raw pointers `ptr[T]` allow unmanaged address manipulation:
-- `ptr_null[T](): ptr[T]`: Produces a null pointer.
-- `ptr_from_ref[T](r: &T): ptr[T]`: Converts a safe reference to a raw pointer.
+- `ptr_null[T]() ptr[T]`: Produces a null pointer.
+- `ptr_from_ref[T](r: &T) ptr[T]`: Converts a safe reference to a raw pointer.
 - `*p`: Dereferences a pointer to read its value (unsafe).
 - `*p = val`: Overwrites the target memory location with `val` without running prior destructors (unsafe).
 - `p[i]`: Accesses memory at offset $p + i \times \text{sizeof}(T)$ (unsafe).
-- `ptr_add[T](p: ptr[T], offset: int): ptr[T]`: Performs pointer arithmetic.
+- `ptr_add[T](p: ptr[T], offset: int) ptr[T]`: Performs pointer arithmetic.
 
 ### 10.3 Safe Sizing vs. Unsafe Memory Intrinsics
 
 - **Safe Sizing Functions:**
-  - `size_of[T](): int`: Returns the byte size of type $T$ at compile time.
-  - `align_of[T](): int`: Returns the byte alignment of type $T$ at compile time.
+  - `size_of[T]() int`: Returns the byte size of type $T$ at compile time.
+  - `align_of[T]() int`: Returns the byte alignment of type $T$ at compile time.
 - **Unsafe Allocator Intrinsics:**
-  - `alloc_raw(bytes: int, align: int): ptr[u8]`: Allocates unmanaged heap memory (unsafe).
+  - `alloc_raw(bytes: int, align: int) ptr[u8]`: Allocates unmanaged heap memory (unsafe).
   - `free_raw(p: ptr[u8])`: Releases unmanaged heap memory (unsafe).
   - `copy_raw(src: ptr[u8], dst: ptr[u8], bytes: int)`: Copies non-overlapping memory (unsafe).
 
@@ -1735,9 +1861,9 @@ Lowlight provides a target-agnostic Foreign Function Interface (FFI) declaration
 
 ```lowlight
 extern "C" "stdio.h" [
-    puts: (s: ptr[u8]): i32,
-    fopen: (path: ptr[u8], mode: ptr[u8]): ptr[void],
-    fclose: (stream: ptr[void]): i32,
+    puts: (s: ptr[u8]) i32,
+    fopen: (path: ptr[u8], mode: ptr[u8]) ptr[u8],
+    fclose: (stream: ptr[u8]) i32,
 ]
 ```
 
@@ -1766,7 +1892,7 @@ TopDeclaration      = [ AttributeList ] ( BindDecl
                                         | EnumDecl
                                         | InterfaceDecl
                                         | DistinctDecl
-                                        | ExternBlock
+                                        | ExternDecl
                                         | ImportDecl ) ;
 
 AttributeList       = { "@" Ident [ "(" [ AttrArgList ] ")" ] } ;
@@ -1775,11 +1901,15 @@ AttrArg             = StringLit | Ident ;
 
 ImportDecl          = "import" StringLit [ "as" Ident ] ;
 
-BindDecl            = "bind" Ident [ ":" Type ] "=" Expr ;
+BindDecl            = "bind" Ident [ ":" Type ] "=" Expr
+                    | "bind" UnpackBindTargets "=" "unpack" Expr ;
 MethodDecl          = "bind" Ident [ TypeParams ] "." Ident [ TypeParams ] "=" ( FuncLit | Expr ) ;
-LetDecl             = "let" ( Ident | OptIdent ) [ ":" Type ] "=" Expr ;
+LetDecl             = "let" ( Ident | OptIdent ) [ ":" Type ] "=" Expr
+                    | "let" UnpackBindTargets "=" "unpack" Expr ;
+UnpackBindTargets   = UnpackBindTarget { "," UnpackBindTarget } [ "," ] ;
+UnpackBindTarget    = ( "_" | Ident | OptIdent ) [ ":" Type ] ;
 
-DistinctDecl        = "define" Ident "=" Type ;
+DistinctDecl        = "define" Ident Type ;
 
 StructDecl          = "define" [ "packed" ] Ident [ TypeParams ] "struct" "[" [ FieldDeclList ] "]" ;
 FieldDeclList       = FieldDecl { "," FieldDecl } [ "," ] ;
@@ -1787,18 +1917,16 @@ FieldDecl           = [ AttributeList ] ( Ident | OptIdent ) ":" Type [ "=" Expr
 
 EnumDecl            = "define" Ident [ TypeParams ] "enum" [ IntegerType ] "[" [ VariantList ] "]" ;
 VariantList         = VariantDecl { "," VariantDecl } [ "," ] ;
-VariantDecl         = UnitVariant | TupleVariant | StructVariant ;
+VariantDecl         = UnitVariant | PayloadVariant ;
 UnitVariant         = Ident [ "=" ConstExpr ] ;
-TupleVariant        = Ident ":" Type ;
-StructVariant       = Ident ":" "[" [ FieldDeclList ] "]" ;
+PayloadVariant      = Ident ":" Type ;
 
 InterfaceDecl       = "define" Ident [ TypeParams ] "interface" "[" [ MethodSigList ] "]" ;
 MethodSigList       = MethodSig { "," MethodSig } [ "," ] ;
-MethodSig           = Ident ":" "(" [ ParamList ] ")" [ ":" Type ] ;
+MethodSig           = Ident ":" "(" [ ParamList ] ")" [ Type ] ;
 
-ExternBlock         = "extern" StringLit [ StringLit ] "[" [ ExternSymbolList ] "]" ;
-ExternSymbolList    = ExternSymbol { "," ExternSymbol } [ "," ] ;
-ExternSymbol        = [ Ident "as" ] Ident ":" "(" [ ParamList ] ")" [ ":" Type ] ;
+ExternDecl          = "extern" StringLit
+                    | "extern" ( Ident | StringLit | Keyword ) [ "as" Ident ] ":" "(" [ ParamList ] ")" [ Type ] ;
 
 TypeParams          = "[" TypeParam { "," TypeParam } [ "," ] "]" ;
 TypeParam           = Ident [ ":" InterfaceBounds ] ;
@@ -1813,8 +1941,9 @@ Type                = PrimitiveType
                     | "[" IntLit ":" Type "]"
                     | "#[" Type "]"
                     | "#[" Type ":" Type "]"
+                    | "+[" [ TypeList ] "]"
                     | Ident [ TypeArgs ]
-                    | "(" [ TypeList ] ")" [ ":" Type ]
+                    | "(" [ TypeList ] ")" [ Type ]
                     | "ref" "[" Type "]"
                     | "ptr" "[" Type "]"
                     ;
@@ -1826,22 +1955,24 @@ PrimitiveType       = "int" | "i8" | "i16" | "i32" | "i64"
 
 Expr                = UnwindExpr
                     | AssignmentExpr
-                    | LogicalOrExpr ;
+                    | CoalesceExpr ;
 
-AssignmentExpr      = PlaceExpr ( "=" | "+=" | "-=" | "*=" | "/=" | "%="
+AssignmentExpr      = PlaceExpr { "," PlaceExpr } "=" "unpack" Expr
+                    | PlaceExpr ( "=" | "+=" | "-=" | "*=" | "/=" | "%="
                                 | "&=" | "|=" | "^=" | "<<=" | ">>=" ) Expr ;
 
+CoalesceExpr        = LogicalOrExpr [ "??" CoalesceExpr ] ;
 LogicalOrExpr       = LogicalAndExpr { "or" LogicalAndExpr } ;
 LogicalAndExpr      = BitwiseOrExpr { "and" BitwiseOrExpr } ;
 BitwiseOrExpr       = BitwiseXorExpr { "|" BitwiseXorExpr } ;
 BitwiseXorExpr      = BitwiseAndExpr { "^" BitwiseAndExpr } ;
 BitwiseAndExpr      = EqualityExpr { "&" EqualityExpr } ;
 EqualityExpr        = RelationalExpr [ ( "==" | "!=" ) RelationalExpr ] ;
-RelationalExpr      = ShiftExpr [ ( "<" | "<=" | ">" | ">=" ) ShiftExpr ] ;
+RelationalExpr      = RangeExpr [ ( "<" | "<=" | ">" | ">=" ) RangeExpr ] ;
+RangeExpr           = ShiftExpr [ ( ".." | "..=" ) ShiftExpr ] ;
 ShiftExpr           = AdditiveExpr { ( "<<" | ">>" ) AdditiveExpr } ;
 AdditiveExpr        = MultiplicativeExpr { ( "+" | "-" ) MultiplicativeExpr } ;
-MultiplicativeExpr  = CoalesceExpr { ( "*" | "/" | "%" ) CoalesceExpr } ;
-CoalesceExpr        = UnaryExpr { "??" UnaryExpr } ;
+MultiplicativeExpr  = UnaryExpr { ( "*" | "/" | "%" ) UnaryExpr } ;
 
 UnaryExpr           = ( "-" | "not" | "~" | "*" | "&" | "own" | "unsafe" ) UnaryExpr
                     | PostfixExpr ;
@@ -1866,9 +1997,11 @@ PrimaryExpr         = Literal
                     | ListLit
                     | ArrayLit
                     | SetOrMapLit
+                    | TupleLit
                     | BlockExpr
                     | IfExpr
                     | ForExpr
+                    | WhileExpr
                     | MatchExpr
                     | LambdaExpr
                     | "(" Expr ")" ;
@@ -1879,41 +2012,43 @@ StructLit           = Ident [ TypeArgs ] "[" [ StructFieldInitList ] "]" ;
 StructFieldInitList = StructFieldInit { "," StructFieldInit } [ "," ] ;
 StructFieldInit     = ( Ident | OptIdent ) [ ":" Expr ] ;
 
-ListLit             = "[" [ ExprList | ListComprehension ] "]" ;
-ListComprehension   = "for" "(" ForHeader ")" ActionBody ;
-ArrayLit            = "[" IntLit ":" Expr "]" ;
+ListLit             = "[" [ ExprList ] "]" ;
+ArrayLit            = "[" ConstExpr ":" Expr { "," Expr } [ "," ] "]" ;
 
-SetOrMapLit         = "#[" [ SetElements | MapEntries | MapComprehension ] "]" ;
+SetOrMapLit         = "#[" [ SetElements | MapEntries ] "]" ;
 SetElements         = Expr { "," Expr } [ "," ] ;
 MapEntries          = MapEntry { "," MapEntry } [ "," ] ;
 MapEntry            = Expr ":" Expr ;
-MapComprehension    = "for" "(" ForHeader ")" Expr ":" Expr ;
+
+TupleLit            = "+[" [ ExprList ] "]" ;
 
 BlockExpr           = "{" { Statement } [ Expr ] "}" ;
 
-Statement           = LetDecl
-                    | BindDecl
-                    | Expr ( ";" | AutoSemi ) ;
+Statement           = [ AttributeList ] ( LetDecl
+                                          | BindDecl
+                                          | Expr ) ( ";" | AutoSemi ) ;
 
-IfExpr              = "if" "(" IfCondition ")" ActionBody [ "else" ActionBody ] ;
+IfExpr              = "if" "(" IfCondition ")" [ Type ] ":" ActionBody [ "else" ( IfExpr | ":" ActionBody ) ] ;
 IfCondition         = [ "&" ] OptIdent
                     | [ "&" ] Expr "as" Ident
                     | Expr ;
 
-ForExpr             = "for" "(" ForHeader ")" ActionBody [ "else" ActionBody ] ;
-ForHeader           = [ "&" ] ( Ident | OptIdent ) [ "," [ "&" ] ( Ident | OptIdent ) ] "in" ( RangeExpr | Expr )
+ForExpr             = [ Ident ":" ] "for" "(" ForHeader ")" [ Type ] ":" ActionBody [ "else" ":" ActionBody ] ;
+WhileExpr           = [ Ident ":" ] "while" "(" ForHeader ")" [ Type ] ":" ActionBody [ "else" ":" ActionBody ] ;
+ForHeader           = [ "&" ] ( Ident | OptIdent ) [ "," [ "&" ] ( Ident | OptIdent ) ] "in" Expr
                     | Expr ;
 
-RangeExpr           = Expr ( ".." | "..=" ) Expr ;
-
-MatchExpr           = "match" "(" Expr ")" { MatchArm } MatchElseArm ;
-MatchArm            = "when" PatternList ":" ActionBody ;
-MatchElseArm        = "else" [ PatternList ] ":" ActionBody ;
-PatternList         = Pattern { "," Pattern } [ "," ] ;
+MatchExpr           = "match" ( ":" | "(" [ ArgList ] ")" [ Type ] ":" ) { MatchArm } MatchDefaultArm ;
+MatchArm            = "when" MatchClauses ":" ActionBody ;
+MatchDefaultArm     = "default" [ MatchClauses ] ":" ActionBody ;
+MatchClauses        = MatchClause { "," MatchClause } [ "," ] ;
+MatchClause         = "(" Pattern { "," Pattern } [ "," ] ")"
+                    | Pattern { "," Pattern } ;
 Pattern             = Literal
                     | "_"
                     | Ident
-                    | Ident "." Ident [ "(" Pattern ")" | "[" [ PatternFieldList ] "]" ] ;
+                    | Ident "." Ident [ "(" PatternBinding ")" ]
+                    | "in" Expr ;
 
 ActionBody          = BlockExpr | Expr ;
 
@@ -1926,7 +2061,7 @@ UnwindExpr          = "<-" [ Expr ]
                     | "next" Ident "<-" [ Expr ]
                     | "func" "<-" [ Expr ] ;
 
-LambdaExpr          = "(" [ ParamList ] ")" [ ":" Type ] ActionBody ;
+LambdaExpr          = "(" [ ParamList ] ")" [ Type ] ":" ActionBody ;
 
 ParamList           = Param { "," Param } [ "," ] ;
 Param               = [ "own" | "&" ] ( Ident | OptIdent ) ":" Type ;

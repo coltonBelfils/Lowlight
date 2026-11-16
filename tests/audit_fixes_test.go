@@ -16,7 +16,7 @@ bind C = B + 1
 bind B = A * 2
 bind A = 10
 
-bind main = () -> {
+bind main = (): {
     assert(A == 10)
     assert(B == 20)
     assert(C == 21)
@@ -29,7 +29,7 @@ bind main = () -> {
 bind A = B + 1
 bind B = A + 1
 
-bind main = () -> {
+bind main = (): {
     println(A)
 }
 `
@@ -54,14 +54,14 @@ define NonCopyable struct [
     id: int,
 ]
 
-bind NonCopyable.drop = (&self) -> {
+bind NonCopyable.drop = (&self): {
     self.id = 0
 }
 
-bind main = () -> {
+bind main = (): {
     let v: [NonCopyable] = []
     // Push 10 elements to trigger dynamic reallocations in ll_vec_reserve
-    for (i in 0..10) {
+    for (i in 0..10): {
         v.push(NonCopyable[id: i])
     }
     assert(v.len() == 10)
@@ -78,7 +78,7 @@ func TestInt64MinFormatting(t *testing.T) {
 import "std/strconv.ll" as strconv
 import "std/strfmt.ll" as strfmt
 
-bind main = () -> {
+bind main = (): {
     let min_i64 = -9223372036854775807 - 1
 
     // to_radix in base 10
@@ -111,7 +111,7 @@ func TestParseIntOverflow(t *testing.T) {
 	src := `
 import "std/strconv.ll" as strconv
 
-bind main = () -> {
+bind main = (): {
     // Exact bounds
     let max_ok? = strconv.parse_int_safe("9223372036854775807")
     assert(max_ok? != none)
@@ -146,7 +146,7 @@ func TestArenaEscapeAnalysisRecursion(t *testing.T) {
 define Node struct [ val: int ]
 define Holder struct [ node: ref[Node] ]
 
-bind main = () -> {
+bind main = (): {
     let outer_ref: ?ref[Node] = none
     {
         let a = Arena.new()
@@ -172,14 +172,14 @@ bind main = () -> {
 	srcIf := `
 define Node struct [ val: int ]
 
-bind main = () -> {
+bind main = (): {
     let outer_ref: ?ref[Node] = none
     let a1 = Arena.new()
     let n1 = a1.alloc(Node[val: 1])
     {
         let a2 = Arena.new()
         let n2 = a2.alloc(Node[val: 2])
-        outer_ref = if (true) n2 else n1
+        outer_ref = if (true): n2 else: n1
     }
 }
 `
@@ -199,11 +199,11 @@ bind main = () -> {
 // 6. Security Hole 3: Unbounded Generic Monomorphization Limit
 func TestGenericRecursionLimit(t *testing.T) {
 	src := `
-bind recurse[T] = () -> {
+bind recurse[T] = (): {
     recurse[[T]]()
 }
 
-bind main = () -> {
+bind main = (): {
     recurse[int]()
 }
 `
@@ -224,23 +224,23 @@ bind main = () -> {
 // 7. Security Hole 4: Tombstone memory compaction in Maps and Sets
 func TestMapAndSetTombstoneCompaction(t *testing.T) {
 	src := `
-bind main = () -> {
+bind main = (): {
     let m = #[ "key": 0 ]
     m.clear()
 
     // Repeated inserts and removes to generate tombstones
-    for (i in 0..100) {
+    for (i in 0..100): {
         m.insert("k$i", i)
         m.remove("k$i")
     }
     assert(m.len() == 0)
 
     // Insert 5 active keys
-    for (i in 0..5) {
+    for (i in 0..5): {
         m.insert("active$i", i)
     }
     assert(m.len() == 5)
-    for (i in 0..5) {
+    for (i in 0..5): {
         let v?: ?int = m["active$i"]
         assert(v? != none)
         assert((v? ?? 0) == i)
@@ -248,16 +248,16 @@ bind main = () -> {
 
     let s = #[1]
     s.clear()
-    for (i in 0..100) {
+    for (i in 0..100): {
         s.insert(i)
         s.remove(i)
     }
     assert(s.len() == 0)
-    for (i in 0..5) {
+    for (i in 0..5): {
         s.insert(i * 10)
     }
     assert(s.len() == 5)
-    for (i in 0..5) {
+    for (i in 0..5): {
         assert(s.has(i * 10))
     }
 }
@@ -270,7 +270,7 @@ func TestPosixDirectoryOperations(t *testing.T) {
 	src := `
 import "std/os.ll" as os
 
-bind main = () -> {
+bind main = (): {
     let test_dir = "/tmp/ll_test_mkdir_p/nested/dir/level3"
     let ok = os.mkdir_p(test_dir)
     assert(ok)
@@ -291,11 +291,11 @@ define Res struct [
     name: string,
 ]
 
-bind Res.drop = (&self) -> {
+bind Res.drop = (&self): {
     self.name = ""
 }
 
-bind main = () -> {
+bind main = (): {
     unsafe {
         let p = alloc_raw[Res](1)
         // Assigning to raw uninitialized memory *p must NOT attempt to drop uninitialized *p!
@@ -309,18 +309,18 @@ bind main = () -> {
 	runInlineStrict(t, "raw_ptr_assign_no_drop", src, false)
 }
 
-// 10. Item 6: Result[T, E] in prelude without import
+// 10. Item 6: Result[T] and Error in prelude without import
 func TestResultInPrelude(t *testing.T) {
 	src := `
-bind divide = (a: int, b: int): Result[int, string] -> {
-    if (b == 0) {
-        Result[int, string].fail("division by zero")
-    } else {
-        Result[int, string].ok(a / b)
+bind divide = (a: int, b: int) Result[int]: {
+    if (b == 0): {
+        Result[int].fail(Error.coded("div_zero", "division by zero"))
+    } else: {
+        Result[int].ok(a / b)
     }
 }
 
-bind main = () -> {
+bind main = (): {
     let ok_res = divide(10, 2)
     assert(ok_res.is_ok())
     assert(not ok_res.is_err())
@@ -328,7 +328,9 @@ bind main = () -> {
 
     let err_res = divide(10, 0)
     assert(err_res.is_err())
-    assert(err_res.unwrap_or(42) == 42)
+    let wrapped = err_res.wrap_err("computing quotient")
+    assert(wrapped.copy().unwrap_err().has_code("div_zero"))
+    assert(wrapped.unwrap_or(42) == 42)
 }
 `
 	runInlineStrict(t, "result_in_prelude", src, false)
@@ -345,26 +347,26 @@ define Coord struct [
 ]
 
 @must_use
-bind compute_val = (x: int): int -> {
+bind compute_val = (x: int) int: {
     x * 2
 }
 
 @inline
-bind fast_add = (a: int, b: int): int -> {
+bind fast_add = (a: int, b: int) int: {
     a + b
 }
 
 @noinline
-bind slow_add = (a: int, b: int): int -> {
+bind slow_add = (a: int, b: int) int: {
     a + b
 }
 
 @deprecated("use compute_val instead")
-bind old_calc = (x: int): int -> {
+bind old_calc = (x: int) int: {
     x * 2
 }
 
-bind main = () -> {
+bind main = (): {
     let c = Coord[x: i32(10), y: i32(20)]
     assert(int(c.x) == 10)
     assert(int(c.y) == 20)
@@ -385,8 +387,8 @@ bind main = () -> {
 	srcConflict := `
 @inline
 @noinline
-bind bad_fn = () -> {}
-bind main = () -> {}
+bind bad_fn = (): {}
+bind main = (): {}
 `
 	root := projectRoot(t)
 	_, _, err := driver.Check(driver.Options{
@@ -409,15 +411,15 @@ define CustomFile struct [
     fd: int,
 ]
 
-bind CustomFile.drop = (&self) -> {
+bind CustomFile.drop = (&self): {
     self.fd = -1
 }
 
-bind test_drop[T: Drop] = (item: own T) -> {
+bind test_drop[T: Drop] = (item: own T): {
     // item is dropped at the end of this scope
 }
 
-bind main = () -> {
+bind main = (): {
     let f = CustomFile[fd: 10]
     test_drop[CustomFile](own f)
 }
@@ -428,7 +430,7 @@ bind main = () -> {
 // 13. Item 9: string.push_bytes(ptr[u8], int)
 func TestStringPushBytes(t *testing.T) {
 	src := `
-bind main = () -> {
+bind main = (): {
     let s = "Hello"
     unsafe {
         let raw = alloc_raw[u8](7)
@@ -454,12 +456,87 @@ func TestTopLevelComplexConstants(t *testing.T) {
 	src := `
 bind l = [1, 2, 3, 4, 5, 6]
 
-bind main = () -> {
-    let ll? = while (i in l) i + 1
-    if (ll?) {
+bind main = (): {
+    let ll? = while (i in l): i + 1
+    if (ll?): {
         assert(ll == 7)
     }
 }
 `
 	runInlineStrict(t, "top_level_vector_constant", src, false)
+}
+
+func TestResultAndGoStyleErrorChain(t *testing.T) {
+	src := `
+import "std/fs.ll" as fs
+
+bind ERR_NOT_FOUND = Error.coded("not_found", "resource not found")
+
+bind step1 = (path: string) Result[string]: {
+    let r = fs.read_file(path)
+    if (r.is_err()): {
+        func <- Result[string].fail(r.unwrap_err().with_code("not_found").wrap("step1 failed"))
+    }
+    r
+}
+
+bind step2 = (path: string) Result[int]: {
+    let r = step1(path)
+    if (r.is_err()): {
+        let e = r.unwrap_err().trace()
+        func <- Result[int].fail(e.wrap("step2 failed"))
+    }
+    Result[int].ok(r.unwrap().len())
+}
+
+bind main = (): {
+    let r = step2("/tmp/definitely_missing_lowlight_error_test_file_12345.txt").wrap_err("top-level load")
+    assert(r.is_err())
+    assert(r.copy().into_ok() == none)
+    assert(r.peek_err() != none)
+
+    let err = r.unwrap_err()
+    assert(err.message() == "top-level load")
+    assert(err.summary().starts_with("top-level load: step2 failed: step1 failed: "))
+    assert(err.is(ERR_NOT_FOUND))
+    assert(err.has_code("not_found"))
+    assert(err.code() == "not_found")
+    assert(err.root().message().contains("failed to open file"))
+
+    let c1? = err.cause()
+    assert(c1? != none)
+    let c2? = err.cause()
+    assert(c1? == c2?)
+
+    let formatted = err.to_string()
+    assert(formatted.contains("[not_found]"))
+    assert(formatted.contains("trace:"))
+    assert(formatted.contains("step2 failed"))
+    assert(formatted.contains("step1 failed"))
+}
+`
+	runInlineStrict(t, "result_error_chain_debug", src, false)
+	runInlineStrict(t, "result_error_chain_release", src, true)
+
+	// Verify @must_use warning when discarding a Result[T]
+	warnSrc := `
+bind make_ok = () Result[int]: {
+    Result[int].ok(1)
+}
+bind main = (): {
+    make_ok();
+}
+`
+	root := projectRoot(t)
+	_, diagsStr, err := driver.Check(driver.Options{
+		EntryPath:   filepath.Join(root, "must_use_result.ll"),
+		SrcOverride: warnSrc,
+		ProjectRoot: root,
+	})
+	if err != nil {
+		t.Fatalf("unexpected check error for @must_use test: %v", err)
+	}
+	if !strings.Contains(diagsStr, "@must_use") {
+		t.Fatalf("expected @must_use warning when discarding Result[int], got diagnostics:\n%s", diagsStr)
+	}
 }

@@ -205,23 +205,34 @@ func (g *llvmEmitter) emitAll() {
 
 func (g *llvmEmitter) emitHeader() {
 	g.line("; Lowlight LLVM IR Module")
-	if runtime.GOARCH == "arm64" {
-		if runtime.GOOS == "darwin" {
-			g.line("target datalayout = %q", "e-m:o-i64:64-i128:128-n32:64-S128")
-			g.line("target triple = %q", "arm64-apple-macosx15.0.0")
+	triple := g.prog.TargetTriple
+	if triple == "" {
+		if runtime.GOARCH == "arm64" {
+			if runtime.GOOS == "darwin" {
+				triple = "arm64-apple-macosx15.0.0"
+			} else {
+				triple = "aarch64-unknown-linux-gnu"
+			}
 		} else {
-			g.line("target datalayout = %q", "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128")
-			g.line("target triple = %q", "aarch64-unknown-linux-gnu")
-		}
-	} else {
-		if runtime.GOOS == "darwin" {
-			g.line("target datalayout = %q", "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128")
-			g.line("target triple = %q", "x86_64-apple-macosx15.0.0")
-		} else {
-			g.line("target datalayout = %q", "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128")
-			g.line("target triple = %q", "x86_64-unknown-linux-gnu")
+			if runtime.GOOS == "darwin" {
+				triple = "x86_64-apple-macosx15.0.0"
+			} else {
+				triple = "x86_64-unknown-linux-gnu"
+			}
 		}
 	}
+
+	datalayout := "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
+	if strings.HasPrefix(triple, "arm64-apple") || strings.HasPrefix(triple, "aarch64-apple") {
+		datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
+	} else if strings.HasPrefix(triple, "aarch64") || strings.HasPrefix(triple, "arm64") {
+		datalayout = "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
+	} else if strings.Contains(triple, "-apple-") {
+		datalayout = "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
+	}
+
+	g.line("target datalayout = %q", datalayout)
+	g.line("target triple = %q", triple)
 	g.line("")
 }
 
@@ -271,6 +282,9 @@ func (g *llvmEmitter) llvmType(t types.Type) string {
 		}
 		return "%struct." + v.CName
 	case *types.Struct:
+		if (v.Name == "List" || strings.HasPrefix(v.Name, "List[")) && len(v.TypeArgs) == 1 {
+			return "%struct.ll_vec_" + v.TypeArgs[0].Mangled()
+		}
 		return "%struct." + v.CName
 	case *types.Vector:
 		return "%struct." + CType(v)
@@ -280,6 +294,8 @@ func (g *llvmEmitter) llvmType(t types.Type) string {
 		}
 		return "%struct." + CType(v)
 	case *types.StackArray:
+		return "%struct." + CType(v)
+	case *types.Tuple:
 		return "%struct." + CType(v)
 	case *types.Map:
 		return "%struct." + CType(v)
@@ -310,18 +326,8 @@ func (g *llvmEmitter) emitTypeDefs() {
 				// Compute max payload size in 64-bit words (minimum 2 words = 16 bytes for pointer/int pairs)
 				maxPayloadWords := 2
 				for _, vr := range v.Variants {
-					switch vr.Kind {
-					case types.VariantTuple:
+					if vr.Kind == types.VariantTuple {
 						w := (g.typeSize(vr.Payload) + 7) / 8
-						if w > maxPayloadWords {
-							maxPayloadWords = w
-						}
-					case types.VariantStruct:
-						tot := 0
-						for _, sf := range vr.Fields {
-							tot += g.typeSize(sf.Type)
-						}
-						w := (tot + 7) / 8
 						if w > maxPayloadWords {
 							maxPayloadWords = w
 						}
@@ -331,6 +337,9 @@ func (g *llvmEmitter) emitTypeDefs() {
 			}
 		case *types.Struct:
 			if strings.HasPrefix(v.CName, "ll_lambda_env_") {
+				continue
+			}
+			if (v.Name == "List" || strings.HasPrefix(v.Name, "List[")) && len(v.TypeArgs) == 1 {
 				continue
 			}
 			var fieldTypes []string
@@ -370,6 +379,17 @@ func (g *llvmEmitter) emitTypeDefs() {
 					g.line("%%struct.%s = type { i1, %s }", optCn, g.llvmType(v.Elem))
 				}
 			}
+		case *types.Tuple:
+			cn := CType(v)
+			var fieldTypes []string
+			if len(v.Elems) == 0 {
+				fieldTypes = append(fieldTypes, "i8")
+			} else {
+				for _, el := range v.Elems {
+					fieldTypes = append(fieldTypes, g.llvmType(el))
+				}
+			}
+			g.line("%%struct.%s = type { %s }", cn, strings.Join(fieldTypes, ", "))
 		case *types.Vector:
 			cn := CType(v)
 			g.line("%%struct.%s = type { ptr, i64, i64 }", cn)
@@ -489,6 +509,15 @@ func (g *llvmEmitter) typeAlign(t types.Type) int {
 		return a
 	case *types.StackArray:
 		return g.typeAlign(v.Elem)
+	case *types.Tuple:
+		maxA := 1
+		for _, el := range v.Elems {
+			a := g.typeAlign(el)
+			if a > maxA {
+				maxA = a
+			}
+		}
+		return maxA
 	default:
 		return 8
 	}
@@ -529,18 +558,8 @@ func (g *llvmEmitter) typeSize(t types.Type) int {
 		}
 		maxPayloadWords := 2
 		for _, vr := range v.Variants {
-			switch vr.Kind {
-			case types.VariantTuple:
+			if vr.Kind == types.VariantTuple {
 				w := (g.typeSize(vr.Payload) + 7) / 8
-				if w > maxPayloadWords {
-					maxPayloadWords = w
-				}
-			case types.VariantStruct:
-				tot := 0
-				for _, sf := range vr.Fields {
-					tot += g.typeSize(sf.Type)
-				}
-				w := (tot + 7) / 8
 				if w > maxPayloadWords {
 					maxPayloadWords = w
 				}
@@ -609,6 +628,21 @@ func (g *llvmEmitter) typeSize(t types.Type) int {
 		return (total + elemAlign - 1) & -elemAlign
 	case *types.StackArray:
 		return int(v.Size) * g.typeSize(v.Elem)
+	case *types.Tuple:
+		if len(v.Elems) == 0 {
+			return 1
+		}
+		offset := 0
+		maxAlign := 1
+		for _, el := range v.Elems {
+			fAlign := g.typeAlign(el)
+			if fAlign > maxAlign {
+				maxAlign = fAlign
+			}
+			offset = (offset + fAlign - 1) & -fAlign
+			offset += g.typeSize(el)
+		}
+		return (offset + maxAlign - 1) & -maxAlign
 	case *types.Map, *types.Set:
 		return 48
 	case *types.Func:
@@ -756,6 +790,10 @@ func (g *llvmEmitter) collectExprStrings(e ir.Expr) {
 	case *ir.ExprConstructEnum:
 		g.collectExprStrings(v.Payload)
 	case *ir.ExprConstructArray:
+		for _, el := range v.Elems {
+			g.collectExprStrings(el)
+		}
+	case *ir.ExprConstructTuple:
 		for _, el := range v.Elems {
 			g.collectExprStrings(el)
 		}
@@ -1178,7 +1216,7 @@ func (g *llvmEmitter) emitTypeDrop(ptrSlot string, t types.Type) {
 			g.declareHelper("ll_drop__Arena", "void", "ptr")
 			g.indentLine(1, "call void @ll_drop__Arena(ptr %s)", ptrSlot)
 		}
-	case *types.Vector, *types.Map, *types.Set, *types.Struct, *types.Distinct, *types.Interface, *types.StackArray, *types.Optional, *types.Func:
+	case *types.Vector, *types.Map, *types.Set, *types.Struct, *types.Distinct, *types.Interface, *types.StackArray, *types.Optional, *types.Func, *types.Tuple:
 		fn := ir.DropFnName(v)
 		g.declareHelper(fn, "void", "ptr")
 		g.indentLine(1, "call void @%s(ptr %s)", fn, ptrSlot)
@@ -1213,28 +1251,9 @@ func (g *llvmEmitter) emitCopyVal(destAddr, srcAddr string, t types.Type) {
 	}
 	if opt, ok := t.(*types.Optional); ok {
 		if opt.IsBoxed() {
-			pSrc := g.newReg()
-			g.indentLine(1, "%s = load ptr, ptr %s, align 8", pSrc, srcAddr)
-			isNotNull := g.newReg()
-			g.indentLine(1, "%s = icmp ne ptr %s, null", isNotNull, pSrc)
-			lSome := g.newBlockLabel("opt.copy.some")
-			lNone := g.newBlockLabel("opt.copy.none")
-			lCont := g.newBlockLabel("opt.copy.cont")
-			g.indentLine(1, "br i1 %s, label %%%s, label %%%s", isNotNull, lSome, lNone)
-			g.isTerminated = true
-			g.emitLabel(lSome)
-			sz := g.typeSize(opt.Elem)
-			allocReg := g.newReg()
-			g.indentLine(1, "%s = call ptr @ll_alloc(i64 %d)", allocReg, sz)
-			g.emitCopyVal(allocReg, pSrc, opt.Elem)
-			g.indentLine(1, "store ptr %s, ptr %s, align 8", allocReg, destAddr)
-			g.indentLine(1, "br label %%%s", lCont)
-			g.isTerminated = true
-			g.emitLabel(lNone)
-			g.indentLine(1, "store ptr null, ptr %s, align 8", destAddr)
-			g.indentLine(1, "br label %%%s", lCont)
-			g.isTerminated = true
-			g.emitLabel(lCont)
+			fn := "ll_copy_p__" + opt.Mangled()
+			g.declareHelper(fn, "void", "ptr, ptr")
+			g.indentLine(1, "call void @%s(ptr %s, ptr %s)", fn, destAddr, srcAddr)
 			return
 		}
 		pHasSrc := g.newReg()
@@ -1270,6 +1289,16 @@ func (g *llvmEmitter) emitCopyVal(destAddr, srcAddr string, t types.Type) {
 			g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 %d", srcField, g.llvmType(st), srcAddr, i)
 			g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 %d", destField, g.llvmType(st), destAddr, i)
 			g.emitCopyVal(destField, srcField, f.Type)
+		}
+		return
+	}
+	if tup, ok := t.(*types.Tuple); ok {
+		for i, el := range tup.Elems {
+			srcField := g.newReg()
+			destField := g.newReg()
+			g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 %d", srcField, g.llvmType(tup), srcAddr, i)
+			g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 %d", destField, g.llvmType(tup), destAddr, i)
+			g.emitCopyVal(destField, srcField, el)
 		}
 		return
 	}
@@ -1337,6 +1366,18 @@ func (g *llvmEmitter) resolveFieldIdx(baseTy types.Type, fieldName string, expli
 	case *types.StackArray:
 		if fieldName == "data" {
 			return 0
+		}
+	case *types.Tuple:
+		if explicitIdx >= 0 {
+			return explicitIdx
+		}
+		if strings.HasPrefix(fieldName, "_") {
+			if n, err := strconv.Atoi(fieldName[1:]); err == nil {
+				return n
+			}
+		}
+		if n, err := strconv.Atoi(fieldName); err == nil {
+			return n
 		}
 	case *types.Vector:
 		switch fieldName {
@@ -1432,20 +1473,8 @@ func (g *llvmEmitter) resolveVariantFieldOffset(v *ir.ExprField) (int, bool) {
 		return 0, false
 	}
 	for _, vr := range en.Variants {
-		if vr.CName == parent.FieldName || vr.Name == parent.FieldName {
-			if vr.Kind == types.VariantStruct {
-				offset := 0
-				for _, f := range vr.Fields {
-					fAlign := g.typeAlign(f.Type)
-					offset = (offset + fAlign - 1) & -fAlign
-					if f.CName == v.FieldName || f.Name == v.FieldName {
-						return offset, true
-					}
-					offset += g.typeSize(f.Type)
-				}
-			} else if vr.Kind == types.VariantTuple {
-				return 0, true
-			}
+		if (vr.CName == parent.FieldName || vr.Name == parent.FieldName) && vr.Kind == types.VariantTuple {
+			return 0, true
 		}
 	}
 	return 0, false
@@ -1891,6 +1920,23 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		}
 		r := g.newReg()
 		g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(v.ArrayType), arrSlot)
+		return r
+
+	case *ir.ExprConstructTuple:
+		tupSlot := g.allocaEntry(g.llvmType(v.TupleType), 8)
+		if len(v.Elems) == 0 {
+			g.indentLine(1, "store %s zeroinitializer, ptr %s, align 8", g.llvmType(v.TupleType), tupSlot)
+		} else {
+			for i, el := range v.Elems {
+				elVal := g.emitExpr(el)
+				ep := g.newReg()
+				g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 %d",
+					ep, g.llvmType(v.TupleType), tupSlot, i)
+				g.indentLine(1, "store %s %s, ptr %s, align %d", g.llvmType(el.Type()), elVal, ep, g.typeAlign(el.Type()))
+			}
+		}
+		r := g.newReg()
+		g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(v.TupleType), tupSlot)
 		return r
 
 	case *ir.ExprConstructVector:
@@ -3337,6 +3383,106 @@ func (g *llvmEmitter) emitVTables() {
 			g.line("define %s @%s(%s) {", retTy, wName, strings.Join(paramDecls, ", "))
 			g.line("entry:")
 
+			emitPtrContains := func(fn string, itemTy types.Type) {
+				p0Ty := g.llvmType(itemTy)
+				p0Al := g.typeAlign(itemTy)
+				g.indentLine(1, "%%_p0.addr = alloca %s, align %d", p0Ty, p0Al)
+				g.indentLine(1, "store %s %%_p0.param, ptr %%_p0.addr, align %d", p0Ty, p0Al)
+				g.declareHelper(fn, "i1", "ptr, ptr")
+				g.indentLine(1, "%%res = call i1 @%s(ptr %%_self.param, ptr %%_p0.addr)", fn)
+				g.indentLine(1, "ret i1 %%res")
+				g.line("}")
+				g.line("")
+			}
+
+			if vec, isVec := vt.Concrete.(*types.Vector); isVec {
+				if im.Name == "contains" {
+					emitPtrContains("ll_vec_contains_p__"+vec.Mangled(), vec.Elem)
+					continue
+				}
+			}
+			if arr, isArr := vt.Concrete.(*types.StackArray); isArr {
+				if im.Name == "len" {
+					g.indentLine(1, "ret i64 %d", arr.Size)
+					g.line("}")
+					g.line("")
+					continue
+				}
+				if im.Name == "get" {
+					al := g.typeAlign(arr)
+					g.indentLine(1, "%%selfVal = load %s, ptr %%_self.param, align %d", cTy, al)
+					g.indentLine(1, "%%res = call %s @ll_arr_get__%s(%s %%selfVal, i64 %%_p0.param)", retTy, arr.Mangled(), cTy)
+					g.indentLine(1, "ret %s %%res", retTy)
+					g.line("}")
+					g.line("")
+					continue
+				}
+				if im.Name == "contains" {
+					emitPtrContains("ll_arr_contains_p__"+arr.Mangled(), arr.Elem)
+					continue
+				}
+			}
+			if setTy, isSet := vt.Concrete.(*types.Set); isSet {
+				if im.Name == "contains" {
+					emitPtrContains("ll_set_has_p__"+setTy.Mangled(), setTy.Elem)
+					continue
+				}
+			}
+			if p, isP := vt.Concrete.(*types.Primitive); isP && p.Kind == types.PrimString {
+				if im.Name == "len" {
+					g.indentRaw(1, "%lenPtr = getelementptr inbounds %struct.ll_string, ptr %_self.param, i32 0, i32 1")
+					g.indentRaw(1, "%lenVal = load i64, ptr %lenPtr, align 8")
+					g.indentRaw(1, "ret i64 %lenVal")
+					g.line("}")
+					g.line("")
+					continue
+				}
+				if im.Name == "get" {
+					g.indentRaw(1, "%lenPtr = getelementptr inbounds %struct.ll_string, ptr %_self.param, i32 0, i32 1")
+					g.indentRaw(1, "%lenVal = load i64, ptr %lenPtr, align 8")
+					g.indentRaw(1, "%neg = icmp slt i64 %_p0.param, 0")
+					g.indentRaw(1, "%oob = icmp sge i64 %_p0.param, %lenVal")
+					g.indentRaw(1, "%bad = or i1 %neg, %oob")
+					g.indentRaw(1, "br i1 %bad, label %out_none, label %out_some")
+					g.line("out_none:")
+					g.indentLine(1, "ret %s zeroinitializer", retTy)
+					g.line("out_some:")
+					g.indentRaw(1, "%dataPtrPtr = getelementptr inbounds %struct.ll_string, ptr %_self.param, i32 0, i32 0")
+					g.indentRaw(1, "%dataPtr = load ptr, ptr %dataPtrPtr, align 8")
+					g.indentRaw(1, "%bytePtr = getelementptr inbounds i8, ptr %dataPtr, i64 %_p0.param")
+					g.indentRaw(1, "%byteVal = load i8, ptr %bytePtr, align 1")
+					g.indentLine(1, "%%res1 = insertvalue %s zeroinitializer, i1 1, 0", retTy)
+					g.indentLine(1, "%%res2 = insertvalue %s %%res1, i8 %%byteVal, 1", retTy)
+					g.indentLine(1, "ret %s %%res2", retTy)
+					g.line("}")
+					g.line("")
+					continue
+				}
+			}
+			if mp, isMp := vt.Concrete.(*types.Map); isMp {
+				if im.Name == "len" {
+					g.indentLine(1, "%%lenPtr = getelementptr inbounds %s, ptr %%_self.param, i32 0, i32 5", cTy)
+					g.indentRaw(1, "%lenVal = load i64, ptr %lenPtr, align 8")
+					g.indentRaw(1, "ret i64 %lenVal")
+					g.line("}")
+					g.line("")
+					continue
+				}
+				if im.Name == "get" {
+					g.indentLine(1, "%%selfVal = load %s, ptr %%_self.param, align 8", cTy)
+					keyTy := g.llvmType(mp.Key)
+					g.indentLine(1, "%%res = call %s @ll_map_get__%s(%s %%selfVal, %s %%_p0.param)", retTy, mp.Mangled(), cTy, keyTy)
+					g.indentLine(1, "ret %s %%res", retTy)
+					g.line("}")
+					g.line("")
+					continue
+				}
+				if im.Name == "has" || im.Name == "contains" {
+					emitPtrContains("ll_map_has_p__"+mp.Mangled(), mp.Key)
+					continue
+				}
+			}
+
 			fi := vt.Methods[idx]
 			targetFn := ""
 			if fi != nil {
@@ -3347,7 +3493,8 @@ func (g *llvmEmitter) emitVTables() {
 				if im.RecvMode == types.ModeMut {
 					recvArg = "ptr %_self.param"
 				} else {
-					g.indentLine(1, "%%selfVal = load %s, ptr %%_self.param, align 8", cTy)
+					al := g.typeAlign(vt.Concrete)
+					g.indentLine(1, "%%selfVal = load %s, ptr %%_self.param, align %d", cTy, al)
 					recvArg = fmt.Sprintf("%s %%selfVal", cTy)
 				}
 				allArgs := append([]string{recvArg}, callArgs...)
@@ -3550,7 +3697,15 @@ func (g *llvmEmitter) emitMainCleanup(rcVal string) {
 			g.emitTypeDrop("@"+gl.CName, gl.Type)
 		}
 	}
+	isZero := g.newReg()
+	lCheck := g.newBlockLabel("exit.leak_check")
+	lDone := g.newBlockLabel("exit.ret")
+	g.indentLine(1, "%s = icmp eq i32 %s, 0", isZero, rcVal)
+	g.indentLine(1, "br i1 %s, label %%%s, label %%%s", isZero, lCheck, lDone)
+	g.line("%s:", lCheck)
 	g.indentLine(1, "call void @ll_check_leaks_at_exit()")
+	g.indentLine(1, "br label %%%s", lDone)
+	g.line("%s:", lDone)
 	g.indentLine(1, "ret i32 %s", rcVal)
 	g.isTerminated = true
 }

@@ -4,20 +4,19 @@
 // 2. Using `http.Request.new()` and `http.Client.do()` for customized headers
 
 import "std/http.ll" as http
-import "std/fs.ll"
 
-bind main = () -> {
+bind main = (): {
     // =========================================================================
     // 1. Quick GET Request using convenience `http.get(url)`
     // =========================================================================
     println("--- 1. Quick GET with http.get() ---")
     let res1 = http.get("https://httpbin.org/uuid")
-    if (res1.is_ok()) {
+    if (res1.is_ok()): {
         let resp = res1.unwrap()
         println("Status: ${resp.status_code} ${resp.status}")
         println("Body: ${resp.text()}")
-    } else {
-        println("Request failed: ${res1.err?.copy() ?? "error"}")
+    } else: {
+        println("Request failed: ${res1.unwrap_err()}")
     }
 
     // =========================================================================
@@ -33,12 +32,12 @@ bind main = () -> {
     // Send via Client
     let client = http.Client.new()
     let res2 = client.do(req)
-    if (res2.is_ok()) {
+    if (res2.is_ok()): {
         let resp = res2.unwrap()
         println("Status:       ${resp.status_code} ${resp.status}")
         println("Content-Type: ${resp.header("content-type") ?? "none"}")
         println("Response:     ${resp.body}")
-    } else {
-        println("Request failed: ${res2.err?.copy() ?? "error"}")
+    } else: {
+        println("Request failed: ${res2.unwrap_err()}")
     }
 }

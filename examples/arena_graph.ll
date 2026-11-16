@@ -11,7 +11,7 @@ define GraphNode struct [
     edges: [ref[GraphNode]],
 ]
 
-bind GraphNode.alloc = (arena: &Arena, id: int, label: string): ref[GraphNode] -> {
+bind GraphNode.alloc = (arena: &Arena, id: int, label: string) ref[GraphNode]: {
     arena.alloc(GraphNode[
         id: id,
         label: label.copy(),
@@ -19,24 +19,24 @@ bind GraphNode.alloc = (arena: &Arena, id: int, label: string): ref[GraphNode] -
     ])
 }
 
-bind connect = (from: ref[GraphNode], to: ref[GraphNode]) -> {
+bind connect = (from: ref[GraphNode], to: ref[GraphNode]): {
     from.edges.push(to)
 }
 
 // Breadth-first reachability over a cyclic `ref[GraphNode]` graph!
-bind bfs_order = (start: ref[GraphNode]): [string] -> {
+bind bfs_order = (start: ref[GraphNode]) [string]: {
     let visited = #[start.id]
     let queue: [ref[GraphNode]] = [start]
     let order: [string] = []
     let head = 0
 
-    for (head < queue.len()) {
+    for (head < queue.len()): {
         let cur = queue[head]
         head += 1
         order.push(cur.label.copy())
 
-        for (next_node in cur.edges) {
-            if (not visited.contains(next_node.id)) {
+        for (next_node in cur.edges): {
+            if (not visited.contains(next_node.id)): {
                 visited.insert(next_node.id)
                 queue.push(next_node)
             }
@@ -45,7 +45,7 @@ bind bfs_order = (start: ref[GraphNode]): [string] -> {
     order
 }
 
-bind main = () -> {
+bind main = (): {
     let arena = Arena.with_capacity(2048)
 
     // Phase 1: Build a directed cyclic graph A <-> B -> C -> A inside a scoped phase block

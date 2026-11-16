@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"lowlight/internal/diag"
 	"lowlight/internal/driver"
@@ -89,6 +90,7 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 				},
 				HoverProvider:          true,
 				DefinitionProvider:     true,
+				ImplementationProvider: true,
 				DocumentSymbolProvider: true,
 				SignatureHelpProvider: &SignatureHelpOptions{
 					TriggerCharacters:   []string{"(", ","},
@@ -96,7 +98,7 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 				},
 				CodeActionProvider:         true,
 				CodeLensProvider:           &CodeLensOptions{ResolveProvider: false},
-				ExecuteCommandProvider:     &ExecuteCommandOptions{Commands: []string{"lowlight.runTest", "lowlight.runAllTests"}},
+				ExecuteCommandProvider:     &ExecuteCommandOptions{Commands: []string{"lowlight.runTest", "lowlight.runAllTests", "lowlight.runFile", "lowlight.runMain", "lowlight.goToLocation", "lowlight.showLocations", "lowlight.showImplementationsQuickPick"}},
 				DocumentFormattingProvider: true,
 				InlayHintProvider:          true,
 				RenameProvider:             RenameOptions{PrepareProvider: true},
@@ -235,6 +237,23 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		src := s.readSourceForPath(path)
 		loc := s.computeDefinition(path, src, params.Position)
 		_ = s.conn.SendResponse(*msg.ID, loc, nil)
+
+	case "textDocument/implementation":
+		if msg.ID == nil {
+			return
+		}
+		var params TextDocumentPositionParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		path := URIToPath(params.TextDocument.URI)
+		src := s.readSourceForPath(path)
+		locs := s.computeImplementation(path, src, params.Position)
+		if locs == nil {
+			locs = []Location{}
+		}
+		_ = s.conn.SendResponse(*msg.ID, locs, nil)
 
 	case "textDocument/documentSymbol":
 		if msg.ID == nil {
@@ -381,6 +400,37 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 			return
 		}
 		switch params.Command {
+		case "lowlight.goToLocation":
+			res, err := s.executeGoToLocation(params.Arguments)
+			if err != nil {
+				_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeRequestFailed, Message: err.Error()})
+				return
+			}
+			_ = s.conn.SendResponse(*msg.ID, res, nil)
+		case "lowlight.showLocations":
+			_ = s.conn.SendResponse(*msg.ID, map[string]any{"success": true}, nil)
+		case "lowlight.showImplementationsQuickPick":
+			if len(params.Arguments) > 1 {
+				var items []QuickPickLocationItem
+				if err := json.Unmarshal(params.Arguments[1], &items); err == nil && len(items) == 1 && items[0].URI != "" {
+					_ = s.conn.SendRequest(time.Now().UnixNano(), "window/showDocument", ShowDocumentParams{
+						URI:       items[0].URI,
+						TakeFocus: true,
+						Selection: &Range{
+							Start: Position{Line: items[0].Line, Character: items[0].Character},
+							End:   Position{Line: items[0].Line, Character: items[0].Character},
+						},
+					})
+				}
+			}
+			_ = s.conn.SendResponse(*msg.ID, map[string]any{"success": true}, nil)
+		case "lowlight.runFile", "lowlight.runMain":
+			res, err := s.executeRunCommand(params.Command, params.Arguments)
+			if err != nil {
+				_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeRequestFailed, Message: err.Error()})
+				return
+			}
+			_ = s.conn.SendResponse(*msg.ID, res, nil)
 		case "lowlight.runTest", "lowlight.runAllTests":
 			res, err := s.executeTestCommand(params.Command, params.Arguments)
 			if err != nil {

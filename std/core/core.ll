@@ -4,9 +4,12 @@
 
 import "./interfaces.ll"
 import "./primitives.ll"
+import "./range.ll"
 import "./hash.ll"
-import "./result.ll"
 import "./list.ll"
+import "./error.ll"
+import "./result.ll"
+import "./array.ll"
 import "./set.ll"
 import "./map.ll"
 
@@ -15,7 +18,7 @@ import "./map.ll"
 // =============================================================================
 
 @test("core primitive string conversions and hash")
-bind test_core_primitives = () -> {
+bind test_core_primitives = (): {
     assert(0.to_string() == "0", "0 to_string")
     assert(42.to_string() == "42", "42 to_string")
     assert((-17).to_string() == "-17", "-17 to_string")
@@ -36,7 +39,7 @@ bind test_core_primitives = () -> {
 }
 
 @test("core comparable and math helpers")
-bind test_core_comparable_and_math = () -> {
+bind test_core_comparable_and_math = (): {
     assert(10.cmp(20) == -1, "10 < 20")
     assert(20.cmp(10) == 1, "20 > 10")
     assert(10.cmp(10) == 0, "10 == 10")
@@ -57,22 +60,73 @@ bind test_core_comparable_and_math = () -> {
     assert(clamp[int](25, 10, 20) == 20, "clamp upper")
 }
 
-@test("core Result[T, E] construction and unwrapping")
-bind test_core_result = () -> {
-    let r_ok = Result[int, string].ok(100)
+@test("core Result[T] construction and unwrapping")
+bind test_core_result = (): {
+    let r_ok = Result[int].ok(100)
     assert(r_ok.is_ok(), "is_ok")
     assert(not r_ok.is_err(), "not is_err")
     assert(r_ok.copy().unwrap_or(0) == 100, "unwrap_or on ok")
+    assert(r_ok.copy().into_ok() == 100, "into_ok on ok")
+    assert(r_ok.peek_err() == none, "peek_err on ok")
+    let matched_int = match (r_ok.copy()):
+        when Result.Ok(v): v
+        default Result.Err(_): -1
+    assert(matched_int == 100, "match Result.Ok")
     assert(r_ok.unwrap() == 100, "unwrap on ok")
 
-    let r_err = Result[int, string].fail("failure")
+    let r_str = Result[string].Ok("hello_" + "world")
+    let matched_str = match (own r_str):
+        when Result.Ok(own s): s
+        default Result.Err(_): ""
+    assert(matched_str == "hello_world", "match Result.Ok on Resource string")
+
+    let r_err = Result[int].fail_msg("failure")
     assert(r_err.is_err(), "is_err")
     assert(not r_err.is_ok(), "not is_ok")
+    assert(r_err.copy().peek_err() != none, "peek_err on err")
+    let r_wrapped = r_err.copy().wrap_err("outer context").trace_err()
+    assert(r_wrapped.copy().unwrap_err().summary() == "outer context: failure", "wrap_err summary")
+    assert(r_wrapped.copy().unwrap_err().frames().len() == 2, "wrap_err + trace_err frames")
     assert(r_err.unwrap_or(999) == 999, "unwrap_or on err")
 }
 
+@test("core Error creation, wrapping, sentinels, and trace")
+bind test_core_error = (): {
+    let sentinel_nf = Error.coded("not_found", "resource not found")
+    let e0 = Error.coded("not_found", "missing config.toml")
+    let e1 = e0.wrap("loading config")
+    let e2 = e1.trace()
+    let e3 = e2.wrap("booting server")
+
+    assert(e3.message() == "booting server", "outermost message")
+    assert(e3.summary() == "booting server: loading config: missing config.toml", "summary chain")
+    assert(e3.root().message() == "missing config.toml", "root message")
+    assert(e3.has_code("not_found"), "has_code walks chain")
+    assert(e3.code() == "not_found", "code walks chain")
+    assert(e3.is(sentinel_nf), "is matches sentinel code across wrap layers")
+    assert(not e3.is(Error.coded("timeout", "timed out")), "is rejects different code")
+    assert(e3.is(Error.new("loading config")), "is matches intermediate layer message without code")
+
+    if (e3.cause() as c1): {
+        assert(c1.message() == "loading config", "cause returns direct wrapped error")
+        assert(c1.frames().len() == 2, "traced layer has 2 frames")
+    } else: {
+        panic("expected e3.cause() to be present")
+    }
+
+    let formatted = e3.to_string()
+    assert(formatted.contains("[not_found]"), "to_string includes code")
+    assert(formatted.contains("booting server: loading config: missing config.toml"), "to_string includes summary")
+    assert(formatted.contains("trace:"), "to_string includes trace section")
+    assert(formatted.contains("core.ll:"), "to_string includes caller file location")
+
+    let e3_copy = e3.copy()
+    assert(e3 == e3_copy, "Error equality matches identical copies")
+    assert(e3 != e1, "Error equality distinguishes different errors")
+}
+
 @test("core List[T] operations")
-bind test_core_list = () -> {
+bind test_core_list = (): {
     let list = List[int].new()
     assert(list.len() == 0, "initial len 0")
     assert(list.is_empty(), "initial is_empty")
@@ -89,11 +143,11 @@ bind test_core_list = () -> {
 
     let sum = 0
     let it = list.iter()
-    for (true) {
+    for (true): {
         let next? = it.next()
-        if (next? as val) {
+        if (next? as val): {
             sum += val
-        } else {
+        } else: {
             for <-
         }
     }
@@ -113,7 +167,7 @@ bind test_core_list = () -> {
 }
 
 @test("core Set[T] operations")
-bind test_core_set = () -> {
+bind test_core_set = (): {
     let s = Set[string].new()
     assert(s.len() == 0, "set initial len")
     assert(s.is_empty(), "set initial is_empty")
@@ -129,12 +183,12 @@ bind test_core_set = () -> {
 
     let count = 0
     let sit = s.iter()
-    for (true) {
+    for (true): {
         let next? = sit.next()
-        if (next? as item) {
+        if (next? as item): {
             assert(item == "first" or item == "second", "valid item in iter")
             count += 1
-        } else {
+        } else: {
             for <-
         }
     }
@@ -155,7 +209,7 @@ bind test_core_set = () -> {
 }
 
 @test("core Map[K, V] operations")
-bind test_core_map = () -> {
+bind test_core_map = (): {
     let m = Map[string, int].new()
     assert(m.len() == 0, "map initial len")
     assert(m.is_empty(), "map initial is_empty")
@@ -183,11 +237,11 @@ bind test_core_map = () -> {
 
     let sum = 0
     let mit = m.iter()
-    for (true) {
+    for (true): {
         let next? = mit.next()
-        if (next? as entry) {
+        if (next? as entry): {
             sum += entry.value
-        } else {
+        } else: {
             for <-
         }
     }

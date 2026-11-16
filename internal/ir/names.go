@@ -33,6 +33,13 @@ func needsMovedFlagVisited(t types.Type, seen map[*types.Struct]bool) bool {
 		return false
 	case *types.StackArray:
 		return needsMovedFlagVisited(v.Elem, seen)
+	case *types.Tuple:
+		for _, el := range v.Elems {
+			if needsMovedFlagVisited(el, seen) {
+				return true
+			}
+		}
+		return false
 	case *types.Distinct:
 		return needsMovedFlagVisited(v.Base, seen)
 	default:

@@ -34,15 +34,26 @@ This installs:
 |---|---|---|
 | `K` | **Hover** | Show Markdown documentation, type signatures, and descriptions |
 | `gd` | **Go to Definition** | Jump to symbol declaration (local, function, struct, or enum) |
+| `gi` | **Go to Implementation** | Jump directly to type implementation, or interface implementations |
 | `<leader>ca` | **Code Actions** | Quick-fixes (e.g. generate missing match arms, add `&` / `own`) |
 | `<leader>rn` | **Rename Symbol** | Safe symbol rename across the buffer/module |
 | `<C-k>` | **Signature Help** | Trigger parameter info and active parameter indicator |
 | `<leader>f` | **Format Document** | Format buffer with 4-space indentation and clean alignment |
 | `[d` / `]d` | **Prev / Next Diagnostic** | Jump between compiler warnings and errors |
 | `<leader>d` | **Line Diagnostic** | Open floating window with full diagnostic explanation and hints |
+| `<leader>cl` | **Run CodeLens** | Trigger inline CodeLens at cursor (`▶ Run` main, `▶ Run Test`, or Implementations dropdown) |
+| `<leader>rr` | **Run File** | Run `main` in current file (`lowlight run %`) |
 | `<leader>tr` | **Run Test** | Run tests in current file via `lowlight test %` |
 | `<leader>tf` | **Run File Tests** | Run all tests in the current file |
 | `<leader>ta` | **Run All Tests** | Run entire test suite across the project (`lowlight test`) |
+
+---
+
+## 3. Editor-Agnostic Interface Discovery & Dropdown Navigation
+
+The Lowlight Language Server Protocol (LSP) works identically across Neovim, VS Code, and other editors:
+- **Interface Implementations Dropdown**: In Neovim, triggering the implementation CodeLens (via `<leader>cl` or `gi`) opens an interactive dropdown menu powered by `vim.ui.select`. It integrates seamlessly with whatever picker you use (built-in Neovim float menu, `telescope.nvim`, `fzf-lua`, or `dressing.nvim`).
+- **Inline Run Buttons**: CodeLenses are placed above `main` (`▶ Run`) and `@test` functions (`▶ Run Test`). Running the CodeLens executes the file or test directly in your terminal buffer.
 
 ---
 

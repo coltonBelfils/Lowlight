@@ -117,6 +117,7 @@ type ServerCapabilities struct {
 	CompletionProvider         *CompletionOptions      `json:"completionProvider,omitempty"`
 	HoverProvider              bool                    `json:"hoverProvider,omitempty"`
 	DefinitionProvider         bool                    `json:"definitionProvider,omitempty"`
+	ImplementationProvider     bool                    `json:"implementationProvider,omitempty"`
 	DocumentSymbolProvider     bool                    `json:"documentSymbolProvider,omitempty"`
 	SignatureHelpProvider      *SignatureHelpOptions   `json:"signatureHelpProvider,omitempty"`
 	CodeActionProvider         bool                    `json:"codeActionProvider,omitempty"`
@@ -377,6 +378,31 @@ type CodeLens struct {
 type ExecuteCommandParams struct {
 	Command   string            `json:"command"`
 	Arguments []json.RawMessage `json:"arguments,omitempty"`
+}
+
+type MessageType int
+
+const (
+	MessageTypeError   MessageType = 1
+	MessageTypeWarning MessageType = 2
+	MessageTypeInfo    MessageType = 3
+	MessageTypeLog     MessageType = 4
+)
+
+type ShowMessageParams struct {
+	Type    MessageType `json:"type"`
+	Message string      `json:"message"`
+}
+
+type ShowDocumentParams struct {
+	URI       string `json:"uri"`
+	External  bool   `json:"external,omitempty"`
+	TakeFocus bool   `json:"takeFocus,omitempty"`
+	Selection *Range `json:"selection,omitempty"`
+}
+
+type ShowDocumentResult struct {
+	Success bool `json:"success"`
 }
 
 // -----------------------------------------------------------------------------

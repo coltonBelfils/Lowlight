@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"lowlight/internal/ast"
 	"lowlight/internal/diag"
 	"lowlight/internal/driver"
+	"lowlight/internal/sema"
 )
 
 // TestCaseInfo describes an automated test function detected in a Lowlight document.
@@ -89,45 +93,339 @@ func (s *Server) findTestsInDocument(filePath string, src string) []TestCaseInfo
 	return tests
 }
 
-// computeCodeLenses generates Code Lens annotations for all test functions in the file.
-func (s *Server) computeCodeLenses(filePath string, src string) []CodeLens {
-	tests := s.findTestsInDocument(filePath, src)
-	if len(tests) == 0 {
-		return []CodeLens{}
+// findMainInDocument returns TestCaseInfo for `main` function if present in the document.
+func (s *Server) findMainInDocument(filePath string, src string) *TestCaseInfo {
+	prog := s.getOrCheckProgram(filePath, src)
+	mod := findModuleForPath(prog, filePath)
+	if mod == nil || mod.File == nil {
+		return nil
+	}
+	for _, d := range mod.File.Decls {
+		if vd, ok := d.(*ast.VarDecl); ok && vd.Name == "main" {
+			line := vd.Span.Start.Line - 1
+			if line < 0 {
+				line = 0
+			}
+			return &TestCaseInfo{
+				Name:   "main",
+				Line:   line,
+				Span:   vd.Span,
+				IsMain: true,
+			}
+		}
+	}
+	return nil
+}
+
+// QuickPickLocationItem represents an item in an interactive VS Code dropdown menu.
+type QuickPickLocationItem struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	Detail      string `json:"detail,omitempty"`
+	URI         string `json:"uri,omitempty"`
+	Line        int    `json:"line"`
+	Character   int    `json:"character"`
+}
+
+func (s *Server) buildQuickPickItems(targets []sema.ImplementationTarget, isInterface bool) []QuickPickLocationItem {
+	var items []QuickPickLocationItem
+	for _, tgt := range targets {
+		icon := "$(symbol-class) "
+		if isInterface {
+			icon = "$(symbol-interface) "
+		}
+		item := QuickPickLocationItem{
+			Label: icon + tgt.Name,
+		}
+		if tgt.Span.Start.File != "" {
+			relPath := tgt.Span.Start.File
+			s.mu.RLock()
+			rootDir := s.rootDir
+			s.mu.RUnlock()
+			if rootDir != "" {
+				if rel, err := filepath.Rel(rootDir, tgt.Span.Start.File); err == nil && !strings.HasPrefix(rel, "..") {
+					relPath = rel
+				}
+			}
+			item.Description = fmt.Sprintf("%s:%d", relPath, tgt.Span.Start.Line)
+			item.Detail = tgt.Span.Start.File
+			item.URI = PathToURI(tgt.Span.Start.File)
+			line := tgt.Span.Start.Line - 1
+			if line < 0 {
+				line = 0
+			}
+			item.Line = line
+			col := tgt.Span.Start.Col - 1
+			if col < 0 {
+				col = 0
+			}
+			item.Character = col
+		} else {
+			item.Description = "(built-in language primitive)"
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func (s *Server) allInterfaceImplementingTargets(ifcName string, prog *sema.CheckedProgram, mod *sema.Module) []sema.ImplementationTarget {
+	seen := make(map[string]bool)
+	var res []sema.ImplementationTarget
+	add := func(tgt sema.ImplementationTarget) {
+		key := tgt.Name
+		if tgt.Span.Start.File != "" {
+			key = fmt.Sprintf("%s:%s:%d:%d", tgt.Name, tgt.Span.Start.File, tgt.Span.Start.Line, tgt.Span.Start.Col)
+		}
+		if !seen[key] {
+			seen[key] = true
+			res = append(res, tgt)
+		}
 	}
 
+	// 1. Current program
+	if prog != nil {
+		for _, tgt := range prog.InterfaceImplementingTargets(ifcName, mod) {
+			add(tgt)
+		}
+	}
+
+	// 2. All other cached programs in the LSP session
+	s.mu.RLock()
+	var otherProgs []*sema.CheckedProgram
+	for _, p := range s.cachedProgs {
+		if p != prog {
+			otherProgs = append(otherProgs, p)
+		}
+	}
+	var uninspectedDocs []struct{ path, src string }
+	for docPath, docSrc := range s.docs {
+		if s.cachedProgs[docPath] == nil {
+			uninspectedDocs = append(uninspectedDocs, struct{ path, src string }{docPath, docSrc})
+		}
+	}
+	rootDir := s.rootDir
+	s.mu.RUnlock()
+
+	for _, p := range otherProgs {
+		for _, tgt := range p.InterfaceImplementingTargets(ifcName, nil) {
+			add(tgt)
+		}
+	}
+
+	for _, doc := range uninspectedDocs {
+		p := s.getOrCheckProgram(doc.path, doc.src)
+		if p != nil {
+			for _, tgt := range p.InterfaceImplementingTargets(ifcName, nil) {
+				add(tgt)
+			}
+		}
+	}
+
+	// 3. Scan workspace root for any other .ll files
+	if rootDir != "" {
+		_ = filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info == nil {
+				return nil
+			}
+			if info.IsDir() {
+				name := info.Name()
+				if strings.HasPrefix(name, ".") || name == "bin" || name == "node_modules" || name == "target" || name == "dist" || name == "scratch" || strings.HasSuffix(filepath.ToSlash(path), "editors/vscode/lowlight/std") {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if strings.HasSuffix(info.Name(), ".ll") {
+				abs, err := filepath.Abs(path)
+				if err != nil {
+					abs = path
+				}
+				s.mu.RLock()
+				alreadyCached := s.cachedProgs[abs] != nil
+				s.mu.RUnlock()
+				if !alreadyCached {
+					content := s.readSourceForPath(abs)
+					if strings.Contains(content, "define ") || strings.Contains(content, "bind ") {
+						p := s.getOrCheckProgram(abs, content)
+						if p != nil {
+							for _, tgt := range p.InterfaceImplementingTargets(ifcName, nil) {
+								add(tgt)
+							}
+						}
+					}
+				}
+			}
+			return nil
+		})
+	}
+
+	return res
+}
+
+// computeCodeLenses generates Code Lens annotations for all test functions and interfaces/implementations in the file.
+func (s *Server) computeCodeLenses(filePath string, src string) []CodeLens {
 	var lenses []CodeLens
 
-	// 1. Top of file CodeLens: Run All Tests in File
-	lenses = append(lenses, CodeLens{
-		Range: Range{
-			Start: Position{Line: 0, Character: 0},
-			End:   Position{Line: 0, Character: 0},
-		},
-		Command: &Command{
-			Title:     fmt.Sprintf("▶ Run All Tests in File (%d)", len(tests)),
-			Command:   "lowlight.runAllTests",
-			Arguments: []any{filePath},
-		},
-	})
-
-	// 2. Per-test CodeLens: Run Single Test
-	for _, t := range tests {
-		title := "▶ Run Test"
-		if t.Desc != "" {
-			title = fmt.Sprintf("▶ Run Test (%s)", t.Desc)
-		}
+	tests := s.findTestsInDocument(filePath, src)
+	if len(tests) > 0 {
+		// 1. Top of file CodeLens: Run All Tests in File
 		lenses = append(lenses, CodeLens{
 			Range: Range{
-				Start: Position{Line: t.Line, Character: 0},
-				End:   Position{Line: t.Line, Character: 0},
+				Start: Position{Line: 0, Character: 0},
+				End:   Position{Line: 0, Character: 0},
 			},
 			Command: &Command{
-				Title:     title,
-				Command:   "lowlight.runTest",
-				Arguments: []any{filePath, t.Name},
+				Title:     fmt.Sprintf("▶ Run All Tests in File (%d)", len(tests)),
+				Command:   "lowlight.runAllTests",
+				Arguments: []any{filePath},
 			},
 		})
+
+		// 2. Per-test CodeLens: Run Single Test
+		for _, t := range tests {
+			title := "▶ Run Test"
+			if t.Desc != "" {
+				title = fmt.Sprintf("▶ Run Test (%s)", t.Desc)
+			}
+			lenses = append(lenses, CodeLens{
+				Range: Range{
+					Start: Position{Line: t.Line, Character: 0},
+					End:   Position{Line: t.Line, Character: 0},
+				},
+				Command: &Command{
+					Title:     title,
+					Command:   "lowlight.runTest",
+					Arguments: []any{filePath, t.Name},
+				},
+			})
+		}
+	}
+
+	// 2b. Main entry point CodeLens: Run Main
+	if mainInfo := s.findMainInDocument(filePath, src); mainInfo != nil {
+		lenses = append(lenses, CodeLens{
+			Range: Range{
+				Start: Position{Line: mainInfo.Line, Character: 0},
+				End:   Position{Line: mainInfo.Line, Character: 0},
+			},
+			Command: &Command{
+				Title:     "▶ Run",
+				Command:   "lowlight.runFile",
+				Arguments: []any{filePath},
+			},
+		})
+	}
+
+	// 3. Interface and nominal type implementation lenses
+	prog := s.getOrCheckProgram(filePath, src)
+	mod := findModuleForPath(prog, filePath)
+	if mod != nil && mod.File != nil {
+		for _, d := range mod.File.Decls {
+			switch decl := d.(type) {
+			case *ast.InterfaceDecl:
+				line := decl.Span.Start.Line - 1
+				if line < 0 {
+					line = 0
+				}
+				targets := s.allInterfaceImplementingTargets(decl.Name, prog, mod)
+				if len(targets) > 0 {
+					items := s.buildQuickPickItems(targets, false)
+					title := fmt.Sprintf("▶ %d implementations", len(targets))
+					if len(targets) == 1 {
+						title = "▶ 1 implementation"
+					}
+					pickTitle := fmt.Sprintf("Implementations of %s", decl.Name)
+					lenses = append(lenses, CodeLens{
+						Range: Range{
+							Start: Position{Line: line, Character: 0},
+							End:   Position{Line: line, Character: 0},
+						},
+						Command: &Command{
+							Title:     title,
+							Command:   "lowlight.showImplementationsQuickPick",
+							Arguments: []any{pickTitle, items},
+						},
+					})
+				}
+
+			case *ast.StructDecl:
+				line := decl.Span.Start.Line - 1
+				if line < 0 {
+					line = 0
+				}
+				targets := prog.TypeImplementedInterfaceTargets(decl.Name, mod)
+				if len(targets) > 0 {
+					items := s.buildQuickPickItems(targets, true)
+					title := fmt.Sprintf("▶ implements: %d interfaces", len(targets))
+					if len(targets) == 1 {
+						title = fmt.Sprintf("▶ implements: %s", targets[0].Name)
+					}
+					pickTitle := fmt.Sprintf("Interfaces implemented by %s", decl.Name)
+					lenses = append(lenses, CodeLens{
+						Range: Range{
+							Start: Position{Line: line, Character: 0},
+							End:   Position{Line: line, Character: 0},
+						},
+						Command: &Command{
+							Title:     title,
+							Command:   "lowlight.showImplementationsQuickPick",
+							Arguments: []any{pickTitle, items},
+						},
+					})
+				}
+
+			case *ast.DistinctTypeDecl:
+				line := decl.Span.Start.Line - 1
+				if line < 0 {
+					line = 0
+				}
+				targets := prog.TypeImplementedInterfaceTargets(decl.Name, mod)
+				if len(targets) > 0 {
+					items := s.buildQuickPickItems(targets, true)
+					title := fmt.Sprintf("▶ implements: %d interfaces", len(targets))
+					if len(targets) == 1 {
+						title = fmt.Sprintf("▶ implements: %s", targets[0].Name)
+					}
+					pickTitle := fmt.Sprintf("Interfaces implemented by %s", decl.Name)
+					lenses = append(lenses, CodeLens{
+						Range: Range{
+							Start: Position{Line: line, Character: 0},
+							End:   Position{Line: line, Character: 0},
+						},
+						Command: &Command{
+							Title:     title,
+							Command:   "lowlight.showImplementationsQuickPick",
+							Arguments: []any{pickTitle, items},
+						},
+					})
+				}
+
+			case *ast.EnumDecl:
+				line := decl.Span.Start.Line - 1
+				if line < 0 {
+					line = 0
+				}
+				targets := prog.TypeImplementedInterfaceTargets(decl.Name, mod)
+				if len(targets) > 0 {
+					items := s.buildQuickPickItems(targets, true)
+					title := fmt.Sprintf("▶ implements: %d interfaces", len(targets))
+					if len(targets) == 1 {
+						title = fmt.Sprintf("▶ implements: %s", targets[0].Name)
+					}
+					pickTitle := fmt.Sprintf("Interfaces implemented by %s", decl.Name)
+					lenses = append(lenses, CodeLens{
+						Range: Range{
+							Start: Position{Line: line, Character: 0},
+							End:   Position{Line: line, Character: 0},
+						},
+						Command: &Command{
+							Title:     title,
+							Command:   "lowlight.showImplementationsQuickPick",
+							Arguments: []any{pickTitle, items},
+						},
+					})
+				}
+			}
+		}
 	}
 
 	return lenses
@@ -197,7 +495,7 @@ func (s *Server) computeTestCodeActions(filePath string, src string, cursor Rang
 
 			fnRange := SpanToLSP(src, vd.Span)
 			if rangesOverlap(fnRange, cursor) || cursor.Start.Line == vd.Span.Start.Line-1 {
-				testStub := fmt.Sprintf("\n\n@test(\"test %s\")\nbind test_%s = () -> {\n    // TODO: test %s\n}\n", vd.Name, vd.Name, vd.Name)
+				testStub := fmt.Sprintf("\n\n@test(\"test %s\")\nbind test_%s = (): {\n    // TODO: test %s\n}\n", vd.Name, vd.Name, vd.Name)
 				docEnd := OffsetToLSP(src, len(src))
 				actions = append(actions, CodeAction{
 					Title: fmt.Sprintf("Generate @test for '%s'", vd.Name),
@@ -255,6 +553,15 @@ func (s *Server) executeTestCommand(cmd string, rawArgs []json.RawMessage) (any,
 
 	s.conn.logf("Test command %s executed: exit=%d, success=%v\n%s", cmd, code, success, output)
 
+	msgType := MessageTypeInfo
+	if !success {
+		msgType = MessageTypeError
+	}
+	_ = s.conn.SendNotification("window/showMessage", ShowMessageParams{
+		Type:    msgType,
+		Message: output,
+	})
+
 	return map[string]any{
 		"success":  success,
 		"exitCode": code,
@@ -262,4 +569,91 @@ func (s *Server) executeTestCommand(cmd string, rawArgs []json.RawMessage) (any,
 		"filePath": filePath,
 		"testName": testName,
 	}, nil
+}
+
+// executeRunCommand runs a file execution command requested via `workspace/executeCommand`.
+func (s *Server) executeRunCommand(cmd string, rawArgs []json.RawMessage) (any, error) {
+	if len(rawArgs) == 0 {
+		return nil, fmt.Errorf("command %q requires arguments", cmd)
+	}
+
+	var filePath string
+	if err := json.Unmarshal(rawArgs[0], &filePath); err != nil {
+		return nil, fmt.Errorf("invalid file path argument: %w", err)
+	}
+	filePath = URIToPath(filePath)
+
+	projectRoot := s.projectRootFor(filePath)
+	if projectRoot == "" {
+		projectRoot = filepath.Dir(filePath)
+	}
+
+	opts := driver.Options{
+		Targets:     []string{filePath},
+		ProjectRoot: projectRoot,
+	}
+
+	var outBuf bytes.Buffer
+	var errBuf bytes.Buffer
+	code, err := driver.Run(opts, nil, &outBuf, &errBuf)
+
+	output := outBuf.String()
+	if errBuf.Len() > 0 {
+		if output != "" {
+			output += "\n"
+		}
+		output += errBuf.String()
+	}
+	success := (code == 0 && err == nil)
+
+	s.conn.logf("Run command %s executed: exit=%d, success=%v\n%s", cmd, code, success, output)
+
+	msgType := MessageTypeInfo
+	if !success {
+		msgType = MessageTypeError
+	}
+	_ = s.conn.SendNotification("window/showMessage", ShowMessageParams{
+		Type:    msgType,
+		Message: fmt.Sprintf("[%s] exit code %d:\n%s", filepath.Base(filePath), code, output),
+	})
+
+	return map[string]any{
+		"success":  success,
+		"exitCode": code,
+		"output":   output,
+		"filePath": filePath,
+	}, nil
+}
+
+// executeGoToLocation handles client navigation requests via `window/showDocument`.
+func (s *Server) executeGoToLocation(rawArgs []json.RawMessage) (any, error) {
+	if len(rawArgs) == 0 {
+		return map[string]any{"success": false}, nil
+	}
+	var uriStr string
+	var line, char int
+	var loc Location
+	if err := json.Unmarshal(rawArgs[0], &loc); err == nil && loc.URI != "" {
+		uriStr = loc.URI
+		line = loc.Range.Start.Line
+		char = loc.Range.Start.Character
+	} else if err := json.Unmarshal(rawArgs[0], &uriStr); err == nil && uriStr != "" {
+		if len(rawArgs) > 1 {
+			_ = json.Unmarshal(rawArgs[1], &line)
+		}
+		if len(rawArgs) > 2 {
+			_ = json.Unmarshal(rawArgs[2], &char)
+		}
+	}
+	if uriStr != "" {
+		_ = s.conn.SendRequest(time.Now().UnixNano(), "window/showDocument", ShowDocumentParams{
+			URI:       uriStr,
+			TakeFocus: true,
+			Selection: &Range{
+				Start: Position{Line: line, Character: char},
+				End:   Position{Line: line, Character: char},
+			},
+		})
+	}
+	return map[string]any{"success": true, "uri": uriStr, "line": line, "character": char}, nil
 }

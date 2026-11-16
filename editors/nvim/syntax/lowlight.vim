@@ -14,8 +14,12 @@ syn keyword lowlightTodo             contained TODO FIXME XXX NOTE TIP IMPORTANT
 
 " Keywords
 syn keyword lowlightKeyword          bind define struct enum interface as import extern
-syn keyword lowlightKeyword          let if else match when for in next own
-syn keyword lowlightKeyword          unsafe packed test
+syn keyword lowlightKeyword          let if else match when for while in next own unpack
+syn keyword lowlightKeyword          unsafe packed test func
+syn keyword lowlightSelf             self
+
+" Attributes
+syn match   lowlightAttribute        "@[A-Za-z_][A-Za-z0-9_]*"
 
 " Logical Operators
 syn keyword lowlightOperatorWord     and or not
@@ -29,10 +33,15 @@ syn keyword lowlightType             Arena ptr ref void never Self
 syn keyword lowlightBoolean          true false
 syn keyword lowlightConstant         none
 
-" Built-in Functions
-syn keyword lowlightBuiltin          print println eprint eprintln assert panic exit parse_int
+" Built-in Functions & Intrinsics
+syn keyword lowlightBuiltin          print println eprint eprintln assert panic exit parse_int parse_float
+syn keyword lowlightBuiltin          sqrt abs min max read_file write_file args
+syn keyword lowlightBuiltin          caller_location caller_file caller_line caller_col
+syn keyword lowlightIntrinsic        size_of align_of alloc_raw realloc_raw free_raw null_ptr is_null
+syn keyword lowlightIntrinsic        addr_of ptr_add ptr_read ptr_write ptr_cast ptr_addr copy_bytes zero_bytes
 
 " Operators & Punctuation
+syn match   lowlightOperator         "+\\["
 syn match   lowlightOperator         "<-"
 syn match   lowlightOperator         "?\."
 syn match   lowlightOperator         "??"
@@ -43,7 +52,6 @@ syn match   lowlightOperator         "[-+*%/!=<>&|^~]"
 syn match   lowlightNumber           "\<[0-9][0-9_]*\>"
 syn match   lowlightNumber           "\<0x[0-9a-fA-F_]\+\>"
 syn match   lowlightNumber           "\<0b[01_]\+\>"
-syn match   lowlightNumber           "\<0o[0-7_]\+\>"
 syn match   lowlightFloat            "\<[0-9][0-9_]*\.[0-9][0-9_]*\([eE][+-]\?[0-9_]\+\)\?\>"
 
 " Character Literals
@@ -61,11 +69,14 @@ hi def link lowlightLineComment      Comment
 hi def link lowlightBlockComment     Comment
 hi def link lowlightTodo             Todo
 hi def link lowlightKeyword          Keyword
+hi def link lowlightSelf             Keyword
+hi def link lowlightAttribute        PreProc
 hi def link lowlightOperatorWord     Operator
 hi def link lowlightType             Type
 hi def link lowlightBoolean          Boolean
 hi def link lowlightConstant         Constant
 hi def link lowlightBuiltin          Function
+hi def link lowlightIntrinsic        Function
 hi def link lowlightOperator         Operator
 hi def link lowlightNumber           Number
 hi def link lowlightFloat            Float

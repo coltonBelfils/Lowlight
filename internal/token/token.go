@@ -27,6 +27,7 @@ const (
 	LBracket  // [
 	RBracket  // ]
 	HashBrack // #[
+	PlusBrack // +[
 	LBrace    // {
 	RBrace    // }
 	Comma     // ,
@@ -40,7 +41,6 @@ const (
 
 	// Operators & Unwind
 	Unwind     // <- (whitespace-delimited)
-	RArrow     // -> (function/method body separator)
 	Question   // ?  (prefix optional type `?T`)
 	QuestQuest // ?? (optional fallback)
 	Assign     // =
@@ -90,7 +90,6 @@ const (
 	KwIn
 	KwMatch
 	KwWhen
-	KwNext
 	KwFunc
 	KwNone
 	KwTrue
@@ -104,6 +103,7 @@ const (
 	KwAs
 	KwUnsafe
 	KwExtern
+	KwUnpack
 	KwImport
 )
 
@@ -124,6 +124,7 @@ var kindNames = map[Kind]string{
 	LBracket:    "[",
 	RBracket:    "]",
 	HashBrack:   "#[",
+	PlusBrack:   "+[",
 	LBrace:      "{",
 	RBrace:      "}",
 	Comma:       ",",
@@ -135,7 +136,6 @@ var kindNames = map[Kind]string{
 	DotDotEq:    "..=",
 	At:          "@",
 	Unwind:      "<-",
-	RArrow:      "->",
 	Question:    "?",
 	QuestQuest:  "??",
 	Assign:      "=",
@@ -179,7 +179,6 @@ var kindNames = map[Kind]string{
 	KwIn:        "in",
 	KwMatch:     "match",
 	KwWhen:      "when",
-	KwNext:      "next",
 	KwFunc:      "func",
 	KwNone:      "none",
 	KwTrue:      "true",
@@ -193,6 +192,7 @@ var kindNames = map[Kind]string{
 	KwAs:        "as",
 	KwUnsafe:    "unsafe",
 	KwExtern:    "extern",
+	KwUnpack:    "unpack",
 	KwImport:    "import",
 }
 
@@ -230,6 +230,7 @@ var keywords = map[string]Kind{
 	"as":        KwAs,
 	"unsafe":    KwUnsafe,
 	"extern":    KwExtern,
+	"unpack":    KwUnpack,
 	"import":    KwImport,
 }
 
@@ -268,7 +269,7 @@ func (k Kind) TriggersAutoSemi() bool {
 // suppresses an automatic semicolon from the previous line under Spec §2.3 Rule 3.
 func (k Kind) SuppressesAutoSemiOnNextLine() bool {
 	switch k {
-	case KwElse, KwWhen, Dot, QuestDot, RArrow:
+	case KwElse, KwWhen, Dot, QuestDot:
 		return true
 	default:
 		return false

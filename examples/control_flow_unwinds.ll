@@ -3,64 +3,64 @@
 // block `<-`, `if <-`, `match <-`, `for <-`, `next <-`, labeled loops,
 // `for ... else`, and `?? func <-` optional guard returns.
 
-bind find_first_divisible = (nums: [int], divisor: int): int -> {
+bind find_first_divisible = (nums: [int], divisor: int) int: {
     // `while (...) { ... } else ...` produces a scalar value directly!
-    while (n in nums): int {
-        if (n <= 0) {
+    while (n in nums) int: {
+        if (n <= 0): {
             next <-
         }
-        if (n % divisor == 0) {
+        if (n % divisor == 0): {
             while <- n
         }
-    } else -1
+    } else: -1
 }
 
-bind find_in_grid = (grid: [[int]], target: int): string -> {
-    let coords = outer: while (r, row in grid): string {
-        for (c, cell in row) {
-            if (cell < 0) {
+bind find_in_grid = (grid: [[int]], target: int) string: {
+    let coords = outer: while (r, row in grid) string: {
+        for (c, cell in row): {
+            if (cell < 0): {
                 // Skip rest of this row and jump to next outer row!
                 next outer <-
             }
-            if (cell == target) {
+            if (cell == target): {
                 outer <- "($r, $c)"
             }
         }
-    } else "not-found"
+    } else: "not-found"
     coords
 }
 
-bind parse_and_scale = (raw: string, factor_table: #[string: int], key: string): ?int -> {
+bind parse_and_scale = (raw: string, factor_table: #[string: int], key: string) ?int: {
     // `?? func <- none` unwraps `?T` or exits the function cleanly on one line!
     let base = parse_int(raw) ?? func <- none
     let mult = factor_table[key] ?? func <- none
 
     // Value block + `if <-` + `match <-`
     let bonus = {
-        if (base == 0) {
+        if (base == 0): {
             <- 0
         }
-        let b = if (mult > 5) {
+        let b = if (mult > 5): {
             let extra = mult * 2
             if <- extra
-        } else {
+        } else: {
             1
         }
         <- b
     }
 
-    let adjusted = match (base * mult + bonus)
+    let adjusted = match (base * mult + bonus):
     when 0: {
         match <- 0
     }
-    else: {
+    default: {
         match <- base * mult + bonus
     }
 
     adjusted
 }
 
-bind main = () -> {
+bind main = (): {
     let d1 = find_first_divisible([-7, 3, 5, 14, 21], 7)
     let d2 = find_first_divisible([2, 3, 5], 7)
     assert(d1 == 14)

@@ -18,22 +18,22 @@ import (
 
 func TestListComprehensive(t *testing.T) {
 	src := `
-bind print_val = (p: Printable): string -> {
+bind print_val = (p: Printable) string: {
     p.to_string()
 }
 
-bind sum_iter = (it_obj: Iterable[int]): int -> {
+bind sum_iter = (it_obj: Iterable[int]) int: {
     let it = it_obj.iter()
     let sum = 0
     let cur? = it.next()
-    for (cur? != none) {
+    for (cur? != none): {
         sum += cur? ?? 0
         cur? = it.next()
     }
     sum
 }
 
-bind main = () -> {
+bind main = (): {
     // 1. Creation & initial state
     let list = List[int].new()
     assert(list.len == 0)
@@ -41,7 +41,7 @@ bind main = () -> {
 
     // 2. Push & dynamic reallocation
     let i = 1
-    for (i <= 20) {
+    for (i <= 20): {
         list.push(i * 10)
         i += 1
     }
@@ -94,7 +94,7 @@ bind main = () -> {
     assert(sum_iter(short_list) == 6)
 
     // 8. Collection comprehension (Collectable[int])
-    let collected: List[int] = for (x in 1..=5): List[int] x * 100
+    let collected: List[int] = for (x in 1..=5) List[int]: x * 100
     assert(collected.len == 5)
     assert((collected.get(0) ?? 0) == 100)
     assert((collected.get(4) ?? 0) == 500)
@@ -122,22 +122,22 @@ bind main = () -> {
 
 func TestSetComprehensive(t *testing.T) {
 	src := `
-bind print_val = (p: Printable): string -> {
+bind print_val = (p: Printable) string: {
     p.to_string()
 }
 
-bind sum_iter = (it_obj: Iterable[int]): int -> {
+bind sum_iter = (it_obj: Iterable[int]) int: {
     let it = it_obj.iter()
     let sum = 0
     let cur? = it.next()
-    for (cur? != none) {
+    for (cur? != none): {
         sum += cur? ?? 0
         cur? = it.next()
     }
     sum
 }
 
-bind main = () -> {
+bind main = (): {
     // 1. Creation & initial state
     let s = Set[int].new()
     assert(s.len == 0)
@@ -178,13 +178,13 @@ bind main = () -> {
     // 5. Growth & Rehash across many elements
     let set_large = Set[int].new()
     let i = 1
-    for (i <= 50) {
+    for (i <= 50): {
         assert(set_large.insert(i))
         i += 1
     }
     assert(set_large.len == 50)
     let j = 1
-    for (j <= 50) {
+    for (j <= 50): {
         assert(set_large.has(j))
         j += 1
     }
@@ -219,7 +219,7 @@ bind main = () -> {
     let it = s_iter.iter()
     let count = 0
     let item? = it.next()
-    for (item? != none) {
+    for (item? != none): {
         count += 1
         item? = it.next()
     }
@@ -227,7 +227,7 @@ bind main = () -> {
     assert(sum_iter(s_iter) == 60)
 
     // 10. Collection Comprehension (Collectable[int])
-    let collected: Set[int] = for (x in 1..=4): Set[int] x * 5
+    let collected: Set[int] = for (x in 1..=4) Set[int]: x * 5
     assert(collected.len == 4)
     assert(collected.has(5))
     assert(collected.has(10))
@@ -259,22 +259,22 @@ bind main = () -> {
 
 func TestMapComprehensive(t *testing.T) {
 	src := `
-bind print_val = (p: Printable): string -> {
+bind print_val = (p: Printable) string: {
     p.to_string()
 }
 
-bind count_iter = (it_obj: Iterable[MapEntry[string, int]]): int -> {
+bind count_iter = (it_obj: Iterable[MapEntry[string, int]]) int: {
     let it = it_obj.iter()
     let count = 0
     let cur? = it.next()
-    for (cur? != none) {
+    for (cur? != none): {
         count += 1
         cur? = it.next()
     }
     count
 }
 
-bind main = () -> {
+bind main = (): {
     // 1. Creation & initial state
     let m = Map[string, int].new()
     assert(m.len == 0)
@@ -324,13 +324,13 @@ bind main = () -> {
     // 6. Growth & Rehash across many keys
     let map_large = Map[int, int].new()
     let i = 1
-    for (i <= 40) {
+    for (i <= 40): {
         map_large.insert(i, i * 10)
         i += 1
     }
     assert(map_large.len == 40)
     let j = 1
-    for (j <= 40) {
+    for (j <= 40): {
         assert(map_large.has(j))
         assert((map_large.get(j) ?? 0) == j * 10)
         j += 1
@@ -368,8 +368,8 @@ bind main = () -> {
     assert(ent1? != none)
 
     // 11. Collection Comprehension (Collectable[MapEntry[string, int]])
-    let collected: Map[string, int] = for (x in 1..=3): Map[string, int] MapEntry[string, int][
-        key: if (x == 1) "one" else if (x == 2) "two" else "three",
+    let collected: Map[string, int] = for (x in 1..=3) Map[string, int]: MapEntry[string, int][
+        key: if (x == 1): "one" else if (x == 2): "two" else: "three",
         value: x * 10,
     ]
     assert(collected.len == 3)
@@ -393,19 +393,19 @@ define UserId struct [
     id: int,
 ]
 
-bind UserId.hash = (self): u64 -> {
+bind UserId.hash = (self) u64: {
     self.id.hash()
 }
 
-bind UserId.copy = (self): UserId -> {
+bind UserId.copy = (self) UserId: {
     UserId[id: self.id]
 }
 
-bind UserId.to_string = (self): string -> {
+bind UserId.to_string = (self) string: {
     "User(${self.id})"
 }
 
-bind main = () -> {
+bind main = (): {
     let u1 = UserId[id: 101]
     let u2 = UserId[id: 202]
     let u3 = UserId[id: 303]
@@ -449,7 +449,7 @@ func TestNonHashableRejected(t *testing.T) {
 define NoHash struct [
     x: int,
 ]
-bind main = () -> {
+bind main = (): {
     let s = Set[NoHash].new()
 }
 `
@@ -476,7 +476,7 @@ bind main = () -> {
 define NoHash struct [
     x: int,
 ]
-bind main = () -> {
+bind main = (): {
     let m = Map[NoHash, int].new()
 }
 `
@@ -504,7 +504,7 @@ func TestVectorRemoved(t *testing.T) {
 
 	// 1. Vector[int] is unknown type
 	srcVec := `
-bind main = () -> {
+bind main = (): {
     let v = Vector[int].new()
 }
 `
@@ -532,7 +532,7 @@ bind main = () -> {
 define MyVec[T] struct [
     data: ptr[T],
 ]
-bind main = () -> {}
+bind main = (): {}
 `
 	var stdoutLV, stderrLV bytes.Buffer
 	rcLV, errLV := driver.Run(driver.Options{
@@ -555,30 +555,32 @@ bind main = () -> {}
 
 func TestFixedArrayAndDynamicList(t *testing.T) {
 	src := `
-bind sum_fixed = (arr: [4: int]): int -> {
+bind sum_fixed = (arr: [4: int]) int: {
     let sum = 0
     let i = 0
-    for (i < 4) {
+    for (i < 4): {
         sum += arr[i]
         i += 1
     }
     sum
 }
 
-bind sum_list = (lst: List[int]): int -> {
+bind sum_list = (lst: List[int]) int: {
     let sum = 0
     let i = 0
-    for (i < lst.len) {
+    for (i < lst.len): {
         sum += lst.get(i) ?? 0
         i += 1
     }
     sum
 }
 
-bind main = () -> {
+bind main = (): {
     // 1. Fixed Array: explicit elements
     let arr1: [4: int] = [4: 1, 2, 3, 4]
     assert(sum_fixed(arr1) == 10)
+    assert(arr1.len == 4)
+    assert(arr1.len() == 4)
 
     // 2. Fixed Array: repeat constructor
     let arr2: [4: int] = [4: 7]
@@ -586,7 +588,14 @@ bind main = () -> {
     assert(arr2[1] == 7)
     assert(arr2[2] == 7)
     assert(arr2[3] == 7)
+    assert(arr2.len == 4)
     assert(sum_fixed(arr2) == 28)
+
+    // 2b. Array[T] syntax sugar unification
+    let arr3: Array[4, int] = [4: 1, 2, 3, 4]
+    assert(arr3.len == 4)
+    assert(arr3[0] == 1)
+    assert(sum_fixed(arr3) == 10)
 
     // 3. Dynamic List (List[T] & [T])
     let l1: List[int] = List[int].new()
@@ -602,6 +611,13 @@ bind main = () -> {
     assert(l2[0] == 10)
     assert(l2[1] == 20)
     assert(l2[2] == 30)
+
+    // Unification: List[T] and [T] are the exact same thing!
+    assert(l1[0] == 10)
+    assert(l1[1] == 20)
+    assert(l1.len() == 3)
+    assert(l2.len == 3)
+    assert(sum_list(l2) == 60)
 }
 `
 	runInlineStrict(t, "array_and_list", src, false)
@@ -609,7 +625,7 @@ bind main = () -> {
 
 func TestHashingStackPureLowlight(t *testing.T) {
 	src := `
-bind main = () -> {
+bind main = (): {
     // 1. Primitive integer hashes
     let i1 = 42
     let i2 = 42
@@ -670,7 +686,7 @@ func TestHashOfIntrinsicRetired(t *testing.T) {
 
 	// Attempting to call retired intrinsic hash_of(x)
 	src := `
-bind main = () -> {
+bind main = (): {
     let x = 42
     let h = hash_of(x)
 }

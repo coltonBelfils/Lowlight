@@ -71,7 +71,10 @@ function resolveStdlibRoot(context) {
   const cfg = vscode.workspace.getConfiguration('lowlight');
   const configured = (cfg.get('stdlibPath') || '').trim();
   if (configured.length > 0) {
-    if (path.basename(configured) === 'std' && fs.existsSync(path.join(configured, 'math.ll'))) {
+    if (
+      path.basename(configured) === 'std' &&
+      (fs.existsSync(path.join(configured, 'core', 'core.ll')) || fs.existsSync(path.join(configured, 'math.ll')))
+    ) {
       return path.dirname(configured);
     }
     return configured;
@@ -88,7 +91,11 @@ function resolveStdlibRoot(context) {
   for (const root of roots) {
     try {
       const stdDir = path.join(root, 'std');
-      if (fs.existsSync(stdDir) && fs.statSync(stdDir).isDirectory()) {
+      if (
+        fs.existsSync(stdDir) &&
+        fs.statSync(stdDir).isDirectory() &&
+        (fs.existsSync(path.join(stdDir, 'core', 'core.ll')) || fs.existsSync(path.join(stdDir, 'math.ll')))
+      ) {
         return root;
       }
     } catch (_) {
@@ -424,7 +431,45 @@ class LowlightClient {
     if (msg && typeof msg.method === 'string') {
       if (msg.method === 'textDocument/publishDiagnostics' && msg.params) {
         this._handleDiagnostics(msg.params);
+      } else if (msg.method === 'window/showMessage' && msg.params) {
+        const text = msg.params.message || '';
+        const type = msg.params.type || 3;
+        if (type === 1) {
+          vscode.window.showErrorMessage(text);
+        } else if (type === 2) {
+          vscode.window.showWarningMessage(text);
+        } else {
+          vscode.window.showInformationMessage(text);
+        }
+      } else if (msg.method === 'window/showDocument' && msg.params) {
+        this._handleShowDocument(msg.id, msg.params);
+      } else if (msg.id !== undefined && msg.id !== null) {
+        this._writeFrame({ jsonrpc: '2.0', id: msg.id, result: null });
       }
+    }
+  }
+
+  async _handleShowDocument(reqId, params) {
+    let success = false;
+    try {
+      if (params && params.uri) {
+        const targetUri = this.toVsUri(params.uri);
+        const doc = await vscode.workspace.openTextDocument(targetUri);
+        const opts = {
+          preview: false,
+          preserveFocus: params.takeFocus === false,
+        };
+        if (params.selection) {
+          opts.selection = toVsRange(params.selection);
+        }
+        await vscode.window.showTextDocument(doc, opts);
+        success = true;
+      }
+    } catch (err) {
+      this.log(`window/showDocument error: ${err && err.message ? err.message : String(err)}`);
+    }
+    if (reqId !== undefined && reqId !== null) {
+      this._writeFrame({ jsonrpc: '2.0', id: reqId, result: { success } });
     }
   }
 
@@ -992,7 +1037,8 @@ function activate(context) {
             return [];
           }
           return res.map((act) => {
-            const ca = new vscode.CodeAction(act.title, vscode.CodeActionKind.QuickFix);
+            const kind = act.kind ? new vscode.CodeActionKind(act.kind) : vscode.CodeActionKind.QuickFix;
+            const ca = new vscode.CodeAction(act.title, kind);
             ca.isPreferred = Boolean(act.isPreferred);
             if (act.edit && act.edit.changes) {
               const wsEdit = new vscode.WorkspaceEdit();
@@ -1006,14 +1052,43 @@ function activate(context) {
               }
               ca.edit = wsEdit;
             }
+            if (act.command && act.command.command) {
+              ca.command = {
+                title: act.command.title || act.title,
+                command: act.command.command,
+                arguments: Array.isArray(act.command.arguments) ? act.command.arguments : [],
+              };
+            }
             return ca;
           });
         },
       },
       {
-        providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
+        providedCodeActionKinds: [vscode.CodeActionKind.QuickFix, vscode.CodeActionKind.Refactor],
       }
     )
+  );
+
+  // 6b. Go to Implementation (`Cmd+F12` / `Ctrl+F12`)
+  context.subscriptions.push(
+    vscode.languages.registerImplementationProvider(selector, {
+      async provideImplementation(document, position, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return [];
+        }
+        const res = await client.sendRequest('textDocument/implementation', {
+          textDocument: { uri: document.uri.toString() },
+          position: fromVsPos(position),
+        });
+        if (!res) {
+          return [];
+        }
+        const locs = Array.isArray(res) ? res : [res];
+        return locs
+          .filter((loc) => loc && loc.uri && loc.range)
+          .map((loc) => new vscode.Location(client.toVsUri(loc.uri), toVsRange(loc.range)));
+      },
+    })
   );
 
   // 7. Document Formatting (`Shift+Alt+F`)
@@ -1138,6 +1213,69 @@ function activate(context) {
 
   // 7. User Commands (`Restart Server`, `Run Current File`, `Show Output`)
   context.subscriptions.push(
+    vscode.commands.registerCommand('lowlight.goToLocation', async (...args) => {
+      if (args.length === 0) return;
+      let uriStr, line = 0, char = 0;
+      const first = args[0];
+      if (typeof first === 'object' && first !== null) {
+        uriStr = first.uri;
+        if (first.range && first.range.start) {
+          line = first.range.start.line || 0;
+          char = first.range.start.character || 0;
+        }
+      } else if (typeof first === 'string') {
+        uriStr = first;
+        line = typeof args[1] === 'number' ? args[1] : 0;
+        char = typeof args[2] === 'number' ? args[2] : 0;
+      }
+      if (!uriStr) return;
+      const uri = vscode.Uri.parse(uriStr);
+      const doc = await vscode.workspace.openTextDocument(uri);
+      const editor = await vscode.window.showTextDocument(doc);
+      const pos = new vscode.Position(line, char);
+      editor.selection = new vscode.Selection(pos, pos);
+      editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+    }),
+
+    vscode.commands.registerCommand('lowlight.showLocations', async (currentUriStr, posObj, locsList) => {
+      if (!locsList || locsList.length === 0) return;
+      if (locsList.length === 1) {
+        return vscode.commands.executeCommand('lowlight.goToLocation', locsList[0]);
+      }
+      const currentUri = typeof currentUriStr === 'string' ? vscode.Uri.parse(currentUriStr) : currentUriStr;
+      const pos = new vscode.Position((posObj && posObj.line) || 0, (posObj && posObj.character) || 0);
+      const vscodeLocs = locsList.map(l => {
+        const u = vscode.Uri.parse(l.uri);
+        const r = new vscode.Range(
+          new vscode.Position(l.range.start.line, l.range.start.character),
+          new vscode.Position(l.range.end.line, l.range.end.character)
+        );
+        return new vscode.Location(u, r);
+      });
+      return vscode.commands.executeCommand('editor.action.goToLocations', currentUri, pos, vscodeLocs, 'goto', 'No implementations found');
+    }),
+
+    vscode.commands.registerCommand('lowlight.showImplementationsQuickPick', async (title, items) => {
+      if (!items || items.length === 0) {
+        vscode.window.showInformationMessage('No implementations found.');
+        return;
+      }
+      if (items.length === 1 && items[0].uri) {
+        return vscode.commands.executeCommand('lowlight.goToLocation', items[0]);
+      }
+      const pick = await vscode.window.showQuickPick(items, {
+        placeHolder: title || 'Select target to navigate to...',
+        matchOnDescription: true,
+      });
+      if (pick) {
+        if (pick.uri) {
+          return vscode.commands.executeCommand('lowlight.goToLocation', pick);
+        } else {
+          vscode.window.showInformationMessage(`${pick.label} is a built-in Lowlight primitive.`);
+        }
+      }
+    }),
+
     vscode.commands.registerCommand('lowlight.restartServer', async () => {
       if (!client) {
         return;
@@ -1156,88 +1294,96 @@ function activate(context) {
       }
     }),
 
-    vscode.commands.registerCommand('lowlight.runFile', async () => {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor || editor.document.languageId !== 'lowlight') {
+    vscode.commands.registerCommand('lowlight.runFile', async (arg) => {
+      let filePath = '';
+      if (typeof arg === 'string' && arg.length > 0) {
+        filePath = arg;
+        if (filePath.startsWith('file://')) {
+          filePath = vscode.Uri.parse(filePath).fsPath;
+        }
+      } else {
+        const editor = vscode.window.activeTextEditor;
+        if (editor && editor.document.languageId === 'lowlight') {
+          filePath = editor.document.uri.fsPath;
+        }
+      }
+      if (!filePath) {
         vscode.window.showInformationMessage('Open a Lowlight (.ll) file to run it.');
         return;
       }
-      if (editor.document.isDirty) {
+      const editor = vscode.window.activeTextEditor;
+      if (editor && editor.document.isDirty) {
         await editor.document.save();
       }
       const binPath = resolveServerBinary(context);
-      const stdRoot = resolveStdlibRoot(context);
-      const filePath = editor.document.uri.fsPath;
+      const term = getOrCreateRunTerminal('Lowlight');
+      term.show(true);
+      term.sendText(`${quoteShellArg(binPath)} run ${quoteShellArg(filePath)}`);
+    }),
 
-      if (!runTerminal || runTerminal.exitStatus !== undefined) {
-        const env = {};
-        if (stdRoot) {
-          env.LOWLIGHT_ROOT = stdRoot;
-        }
-        runTerminal = vscode.window.createTerminal({
-          name: 'Lowlight',
-          env,
-        });
-      }
-      runTerminal.show(true);
-      const q = (s) => `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
-      runTerminal.sendText(`${q(binPath)} run ${q(filePath)}`);
+    vscode.commands.registerCommand('lowlight.runMain', async (arg) => {
+      return vscode.commands.executeCommand('lowlight.runFile', arg);
     }),
 
     vscode.commands.registerCommand('lowlight.runTest', async (filePath, testName) => {
       const editor = vscode.window.activeTextEditor;
-      const targetFile = filePath || (editor && editor.document.uri.fsPath);
+      let targetFile = filePath || (editor && editor.document.uri.fsPath);
       if (!targetFile) {
         return;
+      }
+      if (targetFile.startsWith('file://')) {
+        targetFile = vscode.Uri.parse(targetFile).fsPath;
       }
       if (editor && editor.document.isDirty) {
         await editor.document.save();
       }
       const binPath = resolveServerBinary(context);
-      const stdRoot = resolveStdlibRoot(context);
-
-      if (!runTerminal || runTerminal.exitStatus !== undefined) {
-        const env = {};
-        if (stdRoot) {
-          env.LOWLIGHT_ROOT = stdRoot;
-        }
-        runTerminal = vscode.window.createTerminal({
-          name: 'Lowlight Test',
-          env,
-        });
-      }
-      runTerminal.show(true);
-      const q = (s) => `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
-      runTerminal.sendText(`${q(binPath)} test ${q(targetFile)}`);
+      const term = getOrCreateRunTerminal('Lowlight Test');
+      term.show(true);
+      const cmd = testName
+        ? `${quoteShellArg(binPath)} test ${quoteShellArg(targetFile)} -run ${quoteShellArg(testName)}`
+        : `${quoteShellArg(binPath)} test ${quoteShellArg(targetFile)}`;
+      term.sendText(cmd);
     }),
 
     vscode.commands.registerCommand('lowlight.runAllTests', async (filePath) => {
       const editor = vscode.window.activeTextEditor;
-      const targetFile = filePath || (editor && editor.document.uri.fsPath);
+      let targetFile = filePath || (editor && editor.document.uri.fsPath);
       if (!targetFile) {
         return;
+      }
+      if (targetFile.startsWith('file://')) {
+        targetFile = vscode.Uri.parse(targetFile).fsPath;
       }
       if (editor && editor.document.isDirty) {
         await editor.document.save();
       }
       const binPath = resolveServerBinary(context);
-      const stdRoot = resolveStdlibRoot(context);
-
-      if (!runTerminal || runTerminal.exitStatus !== undefined) {
-        const env = {};
-        if (stdRoot) {
-          env.LOWLIGHT_ROOT = stdRoot;
-        }
-        runTerminal = vscode.window.createTerminal({
-          name: 'Lowlight Test',
-          env,
-        });
-      }
-      runTerminal.show(true);
-      const q = (s) => `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
-      runTerminal.sendText(`${q(binPath)} test ${q(targetFile)}`);
+      const term = getOrCreateRunTerminal('Lowlight Test');
+      term.show(true);
+      term.sendText(`${quoteShellArg(binPath)} test ${quoteShellArg(targetFile)}`);
     })
   );
+
+  function getOrCreateRunTerminal(name) {
+    if (!runTerminal || runTerminal.exitStatus !== undefined) {
+      const stdRoot = resolveStdlibRoot(context);
+      const env = {};
+      if (stdRoot) {
+        env.LOWLIGHT_ROOT = stdRoot;
+      }
+      runTerminal = vscode.window.createTerminal({ name, env });
+    }
+    return runTerminal;
+  }
+
+  function quoteShellArg(s) {
+    const str = String(s);
+    if (process.platform === 'win32') {
+      return `"${str.replace(/"/g, '\\"')}"`;
+    }
+    return `'${str.replace(/'/g, "'\\''")}'`;
+  }
 }
 
 /**

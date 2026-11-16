@@ -48,17 +48,18 @@ type KeywordDoc struct {
 
 var BuiltinKeywords = []KeywordDoc{
 	{Word: "let", Detail: "mutable owned local variable", Summary: "Declares a mutable owned local variable (`let x = 10` or `let v: [int] = []`)."},
-	{Word: "bind", Detail: "deeply immutable binding or function", Summary: "Declares a deeply immutable value, constant, function, or method (`bind add = (a: int, b: int): int -> { a + b }`)."},
+	{Word: "bind", Detail: "deeply immutable binding or function", Summary: "Declares a deeply immutable value, constant, function, or method (`bind add = (a: int, b: int) int: { a + b }`)."},
 	{Word: "define", Detail: "nominal type declaration", Summary: "Defines a `struct`, `enum`, `interface`, or distinct derived type (`define UserID int`)."},
 	{Word: "struct", Detail: "product value type `[field: T, ...]`", Summary: "Declares a value-type struct (`define Point struct [x: float, y: float]`). Prefix `packed` for unpadded C ABI layout."},
 	{Word: "enum", Detail: "tag enum `[A, B, ...]`", Summary: "Declares a strongly-typed integer tag enum (`define Status enum u8 [Ok = 0, Err = 1]`)."},
-	{Word: "interface", Detail: "dynamic/generic method contract", Summary: "Declares an interface (`define Shape interface [area: (self): float]`)."},
-	{Word: "if", Detail: "conditional expression / optional unwrap", Summary: "Conditional expression (`if (cond) a else b`) or optional narrowing (`if (user?) { ... }` / `if (expr as val) { ... }`)."},
-	{Word: "else", Detail: "fallback branch in `if`, `for`, or `match`", Summary: "Fallback branch for `if`, `for ... else` (runs if loop finishes without `for <-`), or `match`."},
-	{Word: "for", Detail: "unified loop (`cond`, `lo..hi`, `x in col`)", Summary: "Unified loop construct supporting condition (`for (cond)`), ranges (`for (i in 0..n)`), and collection iteration (`for (x in items)`)."},
-	{Word: "in", Detail: "range or collection iterator keyword", Summary: "Separates loop bindings from range or collection in `for (x in items)`."},
-	{Word: "match", Detail: "exhaustive pattern match expression", Summary: "Matches a value against `when` arms and a final `else` arm."},
-	{Word: "when", Detail: "pattern arm in `match`", Summary: "Introduces a pattern arm (`when 1, 2: ...` or `when 'a'..='z': ...`) inside `match`."},
+	{Word: "interface", Detail: "dynamic/generic method contract", Summary: "Declares an interface (`define Shape interface [area: (self) float]`)."},
+	{Word: "if", Detail: "conditional expression / optional unwrap", Summary: "Conditional expression (`if (cond): a else: b`) or optional narrowing (`if (user?): { ... }` / `if (expr as val): { ... }`)."},
+	{Word: "else", Detail: "fallback branch in `if`, `for`, or `while`", Summary: "Fallback branch for `if`, `for ... else` (runs if loop finishes without `for <-`), or `while ... else`."},
+	{Word: "for", Detail: "collection or range loop (`for (x in items)`, `for (i in 0..n)`)", Summary: "Loop construct supporting ranges (`for (i in 0..n)`), collection iteration (`for (x in items)`), and optional collection comprehensions."},
+	{Word: "while", Detail: "conditional loop (`while (cond): { ... }`)", Summary: "Conditional loop construct supporting boolean condition loops (`while (cond): { ... }`), infinite loops (`while (true) T: { ... }`), and `else` fallback branches."},
+	{Word: "in", Detail: "range, collection, or containment keyword", Summary: "Separates loop bindings from ranges/collections (`for (x in items)`) or introduces containment patterns (`when in container:`) in `match`."},
+	{Word: "match", Detail: "exhaustive pattern match expression", Summary: "Matches values against `when` arms (values, variants, `in container`) and a final `default` arm (`match (x): ...`)."},
+	{Word: "when", Detail: "pattern arm in `match`", Summary: "Introduces a pattern arm (`when 1, 2: ...` or `when in 'a'..='z': ...`) inside `match`."},
 	{Word: "next", Detail: "continue loop (`next <-`)", Summary: "Advances to the next loop iteration when paired with unwind (`next <-` or `next outer <-`)."},
 	{Word: "func", Detail: "early function return (`func <- val`)", Summary: "Unwinds out of the enclosing function or lambda (`func <-` or `func <- result`)."},
 	{Word: "none", Detail: "empty optional value (`?T`)", Summary: "Represents the empty state of any optional type `?T`."},
@@ -72,7 +73,8 @@ var BuiltinKeywords = []KeywordDoc{
 	{Word: "not", Detail: "logical negation", Summary: "Boolean negation (`not flag`). Lowlight uses `not` instead of `!`."},
 	{Word: "as", Detail: "alias or optional binding (`if (e as x)`)", Summary: "Binds an unwrapped optional (`if (find(id) as user)`) or aliases an `import` / `extern`."},
 	{Word: "unsafe", Detail: "unsafe low-level memory block", Summary: "Enables raw pointer (`ptr[T]`) dereferences, pointer arithmetic, raw intrinsics, and `extern` C calls."},
-	{Word: "extern", Detail: "C11 header or ABI function import", Summary: "Includes a C header (`extern \"stdio.h\"`) or binds a C ABI function (`extern puts: (s: ptr[u8]): i32`)."},
+	{Word: "extern", Detail: "C11 header or ABI function import", Summary: "Includes a C header (`extern \"stdio.h\"`) or binds a C ABI function (`extern puts: (s: ptr[u8]) i32`)."},
+	{Word: "unpack", Detail: "unpack tuple elements (`let x, y = unpack ...`)", Summary: "Unpacks a tuple or distinct tuple into comma-separated variables or assignment targets (`let x, y = unpack +[5, 7]`)."},
 	{Word: "import", Detail: "import Lowlight `.ll` module", Summary: "Imports declarations from another `.ll` module (`import \"std/math.ll\" as math`)."},
 }
 
@@ -87,7 +89,7 @@ var BuiltinSnippets = []CodeSnippet{
 	{
 		Label:   "bind main",
 		Detail:  "Program entry point",
-		Snippet: "bind main = () -> {\n\t$0\n}",
+		Snippet: "bind main = (): {\n\t$0\n}",
 		Summary: "Defines the Lowlight entry point function `main`.",
 	},
 	{
@@ -109,57 +111,69 @@ var BuiltinSnippets = []CodeSnippet{
 		Summary: "Defines a sum type / tagged union enum carrying typed data payloads.",
 	},
 	{
-		Label:   "define func",
+		Label:   "bind func",
 		Detail:  "Define a top-level function",
-		Snippet: "define ${1:name} = (${2:params}): ${3:void} -> {\n\t$0\n}",
+		Snippet: "bind ${1:name} = (${2:params}) ${3:void}: {\n\t$0\n}",
 		Summary: "Defines a top-level function with explicit parameter and return types.",
 	},
 	{
-		Label:   "define method",
+		Label:   "bind method",
 		Detail:  "Define a method on a type",
-		Snippet: "define ${1:name} = (&self: ${2:Type}, ${3:params}): ${4:void} -> {\n\t$0\n}",
+		Snippet: "bind ${1:Type}.${2:name} = (&self, ${3:params}) ${4:void}: {\n\t$0\n}",
 		Summary: "Defines a method on a type with a borrowed `&self` receiver.",
 	},
 	{
 		Label:   "define interface",
 		Detail:  "Define an interface",
-		Snippet: "define ${1:Name} interface [\n\t${2:method}: (self)${3:: string},\n]",
+		Snippet: "define ${1:Name} interface [\n\t${2:method}: (self)${3: string},\n]",
 		Summary: "Defines a vtable interface for zero-allocation borrows or owned heap boxes.",
 	},
 	{
 		Label:   "if?",
 		Detail:  "Unwrap optional in if-block",
-		Snippet: "if (${1:opt}?) {\n\t$0\n}",
+		Snippet: "if (${1:opt}?): {\n\t$0\n}",
 		Summary: "Narrows an optional variable `opt?` (`?T`) to non-optional `opt` (`T`) inside the `then` branch.",
 	},
 	{
 		Label:   "for in",
 		Detail:  "Iterate range or collection",
-		Snippet: "for (${1:item} in ${2:items}) {\n\t$0\n}",
+		Snippet: "for (${1:item} in ${2:items}): {\n\t$0\n}",
 		Summary: "Iterates over a range (`0..n`) or collection (`[T]`, `[N: T]`, `#[T]`, `#[K: V]`, `string`).",
+	},
+	{
+		Label:   "while",
+		Detail:  "Conditional while loop",
+		Snippet: "while (${1:cond}): {\n\t$0\n}",
+		Summary: "Executes a block while a condition evaluates to true.",
 	},
 	{
 		Label:   "match when",
 		Detail:  "Exhaustive pattern match",
-		Snippet: "match (${1:val})\nwhen ${2:pattern}: {\n\t$3\n}\nelse: {\n\t$0\n}",
-		Summary: "Exhaustively matches a scrutinee across `when` arms and an `else` arm.",
+		Snippet: "match (${1:val}):\nwhen ${2:pattern}: {\n\t$3\n}\ndefault: {\n\t$0\n}",
+		Summary: "Exhaustively matches a scrutinee across `when` arms and a `default` arm.",
 	},
 	{
 		Label:   "match enum",
 		Detail:  "Exhaustively match enum variants",
-		Snippet: "match (${1:val})\nwhen ${2:Type}.${3:Variant}: {\n\t$0\n}\nelse: {\n\t\n}",
+		Snippet: "match (${1:val}):\nwhen ${2:Type}.${3:Variant}: {\n\t$0\n}\ndefault: {\n\t\n}",
 		Summary: "Exhaustively matches over enum variants.",
 	},
 	{
 		Label:   "match result",
-		Detail:  "Exhaustively match Result[T, E]",
-		Snippet: "match (${1:res})\nwhen Result.Ok(${2:val}): {\n\t$3\n}\nelse Result.Err(${4:err}): {\n\t$0\n}",
+		Detail:  "Exhaustively match Result[T]",
+		Snippet: "match (${1:res}):\nwhen Result.Ok(${2:val}): {\n\t$3\n}\ndefault Result.Err(${4:err}): {\n\t$0\n}",
 		Summary: "Exhaustively matches `Result.Ok` and `Result.Err` variants.",
+	},
+	{
+		Label:   "check result",
+		Detail:  "Handle Result[T] error propagation",
+		Snippet: "if (${1:res}.is_err()): {\n\tfunc <- Result[${2:T}].fail(${1:res}.unwrap_err().wrap(\"${3:context}\"))\n}\nlet ${4:val} = ${1:res}.unwrap()$0",
+		Summary: "Explicitly handles an error on `Result[T]`, wrapping it with context and returning early.",
 	},
 	{
 		Label:   "test",
 		Detail:  "Define a unit test",
-		Snippet: "define test_${1:name} = () -> {\n\t$0\n}",
+		Snippet: "@test\nbind test_${1:name} = (): {\n\t$0\n}",
 		Summary: "Defines a test function runnable via `lowlight test`.",
 	},
 }
@@ -183,9 +197,9 @@ var BuiltinTypes = []BuiltinTypeDoc{
 	{Name: "Arena", Kind: KindStruct, Detail: "Bump-allocated memory region", Summary: "Region bump allocator (`Arena.new()`). Frees all `arena.alloc(val)` objects in O(1) at scope exit; statically prevents `ref[T]` escape."},
 	{Name: "ptr", Kind: KindStruct, Detail: "ptr[T] — raw pointer", Snippet: "ptr[${1:u8}]", Summary: "Raw pointer `ptr[T]` for manual memory and C FFI. Copyable Plain address; dereferencing (`*p`, `p[i]`) requires `unsafe`."},
 	{Name: "ref", Kind: KindStruct, Detail: "ref[T] — safe arena reference", Snippet: "ref[${1:Node}]", Summary: "Non-null, plain-copyable reference `ref[T]` allocated inside an `Arena`. Statically verified never to outlive its `Arena`."},
-	{Name: "Printable", Kind: KindInterface, Detail: "built-in interface `[to_string: (self): string]`", Summary: "Built-in interface satisfied by all primitives, enums, strings, collections of `Printable`, and user types defining `to_string`."},
-	{Name: "Copyable", Kind: KindInterface, Detail: "built-in generic bound `[copy: (self): Self]`", Summary: "Generic constraint (`[T: Copyable]`) satisfied by all Plain types, `string`, collections of `Copyable`, and structs without custom `Drop` (or with explicit `.copy()`)."},
-	{Name: "Drop", Kind: KindInterface, Detail: "custom destructor `[drop: (&self)]`", Summary: "Implemented via `bind MyType.drop = (&self) -> { ... }` to run custom cleanup deterministically before fields are freed."},
+	{Name: "Printable", Kind: KindInterface, Detail: "built-in interface `[to_string: (self) string]`", Summary: "Built-in interface satisfied by all primitives, enums, strings, collections of `Printable`, and user types defining `to_string`."},
+	{Name: "Copyable", Kind: KindInterface, Detail: "built-in generic bound `[copy: (self) Self]`", Summary: "Generic constraint (`[T: Copyable]`) satisfied by all Plain types, `string`, collections of `Copyable`, and structs without custom `Drop` (or with explicit `.copy()`)."},
+	{Name: "Drop", Kind: KindInterface, Detail: "custom destructor `[drop: (&self)]`", Summary: "Implemented via `bind MyType.drop = (&self): { ... }` to run custom cleanup deterministically before fields are freed."},
 }
 
 var BuiltinFunctions = []BuiltinFuncDoc{
@@ -231,7 +245,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:       "panic",
-		Signature:  "panic(msg: string): never",
+		Signature:  "panic(msg: string) never",
 		Params:     []string{"msg: string"},
 		ReturnType: "never",
 		Snippet:    "panic($1)",
@@ -239,7 +253,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:       "caller_location",
-		Signature:  "caller_location(): string",
+		Signature:  "caller_location() string",
 		Params:     []string{},
 		ReturnType: "string",
 		Snippet:    "caller_location()",
@@ -247,7 +261,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:       "caller_file",
-		Signature:  "caller_file(): string",
+		Signature:  "caller_file() string",
 		Params:     []string{},
 		ReturnType: "string",
 		Snippet:    "caller_file()",
@@ -255,7 +269,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:       "caller_line",
-		Signature:  "caller_line(): int",
+		Signature:  "caller_line() int",
 		Params:     []string{},
 		ReturnType: "int",
 		Snippet:    "caller_line()",
@@ -263,7 +277,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:       "caller_col",
-		Signature:  "caller_col(): int",
+		Signature:  "caller_col() int",
 		Params:     []string{},
 		ReturnType: "int",
 		Snippet:    "caller_col()",
@@ -271,7 +285,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:       "exit",
-		Signature:  "exit(code: int): never",
+		Signature:  "exit(code: int) never",
 		Params:     []string{"code: int"},
 		ReturnType: "never",
 		Snippet:    "exit(${1:0})",
@@ -279,7 +293,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:       "parse_int",
-		Signature:  "parse_int(s: string): ?int",
+		Signature:  "parse_int(s: string) ?int",
 		Params:     []string{"s: string"},
 		ReturnType: "?int",
 		Snippet:    "parse_int($1)",
@@ -287,23 +301,15 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:       "parse_float",
-		Signature:  "parse_float(s: string): ?float",
+		Signature:  "parse_float(s: string) ?float",
 		Params:     []string{"s: string"},
 		ReturnType: "?float",
 		Snippet:    "parse_float($1)",
 		Summary:    "Parses a 64-bit floating-point number from `s`, returning `none` if invalid.",
 	},
 	{
-		Name:       "sqrt",
-		Signature:  "sqrt(x: float): float",
-		Params:     []string{"x: float"},
-		ReturnType: "float",
-		Snippet:    "sqrt($1)",
-		Summary:    "Computes the IEEE-754 square root of `x`.",
-	},
-	{
 		Name:       "abs",
-		Signature:  "abs(x: Numeric): Numeric",
+		Signature:  "abs(x: Numeric) Numeric",
 		Params:     []string{"x: Numeric"},
 		ReturnType: "Numeric",
 		Snippet:    "abs($1)",
@@ -311,7 +317,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:       "min",
-		Signature:  "min(a: Numeric, b: Numeric): Numeric",
+		Signature:  "min(a: Numeric, b: Numeric) Numeric",
 		Params:     []string{"a: Numeric", "b: Numeric"},
 		ReturnType: "Numeric",
 		Snippet:    "min($1, $2)",
@@ -319,31 +325,15 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:       "max",
-		Signature:  "max(a: Numeric, b: Numeric): Numeric",
+		Signature:  "max(a: Numeric, b: Numeric) Numeric",
 		Params:     []string{"a: Numeric", "b: Numeric"},
 		ReturnType: "Numeric",
 		Snippet:    "max($1, $2)",
 		Summary:    "Returns the larger of two matching numeric values.",
 	},
 	{
-		Name:       "read_file",
-		Signature:  "read_file(path: string): ?string",
-		Params:     []string{"path: string"},
-		ReturnType: "?string",
-		Snippet:    "read_file($1)",
-		Summary:    "Reads the entire file at `path` into an owned `string`, or returns `none` on I/O failure.",
-	},
-	{
-		Name:       "write_file",
-		Signature:  "write_file(path: string, content: string): bool",
-		Params:     []string{"path: string", "content: string"},
-		ReturnType: "bool",
-		Snippet:    "write_file($1, $2)",
-		Summary:    "Writes `content` to `path`, returning `true` on success or `false` on error.",
-	},
-	{
 		Name:       "args",
-		Signature:  "args(): [string]",
+		Signature:  "args() [string]",
 		Params:     nil,
 		ReturnType: "[string]",
 		Snippet:    "args()",
@@ -353,7 +343,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	// Low-level memory intrinsics
 	{
 		Name:        "size_of",
-		Signature:   "size_of[T](): int",
+		Signature:   "size_of[T]() int",
 		Params:      nil,
 		ReturnType:  "int",
 		Snippet:     "size_of[${1:int}]()",
@@ -363,7 +353,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:        "align_of",
-		Signature:   "align_of[T](): int",
+		Signature:   "align_of[T]() int",
 		Params:      nil,
 		ReturnType:  "int",
 		Snippet:     "align_of[${1:int}]()",
@@ -373,7 +363,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:        "alloc_raw",
-		Signature:   "alloc_raw[T](count: int): ptr[T]",
+		Signature:   "alloc_raw[T](count: int) ptr[T]",
 		Params:      []string{"count: int"},
 		ReturnType:  "ptr[T]",
 		Snippet:     "alloc_raw[${1:u8}](${2:count})",
@@ -383,7 +373,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:        "realloc_raw",
-		Signature:   "realloc_raw(p: ptr[T], count: int): ptr[T]",
+		Signature:   "realloc_raw(p: ptr[T], count: int) ptr[T]",
 		Params:      []string{"p: ptr[T]", "count: int"},
 		ReturnType:  "ptr[T]",
 		Snippet:     "realloc_raw($1, $2)",
@@ -403,7 +393,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:        "null_ptr",
-		Signature:   "null_ptr[T](): ptr[T]",
+		Signature:   "null_ptr[T]() ptr[T]",
 		Params:      nil,
 		ReturnType:  "ptr[T]",
 		Snippet:     "null_ptr[${1:u8}]()",
@@ -413,7 +403,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:        "is_null",
-		Signature:   "is_null(p: ptr[T]): bool",
+		Signature:   "is_null(p: ptr[T]) bool",
 		Params:      []string{"p: ptr[T]"},
 		ReturnType:  "bool",
 		Snippet:     "is_null($1)",
@@ -423,7 +413,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:        "addr_of",
-		Signature:   "addr_of(place: T): ptr[T]",
+		Signature:   "addr_of(place: T) ptr[T]",
 		Params:      []string{"place: T"},
 		ReturnType:  "ptr[T]",
 		Snippet:     "addr_of($1)",
@@ -433,7 +423,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:        "ptr_add",
-		Signature:   "ptr_add(p: ptr[T], offset: int): ptr[T]",
+		Signature:   "ptr_add(p: ptr[T], offset: int) ptr[T]",
 		Params:      []string{"p: ptr[T]", "offset: int"},
 		ReturnType:  "ptr[T]",
 		Snippet:     "ptr_add($1, $2)",
@@ -443,7 +433,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:        "ptr_read",
-		Signature:   "ptr_read(p: ptr[T]): T",
+		Signature:   "ptr_read(p: ptr[T]) T",
 		Params:      []string{"p: ptr[T]"},
 		ReturnType:  "T",
 		Snippet:     "ptr_read($1)",
@@ -463,7 +453,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:        "ptr_cast",
-		Signature:   "ptr_cast[To](src: ptr[From] | int): ptr[To]",
+		Signature:   "ptr_cast[To](src: ptr[From] | int) ptr[To]",
 		Params:      []string{"src: ptr[From]"},
 		ReturnType:  "ptr[To]",
 		Snippet:     "ptr_cast[${1:u8}]($2)",
@@ -473,7 +463,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:        "ptr_addr",
-		Signature:   "ptr_addr(p: ptr[T]): u64",
+		Signature:   "ptr_addr(p: ptr[T]) u64",
 		Params:      []string{"p: ptr[T]"},
 		ReturnType:  "u64",
 		Snippet:     "ptr_addr($1)",
@@ -558,99 +548,101 @@ func BuiltinMethodsForType(recvTy types.Type, isOptChain bool) []BuiltinMethodDo
 
 	// `char` methods
 	if recvTy.Equals(types.TypeChar) {
-		add(BuiltinMethodDoc{Name: "is_alpha", RecvMode: "self", Signature: "(self): bool", ReturnType: "bool", Snippet: "is_alpha()", Summary: "Returns `true` if `self` is an ASCII alphabetic letter (`'a'..='z'` or `'A'..='Z'`)."})
-		add(BuiltinMethodDoc{Name: "is_digit", RecvMode: "self", Signature: "(self): bool", ReturnType: "bool", Snippet: "is_digit()", Summary: "Returns `true` if `self` is an ASCII decimal digit (`'0'..='9'`)."})
-		add(BuiltinMethodDoc{Name: "is_alnum", RecvMode: "self", Signature: "(self): bool", ReturnType: "bool", Snippet: "is_alnum()", Summary: "Returns `true` if `self` is ASCII alphanumeric."})
-		add(BuiltinMethodDoc{Name: "is_whitespace", RecvMode: "self", Signature: "(self): bool", ReturnType: "bool", Snippet: "is_whitespace()", Summary: "Returns `true` if `self` is ASCII whitespace (`' '`, `'\\t'`, `'\\n'`, `'\\r'`)."})
-		add(BuiltinMethodDoc{Name: "to_int", RecvMode: "self", Signature: "(self): int", ReturnType: "int", Snippet: "to_int()", Summary: "Returns the Unicode code point of `self` as `int`."})
+		add(BuiltinMethodDoc{Name: "is_alpha", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_alpha()", Summary: "Returns `true` if `self` is an ASCII alphabetic letter (`'a'..='z'` or `'A'..='Z'`)."})
+		add(BuiltinMethodDoc{Name: "is_digit", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_digit()", Summary: "Returns `true` if `self` is an ASCII decimal digit (`'0'..='9'`)."})
+		add(BuiltinMethodDoc{Name: "is_alnum", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_alnum()", Summary: "Returns `true` if `self` is ASCII alphanumeric."})
+		add(BuiltinMethodDoc{Name: "is_whitespace", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_whitespace()", Summary: "Returns `true` if `self` is ASCII whitespace (`' '`, `'\\t'`, `'\\n'`, `'\\r'`)."})
+		add(BuiltinMethodDoc{Name: "to_int", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "to_int()", Summary: "Returns the Unicode code point of `self` as `int`."})
 	}
 
 	// `string` methods
 	if recvTy.Equals(types.TypeString) {
-		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self): int", ReturnType: "int", Snippet: "len()", Summary: "Returns the UTF-8 byte length of the string in O(1)."})
-		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self): bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if `.len() == 0`."})
-		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: "(self, sub: string): bool", Params: []string{"sub: string"}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Returns `true` if `sub` occurs anywhere inside `self`."})
-		add(BuiltinMethodDoc{Name: "starts_with", RecvMode: "self", Signature: "(self, sub: string): bool", Params: []string{"sub: string"}, ReturnType: "bool", Snippet: "starts_with($1)", Summary: "Returns `true` if `self` begins with `sub`."})
-		add(BuiltinMethodDoc{Name: "ends_with", RecvMode: "self", Signature: "(self, sub: string): bool", Params: []string{"sub: string"}, ReturnType: "bool", Snippet: "ends_with($1)", Summary: "Returns `true` if `self` ends with `sub`."})
-		add(BuiltinMethodDoc{Name: "index_of", RecvMode: "self", Signature: "(self, sub: string): ?int", Params: []string{"sub: string"}, ReturnType: "?int", Snippet: "index_of($1)", Summary: "Returns the byte index of the first occurrence of `sub`, or `none`."})
-		add(BuiltinMethodDoc{Name: "trim", RecvMode: "self", Signature: "(self): string", ReturnType: "string", Snippet: "trim()", Summary: "Returns a new owned `string` with leading and trailing whitespace removed."})
-		add(BuiltinMethodDoc{Name: "split", RecvMode: "self", Signature: "(self, sep: string): [string]", Params: []string{"sep: string"}, ReturnType: "[string]", Snippet: "split($1)", Summary: "Splits `self` on `sep` into a new `[string]` vector."})
-		add(BuiltinMethodDoc{Name: "replace", RecvMode: "self", Signature: "(self, old: string, new_str: string): string", Params: []string{"old: string", "new_str: string"}, ReturnType: "string", Snippet: "replace($1, $2)", Summary: "Returns a new `string` with all occurrences of `old` replaced by `new_str`."})
-		add(BuiltinMethodDoc{Name: "to_upper", RecvMode: "self", Signature: "(self): string", ReturnType: "string", Snippet: "to_upper()", Summary: "Returns an ASCII-uppercased copy of `self`."})
-		add(BuiltinMethodDoc{Name: "to_lower", RecvMode: "self", Signature: "(self): string", ReturnType: "string", Snippet: "to_lower()", Summary: "Returns an ASCII-lowercased copy of `self`."})
-		add(BuiltinMethodDoc{Name: "byte_at", RecvMode: "self", Signature: "(self, idx: int): u8", Params: []string{"idx: int"}, ReturnType: "u8", Snippet: "byte_at($1)", Summary: "Returns byte at `idx` (panics if out of bounds)."})
-		add(BuiltinMethodDoc{Name: "get_byte", RecvMode: "self", Signature: "(self, idx: int): ?u8", Params: []string{"idx: int"}, ReturnType: "?u8", Snippet: "get_byte($1)", Summary: "Bounds-checked byte lookup returning `?u8` (`none` if out of range)."})
-		add(BuiltinMethodDoc{Name: "bytes", RecvMode: "self", Signature: "(self): [u8]", ReturnType: "[u8]", Snippet: "bytes()", Summary: "Copies the string's UTF-8 bytes into an owned `[u8]` vector."})
-		add(BuiltinMethodDoc{Name: "chars", RecvMode: "self", Signature: "(self): [char]", ReturnType: "[char]", Snippet: "chars()", Summary: "Decodes UTF-8 code points into an owned `[char]` vector."})
+		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "len()", Summary: "Returns the UTF-8 byte length of the string in O(1)."})
+		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if `.len() == 0`."})
+		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: "(self, sub: string) bool", Params: []string{"sub: string"}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Returns `true` if `sub` occurs anywhere inside `self`."})
+		add(BuiltinMethodDoc{Name: "starts_with", RecvMode: "self", Signature: "(self, sub: string) bool", Params: []string{"sub: string"}, ReturnType: "bool", Snippet: "starts_with($1)", Summary: "Returns `true` if `self` begins with `sub`."})
+		add(BuiltinMethodDoc{Name: "ends_with", RecvMode: "self", Signature: "(self, sub: string) bool", Params: []string{"sub: string"}, ReturnType: "bool", Snippet: "ends_with($1)", Summary: "Returns `true` if `self` ends with `sub`."})
+		add(BuiltinMethodDoc{Name: "index_of", RecvMode: "self", Signature: "(self, sub: string) ?int", Params: []string{"sub: string"}, ReturnType: "?int", Snippet: "index_of($1)", Summary: "Returns the byte index of the first occurrence of `sub`, or `none`."})
+		add(BuiltinMethodDoc{Name: "trim", RecvMode: "self", Signature: "(self) string", ReturnType: "string", Snippet: "trim()", Summary: "Returns a new owned `string` with leading and trailing whitespace removed."})
+		add(BuiltinMethodDoc{Name: "split", RecvMode: "self", Signature: "(self, sep: string) [string]", Params: []string{"sep: string"}, ReturnType: "[string]", Snippet: "split($1)", Summary: "Splits `self` on `sep` into a new `[string]` vector."})
+		add(BuiltinMethodDoc{Name: "replace", RecvMode: "self", Signature: "(self, old: string, new_str: string) string", Params: []string{"old: string", "new_str: string"}, ReturnType: "string", Snippet: "replace($1, $2)", Summary: "Returns a new `string` with all occurrences of `old` replaced by `new_str`."})
+		add(BuiltinMethodDoc{Name: "to_upper", RecvMode: "self", Signature: "(self) string", ReturnType: "string", Snippet: "to_upper()", Summary: "Returns an ASCII-uppercased copy of `self`."})
+		add(BuiltinMethodDoc{Name: "to_lower", RecvMode: "self", Signature: "(self) string", ReturnType: "string", Snippet: "to_lower()", Summary: "Returns an ASCII-lowercased copy of `self`."})
+		add(BuiltinMethodDoc{Name: "byte_at", RecvMode: "self", Signature: "(self, idx: int) u8", Params: []string{"idx: int"}, ReturnType: "u8", Snippet: "byte_at($1)", Summary: "Returns byte at `idx` (panics if out of bounds)."})
+		add(BuiltinMethodDoc{Name: "get_byte", RecvMode: "self", Signature: "(self, idx: int) ?u8", Params: []string{"idx: int"}, ReturnType: "?u8", Snippet: "get_byte($1)", Summary: "Bounds-checked byte lookup returning `?u8` (`none` if out of range)."})
+		add(BuiltinMethodDoc{Name: "bytes", RecvMode: "self", Signature: "(self) [u8]", ReturnType: "[u8]", Snippet: "bytes()", Summary: "Copies the string's UTF-8 bytes into an owned `[u8]` vector."})
+		add(BuiltinMethodDoc{Name: "chars", RecvMode: "self", Signature: "(self) [char]", ReturnType: "[char]", Snippet: "chars()", Summary: "Decodes UTF-8 code points into an owned `[char]` vector."})
 		add(BuiltinMethodDoc{Name: "push", RecvMode: "&self", Signature: "(&self, suffix: string)", Params: []string{"suffix: string"}, ReturnType: "void", Snippet: "push($1)", Summary: "Appends `suffix` to mutable `let` string in place."})
 		add(BuiltinMethodDoc{Name: "push_char", RecvMode: "&self", Signature: "(&self, ch: char)", Params: []string{"ch: char"}, ReturnType: "void", Snippet: "push_char($1)", Summary: "UTF-8 encodes and appends `ch` in place."})
 		add(BuiltinMethodDoc{Name: "push_byte", RecvMode: "&self", Signature: "(&self, b: u8)", Params: []string{"b: u8"}, ReturnType: "void", Snippet: "push_byte($1)", Summary: "Appends raw byte `b` in place."})
 		add(BuiltinMethodDoc{Name: "push_bytes", RecvMode: "&self", Signature: "(&self, bytes: ptr[u8], count: int)", Params: []string{"bytes: ptr[u8]", "count: int"}, ReturnType: "void", Snippet: "push_bytes($1, $2)", Summary: "Appends `count` raw bytes from `bytes` pointer in place."})
 		add(BuiltinMethodDoc{Name: "clear", RecvMode: "&self", Signature: "(&self)", ReturnType: "void", Snippet: "clear()", Summary: "Resets string length to 0 while retaining allocated capacity."})
-		add(BuiltinMethodDoc{Name: "c_str", RecvMode: "self", Signature: "(self): ptr[u8]", ReturnType: "ptr[u8]", Snippet: "c_str()", NeedsUnsafe: true, Summary: "Returns NUL-terminated `ptr[u8]` pointer for C FFI. Requires `unsafe`."})
+		add(BuiltinMethodDoc{Name: "c_str", RecvMode: "self", Signature: "(self) ptr[u8]", ReturnType: "ptr[u8]", Snippet: "c_str()", NeedsUnsafe: true, Summary: "Returns NUL-terminated `ptr[u8]` pointer for C FFI. Requires `unsafe`."})
 	}
 
 	// `[T]` Vector methods
 	if vec, ok := recvTy.(*types.Vector); ok {
 		el := vec.Elem.String()
-		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self): int", ReturnType: "int", Snippet: "len()", Summary: "Returns the number of elements in the vector."})
-		add(BuiltinMethodDoc{Name: "cap", RecvMode: "self", Signature: "(self): int", ReturnType: "int", Snippet: "cap()", Summary: "Returns the allocated capacity of the vector."})
-		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self): bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if `.len() == 0`."})
+		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "len()", Summary: "Returns the number of elements in the vector."})
+		add(BuiltinMethodDoc{Name: "cap", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "cap()", Summary: "Returns the allocated capacity of the vector."})
+		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if `.len() == 0`."})
 		add(BuiltinMethodDoc{Name: "push", RecvMode: "&self", Signature: fmt.Sprintf("(&self, val: own %s)", el), Params: []string{fmt.Sprintf("val: own %s", el)}, ReturnType: "void", Snippet: "push($1)", Summary: "Appends `val` to the end of the vector, taking ownership."})
-		add(BuiltinMethodDoc{Name: "pop", RecvMode: "&self", Signature: fmt.Sprintf("(&self): ?%s", el), ReturnType: "?" + el, Snippet: "pop()", Summary: "Removes and returns the last element, or `none` if empty."})
-		add(BuiltinMethodDoc{Name: "get", RecvMode: "self", Signature: fmt.Sprintf("(self, idx: int): ?%s", el), Params: []string{"idx: int"}, ReturnType: "?" + el, Snippet: "get($1)", Summary: "Bounds-checked copy lookup returning `?T` (`none` if out of bounds)."})
-		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s): bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Returns `true` if any element equals `val`."})
-		add(BuiltinMethodDoc{Name: "remove", RecvMode: "&self", Signature: fmt.Sprintf("(&self, idx: int): %s", el), Params: []string{"idx: int"}, ReturnType: el, Snippet: "remove($1)", Summary: "Removes and returns element at `idx`, shifting subsequent elements left."})
-		add(BuiltinMethodDoc{Name: "swap_remove", RecvMode: "&self", Signature: fmt.Sprintf("(&self, idx: int): %s", el), Params: []string{"idx: int"}, ReturnType: el, Snippet: "swap_remove($1)", Summary: "O(1) removal at `idx` by swapping with the last element."})
+		add(BuiltinMethodDoc{Name: "pop", RecvMode: "&self", Signature: fmt.Sprintf("(&self) ?%s", el), ReturnType: "?" + el, Snippet: "pop()", Summary: "Removes and returns the last element, or `none` if empty."})
+		add(BuiltinMethodDoc{Name: "get", RecvMode: "self", Signature: fmt.Sprintf("(self, idx: int) ?%s", el), Params: []string{"idx: int"}, ReturnType: "?" + el, Snippet: "get($1)", Summary: "Bounds-checked copy lookup returning `?T` (`none` if out of bounds)."})
+		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s) bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Returns `true` if any element equals `val`."})
+		add(BuiltinMethodDoc{Name: "remove", RecvMode: "&self", Signature: fmt.Sprintf("(&self, idx: int) %s", el), Params: []string{"idx: int"}, ReturnType: el, Snippet: "remove($1)", Summary: "Removes and returns element at `idx`, shifting subsequent elements left."})
+		add(BuiltinMethodDoc{Name: "swap_remove", RecvMode: "&self", Signature: fmt.Sprintf("(&self, idx: int) %s", el), Params: []string{"idx: int"}, ReturnType: el, Snippet: "swap_remove($1)", Summary: "O(1) removal at `idx` by swapping with the last element."})
 		add(BuiltinMethodDoc{Name: "reserve", RecvMode: "&self", Signature: "(&self, cap: int)", Params: []string{"cap: int"}, ReturnType: "void", Snippet: "reserve($1)", Summary: "Ensures capacity for at least `cap` elements without reallocating."})
 		add(BuiltinMethodDoc{Name: "clear", RecvMode: "&self", Signature: "(&self)", ReturnType: "void", Snippet: "clear()", Summary: "Drops all elements and resets length to 0 while keeping capacity."})
 		if vec.Elem.Equals(types.TypeString) {
-			add(BuiltinMethodDoc{Name: "join", RecvMode: "self", Signature: "(self, sep: string): string", Params: []string{"sep: string"}, ReturnType: "string", Snippet: "join($1)", Summary: "Concatenates all strings in `[string]` separated by `sep`."})
+			add(BuiltinMethodDoc{Name: "join", RecvMode: "self", Signature: "(self, sep: string) string", Params: []string{"sep: string"}, ReturnType: "string", Snippet: "join($1)", Summary: "Concatenates all strings in `[string]` separated by `sep`."})
 		}
 	}
 
 	// `[N: T]` StackArray methods
 	if arr, ok := recvTy.(*types.StackArray); ok {
 		el := arr.Elem.String()
-		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self): int", ReturnType: "int", Snippet: "len()", Summary: fmt.Sprintf("Returns the fixed compile-time length (%d).", arr.Size)})
-		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self): bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if array length is 0."})
-		add(BuiltinMethodDoc{Name: "get", RecvMode: "self", Signature: fmt.Sprintf("(self, idx: int): ?%s", el), Params: []string{"idx: int"}, ReturnType: "?" + el, Snippet: "get($1)", Summary: "Bounds-checked element lookup returning `?T`."})
-		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s): bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Returns `true` if any element equals `val`."})
+		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "len()", Summary: fmt.Sprintf("Returns the fixed compile-time length (%d).", arr.Size)})
+		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if array length is 0."})
+		add(BuiltinMethodDoc{Name: "get", RecvMode: "self", Signature: fmt.Sprintf("(self, idx: int) ?%s", el), Params: []string{"idx: int"}, ReturnType: "?" + el, Snippet: "get($1)", Summary: "Bounds-checked element lookup returning `?T`."})
+		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s) bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Returns `true` if any element equals `val`."})
 	}
 
 	// `#[T]` Set methods
 	if setTy, ok := recvTy.(*types.Set); ok {
 		el := setTy.Elem.String()
-		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self): int", ReturnType: "int", Snippet: "len()", Summary: "Returns the number of elements in the set."})
-		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self): bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if the set is empty."})
-		add(BuiltinMethodDoc{Name: "has", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s): bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "has($1)", Summary: "Returns `true` if `val` is present in the set."})
-		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s): bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Alias for `.has(val)`."})
-		add(BuiltinMethodDoc{Name: "insert", RecvMode: "&self", Signature: fmt.Sprintf("(&self, val: own %s): bool", el), Params: []string{fmt.Sprintf("val: own %s", el)}, ReturnType: "bool", Snippet: "insert($1)", Summary: "Inserts `val` into the set; returns `true` if newly added."})
-		add(BuiltinMethodDoc{Name: "remove", RecvMode: "&self", Signature: fmt.Sprintf("(&self, val: %s): bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "remove($1)", Summary: "Removes `val` from the set; returns `true` if it was present."})
+		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "len()", Summary: "Returns the number of elements in the set."})
+		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if the set is empty."})
+		add(BuiltinMethodDoc{Name: "has", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s) bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "has($1)", Summary: "Returns `true` if `val` is present in the set."})
+		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s) bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Alias for `.has(val)`."})
+		add(BuiltinMethodDoc{Name: "insert", RecvMode: "&self", Signature: fmt.Sprintf("(&self, val: own %s) bool", el), Params: []string{fmt.Sprintf("val: own %s", el)}, ReturnType: "bool", Snippet: "insert($1)", Summary: "Inserts `val` into the set; returns `true` if newly added."})
+		add(BuiltinMethodDoc{Name: "remove", RecvMode: "&self", Signature: fmt.Sprintf("(&self, val: %s) bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "remove($1)", Summary: "Removes `val` from the set; returns `true` if it was present."})
 		add(BuiltinMethodDoc{Name: "clear", RecvMode: "&self", Signature: "(&self)", ReturnType: "void", Snippet: "clear()", Summary: "Removes and drops all elements in the set."})
-		add(BuiltinMethodDoc{Name: "to_vec", RecvMode: "self", Signature: fmt.Sprintf("(self): [%s]", el), ReturnType: "[" + el + "]", Snippet: "to_vec()", Summary: "Copies all set elements into a new `[T]` vector."})
+		add(BuiltinMethodDoc{Name: "to_vec", RecvMode: "self", Signature: fmt.Sprintf("(self) [%s]", el), ReturnType: "[" + el + "]", Snippet: "to_vec()", Summary: "Copies all set elements into a new `[T]` vector."})
+		add(BuiltinMethodDoc{Name: "to_array", RecvMode: "self", Signature: fmt.Sprintf("(self) [%s]", el), ReturnType: "[" + el + "]", Snippet: "to_array()", Summary: "Alias for `.to_vec()`. Copies all set elements into a new `[T]` vector."})
 	}
 
 	// `#[K: V]` Map methods
 	if mapTy, ok := recvTy.(*types.Map); ok {
 		k := mapTy.Key.String()
 		v := mapTy.Value.String()
-		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self): int", ReturnType: "int", Snippet: "len()", Summary: "Returns the number of key-value entries in the map."})
-		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self): bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if the map has 0 entries."})
-		add(BuiltinMethodDoc{Name: "has", RecvMode: "self", Signature: fmt.Sprintf("(self, key: %s): bool", k), Params: []string{fmt.Sprintf("key: %s", k)}, ReturnType: "bool", Snippet: "has($1)", Summary: "Returns `true` if `key` exists in the map."})
-		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, key: %s): bool", k), Params: []string{fmt.Sprintf("key: %s", k)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Alias for `.has(key)`."})
+		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "len()", Summary: "Returns the number of key-value entries in the map."})
+		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if the map has 0 entries."})
+		add(BuiltinMethodDoc{Name: "has", RecvMode: "self", Signature: fmt.Sprintf("(self, key: %s) bool", k), Params: []string{fmt.Sprintf("key: %s", k)}, ReturnType: "bool", Snippet: "has($1)", Summary: "Returns `true` if `key` exists in the map."})
+		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, key: %s) bool", k), Params: []string{fmt.Sprintf("key: %s", k)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Alias for `.has(key)`."})
 		add(BuiltinMethodDoc{Name: "insert", RecvMode: "&self", Signature: fmt.Sprintf("(&self, key: own %s, val: own %s)", k, v), Params: []string{fmt.Sprintf("key: own %s", k), fmt.Sprintf("val: own %s", v)}, ReturnType: "void", Snippet: "insert($1, $2)", Summary: "Inserts or overwrites `key` with `val`."})
-		add(BuiltinMethodDoc{Name: "remove", RecvMode: "&self", Signature: fmt.Sprintf("(&self, key: %s): ?%s", k, v), Params: []string{fmt.Sprintf("key: %s", k)}, ReturnType: "?" + v, Snippet: "remove($1)", Summary: "Removes `key` and returns its owned value `?V` (`none` if absent)."})
-		add(BuiltinMethodDoc{Name: "keys", RecvMode: "self", Signature: fmt.Sprintf("(self): [%s]", k), ReturnType: "[" + k + "]", Snippet: "keys()", Summary: "Returns all keys in insertion order as an owned `[K]` vector."})
-		add(BuiltinMethodDoc{Name: "values", RecvMode: "self", Signature: fmt.Sprintf("(self): [%s]", v), ReturnType: "[" + v + "]", Snippet: "values()", Summary: "Returns copies of all values in insertion order as `[V]`."})
+		add(BuiltinMethodDoc{Name: "push", RecvMode: "&self", Signature: fmt.Sprintf("(&self, entry: own +[%s, %s])", k, v), Params: []string{fmt.Sprintf("entry: own +[%s, %s]", k, v)}, ReturnType: "void", Snippet: "push($1)", Summary: "Inserts or overwrites a `+[key, val]` entry in the map."})
+		add(BuiltinMethodDoc{Name: "remove", RecvMode: "&self", Signature: fmt.Sprintf("(&self, key: %s) ?%s", k, v), Params: []string{fmt.Sprintf("key: %s", k)}, ReturnType: "?" + v, Snippet: "remove($1)", Summary: "Removes `key` and returns its owned value `?V` (`none` if absent)."})
+		add(BuiltinMethodDoc{Name: "keys", RecvMode: "self", Signature: fmt.Sprintf("(self) [%s]", k), ReturnType: "[" + k + "]", Snippet: "keys()", Summary: "Returns all keys in insertion order as an owned `[K]` vector."})
+		add(BuiltinMethodDoc{Name: "values", RecvMode: "self", Signature: fmt.Sprintf("(self) [%s]", v), ReturnType: "[" + v + "]", Snippet: "values()", Summary: "Returns copies of all values in insertion order as `[V]`."})
 		add(BuiltinMethodDoc{Name: "clear", RecvMode: "&self", Signature: "(&self)", ReturnType: "void", Snippet: "clear()", Summary: "Drops all keys and values and resets length to 0."})
 	}
 
 	// `Arena` instance methods
 	if recvTy.Equals(types.TypeArena) {
-		add(BuiltinMethodDoc{Name: "alloc", RecvMode: "&self", Signature: "(&self, val: own T): ref[T]", Params: []string{"val: own T"}, ReturnType: "ref[T]", Snippet: "alloc($1)", Summary: "Bump-allocates `val` inside the `Arena` and returns a region-checked `ref[T]`."})
+		add(BuiltinMethodDoc{Name: "alloc", RecvMode: "&self", Signature: "(&self, val: own T) ref[T]", Params: []string{"val: own T"}, ReturnType: "ref[T]", Snippet: "alloc($1)", Summary: "Bump-allocates `val` inside the `Arena` and returns a region-checked `ref[T]`."})
 		add(BuiltinMethodDoc{Name: "reset", RecvMode: "&self", Signature: "(&self)", ReturnType: "void", Snippet: "reset()", Summary: "Rewinds the arena bump cursor to 0 without freeing backing chunks."})
-		add(BuiltinMethodDoc{Name: "bytes_used", RecvMode: "self", Signature: "(self): int", ReturnType: "int", Snippet: "bytes_used()", Summary: "Returns the total bytes currently bump-allocated across arena chunks."})
+		add(BuiltinMethodDoc{Name: "bytes_used", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "bytes_used()", Summary: "Returns the total bytes currently bump-allocated across arena chunks."})
 	}
 
 	// Universal `.copy()` and `.to_string()` when supported
@@ -659,7 +651,7 @@ func BuiltinMethodsForType(recvTy types.Type, isOptChain bool) []BuiltinMethodDo
 			add(BuiltinMethodDoc{
 				Name:       "copy",
 				RecvMode:   "self",
-				Signature:  fmt.Sprintf("(self): %s", recvTy.String()),
+				Signature:  fmt.Sprintf("(self) %s", recvTy.String()),
 				ReturnType: recvTy.String(),
 				Snippet:    "copy()",
 				Summary:    "Creates a deep, independent owned copy of `self`.",
@@ -672,7 +664,7 @@ func BuiltinMethodsForType(recvTy types.Type, isOptChain bool) []BuiltinMethodDo
 						add(BuiltinMethodDoc{
 							Name:       "to_string",
 							RecvMode:   "self",
-							Signature:  "(self): string",
+							Signature:  "(self) string",
 							ReturnType: "string",
 							Snippet:    "to_string()",
 							Summary:    "Formats `self` as a new owned `string` (`Printable`).",

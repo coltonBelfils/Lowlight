@@ -31,9 +31,11 @@ type Program struct {
 	Arrays       []*types.StackArray
 	Sets         []*types.Set
 	Maps         []*types.Map
+	Tuples       []*types.Tuple
 	FuncTypes    []*types.Func
 	Interfaces   []*types.Interface
 	VTables      []*sema.VTableImpl
+	TargetTriple string
 
 	// Top-level constants, functions, lambdas, and entry point
 	Globals      []*Global
@@ -44,7 +46,7 @@ type Program struct {
 	TestFuncs    []*Function
 	TestMode     bool
 
-	// Release disables runtime bounds/shift checks when --release is passed.
+	// Release enables release optimizations (--release) while preserving deterministic bounds/shift traps.
 	Release bool
 }
 
@@ -216,6 +218,7 @@ type typeCollector struct {
 	arrSeen  map[string]*types.StackArray
 	setSeen  map[string]*types.Set
 	mapSeen  map[string]*types.Map
+	tupSeen  map[string]*types.Tuple
 	fnSeen   map[string]*types.Func
 	ifcSeen  map[string]*types.Interface
 	stSeen   map[*types.Struct]bool
@@ -227,6 +230,7 @@ type typeCollector struct {
 	arrs     []*types.StackArray
 	sets     []*types.Set
 	maps     []*types.Map
+	tups     []*types.Tuple
 	fns      []*types.Func
 	ifcs     []*types.Interface
 	sts      []*types.Struct
@@ -244,6 +248,7 @@ func newTypeCollector() *typeCollector {
 		arrSeen:  make(map[string]*types.StackArray),
 		setSeen:  make(map[string]*types.Set),
 		mapSeen:  make(map[string]*types.Map),
+		tupSeen:  make(map[string]*types.Tuple),
 		fnSeen:   make(map[string]*types.Func),
 		ifcSeen:  make(map[string]*types.Interface),
 		stSeen:   make(map[*types.Struct]bool),
@@ -298,13 +303,8 @@ func (tc *typeCollector) visitValue(t types.Type) {
 				tc.ens = append(tc.ens, v)
 			} else {
 				for _, vr := range v.Variants {
-					switch vr.Kind {
-					case types.VariantTuple:
+					if vr.Kind == types.VariantTuple {
 						tc.visitValue(vr.Payload)
-					case types.VariantStruct:
-						for _, sf := range vr.Fields {
-							tc.visitValue(sf.Type)
-						}
 					}
 				}
 				tc.ordered = append(tc.ordered, v)
@@ -320,6 +320,9 @@ func (tc *typeCollector) visitValue(t types.Type) {
 	case *types.Struct:
 		if strings.HasPrefix(v.CName, "ll_lambda_env_") {
 			return
+		}
+		if (v.Name == "List" || strings.HasPrefix(v.Name, "List[")) && len(v.TypeArgs) == 1 {
+			tc.visit(&types.Vector{Elem: v.TypeArgs[0]})
 		}
 		if !tc.stSeen[v] {
 			tc.stSeen[v] = true
@@ -372,6 +375,16 @@ func (tc *typeCollector) visitValue(t types.Type) {
 			tc.deferVisit(v.Key)
 			tc.deferVisit(v.Value)
 			tc.maps = append(tc.maps, v)
+			tc.ordered = append(tc.ordered, v)
+		}
+	case *types.Tuple:
+		k := v.Mangled()
+		if _, ok := tc.tupSeen[k]; !ok {
+			tc.tupSeen[k] = v
+			for _, el := range v.Elems {
+				tc.visitValue(el)
+			}
+			tc.tups = append(tc.tups, v)
 			tc.ordered = append(tc.ordered, v)
 		}
 	case *types.Func:

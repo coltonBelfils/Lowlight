@@ -6,21 +6,21 @@
 // Parsing Functions (String -> Value)
 // -----------------------------------------------------------------------------
 
-bind parse_int_safe = (s: string): ?int -> {
+bind parse_int_safe = (s: string) ?int: {
     parse_int_radix(s, 10)
 }
 
-bind parse_float_safe = (s: string): ?float -> {
+bind parse_float_safe = (s: string) ?float: {
     parse_float(s)
 }
 
-bind parse_bool = (s: string): ?bool -> {
+bind parse_bool = (s: string) ?bool: {
     let trimmed = s.trim()
-    if (trimmed == "true" or trimmed == "1" or trimmed == "yes" or trimmed == "on") {
+    if (trimmed == "true" or trimmed == "1" or trimmed == "yes" or trimmed == "on"): {
         true
-    } else if (trimmed == "false" or trimmed == "0" or trimmed == "no" or trimmed == "off") {
+    } else if (trimmed == "false" or trimmed == "0" or trimmed == "no" or trimmed == "off"): {
         false
-    } else {
+    } else: {
         none
     }
 }
@@ -29,139 +29,139 @@ bind parse_bool = (s: string): ?bool -> {
 // Formatting Methods on Primitive Types (int, float, bool)
 // -----------------------------------------------------------------------------
 
-bind _int_to_radix_with_case = (v: int, radix: int, upper: bool): string -> {
-    if (radix < 2 or radix > 36) func <- ""
-    if (v == 0) func <- "0"
+bind _int_to_radix_with_case = (v: int, radix: int, upper: bool) string: {
+    if (radix < 2 or radix > 36): func <- ""
+    if (v == 0): func <- "0"
     let is_neg = v < 0
-    let mag: u64 = if (is_neg) (u64(0) - u64(v)) else u64(v)
+    let mag: u64 = if (is_neg): (u64(0) - u64(v)) else: u64(v)
     let r: u64 = u64(radix)
-    let chars = if (upper) "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" else "0123456789abcdefghijklmnopqrstuvwxyz"
+    let chars = if (upper): "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" else: "0123456789abcdefghijklmnopqrstuvwxyz"
     let rev = ""
-    for (mag > u64(0)) {
+    for (mag > u64(0)): {
         let rem = int(mag % r)
         rev.push_byte(chars.byte_at(rem))
         mag /= r
     }
-    if (is_neg) rev.push("-")
+    if (is_neg): rev.push("-")
     let out = ""
     let n_rev = rev.len()
     let i = n_rev - 1
-    for (i >= 0) {
+    for (i >= 0): {
         out.push(rev[i..(i + 1)])
         i -= 1
     }
     out
 }
 
-bind int.to_radix = (self, radix: int): string -> {
+bind int.to_radix = (self, radix: int) string: {
     _int_to_radix_with_case(self, radix, false)
 }
 
-bind int.to_radix_upper = (self, radix: int): string -> {
+bind int.to_radix_upper = (self, radix: int) string: {
     _int_to_radix_with_case(self, radix, true)
 }
 
-bind int.to_hex = (self, upper: bool): string -> {
+bind int.to_hex = (self, upper: bool) string: {
     _int_to_radix_with_case(self, 16, upper)
 }
 
-bind int.to_bin = (self): string -> {
+bind int.to_bin = (self) string: {
     _int_to_radix_with_case(self, 2, false)
 }
 
-bind int.to_oct = (self): string -> {
+bind int.to_oct = (self) string: {
     _int_to_radix_with_case(self, 8, false)
 }
 
 // Standalone function forwarders for backwards-compatibility
-bind int_to_str = (v: int): string -> {
+bind int_to_str = (v: int) string: {
     "$v"
 }
 
-bind int_to_radix = (v: int, radix: int): string -> {
+bind int_to_radix = (v: int, radix: int) string: {
     v.to_radix(radix)
 }
 
-bind int_to_radix_upper = (v: int, radix: int): string -> {
+bind int_to_radix_upper = (v: int, radix: int) string: {
     v.to_radix_upper(radix)
 }
 
-bind int_to_hex = (v: int, upper: bool): string -> {
+bind int_to_hex = (v: int, upper: bool) string: {
     v.to_hex(upper)
 }
 
-bind int_to_bin = (v: int): string -> {
+bind int_to_bin = (v: int) string: {
     v.to_bin()
 }
 
-bind int_to_oct = (v: int): string -> {
+bind int_to_oct = (v: int) string: {
     v.to_oct()
 }
 
-bind float_to_str = (v: float, precision: int): string -> {
-    if (precision < 0) {
+bind float_to_str = (v: float, precision: int) string: {
+    if (precision < 0): {
         "$v"
-    } else {
+    } else: {
         format_float_prec(v, precision)
     }
 }
 
-bind float_to_exp = (v: float, precision: int): string -> {
+bind float_to_exp = (v: float, precision: int) string: {
     v.to_exp(precision)
 }
 
-bind bool_to_str = (v: bool): string -> {
-    if (v) "true" else "false"
+bind bool_to_str = (v: bool) string: {
+    if (v): "true" else: "false"
 }
 
 // -----------------------------------------------------------------------------
 // String Extension Methods (Uniform Method Call Syntax)
 // -----------------------------------------------------------------------------
 
-bind string.to_int = (self): ?int -> {
+bind string.to_int = (self) ?int: {
     parse_int_radix(self, 10)
 }
 
-bind string.to_int_radix = (self, radix: int): ?int -> {
+bind string.to_int_radix = (self, radix: int) ?int: {
     parse_int_radix(self, radix)
 }
 
-bind string.to_float = (self): ?float -> {
+bind string.to_float = (self) ?float: {
     parse_float_safe(self)
 }
 
-bind string.to_bool = (self): ?bool -> {
+bind string.to_bool = (self) ?bool: {
     parse_bool(self)
 }
 
-bind string.is_numeric = (self): bool -> {
+bind string.is_numeric = (self) bool: {
     let f? = parse_float_safe(self)
-    if (f?) true else false
+    if (f?): true else: false
 }
 
-bind string.is_int = (self): bool -> {
+bind string.is_int = (self) bool: {
     let n? = parse_int_radix(self, 10)
-    if (n?) true else false
+    if (n?): true else: false
 }
 
-bind string.is_float = (self): bool -> {
+bind string.is_float = (self) bool: {
     let f? = parse_float_safe(self)
-    if (f?) true else false
+    if (f?): true else: false
 }
 
-bind string.is_hex = (self): bool -> {
+bind string.is_hex = (self) bool: {
     let h? = parse_int_radix(self, 16)
-    if (h?) true else false
+    if (h?): true else: false
 }
 
-bind string.is_bin = (self): bool -> {
+bind string.is_bin = (self) bool: {
     let b? = parse_int_radix(self, 2)
-    if (b?) true else false
+    if (b?): true else: false
 }
 
-bind string.is_oct = (self): bool -> {
+bind string.is_oct = (self) bool: {
     let o? = parse_int_radix(self, 8)
-    if (o?) true else false
+    if (o?): true else: false
 }
 
 // -----------------------------------------------------------------------------
@@ -169,7 +169,7 @@ bind string.is_oct = (self): bool -> {
 // -----------------------------------------------------------------------------
 
 @test("strconv integer parsing (decimal and boundaries)")
-bind test_strconv_parse_int = () -> {
+bind test_strconv_parse_int = (): {
     let n0? = "0".to_int()
     assert(n0? == 0, "0 to_int")
 
@@ -202,7 +202,7 @@ bind test_strconv_parse_int = () -> {
 }
 
 @test("strconv radix parsing (binary, octal, hex, base36)")
-bind test_strconv_radix = () -> {
+bind test_strconv_radix = (): {
     let b1? = "1011".to_int_radix(2)
     assert(b1? == 11, "bin 1011")
 
@@ -235,7 +235,7 @@ bind test_strconv_radix = () -> {
 }
 
 @test("strconv integer formatting: to_bin, to_oct, to_hex, to_radix")
-bind test_strconv_format_int = () -> {
+bind test_strconv_format_int = (): {
     assert(42.to_bin() == "101010", "42 to_bin")
     assert(63.to_oct() == "77", "63 to_oct")
     assert(255.to_hex(false) == "ff", "255 to_hex lower")
@@ -247,7 +247,7 @@ bind test_strconv_format_int = () -> {
 }
 
 @test("strconv float and boolean parsing/formatting")
-bind test_strconv_float_and_bool = () -> {
+bind test_strconv_float_and_bool = (): {
     let f? = "3.1415".to_float()
     assert(f? != none, "parse valid float")
 
@@ -279,7 +279,7 @@ bind test_strconv_float_and_bool = () -> {
 }
 
 @test("strconv string type check predicates")
-bind test_strconv_predicates = () -> {
+bind test_strconv_predicates = (): {
     assert("12345".is_int(), "12345 is_int")
     assert(not "123.45".is_int(), "123.45 is not is_int")
 

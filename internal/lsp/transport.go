@@ -117,6 +117,25 @@ func (c *Conn) SendNotification(method string, params any) error {
 	return c.writeFrame(body)
 }
 
+// SendRequest writes a server-to-client JSON-RPC 2.0 request (e.g. `window/showDocument`).
+func (c *Conn) SendRequest(id int64, method string, params any) error {
+	rawParams, err := json.Marshal(params)
+	if err != nil {
+		return err
+	}
+	rawID := json.RawMessage([]byte(strconv.FormatInt(id, 10)))
+	body, err := json.Marshal(RequestMessage{
+		JSONRPC: "2.0",
+		ID:      &rawID,
+		Method:  method,
+		Params:  rawParams,
+	})
+	if err != nil {
+		return err
+	}
+	return c.writeFrame(body)
+}
+
 func (c *Conn) writeFrame(body []byte) error {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()

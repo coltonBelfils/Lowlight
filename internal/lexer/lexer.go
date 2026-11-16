@@ -240,6 +240,15 @@ func (l *Lexer) scanOne() {
 		return
 	}
 
+	// Plus-bracket +[ (tuples)
+	if ch == '+' && l.peekAt(1) == '[' {
+		l.advance()
+		l.advance()
+		l.pushDelim(delimBracket)
+		l.emit(token.PlusBrack, "+[", start, l.pos())
+		return
+	}
+
 	switch ch {
 	case '(':
 		l.advance()
@@ -359,7 +368,12 @@ func (l *Lexer) scanOne() {
 		}
 		if l.peek() == '>' {
 			l.advance()
-			l.emit(token.RArrow, "->", start, l.pos())
+			l.rep.ErrorWithHint(
+				diag.Span{Start: start, End: l.pos()},
+				"unexpected '->'; body arrows are not used in Lowlight",
+				"write `(params) [RetType]: expr` instead of `(params): RetType -> expr`",
+			)
+			l.emit(token.Illegal, "->", start, l.pos())
 			return
 		}
 		l.emit(token.Minus, "-", start, l.pos())
@@ -468,7 +482,7 @@ func (l *Lexer) scanOne() {
 
 func (l *Lexer) validAfterUnwind(c1, c2 byte) bool {
 	switch c1 {
-	case 0, ' ', '\t', '\r', '\n', ';', '}', ')', ',':
+	case 0, ' ', '\t', '\r', '\n', ';', '}', ')', ',', ']':
 		return true
 	case '/':
 		return c2 == '/' || c2 == '*'
@@ -493,39 +507,56 @@ func (l *Lexer) scanIdent() {
 	}
 	word := l.src[startOff:l.offset]
 
-	// Any identifier word immediately followed by `?` (and not `??`, unless `???`)
-	// is an optional identifier (`user?`, `next?`), never a bare keyword!
-	if l.peek() == '?' && (l.peekAt(1) != '?' || l.peekAt(2) == '?') {
-		l.advance()
-		l.emit(token.OptIdent, word+"?", start, l.pos())
-		return
-	}
-
 	kw := token.LookupKeyword(word)
 	if kw != token.Ident {
 		l.emit(kw, word, start, l.pos())
 		return
 	}
 
+	// Any non-keyword identifier word immediately followed by `?` (and not `??`, unless `???`)
+	// is an optional identifier (`user?`, `next?`).
+	if l.peek() == '?' && (l.peekAt(1) != '?' || l.peekAt(2) == '?') {
+		l.advance()
+		l.emit(token.OptIdent, word+"?", start, l.pos())
+		return
+	}
+
 	l.emit(token.Ident, word, start, l.pos())
+}
+
+func (l *Lexer) scanDigitsWithUnderscores(isDigit func(byte) bool) (digits int, badUnderscore bool) {
+	prevUnderscore := false
+	for !l.eof() && (isDigit(l.peek()) || l.peek() == '_') {
+		if l.peek() == '_' {
+			if digits == 0 || prevUnderscore {
+				badUnderscore = true
+			}
+			prevUnderscore = true
+		} else {
+			digits++
+			prevUnderscore = false
+		}
+		l.advance()
+	}
+	if prevUnderscore {
+		badUnderscore = true
+	}
+	return digits, badUnderscore
 }
 
 func (l *Lexer) scanNumber() {
 	start := l.pos()
 	startOff := l.offset
+	badUnderscore := false
 
 	if l.peek() == '0' && (l.peekAt(1) == 'x' || l.peekAt(1) == 'X') {
 		l.advance()
 		l.advance()
-		digits := 0
-		for !l.eof() && (isHexDigit(l.peek()) || l.peek() == '_') {
-			if isHexDigit(l.peek()) {
-				digits++
-			}
-			l.advance()
-		}
+		digits, bad := l.scanDigitsWithUnderscores(isHexDigit)
 		if digits == 0 {
 			l.rep.Errorf(diag.Span{Start: start, End: l.pos()}, "hexadecimal literal requires at least one digit")
+		} else if bad {
+			l.rep.Errorf(diag.Span{Start: start, End: l.pos()}, "invalid underscore in numeric literal")
 		}
 		l.emit(token.IntLit, l.src[startOff:l.offset], start, l.pos())
 		return
@@ -534,32 +565,26 @@ func (l *Lexer) scanNumber() {
 	if l.peek() == '0' && (l.peekAt(1) == 'b' || l.peekAt(1) == 'B') {
 		l.advance()
 		l.advance()
-		digits := 0
-		for !l.eof() && (l.peek() == '0' || l.peek() == '1' || l.peek() == '_') {
-			if l.peek() == '0' || l.peek() == '1' {
-				digits++
-			}
-			l.advance()
-		}
+		digits, bad := l.scanDigitsWithUnderscores(func(b byte) bool { return b == '0' || b == '1' })
 		if digits == 0 {
 			l.rep.Errorf(diag.Span{Start: start, End: l.pos()}, "binary literal requires at least one digit")
+		} else if bad {
+			l.rep.Errorf(diag.Span{Start: start, End: l.pos()}, "invalid underscore in numeric literal")
 		}
 		l.emit(token.IntLit, l.src[startOff:l.offset], start, l.pos())
 		return
 	}
 
 	isFloat := false
-	for !l.eof() && ((l.peek() >= '0' && l.peek() <= '9') || l.peek() == '_') {
-		l.advance()
-	}
+	_, bad := l.scanDigitsWithUnderscores(func(b byte) bool { return b >= '0' && b <= '9' })
+	badUnderscore = badUnderscore || bad
 
 	// Fractional part `.digits`, careful not to consume `..` range or `.method()`!
 	if l.peek() == '.' && l.peekAt(1) >= '0' && l.peekAt(1) <= '9' {
 		isFloat = true
 		l.advance()
-		for !l.eof() && ((l.peek() >= '0' && l.peek() <= '9') || l.peek() == '_') {
-			l.advance()
-		}
+		_, badFrac := l.scanDigitsWithUnderscores(func(b byte) bool { return b >= '0' && b <= '9' })
+		badUnderscore = badUnderscore || badFrac
 	}
 
 	// Scientific exponent `e` / `E`
@@ -569,16 +594,15 @@ func (l *Lexer) scanNumber() {
 		if l.peek() == '+' || l.peek() == '-' {
 			l.advance()
 		}
-		expDigits := 0
-		for !l.eof() && ((l.peek() >= '0' && l.peek() <= '9') || l.peek() == '_') {
-			if l.peek() >= '0' && l.peek() <= '9' {
-				expDigits++
-			}
-			l.advance()
-		}
+		expDigits, badExp := l.scanDigitsWithUnderscores(func(b byte) bool { return b >= '0' && b <= '9' })
+		badUnderscore = badUnderscore || badExp
 		if expDigits == 0 {
 			l.rep.Errorf(diag.Span{Start: start, End: l.pos()}, "malformed exponent in floating-point literal")
 		}
+	}
+
+	if badUnderscore {
+		l.rep.Errorf(diag.Span{Start: start, End: l.pos()}, "invalid underscore in numeric literal")
 	}
 
 	raw := l.src[startOff:l.offset]
@@ -727,6 +751,15 @@ func (l *Lexer) scanStringSegment(isFirst bool) {
 		}
 
 		ch := l.peek()
+		if ch == '\n' || ch == '\r' {
+			l.rep.Errorf(diag.Span{Start: segStart, End: l.pos()}, "unterminated string literal")
+			if isFirst {
+				l.emit(token.StringLit, sb.String(), segStart, l.pos())
+			} else {
+				l.emit(token.InterpEnd, sb.String(), segStart, l.pos())
+			}
+			return
+		}
 		if ch == '"' {
 			l.advance()
 			if isFirst {

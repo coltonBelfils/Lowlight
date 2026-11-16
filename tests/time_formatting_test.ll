@@ -1,6 +1,6 @@
 import "std/time.ll" as time
 
-bind main = () -> {
+bind main = (): {
     // 1. Fixed test date: 2026-10-31 15:30:45 UTC
     let dt = time.DateTime.new(2026, 10, 31, 15, 30, 45, false)
 
@@ -104,14 +104,14 @@ bind main = () -> {
 
     // 6. Parsing ISO strings using string.to_datetime()
     let parsed? = "2026-10-31 15:30:45".to_datetime()
-    if (parsed? as p) {
+    if (parsed? as p): {
         assert(p.year == 2026)
         assert(p.month == 10)
         assert(p.day == 31)
         assert(p.hour == 15)
         assert(p.minute == 30)
         assert(p.second == 45)
-    } else {
+    } else: {
         assert(false)
     }
 

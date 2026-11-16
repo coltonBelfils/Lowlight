@@ -130,13 +130,13 @@ func TestPrimitivesBitwiseEnumsDistinct(t *testing.T) {
 define Color enum [Red, Green, Blue]
 define UserId int
 
-bind UserId.is_admin = (self): bool -> {
+bind UserId.is_admin = (self) bool: {
     int(self) == 1
 }
 
 // Order-independent top-level mutual recursion with expression bodies
-bind is_even = (n: int): bool -> if (n == 0) true else is_odd(n - 1)bind is_odd  = (n: int): bool -> if (n == 0) false else is_even(n - 1)
-bind main = () -> {
+bind is_even = (n: int) bool: if (n == 0): true else: is_odd(n - 1)bind is_odd  = (n: int) bool: if (n == 0): false else: is_even(n - 1)
+bind main = (): {
     // Fixed-width integers & wrapping two's-complement corner cases (UBSan must NOT trap!)
     let min_i64: int = -9223372036854775807 - 1
     let neg_one: int = -1
@@ -163,10 +163,10 @@ bind main = () -> {
     // Enums ('==', 'match', 'to_string')
     let c = Color.Green
     assert(c.to_string() == "Color.Green")
-    let code = match (c)
+    let code = match (c):
         when Color.Red:   10
         when Color.Green: 20
-        else Color.Blue:  30
+        default Color.Blue: 30
     assert(code == 20)
 
     // Distinct types ('T(base)', 'Base(v)', methods, hash keys)
@@ -195,19 +195,19 @@ bind main = () -> {
 
 func TestStringsAndCollections(t *testing.T) {
 	src := `
-bind sum_slice = (xs: [int]): int -> {
+bind sum_slice = (xs: [int]) int: {
     let total = 0
-    for (x in xs) {
+    for (x in xs): {
         total += x
     }
     total
 }
 
-bind main = () -> {
+bind main = (): {
     // UTF-8 codepoint iteration + byte slicing + CoW promotion on mutation
     let greeting = "Hi 🌍!"
     let chars: [char] = []
-    for (ch in greeting) {
+    for (ch in greeting): {
         chars.push(ch)
     }
     assert(chars.len() == 5)
@@ -245,7 +245,7 @@ bind main = () -> {
     assert(tags.has("beta"))
     assert(tags.remove("beta"))
     let ordered_tags: [string] = []
-    for (t in tags) {
+    for (t in tags): {
         ordered_tags.push(t.copy())
     }
     assert(ordered_tags.join(",") == "alpha,gamma")
@@ -258,7 +258,7 @@ bind main = () -> {
     assert((removed? ?? "") == "B")
 
     let pairs: [string] = []
-    for (k, v in scores) {
+    for (k, v in scores): {
         pairs.push("$k=$v")
     }
     assert(pairs.join("; ") == "alice=A+; carol=A")
@@ -292,28 +292,28 @@ define Account struct [
     profile?: ?Profile,
 ]
 
-bind Account.bonus = (self): int -> {
+bind Account.bonus = (self) int: {
     (self.profile? ?.score ?? 0) + 10
 }
 
-bind parse_pair = (a: string, b: string): ?int -> {
+bind parse_pair = (a: string, b: string) ?int: {
     let x = parse_int(a) ?? func <- none
     let y = parse_int(b) ?? func <- none
     x + y
 }
 
-bind main = () -> {
+bind main = (): {
     // Mutable optional unwrap 'if (&opt?)' mutates inner value in place!
     let count?: ?int = 10
-    if (&count?) {
+    if (&count?): {
         count += 5
     }
     assert((count? ?? 0) == 15)
 
     // Scoped optional binding 'if (expr as v)'
-    if (parse_pair("12", "30") as total) {
+    if (parse_pair("12", "30") as total): {
         assert(total == 42)
-    } else {
+    } else: {
         panic("expected Some(42)")
     }
     assert((parse_pair("12", "bad") ?? -1) == -1)
@@ -356,27 +356,27 @@ func TestClosuresAndResourceCaptures(t *testing.T) {
 	src := `
 import "std/math" as math
 
-bind double_it = (x: int): int -> { x * 2 }
+bind double_it = (x: int) int: { x * 2 }
 
-bind apply_int = (f: (int): int, v: int): int -> {
+bind apply_int = (f: (int) int, v: int) int: {
     f(v)
 }
 
-bind make_greeter = (prefix: own string): (string): string -> {
+bind make_greeter = (prefix: own string) (string) string: {
     // Captures Resource 'prefix' by move into heap closure environment;
     // automatically freed when the closure value itself is dropped!
-    (name: string): string -> {
+    (name: string) string: {
         "$prefix, $name!"
     }
 }
 
-bind main = () -> {
+bind main = (): {
     // 1. Coercing static 'bind' function into closure value
     assert(apply_int(double_it, 21) == 42)
 
     // 2. Capturing Plain value by copy & returning closure
     let factor = 10
-    let mul = (x: int): int -> { x * factor }
+    let mul = (x: int) int: { x * factor }
     factor = 999 // Plain capture copied 10 at creation time!
     assert(apply_int(mul, 7) == 70)
 
@@ -415,8 +415,8 @@ func TestCompileTimeSafetyRejections(t *testing.T) {
 		{
 			name: "use_after_move_resource",
 			src: `
-bind consume = (s: own string) -> {}
-bind main = () -> {
+bind consume = (s: own string): {}
+bind main = (): {
     let msg = "hello".copy()
     consume(own msg)
     println(msg)
@@ -427,7 +427,7 @@ bind main = () -> {
 		{
 			name: "mutate_immutable_bind",
 			src: `
-bind main = () -> {
+bind main = (): {
     bind x = 10
     x = 20
 }
@@ -437,12 +437,12 @@ bind main = () -> {
 		{
 			name: "mutable_borrow_aliasing_conflict",
 			src: `
-bind swap_ints = (a: &int, b: &int) -> {
+bind swap_ints = (a: &int, b: &int): {
     let t = a
     a = b
     b = t
 }
-bind main = () -> {
+bind main = (): {
     let v = 1
     swap_ints(&v, &v)
 }
@@ -452,8 +452,8 @@ bind main = () -> {
 		{
 			name: "missing_amp_at_mut_call_site",
 			src: `
-bind bump = (x: &int) -> { x += 1 }
-bind main = () -> {
+bind bump = (x: &int): { x += 1 }
+bind main = (): {
     let n = 5
     bump(n)
 }
@@ -463,7 +463,7 @@ bind main = () -> {
 		{
 			name: "optional_identifier_missing_question_mark",
 			src: `
-bind main = () -> {
+bind main = (): {
     let bad: ?int = 5
 }
 `,
@@ -473,7 +473,7 @@ bind main = () -> {
 			name: "arena_ref_escapes_inner_scope",
 			src: `
 define Node struct [val: int]
-bind main = () -> {
+bind main = (): {
     let outer = Arena.new()
     let escaped = outer.alloc(Node[val: 1])
     {
@@ -487,10 +487,10 @@ bind main = () -> {
 		{
 			name: "raw_pointer_deref_outside_unsafe",
 			src: `
-bind read_ptr = (p: ptr[int]): int -> {
+bind read_ptr = (p: ptr[int]) int: {
     *p
 }
-bind main = () -> {}
+bind main = (): {}
 `,
 			wantErrPart: "unsafe",
 		},
@@ -498,9 +498,9 @@ bind main = () -> {}
 			name: "non_exhaustive_match_missing_else",
 			src: `
 define Color enum [Red, Green, Blue]
-bind main = () -> {
+bind main = (): {
     let c = Color.Red
-    let x = match (c)
+    let x = match (c):
         when Color.Red: 1
         when Color.Green: 2
     println(x)
@@ -535,7 +535,7 @@ bind main = () -> {
 func TestRuntimeBoundsPanicInDebug(t *testing.T) {
 	root := projectRoot(t)
 	src := `
-bind main = () -> {
+bind main = (): {
     let xs = [10, 20, 30]
     let boom = xs[5]
     println(boom)
@@ -588,7 +588,7 @@ func TestCLISubcommands(t *testing.T) {
 	// 2. Write a small program using `args()`
 	progPath := filepath.Join(tmp, "cli_prog.ll")
 	progSrc := `
-bind main = (): int -> {
+bind main = () int: {
     let a = args()
     println("argc=${a.len()} arg1=${a[1]}")
     0
@@ -673,5 +673,100 @@ func TestStdHttpPackage(t *testing.T) {
 	outEx := runInlineStrict(t, "http_showcase", string(exampleBytes), false)
 	if !strings.Contains(outEx, "All HTTP client and server showcase demonstrations completed successfully!") {
 		t.Fatalf("showcase output mismatch:\n%s", outEx)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// 10. Standalone `.ll` Test Files & Network Showcase Build/Check Coverage
+// -----------------------------------------------------------------------------
+
+func TestOrphanedLLTestFiles(t *testing.T) {
+	root := projectRoot(t)
+
+	for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
+		t.Run("backtick_test_"+string(backend), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			rc, err := driver.Test(driver.Options{
+				Targets:     []string{filepath.Join(root, "tests", "backtick_test.ll")},
+				ProjectRoot: root,
+				Backend:     backend,
+				ExtraCFlags: strictCFlags,
+				Env: []string{
+					"LOWLIGHT_CHECK_LEAKS=1",
+					"ASAN_OPTIONS=detect_leaks=0",
+				},
+			}, &stdout, &stderr)
+			if err != nil {
+				t.Fatalf("backtick_test.ll (%s) failed: %v\nstdout:\n%s\nstderr:\n%s", backend, err, stdout.String(), stderr.String())
+			}
+			if rc != 0 {
+				t.Fatalf("backtick_test.ll (%s) exited with %d\nstdout:\n%s\nstderr:\n%s", backend, rc, stdout.String(), stderr.String())
+			}
+		})
+	}
+
+	mainTests := []string{
+		"core_test.ll",
+		"strconv_strfmt_test.ll",
+		"time_formatting_test.ll",
+		"unsafe_expr_test.ll",
+	}
+	for _, name := range mainTests {
+		srcBytes, err := os.ReadFile(filepath.Join(root, "tests", name))
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", name, err)
+		}
+		for _, release := range []bool{false, true} {
+			mode := "debug"
+			if release {
+				mode = "release"
+			}
+			t.Run(name+"_"+mode, func(t *testing.T) {
+				out := runInlineStrict(t, strings.TrimSuffix(name, ".ll")+"_"+mode, string(srcBytes), release)
+				if strings.TrimSpace(out) == "" {
+					t.Fatalf("%s (%s) produced empty stdout", name, mode)
+				}
+			})
+		}
+	}
+}
+
+func TestNetworkExamplesBuildClean(t *testing.T) {
+	root := projectRoot(t)
+	examples := []string{
+		"http_get_client.ll",
+		"http_server.ll",
+		"tcp_echo_server.ll",
+	}
+
+	for _, base := range examples {
+		file := filepath.Join(root, "examples", base)
+		t.Run(base+"_check", func(t *testing.T) {
+			_, warnings, err := driver.Check(driver.Options{
+				EntryPath:   file,
+				ProjectRoot: root,
+			})
+			if err != nil {
+				t.Fatalf("%s check failed:\n%v", base, err)
+			}
+			if strings.TrimSpace(warnings) != "" {
+				t.Fatalf("%s emitted unexpected warnings:\n%s", base, warnings)
+			}
+		})
+		for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
+			t.Run(base+"_build_"+string(backend), func(t *testing.T) {
+				outBin := filepath.Join(t.TempDir(), strings.TrimSuffix(base, ".ll"))
+				_, err := driver.Build(driver.Options{
+					EntryPath:   file,
+					ProjectRoot: root,
+					Backend:     backend,
+					OutPath:     outBin,
+					ExtraCFlags: strictCFlags,
+				})
+				if err != nil {
+					t.Fatalf("%s (%s) build failed:\n%v", base, backend, err)
+				}
+			})
+		}
 	}
 }

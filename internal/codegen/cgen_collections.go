@@ -91,19 +91,19 @@ func (g *cEmitter) emitVectorMethods(v *types.Vector) {
 		g.line("static inline %s ll_vec_pop__%s(%s* v) {", cOpt, m, cVec)
 		g.line("    if (v->len <= 0) return %s;", optNoneC(optElem))
 		g.line("    v->len--;")
-		g.line("    return %s;", optSomeC(optElem, "v->data[v->len]"))
+		g.line("    return %s;", wrapSomeC(optElem, v.Elem, "v->data[v->len]"))
 		g.line("}")
 
 		if g.canCopy(v.Elem) {
 			g.line("static inline %s ll_vec_get__%s(%s v, int64_t idx) {", cOpt, m, cVec)
 			g.line("    if (idx < 0 || idx >= v.len) return %s;", optNoneC(optElem))
-			g.line("    return %s;", optSomeC(optElem, fmt.Sprintf("%s(v.data[idx])", g.copyExpr(v.Elem))))
+			g.line("    return %s;", wrapSomeC(optElem, v.Elem, fmt.Sprintf("%s(v.data[idx])", g.copyExpr(v.Elem))))
 			g.line("}")
 		}
 	}
 
 	// contains (when `Elem` supports equality)
-	if types.SupportsEq(v.Elem) {
+	if CanEqType(g.prog, v.Elem) {
 		g.line("static inline bool ll_vec_contains__%s(%s v, %s needle) {", m, cVec, cElem)
 		g.line("    for (int64_t i = 0; i < v.len; i++) {")
 		g.line("        if (%s) return true;", stripOuterParens(g.eqInlineExpr(v.Elem, "v.data[i]", "needle")))
@@ -124,10 +124,10 @@ func (g *cEmitter) emitStackArrayMethods(a *types.StackArray) {
 		cOpt := CType(optElem)
 		g.line("static inline %s ll_arr_get__%s(%s a, int64_t idx) {", cOpt, m, cArr)
 		g.line("    if (idx < 0 || idx >= %dLL) return %s;", a.Size, optNoneC(optElem))
-		g.line("    return %s;", optSomeC(optElem, fmt.Sprintf("%s(a.data[idx])", g.copyExpr(a.Elem))))
+		g.line("    return %s;", wrapSomeC(optElem, a.Elem, fmt.Sprintf("%s(a.data[idx])", g.copyExpr(a.Elem))))
 		g.line("}")
 	}
-	if types.SupportsEq(a.Elem) {
+	if CanEqType(g.prog, a.Elem) {
 		g.line("static inline bool ll_arr_contains__%s(%s a, %s needle) {", m, cArr, cElem)
 		g.line("    for (int64_t i = 0; i < %dLL; i++) {", a.Size)
 		g.line("        if (%s) return true;", stripOuterParens(g.eqInlineExpr(a.Elem, "a.data[i]", "needle")))
@@ -365,7 +365,7 @@ func (g *cEmitter) emitMapMethods(mp *types.Map) {
 			g.line("    uint64_t h = %s;", g.hashInlineExpr(mp.Key, "key"))
 			g.line("    int64_t idx = ll_map_find_entry__%s(m, key, h);", m)
 			g.line("    if (idx < 0) return %s;", optNoneC(optVal))
-			g.line("    return %s;", optSomeC(optVal, fmt.Sprintf("%s(m->entries[idx].val)", g.copyExpr(mp.Value))))
+			g.line("    return %s;", wrapSomeC(optVal, mp.Value, fmt.Sprintf("%s(m->entries[idx].val)", g.copyExpr(mp.Value))))
 			g.line("}")
 		}
 
@@ -386,7 +386,7 @@ func (g *cEmitter) emitMapMethods(mp *types.Map) {
 		g.line("            m->entries[idx].alive = false;")
 		g.line("            m->buckets[slot] = -2LL;")
 		g.line("            m->len--;")
-		g.line("            return %s;", optSomeC(optVal, "out"))
+		g.line("            return %s;", wrapSomeC(optVal, mp.Value, "out"))
 		g.line("        }")
 		g.line("        slot = (slot + 1LL) & mask;")
 		g.line("    }")
@@ -448,6 +448,14 @@ func optNoneC(opt *types.Optional) string {
 		return fmt.Sprintf("((%s)NULL)", CType(opt))
 	}
 	return fmt.Sprintf("(%s){ .has_value = false }", CType(opt))
+}
+
+func wrapSomeC(opt *types.Optional, elem types.Type, valExpr string) string {
+	// Nested optionals flatten (`?(?T) -> ?T`), so retrieved `?T` elements are already wrapped.
+	if _, isOpt := elem.(*types.Optional); isOpt {
+		return valExpr
+	}
+	return optSomeC(opt, valExpr)
 }
 
 func optSomeC(opt *types.Optional, valExpr string) string {

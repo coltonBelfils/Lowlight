@@ -1,13 +1,13 @@
 import "std/fs.ll"
 
-bind test_unsafe_call = () -> {
+bind test_unsafe_call = (): {
     let msg = "Hello from Lowlight!"
     // unsafe expression reading raw null-terminated byte buffer length
     let len = unsafe raw_strlen(msg.c_str())
     assert(len == 20)
 }
 
-bind test_unsafe_alloc_and_deref = () -> {
+bind test_unsafe_alloc_and_deref = (): {
     // unsafe expression initializing a pointer
     let p = unsafe alloc_raw[int](4)
     
@@ -33,7 +33,7 @@ bind test_unsafe_alloc_and_deref = () -> {
     assert(idx_val == 300)
 
     // unsafe expression inside condition
-    if (unsafe *p == 100) {
+    if (unsafe *p == 100): {
         unsafe *p = 999
     }
     assert(unsafe *p == 999)
@@ -42,7 +42,7 @@ bind test_unsafe_alloc_and_deref = () -> {
     unsafe free_raw(p)
 }
 
-bind test_unsafe_parenthesized_and_binary = () -> {
+bind test_unsafe_parenthesized_and_binary = (): {
     let p = unsafe alloc_raw[int](1)
     unsafe *p = 42
 
@@ -55,7 +55,7 @@ bind test_unsafe_parenthesized_and_binary = () -> {
     unsafe free_raw(p)
 }
 
-bind test_unsafe_block = () -> {
+bind test_unsafe_block = (): {
     // Traditional unsafe block expression still works seamlessly
     let res = unsafe {
         let p = alloc_raw[int](1)
@@ -67,7 +67,7 @@ bind test_unsafe_block = () -> {
     assert(res == 77)
 }
 
-bind main = () -> {
+bind main = (): {
     test_unsafe_call()
     test_unsafe_alloc_and_deref()
     test_unsafe_parenthesized_and_binary()

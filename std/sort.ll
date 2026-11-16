@@ -15,8 +15,8 @@ define Sortable interface [
 // -----------------------------------------------------------------------------
 
 // In-place bitwise slot swap without invoking copy constructors or destructors.
-bind _swap_elements[T] = (list: &List[T], i: int, j: int) -> {
-    if (i == j) func <-
+bind _swap_elements[T] = (list: &List[T], i: int, j: int): {
+    if (i == j): func <-
     unsafe {
         let pi = ptr_add(list.data, i)
         let pj = ptr_add(list.data, j)
@@ -27,13 +27,13 @@ bind _swap_elements[T] = (list: &List[T], i: int, j: int) -> {
 }
 
 // In-place insertion sort for small partitions (<= 16 elements).
-bind _sort_insertion[T] = (list: &List[T], lo: int, hi: int) -> {
+bind _sort_insertion[T] = (list: &List[T], lo: int, hi: int): {
     let i = lo + 1
-    while (i <= hi) {
+    while (i <= hi): {
         let j = i
-        while (j > lo) {
+        while (j > lo): {
             let less = unsafe { list.data[j] < list.data[j - 1] }
-            if (not less) {
+            if (not less): {
                 while <-
             }
             _swap_elements(&list, j, j - 1)
@@ -44,25 +44,25 @@ bind _sort_insertion[T] = (list: &List[T], lo: int, hi: int) -> {
 }
 
 // 3-way median-of-three Lomuto-style partition.
-bind _partition[T] = (list: &List[T], lo: int, hi: int): int -> {
+bind _partition[T] = (list: &List[T], lo: int, hi: int) int: {
     let mid = lo + (hi - lo) / 2
     unsafe {
-        if (list.data[mid] < list.data[lo]) _swap_elements(&list, lo, mid)
-        if (list.data[hi] < list.data[lo]) _swap_elements(&list, lo, hi)
-        if (list.data[mid] < list.data[hi]) _swap_elements(&list, mid, hi)
+        if (list.data[mid] < list.data[lo]): _swap_elements(&list, lo, mid)
+        if (list.data[hi] < list.data[lo]): _swap_elements(&list, lo, hi)
+        if (list.data[mid] < list.data[hi]): _swap_elements(&list, mid, hi)
     }
 
     let pivot_idx = hi
     let i = lo
     let j = hi - 1
-    while (true) {
-        while (unsafe { list.data[i] < list.data[pivot_idx] }) {
+    while (true): {
+        while (unsafe { list.data[i] < list.data[pivot_idx] }): {
             i += 1
         }
-        while (j > lo and unsafe { list.data[pivot_idx] < list.data[j] }) {
+        while (j > lo and unsafe { list.data[pivot_idx] < list.data[j] }): {
             j -= 1
         }
-        if (i >= j) {
+        if (i >= j): {
             while <-
         }
         _swap_elements(&list, i, j)
@@ -74,16 +74,16 @@ bind _partition[T] = (list: &List[T], lo: int, hi: int): int -> {
 }
 
 // Recursive Quicksort with insertion sort fallback.
-bind _sort_range[T] = (list: &List[T], lo: int, hi: int) -> {
-    if (hi - lo <= 16) {
+bind _sort_range[T] = (list: &List[T], lo: int, hi: int) void: {
+    if (hi - lo <= 16): {
         _sort_insertion(&list, lo, hi)
         func <-
     }
     let p = _partition(&list, lo, hi)
-    if (p > lo) {
+    if (p > lo): {
         _sort_range(&list, lo, p - 1)
     }
-    if (p < hi) {
+    if (p < hi): {
         _sort_range(&list, p + 1, hi)
     }
 }
@@ -92,13 +92,13 @@ bind _sort_range[T] = (list: &List[T], lo: int, hi: int) -> {
 // Comparator-based Quicksort Helpers
 // -----------------------------------------------------------------------------
 
-bind _sort_by_insertion[T] = (list: &List[T], lo: int, hi: int, cmp_fn: (T, T): int) -> {
+bind _sort_by_insertion[T] = (list: &List[T], lo: int, hi: int, cmp_fn: (T, T) int): {
     let i = lo + 1
-    while (i <= hi) {
+    while (i <= hi): {
         let j = i
-        while (j > lo) {
+        while (j > lo): {
             let cmp = unsafe { cmp_fn(list.data[j].copy(), list.data[j - 1].copy()) }
-            if (cmp >= 0) {
+            if (cmp >= 0): {
                 while <-
             }
             _swap_elements(&list, j, j - 1)
@@ -108,25 +108,25 @@ bind _sort_by_insertion[T] = (list: &List[T], lo: int, hi: int, cmp_fn: (T, T): 
     }
 }
 
-bind _partition_by[T] = (list: &List[T], lo: int, hi: int, cmp_fn: (T, T): int): int -> {
+bind _partition_by[T] = (list: &List[T], lo: int, hi: int, cmp_fn: (T, T) int) int: {
     let mid = lo + (hi - lo) / 2
     unsafe {
-        if (cmp_fn(list.data[mid].copy(), list.data[lo].copy()) < 0) _swap_elements(&list, lo, mid)
-        if (cmp_fn(list.data[hi].copy(), list.data[lo].copy()) < 0) _swap_elements(&list, lo, hi)
-        if (cmp_fn(list.data[mid].copy(), list.data[hi].copy()) < 0) _swap_elements(&list, mid, hi)
+        if (cmp_fn(list.data[mid].copy(), list.data[lo].copy()) < 0): _swap_elements(&list, lo, mid)
+        if (cmp_fn(list.data[hi].copy(), list.data[lo].copy()) < 0): _swap_elements(&list, lo, hi)
+        if (cmp_fn(list.data[mid].copy(), list.data[hi].copy()) < 0): _swap_elements(&list, mid, hi)
     }
 
     let pivot_idx = hi
     let i = lo
     let j = hi - 1
-    while (true) {
-        while (unsafe { cmp_fn(list.data[i].copy(), list.data[pivot_idx].copy()) < 0 }) {
+    while (true): {
+        while (unsafe { cmp_fn(list.data[i].copy(), list.data[pivot_idx].copy()) < 0 }): {
             i += 1
         }
-        while (j > lo and unsafe { cmp_fn(list.data[pivot_idx].copy(), list.data[j].copy()) < 0 }) {
+        while (j > lo and unsafe { cmp_fn(list.data[pivot_idx].copy(), list.data[j].copy()) < 0 }): {
             j -= 1
         }
-        if (i >= j) {
+        if (i >= j): {
             while <-
         }
         _swap_elements(&list, i, j)
@@ -137,16 +137,16 @@ bind _partition_by[T] = (list: &List[T], lo: int, hi: int, cmp_fn: (T, T): int):
     i
 }
 
-bind _sort_by_range[T] = (list: &List[T], lo: int, hi: int, cmp_fn: (T, T): int) -> {
-    if (hi - lo <= 16) {
+bind _sort_by_range[T] = (list: &List[T], lo: int, hi: int, cmp_fn: (T, T) int) void: {
+    if (hi - lo <= 16): {
         _sort_by_insertion(&list, lo, hi, cmp_fn)
         func <-
     }
     let p = _partition_by(&list, lo, hi, cmp_fn)
-    if (p > lo) {
+    if (p > lo): {
         _sort_by_range(&list, lo, p - 1, cmp_fn)
     }
-    if (p < hi) {
+    if (p < hi): {
         _sort_by_range(&list, p + 1, hi, cmp_fn)
     }
 }
@@ -156,25 +156,25 @@ bind _sort_by_range[T] = (list: &List[T], lo: int, hi: int, cmp_fn: (T, T): int)
 // -----------------------------------------------------------------------------
 
 // Sorts the list in place in ascending order using Quicksort with insertion sort optimization.
-bind List[T].sort = (&self) -> {
-    if (self.len <= 1) func <-
+bind List[T].sort = (&self): {
+    if (self.len <= 1): func <-
     _sort_range(&self, 0, self.len - 1)
 }
 
 // Sorts the list in place using a custom comparator function `cmp_fn(a, b): int`.
 // The comparator should return < 0 for a < b, 0 for a == b, and > 0 for a > b.
-bind List[T].sort_by = (&self, cmp_fn: (T, T): int) -> {
-    if (self.len <= 1) func <-
+bind List[T].sort_by = (&self, cmp_fn: (T, T) int): {
+    if (self.len <= 1): func <-
     _sort_by_range(&self, 0, self.len - 1, cmp_fn)
 }
 
 // Returns true if the list is sorted in ascending order.
-bind List[T].is_sorted = (self): bool -> {
-    if (self.len <= 1) func <- true
+bind List[T].is_sorted = (self) bool: {
+    if (self.len <= 1): func <- true
     let i = 0
-    while (i < self.len - 1) {
+    while (i < self.len - 1): {
         let disordered = unsafe { self.data[i + 1] < self.data[i] }
-        if (disordered) {
+        if (disordered): {
             func <- false
         }
         i += 1
@@ -184,18 +184,18 @@ bind List[T].is_sorted = (self): bool -> {
 
 // Performs a binary search on a sorted list for `target`.
 // Returns the index of `target` if found, or `none` if absent.
-bind List[T].binary_search = (self, target: T): ?int -> {
-    if (self.len == 0) func <- none
+bind List[T].binary_search = (self, target: T) ?int: {
+    if (self.len == 0): func <- none
     let lo = 0
     let hi = self.len - 1
-    while (lo <= hi) {
+    while (lo <= hi): {
         let mid = lo + (hi - lo) / 2
         let mid_val = unsafe { self.data[mid].copy() }
-        if (mid_val == target) {
+        if (mid_val == target): {
             func <- mid
-        } else if (mid_val < target) {
+        } else if (mid_val < target): {
             lo = mid + 1
-        } else {
+        } else: {
             hi = mid - 1
         }
     }
@@ -203,11 +203,11 @@ bind List[T].binary_search = (self, target: T): ?int -> {
 }
 
 // Reverses the elements of the list in place.
-bind List[T].reverse = (&self) -> {
-    if (self.len <= 1) func <-
+bind List[T].reverse = (&self): {
+    if (self.len <= 1): func <-
     let i = 0
     let j = self.len - 1
-    while (i < j) {
+    while (i < j): {
         _swap_elements(&self, i, j)
         i += 1
         j -= 1
@@ -215,14 +215,14 @@ bind List[T].reverse = (&self) -> {
 }
 
 // Converts a Set[T] to a sorted List[T].
-bind Set[T].to_sorted_list = (self): List[T] -> {
+bind Set[T].to_sorted_list = (self) List[T]: {
     let out = self.to_list()
     out.sort()
     out
 }
 
 // Returns a sorted List of keys from a Map[K, V].
-bind Map[K, V].to_sorted_keys = (self): List[K] -> {
+bind Map[K, V].to_sorted_keys = (self) List[K]: {
     let out = self.keys()
     out.sort()
     out
@@ -232,19 +232,19 @@ bind Map[K, V].to_sorted_keys = (self): List[K] -> {
 // Standalone Functions
 // -----------------------------------------------------------------------------
 
-bind sort[T] = (list: &List[T]) -> {
+bind sort[T] = (list: &List[T]): {
     list.sort()
 }
 
-bind sort_by[T] = (list: &List[T], cmp_fn: (T, T): int) -> {
+bind sort_by[T] = (list: &List[T], cmp_fn: (T, T) int): {
     list.sort_by(cmp_fn)
 }
 
-bind is_sorted[T] = (list: List[T]): bool -> {
+bind is_sorted[T] = (list: List[T]) bool: {
     list.is_sorted()
 }
 
-bind binary_search[T] = (list: List[T], target: T): ?int -> {
+bind binary_search[T] = (list: List[T], target: T) ?int: {
     list.binary_search(target)
 }
 
@@ -253,7 +253,7 @@ bind binary_search[T] = (list: List[T], target: T): ?int -> {
 // -----------------------------------------------------------------------------
 
 @test("sort list in-place and verify is_sorted, reverse")
-bind test_sort_list_comparable = () -> {
+bind test_sort_list_comparable = (): {
     let empty_list = List[int].new()
     empty_list.sort()
     assert(empty_list.is_sorted(), "empty list is sorted")
@@ -287,7 +287,7 @@ bind test_sort_list_comparable = () -> {
     // Test larger list to exercise quicksort partitioning
     let large = List[int].new()
     let i = 25
-    while (i > 0) {
+    while (i > 0): {
         large.push(i)
         i -= 1
     }
@@ -299,17 +299,17 @@ bind test_sort_list_comparable = () -> {
 }
 
 @test("sort list with custom comparator (descending)")
-bind test_sort_custom_comparator = () -> {
+bind test_sort_custom_comparator = (): {
     let nums = List[int].new()
     nums.push(15)
     nums.push(3)
     nums.push(99)
     nums.push(42)
 
-    let cmp_desc = (a: int, b: int): int -> {
-        if (a > b) -1
-        else if (a < b) 1
-        else 0
+    let cmp_desc = (a: int, b: int) int: {
+        if (a > b): -1
+        else if (a < b): 1
+        else: 0
     }
 
     nums.sort_by(cmp_desc)
@@ -320,7 +320,7 @@ bind test_sort_custom_comparator = () -> {
 }
 
 @test("binary search on sorted list")
-bind test_sort_binary_search = () -> {
+bind test_sort_binary_search = (): {
     let list = List[int].new()
     list.push(10)
     list.push(20)
@@ -348,7 +348,7 @@ bind test_sort_binary_search = () -> {
 }
 
 @test("collection sorting extensions: Set.to_sorted_list and Map.to_sorted_keys")
-bind test_sort_collections = () -> {
+bind test_sort_collections = (): {
     let s = Set[int].new()
     s.insert(50)
     s.insert(10)

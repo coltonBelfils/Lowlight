@@ -30,7 +30,11 @@ func runCLI(args []string) int {
 		return 0
 
 	case "version", "-v", "--version":
-		fmt.Printf("lowlight %s (v1.0 specification, direct LLVM IR backend)\n", driver.Version)
+		backendDesc := "direct LLVM IR backend"
+		if (driver.Options{}).EffectiveBackend() == driver.BackendC11 {
+			backendDesc = "C11 backend"
+		}
+		fmt.Printf("lowlight %s (v1.0 specification, %s)\n", driver.Version, backendDesc)
 		return 0
 
 	case "check":
@@ -175,6 +179,12 @@ func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.
 			}
 			i++
 			opts.CC = args[i]
+		case "--target":
+			if i+1 >= len(args) {
+				return opts, nil, fmt.Errorf("missing argument for --target")
+			}
+			i++
+			opts.TargetTriple = args[i]
 		case "-o":
 			if !allowOut {
 				return opts, nil, fmt.Errorf("-o is not supported for this command")
@@ -195,6 +205,14 @@ func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.
 				default:
 					return opts, nil, fmt.Errorf("unknown backend %q (expected 'c11' or 'llvm')", val)
 				}
+				continue
+			}
+			if strings.HasPrefix(arg, "--cc=") {
+				opts.CC = strings.TrimPrefix(arg, "--cc=")
+				continue
+			}
+			if strings.HasPrefix(arg, "--target=") {
+				opts.TargetTriple = strings.TrimPrefix(arg, "--target=")
 				continue
 			}
 			if len(arg) > 0 && arg[0] == '-' {
@@ -250,6 +268,18 @@ func parseTestFlags(args []string) (driver.Options, error) {
 			}
 			i++
 			opts.CC = args[i]
+		case "--target":
+			if i+1 >= len(args) {
+				return opts, fmt.Errorf("missing argument for --target")
+			}
+			i++
+			opts.TargetTriple = args[i]
+		case "-run", "--run":
+			if i+1 >= len(args) {
+				return opts, fmt.Errorf("missing argument for %s", arg)
+			}
+			i++
+			opts.TestFilter = args[i]
 		default:
 			if strings.HasPrefix(arg, "--backend=") {
 				val := strings.TrimPrefix(arg, "--backend=")
@@ -261,6 +291,22 @@ func parseTestFlags(args []string) (driver.Options, error) {
 				default:
 					return opts, fmt.Errorf("unknown backend %q (expected 'c11' or 'llvm')", val)
 				}
+				continue
+			}
+			if strings.HasPrefix(arg, "--cc=") {
+				opts.CC = strings.TrimPrefix(arg, "--cc=")
+				continue
+			}
+			if strings.HasPrefix(arg, "-run=") {
+				opts.TestFilter = strings.TrimPrefix(arg, "-run=")
+				continue
+			}
+			if strings.HasPrefix(arg, "--run=") {
+				opts.TestFilter = strings.TrimPrefix(arg, "--run=")
+				continue
+			}
+			if strings.HasPrefix(arg, "--target=") {
+				opts.TargetTriple = strings.TrimPrefix(arg, "--target=")
 				continue
 			}
 			if len(arg) > 0 && arg[0] == '-' {
@@ -312,11 +358,11 @@ func printUsage(w *os.File) {
 	fmt.Fprint(w, `Lowlight v1.0 Compiler
 
 Usage:
-  lowlight build [-o <bin>] [--backend <llvm|c11>] [--release] [--cc <compiler>] <file.ll>
-  lowlight run   [--backend <llvm|c11>] [--release] [--cc <compiler>] <file.ll> [-- <args...>]
-  lowlight test  [--backend <llvm|c11>] [--release] [--cc <compiler>] [<path...>]
-  lowlight emit-llvm [-o <file.ll>] [--release] <file.ll>
-  lowlight emit-c [-o <file.c>] [--release] <file.ll>
+  lowlight build [-o <bin>] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] <file.ll>
+  lowlight run   [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] <file.ll> [-- <args...>]
+  lowlight test  [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path...>]
+  lowlight emit-llvm [-o <file.ll>] [--target <triple>] [--release] <file.ll>
+  lowlight emit-c [-o <file.c>] [--target <triple>] [--release] <file.ll>
   lowlight check <file.ll>
   lowlight lsp   [--stdio] [--log <file>]
   lowlight version
@@ -325,6 +371,7 @@ Usage:
 Flags:
   -o <path>        Output executable, LLVM IR, or C11 source path
   --backend <kind> Codegen backend: "llvm" (default) or "c11" (ISO C11 backend)
+  --target <triple> Target triple for cross-compilation (e.g. "aarch64-unknown-linux-gnu")
   --release        Optimize (-O2) and elide runtime bounds/shift checks
   --cc <compiler>  C/LLVM compiler executable (default: $LOWLIGHT_CC, $CC, or clang/cc)
   --stdio          Run Language Server Protocol (LSP 3.17) over stdin/stdout

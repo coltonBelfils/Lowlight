@@ -14,7 +14,7 @@ import (
 
 func TestStackArrayLiteralsPositive(t *testing.T) {
 	src := `
-bind main = () -> {
+bind main = (): {
     // 1. Repeat constructor: [4: 0] -> [0, 0, 0, 0]
     let a1: [4: int] = [4: 0]
     assert(a1.len() == 4)
@@ -58,7 +58,7 @@ func TestStackArrayLiteralsMismatchNegative(t *testing.T) {
 		{
 			name: "stack_array_too_few_elements",
 			src: `
-bind main = () -> {
+bind main = (): {
     let arr = [4: 1, 2]
 }
 `,
@@ -67,7 +67,7 @@ bind main = () -> {
 		{
 			name: "stack_array_too_many_elements",
 			src: `
-bind main = () -> {
+bind main = (): {
     let arr = [2: 1, 2, 3]
 }
 `,
@@ -99,13 +99,13 @@ bind main = () -> {
 
 func TestWhileLoopPositive(t *testing.T) {
 	src := `
-bind main = () -> {
+bind main = (): {
     // 1. while(true) with break produces ?int (scalar optional)
     let w1? = {
         let i = 0
-        while (true) {
+        while (true): {
             i += 1
-            if (i == 5) {
+            if (i == 5): {
                 while <- i
             }
         }
@@ -115,9 +115,9 @@ bind main = () -> {
     // 2. while(true): int with break produces int (scalar non-optional)
     let w2: int = {
         let count = 0
-        while (true): int {
+        while (true) int: {
             count += 1
-            if (count == 42) {
+            if (count == 42): {
                 while <- count
             }
             count
@@ -126,30 +126,30 @@ bind main = () -> {
     assert(w2 == 42)
 
     // 3. User example: while(x in 1..10): bool {if(x == 5) while <- true} else false
-    let found = while (x in 1..10): bool {
-        if (x == 5) {
+    let found = while (x in 1..10) bool: {
+        if (x == 5): {
             while <- true
         }
-    } else false
+    } else: false
     assert(found == true)
 
-    let not_found = while (x in 1..10): bool {
-        if (x == 99) {
+    let not_found = while (x in 1..10) bool: {
+        if (x == 99): {
             while <- true
         }
-    } else false
+    } else: false
     assert(not_found == false)
 
     // 4. while without else produces ?T
-    let search? = while (x in 0..5) {
-        if (x == 3) {
+    let search? = while (x in 0..5): {
+        if (x == 3): {
             while <- x * 10
         }
     }
     assert(search? == 30)
 
-    let miss? = while (x in 0..5) {
-        if (x == 99) {
+    let miss? = while (x in 0..5): {
+        if (x == 99): {
             while <- x
         }
     }
@@ -158,7 +158,7 @@ bind main = () -> {
     // 5. while for side-effects (void context)
     let sum = 0
     let k = 0
-    while (k < 5) {
+    while (k < 5): {
         sum += k
         k += 1
     }
@@ -171,30 +171,30 @@ bind main = () -> {
 }
 
 // =============================================================================
-// 3. For Loop Tests: Collectable comprehensions, shorthand : [], default vector
+// 3. For Loop Tests: Collectable comprehensions, explicit [T], default vector
 // =============================================================================
 
 func TestForLoopComprehensionsPositive(t *testing.T) {
 	src := `
-bind main = () -> {
+bind main = (): {
     // 1. Default dynamic vector collection: for(x in 1..=4) x
-    let v1 = for (x in 1..=4) x
+    let v1 = for (x in 1..=4): x
     assert(v1.len() == 4)
     assert(v1[0] == 1)
     assert(v1[1] == 2)
     assert(v1[2] == 3)
     assert(v1[3] == 4)
 
-    // 2. Explicit shorthand: for(x in 0..10): [] x
-    let v2 = for (x in 0..10): [] x
+    // 2. Explicit list type: for(x in 0..10): [int] x
+    let v2 = for (x in 0..10) [int]: x
     assert(v2.len() == 10)
-    for (i in 0..10) {
+    for (i in 0..10): {
         assert(v2[i] == i)
     }
 
     // 3. Filtering in comprehension via ` + "`next <-`" + `!
-    let evens = for (x in 0..10): [] {
-        if (x % 2 != 0) {
+    let evens = for (x in 0..10): {
+        if (x % 2 != 0): {
             next <-
         }
         x
@@ -207,8 +207,8 @@ bind main = () -> {
     assert(evens[4] == 8)
 
     // 4. Early break in comprehension via ` + "`for <-`" + `!
-    let first_three = for (x in 1..100) {
-        if (x > 3) {
+    let first_three = for (x in 1..100): {
+        if (x > 3): {
             for <-
         }
         x
@@ -219,7 +219,7 @@ bind main = () -> {
     assert(first_three[2] == 3)
 
     // 5. Collecting into a Set #[int]
-    let s = for (x in 0..5): #[int] (x % 3)
+    let s = for (x in 0..5) #[int]: (x % 3)
     assert(s.len() == 3)
     assert(s.contains(0))
     assert(s.contains(1))
@@ -227,7 +227,7 @@ bind main = () -> {
 
     // 6. Side-effect for loop (void context) doesn't allocate
     let side_sum = 0
-    for (x in 0..5) {
+    for (x in 0..5): {
         side_sum += x
     }
     assert(side_sum == 10)
@@ -247,8 +247,8 @@ func TestForLoopCollectableNegative(t *testing.T) {
 		{
 			name: "for_annotated_with_non_collectable_int",
 			src: `
-bind main = () -> {
-    let x = for (true): int 1
+bind main = (): {
+    let x = for (true) int: 1
 }
 `,
 			wantErrPart: "does not implement Collectable",
@@ -256,11 +256,29 @@ bind main = () -> {
 		{
 			name: "for_annotated_with_string_not_collectable",
 			src: `
-bind main = () -> {
-    let x = for (x in 0..3): string "a"
+bind main = (): {
+    let x = for (x in 0..3) string: "a"
 }
 `,
 			wantErrPart: "does not implement Collectable",
+		},
+		{
+			name: "for_annotated_with_untyped_empty_brackets",
+			src: `
+bind main = (): {
+    let x = for (x in 0..10) []: x
+}
+`,
+			wantErrPart: "untyped `[]` is not a valid type",
+		},
+		{
+			name: "let_annotated_with_untyped_empty_brackets",
+			src: `
+bind main = (): {
+    let xs: [] = []
+}
+`,
+			wantErrPart: "untyped `[]` is not a valid type",
 		},
 	}
 
@@ -288,13 +306,13 @@ bind main = () -> {
 
 func TestMapEntryIterationAndCollection(t *testing.T) {
 	src := `
-bind main = () -> {
+bind main = (): {
     let m = #["alpha": 1, "beta": 2, "gamma": 3]
 
     // 1. Single-variable iteration binds entry as MapEntry[string, int]
     let key_sum = ""
     let val_sum = 0
-    for (entry in m) {
+    for (entry in m): {
         key_sum += entry.key
         val_sum += entry.value
     }
@@ -305,13 +323,13 @@ bind main = () -> {
 
     // 2. Traditional two-variable iteration still works as before
     let two_val_sum = 0
-    for (k, v in m) {
+    for (k, v in m): {
         two_val_sum += v
     }
     assert(two_val_sum == 6)
 
     // 3. Map collecting via MapEntry in for comprehension
-    let doubled_map = for (entry in m): #[string: int] {
+    let doubled_map = for (entry in m) #[string: int]: {
         MapEntry[string, int][key: entry.key.copy(), value: entry.value * 10]
     }
     assert(doubled_map.len() == 3)
@@ -336,22 +354,22 @@ bind main = () -> {
 
 func TestPureLowlightList(t *testing.T) {
 	src := `
-bind print_anything = (p: Printable): string -> {
+bind print_anything = (p: Printable) string: {
     p.to_string()
 }
 
-bind sum_iterable = (it_obj: Iterable[int]): int -> {
+bind sum_iterable = (it_obj: Iterable[int]) int: {
     let it = it_obj.iter()
     let sum = 0
     let cur? = it.next()
-    for (cur? != none) {
+    for (cur? != none): {
         sum += cur? ?? 0
         cur? = it.next()
     }
     sum
 }
 
-bind main = () -> {
+bind main = (): {
     let v = List[int].new()
     v.push(10)
     v.push(20)
@@ -375,7 +393,7 @@ bind main = () -> {
     assert(print_anything(v) == "[10, 20]")
     assert(sum_iterable(v) == 30)
 
-    let collected: List[int] = for (x in 1..=4): List[int] x * 10
+    let collected: List[int] = for (x in 1..=4) List[int]: x * 10
     assert(collected.len == 4)
     let c1? = collected.pop()
     assert((c1? ?? 0) == 40)
@@ -393,7 +411,7 @@ define Node struct [
     val: string,
 ]
 
-bind main = () -> {
+bind main = (): {
     let p = unsafe alloc_raw[Node](1)
     unsafe {
         ptr_write(p, Node[id: 42, val: "hello"])
@@ -415,7 +433,7 @@ bind main = () -> {
 
 func TestPureLowlightSet(t *testing.T) {
 	src := `
-bind main = () -> {
+bind main = (): {
     let s = Set[int].new()
     assert(s.len == 0)
     assert(s.is_empty())
@@ -442,7 +460,7 @@ bind main = () -> {
 
 func TestPureLowlightMap(t *testing.T) {
 	src := `
-bind main = () -> {
+bind main = (): {
     let m = Map[string, int].new()
     assert(m.len == 0)
     assert(m.is_empty())

@@ -6,31 +6,31 @@
 // -----------------------------------------------------------------------------
 
 @test_only
-bind _str_has_newline = (s: string): bool -> {
-    for (ch in s) {
-        if (ch == '\n') func <- true
+bind _str_has_newline = (s: string) bool: {
+    for (ch in s): {
+        if (ch == '\n'): func <- true
     }
     false
 }
 
 @test_only
-bind _repeat_space = (n: int): string -> {
+bind _repeat_space = (n: int) string: {
     let out = ""
-    for (i in 0..n) {
+    for (i in 0..n): {
         out.push(" ")
     }
     out
 }
 
 @test_only
-bind _split_lines = (s: string): [string] -> {
+bind _split_lines = (s: string) [string]: {
     let out: [string] = []
     let cur = ""
-    for (ch in s) {
-        if (ch == '\n') {
+    for (ch in s): {
+        if (ch == '\n'): {
             out.push(own cur)
             cur = ""
-        } else {
+        } else: {
             cur.push_char(ch)
         }
     }
@@ -39,12 +39,12 @@ bind _split_lines = (s: string): [string] -> {
 }
 
 @test_only
-bind _str_contains_sub = (haystack: string, needle: string): bool -> {
-    if (needle.len() == 0) func <- true
-    if (needle.len() > haystack.len()) func <- false
+bind _str_contains_sub = (haystack: string, needle: string) bool: {
+    if (needle.len() == 0): func <- true
+    if (needle.len() > haystack.len()): func <- false
     let max_start = haystack.len() - needle.len()
-    for (i in 0..=max_start) {
-        if (haystack[i..(i + needle.len())] == needle) func <- true
+    for (i in 0..=max_start): {
+        if (haystack[i..(i + needle.len())] == needle): func <- true
     }
     false
 }
@@ -52,10 +52,10 @@ bind _str_contains_sub = (haystack: string, needle: string): bool -> {
 // Formats expected vs actual values with aligned headers and character diff pointer.
 @test_only
 @track_caller
-bind format_diff = (actual_str: string, expected_str: string): string -> {
-    if (_str_has_newline(actual_str) or _str_has_newline(expected_str)) {
+bind format_diff = (actual_str: string, expected_str: string) string: {
+    if (_str_has_newline(actual_str) or _str_has_newline(expected_str)): {
         _format_multiline_diff(actual_str, expected_str)
-    } else {
+    } else: {
         _format_single_line_diff(actual_str, expected_str)
     }
 }
@@ -63,28 +63,28 @@ bind format_diff = (actual_str: string, expected_str: string): string -> {
 // Formats single-line got vs expected with aligned columns and a pointer at the first mismatch.
 @test_only
 @track_caller
-bind _format_single_line_diff = (actual_str: string, expected_str: string): string -> {
+bind _format_single_line_diff = (actual_str: string, expected_str: string) string: {
     let act_len = actual_str.len()
     let exp_len = expected_str.len()
-    let min_len = if (act_len < exp_len) act_len else exp_len
+    let min_len = if (act_len < exp_len): act_len else: exp_len
 
     let diff_idx = -1
-    for (i in 0..min_len) {
-        if (actual_str[i] != expected_str[i]) {
+    for (i in 0..min_len): {
+        if (actual_str[i] != expected_str[i]): {
             diff_idx = i
             for <-
         }
     }
 
     let out = "  expected: " + expected_str + "\n       got: " + actual_str
-    if (diff_idx >= 0) {
+    if (diff_idx >= 0): {
         let pointer = _repeat_space(12 + diff_idx) + "^ diff at index " + diff_idx.to_string()
         out = out + "\n" + pointer
-    } else if (act_len > exp_len) {
+    } else if (act_len > exp_len): {
         let extra = act_len - exp_len
         let pointer = _repeat_space(12 + exp_len) + "^ unexpected " + extra.to_string() + " extra byte(s) in got"
         out = out + "\n" + pointer
-    } else if (exp_len > act_len) {
+    } else if (exp_len > act_len): {
         let missing = exp_len - act_len
         let pointer = _repeat_space(12 + act_len) + "^ missing " + missing.to_string() + " expected byte(s)"
         out = out + "\n" + pointer
@@ -95,54 +95,54 @@ bind _format_single_line_diff = (actual_str: string, expected_str: string): stri
 // Formats multiline got vs expected showing the mismatched line number, aligned lines, and character pointer.
 @test_only
 @track_caller
-bind _format_multiline_diff = (actual_str: string, expected_str: string): string -> {
+bind _format_multiline_diff = (actual_str: string, expected_str: string) string: {
     let act_lines = _split_lines(actual_str)
     let exp_lines = _split_lines(expected_str)
-    let min_count = if (act_lines.len() < exp_lines.len()) act_lines.len() else exp_lines.len()
+    let min_count = if (act_lines.len() < exp_lines.len()): act_lines.len() else: exp_lines.len()
 
     let diff_line = -1
-    for (i in 0..min_count) {
-        if (act_lines[i] != exp_lines[i]) {
+    for (i in 0..min_count): {
+        if (act_lines[i] != exp_lines[i]): {
             diff_line = i
             for <-
         }
     }
-    if (diff_line == -1) {
+    if (diff_line == -1): {
         diff_line = min_count
     }
 
     let out = "  first mismatch at line " + (diff_line + 1).to_string() + ":\n"
-    if (diff_line < exp_lines.len() and diff_line < act_lines.len()) {
+    if (diff_line < exp_lines.len() and diff_line < act_lines.len()): {
         let exp_line = exp_lines[diff_line].copy()
         let act_line = act_lines[diff_line].copy()
         out = out + "    expected: " + exp_line + "\n"
         out = out + "         got: " + act_line
 
         // Find character mismatch within the line
-        let line_min = if (act_line.len() < exp_line.len()) act_line.len() else exp_line.len()
+        let line_min = if (act_line.len() < exp_line.len()): act_line.len() else: exp_line.len()
         let char_idx = -1
-        for (c in 0..line_min) {
-            if (act_line[c] != exp_line[c]) {
+        for (c in 0..line_min): {
+            if (act_line[c] != exp_line[c]): {
                 char_idx = c
                 for <-
             }
         }
-        if (char_idx == -1 and act_line.len() != exp_line.len()) {
+        if (char_idx == -1 and act_line.len() != exp_line.len()): {
             char_idx = line_min
         }
-        if (char_idx >= 0) {
+        if (char_idx >= 0): {
             let pointer = _repeat_space(14 + char_idx) + "^"
             out = out + "\n" + pointer
         }
-    } else if (diff_line < exp_lines.len()) {
+    } else if (diff_line < exp_lines.len()): {
         out = out + "    expected line " + (diff_line + 1).to_string() + ": " + exp_lines[diff_line] + "\n"
         out = out + "         got: <end of input>"
-    } else if (diff_line < act_lines.len()) {
+    } else if (diff_line < act_lines.len()): {
         out = out + "    expected: <end of input>\n"
         out = out + "         got line " + (diff_line + 1).to_string() + ": " + act_lines[diff_line]
     }
 
-    if (act_lines.len() != exp_lines.len()) {
+    if (act_lines.len() != exp_lines.len()): {
         out = out + "\n  (total line count: expected " + exp_lines.len().to_string() + ", got " + act_lines.len().to_string() + ")"
     }
     out
@@ -155,8 +155,8 @@ bind _format_multiline_diff = (actual_str: string, expected_str: string): string
 // Asserts that `actual` equals `expected`. Panics with an aligned visual diff if not equal.
 @test_only
 @track_caller
-bind assert_eq[T: Equatable + Printable] = (actual: T, expected: T) -> {
-    if (actual != expected) {
+bind assert_eq[T: Equatable + Printable] = (actual: T, expected: T): {
+    if (actual != expected): {
         let diff = format_diff(actual.to_string(), expected.to_string())
         panic("assertion failed: values are not equal\n" + diff)
     }
@@ -165,8 +165,8 @@ bind assert_eq[T: Equatable + Printable] = (actual: T, expected: T) -> {
 // Asserts that `actual` equals `expected` with a custom failure message.
 @test_only
 @track_caller
-bind assert_eq_msg[T: Equatable + Printable] = (actual: T, expected: T, msg: string) -> {
-    if (actual != expected) {
+bind assert_eq_msg[T: Equatable + Printable] = (actual: T, expected: T, msg: string): {
+    if (actual != expected): {
         let diff = format_diff(actual.to_string(), expected.to_string())
         panic("assertion failed: " + msg + "\n" + diff)
     }
@@ -175,8 +175,8 @@ bind assert_eq_msg[T: Equatable + Printable] = (actual: T, expected: T, msg: str
 // Asserts that `actual` does not equal `unexpected`. Panics if they are equal.
 @test_only
 @track_caller
-bind assert_ne[T: Equatable + Printable] = (actual: T, unexpected: T) -> {
-    if (actual == unexpected) {
+bind assert_ne[T: Equatable + Printable] = (actual: T, unexpected: T): {
+    if (actual == unexpected): {
         let s = unexpected.to_string()
         panic("assertion failed: values must not be equal\n  unexpected: " + s + "\n         got: " + s)
     }
@@ -185,8 +185,8 @@ bind assert_ne[T: Equatable + Printable] = (actual: T, unexpected: T) -> {
 // Asserts that `actual` does not equal `unexpected` with a custom failure message.
 @test_only
 @track_caller
-bind assert_ne_msg[T: Equatable + Printable] = (actual: T, unexpected: T, msg: string) -> {
-    if (actual == unexpected) {
+bind assert_ne_msg[T: Equatable + Printable] = (actual: T, unexpected: T, msg: string): {
+    if (actual == unexpected): {
         let s = unexpected.to_string()
         panic("assertion failed: " + msg + " (values must not be equal)\n  unexpected: " + s + "\n         got: " + s)
     }
@@ -195,8 +195,8 @@ bind assert_ne_msg[T: Equatable + Printable] = (actual: T, unexpected: T, msg: s
 // Asserts that `cond` is true.
 @test_only
 @track_caller
-bind assert_true = (cond: bool) -> {
-    if (not cond) {
+bind assert_true = (cond: bool): {
+    if (not cond): {
         panic("assertion failed: expected true, but condition evaluated to false")
     }
 }
@@ -204,8 +204,8 @@ bind assert_true = (cond: bool) -> {
 // Asserts that `cond` is true with a custom failure message.
 @test_only
 @track_caller
-bind assert_true_msg = (cond: bool, msg: string) -> {
-    if (not cond) {
+bind assert_true_msg = (cond: bool, msg: string): {
+    if (not cond): {
         panic("assertion failed: " + msg + " (expected true, but got false)")
     }
 }
@@ -213,8 +213,8 @@ bind assert_true_msg = (cond: bool, msg: string) -> {
 // Asserts that `cond` is false.
 @test_only
 @track_caller
-bind assert_false = (cond: bool) -> {
-    if (cond) {
+bind assert_false = (cond: bool): {
+    if (cond): {
         panic("assertion failed: expected false, but condition evaluated to true")
     }
 }
@@ -222,8 +222,8 @@ bind assert_false = (cond: bool) -> {
 // Asserts that `cond` is false with a custom failure message.
 @test_only
 @track_caller
-bind assert_false_msg = (cond: bool, msg: string) -> {
-    if (cond) {
+bind assert_false_msg = (cond: bool, msg: string): {
+    if (cond): {
         panic("assertion failed: " + msg + " (expected false, but got true)")
     }
 }
@@ -231,8 +231,8 @@ bind assert_false_msg = (cond: bool, msg: string) -> {
 // Asserts that `actual` is strictly greater than `expected`.
 @test_only
 @track_caller
-bind assert_gt[T: Comparable + Printable] = (actual: T, expected: T) -> {
-    if (actual <= expected) {
+bind assert_gt[T: Comparable + Printable] = (actual: T, expected: T): {
+    if (actual <= expected): {
         panic("assertion failed: expected actual > threshold\n     actual: " + actual.to_string() + "\n  threshold: " + expected.to_string())
     }
 }
@@ -240,8 +240,8 @@ bind assert_gt[T: Comparable + Printable] = (actual: T, expected: T) -> {
 // Asserts that `actual` is strictly less than `expected`.
 @test_only
 @track_caller
-bind assert_lt[T: Comparable + Printable] = (actual: T, expected: T) -> {
-    if (actual >= expected) {
+bind assert_lt[T: Comparable + Printable] = (actual: T, expected: T): {
+    if (actual >= expected): {
         panic("assertion failed: expected actual < threshold\n     actual: " + actual.to_string() + "\n  threshold: " + expected.to_string())
     }
 }
@@ -249,8 +249,8 @@ bind assert_lt[T: Comparable + Printable] = (actual: T, expected: T) -> {
 // Asserts that `actual` is greater than or equal to `expected`.
 @test_only
 @track_caller
-bind assert_ge[T: Comparable + Printable] = (actual: T, expected: T) -> {
-    if (actual < expected) {
+bind assert_ge[T: Comparable + Printable] = (actual: T, expected: T): {
+    if (actual < expected): {
         panic("assertion failed: expected actual >= threshold\n     actual: " + actual.to_string() + "\n  threshold: " + expected.to_string())
     }
 }
@@ -258,8 +258,8 @@ bind assert_ge[T: Comparable + Printable] = (actual: T, expected: T) -> {
 // Asserts that `actual` is less than or equal to `expected`.
 @test_only
 @track_caller
-bind assert_le[T: Comparable + Printable] = (actual: T, expected: T) -> {
-    if (actual > expected) {
+bind assert_le[T: Comparable + Printable] = (actual: T, expected: T): {
+    if (actual > expected): {
         panic("assertion failed: expected actual <= threshold\n     actual: " + actual.to_string() + "\n  threshold: " + expected.to_string())
     }
 }
@@ -267,9 +267,9 @@ bind assert_le[T: Comparable + Printable] = (actual: T, expected: T) -> {
 // Asserts that `res` is Ok.
 @test_only
 @track_caller
-bind assert_is_ok[T, E: Printable] = (res: &Result[T, E]) -> {
-    if (res.is_err()) {
-        let err_str = if (res.err? as err) err.to_string() else "<unknown error>"
+bind assert_is_ok[T] = (res: &Result[T]): {
+    if (res.is_err()): {
+        let err_str = if (res.peek_err() as err): err.to_string() else: "<unknown error>"
         panic("assertion failed: expected Result to be Ok, but got Err\n  error: " + err_str)
     }
 }
@@ -277,9 +277,9 @@ bind assert_is_ok[T, E: Printable] = (res: &Result[T, E]) -> {
 // Asserts that `res` is Ok with a custom failure message.
 @test_only
 @track_caller
-bind assert_is_ok_msg[T, E: Printable] = (res: &Result[T, E], msg: string) -> {
-    if (res.is_err()) {
-        let err_str = if (res.err? as err) err.to_string() else "<unknown error>"
+bind assert_is_ok_msg[T] = (res: &Result[T], msg: string): {
+    if (res.is_err()): {
+        let err_str = if (res.peek_err() as err): err.to_string() else: "<unknown error>"
         panic("assertion failed: " + msg + " (expected Result to be Ok, got Err)\n  error: " + err_str)
     }
 }
@@ -287,8 +287,8 @@ bind assert_is_ok_msg[T, E: Printable] = (res: &Result[T, E], msg: string) -> {
 // Asserts that `res` is Err.
 @test_only
 @track_caller
-bind assert_is_err[T, E] = (res: &Result[T, E]) -> {
-    if (res.is_ok()) {
+bind assert_is_err[T] = (res: &Result[T]): {
+    if (res.is_ok()): {
         panic("assertion failed: expected Result to be Err, but got Ok")
     }
 }
@@ -296,8 +296,8 @@ bind assert_is_err[T, E] = (res: &Result[T, E]) -> {
 // Asserts that `res` is Err with a custom failure message.
 @test_only
 @track_caller
-bind assert_is_err_msg[T, E] = (res: &Result[T, E], msg: string) -> {
-    if (res.is_ok()) {
+bind assert_is_err_msg[T] = (res: &Result[T], msg: string): {
+    if (res.is_ok()): {
         panic("assertion failed: " + msg + " (expected Result to be Err, but got Ok)")
     }
 }
@@ -305,8 +305,8 @@ bind assert_is_err_msg[T, E] = (res: &Result[T, E], msg: string) -> {
 // Asserts that an optional has a value (`val? != none`).
 @test_only
 @track_caller
-bind assert_some[T] = (val?: ?T) -> {
-    if (not (val? != none)) {
+bind assert_some[T] = (val?: ?T): {
+    if (not (val? != none)): {
         panic("assertion failed: expected optional to have a value (?T), but got none")
     }
 }
@@ -314,8 +314,8 @@ bind assert_some[T] = (val?: ?T) -> {
 // Asserts that an optional is absent (`val? == none`).
 @test_only
 @track_caller
-bind assert_none[T] = (val?: ?T) -> {
-    if (val? != none) {
+bind assert_none[T] = (val?: ?T): {
+    if (val? != none): {
         panic("assertion failed: expected optional to be none, but got a value")
     }
 }
@@ -325,7 +325,7 @@ bind assert_none[T] = (val?: ?T) -> {
 // -----------------------------------------------------------------------------
 
 @test("diff formatting helpers")
-bind test_diff_formatting = () -> {
+bind test_diff_formatting = (): {
     let diff = _format_single_line_diff("hello world", "hello there")
     assert_true(_str_contains_sub(diff, "expected: hello there"))
     assert_true(_str_contains_sub(diff, "got: hello world"))
@@ -338,7 +338,7 @@ bind test_diff_formatting = () -> {
 }
 
 @test("assert_eq and assert_ne basic assertions")
-bind test_equality_assertions = () -> {
+bind test_equality_assertions = (): {
     assert_eq(42, 42)
     assert_eq("hello", "hello")
     assert_eq(true, true)
@@ -353,7 +353,7 @@ bind test_equality_assertions = () -> {
 }
 
 @test("assert_true and assert_false boolean assertions")
-bind test_boolean_assertions = () -> {
+bind test_boolean_assertions = (): {
     assert_true(1 < 2)
     assert_true_msg(10 > 5, "ten is greater than five")
     assert_false(1 > 2)
@@ -361,7 +361,7 @@ bind test_boolean_assertions = () -> {
 }
 
 @test("assert comparisons (gt, lt, ge, le)")
-bind test_comparison_assertions = () -> {
+bind test_comparison_assertions = (): {
     assert_gt(10, 5)
     assert_lt(5, 10)
     assert_ge(10, 10)
@@ -371,18 +371,18 @@ bind test_comparison_assertions = () -> {
 }
 
 @test("assert_is_ok and assert_is_err result assertions")
-bind test_result_assertions = () -> {
-    let ok_res = Result[int, string].ok(123)
+bind test_result_assertions = (): {
+    let ok_res = Result[int].ok(123)
     assert_is_ok(&ok_res)
     assert_is_ok_msg(&ok_res, "result should be ok")
 
-    let err_res = Result[int, string].fail("failure")
+    let err_res = Result[int].fail_msg("failure")
     assert_is_err(&err_res)
     assert_is_err_msg(&err_res, "result should be err")
 }
 
 @test("assert_some and assert_none optional assertions")
-bind test_optional_assertions = () -> {
+bind test_optional_assertions = (): {
     let val?: ?int = 42
     assert_some(val?)
 

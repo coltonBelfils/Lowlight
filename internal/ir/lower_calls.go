@@ -63,6 +63,22 @@ func (fl *funcLowerer) lowerCallArgs(params []types.FuncParam, args []ast.Expr) 
 		case types.ModeOwn:
 			out[i] = fl.lowerExprOwned(arg, p.Type)
 		case types.ModeRead:
+			argInf := fl.info(arg)
+			if arrTy, isArr := argInf.Type.(*types.StackArray); isArr {
+				if arrSt, isArrSt := p.Type.(*types.Struct); isArrSt &&
+					fl.prog != nil && fl.prog.GenStructArray != nil &&
+					fl.prog.StructMods[arrSt] == fl.prog.GenStructArray.Mod && len(arrSt.TypeArgs) == 1 {
+					arrAddr := fl.lowerStackArrayAddr(arg, arrTy)
+					out[i] = &ExprConstructStruct{
+						StructType: arrSt,
+						Fields: []StructFieldInit{
+							{Name: "data", Value: &ExprField{Base: arrAddr, FieldName: "data", Typ: &types.Ptr{Elem: arrTy.Elem}, IsPtr: true}},
+							{Name: "len", Value: NewLitInt(uint64(arrTy.Size), false, types.TypeInt)},
+						},
+					}
+					continue
+				}
+			}
 			out[i] = fl.lowerExprRead(arg)
 		}
 	}
@@ -510,17 +526,6 @@ func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprIn
 		_, _, c := formatSpanPos(call)
 		return NewLitInt(uint64(c), false, types.TypeInt)
 
-	case "sqrt":
-		x := fl.lowerExprRead(call.Args[0])
-		if fi := fl.lookupCoreFunc("core_sqrt"); fi != nil {
-			return &ExprCall{
-				Callee: &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
-				Args:   []Expr{EnsureExpr(x, types.TypeFloat)},
-				Typ:    types.TypeFloat,
-			}
-		}
-		return nil
-
 	case "abs":
 		x := fl.lowerExprRead(call.Args[0])
 		tmp := fl.allocSlot("_ll_abs", inf.Type)
@@ -557,30 +562,6 @@ func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprIn
 			Else: []Instr{NewAssign(res, tb)},
 		})
 		return NewLocalExpr(res)
-
-	case "read_file":
-		fl.tc.visit(inf.Type)
-		p := fl.lowerExprRead(call.Args[0])
-		if fi := fl.lookupCoreFunc("core_read_file"); fi != nil {
-			return &ExprCall{
-				Callee: &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
-				Args:   []Expr{EnsureExpr(p, types.TypeString)},
-				Typ:    inf.Type,
-			}
-		}
-		return nil
-
-	case "write_file":
-		p := fl.lowerExprRead(call.Args[0])
-		c := fl.lowerExprRead(call.Args[1])
-		if fi := fl.lookupCoreFunc("core_write_file"); fi != nil {
-			return &ExprCall{
-				Callee: &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
-				Args:   []Expr{EnsureExpr(p, types.TypeString), EnsureExpr(c, types.TypeString)},
-				Typ:    inf.Type,
-			}
-		}
-		return nil
 
 	case "args":
 		fl.tc.visit(inf.Type)

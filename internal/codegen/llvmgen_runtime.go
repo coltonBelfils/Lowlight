@@ -36,17 +36,8 @@ func canEqVisited(prog *ir.Program, t types.Type, seen map[types.Type]bool) bool
 		}
 		seen[v] = true
 		for _, vr := range v.Variants {
-			switch vr.Kind {
-			case types.VariantTuple:
-				if vr.Payload != nil && !canEqVisited(prog, vr.Payload, seen) {
-					return false
-				}
-			case types.VariantStruct:
-				for _, sf := range vr.Fields {
-					if !canEqVisited(prog, sf.Type, seen) {
-						return false
-					}
-				}
+			if vr.Kind == types.VariantTuple && vr.Payload != nil && !canEqVisited(prog, vr.Payload, seen) {
+				return false
 			}
 		}
 		return true
@@ -61,9 +52,46 @@ func canEqVisited(prog *ir.Program, t types.Type, seen map[types.Type]bool) bool
 			}
 		}
 		return true
+	case *types.Tuple:
+		for _, el := range v.Elems {
+			if !canEqVisited(prog, el, seen) {
+				return false
+			}
+		}
+		return true
 	default:
 		return false
 	}
+}
+
+// CanCmpType reports whether values of type t support 3-way ordering comparison.
+func CanCmpType(prog *ir.Program, t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	if prog.Checked != nil && prog.Checked.LookupConcreteMethod(t, "cmp") != nil {
+		return true
+	}
+	if p, isPrim := t.(*types.Primitive); isPrim {
+		return p.IsNumeric() || p.Kind == types.PrimBool || p.Kind == types.PrimChar || p.Kind == types.PrimString
+	}
+	switch v := t.(type) {
+	case *types.Distinct:
+		return CanCmpType(prog, v.Base)
+	case *types.Enum:
+		return !v.IsTagged
+	case *types.Tuple:
+		if len(v.Elems) == 0 {
+			return false
+		}
+		for _, el := range v.Elems {
+			if !CanCmpType(prog, el) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // CanHashType reports whether values of type t support hashing.
@@ -79,6 +107,14 @@ func CanHashType(prog *ir.Program, t types.Type) bool {
 	}
 	if d, ok := t.(*types.Distinct); ok {
 		return CanHashType(prog, d.Base)
+	}
+	if tup, ok := t.(*types.Tuple); ok {
+		for _, el := range tup.Elems {
+			if !CanHashType(prog, el) {
+				return false
+			}
+		}
+		return true
 	}
 	return false
 }
@@ -106,17 +142,8 @@ func canToStringVisited(prog *ir.Program, t types.Type, seen map[types.Type]bool
 		}
 		seen[v] = true
 		for _, vr := range v.Variants {
-			switch vr.Kind {
-			case types.VariantTuple:
-				if vr.Payload != nil && !canToStringVisited(prog, vr.Payload, seen) {
-					return false
-				}
-			case types.VariantStruct:
-				for _, sf := range vr.Fields {
-					if !canToStringVisited(prog, sf.Type, seen) {
-						return false
-					}
-				}
+			if vr.Kind == types.VariantTuple && vr.Payload != nil && !canToStringVisited(prog, vr.Payload, seen) {
+				return false
 			}
 		}
 		return true
@@ -126,6 +153,13 @@ func canToStringVisited(prog *ir.Program, t types.Type, seen map[types.Type]bool
 		return canToStringVisited(prog, v.Elem, seen)
 	case *types.StackArray:
 		return canToStringVisited(prog, v.Elem, seen)
+	case *types.Tuple:
+		for _, el := range v.Elems {
+			if !canToStringVisited(prog, el, seen) {
+				return false
+			}
+		}
+		return true
 	case *types.Set:
 		return canToStringVisited(prog, v.Elem, seen)
 	case *types.Map:
@@ -198,17 +232,8 @@ func (g *llvmEmitter) canEqVisited(t types.Type, seen map[types.Type]bool) bool 
 		}
 		seen[v] = true
 		for _, vr := range v.Variants {
-			switch vr.Kind {
-			case types.VariantTuple:
-				if vr.Payload != nil && !g.canEqVisited(vr.Payload, seen) {
-					return false
-				}
-			case types.VariantStruct:
-				for _, f := range vr.Fields {
-					if !g.canEqVisited(f.Type, seen) {
-						return false
-					}
-				}
+			if vr.Kind == types.VariantTuple && vr.Payload != nil && !g.canEqVisited(vr.Payload, seen) {
+				return false
 			}
 		}
 		return true
@@ -392,6 +417,7 @@ entry:
 	g.funcSet["ll_panic_cstr"] = true
 	g.funcSet["ll_check_bounds"] = true
 	g.funcSet["ll_hash_mix64"] = true
+	g.funcSet["ll_hash_combine"] = true
 
 	g.line(`define internal ptr @ll_alloc(i64 %%size) {
 entry:
@@ -561,6 +587,17 @@ entry:
     %%s3 = lshr i64 %%m2, 31
     %%x3 = xor i64 %%m2, %%s3
     ret i64 %%x3
+}
+
+define internal i64 @ll_hash_combine(i64 %%seed, i64 %%v) {
+entry:
+    %%t1 = add i64 %%v, -7046029254386353131
+    %%s1 = shl i64 %%seed, 6
+    %%s2 = lshr i64 %%seed, 2
+    %%t2 = add i64 %%t1, %%s1
+    %%t3 = add i64 %%t2, %%s2
+    %%res = xor i64 %%seed, %%t3
+    ret i64 %%res
 }
 `, oomSym, oomReallocSym, leakEnvSym, oneSym, leakMsgSym, unkSym, emptySym, panicCstrJmpFmt, panicCstrErrFmt, unkSym, boundsJmpFmt, boundsFmt)
 
@@ -3006,7 +3043,7 @@ func (g *llvmEmitter) emitSynthesizedHelpersLLVM() {
 		case *types.Struct:
 			g.emitStructHelpersLLVM(v)
 			if v.BoxedOptional {
-				g.emitOptionalHelpersLLVM(&types.Optional{Elem: v})
+				g.emitOptionalHelpersLLVM(types.NewOptional(v))
 			}
 		case *types.Enum:
 			if v.IsTagged {
@@ -3018,6 +3055,8 @@ func (g *llvmEmitter) emitSynthesizedHelpersLLVM() {
 			g.emitVectorHelpersLLVM(v)
 		case *types.StackArray:
 			g.emitStackArrayHelpersLLVM(v)
+		case *types.Tuple:
+			g.emitTupleHelpersLLVM(v)
 		case *types.Set:
 			g.emitSetHelpersLLVM(v)
 		case *types.Map:
@@ -3101,6 +3140,61 @@ func (g *llvmEmitter) emitValueCopyInline(dstPtr, srcPtr string, t types.Type) {
 	}
 	fn := "ll_copy_p__" + t.Mangled()
 	g.indentLine(1, "call void @%s(ptr %s, ptr %s)", fn, dstPtr, srcPtr)
+}
+
+func (g *llvmEmitter) emitValueCmpInline(ptrA, ptrB string, t types.Type) string {
+	if customCmp := g.prog.Checked.LookupConcreteMethod(t, "cmp"); customCmp != nil {
+		tyStr := g.llvmType(t)
+		al := g.typeAlign(t)
+		a := g.newReg()
+		b := g.newReg()
+		c := g.newReg()
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", a, tyStr, ptrA, al)
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", b, tyStr, ptrB, al)
+		g.indentLine(1, "%s = call i64 @%s(%s %s, %s %s)", c, customCmp.CName, tyStr, a, tyStr, b)
+		return c
+	}
+	if p, isPrim := t.(*types.Primitive); isPrim {
+		if p.Kind == types.PrimString {
+			g.declareHelper("ll_str_cmp_p", "i64", "ptr, ptr")
+			r := g.newReg()
+			g.indentLine(1, "%s = call i64 @ll_str_cmp_p(ptr %s, ptr %s)", r, ptrA, ptrB)
+			return r
+		}
+		tyStr := g.llvmType(p)
+		al := g.typeAlign(p)
+		a := g.newReg()
+		b := g.newReg()
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", a, tyStr, ptrA, al)
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", b, tyStr, ptrB, al)
+		lt := g.newReg()
+		gt := g.newReg()
+		extLt := g.newReg()
+		extGt := g.newReg()
+		diff := g.newReg()
+		if p.IsFloat() {
+			g.indentLine(1, "%s = fcmp olt %s %s, %s", lt, tyStr, a, b)
+			g.indentLine(1, "%s = fcmp ogt %s %s, %s", gt, tyStr, a, b)
+		} else if p.IsUnsignedInt() {
+			g.indentLine(1, "%s = icmp ult %s %s, %s", lt, tyStr, a, b)
+			g.indentLine(1, "%s = icmp ugt %s %s, %s", gt, tyStr, a, b)
+		} else {
+			g.indentLine(1, "%s = icmp slt %s %s, %s", lt, tyStr, a, b)
+			g.indentLine(1, "%s = icmp sgt %s %s, %s", gt, tyStr, a, b)
+		}
+		g.indentLine(1, "%s = zext i1 %s to i64", extLt, lt)
+		g.indentLine(1, "%s = zext i1 %s to i64", extGt, gt)
+		g.indentLine(1, "%s = sub i64 %s, %s", diff, extGt, extLt)
+		return diff
+	}
+	if d, isDist := t.(*types.Distinct); isDist {
+		return g.emitValueCmpInline(ptrA, ptrB, d.Base)
+	}
+	fn := "ll_cmp_p__" + t.Mangled()
+	g.declareHelper(fn, "i64", "ptr, ptr")
+	r := g.newReg()
+	g.indentLine(1, "%s = call i64 @%s(ptr %s, ptr %s)", r, fn, ptrA, ptrB)
+	return r
 }
 
 func (g *llvmEmitter) emitValueEqInline(ptrA, ptrB string, t types.Type) string {
@@ -3644,6 +3738,33 @@ entry:
 }`, mangled, tyStr, tyStr, tyStr, al, tyStr, al, tyStr, al, tyStr, al, mangled)
 	}
 
+	if CanCmpType(g.prog, d) {
+		g.funcSet["ll_cmp_p__"+mangled] = true
+		g.funcSet["ll_cmp__"+mangled] = true
+		g.nextRegID = 0
+		g.line("define internal i64 @ll_cmp_p__%s(ptr %%a, ptr %%b) {", mangled)
+		g.line("entry:")
+		if customCmp := g.prog.Checked.LookupConcreteMethod(d, "cmp"); customCmp != nil {
+			g.indentLine(1, "%%va = load %s, ptr %%a, align %d", tyStr, al)
+			g.indentLine(1, "%%vb = load %s, ptr %%b, align %d", tyStr, al)
+			g.indentLine(1, "%%c = call i64 @%s(%s %%va, %s %%vb)", customCmp.CName, tyStr, tyStr)
+			g.indentLine(1, "ret i64 %%c")
+		} else {
+			r := g.emitValueCmpInline("%a", "%b", d.Base)
+			g.indentLine(1, "ret i64 %s", r)
+		}
+		g.line("}")
+		g.line(`define internal i64 @ll_cmp__%s(%s %%a, %s %%b) {
+entry:
+    %%pa = alloca %s, align %d
+    %%pb = alloca %s, align %d
+    store %s %%a, ptr %%pa, align %d
+    store %s %%b, ptr %%pb, align %d
+    %%r = call i64 @ll_cmp_p__%s(ptr %%pa, ptr %%pb)
+    ret i64 %%r
+}`, mangled, tyStr, tyStr, tyStr, al, tyStr, al, tyStr, al, tyStr, al, mangled)
+	}
+
 	if CanHashType(g.prog, d) {
 		g.funcSet["ll_hash_p__"+mangled] = true
 		g.funcSet["ll_hash__"+mangled] = true
@@ -3882,20 +4003,6 @@ entry:
 	}
 }
 
-func (g *llvmEmitter) variantStructFieldOffsets(vr types.EnumVariant) []int {
-	offsets := make([]int, len(vr.Fields))
-	off := 0
-	for i, sf := range vr.Fields {
-		al := g.typeAlign(sf.Type)
-		if al > 1 && off%al != 0 {
-			off += al - (off % al)
-		}
-		offsets[i] = off
-		off += g.typeSize(sf.Type)
-	}
-	return offsets
-}
-
 func (g *llvmEmitter) emitTaggedEnumHelpersLLVM(en *types.Enum) {
 	mangled := en.Mangled()
 	tyStr := g.llvmType(en)
@@ -3929,21 +4036,8 @@ func (g *llvmEmitter) emitTaggedEnumHelpersLLVM(en *types.Enum) {
 		g.indentLine(1, "%%c.%d = icmp eq i32 %%tag, %d", i, vr.Value)
 		g.indentLine(1, "br i1 %%c.%d, label %%%s, label %%%s", i, hitLbl, nxtChk)
 		g.line("%s:", hitLbl)
-		switch vr.Kind {
-		case types.VariantTuple:
-			if !vr.Payload.IsPlain() {
-				g.emitValueDropInline("%p_data", vr.Payload)
-			}
-		case types.VariantStruct:
-			offs := g.variantStructFieldOffsets(vr)
-			for j := len(vr.Fields) - 1; j >= 0; j-- {
-				sf := vr.Fields[j]
-				if !sf.Type.IsPlain() {
-					fp := g.newReg()
-					g.indentLine(1, "%s = getelementptr inbounds i8, ptr %%p_data, i64 %d", fp, offs[j])
-					g.emitValueDropInline(fp, sf.Type)
-				}
-			}
+		if vr.Kind == types.VariantTuple && !vr.Payload.IsPlain() {
+			g.emitValueDropInline("%p_data", vr.Payload)
 		}
 		g.indentLine(1, "br label %%zero_out")
 	}
@@ -3988,18 +4082,8 @@ func (g *llvmEmitter) emitTaggedEnumHelpersLLVM(en *types.Enum) {
 				g.indentLine(1, "%%c.%d = icmp eq i32 %%tag, %d", i, vr.Value)
 				g.indentLine(1, "br i1 %%c.%d, label %%%s, label %%%s", i, hitLbl, nxtChk)
 				g.line("%s:", hitLbl)
-				switch vr.Kind {
-				case types.VariantTuple:
+				if vr.Kind == types.VariantTuple {
 					g.emitValueCopyInline("%d_data", "%s_data", vr.Payload)
-				case types.VariantStruct:
-					offs := g.variantStructFieldOffsets(vr)
-					for j, sf := range vr.Fields {
-						sfp := g.newReg()
-						dfp := g.newReg()
-						g.indentLine(1, "%s = getelementptr inbounds i8, ptr %%s_data, i64 %d", sfp, offs[j])
-						g.indentLine(1, "%s = getelementptr inbounds i8, ptr %%d_data, i64 %d", dfp, offs[j])
-						g.emitValueCopyInline(dfp, sfp, sf.Type)
-					}
 				}
 				g.indentLine(1, "br label %%copy.done")
 			}
@@ -4066,23 +4150,6 @@ entry:
 				case types.VariantTuple:
 					eq := g.emitValueEqInline("%da", "%db", vr.Payload)
 					g.indentLine(1, "ret i1 %s", eq)
-				case types.VariantStruct:
-					if len(vr.Fields) == 0 {
-						g.indentLine(1, "ret i1 true")
-					} else {
-						offs := g.variantStructFieldOffsets(vr)
-						for j, sf := range vr.Fields {
-							fa := g.newReg()
-							fb := g.newReg()
-							g.indentLine(1, "%s = getelementptr inbounds i8, ptr %%da, i64 %d", fa, offs[j])
-							g.indentLine(1, "%s = getelementptr inbounds i8, ptr %%db, i64 %d", fb, offs[j])
-							feq := g.emitValueEqInline(fa, fb, sf.Type)
-							fnxt := fmt.Sprintf("eq.v%d.f%d", i, j)
-							g.indentLine(1, "br i1 %s, label %%%s, label %%ret_false", feq, fnxt)
-							g.line("%s:", fnxt)
-						}
-						g.indentLine(1, "ret i1 true")
-					}
 				}
 			}
 			g.line("ret_false:")
@@ -4132,22 +4199,11 @@ entry:
 				g.indentLine(1, "br i1 %%c.%d, label %%%s, label %%%s", i, hitLbl, nxtChk)
 				g.line("%s:", hitLbl)
 				curH := "%h0"
-				switch vr.Kind {
-				case types.VariantTuple:
+				if vr.Kind == types.VariantTuple {
 					ph := g.emitValueHashInline("%p_data", vr.Payload)
 					comb := g.newReg()
 					g.indentLine(1, "%s = call i64 @ll_hash_combine(i64 %s, i64 %s)", comb, curH, ph)
 					curH = comb
-				case types.VariantStruct:
-					offs := g.variantStructFieldOffsets(vr)
-					for j, sf := range vr.Fields {
-						fp := g.newReg()
-						g.indentLine(1, "%s = getelementptr inbounds i8, ptr %%p_data, i64 %d", fp, offs[j])
-						fh := g.emitValueHashInline(fp, sf.Type)
-						comb := g.newReg()
-						g.indentLine(1, "%s = call i64 @ll_hash_combine(i64 %s, i64 %s)", comb, curH, fh)
-						curH = comb
-					}
 				}
 				g.indentLine(1, "ret i64 %s", curH)
 			}
@@ -4202,19 +4258,6 @@ entry:
 					g.emitPushLitToStrInline("%out", en.Name+"."+vr.Name+"(")
 					g.emitAppendValueToStrInline("%out", "%p_data", vr.Payload)
 					g.emitPushLitToStrInline("%out", ")")
-				case types.VariantStruct:
-					g.emitPushLitToStrInline("%out", en.Name+"."+vr.Name+"[")
-					offs := g.variantStructFieldOffsets(vr)
-					for j, sf := range vr.Fields {
-						if j > 0 {
-							g.emitPushLitToStrInline("%out", ", ")
-						}
-						g.emitPushLitToStrInline("%out", sf.Name+": ")
-						fp := g.newReg()
-						g.indentLine(1, "%s = getelementptr inbounds i8, ptr %%p_data, i64 %d", fp, offs[j])
-						g.emitAppendValueToStrInline("%out", fp, sf.Type)
-					}
-					g.emitPushLitToStrInline("%out", "]")
 				}
 				g.indentLine(1, "ret void")
 			}
@@ -4895,13 +4938,49 @@ entry:
 	}
 }
 
+func (g *llvmEmitter) emitStoreOptSome(outPtr, src string, srcIsPtr bool, elem types.Type, opt *types.Optional) {
+	elemTyStr := g.llvmType(elem)
+	elemAlign := g.typeAlign(elem)
+	optTyStr := g.llvmType(opt)
+	storeInto := func(dstPtr string) {
+		if srcIsPtr {
+			g.emitValueCopyInline(dstPtr, src, elem)
+		} else {
+			g.indentLine(1, "store %s %s, ptr %s, align %d", elemTyStr, src, dstPtr, elemAlign)
+		}
+	}
+	// Nested optionals flatten (`?(?T) -> ?T`), so an `?T` element is stored directly.
+	if _, elemIsOpt := elem.(*types.Optional); elemIsOpt {
+		storeInto(outPtr)
+		return
+	}
+	if opt.IsBoxed() {
+		szP := g.newReg()
+		sz := g.newReg()
+		box := g.newReg()
+		g.indentLine(1, "%s = getelementptr %s, ptr null, i64 1", szP, elemTyStr)
+		g.indentLine(1, "%s = ptrtoint ptr %s to i64", sz, szP)
+		g.indentLine(1, "%s = call ptr @ll_alloc(i64 %s)", box, sz)
+		storeInto(box)
+		g.indentLine(1, "store ptr %s, ptr %s, align 8", box, outPtr)
+		return
+	}
+	oHas := g.newReg()
+	oVal := g.newReg()
+	g.indentLine(1, "store %s zeroinitializer, ptr %s, align 8", optTyStr, outPtr)
+	g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 0", oHas, optTyStr, outPtr)
+	g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 1", oVal, optTyStr, outPtr)
+	g.indentLine(1, "store i1 true, ptr %s, align 1", oHas)
+	storeInto(oVal)
+}
+
 func (g *llvmEmitter) emitVectorMethodsLLVM(vec *types.Vector) {
 	mangled := vec.Mangled()
 	tyStr := g.llvmType(vec)
 	elem := vec.Elem
 	elemTyStr := g.llvmType(elem)
 	elemAlign := g.typeAlign(elem)
-	optElem := &types.Optional{Elem: elem}
+	optElem := types.NewOptional(elem)
 	optTyStr := g.llvmType(optElem)
 	sliceOobSym := g.internString("vector slice bounds out of range").symbol
 
@@ -4916,6 +4995,9 @@ func (g *llvmEmitter) emitVectorMethodsLLVM(vec *types.Vector) {
 		"ll_vec_reserve__" + mangled,
 		"ll_vec_remove__" + mangled,
 		"ll_vec_swap_remove__" + mangled,
+	}
+	if CanCopyType(g.prog, elem) {
+		fns = append(fns, "ll_vec_get__"+mangled)
 	}
 	for _, fn := range fns {
 		g.funcSet[fn] = true
@@ -5044,19 +5126,7 @@ entry:
 	g.indentLine(1, "%%ep = getelementptr inbounds %s, ptr %%data, i64 %%nlen", elemTyStr)
 	g.indentLine(1, "%%val = load %s, ptr %%ep, align %d", elemTyStr, elemAlign)
 	g.indentLine(1, "store %s zeroinitializer, ptr %%ep, align %d", elemTyStr, elemAlign)
-	if optElem.IsBoxed() {
-		g.indentLine(1, "%%sz_p = getelementptr %s, ptr null, i64 1", elemTyStr)
-		g.indentLine(1, "%%sz = ptrtoint ptr %%sz_p to i64")
-		g.indentLine(1, "%%box = call ptr @ll_alloc(i64 %%sz)")
-		g.indentLine(1, "store %s %%val, ptr %%box, align %d", elemTyStr, elemAlign)
-		g.indentLine(1, "store ptr %%box, ptr %%out, align 8")
-	} else {
-		g.indentLine(1, "store %s zeroinitializer, ptr %%out, align 8", optTyStr)
-		g.indentLine(1, "%%o_has = getelementptr inbounds %s, ptr %%out, i32 0, i32 0", optTyStr)
-		g.indentLine(1, "%%o_val = getelementptr inbounds %s, ptr %%out, i32 0, i32 1", optTyStr)
-		g.indentLine(1, "store i1 true, ptr %%o_has, align 1")
-		g.indentLine(1, "store %s %%val, ptr %%o_val, align %d", elemTyStr, elemAlign)
-	}
+	g.emitStoreOptSome("%out", "%val", false, elem, optElem)
 	g.indentLine(1, "ret void")
 	g.line("}")
 
@@ -5067,6 +5137,41 @@ entry:
     %%r = load %s, ptr %%out, align 8
     ret %s %%r
 }`, optTyStr, mangled, optTyStr, mangled, optTyStr, optTyStr)
+
+	if CanCopyType(g.prog, elem) {
+		g.nextRegID = 0
+		g.line("define internal %s @ll_vec_get__%s(%s %%v, i64 %%idx) {", optTyStr, mangled, tyStr)
+		g.line("entry:")
+		g.indentLine(1, "%%out = alloca %s, align 8", optTyStr)
+		g.indentLine(1, "%%vec_slot = alloca %s, align 8", tyStr)
+		g.indentLine(1, "store %s %%v, ptr %%vec_slot, align 8", tyStr)
+		g.indentLine(1, "%%p_data = getelementptr inbounds %s, ptr %%vec_slot, i32 0, i32 0", tyStr)
+		g.indentLine(1, "%%p_len = getelementptr inbounds %s, ptr %%vec_slot, i32 0, i32 1", tyStr)
+		g.indentLine(1, "%%data = load ptr, ptr %%p_data, align 8")
+		g.indentLine(1, "%%len = load i64, ptr %%p_len, align 8")
+		g.indentLine(1, "%%c1 = icmp sge i64 %%idx, 0")
+		g.indentLine(1, "%%c2 = icmp slt i64 %%idx, %%len")
+		g.indentLine(1, "%%ok = and i1 %%c1, %%c2")
+		g.indentLine(1, "br i1 %%ok, label %%in_bounds, label %%oob")
+		g.line("oob:")
+		if optElem.IsBoxed() {
+			g.indentLine(1, "store ptr null, ptr %%out, align 8")
+		} else {
+			g.indentLine(1, "store %s zeroinitializer, ptr %%out, align 8", optTyStr)
+		}
+		g.indentLine(1, "br label %%done")
+		g.line("in_bounds:")
+		g.indentLine(1, "%%ep = getelementptr inbounds %s, ptr %%data, i64 %%idx", elemTyStr)
+		g.indentLine(1, "%%val_slot = alloca %s, align %d", elemTyStr, elemAlign)
+		g.emitValueCopyInline("%val_slot", "%ep", elem)
+		g.indentLine(1, "%%val = load %s, ptr %%val_slot, align %d", elemTyStr, elemAlign)
+		g.emitStoreOptSome("%out", "%val", false, elem, optElem)
+		g.indentLine(1, "br label %%done")
+		g.line("done:")
+		g.indentLine(1, "%%r = load %s, ptr %%out, align 8", optTyStr)
+		g.indentLine(1, "ret %s %%r", optTyStr)
+		g.line("}")
+	}
 
 	// 4. clear
 	g.nextRegID = 0
@@ -5495,24 +5600,204 @@ entry:
 		g.line("ret_some:")
 		g.indentLine(1, "%%p_data = getelementptr inbounds %s, ptr %%a_slot, i32 0, i32 0", tyStr)
 		g.indentLine(1, "%%ep = getelementptr inbounds [%d x %s], ptr %%p_data, i64 0, i64 %%idx", arr.Size, elemTyStr)
-		if optElem.IsBoxed() {
-			g.indentLine(1, "%%sz_p = getelementptr %s, ptr null, i64 1", elemTyStr)
-			g.indentLine(1, "%%sz = ptrtoint ptr %%sz_p to i64")
-			g.indentLine(1, "%%box = call ptr @ll_alloc(i64 %%sz)")
-			g.emitValueCopyInline("%box", "%ep", elem)
-			g.indentLine(1, "store ptr %%box, ptr %%res, align 8")
-		} else {
-			g.indentLine(1, "store %s zeroinitializer, ptr %%res, align 8", optTyStr)
-			g.indentLine(1, "%%p_has = getelementptr inbounds %s, ptr %%res, i32 0, i32 0", optTyStr)
-			g.indentLine(1, "%%p_val = getelementptr inbounds %s, ptr %%res, i32 0, i32 1", optTyStr)
-			g.indentLine(1, "store i1 true, ptr %%p_has, align 1")
-			g.emitValueCopyInline("%p_val", "%ep", elem)
-		}
+		g.emitStoreOptSome("%res", "%ep", true, elem, optElem)
 		g.indentLine(1, "br label %%finish")
 		g.line("finish:")
 		g.indentLine(1, "%%out = load %s, ptr %%res, align 8", optTyStr)
 		g.indentLine(1, "ret %s %%out", optTyStr)
 		g.line("}")
+	}
+}
+
+func (g *llvmEmitter) emitTupleHelpersLLVM(tup *types.Tuple) {
+	mangled := tup.Mangled()
+	tyStr := g.llvmType(tup)
+	al := g.typeAlign(tup)
+
+	// 1. Drop
+	if !tup.IsPlain() {
+		g.funcSet["ll_drop__"+mangled] = true
+		g.nextRegID = 0
+		g.line("define internal void @ll_drop__%s(ptr %%p) {", mangled)
+		g.line("entry:")
+		g.indentLine(1, "%%is_null = icmp eq ptr %%p, null")
+		g.indentLine(1, "br i1 %%is_null, label %%done, label %%do_drop")
+		g.line("do_drop:")
+		for i := len(tup.Elems) - 1; i >= 0; i-- {
+			el := tup.Elems[i]
+			if !el.IsPlain() {
+				fp := g.newReg()
+				g.indentLine(1, "%s = getelementptr inbounds %s, ptr %%p, i32 0, i32 %d", fp, tyStr, i)
+				g.emitValueDropInline(fp, el)
+			}
+		}
+		g.indentLine(1, "store %s zeroinitializer, ptr %%p, align %d", tyStr, al)
+		g.indentLine(1, "br label %%done")
+		g.line("done:")
+		g.indentLine(1, "ret void")
+		g.line("}")
+	}
+
+	// 2. Copy
+	if CanCopyType(g.prog, tup) {
+		g.funcSet["ll_copy_p__"+mangled] = true
+		g.funcSet["ll_copy__"+mangled] = true
+		g.nextRegID = 0
+		g.line("define internal void @ll_copy_p__%s(ptr %%dst, ptr %%src) {", mangled)
+		g.line("entry:")
+		g.indentLine(1, "store %s zeroinitializer, ptr %%dst, align %d", tyStr, al)
+		for i, el := range tup.Elems {
+			sf := g.newReg()
+			df := g.newReg()
+			g.indentLine(1, "%s = getelementptr inbounds %s, ptr %%src, i32 0, i32 %d", sf, tyStr, i)
+			g.indentLine(1, "%s = getelementptr inbounds %s, ptr %%dst, i32 0, i32 %d", df, tyStr, i)
+			g.emitValueCopyInline(df, sf, el)
+		}
+		g.indentLine(1, "ret void")
+		g.line("}")
+		g.line(`define internal %s @ll_copy__%s(%s %%v) {
+entry:
+    %%src = alloca %s, align %d
+    %%dst = alloca %s, align %d
+    store %s %%v, ptr %%src, align %d
+    call void @ll_copy_p__%s(ptr %%dst, ptr %%src)
+    %%r = load %s, ptr %%dst, align %d
+    ret %s %%r
+}`, tyStr, mangled, tyStr, tyStr, al, tyStr, al, tyStr, al, mangled, tyStr, al, tyStr)
+	}
+
+	// 3. Eq
+	if CanEqType(g.prog, tup) {
+		g.funcSet["ll_eq_p__"+mangled] = true
+		g.funcSet["ll_eq__"+mangled] = true
+		g.nextRegID = 0
+		g.line("define internal i1 @ll_eq_p__%s(ptr %%a, ptr %%b) {", mangled)
+		g.line("entry:")
+		if len(tup.Elems) == 0 {
+			g.indentLine(1, "ret i1 true")
+		} else {
+			for i, el := range tup.Elems {
+				fa := g.newReg()
+				fb := g.newReg()
+				g.indentLine(1, "%s = getelementptr inbounds %s, ptr %%a, i32 0, i32 %d", fa, tyStr, i)
+				g.indentLine(1, "%s = getelementptr inbounds %s, ptr %%b, i32 0, i32 %d", fb, tyStr, i)
+				eq := g.emitValueEqInline(fa, fb, el)
+				nxtLbl := fmt.Sprintf("eq.next.%d", i)
+				g.indentLine(1, "br i1 %s, label %%%s, label %%ret_false", eq, nxtLbl)
+				g.line("%s:", nxtLbl)
+			}
+			g.indentLine(1, "ret i1 true")
+			g.line("ret_false:")
+			g.indentLine(1, "ret i1 false")
+		}
+		g.line("}")
+		g.line(`define internal i1 @ll_eq__%s(%s %%a, %s %%b) {
+entry:
+    %%pa = alloca %s, align %d
+    %%pb = alloca %s, align %d
+    store %s %%a, ptr %%pa, align %d
+    store %s %%b, ptr %%pb, align %d
+    %%r = call i1 @ll_eq_p__%s(ptr %%pa, ptr %%pb)
+    ret i1 %%r
+}`, mangled, tyStr, tyStr, tyStr, al, tyStr, al, tyStr, al, tyStr, al, mangled)
+	}
+
+	// 4. Hash
+	if CanHashType(g.prog, tup) {
+		g.funcSet["ll_hash_p__"+mangled] = true
+		g.funcSet["ll_hash__"+mangled] = true
+		g.nextRegID = 0
+		g.line("define internal i64 @ll_hash_p__%s(ptr %%p) {", mangled)
+		g.line("entry:")
+		curH := "-3750763034362895579"
+		for i, el := range tup.Elems {
+			fp := g.newReg()
+			g.indentLine(1, "%s = getelementptr inbounds %s, ptr %%p, i32 0, i32 %d", fp, tyStr, i)
+			fh := g.emitValueHashInline(fp, el)
+			comb := g.newReg()
+			g.indentLine(1, "%s = call i64 @ll_hash_combine(i64 %s, i64 %s)", comb, curH, fh)
+			curH = comb
+		}
+		g.indentLine(1, "ret i64 %s", curH)
+		g.line("}")
+		g.line(`define internal i64 @ll_hash__%s(%s %%v) {
+entry:
+    %%p = alloca %s, align %d
+    store %s %%v, ptr %%p, align %d
+    %%h = call i64 @ll_hash_p__%s(ptr %%p)
+    ret i64 %%h
+}`, mangled, tyStr, tyStr, al, tyStr, al, mangled)
+	}
+
+	// 5. ToString
+	if CanToStringType(g.prog, tup) {
+		g.funcSet["ll_tostr_p__"+mangled] = true
+		g.funcSet["ll_tostr__"+mangled] = true
+		g.nextRegID = 0
+		g.line("define internal void @ll_tostr_p__%s(ptr %%out, ptr %%p) {", mangled)
+		g.line("entry:")
+		g.indentLine(1, "store %%struct.ll_string zeroinitializer, ptr %%out, align 8")
+		g.emitPushLitToStrInline("%out", "+[")
+		for i, el := range tup.Elems {
+			if i > 0 {
+				g.emitPushLitToStrInline("%out", ", ")
+			}
+			fp := g.newReg()
+			g.indentLine(1, "%s = getelementptr inbounds %s, ptr %%p, i32 0, i32 %d", fp, tyStr, i)
+			g.emitAppendValueToStrInline("%out", fp, el)
+		}
+		g.emitPushLitToStrInline("%out", "]")
+		g.indentLine(1, "ret void")
+		g.line("}")
+		g.line(`define internal %%struct.ll_string @ll_tostr__%s(%s %%v) {
+entry:
+    %%p = alloca %s, align %d
+    %%out = alloca %%struct.ll_string, align 8
+    store %s %%v, ptr %%p, align %d
+    call void @ll_tostr_p__%s(ptr %%out, ptr %%p)
+    %%r = load %%struct.ll_string, ptr %%out, align 8
+    ret %%struct.ll_string %%r
+}`, mangled, tyStr, tyStr, al, tyStr, al, mangled)
+	}
+
+	// 6. Cmp
+	if CanCmpType(g.prog, tup) {
+		g.funcSet["ll_cmp_p__"+mangled] = true
+		g.funcSet["ll_cmp__"+mangled] = true
+		g.nextRegID = 0
+		g.line("define internal i64 @ll_cmp_p__%s(ptr %%a, ptr %%b) {", mangled)
+		g.line("entry:")
+		if len(tup.Elems) == 0 {
+			g.indentLine(1, "ret i64 0")
+		} else {
+			for i, el := range tup.Elems {
+				sfA := g.newReg()
+				sfB := g.newReg()
+				g.indentLine(1, "%s = getelementptr inbounds %s, ptr %%a, i32 0, i32 %d", sfA, tyStr, i)
+				g.indentLine(1, "%s = getelementptr inbounds %s, ptr %%b, i32 0, i32 %d", sfB, tyStr, i)
+				cRes := g.emitValueCmpInline(sfA, sfB, el)
+				cond := g.newReg()
+				g.indentLine(1, "%s = icmp ne i64 %s, 0", cond, cRes)
+				lRet := g.newBlockLabel(fmt.Sprintf("cmp.ret.%d", i))
+				lNext := g.newBlockLabel(fmt.Sprintf("cmp.next.%d", i))
+				g.indentLine(1, "br i1 %s, label %%%s, label %%%s", cond, lRet, lNext)
+				g.isTerminated = true
+				g.emitLabel(lRet)
+				g.indentLine(1, "ret i64 %s", cRes)
+				g.emitLabel(lNext)
+			}
+			g.indentLine(1, "ret i64 0")
+		}
+		g.line("}")
+		g.line(`define internal i64 @ll_cmp__%s(%s %%a, %s %%b) {
+entry:
+    %%pA = alloca %s, align %d
+    store %s %%a, ptr %%pA, align %d
+    %%pB = alloca %s, align %d
+    store %s %%b, ptr %%pB, align %d
+    %%r = call i64 @ll_cmp_p__%s(ptr %%pA, ptr %%pB)
+    ret i64 %%r
+}`, mangled, tyStr, tyStr, tyStr, al, tyStr, al, tyStr, al, tyStr, al, mangled)
 	}
 }
 
@@ -6468,7 +6753,7 @@ func (g *llvmEmitter) emitMapMethodsLLVM(mp *types.Map) {
 	valTyStr := g.llvmType(valTy)
 	keyAlign := g.typeAlign(keyTy)
 	valAlign := g.typeAlign(valTy)
-	optVal := &types.Optional{Elem: valTy}
+	optVal := types.NewOptional(valTy)
 	optValTyStr := g.llvmType(optVal)
 
 	fns := []string{
@@ -6760,19 +7045,7 @@ entry:
 		eqGet := g.emitValueEqInline("%e_k_p", "%key", keyTy)
 		g.indentLine(1, "br i1 %s, label %%found_val, label %%probe_adv", eqGet)
 		g.line("found_val:")
-		if optVal.IsBoxed() {
-			g.indentLine(1, "%%sz_p = getelementptr %s, ptr null, i64 1", valTyStr)
-			g.indentLine(1, "%%sz = ptrtoint ptr %%sz_p to i64")
-			g.indentLine(1, "%%box = call ptr @ll_alloc(i64 %%sz)")
-			g.emitValueCopyInline("%box", "%e_v_p", valTy)
-			g.indentLine(1, "store ptr %%box, ptr %%out, align 8")
-		} else {
-			g.indentLine(1, "store %s zeroinitializer, ptr %%out, align 8", optValTyStr)
-			g.indentLine(1, "%%o_has = getelementptr inbounds %s, ptr %%out, i32 0, i32 0", optValTyStr)
-			g.indentLine(1, "%%o_val = getelementptr inbounds %s, ptr %%out, i32 0, i32 1", optValTyStr)
-			g.indentLine(1, "store i1 true, ptr %%o_has, align 1")
-			g.emitValueCopyInline("%o_val", "%e_v_p", valTy)
-		}
+		g.emitStoreOptSome("%out", "%e_v_p", true, valTy, optVal)
 		g.indentLine(1, "ret void")
 		g.line("probe_adv:")
 		g.indentLine(1, "%%b_nxt_raw = add i64 %%b_cur, 1")
@@ -6923,19 +7196,7 @@ entry:
 	g.indentLine(1, "store i64 -2, ptr %%bp, align 8")
 	g.indentLine(1, "%%nlen = sub i64 %%len, 1")
 	g.indentLine(1, "store i64 %%nlen, ptr %%p_len, align 8")
-	if optVal.IsBoxed() {
-		g.indentLine(1, "%%sz_p = getelementptr %s, ptr null, i64 1", valTyStr)
-		g.indentLine(1, "%%sz = ptrtoint ptr %%sz_p to i64")
-		g.indentLine(1, "%%box = call ptr @ll_alloc(i64 %%sz)")
-		g.indentLine(1, "store %s %%v_mv, ptr %%box, align %d", valTyStr, valAlign)
-		g.indentLine(1, "store ptr %%box, ptr %%out, align 8")
-	} else {
-		g.indentLine(1, "store %s zeroinitializer, ptr %%out, align 8", optValTyStr)
-		g.indentLine(1, "%%o_has = getelementptr inbounds %s, ptr %%out, i32 0, i32 0", optValTyStr)
-		g.indentLine(1, "%%o_val = getelementptr inbounds %s, ptr %%out, i32 0, i32 1", optValTyStr)
-		g.indentLine(1, "store i1 true, ptr %%o_has, align 1")
-		g.indentLine(1, "store %s %%v_mv, ptr %%o_val, align %d", valTyStr, valAlign)
-	}
+	g.emitStoreOptSome("%out", "%v_mv", false, valTy, optVal)
 	g.indentLine(1, "ret void")
 	g.line("probe_adv:")
 	g.indentLine(1, "%%b_nxt_raw = add i64 %%b_cur, 1")

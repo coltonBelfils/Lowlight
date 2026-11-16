@@ -305,8 +305,15 @@ type Vector struct {
 func (v *Vector) String() string  { return "[" + v.Elem.String() + "]" }
 func (v *Vector) Mangled() string { return "vec_" + v.Elem.Mangled() }
 func (v *Vector) Equals(other Type) bool {
-	o, ok := other.(*Vector)
-	return ok && v.Elem.Equals(o.Elem)
+	if o, ok := other.(*Vector); ok {
+		return v.Elem.Equals(o.Elem)
+	}
+	if st, ok := other.(*Struct); ok {
+		if (st.Name == "List" || strings.HasPrefix(st.Name, "List[")) && len(st.TypeArgs) == 1 {
+			return v.Elem.Equals(st.TypeArgs[0])
+		}
+	}
+	return false
 }
 func (v *Vector) IsPlain() bool { return false }
 
@@ -319,8 +326,18 @@ type StackArray struct {
 func (a *StackArray) String() string  { return fmt.Sprintf("[%d: %s]", a.Size, a.Elem.String()) }
 func (a *StackArray) Mangled() string { return fmt.Sprintf("arr%d_%s", a.Size, a.Elem.Mangled()) }
 func (a *StackArray) Equals(other Type) bool {
-	o, ok := other.(*StackArray)
-	return ok && a.Size == o.Size && a.Elem.Equals(o.Elem)
+	if o, ok := other.(*StackArray); ok {
+		return (a.Size == 0 || o.Size == 0 || a.Size == o.Size) && a.Elem.Equals(o.Elem)
+	}
+	if st, ok := other.(*Struct); ok {
+		if (st.Name == "Array" || strings.HasPrefix(st.Name, "Array[")) && len(st.TypeArgs) >= 1 {
+			if len(st.TypeArgs) == 2 {
+				return a.Elem.Equals(st.TypeArgs[1])
+			}
+			return a.Elem.Equals(st.TypeArgs[0])
+		}
+	}
+	return false
 }
 func (a *StackArray) IsPlain() bool { return a.Elem.IsPlain() }
 
@@ -350,6 +367,61 @@ func (m *Map) Equals(other Type) bool {
 	return ok && m.Key.Equals(o.Key) && m.Value.Equals(o.Value)
 }
 func (m *Map) IsPlain() bool { return false }
+
+// Tuple represents `+[T0, T1, ...]`.
+type Tuple struct {
+	Elems []Type
+}
+
+func NewTuple(elems []Type) *Tuple {
+	return &Tuple{Elems: elems}
+}
+
+func (t *Tuple) String() string {
+	var sb strings.Builder
+	sb.WriteString("+[")
+	for i, e := range t.Elems {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(e.String())
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func (t *Tuple) Mangled() string {
+	var sb strings.Builder
+	sb.WriteString("tup")
+	sb.WriteString(fmt.Sprintf("%d", len(t.Elems)))
+	for _, e := range t.Elems {
+		sb.WriteString("_")
+		sb.WriteString(e.Mangled())
+	}
+	return sb.String()
+}
+
+func (t *Tuple) Equals(other Type) bool {
+	o, ok := other.(*Tuple)
+	if !ok || len(t.Elems) != len(o.Elems) {
+		return false
+	}
+	for i, e := range t.Elems {
+		if !e.Equals(o.Elems[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func (t *Tuple) IsPlain() bool {
+	for _, e := range t.Elems {
+		if !e.IsPlain() {
+			return false
+		}
+	}
+	return true
+}
 
 // Ptr represents a raw pointer `ptr[Elem]` (dereference/ops require `unsafe`).
 type Ptr struct {
@@ -418,8 +490,23 @@ func (s *Struct) String() string {
 func (s *Struct) Mangled() string { return s.CName }
 
 func (s *Struct) Equals(other Type) bool {
-	o, ok := other.(*Struct)
-	return ok && s == o
+	if o, ok := other.(*Struct); ok {
+		return s == o
+	}
+	if v, ok := other.(*Vector); ok {
+		if (s.Name == "List" || strings.HasPrefix(s.Name, "List[")) && len(s.TypeArgs) == 1 {
+			return s.TypeArgs[0].Equals(v.Elem)
+		}
+	}
+	if arr, ok := other.(*StackArray); ok {
+		if (s.Name == "Array" || strings.HasPrefix(s.Name, "Array[")) && len(s.TypeArgs) >= 1 {
+			if len(s.TypeArgs) == 2 {
+				return s.TypeArgs[1].Equals(arr.Elem)
+			}
+			return s.TypeArgs[0].Equals(arr.Elem)
+		}
+	}
+	return false
 }
 
 func (s *Struct) IsPlain() bool {
@@ -458,9 +545,8 @@ func (s *Struct) FieldByName(name string) (*StructField, int) {
 type EnumVariantKind int
 
 const (
-	VariantUnit   EnumVariantKind = iota // `Empty`
-	VariantTuple                         // `Ok: T`
-	VariantStruct                        // `Add: [left: ref[Expr], right: ref[Expr]]`
+	VariantUnit  EnumVariantKind = iota // `Empty`
+	VariantTuple                        // `Ok: T`
 )
 
 // EnumVariant describes a variant in a pure tag enum or a tagged union enum.
@@ -469,17 +555,7 @@ type EnumVariant struct {
 	CName   string
 	Value   int64 // 0-based (or explicit) for pure tag enums; 1..N for tagged unions (0 = inert moved/dropped sentinel)
 	Kind    EnumVariantKind
-	Payload Type          // non-nil for VariantTuple
-	Fields  []StructField // populated for VariantStruct
-}
-
-func (v *EnumVariant) FieldByName(name string) (*StructField, int) {
-	for i := range v.Fields {
-		if v.Fields[i].Name == name {
-			return &v.Fields[i], i
-		}
-	}
-	return nil, -1
+	Payload Type // non-nil for VariantTuple
 }
 
 // Enum represents a strongly-typed tag enum (`define Status enum ...`)
@@ -535,18 +611,8 @@ func (e *Enum) IsPlain() bool {
 	e.plainVisiting = true
 	res := true
 	for _, v := range e.Variants {
-		switch v.Kind {
-		case VariantTuple:
-			if v.Payload != nil && !v.Payload.IsPlain() {
-				res = false
-			}
-		case VariantStruct:
-			for _, f := range v.Fields {
-				if !f.Type.IsPlain() {
-					res = false
-					break
-				}
-			}
+		if v.Kind == VariantTuple && v.Payload != nil && !v.Payload.IsPlain() {
+			res = false
 		}
 		if !res {
 			break
@@ -653,7 +719,7 @@ func (f *Func) String() string {
 	if f.Ret == nil || f.Ret.Equals(TypeVoid) {
 		return "(" + strings.Join(ps, ", ") + ")"
 	}
-	return fmt.Sprintf("(%s): %s", strings.Join(ps, ", "), f.Ret.String())
+	return fmt.Sprintf("(%s) %s", strings.Join(ps, ", "), f.Ret.String())
 }
 
 func (f *Func) Mangled() string {
@@ -769,6 +835,13 @@ func IsHashable(t Type) bool {
 		return true
 	case *Distinct:
 		return IsHashable(v.Base)
+	case *Tuple:
+		for _, el := range v.Elems {
+			if !IsHashable(el) {
+				return false
+			}
+		}
+		return true
 	default:
 		return false
 	}
@@ -791,17 +864,8 @@ func supportsEqVisited(t Type, seen map[Type]bool) bool {
 		}
 		seen[v] = true
 		for _, vr := range v.Variants {
-			switch vr.Kind {
-			case VariantTuple:
-				if vr.Payload != nil && !supportsEqVisited(vr.Payload, seen) {
-					return false
-				}
-			case VariantStruct:
-				for _, f := range vr.Fields {
-					if !supportsEqVisited(f.Type, seen) {
-						return false
-					}
-				}
+			if vr.Kind == VariantTuple && vr.Payload != nil && !supportsEqVisited(vr.Payload, seen) {
+				return false
 			}
 		}
 		return true
@@ -809,6 +873,13 @@ func supportsEqVisited(t Type, seen map[Type]bool) bool {
 		return supportsEqVisited(v.Base, seen)
 	case *Optional:
 		return supportsEqVisited(v.Elem, seen)
+	case *Tuple:
+		for _, el := range v.Elems {
+			if !supportsEqVisited(el, seen) {
+				return false
+			}
+		}
+		return true
 	case *Struct:
 		if seen[v] {
 			return true
@@ -844,6 +915,13 @@ func containsRefVisited(t Type, seen map[Type]bool) bool {
 		return containsRefVisited(v.Elem, seen)
 	case *Map:
 		return containsRefVisited(v.Key, seen) || containsRefVisited(v.Value, seen)
+	case *Tuple:
+		for _, el := range v.Elems {
+			if containsRefVisited(el, seen) {
+				return true
+			}
+		}
+		return false
 	case *Distinct:
 		return containsRefVisited(v.Base, seen)
 	case *Enum:
@@ -852,17 +930,8 @@ func containsRefVisited(t Type, seen map[Type]bool) bool {
 		}
 		seen[v] = true
 		for _, vr := range v.Variants {
-			switch vr.Kind {
-			case VariantTuple:
-				if vr.Payload != nil && containsRefVisited(vr.Payload, seen) {
-					return true
-				}
-			case VariantStruct:
-				for _, f := range vr.Fields {
-					if containsRefVisited(f.Type, seen) {
-						return true
-					}
-				}
+			if vr.Kind == VariantTuple && vr.Payload != nil && containsRefVisited(vr.Payload, seen) {
+				return true
 			}
 		}
 		return false

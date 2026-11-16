@@ -14,11 +14,11 @@ define Point struct [
 ]
 
 @inline
-bind add = (a: int, b: int): int -> {
+bind add = (a: int, b: int) int: {
     a + b
 }
 
-bind main = () -> {
+bind main = (): {
     let p = Point[x: 1, y: 2]
     let res = add(p.x, p.y)
     assert(res == 3)
@@ -43,7 +43,7 @@ func TestAttributesLangItemDiagnostics(t *testing.T) {
 define CustomIf interface [
     foo: (self),
 ]
-bind main = () -> {}
+bind main = (): {}
 `,
 			expectedErr: `unknown interface lang item @lang("nonexistent_item")`,
 		},
@@ -54,7 +54,7 @@ bind main = () -> {}
 define MyStruct struct [
     x: int,
 ]
-bind main = () -> {}
+bind main = (): {}
 `,
 			expectedErr: `unknown struct lang item @lang("printable")`,
 		},
@@ -65,7 +65,7 @@ bind main = () -> {}
 define MyIface interface [
     bar: (self),
 ]
-bind main = () -> {}
+bind main = (): {}
 `,
 			expectedErr: `@lang attribute requires a string argument`,
 		},
@@ -74,9 +74,9 @@ bind main = () -> {}
 			src: `
 @lang("printable")
 define AnotherPrintable interface [
-    to_string: (self): string,
+    to_string: (self) string,
 ]
-bind main = () -> {}
+bind main = (): {}
 `,
 			expectedErr: `duplicate lang item @lang("printable")`,
 		},

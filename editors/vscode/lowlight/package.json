@@ -44,6 +44,18 @@
     ],
     "commands": [
       {
+        "command": "lowlight.goToLocation",
+        "title": "Lowlight: Go to Location"
+      },
+      {
+        "command": "lowlight.showLocations",
+        "title": "Lowlight: Show Locations"
+      },
+      {
+        "command": "lowlight.showImplementationsQuickPick",
+        "title": "Lowlight: Show Implementations Dropdown"
+      },
+      {
         "command": "lowlight.restartServer",
         "title": "Lowlight: Restart Language Server"
       },
@@ -51,6 +63,21 @@
         "command": "lowlight.runFile",
         "title": "Lowlight: Run Current File",
         "icon": "$(play)"
+      },
+      {
+        "command": "lowlight.runMain",
+        "title": "Lowlight: Run Main",
+        "icon": "$(play)"
+      },
+      {
+        "command": "lowlight.runTest",
+        "title": "Lowlight: Run Test",
+        "icon": "$(play)"
+      },
+      {
+        "command": "lowlight.runAllTests",
+        "title": "Lowlight: Run All Tests",
+        "icon": "$(beaker)"
       },
       {
         "command": "lowlight.showOutput",

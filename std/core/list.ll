@@ -11,7 +11,7 @@ define List[T] struct [
     cap: int,
 ]
 
-bind List[T].new = (): List[T] -> {
+bind List[T].new = () List[T]: {
     List[T][
         data: unsafe null_ptr[T](),
         len: 0,
@@ -19,8 +19,8 @@ bind List[T].new = (): List[T] -> {
     ]
 }
 
-bind List[T].with_capacity = (cap: int): List[T] -> {
-    let p = if (cap > 0) unsafe alloc_raw[T](cap) else unsafe null_ptr[T]()
+bind List[T].with_capacity = (cap: int) List[T]: {
+    let p = if (cap > 0): unsafe alloc_raw[T](cap) else: unsafe null_ptr[T]()
     List[T][
         data: p,
         len: 0,
@@ -28,16 +28,16 @@ bind List[T].with_capacity = (cap: int): List[T] -> {
     ]
 }
 
-bind List[T].len = (self): int -> { self.len }
-bind List[T].cap = (self): int -> { self.cap }
-bind List[T].is_empty = (self): bool -> { self.len == 0 }
+bind List[T].len = (self) int: { self.len }
+bind List[T].cap = (self) int: { self.cap }
+bind List[T].is_empty = (self) bool: { self.len == 0 }
 
-bind List[T].push = (&self, item: own T) -> {
-    if (self.len + 1 > self.cap) {
-        let ncap = if (self.cap > 0) self.cap * 2 else 4
+bind List[T].push = (&self, item: own T): {
+    if (self.len + 1 > self.cap): {
+        let ncap = if (self.cap > 0): self.cap * 2 else: 4
         let nd = unsafe {
-            if (self.cap == 0) alloc_raw[T](ncap)
-            else realloc_raw(self.data, ncap)
+            if (self.cap == 0): alloc_raw[T](ncap)
+            else: realloc_raw(self.data, ncap)
         }
         self.data = nd
         self.cap = ncap
@@ -46,8 +46,8 @@ bind List[T].push = (&self, item: own T) -> {
     self.len += 1
 }
 
-bind List[T].pop = (&self): ?T -> {
-    if (self.len <= 0) func <- none
+bind List[T].pop = (&self) ?T: {
+    if (self.len <= 0): func <- none
     self.len -= 1
     unsafe {
         let val = ptr_read(ptr_add(self.data, self.len))
@@ -55,17 +55,28 @@ bind List[T].pop = (&self): ?T -> {
     }
 }
 
-bind List[T].get = (self, idx: int): ?T -> {
-    if (idx < 0 or idx >= self.len) func <- none
+bind List[T].get = (self, idx: int) ?T: {
+    if (idx < 0 or idx >= self.len): func <- none
     unsafe {
         self.data[idx].copy()
     }
 }
 
-bind List[T].clear = (&self) -> {
-    if (self.cap > 0) {
+bind List[T].contains = (self, item: T) bool: {
+    let i = 0
+    for (i < self.len): {
+        unsafe {
+            if (self.data[i] == item): func <- true
+        }
+        i += 1
+    }
+    false
+}
+
+bind List[T].clear = (&self): {
+    if (self.cap > 0): {
         let i = self.len - 1
-        for (i >= 0) {
+        for (i >= 0): {
             unsafe {
                 let _ = ptr_read(ptr_add(self.data, i))
             }
@@ -75,10 +86,10 @@ bind List[T].clear = (&self) -> {
     self.len = 0
 }
 
-bind List[T].copy = (self): List[T] -> {
+bind List[T].copy = (self) List[T]: {
     let cp = List[T].with_capacity(self.len)
     let i = 0
-    for (i < self.len) {
+    for (i < self.len): {
         unsafe {
             cp.push(self.data[i].copy())
         }
@@ -87,11 +98,11 @@ bind List[T].copy = (self): List[T] -> {
     cp
 }
 
-bind List[T].to_string = (self): string -> {
+bind List[T].to_string = (self) string: {
     let out = "["
     let i = 0
-    for (i < self.len) {
-        if (i > 0) out.push(", ")
+    for (i < self.len): {
+        if (i > 0): out.push(", ")
         unsafe {
             out.push(self.data[i].to_string())
         }
@@ -107,8 +118,8 @@ define ListIterator[T] struct [
     idx: int,
 ]
 
-bind ListIterator[T].next = (&self): ?T -> {
-    if (self.idx >= self.len) func <- none
+bind ListIterator[T].next = (&self) ?T: {
+    if (self.idx >= self.len): func <- none
     let i = self.idx
     self.idx += 1
     unsafe {
@@ -116,7 +127,7 @@ bind ListIterator[T].next = (&self): ?T -> {
     }
 }
 
-bind List[T].iter = (self): Iterator[T] -> {
+bind List[T].iter = (self) Iterator[T]: {
     ListIterator[T][
         data: self.data,
         len: self.len,
@@ -124,10 +135,10 @@ bind List[T].iter = (self): Iterator[T] -> {
     ]
 }
 
-bind List[T].drop = (&self) -> {
-    if (self.cap > 0) {
+bind List[T].drop = (&self): {
+    if (self.cap > 0): {
         let i = self.len - 1
-        for (i >= 0) {
+        for (i >= 0): {
             unsafe {
                 let _ = ptr_read(ptr_add(self.data, i))
             }

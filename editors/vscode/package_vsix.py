@@ -112,8 +112,12 @@ def main() -> int:
     if bundled_std_dir.exists():
         shutil.rmtree(bundled_std_dir)
     bundled_std_dir.mkdir(parents=True, exist_ok=True)
-    for ll_file in sorted((repo_root / "std").glob("*.ll")):
-        shutil.copy2(ll_file, bundled_std_dir / ll_file.name)
+    std_src_dir = repo_root / "std"
+    for ll_file in sorted(std_src_dir.rglob("*.ll")):
+        rel = ll_file.relative_to(std_src_dir)
+        dest = bundled_std_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ll_file, dest)
 
     version = pkg["version"]
     vsix_path = script_dir / f"lowlight-vscode-{version}.vsix"

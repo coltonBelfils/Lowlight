@@ -2,6 +2,7 @@ package ir
 
 import (
 	"fmt"
+	"strings"
 
 	"lowlight/internal/ast"
 	"lowlight/internal/sema"
@@ -103,6 +104,15 @@ func (fl *funcLowerer) lowerExprOwned(e ast.Expr, targetTy types.Type) Expr {
 	return fl.applyOwnedCoercions(e, inf, raw, targetTy)
 }
 
+func (fl *funcLowerer) lowerStackArrayAddr(e ast.Expr, arrTy *types.StackArray) Expr {
+	if fl.isAddressable(e) {
+		return fl.lowerLValueAddr(e)
+	}
+	tmp := fl.allocSlot("_ll_arrview", arrTy)
+	fl.assignLocal(tmp, fl.lowerRawExpr(e, arrTy, false))
+	return &ExprAddrOf{Place: NewLocalExpr(tmp), Typ: &types.Ptr{Elem: arrTy}}
+}
+
 func (fl *funcLowerer) applyOwnedCoercions(_ ast.Expr, inf *sema.ExprInfo, valExpr Expr, targetTy types.Type) Expr {
 	// Owned Interface boxing (`let s: Shape = my_circle` or `[Printable(x)]`)
 	if inf.BoxInterface != nil && !inf.BorrowAsView && !inf.Type.Equals(inf.BoxInterface) {
@@ -133,26 +143,7 @@ func (fl *funcLowerer) lowerExprRead(e ast.Expr) Expr {
 
 	// Zero-allocation read-only views for call arguments:
 	if inf.BorrowAsView {
-		// 1. `[N: T]` stack array passed to read-only `[T]` parameter!
-		if arrTy, isArr := inf.Type.(*types.StackArray); isArr {
-			vecTy := &types.Vector{Elem: arrTy.Elem}
-			fl.tc.visit(vecTy)
-			var arrAddr Expr
-			if fl.isAddressable(e) {
-				arrAddr = fl.lowerLValueAddr(e)
-			} else {
-				tmp := fl.allocSlot("_ll_arrview", arrTy)
-				fl.assignLocal(tmp, fl.lowerRawExpr(e, arrTy, false))
-				arrAddr = &ExprAddrOf{Place: NewLocalExpr(tmp), Typ: &types.Ptr{Elem: arrTy}}
-			}
-			return &ExprSliceView{
-				VecType: vecTy,
-				DataPtr: &ExprField{Base: arrAddr, FieldName: "data", Typ: &types.Ptr{Elem: arrTy.Elem}, IsPtr: true},
-				Len:     NewLitInt(uint64(arrTy.Size), false, types.TypeInt),
-			}
-		}
-
-		// 2. Concrete value passed to read-only `Interface` parameter -> zero-allocation stack fat pointer!
+		// 1. Concrete value passed to read-only `Interface` parameter -> zero-allocation stack fat pointer!
 		if inf.BoxInterface != nil && !inf.Type.Equals(inf.BoxInterface) {
 			var addr Expr
 			if fl.isAddressable(e) {
@@ -168,6 +159,18 @@ func (fl *funcLowerer) lowerExprRead(e ast.Expr) Expr {
 				ConcreteType: inf.Type,
 				Value:        addr,
 				Owned:        false,
+			}
+		}
+
+		// 2. `[N: T]` stack array passed to read-only `[T]` parameter!
+		if arrTy, isArr := inf.Type.(*types.StackArray); isArr {
+			vecTy := &types.Vector{Elem: arrTy.Elem}
+			fl.tc.visit(vecTy)
+			arrAddr := fl.lowerStackArrayAddr(e, arrTy)
+			return &ExprSliceView{
+				VecType: vecTy,
+				DataPtr: &ExprField{Base: arrAddr, FieldName: "data", Typ: &types.Ptr{Elem: arrTy.Elem}, IsPtr: true},
+				Len:     NewLitInt(uint64(arrTy.Size), false, types.TypeInt),
 			}
 		}
 
@@ -211,8 +214,8 @@ func (fl *funcLowerer) isFreshResourceRValue(e ast.Expr, inf *sema.ExprInfo) boo
 		}
 	}
 	switch v := e.(type) {
-	case *ast.StringLit, *ast.NoneLit:
-		// String literals have `cap = 0` (static storage); `none` has `has_value = false` / `NULL`.
+	case *ast.StringLit, *ast.NoneLit, *ast.RangeExpr:
+		// String literals have `cap = 0` (static storage); `none` has `has_value = false` / `NULL`; ranges are plain scalars.
 		return false
 	case *ast.IdentExpr:
 		// Reading a variable or static function thunk does NOT allocate!
@@ -250,7 +253,17 @@ func (fl *funcLowerer) isAddressable(e ast.Expr) bool {
 		return inf.Sym == nil || inf.Sym.FuncInst == nil
 	case *ast.MemberExpr:
 		inf := fl.info(v)
-		return !v.QuestDot && !inf.IsOptChain && inf.EnumVariant == nil && inf.Sym == nil
+		if v.QuestDot || inf.IsOptChain || inf.EnumVariant != nil || inf.Sym != nil {
+			return false
+		}
+		baseTy := fl.info(v.Base).Type
+		if _, ok := baseTy.(*types.Ref); ok {
+			return true
+		}
+		if _, ok := baseTy.(*types.Ptr); ok {
+			return true
+		}
+		return fl.isAddressable(v.Base)
 	case *ast.IndexExpr:
 		baseTy := fl.info(v.Base).Type
 		if rf, ok := baseTy.(*types.Ref); ok {
@@ -306,6 +319,21 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) Expr {
 	case *ast.MemberExpr:
 		baseTy := fl.info(v.Base).Type
 		if rf, isRef := baseTy.(*types.Ref); isRef {
+			rfElem := rf.Elem
+			if d, isDist := rfElem.(*types.Distinct); isDist {
+				if dtTup, isTup := d.Base.(*types.Tuple); isTup {
+					rfElem = dtTup
+				}
+			}
+			if tup, isTup := rfElem.(*types.Tuple); isTup {
+				fIdx := inf.TupleFieldIdx
+				fName := fmt.Sprintf("_%d", fIdx)
+				ptr := fl.lowerExprRead(v.Base)
+				return &ExprAddrOf{
+					Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: fName, FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: true},
+					Typ:   &types.Ptr{Elem: tup.Elems[fIdx]},
+				}
+			}
 			st := rf.Elem.(*types.Struct)
 			sf, _ := st.FieldByName(v.Member)
 			ptr := fl.lowerExprRead(v.Base)
@@ -314,7 +342,65 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) Expr {
 				Typ:   &types.Ptr{Elem: sf.Type},
 			}
 		}
+		if _, isVec := baseTy.(*types.Vector); isVec {
+			basePtr := fl.lowerLValueAddr(v.Base)
+			return &ExprAddrOf{
+				Place: &ExprField{Base: basePtr, FieldName: v.Member, Typ: inf.Type, IsPtr: true},
+				Typ:   &types.Ptr{Elem: inf.Type},
+			}
+		}
+		if _, isArr := baseTy.(*types.StackArray); isArr {
+			basePtr := fl.lowerLValueAddr(v.Base)
+			return &ExprAddrOf{
+				Place: &ExprField{Base: basePtr, FieldName: v.Member, Typ: inf.Type, IsPtr: true},
+				Typ:   &types.Ptr{Elem: inf.Type},
+			}
+		}
+		effectiveBase := baseTy
+		if d, isDist := baseTy.(*types.Distinct); isDist {
+			if dtTup, isTup := d.Base.(*types.Tuple); isTup {
+				effectiveBase = dtTup
+			}
+		}
+		if tup, isTup := effectiveBase.(*types.Tuple); isTup {
+			fIdx := inf.TupleFieldIdx
+			basePtr := fl.lowerLValueAddr(v.Base)
+			fName := fmt.Sprintf("_%d", fIdx)
+			return &ExprAddrOf{
+				Place: &ExprField{Base: basePtr, FieldName: fName, FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: true},
+				Typ:   &types.Ptr{Elem: tup.Elems[fIdx]},
+			}
+		}
 		if p, isPtr := baseTy.(*types.Ptr); isPtr {
+			pElem := p.Elem
+			if d, isDist := pElem.(*types.Distinct); isDist {
+				if dtTup, isTup := d.Base.(*types.Tuple); isTup {
+					pElem = dtTup
+				}
+			}
+			if tup, isTup := pElem.(*types.Tuple); isTup {
+				fIdx := inf.TupleFieldIdx
+				fName := fmt.Sprintf("_%d", fIdx)
+				ptr := fl.lowerExprRead(v.Base)
+				return &ExprAddrOf{
+					Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: fName, FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: true},
+					Typ:   &types.Ptr{Elem: tup.Elems[fIdx]},
+				}
+			}
+			if _, isVec := p.Elem.(*types.Vector); isVec {
+				ptr := fl.lowerExprRead(v.Base)
+				return &ExprAddrOf{
+					Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: v.Member, Typ: inf.Type, IsPtr: true},
+					Typ:   &types.Ptr{Elem: inf.Type},
+				}
+			}
+			if _, isArr := p.Elem.(*types.StackArray); isArr {
+				ptr := fl.lowerExprRead(v.Base)
+				return &ExprAddrOf{
+					Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: v.Member, Typ: inf.Type, IsPtr: true},
+					Typ:   &types.Ptr{Elem: inf.Type},
+				}
+			}
 			if st, ok := p.Elem.(*types.Struct); ok {
 				sf, _ := st.FieldByName(v.Member)
 				ptr := fl.lowerExprRead(v.Base)
@@ -334,6 +420,15 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) Expr {
 
 	case *ast.IndexExpr:
 		baseTy := fl.info(v.Base).Type
+		if tup, isTup := baseTy.(*types.Tuple); isTup {
+			fIdx := inf.TupleFieldIdx
+			basePtr := fl.lowerLValueAddr(v.Base)
+			fName := fmt.Sprintf("_%d", fIdx)
+			return &ExprAddrOf{
+				Place: &ExprField{Base: basePtr, FieldName: fName, FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: true},
+				Typ:   &types.Ptr{Elem: tup.Elems[fIdx]},
+			}
+		}
 		idxExpr := fl.lowerExprRead(v.Index)
 		file, line := formatSpanLoc(v)
 		if rf, isRef := baseTy.(*types.Ref); isRef {
@@ -378,6 +473,35 @@ func (fl *funcLowerer) indexElementPtr(colTy types.Type, colPtr, idxExpr Expr, f
 				Typ:   c.Elem,
 			},
 			Typ: &types.Ptr{Elem: c.Elem},
+		}
+	case *types.Struct:
+		if (c.Name == "List" || strings.HasPrefix(c.Name, "List[")) && len(c.TypeArgs) == 1 {
+			elem := c.TypeArgs[0]
+			lenExpr := &ExprField{Base: EnsureExpr(colPtr, &types.Ptr{Elem: c}), FieldName: "len", Typ: types.TypeInt, IsPtr: true}
+			checkedIdx := fl.checkedIndexExpr(idxExpr, lenExpr, file, line)
+			dataPtr := &ExprField{Base: EnsureExpr(colPtr, &types.Ptr{Elem: c}), FieldName: "data", Typ: &types.Ptr{Elem: elem}, IsPtr: true}
+			return &ExprAddrOf{
+				Place: &ExprIndex{
+					Base:  dataPtr,
+					Index: checkedIdx,
+					Typ:   elem,
+				},
+				Typ: &types.Ptr{Elem: elem},
+			}
+		}
+		if (c.Name == "Array" || strings.HasPrefix(c.Name, "Array[")) && len(c.TypeArgs) >= 1 {
+			elem := c.TypeArgs[len(c.TypeArgs)-1]
+			lenExpr := &ExprField{Base: EnsureExpr(colPtr, &types.Ptr{Elem: c}), FieldName: "len", Typ: types.TypeInt, IsPtr: true}
+			checkedIdx := fl.checkedIndexExpr(idxExpr, lenExpr, file, line)
+			dataPtr := &ExprField{Base: EnsureExpr(colPtr, &types.Ptr{Elem: c}), FieldName: "data", Typ: &types.Ptr{Elem: elem}, IsPtr: true}
+			return &ExprAddrOf{
+				Place: &ExprIndex{
+					Base:  dataPtr,
+					Index: checkedIdx,
+					Typ:   elem,
+				},
+				Typ: &types.Ptr{Elem: elem},
+			}
 		}
 	}
 	return EnsureExpr(colPtr, &types.Ptr{Elem: colTy})
@@ -451,6 +575,21 @@ func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bo
 	case *ast.SliceExpr:
 		return fl.lowerSliceExpr(v, inf)
 
+	case *ast.RangeExpr:
+		st := inf.Type.(*types.Struct)
+		fl.tc.visit(st)
+		lo := fl.lowerExprRead(v.Low)
+		hi := fl.lowerExprRead(v.High)
+		elemTy := st.TypeArgs[0]
+		return &ExprConstructStruct{
+			StructType: st,
+			Fields: []StructFieldInit{
+				{Name: st.Fields[0].CName, Value: EnsureExpr(lo, elemTy)},
+				{Name: st.Fields[1].CName, Value: EnsureExpr(hi, elemTy)},
+				{Name: st.Fields[2].CName, Value: NewLitBool(v.Inclusive)},
+			},
+		}
+
 	case *ast.VecLit:
 		return fl.lowerVecOrArrayLit(v, inf)
 
@@ -466,6 +605,9 @@ func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bo
 	case *ast.EmptyHashLit:
 		fl.tc.visit(inf.Type)
 		return &ExprLitZero{Typ: inf.Type}
+
+	case *ast.TupleLit:
+		return fl.lowerTupleLit(v, inf)
 
 	case *ast.StructLit:
 		return fl.lowerStructLit(v, inf)
@@ -673,16 +815,22 @@ func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) Expr {
 		fl.lowerVoidExpr(ie.Then)
 		fl.flushStmtTemps()
 	} else {
-		tTy := fl.info(ie.Then).Type
+		tInf := fl.info(ie.Then)
+		tTy := tInf.Type
 		if tTy == types.TypeNever {
 			fl.lowerVoidExpr(ie.Then)
 			fl.flushStmtTemps()
 		} else {
-			tVal := fl.lowerExprOwned(ie.Then, branchTy)
-			if isOptWithoutElse {
-				fl.assignLocal(resSlot, fl.wrapInOptionalExpr(tVal, resSlot.Type.(*types.Optional)))
-			} else {
+			if isOptWithoutElse && ((tTy != nil && tTy.Equals(resSlot.Type)) || tInf.WrapOptional) {
+				tVal := fl.lowerExprOwned(ie.Then, resSlot.Type)
 				fl.assignLocal(resSlot, tVal)
+			} else {
+				tVal := fl.lowerExprOwned(ie.Then, branchTy)
+				if isOptWithoutElse {
+					fl.assignLocal(resSlot, fl.wrapInOptionalExpr(tVal, resSlot.Type.(*types.Optional)))
+				} else {
+					fl.assignLocal(resSlot, tVal)
+				}
 			}
 			fl.flushStmtTemps()
 		}

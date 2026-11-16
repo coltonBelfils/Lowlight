@@ -2,6 +2,7 @@
 package parser
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -17,7 +18,8 @@ type Parser struct {
 	toks        []token.Token
 	pos         int
 	rep         *diag.Reporter
-	inMatchArm  int // > 0 when parsing the body of a `match` arm (for dangling-`else` disambiguation)
+	inMatchArm int   // > 0 when parsing the body of a `match` arm (for contextual `default:` detection)
+	matchStack []int // stack of scrutinee counts for enclosing match expressions
 }
 
 // ParseFile lexes and parses a Lowlight source string into an AST.
@@ -74,7 +76,55 @@ func (p *Parser) expect(k token.Kind, context string) token.Token {
 	}
 	got := p.cur()
 	p.rep.Errorf(got.Span, "expected %s %s, got %s (%q)", k.String(), context, got.Kind.String(), got.Text)
+	// Preserve boundary/clause tokens so enclosing rules and subsequent
+	// declarations can still recover instead of cascading across the file.
+	if isSyncToken(got.Kind) {
+		return token.Token{Kind: k, Span: diag.Span{Start: got.Span.Start, End: got.Span.Start}}
+	}
 	return p.advance()
+}
+
+func isSyncToken(k token.Kind) bool {
+	switch k {
+	case token.EOF,
+		token.Semi,
+		token.Comma,
+		token.Colon,
+		token.Assign,
+		token.LParen,
+		token.RParen,
+		token.LBracket,
+		token.RBracket,
+		token.HashBrack,
+		token.PlusBrack,
+		token.LBrace,
+		token.RBrace,
+		token.At,
+		token.InterpMid,
+		token.InterpEnd,
+		token.KwImport,
+		token.KwExtern,
+		token.KwDefine,
+		token.KwStruct,
+		token.KwEnum,
+		token.KwInterface,
+		token.KwBind,
+		token.KwLet,
+		token.KwIf,
+		token.KwElse,
+		token.KwFor,
+		token.KwWhile,
+		token.KwIn,
+		token.KwMatch,
+		token.KwWhen,
+		token.KwFunc,
+		token.KwAs,
+		token.KwUnsafe,
+		token.KwUnpack:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *Parser) skipSemis() {
@@ -84,6 +134,9 @@ func (p *Parser) skipSemis() {
 }
 
 func (p *Parser) checkTrailingComma(openTok, closeTok token.Token, lastItemEnd diag.Pos, hadTrailingComma bool, what string) {
+	if closeTok.Text == "" {
+		return
+	}
 	if closeTok.Span.Start.Line > openTok.Span.Start.Line && closeTok.Span.Start.Line > lastItemEnd.Line && !hadTrailingComma {
 		p.rep.ErrorWithHint(
 			diag.Span{Start: lastItemEnd, End: lastItemEnd},
@@ -231,7 +284,7 @@ func (p *Parser) parseExternDecl() ast.Decl {
 	p.expect(token.Colon, "after extern function name")
 	params, endPos := p.parseParamList(true)
 	var ret ast.TypeExpr
-	if _, ok := p.match(token.Colon); ok {
+	if p.canStartSigReturnType(false) {
 		ret = p.parseTypeExpr()
 		endPos = ret.GetSpan().End
 	}
@@ -330,27 +383,18 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 			vEnd := vTok.Span.End
 			var valExpr ast.Expr
 			var payloadTy ast.TypeExpr
-			var vFields []ast.StructField
-			hasFields := false
 			if _, ok := p.match(token.Assign); ok {
 				valExpr = p.parseExpr()
 				vEnd = valExpr.GetSpan().End
 			} else if _, ok := p.match(token.Colon); ok {
 				hasPayloads = true
-				if p.looksLikeVariantFieldList() {
-					hasFields = true
-					vFields, vEnd = p.parseStructDefFields("enum variant fields")
-				} else {
-					payloadTy = p.parseTypeExpr()
-					vEnd = payloadTy.GetSpan().End
-				}
+				payloadTy = p.parseTypeExpr()
+				vEnd = payloadTy.GetSpan().End
 			}
 			variants = append(variants, ast.EnumVariant{
 				Name:        vTok.Text,
 				Value:       valExpr,
 				PayloadType: payloadTy,
-				Fields:      vFields,
-				HasFields:   hasFields,
 				Span:        diag.Span{Start: vTok.Span.Start, End: vEnd},
 			})
 			lastEnd = vEnd
@@ -397,7 +441,7 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 			p.expect(token.Colon, "after interface method name")
 			recvMode, _, params, mEnd := p.parseMethodParams()
 			var ret ast.TypeExpr
-			if _, ok := p.match(token.Colon); ok {
+			if p.canStartSigReturnType(true) {
 				ret = p.parseTypeExpr()
 				mEnd = ret.GetSpan().End
 			}
@@ -436,18 +480,6 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 			Span: diag.Span{Start: kw.Span.Start, End: base.GetSpan().End},
 		}
 	}
-}
-
-func (p *Parser) looksLikeVariantFieldList() bool {
-	if p.cur().Kind != token.LBracket {
-		return false
-	}
-	k1 := p.peekAt(1).Kind
-	k2 := p.peekAt(2).Kind
-	if k1 == token.RBracket {
-		return true
-	}
-	return (k1 == token.Ident || k1 == token.OptIdent) && k2 == token.Colon
 }
 
 func (p *Parser) parseStructDefFields(ctx string) ([]ast.StructField, diag.Pos) {
@@ -523,6 +555,10 @@ func (p *Parser) looksLikeTypeParamsInDefine() bool {
 
 func (p *Parser) parseTypeParams() []ast.TypeParam {
 	openBr := p.expect(token.LBracket, "opening type parameters `[`")
+	if closeBr, ok := p.match(token.RBracket); ok {
+		p.rep.Errorf(diag.Span{Start: openBr.Span.Start, End: closeBr.Span.End}, "empty generic type parameter list `[]` is not allowed")
+		return nil
+	}
 	var params []ast.TypeParam
 	var lastEnd diag.Pos
 	hadComma := false
@@ -595,10 +631,10 @@ func (p *Parser) parseTopVarOrMethodDecl() ast.Decl {
 		if p.paramListStartsWithSelf() {
 			recvMode, recvExplicitTy, params, _ := p.parseMethodParams()
 			var ret ast.TypeExpr
-			if _, ok := p.match(token.Colon); ok {
+			if p.cur().Kind != token.Colon && p.canStartHeaderType() {
 				ret = p.parseTypeExpr()
 			}
-			p.expect(token.RArrow, "before method body (`->`)")
+			p.expect(token.Colon, "before method body")
 			body := p.parseExpr()
 			return &ast.MethodDecl{
 				RecvType:       recvTok.Text,
@@ -619,10 +655,10 @@ func (p *Parser) parseTopVarOrMethodDecl() ast.Decl {
 		// Even simpler: let's parse `(params)[: Ret] body` as a FuncLit and store a static MethodDecl (RecvMode = -1)!
 		params, _ := p.parseParamList(true)
 		var ret ast.TypeExpr
-		if _, ok := p.match(token.Colon); ok {
+		if p.cur().Kind != token.Colon && p.canStartHeaderType() {
 			ret = p.parseTypeExpr()
 		}
-		p.expect(token.RArrow, "before method body (`->`)")
+		p.expect(token.Colon, "before method body")
 		body := p.parseExpr()
 		return &ast.MethodDecl{
 			RecvType:       recvTok.Text,
@@ -813,6 +849,29 @@ func (p *Parser) parseSingleParam(requireName bool) ast.Param {
 // Type Expressions
 // -----------------------------------------------------------------------------
 
+func (p *Parser) canStartSigReturnType(stopOnIdentColon bool) bool {
+	switch p.cur().Kind {
+	case token.KwSelfType, token.Question, token.LBracket, token.HashBrack, token.PlusBrack, token.LParen:
+		return true
+	case token.Ident:
+		if stopOnIdentColon && p.peekAt(1).Kind == token.Colon {
+			return false
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *Parser) canStartHeaderType() bool {
+	switch p.cur().Kind {
+	case token.Ident, token.KwSelfType, token.Question, token.LBracket, token.HashBrack, token.PlusBrack, token.LParen:
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *Parser) parseTypeExpr() ast.TypeExpr {
 	start := p.cur().Span.Start
 	switch p.cur().Kind {
@@ -830,6 +889,12 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 			Elem: elem,
 			Span: diag.Span{Start: start, End: elem.GetSpan().End},
 		}
+	case token.IntLit:
+		tk := p.advance()
+		return &ast.NamedType{
+			Name: tk.Text,
+			Span: tk.Span,
+		}
 	case token.KwOwn:
 		p.advance()
 		elem := p.parseTypeExpr()
@@ -840,9 +905,13 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 	case token.LBracket:
 		openBr := p.advance()
 		if closeBr, ok := p.match(token.RBracket); ok {
-			return &ast.VectorType{
-				Elem: nil,
-				Span: diag.Span{Start: openBr.Span.Start, End: closeBr.Span.End},
+			span := diag.Span{Start: openBr.Span.Start, End: closeBr.Span.End}
+			p.rep.ErrorWithHint(span,
+				"untyped `[]` is not a valid type",
+				"specify an element type like `[int]`, or omit the type annotation on `for` comprehensions to infer it")
+			return &ast.NamedType{
+				Name: "<error>",
+				Span: span,
 			}
 		}
 		// Could be `[T]` (VectorType) or `[N: T]` (StackArrayType)!
@@ -881,10 +950,34 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 			Elem: first,
 			Span: diag.Span{Start: openHb.Span.Start, End: closeBr.Span.End},
 		}
+	case token.PlusBrack:
+		openPb := p.advance()
+		var elems []ast.TypeExpr
+		var lastEnd diag.Pos
+		hadComma := false
+		for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
+			elem := p.parseTypeExpr()
+			elems = append(elems, elem)
+			lastEnd = elem.GetSpan().End
+			if _, ok := p.match(token.Comma); ok {
+				hadComma = true
+			} else {
+				hadComma = false
+				break
+			}
+		}
+		closeBr := p.expect(token.RBracket, "closing tuple type `+[...]`")
+		if len(elems) > 0 {
+			p.checkTrailingComma(openPb, closeBr, lastEnd, hadComma, "tuple type")
+		}
+		return &ast.TupleType{
+			Elems: elems,
+			Span:  diag.Span{Start: openPb.Span.Start, End: closeBr.Span.End},
+		}
 	case token.LParen:
 		params, endPos := p.parseParamList(false)
 		var ret ast.TypeExpr
-		if _, ok := p.match(token.Colon); ok {
+		if p.canStartSigReturnType(false) {
 			ret = p.parseTypeExpr()
 			endPos = ret.GetSpan().End
 		}
@@ -914,24 +1007,29 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 		var targs []ast.TypeExpr
 		if p.cur().Kind == token.LBracket {
 			openBr := p.advance()
-			var lastEnd diag.Pos
-			hadComma := false
-			for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
-				ta := p.parseTypeExpr()
-				targs = append(targs, ta)
-				lastEnd = ta.GetSpan().End
-				if _, ok := p.match(token.Comma); ok {
-					hadComma = true
-				} else {
-					hadComma = false
-					break
+			if closeBr, ok := p.match(token.RBracket); ok {
+				p.rep.Errorf(diag.Span{Start: openBr.Span.Start, End: closeBr.Span.End}, "empty generic type argument list `[]` is not allowed")
+				endPos = closeBr.Span.End
+			} else {
+				var lastEnd diag.Pos
+				hadComma := false
+				for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
+					ta := p.parseTypeExpr()
+					targs = append(targs, ta)
+					lastEnd = ta.GetSpan().End
+					if _, ok := p.match(token.Comma); ok {
+						hadComma = true
+					} else {
+						hadComma = false
+						break
+					}
 				}
+				closeBr := p.expect(token.RBracket, "closing generic type arguments `]`")
+				if len(targs) > 0 {
+					p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "type argument list")
+				}
+				endPos = closeBr.Span.End
 			}
-			closeBr := p.expect(token.RBracket, "closing generic type arguments `]`")
-			if len(targs) > 0 {
-				p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "type argument list")
-			}
-			endPos = closeBr.Span.End
 		}
 		return &ast.NamedType{
 			Module:   mod,
@@ -1079,6 +1177,8 @@ func (p *Parser) isStmtEnd() bool {
 	switch p.cur().Kind {
 	case token.Semi, token.RBrace, token.RParen, token.RBracket, token.Comma, token.EOF, token.KwElse, token.KwWhen:
 		return true
+	case token.Ident:
+		return p.inMatchArm > 0 && p.isMatchDefaultAt(p.pos, p.currentMatchScrutCount())
 	default:
 		return false
 	}
@@ -1097,21 +1197,8 @@ func (p *Parser) parseStmt() ast.Stmt {
 		return &ast.DeclStmt{Decl: d, Span: d.GetSpan()}
 	default:
 		expr := p.parseExpr()
-		if isAssignOp(p.cur().Kind) {
-			op := p.advance().Kind
-			// Support `target = opt_expr ?? <UnwindStmt>` (Spec §7.2.4 / §10.4)
-			val, fbUnwind := p.parseExprWithOptionalTopFallbackUnwind(op == token.Assign)
-			endPos := val.GetSpan().End
-			if fbUnwind != nil {
-				endPos = fbUnwind.Span.End
-			}
-			return &ast.AssignStmt{
-				Op:             op,
-				Target:         expr,
-				Value:          val,
-				FallbackUnwind: fbUnwind,
-				Span:           diag.Span{Start: expr.GetSpan().Start, End: endPos},
-			}
+		if as := p.tryParseAssignStmt(expr, true); as != nil {
+			return as
 		}
 		return &ast.ExprStmt{
 			Expr: expr,
@@ -1131,22 +1218,146 @@ func isAssignOp(k token.Kind) bool {
 	}
 }
 
-func (p *Parser) parseVarStmt() *ast.VarStmt {
-	kw := p.advance()
-	isBind := kw.Kind == token.KwBind
+func (p *Parser) looksLikeMultiAssign() bool {
+	depth := 0
+	for i := p.pos; i < len(p.toks); i++ {
+		k := p.toks[i].Kind
+		if depth == 0 {
+			if k == token.Assign {
+				return true
+			}
+			switch k {
+			case token.Semi, token.RBrace, token.RParen, token.RBracket,
+				token.KwElse, token.KwWhen, token.Colon, token.EOF:
+				return false
+			case token.Ident:
+				if p.inMatchArm > 0 && p.isMatchDefaultAt(i, p.currentMatchScrutCount()) {
+					return false
+				}
+			}
+		}
+		switch k {
+		case token.LParen, token.LBracket, token.HashBrack, token.PlusBrack, token.LBrace:
+			depth++
+		case token.RParen, token.RBracket, token.RBrace:
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return false
+}
+
+func (p *Parser) tryParseAssignStmt(expr ast.Expr, inStmtContext bool) *ast.AssignStmt {
+	if p.cur().Kind == token.Comma && (inStmtContext || p.looksLikeMultiAssign()) {
+		targets := []ast.Expr{expr}
+		for {
+			if _, ok := p.match(token.Comma); !ok {
+				break
+			}
+			targets = append(targets, p.parseExpr())
+		}
+		p.expect(token.Assign, "after assignment targets")
+		if _, ok := p.match(token.KwUnpack); !ok {
+			p.rep.Errorf(p.cur().Span, "unpacking into multiple targets requires the 'unpack' keyword after '=' (e.g. 'x, y = unpack ...')")
+		}
+		val, fbUnwind := p.parseExprWithOptionalTopFallbackUnwind(true)
+		endPos := val.GetSpan().End
+		if fbUnwind != nil {
+			endPos = fbUnwind.Span.End
+		}
+		return &ast.AssignStmt{
+			Op:             token.Assign,
+			IsUnpack:       true,
+			Target:         expr,
+			UnpackTargets:  targets,
+			Value:          val,
+			FallbackUnwind: fbUnwind,
+			Span:           diag.Span{Start: expr.GetSpan().Start, End: endPos},
+		}
+	}
+	if isAssignOp(p.cur().Kind) {
+		op := p.advance().Kind
+		isUnpack := false
+		var unpackTargets []ast.Expr
+		if op == token.Assign {
+			if _, ok := p.match(token.KwUnpack); ok {
+				isUnpack = true
+				unpackTargets = []ast.Expr{expr}
+			}
+		}
+		// Support `target = opt_expr ?? <UnwindStmt>` (Spec §7.2.4 / §10.4)
+		val, fbUnwind := p.parseExprWithOptionalTopFallbackUnwind(op == token.Assign)
+		endPos := val.GetSpan().End
+		if fbUnwind != nil {
+			endPos = fbUnwind.Span.End
+		}
+		return &ast.AssignStmt{
+			Op:             op,
+			IsUnpack:       isUnpack,
+			Target:         expr,
+			UnpackTargets:  unpackTargets,
+			Value:          val,
+			FallbackUnwind: fbUnwind,
+			Span:           diag.Span{Start: expr.GetSpan().Start, End: endPos},
+		}
+	}
+	return nil
+}
+
+func (p *Parser) parseOneUnpackVar() ast.UnpackVar {
 	isOpt := false
-	var name string
+	var nameTok token.Token
 	if p.cur().Kind == token.OptIdent {
 		isOpt = true
-		name = p.advance().Text
+		nameTok = p.advance()
 	} else {
-		name = p.expect(token.Ident, "variable name").Text
+		nameTok = p.expect(token.Ident, "variable name")
 	}
+	endPos := nameTok.Span.End
 	var ty ast.TypeExpr
 	if _, ok := p.match(token.Colon); ok {
 		ty = p.parseTypeExpr()
+		if ty != nil {
+			endPos = ty.GetSpan().End
+		}
 	}
+	return ast.UnpackVar{
+		Name:      nameTok.Text,
+		IsOptName: isOpt,
+		Type:      ty,
+		Span:      diag.Span{Start: nameTok.Span.Start, End: endPos},
+	}
+}
+
+func (p *Parser) parseVarStmt() *ast.VarStmt {
+	kw := p.advance()
+	isBind := kw.Kind == token.KwBind
+	first := p.parseOneUnpackVar()
+
+	isUnpack := false
+	var unpackVars []ast.UnpackVar
+	if p.cur().Kind == token.Comma {
+		isUnpack = true
+		unpackVars = append(unpackVars, first)
+		for {
+			if _, ok := p.match(token.Comma); !ok {
+				break
+			}
+			unpackVars = append(unpackVars, p.parseOneUnpackVar())
+		}
+	}
+
 	p.expect(token.Assign, "after variable name in declaration")
+	if _, ok := p.match(token.KwUnpack); ok {
+		if !isUnpack {
+			isUnpack = true
+			unpackVars = []ast.UnpackVar{first}
+		}
+	} else if isUnpack {
+		p.rep.Errorf(p.cur().Span, "unpacking into multiple variables requires the 'unpack' keyword after '=' (e.g. 'let x, y = unpack ...')")
+	}
+
 	val, fbUnwind := p.parseExprWithOptionalTopFallbackUnwind(true)
 	endPos := val.GetSpan().End
 	if fbUnwind != nil {
@@ -1154,9 +1365,11 @@ func (p *Parser) parseVarStmt() *ast.VarStmt {
 	}
 	return &ast.VarStmt{
 		IsBind:         isBind,
-		Name:           name,
-		IsOptName:      isOpt,
-		Type:           ty,
+		IsUnpack:       isUnpack,
+		Name:           first.Name,
+		IsOptName:      first.IsOptName,
+		Type:           first.Type,
+		UnpackVars:     unpackVars,
 		Value:          val,
 		FallbackUnwind: fbUnwind,
 		Span:           diag.Span{Start: kw.Span.Start, End: endPos},
@@ -1171,14 +1384,14 @@ func (p *Parser) parseExprWithOptionalTopFallbackUnwind(allowUnwind bool) (ast.E
 	}
 	// Parse everything with precedence strictly higher than `??` (prec >= 2),
 	// then handle `??` chains so the final `??` can check `isUnwindStart()`.
-	left := p.parseBinaryExpr(2)
+	left := p.parseBinaryExpr(2, true)
 	for p.cur().Kind == token.QuestQuest {
 		p.advance() // consume `??`
 		if p.isUnwindStart() {
 			uw := p.parseUnwindStmt()
 			return left, uw
 		}
-		right := p.parseBinaryExpr(2)
+		right := p.parseBinaryExpr(2, true)
 		left = &ast.BinaryExpr{
 			Op:    token.QuestQuest,
 			Left:  left,
@@ -1201,20 +1414,7 @@ func (p *Parser) parseActionBody() ast.Expr {
 		return &ast.StmtBodyExpr{Stmt: vs, Span: vs.Span}
 	}
 	expr := p.parseExpr()
-	if isAssignOp(p.cur().Kind) {
-		op := p.advance().Kind
-		val, fb := p.parseExprWithOptionalTopFallbackUnwind(op == token.Assign)
-		endPos := val.GetSpan().End
-		if fb != nil {
-			endPos = fb.Span.End
-		}
-		as := &ast.AssignStmt{
-			Op:             op,
-			Target:         expr,
-			Value:          val,
-			FallbackUnwind: fb,
-			Span:           diag.Span{Start: expr.GetSpan().Start, End: endPos},
-		}
+	if as := p.tryParseAssignStmt(expr, false); as != nil {
 		return &ast.StmtBodyExpr{Stmt: as, Span: as.Span}
 	}
 	return expr
@@ -1225,7 +1425,11 @@ func (p *Parser) parseActionBody() ast.Expr {
 // -----------------------------------------------------------------------------
 
 func (p *Parser) parseExpr() ast.Expr {
-	return p.parseBinaryExpr(1)
+	return p.parseBinaryExpr(1, true)
+}
+
+func (p *Parser) parseExprNoRange() ast.Expr {
+	return p.parseBinaryExpr(1, false)
 }
 
 func binaryPrec(k token.Kind) (prec int, rightAssoc bool) {
@@ -1236,29 +1440,36 @@ func binaryPrec(k token.Kind) (prec int, rightAssoc bool) {
 		return 2, false
 	case token.KwAnd:
 		return 3, false
-	case token.Eq, token.Neq, token.Lt, token.Lte, token.Gt, token.Gte:
-		return 4, false
 	case token.Pipe:
-		return 5, false
+		return 4, false
 	case token.Caret:
-		return 6, false
+		return 5, false
 	case token.Amp:
+		return 6, false
+	case token.Eq, token.Neq:
 		return 7, false
-	case token.Shl, token.Shr:
+	case token.Lt, token.Lte, token.Gt, token.Gte:
 		return 8, false
-	case token.Plus, token.Minus:
+	case token.DotDot, token.DotDotEq:
 		return 9, false
-	case token.Star, token.Slash, token.Percent:
+	case token.Shl, token.Shr:
 		return 10, false
+	case token.Plus, token.Minus:
+		return 11, false
+	case token.Star, token.Slash, token.Percent:
+		return 12, false
 	default:
 		return 0, false
 	}
 }
 
-func (p *Parser) parseBinaryExpr(minPrec int) ast.Expr {
+func (p *Parser) parseBinaryExpr(minPrec int, allowRange bool) ast.Expr {
 	left := p.parseUnaryExpr()
 	for {
 		op := p.cur().Kind
+		if !allowRange && (op == token.DotDot || op == token.DotDotEq) {
+			break
+		}
 		prec, rightAssoc := binaryPrec(op)
 		if prec < minPrec {
 			break
@@ -1284,7 +1495,19 @@ func (p *Parser) parseBinaryExpr(minPrec int) ast.Expr {
 		if rightAssoc {
 			nextMin = prec
 		}
-		right := p.parseBinaryExpr(nextMin)
+		right := p.parseBinaryExpr(nextMin, allowRange)
+		if op == token.DotDot || op == token.DotDotEq {
+			if _, chained := left.(*ast.RangeExpr); chained {
+				p.rep.Errorf(opTok.Span, "chained range operators (`..` / `..=`) are not allowed; use parentheses if intended")
+			}
+			left = &ast.RangeExpr{
+				Low:       left,
+				High:      right,
+				Inclusive: op == token.DotDotEq,
+				Span:      diag.Span{Start: left.GetSpan().Start, End: right.GetSpan().End},
+			}
+			continue
+		}
 		left = &ast.BinaryExpr{
 			Op:    op,
 			Left:  left,
@@ -1335,6 +1558,29 @@ func (p *Parser) parsePostfixExpr() ast.Expr {
 			if p.cur().Kind == token.OptIdent {
 				hasOpt = true
 				member = p.advance().Text
+			} else if p.cur().Kind == token.IntLit {
+				member = p.advance().Text
+			} else if p.cur().Kind == token.FloatLit && strings.Contains(p.cur().Text, ".") && !strings.ContainsAny(p.cur().Text, "eE") {
+				parts := strings.SplitN(p.cur().Text, ".", 2)
+				flTok := p.advance()
+				left = &ast.MemberExpr{
+					Base:     left,
+					Member:   parts[0],
+					QuestDot: isQuestDot,
+					Span:     diag.Span{Start: left.GetSpan().Start, End: flTok.Span.End},
+				}
+				left = &ast.MemberExpr{
+					Base:     left,
+					Member:   parts[1],
+					QuestDot: false,
+					Span:     diag.Span{Start: left.GetSpan().Start, End: flTok.Span.End},
+				}
+				continue
+			} else if p.cur().Kind == token.Minus && (p.peekAt(1).Kind == token.IntLit || p.peekAt(1).Kind == token.FloatLit) {
+				minusTok := p.advance()
+				numTok := p.advance()
+				p.rep.Errorf(diag.Span{Start: minusTok.Span.Start, End: numTok.Span.End}, "negative index is not allowed in dot access; expected non-negative canonical integer after `.`")
+				member = "-" + numTok.Text
 			} else {
 				member = p.expect(token.Ident, "field or method name after `.`").Text
 			}
@@ -1355,16 +1601,14 @@ func (p *Parser) parsePostfixExpr() ast.Expr {
 			}
 
 		case token.LBracket:
-			// Check 1: Struct literal `TypeName[field: expr, ...]`, `TypeName[]`, `Expr.Add[...]`, or `Tree[int].Branch[...]`
-			if mod, tname, enumTArgs, varName, ok := extractStructLitTarget(left); ok && p.looksLikeStructLitFields() {
+			// Check 1: Struct literal `TypeName[field: expr, ...]`, `TypeName[]`, or `mod.Point[...]`
+			if mod, tname, ok := extractStructLitTarget(left); ok && p.looksLikeStructLitFields() {
 				fields, endPos := p.parseStructLitFields()
 				left = &ast.StructLit{
-					Module:       mod,
-					TypeName:     tname,
-					EnumTypeArgs: enumTArgs,
-					VariantName:  varName,
-					Fields:       fields,
-					Span:         diag.Span{Start: left.GetSpan().Start, End: endPos},
+					Module:   mod,
+					TypeName: tname,
+					Fields:   fields,
+					Span:     diag.Span{Start: left.GetSpan().Start, End: endPos},
 				}
 				continue
 			}
@@ -1373,7 +1617,7 @@ func (p *Parser) parsePostfixExpr() ast.Expr {
 			if p.looksLikeGenericTypeArgs(left) {
 				targs := p.parseTypeArgBracket()
 				if p.cur().Kind == token.LBracket {
-					if mod, tname, _, varName, ok := extractStructLitTarget(left); ok && varName == "" && p.looksLikeStructLitFields() {
+					if mod, tname, ok := extractStructLitTarget(left); ok && p.looksLikeStructLitFields() {
 						fields, endPos := p.parseStructLitFields()
 						left = &ast.StructLit{
 							Module:   mod,
@@ -1421,26 +1665,45 @@ func (p *Parser) parsePostfixExpr() ast.Expr {
 				}
 			}
 
-			// Check 3: Indexing `base[idx]` or Slicing `base[lo..hi]` / `base[lo..=hi]`
+			// Check 3: Indexing `base[idx]` or Slicing `base[lo..hi]` / `base[lo..=hi]` / `base[..hi]` / `base[lo..]` / `base[..]`
 			p.advance() // consume `[`
-			first := p.parseExpr()
 			if p.cur().Kind == token.DotDot || p.cur().Kind == token.DotDotEq {
 				incl := p.advance().Kind == token.DotDotEq
-				high := p.parseExpr()
+				var high ast.Expr
+				if p.cur().Kind != token.RBracket {
+					high = p.parseExprNoRange()
+				}
 				closeBr := p.expect(token.RBracket, "closing slice `]`")
 				left = &ast.SliceExpr{
 					Base:      left,
-					Low:       first,
+					Low:       nil,
 					High:      high,
 					Inclusive: incl,
 					Span:      diag.Span{Start: left.GetSpan().Start, End: closeBr.Span.End},
 				}
 			} else {
-				closeBr := p.expect(token.RBracket, "closing index `]`")
-				left = &ast.IndexExpr{
-					Base:  left,
-					Index: first,
-					Span:  diag.Span{Start: left.GetSpan().Start, End: closeBr.Span.End},
+				first := p.parseExprNoRange()
+				if p.cur().Kind == token.DotDot || p.cur().Kind == token.DotDotEq {
+					incl := p.advance().Kind == token.DotDotEq
+					var high ast.Expr
+					if p.cur().Kind != token.RBracket {
+						high = p.parseExprNoRange()
+					}
+					closeBr := p.expect(token.RBracket, "closing slice `]`")
+					left = &ast.SliceExpr{
+						Base:      left,
+						Low:       first,
+						High:      high,
+						Inclusive: incl,
+						Span:      diag.Span{Start: left.GetSpan().Start, End: closeBr.Span.End},
+					}
+				} else {
+					closeBr := p.expect(token.RBracket, "closing index `]`")
+					left = &ast.IndexExpr{
+						Base:  left,
+						Index: first,
+						Span:  diag.Span{Start: left.GetSpan().Start, End: closeBr.Span.End},
+					}
 				}
 			}
 
@@ -1450,44 +1713,38 @@ func (p *Parser) parsePostfixExpr() ast.Expr {
 	}
 }
 
-func extractStructLitTarget(e ast.Expr) (mod, name string, enumTArgs []ast.TypeExpr, variantName string, ok bool) {
+func extractStructLitTarget(e ast.Expr) (mod, name string, ok bool) {
 	switch v := e.(type) {
 	case *ast.IdentExpr:
 		if !v.IsOpt && v.Name != "self" {
-			return "", v.Name, nil, "", true
+			return "", v.Name, true
 		}
 	case *ast.MemberExpr:
-		if v.QuestDot || v.MemberHasOpt {
-			return "", "", nil, "", false
+		if v.QuestDot || v.MemberHasOpt || len(v.BaseTypeArgs) > 0 {
+			return "", "", false
 		}
 		if id, ok2 := v.Base.(*ast.IdentExpr); ok2 && !id.IsOpt && id.Name != "self" {
-			if len(v.BaseTypeArgs) > 0 {
-				// `Tree[int].Branch[...]`
-				return "", id.Name, v.BaseTypeArgs, v.Member, true
-			}
-			// `mod.Point[...]` or `Expr.Add[...]`
-			return id.Name, v.Member, nil, "", true
-		}
-		if inner, ok2 := v.Base.(*ast.MemberExpr); ok2 && !inner.QuestDot && !inner.MemberHasOpt && len(inner.BaseTypeArgs) == 0 {
-			if modId, ok3 := inner.Base.(*ast.IdentExpr); ok3 && !modId.IsOpt && modId.Name != "self" {
-				// `mod.Expr.Add[...]` or `mod.Tree[int].Branch[...]`
-				return modId.Name, inner.Member, v.BaseTypeArgs, v.Member, true
-			}
+			// `mod.Point[...]`
+			return id.Name, v.Member, true
 		}
 	}
-	return "", "", nil, "", false
+	return "", "", false
 }
 
 func canTakeTypeArgsBeforeDot(left ast.Expr) bool {
 	switch v := left.(type) {
 	case *ast.IdentExpr:
-		return !v.IsOpt && v.Name != "self"
-	case *ast.MemberExpr:
-		if v.QuestDot || v.MemberHasOpt || len(v.BaseTypeArgs) > 0 {
+		if v.IsOpt || v.Name == "self" || len(v.Name) == 0 {
 			return false
 		}
-		id, ok := v.Base.(*ast.IdentExpr)
-		return ok && !id.IsOpt && id.Name != "self"
+		first := v.Name[0]
+		return first >= 'A' && first <= 'Z'
+	case *ast.MemberExpr:
+		if v.QuestDot || v.MemberHasOpt || len(v.BaseTypeArgs) > 0 || len(v.Member) == 0 {
+			return false
+		}
+		first := v.Member[0]
+		return first >= 'A' && first <= 'Z'
 	default:
 		return false
 	}
@@ -1568,7 +1825,11 @@ func (p *Parser) scanGenericBracketLookahead(startIdx int, allowDot bool) bool {
 		return false
 	}
 	count := 0
+	hasIntLit := false
 	for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
+		if p.cur().Kind == token.IntLit {
+			hasIntLit = true
+		}
 		_ = p.parseTypeExpr()
 		if tempRep.HasErrors() {
 			return false
@@ -1585,6 +1846,9 @@ func (p *Parser) scanGenericBracketLookahead(startIdx int, allowDot bool) bool {
 	}
 	p.advance() // `]`
 	next := p.cur().Kind
+	if hasIntLit {
+		return next == token.LBracket && p.looksLikeStructLitFields()
+	}
 	if next == token.LParen {
 		return true
 	}
@@ -1729,6 +1993,9 @@ func (p *Parser) parsePrimaryExpr() ast.Expr {
 	case token.HashBrack:
 		return p.parseHashLit()
 
+	case token.PlusBrack:
+		return p.parseTupleLit()
+
 	case token.LBrace:
 		return p.parseBlockExpr("", false, tk.Span.Start)
 
@@ -1801,10 +2068,10 @@ func (p *Parser) parseFuncLit() *ast.FuncLit {
 	start := p.cur().Span.Start
 	params, _ := p.parseParamList(true)
 	var ret ast.TypeExpr
-	if _, ok := p.match(token.Colon); ok {
+	if p.cur().Kind != token.Colon && p.canStartHeaderType() {
 		ret = p.parseTypeExpr()
 	}
-	p.expect(token.RArrow, "before function body (`->`)")
+	p.expect(token.Colon, "before function body")
 	body := p.parseExpr()
 	return &ast.FuncLit{
 		Params: params,
@@ -1945,6 +2212,38 @@ func (p *Parser) parseHashLit() ast.Expr {
 	}
 }
 
+func (p *Parser) parseTupleLit() *ast.TupleLit {
+	openPb := p.expect(token.PlusBrack, "opening `+[`")
+	if closeBr, ok := p.match(token.RBracket); ok {
+		return &ast.TupleLit{
+			Elems: nil,
+			Span:  diag.Span{Start: openPb.Span.Start, End: closeBr.Span.End},
+		}
+	}
+	var elems []ast.Expr
+	var lastEnd diag.Pos
+	hadComma := false
+	for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
+		el := p.parseExpr()
+		elems = append(elems, el)
+		lastEnd = el.GetSpan().End
+		if _, ok := p.match(token.Comma); ok {
+			hadComma = true
+		} else {
+			hadComma = false
+			break
+		}
+	}
+	closeBr := p.expect(token.RBracket, "closing tuple literal `]`")
+	if len(elems) > 0 {
+		p.checkTrailingComma(openPb, closeBr, lastEnd, hadComma, "tuple literal")
+	}
+	return &ast.TupleLit{
+		Elems: elems,
+		Span:  diag.Span{Start: openPb.Span.Start, End: closeBr.Span.End},
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Control Flow: `if`, `for`, `match`
 // -----------------------------------------------------------------------------
@@ -1992,13 +2291,23 @@ func (p *Parser) parseIfExpr() *ast.IfExpr {
 	}
 
 	p.expect(token.RParen, "closing `if (...)` condition")
+	var evalType ast.TypeExpr
+	if p.cur().Kind != token.Colon && p.canStartHeaderType() {
+		evalType = p.parseTypeExpr()
+	}
+	p.expect(token.Colon, "before `if` body")
 	thenBody := p.parseActionBody()
 	endPos := thenBody.GetSpan().End
 
 	var elseBody ast.Expr
-	if p.cur().Kind == token.KwElse && !p.elseBelongsToMatch() {
+	if p.cur().Kind == token.KwElse {
 		p.advance() // consume `else`
-		elseBody = p.parseActionBody()
+		if p.cur().Kind == token.KwIf {
+			elseBody = p.parseIfExpr()
+		} else {
+			p.expect(token.Colon, "after `else`")
+			elseBody = p.parseActionBody()
+		}
 		endPos = elseBody.GetSpan().End
 	}
 
@@ -2008,23 +2317,34 @@ func (p *Parser) parseIfExpr() *ast.IfExpr {
 		OptVar:    optVar,
 		BindName:  bindName,
 		Cond:      condExpr,
+		EvalType:  evalType,
 		Then:      thenBody,
 		Else:      elseBody,
 		Span:      diag.Span{Start: kw.Span.Start, End: endPos},
 	}
 }
 
-// elseBelongsToMatch implements Spec §10.3 / B3:
-// When inside a `match` arm, an `else` followed by `:` (`else:`) or `<Pattern>:` (`else Status.Closed:`)
-// belongs to the enclosing `match`, NOT an unbraced `if`.
-func (p *Parser) elseBelongsToMatch() bool {
-	if p.inMatchArm == 0 || p.cur().Kind != token.KwElse {
+func (p *Parser) currentMatchScrutCount() int {
+	if len(p.matchStack) > 0 {
+		return p.matchStack[len(p.matchStack)-1]
+	}
+	return 1
+}
+
+// isMatchDefaultAt reports whether toks[idx] starts a `match` closing arm:
+// `default:` or `default <MatchClauses>:`. Keeping `default` contextual lets it
+// remain a normal identifier outside `match` closing arms.
+func (p *Parser) isMatchDefaultAt(idx int, scrutCount int) bool {
+	if idx < 0 || idx >= len(p.toks) {
 		return false
 	}
-	if p.peekAt(1).Kind == token.Colon {
+	tk := p.toks[idx]
+	if tk.Kind != token.Ident || tk.Text != "default" {
+		return false
+	}
+	if idx+1 < len(p.toks) && p.toks[idx+1].Kind == token.Colon {
 		return true
 	}
-	// Speculatively check `<Pattern>:` right after `else`!
 	savePos := p.pos
 	realRep := p.rep
 	tempRep := diag.NewReporter()
@@ -2033,8 +2353,8 @@ func (p *Parser) elseBelongsToMatch() bool {
 		p.pos = savePos
 		p.rep = realRep
 	}()
-	p.advance() // `else`
-	_ = p.parseMatchPatternList()
+	p.pos = idx + 1
+	_ = p.parseMatchArmCases(scrutCount)
 	if tempRep.HasErrors() {
 		return false
 	}
@@ -2066,11 +2386,11 @@ func (p *Parser) parseForExpr(label string, startPos diag.Pos) *ast.ForExpr {
 		}
 		p.expect(token.KwIn, "in `for (... in ...)`")
 		firstExpr := p.parseExpr()
-		if p.cur().Kind == token.DotDot || p.cur().Kind == token.DotDotEq {
+		if re, ok := firstExpr.(*ast.RangeExpr); ok {
 			fe.Kind = ast.ForRange
-			fe.Inclusive = p.advance().Kind == token.DotDotEq
-			fe.CondOrIter = firstExpr
-			fe.RangeEnd = p.parseExpr()
+			fe.Inclusive = re.Inclusive
+			fe.CondOrIter = re.Low
+			fe.RangeEnd = re.High
 		} else {
 			fe.Kind = ast.ForIter
 			fe.CondOrIter = firstExpr
@@ -2081,14 +2401,16 @@ func (p *Parser) parseForExpr(label string, startPos diag.Pos) *ast.ForExpr {
 	}
 
 	p.expect(token.RParen, "closing `for (...)`")
-	if _, ok := p.match(token.Colon); ok {
+	if p.cur().Kind != token.Colon && p.canStartHeaderType() {
 		fe.EvalType = p.parseTypeExpr()
 	}
+	p.expect(token.Colon, "before `for` body")
 	fe.Body = p.parseActionBody()
 	endPos := fe.Body.GetSpan().End
 
-	if p.cur().Kind == token.KwElse && !p.elseBelongsToMatch() {
+	if p.cur().Kind == token.KwElse {
 		p.advance()
+		p.expect(token.Colon, "after `else`")
 		fe.Else = p.parseActionBody()
 		endPos = fe.Else.GetSpan().End
 	}
@@ -2121,11 +2443,11 @@ func (p *Parser) parseWhileExpr(label string, startPos diag.Pos) *ast.WhileExpr 
 		}
 		p.expect(token.KwIn, "in `while (... in ...)`")
 		firstExpr := p.parseExpr()
-		if p.cur().Kind == token.DotDot || p.cur().Kind == token.DotDotEq {
+		if re, ok := firstExpr.(*ast.RangeExpr); ok {
 			we.Kind = ast.ForRange
-			we.Inclusive = p.advance().Kind == token.DotDotEq
-			we.CondOrIter = firstExpr
-			we.RangeEnd = p.parseExpr()
+			we.Inclusive = re.Inclusive
+			we.CondOrIter = re.Low
+			we.RangeEnd = re.High
 		} else {
 			we.Kind = ast.ForIter
 			we.CondOrIter = firstExpr
@@ -2136,14 +2458,16 @@ func (p *Parser) parseWhileExpr(label string, startPos diag.Pos) *ast.WhileExpr 
 	}
 
 	p.expect(token.RParen, "closing `while (...)`")
-	if _, ok := p.match(token.Colon); ok {
+	if p.cur().Kind != token.Colon && p.canStartHeaderType() {
 		we.EvalType = p.parseTypeExpr()
 	}
+	p.expect(token.Colon, "before `while` body")
 	we.Body = p.parseActionBody()
 	endPos := we.Body.GetSpan().End
 
-	if p.cur().Kind == token.KwElse && !p.elseBelongsToMatch() {
+	if p.cur().Kind == token.KwElse {
 		p.advance()
+		p.expect(token.Colon, "after `else`")
 		we.Else = p.parseActionBody()
 		endPos = we.Else.GetSpan().End
 	}
@@ -2184,91 +2508,257 @@ func (p *Parser) looksLikeForInHeader() bool {
 	return false
 }
 
+func (p *Parser) parenHasCommaAtDepthOne() bool {
+	if p.cur().Kind != token.LParen {
+		return false
+	}
+	depth := 0
+	for i := p.pos; i < len(p.toks); i++ {
+		switch p.toks[i].Kind {
+		case token.LParen:
+			depth++
+		case token.RParen:
+			depth--
+			if depth == 0 {
+				return false
+			}
+		case token.Comma:
+			if depth == 1 {
+				return true
+			}
+		case token.Colon, token.EOF, token.KwWhen, token.KwElse:
+			if depth <= 0 {
+				return false
+			}
+		}
+	}
+	return false
+}
+
 func (p *Parser) parseMatchExpr() *ast.MatchExpr {
 	kw := p.expect(token.KwMatch, "in `match`")
-	p.expect(token.LParen, "after `match`")
-	scrut := p.parseExpr()
-	p.expect(token.RParen, "closing `match (...)`")
+	var scruts []ast.Expr
+	var evalType ast.TypeExpr
+	if p.cur().Kind == token.LParen {
+		openP := p.advance()
+		if p.cur().Kind == token.RParen {
+			// `match ()`
+			p.advance()
+		} else {
+			var lastEnd diag.Pos
+			hadComma := false
+			for p.cur().Kind != token.RParen && p.cur().Kind != token.EOF {
+				e := p.parseExpr()
+				scruts = append(scruts, e)
+				lastEnd = e.GetSpan().End
+				if _, ok := p.match(token.Comma); ok {
+					hadComma = true
+				} else {
+					hadComma = false
+					break
+				}
+			}
+			closeP := p.expect(token.RParen, "closing `match (...)`")
+			if len(scruts) > 0 {
+				p.checkTrailingComma(openP, closeP, lastEnd, hadComma, "match argument list")
+			}
+		}
+		if p.cur().Kind != token.Colon && p.canStartHeaderType() {
+			evalType = p.parseTypeExpr()
+		}
+		p.expect(token.Colon, "after `match (...)`")
+	} else {
+		p.expect(token.Colon, "after `match`")
+	}
+	numScrut := len(scruts)
+	p.matchStack = append(p.matchStack, numScrut)
+	defer func() {
+		p.matchStack = p.matchStack[:len(p.matchStack)-1]
+	}()
 
 	var arms []ast.MatchArm
 	for p.cur().Kind == token.KwWhen {
 		wTok := p.advance()
-		pats := p.parseMatchPatternList()
+		cases := p.parseMatchArmCases(numScrut)
+		if p.cur().Kind == token.Comma && numScrut >= 2 {
+			p.rep.ErrorWithHint(p.cur().Span,
+				fmt.Sprintf("too many patterns for %d-argument match (got extra comma)", numScrut),
+				"in multi-argument match, wrap multiple combinations in parentheses: `when (a, b), (c, d):`")
+		}
 		p.expect(token.Colon, "after `when` pattern")
 		p.inMatchArm++
 		body := p.parseActionBody()
 		p.inMatchArm--
-		// Consume optional newline AutoSemi between match arms if any slipped through
 		arms = append(arms, ast.MatchArm{
-			Patterns: pats,
-			IsElse:   false,
-			Body:     body,
-			Span:     diag.Span{Start: wTok.Span.Start, End: body.GetSpan().End},
+			Cases:     cases,
+			IsDefault: false,
+			Body:      body,
+			Span:      diag.Span{Start: wTok.Span.Start, End: body.GetSpan().End},
 		})
 	}
 
-	if p.cur().Kind == token.KwElse {
-		elseTok := p.advance()
-		var elsePats []ast.Pattern
+	if p.cur().Kind == token.Semi && p.cur().AutoSemi && p.isMatchDefaultAt(p.pos+1, numScrut) {
+		p.advance()
+	}
+	if p.isMatchDefaultAt(p.pos, numScrut) {
+		defTok := p.advance()
+		var defCases []ast.MatchCase
 		if p.cur().Kind != token.Colon {
-			elsePats = p.parseMatchPatternList()
+			if numScrut == 0 {
+				p.rep.ErrorWithHint(p.cur().Span,
+					"0-argument `match` expression must terminate with a bare `default:` arm",
+					"write `default:` for the catch-all fallback")
+			}
+			defCases = p.parseMatchArmCases(numScrut)
+			for _, dc := range defCases {
+				for _, pat := range dc.Patterns {
+					if _, isCP := pat.(*ast.ContainsPattern); isCP {
+						p.rep.Errorf(pat.GetSpan(), "cannot use `in` containment pattern in a `default` arm (`default` must be exhaustive)")
+					}
+				}
+			}
 		}
-		p.expect(token.Colon, "after `else` in `match`")
+		p.expect(token.Colon, "after `default` in `match`")
 		p.inMatchArm++
-		elseBody := p.parseActionBody()
+		defBody := p.parseActionBody()
 		p.inMatchArm--
 
 		arms = append(arms, ast.MatchArm{
-			Patterns: elsePats,
-			IsElse:   true,
-			Body:     elseBody,
-			Span:     diag.Span{Start: elseTok.Span.Start, End: elseBody.GetSpan().End},
+			Cases:     defCases,
+			IsDefault: true,
+			Body:      defBody,
+			Span:      diag.Span{Start: defTok.Span.Start, End: defBody.GetSpan().End},
 		})
-	} else if len(arms) == 0 {
-		bad := p.expect(token.KwWhen, "at least one `when` or `else` arm in `match`")
-		return &ast.MatchExpr{
-			Scrutinee: scrut,
-			Arms:      arms,
-			Span:      diag.Span{Start: kw.Span.Start, End: bad.Span.End},
-		}
+	} else if p.cur().Kind == token.KwElse && p.peekAt(1).Kind == token.Colon {
+		p.rep.ErrorWithHint(p.cur().Span,
+			"non-exhaustive 'match' expression: 'match' must terminate with a 'default' arm, not 'else'",
+			"write 'default <Pattern>:' if matching the final variant exhaustively, or 'default:' for a catch-all fallback")
+	} else {
+		p.rep.ErrorWithHint(p.cur().Span,
+			"non-exhaustive 'match' expression: must terminate with a 'default' arm",
+			"write 'default <Pattern>:' if matching the final variant exhaustively, or 'default:' for a catch-all fallback")
+	}
+
+	endSpan := kw.Span.End
+	if len(arms) > 0 {
+		endSpan = arms[len(arms)-1].Span.End
 	}
 
 	return &ast.MatchExpr{
-		Scrutinee: scrut,
-		Arms:      arms,
-		Span:      diag.Span{Start: kw.Span.Start, End: arms[len(arms)-1].Span.End},
+		Scrutinees: scruts,
+		EvalType:   evalType,
+		Arms:       arms,
+		Span:       diag.Span{Start: kw.Span.Start, End: endSpan},
 	}
 }
 
-func (p *Parser) parseMatchPatternList() []ast.Pattern {
+func (p *Parser) parseMatchArmCases(numScrut int) []ast.MatchCase {
+	var cases []ast.MatchCase
+	if numScrut == 0 {
+		for {
+			if p.cur().Kind == token.KwIn {
+				inTok := p.advance()
+				p.rep.ErrorWithHint(inTok.Span,
+					"cannot use `when in ...` in a 0-argument `match`",
+					"provide a scrutinee (`match (x): when in ...:`) or write a boolean condition expression")
+				container := p.parseExpr()
+				cases = append(cases, ast.MatchCase{
+					Patterns: []ast.Pattern{&ast.ContainsPattern{Container: container, Span: diag.Span{Start: inTok.Span.Start, End: container.GetSpan().End}}},
+					Span:     diag.Span{Start: inTok.Span.Start, End: container.GetSpan().End},
+				})
+			} else {
+				cond := p.parseExpr()
+				cases = append(cases, ast.MatchCase{
+					Patterns: []ast.Pattern{&ast.ExprPattern{Expr: cond, Span: cond.GetSpan()}},
+					Span:     cond.GetSpan(),
+				})
+			}
+			if _, ok := p.match(token.Comma); !ok {
+				break
+			}
+		}
+		return cases
+	}
+
+	if numScrut == 1 {
+		for {
+			pat := p.parseSinglePattern()
+			cases = append(cases, ast.MatchCase{
+				Patterns: []ast.Pattern{pat},
+				Span:     pat.GetSpan(),
+			})
+			if _, ok := p.match(token.Comma); !ok {
+				break
+			}
+		}
+		return cases
+	}
+
+	// Multi-argument match (numScrut >= 2)
+	if p.cur().Kind == token.LParen && p.parenHasCommaAtDepthOne() {
+		for {
+			openP := p.expect(token.LParen, "opening pattern tuple `(`")
+			var pats []ast.Pattern
+			for i := 0; i < numScrut; i++ {
+				pat := p.parseSinglePattern()
+				pats = append(pats, pat)
+				if i < numScrut-1 {
+					p.expect(token.Comma, "separating patterns in pattern tuple")
+				}
+			}
+			if _, ok := p.match(token.Comma); ok {
+				// optional trailing comma
+			}
+			closeP := p.expect(token.RParen, "closing pattern tuple `)`")
+			cases = append(cases, ast.MatchCase{
+				Patterns: pats,
+				Span:     diag.Span{Start: openP.Span.Start, End: closeP.Span.End},
+			})
+			if _, ok := p.match(token.Comma); !ok {
+				break
+			}
+			if p.cur().Kind != token.LParen {
+				break
+			}
+		}
+		return cases
+	}
+
+	// Single combination without outer parentheses
 	var pats []ast.Pattern
-	for {
+	for i := 0; i < numScrut; i++ {
 		pat := p.parseSinglePattern()
 		pats = append(pats, pat)
-		if _, ok := p.match(token.Comma); !ok {
-			break
+		if i < numScrut-1 {
+			p.expect(token.Comma, "separating patterns for match arguments")
 		}
 	}
-	return pats
+	cases = append(cases, ast.MatchCase{
+		Patterns: pats,
+		Span:     diag.Span{Start: pats[0].GetSpan().Start, End: pats[len(pats)-1].GetSpan().End},
+	})
+	return cases
 }
 
 func (p *Parser) parseSinglePattern() ast.Pattern {
+	if p.cur().Kind == token.KwIn {
+		inTok := p.advance()
+		container := p.parseExpr()
+		return &ast.ContainsPattern{
+			Container: container,
+			Span:      diag.Span{Start: inTok.Span.Start, End: container.GetSpan().End},
+		}
+	}
+	if p.cur().Kind == token.Ident && p.cur().Text == "_" {
+		tk := p.advance()
+		return &ast.WildcardPattern{Span: tk.Span}
+	}
 	first := p.parsePatternAtom()
 	if _, isMem := first.(*ast.MemberExpr); isMem {
 		if p.cur().Kind == token.LParen {
 			bindings, endPos := p.parseTupleVariantPatternBindings()
 			return &ast.VariantPattern{
 				Target:   first,
-				IsStruct: false,
-				Bindings: bindings,
-				Span:     diag.Span{Start: first.GetSpan().Start, End: endPos},
-			}
-		}
-		if p.cur().Kind == token.LBracket {
-			bindings, endPos := p.parseStructVariantPatternBindings()
-			return &ast.VariantPattern{
-				Target:   first,
-				IsStruct: true,
 				Bindings: bindings,
 				Span:     diag.Span{Start: first.GetSpan().Start, End: endPos},
 			}
@@ -2277,11 +2767,15 @@ func (p *Parser) parseSinglePattern() ast.Pattern {
 	if p.cur().Kind == token.DotDot || p.cur().Kind == token.DotDotEq {
 		incl := p.advance().Kind == token.DotDotEq
 		high := p.parsePatternAtom()
-		return &ast.RangePattern{
+		rng := &ast.RangeExpr{
 			Low:       first,
 			High:      high,
 			Inclusive: incl,
 			Span:      diag.Span{Start: first.GetSpan().Start, End: high.GetSpan().End},
+		}
+		return &ast.ExprPattern{
+			Expr: rng,
+			Span: rng.Span,
 		}
 	}
 	return &ast.ExprPattern{
@@ -2404,49 +2898,4 @@ func (p *Parser) parseTupleVariantPatternBindings() ([]ast.VariantPatternBinding
 		p.checkTrailingComma(openP, closeP, lastEnd, hadComma, "variant pattern")
 	}
 	return bindings, closeP.Span.End
-}
-
-func (p *Parser) parseStructVariantPatternBindings() ([]ast.VariantPatternBinding, diag.Pos) {
-	openBr := p.expect(token.LBracket, "opening struct variant destructuring `[`")
-	var bindings []ast.VariantPatternBinding
-	var lastEnd diag.Pos
-	hadComma := false
-	for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
-		fStart := p.cur().Span.Start
-		var b ast.VariantPatternBinding
-		if p.cur().Kind == token.Ident && p.cur().Text == "_" && p.peekAt(1).Kind != token.Colon {
-			tk := p.advance()
-			b = ast.VariantPatternBinding{
-				IsWildcard: true,
-				Span:       tk.Span,
-			}
-		} else if (p.cur().Kind == token.Ident || p.cur().Kind == token.OptIdent) && p.peekAt(1).Kind == token.Colon {
-			fOpt := p.cur().Kind == token.OptIdent
-			fname := p.advance().Text
-			p.advance() // `:`
-			b = p.parsePatternBindAtom()
-			b.FieldName = fname
-			b.FieldIsOpt = fOpt
-			b.Span = diag.Span{Start: fStart, End: b.Span.End}
-		} else {
-			b = p.parsePatternBindAtom()
-			if !b.IsWildcard {
-				b.FieldName = b.BindName
-				b.FieldIsOpt = b.IsOptName
-			}
-		}
-		bindings = append(bindings, b)
-		lastEnd = b.Span.End
-		if _, ok := p.match(token.Comma); ok {
-			hadComma = true
-		} else {
-			hadComma = false
-			break
-		}
-	}
-	closeBr := p.expect(token.RBracket, "closing struct variant destructuring `]`")
-	if len(bindings) > 0 {
-		p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "struct variant pattern")
-	}
-	return bindings, closeBr.Span.End
 }

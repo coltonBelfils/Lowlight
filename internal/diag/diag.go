@@ -47,6 +47,7 @@ func (s Severity) String() string {
 
 // Diagnostic represents a single compiler error or warning with source context.
 type Diagnostic struct {
+	Code     string // e.g. "E0001", "W0001"
 	Severity Severity
 	Span     Span
 	Message  string
@@ -81,9 +82,30 @@ func (r *Reporter) Errorf(span Span, format string, args ...any) {
 	})
 }
 
+// ErrorCode records an error diagnostic with an explicit error code.
+func (r *Reporter) ErrorCode(span Span, code, format string, args ...any) {
+	r.diags = append(r.diags, Diagnostic{
+		Code:     code,
+		Severity: Error,
+		Span:     span,
+		Message:  fmt.Sprintf(format, args...),
+	})
+}
+
 // ErrorWithHint records an error diagnostic with an actionable hint.
 func (r *Reporter) ErrorWithHint(span Span, msg, hint string) {
 	r.diags = append(r.diags, Diagnostic{
+		Severity: Error,
+		Span:     span,
+		Message:  msg,
+		Hint:     hint,
+	})
+}
+
+// ErrorCodeWithHint records an error diagnostic with an error code and an actionable hint.
+func (r *Reporter) ErrorCodeWithHint(span Span, code, msg, hint string) {
+	r.diags = append(r.diags, Diagnostic{
+		Code:     code,
 		Severity: Error,
 		Span:     span,
 		Message:  msg,
@@ -122,7 +144,11 @@ func (r *Reporter) Format() string {
 		if i > 0 {
 			sb.WriteByte('\n')
 		}
-		fmt.Fprintf(&sb, "%s: %s: %s\n", d.Span.Start.String(), d.Severity.String(), d.Message)
+		if d.Code != "" {
+			fmt.Fprintf(&sb, "%s: [%s] %s: %s\n", d.Span.Start.String(), d.Code, d.Severity.String(), d.Message)
+		} else {
+			fmt.Fprintf(&sb, "%s: %s: %s\n", d.Span.Start.String(), d.Severity.String(), d.Message)
+		}
 		if lines, ok := r.sources[d.Span.Start.File]; ok {
 			lineIdx := d.Span.Start.Line - 1
 			if lineIdx >= 0 && lineIdx < len(lines) {
@@ -130,22 +156,35 @@ func (r *Reporter) Format() string {
 				expanded := strings.ReplaceAll(srcLine, "\t", "    ")
 				fmt.Fprintf(&sb, "  %4d | %s\n", d.Span.Start.Line, expanded)
 
-				// Compute caret alignment accounting for tabs.
+				// Compute caret alignment accounting for tabs and UTF-8 runes.
 				col := d.Span.Start.Col - 1
 				if col < 0 {
 					col = 0
 				}
 				visualCol := 0
-				for j := 0; j < col && j < len(srcLine); j++ {
-					if srcLine[j] == '\t' {
-						visualCol += 4
-					} else {
-						visualCol++
-					}
+				caretLen := 0
+				hasEndCol := d.Span.End.Line == d.Span.Start.Line
+				endCol := -1
+				if hasEndCol {
+					endCol = d.Span.End.Col - 1
 				}
-				caretLen := 1
-				if d.Span.End.Line == d.Span.Start.Line && d.Span.End.Col > d.Span.Start.Col {
-					caretLen = d.Span.End.Col - d.Span.Start.Col
+				runeIdx := 0
+				for _, r := range srcLine {
+					w := 1
+					if r == '\t' {
+						w = 4
+					}
+					if runeIdx < col {
+						visualCol += w
+					} else if !hasEndCol || runeIdx < endCol {
+						caretLen += w
+					} else {
+						break
+					}
+					runeIdx++
+				}
+				if caretLen < 1 {
+					caretLen = 1
 				}
 				fmt.Fprintf(&sb, "       | %s^%s\n", strings.Repeat(" ", visualCol), strings.Repeat("~", caretLen-1))
 			}

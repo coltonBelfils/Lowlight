@@ -21,24 +21,24 @@ define Token struct [
     num: float,
 ]
 
-bind tokenize = (src: string): [Token] -> {
+bind tokenize = (src: string) [Token]: {
     let toks: [Token] = []
     let i = 0
     let n = src.len()
 
-    for (i < n) {
+    for (i < n): {
         let ch = char(src.byte_at(i))
-        if (ch.is_whitespace()) {
+        if (ch.is_whitespace()): {
             i += 1
             next <-
         }
-        if (ch.is_digit()) {
+        if (ch.is_digit()): {
             let start = i
-            for (i < n) {
+            for (i < n): {
                 let c2 = char(src.byte_at(i))
-                if (c2.is_digit() or c2 == '.') {
+                if (c2.is_digit() or c2 == '.'): {
                     i += 1
-                } else {
+                } else: {
                     for <-
                 }
             }
@@ -47,13 +47,13 @@ bind tokenize = (src: string): [Token] -> {
             toks.push(Token[kind: TokKind.Num, text: own slice, num: val])
             next <-
         }
-        if (ch.is_alpha() or ch == '_') {
+        if (ch.is_alpha() or ch == '_'): {
             let start = i
-            for (i < n) {
+            for (i < n): {
                 let c2 = char(src.byte_at(i))
-                if (c2.is_alnum() or c2 == '_') {
+                if (c2.is_alnum() or c2 == '_'): {
                     i += 1
-                } else {
+                } else: {
                     for <-
                 }
             }
@@ -61,14 +61,14 @@ bind tokenize = (src: string): [Token] -> {
             next <-
         }
 
-        let single_kind = match (ch)
+        let single_kind = match (ch):
         when '+': TokKind.Plus
         when '-': TokKind.Minus
         when '*': TokKind.Star
         when '/': TokKind.Slash
         when '(': TokKind.LParen
         when ')': TokKind.RParen
-        else:     panic("unexpected character in expression: ${string(ch)}")
+        default:  panic("unexpected character in expression: ${string(ch)}")
 
         toks.push(Token[kind: single_kind, text: string(ch), num: 0.0])
         i += 1
@@ -99,13 +99,13 @@ define ParserState struct [
     pos: int,
 ]
 
-bind ParserState.peek = (self): TokKind -> {
+bind ParserState.peek = (self) TokKind: {
     self.tokens[self.pos].kind
 }
 
-bind parse_expr = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
+bind parse_expr = (arena: &Arena, st: &ParserState) ref[ExprNode]: {
     let lhs = parse_term(&arena, &st)
-    for (st.peek() == TokKind.Plus or st.peek() == TokKind.Minus) {
+    for (st.peek() == TokKind.Plus or st.peek() == TokKind.Minus): {
         let op = st.peek()
         st.pos += 1
         let rhs = parse_term(&arena, &st)
@@ -121,9 +121,9 @@ bind parse_expr = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
     lhs
 }
 
-bind parse_term = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
+bind parse_term = (arena: &Arena, st: &ParserState) ref[ExprNode]: {
     let lhs = parse_unary(&arena, &st)
-    for (st.peek() == TokKind.Star or st.peek() == TokKind.Slash) {
+    for (st.peek() == TokKind.Star or st.peek() == TokKind.Slash): {
         let op = st.peek()
         st.pos += 1
         let rhs = parse_unary(&arena, &st)
@@ -139,8 +139,8 @@ bind parse_term = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
     lhs
 }
 
-bind parse_unary = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
-    if (st.peek() == TokKind.Minus) {
+bind parse_unary = (arena: &Arena, st: &ParserState) ref[ExprNode]: {
+    if (st.peek() == TokKind.Minus): {
         st.pos += 1
         let sub = parse_unary(&arena, &st)
         func <- arena.alloc(ExprNode[
@@ -155,9 +155,9 @@ bind parse_unary = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
     parse_primary(&arena, &st)
 }
 
-bind parse_primary = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
+bind parse_primary = (arena: &Arena, st: &ParserState) ref[ExprNode]: {
     let k = st.peek()
-    if (k == TokKind.Num) {
+    if (k == TokKind.Num): {
         let v = st.tokens[st.pos].num
         st.pos += 1
         func <- arena.alloc(ExprNode[
@@ -169,7 +169,7 @@ bind parse_primary = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
             right?: none,
         ])
     }
-    if (k == TokKind.Ident) {
+    if (k == TokKind.Ident): {
         let nm = st.tokens[st.pos].text.copy()
         st.pos += 1
         func <- arena.alloc(ExprNode[
@@ -181,7 +181,7 @@ bind parse_primary = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
             right?: none,
         ])
     }
-    if (k == TokKind.LParen) {
+    if (k == TokKind.LParen): {
         st.pos += 1
         let inner = parse_expr(&arena, &st)
         assert(st.peek() == TokKind.RParen, "expected closing ')'")
@@ -191,28 +191,28 @@ bind parse_primary = (arena: &Arena, st: &ParserState): ref[ExprNode] -> {
     panic("unexpected token in primary expression")
 }
 
-bind eval_node = (node: ref[ExprNode], env: #[string: float]): float -> {
-    match (node.kind)
+bind eval_node = (node: ref[ExprNode], env: #[string: float]) float: {
+    match (node.kind):
     when NodeKind.Lit: node.num
     when NodeKind.Var: env[node.name] ?? panic("unbound variable: ${node.name}")
     when NodeKind.Neg: {
         let l = node.left? ?? panic("missing neg operand")
         -eval_node(l, env)
     }
-    else NodeKind.Bin: {
+    default NodeKind.Bin: {
         let l = node.left? ?? panic("missing left operand")
         let r = node.right? ?? panic("missing right operand")
         let lv = eval_node(l, env)
         let rv = eval_node(r, env)
-        match (node.op)
+        match (node.op):
         when TokKind.Plus:  lv + rv
         when TokKind.Minus: lv - rv
         when TokKind.Star:  lv * rv
-        else:               lv / rv
+        default:            lv / rv
     }
 }
 
-bind evaluate = (src: string, env: #[string: float]): float -> {
+bind evaluate = (src: string, env: #[string: float]) float: {
     let arena = Arena.new()
     let st = ParserState[tokens: tokenize(src), pos: 0]
     let root = parse_expr(&arena, &st)
@@ -220,7 +220,7 @@ bind evaluate = (src: string, env: #[string: float]): float -> {
     eval_node(root, env)
 }
 
-bind main = () -> {
+bind main = (): {
     let vars = #[
         "x": 10.0,
         "y": 3.5,

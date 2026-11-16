@@ -32,22 +32,22 @@ define Pair[A, B] struct [
     second: B,
 ]
 
-bind Pair[A, B].into_second = (own self): B -> {
+bind Pair[A, B].into_second = (own self) B: {
     self.second
 }
 
-bind push_twice = (xs: &[int], v: int) -> {
+bind push_twice = (xs: &[int], v: int): {
     xs.push(v)
     xs.push(v + 1)
 }
 
-bind main = (): int -> {
+bind main = () int: {
     let list = [1, 2, 3]
     push_twice(&list, 4)
 
     let head?: ?Node = Node[val: 10, next?: none]
     let n2 = Node[val: 20, next?: own head?]
-    if (n2.next? as child) {
+    if (n2.next? as child): {
         println("child = ${child.val}")
     }
 
@@ -56,10 +56,10 @@ bind main = (): int -> {
     println(s)
 
     let st = Status.Active
-    let code = match (st)
+    let code = match (st):
         when Status.Pending: 1
         when Status.Active: 2
-        else Status.Closed: 3
+        default Status.Closed: 3
 
     code
 }
@@ -78,50 +78,50 @@ func TestSemaSafetyRulesRejected(t *testing.T) {
 	}{
 		{
 			name: "missing ? on optional variable",
-			src:  `bind main = () -> { let bad = parse_int("42") }`,
+			src:  `bind main = (): { let bad = parse_int("42") }`,
 			want: "must end with `?`",
 		},
 		{
 			name: "extra ? on non-optional variable",
-			src:  `bind main = () -> { let bad?: int = 42 }`,
+			src:  `bind main = (): { let bad?: int = 42 }`,
 			want: "non-optional type",
 		},
 		{
 			name: "deep immutability of bind map",
-			src:  `bind main = () -> { bind m = #["a": 1]; m.insert("b", 2) }`,
+			src:  `bind main = (): { bind m = #["a": 1]; m.insert("b", 2) }`,
 			want: "deeply immutable `bind`",
 		},
 		{
 			name: "missing & at mutable call site",
 			src: `
-bind bump = (x: &int) -> { x += 1 }
-bind main = () -> { let a = 5; bump(a) }
+bind bump = (x: &int): { x += 1 }
+bind main = (): { let a = 5; bump(a) }
 `,
 			want: "requires `&` at the call site",
 		},
 		{
 			name: "missing own at consuming call site",
 			src: `
-bind sink = (s: own string) -> { println(s) }
-bind main = () -> { let s = "hi"; sink(s) }
+bind sink = (s: own string): { println(s) }
+bind main = (): { let s = "hi"; sink(s) }
 `,
 			want: "requires `own s` at the call site",
 		},
 		{
 			name: "use after move",
 			src: `
-bind sink = (s: own string) -> { println(s) }
-bind main = () -> { let s = "hi"; sink(own s); println(s) }
+bind sink = (s: own string): { println(s) }
+bind main = (): { let s = "hi"; sink(own s); println(s) }
 `,
 			want: "use of moved variable",
 		},
 		{
 			name: "conditional move then read",
 			src: `
-bind sink = (s: own string) -> { println(s) }
-bind main = () -> {
+bind sink = (s: own string): { println(s) }
+bind main = (): {
     let s = "hi"
-    if (true) { sink(own s) }
+    if (true): { sink(own s) }
     println(s)
 }
 `,
@@ -130,17 +130,17 @@ bind main = () -> {
 		{
 			name: "borrow conflict &x and x in same call",
 			src: `
-bind bad = (a: &[int], b: [int]) -> { a.push(b.len()) }
-bind main = () -> { let xs = [1, 2]; bad(&xs, xs) }
+bind bad = (a: &[int], b: [int]): { a.push(b.len()) }
+bind main = (): { let xs = [1, 2]; bad(&xs, xs) }
 `,
 			want: "mutably borrowed",
 		},
 		{
 			name: "mutate vector while iterating",
 			src: `
-bind main = () -> {
+bind main = (): {
     let xs = [1, 2, 3]
-    for (x in xs) {
+    for (x in xs): {
         xs.push(x)
     }
 }
@@ -151,7 +151,7 @@ bind main = () -> {
 			name: "arena ref escaping outer scope",
 			src: `
 define BoxedInt struct [ v: int ]
-bind main = () -> {
+bind main = (): {
     let escaped: [ref[BoxedInt]] = []
     {
         let arena = Arena.new()
@@ -166,25 +166,25 @@ bind main = () -> {
 			name: "arena ref returned without &Arena param",
 			src: `
 define BoxedInt struct [ v: int ]
-bind leak = (): ref[BoxedInt] -> {
+bind leak = () ref[BoxedInt]: {
     let arena = Arena.new()
     arena.alloc(BoxedInt[v: 1])
 }
-bind main = () -> {}
+bind main = (): {}
 `,
 			want: "unless it takes an `&Arena` parameter",
 		},
 		{
 			name: "unwind across lambda boundary",
 			src: `
-bind main = (): int -> {
-    let f = (): int -> {
-        if (true) {
+bind main = () int: {
+    let f = () int: {
+        if (true): {
             for <- 5
         }
         1
     }
-    for (i in 0..3) {
+    for (i in 0..3): {
         let v = f()
     }
     0
@@ -196,11 +196,11 @@ bind main = (): int -> {
 			name: "non-exhaustive enum match",
 			src: `
 define Color enum [ Red, Green, Blue ]
-bind main = (): int -> {
+bind main = () int: {
     let c = Color.Red
-    match (c)
+    match (c):
         when Color.Red: 1
-        else Color.Green: 2
+        default Color.Green: 2
 }
 `,
 			want: "missing variant(s): Color.Blue",
@@ -208,7 +208,7 @@ bind main = (): int -> {
 		{
 			name: "non-value block assigned to variable",
 			src: `
-bind main = () -> {
+bind main = (): {
     let x = {
         let a = 1
         let b = 2
@@ -220,7 +220,7 @@ bind main = () -> {
 		{
 			name: "unsafe pointer op outside unsafe block",
 			src: `
-bind main = () -> {
+bind main = (): {
     let p = null_ptr[u8]()
 }
 `,
@@ -229,12 +229,12 @@ bind main = () -> {
 		{
 			name: "duplicate string pattern in match",
 			src: `
-bind main = () -> {
+bind main = (): {
     let s = "hello"
-    match (s)
+    match (s):
         when "hello": 1
         when "hello": 2
-        else: 0
+        default: 0
 }
 `,
 			want: `duplicate string pattern "hello" in ` + "`match`",
@@ -242,15 +242,75 @@ bind main = () -> {
 		{
 			name: "duplicate int pattern in match",
 			src: `
-bind main = () -> {
+bind main = (): {
     let x = 42
-    match (x)
+    match (x):
         when 42: 1
         when 42: 2
-        else: 0
+        default: 0
 }
 `,
 			want: "duplicate integer pattern `42` in `match`",
+		},
+		{
+			name: "recursive function with omitted return type rejected",
+			src: `
+bind count_down = (n: int): {
+    if (n <= 0): func <- 0
+    count_down(n - 1)
+}
+bind main = (): {}
+`,
+			want: `cannot infer return type of recursive function "count_down"`,
+		},
+		{
+			name: "void cannot be used as variable type",
+			src: `
+bind main = (): {
+    let x: void = 1
+}
+`,
+			want: "`void`",
+		},
+		{
+			name: "if without else rejects non-optional eval type",
+			src: `
+bind main = (): {
+    let x = if (true) int: 42
+}
+`,
+			want: "must have an optional evaluation type",
+		},
+		{
+			name: "while without else rejects non-optional eval type",
+			src: `
+bind main = (): {
+    let i = 0
+    let x = while (i < 3) int: { i += 1 }
+}
+`,
+			want: "must have an optional evaluation type",
+		},
+		{
+			name: "mixed bare func <- and value func <- rejected",
+			src: `
+bind f = (b: bool): {
+    if (b): func <-
+    42
+}
+bind main = (): {}
+`,
+			want: "mixes bare `func <-` (void) with non-void return value",
+		},
+		{
+			name: "void function rejects func <- value",
+			src: `
+bind f = () void: {
+    func <- 1
+}
+bind main = (): {}
+`,
+			want: "void function cannot unwind with a value",
 		},
 	}
 
@@ -265,5 +325,52 @@ bind main = () -> {
 				t.Fatalf("expected diagnostic containing %q, got:\n%s", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestOption2InferenceAndUnifiedSyntaxValid(t *testing.T) {
+	src := `
+bind double = (x: int): x * 2
+bind greet = (s: string): { println(s) }
+bind with_void_semi = (x: int): { x + 1; }
+bind early_ret = (b: bool): {
+    if (b): func <- 10
+    20
+}
+bind early_void = (b: bool): {
+    if (b): func <-
+    println("ok")
+}
+bind explicit_void = () void: {
+    println("explicit")
+}
+
+define Box[T] struct [ val: T ]
+bind make_list[T] = (item: T): {
+    for (i in 0..2) [T]: item.copy()
+}
+
+bind main = () int: {
+    let bad_if?: ?int = if (true) ?int: 42
+    let no_else?: ?int = if (false): 7
+    let else_if_val = if (false): 1 else if (true): 2 else: 3
+    let m_val = match (else_if_val) int:
+        when 2: 20
+        default: 0
+    let l1: [int] = make_list[int](double(3))
+    let inc = (n: int): n + 1
+    let fn_arg: (int) int = (k: int): k + 5
+    let fn_void: (int) void = (k: int): { if (k > 0): println("ok") }
+    fn_void(1)
+    greet("hi")
+    with_void_semi(5)
+    early_void(true)
+    explicit_void()
+    early_ret(false) + inc(fn_arg(l1[0])) + (bad_if? ?? 0) + (no_else? ?? 0) + m_val
+}
+`
+	rep := checkSrc(src)
+	if rep.HasErrors() {
+		t.Fatalf("expected valid program, got errors:\n%s", rep.Format())
 	}
 }

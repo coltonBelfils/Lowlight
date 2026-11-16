@@ -6,21 +6,21 @@ define ExecResult struct [
     exit_code: int,
 ]
 
-bind ExecResult.ok = (self): bool -> {
+bind ExecResult.ok = (self) bool: {
     self.exit_code == 0
 }
 
-bind exec = (cmd: string): ExecResult -> {
+bind exec = (cmd: string) ExecResult: {
     unsafe {
         let stream = sys_popen(cmd.c_str())
-        if (stream == null_ptr[u8]()) {
+        if (stream == null_ptr[u8]()): {
             func <- ExecResult[stdout: "", exit_code: -1]
         }
         let chunk_size = 4096
         let raw = alloc_raw[u8](chunk_size)
         let out_str = ""
         let n = sys_pread(stream, raw, chunk_size)
-        for (n > 0) {
+        for (n > 0): {
             let chunk = str_from_raw(raw, n)
             out_str.push(chunk)
             n = sys_pread(stream, raw, chunk_size)
@@ -31,58 +31,49 @@ bind exec = (cmd: string): ExecResult -> {
     }
 }
 
-bind system_run = (cmd: string): int -> {
+bind system_run = (cmd: string) int: {
     unsafe sys_system(cmd.c_str())
 }
 
-bind file_size = (path: string): int -> {
-    unsafe sys_file_size(path.c_str())
-}
-
-bind file_exists = (path: string): bool -> {
+bind file_exists = (path: string) bool: {
     unsafe sys_file_exists(path.c_str())
 }
 
-bind mkdir = (path: string): bool -> {
+bind mkdir = (path: string) bool: {
     (unsafe sys_mkdir(path.c_str())) == 0
 }
 
-bind mkdir_p = (path: string): bool -> {
-    if (path.len() == 0) func <- false
+bind mkdir_p = (path: string) bool: {
+    if (path.len() == 0): func <- false
     let n = path.len()
     let i = 1
-    for (i < n) {
-        if (path.byte_at(i) == u8(47)) {
+    for (i < n): {
+        if (path.byte_at(i) == u8(47)): {
             let sub = path[0..i]
-            if (not file_exists(sub)) {
+            if (not file_exists(sub)): {
                 let _ = mkdir(sub)
             }
         }
         i += 1
     }
-    if (file_exists(path)) func <- true
+    if (file_exists(path)): func <- true
     mkdir(path)
 }
 
-bind remove_all = (path: string): bool -> {
+bind remove_all = (path: string) bool: {
     (unsafe sys_remove_all(path.c_str())) == 0
 }
 
-bind num_cpus = (): int -> {
+bind num_cpus = () int: {
     unsafe sys_num_cpus()
 }
 
-bind os_name = (): string -> {
+bind os_name = () string: {
     str_from_cstr(unsafe sys_os_name())
 }
 
-bind arch = (): string -> {
+bind arch = () string: {
     str_from_cstr(unsafe sys_os_arch())
-}
-
-// Returns the command-line arguments passed to the program as a List[string].
-bind args = (): [string] -> {
-    core_cli_args()
 }
 
 // -----------------------------------------------------------------------------
@@ -90,7 +81,7 @@ bind args = (): [string] -> {
 // -----------------------------------------------------------------------------
 
 @test("os system metadata: num_cpus, os_name, arch, and args")
-bind test_os_metadata = () -> {
+bind test_os_metadata = (): {
     assert(num_cpus() >= 1, "num_cpus >= 1")
     let os = os_name()
     assert(os.len() > 0, "os_name non-empty")
@@ -102,7 +93,7 @@ bind test_os_metadata = () -> {
 }
 
 @test("os process execution: exec and ExitResult")
-bind test_os_exec = () -> {
+bind test_os_exec = (): {
     let res = exec("echo hello_os_test")
     assert(res.ok(), "exec ok")
     assert(res.exit_code == 0, "exit code 0")
@@ -110,7 +101,7 @@ bind test_os_exec = () -> {
 }
 
 @test("os directory operations: mkdir_p, file_exists, remove_all")
-bind test_os_filesystem = () -> {
+bind test_os_filesystem = (): {
     let base = "/tmp/lowlight_test_os_dir"
     let nested = "/tmp/lowlight_test_os_dir/sub1/sub2"
 

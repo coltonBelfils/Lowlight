@@ -71,6 +71,41 @@ func (s *Server) computeInlayHints(filePath string, src string, visRange Range) 
 			})
 		}
 
+		// Unpacked variable type hints: `let x, y = unpack ...` without explicit type annotations
+		for vStmt, syms := range bm.UnpackVarSymbols {
+			if vStmt == nil {
+				continue
+			}
+			for i, uv := range vStmt.UnpackVars {
+				if i >= len(syms) || syms[i] == nil || uv.Type != nil || uv.Name == "_" {
+					continue
+				}
+				sym := syms[i]
+				if sym.Type == nil || sym.Type == types.TypeInvalid || sym.Type == types.TypeVoid || sym.Type == types.TypeNever {
+					continue
+				}
+				vLine := uv.Span.Start.Line - 1
+				if vLine < 0 {
+					continue
+				}
+				lineRng := Range{
+					Start: Position{Line: vLine, Character: 0},
+					End:   Position{Line: vLine + 1, Character: 0},
+				}
+				nameRng, ok := findWordRangeInSpan(src, lineRng, uv.Name)
+				if !ok {
+					continue
+				}
+				addHint(InlayHint{
+					Position:     nameRng.End,
+					Label:        ": " + sym.Type.String(),
+					Kind:         InlayHintType,
+					PaddingLeft:  false,
+					PaddingRight: true,
+				})
+			}
+		}
+
 		// Parameter name hints: `foo(a, b)` -> `foo(x: a, y: b)`
 		for expr, inf := range bm.ExprInfos {
 			call, ok := expr.(*ast.CallExpr)

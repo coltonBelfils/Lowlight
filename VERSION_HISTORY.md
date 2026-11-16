@@ -8,17 +8,15 @@ This document tracks the complete chronological evolution of the **Lowlight** (o
 
 ```text
 Lowlight-Export/
-├── DECISIONS.md                   # Complete item-by-item resolution log for v1.0 (on auto-v1-prototype)
-├── PROJECT_SUMMARY.md             # Master onboarding & full design history
 ├── README.md                      # Quickstart, CLI guide, language tour & compiler architecture
-├── SPECIFICATION.md               # Finalized Language Specification (v1.0 on auto-v1-prototype)
-├── SPEC_CRITIQUE.md               # Critique & Audit (v0.7, resolved on auto-v1-prototype)
+├── SPECIFICATION.md               # Authoritative Language Specification (v1.0)
+├── IMPLEMENTATION.md              # Implementation Guide: Architecture, Runtime, LLVM IR & C11 Backends
 ├── VERSION_HISTORY.md             # This file: complete version history & diffs
-├── cmd/lowlight/                  # Lowlight v1.0 CLI entrypoint (`build`, `run`, `emit-c`, `check`, `version`)
-├── internal/                      # Complete Go compiler pipeline (`token`, `lexer`, `ast`, `parser`, `types`, `sema`, `ir`, `codegen`, `driver`)
-├── std/                           # Standard library modules (`math.ll`, `fs.ll`, `pool.ll`)
+├── cmd/lowlight/                  # Lowlight CLI entrypoint (`build`, `run`, `test`, `emit-llvm`, `emit-c`, `check`, `lsp`)
+├── internal/                      # Complete compiler pipeline (`diag`, `token`, `lexer`, `ast`, `parser`, `types`, `sema`, `ir`, `codegen`, `driver`, `lsp`)
+├── std/                           # Standard library (`core/`, `math.ll`, `fs.ll`, `pool.ll`, `net.ll`, `http.ll`, etc.)
 ├── examples/                      # End-to-end showcase Lowlight programs
-├── tests/                         # Strict C11 (`-Wall -Wextra -Werror`), ASan/UBSan & zero-leak E2E test suite
+├── tests/                         # Strict LLVM and C11 test suites with ASan/UBSan & zero-leak verification
 └── version_history/
     ├── specification/
     │   ├── v0.0_initial_seed_sample.md      # Oct 16, 2026 (16:12 PDT) — Original user seed code
@@ -289,3 +287,37 @@ Lowlight-Export/
     * Full low-level systems escape hatch: `unsafe { ... }`, `ptr[T]` & memory intrinsics, `define packed Name struct [...]`, and `extern "header.h"` / `extern sym [as alias]: ...` C ABI interop.
     * Backend-independent arithmetic & layout rules (UB-free wrapping signed/unsigned arithmetic, deterministic insertion-order sets/maps, UTF-8 strings + slices).
   * Implemented and verified the complete, zero-dependency Go reference compiler (`lexer -> parser -> sema -> ir -> C11 codegen -> driver`), `std/` modules, 8 showcase programs, and strict ASan/UBSan + `LOWLIGHT_CHECK_LEAKS=1` E2E test suite.
+
+---
+
+### Lowlight v1.0 Consolidation, Bug Fixes & Collection Unification
+* **Date**: November 9, 2026
+* **Files**:
+  * Authoritative Specification: [`./SPECIFICATION.md`](./SPECIFICATION.md)
+  * Implementation Guide: [`./IMPLEMENTATION.md`](./IMPLEMENTATION.md)
+  * Project Guide: [`./README.md`](./README.md)
+  * Changelog: [`./VERSION_HISTORY.md`](./VERSION_HISTORY.md)
+* **Summary of Changes**:
+  1. **Bug Fixes**:
+     * **Bug 1**: Disallow `own` moves on immutable top-level `bind` constants in `check_stmt_expr.go`.
+     * **Bug 2**: Fix relational (`<, <=, >, >=`) vs equality (`==, !=`) operator precedence in `parser.go`.
+     * **Bug 3**: Fully implement omitted slice bounds (`[..hi]`, `[lo..]`, `[..]`, `[..=hi]`) in parser, sema, and IR lowering.
+     * **Bug 4**: Enforce that **all** `match` expressions must terminate with an `else` arm (whether open fallback `else:` or exhaustive pattern `else Pattern:`), eliminating the exception for exhaustive enums.
+  2. **Collection Unification**:
+     * Unified `List[T]` and `[T]` into the exact same type (`[T]` is syntactic sugar for `List[T]`).
+     * Unified `Array[T]` and `[N: T]` into the exact same type (`[N: T]` is syntactic sugar for `Array[T]`).
+     * Core definitions moved to `std/core/list.ll` and `std/core/array.ll` with compiler hooks (`@lang("list")` and `@lang("array")`).
+     * Symmetrical `.len`, `.cap`, indexing `[i]`, slicing `[lo..hi]`, and iteration `for (x in col)` across both representations on both C11 and direct LLVM IR backends.
+  3. **Syntax & Precedence Refinements**:
+     * Removed infix `as` from the precedence table in `SPECIFICATION.md` §6.1; type conversions are constructor-style `int(x)`.
+     * Added direct LLVM IR backend (`internal/codegen/llvmgen.go`) as the default backend, alongside portable ISO C11.
+     * Added cross-compilation `--target <triple>` flag to compiler CLI, driver, and LLVM/C11 codegen.
+     * Updated LSP, VS Code grammar, and Neovim syntax definitions with `while` keyword and latest constructs.
+  4. **Documentation Consolidation**:
+     * Consolidated documentation down to 4 canonical root files: `SPECIFICATION.md`, `IMPLEMENTATION.md`, `README.md`, and `VERSION_HISTORY.md`. All historical decision logs and critiques archived.
+  5. **Indexable & KeyIndexable Interfaces**:
+     * Added `@lang("indexable") Indexable[T]` and `@lang("key_indexable") KeyIndexable[K, V]` core interfaces in `std/core/interfaces.ll`.
+     * Supported by `List[T]` / `[T]`, `Array` / `[N: T]`, `string` (`Indexable[u8]`), and `Map` / `#[K: V]`, plus custom user types implementing `.len()` and `.get()`.
+     * Seamless indexing syntax `col[idx]` and `map[key]` directly on interface fat pointers and bounded generic parameters, dynamically dispatching to `.get(...)` and returning `?T` / `?V`.
+     * Zero-allocation stack borrowing for interface parameters without heap boxing.
+     * Fully verified across direct LLVM IR and C11 backends under AddressSanitizer and leak detection.

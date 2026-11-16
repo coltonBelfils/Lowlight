@@ -23,7 +23,7 @@ define Map[K: Hashable, V] struct [
     len: int,
 ]
 
-bind Map[K, V].new = (): Map[K, V] -> {
+bind Map[K, V].new = () Map[K, V]: {
     Map[K, V][
         buckets: unsafe null_ptr[int](),
         buck_cap: 0,
@@ -34,15 +34,15 @@ bind Map[K, V].new = (): Map[K, V] -> {
     ]
 }
 
-bind Map[K, V].with_capacity = (cap: int): Map[K, V] -> {
-    if (cap <= 0) func <- Map[K, V].new()
+bind Map[K, V].with_capacity = (cap: int) Map[K, V]: {
+    if (cap <= 0): func <- Map[K, V].new()
     let bcap = 8
-    for (bcap < cap * 2) {
+    for (bcap < cap * 2): {
         bcap *= 2
     }
     let b = unsafe alloc_raw[int](bcap)
     let i = 0
-    for (i < bcap) {
+    for (i < bcap): {
         unsafe { b[i] = -1 }
         i += 1
     }
@@ -57,19 +57,19 @@ bind Map[K, V].with_capacity = (cap: int): Map[K, V] -> {
     ]
 }
 
-bind Map[K, V].len = (self): int -> { self.len }
-bind Map[K, V].is_empty = (self): bool -> { self.len == 0 }
+bind Map[K, V].len = (self) int: { self.len }
+bind Map[K, V].is_empty = (self) bool: { self.len == 0 }
 
-bind Map[K, V].find_entry = (self, needle: K, h: u64): int -> {
-    if (self.buck_cap == 0 or unsafe is_null(self.buckets)) func <- -1
+bind Map[K, V].find_entry = (self, needle: K, h: u64) int: {
+    if (self.buck_cap == 0 or unsafe is_null(self.buckets)): func <- -1
     let mask = self.buck_cap - 1
     let slot = int(h & u64(mask))
-    for (true) {
+    for (true): {
         let idx = unsafe self.buckets[slot]
-        if (idx == -1) func <- -1
-        if (idx >= 0) {
+        if (idx == -1): func <- -1
+        if (idx >= 0): {
             unsafe {
-                if (self.entries[idx].alive and self.entries[idx].hash == h and self.entries[idx].key == needle) {
+                if (self.entries[idx].alive and self.entries[idx].hash == h and self.entries[idx].key == needle): {
                     func <- idx
                 }
             }
@@ -79,32 +79,32 @@ bind Map[K, V].find_entry = (self, needle: K, h: u64): int -> {
     -1
 }
 
-bind Map[K, V].has = (self, key: K): bool -> {
+bind Map[K, V].has = (self, key: K) bool: {
     let h = key.hash()
     self.find_entry(key, h) >= 0
 }
 
-bind Map[K, V].contains = (self, key: K): bool -> {
+bind Map[K, V].contains = (self, key: K) bool: {
     self.has(key)
 }
 
-bind Map[K, V].get = (self, key: K): ?V -> {
+bind Map[K, V].get = (self, key: K) ?V: {
     let h = key.hash()
     let idx = self.find_entry(key, h)
-    if (idx < 0) func <- none
+    if (idx < 0): func <- none
     unsafe {
         self.entries[idx].val.copy()
     }
 }
 
-bind Map[K, V].rehash = (&self, new_bcap: int) -> {
-    if (self.len < self.ent_len) {
+bind Map[K, V].rehash = (&self, new_bcap: int): {
+    if (self.len < self.ent_len): {
         let w = 0
         let r = 0
-        for (r < self.ent_len) {
+        for (r < self.ent_len): {
             unsafe {
-                if (self.entries[r].alive) {
-                    if (w != r) {
+                if (self.entries[r].alive): {
+                    if (w != r): {
                         copy_bytes(ptr_cast[u8](ptr_add(self.entries, w)), ptr_cast[u8](ptr_add(self.entries, r)), size_of[MapSlot[K, V]]())
                     }
                     w += 1
@@ -116,17 +116,17 @@ bind Map[K, V].rehash = (&self, new_bcap: int) -> {
     }
     let nb = unsafe alloc_raw[int](new_bcap)
     let bi = 0
-    for (bi < new_bcap) {
+    for (bi < new_bcap): {
         unsafe { nb[bi] = -1 }
         bi += 1
     }
     let mask = new_bcap - 1
     let i = 0
-    for (i < self.ent_len) {
+    for (i < self.ent_len): {
         unsafe {
-            if (self.entries[i].alive) {
+            if (self.entries[i].alive): {
                 let slot = int(self.entries[i].hash & u64(mask))
-                for (nb[slot] >= 0) {
+                for (nb[slot] >= 0): {
                     slot = (slot + 1) & mask
                 }
                 nb[slot] = i
@@ -135,7 +135,7 @@ bind Map[K, V].rehash = (&self, new_bcap: int) -> {
         i += 1
     }
     unsafe {
-        if (not is_null(self.buckets)) {
+        if (not is_null(self.buckets)): {
             free_raw(self.buckets)
         }
     }
@@ -143,25 +143,25 @@ bind Map[K, V].rehash = (&self, new_bcap: int) -> {
     self.buck_cap = new_bcap
 }
 
-bind Map[K, V].insert = (&self, key: own K, val: own V) -> {
+bind Map[K, V].insert = (&self, key: own K, val: own V): {
     let h = key.hash()
     let existing = self.find_entry(key, h)
-    if (existing >= 0) {
+    if (existing >= 0): {
         unsafe {
             self.entries[existing].val = own val
         }
         func <-
     }
 
-    if (self.buck_cap == 0 or (self.ent_len + 1) * 10 >= self.buck_cap * 7) {
-        let target_bcap = if (self.buck_cap > 0) self.buck_cap * 2 else 16
+    if (self.buck_cap == 0 or (self.ent_len + 1) * 10 >= self.buck_cap * 7): {
+        let target_bcap = if (self.buck_cap > 0): self.buck_cap * 2 else: 16
         self.rehash(target_bcap)
     }
-    if (self.ent_len + 1 > self.ent_cap) {
-        let ncap = if (self.ent_cap > 0) self.ent_cap * 2 else 8
+    if (self.ent_len + 1 > self.ent_cap): {
+        let ncap = if (self.ent_cap > 0): self.ent_cap * 2 else: 8
         let ne = unsafe {
-            if (self.ent_cap == 0) alloc_raw[MapSlot[K, V]](ncap)
-            else realloc_raw(self.entries, ncap)
+            if (self.ent_cap == 0): alloc_raw[MapSlot[K, V]](ncap)
+            else: realloc_raw(self.entries, ncap)
         }
         self.entries = ne
         self.ent_cap = ncap
@@ -176,7 +176,7 @@ bind Map[K, V].insert = (&self, key: own K, val: own V) -> {
     }
     let mask = self.buck_cap - 1
     let slot = int(h & u64(mask))
-    for (unsafe self.buckets[slot] >= 0) {
+    for (unsafe self.buckets[slot] >= 0): {
         slot = (slot + 1) & mask
     }
     unsafe {
@@ -185,21 +185,21 @@ bind Map[K, V].insert = (&self, key: own K, val: own V) -> {
     self.len += 1
 }
 
-bind Map[K, V].push = (&self, entry: own MapEntry[K, V]) -> {
+bind Map[K, V].push = (&self, entry: own MapEntry[K, V]): {
     self.insert(entry.key.copy(), entry.value.copy())
 }
 
-bind Map[K, V].remove = (&self, key: K): ?V -> {
-    if (self.buck_cap == 0 or unsafe is_null(self.buckets)) func <- none
+bind Map[K, V].remove = (&self, key: K) ?V: {
+    if (self.buck_cap == 0 or unsafe is_null(self.buckets)): func <- none
     let h = key.hash()
     let mask = self.buck_cap - 1
     let slot = int(h & u64(mask))
-    for (true) {
+    for (true): {
         let idx = unsafe self.buckets[slot]
-        if (idx == -1) func <- none
-        if (idx >= 0) {
+        if (idx == -1): func <- none
+        if (idx >= 0): {
             unsafe {
-                if (self.entries[idx].alive and self.entries[idx].hash == h and self.entries[idx].key == key) {
+                if (self.entries[idx].alive and self.entries[idx].hash == h and self.entries[idx].key == key): {
                     let out = self.entries[idx].val.copy()
                     let _ = ptr_read(ptr_add(self.entries, idx))
                     self.entries[idx].alive = false
@@ -214,12 +214,12 @@ bind Map[K, V].remove = (&self, key: K): ?V -> {
     none
 }
 
-bind Map[K, V].clear = (&self) -> {
-    if (not unsafe is_null(self.entries)) {
+bind Map[K, V].clear = (&self): {
+    if (not unsafe is_null(self.entries)): {
         let i = 0
-        for (i < self.ent_len) {
+        for (i < self.ent_len): {
             unsafe {
-                if (self.entries[i].alive) {
+                if (self.entries[i].alive): {
                     let _ = ptr_read(ptr_add(self.entries, i))
                     self.entries[i].alive = false
                 }
@@ -227,9 +227,9 @@ bind Map[K, V].clear = (&self) -> {
             i += 1
         }
     }
-    if (self.buck_cap > 0 and unsafe not is_null(self.buckets)) {
+    if (self.buck_cap > 0 and unsafe not is_null(self.buckets)): {
         let i = 0
-        for (i < self.buck_cap) {
+        for (i < self.buck_cap): {
             unsafe { self.buckets[i] = -1 }
             i += 1
         }
@@ -238,12 +238,12 @@ bind Map[K, V].clear = (&self) -> {
     self.len = 0
 }
 
-bind Map[K, V].keys = (self): List[K] -> {
+bind Map[K, V].keys = (self) List[K]: {
     let out = List[K].with_capacity(self.len)
     let i = 0
-    for (i < self.ent_len) {
+    for (i < self.ent_len): {
         unsafe {
-            if (self.entries[i].alive) {
+            if (self.entries[i].alive): {
                 out.push(self.entries[i].key.copy())
             }
         }
@@ -252,12 +252,12 @@ bind Map[K, V].keys = (self): List[K] -> {
     out
 }
 
-bind Map[K, V].values = (self): List[V] -> {
+bind Map[K, V].values = (self) List[V]: {
     let out = List[V].with_capacity(self.len)
     let i = 0
-    for (i < self.ent_len) {
+    for (i < self.ent_len): {
         unsafe {
-            if (self.entries[i].alive) {
+            if (self.entries[i].alive): {
                 out.push(self.entries[i].val.copy())
             }
         }
@@ -266,12 +266,12 @@ bind Map[K, V].values = (self): List[V] -> {
     out
 }
 
-bind Map[K, V].copy = (self): Map[K, V] -> {
+bind Map[K, V].copy = (self) Map[K, V]: {
     let out = Map[K, V].with_capacity(self.len)
     let i = 0
-    for (i < self.ent_len) {
+    for (i < self.ent_len): {
         unsafe {
-            if (self.entries[i].alive) {
+            if (self.entries[i].alive): {
                 out.insert(self.entries[i].key.copy(), self.entries[i].val.copy())
             }
         }
@@ -280,14 +280,14 @@ bind Map[K, V].copy = (self): Map[K, V] -> {
     out
 }
 
-bind Map[K, V].to_string = (self): string -> {
+bind Map[K, V].to_string = (self) string: {
     let out = "#["
     let first = true
     let i = 0
-    for (i < self.ent_len) {
+    for (i < self.ent_len): {
         unsafe {
-            if (self.entries[i].alive) {
-                if (not first) out.push(", ")
+            if (self.entries[i].alive): {
+                if (not first): out.push(", ")
                 out.push(self.entries[i].key.to_string())
                 out.push(": ")
                 out.push(self.entries[i].val.to_string())
@@ -306,12 +306,12 @@ define MapIterator[K: Hashable, V] struct [
     idx: int,
 ]
 
-bind MapIterator[K, V].next = (&self): ?MapEntry[K, V] -> {
-    for (self.idx < self.ent_len) {
+bind MapIterator[K, V].next = (&self) ?MapEntry[K, V]: {
+    for (self.idx < self.ent_len): {
         let i = self.idx
         self.idx += 1
         unsafe {
-            if (self.entries[i].alive) {
+            if (self.entries[i].alive): {
                 func <- MapEntry[K, V][
                     key: self.entries[i].key.copy(),
                     value: self.entries[i].val.copy(),
@@ -322,7 +322,7 @@ bind MapIterator[K, V].next = (&self): ?MapEntry[K, V] -> {
     none
 }
 
-bind Map[K, V].iter = (self): Iterator[MapEntry[K, V]] -> {
+bind Map[K, V].iter = (self) Iterator[MapEntry[K, V]]: {
     MapIterator[K, V][
         entries: self.entries,
         ent_len: self.ent_len,
@@ -330,12 +330,12 @@ bind Map[K, V].iter = (self): Iterator[MapEntry[K, V]] -> {
     ]
 }
 
-bind Map[K, V].drop = (&self) -> {
-    if (not unsafe is_null(self.entries)) {
+bind Map[K, V].drop = (&self): {
+    if (not unsafe is_null(self.entries)): {
         let i = 0
-        for (i < self.ent_len) {
+        for (i < self.ent_len): {
             unsafe {
-                if (self.entries[i].alive) {
+                if (self.entries[i].alive): {
                     let _ = ptr_read(ptr_add(self.entries, i))
                 }
             }
@@ -343,7 +343,7 @@ bind Map[K, V].drop = (&self) -> {
         }
         unsafe free_raw(self.entries)
     }
-    if (not unsafe is_null(self.buckets)) {
+    if (not unsafe is_null(self.buckets)): {
         unsafe free_raw(self.buckets)
     }
     self.entries = unsafe null_ptr[MapSlot[K, V]]()

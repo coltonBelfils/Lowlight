@@ -83,6 +83,11 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 			if targetTy := fc.a.lookupTypeInModule(fc.mod, "", id.Name); targetTy != nil {
 				return fc.checkTypeConversionOrBox(targetTy, call)
 			}
+			if fc.curFn != nil && fc.curFn.TypeSubst != nil {
+				if subTy, ok := fc.curFn.TypeSubst[id.Name]; ok && subTy != nil {
+					return fc.checkTypeConversionOrBox(subTy, call)
+				}
+			}
 		}
 
 		// 1c. Check Generic Function (`identity[int](5)` or inferred `identity(5)`)
@@ -113,8 +118,9 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 				fc.checkSignatureArgs(sym.FuncInst.Sig.Params, call.Args, nil, call.Span)
 				inf.CallKind = CallDirectFunc
 				fc.recordTargetFunc(inf, sym.FuncInst, call.Span)
-				inf.Type = sym.FuncInst.Sig.Ret
-				return inf.Type
+				retTy := fc.a.ensureFuncRetResolved(sym.FuncInst, call.Span)
+				inf.Type = retTy
+				return retTy
 			}
 			return fc.checkClosureValueCall(call)
 		}
@@ -296,8 +302,9 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 					fc.checkSignatureArgs(sym.FuncInst.Sig.Params, call.Args, nil, call.Span)
 					inf.CallKind = CallDirectFunc
 					fc.recordTargetFunc(inf, sym.FuncInst, call.Span)
-					inf.Type = sym.FuncInst.Sig.Ret
-					return inf.Type
+					retTy := fc.a.ensureFuncRetResolved(sym.FuncInst, call.Span)
+					inf.Type = retTy
+					return retTy
 				}
 				if sym.ExternFn != nil {
 					if fc.unsafeDepth == 0 {
@@ -356,8 +363,9 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 			fc.checkSignatureArgs(fi.Sig.Params, call.Args, nil, call.Span)
 			inf.CallKind = CallDirectFunc
 			fc.recordTargetFunc(inf, fi, call.Span)
-			inf.Type = fi.Sig.Ret
-			return fi.Sig.Ret
+			retTy := fc.a.ensureFuncRetResolved(fi, call.Span)
+			inf.Type = retTy
+			return retTy
 		}
 	}
 
@@ -388,8 +396,9 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 						fc.checkSignatureArgs(fi.Sig.Params, call.Args, nil, call.Span)
 						inf.CallKind = CallDirectFunc
 						fc.recordTargetFunc(inf, fi, call.Span)
-						inf.Type = fi.Sig.Ret
-						return fi.Sig.Ret
+						retTy := fc.a.ensureFuncRetResolved(fi, call.Span)
+						inf.Type = retTy
+						return retTy
 					}
 				}
 			}
@@ -419,6 +428,21 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 				return types.TypeInvalid
 			}
 			if _, isFn := sf.Type.(*types.Func); isFn {
+				return fc.checkClosureValueCall(call)
+			}
+		}
+	}
+	var tup *types.Tuple
+	if t, isTup := innerStructTy.(*types.Tuple); isTup {
+		tup = t
+	} else if d, isDist := innerStructTy.(*types.Distinct); isDist {
+		if dtTup, isTup := d.Base.(*types.Tuple); isTup {
+			tup = dtTup
+		}
+	}
+	if tup != nil {
+		if idx, ok := IsCanonicalTupleIndex(mem.Member); ok && idx >= 0 && idx < len(tup.Elems) {
+			if _, isFn := tup.Elems[idx].(*types.Func); isFn {
 				return fc.checkClosureValueCall(call)
 			}
 		}
@@ -504,8 +528,8 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 		inf.MethodRecv = mem.Base
 		inf.MethodRecvMode = recvMode
 		inf.IsOptChain = isOptChain
-		retTy := fi.Sig.Ret
-		if isOptChain && !retTy.Equals(types.TypeVoid) {
+		retTy := fc.a.ensureFuncRetResolved(fi, call.Span)
+		if isOptChain && retTy != types.TypeInvalid && !retTy.Equals(types.TypeVoid) {
 			retTy = types.NewOptional(retTy)
 		}
 		inf.Type = retTy
@@ -570,15 +594,6 @@ func (fc *funcChecker) checkEnumMemberCall(en *types.Enum, genEn *GenericEnumTem
 		if declVar == nil {
 			fc.a.Rep.Errorf(mem.Span, "cannot infer generic type arguments for `%s.%s(...)`; write `%s[...].%s(...)`",
 				genEn.Decl.Name, mem.Member, genEn.Decl.Name, mem.Member)
-			for _, a := range call.Args {
-				_ = fc.checkExpr(a, true)
-			}
-			inf.Type = types.TypeInvalid
-			return types.TypeInvalid
-		}
-		if declVar.HasFields {
-			fc.a.Rep.Errorf(call.Span, "variant `%s.%s` carries named fields; construct with `%s.%s[...]`",
-				genEn.Decl.Name, declVar.Name, genEn.Decl.Name, declVar.Name)
 			for _, a := range call.Args {
 				_ = fc.checkExpr(a, true)
 			}
@@ -667,14 +682,6 @@ func (fc *funcChecker) checkEnumMemberCall(en *types.Enum, genEn *GenericEnumTem
 			}
 			inf.Type = en
 			return en
-		case types.VariantStruct:
-			fc.a.Rep.Errorf(call.Span, "variant `%s.%s` carries named fields; construct with `%s.%s[...]`",
-				en.String(), v.Name, en.Name, v.Name)
-			for _, a := range call.Args {
-				_ = fc.checkExpr(a, true)
-			}
-			inf.Type = en
-			return en
 		case types.VariantTuple:
 			if len(call.Args) != 1 {
 				fc.a.Rep.Errorf(call.Span, "variant `%s.%s(...)` expects 1 payload argument of type %s, got %d",
@@ -723,8 +730,9 @@ func (fc *funcChecker) checkEnumMemberCall(en *types.Enum, genEn *GenericEnumTem
 	fc.checkSignatureArgs(fi.Sig.Params, call.Args, nil, call.Span)
 	inf.CallKind = CallDirectFunc
 	fc.recordTargetFunc(inf, fi, call.Span)
-	inf.Type = fi.Sig.Ret
-	return fi.Sig.Ret
+	retTy := fc.a.ensureFuncRetResolved(fi, call.Span)
+	inf.Type = retTy
+	return retTy
 }
 
 func (fc *funcChecker) checkGenericTypeAssocCall(genSt *GenericStructTemplate, recvTypeArgs []ast.TypeExpr, method string, call *ast.CallExpr, expected types.Type) types.Type {
@@ -785,8 +793,9 @@ func (fc *funcChecker) checkGenericTypeAssocCall(genSt *GenericStructTemplate, r
 	fc.checkSignatureArgs(fi.Sig.Params, call.Args, nil, call.Span)
 	inf.CallKind = CallDirectFunc
 	fc.recordTargetFunc(inf, fi, call.Span)
-	inf.Type = fi.Sig.Ret
-	return fi.Sig.Ret
+	retTy := fc.a.ensureFuncRetResolved(fi, call.Span)
+	inf.Type = retTy
+	return retTy
 }
 
 func (fc *funcChecker) checkGenericFuncCall(genFn *GenericFuncTemplate, call *ast.CallExpr, expected types.Type) types.Type {
@@ -862,8 +871,9 @@ func (fc *funcChecker) checkGenericFuncCall(genFn *GenericFuncTemplate, call *as
 	fc.checkSignatureArgs(fi.Sig.Params, call.Args, nil, call.Span)
 	inf.CallKind = CallDirectFunc
 	fc.recordTargetFunc(inf, fi, call.Span)
-	inf.Type = fi.Sig.Ret
-	return fi.Sig.Ret
+	retTy := fc.a.ensureFuncRetResolved(fi, call.Span)
+	inf.Type = retTy
+	return retTy
 }
 
 func (fc *funcChecker) checkInterfaceMethodCall(ifc *types.Interface, mem *ast.MemberExpr, call *ast.CallExpr, isOptChain bool) types.Type {
@@ -982,6 +992,11 @@ func (fc *funcChecker) checkSignatureArgs(params []types.FuncParam, args []ast.E
 					if _, isVec := param.Type.(*types.Vector); isVec {
 						fc.a.Rep.Errorf(arg.GetSpan(), "cannot pass fixed array %s to mutable list `&%s` (only read-only `%s` accepts array views)",
 							aty.String(), param.Type.String(), param.Type.String())
+						continue
+					}
+					if arrSt, isArrSt := fc.a.isArrayViewStruct(param.Type); isArrSt {
+						fc.a.Rep.Errorf(arg.GetSpan(), "cannot pass fixed array %s to mutable `&%s` (only read-only `%s` accepts array views)",
+							aty.String(), arrSt.String(), arrSt.String())
 						continue
 					}
 				}
@@ -1127,6 +1142,13 @@ func paramHasInteriorRefSlotVisited(t types.Type, seen map[types.Type]bool) bool
 		return paramHasInteriorRefSlotVisited(v.Elem, seen)
 	case *types.StackArray:
 		return paramHasInteriorRefSlotVisited(v.Elem, seen)
+	case *types.Tuple:
+		for _, el := range v.Elems {
+			if paramHasInteriorRefSlotVisited(el, seen) {
+				return true
+			}
+		}
+		return false
 	case *types.Set:
 		return paramHasInteriorRefSlotVisited(v.Elem, seen)
 	case *types.Map:
@@ -1141,13 +1163,6 @@ func paramHasInteriorRefSlotVisited(t types.Type, seen map[types.Type]bool) bool
 		for _, vr := range v.Variants {
 			if vr.Kind == types.VariantTuple && paramHasInteriorRefSlotVisited(vr.Payload, seen) {
 				return true
-			}
-			if vr.Kind == types.VariantStruct {
-				for _, f := range vr.Fields {
-					if paramHasInteriorRefSlotVisited(f.Type, seen) {
-						return true
-					}
-				}
 			}
 		}
 		return false
@@ -1202,9 +1217,13 @@ func (fc *funcChecker) checkReadOnlyArg(arg ast.Expr, paramTy types.Type, argNum
 	if aty == types.TypeInvalid || paramTy == types.TypeInvalid {
 		return aty
 	}
-	// Contiguous view coercion: `[N: T]` -> `[T]` read-only view!
+	// Contiguous view coercion: `[N: T]` -> `[T]` or `Array[T]` read-only view!
 	if arr, isArr := aty.(*types.StackArray); isArr {
 		if vecP, isVec := paramTy.(*types.Vector); isVec && arr.Elem.Equals(vecP.Elem) {
+			fc.a.infoFor(arg).BorrowAsView = true
+			return aty
+		}
+		if arrSt, isArrSt := fc.a.isArrayViewStruct(paramTy); isArrSt && arr.Elem.Equals(arrSt.TypeArgs[0]) {
 			fc.a.infoFor(arg).BorrowAsView = true
 			return aty
 		}
@@ -1213,6 +1232,14 @@ func (fc *funcChecker) checkReadOnlyArg(arg ast.Expr, paramTy types.Type, argNum
 	fc.markViewIfApplicable(arg, paramTy)
 	fc.verifyAssignable(aty, paramTy, arg, arg.GetSpan(), fmt.Sprintf("argument %d", argNum))
 	return aty
+}
+
+func (a *Analyzer) isArrayViewStruct(t types.Type) (*types.Struct, bool) {
+	st, ok := t.(*types.Struct)
+	if !ok || !a.isStdStructTemplate(st, a.Prog.GenStructArray) || len(st.TypeArgs) != 1 {
+		return nil, false
+	}
+	return st, true
 }
 
 func (fc *funcChecker) markViewIfApplicable(expr ast.Expr, paramTy types.Type) {
@@ -1224,6 +1251,13 @@ func (fc *funcChecker) markViewIfApplicable(expr ast.Expr, paramTy types.Type) {
 		}
 	case *ast.SliceExpr:
 		inf.BorrowAsView = true
+	}
+	if arr, isArr := inf.Type.(*types.StackArray); isArr {
+		if vecP, isVec := paramTy.(*types.Vector); isVec && arr.Elem.Equals(vecP.Elem) {
+			inf.BorrowAsView = true
+		} else if arrSt, isArrSt := fc.a.isArrayViewStruct(paramTy); isArrSt && arr.Elem.Equals(arrSt.TypeArgs[0]) {
+			inf.BorrowAsView = true
+		}
 	}
 	if _, isIfc := paramTy.(*types.Interface); isIfc {
 		inf.BorrowAsView = true // borrow fat pointer on stack without heap box!
@@ -1351,7 +1385,7 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 			inf.BuiltinName = "vec.get"
 			return wrapRet(types.NewOptional(vec.Elem))
 		case "contains":
-			if !types.SupportsEq(vec.Elem) {
+			if !fc.a.supportsEq(vec.Elem) {
 				fc.a.Rep.Errorf(call.Span, "`.contains(x)` requires equality on element type %s", vec.Elem.String())
 			}
 			fc.checkSignatureArgs([]types.FuncParam{{Name: "val", Mode: types.ModeRead, Type: vec.Elem}}, call.Args, nil, call.Span)
@@ -1410,7 +1444,7 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 			inf.BuiltinName = "arr.get"
 			return wrapRet(types.NewOptional(arr.Elem))
 		case "contains":
-			if !types.SupportsEq(arr.Elem) {
+			if !fc.a.supportsEq(arr.Elem) {
 				fc.a.Rep.Errorf(call.Span, "`.contains(x)` requires equality on element type %s", arr.Elem.String())
 			}
 			fc.checkSignatureArgs([]types.FuncParam{{Name: "val", Mode: types.ModeRead, Type: arr.Elem}}, call.Args, nil, call.Span)
@@ -1660,13 +1694,6 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 		inf.Type = types.TypeInt
 		return true, types.TypeInt
 
-	case "sqrt":
-		fc.checkSignatureArgs([]types.FuncParam{{Name: "x", Mode: types.ModeRead, Type: types.TypeFloat}}, call.Args, nil, call.Span)
-		inf.CallKind = CallBuiltinFunc
-		inf.BuiltinName = "sqrt"
-		inf.Type = types.TypeFloat
-		return true, types.TypeFloat
-
 	case "abs":
 		if len(call.Args) != 1 {
 			fc.a.Rep.Errorf(call.Span, "`abs(x)` expects 1 numeric argument")
@@ -1700,24 +1727,6 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 		inf.BuiltinName = name
 		inf.Type = lty
 		return true, lty
-
-	case "read_file":
-		fc.checkSignatureArgs([]types.FuncParam{{Name: "path", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, nil, call.Span)
-		inf.CallKind = CallBuiltinFunc
-		inf.BuiltinName = "read_file"
-		res := types.NewOptional(types.TypeString)
-		inf.Type = res
-		return true, res
-
-	case "write_file":
-		fc.checkSignatureArgs([]types.FuncParam{
-			{Name: "path", Mode: types.ModeRead, Type: types.TypeString},
-			{Name: "content", Mode: types.ModeRead, Type: types.TypeString},
-		}, call.Args, nil, call.Span)
-		inf.CallKind = CallBuiltinFunc
-		inf.BuiltinName = "write_file"
-		inf.Type = types.TypeBool
-		return true, types.TypeBool
 
 	case "args":
 		fc.checkSignatureArgs(nil, call.Args, nil, call.Span)

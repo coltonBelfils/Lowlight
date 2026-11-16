@@ -88,7 +88,7 @@ func TestSemicolonInsertionContinuationRules(t *testing.T) {
 else 3
 let m = match (code)
     when 200: "OK"
-    else: "ERR"
+    when 404: "ERR"
 let chain = items
     .copy()
 `
@@ -262,4 +262,104 @@ func TestLexerBacktickStrings(t *testing.T) {
 			t.Fatalf("expected error for unescaped bare $ in backtick string")
 		}
 	})
+}
+
+func TestLexerUnwindBeforeRBracket(t *testing.T) {
+	src := "let arr = [blk <-]\n"
+	rep := diag.NewReporter()
+	toks := lexer.Lex("unwind_bracket.ll", src, rep)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected lexer errors:\n%s", rep.Format())
+	}
+	foundUnwindRBracket := false
+	for i := 0; i+1 < len(toks); i++ {
+		if toks[i].Kind == token.Unwind && toks[i+1].Kind == token.RBracket {
+			foundUnwindRBracket = true
+			break
+		}
+	}
+	if !foundUnwindRBracket {
+		t.Fatalf("expected Unwind followed by RBracket in `[blk <-]`")
+	}
+}
+
+func TestLexerReservedKeywordNotOptIdent(t *testing.T) {
+	src := "let a = true?\nlet b = if?\nlet c = next?\n"
+	rep := diag.NewReporter()
+	toks := lexer.Lex("kw_opt.ll", src, rep)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected lexer errors:\n%s", rep.Format())
+	}
+	sawKwTrueQuest := false
+	sawKwIfQuest := false
+	sawOptNext := false
+	for i := 0; i < len(toks); i++ {
+		if i+1 < len(toks) && toks[i].Kind == token.KwTrue && toks[i+1].Kind == token.Question {
+			sawKwTrueQuest = true
+		}
+		if i+1 < len(toks) && toks[i].Kind == token.KwIf && toks[i+1].Kind == token.Question {
+			sawKwIfQuest = true
+		}
+		if toks[i].Kind == token.OptIdent && toks[i].Text == "next?" {
+			sawOptNext = true
+		}
+		if toks[i].Kind == token.OptIdent && (toks[i].Text == "true?" || toks[i].Text == "if?") {
+			t.Fatalf("reserved keyword must not lex as OptIdent: %+v", toks[i])
+		}
+	}
+	if !sawKwTrueQuest || !sawKwIfQuest || !sawOptNext {
+		t.Fatalf("unexpected token results: true?=%v if?=%v next?=%v", sawKwTrueQuest, sawKwIfQuest, sawOptNext)
+	}
+}
+
+func TestLexerNumericUnderscores(t *testing.T) {
+	valid := []string{
+		"let a = 1_000_000",
+		"let b = 0xFF_FF",
+		"let c = 0b1010_0101",
+		"let d = 1_000.25_5e+1_0",
+	}
+	for _, src := range valid {
+		rep := diag.NewReporter()
+		lexer.Lex("num_ok.ll", src, rep)
+		if rep.HasErrors() {
+			t.Fatalf("unexpected error for valid numeric literal %q:\n%s", src, rep.Format())
+		}
+	}
+
+	invalid := []string{
+		"let a = 0x_1",
+		"let b = 0x1_",
+		"let c = 0x1__2",
+		"let d = 0b_1",
+		"let e = 0b1_",
+		"let f = 1__2",
+		"let g = 1_",
+		"let h = 1.2__3",
+		"let i = 1.2_",
+		"let j = 1e_2",
+		"let k = 1e2_",
+	}
+	for _, src := range invalid {
+		rep := diag.NewReporter()
+		lexer.Lex("num_bad.ll", src, rep)
+		if !rep.HasErrors() {
+			t.Fatalf("expected error for invalid numeric underscore in %q", src)
+		}
+	}
+}
+
+func TestLexerRejectsRawNewlineInDoubleQuotedString(t *testing.T) {
+	cases := []string{
+		"let s = \"hello\nworld\"",
+		"let s = \"hello\r\nworld\"",
+		"let s = \"hi ${name}\nbye\"",
+	}
+	for _, src := range cases {
+		rep := diag.NewReporter()
+		lexer.Lex("str_nl.ll", src, rep)
+		if !rep.HasErrors() {
+			t.Fatalf("expected unterminated string error for %q", src)
+		}
+	}
 }

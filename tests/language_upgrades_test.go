@@ -18,43 +18,48 @@ func TestTaggedUnionsEndToEnd(t *testing.T) {
 // Plain C enum still works and casts to int
 define Color enum [Red, Green, Blue]
 
-// Generic tagged union with unit, single-payload, and multi-field variants
+// Generic tagged union with unit and single-payload variants
 @must_use
 define Outcome[T, E] enum [
     Empty,
     Ok: T,
     Err: E,
-    Detail: [code: int, msg: E],
+    Detail: +[int, E],
 ]
 
-bind Outcome[T, E].is_ok = (self): bool -> {
-    match (self)
+bind Outcome[T, E].is_ok = (self) bool: {
+    match (self):
         when Outcome.Ok(_): true
-        else: false
+        default: false
 }
+
+define ExprAdd struct [
+    left: ref[Expr],
+    right: ref[Expr],
+]
 
 // Recursive AST enum using ref[Expr] (Arena) and [Expr] (Vector)
 define Expr enum [
     Null,
     Num: int,
     Neg: ref[Expr],
-    Add: [left: ref[Expr], right: ref[Expr]],
+    Add: ExprAdd,
     Seq: [Expr],
 ]
 
 // Match directly on ref[Expr] scrutinee!
-bind eval = (e: ref[Expr]): int -> {
-    match (e)
+bind eval = (e: ref[Expr]) int: {
+    match (e):
         when Expr.Null: 0
         when Expr.Num(n): n
         when Expr.Neg(inner): -eval(inner)
-        when Expr.Add[left, right]: eval(left) + eval(right)
-        when Expr.Seq(items): {
+        when Expr.Add(pair): eval(pair.left) + eval(pair.right)
+        default Expr.Seq(items): {
             let sum = 0
-            for (item in items) {
-                let tmp = match (item)
+            for (item in items): {
+                let tmp = match (item):
                     when Expr.Num(v): v
-                    else: 0
+                    default: 0
                 sum += tmp
             }
             sum
@@ -62,37 +67,48 @@ bind eval = (e: ref[Expr]): int -> {
 }
 
 // Mutate payload in place directly through ref[Expr] using & binding!
-bind scale_leaf = (e: ref[Expr], factor: int) -> {
-    match (e)
+bind scale_leaf = (e: ref[Expr], factor: int) void: {
+    match (e):
         when Expr.Num(&n): {
             n = n * factor
         }
-        when Expr.Add[left, right]: {
-            scale_leaf(left, factor)
-            scale_leaf(right, factor)
+        when Expr.Add(pair): {
+            scale_leaf(pair.left, factor)
+            scale_leaf(pair.right, factor)
         }
         when Expr.Neg(inner): {
             scale_leaf(inner, factor)
         }
-        else: {}
+        default: {}
 }
 
-// Multi-field resource enum to verify partial own-move + automatic drop of unmoved fields
-define Event enum [
-    Logout,
-    Login: [user: string, token: string, secret: string],
-    Packet: [count: int, label: string],
+// Resource struct payloads inside enum variants to verify & mutation and own moves
+define LoginData struct [
+    user: string,
+    token: string,
+    secret: string,
 ]
 
-bind make_event = (): Event -> {
-    Event.Login[
+define PacketData struct [
+    count: int,
+    label: string,
+]
+
+define Event enum [
+    Logout,
+    Login: LoginData,
+    Packet: PacketData,
+]
+
+bind make_event = () Event: {
+    Event.Login(LoginData[
         user: "alice_" + "admin",
         token: "tok_" + "12345",
         secret: "sec_" + "99999",
-    ]
+    ])
 }
 
-bind main = () -> {
+bind main = (): {
     // 1. Plain C enum compatibility
     let c = Color.Green
     assert(int(c) == 1)
@@ -101,7 +117,7 @@ bind main = () -> {
     let o1 = Outcome[int, string].Ok(42)
     let o2: Outcome[int, string] = Outcome.Empty
     let o3: Outcome[int, string] = Outcome.Err("bad_" + "input")
-    let o4: Outcome[int, string] = Outcome.Detail[code: 404, msg: "not_" + "found"]
+    let o4: Outcome[int, string] = Outcome.Detail(+[404, "not_" + "found"])
 
     assert(o1.is_ok())
     assert(not o2.is_ok())
@@ -114,43 +130,41 @@ bind main = () -> {
     assert(o1 != o4)
     assert(o2.to_string() == "Outcome.Empty")
     assert(o1.to_string() == "Outcome.Ok(42)")
-    assert(o4.to_string() == "Outcome.Detail[code: 404, msg: not_found]")
+    assert(o4.to_string() == "Outcome.Detail(+[404, not_found])")
 
-    // Exhaustive ` + "`else Variant[...]:`" + ` final arm with destructuring
-    let summary = match (o4_copy)
+    // Exhaustive ` + "`default Variant(...):`" + ` final arm with destructuring
+    let summary = match (o4_copy):
         when Outcome.Empty: "empty"
         when Outcome.Ok(v): "ok:$v"
         when Outcome.Err(e): "err:$e"
-        else Outcome.Detail[code, msg]: "$code:$msg"
+        default Outcome.Detail(d): "${d.0}:${d.1}"
     assert(summary == "404:not_found")
 
     // 4. Mutable & destructuring on local enum variable
-    let pkt = Event.Packet[count: 10, label: "hello"]
-    match (pkt)
-        when Event.Packet[&count, &label]: {
-            count += 5
-            label += "_world"
+    let pkt = Event.Packet(PacketData[count: 10, label: "hello"])
+    match (pkt):
+        when Event.Packet(&p): {
+            p.count += 5
+            p.label += "_world"
         }
-        else: {}
-    let pkt_check = match (pkt)
-        when Event.Packet[count, label: lbl]: "$count:$lbl"
-        else: "bad"
+        default: {}
+    let pkt_check = match (pkt):
+        when Event.Packet(p): "${p.count}:${p.label}"
+        default: "bad"
     assert(pkt_check == "15:hello_world")
 
-    // 5. Full & partial own destructuring (from local variable AND rvalue!)
-    //    token is matched with wildcard _, secret is omitted:
-    //    both heap strings MUST be dropped cleanly without leak or double-free!
+    // 5. Own destructuring from local variable AND rvalue without leak or double-free!
     let ev1 = make_event()
-    let extracted_user1 = match (ev1)
+    let extracted_user1 = match (ev1):
         when Event.Logout: "none"
-        when Event.Packet[_]: "pkt"
-        when Event.Login[own user, token: _]: user
+        when Event.Packet(_): "pkt"
+        default Event.Login(own data): data.user.copy()
     assert(extracted_user1 == "alice_admin")
 
-    // Rvalue scrutinee partial own-move
-    let extracted_user2 = match (make_event())
-        when Event.Login[own user]: user
-        else: "other"
+    // Rvalue scrutinee own-move
+    let extracted_user2 = match (make_event()):
+        when Event.Login(own data): data.user.copy()
+        default: "other"
     assert(extracted_user2 == "alice_admin")
 
     // 6. Recursive AST evaluation & in-place mutation inside scoped Arena block
@@ -159,8 +173,8 @@ bind main = () -> {
         let n10 = arena.alloc(Expr.Num(10))
         let n20 = arena.alloc(Expr.Num(20))
         let neg5 = arena.alloc(Expr.Neg(arena.alloc(Expr.Num(5))))
-        let sum_ab = arena.alloc(Expr.Add[left: n10, right: n20])
-        let root = arena.alloc(Expr.Add[left: sum_ab, right: neg5])
+        let sum_ab = arena.alloc(Expr.Add(ExprAdd[left: n10, right: n20]))
+        let root = arena.alloc(Expr.Add(ExprAdd[left: sum_ab, right: neg5]))
         assert(eval(root) == 25)
         scale_leaf(root, 3)
         eval(root)
@@ -190,12 +204,12 @@ define Status enum [
     Err: string,
 ]
 
-bind check_it = (): Status -> {
+bind check_it = () Status: {
     Status.Err("problem")
 }
 
-bind main = () -> {
-    check_it()
+bind main = (): {
+    check_it();
 }
 `
 	root := projectRoot(t)
@@ -222,9 +236,9 @@ func TestTaggedUnionsNegative(t *testing.T) {
 			name: "non_exhaustive_tagged_match",
 			src: `
 define Res enum [Ok: int, Err: string, Pending]
-bind main = () -> {
+bind main = (): {
     let r = Res.Ok(1)
-    let x = match (r)
+    let x = match (r):
         when Res.Ok(v): v
         when Res.Err(_): 0
     println(x)
@@ -239,7 +253,7 @@ define Bad enum [
     End,
     Loop: Bad,
 ]
-bind main = () -> {}
+bind main = (): {}
 `,
 			wantErrPart: "recursive",
 		},
@@ -253,7 +267,7 @@ define A enum [
 define B struct [
     inner: A,
 ]
-bind main = () -> {}
+bind main = (): {}
 `,
 			wantErrPart: "recursive",
 		},
@@ -261,7 +275,7 @@ bind main = () -> {}
 			name: "int_cast_on_tagged_enum_rejected",
 			src: `
 define Msg enum [Ping, Text: string]
-bind main = () -> {
+bind main = (): {
     let m = Msg.Ping
     let x = int(m)
     println(x)
@@ -273,7 +287,7 @@ bind main = () -> {
 			name: "tagged_enum_not_hashable_in_set",
 			src: `
 define Msg enum [Ping, Code: int]
-bind main = () -> {
+bind main = (): {
     let s = #[Msg.Ping]
     println(s.len())
 }
@@ -284,11 +298,11 @@ bind main = () -> {
 			name: "use_after_own_move_in_match",
 			src: `
 define BoxedStr enum [Empty, Val: string]
-bind main = () -> {
+bind main = (): {
     let b = BoxedStr.Val("hello")
-    let s = match (b)
+    let s = match (b):
         when BoxedStr.Empty: ""
-        when BoxedStr.Val(own text): text
+        default BoxedStr.Val(own text): text
     println(s)
     println(b)
 }
@@ -299,12 +313,12 @@ bind main = () -> {
 			name: "own_move_from_borrowed_enum_rejected",
 			src: `
 define BoxedStr enum [Empty, Val: string]
-bind inspect = (b: BoxedStr): string -> {
-    match (b)
+bind inspect = (b: BoxedStr) string: {
+    match (b):
         when BoxedStr.Empty: ""
-        when BoxedStr.Val(own text): text
+        default BoxedStr.Val(own text): text
 }
-bind main = () -> {}
+bind main = (): {}
 `,
 			wantErrPart: "cannot move",
 		},
@@ -312,28 +326,22 @@ bind main = () -> {}
 			name: "own_move_from_arena_ref_enum_rejected",
 			src: `
 define BoxedStr enum [Empty, Val: string]
-bind inspect = (b: ref[BoxedStr]): string -> {
-    match (b)
+bind inspect = (b: ref[BoxedStr]) string: {
+    match (b):
         when BoxedStr.Empty: ""
-        when BoxedStr.Val(own text): text
+        default BoxedStr.Val(own text): text
 }
-bind main = () -> {}
+bind main = (): {}
 `,
 			wantErrPart: "cannot move",
 		},
 		{
-			name: "mix_mut_and_own_in_single_variant_pattern_rejected",
+			name: "inline_struct_variant_in_enum_rejected",
 			src: `
 define PairMsg enum [Both: [a: string, b: string]]
-bind main = () -> {
-    let p = PairMsg.Both[a: "x", b: "y"]
-    match (p)
-        when PairMsg.Both[&a, own b]: {
-            a.push_str(b)
-        }
-}
+bind main = (): {}
 `,
-			wantErrPart: "cannot mix",
+			wantErrPart: "expected",
 		},
 	}
 
@@ -367,11 +375,11 @@ define Node struct [
     edges: [ref[Node]],
 ]
 
-bind alloc_helper = (a: &Arena, id: int, name: string): ref[Node] -> {
+bind alloc_helper = (a: &Arena, id: int, name: string) ref[Node]: {
     a.alloc(Node[id: id, name: name.copy(), edges: []])
 }
 
-bind main = () -> {
+bind main = (): {
     let arena = Arena.new()
 
     // Phase 1: allocate and wire nodes inside a block, extract Plain/String summary
@@ -396,7 +404,7 @@ bind main = () -> {
 
     // Reassign and own-move when unpinned
     arena = Arena.new()
-    let consume = (a: own Arena) -> {}
+    let consume = (a: own Arena): {}
     consume(own arena)
 }
 `
@@ -415,7 +423,7 @@ func TestArenaPinningAndEscapeHolesNegative(t *testing.T) {
 			name: "reset_while_pinned_in_same_scope",
 			src: `
 define Node struct [val: int]
-bind main = () -> {
+bind main = (): {
     let arena = Arena.new()
     let n = arena.alloc(Node[val: 10])
     arena.reset()
@@ -428,7 +436,7 @@ bind main = () -> {
 			name: "reassign_while_pinned",
 			src: `
 define Node struct [val: int]
-bind main = () -> {
+bind main = (): {
     let arena = Arena.new()
     let n = arena.alloc(Node[val: 10])
     arena = Arena.new()
@@ -441,8 +449,8 @@ bind main = () -> {
 			name: "move_own_arena_while_pinned",
 			src: `
 define Node struct [val: int]
-bind drop_arena = (a: own Arena) -> {}
-bind main = () -> {
+bind drop_arena = (a: own Arena): {}
+bind main = (): {
     let arena = Arena.new()
     let n = arena.alloc(Node[val: 10])
     drop_arena(own arena)
@@ -455,10 +463,10 @@ bind main = () -> {
 			name: "closure_capture_move_arena_while_pinned",
 			src: `
 define Node struct [val: int]
-bind main = () -> {
+bind main = (): {
     let arena = Arena.new()
     let n = arena.alloc(Node[val: 10])
-    let f = (): Arena -> {
+    let f = () Arena: {
         own arena
     }
     println(n.val)
@@ -470,7 +478,7 @@ bind main = () -> {
 			name: "inner_alloc_pushed_to_outer_vec_keeps_arena_pinned",
 			src: `
 define Node struct [val: int]
-bind main = () -> {
+bind main = (): {
     let arena = Arena.new()
     let keep: [ref[Node]] = []
     {
@@ -487,20 +495,20 @@ bind main = () -> {
 		{
 			name: "borrowed_mut_arena_param_reset_forbidden",
 			src: `
-bind wipe = (a: &Arena) -> {
+bind wipe = (a: &Arena): {
     a.reset()
 }
-bind main = () -> {}
+bind main = (): {}
 `,
 			wantErrPart: "cannot call `.reset()` on borrowed",
 		},
 		{
 			name: "borrowed_mut_arena_param_reassign_forbidden",
 			src: `
-bind swap_out = (a: &Arena) -> {
+bind swap_out = (a: &Arena): {
     a = Arena.new()
 }
-bind main = () -> {}
+bind main = (): {}
 `,
 			wantErrPart: "cannot reassign borrowed `&Arena`",
 		},
@@ -508,7 +516,7 @@ bind main = () -> {}
 			name: "unwind_escape_from_block_with_local_arena",
 			src: `
 define Node struct [val: int]
-bind main = () -> {
+bind main = (): {
     let escaped = {
         let a = Arena.new()
         let n = a.alloc(Node[val: 7])
@@ -523,11 +531,11 @@ bind main = () -> {
 			name: "return_local_arena_ref_even_when_unrelated_arena_param_exists",
 			src: `
 define Node struct [val: int]
-bind sneaky = (caller_arena: &Arena): ref[Node] -> {
+bind sneaky = (caller_arena: &Arena) ref[Node]: {
     let local_arena = Arena.new()
     local_arena.alloc(Node[val: 42])
 }
-bind main = () -> {}
+bind main = (): {}
 `,
 			wantErrPart: "cannot escape",
 		},
@@ -535,11 +543,11 @@ bind main = () -> {}
 			name: "closure_capturing_inner_arena_ref_escaping_block",
 			src: `
 define Node struct [val: int]
-bind main = () -> {
+bind main = (): {
     let reader = {
         let a = Arena.new()
         let n = a.alloc(Node[val: 123])
-        (): int -> { n.val }
+        () int: { n.val }
     }
     println(reader())
 }
@@ -550,7 +558,7 @@ bind main = () -> {
 			name: "map_index_assign_inner_arena_escape",
 			src: `
 define Node struct [val: int]
-bind main = () -> {
+bind main = (): {
     let a1 = Arena.new()
     let m = #["root": a1.alloc(Node[val: 1])]
     {
@@ -565,7 +573,7 @@ bind main = () -> {
 			name: "mutating_method_on_outer_ref_field_inner_arena_escape",
 			src: `
 define Node struct [val: int, edges: [ref[Node]]]
-bind main = () -> {
+bind main = (): {
     let a1 = Arena.new()
     let root = a1.alloc(Node[val: 1, edges: []])
     {
@@ -581,10 +589,10 @@ bind main = () -> {
 			name: "helper_call_mixing_outer_and_inner_arena_refs",
 			src: `
 define Node struct [val: int, edges: [ref[Node]]]
-bind connect = (parent: ref[Node], child: ref[Node]) -> {
+bind connect = (parent: ref[Node], child: ref[Node]): {
     parent.edges.push(child)
 }
-bind main = () -> {
+bind main = (): {
     let a1 = Arena.new()
     let root = a1.alloc(Node[val: 1, edges: []])
     {
@@ -632,18 +640,18 @@ define Account struct [
     profile?: ?Profile,
 ]
 
-bind find_account = (id: int): ?Account -> {
-    if (id == 1) {
+bind find_account = (id: int) ?Account: {
+    if (id == 1): {
         Account[
             name: "Ada",
             profile?: Profile[nick?: "ada_lovelace", score: 99],
         ]
-    } else if (id == 2) {
+    } else if (id == 2): {
         Account[
             name: "Bob",
             profile?: Profile[nick?: none, score: 50],
         ]
-    } else {
+    } else: {
         none
     }
 }
@@ -658,7 +666,7 @@ define Counter struct [
     cur: int,
 ]
 
-bind Counter.next = (&self): int -> {
+bind Counter.next = (&self) int: {
     self.cur += 1
     self.cur
 }
@@ -669,15 +677,15 @@ define MaybeBox[T] struct [
     fallback: T,
 ]
 
-bind unwrap_or_default[T: Copyable] = (val?: ?T, fallback: T): T -> {
-    if (val?) {
+bind unwrap_or_default[T: Copyable] = (val?: ?T, fallback: T) T: {
+    if (val?): {
         val.copy()
-    } else {
+    } else: {
         fallback
     }
 }
 
-bind main = () -> {
+bind main = (): {
     // 1. Item 3A: . optional chaining without spaces (plus ?. on calls)
     let a1? = find_account(1)
     let a2? = find_account(2)
@@ -725,8 +733,8 @@ bind main = () -> {
 
     // next <- and labeled next outer <- still work as unwinds!
     let sum = 0
-    for (i in 0..6) {
-        if (i % 2 == 0) {
+    for (i in 0..6): {
+        if (i % 2 == 0): {
             next <-
         }
         sum += i
@@ -734,9 +742,9 @@ bind main = () -> {
     assert(sum == 9)
 
     let grid_sum = 0
-    outer: for (r in 0..3) {
-        for (col in 0..3) {
-            if (col == 1) {
+    outer: for (r in 0..3): {
+        for (col in 0..3): {
+            if (col == 1): {
                 next outer <-
             }
             grid_sum += 10
@@ -772,7 +780,7 @@ func TestStrictlyNonOptionalGenericsNegative(t *testing.T) {
 			name: "generic_struct_explicit_optional_type_arg",
 			src: `
 define Box[T] struct [val: T]
-bind main = () -> {
+bind main = (): {
     let b = Box[?int][val: 1]
 }
 `,
@@ -782,7 +790,7 @@ bind main = () -> {
 			name: "generic_enum_explicit_optional_type_arg",
 			src: `
 define Maybe[T] enum [None, Some: T]
-bind main = () -> {
+bind main = (): {
     let m = Maybe[?string].None
 }
 `,
@@ -791,8 +799,8 @@ bind main = () -> {
 		{
 			name: "generic_fn_explicit_optional_type_arg",
 			src: `
-bind id[T] = (x: T): T -> { x }
-bind main = () -> {
+bind id[T] = (x: T) T: { x }
+bind main = (): {
     let x?: ?int = 5
     let y? = id[?int](x?)
 }
@@ -802,8 +810,8 @@ bind main = () -> {
 		{
 			name: "generic_fn_inferred_optional_for_T_rejected",
 			src: `
-bind take_non_opt[T] = (x: T): int -> { 1 }
-bind main = () -> {
+bind take_non_opt[T] = (x: T) int: { 1 }
+bind main = (): {
     let x?: ?int = 5
     println(take_non_opt(x?))
 }
@@ -843,7 +851,7 @@ func TestReleaseModePreservesAllSafetyTraps(t *testing.T) {
 		{
 			name: "vec_index_out_of_bounds_in_release",
 			src: `
-bind main = () -> {
+bind main = (): {
     let xs = [10, 20, 30]
     let idx = 3
     println(xs[idx])
@@ -854,7 +862,7 @@ bind main = () -> {
 		{
 			name: "vec_slice_out_of_bounds_in_release",
 			src: `
-bind main = () -> {
+bind main = (): {
     let xs = [1, 2, 3, 4]
     let hi = 10
     let sub = xs[1..hi]
@@ -866,7 +874,7 @@ bind main = () -> {
 		{
 			name: "string_slice_out_of_bounds_in_release",
 			src: `
-bind main = () -> {
+bind main = (): {
     let s = "hello"
     let hi = 9
     println(s[0..hi])
@@ -877,7 +885,7 @@ bind main = () -> {
 		{
 			name: "u64_division_by_zero_in_release",
 			src: `
-bind main = () -> {
+bind main = (): {
     let a = u64(100)
     let z = u64(0)
     println(a / z)
@@ -888,7 +896,7 @@ bind main = () -> {
 		{
 			name: "shift_count_out_of_range_in_release",
 			src: `
-bind main = () -> {
+bind main = (): {
     let x = 1
     let amt = 64
     println(x << amt)
@@ -916,6 +924,261 @@ bind main = () -> {
 			}
 			if !strings.Contains(strings.ToLower(stderr.String()), strings.ToLower(tc.wantStderrPart)) {
 				t.Fatalf("[%s] expected stderr to contain %q in --release, got:\n%s", tc.name, tc.wantStderrPart, stderr.String())
+			}
+		})
+	}
+}
+
+// =============================================================================
+// 5. Unified `<front>(<args>) [<type>]: <expr>` Syntax & Return Inference
+// =============================================================================
+
+func TestUnifiedSyntaxAndReturnInferenceE2E(t *testing.T) {
+	src := `
+define Box struct [
+    v: int,
+]
+
+define Accumulator interface [
+    add: (&self, n: int) int,
+    reset: (&self),
+]
+
+bind Box.new = (v: int): Box[v: v]
+bind Box.get = (self): self.v
+bind Box.add = (&self, n: int): {
+    self.v += n
+    self.v
+}
+bind Box.reset = (&self) void: {
+    self.v = 0
+}
+
+bind double_val = (x: int): x * 2
+
+bind clamp_pos = (n: int): {
+    if (n < 0): func <- 0
+    n
+}
+
+bind touch_void = (b: &Box): {
+    b.add(1);
+}
+
+bind main = () void: {
+    // Inferred method and function return types
+    let bx = Box.new(10)
+    assert(bx.get() == 10)
+    assert(bx.add(5) == 15)
+    touch_void(&bx)
+    assert(bx.get() == 16)
+    bx.reset()
+    assert(bx.get() == 0)
+
+    assert(double_val(21) == 42)
+    assert(clamp_pos(-5) == 0)
+    assert(clamp_pos(7) == 7)
+
+    // Interface satisfaction via Accumulator
+    let acc = Accumulator(bx)
+    assert(acc.add(9) == 9)
+    acc.reset()
+    assert(acc.add(3) == 3)
+
+    // Function type (ParamTypes) Ret and contextual + body lambda inference
+    let apply: ((int) int, int) int = (f: (int) int, x: int): f(x)
+    assert(apply((n: int): n + 100, 7) == 107)
+
+    let mul = (a: int, b: int): a * b
+    assert(mul(6, 7) == 42)
+
+    let make_opt: (bool) ?int = (flag: bool): {
+        if (flag): func <- 42
+        none
+    }
+    assert((make_opt(true) ?? 0) == 42)
+    assert(make_opt(false) == none)
+
+    // if / else if / else and ?T optional if without else
+    let grade = (s: int): if (s >= 90): "A" else if (s >= 80): "B" else: "C"
+    assert(grade(95) == "A")
+    assert(grade(85) == "B")
+    assert(grade(50) == "C")
+
+    let opt_hit? = if (double_val(3) == 6): 60
+    let opt_miss? = if (double_val(3) == 99): 60
+    assert((opt_hit? ?? 0) == 60)
+    assert(opt_miss? == none)
+
+    let typed_opt? = if (true) ?int: 123
+    assert((typed_opt? ?? 0) == 123)
+    let typed_opt_blk? = if (true) ?int: { 124 }
+    assert((typed_opt_blk? ?? 0) == 124)
+
+    // while with ?T (no else), with else, and infinite while (true) int:
+    let found? = while (i in 1..6): {
+        if (i == 4): while <- i * 10
+    }
+    let found_typed? = while (i in 1..6) ?int: {
+        if (i == 2): while <- i * 10
+    }
+    assert((found_typed? ?? -1) == 20)
+    let not_found? = while (i in 1..4): {
+        if (i == 99): while <- i
+    }
+    assert((found? ?? -1) == 40)
+    assert(not_found? == none)
+
+    let found_or = while (i in 1..6) int: {
+        if (i == 3): while <- 300
+    } else: -1
+    assert(found_or == 300)
+
+    let inf_val = while (true) int: {
+        while <- 99
+    }
+    assert(inf_val == 99)
+
+    // for with default list inference and explicit [int] / #[int] eval types
+    let xs = for (i in 0..4): i * 2
+    assert(xs.len() == 4 and xs[0] == 0 and xs[1] == 2 and xs[2] == 4 and xs[3] == 6)
+    let ys = for (i in 1..=3) [int]: i + 10
+    assert(ys.len() == 3 and ys[0] == 11 and ys[1] == 12 and ys[2] == 13)
+    let zs = for (i in 0..5) #[int]: i % 2
+    assert(zs.len() == 2)
+
+    // match (x) T: and bare match: with inferred/explicit eval types
+    let label = match (2) string:
+        when 1: "one"
+        when 2: { "two" }
+        default: "other"
+    assert(label == "two")
+
+    let bucket = match:
+        when xs[0] > 10: 1
+        when xs[3] == 6: 2
+        default: 0
+    assert(bucket == 2)
+}
+`
+	for _, release := range []bool{false, true} {
+		out := runInlineStrict(t, "unified_syntax_inference", src, release)
+		if out != "" {
+			t.Fatalf("expected empty stdout, got %q", out)
+		}
+	}
+}
+
+func TestUnifiedSyntaxAndInferenceNegative(t *testing.T) {
+	cases := []struct {
+		name        string
+		src         string
+		wantErrPart string
+	}{
+		{
+			name: "recursive_omitted_return",
+			src: `
+bind rec = (n: int): {
+    if (n <= 0): func <- 0
+    rec(n - 1) + 1
+}
+bind main = (): {}
+`,
+			wantErrPart: "cannot infer return type of recursive function",
+		},
+		{
+			name: "mutual_recursive_omitted_return",
+			src: `
+bind even_fn = (n: int): {
+    if (n == 0): func <- true
+    odd_fn(n - 1)
+}
+bind odd_fn = (n: int): {
+    if (n == 0): func <- false
+    even_fn(n - 1)
+}
+bind main = (): {}
+`,
+			wantErrPart: "cannot infer return type of recursive function",
+		},
+		{
+			name: "void_not_allowed_in_let",
+			src: `
+bind main = (): {
+    let x: void = {}
+}
+`,
+			wantErrPart: "is not a value type and can only be used as a function return type",
+		},
+		{
+			name: "void_not_allowed_in_param",
+			src: `
+bind f = (x: void) void: {}
+bind main = (): {}
+`,
+			wantErrPart: "is not a value type and can only be used as a function return type",
+		},
+		{
+			name: "void_not_allowed_in_if_eval_type",
+			src: `
+bind main = () void: {
+    if (true) void: 1
+}
+`,
+			wantErrPart: "is not a value type and can only be used as a function return type",
+		},
+		{
+			name: "non_optional_if_without_else",
+			src: `
+bind main = (): {
+    let x? = if (true) int: 1
+}
+`,
+			wantErrPart: "must have an optional evaluation type",
+		},
+		{
+			name: "non_optional_while_without_else",
+			src: `
+bind main = (): {
+    let f = (c: bool) void: {
+        let x? = while (c) int: { while <- 1 }
+    }
+}
+`,
+			wantErrPart: "must have an optional evaluation type",
+		},
+		{
+			name: "old_arrow_syntax_rejected",
+			src: `
+bind f = (x: int): int -> x
+bind main = (): {}
+`,
+			wantErrPart: "unexpected '->'",
+		},
+		{
+			name: "if_missing_colon_rejected",
+			src: `
+bind main = (): {
+    if (true) { 1; }
+}
+`,
+			wantErrPart: "expected : before",
+		},
+	}
+
+	root := projectRoot(t)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := driver.Check(driver.Options{
+				EntryPath:   filepath.Join(t.TempDir(), tc.name+".ll"),
+				SrcOverride: tc.src,
+				ProjectRoot: root,
+			})
+			if err == nil {
+				t.Fatalf("[%s] expected compile error containing %q, got success", tc.name, tc.wantErrPart)
+			}
+			if !strings.Contains(err.Error(), tc.wantErrPart) {
+				t.Fatalf("[%s] expected error containing %q, got:\n%v", tc.name, tc.wantErrPart, err)
 			}
 		})
 	}

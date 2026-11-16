@@ -1,7 +1,7 @@
 import "std/test.ll" as t
 
 @test("multiline backtick string with interpolation and escapes")
-bind test_multiline_backtick = () -> {
+bind test_multiline_backtick = (): {
     let name = "World"
     let count = 42
     let s = `Hello, $name!
@@ -15,7 +15,7 @@ Dollar: \$100`
 }
 
 @test("json multiline formatting")
-bind test_json_template = () -> {
+bind test_json_template = (): {
     let raw_json = `{
   "items": [1, 2, 3],
   "status": "ok"

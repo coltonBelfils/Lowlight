@@ -44,7 +44,17 @@ type Options struct {
 	Release     bool
 	ExtraCFlags []string
 	Env         []string // Optional extra environment variables when running
-	TestMode    bool     // Compile and run test entry point / test harness
+	WarnWriter   io.Writer   // Optional writer for compiler warnings (defaults to os.Stderr)
+	TestMode     bool        // Compile and run test entry point / test harness
+	TestFilter   string      // Optional regex/substring filter for @test functions (-run)
+	TargetTriple string      // Target triple for cross-compilation (e.g. "aarch64-unknown-linux-gnu")
+}
+
+func (o Options) warnOut() io.Writer {
+	if o.WarnWriter != nil {
+		return o.WarnWriter
+	}
+	return os.Stderr
 }
 
 // EffectiveBackend returns the active BackendKind considering options and LOWLIGHT_BACKEND env.
@@ -92,24 +102,59 @@ func Check(opts Options) (*sema.CheckedProgram, string, error) {
 
 // EmitC runs semantic checking, lowers to MIR, and emits portable ISO C11 source code.
 func EmitC(opts Options) (string, *sema.CheckedProgram, error) {
-	checked, _, err := Check(opts)
+	checked, warnings, err := Check(opts)
 	if err != nil {
 		return "", nil, err
 	}
+	if warnings != "" {
+		fmt.Fprint(opts.warnOut(), warnings)
+	}
 	mirProg := ir.Lower(checked, opts.Release, opts.TestMode)
+	if err := filterTestFuncs(mirProg, opts); err != nil {
+		return "", nil, err
+	}
+	mirProg.TargetTriple = opts.TargetTriple
 	cSource := codegen.EmitC(mirProg)
 	return cSource, checked, nil
 }
 
 // EmitLLVM runs semantic checking, lowers to MIR, and emits pure, portable LLVM IR text (.ll).
 func EmitLLVM(opts Options) (string, *sema.CheckedProgram, error) {
-	checked, _, err := Check(opts)
+	checked, warnings, err := Check(opts)
 	if err != nil {
 		return "", nil, err
 	}
+	if warnings != "" {
+		fmt.Fprint(opts.warnOut(), warnings)
+	}
 	mirProg := ir.Lower(checked, opts.Release, opts.TestMode)
+	if err := filterTestFuncs(mirProg, opts); err != nil {
+		return "", nil, err
+	}
+	mirProg.TargetTriple = opts.TargetTriple
 	llvmSource := codegen.EmitLLVM(mirProg)
 	return llvmSource, checked, nil
+}
+
+func filterTestFuncs(mirProg *ir.Program, opts Options) error {
+	if !opts.TestMode || opts.TestFilter == "" || mirProg.TestMainFunc != nil {
+		return nil
+	}
+	re, err := regexp.Compile(opts.TestFilter)
+	if err != nil {
+		return fmt.Errorf("invalid -run filter %q: %w", opts.TestFilter, err)
+	}
+	var filtered []*ir.Function
+	for _, fn := range mirProg.TestFuncs {
+		if re.MatchString(fn.Name) || (fn.TestDesc != "" && re.MatchString(fn.TestDesc)) {
+			filtered = append(filtered, fn)
+		}
+	}
+	mirProg.TestFuncs = filtered
+	if len(filtered) == 0 {
+		return ErrNoTests
+	}
+	return nil
 }
 
 // ResolveCC selects the C11 compiler executable to invoke.
@@ -182,15 +227,27 @@ func Build(opts Options) (string, error) {
 	}
 
 	cc := ResolveCC(opts.CC)
+	if cc == "cc" {
+		if clangPath, err := exec.LookPath("clang"); err == nil && clangPath != "" {
+			cc = clangPath
+		}
+	}
 	args := []string{"-std=c11"}
+	if opts.TargetTriple != "" {
+		baseCC := strings.ToLower(filepath.Base(cc))
+		if strings.Contains(baseCC, "gcc") && !strings.Contains(baseCC, "clang") {
+			return "", fmt.Errorf("--target=%s requires clang (current C compiler is %s; pass --cc=clang)", opts.TargetTriple, cc)
+		}
+		args = append(args, "--target="+opts.TargetTriple)
+	}
 	if opts.Release {
 		args = append(args, "-O2")
 	} else {
 		args = append(args, "-g", "-O0")
 	}
-	// Suppress benign parenthesization/unused-parameter noise by default while keeping user ExtraCFlags authoritative.
+	args = append(args, "-o", absOut, cFile)
 	args = append(args, opts.ExtraCFlags...)
-	args = append(args, "-o", absOut, cFile, "-lm", "-ldl")
+	args = append(args, "-lm", "-ldl")
 
 	var ccStderr bytes.Buffer
 	cmd := exec.Command(cc, args...)
@@ -204,9 +261,12 @@ func Build(opts Options) (string, error) {
 }
 
 func buildLLVM(opts Options) (string, error) {
-	checked, _, err := Check(opts)
+	checked, warnings, err := Check(opts)
 	if err != nil {
 		return "", err
+	}
+	if warnings != "" {
+		fmt.Fprint(opts.warnOut(), warnings)
 	}
 	if opts.TestMode {
 		if checked.TestMainFunc == nil && len(checked.TestFuncs) == 0 {
@@ -219,6 +279,10 @@ func buildLLVM(opts Options) (string, error) {
 	}
 
 	mirProg := ir.Lower(checked, opts.Release, opts.TestMode)
+	if err := filterTestFuncs(mirProg, opts); err != nil {
+		return "", err
+	}
+	mirProg.TargetTriple = opts.TargetTriple
 	llvmSource := codegen.EmitLLVM(mirProg)
 
 	outBin := opts.OutPath
@@ -252,13 +316,17 @@ func buildLLVM(opts Options) (string, error) {
 	}
 
 	args := []string{"-Wno-override-module"}
+	if opts.TargetTriple != "" {
+		args = append(args, "--target="+opts.TargetTriple)
+	}
 	if opts.Release {
 		args = append(args, "-O2")
 	} else {
 		args = append(args, "-g", "-O0")
 	}
+	args = append(args, "-o", absOut, llFile)
 	args = append(args, opts.ExtraCFlags...)
-	args = append(args, "-o", absOut, llFile, "-lm", "-ldl")
+	args = append(args, "-lm", "-ldl")
 
 	var ccStderr bytes.Buffer
 	cmd := exec.Command(cc, args...)
@@ -281,6 +349,9 @@ func Run(opts Options, progArgs []string, stdout, stderr io.Writer) (int, error)
 
 	buildOpts := opts
 	buildOpts.OutPath = filepath.Join(tmpDir, "app")
+	if buildOpts.WarnWriter == nil && stderr != nil {
+		buildOpts.WarnWriter = stderr
+	}
 	binPath, err := Build(buildOpts)
 	if err != nil {
 		return 1, err
@@ -464,6 +535,9 @@ func Test(opts Options, stdout, stderr io.Writer) (int, error) {
 	}
 
 	if totalFilesTested == 0 {
+		if anyFailed {
+			return 1, nil
+		}
 		targetName := "."
 		if len(rawTargets) == 1 {
 			targetName = rawTargets[0]
@@ -495,6 +569,9 @@ func runSingleTest(opts Options, stdout, stderr io.Writer) (int, error) {
 
 	buildOpts := opts
 	buildOpts.OutPath = filepath.Join(tmpDir, "test_app")
+	if buildOpts.WarnWriter == nil && stderr != nil {
+		buildOpts.WarnWriter = stderr
+	}
 	binPath, err := Build(buildOpts)
 	if err != nil {
 		return 1, err
@@ -538,8 +615,8 @@ func discoverLLFiles(dir string) ([]string, error) {
 			if strings.HasPrefix(name, ".") && name != "." && name != ".." {
 				return filepath.SkipDir
 			}
-			// Skip bundled/vendor/editor directories when scanning root directory
-			if cleanDir == "." && (name == "editors" || name == "node_modules" || name == "vendor") {
+			// Skip bundled/vendor/editor directories recursively
+			if name == "editors" || name == "node_modules" || name == "vendor" {
 				return filepath.SkipDir
 			}
 			return nil

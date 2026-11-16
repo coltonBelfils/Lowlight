@@ -165,6 +165,7 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 	irp.Arrays = tc.arrs
 	irp.Sets = tc.sets
 	irp.Maps = tc.maps
+	irp.Tuples = tc.tups
 	irp.FuncTypes = tc.fns
 	irp.Interfaces = tc.ifcs
 	return irp
@@ -589,6 +590,10 @@ func (fl *funcLowerer) lowerStmt(st ast.Stmt) {
 }
 
 func (fl *funcLowerer) lowerVarStmt(s *ast.VarStmt) {
+	if s.IsUnpack {
+		fl.lowerUnpackVarStmt(s)
+		return
+	}
 	sym := fl.bm.VarSymbols[s]
 	if sym == nil {
 		return
@@ -652,7 +657,123 @@ func (fl *funcLowerer) extractOwnedOptionalInto(optSlot *Local, optTy *types.Opt
 	}
 }
 
+func (fl *funcLowerer) coerceUnpackedElem(valExpr Expr, srcTy, dstTy types.Type) Expr {
+	if dstTy == nil || srcTy == nil || srcTy.Equals(dstTy) {
+		return valExpr
+	}
+	if ifc, isIfc := dstTy.(*types.Interface); isIfc {
+		fl.tc.visit(ifc)
+		return fl.boxConcreteIntoInterface(valExpr, srcTy, ifc)
+	}
+	if optTy, isOpt := dstTy.(*types.Optional); isOpt && srcTy.Equals(optTy.Elem) {
+		fl.tc.visit(optTy)
+		return fl.wrapInOptionalExpr(valExpr, optTy)
+	}
+	return valExpr
+}
+
+func (fl *funcLowerer) lowerUnpackVarStmt(s *ast.VarStmt) {
+	syms := fl.bm.UnpackVarSymbols[s]
+	locs := make([]*Local, len(syms))
+	for i, sym := range syms {
+		if sym == nil {
+			continue
+		}
+		fl.tc.visit(sym.Type)
+		loc := &Local{
+			CName: sym.CName,
+			Type:  sym.Type,
+		}
+		if NeedsMovedFlag(sym.Type) {
+			loc.MovedFlag = sym.CName + "_moved"
+			loc.MovedLocal = &Local{CName: loc.MovedFlag, Type: types.TypeBool}
+		}
+		fl.locals = append(fl.locals, loc)
+		fl.symLocals[sym] = loc
+		locs[i] = loc
+	}
+
+	var tupSlot *Local
+	var tupValTy types.Type
+	if s.FallbackUnwind != nil {
+		optTy := fl.info(s.Value).Type.(*types.Optional)
+		tupValTy = optTy.Elem
+		fl.tc.visit(optTy)
+		fl.tc.visit(tupValTy)
+		optVal := fl.lowerExprOwned(s.Value, optTy)
+		optTmp := fl.allocSlot("_ll_coalesce", optTy)
+		fl.assignLocal(optTmp, optVal)
+		fl.flushStmtTemps()
+
+		fl.pushInstrBuf()
+		fl.lowerUnwindStmt(s.FallbackUnwind)
+		elseBranch := fl.popInstrBuf()
+
+		fl.emit(&InstrIf{
+			Cond: &ExprUnary{Op: token.KwNot, Operand: optHasValueExpr(optTmp, optTy), Typ: types.TypeBool},
+			Then: elseBranch,
+		})
+		tupSlot = fl.allocSlot("_ll_unpack", tupValTy)
+		fl.extractOwnedOptionalInto(optTmp, optTy, tupSlot)
+	} else {
+		tupValTy = fl.info(s.Value).Type
+		fl.tc.visit(tupValTy)
+		valExpr := fl.lowerExprOwned(s.Value, tupValTy)
+		tupSlot = fl.allocSlot("_ll_unpack", tupValTy)
+		fl.assignLocal(tupSlot, valExpr)
+		fl.flushStmtTemps()
+	}
+
+	var tupTy *types.Tuple
+	if t, isTup := tupValTy.(*types.Tuple); isTup {
+		tupTy = t
+	} else if d, isDist := tupValTy.(*types.Distinct); isDist {
+		tupTy = d.Base.(*types.Tuple)
+	}
+	if tupTy == nil {
+		return
+	}
+	fl.tc.visit(tupTy)
+
+	for i := range s.UnpackVars {
+		if i >= len(tupTy.Elems) {
+			break
+		}
+		elemTy := tupTy.Elems[i]
+		fl.tc.visit(elemTy)
+		fieldExpr := &ExprField{
+			Base:      NewLocalExpr(tupSlot),
+			FieldName: fmt.Sprintf("_%d", i),
+			FieldIdx:  i,
+			Typ:       elemTy,
+			IsPtr:     false,
+		}
+		loc := locs[i]
+		if loc == nil {
+			if !elemTy.IsPlain() {
+				fl.emit(&InstrExpr{
+					Expr: &ExprDrop{
+						Ptr:     &ExprAddrOf{Place: fieldExpr, Typ: &types.Ptr{Elem: elemTy}},
+						ValType: elemTy,
+					},
+				})
+			}
+			continue
+		}
+		coerced := fl.coerceUnpackedElem(fieldExpr, elemTy, loc.Type)
+		fl.assignLocal(loc, coerced)
+		if !loc.Type.IsPlain() {
+			cur := fl.scopes[len(fl.scopes)-1]
+			cur.ownedLocals = append(cur.ownedLocals, loc)
+		}
+	}
+}
+
 func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
+	if s.IsUnpack {
+		fl.lowerUnpackAssignStmt(s)
+		return
+	}
 	tgt := s.Target
 	if ue, isUnsafe := tgt.(*ast.UnsafeExpr); isUnsafe {
 		tgt = ue.Expr
@@ -718,6 +839,83 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 	file, line := formatSpanLoc(s.Target)
 	fl.emitCompoundAssign(s.Op, targetTy, lhsPtr, rhsExpr, file, line)
 	fl.flushStmtTemps()
+}
+
+func (fl *funcLowerer) lowerUnpackAssignStmt(s *ast.AssignStmt) {
+	var tupSlot *Local
+	var tupValTy types.Type
+	if s.FallbackUnwind != nil {
+		optTy := fl.info(s.Value).Type.(*types.Optional)
+		tupValTy = optTy.Elem
+		fl.tc.visit(optTy)
+		fl.tc.visit(tupValTy)
+		optVal := fl.lowerExprOwned(s.Value, optTy)
+		optTmp := fl.allocSlot("_ll_asgn_opt", optTy)
+		fl.assignLocal(optTmp, optVal)
+		fl.flushStmtTemps()
+
+		fl.pushInstrBuf()
+		fl.lowerUnwindStmt(s.FallbackUnwind)
+		elseBranch := fl.popInstrBuf()
+
+		fl.emit(&InstrIf{
+			Cond: &ExprUnary{Op: token.KwNot, Operand: optHasValueExpr(optTmp, optTy), Typ: types.TypeBool},
+			Then: elseBranch,
+		})
+
+		tupSlot = fl.allocSlot("_ll_unpack_asgn", tupValTy)
+		fl.extractOwnedOptionalInto(optTmp, optTy, tupSlot)
+	} else {
+		tupValTy = fl.info(s.Value).Type
+		fl.tc.visit(tupValTy)
+		valExpr := fl.lowerExprOwned(s.Value, tupValTy)
+		tupSlot = fl.allocSlot("_ll_unpack_asgn", tupValTy)
+		fl.assignLocal(tupSlot, valExpr)
+		fl.flushStmtTemps()
+	}
+
+	var tupTy *types.Tuple
+	if t, isTup := tupValTy.(*types.Tuple); isTup {
+		tupTy = t
+	} else if d, isDist := tupValTy.(*types.Distinct); isDist {
+		tupTy = d.Base.(*types.Tuple)
+	}
+	if tupTy == nil {
+		return
+	}
+	fl.tc.visit(tupTy)
+
+	for i, tgt := range s.UnpackTargets {
+		if i >= len(tupTy.Elems) {
+			break
+		}
+		elemTy := tupTy.Elems[i]
+		fl.tc.visit(elemTy)
+		fieldExpr := &ExprField{
+			Base:      NewLocalExpr(tupSlot),
+			FieldName: fmt.Sprintf("_%d", i),
+			FieldIdx:  i,
+			Typ:       elemTy,
+			IsPtr:     false,
+		}
+		if id, isId := tgt.(*ast.IdentExpr); isId && id.Name == "_" {
+			if !elemTy.IsPlain() {
+				fl.emit(&InstrExpr{
+					Expr: &ExprDrop{
+						Ptr:     &ExprAddrOf{Place: fieldExpr, Typ: &types.Ptr{Elem: elemTy}},
+						ValType: elemTy,
+					},
+				})
+			}
+			continue
+		}
+		tgtTy := fl.info(tgt).Type
+		fl.tc.visit(tgtTy)
+		coerced := fl.coerceUnpackedElem(fieldExpr, elemTy, tgtTy)
+		elemTmp := fl.allocSlot("_ll_unpack_el", tgtTy)
+		fl.assignLocal(elemTmp, coerced)
+		fl.assignToTargetLValue(tgt, tgtTy, NewLocalExpr(elemTmp))
+	}
 }
 
 func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type, newValExpr Expr) {
@@ -812,15 +1010,21 @@ func (fl *funcLowerer) lowerUnwindStmt(u *ast.UnwindStmt) {
 	// 1. Evaluate unwind payload (if any) BEFORE dropping scopes along the jump path!
 	if u.Value != nil && tgt.resultVar != nil {
 		if tgt.hasValVar != nil {
-			// Target is a value-producing `for` loop (`for <- val` or `next <- val`):
+			// Target is a value-producing loop (`while <- val`):
 			elemTy := tgt.loopElemTy
+			needsWrap := tgt.isForNoElse
+			uInf := fl.info(u.Value)
+			if rawTy := uInf.Type; tgt.isForNoElse && ((rawTy != nil && rawTy.Equals(tgt.resultVar.Type)) || uInf.WrapOptional) {
+				elemTy = tgt.resultVar.Type
+				needsWrap = false
+			}
 			valExpr := fl.lowerExprOwned(u.Value, elemTy)
 			valTmp := fl.allocSlot("_ll_uval", elemTy)
 			fl.assignLocal(valTmp, valExpr)
 			fl.flushStmtTemps()
 
 			// Drop any prior iteration value held in `tgt.resultVar` before overwriting!
-			fl.storeLoopRunningResult(tgt, NewLocalExpr(valTmp))
+			fl.storeLoopRunningResult(tgt, NewLocalExpr(valTmp), needsWrap)
 		} else {
 			destTy := tgt.resultVar.Type
 			valExpr := fl.lowerExprOwned(u.Value, destTy)
@@ -858,7 +1062,7 @@ func (fl *funcLowerer) lowerUnwindStmt(u *ast.UnwindStmt) {
 	fl.emit(&InstrGoto{Label: tgt.breakLabel})
 }
 
-func (fl *funcLowerer) storeLoopRunningResult(loopScope *mirScope, elemExpr Expr) {
+func (fl *funcLowerer) storeLoopRunningResult(loopScope *mirScope, elemExpr Expr, needsWrap bool) {
 	if loopScope.resultVar == nil || loopScope.hasValVar == nil {
 		return
 	}
@@ -876,7 +1080,7 @@ func (fl *funcLowerer) storeLoopRunningResult(loopScope *mirScope, elemExpr Expr
 			},
 		})
 	}
-	if loopScope.isForNoElse {
+	if needsWrap {
 		optRes := loopScope.resultVar.Type.(*types.Optional)
 		fl.assignLocal(loopScope.resultVar, fl.wrapInOptionalExpr(elemExpr, optRes))
 	} else {

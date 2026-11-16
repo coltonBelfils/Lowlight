@@ -10,22 +10,22 @@ define Tracker struct [
     events: [string],
 ]
 
-bind Tracker.new = (label: string): Tracker -> {
+bind Tracker.new = (label: string) Tracker: {
     Tracker[
         label: label.copy(),
         events: ["created:$label"],
     ]
 }
 
-bind Tracker.record = (&self, event: string) -> {
+bind Tracker.record = (&self, event: string): {
     self.events.push(event.copy())
 }
 
-bind Tracker.summary = (self): string -> {
+bind Tracker.summary = (self) string: {
     "${self.label}(${self.events.join(", ")})"
 }
 
-bind Tracker.drop = (&self) -> {
+bind Tracker.drop = (&self): {
     println("  [drop] closing Tracker '${self.label}' with ${self.events.len()} event(s)")
 }
 
@@ -38,7 +38,7 @@ define BSTNode struct [
     right?: ?BSTNode,
 ]
 
-bind BSTNode.leaf = (key: int, tag: string): BSTNode -> {
+bind BSTNode.leaf = (key: int, tag: string) BSTNode: {
     BSTNode[
         key: key,
         tag: tag.copy(),
@@ -47,51 +47,51 @@ bind BSTNode.leaf = (key: int, tag: string): BSTNode -> {
     ]
 }
 
-bind BSTNode.insert = (&self, key: int, tag: string) -> {
-    if (key < self.key) {
-        if (&self.left? as left_child) {
+bind BSTNode.insert = (&self, key: int, tag: string) void: {
+    if (key < self.key): {
+        if (&self.left? as left_child): {
             left_child.insert(key, tag)
-        } else {
+        } else: {
             self.left? = BSTNode.leaf(key, tag)
         }
-    } else if (key > self.key) {
-        if (&self.right? as right_child) {
+    } else if (key > self.key): {
+        if (&self.right? as right_child): {
             right_child.insert(key, tag)
-        } else {
+        } else: {
             self.right? = BSTNode.leaf(key, tag)
         }
-    } else {
+    } else: {
         self.tag = tag.copy()
     }
 }
 
-bind BSTNode.find = (self, key: int): ?string -> {
-    if (key == self.key) {
+bind BSTNode.find = (self, key: int) ?string: {
+    if (key == self.key): {
         func <- self.tag.copy()
     }
-    if (key < self.key) {
-        if (self.left? as l) {
+    if (key < self.key): {
+        if (self.left? as l): {
             func <- l.find(key)
         }
         func <- none
     }
-    if (self.right? as r) {
+    if (self.right? as r): {
         func <- r.find(key)
     }
     func <- none
 }
 
-bind consume_names = (names: own [string]): string -> {
+bind consume_names = (names: own [string]) string: {
     names.join(" -> ")
 }
 
-bind append_greeting = (buf: &string, who: string) -> {
+bind append_greeting = (buf: &string, who: string): {
     buf.push("Hello, ")
     buf.push(who)
     buf.push("!")
 }
 
-bind main = () -> {
+bind main = (): {
     // 1. Mutable borrow `&` vs read-only borrow
     let msg = ""
     append_greeting(&msg, "Lowlight")
