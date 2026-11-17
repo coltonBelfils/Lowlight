@@ -1,0 +1,72 @@
+<idea-plugin>
+    <id>dev.lowlight.intellij</id>
+    <name>Lowlight</name>
+    <vendor url="https://github.com/lowlight-lang/lowlight">Lowlight Lang</vendor>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="lowlight-native-lsp.xml">com.intellij.modules.lsp</depends>
+    <depends optional="true" config-file="lowlight-lsp4ij.xml">com.redhat.devtools.lsp4ij</depends>
+
+    <extensionPoints>
+        <extensionPoint
+            qualifiedName="dev.lowlight.intellij.lspBackendBridge"
+            interface="dev.lowlight.intellij.lsp.LowlightLspBackendBridge"
+            dynamic="true"/>
+    </extensionPoints>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType
+            name="Lowlight"
+            implementationClass="dev.lowlight.intellij.LowlightFileType"
+            fieldName="INSTANCE"
+            language="Lowlight"
+            extensions="ll"/>
+
+        <lang.parserDefinition
+            language="Lowlight"
+            implementationClass="dev.lowlight.intellij.syntax.LowlightParserDefinition"/>
+
+        <lang.syntaxHighlighterFactory
+            language="Lowlight"
+            implementationClass="dev.lowlight.intellij.syntax.LowlightSyntaxHighlighterFactory"/>
+        <colorSettingsPage
+            implementation="dev.lowlight.intellij.syntax.LowlightColorSettingsPage"/>
+
+        <lang.commenter
+            language="Lowlight"
+            implementationClass="dev.lowlight.intellij.editor.LowlightCommenter"/>
+        <lang.braceMatcher
+            language="Lowlight"
+            implementationClass="dev.lowlight.intellij.editor.LowlightBraceMatcher"/>
+        <quoteHandler
+            className="dev.lowlight.intellij.editor.LowlightQuoteHandler"/>
+        <langCodeStyleSettingsProvider
+            implementation="dev.lowlight.intellij.editor.LowlightCodeStyleSettingsProvider"/>
+
+        <projectConfigurable
+            parentId="language"
+            instance="dev.lowlight.intellij.settings.LowlightSettingsConfigurable"
+            id="dev.lowlight.intellij.settings"
+            displayName="Lowlight"/>
+
+        <postStartupActivity
+            implementation="dev.lowlight.intellij.settings.LowlightSettingsSyncActivity"/>
+
+        <notificationGroup
+            id="Lowlight"
+            displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <group id="Lowlight.EditorGroup" text="Lowlight" description="Lowlight compiler and LSP actions" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <action id="Lowlight.RunFile" class="dev.lowlight.intellij.actions.LowlightRunFileAction"/>
+            <action id="Lowlight.RunFileTests" class="dev.lowlight.intellij.actions.LowlightRunFileTestsAction"/>
+            <action id="Lowlight.RunAllTests" class="dev.lowlight.intellij.actions.LowlightRunAllTestsAction"/>
+            <separator/>
+            <action id="Lowlight.FormatFile" class="dev.lowlight.intellij.actions.LowlightFormatFileAction"/>
+            <action id="Lowlight.RestartLsp" class="dev.lowlight.intellij.actions.LowlightRestartLspAction"/>
+        </group>
+    </actions>
+</idea-plugin>

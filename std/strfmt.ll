@@ -1,429 +1,368 @@
-// Lowlight Standard Library: std/strfmt.ll
-// String formatting, alignment, padding, case conversions, and tabular layout.
-// Implemented 100% in pure native Lowlight.
+// std/strfmt — Number/currency/byte formatting, string padding, truncation, and case conversions.
+//
+// Implemented in pure Lowlight for human-readable numbers, aligned tables, and identifier normalization.
 
 // -----------------------------------------------------------------------------
 // Number & Data Formatting Methods on Primitive Types (float & int)
 // -----------------------------------------------------------------------------
 
-bind float.format_float = (self, precision: int) string: {
-    if (precision < 0): {
-        "$self"
-    } else: {
-        format_float_prec(self, precision)
-    }
-}
+// Formats this [`float`] with `precision` decimal digits (or general format when `precision < 0`).
+bind float.format_float = (self, precision: int) string:
+	if(precision < 0): "$self" else: format_float_prec(self, precision)
 
-bind float.format = (self, precision: int) string: {
-    self.format_float(precision)
-}
+// Shorthand alias for [`float.format_float`].
+bind float.format = (self, precision: int) string: self.format_float(precision)
 
-bind int.format_int = (self) string: {
-    "$self"
-}
+// Formats this [`int`] as a base-10 decimal string.
+bind int.format_int = (self) string: "$self"
 
+// Formats this [`int`] with ASCII comma thousands separators (e.g. `"1,234,567"`).
 bind int.format_commas = (self) string: {
-    if (self == -9223372036854775807 - 1): {
-        func <- "-9,223,372,036,854,775,808"
-    }
-    let is_neg = self < 0
-    let abs_val = if (is_neg): -self else: self
-    let s = "$abs_val"
-    let n = s.len()
-    if (n <= 3): {
-        if (is_neg): "-$s" else: s
-    } else: {
-        let out = if (is_neg): "-" else: ""
-        let rem = n % 3
-        if (rem > 0): {
-            out.push(s[0..rem])
-            if (rem < n): out.push(",")
-        }
-        let i = rem
-        for (i < n): {
-            out.push(s[i..(i + 3)])
-            i += 3
-            if (i < n): out.push(",")
-        }
-        out
-    }
+	if(self == -9223372036854775807 - 1): func <- "-9,223,372,036,854,775,808"
+	let is_neg = self < 0
+	let abs_val = if(is_neg): -self else: self
+	let s = "$abs_val"
+	let n = s.len()
+	if(n <= 3):
+		if(is_neg): "-$s" else: s
+	else: {
+		let out = if(is_neg): "-" else: ""
+		let rem = n % 3
+		if(rem > 0): {
+			out.push(s[0..rem])
+			if(rem < n): out.push(",")
+		}
+		let i = rem
+		for(i < n): {
+			out.push(s[i..i + 3])
+			i += 3
+			if(i < n): out.push(",")
+		}
+		out
+	}
 }
 
-bind int.format_int_commas = (self) string: {
-    self.format_commas()
-}
+// Alias for [`int.format_commas`].
+bind int.format_int_commas = (self) string: self.format_commas()
 
+// Formats this [`float`] with `precision` fractional digits and comma thousands separators.
 bind float.format_commas = (self, precision: int) string: {
-    let s = self.format_float(precision)
-    let dot_pos? = s.index_of(".")
-    if (dot_pos? as dot): {
-        let int_part = s[0..dot]
-        let frac_part = s[dot..s.len()]
-        let is_neg = int_part.starts_with("-")
-        let digits = if (is_neg): int_part[1..int_part.len()] else: int_part
-        let n = digits.len()
-        let out = if (is_neg): "-" else: ""
-        let rem = n % 3
-        if (rem > 0): {
-            out.push(digits[0..rem])
-            if (rem < n): out.push(",")
-        }
-        let i = rem
-        for (i < n): {
-            out.push(digits[i..(i + 3)])
-            i += 3
-            if (i < n): out.push(",")
-        }
-        out.push(frac_part)
-        out
-    } else: {
-        let is_neg = s.starts_with("-")
-        let digits = if (is_neg): s[1..s.len()] else: s
-        let n = digits.len()
-        let out = if (is_neg): "-" else: ""
-        let rem = n % 3
-        if (rem > 0): {
-            out.push(digits[0..rem])
-            if (rem < n): out.push(",")
-        }
-        let i = rem
-        for (i < n): {
-            out.push(digits[i..(i + 3)])
-            i += 3
-            if (i < n): out.push(",")
-        }
-        out
-    }
+	let s = self.format_float(precision)
+	let dot_pos? = s.index_of(".")
+	if(dot_pos? as dot): {
+		let int_part = s[0..dot]
+		let frac_part = s[dot..s.len()]
+		let is_neg = int_part.starts_with("-")
+		let digits = if(is_neg): int_part[1..int_part.len()] else: int_part
+		let n = digits.len()
+		let out = if(is_neg): "-" else: ""
+		let rem = n % 3
+		if(rem > 0): {
+			out.push(digits[0..rem])
+			if(rem < n): out.push(",")
+		}
+		let i = rem
+		for(i < n): {
+			out.push(digits[i..i + 3])
+			i += 3
+			if(i < n): out.push(",")
+		}
+		out.push(frac_part)
+		out
+	} else: {
+		let is_neg = s.starts_with("-")
+		let digits = if(is_neg): s[1..s.len()] else: s
+		let n = digits.len()
+		let out = if(is_neg): "-" else: ""
+		let rem = n % 3
+		if(rem > 0): {
+			out.push(digits[0..rem])
+			if(rem < n): out.push(",")
+		}
+		let i = rem
+		for(i < n): {
+			out.push(digits[i..i + 3])
+			i += 3
+			if(i < n): out.push(",")
+		}
+		out
+	}
 }
 
-bind float.format_float_commas = (self, precision: int) string: {
-    self.format_commas(precision)
-}
+// Alias for [`float.format_commas`].
+bind float.format_float_commas = (self, precision: int) string: self.format_commas(precision)
 
-bind int.format_bytes = (self) string: {
-    if (self < 1024): {
-        "${self} B"
-    } else if (self < 1048576): {
-        let kb = float(self) / 1024.0
-        "${kb.format_float(2)} KB"
-    } else if (self < 1073741824): {
-        let mb = float(self) / 1048576.0
-        "${mb.format_float(2)} MB"
-    } else: {
-        let gb = float(self) / 1073741824.0
-        "${gb.format_float(2)} GB"
-    }
-}
+// Formats this byte size in human-readable units (`B`, `KB`, `MB`, or `GB`).
+bind int.format_bytes = (self) string:
+	if(self < 1024): "$self B"
+	else if(self < 1048576): {
+		let kb = float(self) / 1024.0
+		"${kb.format_float(2)} KB"
+	} else if(self < 1073741824): {
+		let mb = float(self) / 1048576.0
+		"${mb.format_float(2)} MB"
+	} else: {
+		let gb = float(self) / 1073741824.0
+		"${gb.format_float(2)} GB"
+	}
 
+// Scales this fraction (`0.25` -> `"25%"`) and formats it as a percentage with `precision` decimals.
 bind float.format_percent = (self, precision: int) string: {
-    let pct = self * 100.0
-    "${pct.format_float(precision)}%"
+	let pct = self * 100.0
+	"${pct.format_float(precision)}%"
 }
 
+// Formats this numeric amount prefixed with `symbol` and comma-grouped to `precision` decimal places.
 bind float.format_currency = (self, symbol: string, precision: int) string: {
-    let formatted = self.format_commas(precision)
-    "$symbol$formatted"
+	let formatted = self.format_commas(precision)
+	"$symbol$formatted"
 }
 
-// Standalone function wrappers for backwards-compatibility
-bind format_float = (v: float, precision: int) string: {
-    v.format_float(precision)
-}
+// Function form of [`float.format_float`].
+bind format_float = (v: float, precision: int) string: v.format_float(precision)
 
-bind format_int = (v: int) string: {
-    v.format_int()
-}
+// Function form of [`int.format_int`].
+bind format_int = (v: int) string: v.format_int()
 
-bind format_int_commas = (v: int) string: {
-    v.format_commas()
-}
+// Function form of [`int.format_commas`].
+bind format_int_commas = (v: int) string: v.format_commas()
 
-bind format_float_commas = (v: float, precision: int) string: {
-    v.format_commas(precision)
-}
+// Function form of [`float.format_commas`].
+bind format_float_commas = (v: float, precision: int) string: v.format_commas(precision)
 
-bind format_bytes = (bytes: int) string: {
-    bytes.format_bytes()
-}
+// Function form of [`int.format_bytes`].
+bind format_bytes = (bytes: int) string: bytes.format_bytes()
 
-bind format_percent = (v: float, precision: int) string: {
-    v.format_percent(precision)
-}
+// Function form of [`float.format_percent`].
+bind format_percent = (v: float, precision: int) string: v.format_percent(precision)
 
-bind format_currency = (amount: float, symbol: string, precision: int) string: {
-    amount.format_currency(symbol, precision)
-}
+// Function form of [`float.format_currency`].
+bind format_currency = (amount: float, symbol: string, precision: int) string:
+	amount.format_currency(symbol, precision)
 
 // -----------------------------------------------------------------------------
 // Integer Padding Functions & Methods
 // -----------------------------------------------------------------------------
 
+// Formats signed integer `val` left-padded with `'0'` to at least `width` characters.
 bind pad_int_zeros = (val: int, width: int) string: {
-    let s = "$val"
-    let diff = width - s.len()
-    if (diff <= 0): func <- s
-    let out = ""
-    for (i in 0..diff): {
-        out.push("0")
-    }
-    out.push(s)
-    out
+	let s = "$val"
+	let diff = width - s.len()
+	if(diff <= 0): func <- s
+	let out = ""
+	for(i in 0..diff): out.push("0")
+	out.push(s)
+	out
 }
 
+// Formats signed integer `val` left-padded with spaces to at least `width` characters.
 bind pad_int_spaces = (val: int, width: int) string: {
-    let s = "$val"
-    let diff = width - s.len()
-    if (diff <= 0): func <- s
-    let out = ""
-    for (i in 0..diff): {
-        out.push(" ")
-    }
-    out.push(s)
-    out
+	let s = "$val"
+	let diff = width - s.len()
+	if(diff <= 0): func <- s
+	let out = ""
+	for(i in 0..diff): out.push(" ")
+	out.push(s)
+	out
 }
 
-bind int.pad_zeros = (self, width: int) string: {
-    pad_int_zeros(self, width)
-}
+// Method form of [`pad_int_zeros`].
+bind int.pad_zeros = (self, width: int) string: pad_int_zeros(self, width)
 
-bind int.pad_spaces = (self, width: int) string: {
-    pad_int_spaces(self, width)
-}
+// Method form of [`pad_int_spaces`].
+bind int.pad_spaces = (self, width: int) string: pad_int_spaces(self, width)
 
 // -----------------------------------------------------------------------------
 // String Extension Methods (Uniform Method Call Syntax)
 // -----------------------------------------------------------------------------
 
+// Left-pads the string to at least `width` bytes using the first byte of `fill` (or space if empty).
 bind string.pad_left_fill = (self, width: int, fill: string) string: {
-    let diff = width - self.len()
-    if (diff <= 0): func <- self.copy()
-    let fill_char = if (fill.len() > 0): fill[0..1] else: " "
-    let out = ""
-    for (i in 0..diff): {
-        out.push(fill_char)
-    }
-    out.push(self)
-    out
+	let diff = width - self.len()
+	if(diff <= 0): func <- self.copy()
+	let fill_char = if(fill.len() > 0): fill[0..1] else: " "
+	let out = ""
+	for(i in 0..diff): out.push(fill_char)
+	out.push(self)
+	out
 }
 
-bind string.pad_left = (self, width: int) string: {
-    self.pad_left_fill(width, " ")
-}
+// Left-pads the string with spaces to at least `width` bytes.
+bind string.pad_left = (self, width: int) string: self.pad_left_fill(width, " ")
 
+// Right-pads the string to at least `width` bytes using the first byte of `fill` (or space if empty).
 bind string.pad_right_fill = (self, width: int, fill: string) string: {
-    let diff = width - self.len()
-    if (diff <= 0): func <- self.copy()
-    let fill_char = if (fill.len() > 0): fill[0..1] else: " "
-    let out = self.copy()
-    for (i in 0..diff): {
-        out.push(fill_char)
-    }
-    out
+	let diff = width - self.len()
+	if(diff <= 0): func <- self.copy()
+	let fill_char = if(fill.len() > 0): fill[0..1] else: " "
+	let out = self.copy()
+	for(i in 0..diff): out.push(fill_char)
+	out
 }
 
-bind string.pad_right = (self, width: int) string: {
-    self.pad_right_fill(width, " ")
-}
+// Right-pads the string with spaces to at least `width` bytes.
+bind string.pad_right = (self, width: int) string: self.pad_right_fill(width, " ")
 
+// Centers the string within `width` bytes using the first byte of `fill` (or space if empty).
 bind string.center_fill = (self, width: int, fill: string) string: {
-    let diff = width - self.len()
-    if (diff <= 0): func <- self.copy()
-    let left_pad = diff / 2
-    let right_pad = diff - left_pad
-    let fill_char = if (fill.len() > 0): fill[0..1] else: " "
-    let out = ""
-    for (i in 0..left_pad): {
-        out.push(fill_char)
-    }
-    out.push(self)
-    for (i in 0..right_pad): {
-        out.push(fill_char)
-    }
-    out
+	let diff = width - self.len()
+	if(diff <= 0): func <- self.copy()
+	let left_pad = diff / 2
+	let right_pad = diff - left_pad
+	let fill_char = if(fill.len() > 0): fill[0..1] else: " "
+	let out = ""
+	for(i in 0..left_pad): out.push(fill_char)
+	out.push(self)
+	for(i in 0..right_pad): out.push(fill_char)
+	out
 }
 
-bind string.center = (self, width: int) string: {
-    self.center_fill(width, " ")
-}
+// Centers the string with spaces within `width` bytes.
+bind string.center = (self, width: int) string: self.center_fill(width, " ")
 
-bind string.truncate_with = (self, max_len: int, ellipsis: string) string: {
-    if (self.len() <= max_len): {
-        self.copy()
-    } else if (max_len <= ellipsis.len()): {
-        self[0..max_len]
-    } else: {
-        let keep = max_len - ellipsis.len()
-        let out = self[0..keep]
-        out.push(ellipsis)
-        out
-    }
-}
+// Truncates the string to `max_len` bytes, appending `ellipsis` when shortened.
+bind string.truncate_with = (self, max_len: int, ellipsis: string) string:
+	if(self.len() <= max_len): self.copy()
+	else if(max_len <= ellipsis.len()): self[0..max_len]
+	else: {
+		let keep = max_len - ellipsis.len()
+		let out = self[0..keep]
+		out.push(ellipsis)
+		out
+	}
 
-bind string.truncate = (self, max_len: int) string: {
-    self.truncate_with(max_len, "...")
-}
+// Truncates the string to `max_len` bytes using `"..."` as the ellipsis.
+bind string.truncate = (self, max_len: int) string: self.truncate_with(max_len, "...")
 
+// Converts words delimited by whitespace, `'_'`, or `'-'` to Title Case.
 bind string.to_title = (self) string: {
-    let out = ""
-    let capitalize_next = true
-    for (ch in self): {
-        if (ch == ' ' or ch == '\t' or ch == '\n' or ch == '_' or ch == '-'): {
-            capitalize_next = true
-            out.push_char(ch)
-        } else if (capitalize_next): {
-            capitalize_next = false
-            let c = if (ch >= 'a' and ch <= 'z'): char(int(ch) - 32) else: ch
-            out.push_char(c)
-        } else: {
-            let c = if (ch >= 'A' and ch <= 'Z'): char(int(ch) + 32) else: ch
-            out.push_char(c)
-        }
-    }
-    out
+	let out = ""
+	let capitalize_next = true
+	for(ch in self):
+		if(ch == ' ' or ch == '\t' or ch == '\n' or ch == '_' or ch == '-'): {
+			capitalize_next = true
+			out.push_char(ch)
+		} else if(capitalize_next): {
+			capitalize_next = false
+			let c = if(ch >= 'a' and ch <= 'z'): char(int(ch) - 32) else: ch
+			out.push_char(c)
+		} else: {
+			let c = if(ch >= 'A' and ch <= 'Z'): char(int(ch) + 32) else: ch
+			out.push_char(c)
+		}
+	out
 }
 
+// Converts camelCase, spaces, or hyphens into `snake_case`.
 bind string.to_snake_case = (self) string: {
-    let out = ""
-    let prev_was_sep = true
-    for (i, ch in self): {
-        if (ch == ' ' or ch == '-' or ch == '_'): {
-            if (not prev_was_sep and out.len() > 0): {
-                out.push("_")
-            }
-            prev_was_sep = true
-        } else if (ch >= 'A' and ch <= 'Z'): {
-            if (not prev_was_sep and out.len() > 0): {
-                out.push("_")
-            }
-            out.push_char(char(int(ch) + 32))
-            prev_was_sep = false
-        } else: {
-            out.push_char(ch)
-            prev_was_sep = false
-        }
-    }
-    out
+	let out = ""
+	let prev_was_sep = true
+	for(i, ch in self):
+		if(ch == ' ' or ch == '-' or ch == '_'): {
+			if(not prev_was_sep and out.len() > 0): out.push("_")
+			prev_was_sep = true
+		} else if(ch >= 'A' and ch <= 'Z'): {
+			if(not prev_was_sep and out.len() > 0): out.push("_")
+			out.push_char(char(int(ch) + 32))
+			prev_was_sep = false
+		} else: {
+			out.push_char(ch)
+			prev_was_sep = false
+		}
+	out
 }
 
+// Converts camelCase, spaces, or underscores into `kebab-case`.
 bind string.to_kebab_case = (self) string: {
-    let s = self.to_snake_case()
-    s.replace_all("_", "-")
+	let s = self.to_snake_case()
+	s.replace_all("_", "-")
 }
 
+// Converts snake_case, kebab-case, or spaced words into `camelCase`.
 bind string.to_camel_case = (self) string: {
-    let out = ""
-    let upper_next = false
-    let is_first = true
-    for (ch in self): {
-        if (ch == ' ' or ch == '_' or ch == '-'): {
-            upper_next = true
-        } else if (is_first): {
-            is_first = false
-            upper_next = false
-            let c = if (ch >= 'A' and ch <= 'Z'): char(int(ch) + 32) else: ch
-            out.push_char(c)
-        } else if (upper_next): {
-            upper_next = false
-            let c = if (ch >= 'a' and ch <= 'z'): char(int(ch) - 32) else: ch
-            out.push_char(c)
-        } else: {
-            out.push_char(ch)
-        }
-    }
-    out
+	let out = ""
+	let upper_next = false
+	let is_first = true
+	for(ch in self):
+		if(ch == ' ' or ch == '_' or ch == '-'): upper_next = true
+		else if(is_first): {
+			is_first = false
+			upper_next = false
+			let c = if(ch >= 'A' and ch <= 'Z'): char(int(ch) + 32) else: ch
+			out.push_char(c)
+		} else if(upper_next): {
+			upper_next = false
+			let c = if(ch >= 'a' and ch <= 'z'): char(int(ch) - 32) else: ch
+			out.push_char(c)
+		} else: out.push_char(ch)
+	out
 }
 
+// Wraps the string in double quotes and escapes `\"`, `\\`, `\n`, `\t`, and `\r`.
 bind string.quote = (self) string: {
-    let out = "\""
-    for (ch in self): {
-        if (ch == '"'): {
-            out.push("\\\"")
-        } else if (ch == '\\'): {
-            out.push("\\\\")
-        } else if (ch == '\n'): {
-            out.push("\\n")
-        } else if (ch == '\t'): {
-            out.push("\\t")
-        } else if (ch == '\r'): {
-            out.push("\\r")
-        } else: {
-            out.push_char(ch)
-        }
-    }
-    out.push("\"")
-    out
+	let out = "\""
+	for(ch in self):
+		if(ch == '"'): out.push("\\\"")
+		else if(ch == '\\'): out.push("\\\\")
+		else if(ch == '\n'): out.push("\\n")
+		else if(ch == '\t'): out.push("\\t")
+		else if(ch == '\r'): out.push("\\r")
+		else: out.push_char(ch)
+	out.push("\"")
+	out
 }
 
+// Unquotes a trimmed double-quoted string and decodes escape sequences, returning `none` if not quoted.
 bind string.unquote = (self) ?string: {
-    let trimmed = self.trim()
-    if (trimmed.len() < 2): func <- none
-    let first = trimmed[0..1]
-    let last = trimmed[(trimmed.len() - 1)..trimmed.len()]
-    if (first != "\"" or last != "\""): func <- none
-    let inner = trimmed[1..(trimmed.len() - 1)]
-    let out = ""
-    let escape = false
-    for (ch in inner): {
-        if (escape): {
-            escape = false
-            if (ch == 'n'): {
-                out.push("\n")
-            } else if (ch == 't'): {
-                out.push("\t")
-            } else if (ch == 'r'): {
-                out.push("\r")
-            } else if (ch == '"'): {
-                out.push("\"")
-            } else if (ch == '\\'): {
-                out.push("\\")
-            } else: {
-                out.push_char(ch)
-            }
-        } else if (ch == '\\'): {
-            escape = true
-        } else: {
-            out.push_char(ch)
-        }
-    }
-    out
+	let trimmed = self.trim()
+	if(trimmed.len() < 2): func <- none
+	let first = trimmed[0..1]
+	let last = trimmed[trimmed.len() - 1..trimmed.len()]
+	if(first != "\"" or last != "\""): func <- none
+	let inner = trimmed[1..trimmed.len() - 1]
+	let out = ""
+	let escape = false
+	for(ch in inner):
+		if(escape): {
+			escape = false
+			if(ch == 'n'): out.push("\n")
+			else if(ch == 't'): out.push("\t")
+			else if(ch == 'r'): out.push("\r")
+			else if(ch == '"'): out.push("\"")
+			else if(ch == '\\'): out.push("\\")
+			else: out.push_char(ch)
+		} else if(ch == '\\'): escape = true
+		else: out.push_char(ch)
+	out
 }
 
+// Prefixes every non-empty line in the string with `spaces` ASCII spaces.
 bind string.indent = (self, spaces: int) string: {
-    if (spaces <= 0): func <- self.copy()
-    let prefix = ""
-    for (i in 0..spaces): {
-        prefix.push(" ")
-    }
-    let lines = self.split("\n")
-    let out_lines: [string] = []
-    for (line in lines): {
-        if (line.len() > 0): {
-            out_lines.push("$prefix$line")
-        } else: {
-            out_lines.push("")
-        }
-    }
-    out_lines.join("\n")
+	if(spaces <= 0): func <- self.copy()
+	let prefix = ""
+	for(i in 0..spaces): prefix.push(" ")
+	let lines = self.split("\n")
+	let out_lines: [string] = []
+	for(line in lines):
+		if(line.len() > 0): out_lines.push("$prefix$line") else: out_lines.push("")
+	out_lines.join("\n")
 }
 
+// Counts non-overlapping occurrences of `sub` in the string (`0` if `sub` is empty).
 bind string.count_occurrences = (self, sub: string) int: {
-    if (sub.len() == 0 or self.len() < sub.len()): func <- 0
-    let count = 0
-    let cur = self.copy()
-    for (true): {
-        let idx? = cur.index_of(sub)
-        if (idx? as i): {
-            count += 1
-            let next_start = i + sub.len()
-            if (next_start >= cur.len()): {
-                for <- count
-            }
-            cur = cur[next_start..cur.len()]
-        } else: {
-            for <- count
-        }
-    }
-    count
+	if(sub.len() == 0 or self.len() < sub.len()): func <- 0
+	let count = 0
+	let cur = self.copy()
+	for(true): {
+		let idx? = cur.index_of(sub)
+		if(idx? as i): {
+			count += 1
+			let next_start = i + sub.len()
+			if(next_start >= cur.len()): for <- count
+			cur = cur[next_start..cur.len()]
+		} else: for <- count
+	}
+	count
 }
 
 // -----------------------------------------------------------------------------
@@ -432,47 +371,46 @@ bind string.count_occurrences = (self, sub: string) int: {
 
 @test("strfmt numeric formatting: commas, bytes, percent, currency")
 bind test_strfmt_numeric_formatting = (): {
-    assert(1000000.format_commas() == "1,000,000", "1,000,000 commas")
-    assert((-1234567).format_commas() == "-1,234,567", "negative commas")
-    assert(123.format_commas() == "123", "short number commas")
+	assert(1000000.format_commas() == "1,000,000", "1,000,000 commas")
+	assert((-1234567).format_commas() == "-1,234,567", "negative commas")
+	assert(123.format_commas() == "123", "short number commas")
 
-    assert(500.format_bytes() == "500 B", "format bytes B")
-    assert(1048576.format_bytes() == "1.00 MB", "format bytes MB")
+	assert(500.format_bytes() == "500 B", "format bytes B")
+	assert(1048576.format_bytes() == "1.00 MB", "format bytes MB")
 
-    assert((0.125).format_percent(1) == "12.5%", "format percent")
-    assert((49.99).format_currency("\$", 2) == "\$49.99", "format currency")
+	assert(0.125.format_percent(1) == "12.5%", "format percent")
+	assert(49.99.format_currency("\$", 2) == "\$49.99", "format currency")
 }
 
 @test("strfmt padding, alignment, and truncation")
 bind test_strfmt_padding_and_truncation = (): {
-    assert(pad_int_zeros(42, 5) == "00042", "pad_int_zeros")
-    assert(pad_int_spaces(42, 5) == "   42", "pad_int_spaces")
+	assert(pad_int_zeros(42, 5) == "00042", "pad_int_zeros")
+	assert(pad_int_spaces(42, 5) == "   42", "pad_int_spaces")
 
-    assert("hello".pad_left(8) == "   hello", "pad_left")
-    assert("hello".pad_right(8) == "hello   ", "pad_right")
-    assert("hello".center(9) == "  hello  ", "center")
+	assert("hello".pad_left(8) == "   hello", "pad_left")
+	assert("hello".pad_right(8) == "hello   ", "pad_right")
+	assert("hello".center(9) == "  hello  ", "center")
 
-    assert("very long string here".truncate(10) == "very lo...", "truncate long")
-    assert("short".truncate(10) == "short", "truncate short")
+	assert("very long string here".truncate(10) == "very lo...", "truncate long")
+	assert("short".truncate(10) == "short", "truncate short")
 }
 
 @test("strfmt case conversions: title, snake, kebab, camel")
 bind test_strfmt_casing_and_transforms = (): {
-    assert("hello world".to_title() == "Hello World", "to_title")
-    assert("helloWorld".to_snake_case() == "hello_world", "to_snake_case")
-    assert("helloWorld".to_kebab_case() == "hello-world", "to_kebab_case")
-    assert("hello_world".to_camel_case() == "helloWorld", "to_camel_case")
+	assert("hello world".to_title() == "Hello World", "to_title")
+	assert("helloWorld".to_snake_case() == "hello_world", "to_snake_case")
+	assert("helloWorld".to_kebab_case() == "hello-world", "to_kebab_case")
+	assert("hello_world".to_camel_case() == "helloWorld", "to_camel_case")
 }
 
 @test("strfmt quote, unquote, and indentation")
 bind test_strfmt_quote_and_indent = (): {
-    let quoted = "hello\nworld".quote()
-    assert(quoted == "\"hello\\nworld\"", "quote")
+	let quoted = "hello\nworld".quote()
+	assert(quoted == "\"hello\\nworld\"", "quote")
 
-    let unquoted? = quoted.unquote()
-    assert(unquoted? == "hello\nworld", "unquote")
+	let unquoted? = quoted.unquote()
+	assert(unquoted? == "hello\nworld", "unquote")
 
-    let indented = "line1\nline2".indent(2)
-    assert(indented == "  line1\n  line2", "indent")
+	let indented = "line1\nline2".indent(2)
+	assert(indented == "  line1\n  line2", "indent")
 }
-

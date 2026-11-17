@@ -29,7 +29,14 @@
       "patterns": [
         {
           "name": "comment.line.double-slash.lowlight",
-          "match": "//.*$"
+          "begin": "//",
+          "end": "$",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.lowlight" }
+          },
+          "patterns": [
+            { "include": "#comment-doc" }
+          ]
         },
         {
           "name": "comment.block.lowlight",
@@ -37,7 +44,30 @@
           "end": "\\*/",
           "captures": {
             "0": { "name": "punctuation.definition.comment.lowlight" }
-          }
+          },
+          "patterns": [
+            { "include": "#comment-doc" }
+          ]
+        }
+      ]
+    },
+    "comment-doc": {
+      "patterns": [
+        {
+          "name": "markup.heading.lowlight",
+          "match": "^\\s*#\\s+(Arguments|Returns|Errors|Panics|Examples|Safety|Complexity|Notes?)\\b.*$"
+        },
+        {
+          "name": "markup.underline.link.lowlight",
+          "match": "\\[`[^`]+`\\]"
+        },
+        {
+          "name": "markup.inline.raw.string.lowlight",
+          "match": "`[^`]+`"
+        },
+        {
+          "name": "keyword.codetag.notation.lowlight",
+          "match": "\\b(TODO|FIXME|XXX|NOTE|WARNING)\\b"
         }
       ]
     },
@@ -187,7 +217,7 @@
         },
         {
           "name": "keyword.declaration.lowlight",
-          "match": "\\b(let|bind|define|struct|enum|interface|import|extern)(?!\\?)\\b"
+          "match": "\\b(let|bind|define|distinct|struct|enum|interface|import|extern)(?!\\?)\\b"
         },
         {
           "name": "storage.modifier.ownership.lowlight",
@@ -211,7 +241,7 @@
       "patterns": [
         {
           "name": "storage.type.primitive.lowlight",
-          "match": "\\b(int|i8|i16|i32|i64|u8|u16|u32|u64|float|f32|f64|bool|char|string|Arena|ptr|ref)(?!\\?)\\b"
+          "match": "\\b(int|i8|i16|i32|i64|u8|u16|u32|u64|float|f32|f64|bool|char|string|void|never|Arena|ptr|ref)(?!\\?)\\b"
         },
         {
           "name": "entity.name.type.interface.lowlight",

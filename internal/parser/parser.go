@@ -24,14 +24,23 @@ type Parser struct {
 
 // ParseFile lexes and parses a Lowlight source string into an AST.
 func ParseFile(filename, src string, rep *diag.Reporter) *ast.File {
+	f, _ := ParseFileWithComments(filename, src, rep)
+	return f
+}
+
+// ParseFileWithComments lexes and parses a Lowlight source string into an AST
+// while returning all non-doc and doc comments preserved by the lexer.
+func ParseFileWithComments(filename, src string, rep *diag.Reporter) (*ast.File, []lexer.Comment) {
 	rep.AddSource(filename, src)
-	toks := lexer.Lex(filename, src, rep)
+	toks, comments := lexer.LexWithComments(filename, src, rep)
 	p := &Parser{
 		file: filename,
 		toks: toks,
 		rep:  rep,
 	}
-	return p.parseFile()
+	f := p.parseFile()
+	attachDocComments(f, comments)
+	return f, comments
 }
 
 func (p *Parser) cur() token.Token {

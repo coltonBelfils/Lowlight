@@ -141,8 +141,6 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 			} else if sym, ok := target.(*Symbol); ok {
 				sym.TrackCaller = true
 			}
-		case "doc":
-			// documentation string attribute, valid on all declarations
 		case "lang":
 			// handled specially on interfaces and top-level func/symbols
 		default:
@@ -376,6 +374,7 @@ func (a *Analyzer) collectTopLevelIntConsts(mod *Module) {
 				IsTopLevel:  true,
 				IsConstInt:  true,
 				ConstIntVal: val,
+				Doc:         vd.Doc,
 				Span:        vd.Span,
 			}
 		}
@@ -533,6 +532,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				CName:  cname,
 				PkgDir: mod.Dir,
 				Packed: td.Packed || ast.FindAttribute(td.Attributes, "packed") != nil,
+				Doc:    td.Doc,
 			}
 			a.checkAttributes(td.Attributes, st, td.Span, "struct")
 			mod.Types[td.Name] = st
@@ -576,6 +576,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				Name:       td.Name,
 				CName:      cname,
 				PkgDir:     mod.Dir,
+				Doc:        td.Doc,
 				IsTagged:   isTagged,
 				Underlying: types.TypeInt,
 			}
@@ -631,6 +632,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 					continue
 				}
 				a.Prog.IfacePrintable.Name = td.Name
+				a.Prog.IfacePrintable.Doc = td.Doc
 				a.Prog.TypeSpans[a.Prog.IfacePrintable] = td.Span
 				mod.Types[td.Name] = a.Prog.IfacePrintable
 				continue
@@ -642,6 +644,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 					continue
 				}
 				a.Prog.IfaceCopyable.Name = td.Name
+				a.Prog.IfaceCopyable.Doc = td.Doc
 				a.Prog.TypeSpans[a.Prog.IfaceCopyable] = td.Span
 				mod.Types[td.Name] = a.Prog.IfaceCopyable
 				continue
@@ -653,6 +656,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 					continue
 				}
 				a.Prog.IfaceDrop.Name = td.Name
+				a.Prog.IfaceDrop.Doc = td.Doc
 				a.Prog.TypeSpans[a.Prog.IfaceDrop] = td.Span
 				mod.Types[td.Name] = a.Prog.IfaceDrop
 				continue
@@ -669,6 +673,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				} else {
 					a.Prog.IfaceHashable.Name = td.Name
 				}
+				a.Prog.IfaceHashable.Doc = td.Doc
 				a.Prog.TypeSpans[a.Prog.IfaceHashable] = td.Span
 				mod.Types[td.Name] = a.Prog.IfaceHashable
 				continue
@@ -680,6 +685,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 					continue
 				}
 				a.Prog.IfaceEquatable.Name = td.Name
+				a.Prog.IfaceEquatable.Doc = td.Doc
 				a.Prog.TypeSpans[a.Prog.IfaceEquatable] = td.Span
 				mod.Types[td.Name] = a.Prog.IfaceEquatable
 				continue
@@ -691,6 +697,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 					continue
 				}
 				a.Prog.IfaceComparable.Name = td.Name
+				a.Prog.IfaceComparable.Doc = td.Doc
 				a.Prog.TypeSpans[a.Prog.IfaceComparable] = td.Span
 				mod.Types[td.Name] = a.Prog.IfaceComparable
 				continue
@@ -712,6 +719,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				Name:   td.Name,
 				CName:  cname,
 				PkgDir: mod.Dir,
+				Doc:    td.Doc,
 			}
 			if langItem == "collectable" || td.Name == "Collectable" {
 				a.Prog.IfaceCollectable = ifc
@@ -743,6 +751,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				Name:   td.Name,
 				CName:  cname,
 				PkgDir: mod.Dir,
+				Doc:    td.Doc,
 				Base:   types.TypeInvalid,
 			}
 			a.checkAttributes(td.Attributes, dt, td.Span, "distinct type")
@@ -909,6 +918,7 @@ func (a *Analyzer) resolveDistinctsAndEnums(mod *Module) {
 					CName: "v_" + types.SanitizeCIdent(v.Name),
 					Value: nextVal,
 					Kind:  types.VariantUnit,
+					Doc:   v.Doc,
 				})
 				nextVal++
 			}
@@ -923,6 +933,15 @@ func (a *Analyzer) resolveInterfaces(mod *Module) {
 			continue
 		}
 		if td.Name == "Printable" || td.Name == "Copyable" || td.Name == "Drop" {
+			if ifc, ok := mod.Types[td.Name].(*types.Interface); ok {
+				for _, m := range td.Methods {
+					for idx := range ifc.Methods {
+						if ifc.Methods[idx].Name == m.Name {
+							ifc.Methods[idx].Doc = m.Doc
+						}
+					}
+				}
+			}
 			continue
 		}
 		ifc, ok := mod.Types[td.Name].(*types.Interface)
@@ -936,6 +955,18 @@ func (a *Analyzer) resolveInterfaces(mod *Module) {
 				continue
 			}
 			seen[m.Name] = true
+			// Built-in pre-populated interfaces (Equatable, Comparable, Hashable) already have methods registered; update Docs instead of duplicating.
+			updatedExisting := false
+			for idx := range ifc.Methods {
+				if ifc.Methods[idx].Name == m.Name {
+					ifc.Methods[idx].Doc = m.Doc
+					updatedExisting = true
+					break
+				}
+			}
+			if updatedExisting {
+				continue
+			}
 			var fparams []types.FuncParam
 			for _, p := range m.Params {
 				pmode, pty := a.resolveParamType(mod, p.Type, nil, true)
@@ -961,6 +992,7 @@ func (a *Analyzer) resolveInterfaces(mod *Module) {
 				RecvMode: recvModeToParamMode(m.RecvMode),
 				Params:   fparams,
 				Ret:      ret,
+				Doc:      m.Doc,
 			})
 		}
 	}
@@ -1018,6 +1050,7 @@ func (a *Analyzer) populateEnumVariants(mod *Module, en *types.Enum, td *ast.Enu
 				CName: vcname,
 				Value: tagVal,
 				Kind:  types.VariantUnit,
+				Doc:   v.Doc,
 			})
 			tagVal++
 			continue
@@ -1029,6 +1062,7 @@ func (a *Analyzer) populateEnumVariants(mod *Module, en *types.Enum, td *ast.Enu
 			Value:   tagVal,
 			Kind:    types.VariantTuple,
 			Payload: pty,
+			Doc:     v.Doc,
 		})
 		tagVal++
 	}
@@ -1053,6 +1087,7 @@ func (a *Analyzer) populateStructFields(mod *Module, st *types.Struct, td *ast.S
 			CName:      cname,
 			Type:       fty,
 			HasDefault: f.Default != nil,
+			Doc:        f.Doc,
 		})
 	}
 }
@@ -1682,6 +1717,7 @@ func (a *Analyzer) instantiateStruct(tmpl *GenericStructTemplate, typeArgs []typ
 		CName:    cname,
 		PkgDir:   tmpl.Mod.Dir,
 		Packed:   tmpl.Decl.Packed || ast.FindAttribute(tmpl.Decl.Attributes, "packed") != nil,
+		Doc:      tmpl.Decl.Doc,
 		TypeArgs: typeArgs,
 	}
 	a.checkAttributes(tmpl.Decl.Attributes, inst, tmpl.Decl.Span, "struct")
@@ -1779,6 +1815,7 @@ func (a *Analyzer) instantiateInterface(tmpl *GenericInterfaceTemplate, typeArgs
 		Name:   fmt.Sprintf("%s[%s]", tmpl.Decl.Name, typeListString(typeArgs)),
 		CName:  cname,
 		PkgDir: tmpl.Mod.Dir,
+		Doc:    tmpl.Decl.Doc,
 	}
 	a.checkAttributes(tmpl.Decl.Attributes, inst, tmpl.Decl.Span, "interface")
 	a.Prog.TypeSpans[inst] = tmpl.Decl.Span
@@ -1813,6 +1850,7 @@ func (a *Analyzer) instantiateInterface(tmpl *GenericInterfaceTemplate, typeArgs
 			RecvMode: recvModeToParamMode(m.RecvMode),
 			Params:   fparams,
 			Ret:      ret,
+			Doc:      m.Doc,
 		})
 	}
 	return inst
@@ -2313,6 +2351,7 @@ func (a *Analyzer) instantiateEnum(tmpl *GenericEnumTemplate, typeArgs []types.T
 		Name:       tmpl.Decl.Name,
 		CName:      cname,
 		PkgDir:     tmpl.Mod.Dir,
+		Doc:        tmpl.Decl.Doc,
 		IsTagged:   true,
 		TypeArgs:   typeArgs,
 		Underlying: types.TypeInt,
@@ -2373,7 +2412,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				ret = a.resolveReturnType(mod, decl.Ret, nil, false)
 			}
 			sig := &types.Func{Params: ps, Ret: ret}
-			ef := &ExternFunc{Name: decl.Name, Sig: sig, Span: decl.Span}
+			ef := &ExternFunc{Name: decl.Name, Sig: sig, Doc: decl.Doc, Span: decl.Span}
 			a.Prog.ExternFuncs = append(a.Prog.ExternFuncs, ef)
 			mod.Symbols[localName] = &Symbol{
 				Name:       localName,
@@ -2384,6 +2423,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				IsTopLevel: true,
 				Mod:        mod,
 				ExternFn:   ef,
+				Doc:        decl.Doc,
 				Span:       decl.Span,
 			}
 
@@ -2429,6 +2469,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				}
 				fi := a.buildFuncInstanceFromLit(mod, decl.Name, fl, nil)
 				fi.DeclSpan = decl.Span
+				fi.Doc = decl.Doc
 				a.checkAttributes(decl.Attributes, fi, decl.Span, "function")
 				a.Prog.Funcs = append(a.Prog.Funcs, fi)
 				sym := &Symbol{
@@ -2440,6 +2481,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					IsTopLevel:    true,
 					Mod:           mod,
 					FuncInst:      fi,
+					Doc:           decl.Doc,
 					Span:          decl.Span,
 					MustUse:       fi.MustUse,
 					Deprecated:    fi.Deprecated,
@@ -2494,11 +2536,13 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					BindKind:   BindOwned,
 					IsTopLevel: true,
 					Mod:        mod,
+					Doc:        decl.Doc,
 					Span:       decl.Span,
 				}
 				a.checkAttributes(decl.Attributes, sym, decl.Span, "variable")
 				mod.Symbols[decl.Name] = sym
 			} else {
+				sym.Doc = decl.Doc
 				a.checkAttributes(decl.Attributes, sym, decl.Span, "variable")
 			}
 			a.Prog.TopVars = append(a.Prog.TopVars, &TopVarInit{Sym: sym, Decl: decl, Mod: mod})
@@ -2680,6 +2724,7 @@ func (a *Analyzer) buildMethodInstance(mod *Module, recvTy types.Type, decl *ast
 		DeclSpan:      decl.Span,
 		RetInferred:   retInferred,
 		IsDrop:        decl.Name == "drop" && (isStructOrEnum(recvTy)),
+		Doc:           decl.Doc,
 	}
 	a.checkAttributes(decl.Attributes, fi, decl.Span, "method")
 	return fi
@@ -2849,6 +2894,7 @@ func (a *Analyzer) instantiateGenericFunc(tmpl *GenericFuncTemplate, typeArgs []
 	instName := fmt.Sprintf("%s[%s]", decl.Name, strings.Join(parts, ","))
 	fi := a.buildFuncInstanceFromLit(tmpl.Mod, instName, fl, subst)
 	fi.DeclSpan = decl.Span
+	fi.Doc = decl.Doc
 	cname := fmt.Sprintf("ll_gfn_%s__%s", decl.Name, key)
 	if tag := a.moduleTag(tmpl.Mod); tag != "" {
 		cname = fmt.Sprintf("ll_gfn_%s_%s__%s", tag, decl.Name, key)

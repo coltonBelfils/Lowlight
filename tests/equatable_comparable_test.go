@@ -275,6 +275,91 @@ bind main = (): {
 	runInlineStrict(t, "distinct_comparable_equatable_release", src, true)
 }
 
+func TestCustomEquatableAndComparableTaggedEnum(t *testing.T) {
+	src := `
+define Val enum [
+    Empty,
+    Str: string,
+    Obj: #[string: Val],
+]
+
+bind Val.eq = (self, other: Val) bool: {
+    match (self, other):
+        when Val.Empty, Val.Empty: true
+        when Val.Str(a), Val.Str(b): a == b
+        when Val.Obj(a), Val.Obj(b): {
+            if (a.len() != b.len()): <- false
+            while (e in a): {
+                if ((not b.contains(e.key)) or e.value != b[e.key]): while <- false
+            } else: true
+        }
+        default: false
+}
+
+define Rank enum [
+    Low: int,
+    High: int,
+]
+
+bind Rank.cmp = (self, other: Rank) int: {
+    let lv = match (self):
+        when Rank.Low(n): n
+        default Rank.High(n): n + 1000
+    let rv = match (other):
+        when Rank.Low(n): n
+        default Rank.High(n): n + 1000
+    if (lv < rv): -1
+    else if (lv > rv): 1
+    else: 0
+}
+
+bind eq_generic[T: Equatable] = (a: T, b: T) bool: { a == b }
+bind lt_generic[T: Comparable] = (a: T, b: T) bool: { a < b }
+
+bind main = (): {
+    // 1. Tagged enum with non-equatable Map payload + custom .eq
+    let v1 = Val.Obj(#["x": Val.Str("hello")])
+    let v2 = Val.Obj(#["x": Val.Str("hello")])
+    let v3 = Val.Obj(#["x": Val.Str("world")])
+    assert(v1 == v2, "enum custom eq maps")
+    assert(v1 != v3, "enum custom eq differs")
+    assert(eq_generic(v1, v2), "generic eq enum")
+
+    // Wrapper types (optional & list containment) go through synthesized ll_eq__ll_e_Val
+    let ov1?: ?Val = Val.Obj(#["k": Val.Empty])
+    let ov2?: ?Val = Val.Obj(#["k": Val.Empty])
+    assert(ov1? == ov2?, "optional enum custom eq")
+    let vals = [v1.copy(), Val.Empty]
+    let in_vals = match (v2):
+        when in vals: true
+        default: false
+    assert(in_vals, "list contains custom eq enum")
+
+    // 2. Tagged enum with custom .cmp (derives both Ordering and Equatable)
+    let r1 = Rank.Low(50)
+    let r2 = Rank.High(1)
+    let r3 = Rank.High(1)
+    assert(r1 < r2, "enum custom cmp lt")
+    assert(r2 > r1, "enum custom cmp gt")
+    assert(r2 == r3, "enum custom cmp eq")
+    assert(r1 != r2, "enum custom cmp neq")
+    assert(lt_generic(r1, r2), "generic cmp enum")
+    assert(eq_generic(r2, r3), "generic eq via cmp enum")
+
+    let or1?: ?Rank = Rank.High(1)
+    let or2?: ?Rank = Rank.High(1)
+    assert(or1? == or2?, "optional enum custom cmp eq")
+    let ranks = [Rank.High(1), Rank.Low(10)]
+    let in_ranks = match (r2):
+        when in ranks: true
+        default: false
+    assert(in_ranks, "list contains custom cmp enum")
+}
+`
+	runInlineStrict(t, "custom_eq_cmp_tagged_enum", src, false)
+	runInlineStrict(t, "custom_eq_cmp_tagged_enum_release", src, true)
+}
+
 func TestCompileTimeNegativeEquatableComparable(t *testing.T) {
 	root := projectRoot(t)
 

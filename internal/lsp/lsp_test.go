@@ -96,6 +96,9 @@ func (h *rpcHarness) request(method string, params any, out any) {
 		if err := json.Unmarshal(raw, &env); err != nil {
 			h.t.Fatalf("unmarshal frame %s: %v", string(raw), err)
 		}
+		if env.Method == "window/showMessage" || env.Method == "window/showDocument" {
+			continue
+		}
 		if env.ID == nil && env.Method == "textDocument/publishDiagnostics" {
 			var pd lsp.PublishDiagnosticsParams
 			if err := json.Unmarshal(env.Params, &pd); err != nil {
@@ -942,13 +945,13 @@ bind test_calls = (): {
 	}
 	formattedMatch := matchEdits[0].NewText
 	expectedLines := []string{
-		"bind foo = (): {",
-		"    match (self):",
-		"        when 1: match (other):",
-		"            when 1: true",
-		"            default: false",
+		"bind foo = ():",
+		"    match(self):",
+		"        when 1:",
+		"            match(other):",
+		"                when 1: true",
+		"                default: false",
 		"        default: false",
-		"}",
 	}
 	expectedMatch := strings.Join(expectedLines, "\n") + "\n"
 	if formattedMatch != expectedMatch {
@@ -1749,6 +1752,545 @@ bind main = () int: {
 	}, &hovUnp)
 	if !strings.Contains(hovUnp.Contents.Value, "unp_str: string") {
 		t.Errorf("expected hover on unpacked variable 'unp_str' to show 'unp_str: string', got: %q", hovUnp.Contents.Value)
+	}
+}
+
+func TestLSPIncrementalSyncConfigAndCrossFileDeps(t *testing.T) {
+	h := newHarness(t)
+	root := repoRoot(t)
+	os.Setenv("LOWLIGHT_ROOT", root)
+	t.Cleanup(func() { os.Unsetenv("LOWLIGHT_ROOT") })
+
+	// Workspace OUTSIDE compiler repo (no local `std/` directory)
+	wsDir := t.TempDir()
+
+	var initRes lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{
+		RootURI: lsp.PathToURI(wsDir),
+	}, &initRes)
+	if initRes.Capabilities.TextDocumentSync.Change != 2 {
+		t.Fatalf("expected incremental sync (2), got %d", initRes.Capabilities.TextDocumentSync.Change)
+	}
+	if !initRes.Capabilities.ReferencesProvider || !initRes.Capabilities.SemanticTokensProvider.Full ||
+		!initRes.Capabilities.TypeDefinitionProvider || !initRes.Capabilities.DeclarationProvider ||
+		!initRes.Capabilities.WorkspaceSymbolProvider || !initRes.Capabilities.FoldingRangeProvider ||
+		!initRes.Capabilities.SelectionRangeProvider {
+		t.Fatalf("expected all Phase 5b LSP capabilities enabled: %+v", initRes.Capabilities)
+	}
+	h.notify("initialized", map[string]any{})
+
+	helperPath := filepath.Join(wsDir, "helper.ll")
+	appPath := filepath.Join(wsDir, "app.ll")
+	helperURI := lsp.PathToURI(helperPath)
+	appURI := lsp.PathToURI(appPath)
+
+	helperSrc := "bind double_it = (x: int) int: x * 2\n"
+	appSrc := "import \"helper.ll\" as helper\nimport \"std/math.ll\" as math\n\nbind main = (): {\n\tlet v = helper.double_it(math.clamp_int(-5, 0, 10))\n\tprintln(v)\n}\n"
+
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: helperURI, LanguageID: "lowlight", Version: 1, Text: helperSrc},
+	})
+	if diags := h.waitDiagnostics(helperURI); len(diags) != 0 {
+		t.Fatalf("unexpected helper diagnostics: %+v", diags)
+	}
+
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: appURI, LanguageID: "lowlight", Version: 1, Text: appSrc},
+	})
+	if diags := h.waitDiagnostics(appURI); len(diags) != 0 {
+		t.Fatalf("unexpected app diagnostics in standalone workspace: %+v", diags)
+	}
+
+	// Incremental edit in helper.ll breaking signature (`x: string`) should invalidate app.ll cache & re-publish error on app.ll!
+	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
+		TextDocument: lsp.VersionedTextDocumentIdentifier{URI: helperURI, Version: 2},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{
+			{
+				Range: &lsp.Range{
+					Start: lsp.Position{Line: 0, Character: 21},
+					End:   lsp.Position{Line: 0, Character: 24},
+				},
+				Text: "string",
+			},
+			{
+				Range: &lsp.Range{
+					Start: lsp.Position{Line: 0, Character: 34},
+					End:   lsp.Position{Line: 0, Character: 39},
+				},
+				Text: "x.len()",
+			},
+		},
+	})
+	_ = h.waitDiagnostics(helperURI)
+	if len(h.diags[appURI]) == 0 {
+		t.Fatalf("expected cross-file diagnostic on app.ll after incremental incompatible signature change in helper.ll")
+	}
+
+	// Fix helper.ll back to `(x: int) int: x * 2` -> clears error on app.ll!
+	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
+		TextDocument:   lsp.VersionedTextDocumentIdentifier{URI: helperURI, Version: 3},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: helperSrc}},
+	})
+	_ = h.waitDiagnostics(helperURI)
+	if len(h.diags[appURI]) != 0 {
+		t.Fatalf("expected app.ll diagnostics cleared after fixing helper.ll, got: %+v", h.diags[appURI])
+	}
+
+	// Test workspace/didChangeConfiguration (formatting & inlayHints toggles)
+	h.notify("workspace/didChangeConfiguration", lsp.DidChangeConfigurationParams{
+		Settings: []byte(`{"lowlight":{"format":{"indent":"spaces","tabWidth":2,"lineWidth":80},"inlayHints":{"types":true,"parameters":false}}}`),
+	})
+
+	fmtPath := filepath.Join(wsDir, "fmt_cfg.ll")
+	fmtURI := lsp.PathToURI(fmtPath)
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{
+			URI:        fmtURI,
+			LanguageID: "lowlight",
+			Version:    1,
+			Text:       "bind fn = (a: int, b: int) int: {\nlet sum = a + b\nsum\n}\n",
+		},
+	})
+	_ = h.waitDiagnostics(fmtURI)
+
+	var fmtEdits []lsp.TextEdit
+	h.request("textDocument/formatting", lsp.DocumentFormattingParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: fmtURI},
+		Options:      lsp.FormattingOptions{TabSize: 4, InsertSpaces: false},
+	}, &fmtEdits)
+	if len(fmtEdits) == 0 || !strings.Contains(fmtEdits[0].NewText, "  let sum = a + b") {
+		t.Errorf("expected workspace/didChangeConfiguration indent=spaces tabWidth=2 to apply, got: %+v", fmtEdits)
+	}
+
+	var hints []lsp.InlayHint
+	h.request("textDocument/inlayHint", lsp.InlayHintParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: fmtURI},
+		Range:        lsp.Range{Start: lsp.Position{Line: 0, Character: 0}, End: lsp.Position{Line: 10, Character: 0}},
+	}, &hints)
+	if len(hints) == 0 || hints[0].Kind != lsp.InlayHintType {
+		t.Errorf("expected type inlay hint when inlayHints.types=true, got: %+v", hints)
+	}
+
+	// Test lowlight.showLocations
+	var showRes map[string]any
+	h.request("workspace/executeCommand", lsp.ExecuteCommandParams{
+		Command:   "lowlight.showLocations",
+		Arguments: []json.RawMessage{[]byte(fmt.Sprintf(`[%q]`, appURI)), []byte(`{"line":0,"character":0}`), []byte(fmt.Sprintf(`[{"uri":%q,"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":6}}}]`, helperURI))},
+	}, &showRes)
+	if showRes["count"] != float64(1) {
+		t.Errorf("expected showLocations count=1, got: %+v", showRes)
+	}
+}
+
+func TestLSPDocLinksSignatureAndCompletionDocs(t *testing.T) {
+	h := newHarness(t)
+	root := repoRoot(t)
+	os.Setenv("LOWLIGHT_ROOT", root)
+	t.Cleanup(func() { os.Unsetenv("LOWLIGHT_ROOT") })
+
+	wsDir := t.TempDir()
+	var initRes lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{RootURI: lsp.PathToURI(wsDir)}, &initRes)
+	h.notify("initialized", map[string]any{})
+
+	docFile := filepath.Join(wsDir, "docs.ll")
+	uri := lsp.PathToURI(docFile)
+	src := `// 2D coordinate vector.
+define Vec2 struct [
+	// Horizontal offset.
+	x: float,
+	// Vertical offset.
+	y: float,
+]
+
+// Scales [` + "`Vec2`" + `] components by factor ` + "`k`" + `.
+//
+// - ` + "`v`" + `: Input vector to scale.
+// - ` + "`k`" + `: Scalar multiplier.
+bind scale = (v: Vec2, k: float) Vec2: Vec2[x: v.x * k, y: v.y * k]
+
+/* See [` + "`scale`" + `] and [` + "`Vec2.x`" + `] for scaling details. */
+bind main = (): {
+	let p = Vec2[x: 1.0, y: 2.0]
+	let q = scale(p, 3.0)
+	let d = q.x
+}
+`
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: uri, LanguageID: "lowlight", Version: 1, Text: src},
+	})
+	if diags := h.waitDiagnostics(uri); len(diags) != 0 {
+		t.Fatalf("unexpected diagnostics: %+v", diags)
+	}
+
+	// 1. Hover on `scale(p, 3.0)` renders resolved Markdown link to `Vec2` + `[View source]`
+	scaleCallOff := strings.Index(src, "scale(p")
+	var hov lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, scaleCallOff),
+	}, &hov)
+	if !strings.Contains(hov.Contents.Value, "[Vec2]("+uri+"#L2)") || !strings.Contains(hov.Contents.Value, "[View source]("+uri+"#L13)") {
+		t.Errorf("expected resolved intra-doc link and [View source] in hover, got:\n%s", hov.Contents.Value)
+	}
+
+	// 2. SignatureHelp inside `scale(p, |3.0)` includes Iteration B doc & parameter doc!
+	sigOff := strings.Index(src, "scale(p, ") + len("scale(p, ")
+	var sig lsp.SignatureHelp
+	h.request("textDocument/signatureHelp", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, sigOff),
+	}, &sig)
+	if len(sig.Signatures) == 0 || sig.Signatures[0].Documentation == nil || !strings.Contains(sig.Signatures[0].Documentation.Value, "Scales") {
+		t.Fatalf("expected rendered doc on SignatureInformation, got: %+v", sig)
+	}
+	if len(sig.Signatures[0].Parameters) < 2 || sig.Signatures[0].Parameters[1].Documentation == nil || !strings.Contains(sig.Signatures[0].Parameters[1].Documentation.Value, "Scalar multiplier") {
+		t.Errorf("expected per-parameter doc on ParameterInformation[1], got: %+v", sig.Signatures[0].Parameters)
+	}
+
+	// 3. Completion on `q.` includes `x` field doc comment
+	qDotOff := strings.Index(src, "q.x") + 2
+	var comp lsp.CompletionList
+	h.request("textDocument/completion", lsp.CompletionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, qDotOff),
+	}, &comp)
+	foundFieldDoc := false
+	for _, it := range comp.Items {
+		if it.Label == "x" && it.Documentation != nil && strings.Contains(it.Documentation.Value, "Horizontal offset") {
+			foundFieldDoc = true
+		}
+	}
+	if !foundFieldDoc {
+		t.Errorf("expected field doc in completion for `q.x`, got: %+v", comp.Items)
+	}
+
+	// 4. Cursor INSIDE `/* See [`scale`] ... */` comment: Definition + Hover!
+	docLinkOff := strings.Index(src, "[`scale`]") + 3
+	var docDef lsp.Location
+	h.request("textDocument/definition", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, docLinkOff),
+	}, &docDef)
+	if docDef.URI != uri || docDef.Range.Start.Line != 12 {
+		t.Errorf("expected go-to-definition inside comment [`scale`] to jump to line 12, got: %+v", docDef)
+	}
+
+	var docHov lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, docLinkOff),
+	}, &docHov)
+	if !strings.Contains(docHov.Contents.Value, "bind scale") || !strings.Contains(docHov.Contents.Value, "[View source]") {
+		t.Errorf("expected hover inside comment [`scale`] to render target signature & source link, got: %q", docHov.Contents.Value)
+	}
+}
+
+func TestLSPSemanticTokensReferencesRenameAndNavigation(t *testing.T) {
+	h := newHarness(t)
+	root := repoRoot(t)
+	os.Setenv("LOWLIGHT_ROOT", root)
+	t.Cleanup(func() { os.Unsetenv("LOWLIGHT_ROOT") })
+
+	wsDir := t.TempDir()
+	var initRes lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{RootURI: lsp.PathToURI(wsDir)}, &initRes)
+	h.notify("initialized", map[string]any{})
+
+	libPath := filepath.Join(wsDir, "shapes.ll")
+	mainPath := filepath.Join(wsDir, "main.ll")
+	libURI := lsp.PathToURI(libPath)
+	mainURI := lsp.PathToURI(mainPath)
+
+	libSrc := `// Printable geometry.
+define Shape interface [
+	area: (self) float,
+]
+
+define Square struct [
+	side: float,
+]
+
+bind Square.area = (self) float: self.side * self.side
+
+bind helper_sum = (val: int) int: {
+	let tmp = val + 1
+	tmp
+}
+`
+	mainSrc := `import "shapes.ll" as shapes
+
+bind use_square = (s: shapes.Square) float: s.area()
+
+bind main = (): {
+	let tmp = 99
+	let x = shapes.helper_sum(tmp)
+	let sq = shapes.Square[side: 3.0]
+	println(use_square(sq) + float(x))
+}
+`
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: libURI, LanguageID: "lowlight", Version: 1, Text: libSrc},
+	})
+	_ = h.waitDiagnostics(libURI)
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: mainURI, LanguageID: "lowlight", Version: 1, Text: mainSrc},
+	})
+	if diags := h.waitDiagnostics(mainURI); len(diags) != 0 {
+		t.Fatalf("unexpected main diagnostics: %+v", diags)
+	}
+
+	// 1. Semantic Tokens full
+	var semToks lsp.SemanticTokens
+	h.request("textDocument/semanticTokens/full", lsp.SemanticTokensParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: libURI},
+	}, &semToks)
+	if len(semToks.Data) == 0 || len(semToks.Data)%5 != 0 {
+		t.Fatalf("expected valid 5-tuple semantic tokens, got len=%d", len(semToks.Data))
+	}
+
+	// 2. Declaration on `Square.area` method -> jumps to `Shape.area` interface method!
+	areaMethOff := strings.Index(libSrc, "Square.area") + len("Square.")
+	var declLoc lsp.Location
+	h.request("textDocument/declaration", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: libURI},
+		Position:     lsp.OffsetToLSP(libSrc, areaMethOff),
+	}, &declLoc)
+	if declLoc.URI != libURI || declLoc.Range.Start.Line != 2 {
+		t.Errorf("expected textDocument/declaration on Square.area -> Shape.area line 2, got: %+v", declLoc)
+	}
+
+	// 3. TypeDefinition on parameter `s` of `use_square` -> jumps to `define Square struct`!
+	sParamOff := strings.Index(mainSrc, "(s: shapes.Square)") + 1
+	var tdLoc lsp.Location
+	h.request("textDocument/typeDefinition", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: mainURI},
+		Position:     lsp.OffsetToLSP(mainSrc, sParamOff),
+	}, &tdLoc)
+	if tdLoc.URI != libURI || tdLoc.Range.Start.Line != 5 {
+		t.Errorf("expected typeDefinition on `s` -> define Square (line 5 of shapes.ll), got: %+v", tdLoc)
+	}
+
+	// 4. Cross-file References + Rename on `helper_sum`
+	helperOff := strings.Index(libSrc, "helper_sum")
+	var refs []lsp.Location
+	h.request("textDocument/references", lsp.ReferenceParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: libURI},
+		Position:     lsp.OffsetToLSP(libSrc, helperOff),
+		Context:      lsp.ReferenceContext{IncludeDeclaration: true},
+	}, &refs)
+	if len(refs) < 2 {
+		t.Errorf("expected >= 2 references across shapes.ll & main.ll, got: %+v", refs)
+	}
+
+	var crossRename lsp.WorkspaceEdit
+	h.request("textDocument/rename", lsp.RenameParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: libURI},
+		Position:     lsp.OffsetToLSP(libSrc, helperOff),
+		NewName:      "add_one",
+	}, &crossRename)
+	if len(crossRename.Changes[libURI]) == 0 || len(crossRename.Changes[mainURI]) == 0 {
+		t.Errorf("expected cross-file rename edits in both shapes.ll and main.ll, got: %+v", crossRename.Changes)
+	}
+
+	// 5. Scope-aware local rename: renaming `tmp` in `shapes.ll` MUST NOT touch `tmp` in `main.ll`!
+	localTmpOff := strings.Index(libSrc, "let tmp") + 4
+	var localRename lsp.WorkspaceEdit
+	h.request("textDocument/rename", lsp.RenameParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: libURI},
+		Position:     lsp.OffsetToLSP(libSrc, localTmpOff),
+		NewName:      "accum",
+	}, &localRename)
+	if len(localRename.Changes[libURI]) != 2 || len(localRename.Changes[mainURI]) != 0 {
+		t.Errorf("expected scoped rename ONLY in shapes.ll (2 edits) and 0 in main.ll, got: %+v", localRename.Changes)
+	}
+
+	// 6. Workspace Symbols, Folding Ranges, Selection Ranges
+	var wsSyms []lsp.SymbolInformation
+	h.request("workspace/symbol", lsp.WorkspaceSymbolParams{Query: "Square"}, &wsSyms)
+	if len(wsSyms) == 0 {
+		t.Errorf("expected workspace/symbol match for 'Square'")
+	}
+
+	var folds []lsp.FoldingRange
+	h.request("textDocument/foldingRange", lsp.FoldingRangeParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: libURI},
+	}, &folds)
+	if len(folds) < 3 {
+		t.Errorf("expected folding ranges in shapes.ll, got: %+v", folds)
+	}
+
+	var selRngs []*lsp.SelectionRange
+	h.request("textDocument/selectionRange", lsp.SelectionRangeParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: libURI},
+		Positions:    []lsp.Position{lsp.OffsetToLSP(libSrc, localTmpOff)},
+	}, &selRngs)
+	if len(selRngs) != 1 || selRngs[0].Parent == nil {
+		t.Errorf("expected nested SelectionRange chain, got: %+v", selRngs)
+	}
+}
+
+func TestLSPCodeGenerationAndRefactorings(t *testing.T) {
+	h := newHarness(t)
+	root := repoRoot(t)
+	os.Setenv("LOWLIGHT_ROOT", root)
+	t.Cleanup(func() { os.Unsetenv("LOWLIGHT_ROOT") })
+
+	wsDir := t.TempDir()
+	var initRes lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{RootURI: lsp.PathToURI(wsDir)}, &initRes)
+	h.notify("initialized", map[string]any{})
+
+	genPath := filepath.Join(wsDir, "codegen.ll")
+	uri := lsp.PathToURI(genPath)
+
+	src := `define Rect struct [
+	w: float,
+	h: float,
+]
+
+define Shape interface [
+	area: (self) float,
+]
+
+@must_use
+bind make_code = () int: 42
+
+let bad_global = 10
+
+bind use_all = (flag: bool) int: {
+	let r = Rect[]
+	let p = null_ptr[u8]()
+	make_code()
+	let sum = 1 + 2 * 3
+	if(flag): {
+		10
+	} else: {
+		20
+	}
+}
+`
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: uri, LanguageID: "lowlight", Version: 1, Text: src},
+	})
+	diags := h.waitDiagnostics(uri)
+	if len(diags) == 0 {
+		t.Fatalf("expected diagnostics on codegen.ll sample")
+	}
+
+	var allActions []lsp.CodeAction
+	h.request("textDocument/codeAction", lsp.CodeActionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Range:        lsp.Range{Start: lsp.Position{Line: 0, Character: 0}, End: lsp.Position{Line: 30, Character: 0}},
+		Context:      lsp.CodeActionContext{Diagnostics: diags},
+	}, &allActions)
+
+	titles := make(map[string]lsp.CodeAction)
+	for _, a := range allActions {
+		titles[a.Title] = a
+	}
+
+	// Quick fixes
+	for _, want := range []string{
+		"Convert top-level 'let' to 'bind'",
+		"Wrap in 'unsafe'",
+		"Bind return value ('let res = ...')",
+		"Explicitly ignore return value ('let _ = ...')",
+		"Populate missing fields for 'Rect'",
+	} {
+		if _, ok := titles[want]; !ok {
+			t.Errorf("expected diagnostic quickfix %q, got titles: %v", want, allActions)
+		}
+	}
+	if act, ok := titles["Populate missing fields for 'Rect'"]; ok && act.Edit != nil {
+		edits := act.Edit.Changes[uri]
+		if len(edits) == 0 || !strings.Contains(edits[0].NewText, `panic("todo")`) {
+			t.Errorf("expected minimal panic(\"todo\") struct field stub, got: %+v", edits)
+		}
+	}
+
+	// Cursor on `Rect` declaration: Implement interfaces (`Shape`, `Printable`), constructor `Rect.new`, doc comment!
+	rectOff := strings.Index(src, "Rect struct")
+	var rectActions []lsp.CodeAction
+	h.request("textDocument/codeAction", lsp.CodeActionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Range:        lsp.Range{Start: lsp.OffsetToLSP(src, rectOff), End: lsp.OffsetToLSP(src, rectOff)},
+		Context:      lsp.CodeActionContext{},
+	}, &rectActions)
+	rectTitles := make(map[string]lsp.CodeAction)
+	for _, a := range rectActions {
+		rectTitles[a.Title] = a
+	}
+	if implAct, ok := rectTitles["Implement Shape for Rect"]; !ok {
+		t.Errorf("expected 'Implement Shape for Rect' code action, got: %+v", rectActions)
+	} else {
+		ed := implAct.Edit.Changes[uri][0].NewText
+		if !strings.Contains(ed, `bind Rect.area = (self) float: panic("todo")`) {
+			t.Errorf("unexpected interface stub: %q", ed)
+		}
+	}
+	if _, ok := rectTitles["Generate constructor 'Rect.new'"]; !ok {
+		t.Errorf("expected 'Generate constructor Rect.new' action")
+	}
+	if _, ok := rectTitles["Generate doc comment for 'Rect'"]; !ok {
+		t.Errorf("expected 'Generate doc comment for Rect' action")
+	}
+
+	// Refactorings inside `use_all`: unwrap single-expression `{ 10 }` block + invert `if/else` + extract variable `2 * 3`
+	tenOff := strings.Index(src, "10\n\t} else")
+	var blockActions []lsp.CodeAction
+	h.request("textDocument/codeAction", lsp.CodeActionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Range:        lsp.Range{Start: lsp.OffsetToLSP(src, tenOff), End: lsp.OffsetToLSP(src, tenOff)},
+		Context:      lsp.CodeActionContext{},
+	}, &blockActions)
+	blockTitles := make(map[string]bool)
+	for _, a := range blockActions {
+		blockTitles[a.Title] = true
+	}
+	if !blockTitles["Unwrap single-expression '{ ... }' block"] || !blockTitles["Invert 'if' / 'else' branches"] {
+		t.Errorf("expected unwrap block and invert if/else actions, got: %+v", blockActions)
+	}
+
+	extStart := strings.Index(src, "2 * 3")
+	extEnd := extStart + len("2 * 3")
+	var extActions []lsp.CodeAction
+	h.request("textDocument/codeAction", lsp.CodeActionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Range:        lsp.Range{Start: lsp.OffsetToLSP(src, extStart), End: lsp.OffsetToLSP(src, extEnd)},
+		Context:      lsp.CodeActionContext{},
+	}, &extActions)
+	extTitles := make(map[string]bool)
+	for _, a := range extActions {
+		extTitles[a.Title] = true
+	}
+	if !extTitles["Extract expression into 'let extracted'"] || !extTitles["Extract selection into function 'extracted_fn'"] {
+		t.Errorf("expected extract variable and extract function actions, got: %+v", extActions)
+	}
+
+	// Auto-import missing symbol (`clamp_int` -> `std/math.ll`)
+	impPath := filepath.Join(wsDir, "autoimp.ll")
+	impURI := lsp.PathToURI(impPath)
+	impSrc := "bind main = (): {\n\tlet v = clamp_int(5, 0, 10)\n\tprintln(v)\n}\n"
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: impURI, LanguageID: "lowlight", Version: 1, Text: impSrc},
+	})
+	impDiags := h.waitDiagnostics(impURI)
+	var impActions []lsp.CodeAction
+	h.request("textDocument/codeAction", lsp.CodeActionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: impURI},
+		Range:        lsp.Range{Start: lsp.Position{Line: 0, Character: 0}, End: lsp.Position{Line: 4, Character: 0}},
+		Context:      lsp.CodeActionContext{Diagnostics: impDiags},
+	}, &impActions)
+	foundMathImp := false
+	for _, a := range impActions {
+		if strings.Contains(a.Title, `Import "std/math.ll"`) {
+			foundMathImp = true
+			break
+		}
+	}
+	if !foundMathImp {
+		t.Errorf("expected auto-import 'Import \"std/math.ll\"' action, got: %+v", impActions)
 	}
 }
 

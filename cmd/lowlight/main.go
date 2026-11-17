@@ -137,6 +137,12 @@ func runCLI(args []string) int {
 	case "lsp":
 		return runLSP(rest)
 
+	case "fmt":
+		return runFmt(rest)
+
+	case "doc":
+		return runDoc(rest)
+
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown subcommand %q\n\n", sub)
 		printUsage(os.Stderr)
@@ -364,6 +370,8 @@ Usage:
   lowlight emit-llvm [-o <file.ll>] [--target <triple>] [--release] <file.ll>
   lowlight emit-c [-o <file.c>] [--target <triple>] [--release] <file.ll>
   lowlight check <file.ll>
+  lowlight fmt   [-w] [--check] [--indent tabs|spaces] [--tab-width N] [--line-width N] [<path...>]
+  lowlight doc   [-o <dir>] [--format html|md] [--check-links] [<path...>]
   lowlight lsp   [--stdio] [--log <file>]
   lowlight version
   lowlight help

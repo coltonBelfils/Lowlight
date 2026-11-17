@@ -336,10 +336,10 @@ bind main = (): {
 	runInlineStrict(t, "result_in_prelude", src, false)
 }
 
-// 11. Item 7: Attributes (@inline, @noinline, @must_use, @nodiscard, @deprecated, @packed, @doc)
+// 11. Item 7: Attributes (@inline, @noinline, @must_use, @nodiscard, @deprecated, @packed)
 func TestAttributesSupport(t *testing.T) {
 	src := `
-@doc("2D packed coordinate")
+// 2D packed coordinate
 @packed
 define Coord struct [
     x: i32,

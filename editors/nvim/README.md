@@ -33,12 +33,16 @@ This installs:
 | Shortcut | Action | Description |
 |---|---|---|
 | `K` | **Hover** | Show Markdown documentation, type signatures, and descriptions |
-| `gd` | **Go to Definition** | Jump to symbol declaration (local, function, struct, or enum) |
+| `gd` | **Go to Definition** | Jump to symbol definition (or doc link ``[`Symbol`]``) |
+| `gD` | **Go to Declaration** | Jump to declaration signature or extern declaration |
+| `gy` | **Go to Type Definition** | Jump to the type definition of the variable/expression under cursor |
 | `gi` | **Go to Implementation** | Jump directly to type implementation, or interface implementations |
-| `<leader>ca` | **Code Actions** | Quick-fixes (e.g. generate missing match arms, add `&` / `own`) |
-| `<leader>rn` | **Rename Symbol** | Safe symbol rename across the buffer/module |
-| `<C-k>` | **Signature Help** | Trigger parameter info and active parameter indicator |
-| `<leader>f` | **Format Document** | Format buffer with 4-space indentation and clean alignment |
+| `gr` | **Find References** | Cross-file reference search across the workspace |
+| `gS` | **Workspace Symbols** | Search workspace symbols across all `.ll` files |
+| `<leader>ca` | **Code Actions** | Quick-fixes, generators, and refactorings (`extract`, `flip`, `{}` toggle) |
+| `<leader>rn` | **Rename Symbol** | Safe cross-file / scope-isolated symbol rename |
+| `<C-k>` | **Signature Help** | Trigger parameter info, descriptions, and active parameter indicator |
+| `<leader>f` | **Format Document** | Format buffer using canonical Lowlight style (`\t` tabs, `.lowlightfmt`) |
 | `[d` / `]d` | **Prev / Next Diagnostic** | Jump between compiler warnings and errors |
 | `<leader>d` | **Line Diagnostic** | Open floating window with full diagnostic explanation and hints |
 | `<leader>cl` | **Run CodeLens** | Trigger inline CodeLens at cursor (`▶ Run` main, `▶ Run Test`, or Implementations dropdown) |

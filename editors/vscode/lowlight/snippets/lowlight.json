@@ -2,7 +2,7 @@
   "Main Entry Point": {
     "prefix": "main",
     "body": [
-      "bind main = () -> {",
+      "bind main = () void: {",
       "\t$0",
       "}"
     ],
@@ -11,7 +11,7 @@
   "Function Binding": {
     "prefix": "fn",
     "body": [
-      "bind ${1:name} = (${2:params})${3:: int} -> {",
+      "bind ${1:name} = (${2:params}) ${3:int}: {",
       "\t$0",
       "}"
     ],
@@ -20,7 +20,7 @@
   "Method Binding": {
     "prefix": "meth",
     "body": [
-      "bind ${1:Type}.${2:method} = (${3:self}) -> {",
+      "bind ${1:Type}.${2:method} = (${3:self}) ${4:void}: {",
       "\t$0",
       "}"
     ],
@@ -43,21 +43,28 @@
       "\t${3:Err},",
       "]"
     ],
-    "description": "Define a strongly-typed tag enum"
+    "description": "Define a strongly-typed enum"
   },
   "Interface Definition": {
     "prefix": "interface",
     "body": [
       "define ${1:Name} interface [",
-      "\t${2:method}: (self)${3:: string},",
+      "\t${2:method}: (self) ${3:string},",
       "]"
     ],
     "description": "Define an interface"
   },
+  "If Single Expression": {
+    "prefix": "if",
+    "body": [
+      "if(${1:cond}) $0"
+    ],
+    "description": "Canonical single-expression if expression (no braces)"
+  },
   "Optional Narrowing If": {
     "prefix": "if?",
     "body": [
-      "if (${1:opt}?) {",
+      "if(${1:opt}?) {",
       "\t$0",
       "}"
     ],
@@ -66,7 +73,7 @@
   "For Range Loop": {
     "prefix": "forr",
     "body": [
-      "for (${1:i} in ${2:0}..${3:n}) {",
+      "for(${1:i} in ${2:0}..${3:n}) {",
       "\t$0",
       "}"
     ],
@@ -75,24 +82,39 @@
   "For Collection Loop": {
     "prefix": "forin",
     "body": [
-      "for (${1:item} in ${2:items}) {",
+      "for(${1:item} in ${2:items}) {",
       "\t$0",
       "}"
     ],
     "description": "Iterate over a collection"
   },
-  "Match Expression": {
-    "prefix": "match",
+  "While Loop": {
+    "prefix": "while",
     "body": [
-      "match (${1:value})",
-      "when ${2:pattern}: {",
-      "\t$3",
-      "}",
-      "else: {",
+      "while(${1:cond}) {",
       "\t$0",
       "}"
     ],
-    "description": "Exhaustive match expression"
+    "description": "While loop"
+  },
+  "Match Expression": {
+    "prefix": "match",
+    "body": [
+      "match(${1:value})",
+      "when ${2:pattern}: $3",
+      "else: $0"
+    ],
+    "description": "Exhaustive match expression with canonical single-expression arms"
+  },
+  "Test Function": {
+    "prefix": "test",
+    "body": [
+      "@test",
+      "bind test_${1:name} = () void: {",
+      "\tassert(${2:true})",
+      "}"
+    ],
+    "description": "Define a unit test function"
   },
   "Unsafe Block": {
     "prefix": "unsafe",

@@ -455,6 +455,7 @@ type StructField struct {
 	CName      string // sanitized C identifier (`next_opt`)
 	Type       Type
 	HasDefault bool
+	Doc        string
 }
 
 // Struct represents a concrete (or monomorphized) struct type.
@@ -467,6 +468,7 @@ type Struct struct {
 	Deprecated    bool
 	DeprecatedMsg string
 	IsTestOnly    bool
+	Doc           string
 	Fields        []StructField
 	HasCustomDrop bool
 	BoxedOptional bool // true if `?ThisStruct` closes a recursive cycle and compiles to `ThisStruct*`
@@ -556,6 +558,7 @@ type EnumVariant struct {
 	Value   int64 // 0-based (or explicit) for pure tag enums; 1..N for tagged unions (0 = inert moved/dropped sentinel)
 	Kind    EnumVariantKind
 	Payload Type // non-nil for VariantTuple
+	Doc     string
 }
 
 // Enum represents a strongly-typed tag enum (`define Status enum ...`)
@@ -568,6 +571,7 @@ type Enum struct {
 	Deprecated    bool
 	DeprecatedMsg string
 	IsTestOnly    bool
+	Doc           string
 	IsTagged      bool       // true when any variant carries a payload or enum has generic type parameters
 	TypeArgs      []Type     // populated for monomorphized generic enums
 	HasCustomDrop bool
@@ -639,6 +643,7 @@ type Distinct struct {
 	CName      string
 	PkgDir     string
 	IsTestOnly bool
+	Doc        string
 	Base       Type
 }
 
@@ -776,6 +781,7 @@ type InterfaceMethod struct {
 	RecvMode ParamMode
 	Params   []FuncParam
 	Ret      Type // may be TypeSelf inside Copyable
+	Doc      string
 }
 
 // SelfPlaceholder represents `Self` inside interface definitions.
@@ -794,6 +800,7 @@ type Interface struct {
 	CName      string
 	PkgDir     string
 	IsTestOnly bool
+	Doc        string
 	Methods    []InterfaceMethod
 	UsesSelf   bool // if true (e.g. Copyable), usable as generic bound `[T: Copyable]`, not runtime fat pointer
 }

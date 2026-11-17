@@ -7,35 +7,91 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"lowlight/internal/ast"
 	"lowlight/internal/diag"
+	"lowlight/internal/docgen"
 	"lowlight/internal/driver"
+	"lowlight/internal/lexer"
 	"lowlight/internal/sema"
+	"lowlight/internal/token"
 )
+
+// FormatConfig holds editor-supplied formatting preferences from LSP configuration.
+type FormatConfig struct {
+	Indent       string `json:"indent"`
+	TabWidth     int    `json:"tabWidth"`
+	LineWidth    int    `json:"lineWidth"`
+	LineWidthSet bool   `json:"-"`
+}
+
+// InlayHintConfig controls optional LSP inlay hint categories.
+type InlayHintConfig struct {
+	Types      bool `json:"types"`
+	Parameters bool `json:"parameters"`
+}
+
+// ServerConfig stores dynamic workspace/didChangeConfiguration settings.
+type ServerConfig struct {
+	Format     FormatConfig
+	InlayHints InlayHintConfig
+}
+
+func defaultServerConfig() ServerConfig {
+	return ServerConfig{
+		InlayHints: InlayHintConfig{
+			Types:      true,
+			Parameters: true,
+		},
+	}
+}
+
+type cachedInlayEntry struct {
+	cfg   InlayHintConfig
+	hints []InlayHint
+}
+
+type cachedTokensEntry struct {
+	src    string
+	tokens []token.Token
+}
 
 // Server is a stateful Lowlight Language Server Protocol (LSP 3.17) instance.
 type Server struct {
 	conn *Conn
 
-	mu          sync.RWMutex
-	rootDir     string
-	docs        map[string]string              // canonical abs path -> open buffer content
-	docURIs     map[string]string              // canonical abs path -> exact client URI
-	cachedProgs map[string]*sema.CheckedProgram // canonical abs path -> latest CheckedProgram
-	latestDiags map[string][]Diagnostic        // canonical abs path -> latest published LSP diagnostics
-	shutdownReq bool
+	mu              sync.RWMutex
+	rootDir         string
+	config          ServerConfig
+	docs            map[string]string                            // canonical abs path -> open buffer content
+	docURIs         map[string]string                            // canonical abs path -> exact client URI
+	cachedProgs     map[string]*sema.CheckedProgram              // canonical abs path -> latest CheckedProgram
+	docIndices      map[*sema.CheckedProgram]*docgen.SymbolIndex // CheckedProgram -> doc link index
+	inlayCache      map[*sema.CheckedProgram]cachedInlayEntry    // CheckedProgram -> cached full-file inlay hints
+	semTokCache     map[*sema.CheckedProgram]*SemanticTokens     // CheckedProgram -> cached semantic tokens
+	tokenCache      map[string]cachedTokensEntry                 // canonical abs path -> cached lexed tokens
+	latestDiags     map[string][]Diagnostic                      // canonical abs path -> latest published LSP diagnostics
+	publishedImport map[string]map[string]bool                   // entry abs path -> imported abs paths last published for it
+	shutdownReq     bool
 }
 
 // NewServer creates a new Lowlight LSP server bound to `r` and `w` (typically stdin/stdout).
 func NewServer(r io.Reader, w io.Writer, logW io.Writer) *Server {
 	return &Server{
-		conn:        NewConn(r, w, logW),
-		docs:        make(map[string]string),
-		docURIs:     make(map[string]string),
-		cachedProgs: make(map[string]*sema.CheckedProgram),
-		latestDiags: make(map[string][]Diagnostic),
+		conn:            NewConn(r, w, logW),
+		config:          defaultServerConfig(),
+		docs:            make(map[string]string),
+		docURIs:         make(map[string]string),
+		cachedProgs:     make(map[string]*sema.CheckedProgram),
+		docIndices:      make(map[*sema.CheckedProgram]*docgen.SymbolIndex),
+		inlayCache:      make(map[*sema.CheckedProgram]cachedInlayEntry),
+		semTokCache:     make(map[*sema.CheckedProgram]*SemanticTokens),
+		tokenCache:      make(map[string]cachedTokensEntry),
+		latestDiags:     make(map[string][]Diagnostic),
+		publishedImport: make(map[string]map[string]bool),
 	}
 }
 
@@ -76,22 +132,29 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		} else if len(params.WorkspaceFolders) > 0 {
 			s.rootDir = URIToPath(params.WorkspaceFolders[0].URI)
 		}
+		if len(params.InitializationOptions) > 0 {
+			s.applyConfigLocked(params.InitializationOptions)
+		}
 		s.mu.Unlock()
 
 		res := InitializeResult{
 			Capabilities: ServerCapabilities{
 				TextDocumentSync: TextDocumentSyncOptions{
 					OpenClose: true,
-					Change:    1, // Full sync
+					Change:    2, // Incremental sync
 					Save:      true,
 				},
 				CompletionProvider: &CompletionOptions{
 					TriggerCharacters: []string{".", "?", "[", ":", "\"", "/"},
 				},
-				HoverProvider:          true,
-				DefinitionProvider:     true,
-				ImplementationProvider: true,
-				DocumentSymbolProvider: true,
+				HoverProvider:              true,
+				DefinitionProvider:         true,
+				TypeDefinitionProvider:     true,
+				DeclarationProvider:        true,
+				ImplementationProvider:     true,
+				ReferencesProvider:         true,
+				DocumentSymbolProvider:     true,
+				WorkspaceSymbolProvider:    true,
 				SignatureHelpProvider: &SignatureHelpOptions{
 					TriggerCharacters:   []string{"(", ","},
 					RetriggerCharacters: []string{","},
@@ -101,7 +164,13 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 				ExecuteCommandProvider:     &ExecuteCommandOptions{Commands: []string{"lowlight.runTest", "lowlight.runAllTests", "lowlight.runFile", "lowlight.runMain", "lowlight.goToLocation", "lowlight.showLocations", "lowlight.showImplementationsQuickPick"}},
 				DocumentFormattingProvider: true,
 				InlayHintProvider:          true,
-				RenameProvider:             RenameOptions{PrepareProvider: true},
+				FoldingRangeProvider:       true,
+				SelectionRangeProvider:     true,
+				SemanticTokensProvider: &SemanticTokensOptions{
+					Legend: semanticTokensLegend,
+					Full:   true,
+				},
+				RenameProvider: RenameOptions{PrepareProvider: true},
 			},
 			ServerInfo: &ServerInfo{
 				Name:    "lowlight-lsp",
@@ -114,6 +183,37 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 
 	case "initialized":
 		// Notification; nothing further required
+
+	case "workspace/didChangeConfiguration":
+		var params DidChangeConfigurationParams
+		if err := json.Unmarshal(msg.Params, &params); err == nil && len(params.Settings) > 0 {
+			s.mu.Lock()
+			s.applyConfigLocked(params.Settings)
+			s.mu.Unlock()
+		}
+
+	case "workspace/didChangeWatchedFiles":
+		var payload struct {
+			Changes []struct {
+				URI string `json:"uri"`
+			} `json:"changes"`
+		}
+		if err := json.Unmarshal(msg.Params, &payload); err == nil {
+			var openDeps []string
+			seen := make(map[string]bool)
+			s.mu.Lock()
+			for _, ch := range payload.Changes {
+				p := URIToPath(ch.URI)
+				for _, dep := range s.invalidateDependentsLocked(p) {
+					if !seen[dep] {
+						seen[dep] = true
+						openDeps = append(openDeps, dep)
+					}
+				}
+			}
+			s.mu.Unlock()
+			s.reanalyzeOpenPaths(openDeps, "")
+		}
 
 	case "shutdown":
 		s.mu.Lock()
@@ -132,7 +232,9 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		s.mu.Lock()
 		s.docs[path] = params.TextDocument.Text
 		s.docURIs[path] = params.TextDocument.URI
+		deps := s.invalidateDependentsLocked(path)
 		s.mu.Unlock()
+		s.reanalyzeOpenPaths(deps, path)
 		s.analyzeAndPublish(path, params.TextDocument.URI, params.TextDocument.Text)
 
 	case "textDocument/didChange":
@@ -155,7 +257,9 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		}
 		s.docs[path] = curText
 		s.docURIs[path] = params.TextDocument.URI
+		deps := s.invalidateDependentsLocked(path)
 		s.mu.Unlock()
+		s.reanalyzeOpenPaths(deps, path)
 		s.analyzeAndPublish(path, params.TextDocument.URI, curText)
 
 	case "textDocument/didSave":
@@ -169,10 +273,12 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 			s.docs[path] = *params.Text
 		}
 		curText, ok := s.docs[path]
+		deps := s.invalidateDependentsLocked(path)
 		s.mu.Unlock()
 		if !ok {
 			curText = s.readSourceForPath(path)
 		}
+		s.reanalyzeOpenPaths(deps, path)
 		s.analyzeAndPublish(path, params.TextDocument.URI, curText)
 
 	case "textDocument/didClose":
@@ -181,13 +287,29 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 			return
 		}
 		path := URIToPath(params.TextDocument.URI)
+		absClose := path
+		if a, err := filepath.Abs(path); err == nil {
+			absClose = a
+		}
 		s.mu.Lock()
 		delete(s.docs, path)
 		delete(s.docURIs, path)
-		delete(s.cachedProgs, path)
 		delete(s.latestDiags, path)
+		delete(s.tokenCache, absClose)
+		prevImports := s.publishedImport[path]
+		delete(s.publishedImport, path)
+		deps := s.invalidateDependentsLocked(path)
 		s.mu.Unlock()
-		// Clear squiggles for closed document
+		// Reanalyze open dependents and clear unopened imports BEFORE clearing closed document
+		s.reanalyzeOpenPaths(deps, path)
+		for imp := range prevImports {
+			if !s.isDocOpen(imp) {
+				_ = s.conn.SendNotification("textDocument/publishDiagnostics", PublishDiagnosticsParams{
+					URI:         PathToURI(imp),
+					Diagnostics: []Diagnostic{},
+				})
+			}
+		}
 		_ = s.conn.SendNotification("textDocument/publishDiagnostics", PublishDiagnosticsParams{
 			URI:         params.TextDocument.URI,
 			Diagnostics: []Diagnostic{},
@@ -237,6 +359,120 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		src := s.readSourceForPath(path)
 		loc := s.computeDefinition(path, src, params.Position)
 		_ = s.conn.SendResponse(*msg.ID, loc, nil)
+
+	case "textDocument/typeDefinition":
+		if msg.ID == nil {
+			return
+		}
+		var params TextDocumentPositionParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		path := URIToPath(params.TextDocument.URI)
+		src := s.readSourceForPath(path)
+		loc := s.computeTypeDefinition(path, src, params.Position)
+		_ = s.conn.SendResponse(*msg.ID, loc, nil)
+
+	case "textDocument/declaration":
+		if msg.ID == nil {
+			return
+		}
+		var params TextDocumentPositionParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		path := URIToPath(params.TextDocument.URI)
+		src := s.readSourceForPath(path)
+		loc := s.computeDeclaration(path, src, params.Position)
+		_ = s.conn.SendResponse(*msg.ID, loc, nil)
+
+	case "textDocument/references":
+		if msg.ID == nil {
+			return
+		}
+		var params ReferenceParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		path := URIToPath(params.TextDocument.URI)
+		src := s.readSourceForPath(path)
+		locs := s.computeReferences(path, src, params.Position, params.Context.IncludeDeclaration)
+		if locs == nil {
+			locs = []Location{}
+		}
+		_ = s.conn.SendResponse(*msg.ID, locs, nil)
+
+	case "workspace/symbol":
+		if msg.ID == nil {
+			return
+		}
+		var params WorkspaceSymbolParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		syms := s.computeWorkspaceSymbols(params.Query)
+		if syms == nil {
+			syms = []SymbolInformation{}
+		}
+		_ = s.conn.SendResponse(*msg.ID, syms, nil)
+
+	case "textDocument/foldingRange":
+		if msg.ID == nil {
+			return
+		}
+		var params FoldingRangeParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		path := URIToPath(params.TextDocument.URI)
+		src := s.readSourceForPath(path)
+		ranges := s.computeFoldingRanges(path, src)
+		if ranges == nil {
+			ranges = []FoldingRange{}
+		}
+		_ = s.conn.SendResponse(*msg.ID, ranges, nil)
+
+	case "textDocument/selectionRange":
+		if msg.ID == nil {
+			return
+		}
+		var params SelectionRangeParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		path := URIToPath(params.TextDocument.URI)
+		src := s.readSourceForPath(path)
+		selRanges := s.computeSelectionRanges(path, src, params.Positions)
+		if selRanges == nil {
+			selRanges = []*SelectionRange{}
+		}
+		_ = s.conn.SendResponse(*msg.ID, selRanges, nil)
+
+	case "textDocument/semanticTokens/full":
+		if msg.ID == nil {
+			return
+		}
+		var params SemanticTokensParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		path := URIToPath(params.TextDocument.URI)
+		src := s.readSourceForPath(path)
+		toks := s.computeSemanticTokens(path, src)
+		if toks == nil {
+			toks = &SemanticTokens{Data: []uint32{}}
+		}
+		if toks.Data == nil {
+			toks.Data = []uint32{}
+		}
+		_ = s.conn.SendResponse(*msg.ID, toks, nil)
 
 	case "textDocument/implementation":
 		if msg.ID == nil {
@@ -314,7 +550,7 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		}
 		path := URIToPath(params.TextDocument.URI)
 		src := s.readSourceForPath(path)
-		edits := s.computeDocumentFormatting(src, params.Options)
+		edits := s.computeDocumentFormatting(path, src, params.Options)
 		if edits == nil {
 			edits = []TextEdit{}
 		}
@@ -408,7 +644,12 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 			}
 			_ = s.conn.SendResponse(*msg.ID, res, nil)
 		case "lowlight.showLocations":
-			_ = s.conn.SendResponse(*msg.ID, map[string]any{"success": true}, nil)
+			res, err := s.executeShowLocations(params.Arguments)
+			if err != nil {
+				_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeRequestFailed, Message: err.Error()})
+				return
+			}
+			_ = s.conn.SendResponse(*msg.ID, res, nil)
 		case "lowlight.showImplementationsQuickPick":
 			if len(params.Arguments) > 1 {
 				var items []QuickPickLocationItem
@@ -457,28 +698,40 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 }
 
 func (s *Server) analyzeAndPublish(filePath string, clientURI string, src string) {
-	overlays := s.snapshotOverlays()
-	overlays[filePath] = src
-
-	rep := diag.NewReporter()
-	prog := sema.CheckForIDE(filePath, overlays, s.projectRootFor(filePath), rep)
-
 	absFile, err := filepath.Abs(filePath)
 	if err != nil {
 		absFile = filePath
 	}
 
-	lspDiags := make([]Diagnostic, 0)
+	overlays := s.snapshotOverlays()
+	overlays[absFile] = src
+
+	rep := diag.NewReporter()
+	prog := sema.CheckForIDE(absFile, overlays, s.projectRootFor(absFile), rep)
+
+	diagsByFile := make(map[string][]Diagnostic)
+	fileSrcCache := map[string]string{absFile: src}
+
 	for _, d := range rep.Diagnostics() {
 		dFile := d.Span.Start.File
 		if dFile != "" {
 			if dAbs, err2 := filepath.Abs(dFile); err2 == nil {
 				dFile = dAbs
 			}
+		} else {
+			dFile = absFile
 		}
-		if dFile != "" && dFile != absFile {
-			continue
+
+		dSrc, ok := fileSrcCache[dFile]
+		if !ok {
+			if ov, hasOv := overlays[dFile]; hasOv {
+				dSrc = ov
+			} else {
+				dSrc = s.readSourceForPath(dFile)
+			}
+			fileSrcCache[dFile] = dSrc
 		}
+
 		sev := SeverityError
 		if d.Severity == diag.Warning {
 			sev = SeverityWarning
@@ -489,9 +742,9 @@ func (s *Server) analyzeAndPublish(filePath string, clientURI string, src string
 		}
 		var rng Range
 		if d.Span.Start.Line > 0 {
-			rng = SpanToLSP(src, d.Span)
+			rng = SpanToLSP(dSrc, d.Span)
 		}
-		lspDiags = append(lspDiags, Diagnostic{
+		diagsByFile[dFile] = append(diagsByFile[dFile], Diagnostic{
 			Range:    rng,
 			Severity: sev,
 			Source:   "lowlight",
@@ -499,21 +752,180 @@ func (s *Server) analyzeAndPublish(filePath string, clientURI string, src string
 		})
 	}
 
+	entryDiags := diagsByFile[absFile]
+	if entryDiags == nil {
+		entryDiags = []Diagnostic{}
+	}
+
+	newImports := make(map[string]bool)
+	for dFile := range diagsByFile {
+		if dFile != absFile {
+			newImports[dFile] = true
+		}
+	}
+
+	var clearedImports []string
+	var importPublishList []struct {
+		uri   string
+		diags []Diagnostic
+	}
+
 	s.mu.Lock()
+	if old, ok := s.cachedProgs[absFile]; ok && old != prog {
+		s.dropProgCachesLocked(old)
+	}
 	s.cachedProgs[absFile] = prog
-	s.latestDiags[absFile] = lspDiags
+	s.latestDiags[absFile] = entryDiags
 	if clientURI == "" {
 		clientURI = s.docURIs[absFile]
+	}
+	prevImports := s.publishedImport[absFile]
+	s.publishedImport[absFile] = newImports
+
+	for imp := range prevImports {
+		if !newImports[imp] {
+			_, isOpen := s.docs[imp]
+			if !isOpen || len(s.latestDiags[imp]) == 0 {
+				delete(s.latestDiags, imp)
+				clearedImports = append(clearedImports, imp)
+			}
+		}
+	}
+	for imp := range newImports {
+		impURI := s.docURIs[imp]
+		if impURI == "" {
+			impURI = PathToURI(imp)
+		}
+		impDiags := diagsByFile[imp]
+		s.latestDiags[imp] = impDiags
+		importPublishList = append(importPublishList, struct {
+			uri   string
+			diags []Diagnostic
+		}{uri: impURI, diags: impDiags})
 	}
 	s.mu.Unlock()
 
 	if clientURI == "" {
 		clientURI = PathToURI(absFile)
 	}
+	for _, pub := range importPublishList {
+		_ = s.conn.SendNotification("textDocument/publishDiagnostics", PublishDiagnosticsParams{
+			URI:         pub.uri,
+			Diagnostics: pub.diags,
+		})
+	}
+	for _, cleared := range clearedImports {
+		_ = s.conn.SendNotification("textDocument/publishDiagnostics", PublishDiagnosticsParams{
+			URI:         PathToURI(cleared),
+			Diagnostics: []Diagnostic{},
+		})
+	}
 	_ = s.conn.SendNotification("textDocument/publishDiagnostics", PublishDiagnosticsParams{
 		URI:         clientURI,
-		Diagnostics: lspDiags,
+		Diagnostics: entryDiags,
 	})
+}
+
+func (s *Server) dropProgCachesLocked(prog *sema.CheckedProgram) {
+	if prog == nil {
+		return
+	}
+	delete(s.docIndices, prog)
+	delete(s.inlayCache, prog)
+	delete(s.semTokCache, prog)
+}
+
+func (s *Server) invalidateDependentsLocked(changedPath string) []string {
+	absChanged, err := filepath.Abs(changedPath)
+	if err != nil {
+		absChanged = changedPath
+	}
+	if old, ok := s.cachedProgs[absChanged]; ok && old != nil {
+		s.dropProgCachesLocked(old)
+	}
+	delete(s.cachedProgs, absChanged)
+	delete(s.tokenCache, absChanged)
+
+	changedBase := filepath.Base(absChanged)
+	changedSlash := filepath.ToSlash(absChanged)
+
+	var openDependents []string
+	for k, p := range s.cachedProgs {
+		if k == absChanged {
+			continue
+		}
+		depends := false
+		if p != nil {
+			for _, m := range p.Modules {
+				if m == nil {
+					continue
+				}
+				mAbs, err := filepath.Abs(m.Path)
+				if err != nil {
+					mAbs = m.Path
+				}
+				if mAbs == absChanged {
+					depends = true
+					break
+				}
+			}
+			// Also catch unresolved imports matching the changed file (e.g., before creation or with syntax error).
+			if !depends && p.EntryMod != nil && p.EntryMod.File != nil {
+				for _, decl := range p.EntryMod.File.Decls {
+					imp, ok := decl.(*ast.ImportDecl)
+					if !ok || imp.Path == "" {
+						continue
+					}
+					impFile := imp.Path
+					if !strings.HasSuffix(impFile, ".ll") {
+						impFile += ".ll"
+					}
+					impSlash := filepath.ToSlash(impFile)
+					if filepath.Base(impSlash) == changedBase || strings.HasSuffix(changedSlash, "/"+impSlash) {
+						depends = true
+						break
+					}
+				}
+			}
+		}
+		if depends {
+			s.dropProgCachesLocked(p)
+			delete(s.cachedProgs, k)
+			if _, isOpen := s.docs[k]; isOpen {
+				openDependents = append(openDependents, k)
+			}
+		}
+	}
+	return openDependents
+}
+
+func (s *Server) reanalyzeOpenPaths(paths []string, skipPath string) {
+	absSkip := skipPath
+	if skipPath != "" {
+		if a, err := filepath.Abs(skipPath); err == nil {
+			absSkip = a
+		}
+	}
+	for _, p := range paths {
+		if absSkip != "" && p == absSkip {
+			continue
+		}
+		s.mu.RLock()
+		src, ok := s.docs[p]
+		uri := s.docURIs[p]
+		s.mu.RUnlock()
+		if !ok {
+			continue
+		}
+		s.analyzeAndPublish(p, uri, src)
+	}
+}
+
+func (s *Server) isDocOpen(absPath string) bool {
+	s.mu.RLock()
+	_, ok := s.docs[absPath]
+	s.mu.RUnlock()
+	return ok
 }
 
 func (s *Server) getOrCheckProgram(filePath string, src string) *sema.CheckedProgram {
@@ -533,9 +945,33 @@ func (s *Server) getOrCheckProgram(filePath string, src string) *sema.CheckedPro
 	rep := diag.NewReporter()
 	prog := sema.CheckForIDE(abs, overlays, s.projectRootFor(abs), rep)
 	s.mu.Lock()
+	if old, ok := s.cachedProgs[abs]; ok && old != prog {
+		s.dropProgCachesLocked(old)
+	}
 	s.cachedProgs[abs] = prog
 	s.mu.Unlock()
 	return prog
+}
+
+func (s *Server) getLexedTokens(filePath string, src string) []token.Token {
+	abs, err := filepath.Abs(filePath)
+	if err != nil {
+		abs = filePath
+	}
+	s.mu.RLock()
+	entry, ok := s.tokenCache[abs]
+	s.mu.RUnlock()
+	if ok && entry.src == src {
+		return entry.tokens
+	}
+	toks := lexer.Lex(abs, src, diag.NewReporter())
+	s.mu.Lock()
+	if len(s.tokenCache) > 64 {
+		s.tokenCache = make(map[string]cachedTokensEntry)
+	}
+	s.tokenCache[abs] = cachedTokensEntry{src: src, tokens: toks}
+	s.mu.Unlock()
+	return toks
 }
 
 func (s *Server) latestDiagnosticsFor(filePath string) []Diagnostic {
@@ -580,14 +1016,143 @@ func (s *Server) projectRootFor(filePath string) string {
 	s.mu.RLock()
 	root := s.rootDir
 	s.mu.RUnlock()
-	if root != "" {
-		if _, err := os.Stat(filepath.Join(root, "std")); err == nil {
-			return root
+
+	if filePath != "" {
+		absFile, err := filepath.Abs(filePath)
+		if err != nil {
+			absFile = filePath
+		}
+		// Walk up from file directory looking for project markers (.lowlightfmt, lowlight.toml, std/, .git).
+		dir := filepath.Dir(absFile)
+		for dir != "" {
+			for _, marker := range []string{"lowlight.toml", ".lowlightfmt", "std"} {
+				if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+					return dir
+				}
+			}
+			if root != "" && filepath.Clean(dir) == filepath.Clean(root) {
+				return root
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
 		}
 	}
-	// Let sema's `findProjectRoot` discover `LOWLIGHT_ROOT`, ancestor `std/`, or executable dir `std/`
-	_ = filePath
+
+	if root != "" {
+		return root
+	}
+	if filePath != "" {
+		if absFile, err := filepath.Abs(filePath); err == nil {
+			return filepath.Dir(absFile)
+		}
+		return filepath.Dir(filePath)
+	}
 	return ""
+}
+
+func (s *Server) applyConfigLocked(raw json.RawMessage) {
+	if len(raw) == 0 {
+		return
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return
+	}
+	// Accept either `{"lowlight": {...}}` or flat `{...}`.
+	if sub, ok := top["lowlight"]; ok {
+		var nested map[string]json.RawMessage
+		if err := json.Unmarshal(sub, &nested); err == nil {
+			top = nested
+		}
+	}
+	if fmtRaw, ok := top["format"]; ok {
+		var fmtMap map[string]json.RawMessage
+		if err := json.Unmarshal(fmtRaw, &fmtMap); err == nil {
+			if v, ok := fmtMap["indent"]; ok {
+				var ind string
+				if json.Unmarshal(v, &ind) == nil && (ind == "tabs" || ind == "spaces") {
+					s.config.Format.Indent = ind
+				}
+			}
+			if v, ok := fmtMap["tabWidth"]; ok {
+				var tw int
+				if json.Unmarshal(v, &tw) == nil && tw > 0 {
+					s.config.Format.TabWidth = tw
+				}
+			}
+			if v, ok := fmtMap["lineWidth"]; ok {
+				var lw int
+				if json.Unmarshal(v, &lw) == nil && lw >= 0 {
+					s.config.Format.LineWidth = lw
+					s.config.Format.LineWidthSet = true
+				}
+			}
+		}
+	}
+	if ihRaw, ok := top["inlayHints"]; ok {
+		var ihMap map[string]json.RawMessage
+		if err := json.Unmarshal(ihRaw, &ihMap); err == nil {
+			if v, ok := ihMap["types"]; ok {
+				var b bool
+				if json.Unmarshal(v, &b) == nil {
+					s.config.InlayHints.Types = b
+				}
+			}
+			if v, ok := ihMap["parameters"]; ok {
+				var b bool
+				if json.Unmarshal(v, &b) == nil {
+					s.config.InlayHints.Parameters = b
+				}
+			}
+		}
+	}
+}
+
+func (s *Server) getFormatConfig() FormatConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config.Format
+}
+
+func (s *Server) getInlayHintConfig() InlayHintConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config.InlayHints
+}
+
+func (s *Server) executeShowLocations(rawArgs []json.RawMessage) (any, error) {
+	var locs []Location
+	switch {
+	case len(rawArgs) >= 3:
+		_ = json.Unmarshal(rawArgs[2], &locs)
+	case len(rawArgs) == 1:
+		_ = json.Unmarshal(rawArgs[0], &locs)
+	}
+	if len(locs) > 0 && locs[0].URI != "" {
+		_ = s.conn.SendRequest(time.Now().UnixNano(), "window/showDocument", ShowDocumentParams{
+			URI:       locs[0].URI,
+			TakeFocus: true,
+			Selection: &locs[0].Range,
+		})
+	}
+	if len(locs) > 1 {
+		var summary []string
+		for _, loc := range locs {
+			summary = append(summary, fmt.Sprintf("%s:%d:%d", filepath.Base(URIToPath(loc.URI)), loc.Range.Start.Line+1, loc.Range.Start.Character+1))
+		}
+		_ = s.conn.SendNotification("window/showMessage", ShowMessageParams{
+			Type:    MessageTypeInfo,
+			Message: "Locations: " + strings.Join(summary, ", "),
+		})
+	}
+	return map[string]any{
+		"success":   true,
+		"count":     len(locs),
+		"locations": locs,
+	}, nil
 }
 
 func applyIncrementalChange(src string, rng Range, newText string) string {

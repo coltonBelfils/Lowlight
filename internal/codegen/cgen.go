@@ -576,6 +576,24 @@ func (g *cEmitter) emitDistinctHelpers(d *types.Distinct) {
 	}
 }
 
+// emitCustomEqAndCmp emits `ll_eq__` / `ll_cmp__` wrappers delegating to user-defined
+// `.eq` / `.cmp` methods when present, returning true if equality was satisfied.
+func (g *cEmitter) emitCustomEqAndCmp(t types.Type, cTy string) bool {
+	handledEq := false
+	if custom := g.prog.Checked.LookupConcreteMethod(t, "eq"); custom != nil {
+		g.line("static inline bool %s(%s a, %s b) { return %s(a, b); }", ir.EqFnName(t), cTy, cTy, custom.CName)
+		handledEq = true
+	}
+	if customCmp := g.prog.Checked.LookupConcreteMethod(t, "cmp"); customCmp != nil {
+		if !handledEq {
+			g.line("static inline bool %s(%s a, %s b) { return %s(a, b) == 0; }", ir.EqFnName(t), cTy, cTy, customCmp.CName)
+			handledEq = true
+		}
+		g.line("static inline int64_t %s(%s a, %s b) { return %s(a, b); }", ir.CmpFnName(t), cTy, cTy, customCmp.CName)
+	}
+	return handledEq
+}
+
 func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
 	cEn := CType(en)
 
@@ -625,8 +643,8 @@ func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
 		g.line("}")
 	}
 
-	// eq
-	if CanEqType(g.prog, en) {
+	// eq / cmp
+	if !g.emitCustomEqAndCmp(en, cEn) && CanEqType(g.prog, en) {
 		g.line("static inline bool %s(%s a, %s b) {", ir.EqFnName(en), cEn, cEn)
 		g.line("    if (a.tag != b.tag) return false;")
 		g.line("    switch (a.tag) {")
@@ -714,12 +732,8 @@ func (g *cEmitter) emitStructHelpers(st *types.Struct) {
 		g.line("}")
 	}
 
-	// eq
-	if custom := g.prog.Checked.LookupConcreteMethod(st, "eq"); custom != nil {
-		g.line("static inline bool %s(%s a, %s b) { return %s(a, b); }", ir.EqFnName(st), cSt, cSt, custom.CName)
-	} else if customCmp := g.prog.Checked.LookupConcreteMethod(st, "cmp"); customCmp != nil {
-		g.line("static inline bool %s(%s a, %s b) { return %s(a, b) == 0; }", ir.EqFnName(st), cSt, cSt, customCmp.CName)
-	} else if CanEqType(g.prog, st) {
+	// eq / cmp
+	if !g.emitCustomEqAndCmp(st, cSt) && CanEqType(g.prog, st) {
 		g.line("static inline bool %s(%s a, %s b) {", ir.EqFnName(st), cSt, cSt)
 		g.line("    (void)a; (void)b;")
 		for _, f := range st.Fields {
@@ -727,11 +741,6 @@ func (g *cEmitter) emitStructHelpers(st *types.Struct) {
 		}
 		g.line("    return true;")
 		g.line("}")
-	}
-
-	// cmp (if custom cmp method defined)
-	if customCmp := g.prog.Checked.LookupConcreteMethod(st, "cmp"); customCmp != nil {
-		g.line("static inline int64_t %s(%s a, %s b) { return %s(a, b); }", ir.CmpFnName(st), cSt, cSt, customCmp.CName)
 	}
 
 	// to_string (only if custom `to_string` defined)

@@ -31,6 +31,15 @@ type rawToken struct {
 	blockLevelAfter bool
 }
 
+// Comment represents a lexical single-line (`//`) or multi-line (`/* ... */`) comment.
+type Comment struct {
+	Text             string
+	Raw              string
+	Span             diag.Span
+	IsBlock          bool
+	OnSameLineAsPrev bool
+}
+
 // Lexer scans a single Lowlight source file into tokens.
 type Lexer struct {
 	file   string
@@ -40,15 +49,23 @@ type Lexer struct {
 	col    int
 	rep    *diag.Reporter
 
-	delims  []delimKind
-	rawToks []rawToken
+	delims   []delimKind
+	rawToks  []rawToken
+	comments []Comment
 
 	sawNewlineSinceLastTok bool
 	prevWasSpaceOrStart    bool
+	lastTokLine            int
 }
 
 // Lex tokenizes src and returns the final token slice (ending with token.EOF).
 func Lex(filename, src string, rep *diag.Reporter) []token.Token {
+	toks, _ := LexWithComments(filename, src, rep)
+	return toks
+}
+
+// LexWithComments tokenizes src and returns both the final token slice and all scanned comments.
+func LexWithComments(filename, src string, rep *diag.Reporter) ([]token.Token, []Comment) {
 	l := &Lexer{
 		file:                filename,
 		src:                 src,
@@ -58,7 +75,7 @@ func Lex(filename, src string, rep *diag.Reporter) []token.Token {
 		prevWasSpaceOrStart: true,
 	}
 	l.scanAll()
-	return l.insertSemicolons()
+	return l.insertSemicolons(), l.comments
 }
 
 func (l *Lexer) pos() diag.Pos {
@@ -131,6 +148,9 @@ func (l *Lexer) emit(kind token.Kind, text string, start, end diag.Pos) {
 		newlineBefore:   l.sawNewlineSinceLastTok,
 		blockLevelAfter: l.isBlockLevel(),
 	})
+	if kind != token.EOF {
+		l.lastTokLine = end.Line
+	}
 	l.sawNewlineSinceLastTok = false
 	l.prevWasSpaceOrStart = false
 }
@@ -151,15 +171,28 @@ func (l *Lexer) skipWhitespaceAndComments() {
 		}
 		// Single-line comment //
 		if ch == '/' && l.peekAt(1) == '/' {
+			start := l.pos()
+			startOff := l.offset
 			for !l.eof() && l.peek() != '\n' {
 				l.advance()
 			}
+			end := l.pos()
+			raw := l.src[startOff:l.offset]
+			text := strings.TrimPrefix(raw, "//")
+			l.comments = append(l.comments, Comment{
+				Text:             text,
+				Raw:              raw,
+				Span:             diag.Span{Start: start, End: end},
+				IsBlock:          false,
+				OnSameLineAsPrev: l.lastTokLine == start.Line,
+			})
 			l.prevWasSpaceOrStart = true
 			continue
 		}
 		// Multi-line comment /* ... */
 		if ch == '/' && l.peekAt(1) == '*' {
 			start := l.pos()
+			startOff := l.offset
 			l.advance()
 			l.advance()
 			closed := false
@@ -175,9 +208,22 @@ func (l *Lexer) skipWhitespaceAndComments() {
 				}
 				l.advance()
 			}
+			end := l.pos()
 			if !closed {
-				l.rep.Errorf(diag.Span{Start: start, End: l.pos()}, "unterminated multi-line comment")
+				l.rep.Errorf(diag.Span{Start: start, End: end}, "unterminated multi-line comment")
 			}
+			raw := l.src[startOff:l.offset]
+			text := strings.TrimPrefix(raw, "/*")
+			if closed {
+				text = strings.TrimSuffix(text, "*/")
+			}
+			l.comments = append(l.comments, Comment{
+				Text:             text,
+				Raw:              raw,
+				Span:             diag.Span{Start: start, End: end},
+				IsBlock:          true,
+				OnSameLineAsPrev: l.lastTokLine == start.Line,
+			})
 			l.prevWasSpaceOrStart = true
 			continue
 		}

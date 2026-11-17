@@ -13,6 +13,7 @@ import (
 	"lowlight/internal/diag"
 	"lowlight/internal/driver"
 	"lowlight/internal/sema"
+	"lowlight/internal/types"
 )
 
 // TestCaseInfo describes an automated test function detected in a Lowlight document.
@@ -168,7 +169,9 @@ func (s *Server) buildQuickPickItems(targets []sema.ImplementationTarget, isInte
 	return items
 }
 
-func (s *Server) allInterfaceImplementingTargets(ifcName string, prog *sema.CheckedProgram, mod *sema.Module) []sema.ImplementationTarget {
+// loadedInterfaceImplementingTargets collects implementing targets for `ifcName`
+// from `prog`, currently cached programs, and open editor buffers without walking disk files.
+func (s *Server) loadedInterfaceImplementingTargets(ifcName string, prog *sema.CheckedProgram, mod *sema.Module) []sema.ImplementationTarget {
 	seen := make(map[string]bool)
 	var res []sema.ImplementationTarget
 	add := func(tgt sema.ImplementationTarget) {
@@ -182,14 +185,12 @@ func (s *Server) allInterfaceImplementingTargets(ifcName string, prog *sema.Chec
 		}
 	}
 
-	// 1. Current program
 	if prog != nil {
 		for _, tgt := range prog.InterfaceImplementingTargets(ifcName, mod) {
 			add(tgt)
 		}
 	}
 
-	// 2. All other cached programs in the LSP session
 	s.mu.RLock()
 	var otherProgs []*sema.CheckedProgram
 	for _, p := range s.cachedProgs {
@@ -203,7 +204,6 @@ func (s *Server) allInterfaceImplementingTargets(ifcName string, prog *sema.Chec
 			uninspectedDocs = append(uninspectedDocs, struct{ path, src string }{docPath, docSrc})
 		}
 	}
-	rootDir := s.rootDir
 	s.mu.RUnlock()
 
 	for _, p := range otherProgs {
@@ -221,15 +221,90 @@ func (s *Server) allInterfaceImplementingTargets(ifcName string, prog *sema.Chec
 		}
 	}
 
-	// 3. Scan workspace root for any other .ll files
+	return res
+}
+
+func interfaceRequiredMethods(ifcName string, prog *sema.CheckedProgram, mod *sema.Module) ([]string, bool) {
+	baseIfc := ifcName
+	if idx := strings.IndexByte(baseIfc, '['); idx >= 0 {
+		baseIfc = baseIfc[:idx]
+	}
+	if mod != nil {
+		if t, ok := mod.Types[baseIfc]; ok {
+			if ifc, ok2 := t.(*types.Interface); ok2 {
+				names := make([]string, 0, len(ifc.Methods))
+				for _, m := range ifc.Methods {
+					names = append(names, m.Name)
+				}
+				return names, true
+			}
+		}
+		if gi, ok := mod.GenericInterfaces[baseIfc]; ok && gi != nil && gi.Decl != nil {
+			names := make([]string, 0, len(gi.Decl.Methods))
+			for _, m := range gi.Decl.Methods {
+				names = append(names, m.Name)
+			}
+			return names, true
+		}
+	}
+	if prog != nil {
+		for _, ifc := range prog.AllInterfaces() {
+			if ifc != nil && ifc.Name == baseIfc {
+				names := make([]string, 0, len(ifc.Methods))
+				for _, m := range ifc.Methods {
+					names = append(names, m.Name)
+				}
+				return names, true
+			}
+		}
+		for _, gi := range prog.AllGenericInterfaces() {
+			if gi != nil && gi.Decl != nil && gi.Decl.Name == baseIfc {
+				names := make([]string, 0, len(gi.Decl.Methods))
+				for _, m := range gi.Decl.Methods {
+					names = append(names, m.Name)
+				}
+				return names, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func (s *Server) allInterfaceImplementingTargets(ifcName string, prog *sema.CheckedProgram, mod *sema.Module) []sema.ImplementationTarget {
+	res := s.loadedInterfaceImplementingTargets(ifcName, prog, mod)
+	seen := make(map[string]bool, len(res))
+	for _, tgt := range res {
+		key := tgt.Name
+		if tgt.Span.Start.File != "" {
+			key = fmt.Sprintf("%s:%s:%d:%d", tgt.Name, tgt.Span.Start.File, tgt.Span.Start.Line, tgt.Span.Start.Col)
+		}
+		seen[key] = true
+	}
+	add := func(tgt sema.ImplementationTarget) {
+		key := tgt.Name
+		if tgt.Span.Start.File != "" {
+			key = fmt.Sprintf("%s:%s:%d:%d", tgt.Name, tgt.Span.Start.File, tgt.Span.Start.Line, tgt.Span.Start.Col)
+		}
+		if !seen[key] {
+			seen[key] = true
+			res = append(res, tgt)
+		}
+	}
+
+	reqMethods, hasMethods := interfaceRequiredMethods(ifcName, prog, mod)
+
+	s.mu.RLock()
+	rootDir := s.rootDir
+	s.mu.RUnlock()
+
+	// Scan workspace root for any other `.ll` files that define matching methods.
 	if rootDir != "" {
 		_ = filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info == nil {
 				return nil
 			}
 			if info.IsDir() {
-				name := info.Name()
-				if strings.HasPrefix(name, ".") || name == "bin" || name == "node_modules" || name == "target" || name == "dist" || name == "scratch" || strings.HasSuffix(filepath.ToSlash(path), "editors/vscode/lowlight/std") {
+				if shouldSkipWorkspaceDir(info.Name()) {
 					return filepath.SkipDir
 				}
 				return nil
@@ -244,12 +319,30 @@ func (s *Server) allInterfaceImplementingTargets(ifcName string, prog *sema.Chec
 				s.mu.RUnlock()
 				if !alreadyCached {
 					content := s.readSourceForPath(abs)
-					if strings.Contains(content, "define ") || strings.Contains(content, "bind ") {
-						p := s.getOrCheckProgram(abs, content)
-						if p != nil {
-							for _, tgt := range p.InterfaceImplementingTargets(ifcName, nil) {
-								add(tgt)
+					if !strings.Contains(content, "define ") {
+						return nil
+					}
+					if hasMethods && len(reqMethods) > 0 {
+						if !strings.Contains(content, "bind ") {
+							return nil
+						}
+						allPresent := true
+						for _, mName := range reqMethods {
+							if !strings.Contains(content, "."+mName) {
+								allPresent = false
+								break
 							}
+						}
+						if !allPresent {
+							return nil
+						}
+					} else if !strings.Contains(content, "bind ") {
+						return nil
+					}
+					p := s.getOrCheckProgram(abs, content)
+					if p != nil {
+						for _, tgt := range p.InterfaceImplementingTargets(ifcName, nil) {
+							add(tgt)
 						}
 					}
 				}
@@ -326,7 +419,7 @@ func (s *Server) computeCodeLenses(filePath string, src string) []CodeLens {
 				if line < 0 {
 					line = 0
 				}
-				targets := s.allInterfaceImplementingTargets(decl.Name, prog, mod)
+				targets := s.loadedInterfaceImplementingTargets(decl.Name, prog, mod)
 				if len(targets) > 0 {
 					items := s.buildQuickPickItems(targets, false)
 					title := fmt.Sprintf("▶ %d implementations", len(targets))
@@ -472,44 +565,67 @@ func (s *Server) computeTestCodeActions(filePath string, src string, cursor Rang
 		})
 	}
 
-	// If cursor is on a non-test function, suggest generating a test for it!
+	// If cursor is on a non-test function or method, suggest generating a test for it!
 	prog := s.getOrCheckProgram(filePath, src)
 	mod := findModuleForPath(prog, filePath)
 	if mod != nil && mod.File != nil {
+		ind := detectFileIndent(filePath, src)
+		docEnd := OffsetToLSP(src, len(src))
 		for _, d := range mod.File.Decls {
-			vd, ok := d.(*ast.VarDecl)
-			if !ok || vd.Name == "main" || vd.Name == "test_main" {
-				continue
-			}
-			// Check if already a test
-			isTest := false
-			for _, attr := range vd.Attributes {
-				if attr.Name == "test" {
-					isTest = true
-					break
+			switch decl := d.(type) {
+			case *ast.VarDecl:
+				if decl.Name == "main" || decl.Name == "test_main" {
+					continue
 				}
-			}
-			if isTest {
-				continue
-			}
-
-			fnRange := SpanToLSP(src, vd.Span)
-			if rangesOverlap(fnRange, cursor) || cursor.Start.Line == vd.Span.Start.Line-1 {
-				testStub := fmt.Sprintf("\n\n@test(\"test %s\")\nbind test_%s = (): {\n    // TODO: test %s\n}\n", vd.Name, vd.Name, vd.Name)
-				docEnd := OffsetToLSP(src, len(src))
-				actions = append(actions, CodeAction{
-					Title: fmt.Sprintf("Generate @test for '%s'", vd.Name),
-					Kind:  "refactor",
-					Edit: &WorkspaceEdit{
-						Changes: map[string][]TextEdit{
-							uri: {{
-								Range:   Range{Start: docEnd, End: docEnd},
-								NewText: testStub,
-							}},
+				if _, isFn := decl.Value.(*ast.FuncLit); !isFn {
+					continue
+				}
+				isTest := false
+				for _, attr := range decl.Attributes {
+					if attr.Name == "test" {
+						isTest = true
+						break
+					}
+				}
+				if isTest {
+					continue
+				}
+				fnRange := SpanToLSP(src, decl.Span)
+				if rangesOverlap(fnRange, cursor) || cursor.Start.Line == decl.Span.Start.Line-1 {
+					testStub := fmt.Sprintf("\n\n@test(\"%s\")\nbind test_%s = (): {\n%s// TODO: add assertions\n}\n", decl.Name, decl.Name, ind)
+					actions = append(actions, CodeAction{
+						Title: fmt.Sprintf("Generate @test for '%s'", decl.Name),
+						Kind:  "refactor",
+						Edit: &WorkspaceEdit{
+							Changes: map[string][]TextEdit{
+								uri: {{
+									Range:   Range{Start: docEnd, End: docEnd},
+									NewText: testStub,
+								}},
+							},
 						},
-					},
-				})
-				break
+					})
+					return actions
+				}
+			case *ast.MethodDecl:
+				qualName := decl.RecvType + "." + decl.Name
+				fnRange := SpanToLSP(src, decl.Span)
+				if rangesOverlap(fnRange, cursor) || cursor.Start.Line == decl.Span.Start.Line-1 {
+					testStub := fmt.Sprintf("\n\n@test(\"%s\")\nbind test_%s_%s = (): {\n%s// TODO: add assertions\n}\n", qualName, decl.RecvType, decl.Name, ind)
+					actions = append(actions, CodeAction{
+						Title: fmt.Sprintf("Generate @test for '%s'", qualName),
+						Kind:  "refactor",
+						Edit: &WorkspaceEdit{
+							Changes: map[string][]TextEdit{
+								uri: {{
+									Range:   Range{Start: docEnd, End: docEnd},
+									NewText: testStub,
+								}},
+							},
+						},
+					})
+					return actions
+				}
 			}
 		}
 	}

@@ -1,8 +1,8 @@
 {
   "name": "lowlight",
   "displayName": "Lowlight Language Support",
-  "description": "Official Lowlight v1.0 IDE support: real-time syntax/type/ownership diagnostics, autocomplete, hover, go-to-definition, signature help, outline symbols, quick fixes, and syntax highlighting.",
-  "version": "1.0.0",
+  "description": "Official Lowlight v1.0 IDE support: real-time syntax/type/ownership diagnostics, incremental sync, semantic tokens, rendered docs & links, autocomplete, hover, go-to-definition/type-def/declaration, cross-file references, workspace symbols, signature help, inlay hints, folding/selection ranges, code actions/refactorings, canonical formatting, and test runner.",
+  "version": "1.1.0",
   "publisher": "lowlight-lang",
   "license": "MIT",
   "engines": {
@@ -110,6 +110,36 @@
           "type": "boolean",
           "default": false,
           "description": "Log raw JSON-RPC LSP messages to the Lowlight Output channel."
+        },
+        "lowlight.format.indent": {
+          "type": "string",
+          "enum": ["tabs", "spaces"],
+          "default": "tabs",
+          "description": "Default indentation style when `.lowlightfmt` is absent (`tabs` or `spaces`)."
+        },
+        "lowlight.format.tabWidth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "default": 4,
+          "description": "Visual tab width (and space count when `lowlight.format.indent` is `spaces`) when `.lowlightfmt` is absent."
+        },
+        "lowlight.format.lineWidth": {
+          "type": "integer",
+          "minimum": 40,
+          "maximum": 240,
+          "default": 100,
+          "description": "Maximum target line width used by the Lowlight formatter when `.lowlightfmt` is absent."
+        },
+        "lowlight.inlayHints.types": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inferred type inlay hints on `let`/`bind`, loops, and optional bindings."
+        },
+        "lowlight.inlayHints.parameters": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show parameter name inlay hints at function and method call sites."
         }
       }
     }

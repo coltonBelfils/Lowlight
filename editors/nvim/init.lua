@@ -14,8 +14,8 @@ local function find_lowlight_root(fname)
   if path == '' then
     return vim.fn.getcwd()
   end
-  local root = vim.fs.root(path, { 'std', '.git', 'go.mod' })
-  return root or vim.fn.getcwd()
+  local root = vim.fs.root(path, { 'lowlight.toml', '.lowlightfmt', 'std', '.git', 'go.mod' })
+  return root or vim.fs.dirname(path)
 end
 
 -- 3. LSP Auto-Attachment for Lowlight
@@ -30,15 +30,63 @@ vim.api.nvim_create_autocmd('FileType', {
       cmd_env.LOWLIGHT_ROOT = root_dir
     end
 
+    local default_settings = {
+      lowlight = {
+        format = {
+          indent = 'tabs',
+          tabWidth = 4,
+          lineWidth = 100,
+        },
+        inlayHints = {
+          types = true,
+          parameters = true,
+        },
+      },
+    }
+
     local client_id = vim.lsp.start({
       name = 'lowlight-lsp',
       cmd = { 'lowlight', 'lsp', '--stdio' },
       root_dir = root_dir,
       cmd_env = cmd_env,
-      settings = {},
+      init_options = default_settings.lowlight,
+      settings = default_settings,
     })
 
     -- Register Lowlight LSP client-side command handlers (interactive UI & navigation)
+    vim.lsp.commands['lowlight.showLocations'] = function(command, _ctx)
+      local cmd_args = command.arguments or {}
+      local locs = cmd_args[3] or cmd_args[1] or {}
+      if type(locs) ~= 'table' or #locs == 0 then
+        vim.notify('No locations found', vim.log.levels.INFO)
+        return
+      end
+      if #locs == 1 and locs[1].uri then
+        local target = locs[1]
+        local fname = vim.uri_to_fname(target.uri)
+        local line = (target.range and target.range.start and target.range.start.line or 0) + 1
+        local col = (target.range and target.range.start and target.range.start.character or 0)
+        vim.cmd('edit ' .. vim.fn.fnameescape(fname))
+        vim.api.nvim_win_set_cursor(0, { line, col })
+        return
+      end
+      vim.ui.select(locs, {
+        prompt = 'Select location',
+        format_item = function(loc)
+          local fname = vim.fn.fnamemodify(vim.uri_to_fname(loc.uri or ''), ':.')
+          local line = (loc.range and loc.range.start and loc.range.start.line or 0) + 1
+          return string.format('%s:%d', fname, line)
+        end,
+      }, function(choice)
+        if choice and choice.uri then
+          local fname = vim.uri_to_fname(choice.uri)
+          local line = (choice.range and choice.range.start and choice.range.start.line or 0) + 1
+          local col = (choice.range and choice.range.start and choice.range.start.character or 0)
+          vim.cmd('edit ' .. vim.fn.fnameescape(fname))
+          vim.api.nvim_win_set_cursor(0, { line, col })
+        end
+      end)
+    end
     vim.lsp.commands['lowlight.showImplementationsQuickPick'] = function(command, ctx)
       local args = command.arguments or {}
       local title = args[1] or 'Select target'
@@ -139,9 +187,11 @@ vim.api.nvim_create_autocmd('FileType', {
       -- Core LSP keybindings
       vim.keymap.set('n', 'K', vim.lsp.buf.hover, bufopts)
       vim.keymap.set('n', 'gd', vim.lsp.buf.definition, bufopts)
-      vim.keymap.set('n', 'gD', vim.lsp.buf.definition, bufopts)
+      vim.keymap.set('n', 'gD', vim.lsp.buf.declaration, bufopts)
+      vim.keymap.set('n', 'gy', vim.lsp.buf.type_definition, bufopts)
       vim.keymap.set('n', 'gi', vim.lsp.buf.implementation, bufopts)
       vim.keymap.set('n', 'gr', vim.lsp.buf.references, bufopts)
+      vim.keymap.set('n', 'gS', vim.lsp.buf.workspace_symbol, bufopts)
       vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename, bufopts)
       vim.keymap.set({ 'n', 'v' }, '<leader>ca', vim.lsp.buf.code_action, bufopts)
       vim.keymap.set('n', '<C-k>', vim.lsp.buf.signature_help, bufopts)
@@ -196,13 +246,13 @@ vim.api.nvim_create_autocmd('FileType', {
   end,
 })
 
--- 4. Formatting & Indentation Preferences
+-- 4. Formatting & Indentation Preferences (canonical `\t` indentation)
 vim.api.nvim_create_autocmd('FileType', {
   pattern = 'lowlight',
   callback = function()
     vim.opt_local.tabstop = 4
     vim.opt_local.shiftwidth = 4
-    vim.opt_local.expandtab = true
+    vim.opt_local.expandtab = false
     vim.opt_local.commentstring = '// %s'
   end,
 })

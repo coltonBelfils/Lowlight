@@ -1,0 +1,11 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <platform.lsp.serverSupportProvider
+            implementation="dev.lowlight.intellij.lsp.nativeclient.LowlightNativeLspSupportProvider"/>
+    </extensions>
+
+    <extensions defaultExtensionNs="dev.lowlight.intellij">
+        <lspBackendBridge
+            implementation="dev.lowlight.intellij.lsp.nativeclient.LowlightNativeBackendBridge"/>
+    </extensions>
+</idea-plugin>

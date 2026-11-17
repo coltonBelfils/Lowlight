@@ -7,13 +7,15 @@ if exists("b:current_syntax")
   finish
 endif
 
-" Comments
-syn match   lowlightLineComment      "//.*$" contains=@Spell,lowlightTodo
-syn region  lowlightBlockComment     start="/\*" end="\*/" contains=@Spell,lowlightTodo
+" Comments & Documentation
+syn match   lowlightLineComment      "//.*$" contains=@Spell,lowlightTodo,lowlightDocHeading,lowlightDocLink
+syn region  lowlightBlockComment     start="/\*" end="\*/" contains=@Spell,lowlightTodo,lowlightDocHeading,lowlightDocLink
 syn keyword lowlightTodo             contained TODO FIXME XXX NOTE TIP IMPORTANT WARNING CAUTION
+syn match   lowlightDocHeading       contained "#\s\+\(Arguments\|Returns\|Errors\|Panics\|Examples\|Safety\|Complexity\|Notes\?\)\>"
+syn match   lowlightDocLink          contained "\[`[^`]\+`\]"
 
 " Keywords
-syn keyword lowlightKeyword          bind define struct enum interface as import extern
+syn keyword lowlightKeyword          bind define distinct struct enum interface as import extern
 syn keyword lowlightKeyword          let if else match when for while in next own unpack
 syn keyword lowlightKeyword          unsafe packed test func
 syn keyword lowlightSelf             self
@@ -68,6 +70,8 @@ syn region  lowlightInterpolation    contained matchgroup=lowlightInterpDelim st
 hi def link lowlightLineComment      Comment
 hi def link lowlightBlockComment     Comment
 hi def link lowlightTodo             Todo
+hi def link lowlightDocHeading       Title
+hi def link lowlightDocLink          Underlined
 hi def link lowlightKeyword          Keyword
 hi def link lowlightSelf             Keyword
 hi def link lowlightAttribute        PreProc

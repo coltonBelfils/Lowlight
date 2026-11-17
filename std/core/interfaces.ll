@@ -1,71 +1,113 @@
-// =============================================================================
-// Lowlight Core Interfaces & Language Contract Definitions
-// =============================================================================
+// std/core/interfaces — Core language contract interfaces and shared data types.
+//
+// Defines the foundational interfaces wired to compiler hooks via `@lang(...)`,
+// including [`Printable`], [`Copyable`], [`Drop`], [`Hashable`], [`Equatable`],
+// [`Comparable`], [`Iterator`], [`Iterable`], [`Collectable`], and indexing/containment
+// contracts.
 
+// Types that can format themselves as a human-readable [`string`].
+//
+// Required for string interpolation (`"$val"`) and `println`.
 @lang("printable")
 define Printable interface [
-    to_string: (self) string,
+	// Returns a human-readable string representation of `self`.
+	to_string: (self) string,
 ]
 
+// Types that support explicit duplication via `.copy()`.
+//
+// Unlike Plain types (which are bitwise-copied implicitly), Resource types
+// must satisfy [`Copyable`] to be duplicated without moving ownership.
 @lang("copyable")
 define Copyable interface [
-    copy: (self) Self,
+	// Returns an independent duplicate of `self`.
+	copy: (self) Self,
 ]
 
+// Types with deterministic custom cleanup logic executed when a value leaves scope.
+//
+// # Ownership
+// The compiler invokes `drop(&self)` automatically before reclaiming storage unless
+// ownership was moved or the value reached its sentinel state.
 @lang("drop")
 define Drop interface [
-    drop: (&self),
+	// Releases owned memory, file descriptors, or OS handles held by `self`.
+	drop: (&self),
 ]
 
+// Types capable of producing a 64-bit hash digest for use in [`Set`] and [`Map`].
 @lang("hashable")
 define Hashable interface [
-    hash: (self) u64,
+	// Computes a 64-bit hash code for `self`. Equal values must produce equal hashes.
+	hash: (self) u64,
 ]
 
+// Types supporting structural equality comparisons (`==` and `!=`).
 @lang("equatable")
 define Equatable interface [
-    eq: (self, other: Self) bool,
+	// Reports whether `self` equals `other`.
+	eq: (self, other: Self) bool,
 ]
 
+// Types supporting total ordering (`<`, `<=`, `>`, `>=`, and sorting).
 @lang("comparable")
 define Comparable interface [
-    cmp: (self, other: Self) int,
+	// Compares `self` against `other`, returning `-1` if less, `0` if equal, or `1` if greater.
+	cmp: (self, other: Self) int,
 ]
 
+// Stateful stream producing a sequence of optional values of type [`T`].
 @lang("iterator")
 define Iterator[T] interface [
-    next: (&self) ?T,
+	// Advances the iterator and returns the next item, or `none` when exhausted.
+	next: (&self) ?T,
 ]
 
+// Containers that can construct a forward [`Iterator`] over their elements.
 @lang("iterable")
 define Iterable[T] interface [
-    iter: (self) Iterator[T],
+	// Returns a new iterator positioned at the beginning of the collection.
+	iter: (self) Iterator[T],
 ]
 
+// Mutable containers that can accumulate owned elements appended during comprehension loops.
 @lang("collectable")
 define Collectable[T] interface [
-    push: (&self, item: own T),
+	// Appends `item` into the collection, taking ownership of it.
+	push: (&self, item: own T),
 ]
 
+// Sequence containers indexable by non-negative integer positions.
 @lang("indexable")
 define Indexable[T] interface [
-    len: (self) int,
-    get: (self, idx: int) ?T,
+	// Returns the number of elements in the sequence.
+	len: (self) int,
+	// Returns a copy of the element at `idx`, or `none` if out of bounds.
+	get: (self, idx: int) ?T,
 ]
 
+// Associative containers indexable by hashable keys of type [`K`].
 @lang("key_indexable")
 define KeyIndexable[K, V] interface [
-    len: (self) int,
-    has: (self, key: K) bool,
-    get: (self, key: K) ?V,
+	// Returns the number of entries in the map.
+	len: (self) int,
+	// Reports whether `key` exists in the container.
+	has: (self, key: K) bool,
+	// Returns a copy of the value mapped to `key`, or `none` if absent.
+	get: (self, key: K) ?V,
 ]
 
+// Containers supporting `when in container` pattern matching and membership tests.
 @lang("containable")
 define Containable[T] interface [
-    contains: (self, item: T) bool,
+	// Reports whether `item` is contained within `self`.
+	contains: (self, item: T) bool,
 ]
 
+// Key-value pair yielded while iterating over a [`Map`].
 define MapEntry[K: Hashable, V] struct [
-    key: K,
-    value: V,
+	// Entry lookup key.
+	key: K,
+	// Entry associated value.
+	value: V,
 ]

@@ -4,9 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python3 "${SCRIPT_DIR}/package_vsix.py"
 
-EXT_ID="lowlight-lang.lowlight-1.0.0"
+EXT_VERSION="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "${SCRIPT_DIR}/lowlight/package.json")"
+EXT_ID="lowlight-lang.lowlight-${EXT_VERSION}"
 SRC_DIR="${SCRIPT_DIR}/lowlight"
-VSIX_FILE="${SCRIPT_DIR}/lowlight-vscode-1.0.0.vsix"
+VSIX_FILE="${SCRIPT_DIR}/lowlight-vscode-${EXT_VERSION}.vsix"
 
 INSTALLED=0
 
@@ -46,16 +47,17 @@ if [ "${INSTALLED}" -eq 0 ]; then
   DEST_ROOT="${HOME}/.vscode/extensions"
   DEST="${DEST_ROOT}/${EXT_ID}"
   mkdir -p "${DEST_ROOT}"
-  rm -rf "${DEST}"
+  rm -rf "${DEST_ROOT}"/lowlight-lang.lowlight-* "${DEST}"
   cp -R "${SRC_DIR}" "${DEST}"
   chmod +x "${DEST}/bin/lowlight" 2>/dev/null || true
 
-  python3 - "${DEST_ROOT}" "${EXT_ID}" <<'PY'
+  python3 - "${DEST_ROOT}" "${EXT_ID}" "${EXT_VERSION}" <<'PY'
 import json, sys, time
 from pathlib import Path
 
 ext_root = Path(sys.argv[1])
 ext_id = sys.argv[2]
+ext_ver = sys.argv[3]
 manifest_file = ext_root / "extensions.json"
 if manifest_file.is_file():
     try:
@@ -64,7 +66,7 @@ if manifest_file.is_file():
             items = [e for e in items if e.get("identifier", {}).get("id", "").lower() != "lowlight-lang.lowlight"]
             items.append({
                 "identifier": {"id": "lowlight-lang.lowlight"},
-                "version": "1.0.0",
+                "version": ext_ver,
                 "location": {
                     "$mid": 1,
                     "fsPath": str((ext_root / ext_id).resolve()),
@@ -86,5 +88,5 @@ PY
 fi
 
 echo ""
-echo "Lowlight VS Code extension (v1.0.0) installed!"
+echo "Lowlight VS Code extension (v${EXT_VERSION}) installed!"
 echo "Reload VS Code ('Cmd+Shift+P' -> 'Developer: Reload Window') and open any .ll file."

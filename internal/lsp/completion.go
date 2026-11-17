@@ -150,13 +150,21 @@ func (s *Server) completeImportPath(filePath string, src string, offset int) *Co
 
 	// Standard library modules
 	stdDescriptions := map[string]string{
-		"std/math.ll": "Lowlight standard math module (PI, sin, cos, clamp_int, lerp, ...)",
-		"std/fs.ll":   "Lowlight standard filesystem module (exists, read_lines, join_path, ...)",
-		"std/pool.ll": "Lowlight generational handle pool (`Pool[T]`, `Handle`)",
-		"std/net.ll":  "Lowlight standard TCP networking module (`TcpStream`, `TcpListener`, `socketpair`)",
-		"std/http.ll": "Lowlight standard HTTP module (`Request`, `Response`, `ResponseWriter`, `ServeMux`, `Client`, `Server`)",
+		"std/chars.ll":   "Character classification, ASCII case folding, radix digits, and UTF-8 lengths",
+		"std/fs.ll":      "Lowlight standard filesystem module (`File`, `read_file`, `write_file`, `exists`, ...)",
+		"std/http.ll":    "HTTP/1.1 client, server, router (`ServeMux`), URL parser, and test helpers",
+		"std/math.ll":    "Lowlight standard math module (`PI`, `sin`, `cos`, `clamp_int`, `lerp`, ...)",
+		"std/net.ll":     "Lowlight TCP networking module (`TcpStream`, `TcpListener`, `socketpair`)",
+		"std/os.ll":      "OS environment, paths, processes (`exec`), and system info",
+		"std/pool.ll":    "Generational handle pool (`Pool[T]`, `Handle`)",
+		"std/sort.ll":    "In-place sorting, comparators, binary search, and collection helpers",
+		"std/strconv.ll": "Integer, float, radix, and boolean string parsing and formatting",
+		"std/strfmt.ll":  "Number formatting, padding, alignment, case conversions, and quoting",
+		"std/strings.ll": "Extended string searching, splitting, trimming, and transformation helpers",
+		"std/test.ll":    "Test assertions (`assert_eq`, `assert_is_ok`, `format_diff`) for `@test` suites",
+		"std/time.ll":    "Monotonic `Instant`, `Duration`, wall-clock `DateTime`, and sleep helpers",
 	}
-	for _, stdMod := range []string{"std/math.ll", "std/fs.ll", "std/pool.ll", "std/net.ll", "std/http.ll"} {
+	for _, stdMod := range []string{"std/math.ll", "std/fs.ll", "std/pool.ll", "std/net.ll", "std/http.ll", "std/strings.ll", "std/time.ll", "std/os.ll", "std/test.ll"} {
 		addCandidate(stdMod, stdDescriptions[stdMod], "0")
 	}
 	if root := s.projectRootFor(filePath); root != "" {
@@ -230,7 +238,7 @@ func (s *Server) completeDotMember(
 			if targetMod, isMod := mod.Aliased[baseId.Name]; isMod {
 				return &CompletionList{
 					IsIncomplete: false,
-					Items:        completeModuleExports(prog, mod, targetMod, prefix, replaceRange),
+					Items:        s.completeModuleExports(prog, mod, targetMod, prefix, replaceRange),
 				}
 			}
 			// `Arena.` static constructors
@@ -244,13 +252,13 @@ func (s *Server) completeDotMember(
 			if genSt := lookupGenStruct(mod, "", baseId.Name); genSt != nil {
 				return &CompletionList{
 					IsIncomplete: false,
-					Items:        completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, nil, prefix, replaceRange),
+					Items:        s.completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, nil, prefix, replaceRange),
 				}
 			}
 			// Generic enum template `Result.` or `Result[int, string].`
 			if genEn := lookupGenEnum(mod, "", baseId.Name); genEn != nil {
-				items := completeGenericEnumVariants(prog, mod, genEn.Mod, genEn.Decl, prefix, replaceRange)
-				items = append(items, completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, nil, prefix, replaceRange)...)
+				items := s.completeGenericEnumVariants(prog, mod, genEn.Mod, genEn.Decl, prefix, replaceRange)
+				items = append(items, s.completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, nil, prefix, replaceRange)...)
 				return &CompletionList{
 					IsIncomplete: false,
 					Items:        items,
@@ -259,8 +267,8 @@ func (s *Server) completeDotMember(
 			// Concrete nominal type (`Enum.`, `Point.`, `UserID.`)
 			if nomTy := lookupNominalType(mod, "", baseId.Name); nomTy != nil {
 				if en, isEn := nomTy.(*types.Enum); isEn {
-					items := completeEnumVariants(prog, mod, en, prefix, replaceRange)
-					items = append(items, completeTypeNamespace(prog, mod, en, baseId.Name, nil, prefix, replaceRange)...)
+					items := s.completeEnumVariants(prog, mod, en, prefix, replaceRange)
+					items = append(items, s.completeTypeNamespace(prog, mod, en, baseId.Name, nil, prefix, replaceRange)...)
 					return &CompletionList{
 						IsIncomplete: false,
 						Items:        items,
@@ -268,7 +276,7 @@ func (s *Server) completeDotMember(
 				}
 				return &CompletionList{
 					IsIncomplete: false,
-					Items:        completeTypeNamespace(prog, mod, nomTy, baseId.Name, nil, prefix, replaceRange),
+					Items:        s.completeTypeNamespace(prog, mod, nomTy, baseId.Name, nil, prefix, replaceRange),
 				}
 			}
 		}
@@ -281,13 +289,13 @@ func (s *Server) completeDotMember(
 				targs := tryResolveIndexAsTypeArgs(mod, idxBase)
 				return &CompletionList{
 					IsIncomplete: false,
-					Items:        completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, targs, prefix, replaceRange),
+					Items:        s.completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, targs, prefix, replaceRange),
 				}
 			}
 			if genEn := lookupGenEnum(mod, "", id.Name); genEn != nil {
 				targs := tryResolveIndexAsTypeArgs(mod, idxBase)
-				items := completeGenericEnumVariants(prog, mod, genEn.Mod, genEn.Decl, prefix, replaceRange)
-				items = append(items, completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, targs, prefix, replaceRange)...)
+				items := s.completeGenericEnumVariants(prog, mod, genEn.Mod, genEn.Decl, prefix, replaceRange)
+				items = append(items, s.completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, targs, prefix, replaceRange)...)
 				return &CompletionList{
 					IsIncomplete: false,
 					Items:        items,
@@ -301,13 +309,13 @@ func (s *Server) completeDotMember(
 						targs := tryResolveIndexAsTypeArgs(mod, idxBase)
 						return &CompletionList{
 							IsIncomplete: false,
-							Items:        completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, targs, prefix, replaceRange),
+							Items:        s.completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, targs, prefix, replaceRange),
 						}
 					}
 					if genEn, ok := targetMod.GenericEnums[bm.Member]; ok {
 						targs := tryResolveIndexAsTypeArgs(mod, idxBase)
-						items := completeGenericEnumVariants(prog, mod, targetMod, genEn.Decl, prefix, replaceRange)
-						items = append(items, completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, targs, prefix, replaceRange)...)
+						items := s.completeGenericEnumVariants(prog, mod, targetMod, genEn.Decl, prefix, replaceRange)
+						items = append(items, s.completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, targs, prefix, replaceRange)...)
 						return &CompletionList{
 							IsIncomplete: false,
 							Items:        items,
@@ -323,8 +331,8 @@ func (s *Server) completeDotMember(
 		if modId, isId := bm.Base.(*ast.IdentExpr); isId {
 			if targetMod, isMod := mod.Aliased[modId.Name]; isMod {
 				if en, isEn := targetMod.Types[bm.Member].(*types.Enum); isEn {
-					items := completeEnumVariants(prog, mod, en, prefix, replaceRange)
-					items = append(items, completeTypeNamespace(prog, mod, en, bm.Member, nil, prefix, replaceRange)...)
+					items := s.completeEnumVariants(prog, mod, en, prefix, replaceRange)
+					items = append(items, s.completeTypeNamespace(prog, mod, en, bm.Member, nil, prefix, replaceRange)...)
 					return &CompletionList{
 						IsIncomplete: false,
 						Items:        items,
@@ -333,12 +341,12 @@ func (s *Server) completeDotMember(
 				if genSt, ok := targetMod.GenericStructs[bm.Member]; ok {
 					return &CompletionList{
 						IsIncomplete: false,
-						Items:        completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, nil, prefix, replaceRange),
+						Items:        s.completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, nil, prefix, replaceRange),
 					}
 				}
 				if genEn, ok := targetMod.GenericEnums[bm.Member]; ok {
-					items := completeGenericEnumVariants(prog, mod, targetMod, genEn.Decl, prefix, replaceRange)
-					items = append(items, completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, nil, prefix, replaceRange)...)
+					items := s.completeGenericEnumVariants(prog, mod, targetMod, genEn.Decl, prefix, replaceRange)
+					items = append(items, s.completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, nil, prefix, replaceRange)...)
 					return &CompletionList{
 						IsIncomplete: false,
 						Items:        items,
@@ -378,11 +386,11 @@ func (s *Server) completeDotMember(
 		recvTy = refTy.Elem
 	}
 
-	items := completeValueMembers(prog, mod, recvTy, isOptChain, isArenaRef, prefix, replaceRange, autoInsertQuestEdit)
+	items := s.completeValueMembers(prog, mod, recvTy, isOptChain, isArenaRef, prefix, replaceRange, autoInsertQuestEdit)
 	return &CompletionList{IsIncomplete: false, Items: items}
 }
 
-func completeValueMembers(
+func (s *Server) completeValueMembers(
 	prog *sema.CheckedProgram,
 	curMod *sema.Module,
 	recvTy types.Type,
@@ -394,6 +402,10 @@ func completeValueMembers(
 ) []CompletionItem {
 	var items []CompletionItem
 	seen := make(map[string]bool)
+	curModPath := ""
+	if curMod != nil {
+		curModPath = curMod.Path
+	}
 
 	wrapOptTypeStr := func(t types.Type) string {
 		if t == nil {
@@ -408,6 +420,10 @@ func completeValueMembers(
 	// 1. Struct fields
 	if st, isSt := recvTy.(*types.Struct); isSt {
 		samePkg := curMod == nil || prog == nil || prog.SamePackageDir(curMod, st.PkgDir, "") || prog.SamePackage(curMod, prog.StructMods[st])
+		stModPath := curModPath
+		if prog != nil && prog.StructMods[st] != nil && prog.StructMods[st].Path != "" {
+			stModPath = prog.StructMods[st].Path
+		}
 		for idx, f := range st.Fields {
 			if !samePkg && !sema.IsExported(f.Name) {
 				continue
@@ -417,6 +433,10 @@ func completeValueMembers(
 			}
 			seen[f.Name] = true
 			fieldTyStr := wrapOptTypeStr(f.Type)
+			docVal := fmt.Sprintf("```lowlight\n%s.%s: %s\n```", st.String(), f.Name, fieldTyStr)
+			if rendered := s.renderDocMarkdown(prog, stModPath, st.Name, f.Doc, "", 0, false); rendered != "" {
+				docVal = appendRenderedDoc(docVal, rendered)
+			}
 			items = append(items, CompletionItem{
 				Label:               f.Name,
 				Kind:                KindField,
@@ -428,7 +448,7 @@ func completeValueMembers(
 				AdditionalTextEdits: extraEdits,
 				Documentation: &MarkupContent{
 					Kind:  "markdown",
-					Value: fmt.Sprintf("```lowlight\n%s.%s: %s\n```", st.String(), f.Name, fieldTyStr),
+					Value: docVal,
 				},
 			})
 		}
@@ -473,6 +493,10 @@ func completeValueMembers(
 	// 2. Interface methods
 	if ifc, isIfc := recvTy.(*types.Interface); isIfc {
 		samePkg := curMod == nil || prog == nil || prog.SamePackageDir(curMod, ifc.PkgDir, "") || prog.SamePackage(curMod, prog.InterfaceMods[ifc])
+		ifcModPath := curModPath
+		if prog != nil && prog.InterfaceMods[ifc] != nil && prog.InterfaceMods[ifc].Path != "" {
+			ifcModPath = prog.InterfaceMods[ifc].Path
+		}
 		for _, m := range ifc.Methods {
 			if !samePkg && !sema.IsExported(m.Name) {
 				continue
@@ -489,6 +513,10 @@ func completeValueMembers(
 			if len(m.Params) > 0 {
 				snip = m.Name + "($1)"
 			}
+			docVal := fmt.Sprintf("```lowlight\n%s.%s: %s\n```", ifc.Name, m.Name, sigStr)
+			if rendered := s.renderDocMarkdown(prog, ifcModPath, ifc.Name, m.Doc, "", 0, false); rendered != "" {
+				docVal = appendRenderedDoc(docVal, rendered)
+			}
 			items = append(items, CompletionItem{
 				Label:               m.Name,
 				Kind:                KindMethod,
@@ -498,6 +526,10 @@ func completeValueMembers(
 				InsertTextFormat:    InsertSnippet,
 				TextEdit:            &TextEdit{Range: replaceRange, NewText: snip},
 				AdditionalTextEdits: extraEdits,
+				Documentation: &MarkupContent{
+					Kind:  "markdown",
+					Value: docVal,
+				},
 			})
 		}
 	}
@@ -527,6 +559,18 @@ func completeValueMembers(
 				if len(fi.Sig.Params) > 1 {
 					snip = mName + "($1)"
 				}
+				docVal := fmt.Sprintf("```lowlight\nbind %s = %s\n```", fi.Name, sigStr)
+				fModPath := curModPath
+				if fi.Mod != nil && fi.Mod.Path != "" {
+					fModPath = fi.Mod.Path
+				}
+				recvName := ""
+				if dot := strings.IndexByte(fi.Name, '.'); dot > 0 {
+					recvName = fi.Name[:dot]
+				}
+				if rendered := s.renderDocMarkdown(prog, fModPath, recvName, fi.Doc, "", 0, false); rendered != "" {
+					docVal = appendRenderedDoc(docVal, rendered)
+				}
 				items = append(items, CompletionItem{
 					Label:               mName,
 					Kind:                KindMethod,
@@ -538,7 +582,7 @@ func completeValueMembers(
 					AdditionalTextEdits: extraEdits,
 					Documentation: &MarkupContent{
 						Kind:  "markdown",
-						Value: fmt.Sprintf("```lowlight\nbind %s = %s\n```", fi.Name, sigStr),
+						Value: docVal,
 					},
 				})
 			}
@@ -568,6 +612,14 @@ func completeValueMembers(
 					if len(decl.Params) > 0 {
 						snip = mName + "($1)"
 					}
+					docVal := fmt.Sprintf("```lowlight\nbind %s.%s = %s\n```", recvTy.String(), mName, sigStr)
+					gModPath := curModPath
+					if gtmpl.Mod != nil && gtmpl.Mod.Path != "" {
+						gModPath = gtmpl.Mod.Path
+					}
+					if rendered := s.renderDocMarkdown(prog, gModPath, decl.RecvType, decl.Doc, "", 0, false); rendered != "" {
+						docVal = appendRenderedDoc(docVal, rendered)
+					}
 					items = append(items, CompletionItem{
 						Label:               mName,
 						Kind:                KindMethod,
@@ -579,7 +631,7 @@ func completeValueMembers(
 						AdditionalTextEdits: extraEdits,
 						Documentation: &MarkupContent{
 							Kind:  "markdown",
-							Value: fmt.Sprintf("```lowlight\nbind %s.%s = %s\n```", recvTy.String(), mName, sigStr),
+							Value: docVal,
 						},
 					})
 				}
@@ -614,9 +666,15 @@ func completeValueMembers(
 	return items
 }
 
-func completeEnumVariants(prog *sema.CheckedProgram, curMod *sema.Module, en *types.Enum, prefix string, replaceRange Range) []CompletionItem {
+func (s *Server) completeEnumVariants(prog *sema.CheckedProgram, curMod *sema.Module, en *types.Enum, prefix string, replaceRange Range) []CompletionItem {
 	var items []CompletionItem
 	samePkg := curMod == nil || en == nil || prog == nil || prog.SamePackageDir(curMod, en.PkgDir, "") || prog.SamePackage(curMod, prog.EnumMods[en])
+	enModPath := ""
+	if prog != nil && en != nil && prog.EnumMods[en] != nil {
+		enModPath = prog.EnumMods[en].Path
+	} else if curMod != nil {
+		enModPath = curMod.Path
+	}
 	for idx, v := range en.Variants {
 		if !samePkg && !sema.IsExported(v.Name) {
 			continue
@@ -641,6 +699,10 @@ func completeEnumVariants(prog *sema.CheckedProgram, curMod *sema.Module, en *ty
 				}
 			}
 		}
+		docVal := fmt.Sprintf("```lowlight\n%s\n```", docCode)
+		if rendered := s.renderDocMarkdown(prog, enModPath, en.Name, v.Doc, "", 0, false); rendered != "" {
+			docVal = appendRenderedDoc(docVal, rendered)
+		}
 		items = append(items, CompletionItem{
 			Label:            v.Name,
 			Kind:             KindEnumMember,
@@ -651,18 +713,24 @@ func completeEnumVariants(prog *sema.CheckedProgram, curMod *sema.Module, en *ty
 			TextEdit:         &TextEdit{Range: replaceRange, NewText: newText},
 			Documentation: &MarkupContent{
 				Kind:  "markdown",
-				Value: fmt.Sprintf("```lowlight\n%s\n```", docCode),
+				Value: docVal,
 			},
 		})
 	}
 	return items
 }
 
-func completeGenericEnumVariants(prog *sema.CheckedProgram, curMod, targetMod *sema.Module, decl *ast.EnumDecl, prefix string, replaceRange Range) []CompletionItem {
+func (s *Server) completeGenericEnumVariants(prog *sema.CheckedProgram, curMod, targetMod *sema.Module, decl *ast.EnumDecl, prefix string, replaceRange Range) []CompletionItem {
 	if decl == nil {
 		return nil
 	}
 	samePkg := curMod == nil || targetMod == nil || prog == nil || prog.SamePackage(curMod, targetMod)
+	modPath := ""
+	if targetMod != nil {
+		modPath = targetMod.Path
+	} else if curMod != nil {
+		modPath = curMod.Path
+	}
 	var items []CompletionItem
 	for idx, v := range decl.Variants {
 		if !samePkg && !sema.IsExported(v.Name) {
@@ -679,6 +747,11 @@ func completeGenericEnumVariants(prog *sema.CheckedProgram, curMod, targetMod *s
 			newText = v.Name + "($1)"
 			detail = fmt.Sprintf("%s.%s(%s)", decl.Name, v.Name, formatTypeExpr(v.PayloadType))
 		}
+		var doc *MarkupContent
+		if rendered := s.renderDocMarkdown(prog, modPath, decl.Name, v.Doc, "", 0, false); rendered != "" {
+			docVal := fmt.Sprintf("```lowlight\n%s\n```", detail)
+			doc = &MarkupContent{Kind: "markdown", Value: appendRenderedDoc(docVal, rendered)}
+		}
 		items = append(items, CompletionItem{
 			Label:            v.Name,
 			Kind:             KindEnumMember,
@@ -687,6 +760,7 @@ func completeGenericEnumVariants(prog *sema.CheckedProgram, curMod, targetMod *s
 			FilterText:       v.Name,
 			InsertTextFormat: insFmt,
 			TextEdit:         &TextEdit{Range: replaceRange, NewText: newText},
+			Documentation:    doc,
 		})
 	}
 	return items
@@ -727,7 +801,7 @@ func completeArenaStatics(prefix string, replaceRange Range) []CompletionItem {
 	return items
 }
 
-func completeTypeNamespace(
+func (s *Server) completeTypeNamespace(
 	prog *sema.CheckedProgram,
 	curMod *sema.Module,
 	nomTy types.Type,
@@ -740,6 +814,10 @@ func completeTypeNamespace(
 	seen := make(map[string]bool)
 	if prog == nil {
 		return nil
+	}
+	curModPath := ""
+	if curMod != nil {
+		curModPath = curMod.Path
 	}
 	if nomTy != nil {
 		if mset, ok := prog.MethodTable[sema.TypeMethodKey(nomTy)]; ok {
@@ -759,14 +837,24 @@ func completeTypeNamespace(
 				if len(fi.Sig.Params) > 0 {
 					snip = mName + "($1)"
 				}
+				sig := formatFullFuncSig(fi)
+				docVal := fmt.Sprintf("```lowlight\nbind %s = %s\n```", fi.Name, sig)
+				fModPath := curModPath
+				if fi.Mod != nil && fi.Mod.Path != "" {
+					fModPath = fi.Mod.Path
+				}
+				if rendered := s.renderDocMarkdown(prog, fModPath, typeName, fi.Doc, "", 0, false); rendered != "" {
+					docVal = appendRenderedDoc(docVal, rendered)
+				}
 				items = append(items, CompletionItem{
 					Label:            mName,
 					Kind:             kind,
-					Detail:           formatFullFuncSig(fi),
+					Detail:           sig,
 					SortText:         "0_" + mName,
 					FilterText:       mName,
 					InsertTextFormat: InsertSnippet,
 					TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
+					Documentation:    &MarkupContent{Kind: "markdown", Value: docVal},
 				})
 			}
 		}
@@ -794,14 +882,24 @@ func completeTypeNamespace(
 			if totalParams > 0 {
 				snip = mName + "($1)"
 			}
+			sig := formatGenericMethodDeclSig(decl, typeArgs, false)
+			docVal := fmt.Sprintf("```lowlight\nbind %s.%s = %s\n```", decl.RecvType, mName, sig)
+			gModPath := curModPath
+			if gtmpl.Mod != nil && gtmpl.Mod.Path != "" {
+				gModPath = gtmpl.Mod.Path
+			}
+			if rendered := s.renderDocMarkdown(prog, gModPath, decl.RecvType, decl.Doc, "", 0, false); rendered != "" {
+				docVal = appendRenderedDoc(docVal, rendered)
+			}
 			items = append(items, CompletionItem{
 				Label:            mName,
 				Kind:             kind,
-				Detail:           formatGenericMethodDeclSig(decl, typeArgs, false),
+				Detail:           sig,
 				SortText:         "0_" + mName,
 				FilterText:       mName,
 				InsertTextFormat: InsertSnippet,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
+				Documentation:    &MarkupContent{Kind: "markdown", Value: docVal},
 			})
 		}
 	}
@@ -809,10 +907,14 @@ func completeTypeNamespace(
 	return items
 }
 
-func completeModuleExports(prog *sema.CheckedProgram, curMod, targetMod *sema.Module, prefix string, replaceRange Range) []CompletionItem {
+func (s *Server) completeModuleExports(prog *sema.CheckedProgram, curMod, targetMod *sema.Module, prefix string, replaceRange Range) []CompletionItem {
 	var items []CompletionItem
 	seen := make(map[string]bool)
 	samePkg := curMod != nil && targetMod != nil && prog != nil && prog.SamePackage(curMod, targetMod)
+	tModPath := ""
+	if targetMod != nil {
+		tModPath = targetMod.Path
+	}
 
 	for name, sym := range targetMod.Symbols {
 		if !samePkg && !sema.IsExported(name) {
@@ -827,19 +929,37 @@ func completeModuleExports(prog *sema.CheckedProgram, curMod, targetMod *sema.Mo
 			if len(sym.FuncInst.Sig.Params) > 0 {
 				snip = name + "($1)"
 			}
+			sig := formatFullFuncSig(sym.FuncInst)
+			doc := sym.FuncInst.Doc
+			if doc == "" {
+				doc = sym.Doc
+			}
+			docVal := fmt.Sprintf("```lowlight\nbind %s = %s\n```", name, sig)
+			if rendered := s.renderDocMarkdown(prog, tModPath, "", doc, "", 0, false); rendered != "" {
+				docVal = appendRenderedDoc(docVal, rendered)
+			}
 			items = append(items, CompletionItem{
 				Label:            name,
 				Kind:             KindFunction,
-				Detail:           formatFullFuncSig(sym.FuncInst),
+				Detail:           sig,
 				SortText:         "0_" + name,
 				FilterText:       name,
 				InsertTextFormat: InsertSnippet,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
+				Documentation:    &MarkupContent{Kind: "markdown", Value: docVal},
 			})
 		} else if sym.ExternFn != nil {
 			snip := name + "()"
 			if len(sym.ExternFn.Sig.Params) > 0 {
 				snip = name + "($1)"
+			}
+			doc := sym.ExternFn.Doc
+			if doc == "" {
+				doc = sym.Doc
+			}
+			docVal := fmt.Sprintf("```lowlight\nextern %s: %s\n```", name, sym.ExternFn.Sig.String())
+			if rendered := s.renderDocMarkdown(prog, tModPath, "", doc, "", 0, false); rendered != "" {
+				docVal = appendRenderedDoc(docVal, rendered)
 			}
 			items = append(items, CompletionItem{
 				Label:            name,
@@ -849,11 +969,17 @@ func completeModuleExports(prog *sema.CheckedProgram, curMod, targetMod *sema.Mo
 				FilterText:       name,
 				InsertTextFormat: InsertSnippet,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
+				Documentation:    &MarkupContent{Kind: "markdown", Value: docVal},
 			})
 		} else {
 			tyStr := "<unknown>"
 			if sym.Type != nil {
 				tyStr = sym.Type.String()
+			}
+			var doc *MarkupContent
+			if rendered := s.renderDocMarkdown(prog, tModPath, "", sym.Doc, "", 0, false); rendered != "" {
+				docVal := fmt.Sprintf("```lowlight\nbind %s: %s\n```", name, tyStr)
+				doc = &MarkupContent{Kind: "markdown", Value: appendRenderedDoc(docVal, rendered)}
 			}
 			items = append(items, CompletionItem{
 				Label:            name,
@@ -863,6 +989,7 @@ func completeModuleExports(prog *sema.CheckedProgram, curMod, targetMod *sema.Mo
 				FilterText:       name,
 				InsertTextFormat: InsertPlainText,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: name},
+				Documentation:    doc,
 			})
 		}
 	}
@@ -876,14 +1003,22 @@ func completeModuleExports(prog *sema.CheckedProgram, curMod, targetMod *sema.Mo
 		}
 		seen[name] = true
 		snip := name + "($1)"
+		sig := formatGenericVarDeclSig(gfn.VarDecl)
+		docVal := fmt.Sprintf("```lowlight\nbind %s%s\n```", name, sig)
+		if gfn.VarDecl != nil {
+			if rendered := s.renderDocMarkdown(prog, tModPath, "", gfn.VarDecl.Doc, "", 0, false); rendered != "" {
+				docVal = appendRenderedDoc(docVal, rendered)
+			}
+		}
 		items = append(items, CompletionItem{
 			Label:            name,
 			Kind:             KindFunction,
-			Detail:           formatGenericVarDeclSig(gfn.VarDecl),
+			Detail:           sig,
 			SortText:         "0_" + name,
 			FilterText:       name,
 			InsertTextFormat: InsertSnippet,
 			TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
+			Documentation:    &MarkupContent{Kind: "markdown", Value: docVal},
 		})
 	}
 
@@ -898,7 +1033,7 @@ func completeModuleExports(prog *sema.CheckedProgram, curMod, targetMod *sema.Mo
 			continue
 		}
 		seen[name] = true
-		items = append(items, makeUserTypeCompletionItem(name, ty, replaceRange, "2_"))
+		items = append(items, s.makeUserTypeCompletionItem(prog, tModPath, name, ty, replaceRange, "2_"))
 	}
 
 	for name, gst := range targetMod.GenericStructs {
@@ -909,7 +1044,7 @@ func completeModuleExports(prog *sema.CheckedProgram, curMod, targetMod *sema.Mo
 			continue
 		}
 		seen[name] = true
-		items = append(items, makeGenericStructCompletionItem(gst.Decl, replaceRange, "2_"))
+		items = append(items, s.makeGenericStructCompletionItem(prog, tModPath, gst.Decl, replaceRange, "2_"))
 	}
 
 	for name, gen := range targetMod.GenericEnums {
@@ -920,7 +1055,7 @@ func completeModuleExports(prog *sema.CheckedProgram, curMod, targetMod *sema.Mo
 			continue
 		}
 		seen[name] = true
-		items = append(items, makeGenericEnumCompletionItem(gen.Decl, replaceRange, "2_"))
+		items = append(items, s.makeGenericEnumCompletionItem(prog, tModPath, gen.Decl, replaceRange, "2_"))
 	}
 
 	sortCompletionItems(items)
@@ -1317,7 +1452,7 @@ func (s *Server) completeTypeNames(
 					continue
 				}
 				seen[name] = true
-				items = append(items, makeUserTypeCompletionItem(name, ty, replaceRange, sortPrefix))
+				items = append(items, s.makeUserTypeCompletionItem(prog, m.Path, name, ty, replaceRange, sortPrefix))
 			}
 			for name, gst := range m.GenericStructs {
 				if !samePkg && !sema.IsExported(name) {
@@ -1327,7 +1462,7 @@ func (s *Server) completeTypeNames(
 					continue
 				}
 				seen[name] = true
-				items = append(items, makeGenericStructCompletionItem(gst.Decl, replaceRange, sortPrefix))
+				items = append(items, s.makeGenericStructCompletionItem(prog, m.Path, gst.Decl, replaceRange, sortPrefix))
 			}
 			for name, gen := range m.GenericEnums {
 				if !samePkg && !sema.IsExported(name) {
@@ -1337,7 +1472,7 @@ func (s *Server) completeTypeNames(
 					continue
 				}
 				seen[name] = true
-				items = append(items, makeGenericEnumCompletionItem(gen.Decl, replaceRange, sortPrefix))
+				items = append(items, s.makeGenericEnumCompletionItem(prog, m.Path, gen.Decl, replaceRange, sortPrefix))
 			}
 		}
 		addTypesFromMod(mod, "0_")
@@ -1391,24 +1526,42 @@ func (s *Server) completeScopedSymbols(
 	var items []CompletionItem
 	seen := make(map[string]bool)
 
-	addSym := func(sym *sema.Symbol, sortPrefix string, badge string) {
+	curModPath := ""
+	if mod != nil {
+		curModPath = mod.Path
+	}
+
+	addSym := func(sym *sema.Symbol, sortPrefix string, badge string, ownerModPath string) {
 		if sym == nil || sym.Name == "" || seen[sym.Name] || !matchesPrefix(sym.Name, prefix) {
 			return
 		}
 		seen[sym.Name] = true
+		if ownerModPath == "" {
+			ownerModPath = curModPath
+		}
 		if sym.FuncInst != nil {
 			snip := sym.Name + "()"
 			if len(sym.FuncInst.Sig.Params) > 0 {
 				snip = sym.Name + "($1)"
 			}
+			sig := formatFullFuncSig(sym.FuncInst)
+			doc := sym.FuncInst.Doc
+			if doc == "" {
+				doc = sym.Doc
+			}
+			docVal := fmt.Sprintf("```lowlight\nbind %s = %s\n```", sym.Name, sig)
+			if rendered := s.renderDocMarkdown(prog, ownerModPath, "", doc, "", 0, false); rendered != "" {
+				docVal = appendRenderedDoc(docVal, rendered)
+			}
 			items = append(items, CompletionItem{
 				Label:            sym.Name,
 				Kind:             KindFunction,
-				Detail:           formatFullFuncSig(sym.FuncInst),
+				Detail:           sig,
 				SortText:         sortPrefix + "_" + sym.Name,
 				FilterText:       sym.Name,
 				InsertTextFormat: InsertSnippet,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
+				Documentation:    &MarkupContent{Kind: "markdown", Value: docVal},
 			})
 			return
 		}
@@ -1416,6 +1569,14 @@ func (s *Server) completeScopedSymbols(
 			snip := sym.Name + "()"
 			if len(sym.ExternFn.Sig.Params) > 0 {
 				snip = sym.Name + "($1)"
+			}
+			doc := sym.ExternFn.Doc
+			if doc == "" {
+				doc = sym.Doc
+			}
+			docVal := fmt.Sprintf("```lowlight\nextern %s: %s\n```", sym.Name, sym.ExternFn.Sig.String())
+			if rendered := s.renderDocMarkdown(prog, ownerModPath, "", doc, "", 0, false); rendered != "" {
+				docVal = appendRenderedDoc(docVal, rendered)
 			}
 			items = append(items, CompletionItem{
 				Label:            sym.Name,
@@ -1425,6 +1586,7 @@ func (s *Server) completeScopedSymbols(
 				FilterText:       sym.Name,
 				InsertTextFormat: InsertSnippet,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
+				Documentation:    &MarkupContent{Kind: "markdown", Value: docVal},
 			})
 			return
 		}
@@ -1443,6 +1605,11 @@ func (s *Server) completeScopedSymbols(
 		if sym.IsTopLevel && sym.IsBind {
 			kind = KindConstant
 		}
+		var doc *MarkupContent
+		if rendered := s.renderDocMarkdown(prog, ownerModPath, "", sym.Doc, "", 0, false); rendered != "" {
+			docVal := fmt.Sprintf("```lowlight\n%s%s: %s\n```", mutPrefix, sym.Name, tyStr)
+			doc = &MarkupContent{Kind: "markdown", Value: appendRenderedDoc(docVal, rendered)}
+		}
 		items = append(items, CompletionItem{
 			Label:            sym.Name,
 			Kind:             kind,
@@ -1451,6 +1618,7 @@ func (s *Server) completeScopedSymbols(
 			FilterText:       sym.Name,
 			InsertTextFormat: InsertPlainText,
 			TextEdit:         &TextEdit{Range: replaceRange, NewText: sym.Name},
+			Documentation:    doc,
 		})
 	}
 
@@ -1459,7 +1627,7 @@ func (s *Server) completeScopedSymbols(
 		localSyms := collectEnclosingLocals(prog, mod, offset)
 		// Reverse order so innermost bindings (`if (user?)`, loop vars, inner `let`) win shadowing!
 		for i := len(localSyms) - 1; i >= 0; i-- {
-			addSym(localSyms[i].sym, "0_local", localSyms[i].badge)
+			addSym(localSyms[i].sym, "0_local", localSyms[i].badge, curModPath)
 		}
 	}
 
@@ -1471,7 +1639,7 @@ func (s *Server) completeScopedSymbols(
 				if !samePkg && !sema.IsExported(sym.Name) {
 					continue
 				}
-				addSym(sym, sortGroup, "")
+				addSym(sym, sortGroup, "", m.Path)
 			}
 			for name, gfn := range m.GenericFuncs {
 				if !samePkg && !sema.IsExported(name) {
@@ -1481,14 +1649,22 @@ func (s *Server) completeScopedSymbols(
 					continue
 				}
 				seen[name] = true
+				sig := formatGenericVarDeclSig(gfn.VarDecl)
+				docVal := fmt.Sprintf("```lowlight\nbind %s%s\n```", name, sig)
+				if gfn.VarDecl != nil {
+					if rendered := s.renderDocMarkdown(prog, m.Path, "", gfn.VarDecl.Doc, "", 0, false); rendered != "" {
+						docVal = appendRenderedDoc(docVal, rendered)
+					}
+				}
 				items = append(items, CompletionItem{
 					Label:            name,
 					Kind:             KindFunction,
-					Detail:           formatGenericVarDeclSig(gfn.VarDecl),
+					Detail:           sig,
 					SortText:         sortGroup + "_" + name,
 					FilterText:       name,
 					InsertTextFormat: InsertSnippet,
 					TextEdit:         &TextEdit{Range: replaceRange, NewText: name + "($1)"},
+					Documentation:    &MarkupContent{Kind: "markdown", Value: docVal},
 				})
 			}
 			for name, ty := range m.Types {
@@ -1502,7 +1678,7 @@ func (s *Server) completeScopedSymbols(
 					continue
 				}
 				seen[name] = true
-				items = append(items, makeUserTypeCompletionItem(name, ty, replaceRange, "2_type"))
+				items = append(items, s.makeUserTypeCompletionItem(prog, m.Path, name, ty, replaceRange, "2_type"))
 			}
 			for name, gst := range m.GenericStructs {
 				if !samePkg && !sema.IsExported(name) {
@@ -1512,7 +1688,7 @@ func (s *Server) completeScopedSymbols(
 					continue
 				}
 				seen[name] = true
-				items = append(items, makeGenericStructCompletionItem(gst.Decl, replaceRange, "2_type"))
+				items = append(items, s.makeGenericStructCompletionItem(prog, m.Path, gst.Decl, replaceRange, "2_type"))
 			}
 			for name, gen := range m.GenericEnums {
 				if !samePkg && !sema.IsExported(name) {
@@ -1522,7 +1698,7 @@ func (s *Server) completeScopedSymbols(
 					continue
 				}
 				seen[name] = true
-				items = append(items, makeGenericEnumCompletionItem(gen.Decl, replaceRange, "2_type"))
+				items = append(items, s.makeGenericEnumCompletionItem(prog, m.Path, gen.Decl, replaceRange, "2_type"))
 			}
 		}
 
@@ -1533,6 +1709,10 @@ func (s *Server) completeScopedSymbols(
 		for alias, target := range mod.Aliased {
 			if !seen[alias] && matchesPrefix(alias, prefix) {
 				seen[alias] = true
+				var doc *MarkupContent
+				if rendered := s.renderDocMarkdown(prog, target.Path, "", target.Doc, "", 0, false); rendered != "" {
+					doc = &MarkupContent{Kind: "markdown", Value: rendered}
+				}
 				items = append(items, CompletionItem{
 					Label:            alias,
 					Kind:             KindModule,
@@ -1541,6 +1721,7 @@ func (s *Server) completeScopedSymbols(
 					FilterText:       alias,
 					InsertTextFormat: InsertPlainText,
 					TextEdit:         &TextEdit{Range: replaceRange, NewText: alias},
+					Documentation:    doc,
 				})
 			}
 		}
@@ -2550,22 +2731,32 @@ func formatTypeExprSubst(te ast.TypeExpr, subst map[string]string) string {
 	}
 }
 
-func makeUserTypeCompletionItem(name string, ty types.Type, replaceRange Range, sortPrefix string) CompletionItem {
+func (s *Server) makeUserTypeCompletionItem(prog *sema.CheckedProgram, modPath string, name string, ty types.Type, replaceRange Range, sortPrefix string) CompletionItem {
 	kind := KindStruct
 	detail := "type " + name
+	rawDoc := ""
 	switch v := ty.(type) {
 	case *types.Struct:
 		kind = KindStruct
 		detail = fmt.Sprintf("struct %s (%d fields)", name, len(v.Fields))
+		rawDoc = v.Doc
 	case *types.Enum:
 		kind = KindEnum
 		detail = fmt.Sprintf("enum %s (%d variants)", name, len(v.Variants))
+		rawDoc = v.Doc
 	case *types.Interface:
 		kind = KindInterface
 		detail = fmt.Sprintf("interface %s", name)
+		rawDoc = v.Doc
 	case *types.Distinct:
 		kind = KindStruct
 		detail = fmt.Sprintf("define %s %s", name, v.Base.String())
+		rawDoc = v.Doc
+	}
+	var doc *MarkupContent
+	if rendered := s.renderDocMarkdown(prog, modPath, name, rawDoc, "", 0, false); rendered != "" {
+		docVal := fmt.Sprintf("```lowlight\n%s\n```", detail)
+		doc = &MarkupContent{Kind: "markdown", Value: appendRenderedDoc(docVal, rendered)}
 	}
 	return CompletionItem{
 		Label:            name,
@@ -2575,38 +2766,53 @@ func makeUserTypeCompletionItem(name string, ty types.Type, replaceRange Range, 
 		FilterText:       name,
 		InsertTextFormat: InsertPlainText,
 		TextEdit:         &TextEdit{Range: replaceRange, NewText: name},
+		Documentation:    doc,
 	}
 }
 
-func makeGenericStructCompletionItem(decl *ast.StructDecl, replaceRange Range, sortPrefix string) CompletionItem {
+func (s *Server) makeGenericStructCompletionItem(prog *sema.CheckedProgram, modPath string, decl *ast.StructDecl, replaceRange Range, sortPrefix string) CompletionItem {
 	var tps []string
 	for _, tp := range decl.TypeParams {
 		tps = append(tps, tp.Name)
+	}
+	detail := fmt.Sprintf("struct %s[%s]", decl.Name, strings.Join(tps, ", "))
+	var doc *MarkupContent
+	if rendered := s.renderDocMarkdown(prog, modPath, decl.Name, decl.Doc, "", 0, false); rendered != "" {
+		docVal := fmt.Sprintf("```lowlight\n%s\n```", detail)
+		doc = &MarkupContent{Kind: "markdown", Value: appendRenderedDoc(docVal, rendered)}
 	}
 	return CompletionItem{
 		Label:            decl.Name,
 		Kind:             KindStruct,
-		Detail:           fmt.Sprintf("struct %s[%s]", decl.Name, strings.Join(tps, ", ")),
+		Detail:           detail,
 		SortText:         sortPrefix + "_" + decl.Name,
 		FilterText:       decl.Name,
 		InsertTextFormat: InsertPlainText,
 		TextEdit:         &TextEdit{Range: replaceRange, NewText: decl.Name},
+		Documentation:    doc,
 	}
 }
 
-func makeGenericEnumCompletionItem(decl *ast.EnumDecl, replaceRange Range, sortPrefix string) CompletionItem {
+func (s *Server) makeGenericEnumCompletionItem(prog *sema.CheckedProgram, modPath string, decl *ast.EnumDecl, replaceRange Range, sortPrefix string) CompletionItem {
 	var tps []string
 	for _, tp := range decl.TypeParams {
 		tps = append(tps, tp.Name)
 	}
+	detail := fmt.Sprintf("enum %s[%s]", decl.Name, strings.Join(tps, ", "))
+	var doc *MarkupContent
+	if rendered := s.renderDocMarkdown(prog, modPath, decl.Name, decl.Doc, "", 0, false); rendered != "" {
+		docVal := fmt.Sprintf("```lowlight\n%s\n```", detail)
+		doc = &MarkupContent{Kind: "markdown", Value: appendRenderedDoc(docVal, rendered)}
+	}
 	return CompletionItem{
 		Label:            decl.Name,
 		Kind:             KindEnum,
-		Detail:           fmt.Sprintf("enum %s[%s]", decl.Name, strings.Join(tps, ", ")),
+		Detail:           detail,
 		SortText:         sortPrefix + "_" + decl.Name,
 		FilterText:       decl.Name,
 		InsertTextFormat: InsertPlainText,
 		TextEdit:         &TextEdit{Range: replaceRange, NewText: decl.Name},
+		Documentation:    doc,
 	}
 }
 

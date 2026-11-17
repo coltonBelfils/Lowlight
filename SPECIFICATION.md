@@ -124,6 +124,8 @@ Lowlight supports two forms of comments:
 - **Single-line comments:** Begin with `//` and extend to the end of the line.
 - **Multi-line comments:** Begin with `/*` and terminate with `*/`. Multi-line comments do not nest; the first occurrence of `*/` closes the comment.
 
+Documentation comments follow Go conventions using standard `//` or `/* ... */` comments immediately preceding a declaration (or its `@attributes`) with no blank line between them, inline trailing comments on struct fields, enum variants, and interface methods, or top-of-file comment blocks for module documentation. Markdown and intra-doc ``[`Symbol`]`` links are supported by the LSP and `lowlight doc`.
+
 Semicolons (`;`) are statement terminators. An explicit semicolon written at the end of a block expression suppresses the tail value and causes the block to yield `void`.
 
 ### 2.3 Automatic Semicolon Insertion (ASI)
@@ -850,7 +852,6 @@ Attributes apply compiler metadata and layout directives to declarations using t
 | `@deprecated` | Declaration | Emits a compile warning upon use |
 | `@deprecated("msg")` | Declaration | Emits a compile warning with a custom deprecation message |
 | `@packed` | Struct | Suppresses field alignment padding (byte-packed layout) |
-| `@doc("...")` | Declaration | Attaches documentation strings accessible to tooling and LSP |
 | `@lang("...")` | Declaration | Binds a declaration to an internal compiler-known language hook |
 
 #### Attribute Definitions

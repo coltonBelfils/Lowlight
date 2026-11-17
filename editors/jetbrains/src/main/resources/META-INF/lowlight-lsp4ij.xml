@@ -1,0 +1,31 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
+        <server
+            id="lowlightLanguageServer"
+            name="Lowlight Language Server"
+            factoryClass="dev.lowlight.intellij.lsp.lsp4ij.LowlightLsp4ijServerFactory"
+            singleton="true">
+            <description>Official Lowlight Language Server via LSP4IJ</description>
+        </server>
+
+        <languageMapping
+            language="Lowlight"
+            serverId="lowlightLanguageServer"
+            languageId="lowlight"/>
+    </extensions>
+
+    <extensions defaultExtensionNs="dev.lowlight.intellij">
+        <lspBackendBridge
+            implementation="dev.lowlight.intellij.lsp.lsp4ij.LowlightLsp4ijBackendBridge"/>
+    </extensions>
+
+    <actions>
+        <action id="lowlight.runMain" class="dev.lowlight.intellij.lsp.lsp4ij.LowlightLsp4ijRunMainAction"/>
+        <action id="lowlight.runFile" class="dev.lowlight.intellij.lsp.lsp4ij.LowlightLsp4ijRunFileAction"/>
+        <action id="lowlight.runTest" class="dev.lowlight.intellij.lsp.lsp4ij.LowlightLsp4ijRunTestAction"/>
+        <action id="lowlight.runAllTests" class="dev.lowlight.intellij.lsp.lsp4ij.LowlightLsp4ijRunAllTestsAction"/>
+        <action id="lowlight.goToLocation" class="dev.lowlight.intellij.lsp.lsp4ij.LowlightLsp4ijGoToLocationAction"/>
+        <action id="lowlight.showLocations" class="dev.lowlight.intellij.lsp.lsp4ij.LowlightLsp4ijShowLocationsAction"/>
+        <action id="lowlight.showImplementationsQuickPick" class="dev.lowlight.intellij.lsp.lsp4ij.LowlightLsp4ijQuickPickAction"/>
+    </actions>
+</idea-plugin>

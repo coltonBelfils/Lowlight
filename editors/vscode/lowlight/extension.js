@@ -107,6 +107,25 @@ function resolveStdlibRoot(context) {
 }
 
 /**
+ * Collects dynamic formatting and inlay hint preferences sent via LSP
+ * `initializationOptions` and `workspace/didChangeConfiguration`.
+ */
+function getLspSettings() {
+  const cfg = vscode.workspace.getConfiguration('lowlight');
+  return {
+    format: {
+      indent: cfg.get('format.indent', 'tabs'),
+      tabWidth: cfg.get('format.tabWidth', 4),
+      lineWidth: cfg.get('format.lineWidth', 100),
+    },
+    inlayHints: {
+      types: cfg.get('inlayHints.types', true),
+      parameters: cfg.get('inlayHints.parameters', true),
+    },
+  };
+}
+
+/**
  * Zero-dependency JSON-RPC 2.0 LSP client over stdio (`lowlight lsp --stdio`).
  */
 class LowlightClient {
@@ -136,6 +155,35 @@ class LowlightClient {
     this.syncedUris = new Set();
     /** @type {Map<string, vscode.Uri>} */
     this.fsPathToUri = new Map();
+    /** @type {any} */
+    this.serverCapabilities = {};
+    /** @type {Map<string, any>} */
+    this.docCache = new Map();
+  }
+
+  /**
+   * Returns a per-(uri, version) client cache entry, resetting it when `doc.version` advances.
+   * @param {vscode.TextDocument} doc
+   */
+  getDocCache(doc) {
+    const uriStr = doc.uri.toString();
+    let entry = this.docCache.get(uriStr);
+    if (!entry || entry.version !== doc.version) {
+      entry = {
+        version: doc.version,
+        inlayHintsPromise: null,
+        codeLensesPromise: null,
+        foldingRangesPromise: null,
+        documentSymbolsPromise: null,
+        semanticTokensPromise: null,
+      };
+      this.docCache.set(uriStr, entry);
+    }
+    return entry;
+  }
+
+  clearDocCaches() {
+    this.docCache.clear();
   }
 
   /**
@@ -254,9 +302,28 @@ class LowlightClient {
         rootUri,
         rootPath,
         workspaceFolders,
-        capabilities: {},
+        initializationOptions: getLspSettings(),
+        capabilities: {
+          textDocument: {
+            semanticTokens: {
+              dynamicRegistration: false,
+              requests: { full: true },
+              tokenTypes: [
+                'namespace', 'type', 'struct', 'enum', 'interface', 'typeParameter',
+                'parameter', 'variable', 'property', 'enumMember', 'function',
+                'method', 'keyword', 'comment', 'string', 'number', 'operator',
+              ],
+              tokenModifiers: [
+                'declaration', 'definition', 'readonly', 'static',
+                'documentation', 'modification', 'defaultLibrary',
+              ],
+              formats: ['relative'],
+            },
+          },
+        },
       });
 
+      this.serverCapabilities = (initResult && initResult.capabilities) || {};
       this.sendNotification('initialized', {});
       this.ready = true;
 
@@ -561,6 +628,7 @@ class LowlightClient {
       return;
     }
     const uriStr = doc.uri.toString();
+    this.docCache.delete(uriStr);
     this.fsPathToUri.set(path.normalize(doc.uri.fsPath), doc.uri);
     this.syncedUris.add(uriStr);
     this.sendNotification('textDocument/didOpen', {
@@ -574,9 +642,11 @@ class LowlightClient {
   }
 
   /**
-   * @param {vscode.TextDocument} doc
+   * @param {vscode.TextDocumentChangeEvent | vscode.TextDocument} docOrEvent
    */
-  didChange(doc) {
+  didChange(docOrEvent) {
+    const isEvent = docOrEvent && docOrEvent.document !== undefined;
+    const doc = isEvent ? docOrEvent.document : docOrEvent;
     if (!this.ready || !this.isLowlightDoc(doc)) {
       return;
     }
@@ -585,16 +655,24 @@ class LowlightClient {
       this.didOpen(doc);
       return;
     }
+    this.docCache.delete(uriStr);
+    for (const entry of this.docCache.values()) {
+      entry.codeLensesPromise = null;
+    }
+    const rawChanges = isEvent && Array.isArray(docOrEvent.contentChanges) && docOrEvent.contentChanges.length > 0
+      ? docOrEvent.contentChanges.map((ch) => ({
+          range: fromVsRange(ch.range),
+          rangeLength: ch.rangeLength,
+          text: ch.text,
+        }))
+      : [{ text: doc.getText() }];
+
     this.sendNotification('textDocument/didChange', {
       textDocument: {
         uri: uriStr,
         version: doc.version,
       },
-      contentChanges: [
-        {
-          text: doc.getText(),
-        },
-      ],
+      contentChanges: rawChanges,
     });
   }
 
@@ -623,6 +701,7 @@ class LowlightClient {
     const uriStr = doc.uri.toString();
     this.syncedUris.delete(uriStr);
     this.fsPathToUri.delete(path.normalize(doc.uri.fsPath));
+    this.docCache.delete(uriStr);
     this.diagnostics.delete(doc.uri);
     if (this.ready) {
       this.sendNotification('textDocument/didClose', {
@@ -775,7 +854,9 @@ function toVsDocumentation(doc) {
   }
   if (doc.value) {
     if (doc.kind === 'markdown') {
-      return new vscode.MarkdownString(doc.value);
+      const ms = new vscode.MarkdownString(doc.value);
+      ms.isTrusted = true;
+      return ms;
     }
     return doc.value;
   }
@@ -824,23 +905,72 @@ function activate(context) {
 
   const selector = [{ language: 'lowlight', scheme: 'file' }];
 
+  const inlayHintsEmitter = new vscode.EventEmitter();
+  const watcher = vscode.workspace.createFileSystemWatcher('**/*.{ll,lowlightfmt}');
+
   // Document synchronization listeners
   context.subscriptions.push(
     outputChannel,
     diagnosticCollection,
     statusBarItem,
+    inlayHintsEmitter,
+    watcher,
     vscode.workspace.onDidOpenTextDocument((doc) => client && client.didOpen(doc)),
-    vscode.workspace.onDidChangeTextDocument((ev) => client && client.didChange(ev.document)),
+    vscode.workspace.onDidChangeTextDocument((ev) => client && client.didChange(ev)),
     vscode.workspace.onDidSaveTextDocument((doc) => client && client.didSave(doc)),
     vscode.workspace.onDidCloseTextDocument((doc) => client && client.didClose(doc)),
+    watcher.onDidCreate((uri) => {
+      if (client) {
+        client.clearDocCaches();
+        if (client.ready) {
+          client.sendNotification('workspace/didChangeWatchedFiles', {
+            changes: [{ uri: uri.toString(), type: 1 }],
+          });
+        }
+      }
+    }),
+    watcher.onDidChange((uri) => {
+      if (client) {
+        client.clearDocCaches();
+        if (client.ready) {
+          client.sendNotification('workspace/didChangeWatchedFiles', {
+            changes: [{ uri: uri.toString(), type: 2 }],
+          });
+        }
+      }
+    }),
+    watcher.onDidDelete((uri) => {
+      if (client) {
+        client.clearDocCaches();
+        if (client.ready) {
+          client.sendNotification('workspace/didChangeWatchedFiles', {
+            changes: [{ uri: uri.toString(), type: 3 }],
+          });
+        }
+      }
+    }),
     vscode.workspace.onDidChangeConfiguration(async (ev) => {
       if (
         ev.affectsConfiguration('lowlight.serverPath') ||
         ev.affectsConfiguration('lowlight.stdlibPath')
       ) {
         if (client) {
+          client.clearDocCaches();
           await client.stop();
           await client.start();
+        }
+        return;
+      }
+      if (
+        ev.affectsConfiguration('lowlight.format') ||
+        ev.affectsConfiguration('lowlight.inlayHints')
+      ) {
+        if (client && client.ready) {
+          client.clearDocCaches();
+          client.sendNotification('workspace/didChangeConfiguration', {
+            settings: { lowlight: getLspSettings() },
+          });
+          inlayHintsEmitter.fire();
         }
       }
     })
@@ -978,7 +1108,9 @@ function activate(context) {
               toVsDocumentation(sig.documentation)
             );
             if (Array.isArray(sig.parameters)) {
-              si.parameters = sig.parameters.map((p) => new vscode.ParameterInformation(p.label));
+              si.parameters = sig.parameters.map(
+                (p) => new vscode.ParameterInformation(p.label, toVsDocumentation(p.documentation))
+              );
             }
             return si;
           });
@@ -998,13 +1130,23 @@ function activate(context) {
         if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
           return [];
         }
-        const res = await client.sendRequest('textDocument/documentSymbol', {
-          textDocument: { uri: document.uri.toString() },
-        });
-        if (!Array.isArray(res)) {
+        const cache = client.getDocCache(document);
+        if (!cache.documentSymbolsPromise) {
+          const p = client.sendRequest('textDocument/documentSymbol', {
+            textDocument: { uri: document.uri.toString() },
+          }).then((res) => (Array.isArray(res) ? res.map(toVsDocumentSymbol) : [])).catch((err) => {
+            if (cache.documentSymbolsPromise === p) {
+              cache.documentSymbolsPromise = null;
+            }
+            throw err;
+          });
+          cache.documentSymbolsPromise = p;
+        }
+        const syms = await cache.documentSymbolsPromise;
+        if (token.isCancellationRequested) {
           return [];
         }
-        return res.map(toVsDocumentSymbol);
+        return syms;
       },
     })
   );
@@ -1028,10 +1170,16 @@ function activate(context) {
               }))
             : [];
 
+          const onlyKinds = codeActionContext && codeActionContext.only
+            ? [codeActionContext.only.value]
+            : undefined;
           const res = await client.sendRequest('textDocument/codeAction', {
             textDocument: { uri: document.uri.toString() },
             range: fromVsRange(range),
-            context: { diagnostics: lspDiags },
+            context: {
+              diagnostics: lspDiags,
+              only: onlyKinds,
+            },
           });
           if (!Array.isArray(res)) {
             return [];
@@ -1064,7 +1212,13 @@ function activate(context) {
         },
       },
       {
-        providedCodeActionKinds: [vscode.CodeActionKind.QuickFix, vscode.CodeActionKind.Refactor],
+        providedCodeActionKinds: [
+          vscode.CodeActionKind.QuickFix,
+          vscode.CodeActionKind.Refactor,
+          vscode.CodeActionKind.RefactorExtract,
+          vscode.CodeActionKind.RefactorRewrite,
+          vscode.CodeActionKind.Source,
+        ],
       }
     )
   );
@@ -1078,7 +1232,7 @@ function activate(context) {
         }
         const res = await client.sendRequest('textDocument/implementation', {
           textDocument: { uri: document.uri.toString() },
-          position: fromVsPos(position),
+          position: fromVsPosition(position),
         });
         if (!res) {
           return [];
@@ -1116,27 +1270,48 @@ function activate(context) {
   // 8. Inlay Hints (Type & Parameter Name hints)
   context.subscriptions.push(
     vscode.languages.registerInlayHintsProvider(selector, {
+      onDidChangeInlayHints: inlayHintsEmitter.event,
       async provideInlayHints(document, range, token) {
         if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
           return [];
         }
-        const res = await client.sendRequest('textDocument/inlayHint', {
-          textDocument: { uri: document.uri.toString() },
-          range: fromVsRange(range),
-        });
-        if (!Array.isArray(res)) {
+        const cache = client.getDocCache(document);
+        if (!cache.inlayHintsPromise) {
+          const lastLine = Math.max(0, document.lineCount - 1);
+          const lastChar = document.lineAt(lastLine).text.length;
+          const p = client.sendRequest('textDocument/inlayHint', {
+            textDocument: { uri: document.uri.toString() },
+            range: {
+              start: { line: 0, character: 0 },
+              end: { line: lastLine, character: lastChar },
+            },
+          }).then((res) => {
+            if (!Array.isArray(res)) {
+              return [];
+            }
+            return res.map((hint) => {
+              const vh = new vscode.InlayHint(
+                toVsPosition(hint.position),
+                hint.label,
+                hint.kind === 1 ? vscode.InlayHintKind.Type : vscode.InlayHintKind.Parameter
+              );
+              vh.paddingLeft = Boolean(hint.paddingLeft);
+              vh.paddingRight = Boolean(hint.paddingRight);
+              return vh;
+            });
+          }).catch((err) => {
+            if (cache.inlayHintsPromise === p) {
+              cache.inlayHintsPromise = null;
+            }
+            throw err;
+          });
+          cache.inlayHintsPromise = p;
+        }
+        const allHints = await cache.inlayHintsPromise;
+        if (token.isCancellationRequested || !allHints || allHints.length === 0) {
           return [];
         }
-        return res.map((hint) => {
-          const vh = new vscode.InlayHint(
-            toVsPosition(hint.position),
-            hint.label,
-            hint.kind === 1 ? vscode.InlayHintKind.Type : vscode.InlayHintKind.Parameter
-          );
-          vh.paddingLeft = Boolean(hint.paddingLeft);
-          vh.paddingRight = Boolean(hint.paddingRight);
-          return vh;
-        });
+        return allHints.filter((vh) => range.contains(vh.position));
       },
     })
   );
@@ -1190,25 +1365,240 @@ function activate(context) {
         if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
           return [];
         }
-        const res = await client.sendRequest('textDocument/codeLens', {
+        const cache = client.getDocCache(document);
+        if (!cache.codeLensesPromise) {
+          const p = client.sendRequest('textDocument/codeLens', {
+            textDocument: { uri: document.uri.toString() },
+          }).then((res) => {
+            if (!Array.isArray(res)) {
+              return [];
+            }
+            return res.map((cl) => {
+              const lens = new vscode.CodeLens(toVsRange(cl.range));
+              if (cl.command) {
+                lens.command = {
+                  title: cl.command.title,
+                  command: cl.command.command,
+                  arguments: cl.command.arguments || [],
+                };
+              }
+              return lens;
+            });
+          }).catch((err) => {
+            if (cache.codeLensesPromise === p) {
+              cache.codeLensesPromise = null;
+            }
+            throw err;
+          });
+          cache.codeLensesPromise = p;
+        }
+        const lenses = await cache.codeLensesPromise;
+        if (token.isCancellationRequested) {
+          return [];
+        }
+        return lenses;
+      },
+    })
+  );
+
+  // 11. Cross-File Find All References (`Shift+F12`)
+  context.subscriptions.push(
+    vscode.languages.registerReferenceProvider(selector, {
+      async provideReferences(document, position, refContext, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return [];
+        }
+        const res = await client.sendRequest('textDocument/references', {
           textDocument: { uri: document.uri.toString() },
+          position: fromVsPosition(position),
+          context: { includeDeclaration: refContext ? Boolean(refContext.includeDeclaration) : true },
         });
         if (!Array.isArray(res)) {
           return [];
         }
-        return res.map((cl) => {
-          const lens = new vscode.CodeLens(toVsRange(cl.range));
-          if (cl.command) {
-            lens.command = {
-              title: cl.command.title,
-              command: cl.command.command,
-              arguments: cl.command.arguments || [],
-            };
-          }
-          return lens;
-        });
+        return res
+          .filter((loc) => loc && loc.uri && loc.range)
+          .map((loc) => new vscode.Location(client.toVsUri(loc.uri), toVsRange(loc.range)));
       },
     })
+  );
+
+  // 12. Go to Type Definition & Declaration
+  context.subscriptions.push(
+    vscode.languages.registerTypeDefinitionProvider(selector, {
+      async provideTypeDefinition(document, position, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return [];
+        }
+        const res = await client.sendRequest('textDocument/typeDefinition', {
+          textDocument: { uri: document.uri.toString() },
+          position: fromVsPosition(position),
+        });
+        if (!res) {
+          return [];
+        }
+        const list = Array.isArray(res) ? res : [res];
+        return list
+          .filter((loc) => loc && loc.uri && loc.range)
+          .map((loc) => new vscode.Location(client.toVsUri(loc.uri), toVsRange(loc.range)));
+      },
+    }),
+    vscode.languages.registerDeclarationProvider(selector, {
+      async provideDeclaration(document, position, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return [];
+        }
+        const res = await client.sendRequest('textDocument/declaration', {
+          textDocument: { uri: document.uri.toString() },
+          position: fromVsPosition(position),
+        });
+        if (!res) {
+          return [];
+        }
+        const list = Array.isArray(res) ? res : [res];
+        return list
+          .filter((loc) => loc && loc.uri && loc.range)
+          .map((loc) => new vscode.Location(client.toVsUri(loc.uri), toVsRange(loc.range)));
+      },
+    })
+  );
+
+  // 13. Workspace Symbol Search (`Cmd+T` / `Ctrl+T`)
+  context.subscriptions.push(
+    vscode.languages.registerWorkspaceSymbolProvider({
+      async provideWorkspaceSymbols(query, token) {
+        if (!client || !client.ready || token.isCancellationRequested) {
+          return [];
+        }
+        const res = await client.sendRequest('workspace/symbol', { query: query || '' });
+        if (!Array.isArray(res)) {
+          return [];
+        }
+        return res
+          .filter((sym) => sym && sym.location && sym.location.uri && sym.location.range)
+          .map((sym) => {
+            const kind = typeof sym.kind === 'number' && sym.kind >= 1
+              ? sym.kind - 1
+              : vscode.SymbolKind.Variable;
+            return new vscode.SymbolInformation(
+              sym.name || '<anonymous>',
+              kind,
+              sym.containerName || '',
+              new vscode.Location(client.toVsUri(sym.location.uri), toVsRange(sym.location.range))
+            );
+          });
+      },
+    })
+  );
+
+  // 14. Folding & Selection Ranges
+  context.subscriptions.push(
+    vscode.languages.registerFoldingRangeProvider(selector, {
+      async provideFoldingRanges(document, _ctx, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return [];
+        }
+        const cache = client.getDocCache(document);
+        if (!cache.foldingRangesPromise) {
+          const p = client.sendRequest('textDocument/foldingRange', {
+            textDocument: { uri: document.uri.toString() },
+          }).then((res) => {
+            if (!Array.isArray(res)) {
+              return [];
+            }
+            return res.map((fr) => {
+              let kind = vscode.FoldingRangeKind.Region;
+              if (fr.kind === 'comment') {
+                kind = vscode.FoldingRangeKind.Comment;
+              } else if (fr.kind === 'imports') {
+                kind = vscode.FoldingRangeKind.Imports;
+              }
+              return new vscode.FoldingRange(fr.startLine, fr.endLine, kind);
+            });
+          }).catch((err) => {
+            if (cache.foldingRangesPromise === p) {
+              cache.foldingRangesPromise = null;
+            }
+            throw err;
+          });
+          cache.foldingRangesPromise = p;
+        }
+        const ranges = await cache.foldingRangesPromise;
+        if (token.isCancellationRequested) {
+          return [];
+        }
+        return ranges;
+      },
+    }),
+    vscode.languages.registerSelectionRangeProvider(selector, {
+      async provideSelectionRanges(document, positions, token) {
+        if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+          return [];
+        }
+        const res = await client.sendRequest('textDocument/selectionRange', {
+          textDocument: { uri: document.uri.toString() },
+          positions: positions.map(fromVsPosition),
+        });
+        if (!Array.isArray(res)) {
+          return [];
+        }
+        const convert = (sr) => {
+          if (!sr || !sr.range) {
+            return undefined;
+          }
+          return new vscode.SelectionRange(toVsRange(sr.range), convert(sr.parent));
+        };
+        return res.map(convert).filter(Boolean);
+      },
+    })
+  );
+
+  // 15. Semantic Tokens (`textDocument/semanticTokens/full`)
+  const semanticLegend = new vscode.SemanticTokensLegend(
+    [
+      'namespace', 'type', 'struct', 'enum', 'interface', 'typeParameter',
+      'parameter', 'variable', 'property', 'enumMember', 'function',
+      'method', 'keyword', 'comment', 'string', 'number', 'operator',
+    ],
+    [
+      'declaration', 'definition', 'readonly', 'static',
+      'documentation', 'modification', 'defaultLibrary',
+    ]
+  );
+  context.subscriptions.push(
+    vscode.languages.registerDocumentSemanticTokensProvider(
+      selector,
+      {
+        async provideDocumentSemanticTokens(document, token) {
+          if (!client || !(await client.ensureReadyForDoc(document)) || token.isCancellationRequested) {
+            return null;
+          }
+          const cache = client.getDocCache(document);
+          if (!cache.semanticTokensPromise) {
+            const p = client.sendRequest('textDocument/semanticTokens/full', {
+              textDocument: { uri: document.uri.toString() },
+            }).then((res) => {
+              if (!res || !Array.isArray(res.data)) {
+                return null;
+              }
+              return new vscode.SemanticTokens(new Uint32Array(res.data));
+            }).catch((err) => {
+              if (cache.semanticTokensPromise === p) {
+                cache.semanticTokensPromise = null;
+              }
+              throw err;
+            });
+            cache.semanticTokensPromise = p;
+          }
+          const tokens = await cache.semanticTokensPromise;
+          if (token.isCancellationRequested) {
+            return null;
+          }
+          return tokens;
+        },
+      },
+      semanticLegend
+    )
   );
 
   // 7. User Commands (`Restart Server`, `Run Current File`, `Show Output`)

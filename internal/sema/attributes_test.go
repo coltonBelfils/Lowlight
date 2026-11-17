@@ -7,7 +7,7 @@ import (
 
 func TestAttributesValid(t *testing.T) {
 	src := `
-@doc("Point structure in 2D space")
+// Point structure in 2D space.
 define Point struct [
     x: int,
     y: int,
@@ -27,6 +27,23 @@ bind main = (): {
 	rep := checkSrc(src)
 	if rep.HasErrors() {
 		t.Fatalf("unexpected errors:\n%s", rep.Format())
+	}
+}
+
+func TestDeprecatedDocAttributeRejected(t *testing.T) {
+	src := `
+@doc("old attribute syntax")
+define Point struct [
+    x: int,
+]
+bind main = (): {}
+`
+	rep := checkSrc(src)
+	if !rep.HasErrors() {
+		t.Fatalf("expected error for removed @doc attribute, got none")
+	}
+	if !strings.Contains(rep.Format(), "unknown attribute @doc") {
+		t.Fatalf("expected unknown attribute @doc error, got:\n%s", rep.Format())
 	}
 }
 

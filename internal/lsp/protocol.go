@@ -91,10 +91,11 @@ type WorkspaceEdit struct {
 // -----------------------------------------------------------------------------
 
 type InitializeParams struct {
-	ProcessID        int               `json:"processId"`
-	RootURI          string            `json:"rootUri"`
-	RootPath         string            `json:"rootPath"`
-	WorkspaceFolders []WorkspaceFolder `json:"workspaceFolders"`
+	ProcessID             int               `json:"processId"`
+	RootURI               string            `json:"rootUri"`
+	RootPath              string            `json:"rootPath"`
+	WorkspaceFolders      []WorkspaceFolder `json:"workspaceFolders"`
+	InitializationOptions json.RawMessage   `json:"initializationOptions,omitempty"`
 }
 
 type WorkspaceFolder struct {
@@ -117,15 +118,32 @@ type ServerCapabilities struct {
 	CompletionProvider         *CompletionOptions      `json:"completionProvider,omitempty"`
 	HoverProvider              bool                    `json:"hoverProvider,omitempty"`
 	DefinitionProvider         bool                    `json:"definitionProvider,omitempty"`
+	TypeDefinitionProvider     bool                    `json:"typeDefinitionProvider,omitempty"`
+	DeclarationProvider        bool                    `json:"declarationProvider,omitempty"`
 	ImplementationProvider     bool                    `json:"implementationProvider,omitempty"`
+	ReferencesProvider         bool                    `json:"referencesProvider,omitempty"`
 	DocumentSymbolProvider     bool                    `json:"documentSymbolProvider,omitempty"`
+	WorkspaceSymbolProvider    bool                    `json:"workspaceSymbolProvider,omitempty"`
 	SignatureHelpProvider      *SignatureHelpOptions   `json:"signatureHelpProvider,omitempty"`
 	CodeActionProvider         bool                    `json:"codeActionProvider,omitempty"`
 	CodeLensProvider           *CodeLensOptions        `json:"codeLensProvider,omitempty"`
 	ExecuteCommandProvider     *ExecuteCommandOptions  `json:"executeCommandProvider,omitempty"`
 	DocumentFormattingProvider bool                    `json:"documentFormattingProvider,omitempty"`
 	InlayHintProvider          bool                    `json:"inlayHintProvider,omitempty"`
+	FoldingRangeProvider       bool                    `json:"foldingRangeProvider,omitempty"`
+	SelectionRangeProvider     bool                    `json:"selectionRangeProvider,omitempty"`
+	SemanticTokensProvider     *SemanticTokensOptions  `json:"semanticTokensProvider,omitempty"`
 	RenameProvider             any                     `json:"renameProvider,omitempty"`
+}
+
+type SemanticTokensLegend struct {
+	TokenTypes     []string `json:"tokenTypes"`
+	TokenModifiers []string `json:"tokenModifiers"`
+}
+
+type SemanticTokensOptions struct {
+	Legend SemanticTokensLegend `json:"legend"`
+	Full   bool                 `json:"full"`
 }
 
 type CodeLensOptions struct {
@@ -138,7 +156,7 @@ type ExecuteCommandOptions struct {
 
 type TextDocumentSyncOptions struct {
 	OpenClose bool `json:"openClose"`
-	Change    int  `json:"change"` // 1 = Full document sync
+	Change    int  `json:"change"` // 2 = Incremental document sync
 	Save      bool `json:"save"`
 }
 
@@ -307,12 +325,71 @@ type SignatureInformation struct {
 }
 
 type ParameterInformation struct {
-	Label string `json:"label"`
+	Label         string         `json:"label"`
+	Documentation *MarkupContent `json:"documentation,omitempty"`
 }
 
 type DocumentSymbolParams struct {
 	TextDocument TextDocumentIdentifier `json:"textDocument"`
 }
+
+type WorkspaceSymbolParams struct {
+	Query string `json:"query"`
+}
+
+type SymbolInformation struct {
+	Name          string     `json:"name"`
+	Kind          SymbolKind `json:"kind"`
+	Location      Location   `json:"location"`
+	ContainerName string     `json:"containerName,omitempty"`
+}
+
+type ReferenceContext struct {
+	IncludeDeclaration bool `json:"includeDeclaration"`
+}
+
+type ReferenceParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+	Context      ReferenceContext       `json:"context"`
+}
+
+type FoldingRangeParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+type FoldingRange struct {
+	StartLine      int    `json:"startLine"`
+	StartCharacter int    `json:"startCharacter,omitempty"`
+	EndLine        int    `json:"endLine"`
+	EndCharacter   int    `json:"endCharacter,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+}
+
+type SelectionRangeParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Positions    []Position             `json:"positions"`
+}
+
+type SelectionRange struct {
+	Range  Range           `json:"range"`
+	Parent *SelectionRange `json:"parent,omitempty"`
+}
+
+type SemanticTokensParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+type SemanticTokens struct {
+	ResultID string   `json:"resultId,omitempty"`
+	Data     []uint32 `json:"data"`
+}
+
+type DidChangeConfigurationParams struct {
+	Settings json.RawMessage `json:"settings"`
+}
+
+type CodeActionKind = string
 
 type SymbolKind int
 
@@ -348,6 +425,7 @@ type CodeActionParams struct {
 
 type CodeActionContext struct {
 	Diagnostics []Diagnostic `json:"diagnostics"`
+	Only        []string     `json:"only,omitempty"`
 }
 
 type CodeAction struct {
@@ -505,6 +583,46 @@ func PathToURI(path string) string {
 	return u.String()
 }
 
+// shouldSkipWorkspaceDir reports whether a directory should be excluded from
+// LSP workspace walks (caches, build outputs, editor plugin sandboxes, hidden dirs).
+func shouldSkipWorkspaceDir(name string) bool {
+	if strings.HasPrefix(name, ".") && name != "." && name != ".." {
+		return true
+	}
+	switch name {
+	case "node_modules", "build", "target", "bin", "dist", "vendor", "scratch", "editors", "benchmarks":
+		return true
+	}
+	return false
+}
+
+// lineBoundsAt returns the byte bounds [start, end) of 0-based `targetLine` in `src`
+// (stripping any trailing `\r`), plus the number of lines encountered.
+// If `targetLine` is beyond the last line, `start`/`end` describe the last line and `found` is false.
+func lineBoundsAt(src string, targetLine int) (start, end, lastLine int, found bool) {
+	curLine := 0
+	pos := 0
+	for {
+		nl := strings.IndexByte(src[pos:], '\n')
+		if nl < 0 {
+			lineEnd := len(src)
+			if lineEnd > pos && src[lineEnd-1] == '\r' {
+				lineEnd--
+			}
+			return pos, lineEnd, curLine, curLine == targetLine
+		}
+		if curLine == targetLine {
+			lineEnd := pos + nl
+			if lineEnd > pos && src[lineEnd-1] == '\r' {
+				lineEnd--
+			}
+			return pos, lineEnd, curLine, true
+		}
+		curLine++
+		pos += nl + 1
+	}
+}
+
 // PosToLSP converts a 1-based Lowlight `diag.Pos` (where `Col` is 1-based rune column, or byte/rune offset)
 // into a 0-based LSP UTF-16 `(line, character)` Position against `src`.
 func PosToLSP(src string, p diag.Pos) Position {
@@ -512,15 +630,31 @@ func PosToLSP(src string, p diag.Pos) Position {
 		return Position{Line: 0, Character: 0}
 	}
 	targetLine := p.Line - 1
-	lines := strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n")
-	if targetLine >= len(lines) {
-		if len(lines) == 0 {
+	// Fast zero-allocation path when `p.Offset` is populated and consistent with `p.Line`.
+	if p.Offset >= 0 && p.Offset <= len(src) {
+		if p.Offset == 0 && p.Line == 1 && p.Col <= 1 {
 			return Position{Line: 0, Character: 0}
 		}
-		last := lines[len(lines)-1]
-		return Position{Line: len(lines) - 1, Character: utf16Len(last)}
+		if p.Offset > 0 {
+			lineStart := strings.LastIndexByte(src[:p.Offset], '\n') + 1
+			lineMatches := ((p.Line == 1 && lineStart == 0) || (p.Line > 1 && lineStart > 0)) &&
+				(p.Col > 1 || p.Offset == lineStart)
+			if lineMatches {
+				seg := src[lineStart:p.Offset]
+				if len(seg) > 0 && seg[len(seg)-1] == '\r' && (p.Offset == len(src) || src[p.Offset] == '\n') {
+					seg = seg[:len(seg)-1]
+				}
+				return Position{Line: targetLine, Character: utf16Len(seg)}
+			}
+		}
 	}
-	lineText := lines[targetLine]
+
+	// Fallback path for synthetic `diag.Pos` without byte `Offset`.
+	start, end, lastLine, found := lineBoundsAt(src, targetLine)
+	if !found {
+		return Position{Line: lastLine, Character: utf16Len(src[start:end])}
+	}
+	lineText := src[start:end]
 	// In Lowlight's lexer, `Col` increments by 1 per UTF-8 rune (`l.advance()`).
 	targetRuneCol := p.Col - 1
 	if targetRuneCol <= 0 {
@@ -547,8 +681,32 @@ func SpanToLSP(src string, sp diag.Span) Range {
 	start := PosToLSP(src, sp.Start)
 	end := PosToLSP(src, sp.End)
 	if end.Line < start.Line || (end.Line == start.Line && end.Character <= start.Character) {
-		lines := strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n")
-		if start.Line < len(lines) && start.Character < utf16Len(lines[start.Line]) {
+		var lineStart, lineEnd int
+		var haveLine bool
+		if sp.Start.Line == start.Line+1 && sp.Start.Offset >= 0 && sp.Start.Offset <= len(src) {
+			ls := strings.LastIndexByte(src[:sp.Start.Offset], '\n') + 1
+			if (sp.Start.Line == 1 && ls == 0) || (sp.Start.Line > 1 && ls > 0) {
+				lineStart = ls
+				nl := strings.IndexByte(src[lineStart:], '\n')
+				if nl < 0 {
+					lineEnd = len(src)
+				} else {
+					lineEnd = lineStart + nl
+				}
+				if lineEnd > lineStart && src[lineEnd-1] == '\r' {
+					lineEnd--
+				}
+				haveLine = true
+			}
+		}
+		if !haveLine {
+			s, e, _, found := lineBoundsAt(src, start.Line)
+			if found {
+				lineStart, lineEnd = s, e
+				haveLine = true
+			}
+		}
+		if haveLine && start.Character < utf16Len(src[lineStart:lineEnd]) {
 			end = Position{Line: start.Line, Character: start.Character + 1}
 		} else if start.Character > 0 {
 			start = Position{Line: start.Line, Character: start.Character - 1}

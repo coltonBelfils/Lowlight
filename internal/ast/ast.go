@@ -8,9 +8,11 @@ import (
 
 // File represents a parsed `.ll` source file.
 type File struct {
-	Path  string
-	Decls []Decl
-	Span  diag.Span
+	Path    string
+	Doc     string
+	DocSpan diag.Span
+	Decls   []Decl
+	Span    diag.Span
 }
 
 // TypeParam represents a generic type parameter `[T]` or `[T: Bound1 + Bound2]`.
@@ -92,6 +94,8 @@ type ExternFnDecl struct {
 	Alias      string
 	Params     []Param
 	Ret        TypeExpr // nil for void
+	Doc        string
+	DocSpan    diag.Span
 	Span       diag.Span
 	Attributes []Attribute
 }
@@ -107,6 +111,8 @@ type StructDecl struct {
 	Packed     bool
 	TypeParams []TypeParam
 	Fields     []StructField
+	Doc        string
+	DocSpan    diag.Span
 	Span       diag.Span
 	Attributes []Attribute
 }
@@ -116,6 +122,8 @@ type StructField struct {
 	IsOpt   bool // true if field identifier ended with `?`
 	Type    TypeExpr
 	Default Expr // optional default value expression
+	Doc     string
+	DocSpan diag.Span
 	Span    diag.Span
 }
 
@@ -130,6 +138,8 @@ type EnumDecl struct {
 	TypeParams []TypeParam
 	BaseType   TypeExpr // optional underlying integer type (defaults to `int` for pure tag enums)
 	Variants   []EnumVariant
+	Doc        string
+	DocSpan    diag.Span
 	Span       diag.Span
 	Attributes []Attribute
 }
@@ -138,6 +148,8 @@ type EnumVariant struct {
 	Name        string
 	Value       Expr     // optional explicit discriminant (pure tag enums only)
 	PayloadType TypeExpr // optional single-value payload (`Ok: T`)
+	Doc         string
+	DocSpan     diag.Span
 	Span        diag.Span
 }
 
@@ -151,6 +163,8 @@ type InterfaceDecl struct {
 	Name       string
 	TypeParams []TypeParam
 	Methods    []InterfaceMethod
+	Doc        string
+	DocSpan    diag.Span
 	Span       diag.Span
 	Attributes []Attribute
 }
@@ -168,6 +182,8 @@ type InterfaceMethod struct {
 	RecvMode ReceiverMode
 	Params   []Param
 	Ret      TypeExpr // nil for void
+	Doc      string
+	DocSpan  diag.Span
 	Span     diag.Span
 }
 
@@ -180,6 +196,8 @@ func (d *InterfaceDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 type DistinctTypeDecl struct {
 	Name       string
 	Base       TypeExpr
+	Doc        string
+	DocSpan    diag.Span
 	Span       diag.Span
 	Attributes []Attribute
 }
@@ -201,6 +219,8 @@ type MethodDecl struct {
 	Params         []Param
 	Ret            TypeExpr // nil for void
 	Body           Expr
+	Doc            string
+	DocSpan        diag.Span
 	Span           diag.Span
 	Attributes     []Attribute
 }
@@ -218,6 +238,8 @@ type VarDecl struct {
 	TypeParams []TypeParam
 	Type       TypeExpr // optional explicit type
 	Value      Expr
+	Doc        string
+	DocSpan    diag.Span
 	Span       diag.Span
 	Attributes []Attribute
 }

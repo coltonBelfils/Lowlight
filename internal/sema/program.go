@@ -8,11 +8,23 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"lowlight/internal/ast"
 	"lowlight/internal/diag"
 	"lowlight/internal/parser"
 	"lowlight/internal/types"
+)
+
+type diskASTCacheEntry struct {
+	modTimeNano int64
+	size        int64
+	file        *ast.File
+}
+
+var (
+	diskASTMu    sync.RWMutex
+	diskASTCache = make(map[string]diskASTCacheEntry)
 )
 
 // BindKind classifies how a local variable holds its value.
@@ -63,6 +75,7 @@ type Symbol struct {
 	FuncInst      *FuncInstance
 	GenFunc       *GenericFuncTemplate
 	ExternFn      *ExternFunc
+	Doc           string
 	Span          diag.Span
 }
 
@@ -70,6 +83,7 @@ type Symbol struct {
 type ExternFunc struct {
 	Name string
 	Sig  *types.Func
+	Doc  string
 	Span diag.Span
 }
 
@@ -136,6 +150,7 @@ type FuncInstance struct {
 	IsTestOnly     bool
 	TrackCaller    bool
 	TestDesc       string
+	Doc            string
 }
 
 // BodyMaps holds per-monomorphized-body AST side tables so multiple generic
@@ -290,6 +305,7 @@ type Module struct {
 	Path          string
 	Dir           string
 	File          *ast.File
+	Doc           string
 	Imports       []*Module            // unqualified `import "foo.ll"`
 	Aliased       map[string]*Module   // `import "foo.ll" as alias`
 	Types          map[string]types.Type
@@ -474,7 +490,7 @@ func runCheck(entryPath string, overlays map[string]string, projectRoot string, 
 	if projectRoot == "" {
 		projectRoot = findProjectRoot(filepath.Dir(absEntry))
 	}
-	stdDir := filepath.Join(projectRoot, "std")
+	stdDir := findStdDir(projectRoot, filepath.Dir(absEntry))
 
 	topBM := NewBodyMaps()
 	genMethods := make(map[string]map[string]*GenericFuncTemplate)
@@ -599,6 +615,65 @@ func findProjectRoot(startDir string) string {
 	return startDir
 }
 
+func findStdDir(projectRoot, startDir string) string {
+	isStdDir := func(dir string) bool {
+		if dir == "" {
+			return false
+		}
+		if st, err := os.Stat(filepath.Join(dir, "core", "core.ll")); err == nil && !st.IsDir() {
+			return true
+		}
+		if st, err := os.Stat(filepath.Join(dir, "core.ll")); err == nil && !st.IsDir() {
+			return true
+		}
+		return false
+	}
+	if projectRoot != "" {
+		cand := filepath.Join(projectRoot, "std")
+		if isStdDir(cand) {
+			return cand
+		}
+	}
+	if env := os.Getenv("LOWLIGHT_ROOT"); env != "" {
+		cand := filepath.Join(env, "std")
+		if isStdDir(cand) {
+			return cand
+		}
+	}
+	searchStdUp := func(from string) string {
+		dir := from
+		for dir != "" {
+			cand := filepath.Join(dir, "std")
+			if isStdDir(cand) {
+				return cand
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+		return ""
+	}
+	if r := searchStdUp(startDir); r != "" {
+		return r
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		if r := searchStdUp(cwd); r != "" {
+			return r
+		}
+	}
+	if exe, err := os.Executable(); err == nil {
+		if r := searchStdUp(filepath.Dir(exe)); r != "" {
+			return r
+		}
+	}
+	if projectRoot != "" {
+		return filepath.Join(projectRoot, "std")
+	}
+	return filepath.Join(startDir, "std")
+}
+
 func (a *Analyzer) initBuiltinInterfaces() {
 	a.Prog.IfacePrintable = &types.Interface{
 		Name:  "Printable",
@@ -664,24 +739,47 @@ func (a *Analyzer) loadModule(absPath string, importSpan diag.Span) *Module {
 	a.loadingStack[absPath] = true
 	defer delete(a.loadingStack, absPath)
 
-	var content string
+	var astFile *ast.File
 	if ov, hasOverlay := a.overlays[absPath]; hasOverlay {
-		content = ov
+		astFile = parser.ParseFile(absPath, ov, a.Rep)
 	} else {
-		bytes, err := os.ReadFile(absPath)
-		if err != nil {
-			a.Rep.Errorf(importSpan, "cannot read imported module %q: %v", absPath, err)
-			return nil
+		info, statErr := os.Stat(absPath)
+		if statErr == nil {
+			diskASTMu.RLock()
+			cached, ok := diskASTCache[absPath]
+			diskASTMu.RUnlock()
+			if ok && cached.modTimeNano == info.ModTime().UnixNano() && cached.size == info.Size() && cached.file != nil {
+				astFile = cached.file
+			}
 		}
-		content = string(bytes)
+		if astFile == nil {
+			bytes, err := os.ReadFile(absPath)
+			if err != nil {
+				a.Rep.Errorf(importSpan, "cannot read imported module %q: %v", absPath, err)
+				return nil
+			}
+			diagsBefore := len(a.Rep.Diagnostics())
+			astFile = parser.ParseFile(absPath, string(bytes), a.Rep)
+			if statErr == nil && astFile != nil && len(a.Rep.Diagnostics()) == diagsBefore {
+				diskASTMu.Lock()
+				if len(diskASTCache) > 512 {
+					diskASTCache = make(map[string]diskASTCacheEntry)
+				}
+				diskASTCache[absPath] = diskASTCacheEntry{
+					modTimeNano: info.ModTime().UnixNano(),
+					size:        info.Size(),
+					file:        astFile,
+				}
+				diskASTMu.Unlock()
+			}
+		}
 	}
-
-	astFile := parser.ParseFile(absPath, content, a.Rep)
 	mod := &Module{
-		Path:           absPath,
-		Dir:            filepath.Dir(absPath),
-		File:           astFile,
-		Aliased:        make(map[string]*Module),
+		Path:              absPath,
+		Dir:               filepath.Dir(absPath),
+		File:              astFile,
+		Doc:               astFile.Doc,
+		Aliased:           make(map[string]*Module),
 		Types:          make(map[string]types.Type),
 		GenericStructs:    make(map[string]*GenericStructTemplate),
 		GenericEnums:      make(map[string]*GenericEnumTemplate),
@@ -766,6 +864,9 @@ func (a *Analyzer) resolveImportPath(fromDir, raw string) string {
 		abs, err := filepath.Abs(c)
 		if err != nil {
 			continue
+		}
+		if _, ok := a.overlays[abs]; ok {
+			return abs
 		}
 		if st, err := os.Stat(abs); err == nil && !st.IsDir() {
 			return abs
