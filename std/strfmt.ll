@@ -222,7 +222,8 @@ bind string.center = (self, width: int) string: self.center_fill(width, " ")
 
 // Truncates the string to `max_len` bytes, appending `ellipsis` when shortened.
 bind string.truncate_with = (self, max_len: int, ellipsis: string) string:
-	if(self.len() <= max_len): self.copy()
+	if(max_len <= 0): ""
+	else if(self.len() <= max_len): self.copy()
 	else if(max_len <= ellipsis.len()): self[0..max_len]
 	else: {
 		let keep = max_len - ellipsis.len()
@@ -393,6 +394,11 @@ bind test_strfmt_padding_and_truncation = (): {
 
 	assert("very long string here".truncate(10) == "very lo...", "truncate long")
 	assert("short".truncate(10) == "short", "truncate short")
+	assert("hello".truncate(0) == "", "truncate zero")
+	assert("hello".truncate(-5) == "", "truncate negative")
+	assert("".truncate(-1) == "", "truncate empty negative")
+	assert("hello".truncate_with(2, "...") == "he", "truncate smaller than ellipsis")
+	assert("hello".truncate_with(-3, "") == "", "truncate empty ellipsis negative")
 }
 
 @test("strfmt case conversions: title, snake, kebab, camel")
