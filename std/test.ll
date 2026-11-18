@@ -54,20 +54,23 @@ bind format_diff = (actual_str: string, expected_str: string) string:
 		_format_multiline_diff(actual_str, expected_str)
 	else: _format_single_line_diff(actual_str, expected_str)
 
+@test_only
+bind _find_char_diff = (act_chars: [char], exp_chars: [char]) int: {
+	let min_len = if(act_chars.len() < exp_chars.len()): act_chars.len() else: exp_chars.len()
+	for(i in 0..min_len):
+		if(act_chars[i] != exp_chars[i]): func <- i
+	-1
+}
+
 // Formats single-line got vs expected with aligned columns and a pointer at the first mismatch.
 @test_only
 @track_caller
 bind _format_single_line_diff = (actual_str: string, expected_str: string) string: {
-	let act_len = actual_str.len()
-	let exp_len = expected_str.len()
-	let min_len = if(act_len < exp_len): act_len else: exp_len
-
-	let diff_idx = -1
-	for(i in 0..min_len):
-		if(actual_str[i] != expected_str[i]): {
-			diff_idx = i
-			for <-
-		}
+	let act_chars = actual_str.chars()
+	let exp_chars = expected_str.chars()
+	let act_len = act_chars.len()
+	let exp_len = exp_chars.len()
+	let diff_idx = _find_char_diff(act_chars, exp_chars)
 
 	let out = "  expected: " + expected_str + "\n       got: " + actual_str
 	if(diff_idx >= 0): {
@@ -75,11 +78,11 @@ bind _format_single_line_diff = (actual_str: string, expected_str: string) strin
 		out = out + "\n" + pointer
 	} else if(act_len > exp_len): {
 		let extra = act_len - exp_len
-		let pointer = _repeat_space(12 + exp_len) + "^ unexpected " + extra.to_string() + " extra byte(s) in got"
+		let pointer = _repeat_space(12 + exp_len) + "^ unexpected " + extra.to_string() + " extra char(s) in got"
 		out = out + "\n" + pointer
 	} else if(exp_len > act_len): {
 		let missing = exp_len - act_len
-		let pointer = _repeat_space(12 + act_len) + "^ missing " + missing.to_string() + " expected byte(s)"
+		let pointer = _repeat_space(12 + act_len) + "^ missing " + missing.to_string() + " expected char(s)"
 		out = out + "\n" + pointer
 	}
 	out
@@ -109,14 +112,11 @@ bind _format_multiline_diff = (actual_str: string, expected_str: string) string:
 		out = out + "         got: " + act_line
 
 		// Find character mismatch within the line
-		let line_min = if(act_line.len() < exp_line.len()): act_line.len() else: exp_line.len()
-		let char_idx = -1
-		for(c in 0..line_min):
-			if(act_line[c] != exp_line[c]): {
-				char_idx = c
-				for <-
-			}
-		if(char_idx == -1 and act_line.len() != exp_line.len()): char_idx = line_min
+		let act_chars = act_line.chars()
+		let exp_chars = exp_line.chars()
+		let char_idx = _find_char_diff(act_chars, exp_chars)
+		if(char_idx == -1 and act_chars.len() != exp_chars.len()):
+			char_idx = if(act_chars.len() < exp_chars.len()): act_chars.len() else: exp_chars.len()
 		if(char_idx >= 0): {
 			let pointer = _repeat_space(14 + char_idx) + "^"
 			out = out + "\n" + pointer
@@ -355,6 +355,21 @@ bind test_diff_formatting = (): {
 	assert_true(_str_contains_sub(multi_diff, "first mismatch at line 2"))
 	assert_true(_str_contains_sub(multi_diff, "expected: line2_good"))
 	assert_true(_str_contains_sub(multi_diff, "got: line2_bad"))
+
+	let utf8_diff = _format_single_line_diff("αβδ", "αβγ")
+	assert_true(_str_contains_sub(utf8_diff, "\n" + _repeat_space(14) + "^ diff at index 2"))
+
+	let accent_diff = _format_single_line_diff("café", "cafè")
+	assert_true(_str_contains_sub(accent_diff, "\n" + _repeat_space(15) + "^ diff at index 3"))
+
+	let extra_utf8 = _format_single_line_diff("αβγ", "αβ")
+	assert_true(_str_contains_sub(extra_utf8, "\n" + _repeat_space(14) + "^ unexpected 1 extra char(s) in got"))
+
+	let missing_utf8 = _format_single_line_diff("αβ", "αβγ")
+	assert_true(_str_contains_sub(missing_utf8, "\n" + _repeat_space(14) + "^ missing 1 expected char(s)"))
+
+	let multi_utf8 = _format_multiline_diff("top\nαβδ\nbot", "top\nαβγ\nbot")
+	assert_true(_str_contains_sub(multi_utf8, "\n" + _repeat_space(16) + "^"))
 }
 
 @test("assert_eq and assert_ne basic assertions")

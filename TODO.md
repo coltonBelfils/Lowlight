@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Quick Fixes & Small Guards
 
-- [ ] Fix UTF-8 diff alignment in `std/test.ll:60-86`.
 - [ ] Add `assert_approx_eq` to `std/test.ll`.
 - [ ] Add `assert_contains`, `assert_starts_with`, and `assert_ends_with` to `std/test.ll`.
 - [ ] Serialize `self.query` in `Request.format` (`std/http.ll:428-438`) and update the request-wire assertions in `tests/http_test.ll:79,91`.
