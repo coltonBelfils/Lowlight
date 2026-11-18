@@ -266,10 +266,10 @@ bind write_bytes = (path: string, data: [u8]) Result[bool]: {
 	else: Result[bool].ok(true)
 }
 
-// Reports whether `path` exists and can be opened for reading.
+// Reports whether a file or directory exists at `path`.
 bind exists = (path: string) bool: {
-	let f_res = File.open_read(path)
-	f_res.is_ok()
+	if(path.len() == 0): func <- false
+	unsafe sys_file_exists(path.c_str())
 }
 
 // Queries the total byte size of the file at `path`.
@@ -385,6 +385,11 @@ bind test_fs_high_level = (): {
 	assert(remove_file(p3), "remove_file p3 succeeds")
 	assert(not exists(p1), "p1 does not exist after remove")
 	assert(not exists(p3), "p3 does not exist after remove")
+	assert(not exists(""), "empty path does not exist")
+
+	let tmp_parent = str_from_cstr(unsafe _test_getenv("TMPDIR".c_str()))
+	if(tmp_parent.len() == 0): tmp_parent = "/tmp"
+	assert(exists(tmp_parent), "exists returns true for directory")
 }
 
 @test("filesystem binary byte I/O: write_bytes, read_bytes")

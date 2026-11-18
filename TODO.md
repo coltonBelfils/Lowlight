@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Quick Fixes & Small Guards
 
-- [ ] Fix `exists` and `mkdir_p` directory vs regular-file edge cases in `std/fs.ll`.
 - [ ] Fix UTF-8 diff alignment in `std/test.ll:60-86`.
 - [ ] Add `assert_approx_eq` to `std/test.ll`.
 - [ ] Add `assert_contains`, `assert_starts_with`, and `assert_ends_with` to `std/test.ll`.

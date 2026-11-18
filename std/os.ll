@@ -41,22 +41,35 @@ bind file_exists = (path: string) bool: unsafe sys_file_exists(path.c_str())
 // Creates a single directory at `path`, returning `true` on success.
 bind mkdir = (path: string) bool: unsafe sys_mkdir(path.c_str()) == 0
 
-// Recursively creates `path` and any missing parent directories, returning `true` if `path` exists afterward.
+bind _is_dir = (path: string) bool:
+	if(path.len() == 0): false
+	else if(path == "/"): file_exists("/")
+	else: file_exists("${path}/.")
+
+// Recursively creates `path` and any missing parent directories, returning `true` if `path` exists as a directory afterward.
 bind mkdir_p = (path: string) bool: {
 	if(path.len() == 0): func <- false
-	let n = path.len()
+	let target = path.copy()
+	for(target.len() > 1 and target.byte_at(target.len() - 1) == u8(47)):
+		target = target[0..target.len() - 1]
+	if(_is_dir(target)): func <- true
+	let n = target.len()
 	let i = 1
 	for(i < n): {
-		if(path.byte_at(i) == u8(47)): {
-			let sub = path[0..i]
-			if(not file_exists(sub)): {
-				let _ = mkdir(sub)
+		if(target.byte_at(i) == u8(47)): {
+			let sub = target[0..i]
+			if(not _is_dir(sub)): {
+				if(file_exists(sub) or not mkdir(sub)): {
+					if(not _is_dir(sub)): func <- false
+				}
 			}
 		}
 		i += 1
 	}
-	if(file_exists(path)): func <- true
-	mkdir(path)
+	if(_is_dir(target)): func <- true
+	if(file_exists(target)): func <- false
+	if(mkdir(target)): func <- true
+	_is_dir(target)
 }
 
 // Recursively removes `path` and any nested contents, returning `true` on success.
@@ -119,6 +132,20 @@ bind test_os_filesystem = (): {
 
 	assert(mkdir_p(nested), "mkdir_p succeeds")
 	assert(file_exists(nested), "nested exists after mkdir_p")
+	assert(mkdir_p(nested), "mkdir_p on existing dir is idempotent")
+	assert(mkdir_p("${base}/trailing/"), "mkdir_p handles trailing slash")
+	assert(not mkdir_p(""), "mkdir_p rejects empty path")
+
+	let reg = "${base}/reg_file.txt"
+	unsafe {
+		let fp = sys_fopen(reg.c_str(), "wb".c_str())
+		assert(fp != null_ptr[u8](), "create regular file succeeds")
+		let _ = sys_fclose(fp)
+	}
+	assert(file_exists(reg), "regular file exists")
+	assert(not mkdir_p(reg), "mkdir_p fails when target is regular file")
+	assert(not mkdir_p("${reg}/"), "mkdir_p fails when target is regular file with trailing slash")
+	assert(not mkdir_p("${reg}/child/dir"), "mkdir_p fails when ancestor is regular file")
 
 	assert(remove_all(base), "remove_all succeeds")
 	assert(not file_exists(base), "base does not exist after remove_all")
