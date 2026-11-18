@@ -40,7 +40,8 @@ bind List[T].new = () List[T]:
 //
 // - `cap`: Number of element slots to allocate immediately when positive.
 bind List[T].with_capacity = (cap: int) List[T]: {
-	let p = if(cap > 0): unsafe alloc_raw[T](cap) else: unsafe null_ptr[T]()
+	if(cap <= 0): func <- List[T].new()
+	let p = unsafe alloc_raw[T](cap)
 	List[T][
 		data: p,
 		len: 0,
@@ -65,7 +66,7 @@ bind List[T].push = (&self, item: own T): {
 	if(self.len + 1 > self.cap): {
 		let ncap = if(self.cap > 0): self.cap * 2 else: 4
 		let nd = unsafe {
-			if(self.cap == 0): alloc_raw[T](ncap) else: realloc_raw(self.data, ncap)
+			if(self.cap <= 0): alloc_raw[T](ncap) else: realloc_raw(self.data, ncap)
 		}
 		self.data = nd
 		self.cap = ncap

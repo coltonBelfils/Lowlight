@@ -165,6 +165,22 @@ bind test_core_list = (): {
 	list.clear()
 	assert(list.len() == 0, "len after clear")
 	assert(list.is_empty(), "is_empty after clear")
+
+	let neg_cap = List[int].with_capacity(-5)
+	assert(neg_cap.len() == 0, "negative with_capacity len is 0")
+	assert(neg_cap.cap() == 0, "negative with_capacity clamps cap to 0")
+	assert(neg_cap.is_empty(), "negative with_capacity is empty")
+	neg_cap.push(42)
+	assert(neg_cap.len() == 1 and neg_cap.cap() >= 1, "push after negative with_capacity")
+	assert(neg_cap.get(0) == 42, "get after negative with_capacity push")
+
+	let zero_cap = List[int].with_capacity(0)
+	assert(zero_cap.len() == 0 and zero_cap.cap() == 0, "zero with_capacity")
+	zero_cap.push(7)
+	assert(zero_cap.get(0) == 7, "push after zero with_capacity")
+
+	let pos_cap = List[int].with_capacity(4)
+	assert(pos_cap.len() == 0 and pos_cap.cap() == 4, "positive with_capacity preserves cap")
 }
 
 @test("core Set[T] operations")

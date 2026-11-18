@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Quick Fixes & Small Guards
 
-- [ ] Validate negative `with_capacity` arguments in `std/core/list.ll` / `std/core/array.ll`.
 - [ ] Replace fixed `/tmp/lowlight_test_*` paths in inline tests across `std/core/list.ll`, `std/core/array.ll`, `std/fs.ll`, and `std/os.ll`.
 - [ ] Add `@test` coverage for `Array[T]` in `std/core/array.ll`.
 - [ ] Align `split_whitespace` with `is_whitespace` in `std/strings.ll` / `std/strfmt.ll`.
