@@ -862,6 +862,16 @@ func TestNetworkExamplesBuildClean(t *testing.T) {
 	}
 }
 
+func resolveStrictCC() string {
+	cc := driver.ResolveCC("")
+	if cc == "cc" {
+		if clangPath, err := exec.LookPath("clang"); err == nil && clangPath != "" {
+			return clangPath
+		}
+	}
+	return cc
+}
+
 func TestFormatLocClampsLongPath(t *testing.T) {
 	root := projectRoot(t)
 	llSrc := `
@@ -888,12 +898,7 @@ bind main = (): {
 		t.Fatalf("EmitLLVM failed: %v", err)
 	}
 
-	cc := driver.ResolveCC("")
-	if cc == "cc" {
-		if clangPath, lookErr := exec.LookPath("clang"); lookErr == nil && clangPath != "" {
-			cc = clangPath
-		}
-	}
+	cc := resolveStrictCC()
 
 	sharedChecksC := `
 static int run_format_loc_checks(void) {
@@ -1046,6 +1051,128 @@ int main(void) {
 		runCmd.Env = append(os.Environ(), "LOWLIGHT_CHECK_LEAKS=1", "ASAN_OPTIONS=detect_leaks=0")
 		if out, err := runCmd.CombinedOutput(); err != nil {
 			t.Fatalf("LLVM run failed: %v\n%s", err, string(out))
+		}
+	})
+}
+
+func TestSocketSendAfterPeerCloseNoSigpipe(t *testing.T) {
+	src := `import "std/net.ll" as net
+
+bind main = (): {
+    let p1 = net.socketpair().unwrap()
+    p1.second.close()
+    assert(p1.first.send("hello after second closed").is_err(), "expected send after peer close to return Err")
+    p1.first.close()
+
+    let p2 = net.socketpair().unwrap()
+    p2.first.close()
+    assert(p2.second.send("hello after first closed").is_err(), "expected reverse send after peer close to return Err")
+    p2.second.close()
+
+    println("no_sigpipe_ok")
+}
+`
+	for _, release := range []bool{false, true} {
+		out := runInlineStrict(t, "socket_no_sigpipe", src, release)
+		if strings.TrimSpace(out) != "no_sigpipe_ok" {
+			t.Fatalf("[release=%v] unexpected stdout: %q", release, out)
+		}
+	}
+
+	// Also verify ll_net_send_all itself prevents SIGPIPE on an unconfigured raw socketpair fd
+	// (e.g. from external C / extern calls) on both C11 and LLVM backends.
+	root := projectRoot(t)
+	opts := driver.Options{
+		EntryPath:   filepath.Join(t.TempDir(), "raw_sigpipe.ll"),
+		SrcOverride: src,
+		ProjectRoot: root,
+	}
+	cSrc, _, err := driver.EmitC(opts)
+	if err != nil {
+		t.Fatalf("EmitC failed: %v", err)
+	}
+	llvmSrc, _, err := driver.EmitLLVM(opts)
+	if err != nil {
+		t.Fatalf("EmitLLVM failed: %v", err)
+	}
+	cc := resolveStrictCC()
+
+	t.Run("RawFD_C11", func(t *testing.T) {
+		tmp := t.TempDir()
+		patchedC := strings.Replace(cSrc, "int main(int argc, char** argv)", "int ll_unused_main(int argc, char** argv)", 1)
+		if patchedC == cSrc {
+			t.Fatal("failed to locate C11 main entrypoint")
+		}
+		patchedC += `
+int main(void) {
+    int fds[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) return 1;
+    close(fds[1]);
+    int64_t rc = ll_net_send_all((int64_t)fds[0], (const uint8_t*)"raw_sigpipe", 11);
+    close(fds[0]);
+    return (rc == -1LL) ? 0 : 2;
+}
+`
+		cPath := filepath.Join(tmp, "raw_sigpipe.c")
+		binPath := filepath.Join(tmp, "raw_sigpipe_c11")
+		if err := os.WriteFile(cPath, []byte(patchedC), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := append([]string{"-std=c11", "-g", "-O0", "-o", binPath, cPath}, strictCFlags...)
+		args = append(args, "-lm", "-ldl")
+		if out, err := exec.Command(cc, args...).CombinedOutput(); err != nil {
+			t.Fatalf("RawFD C11 compile failed: %v\n%s", err, string(out))
+		}
+		if out, err := exec.Command(binPath).CombinedOutput(); err != nil {
+			t.Fatalf("RawFD C11 run failed: %v\n%s", err, string(out))
+		}
+	})
+
+	t.Run("RawFD_LLVM", func(t *testing.T) {
+		tmp := t.TempDir()
+		patchedLL := strings.Replace(llvmSrc, "define i32 @main(i32 %argc, ptr %argv)", "define i32 @ll_unused_main(i32 %argc, ptr %argv)", 1)
+		if patchedLL == llvmSrc {
+			t.Fatal("failed to locate LLVM main entrypoint")
+		}
+		patchedLL += `
+define i64 @test_raw_send_all(i64 %fd, ptr %data, i64 %len) {
+entry:
+    %rc = call i64 @ll_net_send_all(i64 %fd, ptr %data, i64 %len)
+    ret i64 %rc
+}
+`
+		cDriver := `
+#include <stdint.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+extern int64_t test_raw_send_all(int64_t fd, const uint8_t* data, int64_t len);
+
+int main(void) {
+    int fds[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) return 1;
+    close(fds[1]);
+    int64_t rc = test_raw_send_all((int64_t)fds[0], (const uint8_t*)"raw_sigpipe", 11);
+    close(fds[0]);
+    return (rc == -1LL) ? 0 : 2;
+}
+`
+		llPath := filepath.Join(tmp, "raw_sigpipe.ll")
+		drvPath := filepath.Join(tmp, "raw_sigpipe_drv.c")
+		binPath := filepath.Join(tmp, "raw_sigpipe_llvm")
+		if err := os.WriteFile(llPath, []byte(patchedLL), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(drvPath, []byte(cDriver), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := append([]string{"-Wno-override-module", "-g", "-O0", "-o", binPath, llPath, drvPath}, strictCFlags...)
+		args = append(args, "-lm", "-ldl")
+		if out, err := exec.Command(cc, args...).CombinedOutput(); err != nil {
+			t.Fatalf("RawFD LLVM compile failed: %v\n%s", err, string(out))
+		}
+		if out, err := exec.Command(binPath).CombinedOutput(); err != nil {
+			t.Fatalf("RawFD LLVM run failed: %v\n%s", err, string(out))
 		}
 	})
 }

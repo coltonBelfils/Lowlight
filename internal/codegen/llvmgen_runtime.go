@@ -2412,8 +2412,19 @@ chk_buf:
     br i1 %%b_null, label %%ret_err, label %%loop_init
 loop_init:
     %%sent = alloca i64, align 8
+    %%opt = alloca i32, align 4
     store i64 0, ptr %%sent, align 8
     %%fd32 = trunc i64 %%fd to i32
+    %%is_mac = icmp ne i32 %d, 0
+    br i1 %%is_mac, label %%set_nosig, label %%loop_cond_prep
+set_nosig:
+    store i32 1, ptr %%opt, align 4
+    %%so_rc = call i32 @setsockopt(i32 %%fd32, i32 65535, i32 4130, ptr %%opt, i32 4)
+    %%so_failed = icmp ne i32 %%so_rc, 0
+    %%mac_flags = select i1 %%so_failed, i32 524288, i32 0
+    br label %%loop_cond_prep
+loop_cond_prep:
+    %%send_flags = phi i32 [ %d, %%loop_init ], [ %%mac_flags, %%set_nosig ]
     br label %%loop_cond
 loop_cond:
     %%s = load i64, ptr %%sent, align 8
@@ -2422,7 +2433,7 @@ loop_cond:
 loop_body:
     %%ptr_cur = getelementptr inbounds i8, ptr %%buf, i64 %%s
     %%rem = sub i64 %%len, %%s
-    %%n = call i64 @send(i32 %%fd32, ptr %%ptr_cur, i64 %%rem, i32 %d)
+    %%n = call i64 @send(i32 %%fd32, ptr %%ptr_cur, i64 %%rem, i32 %%send_flags)
     %%ok = icmp sgt i64 %%n, 0
     br i1 %%ok, label %%advance, label %%ret_err
 advance:
@@ -2515,6 +2526,15 @@ ok_store:
     %%p1 = getelementptr inbounds i32, ptr %%sv, i64 1
     %%fd0_32 = load i32, ptr %%p0, align 4
     %%fd1_32 = load i32, ptr %%p1, align 4
+    %%is_mac = icmp ne i32 %d, 0
+    br i1 %%is_mac, label %%set_nosig, label %%store_fds
+set_nosig:
+    %%opt = alloca i32, align 4
+    store i32 1, ptr %%opt, align 4
+    call i32 @setsockopt(i32 %%fd0_32, i32 65535, i32 4130, ptr %%opt, i32 4)
+    call i32 @setsockopt(i32 %%fd1_32, i32 65535, i32 4130, ptr %%opt, i32 4)
+    br label %%store_fds
+store_fds:
     %%fd0 = sext i32 %%fd0_32 to i64
     %%fd1 = sext i32 %%fd1_32 to i64
     %%o0 = getelementptr inbounds i64, ptr %%out_fds, i64 0
@@ -2946,7 +2966,8 @@ alloc_sess:
 		portFmt, zeroIpSym, starSym, aiAddrOffset, solSocket, soReuseAddr, isDarwin,
 		isDarwin,
 		portFmt, aiAddrOffset, isDarwin,
-		msgNoSignal,
+		isDarwin, msgNoSignal,
+		isDarwin,
 		sLib1, sLib2, sLib3, sLib4, sLib5, sLib6,
 		symInitSsl, symTlsClient, symSsl23Client, symTlsServer, symSsl23Server,
 		symCtxNew, symCtxFree, symCtxDefVerify, symCtxCert, symCtxKey,

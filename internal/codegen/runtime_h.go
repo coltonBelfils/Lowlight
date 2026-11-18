@@ -652,6 +652,15 @@ static inline int64_t ll_net_tcp_port(int64_t fd) {
     return (int64_t)ntohs(addr.sin_port);
 }
 
+static inline void ll_net_set_nosigpipe(int fd) {
+#ifdef SO_NOSIGPIPE
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &opt, (socklen_t)sizeof(opt));
+#else
+    (void)fd;
+#endif
+}
+
 static inline int64_t ll_net_tcp_accept(int64_t server_fd, int64_t timeout_ms) {
     if (server_fd < 0) return -1LL;
     if (timeout_ms >= 0) {
@@ -667,6 +676,7 @@ static inline int64_t ll_net_tcp_accept(int64_t server_fd, int64_t timeout_ms) {
     socklen_t len = sizeof(client_addr);
     int client_fd = accept((int)server_fd, (struct sockaddr*)&client_addr, &len);
     if (client_fd < 0) return -1LL;
+    ll_net_set_nosigpipe(client_fd);
     return (int64_t)client_fd;
 }
 
@@ -724,14 +734,22 @@ static inline int64_t ll_net_tcp_connect(const uint8_t* host_u8, int64_t port, i
     }
     freeaddrinfo(res);
     if (fd < 0) return -2LL;
+    ll_net_set_nosigpipe(fd);
     return (int64_t)fd;
 }
 
 static inline int64_t ll_net_send_all(int64_t fd, const uint8_t* data, int64_t len) {
     if (fd < 0 || !data || len < 0) return -1LL;
+    if (len == 0) return 0LL;
+#ifdef MSG_NOSIGNAL
+    const int send_flags = MSG_NOSIGNAL;
+#else
+    const int send_flags = 0;
+    ll_net_set_nosigpipe((int)fd);
+#endif
     int64_t sent = 0;
     while (sent < len) {
-        ssize_t n = send((int)fd, (const char*)(data + sent), (size_t)(len - sent), 0);
+        ssize_t n = send((int)fd, (const char*)(data + sent), (size_t)(len - sent), send_flags);
         if (n < 0) {
             if (errno == EINTR) continue;
             return -1LL;
@@ -787,6 +805,8 @@ static inline int64_t ll_net_socketpair(int64_t* out_fds) {
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) {
         return -1LL;
     }
+    ll_net_set_nosigpipe(fds[0]);
+    ll_net_set_nosigpipe(fds[1]);
     out_fds[0] = (int64_t)fds[0];
     out_fds[1] = (int64_t)fds[1];
     return 0LL;
@@ -923,6 +943,7 @@ static inline int64_t ll_tls_available(void) {
 
 static inline uint8_t* ll_tls_client_handshake(int64_t fd, const uint8_t* host_cstr) {
     if (!ll_tls_init() || fd < 0) return NULL;
+    ll_net_set_nosigpipe((int)fd);
     const void* meth = ll_ssl_d.TLS_client_method();
     if (!meth) return NULL;
     void* ctx = ll_ssl_d.SSL_CTX_new(meth);
@@ -1059,6 +1080,7 @@ static inline void ll_tls_server_ctx_free(uint8_t* ctx) {
 
 static inline uint8_t* ll_tls_server_handshake(uint8_t* server_ctx, int64_t fd) {
     if (!server_ctx || fd < 0 || !ll_tls_init()) return NULL;
+    ll_net_set_nosigpipe((int)fd);
     void* ssl = ll_ssl_d.SSL_new((void*)server_ctx);
     if (!ssl) return NULL;
     if (!ll_ssl_d.SSL_set_fd(ssl, (int)fd)) {
