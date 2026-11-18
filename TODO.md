@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Quick Fixes & Small Guards
 
-- [ ] Add `@test` coverage for `Array[T]` in `std/core/array.ll`.
 - [ ] Align `split_whitespace` with `is_whitespace` in `std/strings.ll` / `std/strfmt.ll`.
 - [ ] Fix `O(n^2)` slicing in `count_occurrences` in `std/strings.ll` / `std/strfmt.ll`.
 - [ ] Add `NAN`, `INF`, `is_nan`, and `is_inf` to `std/math.ll`.

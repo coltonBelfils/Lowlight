@@ -83,3 +83,63 @@ bind Array[T].iter = (self) Iterator[T]:
 		len: self.len,
 		idx: 0,
 	]
+
+// -----------------------------------------------------------------------------
+// Inline Unit Tests
+// -----------------------------------------------------------------------------
+
+@test_only
+bind _array_view_sum = (av: Array[int]) int: {
+	assert(av.len() == 4, "Array[int] view len")
+	assert(not av.is_empty(), "Array[int] view not is_empty")
+	assert(av.get(0) == 10, "Array[int] view get(0)")
+	assert(av.get(3) == 40, "Array[int] view get(3)")
+	assert(av.get(-1) == none, "Array[int] view get(-1)")
+	assert(av.get(4) == none, "Array[int] view get(4)")
+	assert(av.contains(30), "Array[int] view contains hit")
+	assert(not av.contains(99), "Array[int] view contains miss")
+	assert(av.to_string() == "[10, 20, 30, 40]", "Array[int] view to_string")
+
+	let sum = 0
+	let it = av.iter()
+	for(true): {
+		let next? = it.next()
+		if(next? as val): sum += val else: for <-
+	}
+	sum
+}
+
+@test("core Array[T] operations and views")
+bind test_core_array = (): {
+	let fixed: Array[4, int] = [4: 10, 20, 30, 40]
+	assert(fixed.len() == 4, "fixed array len")
+	assert(not fixed.is_empty(), "fixed array not is_empty")
+	assert(fixed.get(1) == 20, "fixed array get(1)")
+	assert(fixed.get(-1) == none, "fixed array get(-1)")
+	assert(fixed.get(4) == none, "fixed array get(4)")
+	assert(fixed.contains(40), "fixed array contains")
+	assert(not fixed.contains(5), "fixed array contains miss")
+	assert(fixed.to_string() == "[10, 20, 30, 40]", "fixed array to_string")
+	assert(_array_view_sum(fixed) == 100, "Array[int] view sum via Iterator")
+
+	let for_sum = 0
+	for(x in fixed): for_sum += x
+	assert(for_sum == 100, "for-in fixed array sum")
+
+	let strs = [3: "alpha".copy(), "beta".copy(), "gamma".copy()]
+	assert(strs.len() == 3, "string array len")
+	assert(strs.get(1) == "beta", "string array get(1)")
+	assert(strs.get(3) == none, "string array get(3)")
+	assert(strs.contains("gamma"), "string array contains")
+	assert(not strs.contains("delta"), "string array contains miss")
+	assert(strs.to_string() == "[alpha, beta, gamma]", "string array to_string")
+
+	let empty = Array[int][data: unsafe null_ptr[int](), len: 0]
+	assert(empty.len() == 0, "empty Array len")
+	assert(empty.is_empty(), "empty Array is_empty")
+	assert(empty.get(0) == none, "empty Array get(0)")
+	assert(not empty.contains(1), "empty Array contains")
+	assert(empty.to_string() == "[]", "empty Array to_string")
+	let eit = empty.iter()
+	assert(eit.next() == none, "empty ArrayIterator next")
+}

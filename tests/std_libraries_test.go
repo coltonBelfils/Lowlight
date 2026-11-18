@@ -18,6 +18,7 @@ func TestStandardLibraryInlineSuites(t *testing.T) {
 		"test.ll",
 		"chars.ll",
 		"core/core.ll",
+		"core/array.ll",
 		"strings.ll",
 		"fs.ll",
 		"sort.ll",
