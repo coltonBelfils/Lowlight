@@ -348,6 +348,97 @@ bind main = (): {
 	}
 }
 
+func TestCoalesceChainsAndUnwindE2E(t *testing.T) {
+	src := `
+bind make_pair = (flag: int) ?+[int, string]: {
+    if (flag == 1): +[10, "one".copy()]
+    else: none
+}
+
+bind make_user_opt = (ok: bool, name: string) ?string: {
+    if (ok): name.copy()
+    else: none
+}
+
+bind resolve_num = (a?: ?int, b?: ?int) int: {
+    let v = a? ?? b? ?? func <- -1
+    v * 2
+}
+
+bind resolve_str = (a?: own ?string, b?: own ?string) string: {
+    let keep = "kept".copy()
+    let res = a? ?? b? ?? func <- keep
+    "${res}:${keep}"
+}
+
+bind resolve_str_rval = (ok1: bool, ok2: bool) string: {
+    let keep = "kept".copy()
+    let res = make_user_opt(ok1, "r1") ?? make_user_opt(ok2, "r2") ?? func <- keep
+    "${res}:${keep}"
+}
+
+bind resolve_unpack = (f1: int, f2: int) int: {
+    let n, s = unpack make_pair(f1) ?? make_pair(f2) ?? func <- -99
+    let mut_n = 0
+    let m1?: ?int = if (f1 == 1): 5 else: none
+    let m2?: ?int = if (f2 == 1): 7 else: none
+    mut_n = m1? ?? m2? ?? func <- -88
+    n + s.len() + mut_n
+}
+
+bind resolve_assign = (ok1: bool, ok2: bool) int: {
+    let mut_n = 0
+    let m1?: ?int = if (ok1): 5 else: none
+    let m2?: ?int = if (ok2): 7 else: none
+    mut_n = m1? ?? m2? ?? func <- -88
+    mut_n * 10
+}
+
+bind main = (): {
+    let n1?: ?int = 3
+    let n2?: ?int = 4
+    let no_n?: ?int = none
+    let c = n1? ?? n2? ?? 99
+    let c2 = no_n? ?? n2? ?? 99
+    let c3 = no_n? ?? no_n? ?? 99
+    let c4 = n1? ?? none ?? 99
+    assert(c == 3 and c2 == 4 and c3 == 99 and c4 == 3)
+
+    assert(resolve_num(3, 4) == 6)
+    assert(resolve_num(none, 4) == 8)
+    assert(resolve_num(none, none) == -1)
+
+    let s1?: ?string = make_user_opt(true, "alpha")
+    let s2?: ?string = make_user_opt(true, "beta")
+    assert(resolve_str(own s1?, own s2?) == "alpha:kept")
+    assert(resolve_str(none, make_user_opt(true, "beta")) == "beta:kept")
+    assert(resolve_str(none, none) == "kept")
+
+    assert(resolve_str_rval(true, true) == "r1:kept")
+    assert(resolve_str_rval(false, true) == "r2:kept")
+    assert(resolve_str_rval(false, false) == "kept")
+
+    assert(resolve_unpack(1, 0) == 18)
+    assert(resolve_unpack(0, 1) == 20)
+    assert(resolve_unpack(0, 0) == -99)
+
+    assert(resolve_assign(true, false) == 50)
+    assert(resolve_assign(false, true) == 70)
+    assert(resolve_assign(false, false) == -88)
+
+    println("coalesce_chains_ok")
+}
+`
+	out := runInlineStrict(t, "coalesce_chains", src, false)
+	if strings.TrimSpace(out) != "coalesce_chains_ok" {
+		t.Fatalf("unexpected output: %q", out)
+	}
+	outRel := runInlineStrict(t, "coalesce_chains_release", src, true)
+	if strings.TrimSpace(outRel) != "coalesce_chains_ok" {
+		t.Fatalf("unexpected release output: %q", outRel)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // 5. First-Class Closures (Plain Copy Capture, Resource Move Capture, Fn Coercion)
 // -----------------------------------------------------------------------------

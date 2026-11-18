@@ -898,12 +898,6 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 			Elem: elem,
 			Span: diag.Span{Start: start, End: elem.GetSpan().End},
 		}
-	case token.IntLit:
-		tk := p.advance()
-		return &ast.NamedType{
-			Name: tk.Text,
-			Span: tk.Span,
-		}
 	case token.KwOwn:
 		p.advance()
 		elem := p.parseTypeExpr()
@@ -1023,7 +1017,13 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 				var lastEnd diag.Pos
 				hadComma := false
 				for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
-					ta := p.parseTypeExpr()
+					var ta ast.TypeExpr
+					if len(targs) == 0 && name == "Array" && (mod == "" || mod == "core" || mod == "array") && p.cur().Kind == token.IntLit && p.peekAt(1).Kind == token.Comma {
+						tk := p.advance()
+						ta = &ast.NamedType{Name: tk.Text, Span: tk.Span}
+					} else {
+						ta = p.parseTypeExpr()
+					}
 					targs = append(targs, ta)
 					lastEnd = ta.GetSpan().End
 					if _, ok := p.match(token.Comma); ok {
@@ -1392,23 +1392,31 @@ func (p *Parser) parseExprWithOptionalTopFallbackUnwind(allowUnwind bool) (ast.E
 		return p.parseExpr(), nil
 	}
 	// Parse everything with precedence strictly higher than `??` (prec >= 2),
-	// then handle `??` chains so the final `??` can check `isUnwindStart()`.
+	// then recursively right-associate `??` chains so `a? ?? b? ?? c` produces `a? ?? (b? ?? c)`.
 	left := p.parseBinaryExpr(2, true)
-	for p.cur().Kind == token.QuestQuest {
-		p.advance() // consume `??`
-		if p.isUnwindStart() {
-			uw := p.parseUnwindStmt()
-			return left, uw
-		}
-		right := p.parseBinaryExpr(2, true)
-		left = &ast.BinaryExpr{
+	if p.cur().Kind != token.QuestQuest {
+		return left, nil
+	}
+	p.advance() // consume `??`
+	if p.isUnwindStart() {
+		uw := p.parseUnwindStmt()
+		return left, uw
+	}
+	right, rightUW := p.parseExprWithOptionalTopFallbackUnwind(true)
+	if rightUW != nil {
+		right = &ast.BinaryExpr{
 			Op:    token.QuestQuest,
-			Left:  left,
-			Right: right,
-			Span:  diag.Span{Start: left.GetSpan().Start, End: right.GetSpan().End},
+			Left:  right,
+			Right: &ast.StmtBodyExpr{Stmt: rightUW, Span: rightUW.Span},
+			Span:  diag.Span{Start: right.GetSpan().Start, End: rightUW.Span.End},
 		}
 	}
-	return left, nil
+	return &ast.BinaryExpr{
+		Op:    token.QuestQuest,
+		Left:  left,
+		Right: right,
+		Span:  diag.Span{Start: left.GetSpan().Start, End: right.GetSpan().End},
+	}, nil
 }
 
 // parseActionBody parses the body of an `if` branch, `for` loop, or `match` arm,
@@ -1472,8 +1480,14 @@ func binaryPrec(k token.Kind) (prec int, rightAssoc bool) {
 	}
 }
 
+func isNonAssocPrec(prec int) bool {
+	// Equality (`==`, `!=` at 7), relational (`<`, `<=`, `>`, `>=` at 8), and range (`..`, `..=` at 9).
+	return prec == 7 || prec == 8 || prec == 9
+}
+
 func (p *Parser) parseBinaryExpr(minPrec int, allowRange bool) ast.Expr {
 	left := p.parseUnaryExpr()
+	lastPrec := 0
 	for {
 		op := p.cur().Kind
 		if !allowRange && (op == token.DotDot || op == token.DotDotEq) {
@@ -1498,17 +1512,26 @@ func (p *Parser) parseBinaryExpr(minPrec int, allowRange bool) ast.Expr {
 				Right: right,
 				Span:  diag.Span{Start: left.GetSpan().Start, End: right.GetSpan().End},
 			}
+			lastPrec = prec
 			continue
+		}
+		if lastPrec == prec && isNonAssocPrec(prec) {
+			switch prec {
+			case 7:
+				p.rep.Errorf(opTok.Span, "chained equality operators (`==` / `!=`) are not allowed; use parentheses or `and`/`or`")
+			case 8:
+				p.rep.Errorf(opTok.Span, "chained comparison operators (`<` / `<=` / `>` / `>=`) are not allowed; use parentheses or `and`")
+			case 9:
+				p.rep.Errorf(opTok.Span, "chained range operators (`..` / `..=`) are not allowed; use parentheses if intended")
+			}
 		}
 		nextMin := prec + 1
 		if rightAssoc {
 			nextMin = prec
 		}
 		right := p.parseBinaryExpr(nextMin, allowRange)
+		lastPrec = prec
 		if op == token.DotDot || op == token.DotDotEq {
-			if _, chained := left.(*ast.RangeExpr); chained {
-				p.rep.Errorf(opTok.Span, "chained range operators (`..` / `..=`) are not allowed; use parentheses if intended")
-			}
 			left = &ast.RangeExpr{
 				Low:       left,
 				High:      right,
@@ -1740,20 +1763,19 @@ func extractStructLitTarget(e ast.Expr) (mod, name string, ok bool) {
 	return "", "", false
 }
 
+// isTypeIdentName reports whether name follows Lowlight's type-name convention
+// (PascalCase, optionally prefixed by `_` for package-private types).
+func isTypeIdentName(name string) bool {
+	name = strings.TrimLeft(name, "_")
+	return len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z'
+}
+
 func canTakeTypeArgsBeforeDot(left ast.Expr) bool {
 	switch v := left.(type) {
 	case *ast.IdentExpr:
-		if v.IsOpt || v.Name == "self" || len(v.Name) == 0 {
-			return false
-		}
-		first := v.Name[0]
-		return first >= 'A' && first <= 'Z'
+		return !v.IsOpt && v.Name != "self" && isTypeIdentName(v.Name)
 	case *ast.MemberExpr:
-		if v.QuestDot || v.MemberHasOpt || len(v.BaseTypeArgs) > 0 || len(v.Member) == 0 {
-			return false
-		}
-		first := v.Member[0]
-		return first >= 'A' && first <= 'Z'
+		return !v.QuestDot && !v.MemberHasOpt && len(v.BaseTypeArgs) == 0 && isTypeIdentName(v.Member)
 	default:
 		return false
 	}
@@ -1834,11 +1856,7 @@ func (p *Parser) scanGenericBracketLookahead(startIdx int, allowDot bool) bool {
 		return false
 	}
 	count := 0
-	hasIntLit := false
 	for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
-		if p.cur().Kind == token.IntLit {
-			hasIntLit = true
-		}
 		_ = p.parseTypeExpr()
 		if tempRep.HasErrors() {
 			return false
@@ -1855,9 +1873,6 @@ func (p *Parser) scanGenericBracketLookahead(startIdx int, allowDot bool) bool {
 	}
 	p.advance() // `]`
 	next := p.cur().Kind
-	if hasIntLit {
-		return next == token.LBracket && p.looksLikeStructLitFields()
-	}
 	if next == token.LParen {
 		return true
 	}

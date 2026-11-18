@@ -1057,9 +1057,12 @@ func (fl *funcLowerer) lowerBinaryExpr(b *ast.BinaryExpr, inf *sema.ExprInfo, fo
 		fl.tc.visit(optTy)
 		resSlot := fl.allocSlot("_ll_qq", inf.Type)
 
+		outerTemps := fl.stmtTemps
+		fl.stmtTemps = nil
 		leftVal := fl.lowerExprOwned(b.Left, optTy)
 		optSlot := fl.allocSlot("_ll_qq_opt", optTy)
 		fl.assignLocal(optSlot, leftVal)
+		fl.flushStmtTemps()
 
 		// Then: left has value
 		fl.pushInstrBuf()
@@ -1074,12 +1077,18 @@ func (fl *funcLowerer) lowerBinaryExpr(b *ast.BinaryExpr, inf *sema.ExprInfo, fo
 		fl.pushInstrBuf()
 		rTy := fl.info(b.Right).Type
 		if rTy == types.TypeNever {
+			if len(outerTemps) > 0 {
+				fl.stmtTemps = append([]*Local(nil), outerTemps...)
+			}
 			fl.lowerVoidExpr(b.Right)
+			fl.flushStmtTemps()
 		} else {
 			rVal := fl.lowerExprOwned(b.Right, inf.Type)
 			fl.assignLocal(resSlot, rVal)
+			fl.flushStmtTemps()
 		}
 		elseBuf := fl.popInstrBuf()
+		fl.stmtTemps = outerTemps
 
 		fl.emit(NewInstrIf(optHasValueExpr(NewLocalExpr(optSlot), optTy), thenBuf, elseBuf))
 		_ = forOwned

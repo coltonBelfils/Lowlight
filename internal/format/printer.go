@@ -1225,7 +1225,7 @@ func (p *printer) printStmt(s ast.Stmt) {
 				}
 			}
 			p.write(" = unpack ")
-			p.printExpr(v.Value)
+			p.printValueWithFallbackUnwind(v.Value, v.FallbackUnwind)
 		} else {
 			p.write(v.Name)
 			if v.Type != nil {
@@ -1233,11 +1233,7 @@ func (p *printer) printStmt(s ast.Stmt) {
 				p.printTypeExpr(v.Type)
 			}
 			p.write(" = ")
-			p.printExpr(v.Value)
-		}
-		if v.FallbackUnwind != nil {
-			p.write(" ?? ")
-			p.printUnwindStmt(v.FallbackUnwind)
+			p.printValueWithFallbackUnwind(v.Value, v.FallbackUnwind)
 		}
 	case *ast.AssignStmt:
 		if v.IsUnpack {
@@ -1248,17 +1244,13 @@ func (p *printer) printStmt(s ast.Stmt) {
 				p.printExpr(t)
 			}
 			p.write(" = unpack ")
-			p.printExpr(v.Value)
+			p.printValueWithFallbackUnwind(v.Value, v.FallbackUnwind)
 		} else {
 			p.printExpr(v.Target)
 			p.write(" ")
 			p.write(assignOpString(v.Op))
 			p.write(" ")
-			p.printExpr(v.Value)
-		}
-		if v.FallbackUnwind != nil {
-			p.write(" ?? ")
-			p.printUnwindStmt(v.FallbackUnwind)
+			p.printValueWithFallbackUnwind(v.Value, v.FallbackUnwind)
 		}
 	case *ast.UnwindStmt:
 		p.printUnwindStmt(v)
@@ -1271,6 +1263,20 @@ func (p *printer) printStmt(s ast.Stmt) {
 		if p.exprStmtHadExplicitSemi(v) {
 			p.write(";")
 		}
+	}
+}
+
+func (p *printer) printValueWithFallbackUnwind(val ast.Expr, fb *ast.UnwindStmt) {
+	if fb != nil && needsBinaryChildParens(token.QuestQuest, val, false, p.hadParensAround(val)) {
+		p.write("(")
+		p.printExpr(val)
+		p.write(")")
+	} else {
+		p.printExpr(val)
+	}
+	if fb != nil {
+		p.write(" ?? ")
+		p.printUnwindStmt(fb)
 	}
 }
 
@@ -1693,6 +1699,10 @@ func needsBinaryChildParens(parentOp token.Kind, child ast.Expr, isRight bool, h
 			return true
 		}
 		if childPrec == parentPrec {
+			if parentPrec == 7 || parentPrec == 8 {
+				// Equality (`==`, `!=`) and relational (`<`, `<=`, `>`, `>=`) operators are non-associative.
+				return true
+			}
 			if rightAssoc && !isRight {
 				return true
 			}
@@ -1711,7 +1721,14 @@ func needsBinaryChildParens(parentOp token.Kind, child ast.Expr, isRight bool, h
 		if parentPrec >= 9 {
 			return true
 		}
-	case *ast.IfExpr, *ast.ForExpr, *ast.WhileExpr, *ast.MatchExpr, *ast.StmtBodyExpr:
+	case *ast.StmtBodyExpr:
+		if parentOp == token.QuestQuest && isRight {
+			if _, isUW := c.Stmt.(*ast.UnwindStmt); isUW {
+				return false
+			}
+		}
+		return true
+	case *ast.IfExpr, *ast.ForExpr, *ast.WhileExpr, *ast.MatchExpr:
 		return true
 	}
 	return false

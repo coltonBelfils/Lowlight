@@ -350,3 +350,54 @@ bind main = () int: {
 	}
 }
 
+func TestCoalesceAssociativityFormatting(t *testing.T) {
+	src := `bind check = (a?: ?int, b?: ?int) int: {
+    let r1 = a? ?? b? ?? 0
+    let r2 = a? ?? (b? ?? 0)
+    let l1 = (a? ?? b?) ?? 0
+    let u1 = a? ?? b? ?? func <- -1
+    let u2 = (a? ?? b?) ?? func <- -2
+    let e1 = id(a? ?? b? ?? 0)
+    r1 + r2 + l1 + u1 + u2 + e1
+}
+`
+	want := `bind check = (a?: ?int, b?: ?int) int: {
+	let r1 = a? ?? b? ?? 0
+	let r2 = a? ?? b? ?? 0
+	let l1 = (a? ?? b?) ?? 0
+	let u1 = a? ?? b? ?? func <- -1
+	let u2 = (a? ?? b?) ?? func <- -2
+	let e1 = id(a? ?? b? ?? 0)
+	r1 + r2 + l1 + u1 + u2 + e1
+}
+`
+	got := mustFormat(t, src, format.DefaultOptions())
+	if got != want {
+		t.Fatalf("coalesce formatting mismatch!\n--- got ---\n%s--- want ---\n%s", got, want)
+	}
+}
+
+func TestNonAssociativeComparisonParensPreserved(t *testing.T) {
+	src := `bind check = (a: int, b: int, c: int, f: bool) bool: {
+    let e1 = (a == b) == f
+    let e2 = f == (a != b)
+    let r1 = (a < b) <= c
+    let r2 = a < (b <= c)
+    let m1 = a < b == f
+    e1 and e2 and r1 and r2 and m1
+}
+`
+	want := `bind check = (a: int, b: int, c: int, f: bool) bool: {
+	let e1 = (a == b) == f
+	let e2 = f == (a != b)
+	let r1 = (a < b) <= c
+	let r2 = a < (b <= c)
+	let m1 = a < b == f
+	e1 and e2 and r1 and r2 and m1
+}
+`
+	got := mustFormat(t, src, format.DefaultOptions())
+	if got != want {
+		t.Fatalf("comparison parens mismatch!\n--- got ---\n%s--- want ---\n%s", got, want)
+	}
+}

@@ -1381,6 +1381,14 @@ func (fc *funcChecker) checkLocalTypeDecl(d ast.Decl) {
 	}
 }
 
+func (fc *funcChecker) checkFallbackUnwindStmt(uw *ast.UnwindStmt) {
+	// A top-level `?? <unwind>` diverges on the fallback path, so moves inside it
+	// must not taint the fallthrough move state.
+	preUW := fc.cloneMoves()
+	_ = fc.checkUnwindStmt(uw)
+	fc.moves = preUW
+}
+
 func (fc *funcChecker) checkVarStmt(s *ast.VarStmt) types.Type {
 	if s.IsUnpack {
 		return fc.checkUnpackVarStmt(s)
@@ -1398,7 +1406,7 @@ func (fc *funcChecker) checkVarStmt(s *ast.VarStmt) types.Type {
 		} else {
 			optTy = fc.checkExpr(s.Value, true)
 		}
-		_ = fc.checkUnwindStmt(s.FallbackUnwind)
+		fc.checkFallbackUnwindStmt(s.FallbackUnwind)
 		unwrapped := types.Type(types.TypeInvalid)
 		if o, ok := optTy.(*types.Optional); ok {
 			unwrapped = o.Elem
@@ -1480,7 +1488,7 @@ func (fc *funcChecker) checkUnpackVarStmt(s *ast.VarStmt) types.Type {
 			expOpt = types.NewOptional(expectedTup)
 		}
 		valTy = fc.checkExprExpect(s.Value, expOpt, true)
-		_ = fc.checkUnwindStmt(s.FallbackUnwind)
+		fc.checkFallbackUnwindStmt(s.FallbackUnwind)
 		unwrappedTy = types.TypeInvalid
 		if o, ok := valTy.(*types.Optional); ok {
 			unwrappedTy = o.Elem
@@ -1654,7 +1662,7 @@ func (fc *funcChecker) checkAssignStmt(s *ast.AssignStmt) types.Type {
 
 	if s.FallbackUnwind != nil {
 		optTy := fc.checkExprExpect(s.Value, types.NewOptional(targetTy), true)
-		_ = fc.checkUnwindStmt(s.FallbackUnwind)
+		fc.checkFallbackUnwindStmt(s.FallbackUnwind)
 		if o, ok := optTy.(*types.Optional); ok {
 			fc.verifyAssignable(o.Elem, targetTy, nil, s.Value.GetSpan(), "assignment")
 		} else if optTy != types.TypeInvalid {
@@ -1765,7 +1773,7 @@ func (fc *funcChecker) checkUnpackAssignStmt(s *ast.AssignStmt) types.Type {
 			expOpt = types.NewOptional(expectedTup)
 		}
 		valTy = fc.checkExprExpect(s.Value, expOpt, true)
-		_ = fc.checkUnwindStmt(s.FallbackUnwind)
+		fc.checkFallbackUnwindStmt(s.FallbackUnwind)
 		unwrappedTy = types.TypeInvalid
 		if o, ok := valTy.(*types.Optional); ok {
 			unwrappedTy = o.Elem
@@ -2399,7 +2407,11 @@ func (fc *funcChecker) checkBinaryExpr(b *ast.BinaryExpr, expected types.Type) t
 				rExpect = expected
 			}
 		}
+		preRightMoves := fc.cloneMoves()
 		rty := fc.checkExprExpect(b.Right, rExpect, true)
+		if rty == types.TypeNever {
+			fc.moves = preRightMoves
+		}
 		fc.consumeValue(b.Left, lty, false)
 
 		if rty.Equals(optL.Elem) || rty == types.TypeNever {

@@ -7,6 +7,7 @@ import (
 	"lowlight/internal/ast"
 	"lowlight/internal/diag"
 	"lowlight/internal/parser"
+	"lowlight/internal/token"
 )
 
 func TestParseComprehensiveLanguageConstructs(t *testing.T) {
@@ -329,6 +330,26 @@ func TestEmptyBracketTypeRejectionAndValuePreservation(t *testing.T) {
 			src:     "define Foo[] struct [x: int]\n",
 			wantMsg: "empty generic type parameter list `[]` is not allowed",
 		},
+		{
+			name:    "bare integer literal variable type",
+			src:     "bind x: 123 = 1\n",
+			wantMsg: "expected type, got integer literal (\"123\")",
+		},
+		{
+			name:    "integer literal inside vector type [123]",
+			src:     "bind xs: [123] = []\n",
+			wantMsg: "expected type, got integer literal (\"123\")",
+		},
+		{
+			name:    "integer literal generic type argument Box[123]",
+			src:     "bind x: Box[123] = Box[val: 1]\n",
+			wantMsg: "expected type, got integer literal (\"123\")",
+		},
+		{
+			name:    "single integer literal type argument Array[123]",
+			src:     "bind x: Array[123] = [1, 2, 3]\n",
+			wantMsg: "expected type, got integer literal (\"123\")",
+		},
 	}
 
 	for _, tc := range rejected {
@@ -503,5 +524,293 @@ bind main = (x: int) int: {
 	}
 	if len(file.Decls) != 5 {
 		t.Fatalf("expected 5 decls, got %d", len(file.Decls))
+	}
+}
+
+func TestCoalesceRightAssociative(t *testing.T) {
+	assertRightChain := func(t *testing.T, e ast.Expr, wantNames ...string) {
+		t.Helper()
+		cur := e
+		for i := 0; i < len(wantNames)-1; i++ {
+			bin, ok := cur.(*ast.BinaryExpr)
+			if !ok || bin.Op != token.QuestQuest {
+				t.Fatalf("step %d: expected QuestQuest BinaryExpr, got %T", i, cur)
+			}
+			lid, ok := bin.Left.(*ast.IdentExpr)
+			if !ok || lid.Name != wantNames[i] {
+				t.Fatalf("step %d: expected left ident %q, got %#v", i, wantNames[i], bin.Left)
+			}
+			cur = bin.Right
+		}
+		last := wantNames[len(wantNames)-1]
+		if last == "<unwind>" {
+			sb, ok := cur.(*ast.StmtBodyExpr)
+			if !ok {
+				t.Fatalf("expected final StmtBodyExpr unwind, got %T", cur)
+			}
+			if _, ok := sb.Stmt.(*ast.UnwindStmt); !ok {
+				t.Fatalf("expected UnwindStmt inside StmtBodyExpr, got %T", sb.Stmt)
+			}
+		} else {
+			rid, ok := cur.(*ast.IdentExpr)
+			if !ok || rid.Name != last {
+				t.Fatalf("expected final ident %q, got %#v", last, cur)
+			}
+		}
+	}
+
+	src := `
+bind main = (): {
+    let r1 = a? ?? b? ?? c
+    bind r2 = a? ?? b? ?? c
+    let r3 = 0
+    r3 = a? ?? b? ?? c
+    let e1 = id(a? ?? b? ?? c)
+    let u1 = a? ?? b? ?? func <- 0
+    let u2 = a? ?? b? ?? c? ?? func <- 0
+    let l1 = (a? ?? b?) ?? c
+    let l2 = (a? ?? b?) ?? func <- 0
+}
+`
+	rep := diag.NewReporter()
+	file := parser.ParseFile("coalesce_assoc.ll", src, rep)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected parse errors:\n%s", rep.Format())
+	}
+	fn := file.Decls[0].(*ast.VarDecl).Value.(*ast.FuncLit)
+	blk := fn.Body.(*ast.BlockExpr)
+	if len(blk.Stmts) != 9 {
+		t.Fatalf("expected 9 stmts, got %d", len(blk.Stmts))
+	}
+
+	r1 := blk.Stmts[0].(*ast.VarStmt)
+	if r1.FallbackUnwind != nil {
+		t.Fatalf("expected nil FallbackUnwind on r1")
+	}
+	assertRightChain(t, r1.Value, "a?", "b?", "c")
+
+	r2 := blk.Stmts[1].(*ast.VarStmt)
+	if r2.FallbackUnwind != nil {
+		t.Fatalf("expected nil FallbackUnwind on r2")
+	}
+	assertRightChain(t, r2.Value, "a?", "b?", "c")
+
+	r3 := blk.Stmts[3].(*ast.AssignStmt)
+	if r3.FallbackUnwind != nil {
+		t.Fatalf("expected nil FallbackUnwind on r3")
+	}
+	assertRightChain(t, r3.Value, "a?", "b?", "c")
+
+	e1 := blk.Stmts[4].(*ast.VarStmt).Value.(*ast.CallExpr)
+	assertRightChain(t, e1.Args[0], "a?", "b?", "c")
+
+	u1 := blk.Stmts[5].(*ast.VarStmt)
+	if u1.FallbackUnwind != nil {
+		t.Fatalf("expected chained unwind u1 to nest right-associatively in Value")
+	}
+	assertRightChain(t, u1.Value, "a?", "b?", "<unwind>")
+
+	u2 := blk.Stmts[6].(*ast.VarStmt)
+	if u2.FallbackUnwind != nil {
+		t.Fatalf("expected chained unwind u2 to nest right-associatively in Value")
+	}
+	assertRightChain(t, u2.Value, "a?", "b?", "c?", "<unwind>")
+
+	l1 := blk.Stmts[7].(*ast.VarStmt).Value.(*ast.BinaryExpr)
+	if l1.Op != token.QuestQuest {
+		t.Fatalf("expected QuestQuest on l1")
+	}
+	l1Left, ok := l1.Left.(*ast.BinaryExpr)
+	if !ok || l1Left.Op != token.QuestQuest {
+		t.Fatalf("expected explicit left-grouped BinaryExpr on l1.Left, got %T", l1.Left)
+	}
+
+	l2 := blk.Stmts[8].(*ast.VarStmt)
+	if l2.FallbackUnwind == nil {
+		t.Fatalf("expected FallbackUnwind on explicit left-grouped (a? ?? b?) ?? func <- 0")
+	}
+	if l2Left, ok := l2.Value.(*ast.BinaryExpr); !ok || l2Left.Op != token.QuestQuest {
+		t.Fatalf("expected explicit left-grouped BinaryExpr on l2.Value, got %T", l2.Value)
+	}
+
+	// Verify non-top-level `?? <unwind>` remains rejected.
+	badCases := []string{
+		"bind f = () int: { let x = a? ?? (b? ?? func <- 0); x }\n",
+		"bind f = () int: { id(a? ?? b? ?? func <- 0) }\n",
+	}
+	for _, bc := range badCases {
+		badRep := diag.NewReporter()
+		_ = parser.ParseFile("bad_coalesce_unwind.ll", bc, badRep)
+		if !badRep.HasErrors() || !strings.Contains(badRep.Format(), "unwind statement after `??` is only allowed at the top level") {
+			t.Fatalf("expected nested unwind error for %q, got:\n%s", bc, badRep.Format())
+		}
+	}
+}
+
+func TestNonAssociativeComparisonsAndRanges(t *testing.T) {
+	rejected := []struct {
+		name    string
+		src     string
+		wantMsg string
+	}{
+		{
+			name:    "chained relational lt",
+			src:     "bind ok = 1 < 2 < 3\n",
+			wantMsg: "chained comparison operators",
+		},
+		{
+			name:    "chained relational mixed",
+			src:     "bind ok = 1 <= 2 > 0\n",
+			wantMsg: "chained comparison operators",
+		},
+		{
+			name:    "chained relational on right of equality",
+			src:     "bind ok = true == 1 < 2 < 3\n",
+			wantMsg: "chained comparison operators",
+		},
+		{
+			name:    "chained equality eq",
+			src:     "bind ok = 1 == 1 == true\n",
+			wantMsg: "chained equality operators",
+		},
+		{
+			name:    "chained equality neq and eq",
+			src:     "bind ok = 1 != 2 == true\n",
+			wantMsg: "chained equality operators",
+		},
+		{
+			name:    "parenthesized equality followed by unparenthesized third",
+			src:     "bind ok = (1 == 1) == true == false\n",
+			wantMsg: "chained equality operators",
+		},
+		{
+			name:    "chained range",
+			src:     "bind r = 1..2..3\n",
+			wantMsg: "chained range operators",
+		},
+	}
+
+	for _, tc := range rejected {
+		t.Run(tc.name, func(t *testing.T) {
+			rep := diag.NewReporter()
+			_ = parser.ParseFile("non_assoc_neg.ll", tc.src, rep)
+			if !rep.HasErrors() || !strings.Contains(rep.Format(), tc.wantMsg) {
+				t.Fatalf("expected parse error containing %q for %q, got:\n%s", tc.wantMsg, tc.src, rep.Format())
+			}
+		})
+	}
+
+	valid := []string{
+		"bind ok1 = (1 < 2) < 3\n",
+		"bind ok2 = 1 < (2 < 3)\n",
+		"bind ok3 = (1 == 1) == true\n",
+		"bind ok4 = true == (1 == 1)\n",
+		"bind ok5 = 1 < 2 == true\n",
+		"bind ok6 = 1 < 2 == 3 < 4\n",
+		"bind ok7 = 1 < 2 and 2 < 3\n",
+		"bind ok8 = (1 == 2) != (3 == 4)\n",
+	}
+	for _, src := range valid {
+		rep := diag.NewReporter()
+		_ = parser.ParseFile("non_assoc_pos.ll", src, rep)
+		if rep.HasErrors() {
+			t.Fatalf("unexpected parse error for %q:\n%s", src, rep.Format())
+		}
+	}
+}
+
+func TestPrivateTypeArgsBeforeDot(t *testing.T) {
+	src := `
+bind f = (mod_arg: int) int: {
+    let a = _Private[int].m()
+    let b = _Pair[int, string].make(1, "ok")
+    let c = mod._Private[int].m()
+    let d = _Maybe[int]._None
+    let e = _items[idx].len()
+    let g = _Private?[int].m()
+    let h = match (d):
+        when _Maybe[int]._Some(v): v
+        default _Maybe[int]._None: 0
+    h
+}
+`
+	rep := diag.NewReporter()
+	file := parser.ParseFile("private_targs.ll", src, rep)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected parse errors:\n%s", rep.Format())
+	}
+	blk := file.Decls[0].(*ast.VarDecl).Value.(*ast.FuncLit).Body.(*ast.BlockExpr)
+	if len(blk.Stmts) != 7 {
+		t.Fatalf("expected 7 stmts, got %d", len(blk.Stmts))
+	}
+
+	assertCallMemberTArgs := func(t *testing.T, stmt ast.Stmt, wantMember string, wantTArgs int) *ast.MemberExpr {
+		t.Helper()
+		call, ok := stmt.(*ast.VarStmt).Value.(*ast.CallExpr)
+		if !ok {
+			t.Fatalf("expected CallExpr, got %T", stmt.(*ast.VarStmt).Value)
+		}
+		mem, ok := call.Callee.(*ast.MemberExpr)
+		if !ok {
+			t.Fatalf("expected MemberExpr callee, got %T", call.Callee)
+		}
+		if mem.Member != wantMember {
+			t.Fatalf("expected member %q, got %q", wantMember, mem.Member)
+		}
+		if len(mem.BaseTypeArgs) != wantTArgs {
+			t.Fatalf("expected %d BaseTypeArgs on %q, got %d", wantTArgs, wantMember, len(mem.BaseTypeArgs))
+		}
+		return mem
+	}
+
+	memA := assertCallMemberTArgs(t, blk.Stmts[0], "m", 1)
+	if id, ok := memA.Base.(*ast.IdentExpr); !ok || id.Name != "_Private" {
+		t.Fatalf("expected _Private base, got %#v", memA.Base)
+	}
+
+	memB := assertCallMemberTArgs(t, blk.Stmts[1], "make", 2)
+	if id, ok := memB.Base.(*ast.IdentExpr); !ok || id.Name != "_Pair" {
+		t.Fatalf("expected _Pair base, got %#v", memB.Base)
+	}
+
+	memC := assertCallMemberTArgs(t, blk.Stmts[2], "m", 1)
+	if qBase, ok := memC.Base.(*ast.MemberExpr); !ok || qBase.Member != "_Private" {
+		t.Fatalf("expected mod._Private base, got %#v", memC.Base)
+	}
+
+	memD, ok := blk.Stmts[3].(*ast.VarStmt).Value.(*ast.MemberExpr)
+	if !ok || memD.Member != "_None" || len(memD.BaseTypeArgs) != 1 {
+		t.Fatalf("expected _Maybe[int]._None MemberExpr with 1 BaseTypeArg, got %#v", blk.Stmts[3].(*ast.VarStmt).Value)
+	}
+
+	// Lowercase `_`-prefixed variable and optional ident must still parse as indexing.
+	memE := assertCallMemberTArgs(t, blk.Stmts[4], "len", 0)
+	if _, ok := memE.Base.(*ast.IndexExpr); !ok {
+		t.Fatalf("expected _items[idx] to remain IndexExpr, got %T", memE.Base)
+	}
+	memG := assertCallMemberTArgs(t, blk.Stmts[5], "m", 0)
+	if _, ok := memG.Base.(*ast.IndexExpr); !ok {
+		t.Fatalf("expected _Private?[int] to remain IndexExpr, got %T", memG.Base)
+	}
+
+	mExpr, ok := blk.Stmts[6].(*ast.VarStmt).Value.(*ast.MatchExpr)
+	if !ok || len(mExpr.Arms) != 2 {
+		t.Fatalf("expected 2 match arms, got %#v", blk.Stmts[6].(*ast.VarStmt).Value)
+	}
+	vp, ok := mExpr.Arms[0].Cases[0].Patterns[0].(*ast.VariantPattern)
+	if !ok {
+		t.Fatalf("expected VariantPattern in arm 0, got %T", mExpr.Arms[0].Cases[0].Patterns[0])
+	}
+	vpMem, ok := vp.Target.(*ast.MemberExpr)
+	if !ok || vpMem.Member != "_Some" || len(vpMem.BaseTypeArgs) != 1 {
+		t.Fatalf("expected _Maybe[int]._Some VariantPattern target, got %#v", vp.Target)
+	}
+	ep, ok := mExpr.Arms[1].Cases[0].Patterns[0].(*ast.ExprPattern)
+	if !ok {
+		t.Fatalf("expected ExprPattern in arm 1, got %T", mExpr.Arms[1].Cases[0].Patterns[0])
+	}
+	epMem, ok := ep.Expr.(*ast.MemberExpr)
+	if !ok || epMem.Member != "_None" || len(epMem.BaseTypeArgs) != 1 {
+		t.Fatalf("expected _Maybe[int]._None ExprPattern target, got %#v", ep.Expr)
 	}
 }

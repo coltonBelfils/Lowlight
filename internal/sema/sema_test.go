@@ -374,3 +374,75 @@ bind main = () int: {
 		t.Fatalf("expected valid program, got errors:\n%s", rep.Format())
 	}
 }
+
+func TestCoalesceRightAssociativeTypeInferenceAndMoves(t *testing.T) {
+	src := `
+bind pick = (a?: ?int, b?: ?int) int: {
+    let s = "alive".copy()
+    let x = a? ?? none ?? 0
+    let y = a? ?? none ?? func <- {
+        let moved = s
+        println(moved)
+        -1
+    }
+    let z = a? ?? b? ?? func <- -2
+    println(s)
+    x + y + z
+}
+
+bind main = (): {
+    println("${pick(1, 2)}")
+}
+`
+	rep := checkSrc(src)
+	if rep.HasErrors() {
+		t.Fatalf("expected valid program, got errors:\n%s", rep.Format())
+	}
+}
+
+func TestPrivateGenericTypeArgsBeforeDot(t *testing.T) {
+	src := `
+define _Box[T] struct [
+    value: T,
+]
+
+bind _Box[T].wrap = (v: own T) _Box[T]: {
+    _Box[T][value: own v]
+}
+
+define _Pair[A, B] struct [
+    first: A,
+    second: B,
+]
+
+bind _Pair[A, B].make = (a: own A, b: own B) _Pair[A, B]: {
+    _Pair[A, B][first: own a, second: own b]
+}
+
+define _Maybe[T] enum [
+    _Some: T,
+    _None,
+]
+
+bind main = (): {
+    let b = _Box[int].wrap(42)
+    let p = _Pair[int, string].make(b.value, "ok".copy())
+    let m = _Maybe[int]._Some(p.first)
+    let n = _Maybe[int]._None
+    let v = match (m):
+        when _Maybe[int]._Some(x): x
+        default _Maybe[int]._None: 0
+    let _items = ["hello", "world"]
+    let idx = 0
+    let l = _items[idx].len()
+    let z = match (n):
+        when _Maybe[int]._Some(x): x
+        default _Maybe[int]._None: 0
+    println("${v + l + z}")
+}
+`
+	rep := checkSrc(src)
+	if rep.HasErrors() {
+		t.Fatalf("expected valid program, got errors:\n%s", rep.Format())
+	}
+}
