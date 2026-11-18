@@ -145,7 +145,7 @@ bind string.split_whitespace = (self) [string]: {
 	let start = 0
 	for(i in 0..self.len()): {
 		let b = self[i]
-		let is_ws = b == 32 or b == 9 or b == 10 or b == 13 or b == 11 or b == 12
+		let is_ws = b < u8(128) and char(int(b)).is_whitespace()
 		if(is_ws): {
 			if(in_token): {
 				out.push(self[start..i].to_string())
@@ -274,6 +274,19 @@ bind test_strings_split_join = (): {
 	assert(words[0] == "one", "word 0")
 	assert(words[1] == "two", "word 1")
 	assert(words[2] == "three", "word 2")
+
+	let vf_ws = "a" + char(11).to_string() + "b" + char(12).to_string() + "c"
+	let vf_words = vf_ws.split_whitespace()
+	assert(vf_words.len() == 3, "split_whitespace splits vertical tab and form feed")
+	assert(vf_words[0] == "a" and vf_words[1] == "b" and vf_words[2] == "c", "vt/ff words match")
+
+	let only_ws = " \t\r\n" + char(11).to_string() + char(12).to_string()
+	assert(only_ws.is_whitespace(), "all ascii whitespace chars match is_whitespace")
+	assert(only_ws.split_whitespace().is_empty(), "all-whitespace splits to empty")
+	assert("".split_whitespace().is_empty(), "empty splits to empty")
+
+	let utf8_words = "  α\tβ  ".split_whitespace()
+	assert(utf8_words.len() == 2 and utf8_words[0] == "α" and utf8_words[1] == "β", "utf8 tokens preserved")
 
 	let lns = "line1\r\nline2\nline3".lines()
 	assert(lns.len() == 3, "lines count")
