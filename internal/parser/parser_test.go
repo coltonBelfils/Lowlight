@@ -814,3 +814,85 @@ bind f = (mod_arg: int) int: {
 		t.Fatalf("expected _Maybe[int]._None ExprPattern target, got %#v", ep.Expr)
 	}
 }
+
+func TestQualifiedAndConstExprStackArrayTypes(t *testing.T) {
+	src := `
+bind wrap[T] = (v: T) T: v
+
+bind test = (
+    a: [mod.C: int],
+    b: [1 + 2: int],
+    c: [(1 + 2) * mod.C: ?string],
+    d: [1 << 3: [2 + 2: u8]],
+    e: [[mod.C: int]],
+    f: [#[string: int]],
+    g: [(x: int, y: [1 + 1: int]) [mod.C: bool]],
+): {
+    let local_a: [mod.C + 1: int] = [1, 2, 3, 4]
+    let _ = wrap[[1 + 2: int]](local_a)
+}
+`
+	rep := diag.NewReporter()
+	file := parser.ParseFile("arr_const_size.ll", src, rep)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected parse errors:\n%s", rep.Format())
+	}
+
+	var fn *ast.FuncLit
+	for _, d := range file.Decls {
+		if vd, ok := d.(*ast.VarDecl); ok && vd.Name == "test" {
+			fn = vd.Value.(*ast.FuncLit)
+		}
+	}
+	if fn == nil || len(fn.Params) != 7 {
+		t.Fatalf("expected test fn with 7 params, got %#v", fn)
+	}
+
+	if sa, ok := fn.Params[0].Type.(*ast.StackArrayType); !ok {
+		t.Fatalf("param a: expected StackArrayType, got %T", fn.Params[0].Type)
+	} else if _, ok := sa.Size.(*ast.MemberExpr); !ok {
+		t.Fatalf("param a.Size: expected MemberExpr, got %T", sa.Size)
+	}
+
+	if sa, ok := fn.Params[1].Type.(*ast.StackArrayType); !ok {
+		t.Fatalf("param b: expected StackArrayType, got %T", fn.Params[1].Type)
+	} else if _, ok := sa.Size.(*ast.BinaryExpr); !ok {
+		t.Fatalf("param b.Size: expected BinaryExpr, got %T", sa.Size)
+	}
+
+	if sa, ok := fn.Params[2].Type.(*ast.StackArrayType); !ok {
+		t.Fatalf("param c: expected StackArrayType, got %T", fn.Params[2].Type)
+	} else if _, ok := sa.Size.(*ast.BinaryExpr); !ok {
+		t.Fatalf("param c.Size: expected BinaryExpr, got %T", sa.Size)
+	} else if _, ok := sa.Elem.(*ast.OptionalType); !ok {
+		t.Fatalf("param c.Elem: expected OptionalType, got %T", sa.Elem)
+	}
+
+	if sa, ok := fn.Params[3].Type.(*ast.StackArrayType); !ok {
+		t.Fatalf("param d: expected StackArrayType, got %T", fn.Params[3].Type)
+	} else if inner, ok := sa.Elem.(*ast.StackArrayType); !ok {
+		t.Fatalf("param d.Elem: expected nested StackArrayType, got %T", sa.Elem)
+	} else if _, ok := inner.Size.(*ast.BinaryExpr); !ok {
+		t.Fatalf("param d.Elem.Size: expected BinaryExpr, got %T", inner.Size)
+	}
+
+	if vec, ok := fn.Params[4].Type.(*ast.VectorType); !ok {
+		t.Fatalf("param e: expected VectorType, got %T", fn.Params[4].Type)
+	} else if _, ok := vec.Elem.(*ast.StackArrayType); !ok {
+		t.Fatalf("param e.Elem: expected StackArrayType, got %T", vec.Elem)
+	}
+
+	if vec, ok := fn.Params[5].Type.(*ast.VectorType); !ok {
+		t.Fatalf("param f: expected VectorType, got %T", fn.Params[5].Type)
+	} else if _, ok := vec.Elem.(*ast.MapType); !ok {
+		t.Fatalf("param f.Elem: expected MapType, got %T", vec.Elem)
+	}
+
+	if vec, ok := fn.Params[6].Type.(*ast.VectorType); !ok {
+		t.Fatalf("param g: expected VectorType, got %T", fn.Params[6].Type)
+	} else if ft, ok := vec.Elem.(*ast.FuncType); !ok {
+		t.Fatalf("param g.Elem: expected FuncType, got %T", vec.Elem)
+	} else if _, ok := ft.Ret.(*ast.StackArrayType); !ok {
+		t.Fatalf("param g.Elem.Ret: expected StackArrayType, got %T", ft.Ret)
+	}
+}

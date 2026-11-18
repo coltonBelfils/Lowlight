@@ -2,6 +2,7 @@ package sema
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -392,6 +393,15 @@ func (a *Analyzer) evalConstInt(mod *Module, e ast.Expr) (int64, bool) {
 			return sym.ConstIntVal, true
 		}
 		return 0, false
+	case *ast.MemberExpr:
+		if !v.QuestDot && !v.MemberHasOpt && len(v.BaseTypeArgs) == 0 {
+			if modId, ok := v.Base.(*ast.IdentExpr); ok && !modId.IsOpt {
+				if sym := a.lookupTopSymbol(mod, modId.Name, v.Member); sym != nil && sym.IsConstInt {
+					return sym.ConstIntVal, true
+				}
+			}
+		}
+		return 0, false
 	case *ast.UnaryExpr:
 		sub, ok := a.evalConstInt(mod, v.Operand)
 		if !ok {
@@ -419,18 +429,24 @@ func (a *Analyzer) evalConstInt(mod *Module, e ast.Expr) (int64, bool) {
 		case token.Star:
 			return l * r, true
 		case token.Slash:
-			if r == 0 {
+			if r == 0 || (l == math.MinInt64 && r == -1) {
 				return 0, false
 			}
 			return l / r, true
 		case token.Percent:
-			if r == 0 {
+			if r == 0 || (l == math.MinInt64 && r == -1) {
 				return 0, false
 			}
 			return l % r, true
 		case token.Shl:
+			if r < 0 || r >= 64 {
+				return 0, false
+			}
 			return l << uint(r), true
 		case token.Shr:
+			if r < 0 || r >= 64 {
+				return 0, false
+			}
 			return l >> uint(r), true
 		case token.Amp:
 			return l & r, true

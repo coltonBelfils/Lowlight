@@ -1326,3 +1326,115 @@ bind main = (): {
 		t.Fatalf("unexpected stdout: %q", out)
 	}
 }
+
+func TestQualifiedAndConstExprArraySizesE2E(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "consts/dims.ll", `
+bind WIDTH = 3
+bind HEIGHT = 1 + 1
+bind _HIDDEN = 5
+
+define Buf struct [
+	data: [WIDTH + HEIGHT: int],
+]
+`)
+	entry := writeTestFile(t, dir, "main.ll", `
+import "consts/dims.ll" as dims
+
+bind LOCAL_N = dims.WIDTH + 1
+
+bind sum_three = (xs: [1 + 2: int]) int: xs[0] + xs[1] + xs[2]
+bind first_width = (xs: [dims.WIDTH: int]) int: xs[0]
+
+bind pass_through[T] = (v: own T) T: own v
+
+bind main = (): {
+	let a: [1 + 2: int] = [10, 20, 30]
+	assert(sum_three(a) == 60)
+
+	let b: [dims.WIDTH: int] = [dims.WIDTH: 7]
+	assert(first_width(b) == 7)
+	assert(b[2] == 7)
+
+	let c: [(1 + 2) * dims.HEIGHT: u8] = [dims.WIDTH * dims.HEIGHT: u8(9)]
+	assert(c.len == 6)
+	assert(c[5] == u8(9))
+
+	let d: [LOCAL_N: int] = [LOCAL_N: 4]
+	assert(d.len == 4)
+
+	let nested: [[dims.HEIGHT: int]] = [[1, 2], [3, 4]]
+	assert(nested[1][1] == 4)
+
+	let generic_arr = pass_through[[dims.HEIGHT: int]]([5, 6])
+	assert(generic_arr.len == 2)
+	assert(generic_arr[1] == 6)
+
+	let buf = dims.Buf[data: [dims.WIDTH + dims.HEIGHT: 11]]
+	assert(buf.data.len == 5)
+	assert(buf.data[4] == 11)
+
+	println("ok_const_array_sizes")
+}
+`)
+	out := runFileStrict(t, "qualified_const_expr_array_sizes", entry, false)
+	if strings.TrimSpace(out) != "ok_const_array_sizes" {
+		t.Fatalf("unexpected stdout: %q", out)
+	}
+
+	root := projectRoot(t)
+	negCases := []struct {
+		name string
+		src  string
+	}{
+		{
+			name: "cross_pkg_private_const_array_size_rejected",
+			src: `
+import "consts/dims.ll" as dims
+bind main = (): {
+	let bad: [dims._HIDDEN: int] = [5: 0]
+}
+`,
+		},
+		{
+			name: "zero_const_expr_array_size_rejected",
+			src: `
+bind main = (): {
+	let bad: [1 - 1: int] = []
+}
+`,
+		},
+		{
+			name: "negative_const_expr_array_size_rejected",
+			src: `
+bind main = (): {
+	let bad: [-2: int] = [1, 2]
+}
+`,
+		},
+		{
+			name: "out_of_range_shift_const_expr_array_size_rejected",
+			src: `
+bind main = (): {
+	let bad: [1 << 64: int] = [1: 0]
+}
+`,
+		},
+	}
+
+	for _, tc := range negCases {
+		t.Run(tc.name, func(t *testing.T) {
+			negEntry := writeTestFile(t, dir, tc.name+".ll", tc.src)
+			_, _, err := driver.Check(driver.Options{
+				EntryPath:   negEntry,
+				ProjectRoot: root,
+			})
+			if err == nil {
+				t.Fatalf("[%s] expected compile error, got success", tc.name)
+			}
+			if !strings.Contains(err.Error(), "positive compile-time integer constant") {
+				t.Fatalf("[%s] expected constant-size diagnostic, got:\n%v", tc.name, err)
+			}
+		})
+	}
+}

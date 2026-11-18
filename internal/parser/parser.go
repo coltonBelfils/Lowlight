@@ -872,6 +872,37 @@ func (p *Parser) canStartSigReturnType(stopOnIdentColon bool) bool {
 	}
 }
 
+func (p *Parser) hasTopLevelColonBeforeCloseBracket() bool {
+	depth := 0
+	for i := p.pos; i < len(p.toks); i++ {
+		switch p.toks[i].Kind {
+		case token.LParen, token.LBracket, token.HashBrack, token.PlusBrack, token.LBrace, token.InterpStart:
+			depth++
+		case token.RParen, token.RBrace, token.InterpEnd:
+			if depth == 0 {
+				return false
+			}
+			depth--
+		case token.RBracket:
+			if depth == 0 {
+				return false
+			}
+			depth--
+		case token.Colon:
+			if depth == 0 {
+				return true
+			}
+		case token.Semi:
+			if depth == 0 {
+				return false
+			}
+		case token.EOF:
+			return false
+		}
+	}
+	return false
+}
+
 func (p *Parser) canStartHeaderType() bool {
 	switch p.cur().Kind {
 	case token.Ident, token.KwSelfType, token.Question, token.LBracket, token.HashBrack, token.PlusBrack, token.LParen:
@@ -917,10 +948,9 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 				Span: span,
 			}
 		}
-		// Could be `[T]` (VectorType) or `[N: T]` (StackArrayType)!
-		// Notice in `[N: T]`, `N` is an integer literal or constant identifier followed by `:`!
-		if (p.cur().Kind == token.IntLit || p.cur().Kind == token.Ident) && p.peekAt(1).Kind == token.Colon {
-			sizeExpr := p.parsePrimaryExpr()
+		// Could be `[T]` (VectorType) or `[N: T]` (StackArrayType).
+		if p.hasTopLevelColonBeforeCloseBracket() {
+			sizeExpr := p.parseExpr()
 			p.expect(token.Colon, "in stack array type `[N: T]`")
 			elem := p.parseTypeExpr()
 			closeBr := p.expect(token.RBracket, "closing `[N: T]`")
