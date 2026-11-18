@@ -23,6 +23,18 @@ bind SQRT2: float = 1.41421356237309504880
 // Square root of `3`.
 bind SQRT3: float = 1.73205080756887729353
 
+// Positive IEEE-754 infinity (`+Inf`).
+bind INF: float = 1.0e308 * 10.0
+
+// Quiet IEEE-754 Not-a-Number (`NaN`).
+bind NAN: float = INF - INF
+
+// Reports whether `x` is IEEE-754 Not-a-Number (`NaN`).
+bind is_nan = (x: float) bool: not (x == x)
+
+// Reports whether `x` is positive or negative IEEE-754 infinity (`+Inf` or `-Inf`).
+bind is_inf = (x: float) bool: x == INF or x == -INF
+
 // Returns the absolute value (`|x|`) of floating-point number `x`.
 bind abs_float = (x: float) float:
 	if(x < 0.0): -x else: x
@@ -359,4 +371,27 @@ bind test_math_rounding_and_interpolation = (): {
 	assert(clamp_float(15.5, 0.0, 10.0) == 10.0, "clamp_float upper")
 	assert(lerp(10.0, 20.0, 0.5) == 15.0, "lerp midpoint")
 	assert(lerp(0.0, 100.0, 0.25) == 25.0, "lerp quarter")
+}
+
+@test("math non-finite IEEE-754 constants and predicates: INF, NAN, is_nan, is_inf")
+bind test_math_non_finite = (): {
+	assert(is_inf(INF), "INF is_inf")
+	assert(is_inf(-INF), "-INF is_inf")
+	assert(not is_nan(INF), "INF not is_nan")
+	assert(not is_nan(-INF), "-INF not is_nan")
+	assert(INF > 1.0e308, "INF > 1e308")
+	assert(-INF < -1.0e308, "-INF < -1e308")
+	assert(INF + 1.0 == INF, "INF + 1 == INF")
+	assert(-INF - 1.0 == -INF, "-INF - 1 == -INF")
+
+	assert(is_nan(NAN), "NAN is_nan")
+	assert(not is_inf(NAN), "NAN not is_inf")
+	assert(not (NAN == NAN), "NAN != NAN equality")
+	assert(not (NAN < 0.0) and not (NAN > 0.0), "NAN unordered")
+	assert(is_nan(NAN + 1.0), "NAN + 1 stays NaN")
+
+	assert(not is_nan(0.0) and not is_inf(0.0), "0.0 finite")
+	assert(not is_nan(-0.0) and not is_inf(-0.0), "-0.0 finite")
+	assert(not is_nan(PI) and not is_inf(PI), "PI finite")
+	assert(not is_nan(1.0e308) and not is_inf(1.0e308), "1e308 finite")
 }

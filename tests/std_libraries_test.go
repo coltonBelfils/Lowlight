@@ -96,3 +96,22 @@ bind main = (): {
 		t.Fatalf("unexpected stdout: %q", out)
 	}
 }
+
+func TestStdMathNanInfStrict(t *testing.T) {
+	src := `
+import "std/math.ll" as math
+
+bind main = (): {
+    assert(math.is_inf(math.INF) and math.is_inf(-math.INF), "inf check")
+    assert(math.is_nan(math.NAN) and not math.is_inf(math.NAN), "nan check")
+    assert(not math.is_nan(math.INF) and not math.is_nan(0.0), "finite/inf not nan")
+    println("math_nan_inf_ok")
+}
+`
+	for _, release := range []bool{false, true} {
+		out := runInlineStrict(t, "std_math_nan_inf", src, release)
+		if strings.TrimSpace(out) != "math_nan_inf_ok" {
+			t.Fatalf("[release=%v] unexpected stdout: %q", release, out)
+		}
+	}
+}

@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Quick Fixes & Small Guards
 
-- [ ] Add `NAN`, `INF`, `is_nan`, and `is_inf` to `std/math.ll`.
 - [ ] Fix `exists` and `mkdir_p` directory vs regular-file edge cases in `std/fs.ll`.
 - [ ] Fix UTF-8 diff alignment in `std/test.ll:60-86`.
 - [ ] Add `assert_approx_eq` to `std/test.ll`.
