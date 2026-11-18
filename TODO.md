@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Quick Fixes & Small Guards
 
-- [ ] Fix `O(n^2)` slicing in `count_occurrences` in `std/strings.ll` / `std/strfmt.ll`.
 - [ ] Add `NAN`, `INF`, `is_nan`, and `is_inf` to `std/math.ll`.
 - [ ] Fix `exists` and `mkdir_p` directory vs regular-file edge cases in `std/fs.ll`.
 - [ ] Fix UTF-8 diff alignment in `std/test.ll:60-86`.
@@ -25,7 +24,7 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Accept qualified/const-expr array sizes such as `[mod.C: T]` and `[1+2: T]` in `internal/parser/parser.go:922`.
 - [ ] Disambiguate `[N: { ... }]` array repeat and `#[k: { ... }]` map literals when values start with `{` (`internal/parser/parser.go:1991,2115,2176`).
 - [ ] Validate `\uXXXX` escapes and trailing `\` in `unquote` (`std/strings.ll` / `std/strfmt.ll`).
-- [ ] Make `reverse` and string padding helpers codepoint-aware (`std/strings.ll:87-135`).
+- [ ] Make `reverse` and string padding helpers codepoint-aware (`std/strings.ll:98-146`).
 - [ ] Validate UTF-8 continuation bytes, overlong encodings, surrogates, and `> 0x10FFFF` in `str_utf8_next` (`std/core/primitives.ll:567-598`).
 - [ ] Fix `+inf` and negative input edge cases in `core_sqrt` (`std/core/primitives.ll`).
 - [ ] Fix `+inf`, negative, `-0.0`, `>= 2^64`, and large-exponent bugs in `_format_float_fixed` and `format_float_prec` (`std/core/primitives.ll`).

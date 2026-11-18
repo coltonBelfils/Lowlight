@@ -349,20 +349,28 @@ bind string.indent = (self, spaces: int) string: {
 	out_lines.join("\n")
 }
 
+bind _str_matches_at = (s: string, pos: int, sub: string) bool: {
+	let j = 0
+	let n = sub.len()
+	for(j < n): {
+		if(s.byte_at(pos + j) != sub.byte_at(j)): func <- false
+		j += 1
+	}
+	true
+}
+
 // Counts non-overlapping occurrences of `sub` in the string (`0` if `sub` is empty).
 bind string.count_occurrences = (self, sub: string) int: {
-	if(sub.len() == 0 or self.len() < sub.len()): func <- 0
+	let sub_len = sub.len()
+	if(sub_len == 0 or self.len() < sub_len): func <- 0
 	let count = 0
-	let cur = self.copy()
-	for(true): {
-		let idx? = cur.index_of(sub)
-		if(idx? as i): {
+	let i = 0
+	let limit = self.len() - sub_len
+	while(i <= limit):
+		if(_str_matches_at(self, i, sub)): {
 			count += 1
-			let next_start = i + sub.len()
-			if(next_start >= cur.len()): for <- count
-			cur = cur[next_start..cur.len()]
-		} else: for <- count
-	}
+			i += sub_len
+		} else: i += 1
 	count
 }
 
@@ -419,4 +427,22 @@ bind test_strfmt_quote_and_indent = (): {
 
 	let indented = "line1\nline2".indent(2)
 	assert(indented == "  line1\n  line2", "indent")
+}
+
+@test("strfmt count_occurrences edge cases and large input")
+bind test_strfmt_count_occurrences = (): {
+	assert("banana".count_occurrences("an") == 2, "count_occurrences an")
+	assert("banana".count_occurrences("na") == 2, "count_occurrences na")
+	assert("aaa".count_occurrences("aa") == 1, "count_occurrences non-overlapping")
+	assert("aaaa".count_occurrences("aa") == 2, "count_occurrences even non-overlapping")
+	assert("abc".count_occurrences("") == 0, "count_occurrences empty needle")
+	assert("".count_occurrences("a") == 0, "count_occurrences empty haystack")
+	assert("ab".count_occurrences("abcd") == 0, "count_occurrences longer needle")
+	assert("αβγαβ".count_occurrences("αβ") == 2, "count_occurrences utf8")
+
+	let large = ""
+	for(i in 0..10000): large.push_byte(u8(97))
+	assert(large.count_occurrences("a") == 10000, "count_occurrences 10k single-byte")
+	assert(large.count_occurrences("aa") == 5000, "count_occurrences 10k pair")
+	assert(large.count_occurrences("b") == 0, "count_occurrences 10k absent")
 }

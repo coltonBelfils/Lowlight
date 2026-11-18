@@ -27,6 +27,16 @@ bind string.is_ascii = (self) bool: {
 // Extended Substring Search
 // -----------------------------------------------------------------------------
 
+bind _matches_at = (s: string, pos: int, sub: string) bool: {
+	let sub_len = sub.len()
+	let j = 0
+	for(j < sub_len): {
+		if(s.byte_at(pos + j) != sub.byte_at(j)): func <- false
+		j += 1
+	}
+	true
+}
+
 // Returns the byte offset of the last occurrence of `sub`, or `none` if absent (returns `self.len()` when `sub` is `""`).
 bind string.last_index_of = (self, sub: string) ?int: {
 	if(sub.len() == 0): func <- self.len()
@@ -34,7 +44,7 @@ bind string.last_index_of = (self, sub: string) ?int: {
 	let limit = self.len() - sub.len()
 	let i = limit
 	while(i >= 0): {
-		if(self[i..i + sub.len()] == sub): func <- i
+		if(_matches_at(self, i, sub)): func <- i
 		i -= 1
 	}
 	none
@@ -42,14 +52,15 @@ bind string.last_index_of = (self, sub: string) ?int: {
 
 // Counts non-overlapping occurrences of `sub` within the string (`0` if `sub` is empty).
 bind string.count = (self, sub: string) int: {
-	if(sub.len() == 0 or self.len() < sub.len()): func <- 0
+	let sub_len = sub.len()
+	if(sub_len == 0 or self.len() < sub_len): func <- 0
 	let count = 0
 	let i = 0
-	let limit = self.len() - sub.len()
+	let limit = self.len() - sub_len
 	while(i <= limit):
-		if(self[i..i + sub.len()] == sub): {
+		if(_matches_at(self, i, sub)): {
 			count += 1
-			i += sub.len()
+			i += sub_len
 		} else: i += 1
 	count
 }
@@ -227,6 +238,14 @@ bind test_strings_search = (): {
 	assert("banana".count("na") == 2, "count na")
 	assert("banana".count("z") == 0, "count missing")
 	assert("aaaa".count("aa") == 2, "count non-overlapping")
+	assert("aaa".count("aa") == 1, "count odd non-overlapping")
+	assert("abc".count("") == 0, "count empty needle")
+	assert("ab".count("abcd") == 0, "count longer needle")
+
+	let large = "a".repeat(10000)
+	assert(large.count("a") == 10000, "count 10k single-byte")
+	assert(large.count("aa") == 5000, "count 10k pair")
+	assert(large.count("z") == 0, "count 10k absent")
 }
 
 @test("string trimming and padding")
