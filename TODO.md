@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Quick Fixes & Small Guards
 
-- [ ] Call `dlclose` on opened handles on `dlsym` failure in LLVM `ll_tls_init` (`internal/codegen/llvmgen_runtime.go:2547-2655`).
 - [ ] Guard negative `max_len` in `truncate_with` (`std/strfmt.ll:224-232`).
 - [ ] Validate negative `with_capacity` arguments in `std/core/list.ll` / `std/core/array.ll`.
 - [ ] Replace fixed `/tmp/lowlight_test_*` paths in inline tests across `std/core/list.ll`, `std/core/array.ll`, `std/fs.ll`, and `std/os.ll`.
@@ -83,7 +82,7 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Resolve generic call vs index ambiguity on member expressions (`obj.fns[i]()`) across `internal/parser/parser.go:1836-1886` and `internal/sema/check_calls.go:56-72`.
 - [ ] Replace fixed `char sub[1024]` buffers in `ll_os_remove_all` (`internal/codegen/runtime_h.go:1205-1206`).
 - [ ] Replace LLVM `rm -rf` shell execution in `ll_os_remove_all` (`internal/codegen/llvmgen_runtime.go`).
-- [ ] Enable peer certificate verification (`SSL_CTX_set_verify` with `SSL_VERIFY_PEER`), hostname checks (`SSL_set1_host` / `X509_VERIFY_PARAM_set1_host`), and `SSL_get_verify_result` in `internal/codegen/runtime_h.go:944-976` and `internal/codegen/llvmgen_runtime.go:2547-2737`.
+- [ ] Enable peer certificate verification (`SSL_CTX_set_verify` with `SSL_VERIFY_PEER`), hostname checks (`SSL_set1_host` / `X509_VERIFY_PARAM_set1_host`), and `SSL_get_verify_result` in `internal/codegen/runtime_h.go:944-976` and `internal/codegen/llvmgen_runtime.go:2547-2746`.
 - [ ] Match LLVM `ll_tls_recv`, `ll_tls_send_all`, and `ll_tls_server_ctx_new` with C11 (`SSL_pending`, `poll`, timeout `-2`, `WANT_READ`/`WANT_WRITE`, `SSL_CTX_use_certificate_chain_file`) in `internal/codegen/llvmgen_runtime.go`.
 - [ ] Expose public TLS server APIs/contexts in `std/net.ll`.
 - [ ] Zero-initialize `allocSlot` temporaries at collection literal sites (`internal/ir/lower_ops.go:1905-1919,2030-2059`) so loop iterations do not reuse moved/freed collection buffers.

@@ -1176,3 +1176,132 @@ int main(void) {
 		}
 	})
 }
+
+func TestLLVMTlsInitClosesHandleOnDlsymFailure(t *testing.T) {
+	root := projectRoot(t)
+	src := `
+bind main = (): {
+    let a = unsafe sys_tls_available()
+    println("$a")
+}
+`
+	llvmSrc, _, err := driver.EmitLLVM(driver.Options{
+		EntryPath:   filepath.Join(t.TempDir(), "tls_dlclose.ll"),
+		SrcOverride: src,
+		ProjectRoot: root,
+	})
+	if err != nil {
+		t.Fatalf("EmitLLVM failed: %v", err)
+	}
+
+	patchedLL := strings.Replace(llvmSrc, "define i32 @main(i32 %argc, ptr %argv)", "define i32 @ll_unused_main(i32 %argc, ptr %argv)", 1)
+	if patchedLL == llvmSrc {
+		t.Fatal("failed to locate LLVM main entrypoint")
+	}
+	for _, pair := range [][2]string{
+		{"call ptr @dlopen(", "call ptr @mock_dlopen("},
+		{"call ptr @dlsym(", "call ptr @mock_dlsym("},
+		{"call i32 @dlclose(", "call i32 @mock_dlclose("},
+	} {
+		replaced := strings.ReplaceAll(patchedLL, pair[0], pair[1])
+		if replaced == patchedLL {
+			t.Fatalf("expected emitted LLVM IR to contain %q", pair[0])
+		}
+		patchedLL = replaced
+	}
+	patchedLL += `
+declare ptr @mock_dlopen(ptr, i32)
+declare ptr @mock_dlsym(ptr, ptr)
+declare i32 @mock_dlclose(ptr)
+
+define i64 @test_call_tls_available() {
+entry:
+    %r = call i64 @ll_tls_available()
+    ret i64 %r
+}
+`
+	cDriver := `
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+extern int64_t test_call_tls_available(void);
+
+static const char* g_fail_sym = "";
+static int g_open_count = 0;
+static int g_close_count = 0;
+static void* const g_dummy_handle = (void*)(uintptr_t)0x1234;
+static void* g_closed_handle = NULL;
+
+static int mock_openssl_init(uint64_t opts, const void* settings) {
+    (void)opts;
+    (void)settings;
+    return 1;
+}
+
+static void dummy_fn(void) {}
+
+void* mock_dlopen(const char* path, int mode) {
+    (void)path;
+    (void)mode;
+    g_open_count++;
+    return g_dummy_handle;
+}
+
+void* mock_dlsym(void* handle, const char* sym) {
+    if (handle != g_dummy_handle || !sym) return NULL;
+    if (strcmp(sym, g_fail_sym) == 0) return NULL;
+    if (strcmp(sym, "OPENSSL_init_ssl") == 0) return (void*)mock_openssl_init;
+    return (void*)dummy_fn;
+}
+
+int mock_dlclose(void* handle) {
+    g_close_count++;
+    g_closed_handle = handle;
+    return 0;
+}
+
+int main(int argc, char** argv) {
+    if (argc < 2) return 10;
+    g_fail_sym = argv[1];
+    int64_t avail = test_call_tls_available();
+    int expect_avail = (strcmp(g_fail_sym, "NONE") == 0) ? 1 : 0;
+    int expect_close = (expect_avail == 1) ? 0 : 1;
+    if (avail != expect_avail || g_open_count != 1 || g_close_count != expect_close) {
+        fprintf(stderr, "fail_sym=%s avail=%lld open=%d close=%d\n",
+                g_fail_sym, (long long)avail, g_open_count, g_close_count);
+        return 1;
+    }
+    if (expect_close == 1 && g_closed_handle != g_dummy_handle) {
+        fprintf(stderr, "wrong handle closed: %p vs %p\n", g_closed_handle, g_dummy_handle);
+        return 2;
+    }
+    return 0;
+}
+`
+
+	tmp := t.TempDir()
+	llPath := filepath.Join(tmp, "tls_dlclose.ll")
+	drvPath := filepath.Join(tmp, "tls_dlclose_drv.c")
+	binPath := filepath.Join(tmp, "tls_dlclose_bin")
+	if err := os.WriteFile(llPath, []byte(patchedLL), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(drvPath, []byte(cDriver), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cc := resolveStrictCC()
+	args := append([]string{"-Wno-override-module", "-g", "-O0", "-o", binPath, llPath, drvPath}, strictCFlags...)
+	args = append(args, "-lm", "-ldl")
+	if out, err := exec.Command(cc, args...).CombinedOutput(); err != nil {
+		t.Fatalf("compile failed: %v\n%s", err, string(out))
+	}
+
+	for _, sym := range []string{"SSL_connect", "SSL_free", "SSL_CTX_free", "SSL_set_fd", "NONE"} {
+		t.Run("missing_"+sym, func(t *testing.T) {
+			if out, err := exec.Command(binPath, sym).CombinedOutput(); err != nil {
+				t.Fatalf("run(%s) failed: %v\n%s", sym, err, string(out))
+			}
+		})
+	}
+}

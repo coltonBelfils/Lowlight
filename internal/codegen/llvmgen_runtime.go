@@ -2592,58 +2592,67 @@ after_loop:
     br i1 %%lib_null, label %%ret, label %%load_syms
 load_syms:
     %%f_init = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_init, ptr @ll_fn_OPENSSL_init_ssl, align 8
     %%f_cm1 = call ptr @dlsym(ptr %%lib, ptr %s)
     %%cm1_null = icmp eq ptr %%f_cm1, null
     %%f_cm2 = call ptr @dlsym(ptr %%lib, ptr %s)
     %%f_cm = select i1 %%cm1_null, ptr %%f_cm2, ptr %%f_cm1
-    store ptr %%f_cm, ptr @ll_fn_TLS_client_method, align 8
     %%f_sm1 = call ptr @dlsym(ptr %%lib, ptr %s)
     %%sm1_null = icmp eq ptr %%f_sm1, null
     %%f_sm2 = call ptr @dlsym(ptr %%lib, ptr %s)
     %%f_sm = select i1 %%sm1_null, ptr %%f_sm2, ptr %%f_sm1
-    store ptr %%f_sm, ptr @ll_fn_TLS_server_method, align 8
     %%f_cn = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_cn, ptr @ll_fn_SSL_CTX_new, align 8
     %%f_cf = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_cf, ptr @ll_fn_SSL_CTX_free, align 8
     %%f_cv = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_cv, ptr @ll_fn_SSL_CTX_set_default_verify_paths, align 8
     %%f_cc = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_cc, ptr @ll_fn_SSL_CTX_use_certificate_file, align 8
     %%f_ck = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_ck, ptr @ll_fn_SSL_CTX_use_PrivateKey_file, align 8
     %%f_sn = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_sn, ptr @ll_fn_SSL_new, align 8
     %%f_sf = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_sf, ptr @ll_fn_SSL_free, align 8
     %%f_sfd = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_sfd, ptr @ll_fn_SSL_set_fd, align 8
     %%f_sc = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_sc, ptr @ll_fn_SSL_ctrl, align 8
     %%f_conn = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_conn, ptr @ll_fn_SSL_connect, align 8
     %%f_acc = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_acc, ptr @ll_fn_SSL_accept, align 8
     %%f_rd = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_rd, ptr @ll_fn_SSL_read, align 8
     %%f_wr = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_wr, ptr @ll_fn_SSL_write, align 8
     %%f_sh = call ptr @dlsym(ptr %%lib, ptr %s)
-    store ptr %%f_sh, ptr @ll_fn_SSL_shutdown, align 8
     %%has_cm = icmp ne ptr %%f_cm, null
     %%has_cn = icmp ne ptr %%f_cn, null
+    %%has_cf = icmp ne ptr %%f_cf, null
     %%has_sn = icmp ne ptr %%f_sn, null
+    %%has_sf = icmp ne ptr %%f_sf, null
+    %%has_sfd = icmp ne ptr %%f_sfd, null
     %%has_conn = icmp ne ptr %%f_conn, null
     %%has_rd = icmp ne ptr %%f_rd, null
     %%has_wr = icmp ne ptr %%f_wr, null
     %%a1 = and i1 %%has_cm, %%has_cn
-    %%a2 = and i1 %%has_sn, %%has_conn
-    %%a3 = and i1 %%has_rd, %%has_wr
-    %%a4 = and i1 %%a1, %%a2
-    %%all_ok = and i1 %%a4, %%a3
-    br i1 %%all_ok, label %%mark_avail, label %%ret
+    %%a2 = and i1 %%has_cf, %%has_sn
+    %%a3 = and i1 %%has_sf, %%has_sfd
+    %%a4 = and i1 %%has_conn, %%has_rd
+    %%a5 = and i1 %%a1, %%a2
+    %%a6 = and i1 %%a3, %%a4
+    %%a7 = and i1 %%a5, %%a6
+    %%all_ok = and i1 %%a7, %%has_wr
+    br i1 %%all_ok, label %%mark_avail, label %%fail_close
+fail_close:
+    call i32 @dlclose(ptr %%lib)
+    br label %%ret
 mark_avail:
+    store ptr %%f_init, ptr @ll_fn_OPENSSL_init_ssl, align 8
+    store ptr %%f_cm, ptr @ll_fn_TLS_client_method, align 8
+    store ptr %%f_sm, ptr @ll_fn_TLS_server_method, align 8
+    store ptr %%f_cn, ptr @ll_fn_SSL_CTX_new, align 8
+    store ptr %%f_cf, ptr @ll_fn_SSL_CTX_free, align 8
+    store ptr %%f_cv, ptr @ll_fn_SSL_CTX_set_default_verify_paths, align 8
+    store ptr %%f_cc, ptr @ll_fn_SSL_CTX_use_certificate_file, align 8
+    store ptr %%f_ck, ptr @ll_fn_SSL_CTX_use_PrivateKey_file, align 8
+    store ptr %%f_sn, ptr @ll_fn_SSL_new, align 8
+    store ptr %%f_sf, ptr @ll_fn_SSL_free, align 8
+    store ptr %%f_sfd, ptr @ll_fn_SSL_set_fd, align 8
+    store ptr %%f_sc, ptr @ll_fn_SSL_ctrl, align 8
+    store ptr %%f_conn, ptr @ll_fn_SSL_connect, align 8
+    store ptr %%f_acc, ptr @ll_fn_SSL_accept, align 8
+    store ptr %%f_rd, ptr @ll_fn_SSL_read, align 8
+    store ptr %%f_wr, ptr @ll_fn_SSL_write, align 8
+    store ptr %%f_sh, ptr @ll_fn_SSL_shutdown, align 8
     %%has_init = icmp ne ptr %%f_init, null
     br i1 %%has_init, label %%call_init, label %%set_flag
 call_init:
