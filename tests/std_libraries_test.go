@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -36,12 +37,14 @@ func TestStandardLibraryInlineSuites(t *testing.T) {
 		for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
 			backend := backend
 			t.Run(string(backend)+"/"+file, func(t *testing.T) {
+				tmpDir := t.TempDir()
 				path := filepath.Join(stdDir, file)
 				opts := driver.Options{
 					EntryPath:   path,
 					ProjectRoot: root,
 					Backend:     backend,
 					TestMode:    true,
+					Env:         []string{"TMPDIR=" + tmpDir},
 				}
 
 				var stdout, stderr bytes.Buffer
@@ -63,7 +66,32 @@ func TestStandardLibraryInlineSuites(t *testing.T) {
 				if strings.Contains(out, "leak") && !strings.Contains(out, "0 leaks") {
 					t.Fatalf("detected memory leak in %s (%s):\n%s", file, backend, out)
 				}
+				entries, readErr := os.ReadDir(tmpDir)
+				if readErr != nil {
+					t.Fatalf("failed to read TMPDIR %s: %v", tmpDir, readErr)
+				}
+				if len(entries) != 0 {
+					t.Fatalf("expected %s (%s) to clean up TMPDIR %s, found %d leftover entry(ies)", file, backend, tmpDir, len(entries))
+				}
 			})
 		}
+	}
+}
+
+func TestStdFsAndOsOpenImportNoConflict(t *testing.T) {
+	src := `
+import "std/fs.ll"
+import "std/os.ll"
+
+bind main = (): {
+    let p = "${os_name()}:${arch()}"
+    assert(p.len() > 1, "os metadata present")
+    assert(not exists("/nonexistent_lowlight_check_path_xyz"), "exists false")
+    println("open_import_ok")
+}
+`
+	out := runInlineStrict(t, "std_fs_os_open_import", src, false)
+	if strings.TrimSpace(out) != "open_import_ok" {
+		t.Fatalf("unexpected stdout: %q", out)
 	}
 }

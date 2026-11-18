@@ -75,6 +75,20 @@ bind arch = () string: str_from_cstr(unsafe sys_os_arch())
 // Inline Unit Tests
 // -----------------------------------------------------------------------------
 
+@test_only
+extern getenv as _test_getenv: (name: ptr[u8]) ptr[u8]
+
+@test_only
+bind _test_tmp_path = (name: string) string: {
+	let base = str_from_cstr(unsafe _test_getenv("TMPDIR".c_str()))
+	if(base.len() == 0): base = "/tmp"
+	if(base.len() > 1 and base.byte_at(base.len() - 1) == u8(47)):
+		base = base[0..base.len() - 1]
+	let mono = unsafe sys_monotonic_nanos()
+	let epoch = unsafe sys_epoch_nanos_now()
+	"${base}/lowlight_test_${name}_${mono}_${epoch}"
+}
+
 @test("os system metadata: num_cpus, os_name, arch, and args")
 bind test_os_metadata = (): {
 	assert(num_cpus() >= 1, "num_cpus >= 1")
@@ -97,8 +111,8 @@ bind test_os_exec = (): {
 
 @test("os directory operations: mkdir_p, file_exists, remove_all")
 bind test_os_filesystem = (): {
-	let base = "/tmp/lowlight_test_os_dir"
-	let nested = "/tmp/lowlight_test_os_dir/sub1/sub2"
+	let base = _test_tmp_path("os_dir")
+	let nested = "${base}/sub1/sub2"
 
 	let _ = remove_all(base)
 	assert(not file_exists(nested), "nested does not exist before mkdir_p")

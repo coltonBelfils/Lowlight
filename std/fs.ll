@@ -329,11 +329,26 @@ bind copy_file = (src_path: string, dst_path: string) Result[int]: {
 // Inline Unit Tests
 // -----------------------------------------------------------------------------
 
+@test_only
+extern getenv as _test_getenv: (name: ptr[u8]) ptr[u8]
+
+@test_only
+bind _test_tmp_path = (name: string) string: {
+	let base = str_from_cstr(unsafe _test_getenv("TMPDIR".c_str()))
+	if(base.len() == 0): base = "/tmp"
+	if(base.len() > 1 and base.byte_at(base.len() - 1) == u8(47)):
+		base = base[0..base.len() - 1]
+	let mono = unsafe sys_monotonic_nanos()
+	let epoch = unsafe sys_epoch_nanos_now()
+	"${base}/lowlight_test_${name}_${mono}_${epoch}"
+}
+
 @test("filesystem high-level operations: write, read, append, copy, rename, remove")
 bind test_fs_high_level = (): {
-	let p1 = "/tmp/lowlight_test_fs_hl.txt"
-	let p2 = "/tmp/lowlight_test_fs_hl_copy.txt"
-	let p3 = "/tmp/lowlight_test_fs_hl_renamed.txt"
+	let prefix = _test_tmp_path("fs_hl")
+	let p1 = "${prefix}.txt"
+	let p2 = "${prefix}_copy.txt"
+	let p3 = "${prefix}_renamed.txt"
 
 	// Clean up any stale files from previous runs
 	let _ = remove_file(p1)
@@ -374,7 +389,7 @@ bind test_fs_high_level = (): {
 
 @test("filesystem binary byte I/O: write_bytes, read_bytes")
 bind test_fs_bytes = (): {
-	let path = "/tmp/lowlight_test_fs_bytes.bin"
+	let path = "${_test_tmp_path("fs_bytes")}.bin"
 	let _ = remove_file(path)
 
 	let test_data: [u8] = [u8(0), u8(127), u8(128), u8(255), u8(42)]
@@ -396,7 +411,7 @@ bind test_fs_bytes = (): {
 
 @test("filesystem File stream operations: seek, tell, read, write, flush, close")
 bind test_fs_file_stream = (): {
-	let path = "/tmp/lowlight_test_fs_stream.txt"
+	let path = "${_test_tmp_path("fs_stream")}.txt"
 	let _ = remove_file(path)
 
 	let f_write_res = File.open_write(path)
