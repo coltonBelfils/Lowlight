@@ -327,7 +327,7 @@ func (a *StackArray) String() string  { return fmt.Sprintf("[%d: %s]", a.Size, a
 func (a *StackArray) Mangled() string { return fmt.Sprintf("arr%d_%s", a.Size, a.Elem.Mangled()) }
 func (a *StackArray) Equals(other Type) bool {
 	if o, ok := other.(*StackArray); ok {
-		return (a.Size == 0 || o.Size == 0 || a.Size == o.Size) && a.Elem.Equals(o.Elem)
+		return a.Size == o.Size && a.Elem.Equals(o.Elem)
 	}
 	if st, ok := other.(*Struct); ok {
 		if (st.Name == "Array" || strings.HasPrefix(st.Name, "Array[")) && len(st.TypeArgs) >= 1 {
@@ -888,6 +888,9 @@ func supportsEqVisited(t Type, seen map[Type]bool) bool {
 		}
 		return true
 	case *Struct:
+		if v.HasCustomDrop || !v.IsPlain() {
+			return false
+		}
 		if seen[v] {
 			return true
 		}

@@ -1,7 +1,8 @@
 // std/test — Test assertion functions and structured diff helpers (`@test_only`).
 //
 // Provides aligned single-line and multi-line visual diffs via [`format_diff`] along
-// with typed assertions ([`assert_eq`], [`assert_ne`], [`assert_gt`], [`assert_is_ok`],
+// with typed assertions ([`assert_eq`], [`assert_approx_eq`], [`assert_ne`], [`assert_gt`],
+// [`assert_contains`], [`assert_starts_with`], [`assert_ends_with`], [`assert_is_ok`],
 // [`assert_some`], [`assert_none`], and `_msg` variants).
 
 // -----------------------------------------------------------------------------
@@ -140,6 +141,43 @@ bind _format_multiline_diff = (actual_str: string, expected_str: string) string:
 // Assertions
 // -----------------------------------------------------------------------------
 
+@test_only
+bind _check_approx_eq = (actual: float, expected: float, eps: float) ?string: {
+	if(not (eps == eps) or eps < 0.0):
+		func <- "tolerance must be non-negative and not NaN (got " + eps.to_string() + ")"
+	if(not (actual == actual) or not (expected == expected)):
+		func <- "expected approximately " + expected.to_string() + " (+/- " + eps.to_string() + "), got " + actual.to_string() + " (NaN is never approximately equal)"
+	if(actual == expected): func <- none
+	let diff = if(actual > expected): actual - expected else: expected - actual
+	if(not (diff <= eps)):
+		func <- "expected approximately " + expected.to_string() + " (+/- " + eps.to_string() + "), got " + actual.to_string() + " (diff: " + diff.to_string() + ")"
+	none
+}
+
+@test_only
+bind _format_str_match_err = (expectation: string, actual: string, target_label: string, target: string) string:
+	"expected string to " + expectation + "\n     actual: " + actual + "\n" + target_label + ": " + target
+
+// Asserts that `actual` is within `eps` of `expected` (`|actual - expected| <= eps`).
+//
+// # Panics
+// Panics if `eps` is negative or `NaN`, either value is `NaN`, or `|actual - expected| > eps`.
+@test_only
+@track_caller
+bind assert_approx_eq = (actual: float, expected: float, eps: float):
+	if(_check_approx_eq(actual, expected, eps) as detail):
+		panic("assertion failed: " + detail)
+
+// Asserts that `actual` is within `eps` of `expected`, prefixing failures with `msg`.
+//
+// # Panics
+// Panics with `msg` if `eps` is negative or `NaN`, either value is `NaN`, or `|actual - expected| > eps`.
+@test_only
+@track_caller
+bind assert_approx_eq_msg = (actual: float, expected: float, eps: float, msg: string):
+	if(_check_approx_eq(actual, expected, eps) as detail):
+		panic("assertion failed: " + msg + " (" + detail + ")")
+
 // Asserts that `actual` equals `expected` (`actual == expected`).
 //
 // # Panics
@@ -276,6 +314,66 @@ bind assert_le[T: Comparable + Printable] = (actual: T, expected: T):
 		panic(
 			"assertion failed: expected actual <= threshold\n     actual: " + actual.to_string() + "\n  threshold: " + expected.to_string(),
 		)
+
+// Asserts that `actual` contains `substring`.
+//
+// # Panics
+// Panics if `actual` does not contain `substring`.
+@test_only
+@track_caller
+bind assert_contains = (actual: string, substring: string):
+	if(not actual.contains(substring)):
+		panic("assertion failed: " + _format_str_match_err("contain substring", actual, "  substring", substring))
+
+// Asserts that `actual` contains `substring`, prefixing failures with `msg`.
+//
+// # Panics
+// Panics with `msg` if `actual` does not contain `substring`.
+@test_only
+@track_caller
+bind assert_contains_msg = (actual: string, substring: string, msg: string):
+	if(not actual.contains(substring)):
+		panic("assertion failed: " + msg + "\n" + _format_str_match_err("contain substring", actual, "  substring", substring))
+
+// Asserts that `actual` starts with `prefix`.
+//
+// # Panics
+// Panics if `actual` does not start with `prefix`.
+@test_only
+@track_caller
+bind assert_starts_with = (actual: string, prefix: string):
+	if(not actual.starts_with(prefix)):
+		panic("assertion failed: " + _format_str_match_err("start with prefix", actual, "     prefix", prefix))
+
+// Asserts that `actual` starts with `prefix`, prefixing failures with `msg`.
+//
+// # Panics
+// Panics with `msg` if `actual` does not start with `prefix`.
+@test_only
+@track_caller
+bind assert_starts_with_msg = (actual: string, prefix: string, msg: string):
+	if(not actual.starts_with(prefix)):
+		panic("assertion failed: " + msg + "\n" + _format_str_match_err("start with prefix", actual, "     prefix", prefix))
+
+// Asserts that `actual` ends with `suffix`.
+//
+// # Panics
+// Panics if `actual` does not end with `suffix`.
+@test_only
+@track_caller
+bind assert_ends_with = (actual: string, suffix: string):
+	if(not actual.ends_with(suffix)):
+		panic("assertion failed: " + _format_str_match_err("end with suffix", actual, "     suffix", suffix))
+
+// Asserts that `actual` ends with `suffix`, prefixing failures with `msg`.
+//
+// # Panics
+// Panics with `msg` if `actual` does not end with `suffix`.
+@test_only
+@track_caller
+bind assert_ends_with_msg = (actual: string, suffix: string, msg: string):
+	if(not actual.ends_with(suffix)):
+		panic("assertion failed: " + msg + "\n" + _format_str_match_err("end with suffix", actual, "     suffix", suffix))
 
 // Asserts that [`Result`] `res` holds an `Ok` value.
 //
@@ -423,4 +521,41 @@ bind test_optional_assertions = (): {
 
 	let empty?: ?int = none
 	assert_none(empty?)
+}
+
+@test("assert_approx_eq float assertions and edge cases")
+bind test_approx_eq_assertions = (): {
+	assert_approx_eq(0.1 + 0.2, 0.3, 1.0e-9)
+	assert_approx_eq(-3.14159, -3.1416, 0.0001)
+	assert_approx_eq(42.0, 42.0, 0.0)
+	assert_approx_eq_msg(1.00001, 1.0, 0.001, "within tolerance")
+
+	let pos_inf = 1.0 / 0.0
+	let neg_inf = -1.0 / 0.0
+	let nan_val = 0.0 / 0.0
+	assert_approx_eq(pos_inf, pos_inf, 0.001)
+	assert_approx_eq(neg_inf, neg_inf, 0.001)
+
+	assert_some(_check_approx_eq(1.0, 1.1, 0.01))
+	assert_some(_check_approx_eq(1.0, 1.0, -0.01))
+	assert_some(_check_approx_eq(1.0, 1.0, nan_val))
+	assert_some(_check_approx_eq(nan_val, nan_val, 1.0))
+	assert_some(_check_approx_eq(nan_val, 1.0, 1.0))
+	assert_some(_check_approx_eq(pos_inf, neg_inf, 1.0))
+	assert_some(_check_approx_eq(pos_inf, 1.0, 1.0))
+}
+
+@test("assert_contains, assert_starts_with, and assert_ends_with assertions")
+bind test_string_match_assertions = (): {
+	assert_contains("hello lowlight world", "lowlight")
+	assert_contains("abc", "")
+	assert_contains_msg("alpha:beta:gamma", ":beta:", "middle token")
+
+	assert_starts_with("lowlight/std/test.ll", "lowlight/")
+	assert_starts_with("abc", "")
+	assert_starts_with_msg("https://example.com", "https://", "https scheme")
+
+	assert_ends_with("lowlight/std/test.ll", ".ll")
+	assert_ends_with("abc", "")
+	assert_ends_with_msg("archive.tar.gz", ".tar.gz", "tarball extension")
 }

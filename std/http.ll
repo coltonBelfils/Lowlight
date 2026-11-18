@@ -424,14 +424,49 @@ bind Request.set_header = (&self, name: string, value: string): {
 // Returns the URL query parameter value for `name`, or `none` if absent.
 bind Request.query_param = (self, name: string) ?string: self.query[name]
 
+bind _strip_crlf = (s: string) string: {
+	let has_bad = false
+	for(b in s.bytes()):
+		if(b == 13 or b == 10 or b == 0): {
+			has_bad = true
+			for <-
+		}
+	if(not has_bad): func <- s.copy()
+	let out = ""
+	for(b in s.bytes()):
+		if(b != 13 and b != 10 and b != 0): out.push_byte(b)
+	out
+}
+
+bind _append_sanitized_headers = (out: &string, headers: #[string: string]): {
+	for(k, v in headers): {
+		let hk = _strip_crlf(k)
+		if(hk.is_empty()): next <-
+		let hv = _strip_crlf(v)
+		out.push("$hk: $hv\r\n")
+	}
+}
+
 // Serializes the request into HTTP/1.1 wire bytes (request line, CRLF headers, and body).
 bind Request.format = (self) string: {
 	let out = ""
-	let m = if(self.method.is_empty()): "GET" else: self.method.copy()
-	let p = if(self.path.is_empty()): "/" else: self.path.copy()
-	let pr = if(self.proto.is_empty()): "HTTP/1.1" else: self.proto.copy()
-	out.push("$m $p $pr\r\n")
-	for(k, v in self.headers): out.push("$k: $v\r\n")
+	let m = _strip_crlf(if(self.method.is_empty()): "GET" else: self.method.copy())
+	let target = _strip_crlf(if(self.path.is_empty()): "/" else: self.path.copy())
+	if(not self.query.is_empty()): {
+		let first = not target.contains("?")
+		for(k, v in self.query): {
+			if(first): {
+				target.push("?")
+				first = false
+			} else: target.push("&")
+			target.push(url_encode(k))
+			target.push("=")
+			target.push(url_encode(v))
+		}
+	}
+	let pr = _strip_crlf(if(self.proto.is_empty()): "HTTP/1.1" else: self.proto.copy())
+	out.push("$m $target $pr\r\n")
+	_append_sanitized_headers(&out, self.headers)
 	out.push("\r\n")
 	if(not self.body.is_empty()): out.push(self.body)
 	out
@@ -566,11 +601,11 @@ bind Response.text = (self) string: self.body.copy()
 // Serializes this [`Response`] into HTTP/1.1 wire bytes (status line, headers, and body).
 bind Response.format = (self) string: {
 	let out = ""
-	let pr = if(self.proto.is_empty()): "HTTP/1.1" else: self.proto.copy()
+	let pr = _strip_crlf(if(self.proto.is_empty()): "HTTP/1.1" else: self.proto.copy())
 	let code = if(self.status_code <= 0): 200 else: self.status_code
-	let msg = if(self.status.is_empty()): status_text(code) else: self.status.copy()
+	let msg = _strip_crlf(if(self.status.is_empty()): status_text(code) else: self.status.copy())
 	out.push("$pr $code $msg\r\n")
-	for(k, v in self.headers): out.push("$k: $v\r\n")
+	_append_sanitized_headers(&out, self.headers)
 	out.push("\r\n")
 	if(not self.body.is_empty()): out.push(self.body)
 	out
@@ -1094,18 +1129,37 @@ bind Client.do = (self, req: Request) Result[Response]: {
 	}
 }
 
-// Sends an HTTP `GET` request to `url` using this client's configuration.
-bind Client.get = (self, url: string) Result[Response]: {
-	let req = Request.new("GET", url, "")
+bind Client._send_method = (
+	self,
+	method: string,
+	url: string,
+	content_type?: ?string,
+	body: string,
+) Result[Response]: {
+	let req = Request.new(method, url, body)
+	if(content_type? as ct): req.set_header("Content-Type", ct)
 	self.do(req)
 }
 
+// Sends an HTTP `GET` request to `url` using this client's configuration.
+bind Client.get = (self, url: string) Result[Response]:
+	self._send_method("GET", url, none, "")
+
 // Sends an HTTP `POST` request with `content_type` and `body` to `url`.
-bind Client.post = (self, url: string, content_type: string, body: string) Result[Response]: {
-	let req = Request.new("POST", url, body)
-	req.set_header("Content-Type", content_type)
-	self.do(req)
-}
+bind Client.post = (self, url: string, content_type: string, body: string) Result[Response]:
+	self._send_method("POST", url, content_type, body)
+
+// Sends an HTTP `PUT` request with `content_type` and `body` to `url`.
+bind Client.put = (self, url: string, content_type: string, body: string) Result[Response]:
+	self._send_method("PUT", url, content_type, body)
+
+// Sends an HTTP `PATCH` request with `content_type` and `body` to `url`.
+bind Client.patch = (self, url: string, content_type: string, body: string) Result[Response]:
+	self._send_method("PATCH", url, content_type, body)
+
+// Sends an HTTP `DELETE` request to `url` using this client's configuration.
+bind Client.delete = (self, url: string) Result[Response]:
+	self._send_method("DELETE", url, none, "")
 
 // Sends a one-off HTTP `GET` request to `url` with default [`Client`] settings.
 bind get = (url: string) Result[Response]: {
@@ -1117,6 +1171,24 @@ bind get = (url: string) Result[Response]: {
 bind post = (url: string, content_type: string, body: string) Result[Response]: {
 	let c = Client.new()
 	c.post(url, content_type, body)
+}
+
+// Sends a one-off HTTP `PUT` request with `content_type` and `body` to `url`.
+bind put = (url: string, content_type: string, body: string) Result[Response]: {
+	let c = Client.new()
+	c.put(url, content_type, body)
+}
+
+// Sends a one-off HTTP `PATCH` request with `content_type` and `body` to `url`.
+bind patch = (url: string, content_type: string, body: string) Result[Response]: {
+	let c = Client.new()
+	c.patch(url, content_type, body)
+}
+
+// Sends a one-off HTTP `DELETE` request to `url` with default [`Client`] settings.
+bind delete = (url: string) Result[Response]: {
+	let c = Client.new()
+	c.delete(url)
 }
 
 // ============================================================================
@@ -1467,4 +1539,28 @@ bind test_http_socketpair_roundtrip = (): {
 	let resp = resp_res.unwrap()
 	assert(resp.status_code == 200, "roundtrip status 200")
 	assert(resp.body == "echo: hello world", "roundtrip echo body matches")
+}
+
+@test("http Request query serialization and CRLF header-injection guards")
+bind test_http_query_and_crlf_guards = (): {
+	let req = Request.new("GET", "/search?q=hello+world", "")
+	req.set_header("X-Safe", "val1\r\nEvil: injected")
+	req.set_header("X-Key\r\nBad", "v\n2")
+	req.method = "GET\r\nInjected"
+	req.proto = "HTTP/1.1\r\nSmuggled"
+	let wire = req.format()
+	assert(wire.starts_with("GETInjected /search?q=hello%20world HTTP/1.1Smuggled\r\n"), "query and start line sanitized")
+	assert(not wire.contains("\r\nEvil:"), "injected header line prevented in Request.format")
+	let parsed = Request.parse(wire).unwrap()
+	assert(parsed.header("evil") == none, "Evil header not present")
+	assert((parsed.query_param("q") ?? "") == "hello world", "query param survives Request.format roundtrip")
+
+	let resp = Response.new(200, "ok")
+	resp.status = "OK\r\nInjected-Resp: 1"
+	resp.set_header("X-Resp", "a\r\nSet-Cookie: bad=1")
+	let rwire = resp.format()
+	assert(not rwire.contains("\r\nSet-Cookie:"), "injected header line prevented in Response.format")
+	assert(not rwire.contains("\r\nInjected-Resp:"), "injected status header prevented in Response.format")
+	let rparsed = Response.parse(rwire).unwrap()
+	assert(rparsed.header("set-cookie") == none, "Set-Cookie header not present")
 }

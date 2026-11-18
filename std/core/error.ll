@@ -49,6 +49,10 @@ bind ErrorFrame.to_string = (self) string:
 	if(self._note? as n): "${self._file}:${self._line}:${self._col} — $n"
 	else: "${self._file}:${self._line}:${self._col}"
 
+// Reports structural equality between two [`ErrorFrame`] values.
+bind ErrorFrame.eq = (self, other: ErrorFrame) bool:
+	self._file == other._file and self._line == other._line and self._col == other._col and self._note? == other._note?
+
 // Heap-safe contextual error value supporting wrapped causal chains, optional error codes,
 // and accumulated [`ErrorFrame`] traces.
 //

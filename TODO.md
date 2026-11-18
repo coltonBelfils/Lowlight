@@ -2,20 +2,6 @@
 
 Tasks are atomic and ordered from easiest to most involved.
 
-## Quick Fixes & Small Guards
-
-- [ ] Add `assert_approx_eq` to `std/test.ll`.
-- [ ] Add `assert_contains`, `assert_starts_with`, and `assert_ends_with` to `std/test.ll`.
-- [ ] Serialize `self.query` in `Request.format` (`std/http.ll:428-438`) and update the request-wire assertions in `tests/http_test.ll:79,91`.
-- [ ] Add CRLF header-injection guards in `Request.format` and `Response.format` (`std/http.ll`).
-- [ ] Add `put`, `delete`, and `patch` helpers to `Client` in `std/http.ll`.
-- [ ] Stop treating `StackArray.Size == 0` as a wildcard in `Equals` (`internal/types/types.go:328-341`).
-- [ ] Reject derived `==` on `Resource`/`Drop` structs in `internal/types/types.go:890-900`.
-- [ ] Reject `mod?.val` module optional chaining in `internal/sema/check_stmt_expr.go` / `internal/sema/check_calls.go`.
-- [ ] Stop `checkUnpackVarStmt` from applying `ArenaDepth` to non-ref bindings (`internal/sema/check_stmt_expr.go:1544`).
-- [ ] Respect `Prog.ExternHeaders` in `internal/codegen/llvmgen.go`.
-- [ ] Fix parameter mismatches in `@ll_net_shutdown`, `@ll_time_local_offset`, and `@mkdir` (`internal/codegen/llvmgen_runtime.go:294,1897,2017,2495`).
-
 ## Stdlib Bug Fixes & Targeted Library Additions
 
 - [ ] Accept qualified/const-expr array sizes such as `[mod.C: T]` and `[1+2: T]` in `internal/parser/parser.go:922`.

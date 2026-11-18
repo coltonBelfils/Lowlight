@@ -155,6 +155,7 @@ func (g *llvmEmitter) emitLabel(name string) {
 func (g *llvmEmitter) emitAll() {
 	// 1. Target DataLayout and Triple
 	g.emitHeader()
+	g.emitExternHeaders()
 
 	// 2. Struct and Composite Type Definitions
 	g.emitTypeDefs()
@@ -201,6 +202,53 @@ func (g *llvmEmitter) emitAll() {
 
 	// 12. Emit String Literals Pool (at the end so all dynamically interned strings are included)
 	g.emitStringPool()
+
+	// 13. Emit Extern Header Metadata (when `extern "<header>"` declarations exist)
+	g.emitExternHeadersMetadata()
+}
+
+func escapeLLVMMetaString(s string) string {
+	var sb strings.Builder
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if b == '"' || b == '\\' || b < 0x20 || b >= 0x7f {
+			fmt.Fprintf(&sb, "\\%02X", b)
+		} else {
+			sb.WriteByte(b)
+		}
+	}
+	return sb.String()
+}
+
+func (g *llvmEmitter) emitExternHeaders() {
+	if len(g.prog.ExternHeaders) == 0 {
+		return
+	}
+	g.line("; User Extern Headers")
+	for _, hdr := range g.prog.ExternHeaders {
+		if strings.HasPrefix(hdr, "./") || strings.HasPrefix(hdr, "../") || strings.HasPrefix(hdr, "/") {
+			g.line("; extern %q", hdr)
+		} else {
+			g.line("; extern <%s>", hdr)
+		}
+	}
+	g.line("")
+}
+
+func (g *llvmEmitter) emitExternHeadersMetadata() {
+	if len(g.prog.ExternHeaders) == 0 {
+		return
+	}
+	g.line("; Extern Header Metadata")
+	refs := make([]string, len(g.prog.ExternHeaders))
+	for i := range g.prog.ExternHeaders {
+		refs[i] = fmt.Sprintf("!%d", i)
+	}
+	g.line("!lowlight.extern_headers = !{%s}", strings.Join(refs, ", "))
+	for i, hdr := range g.prog.ExternHeaders {
+		g.line("!%d = !{!\"%s\"}", i, escapeLLVMMetaString(hdr))
+	}
+	g.line("")
 }
 
 func (g *llvmEmitter) emitHeader() {

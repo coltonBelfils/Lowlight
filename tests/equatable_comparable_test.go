@@ -444,3 +444,89 @@ bind main = (): {
 		})
 	}
 }
+
+func TestDerivedEqRejectedOnResourceAndDropStructs(t *testing.T) {
+	root := projectRoot(t)
+
+	negCases := []struct {
+		name        string
+		src         string
+		expectedErr string
+	}{
+		{
+			name: "drop_struct_derived_eq_rejected",
+			src: `
+define Handle struct [
+    fd: int,
+]
+bind Handle.drop = (&self): {}
+bind main = (): {
+    let a = Handle[fd: 1]
+    let b = Handle[fd: 1]
+    let same = a == b
+}
+`,
+			expectedErr: "equality `==` is not defined on type Handle",
+		},
+		{
+			name: "resource_struct_derived_eq_rejected",
+			src: `
+define Named struct [
+    label: string,
+]
+bind main = (): {
+    let a = Named[label: "alpha"]
+    let b = Named[label: "alpha"]
+    let same = a == b
+}
+`,
+			expectedErr: "equality `==` is not defined on type Named",
+		},
+	}
+
+	for _, tc := range negCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			rc, err := driver.Run(driver.Options{
+				EntryPath:   filepath.Join(t.TempDir(), tc.name+".ll"),
+				SrcOverride: tc.src,
+				ProjectRoot: root,
+			}, nil, &stdout, &stderr)
+			if err == nil && rc == 0 {
+				t.Fatalf("expected compile error containing %q, got success", tc.expectedErr)
+			}
+			combined := stderr.String()
+			if err != nil {
+				combined += err.Error()
+			}
+			if !strings.Contains(combined, tc.expectedErr) {
+				t.Fatalf("expected error containing %q, got:\n%s", tc.expectedErr, combined)
+			}
+		})
+	}
+
+	// Custom `.eq` on Resource & Drop structs still works across LLVM + C11.
+	posSrc := `
+define CustomRes struct [
+    fd: int,
+    tag: string,
+]
+
+bind CustomRes.drop = (&self): {
+    self.fd = -1
+}
+
+bind CustomRes.eq = (self, other: CustomRes) bool: {
+    self.fd == other.fd and self.tag == other.tag
+}
+
+bind main = (): {
+    let a = CustomRes[fd: 7, tag: "sock".copy()]
+    let b = CustomRes[fd: 7, tag: "sock".copy()]
+    let c = CustomRes[fd: 8, tag: "sock".copy()]
+    assert(a == b)
+    assert(a != c)
+}
+`
+	runInlineStrict(t, "custom_eq_on_drop_resource_struct", posSrc, false)
+}

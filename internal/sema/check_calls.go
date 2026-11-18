@@ -286,6 +286,11 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 	inf := fc.a.infoFor(call)
 	fc.maybeRewriteIndexedMemberBase(mem)
 
+	if fc.checkModuleOptChain(mem.Base, mem.Member, mem.QuestDot, mem.Span) {
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+
 	// 1. Check module-qualified calls (`mod.fn(...)`, `mod.GenericFn[T](...)`, `mod.Type(x)`)
 	if baseId, isId := mem.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && len(mem.BaseTypeArgs) == 0 && fc.lookupVar(baseId.Name) == nil {
 		if targetMod, isMod := fc.mod.Aliased[baseId.Name]; isMod {
@@ -371,17 +376,32 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 
 	// Check `mod.GenericStruct[T].method(...)` or `mod.Type.method(...)` when `mem.Base` is `mod.Type`!
 	if baseMem, isBM := mem.Base.(*ast.MemberExpr); isBM && len(baseMem.BaseTypeArgs) == 0 {
+		if fc.checkModuleOptChain(baseMem.Base, baseMem.Member, baseMem.QuestDot, baseMem.Span) {
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
 		if modId, isId := baseMem.Base.(*ast.IdentExpr); isId && !modId.IsOpt && fc.lookupVar(modId.Name) == nil {
 			if targetMod, isMod := fc.mod.Aliased[modId.Name]; isMod {
-				if !fc.a.SamePackage(fc.mod, targetMod) && !IsExported(baseMem.Member) {
-					fc.a.Rep.Errorf(baseMem.Span, "cannot access unexported type %q from package %q", baseMem.Member, targetMod.Path)
-					inf.Type = types.TypeInvalid
-					return types.TypeInvalid
+				memberName := baseMem.Member
+				if baseMem.MemberHasOpt {
+					memberName = strings.TrimSuffix(memberName, "?")
 				}
-				if genSt, ok := targetMod.GenericStructs[baseMem.Member]; ok {
-					return fc.checkGenericTypeAssocCall(genSt, mem.BaseTypeArgs, mem.Member, call, expected)
-				}
-				if recvTy, ok := targetMod.Types[baseMem.Member]; ok {
+				_, isGenType := targetMod.GenericStructs[memberName]
+				recvTy, isNamedType := targetMod.Types[memberName]
+				if isGenType || isNamedType {
+					if !fc.a.SamePackage(fc.mod, targetMod) && !IsExported(memberName) {
+						fc.a.Rep.Errorf(baseMem.Span, "cannot access unexported type %q from package %q", memberName, targetMod.Path)
+						inf.Type = types.TypeInvalid
+						return types.TypeInvalid
+					}
+					if mem.QuestDot || baseMem.MemberHasOpt {
+						fc.a.Rep.Errorf(mem.Span, "cannot use optional chaining `?.` on type `%s.%s`", modId.Name, memberName)
+						inf.Type = types.TypeInvalid
+						return types.TypeInvalid
+					}
+					if genSt, ok := targetMod.GenericStructs[memberName]; ok {
+						return fc.checkGenericTypeAssocCall(genSt, mem.BaseTypeArgs, mem.Member, call, expected)
+					}
 					var mTypeArgs []types.Type
 					for _, ta := range call.TypeArgs {
 						mTypeArgs = append(mTypeArgs, fc.a.resolveValueType(fc.mod, ta, fc.subst, false))

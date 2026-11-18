@@ -754,3 +754,51 @@ func TestMultilineBacktickStringsEndToEnd(t *testing.T) {
 	}
 }
 
+func TestAssertionApproxEqAndStringMatchFailureDiagnostics(t *testing.T) {
+	cases := []struct {
+		name     string
+		callLine string
+		want     []string
+	}{
+		{
+			name:     "assert_approx_eq_out_of_tolerance",
+			callLine: "    test.assert_approx_eq(1.5, 1.0, 0.1)",
+			want:     []string{"test_file.ll:5:5:", "expected approximately 1", "(+/- 0.1)", "got 1.5"},
+		},
+		{
+			name:     "assert_approx_eq_negative_tolerance",
+			callLine: "    test.assert_approx_eq(1.0, 1.0, -0.01)",
+			want:     []string{"test_file.ll:5:5:", "tolerance must be non-negative"},
+		},
+		{
+			name:     "assert_contains_failure",
+			callLine: `    test.assert_contains("hello world", "xyz")`,
+			want:     []string{"test_file.ll:5:5:", "contain substring", "actual: hello world", "substring: xyz"},
+		},
+		{
+			name:     "assert_starts_with_failure",
+			callLine: `    test.assert_starts_with("hello world", "world")`,
+			want:     []string{"test_file.ll:5:5:", "start with prefix", "actual: hello world", "prefix: world"},
+		},
+		{
+			name:     "assert_ends_with_failure",
+			callLine: `    test.assert_ends_with("hello world", "hello")`,
+			want:     []string{"test_file.ll:5:5:", "end with suffix", "actual: hello world", "suffix: hello"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "import \"std/test.ll\" as test\n\n@test(\"failure case\")\nbind test_case = (): {\n" + tc.callLine + "\n}\n"
+			out, code, err := runLowlightTest(t, src, false)
+			if code != 1 {
+				t.Fatalf("expected exit code 1, got %d (err: %v)\nOutput:\n%s", code, err, out)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(out, w) {
+					t.Errorf("expected output to contain %q\nOutput:\n%s", w, out)
+				}
+			}
+		})
+	}
+}

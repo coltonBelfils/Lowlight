@@ -1541,7 +1541,13 @@ func (fc *funcChecker) checkUnpackVarStmt(s *ast.VarStmt) types.Type {
 		}
 		fc.a.checkOptionalIdentRule(uv.Name, uv.IsOptName, elemTy, uv.Span, "variable")
 		sym := fc.declareLocal(uv.Name, elemTy, s.IsBind, BindOwned, uv.Span)
-		sym.ArenaDepth = valArenaDepth
+		if elemTy != types.TypeInvalid && typeMayHoldArenaRef(elemTy) {
+			elemDepth := valArenaDepth
+			if valTuple, isTL := s.Value.(*ast.TupleLit); isTL && s.FallbackUnwind == nil && i < len(valTuple.Elems) {
+				elemDepth = fc.arenaDepthOfExpr(valTuple.Elems[i])
+			}
+			sym.ArenaDepth = elemDepth
+		}
 		syms[i] = sym
 	}
 	fc.a.curBM.UnpackVarSymbols[s] = syms
@@ -1816,10 +1822,14 @@ func (fc *funcChecker) checkUnpackAssignStmt(s *ast.AssignStmt) types.Type {
 		}
 		placeRoot := fc.rootSymbolOfExpr(tgt)
 		targetArenaDepth := fc.arenaDepthOfExpr(tgt)
-		if exprArenaDepth > 0 {
-			if targetArenaDepth > 0 && targetArenaDepth < exprArenaDepth {
+		elemDepth := exprArenaDepth
+		if valTuple, isTL := s.Value.(*ast.TupleLit); isTL && s.FallbackUnwind == nil && i < len(valTuple.Elems) {
+			elemDepth = fc.arenaDepthOfExpr(valTuple.Elems[i])
+		}
+		if elemDepth > 0 && tTy != nil && typeMayHoldArenaRef(tTy) {
+			if targetArenaDepth > 0 && targetArenaDepth < elemDepth {
 				fc.a.Rep.Errorf(s.Span, "arena reference `ref[T]` from an inner `Arena` cannot escape into an outer `Arena` allocation")
-			} else if placeRoot != nil && placeRoot.ScopeDepth < exprArenaDepth {
+			} else if placeRoot != nil && placeRoot.ScopeDepth < elemDepth {
 				fc.a.Rep.Errorf(s.Span, "arena reference `ref[T]` cannot escape into %q declared in an outer scope", placeRoot.Name)
 			} else if placeRoot == nil && targetArenaDepth == 0 && fc.unsafeDepth == 0 {
 				fc.a.Rep.Errorf(s.Span, "arena reference `ref[T]` cannot escape into an outer reference target")
@@ -1831,12 +1841,14 @@ func (fc *funcChecker) checkUnpackAssignStmt(s *ast.AssignStmt) types.Type {
 			} else {
 				fc.lowerPinnedArenasTo(1)
 			}
+			if rSym != nil {
+				if _, isId := tgt.(*ast.IdentExpr); isId && elemDepth > rSym.ArenaDepth {
+					rSym.ArenaDepth = elemDepth
+				}
+			}
 		}
 		if rSym != nil {
 			if _, isId := tgt.(*ast.IdentExpr); isId {
-				if exprArenaDepth > rSym.ArenaDepth {
-					rSym.ArenaDepth = exprArenaDepth
-				}
 				fc.moves[rSym] = MoveAlive
 			}
 		}
@@ -2730,11 +2742,37 @@ func IsCanonicalTupleIndex(s string) (int, bool) {
 	return val, true
 }
 
+func (fc *funcChecker) checkModuleOptChain(base ast.Expr, member string, questDot bool, span diag.Span) bool {
+	baseId, isId := base.(*ast.IdentExpr)
+	if !isId || fc.lookupVar(baseId.Name) != nil {
+		return false
+	}
+	modName := baseId.Name
+	hasOpt := questDot
+	if baseId.IsOpt {
+		modName = strings.TrimSuffix(modName, "?")
+		hasOpt = true
+	}
+	if !hasOpt {
+		return false
+	}
+	if _, isMod := fc.mod.Aliased[modName]; isMod {
+		fc.a.Rep.Errorf(span, "cannot use optional chaining `?.` on module %q (use `%s.%s`)", modName, modName, member)
+		return true
+	}
+	return false
+}
+
 // checkMemberExpr resolves `Enum.Variant`, `Result[T, E].Empty`, `mod.Symbol`, `struct.field`, `ref[Struct].field`,
 // and optional dot-chaining (`user?.name`, `self.profile?.score`, `acc?.nick.len()`, `find_user(id)?.name`).
 func (fc *funcChecker) checkMemberExpr(m *ast.MemberExpr, expected types.Type) types.Type {
 	inf := fc.a.infoFor(m)
 	fc.maybeRewriteIndexedMemberBase(m)
+
+	if fc.checkModuleOptChain(m.Base, m.Member, m.QuestDot, m.Span) {
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
 
 	// 1. Check imported module symbol (`mod.val`)!
 	if baseId, isId := m.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && len(m.BaseTypeArgs) == 0 {

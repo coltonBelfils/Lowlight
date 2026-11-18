@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1164,6 +1165,73 @@ bind main = (): {
 `,
 			wantErrPart: "expected : before",
 		},
+		{
+			name: "module_optional_chaining_val_rejected",
+			src: `
+import "std/math.ll" as math
+bind main = (): {
+    let x? = math?.PI
+}
+`,
+			wantErrPart: "cannot use optional chaining `?.` on module \"math\"",
+		},
+		{
+			name: "module_optional_chaining_spaced_val_rejected",
+			src: `
+import "std/math.ll" as math
+bind main = (): {
+    let x? = math ?. PI
+}
+`,
+			wantErrPart: "cannot use optional chaining `?.` on module \"math\"",
+		},
+		{
+			name: "module_optional_chaining_call_rejected",
+			src: `
+import "std/math.ll" as math
+bind main = (): {
+    let x? = math?.clamp_int(5, 0, 10)
+}
+`,
+			wantErrPart: "cannot use optional chaining `?.` on module \"math\"",
+		},
+		{
+			name: "module_optional_chaining_type_assoc_rejected",
+			src: `
+import "std/http.ll" as http
+bind main = (): {
+    let c? = http?.Client.new()
+}
+`,
+			wantErrPart: "cannot use optional chaining `?.` on module \"http\"",
+		},
+		{
+			name: "module_type_optional_chaining_assoc_rejected",
+			src: `
+import "std/http.ll" as http
+bind main = (): {
+    let c? = http.Client?.new()
+}
+`,
+			wantErrPart: "cannot use optional chaining `?.` on type `http.Client`",
+		},
+		{
+			name: "unpack_ref_escape_still_rejected",
+			src: `
+define Node struct [val: int]
+bind main = (): {
+    let outer_arena = Arena.new()
+    let outer_ref = outer_arena.alloc(Node[val: 1])
+    {
+        let inner = Arena.new()
+        let escaped, count = unpack +[inner.alloc(Node[val: 2]), 99]
+        outer_ref = escaped
+        println("${count}")
+    }
+}
+`,
+			wantErrPart: "cannot escape",
+		},
 	}
 
 	root := projectRoot(t)
@@ -1181,5 +1249,80 @@ bind main = (): {
 				t.Fatalf("[%s] expected error containing %q, got:\n%v", tc.name, tc.wantErrPart, err)
 			}
 		})
+	}
+}
+
+func TestQuickFixesE2ERuntimeAndSemaParity(t *testing.T) {
+	tmpDir := t.TempDir()
+	mkTarget := filepath.Join(tmpDir, "created_dir")
+
+	src := fmt.Sprintf(`
+import "std/os.ll" as os
+import "std/time.ll" as time
+import "std/net.ll" as net
+
+extern "math.h"
+extern cos: (x: float) float
+
+define Node struct [
+	val: int,
+]
+
+bind main = (): {
+	// 1. Unpacked non-ref binding escapes inner Arena block cleanly
+	let outer_count = 0
+	let outer_node = Node[val: 0]
+	let outer_str = ""
+	{
+		let a = Arena.new()
+		let r = a.alloc(Node[val: 41])
+		let ref_node, num, tag = unpack +[r, r.val + 1, "ok".copy()]
+		outer_count = num
+		outer_node = Node[val: 40 + 1]
+		assert(ref_node.val == 41)
+		outer_str = own tag
+	}
+	assert(outer_count == 42)
+	assert(outer_node.val == 41)
+	assert(outer_str == "ok")
+
+	// 2. Unpacked ref from outer Arena alongside ref from inner Arena
+	let a_outer = Arena.new()
+	let r_outer = a_outer.alloc(Node[val: 100])
+	let saved = a_outer.alloc(Node[val: 0])
+	{
+		let a_inner = Arena.new()
+		let r_inner = a_inner.alloc(Node[val: 200])
+		let keep_ref, tmp_ref = unpack +[r_outer, r_inner]
+		saved = keep_ref
+		assert(tmp_ref.val == 200)
+	}
+	assert(saved.val == 100)
+
+	// 3. extern "math.h" + extern C function on LLVM & C11
+	let c0 = unsafe cos(0.0)
+	assert(c0 > 0.99 and c0 < 1.01)
+
+	// 4. LLVM/C11 runtime parity for @ll_os_mkdir, @ll_time_local_offset(epoch_sec), @ll_net_shutdown(fd, how)
+	let _ = os.remove_all(%q)
+	assert(os.mkdir(%q))
+	assert(os.file_exists(%q))
+	let _ = os.remove_all(%q)
+
+	let dt_win = time.DateTime.new(2024, 1, 15, 12, 0, 0, true)
+	let dt_sum = time.DateTime.new(2024, 7, 15, 12, 0, 0, true)
+	println("tz=${dt_win.offset_secs}:${dt_sum.offset_secs}")
+
+	let sp = net.socketpair().unwrap()
+	assert(sp.first.send("abc").is_ok())
+	unsafe sys_net_shutdown(sp.first.raw_fd(), 1)
+	assert(sp.second.recv(16, 1000).unwrap() == "abc")
+	assert(sp.second.recv(16, 1000).unwrap() == "")
+}
+`, mkTarget, mkTarget, mkTarget, mkTarget)
+
+	out := runInlineStrict(t, "quick_fixes_runtime_and_sema", src, false)
+	if !strings.Contains(out, "tz=") {
+		t.Fatalf("unexpected stdout: %q", out)
 	}
 }

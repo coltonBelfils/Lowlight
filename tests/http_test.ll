@@ -88,7 +88,7 @@ bind test_request_response_wire = (): {
     assert((req.header("X-CUSTOM-HEADER") ?? "") == "LowlightRocks")
 
     let req_wire = req.format()
-    assert(req_wire.contains("POST /items HTTP/1.1\r\n"))
+    assert(req_wire.contains("POST /items?filter=all HTTP/1.1\r\n"))
     assert(req_wire.contains("content-type: application/json\r\n"))
     assert(req_wire.contains("{\"name\":\"item1\",\"qty\":10}"))
 
@@ -98,8 +98,24 @@ bind test_request_response_wire = (): {
     let parsed_req = parsed_req_res.unwrap()
     assert(parsed_req.method == "POST")
     assert(parsed_req.path == "/items")
+    assert((parsed_req.query_param("filter") ?? "") == "all")
     assert((parsed_req.header("content-type") ?? "") == "application/json")
     assert(parsed_req.body == "{\"name\":\"item1\",\"qty\":10}")
+
+    // 2b. Verify CRLF header-injection guards in Request.format and Response.format
+    let dirty_req = http.Request.new("GET", "/items?q=a+b", "")
+    dirty_req.set_header("X-Note", "ok\r\nX-Injected: yes")
+    let dirty_req_wire = dirty_req.format()
+    assert(not dirty_req_wire.contains("\r\nX-Injected:"))
+    let dirty_req_parsed = http.Request.parse(dirty_req_wire).unwrap()
+    assert(dirty_req_parsed.header("x-injected") == none)
+    assert((dirty_req_parsed.query_param("q") ?? "") == "a b")
+
+    let dirty_resp = http.Response.new(http.STATUS_OK, "body")
+    dirty_resp.set_header("X-Echo", "hello\r\nX-Smuggled: 1")
+    let dirty_resp_wire = dirty_resp.format()
+    assert(not dirty_resp_wire.contains("\r\nX-Smuggled:"))
+    assert(http.Response.parse(dirty_resp_wire).unwrap().header("x-smuggled") == none)
 
     // 3. Construct Response
     let resp = http.Response.new(http.STATUS_CREATED, "{\"id\":42,\"status\":\"created\"}")

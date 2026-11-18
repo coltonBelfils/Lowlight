@@ -1894,7 +1894,7 @@ entry:
 ret_err:
     ret i64 -1
 do_mkdir:
-    %%rc = call i32 @mkdir(ptr %%path, i16 493)
+    %%rc = call i32 @mkdir(ptr %%path, i32 493)
     %%res = sext i32 %%rc to i64
     ret i64 %%res
 }
@@ -2014,17 +2014,21 @@ done:
     ret void
 }
 
-define internal i64 @ll_time_local_offset() {
+define internal i64 @ll_time_local_offset(i64 %%epoch_sec) {
 entry:
-    %%now_slot = alloca i64, align 8
+    %%sec_slot = alloca i64, align 8
     %%tm_buf = alloca [64 x i8], align 8
     call void @llvm.memset.p0.i64(ptr %%tm_buf, i8 0, i64 64, i1 false)
-    %%now = call i64 @time(ptr null)
-    store i64 %%now, ptr %%now_slot, align 8
-    call ptr @localtime_r(ptr %%now_slot, ptr %%tm_buf)
+    store i64 %%epoch_sec, ptr %%sec_slot, align 8
+    %%tm_ptr = call ptr @localtime_r(ptr %%sec_slot, ptr %%tm_buf)
+    %%ok = icmp ne ptr %%tm_ptr, null
+    br i1 %%ok, label %%read_off, label %%ret_zero
+read_off:
     %%p_gmtoff = getelementptr inbounds i8, ptr %%tm_buf, i64 40
     %%off = load i64, ptr %%p_gmtoff, align 8
     ret i64 %%off
+ret_zero:
+    ret i64 0
 }
 `, rSym, rbSym, slashSym, rmFmtSym, scNproc, osSym, archSym, emptySym, emptySym, clockMono)
 }
@@ -2492,13 +2496,14 @@ done:
     ret void
 }
 
-define internal void @ll_net_shutdown(i64 %%fd) {
+define internal void @ll_net_shutdown(i64 %%fd, i64 %%how) {
 entry:
     %%ok = icmp sge i64 %%fd, 0
     br i1 %%ok, label %%do_shut, label %%done
 do_shut:
     %%fd32 = trunc i64 %%fd to i32
-    call i32 @shutdown(i32 %%fd32, i32 2)
+    %%how32 = trunc i64 %%how to i32
+    call i32 @shutdown(i32 %%fd32, i32 %%how32)
     br label %%done
 done:
     ret void
