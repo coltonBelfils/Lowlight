@@ -312,6 +312,7 @@ static inline ll_string ll_format_loc(ll_string file, int64_t line, int64_t col)
                      (long long)line);
     }
     if (n < 0) n = 0;
+    if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
     return ll_copy__string(ll_str_lit(buf, (int64_t)n));
 }
 

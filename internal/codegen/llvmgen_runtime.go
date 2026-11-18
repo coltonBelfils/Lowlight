@@ -1366,7 +1366,9 @@ finish:
     %%n32 = phi i32 [ %%n1, %%fmt_col ], [ %%n2, %%fmt_nocol ]
     %%pos = icmp sgt i32 %%n32, 0
     %%n64 = sext i32 %%n32 to i64
-    %%len = select i1 %%pos, i64 %%n64, i64 0
+    %%len0 = select i1 %%pos, i64 %%n64, i64 0
+    %%over = icmp sgt i64 %%len0, 511
+    %%len = select i1 %%over, i64 511, i64 %%len0
     %%tmp = alloca %%struct.ll_string, align 8
     %%p0 = getelementptr inbounds %%struct.ll_string, ptr %%tmp, i32 0, i32 0
     %%p1 = getelementptr inbounds %%struct.ll_string, ptr %%tmp, i32 0, i32 1

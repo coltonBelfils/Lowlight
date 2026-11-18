@@ -861,3 +861,191 @@ func TestNetworkExamplesBuildClean(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatLocClampsLongPath(t *testing.T) {
+	root := projectRoot(t)
+	llSrc := `
+@track_caller
+bind get_loc = () string: caller_location()
+
+bind main = (): {
+    println(get_loc())
+}
+`
+	entry := filepath.Join(t.TempDir(), "format_loc.ll")
+	opts := driver.Options{
+		EntryPath:   entry,
+		SrcOverride: llSrc,
+		ProjectRoot: root,
+	}
+
+	cSrc, _, err := driver.EmitC(opts)
+	if err != nil {
+		t.Fatalf("EmitC failed: %v", err)
+	}
+	llvmSrc, _, err := driver.EmitLLVM(opts)
+	if err != nil {
+		t.Fatalf("EmitLLVM failed: %v", err)
+	}
+
+	cc := driver.ResolveCC("")
+	if cc == "cc" {
+		if clangPath, lookErr := exec.LookPath("clang"); lookErr == nil && clangPath != "" {
+			cc = clangPath
+		}
+	}
+
+	sharedChecksC := `
+static int run_format_loc_checks(void) {
+    char a600[601];
+    memset(a600, 'a', 600);
+    a600[600] = '\0';
+
+    char b510[511];
+    memset(b510, 'b', 510);
+    b510[510] = '\0';
+
+    char buf[512];
+
+    int64_t n1 = test_format_loc_case(a600, 600, 12, 5, buf);
+    if (n1 != 511 || memcmp(buf, a600, 511) != 0) {
+        fprintf(stderr, "s1 mismatch: len=%lld\n", (long long)n1);
+        return 1;
+    }
+
+    int64_t n2 = test_format_loc_case(a600, 600, 12, 0, buf);
+    if (n2 != 511 || memcmp(buf, a600, 511) != 0) {
+        fprintf(stderr, "s2 mismatch: len=%lld\n", (long long)n2);
+        return 2;
+    }
+
+    int64_t n3 = test_format_loc_case(b510, 510, 1, 2, buf);
+    if (n3 != 511 || memcmp(buf, b510, 510) != 0 || buf[510] != ':') {
+        fprintf(stderr, "s3 mismatch: len=%lld\n", (long long)n3);
+        return 3;
+    }
+
+    int64_t n4 = test_format_loc_case("main.ll", 7, 12, 5, buf);
+    if (n4 != 12 || memcmp(buf, "main.ll:12:5", 12) != 0) {
+        fprintf(stderr, "s4 mismatch: len=%lld\n", (long long)n4);
+        return 4;
+    }
+
+    int64_t n5 = test_format_loc_case("main.ll", 7, 12, 0, buf);
+    if (n5 != 10 || memcmp(buf, "main.ll:12", 10) != 0) {
+        fprintf(stderr, "s5 mismatch: len=%lld\n", (long long)n5);
+        return 5;
+    }
+
+    return 0;
+}
+`
+
+	cMainHarness := `
+static int64_t test_format_loc_case(const char* data, int64_t len, int64_t line, int64_t col, char* out_buf) {
+    ll_string s = ll_format_loc(ll_str_lit(data, len), line, col);
+    int64_t rlen = s.len;
+    int64_t cp = rlen > 512 ? 512 : rlen;
+    if (cp > 0) memcpy(out_buf, s.data, (size_t)cp);
+    ll_drop__string(&s);
+    return rlen;
+}
+` + sharedChecksC + `
+int main(void) {
+    int rc = run_format_loc_checks();
+    if (rc != 0) return rc;
+    if (ll_rt_live_allocs != 0) {
+        fprintf(stderr, "leak count=%lld\n", (long long)ll_rt_live_allocs);
+        return 6;
+    }
+    return 0;
+}
+`
+
+	t.Run("C11", func(t *testing.T) {
+		tmp := t.TempDir()
+		patchedC := strings.Replace(cSrc, "int main(int argc, char** argv)", "int ll_unused_main(int argc, char** argv)", 1)
+		if patchedC == cSrc {
+			t.Fatal("failed to locate C11 main entrypoint in emitted C source")
+		}
+		patchedC += cMainHarness
+		cPath := filepath.Join(tmp, "loc_c11.c")
+		binPath := filepath.Join(tmp, "loc_c11_bin")
+		if err := os.WriteFile(cPath, []byte(patchedC), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := append([]string{"-std=c11", "-g", "-O0", "-o", binPath, cPath}, strictCFlags...)
+		args = append(args, "-lm", "-ldl")
+		if out, err := exec.Command(cc, args...).CombinedOutput(); err != nil {
+			t.Fatalf("C11 compile failed: %v\n%s", err, string(out))
+		}
+		runCmd := exec.Command(binPath)
+		runCmd.Env = append(os.Environ(), "LOWLIGHT_CHECK_LEAKS=1", "ASAN_OPTIONS=detect_leaks=0")
+		if out, err := runCmd.CombinedOutput(); err != nil {
+			t.Fatalf("C11 run failed: %v\n%s", err, string(out))
+		}
+	})
+
+	t.Run("LLVM", func(t *testing.T) {
+		tmp := t.TempDir()
+		patchedLL := strings.Replace(llvmSrc, "define i32 @main(i32 %argc, ptr %argv)", "define i32 @ll_unused_main(i32 %argc, ptr %argv)", 1)
+		if patchedLL == llvmSrc {
+			t.Fatal("failed to locate LLVM main entrypoint in emitted IR")
+		}
+		if !strings.Contains(patchedLL, "@llvm.memcpy.p0.p0.i64") {
+			patchedLL += "\ndeclare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n"
+		}
+		patchedLL += `
+define i64 @test_format_loc_case(ptr %data, i64 %len, i64 %line, i64 %col, ptr %out_buf) {
+entry:
+    %in_s0 = insertvalue %struct.ll_string zeroinitializer, ptr %data, 0
+    %in_s1 = insertvalue %struct.ll_string %in_s0, i64 %len, 1
+    %res = call %struct.ll_string @ll_format_loc(%struct.ll_string %in_s1, i64 %line, i64 %col)
+    %r_data = extractvalue %struct.ll_string %res, 0
+    %r_len = extractvalue %struct.ll_string %res, 1
+    %over = icmp sgt i64 %r_len, 512
+    %cp_len = select i1 %over, i64 512, i64 %r_len
+    %pos = icmp sgt i64 %cp_len, 0
+    br i1 %pos, label %do_cp, label %do_drop
+do_cp:
+    call void @llvm.memcpy.p0.p0.i64(ptr %out_buf, ptr %r_data, i64 %cp_len, i1 false)
+    br label %do_drop
+do_drop:
+    %slot = alloca %struct.ll_string, align 8
+    store %struct.ll_string %res, ptr %slot, align 8
+    call void @ll_drop__string(ptr %slot)
+    ret i64 %r_len
+}
+`
+		cDriver := `
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+extern int64_t test_format_loc_case(const char* data, int64_t len, int64_t line, int64_t col, char* out_buf);
+` + sharedChecksC + `
+int main(void) {
+    return run_format_loc_checks();
+}
+`
+		llPath := filepath.Join(tmp, "loc_llvm.ll")
+		drvPath := filepath.Join(tmp, "loc_driver.c")
+		binPath := filepath.Join(tmp, "loc_llvm_bin")
+		if err := os.WriteFile(llPath, []byte(patchedLL), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(drvPath, []byte(cDriver), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := append([]string{"-Wno-override-module", "-g", "-O0", "-o", binPath, llPath, drvPath}, strictCFlags...)
+		args = append(args, "-lm", "-ldl")
+		if out, err := exec.Command(cc, args...).CombinedOutput(); err != nil {
+			t.Fatalf("LLVM compile failed: %v\n%s", err, string(out))
+		}
+		runCmd := exec.Command(binPath)
+		runCmd.Env = append(os.Environ(), "LOWLIGHT_CHECK_LEAKS=1", "ASAN_OPTIONS=detect_leaks=0")
+		if out, err := runCmd.CombinedOutput(); err != nil {
+			t.Fatalf("LLVM run failed: %v\n%s", err, string(out))
+		}
+	})
+}

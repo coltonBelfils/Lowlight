@@ -4,9 +4,8 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Quick Fixes & Small Guards
 
-- [ ] Clamp `snprintf` return length in `ll_format_loc` (`internal/codegen/runtime_h.go:302-316`, `internal/codegen/llvmgen_runtime.go:1345-1381`).
-- [ ] Prevent `SIGPIPE` on socket writes in `internal/codegen/runtime_h.go:733`.
-- [ ] Call `dlclose` on opened handles on `dlsym` failure in LLVM `ll_tls_init` (`internal/codegen/llvmgen_runtime.go:2525-2633`).
+- [ ] Prevent `SIGPIPE` on socket writes in `internal/codegen/runtime_h.go:734`.
+- [ ] Call `dlclose` on opened handles on `dlsym` failure in LLVM `ll_tls_init` (`internal/codegen/llvmgen_runtime.go:2527-2635`).
 - [ ] Guard negative `max_len` in `truncate_with` (`std/strfmt.ll:224-232`).
 - [ ] Validate negative `with_capacity` arguments in `std/core/list.ll` / `std/core/array.ll`.
 - [ ] Replace fixed `/tmp/lowlight_test_*` paths in inline tests across `std/core/list.ll`, `std/core/array.ll`, `std/fs.ll`, and `std/os.ll`.
@@ -26,7 +25,7 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Reject `mod?.val` module optional chaining in `internal/sema/check_stmt_expr.go` / `internal/sema/check_calls.go`.
 - [ ] Stop `checkUnpackVarStmt` from applying `ArenaDepth` to non-ref bindings (`internal/sema/check_stmt_expr.go:1544`).
 - [ ] Respect `Prog.ExternHeaders` in `internal/codegen/llvmgen.go`.
-- [ ] Fix parameter mismatches in `@ll_net_shutdown`, `@ll_time_local_offset`, and `@mkdir` (`internal/codegen/llvmgen_runtime.go:294,1895,2015,2482`).
+- [ ] Fix parameter mismatches in `@ll_net_shutdown`, `@ll_time_local_offset`, and `@mkdir` (`internal/codegen/llvmgen_runtime.go:294,1897,2017,2484`).
 
 ## Stdlib Bug Fixes & Targeted Library Additions
 
@@ -83,9 +82,9 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Support qualified/generic bounds and receiver bounds in `parseTypeParams` (`internal/parser/parser.go:578-588,624-629`).
 - [ ] Add struct field-init shorthand (`Point[x, y]`) in `internal/parser/parser.go`.
 - [ ] Resolve generic call vs index ambiguity on member expressions (`obj.fns[i]()`) across `internal/parser/parser.go:1836-1886` and `internal/sema/check_calls.go:56-72`.
-- [ ] Replace fixed `char sub[1024]` buffers in `ll_os_remove_all` (`internal/codegen/runtime_h.go:1182-1183`).
+- [ ] Replace fixed `char sub[1024]` buffers in `ll_os_remove_all` (`internal/codegen/runtime_h.go:1183-1184`).
 - [ ] Replace LLVM `rm -rf` shell execution in `ll_os_remove_all` (`internal/codegen/llvmgen_runtime.go`).
-- [ ] Enable peer certificate verification (`SSL_CTX_set_verify` with `SSL_VERIFY_PEER`), hostname checks (`SSL_set1_host` / `X509_VERIFY_PARAM_set1_host`), and `SSL_get_verify_result` in `internal/codegen/runtime_h.go:923-954` and `internal/codegen/llvmgen_runtime.go:2525-2715`.
+- [ ] Enable peer certificate verification (`SSL_CTX_set_verify` with `SSL_VERIFY_PEER`), hostname checks (`SSL_set1_host` / `X509_VERIFY_PARAM_set1_host`), and `SSL_get_verify_result` in `internal/codegen/runtime_h.go:924-955` and `internal/codegen/llvmgen_runtime.go:2527-2717`.
 - [ ] Match LLVM `ll_tls_recv`, `ll_tls_send_all`, and `ll_tls_server_ctx_new` with C11 (`SSL_pending`, `poll`, timeout `-2`, `WANT_READ`/`WANT_WRITE`, `SSL_CTX_use_certificate_chain_file`) in `internal/codegen/llvmgen_runtime.go`.
 - [ ] Expose public TLS server APIs/contexts in `std/net.ll`.
 - [ ] Zero-initialize `allocSlot` temporaries at collection literal sites (`internal/ir/lower_ops.go:1905-1919,2030-2059`) so loop iterations do not reuse moved/freed collection buffers.

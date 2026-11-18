@@ -31,6 +31,10 @@ bind List[Json].eq = (self, other: List[Json]) bool: {
 	} else: true
 }
 
+// bind List[Json].eq = (self, other: List[Json]) bool:
+// 	if(self.len() != other.len()): false
+// 	else: (while(i, v in self): if(self[i] != other[i]): while <- false) ?? true
+
 // bind Map[string, Json].eq = (self, other: Map[string, Json]) bool: {
 //     if(self.len() != other.len()): <- false
 
