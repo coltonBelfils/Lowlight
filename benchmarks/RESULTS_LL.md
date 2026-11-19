@@ -11,48 +11,56 @@
 
 | Configuration | Category | Valid | Mean Time (ms) | Min / Max (ms) | vs Native C (-O2) | vs Go | Binary Size | Build Time |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Native C (-O2)** | Native C | ✓ | **905.79 ms** | 891.95 / 925.31 ms | **1.00x** | **0.91x** | 32 KB | 161.9 ms |
-| **Native C (-O3)** | Native C | ✓ | **878.18 ms** | 864.32 / 895.06 ms | **0.97x** | **0.88x** | 32 KB | 100.1 ms |
-| **Lowlight (--release)** | Lowlight | ✓ | **937.62 ms** | 923.82 / 952.25 ms | **1.04x** | **0.94x** | 105 KB | 625.3 ms |
-| **Go 1.25 (native)** | Go | ✓ | **998.26 ms** | 991.49 / 1010.49 ms | **1.10x** | **1.00x** | 2364 KB | 270.3 ms |
-| **Lowlight (debug)** | Lowlight | ✓ | **3843.24 ms** | 3783.51 / 3956.92 ms | **4.24x** | **3.85x** | 268 KB | 252.5 ms |
-| **Native C (-O0)** | Native C | ✓ | **1602.81 ms** | 1575.04 / 1632.84 ms | **1.77x** | **1.61x** | 33 KB | 135.0 ms |
+| **Native C (-O2)** | Native C | ✓ | **826.86 ms** | 825.14 / 828.28 ms | **1.00x** | **0.92x** | 32 KB | 101.3 ms |
+| **Native C (-O3)** | Native C | ✓ | **810.26 ms** | 805.87 / 818.22 ms | **0.98x** | **0.90x** | 32 KB | 82.3 ms |
+| **Lowlight LLVM (--release)** | Lowlight (LLVM) | ✓ | **818.98 ms** | 816.91 / 821.56 ms | **0.99x** | **0.91x** | 105 KB | 506.2 ms |
+| **Lowlight C11 (--release)** | Lowlight (C11) | ✓ | **820.17 ms** | 817.75 / 823.32 ms | **0.99x** | **0.91x** | 33 KB | 176.2 ms |
+| **Go 1.25 (native)** | Go | ✓ | **899.64 ms** | 897.73 / 900.79 ms | **1.09x** | **1.00x** | 2364 KB | 178.9 ms |
+| **Lowlight LLVM (debug)** | Lowlight (LLVM) | ✓ | **3453.06 ms** | 3451.55 / 3455.24 ms | **4.18x** | **3.84x** | 285 KB | 276.3 ms |
+| **Lowlight C11 (debug)** | Lowlight (C11) | ✓ | **3952.51 ms** | 3949.47 / 3956.61 ms | **4.78x** | **4.39x** | 35 KB | 193.1 ms |
+| **Native C (-O0)** | Native C | ✓ | **1443.95 ms** | 1438.02 / 1447.55 ms | **1.75x** | **1.61x** | 33 KB | 105.2 ms |
 
 ### Sieve of Eratosthenes (10M, 5 passes)
 *Large sequential heap buffer allocation, strided boolean writes, and cache lines*
 
 | Configuration | Category | Valid | Mean Time (ms) | Min / Max (ms) | vs Native C (-O2) | vs Go | Binary Size | Build Time |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Native C (-O2)** | Native C | ✓ | **66.31 ms** | 61.38 / 71.19 ms | **1.00x** | **0.54x** | 32 KB | 119.3 ms |
-| **Native C (-O3)** | Native C | ✓ | **63.18 ms** | 59.34 / 68.92 ms | **0.95x** | **0.52x** | 32 KB | 126.5 ms |
-| **Lowlight (--release)** | Lowlight | ✓ | **133.63 ms** | 121.49 / 143.72 ms | **2.02x** | **1.09x** | 106 KB | 612.7 ms |
-| **Go 1.25 (native)** | Go | ✓ | **122.07 ms** | 113.90 / 131.15 ms | **1.84x** | **1.00x** | 2364 KB | 268.8 ms |
-| **Lowlight (debug)** | Lowlight | ✓ | **862.53 ms** | 836.21 / 879.20 ms | **13.01x** | **7.07x** | 284 KB | 275.2 ms |
-| **Native C (-O0)** | Native C | ✓ | **388.51 ms** | 371.90 / 399.61 ms | **5.86x** | **3.18x** | 33 KB | 122.5 ms |
+| **Native C (-O2)** | Native C | ✓ | **56.46 ms** | 55.66 / 57.73 ms | **1.00x** | **0.54x** | 32 KB | 94.4 ms |
+| **Native C (-O3)** | Native C | ✓ | **73.21 ms** | 61.03 / 81.24 ms | **1.30x** | **0.70x** | 32 KB | 95.5 ms |
+| **Lowlight LLVM (--release)** | Lowlight (LLVM) | ✓ | **104.59 ms** | 103.26 / 106.44 ms | **1.85x** | **1.00x** | 105 KB | 534.4 ms |
+| **Lowlight C11 (--release)** | Lowlight (C11) | ✓ | **95.95 ms** | 93.86 / 99.69 ms | **1.70x** | **0.92x** | 33 KB | 170.2 ms |
+| **Go 1.25 (native)** | Go | ✓ | **104.70 ms** | 103.79 / 105.53 ms | **1.85x** | **1.00x** | 2364 KB | 186.3 ms |
+| **Lowlight LLVM (debug)** | Lowlight (LLVM) | ✓ | **792.41 ms** | 791.92 / 793.03 ms | **14.04x** | **7.57x** | 285 KB | 236.0 ms |
+| **Lowlight C11 (debug)** | Lowlight (C11) | ✓ | **901.94 ms** | 899.48 / 905.83 ms | **15.98x** | **8.61x** | 35 KB | 164.2 ms |
+| **Native C (-O0)** | Native C | ✓ | **361.47 ms** | 361.33 / 361.56 ms | **6.40x** | **3.45x** | 33 KB | 86.3 ms |
 
 ### Mandelbrot Fractal (1500x1500, max 500)
 *Dense 64-bit IEEE floating-point arithmetic, tight inner loop, and escape logic*
 
 | Configuration | Category | Valid | Mean Time (ms) | Min / Max (ms) | vs Native C (-O2) | vs Go | Binary Size | Build Time |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Native C (-O2)** | Native C | ✓ | **997.06 ms** | 959.32 / 1040.32 ms | **1.00x** | **0.91x** | 32 KB | 103.5 ms |
-| **Native C (-O3)** | Native C | ✓ | **979.33 ms** | 953.37 / 1000.92 ms | **0.98x** | **0.89x** | 32 KB | 93.6 ms |
-| **Lowlight (--release)** | Lowlight | ✓ | **1021.98 ms** | 990.15 / 1062.83 ms | **1.02x** | **0.93x** | 105 KB | 586.6 ms |
-| **Go 1.25 (native)** | Go | ✓ | **1095.18 ms** | 1035.28 / 1188.95 ms | **1.10x** | **1.00x** | 2364 KB | 229.7 ms |
-| **Lowlight (debug)** | Lowlight | ✓ | **3059.83 ms** | 3027.24 / 3076.99 ms | **3.07x** | **2.79x** | 268 KB | 281.4 ms |
-| **Native C (-O0)** | Native C | ✓ | **2616.61 ms** | 2528.65 / 2752.26 ms | **2.62x** | **2.39x** | 33 KB | 137.5 ms |
+| **Native C (-O2)** | Native C | ✓ | **888.32 ms** | 886.78 / 889.15 ms | **1.00x** | **0.93x** | 32 KB | 69.9 ms |
+| **Native C (-O3)** | Native C | ✓ | **889.01 ms** | 887.05 / 890.68 ms | **1.00x** | **0.93x** | 32 KB | 85.5 ms |
+| **Lowlight LLVM (--release)** | Lowlight (LLVM) | ✓ | **936.75 ms** | 934.62 / 938.17 ms | **1.05x** | **0.98x** | 105 KB | 495.4 ms |
+| **Lowlight C11 (--release)** | Lowlight (C11) | ✓ | **885.44 ms** | 884.52 / 886.59 ms | **1.00x** | **0.92x** | 33 KB | 175.8 ms |
+| **Go 1.25 (native)** | Go | ✓ | **958.64 ms** | 957.28 / 960.16 ms | **1.08x** | **1.00x** | 2364 KB | 204.0 ms |
+| **Lowlight LLVM (debug)** | Lowlight (LLVM) | ✓ | **2783.37 ms** | 2774.81 / 2793.09 ms | **3.13x** | **2.90x** | 285 KB | 244.0 ms |
+| **Lowlight C11 (debug)** | Lowlight (C11) | ✓ | **2760.88 ms** | 2760.35 / 2761.36 ms | **3.11x** | **2.88x** | 35 KB | 200.7 ms |
+| **Native C (-O0)** | Native C | ✓ | **2328.71 ms** | 2307.75 / 2356.51 ms | **2.62x** | **2.43x** | 33 KB | 92.0 ms |
 
 ### Dense Matrix Multiplication (400x400)
 *Memory indexing, cache spatial locality, and nested loop accumulation*
 
 | Configuration | Category | Valid | Mean Time (ms) | Min / Max (ms) | vs Native C (-O2) | vs Go | Binary Size | Build Time |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Native C (-O2)** | Native C | ✓ | **25.52 ms** | 24.86 / 25.88 ms | **1.00x** | **0.48x** | 32 KB | 111.9 ms |
-| **Native C (-O3)** | Native C | ✓ | **30.17 ms** | 28.78 / 32.11 ms | **1.18x** | **0.56x** | 32 KB | 114.6 ms |
-| **Lowlight (--release)** | Lowlight | ✓ | **59.22 ms** | 57.85 / 61.90 ms | **2.32x** | **1.11x** | 106 KB | 734.7 ms |
-| **Go 1.25 (native)** | Go | ✓ | **53.50 ms** | 52.23 / 55.47 ms | **2.10x** | **1.00x** | 2364 KB | 196.4 ms |
-| **Lowlight (debug)** | Lowlight | ✓ | **497.56 ms** | 485.20 / 503.78 ms | **19.49x** | **9.30x** | 285 KB | 367.5 ms |
-| **Native C (-O0)** | Native C | ✓ | **117.04 ms** | 113.45 / 122.95 ms | **4.59x** | **2.19x** | 33 KB | 109.3 ms |
+| **Native C (-O2)** | Native C | ✓ | **21.40 ms** | 19.70 / 23.82 ms | **1.00x** | **0.47x** | 32 KB | 112.1 ms |
+| **Native C (-O3)** | Native C | ✓ | **20.56 ms** | 19.50 / 22.39 ms | **0.96x** | **0.45x** | 32 KB | 77.4 ms |
+| **Lowlight LLVM (--release)** | Lowlight (LLVM) | ✓ | **50.17 ms** | 49.65 / 51.01 ms | **2.34x** | **1.11x** | 105 KB | 486.2 ms |
+| **Lowlight C11 (--release)** | Lowlight (C11) | ✓ | **24.14 ms** | 21.83 / 26.16 ms | **1.13x** | **0.53x** | 33 KB | 196.6 ms |
+| **Go 1.25 (native)** | Go | ✓ | **45.35 ms** | 44.97 / 45.55 ms | **2.12x** | **1.00x** | 2364 KB | 178.4 ms |
+| **Lowlight LLVM (debug)** | Lowlight (LLVM) | ✓ | **450.89 ms** | 450.00 / 451.99 ms | **21.07x** | **9.94x** | 286 KB | 273.5 ms |
+| **Lowlight C11 (debug)** | Lowlight (C11) | ✓ | **525.87 ms** | 523.60 / 528.33 ms | **24.57x** | **11.60x** | 36 KB | 161.7 ms |
+| **Native C (-O0)** | Native C | ✓ | **109.39 ms** | 108.71 / 110.25 ms | **5.11x** | **2.41x** | 33 KB | 103.1 ms |
 
 ---
 
@@ -60,4 +68,4 @@
 
 - **Harness**: Implemented and executed natively in Lowlight (`benchmarks/runner.ll`) using `std/os` process execution and `std/time` monotonic timers.
 - **Methodology**: Each configuration performs 1 warmup + validation run (`✓` / `FAIL` against expected output) followed by 3 timed runs.
-- **Observations**: Release timings above reflect the active backend (`lowlight 1.0.0 (v1.0 specification, direct LLVM IR backend)`). Compute-bound workloads (`fib_42`, `mandelbrot_1500`) track closely to `Native C (-O2)`, while array/buffer-heavy workloads (`sieve_10m`, `matmul_400`) show the current overhead of bounds checks and memory indexing.
+- **Observations**: Benchmarks cover both the direct LLVM IR backend (`--backend llvm`) and ISO C11 backend (`--backend c11`) in `--release` (`-O2`) and debug (`-O0`) modes. Safety bounds checks and deterministic trap guards are preserved in `--release`. Compute-bound workloads (`fib_42`, `mandelbrot_1500`) track closely to `Native C (-O2)`, while array/buffer-heavy workloads (`sieve_10m`, `matmul_400`) show the cost of bounds checks and memory indexing.

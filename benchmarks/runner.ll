@@ -2,11 +2,11 @@
 // Computational Benchmark Suite written natively in Lowlight.
 // Compares Lowlight v1.0 to Go 1.25 and Native C across 4 distinct workloads.
 
-import "std/time.ll" as time
-import "std/os.ll" as os
-import "std/fs.ll" as fs
-import "std/math.ll" as math
-import "std/strfmt.ll" as strfmt
+import "std/time"
+import "std/os"
+import "std/fs"
+import "std/math"
+import "std/strfmt"
 
 define BenchCase struct [
     name: string,
@@ -68,10 +68,14 @@ bind build_command = (tag: string, bin_path: string, bc: BenchCase) string: {
         "clang -O3 -std=c11 -o $bin_path ${bc.c_src} -lm"
     } else if (tag == "c_o0"): {
         "clang -O0 -g -std=c11 -o $bin_path ${bc.c_src} -lm"
-    } else if (tag == "ll_release"): {
-        "./lowlight build --release -o $bin_path ${bc.lowlight_src}"
-    } else if (tag == "ll_debug"): {
-        "./lowlight build -o $bin_path ${bc.lowlight_src}"
+    } else if (tag == "ll_llvm_release"): {
+        "./lowlight build --backend llvm --release -o $bin_path ${bc.lowlight_src}"
+    } else if (tag == "ll_c11_release"): {
+        "./lowlight build --backend c11 --release -o $bin_path ${bc.lowlight_src}"
+    } else if (tag == "ll_llvm_debug"): {
+        "./lowlight build --backend llvm -o $bin_path ${bc.lowlight_src}"
+    } else if (tag == "ll_c11_debug"): {
+        "./lowlight build --backend c11 -o $bin_path ${bc.lowlight_src}"
     } else if (tag == "go_native"): {
         "go build -o $bin_path ${bc.go_src}"
     } else: {
@@ -173,9 +177,11 @@ bind main = (): {
     let configs: [ConfigDef] = []
     configs.push(ConfigDef[name: "Native C (-O2)", category: "Native C", tag: "c_o2"])
     configs.push(ConfigDef[name: "Native C (-O3)", category: "Native C", tag: "c_o3"])
-    configs.push(ConfigDef[name: "Lowlight (--release)", category: "Lowlight", tag: "ll_release"])
+    configs.push(ConfigDef[name: "Lowlight LLVM (--release)", category: "Lowlight (LLVM)", tag: "ll_llvm_release"])
+    configs.push(ConfigDef[name: "Lowlight C11 (--release)", category: "Lowlight (C11)", tag: "ll_c11_release"])
     configs.push(ConfigDef[name: "Go 1.25 (native)", category: "Go", tag: "go_native"])
-    configs.push(ConfigDef[name: "Lowlight (debug)", category: "Lowlight", tag: "ll_debug"])
+    configs.push(ConfigDef[name: "Lowlight LLVM (debug)", category: "Lowlight (LLVM)", tag: "ll_llvm_debug"])
+    configs.push(ConfigDef[name: "Lowlight C11 (debug)", category: "Lowlight (C11)", tag: "ll_c11_debug"])
     configs.push(ConfigDef[name: "Native C (-O0)", category: "Native C", tag: "c_o0"])
 
     let all_results: [BenchResult] = []
@@ -197,7 +203,7 @@ bind main = (): {
             let compile_ms = t_build.elapsed_millis()
 
             if (not build_res.ok()): {
-                println("  ${pad_right(cfg.name, 24)} | BUILD ERROR: ${build_res.stdout}")
+                println("  ${pad_right(cfg.name, 26)} | BUILD ERROR: ${build_res.stdout}")
                 next <-
             }
 
@@ -244,7 +250,7 @@ bind main = (): {
             let kb_s = pad_left("${bin_kb} KB", 8)
             let build_s = pad_left(strfmt.format_float(compile_ms, 0) + " ms", 8)
 
-            println("  [$valid_mark] ${pad_right(cfg.name, 22)}: $mean_s  (min: $min_s, max: $max_s, σ: $std_s) | bin: $kb_s | build: $build_s")
+            println("  [$valid_mark] ${pad_right(cfg.name, 26)}: $mean_s  (min: $min_s, max: $max_s, σ: $std_s) | bin: $kb_s | build: $build_s")
 
             let res = BenchResult[
                 config_name: cfg.name.copy(),
@@ -279,8 +285,8 @@ bind main = (): {
 
     for (bc in cases): {
         println("\n--- ${bc.display_name} ---")
-        println("${pad_right("Configuration", 24)} | ${pad_left("Valid", 5)} | ${pad_left("Mean Time", 10)} | ${pad_left("vs C (-O2)", 10)} | ${pad_left("vs Go", 10)} | ${pad_left("Binary Size", 11)} | ${pad_left("Build Time", 10)}")
-        println("-------------------------+-------+------------+------------+------------+-------------+-----------")
+        println("${pad_right("Configuration", 26)} | ${pad_left("Valid", 5)} | ${pad_left("Mean Time", 10)} | ${pad_left("vs C (-O2)", 10)} | ${pad_left("vs Go", 10)} | ${pad_left("Binary Size", 11)} | ${pad_left("Build Time", 10)}")
+        println("---------------------------+-------+------------+------------+------------+-------------+-----------")
 
         report.push("### ${bc.display_name}\n")
         report.push("*${bc.description}*\n\n")
@@ -323,7 +329,7 @@ bind main = (): {
                     let bin_s = pad_left("${r.binary_size_kb} KB", 11)
                     let bld_s = pad_left(strfmt.format_float(r.compile_time_ms, 1) + " ms", 10)
 
-                    println("${pad_right(cfg.name, 24)} | $valid_s | $mean_s | $vs_c_s | $vs_go_s | $bin_s | $bld_s")
+                    println("${pad_right(cfg.name, 26)} | $valid_s | $mean_s | $vs_c_s | $vs_go_s | $bin_s | $bld_s")
 
                     let min_f = strfmt.format_float(r.min_ms, 2)
                     let max_f = strfmt.format_float(r.max_ms, 2)
@@ -341,10 +347,10 @@ bind main = (): {
     report.push("## Notes\n\n")
     report.push("- **Harness**: Implemented and executed natively in Lowlight (`benchmarks/runner.ll`) using `std/os` process execution and `std/time` monotonic timers.\n")
     report.push("- **Methodology**: Each configuration performs 1 warmup + validation run (`✓` / `FAIL` against expected output) followed by $num_runs timed runs.\n")
-    report.push("- **Observations**: Release timings above reflect the active backend (`$ll_ver`). Compute-bound workloads (`fib_42`, `mandelbrot_1500`) track closely to `Native C (-O2)`, while array/buffer-heavy workloads (`sieve_10m`, `matmul_400`) show the current overhead of bounds checks and memory indexing.\n")
+    report.push("- **Observations**: Benchmarks cover both the direct LLVM IR backend (`--backend llvm`) and ISO C11 backend (`--backend c11`) in `--release` (`-O2`) and debug (`-O0`) modes. Safety bounds checks and deterministic trap guards are preserved in `--release`. Compute-bound workloads (`fib_42`, `mandelbrot_1500`) track closely to `Native C (-O2)`, while array/buffer-heavy workloads (`sieve_10m`, `matmul_400`) show the cost of bounds checks and memory indexing.\n")
 
     let report_path = "benchmarks/RESULTS_LL.md"
-    let write_ok = fs.write_text(report_path, report)
+    let write_ok = fs.write_file(report_path, report)
     if (write_ok.is_ok()): {
         println("\nDetailed markdown report written to: $report_path")
     } else: {
