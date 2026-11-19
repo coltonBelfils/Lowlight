@@ -162,7 +162,7 @@ func (fl *funcLowerer) lowerExprRead(e ast.Expr) Expr {
 			}
 		}
 
-		// 2. `[N: T]` stack array passed to read-only `[T]` parameter!
+		// 2. `[N: T]` stack array passed to read-only `[T]` or `List[T]` parameter!
 		if arrTy, isArr := inf.Type.(*types.StackArray); isArr {
 			vecTy := &types.Vector{Elem: arrTy.Elem}
 			fl.tc.visit(vecTy)
@@ -171,6 +171,24 @@ func (fl *funcLowerer) lowerExprRead(e ast.Expr) Expr {
 				VecType: vecTy,
 				DataPtr: &ExprField{Base: arrAddr, FieldName: "data", Typ: &types.Ptr{Elem: arrTy.Elem}, IsPtr: true},
 				Len:     NewLitInt(uint64(arrTy.Size), false, types.TypeInt),
+			}
+		}
+
+		// 2b. `Array[T]` view passed to read-only `[T]` or `List[T]` parameter!
+		if arrSt, isArrSt := inf.Type.(*types.Struct); isArrSt &&
+			fl.prog != nil && fl.prog.GenStructArray != nil &&
+			fl.prog.StructMods[arrSt] == fl.prog.GenStructArray.Mod && len(arrSt.TypeArgs) == 1 {
+			elemTy := arrSt.TypeArgs[0]
+			vecTy := &types.Vector{Elem: elemTy}
+			fl.tc.visit(vecTy)
+			rawArr := fl.lowerRawExpr(e, arrSt, false)
+			arrTmp := fl.allocSlot("_ll_arrview", arrSt)
+			fl.assignLocal(arrTmp, rawArr)
+			tmpExpr := NewLocalExpr(arrTmp)
+			return &ExprSliceView{
+				VecType: vecTy,
+				DataPtr: &ExprField{Base: tmpExpr, FieldName: "data", Typ: &types.Ptr{Elem: elemTy}, IsPtr: false},
+				Len:     &ExprField{Base: tmpExpr, FieldName: "len", Typ: types.TypeInt, IsPtr: false},
 			}
 		}
 

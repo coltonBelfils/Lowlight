@@ -3683,6 +3683,20 @@ func matchTypeExprForInference(pat ast.TypeExpr, concrete types.Type, tpNames ma
 				matchTypeExprForInference(p.TypeArgs[1], st.TypeArgs[1], tpNames, out)
 			}
 		}
+		if p.Name == "List" && len(p.TypeArgs) == 1 {
+			if vec, ok := concrete.(*types.Vector); ok {
+				matchTypeExprForInference(p.TypeArgs[0], vec.Elem, tpNames, out)
+			} else if arr, ok := concrete.(*types.StackArray); ok {
+				matchTypeExprForInference(p.TypeArgs[0], arr.Elem, tpNames, out)
+			} else if st, ok := concrete.(*types.Struct); ok && st.Name == "Array" && len(st.TypeArgs) == 1 {
+				matchTypeExprForInference(p.TypeArgs[0], st.TypeArgs[0], tpNames, out)
+			}
+		}
+		if p.Name == "Array" && len(p.TypeArgs) == 1 {
+			if arr, ok := concrete.(*types.StackArray); ok {
+				matchTypeExprForInference(p.TypeArgs[0], arr.Elem, tpNames, out)
+			}
+		}
 		if st, ok := concrete.(*types.Struct); ok && st.Name == p.Name && len(p.TypeArgs) == len(st.TypeArgs) {
 			for i := range p.TypeArgs {
 				matchTypeExprForInference(p.TypeArgs[i], st.TypeArgs[i], tpNames, out)
@@ -3704,6 +3718,8 @@ func matchTypeExprForInference(pat ast.TypeExpr, concrete types.Type, tpNames ma
 			matchTypeExprForInference(p.Elem, vec.Elem, tpNames, out)
 		} else if arr, ok := concrete.(*types.StackArray); ok {
 			matchTypeExprForInference(p.Elem, arr.Elem, tpNames, out)
+		} else if st, ok := concrete.(*types.Struct); ok && (st.Name == "List" || st.Name == "Array") && len(st.TypeArgs) == 1 {
+			matchTypeExprForInference(p.Elem, st.TypeArgs[0], tpNames, out)
 		}
 	case *ast.StackArrayType:
 		if arr, ok := concrete.(*types.StackArray); ok {
@@ -3864,6 +3880,16 @@ func (fc *funcChecker) checkFuncLit(fl *ast.FuncLit, expected types.Type) types.
 		ParamSyms:    paramSyms,
 		FuncTargetID: lamTargetID,
 		BodyMaps:     fc.a.curBM,
+	}
+	if prev := inf.Lambda; prev != nil {
+		for i := len(fc.a.Prog.Lambdas) - 1; i >= 0; i-- {
+			if fc.a.Prog.Lambdas[i] == prev {
+				fc.a.Prog.Lambdas[i] = li
+				inf.Lambda = li
+				inf.Type = sig
+				return sig
+			}
+		}
 	}
 	fc.a.Prog.Lambdas = append(fc.a.Prog.Lambdas, li)
 	inf.Lambda = li

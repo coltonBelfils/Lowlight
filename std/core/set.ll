@@ -136,7 +136,8 @@ bind Set[T].rehash = (&self, new_bcap: int): {
 		}
 		self.ent_len = w
 	}
-	let nb = unsafe alloc_raw[int](new_bcap)
+	let in_place = new_bcap == self.buck_cap and not unsafe is_null(self.buckets)
+	let nb = if(in_place): self.buckets else: unsafe alloc_raw[int](new_bcap)
 	let bi = 0
 	for(bi < new_bcap): {
 		unsafe {
@@ -156,11 +157,13 @@ bind Set[T].rehash = (&self, new_bcap: int): {
 		}
 		i += 1
 	}
-	unsafe {
-		if(not is_null(self.buckets)): free_raw(self.buckets)
+	if(not in_place): {
+		unsafe {
+			if(not is_null(self.buckets)): free_raw(self.buckets)
+		}
+		self.buckets = nb
+		self.buck_cap = new_bcap
 	}
-	self.buckets = nb
-	self.buck_cap = new_bcap
 }
 
 // Inserts `val` if absent and returns `true`, or leaves the set unchanged and returns `false`.
@@ -173,7 +176,9 @@ bind Set[T].insert = (&self, val: own T) bool: {
 	if(existing >= 0): func <- false
 
 	if(self.buck_cap == 0 or (self.ent_len + 1) * 10 >= self.buck_cap * 7): {
-		let target_bcap = if(self.buck_cap > 0): self.buck_cap * 2 else: 16
+		let target_bcap = if(self.buck_cap == 0): 16 else: {
+			if(self.len * 2 >= self.buck_cap): self.buck_cap * 2 else: self.buck_cap
+		}
 		self.rehash(target_bcap)
 	}
 	if(self.ent_len + 1 > self.ent_cap): {
@@ -416,4 +421,23 @@ bind test_set_realloc_and_slot_zeroing = (): {
 	for(i in 0..20): {
 		assert(s.has("cleared_key_$i"), "cleared_key present")
 	}
+}
+
+@test("Set[T] rehashes in place when tombstones accumulate at low load")
+bind test_set_in_place_rehash_low_load = (): {
+	let s = Set[string].new()
+	assert(s.insert("anchor"), "insert anchor")
+	let compactions = 0
+	let prev_ent_len = s.ent_len
+	for(i in 0..40): {
+		assert(s.insert("temp_$i"), "insert temp_$i")
+		if(s.ent_len < prev_ent_len): compactions += 1
+		prev_ent_len = s.ent_len
+		assert(s.remove("temp_$i"), "remove temp_$i")
+	}
+	assert(s.len() == 1, "only anchor remains")
+	assert(s.has("anchor"), "anchor survived in-place compaction")
+	assert(s.buck_cap == 16, "buck_cap stays 16 at low load")
+	assert(compactions >= 3, "tombstones compacted in place multiple times")
+	assert(s.ent_len <= 11, "ent_len bounded by load factor")
 }

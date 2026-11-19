@@ -147,7 +147,8 @@ bind Map[K, V].rehash = (&self, new_bcap: int): {
 		}
 		self.ent_len = w
 	}
-	let nb = unsafe alloc_raw[int](new_bcap)
+	let in_place = new_bcap == self.buck_cap and not unsafe is_null(self.buckets)
+	let nb = if(in_place): self.buckets else: unsafe alloc_raw[int](new_bcap)
 	let bi = 0
 	for(bi < new_bcap): {
 		unsafe {
@@ -167,11 +168,13 @@ bind Map[K, V].rehash = (&self, new_bcap: int): {
 		}
 		i += 1
 	}
-	unsafe {
-		if(not is_null(self.buckets)): free_raw(self.buckets)
+	if(not in_place): {
+		unsafe {
+			if(not is_null(self.buckets)): free_raw(self.buckets)
+		}
+		self.buckets = nb
+		self.buck_cap = new_bcap
 	}
-	self.buckets = nb
-	self.buck_cap = new_bcap
 }
 
 // Inserts `key: val` or overwrites the existing value if `key` is already present.
@@ -189,7 +192,9 @@ bind Map[K, V].insert = (&self, key: own K, val: own V): {
 	}
 
 	if(self.buck_cap == 0 or (self.ent_len + 1) * 10 >= self.buck_cap * 7): {
-		let target_bcap = if(self.buck_cap > 0): self.buck_cap * 2 else: 16
+		let target_bcap = if(self.buck_cap == 0): 16 else: {
+			if(self.len * 2 >= self.buck_cap): self.buck_cap * 2 else: self.buck_cap
+		}
 		self.rehash(target_bcap)
 	}
 	if(self.ent_len + 1 > self.ent_cap): {
@@ -484,4 +489,24 @@ bind test_map_realloc_and_slot_zeroing = (): {
 			assert(false, "missing post-clear key")
 		}
 	}
+}
+
+@test("Map[K, V] rehashes in place when tombstones accumulate at low load")
+bind test_map_in_place_rehash_low_load = (): {
+	let m = Map[string, string].new()
+	m.insert("anchor", "stay")
+	let compactions = 0
+	let prev_ent_len = m.ent_len
+	for(i in 0..40): {
+		m.insert("temp_$i", "val_$i")
+		if(m.ent_len < prev_ent_len): compactions += 1
+		prev_ent_len = m.ent_len
+		let rem? = m.remove("temp_$i")
+		assert(rem? == "val_$i", "remove returns val_$i")
+	}
+	assert(m.len() == 1, "only anchor remains")
+	assert(m.get("anchor") == "stay", "anchor value survived in-place compaction")
+	assert(m.buck_cap == 16, "buck_cap stays 16 at low load")
+	assert(compactions >= 3, "tombstones compacted in place multiple times")
+	assert(m.ent_len <= 11, "ent_len bounded by load factor")
 }

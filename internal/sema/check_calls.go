@@ -1247,9 +1247,10 @@ func (fc *funcChecker) checkReadOnlyArg(arg ast.Expr, paramTy types.Type, argNum
 	if aty == types.TypeInvalid || paramTy == types.TypeInvalid {
 		return aty
 	}
-	// Contiguous view coercion: `[N: T]` -> `[T]` or `Array[T]` read-only view!
+	// Contiguous view coercion: `[N: T]` -> `[T]` / `List[T]` / `Array[T]`,
+	// and `Array[T]` -> `[T]` / `List[T]` read-only views!
 	if arr, isArr := aty.(*types.StackArray); isArr {
-		if vecP, isVec := paramTy.(*types.Vector); isVec && arr.Elem.Equals(vecP.Elem) {
+		if elemTy, ok := fc.a.listOrVecElem(paramTy); ok && arr.Elem.Equals(elemTy) {
 			fc.a.infoFor(arg).BorrowAsView = true
 			return aty
 		}
@@ -1258,10 +1259,34 @@ func (fc *funcChecker) checkReadOnlyArg(arg ast.Expr, paramTy types.Type, argNum
 			return aty
 		}
 	}
+	if arrSt, isArrSt := fc.a.isArrayViewStruct(aty); isArrSt {
+		if elemTy, ok := fc.a.listOrVecElem(paramTy); ok && arrSt.TypeArgs[0].Equals(elemTy) {
+			fc.a.infoFor(arg).BorrowAsView = true
+			return aty
+		}
+	}
 	// Mark zero-allocation views for string literals, slices, and borrowed interfaces!
 	fc.markViewIfApplicable(arg, paramTy)
 	fc.verifyAssignable(aty, paramTy, arg, arg.GetSpan(), fmt.Sprintf("argument %d", argNum))
 	return aty
+}
+
+func (a *Analyzer) isListStruct(t types.Type) (*types.Struct, bool) {
+	st, ok := t.(*types.Struct)
+	if !ok || !a.isStdStructTemplate(st, a.Prog.GenStructList) || len(st.TypeArgs) != 1 {
+		return nil, false
+	}
+	return st, true
+}
+
+func (a *Analyzer) listOrVecElem(t types.Type) (types.Type, bool) {
+	if vec, isVec := t.(*types.Vector); isVec {
+		return vec.Elem, true
+	}
+	if listSt, isList := a.isListStruct(t); isList {
+		return listSt.TypeArgs[0], true
+	}
+	return nil, false
 }
 
 func (a *Analyzer) isArrayViewStruct(t types.Type) (*types.Struct, bool) {
@@ -1283,9 +1308,13 @@ func (fc *funcChecker) markViewIfApplicable(expr ast.Expr, paramTy types.Type) {
 		inf.BorrowAsView = true
 	}
 	if arr, isArr := inf.Type.(*types.StackArray); isArr {
-		if vecP, isVec := paramTy.(*types.Vector); isVec && arr.Elem.Equals(vecP.Elem) {
+		if elemTy, ok := fc.a.listOrVecElem(paramTy); ok && arr.Elem.Equals(elemTy) {
 			inf.BorrowAsView = true
 		} else if arrSt, isArrSt := fc.a.isArrayViewStruct(paramTy); isArrSt && arr.Elem.Equals(arrSt.TypeArgs[0]) {
+			inf.BorrowAsView = true
+		}
+	} else if arrSt, isArrSt := fc.a.isArrayViewStruct(inf.Type); isArrSt {
+		if elemTy, ok := fc.a.listOrVecElem(paramTy); ok && arrSt.TypeArgs[0].Equals(elemTy) {
 			inf.BorrowAsView = true
 		}
 	}

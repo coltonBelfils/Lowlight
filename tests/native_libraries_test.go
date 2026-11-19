@@ -461,14 +461,24 @@ bind main = (): {
     to_rev.reverse()
     assert((to_rev.get(0) ?? 0) == 5 and (to_rev.get(4) ?? 0) == 1)
 
-    // 10. Standalone helper functions
+    // 10. Standalone helper functions & stable_sort / bounds / [N: T]
     let helper_list = List[int].new()
     helper_list.push(9)
     helper_list.push(1)
     helper_list.push(5)
-    sort.sort(&helper_list)
-    assert(sort.is_sorted(helper_list.copy()))
-    assert(sort.binary_search(helper_list.copy(), 5) == 1)
+    helper_list.push(5)
+    sort.stable_sort(&helper_list)
+    assert(sort.is_sorted(helper_list))
+    assert(sort.binary_search(helper_list, 5) != none)
+    assert(sort.binary_search_by(helper_list, (x: int) int: x - 9) == 3)
+    assert(sort.lower_bound(helper_list, 5) == 1)
+    assert(sort.upper_bound(helper_list, 5) == 3)
+
+    let fixed_arr = [4: 40, 10, 30, 20]
+    fixed_arr.sort()
+    assert(fixed_arr.is_sorted())
+    assert(sort.lower_bound(fixed_arr, 25) == 2)
+    assert(sort.upper_bound(fixed_arr, 30) == 3)
 
     // 11. Extension on Set[T]
     let set = Set[int].new()

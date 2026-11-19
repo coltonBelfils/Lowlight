@@ -4,11 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Stdlib Bug Fixes & Targeted Library Additions
 
-- [ ] Rehash in place when tombstone count is high at low load in `std/core/set.ll` and `std/core/map.ll`.
-- [ ] Remove `.copy()` requirements in comparator and search helpers in `std/sort.ll`.
-- [ ] Support `[T]`/`Array[T]` and add `binary_search_by`, `lower_bound`, and `upper_bound` in `std/sort.ll`.
-- [ ] Switch from unbounded recursive Quicksort (`std/sort.ll:78-141`) to depth-bounded Introsort.
-- [ ] Add a stable sort algorithm to `std/sort.ll`.
 - [ ] Remove `Copyable` bounds on `Pool[T].get` (`std/pool.ll:84-90`).
 - [ ] Add `with_mut(&T)`, `clear()`, and iterators to `Pool[T]` in `std/pool.ll`.
 - [ ] Check `ferror`/`flush`/`close` and support non-seekable files in `std/fs.ll:162-242`.
@@ -139,6 +134,9 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Implement `@embed_file`, `embed_bytes`, and `embed_str` intrinsics.
 - [ ] Implement compile-time `comptime` evaluation for constant arithmetic, string concatenation, and fixed array lengths (`[size_of[T](): u8]`).
 - [ ] Rethink and harden `unsafe` so it enforces stronger correctness and invariants (keeping unrelated borrow/move/type checks active inside `unsafe`, scoping raw-pointer/intrinsic capabilities narrowly, and reducing convenience `unsafe` blocks in `std`) rather than acting as a blanket escape hatch.
+- [ ] Consolidate `benchmarks/runner.go` into `benchmarks/runner.ll` (achieving feature/reporting parity in native Lowlight and retiring the Go runner).
+- [ ] Port `editors/vscode/package_vsix.py` to a native Lowlight packaging tool once `std/fs` directory traversal and `std/process` are available.
+- [ ] Port standalone repository build, release, and editor installation scripts (`editors/*/install.sh` and doc/test orchestration helpers) to native Lowlight for dogfooding.
 
 ## Compiler Backend & Allocators
 
@@ -163,6 +161,7 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Allow `List` to accept custom or arena allocators without per-element heap drops.
 - [ ] Allow `#[T]` (`Set`) and `#[K: V]` (`Map`) to accept custom or arena allocators without per-element heap drops.
 - [ ] Allow `string` to accept custom or arena allocators without per-element heap drops.
+- [ ] Audit `internal/codegen/runtime_h.go` and `internal/codegen/llvmgen_runtime.go` and move backend-agnostic runtime helpers (that do not strictly require C/OS syscalls) into `std/core/*.ll` so they are implemented once in native Lowlight.
 
 ## Multithreading & Parallel Computing Overhaul
 
