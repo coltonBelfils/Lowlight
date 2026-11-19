@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Stdlib Bug Fixes & Targeted Library Additions
 
-- [ ] Fix `+inf`, negative, `-0.0`, `>= 2^64`, and large-exponent bugs in `parse_float` (`std/core/primitives.ll`).
 - [ ] Support non-seekable streams in `core_read_file` (`std/core/primitives.ll`).
 - [ ] Add `log2` and `exp2` to `std/math.ll`.
 - [ ] Add `sinh`, `cosh`, and `tanh` to `std/math.ll`.

@@ -18,6 +18,14 @@ bind _float_bits = (v: float) u64: {
 	}
 }
 
+bind _bits_to_float = (bits: u64) float: {
+	unsafe {
+		let bp = addr_of(bits)
+		let fp = ptr_cast[float](bp)
+		*fp
+	}
+}
+
 bind _pow10_u64 = (exp: int) u64: {
 	let res: u64 = u64(1)
 	let i = 0
@@ -1064,7 +1072,224 @@ bind parse_int = (s: string) ?int: {
 	parse_int_radix(trimmed, 10)
 }
 
-// Parses a decimal floating-point number with optional sign, fraction, and scientific exponent from `s`, or returns `none`.
+bind _ascii_eq_ignore_case = (s: string, start: int, target_lower: string) bool: {
+	let n = target_lower.len()
+	if(s.len() - start != n): func <- false
+	let j = 0
+	for(j < n): {
+		let b = s.byte_at(start + j)
+		if(b >= u8(65) and b <= u8(90)): b = b + u8(32)
+		if(b != target_lower.byte_at(j)): func <- false
+		j += 1
+	}
+	true
+}
+
+bind _pow10_f64_exact = (exp: int) float: {
+	let r = 1.0
+	if((exp & 1) != 0): r *= 10.0
+	if((exp & 2) != 0): r *= 100.0
+	if((exp & 4) != 0): r *= 1.0e4
+	if((exp & 8) != 0): r *= 1.0e8
+	if((exp & 16) != 0): r *= 1.0e16
+	r
+}
+
+bind _bi_from_u64 = (x: u64) [u64]: {
+	let out: [u64] = []
+	if(x == u64(0)): func <- out
+	let mask = u64(0xFFFFFFFF)
+	let lo = x & mask
+	let hi = x >> 32
+	out.push(lo)
+	if(hi > u64(0)): out.push(hi)
+	out
+}
+
+bind _bi_trim = (a: &[u64]): {
+	for(a.len() > 0 and a[a.len() - 1] == u64(0)): {
+		let _ = a.pop() ?? u64(0)
+	}
+}
+
+bind _bi_mul_add_u64 = (a: &[u64], mult: u64, add: u64): {
+	let mask = u64(0xFFFFFFFF)
+	let carry = add
+	let i = 0
+	let n = a.len()
+	for(i < n): {
+		let cur = a[i] * mult + carry
+		a[i] = cur & mask
+		carry = cur >> 32
+		i += 1
+	}
+	for(carry > u64(0)): {
+		a.push(carry & mask)
+		carry >>= 32
+	}
+}
+
+bind _bi_mul_pow5 = (a: &[u64], p: int): {
+	let rem = p
+	for(rem >= 13): {
+		_bi_mul_add_u64(&a, u64(1220703125), u64(0)) // 5^13
+		rem -= 13
+	}
+	if(rem > 0): {
+		let mult = u64(1)
+		let k = 0
+		for(k < rem): {
+			mult *= u64(5)
+			k += 1
+		}
+		_bi_mul_add_u64(&a, mult, u64(0))
+	}
+}
+
+bind _bi_shl = (a: &[u64], bits: int): {
+	if(a.len() == 0 or bits <= 0): func <-
+	let word_shift = bits >> 5
+	let bit_shift = bits & 31
+	let mask = u64(0xFFFFFFFF)
+	if(bit_shift > 0): {
+		let carry = u64(0)
+		let bs = u64(bit_shift)
+		let inv = u64(32 - bit_shift)
+		let i = 0
+		let n = a.len()
+		for(i < n): {
+			let cur = a[i]
+			a[i] = ((cur << bs) & mask) | carry
+			carry = cur >> inv
+			i += 1
+		}
+		if(carry > u64(0)): a.push(carry)
+	}
+	if(word_shift > 0): {
+		let old_n = a.len()
+		let k = 0
+		for(k < word_shift): {
+			a.push(u64(0))
+			k += 1
+		}
+		let i = old_n - 1
+		for(i >= 0): {
+			a[i + word_shift] = a[i]
+			i -= 1
+		}
+		let j = 0
+		for(j < word_shift): {
+			a[j] = u64(0)
+			j += 1
+		}
+	}
+}
+
+bind _bi_bit_len = (a: [u64]) int: {
+	let n = a.len()
+	if(n == 0): func <- 0
+	let top = a[n - 1]
+	let bl = 0
+	for(top > u64(0)): {
+		top >>= 1
+		bl += 1
+	}
+	(n - 1) * 32 + bl
+}
+
+bind _bi_cmp = (a: [u64], b: [u64]) int: {
+	let na = a.len()
+	let nb = b.len()
+	if(na != nb):
+		if(na > nb): func <- 1 else: func <- -1
+	let i = na - 1
+	for(i >= 0): {
+		if(a[i] != b[i]):
+			if(a[i] > b[i]): func <- 1 else: func <- -1
+		i -= 1
+	}
+	0
+}
+
+bind _bi_sub = (a: &[u64], b: [u64]): {
+	let base = u64(0x100000000)
+	let borrow = u64(0)
+	let na = a.len()
+	let nb = b.len()
+	let i = 0
+	for(i < na): {
+		let bi = if(i < nb): b[i] else: u64(0)
+		let need = bi + borrow
+		if(a[i] < need): {
+			a[i] = (a[i] + base) - need
+			borrow = u64(1)
+		} else: {
+			a[i] = a[i] - need
+			borrow = u64(0)
+		}
+		i += 1
+	}
+	_bi_trim(&a)
+}
+
+// Converts exact positive decimal `num * 10^exp10` into correctly rounded IEEE-754 float64.
+bind _bigint_to_f64 = (a: own [u64], exp10: int, is_neg: bool) float: {
+	let sign_bit = if(is_neg): u64(1) << u64(63) else: u64(0)
+	let inf_bits = sign_bit | u64(0x7FF0000000000000)
+	if(a.len() == 0): func <- _bits_to_float(sign_bit)
+	let b: [u64] = [u64(1)]
+	if(exp10 >= 0): _bi_mul_pow5(&a, exp10)
+	else: _bi_mul_pow5(&b, -exp10)
+
+	let shift = _bi_bit_len(b) - _bi_bit_len(a)
+	if(shift > 0): _bi_shl(&a, shift)
+	else if(shift < 0): _bi_shl(&b, -shift)
+	if(_bi_cmp(a, b) < 0): {
+		_bi_shl(&a, 1)
+		shift += 1
+	}
+
+	let ieee_exp = exp10 - shift
+	if(ieee_exp > 1023): func <- _bits_to_float(inf_bits)
+	if(ieee_exp < -1075): func <- _bits_to_float(sign_bit)
+
+	let subnormal = ieee_exp < -1022
+	let num_bits = if(subnormal): ieee_exp + 1075 else: 53
+	let q = u64(0)
+	let k = 0
+	for(k < num_bits): {
+		q <<= 1
+		if(_bi_cmp(a, b) >= 0): {
+			_bi_sub(&a, b)
+			q |= u64(1)
+		}
+		_bi_shl(&a, 1)
+		k += 1
+	}
+
+	let cmp = _bi_cmp(a, b)
+	if(cmp > 0 or (cmp == 0 and (q & u64(1)) == u64(1))): {
+		q += u64(1)
+		if(subnormal): {
+			if(q == (u64(1) << u64(52))): {
+				subnormal = false
+				ieee_exp = -1022
+			}
+		} else: {
+			if(q == (u64(1) << u64(53))): {
+				q >>= 1
+				ieee_exp += 1
+				if(ieee_exp > 1023): func <- _bits_to_float(inf_bits)
+			}
+		}
+	}
+
+	let bits = if(subnormal): sign_bit | q
+	else: sign_bit | (u64(ieee_exp + 1023) << u64(52)) | (q & u64(0x000fffffffffffff))
+	_bits_to_float(bits)
+}
+
+// Parses a decimal floating-point number (including `inf`, `infinity`, `nan`, signed zero, and arbitrary scientific exponents) from `s`, or returns `none`.
 bind parse_float = (s: string) ?float: {
 	let trimmed = s.trim()
 	let n = trimmed.len()
@@ -1081,26 +1306,81 @@ bind parse_float = (s: string) ?float: {
 	}
 	if(i >= n): func <- none
 
-	let val = 0.0
+	if(_ascii_eq_ignore_case(trimmed, i, "inf") or _ascii_eq_ignore_case(trimmed, i, "infinity")): {
+		let sign_bit = if(is_neg): u64(1) << u64(63) else: u64(0)
+		func <- _bits_to_float(sign_bit | u64(0x7FF0000000000000))
+	}
+	if(_ascii_eq_ignore_case(trimmed, i, "nan")): {
+		func <- _bits_to_float(u64(0x7FF8000000000000))
+	}
+
+	let mant_u64 = u64(0)
+	let num_limbs: [u64] = []
+	let sig_count = 0
+	let stored_digits = 0
+	let dec_exp = 0
 	let has_digits = false
+	let extra_nonzero = false
+	let exp_clamp = 1000000000
+
 	for(i < n): {
 		let b = trimmed.byte_at(i)
 		if(b >= u8(48) and b <= u8(57)): {
-			val = val * 10.0 + float(int(b) - 48)
+			let d = int(b) - 48
 			has_digits = true
+			if(sig_count == 0): {
+				if(d != 0): {
+					mant_u64 = u64(d)
+					sig_count = 1
+					stored_digits = 1
+				}
+			} else if(sig_count < 15): {
+				mant_u64 = mant_u64 * u64(10) + u64(d)
+				sig_count += 1
+				stored_digits += 1
+			} else if(sig_count < 770): {
+				if(sig_count == 15): num_limbs = _bi_from_u64(mant_u64)
+				_bi_mul_add_u64(&num_limbs, u64(10), u64(d))
+				sig_count += 1
+				stored_digits += 1
+			} else: {
+				if(d != 0): extra_nonzero = true
+				if(dec_exp < exp_clamp): dec_exp += 1
+			}
 			i += 1
 		} else: for <-
 	}
 
 	if(i < n and trimmed.byte_at(i) == u8(46)): { // '.'
 		i += 1
-		let frac_scale = 0.1
 		for(i < n): {
 			let b = trimmed.byte_at(i)
 			if(b >= u8(48) and b <= u8(57)): {
-				val += float(int(b) - 48) * frac_scale
-				frac_scale *= 0.1
+				let d = int(b) - 48
 				has_digits = true
+				if(sig_count == 0): {
+					if(d == 0): {
+						if(dec_exp > -exp_clamp): dec_exp -= 1
+					} else: {
+						mant_u64 = u64(d)
+						sig_count = 1
+						stored_digits = 1
+						if(dec_exp > -exp_clamp): dec_exp -= 1
+					}
+				} else if(sig_count < 15): {
+					mant_u64 = mant_u64 * u64(10) + u64(d)
+					sig_count += 1
+					stored_digits += 1
+					if(dec_exp > -exp_clamp): dec_exp -= 1
+				} else if(sig_count < 770): {
+					if(sig_count == 15): num_limbs = _bi_from_u64(mant_u64)
+					_bi_mul_add_u64(&num_limbs, u64(10), u64(d))
+					sig_count += 1
+					stored_digits += 1
+					if(dec_exp > -exp_clamp): dec_exp -= 1
+				} else: {
+					if(d != 0): extra_nonzero = true
+				}
 				i += 1
 			} else: for <-
 		}
@@ -1108,6 +1388,7 @@ bind parse_float = (s: string) ?float: {
 
 	if(not has_digits): func <- none
 
+	let exp_signed = 0
 	if(i < n and (trimmed.byte_at(i) == u8(101) or trimmed.byte_at(i) == u8(69))): { // 'e' or 'E'
 		i += 1
 		if(i >= n): func <- none
@@ -1123,21 +1404,37 @@ bind parse_float = (s: string) ?float: {
 		for(i < n): {
 			let b = trimmed.byte_at(i)
 			if(b >= u8(48) and b <= u8(57)): {
-				exp_val = exp_val * 10 + (int(b) - 48)
+				if(exp_val < exp_clamp): exp_val = exp_val * 10 + (int(b) - 48)
 				has_exp_digits = true
 				i += 1
 			} else: func <- none
 		}
 		if(not has_exp_digits): func <- none
-		let e = 0
-		for(e < exp_val): {
-			if(exp_neg): val /= 10.0 else: val *= 10.0
-			e += 1
-		}
+		exp_signed = if(exp_neg): -exp_val else: exp_val
 	}
 
 	if(i != n): func <- none
-	if(is_neg): -val else: val
+
+	let sign_bit = if(is_neg): u64(1) << u64(63) else: u64(0)
+	if(sig_count == 0): func <- _bits_to_float(sign_bit)
+
+	let total_exp = dec_exp + exp_signed
+	let sci_exp = total_exp + stored_digits - 1
+	if(sci_exp > 309): func <- _bits_to_float(sign_bit | u64(0x7FF0000000000000))
+	if(sci_exp < -325): func <- _bits_to_float(sign_bit)
+
+	if(sig_count <= 15 and total_exp >= -22 and total_exp <= 22): {
+		let val = if(total_exp >= 0): float(mant_u64) * _pow10_f64_exact(total_exp)
+		else: float(mant_u64) / _pow10_f64_exact(-total_exp)
+		if(is_neg): func <- -val else: func <- val
+	}
+
+	if(sig_count <= 15): num_limbs = _bi_from_u64(mant_u64)
+	if(extra_nonzero): {
+		_bi_mul_add_u64(&num_limbs, u64(10), u64(1))
+		total_exp -= 1
+	}
+	_bigint_to_f64(own num_limbs, total_exp, is_neg)
 }
 
 // -----------------------------------------------------------------------------

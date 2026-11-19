@@ -262,6 +262,102 @@ bind test_core_float_formatting = (): {
 	assert(format_float_prec(-5.0e-324, 2) == "-0.00", "neg subnormal fixed 2")
 }
 
+@test_only
+bind _core_assert_parse_f64_bits = (s: string, expected_bits: u64, label: string): {
+	let p? = parse_float(s)
+	if(p? as v): {
+		let got = _float_bits(v)
+		assert(got == expected_bits, label)
+	} else: assert(false, label)
+}
+
+@test("core parse_float edge cases: inf, nan, -0.0, >= 2^64, extreme exponents")
+bind test_core_parse_float = (): {
+	let pos_inf_bits = u64(0x7FF0000000000000)
+	let neg_zero_bits = u64(1) << u64(63)
+	let neg_inf_bits = neg_zero_bits | pos_inf_bits
+
+	// Special values: inf, infinity, nan (case-insensitive & signed)
+	_core_assert_parse_f64_bits("inf", pos_inf_bits, "parse inf")
+	_core_assert_parse_f64_bits("+inf", pos_inf_bits, "parse +inf")
+	_core_assert_parse_f64_bits("INF", pos_inf_bits, "parse INF")
+	_core_assert_parse_f64_bits("Infinity", pos_inf_bits, "parse Infinity")
+	_core_assert_parse_f64_bits("  +Infinity  ", pos_inf_bits, "parse +Infinity")
+	_core_assert_parse_f64_bits("-inf", neg_inf_bits, "parse -inf")
+	_core_assert_parse_f64_bits("-INF", neg_inf_bits, "parse -INF")
+	_core_assert_parse_f64_bits("-Infinity", neg_inf_bits, "parse -Infinity")
+
+	let nan_strs = ["nan", "NaN", "NAN", "+nan", "-nan"]
+	for(ns in nan_strs): {
+		let p? = parse_float(ns)
+		if(p? as v): assert(not (v == v), "parse nan")
+		else: assert(false, "parse nan not none")
+	}
+
+	// Signed zero (+0.0 vs -0.0)
+	_core_assert_parse_f64_bits("0", u64(0), "parse 0")
+	_core_assert_parse_f64_bits("+0", u64(0), "parse +0")
+	_core_assert_parse_f64_bits("0.0", u64(0), "parse 0.0")
+	_core_assert_parse_f64_bits("0e999999999999", u64(0), "parse 0e999999999999")
+	_core_assert_parse_f64_bits("1e-400", u64(0), "parse 1e-400 underflow to +0.0")
+	_core_assert_parse_f64_bits("2.4e-324", u64(0), "parse 2.4e-324 rounds to +0.0")
+	_core_assert_parse_f64_bits("-0", neg_zero_bits, "parse -0")
+	_core_assert_parse_f64_bits("-0.0", neg_zero_bits, "parse -0.0")
+	_core_assert_parse_f64_bits("-0e999999999999", neg_zero_bits, "parse -0e999999999999")
+	_core_assert_parse_f64_bits("-1e-400", neg_zero_bits, "parse -1e-400 underflow to -0.0")
+	_core_assert_parse_f64_bits("-2.4e-324", neg_zero_bits, "parse -2.4e-324 rounds to -0.0")
+
+	// Standard values, dot forms, and exact precision
+	_core_assert_parse_f64_bits(".5", _float_bits(0.5), "parse .5")
+	_core_assert_parse_f64_bits("5.", _float_bits(5.0), "parse 5.")
+	_core_assert_parse_f64_bits("  -3.14159  ", _float_bits(-3.14159), "parse -3.14159")
+	_core_assert_parse_f64_bits("+42.25", _float_bits(42.25), "parse +42.25")
+	_core_assert_parse_f64_bits("0.1", _float_bits(0.1), "parse 0.1 exact")
+	_core_assert_parse_f64_bits("3.141592653589793", _float_bits(3.141592653589793), "parse pi exact")
+
+	// Values >= 2^64
+	_core_assert_parse_f64_bits("18446744073709551616", _float_bits(18446744073709551616.0), "parse 2^64")
+	_core_assert_parse_f64_bits("-18446744073709551616", _float_bits(-18446744073709551616.0), "parse -2^64")
+	_core_assert_parse_f64_bits("1e20", _float_bits(1.0e20), "parse 1e20")
+	_core_assert_parse_f64_bits("1e23", _float_bits(1.0e23), "parse 1e23 exact")
+
+	// Large/tiny exponents, DBL_MAX/DBL_MIN, subnormals, tie-to-even, huge clamped exponents
+	_core_assert_parse_f64_bits("1e308", _float_bits(1.0e308), "parse 1e308 exact")
+	_core_assert_parse_f64_bits("1.7976931348623157e308", _float_bits(1.7976931348623157e308), "parse DBL_MAX")
+	_core_assert_parse_f64_bits("1.7976931348623159e308", pos_inf_bits, "parse above DBL_MAX overflows")
+	_core_assert_parse_f64_bits("1e309", pos_inf_bits, "parse 1e309 overflows")
+	_core_assert_parse_f64_bits("1e99999999999999999999", pos_inf_bits, "parse huge +exp overflows")
+	_core_assert_parse_f64_bits("-1e99999999999999999999", neg_inf_bits, "parse neg huge +exp overflows")
+	_core_assert_parse_f64_bits("2.2250738585072014e-308", _float_bits(2.2250738585072014e-308), "parse DBL_MIN")
+	_core_assert_parse_f64_bits("2.2250738585072011e-308", u64(0x000fffffffffffff), "parse largest subnormal")
+	_core_assert_parse_f64_bits("2.2250738585072012e-308", _float_bits(2.2250738585072014e-308), "parse subnormal rounding to DBL_MIN")
+	_core_assert_parse_f64_bits("5e-324", u64(1), "parse min subnormal")
+	_core_assert_parse_f64_bits("-5e-324", neg_zero_bits | u64(1), "parse neg min subnormal")
+	_core_assert_parse_f64_bits("2.4703282292062327e-324", u64(0), "parse subnormal half tie-to-even")
+	_core_assert_parse_f64_bits("2.4703282292062328e-324", u64(1), "parse just above subnormal midpoint")
+
+	// Long digit strings with compensating exponents
+	let long_one = "1"
+	for(k in 0..400): long_one.push_byte(u8(48))
+	long_one.push("e-400")
+	_core_assert_parse_f64_bits(long_one, _float_bits(1.0), "parse 401-digit 1e400*e-400")
+
+	let long_frac = "0."
+	for(k in 0..400): long_frac.push_byte(u8(48))
+	long_frac.push("1e402")
+	_core_assert_parse_f64_bits(long_frac, _float_bits(10.0), "parse 400 leading zero frac * e402")
+
+	// Invalid inputs return none
+	let bad_cases = [
+		"", "   ", "+", "-", ".", "+.", "-.", "e5", ".e5",
+		"1e", "1e+", "1e-", "1e+a", "1e99999999999999999999x",
+		"1.2.3", "12abc", "infin", "infinity2", "nana", "++1",
+	]
+	for(bc in bad_cases): {
+		assert(parse_float(bc) == none, "invalid parse_float input")
+	}
+}
+
 @test("core Result[T] construction and unwrapping")
 bind test_core_result = (): {
 	let r_ok = Result[int].ok(100)
