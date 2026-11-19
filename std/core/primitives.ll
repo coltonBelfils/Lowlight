@@ -10,6 +10,14 @@
 // Float & Number Formatting Helpers
 // -----------------------------------------------------------------------------
 
+bind _float_bits = (v: float) u64: {
+	unsafe {
+		let vp = addr_of(v)
+		let up = ptr_cast[u64](vp)
+		*up
+	}
+}
+
 bind _pow10_u64 = (exp: int) u64: {
 	let res: u64 = u64(1)
 	let i = 0
@@ -21,7 +29,18 @@ bind _pow10_u64 = (exp: int) u64: {
 }
 
 bind _strip_trailing_frac_zeros = (s: string) string: {
-	let end = s.len()
+	let has_dot = false
+	let k = 0
+	let slen = s.len()
+	for(k < slen): {
+		if(s.byte_at(k) == u8(46)): {
+			has_dot = true
+			for <-
+		}
+		k += 1
+	}
+	if(not has_dot): func <- s.copy()
+	let end = slen
 	for(end > 0 and s.byte_at(end - 1) == u8(48)): end -= 1
 	if(end > 0 and s.byte_at(end - 1) == u8(46)): end -= 1
 	let out = ""
@@ -33,73 +52,17 @@ bind _strip_trailing_frac_zeros = (s: string) string: {
 	out
 }
 
-bind _format_float_fixed = (v: float, prec: int) string: {
-	let p = if(prec < 0): 0
-	else if(prec > 15): 15
-	else: prec
-	let is_neg = v < 0.0
-	let abs_v = if(is_neg): -v else: v
-	let scale = _pow10_u64(p)
-	let ip = u64(abs_v)
-	let rem = abs_v - float(ip)
-	let frac = u64(rem * float(scale) + 0.5)
-	if(frac >= scale): {
-		ip += u64(1)
-		frac -= scale
+bind _append_zero_padded_u64 = (out: &string, val: u64, width: int): {
+	let s = val.to_string()
+	let pad = width - s.len()
+	for(pad > 0): {
+		out.push_byte(u8(48))
+		pad -= 1
 	}
-	let out = if(is_neg): "-" else: ""
-	out.push(ip.to_string())
-	if(p > 0): {
-		out.push_byte(u8(46)) // '.'
-		let f_str = frac.to_string()
-		let pad = p - f_str.len()
-		for(pad > 0): {
-			out.push_byte(u8(48))
-			pad -= 1
-		}
-		out.push(f_str)
-	}
-	out
+	out.push(s)
 }
 
-bind _format_exp_f64 = (v: float, prec: int) string: {
-	let bits: u64 = unsafe {
-		let vp = addr_of(v)
-		let up = ptr_cast[u64](vp)
-		*up
-	}
-	let sign = bits >> 63 & u64(1)
-	let exp = bits >> 52 & u64(0x7ff)
-	let mant = bits & u64(0x000fffffffffffff)
-	if(exp == u64(0x7ff)): {
-		if(mant != u64(0)): func <- "nan"
-		if(sign != u64(0)): func <- "-inf"
-		func <- "inf"
-	}
-	let p = if(prec < 0): 6
-	else if(prec > 15): 15
-	else: prec
-	let is_neg = v < 0.0
-	let abs_v = if(is_neg): -v else: v
-	let exp10 = 0
-	let norm = abs_v
-	if(norm > 0.0): {
-		for(norm >= 10.0): {
-			norm /= 10.0
-			exp10 += 1
-		}
-		for(norm < 1.0): {
-			norm *= 10.0
-			exp10 -= 1
-		}
-		let scale = _pow10_u64(p)
-		if(norm + 0.5 / float(scale) >= 10.0): {
-			norm /= 10.0
-			exp10 += 1
-		}
-	}
-	let out = if(is_neg): "-" else: ""
-	out.push(_format_float_fixed(norm, p))
+bind _append_exp_suffix = (out: &string, exp10: int): {
 	if(exp10 < 0): {
 		out.push("e-")
 		let ae = -exp10
@@ -110,19 +73,240 @@ bind _format_exp_f64 = (v: float, prec: int) string: {
 		if(exp10 < 10): out.push_byte(u8(48))
 		out.push(exp10.to_string())
 	}
+}
+
+// Formats exact integer |v| >= 2^64 (IEEE-754 biased exponent >= 1087, < 0x7ff) via base-10^9 limbs.
+bind _format_large_float_int = (mant: u64, exp: u64) string: {
+	let base = u64(1000000000)
+	let m = (u64(1) << u64(52)) | mant
+	let limbs: [u64] = []
+	let lo = m % base
+	let hi = m / base
+	limbs.push(lo)
+	if(hi > u64(0)): limbs.push(hi)
+	let shift = int(exp) - 1075
+	for(shift > 0): {
+		let step = if(shift >= 29): 29 else: shift
+		let mult = u64(1) << u64(step)
+		let carry = u64(0)
+		let i = 0
+		let n = limbs.len()
+		for(i < n): {
+			let cur = limbs[i] * mult + carry
+			limbs[i] = cur % base
+			carry = cur / base
+			i += 1
+		}
+		for(carry > u64(0)): {
+			limbs.push(carry % base)
+			carry /= base
+		}
+		shift -= step
+	}
+	let out = ""
+	let idx = limbs.len() - 1
+	out.push(limbs[idx].to_string())
+	idx -= 1
+	for(idx >= 0): {
+		_append_zero_padded_u64(&out, limbs[idx], 9)
+		idx -= 1
+	}
+	out
+}
+
+// Scales finite positive `abs_v` into `[1.0, 10.0)` using binary powers of 10, writing base-10 exponent to `exp_out`.
+bind _norm_f64_exp10 = (abs_v: float, exp_out: &int) float: {
+	let norm = abs_v
+	let e = 0
+	if(norm >= 1.0e256): {
+		norm /= 1.0e256
+		e += 256
+	}
+	if(norm >= 1.0e128): {
+		norm /= 1.0e128
+		e += 128
+	}
+	if(norm >= 1.0e64): {
+		norm /= 1.0e64
+		e += 64
+	}
+	if(norm >= 1.0e32): {
+		norm /= 1.0e32
+		e += 32
+	}
+	if(norm >= 1.0e16): {
+		norm /= 1.0e16
+		e += 16
+	}
+	if(norm >= 1.0e8): {
+		norm /= 1.0e8
+		e += 8
+	}
+	if(norm >= 1.0e4): {
+		norm /= 1.0e4
+		e += 4
+	}
+	if(norm >= 1.0e2): {
+		norm /= 1.0e2
+		e += 2
+	}
+	if(norm >= 10.0): {
+		norm /= 10.0
+		e += 1
+	}
+	if(norm < 1.0e-255): {
+		norm *= 1.0e256
+		e -= 256
+	}
+	if(norm < 1.0e-127): {
+		norm *= 1.0e128
+		e -= 128
+	}
+	if(norm < 1.0e-63): {
+		norm *= 1.0e64
+		e -= 64
+	}
+	if(norm < 1.0e-31): {
+		norm *= 1.0e32
+		e -= 32
+	}
+	if(norm < 1.0e-15): {
+		norm *= 1.0e16
+		e -= 16
+	}
+	if(norm < 1.0e-7): {
+		norm *= 1.0e8
+		e -= 8
+	}
+	if(norm < 1.0e-3): {
+		norm *= 1.0e4
+		e -= 4
+	}
+	if(norm < 1.0e-1): {
+		norm *= 1.0e2
+		e -= 2
+	}
+	if(norm < 1.0): {
+		norm *= 10.0
+		e -= 1
+	}
+	if(norm >= 10.0): {
+		norm /= 10.0
+		e += 1
+	}
+	if(norm < 1.0): {
+		norm *= 10.0
+		e -= 1
+	}
+	exp_out = e
+	norm
+}
+
+bind _format_float_fixed = (v: float, prec: int) string: {
+	let bits = _float_bits(v)
+	let sign = (bits >> 63) & u64(1)
+	let exp = (bits >> 52) & u64(0x7ff)
+	let mant = bits & u64(0x000fffffffffffff)
+	if(exp == u64(0x7ff)): {
+		if(mant != u64(0)): func <- "nan"
+		if(sign != u64(0)): func <- "-inf"
+		func <- "inf"
+	}
+	let p = if(prec < 0): 0
+	else if(prec > 15): 15
+	else: prec
+	let is_neg = sign != u64(0)
+	let abs_v = if(is_neg): -v else: v
+	let out = if(is_neg): "-" else: ""
+	if(exp >= u64(1075)): {
+		// |v| >= 2^52 is an exact integer with zero fractional part.
+		if(exp < u64(1087)): out.push(u64(abs_v).to_string())
+		else: out.push(_format_large_float_int(mant, exp))
+		if(p > 0): {
+			out.push_byte(u8(46)) // '.'
+			let z = 0
+			for(z < p): {
+				out.push_byte(u8(48))
+				z += 1
+			}
+		}
+		func <- out
+	}
+	let scale = _pow10_u64(p)
+	let ip = u64(abs_v)
+	let rem = abs_v - float(ip)
+	let frac = u64(rem * float(scale) + 0.5)
+	if(frac >= scale): {
+		ip += u64(1)
+		frac -= scale
+	}
+	out.push(ip.to_string())
+	if(p > 0): {
+		out.push_byte(u8(46)) // '.'
+		_append_zero_padded_u64(&out, frac, p)
+	}
+	out
+}
+
+bind _format_exp_f64 = (v: float, prec: int) string: {
+	let bits = _float_bits(v)
+	let sign = (bits >> 63) & u64(1)
+	let exp = (bits >> 52) & u64(0x7ff)
+	let mant = bits & u64(0x000fffffffffffff)
+	if(exp == u64(0x7ff)): {
+		if(mant != u64(0)): func <- "nan"
+		if(sign != u64(0)): func <- "-inf"
+		func <- "inf"
+	}
+	let p = if(prec < 0): 6
+	else if(prec > 15): 15
+	else: prec
+	let is_neg = sign != u64(0)
+	let abs_v = if(is_neg): -v else: v
+	let out = if(is_neg): "-" else: ""
+	if(abs_v == 0.0): {
+		out.push_byte(u8(48))
+		if(p > 0): {
+			out.push_byte(u8(46))
+			let z = 0
+			for(z < p): {
+				out.push_byte(u8(48))
+				z += 1
+			}
+		}
+		out.push("e+00")
+		func <- out
+	}
+	let exp10 = 0
+	let norm = _norm_f64_exp10(abs_v, &exp10)
+	let scale = _pow10_u64(p)
+	let ip = u64(norm)
+	let rem = norm - float(ip)
+	let frac = u64(rem * float(scale) + 0.5)
+	if(frac >= scale): {
+		ip += u64(1)
+		frac -= scale
+	}
+	if(ip >= u64(10)): {
+		ip = u64(1)
+		frac = u64(0)
+		exp10 += 1
+	}
+	out.push(ip.to_string())
+	if(p > 0): {
+		out.push_byte(u8(46))
+		_append_zero_padded_u64(&out, frac, p)
+	}
+	_append_exp_suffix(&out, exp10)
 	out
 }
 
 // Formats finite, zero, `inf`, `-inf`, and `nan` [`float`] values using fixed `prec`
 // decimals when `prec >= 0`, or compact precision-6/scientific notation when `prec < 0`.
 bind format_float_prec = (v: float, prec: int) string: {
-	let bits: u64 = unsafe {
-		let vp = addr_of(v)
-		let up = ptr_cast[u64](vp)
-		*up
-	}
-	let sign = bits >> 63 & u64(1)
-	let exp = bits >> 52 & u64(0x7ff)
+	let bits = _float_bits(v)
+	let sign = (bits >> 63) & u64(1)
+	let exp = (bits >> 52) & u64(0x7ff)
 	let mant = bits & u64(0x000fffffffffffff)
 	if(exp == u64(0x7ff)): {
 		if(mant != u64(0)): func <- "nan"
@@ -130,37 +314,36 @@ bind format_float_prec = (v: float, prec: int) string: {
 		func <- "inf"
 	}
 	if(prec >= 0): func <- _format_float_fixed(v, prec)
-	if(v == 0.0): func <- "0"
-	let is_neg = v < 0.0
+	let is_neg = sign != u64(0)
+	if(v == 0.0):
+		if(is_neg): func <- "-0" else: func <- "0"
 	let abs_v = if(is_neg): -v else: v
 	let exp10 = 0
-	let norm = abs_v
-	for(norm >= 10.0): {
-		norm /= 10.0
-		exp10 += 1
+	let norm = _norm_f64_exp10(abs_v, &exp10)
+	let scale = u64(100000)
+	let ip = u64(norm)
+	let rem = norm - float(ip)
+	let frac = u64(rem * float(scale) + 0.5)
+	if(frac >= scale): {
+		ip += u64(1)
+		frac -= scale
 	}
-	for(norm < 1.0): {
-		norm *= 10.0
-		exp10 -= 1
-	}
-	if(norm + 0.000005 >= 10.0): {
-		norm /= 10.0
+	if(ip >= u64(10)): {
+		ip = u64(1)
+		frac = u64(0)
 		exp10 += 1
 	}
 	if(exp10 < -4 or exp10 >= 6): {
-		let m_str = _strip_trailing_frac_zeros(_format_float_fixed(norm, 5))
+		let m_raw = ""
+		m_raw.push(ip.to_string())
+		if(frac > u64(0)): {
+			m_raw.push_byte(u8(46))
+			_append_zero_padded_u64(&m_raw, frac, 5)
+		}
+		let m_str = _strip_trailing_frac_zeros(m_raw)
 		let out = if(is_neg): "-" else: ""
 		out.push(m_str)
-		if(exp10 < 0): {
-			out.push("e-")
-			let ae = -exp10
-			if(ae < 10): out.push_byte(u8(48))
-			out.push(ae.to_string())
-		} else: {
-			out.push("e+")
-			if(exp10 < 10): out.push_byte(u8(48))
-			out.push(exp10.to_string())
-		}
+		_append_exp_suffix(&out, exp10)
 		func <- out
 	}
 	let frac_prec = 5 - exp10

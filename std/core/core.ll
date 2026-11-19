@@ -187,6 +187,81 @@ bind test_core_sqrt = (): {
 	assert(not (r_nan == r_nan), "core_sqrt(NaN) is NaN")
 }
 
+@test("core float formatting edge cases: inf, nan, -0.0, >= 2^64, large exponents")
+bind test_core_float_formatting = (): {
+	let pos_inf = 1.0e308 * 10.0
+	let neg_inf = -pos_inf
+	let nan_val = pos_inf - pos_inf
+
+	// Non-finite values across fixed, general/compact, and scientific formatters
+	assert(_format_float_fixed(pos_inf, 2) == "inf", "fixed +inf")
+	assert(_format_float_fixed(neg_inf, 2) == "-inf", "fixed -inf")
+	assert(_format_float_fixed(nan_val, 2) == "nan", "fixed nan")
+	assert(format_float_prec(pos_inf, -1) == "inf", "compact +inf")
+	assert(format_float_prec(neg_inf, -1) == "-inf", "compact -inf")
+	assert(format_float_prec(nan_val, -1) == "nan", "compact nan")
+	assert(format_float_prec(pos_inf, 0) == "inf", "prec 0 +inf")
+	assert(format_float_prec(neg_inf, 4) == "-inf", "prec 4 -inf")
+	assert(format_float_prec(nan_val, 4) == "nan", "prec 4 nan")
+	assert(pos_inf.to_exp(2) == "inf", "exp +inf")
+	assert(neg_inf.to_exp(2) == "-inf", "exp -inf")
+	assert(nan_val.to_exp(2) == "nan", "exp nan")
+
+	// Signed zero (+0.0 and -0.0)
+	let z = 0.0
+	let nz = -z
+	assert(format_float_prec(z, -1) == "0", "compact +0.0")
+	assert(format_float_prec(z, 0) == "0", "prec 0 +0.0")
+	assert(format_float_prec(z, 2) == "0.00", "prec 2 +0.0")
+	assert(z.to_exp(2) == "0.00e+00", "exp +0.0")
+	assert(format_float_prec(nz, -1) == "-0", "compact -0.0")
+	assert(format_float_prec(nz, 0) == "-0", "prec 0 -0.0")
+	assert(format_float_prec(nz, 2) == "-0.00", "prec 2 -0.0")
+	assert(_format_float_fixed(nz, 2) == "-0.00", "fixed -0.0")
+	assert(nz.to_exp(2) == "-0.00e+00", "exp -0.0")
+
+	// Negative values & rounding boundaries
+	assert(format_float_prec(-3.14159, 2) == "-3.14", "neg prec 2")
+	assert(format_float_prec(-3.14159, -1) == "-3.14159", "neg compact")
+	assert(format_float_prec(-0.0001, -1) == "-0.0001", "neg 1e-4 compact")
+	assert(format_float_prec(-0.00001, -1) == "-1e-05", "neg 1e-5 compact")
+	assert(format_float_prec(-0.0001, 2) == "-0.00", "small neg fixed rounds to -0.00")
+	assert(format_float_prec(999999.5, -1) == "1e+06", "carry into 1e+06")
+	assert(format_float_prec(-999999.5, -1) == "-1e+06", "neg carry into -1e+06")
+	assert(format_float_prec(100.0, -1) == "100", "compact integer preserves trailing zeros")
+	assert(_strip_trailing_frac_zeros("100") == "100", "strip_trailing_frac_zeros skips integer without dot")
+	assert((9.999e20).to_exp(2) == "1.00e+21", "to_exp carry increments exponent")
+
+	// Values near and >= 2^64 (exact fixed & compact formatting)
+	assert(format_float_prec(4503599627370495.5, 0) == "4503599627370496", "2^52 - 0.5 fixed 0")
+	assert(format_float_prec(4503599627370495.5, 1) == "4503599627370495.5", "2^52 - 0.5 fixed 1")
+	assert(format_float_prec(18446744073709549568.0, 0) == "18446744073709549568", "2^64 - 2048 fixed 0")
+	assert(format_float_prec(18446744073709549568.0, 2) == "18446744073709549568.00", "2^64 - 2048 fixed 2")
+	assert(format_float_prec(18446744073709551616.0, 0) == "18446744073709551616", "2^64 fixed 0")
+	assert(format_float_prec(18446744073709551616.0, 2) == "18446744073709551616.00", "2^64 fixed 2")
+	assert(format_float_prec(18446744073709551616.0, -1) == "1.84467e+19", "2^64 compact")
+	assert(format_float_prec(1.0e20, 2) == "100000000000000000000.00", "1e20 fixed 2")
+	assert(format_float_prec(-1.0e20, 2) == "-100000000000000000000.00", "-1e20 fixed 2")
+	assert(format_float_prec(1.0e20, -1) == "1e+20", "1e20 compact")
+	assert(format_float_prec(-1.0e20, -1) == "-1e+20", "-1e20 compact")
+
+	// Large & tiny exponents (1e308, DBL_MAX, 1e-308, subnormal 5e-324)
+	assert(format_float_prec(1.0e308, -1) == "1e+308", "1e308 compact")
+	assert(format_float_prec(-1.0e308, -1) == "-1e+308", "-1e308 compact")
+	assert((1.0e308).to_exp(2) == "1.00e+308", "1e308 to_exp")
+	assert((-1.0e308).to_exp(2) == "-1.00e+308", "-1e308 to_exp")
+	let big_fixed = format_float_prec(1.0e308, 0)
+	assert(big_fixed.len() == 309 and big_fixed.starts_with("10000000000000000"), "1e308 fixed 0")
+	let big_fixed2 = format_float_prec(1.0e308, 2)
+	assert(big_fixed2.len() == 312 and big_fixed2.ends_with(".00"), "1e308 fixed 2")
+	assert(format_float_prec(-1.7976931348623157e308, -1) == "-1.79769e+308", "-DBL_MAX compact")
+	assert(format_float_prec(1.0e-308, -1) == "1e-308", "1e-308 compact")
+	assert(format_float_prec(5.0e-324, -1) == "4.94066e-324", "subnormal 5e-324 compact")
+	assert(format_float_prec(-5.0e-324, -1) == "-4.94066e-324", "neg subnormal -5e-324 compact")
+	assert((5.0e-324).to_exp(2) == "4.94e-324", "subnormal 5e-324 to_exp")
+	assert(format_float_prec(-5.0e-324, 2) == "-0.00", "neg subnormal fixed 2")
+}
+
 @test("core Result[T] construction and unwrapping")
 bind test_core_result = (): {
 	let r_ok = Result[int].ok(100)
