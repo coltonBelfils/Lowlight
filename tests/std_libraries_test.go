@@ -2,9 +2,13 @@ package tests
 
 import (
 	"bytes"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 
 	"lowlight/internal/driver"
@@ -165,6 +169,134 @@ bind main = (): {
 		out := runInlineStrict(t, "std_fs_exists_mkdir_p", src, release)
 		if strings.TrimSpace(out) != "fs_os_edge_ok" {
 			t.Fatalf("[release=%v] unexpected stdout: %q", release, out)
+		}
+	}
+}
+
+func TestCoreReadFileNonSeekable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX FIFO test skipped on Windows")
+	}
+	root := projectRoot(t)
+	tmp := t.TempDir()
+
+	emptyFile := filepath.Join(tmp, "empty.txt")
+	if err := os.WriteFile(emptyFile, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	binFile := filepath.Join(tmp, "binary.bin")
+	if err := os.WriteFile(binFile, []byte("ab\x00cd\x00ef"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missingFile := filepath.Join(tmp, "does_not_exist.txt")
+
+	payload := make([]byte, 20000)
+	for i := range payload {
+		if i < 5000 {
+			payload[i] = 'A'
+		} else if i < 14000 {
+			payload[i] = 'B'
+		} else {
+			payload[i] = 'C'
+		}
+	}
+
+	for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
+		for _, release := range []bool{false, true} {
+			name := fmt.Sprintf("%s_release_%v", backend, release)
+			t.Run(name, func(t *testing.T) {
+				subTmp := t.TempDir()
+				fifoPath := filepath.Join(subTmp, "stream.fifo")
+				if err := syscall.Mkfifo(fifoPath, 0o600); err != nil {
+					t.Fatalf("mkfifo failed: %v", err)
+				}
+
+				srcPath := filepath.Join(subTmp, "read_stream.ll")
+				src := fmt.Sprintf(`
+bind main = (): {
+	let fifo_res? = core_read_file(%q)
+	if(fifo_res? as s): {
+		assert(s.len() == 20000, "fifo length")
+		for(i in 0..20000): {
+			let expected = if(i < 5000): u8(65) else if(i < 14000): u8(66) else: u8(67)
+			assert(s.byte_at(i) == expected, "fifo byte mismatch")
+		}
+	} else: assert(false, "fifo read failed")
+
+	let devnull_res? = core_read_file("/dev/null")
+	assert(devnull_res? == "", "dev null empty")
+
+	let dir_res? = core_read_file(%q)
+	assert(dir_res? == none, "directory returns none")
+
+	let missing_res? = core_read_file(%q)
+	assert(missing_res? == none, "missing file returns none")
+
+	let empty_res? = core_read_file(%q)
+	assert(empty_res? == "", "empty file")
+
+	let bin_res? = core_read_file(%q)
+	if(bin_res? as b): {
+		assert(b.len() == 8, "binary file length")
+		assert(b.byte_at(0) == u8(97) and b.byte_at(2) == u8(0) and b.byte_at(5) == u8(0) and b.byte_at(7) == u8(102), "binary file bytes")
+	} else: assert(false, "binary file read failed")
+
+	println("core_read_file_ok")
+}
+`, fifoPath, tmp, missingFile, emptyFile, binFile)
+				if err := os.WriteFile(srcPath, []byte(src), 0o644); err != nil {
+					t.Fatal(err)
+				}
+
+				outBin := filepath.Join(subTmp, "read_stream_bin")
+				if _, err := driver.Build(driver.Options{
+					EntryPath:   srcPath,
+					ProjectRoot: root,
+					Backend:     backend,
+					Release:     release,
+					OutPath:     outBin,
+				}); err != nil {
+					t.Fatalf("driver.Build failed (%s, release=%v): %v", backend, release, err)
+				}
+
+				writeErrCh := make(chan error, 1)
+				go func() {
+					f, err := os.OpenFile(fifoPath, os.O_WRONLY, 0)
+					if err != nil {
+						writeErrCh <- err
+						return
+					}
+					chunks := [][]byte{
+						payload[:5000],
+						payload[5000:14000],
+						payload[14000:],
+					}
+					for _, c := range chunks {
+						if _, err := f.Write(c); err != nil {
+							_ = f.Close()
+							writeErrCh <- err
+							return
+						}
+					}
+					writeErrCh <- f.Close()
+				}()
+
+				cmd := exec.Command(outBin)
+				cmd.Env = append(os.Environ(), "LOWLIGHT_CHECK_LEAKS=1", "ASAN_OPTIONS=detect_leaks=0")
+				var outBuf bytes.Buffer
+				cmd.Stdout = &outBuf
+				cmd.Stderr = &outBuf
+				runErr := cmd.Run()
+				if werr := <-writeErrCh; werr != nil {
+					t.Fatalf("fifo writer failed: %v (cmd err=%v, output=%q)", werr, runErr, outBuf.String())
+				}
+				if runErr != nil {
+					t.Fatalf("binary execution failed: %v\noutput:\n%s", runErr, outBuf.String())
+				}
+				if strings.TrimSpace(outBuf.String()) != "core_read_file_ok" {
+					t.Fatalf("unexpected stdout: %q", outBuf.String())
+				}
+			})
 		}
 	}
 }

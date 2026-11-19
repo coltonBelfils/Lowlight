@@ -2044,7 +2044,7 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 			{Name: "path", Mode: types.ModeRead, Type: u8p},
 			{Name: "mode", Mode: types.ModeRead, Type: u8p},
 		}, u8p)
-	case "sys_fclose", "sys_fflush", "sys_remove":
+	case "sys_fclose", "sys_fflush", "sys_ferror", "sys_remove":
 		return sysIntrinsic([]types.FuncParam{
 			{Name: "arg", Mode: types.ModeRead, Type: u8p},
 		}, types.TypeI32)

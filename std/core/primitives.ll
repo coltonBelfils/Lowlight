@@ -435,30 +435,23 @@ bind core_sqrt = (x: float) float: {
 	g * scale
 }
 
-// Reads the entire contents of file `path` as a [`string`], or returns `none` on I/O failure.
+// Reads the entire contents of file or stream `path` as a [`string`], or returns `none` on I/O failure.
 bind core_read_file = (path: string) ?string:
 	unsafe {
 		let fp = sys_fopen(path.c_str(), "rb".c_str())
 		if(is_null(fp)): func <- none
-		if(sys_fseek(fp, 0, i32(2)) != i32(0)): {
-			let _ = sys_fclose(fp)
-			func <- none
+		let chunk_size = 8192
+		let buf = alloc_raw[u8](chunk_size)
+		let out = ""
+		for(true): {
+			let n = sys_fread(buf, 1, chunk_size, fp)
+			if(n <= 0): for <-
+			out.push_bytes(buf, n)
 		}
-		let sz = sys_ftell(fp)
-		if(sz < 0): {
-			let _ = sys_fclose(fp)
-			func <- none
-		}
-		let _ = sys_fseek(fp, 0, i32(0))
-		if(sz == 0): {
-			let _ = sys_fclose(fp)
-			func <- ""
-		}
-		let buf = alloc_raw[u8](sz)
-		let rd = sys_fread(buf, 1, sz, fp)
-		let _ = sys_fclose(fp)
-		let out = str_from_raw(buf, rd)
+		let had_err = sys_ferror(fp) != i32(0)
+		let close_rc = sys_fclose(fp)
 		free_raw(buf)
+		if(had_err or close_rc != i32(0)): func <- none
 		out
 	}
 

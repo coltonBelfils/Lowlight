@@ -481,6 +481,11 @@ static inline int32_t ll_sys_fflush(uint8_t* fp) {
     return (int32_t)fflush((FILE*)fp);
 }
 
+static inline int32_t ll_sys_ferror(uint8_t* fp) {
+    if (!fp) return 1;
+    return (int32_t)ferror((FILE*)fp);
+}
+
 static inline int32_t ll_sys_remove(const uint8_t* path) {
     if (!path) return -1;
     return (int32_t)remove((const char*)path);

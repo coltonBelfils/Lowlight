@@ -285,6 +285,7 @@ func (g *llvmEmitter) emitRuntimeAndDeclarations() {
 		{"fseek", "declare i32 @fseek(ptr, i64, i32)"},
 		{"ftell", "declare i64 @ftell(ptr)"},
 		{"fflush", "declare i32 @fflush(ptr)"},
+		{"ferror", "declare i32 @ferror(ptr)"},
 		{"remove", "declare i32 @remove(ptr)"},
 		{"rename", "declare i32 @rename(ptr, ptr)"},
 		{"popen", "declare ptr @popen(ptr, ptr)"},
@@ -1675,7 +1676,7 @@ func (g *llvmEmitter) emitSyscallAndOSRuntime() {
 
 	fns := []string{
 		"ll_sys_fopen", "ll_sys_fclose", "ll_sys_fread", "ll_sys_fwrite",
-		"ll_sys_fseek", "ll_sys_ftell", "ll_sys_fflush", "ll_sys_remove", "ll_sys_rename",
+		"ll_sys_fseek", "ll_sys_ftell", "ll_sys_fflush", "ll_sys_ferror", "ll_sys_remove", "ll_sys_rename",
 		"ll_os_popen", "ll_os_pclose", "ll_os_pread", "ll_os_system",
 		"ll_os_file_size", "ll_os_file_exists", "ll_os_mkdir", "ll_os_remove_all",
 		"ll_os_num_cpus", "ll_os_name_cstr", "ll_os_arch_cstr", "ll_os_argc", "ll_os_argv_cstr",
@@ -1777,6 +1778,17 @@ do_flush:
     %%rc = call i32 @fflush(ptr %%f)
     %%res = sext i32 %%rc to i64
     ret i64 %%res
+}
+
+define internal i32 @ll_sys_ferror(ptr %%f) {
+entry:
+    %%is_null = icmp eq ptr %%f, null
+    br i1 %%is_null, label %%ret_err, label %%do_ferr
+ret_err:
+    ret i32 1
+do_ferr:
+    %%rc = call i32 @ferror(ptr %%f)
+    ret i32 %%rc
 }
 
 define internal i64 @ll_sys_remove(ptr %%path) {

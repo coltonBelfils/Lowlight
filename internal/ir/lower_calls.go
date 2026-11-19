@@ -1087,6 +1087,7 @@ func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo
 		"sys_fseek":                "ll_sys_fseek",
 		"sys_ftell":                "ll_sys_ftell",
 		"sys_fflush":               "ll_sys_fflush",
+		"sys_ferror":               "ll_sys_ferror",
 		"sys_remove":               "ll_sys_remove",
 		"sys_rename":               "ll_sys_rename",
 		"sys_popen":                "ll_os_popen",

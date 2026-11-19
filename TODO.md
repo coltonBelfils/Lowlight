@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Stdlib Bug Fixes & Targeted Library Additions
 
-- [ ] Support non-seekable streams in `core_read_file` (`std/core/primitives.ll`).
 - [ ] Add `log2` and `exp2` to `std/math.ll`.
 - [ ] Add `sinh`, `cosh`, and `tanh` to `std/math.ll`.
 - [ ] Fix `sqrt`, `log`, `exp`, `pow`, `fmod`, `sin`, and `cos` in `std/math.ll` to return `NaN`/`+-inf` instead of hanging or returning `0.0` on out-of-domain inputs.
