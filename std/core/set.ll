@@ -128,6 +128,12 @@ bind Set[T].rehash = (&self, new_bcap: int): {
 			}
 			r += 1
 		}
+		if(w < self.ent_len): {
+			unsafe zero_bytes(
+				ptr_cast[u8](ptr_add(self.entries, w)),
+				(self.ent_len - w) * size_of[SetEntry[T]](),
+			)
+		}
 		self.ent_len = w
 	}
 	let nb = unsafe alloc_raw[int](new_bcap)
@@ -171,10 +177,19 @@ bind Set[T].insert = (&self, val: own T) bool: {
 		self.rehash(target_bcap)
 	}
 	if(self.ent_len + 1 > self.ent_cap): {
-		let ncap = if(self.ent_cap > 0): self.ent_cap * 2 else: 8
+		let old_cap = self.ent_cap
+		let ncap = if(old_cap > 0): old_cap * 2 else: 8
 		let ne = unsafe {
-			if(self.ent_cap == 0): alloc_raw[SetEntry[T]](ncap)
-			else: realloc_raw(self.entries, ncap)
+			if(old_cap == 0): {
+				alloc_raw[SetEntry[T]](ncap)
+			} else: {
+				let p = realloc_raw(self.entries, ncap)
+				zero_bytes(
+					ptr_cast[u8](ptr_add(p, old_cap)),
+					(ncap - old_cap) * size_of[SetEntry[T]](),
+				)
+				p
+			}
 		}
 		self.entries = ne
 		self.ent_cap = ncap
@@ -182,6 +197,7 @@ bind Set[T].insert = (&self, val: own T) bool: {
 	let idx = self.ent_len
 	self.ent_len += 1
 	unsafe {
+		zero_bytes(ptr_cast[u8](ptr_add(self.entries, idx)), size_of[SetEntry[T]]())
 		self.entries[idx].alive = true
 		self.entries[idx].hash = h
 		self.entries[idx].key = own val
@@ -214,7 +230,7 @@ bind Set[T].remove = (&self, val: T) bool: {
 			unsafe {
 				if(self.entries[idx].alive and self.entries[idx].hash == h and self.entries[idx].key == val): {
 					let _ = ptr_read(ptr_add(self.entries, idx))
-					self.entries[idx].alive = false
+					zero_bytes(ptr_cast[u8](ptr_add(self.entries, idx)), size_of[SetEntry[T]]())
 					self.buckets[slot] = -2
 					self.len -= 1
 					func <- true
@@ -233,8 +249,8 @@ bind Set[T].clear = (&self): {
 			unsafe {
 				if(self.entries[i].alive): {
 					let _ = ptr_read(ptr_add(self.entries, i))
-					self.entries[i].alive = false
 				}
+				zero_bytes(ptr_cast[u8](ptr_add(self.entries, i)), size_of[SetEntry[T]]())
 			}
 			i += 1
 		}
@@ -348,4 +364,56 @@ bind Set[T].drop = (&self): {
 	self.ent_cap = 0
 	self.ent_len = 0
 	self.len = 0
+}
+
+// -----------------------------------------------------------------------------
+// Inline Unit Tests
+// -----------------------------------------------------------------------------
+
+@test("Set[T] realloc_raw growth, compaction, and clear with Resource elements")
+bind test_set_realloc_and_slot_zeroing = (): {
+	// Churn dirty heap blocks filled with 0xFF before Set grows via realloc_raw.
+	for(c in 0..8): {
+		let dirty = List[u8].filled(512, u8(255))
+		assert(dirty[0] == u8(255), "dirty block populated")
+	}
+
+	let s = Set[string].new()
+	for(i in 0..64): {
+		assert(s.insert("entry_key_$i"), "insert entry_key_$i")
+	}
+	assert(s.len() == 64, "len after 64 inserts")
+
+	// Remove even keys, then insert 40 more to trigger rehash compaction & slot reuse.
+	for(i in 0..32): {
+		let even = i * 2
+		assert(s.remove("entry_key_$even"), "remove even entry_key")
+	}
+	assert(s.len() == 32, "len after 32 removes")
+
+	for(i in 0..40): {
+		assert(s.insert("compacted_key_$i"), "insert compacted_key_$i")
+	}
+	assert(s.len() == 72, "len after 40 compacted inserts")
+
+	for(i in 0..32): {
+		let even = i * 2
+		let odd = i * 2 + 1
+		assert(not s.has("entry_key_$even"), "removed even key stays absent")
+		assert(s.has("entry_key_$odd"), "remaining odd key present")
+	}
+	for(i in 0..40): {
+		assert(s.has("compacted_key_$i"), "compacted key present")
+	}
+
+	// Clear and re-insert into previously occupied/zeroed slots.
+	s.clear()
+	assert(s.is_empty(), "empty after clear")
+	for(i in 0..20): {
+		assert(s.insert("cleared_key_$i"), "reinsert after clear")
+	}
+	assert(s.len() == 20, "len == 20 after clear + reinsert")
+	for(i in 0..20): {
+		assert(s.has("cleared_key_$i"), "cleared_key present")
+	}
 }

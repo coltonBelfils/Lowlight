@@ -139,6 +139,12 @@ bind Map[K, V].rehash = (&self, new_bcap: int): {
 			}
 			r += 1
 		}
+		if(w < self.ent_len): {
+			unsafe zero_bytes(
+				ptr_cast[u8](ptr_add(self.entries, w)),
+				(self.ent_len - w) * size_of[MapSlot[K, V]](),
+			)
+		}
 		self.ent_len = w
 	}
 	let nb = unsafe alloc_raw[int](new_bcap)
@@ -187,10 +193,19 @@ bind Map[K, V].insert = (&self, key: own K, val: own V): {
 		self.rehash(target_bcap)
 	}
 	if(self.ent_len + 1 > self.ent_cap): {
-		let ncap = if(self.ent_cap > 0): self.ent_cap * 2 else: 8
+		let old_cap = self.ent_cap
+		let ncap = if(old_cap > 0): old_cap * 2 else: 8
 		let ne = unsafe {
-			if(self.ent_cap == 0): alloc_raw[MapSlot[K, V]](ncap)
-			else: realloc_raw(self.entries, ncap)
+			if(old_cap == 0): {
+				alloc_raw[MapSlot[K, V]](ncap)
+			} else: {
+				let p = realloc_raw(self.entries, ncap)
+				zero_bytes(
+					ptr_cast[u8](ptr_add(p, old_cap)),
+					(ncap - old_cap) * size_of[MapSlot[K, V]](),
+				)
+				p
+			}
 		}
 		self.entries = ne
 		self.ent_cap = ncap
@@ -198,6 +213,7 @@ bind Map[K, V].insert = (&self, key: own K, val: own V): {
 	let idx = self.ent_len
 	self.ent_len += 1
 	unsafe {
+		zero_bytes(ptr_cast[u8](ptr_add(self.entries, idx)), size_of[MapSlot[K, V]]())
 		self.entries[idx].alive = true
 		self.entries[idx].hash = h
 		self.entries[idx].key = own key
@@ -230,7 +246,7 @@ bind Map[K, V].remove = (&self, key: K) ?V: {
 				if(self.entries[idx].alive and self.entries[idx].hash == h and self.entries[idx].key == key): {
 					let out = self.entries[idx].val.copy()
 					let _ = ptr_read(ptr_add(self.entries, idx))
-					self.entries[idx].alive = false
+					zero_bytes(ptr_cast[u8](ptr_add(self.entries, idx)), size_of[MapSlot[K, V]]())
 					self.buckets[slot] = -2
 					self.len -= 1
 					func <- out
@@ -249,8 +265,8 @@ bind Map[K, V].clear = (&self): {
 			unsafe {
 				if(self.entries[i].alive): {
 					let _ = ptr_read(ptr_add(self.entries, i))
-					self.entries[i].alive = false
 				}
+				zero_bytes(ptr_cast[u8](ptr_add(self.entries, i)), size_of[MapSlot[K, V]]())
 			}
 			i += 1
 		}
@@ -384,4 +400,88 @@ bind Map[K, V].drop = (&self): {
 	self.ent_cap = 0
 	self.ent_len = 0
 	self.len = 0
+}
+
+// -----------------------------------------------------------------------------
+// Inline Unit Tests
+// -----------------------------------------------------------------------------
+
+@test("Map[K, V] realloc_raw growth, compaction, and clear with Resource keys and values")
+bind test_map_realloc_and_slot_zeroing = (): {
+	// Churn dirty heap blocks filled with 0xFF before Map grows via realloc_raw.
+	for(c in 0..8): {
+		let dirty = List[u8].filled(512, u8(255))
+		assert(dirty[0] == u8(255), "dirty block populated")
+	}
+
+	let m = Map[string, List[string]].new()
+	for(i in 0..64): {
+		let v = List[string].new()
+		v.push("val_${i}_a")
+		v.push("val_${i}_b")
+		m.insert("k_$i", own v)
+	}
+	assert(m.len() == 64, "len == 64 after inserts")
+
+	// Overwrite every 8th key with a fresh Resource value.
+	for(i in 0..8): {
+		let k_idx = i * 8
+		let upd = List[string].new()
+		upd.push("updated_$k_idx")
+		m.insert("k_$k_idx", own upd)
+	}
+	assert(m.len() == 64, "len still 64 after overwrites")
+
+	// Remove half the entries, then insert 40 more to trigger rehash compaction & slot reuse.
+	for(i in 0..32): {
+		let even = i * 2
+		let rem? = m.remove("k_$even")
+		assert(rem? != none, "removed even key")
+	}
+	assert(m.len() == 32, "len == 32 after removes")
+
+	for(i in 0..40): {
+		let rv = List[string].new()
+		rv.push("rehashed_$i")
+		m.insert("rehashed_$i", own rv)
+	}
+	assert(m.len() == 72, "len == 72 after rehash inserts")
+
+	for(i in 0..32): {
+		let even = i * 2
+		let odd = i * 2 + 1
+		assert(not m.has("k_$even"), "removed key absent")
+		let got? = m.get("k_$odd")
+		if(got? as lst): {
+			assert(lst.len() == 2 and lst[0] == "val_${odd}_a", "odd key value intact")
+		} else: {
+			assert(false, "missing odd key")
+		}
+	}
+	for(i in 0..40): {
+		let got? = m.get("rehashed_$i")
+		if(got? as lst): {
+			assert(lst.len() == 1 and lst[0] == "rehashed_$i", "rehashed key value intact")
+		} else: {
+			assert(false, "missing rehashed key")
+		}
+	}
+
+	// Clear and re-insert into zeroed slots.
+	m.clear()
+	assert(m.is_empty(), "empty after clear")
+	for(i in 0..20): {
+		let pv = List[string].new()
+		pv.push("post_$i")
+		m.insert("post_clear_$i", own pv)
+	}
+	assert(m.len() == 20, "len == 20 after clear + reinsert")
+	for(i in 0..20): {
+		let got? = m.get("post_clear_$i")
+		if(got? as lst): {
+			assert(lst.len() == 1 and lst[0] == "post_$i", "post-clear value intact")
+		} else: {
+			assert(false, "missing post-clear key")
+		}
+	}
 }
