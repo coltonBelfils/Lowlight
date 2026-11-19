@@ -26,7 +26,7 @@ The compiler codebase is structured into cleanly decoupled packages under `inter
 ```
 Lowlight/
 ├── cmd/
-│   └── lowlight/                  # Main CLI entry point (main.go)
+│   └── lowlight/                  # Main CLI (main.go, pkg.go, fmt.go, doc.go)
 ├── internal/
 │   ├── diag/                      # Source positions, spans, error reporting, structured codes
 │   ├── token/                     # Token definitions, keywords, operator precedence
@@ -34,26 +34,33 @@ Lowlight/
 │   ├── ast/                       # Abstract Syntax Tree node definitions
 │   ├── parser/                    # Recursive-descent & Pratt expression parser
 │   ├── types/                     # Semantic type system definitions & Plain/Resource logic
-│   ├── sema/                      # Semantic analysis, type checking, borrow & move checker
+│   ├── manifest/                  # Zero-dep TOML parser/editor, lowlight.toml/lock, SemVer MVS, HTTPS/SHA-256 cache & vendor
+│   ├── sema/                      # Directory-as-package loader, type checking, borrow & move checker
 │   ├── ir/                        # Mid-Level Intermediate Representation (MIR)
-│   ├── codegen/                   # Direct LLVM IR generator (llvmgen.go) & ISO C11 emitter (cgen.go)
-│   ├── driver/                    # Orchestration, LLVM/C toolchain discovery, cross-target build runner
+│   ├── codegen/                   # Direct LLVM IR (llvmgen.go), ISO C11 (cgen.go), & two-phase split units (split.go)
+│   ├── driver/                    # Manifest-aware orchestration, two-phase `.o` cache (incremental.go), package test runner
+│   ├── format/                    # Source formatter (`.lowlightfmt` + `[format]` in `lowlight.toml`)
+│   ├── docgen/                    # Package-aware HTML/Markdown doc generator & intra-doc link validator
 │   └── lsp/                       # Built-in Language Server Protocol (LSP 3.17) server
-├── std/                           # Standard library source modules (*.ll)
-│   ├── core/                      # Core prelude (core.ll, list.ll, array.ll)
-│   ├── fs.ll                      # File system operations
-│   ├── os.ll                      # OS processes, environment, and paths
-│   ├── math.ll                    # Math functions and constants
-│   ├── pool.ll                    # Safe generational handle pool
-│   ├── strconv.ll                 # Overflow-checked integer and float parsing
-│   ├── strfmt.ll                  # String and number formatting utilities
-│   ├── time.ll                    # Instant, Duration, and DateTime engine
-│   ├── net.ll                     # TCP stream, listener, and socketpair networking
-│   └── http.ll                    # Full HTTP/1.1 and HTTPS client/server stack
+├── std/                           # Standard library package directories (`std/<pkg>/`)
+│   ├── core/                      # Implicit prelude (`core.ll`, `array.ll`, `list.ll`, `map.ll`, `set.ll`, `range.ll`, `result.ll`, `error.ll`, `primitives.ll`)
+│   ├── chars/                     # Character classification & UTF-8 helpers
+│   ├── strings/                   # Extended string searching, splitting, trimming, and transformations
+│   ├── fs/                        # File system operations (`File`, `read_file`, `write_file`, `exists`)
+│   ├── os/                        # OS processes, environment, and paths
+│   ├── math/                      # Math functions and constants (`PI`, `E`, trig, rounding)
+│   ├── pool/                      # Safe generational handle pool (`Pool[T]`, `Handle[T]`)
+│   ├── sort/                      # In-place sorting, comparators, binary search
+│   ├── strconv/                   # Overflow-checked integer and float parsing/formatting
+│   ├── strfmt/                    # String and number formatting utilities
+│   ├── time/                      # `Instant`, `Duration`, and `DateTime` engine
+│   ├── net/                       # TCP stream, listener, and socketpair networking
+│   ├── http/                      # Full HTTP/1.1 and HTTPS client/server stack
+│   └── test/                      # `@test` assertion & diff helpers
 ├── editors/
 │   ├── vscode/                    # Zero-NPM VS Code / Cursor extension
 │   └── nvim/                      # Neovim syntax highlighting
-├── tests/                         # E2E test suites, ASan/UBSan harness, unit tests
+├── tests/                         # E2E test suites, ASan/UBSan harness, package & unit tests
 └── benchmarks/                    # Benchmark suite (fib, sieve, mandelbrot, matmul)
 ```
 
@@ -159,11 +166,15 @@ The parser resolves grammatical ambiguities using backtracking with temporary di
 
 Semantic analysis is performed by `Analyzer` across 5 ordered passes:
 
-### 4.1 The 5 Semantic Passes
+### 4.1 The 5 Semantic Passes & Directory-as-Package Loader
 
-1. **Pass 1: Module Graph & File Discovery:** Traverses `import` paths, constructs `Module` descriptors, prevents circular imports, and registers all top-level symbols.
-2. **Pass 2: Nominal Type Headers:** Registers names and type structures for all `struct`, `enum`, `interface`, and distinct types across all modules before inspecting function bodies.
-3. **Pass 3: Interface Collection & Method Tables:** Collects interface method signatures and inherent type methods. Constructs the global method table (`MethodTable`).
+1. **Pass 1: Package Graph, Manifest Discovery, & File Filtering:**
+   - **Directory-as-Package:** Inside a `lowlight.toml` project/workspace, `std/<pkg>/`, or directory target, all active `.ll` files in a directory compile into one shared `Package` namespace (`Types`, `Symbols`, `Generic*` maps aliased across sibling `*Module`s), enabling mutual cross-file recursion and package-wide `_` privacy while keeping `import` bindings file-scoped. Standalone `.ll` scripts outside manifests remain isolated single-file packages.
+   - **Target & Test File Filtering:** Excludes `*_test.ll` outside `TestMode` and filters OS/arch suffixed files (`_linux.ll`, `_darwin.ll`, `_windows.ll`, `_unix.ll`, `_amd64.ll`, `_arm64.ll`, `<stem>_<os>_<arch>.ll`) against the resolved target triple.
+   - **Strict Extensionless Qualified Imports & DAG Cycles:** Resolves extensionless directory imports (`"std/math"`, `"myapp/lexer"`, `"dep/subpkg"`, or relative `"./dir"` for standalone scripts), rejects `.ll` suffixes with migration hints, enforces unique per-file qualifiers (normalizing `-` to `_`), rejects importing binary (`main`) packages, enforces `[dev-dependencies]` isolation in production code, and reports full inter-package import cycle chains (`a -> b -> a`).
+   - **Canonical `PackageID` Mangling:** Assigns collision-free sanitized C/LLVM prefixes derived from canonical `PackageID` + deterministic SHA-256 disambiguation so identically named directories (`a/util` vs `b/util`) never collide at link time.
+2. **Pass 2: Nominal Type Headers:** Registers names and type structures for all `struct`, `enum`, `interface`, and distinct types across all loaded packages before inspecting function bodies.
+3. **Pass 3: Interface Collection & Global Method Tables:** Collects interface method signatures, inherent methods, and permissive cross-package extension methods (`bind pkg.Type.method = ...`), rejecting duplicate method collisions with diagnostics naming both binding sites while preserving leading-`_` and sealed-interface restrictions.
 4. **Pass 4: Topological Constant Evaluation:** Constructs a directed dependency graph of all top-level `bind` constants. Performs topological sorting (Tarjan's algorithm) to compute initialization order. Detects and reports cyclic dependency loops with exact cycle paths.
 5. **Pass 5: Function Body Analysis & Worklist Monomorphizer:** Recursively type-checks function and method bodies, tracks variable lifecycles, and instantiates generic templates on demand.
 
@@ -360,50 +371,76 @@ The runtime provides HTTPS networking without static dependencies:
 
 ---
 
-## 8. Driver, CLI, & Compilation Orchestration (`internal/driver`)
+## 8. Manifest Pipeline, Package CLI, & Two-Phase Incremental Driver (`internal/manifest`, `internal/driver`)
 
-The main executable `lowlight` (`cmd/lowlight`) provides eight primary commands:
+### 8.1 Zero-Dependency TOML, Lockfile, Index, & MVS Pipeline (`internal/manifest`)
+
+All package metadata (`lowlight.toml`, `lowlight.lock`, and decentralized static package indexes) shares one zero-dependency TOML parser, canonical formatter, and comment-preserving surgical mutator (`internal/manifest/toml.go`):
+- **Root & Workspace Discovery (`manifest.go`):** Walks upward to locate `lowlight.toml` and any enclosing `[workspace]` root (`members` glob expansion + `exclude`), strictly decoupled from `LOWLIGHT_ROOT` / `StdDir` standard-library lookup.
+- **SemVer & Decentralized Static Index (`semver.go`, `lock_index.go`):** Parses SemVer 2.0 versions and comparator constraints (`^`, `~`, `=`, `<`, `<=`, `>`, `>=`, `*`, intersections), fetches remote static TOML indexes (`[versions."<semver>"]` with `yanked`), and selects versions deterministically via **Minimal Version Selection (MVS)**.
+- **Safe Fetching, Caching, & Precedence (`fetch.go`, `resolve.go`):** Enforces HTTPS for remote endpoints (allowing loopback HTTP for local testing), verifies exact `sha256:<64-hex>` digests, extracts `.tar.gz`/`.tgz`/`.zip` archives rejecting path traversal (`..`), absolute paths, and symlinks, stores canonical immutable trees in `$LOWLIGHT_CACHE/sha256/<hex>/` (default `~/.lowlight/cache`), and enforces strict resolution precedence: root `[overrides]` -> `[workspace]` members -> `./vendor/` -> `lowlight.lock` + cache. Compiler/LSP invocations never perform implicit network I/O.
+- **Target & Format Integration (`target.go`, `internal/format/config.go`):** Matches `--target` triples against `[target.<selector>]` and OS/arch filename suffixes, and loads `[format]` defaults from `lowlight.toml` while preserving `.lowlightfmt` for manifest-free directories and subdirectory overrides.
+
+### 8.2 CLI Commands (`cmd/lowlight`)
+
+Inside a `lowlight.toml` project or `[workspace]`, compilation commands default to the current package or workspace root (`-p <pkg>`, `--workspace`, `--locked`, `--offline`), while standalone single-file invocation remains zero-config:
 
 ```bash
-lowlight build <file.ll>        # Compile source to native machine executable (LLVM default)
-lowlight run <file.ll>          # Compile and immediately run binary
-lowlight test [<path...>]       # Discover and run @test functions and harnesses
-lowlight emit-llvm <file.ll>    # Emit pure, portable LLVM IR text (.ll)
-lowlight emit-c <file.ll>       # Emit generated ISO C11 code to stdout or file
-lowlight check <file.ll>        # Type-check and verify source without compiling
-lowlight lsp                    # Start Language Server Protocol (LSP 3.17) over stdio
-lowlight version                # Print compiler and language edition info
+lowlight build     [-o <bin>] [-p <pkg>|--workspace] [--locked] [--offline] [<path>]
+lowlight run       [-p <pkg>] [--locked] [--offline] [<path>] [-- <args...>]
+lowlight test      [-p <pkg>|--workspace] [--locked] [--offline] [-run <regex>] [<path...>]
+lowlight check     [-p <pkg>|--workspace] [--locked] [--offline] [<path>]
+lowlight emit-llvm [-o <file.ll>] [-p <pkg>] [<path>]
+lowlight emit-c    [-o <file.c>]  [-p <pkg>] [<path>]
+lowlight init      [--lib|--bin] [--name <name>] [<dir>]
+lowlight new       <dir> [--lib|--bin] [--name <name>]
+lowlight add       <name> (--path <dir> | --url <url> [--hash <sha256>] | --index <url> --version <c>) [--dev] [--override]
+lowlight remove    <name> [--dev] [--override]
+lowlight fetch     [--locked] [--offline]
+lowlight update    [<pkg>...] [--offline]
+lowlight vendor    [--offline]
+lowlight tree      [--locked] [--offline]
+lowlight fmt       [-w] [--check] [<path...|lowlight.toml>]
+lowlight doc       [-o <dir>] [--format html|md] [--check-links] [<path...>]
+lowlight lsp       [--stdio] [--log <file>]
+lowlight version
 ```
 
-### Compiler Discovery, Cross-Targeting & Flags
-1. **Target Triple (`--target <triple>`):** Passes the target triple directly to LLVM emission (`target triple = "..."`) and clang/cc (`--target=...`) for seamless cross-compilation.
-2. **Backend Selection (`--backend <llvm|c11>`):** LLVM IR is the default backend; C11 can be selected for portable C compilation.
-3. Checks the `LOWLIGHT_CC` environment variable.
-4. Checks the standard `CC` environment variable.
-5. Probes the host system `PATH` for `clang`, then `gcc`.
-6. Invokes the compiler:
-   - **Debug mode (default):** `-g -O0`
-   - **Release mode (`--release`):** `-O2`
-   - Preserves all safety trap guards in both modes.
+### 8.3 Two-Phase Package Incremental Compilation & `.o` Caching (`internal/codegen/split.go`, `internal/driver/incremental.go`)
+
+For multi-package builds on both the LLVM IR and ISO C11 backends, the driver partitions lowered MIR into two phases:
+1. **Phase 1 — Per-Package Concrete Units (`UnitPackage`):** Each non-entry library package's concrete non-generic functions emit into a hermetic filtered translation unit containing only types and external declarations reachable from that package (isolated from downstream `main` edits). Units are keyed by SHA-256 over `(backend, cc, targetTriple, release, compileFlags, PackageID, unitSource)`, compiled once via `clang -c` / `cc -c`, and atomically cached under `<root>/.lowlight/cache/obj/` (or `$LOWLIGHT_CACHE/obj/`). Unchanged dependencies hit the `.o` cache directly without re-invoking the backend compiler.
+2. **Phase 2 — Shared Specialization & Link Unit (`UnitLinkMain`):** Monomorphized generic instantiations, lambdas, static closure thunks, structural interface vtables, unified runtime state globals (`ll_rt_live_allocs`, `ll_rt_argc/argv`, test panic buffers, TLS dispatch), top-level globals, and entry/`main`/test-runner code emit into a single link unit compiled and linked alongside all cached Phase 1 `.o` objects.
+
+### 8.4 Compiler Discovery, Cross-Targeting, & Flags
+1. **Manifest `[build]` & `[target.<selector>]`:** Applies default `backend`, `release`, `target`, `cc`, `c_flags`, and `c_libs` from `lowlight.toml` (and transitive dependencies), with explicit CLI flags taking precedence.
+2. **Target Triple (`--target <triple>`):** Passes the target triple to OS/arch suffix filtering, `[target.<selector>]` matching, LLVM emission (`target triple = "..."`), and `clang`/`cc` (`--target=...`).
+3. **Backend Selection (`--backend <llvm|c11>`):** LLVM IR is the default backend; ISO C11 can be selected for portable C compilation.
+4. Checks `LOWLIGHT_CC`, then `CC`, then probes `PATH` for `clang` / `cc`.
+5. Invokes the compiler in Debug (`-g -O0`) or Release (`-O2`) mode while preserving deterministic safety traps in both modes.
 
 ---
 
 ## 9. Standard Library Implementation Architecture (`std/`)
 
-The Lowlight standard library consists of 10 modules implemented in pure Lowlight, layering safe abstractions over C runtime primitives:
+The Lowlight standard library is organized as 14 directory-as-package modules under `std/<pkg>/` implemented in pure Lowlight, imported via extensionless qualified paths (`import "std/<pkg>"`):
 
-| Module | Lines | Description |
-| :--- | :---: | :--- |
-| `std/core/` | 385 | Implicit prelude: `Printable`, `Copyable`, `Drop`, `Result[T, E]`, `List[T]`, `Array[T]` |
-| `std/fs.ll` | 38 | Safe file operations (`read_text`, `write_text`, `exists`, `remove_file`) |
-| `std/os.ll` | 82 | Subprocesses (`exec`, `system_run`), directories (`mkdir_p`), system info |
-| `std/math.ll` | 64 | Mathematical constants (`PI`, `E`), trig, exp, log, and rounding functions |
-| `std/pool.ll` | 115 | 100% safe generational index pool with recycled slots and ABA protection |
-| `std/strconv.ll` | 239 | Overflow-checked integer parsing (bases 2..36) and float parsing |
-| `std/strfmt.ll` | 473 | Rich formatting: commas, bytes, padding, truncation, snake/camel conversion |
-| `std/time.ll` | 768 | `Instant`, `Duration`, `DateTime`, POSIX `strftime` & Go layout formatters |
-| `std/net.ll` | 168 | RAII-managed `TcpStream`, `TcpListener`, and in-memory `SocketPair` |
-| `std/http.ll` | 1,273 | HTTP/1.1 & HTTPS client/server, `ServeMux`, `ResponseWriter`, test utilities |
+| Package | Description |
+| :--- | :--- |
+| `std/core/` | Implicit prelude: `Printable`, `Copyable`, `Drop`, `Equatable`, `Comparable`, `Hashable`, `Error`, `Result[T]`, `List[T]`, `Array[T]`, `Set[T]`, `Map[K, V]`, `Range[T]` |
+| `std/chars/` | Character classification, ASCII case folding, radix digits, and UTF-8 lengths |
+| `std/strings/` | Extended string searching, splitting, trimming, replacement, and transformations |
+| `std/fs/` | Safe file operations (`File`, `read_file`, `write_file`, `exists`, `copy_file`, `remove_file`) |
+| `std/os/` | Subprocesses (`exec`, `system_run`), directories (`mkdir_p`, `remove_all`), env, system info |
+| `std/math/` | Mathematical constants (`PI`, `E`, `INF`, `NAN`), trig, exp, log, clamp, and rounding |
+| `std/pool/` | Generational index pool (`Pool[T]`, `Handle[T]`) with recycled slots and ABA protection |
+| `std/sort/` | In-place sorting, custom comparators, binary search, and `Set`/`Map` sorted helpers |
+| `std/strconv/` | Overflow-checked integer parsing/formatting (bases 2..36), floats, and booleans |
+| `std/strfmt/` | Rich formatting: commas, bytes, currency, padding, truncation, snake/camel/kebab case |
+| `std/time/` | `Instant`, `Duration`, `DateTime`, POSIX `strftime` & Go layout formatters |
+| `std/net/` | RAII-managed `TcpStream`, `TcpListener`, and in-memory `SocketPair` |
+| `std/http/` | HTTP/1.1 & HTTPS client/server, `ServeMux`, `ResponseWriter`, URL parser, test utilities |
+| `std/test/` | `@test` assertions (`assert_eq`, `assert_is_ok`, `assert_approx_eq`) with caller-tracked diffs |
 
 ---
 

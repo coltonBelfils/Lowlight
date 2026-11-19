@@ -13,7 +13,7 @@ import (
 func TestHTTPClientPutPatchDeleteEndToEnd(t *testing.T) {
 	// 1. Both LLVM and C11 strict parity + leak check on Client/module helpers and roundtrips.
 	strictSrc := `
-import "std/http.ll" as http
+import "std/http"
 
 bind main = (): {
 	let handler = (req: http.Request, res: &http.ResponseWriter): {
@@ -53,7 +53,7 @@ bind main = (): {
 	// 2. Full wire verification of Client.put, Client.patch, Client.delete, http.put, http.patch, http.delete
 	// via an in-process UNIX socketpair server stubbing ll_net_tcp_connect (sandbox-safe).
 	clientWireSrc := `
-import "std/http.ll" as http
+import "std/http"
 
 bind main = (): {
 	let c = http.Client.new()

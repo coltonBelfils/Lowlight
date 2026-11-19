@@ -116,7 +116,7 @@ bind test_multiplication = (): {
 // 2. Dedicated test file without any `main` function
 func TestDedicatedTestFileWithoutMain(t *testing.T) {
 	src := `
-import "std/test.ll" as test
+import "std/test"
 
 @test("testing assertion library")
 bind test_assertions = (): {
@@ -407,12 +407,12 @@ func TestDuplicateTestDeclarationError(t *testing.T) {
 	root := projectRoot(t)
 	tmpDir := t.TempDir()
 	dupPath := filepath.Join(tmpDir, "dup_test.ll")
-	src := `import "std/test.ll"
+	src := `import "std/test"
 
 @test("pass")
-bind t = (): assert_eq(1, 1)
+bind t = (): test.assert_eq(1, 1)
 @test("fail")
-bind t = (): assert_eq(1, 2)`
+bind t = (): test.assert_eq(1, 2)`
 	if err := os.WriteFile(dupPath, []byte(src), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -473,12 +473,12 @@ func TestMultipleTestsWithDistinctNames(t *testing.T) {
 	root := projectRoot(t)
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "distinct_tests.ll")
-	src := `import "std/test.ll"
+	src := `import "std/test"
 
 @test("pass")
-bind test_pass = (): assert_eq(1, 1)
+bind test_pass = (): test.assert_eq(1, 1)
 @test("fail")
-bind test_fail = (): assert_eq(1, 2)`
+bind test_fail = (): test.assert_eq(1, 2)`
 	if err := os.WriteFile(filePath, []byte(src), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -516,9 +516,9 @@ func TestTestScopeSingleFileWithTestsOnlyRunsItsOwnTests(t *testing.T) {
 	testPath := filepath.Join(tmpDir, "scoped_test.ll")
 
 	src := `
-import "std/core.ll"
-import "std/strings.ll"
-import "std/fs.ll"
+import "std/core"
+import "std/strings"
+import "std/fs"
 
 @test("isolated local test only")
 bind test_isolated = (): {
@@ -587,15 +587,24 @@ func TestTestScopeDirectoryWithoutTests(t *testing.T) {
 	}
 }
 
-// 14. Test scoping: Directory with multiple test files runs tests in all test files and prints total summary
+// 14. Test scoping: Directory with multiple packages runs all tests across packages and prints total summary
 func TestTestScopeDirectoryWithMultipleTestFiles(t *testing.T) {
 	root := projectRoot(t)
 	tmpDir := t.TempDir()
 
-	file1 := filepath.Join(tmpDir, "test_suite_a.ll")
+	pkgA := filepath.Join(tmpDir, "pkg_a")
+	pkgB := filepath.Join(tmpDir, "pkg_b")
+	if err := os.MkdirAll(pkgA, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(pkgB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	file1 := filepath.Join(pkgA, "suite_a_test.ll")
 	src1 := `
 @test("suite A test 1")
-bind test_a1 = (): { assert(true) }
+bind test_a1 = (): { assert(helper_fn() == 42) }
 @test("suite A test 2")
 bind test_a2 = (): { assert(true) }
 `
@@ -603,21 +612,21 @@ bind test_a2 = (): { assert(true) }
 		t.Fatalf("write file1: %v", err)
 	}
 
-	file2 := filepath.Join(tmpDir, "test_suite_b.ll")
+	file3NoTests := filepath.Join(pkgA, "helper.ll")
+	src3 := `
+bind helper_fn = () int: { 42 }
+`
+	if err := os.WriteFile(file3NoTests, []byte(src3), 0o644); err != nil {
+		t.Fatalf("write file3: %v", err)
+	}
+
+	file2 := filepath.Join(pkgB, "suite_b_test.ll")
 	src2 := `
 @test("suite B test 1")
 bind test_b1 = (): { assert(1 == 1) }
 `
 	if err := os.WriteFile(file2, []byte(src2), 0o644); err != nil {
 		t.Fatalf("write file2: %v", err)
-	}
-
-	file3NoTests := filepath.Join(tmpDir, "helper.ll")
-	src3 := `
-bind helper_fn = () int: { 42 }
-`
-	if err := os.WriteFile(file3NoTests, []byte(src3), 0o644); err != nil {
-		t.Fatalf("write file3: %v", err)
 	}
 
 	opts := driver.Options{
@@ -641,14 +650,14 @@ bind helper_fn = () int: { 42 }
 	if !strings.Contains(out, "suite B test 1") {
 		t.Errorf("missing suite B tests in output:\n%s", out)
 	}
-	if !strings.Contains(out, "Total test results: 3 passed, 0 failed across 2 file(s) (total 3)") {
-		t.Errorf("expected 3 passed across 2 files in summary:\n%s", out)
+	if !strings.Contains(out, "Total test results: 3 passed, 0 failed across 2 package(s) (total 3)") {
+		t.Errorf("expected 3 passed across 2 packages in summary:\n%s", out)
 	}
 }
 
 // 15. Rich assertion failure diagnostics: Caller location (file, line, col), aligned values, and diff markers
 func TestAssertionFailureCallerLocationAndDiff(t *testing.T) {
-	src := `import "std/test.ll" as test
+	src := `import "std/test"
 
 @test("equality failure with diff")
 bind test_diff = (): {
@@ -681,7 +690,7 @@ bind test_diff = (): {
 
 // 16. Multiline diffing in assertion failure
 func TestAssertionFailureMultilineDiff(t *testing.T) {
-	src := `import "std/test.ll" as test
+	src := `import "std/test"
 
 @test("multiline failure diff")
 bind test_multi = (): {
@@ -707,7 +716,7 @@ bind test_multi = (): {
 
 // 17. Custom @track_caller helper forwards caller location
 func TestTrackCallerHelperForwarding(t *testing.T) {
-	src := `import "std/test.ll" as test
+	src := `import "std/test"
 
 @test_only
 @track_caller
@@ -732,7 +741,7 @@ bind test_even = (): {
 
 // 18. Multiline backtick strings with interpolation and escapes
 func TestMultilineBacktickStringsEndToEnd(t *testing.T) {
-	src := "import \"std/test.ll\" as test\n\n" +
+	src := "import \"std/test\"\n\n" +
 		"@test(\"backtick multiline, interpolation, and escapes\")\n" +
 		"bind test_backtick = (): {\n" +
 		"    let name = \"World\"\n" +
@@ -789,7 +798,7 @@ func TestAssertionApproxEqAndStringMatchFailureDiagnostics(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			src := "import \"std/test.ll\" as test\n\n@test(\"failure case\")\nbind test_case = (): {\n" + tc.callLine + "\n}\n"
+			src := "import \"std/test\"\n\n@test(\"failure case\")\nbind test_case = (): {\n" + tc.callLine + "\n}\n"
 			out, code, err := runLowlightTest(t, src, false)
 			if code != 1 {
 				t.Fatalf("expected exit code 1, got %d (err: %v)\nOutput:\n%s", code, err, out)

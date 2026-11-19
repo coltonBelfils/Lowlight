@@ -1,4 +1,4 @@
-import "std/time.ll" as time
+import "std/time"
 
 bind main = (): {
     // 1. Fixed test date: 2026-10-31 15:30:45 UTC

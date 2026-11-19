@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"lowlight/internal/manifest"
 )
 
 // Options configures Lowlight code formatting.
@@ -83,8 +85,10 @@ func LoadConfig(dir string) Options {
 	return opts
 }
 
-// LoadConfigFound searches from dir upward for `.lowlightfmt`, returning the loaded
-// Options and whether a `.lowlightfmt` file was found.
+// LoadConfigFound searches from dir upward for `.lowlightfmt` or `[format]` in `lowlight.toml`,
+// returning the loaded Options and whether an explicit configuration was found.
+// A `.lowlightfmt` file in the same or nearer directory overrides `[format]` in `lowlight.toml`
+// (`SPECIFICATION.md §12.2`).
 func LoadConfigFound(dir string) (Options, bool) {
 	opts := DefaultOptions()
 	if dir == "" {
@@ -98,6 +102,19 @@ func LoadConfigFound(dir string) (Options, bool) {
 		cfgPath := filepath.Join(abs, ".lowlightfmt")
 		if data, err := os.ReadFile(cfgPath); err == nil {
 			return parseConfigData(string(data), opts), true
+		}
+		tomlPath := filepath.Join(abs, manifest.ManifestFilename)
+		if m, err := manifest.LoadManifest(tomlPath); err == nil && m.Format.HasSection {
+			if m.Format.IndentStyle != "" {
+				opts.IndentStyle = m.Format.IndentStyle
+			}
+			if m.Format.TabWidth > 0 {
+				opts.TabWidth = m.Format.TabWidth
+			}
+			if m.Format.LineWidth > 0 {
+				opts.LineWidth = m.Format.LineWidth
+			}
+			return opts.Normalized(), true
 		}
 		parent := filepath.Dir(abs)
 		if parent == abs {

@@ -4,7 +4,7 @@
 // `contains`, `trim`, `to_upper`, `to_lower`, `replace`, `split`, `chars`, `bytes`,
 // `join_strings`) from [`std/core/primitives`] and [`std/chars`].
 
-import "std/chars.ll"
+import "std/chars"
 
 // -----------------------------------------------------------------------------
 // Inspection & Predicates

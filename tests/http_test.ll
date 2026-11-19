@@ -1,7 +1,7 @@
 // tests/http_test.ll
 // Comprehensive test suite for Lowlight's std/http package.
 
-import "std/http.ll" as http
+import "std/http"
 
 bind test_status_codes = (): {
     assert(http.STATUS_OK == 200)

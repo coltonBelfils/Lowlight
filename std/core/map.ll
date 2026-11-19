@@ -3,9 +3,6 @@
 // Requires key types implementing [`Hashable`] (and [`Equatable`] / [`Copyable`] for
 // lookup and iteration). Backed by `#[K: V]` type and literal syntax.
 
-import "./hash.ll"
-import "./interfaces.ll"
-import "./list.ll"
 
 // Internal entry slot stored in a [`Map`]'s entry table.
 define MapSlot[K: Hashable, V] struct [

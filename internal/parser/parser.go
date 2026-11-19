@@ -14,12 +14,13 @@ import (
 
 // Parser parses a slice of tokens into an ast.File.
 type Parser struct {
-	file        string
-	toks        []token.Token
-	pos         int
-	rep         *diag.Reporter
-	inMatchArm int   // > 0 when parsing the body of a `match` arm (for contextual `default:` detection)
-	matchStack []int // stack of scrutinee counts for enclosing match expressions
+	file                  string
+	toks                  []token.Token
+	pos                   int
+	rep                   *diag.Reporter
+	inMatchArm            int   // > 0 when parsing the body of a `match` arm (for contextual `default:` detection)
+	matchStack            []int // stack of scrutinee counts for enclosing match expressions
+	suppressTopLabelColon bool  // true at top level of a `[...]`/`#[...]` head or map key before `:`
 }
 
 // ParseFile lexes and parses a Lowlight source string into an AST.
@@ -619,7 +620,15 @@ func (p *Parser) parseTopVarOrMethodDecl() ast.Decl {
 				"write `bind Type.method = ...` (use function-typed struct fields for runtime-swappable per-instance behavior)",
 			)
 		}
+		recvMod := ""
 		recvTok := p.advance()
+		// Support package-qualified extension methods: `bind pkg.Type.method = ...` or `bind pkg.Type[T].method = ...`
+		if p.cur().Kind == token.Dot && p.peekAt(1).Kind == token.Ident &&
+			(p.peekAt(2).Kind == token.Dot || (p.peekAt(2).Kind == token.LBracket && p.bracketAtFollowedByDot(2))) {
+			recvMod = recvTok.Text
+			p.advance() // `.`
+			recvTok = p.advance()
+		}
 		var recvTParams []string
 		if p.cur().Kind == token.LBracket {
 			tp := p.parseTypeParams()
@@ -646,6 +655,7 @@ func (p *Parser) parseTopVarOrMethodDecl() ast.Decl {
 			p.expect(token.Colon, "before method body")
 			body := p.parseExpr()
 			return &ast.MethodDecl{
+				RecvModule:     recvMod,
 				RecvType:       recvTok.Text,
 				RecvTypeParams: recvTParams,
 				Name:           mNameTok.Text,
@@ -670,6 +680,7 @@ func (p *Parser) parseTopVarOrMethodDecl() ast.Decl {
 		p.expect(token.Colon, "before method body")
 		body := p.parseExpr()
 		return &ast.MethodDecl{
+			RecvModule:     recvMod,
 			RecvType:       recvTok.Text,
 			RecvTypeParams: recvTParams,
 			Name:           mNameTok.Text,
@@ -713,8 +724,12 @@ func (p *Parser) parseTopVarOrMethodDecl() ast.Decl {
 }
 
 func (p *Parser) bracketFollowedByDot() bool {
+	return p.bracketAtFollowedByDot(1)
+}
+
+func (p *Parser) bracketAtFollowedByDot(offset int) bool {
 	depth := 0
-	for i := p.pos + 1; i < len(p.toks); i++ {
+	for i := p.pos + offset; i < len(p.toks); i++ {
 		k := p.toks[i].Kind
 		if k == token.LBracket {
 			depth++
@@ -1092,6 +1107,8 @@ func (p *Parser) parseBlockExpr(label string, isUnsafe bool, startPos diag.Pos) 
 	if startPos.Line == 0 {
 		startPos = openBrace.Span.Start
 	}
+	prevSuppress := p.suppressTopLabelColon
+	p.suppressTopLabelColon = false
 
 	var stmts []ast.Stmt
 	var tail ast.Expr
@@ -1126,6 +1143,7 @@ func (p *Parser) parseBlockExpr(label string, isUnsafe bool, startPos diag.Pos) 
 	}
 
 	closeBrace := p.expect(token.RBrace, "closing block `}`")
+	p.suppressTopLabelColon = prevSuppress
 	return &ast.BlockExpr{
 		Label:  label,
 		Unsafe: isUnsafe,
@@ -1471,12 +1489,24 @@ func (p *Parser) parseActionBody() ast.Expr {
 // Pratt Expression Parser
 // -----------------------------------------------------------------------------
 
+func (p *Parser) parseBinaryWithLabelSuppression(minPrec int, allowRange, suppressLabel bool) ast.Expr {
+	prev := p.suppressTopLabelColon
+	p.suppressTopLabelColon = suppressLabel
+	res := p.parseBinaryExpr(minPrec, allowRange)
+	p.suppressTopLabelColon = prev
+	return res
+}
+
 func (p *Parser) parseExpr() ast.Expr {
-	return p.parseBinaryExpr(1, true)
+	return p.parseBinaryWithLabelSuppression(1, true, false)
 }
 
 func (p *Parser) parseExprNoRange() ast.Expr {
-	return p.parseBinaryExpr(1, false)
+	return p.parseBinaryWithLabelSuppression(1, false, false)
+}
+
+func (p *Parser) parseExprNoTopLabelColon() ast.Expr {
+	return p.parseBinaryWithLabelSuppression(1, true, true)
 }
 
 func binaryPrec(k token.Kind) (prec int, rightAssoc bool) {
@@ -2018,7 +2048,8 @@ func (p *Parser) parsePrimaryExpr() ast.Expr {
 
 	case token.Ident:
 		// Check for labeled loop or labeled block: `outer: for (...)`, `outer: while (...)`, or `blk: { ... }`
-		if p.peekAt(1).Kind == token.Colon && (p.peekAt(2).Kind == token.KwFor || p.peekAt(2).Kind == token.KwWhile || p.peekAt(2).Kind == token.LBrace) {
+		// Suppressed at top level of a `[...]`/`#[...]` head or map key before `:` so `[N: { ... }]` and `#[k: { ... }]` resolve cleanly.
+		if !p.suppressTopLabelColon && p.peekAt(1).Kind == token.Colon && (p.peekAt(2).Kind == token.KwFor || p.peekAt(2).Kind == token.KwWhile || p.peekAt(2).Kind == token.LBrace) {
 			lblTok := p.advance()
 			p.advance() // `:`
 			if p.cur().Kind == token.KwFor {
@@ -2104,6 +2135,10 @@ func (p *Parser) looksLikeFuncLit() bool {
 		return true // `(): int ...` or `() { ... }` or `() -> ...`
 	}
 	if (k1 == token.Ident || k1 == token.OptIdent) && k2 == token.Colon {
+		k3 := p.peekAt(3).Kind
+		if k3 == token.LBrace || k3 == token.KwFor || k3 == token.KwWhile {
+			return false // `(blk: { ... })`, `(outer: for ...)`, `(outer: while ...)`
+		}
 		return true // `(a: int, ...)`
 	}
 	if k1 == token.KwSelf && (k2 == token.RParen || k2 == token.Comma || k2 == token.Colon) {
@@ -2142,7 +2177,7 @@ func (p *Parser) parseVecOrRepeatArrayLit() ast.Expr {
 			Span: diag.Span{Start: openBr.Span.Start, End: closeBr.Span.End},
 		}
 	}
-	first := p.parseExpr()
+	first := p.parseExprNoTopLabelColon()
 	if _, ok := p.match(token.Colon); ok {
 		firstVal := p.parseExpr()
 		elems := []ast.Expr{firstVal}
@@ -2203,7 +2238,7 @@ func (p *Parser) parseHashLit() ast.Expr {
 			Span: diag.Span{Start: openHb.Span.Start, End: closeBr.Span.End},
 		}
 	}
-	first := p.parseExpr()
+	first := p.parseExprNoTopLabelColon()
 	if _, ok := p.match(token.Colon); ok {
 		firstVal := p.parseExpr()
 		entries := []ast.MapEntry{{
@@ -2216,7 +2251,7 @@ func (p *Parser) parseHashLit() ast.Expr {
 		if _, ok := p.match(token.Comma); ok {
 			hadComma = true
 			for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
-				k := p.parseExpr()
+				k := p.parseExprNoTopLabelColon()
 				p.expect(token.Colon, "between map key and value")
 				v := p.parseExpr()
 				entries = append(entries, ast.MapEntry{

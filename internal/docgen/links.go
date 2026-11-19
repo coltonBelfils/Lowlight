@@ -238,7 +238,12 @@ func ModuleDisplayName(rootDir, absPath string) string {
 	if rootDir != "" {
 		if rel, err := filepath.Rel(rootDir, absPath); err == nil && !strings.HasPrefix(rel, "..") {
 			rel = filepath.ToSlash(rel)
-			return strings.TrimSuffix(rel, ".ll")
+			noExt := strings.TrimSuffix(rel, ".ll")
+			parts := strings.Split(noExt, "/")
+			if len(parts) >= 2 && parts[len(parts)-1] == parts[len(parts)-2] {
+				return strings.Join(parts[:len(parts)-1], "/")
+			}
+			return noExt
 		}
 	}
 	return strings.TrimSuffix(filepath.Base(absPath), ".ll")

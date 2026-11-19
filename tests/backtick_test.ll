@@ -1,4 +1,4 @@
-import "std/test.ll" as t
+import "std/test" as t
 
 @test("multiline backtick string with interpolation and escapes")
 bind test_multiline_backtick = (): {

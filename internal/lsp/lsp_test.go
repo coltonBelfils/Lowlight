@@ -337,11 +337,11 @@ func TestLSPAutocompleteAllContexts(t *testing.T) {
 		return nil
 	}
 
-	// 1. Import path completion (`import "std/|"` -> `std/math.ll`, `std/fs.ll`, `std/pool.ll`)
+	// 1. Import path completion (`import "std/|"` -> `std/math`, `std/fs`, `std/pool`)
 	impItems := openAndComplete(`import "std//*CURSOR*/"
 bind main = (): {}
 `)
-	for _, want := range []string{"std/math.ll", "std/fs.ll", "std/pool.ll"} {
+	for _, want := range []string{"std/math", "std/fs", "std/pool"} {
 		if hasLabel(impItems, want) == nil {
 			t.Errorf("import completion missing %q; got %+v", want, impItems)
 		}
@@ -382,10 +382,10 @@ bind main = (): {
 	}
 
 	// 4. Generic `Pool[int]` dot-completion on uninstantiated generic methods (`alloc`, `get`, `free`)!
-	poolItems := openAndComplete(`import "std/pool.ll"
+	poolItems := openAndComplete(`import "std/pool"
 
 bind main = (): {
-	let p = Pool[int].new()
+	let p = pool.Pool[int].new()
 	p./*CURSOR*/
 }
 `)
@@ -428,7 +428,7 @@ bind main = (): {
 	}
 
 	// 6. Enum variant completion (`Color.|`), `Arena.|`, and module alias `math.|`
-	enumItems := openAndComplete(`import "std/math.ll" as math
+	enumItems := openAndComplete(`import "std/math"
 define Color enum [Red, Green, Blue]
 bind main = (): {
 	let c = Color./*CURSOR*/
@@ -440,7 +440,7 @@ bind main = (): {
 		}
 	}
 
-	modItems := openAndComplete(`import "std/math.ll" as math
+	modItems := openAndComplete(`import "std/math"
 bind main = (): {
 	let v = math./*CURSOR*/
 }
@@ -498,7 +498,7 @@ func TestLSPHoverDefinitionSignatureSymbolsAndQuickFixes(t *testing.T) {
 	docPath := filepath.Join(tmpDir, "features.ll")
 	uri := lsp.PathToURI(docPath)
 
-	src := `import "std/math.ll" as math
+	src := `import "std/math"
 
 define Counter struct [
 	value: int,
@@ -540,8 +540,8 @@ bind main = (): {
 		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
 		Position:     lsp.OffsetToLSP(src, clampCallIdx),
 	}, &defLoc)
-	if !strings.HasSuffix(lsp.URIToPath(defLoc.URI), filepath.Join("std", "math.ll")) {
-		t.Errorf("expected definition of `math.clamp` in std/math.ll, got URI %q", defLoc.URI)
+	if !strings.HasSuffix(lsp.URIToPath(defLoc.URI), filepath.Join("std", "math", "math.ll")) {
+		t.Errorf("expected definition of `math.clamp_int` in std/math/math.ll, got URI %q", defLoc.URI)
 	}
 
 	// 3. Same-file Go-to-Definition on `c.add` -> jumps to `bind Counter.add` (line 6, 0-based)
@@ -664,12 +664,12 @@ func TestLSPDuplicateDeclarationDiagnostics(t *testing.T) {
 	docPath := filepath.Join(t.TempDir(), "dup_test.ll")
 	uri := lsp.PathToURI(docPath)
 
-	dupSrc := `import "std/test.ll"
+	dupSrc := `import "std/test"
 
 @test("pass")
-bind t = (): assert_eq(1, 1)
+bind t = (): test.assert_eq(1, 1)
 @test("fail")
-bind t = (): assert_eq(1, 2)`
+bind t = (): test.assert_eq(1, 2)`
 	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
 		TextDocument: lsp.TextDocumentItem{
 			URI:        uri,
@@ -695,12 +695,12 @@ bind t = (): assert_eq(1, 2)`
 	}
 
 	// Fix test name via didChange -> 0 diagnostics
-	fixedSrc := `import "std/test.ll"
+	fixedSrc := `import "std/test"
 
 @test("pass")
-bind test_pass = (): assert_eq(1, 1)
+bind test_pass = (): test.assert_eq(1, 1)
 @test("fail")
-bind test_fail = (): assert_eq(1, 2)`
+bind test_fail = (): test.assert_eq(1, 2)`
 	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
 		TextDocument:   lsp.VersionedTextDocumentIdentifier{URI: uri, Version: 2},
 		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: fixedSrc}},
@@ -1779,13 +1779,17 @@ func TestLSPIncrementalSyncConfigAndCrossFileDeps(t *testing.T) {
 	}
 	h.notify("initialized", map[string]any{})
 
-	helperPath := filepath.Join(wsDir, "helper.ll")
+	helperDir := filepath.Join(wsDir, "helper")
+	if err := os.MkdirAll(helperDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	helperPath := filepath.Join(helperDir, "helper.ll")
 	appPath := filepath.Join(wsDir, "app.ll")
 	helperURI := lsp.PathToURI(helperPath)
 	appURI := lsp.PathToURI(appPath)
 
 	helperSrc := "bind double_it = (x: int) int: x * 2\n"
-	appSrc := "import \"helper.ll\" as helper\nimport \"std/math.ll\" as math\n\nbind main = (): {\n\tlet v = helper.double_it(math.clamp_int(-5, 0, 10))\n\tprintln(v)\n}\n"
+	appSrc := "import \"./helper\"\nimport \"std/math\"\n\nbind main = (): {\n\tlet v = helper.double_it(math.clamp_int(-5, 0, 10))\n\tprintln(v)\n}\n"
 
 	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
 		TextDocument: lsp.TextDocumentItem{URI: helperURI, LanguageID: "lowlight", Version: 1, Text: helperSrc},
@@ -1997,7 +2001,11 @@ func TestLSPSemanticTokensReferencesRenameAndNavigation(t *testing.T) {
 	h.request("initialize", lsp.InitializeParams{RootURI: lsp.PathToURI(wsDir)}, &initRes)
 	h.notify("initialized", map[string]any{})
 
-	libPath := filepath.Join(wsDir, "shapes.ll")
+	shapesDir := filepath.Join(wsDir, "shapes")
+	if err := os.MkdirAll(shapesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	libPath := filepath.Join(shapesDir, "shapes.ll")
 	mainPath := filepath.Join(wsDir, "main.ll")
 	libURI := lsp.PathToURI(libPath)
 	mainURI := lsp.PathToURI(mainPath)
@@ -2018,7 +2026,7 @@ bind helper_sum = (val: int) int: {
 	tmp
 }
 `
-	mainSrc := `import "shapes.ll" as shapes
+	mainSrc := `import "./shapes"
 
 bind use_square = (s: shapes.Square) float: s.area()
 
@@ -2268,7 +2276,7 @@ bind use_all = (flag: bool) int: {
 		t.Errorf("expected extract variable and extract function actions, got: %+v", extActions)
 	}
 
-	// Auto-import missing symbol (`clamp_int` -> `std/math.ll`)
+	// Auto-import missing symbol (`clamp_int` -> `std/math`)
 	impPath := filepath.Join(wsDir, "autoimp.ll")
 	impURI := lsp.PathToURI(impPath)
 	impSrc := "bind main = (): {\n\tlet v = clamp_int(5, 0, 10)\n\tprintln(v)\n}\n"
@@ -2284,13 +2292,13 @@ bind use_all = (flag: bool) int: {
 	}, &impActions)
 	foundMathImp := false
 	for _, a := range impActions {
-		if strings.Contains(a.Title, `Import "std/math.ll"`) {
+		if strings.Contains(a.Title, `Import "std/math"`) {
 			foundMathImp = true
 			break
 		}
 	}
 	if !foundMathImp {
-		t.Errorf("expected auto-import 'Import \"std/math.ll\"' action, got: %+v", impActions)
+		t.Errorf("expected auto-import 'Import \"std/math\"' action, got: %+v", impActions)
 	}
 }
 

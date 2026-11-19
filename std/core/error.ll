@@ -3,8 +3,6 @@
 // Provides [`Error`] and [`ErrorFrame`] for composing causal error chains with
 // optional machine-readable error codes and `@track_caller` source locations.
 
-import "./interfaces.ll"
-import "./list.ll"
 
 // Single source-location frame inside an [`Error`] propagation trace.
 define ErrorFrame struct [

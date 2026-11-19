@@ -10,6 +10,7 @@ import (
 
 	"lowlight/internal/ast"
 	"lowlight/internal/diag"
+	"lowlight/internal/manifest"
 	"lowlight/internal/sema"
 )
 
@@ -135,12 +136,15 @@ func collectInputFiles(paths []string, projectRoot string) ([]string, string, er
 			}
 			if d.IsDir() {
 				base := d.Name()
-				if strings.HasPrefix(base, ".") && base != "." {
+				if (strings.HasPrefix(base, ".") && base != ".") || base == "vendor" || base == "editors" || base == "node_modules" || base == "docs" {
 					return filepath.SkipDir
 				}
 				return nil
 			}
 			if strings.HasSuffix(d.Name(), ".ll") {
+				if manifest.IsTestFile(d.Name()) {
+					return nil
+				}
 				// Leave std/json.ll excluded when walking `std/` cleanly (unless passed explicitly).
 				if filepath.Base(fp) == "json.ll" && filepath.Base(filepath.Dir(fp)) == "std" {
 					return nil
@@ -171,8 +175,14 @@ func collectInputFiles(paths []string, projectRoot string) ([]string, string, er
 }
 
 func detectRootForFiles(files []string) string {
+	if ctx, err := manifest.DiscoverProject(files[0]); err == nil && ctx != nil && ctx.RootDir() != "" {
+		return ctx.RootDir()
+	}
 	dir := filepath.Dir(files[0])
 	for {
+		if st, err := os.Stat(filepath.Join(dir, manifest.ManifestFilename)); err == nil && !st.IsDir() {
+			return dir
+		}
 		if st, err := os.Stat(filepath.Join(dir, "std")); err == nil && st.IsDir() {
 			return dir
 		}

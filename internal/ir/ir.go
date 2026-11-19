@@ -61,6 +61,7 @@ type StaticThunk struct {
 type Global struct {
 	Name      string
 	CName     string
+	PkgID     string
 	Type      types.Type
 	Locals    []*Local
 	InitInstr []Instr
@@ -81,6 +82,8 @@ type Local struct {
 type Function struct {
 	Name           string
 	CName          string
+	PkgID          string
+	IsGeneric      bool
 	Params         []*Local
 	RetType        types.Type
 	Locals         []*Local

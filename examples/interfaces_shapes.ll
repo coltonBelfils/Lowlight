@@ -5,7 +5,7 @@
 // - Owned boxed heterogeneous collections `[Shape]` via `Shape(val)`
 // - Mutable `&self` interface method dispatch (`s.scale(factor)`)
 
-import "std/math.ll"
+import "std/math"
 
 define Shape interface [
     name: (self) string,
@@ -19,7 +19,7 @@ define Circle struct [
 ]
 
 bind Circle.name = (self) string: { self.label.copy() }
-bind Circle.area = (self) float: { PI * self.radius * self.radius }
+bind Circle.area = (self) float: { math.PI * self.radius * self.radius }
 bind Circle.scale = (&self, factor: float): { self.radius *= factor }
 
 define Rect struct [
@@ -36,7 +36,7 @@ bind Rect.scale = (&self, factor: float): {
 
 // Zero-allocation read-only fat-pointer borrow!
 bind describe_shape = (s: Shape) string: {
-    "${s.name()}: area=${round(s.area() * 100.0) / 100.0}"
+    "${s.name()}: area=${math.round(s.area() * 100.0) / 100.0}"
 }
 
 bind main = (): {
@@ -64,5 +64,5 @@ bind main = (): {
 
     // Scaled circle radius=2 -> 4*PI (~12.566), scaled rect 6x8 -> 48 => ~60.566
     assert(total_area > 60.5 and total_area < 60.6)
-    println("Total scaled area (rounded): ${round(total_area)}")
+    println("Total scaled area (rounded): ${math.round(total_area)}")
 }

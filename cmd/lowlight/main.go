@@ -1,14 +1,17 @@
-// Command lowlight is the Lowlight v1.0 compiler CLI.
+// Command lowlight is the Lowlight v1.0 compiler and package manager CLI.
 package main
 
 import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"lowlight/internal/driver"
 	"lowlight/internal/lsp"
+	"lowlight/internal/manifest"
 )
 
 func main() {
@@ -43,9 +46,15 @@ func runCLI(args []string) int {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
+		if opts.Workspace {
+			return runWorkspaceCheck(opts)
+		}
 		_, warnings, err := driver.Check(opts)
 		if err != nil {
 			fmt.Fprint(os.Stderr, err.Error())
+			if !strings.HasSuffix(err.Error(), "\n") {
+				fmt.Fprintln(os.Stderr)
+			}
 			return 1
 		}
 		if warnings != "" {
@@ -62,6 +71,9 @@ func runCLI(args []string) int {
 		cSrc, _, err := driver.EmitC(opts)
 		if err != nil {
 			fmt.Fprint(os.Stderr, err.Error())
+			if !strings.HasSuffix(err.Error(), "\n") {
+				fmt.Fprintln(os.Stderr)
+			}
 			return 1
 		}
 		if opts.OutPath != "" {
@@ -84,6 +96,9 @@ func runCLI(args []string) int {
 		llvmSrc, _, err := driver.EmitLLVM(opts)
 		if err != nil {
 			fmt.Fprint(os.Stderr, err.Error())
+			if !strings.HasSuffix(err.Error(), "\n") {
+				fmt.Fprintln(os.Stderr)
+			}
 			return 1
 		}
 		if opts.OutPath != "" {
@@ -101,6 +116,9 @@ func runCLI(args []string) int {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
+		}
+		if opts.Workspace {
+			return runWorkspaceBuild(opts)
 		}
 		if _, err := driver.Build(opts); err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
@@ -134,6 +152,30 @@ func runCLI(args []string) int {
 		}
 		return code
 
+	case "init":
+		return runInit(rest, os.Stdout, os.Stderr)
+
+	case "new":
+		return runNew(rest, os.Stdout, os.Stderr)
+
+	case "add":
+		return runAdd(rest, os.Stdout, os.Stderr)
+
+	case "remove":
+		return runRemove(rest, os.Stdout, os.Stderr)
+
+	case "fetch":
+		return runFetch(rest, os.Stdout, os.Stderr)
+
+	case "update":
+		return runUpdate(rest, os.Stdout, os.Stderr)
+
+	case "vendor":
+		return runVendor(rest, os.Stdout, os.Stderr)
+
+	case "tree":
+		return runTree(rest, os.Stdout, os.Stderr)
+
 	case "lsp":
 		return runLSP(rest)
 
@@ -148,6 +190,106 @@ func runCLI(args []string) int {
 		printUsage(os.Stderr)
 		return 1
 	}
+}
+
+func sortedMembers(ctx *manifest.ProjectContext) []*manifest.Manifest {
+	if ctx == nil {
+		return nil
+	}
+	if len(ctx.WorkspaceMembers) == 0 {
+		if ctx.ActiveManifest != nil {
+			return []*manifest.Manifest{ctx.ActiveManifest}
+		}
+		return nil
+	}
+	names := make([]string, 0, len(ctx.WorkspaceMembers))
+	for n := range ctx.WorkspaceMembers {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	out := make([]*manifest.Manifest, 0, len(names))
+	for _, n := range names {
+		out = append(out, ctx.WorkspaceMembers[n])
+	}
+	return out
+}
+
+func runWorkspaceCheck(opts driver.Options) int {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	ctx, err := manifest.DiscoverProject(cwd)
+	if err != nil || ctx == nil {
+		fmt.Fprintf(os.Stderr, "error: --workspace requires a lowlight.toml workspace\n")
+		return 1
+	}
+	members := sortedMembers(ctx)
+	exitCode := 0
+	for _, m := range members {
+		mOpts := opts
+		mOpts.Workspace = false
+		mOpts.Package = m.Package.Name
+		mOpts.EntryPath = m.Dir
+		mOpts.ManifestCtx = &manifest.ProjectContext{
+			ActiveManifest:    m,
+			WorkspaceManifest: ctx.WorkspaceManifest,
+			WorkspaceMembers:  ctx.WorkspaceMembers,
+		}
+		_, warnings, checkErr := driver.Check(mOpts)
+		if warnings != "" {
+			fmt.Fprint(os.Stderr, warnings)
+		}
+		if checkErr != nil {
+			fmt.Fprintln(os.Stderr, checkErr.Error())
+			exitCode = 1
+		}
+	}
+	return exitCode
+}
+
+func runWorkspaceBuild(opts driver.Options) int {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	ctx, err := manifest.DiscoverProject(cwd)
+	if err != nil || ctx == nil {
+		fmt.Fprintf(os.Stderr, "error: --workspace requires a lowlight.toml workspace\n")
+		return 1
+	}
+	members := sortedMembers(ctx)
+	exitCode := 0
+	for _, m := range members {
+		mOpts := opts
+		mOpts.Workspace = false
+		mOpts.Package = m.Package.Name
+		mOpts.EntryPath = m.Dir
+		mOpts.OutPath = ""
+		mOpts.ManifestCtx = &manifest.ProjectContext{
+			ActiveManifest:    m,
+			WorkspaceManifest: ctx.WorkspaceManifest,
+			WorkspaceMembers:  ctx.WorkspaceMembers,
+		}
+		checked, warnings, checkErr := driver.Check(mOpts)
+		if warnings != "" {
+			fmt.Fprint(os.Stderr, warnings)
+		}
+		if checkErr != nil {
+			fmt.Fprintln(os.Stderr, checkErr.Error())
+			exitCode = 1
+			continue
+		}
+		if checked.MainFunc != nil {
+			if _, buildErr := driver.Build(mOpts); buildErr != nil {
+				fmt.Fprintln(os.Stderr, buildErr.Error())
+				exitCode = 1
+			}
+		}
+	}
+	return exitCode
 }
 
 func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.Options, []string, error) {
@@ -166,6 +308,19 @@ func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.
 		switch arg {
 		case "--release":
 			opts.Release = true
+			opts.ReleaseSet = true
+		case "--workspace":
+			opts.Workspace = true
+		case "--locked":
+			opts.Locked = true
+		case "--offline":
+			opts.Offline = true
+		case "-p", "--package":
+			if i+1 >= len(args) {
+				return opts, nil, fmt.Errorf("missing argument for %s", arg)
+			}
+			i++
+			opts.Package = args[i]
 		case "--backend":
 			if i+1 >= len(args) {
 				return opts, nil, fmt.Errorf("missing argument for --backend")
@@ -221,13 +376,21 @@ func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.
 				opts.TargetTriple = strings.TrimPrefix(arg, "--target=")
 				continue
 			}
+			if strings.HasPrefix(arg, "--package=") {
+				opts.Package = strings.TrimPrefix(arg, "--package=")
+				continue
+			}
+			if strings.HasPrefix(arg, "-p=") {
+				opts.Package = strings.TrimPrefix(arg, "-p=")
+				continue
+			}
 			if len(arg) > 0 && arg[0] == '-' {
 				return opts, nil, fmt.Errorf("unknown flag %q", arg)
 			}
 			if opts.EntryPath == "" {
 				opts.EntryPath = arg
 			} else if allowProgArgs {
-				// Any positional args after <file.ll> in `lowlight run` are forwarded to the program
+				// Any positional args after <path> in `lowlight run` are forwarded to the program
 				progArgs = append(progArgs, args[i:]...)
 				i = len(args)
 			} else {
@@ -236,8 +399,14 @@ func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.
 		}
 	}
 
-	if opts.EntryPath == "" {
-		return opts, nil, fmt.Errorf("missing <file.ll> path")
+	if opts.EntryPath == "" && opts.Package == "" && !opts.Workspace {
+		// Allow zero-arg invocation inside a `lowlight.toml` project or workspace (§12.6).
+		if cwd, err := os.Getwd(); err == nil {
+			if ctx, derr := manifest.DiscoverProject(cwd); derr == nil && ctx != nil {
+				return opts, progArgs, nil
+			}
+		}
+		return opts, nil, fmt.Errorf("missing <file.ll|dir> path (or run inside a directory containing lowlight.toml)")
 	}
 	return opts, progArgs, nil
 }
@@ -255,6 +424,19 @@ func parseTestFlags(args []string) (driver.Options, error) {
 		switch arg {
 		case "--release":
 			opts.Release = true
+			opts.ReleaseSet = true
+		case "--workspace":
+			opts.Workspace = true
+		case "--locked":
+			opts.Locked = true
+		case "--offline":
+			opts.Offline = true
+		case "-p", "--package":
+			if i+1 >= len(args) {
+				return opts, fmt.Errorf("missing argument for %s", arg)
+			}
+			i++
+			opts.Package = args[i]
 		case "--backend":
 			if i+1 >= len(args) {
 				return opts, fmt.Errorf("missing argument for --backend")
@@ -315,6 +497,14 @@ func parseTestFlags(args []string) (driver.Options, error) {
 				opts.TargetTriple = strings.TrimPrefix(arg, "--target=")
 				continue
 			}
+			if strings.HasPrefix(arg, "--package=") {
+				opts.Package = strings.TrimPrefix(arg, "--package=")
+				continue
+			}
+			if strings.HasPrefix(arg, "-p=") {
+				opts.Package = strings.TrimPrefix(arg, "-p=")
+				continue
+			}
 			if len(arg) > 0 && arg[0] == '-' {
 				return opts, fmt.Errorf("unknown flag %q", arg)
 			}
@@ -322,7 +512,7 @@ func parseTestFlags(args []string) (driver.Options, error) {
 		}
 	}
 
-	if len(targets) == 0 {
+	if len(targets) == 0 && opts.Package == "" && !opts.Workspace {
 		targets = []string{"."}
 	}
 	opts.Targets = targets
@@ -361,28 +551,46 @@ func runLSP(args []string) int {
 }
 
 func printUsage(w *os.File) {
-	fmt.Fprint(w, `Lowlight v1.0 Compiler
+	// Keep filepath referenced if needed in future expansions.
+	_ = filepath.Separator
+	fmt.Fprint(w, `Lowlight v1.0 Compiler & Package Manager
 
 Usage:
-  lowlight build [-o <bin>] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] <file.ll>
-  lowlight run   [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] <file.ll> [-- <args...>]
-  lowlight test  [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path...>]
-  lowlight emit-llvm [-o <file.ll>] [--target <triple>] [--release] <file.ll>
-  lowlight emit-c [-o <file.c>] [--target <triple>] [--release] <file.ll>
-  lowlight check <file.ll>
-  lowlight fmt   [-w] [--check] [--indent tabs|spaces] [--tab-width N] [--line-width N] [<path...>]
-  lowlight doc   [-o <dir>] [--format html|md] [--check-links] [<path...>]
-  lowlight lsp   [--stdio] [--log <file>]
+  lowlight build     [-o <bin>] [-p <pkg>|--workspace] [--locked] [--offline] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path>]
+  lowlight run       [-p <pkg>] [--locked] [--offline] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path>] [-- <args...>]
+  lowlight test      [-p <pkg>|--workspace] [--locked] [--offline] [-run <regex>] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path...>]
+  lowlight check     [-p <pkg>|--workspace] [--locked] [--offline] [--target <triple>] [<path>]
+  lowlight emit-llvm [-o <file.ll>] [-p <pkg>] [--locked] [--offline] [--target <triple>] [--release] [<path>]
+  lowlight emit-c    [-o <file.c>]  [-p <pkg>] [--locked] [--offline] [--target <triple>] [--release] [<path>]
+
+Package Management:
+  lowlight init      [--lib|--bin] [--name <name>] [<dir>]
+  lowlight new       <dir> [--lib|--bin] [--name <name>]
+  lowlight add       <name> (--path <dir> | --url <url> [--hash <sha256>] | --index <url> --version <constraint>) [--dev] [--override] [--offline]
+  lowlight remove    <name> [--dev] [--override] [--offline]
+  lowlight fetch     [--locked] [--offline] [--target <triple>]
+  lowlight update    [<pkg>...] [--offline] [--target <triple>]
+  lowlight vendor    [--offline] [--target <triple>]
+  lowlight tree      [--locked] [--offline] [--target <triple>]
+
+Tooling:
+  lowlight fmt       [-w] [--check] [--indent tabs|spaces] [--tab-width N] [--line-width N] [<path...>]
+  lowlight doc       [-o <dir>] [--format html|md] [--check-links] [<path...>]
+  lowlight lsp       [--stdio] [--log <file>]
   lowlight version
   lowlight help
 
 Flags:
-  -o <path>        Output executable, LLVM IR, or C11 source path
-  --backend <kind> Codegen backend: "llvm" (default) or "c11" (ISO C11 backend)
+  -o <path>         Output executable, LLVM IR, or C11 source path
+  -p, --package <p> Select a workspace member package
+  --workspace       Operate across all workspace member packages
+  --locked          Require lowlight.lock to match lowlight.toml without modification
+  --offline         Disallow network requests (use local cache and/or ./vendor/)
+  --backend <kind>  Codegen backend: "llvm" (default) or "c11" (ISO C11 backend)
   --target <triple> Target triple for cross-compilation (e.g. "aarch64-unknown-linux-gnu")
-  --release        Optimize (-O2) and elide runtime bounds/shift checks
-  --cc <compiler>  C/LLVM compiler executable (default: $LOWLIGHT_CC, $CC, or clang/cc)
-  --stdio          Run Language Server Protocol (LSP 3.17) over stdin/stdout
-  --log <file>     Append JSON-RPC LSP trace logs to <file>
+  --release         Optimize (-O2) and elide runtime bounds/shift checks
+  --cc <compiler>   C/LLVM compiler executable (default: $LOWLIGHT_CC, $CC, or clang/cc)
+  --stdio           Run Language Server Protocol (LSP 3.17) over stdin/stdout
+  --log <file>      Append JSON-RPC LSP trace logs to <file>
 `)
 }

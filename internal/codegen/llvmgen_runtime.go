@@ -348,13 +348,32 @@ func (g *llvmEmitter) emitRuntimeAndDeclarations() {
 
 	// Runtime Globals
 	g.line("; Lowlight Standalone LLVM IR Runtime")
-	g.line("@ll_rt_live_allocs = internal global i64 0, align 8")
-	g.line("@ll_rt_argc = internal global i32 0, align 4")
-	g.line("@ll_rt_argv = internal global ptr null, align 8")
-	g.line("@ll_test_current_jmp = internal global ptr null, align 8")
-	g.line("@ll_test_last_panic = internal global [8192 x i8] zeroinitializer, align 1")
-	g.line("@ll_ssl_loaded = internal global i32 -1, align 4")
-	g.line("@ll_ssl_d = internal global [19 x ptr] zeroinitializer, align 8")
+	switch g.unitMode {
+	case UnitPackage:
+		g.line("@ll_rt_live_allocs = external global i64, align 8")
+		g.line("@ll_rt_argc = external global i32, align 4")
+		g.line("@ll_rt_argv = external global ptr, align 8")
+		g.line("@ll_test_current_jmp = external global ptr, align 8")
+		g.line("@ll_test_last_panic = external global [8192 x i8], align 1")
+		g.line("@ll_ssl_loaded = external global i32, align 4")
+		g.line("@ll_ssl_d = external global [19 x ptr], align 8")
+	case UnitLinkMain:
+		g.line("@ll_rt_live_allocs = global i64 0, align 8")
+		g.line("@ll_rt_argc = global i32 0, align 4")
+		g.line("@ll_rt_argv = global ptr null, align 8")
+		g.line("@ll_test_current_jmp = global ptr null, align 8")
+		g.line("@ll_test_last_panic = global [8192 x i8] zeroinitializer, align 1")
+		g.line("@ll_ssl_loaded = global i32 -1, align 4")
+		g.line("@ll_ssl_d = global [19 x ptr] zeroinitializer, align 8")
+	default:
+		g.line("@ll_rt_live_allocs = internal global i64 0, align 8")
+		g.line("@ll_rt_argc = internal global i32 0, align 4")
+		g.line("@ll_rt_argv = internal global ptr null, align 8")
+		g.line("@ll_test_current_jmp = internal global ptr null, align 8")
+		g.line("@ll_test_last_panic = internal global [8192 x i8] zeroinitializer, align 1")
+		g.line("@ll_ssl_loaded = internal global i32 -1, align 4")
+		g.line("@ll_ssl_d = internal global [19 x ptr] zeroinitializer, align 8")
+	}
 	g.line("")
 
 	// Platform-specific helpers: stdout, stderr, errno
@@ -2094,7 +2113,51 @@ func (g *llvmEmitter) emitNetAndTLSRuntime() {
 		g.funcSet[fn] = true
 	}
 
-	g.line(`@ll_tls_init_done = internal global i32 0, align 4
+	switch g.unitMode {
+	case UnitPackage:
+		g.raw(`@ll_tls_init_done = external global i32, align 4
+@ll_tls_is_avail = external global i32, align 4
+@ll_fn_OPENSSL_init_ssl = external global ptr, align 8
+@ll_fn_TLS_client_method = external global ptr, align 8
+@ll_fn_TLS_server_method = external global ptr, align 8
+@ll_fn_SSL_CTX_new = external global ptr, align 8
+@ll_fn_SSL_CTX_free = external global ptr, align 8
+@ll_fn_SSL_CTX_set_default_verify_paths = external global ptr, align 8
+@ll_fn_SSL_CTX_use_certificate_file = external global ptr, align 8
+@ll_fn_SSL_CTX_use_PrivateKey_file = external global ptr, align 8
+@ll_fn_SSL_new = external global ptr, align 8
+@ll_fn_SSL_free = external global ptr, align 8
+@ll_fn_SSL_set_fd = external global ptr, align 8
+@ll_fn_SSL_ctrl = external global ptr, align 8
+@ll_fn_SSL_connect = external global ptr, align 8
+@ll_fn_SSL_accept = external global ptr, align 8
+@ll_fn_SSL_read = external global ptr, align 8
+@ll_fn_SSL_write = external global ptr, align 8
+@ll_fn_SSL_shutdown = external global ptr, align 8
+`)
+	case UnitLinkMain:
+		g.raw(`@ll_tls_init_done = global i32 0, align 4
+@ll_tls_is_avail = global i32 0, align 4
+@ll_fn_OPENSSL_init_ssl = global ptr null, align 8
+@ll_fn_TLS_client_method = global ptr null, align 8
+@ll_fn_TLS_server_method = global ptr null, align 8
+@ll_fn_SSL_CTX_new = global ptr null, align 8
+@ll_fn_SSL_CTX_free = global ptr null, align 8
+@ll_fn_SSL_CTX_set_default_verify_paths = global ptr null, align 8
+@ll_fn_SSL_CTX_use_certificate_file = global ptr null, align 8
+@ll_fn_SSL_CTX_use_PrivateKey_file = global ptr null, align 8
+@ll_fn_SSL_new = global ptr null, align 8
+@ll_fn_SSL_free = global ptr null, align 8
+@ll_fn_SSL_set_fd = global ptr null, align 8
+@ll_fn_SSL_ctrl = global ptr null, align 8
+@ll_fn_SSL_connect = global ptr null, align 8
+@ll_fn_SSL_accept = global ptr null, align 8
+@ll_fn_SSL_read = global ptr null, align 8
+@ll_fn_SSL_write = global ptr null, align 8
+@ll_fn_SSL_shutdown = global ptr null, align 8
+`)
+	default:
+		g.raw(`@ll_tls_init_done = internal global i32 0, align 4
 @ll_tls_is_avail = internal global i32 0, align 4
 @ll_fn_OPENSSL_init_ssl = internal global ptr null, align 8
 @ll_fn_TLS_client_method = internal global ptr null, align 8
@@ -2113,8 +2176,9 @@ func (g *llvmEmitter) emitNetAndTLSRuntime() {
 @ll_fn_SSL_read = internal global ptr null, align 8
 @ll_fn_SSL_write = internal global ptr null, align 8
 @ll_fn_SSL_shutdown = internal global ptr null, align 8
-
-define internal void @ll_net_set_timeout(i64 %%fd, i64 %%timeout_ms) {
+`)
+	}
+	g.line(`define internal void @ll_net_set_timeout(i64 %%fd, i64 %%timeout_ms) {
 entry:
     %%c1 = icmp slt i64 %%fd, 0
     %%c2 = icmp sle i64 %%timeout_ms, 0

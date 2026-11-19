@@ -3,7 +3,7 @@
 // 1. Using the quick convenience function `http.get()`
 // 2. Using `http.Request.new()` and `http.Client.do()` for customized headers
 
-import "std/http.ll" as http
+import "std/http"
 
 bind main = (): {
     // =========================================================================

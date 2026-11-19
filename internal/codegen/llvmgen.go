@@ -35,6 +35,8 @@ type helperDecl struct {
 
 type llvmEmitter struct {
 	prog         *ir.Program
+	unitMode     UnitMode
+	defineFuncs  map[string]bool
 	sb           strings.Builder
 	strings      map[string]*stringLitEntry
 	stringList   []*stringLitEntry
@@ -172,7 +174,11 @@ func (g *llvmEmitter) emitAll() {
 	// 6. Lowered MIR Function and Method Bodies
 	g.line("; Lowered Lowlight Functions")
 	for _, fn := range g.prog.Funcs {
-		g.emitFunction(fn)
+		if g.unitMode == UnitStandalone || g.defineFuncs[fn.CName] {
+			g.emitFunction(fn)
+		} else {
+			g.emitFunctionDecl(fn)
+		}
 	}
 
 	// 7. Static Function Closure Thunks
@@ -182,7 +188,7 @@ func (g *llvmEmitter) emitAll() {
 	g.emitVTables()
 
 	// 9. Main Entry Point / Test Harness Runner
-	if g.prog.MainFunc != nil || g.prog.TestMode {
+	if g.unitMode != UnitPackage && (g.prog.MainFunc != nil || g.prog.TestMode) {
 		g.emitMain()
 	}
 
@@ -746,14 +752,19 @@ func (g *llvmEmitter) collectAllStrings() {
 	g.internString("%s")
 	g.internString("No tests found.\n")
 
-	// Collect string literals from all expressions across all functions and globals
-	for _, gl := range g.prog.Globals {
-		g.collectExprStrings(gl.InitExpr)
-		for _, instr := range gl.InitInstr {
-			g.collectInstrStrings(instr)
+	// Collect string literals from all expressions across functions and globals emitted in this unit
+	if g.unitMode != UnitPackage {
+		for _, gl := range g.prog.Globals {
+			g.collectExprStrings(gl.InitExpr)
+			for _, instr := range gl.InitInstr {
+				g.collectInstrStrings(instr)
+			}
 		}
 	}
 	for _, fn := range g.prog.Funcs {
+		if g.unitMode != UnitStandalone && !g.defineFuncs[fn.CName] {
+			continue
+		}
 		if fn.TestDesc != "" {
 			g.internString(fn.TestDesc)
 		}
@@ -944,9 +955,33 @@ func (g *llvmEmitter) emitGlobals() {
 	}
 	g.line("; Top-Level Constants")
 	for _, gl := range g.prog.Globals {
-		g.line("@%s = internal global %s zeroinitializer, align 8", gl.CName, g.llvmType(gl.Type))
+		switch g.unitMode {
+		case UnitPackage:
+			g.line("@%s = external global %s, align 8", gl.CName, g.llvmType(gl.Type))
+		case UnitLinkMain:
+			g.line("@%s = global %s zeroinitializer, align 8", gl.CName, g.llvmType(gl.Type))
+		default:
+			g.line("@%s = internal global %s zeroinitializer, align 8", gl.CName, g.llvmType(gl.Type))
+		}
 	}
 	g.line("")
+}
+
+func (g *llvmEmitter) emitFunctionDecl(fn *ir.Function) {
+	var paramTypes []string
+	if fn.IsLambda {
+		paramTypes = append(paramTypes, "ptr")
+	}
+	for _, p := range fn.Params {
+		pTy := g.llvmType(p.Type)
+		if p.IsMutPtr {
+			pTy = "ptr"
+		}
+		paramTypes = append(paramTypes, pTy)
+	}
+	retTy := g.llvmType(fn.RetType)
+	g.line("declare %s @%s(%s)", retTy, fn.CName, strings.Join(paramTypes, ", "))
+	g.declaredFns[fn.CName] = true
 }
 
 // -----------------------------------------------------------------------------
@@ -3335,8 +3370,10 @@ func (g *llvmEmitter) emitStaticThunks() {
 	g.line("; Static Function Closure Thunks")
 	for _, st := range g.prog.StaticThunks {
 		var paramDecls []string
+		var paramTypes []string
 		var callArgs []string
 		paramDecls = append(paramDecls, "ptr %_ll_env.param")
+		paramTypes = append(paramTypes, "ptr")
 		for idx, p := range st.FuncType.Params {
 			pn := fmt.Sprintf("%%_p%d.param", idx)
 			pTy := g.llvmType(p.Type)
@@ -3344,9 +3381,15 @@ func (g *llvmEmitter) emitStaticThunks() {
 				pTy = "ptr"
 			}
 			paramDecls = append(paramDecls, fmt.Sprintf("%s %s", pTy, pn))
+			paramTypes = append(paramTypes, pTy)
 			callArgs = append(callArgs, fmt.Sprintf("%s %s", pTy, pn))
 		}
 		retTy := g.llvmType(st.FuncType.Ret)
+		if g.unitMode == UnitPackage {
+			g.line("declare %s @%s(%s)", retTy, st.ThunkCName, strings.Join(paramTypes, ", "))
+			g.declaredFns[st.ThunkCName] = true
+			continue
+		}
 		g.line("define %s @%s(%s) {", retTy, st.ThunkCName, strings.Join(paramDecls, ", "))
 		g.line("entry:")
 		if st.FuncType.Ret.Equals(types.TypeVoid) {
@@ -3370,6 +3413,10 @@ func (g *llvmEmitter) emitVTables() {
 		cTy := g.llvmType(vt.Concrete)
 		vtInst := ir.VTableInstanceName(vt.Concrete, vt.Iface)
 		vtTypeName := ir.VTableTypeName(vt.Iface)
+		if g.unitMode == UnitPackage {
+			g.line("@%s = external constant %%struct.%s, align 8", vtInst, vtTypeName)
+			continue
+		}
 
 		// 1. drop_box
 		dropName := vtInst + "__drop"
@@ -3577,8 +3624,13 @@ func (g *llvmEmitter) emitVTables() {
 		for _, mn := range methodNames {
 			vtElems = append(vtElems, "ptr "+mn)
 		}
-		g.line("@%s = internal constant %%struct.%s { %s }, align 8",
-			vtInst, vtTypeName, strings.Join(vtElems, ", "))
+		if g.unitMode == UnitLinkMain {
+			g.line("@%s = constant %%struct.%s { %s }, align 8",
+				vtInst, vtTypeName, strings.Join(vtElems, ", "))
+		} else {
+			g.line("@%s = internal constant %%struct.%s { %s }, align 8",
+				vtInst, vtTypeName, strings.Join(vtElems, ", "))
+		}
 		g.line("")
 	}
 }

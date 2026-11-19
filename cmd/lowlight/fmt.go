@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"lowlight/internal/format"
+	"lowlight/internal/manifest"
 )
 
 func runFmt(args []string) int {
@@ -125,7 +126,7 @@ func runFmt(args []string) int {
 			}
 			if d.IsDir() {
 				base := d.Name()
-				if strings.HasPrefix(base, ".") && base != "." {
+				if (strings.HasPrefix(base, ".") && base != ".") || base == "vendor" || base == "editors" || base == "node_modules" {
 					return filepath.SkipDir
 				}
 				return nil
@@ -150,8 +151,13 @@ func runFmt(args []string) int {
 			hadErr = true
 			continue
 		}
-		opts := applyOverrides(format.LoadConfig(filepath.Dir(file)))
-		out, err := format.Format(file, string(raw), opts)
+		var out string
+		if filepath.Base(file) == manifest.ManifestFilename {
+			out, err = manifest.FormatManifestSource(string(raw))
+		} else {
+			opts := applyOverrides(format.LoadConfig(filepath.Dir(file)))
+			out, err = format.Format(file, string(raw), opts)
+		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			hadErr = true

@@ -3,7 +3,6 @@
 // Provides amortized O(1) push/pop, bounds-checked lookup, deep copy, deterministic
 // [`Drop`] cleanup, and forward [`Iterator`] traversal.
 
-import "./interfaces.ll"
 
 // Growable heap-allocated array of elements of type [`T`].
 //

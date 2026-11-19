@@ -75,7 +75,7 @@ var BuiltinKeywords = []KeywordDoc{
 	{Word: "unsafe", Detail: "unsafe low-level memory block", Summary: "Enables raw pointer (`ptr[T]`) dereferences, pointer arithmetic, raw intrinsics, and `extern` C calls."},
 	{Word: "extern", Detail: "C11 header or ABI function import", Summary: "Includes a C header (`extern \"stdio.h\"`) or binds a C ABI function (`extern puts: (s: ptr[u8]) i32`)."},
 	{Word: "unpack", Detail: "unpack tuple elements (`let x, y = unpack ...`)", Summary: "Unpacks a tuple or distinct tuple into comma-separated variables or assignment targets (`let x, y = unpack +[5, 7]`)."},
-	{Word: "import", Detail: "import Lowlight `.ll` module", Summary: "Imports declarations from another `.ll` module (`import \"std/math.ll\" as math`)."},
+	{Word: "import", Detail: "import Lowlight package", Summary: "Imports exported declarations from a package directory under a required qualifier (`import \"std/math\"` -> `math.sin`)."},
 }
 
 type CodeSnippet struct {

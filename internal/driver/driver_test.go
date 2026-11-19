@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"lowlight/internal/manifest"
 )
 
 func TestMultiFileTestFailureReturnsNonZero(t *testing.T) {
@@ -119,26 +121,27 @@ bind main = () void: {
 	}
 }
 
-func TestDiscoverLLFilesSkipsExcludedDirsRecursively(t *testing.T) {
+func TestDiscoverTestablePackageDirsSkipsExcludedDirsRecursively(t *testing.T) {
 	tmpDir := t.TempDir()
-	keep := filepath.Join(tmpDir, "src", "main.ll")
-	skipEditors := filepath.Join(tmpDir, "sub", "editors", "bundled.ll")
-	skipNode := filepath.Join(tmpDir, "node_modules", "pkg.ll")
-	skipVendor := filepath.Join(tmpDir, "sub", "vendor", "dep.ll")
+	keep := filepath.Join(tmpDir, "src", "main_test.ll")
+	skipEditors := filepath.Join(tmpDir, "sub", "editors", "bundled_test.ll")
+	skipNode := filepath.Join(tmpDir, "node_modules", "pkg_test.ll")
+	skipVendor := filepath.Join(tmpDir, "sub", "vendor", "dep_test.ll")
 	for _, p := range []string{keep, skipEditors, skipNode, skipVendor} {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(p, []byte("bind main = (): {}\n"), 0o644); err != nil {
+		if err := os.WriteFile(p, []byte("@test(\"ok\")\nbind t = (): {}\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	files, err := discoverLLFiles(tmpDir)
+	dirs, err := discoverTestablePackageDirs(tmpDir, manifest.ParseTarget(""))
 	if err != nil {
-		t.Fatalf("discoverLLFiles failed: %v", err)
+		t.Fatalf("discoverTestablePackageDirs failed: %v", err)
 	}
-	if len(files) != 1 || files[0] != keep {
-		t.Fatalf("expected only [%q], got %v", keep, files)
+	wantDir := filepath.Dir(keep)
+	if len(dirs) != 1 || dirs[0] != wantDir {
+		t.Fatalf("expected only [%q], got %v", wantDir, dirs)
 	}
 }

@@ -1,4 +1,4 @@
-import "std/fs.ll"
+import "std/fs"
 
 bind test_unsafe_call = (): {
     let msg = "Hello from Lowlight!"

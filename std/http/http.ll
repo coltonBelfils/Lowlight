@@ -4,7 +4,7 @@
 // blocking [`Client`] (HTTP and dynamic OpenSSL HTTPS), [`Server`], and in-memory
 // testing helpers ([`ResponseRecorder`], [`test_handler`], [`test_roundtrip`]).
 
-import "std/net.ll" as net
+import "std/net"
 
 // ============================================================================
 // 1. HTTP Status Codes & Status Texts

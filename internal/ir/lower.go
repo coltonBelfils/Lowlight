@@ -118,9 +118,14 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 		exprStr := fl.lowerExprOwned(tv.Decl.Value, tv.Sym.Type)
 		fl.flushStmtTemps()
 		fl.popScopeEmitDrops()
+		pkgID := ""
+		if tv.Mod != nil && tv.Mod.Pkg != nil {
+			pkgID = tv.Mod.Pkg.ID
+		}
 		irp.Globals = append(irp.Globals, &Global{
 			Name:      tv.Sym.Name,
 			CName:     tv.Sym.CName,
+			PkgID:     pkgID,
 			Type:      tv.Sym.Type,
 			Locals:    fl.locals,
 			InitInstr: fl.rootInstrs(),
@@ -133,7 +138,7 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 		if (fi.IsTest || fi.IsTestOnly) && !testMode {
 			continue
 		}
-		if fi.IsTest && prog.EntryMod != nil && fi.Mod != prog.EntryMod {
+		if fi.IsTest && prog.EntryPkg != nil && !prog.IsEntryPackageMod(fi.Mod) {
 			continue
 		}
 		fn := lowerFuncInstance(prog, fi, tc, release, registerThunk)
@@ -144,7 +149,7 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 		if fi == prog.TestMainFunc {
 			irp.TestMainFunc = fn
 		}
-		if fi.IsTest && (prog.EntryMod == nil || fi.Mod == prog.EntryMod) {
+		if fi.IsTest && (prog.EntryPkg == nil || prog.IsEntryPackageMod(fi.Mod)) {
 			irp.TestFuncs = append(irp.TestFuncs, fn)
 		}
 	}
@@ -286,9 +291,24 @@ func lowerFuncInstance(
 
 	fl.lowerFunctionBody(fi.Body, fi.Sig.Ret, fnScope)
 
+	pkgID := ""
+	if fi.Mod != nil && fi.Mod.Pkg != nil {
+		pkgID = fi.Mod.Pkg.ID
+	}
+	isGeneric := len(fi.TypeSubst) > 0
+	if !isGeneric && fi.RecvType != nil {
+		switch rt := fi.RecvType.(type) {
+		case *types.Struct:
+			isGeneric = len(rt.TypeArgs) > 0
+		case *types.Enum:
+			isGeneric = len(rt.TypeArgs) > 0
+		}
+	}
 	return &Function{
 		Name:           fi.Name,
 		CName:          fi.CName,
+		PkgID:          pkgID,
+		IsGeneric:      isGeneric,
 		Params:         params,
 		RetType:        fi.Sig.Ret,
 		Locals:         fl.locals,

@@ -6,17 +6,6 @@
 // [`std/core/set`], [`std/core/map`]), intervals ([`std/core/range`]), and
 // hashing ([`std/core/hash`]).
 
-import "./array.ll"
-import "./error.ll"
-import "./hash.ll"
-import "./interfaces.ll"
-import "./list.ll"
-import "./map.ll"
-import "./primitives.ll"
-import "./range.ll"
-import "./result.ll"
-import "./set.ll"
-
 // =============================================================================
 // Standard Core Inline Test Suite
 // =============================================================================

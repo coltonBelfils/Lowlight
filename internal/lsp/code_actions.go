@@ -10,6 +10,7 @@ import (
 	"lowlight/internal/ast"
 	"lowlight/internal/diag"
 	"lowlight/internal/format"
+	"lowlight/internal/manifest"
 	"lowlight/internal/parser"
 	"lowlight/internal/sema"
 	"lowlight/internal/token"
@@ -527,68 +528,111 @@ func (s *Server) collectAutoImportQuickFixes(
 		return
 	}
 
-	// Collect candidate modules from `std/*.ll` and sibling `.ll` files
-	type candMod struct {
+	// Collect candidate packages from `std/<pkg>/`, local subpackages, workspace members, and manifest dependencies.
+	type candPkg struct {
 		importStr string
-		absPath   string
+		dirPath   string
 		alias     string
 		isStd     bool
 	}
-	var candidates []candMod
-	seen := make(map[string]bool)
+	var candidates []candPkg
+	seenDirs := make(map[string]bool)
 
-	alreadyImported := make(map[string]bool)
+	alreadyImportedDir := make(map[string]bool)
+	curDir := filepath.Dir(absClean(filePath))
+	alreadyImportedDir[curDir] = true
 	if mod != nil {
-		alreadyImported[absClean(mod.Path)] = true
 		for _, imp := range mod.Imports {
 			if imp != nil {
-				alreadyImported[absClean(imp.Path)] = true
+				alreadyImportedDir[filepath.Dir(absClean(imp.Path))] = true
 			}
 		}
 		for _, imp := range mod.Aliased {
 			if imp != nil {
-				alreadyImported[absClean(imp.Path)] = true
+				alreadyImportedDir[filepath.Dir(absClean(imp.Path))] = true
 			}
 		}
 	}
 
-	// Sibling `.ll` files
-	dir := filepath.Dir(absClean(filePath))
-	if entries, err := os.ReadDir(dir); err == nil {
+	dirHasPkgLL := func(dPath string) bool {
+		entries, err := os.ReadDir(dPath)
+		if err != nil {
+			return false
+		}
 		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".ll") {
-				continue
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".ll") && !manifest.IsTestFile(e.Name()) {
+				return true
 			}
-			absP := filepath.Join(dir, e.Name())
-			if alreadyImported[absP] || seen[absP] {
-				continue
+		}
+		return false
+	}
+
+	addCandidate := func(importStr, dirPath, alias string, isStd bool) {
+		cleanD := absClean(dirPath)
+		if alreadyImportedDir[cleanD] || seenDirs[cleanD] || !dirHasPkgLL(cleanD) {
+			return
+		}
+		seenDirs[cleanD] = true
+		candidates = append(candidates, candPkg{
+			importStr: importStr,
+			dirPath:   cleanD,
+			alias:     manifest.NormalizeQualifier(alias),
+			isStd:     isStd,
+		})
+	}
+
+	// 1. Project manifest subpackages, workspace members, and resolved dependencies
+	if prog != nil && prog.ManifestCtx != nil {
+		ctx := prog.ManifestCtx
+		if ctx.ActiveManifest != nil && ctx.ActiveManifest.HasPackage {
+			pkgRoot := ctx.ActiveManifest.Dir
+			pkgName := ctx.ActiveManifest.Package.Name
+			addCandidate(pkgName, pkgRoot, pkgName, false)
+			if entries, err := os.ReadDir(pkgRoot); err == nil {
+				for _, e := range entries {
+					if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || e.Name() == "vendor" || e.Name() == "tests" {
+						continue
+					}
+					sub := filepath.Join(pkgRoot, e.Name())
+					addCandidate(pkgName+"/"+e.Name(), sub, e.Name(), false)
+				}
 			}
-			seen[absP] = true
-			stem := strings.TrimSuffix(e.Name(), ".ll")
-			candidates = append(candidates, candMod{importStr: e.Name(), absPath: absP, alias: stem})
+		}
+		if prog.ResolvedDeps != nil {
+			for depName, rp := range prog.ResolvedDeps.Packages {
+				if rp != nil && rp.Dir != "" {
+					addCandidate(depName, rp.Dir, depName, false)
+				}
+			}
+		}
+	} else {
+		// Standalone script: check sibling subdirectories as relative `./<pkg>` packages
+		if entries, err := os.ReadDir(curDir); err == nil {
+			for _, e := range entries {
+				if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || e.Name() == "vendor" || e.Name() == "editors" || e.Name() == "node_modules" {
+					continue
+				}
+				sub := filepath.Join(curDir, e.Name())
+				addCandidate("./"+e.Name(), sub, e.Name(), false)
+			}
 		}
 	}
 
-	// `std/*.ll` modules (excluding std/json.ll)
+	// 2. `std/<pkg>/` package directories (excluding `core` which is implicitly preloaded)
 	stdDir := ""
 	if prog != nil && prog.StdDir != "" {
 		stdDir = prog.StdDir
-	} else if root := s.projectRootFor(filePath); root != "" {
-		stdDir = filepath.Join(root, "std")
+	} else {
+		stdDir = manifest.FindStdDir(s.projectRootFor(filePath), curDir)
 	}
 	if stdDir != "" {
 		if entries, err := os.ReadDir(stdDir); err == nil {
 			for _, e := range entries {
-				if e.IsDir() || !strings.HasSuffix(e.Name(), ".ll") || e.Name() == "json.ll" {
+				if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || e.Name() == "core" {
 					continue
 				}
-				absP := filepath.Join(stdDir, e.Name())
-				if alreadyImported[absP] || seen[absP] {
-					continue
-				}
-				seen[absP] = true
-				stem := strings.TrimSuffix(e.Name(), ".ll")
-				candidates = append(candidates, candMod{importStr: "std/" + e.Name(), absPath: absP, alias: stem, isStd: true})
+				sub := filepath.Join(stdDir, e.Name())
+				addCandidate("std/"+e.Name(), sub, e.Name(), true)
 			}
 		}
 	}
@@ -602,14 +646,14 @@ func (s *Server) collectAutoImportQuickFixes(
 
 	insertPos := importInsertionPosition(src, mod)
 	for _, c := range candidates {
-		// Case 1: missingSym is a module alias itself (e.g., `math` in `math.sin`)
+		// Case 1: missingSym is a package qualifier itself (e.g., `math` in `math.sin`)
 		if c.alias == missingSym {
-			line := fmt.Sprintf("import %q as %s\n", c.importStr, c.alias)
+			line := fmt.Sprintf("import %q\n", c.importStr)
 			if insertPos.Line == 0 && len(src) > 0 && !strings.HasPrefix(src, "import ") {
 				line += "\n"
 			}
 			addAction(CodeAction{
-				Title:       fmt.Sprintf("Import %q as %s", c.importStr, c.alias),
+				Title:       fmt.Sprintf("Import %q", c.importStr),
 				Kind:        "quickfix",
 				Diagnostics: []Diagnostic{d},
 				IsPreferred: true,
@@ -622,28 +666,45 @@ func (s *Server) collectAutoImportQuickFixes(
 			continue
 		}
 
-		// Case 2: missingSym is an exported symbol or type declared inside `c.absPath`
-		candSrc := s.readSourceForPath(c.absPath)
-		if candSrc == "" || !strings.Contains(candSrc, missingSym) {
-			continue
+		// Case 2: missingSym is an exported symbol or type declared in any non-test `.ll` file of `c.dirPath`
+		foundInPkg := false
+		if entries, err := os.ReadDir(c.dirPath); err == nil {
+			for _, e := range entries {
+				if e.IsDir() || !strings.HasSuffix(e.Name(), ".ll") || manifest.IsTestFile(e.Name()) {
+					continue
+				}
+				fPath := filepath.Join(c.dirPath, e.Name())
+				candSrc := s.readSourceForPath(fPath)
+				if candSrc == "" || !strings.Contains(candSrc, missingSym) {
+					continue
+				}
+				rep := diag.NewReporter()
+				af, _ := parser.ParseFileWithComments(fPath, candSrc, rep)
+				if af != nil && fileExportsSymbol(af, missingSym) {
+					foundInPkg = true
+					break
+				}
+			}
 		}
-		rep := diag.NewReporter()
-		af, _ := parser.ParseFileWithComments(c.absPath, candSrc, rep)
-		if af == nil || !fileExportsSymbol(af, missingSym) {
+		if !foundInPkg {
 			continue
 		}
 		line := fmt.Sprintf("import %q\n", c.importStr)
 		if insertPos.Line == 0 && len(src) > 0 && !strings.HasPrefix(src, "import ") {
 			line += "\n"
 		}
+		edits := []TextEdit{
+			{Range: Range{Start: insertPos, End: insertPos}, NewText: line},
+			{Range: Range{Start: d.Range.Start, End: d.Range.Start}, NewText: c.alias + "."},
+		}
 		addAction(CodeAction{
-			Title:       fmt.Sprintf("Import %q (for '%s')", c.importStr, missingSym),
+			Title:       fmt.Sprintf("Import %q (qualify as '%s.%s')", c.importStr, c.alias, missingSym),
 			Kind:        "quickfix",
 			Diagnostics: []Diagnostic{d},
 			IsPreferred: true,
 			Edit: &WorkspaceEdit{
 				Changes: map[string][]TextEdit{
-					uri: {{Range: Range{Start: insertPos, End: insertPos}, NewText: line}},
+					uri: edits,
 				},
 			},
 		})

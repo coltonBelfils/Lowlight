@@ -1,6 +1,6 @@
-import "std/strings.ll"
-import "std/strconv.ll"
-import "std/strfmt.ll" as fmt
+import "std/strings"
+import "std/strconv"
+import "std/strfmt" as fmt
 
 bind main = (): {
     // 1. strconv methods on string
@@ -33,9 +33,9 @@ bind main = (): {
     assert((bad_str.to_int() ?? -1) == -1)
 
     // 2. Formatting values to strings
-    assert(int_to_hex(255, true) == "FF")
-    assert(int_to_bin(10) == "1010")
-    assert(int_to_oct(64) == "100")
+    assert(strconv.int_to_hex(255, true) == "FF")
+    assert(strconv.int_to_bin(10) == "1010")
+    assert(strconv.int_to_oct(64) == "100")
 
     // 3. strfmt methods on string
     let raw = "hello"

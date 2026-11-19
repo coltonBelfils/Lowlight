@@ -3,9 +3,6 @@
 // Requires element types implementing [`Hashable`] (and [`Equatable`] / [`Copyable`] for
 // containment and iteration). Backed by `#[T]` type and literal syntax.
 
-import "./hash.ll"
-import "./interfaces.ll"
-import "./list.ll"
 
 // Internal entry slot stored in a [`Set`]'s entry table.
 define SetEntry[T: Hashable] struct [

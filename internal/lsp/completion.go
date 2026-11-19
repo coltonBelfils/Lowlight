@@ -11,6 +11,7 @@ import (
 	"lowlight/internal/ast"
 	"lowlight/internal/diag"
 	"lowlight/internal/lexer"
+	"lowlight/internal/manifest"
 	"lowlight/internal/sema"
 	"lowlight/internal/token"
 	"lowlight/internal/types"
@@ -148,33 +149,34 @@ func (s *Server) completeImportPath(filePath string, src string, offset int) *Co
 		})
 	}
 
-	// Standard library modules
+	// Standard library packages (`std/<pkg>`)
 	stdDescriptions := map[string]string{
-		"std/chars.ll":   "Character classification, ASCII case folding, radix digits, and UTF-8 lengths",
-		"std/fs.ll":      "Lowlight standard filesystem module (`File`, `read_file`, `write_file`, `exists`, ...)",
-		"std/http.ll":    "HTTP/1.1 client, server, router (`ServeMux`), URL parser, and test helpers",
-		"std/math.ll":    "Lowlight standard math module (`PI`, `sin`, `cos`, `clamp_int`, `lerp`, ...)",
-		"std/net.ll":     "Lowlight TCP networking module (`TcpStream`, `TcpListener`, `socketpair`)",
-		"std/os.ll":      "OS environment, paths, processes (`exec`), and system info",
-		"std/pool.ll":    "Generational handle pool (`Pool[T]`, `Handle`)",
-		"std/sort.ll":    "In-place sorting, comparators, binary search, and collection helpers",
-		"std/strconv.ll": "Integer, float, radix, and boolean string parsing and formatting",
-		"std/strfmt.ll":  "Number formatting, padding, alignment, case conversions, and quoting",
-		"std/strings.ll": "Extended string searching, splitting, trimming, and transformation helpers",
-		"std/test.ll":    "Test assertions (`assert_eq`, `assert_is_ok`, `format_diff`) for `@test` suites",
-		"std/time.ll":    "Monotonic `Instant`, `Duration`, wall-clock `DateTime`, and sleep helpers",
+		"std/chars":   "Character classification, ASCII case folding, radix digits, and UTF-8 lengths",
+		"std/fs":      "Lowlight standard filesystem package (`File`, `read_file`, `write_file`, `exists`, ...)",
+		"std/http":    "HTTP/1.1 client, server, router (`ServeMux`), URL parser, and test helpers",
+		"std/math":    "Lowlight standard math package (`PI`, `sin`, `cos`, `clamp_int`, `lerp`, ...)",
+		"std/net":     "Lowlight TCP networking package (`TcpStream`, `TcpListener`, `socketpair`)",
+		"std/os":      "OS environment, paths, processes (`exec`), and system info",
+		"std/pool":    "Generational handle pool (`Pool[T]`, `Handle`)",
+		"std/sort":    "In-place sorting, comparators, binary search, and collection helpers",
+		"std/strconv": "Integer, float, radix, and boolean string parsing and formatting",
+		"std/strfmt":  "Number formatting, padding, alignment, case conversions, and quoting",
+		"std/strings": "Extended string searching, splitting, trimming, and transformation helpers",
+		"std/test":    "Test assertions (`assert_eq`, `assert_is_ok`, `format_diff`) for `@test` suites",
+		"std/time":    "Monotonic `Instant`, `Duration`, wall-clock `DateTime`, and sleep helpers",
 	}
-	for _, stdMod := range []string{"std/math.ll", "std/fs.ll", "std/pool.ll", "std/net.ll", "std/http.ll", "std/strings.ll", "std/time.ll", "std/os.ll", "std/test.ll"} {
+	for _, stdMod := range []string{"std/math", "std/fs", "std/pool", "std/net", "std/http", "std/strings", "std/time", "std/os", "std/test", "std/chars", "std/sort", "std/strconv", "std/strfmt"} {
 		addCandidate(stdMod, stdDescriptions[stdMod], "0")
 	}
-	if root := s.projectRootFor(filePath); root != "" {
-		if entries, err := os.ReadDir(filepath.Join(root, "std")); err == nil {
+	dir := filepath.Dir(filePath)
+	if stdDir := manifest.FindStdDir(s.projectRootFor(filePath), dir); stdDir != "" {
+		if entries, err := os.ReadDir(stdDir); err == nil {
 			for _, e := range entries {
-				if !e.IsDir() && strings.HasSuffix(e.Name(), ".ll") {
+				if e.IsDir() && !strings.HasPrefix(e.Name(), ".") && e.Name() != "core" {
 					rel := "std/" + e.Name()
 					desc := stdDescriptions[rel]
 					if desc == "" {
-						desc = "Standard library module"
+						desc = "Standard library package"
 					}
 					addCandidate(rel, desc, "0")
 				}
@@ -182,13 +184,34 @@ func (s *Server) completeImportPath(filePath string, src string, offset int) *Co
 		}
 	}
 
-	// Sibling `.ll` files in the current file's directory
-	dir := filepath.Dir(filePath)
-	baseSelf := filepath.Base(filePath)
-	if entries, err := os.ReadDir(dir); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".ll") && e.Name() != baseSelf {
-				addCandidate(e.Name(), "Local Lowlight module", "1")
+	// Project subpackages, workspace members, and manifest dependencies (or sibling `./<pkg>` dirs when standalone)
+	if ctx, err := manifest.DiscoverProject(filePath); err == nil && ctx != nil {
+		if ctx.ActiveManifest != nil && ctx.ActiveManifest.HasPackage {
+			pkgName := ctx.ActiveManifest.Package.Name
+			pkgRoot := ctx.ActiveManifest.Dir
+			if entries, err := os.ReadDir(pkgRoot); err == nil {
+				for _, e := range entries {
+					if e.IsDir() && !strings.HasPrefix(e.Name(), ".") && e.Name() != "vendor" && e.Name() != "tests" {
+						addCandidate(pkgName+"/"+e.Name(), "Local project package", "1")
+					}
+				}
+			}
+			for dep := range ctx.ActiveManifest.Dependencies {
+				addCandidate(dep, "Manifest dependency", "1")
+			}
+			for dep := range ctx.ActiveManifest.DevDependencies {
+				addCandidate(dep, "Manifest dev-dependency", "1")
+			}
+		}
+		for memberName := range ctx.WorkspaceMembers {
+			addCandidate(memberName, "Workspace member package", "1")
+		}
+	} else {
+		if entries, err := os.ReadDir(dir); err == nil {
+			for _, e := range entries {
+				if e.IsDir() && !strings.HasPrefix(e.Name(), ".") && e.Name() != "vendor" && e.Name() != "editors" && e.Name() != "node_modules" {
+					addCandidate("./"+e.Name(), "Local Lowlight package", "1")
+				}
 			}
 		}
 	}

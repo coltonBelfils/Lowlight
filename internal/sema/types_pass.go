@@ -16,7 +16,13 @@ import (
 const MaxMonomorphDepth = 128
 
 func (a *Analyzer) moduleTag(mod *Module) string {
-	if mod == nil || mod == a.Prog.EntryMod || mod == a.coreMod {
+	if mod == nil {
+		return ""
+	}
+	if mod.Pkg != nil {
+		return mod.Pkg.Tag
+	}
+	if mod == a.Prog.EntryMod || mod == a.coreMod {
 		return ""
 	}
 	base := filepath.Base(mod.Path)
@@ -551,6 +557,9 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				Doc:    td.Doc,
 			}
 			a.checkAttributes(td.Attributes, st, td.Span, "struct")
+			if mod.IsTestFile {
+				st.IsTestOnly = true
+			}
 			mod.Types[td.Name] = st
 			a.Prog.StructDecls[st] = td
 			a.Prog.StructMods[st] = mod
@@ -597,6 +606,9 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				Underlying: types.TypeInt,
 			}
 			a.checkAttributes(td.Attributes, en, td.Span, "enum")
+			if mod.IsTestFile {
+				en.IsTestOnly = true
+			}
 			mod.Types[td.Name] = en
 			a.Prog.EnumDecls[en] = td
 			a.Prog.EnumMods[en] = mod
@@ -747,6 +759,9 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				a.Prog.IfaceContainable = ifc
 			}
 			a.checkAttributes(td.Attributes, ifc, td.Span, "interface")
+			if mod.IsTestFile {
+				ifc.IsTestOnly = true
+			}
 			mod.Types[td.Name] = ifc
 			a.Prog.TypeSpans[ifc] = td.Span
 			a.Prog.InterfaceMods[ifc] = mod
@@ -771,6 +786,9 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				Base:   types.TypeInvalid,
 			}
 			a.checkAttributes(td.Attributes, dt, td.Span, "distinct type")
+			if mod.IsTestFile {
+				dt.IsTestOnly = true
+			}
 			mod.Types[td.Name] = dt
 			a.Prog.TypeSpans[dt] = td.Span
 			a.Prog.DistinctMods[dt] = mod
@@ -2487,6 +2505,9 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				fi.DeclSpan = decl.Span
 				fi.Doc = decl.Doc
 				a.checkAttributes(decl.Attributes, fi, decl.Span, "function")
+				if mod.IsTestFile && !fi.IsTest && decl.Name != "test_main" {
+					fi.IsTestOnly = true
+				}
 				a.Prog.Funcs = append(a.Prog.Funcs, fi)
 				sym := &Symbol{
 					Name:          decl.Name,
@@ -2508,12 +2529,12 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					TestDesc:      fi.TestDesc,
 				}
 				mod.Symbols[decl.Name] = sym
-				if mod == a.Prog.EntryMod && decl.Name == "main" {
+				if a.Prog.IsEntryPackageMod(mod) && decl.Name == "main" {
 					fi.IsMain = true
 					a.validateMainSig(fi, decl.Span)
 					a.Prog.MainFunc = fi
 				}
-				if mod == a.Prog.EntryMod && decl.Name == "test_main" {
+				if a.Prog.IsEntryPackageMod(mod) && decl.Name == "test_main" {
 					fi.IsTestMain = true
 					a.validateTestMainSig(fi, decl.Span)
 					a.Prog.TestMainFunc = fi
@@ -2556,17 +2577,31 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					Span:       decl.Span,
 				}
 				a.checkAttributes(decl.Attributes, sym, decl.Span, "variable")
+				if mod.IsTestFile {
+					sym.IsTestOnly = true
+				}
 				mod.Symbols[decl.Name] = sym
 			} else {
 				sym.Doc = decl.Doc
 				a.checkAttributes(decl.Attributes, sym, decl.Span, "variable")
+				if mod.IsTestFile {
+					sym.IsTestOnly = true
+				}
 			}
 			a.Prog.TopVars = append(a.Prog.TopVars, &TopVarInit{Sym: sym, Decl: decl, Mod: mod})
 
 		case *ast.MethodDecl:
+			recvDisplay := decl.RecvType
+			if decl.RecvModule != "" {
+				recvDisplay = decl.RecvModule + "." + decl.RecvType
+			}
 			if len(decl.RecvTypeParams) > 0 || len(decl.TypeParams) > 0 {
 				if a.genMethods[decl.RecvType] == nil {
 					a.genMethods[decl.RecvType] = make(map[string]*GenericFuncTemplate)
+				}
+				if existing, dup := a.genMethods[decl.RecvType][decl.Name]; dup && existing != nil && existing.MethodDecl != nil {
+					a.Rep.Errorf(decl.Span, "duplicate method `%s.%s` (already defined at %s)", recvDisplay, decl.Name, existing.MethodDecl.Span.String())
+					continue
 				}
 				a.genMethods[decl.RecvType][decl.Name] = &GenericFuncTemplate{
 					Name:       decl.RecvType + "." + decl.Name,
@@ -2577,9 +2612,9 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				continue
 			}
 
-			recvTy := a.lookupTypeInModule(mod, "", decl.RecvType)
+			recvTy := a.lookupTypeInModule(mod, decl.RecvModule, decl.RecvType)
 			if recvTy == nil {
-				a.Rep.Errorf(decl.Span, "unknown receiver type %q in method declaration", decl.RecvType)
+				a.Rep.Errorf(decl.Span, "unknown receiver type %q in method declaration", recvDisplay)
 				continue
 			}
 			fi := a.buildMethodInstance(mod, recvTy, decl, nil)
@@ -2587,8 +2622,12 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 			if a.methods[key] == nil {
 				a.methods[key] = make(map[string]*FuncInstance)
 			}
-			if _, dup := a.methods[key][decl.Name]; dup {
-				a.Rep.Errorf(decl.Span, "duplicate method `%s.%s`", decl.RecvType, decl.Name)
+			if existing, dup := a.methods[key][decl.Name]; dup {
+				if existing != nil && existing.DeclSpan.Start.File != "" {
+					a.Rep.Errorf(decl.Span, "duplicate method `%s.%s` (already defined at %s)", recvDisplay, decl.Name, existing.DeclSpan.String())
+				} else {
+					a.Rep.Errorf(decl.Span, "duplicate method `%s.%s`", recvDisplay, decl.Name)
+				}
 				continue
 			}
 			a.methods[key][decl.Name] = fi
@@ -2659,7 +2698,7 @@ func (a *Analyzer) buildFuncInstanceFromLit(mod *Module, name string, fl *ast.Fu
 		retInferred = true
 	}
 	cname := "ll_fn_" + sanitizeSymbolName(name)
-	if name == "main" && mod == a.Prog.EntryMod {
+	if name == "main" && a.Prog.IsEntryPackageMod(mod) {
 		cname = "ll_user_main"
 	} else if tag := a.moduleTag(mod); tag != "" {
 		cname = fmt.Sprintf("ll_fn_%s_%s", tag, sanitizeSymbolName(name))

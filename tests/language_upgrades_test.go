@@ -1168,7 +1168,7 @@ bind main = (): {
 		{
 			name: "module_optional_chaining_val_rejected",
 			src: `
-import "std/math.ll" as math
+import "std/math"
 bind main = (): {
     let x? = math?.PI
 }
@@ -1178,7 +1178,7 @@ bind main = (): {
 		{
 			name: "module_optional_chaining_spaced_val_rejected",
 			src: `
-import "std/math.ll" as math
+import "std/math"
 bind main = (): {
     let x? = math ?. PI
 }
@@ -1188,7 +1188,7 @@ bind main = (): {
 		{
 			name: "module_optional_chaining_call_rejected",
 			src: `
-import "std/math.ll" as math
+import "std/math"
 bind main = (): {
     let x? = math?.clamp_int(5, 0, 10)
 }
@@ -1198,7 +1198,7 @@ bind main = (): {
 		{
 			name: "module_optional_chaining_type_assoc_rejected",
 			src: `
-import "std/http.ll" as http
+import "std/http"
 bind main = (): {
     let c? = http?.Client.new()
 }
@@ -1208,7 +1208,7 @@ bind main = (): {
 		{
 			name: "module_type_optional_chaining_assoc_rejected",
 			src: `
-import "std/http.ll" as http
+import "std/http"
 bind main = (): {
     let c? = http.Client?.new()
 }
@@ -1257,9 +1257,9 @@ func TestQuickFixesE2ERuntimeAndSemaParity(t *testing.T) {
 	mkTarget := filepath.Join(tmpDir, "created_dir")
 
 	src := fmt.Sprintf(`
-import "std/os.ll" as os
-import "std/time.ll" as time
-import "std/net.ll" as net
+import "std/os"
+import "std/time"
+import "std/net"
 
 extern "math.h"
 extern cos: (x: float) float
@@ -1339,7 +1339,7 @@ define Buf struct [
 ]
 `)
 	entry := writeTestFile(t, dir, "main.ll", `
-import "consts/dims.ll" as dims
+import "./consts" as dims
 
 bind LOCAL_N = dims.WIDTH + 1
 
@@ -1390,7 +1390,7 @@ bind main = (): {
 		{
 			name: "cross_pkg_private_const_array_size_rejected",
 			src: `
-import "consts/dims.ll" as dims
+import "./consts" as dims
 bind main = (): {
 	let bad: [dims._HIDDEN: int] = [5: 0]
 }
@@ -1436,5 +1436,54 @@ bind main = (): {
 				t.Fatalf("[%s] expected constant-size diagnostic, got:\n%v", tc.name, err)
 			}
 		})
+	}
+}
+
+func TestArrayRepeatAndMapBlockValuesE2E(t *testing.T) {
+	dir := t.TempDir()
+	entry := writeTestFile(t, dir, "lit_blocks_e2e.ll", `
+bind N = 3
+
+bind main = (): {
+	let a: [3: int] = [N: { let base = 7; base + 5 }]
+	assert(a.len == 3)
+	assert(a[0] == 12 and a[1] == 12 and a[2] == 12)
+
+	let b = [N: { 10 }, { 20 }, { 30 }]
+	assert(b.len == 3)
+	assert(b[0] + b[1] + b[2] == 60)
+
+	let s_arr = [1 + 1: { "hi".copy() }]
+	assert(s_arr.len == 2)
+	assert(s_arr[0] == "hi" and s_arr[1] == "hi")
+
+	let k1 = "alpha"
+	let m1 = #[k1: { let x = 100; x + 1 }]
+	assert((m1["alpha"] ?? -1) == 101)
+
+	let ka = "first"
+	let kb = "second"
+	let m2 = #[ka: { 11 }, kb: { let y = 20; y + 2 }]
+	assert((m2["first"] ?? -1) == 11 and (m2["second"] ?? -1) == 22)
+
+	let ik = 9
+	let m3 = #[5: 10, ik: { let n = 6; n * 7 }]
+	assert((m3[5] ?? -1) == 10 and (m3[ik] ?? -1) == 42)
+
+	let v_lbl = [(blk: { if (true): blk <- 77; 0 })]
+	assert(v_lbl[0] == 77)
+
+	let s_lbl = #[(sblk: { sblk <- 88 })]
+	assert(s_lbl.contains(88))
+
+	let v_lbl2 = [1, b2: { b2 <- 99 }]
+	assert(v_lbl2[0] == 1 and v_lbl2[1] == 99)
+
+	println("ok_lit_blocks_e2e")
+}
+`)
+	out := runFileStrict(t, "array_repeat_map_block_values", entry, false)
+	if strings.TrimSpace(out) != "ok_lit_blocks_e2e" {
+		t.Fatalf("unexpected stdout: %q", out)
 	}
 }

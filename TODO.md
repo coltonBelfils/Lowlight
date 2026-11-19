@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Stdlib Bug Fixes & Targeted Library Additions
 
-- [ ] Disambiguate `[N: { ... }]` array repeat and `#[k: { ... }]` map literals when values start with `{` (`internal/parser/parser.go:1991,2115,2176`).
 - [ ] Validate `\uXXXX` escapes and trailing `\` in `unquote` (`std/strings.ll` / `std/strfmt.ll`).
 - [ ] Make `reverse` and string padding helpers codepoint-aware (`std/strings.ll:98-146`).
 - [ ] Validate UTF-8 continuation bytes, overlong encodings, surrogates, and `> 0x10FFFF` in `str_utf8_next` (`std/core/primitives.ll:567-598`).
@@ -77,8 +76,6 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Complete VTable method dispatch in both backends (`internal/codegen/cgen.go:1275-1352`, `internal/codegen/llvmgen.go:3398-3524`) for `Vector` and `Set` and fail compilation cleanly on unhandled interface methods.
 - [ ] Support custom `Hashable` structs in `IsHashable` (`internal/types/types.go:835-855`).
 - [ ] Replace hardcoded `"List"`/`"Array"` name checks in `internal/types/types.go`.
-- [ ] Fix `moduleTag` basename collisions in `internal/sema/program.go` and `internal/sema/types_pass.go`.
-- [ ] Make core prelude resolution transitive in `internal/sema/program.go` and `internal/sema/types_pass.go`.
 - [ ] Check `TypeParamVar` in `checkOptionalIdentRule` in `internal/sema/types_pass.go`.
 - [ ] Validate `GenIface*`/generic `@lang` duplicates in `internal/sema/program.go` and `internal/sema/types_pass.go`.
 - [ ] Fix `instantiateStruct` nil-deref and cache races in `internal/sema/types_pass.go`.
@@ -169,29 +166,6 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Allow `List` to accept custom or arena allocators without per-element heap drops.
 - [ ] Allow `#[T]` (`Set`) and `#[K: V]` (`Map`) to accept custom or arena allocators without per-element heap drops.
 - [ ] Allow `string` to accept custom or arena allocators without per-element heap drops.
-
-## Package Architecture & Management Overhaul
-
-*(Design decisions finalized in `SPECIFICATION.md` §4, §9.7, and §12.)*
-
-- [ ] Implement a shared zero-dependency TOML parser and serializer (comments, `[tables]`, `[[arrays]]`, inline `{ ... }` tables, target keys) for `lowlight.toml`, `lowlight.lock`, and static package indexes (`SPECIFICATION.md` §12.2–§12.4).
-- [ ] Implement the `lowlight.toml` schema loader/validator (`[package]`, `[dependencies]`, `[dev-dependencies]`, `[overrides]`, `[workspace]` members/globs, `[build]`, `[format]`, `[target.<selector>]`) with comment-preserving surgical edits for CLI mutations (§12.2, §12.6).
-- [ ] Support `[format]` inside `lowlight.toml` in `internal/format/config.go` while keeping `.lowlightfmt` active for manifest-free directories and subdirectory overrides (§12.2).
-- [ ] Unify `lowlight.toml` and `[workspace]` root discovery across `internal/sema` (`findProjectRoot`), `internal/driver`, `internal/docgen`, `internal/format`, and `internal/lsp`, cleanly decoupling user project roots from `LOWLIGHT_ROOT` / `StdDir` (§12.1).
-- [ ] Implement directory-as-package loading in `internal/sema/program.go` (shared package namespace and mutual cross-file recursion within a directory, package-wide declaration uniqueness, standalone file isolation outside manifests, and inter-package cycle chain errors) (§4.1, §4.3).
-- [ ] Implement `*_test.ll` exclusion outside test builds and OS/arch target suffix filtering (`_linux.ll`, `_darwin.ll`, `_windows.ll`, `_unix.ll`, `_amd64.ll`, `_arm64.ll`) matched against `--target` (§4.1, §9.7).
-- [ ] Implement extensionless named package resolution and strict qualified-only imports (`pkg.<sym>`, optional `as <alias>`, default qualifier normalization/conflict checks, no open non-prelude imports, no relative `./`/`../` inside manifests, no importing `main` packages, and `.ll`-import migration errors) (§4.3, §4.5).
-- [ ] Replace per-file `moduleTag` scoping with canonical `PackageID` / package-path namespaces across `internal/sema`, `internal/ir`, and `internal/codegen` (§4.1, §4.3).
-- [ ] Enforce global method coherence (`bind TypeName.method = ...`) in `internal/sema/types_pass.go` (permissive extension methods with cross-package duplicate collision errors while preserving leading-`_` and sealed-interface restrictions) (§4.2.1, §4.4).
-- [ ] Enforce `[dev-dependencies]` isolation in `internal/sema` so production non-test code cannot import or reference test-only dependencies (§9.7, §12.2).
-- [ ] Implement SemVer constraint parsing, remote static TOML index fetching (`[versions."..."]` with `yanked`), Minimal Version Selection (MVS), and root `[overrides]` / conflict diagnostics (§12.4–§12.5).
-- [ ] Implement HTTPS archive fetching, SHA-256 verification, path-traversal/symlink-safe extraction (`.tar.gz`, `.tgz`, `.zip`), local cache (`$LOWLIGHT_CACHE` / `~/.lowlight/cache/sha256/<hex>/`), `./vendor/` precedence, and deterministic `lowlight.lock` handling (§12.3–§12.5).
-- [ ] Support manifest-driven zero-arg CLI execution (`[build]` defaults, `./cmd/<app>/`, `-p <pkg>`, `--workspace`, `--locked`, `--offline`) across `build`, `run`, `check`, `test`, `doc`, `emit-llvm`, and `emit-c` while keeping standalone file invocation working (§12.1, §12.6).
-- [ ] Implement package management CLI commands (`lowlight init`, `new`, `add`, `remove`, `update`, `fetch`, `tree`, `vendor`) in `cmd/lowlight/main.go` (§12.6).
-- [ ] Migrate `std/*.ll` modules into package subdirectories (`std/fs/fs.ll`, `std/http/http.ll`, `std/net/net.ll`, `std/math/math.ll`, `std/test/test.ll`, etc.), remove the `SamePackage`/`SamePackageDir` `StdDir` special-case in `internal/sema/program.go`, and update `std/`, `examples/`, and `tests/` to extensionless qualified imports (§4.3, §4.4.2, §9).
-- [ ] Update `driver.Test` (`internal/driver/driver.go`), `internal/docgen`, and `internal/lsp` around directory packages and manifests (one test compilation per package including `*_test.ll`, package-grouped docs/links, and `lowlight.toml`-aware auto-imports) (§9.7, §12.1).
-- [ ] Implement two-phase package incremental compilation and caching in `internal/driver` (separate cached `.o` / LLVM IR bitcode units per non-generic package plus a shared specialization/vtable link unit) (§4.1, §12.6).
-- [ ] Update `IMPLEMENTATION.md` to document the implemented package loader, TOML manifest/lockfile/index pipeline, and two-phase incremental build driver.
 
 ## Multithreading & Parallel Computing Overhaul
 

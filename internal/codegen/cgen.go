@@ -36,10 +36,12 @@ func EmitC(prog *ir.Program) string {
 }
 
 type cEmitter struct {
-	prog   *ir.Program
-	sb     strings.Builder
-	optSet map[string]bool
-	vecSet map[string]bool
+	prog        *ir.Program
+	unitMode    UnitMode
+	defineFuncs map[string]bool
+	sb          strings.Builder
+	optSet      map[string]bool
+	vecSet      map[string]bool
 }
 
 func (g *cEmitter) raw(s string) {
@@ -74,6 +76,11 @@ func (g *cEmitter) hasVectorType(v *types.Vector) bool {
 
 func (g *cEmitter) emitAll() {
 	// 1. Embedded C11 Runtime Header + User `extern "<header>"` includes
+	if g.unitMode == UnitPackage {
+		g.line("#define LL_UNIT_PKG 1")
+	} else if g.unitMode == UnitLinkMain {
+		g.line("#define LL_RT_GLOBAL")
+	}
 	g.sb.WriteString(RuntimeHeaderC11)
 	if len(g.prog.ExternHeaders) > 0 {
 		g.line("/* User Extern Headers */")
@@ -110,7 +117,14 @@ func (g *cEmitter) emitAll() {
 	if len(g.prog.Globals) > 0 {
 		g.line("/* Top-Level Constants */")
 		for _, gl := range g.prog.Globals {
-			g.line("static %s %s;", CType(gl.Type), gl.CName)
+			switch g.unitMode {
+			case UnitPackage:
+				g.line("extern %s %s;", CType(gl.Type), gl.CName)
+			case UnitLinkMain:
+				g.line("%s %s;", CType(gl.Type), gl.CName)
+			default:
+				g.line("static %s %s;", CType(gl.Type), gl.CName)
+			}
 		}
 		g.line("")
 	}
@@ -118,11 +132,14 @@ func (g *cEmitter) emitAll() {
 	// 9. Lowered MIR Function & Lambda Bodies
 	g.line("/* Lowered Lowlight Functions */")
 	for _, fn := range g.prog.Funcs {
+		if g.unitMode != UnitStandalone && !fn.IsAlwaysInline && !g.defineFuncs[fn.CName] {
+			continue
+		}
 		g.emitFunction(fn)
 	}
 
 	// 10. C11 `main` Entry Point (if `MainFunc` is present or in `TestMode`)
-	if g.prog.MainFunc != nil || g.prog.TestMode {
+	if g.unitMode != UnitPackage && (g.prog.MainFunc != nil || g.prog.TestMode) {
 		g.emitCMain()
 	}
 }
@@ -370,7 +387,12 @@ func (g *cEmitter) emitForwardPrototypes() {
 
 	g.line("/* Function & Synthesized Helper Prototypes */")
 	for _, fn := range g.prog.Funcs {
-		g.line("%s;", funcSignatureC(fn))
+		sig := g.funcSignature(fn)
+		if g.unitMode != UnitStandalone && !fn.IsAlwaysInline && !g.defineFuncs[fn.CName] {
+			g.line("extern %s;", sig)
+		} else {
+			g.line("%s;", sig)
+		}
 		if fn.IsLambda {
 			g.line("static inline %s;", lambdaEntrySigC(fn.LambdaInfo))
 		}
@@ -1228,6 +1250,10 @@ func (g *cEmitter) emitVTables() {
 		cCon := CType(vt.Concrete)
 		vtInst := ir.VTableInstanceName(vt.Concrete, vt.Iface)
 		vtTy := ir.VTableTypeName(vt.Iface)
+		if g.unitMode == UnitPackage {
+			g.line("extern const %s %s;", vtTy, vtInst)
+			continue
+		}
 
 		// drop_box
 		dropName := vtInst + "__drop"
@@ -1352,7 +1378,11 @@ func (g *cEmitter) emitVTables() {
 		}
 
 		// const vtable instance
-		g.line("static const %s %s = {", vtTy, vtInst)
+		if g.unitMode == UnitLinkMain {
+			g.line("const %s %s = {", vtTy, vtInst)
+		} else {
+			g.line("static const %s %s = {", vtTy, vtInst)
+		}
 		g.line("    .drop_box = %s,", dropName)
 		g.line("    .clone_box = %s,", cloneName)
 		for _, mp := range mPtrNames {
@@ -1367,7 +1397,15 @@ func (g *cEmitter) emitVTables() {
 // Section 9 & 10: MIR Function Printing & C11 `main`
 // -----------------------------------------------------------------------------
 
+func (g *cEmitter) funcSignature(fn *ir.Function) string {
+	return funcSignatureCWithMode(fn, g.unitMode)
+}
+
 func funcSignatureC(fn *ir.Function) string {
+	return funcSignatureCWithMode(fn, UnitStandalone)
+}
+
+func funcSignatureCWithMode(fn *ir.Function, mode UnitMode) string {
 	var ps []string
 	if fn.IsLambda {
 		ps = append(ps, "void* _ll_env")
@@ -1388,7 +1426,11 @@ func funcSignatureC(fn *ir.Function) string {
 	} else if fn.IsNoInline {
 		attr = "__attribute__((noinline)) "
 	}
-	return fmt.Sprintf("static %s%s %s(%s)", attr, CType(fn.RetType), fn.CName, strings.Join(ps, ", "))
+	storage := "static "
+	if mode != UnitStandalone && !fn.IsAlwaysInline {
+		storage = ""
+	}
+	return fmt.Sprintf("%s%s%s %s(%s)", storage, attr, CType(fn.RetType), fn.CName, strings.Join(ps, ", "))
 }
 
 func lambdaEntrySigC(li *sema.LambdaInfo) string {
@@ -1408,7 +1450,7 @@ func paramCType(mode types.ParamMode, ty types.Type) string {
 }
 
 func (g *cEmitter) emitFunction(fn *ir.Function) {
-	g.line("%s {", funcSignatureC(fn))
+	g.line("%s {", g.funcSignature(fn))
 	if fn.IsLambda {
 		g.indentLine(1, "(void)_ll_env;")
 	}

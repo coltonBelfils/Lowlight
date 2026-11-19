@@ -16,6 +16,7 @@ import (
 	"lowlight/internal/docgen"
 	"lowlight/internal/driver"
 	"lowlight/internal/lexer"
+	"lowlight/internal/manifest"
 	"lowlight/internal/sema"
 	"lowlight/internal/token"
 )
@@ -846,8 +847,8 @@ func (s *Server) invalidateDependentsLocked(changedPath string) []string {
 	delete(s.cachedProgs, absChanged)
 	delete(s.tokenCache, absChanged)
 
-	changedBase := filepath.Base(absChanged)
-	changedSlash := filepath.ToSlash(absChanged)
+	changedDir := filepath.Clean(filepath.Dir(absChanged))
+	changedDirSlash := filepath.ToSlash(changedDir)
 
 	var openDependents []string
 	for k, p := range s.cachedProgs {
@@ -855,7 +856,10 @@ func (s *Server) invalidateDependentsLocked(changedPath string) []string {
 			continue
 		}
 		depends := false
-		if p != nil {
+		if filepath.Clean(filepath.Dir(k)) == changedDir {
+			depends = true
+		}
+		if !depends && p != nil {
 			for _, m := range p.Modules {
 				if m == nil {
 					continue
@@ -864,24 +868,20 @@ func (s *Server) invalidateDependentsLocked(changedPath string) []string {
 				if err != nil {
 					mAbs = m.Path
 				}
-				if mAbs == absChanged {
+				if mAbs == absChanged || filepath.Clean(filepath.Dir(mAbs)) == changedDir {
 					depends = true
 					break
 				}
 			}
-			// Also catch unresolved imports matching the changed file (e.g., before creation or with syntax error).
+			// Also catch unresolved imports matching the changed package directory.
 			if !depends && p.EntryMod != nil && p.EntryMod.File != nil {
 				for _, decl := range p.EntryMod.File.Decls {
 					imp, ok := decl.(*ast.ImportDecl)
 					if !ok || imp.Path == "" {
 						continue
 					}
-					impFile := imp.Path
-					if !strings.HasSuffix(impFile, ".ll") {
-						impFile += ".ll"
-					}
-					impSlash := filepath.ToSlash(impFile)
-					if filepath.Base(impSlash) == changedBase || strings.HasSuffix(changedSlash, "/"+impSlash) {
+					impClean := strings.TrimPrefix(filepath.ToSlash(strings.TrimSuffix(imp.Path, ".ll")), "./")
+					if impClean != "" && (filepath.Base(changedDirSlash) == filepath.Base(impClean) || strings.HasSuffix(changedDirSlash, "/"+impClean)) {
 						depends = true
 						break
 					}
@@ -1022,7 +1022,10 @@ func (s *Server) projectRootFor(filePath string) string {
 		if err != nil {
 			absFile = filePath
 		}
-		// Walk up from file directory looking for project markers (.lowlightfmt, lowlight.toml, std/, .git).
+		if ctx, err := manifest.DiscoverProject(absFile); err == nil && ctx != nil && ctx.RootDir() != "" {
+			return ctx.RootDir()
+		}
+		// Walk up from file directory looking for project markers (lowlight.toml, .lowlightfmt, std/).
 		dir := filepath.Dir(absFile)
 		for dir != "" {
 			for _, marker := range []string{"lowlight.toml", ".lowlightfmt", "std"} {

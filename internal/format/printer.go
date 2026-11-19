@@ -859,6 +859,10 @@ func (p *printer) printMethodParamList(mode ast.ReceiverMode, explicitTy ast.Typ
 func (p *printer) printMethodDecl(v *ast.MethodDecl) {
 	p.writeIndent()
 	p.write("bind ")
+	if v.RecvModule != "" {
+		p.write(v.RecvModule)
+		p.write(".")
+	}
 	p.write(v.RecvType)
 	if len(v.RecvTypeParams) > 0 {
 		p.write("[")

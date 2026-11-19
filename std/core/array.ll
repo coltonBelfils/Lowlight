@@ -3,7 +3,6 @@
 // Provides indexing, containment checks, formatting, and value iteration via [`Array`]
 // and [`ArrayIterator`].
 
-import "./interfaces.ll"
 
 // Fixed-size stack-allocated sequence of elements backed by a contiguous buffer.
 //

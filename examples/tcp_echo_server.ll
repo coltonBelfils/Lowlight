@@ -1,12 +1,12 @@
 // examples/tcp_echo_server.ll
-// Demonstrates running a raw TCP socket server in Lowlight using `std/net.ll`:
+// Demonstrates running a raw TCP socket server in Lowlight using `std/net`:
 // 1. Binding a listening socket with `net.TcpListener.listen(host, port)`
 // 2. Accepting incoming connections with `listener.accept(timeout_ms)`
 // 3. Reading data with `stream.recv(max_len, timeout_ms)`
 // 4. Writing replies with `stream.send(data)`
 // 5. Automatic connection cleanup via RAII Drop on `TcpStream`
 
-import "std/net.ll" as net
+import "std/net"
 
 bind main = (): {
     let host = "127.0.0.1"

@@ -1,12 +1,12 @@
 // examples/http_server_and_client.ll
-// Showcases Lowlight's standard HTTP package (`std/http.ll`):
+// Showcases Lowlight's standard HTTP package (`std/http`):
 // - URL parsing and query parameters (`http.parse_url`, `url.query_param`)
 // - Request & Response modeling (`http.Request`, `http.Response`)
 // - ResponseWriter with headers and streaming chunks (`http.ResponseWriter`)
 // - Route matching and dispatch with `http.ServeMux` (exact and prefix matching)
 // - Kernel socketpair testing and HTTP client requests
 
-import "std/http.ll" as http
+import "std/http"
 
 bind main = (): {
     println("==================================================")

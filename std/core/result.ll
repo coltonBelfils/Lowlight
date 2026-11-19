@@ -3,7 +3,6 @@
 // Used throughout the standard library for operations that can fail with a rich
 // [`Error`] stack trace instead of panicking.
 
-import "./error.ll"
 
 // Represents either a successful value ([`Result.Ok`]) or a failure ([`Result.Err`]).
 //

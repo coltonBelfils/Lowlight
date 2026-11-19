@@ -896,3 +896,148 @@ bind test = (
 		t.Fatalf("param g.Elem.Ret: expected StackArrayType, got %T", ft.Ret)
 	}
 }
+
+func TestDisambiguateArrayRepeatAndMapLiteralsWithBlocks(t *testing.T) {
+	src := `
+bind test = (k: string, k1: string, k2: string) void: {
+    let arr_repeat = [N: { 42 }]
+    let arr_expr_count = [1 + N: { let x = 2; x + 1 }]
+    let arr_multi = [N: { 1 }, { 2 }]
+    let arr_nested_label = [N: { blk: { blk <- 7 } }]
+    let map_single = #[k: { 10 }]
+    let map_both_blocks = #[k1: { 10 }, k2: { 20 }]
+    let map_second_block = #[k1: 10, k2: { 20 }]
+    let map_expr_key = #[1 + k_num: { 30 }]
+    let map_for_val = #[k: for (x in [1, 2]): x]
+    let vec_paren_label = [(blk: { blk <- 11 })]
+    let set_paren_label = #[(blk: { blk <- 22 })]
+    let vec_second_label = [1, blk: { blk <- 33 }]
+    let set_second_label = #[1, blk: { blk <- 44 }]
+    let vec_call_arg_label = [foo(blk: { blk <- 55 })]
+    let vec_nested_map = [#[k: { 66 }]]
+    let vec_block_let_label = [{ let t = blk: { blk <- 77 }; t }]
+    let standalone_paren_block = (blk: { blk <- 88 })
+    let standalone_paren_for = (outer: for (x in [1, 2]) int: { outer <- 99 })
+}
+`
+	rep := diag.NewReporter()
+	file := parser.ParseFile("disambiguate_lit_blocks.ll", src, rep)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected parse errors:\n%s", rep.Format())
+	}
+
+	fn := file.Decls[0].(*ast.VarDecl).Value.(*ast.FuncLit)
+	body := fn.Body.(*ast.BlockExpr)
+	vars := make(map[string]ast.Expr, len(body.Stmts))
+	for _, st := range body.Stmts {
+		vs := st.(*ast.VarStmt)
+		vars[vs.Name] = vs.Value
+	}
+
+	arr1, ok := vars["arr_repeat"].(*ast.ArrayLit)
+	if !ok || len(arr1.Elems) != 1 {
+		t.Fatalf("arr_repeat: expected 1-elem ArrayLit, got %#v", vars["arr_repeat"])
+	}
+	if id, ok := arr1.Count.(*ast.IdentExpr); !ok || id.Name != "N" {
+		t.Fatalf("arr_repeat.Count: expected IdentExpr N, got %#v", arr1.Count)
+	}
+	if blk, ok := arr1.Elems[0].(*ast.BlockExpr); !ok || blk.Label != "" {
+		t.Fatalf("arr_repeat.Elems[0]: expected unlabeled BlockExpr, got %#v", arr1.Elems[0])
+	}
+
+	arrExpr, ok := vars["arr_expr_count"].(*ast.ArrayLit)
+	if !ok || len(arrExpr.Elems) != 1 {
+		t.Fatalf("arr_expr_count: expected ArrayLit, got %#v", vars["arr_expr_count"])
+	}
+	if _, ok := arrExpr.Count.(*ast.BinaryExpr); !ok {
+		t.Fatalf("arr_expr_count.Count: expected BinaryExpr, got %#v", arrExpr.Count)
+	}
+	if _, ok := arrExpr.Elems[0].(*ast.BlockExpr); !ok {
+		t.Fatalf("arr_expr_count.Elems[0]: expected BlockExpr, got %#v", arrExpr.Elems[0])
+	}
+
+	arrMulti, ok := vars["arr_multi"].(*ast.ArrayLit)
+	if !ok || len(arrMulti.Elems) != 2 {
+		t.Fatalf("arr_multi: expected 2-elem ArrayLit, got %#v", vars["arr_multi"])
+	}
+
+	arrNested, ok := vars["arr_nested_label"].(*ast.ArrayLit)
+	if !ok || len(arrNested.Elems) != 1 {
+		t.Fatalf("arr_nested_label: expected ArrayLit, got %#v", vars["arr_nested_label"])
+	}
+	outerBlk := arrNested.Elems[0].(*ast.BlockExpr)
+	innerBlk, ok := outerBlk.Tail.(*ast.BlockExpr)
+	if !ok || innerBlk.Label != "blk" {
+		t.Fatalf("arr_nested_label inner tail: expected BlockExpr labeled 'blk', got %#v", outerBlk.Tail)
+	}
+
+	for _, name := range []string{"map_single", "map_expr_key", "map_for_val"} {
+		m, ok := vars[name].(*ast.MapLit)
+		if !ok || len(m.Entries) != 1 {
+			t.Fatalf("%s: expected 1-entry MapLit, got %#v", name, vars[name])
+		}
+	}
+	if _, ok := vars["map_for_val"].(*ast.MapLit).Entries[0].Value.(*ast.ForExpr); !ok {
+		t.Fatalf("map_for_val value: expected ForExpr, got %#v", vars["map_for_val"].(*ast.MapLit).Entries[0].Value)
+	}
+
+	for _, name := range []string{"map_both_blocks", "map_second_block"} {
+		m, ok := vars[name].(*ast.MapLit)
+		if !ok || len(m.Entries) != 2 {
+			t.Fatalf("%s: expected 2-entry MapLit, got %#v", name, vars[name])
+		}
+		if _, ok := m.Entries[1].Value.(*ast.BlockExpr); !ok {
+			t.Fatalf("%s entry 1 value: expected BlockExpr, got %#v", name, m.Entries[1].Value)
+		}
+	}
+
+	checkLabeledBlockElem := func(expr ast.Expr, isSet bool, idx int, name string) {
+		var elem ast.Expr
+		if isSet {
+			s, ok := expr.(*ast.SetLit)
+			if !ok || idx >= len(s.Elems) {
+				t.Fatalf("%s: expected SetLit with idx %d, got %#v", name, idx, expr)
+			}
+			elem = s.Elems[idx]
+		} else {
+			v, ok := expr.(*ast.VecLit)
+			if !ok || idx >= len(v.Elems) {
+				t.Fatalf("%s: expected VecLit with idx %d, got %#v", name, idx, expr)
+			}
+			elem = v.Elems[idx]
+		}
+		blk, ok := elem.(*ast.BlockExpr)
+		if !ok || blk.Label != "blk" {
+			t.Fatalf("%s elem %d: expected BlockExpr labeled 'blk', got %#v", name, idx, elem)
+		}
+	}
+
+	checkLabeledBlockElem(vars["vec_paren_label"], false, 0, "vec_paren_label")
+	checkLabeledBlockElem(vars["set_paren_label"], true, 0, "set_paren_label")
+	checkLabeledBlockElem(vars["vec_second_label"], false, 1, "vec_second_label")
+	checkLabeledBlockElem(vars["set_second_label"], true, 1, "set_second_label")
+
+	callVec := vars["vec_call_arg_label"].(*ast.VecLit)
+	if blk, ok := callVec.Elems[0].(*ast.CallExpr).Args[0].(*ast.BlockExpr); !ok || blk.Label != "blk" {
+		t.Fatalf("vec_call_arg_label arg 0: expected BlockExpr labeled 'blk', got %#v", callVec.Elems[0])
+	}
+
+	nestedMapVec := vars["vec_nested_map"].(*ast.VecLit)
+	if innerMap, ok := nestedMapVec.Elems[0].(*ast.MapLit); !ok || len(innerMap.Entries) != 1 {
+		t.Fatalf("vec_nested_map: expected VecLit containing 1-entry MapLit, got %#v", nestedMapVec.Elems[0])
+	}
+
+	blockLetVec := vars["vec_block_let_label"].(*ast.VecLit)
+	blk0 := blockLetVec.Elems[0].(*ast.BlockExpr)
+	letSt := blk0.Stmts[0].(*ast.VarStmt)
+	if innerBlk, ok := letSt.Value.(*ast.BlockExpr); !ok || innerBlk.Label != "blk" {
+		t.Fatalf("vec_block_let_label let value: expected BlockExpr labeled 'blk', got %#v", letSt.Value)
+	}
+
+	if sb, ok := vars["standalone_paren_block"].(*ast.BlockExpr); !ok || sb.Label != "blk" {
+		t.Fatalf("standalone_paren_block: expected BlockExpr labeled 'blk', got %#v", vars["standalone_paren_block"])
+	}
+	if sf, ok := vars["standalone_paren_for"].(*ast.ForExpr); !ok || sf.Label != "outer" {
+		t.Fatalf("standalone_paren_for: expected ForExpr labeled 'outer', got %#v", vars["standalone_paren_for"])
+	}
+}

@@ -17,7 +17,7 @@ import (
 
 func TestCharsSuite(t *testing.T) {
 	src := `
-import "std/chars.ll"
+import "std/chars"
 
 bind main = (): {
     // 1. Character classification methods
@@ -61,10 +61,10 @@ bind main = (): {
     assert(('a').to_digit(10) == none)
     assert(('9').to_digit(8) == none)
 
-    assert(from_digit(0, 10) == '0')
-    assert(from_digit(9, 10) == '9')
-    assert(from_digit(15, 16) == 'f')
-    assert(from_digit(16, 16) == none)
+    assert(chars.from_digit(0, 10) == '0')
+    assert(chars.from_digit(9, 10) == '9')
+    assert(chars.from_digit(15, 16) == 'f')
+    assert(chars.from_digit(16, 16) == none)
 
     // 4. UTF-8 length
     assert(('a').len_utf8() == 1)
@@ -81,10 +81,10 @@ bind main = (): {
     assert(not ('A').is_control())
 
     // 6. Standalone functions
-    assert(is_digit('5'))
-    assert(is_alpha('x'))
-    assert(to_ascii_upper('b') == 'B')
-    assert(to_ascii_lower('C') == 'c')
+    assert(chars.is_digit('5'))
+    assert(chars.is_alpha('x'))
+    assert(chars.to_ascii_upper('b') == 'B')
+    assert(chars.to_ascii_lower('C') == 'c')
 }
 `
 	runInlineStrict(t, "chars_suite", src, false)
@@ -93,7 +93,7 @@ bind main = (): {
 
 func TestStringsSuite(t *testing.T) {
 	src := `
-import "std/strings.ll"
+import "std/strings"
 
 bind main = (): {
     // 1. Predicates
@@ -158,7 +158,7 @@ bind main = (): {
     assert(parts[2] == "orange")
     assert(parts[3] == "grape")
 
-    let joined = join(parts, " | ")
+    let joined = strings.join(parts, " | ")
     assert(joined == "apple | banana | orange | grape")
 
     let ws_parts = "  foo   bar   baz  \n qux ".split_whitespace()
@@ -204,7 +204,7 @@ func TestFsSuite(t *testing.T) {
 	p3 := strings.ReplaceAll(testRenamedPath, `\`, `\\`)
 
 	src := `
-import "std/fs.ll"
+import "std/fs"
 
 bind main = (): {
     let path = "` + p1 + `"
@@ -212,32 +212,32 @@ bind main = (): {
     let renamed_p = "` + p3 + `"
 
     // 1. Initial state: does not exist
-    assert(not exists(path))
+    assert(not fs.exists(path))
 
     // 2. Write file
-    let w_res = write_file(path, "Hello Lowlight File System!\n")
+    let w_res = fs.write_file(path, "Hello Lowlight File System!\n")
     assert(w_res.is_ok())
-    assert(exists(path))
+    assert(fs.exists(path))
 
     // 3. Read file
-    let r_res = read_file(path)
+    let r_res = fs.read_file(path)
     assert(r_res.is_ok())
     assert(r_res.unwrap() == "Hello Lowlight File System!\n")
 
     // 4. Append to file
-    let app_res = append_file(path, "Appended line.\n")
+    let app_res = fs.append_file(path, "Appended line.\n")
     assert(app_res.is_ok())
-    let r_app = read_to_string(path)
+    let r_app = fs.read_to_string(path)
     assert(r_app.is_ok())
     assert(r_app.unwrap() == "Hello Lowlight File System!\nAppended line.\n")
 
     // 5. File size
-    let sz_res = file_size(path)
+    let sz_res = fs.file_size(path)
     assert(sz_res.is_ok())
     assert(sz_res.unwrap() == 43)
 
     // 6. Robust File stream object (seek, tell, read)
-    let f_res = File.open_read(path)
+    let f_res = fs.File.open_read(path)
     assert(f_res.is_ok())
     let f = f_res.unwrap()
     assert(f.is_valid())
@@ -246,7 +246,7 @@ bind main = (): {
     assert(f.tell().unwrap() == 0)
 
     // Seek forward 6 bytes (to "Lowlight...")
-    let seek_res = f.seek(6, SEEK_SET)
+    let seek_res = f.seek(6, fs.SEEK_SET)
     assert(seek_res.is_ok())
     assert(f.tell().unwrap() == 6)
 
@@ -262,34 +262,34 @@ bind main = (): {
     // 7. Binary byte reading and writing
     let bin_path = path + ".bin"
     let bytes_to_write: [u8] = [10, 20, 30, 40, 50]
-    let wb_res = write_bytes(bin_path, bytes_to_write)
+    let wb_res = fs.write_bytes(bin_path, bytes_to_write)
     assert(wb_res.is_ok())
 
-    let rb_res = read_bytes(bin_path)
+    let rb_res = fs.read_bytes(bin_path)
     assert(rb_res.is_ok())
     let read_back = rb_res.unwrap()
     assert(read_back.len() == 5)
     assert(read_back[0] == 10)
     assert(read_back[4] == 50)
-    assert(remove_file(bin_path))
+    assert(fs.remove_file(bin_path))
 
     // 8. Copy file
-    let cp_res = copy_file(path, copy_p)
+    let cp_res = fs.copy_file(path, copy_p)
     assert(cp_res.is_ok())
     assert(cp_res.unwrap() == 43)
-    assert(exists(copy_p))
-    assert(read_file(copy_p).unwrap() == read_file(path).unwrap())
+    assert(fs.exists(copy_p))
+    assert(fs.read_file(copy_p).unwrap() == fs.read_file(path).unwrap())
 
     // 9. Rename file
-    assert(rename_file(copy_p, renamed_p))
-    assert(not exists(copy_p))
-    assert(exists(renamed_p))
+    assert(fs.rename_file(copy_p, renamed_p))
+    assert(not fs.exists(copy_p))
+    assert(fs.exists(renamed_p))
 
     // 10. Delete files
-    assert(remove_file(path))
-    assert(not exists(path))
-    assert(remove_file(renamed_p))
-    assert(not exists(renamed_p))
+    assert(fs.remove_file(path))
+    assert(not fs.exists(path))
+    assert(fs.remove_file(renamed_p))
+    assert(not fs.exists(renamed_p))
 }
 `
 	runInlineStrict(t, "fs_suite", src, false)
@@ -298,7 +298,7 @@ bind main = (): {
 
 func TestOsArgsNative(t *testing.T) {
 	src := `
-import "std/os.ll"
+import "std/os"
 
 bind main = (): {
     let cli_args = args()
@@ -313,7 +313,7 @@ bind main = (): {
 
 func TestSortSuite(t *testing.T) {
 	src := `
-import "std/sort.ll"
+import "std/sort"
 
 define Score struct [
     pts: int,
@@ -466,9 +466,9 @@ bind main = (): {
     helper_list.push(9)
     helper_list.push(1)
     helper_list.push(5)
-    sort(&helper_list)
-    assert(is_sorted(helper_list.copy()))
-    assert(binary_search(helper_list.copy(), 5) == 1)
+    sort.sort(&helper_list)
+    assert(sort.is_sorted(helper_list.copy()))
+    assert(sort.binary_search(helper_list.copy(), 5) == 1)
 
     // 11. Extension on Set[T]
     let set = Set[int].new()

@@ -11,7 +11,12 @@ import (
 
 func TestGenerateHTMLAndMarkdownAndCheckLinks(t *testing.T) {
 	tmp := t.TempDir()
-	aPath := filepath.Join(tmp, "alpha.ll")
+	alphaDir := filepath.Join(tmp, "alpha")
+	if err := os.MkdirAll(alphaDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aPath := filepath.Join(alphaDir, "alpha.ll")
+	aTestPath := filepath.Join(alphaDir, "alpha_test.ll")
 	bPath := filepath.Join(tmp, "beta.ll")
 
 	alphaSrc := `// Alpha module documentation.
@@ -46,12 +51,15 @@ bind test_alpha = (): {
 `
 	betaSrc := `// Beta module linking to [` + "`alpha.Point`" + `] and [` + "`Point.mag2`" + `] and [` + "`int`" + `].
 
-import "./alpha.ll" as alpha
+import "./alpha"
 
 // Converts a [` + "`Point`" + `] via [` + "`Point.mag2`" + `].
 bind use_point = (p: alpha.Point) int: p.mag2()
 `
 	if err := os.WriteFile(aPath, []byte(alphaSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(aTestPath, []byte("@test(\"hidden\")\nbind test_hidden = (): {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(bPath, []byte(betaSrc), 0644); err != nil {

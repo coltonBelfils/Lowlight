@@ -3,7 +3,6 @@
 // Backs range literals (`0..10`, `'a'..='z'`), loop iteration (`for(i in 0..10)`),
 // and containment tests (`when in 0..=255`).
 
-import "./interfaces.ll"
 
 // Interval from `start` to `end`, either half-open (`..`) or closed (`..=`).
 //

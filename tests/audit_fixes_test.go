@@ -75,8 +75,8 @@ bind main = (): {
 // 3. Bug 4: INT64_MIN arithmetic wrap in std/strconv.ll and std/strfmt.ll
 func TestInt64MinFormatting(t *testing.T) {
 	src := `
-import "std/strconv.ll" as strconv
-import "std/strfmt.ll" as strfmt
+import "std/strconv"
+import "std/strfmt"
 
 bind main = (): {
     let min_i64 = -9223372036854775807 - 1
@@ -109,7 +109,7 @@ bind main = (): {
 // 4. Security Hole 6: Integer overflow check in std/strconv.ll
 func TestParseIntOverflow(t *testing.T) {
 	src := `
-import "std/strconv.ll" as strconv
+import "std/strconv"
 
 bind main = (): {
     // Exact bounds
@@ -268,7 +268,7 @@ bind main = (): {
 // 8. Security Hole 5: POSIX mkdir_p and remove_all
 func TestPosixDirectoryOperations(t *testing.T) {
 	src := `
-import "std/os.ll" as os
+import "std/os"
 
 bind main = (): {
     let test_dir = "/tmp/ll_test_mkdir_p/nested/dir/level3"
@@ -468,7 +468,7 @@ bind main = (): {
 
 func TestResultAndGoStyleErrorChain(t *testing.T) {
 	src := `
-import "std/fs.ll" as fs
+import "std/fs"
 
 bind ERR_NOT_FOUND = Error.coded("not_found", "resource not found")
 

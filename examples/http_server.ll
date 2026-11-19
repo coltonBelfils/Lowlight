@@ -5,7 +5,7 @@
 // 3. Responding with HTML, JSON, and custom status codes via `http.ResponseWriter`
 // 4. Starting the server on `127.0.0.1:8080`
 
-import "std/http.ll" as http
+import "std/http"
 
 bind main = (): {
     let mux = http.ServeMux.new()

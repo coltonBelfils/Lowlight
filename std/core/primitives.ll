@@ -5,7 +5,6 @@
 // parsers ([`parse_int`], [`parse_float`]), and comparison helpers ([`min`], [`max`],
 // [`abs`], [`clamp`]).
 
-import "./interfaces.ll"
 
 // -----------------------------------------------------------------------------
 // Float & Number Formatting Helpers

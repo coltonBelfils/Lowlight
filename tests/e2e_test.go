@@ -1056,7 +1056,7 @@ int main(void) {
 }
 
 func TestSocketSendAfterPeerCloseNoSigpipe(t *testing.T) {
-	src := `import "std/net.ll" as net
+	src := `import "std/net"
 
 bind main = (): {
     let p1 = net.socketpair().unwrap()

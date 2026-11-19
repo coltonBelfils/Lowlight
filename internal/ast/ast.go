@@ -210,6 +210,7 @@ func (d *DistinctTypeDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
 // MethodDecl: `bind Point.translate = (&self, dx: int, dy: int) { ... }`
 // Also supports generic receivers `bind Pair[A, B].swap[C] = ...`
 type MethodDecl struct {
+	RecvModule     string // optional imported package qualifier in `bind pkg.Type.method = ...`
 	RecvType       string
 	RecvTypeParams []string
 	Name           string

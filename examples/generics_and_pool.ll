@@ -1,10 +1,10 @@
 // examples/generics_and_pool.ll
 // Showcases monomorphized generics with interface bounds (`[T: Printable + Copyable]`),
 // generic `Result[T, E]` from the core prelude, and the generational `Pool[T]` / `Handle[T]`
-// from `std/pool.ll` (stale-handle safety + O(1) slot reuse).
+// from `std/pool` (stale-handle safety + O(1) slot reuse).
 
-import "std/pool.ll"
-import "std/math.ll"
+import "std/pool"
+import "std/math"
 
 define Entity struct [
     name: string,
@@ -23,7 +23,7 @@ bind duplicate_and_format[T: Printable + Copyable] = (item: T) string: {
 }
 
 bind distance = (a: Entity, b: Entity) float: {
-    hypot(b.x - a.x, b.y - a.y)
+    math.hypot(b.x - a.x, b.y - a.y)
 }
 
 bind main = (): {
@@ -33,7 +33,7 @@ bind main = (): {
     assert(banner == "Ranger(hp=100 @ 0,0) == Ranger(hp=100 @ 0,0)")
 
     // 2. Generational Pool[Entity]
-    let world = Pool[Entity].new()
+    let world = pool.Pool[Entity].new()
     let h_player = world.alloc(own hero)
     let h_goblin = world.alloc(Entity[name: "Goblin", hp: 30, x: 3.0, y: 4.0])
 

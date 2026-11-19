@@ -81,6 +81,9 @@ func (fc *funcChecker) checkInferOrValue(e ast.Expr, expected types.Type) types.
 }
 
 func (fc *funcChecker) isTestContext() bool {
+	if fc.mod != nil && (fc.mod.IsTestFile || (fc.mod.Pkg != nil && fc.mod.Pkg.IsIntegrationTest)) {
+		return true
+	}
 	if fc.curFn != nil {
 		if fc.curFn.IsTest || fc.curFn.IsTestOnly {
 			return true
@@ -2778,6 +2781,11 @@ func (fc *funcChecker) checkMemberExpr(m *ast.MemberExpr, expected types.Type) t
 	if baseId, isId := m.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && len(m.BaseTypeArgs) == 0 {
 		if fc.lookupVar(baseId.Name) == nil {
 			if targetMod, isMod := fc.mod.Aliased[baseId.Name]; isMod {
+				if fc.mod.DevAliased[baseId.Name] && !fc.isTestContext() {
+					fc.a.Rep.Errorf(m.Span, "cannot reference [dev-dependencies] package %q from non-test code", baseId.Name)
+					inf.Type = types.TypeInvalid
+					return types.TypeInvalid
+				}
 				if sym, ok := targetMod.Symbols[m.Member]; ok {
 					if !IsExported(m.Member) && !fc.a.SamePackage(fc.mod, targetMod) {
 						fc.a.Rep.Errorf(m.Span, "cannot access unexported symbol %q from package %q", m.Member, targetMod.Path)
@@ -3540,6 +3548,9 @@ func (fc *funcChecker) checkStructLit(sl *ast.StructLit, expected types.Type) ty
 		}
 	}
 
+	if sl.Module != "" && fc.mod.DevAliased[sl.Module] && !fc.isTestContext() {
+		fc.a.Rep.Errorf(sl.Span, "cannot reference [dev-dependencies] package %q from non-test code", sl.Module)
+	}
 	if st.IsTestOnly && !fc.isTestContext() {
 		callerName := "<top-level>"
 		if fc.curFn != nil {

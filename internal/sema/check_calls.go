@@ -294,6 +294,11 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 	// 1. Check module-qualified calls (`mod.fn(...)`, `mod.GenericFn[T](...)`, `mod.Type(x)`)
 	if baseId, isId := mem.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && len(mem.BaseTypeArgs) == 0 && fc.lookupVar(baseId.Name) == nil {
 		if targetMod, isMod := fc.mod.Aliased[baseId.Name]; isMod {
+			if fc.mod.DevAliased[baseId.Name] && !fc.isTestContext() {
+				fc.a.Rep.Errorf(mem.Span, "cannot reference [dev-dependencies] package %q from non-test code", baseId.Name)
+				inf.Type = types.TypeInvalid
+				return types.TypeInvalid
+			}
 			if !fc.a.SamePackage(fc.mod, targetMod) && !IsExported(mem.Member) {
 				fc.a.Rep.Errorf(mem.Span, "cannot access unexported symbol %q from package %q", mem.Member, targetMod.Path)
 				inf.Type = types.TypeInvalid
@@ -382,6 +387,11 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 		}
 		if modId, isId := baseMem.Base.(*ast.IdentExpr); isId && !modId.IsOpt && fc.lookupVar(modId.Name) == nil {
 			if targetMod, isMod := fc.mod.Aliased[modId.Name]; isMod {
+				if fc.mod.DevAliased[modId.Name] && !fc.isTestContext() {
+					fc.a.Rep.Errorf(baseMem.Span, "cannot reference [dev-dependencies] package %q from non-test code", modId.Name)
+					inf.Type = types.TypeInvalid
+					return types.TypeInvalid
+				}
 				memberName := baseMem.Member
 				if baseMem.MemberHasOpt {
 					memberName = strings.TrimSuffix(memberName, "?")
