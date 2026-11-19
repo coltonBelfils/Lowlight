@@ -141,6 +141,60 @@ bind exp = (x: float) float: {
 	sum
 }
 
+bind _scale_pow2 = (v: float, k: int) float: {
+	let res = v
+	let rem = k
+	if(rem > 0): {
+		for(rem > 0): {
+			let step = if(rem > 512): 512 else: rem
+			let base = 2.0
+			let e = step
+			for(e > 0): {
+				if((e & 1) != 0): res *= base
+				e >>= 1
+				if(e > 0): base *= base
+			}
+			rem -= step
+		}
+	} else if(rem < 0): {
+		let neg_rem = -rem
+		for(neg_rem > 0): {
+			let step = if(neg_rem > 512): 512 else: neg_rem
+			let base = 0.5
+			let e = step
+			for(e > 0): {
+				if((e & 1) != 0): res *= base
+				e >>= 1
+				if(e > 0): base *= base
+			}
+			neg_rem -= step
+		}
+	}
+	res
+}
+
+// Computes the base-2 exponential function (`2^x`), handling `NaN`, `±Inf`, overflow (`>= 1024.0`), and subnormal/underflow (`<= -1075.0`).
+bind exp2 = (x: float) float: {
+	if(is_nan(x)): func <- NAN
+	if(x == 0.0): func <- 1.0
+	if(x >= 1024.0): func <- INF
+	if(x <= -1075.0): func <- 0.0
+	let k = int(round(x))
+	let f = x - float(k)
+	let sum = 1.0
+	if(f != 0.0): {
+		let r = f * LN2
+		let term = 1.0
+		let n = 1
+		for(n <= 16): {
+			term = term * r / float(n)
+			sum += term
+			n += 1
+		}
+	}
+	_scale_pow2(sum, k)
+}
+
 // Computes the natural logarithm `ln(x)` (`0.0` when `x <= 0.0`).
 bind log = (x: float) float: {
 	if(x <= 0.0): func <- 0.0
@@ -169,6 +223,45 @@ bind log = (x: float) float: {
 
 // Computes the base-10 logarithm of `x`.
 bind log10 = (x: float) float: log(x) / LN10
+
+// Computes the base-2 logarithm of `x` (`NaN` for `x < 0.0` or `NaN`, `-Inf` for `±0.0`, `+Inf` for `+Inf`).
+bind log2 = (x: float) float: {
+	if(is_nan(x) or x < 0.0): func <- NAN
+	if(x == 0.0): func <- -INF
+	if(x == INF): func <- INF
+	if(x == 1.0): func <- 0.0
+	let k = 0
+	let m = x
+	let p64 = 18446744073709551616.0
+	let pm64 = 1.0 / p64
+	for(m >= p64): {
+		m *= pm64
+		k += 64
+	}
+	for(m < pm64): {
+		m *= p64
+		k -= 64
+	}
+	for(m >= SQRT2): {
+		m *= 0.5
+		k += 1
+	}
+	for(m < 0.70710678118654752440): {
+		m *= 2.0
+		k -= 1
+	}
+	let u = (m - 1.0) / (m + 1.0)
+	let u2 = u * u
+	let term = u
+	let sum = u
+	let n = 1
+	for(n <= 15): {
+		term *= u2
+		sum += term / float(2 * n + 1)
+		n += 1
+	}
+	(2.0 * sum) / LN2 + float(k)
+}
 
 // Computes `base` raised to `exponent` (`base^exponent`), using binary exponentiation for integer exponents.
 bind pow = (base: float, exponent: float) float: {
@@ -348,6 +441,57 @@ bind test_math_powers_and_logs = (): {
 	assert(exp(0.0) == 1.0, "exp(0)")
 	assert(abs_float(log(E) - 1.0) < 0.0001, "log(e) == 1")
 	assert(abs_float(log10(100.0) - 2.0) < 0.0001, "log10(100) == 2")
+}
+
+@test("math log2 and exp2 accuracy and IEEE-754 edge cases")
+bind test_math_log2_exp2 = (): {
+	// exp2 exact integer powers
+	assert(exp2(0.0) == 1.0, "exp2(0)")
+	assert(exp2(-0.0) == 1.0, "exp2(-0)")
+	assert(exp2(1.0) == 2.0, "exp2(1)")
+	assert(exp2(3.0) == 8.0, "exp2(3)")
+	assert(exp2(10.0) == 1024.0, "exp2(10)")
+	assert(exp2(-3.0) == 0.125, "exp2(-3)")
+	let e1023 = exp2(1023.0)
+	assert(e1023 > 8.98e307 and not is_inf(e1023), "exp2(1023) finite")
+	assert(exp2(-1074.0) == 5.0e-324, "exp2(-1074) smallest subnormal")
+
+	// exp2 fractional powers
+	assert(abs_float(exp2(0.5) - SQRT2) < 1.0e-12, "exp2(0.5) == sqrt(2)")
+	assert(abs_float(exp2(-0.5) - 0.7071067811865475) < 1.0e-12, "exp2(-0.5)")
+	assert(abs_float(exp2(3.5) - 11.313708498984761) < 1.0e-12, "exp2(3.5)")
+	let e1023_5 = exp2(1023.5)
+	assert(e1023_5 > 1.27e308 and not is_inf(e1023_5), "exp2(1023.5) finite")
+
+	// exp2 IEEE-754 edge cases
+	assert(exp2(1024.0) == INF, "exp2(1024) == INF")
+	assert(exp2(INF) == INF, "exp2(INF) == INF")
+	assert(exp2(-1075.0) == 0.0, "exp2(-1075) == 0")
+	assert(exp2(-INF) == 0.0, "exp2(-INF) == 0")
+	assert(is_nan(exp2(NAN)), "exp2(NAN) is NaN")
+
+	// log2 exact powers of 2
+	assert(log2(1.0) == 0.0, "log2(1)")
+	assert(log2(2.0) == 1.0, "log2(2)")
+	assert(log2(8.0) == 3.0, "log2(8)")
+	assert(log2(1024.0) == 10.0, "log2(1024)")
+	assert(log2(0.125) == -3.0, "log2(0.125)")
+	assert(log2(5.0e-324) == -1074.0, "log2(5e-324)")
+
+	// log2 non-powers of 2 & round-trips
+	assert(abs_float(log2(SQRT2) - 0.5) < 1.0e-12, "log2(sqrt(2)) == 0.5")
+	assert(abs_float(log2(10.0) - 3.321928094887362) < 1.0e-12, "log2(10)")
+	assert(abs_float(log2(exp2(7.25)) - 7.25) < 1.0e-12, "log2(exp2(7.25))")
+	assert(abs_float(exp2(log2(42.5)) - 42.5) < 1.0e-11, "exp2(log2(42.5))")
+	assert(abs_float(log2(1.7976931348623157e308) - 1024.0) < 1.0e-12, "log2(DBL_MAX)")
+
+	// log2 IEEE-754 edge cases
+	assert(log2(0.0) == -INF, "log2(0) == -INF")
+	assert(log2(-0.0) == -INF, "log2(-0) == -INF")
+	assert(log2(INF) == INF, "log2(INF) == INF")
+	assert(is_nan(log2(-1.0)), "log2(-1) is NaN")
+	assert(is_nan(log2(-INF)), "log2(-INF) is NaN")
+	assert(is_nan(log2(NAN)), "log2(NAN) is NaN")
 }
 
 @test("math rounding, clamping, and interpolation")
