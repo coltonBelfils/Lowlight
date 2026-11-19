@@ -172,12 +172,12 @@ The parser distinguishes an explicit semicolon (`;`) from an `AutoSemi`:
 
 ### 2.4 Multiline Trailing Commas
 
-Lowlight enforces clean diffs in multiline collection literals, argument lists, and parameter definitions via a strict trailing comma rule.
+Lowlight enforces clean diffs in multiline collection literals, argument lists, and parameter definitions via a trailing comma rule:
 
-For any comma-delimited sequence enclosed by delimiters `( ... )`, `[ ... ]`, or `#[ ... ]`:
+For any comma-delimited sequence of 2 or more items enclosed by delimiters `( ... )`, `[ ... ]`, or `#[ ... ]`:
 - If the closing delimiter is placed on a line strictly greater than the opening delimiter's line, AND strictly greater than the last element's line, a trailing comma **must** follow the final element.
-- Omitting the trailing comma in such a multiline declaration is a static syntax error.
-- Trailing commas are optional if the closing delimiter shares the line of the last item or opening delimiter.
+- Omitting the trailing comma in such a multi-item multiline declaration is a static syntax error.
+- Trailing commas are optional for single-item lists/calls or if the closing delimiter shares the line of the last item or opening delimiter.
 
 This rule applies uniformly across all 13 comma-separated lists in Lowlight:
 1. Struct field declarations

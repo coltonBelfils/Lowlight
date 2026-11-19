@@ -401,3 +401,54 @@ func TestNonAssociativeComparisonParensPreserved(t *testing.T) {
 		t.Fatalf("comparison parens mismatch!\n--- got ---\n%s--- want ---\n%s", got, want)
 	}
 }
+
+func TestSingleItemMultilineOmitsTrailingComma(t *testing.T) {
+	src := `define Box struct [
+    value: int,
+]
+
+bind main = (): {
+    let str = ` + "`\"abc\"`" + `
+    println(
+        "jsoned: ${match(str.len()):
+            when 1: "one"
+            default: "other"}",
+    )
+    println(
+        "first",
+        "second",
+    )
+    let single_vec = [
+        Box[
+            value: 1,
+        ],
+    ]
+}
+`
+	want := `define Box struct [
+	value: int
+]
+
+bind main = (): {
+	let str = ` + "`\"abc\"`" + `
+	println(
+		"jsoned: ${match(str.len()):
+			when 1: "one"
+			default: "other"}"
+	)
+	println(
+		"first",
+		"second",
+	)
+	let single_vec = [
+		Box[
+			value: 1
+		]
+	]
+}
+`
+	got := mustFormat(t, src, format.DefaultOptions())
+	if got != want {
+		t.Fatalf("single-item multiline formatting mismatch!\n--- got ---\n%s--- want ---\n%s", got, want)
+	}
+}

@@ -1041,3 +1041,78 @@ bind test = (k: string, k1: string, k2: string) void: {
 		t.Fatalf("standalone_paren_for: expected ForExpr labeled 'outer', got %#v", vars["standalone_paren_for"])
 	}
 }
+
+func TestSingleItemMultilineTrailingCommaOptionalAndMultiItemRequired(t *testing.T) {
+	okSrc := `
+define OneField struct [
+	x: int
+]
+
+define OneVariant enum [
+	Only
+]
+
+define OneMethod interface [
+	show: (
+		self
+	) string
+]
+
+bind single_param = (
+	x: List[
+		int
+	]
+) +[
+	int
+]: {
+	let v = [
+		1
+	]
+	let a = [1:
+		2
+	]
+	let m = #[
+		"k": 1
+	]
+	let s = #[
+		"only"
+	]
+	let tp = +[
+		1
+	]
+	let lit = OneField[
+		x: 42
+	]
+	let _ = println(
+		"jsoned: ${match(v.len()):
+			when 1: "ok"
+			default: "err"}"
+	)
+	match(
+		v.len()
+	):
+		when 1: +[v[0] + a[0] + m.len() + s.len() + tp.0 + lit.x]
+		default: +[0]
+}
+`
+	rep := diag.NewReporter()
+	file := parser.ParseFile("single_multiline_ok.ll", okSrc, rep)
+	if rep.HasErrors() || file == nil {
+		t.Fatalf("unexpected parse errors for single-item multiline constructs:\n%s", rep.Format())
+	}
+
+	// Trailing comma on a 2-item multiline argument list is still required.
+	badCallSrc := `
+bind main = (): {
+	println(
+		"a",
+		"b"
+	)
+}
+`
+	rep2 := diag.NewReporter()
+	_ = parser.ParseFile("bad_multi_call.ll", badCallSrc, rep2)
+	if !rep2.HasErrors() || !strings.Contains(rep2.Format(), "missing trailing comma") {
+		t.Fatalf("expected missing trailing comma error for 2-arg multiline call, got:\n%s", rep2.Format())
+	}
+}

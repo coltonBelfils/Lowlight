@@ -794,6 +794,36 @@ func TestAssertionApproxEqAndStringMatchFailureDiagnostics(t *testing.T) {
 			callLine: `    test.assert_ends_with("hello world", "hello")`,
 			want:     []string{"test_file.ll:5:5:", "end with suffix", "actual: hello world", "suffix: hello"},
 		},
+		{
+			name:     "assert_ok_eq_when_err",
+			callLine: `    test.assert_ok_eq(Result[int].fail_msg("bad parse"), 42)`,
+			want:     []string{"test_file.ll:5:5:", "expected Result to be Ok, but got Err", "bad parse"},
+		},
+		{
+			name:     "assert_ok_eq_when_value_mismatch",
+			callLine: `    test.assert_ok_eq(Result[int].ok(7), 42)`,
+			want:     []string{"test_file.ll:5:5:", "values are not equal", "expected: 42", "got: 7"},
+		},
+		{
+			name:     "assert_ok_gt_when_err",
+			callLine: `    test.assert_ok_gt(Result[int].fail_msg("too small"), 10)`,
+			want:     []string{"test_file.ll:5:5:", "expected Result to be Ok, but got Err", "too small"},
+		},
+		{
+			name:     "assert_ok_gt_when_value_fails",
+			callLine: `    test.assert_ok_gt(Result[int].ok(5), 10)`,
+			want:     []string{"test_file.ll:5:5:", "expected actual > threshold", "actual: 5", "threshold: 10"},
+		},
+		{
+			name:     "assert_ok_contains_when_mismatch",
+			callLine: `    test.assert_ok_contains(Result[string].ok("hello"), "xyz")`,
+			want:     []string{"test_file.ll:5:5:", "contain substring", "actual: hello", "substring: xyz"},
+		},
+		{
+			name:     "assert_err_contains_when_ok",
+			callLine: `    test.assert_err_contains(Result[int].ok(1), "boom")`,
+			want:     []string{"test_file.ll:5:5:", "expected Result to be Err, but got Ok"},
+		},
 	}
 
 	for _, tc := range cases {

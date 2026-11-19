@@ -143,15 +143,15 @@ func (p *Parser) skipSemis() {
 	}
 }
 
-func (p *Parser) checkTrailingComma(openTok, closeTok token.Token, lastItemEnd diag.Pos, hadTrailingComma bool, what string) {
-	if closeTok.Text == "" {
+func (p *Parser) checkTrailingComma(openTok, closeTok token.Token, itemCount int, lastItemEnd diag.Pos, hadTrailingComma bool, what string) {
+	if closeTok.Text == "" || itemCount < 2 {
 		return
 	}
 	if closeTok.Span.Start.Line > openTok.Span.Start.Line && closeTok.Span.Start.Line > lastItemEnd.Line && !hadTrailingComma {
 		p.rep.ErrorWithHint(
 			diag.Span{Start: lastItemEnd, End: lastItemEnd},
 			"missing trailing comma in multiline "+what,
-			"multiline [...] and (...) lists require a trailing comma on the final item",
+			"multiline [...] and (...) lists with 2 or more items require a trailing comma on the final item",
 		)
 	}
 }
@@ -363,7 +363,7 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 		}
 		closeBr := p.expect(token.RBracket, "closing struct definition")
 		if len(fields) > 0 {
-			p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "struct definition")
+			p.checkTrailingComma(openBr, closeBr, len(fields), lastEnd, hadComma, "struct definition")
 		}
 		return &ast.StructDecl{
 			Name:       nameTok.Text,
@@ -417,7 +417,7 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 		}
 		closeBr := p.expect(token.RBracket, "closing enum definition")
 		if len(variants) > 0 {
-			p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "enum definition")
+			p.checkTrailingComma(openBr, closeBr, len(variants), lastEnd, hadComma, "enum definition")
 		}
 		if hasPayloads || len(tparams) > 0 {
 			if baseTy != nil {
@@ -472,7 +472,7 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 		}
 		closeBr := p.expect(token.RBracket, "closing interface definition")
 		if len(methods) > 0 {
-			p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "interface definition")
+			p.checkTrailingComma(openBr, closeBr, len(methods), lastEnd, hadComma, "interface definition")
 		}
 		return &ast.InterfaceDecl{
 			Name:       nameTok.Text,
@@ -532,7 +532,7 @@ func (p *Parser) parseStructDefFields(ctx string) ([]ast.StructField, diag.Pos) 
 	}
 	closeBr := p.expect(token.RBracket, "closing "+ctx)
 	if len(fields) > 0 {
-		p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, ctx)
+		p.checkTrailingComma(openBr, closeBr, len(fields), lastEnd, hadComma, ctx)
 	}
 	return fields, closeBr.Span.End
 }
@@ -602,7 +602,7 @@ func (p *Parser) parseTypeParams() []ast.TypeParam {
 	}
 	closeBr := p.expect(token.RBracket, "closing type parameters `]`")
 	if len(params) > 0 {
-		p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "type parameter list")
+		p.checkTrailingComma(openBr, closeBr, len(params), lastEnd, hadComma, "type parameter list")
 	}
 	return params
 }
@@ -815,7 +815,7 @@ func (p *Parser) parseMethodParams() (ast.ReceiverMode, ast.TypeExpr, []ast.Para
 	}
 
 	closeP := p.expect(token.RParen, "closing method parameters `)`")
-	p.checkTrailingComma(openP, closeP, lastEnd, hadComma, "parameter list")
+	p.checkTrailingComma(openP, closeP, 1+len(params), lastEnd, hadComma, "parameter list")
 	return mode, explicitTy, params, closeP.Span.End
 }
 
@@ -837,7 +837,7 @@ func (p *Parser) parseParamList(requireNames bool) ([]ast.Param, diag.Pos) {
 	}
 	closeP := p.expect(token.RParen, "closing parameter list `)`")
 	if len(params) > 0 {
-		p.checkTrailingComma(openP, closeP, lastEnd, hadComma, "parameter list")
+		p.checkTrailingComma(openP, closeP, len(params), lastEnd, hadComma, "parameter list")
 	}
 	return params, closeP.Span.End
 }
@@ -1016,7 +1016,7 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 		}
 		closeBr := p.expect(token.RBracket, "closing tuple type `+[...]`")
 		if len(elems) > 0 {
-			p.checkTrailingComma(openPb, closeBr, lastEnd, hadComma, "tuple type")
+			p.checkTrailingComma(openPb, closeBr, len(elems), lastEnd, hadComma, "tuple type")
 		}
 		return &ast.TupleType{
 			Elems: elems,
@@ -1080,7 +1080,7 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 				}
 				closeBr := p.expect(token.RBracket, "closing generic type arguments `]`")
 				if len(targs) > 0 {
-					p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "type argument list")
+					p.checkTrailingComma(openBr, closeBr, len(targs), lastEnd, hadComma, "type argument list")
 				}
 				endPos = closeBr.Span.End
 			}
@@ -1886,7 +1886,7 @@ func (p *Parser) parseStructLitFields() ([]ast.StructFieldInit, diag.Pos) {
 	}
 	closeBr := p.expect(token.RBracket, "closing struct literal `]`")
 	if len(fields) > 0 {
-		p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "struct literal")
+		p.checkTrailingComma(openBr, closeBr, len(fields), lastEnd, hadComma, "struct literal")
 	}
 	return fields, closeBr.Span.End
 }
@@ -1963,7 +1963,7 @@ func (p *Parser) parseTypeArgBracket() []ast.TypeExpr {
 	}
 	closeBr := p.expect(token.RBracket, "closing type arguments `]`")
 	if len(targs) > 0 {
-		p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "type argument list")
+		p.checkTrailingComma(openBr, closeBr, len(targs), lastEnd, hadComma, "type argument list")
 	}
 	return targs
 }
@@ -1986,7 +1986,7 @@ func (p *Parser) parseArgList() ([]ast.Expr, diag.Pos) {
 	}
 	closeP := p.expect(token.RParen, "closing argument list `)`")
 	if len(args) > 0 {
-		p.checkTrailingComma(openP, closeP, lastEnd, hadComma, "argument list")
+		p.checkTrailingComma(openP, closeP, len(args), lastEnd, hadComma, "argument list")
 	}
 	return args, closeP.Span.End
 }
@@ -2198,7 +2198,7 @@ func (p *Parser) parseVecOrRepeatArrayLit() ast.Expr {
 			}
 		}
 		closeBr := p.expect(token.RBracket, "closing `]`")
-		p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "stack array literal")
+		p.checkTrailingComma(openBr, closeBr, len(elems), lastEnd, hadComma, "stack array literal")
 		return &ast.ArrayLit{
 			Count: first,
 			Elems: elems,
@@ -2224,7 +2224,7 @@ func (p *Parser) parseVecOrRepeatArrayLit() ast.Expr {
 		}
 	}
 	closeBr := p.expect(token.RBracket, "closing `]`")
-	p.checkTrailingComma(openBr, closeBr, lastEnd, hadComma, "vector/array literal")
+	p.checkTrailingComma(openBr, closeBr, len(elems), lastEnd, hadComma, "vector/array literal")
 	return &ast.VecLit{
 		Elems: elems,
 		Span:  diag.Span{Start: openBr.Span.Start, End: closeBr.Span.End},
@@ -2269,7 +2269,7 @@ func (p *Parser) parseHashLit() ast.Expr {
 			}
 		}
 		closeBr := p.expect(token.RBracket, "closing map literal `]`")
-		p.checkTrailingComma(openHb, closeBr, lastEnd, hadComma, "map literal")
+		p.checkTrailingComma(openHb, closeBr, len(entries), lastEnd, hadComma, "map literal")
 		return &ast.MapLit{
 			Entries: entries,
 			Span:    diag.Span{Start: openHb.Span.Start, End: closeBr.Span.End},
@@ -2294,7 +2294,7 @@ func (p *Parser) parseHashLit() ast.Expr {
 		}
 	}
 	closeBr := p.expect(token.RBracket, "closing set literal `]`")
-	p.checkTrailingComma(openHb, closeBr, lastEnd, hadComma, "set literal")
+	p.checkTrailingComma(openHb, closeBr, len(elems), lastEnd, hadComma, "set literal")
 	return &ast.SetLit{
 		Elems: elems,
 		Span:  diag.Span{Start: openHb.Span.Start, End: closeBr.Span.End},
@@ -2325,7 +2325,7 @@ func (p *Parser) parseTupleLit() *ast.TupleLit {
 	}
 	closeBr := p.expect(token.RBracket, "closing tuple literal `]`")
 	if len(elems) > 0 {
-		p.checkTrailingComma(openPb, closeBr, lastEnd, hadComma, "tuple literal")
+		p.checkTrailingComma(openPb, closeBr, len(elems), lastEnd, hadComma, "tuple literal")
 	}
 	return &ast.TupleLit{
 		Elems: elems,
@@ -2649,7 +2649,7 @@ func (p *Parser) parseMatchExpr() *ast.MatchExpr {
 			}
 			closeP := p.expect(token.RParen, "closing `match (...)`")
 			if len(scruts) > 0 {
-				p.checkTrailingComma(openP, closeP, lastEnd, hadComma, "match argument list")
+				p.checkTrailingComma(openP, closeP, len(scruts), lastEnd, hadComma, "match argument list")
 			}
 		}
 		if p.cur().Kind != token.Colon && p.canStartHeaderType() {
@@ -2984,7 +2984,7 @@ func (p *Parser) parseTupleVariantPatternBindings() ([]ast.VariantPatternBinding
 	}
 	closeP := p.expect(token.RParen, "closing variant destructuring `)`")
 	if len(bindings) > 0 {
-		p.checkTrailingComma(openP, closeP, lastEnd, hadComma, "variant pattern")
+		p.checkTrailingComma(openP, closeP, len(bindings), lastEnd, hadComma, "variant pattern")
 	}
 	return bindings, closeP.Span.End
 }

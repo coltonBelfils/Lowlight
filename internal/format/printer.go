@@ -739,7 +739,9 @@ func (p *printer) printStructDecl(v *ast.StructDecl) {
 			p.write(" = ")
 			p.printExpr(f.Default)
 		}
-		p.write(",")
+		if len(v.Fields) > 1 {
+			p.write(",")
+		}
 		p.emitInlineCommentOnLine(f.Span.End.Line)
 		p.newline()
 	}
@@ -779,7 +781,9 @@ func (p *printer) printEnumDecl(v *ast.EnumDecl) {
 			p.write(" = ")
 			p.printExpr(ev.Value)
 		}
-		p.write(",")
+		if len(v.Variants) > 1 {
+			p.write(",")
+		}
 		p.emitInlineCommentOnLine(ev.Span.End.Line)
 		p.newline()
 	}
@@ -813,7 +817,9 @@ func (p *printer) printInterfaceDecl(v *ast.InterfaceDecl) {
 			p.write(" ")
 			p.printTypeExpr(m.Ret)
 		}
-		p.write(",")
+		if len(v.Methods) > 1 {
+			p.write(",")
+		}
 		p.emitInlineCommentOnLine(m.Span.End.Line)
 		p.newline()
 	}
@@ -2069,7 +2075,9 @@ func (p *printer) writeCommaListParts(parts []string, trailingOnSingle bool, clo
 	for _, part := range parts {
 		p.writeIndent()
 		p.write(part)
-		p.write(",")
+		if len(parts) > 1 {
+			p.write(",")
+		}
 		p.newline()
 	}
 	p.indent--
@@ -2136,7 +2144,9 @@ func (p *printer) printDelimExprList(openDelim, closeDelim string, elems []ast.E
 		}
 		p.writeIndent()
 		p.printExpr(el)
-		p.write(",")
+		if len(elems) > 1 {
+			p.write(",")
+		}
 		p.emitInlineCommentOnLine(sp.End.Line)
 		p.newline()
 	}
@@ -2198,7 +2208,9 @@ func (p *printer) printArrayLit(v *ast.ArrayLit) {
 		}
 		p.writeIndent()
 		p.printExpr(el)
-		p.write(",")
+		if len(v.Elems) > 1 {
+			p.write(",")
+		}
 		p.emitInlineCommentOnLine(sp.End.Line)
 		p.newline()
 	}
@@ -2254,7 +2266,9 @@ func (p *printer) printMapLit(v *ast.MapLit) {
 		p.printExpr(ent.Key)
 		p.write(": ")
 		p.printExpr(ent.Value)
-		p.write(",")
+		if len(v.Entries) > 1 {
+			p.write(",")
+		}
 		p.emitInlineCommentOnLine(ent.Span.End.Line)
 		p.newline()
 	}
@@ -2314,7 +2328,9 @@ func (p *printer) printStructLit(v *ast.StructLit) {
 		p.write(f.Name)
 		p.write(": ")
 		p.printExpr(f.Value)
-		p.write(",")
+		if len(v.Fields) > 1 {
+			p.write(",")
+		}
 		p.emitInlineCommentOnLine(f.Span.End.Line)
 		p.newline()
 	}

@@ -3,7 +3,8 @@
 // Provides aligned single-line and multi-line visual diffs via [`format_diff`] along
 // with typed assertions ([`assert_eq`], [`assert_approx_eq`], [`assert_ne`], [`assert_gt`],
 // [`assert_contains`], [`assert_starts_with`], [`assert_ends_with`], [`assert_is_ok`],
-// [`assert_some`], [`assert_none`], and `_msg` variants).
+// [`assert_ok_eq`], [`assert_ok_gt`], [`assert_ok_contains`], [`assert_some`], [`assert_none`],
+// and `_msg` variants).
 
 // -----------------------------------------------------------------------------
 // Failure Diagnostics & Diff Formatting Helpers
@@ -267,6 +268,20 @@ bind assert_false = (cond: bool):
 bind assert_false_msg = (cond: bool, msg: string):
 	if(cond): panic("assertion failed: " + msg + " (expected false, but got true)")
 
+@test_only
+@track_caller
+bind _panic_cmp[T: Printable] = (actual: T, expected: T, op: string, msg: string):
+	if(msg.len() > 0):
+		panic(
+			"assertion failed: " + msg + " (expected actual " + op + " threshold)\n     actual: " + actual
+				.to_string() + "\n  threshold: " + expected.to_string(),
+		)
+	else:
+		panic(
+			"assertion failed: expected actual " + op + " threshold\n     actual: " + actual.to_string() + "\n  threshold: " + expected
+				.to_string(),
+		)
+
 // Asserts that `actual` is strictly greater than `expected` (`actual > expected`).
 //
 // # Panics
@@ -274,10 +289,16 @@ bind assert_false_msg = (cond: bool, msg: string):
 @test_only
 @track_caller
 bind assert_gt[T: Comparable + Printable] = (actual: T, expected: T):
-	if(actual <= expected):
-		panic(
-			"assertion failed: expected actual > threshold\n     actual: " + actual.to_string() + "\n  threshold: " + expected.to_string(),
-		)
+	if(actual <= expected): _panic_cmp(actual, expected, ">", "")
+
+// Asserts that `actual` is strictly greater than `expected`, prefixing failures with `msg`.
+//
+// # Panics
+// Panics with `msg` if `actual <= expected`.
+@test_only
+@track_caller
+bind assert_gt_msg[T: Comparable + Printable] = (actual: T, expected: T, msg: string):
+	if(actual <= expected): _panic_cmp(actual, expected, ">", msg)
 
 // Asserts that `actual` is strictly less than `expected` (`actual < expected`).
 //
@@ -286,10 +307,16 @@ bind assert_gt[T: Comparable + Printable] = (actual: T, expected: T):
 @test_only
 @track_caller
 bind assert_lt[T: Comparable + Printable] = (actual: T, expected: T):
-	if(actual >= expected):
-		panic(
-			"assertion failed: expected actual < threshold\n     actual: " + actual.to_string() + "\n  threshold: " + expected.to_string(),
-		)
+	if(actual >= expected): _panic_cmp(actual, expected, "<", "")
+
+// Asserts that `actual` is strictly less than `expected`, prefixing failures with `msg`.
+//
+// # Panics
+// Panics with `msg` if `actual >= expected`.
+@test_only
+@track_caller
+bind assert_lt_msg[T: Comparable + Printable] = (actual: T, expected: T, msg: string):
+	if(actual >= expected): _panic_cmp(actual, expected, "<", msg)
 
 // Asserts that `actual` is greater than or equal to `expected` (`actual >= expected`).
 //
@@ -298,10 +325,16 @@ bind assert_lt[T: Comparable + Printable] = (actual: T, expected: T):
 @test_only
 @track_caller
 bind assert_ge[T: Comparable + Printable] = (actual: T, expected: T):
-	if(actual < expected):
-		panic(
-			"assertion failed: expected actual >= threshold\n     actual: " + actual.to_string() + "\n  threshold: " + expected.to_string(),
-		)
+	if(actual < expected): _panic_cmp(actual, expected, ">=", "")
+
+// Asserts that `actual` is greater than or equal to `expected`, prefixing failures with `msg`.
+//
+// # Panics
+// Panics with `msg` if `actual < expected`.
+@test_only
+@track_caller
+bind assert_ge_msg[T: Comparable + Printable] = (actual: T, expected: T, msg: string):
+	if(actual < expected): _panic_cmp(actual, expected, ">=", msg)
 
 // Asserts that `actual` is less than or equal to `expected` (`actual <= expected`).
 //
@@ -310,10 +343,16 @@ bind assert_ge[T: Comparable + Printable] = (actual: T, expected: T):
 @test_only
 @track_caller
 bind assert_le[T: Comparable + Printable] = (actual: T, expected: T):
-	if(actual > expected):
-		panic(
-			"assertion failed: expected actual <= threshold\n     actual: " + actual.to_string() + "\n  threshold: " + expected.to_string(),
-		)
+	if(actual > expected): _panic_cmp(actual, expected, "<=", "")
+
+// Asserts that `actual` is less than or equal to `expected`, prefixing failures with `msg`.
+//
+// # Panics
+// Panics with `msg` if `actual > expected`.
+@test_only
+@track_caller
+bind assert_le_msg[T: Comparable + Printable] = (actual: T, expected: T, msg: string):
+	if(actual > expected): _panic_cmp(actual, expected, "<=", msg)
 
 // Asserts that `actual` contains `substring`.
 //
@@ -418,6 +457,247 @@ bind assert_is_err[T] = (res: &Result[T]):
 @track_caller
 bind assert_is_err_msg[T] = (res: &Result[T], msg: string):
 	if(res.is_ok()): panic("assertion failed: " + msg + " (expected Result to be Err, but got Ok)")
+
+@test_only
+@track_caller
+bind _panic_result_not_ok = (err: Error, msg: string):
+	if(msg.len() > 0):
+		panic(
+			"assertion failed: " + msg + " (expected Result to be Ok, got Err)\n  error: " + err.to_string(),
+		)
+	else:
+		panic("assertion failed: expected Result to be Ok, but got Err\n  error: " + err.to_string())
+
+// Asserts that [`Result`] `res` is `Ok` and its value equals `expected` (`val == expected`).
+//
+// # Panics
+// Panics with the underlying error if `res` is `Err`, or a formatted diff if `val != expected`.
+@test_only
+@track_caller
+bind assert_ok_eq[T: Equatable + Printable] = (res: Result[T], expected: T):
+	match(res):
+		when Result.Ok(val): assert_eq(val, expected)
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok` and its value equals `expected`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_eq_msg[T: Equatable + Printable] = (res: Result[T], expected: T, msg: string):
+	match(res):
+		when Result.Ok(val): assert_eq_msg(val, expected, msg)
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Ok` and its value does not equal `unexpected` (`val != unexpected`).
+@test_only
+@track_caller
+bind assert_ok_ne[T: Equatable + Printable] = (res: Result[T], unexpected: T):
+	match(res):
+		when Result.Ok(val): assert_ne(val, unexpected)
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok` and its value does not equal `unexpected`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_ne_msg[T: Equatable + Printable] = (res: Result[T], unexpected: T, msg: string):
+	match(res):
+		when Result.Ok(val): assert_ne_msg(val, unexpected, msg)
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Ok` and its float value is within `eps` of `expected`.
+@test_only
+@track_caller
+bind assert_ok_approx_eq = (res: Result[float], expected: float, eps: float):
+	match(res):
+		when Result.Ok(val): assert_approx_eq(val, expected, eps)
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok` and its float value is within `eps` of `expected`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_approx_eq_msg = (res: Result[float], expected: float, eps: float, msg: string):
+	match(res):
+		when Result.Ok(val): assert_approx_eq_msg(val, expected, eps, msg)
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Ok(true)`.
+@test_only
+@track_caller
+bind assert_ok_true = (res: Result[bool]):
+	match(res):
+		when Result.Ok(val): assert_true(val)
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok(true)`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_true_msg = (res: Result[bool], msg: string):
+	match(res):
+		when Result.Ok(val): assert_true_msg(val, msg)
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Ok(false)`.
+@test_only
+@track_caller
+bind assert_ok_false = (res: Result[bool]):
+	match(res):
+		when Result.Ok(val): assert_false(val)
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok(false)`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_false_msg = (res: Result[bool], msg: string):
+	match(res):
+		when Result.Ok(val): assert_false_msg(val, msg)
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Ok` and its value is strictly greater than `expected` (`val > expected`).
+@test_only
+@track_caller
+bind assert_ok_gt[T: Comparable + Printable] = (res: Result[T], expected: T):
+	match(res):
+		when Result.Ok(val): assert_gt(val, expected)
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok` and its value is strictly greater than `expected`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_gt_msg[T: Comparable + Printable] = (res: Result[T], expected: T, msg: string):
+	match(res):
+		when Result.Ok(val): assert_gt_msg(val, expected, msg)
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Ok` and its value is strictly less than `expected` (`val < expected`).
+@test_only
+@track_caller
+bind assert_ok_lt[T: Comparable + Printable] = (res: Result[T], expected: T):
+	match(res):
+		when Result.Ok(val): assert_lt(val, expected)
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok` and its value is strictly less than `expected`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_lt_msg[T: Comparable + Printable] = (res: Result[T], expected: T, msg: string):
+	match(res):
+		when Result.Ok(val): assert_lt_msg(val, expected, msg)
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Ok` and its value is greater than or equal to `expected` (`val >= expected`).
+@test_only
+@track_caller
+bind assert_ok_ge[T: Comparable + Printable] = (res: Result[T], expected: T):
+	match(res):
+		when Result.Ok(val): assert_ge(val, expected)
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok` and its value is greater than or equal to `expected`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_ge_msg[T: Comparable + Printable] = (res: Result[T], expected: T, msg: string):
+	match(res):
+		when Result.Ok(val): assert_ge_msg(val, expected, msg)
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Ok` and its value is less than or equal to `expected` (`val <= expected`).
+@test_only
+@track_caller
+bind assert_ok_le[T: Comparable + Printable] = (res: Result[T], expected: T):
+	match(res):
+		when Result.Ok(val): assert_le(val, expected)
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok` and its value is less than or equal to `expected`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_le_msg[T: Comparable + Printable] = (res: Result[T], expected: T, msg: string):
+	match(res):
+		when Result.Ok(val): assert_le_msg(val, expected, msg)
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Ok` and its string value contains `substring`.
+@test_only
+@track_caller
+bind assert_ok_contains = (res: Result[string], substring: string):
+	match(res):
+		when Result.Ok(val): assert_contains(val, substring)
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok` and its string value contains `substring`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_contains_msg = (res: Result[string], substring: string, msg: string):
+	match(res):
+		when Result.Ok(val): assert_contains_msg(val, substring, msg)
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Ok` and its string value starts with `prefix`.
+@test_only
+@track_caller
+bind assert_ok_starts_with = (res: Result[string], prefix: string):
+	match(res):
+		when Result.Ok(val): assert_starts_with(val, prefix)
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok` and its string value starts with `prefix`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_starts_with_msg = (res: Result[string], prefix: string, msg: string):
+	match(res):
+		when Result.Ok(val): assert_starts_with_msg(val, prefix, msg)
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Ok` and its string value ends with `suffix`.
+@test_only
+@track_caller
+bind assert_ok_ends_with = (res: Result[string], suffix: string):
+	match(res):
+		when Result.Ok(val): assert_ends_with(val, suffix)
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok` and its string value ends with `suffix`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_ends_with_msg = (res: Result[string], suffix: string, msg: string):
+	match(res):
+		when Result.Ok(val): assert_ends_with_msg(val, suffix, msg)
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Ok` and satisfies predicate `check(val)`.
+@test_only
+@track_caller
+bind assert_ok_with[T: Printable] = (res: Result[T], check: (T) bool):
+	match(res):
+		when Result.Ok(val):
+			if(not check(val)):
+				panic("assertion failed: Ok value did not satisfy predicate\n  actual: " + val.to_string())
+		default Result.Err(err): _panic_result_not_ok(err, "")
+
+// Asserts that [`Result`] `res` is `Ok` and satisfies predicate `check(val)`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_ok_with_msg[T: Printable] = (res: Result[T], check: (T) bool, msg: string):
+	match(res):
+		when Result.Ok(val):
+			if(not check(val)):
+				panic("assertion failed: " + msg + " (Ok value did not satisfy predicate)\n  actual: " + val.to_string())
+		default Result.Err(err): _panic_result_not_ok(err, msg)
+
+// Asserts that [`Result`] `res` is `Err` and its formatted error contains `substring`.
+@test_only
+@track_caller
+bind assert_err_contains[T] = (res: Result[T], substring: string):
+	match(res):
+		when Result.Err(err): assert_contains(err.to_string(), substring)
+		default Result.Ok(_): panic("assertion failed: expected Result to be Err, but got Ok")
+
+// Asserts that [`Result`] `res` is `Err` and its formatted error contains `substring`, prefixing failures with `msg`.
+@test_only
+@track_caller
+bind assert_err_contains_msg[T] = (res: Result[T], substring: string, msg: string):
+	match(res):
+		when Result.Err(err): assert_contains_msg(err.to_string(), substring, msg)
+		default Result.Ok(_): panic("assertion failed: " + msg + " (expected Result to be Err, but got Ok)")
 
 // Asserts that an optional value is present (`val? != none`).
 //
@@ -558,4 +838,49 @@ bind test_string_match_assertions = (): {
 	assert_ends_with("lowlight/std/test.ll", ".ll")
 	assert_ends_with("abc", "")
 	assert_ends_with_msg("archive.tar.gz", ".tar.gz", "tarball extension")
+}
+
+@test("assert_ok_* combined Result[T] assertions")
+bind test_combined_result_assertions = (): {
+	let r_int = Result[int].ok(42)
+	assert_ok_eq(r_int, 42)
+	assert_ok_eq_msg(Result[int].ok(7), 7, "inline rvalue ok_eq")
+	assert_ok_ne(r_int, 0)
+	assert_ok_ne_msg(r_int, 99, "not ninety-nine")
+	assert_ok_gt(r_int, 41)
+	assert_ok_gt_msg(r_int, 10, "greater than ten")
+	assert_ok_lt(r_int, 100)
+	assert_ok_lt_msg(r_int, 50, "less than fifty")
+	assert_ok_ge(r_int, 42)
+	assert_ok_ge_msg(r_int, 40, "at least forty")
+	assert_ok_le(r_int, 42)
+	assert_ok_le_msg(r_int, 45, "at most forty-five")
+	assert_ok_with(r_int, (n: int) bool: n % 2 == 0)
+	assert_ok_with_msg(r_int, (n: int) bool: n > 0, "positive integer")
+
+	assert_ok_approx_eq(Result[float].ok(0.1 + 0.2), 0.3, 1.0e-9)
+	assert_ok_approx_eq_msg(Result[float].ok(3.1415), 3.14, 0.01, "pi approx")
+
+	assert_ok_true(Result[bool].ok(true))
+	assert_ok_true_msg(Result[bool].ok(true), "ok true")
+	assert_ok_false(Result[bool].ok(false))
+	assert_ok_false_msg(Result[bool].ok(false), "ok false")
+
+	let r_str = Result[string].ok("lowlight/std/test.ll")
+	assert_ok_contains(r_str, "std/test")
+	assert_ok_contains_msg(r_str, "lowlight", "contains package")
+	assert_ok_starts_with(r_str, "lowlight/")
+	assert_ok_starts_with_msg(r_str, "lowlight/", "starts with repo")
+	assert_ok_ends_with(r_str, ".ll")
+	assert_ok_ends_with_msg(r_str, "test.ll", "ends with file")
+
+	let r_err = Result[int].fail_msg("boom on port 8080")
+	assert_err_contains(r_err, "port 8080")
+	assert_err_contains_msg(r_err, "boom", "error mentions boom")
+
+	// Existing comparison _msg variants
+	assert_gt_msg(10, 5, "10 > 5")
+	assert_lt_msg(5, 10, "5 < 10")
+	assert_ge_msg(10, 10, "10 >= 10")
+	assert_le_msg(10, 10, "10 <= 10")
 }
