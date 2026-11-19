@@ -1978,6 +1978,9 @@ func (a *Analyzer) isIterableType(t types.Type) bool {
 	case *types.Distinct:
 		return a.isIterableType(c.Base)
 	case *types.Struct:
+		if a.isStdPoolStruct(c) && !a.supportsCopy(c.TypeArgs[0]) {
+			return false
+		}
 		if fi := a.LookupMethod(c, "iter", nil, diag.Span{}); fi != nil {
 			return true
 		}
@@ -2008,6 +2011,9 @@ func (a *Analyzer) iterableItemType(t types.Type) types.Type {
 	case *types.Distinct:
 		return a.iterableItemType(c.Base)
 	case *types.Struct:
+		if a.isStdPoolStruct(c) && !a.supportsCopy(c.TypeArgs[0]) {
+			return types.TypeInvalid
+		}
 		if fi := a.LookupMethod(c, "iter", nil, diag.Span{}); fi != nil {
 			iterRet := fi.Sig.Ret
 			if fi.RetInferred {
@@ -2044,6 +2050,9 @@ func (a *Analyzer) isIndexableType(t types.Type) bool {
 	case *types.Primitive:
 		return v.Kind == types.PrimString
 	case *types.Struct:
+		if a.isStdPoolStruct(v) {
+			return false
+		}
 		if (v.Name == "List" || strings.HasPrefix(v.Name, "List[")) ||
 			(v.Name == "Array" || strings.HasPrefix(v.Name, "Array[")) {
 			return true
@@ -2154,6 +2163,9 @@ func (a *Analyzer) isKeyIndexableType(t types.Type) bool {
 	case *types.Map:
 		return true
 	case *types.Struct:
+		if a.isStdPoolStruct(v) {
+			return a.supportsCopy(v.TypeArgs[0])
+		}
 		if v.Name == "Map" || strings.HasPrefix(v.Name, "Map[") {
 			return true
 		}
@@ -2253,6 +2265,17 @@ func (a *Analyzer) isStdStructTemplate(st *types.Struct, tmpl *GenericStructTemp
 		return false
 	}
 	return a.Prog.StructMods[st] == tmpl.Mod && (st.Name == tmpl.Decl.Name || strings.HasPrefix(st.Name, tmpl.Decl.Name+"["))
+}
+
+func (a *Analyzer) isStdPoolStruct(st *types.Struct) bool {
+	if st == nil || a.Prog == nil || len(st.TypeArgs) != 1 {
+		return false
+	}
+	if st.Name != "Pool" && !strings.HasPrefix(st.Name, "Pool[") {
+		return false
+	}
+	mod := a.Prog.StructMods[st]
+	return mod != nil && mod.Pkg != nil && mod.Pkg.ID == "std/pool"
 }
 
 func (a *Analyzer) isContainableType(t types.Type) bool {
@@ -2808,6 +2831,30 @@ func extractSortedSubst(subst map[string]types.Type) []string {
 func sanitizeSymbolName(s string) string {
 	r := strings.NewReplacer("[", "_", "]", "_", ",", "_", " ", "", "?", "_opt", ".", "_")
 	return r.Replace(s)
+}
+
+func (a *Analyzer) lookupGenericMethodTemplate(recvTy types.Type, methodName string) *GenericFuncTemplate {
+	baseTypeName := ""
+	switch r := recvTy.(type) {
+	case *types.Struct:
+		baseTypeName = r.Name
+	case *types.Vector:
+		baseTypeName = "List"
+	case *types.StackArray:
+		baseTypeName = "Array"
+	case *types.Primitive:
+		baseTypeName = r.String()
+	case *types.Distinct:
+		baseTypeName = r.Name
+	case *types.Enum:
+		baseTypeName = r.Name
+	}
+	if baseTypeName != "" {
+		if gset, ok := a.genMethods[baseTypeName]; ok {
+			return gset[methodName]
+		}
+	}
+	return nil
 }
 
 // LookupMethod finds a user-defined (or monomorphized) method on `recvTy`.

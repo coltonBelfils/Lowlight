@@ -565,6 +565,63 @@ func (fl *funcLowerer) lowerLoopDriver(
 				hiVal := &ExprField{Base: colPtrExpr, FieldName: c.Fields[1].CName, Typ: elemTy, IsPtr: true}
 				incVal := &ExprField{Base: colPtrExpr, FieldName: c.Fields[2].CName, Typ: types.TypeBool, IsPtr: true}
 				emitNumericOrCharRange(loVal, hiVal, elemTy, incVal)
+			} else if fl.prog != nil {
+				if poolMod := fl.prog.StructMods[c]; poolMod != nil && poolMod.Pkg != nil && poolMod.Pkg.ID == "std/pool" &&
+					(c.Name == "Pool" || strings.HasPrefix(c.Name, "Pool[")) &&
+					len(c.TypeArgs) == 1 && len(c.Fields) >= 1 {
+					if slotsVecTy, isVec := c.Fields[0].Type.(*types.Vector); isVec {
+						if slotSt, isSlotSt := slotsVecTy.Elem.(*types.Struct); isSlotSt && len(slotSt.Fields) >= 3 {
+							if optTy, isOpt := slotSt.Fields[0].Type.(*types.Optional); isOpt {
+								fl.tc.visit(slotSt)
+								fl.tc.visit(optTy)
+								idxVar := fl.allocSlot("_ll_pi", types.TypeInt)
+								fl.assignLocal(idxVar, NewLitInt(0, false, types.TypeInt))
+								fl.usedLabels[contLbl] = true
+
+								slotsField := &ExprField{Base: colPtrExpr, FieldName: c.Fields[0].CName, FieldIdx: 0, Typ: slotsVecTy, IsPtr: true}
+								dataField := &ExprField{Base: slotsField, FieldName: "data", Typ: &types.Ptr{Elem: slotSt}, IsPtr: false}
+								lenField := &ExprField{Base: slotsField, FieldName: "len", Typ: types.TypeInt, IsPtr: false}
+								slotAccess := &ExprIndex{Base: dataField, Index: NewLocalExpr(idxVar), Typ: slotSt}
+								aliveField := &ExprField{Base: slotAccess, FieldName: slotSt.Fields[2].CName, FieldIdx: 2, Typ: types.TypeBool}
+								notAlive := &ExprUnary{Op: token.KwNot, Operand: aliveField, Typ: types.TypeBool}
+								optField := &ExprField{Base: slotAccess, FieldName: slotSt.Fields[0].CName, FieldIdx: 0, Typ: optTy}
+
+								var stepInit []Instr
+								stepInit = append(stepInit, NewInstrIf(notAlive, []Instr{&InstrGoto{Label: contLbl}}, nil))
+								if loc2 == nil {
+									if loc1.IsMutPtr {
+										optPtr := &ExprAddrOf{Place: optField, Typ: &types.Ptr{Elem: optTy}}
+										stepInit = append(stepInit, &InstrAssign{Dst: NewLocalExpr(loc1), Expr: optUnwrapPtrExpr(optPtr, optTy)})
+									} else {
+										stepInit = append(stepInit, &InstrAssign{Dst: NewLocalExpr(loc1), Expr: optUnwrapValExpr(optField, optTy)})
+									}
+								} else {
+									handleSt := loc1.Type.(*types.Struct)
+									fl.tc.visit(handleSt)
+									genField := &ExprField{Base: slotAccess, FieldName: slotSt.Fields[1].CName, FieldIdx: 1, Typ: types.TypeInt}
+									handleLit := &ExprConstructStruct{
+										StructType: handleSt,
+										Fields: []StructFieldInit{
+											{Name: handleSt.Fields[0].CName, Index: 0, Value: NewLocalExpr(idxVar)},
+											{Name: handleSt.Fields[1].CName, Index: 1, Value: genField},
+										},
+									}
+									stepInit = append(stepInit, &InstrAssign{Dst: NewLocalExpr(loc1), Expr: handleLit})
+									if loc2.IsMutPtr {
+										optPtr := &ExprAddrOf{Place: optField, Typ: &types.Ptr{Elem: optTy}}
+										stepInit = append(stepInit, &InstrAssign{Dst: NewLocalExpr(loc2), Expr: optUnwrapPtrExpr(optPtr, optTy)})
+									} else {
+										stepInit = append(stepInit, &InstrAssign{Dst: NewLocalExpr(loc2), Expr: optUnwrapValExpr(optField, optTy)})
+									}
+								}
+								incExpr := &ExprBinary{Op: token.Plus, Left: NewLocalExpr(idxVar), Right: NewLitInt(1, false, types.TypeInt), Typ: types.TypeInt}
+								stepAdv := []Instr{&InstrAssign{Dst: NewLocalExpr(idxVar), Expr: incExpr}}
+								loopCond := &ExprBinary{Op: token.Lt, Left: NewLocalExpr(idxVar), Right: lenField, Typ: types.TypeBool}
+								emitBodyIteration(stepInit, stepAdv, loopCond)
+							}
+						}
+					}
+				}
 			}
 		}
 	}

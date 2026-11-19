@@ -523,6 +523,47 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 	for _, ta := range call.TypeArgs {
 		mTypeArgs = append(mTypeArgs, fc.a.resolveValueType(fc.mod, ta, fc.subst, false))
 	}
+	if len(mTypeArgs) == 0 {
+		if gtmpl := fc.a.lookupGenericMethodTemplate(actualRecvTy, mem.Member); gtmpl != nil && gtmpl.MethodDecl != nil && len(gtmpl.MethodDecl.TypeParams) > 0 {
+			decl := gtmpl.MethodDecl
+			if decl.RecvMode != ast.ReceiverMode(-1) && len(call.Args) == len(decl.Params) {
+				tpNames := make(map[string]bool)
+				for _, tp := range decl.TypeParams {
+					tpNames[tp.Name] = true
+				}
+				inferred := make(map[string]types.Type)
+				for i, arg := range call.Args {
+					probe := arg
+					if u, ok := arg.(*ast.UnaryExpr); ok && (u.Op == token.Amp || u.Op == token.KwOwn) {
+						probe = u.Operand
+					}
+					if _, isNone := probe.(*ast.NoneLit); isNone {
+						continue
+					}
+					savedMoves := fc.cloneMoves()
+					aty := fc.checkExpr(probe, true)
+					fc.moves = savedMoves
+					matchTypeExprForInference(decl.Params[i].Type, aty, tpNames, inferred)
+				}
+				if expected != nil && decl.Ret != nil {
+					matchTypeExprForInference(decl.Ret, expected, tpNames, inferred)
+				}
+				candArgs := make([]types.Type, len(decl.TypeParams))
+				allFound := true
+				for i, tp := range decl.TypeParams {
+					ta, ok := inferred[tp.Name]
+					if !ok {
+						allFound = false
+						break
+					}
+					candArgs[i] = ta
+				}
+				if allFound {
+					mTypeArgs = candArgs
+				}
+			}
+		}
+	}
 	if fi := fc.a.LookupMethod(actualRecvTy, mem.Member, mTypeArgs, call.Span); fi != nil && !fi.IsStaticAssoc {
 		if !IsExported(mem.Member) && !fc.a.SamePackage(fc.mod, fi.Mod) && !fc.a.SamePackageDir(fc.mod, types.TypePkgDir(actualRecvTy), "") {
 			fc.a.Rep.Errorf(call.Span, "cannot call unexported method %q on type %s outside its package", mem.Member, actualRecvTy.String())

@@ -4418,6 +4418,27 @@ func (fc *funcChecker) resolveIterVars(h loopHeaderInfo, colTy types.Type, id in
 			}
 			return mkSym(h.var1, h.var1IsOpt, c.TypeArgs[0], false), nil
 		}
+		if fc.a.isStdPoolStruct(c) {
+			elem := c.TypeArgs[0]
+			if h.var2 == "" {
+				return mkSym(h.var1, h.var1IsOpt, elem, h.var1Mut), nil
+			}
+			if h.var1Mut {
+				fc.a.Rep.Errorf(h.span, "pool handle loop variable `%s` cannot be mutable `&`; only the value (`%s`) may be mutably borrowed", h.var1, h.var2)
+			}
+			poolMod := fc.a.Prog.StructMods[c]
+			var handleTy types.Type = types.TypeInvalid
+			if poolMod != nil {
+				if genHandle := poolMod.GenericStructs["Handle"]; genHandle != nil {
+					handleTy = fc.a.instantiateStruct(genHandle, []types.Type{elem}, h.span)
+				}
+			}
+			if handleTy == types.TypeInvalid {
+				fc.a.Rep.Errorf(h.span, "cannot resolve `Handle` struct for pool iteration")
+				return nil, nil
+			}
+			return mkSym(h.var1, h.var1IsOpt, handleTy, false), mkSym(h.var2, h.var2IsOpt, elem, h.var2Mut)
+		}
 		if (c.Name == "List" || strings.HasPrefix(c.Name, "List[")) && len(c.TypeArgs) == 1 {
 			elem := c.TypeArgs[0]
 			if h.var2 == "" {

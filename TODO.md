@@ -4,8 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Stdlib Bug Fixes & Targeted Library Additions
 
-- [ ] Remove `Copyable` bounds on `Pool[T].get` (`std/pool.ll:84-90`).
-- [ ] Add `with_mut(&T)`, `clear()`, and iterators to `Pool[T]` in `std/pool.ll`.
 - [ ] Check `ferror`/`flush`/`close` and support non-seekable files in `std/fs.ll:162-242`.
 - [ ] Use `str_from_raw` and distinguish clean EOF in `TcpStream.recv` (`std/net.ll:57-73`).
 - [ ] Normalize negative pre-1970 nanoseconds in `from_unix_millis`/`nanos` (`std/time.ll:284-295`).
