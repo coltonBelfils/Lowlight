@@ -261,6 +261,7 @@ func (g *llvmEmitter) emitRuntimeAndDeclarations() {
 	}
 
 	decls := []struct{ name, sig string }{
+		{"malloc", "declare ptr @malloc(i64)"},
 		{"calloc", "declare ptr @calloc(i64, i64)"},
 		{"realloc", "declare ptr @realloc(ptr, i64)"},
 		{"free", "declare void @free(ptr)"},
@@ -428,10 +429,12 @@ entry:
 	boundsFmt := g.internString("lowlight panic at %s:%lld: index %lld out of bounds for length %lld\n").symbol
 
 	g.funcSet["ll_alloc"] = true
+	g.funcSet["ll_alloc_uninit"] = true
 	g.funcSet["ll_realloc"] = true
 	g.funcSet["ll_free"] = true
 	g.funcSet["ll_copy_bytes"] = true
 	g.funcSet["ll_zero_bytes"] = true
+	g.funcSet["ll_fill_bytes"] = true
 	g.funcSet["ll_check_leaks_at_exit"] = true
 	g.funcSet["ll_exit"] = true
 	g.funcSet["ll_panic_cstr"] = true
@@ -620,6 +623,39 @@ entry:
     ret i64 %%res
 }
 `, oomSym, oomReallocSym, leakEnvSym, oneSym, leakMsgSym, unkSym, emptySym, panicCstrJmpFmt, panicCstrErrFmt, unkSym, boundsJmpFmt, boundsFmt)
+
+	g.line(`define internal ptr @ll_alloc_uninit(i64 %%size) {
+entry:
+    %%pos = icmp sgt i64 %%size, 0
+    %%n = select i1 %%pos, i64 %%size, i64 1
+    %%p = call ptr @malloc(i64 %%n)
+    %%is_null = icmp eq ptr %%p, null
+    br i1 %%is_null, label %%oom, label %%ok
+oom:
+    %%err = call ptr @ll_rt_stderr()
+    call i32 (ptr, ptr, ...) @fprintf(ptr %%err, ptr %s, i64 %%size)
+    call void @abort()
+    unreachable
+ok:
+    %%cur = load i64, ptr @ll_rt_live_allocs, align 8
+    %%nxt = add i64 %%cur, 1
+    store i64 %%nxt, ptr @ll_rt_live_allocs, align 8
+    ret ptr %%p
+}
+
+define internal void @ll_fill_bytes(ptr %%dst, i8 %%val, i64 %%count) {
+entry:
+    %%c1 = icmp sgt i64 %%count, 0
+    %%c2 = icmp ne ptr %%dst, null
+    %%ok = and i1 %%c1, %%c2
+    br i1 %%ok, label %%do_fill, label %%done
+do_fill:
+    call void @llvm.memset.p0.i64(ptr %%dst, i8 %%val, i64 %%count, i1 false)
+    br label %%done
+done:
+    ret void
+}
+`, oomSym)
 
 	g.emitArithmeticAndShiftRuntime()
 	g.emitStringAndAssertRuntime()

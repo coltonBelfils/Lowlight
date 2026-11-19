@@ -86,6 +86,17 @@ LL_RT_FN void* ll_alloc(int64_t size) {
     return p;
 }
 
+LL_RT_FN void* ll_alloc_uninit(int64_t size) {
+    size_t n = (size > 0) ? (size_t)size : 1u;
+    void* p = malloc(n);
+    if (!p) {
+        fprintf(stderr, "lowlight panic: out of memory (requested %lld bytes)\n", (long long)size);
+        abort();
+    }
+    ll_rt_live_allocs++;
+    return p;
+}
+
 LL_RT_FN void* ll_realloc(void* ptr, int64_t size) {
     if (!ptr) {
         return ll_alloc(size);
@@ -115,6 +126,12 @@ LL_RT_FN void ll_copy_bytes(uint8_t* dst, const uint8_t* src, int64_t count) {
 LL_RT_FN void ll_zero_bytes(uint8_t* dst, int64_t count) {
     if (count > 0 && dst) {
         memset(dst, 0, (size_t)count);
+    }
+}
+
+LL_RT_FN void ll_fill_bytes(uint8_t* dst, uint8_t val, int64_t count) {
+    if (count > 0 && dst) {
+        memset(dst, (int)val, (size_t)count);
     }
 }
 

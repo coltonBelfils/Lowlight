@@ -371,6 +371,16 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 		Summary:     "Compile-time byte alignment (`_Alignof(T)`) of type `T`. Safe to call anywhere.",
 	},
 	{
+		Name:        "is_plain",
+		Signature:   "is_plain[T]() bool",
+		Params:      nil,
+		ReturnType:  "bool",
+		Snippet:     "is_plain[${1:int}]()",
+		IsIntrinsic: true,
+		NeedsUnsafe: false,
+		Summary:     "Compile-time predicate reporting whether type `T` is Plain (implicitly bitwise-copied with no `Drop`). Safe to call anywhere.",
+	},
+	{
 		Name:        "alloc_raw",
 		Signature:   "alloc_raw[T](count: int) ptr[T]",
 		Params:      []string{"count: int"},
@@ -378,7 +388,17 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 		Snippet:     "alloc_raw[${1:u8}](${2:count})",
 		IsIntrinsic: true,
 		NeedsUnsafe: true,
-		Summary:     "Allocates uninitialized raw heap memory for `count` elements of `T`. Requires `unsafe`.",
+		Summary:     "Allocates zero-initialized raw heap memory for `count` elements of `T`. Requires `unsafe`.",
+	},
+	{
+		Name:        "alloc_uninit",
+		Signature:   "alloc_uninit[T](count: int) ptr[T]",
+		Params:      []string{"count: int"},
+		ReturnType:  "ptr[T]",
+		Snippet:     "alloc_uninit[${1:u8}](${2:count})",
+		IsIntrinsic: true,
+		NeedsUnsafe: true,
+		Summary:     "Allocates uninitialized (`malloc`) raw heap memory for `count` elements of `T`. Requires `unsafe`.",
 	},
 	{
 		Name:        "realloc_raw",
@@ -499,6 +519,16 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 		IsIntrinsic: true,
 		NeedsUnsafe: true,
 		Summary:     "Zero-fills `count` raw bytes starting at `dst` (`memset(dst, 0, count)`). Requires `unsafe`.",
+	},
+	{
+		Name:        "fill_bytes",
+		Signature:   "fill_bytes(dst: ptr[u8], val: u8, count: int)",
+		Params:      []string{"dst: ptr[u8]", "val: u8", "count: int"},
+		ReturnType:  "void",
+		Snippet:     "fill_bytes($1, $2, $3)",
+		IsIntrinsic: true,
+		NeedsUnsafe: true,
+		Summary:     "Fills `count` raw bytes starting at `dst` with byte `val` (`memset(dst, val, count)`). Requires `unsafe`.",
 	},
 }
 

@@ -4,10 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Stdlib Bug Fixes & Targeted Library Additions
 
-- [ ] Add `set` and `reserve` to `List[T]` in `std/core/list.ll`.
-- [ ] Add `insert`, `remove`, and `swap_remove` to `List[T]` in `std/core/list.ll`.
-- [ ] Add `List[T].filled(len, val)` and `resize(n, val)` in `std/core/list.ll` using `alloc_uninit` (`malloc`) + `memset` for 1-byte `Plain` types (`bool`, `u8`, `i8`) and capacity-check-free fill loops for other `Plain` types.
-- [ ] Invalidate or guard `ListIterator` on mutation in `std/core/list.ll`.
 - [ ] Zero `realloc_raw`-grown slots before `= own val` initialization in `std/core/set.ll` and `std/core/map.ll` so MIR does not drop uninitialized memory.
 - [ ] Rehash in place when tombstone count is high at low load in `std/core/set.ll` and `std/core/map.ll`.
 - [ ] Remove `.copy()` requirements in comparator and search helpers in `std/sort.ll`.

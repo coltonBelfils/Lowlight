@@ -1652,10 +1652,14 @@ func (g *cEmitter) emitExpr(e ir.Expr) string {
 		return fmt.Sprintf("(%s){ .data = (void*)%s, .vtable = &%s, .owned = %s }",
 			CType(v.IfcType), valCode, vtName, ownedStr)
 	case *ir.ExprAlloc:
-		if v.Count != nil {
-			return fmt.Sprintf("((%s*)ll_alloc((%s) * (int64_t)sizeof(%s)))", CType(v.AllocType), g.emitExpr(v.Count), CType(v.AllocType))
+		fn := "ll_alloc"
+		if v.Uninit {
+			fn = "ll_alloc_uninit"
 		}
-		return fmt.Sprintf("((%s*)ll_alloc((int64_t)sizeof(%s)))", CType(v.AllocType), CType(v.AllocType))
+		if v.Count != nil {
+			return fmt.Sprintf("((%s*)%s((%s) * (int64_t)sizeof(%s)))", CType(v.AllocType), fn, g.emitExpr(v.Count), CType(v.AllocType))
+		}
+		return fmt.Sprintf("((%s*)%s((int64_t)sizeof(%s)))", CType(v.AllocType), fn, CType(v.AllocType))
 	case *ir.ExprArenaAlloc:
 		dtorArg := "NULL"
 		if v.DtorFn != "" {

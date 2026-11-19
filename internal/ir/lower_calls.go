@@ -1023,10 +1023,17 @@ func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo
 	case "align_of":
 		fl.tc.visit(inf.IntrinsicType)
 		return &ExprAlignOf{QueryType: inf.IntrinsicType}
+	case "is_plain":
+		fl.tc.visit(inf.IntrinsicType)
+		return NewLitBool(inf.IntrinsicType.IsPlain())
 	case "alloc_raw":
 		fl.tc.visit(inf.IntrinsicType)
 		cnt := fl.lowerExprRead(call.Args[0])
 		return &ExprAlloc{AllocType: inf.IntrinsicType, Count: EnsureExpr(cnt, types.TypeInt), Typ: inf.Type}
+	case "alloc_uninit":
+		fl.tc.visit(inf.IntrinsicType)
+		cnt := fl.lowerExprRead(call.Args[0])
+		return &ExprAlloc{AllocType: inf.IntrinsicType, Count: EnsureExpr(cnt, types.TypeInt), Typ: inf.Type, Uninit: true}
 	case "realloc_raw":
 		fl.tc.visit(inf.IntrinsicType)
 		p := fl.lowerExprRead(call.Args[0])
@@ -1075,6 +1082,15 @@ func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo
 		return &ExprCall{
 			Callee: &ExprFuncRef{Name: "ll_zero_bytes"},
 			Args:   []Expr{EnsureExpr(dst, types.TypeVoid), EnsureExpr(cnt, types.TypeInt)},
+			Typ:    types.TypeVoid,
+		}
+	case "fill_bytes":
+		dst := fl.lowerExprRead(call.Args[0])
+		val := fl.lowerExprRead(call.Args[1])
+		cnt := fl.lowerExprRead(call.Args[2])
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_fill_bytes"},
+			Args:   []Expr{EnsureExpr(dst, &types.Ptr{Elem: types.TypeU8}), EnsureExpr(val, types.TypeU8), EnsureExpr(cnt, types.TypeInt)},
 			Typ:    types.TypeVoid,
 		}
 	}

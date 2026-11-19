@@ -1803,6 +1803,15 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 		inf.Type = types.TypeInt
 		return true, types.TypeInt
 
+	case "is_plain":
+		ty := requireOneTypeArg()
+		fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
+		inf.CallKind = CallIntrinsic
+		inf.BuiltinName = "is_plain"
+		inf.IntrinsicType = ty
+		inf.Type = types.TypeBool
+		return true, types.TypeBool
+
 	case "alloc_raw":
 		requireUnsafe()
 		ty := requireOneTypeArg()
@@ -1810,6 +1819,17 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 		res := &types.Ptr{Elem: ty}
 		inf.CallKind = CallIntrinsic
 		inf.BuiltinName = "alloc_raw"
+		inf.IntrinsicType = ty
+		inf.Type = res
+		return true, res
+
+	case "alloc_uninit":
+		requireUnsafe()
+		ty := requireOneTypeArg()
+		fc.checkSignatureArgs([]types.FuncParam{{Name: "count", Mode: types.ModeRead, Type: types.TypeInt}}, call.Args, nil, call.Span)
+		res := &types.Ptr{Elem: ty}
+		inf.CallKind = CallIntrinsic
+		inf.BuiltinName = "alloc_uninit"
 		inf.IntrinsicType = ty
 		inf.Type = res
 		return true, res
@@ -2023,6 +2043,19 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 		}, call.Args, nil, call.Span)
 		inf.CallKind = CallIntrinsic
 		inf.BuiltinName = "zero_bytes"
+		inf.Type = types.TypeVoid
+		return true, types.TypeVoid
+
+	case "fill_bytes":
+		requireUnsafe()
+		u8p := &types.Ptr{Elem: types.TypeU8}
+		fc.checkSignatureArgs([]types.FuncParam{
+			{Name: "dst", Mode: types.ModeRead, Type: u8p},
+			{Name: "val", Mode: types.ModeRead, Type: types.TypeU8},
+			{Name: "count", Mode: types.ModeRead, Type: types.TypeInt},
+		}, call.Args, nil, call.Span)
+		inf.CallKind = CallIntrinsic
+		inf.BuiltinName = "fill_bytes"
 		inf.Type = types.TypeVoid
 		return true, types.TypeVoid
 	}

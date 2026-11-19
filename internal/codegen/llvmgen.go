@@ -1025,9 +1025,21 @@ func (g *llvmEmitter) emitFunction(fn *ir.Function) {
 		pTy := g.llvmType(p.Type)
 		if p.IsMutPtr {
 			pTy = "ptr"
+			headerSB.WriteString(fmt.Sprintf("    %s = alloca %s, align 8\n", slot, pTy))
+			paramInitSB.WriteString(fmt.Sprintf("    store %s %%%s.param, ptr %s, align 8\n", pTy, p.CName, slot))
+		} else {
+			prim := types.UnderlyingPrimitive(p.Type)
+			if prim != nil && prim.Kind == types.PrimBool {
+				zReg := g.newReg()
+				headerSB.WriteString(fmt.Sprintf("    %s = alloca i8, align 1\n", slot))
+				paramInitSB.WriteString(fmt.Sprintf("    %s = zext i1 %%%s.param to i8\n", zReg, p.CName))
+				paramInitSB.WriteString(fmt.Sprintf("    store i8 %s, ptr %s, align 1\n", zReg, slot))
+			} else {
+				align := g.typeAlign(p.Type)
+				headerSB.WriteString(fmt.Sprintf("    %s = alloca %s, align %d\n", slot, pTy, align))
+				paramInitSB.WriteString(fmt.Sprintf("    store %s %%%s.param, ptr %s, align %d\n", pTy, p.CName, slot, align))
+			}
 		}
-		headerSB.WriteString(fmt.Sprintf("    %s = alloca %s, align 8\n", slot, pTy))
-		paramInitSB.WriteString(fmt.Sprintf("    store %s %%%s.param, ptr %s, align 8\n", pTy, p.CName, slot))
 		if p.MovedFlag != "" {
 			flagSlot := fmt.Sprintf("%%%s.slot", p.MovedFlag)
 			g.movedSlots[p.MovedFlag] = flagSlot
@@ -1142,18 +1154,24 @@ func (g *llvmEmitter) emitInstr(instr ir.Instr) {
 		}
 		val := g.emitExpr(v.Expr)
 		addr := g.emitLValueAddr(v.Dst)
-		align := 8
-		if v.Dst.Type() != nil && v.Dst.Type().Equals(types.TypeBool) {
-			align = 1
+		dstTy := v.Dst.Type()
+		prim := types.UnderlyingPrimitive(dstTy)
+		if prim != nil && prim.Kind == types.PrimBool {
+			zReg := g.newReg()
+			g.indentLine(1, "%s = zext i1 %s to i8", zReg, val)
+			g.indentLine(1, "store i8 %s, ptr %s, align 1", zReg, addr)
+		} else {
+			align := g.typeAlign(dstTy)
+			g.indentLine(1, "store %s %s, ptr %s, align %d", g.llvmType(dstTy), val, addr, align)
 		}
-		g.indentLine(1, "store %s %s, ptr %s, align %d", g.llvmType(v.Dst.Type()), val, addr, align)
 
 	case *ir.InstrCompoundAssign:
 		addr := g.emitLValueAddr(v.Dst)
 		currVal := g.emitLoad(addr, v.Dst.Type())
 		rhsVal := g.emitExpr(v.Expr)
 		resVal := g.emitBinaryOp(v.Op, currVal, rhsVal, v.Dst.Type(), "", 0, v.Expr.Type())
-		g.indentLine(1, "store %s %s, ptr %s, align 8", g.llvmType(v.Dst.Type()), resVal, addr)
+		align := g.typeAlign(v.Dst.Type())
+		g.indentLine(1, "store %s %s, ptr %s, align %d", g.llvmType(v.Dst.Type()), resVal, addr, align)
 
 	case *ir.InstrExpr:
 		g.emitExpr(v.Expr)
@@ -1696,7 +1714,7 @@ func (g *llvmEmitter) emitLValueAddr(e ir.Expr) string {
 
 func (g *llvmEmitter) emitLoad(addr string, t types.Type) string {
 	r := g.newReg()
-	g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(t), addr)
+	g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(t), addr, g.typeAlign(t))
 	return r
 }
 
@@ -1796,7 +1814,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 			return ptrReg
 		}
 		r := g.newReg()
-		g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(v.Local.Type), slot)
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(v.Local.Type), slot, g.typeAlign(v.Local.Type))
 		return r
 
 	case *ir.ExprGlobal:
@@ -1865,7 +1883,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 	case *ir.ExprDeref:
 		ptrVal := g.emitExpr(v.Ptr)
 		r := g.newReg()
-		g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(v.Typ), ptrVal)
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(v.Typ), ptrVal, g.typeAlign(v.Typ))
 		return r
 
 	case *ir.ExprAddrOf:
@@ -2224,8 +2242,12 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 			g.indentLine(1, "%s = mul i64 %s, %d", mulReg, cntVal, sz)
 			totBytes = mulReg
 		}
+		fnName := "ll_alloc"
+		if v.Uninit {
+			fnName = "ll_alloc_uninit"
+		}
 		r := g.newReg()
-		g.indentLine(1, "%s = call ptr @ll_alloc(i64 %s)", r, totBytes)
+		g.indentLine(1, "%s = call ptr @%s(i64 %s)", r, fnName, totBytes)
 		return r
 
 	case *ir.ExprArenaAlloc:
@@ -2264,7 +2286,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		dstVal := g.emitExpr(v.Dst)
 		srcVal := g.emitExpr(v.Src)
 		cntVal := g.emitExpr(v.Count)
-		g.indentLine(1, "call void @llvm.memcpy.p0.p0.i64(ptr %s, ptr %s, i64 %s, i1 false)", dstVal, srcVal, cntVal)
+		g.indentLine(1, "call void @ll_copy_bytes(ptr %s, ptr %s, i64 %s)", dstVal, srcVal, cntVal)
 		return "void"
 
 	case *ir.ExprSizeOf:

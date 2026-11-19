@@ -300,3 +300,230 @@ bind main = (): {
 		}
 	}
 }
+
+func extractCFunctionBody(cSrc, fnName string) string {
+	marker := " " + fnName + "("
+	pos := 0
+	for {
+		idx := strings.Index(cSrc[pos:], marker)
+		if idx == -1 {
+			return ""
+		}
+		start := pos + idx
+		rest := cSrc[start:]
+		braceStart := strings.IndexByte(rest, '{')
+		semi := strings.IndexByte(rest, ';')
+		if braceStart != -1 && (semi == -1 || braceStart < semi) {
+			depth := 0
+			for i := braceStart; i < len(rest); i++ {
+				switch rest[i] {
+				case '{':
+					depth++
+				case '}':
+					depth--
+					if depth == 0 {
+						return rest[:i+1]
+					}
+				}
+			}
+			return ""
+		}
+		pos = start + len(marker)
+	}
+}
+
+func extractLLVMFunctionBody(llSrc, fnName string) string {
+	marker := "@" + fnName + "("
+	pos := 0
+	for {
+		idx := strings.Index(llSrc[pos:], marker)
+		if idx == -1 {
+			return ""
+		}
+		abs := pos + idx
+		lineStart := strings.LastIndexByte(llSrc[:abs], '\n') + 1
+		if strings.HasPrefix(llSrc[lineStart:], "define ") {
+			rest := llSrc[lineStart:]
+			endIdx := strings.Index(rest, "\n}")
+			if endIdx == -1 {
+				return rest
+			}
+			return rest[:endIdx+2]
+		}
+		pos = abs + len(marker)
+	}
+}
+
+func TestListFilledCodegenAndBoundsPanics(t *testing.T) {
+	root := projectRoot(t)
+	tmp := t.TempDir()
+
+	codegenSrcPath := filepath.Join(tmp, "list_filled_codegen.ll")
+	codegenSrc := `
+bind main = (): {
+	let bu = List[u8].filled(16, u8(7))
+	let bb = List[bool].filled(16, true)
+	let bi = List[i8].filled(16, i8(-3))
+	let bn = List[int].filled(16, 42)
+	bu.resize(24, u8(9))
+	bb.resize(24, false)
+	bi.resize(24, i8(5))
+	bn.resize(24, 99)
+}
+`
+	if err := os.WriteFile(codegenSrcPath, []byte(codegenSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cSrc, checkedProg, err := driver.EmitC(driver.Options{
+		EntryPath:   codegenSrcPath,
+		ProjectRoot: root,
+	})
+	if err != nil {
+		t.Fatalf("EmitC failed: %v", err)
+	}
+	llSrc, _, err := driver.EmitLLVM(driver.Options{
+		EntryPath:   codegenSrcPath,
+		ProjectRoot: root,
+	})
+	if err != nil {
+		t.Fatalf("EmitLLVM failed: %v", err)
+	}
+
+	findCName := func(wantName string) string {
+		for _, fi := range checkedProg.Funcs {
+			if fi.Name == wantName {
+				return fi.CName
+			}
+		}
+		return ""
+	}
+
+	// Verify 1-byte Plain vs multi-byte Plain codegen paths in both backends:
+	// - `filled` uses `ll_alloc_uninit` (not `ll_alloc`) and avoids `_push__` / `_reserve__`
+	// - `filled` & `resize` guard the `ll_fill_bytes` memset fast path with `sizeof(T) == 1` (`icmp eq i64 <byteSize>, 1` in LLVM IR)
+	for _, tc := range []struct {
+		suffix   string
+		cType    string
+		byteSize int
+	}{
+		{"u8", "uint8_t", 1},
+		{"bool", "bool", 1},
+		{"i8", "int8_t", 1},
+		{"int", "int64_t", 8},
+	} {
+		filledCName := findCName("List[" + tc.suffix + "].filled")
+		if filledCName == "" {
+			t.Fatalf("missing checked function for List[%s].filled", tc.suffix)
+		}
+		cFilled := extractCFunctionBody(cSrc, filledCName)
+		if cFilled == "" {
+			t.Fatalf("missing C function %s for List[%s].filled", filledCName, tc.suffix)
+		}
+		if !strings.Contains(cFilled, "ll_alloc_uninit") || strings.Contains(cFilled, "ll_alloc(") {
+			t.Fatalf("C List[%s].filled should use ll_alloc_uninit and not ll_alloc:\n%s", tc.suffix, cFilled)
+		}
+		if !strings.Contains(cFilled, "ll_fill_bytes") || !strings.Contains(cFilled, "sizeof("+tc.cType+")") {
+			t.Fatalf("C List[%s].filled missing ll_fill_bytes or sizeof(%s):\n%s", tc.suffix, tc.cType, cFilled)
+		}
+		if strings.Contains(cFilled, "_push__") || strings.Contains(cFilled, "_reserve__") {
+			t.Fatalf("C List[%s].filled should avoid push/reserve calls:\n%s", tc.suffix, cFilled)
+		}
+
+		llFilled := extractLLVMFunctionBody(llSrc, filledCName)
+		if llFilled == "" {
+			t.Fatalf("missing LLVM function %s for List[%s].filled", filledCName, tc.suffix)
+		}
+		if !strings.Contains(llFilled, "@ll_alloc_uninit") || strings.Contains(llFilled, "@ll_alloc(") {
+			t.Fatalf("LLVM List[%s].filled should use @ll_alloc_uninit and not @ll_alloc:\n%s", tc.suffix, llFilled)
+		}
+		sizeCmp := fmt.Sprintf("icmp eq i64 %d, 1", tc.byteSize)
+		if !strings.Contains(llFilled, "@ll_fill_bytes") || !strings.Contains(llFilled, sizeCmp) {
+			t.Fatalf("LLVM List[%s].filled missing @ll_fill_bytes or %q:\n%s", tc.suffix, sizeCmp, llFilled)
+		}
+		if strings.Contains(llFilled, "_push__") || strings.Contains(llFilled, "_reserve__") {
+			t.Fatalf("LLVM List[%s].filled should avoid push/reserve calls:\n%s", tc.suffix, llFilled)
+		}
+
+		resizeCName := findCName("List[" + tc.suffix + "].resize")
+		if resizeCName == "" {
+			t.Fatalf("missing checked function for List[%s].resize", tc.suffix)
+		}
+		cResize := extractCFunctionBody(cSrc, resizeCName)
+		if cResize == "" {
+			t.Fatalf("missing C function %s for List[%s].resize", resizeCName, tc.suffix)
+		}
+		if !strings.Contains(cResize, "ll_fill_bytes") || !strings.Contains(cResize, "sizeof("+tc.cType+")") || strings.Contains(cResize, "_push__") {
+			t.Fatalf("C List[%s].resize unexpected body:\n%s", tc.suffix, cResize)
+		}
+
+		llResize := extractLLVMFunctionBody(llSrc, resizeCName)
+		if llResize == "" {
+			t.Fatalf("missing LLVM function %s for List[%s].resize", resizeCName, tc.suffix)
+		}
+		if !strings.Contains(llResize, "@ll_fill_bytes") || !strings.Contains(llResize, sizeCmp) || strings.Contains(llResize, "_push__") {
+			t.Fatalf("LLVM List[%s].resize unexpected body:\n%s", tc.suffix, llResize)
+		}
+	}
+
+	// Verify out-of-bounds panics across LLVM and C11 for insert, remove, and swap_remove.
+	panicCases := []struct {
+		name      string
+		callStmt  string
+		wantPanic string
+	}{
+		{
+			name:      "insert_neg",
+			callStmt:  `xs.insert(-1, 99)`,
+			wantPanic: "List.insert: index -1 out of bounds for length 2",
+		},
+		{
+			name:      "insert_oob",
+			callStmt:  `xs.insert(3, 99)`,
+			wantPanic: "List.insert: index 3 out of bounds for length 2",
+		},
+		{
+			name:      "remove_oob",
+			callStmt:  `let _ = xs.remove(2)`,
+			wantPanic: "List.remove: index 2 out of bounds for length 2",
+		},
+		{
+			name:      "swap_remove_neg",
+			callStmt:  `let _ = xs.swap_remove(-1)`,
+			wantPanic: "List.swap_remove: index -1 out of bounds for length 2",
+		},
+	}
+
+	for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
+		for _, pc := range panicCases {
+			t.Run(fmt.Sprintf("%s/%s", backend, pc.name), func(t *testing.T) {
+				subTmp := t.TempDir()
+				srcFile := filepath.Join(subTmp, "panic_case.ll")
+				src := fmt.Sprintf("bind main = (): {\n\tlet xs: List[int] = [10, 20]\n\t%s\n}\n", pc.callStmt)
+				if err := os.WriteFile(srcFile, []byte(src), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				outBin := filepath.Join(subTmp, "panic_bin")
+				if _, err := driver.Build(driver.Options{
+					EntryPath:   srcFile,
+					ProjectRoot: root,
+					Backend:     backend,
+					OutPath:     outBin,
+				}); err != nil {
+					t.Fatalf("driver.Build failed (%s): %v", backend, err)
+				}
+				cmd := exec.Command(outBin)
+				var outBuf bytes.Buffer
+				cmd.Stdout = &outBuf
+				cmd.Stderr = &outBuf
+				err := cmd.Run()
+				if err == nil {
+					t.Fatalf("expected non-zero panic exit for %s (%s), got exit 0", pc.name, backend)
+				}
+				if !strings.Contains(outBuf.String(), pc.wantPanic) {
+					t.Fatalf("expected panic %q, got output:\n%s", pc.wantPanic, outBuf.String())
+				}
+			})
+		}
+	}
+}

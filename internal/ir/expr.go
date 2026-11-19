@@ -459,6 +459,7 @@ type ExprAlloc struct {
 	AllocType types.Type
 	Count     Expr
 	Typ       types.Type
+	Uninit    bool
 }
 
 func (*ExprAlloc) irExpr() {}
