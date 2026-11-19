@@ -219,9 +219,12 @@ bind str_from_cstr = (s: ptr[u8]) string: {
 // Core Math & File I/O Universe Primitives
 // -----------------------------------------------------------------------------
 
-// Computes the non-negative square root of `x` (`0.0` when `x <= 0.0`).
+// Computes the IEEE-754 square root of `x` (`NaN` for `x < 0.0` or `NaN`, `+Inf` for `+Inf`, preserving `±0.0`).
 bind core_sqrt = (x: float) float: {
-	if(x <= 0.0): func <- 0.0
+	let inf = 1.0e308 * 10.0
+	if(not (x == x)): func <- x
+	if(x < 0.0): func <- inf - inf
+	if(x == 0.0 or x == inf): func <- x
 	let scale = 1.0
 	let m = x
 	for(m >= 4.0): {

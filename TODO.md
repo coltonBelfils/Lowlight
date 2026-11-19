@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Stdlib Bug Fixes & Targeted Library Additions
 
-- [ ] Fix `+inf` and negative input edge cases in `core_sqrt` (`std/core/primitives.ll`).
 - [ ] Fix `+inf`, negative, `-0.0`, `>= 2^64`, and large-exponent bugs in `_format_float_fixed` and `format_float_prec` (`std/core/primitives.ll`).
 - [ ] Fix `+inf`, negative, `-0.0`, `>= 2^64`, and large-exponent bugs in `parse_float` (`std/core/primitives.ll`).
 - [ ] Support non-seekable streams in `core_read_file` (`std/core/primitives.ll`).

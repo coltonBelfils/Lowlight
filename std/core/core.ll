@@ -140,6 +140,53 @@ bind test_core_comparable_and_math = (): {
 	assert(clamp[int](25, 10, 20) == 20, "clamp upper")
 }
 
+@test("core_sqrt accuracy and IEEE-754 edge cases")
+bind test_core_sqrt = (): {
+	let pos_inf = 1.0e308 * 10.0
+	let neg_inf = -pos_inf
+	let nan_val = pos_inf - pos_inf
+
+	// Standard positive values
+	assert(core_sqrt(1.0) == 1.0, "core_sqrt(1.0)")
+	assert(core_sqrt(4.0) == 2.0, "core_sqrt(4.0)")
+	assert(core_sqrt(9.0) == 3.0, "core_sqrt(9.0)")
+	assert(core_sqrt(0.25) == 0.5, "core_sqrt(0.25)")
+	let d2 = core_sqrt(2.0) - 1.4142135623730951
+	assert(d2 > -1.0e-12 and d2 < 1.0e-12, "core_sqrt(2.0)")
+
+	// Extreme finite values
+	let r_big = core_sqrt(1.0e300)
+	let d_big = r_big - 1.0e150
+	assert(d_big > -1.0e138 and d_big < 1.0e138, "core_sqrt(1e300)")
+	let r_max = core_sqrt(1.7976931348623157e308)
+	assert(r_max == r_max and r_max < pos_inf and r_max > 1.3e154, "core_sqrt(DBL_MAX)")
+	let r_sub = core_sqrt(5.0e-324)
+	assert(r_sub > 0.0 and r_sub < 1.0e-160, "core_sqrt(subnormal)")
+
+	// Signed zero preservation
+	let z = 0.0
+	let nz = -z
+	let r_pz = core_sqrt(z)
+	assert(r_pz == 0.0 and (1.0 / r_pz) == pos_inf, "core_sqrt(+0.0) preserves +0.0")
+	let r_nz = core_sqrt(nz)
+	assert(r_nz == 0.0 and (1.0 / r_nz) == neg_inf, "core_sqrt(-0.0) preserves -0.0")
+
+	// +Inf
+	assert(core_sqrt(pos_inf) == pos_inf, "core_sqrt(+Inf) == +Inf")
+
+	// Negative inputs and NaN return NaN
+	let r_n1 = core_sqrt(-1.0)
+	assert(not (r_n1 == r_n1), "core_sqrt(-1.0) is NaN")
+	let r_nsmall = core_sqrt(-1.0e-300)
+	assert(not (r_nsmall == r_nsmall), "core_sqrt(-1e-300) is NaN")
+	let r_nbig = core_sqrt(-1.0e300)
+	assert(not (r_nbig == r_nbig), "core_sqrt(-1e300) is NaN")
+	let r_ninf = core_sqrt(neg_inf)
+	assert(not (r_ninf == r_ninf), "core_sqrt(-Inf) is NaN")
+	let r_nan = core_sqrt(nan_val)
+	assert(not (r_nan == r_nan), "core_sqrt(NaN) is NaN")
+}
+
 @test("core Result[T] construction and unwrapping")
 bind test_core_result = (): {
 	let r_ok = Result[int].ok(100)
