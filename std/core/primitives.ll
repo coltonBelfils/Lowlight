@@ -562,9 +562,13 @@ bind string.bytes = (self) [u8]: {
 
 // Decodes one UTF-8 scalar codepoint starting at byte offset `off` in `s`, writing the next offset to `next_off`.
 //
-// Returns `'\0'` at end of string, or replacement character `U+FFFD` on malformed UTF-8 bytes.
+// Returns `'\0'` at end of string (or when `off < 0`), or replacement character `U+FFFD` (advancing by 1 byte) on malformed UTF-8 sequences (invalid continuation bytes, overlong encodings, UTF-16 surrogates, or codepoints above `U+10FFFF`).
 bind str_utf8_next = (s: string, off: int, next_off: &int) char: {
 	let n = s.len()
+	if(off < 0): {
+		next_off = 0
+		func <- '\0'
+	}
 	if(off >= n): {
 		next_off = n
 		func <- '\0'
@@ -574,23 +578,35 @@ bind str_utf8_next = (s: string, off: int, next_off: &int) char: {
 		next_off = off + 1
 		func <- char(b0)
 	}
-	if((b0 & 0xE0) == 0xC0 and off + 1 < n): {
-		let b1 = int(s.byte_at(off + 1)) & 0x3F
-		next_off = off + 2
-		func <- char((b0 & 0x1F) << 6 | b1)
+	if(b0 >= 0xC2 and b0 <= 0xDF and off + 1 < n): {
+		let b1 = int(s.byte_at(off + 1))
+		if((b1 & 0xC0) == 0x80): {
+			next_off = off + 2
+			func <- char(((b0 & 0x1F) << 6) | (b1 & 0x3F))
+		}
 	}
-	if((b0 & 0xF0) == 0xE0 and off + 2 < n): {
-		let b1 = int(s.byte_at(off + 1)) & 0x3F
-		let b2 = int(s.byte_at(off + 2)) & 0x3F
-		next_off = off + 3
-		func <- char((b0 & 0x0F) << 12 | b1 << 6 | b2)
+	if(b0 >= 0xE0 and b0 <= 0xEF and off + 2 < n): {
+		let b1 = int(s.byte_at(off + 1))
+		let b2 = int(s.byte_at(off + 2))
+		if((b1 & 0xC0) == 0x80 and (b2 & 0xC0) == 0x80): {
+			let cp = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F)
+			if(cp >= 0x0800 and (cp < 0xD800 or cp > 0xDFFF)): {
+				next_off = off + 3
+				func <- char(cp)
+			}
+		}
 	}
-	if((b0 & 0xF8) == 0xF0 and off + 3 < n): {
-		let b1 = int(s.byte_at(off + 1)) & 0x3F
-		let b2 = int(s.byte_at(off + 2)) & 0x3F
-		let b3 = int(s.byte_at(off + 3)) & 0x3F
-		next_off = off + 4
-		func <- char((b0 & 0x07) << 18 | b1 << 12 | b2 << 6 | b3)
+	if(b0 >= 0xF0 and b0 <= 0xF4 and off + 3 < n): {
+		let b1 = int(s.byte_at(off + 1))
+		let b2 = int(s.byte_at(off + 2))
+		let b3 = int(s.byte_at(off + 3))
+		if((b1 & 0xC0) == 0x80 and (b2 & 0xC0) == 0x80 and (b3 & 0xC0) == 0x80): {
+			let cp = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F)
+			if(cp >= 0x10000 and cp <= 0x10FFFF): {
+				next_off = off + 4
+				func <- char(cp)
+			}
+		}
 	}
 	next_off = off + 1
 	char(0xFFFD)

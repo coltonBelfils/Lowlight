@@ -31,6 +31,93 @@ bind test_core_primitives = (): {
 	assert('x'.hash() == 'x'.hash(), "char hash deterministic")
 }
 
+@test_only
+bind _core_bytes_str = (bs: [int]) string: {
+	let s = ""
+	for(b in bs): s.push_byte(u8(b))
+	s
+}
+
+@test_only
+bind _core_assert_utf8 = (bs: [int], expected_ch: char, expected_next: int, label: string): {
+	let s = _core_bytes_str(bs)
+	let next_i = -999
+	let ch = str_utf8_next(s, 0, &next_i)
+	assert(ch == expected_ch and next_i == expected_next, label)
+}
+
+@test("core str_utf8_next validation and decoding")
+bind test_core_str_utf8_next = (): {
+	// Valid boundary codepoints (1..4 bytes)
+	_core_assert_utf8([0x00], '\0', 1, "valid 1-byte NUL")
+	_core_assert_utf8([0x7F], char(0x7F), 1, "valid 1-byte max ASCII")
+	_core_assert_utf8([0xC2, 0x80], char(0x80), 2, "valid 2-byte min")
+	_core_assert_utf8([0xDF, 0xBF], char(0x7FF), 2, "valid 2-byte max")
+	_core_assert_utf8([0xE0, 0xA0, 0x80], char(0x0800), 3, "valid 3-byte min")
+	_core_assert_utf8([0xED, 0x9F, 0xBF], char(0xD7FF), 3, "valid 3-byte below surrogate")
+	_core_assert_utf8([0xEE, 0x80, 0x80], char(0xE000), 3, "valid 3-byte above surrogate")
+	_core_assert_utf8([0xEF, 0xBF, 0xBF], char(0xFFFF), 3, "valid 3-byte max")
+	_core_assert_utf8([0xF0, 0x90, 0x80, 0x80], char(0x10000), 4, "valid 4-byte min")
+	_core_assert_utf8([0xF4, 0x8F, 0xBF, 0xBF], char(0x10FFFF), 4, "valid 4-byte max")
+
+	let fffd = char(0xFFFD)
+
+	// Invalid continuation bytes
+	let s2_bad = _core_bytes_str([0xC3, 0x41])
+	let c2_bad = s2_bad.chars()
+	assert(c2_bad.len() == 2 and c2_bad[0] == fffd and c2_bad[1] == 'A', "2-byte bad continuation preserves ASCII")
+
+	let s3_bad1 = _core_bytes_str([0xE2, 0x41, 0x80])
+	let n3_0 = 0
+	assert(str_utf8_next(s3_bad1, 0, &n3_0) == fffd and n3_0 == 1, "3-byte bad b1 yields FFFD")
+	let n3_1 = 0
+	assert(str_utf8_next(s3_bad1, 1, &n3_1) == 'A' and n3_1 == 2, "3-byte bad b1 preserves following A")
+
+	_core_assert_utf8([0xE2, 0x82, 0x41], fffd, 1, "3-byte bad b2")
+	_core_assert_utf8([0xF0, 0x9F, 0x98, 0x41], fffd, 1, "4-byte bad b3")
+	_core_assert_utf8([0xC2, 0xC0], fffd, 1, "2-byte non-continuation high byte")
+	_core_assert_utf8([0xF0, 0xF0, 0x80, 0x80], fffd, 1, "4-byte non-continuation high byte")
+
+	// Overlong encodings
+	_core_assert_utf8([0xC0, 0x80], fffd, 1, "2-byte overlong NUL")
+	_core_assert_utf8([0xC1, 0xBF], fffd, 1, "2-byte overlong 0x7F")
+	_core_assert_utf8([0xE0, 0x80, 0x80], fffd, 1, "3-byte overlong NUL")
+	_core_assert_utf8([0xE0, 0x9F, 0xBF], fffd, 1, "3-byte overlong 0x7FF")
+	_core_assert_utf8([0xF0, 0x80, 0x80, 0x80], fffd, 1, "4-byte overlong NUL")
+	_core_assert_utf8([0xF0, 0x8F, 0xBF, 0xBF], fffd, 1, "4-byte overlong 0xFFFF")
+
+	// UTF-16 surrogates (U+D800..U+DFFF)
+	_core_assert_utf8([0xED, 0xA0, 0x80], fffd, 1, "surrogate U+D800")
+	_core_assert_utf8([0xED, 0xAF, 0xBF], fffd, 1, "surrogate U+DBFF")
+	_core_assert_utf8([0xED, 0xB0, 0x80], fffd, 1, "surrogate U+DC00")
+	_core_assert_utf8([0xED, 0xBF, 0xBF], fffd, 1, "surrogate U+DFFF")
+
+	// Above U+10FFFF and invalid lead / stray continuation bytes
+	_core_assert_utf8([0xF4, 0x90, 0x80, 0x80], fffd, 1, "above U+10FFFF (U+110000)")
+	_core_assert_utf8([0xF5, 0x80, 0x80, 0x80], fffd, 1, "lead 0xF5")
+	_core_assert_utf8([0xF7, 0xBF, 0xBF, 0xBF], fffd, 1, "lead 0xF7")
+	_core_assert_utf8([0xFF], fffd, 1, "lead 0xFF")
+	_core_assert_utf8([0x80], fffd, 1, "stray continuation 0x80")
+	_core_assert_utf8([0xBF], fffd, 1, "stray continuation 0xBF")
+
+	// Truncated sequences and out-of-bounds offsets
+	_core_assert_utf8([0xC2], fffd, 1, "truncated 2-byte")
+	_core_assert_utf8([0xE2, 0x82], fffd, 1, "truncated 3-byte")
+	_core_assert_utf8([0xF0, 0x9F, 0x98], fffd, 1, "truncated 4-byte")
+
+	let s_oob = "ab"
+	let n_end = 0
+	assert(str_utf8_next(s_oob, s_oob.len(), &n_end) == '\0' and n_end == 2, "offset == len")
+	let n_neg = 99
+	assert(str_utf8_next(s_oob, -1, &n_neg) == '\0' and n_neg == 0, "negative offset")
+
+	// Codepoint iteration over mixed malformed + valid UTF-8
+	let mixed = _core_bytes_str([0xC3, 0x41, 0xE2, 0x82, 0xAC])
+	let collected: [char] = []
+	for(ch in mixed): collected.push(ch)
+	assert(collected.len() == 3 and collected[0] == fffd and collected[1] == 'A' and collected[2] == '€', "for-in recovers after malformed UTF-8")
+}
+
 @test("core comparable and math helpers")
 bind test_core_comparable_and_math = (): {
 	assert(10.cmp(20) == -1, "10 < 20")

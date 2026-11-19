@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Stdlib Bug Fixes & Targeted Library Additions
 
-- [ ] Validate UTF-8 continuation bytes, overlong encodings, surrogates, and `> 0x10FFFF` in `str_utf8_next` (`std/core/primitives.ll:567-598`).
 - [ ] Fix `+inf` and negative input edge cases in `core_sqrt` (`std/core/primitives.ll`).
 - [ ] Fix `+inf`, negative, `-0.0`, `>= 2^64`, and large-exponent bugs in `_format_float_fixed` and `format_float_prec` (`std/core/primitives.ll`).
 - [ ] Fix `+inf`, negative, `-0.0`, `>= 2^64`, and large-exponent bugs in `parse_float` (`std/core/primitives.ll`).
