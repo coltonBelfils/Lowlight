@@ -16,6 +16,7 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Fix `sqrt`, `log`, `exp`, `pow`, `fmod`, `sin`, and `cos` in `std/math.ll` to return `NaN`/`+-inf` instead of hanging or returning `0.0` on out-of-domain inputs.
 - [ ] Add `set` and `reserve` to `List[T]` in `std/core/list.ll`.
 - [ ] Add `insert`, `remove`, and `swap_remove` to `List[T]` in `std/core/list.ll`.
+- [ ] Add `List[T].filled(len, val)` and `resize(n, val)` in `std/core/list.ll` using `alloc_uninit` (`malloc`) + `memset` for 1-byte `Plain` types (`bool`, `u8`, `i8`) and capacity-check-free fill loops for other `Plain` types.
 - [ ] Invalidate or guard `ListIterator` on mutation in `std/core/list.ll`.
 - [ ] Zero `realloc_raw`-grown slots before `= own val` initialization in `std/core/set.ll` and `std/core/map.ll` so MIR does not drop uninitialized memory.
 - [ ] Rehash in place when tombstone count is high at low load in `std/core/set.ll` and `std/core/map.ll`.
@@ -62,7 +63,7 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Expose public TLS server APIs/contexts in `std/net.ll`.
 - [ ] Zero-initialize `allocSlot` temporaries at collection literal sites (`internal/ir/lower_ops.go:1905-1919,2030-2059`) so loop iterations do not reuse moved/freed collection buffers.
 - [ ] Replace `lowerRawExpr` with `lowerExprOwned` in `internal/ir/lower_expr.go:447,788` and `internal/ir/lower_ops.go:397`.
-- [ ] Evaluate lvalues once in `emitCompoundAssign` (`internal/ir/lower.go:977-988`).
+- [ ] Evaluate lvalues once in `emitCompoundAssign` (`internal/ir/lower.go:977-988`) and reuse checked element pointers to avoid duplicate `ll_check_bounds` calls.
 - [ ] Forward `TrackCaller`/`TargetFunc` in custom `IndexExpr` lowering in `internal/ir`.
 - [ ] Avoid copying owned `Array` values on read indexing in `internal/ir`.
 - [ ] Support `ModeMut` (`&self`) receivers and mutating methods under optional chaining (`internal/ir/lower_calls.go:116-140,611-641`).
@@ -160,7 +161,17 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Update `internal/driver/driver.go` for target-conditional link libraries and `.exe` outputs.
 - [ ] Support Win64, RISC-V, and 32-bit layouts plus 64-bit file offsets in `internal/codegen/llvmgen.go` and `internal/codegen/llvmgen_runtime.go`.
 - [ ] Add Win32/Winsock shims and compiler attribute guards to `internal/codegen/runtime_h.go` and `internal/codegen/cgen.go`.
+- [ ] Emit `internal` linkage for non-exported/standalone functions (except `main` and Phase-1 cross-unit exports) in `internal/codegen/llvmgen.go` so LLVM can dead-strip unused `std/core` code and inline/specialize hot functions.
+- [ ] Emit floating-point contraction flags (`fmul contract`, `fadd contract`, `fsub contract` or `@llvm.fmuladd`) in `--release` mode in `internal/codegen/llvmgen.go` to match C11 `-ffp-contract=on` (with a strict-FP opt-out if needed).
+- [ ] Optimize `ll_check_bounds` in `internal/codegen/llvmgen_runtime.go` and `internal/codegen/runtime_h.go` to use a single unsigned comparison (`(uint64_t)idx >= (uint64_t)len`), `cold`/`noreturn` attributes on `ll_panic_cstr`, `@llvm.assume(len >= 0)` and `!prof` branch weights in LLVM, and `__builtin_expect` in C11.
+- [ ] Add `noalias` return attributes on allocator declarations/helpers (`calloc`, `malloc`, `realloc`, `ll_alloc`), emit `noalias` (LLVM) / `restrict` (C11) on `&T` mutable borrow parameters, and emit `!tbaa` metadata in `internal/codegen/llvmgen.go` and `internal/codegen/cgen.go` to enable loop auto-vectorization.
+- [ ] Gate `ll_rt_live_allocs` counter updates behind debug mode or an explicit `--check-leaks` flag in `--release`, and add an uninitialized `alloc_uninit` (`malloc`) runtime path for immediate-init collection constructors in `internal/codegen/runtime_h.go` and `internal/codegen/llvmgen_runtime.go`.
+- [ ] Add configurable `--release` optimization flags (`--opt=3` / `-O3`, `--native` / `-mcpu=native`, and ThinLTO for cross-package inlining across two-phase cached `.o` units) in `internal/driver`.
+- [ ] Lower direct literal range loops (`a..b`, `a..=b`) to canonical counted loops in `internal/ir/lower_ops.go` instead of the 4-slot `_ll_rcur`/`_ll_rend`/`_ll_rinc`/`_ll_rdone` state machine.
+- [ ] Add call-graph reachability dead-function pruning in `internal/ir` and emit optional LLVM runtime subsystems (net/TLS, fs, os, time, print/conversion helpers) on demand in `internal/codegen/llvmgen_runtime.go`.
+- [ ] Keep pure SSA temporaries in virtual registers (only `alloca`-ing mutable or address-taken locals) and skip `zeroinitializer` stores on locals proven assigned before read in `internal/codegen/llvmgen.go` and `internal/ir`.
 - [ ] Run `mem2reg` and DCE promotion passes so unoptimized builds clean up entry `alloca` temporaries in `internal/codegen/llvmgen.go`.
+- [ ] Implement a MIR range-analysis Bounds-Check Elimination (BCE) and loop-invariant bounds-hoisting / loop-versioning pass in `internal/ir` to elide provably safe `ExprIndex` checks while preserving memory safety.
 - [ ] Emit `!DICompileUnit`, `!DISubprogram`, `!DILocation`, and `!dbg` metadata in `internal/codegen/llvmgen.go`.
 - [ ] Define `Allocator` in `std/core/alloc.ll` (`alloc`, `free`, `realloc`).
 - [ ] Allow `List` to accept custom or arena allocators without per-element heap drops.
