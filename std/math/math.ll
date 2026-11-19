@@ -44,7 +44,7 @@ bind fabs = (x: float) float: abs_float(x)
 
 // Truncates `x` toward zero, discarding any fractional digits.
 bind trunc = (x: float) float: {
-	if(abs_float(x) >= 4503599627370496.0): func <- x
+	if(is_nan(x) or abs_float(x) >= 4503599627370496.0): func <- x
 	float(int(x))
 }
 
@@ -64,17 +64,63 @@ bind ceil = (x: float) float: {
 bind round = (x: float) float:
 	if(x >= 0.0): floor(x + 0.5) else: ceil(x - 0.5)
 
-// Returns the floating-point remainder of `x / y` (`x - trunc(x / y) * y`, or `0.0` if `y == 0.0`).
+// Returns the IEEE-754 floating-point remainder of `x / y` (`NaN` if `x` is `±Inf`, `y == 0.0`, or either is `NaN`; `x` if `y` is `±Inf` and `x` is finite).
 bind fmod = (x: float, y: float) float: {
-	if(y == 0.0): func <- 0.0
-	x - trunc(x / y) * y
+	if(is_nan(x) or is_nan(y) or is_inf(x) or y == 0.0): func <- NAN
+	if(is_inf(y) or x == 0.0): func <- x
+	let ax = abs_float(x)
+	let ay = abs_float(y)
+	if(ax < ay): func <- x
+	if(ax == ay): {
+		if(x < 0.0): func <- -0.0
+		func <- 0.0
+	}
+	let p64 = 18446744073709551616.0
+	let pm64 = 1.0 / p64
+	let d = ay
+	let k = 0
+	for(d <= ax * pm64): {
+		d *= p64
+		k += 64
+	}
+	for(d <= ax * 0.5): {
+		d *= 2.0
+		k += 1
+	}
+	for(ax >= ay): {
+		if(ax >= d): ax -= d
+		if(ax >= ay): {
+			for(k >= 64 and ax < d * pm64): {
+				d *= pm64
+				k -= 64
+			}
+			for(k > 0 and ax < d): {
+				d *= 0.5
+				k -= 1
+			}
+		}
+	}
+	if(x < 0.0): -ax else: ax
 }
 
-// Computes the non-negative square root of `x` (`0.0` for `x <= 0.0`).
+// Computes the non-negative square root of `x` (`NaN` for `x < 0.0` or `NaN`, `+Inf` for `+Inf`, `±0.0` preserved).
 bind sqrt = (x: float) float: {
-	if(x <= 0.0): func <- 0.0
+	if(is_nan(x) or x < 0.0): func <- NAN
+	if(x == 0.0 or x == INF): func <- x
 	let scale = 1.0
 	let m = x
+	let p64 = 18446744073709551616.0
+	let pm64 = 1.0 / p64
+	let s32 = 4294967296.0
+	let sm32 = 1.0 / s32
+	for(m >= p64): {
+		m *= pm64
+		scale *= s32
+	}
+	for(m < pm64): {
+		m *= p64
+		scale *= sm32
+	}
 	for(m >= 4.0): {
 		m *= 0.25
 		scale *= 2.0
@@ -110,37 +156,6 @@ bind cbrt = (x: float) float: {
 // Returns Euclidean hypotenuse `sqrt(x * x + y * y)`.
 bind hypot = (x: float, y: float) float: sqrt(x * x + y * y)
 
-// Computes the base-[`E`] exponential function (`e^x`), returning `0.0` when `x < -709.0`.
-bind exp = (x: float) float: {
-	if(x == 0.0): func <- 1.0
-	if(x < -709.0): func <- 0.0
-	let k = int(round(x / LN2))
-	let r = x - float(k) * LN2
-	let term = 1.0
-	let sum = 1.0
-	let n = 1
-	for(n <= 16): {
-		term = term * r / float(n)
-		sum += term
-		n += 1
-	}
-	if(k > 0): {
-		let i = 0
-		for(i < k): {
-			sum *= 2.0
-			i += 1
-		}
-	} else if(k < 0): {
-		let i = 0
-		let nk = -k
-		for(i < nk): {
-			sum *= 0.5
-			i += 1
-		}
-	}
-	sum
-}
-
 bind _scale_pow2 = (v: float, k: int) float: {
 	let res = v
 	let rem = k
@@ -173,6 +188,31 @@ bind _scale_pow2 = (v: float, k: int) float: {
 	res
 }
 
+bind _exp_scaled = (x: float, extra_k: int) float: {
+	let ln2_hi = 0.693147180369123816490
+	let ln2_lo = 1.90821492927058770002e-10
+	let k = int(round(x / LN2))
+	let r = (x - float(k) * ln2_hi) - float(k) * ln2_lo
+	let term = 1.0
+	let sum = 1.0
+	let n = 1
+	for(n <= 16): {
+		term = term * r / float(n)
+		sum += term
+		n += 1
+	}
+	_scale_pow2(sum, k + extra_k)
+}
+
+// Computes the base-[`E`] exponential function (`e^x`), handling `NaN`, `±Inf`, overflow (`> 710.0`), and subnormal/underflow (`< -745.2`).
+bind exp = (x: float) float: {
+	if(is_nan(x)): func <- NAN
+	if(x == 0.0): func <- 1.0
+	if(x > 710.0): func <- INF
+	if(x < -745.2): func <- 0.0
+	_exp_scaled(x, 0)
+}
+
 // Computes the base-2 exponential function (`2^x`), handling `NaN`, `±Inf`, overflow (`>= 1024.0`), and subnormal/underflow (`<= -1075.0`).
 bind exp2 = (x: float) float: {
 	if(is_nan(x)): func <- NAN
@@ -195,11 +235,24 @@ bind exp2 = (x: float) float: {
 	_scale_pow2(sum, k)
 }
 
-// Computes the natural logarithm `ln(x)` (`0.0` when `x <= 0.0`).
+// Computes the natural logarithm `ln(x)` (`NaN` for `x < 0.0` or `NaN`, `-Inf` for `±0.0`, `+Inf` for `+Inf`).
 bind log = (x: float) float: {
-	if(x <= 0.0): func <- 0.0
+	if(is_nan(x) or x < 0.0): func <- NAN
+	if(x == 0.0): func <- -INF
+	if(x == INF): func <- INF
+	if(x == 1.0): func <- 0.0
 	let k = 0
 	let m = x
+	let p64 = 18446744073709551616.0
+	let pm64 = 1.0 / p64
+	for(m >= p64): {
+		m *= pm64
+		k += 64
+	}
+	for(m < pm64): {
+		m *= p64
+		k -= 64
+	}
 	for(m >= SQRT2): {
 		m *= 0.5
 		k += 1
@@ -263,11 +316,60 @@ bind log2 = (x: float) float: {
 	(2.0 * sum) / LN2 + float(k)
 }
 
-// Computes `base` raised to `exponent` (`base^exponent`), using binary exponentiation for integer exponents.
+bind _is_odd_int = (y: float) bool: {
+	if(is_nan(y) or is_inf(y)): func <- false
+	if(y != trunc(y)): func <- false
+	let ay = abs_float(y)
+	if(ay >= 9007199254740992.0): func <- false
+	(int(ay) & 1) != 0
+}
+
+// Computes `base` raised to `exponent` (`base^exponent`), following IEEE-754 special-case rules.
 bind pow = (base: float, exponent: float) float: {
 	if(exponent == 0.0): func <- 1.0
-	if(base == 0.0): func <- 0.0
 	if(base == 1.0): func <- 1.0
+	if(is_nan(base) or is_nan(exponent)): func <- NAN
+	if(base == 0.0): {
+		let is_neg_zero = (1.0 / base) < 0.0
+		if(exponent < 0.0): {
+			if(is_neg_zero and _is_odd_int(exponent)): func <- -INF
+			func <- INF
+		}
+		if(is_neg_zero and _is_odd_int(exponent)): func <- -0.0
+		func <- 0.0
+	}
+	if(base == -1.0 and is_inf(exponent)): func <- 1.0
+	if(is_inf(exponent)): {
+		let ab = abs_float(base)
+		if(exponent == INF): {
+			if(ab > 1.0): func <- INF
+			func <- 0.0
+		}
+		if(ab > 1.0): func <- 0.0
+		func <- INF
+	}
+	if(is_inf(base)): {
+		if(base == INF): {
+			if(exponent > 0.0): func <- INF
+			func <- 0.0
+		}
+		if(exponent > 0.0): {
+			if(_is_odd_int(exponent)): func <- -INF
+			func <- INF
+		}
+		if(_is_odd_int(exponent)): func <- -0.0
+		func <- 0.0
+	}
+	if(base < 0.0): {
+		if(exponent != trunc(exponent)): func <- NAN
+		if(base == -1.0): {
+			if(_is_odd_int(exponent)): func <- -1.0
+			func <- 1.0
+		}
+		let mag = pow(-base, exponent)
+		if(_is_odd_int(exponent)): func <- -mag
+		func <- mag
+	}
 	let exp_trunc = trunc(exponent)
 	if(exponent == exp_trunc and abs_float(exponent) <= 1048576.0): {
 		let n = int(exp_trunc)
@@ -277,16 +379,20 @@ bind pow = (base: float, exponent: float) float: {
 		let b = base
 		for(p > 0): {
 			if((p & 1) == 1): acc *= b
-			b *= b
 			p = p >> 1
+			if(p > 0): b *= b
 		}
-		if(is_neg_exp): func <- 1.0 / acc
-		func <- acc
+		if(is_neg_exp): {
+			if(not is_inf(acc)): func <- 1.0 / acc
+		} else: {
+			func <- acc
+		}
 	}
 	exp(exponent * log(base))
 }
 
 bind _reduce_angle = (x: float) float: {
+	if(is_nan(x) or is_inf(x)): func <- NAN
 	let r = fmod(x, TAU)
 	if(r > PI): r -= TAU
 	else if(r < -PI): r += TAU
@@ -319,8 +425,9 @@ bind _cos_poly = (r: float) float: {
 	sum
 }
 
-// Computes the sine of angle `x` (in radians).
+// Computes the sine of angle `x` (in radians), returning `NaN` for `NaN` and `±Inf`.
 bind sin = (x: float) float: {
+	if(is_nan(x) or is_inf(x)): func <- NAN
 	let r = _reduce_angle(x)
 	let half_pi = PI * 0.5
 	if(r > half_pi): r = PI - r
@@ -328,8 +435,9 @@ bind sin = (x: float) float: {
 	_sin_poly(r)
 }
 
-// Computes the cosine of angle `x` (in radians).
+// Computes the cosine of angle `x` (in radians), returning `NaN` for `NaN` and `±Inf`.
 bind cos = (x: float) float: {
+	if(is_nan(x) or is_inf(x)): func <- NAN
 	let r = _reduce_angle(x)
 	let half_pi = PI * 0.5
 	if(r > half_pi): func <- -_cos_poly(PI - r)
@@ -392,6 +500,66 @@ bind acos = (x: float) float: {
 	if(x >= 1.0): func <- 0.0
 	if(x <= -1.0): func <- PI
 	atan2(sqrt(1.0 - x * x), x)
+}
+
+// Computes the hyperbolic sine of `x`, handling `NaN`, `±Inf`, small-angle precision, and large values up to `~710.475`.
+bind sinh = (x: float) float: {
+	if(is_nan(x)): func <- NAN
+	if(is_inf(x) or x == 0.0): func <- x
+	let ax = abs_float(x)
+	if(ax < 1.0): {
+		let x2 = x * x
+		let term = x
+		let sum = x
+		let n = 1
+		for(n <= 10): {
+			term = term * x2 / float(2 * n * (2 * n + 1))
+			sum += term
+			n += 1
+		}
+		func <- sum
+	}
+	if(ax <= 22.0): {
+		let e = exp(ax)
+		let res = 0.5 * (e - 1.0 / e)
+		if(x < 0.0): func <- -res
+		func <- res
+	}
+	if(ax <= 711.0): {
+		let res = _exp_scaled(ax, -1)
+		if(x < 0.0): func <- -res
+		func <- res
+	}
+	if(x < 0.0): -INF else: INF
+}
+
+// Computes the hyperbolic cosine of `x`, handling `NaN`, `±Inf`, and large values up to `~710.475`.
+bind cosh = (x: float) float: {
+	if(is_nan(x)): func <- NAN
+	if(is_inf(x)): func <- INF
+	if(x == 0.0): func <- 1.0
+	let ax = abs_float(x)
+	if(ax <= 22.0): {
+		let e = exp(ax)
+		func <- 0.5 * (e + 1.0 / e)
+	}
+	if(ax <= 711.0): func <- _exp_scaled(ax, -1)
+	INF
+}
+
+// Computes the hyperbolic tangent of `x` (`±1.0` for `±Inf` and `|x| >= 20.0`, `NaN` for `NaN`).
+bind tanh = (x: float) float: {
+	if(is_nan(x)): func <- NAN
+	if(x == 0.0): func <- x
+	let ax = abs_float(x)
+	if(ax >= 20.0): {
+		if(x < 0.0): func <- -1.0
+		func <- 1.0
+	}
+	if(ax < 1.0): func <- sinh(x) / cosh(x)
+	let e2 = exp(2.0 * ax)
+	let res = (e2 - 1.0) / (e2 + 1.0)
+	if(x < 0.0): -res else: res
 }
 
 // Converts degrees to radians.
@@ -492,6 +660,187 @@ bind test_math_log2_exp2 = (): {
 	assert(is_nan(log2(-1.0)), "log2(-1) is NaN")
 	assert(is_nan(log2(-INF)), "log2(-INF) is NaN")
 	assert(is_nan(log2(NAN)), "log2(NAN) is NaN")
+}
+
+@test("math hyperbolic functions: sinh, cosh, tanh")
+bind test_math_hyperbolic = (): {
+	// sinh
+	let sh0 = sinh(0.0)
+	assert(sh0 == 0.0 and 1.0 / sh0 > 0.0, "sinh(+0.0)")
+	let shn0 = sinh(-0.0)
+	assert(shn0 == 0.0 and 1.0 / shn0 < 0.0, "sinh(-0.0)")
+	assert(abs_float(sinh(1.0e-12) - 1.0e-12) < 1.0e-22, "sinh(1e-12)")
+	assert(abs_float(sinh(-1.0e-12) + 1.0e-12) < 1.0e-22, "sinh(-1e-12)")
+	assert(abs_float(sinh(0.5) - 0.5210953054937474) < 1.0e-13, "sinh(0.5)")
+	assert(abs_float(sinh(-0.5) + 0.5210953054937474) < 1.0e-13, "sinh(-0.5)")
+	assert(abs_float(sinh(1.0) - 1.1752011936438014) < 1.0e-13, "sinh(1.0)")
+	assert(abs_float(sinh(-1.0) + 1.1752011936438014) < 1.0e-13, "sinh(-1.0)")
+	assert(abs_float(sinh(5.0) - 74.20321057778875) < 1.0e-11, "sinh(5.0)")
+	assert(abs_float(sinh(-5.0) + 74.20321057778875) < 1.0e-11, "sinh(-5.0)")
+	assert(abs_float(sinh(22.5) - 2955261031.5116453) / 2955261031.5116453 < 1.0e-12, "sinh(22.5)")
+	let sh710 = sinh(710.0)
+	assert(sh710 > 1.11e308 and not is_inf(sh710), "sinh(710) finite")
+	let shm710 = sinh(-710.0)
+	assert(shm710 < -1.11e308 and not is_inf(shm710), "sinh(-710) finite")
+	assert(sinh(711.0) == INF, "sinh(711) == INF")
+	assert(sinh(-711.0) == -INF, "sinh(-711) == -INF")
+	assert(sinh(INF) == INF, "sinh(INF) == INF")
+	assert(sinh(-INF) == -INF, "sinh(-INF) == -INF")
+	assert(is_nan(sinh(NAN)), "sinh(NAN) is NaN")
+
+	// cosh
+	assert(cosh(0.0) == 1.0, "cosh(+0.0)")
+	assert(cosh(-0.0) == 1.0, "cosh(-0.0)")
+	assert(abs_float(cosh(1.0e-8) - 1.0) < 1.0e-15, "cosh(1e-8)")
+	assert(abs_float(cosh(1.0) - 1.5430806348152437) < 1.0e-13, "cosh(1.0)")
+	assert(cosh(-1.0) == cosh(1.0), "cosh even symmetry")
+	assert(abs_float(cosh(5.0) - 74.20994852478785) < 1.0e-11, "cosh(5.0)")
+	let ch710 = cosh(710.0)
+	assert(ch710 > 1.11e308 and not is_inf(ch710), "cosh(710) finite")
+	let chm710 = cosh(-710.0)
+	assert(chm710 > 1.11e308 and not is_inf(chm710), "cosh(-710) finite")
+	assert(cosh(711.0) == INF, "cosh(711) == INF")
+	assert(cosh(-711.0) == INF, "cosh(-711) == INF")
+	assert(cosh(INF) == INF, "cosh(INF) == INF")
+	assert(cosh(-INF) == INF, "cosh(-INF) == INF")
+	assert(is_nan(cosh(NAN)), "cosh(NAN) is NaN")
+
+	// cosh^2(x) - sinh^2(x) == 1
+	assert(abs_float(cosh(2.5) * cosh(2.5) - sinh(2.5) * sinh(2.5) - 1.0) < 1.0e-11, "cosh^2 - sinh^2 == 1")
+
+	// tanh
+	let th0 = tanh(0.0)
+	assert(th0 == 0.0 and 1.0 / th0 > 0.0, "tanh(+0.0)")
+	let thn0 = tanh(-0.0)
+	assert(thn0 == 0.0 and 1.0 / thn0 < 0.0, "tanh(-0.0)")
+	assert(abs_float(tanh(1.0e-12) - 1.0e-12) < 1.0e-22, "tanh(1e-12)")
+	assert(abs_float(tanh(0.5) - 0.46211715726000974) < 1.0e-13, "tanh(0.5)")
+	assert(abs_float(tanh(-0.5) + 0.46211715726000974) < 1.0e-13, "tanh(-0.5)")
+	assert(abs_float(tanh(1.0) - 0.7615941559557649) < 1.0e-13, "tanh(1.0)")
+	assert(abs_float(tanh(-1.0) + 0.7615941559557649) < 1.0e-13, "tanh(-1.0)")
+	assert(abs_float(tanh(5.0) - 0.9999092042625951) < 1.0e-13, "tanh(5.0)")
+	assert(tanh(20.0) == 1.0, "tanh(20) == 1")
+	assert(tanh(-20.0) == -1.0, "tanh(-20) == -1")
+	assert(tanh(1000.0) == 1.0, "tanh(1000) == 1")
+	assert(tanh(-1000.0) == -1.0, "tanh(-1000) == -1")
+	assert(tanh(INF) == 1.0, "tanh(INF) == 1")
+	assert(tanh(-INF) == -1.0, "tanh(-INF) == -1")
+	assert(is_nan(tanh(NAN)), "tanh(NAN) is NaN")
+}
+
+@test("math IEEE-754 out-of-domain and non-finite edge cases")
+bind test_math_ieee754_edge_cases = (): {
+	// rounding on non-finite inputs
+	assert(is_nan(trunc(NAN)), "trunc(NAN)")
+	assert(trunc(INF) == INF and trunc(-INF) == -INF, "trunc(±INF)")
+	assert(is_nan(floor(NAN)), "floor(NAN)")
+	assert(floor(INF) == INF and floor(-INF) == -INF, "floor(±INF)")
+	assert(is_nan(ceil(NAN)), "ceil(NAN)")
+	assert(ceil(INF) == INF and ceil(-INF) == -INF, "ceil(±INF)")
+	assert(is_nan(round(NAN)), "round(NAN)")
+	assert(round(INF) == INF and round(-INF) == -INF, "round(±INF)")
+
+	// fmod IEEE-754
+	assert(fmod(5.5, 2.0) == 1.5, "fmod(5.5, 2.0)")
+	assert(fmod(-5.5, 2.0) == -1.5, "fmod(-5.5, 2.0)")
+	assert(fmod(5.5, -2.0) == 1.5, "fmod(5.5, -2.0)")
+	assert(fmod(-5.5, -2.0) == -1.5, "fmod(-5.5, -2.0)")
+	let fmn0 = fmod(-4.0, 2.0)
+	assert(fmn0 == 0.0 and 1.0 / fmn0 < 0.0, "fmod(-4, 2) == -0.0")
+	assert(fmod(5.0, INF) == 5.0, "fmod(5, INF) == 5")
+	assert(fmod(-5.0, -INF) == -5.0, "fmod(-5, -INF) == -5")
+	assert(is_nan(fmod(1.0, 0.0)), "fmod(1, 0) is NaN")
+	assert(is_nan(fmod(0.0, 0.0)), "fmod(0, 0) is NaN")
+	assert(is_nan(fmod(INF, 2.0)), "fmod(INF, 2) is NaN")
+	assert(is_nan(fmod(-INF, 2.0)), "fmod(-INF, 2) is NaN")
+	assert(is_nan(fmod(INF, INF)), "fmod(INF, INF) is NaN")
+	assert(is_nan(fmod(NAN, 2.0)), "fmod(NAN, 2) is NaN")
+	assert(is_nan(fmod(2.0, NAN)), "fmod(2, NAN) is NaN")
+	let fm_big = fmod(1.0e20, 3.0)
+	assert(fm_big >= 0.0 and fm_big < 3.0, "fmod large finite range")
+	assert(fmod(1.5e-323, 5.0e-324) == 0.0, "fmod subnormal exact")
+
+	// sqrt IEEE-754
+	assert(sqrt(0.0) == 0.0, "sqrt(+0.0)")
+	let sn0 = sqrt(-0.0)
+	assert(sn0 == 0.0 and 1.0 / sn0 < 0.0, "sqrt(-0.0) preserves sign")
+	assert(sqrt(INF) == INF, "sqrt(INF) == INF")
+	assert(is_nan(sqrt(-1.0)), "sqrt(-1) is NaN")
+	assert(is_nan(sqrt(-INF)), "sqrt(-INF) is NaN")
+	assert(is_nan(sqrt(NAN)), "sqrt(NAN) is NaN")
+	assert(abs_float(sqrt(5.0e-324) - 2.2227587494850775e-162) / 2.2227587494850775e-162 < 1.0e-13, "sqrt(5e-324)")
+	let s_max = sqrt(1.7976931348623157e308)
+	assert(not is_inf(s_max) and s_max > 1.34e154, "sqrt(DBL_MAX) finite")
+
+	// exp IEEE-754
+	assert(exp(INF) == INF, "exp(INF) == INF")
+	assert(exp(710.0) == INF, "exp(710) == INF")
+	assert(exp(1.0e10) == INF, "exp(1e10) == INF")
+	assert(exp(-INF) == 0.0, "exp(-INF) == 0")
+	assert(exp(-746.0) == 0.0, "exp(-746) == 0")
+	assert(is_nan(exp(NAN)), "exp(NAN) is NaN")
+	let e709 = exp(709.0)
+	assert(e709 > 8.21e307 and not is_inf(e709), "exp(709) finite")
+	assert(exp(-744.4400719213812) == 5.0e-324, "exp(-744.44) subnormal")
+
+	// log & log10 IEEE-754
+	assert(log(0.0) == -INF, "log(+0) == -INF")
+	assert(log(-0.0) == -INF, "log(-0) == -INF")
+	assert(log(INF) == INF, "log(INF) == INF")
+	assert(log(1.0) == 0.0, "log(1) == 0")
+	assert(is_nan(log(-1.0)), "log(-1) is NaN")
+	assert(is_nan(log(-INF)), "log(-INF) is NaN")
+	assert(is_nan(log(NAN)), "log(NAN) is NaN")
+	assert(log10(0.0) == -INF, "log10(0) == -INF")
+	assert(log10(INF) == INF, "log10(INF) == INF")
+	assert(is_nan(log10(-1.0)), "log10(-1) is NaN")
+	assert(abs_float(log(5.0e-324) + 744.4400719213812) / 744.4400719213812 < 1.0e-13, "log(5e-324)")
+	assert(abs_float(log(1.7976931348623157e308) - 709.782712893384) / 709.782712893384 < 1.0e-13, "log(DBL_MAX)")
+
+	// pow IEEE-754
+	assert(pow(NAN, 0.0) == 1.0, "pow(NAN, +0)")
+	assert(pow(NAN, -0.0) == 1.0, "pow(NAN, -0)")
+	assert(pow(0.0, 0.0) == 1.0, "pow(0, 0)")
+	assert(pow(INF, 0.0) == 1.0, "pow(INF, 0)")
+	assert(pow(1.0, NAN) == 1.0, "pow(1, NAN)")
+	assert(pow(1.0, INF) == 1.0, "pow(1, INF)")
+	assert(pow(1.0, -INF) == 1.0, "pow(1, -INF)")
+	assert(pow(-1.0, INF) == 1.0, "pow(-1, INF)")
+	assert(pow(-1.0, -INF) == 1.0, "pow(-1, -INF)")
+	assert(pow(0.0, -1.0) == INF, "pow(+0, -1)")
+	assert(pow(-0.0, -1.0) == -INF, "pow(-0, -1)")
+	assert(pow(-0.0, -2.0) == INF, "pow(-0, -2)")
+	let pn0_3 = pow(-0.0, 3.0)
+	assert(pn0_3 == 0.0 and 1.0 / pn0_3 < 0.0, "pow(-0, 3) == -0.0")
+	assert(is_nan(pow(0.0, NAN)), "pow(0, NAN)")
+	assert(is_nan(pow(2.0, NAN)), "pow(2, NAN)")
+	assert(is_nan(pow(NAN, 2.0)), "pow(NAN, 2)")
+	assert(pow(2.0, INF) == INF, "pow(2, INF)")
+	assert(pow(2.0, -INF) == 0.0, "pow(2, -INF)")
+	assert(pow(0.5, INF) == 0.0, "pow(0.5, INF)")
+	assert(pow(0.5, -INF) == INF, "pow(0.5, -INF)")
+	assert(pow(INF, 2.0) == INF, "pow(INF, 2)")
+	assert(pow(INF, -2.0) == 0.0, "pow(INF, -2)")
+	assert(pow(-INF, 3.0) == -INF, "pow(-INF, 3)")
+	assert(pow(-INF, 2.0) == INF, "pow(-INF, 2)")
+	let pinf_m3 = pow(-INF, -3.0)
+	assert(pinf_m3 == 0.0 and 1.0 / pinf_m3 < 0.0, "pow(-INF, -3) == -0.0")
+	assert(pow(-INF, -2.0) == 0.0, "pow(-INF, -2)")
+	assert(is_nan(pow(-2.0, 0.5)), "pow(-2, 0.5) is NaN")
+	assert(is_nan(pow(-2.0, -0.5)), "pow(-2, -0.5) is NaN")
+	assert(pow(-2.0, 3.0) == -8.0, "pow(-2, 3)")
+	assert(pow(-2.0, 2.0) == 4.0, "pow(-2, 2)")
+	assert(pow(-2.0, -3.0) == -0.125, "pow(-2, -3)")
+	assert(pow(2.0, -1074.0) == 5.0e-324, "pow(2, -1074) subnormal")
+
+	// sin, cos, tan non-finite & large finite
+	assert(is_nan(sin(INF)) and is_nan(sin(-INF)) and is_nan(sin(NAN)), "sin non-finite is NaN")
+	assert(is_nan(cos(INF)) and is_nan(cos(-INF)) and is_nan(cos(NAN)), "cos non-finite is NaN")
+	assert(is_nan(tan(INF)) and is_nan(tan(-INF)) and is_nan(tan(NAN)), "tan non-finite is NaN")
+	let s_big = sin(1.0e20)
+	let c_big = cos(1.0e20)
+	assert(not is_nan(s_big) and not is_inf(s_big) and s_big >= -1.0 and s_big <= 1.0, "sin(1e20) bounded")
+	assert(not is_nan(c_big) and not is_inf(c_big) and c_big >= -1.0 and c_big <= 1.0, "cos(1e20) bounded")
 }
 
 @test("math rounding, clamping, and interpolation")

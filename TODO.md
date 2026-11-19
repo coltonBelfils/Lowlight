@@ -4,8 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Stdlib Bug Fixes & Targeted Library Additions
 
-- [ ] Add `sinh`, `cosh`, and `tanh` to `std/math.ll`.
-- [ ] Fix `sqrt`, `log`, `exp`, `pow`, `fmod`, `sin`, and `cos` in `std/math.ll` to return `NaN`/`+-inf` instead of hanging or returning `0.0` on out-of-domain inputs.
 - [ ] Add `set` and `reserve` to `List[T]` in `std/core/list.ll`.
 - [ ] Add `insert`, `remove`, and `swap_remove` to `List[T]` in `std/core/list.ll`.
 - [ ] Add `List[T].filled(len, val)` and `resize(n, val)` in `std/core/list.ll` using `alloc_uninit` (`malloc`) + `memset` for 1-byte `Plain` types (`bool`, `u8`, `i8`) and capacity-check-free fill loops for other `Plain` types.
