@@ -94,13 +94,14 @@ bind string.repeat = (self, count: int) string: {
 	out
 }
 
-// Returns a new string with bytes reversed in order.
+// Returns a new string with Unicode codepoints reversed in order.
 bind string.reverse = (self) string: {
 	if(self.len() <= 1): func <- self.copy()
+	let cps = self.chars()
 	let out = ""
-	let i = self.len() - 1
+	let i = cps.len() - 1
 	while(i >= 0): {
-		out.push_byte(self[i])
+		out.push_char(cps[i])
 		i -= 1
 	}
 	out
@@ -110,10 +111,17 @@ bind string.reverse = (self) string: {
 // Padding & Alignment
 // -----------------------------------------------------------------------------
 
-// Left-pads the string with repeated `pad_char` until its byte length reaches at least `total_len`.
+bind _char_count = (s: string) int: {
+	let n = 0
+	for(ch in s): n += 1
+	n
+}
+
+// Left-pads the string with repeated `pad_char` until its Unicode codepoint count reaches at least `total_len`.
 bind string.pad_left_char = (self, total_len: int, pad_char: char) string: {
-	if(self.len() >= total_len): func <- self.copy()
-	let pad_count = total_len - self.len()
+	let char_len = _char_count(self)
+	if(char_len >= total_len): func <- self.copy()
+	let pad_count = total_len - char_len
 	let pad_str = pad_char.to_string().repeat(pad_count)
 	let out = ""
 	out.push(pad_str)
@@ -121,10 +129,11 @@ bind string.pad_left_char = (self, total_len: int, pad_char: char) string: {
 	out
 }
 
-// Right-pads the string with repeated `pad_char` until its byte length reaches at least `total_len`.
+// Right-pads the string with repeated `pad_char` until its Unicode codepoint count reaches at least `total_len`.
 bind string.pad_right_char = (self, total_len: int, pad_char: char) string: {
-	if(self.len() >= total_len): func <- self.copy()
-	let pad_count = total_len - self.len()
+	let char_len = _char_count(self)
+	if(char_len >= total_len): func <- self.copy()
+	let pad_count = total_len - char_len
 	let pad_str = pad_char.to_string().repeat(pad_count)
 	let out = ""
 	out.push(self)
@@ -132,16 +141,18 @@ bind string.pad_right_char = (self, total_len: int, pad_char: char) string: {
 	out
 }
 
-// Centers the string within `total_len` bytes by padding evenly on both sides with `pad_char`.
+// Centers the string within `total_len` Unicode codepoints by padding evenly on both sides with `pad_char`.
 bind string.center_char = (self, total_len: int, pad_char: char) string: {
-	if(self.len() >= total_len): func <- self.copy()
-	let total_pad = total_len - self.len()
+	let char_len = _char_count(self)
+	if(char_len >= total_len): func <- self.copy()
+	let total_pad = total_len - char_len
 	let left_pad = total_pad / 2
 	let right_pad = total_pad - left_pad
+	let pad_unit = pad_char.to_string()
 	let out = ""
-	out.push(pad_char.to_string().repeat(left_pad))
+	out.push(pad_unit.repeat(left_pad))
 	out.push(self)
-	out.push(pad_char.to_string().repeat(right_pad))
+	out.push(pad_unit.repeat(right_pad))
 	out
 }
 
@@ -260,6 +271,15 @@ bind test_strings_trim_pad = (): {
 	assert("abc".pad_right_char(3, '-') == "abc", "pad_right_char no-op")
 	assert("abc".center_char(7, '=') == "==abc==", "center_char odd")
 	assert("abc".center_char(6, '=') == "=abc==", "center_char even")
+
+	assert("café".pad_left_char(6, '0') == "00café", "pad_left_char utf8")
+	assert("café".pad_left_char(4, '0') == "café", "pad_left_char utf8 exact")
+	assert("café".pad_left_char(-2, '0') == "café", "pad_left_char utf8 negative")
+	assert("café".pad_right_char(6, '·') == "café··", "pad_right_char utf8")
+	assert("αβ".center_char(5, '★') == "★αβ★★", "center_char utf8")
+	assert("😀".center_char(5, '=') == "==😀==", "center_char emoji")
+	assert("".pad_left_char(3, 'é') == "ééé", "pad_left_char empty utf8")
+	assert("".pad_left_char(0, 'é') == "", "pad_left_char empty zero")
 }
 
 @test("string transformations: case, repeat, reverse, replace")
@@ -274,6 +294,13 @@ bind test_strings_transform = (): {
 
 	assert("hello".reverse() == "olleh", "reverse string")
 	assert("".reverse() == "", "reverse empty")
+	assert("a".reverse() == "a", "reverse single ascii")
+	assert("é".reverse() == "é", "reverse single 2-byte char")
+	assert("中".reverse() == "中", "reverse single 3-byte char")
+	assert("😀".reverse() == "😀", "reverse single 4-byte emoji")
+	assert("café".reverse() == "éfac", "reverse utf8")
+	assert("aé中😀b".reverse() == "b😀中éa", "reverse mixed multibyte")
+	assert("café 🌍 日本語".reverse().reverse() == "café 🌍 日本語", "reverse roundtrip utf8")
 
 	assert("hello world world".replace("world", "there") == "hello there world", "replace first")
 	assert("banana".replace_all("an", "XX") == "bXXXXa", "replace_all")

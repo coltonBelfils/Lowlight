@@ -176,48 +176,60 @@ bind int.pad_spaces = (self, width: int) string: pad_int_spaces(self, width)
 // String Extension Methods (Uniform Method Call Syntax)
 // -----------------------------------------------------------------------------
 
-// Left-pads the string to at least `width` bytes using the first byte of `fill` (or space if empty).
+bind _strfmt_char_count = (s: string) int: {
+	let n = 0
+	for(ch in s): n += 1
+	n
+}
+
+bind _strfmt_first_char = (fill: string) char: {
+	if(fill.len() == 0): func <- ' '
+	let next_i = 0
+	str_utf8_next(fill, 0, &next_i)
+}
+
+// Left-pads the string to at least `width` Unicode codepoints using the first codepoint of `fill` (or space if empty).
 bind string.pad_left_fill = (self, width: int, fill: string) string: {
-	let diff = width - self.len()
+	let diff = width - _strfmt_char_count(self)
 	if(diff <= 0): func <- self.copy()
-	let fill_char = if(fill.len() > 0): fill[0..1] else: " "
+	let fill_ch = _strfmt_first_char(fill)
 	let out = ""
-	for(i in 0..diff): out.push(fill_char)
+	for(i in 0..diff): out.push_char(fill_ch)
 	out.push(self)
 	out
 }
 
-// Left-pads the string with spaces to at least `width` bytes.
+// Left-pads the string with spaces to at least `width` Unicode codepoints.
 bind string.pad_left = (self, width: int) string: self.pad_left_fill(width, " ")
 
-// Right-pads the string to at least `width` bytes using the first byte of `fill` (or space if empty).
+// Right-pads the string to at least `width` Unicode codepoints using the first codepoint of `fill` (or space if empty).
 bind string.pad_right_fill = (self, width: int, fill: string) string: {
-	let diff = width - self.len()
+	let diff = width - _strfmt_char_count(self)
 	if(diff <= 0): func <- self.copy()
-	let fill_char = if(fill.len() > 0): fill[0..1] else: " "
+	let fill_ch = _strfmt_first_char(fill)
 	let out = self.copy()
-	for(i in 0..diff): out.push(fill_char)
+	for(i in 0..diff): out.push_char(fill_ch)
 	out
 }
 
-// Right-pads the string with spaces to at least `width` bytes.
+// Right-pads the string with spaces to at least `width` Unicode codepoints.
 bind string.pad_right = (self, width: int) string: self.pad_right_fill(width, " ")
 
-// Centers the string within `width` bytes using the first byte of `fill` (or space if empty).
+// Centers the string within `width` Unicode codepoints using the first codepoint of `fill` (or space if empty).
 bind string.center_fill = (self, width: int, fill: string) string: {
-	let diff = width - self.len()
+	let diff = width - _strfmt_char_count(self)
 	if(diff <= 0): func <- self.copy()
 	let left_pad = diff / 2
 	let right_pad = diff - left_pad
-	let fill_char = if(fill.len() > 0): fill[0..1] else: " "
+	let fill_ch = _strfmt_first_char(fill)
 	let out = ""
-	for(i in 0..left_pad): out.push(fill_char)
+	for(i in 0..left_pad): out.push_char(fill_ch)
 	out.push(self)
-	for(i in 0..right_pad): out.push(fill_char)
+	for(i in 0..right_pad): out.push_char(fill_ch)
 	out
 }
 
-// Centers the string with spaces within `width` bytes.
+// Centers the string with spaces within `width` Unicode codepoints.
 bind string.center = (self, width: int) string: self.center_fill(width, " ")
 
 // Truncates the string to `max_len` bytes, appending `ellipsis` when shortened.
@@ -443,6 +455,16 @@ bind test_strfmt_padding_and_truncation = (): {
 	assert("hello".pad_left(8) == "   hello", "pad_left")
 	assert("hello".pad_right(8) == "hello   ", "pad_right")
 	assert("hello".center(9) == "  hello  ", "center")
+
+	assert("café".pad_left(6) == "  café", "pad_left utf8")
+	assert("café".pad_right(6) == "café  ", "pad_right utf8")
+	assert("😀".center(5) == "  😀  ", "center emoji")
+	assert("αβ".pad_left_fill(5, "·") == "···αβ", "pad_left_fill utf8")
+	assert("αβ".pad_right_fill(5, "★☆") == "αβ★★★", "pad_right_fill utf8 first codepoint")
+	assert("αβ".center_fill(5, "—") == "—αβ——", "center_fill utf8")
+	assert("αβ".pad_left_fill(4, "") == "  αβ", "pad_left_fill empty fill defaults to space")
+	assert("café".pad_left(4) == "café", "pad_left utf8 exact")
+	assert("café".pad_left(-1) == "café", "pad_left utf8 negative")
 
 	assert("very long string here".truncate(10) == "very lo...", "truncate long")
 	assert("short".truncate(10) == "short", "truncate short")
