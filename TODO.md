@@ -156,7 +156,7 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Implement `@embed_file`, `embed_bytes`, and `embed_str` intrinsics.
 - [ ] Implement compile-time `comptime` evaluation for constant arithmetic, string concatenation, and fixed array lengths (`[size_of[T](): u8]`).
 
-## Compiler Backend, Allocators & Package Architecture
+## Compiler Backend & Allocators
 
 - [ ] Unify OS/arch name conventions across C11 and LLVM backends (`internal/codegen`).
 - [ ] Switch `internal/codegen/llvmgen.go` (`emitHeader`) and `internal/codegen/llvmgen_runtime.go` from host `runtime.GOOS`/`GOARCH` checks to `Program.TargetTriple`.
@@ -169,11 +169,54 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Allow `List` to accept custom or arena allocators without per-element heap drops.
 - [ ] Allow `#[T]` (`Set`) and `#[K: V]` (`Map`) to accept custom or arena allocators without per-element heap drops.
 - [ ] Allow `string` to accept custom or arena allocators without per-element heap drops.
-- [ ] Define `lowlight.toml` package manifests.
-- [ ] Implement `lowlight init`.
-- [ ] Support named package imports (`import "std/fs"`, `import "compiler/lexer"`).
-- [ ] Enforce formal module visibility and orphan rules.
-- [ ] Implement separate `.o` / IR compilation units with caching in `internal/driver`.
+
+## Package Architecture & Management Overhaul
+
+*(Design decisions finalized in `SPECIFICATION.md` §4, §9.7, and §12.)*
+
+- [ ] Implement a shared zero-dependency TOML parser and serializer (comments, `[tables]`, `[[arrays]]`, inline `{ ... }` tables, target keys) for `lowlight.toml`, `lowlight.lock`, and static package indexes (`SPECIFICATION.md` §12.2–§12.4).
+- [ ] Implement the `lowlight.toml` schema loader/validator (`[package]`, `[dependencies]`, `[dev-dependencies]`, `[overrides]`, `[workspace]` members/globs, `[build]`, `[format]`, `[target.<selector>]`) with comment-preserving surgical edits for CLI mutations (§12.2, §12.6).
+- [ ] Support `[format]` inside `lowlight.toml` in `internal/format/config.go` while keeping `.lowlightfmt` active for manifest-free directories and subdirectory overrides (§12.2).
+- [ ] Unify `lowlight.toml` and `[workspace]` root discovery across `internal/sema` (`findProjectRoot`), `internal/driver`, `internal/docgen`, `internal/format`, and `internal/lsp`, cleanly decoupling user project roots from `LOWLIGHT_ROOT` / `StdDir` (§12.1).
+- [ ] Implement directory-as-package loading in `internal/sema/program.go` (shared package namespace and mutual cross-file recursion within a directory, package-wide declaration uniqueness, standalone file isolation outside manifests, and inter-package cycle chain errors) (§4.1, §4.3).
+- [ ] Implement `*_test.ll` exclusion outside test builds and OS/arch target suffix filtering (`_linux.ll`, `_darwin.ll`, `_windows.ll`, `_unix.ll`, `_amd64.ll`, `_arm64.ll`) matched against `--target` (§4.1, §9.7).
+- [ ] Implement extensionless named package resolution and strict qualified-only imports (`pkg.<sym>`, optional `as <alias>`, default qualifier normalization/conflict checks, no open non-prelude imports, no relative `./`/`../` inside manifests, no importing `main` packages, and `.ll`-import migration errors) (§4.3, §4.5).
+- [ ] Replace per-file `moduleTag` scoping with canonical `PackageID` / package-path namespaces across `internal/sema`, `internal/ir`, and `internal/codegen` (§4.1, §4.3).
+- [ ] Enforce global method coherence (`bind TypeName.method = ...`) in `internal/sema/types_pass.go` (permissive extension methods with cross-package duplicate collision errors while preserving leading-`_` and sealed-interface restrictions) (§4.2.1, §4.4).
+- [ ] Enforce `[dev-dependencies]` isolation in `internal/sema` so production non-test code cannot import or reference test-only dependencies (§9.7, §12.2).
+- [ ] Implement SemVer constraint parsing, remote static TOML index fetching (`[versions."..."]` with `yanked`), Minimal Version Selection (MVS), and root `[overrides]` / conflict diagnostics (§12.4–§12.5).
+- [ ] Implement HTTPS archive fetching, SHA-256 verification, path-traversal/symlink-safe extraction (`.tar.gz`, `.tgz`, `.zip`), local cache (`$LOWLIGHT_CACHE` / `~/.lowlight/cache/sha256/<hex>/`), `./vendor/` precedence, and deterministic `lowlight.lock` handling (§12.3–§12.5).
+- [ ] Support manifest-driven zero-arg CLI execution (`[build]` defaults, `./cmd/<app>/`, `-p <pkg>`, `--workspace`, `--locked`, `--offline`) across `build`, `run`, `check`, `test`, `doc`, `emit-llvm`, and `emit-c` while keeping standalone file invocation working (§12.1, §12.6).
+- [ ] Implement package management CLI commands (`lowlight init`, `new`, `add`, `remove`, `update`, `fetch`, `tree`, `vendor`) in `cmd/lowlight/main.go` (§12.6).
+- [ ] Migrate `std/*.ll` modules into package subdirectories (`std/fs/fs.ll`, `std/http/http.ll`, `std/net/net.ll`, `std/math/math.ll`, `std/test/test.ll`, etc.), remove the `SamePackage`/`SamePackageDir` `StdDir` special-case in `internal/sema/program.go`, and update `std/`, `examples/`, and `tests/` to extensionless qualified imports (§4.3, §4.4.2, §9).
+- [ ] Update `driver.Test` (`internal/driver/driver.go`), `internal/docgen`, and `internal/lsp` around directory packages and manifests (one test compilation per package including `*_test.ll`, package-grouped docs/links, and `lowlight.toml`-aware auto-imports) (§9.7, §12.1).
+- [ ] Implement two-phase package incremental compilation and caching in `internal/driver` (separate cached `.o` / LLVM IR bitcode units per non-generic package plus a shared specialization/vtable link unit) (§4.1, §12.6).
+- [ ] Update `IMPLEMENTATION.md` to document the implemented package loader, TOML manifest/lockfile/index pipeline, and two-phase incremental build driver.
+
+## Multithreading & Parallel Computing Overhaul
+
+### Open Concurrency & Parallelism Design Decisions
+
+- [ ] Decide Lowlight's core concurrency model: OS `1:1` threads vs. M:N green fibers/goroutines vs. stackless `async`/`await` (or a layered combination), and whether structured concurrency (`scope` / fork-join) is the primary safe primitive over detached threads.
+- [ ] Decide how compile-time data-race freedom (`SPECIFICATION.md` §1) is enforced across threads: opt-in or auto marker interfaces (`Send`/`Sync` equivalents) vs. structural derivation from Plain/Resource rules, and explicit handling of `ptr[T]`, `ref[T]`, `Arena`, thread-unsafe FFI state, and top-level Resource `bind` constants.
+- [ ] Decide scoped-borrowing rules without lifetime annotations (`SPECIFICATION.md` §1 axiom 4): how structured concurrency and parallel algorithms can borrow stack read-only (`T`) or disjoint mutable (`&T`) data safely without closure/reference escape.
+- [ ] Decide cross-thread shared ownership vs. strict move-only transfer: reconcile the "no reference-counting runtime" axiom (`SPECIFICATION.md` §1) with shared concurrent handles (explicit opt-in `Arc[T]`/`Shared[T]` vs. message passing + scoped sharing only).
+- [ ] Decide interior mutability ergonomics under explicit `&` call-site mutation (`SPECIFICATION.md` §1 axiom 6): locking APIs (`Mutex[T]`, `RwLock[T]`), RAII lock guards (`Drop`) vs. closure-based `with_lock(&T)` scopes, and lock poisoning vs. non-poisoning behavior.
+- [ ] Decide Lowlight's formal memory model and atomic primitives: supported `Atomic[T]` types, memory ordering guarantees (SC-DRF, relaxed/acquire/release/acqrel/seqcst), memory fences, and `safe` vs. `unsafe` boundaries for concurrent raw `ptr[T]` access.
+- [ ] Decide message-passing, synchronization, and thread-local primitives (`Channel` / MPSC vs. MPMC, `select` syntax vs. helper API, `Condvar`, `Barrier`, `Once`/`OnceLock`, and `@thread_local` vs. explicit context passing).
+- [ ] Decide parallel computing & vectorization model: thread-pool ownership (global runtime pool vs. explicit `ThreadPool` keeping no hidden runtime), parallel `for`/map/reduce/join APIs, work-stealing scheduling, and explicit portable SIMD types/intrinsics vs. compiler auto-vectorization.
+- [ ] Decide cross-thread panic, cancellation, and I/O scaling semantics: unwinding and `Drop` execution on panicking worker threads vs. process abort, cooperative cancellation tokens, and thread-pool vs. async event-loop (`epoll`/`kqueue`/`IOCP`) concurrency for `std/net.ll` and `std/http.ll`.
+- [ ] Decide global/runtime thread-safety requirements across both backends (`internal/codegen/runtime_h.go` and `internal/codegen/llvmgen_runtime.go`): POSIX `pthreads` + Win32 threads, atomic/TLS lowering across C11 and LLVM IR, thread-safe panic/trap handling, `Arena` thread confinement, and serialized dynamic `dlopen`/OpenSSL initialization.
+
+### Concurrency Runtime, Compiler & Stdlib Follow-Ups
+
+- [ ] Document the finalized memory model, thread-safety/sendability rules, scoped borrowing, atomics, interior mutability, and panic behavior in `SPECIFICATION.md` and `IMPLEMENTATION.md`.
+- [ ] Implement static concurrency safety checks across `internal/types` and `internal/sema` (thread-sendability/shareability inference, closure capture/escape checks, scoped borrow exclusivity, and `Arena`/`ref[T]` cross-thread confinement).
+- [ ] Add atomic load, store, RMW, CAS, fence, and thread-local storage (TLS) primitives to `internal/ir` and lower them in both `internal/codegen/cgen.go` (`<stdatomic.h>` / compiler intrinsics) and `internal/codegen/llvmgen.go` (`atomic` / `cmpxchg` / `atomicrmw` / `fence` / `thread_local`).
+- [ ] Implement cross-platform runtime threading, mutex, rwlock, condvar, and synchronization primitives in `internal/codegen/runtime_h.go` and `internal/codegen/llvmgen_runtime.go` (POSIX and Win32), and harden runtime globals/`dlopen` initialization for concurrent access.
+- [ ] Implement core concurrency and synchronization stdlib modules (`Thread` / scoped spawn, `Atomic*`, `Mutex[T]`, `RwLock[T]`, `Condvar`, `Barrier`, `Once`, and channels) with matching semantics and tests across both C11 and LLVM backends.
+- [ ] Implement the decided parallel computing runtime (explicit or managed `ThreadPool`, parallel fork-join / slice / iterator algorithms, and any portable SIMD primitives) and scale `std/net.ll` and `std/http.ll` for concurrent I/O.
+- [ ] Add ThreadSanitizer (`--tsan` / `-fsanitize=thread`) and race-detection test support in `internal/driver` alongside deterministic multithreaded stress and compile-fail tests.
 
 ## Self-Hosting Compiler & Stage Parity
 

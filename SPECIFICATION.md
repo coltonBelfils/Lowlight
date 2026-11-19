@@ -43,14 +43,14 @@ This document serves as the complete, authoritative, and implementation-independ
    - [3.12 Arenas (`Arena`) & Scoped References (`ref[T]`)](#312-arenas-arena--scoped-references-reft)
    - [3.13 Raw Pointers (`ptr[T]`)](#313-raw-pointers-ptrt)
    - [3.14 Internal & Control Types (`void`, `never`)](#314-internal--control-types-void-never)
-4. [Program Structure, Declarations, & Modules](#4-program-structure-declarations--modules)
-   - [4.1 Compilation Units & File Resolution](#41-compilation-units--file-resolution)
-   - [4.2 Order-Independent Top-Level Declarations](#42-order-independent-top-level-declarations)
-   - [4.3 Modules & Imports](#43-modules--imports)
+4. [Program Structure, Packages, & Visibility](#4-program-structure-packages--visibility)
+   - [4.1 Packages, Compilation Units, & Target File Selection](#41-packages-compilation-units--target-file-selection)
+   - [4.2 Order-Independent Declarations & Global Method Coherence](#42-order-independent-declarations--global-method-coherence)
+   - [4.3 Package Paths & Qualified Imports](#43-package-paths--qualified-imports)
    - [4.4 Encapsulation & Visibility](#44-encapsulation--visibility)
-   - [4.5 Program Entry Point (`main`)](#45-program-entry-point-main)
+   - [4.5 Program Entry Points (`main`) & Library Packages](#45-program-entry-points-main--library-packages)
    - [4.6 Compiler Attributes](#46-compiler-attributes)
-   - [4.7 Implicit Standard Prelude](#47-implicit-standard-prelude)
+   - [4.7 Implicit Standard Prelude (`std/core`)](#47-implicit-standard-prelude-stdcore)
 5. [Ownership, Borrowing, & Lifetime Mechanics](#5-ownership-borrowing--lifetime-mechanics)
    - [5.1 Affine Value Ownership](#51-affine-value-ownership)
    - [5.2 Value Moves & The Explicit `own` Qualifier](#52-value-moves--the-explicit-own-qualifier)
@@ -80,17 +80,26 @@ This document serves as the complete, authoritative, and implementation-independ
    - [8.3 The Strictly Non-Optional Generic Rule](#83-the-strictly-non-optional-generic-rule)
    - [8.4 Type Inference & Monomorphization Limits](#84-type-inference--monomorphization-limits)
 9. [Standard Library Contract & Built-in Operations](#9-standard-library-contract--built-in-operations)
-   - [9.1 Built-in Primitive Methods](#91-built-in-primitive-methods)
-   - [9.2 String Built-ins](#92-string-built-ins)
-   - [9.3 Collection Operations](#93-collection-operations)
+   - [9.1 Built-in Primitive Methods & Character Package (`std/chars`)](#91-built-in-primitive-methods--character-package-stdchars)
+   - [9.2 String Built-ins & Standard Strings Package (`std/strings`)](#92-string-built-ins--standard-strings-package-stdstrings)
+   - [9.3 Collection Operations & Sorting (`std/sort`)](#93-collection-operations--sorting-stdsort)
+   - [9.4 File System Operations (`std/fs`)](#94-file-system-operations-stdfs)
+   - [9.5 Operating System & Universe Functions (`std/os`)](#95-operating-system--universe-functions-stdos)
    - [9.6 The `Result[T]` and `Error` Standard Types](#96-the-resultt-and-error-standard-types)
-   - [9.5 Universe Built-in Functions](#95-universe-built-in-functions)
+   - [9.7 Testing System & Standard Testing Package (`std/test`)](#97-testing-system--standard-testing-package-stdtest)
 10. [Unsafe Operations & Foreign ABI Interoperability](#10-unsafe-operations--foreign-abi-interoperability)
     - [10.1 The `unsafe` Block and Prefix Expression](#101-the-unsafe-block-and-prefix-expression)
     - [10.2 Raw Pointer Mechanics (`ptr[T]`)](#102-raw-pointer-mechanics-ptrt)
     - [10.3 Safe Sizing vs. Unsafe Memory Intrinsics](#103-safe-sizing-vs-unsafe-memory-intrinsics)
     - [10.4 Foreign Function Interface (`extern`)](#104-foreign-function-interface-extern)
 11. [Formal Grammar Specification (EBNF)](#11-formal-grammar-specification-ebnf)
+12. [Package Manifest, Lockfile, & Decentralized Dependency Protocol](#12-package-manifest-lockfile--decentralized-dependency-protocol)
+    - [12.1 Repository Layout & Manifest Optionality](#121-repository-layout--manifest-optionality)
+    - [12.2 Manifest Format & Schema (`lowlight.toml`)](#122-manifest-format--schema-lowlighttoml)
+    - [12.3 Deterministic Lockfile (`lowlight.lock`)](#123-deterministic-lockfile-lowlightlock)
+    - [12.4 Decentralized Static Package Index Protocol](#124-decentralized-static-package-index-protocol)
+    - [12.5 Dependency Resolution (MVS), Local Canonical Storage, & Precedence](#125-dependency-resolution-mvs-local-canonical-storage--precedence)
+    - [12.6 Manifest Tooling, Package CLI, & Two-Phase Compilation](#126-manifest-tooling-package-cli--two-phase-compilation)
 
 ---
 
@@ -698,13 +707,28 @@ let r = arena.alloc(User[id: 1, name: "Alice"])
 
 ---
 
-## 4. Program Structure, Declarations, & Modules
+## 4. Program Structure, Packages, & Visibility
 
-### 4.1 Compilation Units & File Resolution
+### 4.1 Packages, Compilation Units, & Target File Selection
 
-A Lowlight program consists of one or more source files with the `.ll` extension. File paths in `import` statements are resolved relative to the directory of the importing file or against the standard library root.
+Lowlight organizes programs into **directory-level packages** made of source files with the `.ll` extension:
 
-### 4.2 Order-Independent Top-Level Declarations
+- **Directory-as-Package Cohesion:** Every physical directory containing active `.ll` source files constitutes a single **package**. All active `.ll` files in that directory share one package namespace (`PackageID`): top-level types, constants, functions, and methods declared in one file are directly visible to every sibling file in the same directory without `import` statements, and intra-package references may form arbitrary mutual recursion across sibling files.
+- **Standalone Single-File Invocation:** When compiling an explicit standalone `.ll` file outside any `lowlight.toml` manifest directory (e.g., `lowlight run hello.ll` or an individual script in a shared scripts directory), that file compiles as an isolated single-file `main` package rather than sweeping in unrelated neighboring scripts. Explicit directory imports (`import "./helper"`) and directory invocations (`lowlight build .`) always load the full target directory as a package.
+- **No `package` File Header:** Source files do not write a `package <name>` declaration at the top of the file; package identity is determined by directory location and manifest metadata (§4.3).
+
+#### Test & Platform-Conditional File Selection
+Within any package directory, source file inclusion is governed by deterministic filename suffixes:
+
+1. **Test Files (`*_test.ll`):** Files ending in `_test.ll` belong to the enclosing package for white-box unit testing, are compiled **only** during `lowlight test`, and are excluded from `build`, `run`, `check` (non-test), `emit-*`, and downstream imports (§9.7).
+2. **OS & Architecture Suffixes:** Non-test files matching `<stem>_<os>.ll`, `<stem>_<arch>.ll`, `<stem>_<os>_<arch>.ll`, or `<stem>_<osgroup>.ll` (where `<os>` is e.g. `linux`, `darwin`, `windows`, `freebsd`; `<osgroup>` includes `unix` matching POSIX targets such as `linux`, `darwin`, and BSDs; and `<arch>` is e.g. `amd64`, `arm64`, `riscv64`, `x86`) are included in compilation if and only if every tag in the suffix matches the active target triple (`--target` or host default). Un-suffixed `.ll` files apply unconditionally to all targets.
+   - Example: a `fs` package may place shared declarations in `fs.ll`, POSIX implementation details in `fs_unix.ll`, and Win32 implementation details in `fs_windows.ll`.
+   - Future `@cfg(...)` attributes and `comptime` conditionals complement file suffixes for fine-grained intra-file target selection.
+
+#### Two-Phase Package Compilation Model
+Lowlight permits a conforming toolchain to compile concrete (non-generic) code per package into cached `.o` / LLVM IR bitcode units keyed by canonical `PackageID`, target triple, build flags, and transitive input hashes, while lowering monomorphized generic instantiations and global structural-interface dispatch tables in a shared specialization/root link unit (§12.6).
+
+### 4.2 Order-Independent Declarations & Global Method Coherence
 
 Source files contain top-level declarations:
 - Constant and function bindings: `bind NAME = expr`
@@ -715,7 +739,7 @@ Source files contain top-level declarations:
 - Interface declarations: `define Name interface [ ... ]`
 - Foreign FFI declarations: `extern ...`
 
-Top-level declarations are **order-independent**. A constant, type, or function may reference declarations appearing later in the source text or in imported modules.
+Top-level declarations are **order-independent** across all files belonging to the same package and across imported packages. Declaring two top-level types, constants, or functions with the same identifier anywhere within the same package directory is a compile error.
 
 #### 4.2.1 Method & Associated Function Declarations
 Methods are declared at the top level by binding a function to a type name using dot notation (`bind TypeName.method = ...`):
@@ -747,39 +771,66 @@ bind User.new = (id: int, name: string) User: {
   - `(&self)`: Exclusive mutable borrow. The method can modify the receiver's fields. The caller's receiver is automatically borrowed by reference (`&`).
   - `(own self)`: Ownership consuming. Consumes the receiver instance, invalidating the caller's variable upon call.
 - **Associated Functions:** Functions declared on a type without a `self` receiver (such as `bind Point.origin = () Point: ...`) act as namespaced functions called as `Point.origin()`.
-- **Target Types:** Methods may be attached to structs, enums, distinct types, and primitive types (e.g., `int`, `float`, `string`).
-- **Visibility:** Inherent and attached methods are part of the type's inherent API and are automatically visible wherever the type itself is in scope, regardless of whether the defining module was imported openly or with an alias.
+- **Target Types & Permissive Coherence (No Strict Orphan Ban):** Methods may be attached to structs, enums, distinct types, interfaces, and primitive types (`int`, `float`, `string`, etc.), either within the type's defining package or externally as extension methods, subject to three coherence invariants:
+  1. **No Duplicate Method Collisions:** Across all reachable packages in a compiled program, no two declarations may bind the same method name onto the same underlying concrete or generic type. Any collision fails compilation with a diagnostic naming both binding sites.
+  2. **Encapsulation Preservation:** An external extension method remains subject to package-private visibility (§4.4) and cannot read/write unexported `_` fields, instantiate unexported `_` enum variants, or call unexported `_` helpers of a foreign type.
+  3. **Sealed Interface Preservation:** External packages remain prohibited from satisfying unexported `_` methods of sealed interfaces (§4.4.6).
+- **Method Visibility:** Inherent and attached methods are part of the type's API and are automatically callable via dot notation (`val.method(...)`) wherever `val`'s type is in scope (excluding `_`-prefixed private methods outside their defining package).
 
 #### Constant Initialization & Cycle Detection
-Top-level `bind` constants are evaluated at compile time. The compiler performs a topological sort on global constants. If a circular dependency is detected (e.g., constant $A$ depends on $B$, which depends on $A$), compilation fails with a cyclic dependency error. Mutable variables (`let`) are strictly forbidden at the top level.
+Top-level `bind` constants are evaluated at compile time. The compiler performs a topological sort on global constants across the package graph. If a circular dependency is detected (e.g., constant $A$ depends on $B$, which depends on $A$), compilation fails with a cyclic dependency error. Mutable variables (`let`) are strictly forbidden at the top level.
 
-### 4.3 Modules & Imports
+### 4.3 Package Paths & Qualified Imports
 
-Code is organized across modules using the `import` statement:
+External and cross-package dependencies are brought into scope at the file level using extensionless `import` statements targeting **package directories** rather than individual `.ll` files:
 
 ```lowlight
-import "std/fs.ll"
-import "std/math.ll" as math
-import "./models/user.ll"
+import "std/fs"
+import "std/math" as m
+import "compiler/lexer"
+import "jsonx"                  // Declared external dependency in lowlight.toml
+import "./helpers"              // Valid in standalone manifest-free scripts/dirs only
 ```
 
-- **Open Import (`import "path.ll"`):** Exposes all top-level types, constants, and functions of the imported module directly into the current scope.
-- **Aliased Import (`import "path.ll" as name`):** Namespaces the imported symbols under `name` (e.g., `math.sin(math.PI)`).
-- **Method Visibility:** Methods attached to structs, enums, and interfaces are automatically visible wherever the type itself is in scope, regardless of whether the module was imported openly or with an alias.
+#### Package Naming
+Every package has a default local qualifier identifier inferred without file headers:
+- For subpackages (`"std/fs"`, `"compiler/lexer"`, `"./models/user"`), the default qualifier is the normalized basename of the target directory (runs of non-identifier characters such as `-` become `_`, e.g., `my-pkg` binds `my_pkg`).
+- For dependency roots (`"jsonx"`) and manifest roots (`"<proj>"`), the qualifier comes from the dependency key or `[package].name` in `lowlight.toml` (§12.2).
+
+#### Strictly Qualified Imports (No Open Imports)
+- **`import "pkg"`:** Imports all exported declarations from the package directory and binds them strictly under the inferred qualifier (`fs.read_file(...)`, `lexer.Scanner.new(...)`).
+- **`import "pkg" as alias`:** Overrides the default qualifier with `alias` (e.g., `m.sin(m.PI)`).
+- **Qualifier Collisions:** If a single source file imports two packages sharing the same default qualifier (e.g., `import "a/utils"` and `import "b/utils"`), at least one must provide an explicit `as <alias>`; otherwise compilation fails with a name-collision error.
+- **No Unqualified Non-Prelude Imports:** Non-prelude packages never inject top-level types, constants, or functions directly into the importing file's bare scope; only the implicit `std/core` prelude (§4.7) is available unqualified.
+- **File-Scoped Import Bindings:** `import` declarations are scoped to the `.ll` file in which they appear, keeping dependencies per source file explicit even though non-import declarations are shared across the enclosing package directory.
+
+#### Import Path Addressing & Legacy Migration
+- **Extensionless Package Specifiers:** Import paths omit `.ll` suffixes and target a package directory. Passing a `.ll` file suffix (e.g., `import "std/fs.ll"`) is a compile-time error with a migration hint directing callers to the extensionless package path (`import "std/fs"`) and qualified symbol access (`fs.<symbol>`).
+- **Inside a `lowlight.toml` Project or Workspace:** Non-relative package paths resolve deterministically against:
+  1. Standard library packages (`"std/<pkg>"` or `"std/<group>/<pkg>"`);
+  2. Current project subpackages (`"<proj>/<subpkg>"`, matching filesystem path `./<subpkg>/` 1:1);
+  3. Declared `[dependencies]` (and `[dev-dependencies]` during tests) in `lowlight.toml` (`"<dep>"`, `"<dep>/<subpkg>"`);
+  4. Sibling `[workspace]` member packages.
+  Relative `./` and `../` import paths are prohibited inside manifest-managed projects so every package has a single canonical import path.
+- **Standalone Manifest-Free Scripts:** When no `lowlight.toml` applies, imports resolve against `"std/<pkg>"` and directory-relative `"./..."` / `"../..."` subpackages.
+
+#### Inter-Package DAG vs. Intra-Package Recursion
+- **No Inter-Package Import Cycles:** Package dependency edges must form a strict Directed Acyclic Graph (DAG). Circular package imports (`pkgA` -> `pkgB` -> `pkgA`) are rejected at compile time with the full cycle chain.
+- **Intra-Package Cross-File Freedom:** Sibling `.ll` files inside the same directory belong to one compilation unit and freely reference each other's types, constants, functions, and methods in any order without creating cycles.
 
 ### 4.4 Encapsulation & Visibility
 
-Lowlight implements Go-style encapsulation with lexical scoping rules based on a leading underscore (`_`) naming convention and directory-as-package boundaries.
+Lowlight enforces Go-style encapsulation solely through a leading underscore (`_`) naming convention and directory-as-package boundaries. There are no explicit visibility keywords (`pub`, `private`, `export`) and no reserved subpackage-privacy directory names (such as `internal/`).
 
 #### 4.4.1 Exported vs. Unexported Identifiers
-- **Exported Identifiers:** Any top-level symbol, struct field, enum variant, or method whose identifier does **not** begin with an underscore `_` (e.g., `Point`, `x`, `y`, `new`, `distance`) is exported and accessible by external packages.
-- **Unexported Identifiers:** Any top-level symbol, struct field, enum variant, or method whose identifier begins with an underscore `_` (e.g., `_secret`, `_id`, `_tag?`, `_validate`, `_InternalState`) is unexported and private to the defining package.
+- **Exported Identifiers:** Any top-level symbol, struct field, enum variant, or method whose identifier does **not** begin with an underscore `_` (e.g., `Point`, `x`, `y`, `new`, `distance`) is exported and accessible by all external packages.
+- **Unexported Identifiers:** Any top-level symbol, struct field, enum variant, or method whose identifier begins with an underscore `_` (e.g., `_secret`, `_id`, `_tag?`, `_validate`, `_InternalState`) is unexported and strictly private to the defining package directory.
 
 #### 4.4.2 Package Boundary & Multi-File Package Sharing
-- **Directory as Package:** The package boundary in Lowlight is the physical source directory containing the `.ll` files.
-- **Multi-File Package Sharing:** All source files residing in the same directory belong to the same package. Declarations and members within the same package can freely access each other's unexported types, functions, constants, struct fields, methods, and enum variants without restriction.
-- **Inter-Package Isolation:** Files residing in different directories constitute distinct packages. An external package importing a module cannot access any unexported items from that module or its package.
-- **Standard Library Packages:** Files residing directly in the standard library root `std/` are individually isolated packages (e.g., `std/fs.ll` and `std/net.ll` are distinct packages), while the `std/core/` package is implicitly loaded into every compilation unit as the standard prelude. Multi-file packages in subdirectories (such as `std/core/`) share package-private declarations across all `.ll` files in that directory.
+- **Directory as Package:** The sole package privacy boundary in Lowlight is the physical directory containing the `.ll` files.
+- **Multi-File Package Sharing:** All source files residing in the same directory (including `*_test.ll` during `lowlight test`) belong to the same package and can freely access each other's unexported types, functions, constants, struct fields, methods, and enum variants without restriction.
+- **Inter-Package Isolation:** Files residing in different directories constitute distinct packages. An external package importing a package cannot access any unexported (`_`-prefixed) items from that package, even in nested child directories (`foo/sub` cannot see `_`-prefixed items of `foo`, and `foo` cannot see `_`-prefixed items of `foo/sub`).
+- **Standard Library Packages:** Every standard library module resides in its own directory package (`std/fs/`, `std/net/`, `std/math/`, `std/test/`, `std/core/`, etc.) with uniform directory-package isolation. `std/core/` is implicitly imported into every compilation unit as the standard prelude (§4.7).
 
 #### 4.4.3 Struct Field Access & Construction Invariants
 - **Member Access:** Outside the defining package, reading (`val._field`) or writing (`val._field = x`) an unexported struct field is a compile error.
@@ -805,7 +856,7 @@ bind Counter.new = (name: string, token: int) Counter: {
 
 #### 4.4.4 Method Encapsulation
 - Methods bound to types using a leading underscore (e.g., `bind Counter._bump = (&self): { ... }`) are package-private.
-- Calling an unexported method from outside its defining package—whether as an instance method (`c._bump()`), a namespaced call (`Counter._bump(&c)`), or a module-qualified call (`pkg.Counter._bump(&c)`)—is rejected at compile time.
+- Calling an unexported method from outside its defining package—whether as an instance method (`c._bump()`), a namespaced call (`Counter._bump(&c)`), or a package-qualified call (`pkg.Counter._bump(&c)`)—is rejected at compile time.
 
 #### 4.4.5 Enum Variant Encapsulation
 - Enum variants declared with a leading underscore (e.g., `define Token enum [ Ident(string), _Eof ]`) are private to the declaring package.
@@ -817,7 +868,7 @@ bind Counter.new = (name: string, token: int) Counter: {
 - External packages cannot satisfy sealed interfaces, guaranteeing closed type hierarchies and preventing third-party extension when exhaustive dispatch or internal safety invariants are required.
 
 ```lowlight
-// internal/ast.ll
+// astpkg/ast.ll
 define AstNode interface [
     span: (self) Span,
     _seal: (self) int, // Unexported method seals this interface
@@ -827,18 +878,14 @@ define AstNode interface [
 #### 4.4.7 Tooling & Language Server Protocol (LSP)
 - The Lowlight Language Server (`internal/lsp`) automatically filters unexported symbols, types, struct fields, methods, and enum variants during autocompletion and hover inspections when requested from outside the defining package, ensuring IDE suggestions accurately reflect legal visibility.
 
-### 4.5 Program Entry Point (`main`)
+### 4.5 Program Entry Points (`main`) & Library Packages
 
-The execution entry point of a Lowlight program is the `main` function defined at the top level of the primary module:
+A package is either an **executable (binary) package** or an importable **library package**:
 
-```lowlight
-bind main = (): {
-    println("Hello, Lowlight!")
-}
-```
-
-- **Parameters:** `main` must accept exactly zero parameters. Command-line arguments are accessed via the universe function `args() [string]`.
-- **Return Value:** `main` must return `void` (either explicitly via `() void:` or inferred via `():` when yielding no value, exiting with process status code `0`) or `int` (used as the process exit code). Note that `void` is only permitted in return-type position and cannot be used as a value, variable, field, or container type.
+- **Executable Packages:** Any package defining a top-level `main` function (`bind main = () [void | int]: ...`) is a binary target (typically the project root package for single-binary apps or `./cmd/<app>/` directories for multi-binary projects).
+  - **Parameters:** `main` must accept exactly zero parameters. Command-line arguments are accessed via the universe function `args() [string]`.
+  - **Return Value:** `main` must return `void` (either explicitly via `() void:` or inferred via `():` when yielding no value, exiting with process status code `0`) or `int` (used as the process exit code). Note that `void` is only permitted in return-type position and cannot be used as a value, variable, field, or container type.
+- **Non-Importable Binaries:** Importing a package that defines `main` from another package is a compile error; shared code must reside in library packages that omit `main`.
 
 ### 4.6 Compiler Attributes
 
@@ -871,9 +918,9 @@ Attributes apply compiler metadata and layout directives to declarations using t
     - `@lang("containable")`: Binds the `Containable[T]` interface used to typecheck and lower `when in <expr>` match patterns.
     - `@lang("panic")` and `@lang("assert")`: Bind the universe error and assertion functions.
 
-### 4.7 Implicit Standard Prelude
+### 4.7 Implicit Standard Prelude (`std/core`)
 
-Every Lowlight compilation unit automatically imports the core standard prelude package (`std/core/core.ll`). The prelude defines essential language interfaces and universe functions:
+Every Lowlight compilation unit automatically imports the core standard prelude package (`std/core/`) without requiring an `import` statement or package prefix. The prelude defines essential language interfaces and universe functions:
 
 ```lowlight
 @lang("printable")
@@ -892,7 +939,7 @@ define Drop interface [
 ]
 ```
 
-The prelude also supplies primitive `.to_string()` implementations for all basic types, the canonical `Result[T]` and `Error` types, and universe math functions (`min`, `max`, `abs`, `clamp`).
+The prelude also supplies primitive `.to_string()` implementations for all basic types, the canonical `Result[T]` and `Error` types, core collections (`List`, `Array`, `Set`, `Map`, `Range`), and universe math/print functions (`min`, `max`, `abs`, `clamp`, `print`, `println`, `panic`, `assert`, `args`).
 
 ---
 
@@ -1042,7 +1089,7 @@ The following table defines operator precedence from highest (binding tightest) 
 | **-2** | `<-` | Lexical unwind (return, break, continue) | Right-to-left |
 
 > [!NOTE]
-> There is no infix `as` operator for type casting. All type conversions are written explicitly using constructor-style syntax (e.g., `int(x)`, `u8(x)`, `float(x)`). The keyword `as` is reserved exclusively for import aliases (`import "path" as name`), foreign function aliases (`extern name as alias`), and optional pattern unwrapping in conditional bindings (`if (expr? as val)`).
+> There is no infix `as` operator for type casting. All type conversions are written explicitly using constructor-style syntax (e.g., `int(x)`, `u8(x)`, `float(x)`). The keyword `as` is reserved exclusively for import qualifier overrides (`import "pkg" as name`), foreign function aliases (`extern name as alias`), and optional pattern unwrapping in conditional bindings (`if (expr? as val)`).
 
 Subexpressions are strictly evaluated from left to right.
 
@@ -1507,7 +1554,7 @@ define Container[T] struct [
 
 Conforming Lowlight implementations provide a built-in standard runtime contract along with native standard library modules implemented directly in Lowlight.
 
-### 9.1 Built-in Primitive Methods & Character Module (`std/chars.ll`)
+### 9.1 Built-in Primitive Methods & Character Package (`std/chars`)
 
 All primitive types provide canonical conversion and formatting methods:
 - `int.to_string() string`
@@ -1515,7 +1562,7 @@ All primitive types provide canonical conversion and formatting methods:
 - `bool.to_string() string`
 - `char.to_string() string`
 
-The `std/chars.ll` module provides comprehensive character classification, ASCII case conversion, radix conversions, and UTF-8 encoding measurements:
+The `std/chars` package provides comprehensive character classification, ASCII case conversion, radix conversions, and UTF-8 encoding measurements:
 
 #### Character Inherent Methods
 - `ch.is_digit() bool`: Returns `true` if `ch` is an ASCII decimal digit (`'0'..'9'`).
@@ -1536,9 +1583,9 @@ The `std/chars.ll` module provides comprehensive character classification, ASCII
 - `char.from_digit(digit: int, radix: int) ?char`: Converts numeric value into character digit.
 - Standalone free functions: `chars.is_digit(ch)`, `chars.is_alpha(ch)`, `chars.is_alnum(ch)`, `chars.is_whitespace(ch)`, `chars.to_ascii_upper(ch)`, `chars.to_ascii_lower(ch)`, `chars.to_digit(ch, radix)`, `chars.from_digit(digit, radix)`.
 
-### 9.2 String Built-ins & Standard Strings Module (`std/strings.ll`)
+### 9.2 String Built-ins & Standard Strings Package (`std/strings`)
 
-The `string` type represents an immutable UTF-8 text sequence. The standard library module `std/strings.ll` provides a complete suite of string methods:
+The `string` type represents an immutable UTF-8 text sequence. The standard library package `std/strings` provides a complete suite of string methods:
 
 #### Inherent String Operations
 - `s.len() int`: Returns Unicode scalar count.
@@ -1583,7 +1630,7 @@ The `string` type represents an immutable UTF-8 text sequence. The standard libr
 - `s.bytes_list() [u8]`: Returns an owned list of raw `u8` bytes.
 - `strings.join(parts: [string], sep: string) string`: Joins list of strings with `sep`.
 
-### 9.3 Collection Operations & Sorting (`std/sort.ll`)
+### 9.3 Collection Operations & Sorting (`std/sort`)
 
 #### Dynamic Lists (`[T]` / `List[T]`)
 - `lst.len() int`: Element count.
@@ -1625,8 +1672,8 @@ The `string` type represents an immutable UTF-8 text sequence. The standard libr
 - `m.values() [V]`
 - `m.clear()`
 
-#### The `Sortable` Interface & Collection Sorting (`std/sort.ll`)
-The `std/sort.ll` module provides high-performance in-place sorting based on Quicksort with median-of-three Lomuto partitioning and insertion sort optimization for sub-partitions $\le 16$ elements:
+#### The `Sortable` Interface & Collection Sorting (`std/sort`)
+The `std/sort` package provides high-performance in-place sorting based on Quicksort with median-of-three Lomuto partitioning and insertion sort optimization for sub-partitions $\le 16$ elements:
 
 ```lowlight
 define Sortable interface [
@@ -1643,9 +1690,9 @@ define Sortable interface [
 - `m.to_sorted_keys() [K]`: Extracts map keys into a newly allocated sorted list.
 - Standalone functions: `sort.sort(&lst)`, `sort.sort_by(&lst, cmp_fn)`, `sort.is_sorted(lst)`, `sort.binary_search(lst, target)`.
 
-### 9.4 File System Operations (`std/fs.ll`)
+### 9.4 File System Operations (`std/fs`)
 
-Lowlight provides robust native file system and file stream operations through `std/fs.ll`:
+Lowlight provides robust native file system and file stream operations through `std/fs`:
 
 #### The `File` Resource Struct
 ```lowlight
@@ -1686,7 +1733,7 @@ define File struct [
 - `fs.rename_file(old_path: string, new_path: string) bool`
 - `fs.copy_file(src_path: string, dst_path: string) Result[int]`
 
-### 9.5 Operating System & Universe Functions (`std/os.ll`)
+### 9.5 Operating System & Universe Functions (`std/os`)
 
 The following functions are available globally in all scopes:
 - `print(val: Printable)`: Writes string representation to standard output without newline.
@@ -1695,7 +1742,7 @@ The following functions are available globally in all scopes:
 - `eprintln(val: Printable)`: Writes string representation to standard error with trailing newline.
 - `panic(msg: string) never`: Terminates process execution immediately with an error message.
 - `assert(cond: bool [, msg: string])`: Evaluates `cond`; panics if `cond` is `false`.
-- `args() [string]`: Returns command-line invocation arguments as an owned `[string]` list. Implemented in pure native Lowlight in `std/os.ll` by iterating runtime argument counts and accessing argument vector elements.
+- `args() [string]`: Returns command-line invocation arguments as an owned `[string]` list. Implemented in pure native Lowlight in `std/os` by iterating runtime argument counts and accessing argument vector elements.
 
 ### 9.6 The `Result[T]` and `Error` Standard Types
 
@@ -1752,9 +1799,15 @@ define Result[T] enum [
 
 Because `Result` is marked `@must_use`, ignoring a returned `Result` without inspection generates a compiler warning/check.
 
-### 9.7 Testing System & Standard Testing Library (`std/test.ll`)
+### 9.7 Testing System & Standard Testing Package (`std/test`)
 
-Lowlight provides an integrated compile-time testing framework and standard assertion library:
+Lowlight provides an integrated compile-time testing framework and standard assertion package (`import "std/test"`, qualified as `test.*`):
+
+#### Package Test Organization & Source Scope
+Tests may be structured in three complementary ways:
+1. **Inline `@test` Functions:** `@test` and `@test_only` declarations inside regular package `.ll` files.
+2. **Dedicated White-Box Test Files (`*_test.ll`):** Sibling files in a package directory named `*_test.ll`. These files belong to the same package boundary (granting full access to unexported `_` declarations) and may import `[dev-dependencies]` (§12.2), while remaining completely excluded from non-test `build`, `run`, `check`, `emit-*`, and downstream imports.
+3. **External Black-Box Integration Packages (`tests/`):** Packages under `tests/` import public targets purely via their exported APIs and `[dev-dependencies]`.
 
 #### Test Annotations (`@test`, `@test_only`, `@track_caller`)
 - `@test` / `@test("description")`: Marks a top-level function as a test case. The function takes 0 parameters and returns `void`. The function identifier can have any name—the `@test` attribute marks it as a test.
@@ -1768,33 +1821,34 @@ Lowlight provides an integrated compile-time testing framework and standard asse
 - `caller_col() int`: Returns the caller's 1-based source column.
 
 #### Compile-Time Isolation & Build Stripping
-- **Call-Graph Restriction**: Any function or declaration not marked `@test` or `@test_only` (production code) is strictly prohibited from calling or referencing any symbol marked `@test` or `@test_only`. Attempting to access test symbols from production code produces a static compile-time error.
-- **Release & Non-Test Build Stripping**: In standard application builds (`lowlight build` or `--release`), all test functions and `@test_only` items are omitted during MIR lowering and completely excluded from generated C code and binaries.
+- **Call-Graph Restriction**: Any function or declaration not marked `@test` or `@test_only` in non-test package files is strictly prohibited from calling or referencing any symbol marked `@test` or `@test_only` or any `[dev-dependencies]` package. Attempting to access test symbols or dev dependencies from production code produces a static compile-time error.
+- **Release & Non-Test Build Stripping**: In standard application builds (`lowlight build` or `--release`), all `*_test.ll` files are excluded and all inline `@test` / `@test_only` items are omitted during lowering and excluded from generated code and binaries.
 
 #### Dedicated Test Entry Point & Runner (`lowlight test`)
-Running `lowlight test <file.ll>` activates test compilation mode:
-- If `bind test_main = ()` is explicitly defined, it serves as the test entry point.
-- Otherwise, the compiler automatically synthesizes a test runner (supporting both the default LLVM IR backend and the C11 backend) that discovers and executes all `@test` functions across the entry module and imported modules.
+Running `lowlight test [<path...>]` compiles and tests at **package granularity** (one test binary per tested package rather than isolated per-file compilations):
+- Inside a `lowlight.toml` project or `[workspace]`, `lowlight test` with no arguments runs all packages in the project or workspace (including their `*_test.ll` files and integration packages under `tests/`).
+- If `bind test_main = ()` is explicitly defined in the tested package, it serves as the test entry point.
+- Otherwise, the compiler automatically synthesizes a single test runner per package (supporting both the default LLVM IR backend and the C11 backend) that discovers and executes all `@test` functions in that package and its included `*_test.ll` files.
 - **Per-Test Leak Checking**: The runner evaluates `ll_rt_live_allocs` before and after each test function. Any test that leaks heap memory fails with: `--- FAIL: <test> (leaked N heap allocation(s))`.
 - **Panic Recovery**: Test execution is guarded with C `setjmp`/`longjmp`. Failed assertions or panics report failure diagnostics and continue running remaining tests in the suite rather than terminating the test process prematurely.
 - **High-Resolution Timing**: Reports execution duration per test in microseconds.
 
-#### Standard Testing Assertions (`std/test.ll`)
-Importing `std/test.ll` provides comprehensive test assertion utilities with automatic caller location tracking (`@track_caller`), column-aligned value formatting, and character-level or multiline visual diff markers:
-- `assert_eq[T: Equatable + Printable](actual: T, expected: T)`
-- `assert_eq_msg[T: Equatable + Printable](actual: T, expected: T, msg: string)`
-- `assert_ne[T: Equatable + Printable](actual: T, unexpected: T)`
-- `assert_ne_msg[T: Equatable + Printable](actual: T, unexpected: T, msg: string)`
-- `assert_true(cond: bool)` / `assert_true_msg(cond: bool, msg: string)`
-- `assert_false(cond: bool)` / `assert_false_msg(cond: bool, msg: string)`
-- `assert_gt[T: Comparable + Printable](actual: T, expected: T)`
-- `assert_lt[T: Comparable + Printable](actual: T, expected: T)`
-- `assert_ge[T: Comparable + Printable](actual: T, expected: T)`
-- `assert_le[T: Comparable + Printable](actual: T, expected: T)`
-- `assert_is_ok[T](res: &Result[T])` / `assert_is_ok_msg(...)`
-- `assert_is_err[T](res: &Result[T])` / `assert_is_err_msg(...)`
-- `assert_some[T](val?: ?T)`
-- `assert_none[T](val?: ?T)`
+#### Standard Testing Assertions (`std/test`)
+Importing `"std/test"` binds the `test` qualifier providing comprehensive assertion utilities with automatic caller location tracking (`@track_caller`), column-aligned value formatting, and character-level or multiline visual diff markers:
+- `test.assert_eq[T: Equatable + Printable](actual: T, expected: T)`
+- `test.assert_eq_msg[T: Equatable + Printable](actual: T, expected: T, msg: string)`
+- `test.assert_ne[T: Equatable + Printable](actual: T, unexpected: T)`
+- `test.assert_ne_msg[T: Equatable + Printable](actual: T, unexpected: T, msg: string)`
+- `test.assert_true(cond: bool)` / `test.assert_true_msg(cond: bool, msg: string)`
+- `test.assert_false(cond: bool)` / `test.assert_false_msg(cond: bool, msg: string)`
+- `test.assert_gt[T: Comparable + Printable](actual: T, expected: T)`
+- `test.assert_lt[T: Comparable + Printable](actual: T, expected: T)`
+- `test.assert_ge[T: Comparable + Printable](actual: T, expected: T)`
+- `test.assert_le[T: Comparable + Printable](actual: T, expected: T)`
+- `test.assert_is_ok[T](res: &Result[T])` / `test.assert_is_ok_msg(...)`
+- `test.assert_is_err[T](res: &Result[T])` / `test.assert_is_err_msg(...)`
+- `test.assert_some[T](val?: ?T)`
+- `test.assert_none[T](val?: ?T)`
 
 Failed assertions display:
 ```
@@ -1900,6 +1954,7 @@ AttributeList       = { "@" Ident [ "(" [ AttrArgList ] ")" ] } ;
 AttrArgList         = AttrArg { "," AttrArg } [ "," ] ;
 AttrArg             = StringLit | Ident ;
 
+(* Package path StringLit targets a directory package without `.ll` extension *)
 ImportDecl          = "import" StringLit [ "as" Ident ] ;
 
 BindDecl            = "bind" Ident [ ":" Type ] "=" Expr
@@ -2070,6 +2125,209 @@ Param               = [ "own" | "&" ] ( Ident | OptIdent ) ":" Type ;
 ArgList             = Arg { "," Arg } [ "," ] ;
 Arg                 = [ "own" | "&" ] Expr ;
 ```
+
+---
+
+## 12. Package Manifest, Lockfile, & Decentralized Dependency Protocol
+
+This section normatively specifies Lowlight's project layout, `lowlight.toml` manifest schema, deterministic `lowlight.lock` lockfile, decentralized static package index protocol, dependency resolution, and two-phase package compilation model.
+
+### 12.1 Repository Layout & Manifest Optionality
+
+- **Zero-Config Standalone Scripts:** `lowlight.toml` is **optional**. Standalone `.ll` scripts and small manifest-free examples compile and run directly via `lowlight run script.ll` or `lowlight build dir/` with zero configuration files.
+- **Root Discovery:** When present, `lowlight.toml` marks a package root or `[workspace]` root. Toolchain components (`sema`, `driver`, `docgen`, `fmt`, `lsp`) walk upward from the target path to locate the nearest `lowlight.toml` (linking to an enclosing `[workspace]` root if the package is listed as a member). Toolchain standard-library lookup (`LOWLIGHT_ROOT` / `StdDir`) is kept strictly separate from user project root discovery.
+- **Flat Go-Style Project Layout:** Lowlight projects map directory paths **1:1** to import paths without an intervening `src/` wrapper directory:
+  ```text
+  myapp/
+  ├── lowlight.toml        # Root manifest (package "myapp" and/or [workspace])
+  ├── lowlight.lock        # Deterministic resolved dependency lockfile
+  ├── main.ll              # Root binary (or root library `.ll` files)
+  ├── myapp_test.ll        # White-box unit tests for root package
+  ├── lexer/               # Imported as `import "myapp/lexer"` -> `lexer.*`
+  │   ├── scanner.ll
+  │   └── scanner_test.ll
+  ├── cmd/
+  │   ├── api/main.ll      # Executable target (`lowlight build ./cmd/api`)
+  │   └── cli/main.ll      # Executable target (`lowlight build ./cmd/cli`)
+  ├── tests/               # Black-box integration test packages
+  │   └── end_to_end/
+  │       └── api_test.ll
+  └── vendor/              # Optional vendored dependencies (`lowlight vendor`)
+  ```
+- **Ignored Tool Directories:** Hidden tool directories (`.git/`, `.lowlight/`), `editors/`, and `node_modules/` are never treated as Lowlight packages during discovery scans.
+
+### 12.2 Manifest Format & Schema (`lowlight.toml`)
+
+Manifests use standard UTF-8 **TOML** syntax parsed by a single shared zero-dependency parser across `lowlight.toml`, `lowlight.lock`, and decentralized static index files.
+
+```toml
+[package]
+name = "myapp"
+version = "0.2.0"
+edition = "2026"
+description = "Concurrent worker service"
+license = "MIT"
+
+[dependencies]
+local_utils = { path = "../local_utils" }
+jsonx = { url = "https://example.org/jsonx/v1.2.0.tar.gz", hash = "sha256:9a3f..." }
+http_ext = { index = "https://acme.dev/pkgs/http_ext.toml", version = "^0.3" }
+
+[dev-dependencies]
+benchkit = { url = "https://example.org/bench/v0.1.0.tar.gz", hash = "sha256:4c1d..." }
+
+[overrides]
+jsonx = { path = "../my_jsonx_fork" }
+
+[workspace]
+members = ["libs/shared", "cmd/api"]
+
+[build]
+backend = "llvm"
+# release = false
+# c_flags = ["-O2"]
+
+[format]
+indent_style = "tabs"
+tab_width = 4
+line_width = 100
+
+[target.linux]
+c_libs = ["ssl", "crypto"]
+
+[target.windows]
+c_libs = ["ws2_32"]
+```
+
+#### Table & Field Definitions
+
+1. **`[package]`** *(required for standalone/member packages; optional on virtual `[workspace]` root manifests)*:
+   - `name` (`string`, required): Canonical package name and root import prefix (`"name"`, `"name/subpkg"`). Must begin with an ASCII letter or `_` and contain only ASCII alphanumerics, `_`, or `-` (`-` normalizes to `_` when bound as a default qualifier in `import`).
+   - `version` (`string`, optional for local binaries, required for published packages; defaults to `"0.1.0"`): Semantic Version `MAJOR.MINOR.PATCH[-prerelease][+build]`.
+   - `edition` (`string`, optional, default `"2026"`): Language edition targeting specification compatibility.
+   - Optional metadata: `description` (`string`), `license` (`string`, SPDX identifier), `authors` (`[string]`), `repository` (`string`), `homepage` (`string`), `keywords` (`[string]`).
+   - `bin` (`string`, optional): Overrides the default output executable filename when building the root binary package.
+
+2. **`[dependencies]` and `[dev-dependencies]`**:
+   - Keys define the dependency's local import root (`"<dep>"`, `"<dep>/subpkg"`).
+   - **Canonical Format:** Tooling generates compact single-line inline tables (`foo = { ... }`), while conforming parsers accept standard TOML `[dependencies.<name>]` / `[dev-dependencies.<name>]` sub-tables identically.
+   - Each dependency entry must specify **exact source provenance** using one of three mutually exclusive shapes:
+     - **Local Path:** `{ path = "<rel_or_abs_dir>" }` — relative paths resolve from the directory containing that `lowlight.toml`.
+     - **Immutable Archive URL:** `{ url = "https://...", hash = "sha256:<64-hex>" }` — exact SHA-256 checksum required; supports `.tar.gz`, `.tgz`, and `.zip` archives.
+     - **Static Index + SemVer:** `{ index = "https://.../pkg.toml", version = "<constraint>" }` — resolves via a decentralized static TOML index (§12.4) supporting SemVer comparators (`^`, `~`, `=`, `<`, `<=`, `>`, `>=`, space/comma intersections, and `*`).
+   - **`[dev-dependencies]` Isolation:** Resolved and importable strictly inside `*_test.ll`, `@test`/`@test_only` items, and `tests/` integration packages; never linked into normal library/binary builds or propagated to downstream dependents.
+
+3. **`[overrides]`** *(root project or root workspace manifest only; ignored in external dependencies with a warning)*:
+   - Forces all direct and transitive references to dependency `<key>` across the build graph to resolve to a pinned `{ path = "..." }` fork or `{ url = "...", hash = "..." }` archive (used to test local patches or break incompatible diamond conflicts).
+
+4. **`[workspace]`**:
+   - `members = [...]` (`[string]`): Workspace package directory paths or trailing `*` globs (e.g., `"libs/*"`), each containing its own `lowlight.toml`.
+   - `exclude = [...]` (`[string]`, optional): Directories excluded from glob expansion.
+   - Workspace members share one root `lowlight.lock`, root `[overrides]`, and `./vendor/`. A member manifest may appear alongside `[workspace]` in the same root `lowlight.toml` or remain purely virtual (`[workspace]` without `[package]`).
+
+5. **`[build]`**:
+   - Optional project build defaults: `backend` (`"llvm"` | `"c11"`), `release` (`bool`), `target` (default target triple), `cc` (`string`), `c_flags` (`[string]`), `c_libs` (`[string]`). CLI flags always override `[build]`.
+
+6. **`[format]`**:
+   - Optional formatting defaults matching `.lowlightfmt` (`indent_style = "tabs" | "spaces"`, `tab_width`, `line_width`). Standalone `.lowlightfmt` files continue working in manifest-free directories and act as directory-scoped overrides when placed inside subdirectories.
+
+7. **`[target.<selector>]`**:
+   - Applies target-conditional configuration when matching the active `--target` triple (by OS e.g. `linux`, `darwin`, `windows`; OS group `unix`; arch e.g. `amd64`, `arm64`, `riscv64`; or quoted full triple `[target."aarch64-unknown-linux-gnu"]`).
+   - Supports nested `dependencies`, `dev-dependencies`, `c_libs`, and `c_flags`.
+
+### 12.3 Deterministic Lockfile (`lowlight.lock`)
+
+`lowlight.lock` sits at the project or workspace root, is generated/maintained by `lowlight` commands, and ensures bit-exact dependency resolution:
+
+```toml
+# Code generated by `lowlight`; DO NOT EDIT.
+lock_version = 1
+
+[[package]]
+name = "http_ext"
+version = "0.3.4"
+index = "https://acme.dev/pkgs/http_ext.toml"
+url = "https://acme.dev/tarballs/http_ext-0.3.4.tar.gz"
+hash = "sha256:71e2..."
+dependencies = ["jsonx"]
+
+[[package]]
+name = "jsonx"
+version = "1.2.0"
+url = "https://example.org/jsonx/v1.2.0.tar.gz"
+hash = "sha256:9a3f..."
+```
+
+- `lock_version` (`int`): Schema format version (`1`).
+- `[[package]]` entries are sorted deterministically by `(name, version, url)`:
+  - `name` (`string`): Canonical dependency package name.
+  - `version` (`string`): Exact resolved SemVer version (or `"0.0.0"` when unspecified by a raw `url` archive without a manifest version).
+  - `index` (`string`, optional): Source static index URL when resolved via `index`.
+  - `url` (`string`, optional): Remote tarball URL (for `url` and `index` entries).
+  - `hash` (`string`, optional): Lowercase `"sha256:<64-hex>"` archive digest (mandatory for all remote packages).
+  - `path` (`string`, optional): Root-relative local directory for locked `path` dependencies.
+  - `dependencies` (`[string]`, optional): Lexicographically sorted transitive dependency names.
+
+### 12.4 Decentralized Static Package Index Protocol
+
+Any static HTTP server or object store can host upgradeable Lowlight dependencies by serving a single TOML index file at `index = "https://.../pkg.toml"`:
+
+```toml
+[package]
+name = "http_ext"
+description = "HTTP router and middleware utilities"
+license = "MIT"
+
+[versions."0.3.3"]
+url = "https://acme.dev/tarballs/http_ext-0.3.3.tar.gz"
+hash = "sha256:aa10..."
+yanked = false
+
+[versions."0.3.4"]
+url = "https://acme.dev/tarballs/http_ext-0.3.4.tar.gz"
+hash = "sha256:71e2..."
+
+[versions."0.3.4".dependencies]
+jsonx = { index = "https://example.org/pkgs/jsonx.toml", version = "^1.2.0" }
+```
+
+- **Zero Server API Needed:** Clients fetch `<index>` over HTTPS using standard HTTP GET (with standard conditional caching headers such as `ETag`/`If-None-Match` permitted during explicit `lowlight update`).
+- **Pre-Fetch Graph Resolution:** Including `[versions."...".dependencies]` (and optional `[versions."...".target.<selector>.dependencies]`) inside the static index allows Minimal Version Selection to resolve the complete dependency graph before downloading any tarball.
+- **Yanked Versions:** Versions with `yanked = true` are skipped during new resolution (`add` / `update`), while existing matching `lowlight.lock` pins remain buildable for reproducibility.
+- **Integrity & Archive Safety:**
+  - Remote indexes and archives require HTTPS (loopback test endpoints excepted).
+  - Every fetched archive is verified against its `sha256` digest prior to extraction.
+  - Archive extractors must reject `..` path traversal, absolute member paths, and symlinks pointing outside the extracted package root; a uniform single top-level directory wrapper in release archives is automatically unwrapped cleanly.
+
+### 12.5 Dependency Resolution (MVS), Local Canonical Storage, & Precedence
+
+- **Unified Graph / Single Version per Dependency (MVS):**
+  - Lowlight permits at most **one** resolved artifact per dependency identity in a build graph, preventing split nominal types across diamond callers.
+  - Overlapping SemVer requirements from multiple dependents resolve via **Minimal Version Selection (MVS)**: pick the smallest non-yanked version satisfying all constraints.
+  - Incompatible constraints (e.g., conflicting major versions or mismatched raw `{ url, hash }` entries for the same package name/endpoint) fail resolution with a clear conflict diagnostic pointing to root `[overrides]`.
+- **Canonical Local Copy Policy:**
+  - Once a dependency is fetched into the local cache (`$LOWLIGHT_CACHE` or `~/.lowlight/cache/sha256/<hex>/`) or vendored into `./vendor/<name>/`, that local copy is the **canonical source of truth** until an explicit `lowlight update` or manifest change.
+- **Resolution Precedence:** For any imported external dependency `<dep>`, the compiler resolves package files in strict order:
+  1. Root `[overrides]` (`path` or pinned `url`+`hash`);
+  2. Matching `[workspace]` member package;
+  3. `./vendor/<dep>/` at the project or workspace root (when `./vendor/` is present, all remote fetches are bypassed and `./vendor/` is authoritative);
+  4. Matching entry in `lowlight.lock` materialized inside `$LOWLIGHT_CACHE` / `~/.lowlight/cache`.
+- **Zero Implicit Network Builds:** Ordinary compiler and IDE invocations (`check`, `build`, `run`, `test`, `doc`, `emit-*`, `lsp`) do **not** make hidden network calls behind the user's back. If a required locked dependency is missing from both `./vendor/` and the local cache (or if `--locked` detects `lowlight.toml` / `lowlight.lock` drift), compilation fails cleanly instructing the user to run `lowlight fetch` or `lowlight update`. `--offline` forbids all network operations across every subcommand.
+
+### 12.6 Manifest Tooling, Package CLI, & Two-Phase Compilation
+
+- **Surgical Manifest Mutation:** `lowlight add`, `lowlight remove`, and `lowlight update` apply comment-preserving AST/line-aware edits to `lowlight.toml`, modifying only the targeted entry lines while preserving surrounding comments, ordering, and spacing. `lowlight fmt` formats `.ll` code (using `.lowlightfmt` / `[format]`) and optionally checks or sorts `[dependencies]` when explicitly run on manifests.
+- **Package Management CLI Commands (`cmd/lowlight`):**
+  - `lowlight init` / `lowlight new <name>`: initializes `lowlight.toml`, starter package `.ll` file, and `@test` template.
+  - `lowlight add <name> [flags]` / `lowlight remove <name>`: adds/removes `path`, `url`+`hash`, or `index`+`version` entries (computing `sha256` during add when fetching a `url`).
+  - `lowlight fetch`: verifies/populates `lowlight.lock` and unpacks missing dependencies into the local cache without bumping already-locked versions.
+  - `lowlight update [<pkg>...]`: resolves newer matching index versions under MVS, refreshes `lowlight.lock`, and downloads updated canonical copies.
+  - `lowlight vendor`: materializes the resolved dependency tree into `./vendor/` for hermetic offline check-in.
+  - `lowlight tree`: prints the resolved dependency DAG.
+  - **Zero-Arg Project Defaults:** Inside a `lowlight.toml` project or workspace, `build`, `run`, `check`, `test`, `doc`, `emit-llvm`, and `emit-c` default to the current directory package or workspace root (`-p <pkg>`, `--workspace`, `--locked`, `--offline`).
+- **Two-Phase Incremental Compilation & Caching (`internal/driver`):**
+  1. **Phase 1 — Separate Concrete Package Units:** Non-generic functions, globals, and concrete types in each library package compile per-package into cached `.o` object or LLVM IR bitcode units keyed by canonical `(PackageID, target_triple, release_mode, c_flags, transitive_hashes)`. Unchanged dependencies reuse cached compilation units cleanly.
+  2. **Phase 2 — Shared Specialization & Link Unit:** Monomorphized generic instantiations across packages, structural interface virtual method tables, and program entry / test-runner code emit into a shared specialization/root unit linked together with all cached package units.
 
 ---
 *End of Lowlight Language Specification.*
