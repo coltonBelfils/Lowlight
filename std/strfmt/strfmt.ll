@@ -313,27 +313,71 @@ bind string.quote = (self) string: {
 	out
 }
 
-// Unquotes a trimmed double-quoted string and decodes escape sequences, returning `none` if not quoted.
+bind _strfmt_hex_digit = (b: u8) int: {
+	let v = int(b)
+	if(v >= 48 and v <= 57): func <- v - 48
+	if(v >= 65 and v <= 70): func <- v - 65 + 10
+	if(v >= 97 and v <= 102): func <- v - 97 + 10
+	-1
+}
+
+bind _strfmt_parse_hex4 = (s: string, pos: int) int: {
+	if(pos + 4 > s.len()): func <- -1
+	let d0 = _strfmt_hex_digit(s.byte_at(pos))
+	let d1 = _strfmt_hex_digit(s.byte_at(pos + 1))
+	let d2 = _strfmt_hex_digit(s.byte_at(pos + 2))
+	let d3 = _strfmt_hex_digit(s.byte_at(pos + 3))
+	if(d0 < 0 or d1 < 0 or d2 < 0 or d3 < 0): func <- -1
+	(d0 << 12) | (d1 << 8) | (d2 << 4) | d3
+}
+
+// Unquotes a trimmed double-quoted string and decodes escape sequences (`\n`, `\t`, `\r`, `\"`, `\\`, `\/`, `\b`, `\f`, `\0`, `\'`, and `\uXXXX` including UTF-16 surrogate pairs), returning `none` if unquoted or malformed.
 bind string.unquote = (self) ?string: {
 	let trimmed = self.trim()
-	if(trimmed.len() < 2): func <- none
-	let first = trimmed[0..1]
-	let last = trimmed[trimmed.len() - 1..trimmed.len()]
-	if(first != "\"" or last != "\""): func <- none
-	let inner = trimmed[1..trimmed.len() - 1]
+	let tlen = trimmed.len()
+	if(tlen < 2): func <- none
+	if(trimmed.byte_at(0) != u8(34) or trimmed.byte_at(tlen - 1) != u8(34)): func <- none
+	let inner = trimmed[1..tlen - 1]
+	let n = inner.len()
 	let out = ""
-	let escape = false
-	for(ch in inner):
-		if(escape): {
-			escape = false
-			if(ch == 'n'): out.push("\n")
-			else if(ch == 't'): out.push("\t")
-			else if(ch == 'r'): out.push("\r")
-			else if(ch == '"'): out.push("\"")
-			else if(ch == '\\'): out.push("\\")
-			else: out.push_char(ch)
-		} else if(ch == '\\'): escape = true
-		else: out.push_char(ch)
+	let i = 0
+	while(i < n): {
+		let b = inner.byte_at(i)
+		if(b == u8(34)): func <- none
+		if(b == u8(92)): {
+			i += 1
+			if(i >= n): func <- none
+			let esc = char(int(inner.byte_at(i)))
+			i += 1
+			if(esc == 'n'): out.push_byte(u8(10))
+			else if(esc == 't'): out.push_byte(u8(9))
+			else if(esc == 'r'): out.push_byte(u8(13))
+			else if(esc == '"'): out.push_byte(u8(34))
+			else if(esc == '\\'): out.push_byte(u8(92))
+			else if(esc == '/'): out.push_byte(u8(47))
+			else if(esc == 'b'): out.push_byte(u8(8))
+			else if(esc == 'f'): out.push_byte(u8(12))
+			else if(esc == '0'): out.push_byte(u8(0))
+			else if(esc == '\''): out.push_byte(u8(39))
+			else if(esc == 'u'): {
+				let u1 = _strfmt_parse_hex4(inner, i)
+				if(u1 < 0): func <- none
+				i += 4
+				if(u1 >= 0xD800 and u1 <= 0xDBFF): {
+					if(i + 6 > n or inner.byte_at(i) != u8(92) or inner.byte_at(i + 1) != u8(117)): func <- none
+					let u2 = _strfmt_parse_hex4(inner, i + 2)
+					if(u2 < 0xDC00 or u2 > 0xDFFF): func <- none
+					i += 6
+					let cp = 0x10000 + ((u1 - 0xD800) << 10) + (u2 - 0xDC00)
+					out.push_char(char(cp))
+				} else if(u1 >= 0xDC00 and u1 <= 0xDFFF): func <- none
+				else: out.push_char(char(u1))
+			} else: func <- none
+		} else: {
+			out.push_byte(b)
+			i += 1
+		}
+	}
 	out
 }
 
@@ -427,6 +471,72 @@ bind test_strfmt_quote_and_indent = (): {
 
 	let indented = "line1\nline2".indent(2)
 	assert(indented == "  line1\n  line2", "indent")
+}
+
+@test("strfmt unquote escapes and validation")
+bind test_strfmt_unquote_escapes = (): {
+	assert("\"\"".unquote() == "", "unquote empty quoted")
+	assert("  \"hi\"  ".unquote() == "hi", "unquote trimmed")
+	assert("\"héllo 🌍\"".unquote() == "héllo 🌍", "unquote utf8 passthrough")
+
+	let std_esc? = "\"\\n\\t\\r\\\"\\\\\\/\\b\\f\\0\\'\"".unquote()
+	assert(std_esc? == "\n\t\r\"\\/\x08\x0c\0'", "unquote standard escapes")
+
+	// Trailing backslash validation
+	assert("\"abc\\\"".unquote() == none, "unquote trailing backslash after chars")
+	assert("\"\\\"".unquote() == none, "unquote lone backslash")
+	assert("\"\\\\\"".unquote() == "\\", "unquote escaped backslash")
+	assert("\"\\\\\\\"".unquote() == none, "unquote odd trailing backslashes")
+
+	// Missing quotes, unescaped inner quotes, and unknown escapes
+	assert("".unquote() == none, "unquote empty")
+	assert("\"".unquote() == none, "unquote single quote")
+	assert("hello".unquote() == none, "unquote no quotes")
+	assert("\"hello".unquote() == none, "unquote missing closing quote")
+	assert("hello\"".unquote() == none, "unquote missing opening quote")
+	assert("\"a\"b\"".unquote() == none, "unquote unescaped inner quote")
+	assert("\"\\q\"".unquote() == none, "unquote unknown escape")
+	assert("\"prefix\\z\"".unquote() == none, "unquote unknown escape after prefix")
+
+	// Valid \uXXXX BMP escapes
+	assert("\"\\u0041\"".unquote() == "A", "unquote u0041")
+	assert("\"\\u00e9\"".unquote() == "é", "unquote u00e9 lowercase")
+	assert("\"\\u03B1\"".unquote() == "α", "unquote u03B1")
+	assert("\"\\u4E2D\"".unquote() == "中", "unquote u4E2D")
+	assert("\"a\\u0041b\\u0042c\"".unquote() == "aAbBc", "unquote mixed uXXXX")
+	let nul? = "\"\\u0000\"".unquote()
+	if(nul? as n): {
+		assert(n.len() == 1 and n.byte_at(0) == u8(0), "unquote u0000 byte")
+	} else: assert(false, "unquote u0000 should not be none")
+	assert(nul? == "\0", "unquote u0000")
+	assert("\"\\uD7FF\"".unquote() == char(0xD7FF).to_string(), "unquote uD7FF")
+	assert("\"\\uE000\"".unquote() == char(0xE000).to_string(), "unquote uE000")
+
+	// Valid UTF-16 surrogate pairs
+	assert("\"\\uD83D\\uDE00\"".unquote() == "😀", "unquote emoji surrogate pair")
+	assert("\"\\ud83d\\ude00\"".unquote() == "😀", "unquote lowercase surrogate pair")
+	assert("\"\\uD800\\uDC00\"".unquote() == char(0x10000).to_string(), "unquote min surrogate pair")
+	assert("\"\\uDBFF\\uDFFF\"".unquote() == char(0x10FFFF).to_string(), "unquote max surrogate pair")
+
+	// Invalid \uXXXX escapes: truncated, non-hex, lone/mismatched surrogates
+	assert("\"\\u\"".unquote() == none, "unquote truncated u")
+	assert("\"\\u1\"".unquote() == none, "unquote truncated u1")
+	assert("\"\\u12\"".unquote() == none, "unquote truncated u12")
+	assert("\"\\u123\"".unquote() == none, "unquote truncated u123")
+	assert("\"abc\\u12\"".unquote() == none, "unquote truncated u after prefix")
+	assert("\"\\u004G\"".unquote() == none, "unquote non-hex G")
+	assert("\"\\uZZZZ\"".unquote() == none, "unquote non-hex ZZZZ")
+	assert("\"\\u12 4\"".unquote() == none, "unquote space in hex")
+	assert("\"\\u{41}\"".unquote() == none, "unquote braced unicode escape")
+	assert("\"\\uD83D\"".unquote() == none, "unquote lone high surrogate")
+	assert("\"\\uD83Dabc\"".unquote() == none, "unquote high surrogate followed by text")
+	assert("\"\\uD83D\\n\"".unquote() == none, "unquote high surrogate followed by \\n")
+	assert("\"\\uD83D\\uDE0\"".unquote() == none, "unquote high surrogate short low")
+	assert("\"\\uD83D\\uDE0G\"".unquote() == none, "unquote high surrogate invalid hex low")
+	assert("\"\\uD83D\\u0041\"".unquote() == none, "unquote high surrogate followed by BMP")
+	assert("\"\\uD83D\\uD83D\"".unquote() == none, "unquote two high surrogates")
+	assert("\"\\uDC00\"".unquote() == none, "unquote lone low surrogate")
+	assert("\"\\uDE00\\uD83D\"".unquote() == none, "unquote reversed surrogate pair")
 }
 
 @test("strfmt count_occurrences edge cases and large input")

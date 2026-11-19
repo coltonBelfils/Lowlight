@@ -4,7 +4,6 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Stdlib Bug Fixes & Targeted Library Additions
 
-- [ ] Validate `\uXXXX` escapes and trailing `\` in `unquote` (`std/strings.ll` / `std/strfmt.ll`).
 - [ ] Make `reverse` and string padding helpers codepoint-aware (`std/strings.ll:98-146`).
 - [ ] Validate UTF-8 continuation bytes, overlong encodings, surrogates, and `> 0x10FFFF` in `str_utf8_next` (`std/core/primitives.ll:567-598`).
 - [ ] Fix `+inf` and negative input edge cases in `core_sqrt` (`std/core/primitives.ll`).
