@@ -5580,6 +5580,47 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 		}
 		return false, false, false
 
+	case *ast.MethodPattern:
+		if scrutTy == nil || scrutTy == types.TypeInvalid {
+			for _, a := range p.Args {
+				_ = fc.checkExpr(a, true)
+			}
+			return false, false, false
+		}
+		if _, isOpt := scrutTy.(*types.Optional); isOpt {
+			fc.a.Rep.Errorf(p.Span, "cannot call method `%s` on optional scrutinee of type `%s` in `match` pattern", p.Method, scrutTy.String())
+			for _, a := range p.Args {
+				_ = fc.checkExpr(a, true)
+			}
+			return false, false, false
+		}
+		recvPlaceholder := &ast.IdentExpr{
+			Name: "<scrutinee>",
+			Span: diag.Span{Start: diag.Pos{Offset: -1}, End: diag.Pos{Offset: -1}},
+		}
+		fc.a.infoFor(recvPlaceholder).Type = scrutTy
+		mem := &ast.MemberExpr{
+			Base:   recvPlaceholder,
+			Member: p.Method,
+			Span:   p.MethodSpan,
+		}
+		call := &ast.CallExpr{
+			Callee:   mem,
+			TypeArgs: p.TypeArgs,
+			Args:     p.Args,
+			Span:     p.Span,
+		}
+		retTy := fc.checkInstanceMethodCall(scrutTy, mem, call, types.TypeBool, true)
+		if retTy != types.TypeInvalid && !retTy.Equals(types.TypeBool) {
+			fc.a.Rep.Errorf(p.Span, "method `%s.%s` in `match` pattern must return `bool`, got `%s`", scrutTy.String(), p.Method, retTy.String())
+		} else if retTy.Equals(types.TypeBool) && fc.a.curBM != nil {
+			fc.a.curBM.MethodPatterns[p] = &MethodPatternInfo{
+				Call:     call,
+				RecvExpr: recvPlaceholder,
+			}
+		}
+		return false, false, false
+
 	case *ast.VariantPattern:
 		if scrutTy == types.TypeInvalid {
 			return false, false, false

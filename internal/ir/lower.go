@@ -202,6 +202,7 @@ type funcLowerer struct {
 	locals        []*Local
 	symLocals     map[*sema.Symbol]*Local
 	captureFields map[*sema.Symbol]Expr // inside lambda: outer Symbol -> `_ll_env-><field>`
+	exprOverrides map[ast.Expr]Expr     // temporary receiver overrides (e.g. `match` MethodPattern scrutinee)
 	scopes        []*mirScope
 	stmtTemps     []*Local
 	emitStack     [][]Instr

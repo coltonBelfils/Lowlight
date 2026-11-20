@@ -569,6 +569,10 @@ func collectEnclosingASTSpans(af *ast.File, offset int) []diag.Span {
 							walkExpr(p.Expr)
 						case *ast.ContainsPattern:
 							walkExpr(p.Container)
+						case *ast.MethodPattern:
+							for _, a := range p.Args {
+								walkExpr(a)
+							}
 						case *ast.VariantPattern:
 							walkExpr(p.Target)
 						}

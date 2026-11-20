@@ -477,6 +477,20 @@ func (s *Server) hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *se
 						return md
 					}
 				}
+				if mp, ok := pat.(*ast.MethodPattern); ok && spanContainsOffset(mp.Span, offset) {
+					if bm != nil {
+						if mpInfo := bm.MethodPatterns[mp]; mpInfo != nil && mpInfo.Call != nil {
+							if md := s.hoverInExpr(prog, mod, bm, mpInfo.Call, offset, tok); md != "" {
+								return md
+							}
+						}
+					}
+					for _, a := range mp.Args {
+						if md := s.hoverInExpr(prog, mod, bm, a, offset, tok); md != "" {
+							return md
+						}
+					}
+				}
 				if vp, ok := pat.(*ast.VariantPattern); ok && spanContainsOffset(vp.Span, offset) {
 					if bm != nil {
 						syms := bm.PatternSyms[vp]
@@ -1629,6 +1643,20 @@ func definitionSpanInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.
 				if cp, ok := pat.(*ast.ContainsPattern); ok && spanContainsOffset(cp.Span, offset) {
 					if sp := definitionSpanInExpr(prog, mod, bm, cp.Container, offset, tok); sp.Start.File != "" {
 						return sp
+					}
+				}
+				if mp, ok := pat.(*ast.MethodPattern); ok && spanContainsOffset(mp.Span, offset) {
+					if bm != nil {
+						if mpInfo := bm.MethodPatterns[mp]; mpInfo != nil && mpInfo.Call != nil {
+							if sp := definitionSpanInExpr(prog, mod, bm, mpInfo.Call, offset, tok); sp.Start.File != "" {
+								return sp
+							}
+						}
+					}
+					for _, a := range mp.Args {
+						if sp := definitionSpanInExpr(prog, mod, bm, a, offset, tok); sp.Start.File != "" {
+							return sp
+						}
 					}
 				}
 			}

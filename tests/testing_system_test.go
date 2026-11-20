@@ -841,3 +841,108 @@ func TestAssertionApproxEqAndStringMatchFailureDiagnostics(t *testing.T) {
 		})
 	}
 }
+
+func TestBatchAssertionsReportAllFailuresAndCallerLocation(t *testing.T) {
+	cases := []struct {
+		name     string
+		callLine string
+		want     []string
+		notWant  []string
+	}{
+		{
+			name:     "assert_all_eq_collects_all_failures_without_short_circuit",
+			callLine: `    test.assert_all_eq([+["alpha", "alpxa"], +["beta", "beta"], +["gamma", "gamna"], +["delta", "delta"]])`,
+			want: []string{
+				"test_file.ll:5:5:",
+				"2 of 4 case(s) failed (2 passed)",
+				"case [0]:",
+				"expected: alpha",
+				"got: alpxa",
+				"case [2]:",
+				"expected: gamma",
+				"got: gamna",
+			},
+			notWant: []string{
+				"std/test/test.ll",
+				"case [1]:",
+				"case [3]:",
+				"beta",
+				"delta",
+			},
+		},
+		{
+			name:     "assert_all_eq_named_includes_labels",
+			callLine: `    test.assert_all_eq_named([+["first", 10, 99], +["second", 20, 20], +["third", 30, 88]])`,
+			want: []string{
+				"test_file.ll:5:5:",
+				"2 of 3 case(s) failed (1 passed)",
+				"case [0] (first):",
+				"case [2] (third):",
+			},
+			notWant: []string{
+				"case [1]",
+				"second",
+			},
+		},
+		{
+			name:     "assert_all_ok_eq_reports_both_err_and_value_mismatch",
+			callLine: `    test.assert_all_ok_eq_msg([+[10, Result[int].fail_msg("boom")], +[20, Result[int].ok(20)], +[30, Result[int].ok(99)]], "parse batch")`,
+			want: []string{
+				"test_file.ll:5:5:",
+				"parse batch: 2 of 3 case(s) failed (1 passed)",
+				"case [0]:",
+				"expected Result to be Ok, but got Err",
+				"boom",
+				"case [2]:",
+				"expected: 30",
+				"got: 99",
+			},
+			notWant: []string{
+				"case [1]:",
+			},
+		},
+		{
+			name:     "assert_all_approx_eq_collects_multiple_failures",
+			callLine: `    test.assert_all_approx_eq([+[1.0, 1.5], +[2.0, 2.01], +[3.0, 3.8]], 0.1)`,
+			want: []string{
+				"test_file.ll:5:5:",
+				"2 of 3 case(s) failed (1 passed)",
+				"case [0]:",
+				"case [2]:",
+			},
+			notWant: []string{
+				"case [1]:",
+			},
+		},
+		{
+			name:     "assert_any_eq_lists_all_candidates_when_none_match",
+			callLine: `    test.assert_any_eq([+[1, 2], +[3, 4]])`,
+			want: []string{
+				"test_file.ll:5:5:",
+				"no (expected, actual) pair matched",
+				"[0] expected: 1, got: 2",
+				"[1] expected: 3, got: 4",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "import \"std/test\"\n\n@test(\"batch failure case\")\nbind test_case = (): {\n" + tc.callLine + "\n}\n"
+			out, code, err := runLowlightTest(t, src, false)
+			if code != 1 {
+				t.Fatalf("expected exit code 1, got %d (err: %v)\nOutput:\n%s", code, err, out)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(out, w) {
+					t.Errorf("expected output to contain %q\nOutput:\n%s", w, out)
+				}
+			}
+			for _, nw := range tc.notWant {
+				if strings.Contains(out, nw) {
+					t.Errorf("did not expect output to contain %q\nOutput:\n%s", nw, out)
+				}
+			}
+		})
+	}
+}

@@ -772,6 +772,19 @@ func resolveRefTargetAt(prog *sema.CheckedProgram, mod *sema.Module, filePath, s
 						if r := inExpr(bm, p.Container, bodySpan); r != nil {
 							return r
 						}
+					case *ast.MethodPattern:
+						if bm != nil {
+							if mpInfo := bm.MethodPatterns[p]; mpInfo != nil && mpInfo.Call != nil {
+								if r := inExpr(bm, mpInfo.Call, bodySpan); r != nil {
+									return r
+								}
+							}
+						}
+						for _, a := range p.Args {
+							if r := inExpr(bm, a, bodySpan); r != nil {
+								return r
+							}
+						}
 					case *ast.VariantPattern:
 						if bm != nil && spanContainsOffset(p.Span, offset) {
 							syms := bm.PatternSyms[p]
@@ -1675,6 +1688,16 @@ func collectOccsInModule(
 						scanExpr(bm, p.Expr)
 					case *ast.ContainsPattern:
 						scanExpr(bm, p.Container)
+					case *ast.MethodPattern:
+						if bm != nil {
+							if mpInfo := bm.MethodPatterns[p]; mpInfo != nil && mpInfo.Call != nil {
+								scanExpr(bm, mpInfo.Call)
+								continue
+							}
+						}
+						for _, a := range p.Args {
+							scanExpr(bm, a)
+						}
 					case *ast.VariantPattern:
 						scanExpr(bm, p.Target)
 						if bm != nil {

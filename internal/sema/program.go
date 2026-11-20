@@ -171,6 +171,7 @@ type BodyMaps struct {
 	IfOriginSyms     map[*ast.IfExpr]*Symbol
 	PatternSyms      map[*ast.VariantPattern][]*Symbol
 	ContainsPatterns map[*ast.ContainsPattern]*ContainsInfo
+	MethodPatterns   map[*ast.MethodPattern]*MethodPatternInfo
 }
 
 // NewBodyMaps allocates a fresh set of per-body AST side tables.
@@ -186,6 +187,7 @@ func NewBodyMaps() *BodyMaps {
 		IfOriginSyms:     make(map[*ast.IfExpr]*Symbol),
 		PatternSyms:      make(map[*ast.VariantPattern][]*Symbol),
 		ContainsPatterns: make(map[*ast.ContainsPattern]*ContainsInfo),
+		MethodPatterns:   make(map[*ast.MethodPattern]*MethodPatternInfo),
 	}
 }
 
@@ -287,6 +289,12 @@ type ContainsInfo struct {
 	TargetFunc    *FuncInstance
 	InterfaceMeth *types.InterfaceMethod
 	BoxInterface  *types.Interface
+}
+
+// MethodPatternInfo stores semantic resolution results for `*ast.MethodPattern`.
+type MethodPatternInfo struct {
+	Call     *ast.CallExpr
+	RecvExpr *ast.IdentExpr
 }
 
 // UnwindInfo records which enclosing construct an `*ast.UnwindStmt` jumps to.

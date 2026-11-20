@@ -444,36 +444,43 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
 	}
+	return fc.checkInstanceMethodCall(recvTy, mem, call, expected, false)
+}
 
-	// Check if `mem.Base` is a struct (or `ref[Struct]`) that has a function-typed field named `mem.Member`!
-	innerStructTy := recvTy
-	if rf, isRf := innerStructTy.(*types.Ref); isRf {
-		innerStructTy = rf.Elem
-	}
-	if st, isSt := innerStructTy.(*types.Struct); isSt {
-		if sf, _ := st.FieldByName(mem.Member); sf != nil {
-			if !IsExported(mem.Member) && !fc.a.SamePackageDir(fc.mod, st.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(st)) {
-				fc.a.Rep.Errorf(mem.Span, "cannot access unexported field %q of struct %s outside its package", sf.Name, st.String())
-				inf.Type = types.TypeInvalid
-				return types.TypeInvalid
-			}
-			if _, isFn := sf.Type.(*types.Func); isFn {
-				return fc.checkClosureValueCall(call)
+func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.MemberExpr, call *ast.CallExpr, expected types.Type, inMatchPattern bool) types.Type {
+	inf := fc.a.infoFor(call)
+
+	if !inMatchPattern {
+		// Check if `mem.Base` is a struct (or `ref[Struct]`) that has a function-typed field named `mem.Member`!
+		innerStructTy := recvTy
+		if rf, isRf := innerStructTy.(*types.Ref); isRf {
+			innerStructTy = rf.Elem
+		}
+		if st, isSt := innerStructTy.(*types.Struct); isSt {
+			if sf, _ := st.FieldByName(mem.Member); sf != nil {
+				if !IsExported(mem.Member) && !fc.a.SamePackageDir(fc.mod, st.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(st)) {
+					fc.a.Rep.Errorf(mem.Span, "cannot access unexported field %q of struct %s outside its package", sf.Name, st.String())
+					inf.Type = types.TypeInvalid
+					return types.TypeInvalid
+				}
+				if _, isFn := sf.Type.(*types.Func); isFn {
+					return fc.checkClosureValueCall(call)
+				}
 			}
 		}
-	}
-	var tup *types.Tuple
-	if t, isTup := innerStructTy.(*types.Tuple); isTup {
-		tup = t
-	} else if d, isDist := innerStructTy.(*types.Distinct); isDist {
-		if dtTup, isTup := d.Base.(*types.Tuple); isTup {
-			tup = dtTup
+		var tup *types.Tuple
+		if t, isTup := innerStructTy.(*types.Tuple); isTup {
+			tup = t
+		} else if d, isDist := innerStructTy.(*types.Distinct); isDist {
+			if dtTup, isTup := d.Base.(*types.Tuple); isTup {
+				tup = dtTup
+			}
 		}
-	}
-	if tup != nil {
-		if idx, ok := IsCanonicalTupleIndex(mem.Member); ok && idx >= 0 && idx < len(tup.Elems) {
-			if _, isFn := tup.Elems[idx].(*types.Func); isFn {
-				return fc.checkClosureValueCall(call)
+		if tup != nil {
+			if idx, ok := IsCanonicalTupleIndex(mem.Member); ok && idx >= 0 && idx < len(tup.Elems) {
+				if _, isFn := tup.Elems[idx].(*types.Func); isFn {
+					return fc.checkClosureValueCall(call)
+				}
 			}
 		}
 	}
@@ -515,7 +522,7 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 
 	// 3a. Interface dynamic dispatch (`shape.area()`, `shape.scale(2.0)`)
 	if ifc, isIfc := actualRecvTy.(*types.Interface); isIfc {
-		return fc.checkInterfaceMethodCall(ifc, mem, call, isOptChain)
+		return fc.checkInterfaceMethodCall(ifc, mem, call, isOptChain, inMatchPattern)
 	}
 
 	// 3b. User-defined or Generic Method (`bind Point.length`, `bind Pair[A, B].swap`, `bind UserID.to_string`)
@@ -575,23 +582,35 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 			fc.a.Rep.Errorf(call.Span, "cannot call mutating or consuming method %q via optional `?.` chain", mem.Member)
 		}
 		var mutRecvRoot *Symbol
-		switch recvMode {
-		case types.ModeMut:
-			if !isArenaRef {
-				mutRecvRoot = fc.checkMutablePlace(mem.Base, fmt.Sprintf("call `&self` method `%s` on", mem.Member))
-			}
-		case types.ModeOwn:
-			if isArenaRef {
-				fc.a.Rep.Errorf(call.Span, "cannot call consuming `own self` method %q through arena `ref[%s]`", mem.Member, actualRecvTy.String())
+		if inMatchPattern {
+			if recvMode != types.ModeRead {
+				modeStr := "&self"
+				if recvMode == types.ModeOwn {
+					modeStr = "own self"
+				}
+				fc.a.Rep.Errorf(call.Span, "method `%s.%s` in `match` pattern must take read-only `self` (got `%s`)", actualRecvTy.String(), mem.Member, modeStr)
 			} else {
-				fc.consumeValue(mem.Base, actualRecvTy, false)
+				fc.markViewIfApplicable(mem.Base, actualRecvTy)
 			}
-		case types.ModeRead:
-			fc.markViewIfApplicable(mem.Base, actualRecvTy)
+		} else {
+			switch recvMode {
+			case types.ModeMut:
+				if !isArenaRef {
+					mutRecvRoot = fc.checkMutablePlace(mem.Base, fmt.Sprintf("call `&self` method `%s` on", mem.Member))
+				}
+			case types.ModeOwn:
+				if isArenaRef {
+					fc.a.Rep.Errorf(call.Span, "cannot call consuming `own self` method %q through arena `ref[%s]`", mem.Member, actualRecvTy.String())
+				} else {
+					fc.consumeValue(mem.Base, actualRecvTy, false)
+				}
+			case types.ModeRead:
+				fc.markViewIfApplicable(mem.Base, actualRecvTy)
+			}
 		}
 
 		fc.checkSignatureArgs(fi.Sig.Params[1:], call.Args, mutRecvRoot, call.Span)
-		if recvMode == types.ModeMut {
+		if !inMatchPattern && recvMode == types.ModeMut {
 			fc.checkMutatingMethodRecvEscape(mem.Base, call.Args, call.Span)
 		}
 		inf.CallKind = CallDirectFunc
@@ -608,7 +627,7 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 	}
 
 	// 3c. Built-in Methods (`.copy()`, `.to_string()`, `string.*`, `char.*`, `vec.*`, `set.*`, `map.*`, `Arena.*`)
-	return fc.checkBuiltinMethodCall(actualRecvTy, isArenaRef, isOptChain, mem, call)
+	return fc.checkBuiltinMethodCall(actualRecvTy, isArenaRef, isOptChain, inMatchPattern, mem, call)
 }
 
 func (fc *funcChecker) checkArenaStaticCall(method string, call *ast.CallExpr) types.Type {
@@ -947,7 +966,7 @@ func (fc *funcChecker) checkGenericFuncCall(genFn *GenericFuncTemplate, call *as
 	return retTy
 }
 
-func (fc *funcChecker) checkInterfaceMethodCall(ifc *types.Interface, mem *ast.MemberExpr, call *ast.CallExpr, isOptChain bool) types.Type {
+func (fc *funcChecker) checkInterfaceMethodCall(ifc *types.Interface, mem *ast.MemberExpr, call *ast.CallExpr, isOptChain, inMatchPattern bool) types.Type {
 	inf := fc.a.infoFor(call)
 	var found *types.InterfaceMethod
 	for i := range ifc.Methods {
@@ -992,10 +1011,14 @@ func (fc *funcChecker) checkInterfaceMethodCall(ifc *types.Interface, mem *ast.M
 
 	var mutRoot *Symbol
 	if found.RecvMode == types.ModeMut {
-		if isOptChain {
-			fc.a.Rep.Errorf(call.Span, "cannot call `&self` method %q via optional `?.` chain", mem.Member)
+		if inMatchPattern {
+			fc.a.Rep.Errorf(call.Span, "method `%s.%s` in `match` pattern must take read-only `self` (got `&self`)", ifc.Name, mem.Member)
+		} else {
+			if isOptChain {
+				fc.a.Rep.Errorf(call.Span, "cannot call `&self` method %q via optional `?.` chain", mem.Member)
+			}
+			mutRoot = fc.checkMutablePlace(mem.Base, fmt.Sprintf("call `&self` method `%s` on", mem.Member))
 		}
-		mutRoot = fc.checkMutablePlace(mem.Base, fmt.Sprintf("call `&self` method `%s` on", mem.Member))
 	}
 	fc.checkSignatureArgs(found.Params, call.Args, mutRoot, call.Span)
 	inf.CallKind = CallInterfaceMethod
@@ -1368,7 +1391,7 @@ func (fc *funcChecker) markViewIfApplicable(expr ast.Expr, paramTy types.Type) {
 // Built-in Methods, Universe Functions & Raw Memory Intrinsics
 // -----------------------------------------------------------------------------
 
-func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isOptChain bool, mem *ast.MemberExpr, call *ast.CallExpr) types.Type {
+func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isOptChain, inMatchPattern bool, mem *ast.MemberExpr, call *ast.CallExpr) types.Type {
 	inf := fc.a.infoFor(call)
 	inf.CallKind = CallBuiltinMethod
 	inf.MethodRecv = mem.Base
@@ -1383,6 +1406,10 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 	}
 
 	requireMutRecv := func() *Symbol {
+		if inMatchPattern {
+			fc.a.Rep.Errorf(call.Span, "method `%s.%s` in `match` pattern must take read-only `self` (got `&self`)", recvTy.String(), mem.Member)
+			return nil
+		}
 		if isOptChain {
 			fc.a.Rep.Errorf(call.Span, "cannot call mutating method %q via optional `?.` chain", mem.Member)
 			return nil

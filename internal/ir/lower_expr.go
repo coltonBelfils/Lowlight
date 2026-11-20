@@ -138,6 +138,11 @@ func (fl *funcLowerer) lowerExprRead(e ast.Expr) Expr {
 	if e == nil {
 		return nil
 	}
+	if fl.exprOverrides != nil {
+		if ov, ok := fl.exprOverrides[e]; ok {
+			return ov
+		}
+	}
 	inf := fl.info(e)
 	fl.tc.visit(inf.Type)
 

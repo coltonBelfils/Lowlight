@@ -5,26 +5,23 @@
 // parsers ([`parse_int`], [`parse_float`]), and comparison helpers ([`min`], [`max`],
 // [`abs`], [`clamp`]).
 
-
 // -----------------------------------------------------------------------------
 // Float & Number Formatting Helpers
 // -----------------------------------------------------------------------------
 
-bind _float_bits = (v: float) u64: {
+bind _float_bits = (v: float) u64:
 	unsafe {
 		let vp = addr_of(v)
 		let up = ptr_cast[u64](vp)
 		*up
 	}
-}
 
-bind _bits_to_float = (bits: u64) float: {
+bind _bits_to_float = (bits: u64) float:
 	unsafe {
 		let bp = addr_of(bits)
 		let fp = ptr_cast[float](bp)
 		*fp
 	}
-}
 
 bind _pow10_u64 = (exp: int) u64: {
 	let res: u64 = u64(1)
@@ -70,7 +67,7 @@ bind _append_zero_padded_u64 = (out: &string, val: u64, width: int): {
 	out.push(s)
 }
 
-bind _append_exp_suffix = (out: &string, exp10: int): {
+bind _append_exp_suffix = (out: &string, exp10: int):
 	if(exp10 < 0): {
 		out.push("e-")
 		let ae = -exp10
@@ -81,12 +78,11 @@ bind _append_exp_suffix = (out: &string, exp10: int): {
 		if(exp10 < 10): out.push_byte(u8(48))
 		out.push(exp10.to_string())
 	}
-}
 
 // Formats exact integer |v| >= 2^64 (IEEE-754 biased exponent >= 1087, < 0x7ff) via base-10^9 limbs.
 bind _format_large_float_int = (mant: u64, exp: u64) string: {
 	let base = u64(1000000000)
-	let m = (u64(1) << u64(52)) | mant
+	let m = u64(1) << u64(52) | mant
 	let limbs: [u64] = []
 	let lo = m % base
 	let hi = m / base
@@ -212,8 +208,8 @@ bind _norm_f64_exp10 = (abs_v: float, exp_out: &int) float: {
 
 bind _format_float_fixed = (v: float, prec: int) string: {
 	let bits = _float_bits(v)
-	let sign = (bits >> 63) & u64(1)
-	let exp = (bits >> 52) & u64(0x7ff)
+	let sign = bits >> 63 & u64(1)
+	let exp = bits >> 52 & u64(0x7ff)
 	let mant = bits & u64(0x000fffffffffffff)
 	if(exp == u64(0x7ff)): {
 		if(mant != u64(0)): func <- "nan"
@@ -258,8 +254,8 @@ bind _format_float_fixed = (v: float, prec: int) string: {
 
 bind _format_exp_f64 = (v: float, prec: int) string: {
 	let bits = _float_bits(v)
-	let sign = (bits >> 63) & u64(1)
-	let exp = (bits >> 52) & u64(0x7ff)
+	let sign = bits >> 63 & u64(1)
+	let exp = bits >> 52 & u64(0x7ff)
 	let mant = bits & u64(0x000fffffffffffff)
 	if(exp == u64(0x7ff)): {
 		if(mant != u64(0)): func <- "nan"
@@ -313,8 +309,8 @@ bind _format_exp_f64 = (v: float, prec: int) string: {
 // decimals when `prec >= 0`, or compact precision-6/scientific notation when `prec < 0`.
 bind format_float_prec = (v: float, prec: int) string: {
 	let bits = _float_bits(v)
-	let sign = (bits >> 63) & u64(1)
-	let exp = (bits >> 52) & u64(0x7ff)
+	let sign = bits >> 63 & u64(1)
+	let exp = bits >> 52 & u64(0x7ff)
 	let mant = bits & u64(0x000fffffffffffff)
 	if(exp == u64(0x7ff)): {
 		if(mant != u64(0)): func <- "nan"
@@ -769,14 +765,14 @@ bind str_utf8_next = (s: string, off: int, next_off: &int) char: {
 		let b1 = int(s.byte_at(off + 1))
 		if((b1 & 0xC0) == 0x80): {
 			next_off = off + 2
-			func <- char(((b0 & 0x1F) << 6) | (b1 & 0x3F))
+			func <- char((b0 & 0x1F) << 6 | (b1 & 0x3F))
 		}
 	}
 	if(b0 >= 0xE0 and b0 <= 0xEF and off + 2 < n): {
 		let b1 = int(s.byte_at(off + 1))
 		let b2 = int(s.byte_at(off + 2))
 		if((b1 & 0xC0) == 0x80 and (b2 & 0xC0) == 0x80): {
-			let cp = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F)
+			let cp = (b0 & 0x0F) << 12 | (b1 & 0x3F) << 6 | (b2 & 0x3F)
 			if(cp >= 0x0800 and (cp < 0xD800 or cp > 0xDFFF)): {
 				next_off = off + 3
 				func <- char(cp)
@@ -788,7 +784,7 @@ bind str_utf8_next = (s: string, off: int, next_off: &int) char: {
 		let b2 = int(s.byte_at(off + 2))
 		let b3 = int(s.byte_at(off + 3))
 		if((b1 & 0xC0) == 0x80 and (b2 & 0xC0) == 0x80 and (b3 & 0xC0) == 0x80): {
-			let cp = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F)
+			let cp = (b0 & 0x07) << 18 | (b1 & 0x3F) << 12 | (b2 & 0x3F) << 6 | (b3 & 0x3F)
 			if(cp >= 0x10000 and cp <= 0x10FFFF): {
 				next_off = off + 4
 				func <- char(cp)
@@ -873,7 +869,7 @@ bind string.trim_start = (self) string: {
 	for(start < n): {
 		let b = self.byte_at(start)
 		let is_ws = b == u8(32) or b == u8(9) or b == u8(10) or b == u8(13) or b == u8(11) or b == u8(
-			12,
+			12
 		)
 		if(not is_ws): for <-
 		start += 1
@@ -887,7 +883,7 @@ bind string.trim_end = (self) string: {
 	for(end > 0): {
 		let b = self.byte_at(end - 1)
 		let is_ws = b == u8(32) or b == u8(9) or b == u8(10) or b == u8(13) or b == u8(11) or b == u8(
-			12,
+			12
 		)
 		if(not is_ws): for <-
 		end -= 1
@@ -1051,15 +1047,15 @@ bind parse_int_radix = (s: string, radix: int) ?int: {
 bind parse_int = (s: string) ?int: {
 	let trimmed = s.trim()
 	if(trimmed.starts_with("0x") or trimmed.starts_with("0X") or trimmed.starts_with("-0x") or trimmed.starts_with(
-		"-0X",
+		"-0X"
 	) or trimmed.starts_with("+0x") or trimmed.starts_with("+0X")):
 		func <- parse_int_radix(trimmed, 16)
 	if(trimmed.starts_with("0b") or trimmed.starts_with("0B") or trimmed.starts_with("-0b") or trimmed.starts_with(
-		"-0B",
+		"-0B"
 	) or trimmed.starts_with("+0b") or trimmed.starts_with("+0B")):
 		func <- parse_int_radix(trimmed, 2)
 	if(trimmed.starts_with("0o") or trimmed.starts_with("0O") or trimmed.starts_with("-0o") or trimmed.starts_with(
-		"-0O",
+		"-0O"
 	) or trimmed.starts_with("+0o") or trimmed.starts_with("+0O")):
 		func <- parse_int_radix(trimmed, 8)
 	parse_int_radix(trimmed, 10)
@@ -1099,11 +1095,10 @@ bind _bi_from_u64 = (x: u64) [u64]: {
 	out
 }
 
-bind _bi_trim = (a: &[u64]): {
+bind _bi_trim = (a: &[u64]):
 	for(a.len() > 0 and a[a.len() - 1] == u64(0)): {
 		let _ = a.pop() ?? u64(0)
 	}
-}
 
 bind _bi_mul_add_u64 = (a: &[u64], mult: u64, add: u64): {
 	let mask = u64(0xFFFFFFFF)
@@ -1152,7 +1147,7 @@ bind _bi_shl = (a: &[u64], bits: int): {
 		let n = a.len()
 		for(i < n): {
 			let cur = a[i]
-			a[i] = ((cur << bs) & mask) | carry
+			a[i] = (cur << bs & mask) | carry
 			carry = cur >> inv
 			i += 1
 		}
@@ -1214,7 +1209,7 @@ bind _bi_sub = (a: &[u64], b: [u64]): {
 		let bi = if(i < nb): b[i] else: u64(0)
 		let need = bi + borrow
 		if(a[i] < need): {
-			a[i] = (a[i] + base) - need
+			a[i] = a[i] + base - need
 			borrow = u64(1)
 		} else: {
 			a[i] = a[i] - need
@@ -1231,8 +1226,7 @@ bind _bigint_to_f64 = (a: own [u64], exp10: int, is_neg: bool) float: {
 	let inf_bits = sign_bit | u64(0x7FF0000000000000)
 	if(a.len() == 0): func <- _bits_to_float(sign_bit)
 	let b: [u64] = [u64(1)]
-	if(exp10 >= 0): _bi_mul_pow5(&a, exp10)
-	else: _bi_mul_pow5(&b, -exp10)
+	if(exp10 >= 0): _bi_mul_pow5(&a, exp10) else: _bi_mul_pow5(&b, -exp10)
 
 	let shift = _bi_bit_len(b) - _bi_bit_len(a)
 	if(shift > 0): _bi_shl(&a, shift)
@@ -1264,21 +1258,19 @@ bind _bigint_to_f64 = (a: own [u64], exp10: int, is_neg: bool) float: {
 	if(cmp > 0 or (cmp == 0 and (q & u64(1)) == u64(1))): {
 		q += u64(1)
 		if(subnormal): {
-			if(q == (u64(1) << u64(52))): {
+			if(q == u64(1) << u64(52)): {
 				subnormal = false
 				ieee_exp = -1022
 			}
-		} else: {
-			if(q == (u64(1) << u64(53))): {
-				q >>= 1
-				ieee_exp += 1
-				if(ieee_exp > 1023): func <- _bits_to_float(inf_bits)
-			}
+		} else if(q == u64(1) << u64(53)): {
+			q >>= 1
+			ieee_exp += 1
+			if(ieee_exp > 1023): func <- _bits_to_float(inf_bits)
 		}
 	}
 
 	let bits = if(subnormal): sign_bit | q
-	else: sign_bit | (u64(ieee_exp + 1023) << u64(52)) | (q & u64(0x000fffffffffffff))
+	else: sign_bit | u64(ieee_exp + 1023) << u64(52) | (q & u64(0x000fffffffffffff))
 	_bits_to_float(bits)
 }
 
@@ -1303,9 +1295,7 @@ bind parse_float = (s: string) ?float: {
 		let sign_bit = if(is_neg): u64(1) << u64(63) else: u64(0)
 		func <- _bits_to_float(sign_bit | u64(0x7FF0000000000000))
 	}
-	if(_ascii_eq_ignore_case(trimmed, i, "nan")): {
-		func <- _bits_to_float(u64(0x7FF8000000000000))
-	}
+	if(_ascii_eq_ignore_case(trimmed, i, "nan")): func <- _bits_to_float(u64(0x7FF8000000000000))
 
 	let mant_u64 = u64(0)
 	let num_limbs: [u64] = []
@@ -1351,7 +1341,7 @@ bind parse_float = (s: string) ?float: {
 			if(b >= u8(48) and b <= u8(57)): {
 				let d = int(b) - 48
 				has_digits = true
-				if(sig_count == 0): {
+				if(sig_count == 0):
 					if(d == 0): {
 						if(dec_exp > -exp_clamp): dec_exp -= 1
 					} else: {
@@ -1360,7 +1350,7 @@ bind parse_float = (s: string) ?float: {
 						stored_digits = 1
 						if(dec_exp > -exp_clamp): dec_exp -= 1
 					}
-				} else if(sig_count < 15): {
+				else if(sig_count < 15): {
 					mant_u64 = mant_u64 * u64(10) + u64(d)
 					sig_count += 1
 					stored_digits += 1
@@ -1371,9 +1361,7 @@ bind parse_float = (s: string) ?float: {
 					sig_count += 1
 					stored_digits += 1
 					if(dec_exp > -exp_clamp): dec_exp -= 1
-				} else: {
-					if(d != 0): extra_nonzero = true
-				}
+				} else if(d != 0): extra_nonzero = true
 				i += 1
 			} else: for <-
 		}

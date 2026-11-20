@@ -859,6 +859,18 @@ type ContainsPattern struct {
 func (*ContainsPattern) patternNode()         {}
 func (p *ContainsPattern) GetSpan() diag.Span { return p.Span }
 
+// MethodPattern matches `<method>[T...](args...)` by invoking a bool-returning method on the scrutinee.
+type MethodPattern struct {
+	Method     string
+	MethodSpan diag.Span
+	TypeArgs   []TypeExpr
+	Args       []Expr
+	Span       diag.Span
+}
+
+func (*MethodPattern) patternNode()         {}
+func (p *MethodPattern) GetSpan() diag.Span { return p.Span }
+
 // WildcardPattern matches `_` as a standalone pattern.
 type WildcardPattern struct {
 	Span diag.Span

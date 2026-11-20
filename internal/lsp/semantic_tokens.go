@@ -856,6 +856,20 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 					c.visitExpr(bm, p.Expr, false)
 				case *ast.ContainsPattern:
 					c.visitExpr(bm, p.Container, false)
+				case *ast.MethodPattern:
+					if bm != nil {
+						if mpInfo := bm.MethodPatterns[p]; mpInfo != nil && mpInfo.Call != nil {
+							c.visitExpr(bm, mpInfo.Call, false)
+							continue
+						}
+					}
+					for _, ta := range p.TypeArgs {
+						c.visitTypeExpr(ta)
+					}
+					for _, a := range p.Args {
+						c.visitExpr(bm, a, false)
+					}
+					c.emitLastIdentInSpan(p.MethodSpan, p.Method, semTokMethod, 0)
 				case *ast.VariantPattern:
 					c.visitExpr(bm, p.Target, false)
 					for _, b := range p.Bindings {

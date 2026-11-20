@@ -2285,6 +2285,12 @@ func findSentinelInExpr(e ast.Expr) *ast.MemberExpr {
 					if m := findSentinelInExpr(p.Container); m != nil {
 						return m
 					}
+				case *ast.MethodPattern:
+					for _, a := range p.Args {
+						if m := findSentinelInExpr(a); m != nil {
+							return m
+						}
+					}
 				}
 			}
 			if m := findSentinelInExpr(arm.Body); m != nil {

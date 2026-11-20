@@ -799,6 +799,17 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) Expr {
 						}
 					case *ast.ContainsPattern:
 						slotCond = fl.lowerContainsPattern(p, fl.bm.ContainsPatterns[p], si.scrutValExpr)
+					case *ast.MethodPattern:
+						if mpInfo := fl.bm.MethodPatterns[p]; mpInfo != nil {
+							if fl.exprOverrides == nil {
+								fl.exprOverrides = make(map[ast.Expr]Expr)
+							}
+							fl.exprOverrides[mpInfo.RecvExpr] = si.scrutValExpr
+							slotCond = fl.lowerCallExpr(mpInfo.Call, fl.info(mpInfo.Call))
+							delete(fl.exprOverrides, mpInfo.RecvExpr)
+						} else {
+							slotCond = NewLitBool(false)
+						}
 					case *ast.VariantPattern:
 						mem := p.Target.(*ast.MemberExpr)
 						if vr := fl.info(mem).EnumVariant; vr != nil {

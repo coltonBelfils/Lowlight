@@ -2843,6 +2843,28 @@ func (p *Parser) parseSinglePattern() ast.Pattern {
 		return &ast.WildcardPattern{Span: tk.Span}
 	}
 	first := p.parsePatternAtom()
+	if id, isId := first.(*ast.IdentExpr); isId && !id.IsOpt && id.Name != "self" {
+		if p.cur().Kind == token.LParen {
+			args, endPos := p.parseArgList()
+			return &ast.MethodPattern{
+				Method:     id.Name,
+				MethodSpan: id.Span,
+				Args:       args,
+				Span:       diag.Span{Start: id.Span.Start, End: endPos},
+			}
+		}
+		if p.cur().Kind == token.LBracket && p.looksLikeGenericTypeArgs(first) && p.peekAfterBracketIs(token.LParen) {
+			targs := p.parseTypeArgBracket()
+			args, endPos := p.parseArgList()
+			return &ast.MethodPattern{
+				Method:     id.Name,
+				MethodSpan: id.Span,
+				TypeArgs:   targs,
+				Args:       args,
+				Span:       diag.Span{Start: id.Span.Start, End: endPos},
+			}
+		}
+	}
 	if _, isMem := first.(*ast.MemberExpr); isMem {
 		if p.cur().Kind == token.LParen {
 			bindings, endPos := p.parseTupleVariantPatternBindings()
@@ -2885,7 +2907,7 @@ func (p *Parser) parsePatternAtom() ast.Expr {
 	}
 	base := p.parsePrimaryExpr()
 	for {
-		if p.cur().Kind == token.LBracket && p.scanGenericBracketLookahead(p.pos, canTakeTypeArgsBeforeDot(base)) && p.peekAfterBracketIsDot() {
+		if p.cur().Kind == token.LBracket && p.scanGenericBracketLookahead(p.pos, canTakeTypeArgsBeforeDot(base)) && p.peekAfterBracketIs(token.Dot) {
 			targs := p.parseTypeArgBracket()
 			p.expect(token.Dot, "after generic enum type arguments in pattern")
 			mem := p.expect(token.Ident, "enum variant in pattern")
@@ -2912,7 +2934,7 @@ func (p *Parser) parsePatternAtom() ast.Expr {
 	return base
 }
 
-func (p *Parser) peekAfterBracketIsDot() bool {
+func (p *Parser) peekAfterBracketIs(kind token.Kind) bool {
 	depth := 0
 	for i := p.pos; i < len(p.toks); i++ {
 		switch p.toks[i].Kind {
@@ -2921,7 +2943,7 @@ func (p *Parser) peekAfterBracketIsDot() bool {
 		case token.RBracket:
 			depth--
 			if depth == 0 {
-				return i+1 < len(p.toks) && p.toks[i+1].Kind == token.Dot
+				return i+1 < len(p.toks) && p.toks[i+1].Kind == kind
 			}
 		case token.EOF:
 			return false

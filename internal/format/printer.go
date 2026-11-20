@@ -108,6 +108,30 @@ func (p *printer) trySingleLine(fn func(*printer)) (string, bool) {
 	return out, !strings.ContainsRune(out, '\n')
 }
 
+// isIntrinsicallySingleLine reports whether `e` renders on a single line when
+// LineWidth is ignored (i.e. it has no block, multi-arm, or other structural
+// line breaks). Expressions that only exceed LineWidth are still single-line.
+func (p *printer) isIntrinsicallySingleLine(e ast.Expr) bool {
+	sub := p.cloneTrial(p.indent, false)
+	sub.opts.LineWidth = 0
+	sub.printExpr(e)
+	return !strings.ContainsRune(sub.buf.String(), '\n')
+}
+
+// printInlineColonExpr writes a single-line body right after `:` on the header line.
+// If it overflows LineWidth, the expression wraps itself (e.g. call arguments), exactly
+// as it would after `let x =` or `<-`, instead of being pushed onto its own line.
+func (p *printer) printInlineColonExpr(body ast.Expr) {
+	p.write(" ")
+	if single, ok := p.trySingleLine(func(sub *printer) {
+		sub.printExpr(body)
+	}); ok && p.fitsLineWidth(single) {
+		p.write(single)
+		return
+	}
+	p.printExpr(body)
+}
+
 func (p *printer) tryFormatIndented(indent int, fn func(*printer)) string {
 	sub := p.cloneTrial(indent, false)
 	fn(sub)
@@ -1104,18 +1128,15 @@ func (p *printer) printColonBodyGuarded(headerStartOff int, rawBody ast.Expr, al
 		return
 	}
 
-	// Single expression or single statement body.
-	if !p.hasCommentsInRange(body.GetSpan().Start.Offset, body.GetSpan().End.Offset) {
-		if single, okSingle := p.trySingleLine(func(sub *printer) {
-			sub.printExpr(body)
-		}); okSingle && p.fitsLineWidth(" "+single) && !preferNextLineExpr(body) {
-			p.write(" ")
-			p.write(single)
-			return
-		}
+	// Single expression or single statement body: stays on the header line whenever it is
+	// intrinsically single-line, even if it exceeds LineWidth (it then wraps internally).
+	if !p.hasCommentsInRange(body.GetSpan().Start.Offset, body.GetSpan().End.Offset) &&
+		!preferNextLineExpr(body) && p.isIntrinsicallySingleLine(body) {
+		p.printInlineColonExpr(body)
+		return
 	}
 
-	// Multiline single expression (or exceeds LineWidth): next line, tabbed in.
+	// True multiline single expression: next line, tabbed in.
 	p.newline()
 	p.indent++
 	p.writeIndent()
@@ -2431,19 +2452,9 @@ func (p *printer) printIfBranchChain(v *ast.IfExpr) {
 		p.writeIndent()
 		p.write("}")
 		thenIsBlock = true
-	} else if !p.hasCommentsInRange(thenUnwrapped.GetSpan().Start.Offset, thenUnwrapped.GetSpan().End.Offset) && !preferNextLineExpr(thenUnwrapped) {
-		if single, ok := p.trySingleLine(func(sub *printer) {
-			sub.printExpr(thenUnwrapped)
-		}); ok && p.fitsLineWidth(" "+single) {
-			p.write(" ")
-			p.write(single)
-		} else {
-			p.newline()
-			p.indent++
-			p.writeIndent()
-			p.printExpr(thenUnwrapped)
-			p.indent--
-		}
+	} else if !p.hasCommentsInRange(thenUnwrapped.GetSpan().Start.Offset, thenUnwrapped.GetSpan().End.Offset) &&
+		!preferNextLineExpr(thenUnwrapped) && p.isIntrinsicallySingleLine(thenUnwrapped) {
+		p.printInlineColonExpr(thenUnwrapped)
 	} else {
 		p.newline()
 		p.indent++
@@ -2627,6 +2638,26 @@ func (p *printer) printPattern(pat ast.Pattern) {
 	case *ast.ContainsPattern:
 		p.write("in ")
 		p.printExpr(v.Container)
+	case *ast.MethodPattern:
+		p.write(v.Method)
+		if len(v.TypeArgs) > 0 {
+			p.write("[")
+			for i, ta := range v.TypeArgs {
+				if i > 0 {
+					p.write(", ")
+				}
+				p.printTypeExpr(ta)
+			}
+			p.write("]")
+		}
+		p.write("(")
+		for i, a := range v.Args {
+			if i > 0 {
+				p.write(", ")
+			}
+			p.printExpr(a)
+		}
+		p.write(")")
 	case *ast.VariantPattern:
 		p.printExpr(v.Target)
 		if len(v.Bindings) > 0 {

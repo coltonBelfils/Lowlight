@@ -1409,6 +1409,7 @@ Lowlight's `match` expression supports 0, 1, or multiple scrutinee arguments:
        default: "unreachable"
    ```
    - **Containment pattern (`when in <expr>`):** Checks membership in any container expression satisfying `Containable[T]` (evaluating `<expr>.contains(scrutinee)` lazily left-to-right and short-circuiting on the first match). Valid containers include `Range[T]` literals and variables (`when in '0'..='9':`, `when in r:`), lists (`when in ['1', '2', '3']:`), fixed arrays (`[N: T]`), sets (`#[T]`), maps (`#[K: V]`, matching against map keys), strings (`string`, checking substring containment via `when in s:`), boxed `Containable[T]` interface values, and custom types implementing `contains(self, item: T) bool`. Bare range expressions in patterns (e.g. `when 1..=5:`) are rejected when matching a non-`Range` scrutinee and must use `when in 1..=5:`. Can be mixed freely with literal/variant patterns (`when 0, in 1..=5, in [10, 20]:`) and used in multi-argument `match` arms (`when in 1..=5, in 10..=20:`). For optional scrutinees `?T`, a container may hold either `?T` or unwrapped `T` (matching `some(v)` when `v` is contained).
+   - **Method predicate pattern (`when method[T...](args...)`):** Calls a read-only (`self`) method on the corresponding scrutinee that returns `bool` (evaluating `scrutinee.method(args...)` lazily left-to-right and short-circuiting on the first match). Mutating (`&self`) and consuming (`own self`) methods, non-`bool` return types, and optional scrutinees (`?T`) are rejected, and method predicate patterns do not count toward enum/bool exhaustiveness. Can be mixed freely with other patterns (`when is_digit(), '.':`) and used in multi-argument `match` arms (`when is_digit(), is_alpha():`).
 
 3. **Multi-Argument `match (s1, s2, ...) [<type>]:` ($N \ge 2$):**
    Matches multiple scrutinees positionally. All scrutinees are evaluated left-to-right once upon entering the `match`:
@@ -1849,6 +1850,7 @@ Importing `"std/test"` binds the `test` qualifier providing comprehensive assert
 - `test.assert_is_err[T](res: &Result[T])` / `test.assert_is_err_msg(...)`
 - `test.assert_some[T](val?: ?T)`
 - `test.assert_none[T](val?: ?T)`
+- Batch assertions (`test.assert_all_*` / `test.assert_all_*_msg`): mirror the full assertion suite over slices/arrays — `[+[T, T]]` (with `.0` as `expected` and `.1` as `actual`), `[+[T, Result[T]]]`, or unary `[T]` — evaluating every case rather than stopping at the first failure and reporting an aggregate pass/fail summary with per-index diffs (`assert_all_eq`, `assert_all_ne`, `assert_all_approx_eq`, `assert_all_true`, `assert_all_false`, `assert_all_gt`, `assert_all_lt`, `assert_all_ge`, `assert_all_le`, `assert_all_contains`, `assert_all_starts_with`, `assert_all_ends_with`, `assert_all_is_ok`, `assert_all_is_err`, `assert_all_ok_*`, `assert_all_err_contains`, `assert_all_some`, `assert_all_none`), plus `assert_all_eq_named` / `assert_all_ok_eq_named` (`+[label, expected, actual]`), `assert_all_eq_by`, `assert_all_with`, and `assert_any_eq`.
 
 Failed assertions display:
 ```
@@ -2102,6 +2104,7 @@ MatchClause         = "(" Pattern { "," Pattern } [ "," ] ")"
                     | Pattern { "," Pattern } ;
 Pattern             = Literal
                     | "_"
+                    | Ident [ TypeArgs ] "(" [ ArgList ] ")"
                     | Ident
                     | Ident "." Ident [ "(" PatternBinding ")" ]
                     | "in" Expr ;
