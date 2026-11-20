@@ -5,9 +5,9 @@ Tasks are atomic and ordered from easiest to most involved.
 ## Stdlib Bug Fixes & Targeted Library Additions
 
 - [x] Check `ferror`/`flush`/`close` and support non-seekable files in `std/fs.ll:162-242`.
-- [ ] Use `str_from_raw` and distinguish clean EOF in `TcpStream.recv` (`std/net.ll:57-73`).
-- [ ] Normalize negative pre-1970 nanoseconds in `from_unix_millis`/`nanos` (`std/time.ll:284-295`).
-- [ ] Fix negative formatting in `Duration.to_string` in `std/time.ll`.
+- [x] Use `str_from_raw` and distinguish clean EOF in `TcpStream.recv` (`std/net.ll:57-73`).
+- [x] Normalize negative pre-1970 nanoseconds in `from_unix_millis`/`nanos` (`std/time.ll:284-295`).
+- [x] Fix negative formatting in `Duration.to_string` in `std/time.ll`.
 - [ ] Handle `i64` overflow in `diff`, `add_duration`, and `sub_duration` in `std/time.ll`.
 - [ ] Fix `.999` formatting in `format_go` (`std/time.ll:603-611`).
 - [ ] Fix local timezone names in `format_go` (`std/time.ll:244,523-636`).

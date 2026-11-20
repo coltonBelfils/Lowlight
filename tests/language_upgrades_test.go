@@ -1317,7 +1317,7 @@ bind main = (): {
 	assert(sp.first.send("abc").is_ok())
 	unsafe sys_net_shutdown(sp.first.raw_fd(), 1)
 	assert(sp.second.recv(16, 1000).unwrap() == "abc")
-	assert(sp.second.recv(16, 1000).unwrap() == "")
+	assert(sp.second.recv(16, 1000).unwrap_err().has_code("eof"))
 }
 `, mkTarget, mkTarget, mkTarget, mkTarget)
 

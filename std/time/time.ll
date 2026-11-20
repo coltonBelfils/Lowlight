@@ -43,18 +43,15 @@ bind Duration.to_millis = (self) float: float(self.nanos) / 1000000.0
 bind Duration.to_secs = (self) float: float(self.nanos) / 1000000000.0
 
 // Formats the duration automatically using `ns`, `µs`, `ms`, or `s` units.
-bind Duration.to_string = (self) string:
-	if(self.nanos < 1000): "${self.nanos} ns"
-	else if(self.nanos < 1000000): {
-		let us = float(self.nanos) / 1000.0
-		"${strconv.float_to_str(us, 2)} µs"
-	} else if(self.nanos < 1000000000): {
-		let ms = float(self.nanos) / 1000000.0
-		"${strconv.float_to_str(ms, 2)} ms"
-	} else: {
-		let s = float(self.nanos) / 1000000000.0
-		"${strconv.float_to_str(s, 3)} s"
-	}
+bind Duration.to_string = (self) string: {
+	let sign = if(self.nanos < 0): "-" else: ""
+	// Use a float magnitude so negating the minimum `int` cannot overflow.
+	let mag = if(self.nanos < 0): -float(self.nanos) else: float(self.nanos)
+	if(mag < 1000.0): "$sign${int(mag)} ns"
+	else if(mag < 1000000.0): "$sign${strconv.float_to_str(mag / 1000.0, 2)} µs"
+	else if(mag < 1000000000.0): "$sign${strconv.float_to_str(mag / 1000000.0, 2)} ms"
+	else: "$sign${strconv.float_to_str(mag / 1000000000.0, 3)} s"
+}
 
 // Measurement from a monotonic OS clock, suitable for benchmarking and timeouts.
 //
@@ -218,6 +215,12 @@ bind _days_from_civil = (y: int, m: int, d: int) int: {
 	era * 146097 + doe - 719468
 }
 
+// Floor division for positive `d`: rounds toward negative infinity so `n - q * d` is in `0..d`.
+bind _floor_div = (n: int, d: int) int: {
+	let q = n / d
+	if(n % d < 0): q - 1 else: q
+}
+
 bind _build_datetime_from_epoch = (epoch_sec: int, nano: int, is_local: bool) DateTime: {
 	let off = if(is_local): unsafe sys_local_tz_offset(epoch_sec) else: 0
 	let adj_sec = epoch_sec + off
@@ -282,15 +285,15 @@ bind DateTime.from_unix_secs = (secs: int, is_local: bool) DateTime:
 
 // Constructs a [`DateTime`] from Unix epoch milliseconds, preserving millisecond sub-second precision.
 bind DateTime.from_unix_millis = (ms: int, is_local: bool) DateTime: {
-	let sec = ms / 1000
-	let nano = ms % 1000 * 1000000
+	let sec = _floor_div(ms, 1000)
+	let nano = (ms - sec * 1000) * 1000000
 	_build_datetime_from_epoch(sec, nano, is_local)
 }
 
 // Constructs a [`DateTime`] from Unix epoch nanoseconds.
 bind DateTime.from_unix_nanos = (nanos: int, is_local: bool) DateTime: {
-	let sec = nanos / 1000000000
-	let nano = nanos % 1000000000
+	let sec = _floor_div(nanos, 1000000000)
+	let nano = nanos - sec * 1000000000
 	_build_datetime_from_epoch(sec, nano, is_local)
 }
 
@@ -971,4 +974,45 @@ bind test_time_datetime_and_parse = (): {
 	let dt_plus = dt.copy().add_duration(Duration.from_secs(15.0))
 	let diff = dt_plus.diff(dt)
 	assert(diff.to_secs() == 15.0, "diff is 15 seconds")
+}
+
+@test("time pre-1970 millis/nanos normalize to a non-negative nanosecond field")
+bind test_time_pre_epoch_subsecond = (): {
+	let m1 = DateTime.from_unix_millis(-1, false)
+	assert(m1.year == 1969 and m1.month == 12 and m1.day == 31, "-1 ms is 1969-12-31")
+	assert(m1.hour == 23 and m1.minute == 59 and m1.second == 59, "-1 ms is 23:59:59")
+	assert(m1.nanosecond == 999000000, "-1 ms has nanosecond 999_000_000")
+	assert(m1.unix_secs == -1, "-1 ms floors to unix second -1")
+
+	let m2 = DateTime.from_unix_millis(-1500, false)
+	assert(m2.second == 58 and m2.nanosecond == 500000000, "-1500 ms is :58.500")
+	assert(m2.unix_secs == -2, "-1500 ms floors to unix second -2")
+
+	let m3 = DateTime.from_unix_millis(-2000, false)
+	assert(m3.second == 58 and m3.nanosecond == 0, "-2000 ms is exactly :58")
+
+	let n1 = DateTime.from_unix_nanos(-1, false)
+	assert(n1.second == 59 and n1.nanosecond == 999999999, "-1 ns is :59.999999999")
+	assert(n1.unix_secs == -1, "-1 ns floors to unix second -1")
+
+	let p1 = DateTime.from_unix_millis(1500, false)
+	assert(p1.second == 1 and p1.nanosecond == 500000000, "positive millis unchanged")
+
+	let epoch = DateTime.from_unix_secs(0, false)
+	let before = epoch.sub_duration(Duration.from_nanos(250))
+	assert(before.unix_secs == -1 and before.nanosecond == 999999750, "sub_duration across the epoch")
+	let after = before.add_duration(Duration.from_nanos(250))
+	assert(after.unix_secs == 0 and after.nanosecond == 0, "add_duration back to the epoch")
+}
+
+@test("time negative Duration.to_string picks units by magnitude")
+bind test_time_negative_duration_string = (): {
+	assert(Duration.from_nanos(-50).to_string() == "-50 ns", "negative ns")
+	assert(Duration.from_nanos(-5000).to_string() == "-5.00 µs", "negative µs")
+	assert(Duration.from_nanos(-2500000).to_string() == "-2.50 ms", "negative ms")
+	assert(Duration.from_nanos(-1500000000).to_string() == "-1.500 s", "negative s")
+	assert(Duration.from_nanos(5000).to_string() == "5.00 µs", "positive µs unchanged")
+	assert(Duration.from_nanos(0).to_string() == "0 ns", "zero")
+	let min_str = Duration.from_nanos(-9223372036854775807 - 1).to_string()
+	assert(min_str.starts_with("-") and min_str.ends_with(" s"), "minimum int does not overflow")
 }

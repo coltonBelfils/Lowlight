@@ -49,27 +49,30 @@ bind TcpStream.send = (&self, data: string) Result[int]: {
 
 // Reads up to `max_len` bytes (defaulting to `4096` when `max_len <= 0`) waiting up to `timeout_ms`.
 //
+// Returns the bytes received by a single OS read, which may be fewer than `max_len`.
+//
 // - `max_len`: Maximum byte count to read in one call.
-// - `timeout_ms`: Timeout in milliseconds (`0` or negative behavior depends on platform poll/timeout).
+// - `timeout_ms`: Timeout in milliseconds (negative waits indefinitely).
 //
 // # Errors
-// Fails with error code `"timeout"` on read timeout, or a generic [`Error`] on closed/failed sockets.
+// Fails with error code `"eof"` when the peer has closed the connection cleanly, `"timeout"`
+// when no data arrives within `timeout_ms`, or a generic [`Error`] on closed/failed sockets.
 bind TcpStream.recv = (&self, max_len: int, timeout_ms: int) Result[string]: {
 	if(self._fd < 0): func <- Result[string].fail(Error.new("recv on closed TcpStream"))
 	let limit = if(max_len <= 0): 4096 else: max_len
-	let buf = ""
 	unsafe {
 		let raw = alloc_raw[u8](limit)
 		let n = sys_net_recv(self._fd, raw, limit, timeout_ms)
-		if(n < 0): {
+		if(n <= 0): {
 			free_raw(raw)
+			if(n == 0): func <- Result[string].fail(Error.coded("eof", "connection closed by peer"))
 			if(n == -2): func <- Result[string].fail(Error.coded("timeout", "read timeout"))
 			func <- Result[string].fail(Error.new("recv error"))
 		}
-		for(i in 0..n): buf.push_byte(*ptr_add(raw, i))
+		let out = str_from_raw(raw, n)
 		free_raw(raw)
+		Result[string].ok(own out)
 	}
-	Result[string].ok(own buf)
 }
 
 // Opens a TCP connection to `host:port` waiting at most `timeout_ms` milliseconds.
@@ -239,4 +242,23 @@ bind test_net_closed_stream_errors = (): {
 
 	let recv_res = s.recv(512, 100)
 	assert(recv_res.is_err(), "recv on closed stream returns error")
+}
+
+@test("net recv distinguishes clean EOF and timeout")
+bind test_net_recv_eof_and_timeout = (): {
+	let pair = socketpair().unwrap()
+	let timeout_res = pair.first.recv(64, 10)
+	assert(timeout_res.is_err(), "recv with no data times out")
+	assert(timeout_res.unwrap_err().has_code("timeout"), "timeout has code \"timeout\"")
+
+	let payload = "bin\u{0}ary\u{1}"
+	assert(pair.second.send(payload).is_ok(), "send succeeds")
+	let got = pair.first.recv(64, 1000)
+	assert(got.is_ok(), "recv after send succeeds")
+	assert(got.unwrap() == payload, "payload with NUL bytes round-trips")
+
+	pair.second.close()
+	let eof_res = pair.first.recv(64, 1000)
+	assert(eof_res.is_err(), "recv after peer close fails")
+	assert(eof_res.unwrap_err().has_code("eof"), "peer close has code \"eof\"")
 }

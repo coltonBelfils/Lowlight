@@ -40,14 +40,10 @@ bind main = (): {
         for (true): {
             let data_res = stream.recv(4096, 10000)
             if (data_res.is_err()): {
-                // Connection closed or timed out
+                // `"eof"`: client disconnected cleanly; `"timeout"`: no data within 10s
                 for <-
             }
             let data = data_res.unwrap()
-            if (data.is_empty()): {
-                // Client disconnected (EOF)
-                for <-
-            }
 
             println("Received: ${data.trim()}")
             if (stream.send("Echo: ${data}").is_err()): {
