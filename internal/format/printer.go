@@ -22,6 +22,10 @@ type printer struct {
 	buf              strings.Builder
 	indent           int
 	suppressComments bool
+	// ignoreSourceBreaks makes layout decisions ignore line breaks present in the input
+	// source (e.g. multiline argument lists), so structure-only checks give the same answer
+	// whether or not the input was already formatted.
+	ignoreSourceBreaks bool
 }
 
 func newPrinter(src string, comments []lexer.Comment, opts Options) *printer {
@@ -36,11 +40,12 @@ func newPrinter(src string, comments []lexer.Comment, opts Options) *printer {
 
 func (p *printer) cloneTrial(indent int, allowComments bool) *printer {
 	return &printer{
-		src:              p.src,
-		lines:            p.lines,
-		opts:             p.opts,
-		indent:           indent,
-		suppressComments: !allowComments,
+		src:                p.src,
+		lines:              p.lines,
+		opts:               p.opts,
+		indent:             indent,
+		suppressComments:   !allowComments,
+		ignoreSourceBreaks: p.ignoreSourceBreaks,
 	}
 }
 
@@ -111,9 +116,14 @@ func (p *printer) trySingleLine(fn func(*printer)) (string, bool) {
 // isIntrinsicallySingleLine reports whether `e` renders on a single line when
 // LineWidth is ignored (i.e. it has no block, multi-arm, or other structural
 // line breaks). Expressions that only exceed LineWidth are still single-line.
+//
+// Line breaks already present in the source (such as call arguments wrapped by a
+// previous formatting pass) are ignored, so the answer is the same on every pass and
+// formatting stays idempotent.
 func (p *printer) isIntrinsicallySingleLine(e ast.Expr) bool {
 	sub := p.cloneTrial(p.indent, false)
 	sub.opts.LineWidth = 0
+	sub.ignoreSourceBreaks = true
 	sub.printExpr(e)
 	return !strings.ContainsRune(sub.buf.String(), '\n')
 }
@@ -2006,6 +2016,9 @@ done:
 }
 
 func (p *printer) wasChainMultiline(root ast.Expr, links []chainLink) bool {
+	if p.ignoreSourceBreaks {
+		return false
+	}
 	prevEndLine := root.GetSpan().End.Line
 	if prevEndLine <= 0 {
 		return false
@@ -2070,6 +2083,9 @@ func (p *printer) printTypeArgList(targs []ast.TypeExpr) {
 // -----------------------------------------------------------------------------
 
 func (p *printer) wasSpanMultiline(span diag.Span, firstItem, lastItem diag.Span) bool {
+	if p.ignoreSourceBreaks {
+		return false
+	}
 	if firstItem.Start.Line > 0 && lastItem.End.Line > firstItem.Start.Line {
 		return true
 	}
@@ -2144,9 +2160,15 @@ func (p *printer) printDelimExprList(openDelim, closeDelim string, elems []ast.E
 			(p.hasCommentsBetweenOffsets(containerSpan.Start.Offset, argSpan.Start.Offset) ||
 				p.hasCommentsBetweenOffsets(argSpan.End.Offset, containerSpan.End.Offset))
 		if !hasOuterComments && !p.hasCommentsInRange(argSpan.Start.Offset, argSpan.End.Offset) {
+			// Render the trial from the real current column (not column 0) so width-driven breaks
+			// inside the argument match the final output; otherwise the first pass rejects this
+			// compact layout and the second pass (seeing the now-multiline argument) accepts it.
+			cur := p.buf.String()
+			linePrefix := cur[strings.LastIndexByte(cur, '\n')+1:]
 			sub := p.cloneTrial(p.indent, false)
+			sub.write(linePrefix)
 			sub.printExpr(elems[0])
-			argText := sub.buf.String()
+			argText := sub.buf.String()[len(linePrefix):]
 			firstNL := strings.IndexByte(argText, '\n')
 			if firstNL > 0 && p.fitsLineWidth(argText[:firstNL]) {
 				p.printExpr(elems[0])

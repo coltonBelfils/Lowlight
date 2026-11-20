@@ -452,3 +452,59 @@ bind main = (): {
 		t.Fatalf("single-item multiline formatting mismatch!\n--- got ---\n%s--- want ---\n%s", got, want)
 	}
 }
+
+// A single-line `if` body that overflows LineWidth stays on the header line and wraps its
+// call arguments; the second pass must not then move the (now multiline) call to its own line.
+func TestOverflowingIfBodyIsIdempotent(t *testing.T) {
+	src := `bind check = (idx: int, len: int): {
+	if(idx < 0 or idx > len): panic("List.insert: index $idx out of bounds for length ${len} and some more text")
+	let ok = true
+}
+`
+	want := `bind check = (idx: int, len: int): {
+	if(idx < 0 or idx > len): panic(
+		"List.insert: index $idx out of bounds for length $len and some more text"
+	)
+	let ok = true
+}
+`
+	if got := mustFormat(t, src, format.DefaultOptions()); got != want {
+		t.Fatalf("unexpected output:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A call whose single list-literal argument overflows LineWidth must pick the compact
+// `f([ ... ])` layout on the first pass, the same layout the second pass chooses. The trial
+// render of the argument used to start at column 0, so deep nesting flipped the decision.
+func TestOverflowingSingleCompositeArgIsIdempotent(t *testing.T) {
+	src := `bind main = (): {
+	let m = #[
+		"key": [
+			Json.Object(#[
+				"b": Json.Array([Json.Number(Number.Int(1)), Json.Number(Number.Float(2.5)), Json.Bool(true), Json.Null]),
+				"c": 1,
+			]),
+		],
+	]
+}
+`
+	want := `bind main = (): {
+	let m = #[
+		"key": [
+			Json.Object(#[
+				"b": Json.Array([
+					Json.Number(Number.Int(1)),
+					Json.Number(Number.Float(2.5)),
+					Json.Bool(true),
+					Json.Null,
+				]),
+				"c": 1,
+			])
+		]
+	]
+}
+`
+	if got := mustFormat(t, src, format.DefaultOptions()); got != want {
+		t.Fatalf("unexpected output:\n%s\nwant:\n%s", got, want)
+	}
+}
