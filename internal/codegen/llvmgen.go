@@ -1626,6 +1626,11 @@ func (g *llvmEmitter) emitLValueAddr(e ir.Expr) string {
 			baseAddr = g.emitExpr(v.Base)
 		} else if v.IsPtr {
 			baseAddr = g.emitExpr(v.Base)
+			// A boxed `?Struct` (self-referential optional) is lowered as a nullable pointer to
+			// the struct, so field GEPs must index the pointee struct, not the `ptr` optional.
+			if opt, isOpt := baseTy.(*types.Optional); isOpt && opt.IsBoxed() {
+				baseTy = opt.Elem
+			}
 		} else {
 			baseAddr = g.emitLValueAddr(v.Base)
 		}

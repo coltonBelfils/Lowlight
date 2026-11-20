@@ -3,9 +3,11 @@ package ir
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"lowlight/internal/ast"
+	"lowlight/internal/diag"
 	"lowlight/internal/sema"
 	"lowlight/internal/token"
 	"lowlight/internal/types"
@@ -60,13 +62,13 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 		if bm == nil {
 			return
 		}
-		for _, inf := range bm.ExprInfos {
-			if inf != nil {
-				tc.visit(inf.Type)
-				tc.visit(inf.IntrinsicType)
-				if inf.BoxInterface != nil {
-					tc.visit(inf.BoxInterface)
-				}
+		// `ExprInfos` is keyed by AST pointer, so map iteration order is random. Visit in
+		// source order so `OrderedTypes`/`FuncTypes` (and thus emitted code) are deterministic.
+		for _, inf := range sortedExprInfos(bm.ExprInfos) {
+			tc.visit(inf.Type)
+			tc.visit(inf.IntrinsicType)
+			if inf.BoxInterface != nil {
+				tc.visit(inf.BoxInterface)
 			}
 		}
 	}
@@ -1108,4 +1110,57 @@ func (fl *funcLowerer) storeLoopRunningResult(loopScope *mirScope, elemExpr Expr
 		fl.assignLocal(loopScope.resultVar, elemExpr)
 	}
 	fl.emit(&InstrAssign{Dst: NewLocalExpr(loopScope.hasValVar), Expr: NewLitBool(true)})
+}
+
+// sortedExprInfos returns the non-nil entries of `infos` ordered by source span (file, start,
+// end), breaking ties by mangled type names, so type collection does not depend on Go map order.
+func sortedExprInfos(infos map[ast.Expr]*sema.ExprInfo) []*sema.ExprInfo {
+	type entry struct {
+		span diag.Span
+		key  string
+		inf  *sema.ExprInfo
+	}
+	entries := make([]entry, 0, len(infos))
+	for expr, inf := range infos {
+		if inf == nil {
+			continue
+		}
+		var span diag.Span
+		if expr != nil {
+			span = expr.GetSpan()
+		}
+		entries = append(entries, entry{span: span, key: exprInfoTypeKey(inf), inf: inf})
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		a, b := entries[i].span, entries[j].span
+		if a.Start.File != b.Start.File {
+			return a.Start.File < b.Start.File
+		}
+		if a.Start.Offset != b.Start.Offset {
+			return a.Start.Offset < b.Start.Offset
+		}
+		if a.End.Offset != b.End.Offset {
+			return a.End.Offset < b.End.Offset
+		}
+		return entries[i].key < entries[j].key
+	})
+	out := make([]*sema.ExprInfo, len(entries))
+	for i, e := range entries {
+		out[i] = e.inf
+	}
+	return out
+}
+
+func exprInfoTypeKey(inf *sema.ExprInfo) string {
+	var sb strings.Builder
+	for _, t := range []types.Type{inf.Type, inf.IntrinsicType} {
+		if t != nil {
+			sb.WriteString(t.Mangled())
+		}
+		sb.WriteByte('|')
+	}
+	if inf.BoxInterface != nil {
+		sb.WriteString(inf.BoxInterface.Mangled())
+	}
+	return sb.String()
 }
