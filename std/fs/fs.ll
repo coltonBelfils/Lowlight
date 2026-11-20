@@ -97,7 +97,8 @@ bind File.seek = (&self, offset: int, whence: i32) Result[int]: {
 		if(rc != 0): Result[int].fail(Error.new("fseek failed"))
 		else: {
 			let pos = sys_ftell(self._handle)
-			Result[int].ok(pos)
+			if(pos < 0): Result[int].fail(Error.new("ftell failed after seek"))
+			else: Result[int].ok(pos)
 		}
 	}
 }
@@ -112,6 +113,9 @@ bind File.tell = (&self) Result[int]: {
 }
 
 // Queries the total byte size of the file while preserving the current cursor position.
+//
+// # Errors
+// Fails on non-seekable streams (pipes, FIFOs, terminals) or if the cursor cannot be restored.
 bind File.size = (&self) Result[int]: {
 	if(not self.is_valid()): func <- Result[int].fail(Error.new("file is not open"))
 	unsafe {
@@ -120,8 +124,10 @@ bind File.size = (&self) Result[int]: {
 		if(sys_fseek(self._handle, 0, SEEK_END) != 0):
 			func <- Result[int].fail(Error.new("failed to seek to end"))
 		let total = sys_ftell(self._handle)
-		let _ = sys_fseek(self._handle, saved, SEEK_SET)
-		Result[int].ok(total)
+		if(sys_fseek(self._handle, saved, SEEK_SET) != 0):
+			func <- Result[int].fail(Error.new("failed to restore file position"))
+		if(total < 0): Result[int].fail(Error.new("failed to query file size"))
+		else: Result[int].ok(total)
 	}
 }
 
@@ -159,12 +165,21 @@ bind File.write_bytes = (&self, data: [u8]) Result[int]: {
 }
 
 // Reads up to `max_bytes` from the current stream offset into a byte list (`[u8]`).
+//
+// Returns fewer than `max_bytes` bytes only when EOF is reached first.
+//
+// # Errors
+// Fails if the stream is closed or the underlying read reports an I/O error (`ferror`).
 bind File.read_bytes = (&self, max_bytes: int) Result[[u8]]: {
 	if(not self.is_valid()): func <- Result[[u8]].fail(Error.new("file is not open"))
 	if(max_bytes <= 0): func <- Result[[u8]].ok([])
 	unsafe {
 		let raw = alloc_raw[u8](max_bytes)
 		let n = sys_fread(raw, 1, max_bytes, self._handle)
+		if(n < max_bytes and sys_ferror(self._handle) != i32(0)): {
+			free_raw(raw)
+			func <- Result[[u8]].fail(Error.new("read error after $n bytes"))
+		}
 		let out: [u8] = []
 		for(i in 0..n): out.push(raw[i])
 		free_raw(raw)
@@ -172,23 +187,59 @@ bind File.read_bytes = (&self, max_bytes: int) Result[[u8]]: {
 	}
 }
 
+// Reads all remaining bytes from the current stream cursor to EOF into a byte list (`[u8]`).
+//
+// Reads in fixed-size chunks without querying the file size, so it works on
+// non-seekable streams such as pipes, FIFOs, and character devices.
+//
+// # Errors
+// Fails if the stream is closed or the underlying read reports an I/O error (`ferror`).
+bind File.read_all_bytes = (&self) Result[[u8]]: {
+	if(not self.is_valid()): func <- Result[[u8]].fail(Error.new("file is not open"))
+	unsafe {
+		let chunk_size = 16384
+		let raw = alloc_raw[u8](chunk_size)
+		let out: [u8] = []
+		for(true): {
+			let n = sys_fread(raw, 1, chunk_size, self._handle)
+			for(i in 0..n): out.push(raw[i])
+			if(n < chunk_size): for <-
+		}
+		let had_err = sys_ferror(self._handle) != i32(0)
+		free_raw(raw)
+		if(had_err): Result[[u8]].fail(Error.new("read error after ${out.len()} bytes"))
+		else: Result[[u8]].ok(own out)
+	}
+}
+
 // Reads all remaining bytes from the current stream cursor to EOF as a [`string`].
+//
+// Works on non-seekable streams (pipes, FIFOs, character devices).
+//
+// # Errors
+// Fails if the stream is closed or the underlying read reports an I/O error (`ferror`).
 bind File.read_to_string = (&self) Result[string]: {
 	if(not self.is_valid()): func <- Result[string].fail(Error.new("file is not open"))
 	unsafe {
 		let chunk_size = 8192
 		let raw = alloc_raw[u8](chunk_size)
 		let out = ""
-		let n = sys_fread(raw, 1, chunk_size, self._handle)
-		while(n > 0): {
-			let chunk = str_from_raw(raw, n)
-			out.push(chunk)
-			n = sys_fread(raw, 1, chunk_size, self._handle)
+		for(true): {
+			let n = sys_fread(raw, 1, chunk_size, self._handle)
+			if(n > 0): out.push_bytes(raw, n)
+			if(n < chunk_size): for <-
 		}
+		let had_err = sys_ferror(self._handle) != i32(0)
 		free_raw(raw)
-		Result[string].ok(own out)
+		if(had_err): Result[string].fail(Error.new("read error after ${out.len()} bytes"))
+		else: Result[string].ok(own out)
 	}
 }
+
+// Closes the stream and converts a failed `fclose` (including a failed final flush) into an error.
+bind File._close_checked = (&self) Result[bool]:
+	if(self.close()): Result[bool].ok(true)
+	else: Result[bool].fail(Error.new("failed to flush and close file"))
 
 // -----------------------------------------------------------------------------
 // Top-Level Convenience Functions
@@ -218,8 +269,9 @@ bind write_file = (path: string, content: string) Result[bool]: {
 		)
 	let f = f_res.unwrap()
 	let w_res = f.write_string(content)
-	if(w_res.is_err()): Result[bool].fail(w_res.unwrap_err().wrap("failed to write to \"$path\""))
-	else: Result[bool].ok(true)
+	if(w_res.is_err()):
+		func <- Result[bool].fail(w_res.unwrap_err().wrap("failed to write to \"$path\""))
+	f._close_checked().wrap_err("failed to write to \"$path\"")
 }
 
 // Alias for [`write_file`].
@@ -237,19 +289,21 @@ bind append_file = (path: string, content: string) Result[bool]: {
 		)
 	let f = f_res.unwrap()
 	let w_res = f.write_string(content)
-	if(w_res.is_err()): Result[bool].fail(w_res.unwrap_err().wrap("failed to append to \"$path\""))
-	else: Result[bool].ok(true)
+	if(w_res.is_err()):
+		func <- Result[bool].fail(w_res.unwrap_err().wrap("failed to append to \"$path\""))
+	f._close_checked().wrap_err("failed to append to \"$path\"")
 }
 
 // Reads the entire file at `path` into a raw byte list (`[u8]`).
+//
+// Reads until EOF rather than trusting the reported size, so non-seekable
+// sources (pipes, FIFOs, `/dev/stdin`, procfs files) are read completely.
 bind read_bytes = (path: string) Result[[u8]]: {
 	let f_res = File.open_read(path)
 	if(f_res.is_err()):
 		func <- Result[[u8]].fail(f_res.unwrap_err().wrap("failed to open file \"$path\""))
 	let f = f_res.unwrap()
-	let sz_res = f.size()
-	let sz = if(sz_res.is_ok()): sz_res.unwrap() else: 8192
-	f.read_bytes(sz).wrap_err("failed to read bytes from \"$path\"")
+	f.read_all_bytes().wrap_err("failed to read bytes from \"$path\"")
 }
 
 // Writes byte sequence `data` to `path`, creating or overwriting the target file.
@@ -262,8 +316,8 @@ bind write_bytes = (path: string, data: [u8]) Result[bool]: {
 	let f = f_res.unwrap()
 	let w_res = f.write_bytes(data)
 	if(w_res.is_err()):
-		Result[bool].fail(w_res.unwrap_err().wrap("failed to write bytes to \"$path\""))
-	else: Result[bool].ok(true)
+		func <- Result[bool].fail(w_res.unwrap_err().wrap("failed to write bytes to \"$path\""))
+	f._close_checked().wrap_err("failed to write bytes to \"$path\"")
 }
 
 // Reports whether a file or directory exists at `path`.
@@ -306,10 +360,10 @@ bind copy_file = (src_path: string, dst_path: string) Result[int]: {
 	let src = src_res.unwrap()
 	let dst = dst_res.unwrap()
 
+	let total_copied = 0
 	unsafe {
 		let chunk_size = 16384
 		let raw = alloc_raw[u8](chunk_size)
-		let total_copied = 0
 		let n = sys_fread(raw, 1, chunk_size, src._handle)
 		while(n > 0): {
 			let written = sys_fwrite(raw, 1, n, dst._handle)
@@ -321,8 +375,13 @@ bind copy_file = (src_path: string, dst_path: string) Result[int]: {
 			n = sys_fread(raw, 1, chunk_size, src._handle)
 		}
 		free_raw(raw)
-		Result[int].ok(total_copied)
+		if(sys_ferror(src._handle) != i32(0)):
+			func <- Result[int].fail(Error.new("read failure during copy from \"$src_path\""))
 	}
+	let close_res = dst._close_checked()
+	if(close_res.is_err()):
+		func <- Result[int].fail(close_res.unwrap_err().wrap("failed to finish \"$dst_path\""))
+	Result[int].ok(total_copied)
 }
 
 // -----------------------------------------------------------------------------
@@ -444,4 +503,68 @@ bind test_fs_file_stream = (): {
 
 	let _ = f_rw.close()
 	assert(remove_file(path), "remove stream test file")
+}
+
+@test_only
+extern pipe as _test_pipe: (fds: ptr[i32]) i32
+
+@test_only
+extern close as _test_close: (fd: i32) i32
+
+@test("filesystem non-seekable streams: read_bytes and read_to_string read a pipe to EOF")
+bind test_fs_non_seekable = (): {
+	// Larger than the old 8 KiB fallback but within the minimum pipe buffer (16 KiB on macOS).
+	let payload_len = 12000
+	let run = (as_string: bool): {
+		unsafe {
+			let fds = alloc_raw[i32](2)
+			assert(_test_pipe(fds) == i32(0), "pipe() succeeds")
+			let payload: [u8] = []
+			for(i in 0..payload_len): payload.push(u8(65 + i % 26))
+			let w = File.open_write("/dev/fd/${fds[1]}").unwrap()
+			assert(w.write_bytes(payload).unwrap() == payload_len, "pipe write succeeds")
+			assert(w.close(), "pipe writer stream closes")
+			// The stream may hold a dup of the fd; close the original so the reader sees EOF.
+			let _ = _test_close(fds[1])
+			let path = "/dev/fd/${fds[0]}"
+			if(as_string): {
+				let f = File.open_read(path).unwrap()
+				assert(f.size().is_err(), "size fails on a pipe")
+				let s = f.read_to_string()
+				assert(s.is_ok(), "read_to_string on pipe succeeds")
+				assert(s.unwrap().len() == payload_len, "read_to_string reads the whole pipe")
+			} else: {
+				let r = read_bytes(path)
+				assert(r.is_ok(), "read_bytes on pipe succeeds")
+				let data = r.unwrap()
+				assert(data.len() == payload_len, "read_bytes reads the whole pipe")
+				assert(data[payload_len - 1] == u8(65 + (payload_len - 1) % 26), "last byte matches")
+			}
+			let _ = _test_close(fds[0])
+			free_raw(fds)
+		}
+	}
+	run(false)
+	run(true)
+}
+
+@test("filesystem read errors are reported instead of treated as EOF")
+bind test_fs_read_errors = (): {
+	let path = "${_test_tmp_path("fs_ferror")}.txt"
+	assert(write_file(path, "data").is_ok(), "write_file succeeds")
+
+	// Reading from a write-only stream sets the stream error flag.
+	let f = File.open_append(path).unwrap()
+	assert(f.read_to_string().is_err(), "read_to_string reports ferror")
+	assert(f.read_bytes(4).is_err(), "read_bytes reports ferror")
+	assert(f.read_all_bytes().is_err(), "read_all_bytes reports ferror")
+	let _ = f.close()
+
+	let closed = File.open_read(path).unwrap()
+	assert(closed.close(), "close succeeds")
+	assert(not closed.close(), "second close reports failure")
+	assert(not closed.flush(), "flush on closed file reports failure")
+	assert(closed.read_all_bytes().is_err(), "read on closed file fails")
+
+	assert(remove_file(path), "remove ferror test file")
 }
