@@ -1765,10 +1765,24 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 		return true, types.TypeVoid
 
 	case "panic":
-		fc.checkSignatureArgs([]types.FuncParam{{Name: "msg", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, nil, call.Span)
+		// `panic(msg: string)` or `panic(err: Error)`: a panic is a fatal `Error`, so both
+		// channels share one error type and one formatted trace (see SPECIFICATION.md §9.6).
 		inf.CallKind = CallBuiltinFunc
 		inf.BuiltinName = "panic"
 		inf.Type = types.TypeNever
+		if len(call.Args) != 1 {
+			fc.a.Rep.Errorf(call.Span, "`panic` expects 1 argument (a `string` message or an `Error`), got %d", len(call.Args))
+			for _, a := range call.Args {
+				fc.checkExpr(a, true)
+			}
+			return true, types.TypeNever
+		}
+		aty := fc.checkExpr(call.Args[0], true)
+		if aty.Equals(types.TypeString) {
+			fc.markViewIfApplicable(call.Args[0], types.TypeString)
+		} else if aty != types.TypeInvalid && !fc.a.isCoreErrorType(aty) {
+			fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`panic` expects a `string` message or an `Error`, got %s", aty.String())
+		}
 		return true, types.TypeNever
 
 	case "assert":
@@ -2307,4 +2321,14 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 
 	_ = strings.TrimSpace
 	return false, nil
+}
+
+// isCoreErrorType reports whether `t` is the prelude `Error` struct from `std/core`.
+func (a *Analyzer) isCoreErrorType(t types.Type) bool {
+	st, ok := t.(*types.Struct)
+	if !ok || st.Name != "Error" {
+		return false
+	}
+	mod := a.Prog.StructMods[st]
+	return mod != nil && mod.Pkg != nil && mod.Pkg.IsCore
 }

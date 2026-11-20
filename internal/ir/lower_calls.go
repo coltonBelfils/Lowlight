@@ -438,7 +438,13 @@ func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprIn
 		}
 
 	case "panic":
-		msg := fl.lowerExprRead(call.Args[0])
+		var msg Expr
+		if argTy := fl.info(call.Args[0]).Type; argTy.Equals(types.TypeString) {
+			msg = fl.lowerExprRead(call.Args[0])
+		} else {
+			// `panic(err: Error)`: report the error's full formatted message and trace.
+			msg = NewLocalExpr(fl.allocStmtTemp(types.TypeString, fl.toStringCallExpr(argTy, fl.lowerExprRead(call.Args[0]))))
+		}
 		var fileExpr, lineExpr, colExpr Expr
 		if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerFileLoc != nil {
 			fileExpr = NewLocalExpr(fl.callerFileLoc)

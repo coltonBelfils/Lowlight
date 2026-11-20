@@ -64,28 +64,32 @@ bind Result[T].unwrap_or = (own self, fallback: own T) T:
 // Consumes `self` and extracts the contained [`Ok`] value.
 //
 // # Panics
-// Calls [`panic`] with the formatted [`Error`] trace if `self` is [`Result.Err`].
+// If `self` is [`Result.Err`], panics with the error wrapped as
+// `"called Result.unwrap on an error"`, attributed to the caller, with the full [`Error`] trace.
+@track_caller
 bind Result[T].unwrap = (own self) T:
 	match(own self):
 		when Result.Ok(own val): val
-		default Result.Err(err): panic("called Result.unwrap on an error:\n" + err.to_string())
+		default Result.Err(own err): panic(err.wrap("called Result.unwrap on an error"))
 
 // Consumes `self` and extracts the contained [`Ok`] value with a caller-attributed message.
 //
-// - `msg`: Context prefix included if unwinding panics.
+// - `msg`: Context message the error is wrapped with if this panics.
 //
 // # Panics
-// Calls [`panic`] with `msg`, caller location, and [`Error`] trace if `self` is [`Result.Err`].
+// If `self` is [`Result.Err`], panics with the error wrapped as `msg`, attributed to the caller,
+// with the full [`Error`] trace.
 @track_caller
 bind Result[T].expect = (own self, msg: string) T:
 	match(own self):
 		when Result.Ok(own val): val
-		default Result.Err(err): panic("$msg (${caller_location()}):\n" + err.to_string())
+		default Result.Err(own err): panic(err.wrap(msg))
 
 // Consumes `self` and extracts the contained [`Error`].
 //
 // # Panics
-// Calls [`panic`] if `self` is [`Result.Ok`].
+// Calls [`panic`] (attributed to the caller) if `self` is [`Result.Ok`].
+@track_caller
 bind Result[T].unwrap_err = (own self) Error:
 	match(own self):
 		when Result.Err(own err): err
@@ -116,11 +120,11 @@ bind Result[T].peek_err = (self) ?Error:
 bind Result[T].wrap_err = (own self, msg: string) Result[T]:
 	match(own self):
 		when Result.Ok(own val): Result[T].Ok(own val)
-		default Result.Err(err): Result[T].Err(err.wrap(msg))
+		default Result.Err(own err): Result[T].Err(err.wrap(msg))
 
 // Appends the caller location as a trace frame if `self` is [`Result.Err`], passing [`Result.Ok`] through unchanged.
 @track_caller
 bind Result[T].trace_err = (own self) Result[T]:
 	match(own self):
 		when Result.Ok(own val): Result[T].Ok(own val)
-		default Result.Err(err): Result[T].Err(err.trace())
+		default Result.Err(own err): Result[T].Err(err.trace())

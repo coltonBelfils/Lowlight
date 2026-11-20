@@ -13,7 +13,7 @@ Tasks are atomic and ordered from easiest to most involved.
 - [x] Fix local timezone names in `format_go` (`std/time.ll:244,523-636`).
 - [x] Validate `DateTime` components in `std/time.ll`.
 - [x] Support ISO 8601 `Z`, fractional, and `+HH:MM` offsets in `std/time.ll`.
-- [ ] Add `assert_panics` to `std/test.ll`.
+- [ ] Add `assert_panics` to `std/test/test.ll` by running the closure in a forked child process (panics are abort-only per `SPECIFICATION.md` §9.6.1, so no in-language recovery), reporting the child's panic message or "did not panic"; re-exec the test binary with a filter on platforms without `fork`.
 - [ ] Fix `Server.serve` CPU spin on repeated `accept` failures in `std/http.ll`.
 - [ ] Populate `req.remote_addr` in HTTP `Server` connection handling in `std/http.ll`.
 - [ ] Fix path vs query `+` decoding in `parse_url` (`std/http.ll`).
@@ -49,6 +49,21 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Provide borrowed read access to non-`Copyable` values in `Map`/`List` (`m.get(k)` and `m[k]` are unavailable when `V` has a custom `drop`, leaving only `remove`), e.g. a closure-scoped `with(key, ...)` API.
 - [ ] Consolidate duplicated std APIs (`strings.pad_left_char` vs `strfmt.pad_left_fill`, `count` vs `count_occurrences`, `capitalize` vs `to_title`, `core_sqrt` vs `math.sqrt`, `os.file_exists` vs `fs.exists`), deprecating one of each with `@deprecated`.
 - [ ] Emit the shortest round-trip representation (Ryu/Grisu) from `float.to_string` and string interpolation instead of 6 significant digits (`0.1 + 0.2` prints `0.3`, `123456789.0` prints `1.23457e+08`) in `format_float_prec` (`std/core/primitives.ll:310`).
+
+## Failure Model & API Naming Consistency
+
+Apply the `Result` vs. `panic` rules and the `x` / `try_x` naming convention from `SPECIFICATION.md` §9.6.1 across `std`.
+
+- [ ] Decide whether optional lookups (`List.get`, `Array.get`, `Map.get` returning `?T`, paired with panicking `xs[i]`) are an accepted exception to the `try_` prefix, and document the decision in `SPECIFICATION.md` §9.6.1.
+- [ ] Make `List.set` panic on an out-of-range index like `insert`/`remove` (it returns `false` and silently drops `val`), and add `List.try_set` (`std/core/list.ll:132`).
+- [ ] Add `List.try_insert`, `List.try_remove`, and `List.try_swap_remove` returning `Result`/`?T` alongside the panicking forms (`std/core/list.ll:144-200`).
+- [ ] Rename `strconv.parse_int_safe` / `parse_float_safe` (which return `?T`) to fit the convention, or remove them as duplicates of `parse_int` / `parse_float`, deprecating the old names with `@deprecated` (`std/strconv/strconv.ll:11-14`).
+- [ ] Return `Result` with the OS error message instead of `bool` from `File.close`, `File.flush`, `fs.remove_file`, and `fs.rename_file` (`std/fs/fs.ll`).
+- [ ] Return `Result` with the OS error message instead of `bool` from `os.mkdir`, `os.mkdir_p`, and `os.remove_all` (`std/os/os.ll`).
+- [ ] Return `Result[ExecResult]` from `os.exec` instead of reporting a failed launch as `exit_code: -1` (`std/os/os.ll:17`).
+- [ ] Replace success-only `Result[bool]` returns (`fs.write_file`, `fs.append_file`, `fs.write_bytes`) with a unit result (`Result[void]` or a dedicated unit type), adding compiler support if needed.
+- [ ] Audit `std` (especially `std/http`, `std/strconv`, `std/time` parsing) for panics reachable from external input, and convert them to `Result`/`?T` per §9.6.1.
+- [ ] Require a `# Panics` doc section on every public std function that can panic, and add a `lowlight doc` lint that flags missing ones.
 
 ## Parser, Sema, IR, Codegen & Runtime Hardening
 
@@ -105,7 +120,7 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Allow the bare `_` discard binding for optional values (`let _ = m.remove(k)` errors with "must end with `?`").
 - [ ] Stop emitting `@test_only` externs in non-test builds (a test-only `extern write` in `std/fs` broke the C11 package build of every program importing `std/fs`).
 - [ ] Avoid C11 prototype conflicts for user `extern` declarations of libc/POSIX functions missing from `stdCHeaderFuncs` (`internal/codegen/cgen.go:360`); e.g. `extern write: (fd: i32, buf: ptr[u8], n: int) int` fails `-Werror` against `unistd.h`.
-- [ ] Flush `stdout` before writing panic messages to `stderr` in both runtimes so output ordering is preserved.
+- [x] Flush `stdout` before writing panic messages to `stderr` in both runtimes so output ordering is preserved.
 - [ ] Log recovered panics (with stack) from `CheckForIDE` instead of silently swallowing them (`internal/sema/program.go:543-561`), and surface them through LSP `window/logMessage`.
 - [x] Fix invalid LLVM IR for optional chaining through a self-referential optional field: with `define User struct [ name: string, boss?: ?User ]`, `u.boss?.name` emits `getelementptr inbounds ptr, ptr %t, i32 0, i32 0`, which clang rejects (C11 works) (`internal/codegen/llvmgen.go`).
 - [ ] Add warnings for unused locals, unused imports, unused private functions, and unreachable code after `<-` in `internal/sema` (none are reported today).

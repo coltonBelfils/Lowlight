@@ -450,6 +450,8 @@ entry:
     %%is_null = icmp eq ptr %%p, null
     br i1 %%is_null, label %%oom, label %%ok
 oom:
+    %%ll_flush_out_0 = call ptr @ll_rt_stdout()
+    call i32 @fflush(ptr %%ll_flush_out_0)
     %%err = call ptr @ll_rt_stderr()
     call i32 (ptr, ptr, ...) @fprintf(ptr %%err, ptr %s, i64 %%size)
     call void @abort()
@@ -475,6 +477,8 @@ do_realloc:
     %%p_null = icmp eq ptr %%p, null
     br i1 %%p_null, label %%oom, label %%ok
 oom:
+    %%ll_flush_out_1 = call ptr @ll_rt_stdout()
+    call i32 @fflush(ptr %%ll_flush_out_1)
     %%err = call ptr @ll_rt_stderr()
     call i32 (ptr, ptr, ...) @fprintf(ptr %%err, ptr %s, i64 %%size)
     call void @abort()
@@ -539,6 +543,8 @@ chk_leaks:
     %%has_leaks = icmp ne i64 %%live, 0
     br i1 %%has_leaks, label %%fail, label %%done
 fail:
+    %%ll_flush_out_2 = call ptr @ll_rt_stdout()
+    call i32 @fflush(ptr %%ll_flush_out_2)
     %%err = call ptr @ll_rt_stderr()
     call i32 (ptr, ptr, ...) @fprintf(ptr %%err, ptr %s, i64 %%live)
     call void @exit(i32 99)
@@ -568,6 +574,8 @@ test_jmp:
     call void @longjmp(ptr %%jmp, i32 1)
     unreachable
 fatal:
+    %%ll_flush_out_3 = call ptr @ll_rt_stdout()
+    call i32 @fflush(ptr %%ll_flush_out_3)
     %%err = call ptr @ll_rt_stderr()
     call i32 (ptr, ptr, ...) @fprintf(ptr %%err, ptr %s, ptr %%f, i32 %%line, ptr %%m)
     call void @exit(i32 1)
@@ -591,6 +599,8 @@ test_jmp:
     call void @longjmp(ptr %%jmp, i32 1)
     unreachable
 fatal:
+    %%ll_flush_out_4 = call ptr @ll_rt_stdout()
+    call i32 @fflush(ptr %%ll_flush_out_4)
     %%err = call ptr @ll_rt_stderr()
     call i32 (ptr, ptr, ...) @fprintf(ptr %%err, ptr %s, ptr %%f, i64 %%line, i64 %%idx, i64 %%len)
     call void @exit(i32 1)
@@ -632,6 +642,8 @@ entry:
     %%is_null = icmp eq ptr %%p, null
     br i1 %%is_null, label %%oom, label %%ok
 oom:
+    %%ll_flush_out_5 = call ptr @ll_rt_stdout()
+    call i32 @fflush(ptr %%ll_flush_out_5)
     %%err = call ptr @ll_rt_stderr()
     call i32 (ptr, ptr, ...) @fprintf(ptr %%err, ptr %s, i64 %%size)
     call void @abort()
@@ -1376,6 +1388,8 @@ tj_nocol:
     call void @longjmp(ptr %%jmp, i32 1)
     unreachable
 fatal:
+    %%ll_flush_out_6 = call ptr @ll_rt_stdout()
+    call i32 @fflush(ptr %%ll_flush_out_6)
     %%err = call ptr @ll_rt_stderr()
     br i1 %%has_col, label %%fa_col, label %%fa_nocol
 fa_col:

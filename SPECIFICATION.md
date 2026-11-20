@@ -1702,7 +1702,7 @@ define File struct [
     is_open: bool,
 ]
 ```
-- Implements `Drop` via `File.drop(&self)`: Automatically closes any open file descriptor upon scope exit, preventing file descriptor leaks under all control flow paths (including early returns and panics).
+- Implements `Drop` via `File.drop(&self)`: Automatically closes any open file descriptor upon scope exit, preventing file descriptor leaks under all normal control flow paths (block completion and `<-` unwinds). A panic aborts the process without running `Drop` (§9.6.1); the operating system reclaims the descriptor and the C stdio buffers are flushed at exit.
 
 #### Constructors
 - `File.open(path: string, mode: string) Result[File]`
@@ -1741,7 +1741,7 @@ The following functions are available globally in all scopes:
 - `println(val: Printable)`: Writes string representation to standard output with trailing newline.
 - `eprint(val: Printable)`: Writes string representation to standard error.
 - `eprintln(val: Printable)`: Writes string representation to standard error with trailing newline.
-- `panic(msg: string) never`: Terminates process execution immediately with an error message.
+- `panic(msg: string) never` / `panic(err: Error) never`: Aborts the process with a fatal error (§9.6.1). A string panics with that message; an `Error` panics with its full formatted chain and trace (`err.to_string()`). Standard output is flushed before the message is written to standard error. `panic` cannot be caught or recovered from in Lowlight code, and no `Drop` implementations run.
 - `assert(cond: bool [, msg: string])`: Evaluates `cond`; panics if `cond` is `false`.
 - `args() [string]`: Returns command-line invocation arguments as an owned `[string]` list. Implemented in pure native Lowlight in `std/os` by iterating runtime argument counts and accessing argument vector elements.
 
@@ -1790,15 +1790,33 @@ define Result[T] enum [
 - `Result[T].fail(err: own Error) Result[T]`
 - `Result[T].fail_msg(msg: string) Result[T]` (`@track_caller`)
 - `res.is_ok() bool` / `res.is_err() bool`
-- `res.unwrap() T`: Returns value if ok; panics with formatted error trace if failed.
-- `res.expect(msg: string) T` (`@track_caller`): Returns value if ok; panics with `msg`, caller location, and error trace if failed.
+- `res.unwrap() T` (`@track_caller`): Returns value if ok; if failed, panics with the error wrapped as `"called Result.unwrap on an error"` at the caller's location (`panic(err.wrap(...))`).
+- `res.expect(msg: string) T` (`@track_caller`): Returns value if ok; if failed, panics with the error wrapped as `msg` at the caller's location (`panic(err.wrap(msg))`).
 - `res.unwrap_or(fallback: own T) T`: Returns value if ok; otherwise returns `fallback`.
-- `res.unwrap_err() Error`: Returns `Error` if failed; panics if ok.
+- `res.unwrap_err() Error` (`@track_caller`): Returns `Error` if failed; panics if ok.
 - `res.into_ok() ?T` / `res.into_err() ?Error` / `res.peek_err() ?Error`
 - `res.wrap_err(msg: string) Result[T]` (`@track_caller`): Wraps the error with `msg` and caller frame if failed.
 - `res.trace_err() Result[T]` (`@track_caller`): Appends a caller frame to the error if failed.
 
 Because `Result` is marked `@must_use`, ignoring a returned `Result` without inspection generates a compiler warning/check.
+
+#### 9.6.1 Failure Model: `Result` vs. `panic`
+
+Lowlight has two failure channels that share one error type. They are deliberately not merged: they answer different questions about *who can act* on a failure.
+
+| | `Result[T]` (recoverable) | `panic` (fatal) |
+|---|---|---|
+| **Meaning** | An expected outcome the caller can act on: missing file, refused connection, malformed input. | A bug or broken invariant no caller can repair: out-of-bounds index, division by zero, failed `assert`, `unwrap` of an error, violated precondition. |
+| **Mechanism** | An ordinary value in the function signature, `@must_use`, propagated explicitly (`?? func <- ...`, `wrap_err`, `match`). | Aborts the process. Standard output is flushed, the message and trace are written to standard error, and the process exits with status `1`. |
+| **Payload** | `Error` (message, optional code, cause chain, frames). | A `string` or the same `Error`; `unwrap`/`expect` panic with the original `Error` wrapped, so a fatal error prints exactly like a reported one. |
+| **Cleanup** | Normal LIFO `Drop` on every scope exit. | No unwinding and no `Drop`. The operating system reclaims memory and descriptors. |
+| **Recovery** | Always: the caller decides. | Never in Lowlight code. There is no `recover`/`catch`. Test harnesses may isolate panics (§9.7), but that is tooling, not a language feature. |
+
+**Choosing a channel.** Return `Result` when a correct program can still hit the failure because of its environment or input. Panic only when the caller broke a documented precondition or the program's own invariants are violated. Library code must not panic on bad external input.
+
+**Why panics are not recoverable.** Recoverable panics would add an invisible non-local exit to every call (contradicting the explicit, targeted `<-` control flow of §7.7), require every `Drop` to tolerate half-finished state during unwinding, and impose unwinding machinery on every backend (§1, axiom 7). Making `panic` abort-only keeps `Result` the single way to handle errors and keeps panics cheap and predictable.
+
+**API naming convention.** When an operation has both a fallible and an asserting form, the asserting form takes the plain name and panics on failure, and the fallible form is prefixed with `try_` and returns `Result[T]` (or `?T` when absence is the only failure). Example: `DateTime.new(...)` panics on out-of-range components; `DateTime.try_new(...)` returns `Result[DateTime]`. An operation whose failure is an ordinary outcome (I/O, parsing, networking) has only the `Result` form.
 
 ### 9.7 Testing System & Standard Testing Package (`std/test`)
 
@@ -1831,7 +1849,7 @@ Running `lowlight test [<path...>]` compiles and tests at **package granularity*
 - If `bind test_main = ()` is explicitly defined in the tested package, it serves as the test entry point.
 - Otherwise, the compiler automatically synthesizes a single test runner per package (supporting both the default LLVM IR backend and the C11 backend) that discovers and executes all `@test` functions in that package and its included `*_test.ll` files.
 - **Per-Test Leak Checking**: The runner evaluates `ll_rt_live_allocs` before and after each test function. Any test that leaks heap memory fails with: `--- FAIL: <test> (leaked N heap allocation(s))`.
-- **Panic Recovery**: Test execution is guarded with C `setjmp`/`longjmp`. Failed assertions or panics report failure diagnostics and continue running remaining tests in the suite rather than terminating the test process prematurely.
+- **Panic Isolation**: The generated test runner guards each test with C `setjmp`/`longjmp` so a failed assertion or panic fails that test and the suite continues. This is a property of the test harness, not of the language (§9.6.1): no `Drop` runs for the abandoned test, so a panicking test may also report leaked allocations, and Lowlight code itself can never catch a panic.
 - **High-Resolution Timing**: Reports execution duration per test in microseconds.
 
 #### Standard Testing Assertions (`std/test`)

@@ -79,6 +79,7 @@ LL_RT_FN void* ll_alloc(int64_t size) {
     size_t n = (size > 0) ? (size_t)size : 1u;
     void* p = calloc(1u, n);
     if (!p) {
+        fflush(stdout);
         fprintf(stderr, "lowlight panic: out of memory (requested %lld bytes)\n", (long long)size);
         abort();
     }
@@ -90,6 +91,7 @@ LL_RT_FN void* ll_alloc_uninit(int64_t size) {
     size_t n = (size > 0) ? (size_t)size : 1u;
     void* p = malloc(n);
     if (!p) {
+        fflush(stdout);
         fprintf(stderr, "lowlight panic: out of memory (requested %lld bytes)\n", (long long)size);
         abort();
     }
@@ -104,6 +106,7 @@ LL_RT_FN void* ll_realloc(void* ptr, int64_t size) {
     size_t n = (size > 0) ? (size_t)size : 1u;
     void* p = realloc(ptr, n);
     if (!p) {
+        fflush(stdout);
         fprintf(stderr, "lowlight panic: out of memory in realloc (%lld bytes)\n", (long long)size);
         abort();
     }
@@ -159,6 +162,7 @@ LL_RT_FN _Noreturn void ll_panic_cstr(const char* msg, const char* file, int lin
         snprintf(ll_test_last_panic, sizeof(ll_test_last_panic), "%s:%d: %s", file ? file : "<unknown>", line, msg);
         longjmp(*ll_test_current_jmp, 1);
     }
+    fflush(stdout);
     fprintf(stderr, "lowlight panic at %s:%d: %s\n", file ? file : "<unknown>", line, msg);
     exit(1);
 }
@@ -181,6 +185,7 @@ LL_RT_FN int64_t ll_check_bounds(int64_t idx, int64_t len, const char* file, int
                      file ? file : "<unknown>", (long long)line, (long long)idx, (long long)len);
             longjmp(*ll_test_current_jmp, 1);
         }
+        fflush(stdout);
         fprintf(stderr, "lowlight panic at %s:%lld: index %lld out of bounds for length %lld\n",
                 file ? file : "<unknown>", (long long)line, (long long)idx, (long long)len);
         exit(1);
@@ -308,11 +313,13 @@ static inline _Noreturn void ll_panic_str(ll_string msg, ll_string file, int64_t
         longjmp(*ll_test_current_jmp, 1);
     }
     if (col > 0) {
+        fflush(stdout);
         fprintf(stderr, "lowlight panic at %.*s:%lld:%lld: %.*s\n",
                 (int)file.len, file.data ? (const char*)file.data : "<unknown>",
                 (long long)line, (long long)col,
                 (int)msg.len, msg.data ? (const char*)msg.data : "");
     } else {
+        fflush(stdout);
         fprintf(stderr, "lowlight panic at %.*s:%lld: %.*s\n",
                 (int)file.len, file.data ? (const char*)file.data : "<unknown>",
                 (long long)line,

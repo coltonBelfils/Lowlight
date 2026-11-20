@@ -254,11 +254,11 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 	},
 	{
 		Name:       "panic",
-		Signature:  "panic(msg: string) never",
-		Params:     []string{"msg: string"},
+		Signature:  "panic(msg: string | Error) never",
+		Params:     []string{"msg: string | Error"},
 		ReturnType: "never",
 		Snippet:    "panic($1)",
-		Summary:    "Prints a fatal error `msg` to stderr and aborts execution immediately (`never` return type).",
+		Summary:    "Aborts the process with a fatal error (`never` return type).\n\n- `msg`: A `string` message, or an `Error` (printed with its full chain and trace).\n\nStandard output is flushed first. Panics cannot be caught and no `Drop` runs; return `Result[T]` for failures a caller can handle.",
 	},
 	{
 		Name:       "caller_location",
