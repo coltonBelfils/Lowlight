@@ -107,11 +107,14 @@ bind Error.coded = (code: string, msg: string) Error: {
 	]
 }
 
-// Returns a new [`Error`] wrapping `self` as its cause with contextual `msg` and a caller frame.
+// Consumes `self` and returns a new [`Error`] wrapping it as the cause, with contextual `msg`
+// and a caller frame.
+//
+// Moves the existing chain into the new layer (no copy), so wrapping is O(1) per layer.
 //
 // - `msg`: Outer context added at the wrapping call site.
 @track_caller
-bind Error.wrap = (self, msg: string) Error: {
+bind Error.wrap = (own self, msg: string) Error: {
 	let f = ErrorFrame[
 		_file: caller_file(),
 		_line: caller_line(),
@@ -121,15 +124,15 @@ bind Error.wrap = (self, msg: string) Error: {
 	Error[
 		_message: msg.copy(),
 		_code?: none,
-		_cause?: self.copy(),
+		_cause?: own self,
 		_frames: [own f],
 	]
 }
 
-// Returns a copy of `self` with an additional caller-attributed [`ErrorFrame`] appended.
+// Consumes `self` and returns it with an additional caller-attributed [`ErrorFrame`] appended.
 @track_caller
-bind Error.trace = (self) Error: {
-	let cp = self.copy()
+bind Error.trace = (own self) Error: {
+	let cp = own self
 	cp._frames.push(ErrorFrame[
 		_file: caller_file(),
 		_line: caller_line(),
@@ -139,9 +142,9 @@ bind Error.trace = (self) Error: {
 	cp
 }
 
-// Returns a copy of `self` with its machine-readable code set to `code`.
-bind Error.with_code = (self, code: string) Error: {
-	let cp = self.copy()
+// Consumes `self` and returns it with its machine-readable code set to `code`.
+bind Error.with_code = (own self, code: string) Error: {
+	let cp = own self
 	cp._code? = code.copy()
 	cp
 }

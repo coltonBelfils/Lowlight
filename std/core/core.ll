@@ -393,6 +393,7 @@ bind test_core_error = (): {
 	let sentinel_nf = Error.coded("not_found", "resource not found")
 	let e0 = Error.coded("not_found", "missing config.toml")
 	let e1 = e0.wrap("loading config")
+	let e1_snapshot = e1.copy()
 	let e2 = e1.trace()
 	let e3 = e2.wrap("booting server")
 
@@ -421,7 +422,7 @@ bind test_core_error = (): {
 
 	let e3_copy = e3.copy()
 	assert(e3 == e3_copy, "Error equality matches identical copies")
-	assert(e3 != e1, "Error equality distinguishes different errors")
+	assert(e3 != e1_snapshot, "Error equality distinguishes different errors")
 }
 
 @test("core List[T] operations")
