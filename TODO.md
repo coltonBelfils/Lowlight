@@ -4,7 +4,7 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Stdlib Bug Fixes & Targeted Library Additions
 
-- [ ] Check `ferror`/`flush`/`close` and support non-seekable files in `std/fs.ll:162-242`.
+- [x] Check `ferror`/`flush`/`close` and support non-seekable files in `std/fs.ll:162-242`.
 - [ ] Use `str_from_raw` and distinguish clean EOF in `TcpStream.recv` (`std/net.ll:57-73`).
 - [ ] Normalize negative pre-1970 nanoseconds in `from_unix_millis`/`nanos` (`std/time.ll:284-295`).
 - [ ] Fix negative formatting in `Duration.to_string` in `std/time.ll`.
@@ -28,6 +28,27 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Support HTTP redirects in `Client` in `std/http.ll`.
 - [ ] Add `StringBuilder` (`with_capacity`, `append`, `append_char`, `append_byte`, `append_int`, `append_float`, `to_string() own string`) in `std/strings.ll`.
 - [ ] Add `ByteBuffer` (little-endian `u16`/`u32`/`u64` read/write helpers) in `std/strings.ll`.
+
+- [ ] Fix `math.round` returning `1` for `0.49999999999999994` and losing precision at `>= 2^52` by rounding via `trunc` plus remainder instead of `floor(x + 0.5)` (`std/math/math.ll:64`).
+- [ ] Fix `math.cbrt` for extreme magnitudes (`cbrt(1e-300)` returns `inf`, `cbrt(1e300)` returns `1e296`) by normalizing the exponent before Newton iteration and handling `inf`/`nan` (`std/math/math.ll:142`).
+- [ ] Make `math.hypot` overflow-safe via scaling (`hypot(1e200, 1e200)` returns `inf`) (`std/math/math.ll:157`).
+- [ ] Fix large-argument reduction in `sin`/`cos`/`tan` (`sin(1e15)` returns `0.8376` instead of `0.8583`) with Cody–Waite / Payne–Hanek reduction in `_reduce_angle` (`std/math/math.ll`).
+- [ ] Honor precisions above 15 in `format_float` / `_format_float_fixed` (`(0.1).format_float(20)` yields only 15 decimals) in `std/core/primitives.ll`.
+- [ ] Reject out-of-range float parses (`"1e400".to_float()` returns `inf` as success) or document saturation in `parse_float` (`std/core/primitives.ll:1278`).
+- [ ] Decide whether `parse_int`/`parse_float` accept surrounding whitespace (`" 12".to_int()` currently succeeds) and make `to_int`, `to_float`, and `is_int`/`is_float` agree.
+- [ ] Trap or return `none` on invalid `char(int)` conversions (surrogates, negatives, `> 0x10FFFF`); `char(0xD800)` and `char(-1)` currently print invalid UTF-8 despite `SPECIFICATION.md` §3.3.
+- [ ] Distinguish signal termination in `os.exec` / `os.system_run` (a `SIGKILL`ed child returns `9`, same as `exit(9)`) in `ll_os_pclose`/`ll_os_system` (`internal/codegen/runtime_h.go:1185-1205`, `internal/codegen/llvmgen_runtime.go:1867-1915`) and expose `ExecResult.signal`.
+- [ ] Decide whether `string.lines` drops the trailing empty element for newline-terminated text (`"a\nb\n".lines()` returns 3 items) (`std/strings/strings.ll:186`).
+- [ ] Decide on Unicode case mapping for `string.to_upper`/`to_lower` (ASCII-only today: `"ÀB".to_lower()` gives `"Àb"`) and implement or document it.
+- [ ] Add `send_bytes`/`recv_bytes` (`[u8]`) to `TcpStream` so binary protocols avoid `string` (`std/net/net.ll`).
+- [ ] Add `TcpStream.shutdown`, `peer_addr`, `local_addr`, and `set_nodelay` to `std/net/net.ll` with runtime support in both backends.
+- [ ] Add `Result` combinators (`map`, `map_err`, `and_then`, `ok() ?T`, `unwrap_or_else`) to `std/core/result.ll`.
+- [ ] Add `List` helpers (`extend`, `truncate`, `first`, `last`, `index_of`, `swap`) to `std/core/list.ll`.
+- [ ] Add `Set` algebra (`union`, `intersection`, `difference`, `is_subset`) to `std/core/set.ll`.
+- [ ] Add `Map` update helpers (`get_or_insert`, `update(key, fn)`, `entries`) to `std/core/map.ll`.
+- [ ] Provide borrowed read access to non-`Copyable` values in `Map`/`List` (`m.get(k)` and `m[k]` are unavailable when `V` has a custom `drop`, leaving only `remove`), e.g. a closure-scoped `with(key, ...)` API.
+- [ ] Consolidate duplicated std APIs (`strings.pad_left_char` vs `strfmt.pad_left_fill`, `count` vs `count_occurrences`, `capitalize` vs `to_title`, `core_sqrt` vs `math.sqrt`, `os.file_exists` vs `fs.exists`), deprecating one of each with `@deprecated`.
+- [ ] Emit the shortest round-trip representation (Ryu/Grisu) from `float.to_string` and string interpolation instead of 6 significant digits (`0.1 + 0.2` prints `0.3`, `123456789.0` prints `1.23457e+08`) in `format_float_prec` (`std/core/primitives.ll:310`).
 
 ## Parser, Sema, IR, Codegen & Runtime Hardening
 
@@ -81,6 +102,16 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Prevent `Arena` method receivers from bypassing `checkMutatingMethodRecvEscape` (`internal/sema/check_calls.go:1200`).
 - [ ] Enforce immutability/borrow rules when mutating through `ref[T]` in `analyzePlace` (`internal/sema/check_stmt_expr.go:819-821`).
 - [ ] Enforce `&Arena` captures inside nested `FuncLit` closures (`internal/sema/check_stmt_expr.go:3765`).
+- [ ] Allow the bare `_` discard binding for optional values (`let _ = m.remove(k)` errors with "must end with `?`").
+- [ ] Stop emitting `@test_only` externs in non-test builds (a test-only `extern write` in `std/fs` broke the C11 package build of every program importing `std/fs`).
+- [ ] Avoid C11 prototype conflicts for user `extern` declarations of libc/POSIX functions missing from `stdCHeaderFuncs` (`internal/codegen/cgen.go:360`); e.g. `extern write: (fd: i32, buf: ptr[u8], n: int) int` fails `-Werror` against `unistd.h`.
+- [ ] Flush `stdout` before writing panic messages to `stderr` in both runtimes so output ordering is preserved.
+- [ ] Log recovered panics (with stack) from `CheckForIDE` instead of silently swallowing them (`internal/sema/program.go:543-561`), and surface them through LSP `window/logMessage`.
+- [x] Fix invalid LLVM IR for optional chaining through a self-referential optional field: with `define User struct [ name: string, boss?: ?User ]`, `u.boss?.name` emits `getelementptr inbounds ptr, ptr %t, i32 0, i32 0`, which clang rejects (C11 works) (`internal/codegen/llvmgen.go`).
+- [ ] Add warnings for unused locals, unused imports, unused private functions, and unreachable code after `<-` in `internal/sema` (none are reported today).
+- [ ] Detect stack overflow and print a Lowlight panic (guard page plus `sigaltstack` SIGSEGV handler) instead of dying silently with exit code 139, in both runtimes.
+- [x] Make codegen output deterministic: the order of function-type/closure helper typedefs and `ll_drop__fn_*`/`ll_copy__fn_*` definitions changes between runs on both backends (`ir.Lower` fed the type collector from the pointer-keyed `BodyMaps.ExprInfos` map; it now visits entries in source-span order). This blocks reproducible builds and Stage 2/3 parity and can perturb `computeObjCacheKey` (`internal/driver/incremental.go:59`).
+- [ ] Retire the hardcoded `map.*`/`set.*`/`vec.*`/`string.*` builtin method lowerings (`BuiltinName` in `internal/sema/check_calls.go` plus both backends) in favor of the `@lang` `std/core` implementations so collection semantics live in one place.
 
 ## New Stdlib Modules & Networking Extensions
 
@@ -120,6 +151,11 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Tooling, LSP & Language Features
 
+- [ ] Make `lowlight run` report when the program is killed by a signal (it exits `255` with no message on SIGSEGV) in `internal/driver/driver.go:722`.
+- [ ] Fix formatter idempotency: `TestFormatStandardLibraryFilesParseAndSemaAndIdempotent` fails on `std/core/list.ll` with the in-progress `internal/format/printer.go` changes.
+- [ ] Bound download and extraction sizes in `FetchBytes` (unbounded `io.ReadAll`) and `extractTarGzSafe`/`extractZipSafe` (decompression bombs) in `internal/manifest/fetch.go`.
+- [ ] Make `lowlight doc` skip gitignored and build directories (it documents `editors/jetbrains/build/...` and `editors/vscode/lowlight/std` copies into `docs/`), and decide whether `docs/` is committed or gitignored.
+- [ ] Debounce and background `analyzeAndPublish` in the LSP and honor `$/cancelRequest` so completion/hover aren't queued behind full re-checks (`internal/lsp/server.go:241-266,691`).
 - [ ] Support flat brace tuple destructuring (`let +[a, b] = ...`, including mutable, typed, and wildcard elements) in variable declarations.
 - [ ] Support nested brace tuple destructuring in variable declarations and `match` patterns.
 - [ ] Reconsider `Iterable[T]` and `Iterator[T]` in `std/core/interfaces.ll` and add `IterableIndex[I, T]` / `IteratorIndex[I, T]` with `next: (&self) ?+[I, T]`.
@@ -136,8 +172,42 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Port `editors/vscode/package_vsix.py` to a native Lowlight packaging tool once `std/fs` directory traversal and `std/process` are available.
 - [ ] Port standalone repository build, release, and editor installation scripts (`editors/*/install.sh` and doc/test orchestration helpers) to native Lowlight for dogfooding.
 
+## Testing, CI & Repository Hygiene
+
+- [ ] Turn `examples/playground.ll` into a buildable example (it has no `main`) or move it out of `examples/`.
+- [ ] Move `std/json.ll` into a `std/json/` package directory like the other std packages.
+- [ ] Update `SPECIFICATION.md` §3.4: `s.len()` returns the byte count and `s.byte_len()` does not exist; reconcile spec and implementation, including `for (i, ch in s)` byte-offset semantics.
+- [x] Add a codegen determinism test (emit LLVM and C twice and compare) (`tests/codegen_regressions_test.go`).
+- [ ] Add a differential test that runs every e2e program under both backends and compares stdout.
+- [ ] Add Go native fuzz targets (`FuzzLexer`, `FuzzParser`, `FuzzFormat` idempotency, `FuzzCheck`, `FuzzCheckForIDE`) seeded from `std/` and `examples/`.
+- [ ] Add a CI workflow running `go vet`, `go test ./...`, and `lowlight test` over `std/` on macOS and Linux for both backends.
+
+## std/json Review Notes
+
+`std/json.ll` is hand-written work in progress. These notes are for its author; don't change the file on their behalf.
+
+- [ ] `_parse_json_null` returns before advancing `idx`, so `null` followed by more input fails (failing test case [62]: `Expected , or ]. Got: n`); it also has a stray `println`.
+- [ ] The empty `[]` / `{}` early returns don't advance past the closing bracket (failing case [58]: `Got: ]`).
+- [ ] `_parse_json_object` doesn't skip whitespace after a member value before checking for `,` / `}` (failing case [60], pretty-printed objects).
+- [ ] `while(char(str[idx]).is_whitespace())` loops lack bounds checks, so truncated input such as `[1,` panics instead of returning `Err`.
+- [ ] Escape handling in `_parse_json_string` never fires (it compares the backslash position against a quote), so `\"` ends the string early; `\n`, `\t`, `\\`, and `\uXXXX` aren't decoded.
+- [ ] `char(str[idx])` converts one byte at a time, garbling multi-byte UTF-8 in string values.
+- [ ] `string.to_json` trims into `in_str` but parses the untrimmed `self`, and doesn't reject trailing input after the top-level value.
+- [ ] Number parsing has no exponent support (`1e5`), accepts `-` anywhere (`1-2`), and accepts leading zeros.
+- [ ] `Json.to_string` doesn't escape quotes, backslashes, or control characters, and emits `nan`/`inf` for non-finite floats.
+- [ ] `float`, `u8`–`u64`, and `i8`–`i32` `to_json` produce `Json.String` instead of `Json.Number`.
+- [ ] Single-quoted strings are accepted, which isn't standard JSON.
+- [ ] Error messages say "Jason".
+
 ## Compiler Backend & Allocators
 
+- [ ] Skip per-element drop loops for Plain element types in `List.clear` and `List.drop` (`std/core/list.ll:249,322`), as `resize` already does.
+- [ ] Pre-reserve capacity in `string.repeat`, `string.reverse`, and the padding helpers (`std/strings/strings.ll`).
+- [ ] Move key/value out of the `MapEntry` in `Map.push` instead of copying both (`std/core/map.ll:237`), and likewise in `Set.push`.
+- [ ] Replace byte-at-a-time FNV-1a `string.hash` (bounds-checked `byte_at` per byte) with a word-at-a-time hash (wyhash/rapidhash), and consider per-process seeding against HashDoS (`std/core/hash.ll:61`).
+- [ ] Avoid the full deep-copy snapshot in `List.iter` (`std/core/list.ll:315`), which copies the list and then every element again on each iteration.
+- [ ] Lower `std/math` `sqrt`, `floor`, `ceil`, `trunc`, `round`, `fma`, `exp`, `log`, and trig functions to LLVM intrinsics / `<math.h>` (already listed in `stdCHeaderFuncs`) instead of pure-Lowlight Newton/series loops, for speed and correct rounding.
+- [ ] Compile Phase-1 package `.o` units and package test binaries in parallel (bounded by CPU count) in `internal/driver/incremental.go` and `internal/driver/driver.go`; both run sequentially today.
 - [ ] Unify OS/arch name conventions across C11 and LLVM backends (`internal/codegen`).
 - [ ] Switch `internal/codegen/llvmgen.go` (`emitHeader`) and `internal/codegen/llvmgen_runtime.go` from host `runtime.GOOS`/`GOARCH` checks to `Program.TargetTriple`.
 - [ ] Update `internal/driver/driver.go` for target-conditional link libraries and `.exe` outputs.
