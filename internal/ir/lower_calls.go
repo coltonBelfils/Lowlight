@@ -1123,6 +1123,7 @@ func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo
 		"sys_epoch_nanos_now":      "ll_time_epoch_nanos",
 		"sys_sleep_ms":             "ll_time_sleep_ms",
 		"sys_local_tz_offset":      "ll_time_local_offset",
+		"sys_local_tz_name":        "ll_time_local_tz_name",
 		"sys_tcp_listen":           "ll_net_tcp_listen",
 		"sys_tcp_port":             "ll_net_tcp_port",
 		"sys_tcp_accept":           "ll_net_tcp_accept",

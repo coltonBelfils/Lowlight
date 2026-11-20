@@ -1177,6 +1177,18 @@ static inline int64_t ll_time_local_offset(int64_t epoch_sec) {
 #endif
 }
 
+/* Returns the host timezone abbreviation (e.g. "PST") in effect at epoch_sec, or "" when
+ * unavailable. The result points at libc-owned static storage; callers copy it immediately. */
+static inline uint8_t* ll_time_local_tz_name(int64_t epoch_sec) {
+    time_t sec = (time_t)epoch_sec;
+    struct tm t;
+    if (!localtime_r(&sec, &t)) return (uint8_t*)"";
+#if defined(__APPLE__) || defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+    if (t.tm_zone) return (uint8_t*)t.tm_zone;
+#endif
+    return (uint8_t*)"";
+}
+
 static inline uint8_t* ll_os_popen(const uint8_t* cmd) {
     if (!cmd) return NULL;
     return (uint8_t*)popen((const char*)cmd, "r");

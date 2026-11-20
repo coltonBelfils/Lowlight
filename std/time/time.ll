@@ -222,7 +222,20 @@ bind _floor_div = (n: int, d: int) int: {
 }
 
 bind _build_datetime_from_epoch = (epoch_sec: int, nano: int, is_local: bool) DateTime: {
-	let off = if(is_local): unsafe sys_local_tz_offset(epoch_sec) else: 0
+	if(not is_local): func <- _build_datetime(epoch_sec, nano, 0, "UTC", false)
+	let off = unsafe sys_local_tz_offset(epoch_sec)
+	_build_datetime(epoch_sec, nano, off, _local_zone_name(epoch_sec, off), true)
+}
+
+// Returns the host timezone abbreviation (e.g. `"PST"`) at `epoch_sec`, falling back to the
+// numeric offset (`"+0530"`) when the platform provides no name.
+bind _local_zone_name = (epoch_sec: int, off: int) string: {
+	let name = str_from_cstr(unsafe sys_local_tz_name(epoch_sec))
+	if(name.len() > 0): name else: format_tz_offset(off, false)
+}
+
+// Builds a [`DateTime`] for `epoch_sec` (+ `nano`) viewed at a fixed UTC offset `off` with zone label `zone`.
+bind _build_datetime = (epoch_sec: int, nano: int, off: int, zone: own string, is_local: bool) DateTime: {
 	let adj_sec = epoch_sec + off
 	let days = if(adj_sec >= 0): adj_sec / 86400 else: (adj_sec - 86399) / 86400
 	let rem_sec = adj_sec - days * 86400
@@ -244,7 +257,6 @@ bind _build_datetime_from_epoch = (epoch_sec: int, nano: int, is_local: bool) Da
 	let mo = if(mp < 10): mp + 3 else: mp - 9
 	let yr = if(mo <= 2): y + 1 else: y
 	let yd = days - _days_from_civil(yr, 1, 1) + 1
-	let zone = if(is_local): "LOCAL" else: "UTC"
 
 	DateTime[
 		year: yr,
@@ -257,7 +269,7 @@ bind _build_datetime_from_epoch = (epoch_sec: int, nano: int, is_local: bool) Da
 		weekday: wd,
 		yday: yd,
 		offset_secs: off,
-		zone_name: zone,
+		zone_name: own zone,
 		unix_secs: epoch_sec,
 		is_local: is_local,
 	]
@@ -297,7 +309,56 @@ bind DateTime.from_unix_nanos = (nanos: int, is_local: bool) DateTime: {
 	_build_datetime_from_epoch(sec, nano, is_local)
 }
 
+// Smallest and largest years accepted by [`DateTime.new`] / [`DateTime.try_new`].
+bind MIN_YEAR: int = -999999
+bind MAX_YEAR: int = 999999
+
+// Reports whether `year` is a Gregorian leap year.
+bind is_leap_year = (year: int) bool: (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
+
+// Returns the number of days in `month` (`1..=12`) of `year`, or `0` for an invalid month.
+bind days_in_month = (year: int, month: int) int:
+	if(month == 2): if(is_leap_year(year)): 29 else: 28
+	else if(month == 4 or month == 6 or month == 9 or month == 11): 30
+	else if(month >= 1 and month <= 12): 31
+	else: 0
+
+// Returns a description of the first out-of-range civil component, or `none` if all are valid.
+bind _civil_error = (year: int, month: int, day: int, hour: int, minute: int, second: int) ?string:
+	if(year < MIN_YEAR or year > MAX_YEAR): "year $year out of range $MIN_YEAR..=$MAX_YEAR"
+	else if(month < 1 or month > 12): "month $month out of range 1..=12"
+	else if(day < 1 or day > days_in_month(year, month)):
+		"day $day out of range 1..=${days_in_month(year, month)} for $year-${strfmt.pad_int_zeros(month, 2)}"
+	else if(hour < 0 or hour > 23): "hour $hour out of range 0..=23"
+	else if(minute < 0 or minute > 59): "minute $minute out of range 0..=59"
+	else if(second < 0 or second > 59): "second $second out of range 0..=59"
+	else: none
+
 // Constructs a [`DateTime`] from civil date/time components in UTC (`is_local == false`) or local time.
+//
+// # Errors
+// Fails if any component is out of range (`month` outside `1..=12`, `day` past the end of the
+// month, `hour > 23`, `minute > 59`, `second > 59`, or `year` outside [`MIN_YEAR`]`..=`[`MAX_YEAR`]).
+bind DateTime.try_new = (
+	year: int,
+	month: int,
+	day: int,
+	hour: int,
+	minute: int,
+	second: int,
+	is_local: bool,
+) Result[DateTime]: {
+	let err? = _civil_error(year, month, day, hour, minute, second)
+	if(err? as msg): func <- Result[DateTime].fail(Error.coded("invalid_datetime", msg))
+	let utc_sec = _days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second
+	let off = if(is_local): unsafe sys_local_tz_offset(utc_sec) else: 0
+	let sec = utc_sec - off
+	Result[DateTime].ok(_build_datetime_from_epoch(sec, 0, is_local))
+}
+
+// Constructs a [`DateTime`] from civil date/time components in UTC (`is_local == false`) or local time.
+//
+// Panics if any component is out of range; use [`DateTime.try_new`] to handle invalid input.
 bind DateTime.new = (
 	year: int,
 	month: int,
@@ -307,17 +368,13 @@ bind DateTime.new = (
 	second: int,
 	is_local: bool,
 ) DateTime: {
-	let utc_sec = _days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second
-	let off = if(is_local): unsafe sys_local_tz_offset(utc_sec) else: 0
-	let sec = utc_sec - off
-	_build_datetime_from_epoch(sec, 0, is_local)
+	let err? = _civil_error(year, month, day, hour, minute, second)
+	if(err? as msg): panic("DateTime.new: $msg")
+	DateTime.try_new(year, month, day, hour, minute, second, is_local).unwrap()
 }
 
 // Reports whether `self.year` is a Gregorian leap year.
-bind DateTime.is_leap_year = (self) bool: {
-	let y = self.year
-	(y % 4 == 0 and y % 100 != 0) or y % 400 == 0
-}
+bind DateTime.is_leap_year = (self) bool: is_leap_year(self.year)
 
 // -----------------------------------------------------------------------------
 // Time Format Constants (Mirroring Go Reference Formats & Standard Conventions)
@@ -522,7 +579,41 @@ bind DateTime.format = (self, pattern: string) string: {
 // Standard 2: Go Reference Layout Format Standard (`Mon Jan 2 15:04:05 MST 2006`)
 // -----------------------------------------------------------------------------
 
+// Returns the length of a Go fractional-second token (`.000`, `.999`, `,000`, ...) starting at
+// `layout[i]`, counting the repeated `0`/`9` digits, or `0` if none starts there. Like Go, the
+// run must not be followed by another digit.
+bind _frac_run_len = (layout: string, i: int) int: {
+	let n = layout.len()
+	if(i + 1 >= n): func <- 0
+	let sep = layout.byte_at(i)
+	if(sep != u8(46) and sep != u8(44)): func <- 0
+	let digit = layout.byte_at(i + 1)
+	if(digit != u8(48) and digit != u8(57)): func <- 0
+	let j = i + 1
+	for(j < n and layout.byte_at(j) == digit): j += 1
+	if(j < n and layout.byte_at(j) >= u8(48) and layout.byte_at(j) <= u8(57)): func <- 0
+	j - i - 1
+}
+
+// Formats `nanos` as a fractional-second suffix with `digits` digits (capped at 9) after `sep`.
+// When `trim` is `true` (Go `.999`), trailing zeros are removed and an all-zero fraction is omitted
+// entirely, including `sep`.
+bind _format_frac = (nanos: int, digits: int, trim: bool, sep: string) string: {
+	let width = if(digits > 9): 9 else: digits
+	let frac = strfmt.pad_int_zeros(nanos, 9)[0..width].to_string()
+	if(trim): {
+		let end = frac.len()
+		for(end > 0 and frac.byte_at(end - 1) == u8(48)): end -= 1
+		if(end == 0): func <- ""
+		func <- "$sep${frac[0..end]}"
+	}
+	"$sep$frac"
+}
+
 // Formats this [`DateTime`] using Go reference-time layout tokens (`"2006-01-02 15:04:05Z07:00"`).
+//
+// Fractional seconds use Go semantics: `.000`/`,000` print exactly that many digits, while
+// `.999`/`,999` drop trailing zeros and omit the fraction (and separator) when it is zero.
 bind DateTime.format_go = (self, layout: string) string: {
 	let out = ""
 	let n = layout.len()
@@ -603,15 +694,11 @@ bind DateTime.format_go = (self, layout: string) string: {
 			let full_off = format_tz_offset(self.offset_secs, false)
 			out.push(full_off[0..3])
 			i += 3
-		} else if(rem.starts_with(".000000000") or rem.starts_with(".999999999")): {
-			out.push("." + strfmt.pad_int_zeros(self.nanosecond, 9))
-			i += 10
-		} else if(rem.starts_with(".000000") or rem.starts_with(".999999")): {
-			out.push("." + strfmt.pad_int_zeros(self.nanosecond / 1000, 6))
-			i += 7
-		} else if(rem.starts_with(".000") or rem.starts_with(".999")): {
-			out.push("." + strfmt.pad_int_zeros(self.nanosecond / 1000000, 3))
-			i += 4
+		} else if(_frac_run_len(layout, i) > 0): {
+			let run = _frac_run_len(layout, i)
+			let trim = layout.byte_at(i + 1) == u8(57)
+			out.push(_format_frac(self.nanosecond, run, trim, layout[i..i + 1]))
+			i += run + 1
 		} else if(rem.starts_with("1")): {
 			out.push("${self.month}")
 			i += 1
@@ -770,17 +857,18 @@ bind DateTime.to_rfc3339 = (self) string: {
 // Alias for [`DateTime.to_rfc3339`].
 bind DateTime.to_iso = (self) string: self.to_rfc3339()
 
-// Formats this [`DateTime`] in [`RFC3339Nano`] layout including 9 nanosecond digits.
+// Formats this [`DateTime`] in [`RFC3339Nano`] layout, with up to 9 fractional digits and
+// trailing zeros removed (the fraction is omitted when it is zero), matching Go.
 bind DateTime.to_rfc3339_nano = (self) string: {
 	let d = "${strfmt.pad_int_zeros(self.year, 4)}-${strfmt.pad_int_zeros(self.month, 2)}-${strfmt.pad_int_zeros(
 		self.day,
 		2,
 	)}"
-	let ns = strfmt.pad_int_zeros(self.nanosecond, 9)
+	let ns = _format_frac(self.nanosecond, 9, true, ".")
 	let tm = "${strfmt.pad_int_zeros(self.hour, 2)}:${strfmt.pad_int_zeros(self.minute, 2)}:${strfmt.pad_int_zeros(
 		self.second,
 		2,
-	)}.$ns"
+	)}$ns"
 	let tz = if(self.offset_secs == 0): "Z" else: format_tz_offset(self.offset_secs, true)
 	"${d}T$tm$tz"
 }
@@ -875,44 +963,150 @@ bind DateTime.to_time_string = (self) string: self.to_time_only()
 // Formats this [`DateTime`] in [`RFC2822`] email layout (`"Mon, 02 Jan 2006 15:04:05 -0700"`).
 bind DateTime.to_rfc2822 = (self) string: self.to_rfc1123z()
 
+// Returns `self` shifted by `dsec` seconds plus `dnano` nanoseconds (`|dnano| < 1e9`), keeping
+// the same zone semantics (host local time, UTC, or the parsed fixed offset).
+bind DateTime._shift = (self, dsec: int, dnano: int) DateTime: {
+	let sec = self.unix_secs + dsec
+	let n = self.nanosecond + dnano
+	if(n >= 1000000000): {
+		sec += 1
+		n -= 1000000000
+	} else if(n < 0): {
+		sec -= 1
+		n += 1000000000
+	}
+	if(self.is_local): _build_datetime_from_epoch(sec, n, true)
+	else: _build_datetime(sec, n, self.offset_secs, self.zone_name.copy(), false)
+}
+
 // Returns a new [`DateTime`] offset forward by [`Duration`] `d`.
+//
+// Works in whole seconds plus nanoseconds, so it does not overflow for dates far from 1970.
 bind DateTime.add_duration = (self, d: Duration) DateTime: {
-	let new_nanos = self.unix_secs * 1000000000 + self.nanosecond + d.nanos
-	DateTime.from_unix_nanos(new_nanos, self.is_local)
+	let dsec = _floor_div(d.nanos, 1000000000)
+	self._shift(dsec, d.nanos - dsec * 1000000000)
 }
 
 // Returns a new [`DateTime`] offset backward by [`Duration`] `d`.
 bind DateTime.sub_duration = (self, d: Duration) DateTime: {
-	let new_nanos = self.unix_secs * 1000000000 + self.nanosecond - d.nanos
-	DateTime.from_unix_nanos(new_nanos, self.is_local)
+	let dsec = _floor_div(d.nanos, 1000000000)
+	self._shift(-dsec, -(d.nanos - dsec * 1000000000))
+}
+
+// Computes the signed elapsed [`Duration`] `self - other`, or `none` if it does not fit in a
+// [`Duration`] (about ±292 years).
+bind DateTime.try_diff = (self, other: DateTime) ?Duration: {
+	let secs = self.unix_secs - other.unix_secs
+	let ns = self.nanosecond - other.nanosecond
+	let max_secs = 9223372036
+	if(secs > max_secs or secs < -max_secs): func <- none
+	let base = secs * 1000000000
+	let max_int = 9223372036854775807
+	if(base > 0 and ns > max_int - base): func <- none
+	if(base < 0 and ns < -max_int - 1 - base): func <- none
+	Duration[nanos: base + ns]
 }
 
 // Computes the signed elapsed [`Duration`] `self - other`.
+//
+// Saturates to the minimum/maximum [`Duration`] when the span exceeds about ±292 years; use
+// [`DateTime.try_diff`] to detect that case.
 bind DateTime.diff = (self, other: DateTime) Duration: {
-	let t1 = self.unix_secs * 1000000000 + self.nanosecond
-	let t2 = other.unix_secs * 1000000000 + other.nanosecond
-	Duration[nanos: t1 - t2]
+	let d? = self.try_diff(other)
+	if(d? as d): func <- d
+	if(self.unix_secs > other.unix_secs): Duration[nanos: 9223372036854775807]
+	else: Duration[nanos: -9223372036854775807 - 1]
 }
 
 // -----------------------------------------------------------------------------
 // String Extension for Parsing DateTime
 // -----------------------------------------------------------------------------
 
-// Parses an ISO-like date (`"YYYY-MM-DD"`) or date-time (`"YYYY-MM-DDTHH:MM:SS"` / `"YYYY-MM-DD HH:MM:SS"`) string into a UTC [`DateTime`], or returns `none`.
-bind string.to_datetime = (self) ?DateTime: {
-	let trimmed = self.trim()
-	if(trimmed.len() < 10): func <- none
-	let y = trimmed[0..4].to_int() ?? func <- none
-	let m = trimmed[5..7].to_int() ?? func <- none
-	let d = trimmed[8..10].to_int() ?? func <- none
+// Parses exactly `count` ASCII digits at `s[start..start + count]`, or returns `none`.
+bind _parse_digits = (s: string, start: int, count: int) ?int: {
+	if(start < 0 or start + count > s.len()): func <- none
+	let v = 0
+	for(i in start..start + count): {
+		let b = s.byte_at(i)
+		if(b < u8(48) or b > u8(57)): func <- none
+		v = v * 10 + int(b) - 48
+	}
+	v
+}
 
-	if(trimmed.len() == 10): DateTime.new(y, m, d, 0, 0, 0, false)
-	else if(trimmed.len() >= 19): {
-		let h = trimmed[11..13].to_int() ?? func <- none
-		let min = trimmed[14..16].to_int() ?? func <- none
-		let s = trimmed[17..19].to_int() ?? func <- none
-		DateTime.new(y, m, d, h, min, s, false)
-	} else: none
+// Parses an ISO 8601 / RFC 3339 date or date-time string into a [`DateTime`], or returns `none`.
+//
+// Accepts `YYYY-MM-DD`, optionally followed by `T`, `t`, or a space and `HH:MM` or `HH:MM:SS`,
+// an optional fraction (`.` or `,` plus 1+ digits; digits past nanoseconds are truncated), and an
+// optional zone designator: `Z`/`z`, `±HH:MM`, `±HHMM`, or `±HH`. Times without a zone are UTC.
+// Times with a non-zero offset keep that fixed offset (`offset_secs`, zone label `"+0530"`).
+// Out-of-range components (e.g. month 13, `25:00`, offset `+24:00`) are rejected.
+bind string.to_datetime = (self) ?DateTime: {
+	let s = self.trim()
+	let n = s.len()
+	if(n < 10 or s.byte_at(4) != u8(45) or s.byte_at(7) != u8(45)): func <- none
+	let y = _parse_digits(s, 0, 4) ?? func <- none
+	let mo = _parse_digits(s, 5, 2) ?? func <- none
+	let d = _parse_digits(s, 8, 2) ?? func <- none
+	let h = 0
+	let mi = 0
+	let sc = 0
+	let nano = 0
+	let off = 0
+	let i = 10
+	if(i < n): {
+		let sep = s.byte_at(i)
+		// `T`, `t`, or space separates the date from the time.
+		if(sep != u8(84) and sep != u8(116) and sep != u8(32)): func <- none
+		h = _parse_digits(s, i + 1, 2) ?? func <- none
+		if(i + 3 >= n or s.byte_at(i + 3) != u8(58)): func <- none
+		mi = _parse_digits(s, i + 4, 2) ?? func <- none
+		i += 6
+		if(i < n and s.byte_at(i) == u8(58)): {
+			sc = _parse_digits(s, i + 1, 2) ?? func <- none
+			i += 3
+		}
+		if(i < n and (s.byte_at(i) == u8(46) or s.byte_at(i) == u8(44))): {
+			i += 1
+			let digits = 0
+			let scale = 100000000
+			for(i < n and s.byte_at(i) >= u8(48) and s.byte_at(i) <= u8(57)): {
+				if(digits < 9): {
+					nano += (int(s.byte_at(i)) - 48) * scale
+					scale /= 10
+				}
+				digits += 1
+				i += 1
+			}
+			if(digits == 0): func <- none
+		}
+		if(i < n): {
+			let z = s.byte_at(i)
+			if(z == u8(90) or z == u8(122)): {
+				i += 1
+			} else if(z == u8(43) or z == u8(45)): {
+				let oh = _parse_digits(s, i + 1, 2) ?? func <- none
+				i += 3
+				let om = 0
+				if(i < n and s.byte_at(i) == u8(58)): {
+					om = _parse_digits(s, i + 1, 2) ?? func <- none
+					i += 3
+				} else if(i + 2 <= n): {
+					om = _parse_digits(s, i, 2) ?? func <- none
+					i += 2
+				}
+				if(oh > 23 or om > 59): func <- none
+				off = oh * 3600 + om * 60
+				if(z == u8(45)): off = -off
+			} else: func <- none
+		}
+		if(i != n): func <- none
+	}
+	let err? = _civil_error(y, mo, d, h, mi, sc)
+	if(err? != none): func <- none
+	let local_sec = _days_from_civil(y, mo, d) * 86400 + h * 3600 + mi * 60 + sc
+	let zone = if(off == 0): "UTC" else: format_tz_offset(off, false)
+	_build_datetime(local_sec - off, nano, off, own zone, false)
 }
 
 // -----------------------------------------------------------------------------
@@ -1015,4 +1209,127 @@ bind test_time_negative_duration_string = (): {
 	assert(Duration.from_nanos(0).to_string() == "0 ns", "zero")
 	let min_str = Duration.from_nanos(-9223372036854775807 - 1).to_string()
 	assert(min_str.starts_with("-") and min_str.ends_with(" s"), "minimum int does not overflow")
+}
+
+@test("time arithmetic does not overflow for dates far from 1970")
+bind test_time_arith_far_dates = (): {
+	let far = DateTime.new(2400, 3, 1, 12, 0, 0, false)
+	let later = far.add_duration(Duration.from_nanos(1500000000))
+	assert(later.year == 2400 and later.second == 1 and later.nanosecond == 500000000, "add_duration in 2400")
+	let earlier = far.sub_duration(Duration.from_nanos(1))
+	assert(earlier.hour == 11 and earlier.minute == 59 and earlier.second == 59, "sub_duration in 2400")
+	assert(earlier.nanosecond == 999999999, "sub_duration borrows a second")
+	assert(later.diff(far).to_nanos() == 1500000000, "diff between 2400 dates")
+
+	let ancient = DateTime.new(1500, 1, 1, 0, 0, 0, false)
+	assert(ancient.add_duration(Duration.from_secs(86400.0)).day == 2, "add a day in 1500")
+
+	let near = DateTime.new(2000, 1, 1, 0, 0, 0, false)
+	let mid = DateTime.new(2200, 1, 1, 0, 0, 0, false)
+	let span? = mid.try_diff(near)
+	assert(span? != none, "200-year span fits in a Duration")
+	let huge? = far.try_diff(ancient)
+	assert(huge? == none, "900-year span does not fit in a Duration")
+	assert(far.diff(ancient).to_nanos() == 9223372036854775807, "diff saturates high")
+	assert(ancient.diff(far).to_nanos() == -9223372036854775807 - 1, "diff saturates low")
+
+	let min_d = Duration.from_nanos(-9223372036854775807 - 1)
+	let shifted = mid.sub_duration(min_d)
+	assert(shifted.year == 2492, "sub_duration of minimum Duration does not overflow")
+}
+
+@test("time format_go .999 trims trailing zeros and ,000 uses a comma")
+bind test_time_format_go_fraction = (): {
+	let dt = DateTime.from_unix_nanos(1700000000120000000, false)
+	assert(dt.format_go("05.999") == "20.12", ".999 trims trailing zeros")
+	assert(dt.format_go("05.000") == "20.120", ".000 keeps fixed digits")
+	assert(dt.format_go("05.999999999") == "20.12", ".999999999 trims")
+	assert(dt.format_go("05,000") == "20,120", ",000 uses a comma separator")
+	assert(dt.format_go("05.9") == "20.1", "single 9 digit")
+	assert(dt.format_go("05.0") == "20.1", "single 0 digit")
+	let whole = DateTime.from_unix_secs(1700000000, false)
+	assert(whole.format_go("05.999") == "20", "zero fraction omits separator")
+	assert(whole.format_go("05.000") == "20.000", "zero fraction keeps fixed digits")
+	assert(whole.format_go("15.0007") == "22.0007", "a 0-run followed by a digit is not a fraction token")
+	assert(dt.format_go(RFC3339Nano) == "2023-11-14T22:13:20.12Z", "RFC3339Nano trims")
+	assert(dt.to_rfc3339_nano() == "2023-11-14T22:13:20.12Z", "to_rfc3339_nano matches Go")
+}
+
+@test("time local DateTime uses a real zone name")
+bind test_time_local_zone_name = (): {
+	let local = DateTime.from_unix_secs(1700000000, true)
+	assert(local.zone_name.len() > 0, "local zone name is non-empty")
+	assert(local.zone_name != "LOCAL", "local zone name is not the LOCAL placeholder")
+	assert(local.format_go("MST") == local.zone_name, "MST prints the zone name")
+	assert(local.format("%Z") == local.zone_name, "%Z prints the zone name")
+	assert(DateTime.from_unix_secs(0, false).format_go("MST") == "UTC", "UTC zone name")
+}
+
+@test("time DateTime components are validated")
+bind test_time_validation = (): {
+	assert(DateTime.try_new(2024, 2, 29, 0, 0, 0, false).is_ok(), "leap day 2024 is valid")
+	assert(DateTime.try_new(2023, 2, 29, 0, 0, 0, false).is_err(), "Feb 29 2023 is invalid")
+	assert(DateTime.try_new(1900, 2, 29, 0, 0, 0, false).is_err(), "1900 is not a leap year")
+	assert(DateTime.try_new(2000, 2, 29, 0, 0, 0, false).is_ok(), "2000 is a leap year")
+	assert(DateTime.try_new(2024, 13, 1, 0, 0, 0, false).is_err(), "month 13")
+	assert(DateTime.try_new(2024, 0, 1, 0, 0, 0, false).is_err(), "month 0")
+	assert(DateTime.try_new(2024, 4, 31, 0, 0, 0, false).is_err(), "April 31")
+	assert(DateTime.try_new(2024, 1, 0, 0, 0, 0, false).is_err(), "day 0")
+	assert(DateTime.try_new(2024, 1, 1, 24, 0, 0, false).is_err(), "hour 24")
+	assert(DateTime.try_new(2024, 1, 1, 0, 60, 0, false).is_err(), "minute 60")
+	assert(DateTime.try_new(2024, 1, 1, 0, 0, 60, false).is_err(), "second 60")
+	assert(DateTime.try_new(2024, 1, 1, -1, 0, 0, false).is_err(), "negative hour")
+	assert(DateTime.try_new(MAX_YEAR + 1, 1, 1, 0, 0, 0, false).is_err(), "year above MAX_YEAR")
+	let err = DateTime.try_new(2023, 2, 29, 0, 0, 0, false).unwrap_err()
+	assert(err.has_code("invalid_datetime"), "error code")
+	assert(err.message().contains("day 29"), "error names the bad component")
+	assert(days_in_month(2024, 2) == 29 and days_in_month(2023, 2) == 28, "days_in_month February")
+	assert(days_in_month(2024, 13) == 0, "days_in_month invalid month")
+}
+
+@test("time ISO 8601 parsing of Z, fractions, and offsets")
+bind test_time_iso8601_parse = (): {
+	let z = "2024-03-10T12:34:56Z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	assert(z.unix_secs == 1710074096 and z.offset_secs == 0, "Z suffix is UTC")
+
+	let frac = "2024-03-10T12:34:56.123456789Z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	assert(frac.nanosecond == 123456789, "nanosecond fraction")
+	let short = "2024-03-10T12:34:56.5Z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	assert(short.nanosecond == 500000000, "one-digit fraction")
+	let long = "2024-03-10T12:34:56.1234567891234Z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	assert(long.nanosecond == 123456789, "fraction past nanoseconds is truncated")
+	let comma = "2024-03-10T12:34:56,25Z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	assert(comma.nanosecond == 250000000, "comma fraction separator")
+
+	let plus = "2024-03-10T18:04:56+05:30".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	assert(plus.unix_secs == 1710074096, "+05:30 converts to the same instant")
+	assert(plus.offset_secs == 19800 and plus.hour == 18 and plus.minute == 4, "+05:30 keeps local fields")
+	assert(plus.to_rfc3339() == "2024-03-10T18:04:56+05:30", "+05:30 round-trips through to_rfc3339")
+	assert(plus.zone_name == "+0530", "fixed offset zone label")
+
+	let minus = "2024-03-10T07:34:56-0500".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	assert(minus.unix_secs == 1710074096 and minus.offset_secs == -18000, "-0500 offset")
+	let hours_only = "2024-03-10T14:34:56+02".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	assert(hours_only.unix_secs == 1710074096, "+HH offset")
+	let lower = "2024-03-10t12:34:56z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	assert(lower.unix_secs == 1710074096, "lowercase t and z")
+	let no_secs = "2024-03-10T12:34Z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	assert(no_secs.unix_secs == 1710074040, "HH:MM without seconds")
+	let shifted = plus.add_duration(Duration.from_secs(60.0))
+	assert(shifted.offset_secs == 19800 and shifted.minute == 5, "arithmetic keeps the fixed offset")
+
+	let date_only = "2024-03-10".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	assert(date_only.hour == 0 and date_only.offset_secs == 0, "date only is UTC midnight")
+	let spaced = "2024-03-10 12:34:56".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	assert(spaced.unix_secs == 1710074096, "space separator without zone is UTC")
+
+	assert("2024-13-10T12:34:56Z".to_datetime() == none, "month 13 rejected")
+	assert("2024-02-30".to_datetime() == none, "Feb 30 rejected")
+	assert("2024-03-10T25:00:00Z".to_datetime() == none, "hour 25 rejected")
+	assert("2024-03-10T12:34:56+24:00".to_datetime() == none, "offset hour 24 rejected")
+	assert("2024-03-10T12:34:56.Z".to_datetime() == none, "empty fraction rejected")
+	assert("2024-03-10T12:34:56Zjunk".to_datetime() == none, "trailing input rejected")
+	assert("2024-03-10X12:34:56".to_datetime() == none, "bad separator rejected")
+	assert("2024/03/10".to_datetime() == none, "slash date rejected")
+	assert("+024-03-10".to_datetime() == none, "sign in year rejected")
 }

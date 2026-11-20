@@ -59,7 +59,7 @@ bind main = (): {
     assert(dt.to_rfc1123() == "Sat, 31 Oct 2026 15:30:45 UTC")
     assert(dt.to_rfc1123z() == "Sat, 31 Oct 2026 15:30:45 +0000")
     assert(dt.to_rfc3339() == "2026-10-31T15:30:45Z")
-    assert(dt.to_rfc3339_nano() == "2026-10-31T15:30:45.000000000Z")
+    assert(dt.to_rfc3339_nano() == "2026-10-31T15:30:45Z")
     assert(dt.to_stamp() == "Oct 31 15:30:45")
     assert(dt.to_stamp_milli() == "Oct 31 15:30:45.000")
     assert(dt.to_stamp_micro() == "Oct 31 15:30:45.000000")

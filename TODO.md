@@ -8,11 +8,11 @@ Tasks are atomic and ordered from easiest to most involved.
 - [x] Use `str_from_raw` and distinguish clean EOF in `TcpStream.recv` (`std/net.ll:57-73`).
 - [x] Normalize negative pre-1970 nanoseconds in `from_unix_millis`/`nanos` (`std/time.ll:284-295`).
 - [x] Fix negative formatting in `Duration.to_string` in `std/time.ll`.
-- [ ] Handle `i64` overflow in `diff`, `add_duration`, and `sub_duration` in `std/time.ll`.
-- [ ] Fix `.999` formatting in `format_go` (`std/time.ll:603-611`).
-- [ ] Fix local timezone names in `format_go` (`std/time.ll:244,523-636`).
-- [ ] Validate `DateTime` components in `std/time.ll`.
-- [ ] Support ISO 8601 `Z`, fractional, and `+HH:MM` offsets in `std/time.ll`.
+- [x] Handle `i64` overflow in `diff`, `add_duration`, and `sub_duration` in `std/time.ll`.
+- [x] Fix `.999` formatting in `format_go` (`std/time.ll:603-611`).
+- [x] Fix local timezone names in `format_go` (`std/time.ll:244,523-636`).
+- [x] Validate `DateTime` components in `std/time.ll`.
+- [x] Support ISO 8601 `Z`, fractional, and `+HH:MM` offsets in `std/time.ll`.
 - [ ] Add `assert_panics` to `std/test.ll`.
 - [ ] Fix `Server.serve` CPU spin on repeated `accept` failures in `std/http.ll`.
 - [ ] Populate `req.remote_addr` in HTTP `Server` connection handling in `std/http.ll`.
@@ -152,7 +152,7 @@ Tasks are atomic and ordered from easiest to most involved.
 ## Tooling, LSP & Language Features
 
 - [ ] Make `lowlight run` report when the program is killed by a signal (it exits `255` with no message on SIGSEGV) in `internal/driver/driver.go:722`.
-- [ ] Fix formatter idempotency: `TestFormatStandardLibraryFilesParseAndSemaAndIdempotent` fails on `std/core/list.ll` with the in-progress `internal/format/printer.go` changes.
+- [x] Fix formatter idempotency: `TestFormatStandardLibraryFilesParseAndSemaAndIdempotent` failed on `std/core/list.ll` (overflowing single-line `if` bodies and single composite call arguments laid out differently on the second pass).
 - [ ] Bound download and extraction sizes in `FetchBytes` (unbounded `io.ReadAll`) and `extractTarGzSafe`/`extractZipSafe` (decompression bombs) in `internal/manifest/fetch.go`.
 - [ ] Make `lowlight doc` skip gitignored and build directories (it documents `editors/jetbrains/build/...` and `editors/vscode/lowlight/std` copies into `docs/`), and decide whether `docs/` is committed or gitignored.
 - [ ] Debounce and background `analyzeAndPublish` in the LSP and honor `$/cancelRequest` so completion/hover aren't queued behind full re-checks (`internal/lsp/server.go:241-266,691`).

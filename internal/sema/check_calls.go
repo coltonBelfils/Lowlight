@@ -2226,6 +2226,10 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 		return sysIntrinsic([]types.FuncParam{
 			{Name: "ms", Mode: types.ModeRead, Type: types.TypeInt},
 		}, types.TypeVoid)
+	case "sys_local_tz_name":
+		return sysIntrinsic([]types.FuncParam{
+			{Name: "epoch_sec", Mode: types.ModeRead, Type: types.TypeInt},
+		}, u8p)
 	case "sys_local_tz_offset", "sys_tcp_port":
 		return sysIntrinsic([]types.FuncParam{
 			{Name: "arg", Mode: types.ModeRead, Type: types.TypeInt},

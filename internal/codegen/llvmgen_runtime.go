@@ -1717,6 +1717,7 @@ func (g *llvmEmitter) emitSyscallAndOSRuntime() {
 		"ll_os_file_size", "ll_os_file_exists", "ll_os_mkdir", "ll_os_remove_all",
 		"ll_os_num_cpus", "ll_os_name_cstr", "ll_os_arch_cstr", "ll_os_argc", "ll_os_argv_cstr",
 		"ll_time_monotonic_nanos", "ll_time_epoch_nanos", "ll_time_sleep_ms", "ll_time_local_offset",
+		"ll_time_local_tz_name",
 	}
 	for _, fn := range fns {
 		g.funcSet[fn] = true
@@ -2097,7 +2098,28 @@ read_off:
 ret_zero:
     ret i64 0
 }
-`, rSym, rbSym, slashSym, rmFmtSym, scNproc, osSym, archSym, emptySym, emptySym, clockMono)
+
+; Returns struct tm.tm_zone (offset 48 on 64-bit glibc and Darwin) for epoch_sec, or "".
+define internal ptr @ll_time_local_tz_name(i64 %%epoch_sec) {
+entry:
+    %%sec_slot = alloca i64, align 8
+    %%tm_buf = alloca [64 x i8], align 8
+    call void @llvm.memset.p0.i64(ptr %%tm_buf, i8 0, i64 64, i1 false)
+    store i64 %%epoch_sec, ptr %%sec_slot, align 8
+    %%tm_ptr = call ptr @localtime_r(ptr %%sec_slot, ptr %%tm_buf)
+    %%ok = icmp ne ptr %%tm_ptr, null
+    br i1 %%ok, label %%read_zone, label %%ret_empty
+read_zone:
+    %%p_zone = getelementptr inbounds i8, ptr %%tm_buf, i64 48
+    %%zone = load ptr, ptr %%p_zone, align 8
+    %%has_zone = icmp ne ptr %%zone, null
+    br i1 %%has_zone, label %%ret_zone, label %%ret_empty
+ret_zone:
+    ret ptr %%zone
+ret_empty:
+    ret ptr %s
+}
+`, rSym, rbSym, slashSym, rmFmtSym, scNproc, osSym, archSym, emptySym, emptySym, clockMono, emptySym)
 }
 
 func (g *llvmEmitter) emitNetAndTLSRuntime() {
