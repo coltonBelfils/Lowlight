@@ -11,6 +11,7 @@ import (
 )
 
 func TestMatchMethodPatternsE2E(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/core"
 
@@ -197,6 +198,7 @@ bind main = (): {
 }
 
 func TestMatchMethodPatternNegativeDiagnostics(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	tests := []struct {
 		name        string
@@ -332,6 +334,7 @@ bind main = (): {
 }
 
 func TestFormatMatchMethodPattern(t *testing.T) {
+	t.Parallel()
 	src := `bind check = (ch: char) bool: {
 	match(ch):
 		when is_digit(), '.': true

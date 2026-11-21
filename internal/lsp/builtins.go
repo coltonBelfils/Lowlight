@@ -167,6 +167,12 @@ var BuiltinSnippets = []CodeSnippet{
 		Summary: "Iterates over a range (`0..n`) or collection (`[T]`, `[N: T]`, `#[T]`, `#[K: V]`, `string`).",
 	},
 	{
+		Label:   "for index",
+		Detail:  "Iterate with index and item",
+		Snippet: "for(${1:i}, ${2:item} in ${3:items}): {\n\t$0\n}",
+		Summary: "Iterates a collection with each element's index (`for(i, x in list)`), or a map's keys and values (`for(k, v in map)`).",
+	},
+	{
 		Label:   "while",
 		Detail:  "Conditional while loop",
 		Snippet: "while(${1:cond}): {\n\t$0\n}",

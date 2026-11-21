@@ -16,6 +16,7 @@ import (
 // =============================================================================
 
 func TestCharsSuite(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/chars"
 
@@ -92,6 +93,7 @@ bind main = (): {
 }
 
 func TestStringsSuite(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/strings"
 
@@ -193,6 +195,7 @@ bind main = (): {
 }
 
 func TestFsSuite(t *testing.T) {
+	t.Parallel()
 	tempDir := t.TempDir()
 	testFilePath := filepath.Join(tempDir, "test_file.txt")
 	testCopyPath := filepath.Join(tempDir, "test_copy.txt")
@@ -297,6 +300,7 @@ bind main = (): {
 }
 
 func TestOsArgsNative(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/os"
 
@@ -312,6 +316,7 @@ bind main = (): {
 }
 
 func TestSortSuite(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/sort"
 

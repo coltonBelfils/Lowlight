@@ -227,6 +227,10 @@ type Diagnostic struct {
 	Source   string             `json:"source,omitempty"`
 	Message  string             `json:"message"`
 	Code     string             `json:"code,omitempty"`
+	// Data is echoed back by clients in code action requests. It holds the compiler's fix
+	// details (string values) and, when the underline covers only part of an expression,
+	// "fullRange": the whole expression.
+	Data map[string]any `json:"data,omitempty"`
 }
 
 type PublishDiagnosticsParams struct {

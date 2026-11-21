@@ -52,7 +52,10 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 
 	// 1. Check `Ident(...)` or `Ident[T...](...)` forms first (intrinsics, conversions, builtins, direct/generic fns)
 	if id, isId := call.Callee.(*ast.IdentExpr); isId && !id.IsOpt {
-		// Check disambiguation of `vec_of_fns[idx](args)` when parser tentatively parsed `[idx]` as TypeArgs:
+		// Check disambiguation of `vec_of_fns[idx](args)` when parser tentatively parsed `[idx]` as TypeArgs.
+		// The rewrite is idempotent and serialized: cached ASTs may be checked concurrently.
+		astRewriteMu.Lock()
+		rewritten := false
 		if len(call.TypeArgs) == 1 {
 			if nt, isNT := call.TypeArgs[0].(*ast.NamedType); isNT && nt.Module == "" && len(nt.TypeArgs) == 0 {
 				if sym := fc.lookupVar(id.Name); sym != nil {
@@ -65,10 +68,14 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 						}
 						call.Callee = idxExpr
 						call.TypeArgs = nil
-						return fc.checkClosureValueCall(call)
+						rewritten = true
 					}
 				}
 			}
+		}
+		astRewriteMu.Unlock()
+		if rewritten {
+			return fc.checkClosureValueCall(call)
 		}
 
 		// 1a. Check Intrinsics (`size_of`, `alloc_raw`, `ptr_read`, etc.) if not shadowed
@@ -130,7 +137,8 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 			return retTy
 		}
 
-		fc.a.Rep.Errorf(id.Span, "undeclared function %q", id.Name)
+		hint, cands := fc.unknownNameHint(id.Name)
+		fc.a.errorWithRename(id.Span, fmt.Sprintf("undeclared function %q", id.Name), id.Name, hint, cands)
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
 	}
@@ -360,7 +368,8 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 			}
 			fi := fc.a.LookupMethod(recvTy, mem.Member, mTypeArgs, call.Span)
 			if fi == nil {
-				fc.a.Rep.Errorf(mem.Span, "type %s has no method %q", recvTy.String(), mem.Member)
+				hint, cands := fc.a.unknownMethodHint(recvTy, mem.Member)
+				fc.a.errorWithRename(fc.a.focusSpan(mem), fmt.Sprintf("type %s has no method %q", recvTy.String(), mem.Member), mem.Member, hint, cands)
 				inf.Type = types.TypeInvalid
 				return types.TypeInvalid
 			}
@@ -1038,9 +1047,28 @@ func (fc *funcChecker) checkInterfaceMethodCall(ifc *types.Interface, mem *ast.M
 // Signature Argument Checking, `&` / `own` Enforcement, & Borrow Exclusivity
 // -----------------------------------------------------------------------------
 
+// arityHint names the parameters a call is missing, or says how many arguments to remove.
+func arityHint(params []types.FuncParam, got int) string {
+	if got > len(params) {
+		if len(params) == 0 {
+			return "this takes no arguments; remove them"
+		}
+		return fmt.Sprintf("remove %d argument(s); the parameters are (%s)", got-len(params), formatParams(params))
+	}
+	return fmt.Sprintf("missing %s", "`"+formatParams(params[got:])+"`")
+}
+
+func formatParams(params []types.FuncParam) string {
+	parts := make([]string, len(params))
+	for i, p := range params {
+		parts[i] = fmt.Sprintf("%s: %s%s", p.Name, p.Mode.Prefix(), p.Type.String())
+	}
+	return strings.Join(parts, ", ")
+}
+
 func (fc *funcChecker) checkSignatureArgs(params []types.FuncParam, args []ast.Expr, receiverMutRoot *Symbol, callSpan diag.Span) {
 	if len(args) != len(params) {
-		fc.a.Rep.Errorf(callSpan, "expected %d argument(s), got %d", len(params), len(args))
+		fc.a.Rep.ErrorWithHint(callSpan, fmt.Sprintf("expected %d argument(s), got %d", len(params), len(args)), arityHint(params, len(args)))
 		for _, a := range args {
 			_ = fc.checkExpr(a, true)
 		}
@@ -1730,7 +1758,8 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 		}
 	}
 
-	fc.a.Rep.Errorf(mem.Span, "type %s has no method %q", recvTy.String(), mem.Member)
+	hint, cands := fc.a.unknownMethodHint(recvTy, mem.Member)
+	fc.a.errorWithRename(fc.a.focusSpan(mem), fmt.Sprintf("type %s has no method %q", recvTy.String(), mem.Member), mem.Member, hint, cands)
 	for _, a := range call.Args {
 		_ = fc.checkExpr(a, true)
 	}

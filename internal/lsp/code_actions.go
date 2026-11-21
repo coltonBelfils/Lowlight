@@ -179,10 +179,23 @@ func applyEditsToSource(src string, edits []TextEdit) string {
 func (s *Server) computeCodeActions(filePath string, src string, params CodeActionParams) []CodeAction {
 	uri := PathToURI(filePath)
 	diags := params.Context.Diagnostics
+	latest := s.latestDiagnosticsFor(filePath)
 	if len(diags) == 0 {
-		for _, d := range s.latestDiagnosticsFor(filePath) {
+		for _, d := range latest {
 			if rangesOverlap(d.Range, params.Range) {
 				diags = append(diags, d)
+			}
+		}
+	}
+	// Clients that drop `data` from echoed diagnostics get it back from the published set.
+	for i := range diags {
+		if diags[i].Data != nil {
+			continue
+		}
+		for _, l := range latest {
+			if l.Range == diags[i].Range && l.Message == diags[i].Message {
+				diags[i].Data = l.Data
+				break
 			}
 		}
 	}
@@ -208,6 +221,7 @@ func (s *Server) computeCodeActions(filePath string, src string, params CodeActi
 	if mod != nil && mod.File != nil {
 		s.collectProactiveGenerators(filePath, uri, src, ind, prog, mod, params.Range, addAction)
 		s.collectRefactorActions(filePath, uri, src, ind, prog, mod, params.Range, addAction)
+		s.expandCaseActions(uri, src, ind, prog, mod, LSPToOffset(src, params.Range.Start), addAction)
 	}
 
 	for _, tAct := range s.computeTestCodeActions(filePath, src, params.Range) {
@@ -257,6 +271,9 @@ func (s *Server) collectDiagnosticQuickFixes(
 	addAction func(CodeAction),
 ) {
 	msg := d.Message
+
+	// 0. Fixes from the compiler's structured diagnostic data
+	s.collectDataQuickFixes(filePath, uri, src, d, addAction)
 
 	// 1. Missing `&` on mutable borrow parameter
 	if strings.Contains(msg, "borrows mutably") && strings.Contains(msg, "requires `&` at the call site") {
@@ -553,7 +570,7 @@ func (s *Server) collectMatchQuickFixes(
 	if strings.Contains(msg, "non-exhaustive `match` on `bool`") {
 		indent := getLineIndent(src, d.Range.Start.Line)
 		armIndent := indent + ind
-		insertPos, hasExistingDefault := findMatchInsertionPoint(src, d.Range)
+		insertPos, hasExistingDefault := findMatchInsertionPoint(src, fullMatchRange(prog, src, d.Range))
 		if !hasExistingDefault {
 			addAction(CodeAction{
 				Title:       "Generate missing boolean match arms",
@@ -572,7 +589,7 @@ func (s *Server) collectMatchQuickFixes(
 	if strings.Contains(msg, "must end with an open catch-all `default:` arm") {
 		indent := getLineIndent(src, d.Range.Start.Line)
 		armIndent := indent + ind
-		insertPos, _ := findMatchInsertionPoint(src, d.Range)
+		insertPos, _ := findMatchInsertionPoint(src, fullMatchRange(prog, src, d.Range))
 		addAction(CodeAction{
 			Title:       "Add catch-all 'default:' arm",
 			Kind:        "quickfix",
@@ -585,6 +602,14 @@ func (s *Server) collectMatchQuickFixes(
 			},
 		})
 	}
+}
+
+// fullMatchRange widens a diagnostic range on a `match` header (`match(x):`) to the whole match.
+func fullMatchRange(prog *sema.CheckedProgram, src string, r Range) Range {
+	if me := findMatchExprAt(prog, LSPToOffset(src, r.Start)); me != nil {
+		return Range{Start: OffsetToLSP(src, me.Span.Start.Offset), End: OffsetToLSP(src, me.Span.End.Offset)}
+	}
+	return r
 }
 
 // findMatchExprAt returns the innermost checked `match` or result chain containing offset.
@@ -660,6 +685,9 @@ func (s *Server) addMissingArmActions(uri, src, ind string, me *ast.MatchExpr, d
 		}
 	} else {
 		insertPos, _ := findMatchInsertionPoint(src, d.Range)
+		if me != nil {
+			insertPos = OffsetToLSP(src, me.Span.End.Offset)
+		}
 		rng = Range{Start: insertPos, End: insertPos}
 	}
 	build := func(fallback bool) string {
@@ -1335,7 +1363,11 @@ func buildImplementInterfaceAction(
 		if m.Ret != nil && !m.Ret.Equals(types.TypeVoid) {
 			retStr = " " + substSelfTypeString(m.Ret, typeName)
 		}
-		stubs = append(stubs, fmt.Sprintf("bind %s.%s = (%s)%s: panic(\"todo\")", typeName, m.Name, strings.Join(params, ", "), retStr))
+		body := derivedMethodBody(mod, typeName, ifc.Name, m.Name)
+		if body == "" {
+			body = "panic(\"todo\")"
+		}
+		stubs = append(stubs, formatGeneratedDecl(fmt.Sprintf("bind %s.%s = (%s)%s: %s", typeName, m.Name, strings.Join(params, ", "), retStr, body), "\t"))
 	}
 
 	if len(stubs) == 0 {

@@ -200,6 +200,9 @@ Apply the `Result` vs. `panic` rules and the `x` / `try_x` naming convention fro
 
 ## Testing, CI & Repository Hygiene
 
+- [ ] Add a `-short` mode to `tests/` that skips release-mode and C11 duplicates of runtime tests for quick local runs (the full parallel suite takes about a minute on 8 cores).
+- [ ] Share compiled std object files between parallel test compiles (one warm `LOWLIGHT_CACHE` per `go test` run) so each test stops recompiling the same std packages.
+- [ ] Remove the remaining in-place AST rewrites in sema (`xs[i].m` and `fns[i](...)` disambiguation, now serialized by `astRewriteMu`) by resolving them into side tables, so cached ASTs are strictly read-only.
 - [ ] Turn `examples/playground.ll` into a buildable example (it has no `main`) or move it out of `examples/`.
 - [ ] Move `std/json.ll` into a `std/json/` package directory like the other std packages.
 - [ ] Update `SPECIFICATION.md` §3.4: `s.len()` returns the byte count and `s.byte_len()` does not exist; reconcile spec and implementation, including `for (i, ch in s)` byte-offset semantics.

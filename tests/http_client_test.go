@@ -11,6 +11,7 @@ import (
 )
 
 func TestHTTPClientPutPatchDeleteEndToEnd(t *testing.T) {
+	t.Parallel()
 	// 1. Both LLVM and C11 strict parity + leak check on Client/module helpers and roundtrips.
 	strictSrc := `
 import "std/http"

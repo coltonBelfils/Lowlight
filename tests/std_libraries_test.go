@@ -15,6 +15,7 @@ import (
 )
 
 func TestStandardLibraryInlineSuites(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	stdDir := filepath.Join(root, "std")
 
@@ -41,6 +42,7 @@ func TestStandardLibraryInlineSuites(t *testing.T) {
 		for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
 			backend := backend
 			t.Run(string(backend)+"/"+pkg, func(t *testing.T) {
+				t.Parallel()
 				tmpDir := t.TempDir()
 				path := filepath.Join(stdDir, pkg)
 				opts := driver.Options{
@@ -83,6 +85,7 @@ func TestStandardLibraryInlineSuites(t *testing.T) {
 }
 
 func TestStdFsAndOsQualifiedImportNoConflict(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/fs"
 import "std/os"
@@ -101,6 +104,7 @@ bind main = (): {
 }
 
 func TestStdMathNanInfStrict(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/math"
 
@@ -120,6 +124,7 @@ bind main = (): {
 }
 
 func TestStdFsExistsAndMkdirPEdgeCases(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	unreadable := filepath.Join(tmp, "unreadable.txt")
 	if err := os.WriteFile(unreadable, []byte("secret"), 0o000); err != nil {
@@ -174,6 +179,7 @@ bind main = (): {
 }
 
 func TestCoreReadFileNonSeekable(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX FIFO test skipped on Windows")
 	}
@@ -355,6 +361,7 @@ func extractLLVMFunctionBody(llSrc, fnName string) string {
 }
 
 func TestListFilledCodegenAndBoundsPanics(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	tmp := t.TempDir()
 

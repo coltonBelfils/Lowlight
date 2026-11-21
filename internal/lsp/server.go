@@ -745,11 +745,22 @@ func (s *Server) analyzeAndPublish(filePath string, clientURI string, src string
 		if d.Span.Start.Line > 0 {
 			rng = SpanToLSP(dSrc, d.Span)
 		}
+		var data map[string]any
+		if len(d.Data) > 0 || d.Full.Start.Line > 0 {
+			data = map[string]any{}
+			for k, v := range d.Data {
+				data[k] = v
+			}
+			if d.Full.Start.Line > 0 && (d.Full.Start.File == "" || d.Full.Start.File == d.Span.Start.File) {
+				data["fullRange"] = SpanToLSP(dSrc, d.Full)
+			}
+		}
 		diagsByFile[dFile] = append(diagsByFile[dFile], Diagnostic{
 			Range:    rng,
 			Severity: sev,
 			Source:   "lowlight",
 			Message:  fullMsg,
+			Data:     data,
 		})
 	}
 

@@ -8,6 +8,7 @@ import (
 )
 
 func TestZeroArgMatch(t *testing.T) {
+	t.Parallel()
 	src := `
 bind test_cond = (x: int, y: int) string: {
     match ():
@@ -55,6 +56,7 @@ fallback
 }
 
 func TestMultiArgMatchEndToEnd(t *testing.T) {
+	t.Parallel()
 	src := `
 define Color enum [ Red, Green, Blue ]
 define Status enum [ Pending, Active, Done ]
@@ -159,6 +161,7 @@ none
 }
 
 func TestMultiArgMatchExhaustiveness(t *testing.T) {
+	t.Parallel()
 	src := `
 define Color enum [ Red, Blue ]
 define Status enum [ Open, Closed ]
@@ -219,6 +222,7 @@ bind main = () int: {
 }
 
 func TestMultiArgMatchSemanticsErrors(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		src  string

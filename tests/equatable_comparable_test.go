@@ -14,6 +14,7 @@ import (
 // =============================================================================
 
 func TestCustomEquatableStruct(t *testing.T) {
+	t.Parallel()
 	src := `
 define Point struct [
     x: int,
@@ -62,6 +63,7 @@ bind main = (): {
 }
 
 func TestCustomComparableStruct(t *testing.T) {
+	t.Parallel()
 	src := `
 define Score struct [
     pts: int,
@@ -140,6 +142,7 @@ bind main = (): {
 }
 
 func TestPrimitiveEquatableAndComparable(t *testing.T) {
+	t.Parallel()
 	src := `
 bind test_generic_eq[T: Equatable] = (a: T, b: T) bool: {
     a == b
@@ -247,6 +250,7 @@ bind main = (): {
 }
 
 func TestDistinctComparableAndEquatable(t *testing.T) {
+	t.Parallel()
 	src := `
 define Meters int
 define Seconds int
@@ -276,6 +280,7 @@ bind main = (): {
 }
 
 func TestCustomEquatableAndComparableTaggedEnum(t *testing.T) {
+	t.Parallel()
 	src := `
 define Val enum [
     Empty,
@@ -361,6 +366,7 @@ bind main = (): {
 }
 
 func TestCompileTimeNegativeEquatableComparable(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 
 	tests := []struct {
@@ -446,6 +452,7 @@ bind main = (): {
 }
 
 func TestDerivedEqRejectedOnResourceAndDropStructs(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 
 	negCases := []struct {

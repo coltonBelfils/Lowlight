@@ -12,6 +12,7 @@ import (
 // Local DateTimes must report the host zone abbreviation (via `sys_local_tz_name`) instead of a
 // `"LOCAL"` placeholder, including DST transitions, on both backends.
 func TestLocalTimeZoneNamesFollowTZ(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/time"
 

@@ -8,6 +8,7 @@ import (
 )
 
 func TestTuplesEndToEnd(t *testing.T) {
+	t.Parallel()
 	src := `
 bind make_pair = (x: int, y: string) +[int, string]: {
     +[x, y.copy()]
@@ -95,6 +96,7 @@ empty == +[]
 }
 
 func TestTuplesRelease(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = () int: {
     let t = +[123, "release_test", true]
@@ -110,6 +112,7 @@ bind main = () int: {
 }
 
 func TestTuplesInCollections(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = () int: {
     // 1. Vector of tuples
@@ -141,6 +144,7 @@ map get: origin
 }
 
 func TestTuplesSemanticsErrors(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		src  string
@@ -263,6 +267,7 @@ bind main = () int: 0
 }
 
 func TestTuplesBugsFixes(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = () int: {
     // 1. Function in tuple call
@@ -341,6 +346,7 @@ boxed_plain: +[7, 8]
 }
 
 func TestTuplesPlainBoxRelease(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = () int: {
     let p: Printable = +[10, 20]
@@ -356,6 +362,7 @@ bind main = () int: {
 }
 
 func TestDistinctTuples(t *testing.T) {
+	t.Parallel()
 	src := `
 define Pair +[int, string]
 define FnPair +[(int) int, string]
@@ -426,6 +433,7 @@ a < c
 }
 
 func TestDistinctTuplesSemanticsErrors(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		src     string
@@ -452,7 +460,7 @@ bind main = () int: {
     takes_pair(bare)
 }
 `,
-			wantErr: "type mismatch in argument 1: expected Pair, got +[int, string]",
+			wantErr: "type mismatch: argument 1 expects `Pair`, but this is `+[int, string]`",
 		},
 		{
 			name: "distinct_tuple_dot_out_of_bounds",
@@ -483,6 +491,7 @@ bind main = () int: {
 }
 
 func TestTupleUnpack(t *testing.T) {
+	t.Parallel()
 	src := `
 define Pair +[int, string]
 
@@ -549,6 +558,7 @@ opt_no=early_none
 }
 
 func TestTupleUnpackErrors(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		src     string

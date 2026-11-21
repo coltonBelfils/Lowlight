@@ -66,6 +66,7 @@ func runFileStrict(t *testing.T, name, entryPath string, release bool) string {
 
 // 1. Struct Field Encapsulation: Unexported fields cannot be accessed outside their defining package.
 func TestEncapsulationFieldAccess(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 
@@ -133,6 +134,7 @@ bind main = (): {
 // If a struct contains any unexported field without a default value (and not ?T),
 // it cannot be constructed via struct literal outside its package.
 func TestEncapsulationStructInvariant(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 
@@ -191,6 +193,7 @@ bind main = (): {
 // 3. Structs with Defaults or Optionals on Unexported Fields:
 // When all unexported fields have default values or are optional (?T), outside packages CAN construct literals.
 func TestEncapsulationStructDefaultsAllowed(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 
@@ -235,6 +238,7 @@ bind main = (): {
 
 // 4. Method Encapsulation: Unexported methods (_method) cannot be called outside their package.
 func TestEncapsulationMethodAccess(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 
@@ -276,6 +280,7 @@ bind main = (): {
 
 // 5. Top-Level Symbols Encapsulation: Unexported functions and types are not accessible across packages.
 func TestEncapsulationTopLevelSymbols(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 
@@ -342,6 +347,7 @@ bind main = (): {
 // Multiple files residing in the same directory belong to the same package and can freely access
 // unexported fields, methods, functions, and types.
 func TestEncapsulationSameDirectoryPackageSharing(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 
@@ -418,6 +424,7 @@ bind main = (): {
 // If an interface contains one or more unexported methods (_method), only types defined in the
 // same package as the interface can implement it. Outside types cannot satisfy the interface.
 func TestEncapsulationSealedInterface(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 
@@ -503,6 +510,7 @@ bind main = (): {
 // Verifies full execution of a complete encapsulated module with constructor, getters,
 // mutating methods, and invariants over both backends.
 func TestEncapsulationEndToEndExecution(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 
@@ -593,6 +601,7 @@ bind main = (): {
 // Unexported enum variants (_Variant) cannot be constructed, accessed, or matched outside their defining package.
 // Outside match expressions on enums with unexported variants require a `default:` catch-all arm.
 func TestEncapsulationEnumVariants(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 
@@ -686,6 +695,7 @@ bind test_bad = (t: tok.Token) int: {
 
 // 10. Standard Core Package Encapsulation: Unexported symbols in std/core/ are protected from outside access.
 func TestEncapsulationCorePackageProtection(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 

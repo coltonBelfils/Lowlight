@@ -29,6 +29,7 @@ func runPanicking(t *testing.T, name, src string, backend driver.BackendKind) (i
 // `panic` shares the `Error` type with `Result`: `panic(err)`, `unwrap`, and `expect` all print
 // the full error chain and trace attributed to the user's call site (SPECIFICATION.md §9.6.1).
 func TestPanicWithErrorSharesResultFormatting(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		body string
@@ -93,6 +94,7 @@ func TestPanicWithErrorSharesResultFormatting(t *testing.T) {
 
 // `panic` accepts only a `string` message or an `Error`.
 func TestPanicRejectsOtherArgumentTypes(t *testing.T) {
+	t.Parallel()
 	for _, body := range []string{`panic(42)`, `panic([1, 2])`, `panic("a", "b")`} {
 		src := "bind main = (): {\n\t" + body + "\n}\n"
 		_, _, err := driver.Check(driver.Options{

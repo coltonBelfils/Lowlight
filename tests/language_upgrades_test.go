@@ -15,6 +15,7 @@ import (
 // =============================================================================
 
 func TestTaggedUnionsEndToEnd(t *testing.T) {
+	t.Parallel()
 	src := `
 // Plain C enum still works and casts to int
 define Color enum [Red, Green, Blue]
@@ -198,6 +199,7 @@ bind main = (): {
 }
 
 func TestTaggedUnionsMustUseWarning(t *testing.T) {
+	t.Parallel()
 	src := `
 @must_use
 define Status enum [
@@ -228,6 +230,7 @@ bind main = (): {
 }
 
 func TestTaggedUnionsNegative(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		src         string
@@ -369,6 +372,7 @@ bind main = (): {}
 // =============================================================================
 
 func TestArenaScopedPinningPositive(t *testing.T) {
+	t.Parallel()
 	src := `
 define Node struct [
     id: int,
@@ -415,6 +419,7 @@ bind main = (): {
 }
 
 func TestArenaPinningAndEscapeHolesNegative(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		src         string
@@ -630,6 +635,7 @@ bind main = (): {
 // =============================================================================
 
 func TestOptionalChainingContextualNextAndGenerics(t *testing.T) {
+	t.Parallel()
 	src := `
 define Profile struct [
     nick?: ?string,
@@ -772,6 +778,7 @@ bind main = (): {
 }
 
 func TestStrictlyNonOptionalGenericsNegative(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		src         string
@@ -844,6 +851,7 @@ bind main = (): {
 // =============================================================================
 
 func TestReleaseModePreservesAllSafetyTraps(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name           string
 		src            string
@@ -935,6 +943,7 @@ bind main = (): {
 // =============================================================================
 
 func TestUnifiedSyntaxAndReturnInferenceE2E(t *testing.T) {
+	t.Parallel()
 	src := `
 define Box struct [
     v: int,
@@ -1071,6 +1080,7 @@ bind main = () void: {
 }
 
 func TestUnifiedSyntaxAndInferenceNegative(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		src         string
@@ -1253,6 +1263,7 @@ bind main = (): {
 }
 
 func TestQuickFixesE2ERuntimeAndSemaParity(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	mkTarget := filepath.Join(tmpDir, "created_dir")
 
@@ -1328,6 +1339,7 @@ bind main = (): {
 }
 
 func TestQualifiedAndConstExprArraySizesE2E(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeTestFile(t, dir, "consts/dims.ll", `
 bind WIDTH = 3
@@ -1440,6 +1452,7 @@ bind main = (): {
 }
 
 func TestArrayRepeatAndMapBlockValuesE2E(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	entry := writeTestFile(t, dir, "lit_blocks_e2e.ll", `
 bind N = 3

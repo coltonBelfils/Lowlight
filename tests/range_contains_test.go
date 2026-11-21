@@ -10,6 +10,7 @@ import (
 )
 
 func TestRangeTypeAndIterationE2E(t *testing.T) {
+	t.Parallel()
 	src := `
 define Step int
 
@@ -136,6 +137,7 @@ bind main = (): {
 }
 
 func TestWhenInContainmentPatternsE2E(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/core"
 
@@ -389,6 +391,7 @@ bind main = (): {
 }
 
 func TestRangeAndWhenInNegativeDiagnostics(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	tests := []struct {
 		name        string

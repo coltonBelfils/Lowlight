@@ -52,6 +52,7 @@ func runResultProgram(t *testing.T, name, src string, backend driver.BackendKind
 // `Err(e)`, `Forbidden`) on user-declared results, on both backends without leaks
 // (SPECIFICATION.md §3.8.3, §7.6.5).
 func TestResultDeclarationsAndChains(t *testing.T) {
+	t.Parallel()
 	src := resultDeclPrelude + `
 bind describe = (k: string) string: {
 	let s = find(k):
@@ -151,6 +152,7 @@ bind main = (): {
 // `default panic` panics on any failure the chain does not handle, naming the variant and the
 // `default panic` line.
 func TestResultChainDefaultPanic(t *testing.T) {
+	t.Parallel()
 	src := resultDeclPrelude + `
 bind main = (): {
 	println("before")
@@ -173,6 +175,7 @@ bind main = (): {
 
 // Static rules for result declarations, the `!` naming invariant, and result chains.
 func TestResultDeclarationDiagnostics(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		body string

@@ -690,13 +690,18 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) Expr {
 		}
 	}
 
-	// Build nested `if / else if / else` chain across `me.Arms`
+	// Result chains carry expanded arms (implicit `value` arm, `default panic` arms) in BodyMaps.
+	arms := me.Arms
+	if expanded, ok := fl.bm.MatchArms[me]; ok {
+		arms = expanded
+	}
+	// Build nested `if / else if / else` chain across `arms`
 	var buildArmChain func(armIdx int) []Instr
 	buildArmChain = func(armIdx int) []Instr {
-		if armIdx >= len(me.Arms) {
+		if armIdx >= len(arms) {
 			return nil
 		}
-		arm := me.Arms[armIdx]
+		arm := arms[armIdx]
 
 		// Lower arm body (initializing any destructured variant bindings inside the arm scope!)
 		fl.pushInstrBuf()
@@ -733,7 +738,7 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) Expr {
 
 		// Final arm (catch-all `default:`, exhaustive `default Variant:`, or final `when` of an exhaustive enum match):
 		// Since `sema` already verified exhaustiveness, the final arm always executes if reached!
-		if arm.IsDefault || armIdx == len(me.Arms)-1 {
+		if arm.IsDefault || armIdx == len(arms)-1 {
 			return armBody
 		}
 

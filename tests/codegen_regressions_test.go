@@ -11,6 +11,7 @@ import (
 // Optional chaining through a self-referential (boxed) optional field used to emit
 // `getelementptr inbounds ptr, ...` in the LLVM backend, which clang rejects.
 func TestOptionalChainThroughBoxedSelfReferentialField(t *testing.T) {
+	t.Parallel()
 	src := `
 define Node struct [ val: int, name: string, next?: ?Node ]
 bind Node.label = (self) string: "${self.name}#${self.val}"
@@ -39,6 +40,7 @@ bind main = (): {
 // object-cache keys, and Stage 2/3 self-hosting parity). Type collection used to walk a
 // pointer-keyed Go map, which reordered function-type helpers from run to run.
 func TestCodegenOutputIsDeterministic(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	cases := []struct {
 		path     string

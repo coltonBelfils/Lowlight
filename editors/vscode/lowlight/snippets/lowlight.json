@@ -114,6 +114,15 @@
     ],
     "description": "Loop over a collection"
   },
+  "For Index Loop": {
+    "prefix": "fori",
+    "body": [
+      "for(${1:i}, ${2:item} in ${3:items}): {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Loop with each element's index (or a map's keys and values)"
+  },
   "While Loop": {
     "prefix": "while",
     "body": [

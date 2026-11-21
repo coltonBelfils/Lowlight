@@ -68,6 +68,7 @@ func emitC(t *testing.T, src string, testMode bool, release bool) (string, error
 
 // 1. Tests in the same file as production code
 func TestInlineUnitTests(t *testing.T) {
+	t.Parallel()
 	src := `
 bind add = (a: int, b: int) int: a + b
 bind mul = (a: int, b: int) int: a * b
@@ -115,6 +116,7 @@ bind test_multiplication = (): {
 
 // 2. Dedicated test file without any `main` function
 func TestDedicatedTestFileWithoutMain(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/test"
 
@@ -156,6 +158,7 @@ bind test_assertions = (): {
 
 // 3. Compile-time isolation: Non-test function calling test function is rejected
 func TestNonTestCallingTestFunctionRejected(t *testing.T) {
+	t.Parallel()
 	src := `
 @test("secret test")
 bind my_test = (): {
@@ -181,6 +184,7 @@ bind main = (): {
 
 // 4. Compile-time isolation: Non-test function calling @test_only helper is rejected
 func TestNonTestCallingTestOnlyHelperRejected(t *testing.T) {
+	t.Parallel()
 	src := `
 @test_only
 bind setup_database_fixture = () int: {
@@ -206,6 +210,7 @@ bind main = (): {
 
 // 5. Compile-time isolation: Non-test function using @test_only struct is rejected
 func TestNonTestUsingTestOnlyStructRejected(t *testing.T) {
+	t.Parallel()
 	src := `
 @test_only
 define MockUser struct [
@@ -232,6 +237,7 @@ bind main = (): {
 
 // 6. Test exclusion in non-test / release builds
 func TestTestsOmittedFromNonTestBuild(t *testing.T) {
+	t.Parallel()
 	src := `
 bind helper = () int: 123
 @test("should not be compiled in release")
@@ -267,6 +273,7 @@ bind main = () int: {
 
 // 7. Test runner continues after test assertion failure
 func TestTestRunnerContinuesAfterFailure(t *testing.T) {
+	t.Parallel()
 	src := `
 @test("first test passes")
 bind test_one = (): {
@@ -307,6 +314,7 @@ bind test_three = (): {
 
 // 8. Test runner detects memory leaks per test
 func TestTestRunnerDetectsMemoryLeaks(t *testing.T) {
+	t.Parallel()
 	src := `
 @test("clean test")
 bind test_clean = (): {
@@ -339,6 +347,7 @@ bind test_leaky = (): {
 
 // 9. Tests run and pass in release mode with optimizations
 func TestTestsRunInReleaseMode(t *testing.T) {
+	t.Parallel()
 	src := `
 bind square = (x: int) int: x * x
 @test("optimized math in release mode")
@@ -360,6 +369,7 @@ bind test_square = (): {
 
 // 10. Custom test_main entry point
 func TestCustomTestMain(t *testing.T) {
+	t.Parallel()
 	src := `
 bind test_main = (): {
     println("custom test_main entry point executed")
@@ -379,6 +389,7 @@ bind test_main = (): {
 
 // 11. Test scoping: Single file without tests outputs [no tests to run] and exits 0
 func TestTestScopeSingleFileWithoutTests(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	filePath := filepath.Join(root, "examples", "hello.ll")
 
@@ -404,6 +415,7 @@ func TestTestScopeSingleFileWithoutTests(t *testing.T) {
 
 // 11b. Test scoping: Duplicate test declaration produces a Lowlight semantic error
 func TestDuplicateTestDeclarationError(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	tmpDir := t.TempDir()
 	dupPath := filepath.Join(tmpDir, "dup_test.ll")
@@ -436,6 +448,7 @@ bind t = (): test.assert_eq(1, 2)`
 
 // 11b2. Test scoping: Duplicate local declaration in a function produces a Lowlight semantic error
 func TestDuplicateLocalDeclarationError(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	tmpDir := t.TempDir()
 	dupPath := filepath.Join(tmpDir, "dup_local.ll")
@@ -470,6 +483,7 @@ func TestDuplicateLocalDeclarationError(t *testing.T) {
 
 // 11c. Test scoping: Multiple tests with distinct names compile and run successfully
 func TestMultipleTestsWithDistinctNames(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "distinct_tests.ll")
@@ -511,6 +525,7 @@ bind test_fail = (): test.assert_eq(1, 2)`
 
 // 12. Test scoping: Single file with tests only runs its own tests (does NOT run imported tests)
 func TestTestScopeSingleFileWithTestsOnlyRunsItsOwnTests(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	tmpDir := t.TempDir()
 	testPath := filepath.Join(tmpDir, "scoped_test.ll")
@@ -560,6 +575,7 @@ bind test_isolated = (): {
 
 // 13. Test scoping: Directory without tests outputs [no tests to run] and exits 0
 func TestTestScopeDirectoryWithoutTests(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	noTestsDir := t.TempDir()
 	dummyFile := filepath.Join(noTestsDir, "app.ll")
@@ -589,6 +605,7 @@ func TestTestScopeDirectoryWithoutTests(t *testing.T) {
 
 // 14. Test scoping: Directory with multiple packages runs all tests across packages and prints total summary
 func TestTestScopeDirectoryWithMultipleTestFiles(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	tmpDir := t.TempDir()
 
@@ -657,6 +674,7 @@ bind test_b1 = (): { assert(1 == 1) }
 
 // 15. Rich assertion failure diagnostics: Caller location (file, line, col), aligned values, and diff markers
 func TestAssertionFailureCallerLocationAndDiff(t *testing.T) {
+	t.Parallel()
 	src := `import "std/test"
 
 @test("equality failure with diff")
@@ -690,6 +708,7 @@ bind test_diff = (): {
 
 // 16. Multiline diffing in assertion failure
 func TestAssertionFailureMultilineDiff(t *testing.T) {
+	t.Parallel()
 	src := `import "std/test"
 
 @test("multiline failure diff")
@@ -716,6 +735,7 @@ bind test_multi = (): {
 
 // 17. Custom @track_caller helper forwards caller location
 func TestTrackCallerHelperForwarding(t *testing.T) {
+	t.Parallel()
 	src := `import "std/test"
 
 @test_only
@@ -741,6 +761,7 @@ bind test_even = (): {
 
 // 18. Multiline backtick strings with interpolation and escapes
 func TestMultilineBacktickStringsEndToEnd(t *testing.T) {
+	t.Parallel()
 	src := "import \"std/test\"\n\n" +
 		"@test(\"backtick multiline, interpolation, and escapes\")\n" +
 		"bind test_backtick = (): {\n" +
@@ -764,6 +785,7 @@ func TestMultilineBacktickStringsEndToEnd(t *testing.T) {
 }
 
 func TestAssertionApproxEqAndStringMatchFailureDiagnostics(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		callLine string
@@ -843,6 +865,7 @@ func TestAssertionApproxEqAndStringMatchFailureDiagnostics(t *testing.T) {
 }
 
 func TestBatchAssertionsReportAllFailuresAndCallerLocation(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		callLine string

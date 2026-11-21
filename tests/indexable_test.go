@@ -14,6 +14,7 @@ import (
 // =============================================================================
 
 func TestIndexableList(t *testing.T) {
+	t.Parallel()
 	src := `
 bind sum_indexable = (col: Indexable[int]) int: {
     let total = 0
@@ -55,6 +56,7 @@ bind main = (): {
 }
 
 func TestIndexableArray(t *testing.T) {
+	t.Parallel()
 	src := `
 bind first_and_last = (col: Indexable[int]) int: {
     let n = col.len()
@@ -73,6 +75,7 @@ bind main = (): {
 }
 
 func TestIndexableString(t *testing.T) {
+	t.Parallel()
 	src := `
 bind count_matching_bytes = (s: Indexable[u8], target: u8) int: {
     let count = 0
@@ -98,6 +101,7 @@ bind main = (): {
 }
 
 func TestIndexableCustomStruct(t *testing.T) {
+	t.Parallel()
 	src := `
 define CustomSeq struct [
     first: int,
@@ -135,6 +139,7 @@ bind main = (): {
 }
 
 func TestIndexableGenericBounds(t *testing.T) {
+	t.Parallel()
 	src := `
 bind first_element[T: Copyable] = (col: Indexable[T]) ?T: {
     col.get(0)
@@ -159,6 +164,7 @@ bind main = (): {
 }
 
 func TestKeyIndexableMap(t *testing.T) {
+	t.Parallel()
 	src := `
 bind lookup_or_zero = (m: KeyIndexable[string, int], key: string) int: {
     m.get(key) ?? 0
@@ -184,6 +190,7 @@ bind main = (): {
 }
 
 func TestIndexableNegativeTypeChecks(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	tests := []struct {
 		name        string
@@ -198,7 +205,7 @@ bind main = (): {
     takes_indexable(123)
 }
 `,
-			expectedErr: "expected Indexable[int], got int",
+			expectedErr: "argument 1 expects `Indexable[int]`, but this is `int`",
 		},
 		{
 			name: "unindexable_struct_as_argument",
@@ -214,7 +221,7 @@ bind main = (): {
     find_first(item)
 }
 `,
-			expectedErr: "expected Indexable[int], got NotIndexable",
+			expectedErr: "argument 1 expects `Indexable[int]`, but this is `NotIndexable`",
 		},
 	}
 

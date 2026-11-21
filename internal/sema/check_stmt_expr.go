@@ -901,7 +901,7 @@ func (fc *funcChecker) arenaDepthOfExpr(e ast.Expr) int {
 			return yd
 		}
 		maxD := 0
-		for _, arm := range v.Arms {
+		for _, arm := range fc.matchArms(v) {
 			if d := fc.arenaDepthOfExpr(arm.Body); d > maxD {
 				maxD = d
 			}
@@ -1047,7 +1047,21 @@ func (fc *funcChecker) verifyAssignable(got, expected types.Type, expr ast.Expr,
 		}
 	}
 
-	fc.a.Rep.Errorf(span, "type mismatch in %s: expected %s, got %s", context, expected.String(), got.String())
+	full := span
+	if expr != nil && span == expr.GetSpan() {
+		span = fc.a.focusSpan(expr)
+	} else {
+		span = fc.a.firstLine(span)
+	}
+	hint, fix := mismatchHint(expected, got, fc.a.ImplementsInterface)
+	fc.a.Rep.Report(diag.Diagnostic{
+		Severity: diag.Error,
+		Span:     span,
+		Full:     full,
+		Message:  mismatchMessage(context, expected, got),
+		Hint:     hint,
+		Data:     map[string]string{"kind": "mismatch", "expected": expected.String(), "got": got.String(), "fix": fix},
+	})
 	return false
 }
 
@@ -1618,7 +1632,13 @@ func (fc *funcChecker) checkAssignStmt(s *ast.AssignStmt) types.Type {
 			return types.TypeVoid
 		}
 		if sym.IsBind {
-			fc.a.Rep.Errorf(id.Span, "cannot reassign deeply immutable `bind` variable %q", sym.Name)
+			fc.a.Rep.Report(diag.Diagnostic{
+				Severity: diag.Error,
+				Span:     id.Span,
+				Message:  fmt.Sprintf("cannot reassign deeply immutable `bind` variable %q", sym.Name),
+				Hint:     "declare it with `let` to make it reassignable",
+				Data:     map[string]string{"kind": "bind_to_let", "declFile": sym.Span.Start.File, "declOffset": strconv.Itoa(sym.Span.Start.Offset)},
+			})
 		}
 		if sym.Type != nil && sym.Type.Equals(types.TypeArena) {
 			if sym.BindKind != BindOwned {
@@ -1728,7 +1748,13 @@ func (fc *funcChecker) checkUnpackAssignStmt(s *ast.AssignStmt) types.Type {
 				continue
 			}
 			if sym.IsBind {
-				fc.a.Rep.Errorf(id.Span, "cannot reassign deeply immutable `bind` variable %q", sym.Name)
+				fc.a.Rep.Report(diag.Diagnostic{
+					Severity: diag.Error,
+					Span:     id.Span,
+					Message:  fmt.Sprintf("cannot reassign deeply immutable `bind` variable %q", sym.Name),
+					Hint:     "declare it with `let` to make it reassignable",
+					Data:     map[string]string{"kind": "bind_to_let", "declFile": sym.Span.Start.File, "declOffset": strconv.Itoa(sym.Span.Start.Offset)},
+				})
 			}
 			if sym.Type != nil && sym.Type.Equals(types.TypeArena) {
 				if sym.BindKind != BindOwned {
@@ -2168,7 +2194,8 @@ func (fc *funcChecker) checkExprExpect(e ast.Expr, expected types.Type, needValu
 	case *ast.IdentExpr:
 		sym := fc.lookupVar(v.Name)
 		if sym == nil {
-			fc.a.Rep.Errorf(v.Span, "undeclared identifier %q", v.Name)
+			hint, cands := fc.unknownNameHint(v.Name)
+			fc.a.errorWithRename(v.Span, fmt.Sprintf("undeclared identifier %q", v.Name), v.Name, hint, cands)
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
 		}
@@ -2635,6 +2662,10 @@ func typeExprToIndexExpr(ta ast.TypeExpr) (ast.Expr, bool) {
 }
 
 func (fc *funcChecker) maybeRewriteIndexedMemberBase(m *ast.MemberExpr) {
+	// Parsed files are cached and may be checked concurrently; this rewrite is idempotent and
+	// serialized so concurrent checks of the same file never race on the node.
+	astRewriteMu.Lock()
+	defer astRewriteMu.Unlock()
 	if len(m.BaseTypeArgs) != 1 {
 		return
 	}
@@ -2995,7 +3026,8 @@ func (fc *funcChecker) checkMemberExpr(m *ast.MemberExpr, expected types.Type) t
 		}
 	}
 	if f == nil {
-		fc.a.Rep.Errorf(m.Span, "struct %s has no field %q", st.String(), m.Member)
+		hint, cands := fc.a.unknownFieldHint(st, m.Member)
+		fc.a.errorWithRename(fc.a.focusSpan(m), fmt.Sprintf("struct %s has no field %q", st.String(), m.Member), m.Member, hint, cands)
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
 	}
@@ -3593,7 +3625,8 @@ func (fc *funcChecker) checkStructLit(sl *ast.StructLit, expected types.Type) ty
 		provided[fi.Name] = true
 		sf, _ := st.FieldByName(fi.Name)
 		if sf == nil {
-			fc.a.Rep.Errorf(fi.Span, "struct %s has no field %q", st.String(), fi.Name)
+			hint, cands := fc.a.unknownFieldHint(st, fi.Name)
+			fc.a.errorWithRename(fi.Span, fmt.Sprintf("struct %s has no field %q", st.String(), fi.Name), fi.Name, hint, cands)
 			_ = fc.checkExpr(fi.Value, true)
 			continue
 		}
@@ -3991,7 +4024,7 @@ func (fc *funcChecker) checkIfExpr(ie *ast.IfExpr, expected types.Type, needValu
 					"use `if (user?)` for optional variables or `if (expr as val)` for optional expressions",
 				)
 			} else {
-				fc.a.Rep.Errorf(ie.Cond.GetSpan(), "`if` condition must have type `bool`, got %s (no implicit truthiness)", cty.String())
+				fc.a.reportTruthiness(ie.Cond, cty, "`if`")
 			}
 		}
 
@@ -4319,7 +4352,7 @@ func (fc *funcChecker) checkLoopHeader(h loopHeaderInfo, id int) (sym1, sym2 *Sy
 		}
 		cty := fc.checkExprExpect(h.condOrIter, types.TypeBool, true)
 		if cty != types.TypeInvalid && !cty.Equals(types.TypeBool) {
-			fc.a.Rep.Errorf(h.condOrIter.GetSpan(), "loop condition must be `bool`, got %s", cty.String())
+			fc.a.reportTruthiness(h.condOrIter, cty, "loop")
 		}
 
 	case ast.ForRange:
@@ -5057,9 +5090,11 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 	}
 
 	if me.ResultChain {
-		if !fc.prepareResultChain(me, scrutTys[0]) {
+		expanded, ok := fc.prepareResultChain(me, scrutTys[0])
+		if !ok {
 			return types.TypeInvalid
 		}
+		fc.a.curBM.MatchArms[me] = expanded
 	}
 
 	var evalTy types.Type
@@ -5098,7 +5133,7 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 	hasNonVoidArm := false
 	hasInvalidArm := false
 
-	for _, arm := range me.Arms {
+	for _, arm := range fc.matchArms(me) {
 		if arm.IsDefault && len(arm.Cases) == 0 {
 			hasCatchAllElse = true
 		}
@@ -5250,8 +5285,8 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 		}
 	}
 
-	if len(me.Arms) == 0 || !me.Arms[len(me.Arms)-1].IsDefault {
-		fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` expression: must terminate with a `default` arm")
+	if len(fc.matchArms(me)) == 0 || !fc.matchArms(me)[len(fc.matchArms(me))-1].IsDefault {
+		fc.a.Rep.Errorf(fc.a.matchHeaderSpan(me), "non-exhaustive `match` expression: must terminate with a `default` arm")
 	}
 
 	// Exhaustiveness check when `default` had explicit patterns (`default ...:`)
@@ -5272,7 +5307,8 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 							missingBool = append(missingBool, "false")
 						}
 						if len(missingBool) > 0 {
-							fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` on `bool`: missing %s", strings.Join(missingBool, ", "))
+							fc.a.Rep.ErrorWithHint(fc.a.matchHeaderSpan(me), fmt.Sprintf("non-exhaustive `match` on `bool`: missing %s", strings.Join(missingBool, ", ")),
+								"add the missing `when` arm or a `default:` arm (the quick fix can add it)")
 						}
 					} else if scrutTy != types.TypeInvalid {
 						fc.a.Rep.Errorf(me.Span, "`match` on non-enum type %s must end with an open catch-all `default:` arm", scrutTy.String())
@@ -5291,10 +5327,23 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 					if len(missing) > 0 {
 						samePkg := fc.a.SamePackageDir(fc.mod, es.PkgDir, "") || fc.a.SamePackage(fc.mod, fc.a.typeModule(es))
 						if !samePkg && hasUnexported {
-							fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` on enum %s: enum declares unexported variants, requiring a `default:` catch-all arm when matched outside its package", es.String())
+							fc.a.Rep.Errorf(fc.a.matchHeaderSpan(me), "non-exhaustive `match` on enum %s: enum declares unexported variants, requiring a `default:` catch-all arm when matched outside its package", es.String())
 						} else {
-							fc.a.Rep.Errorf(me.Span, "non-exhaustive `match` on enum %s: missing variant(s): %s",
-								es.String(), strings.Join(missing, ", "))
+							if me.ResultChain {
+								var bare []string
+								for _, m := range missing {
+									bare = append(bare, "`"+strings.TrimPrefix(m, es.Name+".")+"`")
+								}
+								fc.a.Rep.ErrorWithHint(fc.a.matchHeaderSpan(me),
+									fmt.Sprintf("non-exhaustive `match` on enum %s: missing variant(s): %s",
+										es.String(), strings.Join(missing, ", ")),
+									fmt.Sprintf("this result chain does not handle %s; add `when` arms for them, or end with `default:` or `default panic` (the quick fix can add the arms)", strings.Join(bare, ", ")))
+							} else {
+								fc.a.Rep.ErrorWithHint(fc.a.matchHeaderSpan(me),
+									fmt.Sprintf("non-exhaustive `match` on enum %s: missing variant(s): %s",
+										es.String(), strings.Join(missing, ", ")),
+									"add a `when` arm for each missing variant, or end with a catch-all `default:` (the quick fix can add the arms)")
+							}
 						}
 					}
 				}
@@ -5348,7 +5397,7 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 	if resTy == nil {
 		resTy = unifyYieldTypes(append(tgt.yieldTypes, armTypes...))
 	}
-	for _, arm := range me.Arms {
+	for _, arm := range fc.matchArms(me) {
 		aty := fc.a.infoFor(arm.Body).Type
 		if aty != nil && aty != types.TypeVoid && aty != types.TypeNever && aty != types.TypeInvalid {
 			fc.verifyAssignable(aty, resTy, arm.Body, arm.Body.GetSpan(), "`match` arm")
@@ -5441,7 +5490,7 @@ func (fc *funcChecker) checkMultiArgExhaustiveness(me *ast.MatchExpr, scrutTys [
 	var missing []string
 	for _, combo := range combinations {
 		covered := false
-		for _, arm := range me.Arms {
+		for _, arm := range fc.matchArms(me) {
 			for _, c := range arm.Cases {
 				if caseMatchesCombo(c, combo) {
 					covered = true
@@ -5466,7 +5515,7 @@ func (fc *funcChecker) checkMultiArgExhaustiveness(me *ast.MatchExpr, scrutTys [
 	}
 
 	if len(missing) > 0 {
-		fc.a.Rep.Errorf(me.Span, "non-exhaustive `match`: missing combination(s): %s", strings.Join(missing, "; "))
+		fc.a.Rep.Errorf(fc.a.matchHeaderSpan(me), "non-exhaustive `match`: missing combination(s): %s", strings.Join(missing, "; "))
 	}
 }
 
@@ -5853,10 +5902,10 @@ const resultChainValueName = "_ll_chain_value"
 // prepareResultChain validates a result chain's subject and expands it into an ordinary match:
 // it prepends the implicit `value` arm (evaluating to the success payload) and, for
 // `default panic`, appends one panicking arm per failure variant no user arm handles. The
-// expansion is recorded on the AST (Synthetic arms) and is idempotent across re-checks.
-func (fc *funcChecker) prepareResultChain(me *ast.MatchExpr, subjTy types.Type) bool {
+// expanded arms are returned (and recorded in BodyMaps.MatchArms); the AST is not modified.
+func (fc *funcChecker) prepareResultChain(me *ast.MatchExpr, subjTy types.Type) ([]ast.MatchArm, bool) {
 	if subjTy == types.TypeInvalid {
-		return false
+		return nil, false
 	}
 	en := types.AsResult(subjTy)
 	if en == nil {
@@ -5866,14 +5915,11 @@ func (fc *funcChecker) prepareResultChain(me *ast.MatchExpr, subjTy types.Type) 
 		}
 		fc.a.Rep.ErrorWithHint(me.Scrutinees[0].GetSpan(),
 			fmt.Sprintf("result chain subject must be a result type, got %s", subjTy.String()), hint)
-		return false
+		return nil, false
 	}
 	valueVar, _ := en.ResultValue()
 	if valueVar == nil || valueVar.Payload == nil {
-		return false
-	}
-	if len(me.Arms) > 0 && me.Arms[0].Synthetic {
-		return true // already expanded by an earlier check of the same AST
+		return nil, false
 	}
 
 	handled := make(map[string]bool)
@@ -5889,7 +5935,7 @@ func (fc *funcChecker) prepareResultChain(me *ast.MatchExpr, subjTy types.Type) 
 					fc.a.Rep.ErrorWithHint(vp.Span,
 						"a result chain cannot match `value`",
 						"the chain itself evaluates to the value; its arms handle only failures")
-					return false
+					return nil, false
 				}
 				handled[name] = true
 			}
@@ -5938,7 +5984,7 @@ func (fc *funcChecker) prepareResultChain(me *ast.MatchExpr, subjTy types.Type) 
 			fc.a.Rep.ErrorWithHint(me.DefaultPanicSpan,
 				fmt.Sprintf("`default panic` is unreachable: every failure of %s is already handled", en.String()),
 				"make the last arm `default <Failure>:` instead")
-			return false
+			return nil, false
 		}
 		ps := me.DefaultPanicSpan
 		for i, f := range rest {
@@ -5962,8 +6008,7 @@ func (fc *funcChecker) prepareResultChain(me *ast.MatchExpr, subjTy types.Type) 
 			})
 		}
 	}
-	me.Arms = arms
-	return true
+	return arms, true
 }
 
 // checkContextualFailurePattern checks a bare result-chain pattern (`Missing(why)`, `Forbidden`)
@@ -6137,4 +6182,33 @@ func (fc *funcChecker) checkBareResultMember(e ast.Expr, en *types.Enum) (types.
 		return en, true
 	}
 	return nil, false
+}
+
+// reportTruthiness reports a non-`bool` condition, suggesting the explicit comparison.
+func (a *Analyzer) reportTruthiness(cond ast.Expr, ty types.Type, construct string) {
+	hint := "Lowlight has no implicit truthiness; write the comparison explicitly"
+	switch {
+	case types.UnderlyingPrimitive(ty) != nil && types.UnderlyingPrimitive(ty).IsNumeric():
+		hint = "Lowlight has no implicit truthiness; compare explicitly, e.g. `x != 0`"
+	case ty.Equals(types.TypeString):
+		hint = "Lowlight has no implicit truthiness; test the length explicitly: `not s.is_empty()`"
+	}
+	a.Rep.Report(diag.Diagnostic{
+		Severity: diag.Error,
+		Span:     a.focusSpan(cond),
+		Full:     cond.GetSpan(),
+		Message:  fmt.Sprintf("%s condition must have type `bool`, got `%s`", construct, ty.String()),
+		Hint:     hint,
+		Data:     map[string]string{"kind": "truthiness", "got": ty.String()},
+	})
+}
+
+// matchArms returns the arms to check for `me`: a result chain's expanded arms, or its own.
+func (fc *funcChecker) matchArms(me *ast.MatchExpr) []ast.MatchArm {
+	if fc.a.curBM != nil {
+		if arms, ok := fc.a.curBM.MatchArms[me]; ok {
+			return arms
+		}
+	}
+	return me.Arms
 }

@@ -13,6 +13,7 @@ import (
 // =============================================================================
 
 func TestStackArrayLiteralsPositive(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = (): {
     // 1. Repeat constructor: [4: 0] -> [0, 0, 0, 0]
@@ -50,6 +51,7 @@ bind main = (): {
 }
 
 func TestStackArrayLiteralsMismatchNegative(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		src         string
@@ -98,6 +100,7 @@ bind main = (): {
 // =============================================================================
 
 func TestWhileLoopPositive(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = (): {
     // 1. while(true) with break produces ?int (scalar optional)
@@ -175,6 +178,7 @@ bind main = (): {
 // =============================================================================
 
 func TestForLoopComprehensionsPositive(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = (): {
     // 1. Default dynamic vector collection: for(x in 1..=4) x
@@ -239,6 +243,7 @@ bind main = (): {
 }
 
 func TestForLoopCollectableNegative(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		src         string
@@ -305,6 +310,7 @@ bind main = (): {
 // =============================================================================
 
 func TestMapEntryIterationAndCollection(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = (): {
     let m = #["alpha": 1, "beta": 2, "gamma": 3]
@@ -353,6 +359,7 @@ bind main = (): {
 }
 
 func TestPureLowlightList(t *testing.T) {
+	t.Parallel()
 	src := `
 bind print_anything = (p: Printable) string: {
     p.to_string()
@@ -405,6 +412,7 @@ bind main = (): {
 }
 
 func TestPtrFieldAccess(t *testing.T) {
+	t.Parallel()
 	src := `
 define Node struct [
     id: int,
@@ -432,6 +440,7 @@ bind main = (): {
 }
 
 func TestPureLowlightSet(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = (): {
     let s = Set[int].new()
@@ -459,6 +468,7 @@ bind main = (): {
 }
 
 func TestPureLowlightMap(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = (): {
     let m = Map[string, int].new()

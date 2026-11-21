@@ -10,6 +10,7 @@ import (
 
 // 1. Bug 1 & Bug 2: Top-level constants order resolution & cycle detection
 func TestTopLevelConstantsOrderAndCycles(t *testing.T) {
+	t.Parallel()
 	// Out-of-order forward references must initialize correctly in C
 	srcOk := `
 bind C = B + 1
@@ -49,6 +50,7 @@ bind main = (): {
 
 // 2. Bug 3: Vector containing non-copyable resource types
 func TestVectorNonCopyableResource(t *testing.T) {
+	t.Parallel()
 	src := `
 define NonCopyable struct [
     id: int,
@@ -74,6 +76,7 @@ bind main = (): {
 
 // 3. Bug 4: INT64_MIN arithmetic wrap in std/strconv.ll and std/strfmt.ll
 func TestInt64MinFormatting(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/strconv"
 import "std/strfmt"
@@ -108,6 +111,7 @@ bind main = (): {
 
 // 4. Security Hole 6: Integer overflow check in std/strconv.ll
 func TestParseIntOverflow(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/strconv"
 
@@ -139,6 +143,7 @@ bind main = (): {
 
 // 5. Security Hole 1: Arena escape analysis recursion
 func TestArenaEscapeAnalysisRecursion(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 
 	// Escape via struct field member expression
@@ -198,6 +203,7 @@ bind main = (): {
 
 // 6. Security Hole 3: Unbounded Generic Monomorphization Limit
 func TestGenericRecursionLimit(t *testing.T) {
+	t.Parallel()
 	src := `
 bind recurse[T] = (): {
     recurse[[T]]()
@@ -223,6 +229,7 @@ bind main = (): {
 
 // 7. Security Hole 4: Tombstone memory compaction in Maps and Sets
 func TestMapAndSetTombstoneCompaction(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = (): {
     let m = #[ "key": 0 ]
@@ -267,6 +274,7 @@ bind main = (): {
 
 // 8. Security Hole 5: POSIX mkdir_p and remove_all
 func TestPosixDirectoryOperations(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/os"
 
@@ -286,6 +294,7 @@ bind main = (): {
 
 // 9. Security Hole 7: Raw pointer assignment without dropping uninitialized memory
 func TestRawPointerAssignmentNoPriorDrop(t *testing.T) {
+	t.Parallel()
 	src := `
 define Res struct [
     name: string,
@@ -311,6 +320,7 @@ bind main = (): {
 
 // 10. Item 6: Result[T] and Error in prelude without import
 func TestResultInPrelude(t *testing.T) {
+	t.Parallel()
 	src := `
 bind divide = (a: int, b: int) Result[int]: {
     if (b == 0): {
@@ -338,6 +348,7 @@ bind main = (): {
 
 // 11. Item 7: Attributes (@inline, @noinline, @must_use, @nodiscard, @deprecated, @packed)
 func TestAttributesSupport(t *testing.T) {
+	t.Parallel()
 	src := `
 // 2D packed coordinate
 @packed
@@ -406,6 +417,7 @@ bind main = (): {}
 
 // 12. Item 8: Drop interface return signature drop: (&self)
 func TestDropSignatureVerification(t *testing.T) {
+	t.Parallel()
 	src := `
 define CustomFile struct [
     fd: int,
@@ -429,6 +441,7 @@ bind main = (): {
 
 // 13. Item 9: string.push_bytes(ptr[u8], int)
 func TestStringPushBytes(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = (): {
     let s = "Hello"
@@ -453,6 +466,7 @@ bind main = (): {
 
 // 12. Top-level complex constants (e.g., vector literals) requiring temporary local slots
 func TestTopLevelComplexConstants(t *testing.T) {
+	t.Parallel()
 	src := `
 bind l = [1, 2, 3, 4, 5, 6]
 
@@ -467,6 +481,7 @@ bind main = (): {
 }
 
 func TestResultAndGoStyleErrorChain(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/fs"
 

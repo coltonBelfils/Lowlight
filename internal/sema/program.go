@@ -30,6 +30,9 @@ type diskASTCacheEntry struct {
 var (
 	diskASTMu    sync.RWMutex
 	diskASTCache = make(map[string]diskASTCacheEntry)
+	// astRewriteMu serializes the few idempotent in-place disambiguation rewrites sema makes to
+	// cached ASTs (`xs[i].m` / `fns[i](...)` first parsed as type arguments).
+	astRewriteMu sync.Mutex
 )
 
 // BindKind classifies how a local variable holds its value.
@@ -170,6 +173,10 @@ type BodyMaps struct {
 	IfUnwrapSyms     map[*ast.IfExpr]*Symbol
 	IfOriginSyms     map[*ast.IfExpr]*Symbol
 	PatternSyms      map[*ast.VariantPattern][]*Symbol
+	// MatchArms holds the expanded arms of result chains (the implicit `value` arm and the arms
+	// `default panic` stands for). The shared AST is never rewritten, so parsed files can be
+	// cached and checked concurrently.
+	MatchArms map[*ast.MatchExpr][]ast.MatchArm
 	ContainsPatterns map[*ast.ContainsPattern]*ContainsInfo
 	MethodPatterns   map[*ast.MethodPattern]*MethodPatternInfo
 }
@@ -186,6 +193,7 @@ func NewBodyMaps() *BodyMaps {
 		IfUnwrapSyms:     make(map[*ast.IfExpr]*Symbol),
 		IfOriginSyms:     make(map[*ast.IfExpr]*Symbol),
 		PatternSyms:      make(map[*ast.VariantPattern][]*Symbol),
+		MatchArms:        make(map[*ast.MatchExpr][]ast.MatchArm),
 		ContainsPatterns: make(map[*ast.ContainsPattern]*ContainsInfo),
 		MethodPatterns:   make(map[*ast.MethodPattern]*MethodPatternInfo),
 	}

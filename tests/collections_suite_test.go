@@ -17,6 +17,7 @@ import (
 // =============================================================================
 
 func TestListComprehensive(t *testing.T) {
+	t.Parallel()
 	src := `
 bind print_val = (p: Printable) string: {
     p.to_string()
@@ -121,6 +122,7 @@ bind main = (): {
 }
 
 func TestSetComprehensive(t *testing.T) {
+	t.Parallel()
 	src := `
 bind print_val = (p: Printable) string: {
     p.to_string()
@@ -258,6 +260,7 @@ bind main = (): {
 }
 
 func TestMapComprehensive(t *testing.T) {
+	t.Parallel()
 	src := `
 bind print_val = (p: Printable) string: {
     p.to_string()
@@ -388,6 +391,7 @@ bind main = (): {
 }
 
 func TestCustomHashableWithSetAndMap(t *testing.T) {
+	t.Parallel()
 	src := `
 define UserId struct [
     id: int,
@@ -442,6 +446,7 @@ bind main = (): {
 }
 
 func TestNonHashableRejected(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 
 	// Set with non-hashable type
@@ -500,6 +505,7 @@ bind main = (): {
 }
 
 func TestVectorRemoved(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 
 	// 1. Vector[int] is unknown type
@@ -554,6 +560,7 @@ bind main = (): {}
 }
 
 func TestFixedArrayAndDynamicList(t *testing.T) {
+	t.Parallel()
 	src := `
 bind sum_fixed = (arr: [4: int]) int: {
     let sum = 0
@@ -624,6 +631,7 @@ bind main = (): {
 }
 
 func TestHashingStackPureLowlight(t *testing.T) {
+	t.Parallel()
 	src := `
 bind main = (): {
     // 1. Primitive integer hashes
@@ -682,6 +690,7 @@ bind main = (): {
 }
 
 func TestHashOfIntrinsicRetired(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 
 	// Attempting to call retired intrinsic hash_of(x)

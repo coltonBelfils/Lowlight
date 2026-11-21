@@ -15,6 +15,7 @@ import (
 // 1. Multi-file directory-as-package sharing: sibling mutual recursion, private `_` sharing,
 // and duplicate top-level declaration detection across sibling files (`SPECIFICATION.md §4.1`).
 func TestPackageDirectoryMultiFileAndMutualRecursion(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 
@@ -71,6 +72,7 @@ bind main = (): {
 // qualifier collision hint, relative import rejection inside manifests, inter-package cycles,
 // and binary `main` import rejection (`SPECIFICATION.md §4.3, §4.5`).
 func TestPackageStrictQualifiedImportsAndErrors(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 
 	// 2a. Hyphen normalization (`my-util` -> `my_util`) and explicit `as` alias
@@ -143,6 +145,7 @@ bind main = (): {
 // 3. Canonical PackageID symbol mangling: two identically named subpackages `a/util` and `b/util`
 // with identical struct/function names compile and execute together with zero C/LLVM symbol collisions!
 func TestPackageCanonicalSymbolManglingNoCollision(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, "lowlight.toml", "[package]\nname = \"mangle\"\n")
 	writeTestFile(t, tmp, "a/util/util.ll", `
@@ -174,6 +177,7 @@ bind main = (): {
 // 4. `*_test.ll` isolation, `[dev-dependencies]` isolation, `tests/` integration packages,
 // and target-conditional OS/arch filename suffixes (`SPECIFICATION.md §4.1, §9.7, §12.2`).
 func TestPackageTestFilesDevDepsAndTargetSuffixes(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 
@@ -295,6 +299,7 @@ bind main = (): {
 // 5. Permissive global extension methods (`bind pkg.Type.method = ...`), encapsulation
 // preservation (`_field` still private), and duplicate cross-package method collision diagnostics.
 func TestPackagePermissiveExtensionMethodsAndCollision(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	root := projectRoot(t)
 
@@ -356,6 +361,7 @@ bind main = (): {
 // `vendor --offline`, `--locked --offline`, `remove`, `fmt lowlight.toml`, zero-arg commands,
 // and virtual `[workspace]` with `-p`, `--workspace`, `[overrides]`, and `[target]`.
 func TestPackageCLIEndToEndWorkspaceLockVendorTree(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	cliBin := filepath.Join(t.TempDir(), "lowlight")
 	buildCmd := exec.Command("go", "build", "-o", cliBin, "./cmd/lowlight")
@@ -516,6 +522,7 @@ bind test_api = (): { assert(shared.badge() == "ws-shared") }
 // - Editing ONLY `main.ll` (adding struct, function, string literal) gets a 100% Phase 1 cache HIT!
 // - Editing library package invalidates Phase 1 cache cleanly and emits updated output!
 func TestTwoPhaseIncrementalObjectCachingHitAndInvalidation(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 
 	for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {

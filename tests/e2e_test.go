@@ -71,6 +71,7 @@ func runInlineStrict(t *testing.T, name string, src string, release bool) string
 // -----------------------------------------------------------------------------
 
 func TestAllShowcaseExamplesStrict(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	showcaseNames := []string{
 		"hello.ll",
@@ -93,6 +94,7 @@ func TestAllShowcaseExamplesStrict(t *testing.T) {
 				}
 				testName := fmt.Sprintf("%s_%s_%s", base, backend, mode)
 				t.Run(testName, func(t *testing.T) {
+					t.Parallel()
 					var stdout, stderr bytes.Buffer
 					rc, runErr := driver.Run(driver.Options{
 						EntryPath:   file,
@@ -126,6 +128,7 @@ func TestAllShowcaseExamplesStrict(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestPrimitivesBitwiseEnumsDistinct(t *testing.T) {
+	t.Parallel()
 	src := `
 define Color enum [Red, Green, Blue]
 define UserId int
@@ -194,6 +197,7 @@ bind main = (): {
 // -----------------------------------------------------------------------------
 
 func TestStringsAndCollections(t *testing.T) {
+	t.Parallel()
 	src := `
 bind sum_slice = (xs: [int]) int: {
     let total = 0
@@ -276,6 +280,7 @@ bind main = (): {
 // -----------------------------------------------------------------------------
 
 func TestOptionalsAndStdFs(t *testing.T) {
+	t.Parallel()
 	tmpFile := filepath.Join(t.TempDir(), "roundtrip.txt")
 	// Escape backslashes if any for Lowlight string literal
 	escapedPath := strings.ReplaceAll(tmpFile, "\\", "\\\\")
@@ -349,6 +354,7 @@ bind main = (): {
 }
 
 func TestCoalesceChainsAndUnwindE2E(t *testing.T) {
+	t.Parallel()
 	src := `
 bind make_pair = (flag: int) ?+[int, string]: {
     if (flag == 1): +[10, "one".copy()]
@@ -444,6 +450,7 @@ bind main = (): {
 // -----------------------------------------------------------------------------
 
 func TestClosuresAndResourceCaptures(t *testing.T) {
+	t.Parallel()
 	src := `
 import "std/math" as math
 
@@ -498,6 +505,7 @@ bind main = (): {
 // -----------------------------------------------------------------------------
 
 func TestCompileTimeSafetyRejections(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		src         string
@@ -624,6 +632,7 @@ bind main = (): {
 // -----------------------------------------------------------------------------
 
 func TestRuntimeBoundsPanicInDebug(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	src := `
 bind main = (): {
@@ -660,6 +669,7 @@ bind main = (): {
 // -----------------------------------------------------------------------------
 
 func TestCLISubcommands(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	tmp := t.TempDir()
 	cliBin := filepath.Join(tmp, "lowlight")
@@ -742,6 +752,7 @@ bind main = () int: {
 // -----------------------------------------------------------------------------
 
 func TestStdHttpPackage(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	httpTestPath := filepath.Join(root, "tests", "http_test.ll")
 	httpTestBytes, err := os.ReadFile(httpTestPath)
@@ -772,10 +783,12 @@ func TestStdHttpPackage(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestOrphanedLLTestFiles(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 
 	for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
 		t.Run("backtick_test_"+string(backend), func(t *testing.T) {
+			t.Parallel()
 			var stdout, stderr bytes.Buffer
 			rc, err := driver.Test(driver.Options{
 				Targets:     []string{filepath.Join(root, "tests", "backtick_test.ll")},
@@ -813,6 +826,7 @@ func TestOrphanedLLTestFiles(t *testing.T) {
 				mode = "release"
 			}
 			t.Run(name+"_"+mode, func(t *testing.T) {
+				t.Parallel()
 				out := runInlineStrict(t, strings.TrimSuffix(name, ".ll")+"_"+mode, string(srcBytes), release)
 				if strings.TrimSpace(out) == "" {
 					t.Fatalf("%s (%s) produced empty stdout", name, mode)
@@ -823,6 +837,7 @@ func TestOrphanedLLTestFiles(t *testing.T) {
 }
 
 func TestNetworkExamplesBuildClean(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	examples := []string{
 		"http_get_client.ll",
@@ -873,6 +888,7 @@ func resolveStrictCC() string {
 }
 
 func TestFormatLocClampsLongPath(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	llSrc := `
 @track_caller
@@ -1056,6 +1072,7 @@ int main(void) {
 }
 
 func TestSocketSendAfterPeerCloseNoSigpipe(t *testing.T) {
+	t.Parallel()
 	src := `import "std/net"
 
 bind main = (): {
@@ -1178,6 +1195,7 @@ int main(void) {
 }
 
 func TestLLVMTlsInitClosesHandleOnDlsymFailure(t *testing.T) {
+	t.Parallel()
 	root := projectRoot(t)
 	src := `
 bind main = (): {
