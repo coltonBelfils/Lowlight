@@ -570,7 +570,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			if langAttr := ast.FindAttribute(td.Attributes, "lang"); langAttr != nil {
 				a.Rep.Errorf(langAttr.Span, "@lang attribute cannot be applied to an enum declaration")
 			}
-			isTagged := len(td.TypeParams) > 0
+			isTagged := len(td.TypeParams) > 0 || td.IsResult
 			if !isTagged {
 				for _, v := range td.Variants {
 					if v.PayloadType != nil {
@@ -603,6 +603,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				PkgDir:     mod.Dir,
 				Doc:        td.Doc,
 				IsTagged:   isTagged,
+				IsResult:   td.IsResult,
 				Underlying: types.TypeInt,
 			}
 			a.checkAttributes(td.Attributes, en, td.Span, "enum")
@@ -1100,6 +1101,37 @@ func (a *Analyzer) populateEnumVariants(mod *Module, en *types.Enum, td *ast.Enu
 		})
 		tagVal++
 	}
+	if en.IsResult {
+		a.checkResultDecl(en, td)
+	}
+}
+
+// checkResultDecl validates a `define Name result [...]` declaration: exactly one `value` member
+// carrying the success payload, and at least one failure variant.
+func (a *Analyzer) checkResultDecl(en *types.Enum, td *ast.EnumDecl) {
+	var valueDecl *ast.EnumVariant
+	for i := range td.Variants {
+		if td.Variants[i].Name == types.ResultValueName {
+			valueDecl = &td.Variants[i]
+			break
+		}
+	}
+	if valueDecl == nil {
+		a.Rep.ErrorWithHint(td.Span,
+			fmt.Sprintf("result %s has no `value` member", td.Name),
+			"add the success member, e.g. `value: T,`")
+		return
+	}
+	if valueDecl.PayloadType == nil {
+		a.Rep.ErrorWithHint(valueDecl.Span,
+			fmt.Sprintf("the `value` member of result %s must declare its type", td.Name),
+			"write `value: T`")
+	}
+	if len(td.Variants) < 2 {
+		a.Rep.ErrorWithHint(td.Span,
+			fmt.Sprintf("result %s has no failure variants", td.Name),
+			"add at least one failure case, e.g. `Err: Error`")
+	}
 }
 
 func (a *Analyzer) populateStructFields(mod *Module, st *types.Struct, td *ast.StructDecl, subst map[string]types.Type) {
@@ -1136,6 +1168,7 @@ func (a *Analyzer) checkOptionalIdentRule(name string, isOptName bool, ty types.
 	if _, isTP := ty.(*types.TypeParamVar); isTP {
 		return
 	}
+	a.checkResultIdentRule(name, ty, span, kind)
 	_, isOptType := ty.(*types.Optional)
 	if isOptType && !isOptName {
 		a.Rep.ErrorWithHint(
@@ -1149,6 +1182,33 @@ func (a *Analyzer) checkOptionalIdentRule(name string, isOptName bool, ty types.
 			span,
 			fmt.Sprintf("%s %q ends with `?` but has non-optional type %s", kind, name, ty.String()),
 			fmt.Sprintf("rename `%s` to `%s` or give it optional type `?%s`", name, base, ty.String()),
+		)
+	}
+}
+
+// checkResultIdentRule enforces the result naming invariant (mirroring `?` for optionals):
+// an identifier holds a result type (one declared with `define Name result [...]`) IF AND ONLY IF
+// its name ends with `!`.
+func (a *Analyzer) checkResultIdentRule(name string, ty types.Type, span diag.Span, kind string) {
+	if name == "" || name == "_" || ty == nil || ty == types.TypeInvalid {
+		return
+	}
+	if _, isTP := ty.(*types.TypeParamVar); isTP {
+		return
+	}
+	isResName := strings.HasSuffix(name, "!")
+	isResType := types.AsResult(ty) != nil
+	if isResType && !isResName {
+		a.Rep.ErrorWithHint(
+			span,
+			fmt.Sprintf("%s %q has result type %s and must end with `!`", kind, name, ty.String()),
+			fmt.Sprintf("rename `%s` to `%s!` (all result identifiers in Lowlight end in `!`)", name, name),
+		)
+	} else if !isResType && isResName {
+		a.Rep.ErrorWithHint(
+			span,
+			fmt.Sprintf("%s %q ends with `!` but has non-result type %s", kind, name, ty.String()),
+			fmt.Sprintf("rename `%s` to `%s`", name, strings.TrimSuffix(name, "!")),
 		)
 	}
 }
@@ -2410,6 +2470,7 @@ func (a *Analyzer) instantiateEnum(tmpl *GenericEnumTemplate, typeArgs []types.T
 		PkgDir:     tmpl.Mod.Dir,
 		Doc:        tmpl.Decl.Doc,
 		IsTagged:   true,
+		IsResult:   tmpl.Decl.IsResult,
 		TypeArgs:   typeArgs,
 		Underlying: types.TypeInt,
 	}

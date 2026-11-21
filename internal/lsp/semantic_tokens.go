@@ -850,6 +850,9 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 			c.visitExpr(bm, scr, false)
 		}
 		for _, arm := range v.Arms {
+			if arm.Synthetic {
+				continue
+			}
 			for _, pat := range arm.AllPatterns() {
 				switch p := pat.(type) {
 				case *ast.ExprPattern:

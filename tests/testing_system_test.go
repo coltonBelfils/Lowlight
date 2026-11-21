@@ -129,11 +129,11 @@ bind test_assertions = (): {
     test.assert_ge(50, 50)
     test.assert_le(50, 50)
 
-    let ok_res = Result[int].ok(42)
-    test.assert_is_ok(&ok_res)
+    let ok_res! = Result[int].ok(42)
+    test.assert_is_ok(&ok_res!)
 
-    let err_res = Result[int].fail_msg("boom")
-    test.assert_is_err(&err_res)
+    let err_res! = Result[int].fail_msg("boom")
+    test.assert_is_err(&err_res!)
 
     let opt_some?: ?int = 99
     test.assert_some(opt_some?)

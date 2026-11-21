@@ -377,8 +377,8 @@ define Request struct [
 
 // Constructs a [`Request`] for `method`, `raw_url`, and optional `body`, setting `host` and `content-length` headers.
 bind Request.new = (method: string, raw_url: string, body: string) Request: {
-	let url_res = parse_url(raw_url)
-	let u = if(url_res.is_ok()): url_res.unwrap()
+	let url_res! = parse_url(raw_url)
+	let u = if(url_res!.is_ok()): url_res!.unwrap()
 	else:
 		URL[
 			raw: raw_url.copy(),
@@ -507,8 +507,8 @@ bind Request.parse = (raw: string) Result[Request]: {
 	let raw_target = parts.get(1) ?? "/"
 	let proto = if(parts.len() >= 3): parts.get(2) ?? "HTTP/1.1" else: "HTTP/1.1"
 
-	let url_res = parse_url(raw_target)
-	let parsed_url = if(url_res.is_ok()): url_res.unwrap()
+	let url_res! = parse_url(raw_target)
+	let parsed_url = if(url_res!.is_ok()): url_res!.unwrap()
 	else:
 		URL[
 			raw: raw_target.copy(),
@@ -1061,10 +1061,10 @@ bind Client.new = () Client:
 // initialization or handshake fails for HTTPS requests (which dynamically requires OpenSSL `libssl`),
 // sending/receiving fails, or the server response is malformed.
 bind Client.do = (self, req: Request) Result[Response]: {
-	let url_res = parse_url(req.url)
-	if(url_res.is_err()):
-		func <- Result[Response].fail(url_res.unwrap_err().wrap("invalid request URL: ${req.url}"))
-	let u = url_res.unwrap()
+	let url_res! = parse_url(req.url)
+	if(url_res!.is_err()):
+		func <- Result[Response].fail(url_res!.unwrap_err().wrap("invalid request URL: ${req.url}"))
+	let u = url_res!.unwrap()
 	let is_tls = u.scheme == "https" or u.port == 443
 	let host = if(not u.hostname.is_empty()): u.hostname.copy() else: "127.0.0.1"
 	let port = if(u.port > 0): u.port
@@ -1082,10 +1082,10 @@ bind Client.do = (self, req: Request) Result[Response]: {
 	for(k, v in self.headers): if(mut_req.header(k) == none): mut_req.set_header(k.copy(), v.copy())
 
 	let wire = mut_req.format()
-	let stream_res = net.TcpStream.connect(host, port, self.timeout_ms)
-	if(stream_res.is_err()):
-		func <- Result[Response].fail(stream_res.unwrap_err().wrap("connection failed"))
-	let stream = stream_res.unwrap()
+	let stream_res! = net.TcpStream.connect(host, port, self.timeout_ms)
+	if(stream_res!.is_err()):
+		func <- Result[Response].fail(stream_res!.unwrap_err().wrap("connection failed"))
+	let stream = stream_res!.unwrap()
 
 	if(is_tls): {
 		let avail = unsafe sys_tls_available()
@@ -1103,28 +1103,28 @@ bind Client.do = (self, req: Request) Result[Response]: {
 			)
 		let tls_sess = _TlsSession[_raw: raw_sess]
 
-		let send_res = tls_sess.send(wire)
-		if(send_res.is_err()):
+		let send_res! = tls_sess.send(wire)
+		if(send_res!.is_err()):
 			func <- Result[Response].fail(
-				send_res.unwrap_err().wrap("failed to send HTTP request over TLS"),
+				send_res!.unwrap_err().wrap("failed to send HTTP request over TLS"),
 			)
 
-		let msg_res = _read_http_message_tls(tls_sess._raw, self.timeout_ms)
-		if(msg_res.is_err()):
+		let msg_res! = _read_http_message_tls(tls_sess._raw, self.timeout_ms)
+		if(msg_res!.is_err()):
 			func <- Result[Response].fail(
-				msg_res.unwrap_err().wrap("failed to read HTTP response over TLS"),
+				msg_res!.unwrap_err().wrap("failed to read HTTP response over TLS"),
 			)
-		let raw_resp = msg_res.unwrap()
+		let raw_resp = msg_res!.unwrap()
 		Response.parse(raw_resp).wrap_err("failed to parse HTTP response")
 	} else: {
-		let send_res = stream.send(wire)
-		if(send_res.is_err()):
-			func <- Result[Response].fail(send_res.unwrap_err().wrap("failed to send HTTP request"))
+		let send_res! = stream.send(wire)
+		if(send_res!.is_err()):
+			func <- Result[Response].fail(send_res!.unwrap_err().wrap("failed to send HTTP request"))
 
-		let msg_res = _read_http_message(stream.raw_fd(), self.timeout_ms)
-		if(msg_res.is_err()):
-			func <- Result[Response].fail(msg_res.unwrap_err().wrap("failed to read HTTP response"))
-		let raw_resp = msg_res.unwrap()
+		let msg_res! = _read_http_message(stream.raw_fd(), self.timeout_ms)
+		if(msg_res!.is_err()):
+			func <- Result[Response].fail(msg_res!.unwrap_err().wrap("failed to read HTTP response"))
+		let raw_resp = msg_res!.unwrap()
 		Response.parse(raw_resp).wrap_err("failed to parse HTTP response")
 	}
 }
@@ -1270,14 +1270,14 @@ bind Server.listen = (&self) Result[int]: {
 //
 // Malformed requests receive a `400 Bad Request` response and return `false`.
 bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWriter)) bool: {
-	let raw_req_res = _read_http_message(conn_fd, self.read_timeout_ms)
-	if(raw_req_res.is_err()): {
+	let raw_req_res! = _read_http_message(conn_fd, self.read_timeout_ms)
+	if(raw_req_res!.is_err()): {
 		unsafe sys_net_close(conn_fd)
 		func <- false
 	}
-	let raw_req = raw_req_res.unwrap()
-	let req_res = Request.parse(raw_req)
-	if(req_res.is_err()): {
+	let raw_req = raw_req_res!.unwrap()
+	let req_res! = Request.parse(raw_req)
+	if(req_res!.is_err()): {
 		let bad_resp = "HTTP/1.1 400 Bad Request\r\nContent-Length: 15\r\nConnection: close\r\n\r\n400 Bad Request"
 		unsafe {
 			let _ = sys_net_send_all(conn_fd, bad_resp.c_str(), bad_resp.len())
@@ -1285,7 +1285,7 @@ bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWrite
 		}
 		func <- false
 	}
-	let req = req_res.unwrap()
+	let req = req_res!.unwrap()
 	let rw = ResponseWriter.new()
 	handler(req, &rw)
 
@@ -1307,8 +1307,8 @@ bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWrite
 // or an error if listening or accepting fails.
 bind Server.serve_one = (&self, handler: (Request, &ResponseWriter), timeout_ms: int) Result[bool]: {
 	if(self.listener_fd < 0): {
-		let lr = self.listen()
-		if(lr.is_err()): func <- Result[bool].fail(lr.unwrap_err().wrap("listen failed"))
+		let lr! = self.listen()
+		if(lr!.is_err()): func <- Result[bool].fail(lr!.unwrap_err().wrap("listen failed"))
 	}
 	let client_fd = unsafe sys_tcp_accept(self.listener_fd, timeout_ms)
 	if(client_fd < 0): {
@@ -1326,8 +1326,8 @@ bind Server.serve_one = (&self, handler: (Request, &ResponseWriter), timeout_ms:
 // `max_requests <= 0`. Returns the total number of valid requests served.
 bind Server.serve = (&self, handler: (Request, &ResponseWriter), max_requests: int) Result[int]: {
 	if(self.listener_fd < 0): {
-		let lr = self.listen()
-		if(lr.is_err()): func <- Result[int].fail(lr.unwrap_err().wrap("listen failed"))
+		let lr! = self.listen()
+		if(lr!.is_err()): func <- Result[int].fail(lr!.unwrap_err().wrap("listen failed"))
 	}
 	let served = 0
 	for(max_requests <= 0 or served < max_requests): {
@@ -1343,9 +1343,9 @@ bind Server.serve = (&self, handler: (Request, &ResponseWriter), max_requests: i
 // Starts a [`Server`] bound to `addr` and serves requests indefinitely using `handler`.
 bind listen_and_serve = (addr: string, handler: (Request, &ResponseWriter)) Result[bool]: {
 	let s = Server.new(addr)
-	let res = s.serve(handler, 0)
-	if(res.is_ok()): Result[bool].ok(true)
-	else: Result[bool].fail(res.unwrap_err().wrap("server error"))
+	let res! = s.serve(handler, 0)
+	if(res!.is_ok()): Result[bool].ok(true)
+	else: Result[bool].fail(res!.unwrap_err().wrap("server error"))
 }
 
 // Starts a [`Server`] bound to `addr` and dispatches requests through `mux`.
@@ -1385,47 +1385,47 @@ bind test_handler = (handler: (Request, &ResponseWriter), req: Request) Response
 // Serializes `req` with [`Request.format`], reads and parses it on the server end, invokes
 // `handler`, serializes the reply, and parses the client-side [`Response`].
 bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request) Result[Response]: {
-	let pair_res = net.socketpair()
-	if(pair_res.is_err()):
-		func <- Result[Response].fail(pair_res.unwrap_err().wrap("socketpair failed"))
-	let pair = pair_res.unwrap()
+	let pair_res! = net.socketpair()
+	if(pair_res!.is_err()):
+		func <- Result[Response].fail(pair_res!.unwrap_err().wrap("socketpair failed"))
+	let pair = pair_res!.unwrap()
 
 	let req_wire = req.format()
-	let send_res = pair.first.send(req_wire)
-	if(send_res.is_err()):
+	let send_res! = pair.first.send(req_wire)
+	if(send_res!.is_err()):
 		func <- Result[Response].fail(
-			send_res.unwrap_err().wrap("failed to send request to socketpair"),
+			send_res!.unwrap_err().wrap("failed to send request to socketpair"),
 		)
 
-	let srv_req_res = _read_http_message(pair.second.raw_fd(), 2000)
-	if(srv_req_res.is_err()):
+	let srv_req_res! = _read_http_message(pair.second.raw_fd(), 2000)
+	if(srv_req_res!.is_err()):
 		func <- Result[Response].fail(
-			srv_req_res.unwrap_err().wrap("server failed to read request"),
+			srv_req_res!.unwrap_err().wrap("server failed to read request"),
 		)
-	let parsed_req_res = Request.parse(srv_req_res.unwrap())
-	if(parsed_req_res.is_err()):
+	let parsed_req_res! = Request.parse(srv_req_res!.unwrap())
+	if(parsed_req_res!.is_err()):
 		func <- Result[Response].fail(
-			parsed_req_res.unwrap_err().wrap("server failed to parse request"),
+			parsed_req_res!.unwrap_err().wrap("server failed to parse request"),
 		)
-	let srv_req = parsed_req_res.unwrap()
+	let srv_req = parsed_req_res!.unwrap()
 
 	let rw = ResponseWriter.new()
 	handler(srv_req, &rw)
 	let resp = rw.finish()
 	let resp_wire = resp.format()
 
-	let srv_send_res = pair.second.send(resp_wire)
-	if(srv_send_res.is_err()):
+	let srv_send_res! = pair.second.send(resp_wire)
+	if(srv_send_res!.is_err()):
 		func <- Result[Response].fail(
-			srv_send_res.unwrap_err().wrap("server failed to send response"),
+			srv_send_res!.unwrap_err().wrap("server failed to send response"),
 		)
 
-	let client_read_res = _read_http_message(pair.first.raw_fd(), 2000)
-	if(client_read_res.is_err()):
+	let client_read_res! = _read_http_message(pair.first.raw_fd(), 2000)
+	if(client_read_res!.is_err()):
 		func <- Result[Response].fail(
-			client_read_res.unwrap_err().wrap("client failed to read response"),
+			client_read_res!.unwrap_err().wrap("client failed to read response"),
 		)
-	let client_wire = client_read_res.unwrap()
+	let client_wire = client_read_res!.unwrap()
 	Response.parse(client_wire)
 }
 
@@ -1447,9 +1447,9 @@ bind test_http_status_codes_and_texts = (): {
 
 @test("http URL parsing: scheme, hostname, port, path, query parameters")
 bind test_http_url_parsing = (): {
-	let u_res = parse_url("http://api.example.com:8080/v1/users?page=2&limit=50")
-	assert(u_res.is_ok(), "parse_url succeeds")
-	let u = u_res.unwrap()
+	let u_res! = parse_url("http://api.example.com:8080/v1/users?page=2&limit=50")
+	assert(u_res!.is_ok(), "parse_url succeeds")
+	let u = u_res!.unwrap()
 
 	assert(u.scheme == "http", "scheme is http")
 	assert(u.hostname == "api.example.com", "hostname matches")
@@ -1469,9 +1469,9 @@ bind test_http_request_response_wire = (): {
 	let req = Request.new("POST", "/submit", "sample payload")
 	let wire = req.format()
 
-	let parsed_req_res = Request.parse(wire)
-	assert(parsed_req_res.is_ok(), "Request.parse succeeds")
-	let pr = parsed_req_res.unwrap()
+	let parsed_req_res! = Request.parse(wire)
+	assert(parsed_req_res!.is_ok(), "Request.parse succeeds")
+	let pr = parsed_req_res!.unwrap()
 	assert(pr.method == "POST", "parsed method is POST")
 	assert(pr.path == "/submit", "parsed path is /submit")
 	assert(pr.body == "sample payload", "parsed body matches")
@@ -1480,9 +1480,9 @@ bind test_http_request_response_wire = (): {
 	assert(resp.is_success(), "200 is success")
 	let resp_wire = resp.format()
 
-	let parsed_resp_res = Response.parse(resp_wire)
-	assert(parsed_resp_res.is_ok(), "Response.parse succeeds")
-	let pres = parsed_resp_res.unwrap()
+	let parsed_resp_res! = Response.parse(resp_wire)
+	assert(parsed_resp_res!.is_ok(), "Response.parse succeeds")
+	let pres = parsed_resp_res!.unwrap()
 	assert(pres.status_code == 200, "parsed status_code is 200")
 	assert(pres.body == "{\"ok\":true}", "parsed response body matches")
 }
@@ -1534,9 +1534,9 @@ bind test_http_socketpair_roundtrip = (): {
 	}
 
 	let req = Request.new("POST", "/echo", "hello world")
-	let resp_res = test_roundtrip(handler, req)
-	assert(resp_res.is_ok(), "test_roundtrip succeeds")
-	let resp = resp_res.unwrap()
+	let resp_res! = test_roundtrip(handler, req)
+	assert(resp_res!.is_ok(), "test_roundtrip succeeds")
+	let resp = resp_res!.unwrap()
 	assert(resp.status_code == 200, "roundtrip status 200")
 	assert(resp.body == "echo: hello world", "roundtrip echo body matches")
 }

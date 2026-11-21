@@ -567,6 +567,14 @@ func (l *Lexer) scanIdent() {
 		return
 	}
 
+	// A non-keyword identifier immediately followed by `!` (but not `!=`) names a result value
+	// (`cfg!`, `conn!`). It stays an ordinary identifier whose text includes the `!`.
+	if l.peek() == '!' && l.peekAt(1) != '=' {
+		l.advance()
+		l.emit(token.Ident, word+"!", start, l.pos())
+		return
+	}
+
 	l.emit(token.Ident, word, start, l.pos())
 }
 

@@ -572,8 +572,9 @@ type Enum struct {
 	DeprecatedMsg string
 	IsTestOnly    bool
 	Doc           string
-	IsTagged      bool       // true when any variant carries a payload or enum has generic type parameters
-	TypeArgs      []Type     // populated for monomorphized generic enums
+	IsTagged      bool   // true when any variant carries a payload or enum has generic type parameters
+	IsResult      bool   // declared with `define Name result [...]`: one `value` member plus failure variants
+	TypeArgs      []Type // populated for monomorphized generic enums
 	HasCustomDrop bool
 	Underlying    *Primitive // integer type for pure tag enums, default `TypeInt`
 	Variants      []EnumVariant
@@ -581,6 +582,42 @@ type Enum struct {
 	plainComputed bool
 	plainCached   bool
 	plainVisiting bool
+}
+
+// ResultValueName is the reserved name of a result declaration's success member.
+const ResultValueName = "value"
+
+// ResultValue returns the success member of a result declaration and its index, or (nil, -1)
+// when `e` is not a result (or is malformed).
+func (e *Enum) ResultValue() (*EnumVariant, int) {
+	if !e.IsResult {
+		return nil, -1
+	}
+	for i := range e.Variants {
+		if e.Variants[i].Name == ResultValueName {
+			return &e.Variants[i], i
+		}
+	}
+	return nil, -1
+}
+
+// ResultFailures returns the failure variants of a result declaration (every member except `value`).
+func (e *Enum) ResultFailures() []*EnumVariant {
+	var out []*EnumVariant
+	for i := range e.Variants {
+		if e.Variants[i].Name != ResultValueName {
+			out = append(out, &e.Variants[i])
+		}
+	}
+	return out
+}
+
+// AsResult returns `t` as a result-declared enum, or nil.
+func AsResult(t Type) *Enum {
+	if en, ok := t.(*Enum); ok && en.IsResult {
+		return en
+	}
+	return nil
 }
 
 func (e *Enum) String() string {
@@ -789,10 +826,10 @@ type SelfPlaceholder struct{}
 
 var TypeSelf = &SelfPlaceholder{}
 
-func (*SelfPlaceholder) String() string          { return "Self" }
-func (*SelfPlaceholder) Mangled() string         { return "Self" }
-func (*SelfPlaceholder) Equals(o Type) bool      { _, ok := o.(*SelfPlaceholder); return ok }
-func (*SelfPlaceholder) IsPlain() bool           { return true }
+func (*SelfPlaceholder) String() string     { return "Self" }
+func (*SelfPlaceholder) Mangled() string    { return "Self" }
+func (*SelfPlaceholder) Equals(o Type) bool { _, ok := o.(*SelfPlaceholder); return ok }
+func (*SelfPlaceholder) IsPlain() bool      { return true }
 
 // Interface represents `define Printable interface [...]`.
 type Interface struct {
@@ -961,10 +998,13 @@ func containsRefVisited(t Type, seen map[Type]bool) bool {
 	}
 }
 
-// SanitizeCIdent converts a Lowlight identifier (including `user?`) into a valid C identifier.
+// SanitizeCIdent converts a Lowlight identifier (including `user?` and `cfg!`) into a valid C identifier.
 func SanitizeCIdent(name string) string {
 	if strings.HasSuffix(name, "?") {
 		return "ll_" + strings.TrimSuffix(name, "?") + "_opt"
+	}
+	if strings.HasSuffix(name, "!") {
+		return "ll_" + strings.TrimSuffix(name, "!") + "_res"
 	}
 	return "ll_" + name
 }

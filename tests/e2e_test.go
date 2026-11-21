@@ -328,13 +328,13 @@ bind main = (): {
     // Standard library 'std/fs' roundtrip with generic 'Result[T, E]'
     let p = "` + escapedPath + `"
     assert(not fs.exists(p))
-    let wres = fs.write_text(p, "line1\nline2")
-    assert(wres.is_ok())
+    let wres! = fs.write_text(p, "line1\nline2")
+    assert(wres!.is_ok())
     assert(fs.exists(p))
 
-    let rres = fs.read_text(p)
-    assert(rres.is_ok())
-    let body = rres.unwrap_or("")
+    let rres! = fs.read_text(p)
+    assert(rres!.is_ok())
+    let body = rres!.unwrap_or("")
     assert(body == "line1\nline2")
     assert(fs.remove_file(p))
     assert(not fs.exists(p))

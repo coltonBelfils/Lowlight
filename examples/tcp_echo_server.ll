@@ -12,23 +12,23 @@ bind main = (): {
     let host = "127.0.0.1"
     let port = 9000
 
-    let listener_res = net.TcpListener.listen(host, port)
-    if (listener_res.is_err()): {
-        println("Failed to start TCP listener: ${listener_res.unwrap_err()}")
+    let listener_res! = net.TcpListener.listen(host, port)
+    if (listener_res!.is_err()): {
+        println("Failed to start TCP listener: ${listener_res!.unwrap_err()}")
         func <-
     }
-    let listener = listener_res.unwrap()
+    let listener = listener_res!.unwrap()
     println("TCP Echo server listening on ${host}:${listener.port()} ...")
     println("Test with: nc 127.0.0.1 ${listener.port()}")
 
     for (true): {
         // Accept incoming client connection (timeout: -1 for blocking wait)
-        let conn_res = listener.accept(-1)
-        if (conn_res.is_err()): {
-            println("Accept error: ${conn_res.unwrap_err()}")
+        let conn_res! = listener.accept(-1)
+        if (conn_res!.is_err()): {
+            println("Accept error: ${conn_res!.unwrap_err()}")
             next <-
         }
-        let stream = conn_res.unwrap()
+        let stream = conn_res!.unwrap()
         println("Accepted incoming client connection!")
 
         // Send a welcome message
@@ -38,12 +38,12 @@ bind main = (): {
 
         // Read and echo back
         for (true): {
-            let data_res = stream.recv(4096, 10000)
-            if (data_res.is_err()): {
+            let data_res! = stream.recv(4096, 10000)
+            if (data_res!.is_err()): {
                 // `"eof"`: client disconnected cleanly; `"timeout"`: no data within 10s
                 for <-
             }
-            let data = data_res.unwrap()
+            let data = data_res!.unwrap()
 
             println("Received: ${data.trim()}")
             if (stream.send("Echo: ${data}").is_err()): {

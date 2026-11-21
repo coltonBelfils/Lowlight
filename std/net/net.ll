@@ -192,26 +192,26 @@ bind listen_tcp = (host: string, port: int) Result[TcpListener]: TcpListener.lis
 
 @test("net bidirectional data transfer over socketpair")
 bind test_net_socketpair_bidirectional = (): {
-	let pair_res = socketpair()
-	assert(pair_res.is_ok(), "socketpair succeeds")
-	let pair = pair_res.unwrap()
+	let pair_res! = socketpair()
+	assert(pair_res!.is_ok(), "socketpair succeeds")
+	let pair = pair_res!.unwrap()
 
 	assert(pair.first.is_open(), "pair.first is open")
 	assert(pair.second.is_open(), "pair.second is open")
 
-	let send1_res = pair.first.send("ping from first")
-	assert(send1_res.is_ok(), "send from first succeeds")
+	let send1_res! = pair.first.send("ping from first")
+	assert(send1_res!.is_ok(), "send from first succeeds")
 
-	let recv1_res = pair.second.recv(1024, 1000)
-	assert(recv1_res.is_ok(), "recv on second succeeds")
-	assert(recv1_res.unwrap() == "ping from first", "second received expected payload")
+	let recv1_res! = pair.second.recv(1024, 1000)
+	assert(recv1_res!.is_ok(), "recv on second succeeds")
+	assert(recv1_res!.unwrap() == "ping from first", "second received expected payload")
 
-	let send2_res = pair.second.send("pong from second")
-	assert(send2_res.is_ok(), "send from second succeeds")
+	let send2_res! = pair.second.send("pong from second")
+	assert(send2_res!.is_ok(), "send from second succeeds")
 
-	let recv2_res = pair.first.recv(1024, 1000)
-	assert(recv2_res.is_ok(), "recv on first succeeds")
-	assert(recv2_res.unwrap() == "pong from second", "first received expected payload")
+	let recv2_res! = pair.first.recv(1024, 1000)
+	assert(recv2_res!.is_ok(), "recv on first succeeds")
+	assert(recv2_res!.unwrap() == "pong from second", "first received expected payload")
 
 	pair.first.close()
 	pair.second.close()
@@ -221,9 +221,9 @@ bind test_net_socketpair_bidirectional = (): {
 
 @test("net TcpListener ephemeral port binding and teardown")
 bind test_net_listener_bind_and_port = (): {
-	let l_res = TcpListener.listen("127.0.0.1", 0)
-	assert(l_res.is_ok(), "listen on ephemeral port 0 succeeds")
-	let l = l_res.unwrap()
+	let l_res! = TcpListener.listen("127.0.0.1", 0)
+	assert(l_res!.is_ok(), "listen on ephemeral port 0 succeeds")
+	let l = l_res!.unwrap()
 
 	let bound_p = l.port()
 	assert(bound_p > 0, "ephemeral port is positive integer")
@@ -237,28 +237,28 @@ bind test_net_closed_stream_errors = (): {
 	let s = TcpStream[_fd: -1]
 	assert(not s.is_open(), "stream with fd -1 is not open")
 
-	let send_res = s.send("test")
-	assert(send_res.is_err(), "send on closed stream returns error")
+	let send_res! = s.send("test")
+	assert(send_res!.is_err(), "send on closed stream returns error")
 
-	let recv_res = s.recv(512, 100)
-	assert(recv_res.is_err(), "recv on closed stream returns error")
+	let recv_res! = s.recv(512, 100)
+	assert(recv_res!.is_err(), "recv on closed stream returns error")
 }
 
 @test("net recv distinguishes clean EOF and timeout")
 bind test_net_recv_eof_and_timeout = (): {
 	let pair = socketpair().unwrap()
-	let timeout_res = pair.first.recv(64, 10)
-	assert(timeout_res.is_err(), "recv with no data times out")
-	assert(timeout_res.unwrap_err().has_code("timeout"), "timeout has code \"timeout\"")
+	let timeout_res! = pair.first.recv(64, 10)
+	assert(timeout_res!.is_err(), "recv with no data times out")
+	assert(timeout_res!.unwrap_err().has_code("timeout"), "timeout has code \"timeout\"")
 
 	let payload = "bin\u{0}ary\u{1}"
 	assert(pair.second.send(payload).is_ok(), "send succeeds")
-	let got = pair.first.recv(64, 1000)
-	assert(got.is_ok(), "recv after send succeeds")
-	assert(got.unwrap() == payload, "payload with NUL bytes round-trips")
+	let got! = pair.first.recv(64, 1000)
+	assert(got!.is_ok(), "recv after send succeeds")
+	assert(got!.unwrap() == payload, "payload with NUL bytes round-trips")
 
 	pair.second.close()
-	let eof_res = pair.first.recv(64, 1000)
-	assert(eof_res.is_err(), "recv after peer close fails")
-	assert(eof_res.unwrap_err().has_code("eof"), "peer close has code \"eof\"")
+	let eof_res! = pair.first.recv(64, 1000)
+	assert(eof_res!.is_err(), "recv after peer close fails")
+	assert(eof_res!.unwrap_err().has_code("eof"), "peer close has code \"eof\"")
 }

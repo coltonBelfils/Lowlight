@@ -285,6 +285,9 @@ func (s *Server) computeFoldingRanges(filePath, src string) []FoldingRange {
 				addFold(sp.Start.Line-1, sp.End.Line-1, "region")
 			}
 			for _, arm := range v.Arms {
+				if arm.Synthetic {
+					continue
+				}
 				if arm.Span.Start.Line > 0 && arm.Span.End.Line > arm.Span.Start.Line {
 					addFold(arm.Span.Start.Line-1, arm.Span.End.Line-1, "region")
 				}
@@ -561,6 +564,9 @@ func collectEnclosingASTSpans(af *ast.File, offset int) []diag.Span {
 				walkExpr(scr)
 			}
 			for _, arm := range v.Arms {
+				if arm.Synthetic {
+					continue
+				}
 				if spanContainsOffset(arm.Span, offset) {
 					maybeAdd(arm.Span)
 					for _, pat := range arm.AllPatterns() {

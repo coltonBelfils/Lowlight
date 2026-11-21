@@ -23,7 +23,7 @@ This document serves as the complete, authoritative, and implementation-independ
    - [2.2 Whitespace, Comments, & Semicolons](#22-whitespace-comments--semicolons)
    - [2.3 Automatic Semicolon Insertion (ASI)](#23-automatic-semicolon-insertion-asi)
    - [2.4 Multiline Trailing Commas](#24-multiline-trailing-commas)
-   - [2.5 Identifiers & Optional Identifiers](#25-identifiers--optional-identifiers)
+   - [2.5 Identifiers, Optional Identifiers & Result Identifiers](#25-identifiers-optional-identifiers--result-identifiers)
    - [2.6 Keywords & Contextual Keywords](#26-keywords--contextual-keywords)
    - [2.7 Literals](#27-literals)
    - [2.8 String Literals & String Interpolation](#28-string-literals--string-interpolation)
@@ -194,18 +194,24 @@ This rule applies uniformly across all 13 comma-separated lists in Lowlight:
 12. Generic type argument lists (`[int, string]`)
 13. `match` pattern lists (`when A, B, C:`)
 
-### 2.5 Identifiers & Optional Identifiers
+### 2.5 Identifiers, Optional Identifiers & Result Identifiers
 
-Lowlight distinguishes between standard identifiers and optional identifiers:
+Lowlight distinguishes between standard identifiers, optional identifiers, and result identifiers:
 
 ```ebnf
 Ident    = [a-zA-Z_] [a-zA-Z0-9_]* ;
 OptIdent = Ident "?" ;
+ResIdent = Ident "!" ;
 ```
 
 - **Standard Identifiers (`Ident`):** Name types, functions, constants, non-optional variables, enum variants, and struct fields.
 - **Optional Identifiers (`OptIdent`):** Identifiers ending with a literal question mark `?` (e.g., `user?`, `count?`, `next?`). 
 - **Optional Invariant:** Any local variable, function parameter, struct field, or enum variant carrying an optional type `?T` **must** be named using an `OptIdent`. Conversely, a variable holding a non-optional type must never end with `?`. Violating this invariant produces a static compile error.
+- **Result Identifiers (`ResIdent`):** Identifiers ending with a literal exclamation mark `!` (e.g., `cfg!`, `conn!`).
+- **Result Invariant:** Any local variable, function parameter, struct field, loop variable, or pattern binding holding a result type (a type declared with `define Name result [...]`, §3.8.3, including `Result[T]`) **must** be named using a `ResIdent`, and an identifier holding any other type must never end with `!`. As with `?`, the suffix makes every place a failure can flow visible where it is used. The rule applies to an optional result as `name?` (the outer `?` wins).
+
+#### Lexical Disambiguation of `!`
+Lowlight has no prefix `!` operator (negation is `not`), so a `!` immediately following an identifier is part of a `ResIdent` unless it begins `!=`: `cfg!.is_ok()` is `ResIdent("cfg!")` followed by `.`, while `a!=b` is `a != b`. The formatter always surrounds `!=` with spaces. In simple string interpolation (`"Hello $name!"`), a trailing `!` (like a trailing `?`) is literal text; reference a result identifier inside a string with braces: `"${conn!.is_ok()}"`.
 
 #### Lexical Disambiguation of `?`
 The lexer scans a trailing `?` into an `OptIdent` only if the character following the identifier is `?` and that `?` is not part of a double question mark operator (`??`), unless a third `?` follows (e.g., in `x???` parsed as `x? ??`). If `?` is immediately followed by a dot `.`, it is scanned as part of the `OptIdent` (e.g., `user?.name` produces `OptIdent("user?")` followed by `.` followed by `Ident("name")`).
@@ -223,10 +229,11 @@ when        and
 ```
 
 #### Contextual Keywords
-The tokens `next`, `packed`, and `default` are contextual keywords. They retain identifier status in general expression and declaration contexts, but trigger special parsing under specific grammatical rules:
+The tokens `next`, `packed`, `default`, and `result` are contextual keywords. They retain identifier status in general expression and declaration contexts, but trigger special parsing under specific grammatical rules:
 - `next`: Treated as a loop continue keyword strictly when followed by `<-` (i.e., `next <-` or `next <label> <-`). In all other positions (e.g., `let next = 10`, `item.next()`, `let next? = find()`), `next` is a regular identifier.
 - `packed`: Treated as a struct layout modifier strictly when appearing between `define` and the struct name (e.g., `define packed Header struct [ ... ]`).
-- `default`: Treated as the terminal closing arm of a `match` expression when followed by `:` or `<MatchClauses>:` (`default:` or `default Status.Closed:`). Outside `match`'s terminal arm (e.g., `let default = 0` or struct field `default: int`), `default` is a regular identifier.
+- `default`: Treated as the terminal closing arm of a `match` expression or result chain when followed by `:` or `<MatchClauses>:` (`default:` or `default Status.Closed:`), or, in a result chain only, by `panic` (`default panic`, §7.6.5). Outside these terminal arms (e.g., `let default = 0` or struct field `default: int`), `default` is a regular identifier.
+- `result`: Treated as a declaration kind strictly in `define Name[T] result [ ... ]` (§3.8.3). Elsewhere (e.g., `let result = compute()`), `result` is a regular identifier.
 
 The type name `never` is an internal semantic type and is not a surface keyword. While `void` is not a reserved keyword either, it is accepted specifically in function, method, interface, `extern`, and closure return-type positions to denote an empty return; using `void` as a value, variable, parameter, field, container element, or control-flow evaluation type is a compile-time error.
 
@@ -591,6 +598,39 @@ Variants support two shapes:
 2. **Payload Variant:** Carries a single value payload (e.g., `Number: float`, `Obj: JsonObj`, or a tuple `Pair: +[int, string]`). Constructed as `JsonValue.Number(3.14)` or `JsonValue.Obj(JsonObj[keys: k, values: v])`.
 
 Tagged unions are Resource types if any variant carries a Resource. They do not have an integer base type, cannot have manual discriminants assigned, cannot be converted to `int`, and cannot be used as map keys. Tagged union variants are inspected and destructured using `match`.
+
+#### 3.8.3 Result Declarations (`define Name result [...]`)
+A result declaration is a tagged union that describes an operation's outcome: exactly one success member, always named `value`, plus one or more failure variants:
+
+```lowlight
+define Lookup result [
+    value: Item,
+    Missing: string,
+    Forbidden,
+    Expired: Time,
+]
+
+@must_use
+define Result[T] result [   // the standard prelude's general-purpose result (§9.6)
+    value: T,
+    Err: Error,
+]
+```
+
+- `result` is a contextual keyword, recognized only after `define Name[T]`.
+- The `value` member must declare its type. Failure variants follow the ordinary variant shapes (unit or single payload).
+- A result is constructed like any enum: `Lookup.value(item)`, `Lookup.Missing(key)`, `Lookup.Forbidden`. Generic arguments are inferred from the expected type (`Result.Err(e)` where a `Result[Config]` is expected).
+- **Bare members:** Wherever a result is expected (a function's return value, `func <-`, an annotated `let`, an argument, an `if`/`match` branch producing the result), its members may be named without the type: `value(item)`, `Missing(key)`, `Forbidden`, `Err(e.wrap("loading"))`. This is the construction counterpart of a result chain's bare failure patterns (§7.6.5). A bare name that also names a variable or function in scope is reported as ambiguous; qualify it (`Lookup.Missing(...)`).
+- There is no implicit wrapping: a bare `Error` or `T` is never converted to a result. Every result value names its member.
+
+```lowlight
+bind find = (key: string) Lookup:
+    if (not cache.has(key)): Missing(key)
+    else if (not allowed(key)): Forbidden
+    else: value(cache[key])
+```
+- Result types, and only result types, support result chains (§7.6.5), `??` fallbacks (§6.6), and `if (r! as v)` (§7.4.1). Names holding them must end in `!` (§2.5).
+- Nothing about `Result[T]` is special: any result declaration has the same capabilities.
 
 ### 3.9 Distinct Types
 
@@ -1182,6 +1222,13 @@ let display_name: string = user?.name ?? "Guest"
 
 The right-hand operand is evaluated lazily only when the left-hand operand evaluates to `none`.
 
+`??` also applies to results (§3.8.3): `r! ?? fallback` evaluates to the success `value`, or, on any failure, drops the failure and evaluates `fallback` (a value of the success type, or an unwind such as `?? next <-`). Use a result chain (§7.6.5) when the failure must be inspected.
+
+```lowlight
+let port = parse_port(s) ?? 8080
+let item = cache.lookup(key) ?? next <-
+```
+
 ### 6.7 Function Calls & Closures
 
 Functions and closures are called using parentheses `f(arg1, arg2)`. Arguments are evaluated strictly from left to right.
@@ -1274,6 +1321,13 @@ if (get_user() as u): {
 if (&get_user() as u): {
     // `u` is bound as a mutable borrow `&User`
 }
+```
+
+##### Form D: Result Unwrapping
+On a result (§3.8.3), `if (r! as v)` (and `if (&r! as v)`) takes the branch when `r!` holds its `value`, binding `v` to the success value. `else` runs on any failure and binds nothing. Use a result chain (§7.6.5) when the failure is needed.
+
+```lowlight
+if (cfg! as c): start(c) else: retry()
 ```
 
 ##### Value Yielding from Optional Unwraps
@@ -1455,6 +1509,29 @@ Every `match` expression must be exhaustive and **must terminate with a `default
       default: "Other"
   ```
 - **Exhaustive Variant Arm (`default Pattern:`):** When all possible variants (or combinations of variants across multi-argument matches) of enum/bool scrutinees are handled explicitly, the final variant or combination is placed on the `default` arm (e.g., `default Status.Closed: 300` or `default Color.Blue, Status.Closed: 4`). The compiler statically verifies that every combination in the Cartesian product is covered.
+
+#### 7.6.5 Result Chains
+A result chain handles the failures of a result-typed expression (§3.8.3) and evaluates to its success `value`. It is written as the expression followed by `:` and `when` arms over the bare failure variant names. Like `match`, it must terminate with a `default` arm:
+
+```lowlight
+let item = cache.lookup(key):
+    when Missing(why): func <- Page.not_found(why)
+    when Forbidden: next <-
+    default Expired(_): cache.refresh(key)
+
+let cfg = load_config(path):
+    default Err(e): func <- Err(e.wrap("starting server"))
+```
+
+- **Arms:** Each arm either unwinds (`func <-`, `next <-`, ...) or evaluates to the success type, exactly like `match` arms. Patterns name failure variants without qualification (`Missing(why)`, `Forbidden`); payload bindings follow the ordinary rules (`own x`, `&x`, `_`). The success `value` is never matched: the chain evaluates to it.
+- **Terminal arm:** The chain ends with one of:
+  - `default Failure(...):`, which exhaustively handles the last failure variant.
+  - `default:` followed by a value or unwind, which handles every remaining failure without binding it.
+  - `default panic`, with no colon. Every unhandled failure panics with `unhandled failure Name.Variant` at that line. This is the explicit way to say "these failures are not expected here". On its own (`load(path): default panic`), it is a generic unwrap for any result type.
+- **Ownership:** The chain consumes its subject. A non-Plain success value is moved out.
+- **Propagation:** To pass a failure up, construct the caller's result with a bare member (§3.8.3): `default Err(e): func <- Err(e.wrap("starting server"))`.
+
+Nested chains terminate at their `default` arm, so a chain inside a `match` arm never swallows the enclosing `match`'s later `when` arms.
 
 ### 7.7 Targeted Lexical Unwinding (`<-`)
 
@@ -1765,10 +1842,20 @@ define Error struct [
 ]
 
 @must_use
-define Result[T] enum [
-    Ok: T,
+define Result[T] result [
+    value: T,
     Err: Error,
 ]
+```
+
+`Result[T]` is an ordinary result declaration (§3.8.3). Handle it with result chains (§7.6.5), `??`, `if (r! as v)`, `match` on `Result.value(v)` / `Result.Err(e)`, or the methods below.
+
+```lowlight
+bind read_config = (path: string) Result[Config]: {
+    let text = fs.read_text(path):
+        default Err(e): func <- Err(e.wrap("reading config"))
+    value(parse_config(text))
+}
 ```
 
 #### `Error` Inherent Methods
@@ -1807,7 +1894,7 @@ Lowlight has two failure channels that share one error type. They are deliberate
 | | `Result[T]` (recoverable) | `panic` (fatal) |
 |---|---|---|
 | **Meaning** | An expected outcome the caller can act on: missing file, refused connection, malformed input. | A bug or broken invariant no caller can repair: out-of-bounds index, division by zero, failed `assert`, `unwrap` of an error, violated precondition. |
-| **Mechanism** | An ordinary value in the function signature, `@must_use`, propagated explicitly (`?? func <- ...`, `wrap_err`, `match`). | Aborts the process. Standard output is flushed, the message and trace are written to standard error, and the process exits with status `1`. |
+| **Mechanism** | An ordinary value in the function signature, `@must_use`, handled explicitly (result chains, `??`, `if (r! as v)`, `wrap_err`, `match`). | Aborts the process. Standard output is flushed, the message and trace are written to standard error, and the process exits with status `1`. |
 | **Payload** | `Error` (message, optional code, cause chain, frames). | A `string` or the same `Error`; `unwrap`/`expect` panic with the original `Error` wrapped, so a fatal error prints exactly like a reported one. |
 | **Cleanup** | Normal LIFO `Drop` on every scope exit. | No unwinding and no `Drop`. The operating system reclaims memory and descriptors. |
 | **Recovery** | Always: the caller decides. | Never in Lowlight code. There is no `recover`/`catch`. Test harnesses may isolate panics (§9.7), but that is tooling, not a language feature. |

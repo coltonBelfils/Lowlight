@@ -167,8 +167,14 @@ var BuiltinSnippets = []CodeSnippet{
 	{
 		Label:   "match result",
 		Detail:  "Exhaustively match Result[T]",
-		Snippet: "match(${1:res}):\nwhen Result.Ok(${2:val}): ${3:val}\ndefault Result.Err(${4:err}): ${0:panic(\"todo\")}",
-		Summary: "Exhaustively matches `Result.Ok` and `Result.Err` variants.",
+		Snippet: "match(${1:res!}):\nwhen Result.value(${2:val}): ${3:val}\ndefault Result.Err(${4:err}): ${0:panic(\"todo\")}",
+		Summary: "Exhaustively matches `Result.value` and `Result.Err` variants.",
+	},
+	{
+		Label:   "result chain",
+		Detail:  "Handle a result's failures",
+		Snippet: "${1:expr}:\n\tdefault Err(${2:e}): ${0:func <- Err($2.wrap(\"todo\"))}",
+		Summary: "Handles the failures of a result expression and evaluates to its `value` (`default panic` panics on unhandled failures).",
 	},
 	{
 		Label:   "check result",

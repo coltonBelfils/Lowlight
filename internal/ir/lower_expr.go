@@ -241,8 +241,9 @@ func (fl *funcLowerer) isFreshResourceRValue(e ast.Expr, inf *sema.ExprInfo) boo
 		// String literals have `cap = 0` (static storage); `none` has `has_value = false` / `NULL`; ranges are plain scalars.
 		return false
 	case *ast.IdentExpr:
-		// Reading a variable or static function thunk does NOT allocate!
-		return false
+		// Reading a variable or static function thunk does NOT allocate! A bare unit result
+		// member (`Forbidden`) constructs a fresh value like `Lookup.Forbidden`.
+		return inf.EnumVariant != nil && inf.EnumType != nil && inf.EnumType.IsTagged
 	case *ast.MemberExpr:
 		// Optional chaining `u?.city` clones `city` if Resource; tagged unit variant constructs a fresh enum;
 		// plain `u.city` reads in-place!
@@ -273,6 +274,9 @@ func (fl *funcLowerer) isAddressable(e ast.Expr) bool {
 	switch v := e.(type) {
 	case *ast.IdentExpr:
 		inf := fl.info(v)
+		if inf.EnumVariant != nil {
+			return false
+		}
 		return inf.Sym == nil || inf.Sym.FuncInst == nil
 	case *ast.MemberExpr:
 		inf := fl.info(v)
@@ -779,6 +783,10 @@ func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) Expr {
 		}
 
 	case ast.IfCondOptBind:
+		if resEn := types.AsResult(fl.info(ie.Cond).Type); resEn != nil {
+			condExpr, bindHoldSlot, unwrapInitInstr = fl.lowerResultIfBind(ie, resEn, unwrapSym)
+			break
+		}
 		optTy := fl.info(ie.Cond).Type.(*types.Optional)
 		fl.tc.visit(optTy)
 		if ie.MutUnwrap {
@@ -902,4 +910,43 @@ func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) Expr {
 		return NewLocalExpr(resSlot)
 	}
 	return nil
+}
+
+// lowerResultIfBind lowers the condition of `if (r! as v)` on a result: the branch is taken when
+// `r!` holds `value`, with `v` bound to (or, for `&`, pointing at) the success payload.
+func (fl *funcLowerer) lowerResultIfBind(ie *ast.IfExpr, en *types.Enum, unwrapSym *sema.Symbol) (Expr, *Local, Instr) {
+	fl.tc.visit(en)
+	var condExpr Expr
+	var holdSlot *Local
+	var initInstr Instr
+	bindLocal := func(isPtr bool) *Local {
+		if unwrapSym == nil {
+			return nil
+		}
+		uLoc := &Local{CName: unwrapSym.CName, Type: unwrapSym.Type, IsMutPtr: isPtr}
+		fl.locals = append(fl.locals, uLoc)
+		fl.symLocals[unwrapSym] = uLoc
+		return uLoc
+	}
+	if ie.MutUnwrap || fl.isAddressable(ie.Cond) {
+		ptrTmp := fl.allocSlot("_ll_ifresp", &types.Ptr{Elem: en})
+		fl.assignLocal(ptrTmp, fl.lowerLValueAddr(ie.Cond))
+		deref := &ExprDeref{Ptr: NewLocalExpr(ptrTmp), Typ: en}
+		condExpr = resultIsValueExpr(deref, en)
+		if uLoc := bindLocal(ie.MutUnwrap); uLoc != nil {
+			if ie.MutUnwrap {
+				initInstr = &InstrAssign{Dst: NewLocalExpr(uLoc), Expr: resultValuePtrExpr(NewLocalExpr(ptrTmp), en)}
+			} else {
+				initInstr = &InstrAssign{Dst: NewLocalExpr(uLoc), Expr: EnsureExpr(resultValueExpr(deref, en), uLoc.Type)}
+			}
+		}
+		return condExpr, nil, initInstr
+	}
+	holdSlot = fl.allocSlot("_ll_ifbind", en)
+	fl.assignLocal(holdSlot, fl.lowerRawExpr(ie.Cond, en, true))
+	condExpr = resultIsValueExpr(NewLocalExpr(holdSlot), en)
+	if uLoc := bindLocal(false); uLoc != nil {
+		initInstr = &InstrAssign{Dst: NewLocalExpr(uLoc), Expr: EnsureExpr(resultValueExpr(NewLocalExpr(holdSlot), en), uLoc.Type)}
+	}
+	return condExpr, holdSlot, initInstr
 }

@@ -14,9 +14,9 @@ bind main = (): {
     println("==================================================")
 
     // 1. URL parsing & query extraction
-    let api_url_res = http.parse_url("http://localhost:8080/api/v1/search?q=lowlight&format=json&limit=10")
-    assert(api_url_res.is_ok())
-    let u = api_url_res.unwrap()
+    let api_url_res! = http.parse_url("http://localhost:8080/api/v1/search?q=lowlight&format=json&limit=10")
+    assert(api_url_res!.is_ok())
+    let u = api_url_res!.unwrap()
     println("1. Parsed URL:")
     println("   Scheme:   ${u.scheme}")
     println("   Host:     ${u.host}")
@@ -90,11 +90,11 @@ bind main = (): {
     req_echo.set_header("Content-Type", "application/json")
 
     let m4 = mux.copy()
-    let roundtrip_res = http.test_roundtrip((r: http.Request, w: &http.ResponseWriter): {
+    let roundtrip_res! = http.test_roundtrip((r: http.Request, w: &http.ResponseWriter): {
         m4.serve_http(r, &w)
     }, req_echo)
-    assert(roundtrip_res.is_ok())
-    let resp = roundtrip_res.unwrap()
+    assert(roundtrip_res!.is_ok())
+    let resp = roundtrip_res!.unwrap()
     println("   POST /api/echo (over socket) -> Status: ${resp.status_code} ${resp.status}")
     println("   Response Content-Type: ${resp.header("content-type") ?? "none"}")
     println("   Response Body:         ${resp.body}")

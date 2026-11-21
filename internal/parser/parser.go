@@ -321,6 +321,11 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 		tparams = p.parseTypeParams()
 	}
 
+	// `result` is contextual: `define Name[T] result [...]`.
+	if p.cur().Kind == token.Ident && p.cur().Text == "result" && p.peekAt(1).Kind == token.LBracket {
+		return p.parseEnumBody(kw, nameTok, tparams, packed, true)
+	}
+
 	switch p.cur().Kind {
 	case token.KwStruct:
 		p.advance()
@@ -374,68 +379,7 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 		}
 
 	case token.KwEnum:
-		if packed {
-			p.rep.Errorf(kw.Span, "`packed` modifier is only valid on `struct` definitions")
-		}
-		p.advance()
-		var baseTy ast.TypeExpr
-		if p.cur().Kind == token.Ident {
-			btTok := p.advance()
-			baseTy = &ast.NamedType{Name: btTok.Text, Span: btTok.Span}
-		}
-		openBr := p.expect(token.LBracket, "opening enum variants `[`")
-		var variants []ast.EnumVariant
-		var lastEnd diag.Pos
-		hadComma := false
-		hasPayloads := false
-		for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
-			vTok := p.expect(token.Ident, "enum variant name")
-			vEnd := vTok.Span.End
-			var valExpr ast.Expr
-			var payloadTy ast.TypeExpr
-			if _, ok := p.match(token.Assign); ok {
-				valExpr = p.parseExpr()
-				vEnd = valExpr.GetSpan().End
-			} else if _, ok := p.match(token.Colon); ok {
-				hasPayloads = true
-				payloadTy = p.parseTypeExpr()
-				vEnd = payloadTy.GetSpan().End
-			}
-			variants = append(variants, ast.EnumVariant{
-				Name:        vTok.Text,
-				Value:       valExpr,
-				PayloadType: payloadTy,
-				Span:        diag.Span{Start: vTok.Span.Start, End: vEnd},
-			})
-			lastEnd = vEnd
-			if _, ok := p.match(token.Comma); ok {
-				hadComma = true
-			} else {
-				hadComma = false
-				break
-			}
-		}
-		closeBr := p.expect(token.RBracket, "closing enum definition")
-		if len(variants) > 0 {
-			p.checkTrailingComma(openBr, closeBr, len(variants), lastEnd, hadComma, "enum definition")
-		}
-		if hasPayloads || len(tparams) > 0 {
-			if baseTy != nil {
-				p.rep.Errorf(baseTy.GetSpan(), "tagged or generic enums cannot specify an integer underlying type")
-			}
-			for _, v := range variants {
-				if v.Value != nil {
-					p.rep.Errorf(v.Value.GetSpan(), "tagged or generic enum variants cannot specify `= value` discriminants")
-				}
-			}
-		}
-		return &ast.EnumDecl{
-			Name:       nameTok.Text,
-			TypeParams: tparams,
-			BaseType:   baseTy,
-			Variants:   variants,
-			Span:       diag.Span{Start: kw.Span.Start, End: closeBr.Span.End},
-		}
+		return p.parseEnumBody(kw, nameTok, tparams, packed, false)
 
 	case token.KwInterface:
 		if packed {
@@ -537,6 +481,78 @@ func (p *Parser) parseStructDefFields(ctx string) ([]ast.StructField, diag.Pos) 
 	return fields, closeBr.Span.End
 }
 
+// parseEnumBody parses the remainder of `define Name[T] enum [...]` or `define Name[T] result [...]`
+// starting at the `enum` keyword or the contextual `result` word.
+func (p *Parser) parseEnumBody(kw, nameTok token.Token, tparams []ast.TypeParam, packed, isResult bool) ast.Decl {
+	kindLabel := "enum"
+	if isResult {
+		kindLabel = "result"
+	}
+	if packed {
+		p.rep.Errorf(kw.Span, "`packed` modifier is only valid on `struct` definitions")
+	}
+	p.advance()
+	var baseTy ast.TypeExpr
+	if !isResult && p.cur().Kind == token.Ident {
+		btTok := p.advance()
+		baseTy = &ast.NamedType{Name: btTok.Text, Span: btTok.Span}
+	}
+	openBr := p.expect(token.LBracket, "opening "+kindLabel+" members `[`")
+	var variants []ast.EnumVariant
+	var lastEnd diag.Pos
+	hadComma := false
+	hasPayloads := false
+	for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
+		vTok := p.expect(token.Ident, kindLabel+" variant name")
+		vEnd := vTok.Span.End
+		var valExpr ast.Expr
+		var payloadTy ast.TypeExpr
+		if _, ok := p.match(token.Assign); ok {
+			valExpr = p.parseExpr()
+			vEnd = valExpr.GetSpan().End
+		} else if _, ok := p.match(token.Colon); ok {
+			hasPayloads = true
+			payloadTy = p.parseTypeExpr()
+			vEnd = payloadTy.GetSpan().End
+		}
+		variants = append(variants, ast.EnumVariant{
+			Name:        vTok.Text,
+			Value:       valExpr,
+			PayloadType: payloadTy,
+			Span:        diag.Span{Start: vTok.Span.Start, End: vEnd},
+		})
+		lastEnd = vEnd
+		if _, ok := p.match(token.Comma); ok {
+			hadComma = true
+		} else {
+			hadComma = false
+			break
+		}
+	}
+	closeBr := p.expect(token.RBracket, "closing "+kindLabel+" definition")
+	if len(variants) > 0 {
+		p.checkTrailingComma(openBr, closeBr, len(variants), lastEnd, hadComma, kindLabel+" definition")
+	}
+	if hasPayloads || len(tparams) > 0 || isResult {
+		if baseTy != nil {
+			p.rep.Errorf(baseTy.GetSpan(), "tagged or generic enums cannot specify an integer underlying type")
+		}
+		for _, v := range variants {
+			if v.Value != nil {
+				p.rep.Errorf(v.Value.GetSpan(), "tagged, generic, or result variants cannot specify `= value` discriminants")
+			}
+		}
+	}
+	return &ast.EnumDecl{
+		Name:       nameTok.Text,
+		TypeParams: tparams,
+		BaseType:   baseTy,
+		Variants:   variants,
+		IsResult:   isResult,
+		Span:       diag.Span{Start: kw.Span.Start, End: closeBr.Span.End},
+	}
+}
+
 func (p *Parser) looksLikeTypeParamsInDefine() bool {
 	// `define Name[T, ...]` is followed after `]` by `struct`, `enum`, `interface`, or a base type.
 	// Note that `define Alias [int]` (distinct type over vector `[int]`) would have `[int]` at the end of the line (`Semi`/`EOF`)!
@@ -552,6 +568,9 @@ func (p *Parser) looksLikeTypeParamsInDefine() bool {
 				next := token.EOF
 				if i+1 < len(p.toks) {
 					next = p.toks[i+1].Kind
+				}
+				if next == token.Ident && i+1 < len(p.toks) && p.toks[i+1].Text == "result" {
+					return true
 				}
 				return next == token.KwStruct || next == token.KwEnum || next == token.KwInterface
 			}
@@ -1799,6 +1818,11 @@ func (p *Parser) parsePostfixExpr() ast.Expr {
 				}
 			}
 
+		case token.Colon:
+			if !p.isResultChainStart() {
+				return left
+			}
+			return p.parseResultChain(left)
 		default:
 			return left
 		}
@@ -2434,6 +2458,9 @@ func (p *Parser) isMatchDefaultAt(idx int, scrutCount int) bool {
 	if idx+1 < len(p.toks) && p.toks[idx+1].Kind == token.Colon {
 		return true
 	}
+	if scrutCount == resultChainScrutCount {
+		return p.isChainDefaultAt(idx)
+	}
 	savePos := p.pos
 	realRep := p.rep
 	tempRep := diag.NewReporter()
@@ -2622,6 +2649,156 @@ func (p *Parser) parenHasCommaAtDepthOne() bool {
 		}
 	}
 	return false
+}
+
+// resultChainScrutCount is pushed on matchStack while parsing a result chain's arms, so contextual
+// `default` detection uses the chain's pattern grammar (and recognizes `default panic`).
+const resultChainScrutCount = -1
+
+// isResultChainStart reports whether the current `:` opens a result chain on the expression just
+// parsed: `expr: when Failure(...): ...` or `expr: default ...` (`default:`, `default panic`,
+// `default Failure(...):`).
+func (p *Parser) isResultChainStart() bool {
+	if p.cur().Kind != token.Colon || p.pos+1 >= len(p.toks) {
+		return false
+	}
+	next := p.toks[p.pos+1]
+	if next.Kind == token.KwWhen {
+		return true
+	}
+	return next.Kind == token.Ident && next.Text == "default" && p.isChainDefaultAt(p.pos+1)
+}
+
+// isChainDefaultAt reports whether toks[idx] (a `default` word) starts a result chain's closing
+// arm: `default:`, `default panic`, or `default Failure[(bindings)][, Failure...]:`.
+func (p *Parser) isChainDefaultAt(idx int) bool {
+	i := idx + 1
+	if i >= len(p.toks) {
+		return false
+	}
+	if p.toks[i].Kind == token.Colon {
+		return true
+	}
+	if p.toks[i].Kind == token.Ident && p.toks[i].Text == "panic" {
+		return i+1 >= len(p.toks) || p.toks[i+1].Kind != token.LParen
+	}
+	for {
+		if i >= len(p.toks) || p.toks[i].Kind != token.Ident {
+			return false
+		}
+		i++
+		if i < len(p.toks) && p.toks[i].Kind == token.LParen {
+			depth := 0
+			for ; i < len(p.toks); i++ {
+				if p.toks[i].Kind == token.LParen {
+					depth++
+				} else if p.toks[i].Kind == token.RParen {
+					depth--
+					if depth == 0 {
+						i++
+						break
+					}
+				} else if p.toks[i].Kind == token.EOF || p.toks[i].Kind == token.Semi {
+					return false
+				}
+			}
+		}
+		if i < len(p.toks) && p.toks[i].Kind == token.Comma {
+			i++
+			continue
+		}
+		return i < len(p.toks) && p.toks[i].Kind == token.Colon
+	}
+}
+
+// parseResultChain parses `subject: when Failure(x): body ... default ...` into a MatchExpr with
+// ResultChain set. The current token is the `:` after the subject.
+func (p *Parser) parseResultChain(subject ast.Expr) ast.Expr {
+	p.expect(token.Colon, "after result chain subject")
+	p.matchStack = append(p.matchStack, resultChainScrutCount)
+	defer func() {
+		p.matchStack = p.matchStack[:len(p.matchStack)-1]
+	}()
+	me := &ast.MatchExpr{
+		Scrutinees:  []ast.Expr{subject},
+		ResultChain: true,
+	}
+	for p.cur().Kind == token.KwWhen {
+		wTok := p.advance()
+		cases := p.parseChainCases()
+		p.expect(token.Colon, "after `when` pattern")
+		p.inMatchArm++
+		body := p.parseActionBody()
+		p.inMatchArm--
+		me.Arms = append(me.Arms, ast.MatchArm{
+			Cases: cases,
+			Body:  body,
+			Span:  diag.Span{Start: wTok.Span.Start, End: body.GetSpan().End},
+		})
+	}
+	if p.cur().Kind == token.Semi && p.cur().AutoSemi && p.isMatchDefaultAt(p.pos+1, resultChainScrutCount) {
+		p.advance()
+	}
+	end := subject.GetSpan().End
+	if len(me.Arms) > 0 {
+		end = me.Arms[len(me.Arms)-1].Span.End
+	}
+	if p.isMatchDefaultAt(p.pos, resultChainScrutCount) {
+		defTok := p.advance()
+		if p.cur().Kind == token.Ident && p.cur().Text == "panic" {
+			panicTok := p.advance()
+			me.DefaultPanic = true
+			me.DefaultPanicSpan = diag.Span{Start: defTok.Span.Start, End: panicTok.Span.End}
+			end = panicTok.Span.End
+		} else {
+			var defCases []ast.MatchCase
+			if p.cur().Kind != token.Colon {
+				defCases = p.parseChainCases()
+			}
+			p.expect(token.Colon, "after `default` in result chain")
+			p.inMatchArm++
+			defBody := p.parseActionBody()
+			p.inMatchArm--
+			me.Arms = append(me.Arms, ast.MatchArm{
+				Cases:     defCases,
+				IsDefault: true,
+				Body:      defBody,
+				Span:      diag.Span{Start: defTok.Span.Start, End: defBody.GetSpan().End},
+			})
+			end = defBody.GetSpan().End
+		}
+	} else {
+		p.rep.ErrorWithHint(p.cur().Span,
+			"result chain must terminate with a `default` arm",
+			"write `default <Failure>:` for the last failure case, `default:` for the rest, or `default panic` to panic on unhandled failures")
+	}
+	me.Span = diag.Span{Start: subject.GetSpan().Start, End: end}
+	return me
+}
+
+// parseChainCases parses the comma-separated bare failure patterns of one result chain arm:
+// `Missing(why)`, `Forbidden`, `Expired(_), Missing(_)`.
+func (p *Parser) parseChainCases() []ast.MatchCase {
+	var cases []ast.MatchCase
+	for {
+		nameTok := p.expect(token.Ident, "failure variant name in result chain")
+		placeholder := &ast.IdentExpr{Span: diag.Span{Start: nameTok.Span.Start, End: nameTok.Span.Start}}
+		vp := &ast.VariantPattern{
+			Target:     &ast.MemberExpr{Base: placeholder, Member: nameTok.Text, Span: nameTok.Span},
+			Contextual: true,
+			Span:       nameTok.Span,
+		}
+		if p.cur().Kind == token.LParen {
+			bindings, endPos := p.parseTupleVariantPatternBindings()
+			vp.Bindings = bindings
+			vp.Span.End = endPos
+		}
+		cases = append(cases, ast.MatchCase{Patterns: []ast.Pattern{vp}, Span: vp.Span})
+		if _, ok := p.match(token.Comma); !ok {
+			break
+		}
+	}
+	return cases
 }
 
 func (p *Parser) parseMatchExpr() *ast.MatchExpr {

@@ -635,23 +635,8 @@ func (fl *funcLowerer) lowerVarStmt(s *ast.VarStmt) {
 	fl.symLocals[sym] = loc
 
 	if s.FallbackUnwind != nil {
-		// `let a = opt_expr ?? <unwind>`
-		optTy := fl.info(s.Value).Type.(*types.Optional)
-		optVal := fl.lowerExprOwned(s.Value, optTy)
-		optTmp := fl.allocSlot("_ll_coalesce", optTy)
-		fl.assignLocal(optTmp, optVal)
-		fl.flushStmtTemps()
-
-		fl.pushInstrBuf()
-		fl.lowerUnwindStmt(s.FallbackUnwind)
-		elseBranch := fl.popInstrBuf()
-
-		fl.emit(&InstrIf{
-			Cond: &ExprUnary{Op: token.KwNot, Operand: optHasValueExpr(optTmp, optTy), Typ: types.TypeBool},
-			Then: elseBranch,
-		})
-		// Extract owned value out of `optTmp` (freeing outer heap box if `optTy.IsBoxed()`)!
-		fl.extractOwnedOptionalInto(optTmp, optTy, loc)
+		// `let a = opt_expr ?? <unwind>` / `let a = res_expr ?? <unwind>`
+		fl.lowerGuardedUnwrap(s.Value, s.FallbackUnwind, "_ll_coalesce", loc)
 		if !sym.Type.IsPlain() {
 			cur := fl.scopes[len(fl.scopes)-1]
 			cur.ownedLocals = append(cur.ownedLocals, loc)
@@ -666,6 +651,52 @@ func (fl *funcLowerer) lowerVarStmt(s *ast.VarStmt) {
 		cur := fl.scopes[len(fl.scopes)-1]
 		cur.ownedLocals = append(cur.ownedLocals, loc)
 	}
+}
+
+// guardElemType returns what a `?? <unwind>` guard unwraps `ty` (an optional or a result) to.
+func guardElemType(ty types.Type) types.Type {
+	if o, ok := ty.(*types.Optional); ok {
+		return o.Elem
+	}
+	vv, _ := types.AsResult(ty).ResultValue()
+	return vv.Payload
+}
+
+// lowerGuardedUnwrap lowers `value ?? <unwind>` in statement position: it evaluates `value` (an
+// optional or a result), runs `unwind` when it holds no value (dropping a result's failure
+// first), and otherwise moves the unwrapped value into `dst`.
+func (fl *funcLowerer) lowerGuardedUnwrap(value ast.Expr, unwind *ast.UnwindStmt, prefix string, dst *Local) {
+	valTy := fl.info(value).Type
+	fl.tc.visit(valTy)
+	v := fl.lowerExprOwned(value, valTy)
+	tmp := fl.allocSlot(prefix, valTy)
+	fl.assignLocal(tmp, v)
+	fl.flushStmtTemps()
+
+	if en := types.AsResult(valTy); en != nil {
+		fl.pushInstrBuf()
+		fl.emit(&InstrDrop{Var: tmp, VarName: tmp.CName, Type: en, MovedFlag: tmp.MovedFlag})
+		fl.lowerUnwindStmt(unwind)
+		failBranch := fl.popInstrBuf()
+		fl.emit(&InstrIf{
+			Cond: &ExprUnary{Op: token.KwNot, Operand: resultIsValueExpr(NewLocalExpr(tmp), en), Typ: types.TypeBool},
+			Then: failBranch,
+		})
+		fl.assignLocal(dst, resultValueExpr(NewLocalExpr(tmp), en))
+		fl.emit(&InstrAssign{Dst: NewLocalExpr(tmp), Expr: NewLitZero(en)})
+		return
+	}
+
+	optTy := valTy.(*types.Optional)
+	fl.pushInstrBuf()
+	fl.lowerUnwindStmt(unwind)
+	elseBranch := fl.popInstrBuf()
+	fl.emit(&InstrIf{
+		Cond: &ExprUnary{Op: token.KwNot, Operand: optHasValueExpr(tmp, optTy), Typ: types.TypeBool},
+		Then: elseBranch,
+	})
+	// Extract owned value out of `tmp` (freeing outer heap box if `optTy.IsBoxed()`)!
+	fl.extractOwnedOptionalInto(tmp, optTy, dst)
 }
 
 func (fl *funcLowerer) extractOwnedOptionalInto(optSlot *Local, optTy *types.Optional, dst *Local) {
@@ -719,25 +750,10 @@ func (fl *funcLowerer) lowerUnpackVarStmt(s *ast.VarStmt) {
 	var tupSlot *Local
 	var tupValTy types.Type
 	if s.FallbackUnwind != nil {
-		optTy := fl.info(s.Value).Type.(*types.Optional)
-		tupValTy = optTy.Elem
-		fl.tc.visit(optTy)
+		tupValTy = guardElemType(fl.info(s.Value).Type)
 		fl.tc.visit(tupValTy)
-		optVal := fl.lowerExprOwned(s.Value, optTy)
-		optTmp := fl.allocSlot("_ll_coalesce", optTy)
-		fl.assignLocal(optTmp, optVal)
-		fl.flushStmtTemps()
-
-		fl.pushInstrBuf()
-		fl.lowerUnwindStmt(s.FallbackUnwind)
-		elseBranch := fl.popInstrBuf()
-
-		fl.emit(&InstrIf{
-			Cond: &ExprUnary{Op: token.KwNot, Operand: optHasValueExpr(optTmp, optTy), Typ: types.TypeBool},
-			Then: elseBranch,
-		})
 		tupSlot = fl.allocSlot("_ll_unpack", tupValTy)
-		fl.extractOwnedOptionalInto(optTmp, optTy, tupSlot)
+		fl.lowerGuardedUnwrap(s.Value, s.FallbackUnwind, "_ll_coalesce", tupSlot)
 	} else {
 		tupValTy = fl.info(s.Value).Type
 		fl.tc.visit(tupValTy)
@@ -824,23 +840,8 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 	targetTy := fl.info(s.Target).Type
 
 	if s.FallbackUnwind != nil {
-		optTy := fl.info(s.Value).Type.(*types.Optional)
-		optVal := fl.lowerExprOwned(s.Value, optTy)
-		optTmp := fl.allocSlot("_ll_asgn_opt", optTy)
-		fl.assignLocal(optTmp, optVal)
-		fl.flushStmtTemps()
-
-		fl.pushInstrBuf()
-		fl.lowerUnwindStmt(s.FallbackUnwind)
-		elseBranch := fl.popInstrBuf()
-
-		fl.emit(&InstrIf{
-			Cond: &ExprUnary{Op: token.KwNot, Operand: optHasValueExpr(optTmp, optTy), Typ: types.TypeBool},
-			Then: elseBranch,
-		})
-
-		unwrappedTmp := fl.allocSlot("_ll_asgn_val", optTy.Elem)
-		fl.extractOwnedOptionalInto(optTmp, optTy, unwrappedTmp)
+		unwrappedTmp := fl.allocSlot("_ll_asgn_val", guardElemType(fl.info(s.Value).Type))
+		fl.lowerGuardedUnwrap(s.Value, s.FallbackUnwind, "_ll_asgn_opt", unwrappedTmp)
 		fl.assignToTargetLValue(s.Target, targetTy, NewLocalExpr(unwrappedTmp))
 		return
 	}
@@ -868,26 +869,10 @@ func (fl *funcLowerer) lowerUnpackAssignStmt(s *ast.AssignStmt) {
 	var tupSlot *Local
 	var tupValTy types.Type
 	if s.FallbackUnwind != nil {
-		optTy := fl.info(s.Value).Type.(*types.Optional)
-		tupValTy = optTy.Elem
-		fl.tc.visit(optTy)
+		tupValTy = guardElemType(fl.info(s.Value).Type)
 		fl.tc.visit(tupValTy)
-		optVal := fl.lowerExprOwned(s.Value, optTy)
-		optTmp := fl.allocSlot("_ll_asgn_opt", optTy)
-		fl.assignLocal(optTmp, optVal)
-		fl.flushStmtTemps()
-
-		fl.pushInstrBuf()
-		fl.lowerUnwindStmt(s.FallbackUnwind)
-		elseBranch := fl.popInstrBuf()
-
-		fl.emit(&InstrIf{
-			Cond: &ExprUnary{Op: token.KwNot, Operand: optHasValueExpr(optTmp, optTy), Typ: types.TypeBool},
-			Then: elseBranch,
-		})
-
 		tupSlot = fl.allocSlot("_ll_unpack_asgn", tupValTy)
-		fl.extractOwnedOptionalInto(optTmp, optTy, tupSlot)
+		fl.lowerGuardedUnwrap(s.Value, s.FallbackUnwind, "_ll_asgn_opt", tupSlot)
 	} else {
 		tupValTy = fl.info(s.Value).Type
 		fl.tc.visit(tupValTy)

@@ -124,21 +124,21 @@ type GenericFuncTemplate struct {
 
 // FuncInstance is a concrete (or monomorphized) Lowlight function or method to be lowered to MIR.
 type FuncInstance struct {
-	Name          string // display name (`add`, `Point.length`, `Pair[int, string].swap`)
-	CName         string // unique C function name (`ll_fn_add`, `ll_m_Point_length`)
-	Sig           *types.Func
-	IsMethod      bool
-	IsStaticAssoc bool
-	RecvType      types.Type // non-nil for methods / associated functions
-	RecvMode      ast.ReceiverMode
-	ParamNames    []string  // includes receiver `"self"` at index 0 if IsMethod && !IsStaticAssoc
-	ParamSpans    []diag.Span
-	ParamSyms     []*Symbol // resolved parameter symbols populated during body checking
-	Body          ast.Expr
-	Mod           *Module
-	TypeSubst     map[string]types.Type
-	FuncTargetID  int
-	BodyMaps      *BodyMaps
+	Name           string // display name (`add`, `Point.length`, `Pair[int, string].swap`)
+	CName          string // unique C function name (`ll_fn_add`, `ll_m_Point_length`)
+	Sig            *types.Func
+	IsMethod       bool
+	IsStaticAssoc  bool
+	RecvType       types.Type // non-nil for methods / associated functions
+	RecvMode       ast.ReceiverMode
+	ParamNames     []string // includes receiver `"self"` at index 0 if IsMethod && !IsStaticAssoc
+	ParamSpans     []diag.Span
+	ParamSyms      []*Symbol // resolved parameter symbols populated during body checking
+	Body           ast.Expr
+	Mod            *Module
+	TypeSubst      map[string]types.Type
+	FuncTargetID   int
+	BodyMaps       *BodyMaps
 	DeclSpan       diag.Span
 	Checked        bool
 	RetInferred    bool
@@ -217,49 +217,49 @@ type LambdaInfo struct {
 type CallKind int
 
 const (
-	CallDirectFunc    CallKind = iota // static `bind` function or monomorphized generic function
-	CallClosureValue                  // calling a function-typed variable/expression
-	CallExternC                       // calling an `extern` C ABI function
-	CallTypeConvert                   // `float(x)`, `u8(x)`, `int(Status.Pending)`, `UserID(42)`
-	CallInterfaceBox                  // `Shape(my_circle)` -> owned boxed interface value
-	CallBuiltinFunc                   // `print`, `println`, `eprint`, `eprintln`, `panic`, `assert`, `parse_int`, etc.
-	CallBuiltinMethod                 // built-in method on primitive/string/vec/array/set/map/Arena/enum/struct
-	CallInterfaceMethod               // dynamic dispatch through interface fat pointer vtable
-	CallIntrinsic                     // `size_of`, `align_of`, `alloc_raw`, `ptr_read`, etc.
-	CallEnumVariant                   // tuple-payload enum variant constructor (`Result.Ok(42)`)
+	CallDirectFunc      CallKind = iota // static `bind` function or monomorphized generic function
+	CallClosureValue                    // calling a function-typed variable/expression
+	CallExternC                         // calling an `extern` C ABI function
+	CallTypeConvert                     // `float(x)`, `u8(x)`, `int(Status.Pending)`, `UserID(42)`
+	CallInterfaceBox                    // `Shape(my_circle)` -> owned boxed interface value
+	CallBuiltinFunc                     // `print`, `println`, `eprint`, `eprintln`, `panic`, `assert`, `parse_int`, etc.
+	CallBuiltinMethod                   // built-in method on primitive/string/vec/array/set/map/Arena/enum/struct
+	CallInterfaceMethod                 // dynamic dispatch through interface fat pointer vtable
+	CallIntrinsic                       // `size_of`, `align_of`, `alloc_raw`, `ptr_read`, etc.
+	CallEnumVariant                     // tuple-payload enum variant constructor (`Result.Ok(42)`)
 )
 
 // ExprInfo stores semantic resolution results per AST expression node.
 type ExprInfo struct {
-	Type          types.Type
-	Sym           *Symbol // non-nil if IdentExpr resolved to a Symbol
-	WrapOptional  bool    // true if expression of type `T` is implicitly wrapped into `?T`
-	BoxInterface  *types.Interface // non-nil if concrete value is implicitly/explicitly boxed or borrowed as Interface
-	BorrowAsView  bool    // true if string literal, slice, or stack array is passed as zero-copy view
-	MovedLocal    *Symbol // non-nil if evaluating this expression moves ownership out of a local variable
+	Type         types.Type
+	Sym          *Symbol          // non-nil if IdentExpr resolved to a Symbol
+	WrapOptional bool             // true if expression of type `T` is implicitly wrapped into `?T`
+	BoxInterface *types.Interface // non-nil if concrete value is implicitly/explicitly boxed or borrowed as Interface
+	BorrowAsView bool             // true if string literal, slice, or stack array is passed as zero-copy view
+	MovedLocal   *Symbol          // non-nil if evaluating this expression moves ownership out of a local variable
 
 	// Call resolution (for *ast.CallExpr)
-	CallKind      CallKind
-	TargetFunc    *FuncInstance
-	TargetExtern  *ExternFunc
-	BuiltinName   string
-	InterfaceMeth *types.InterfaceMethod
-	MethodRecv    ast.Expr        // receiver expression for UFCS dot-method calls
+	CallKind       CallKind
+	TargetFunc     *FuncInstance
+	TargetExtern   *ExternFunc
+	BuiltinName    string
+	InterfaceMeth  *types.InterfaceMethod
+	MethodRecv     ast.Expr // receiver expression for UFCS dot-method calls
 	MethodRecvMode types.ParamMode
-	IntrinsicType types.Type      // concrete type argument `T` for `size_of[T]`, `alloc_raw[T]`, `ptr_cast[To]`, etc.
+	IntrinsicType  types.Type // concrete type argument `T` for `size_of[T]`, `alloc_raw[T]`, `ptr_cast[To]`, etc.
 
 	// Member resolution (for *ast.MemberExpr)
-	EnumVariant   *types.EnumVariant
-	EnumType      *types.Enum
-	IsOptChain    bool // true when `.` / `?.` short-circuits on an optional base (`?Base -> ?Result`)
+	EnumVariant    *types.EnumVariant
+	EnumType       *types.Enum
+	IsOptChain     bool // true when `.` / `?.` short-circuits on an optional base (`?Base -> ?Result`)
 	DerefStructPtr bool // true when accessing field on boxed `?RecursiveStruct` or `ref[Struct]`
 	TupleFieldIdx  int  // 0-based field index when MemberExpr or IndexExpr accesses a tuple element
 
 	// Struct literal resolution (for *ast.StructLit)
-	StructType    *types.Struct
+	StructType *types.Struct
 
 	// Lambda resolution (for *ast.FuncLit)
-	Lambda        *LambdaInfo
+	Lambda *LambdaInfo
 
 	// Target ID for control-flow constructs (`BlockExpr`, `IfExpr`, `MatchExpr`, `ForExpr`)
 	TargetID        int
@@ -271,13 +271,13 @@ type ExprInfo struct {
 type ContainsKind int
 
 const (
-	ContainsInvalid ContainsKind = iota
-	ContainsMethod               // static method call: Range[T], List[T], Array[T], Set[T], Map[K, V], string, user nominal type
-	ContainsInterface            // dynamic dispatch through Containable[T] (or an interface with contains)
-	ContainsBuiltinVec           // built-in vector `[T]` (ll_vec_contains__)
-	ContainsBuiltinArr           // built-in stack array `[N: T]` (ll_arr_contains__)
-	ContainsBuiltinSet           // built-in set `#[T]` (ll_set_has__)
-	ContainsBuiltinMap           // built-in map `#[K: V]` (ll_map_has__)
+	ContainsInvalid    ContainsKind = iota
+	ContainsMethod                  // static method call: Range[T], List[T], Array[T], Set[T], Map[K, V], string, user nominal type
+	ContainsInterface               // dynamic dispatch through Containable[T] (or an interface with contains)
+	ContainsBuiltinVec              // built-in vector `[T]` (ll_vec_contains__)
+	ContainsBuiltinArr              // built-in stack array `[N: T]` (ll_arr_contains__)
+	ContainsBuiltinSet              // built-in set `#[T]` (ll_set_has__)
+	ContainsBuiltinMap              // built-in map `#[K: V]` (ll_map_has__)
 )
 
 // ContainsInfo stores semantic resolution results for `*ast.ContainsPattern`.
@@ -369,30 +369,30 @@ type TopVarInit struct {
 
 // CheckedProgram holds the completely validated, monomorphized semantic program ready for MIR lowering.
 type CheckedProgram struct {
-	EntryMod       *Module
-	EntryPkg       *Package
-	Modules        []*Module
-	Packages       []*Package
-	PackageByID    map[string]*Package
-	ExternHeaders  []string
-	ExternFuncs    []*ExternFunc
-	Structs        []*types.Struct
-	StructDecls    map[*types.Struct]*ast.StructDecl
-	StructMods     map[*types.Struct]*Module
-	Enums          []*types.Enum
-	EnumDecls      map[*types.Enum]*ast.EnumDecl
-	EnumMods       map[*types.Enum]*Module
-	Distincts      []*types.Distinct
-	DistinctMods   map[*types.Distinct]*Module
-	Interfaces     []*types.Interface
-	InterfaceMods  map[*types.Interface]*Module
-	TopVars        []*TopVarInit
-	Funcs          []*FuncInstance
-	Lambdas        []*LambdaInfo
-	VTables        map[string]*VTableImpl
-	MainFunc       *FuncInstance
-	TestMainFunc   *FuncInstance
-	TestFuncs      []*FuncInstance
+	EntryMod      *Module
+	EntryPkg      *Package
+	Modules       []*Module
+	Packages      []*Package
+	PackageByID   map[string]*Package
+	ExternHeaders []string
+	ExternFuncs   []*ExternFunc
+	Structs       []*types.Struct
+	StructDecls   map[*types.Struct]*ast.StructDecl
+	StructMods    map[*types.Struct]*Module
+	Enums         []*types.Enum
+	EnumDecls     map[*types.Enum]*ast.EnumDecl
+	EnumMods      map[*types.Enum]*Module
+	Distincts     []*types.Distinct
+	DistinctMods  map[*types.Distinct]*Module
+	Interfaces    []*types.Interface
+	InterfaceMods map[*types.Interface]*Module
+	TopVars       []*TopVarInit
+	Funcs         []*FuncInstance
+	Lambdas       []*LambdaInfo
+	VTables       map[string]*VTableImpl
+	MainFunc      *FuncInstance
+	TestMainFunc  *FuncInstance
+	TestFuncs     []*FuncInstance
 
 	TopBodyMaps    *BodyMaps
 	StructBodyMaps map[*types.Struct]*BodyMaps
@@ -536,9 +536,9 @@ func CheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram {
 }
 
 // CheckForIDE runs tolerant semantic analysis for LSP / IDE tooling:
-// - Uses live in-memory `overlays` (including empty buffers and unsaved imported files).
-// - Continues through type registration and body checking even when syntax or header errors exist,
-//   so autocomplete, hover, go-to-definition, and real-time type/ownership diagnostics stay live while typing.
+//   - Uses live in-memory `overlays` (including empty buffers and unsaved imported files).
+//   - Continues through type registration and body checking even when syntax or header errors exist,
+//     so autocomplete, hover, go-to-definition, and real-time type/ownership diagnostics stay live while typing.
 func CheckForIDE(entryPath string, overlays map[string]string, projectRoot string, rep *diag.Reporter) (prog *CheckedProgram) {
 	defer func() {
 		if r := recover(); r != nil && prog == nil {
@@ -1331,12 +1331,12 @@ func (a *Analyzer) attachPrelude(pkg *Package) {
 }
 
 type resolvedPkgTarget struct {
-	dir       string
-	id        string
-	name      string
-	isStd     bool
-	isCore    bool
-	isDevDep  bool
+	dir      string
+	id       string
+	name     string
+	isStd    bool
+	isCore   bool
+	isDevDep bool
 }
 
 func (a *Analyzer) resolvePackageImports(pkg *Package) {

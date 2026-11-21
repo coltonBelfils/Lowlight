@@ -1341,7 +1341,7 @@ func (fc *funcChecker) checkLocalTypeDecl(d ast.Decl) {
 			fc.a.Rep.Errorf(td.Span, "generic enum declarations must be at top level")
 			return
 		}
-		isTagged := false
+		isTagged := td.IsResult
 		for _, v := range td.Variants {
 			if v.PayloadType != nil {
 				isTagged = true
@@ -1352,6 +1352,7 @@ func (fc *funcChecker) checkLocalTypeDecl(d ast.Decl) {
 			Name:       td.Name,
 			CName:      fmt.Sprintf("ll_le_%s_%d", td.Name, fc.a.allocTargetID()),
 			IsTagged:   isTagged,
+			IsResult:   td.IsResult,
 			Underlying: types.TypeInt,
 		}
 		fc.mod.Types[td.Name] = en
@@ -1411,10 +1412,10 @@ func (fc *funcChecker) checkVarStmt(s *ast.VarStmt) types.Type {
 		}
 		fc.checkFallbackUnwindStmt(s.FallbackUnwind)
 		unwrapped := types.Type(types.TypeInvalid)
-		if o, ok := optTy.(*types.Optional); ok {
-			unwrapped = o.Elem
+		if elem, ok := guardUnwrapElem(optTy); ok {
+			unwrapped = elem
 		} else if optTy != types.TypeInvalid {
-			fc.a.Rep.Errorf(s.Value.GetSpan(), "left-hand side of `??` must be an optional `?T`, got %s", optTy.String())
+			fc.a.Rep.Errorf(s.Value.GetSpan(), "left-hand side of `??` must be an optional `?T` or a result, got %s", optTy.String())
 		}
 		finalTy := unwrapped
 		if declTy != nil && declTy != types.TypeInvalid {
@@ -1493,10 +1494,10 @@ func (fc *funcChecker) checkUnpackVarStmt(s *ast.VarStmt) types.Type {
 		valTy = fc.checkExprExpect(s.Value, expOpt, true)
 		fc.checkFallbackUnwindStmt(s.FallbackUnwind)
 		unwrappedTy = types.TypeInvalid
-		if o, ok := valTy.(*types.Optional); ok {
-			unwrappedTy = o.Elem
+		if elem, ok := guardUnwrapElem(valTy); ok {
+			unwrappedTy = elem
 		} else if valTy != types.TypeInvalid {
-			fc.a.Rep.Errorf(s.Value.GetSpan(), "left-hand side of `??` must be an optional `?T`, got %s", valTy.String())
+			fc.a.Rep.Errorf(s.Value.GetSpan(), "left-hand side of `??` must be an optional `?T` or a result, got %s", valTy.String())
 		}
 	} else {
 		valTy = fc.checkExprExpect(s.Value, expectedTup, true)
@@ -1672,10 +1673,10 @@ func (fc *funcChecker) checkAssignStmt(s *ast.AssignStmt) types.Type {
 	if s.FallbackUnwind != nil {
 		optTy := fc.checkExprExpect(s.Value, types.NewOptional(targetTy), true)
 		fc.checkFallbackUnwindStmt(s.FallbackUnwind)
-		if o, ok := optTy.(*types.Optional); ok {
-			fc.verifyAssignable(o.Elem, targetTy, nil, s.Value.GetSpan(), "assignment")
+		if elem, ok := guardUnwrapElem(optTy); ok {
+			fc.verifyAssignable(elem, targetTy, nil, s.Value.GetSpan(), "assignment")
 		} else if optTy != types.TypeInvalid {
-			fc.a.Rep.Errorf(s.Value.GetSpan(), "left-hand side of `??` must be optional, got %s", optTy.String())
+			fc.a.Rep.Errorf(s.Value.GetSpan(), "left-hand side of `??` must be an optional `?T` or a result, got %s", optTy.String())
 		}
 		fc.consumeValue(s.Value, optTy, false)
 		checkTargetArenaEscape(s.Value)
@@ -1784,10 +1785,10 @@ func (fc *funcChecker) checkUnpackAssignStmt(s *ast.AssignStmt) types.Type {
 		valTy = fc.checkExprExpect(s.Value, expOpt, true)
 		fc.checkFallbackUnwindStmt(s.FallbackUnwind)
 		unwrappedTy = types.TypeInvalid
-		if o, ok := valTy.(*types.Optional); ok {
-			unwrappedTy = o.Elem
+		if elem, ok := guardUnwrapElem(valTy); ok {
+			unwrappedTy = elem
 		} else if valTy != types.TypeInvalid {
-			fc.a.Rep.Errorf(s.Value.GetSpan(), "left-hand side of `??` must be optional, got %s", valTy.String())
+			fc.a.Rep.Errorf(s.Value.GetSpan(), "left-hand side of `??` must be an optional `?T` or a result, got %s", valTy.String())
 		}
 	} else {
 		valTy = fc.checkExprExpect(s.Value, expectedTup, true)
@@ -2097,6 +2098,12 @@ func (fc *funcChecker) checkExprExpect(e ast.Expr, expected types.Type, needValu
 	}
 	inf := fc.a.infoFor(e)
 
+	if en := types.AsResult(expected); en != nil {
+		if ty, ok := fc.checkBareResultMember(e, en); ok {
+			return ty
+		}
+	}
+
 	switch v := e.(type) {
 	case *ast.IntLit:
 		ty := fc.adaptIntLit(v.Val, false, expected, v.Span)
@@ -2405,10 +2412,13 @@ func (fc *funcChecker) checkBinaryExpr(b *ast.BinaryExpr, expected types.Type) t
 			optHint = types.NewOptional(expected)
 		}
 		lty := fc.checkExprExpect(b.Left, optHint, true)
+		if resEn := types.AsResult(lty); resEn != nil {
+			return fc.checkResultFallback(b, resEn, lty)
+		}
 		optL, ok := lty.(*types.Optional)
 		if !ok {
 			if lty != types.TypeInvalid {
-				fc.a.Rep.Errorf(b.Left.GetSpan(), "left-hand side of `??` must be an optional `?T`, got %s", lty.String())
+				fc.a.Rep.Errorf(b.Left.GetSpan(), "left-hand side of `??` must be an optional `?T` or a result, got %s", lty.String())
 			}
 			_ = fc.checkExpr(b.Right, true)
 			inf.Type = types.TypeInvalid
@@ -4024,9 +4034,15 @@ func (fc *funcChecker) checkIfExpr(ie *ast.IfExpr, expected types.Type, needValu
 	case ast.IfCondOptBind:
 		cty := fc.checkExpr(ie.Cond, true)
 		optTy, ok := cty.(*types.Optional)
+		if resEn := types.AsResult(cty); resEn != nil {
+			// `if (r! as v)`: binds the result's success value; `else` runs on any failure.
+			if vv, _ := resEn.ResultValue(); vv != nil && vv.Payload != nil {
+				optTy, ok = &types.Optional{Elem: vv.Payload}, true
+			}
+		}
 		if !ok {
 			if cty != types.TypeInvalid {
-				fc.a.Rep.Errorf(ie.Cond.GetSpan(), "`if (expr as %s)` requires an optional `?T` expression, got %s", ie.BindName, cty.String())
+				fc.a.Rep.Errorf(ie.Cond.GetSpan(), "`if (expr as %s)` requires an optional `?T` or result expression, got %s", ie.BindName, cty.String())
 			}
 		} else {
 			if ie.MutUnwrap {
@@ -5040,6 +5056,12 @@ func (fc *funcChecker) checkMatchExpr(me *ast.MatchExpr, expected types.Type, ne
 		scrutTys[i] = st
 	}
 
+	if me.ResultChain {
+		if !fc.prepareResultChain(me, scrutTys[0]) {
+			return types.TypeInvalid
+		}
+	}
+
 	var evalTy types.Type
 	if me.EvalType != nil {
 		evalTy = fc.a.resolveValueType(fc.mod, me.EvalType, fc.subst, false)
@@ -5634,6 +5656,9 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 			fc.a.Rep.Errorf(p.Span, "invalid variant pattern target")
 			return false, false, false
 		}
+		if p.Contextual {
+			return fc.checkContextualFailurePattern(p, mem, enumScrut, scrutArenaDepth, covered)
+		}
 		targetEn, genEn, matched := fc.tryResolveEnumMemberTarget(mem, enumScrut)
 		if !matched || targetEn == nil {
 			if genEn != nil {
@@ -5819,4 +5844,297 @@ func (fc *funcChecker) resolveContainsPattern(p *ast.ContainsPattern, contTy, sc
 		return nil, false
 	}
 	return info, true
+}
+
+// resultChainValueName is the hidden local bound to a result chain's success payload by the
+// implicit `value` arm.
+const resultChainValueName = "_ll_chain_value"
+
+// prepareResultChain validates a result chain's subject and expands it into an ordinary match:
+// it prepends the implicit `value` arm (evaluating to the success payload) and, for
+// `default panic`, appends one panicking arm per failure variant no user arm handles. The
+// expansion is recorded on the AST (Synthetic arms) and is idempotent across re-checks.
+func (fc *funcChecker) prepareResultChain(me *ast.MatchExpr, subjTy types.Type) bool {
+	if subjTy == types.TypeInvalid {
+		return false
+	}
+	en := types.AsResult(subjTy)
+	if en == nil {
+		hint := "result chains (`expr: when Failure(...): ... default ...`) apply only to types declared with `define Name result [...]`"
+		if _, isOpt := subjTy.(*types.Optional); isOpt {
+			hint = "for an optional, use `??` or `if (x? as v)`"
+		}
+		fc.a.Rep.ErrorWithHint(me.Scrutinees[0].GetSpan(),
+			fmt.Sprintf("result chain subject must be a result type, got %s", subjTy.String()), hint)
+		return false
+	}
+	valueVar, _ := en.ResultValue()
+	if valueVar == nil || valueVar.Payload == nil {
+		return false
+	}
+	if len(me.Arms) > 0 && me.Arms[0].Synthetic {
+		return true // already expanded by an earlier check of the same AST
+	}
+
+	handled := make(map[string]bool)
+	for _, arm := range me.Arms {
+		for _, c := range arm.Cases {
+			for _, pat := range c.Patterns {
+				vp, ok := pat.(*ast.VariantPattern)
+				if !ok || !vp.Contextual {
+					continue
+				}
+				name := vp.Target.(*ast.MemberExpr).Member
+				if name == types.ResultValueName {
+					fc.a.Rep.ErrorWithHint(vp.Span,
+						"a result chain cannot match `value`",
+						"the chain itself evaluates to the value; its arms handle only failures")
+					return false
+				}
+				handled[name] = true
+			}
+		}
+	}
+
+	at := me.Scrutinees[0].GetSpan()
+	placeholder := func(span diag.Span) *ast.MemberExpr {
+		return &ast.MemberExpr{
+			Base: &ast.IdentExpr{Span: diag.Span{Start: span.Start, End: span.Start}},
+			Span: span,
+		}
+	}
+	valueTarget := placeholder(at)
+	valueTarget.Member = types.ResultValueName
+	bindName := resultChainValueName
+	if types.AsResult(valueVar.Payload) != nil {
+		bindName += "!" // nested results keep the `!` naming invariant
+	}
+	mode := ast.PatternBindRead
+	if !valueVar.Payload.IsPlain() {
+		mode = ast.PatternBindOwn
+	}
+	valuePat := &ast.VariantPattern{
+		Target:     valueTarget,
+		Contextual: true,
+		Bindings:   []ast.VariantPatternBinding{{BindName: bindName, Mode: mode, Span: at}},
+		Span:       at,
+	}
+	valueArm := ast.MatchArm{
+		Cases:     []ast.MatchCase{{Patterns: []ast.Pattern{valuePat}, Span: at}},
+		Body:      &ast.IdentExpr{Name: bindName, Span: at},
+		Synthetic: true,
+		Span:      at,
+	}
+	arms := append([]ast.MatchArm{valueArm}, me.Arms...)
+
+	if me.DefaultPanic {
+		var rest []*types.EnumVariant
+		for _, f := range en.ResultFailures() {
+			if !handled[f.Name] {
+				rest = append(rest, f)
+			}
+		}
+		if len(rest) == 0 {
+			fc.a.Rep.ErrorWithHint(me.DefaultPanicSpan,
+				fmt.Sprintf("`default panic` is unreachable: every failure of %s is already handled", en.String()),
+				"make the last arm `default <Failure>:` instead")
+			return false
+		}
+		ps := me.DefaultPanicSpan
+		for i, f := range rest {
+			target := placeholder(ps)
+			target.Member = f.Name
+			vp := &ast.VariantPattern{Target: target, Contextual: true, Span: ps}
+			if f.Kind != types.VariantUnit {
+				vp.Bindings = []ast.VariantPatternBinding{{IsWildcard: true, Span: ps}}
+			}
+			msg := fmt.Sprintf("unhandled failure %s.%s", en.Name, f.Name)
+			arms = append(arms, ast.MatchArm{
+				Cases:     []ast.MatchCase{{Patterns: []ast.Pattern{vp}, Span: ps}},
+				IsDefault: i == len(rest)-1,
+				Body: &ast.CallExpr{
+					Callee: &ast.IdentExpr{Name: "panic", Span: ps},
+					Args:   []ast.Expr{&ast.StringLit{Val: msg, Span: ps}},
+					Span:   ps,
+				},
+				Synthetic: true,
+				Span:      ps,
+			})
+		}
+	}
+	me.Arms = arms
+	return true
+}
+
+// checkContextualFailurePattern checks a bare result-chain pattern (`Missing(why)`, `Forbidden`)
+// against the chain's result type `en`.
+func (fc *funcChecker) checkContextualFailurePattern(p *ast.VariantPattern, mem *ast.MemberExpr, en *types.Enum, scrutArenaDepth int, covered map[string]bool) (hasBind, hasMut, hasOwnRes bool) {
+	v, ok := en.VariantByName(mem.Member)
+	if !ok {
+		fc.a.Rep.Errorf(p.Span, "result %s has no failure variant %q", en.String(), mem.Member)
+		return false, false, false
+	}
+	fc.a.infoFor(mem).EnumType = en
+	fc.a.infoFor(mem).EnumVariant = v
+	fc.a.infoFor(mem).Type = en
+	if covered != nil {
+		if covered[v.Name] {
+			fc.a.Rep.Errorf(p.Span, "duplicate failure `%s` in result chain", v.Name)
+		}
+		covered[v.Name] = true
+	}
+	if v.Kind == types.VariantUnit {
+		if len(p.Bindings) > 0 {
+			fc.a.Rep.Errorf(p.Span, "failure `%s` has no payload; write `when %s:`", v.Name, v.Name)
+		}
+		fc.a.curBM.PatternSyms[p] = nil
+		return false, false, false
+	}
+	if len(p.Bindings) != 1 {
+		fc.a.Rep.Errorf(p.Span, "failure `%s` carries a %s payload; write `%s(name)` or `%s(_)`", v.Name, v.Payload.String(), v.Name, v.Name)
+		return false, false, false
+	}
+	b := p.Bindings[0]
+	syms := make([]*Symbol, 1)
+	if !b.IsWildcard {
+		hasBind = true
+		fc.a.checkOptionalIdentRule(b.BindName, b.IsOptName, v.Payload, b.Span, "pattern binding")
+		bkind := BindReadBorrow
+		isBind := true
+		switch b.Mode {
+		case ast.PatternBindMut:
+			hasMut = true
+			bkind = BindMutBorrow
+			isBind = false
+		case ast.PatternBindOwn:
+			bkind = BindOwned
+			isBind = false
+			if !v.Payload.IsPlain() {
+				hasOwnRes = true
+			}
+		case ast.PatternBindRead:
+			if v.Payload.IsPlain() {
+				bkind = BindOwned
+			}
+		}
+		sym := fc.declareLocal(b.BindName, v.Payload, isBind, bkind, b.Span)
+		if typeMayHoldArenaRef(v.Payload) {
+			sym.ArenaDepth = scrutArenaDepth
+		}
+		syms[0] = sym
+	}
+	fc.a.curBM.PatternSyms[p] = syms
+	return hasBind, hasMut, hasOwnRes
+}
+
+// checkResultFallback checks `r! ?? fallback` where `r!` is a result: the success value, or
+// `fallback` (of the value type, or an unwind) on any failure, which is discarded.
+func (fc *funcChecker) checkResultFallback(b *ast.BinaryExpr, en *types.Enum, lty types.Type) types.Type {
+	inf := fc.a.infoFor(b)
+	vv, _ := en.ResultValue()
+	if vv == nil || vv.Payload == nil {
+		_ = fc.checkExpr(b.Right, true)
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	elem := vv.Payload
+	preRightMoves := fc.cloneMoves()
+	rty := fc.checkExprExpect(b.Right, elem, true)
+	if rty == types.TypeNever {
+		fc.moves = preRightMoves
+	}
+	fc.consumeValue(b.Left, lty, false)
+	if rty != types.TypeNever && rty != types.TypeInvalid && !rty.Equals(elem) {
+		fc.verifyAssignable(rty, elem, b.Right, b.Right.GetSpan(), "`??` fallback")
+	}
+	fc.consumeValue(b.Right, elem, false)
+	inf.Type = elem
+	return elem
+}
+
+// guardUnwrapElem returns the type a `?? <unwind>` guard unwraps `ty` to: the element of an
+// optional, or the success value of a result.
+func guardUnwrapElem(ty types.Type) (types.Type, bool) {
+	if o, ok := ty.(*types.Optional); ok {
+		return o.Elem, true
+	}
+	if en := types.AsResult(ty); en != nil {
+		if vv, _ := en.ResultValue(); vv != nil && vv.Payload != nil {
+			return vv.Payload, true
+		}
+	}
+	return nil, false
+}
+
+// checkBareResultMember resolves a bare member name of the expected result type `en`:
+// `value(x)`, `Err(e)`, `Missing(key)` construct payload members and `Forbidden` a unit failure,
+// wherever a result is expected (return position, `func <-`, annotated `let`, arguments). This is
+// the construction counterpart of a result chain's bare failure patterns. Names that resolve to a
+// variable or function in scope are not treated as members unless they are called while also
+// naming a member, which is reported as ambiguous.
+func (fc *funcChecker) checkBareResultMember(e ast.Expr, en *types.Enum) (types.Type, bool) {
+	inf := fc.a.infoFor(e)
+	switch v := e.(type) {
+	case *ast.CallExpr:
+		id, ok := v.Callee.(*ast.IdentExpr)
+		if !ok || id.IsOpt || len(v.TypeArgs) > 0 {
+			return nil, false
+		}
+		vr, ok := en.VariantByName(id.Name)
+		if !ok {
+			return nil, false
+		}
+		if fc.lookupVar(id.Name) != nil {
+			fc.a.Rep.ErrorWithHint(v.Span,
+				fmt.Sprintf("`%s(...)` is ambiguous: it names both a member of %s and a function or variable in scope", id.Name, en.String()),
+				fmt.Sprintf("write `%s.%s(...)` for the member", en.Name, id.Name))
+			for _, a := range v.Args {
+				_ = fc.checkExpr(a, true)
+			}
+			inf.Type = en
+			return en, true
+		}
+		if vr.Kind == types.VariantUnit {
+			fc.a.Rep.Errorf(v.Span, "member `%s` of %s has no payload; write `%s` without `()`", vr.Name, en.String(), vr.Name)
+			for _, a := range v.Args {
+				_ = fc.checkExpr(a, true)
+			}
+			inf.Type = en
+			return en, true
+		}
+		if len(v.Args) != 1 {
+			fc.a.Rep.Errorf(v.Span, "`%s(...)` expects 1 payload argument of type %s, got %d", vr.Name, vr.Payload.String(), len(v.Args))
+			for _, a := range v.Args {
+				_ = fc.checkExpr(a, true)
+			}
+			inf.Type = en
+			return en, true
+		}
+		arg := v.Args[0]
+		aty := fc.checkExprExpect(arg, vr.Payload, true)
+		fc.verifyAssignable(aty, vr.Payload, arg, arg.GetSpan(), fmt.Sprintf("%s.%s payload", en.Name, vr.Name))
+		fc.consumeValue(arg, vr.Payload, false)
+		idInf := fc.a.infoFor(id)
+		idInf.EnumType = en
+		idInf.EnumVariant = vr
+		idInf.Type = en
+		inf.CallKind = CallEnumVariant
+		inf.EnumType = en
+		inf.EnumVariant = vr
+		inf.Type = en
+		return en, true
+	case *ast.IdentExpr:
+		if v.IsOpt {
+			return nil, false
+		}
+		vr, ok := en.VariantByName(v.Name)
+		if !ok || vr.Kind != types.VariantUnit || fc.lookupVar(v.Name) != nil {
+			return nil, false
+		}
+		inf.EnumType = en
+		inf.EnumVariant = vr
+		inf.Type = en
+		return en, true
+	}
+	return nil, false
 }

@@ -762,6 +762,9 @@ func resolveRefTargetAt(prog *sema.CheckedProgram, mod *sema.Module, filePath, s
 				}
 			}
 			for _, arm := range v.Arms {
+				if arm.Synthetic {
+					continue
+				}
 				for _, pat := range arm.AllPatterns() {
 					switch p := pat.(type) {
 					case *ast.ExprPattern:
@@ -1682,6 +1685,9 @@ func collectOccsInModule(
 				scanExpr(bm, scr)
 			}
 			for _, arm := range v.Arms {
+				if arm.Synthetic {
+					continue
+				}
 				for _, pat := range arm.AllPatterns() {
 					switch p := pat.(type) {
 					case *ast.ExprPattern:

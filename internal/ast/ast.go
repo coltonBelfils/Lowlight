@@ -71,10 +71,10 @@ type ImportDecl struct {
 	Attributes []Attribute
 }
 
-func (*ImportDecl) declNode()                      {}
-func (d *ImportDecl) GetSpan() diag.Span           { return d.Span }
-func (d *ImportDecl) GetAttributes() []Attribute   { return d.Attributes }
-func (d *ImportDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
+func (*ImportDecl) declNode()                     {}
+func (d *ImportDecl) GetSpan() diag.Span          { return d.Span }
+func (d *ImportDecl) GetAttributes() []Attribute  { return d.Attributes }
+func (d *ImportDecl) SetAttributes(a []Attribute) { d.Attributes = a }
 
 // ExternHeaderDecl: `extern "stdio.h"`
 type ExternHeaderDecl struct {
@@ -83,10 +83,10 @@ type ExternHeaderDecl struct {
 	Attributes []Attribute
 }
 
-func (*ExternHeaderDecl) declNode()                      {}
-func (d *ExternHeaderDecl) GetSpan() diag.Span           { return d.Span }
-func (d *ExternHeaderDecl) GetAttributes() []Attribute   { return d.Attributes }
-func (d *ExternHeaderDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
+func (*ExternHeaderDecl) declNode()                     {}
+func (d *ExternHeaderDecl) GetSpan() diag.Span          { return d.Span }
+func (d *ExternHeaderDecl) GetAttributes() []Attribute  { return d.Attributes }
+func (d *ExternHeaderDecl) SetAttributes(a []Attribute) { d.Attributes = a }
 
 // ExternFnDecl: `extern puts: (s: ptr[u8]): i32` or `extern sin as c_sin: (x: float): float`
 type ExternFnDecl struct {
@@ -100,10 +100,10 @@ type ExternFnDecl struct {
 	Attributes []Attribute
 }
 
-func (*ExternFnDecl) declNode()                      {}
-func (d *ExternFnDecl) GetSpan() diag.Span           { return d.Span }
-func (d *ExternFnDecl) GetAttributes() []Attribute   { return d.Attributes }
-func (d *ExternFnDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
+func (*ExternFnDecl) declNode()                     {}
+func (d *ExternFnDecl) GetSpan() diag.Span          { return d.Span }
+func (d *ExternFnDecl) GetAttributes() []Attribute  { return d.Attributes }
+func (d *ExternFnDecl) SetAttributes(a []Attribute) { d.Attributes = a }
 
 // StructDecl: `define [packed] Name[T] struct [ field: Type = default, ... ]`
 type StructDecl struct {
@@ -127,17 +127,19 @@ type StructField struct {
 	Span    diag.Span
 }
 
-func (*StructDecl) declNode()                      {}
-func (d *StructDecl) GetSpan() diag.Span           { return d.Span }
-func (d *StructDecl) GetAttributes() []Attribute   { return d.Attributes }
-func (d *StructDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
+func (*StructDecl) declNode()                     {}
+func (d *StructDecl) GetSpan() diag.Span          { return d.Span }
+func (d *StructDecl) GetAttributes() []Attribute  { return d.Attributes }
+func (d *StructDecl) SetAttributes(a []Attribute) { d.Attributes = a }
 
 // EnumDecl: `define Name[T] enum [u8] [ A = 1, B: T, C: [x: int, y: int], ... ]`
+// or a result declaration `define Name[T] result [ value: T, Missing: string, Forbidden ]`.
 type EnumDecl struct {
 	Name       string
 	TypeParams []TypeParam
 	BaseType   TypeExpr // optional underlying integer type (defaults to `int` for pure tag enums)
 	Variants   []EnumVariant
+	IsResult   bool // `define Name result [...]`: exactly one `value` member plus failure variants
 	Doc        string
 	DocSpan    diag.Span
 	Span       diag.Span
@@ -153,10 +155,10 @@ type EnumVariant struct {
 	Span        diag.Span
 }
 
-func (*EnumDecl) declNode()                      {}
-func (d *EnumDecl) GetSpan() diag.Span           { return d.Span }
-func (d *EnumDecl) GetAttributes() []Attribute   { return d.Attributes }
-func (d *EnumDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
+func (*EnumDecl) declNode()                     {}
+func (d *EnumDecl) GetSpan() diag.Span          { return d.Span }
+func (d *EnumDecl) GetAttributes() []Attribute  { return d.Attributes }
+func (d *EnumDecl) SetAttributes(a []Attribute) { d.Attributes = a }
 
 // InterfaceDecl: `define Name[T] interface [ m: (self, x: int): string, ... ]`
 type InterfaceDecl struct {
@@ -187,10 +189,10 @@ type InterfaceMethod struct {
 	Span     diag.Span
 }
 
-func (*InterfaceDecl) declNode()                      {}
-func (d *InterfaceDecl) GetSpan() diag.Span           { return d.Span }
-func (d *InterfaceDecl) GetAttributes() []Attribute   { return d.Attributes }
-func (d *InterfaceDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
+func (*InterfaceDecl) declNode()                     {}
+func (d *InterfaceDecl) GetSpan() diag.Span          { return d.Span }
+func (d *InterfaceDecl) GetAttributes() []Attribute  { return d.Attributes }
+func (d *InterfaceDecl) SetAttributes(a []Attribute) { d.Attributes = a }
 
 // DistinctTypeDecl: `define UserID int`
 type DistinctTypeDecl struct {
@@ -202,10 +204,10 @@ type DistinctTypeDecl struct {
 	Attributes []Attribute
 }
 
-func (*DistinctTypeDecl) declNode()                      {}
-func (d *DistinctTypeDecl) GetSpan() diag.Span           { return d.Span }
-func (d *DistinctTypeDecl) GetAttributes() []Attribute   { return d.Attributes }
-func (d *DistinctTypeDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
+func (*DistinctTypeDecl) declNode()                     {}
+func (d *DistinctTypeDecl) GetSpan() diag.Span          { return d.Span }
+func (d *DistinctTypeDecl) GetAttributes() []Attribute  { return d.Attributes }
+func (d *DistinctTypeDecl) SetAttributes(a []Attribute) { d.Attributes = a }
 
 // MethodDecl: `bind Point.translate = (&self, dx: int, dy: int) { ... }`
 // Also supports generic receivers `bind Pair[A, B].swap[C] = ...`
@@ -226,10 +228,10 @@ type MethodDecl struct {
 	Attributes     []Attribute
 }
 
-func (*MethodDecl) declNode()                      {}
-func (d *MethodDecl) GetSpan() diag.Span           { return d.Span }
-func (d *MethodDecl) GetAttributes() []Attribute   { return d.Attributes }
-func (d *MethodDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
+func (*MethodDecl) declNode()                     {}
+func (d *MethodDecl) GetSpan() diag.Span          { return d.Span }
+func (d *MethodDecl) GetAttributes() []Attribute  { return d.Attributes }
+func (d *MethodDecl) SetAttributes(a []Attribute) { d.Attributes = a }
 
 // VarDecl: top-level `bind` or `let` (including `bind main = ...` and generic `bind foo[T] = ...`)
 type VarDecl struct {
@@ -245,10 +247,10 @@ type VarDecl struct {
 	Attributes []Attribute
 }
 
-func (*VarDecl) declNode()                      {}
-func (d *VarDecl) GetSpan() diag.Span           { return d.Span }
-func (d *VarDecl) GetAttributes() []Attribute   { return d.Attributes }
-func (d *VarDecl) SetAttributes(a []Attribute)  { d.Attributes = a }
+func (*VarDecl) declNode()                     {}
+func (d *VarDecl) GetSpan() diag.Span          { return d.Span }
+func (d *VarDecl) GetAttributes() []Attribute  { return d.Attributes }
+func (d *VarDecl) SetAttributes(a []Attribute) { d.Attributes = a }
 
 // Param represents a function or lambda parameter.
 type Param struct {
@@ -800,10 +802,10 @@ type ForExpr struct {
 	Var1Mut    bool   // `&item` when Var2 is empty
 	Var2       string // optional second var (`item` in `i, item` or `v` in `k, v`)
 	Var2IsOpt  bool
-	Var2Mut    bool // `&item` / `&v` when 2 vars
-	CondOrIter Expr // boolean condition (ForCond), range start (ForRange), or collection (ForIter)
-	RangeEnd   Expr // range end (ForRange)
-	Inclusive  bool // `..=` vs `..` (ForRange)
+	Var2Mut    bool     // `&item` / `&v` when 2 vars
+	CondOrIter Expr     // boolean condition (ForCond), range start (ForRange), or collection (ForIter)
+	RangeEnd   Expr     // range end (ForRange)
+	Inclusive  bool     // `..=` vs `..` (ForRange)
 	EvalType   TypeExpr // optional `: Type` (e.g. `: [int]` or `: Collectable`)
 	Body       Expr
 	Else       Expr // optional `else` expression
@@ -822,10 +824,10 @@ type WhileExpr struct {
 	Var1Mut    bool   // `&item` when Var2 is empty
 	Var2       string // optional second var (`item` in `i, item` or `v` in `k, v`)
 	Var2IsOpt  bool
-	Var2Mut    bool // `&item` / `&v` when 2 vars
-	CondOrIter Expr // boolean condition (ForCond), range start (ForRange), or collection (ForIter)
-	RangeEnd   Expr // range end (ForRange)
-	Inclusive  bool // `..=` vs `..` (ForRange)
+	Var2Mut    bool     // `&item` / `&v` when 2 vars
+	CondOrIter Expr     // boolean condition (ForCond), range start (ForRange), or collection (ForIter)
+	RangeEnd   Expr     // range end (ForRange)
+	Inclusive  bool     // `..=` vs `..` (ForRange)
 	EvalType   TypeExpr // optional `: Type`
 	Body       Expr
 	Else       Expr // optional `else` expression
@@ -899,7 +901,11 @@ type VariantPatternBinding struct {
 type VariantPattern struct {
 	Target   Expr // MemberExpr (`Result.Ok`, `Result[int, string].Ok`, `mod.Result.Ok`, etc.)
 	Bindings []VariantPatternBinding
-	Span     diag.Span
+	// Contextual is true for the bare failure patterns of a result chain (`when Missing(why):`,
+	// `when Forbidden:`). Target is then a MemberExpr whose Base is an empty placeholder IdentExpr;
+	// the variant is resolved against the chain's result type.
+	Contextual bool
+	Span       diag.Span
 }
 
 func (*VariantPattern) patternNode()         {}
@@ -915,6 +921,9 @@ type MatchArm struct {
 	Cases     []MatchCase // empty ONLY for open catch-all `default:`
 	IsDefault bool        // true for the final `default:` or exhaustive `default ...:` arm
 	Body      Expr
+	// Synthetic marks arms the checker adds to a result chain (the implicit `value` arm and the
+	// per-failure arms expanded from `default panic`). Printers and editor features skip them.
+	Synthetic bool
 	Span      diag.Span
 }
 
@@ -932,7 +941,15 @@ type MatchExpr struct {
 	Scrutinees []Expr   // empty for 0-arg `match` or `match()`
 	EvalType   TypeExpr // optional explicit evaluation type
 	Arms       []MatchArm
-	Span       diag.Span
+	// ResultChain is true for a result chain `subject: when Failure(x): ... default ...`, which
+	// matches the failure variants of a result-typed subject (Scrutinees[0]) and evaluates to its
+	// `value`. Arm patterns are Contextual VariantPatterns.
+	ResultChain bool
+	// DefaultPanic is true when a result chain ends in `default panic`: every failure variant not
+	// handled by an arm panics. The checker expands it into Synthetic arms.
+	DefaultPanic     bool
+	DefaultPanicSpan diag.Span
+	Span             diag.Span
 }
 
 func (*MatchExpr) exprNode()            {}

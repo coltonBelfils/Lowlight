@@ -360,32 +360,32 @@ bind test_core_parse_float = (): {
 
 @test("core Result[T] construction and unwrapping")
 bind test_core_result = (): {
-	let r_ok = Result[int].ok(100)
-	assert(r_ok.is_ok(), "is_ok")
-	assert(not r_ok.is_err(), "not is_err")
-	assert(r_ok.copy().unwrap_or(0) == 100, "unwrap_or on ok")
-	assert(r_ok.copy().into_ok() == 100, "into_ok on ok")
-	assert(r_ok.peek_err() == none, "peek_err on ok")
-	let matched_int = match(r_ok.copy()):
-		when Result.Ok(v): v
+	let r_ok! = Result[int].ok(100)
+	assert(r_ok!.is_ok(), "is_ok")
+	assert(not r_ok!.is_err(), "not is_err")
+	assert(r_ok!.copy().unwrap_or(0) == 100, "unwrap_or on ok")
+	assert(r_ok!.copy().into_ok() == 100, "into_ok on ok")
+	assert(r_ok!.peek_err() == none, "peek_err on ok")
+	let matched_int = match(r_ok!.copy()):
+		when Result.value(v): v
 		default Result.Err(_): -1
-	assert(matched_int == 100, "match Result.Ok")
-	assert(r_ok.unwrap() == 100, "unwrap on ok")
+	assert(matched_int == 100, "match Result.value")
+	assert(r_ok!.unwrap() == 100, "unwrap on ok")
 
-	let r_str = Result[string].Ok("hello_" + "world")
-	let matched_str = match(own r_str):
-		when Result.Ok(own s): s
+	let r_str! = Result[string].value("hello_" + "world")
+	let matched_str = match(own r_str!):
+		when Result.value(own s): s
 		default Result.Err(_): ""
-	assert(matched_str == "hello_world", "match Result.Ok on Resource string")
+	assert(matched_str == "hello_world", "match Result.value on Resource string")
 
-	let r_err = Result[int].fail_msg("failure")
-	assert(r_err.is_err(), "is_err")
-	assert(not r_err.is_ok(), "not is_ok")
-	assert(r_err.copy().peek_err() != none, "peek_err on err")
-	let r_wrapped = r_err.copy().wrap_err("outer context").trace_err()
-	assert(r_wrapped.copy().unwrap_err().summary() == "outer context: failure", "wrap_err summary")
-	assert(r_wrapped.copy().unwrap_err().frames().len() == 2, "wrap_err + trace_err frames")
-	assert(r_err.unwrap_or(999) == 999, "unwrap_or on err")
+	let r_err! = Result[int].fail_msg("failure")
+	assert(r_err!.is_err(), "is_err")
+	assert(not r_err!.is_ok(), "not is_ok")
+	assert(r_err!.copy().peek_err() != none, "peek_err on err")
+	let r_wrapped! = r_err!.copy().wrap_err("outer context").trace_err()
+	assert(r_wrapped!.copy().unwrap_err().summary() == "outer context: failure", "wrap_err summary")
+	assert(r_wrapped!.copy().unwrap_err().frames().len() == 2, "wrap_err + trace_err frames")
+	assert(r_err!.unwrap_or(999) == 999, "unwrap_or on err")
 }
 
 @test("core Error creation, wrapping, sentinels, and trace")

@@ -38,9 +38,9 @@ bind test_url_codec = (): {
 }
 
 bind test_url_parsing = (): {
-    let u1_res = http.parse_url("http://example.com:8080/api/v1/users?name=john&role=admin&active")
-    assert(u1_res.is_ok())
-    let u1 = u1_res.unwrap()
+    let u1_res! = http.parse_url("http://example.com:8080/api/v1/users?name=john&role=admin&active")
+    assert(u1_res!.is_ok())
+    let u1 = u1_res!.unwrap()
     assert(u1.scheme == "http")
     assert(u1.host == "example.com:8080")
     assert(u1.hostname == "example.com")
@@ -53,9 +53,9 @@ bind test_url_parsing = (): {
     assert(u1.query_param("missing") == none)
 
     // Relative URL with query
-    let u2_res = http.parse_url("/search?q=lowlight+lang&page=1")
-    assert(u2_res.is_ok())
-    let u2 = u2_res.unwrap()
+    let u2_res! = http.parse_url("/search?q=lowlight+lang&page=1")
+    assert(u2_res!.is_ok())
+    let u2 = u2_res!.unwrap()
     assert(u2.scheme == "")
     assert(u2.path == "/search")
     assert(u2.raw_query == "q=lowlight+lang&page=1")
@@ -63,9 +63,9 @@ bind test_url_parsing = (): {
     assert((u2.query_param("page") ?? "") == "1")
 
     // Default port for https
-    let u3_res = http.parse_url("https://secure.example.com/login")
-    assert(u3_res.is_ok())
-    let u3 = u3_res.unwrap()
+    let u3_res! = http.parse_url("https://secure.example.com/login")
+    assert(u3_res!.is_ok())
+    let u3 = u3_res!.unwrap()
     assert(u3.scheme == "https")
     assert(u3.port == 443)
     assert(u3.path == "/login")
@@ -93,9 +93,9 @@ bind test_request_response_wire = (): {
     assert(req_wire.contains("{\"name\":\"item1\",\"qty\":10}"))
 
     // 2. Parse Request from wire string
-    let parsed_req_res = http.Request.parse(req_wire)
-    assert(parsed_req_res.is_ok())
-    let parsed_req = parsed_req_res.unwrap()
+    let parsed_req_res! = http.Request.parse(req_wire)
+    assert(parsed_req_res!.is_ok())
+    let parsed_req = parsed_req_res!.unwrap()
     assert(parsed_req.method == "POST")
     assert(parsed_req.path == "/items")
     assert((parsed_req.query_param("filter") ?? "") == "all")
@@ -130,9 +130,9 @@ bind test_request_response_wire = (): {
     assert(resp_wire.contains("{\"id\":42,\"status\":\"created\"}"))
 
     // 4. Parse Response from wire string
-    let parsed_resp_res = http.Response.parse(resp_wire)
-    assert(parsed_resp_res.is_ok())
-    let parsed_resp = parsed_resp_res.unwrap()
+    let parsed_resp_res! = http.Response.parse(resp_wire)
+    assert(parsed_resp_res!.is_ok())
+    let parsed_resp = parsed_resp_res!.unwrap()
     assert(parsed_resp.status_code == 201)
     assert(parsed_resp.status == "Created")
     assert((parsed_resp.header("content-type") ?? "") == "application/json")
@@ -236,9 +236,9 @@ bind test_kernel_socket_roundtrip = (): {
     let req = http.Request.new("POST", "/echo", "Lowlight Rocks!")
     req.set_header("Content-Type", "text/plain")
 
-    let roundtrip_res = http.test_roundtrip(handler, req)
-    assert(roundtrip_res.is_ok())
-    let resp = roundtrip_res.unwrap()
+    let roundtrip_res! = http.test_roundtrip(handler, req)
+    assert(roundtrip_res!.is_ok())
+    let resp = roundtrip_res!.unwrap()
     assert(resp.status_code == 200)
     assert(resp.body == "Echo: Lowlight Rocks!")
     assert((resp.header("content-type") ?? "") == "text/plain")

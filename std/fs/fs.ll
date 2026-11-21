@@ -247,10 +247,10 @@ bind File._close_checked = (&self) Result[bool]:
 
 // Reads the entire contents of `path` into an owned [`string`], wrapping any I/O error with context.
 bind read_file = (path: string) Result[string]: {
-	let f_res = File.open_read(path)
-	if(f_res.is_err()):
-		func <- Result[string].fail(f_res.unwrap_err().wrap("failed to open file \"$path\""))
-	let f = f_res.unwrap()
+	let f_res! = File.open_read(path)
+	if(f_res!.is_err()):
+		func <- Result[string].fail(f_res!.unwrap_err().wrap("failed to open file \"$path\""))
+	let f = f_res!.unwrap()
 	f.read_to_string().wrap_err("failed to read file \"$path\"")
 }
 
@@ -262,15 +262,15 @@ bind read_text = (path: string) Result[string]: read_file(path)
 
 // Writes `content` to `path`, creating the file or truncating existing contents.
 bind write_file = (path: string, content: string) Result[bool]: {
-	let f_res = File.open_write(path)
-	if(f_res.is_err()):
+	let f_res! = File.open_write(path)
+	if(f_res!.is_err()):
 		func <- Result[bool].fail(
-			f_res.unwrap_err().wrap("failed to open file \"$path\" for writing"),
+			f_res!.unwrap_err().wrap("failed to open file \"$path\" for writing"),
 		)
-	let f = f_res.unwrap()
-	let w_res = f.write_string(content)
-	if(w_res.is_err()):
-		func <- Result[bool].fail(w_res.unwrap_err().wrap("failed to write to \"$path\""))
+	let f = f_res!.unwrap()
+	let w_res! = f.write_string(content)
+	if(w_res!.is_err()):
+		func <- Result[bool].fail(w_res!.unwrap_err().wrap("failed to write to \"$path\""))
 	f._close_checked().wrap_err("failed to write to \"$path\"")
 }
 
@@ -282,15 +282,15 @@ bind write_text = (path: string, content: string) Result[bool]: write_file(path,
 
 // Appends `content` to the end of `path`, creating the file if it does not yet exist.
 bind append_file = (path: string, content: string) Result[bool]: {
-	let f_res = File.open_append(path)
-	if(f_res.is_err()):
+	let f_res! = File.open_append(path)
+	if(f_res!.is_err()):
 		func <- Result[bool].fail(
-			f_res.unwrap_err().wrap("failed to open file \"$path\" for appending"),
+			f_res!.unwrap_err().wrap("failed to open file \"$path\" for appending"),
 		)
-	let f = f_res.unwrap()
-	let w_res = f.write_string(content)
-	if(w_res.is_err()):
-		func <- Result[bool].fail(w_res.unwrap_err().wrap("failed to append to \"$path\""))
+	let f = f_res!.unwrap()
+	let w_res! = f.write_string(content)
+	if(w_res!.is_err()):
+		func <- Result[bool].fail(w_res!.unwrap_err().wrap("failed to append to \"$path\""))
 	f._close_checked().wrap_err("failed to append to \"$path\"")
 }
 
@@ -299,24 +299,24 @@ bind append_file = (path: string, content: string) Result[bool]: {
 // Reads until EOF rather than trusting the reported size, so non-seekable
 // sources (pipes, FIFOs, `/dev/stdin`, procfs files) are read completely.
 bind read_bytes = (path: string) Result[[u8]]: {
-	let f_res = File.open_read(path)
-	if(f_res.is_err()):
-		func <- Result[[u8]].fail(f_res.unwrap_err().wrap("failed to open file \"$path\""))
-	let f = f_res.unwrap()
+	let f_res! = File.open_read(path)
+	if(f_res!.is_err()):
+		func <- Result[[u8]].fail(f_res!.unwrap_err().wrap("failed to open file \"$path\""))
+	let f = f_res!.unwrap()
 	f.read_all_bytes().wrap_err("failed to read bytes from \"$path\"")
 }
 
 // Writes byte sequence `data` to `path`, creating or overwriting the target file.
 bind write_bytes = (path: string, data: [u8]) Result[bool]: {
-	let f_res = File.open_write(path)
-	if(f_res.is_err()):
+	let f_res! = File.open_write(path)
+	if(f_res!.is_err()):
 		func <- Result[bool].fail(
-			f_res.unwrap_err().wrap("failed to open file \"$path\" for writing"),
+			f_res!.unwrap_err().wrap("failed to open file \"$path\" for writing"),
 		)
-	let f = f_res.unwrap()
-	let w_res = f.write_bytes(data)
-	if(w_res.is_err()):
-		func <- Result[bool].fail(w_res.unwrap_err().wrap("failed to write bytes to \"$path\""))
+	let f = f_res!.unwrap()
+	let w_res! = f.write_bytes(data)
+	if(w_res!.is_err()):
+		func <- Result[bool].fail(w_res!.unwrap_err().wrap("failed to write bytes to \"$path\""))
 	f._close_checked().wrap_err("failed to write bytes to \"$path\"")
 }
 
@@ -328,10 +328,10 @@ bind exists = (path: string) bool: {
 
 // Queries the total byte size of the file at `path`.
 bind file_size = (path: string) Result[int]: {
-	let f_res = File.open_read(path)
-	if(f_res.is_err()):
-		func <- Result[int].fail(f_res.unwrap_err().wrap("failed to open file \"$path\""))
-	let f = f_res.unwrap()
+	let f_res! = File.open_read(path)
+	if(f_res!.is_err()):
+		func <- Result[int].fail(f_res!.unwrap_err().wrap("failed to open file \"$path\""))
+	let f = f_res!.unwrap()
 	f.size().wrap_err("failed to query size of \"$path\"")
 }
 
@@ -349,16 +349,16 @@ bind rename_file = (old_path: string, new_path: string) bool:
 
 // Copies bytes from `src_path` to `dst_path` in 16 KiB chunks and returns total bytes copied.
 bind copy_file = (src_path: string, dst_path: string) Result[int]: {
-	let src_res = File.open_read(src_path)
-	if(src_res.is_err()):
-		func <- Result[int].fail(src_res.unwrap_err().wrap("failed to open source \"$src_path\""))
-	let dst_res = File.open_write(dst_path)
-	if(dst_res.is_err()):
+	let src_res! = File.open_read(src_path)
+	if(src_res!.is_err()):
+		func <- Result[int].fail(src_res!.unwrap_err().wrap("failed to open source \"$src_path\""))
+	let dst_res! = File.open_write(dst_path)
+	if(dst_res!.is_err()):
 		func <- Result[int].fail(
-			dst_res.unwrap_err().wrap("failed to open destination \"$dst_path\""),
+			dst_res!.unwrap_err().wrap("failed to open destination \"$dst_path\""),
 		)
-	let src = src_res.unwrap()
-	let dst = dst_res.unwrap()
+	let src = src_res!.unwrap()
+	let dst = dst_res!.unwrap()
 
 	let total_copied = 0
 	unsafe {
@@ -378,9 +378,9 @@ bind copy_file = (src_path: string, dst_path: string) Result[int]: {
 		if(sys_ferror(src._handle) != i32(0)):
 			func <- Result[int].fail(Error.new("read failure during copy from \"$src_path\""))
 	}
-	let close_res = dst._close_checked()
-	if(close_res.is_err()):
-		func <- Result[int].fail(close_res.unwrap_err().wrap("failed to finish \"$dst_path\""))
+	let close_res! = dst._close_checked()
+	if(close_res!.is_err()):
+		func <- Result[int].fail(close_res!.unwrap_err().wrap("failed to finish \"$dst_path\""))
 	Result[int].ok(total_copied)
 }
 
@@ -417,21 +417,21 @@ bind test_fs_high_level = (): {
 	assert(write_file(p1, "hello lowlight\n").is_ok(), "write_file succeeds")
 	assert(exists(p1), "file exists after write")
 
-	let sz_res = file_size(p1)
-	assert(sz_res.is_ok(), "file_size succeeds")
-	assert(sz_res.unwrap() == 15, "file_size is 15")
+	let sz_res! = file_size(p1)
+	assert(sz_res!.is_ok(), "file_size succeeds")
+	assert(sz_res!.unwrap() == 15, "file_size is 15")
 
-	let content_res = read_file(p1)
-	assert(content_res.is_ok(), "read_file succeeds")
-	assert(content_res.unwrap() == "hello lowlight\n", "content matches")
+	let content_res! = read_file(p1)
+	assert(content_res!.is_ok(), "read_file succeeds")
+	assert(content_res!.unwrap() == "hello lowlight\n", "content matches")
 
 	assert(append_file(p1, "appended line\n").is_ok(), "append_file succeeds")
-	let app_res = read_file(p1)
-	assert(app_res.is_ok(), "read_file after append succeeds")
-	assert(app_res.unwrap() == "hello lowlight\nappended line\n", "appended content matches")
+	let app_res! = read_file(p1)
+	assert(app_res!.is_ok(), "read_file after append succeeds")
+	assert(app_res!.unwrap() == "hello lowlight\nappended line\n", "appended content matches")
 
-	let cp_res = copy_file(p1, p2)
-	assert(cp_res.is_ok(), "copy_file succeeds")
+	let cp_res! = copy_file(p1, p2)
+	assert(cp_res!.is_ok(), "copy_file succeeds")
 	assert(exists(p2), "copied file exists")
 	let cp_content = read_file(p2).unwrap()
 	assert(cp_content == "hello lowlight\nappended line\n", "copied content matches")
@@ -457,12 +457,12 @@ bind test_fs_bytes = (): {
 	let _ = remove_file(path)
 
 	let test_data: [u8] = [u8(0), u8(127), u8(128), u8(255), u8(42)]
-	let w_res = write_bytes(path, test_data)
-	assert(w_res.is_ok(), "write_bytes succeeds")
+	let w_res! = write_bytes(path, test_data)
+	assert(w_res!.is_ok(), "write_bytes succeeds")
 
-	let r_res = read_bytes(path)
-	assert(r_res.is_ok(), "read_bytes succeeds")
-	let read_data = r_res.unwrap()
+	let r_res! = read_bytes(path)
+	assert(r_res!.is_ok(), "read_bytes succeeds")
+	let read_data = r_res!.unwrap()
 	assert(read_data.len() == 5, "read_data length matches")
 	assert(read_data[0] == u8(0), "byte 0 matches")
 	assert(read_data[1] == u8(127), "byte 1 matches")
@@ -478,28 +478,28 @@ bind test_fs_file_stream = (): {
 	let path = "${_test_tmp_path("fs_stream")}.txt"
 	let _ = remove_file(path)
 
-	let f_write_res = File.open_write(path)
-	assert(f_write_res.is_ok(), "File.open_write succeeds")
-	let f_w = f_write_res.unwrap()
+	let f_write_res! = File.open_write(path)
+	assert(f_write_res!.is_ok(), "File.open_write succeeds")
+	let f_w = f_write_res!.unwrap()
 	assert(f_w.is_valid(), "file stream is valid")
-	let w1_res = f_w.write_string("ABCDEF012345")
-	assert(w1_res.is_ok(), "write_string succeeds")
+	let w1_res! = f_w.write_string("ABCDEF012345")
+	assert(w1_res!.is_ok(), "write_string succeeds")
 	assert(f_w.flush(), "flush succeeds")
 	assert(f_w.close(), "close succeeds")
 
-	let f_rw_res = File.open_read_write(path)
-	assert(f_rw_res.is_ok(), "File.open_read_write succeeds")
-	let f_rw = f_rw_res.unwrap()
+	let f_rw_res! = File.open_read_write(path)
+	assert(f_rw_res!.is_ok(), "File.open_read_write succeeds")
+	let f_rw = f_rw_res!.unwrap()
 
-	let seek_res = f_rw.seek(6, SEEK_SET)
-	assert(seek_res.is_ok(), "seek to offset 6")
-	let tell_res = f_rw.tell()
-	assert(tell_res.is_ok(), "tell succeeds")
-	assert(tell_res.unwrap() == 6, "position is 6")
+	let seek_res! = f_rw.seek(6, SEEK_SET)
+	assert(seek_res!.is_ok(), "seek to offset 6")
+	let tell_res! = f_rw.tell()
+	assert(tell_res!.is_ok(), "tell succeeds")
+	assert(tell_res!.unwrap() == 6, "position is 6")
 
-	let rem_res = f_rw.read_to_string()
-	assert(rem_res.is_ok(), "read_to_string succeeds")
-	assert(rem_res.unwrap() == "012345", "read from offset matches")
+	let rem_res! = f_rw.read_to_string()
+	assert(rem_res!.is_ok(), "read_to_string succeeds")
+	assert(rem_res!.unwrap() == "012345", "read from offset matches")
 
 	let _ = f_rw.close()
 	assert(remove_file(path), "remove stream test file")
@@ -530,13 +530,13 @@ bind test_fs_non_seekable = (): {
 			if(as_string): {
 				let f = File.open_read(path).unwrap()
 				assert(f.size().is_err(), "size fails on a pipe")
-				let s = f.read_to_string()
-				assert(s.is_ok(), "read_to_string on pipe succeeds")
-				assert(s.unwrap().len() == payload_len, "read_to_string reads the whole pipe")
+				let s! = f.read_to_string()
+				assert(s!.is_ok(), "read_to_string on pipe succeeds")
+				assert(s!.unwrap().len() == payload_len, "read_to_string reads the whole pipe")
 			} else: {
-				let r = read_bytes(path)
-				assert(r.is_ok(), "read_bytes on pipe succeeds")
-				let data = r.unwrap()
+				let r! = read_bytes(path)
+				assert(r!.is_ok(), "read_bytes on pipe succeeds")
+				let data = r!.unwrap()
 				assert(data.len() == payload_len, "read_bytes reads the whole pipe")
 				assert(data[payload_len - 1] == u8(65 + (payload_len - 1) % 26), "last byte matches")
 			}

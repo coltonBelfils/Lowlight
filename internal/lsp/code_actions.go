@@ -1276,6 +1276,9 @@ func (s *Server) buildPopulateStructLitAction(
 				walk(v.Else)
 			case *ast.MatchExpr:
 				for _, arm := range v.Arms {
+					if arm.Synthetic {
+						continue
+					}
 					walk(arm.Body)
 				}
 			case *ast.FuncLit:
@@ -1734,6 +1737,9 @@ func (s *Server) tryToggleBlockBracesAction(uri, src, ind string, body ast.Expr,
 			}
 		case *ast.MatchExpr:
 			for _, arm := range v.Arms {
+				if arm.Synthetic {
+					continue
+				}
 				if arm.Body != nil && spanContainsOffset(arm.Body.GetSpan(), off) {
 					if walk(arm.Body) {
 						return true
@@ -1788,6 +1794,9 @@ func (s *Server) tryFlipIfElseAction(uri, src string, body ast.Expr, off int, ad
 			walk(v.Body)
 		case *ast.MatchExpr:
 			for _, arm := range v.Arms {
+				if arm.Synthetic {
+					continue
+				}
 				walk(arm.Body)
 			}
 		}
@@ -2003,6 +2012,9 @@ func (s *Server) tryExtractVariableAction(uri, src string, body ast.Expr, selSta
 			return walkBlk(v.Body)
 		case *ast.MatchExpr:
 			for _, arm := range v.Arms {
+				if arm.Synthetic {
+					continue
+				}
 				if walkBlk(arm.Body) {
 					return true
 				}

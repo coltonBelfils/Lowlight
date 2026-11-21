@@ -1,6 +1,7 @@
 package lexer_test
 
 import (
+	"strings"
 	"testing"
 
 	"lowlight/internal/diag"
@@ -361,5 +362,37 @@ func TestLexerRejectsRawNewlineInDoubleQuotedString(t *testing.T) {
 		if !rep.HasErrors() {
 			t.Fatalf("expected unterminated string error for %q", src)
 		}
+	}
+}
+
+// A `!` directly after an identifier names a result value (`cfg!`), except when it begins `!=`.
+// Simple string interpolation keeps a trailing `!` as literal text.
+func TestLexerResultIdentifiers(t *testing.T) {
+	src := "let cfg! = load()\nif(cfg!.is_ok() and a!=b and c! != d): x\nlet s = \"Hello $name!\"\n"
+	rep := diag.NewReporter()
+	toks := lexer.Lex("res.ll", src, rep)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected lexer errors:\n%s", rep.Format())
+	}
+	var got []string
+	for _, tk := range toks {
+		switch tk.Kind {
+		case token.Ident, token.Neq, token.InterpMid, token.InterpEnd:
+			got = append(got, tk.Kind.String()+":"+tk.Text)
+		}
+	}
+	want := []string{
+		"identifier:cfg!", "identifier:load", "identifier:cfg!", "identifier:is_ok",
+		"identifier:a", "!=:!=", "identifier:b", "identifier:c!", "!=:!=", "identifier:d", "identifier:x",
+		"identifier:s", "identifier:name",
+	}
+	joined := strings.Join(got, " ")
+	for _, w := range want {
+		if !strings.Contains(joined, w) {
+			t.Fatalf("missing token %q in %s", w, joined)
+		}
+	}
+	if strings.Contains(joined, "identifier:name!") {
+		t.Fatalf("`$name!` in a string must not lex as a result identifier: %s", joined)
 	}
 }

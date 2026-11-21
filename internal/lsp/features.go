@@ -466,6 +466,9 @@ func (s *Server) hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *se
 			}
 		}
 		for _, arm := range v.Arms {
+			if arm.Synthetic {
+				continue
+			}
 			for _, pat := range arm.AllPatterns() {
 				if ep, ok := pat.(*ast.ExprPattern); ok && spanContainsOffset(ep.Span, offset) {
 					if md := s.hoverInExpr(prog, mod, bm, ep.Expr, offset, tok); md != "" {
@@ -1634,6 +1637,9 @@ func definitionSpanInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.
 			}
 		}
 		for _, arm := range v.Arms {
+			if arm.Synthetic {
+				continue
+			}
 			for _, pat := range arm.AllPatterns() {
 				if ep, ok := pat.(*ast.ExprPattern); ok && spanContainsOffset(ep.Span, offset) {
 					if sp := definitionSpanInExpr(prog, mod, bm, ep.Expr, offset, tok); sp.Start.File != "" {
@@ -2693,7 +2699,7 @@ func formatVariantPatternForMatch(prog *sema.CheckedProgram, mod *sema.Module, v
 								}
 							}
 						}
-						if v.Name == "Ok" {
+						if v.Name == "value" {
 							argName = "val"
 						} else if v.Name == "Err" {
 							argName = "err"
@@ -2710,7 +2716,7 @@ func formatVariantPatternForMatch(prog *sema.CheckedProgram, mod *sema.Module, v
 			if v.Name == vName {
 				if v.PayloadType != nil {
 					argName := "val"
-					if v.Name == "Ok" {
+					if v.Name == "value" {
 						argName = "val"
 					} else if v.Name == "Err" {
 						argName = "err"

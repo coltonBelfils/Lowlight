@@ -215,45 +215,45 @@ bind main = (): {
     assert(not fs.exists(path))
 
     // 2. Write file
-    let w_res = fs.write_file(path, "Hello Lowlight File System!\n")
-    assert(w_res.is_ok())
+    let w_res! = fs.write_file(path, "Hello Lowlight File System!\n")
+    assert(w_res!.is_ok())
     assert(fs.exists(path))
 
     // 3. Read file
-    let r_res = fs.read_file(path)
-    assert(r_res.is_ok())
-    assert(r_res.unwrap() == "Hello Lowlight File System!\n")
+    let r_res! = fs.read_file(path)
+    assert(r_res!.is_ok())
+    assert(r_res!.unwrap() == "Hello Lowlight File System!\n")
 
     // 4. Append to file
-    let app_res = fs.append_file(path, "Appended line.\n")
-    assert(app_res.is_ok())
-    let r_app = fs.read_to_string(path)
-    assert(r_app.is_ok())
-    assert(r_app.unwrap() == "Hello Lowlight File System!\nAppended line.\n")
+    let app_res! = fs.append_file(path, "Appended line.\n")
+    assert(app_res!.is_ok())
+    let r_app! = fs.read_to_string(path)
+    assert(r_app!.is_ok())
+    assert(r_app!.unwrap() == "Hello Lowlight File System!\nAppended line.\n")
 
     // 5. File size
-    let sz_res = fs.file_size(path)
-    assert(sz_res.is_ok())
-    assert(sz_res.unwrap() == 43)
+    let sz_res! = fs.file_size(path)
+    assert(sz_res!.is_ok())
+    assert(sz_res!.unwrap() == 43)
 
     // 6. Robust File stream object (seek, tell, read)
-    let f_res = fs.File.open_read(path)
-    assert(f_res.is_ok())
-    let f = f_res.unwrap()
+    let f_res! = fs.File.open_read(path)
+    assert(f_res!.is_ok())
+    let f = f_res!.unwrap()
     assert(f.is_valid())
 
     // Tell initial position
     assert(f.tell().unwrap() == 0)
 
     // Seek forward 6 bytes (to "Lowlight...")
-    let seek_res = f.seek(6, fs.SEEK_SET)
-    assert(seek_res.is_ok())
+    let seek_res! = f.seek(6, fs.SEEK_SET)
+    assert(seek_res!.is_ok())
     assert(f.tell().unwrap() == 6)
 
     // Read remaining from offset 6
-    let rem_res = f.read_to_string()
-    assert(rem_res.is_ok())
-    assert(rem_res.unwrap().starts_with("Lowlight File System!"))
+    let rem_res! = f.read_to_string()
+    assert(rem_res!.is_ok())
+    assert(rem_res!.unwrap().starts_with("Lowlight File System!"))
 
     // Close file
     assert(f.close())
@@ -262,21 +262,21 @@ bind main = (): {
     // 7. Binary byte reading and writing
     let bin_path = path + ".bin"
     let bytes_to_write: [u8] = [10, 20, 30, 40, 50]
-    let wb_res = fs.write_bytes(bin_path, bytes_to_write)
-    assert(wb_res.is_ok())
+    let wb_res! = fs.write_bytes(bin_path, bytes_to_write)
+    assert(wb_res!.is_ok())
 
-    let rb_res = fs.read_bytes(bin_path)
-    assert(rb_res.is_ok())
-    let read_back = rb_res.unwrap()
+    let rb_res! = fs.read_bytes(bin_path)
+    assert(rb_res!.is_ok())
+    let read_back = rb_res!.unwrap()
     assert(read_back.len() == 5)
     assert(read_back[0] == 10)
     assert(read_back[4] == 50)
     assert(fs.remove_file(bin_path))
 
     // 8. Copy file
-    let cp_res = fs.copy_file(path, copy_p)
-    assert(cp_res.is_ok())
-    assert(cp_res.unwrap() == 43)
+    let cp_res! = fs.copy_file(path, copy_p)
+    assert(cp_res!.is_ok())
+    assert(cp_res!.unwrap() == 43)
     assert(fs.exists(copy_p))
     assert(fs.read_file(copy_p).unwrap() == fs.read_file(path).unwrap())
 

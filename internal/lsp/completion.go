@@ -2053,6 +2053,9 @@ func walkExprScopes(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMa
 			walkExprScopes(prog, mod, bm, s, offset, out)
 		}
 		for _, arm := range e.Arms {
+			if arm.Synthetic {
+				continue
+			}
 			if arm.Body != nil && spanContainsOffset(arm.Body.GetSpan(), offset) {
 				if bm != nil {
 					for _, pat := range arm.AllPatterns() {
@@ -2275,6 +2278,9 @@ func findSentinelInExpr(e ast.Expr) *ast.MemberExpr {
 			}
 		}
 		for _, arm := range v.Arms {
+			if arm.Synthetic {
+				continue
+			}
 			for _, pat := range arm.AllPatterns() {
 				switch p := pat.(type) {
 				case *ast.ExprPattern:

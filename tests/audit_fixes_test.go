@@ -321,16 +321,16 @@ bind divide = (a: int, b: int) Result[int]: {
 }
 
 bind main = (): {
-    let ok_res = divide(10, 2)
-    assert(ok_res.is_ok())
-    assert(not ok_res.is_err())
-    assert(ok_res.unwrap() == 5)
+    let ok_res! = divide(10, 2)
+    assert(ok_res!.is_ok())
+    assert(not ok_res!.is_err())
+    assert(ok_res!.unwrap() == 5)
 
-    let err_res = divide(10, 0)
-    assert(err_res.is_err())
-    let wrapped = err_res.wrap_err("computing quotient")
-    assert(wrapped.copy().unwrap_err().has_code("div_zero"))
-    assert(wrapped.unwrap_or(42) == 42)
+    let err_res! = divide(10, 0)
+    assert(err_res!.is_err())
+    let wrapped! = err_res!.wrap_err("computing quotient")
+    assert(wrapped!.copy().unwrap_err().has_code("div_zero"))
+    assert(wrapped!.unwrap_or(42) == 42)
 }
 `
 	runInlineStrict(t, "result_in_prelude", src, false)
@@ -473,29 +473,29 @@ import "std/fs"
 bind ERR_NOT_FOUND = Error.coded("not_found", "resource not found")
 
 bind step1 = (path: string) Result[string]: {
-    let r = fs.read_file(path)
-    if (r.is_err()): {
-        func <- Result[string].fail(r.unwrap_err().with_code("not_found").wrap("step1 failed"))
+    let r! = fs.read_file(path)
+    if (r!.is_err()): {
+        func <- Result[string].fail(r!.unwrap_err().with_code("not_found").wrap("step1 failed"))
     }
-    r
+    r!
 }
 
 bind step2 = (path: string) Result[int]: {
-    let r = step1(path)
-    if (r.is_err()): {
-        let e = r.unwrap_err().trace()
+    let r! = step1(path)
+    if (r!.is_err()): {
+        let e = r!.unwrap_err().trace()
         func <- Result[int].fail(e.wrap("step2 failed"))
     }
-    Result[int].ok(r.unwrap().len())
+    Result[int].ok(r!.unwrap().len())
 }
 
 bind main = (): {
-    let r = step2("/tmp/definitely_missing_lowlight_error_test_file_12345.txt").wrap_err("top-level load")
-    assert(r.is_err())
-    assert(r.copy().into_ok() == none)
-    assert(r.peek_err() != none)
+    let r! = step2("/tmp/definitely_missing_lowlight_error_test_file_12345.txt").wrap_err("top-level load")
+    assert(r!.is_err())
+    assert(r!.copy().into_ok() == none)
+    assert(r!.peek_err() != none)
 
-    let err = r.unwrap_err()
+    let err = r!.unwrap_err()
     assert(err.message() == "top-level load")
     assert(err.summary().starts_with("top-level load: step2 failed: step1 failed: "))
     assert(err.is(ERR_NOT_FOUND))

@@ -65,6 +65,17 @@ Apply the `Result` vs. `panic` rules and the `x` / `try_x` naming convention fro
 - [ ] Audit `std` (especially `std/http`, `std/strconv`, `std/time` parsing) for panics reachable from external input, and convert them to `Result`/`?T` per §9.6.1.
 - [ ] Require a `# Panics` doc section on every public std function that can panic, and add a `lowlight doc` lint that flags missing ones.
 
+## Result Declarations & Result Chains
+
+`define Name result [...]`, `!` names, result chains, bare member constructors, `??`, and `if (r! as v)` are implemented (`SPECIFICATION.md` §3.8.3, §7.6.5). Remaining work:
+
+- [ ] Support a payload-less `value` member (a unit result) so success-only APIs stop returning `Result[bool]`.
+- [ ] Decide whether `Result[T].ok(v)` stays now that the variant constructor `Result[T].value(v)` exists, and remove one of them.
+- [ ] Teach LSP completion to offer a result's bare members (`value(...)`, `Err(...)`) where a result is expected.
+- [ ] Rewrite std's `if (r!.is_err()): func <- ...unwrap_err()...` / `r!.unwrap()` sequences in `std/fs`, `std/http`, `std/net`, and `std/test` as result chains.
+- [ ] Teach LSP hover, go-to-definition, and completion about the bare failure names in chain patterns (`when Missing(why):`), which resolve against the subject's result type.
+- [ ] Allow a result chain on a borrowed subject (`(r!: Result[string])` parameters) without moving a non-Plain value out, e.g. by binding the value as a borrow when the chain's value is only read.
+
 ## Parser, Sema, IR, Codegen & Runtime Hardening
 
 - [ ] Support qualified/generic bounds and receiver bounds in `parseTypeParams` (`internal/parser/parser.go:578-588,624-629`).
@@ -213,6 +224,7 @@ Apply the `Result` vs. `panic` rules and the `x` / `try_x` naming convention fro
 - [ ] `float`, `u8`–`u64`, and `i8`–`i32` `to_json` produce `Json.String` instead of `Json.Number`.
 - [ ] Single-quoted strings are accepted, which isn't standard JSON.
 - [ ] Error messages say "Jason".
+- [ ] Migrate to the result declaration changes: `Result.Ok` is now `Result.value`, names holding a `Result` must end in `!`, and `Error.wrap` now consumes the error, so `Result.Err(e)` at lines 460, 498, and 513 needs `Result.Err(own e)`.
 
 ## Compiler Backend & Allocators
 

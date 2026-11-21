@@ -790,7 +790,11 @@ func (p *printer) printEnumDecl(v *ast.EnumDecl) {
 	p.write("define ")
 	p.write(v.Name)
 	p.printTypeParams(v.TypeParams)
-	p.write(" enum ")
+	if v.IsResult {
+		p.write(" result ")
+	} else {
+		p.write(" enum ")
+	}
 	if v.BaseType != nil {
 		p.printTypeExpr(v.BaseType)
 		p.write(" ")
@@ -1096,10 +1100,11 @@ func endsWithDanglingElseTarget(e ast.Expr) bool {
 		}
 		return endsWithDanglingElseTarget(v.Else)
 	case *ast.MatchExpr:
-		if len(v.Arms) > 0 {
-			return endsWithDanglingElseTarget(v.Arms[len(v.Arms)-1].Body)
+		arms := sourceArms(v)
+		if v.DefaultPanic || len(arms) == 0 {
+			return false
 		}
-		return false
+		return endsWithDanglingElseTarget(arms[len(arms)-1].Body)
 	case *ast.UnaryExpr:
 		return endsWithDanglingElseTarget(v.Operand)
 	case *ast.BinaryExpr:
@@ -1159,7 +1164,7 @@ func (p *printer) printColonBodyGuarded(headerStartOff int, rawBody ast.Expr, al
 func preferNextLineExpr(e ast.Expr) bool {
 	switch v := e.(type) {
 	case *ast.MatchExpr:
-		return true
+		return !v.ResultChain
 	case *ast.IfExpr:
 		return v.Else != nil
 	}
@@ -2586,7 +2591,69 @@ func (p *printer) printWhileExpr(v *ast.WhileExpr) {
 	}
 }
 
+// sourceArms returns the arms written in the source, dropping arms the checker synthesized for a
+// result chain.
+func sourceArms(v *ast.MatchExpr) []ast.MatchArm {
+	if !v.ResultChain {
+		return v.Arms
+	}
+	var arms []ast.MatchArm
+	for _, a := range v.Arms {
+		if !a.Synthetic {
+			arms = append(arms, a)
+		}
+	}
+	return arms
+}
+
+// printResultChain prints `subject: when Failure(x): ... default ...`. A chain whose only arm is
+// `default panic` stays on one line (`load(path): default panic`).
+func (p *printer) printResultChain(v *ast.MatchExpr) {
+	p.printExpr(v.Scrutinees[0])
+	p.write(":")
+	arms := sourceArms(v)
+	if len(arms) == 0 && v.DefaultPanic {
+		p.write(" default panic")
+		return
+	}
+	p.indent++
+	for _, arm := range arms {
+		p.newline()
+		if arm.Span.Start.Offset > 0 {
+			_ = p.emitCommentsBefore(arm.Span.Start.Offset, arm.Span.Start.Line, false)
+		}
+		p.writeIndent()
+		if arm.IsDefault {
+			p.write("default")
+			if len(arm.Cases) > 0 {
+				p.write(" ")
+				p.printMatchCases(arm.Cases, 1)
+			}
+		} else {
+			p.write("when ")
+			p.printMatchCases(arm.Cases, 1)
+		}
+		p.write(":")
+		p.printColonBody(arm.Span.Start.Offset, arm.Body, true)
+		p.emitInlineCommentOnLine(arm.Span.End.Line)
+	}
+	if v.DefaultPanic {
+		p.newline()
+		if v.DefaultPanicSpan.Start.Offset > 0 {
+			_ = p.emitCommentsBefore(v.DefaultPanicSpan.Start.Offset, v.DefaultPanicSpan.Start.Line, false)
+		}
+		p.writeIndent()
+		p.write("default panic")
+		p.emitInlineCommentOnLine(v.DefaultPanicSpan.End.Line)
+	}
+	p.indent--
+}
+
 func (p *printer) printMatchExpr(v *ast.MatchExpr) {
+	if v.ResultChain {
+		p.printResultChain(v)
+		return
+	}
 	p.write("match")
 	if len(v.Scrutinees) > 0 {
 		p.write("(")
@@ -2681,7 +2748,11 @@ func (p *printer) printPattern(pat ast.Pattern) {
 		}
 		p.write(")")
 	case *ast.VariantPattern:
-		p.printExpr(v.Target)
+		if mem, ok := v.Target.(*ast.MemberExpr); ok && v.Contextual {
+			p.write(mem.Member)
+		} else {
+			p.printExpr(v.Target)
+		}
 		if len(v.Bindings) > 0 {
 			p.write("(")
 			for i, b := range v.Bindings {

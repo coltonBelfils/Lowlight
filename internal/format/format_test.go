@@ -508,3 +508,30 @@ func TestOverflowingSingleCompositeArgIsIdempotent(t *testing.T) {
 		t.Fatalf("unexpected output:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// Result declarations, `!` names, and result chains (including `default panic` on one line and
+// as a terminal arm) print back unchanged.
+func TestResultDeclarationsAndChainsRoundTrip(t *testing.T) {
+	src := `define Lookup result [
+	value: string,
+	Missing: string,
+	Forbidden,
+]
+
+bind describe = (k: string) string: {
+	let r! = find(k)
+	let s = r!:
+		when Missing(why): "missing:" + why // why it failed
+		when Forbidden: func <- "denied"
+		default panic
+	let t = find(k): default panic
+	let u = find(k):
+		default Missing(own why): why
+	if(r! as v): println(v) else: println("no")
+	s + t + u + (find(k) ?? "fallback")
+}
+`
+	if got := mustFormat(t, src, format.DefaultOptions()); got != src {
+		t.Fatalf("unexpected output:\n%s\nwant:\n%s", got, src)
+	}
+}

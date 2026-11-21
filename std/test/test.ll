@@ -544,9 +544,9 @@ bind assert_ends_with_msg = (actual: string, suffix: string, msg: string):
 // Panics with the formatted error description if `res` is `Err`.
 @test_only
 @track_caller
-bind assert_is_ok[T] = (res: &Result[T]):
-	if(res.is_err()): {
-		let err_str = if(res.peek_err() as err): err.to_string() else: "<unknown error>"
+bind assert_is_ok[T] = (res!: &Result[T]):
+	if(res!.is_err()): {
+		let err_str = if(res!.peek_err() as err): err.to_string() else: "<unknown error>"
 		panic("assertion failed: expected Result to be Ok, but got Err\n  error: " + err_str)
 	}
 
@@ -556,9 +556,9 @@ bind assert_is_ok[T] = (res: &Result[T]):
 // Panics with `msg` and the underlying error if `res` is `Err`.
 @test_only
 @track_caller
-bind assert_is_ok_msg[T] = (res: &Result[T], msg: string):
-	if(res.is_err()): {
-		let err_str = if(res.peek_err() as err): err.to_string() else: "<unknown error>"
+bind assert_is_ok_msg[T] = (res!: &Result[T], msg: string):
+	if(res!.is_err()): {
+		let err_str = if(res!.peek_err() as err): err.to_string() else: "<unknown error>"
 		panic(
 			"assertion failed: " + msg + " (expected Result to be Ok, got Err)\n  error: " + err_str
 		)
@@ -570,8 +570,8 @@ bind assert_is_ok_msg[T] = (res: &Result[T], msg: string):
 // Panics if `res` is `Ok`.
 @test_only
 @track_caller
-bind assert_is_err[T] = (res: &Result[T]):
-	if(res.is_ok()): panic("assertion failed: expected Result to be Err, but got Ok")
+bind assert_is_err[T] = (res!: &Result[T]):
+	if(res!.is_ok()): panic("assertion failed: expected Result to be Err, but got Ok")
 
 // Asserts that [`Result`] `res` holds an `Err` value, failing with context `msg`.
 //
@@ -579,8 +579,8 @@ bind assert_is_err[T] = (res: &Result[T]):
 // Panics with `msg` if `res` is `Ok`.
 @test_only
 @track_caller
-bind assert_is_err_msg[T] = (res: &Result[T], msg: string):
-	if(res.is_ok()): panic("assertion failed: " + msg + " (expected Result to be Err, but got Ok)")
+bind assert_is_err_msg[T] = (res!: &Result[T], msg: string):
+	if(res!.is_ok()): panic("assertion failed: " + msg + " (expected Result to be Err, but got Ok)")
 
 @test_only
 @track_caller
@@ -600,201 +600,201 @@ bind _panic_result_not_ok = (err: Error, msg: string):
 // Panics with the underlying error if `res` is `Err`, or a formatted diff if `val != expected`.
 @test_only
 @track_caller
-bind assert_ok_eq[T: Equatable + Printable] = (res: Result[T], expected: T):
-	match(res):
-		when Result.Ok(val): assert_eq(val, expected)
+bind assert_ok_eq[T: Equatable + Printable] = (res!: Result[T], expected: T):
+	match(res!):
+		when Result.value(val): assert_eq(val, expected)
 		default Result.Err(err): _panic_result_not_ok(err, "")
 
 // Asserts that [`Result`] `res` is `Ok` and its value equals `expected`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_eq_msg[T: Equatable + Printable] = (res: Result[T], expected: T, msg: string):
-	match(res):
-		when Result.Ok(val): assert_eq_msg(val, expected, msg)
+bind assert_ok_eq_msg[T: Equatable + Printable] = (res!: Result[T], expected: T, msg: string):
+	match(res!):
+		when Result.value(val): assert_eq_msg(val, expected, msg)
 		default Result.Err(err): _panic_result_not_ok(err, msg)
 
 // Asserts that [`Result`] `res` is `Ok` and its value does not equal `unexpected` (`val != unexpected`).
 @test_only
 @track_caller
-bind assert_ok_ne[T: Equatable + Printable] = (res: Result[T], unexpected: T):
-	match(res):
-		when Result.Ok(val): assert_ne(val, unexpected)
+bind assert_ok_ne[T: Equatable + Printable] = (res!: Result[T], unexpected: T):
+	match(res!):
+		when Result.value(val): assert_ne(val, unexpected)
 		default Result.Err(err): _panic_result_not_ok(err, "")
 
 // Asserts that [`Result`] `res` is `Ok` and its value does not equal `unexpected`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_ne_msg[T: Equatable + Printable] = (res: Result[T], unexpected: T, msg: string):
-	match(res):
-		when Result.Ok(val): assert_ne_msg(val, unexpected, msg)
+bind assert_ok_ne_msg[T: Equatable + Printable] = (res!: Result[T], unexpected: T, msg: string):
+	match(res!):
+		when Result.value(val): assert_ne_msg(val, unexpected, msg)
 		default Result.Err(err): _panic_result_not_ok(err, msg)
 
 // Asserts that [`Result`] `res` is `Ok` and its float value is within `eps` of `expected`.
 @test_only
 @track_caller
-bind assert_ok_approx_eq = (res: Result[float], expected: float, eps: float):
-	match(res):
-		when Result.Ok(val): assert_approx_eq(val, expected, eps)
+bind assert_ok_approx_eq = (res!: Result[float], expected: float, eps: float):
+	match(res!):
+		when Result.value(val): assert_approx_eq(val, expected, eps)
 		default Result.Err(err): _panic_result_not_ok(err, "")
 
 // Asserts that [`Result`] `res` is `Ok` and its float value is within `eps` of `expected`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_approx_eq_msg = (res: Result[float], expected: float, eps: float, msg: string):
-	match(res):
-		when Result.Ok(val): assert_approx_eq_msg(val, expected, eps, msg)
+bind assert_ok_approx_eq_msg = (res!: Result[float], expected: float, eps: float, msg: string):
+	match(res!):
+		when Result.value(val): assert_approx_eq_msg(val, expected, eps, msg)
 		default Result.Err(err): _panic_result_not_ok(err, msg)
 
 // Asserts that [`Result`] `res` is `Ok(true)`.
 @test_only
 @track_caller
-bind assert_ok_true = (res: Result[bool]):
-	match(res):
-		when Result.Ok(val): assert_true(val)
+bind assert_ok_true = (res!: Result[bool]):
+	match(res!):
+		when Result.value(val): assert_true(val)
 		default Result.Err(err): _panic_result_not_ok(err, "")
 
 // Asserts that [`Result`] `res` is `Ok(true)`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_true_msg = (res: Result[bool], msg: string):
-	match(res):
-		when Result.Ok(val): assert_true_msg(val, msg)
+bind assert_ok_true_msg = (res!: Result[bool], msg: string):
+	match(res!):
+		when Result.value(val): assert_true_msg(val, msg)
 		default Result.Err(err): _panic_result_not_ok(err, msg)
 
 // Asserts that [`Result`] `res` is `Ok(false)`.
 @test_only
 @track_caller
-bind assert_ok_false = (res: Result[bool]):
-	match(res):
-		when Result.Ok(val): assert_false(val)
+bind assert_ok_false = (res!: Result[bool]):
+	match(res!):
+		when Result.value(val): assert_false(val)
 		default Result.Err(err): _panic_result_not_ok(err, "")
 
 // Asserts that [`Result`] `res` is `Ok(false)`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_false_msg = (res: Result[bool], msg: string):
-	match(res):
-		when Result.Ok(val): assert_false_msg(val, msg)
+bind assert_ok_false_msg = (res!: Result[bool], msg: string):
+	match(res!):
+		when Result.value(val): assert_false_msg(val, msg)
 		default Result.Err(err): _panic_result_not_ok(err, msg)
 
 // Asserts that [`Result`] `res` is `Ok` and its value is strictly greater than `expected` (`val > expected`).
 @test_only
 @track_caller
-bind assert_ok_gt[T: Comparable + Printable] = (res: Result[T], expected: T):
-	match(res):
-		when Result.Ok(val): assert_gt(val, expected)
+bind assert_ok_gt[T: Comparable + Printable] = (res!: Result[T], expected: T):
+	match(res!):
+		when Result.value(val): assert_gt(val, expected)
 		default Result.Err(err): _panic_result_not_ok(err, "")
 
 // Asserts that [`Result`] `res` is `Ok` and its value is strictly greater than `expected`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_gt_msg[T: Comparable + Printable] = (res: Result[T], expected: T, msg: string):
-	match(res):
-		when Result.Ok(val): assert_gt_msg(val, expected, msg)
+bind assert_ok_gt_msg[T: Comparable + Printable] = (res!: Result[T], expected: T, msg: string):
+	match(res!):
+		when Result.value(val): assert_gt_msg(val, expected, msg)
 		default Result.Err(err): _panic_result_not_ok(err, msg)
 
 // Asserts that [`Result`] `res` is `Ok` and its value is strictly less than `expected` (`val < expected`).
 @test_only
 @track_caller
-bind assert_ok_lt[T: Comparable + Printable] = (res: Result[T], expected: T):
-	match(res):
-		when Result.Ok(val): assert_lt(val, expected)
+bind assert_ok_lt[T: Comparable + Printable] = (res!: Result[T], expected: T):
+	match(res!):
+		when Result.value(val): assert_lt(val, expected)
 		default Result.Err(err): _panic_result_not_ok(err, "")
 
 // Asserts that [`Result`] `res` is `Ok` and its value is strictly less than `expected`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_lt_msg[T: Comparable + Printable] = (res: Result[T], expected: T, msg: string):
-	match(res):
-		when Result.Ok(val): assert_lt_msg(val, expected, msg)
+bind assert_ok_lt_msg[T: Comparable + Printable] = (res!: Result[T], expected: T, msg: string):
+	match(res!):
+		when Result.value(val): assert_lt_msg(val, expected, msg)
 		default Result.Err(err): _panic_result_not_ok(err, msg)
 
 // Asserts that [`Result`] `res` is `Ok` and its value is greater than or equal to `expected` (`val >= expected`).
 @test_only
 @track_caller
-bind assert_ok_ge[T: Comparable + Printable] = (res: Result[T], expected: T):
-	match(res):
-		when Result.Ok(val): assert_ge(val, expected)
+bind assert_ok_ge[T: Comparable + Printable] = (res!: Result[T], expected: T):
+	match(res!):
+		when Result.value(val): assert_ge(val, expected)
 		default Result.Err(err): _panic_result_not_ok(err, "")
 
 // Asserts that [`Result`] `res` is `Ok` and its value is greater than or equal to `expected`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_ge_msg[T: Comparable + Printable] = (res: Result[T], expected: T, msg: string):
-	match(res):
-		when Result.Ok(val): assert_ge_msg(val, expected, msg)
+bind assert_ok_ge_msg[T: Comparable + Printable] = (res!: Result[T], expected: T, msg: string):
+	match(res!):
+		when Result.value(val): assert_ge_msg(val, expected, msg)
 		default Result.Err(err): _panic_result_not_ok(err, msg)
 
 // Asserts that [`Result`] `res` is `Ok` and its value is less than or equal to `expected` (`val <= expected`).
 @test_only
 @track_caller
-bind assert_ok_le[T: Comparable + Printable] = (res: Result[T], expected: T):
-	match(res):
-		when Result.Ok(val): assert_le(val, expected)
+bind assert_ok_le[T: Comparable + Printable] = (res!: Result[T], expected: T):
+	match(res!):
+		when Result.value(val): assert_le(val, expected)
 		default Result.Err(err): _panic_result_not_ok(err, "")
 
 // Asserts that [`Result`] `res` is `Ok` and its value is less than or equal to `expected`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_le_msg[T: Comparable + Printable] = (res: Result[T], expected: T, msg: string):
-	match(res):
-		when Result.Ok(val): assert_le_msg(val, expected, msg)
+bind assert_ok_le_msg[T: Comparable + Printable] = (res!: Result[T], expected: T, msg: string):
+	match(res!):
+		when Result.value(val): assert_le_msg(val, expected, msg)
 		default Result.Err(err): _panic_result_not_ok(err, msg)
 
 // Asserts that [`Result`] `res` is `Ok` and its string value contains `substring`.
 @test_only
 @track_caller
-bind assert_ok_contains = (res: Result[string], substring: string):
-	match(res):
-		when Result.Ok(val): assert_contains(val, substring)
+bind assert_ok_contains = (res!: Result[string], substring: string):
+	match(res!):
+		when Result.value(val): assert_contains(val, substring)
 		default Result.Err(err): _panic_result_not_ok(err, "")
 
 // Asserts that [`Result`] `res` is `Ok` and its string value contains `substring`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_contains_msg = (res: Result[string], substring: string, msg: string):
-	match(res):
-		when Result.Ok(val): assert_contains_msg(val, substring, msg)
+bind assert_ok_contains_msg = (res!: Result[string], substring: string, msg: string):
+	match(res!):
+		when Result.value(val): assert_contains_msg(val, substring, msg)
 		default Result.Err(err): _panic_result_not_ok(err, msg)
 
 // Asserts that [`Result`] `res` is `Ok` and its string value starts with `prefix`.
 @test_only
 @track_caller
-bind assert_ok_starts_with = (res: Result[string], prefix: string):
-	match(res):
-		when Result.Ok(val): assert_starts_with(val, prefix)
+bind assert_ok_starts_with = (res!: Result[string], prefix: string):
+	match(res!):
+		when Result.value(val): assert_starts_with(val, prefix)
 		default Result.Err(err): _panic_result_not_ok(err, "")
 
 // Asserts that [`Result`] `res` is `Ok` and its string value starts with `prefix`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_starts_with_msg = (res: Result[string], prefix: string, msg: string):
-	match(res):
-		when Result.Ok(val): assert_starts_with_msg(val, prefix, msg)
+bind assert_ok_starts_with_msg = (res!: Result[string], prefix: string, msg: string):
+	match(res!):
+		when Result.value(val): assert_starts_with_msg(val, prefix, msg)
 		default Result.Err(err): _panic_result_not_ok(err, msg)
 
 // Asserts that [`Result`] `res` is `Ok` and its string value ends with `suffix`.
 @test_only
 @track_caller
-bind assert_ok_ends_with = (res: Result[string], suffix: string):
-	match(res):
-		when Result.Ok(val): assert_ends_with(val, suffix)
+bind assert_ok_ends_with = (res!: Result[string], suffix: string):
+	match(res!):
+		when Result.value(val): assert_ends_with(val, suffix)
 		default Result.Err(err): _panic_result_not_ok(err, "")
 
 // Asserts that [`Result`] `res` is `Ok` and its string value ends with `suffix`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_ends_with_msg = (res: Result[string], suffix: string, msg: string):
-	match(res):
-		when Result.Ok(val): assert_ends_with_msg(val, suffix, msg)
+bind assert_ok_ends_with_msg = (res!: Result[string], suffix: string, msg: string):
+	match(res!):
+		when Result.value(val): assert_ends_with_msg(val, suffix, msg)
 		default Result.Err(err): _panic_result_not_ok(err, msg)
 
 // Asserts that [`Result`] `res` is `Ok` and satisfies predicate `check(val)`.
 @test_only
 @track_caller
-bind assert_ok_with[T: Printable] = (res: Result[T], check: (T) bool):
-	match(res):
-		when Result.Ok(val):
+bind assert_ok_with[T: Printable] = (res!: Result[T], check: (T) bool):
+	match(res!):
+		when Result.value(val):
 			if(not check(val)):
 				panic(
 					"assertion failed: Ok value did not satisfy predicate\n  actual: " + val.to_string()
@@ -804,9 +804,9 @@ bind assert_ok_with[T: Printable] = (res: Result[T], check: (T) bool):
 // Asserts that [`Result`] `res` is `Ok` and satisfies predicate `check(val)`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_ok_with_msg[T: Printable] = (res: Result[T], check: (T) bool, msg: string):
-	match(res):
-		when Result.Ok(val):
+bind assert_ok_with_msg[T: Printable] = (res!: Result[T], check: (T) bool, msg: string):
+	match(res!):
+		when Result.value(val):
 			if(not check(val)):
 				panic(
 					"assertion failed: " + msg + " (Ok value did not satisfy predicate)\n  actual: " + val.to_string()
@@ -816,18 +816,18 @@ bind assert_ok_with_msg[T: Printable] = (res: Result[T], check: (T) bool, msg: s
 // Asserts that [`Result`] `res` is `Err` and its formatted error contains `substring`.
 @test_only
 @track_caller
-bind assert_err_contains[T] = (res: Result[T], substring: string):
-	match(res):
+bind assert_err_contains[T] = (res!: Result[T], substring: string):
+	match(res!):
 		when Result.Err(err): assert_contains(err.to_string(), substring)
-		default Result.Ok(_): panic("assertion failed: expected Result to be Err, but got Ok")
+		default Result.value(_): panic("assertion failed: expected Result to be Err, but got Ok")
 
 // Asserts that [`Result`] `res` is `Err` and its formatted error contains `substring`, prefixing failures with `msg`.
 @test_only
 @track_caller
-bind assert_err_contains_msg[T] = (res: Result[T], substring: string, msg: string):
-	match(res):
+bind assert_err_contains_msg[T] = (res!: Result[T], substring: string, msg: string):
+	match(res!):
 		when Result.Err(err): assert_contains_msg(err.to_string(), substring, msg)
-		default Result.Ok(_):
+		default Result.value(_):
 			panic("assertion failed: " + msg + " (expected Result to be Err, but got Ok)")
 
 // Asserts that an optional value is present (`val? != none`).
@@ -1226,9 +1226,9 @@ bind assert_all_ends_with_msg = (cases: [+[string, string]], msg: string):
 @track_caller
 bind _assert_all_is_ok_impl[T] = (cases: [Result[T]], msg: string): {
 	let failures: [string] = []
-	for(i, res in cases):
-		match(res):
-			when Result.Ok(_): {}
+	for(i, res! in cases):
+		match(res!):
+			when Result.value(_): {}
 			default Result.Err(err):
 				_append_batch_failure(&failures, i, "", _format_result_not_ok_detail(err))
 	_panic_batch_if_failed(cases.len(), failures, msg)
@@ -1248,8 +1248,8 @@ bind assert_all_is_ok_msg[T] = (cases: [Result[T]], msg: string): _assert_all_is
 @track_caller
 bind _assert_all_is_err_impl[T] = (cases: [Result[T]], msg: string): {
 	let failures: [string] = []
-	for(i, res in cases):
-		if(res.is_ok()):
+	for(i, res! in cases):
+		if(res!.is_ok()):
 			_append_batch_failure(&failures, i, "", "expected Result to be Err, but got Ok")
 	_panic_batch_if_failed(cases.len(), failures, msg)
 }
@@ -1271,7 +1271,7 @@ bind _assert_all_ok_eq_impl[T: Equatable + Printable] = (cases: [+[T, Result[T]]
 	let failures: [string] = []
 	for(i, pair in cases):
 		match(pair.1):
-			when Result.Ok(val):
+			when Result.value(val):
 				if(_check_eq(val, pair.0) as detail):
 					_append_batch_failure(&failures, i, "", detail)
 			default Result.Err(err):
@@ -1300,7 +1300,7 @@ bind _assert_all_ok_eq_named_impl[T: Equatable + Printable] = (
 	let failures: [string] = []
 	for(i, item in cases):
 		match(item.2):
-			when Result.Ok(val):
+			when Result.value(val):
 				if(_check_eq(val, item.1) as detail):
 					_append_batch_failure(&failures, i, item.0, detail)
 			default Result.Err(err):
@@ -1328,7 +1328,7 @@ bind _assert_all_ok_ne_impl[T: Equatable + Printable] = (cases: [+[T, Result[T]]
 	let failures: [string] = []
 	for(i, pair in cases):
 		match(pair.1):
-			when Result.Ok(val):
+			when Result.value(val):
 				if(_check_ne(val, pair.0) as detail):
 					_append_batch_failure(&failures, i, "", detail)
 			default Result.Err(err):
@@ -1359,7 +1359,7 @@ bind _assert_all_ok_approx_eq_impl = (cases: [+[float, Result[float]]], eps: flo
 	let failures: [string] = []
 	for(i, pair in cases):
 		match(pair.1):
-			when Result.Ok(val):
+			when Result.value(val):
 				if(_check_approx_eq(val, pair.0, eps) as detail):
 					_append_batch_failure(&failures, i, "", detail)
 			default Result.Err(err):
@@ -1383,9 +1383,9 @@ bind assert_all_ok_approx_eq_msg = (cases: [+[float, Result[float]]], eps: float
 @track_caller
 bind _assert_all_ok_true_impl = (cases: [Result[bool]], msg: string): {
 	let failures: [string] = []
-	for(i, res in cases):
-		match(res):
-			when Result.Ok(val):
+	for(i, res! in cases):
+		match(res!):
+			when Result.value(val):
 				if(not val):
 					_append_batch_failure(
 						&failures,
@@ -1413,9 +1413,9 @@ bind assert_all_ok_true_msg = (cases: [Result[bool]], msg: string):
 @track_caller
 bind _assert_all_ok_false_impl = (cases: [Result[bool]], msg: string): {
 	let failures: [string] = []
-	for(i, res in cases):
-		match(res):
-			when Result.Ok(val):
+	for(i, res! in cases):
+		match(res!):
+			when Result.value(val):
 				if(val):
 					_append_batch_failure(
 						&failures,
@@ -1445,7 +1445,7 @@ bind _assert_all_ok_gt_impl[T: Comparable + Printable] = (cases: [+[T, Result[T]
 	let failures: [string] = []
 	for(i, pair in cases):
 		match(pair.1):
-			when Result.Ok(val):
+			when Result.value(val):
 				if(_check_gt(val, pair.0) as detail):
 					_append_batch_failure(&failures, i, "", detail)
 			default Result.Err(err):
@@ -1471,7 +1471,7 @@ bind _assert_all_ok_lt_impl[T: Comparable + Printable] = (cases: [+[T, Result[T]
 	let failures: [string] = []
 	for(i, pair in cases):
 		match(pair.1):
-			when Result.Ok(val):
+			when Result.value(val):
 				if(_check_lt(val, pair.0) as detail):
 					_append_batch_failure(&failures, i, "", detail)
 			default Result.Err(err):
@@ -1497,7 +1497,7 @@ bind _assert_all_ok_ge_impl[T: Comparable + Printable] = (cases: [+[T, Result[T]
 	let failures: [string] = []
 	for(i, pair in cases):
 		match(pair.1):
-			when Result.Ok(val):
+			when Result.value(val):
 				if(_check_ge(val, pair.0) as detail):
 					_append_batch_failure(&failures, i, "", detail)
 			default Result.Err(err):
@@ -1523,7 +1523,7 @@ bind _assert_all_ok_le_impl[T: Comparable + Printable] = (cases: [+[T, Result[T]
 	let failures: [string] = []
 	for(i, pair in cases):
 		match(pair.1):
-			when Result.Ok(val):
+			when Result.value(val):
 				if(_check_le(val, pair.0) as detail):
 					_append_batch_failure(&failures, i, "", detail)
 			default Result.Err(err):
@@ -1549,7 +1549,7 @@ bind _assert_all_ok_contains_impl = (cases: [+[string, Result[string]]], msg: st
 	let failures: [string] = []
 	for(i, pair in cases):
 		match(pair.1):
-			when Result.Ok(val):
+			when Result.value(val):
 				if(_check_contains(val, pair.0) as detail):
 					_append_batch_failure(&failures, i, "", detail)
 			default Result.Err(err):
@@ -1575,7 +1575,7 @@ bind _assert_all_ok_starts_with_impl = (cases: [+[string, Result[string]]], msg:
 	let failures: [string] = []
 	for(i, pair in cases):
 		match(pair.1):
-			when Result.Ok(val):
+			when Result.value(val):
 				if(_check_starts_with(val, pair.0) as detail):
 					_append_batch_failure(&failures, i, "", detail)
 			default Result.Err(err):
@@ -1601,7 +1601,7 @@ bind _assert_all_ok_ends_with_impl = (cases: [+[string, Result[string]]], msg: s
 	let failures: [string] = []
 	for(i, pair in cases):
 		match(pair.1):
-			when Result.Ok(val):
+			when Result.value(val):
 				if(_check_ends_with(val, pair.0) as detail):
 					_append_batch_failure(&failures, i, "", detail)
 			default Result.Err(err):
@@ -1625,9 +1625,9 @@ bind assert_all_ok_ends_with_msg = (cases: [+[string, Result[string]]], msg: str
 @track_caller
 bind _assert_all_ok_with_impl[T: Printable] = (cases: [Result[T]], check: (T) bool, msg: string): {
 	let failures: [string] = []
-	for(i, res in cases):
-		match(res):
-			when Result.Ok(val):
+	for(i, res! in cases):
+		match(res!):
+			when Result.value(val):
 				if(not check(val)):
 					_append_batch_failure(
 						&failures,
@@ -1661,7 +1661,7 @@ bind _assert_all_err_contains_impl[T] = (cases: [+[string, Result[T]]], msg: str
 			when Result.Err(err):
 				if(_check_contains(err.to_string(), pair.0) as detail):
 					_append_batch_failure(&failures, i, "", detail)
-			default Result.Ok(_):
+			default Result.value(_):
 				_append_batch_failure(&failures, i, "", "expected Result to be Err, but got Ok")
 	_panic_batch_if_failed(cases.len(), failures, msg)
 }
@@ -1797,13 +1797,13 @@ bind test_comparison_assertions = (): {
 
 @test("assert_is_ok and assert_is_err result assertions")
 bind test_result_assertions = (): {
-	let ok_res = Result[int].ok(123)
-	assert_is_ok(&ok_res)
-	assert_is_ok_msg(&ok_res, "result should be ok")
+	let ok_res! = Result[int].ok(123)
+	assert_is_ok(&ok_res!)
+	assert_is_ok_msg(&ok_res!, "result should be ok")
 
-	let err_res = Result[int].fail_msg("failure")
-	assert_is_err(&err_res)
-	assert_is_err_msg(&err_res, "result should be err")
+	let err_res! = Result[int].fail_msg("failure")
+	assert_is_err(&err_res!)
+	assert_is_err_msg(&err_res!, "result should be err")
 }
 
 @test("assert_some and assert_none optional assertions")
@@ -1854,21 +1854,21 @@ bind test_string_match_assertions = (): {
 
 @test("assert_ok_* combined Result[T] assertions")
 bind test_combined_result_assertions = (): {
-	let r_int = Result[int].ok(42)
-	assert_ok_eq(r_int, 42)
+	let r_int! = Result[int].ok(42)
+	assert_ok_eq(r_int!, 42)
 	assert_ok_eq_msg(Result[int].ok(7), 7, "inline rvalue ok_eq")
-	assert_ok_ne(r_int, 0)
-	assert_ok_ne_msg(r_int, 99, "not ninety-nine")
-	assert_ok_gt(r_int, 41)
-	assert_ok_gt_msg(r_int, 10, "greater than ten")
-	assert_ok_lt(r_int, 100)
-	assert_ok_lt_msg(r_int, 50, "less than fifty")
-	assert_ok_ge(r_int, 42)
-	assert_ok_ge_msg(r_int, 40, "at least forty")
-	assert_ok_le(r_int, 42)
-	assert_ok_le_msg(r_int, 45, "at most forty-five")
-	assert_ok_with(r_int, (n: int) bool: n % 2 == 0)
-	assert_ok_with_msg(r_int, (n: int) bool: n > 0, "positive integer")
+	assert_ok_ne(r_int!, 0)
+	assert_ok_ne_msg(r_int!, 99, "not ninety-nine")
+	assert_ok_gt(r_int!, 41)
+	assert_ok_gt_msg(r_int!, 10, "greater than ten")
+	assert_ok_lt(r_int!, 100)
+	assert_ok_lt_msg(r_int!, 50, "less than fifty")
+	assert_ok_ge(r_int!, 42)
+	assert_ok_ge_msg(r_int!, 40, "at least forty")
+	assert_ok_le(r_int!, 42)
+	assert_ok_le_msg(r_int!, 45, "at most forty-five")
+	assert_ok_with(r_int!, (n: int) bool: n % 2 == 0)
+	assert_ok_with_msg(r_int!, (n: int) bool: n > 0, "positive integer")
 
 	assert_ok_approx_eq(Result[float].ok(0.1 + 0.2), 0.3, 1.0e-9)
 	assert_ok_approx_eq_msg(Result[float].ok(3.1415), 3.14, 0.01, "pi approx")
@@ -1878,17 +1878,17 @@ bind test_combined_result_assertions = (): {
 	assert_ok_false(Result[bool].ok(false))
 	assert_ok_false_msg(Result[bool].ok(false), "ok false")
 
-	let r_str = Result[string].ok("lowlight/std/test.ll")
-	assert_ok_contains(r_str, "std/test")
-	assert_ok_contains_msg(r_str, "lowlight", "contains package")
-	assert_ok_starts_with(r_str, "lowlight/")
-	assert_ok_starts_with_msg(r_str, "lowlight/", "starts with repo")
-	assert_ok_ends_with(r_str, ".ll")
-	assert_ok_ends_with_msg(r_str, "test.ll", "ends with file")
+	let r_str! = Result[string].ok("lowlight/std/test.ll")
+	assert_ok_contains(r_str!, "std/test")
+	assert_ok_contains_msg(r_str!, "lowlight", "contains package")
+	assert_ok_starts_with(r_str!, "lowlight/")
+	assert_ok_starts_with_msg(r_str!, "lowlight/", "starts with repo")
+	assert_ok_ends_with(r_str!, ".ll")
+	assert_ok_ends_with_msg(r_str!, "test.ll", "ends with file")
 
-	let r_err = Result[int].fail_msg("boom on port 8080")
-	assert_err_contains(r_err, "port 8080")
-	assert_err_contains_msg(r_err, "boom", "error mentions boom")
+	let r_err! = Result[int].fail_msg("boom on port 8080")
+	assert_err_contains(r_err!, "port 8080")
+	assert_err_contains_msg(r_err!, "boom", "error mentions boom")
 
 	// Existing comparison _msg variants
 	assert_gt_msg(10, 5, "10 > 5")

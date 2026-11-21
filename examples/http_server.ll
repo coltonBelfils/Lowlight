@@ -44,8 +44,8 @@ bind main = (): {
     println("Starting Lowlight HTTP server on http://${addr}/ ...")
     println("Press Ctrl+C to stop.")
 
-    let srv_res = http.listen_and_serve_mux(addr, mux)
-    if (srv_res.is_err()): {
-        println("Server failed: ${srv_res.unwrap_err()}")
+    let srv_res! = http.listen_and_serve_mux(addr, mux)
+    if (srv_res!.is_err()): {
+        println("Server failed: ${srv_res!.unwrap_err()}")
     }
 }

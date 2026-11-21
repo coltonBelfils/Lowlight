@@ -1026,6 +1026,11 @@ func (fl *funcLowerer) symbolAddr(sym *sema.Symbol) Expr {
 }
 
 func (fl *funcLowerer) lowerIdentExpr(v *ast.IdentExpr, inf *sema.ExprInfo) Expr {
+	// Bare unit member of an expected result (`Forbidden` for `Lookup.Forbidden`)
+	if inf.EnumVariant != nil && inf.EnumType != nil {
+		fl.tc.visit(inf.EnumType)
+		return &ExprConstructEnum{EnumType: inf.EnumType, Variant: inf.EnumVariant}
+	}
 	sym := inf.Sym
 	if sym == nil {
 		cName := types.SanitizeCIdent(v.Name)
@@ -1117,6 +1122,14 @@ func (fl *funcLowerer) lowerBinaryExpr(b *ast.BinaryExpr, inf *sema.ExprInfo, fo
 		elseBuf := fl.popInstrBuf()
 		fl.emit(NewInstrIf(&ExprUnary{Op: token.KwNot, Operand: NewLocalExpr(res), Typ: types.TypeBool}, elseBuf, nil))
 		return NewLocalExpr(res)
+	}
+
+	// 2a. Result fallback `res! ?? fallback_expr`: the success value, else drop the failure and
+	// evaluate the fallback.
+	if b.Op == token.QuestQuest {
+		if en := types.AsResult(fl.info(b.Left).Type); en != nil {
+			return fl.lowerResultFallback(b, en, inf.Type)
+		}
 	}
 
 	// 2. Short-circuiting optional fallback `opt_expr ?? fallback_expr`
@@ -2296,4 +2309,65 @@ func (fl *funcLowerer) boxConcreteIntoInterface(valExpr Expr, concreteTy types.T
 		Expr: EnsureExpr(valExpr, concreteTy),
 	})
 	return &ExprBoxInterface{IfcType: ifc, ConcreteType: concreteTy, Value: NewLocalExpr(boxPtr), Owned: true}
+}
+
+// resultIsValueExpr tests whether the result value `val` holds its `value` member.
+func resultIsValueExpr(val Expr, en *types.Enum) Expr {
+	vv, _ := en.ResultValue()
+	return &ExprBinary{
+		Op:    token.Eq,
+		Left:  &ExprField{Base: val, FieldName: "tag", Typ: types.TypeInt},
+		Right: &ExprLitInt{Val: uint64(vv.Value), Typ: types.TypeInt},
+		Typ:   types.TypeBool,
+	}
+}
+
+// resultValueExpr reads the success payload of the result value `val` (which must hold `value`).
+func resultValueExpr(val Expr, en *types.Enum) Expr {
+	vv, _ := en.ResultValue()
+	return &ExprField{Base: &ExprField{Base: val, FieldName: "data"}, FieldName: vv.CName, Typ: vv.Payload}
+}
+
+// resultValuePtrExpr addresses the success payload through a pointer to a result.
+func resultValuePtrExpr(ptr Expr, en *types.Enum) Expr {
+	vv, _ := en.ResultValue()
+	place := &ExprField{Base: &ExprField{Base: ptr, FieldName: "data", IsPtr: true}, FieldName: vv.CName, Typ: vv.Payload}
+	return &ExprAddrOf{Place: place, Typ: vv.Payload}
+}
+
+func (fl *funcLowerer) lowerResultFallback(b *ast.BinaryExpr, en *types.Enum, resTy types.Type) Expr {
+	fl.tc.visit(en)
+	resSlot := fl.allocSlot("_ll_qq", resTy)
+
+	outerTemps := fl.stmtTemps
+	fl.stmtTemps = nil
+	leftVal := fl.lowerExprOwned(b.Left, en)
+	resultSlot := fl.allocSlot("_ll_qq_res", en)
+	fl.assignLocal(resultSlot, leftVal)
+	fl.flushStmtTemps()
+
+	// Then: move the success payload out and leave the result inert.
+	fl.pushInstrBuf()
+	fl.assignLocal(resSlot, resultValueExpr(NewLocalExpr(resultSlot), en))
+	fl.emit(&InstrAssign{Dst: NewLocalExpr(resultSlot), Expr: NewLitZero(en)})
+	thenBuf := fl.popInstrBuf()
+
+	// Else: drop the failure, then evaluate the fallback.
+	fl.pushInstrBuf()
+	fl.emit(&InstrDrop{Var: resultSlot, VarName: resultSlot.CName, Type: en, MovedFlag: resultSlot.MovedFlag})
+	if fl.info(b.Right).Type == types.TypeNever {
+		if len(outerTemps) > 0 {
+			fl.stmtTemps = append([]*Local(nil), outerTemps...)
+		}
+		fl.lowerVoidExpr(b.Right)
+		fl.flushStmtTemps()
+	} else {
+		fl.assignLocal(resSlot, fl.lowerExprOwned(b.Right, resTy))
+		fl.flushStmtTemps()
+	}
+	elseBuf := fl.popInstrBuf()
+	fl.stmtTemps = outerTemps
+
+	fl.emit(NewInstrIf(resultIsValueExpr(NewLocalExpr(resultSlot), en), thenBuf, elseBuf))
+	return NewLocalExpr(resSlot)
 }

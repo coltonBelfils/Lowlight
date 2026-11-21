@@ -63,12 +63,12 @@ bind main = (): {
     assert(dragon_name == "Dragon")
 
     // 3. Generic Result[T] round-trip
-    let ok_res = Result[int].ok(42)
-    let err_res = Result[int].fail(Error.new("offline"))
-    assert(ok_res.is_ok())
-    assert(err_res.is_err())
-    assert(ok_res.unwrap_or(0) == 42)
-    assert(err_res.unwrap_or(-1) == -1)
+    let ok_res! = Result[int].ok(42)
+    let err_res! = Result[int].fail(Error.new("offline"))
+    assert(ok_res!.is_ok())
+    assert(err_res!.is_err())
+    assert(ok_res!.unwrap_or(0) == 42)
+    assert(err_res!.unwrap_or(-1) == -1)
 
     println("generics_and_pool: slot reused at gen=${h_dragon.generation}, occupant=$dragon_name")
 }
