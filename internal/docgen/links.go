@@ -785,6 +785,9 @@ func formatEnumHeader(v *ast.EnumDecl) string {
 	if v.BaseType != nil {
 		base = " " + formatTypeStr(v.BaseType)
 	}
+	if v.IsResult {
+		return fmt.Sprintf("define %s%s result", v.Name, formatTypeParams(v.TypeParams))
+	}
 	return fmt.Sprintf("define %s%s enum%s", v.Name, formatTypeParams(v.TypeParams), base)
 }
 

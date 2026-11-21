@@ -133,7 +133,12 @@ func (s *Server) computeHover(filePath string, src string, pos Position) *Hover 
 		}
 	}
 
-	// 4. Built-in functions, intrinsics, built-in types, keywords & attributes
+	// 4. Contextual keywords (`define Name result [...]`, a result chain's `default panic`)
+	if md := contextualKeywordHover(src, tok); md != "" {
+		return &Hover{Contents: MarkupContent{Kind: "markdown", Value: md}, Range: &rng}
+	}
+
+	// 4b. Built-in functions, intrinsics, built-in types, keywords & attributes
 	if (word == "test" || word == "test_only" || word == "track_caller") && tok.Span.Start.Offset > 0 && src[tok.Span.Start.Offset-1] == '@' {
 		if word == "test" {
 			return &Hover{
@@ -803,6 +808,27 @@ func (s *Server) formatSymbolHover(prog *sema.CheckedProgram, mod *sema.Module, 
 	if sym.IsBind {
 		kw = "bind"
 	}
+	// A parameter hovers as `(name: T)` with its `- `name`: ...` line from the function's doc.
+	if fi, paramDoc := paramOwner(prog, sym); fi != nil {
+		var notes []string
+		switch sym.BindKind {
+		case sema.BindReadBorrow:
+			notes = append(notes, "read-only borrow parameter")
+		case sema.BindMutBorrow:
+			notes = append(notes, "exclusive mutable borrow parameter (`&`)")
+		default:
+			notes = append(notes, "owned parameter")
+		}
+		if ownershipNote != "" {
+			notes = append(notes, ownershipNote)
+		}
+		base := fmt.Sprintf("```lowlight\n(%s: %s)\n```\nParameter of `%s` · %s", sym.Name, tyStr, fi.Name, strings.Join(notes, " · "))
+		fModPath := modPath
+		if fi.Mod != nil && fi.Mod.Path != "" {
+			fModPath = fi.Mod.Path
+		}
+		return appendRenderedDoc(base, s.renderDocMarkdown(prog, fModPath, "", paramDoc, "", 0, false))
+	}
 	modeNote := ""
 	switch sym.BindKind {
 	case sema.BindReadBorrow:
@@ -827,6 +853,22 @@ func (s *Server) formatSymbolHover(prog *sema.CheckedProgram, mod *sema.Module, 
 	showSrc := sym.IsTopLevel
 	rendered := s.renderDocMarkdown(prog, modPath, "", sym.Doc, sym.Span.Start.File, sym.Span.Start.Line, showSrc)
 	return appendRenderedDoc(base, rendered)
+}
+
+// paramOwner returns the function whose parameter `sym` is, with that parameter's documentation
+// (the `- `name`: ...` line of the function's doc comment).
+func paramOwner(prog *sema.CheckedProgram, sym *sema.Symbol) (*sema.FuncInstance, string) {
+	if prog == nil || sym == nil || sym.IsTopLevel {
+		return nil, ""
+	}
+	for _, fi := range prog.Funcs {
+		for _, ps := range fi.ParamSyms {
+			if ps == sym {
+				return fi, parseParamDocs(fi.Doc)[sym.Name]
+			}
+		}
+	}
+	return nil, ""
 }
 
 func (s *Server) formatCallHover(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMaps, call *ast.CallExpr, inf *sema.ExprInfo) string {
@@ -898,6 +940,61 @@ func (s *Server) formatCallHover(prog *sema.CheckedProgram, mod *sema.Module, bm
 	return ""
 }
 
+// contextualKeywordHover documents words that are keywords only in context: `result` after
+// `define Name[...]`, and `panic` in a result chain's `default panic` arm.
+func contextualKeywordHover(src string, tok token.Token) string {
+	before := strings.TrimRight(src[:tok.Span.Start.Offset], " \t")
+	switch tok.Text {
+	case "result":
+		lineStart := strings.LastIndex(before, "\n") + 1
+		if strings.HasPrefix(strings.TrimSpace(before[lineStart:]), "define ") {
+			return "```lowlight\ndefine Name[T] result [\n    value: T,\n    Failure: Payload,\n]\n```\n" +
+				"Declares a **result type**: exactly one `value` member (the success payload) plus one or more failure variants.\n\n" +
+				"- Names holding a result end in `!` (`let cfg! = load(path)`).\n" +
+				"- Handle failures with a result chain (`load(path): when Missing(k): ... default ...`), `??`, or `if (r! as v)`.\n" +
+				"- Construct with bare members where a result is expected: `value(x)`, `Missing(k)`, `Err(e)`."
+		}
+	case "panic":
+		if strings.HasSuffix(before, "default") {
+			return "```lowlight\ndefault panic\n```\nEnds a result chain: every failure no arm handles panics with " +
+				"`unhandled failure Name.Variant` at this line. Use it where those failures are not expected."
+		}
+	case "default":
+		after := strings.TrimLeft(src[tok.Span.End.Offset:], " \t")
+		if strings.HasPrefix(after, "panic") && !strings.HasPrefix(after, "panic(") {
+			return contextualKeywordHover(src, token.Token{Text: "panic", Span: diag.Span{Start: tok.Span.End, End: tok.Span.End}})
+		}
+	}
+	return ""
+}
+
+// resultKindNote describes a result declaration in hovers.
+const resultKindNote = "Result type: `value` is the success member; the rest are failures. " +
+	"Names holding one end in `!`; handle failures with a result chain (`expr: when Failure(x): ... default ...`), " +
+	"`??`, or `if (r! as v)`."
+
+// enumKindWord is the declaration keyword for `en`: `result` or `enum`.
+func enumKindWord(en *types.Enum) string {
+	if en.IsResult {
+		return "result"
+	}
+	return "enum"
+}
+
+// variantKindNote describes one member of a tagged enum or result in hovers.
+func variantKindNote(en *types.Enum, ev *types.EnumVariant) string {
+	switch {
+	case en.IsResult && ev.Name == types.ResultValueName:
+		return fmt.Sprintf("Success member of result `%s`.", en.String())
+	case en.IsResult:
+		return fmt.Sprintf("Failure of result `%s`.", en.String())
+	case ev.Kind == types.VariantTuple:
+		return "Tagged union variant."
+	default:
+		return "Tagged union unit variant."
+	}
+}
+
 func (s *Server) formatEnumVariantHover(prog *sema.CheckedProgram, mod *sema.Module, en *types.Enum, ev *types.EnumVariant) string {
 	if en == nil || ev == nil {
 		return ""
@@ -911,9 +1008,9 @@ func (s *Server) formatEnumVariantHover(prog *sema.CheckedProgram, mod *sema.Mod
 		if ev.Payload != nil {
 			pStr = ev.Payload.String()
 		}
-		base = fmt.Sprintf("```lowlight\n%s.%s(%s)\n```\nTagged union variant.", en.String(), ev.Name, pStr)
+		base = fmt.Sprintf("```lowlight\n%s.%s(%s)\n```\n%s", en.String(), ev.Name, pStr, variantKindNote(en, ev))
 	} else {
-		base = fmt.Sprintf("```lowlight\n%s.%s\n```\nTagged union unit variant.", en.String(), ev.Name)
+		base = fmt.Sprintf("```lowlight\n%s.%s\n```\n%s", en.String(), ev.Name, variantKindNote(en, ev))
 	}
 	modPath := ""
 	if mod != nil {
@@ -992,12 +1089,29 @@ func (s *Server) formatNominalTypeHover(prog *sema.CheckedProgram, mod *sema.Mod
 			modPrefix = "define packed "
 		}
 		lines = append(lines, fmt.Sprintf("%s%s struct [", modPrefix, v.String()))
+		// Unexported (`_`) fields are only visible inside the struct's own package.
+		samePkg := true
+		if prog != nil && mod != nil {
+			if stMod := prog.StructMods[v]; stMod != nil && stMod.Dir != mod.Dir {
+				samePkg = false
+			}
+		}
+		hidden := 0
 		for _, f := range v.Fields {
+			if !samePkg && strings.HasPrefix(f.Name, "_") {
+				hidden++
+				continue
+			}
 			def := ""
 			if f.HasDefault {
 				def = " = ..."
 			}
 			lines = append(lines, fmt.Sprintf("    %s: %s%s,", f.Name, f.Type.String(), def))
+		}
+		if hidden == 1 {
+			lines = append(lines, "    // 1 private field")
+		} else if hidden > 1 {
+			lines = append(lines, fmt.Sprintf("    // %d private fields", hidden))
 		}
 		lines = append(lines, "]")
 		kindNote := "Plain value struct (bitwise copyable)"
@@ -1035,7 +1149,7 @@ func (s *Server) formatNominalTypeHover(prog *sema.CheckedProgram, mod *sema.Mod
 			lines = append(lines, "]")
 			res = fmt.Sprintf("```lowlight\n%s\n```\nPlain tag enum.", strings.Join(lines, "\n"))
 		} else {
-			lines = append(lines, fmt.Sprintf("define %s enum [", v.String()))
+			lines = append(lines, fmt.Sprintf("define %s %s [", v.String(), enumKindWord(v)))
 			for _, ev := range v.Variants {
 				if ev.Kind == types.VariantTuple {
 					pStr := "any"
@@ -1051,6 +1165,9 @@ func (s *Server) formatNominalTypeHover(prog *sema.CheckedProgram, mod *sema.Mod
 			kindNote := "Plain tagged union (bitwise copyable)"
 			if !v.IsPlain() {
 				kindNote = "Resource tagged union (single owner, deterministic drop)"
+			}
+			if v.IsResult {
+				kindNote = resultKindNote
 			}
 			res = fmt.Sprintf("```lowlight\n%s\n```\n%s", strings.Join(lines, "\n"), kindNote)
 		}
@@ -1204,7 +1321,11 @@ func (s *Server) formatEnumDeclHover(prog *sema.CheckedProgram, mod *sema.Module
 		tpStr = "[" + strings.Join(tps, ", ") + "]"
 	}
 	var lines []string
-	lines = append(lines, fmt.Sprintf("define %s%s enum [", decl.Name, tpStr))
+	kind := "enum"
+	if decl.IsResult {
+		kind = "result"
+	}
+	lines = append(lines, fmt.Sprintf("define %s%s %s [", decl.Name, tpStr, kind))
 	for _, v := range decl.Variants {
 		if v.PayloadType != nil {
 			lines = append(lines, fmt.Sprintf("    %s: %s,", v.Name, formatTypeExpr(v.PayloadType)))
@@ -1409,6 +1530,13 @@ func (s *Server) computeImplementation(filePath string, src string, pos Position
 	}
 
 	return locs
+}
+
+// isPlaceholderIdent reports the empty base the parser gives a result chain's bare failure
+// patterns (`when Missing(why):`).
+func isPlaceholderIdent(e ast.Expr) bool {
+	id, ok := e.(*ast.IdentExpr)
+	return ok && id.Name == ""
 }
 
 func definitionSpanFromAST(prog *sema.CheckedProgram, mod *sema.Module, offset int, tok token.Token) diag.Span {
@@ -1665,6 +1793,11 @@ func definitionSpanInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.
 						}
 					}
 				}
+				if vp, ok := pat.(*ast.VariantPattern); ok && spanContainsOffset(vp.Target.GetSpan(), offset) {
+					if sp := definitionSpanInExpr(prog, mod, bm, vp.Target, offset, tok); sp.Start.File != "" {
+						return sp
+					}
+				}
 			}
 			if sp := definitionSpanInExpr(prog, mod, bm, arm.Body, offset, tok); sp.Start.File != "" {
 				return sp
@@ -1708,7 +1841,7 @@ func definitionSpanInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.
 		}
 
 	case *ast.MemberExpr:
-		if spanContainsOffset(v.Base.GetSpan(), offset) {
+		if spanContainsOffset(v.Base.GetSpan(), offset) && !isPlaceholderIdent(v.Base) {
 			return definitionSpanInExpr(prog, mod, bm, v.Base, offset, tok)
 		}
 		inf := exprInfoFromBM(prog, bm, v)
@@ -1762,6 +1895,10 @@ func definitionSpanInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.
 	case *ast.IdentExpr:
 		if inf := exprInfoFromBM(prog, bm, v); inf != nil && inf.Sym != nil && inf.Sym.Span.Start.File != "" {
 			return inf.Sym.Span
+		}
+		// Bare result member (`Forbidden`, or the callee of `value(x)` / `Err(e)`)
+		if inf := exprInfoFromBM(prog, bm, v); inf != nil && inf.EnumType != nil && inf.EnumVariant != nil {
+			return findEnumVariantSpan(prog, inf.EnumType, inf.EnumVariant.Name)
 		}
 
 	case *ast.BinaryExpr:
@@ -2323,7 +2460,7 @@ func (s *Server) makeSigHelpFromFuncInst(prog *sema.CheckedProgram, mod *sema.Mo
 	}
 	lbl := fmt.Sprintf("%s(%s)", fi.Name, strings.Join(pLabels, ", "))
 	if fi.Sig.Ret != nil && !fi.Sig.Ret.Equals(types.TypeVoid) {
-		lbl += ": " + fi.Sig.Ret.String()
+		lbl += " " + fi.Sig.Ret.String() // Lowlight signature style: `(a: int) int`
 	}
 	if active >= len(pInfos) && len(pInfos) > 0 {
 		active = len(pInfos) - 1

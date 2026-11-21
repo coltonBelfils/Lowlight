@@ -780,17 +780,19 @@ func (l *Lexer) scanEscape(inString bool) rune {
 
 // scanString scans a string starting at opening `"`.
 func (l *Lexer) scanString() {
+	start := l.pos()
 	l.advance() // consume opening `"`
-	l.scanStringSegment(true)
+	l.scanStringSegment(true, start)
 }
 
 // scanStringContinuation resumes scanning a string literal immediately after the closing `}` of `${...}`.
 func (l *Lexer) scanStringContinuation() {
-	l.scanStringSegment(false)
+	l.scanStringSegment(false, l.pos())
 }
 
-func (l *Lexer) scanStringSegment(isFirst bool) {
-	segStart := l.pos()
+// scanStringSegment scans up to the closing quote or the next `${`/`$name`. For the first segment,
+// `segStart` is the opening quote, so a plain string literal's span covers the whole `"..."`.
+func (l *Lexer) scanStringSegment(isFirst bool, segStart diag.Pos) {
 	var sb strings.Builder
 
 	for {

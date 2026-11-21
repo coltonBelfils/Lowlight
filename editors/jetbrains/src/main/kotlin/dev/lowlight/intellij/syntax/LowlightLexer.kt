@@ -160,9 +160,17 @@ class LowlightLexer : LexerBase() {
                 tokenType = LowlightTokenTypes.OPTIONAL_IDENT
                 return
             }
+            if (p < endOffset && buffer[p] == '!' && (p + 1 >= endOffset || buffer[p + 1] != '=')) {
+                tokenEnd = p + 1
+                tokenType = LowlightTokenTypes.RESULT_IDENT
+                return
+            }
             tokenEnd = p
             tokenType = when {
                 word in KEYWORDS -> LowlightTokenTypes.KEYWORD
+                word == "result" && precededByDefineName(pos) -> LowlightTokenTypes.KEYWORD
+                word == "default" && isDefaultArm(p) -> LowlightTokenTypes.KEYWORD
+                word == "panic" && isDefaultPanic(pos, p) -> LowlightTokenTypes.KEYWORD
                 word in PRIMITIVES -> LowlightTokenTypes.PRIMITIVE_TYPE
                 word in INTERFACES -> LowlightTokenTypes.INTERFACE_TYPE
                 word in BUILTINS -> LowlightTokenTypes.BUILTIN_FUNC
@@ -265,4 +273,35 @@ class LowlightLexer : LexerBase() {
 
     private fun isIdentStart(ch: Char): Boolean = ch == '_' || ch in 'a'..'z' || ch in 'A'..'Z'
     private fun isIdentPart(ch: Char): Boolean = isIdentStart(ch) || ch in '0'..'9'
+
+    // `result` is a keyword only in `define Name[...] result [...]`.
+    private fun precededByDefineName(pos: Int): Boolean {
+        val lineStart = lastLineStart(pos)
+        val before = buffer.subSequence(lineStart, pos).toString()
+        return Regex("""^\s*define\s+[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\s+$""").matches(before)
+    }
+
+    // `default` starts a terminal `match` / result chain arm: `default:`, `default panic`, `default X(...):`.
+    private fun isDefaultArm(end: Int): Boolean {
+        val lineStart = lastLineStart(end)
+        if (buffer.subSequence(lineStart, end - "default".length).isNotBlank()) return false
+        var p = end
+        while (p < endOffset && (buffer[p] == ' ' || buffer[p] == '\t')) p++
+        return p < endOffset && (buffer[p] == ':' || isIdentStart(buffer[p]))
+    }
+
+    // `panic` in a result chain's `default panic` arm (not a `panic(...)` call).
+    private fun isDefaultPanic(pos: Int, end: Int): Boolean {
+        val before = buffer.subSequence(lastLineStart(pos), pos).toString()
+        if (!Regex("""^\s*default\s+$""").matches(before)) return false
+        var p = end
+        while (p < endOffset && (buffer[p] == ' ' || buffer[p] == '\t')) p++
+        return p >= endOffset || buffer[p] != '('
+    }
+
+    private fun lastLineStart(pos: Int): Int {
+        var p = pos
+        while (p > 0 && buffer[p - 1] != '\n') p--
+        return p
+    }
 }

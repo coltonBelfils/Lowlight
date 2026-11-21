@@ -8,7 +8,8 @@ Complete Neovim IDE support for the Lowlight systems programming language, featu
 - **Go To Definition (`gd`) & Hover (`K`)**.
 - **Rename Symbol (`<leader>rn`)**.
 - **Document Formatting (`<leader>f`)**.
-- **Full Syntax Highlighting** for keywords, types, string interpolation (`$...`), operators (`<-`, `?.`, `??`, `&`), and comments.
+- **Full Syntax Highlighting** for keywords, types, string interpolation (`$...`), operators (`<-`, `?.`, `??`, `&`), comments, `!` result identifiers, `define Name result [...]`, and `default panic`.
+- **Formatter-Matching Indentation**: `indentexpr` reproduces `lowlight fmt` indentation, so `=` re-indents formatted code unchanged and typing indents bodies after `:` headers (`if(x):`, `bind f = () int:`, `else:`, `when X:`, `load(path):`), aligns `else` with its `if`, and returns to the statement level after a single-expression body, `}`, or a chain's `default` arm. Enter inside a `//` comment continues it.
 
 ---
 

@@ -385,14 +385,23 @@ func renderModuleHTMLPage(pg modulePageData, pages []modulePageData, idx *Symbol
 		body.WriteString(`<section id="sec-enums"><h2>Enums</h2>`)
 		for _, eg := range pg.Enums {
 			body.WriteString(`<article class="doc-item">`)
-			renderItemHeader("enum", eg.Type)
+			isResult := strings.HasSuffix(eg.Type.Signature, " result")
+			if isResult {
+				renderItemHeader("result", eg.Type)
+			} else {
+				renderItemHeader("enum", eg.Type)
+			}
 			if eg.Type.Doc != "" {
 				body.WriteString(`<div class="doc-block">`)
 				body.WriteString(RenderDocHTML(eg.Type.Doc, pg.AbsPath, eg.Type.Name, idx))
 				body.WriteString(`</div>`)
 			}
 			if len(eg.Members) > 0 {
-				body.WriteString(`<h4>Variants</h4><ul class="member-list">`)
+				if isResult {
+					body.WriteString(`<h4>Members</h4><ul class="member-list">`)
+				} else {
+					body.WriteString(`<h4>Variants</h4><ul class="member-list">`)
+				}
 				for _, v := range eg.Members {
 					body.WriteString(fmt.Sprintf(`<li id="%s"><code>%s</code> <a class="src-link" href="src/%s.html#L%d">[src]</a>`,
 						htmlEscape(v.Anchor), HighlightLowlightHTML(v.Signature), pg.Slug, v.Line))

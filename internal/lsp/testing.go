@@ -570,7 +570,6 @@ func (s *Server) computeTestCodeActions(filePath string, src string, cursor Rang
 	mod := findModuleForPath(prog, filePath)
 	if mod != nil && mod.File != nil {
 		ind := detectFileIndent(filePath, src)
-		docEnd := OffsetToLSP(src, len(src))
 		for _, d := range mod.File.Decls {
 			switch decl := d.(type) {
 			case *ast.VarDecl:
@@ -592,16 +591,13 @@ func (s *Server) computeTestCodeActions(filePath string, src string, cursor Rang
 				}
 				fnRange := SpanToLSP(src, decl.Span)
 				if rangesOverlap(fnRange, cursor) || cursor.Start.Line == decl.Span.Start.Line-1 {
-					testStub := fmt.Sprintf("\n\n@test(\"%s\")\nbind test_%s = (): {\n%s// TODO: add assertions\n}\n", decl.Name, decl.Name, ind)
+					testStub := fmt.Sprintf("@test(\"%s\")\nbind test_%s = (): {\n%s// TODO: add assertions\n}", decl.Name, decl.Name, ind)
 					actions = append(actions, CodeAction{
 						Title: fmt.Sprintf("Generate @test for '%s'", decl.Name),
 						Kind:  "refactor",
 						Edit: &WorkspaceEdit{
 							Changes: map[string][]TextEdit{
-								uri: {{
-									Range:   Range{Start: docEnd, End: docEnd},
-									NewText: testStub,
-								}},
+								uri: {appendDeclsEdit(src, []string{testStub})},
 							},
 						},
 					})
@@ -611,16 +607,13 @@ func (s *Server) computeTestCodeActions(filePath string, src string, cursor Rang
 				qualName := decl.RecvType + "." + decl.Name
 				fnRange := SpanToLSP(src, decl.Span)
 				if rangesOverlap(fnRange, cursor) || cursor.Start.Line == decl.Span.Start.Line-1 {
-					testStub := fmt.Sprintf("\n\n@test(\"%s\")\nbind test_%s_%s = (): {\n%s// TODO: add assertions\n}\n", qualName, decl.RecvType, decl.Name, ind)
+					testStub := fmt.Sprintf("@test(\"%s\")\nbind test_%s_%s = (): {\n%s// TODO: add assertions\n}", qualName, decl.RecvType, decl.Name, ind)
 					actions = append(actions, CodeAction{
 						Title: fmt.Sprintf("Generate @test for '%s'", qualName),
 						Kind:  "refactor",
 						Edit: &WorkspaceEdit{
 							Changes: map[string][]TextEdit{
-								uri: {{
-									Range:   Range{Start: docEnd, End: docEnd},
-									NewText: testStub,
-								}},
+								uri: {appendDeclsEdit(src, []string{testStub})},
 							},
 						},
 					})

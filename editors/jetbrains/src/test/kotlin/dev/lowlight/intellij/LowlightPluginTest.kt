@@ -5,6 +5,7 @@ import com.intellij.psi.tree.IElementType
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.lowlight.intellij.editor.LowlightBraceMatcher
 import dev.lowlight.intellij.editor.LowlightCommenter
+import dev.lowlight.intellij.editor.LowlightIndenter
 import dev.lowlight.intellij.settings.LowlightSettingsState
 import dev.lowlight.intellij.syntax.LowlightLexer
 import dev.lowlight.intellij.syntax.LowlightTokenTypes
@@ -109,5 +110,69 @@ class LowlightPluginTest : BasePlatformTestCase() {
         val bridges = dev.lowlight.intellij.lsp.LowlightLspBackendBridge.EP_NAME.extensionList
         assertTrue("Expected Native LSP bridge", bridges.any { it.backendId == "native" })
         assertTrue("Expected LSP4IJ bridge", bridges.any { it.backendId == "lsp4ij" })
+    }
+
+    // The Enter indenter reproduces `lowlight fmt` indentation for every line of formatted code.
+    fun testIndenterMatchesFormattedCode() {
+        val src = listOf(
+            "define Lookup result [",
+            "\tvalue: string,",
+            "\tMissing: string,",
+            "]",
+            "",
+            "bind label = (n: int) string:",
+            "\tmatch(n):",
+            "\t\twhen 1: \"one\"",
+            "\t\twhen 2:",
+            "\t\t\t\"two\"",
+            "\t\tdefault: \"many\"",
+            "",
+            "bind use = (k: string) Result[string]: {",
+            "\tlet item = find(k):",
+            "\t\twhen Missing(why): func <- Err(Error.new(why))",
+            "\t\tdefault panic",
+            "\tif(item == \"x\"):",
+            "\t\tprintln(\"x: http://example.com\")",
+            "\telse:",
+            "\t\tprintln(\"other\")",
+            "\tfor(i in 0..3):",
+            "\t\tif(i > 1): {",
+            "\t\t\tprintln(i)",
+            "\t\t} else: println(0)",
+            "\tvalue(item)",
+            "}",
+        )
+        val indenter = LowlightIndenter(src, "\t")
+        for ((i, line) in src.withIndex()) {
+            if (line.isBlank()) continue
+            val want = line.takeWhile { it == '\t' }.length
+            assertEquals("line ${i + 1}: $line", want, indenter.levelFor(i))
+        }
+    }
+
+    // Pressing Enter after a `:` header indents the non-block body.
+    fun testEnterIndentsAfterColonHeader() {
+        myFixture.configureByText("enter.ll", "bind f = (x: int) int:<caret>\n")
+        myFixture.type("\n")
+        myFixture.checkResult("bind f = (x: int) int:\n\t<caret>\n")
+    }
+
+    // `result` after `define Name`, `default panic`, and `name!` identifiers are lexed contextually.
+    fun testLexerRecognizesResultSyntax() {
+        val src = "define Lookup result [\n\tvalue: int,\n]\nbind f = (): {\n\tlet result = 1\n\tlet cfg! = load():\n\t\tdefault panic\n\tif(a!=b): panic(\"x\")\n}\n"
+        val lexer = LowlightLexer()
+        lexer.start(src)
+        val tokens = mutableListOf<Pair<IElementType, String>>()
+        while (lexer.tokenType != null) {
+            tokens.add(lexer.tokenType!! to src.substring(lexer.tokenStart, lexer.tokenEnd))
+            lexer.advance()
+        }
+        assertEquals(1, tokens.count { it.first == LowlightTokenTypes.KEYWORD && it.second == "result" })
+        assertTrue(tokens.any { it.first == LowlightTokenTypes.IDENTIFIER && it.second == "result" })
+        assertTrue(tokens.any { it.first == LowlightTokenTypes.RESULT_IDENT && it.second == "cfg!" })
+        assertTrue(tokens.any { it.first == LowlightTokenTypes.KEYWORD && it.second == "default" })
+        assertTrue(tokens.any { it.first == LowlightTokenTypes.KEYWORD && it.second == "panic" })
+        assertTrue(tokens.any { it.first == LowlightTokenTypes.BUILTIN_FUNC && it.second == "panic" })
+        assertTrue(tokens.any { it.first == LowlightTokenTypes.IDENTIFIER && it.second == "a" })
     }
 }

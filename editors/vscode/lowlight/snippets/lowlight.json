@@ -2,119 +2,169 @@
   "Main Entry Point": {
     "prefix": "main",
     "body": [
-      "bind main = () void: {",
+      "bind main = (): {",
       "\t$0",
       "}"
     ],
-    "description": "Define the Lowlight main entry point"
+    "description": "Program entry point"
   },
   "Function Binding": {
     "prefix": "fn",
     "body": [
-      "bind ${1:name} = (${2:params}) ${3:int}: {",
+      "bind ${1:name} = (${2:x: int}) ${3:int}: {",
       "\t$0",
       "}"
     ],
-    "description": "Define a top-level Lowlight function"
+    "description": "Top-level function with a block body"
+  },
+  "Expression Function": {
+    "prefix": "fne",
+    "body": [
+      "bind ${1:name} = (${2:x: int}) ${3:int}: ${0:x}"
+    ],
+    "description": "Top-level single-expression function"
   },
   "Method Binding": {
     "prefix": "meth",
     "body": [
-      "bind ${1:Type}.${2:method} = (${3:self}) ${4:void}: {",
+      "bind ${1:Type}.${2:method} = (${3:self}) ${4:int}: {",
       "\t$0",
       "}"
     ],
-    "description": "Define a method on a nominal type"
+    "description": "Method on a type (`&self` mutates, `own self` consumes)"
   },
   "Struct Definition": {
     "prefix": "struct",
     "body": [
       "define ${1:Name} struct [",
-      "\t${2:field}: ${3:int},",
+      "\t${2:x}: ${3:int},",
+      "\t${4:y}: ${5:int},",
       "]"
     ],
-    "description": "Define a value struct"
+    "description": "Value struct"
   },
   "Enum Definition": {
     "prefix": "enum",
     "body": [
       "define ${1:Status} enum [",
-      "\t${2:Ok},",
-      "\t${3:Err},",
+      "\t${2:Active},",
+      "\t${3:Stopped},",
       "]"
     ],
-    "description": "Define a strongly-typed enum"
+    "description": "Tag enum"
+  },
+  "Result Definition": {
+    "prefix": "result",
+    "body": [
+      "define ${1:Lookup} result [",
+      "\tvalue: ${2:string},",
+      "\t${3:Missing}: ${4:string},",
+      "\t${5:Forbidden},",
+      "]"
+    ],
+    "description": "Result type: one `value` member plus failure variants"
   },
   "Interface Definition": {
     "prefix": "interface",
     "body": [
       "define ${1:Name} interface [",
-      "\t${2:method}: (self) ${3:string},",
+      "\t${2:method}: (self) ${3:string}",
       "]"
     ],
-    "description": "Define an interface"
+    "description": "Structural interface"
   },
-  "If Single Expression": {
+  "If Else Expression": {
     "prefix": "if",
     "body": [
-      "if(${1:cond}) $0"
+      "if(${1:cond}): ${2:a} else: ${0:b}"
     ],
-    "description": "Canonical single-expression if expression (no braces)"
+    "description": "Single-expression conditional"
   },
   "Optional Narrowing If": {
     "prefix": "if?",
     "body": [
-      "if(${1:opt}?) {",
+      "if(${1:opt}?): {",
       "\t$0",
       "}"
     ],
-    "description": "Unwrap an optional variable `opt?` to non-optional `opt`"
+    "description": "Narrow `opt?` to `opt` inside the branch"
+  },
+  "If As Binding": {
+    "prefix": "ifas",
+    "body": [
+      "if(${1:expr} as ${2:v}): ${3:v} else: ${0:fallback}"
+    ],
+    "description": "Bind an optional's value or a result's success value"
   },
   "For Range Loop": {
     "prefix": "forr",
     "body": [
-      "for(${1:i} in ${2:0}..${3:n}) {",
+      "for(${1:i} in ${2:0}..${3:n}): {",
       "\t$0",
       "}"
     ],
-    "description": "Iterate over a half-open integer range"
+    "description": "Loop over a range"
   },
   "For Collection Loop": {
     "prefix": "forin",
     "body": [
-      "for(${1:item} in ${2:items}) {",
+      "for(${1:item} in ${2:items}): {",
       "\t$0",
       "}"
     ],
-    "description": "Iterate over a collection"
+    "description": "Loop over a collection"
   },
   "While Loop": {
     "prefix": "while",
     "body": [
-      "while(${1:cond}) {",
+      "while(${1:cond}): {",
       "\t$0",
       "}"
     ],
-    "description": "While loop"
+    "description": "Conditional loop"
   },
   "Match Expression": {
     "prefix": "match",
     "body": [
-      "match(${1:value})",
-      "when ${2:pattern}: $3",
-      "else: $0"
+      "match(${1:value}):",
+      "\twhen ${2:pattern}: ${3:expr}",
+      "\tdefault: ${0:expr}"
     ],
-    "description": "Exhaustive match expression with canonical single-expression arms"
+    "description": "Exhaustive match ending in `default`"
+  },
+  "Result Chain": {
+    "prefix": "chain",
+    "body": [
+      "${1:load()}:",
+      "\tdefault Err(${2:e}): func <- Err($2.wrap(\"${3:context}\"))"
+    ],
+    "description": "Evaluate to the value; propagate `Err` with context"
+  },
+  "Result Chain When": {
+    "prefix": "chainw",
+    "body": [
+      "${1:find(key)}:",
+      "\twhen ${2:Missing}(${3:_}): ${4:fallback}",
+      "\tdefault panic"
+    ],
+    "description": "Handle listed failures; panic on the rest"
+  },
+  "Unwrap Result": {
+    "prefix": "unwrap",
+    "body": [
+      "${1:load()}: default panic"
+    ],
+    "description": "Evaluate to the value; panic on any failure"
   },
   "Test Function": {
     "prefix": "test",
     "body": [
-      "@test",
-      "bind test_${1:name} = () void: {",
-      "\tassert(${2:true})",
+      "@test(\"${1:description}\")",
+      "bind test_${2:name} = (): {",
+      "\t$0",
       "}"
     ],
-    "description": "Define a unit test function"
+    "description": "Unit test run by `lowlight test`"
   },
   "Unsafe Block": {
     "prefix": "unsafe",
@@ -123,6 +173,6 @@
       "\t$0",
       "}"
     ],
-    "description": "Unsafe raw pointer / extern C block"
+    "description": "Block allowing raw pointer operations"
   }
 }

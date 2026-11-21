@@ -19,6 +19,7 @@ object LowlightTokenTypes {
     val BUILTIN_FUNC = LowlightTokenType("BUILTIN_FUNC")
     val ATTRIBUTE = LowlightTokenType("ATTRIBUTE")
     val OPTIONAL_IDENT = LowlightTokenType("OPTIONAL_IDENT")
+    val RESULT_IDENT = LowlightTokenType("RESULT_IDENT")
     val IDENTIFIER = LowlightTokenType("IDENTIFIER")
 
     val STRING = LowlightTokenType("STRING")

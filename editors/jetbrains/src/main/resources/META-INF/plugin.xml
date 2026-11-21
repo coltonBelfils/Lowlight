@@ -39,7 +39,10 @@
             language="Lowlight"
             implementationClass="dev.lowlight.intellij.editor.LowlightBraceMatcher"/>
         <quoteHandler
+            fileType="Lowlight"
             className="dev.lowlight.intellij.editor.LowlightQuoteHandler"/>
+        <enterHandlerDelegate
+            implementation="dev.lowlight.intellij.editor.LowlightEnterHandler"/>
         <langCodeStyleSettingsProvider
             implementation="dev.lowlight.intellij.editor.LowlightCodeStyleSettingsProvider"/>
 

@@ -41,6 +41,141 @@ func detectFileIndent(filePath, src string) string {
 	return "\t"
 }
 
+// formatOptionsForIndent returns formatter options whose indentation matches `ind` (one level of
+// the file's detected indentation).
+func formatOptionsForIndent(ind string) format.Options {
+	opts := format.DefaultOptions()
+	if ind != "" && ind[0] == ' ' {
+		opts.IndentStyle = "spaces"
+		opts.TabWidth = len(ind)
+	}
+	return opts
+}
+
+// formatGeneratedDecl runs generated top-level source through the formatter so code actions emit
+// exactly what `lowlight fmt` would (line wrapping, trailing commas, spacing). Source that does
+// not parse on its own is returned unchanged.
+func formatGeneratedDecl(text, ind string) string {
+	out, err := format.Format("generated.ll", text+"\n", formatOptionsForIndent(ind))
+	if err != nil {
+		return text
+	}
+	return strings.TrimRight(out, "\n")
+}
+
+// wrapBodyInBlockTitle names the one action whose output is intentionally not formatter-stable:
+// it opens a `{ ... }` block for the user to add statements to.
+const wrapBodyInBlockTitle = "Wrap body in '{ ... }' block"
+
+// isTopLevelStart reports whether `line` begins a top-level declaration (or its doc comment or
+// attributes) at column 0.
+func isTopLevelStart(line string) bool {
+	for _, p := range []string{"bind ", "define ", "let ", "import ", "extern ", "@", "//"} {
+		if strings.HasPrefix(line, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// declRegion expands the byte range [lo, hi) of src to whole top-level declarations: from the
+// first line of the declaration block containing `lo` (including its doc comments and
+// attributes) to the end of the declaration containing `hi`.
+func declRegion(src string, lo, hi int) (int, int) {
+	lines := strings.Split(src, "\n")
+	starts := make([]int, len(lines)+1)
+	for i, l := range lines {
+		starts[i+1] = starts[i] + len(l) + 1
+	}
+	lineOf := func(off int) int {
+		for i := 0; i < len(lines); i++ {
+			if off < starts[i+1] {
+				return i
+			}
+		}
+		return len(lines) - 1
+	}
+	first, last := lineOf(lo), lineOf(hi)
+	for first > 0 && !(isTopLevelStart(lines[first]) && strings.TrimSpace(lines[first-1]) == "") {
+		first--
+	}
+	for last+1 < len(lines) && !(strings.TrimSpace(lines[last]) == "" && isTopLevelStart(lines[last+1])) {
+		last++
+	}
+	for last > first && strings.TrimSpace(lines[last]) == "" {
+		last--
+	}
+	end := starts[last] + len(lines[last])
+	if end > len(src) {
+		end = len(src)
+	}
+	return starts[first], end
+}
+
+// formatActionEdits keeps formatted code formatted: when every declaration an action edits was
+// already formatter-stable, the edited declarations are re-formatted and the action's edits are
+// replaced by a single edit producing exactly what `lowlight fmt` would. Actions on code that was
+// not formatted, or whose result does not parse, are left as generated.
+func formatActionEdits(uri, src, ind string, act *CodeAction) {
+	if act.Edit == nil || len(act.Edit.Changes[uri]) == 0 || len(act.Edit.Changes) != 1 {
+		return
+	}
+	edits := act.Edit.Changes[uri]
+	lo, hi := len(src), 0
+	delta := 0
+	for _, e := range edits {
+		a, b := LSPToOffset(src, e.Range.Start), LSPToOffset(src, e.Range.End)
+		if a < lo {
+			lo = a
+		}
+		if b > hi {
+			hi = b
+		}
+		delta += len(e.NewText) - (b - a)
+	}
+	if hi < lo {
+		hi = lo
+	}
+	rs, re := declRegion(src, lo, hi)
+	opts := formatOptionsForIndent(ind)
+	orig := src[rs:re]
+	if f, err := format.Format("region.ll", orig+"\n", opts); err != nil || strings.TrimRight(f, "\n") != orig {
+		return // not formatted before the action: don't reformat the user's code
+	}
+	newSrc := applyEditsToSource(src, edits)
+	newRegion := newSrc[rs : re+delta]
+	f, err := format.Format("region.ll", newRegion+"\n", opts)
+	if err != nil {
+		return
+	}
+	formatted := strings.TrimRight(f, "\n")
+	if formatted == newRegion {
+		return
+	}
+	act.Edit.Changes[uri] = []TextEdit{{
+		Range:   Range{Start: OffsetToLSP(src, rs), End: OffsetToLSP(src, re)},
+		NewText: formatted,
+	}}
+}
+
+// applyEditsToSource applies non-overlapping LSP edits to src.
+func applyEditsToSource(src string, edits []TextEdit) string {
+	type span struct {
+		a, b int
+		text string
+	}
+	spans := make([]span, 0, len(edits))
+	for _, e := range edits {
+		spans = append(spans, span{LSPToOffset(src, e.Range.Start), LSPToOffset(src, e.Range.End), e.NewText})
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i].a > spans[j].a })
+	out := src
+	for _, sp := range spans {
+		out = out[:sp.a] + sp.text + out[sp.b:]
+	}
+	return out
+}
+
 func (s *Server) computeCodeActions(filePath string, src string, params CodeActionParams) []CodeAction {
 	uri := PathToURI(filePath)
 	diags := params.Context.Diagnostics
@@ -77,6 +212,13 @@ func (s *Server) computeCodeActions(filePath string, src string, params CodeActi
 
 	for _, tAct := range s.computeTestCodeActions(filePath, src, params.Range) {
 		addAction(tAct)
+	}
+
+	for i := range actions {
+		if actions[i].Title == wrapBodyInBlockTitle {
+			continue // the formatter would collapse the new single-expression block straight back
+		}
+		formatActionEdits(uri, src, ind, &actions[i])
 	}
 
 	if len(params.Context.Only) > 0 {
@@ -178,42 +320,44 @@ func (s *Server) collectDiagnosticQuickFixes(
 		})
 	}
 
-	// 4. Optional identifier missing `?` suffix
+	// 4–5. Optional (`?`) and result (`!`) naming invariants: rename the declaration and every use.
+	suffixFix := func(name, newName, title string) {
+		editRng, ok := findWordRangeInSpan(src, d.Range, name)
+		if !ok {
+			return
+		}
+		we, err := s.renameSymbol(filePath, src, editRng.Start, newName, false)
+		if err != nil || we == nil || len(we.Changes) == 0 {
+			we = &WorkspaceEdit{Changes: map[string][]TextEdit{uri: {{Range: editRng, NewText: newName}}}}
+		}
+		addAction(CodeAction{
+			Title:       title,
+			Kind:        "quickfix",
+			Diagnostics: []Diagnostic{d},
+			IsPreferred: true,
+			Edit:        we,
+		})
+	}
 	if strings.Contains(msg, "has optional type") && strings.Contains(msg, "must end with `?`") {
 		if name := extractQuotedWord(msg); name != "" {
-			if editRng, ok := findWordRangeInSpan(src, d.Range, name); ok {
-				addAction(CodeAction{
-					Title:       fmt.Sprintf("Rename '%s' to '%s?'", name, name),
-					Kind:        "quickfix",
-					Diagnostics: []Diagnostic{d},
-					IsPreferred: true,
-					Edit: &WorkspaceEdit{
-						Changes: map[string][]TextEdit{
-							uri: {{Range: editRng, NewText: name + "?"}},
-						},
-					},
-				})
-			}
+			suffixFix(name, name+"?", fmt.Sprintf("Rename '%s' to '%s?'", name, name))
 		}
 	}
-
-	// 5. Non-optional identifier ending with `?`
 	if strings.Contains(msg, "ends with `?` but has non-optional type") {
 		if optName := extractQuotedWord(msg); strings.HasSuffix(optName, "?") {
 			plain := strings.TrimSuffix(optName, "?")
-			if editRng, ok := findWordRangeInSpan(src, d.Range, optName); ok {
-				addAction(CodeAction{
-					Title:       fmt.Sprintf("Rename '%s' to '%s' (remove '?')", optName, plain),
-					Kind:        "quickfix",
-					Diagnostics: []Diagnostic{d},
-					IsPreferred: true,
-					Edit: &WorkspaceEdit{
-						Changes: map[string][]TextEdit{
-							uri: {{Range: editRng, NewText: plain}},
-						},
-					},
-				})
-			}
+			suffixFix(optName, plain, fmt.Sprintf("Rename '%s' to '%s' (remove '?')", optName, plain))
+		}
+	}
+	if strings.Contains(msg, "has result type") && strings.Contains(msg, "must end with `!`") {
+		if name := extractQuotedWord(msg); name != "" {
+			suffixFix(name, name+"!", fmt.Sprintf("Rename '%s' to '%s!'", name, name))
+		}
+	}
+	if strings.Contains(msg, "ends with `!` but has non-result type") {
+		if resName := extractQuotedWord(msg); strings.HasSuffix(resName, "!") {
+			plain := strings.TrimSuffix(resName, "!")
+			suffixFix(resName, plain, fmt.Sprintf("Rename '%s' to '%s' (remove '!')", resName, plain))
 		}
 	}
 
@@ -382,94 +526,27 @@ func (s *Server) collectMatchQuickFixes(
 
 	if strings.Contains(msg, "non-exhaustive `match` on enum") && strings.Contains(msg, "missing variant(s):") {
 		missingIdx := strings.Index(msg, "missing variant(s):")
-		if missingIdx >= 0 {
-			rawMissing := strings.TrimSpace(msg[missingIdx+len("missing variant(s):"):])
-			if nl := strings.IndexByte(rawMissing, '\n'); nl >= 0 {
-				rawMissing = strings.TrimSpace(rawMissing[:nl])
+		rawMissing := strings.TrimSpace(msg[missingIdx+len("missing variant(s):"):])
+		if nl := strings.IndexByte(rawMissing, '\n'); nl >= 0 {
+			rawMissing = strings.TrimSpace(rawMissing[:nl])
+		}
+		me := findMatchExprAt(prog, LSPToOffset(src, d.Range.Start))
+		var whenArms []string
+		for _, vn := range strings.Split(rawMissing, ", ") {
+			if vn = strings.TrimSpace(vn); vn == "" {
+				continue
 			}
-			variantNames := strings.Split(rawMissing, ", ")
-			if len(variantNames) > 0 {
-				indent := getLineIndent(src, d.Range.Start.Line)
-				armIndent := indent + ind
-				insertPos, hasExistingElse := findMatchInsertionPoint(src, d.Range)
-
-				var whenArms []string
-				for _, vn := range variantNames {
-					vn = strings.TrimSpace(vn)
-					if vn != "" {
-						whenArms = append(whenArms, formatVariantPatternForMatch(prog, mod, vn))
-					}
-				}
-
-				if len(whenArms) > 0 {
-					if hasExistingElse {
-						var sb strings.Builder
-						for _, pat := range whenArms {
-							sb.WriteString(armIndent)
-							sb.WriteString("when ")
-							sb.WriteString(pat)
-							sb.WriteString(": panic(\"todo\")\n")
-						}
-						addAction(CodeAction{
-							Title:       "Generate missing match arms",
-							Kind:        "quickfix",
-							Diagnostics: []Diagnostic{d},
-							IsPreferred: true,
-							Edit: &WorkspaceEdit{
-								Changes: map[string][]TextEdit{
-									uri: {{Range: Range{Start: insertPos, End: insertPos}, NewText: sb.String()}},
-								},
-							},
-						})
-					} else {
-						var sbExhaustive strings.Builder
-						for i, pat := range whenArms {
-							sbExhaustive.WriteString("\n")
-							sbExhaustive.WriteString(armIndent)
-							if i == len(whenArms)-1 {
-								sbExhaustive.WriteString("default ")
-							} else {
-								sbExhaustive.WriteString("when ")
-							}
-							sbExhaustive.WriteString(pat)
-							sbExhaustive.WriteString(": panic(\"todo\")")
-						}
-						addAction(CodeAction{
-							Title:       "Generate missing match arms (exhaustive 'default Pattern')",
-							Kind:        "quickfix",
-							Diagnostics: []Diagnostic{d},
-							IsPreferred: true,
-							Edit: &WorkspaceEdit{
-								Changes: map[string][]TextEdit{
-									uri: {{Range: Range{Start: insertPos, End: insertPos}, NewText: sbExhaustive.String()}},
-								},
-							},
-						})
-
-						var sbFallback strings.Builder
-						for _, pat := range whenArms {
-							sbFallback.WriteString("\n")
-							sbFallback.WriteString(armIndent)
-							sbFallback.WriteString("when ")
-							sbFallback.WriteString(pat)
-							sbFallback.WriteString(": panic(\"todo\")")
-						}
-						sbFallback.WriteString("\n")
-						sbFallback.WriteString(armIndent)
-						sbFallback.WriteString("default: panic(\"todo\")")
-						addAction(CodeAction{
-							Title:       "Generate missing match arms (with fallback 'default:')",
-							Kind:        "quickfix",
-							Diagnostics: []Diagnostic{d},
-							Edit: &WorkspaceEdit{
-								Changes: map[string][]TextEdit{
-									uri: {{Range: Range{Start: insertPos, End: insertPos}, NewText: sbFallback.String()}},
-								},
-							},
-						})
-					}
+			pat := formatVariantPatternForMatch(prog, mod, vn)
+			if me != nil && me.ResultChain {
+				// Result chain arms name failures bare: `Expired(n)`, not `Lookup.Expired(n)`.
+				if dot := strings.Index(pat, "."); dot >= 0 && !strings.Contains(pat[:dot], "(") {
+					pat = pat[dot+1:]
 				}
 			}
+			whenArms = append(whenArms, pat)
+		}
+		if len(whenArms) > 0 {
+			s.addMissingArmActions(uri, src, ind, me, d, whenArms, addAction)
 		}
 	}
 
@@ -508,6 +585,114 @@ func (s *Server) collectMatchQuickFixes(
 			},
 		})
 	}
+}
+
+// findMatchExprAt returns the innermost checked `match` or result chain containing offset.
+func findMatchExprAt(prog *sema.CheckedProgram, offset int) *ast.MatchExpr {
+	if prog == nil {
+		return nil
+	}
+	var best *ast.MatchExpr
+	consider := func(bm *sema.BodyMaps) {
+		if bm == nil {
+			return
+		}
+		for e := range bm.ExprInfos {
+			me, ok := e.(*ast.MatchExpr)
+			if !ok || !spanContainsOffset(me.Span, offset) {
+				continue
+			}
+			if best == nil || me.Span.Start.Offset >= best.Span.Start.Offset {
+				best = me
+			}
+		}
+	}
+	for _, fi := range prog.Funcs {
+		consider(fi.BodyMaps)
+	}
+	for _, li := range prog.Lambdas {
+		consider(li.BodyMaps)
+	}
+	return best
+}
+
+// addMissingArmActions offers to complete a non-exhaustive `match` or result chain with `when`
+// arms for `missing` patterns. When the last arm is an exhaustive `default Pattern:`, it becomes
+// a `when` arm so the new last pattern can take `default`. An open `default:` arm stays last.
+func (s *Server) addMissingArmActions(uri, src, ind string, me *ast.MatchExpr, d Diagnostic, missing []string, addAction func(CodeAction)) {
+	var last *ast.MatchArm
+	if me != nil {
+		for i := range me.Arms {
+			if !me.Arms[i].Synthetic {
+				last = &me.Arms[i]
+			}
+		}
+	}
+	armIndent := getLineIndent(src, d.Range.Start.Line) + ind
+	if last != nil {
+		armIndent = getLineIndent(src, OffsetToLSP(src, last.Span.Start.Offset).Line)
+	}
+	arm := func(kw, pat string) string { return armIndent + kw + pat + ": panic(\"todo\")" }
+
+	// An open catch-all `default:` keeps its place; the new arms go before it.
+	if last != nil && last.IsDefault && len(last.Cases) == 0 {
+		lineStart := OffsetToLSP(src, last.Span.Start.Offset)
+		lineStart.Character = 0
+		var sb strings.Builder
+		for _, pat := range missing {
+			sb.WriteString(arm("when ", pat) + "\n")
+		}
+		addAction(CodeAction{
+			Title: "Generate missing match arms", Kind: "quickfix", Diagnostics: []Diagnostic{d}, IsPreferred: true,
+			Edit: &WorkspaceEdit{Changes: map[string][]TextEdit{uri: {{Range: Range{Start: lineStart, End: lineStart}, NewText: sb.String()}}}},
+		})
+		return
+	}
+
+	// Replace the existing last arm (demoting an exhaustive `default Pattern:` to `when`) and append.
+	var rng Range
+	prefix := ""
+	if last != nil {
+		rng = Range{Start: OffsetToLSP(src, last.Span.Start.Offset), End: OffsetToLSP(src, last.Span.End.Offset)}
+		prefix = src[last.Span.Start.Offset:last.Span.End.Offset]
+		if last.IsDefault {
+			prefix = "when" + strings.TrimPrefix(prefix, "default")
+		}
+	} else {
+		insertPos, _ := findMatchInsertionPoint(src, d.Range)
+		rng = Range{Start: insertPos, End: insertPos}
+	}
+	build := func(fallback bool) string {
+		var parts []string
+		if prefix != "" {
+			parts = append(parts, prefix)
+		}
+		for i, pat := range missing {
+			if i == len(missing)-1 && !fallback {
+				parts = append(parts, arm("default ", pat))
+			} else {
+				parts = append(parts, arm("when ", pat))
+			}
+		}
+		if fallback {
+			parts = append(parts, armIndent+"default: panic(\"todo\")")
+		}
+		text := strings.Join(parts, "\n")
+		if prefix == "" {
+			return "\n" + text // appended after the match header
+		}
+		return text // replaces the old last arm in place, which keeps its line's indentation
+	}
+	exhaustive := build(false)
+	fallback := build(true)
+	addAction(CodeAction{
+		Title: "Generate missing match arms (exhaustive 'default Pattern')", Kind: "quickfix", Diagnostics: []Diagnostic{d}, IsPreferred: true,
+		Edit: &WorkspaceEdit{Changes: map[string][]TextEdit{uri: {{Range: rng, NewText: exhaustive}}}},
+	})
+	addAction(CodeAction{
+		Title: "Generate missing match arms (with fallback 'default:')", Kind: "quickfix", Diagnostics: []Diagnostic{d},
+		Edit: &WorkspaceEdit{Changes: map[string][]TextEdit{uri: {{Range: rng, NewText: fallback}}}},
+	})
 }
 
 func (s *Server) collectAutoImportQuickFixes(
@@ -1049,45 +1234,72 @@ func substSelfTypeString(t types.Type, typeName string) string {
 	}
 }
 
-func typeDeclInsertionPoint(src string, mod *sema.Module, typeName string) Position {
+// typeDeclEndLine returns the last (1-based) line of `typeName`'s declaration or of its last
+// method, whichever comes later, or 0 when the type is not declared in `mod`.
+func typeDeclEndLine(mod *sema.Module, typeName string) int {
 	if mod == nil || mod.File == nil {
-		return OffsetToLSP(src, len(src))
+		return 0
 	}
-	lastLine := -1
+	lastLine := 0
 	for _, d := range mod.File.Decls {
+		end := 0
 		switch decl := d.(type) {
 		case *ast.StructDecl:
-			if decl.Name == typeName && decl.Span.End.Line > lastLine {
-				lastLine = decl.Span.End.Line
+			if decl.Name == typeName {
+				end = decl.Span.End.Line
 			}
 		case *ast.EnumDecl:
-			if decl.Name == typeName && decl.Span.End.Line > lastLine {
-				lastLine = decl.Span.End.Line
+			if decl.Name == typeName {
+				end = decl.Span.End.Line
 			}
 		case *ast.DistinctTypeDecl:
-			if decl.Name == typeName && decl.Span.End.Line > lastLine {
-				lastLine = decl.Span.End.Line
+			if decl.Name == typeName {
+				end = decl.Span.End.Line
 			}
 		case *ast.MethodDecl:
-			if decl.RecvType == typeName && decl.Span.End.Line > lastLine {
-				lastLine = decl.Span.End.Line
+			if decl.RecvType == typeName {
+				end = decl.Span.End.Line
 			}
 		}
-	}
-	if lastLine > 0 {
-		lines := strings.Split(src, "\n")
-		if lastLine <= len(lines) {
-			off := 0
-			for i := 0; i < lastLine; i++ {
-				off += len(lines[i])
-				if i < len(lines)-1 {
-					off++
-				}
-			}
-			return OffsetToLSP(src, off)
+		if end > lastLine {
+			lastLine = end
 		}
 	}
-	return OffsetToLSP(src, len(src))
+	return lastLine
+}
+
+// insertDeclsAfterLineEdit inserts top-level declarations after (1-based) line `line`, separated
+// from their neighbors and from each other by exactly one blank line, as the formatter lays out
+// top-level declarations. A `line` of 0 or past the end appends at the end of the file.
+func insertDeclsAfterLineEdit(src string, line int, decls []string) TextEdit {
+	lines := strings.Split(src, "\n")
+	if line <= 0 || line >= len(lines) {
+		return appendDeclsEdit(src, decls)
+	}
+	off := 0
+	for i := 0; i < line; i++ {
+		off += len(lines[i]) + 1
+	}
+	off-- // end of `line`, before its newline
+	text := "\n\n" + strings.Join(decls, "\n\n")
+	if after := src[off:]; !strings.HasPrefix(after, "\n\n") && strings.TrimSpace(after) != "" {
+		text += "\n"
+	}
+	pos := OffsetToLSP(src, off)
+	return TextEdit{Range: Range{Start: pos, End: pos}, NewText: text}
+}
+
+// appendDeclsEdit appends top-level declarations at the end of the file after one blank line,
+// normalizing trailing whitespace so the file ends in a single newline.
+func appendDeclsEdit(src string, decls []string) TextEdit {
+	trimmed := strings.TrimRight(src, " \t\r\n")
+	start := OffsetToLSP(src, len(trimmed))
+	end := OffsetToLSP(src, len(src))
+	text := strings.Join(decls, "\n\n") + "\n"
+	if trimmed != "" {
+		text = "\n\n" + text
+	}
+	return TextEdit{Range: Range{Start: start, End: end}, NewText: text}
 }
 
 func buildImplementInterfaceAction(
@@ -1130,18 +1342,12 @@ func buildImplementInterfaceAction(
 		return CodeAction{}, false
 	}
 
-	insPos := typeDeclInsertionPoint(src, mod, typeName)
-	text := "\n\n" + strings.Join(stubs, "\n\n")
-	if insPos.Line == 0 && insPos.Character == 0 {
-		text = strings.Join(stubs, "\n\n") + "\n"
-	}
-
 	act := CodeAction{
 		Title: fmt.Sprintf("Implement %s for %s", ifc.Name, typeName),
 		Kind:  "quickfix",
 		Edit: &WorkspaceEdit{
 			Changes: map[string][]TextEdit{
-				uri: {{Range: Range{Start: insPos, End: insPos}, NewText: text}},
+				uri: {insertDeclsAfterLineEdit(src, typeDeclEndLine(mod, typeName), stubs)},
 			},
 		},
 	}
@@ -1187,29 +1393,15 @@ func buildStructConstructorAction(
 		}
 	}
 
-	var stub string
-	oneLine := fmt.Sprintf("bind %s.new = (%s) %s: %s[%s]", decl.Name, strings.Join(paramStrs, ", "), decl.Name, decl.Name, strings.Join(fieldInits, ", "))
-	if len(paramStrs) <= 2 && len(oneLine) <= 100 {
-		stub = "\n\n" + oneLine
-	} else {
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("\n\nbind %s.new = (%s) %s:\n", decl.Name, strings.Join(paramStrs, ", "), decl.Name))
-		sb.WriteString(ind + decl.Name + "[\n")
-		for _, fi := range fieldInits {
-			sb.WriteString(ind + ind + fi + ",\n")
-		}
-		sb.WriteString(ind + "]")
-		stub = sb.String()
-	}
+	stub := formatGeneratedDecl(fmt.Sprintf("bind %s.new = (%s) %s: %s[%s]", decl.Name, strings.Join(paramStrs, ", "), decl.Name, decl.Name, strings.Join(fieldInits, ", ")), ind)
 	_ = prog
 
-	insPos := typeDeclInsertionPoint(src, mod, decl.Name)
 	return CodeAction{
 		Title: fmt.Sprintf("Generate constructor '%s.new'", decl.Name),
 		Kind:  "refactor.rewrite",
 		Edit: &WorkspaceEdit{
 			Changes: map[string][]TextEdit{
-				uri: {{Range: Range{Start: insPos, End: insPos}, NewText: stub}},
+				uri: {insertDeclsAfterLineEdit(src, typeDeclEndLine(mod, decl.Name), []string{stub})},
 			},
 		},
 	}, true
@@ -1662,7 +1854,7 @@ func (s *Server) tryToggleBlockBracesAction(uri, src, ind string, body ast.Expr,
 			wrapped := fmt.Sprintf("{\n%s%s%s\n%s}", lineInd, ind, strings.ReplaceAll(bodyTxt, "\n", "\n"+ind), lineInd)
 			_ = parentKind
 			addAction(CodeAction{
-				Title: "Wrap body in '{ ... }' block",
+				Title: wrapBodyInBlockTitle,
 				Kind:  "refactor.rewrite",
 				Edit: &WorkspaceEdit{
 					Changes: map[string][]TextEdit{
@@ -2174,14 +2366,18 @@ func (s *Server) tryExtractFunctionAction(
 		}
 	} else {
 		// Check if extracting statements that don't overlap cleanly at all -> require clean AST expression or statement boundary match
-		validBoundary := false
+		// The selection must cover whole statements: start where one begins and end where one ends.
+		startsOK, endsOK := false, false
+		trimmedEnd := selStart + len(strings.TrimRight(src[selStart:selEnd], " \t\r\n"))
 		for _, st := range blk.Stmts {
 			if st.GetSpan().Start.Offset == selStart {
-				validBoundary = true
-				break
+				startsOK = true
+			}
+			if startsOK && st.GetSpan().End.Offset == trimmedEnd {
+				endsOK = true
 			}
 		}
-		if !validBoundary {
+		if !startsOK || !endsOK {
 			return
 		}
 	}
@@ -2222,6 +2418,14 @@ func (s *Server) tryExtractFunctionAction(
 		fnStub = fmt.Sprintf("\n\nbind extracted_fn = (%s)%s: %s", strings.Join(sigParams, ", "), retSuffix, strings.TrimSpace(selectedText))
 	} else {
 		fnStub = fmt.Sprintf("\n\nbind extracted_fn = (%s)%s: {\n%s\n}", strings.Join(sigParams, ", "), retSuffix, strings.Join(cleanedBody, "\n"))
+	}
+
+	// Only offer the extraction when the new function parses on its own (a selection such as a
+	// chain's `default panic` arm is not an expression).
+	checkRep := diag.NewReporter()
+	_ = parser.ParseFile("extracted.ll", strings.TrimSpace(fnStub)+"\n", checkRep)
+	if checkRep.HasErrors() {
+		return
 	}
 
 	selRng := Range{Start: OffsetToLSP(src, selStart), End: OffsetToLSP(src, selEnd)}

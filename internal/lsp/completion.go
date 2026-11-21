@@ -79,6 +79,34 @@ func (s *Server) computeCompletions(filePath string, src string, pos Position) *
 		return &CompletionList{IsIncomplete: false, Items: stItems}
 	}
 
+	// 4a. Declaration kind after `define Name` (`struct`, `enum`, `result`, `interface`, or a distinct base type)
+	if n := len(toks); n >= 2 && toks[n-2].Kind == token.KwDefine && toks[n-1].Kind == token.Ident {
+		items := defineKindItems(prefix, replaceRange)
+		items = append(items, s.completeTypeNames(prog, mod, prefix, replaceRange, false)...)
+		return &CompletionList{IsIncomplete: false, Items: items}
+	}
+
+	// 4b. Failure names in a result chain arm (`let x = find(k):` / `when |`)
+	if en := s.chainArmResult(filePath, src, offset); en != nil {
+		_, _, lineStart := lineInfo(src, offset)
+		before := strings.TrimSpace(src[lineStart:prefixStart])
+		if before == "when" || before == "default" || before == "" || strings.HasSuffix(before, ",") {
+			items := resultMemberItems(en, prefix, replaceRange, true)
+			if before == "default" || before == "when" || strings.HasSuffix(before, ",") {
+				items = items[:len(items)-countDefaultPanic(items)]
+			}
+			if before == "" {
+				items = append(items, CompletionItem{
+					Label: "when", Kind: KindKeyword, SortText: "0_when", FilterText: "when",
+					InsertTextFormat: InsertPlainText, TextEdit: &TextEdit{Range: replaceRange, NewText: "when "},
+				})
+			}
+			if len(items) > 0 {
+				return &CompletionList{IsIncomplete: false, Items: items}
+			}
+		}
+	}
+
 	// 4. Check Type Annotation position (`let x: |`, `(a: |)`, `define Foo |`, `[T: |]`)
 	if isTypeAnnotationContext(toks) {
 		items := s.completeTypeNames(prog, mod, prefix, replaceRange, isParamTypeContext(toks))
@@ -86,7 +114,14 @@ func (s *Server) computeCompletions(filePath string, src string, pos Position) *
 	}
 
 	// 5. General expression / statement / top-level completion
-	items := s.completeScopedSymbols(prog, mod, src, offset, prefix, replaceRange, len(toks) == 0 || isTopLevelContext(toks))
+	atTop := len(toks) == 0 || isTopLevelContext(toks)
+	items := s.completeScopedSymbols(prog, mod, src, offset, prefix, replaceRange, atTop)
+	// Inside a function returning a result, offer its bare members (`value(...)`, `Err(...)`).
+	if !atTop {
+		if en := enclosingResultReturn(prog, mod, offset); en != nil {
+			items = append(resultMemberItems(en, prefix, replaceRange, false), items...)
+		}
+	}
 	return &CompletionList{IsIncomplete: false, Items: items}
 }
 
@@ -2876,5 +2911,12 @@ func isIdentChar(ch byte) bool {
 }
 
 func isIdentOrQuestChar(ch byte) bool {
-	return isIdentChar(ch) || ch == '?'
+	return isIdentChar(ch) || ch == '?' || ch == '!'
+}
+
+func countDefaultPanic(items []CompletionItem) int {
+	if n := len(items); n > 0 && items[n-1].Label == "default panic" {
+		return 1
+	}
+	return 0
 }

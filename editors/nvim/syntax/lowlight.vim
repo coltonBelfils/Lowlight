@@ -19,6 +19,15 @@ syn keyword lowlightKeyword          bind define distinct struct enum interface 
 syn keyword lowlightKeyword          let if else match when for while in next own unpack
 syn keyword lowlightKeyword          unsafe packed test func
 syn keyword lowlightSelf             self
+" Contextual keywords: `define Name result [...]`, a match / result chain's `default` arm,
+" and its `default panic` terminal arm.
+syn match   lowlightKeyword          "\(\<define\s\+\h\w*\(\[[^]]*\]\)\?\s\+\)\@<=result\>"
+syn match   lowlightKeyword          "^\s*\zsdefault\>\ze\s*\(:\|\h\)"
+syn match   lowlightKeyword          "\<default\s\+\zspanic\>\ze\s*\((\)\@!"
+
+" Result identifiers (`cfg!`) and optional identifiers (`user?`)
+syn match   lowlightResultIdent      "\<\h\w*!\(=\)\@!"
+syn match   lowlightOptionalIdent    "\<\h\w*?\([?.]\)\@!"
 
 " Attributes
 syn match   lowlightAttribute        "@[A-Za-z_][A-Za-z0-9_]*"
@@ -43,7 +52,7 @@ syn keyword lowlightIntrinsic        size_of align_of alloc_raw realloc_raw free
 syn keyword lowlightIntrinsic        addr_of ptr_add ptr_read ptr_write ptr_cast ptr_addr copy_bytes zero_bytes
 
 " Operators & Punctuation
-syn match   lowlightOperator         "+\\["
+syn match   lowlightOperator         "[+#]\["
 syn match   lowlightOperator         "<-"
 syn match   lowlightOperator         "?\."
 syn match   lowlightOperator         "??"
@@ -74,6 +83,8 @@ hi def link lowlightDocHeading       Title
 hi def link lowlightDocLink          Underlined
 hi def link lowlightKeyword          Keyword
 hi def link lowlightSelf             Keyword
+hi def link lowlightResultIdent      Identifier
+hi def link lowlightOptionalIdent    Identifier
 hi def link lowlightAttribute        PreProc
 hi def link lowlightOperatorWord     Operator
 hi def link lowlightType             Type

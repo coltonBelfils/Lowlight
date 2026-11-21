@@ -16,13 +16,16 @@ Official **Lowlight v1.0** language extension powered by the native Go `lowlight
   - AST semantic highlighting (`declaration`, `readonly`, `documentation`, `defaultLibrary` modifiers)
   - Cross-file Find All References (`Shift+F12`), Go to Type Definition, Go to Declaration, Go to Implementation (`Cmd+F12`), Workspace Symbol Search (`Cmd+T`), Folding & Selection Ranges, and scope-isolated / cross-file Rename (`F2`)
 - **Code Actions, Generators & Refactorings (`Cmd+.` / `Ctrl+.`)**:
-  - Quick fixes for `&`, `own`/`.copy()`, `?`, `!` -> `not `, trailing commas, `?.`, missing `match` arms, top-level `let` -> `bind`, `unsafe`, `@must_use`, missing struct fields, missing interface methods, and auto-imports
+  - Quick fixes for `&`, `own`/`.copy()`, `?` and `!` name suffixes (renaming every use), `!` -> `not `, trailing commas, `?.`, missing `match` arms, top-level `let` -> `bind`, `unsafe`, `@must_use`, missing struct fields, missing interface methods, and auto-imports
   - Code generators (`Implement <Iface> for <Type>`, `<Type>.new`, Iteration B doc skeleton, `@test` scaffolding for functions and methods)
   - Refactorings (extract variable, extract function, toggle `{ ... }` single-expr block, flip `if/else`, add explicit `: Type`)
+  - Generated code is formatted: on code that was already formatted, every action leaves exactly what `lowlight fmt` would write
 - **Canonical Formatting (`Shift+Alt+F`)**:
   - Built-in AST formatter respecting `.lowlightfmt` or VS Code `lowlight.format.*` settings (`\t` tabs, 100-char line width, `if(`/single-expression block unwrapping)
 - **Run Button (`▶`)**: Run the active `.ll` file directly from the editor title bar (`Lowlight: Run Current File`)
-- **Rich TextMate Highlighting & Snippets**: Full syntax coloring for `?` optional identifiers, `${...}` string interpolation, `<-` targeted unwinds, `Arena`/`own`/`unsafe`, and built-in code snippets
+- **Rich TextMate Highlighting & Snippets**: Full syntax coloring for `?` optional and `!` result identifiers, `define Name result [...]`, `default panic`, `${...}` string interpolation, `<-` targeted unwinds, `Arena`/`own`/`unsafe`, and built-in code snippets that expand to exactly what `lowlight fmt` produces (`fn`, `fne`, `meth`, `struct`, `enum`, `result`, `interface`, `if`, `if?`, `ifas`, `forr`, `forin`, `while`, `match`, `chain`, `chainw`, `unwrap`, `test`, `unsafe`)
+- **Smart Enter Indentation**: Pressing Enter after a header ending in `:` (`if(x):`, `bind f = (x: int) int:`, `else:`, `when X:`, a result chain `load(path):`) indents the body; after a single-expression body the next line returns to the header's level, ready for `else:` or the next statement. Splitting a `//` comment continues it on the new line.
+- **Result Types**: hover, go to definition, semantic highlighting, and completion for `define Name result [...]`, a chain's bare failure names (`when Missing(why):`), and bare members (`value(x)`, `Err(e)`); quick fixes rename a result variable to end in `!` everywhere it is used
 
 ## Commands
 

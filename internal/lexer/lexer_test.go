@@ -396,3 +396,19 @@ func TestLexerResultIdentifiers(t *testing.T) {
 		t.Fatalf("`$name!` in a string must not lex as a result identifier: %s", joined)
 	}
 }
+
+// A string literal's span covers its quotes, so tools that slice source by span (code actions,
+// refactorings) keep the literal intact.
+func TestLexerStringLiteralSpanIncludesQuotes(t *testing.T) {
+	src := `let s = "a:b"` + "\n"
+	rep := diag.NewReporter()
+	for _, tk := range lexer.Lex("str.ll", src, rep) {
+		if tk.Kind == token.StringLit {
+			if got := src[tk.Span.Start.Offset:tk.Span.End.Offset]; got != `"a:b"` {
+				t.Fatalf("string literal span = %q, want %q", got, `"a:b"`)
+			}
+			return
+		}
+	}
+	t.Fatal("no string literal token")
+}

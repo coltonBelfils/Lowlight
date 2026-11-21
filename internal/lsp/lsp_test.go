@@ -1934,7 +1934,7 @@ bind main = (): {
 		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
 		Position:     lsp.OffsetToLSP(src, scaleCallOff),
 	}, &hov)
-	if !strings.Contains(hov.Contents.Value, "[Vec2]("+uri+"#L2)") || !strings.Contains(hov.Contents.Value, "[View source]("+uri+"#L13)") {
+	if !strings.Contains(hov.Contents.Value, "[`Vec2`]("+uri+"#L2)") || !strings.Contains(hov.Contents.Value, "[View source]("+uri+"#L13)") {
 		t.Errorf("expected resolved intra-doc link and [View source] in hover, got:\n%s", hov.Contents.Value)
 	}
 

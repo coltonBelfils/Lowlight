@@ -19,6 +19,7 @@ class LowlightColorSettingsPage : ColorSettingsPage {
             AttributesDescriptor("Built-in function / intrinsic", LowlightTextAttributes.BUILTIN),
             AttributesDescriptor("Attribute (@test, @must_use)", LowlightTextAttributes.ATTRIBUTE),
             AttributesDescriptor("Optional identifier (name?)", LowlightTextAttributes.OPTIONAL),
+            AttributesDescriptor("Result identifier (name!)", LowlightTextAttributes.RESULT),
             AttributesDescriptor("Identifier", LowlightTextAttributes.IDENTIFIER),
             AttributesDescriptor("String literal", LowlightTextAttributes.STRING),
             AttributesDescriptor("Character literal", LowlightTextAttributes.CHAR),

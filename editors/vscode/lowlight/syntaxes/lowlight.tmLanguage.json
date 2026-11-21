@@ -3,18 +3,45 @@
   "name": "Lowlight",
   "scopeName": "source.lowlight",
   "patterns": [
-    { "include": "#comments" },
-    { "include": "#attributes" },
-    { "include": "#strings" },
-    { "include": "#chars" },
-    { "include": "#numbers" },
-    { "include": "#declarations" },
-    { "include": "#keywords" },
-    { "include": "#types" },
-    { "include": "#builtins" },
-    { "include": "#operators" },
-    { "include": "#calls" },
-    { "include": "#optional-identifiers" }
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#attributes"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#chars"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#declarations"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#builtins"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#calls"
+    },
+    {
+      "include": "#optional-identifiers"
+    },
+    {
+      "include": "#result-identifiers"
+    }
   ],
   "repository": {
     "attributes": {
@@ -32,10 +59,14 @@
           "begin": "//",
           "end": "$",
           "beginCaptures": {
-            "0": { "name": "punctuation.definition.comment.lowlight" }
+            "0": {
+              "name": "punctuation.definition.comment.lowlight"
+            }
           },
           "patterns": [
-            { "include": "#comment-doc" }
+            {
+              "include": "#comment-doc"
+            }
           ]
         },
         {
@@ -43,10 +74,14 @@
           "begin": "/\\*",
           "end": "\\*/",
           "captures": {
-            "0": { "name": "punctuation.definition.comment.lowlight" }
+            "0": {
+              "name": "punctuation.definition.comment.lowlight"
+            }
           },
           "patterns": [
-            { "include": "#comment-doc" }
+            {
+              "include": "#comment-doc"
+            }
           ]
         }
       ]
@@ -78,10 +113,14 @@
           "begin": "`",
           "end": "`",
           "beginCaptures": {
-            "0": { "name": "punctuation.definition.string.begin.lowlight" }
+            "0": {
+              "name": "punctuation.definition.string.begin.lowlight"
+            }
           },
           "endCaptures": {
-            "0": { "name": "punctuation.definition.string.end.lowlight" }
+            "0": {
+              "name": "punctuation.definition.string.end.lowlight"
+            }
           },
           "patterns": [
             {
@@ -93,13 +132,19 @@
               "begin": "\\$\\{",
               "end": "\\}",
               "beginCaptures": {
-                "0": { "name": "punctuation.section.embedded.begin.lowlight" }
+                "0": {
+                  "name": "punctuation.section.embedded.begin.lowlight"
+                }
               },
               "endCaptures": {
-                "0": { "name": "punctuation.section.embedded.end.lowlight" }
+                "0": {
+                  "name": "punctuation.section.embedded.end.lowlight"
+                }
               },
               "patterns": [
-                { "include": "$self" }
+                {
+                  "include": "$self"
+                }
               ]
             },
             {
@@ -113,10 +158,14 @@
           "begin": "\"",
           "end": "\"",
           "beginCaptures": {
-            "0": { "name": "punctuation.definition.string.begin.lowlight" }
+            "0": {
+              "name": "punctuation.definition.string.begin.lowlight"
+            }
           },
           "endCaptures": {
-            "0": { "name": "punctuation.definition.string.end.lowlight" }
+            "0": {
+              "name": "punctuation.definition.string.end.lowlight"
+            }
           },
           "patterns": [
             {
@@ -128,13 +177,19 @@
               "begin": "\\$\\{",
               "end": "\\}",
               "beginCaptures": {
-                "0": { "name": "punctuation.section.embedded.begin.lowlight" }
+                "0": {
+                  "name": "punctuation.section.embedded.begin.lowlight"
+                }
               },
               "endCaptures": {
-                "0": { "name": "punctuation.section.embedded.end.lowlight" }
+                "0": {
+                  "name": "punctuation.section.embedded.end.lowlight"
+                }
               },
               "patterns": [
-                { "include": "$self" }
+                {
+                  "include": "$self"
+                }
               ]
             },
             {
@@ -176,35 +231,73 @@
     "declarations": {
       "patterns": [
         {
+          "match": "\\b(define)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\[[^\\]]*\\])?\\s+(result)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.type.lowlight"
+            },
+            "2": {
+              "name": "entity.name.type.lowlight"
+            },
+            "3": {
+              "name": "keyword.declaration.type.lowlight"
+            }
+          }
+        },
+        {
           "match": "\\b(define)\\s+(?:(packed)\\s+)?([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
-            "1": { "name": "keyword.declaration.type.lowlight" },
-            "2": { "name": "storage.modifier.lowlight" },
-            "3": { "name": "entity.name.type.lowlight" }
+            "1": {
+              "name": "keyword.declaration.type.lowlight"
+            },
+            "2": {
+              "name": "storage.modifier.lowlight"
+            },
+            "3": {
+              "name": "entity.name.type.lowlight"
+            }
           }
         },
         {
           "match": "\\b(bind)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\[[^\\]]*\\])?\\.([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
-            "1": { "name": "keyword.declaration.lowlight" },
-            "2": { "name": "entity.name.type.lowlight" },
-            "3": { "name": "entity.name.function.method.lowlight" }
+            "1": {
+              "name": "keyword.declaration.lowlight"
+            },
+            "2": {
+              "name": "entity.name.type.lowlight"
+            },
+            "3": {
+              "name": "entity.name.function.method.lowlight"
+            }
           }
         },
         {
           "match": "\\b(bind)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(\\[[^\\]]*\\])?\\s*=\\s*\\()",
           "captures": {
-            "1": { "name": "keyword.declaration.lowlight" },
-            "2": { "name": "entity.name.function.lowlight" }
+            "1": {
+              "name": "keyword.declaration.lowlight"
+            },
+            "2": {
+              "name": "entity.name.function.lowlight"
+            }
           }
         },
         {
           "match": "\\b(extern)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s+(as)\\s+([A-Za-z_][A-Za-z0-9_]*))?",
           "captures": {
-            "1": { "name": "keyword.other.extern.lowlight" },
-            "2": { "name": "entity.name.function.extern.lowlight" },
-            "3": { "name": "keyword.control.as.lowlight" },
-            "4": { "name": "entity.name.function.lowlight" }
+            "1": {
+              "name": "keyword.other.extern.lowlight"
+            },
+            "2": {
+              "name": "entity.name.function.extern.lowlight"
+            },
+            "3": {
+              "name": "keyword.control.as.lowlight"
+            },
+            "4": {
+              "name": "entity.name.function.lowlight"
+            }
           }
         }
       ]
@@ -214,6 +307,21 @@
         {
           "name": "keyword.control.lowlight",
           "match": "\\b(if|else|for|while|in|match|when|next|func|as)(?!\\?)\\b"
+        },
+        {
+          "match": "\\b(default)\\s+(panic)\\b(?!\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "keyword.control.lowlight"
+            },
+            "2": {
+              "name": "keyword.control.lowlight"
+            }
+          }
+        },
+        {
+          "name": "keyword.control.lowlight",
+          "match": "^\\s*\\bdefault\\b(?=\\s*(:|[A-Z_a-z]))"
         },
         {
           "name": "keyword.declaration.lowlight",
@@ -310,13 +418,17 @@
         {
           "match": "(?:\\.|\\?\\.)([0-9]+|[a-zA-Z_][a-zA-Z0-9_]*)(?=\\s*(\\[[^\\]]*\\])?\\s*\\()",
           "captures": {
-            "1": { "name": "entity.name.function.method.lowlight" }
+            "1": {
+              "name": "entity.name.function.method.lowlight"
+            }
           }
         },
         {
           "match": "\\b([a-z_][a-zA-Z0-9_]*)(?=\\s*\\()",
           "captures": {
-            "1": { "name": "entity.name.function.call.lowlight" }
+            "1": {
+              "name": "entity.name.function.call.lowlight"
+            }
           }
         }
       ]
@@ -326,6 +438,14 @@
         {
           "name": "variable.other.optional.lowlight",
           "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\?(?!\\?|\\.)"
+        }
+      ]
+    },
+    "result-identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.result.lowlight",
+          "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*!(?!=)"
         }
       ]
     }

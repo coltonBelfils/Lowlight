@@ -49,7 +49,7 @@ type KeywordDoc struct {
 var BuiltinKeywords = []KeywordDoc{
 	{Word: "let", Detail: "mutable owned local variable", Summary: "Declares a mutable owned local variable (`let x = 10` or `let v: [int] = []`)."},
 	{Word: "bind", Detail: "immutable binding, function, or method", Summary: "Declares a deeply immutable value, constant, function, or method (`bind add = (a: int, b: int) int: a + b`)."},
-	{Word: "define", Detail: "nominal type declaration", Summary: "Defines a `struct`, `enum`, `interface`, or distinct derived type (`define UserID int`)."},
+	{Word: "define", Detail: "nominal type declaration", Summary: "Defines a `struct`, `enum`, `result`, `interface`, or distinct derived type (`define UserID int`)."},
 	{Word: "struct", Detail: "product value type `[field: T, ...]`", Summary: "Declares a value-type struct (`define Point struct [x: float, y: float]`). Prefix `packed` for unpadded C ABI layout."},
 	{Word: "enum", Detail: "tag or tagged-union enum `[A, B, ...]`", Summary: "Declares a strongly-typed integer tag enum (`define Status enum u8 [Ok = 0, Err = 1]`) or tagged union."},
 	{Word: "interface", Detail: "dynamic/generic method contract", Summary: "Declares an interface (`define Shape interface [area: (self) float]`)."},
@@ -59,7 +59,7 @@ var BuiltinKeywords = []KeywordDoc{
 	{Word: "while", Detail: "conditional loop (`while(cond): ...`)", Summary: "Conditional loop construct supporting boolean loops (`while(cond): ...`), value-returning infinite loops (`while(true) T: ...`), and `else` branches."},
 	{Word: "in", Detail: "range, collection, or containment keyword", Summary: "Separates loop bindings from ranges/collections (`for(x in items)`) or introduces containment patterns (`when in container:`) in `match`."},
 	{Word: "match", Detail: "exhaustive pattern match expression", Summary: "Matches values against `when` arms (values, variants, `in container`) and a final `default` arm (`match(x):`)."},
-	{Word: "when", Detail: "pattern arm in `match`", Summary: "Introduces a pattern arm (`when 1, 2: ...` or `when in 'a'..='z': ...`) inside `match`."},
+	{Word: "when", Detail: "pattern arm in `match` or a result chain", Summary: "Introduces a pattern arm (`when 1, 2: ...` or `when in 'a'..='z': ...`) inside `match`, or a failure arm (`when Missing(key): ...`) in a result chain."},
 	{Word: "next", Detail: "continue loop (`next <-`)", Summary: "Advances to the next loop iteration when paired with unwind (`next <-` or `next outer <-`)."},
 	{Word: "func", Detail: "early function return (`func <- val`)", Summary: "Unwinds out of the enclosing function or lambda (`func <-` or `func <- result`)."},
 	{Word: "none", Detail: "empty optional value (`?T`)", Summary: "Represents the empty state of any optional type `?T`."},
@@ -71,7 +71,7 @@ var BuiltinKeywords = []KeywordDoc{
 	{Word: "and", Detail: "short-circuit logical AND", Summary: "Short-circuit boolean conjunction (`a and b`)."},
 	{Word: "or", Detail: "short-circuit logical OR", Summary: "Short-circuit boolean disjunction (`a or b`)."},
 	{Word: "not", Detail: "logical negation", Summary: "Boolean negation (`not flag`). Lowlight uses `not` instead of `!`."},
-	{Word: "as", Detail: "alias or optional binding (`if(e as x)`)", Summary: "Binds an unwrapped optional (`if(find(id) as user)`) or aliases an `import` / `extern`."},
+	{Word: "as", Detail: "alias or optional/result binding (`if(e as x)`)", Summary: "Binds an unwrapped optional (`if(find(id) as user)`) or a result's success value (`if(cfg! as c)`), or aliases an `import` / `extern`."},
 	{Word: "unsafe", Detail: "unsafe low-level memory block", Summary: "Enables raw pointer (`ptr[T]`) dereferences, pointer arithmetic, raw intrinsics, and `extern` C calls."},
 	{Word: "extern", Detail: "C11 header or ABI function import", Summary: "Includes a C header (`extern \"stdio.h\"`) or binds a C ABI function (`extern puts: (s: ptr[u8]) i32`)."},
 	{Word: "unpack", Detail: "unpack tuple elements (`let x, y = unpack ...`)", Summary: "Unpacks a tuple or distinct tuple into comma-separated variables or assignment targets (`let x, y = unpack +[5, 7]`)."},
@@ -85,6 +85,8 @@ type CodeSnippet struct {
 	Summary string
 }
 
+// BuiltinSnippets are offered as completions. Each one expands to code exactly as `lowlight fmt`
+// lays it out (tabs, `:` headers, indented `when` arms); TestSnippetsAreFormatted enforces this.
 var BuiltinSnippets = []CodeSnippet{
 	{
 		Label:   "bind main",
@@ -93,15 +95,33 @@ var BuiltinSnippets = []CodeSnippet{
 		Summary: "Defines the Lowlight entry point function `main`.",
 	},
 	{
+		Label:   "bind func",
+		Detail:  "Define a top-level function",
+		Snippet: "bind ${1:name} = (${2:x: int}) ${3:int}: {\n\t$0\n}",
+		Summary: "Defines a top-level function with a block body.",
+	},
+	{
+		Label:   "bind func expr",
+		Detail:  "Define a single-expression function",
+		Snippet: "bind ${1:name} = (${2:x: int}) ${3:int}: ${0:x}",
+		Summary: "Defines a top-level function whose body is a single expression.",
+	},
+	{
+		Label:   "bind method",
+		Detail:  "Define a method on a type",
+		Snippet: "bind ${1:Type}.${2:name} = (${3:self}) ${4:int}: {\n\t$0\n}",
+		Summary: "Defines a method on a type. Use `&self` to mutate the receiver or `own self` to consume it.",
+	},
+	{
 		Label:   "define struct",
 		Detail:  "Define a value struct",
-		Snippet: "define ${1:Name} struct [\n\t${2:field}: ${3:int},\n]",
+		Snippet: "define ${1:Name} struct [\n\t${2:x}: ${3:int},\n\t${4:y}: ${5:int},\n]",
 		Summary: "Defines a nominal value struct with automatic deterministic cleanup.",
 	},
 	{
 		Label:   "define enum",
 		Detail:  "Define a tag enum",
-		Snippet: "define ${1:Status} enum [\n\t${2:Ok},\n\t${3:Err},\n]",
+		Snippet: "define ${1:Status} enum [\n\t${2:Active},\n\t${3:Stopped},\n]",
 		Summary: "Defines a strongly-typed integer tag enum.",
 	},
 	{
@@ -111,22 +131,22 @@ var BuiltinSnippets = []CodeSnippet{
 		Summary: "Defines a sum type / tagged union enum carrying typed data payloads.",
 	},
 	{
-		Label:   "bind func",
-		Detail:  "Define a top-level function",
-		Snippet: "bind ${1:name} = (${2:params}) ${3:void}: {\n\t$0\n}",
-		Summary: "Defines a top-level function with explicit parameter and return types.",
-	},
-	{
-		Label:   "bind method",
-		Detail:  "Define a method on a type",
-		Snippet: "bind ${1:Type}.${2:name} = (&self, ${3:params}) ${4:void}: {\n\t$0\n}",
-		Summary: "Defines a method on a type with a borrowed `&self` receiver.",
+		Label:   "define result",
+		Detail:  "Define a result type",
+		Snippet: "define ${1:Lookup} result [\n\tvalue: ${2:string},\n\t${3:Missing}: ${4:string},\n\t${5:Forbidden},\n]",
+		Summary: "Defines a result type: one `value` member plus failure variants. Names holding one end in `!`.",
 	},
 	{
 		Label:   "define interface",
 		Detail:  "Define an interface",
-		Snippet: "define ${1:Name} interface [\n\t${2:method}: (self)${3: string},\n]",
-		Summary: "Defines a vtable interface for zero-allocation borrows or owned heap boxes.",
+		Snippet: "define ${1:Name} interface [\n\t${2:method}: (self) ${3:string}\n]",
+		Summary: "Defines a structural interface for zero-allocation borrows or owned heap boxes.",
+	},
+	{
+		Label:   "if else",
+		Detail:  "Conditional if/else expression",
+		Snippet: "if(${1:cond}): ${2:a} else: ${0:b}",
+		Summary: "Canonical single-expression conditional branch.",
 	},
 	{
 		Label:   "if?",
@@ -135,10 +155,10 @@ var BuiltinSnippets = []CodeSnippet{
 		Summary: "Narrows an optional variable `opt?` (`?T`) to non-optional `opt` (`T`) inside the `then` branch.",
 	},
 	{
-		Label:   "if else",
-		Detail:  "Conditional if/else expression",
-		Snippet: "if(${1:cond}): ${2:a} else: ${3:b}$0",
-		Summary: "Canonical single-expression conditional branch.",
+		Label:   "if as",
+		Detail:  "Unwrap an optional or result into a name",
+		Snippet: "if(${1:expr} as ${2:v}): ${3:v} else: ${0:fallback}",
+		Summary: "Binds the value of an optional (`?T`) or the success value of a result (`r!`) when present.",
 	},
 	{
 		Label:   "for in",
@@ -155,32 +175,32 @@ var BuiltinSnippets = []CodeSnippet{
 	{
 		Label:   "match when",
 		Detail:  "Exhaustive pattern match",
-		Snippet: "match(${1:val}):\nwhen ${2:pattern}: ${3:expr}\ndefault: ${0:expr}",
+		Snippet: "match(${1:val}):\n\twhen ${2:pattern}: ${3:expr}\n\tdefault: ${0:expr}",
 		Summary: "Exhaustively matches a scrutinee across `when` arms and a `default` arm.",
 	},
 	{
 		Label:   "match enum",
 		Detail:  "Exhaustively match enum variants",
-		Snippet: "match(${1:val}):\nwhen ${2:Type}.${3:Variant}: ${4:expr}\ndefault: ${0:panic(\"todo\")}",
+		Snippet: "match(${1:val}):\n\twhen ${2:Type}.${3:Variant}: ${4:expr}\n\tdefault: ${0:panic(\"todo\")}",
 		Summary: "Exhaustively matches over enum variants.",
 	},
 	{
-		Label:   "match result",
-		Detail:  "Exhaustively match Result[T]",
-		Snippet: "match(${1:res!}):\nwhen Result.value(${2:val}): ${3:val}\ndefault Result.Err(${4:err}): ${0:panic(\"todo\")}",
-		Summary: "Exhaustively matches `Result.value` and `Result.Err` variants.",
-	},
-	{
 		Label:   "result chain",
-		Detail:  "Handle a result's failures",
-		Snippet: "${1:expr}:\n\tdefault Err(${2:e}): ${0:func <- Err($2.wrap(\"todo\"))}",
-		Summary: "Handles the failures of a result expression and evaluates to its `value` (`default panic` panics on unhandled failures).",
+		Detail:  "Handle a result's failures, propagating `Err`",
+		Snippet: "${1:load()}:\n\tdefault Err(${2:e}): func <- Err($2.wrap(\"${3:context}\"))",
+		Summary: "Evaluates to the result's `value`; on failure, returns it from the enclosing function with added context.",
 	},
 	{
-		Label:   "check result",
-		Detail:  "Handle Result[T] error propagation",
-		Snippet: "if(${1:res}.is_err()): func <- Result[${2:T}].fail(${1:res}.unwrap_err().wrap(\"${3:context}\"))\nlet ${4:val} = ${1:res}.unwrap()$0",
-		Summary: "Explicitly handles an error on `Result[T]`, wrapping it with context and returning early.",
+		Label:   "result chain when",
+		Detail:  "Handle specific failures of a result",
+		Snippet: "${1:find(key)}:\n\twhen ${2:Missing}(${3:_}): ${4:fallback}\n\tdefault panic",
+		Summary: "Handles listed failures (each arm unwinds or evaluates to the value type); `default panic` panics on the rest.",
+	},
+	{
+		Label:   "default panic",
+		Detail:  "Unwrap a result, panicking on failure",
+		Snippet: "${1:load()}: default panic",
+		Summary: "Evaluates to the result's `value` and panics with `unhandled failure Name.Variant` on any failure.",
 	},
 	{
 		Label:   "test",

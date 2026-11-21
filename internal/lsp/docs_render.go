@@ -65,7 +65,7 @@ func (s *Server) renderDocMarkdown(
 
 	var body string
 	if doc != "" {
-		body = resolveDocTextLinks(doc, idx, currentModPath, currentType)
+		body = polishDocMarkdown(resolveDocTextLinks(doc, idx, currentModPath, currentType))
 	}
 
 	var parts []string
@@ -80,6 +80,31 @@ func (s *Server) renderDocMarkdown(
 		parts = append(parts, fmt.Sprintf("[View source](%s#L%d)", PathToURI(absFile), declLine))
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// polishDocMarkdown adapts doc-comment Markdown for editor popups: section headings
+// (`# Panics`, `# Example`) become small `####` headings instead of page-sized ones, and
+// unlabeled code fences are highlighted as Lowlight.
+func polishDocMarkdown(md string) string {
+	lines := strings.Split(md, "\n")
+	inFence := false
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "```") {
+			if !inFence && t == "```" {
+				lines[i] = strings.Replace(l, "```", "```lowlight", 1)
+			}
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		if h := strings.TrimLeft(t, "#"); len(h) < len(t) && len(t)-len(h) <= 6 && strings.HasPrefix(h, " ") {
+			lines[i] = "#### " + strings.TrimSpace(h)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func resolveDocTextLinks(doc string, idx *docgen.SymbolIndex, currentModPath, currentType string) string {
@@ -105,7 +130,11 @@ func resolveDocTextLinks(doc string, idx *docgen.SymbolIndex, currentModPath, cu
 				if a, err := filepath.Abs(absPath); err == nil {
 					absPath = a
 				}
-				replacement = fmt.Sprintf("[%s](%s#L%d)", lnk.Label, PathToURI(absPath), line)
+				label := lnk.Label
+				if strings.HasPrefix(doc[lnk.Start:], "[`") {
+					label = "`" + label + "`" // keep the code style of [`Symbol`] links
+				}
+				replacement = fmt.Sprintf("[%s](%s#L%d)", label, PathToURI(absPath), line)
 			} else if isBuiltin {
 				replacement = "`" + lnk.Label + "`"
 			}

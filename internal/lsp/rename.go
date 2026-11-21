@@ -41,6 +41,13 @@ func (s *Server) computePrepareRename(filePath string, src string, pos Position)
 
 // computeRename performs a scope- and symbol-aware rename (single- or cross-file) of `pos` to `newName`.
 func (s *Server) computeRename(filePath string, src string, pos Position, newName string) (*WorkspaceEdit, error) {
+	return s.renameSymbol(filePath, src, pos, newName, true)
+}
+
+// renameSymbol renames the symbol at pos. With keepSuffix, the `?` (optional) or `!` (result)
+// suffix of the old name is preserved, as editor-driven renames must keep Lowlight's naming
+// invariants; quick fixes that repair a wrong suffix pass keepSuffix=false.
+func (s *Server) renameSymbol(filePath string, src string, pos Position, newName string, keepSuffix bool) (*WorkspaceEdit, error) {
 	offset := LSPToOffset(src, pos)
 	if offset > len(src) {
 		offset = len(src)
@@ -76,9 +83,10 @@ func (s *Server) computeRename(filePath string, src string, pos Position, newNam
 	if tgt != nil && tgt.isOptionalName {
 		isOpt = true
 	}
+	isRes := strings.HasSuffix(oldName, "!")
 
-	// Preserve Lowlight's strict optional identifier invariant.
-	baseNew := strings.TrimSuffix(newName, "?")
+	// Preserve Lowlight's strict optional (`?`) and result (`!`) identifier invariants.
+	baseNew := strings.TrimSuffix(strings.TrimSuffix(newName, "?"), "!")
 	if !isValidIdentName(baseNew) {
 		return nil, fmt.Errorf("invalid Lowlight identifier %q", newName)
 	}
@@ -86,10 +94,15 @@ func (s *Server) computeRename(filePath string, src string, pos Position, newNam
 		return nil, fmt.Errorf("cannot rename to reserved keyword %q", baseNew)
 	}
 
-	if isOpt {
-		newName = baseNew + "?"
-	} else {
-		newName = baseNew
+	if keepSuffix {
+		switch {
+		case isOpt:
+			newName = baseNew + "?"
+		case isRes:
+			newName = baseNew + "!"
+		default:
+			newName = baseNew
+		}
 	}
 
 	if tgt != nil && tgt.kind != refNone {

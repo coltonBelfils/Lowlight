@@ -967,7 +967,9 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 	case *ast.MemberExpr:
 		inf := exprInfoFromBM(c.prog, bm, v)
 		if inf != nil && inf.EnumVariant != nil {
-			c.emitMemberBaseAsTypeOrNs(bm, v.Base)
+			if !isPlaceholderIdent(v.Base) {
+				c.emitMemberBaseAsTypeOrNs(bm, v.Base)
+			}
 			c.emitLastIdentInSpan(v.Span, v.Member, semTokEnumMember, semModReadonly)
 			return
 		}
@@ -1012,6 +1014,11 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 		mods := uint32(0)
 		if isWrite {
 			mods |= semModModification
+		}
+		if inf != nil && inf.Sym == nil && inf.EnumVariant != nil {
+			// Bare result member: `Forbidden`, or the callee of `value(x)` / `Err(e)`
+			c.emitFirstIdentInSpan(v.Span, v.Name, semTokEnumMember, semModReadonly)
+			return
 		}
 		if inf != nil && inf.Sym != nil {
 			if c.paramSyms[inf.Sym] {
