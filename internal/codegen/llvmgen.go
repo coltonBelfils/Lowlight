@@ -351,10 +351,6 @@ func (g *llvmEmitter) llvmType(t types.Type) string {
 		return "%struct." + CType(v)
 	case *types.Tuple:
 		return "%struct." + CType(v)
-	case *types.Map:
-		return "%struct." + CType(v)
-	case *types.Set:
-		return "%struct." + CType(v)
 	case *types.Func:
 		return "%struct.ll_closure"
 	case *types.Interface:
@@ -453,22 +449,6 @@ func (g *llvmEmitter) emitTypeDefs() {
 				if !emittedOptStructs[optCn] {
 					emittedOptStructs[optCn] = true
 					g.line("%%struct.%s = type { i1, %s }", optCn, g.llvmType(v.Elem))
-				}
-			}
-		case *types.Set:
-			cn := CType(v)
-			g.line("%%struct.%s_ent = type { i1, i64, %s }", cn, g.llvmType(v.Elem))
-			g.line("%%struct.%s = type { ptr, i64, ptr, i64, i64, i64 }", cn)
-		case *types.Map:
-			cn := CType(v)
-			g.line("%%struct.%s_ent = type { i1, i64, %s, %s }", cn, g.llvmType(v.Key), g.llvmType(v.Value))
-			g.line("%%struct.%s = type { ptr, i64, ptr, i64, i64, i64 }", cn)
-			optVal := types.NewOptional(v.Value)
-			if !optVal.IsBoxed() {
-				optCn := CType(optVal)
-				if !emittedOptStructs[optCn] {
-					emittedOptStructs[optCn] = true
-					g.line("%%struct.%s = type { i1, %s }", optCn, g.llvmType(v.Value))
 				}
 			}
 		case *types.Interface:
@@ -697,8 +677,6 @@ func (g *llvmEmitter) typeSize(t types.Type) int {
 			offset += g.typeSize(el)
 		}
 		return (offset + maxAlign - 1) & -maxAlign
-	case *types.Map, *types.Set:
-		return 48
 	case *types.Func:
 		return 32
 	case *types.Interface:
@@ -860,15 +838,6 @@ func (g *llvmEmitter) collectExprStrings(e ir.Expr) {
 		for _, el := range v.Elems {
 			g.collectExprStrings(el)
 		}
-	case *ir.ExprConstructMap:
-		for _, ent := range v.Entries {
-			g.collectExprStrings(ent.Key)
-			g.collectExprStrings(ent.Val)
-		}
-	case *ir.ExprConstructSet:
-		for _, el := range v.Elems {
-			g.collectExprStrings(el)
-		}
 	case *ir.ExprConstructClosure:
 		g.collectExprStrings(v.EnvPtr)
 	case *ir.ExprWrapOptional:
@@ -895,12 +864,6 @@ func (g *llvmEmitter) collectExprStrings(e ir.Expr) {
 		g.collectExprStrings(v.Dst)
 		g.collectExprStrings(v.Src)
 		g.collectExprStrings(v.Count)
-	case *ir.ExprStringConcat:
-		g.collectExprStrings(v.Left)
-		g.collectExprStrings(v.Right)
-	case *ir.ExprStringPush:
-		g.collectExprStrings(v.StrPtr)
-		g.collectExprStrings(v.Item)
 	case *ir.ExprToString:
 		g.collectExprStrings(v.Val)
 	case *ir.ExprDrop:
@@ -917,13 +880,6 @@ func (g *llvmEmitter) collectExprStrings(e ir.Expr) {
 		g.collectExprStrings(v.Val)
 	case *ir.ExprVecPush:
 		g.collectExprStrings(v.VecPtr)
-		g.collectExprStrings(v.Item)
-	case *ir.ExprMapInsert:
-		g.collectExprStrings(v.MapPtr)
-		g.collectExprStrings(v.Key)
-		g.collectExprStrings(v.Val)
-	case *ir.ExprSetInsert:
-		g.collectExprStrings(v.SetPtr)
 		g.collectExprStrings(v.Item)
 	}
 }
@@ -1319,7 +1275,7 @@ func (g *llvmEmitter) emitTypeDrop(ptrSlot string, t types.Type) {
 			g.declareHelper("ll_drop__Arena", "void", "ptr")
 			g.indentLine(1, "call void @ll_drop__Arena(ptr %s)", ptrSlot)
 		}
-	case *types.Vector, *types.Map, *types.Set, *types.Struct, *types.Distinct, *types.Interface, *types.StackArray, *types.Optional, *types.Func, *types.Tuple:
+	case *types.Vector, *types.Struct, *types.Distinct, *types.Interface, *types.StackArray, *types.Optional, *types.Func, *types.Tuple:
 		fn := ir.DropFnName(v)
 		g.declareHelper(fn, "void", "ptr")
 		g.indentLine(1, "call void @%s(ptr %s)", fn, ptrSlot)
@@ -1490,21 +1446,6 @@ func (g *llvmEmitter) resolveFieldIdx(baseTy types.Type, fieldName string, expli
 			return 1
 		case "cap":
 			return 2
-		}
-	case *types.Map, *types.Set:
-		switch fieldName {
-		case "buckets":
-			return 0
-		case "buck_cap":
-			return 1
-		case "entries":
-			return 2
-		case "ent_len":
-			return 3
-		case "ent_cap":
-			return 4
-		case "len":
-			return 5
 		}
 	case *types.Primitive:
 		if t.Kind == types.PrimString {
@@ -1935,12 +1876,6 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 				r := g.newReg()
 				g.indentLine(1, "%s = icmp sge i64 %s, 0", r, cmp)
 				return r
-			case token.Plus:
-				resSlot := g.allocaEntry("%struct.ll_string", 8)
-				g.indentLine(1, "call void @ll_str_concat_p(ptr %s, ptr %s, ptr %s)", resSlot, leftAddr, rightAddr)
-				r := g.newReg()
-				g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
-				return r
 			}
 		}
 		if v.Left.Type() != nil && !g.isScalar(v.Left.Type()) && !g.isFloat(v.Left.Type()) && (v.Op == token.Eq || v.Op == token.Neq) {
@@ -2302,22 +2237,6 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 	case *ir.ExprAlignOf:
 		return fmt.Sprintf("%d", g.typeAlign(v.QueryType))
 
-	case *ir.ExprStringConcat:
-		leftAddr := g.emitLValueAddr(v.Left)
-		rightAddr := g.emitLValueAddr(v.Right)
-		resSlot := g.allocaEntry("%struct.ll_string", 8)
-		g.indentLine(1, "call void @ll_str_concat_p(ptr %s, ptr %s, ptr %s)", resSlot, leftAddr, rightAddr)
-		r := g.newReg()
-		g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
-		return r
-
-	case *ir.ExprStringPush:
-		strPtr := g.emitExpr(v.StrPtr)
-		suffixAddr := g.emitLValueAddr(v.Item)
-		g.declareHelper("ll_str_push_p", "void", "ptr, ptr")
-		g.indentLine(1, "call void @ll_str_push_p(ptr %s, ptr %s)", strPtr, suffixAddr)
-		return "void"
-
 	case *ir.ExprToString:
 		if _, isPtr := v.ValType.(*types.Ptr); isPtr {
 			val := g.emitExpr(v.Val)
@@ -2436,24 +2355,6 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		g.indentLine(1, "call void @%s(ptr %s, ptr %s)", fn, vecAddr, itemAddr)
 		return "void"
 
-	case *ir.ExprMapInsert:
-		mapAddr := g.emitExpr(v.MapPtr)
-		keyAddr := g.emitLValueAddr(v.Key)
-		valAddr := g.emitLValueAddr(v.Val)
-		fn := "ll_map_insert_p__" + v.MapType.Mangled()
-		g.declareHelper(fn, "void", "ptr, ptr, ptr")
-		g.indentLine(1, "call void @%s(ptr %s, ptr %s, ptr %s)", fn, mapAddr, keyAddr, valAddr)
-		return "void"
-
-	case *ir.ExprSetInsert:
-		setAddr := g.emitExpr(v.SetPtr)
-		itemAddr := g.emitLValueAddr(v.Item)
-		fn := "ll_set_insert_p__" + v.SetType.Mangled()
-		g.declareHelper(fn, "i1", "ptr, ptr")
-		r := g.newReg()
-		g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, fn, setAddr, itemAddr)
-		return r
-
 	default:
 		return "0"
 	}
@@ -2544,12 +2445,6 @@ func (g *llvmEmitter) emitBinaryOp(op token.Kind, lVal, rVal string, t types.Typ
 			g.indentLine(1, "%s = call i64 @ll_str_cmp_p(ptr %s, ptr %s)", cmp, slotL, slotR)
 			r := g.newReg()
 			g.indentLine(1, "%s = icmp sge i64 %s, 0", r, cmp)
-			return r
-		case token.Plus:
-			slotRes := g.allocaEntry("%struct.ll_string", 8)
-			g.indentLine(1, "call void @ll_str_concat_p(ptr %s, ptr %s, ptr %s)", slotRes, slotL, slotR)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, slotRes)
 			return r
 		}
 	}
@@ -3054,46 +2949,6 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			g.indentLine(1, "call void @ll_arena_new_p(ptr %s, i64 %s)", arenaSlot, capVal)
 			r := g.newReg()
 			g.indentLine(1, "%s = load %%struct.ll_arena, ptr %s, align 8", r, arenaSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_slice_view" && len(call.Args) >= 3 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			loVal := g.emitExpr(call.Args[1])
-			hiVal := g.emitExpr(call.Args[2])
-			checkVal := "1"
-			fileVal := "null"
-			lineVal := "0"
-			if len(call.Args) >= 6 {
-				checkVal = g.emitExpr(call.Args[3])
-				fileVal = g.emitExpr(call.Args[4])
-				lineVal = g.emitExpr(call.Args[5])
-			}
-			resSlot := g.allocaEntry("%struct.ll_string", 8)
-			g.declareHelper("ll_str_slice_view_p", "void", "ptr, ptr, i64, i64, i32, ptr, i64")
-			g.indentLine(1, "call void @ll_str_slice_view_p(ptr %s, ptr %s, i64 %s, i64 %s, i32 %s, ptr %s, i64 %s)",
-				resSlot, strAddr, loVal, hiVal, checkVal, fileVal, lineVal)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
-			return r
-		}
-		if fnRef.Name == "ll_str_slice_owned" && len(call.Args) >= 3 {
-			strAddr := g.emitLValueAddr(call.Args[0])
-			loVal := g.emitExpr(call.Args[1])
-			hiVal := g.emitExpr(call.Args[2])
-			checkVal := "1"
-			fileVal := "null"
-			lineVal := "0"
-			if len(call.Args) >= 6 {
-				checkVal = g.emitExpr(call.Args[3])
-				fileVal = g.emitExpr(call.Args[4])
-				lineVal = g.emitExpr(call.Args[5])
-			}
-			resSlot := g.allocaEntry("%struct.ll_string", 8)
-			g.declareHelper("ll_str_slice_owned_p", "void", "ptr, ptr, i64, i64, i32, ptr, i64")
-			g.indentLine(1, "call void @ll_str_slice_owned_p(ptr %s, ptr %s, i64 %s, i64 %s, i32 %s, ptr %s, i64 %s)",
-				resSlot, strAddr, loVal, hiVal, checkVal, fileVal, lineVal)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
 			return r
 		}
 		if strings.HasPrefix(fnRef.Name, "ll_vec_slice_view__") && len(call.Args) >= 3 {

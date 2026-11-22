@@ -254,7 +254,7 @@ func (fl *funcLowerer) isFreshResourceRValue(e ast.Expr, inf *sema.ExprInfo) boo
 		if rf, ok := baseTy.(*types.Ref); ok {
 			baseTy = rf.Elem
 		}
-		_, isMap := baseTy.(*types.Map)
+		_, _, isMap := types.MapKV(baseTy)
 		return isMap
 	case *ast.UnaryExpr:
 		if v.Op == token.Star {

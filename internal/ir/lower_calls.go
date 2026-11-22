@@ -711,6 +711,9 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 	case "any.to_string":
 		return fl.toStringCallExpr(recvTy, recvVal), types.TypeString
 
+	case "any.hash":
+		return fl.hashCallExpr(recvTy, recvVal), types.TypeU64
+
 	// `string` read methods
 	case "string.len":
 		return &ExprField{Base: EnsureExpr(recvVal, types.TypeString), FieldName: "len", Typ: types.TypeInt}, types.TypeInt
@@ -788,71 +791,6 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 			Typ:    types.TypeBool,
 		}, types.TypeBool
 
-	// `Set` read methods
-	case "set.len":
-		return &ExprField{Base: EnsureExpr(recvVal, recvTy), FieldName: "len", Typ: types.TypeInt}, types.TypeInt
-	case "set.is_empty":
-		return &ExprBinary{Op: token.Eq, Left: &ExprField{Base: EnsureExpr(recvVal, recvTy), FieldName: "len", Typ: types.TypeInt}, Right: NewLitInt(0, false, types.TypeInt), Typ: types.TypeBool}, types.TypeBool
-	case "set.has":
-		setTy := recvTy.(*types.Set)
-		val := fl.lowerExprRead(call.Args[0])
-		sTmp := fl.allocSlot("_ll_sh", setTy)
-		fl.assignLocal(sTmp, recvVal)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_set_has__" + setTy.Mangled()},
-			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(sTmp), Typ: &types.Ptr{Elem: setTy}}, EnsureExpr(val, setTy.Elem)},
-			Typ:    types.TypeBool,
-		}, types.TypeBool
-	case "set.to_vec":
-		setTy := recvTy.(*types.Set)
-		vecTy := &types.Vector{Elem: setTy.Elem}
-		fl.tc.visit(vecTy)
-		sTmp := fl.allocSlot("_ll_stv", setTy)
-		fl.assignLocal(sTmp, recvVal)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_set_to_vec__" + setTy.Mangled()},
-			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(sTmp), Typ: &types.Ptr{Elem: setTy}}},
-			Typ:    vecTy,
-		}, vecTy
-
-	// `Map` read methods
-	case "map.len":
-		return &ExprField{Base: EnsureExpr(recvVal, recvTy), FieldName: "len", Typ: types.TypeInt}, types.TypeInt
-	case "map.is_empty":
-		return &ExprBinary{Op: token.Eq, Left: &ExprField{Base: EnsureExpr(recvVal, recvTy), FieldName: "len", Typ: types.TypeInt}, Right: NewLitInt(0, false, types.TypeInt), Typ: types.TypeBool}, types.TypeBool
-	case "map.has":
-		mapTy := recvTy.(*types.Map)
-		key := fl.lowerExprRead(call.Args[0])
-		mTmp := fl.allocSlot("_ll_mh", mapTy)
-		fl.assignLocal(mTmp, recvVal)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_map_has__" + mapTy.Mangled()},
-			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(mTmp), Typ: &types.Ptr{Elem: mapTy}}, EnsureExpr(key, mapTy.Key)},
-			Typ:    types.TypeBool,
-		}, types.TypeBool
-	case "map.keys":
-		mapTy := recvTy.(*types.Map)
-		vecTy := &types.Vector{Elem: mapTy.Key}
-		fl.tc.visit(vecTy)
-		mTmp := fl.allocSlot("_ll_mk", mapTy)
-		fl.assignLocal(mTmp, recvVal)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_map_keys__" + mapTy.Mangled()},
-			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(mTmp), Typ: &types.Ptr{Elem: mapTy}}},
-			Typ:    vecTy,
-		}, vecTy
-	case "map.values":
-		mapTy := recvTy.(*types.Map)
-		vecTy := &types.Vector{Elem: mapTy.Value}
-		fl.tc.visit(vecTy)
-		mTmp := fl.allocSlot("_ll_mv", mapTy)
-		fl.assignLocal(mTmp, recvVal)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_map_values__" + mapTy.Mangled()},
-			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(mTmp), Typ: &types.Ptr{Elem: mapTy}}},
-			Typ:    vecTy,
-		}, vecTy
-
 	// `Arena` read methods
 	case "Arena.bytes_used":
 		aTmp := fl.allocSlot("_ll_abu", types.TypeArena)
@@ -918,62 +856,6 @@ func (fl *funcLowerer) emitMutBuiltinMethodOnPtr(
 		return &ExprCall{
 			Callee: &ExprFuncRef{Name: "ll_vec_reserve__" + vecTy.Mangled()},
 			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: vecTy}), EnsureExpr(capVal, types.TypeInt)},
-			Typ:    types.TypeVoid,
-		}
-
-	// `Set` mutating methods
-	case "set.insert":
-		setTy := recvTy.(*types.Set)
-		val := fl.lowerExprOwned(call.Args[0], setTy.Elem)
-		return &ExprSetInsert{SetPtr: EnsureExpr(recvPtr, &types.Ptr{Elem: setTy}), Item: EnsureExpr(val, setTy.Elem), SetType: setTy}
-	case "set.remove":
-		setTy := recvTy.(*types.Set)
-		val := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_set_remove__" + setTy.Mangled()},
-			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: setTy}), EnsureExpr(val, setTy.Elem)},
-			Typ:    types.TypeBool,
-		}
-	case "set.clear":
-		setTy := recvTy.(*types.Set)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_set_clear__" + setTy.Mangled()},
-			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: setTy})},
-			Typ:    types.TypeVoid,
-		}
-
-	// `Map` mutating methods
-	case "map.insert":
-		mapTy := recvTy.(*types.Map)
-		k := fl.lowerExprOwned(call.Args[0], mapTy.Key)
-		v := fl.lowerExprOwned(call.Args[1], mapTy.Value)
-		return &ExprMapInsert{MapPtr: EnsureExpr(recvPtr, &types.Ptr{Elem: mapTy}), Key: EnsureExpr(k, mapTy.Key), Val: EnsureExpr(v, mapTy.Value), MapType: mapTy}
-	case "map.push":
-		mapTy := recvTy.(*types.Map)
-		entryTy := fl.info(call.Args[0]).Type
-		entryVal := fl.lowerExprOwned(call.Args[0], entryTy)
-		entrySlot := fl.allocSlot("_ll_entry", entryTy)
-		fl.assignLocal(entrySlot, entryVal)
-		return &ExprMapInsert{
-			MapPtr:  EnsureExpr(recvPtr, &types.Ptr{Elem: mapTy}),
-			Key:     &ExprField{Base: NewLocalExpr(entrySlot), FieldName: "ll_key", Typ: mapTy.Key},
-			Val:     &ExprField{Base: NewLocalExpr(entrySlot), FieldName: "ll_value", Typ: mapTy.Value},
-			MapType: mapTy,
-		}
-	case "map.remove":
-		mapTy := recvTy.(*types.Map)
-		fl.tc.visit(inf.Type)
-		k := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_map_remove__" + mapTy.Mangled()},
-			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: mapTy}), EnsureExpr(k, mapTy.Key)},
-			Typ:    inf.Type,
-		}
-	case "map.clear":
-		mapTy := recvTy.(*types.Map)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_map_clear__" + mapTy.Mangled()},
-			Args:   []Expr{EnsureExpr(recvPtr, &types.Ptr{Elem: mapTy})},
 			Typ:    types.TypeVoid,
 		}
 

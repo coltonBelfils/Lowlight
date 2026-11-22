@@ -292,11 +292,6 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 			markType(v.Elem)
 		case *types.StackArray:
 			markType(v.Elem)
-		case *types.Set:
-			markType(v.Elem)
-		case *types.Map:
-			markType(v.Key)
-			markType(v.Value)
 		case *types.Tuple:
 			for _, el := range v.Elems {
 				markType(el)
@@ -425,17 +420,6 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 			for _, el := range v.Elems {
 				walkExpr(el)
 			}
-		case *ir.ExprConstructMap:
-			markType(v.MapType)
-			for _, ent := range v.Entries {
-				walkExpr(ent.Key)
-				walkExpr(ent.Val)
-			}
-		case *ir.ExprConstructSet:
-			markType(v.SetType)
-			for _, el := range v.Elems {
-				walkExpr(el)
-			}
 		case *ir.ExprConstructClosure:
 			markType(v.FuncType)
 			walkExpr(v.EnvPtr)
@@ -507,12 +491,6 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 			markType(v.QueryType)
 		case *ir.ExprAlignOf:
 			markType(v.QueryType)
-		case *ir.ExprStringConcat:
-			walkExpr(v.Left)
-			walkExpr(v.Right)
-		case *ir.ExprStringPush:
-			walkExpr(v.StrPtr)
-			walkExpr(v.Item)
 		case *ir.ExprToString:
 			markType(v.ValType)
 			walkExpr(v.Val)
@@ -536,15 +514,6 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 		case *ir.ExprVecPush:
 			markType(v.VecType)
 			walkExpr(v.VecPtr)
-			walkExpr(v.Item)
-		case *ir.ExprMapInsert:
-			markType(v.MapType)
-			walkExpr(v.MapPtr)
-			walkExpr(v.Key)
-			walkExpr(v.Val)
-		case *ir.ExprSetInsert:
-			markType(v.SetType)
-			walkExpr(v.SetPtr)
 			walkExpr(v.Item)
 		}
 	}
@@ -670,22 +639,6 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 		}
 	}
 	sub.Arrays = arrs
-
-	var sets []*types.Set
-	for _, s := range prog.Sets {
-		if usedTypes[s.Mangled()] {
-			sets = append(sets, s)
-		}
-	}
-	sub.Sets = sets
-
-	var maps []*types.Map
-	for _, m := range prog.Maps {
-		if usedTypes[m.Mangled()] {
-			maps = append(maps, m)
-		}
-	}
-	sub.Maps = maps
 
 	var tups []*types.Tuple
 	for _, tp := range prog.Tuples {

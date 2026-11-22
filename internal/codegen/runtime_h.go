@@ -387,17 +387,6 @@ static inline void ll_print_str(ll_string s, int to_err, int newline) {
     }
 }
 
-static inline ll_string ll_str_concat(ll_string a, ll_string b) {
-    int64_t total = a.len + b.len;
-    if (total == 0) return ll_str_lit("", 0);
-    int64_t cap = total + 1;
-    uint8_t* buf = (uint8_t*)ll_alloc(cap);
-    if (a.len > 0) memcpy(buf, a.data, (size_t)a.len);
-    if (b.len > 0) memcpy(buf + a.len, b.data, (size_t)b.len);
-    buf[total] = '\0';
-    return (ll_string){ .data = buf, .len = total, .cap = cap };
-}
-
 static inline void ll_str_ensure_owned_cap(ll_string* s, int64_t needed) {
     if (s->cap >= needed) return;
     int64_t new_cap = (s->cap > 0) ? s->cap : 16;
@@ -436,18 +425,6 @@ static inline void ll_str_push_bytes(ll_string* s, const uint8_t* bytes, int64_t
     memmove(s->data + s->len, bytes, (size_t)count);
     s->len += count;
     s->data[s->len] = '\0';
-}
-
-static inline ll_string ll_str_slice_view(ll_string s, int64_t lo, int64_t hi, int check, const char* f, int l) {
-    if (LL_UNLIKELY(check && (lo < 0 || hi < lo || hi > s.len))) {
-        ll_panic_cstr("string slice bounds out of range", f, l);
-    }
-    return (ll_string){ .data = s.data ? (s.data + lo) : NULL, .len = hi - lo, .cap = 0 };
-}
-
-static inline ll_string ll_str_slice_owned(ll_string s, int64_t lo, int64_t hi, int check, const char* f, int l) {
-    ll_string v = ll_str_slice_view(s, lo, hi, check, f, l);
-    return ll_copy__string(v);
 }
 
 static inline uint8_t* ll_str_c_str(ll_string s) {

@@ -473,6 +473,9 @@ type Struct struct {
 	HasCustomDrop bool
 	BoxedOptional bool // true if `?ThisStruct` closes a recursive cycle and compiles to `ThisStruct*`
 	TypeArgs      []Type
+	// Lang is the `@lang("...")` item this struct was instantiated from
+	// ("list", "array", "set", "map", "range"), or "" for ordinary structs.
+	Lang          string
 	plainComputed bool
 	plainCached   bool
 	plainVisiting bool
@@ -481,6 +484,13 @@ type Struct struct {
 func (s *Struct) String() string {
 	if len(s.TypeArgs) == 0 {
 		return s.Name
+	}
+	// `#[T]` and `#[K: V]` are spelled with their literal syntax in diagnostics.
+	if s.Lang == "set" && len(s.TypeArgs) == 1 {
+		return "#[" + s.TypeArgs[0].String() + "]"
+	}
+	if s.Lang == "map" && len(s.TypeArgs) == 2 {
+		return "#[" + s.TypeArgs[0].String() + ": " + s.TypeArgs[1].String() + "]"
 	}
 	parts := make([]string, len(s.TypeArgs))
 	for i, ta := range s.TypeArgs {

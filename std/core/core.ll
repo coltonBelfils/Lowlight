@@ -690,3 +690,76 @@ bind test_core_map = (): {
 	assert(m.len() == 0, "len after clear")
 	assert(m.is_empty(), "is_empty after clear")
 }
+
+define _CoreColor enum [red, green]
+define _CoreId int
+define _CoreRes struct [name: string]
+bind _CoreRes.drop = (&self): {}
+
+@test("core sets and maps are the native Set and Map")
+bind test_core_set_map_native = (): {
+	// `#[T]` and `#[K: V]` are `Set[T]` and `Map[K, V]`.
+	let s: Set[int] = #[1, 2, 2, 3]
+	assert(s.len() == 3, "duplicates collapse")
+	assert(s.to_string() == "#[1, 2, 3]", "set to_string")
+	let m: #[string: int] = Map[string, int].new()
+	m["a"] = 1
+	m["a"] = 2
+	assert(m.len() == 1 and (m["a"] ?? 0) == 2, "m[k] = v replaces")
+	assert(m.to_string() == "#[a: 2]", "map to_string")
+
+	// Keys without a `hash` method of their own.
+	let t = #[+[1, "a"], +[2, "b"], +[1, "a"]]
+	assert(t.len() == 2 and t.has(+[2, "b"]), "tuple keys")
+	let c = #[_CoreColor.red, _CoreColor.green, _CoreColor.red]
+	assert(c.len() == 2 and c.has(_CoreColor.green), "enum keys")
+	let d = #[_CoreId(3): "three"]
+	assert((d[_CoreId(3)] ?? "") == "three", "distinct keys")
+
+	// Replacing and removing a resource value drops it exactly once (checked by the leak counter).
+	let r = #["k": _CoreRes[name: "one".copy()]]
+	r["k"] = _CoreRes[name: "two".copy()]
+	let gone? = r.remove("k")
+	assert(gone?.name == "two", "remove returns the value")
+
+	// Iteration, `when in`, and comprehensions.
+	let sum = 0
+	for(k, v in #["x": 1, "y": 2]): sum += v + k.len()
+	assert(sum == 5, "map iteration")
+	let hit = match(2):
+		when in #[1, 2]: true
+		default: false
+	assert(hit, "when in a set")
+	let halves = for(i in 0..6) #[int]: i / 2
+	assert(halves.len() == 3, "set comprehension")
+}
+
+@test("core literals and comprehensions start empty on every loop iteration")
+bind test_core_literal_in_loop = (): {
+	for(r in 0..3): {
+		let xs = [r]
+		let ys = for(i in 0..2): i + r
+		let zs = for(i in 0..2) #[int]: i + r
+		let ms = #["r": r]
+		assert(xs.len() == 1 and xs[0] == r, "list literal")
+		assert(ys.len() == 2 and ys[0] == r, "list comprehension")
+		assert(zs.len() == 2 and zs.has(r + 1), "set comprehension")
+		assert(ms.len() == 1 and (ms["r"] ?? -1) == r, "map literal")
+	}
+}
+
+@test("core string concatenation, slicing, and copy")
+bind test_core_string_ops = (): {
+	let a = "foo"
+	let b = a + "bar"
+	assert(b == "foobar" and b.cap() > 0, "concat owns its buffer")
+	assert(("" + "").len() == 0, "empty concat")
+	assert(b[1..4] == "oob" and b[..2] + b[4..] == "foar", "slices")
+	assert(b[2..2].len() == 0, "empty slice")
+	b += "!"
+	assert(b == "foobar!", "+=")
+	let lit = "lit"
+	let c = lit.copy()
+	assert(c == "lit" and c.cap() > 0 and lit.cap() == 0, "copy of a literal owns its buffer")
+	assert("".copy().cap() == 0, "copying an empty string allocates nothing")
+}

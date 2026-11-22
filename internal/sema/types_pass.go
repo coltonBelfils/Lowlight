@@ -321,6 +321,9 @@ func (a *Analyzer) runTypeAndSymbolRegistration() {
 
 	// Pass 1B: Register nominal type headers across all modules (order-independent!).
 	for _, mod := range a.Prog.Modules {
+		a.collectGenericDropReceivers(mod)
+	}
+	for _, mod := range a.Prog.Modules {
 		a.registerModuleTypeHeaders(mod)
 	}
 	if a.Rep.HasErrors() && !a.ideMode {
@@ -350,6 +353,35 @@ func (a *Analyzer) runTypeAndSymbolRegistration() {
 	// Pass 1E: Register extern headers/functions, top-level functions/vars, and methods.
 	for _, mod := range a.Prog.Modules {
 		a.registerFunctionsAndMethods(mod)
+	}
+	a.instantiatePendingDrops()
+}
+
+// collectGenericDropReceivers records which generic types declare a `drop` method.
+func (a *Analyzer) collectGenericDropReceivers(mod *Module) {
+	for _, d := range mod.File.Decls {
+		if md, ok := d.(*ast.MethodDecl); ok && md.Name == "drop" && len(md.RecvTypeParams) > 0 {
+			a.genDropRecv[md.RecvType] = true
+		}
+	}
+}
+
+// instantiatePendingDrops instantiates `drop` for generic instances created before methods
+// were registered.
+func (a *Analyzer) instantiatePendingDrops() {
+	pending := a.pendingDrops
+	a.pendingDrops = nil
+	for _, t := range pending {
+		switch inst := t.(type) {
+		case *types.Struct:
+			if gm, ok := a.genMethods[inst.Name]["drop"]; ok {
+				_ = a.instantiateMethod(gm, inst, nil, a.Prog.TypeSpans[inst])
+			}
+		case *types.Enum:
+			if gm, ok := a.genMethods[inst.Name]["drop"]; ok {
+				_ = a.instantiateMethod(gm, inst, nil, a.Prog.TypeSpans[inst])
+			}
+		}
 	}
 }
 
@@ -1329,7 +1361,7 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 				}
 			}
 		}
-		return &types.Set{Elem: elem}
+		return a.setType(elem, v.Elem.GetSpan())
 
 	case *ast.MapType:
 		kt := a.resolveValueType(mod, v.Key, subst, allowSelf)
@@ -1355,7 +1387,7 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 				}
 			}
 		}
-		return &types.Map{Key: kt, Value: vt}
+		return a.mapType(kt, vt, v.Key.GetSpan())
 
 	case *ast.TupleType:
 		var elems []types.Type
@@ -1814,6 +1846,18 @@ func (a *Analyzer) instantiateStruct(tmpl *GenericStructTemplate, typeArgs []typ
 		Doc:      tmpl.Decl.Doc,
 		TypeArgs: typeArgs,
 	}
+	switch tmpl {
+	case a.Prog.GenStructList:
+		inst.Lang = "list"
+	case a.Prog.GenStructArray:
+		inst.Lang = "array"
+	case a.Prog.GenStructSet:
+		inst.Lang = "set"
+	case a.Prog.GenStructMap:
+		inst.Lang = "map"
+	case a.Prog.GenStructRange:
+		inst.Lang = "range"
+	}
 	a.checkAttributes(tmpl.Decl.Attributes, inst, tmpl.Decl.Span, "struct")
 	if !hasTypeParam {
 		tmpl.Instances[key] = inst
@@ -1851,6 +1895,9 @@ func (a *Analyzer) instantiateStruct(tmpl *GenericStructTemplate, typeArgs []typ
 		if gm, ok := a.genMethods[tmpl.Decl.Name]["drop"]; ok {
 			_ = a.instantiateMethod(gm, inst, nil, span)
 			inst.HasCustomDrop = true
+		} else if a.genDropRecv[tmpl.Decl.Name] {
+			inst.HasCustomDrop = true
+			a.pendingDrops = append(a.pendingDrops, inst)
 		}
 	}
 	return inst
@@ -1954,7 +2001,7 @@ func (a *Analyzer) isCollectableType(t types.Type) bool {
 	if t == nil || t == types.TypeInvalid {
 		return false
 	}
-	switch v := t.(type) {
+	switch v := types.CollView(t).(type) {
 	case *types.Vector:
 		return true
 	case *types.Set:
@@ -1985,7 +2032,7 @@ func (a *Analyzer) collectableItemType(t types.Type) types.Type {
 	if t == nil || t == types.TypeInvalid {
 		return types.TypeInvalid
 	}
-	switch v := t.(type) {
+	switch v := types.CollView(t).(type) {
 	case *types.Vector:
 		return v.Elem
 	case *types.Set:
@@ -2030,7 +2077,7 @@ func (a *Analyzer) isIterableType(t types.Type) bool {
 	if t == nil || t == types.TypeInvalid {
 		return false
 	}
-	switch c := t.(type) {
+	switch c := types.CollView(t).(type) {
 	case *types.Vector, *types.StackArray, *types.Set, *types.Map:
 		return true
 	case *types.Primitive:
@@ -2054,7 +2101,7 @@ func (a *Analyzer) iterableItemType(t types.Type) types.Type {
 	if t == nil || t == types.TypeInvalid {
 		return types.TypeInvalid
 	}
-	switch c := t.(type) {
+	switch c := types.CollView(t).(type) {
 	case *types.Vector:
 		return c.Elem
 	case *types.StackArray:
@@ -2219,7 +2266,7 @@ func (a *Analyzer) isKeyIndexableType(t types.Type) bool {
 	if t == nil || t == types.TypeInvalid {
 		return false
 	}
-	switch v := t.(type) {
+	switch v := types.CollView(t).(type) {
 	case *types.Map:
 		return true
 	case *types.Struct:
@@ -2273,7 +2320,7 @@ func (a *Analyzer) keyIndexableTypes(t types.Type) (types.Type, types.Type) {
 	if t == nil || t == types.TypeInvalid {
 		return types.TypeInvalid, types.TypeInvalid
 	}
-	switch v := t.(type) {
+	switch v := types.CollView(t).(type) {
 	case *types.Map:
 		return v.Key, v.Value
 	case *types.Struct:
@@ -2358,7 +2405,7 @@ func (a *Analyzer) containableItemType(t types.Type) types.Type {
 	if t == nil || t == types.TypeInvalid {
 		return types.TypeInvalid
 	}
-	switch v := t.(type) {
+	switch v := types.CollView(t).(type) {
 	case *types.Vector:
 		if !a.supportsEq(v.Elem) {
 			return types.TypeInvalid
@@ -2492,6 +2539,9 @@ func (a *Analyzer) instantiateEnum(tmpl *GenericEnumTemplate, typeArgs []types.T
 		if gm, ok := a.genMethods[tmpl.Decl.Name]["drop"]; ok {
 			_ = a.instantiateMethod(gm, inst, nil, span)
 			inst.HasCustomDrop = true
+		} else if a.genDropRecv[tmpl.Decl.Name] {
+			inst.HasCustomDrop = true
+			a.pendingDrops = append(a.pendingDrops, inst)
 		}
 	}
 	return inst
@@ -3144,7 +3194,7 @@ func (a *Analyzer) ImplementsInterface(concrete types.Type, ifc *types.Interface
 		}
 	}
 	if a.Prog.GenIfaceIterable != nil && strings.HasPrefix(ifc.Name, a.Prog.GenIfaceIterable.Decl.Name) {
-		switch c := concrete.(type) {
+		switch c := types.CollView(concrete).(type) {
 		case *types.Vector, *types.StackArray, *types.Set, *types.Map:
 			return true
 		case *types.Primitive:
@@ -3322,6 +3372,11 @@ func (a *Analyzer) supportsToString(t types.Type) bool {
 }
 
 func (a *Analyzer) supportsToStringVisited(t types.Type, seen map[types.Type]bool) bool {
+	// Check a set's or map's element types before instantiating its `to_string`,
+	// whose body calls `to_string` on them.
+	if view := types.CollView(t); view != t {
+		return a.supportsToStringVisited(view, seen) && a.LookupMethod(t, "to_string", nil, diag.Span{}) != nil
+	}
 	if a.LookupMethod(t, "to_string", nil, diag.Span{}) != nil {
 		return true
 	}
@@ -3372,6 +3427,11 @@ func (a *Analyzer) supportsCopy(t types.Type) bool {
 func (a *Analyzer) supportsCopyVisited(t types.Type, seen map[types.Type]bool) bool {
 	if t.IsPlain() {
 		return true
+	}
+	// Check a set's or map's element types before instantiating its `copy`,
+	// whose body copies them.
+	if view := types.CollView(t); view != t {
+		return a.supportsCopyVisited(view, seen) && a.LookupMethod(t, "copy", nil, diag.Span{}) != nil
 	}
 	if a.LookupMethod(t, "copy", nil, diag.Span{}) != nil {
 		return true

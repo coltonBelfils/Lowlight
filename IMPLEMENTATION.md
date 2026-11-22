@@ -318,8 +318,8 @@ The C11 code generator (`cEmitter`) emits a single, self-contained `.c` file org
 | `string` | `ll_string` (`{ uint8_t* data; int64_t len; int64_t cap; }`; `cap == 0` is a borrowed view) |
 | `[T]` | per-element-type struct `{ T* data; int64_t len; int64_t cap; }` |
 | `[N: T]` | `struct { T data[N]; }` (wrapped in a struct for value semantics) |
-| `#[T]` | hash set: bucket index array + insertion-ordered entry array (`{ alive, hash, key }`) |
-| `#[K: V]` | hash map: bucket index array + insertion-ordered entry array (`{ alive, hash, key, value }`) |
+| `#[T]` | the std/core struct `Set[T]` (`{ buckets, buck_cap, entries, ent_cap, ent_len, len }`) |
+| `#[K: V]` | the std/core struct `Map[K, V]` (same fields; entries also hold the value) |
 | `?T` (Plain $T$) | `struct { bool has_value; T value; }` |
 | `?T` (Boxed $T$) | `T*` (pointer with `NULL` representing `none`) |
 | Tag Enum | the declared integer type (default `int64_t`) |
@@ -365,15 +365,18 @@ Every trap prints `lowlight panic at FILE:LINE: message` after flushing standard
 
 - **Zero-Copy Views:** String and vector slices use `cap = 0` as a sentinel indicating a borrowed, non-owning view. The destructor checks `if (v.cap > 0) ll_free(v.data);`, ensuring borrowed views are never freed.
 - **Copy-on-Write (CoW) Mutation:** Mutating operations (`push`, `insert`, string append) check if the backing buffer is a view (`cap == 0`). If so, they immediately allocate an independent heap buffer and copy the data before mutating.
-- **String buffer methods in Lowlight:** `push`, `push_byte`, `push_bytes`, `push_char`, `clear`, `reserve`, `cap`, and `string.with_capacity` are ordinary prelude methods in `std/core/primitives.ll`. Like `List`, they view the string as its raw `{ data, len, cap }` layout through `ptr_cast`. Each method's no-growth path is small enough to inline; growth is in separate helpers (`_string_grow`, `_string_push_grow`) that take and return the layout by value, so a local string never has its address taken and the optimizer keeps its fields in registers. The runtime still has `ll_str_push`, `ll_str_push_byte`, `ll_str_push_bytes`, and `ll_str_ensure_owned_cap` for code the compiler generates itself (`+=`, interpolation, and `to_string` of collections).
+- **String buffer methods in Lowlight:** `push`, `push_byte`, `push_bytes`, `push_char`, `clear`, `reserve`, `cap`, and `string.with_capacity` are ordinary prelude methods in `std/core/primitives.ll`. Like `List`, they view the string as its raw `{ data, len, cap }` layout through `ptr_cast`. Each method's no-growth path is small enough to inline; growth is in separate helpers (`_string_grow`, `_string_push_grow`) that take and return the layout by value, so a local string never has its address taken and the optimizer keeps its fields in registers. The string code the compiler generates calls these methods too: `+=` and interpolation lower to `string.push`, `a + b` to `string._concat`, `s[lo..hi]` to `string._slice` (or `string._slice_view` when the slice is only borrowed; both are `@track_caller`, so a bad range panics at the slice), and copies to `string.copy`. The runtime keeps `ll_str_push` and its helpers only for the `to_string` helpers it synthesizes for tuples, enums, and optionals.
 
 ### 7.4 Insertion-Ordered Hash Tables
 
-Sets and maps are open-addressing hash tables with two arrays (`internal/codegen/cgen_collections.go` and the LLVM equivalent):
-- **Entries** are appended in insertion order (`{ alive, hash, key[, value] }`), which makes iteration order deterministic: `for(k, v in map)` visits keys in the order they were first inserted.
+`#[T]` and `#[K: V]` are the `@lang("set")` and `@lang("map")` structs `Set[T]` and `Map[K, V]` from `std/core/set.ll` and `std/core/map.ll`: type syntax resolves to those struct instances (`types.Struct.Lang` is `"set"` or `"map"`), and the compiler generates no hash-table code of its own. Literals lower to `with_capacity` plus `insert`, `m[k]` to `get`, `m[k] = v` to `insert`, `x in s` to `has`, and set and map comprehensions to `insert`. `for` loops over a set or map are lowered inline over the entry array, so the loop variable borrows each element instead of copying it. Checks that only care about element types go through `types.CollView`, which presents the structs as structural `*types.Set` / `*types.Map` descriptors.
+
+Both are open-addressing tables with two arrays:
+- **Entries** are appended in insertion order (`{ alive, hash, key[, val] }`), which makes iteration order deterministic: `for(k, v in map)` visits keys in the order they were first inserted.
 - **Buckets** hold indexes into the entry array, found by linear probing from `hash & mask`. Deleting marks the entry dead and its bucket as a tombstone (`-2`).
-- The bucket array doubles when the load passes 70%, rehashing live entries.
-- Hashes come from the `Hashable` implementations in `std/core/hash.ll` (SplitMix64 mixing for integers) and user `hash` methods.
+- The bucket array doubles when the load passes 70%; tombstones are compacted when the table rehashes.
+- Hashes come from the `Hashable` implementations in `std/core/hash.ll` (SplitMix64 mixing for integers) and user `hash` methods. Hashable types without a `hash` method of their own (tuples, tag-only enums, pointers, distinct types) get a built-in `.hash()`: tuples use a synthesized per-type helper, and the others hash their integer or base value.
+- Generic structs that declare `drop` are recorded before any type is instantiated, so a `#[K: V]` written in a struct field or signature (instantiated before methods are registered) is still a resource, and its `drop` is instantiated once methods exist.
 
 ### 7.5 Chunked Bump Arena
 

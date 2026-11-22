@@ -171,8 +171,6 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 	irp.Optionals = tc.opts
 	irp.Vectors = tc.vecs
 	irp.Arrays = tc.arrs
-	irp.Sets = tc.sets
-	irp.Maps = tc.maps
 	irp.Tuples = tc.tups
 	irp.FuncTypes = tc.fns
 	irp.Interfaces = tc.ifcs
@@ -836,21 +834,19 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 	if ue, isUnsafe := tgt.(*ast.UnsafeExpr); isUnsafe {
 		tgt = ue.Expr
 	}
-	// Shorthand `map[key] = val` -> `ll_map_insert(&map, key, val)`
+	// Shorthand `map[key] = val` -> `map.insert(key, val)`
 	if idx, isIdx := tgt.(*ast.IndexExpr); isIdx && s.Op == token.Assign && s.FallbackUnwind == nil {
-		if mapTy, isMap := fl.info(idx.Base).Type.(*types.Map); isMap {
+		mapTy := fl.info(idx.Base).Type
+		if keyTy, valTy, isMap := types.MapKV(mapTy); isMap {
 			fl.tc.visit(mapTy)
 			mPtr := fl.lowerLValueAddr(idx.Base)
-			kExpr := fl.lowerExprOwned(idx.Index, mapTy.Key)
-			vExpr := fl.lowerExprOwned(s.Value, mapTy.Value)
-			fl.emit(&InstrExpr{
-				Expr: &ExprMapInsert{
-					MapPtr:  EnsureExpr(mPtr, &types.Ptr{Elem: mapTy}),
-					Key:     EnsureExpr(kExpr, mapTy.Key),
-					Val:     EnsureExpr(vExpr, mapTy.Value),
-					MapType: mapTy,
-				},
-			})
+			kExpr := fl.lowerExprOwned(idx.Index, keyTy)
+			vExpr := fl.lowerExprOwned(s.Value, valTy)
+			fl.emit(&InstrExpr{Expr: fl.callMethod(mapTy, "insert",
+				EnsureExpr(mPtr, &types.Ptr{Elem: mapTy}),
+				EnsureExpr(kExpr, keyTy),
+				EnsureExpr(vExpr, valTy),
+			)})
 			fl.flushStmtTemps()
 			return
 		}
@@ -975,7 +971,7 @@ func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type
 
 func (fl *funcLowerer) emitCompoundAssign(op token.Kind, ty types.Type, lhsPtr Expr, rhsExpr Expr, file string, line int) {
 	if op == token.PlusEq && ty.Equals(types.TypeString) {
-		fl.emit(&InstrExpr{Expr: &ExprStringPush{StrPtr: EnsureExpr(lhsPtr, types.TypeString), Item: EnsureExpr(rhsExpr, types.TypeString)}})
+		fl.emit(fl.strPush(lhsPtr, rhsExpr))
 		return
 	}
 	var binOp token.Kind

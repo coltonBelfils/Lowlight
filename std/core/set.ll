@@ -201,12 +201,8 @@ bind Set[T].insert = (&self, val: own T) bool: {
 	}
 	let idx = self.ent_len
 	self.ent_len += 1
-	unsafe {
-		zero_bytes(ptr_cast[u8](ptr_add(self.entries, idx)), size_of[SetEntry[T]]())
-		self.entries[idx].alive = true
-		self.entries[idx].hash = h
-		self.entries[idx].key = own val
-	}
+	// `ptr_write` fills the empty slot without dropping its old bytes as a value.
+	unsafe ptr_write(ptr_add(self.entries, idx), SetEntry[T][alive: true, hash: h, key: own val])
 	let mask = self.buck_cap - 1
 	let slot = int(h & u64(mask))
 	for(unsafe self.buckets[slot] >= 0): slot = slot + 1 & mask

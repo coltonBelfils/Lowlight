@@ -1267,7 +1267,7 @@ func substSelfTypeString(t types.Type, typeName string) string {
 	if t == types.TypeSelf || t.String() == "Self" {
 		return typeName
 	}
-	switch v := t.(type) {
+	switch v := types.CollView(t).(type) {
 	case *types.Optional:
 		return "?" + substSelfTypeString(v.Elem, typeName)
 	case *types.Vector:

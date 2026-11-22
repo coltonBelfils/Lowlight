@@ -136,6 +136,9 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) Expr {
 	if needValue && inf.Type != nil && !inf.Type.Equals(types.TypeVoid) && !inf.Type.Equals(types.TypeNever) {
 		colSlot = fl.allocSlot("_ll_col", inf.Type)
 		fl.tc.visit(inf.Type)
+		// Start from an empty collection each time, as a comprehension inside a loop is
+		// evaluated again after the previous result was moved away.
+		fl.emit(&InstrAssign{Dst: NewLocalExpr(colSlot), Expr: &ExprLitZero{Typ: inf.Type}})
 		if colSlot.MovedLocal != nil {
 			fl.emit(&InstrAssign{Dst: NewLocalExpr(colSlot.MovedLocal), Expr: NewLitBool(false)})
 		}
@@ -182,7 +185,7 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) Expr {
 	if fe.Else != nil {
 		if needValue && colSlot != nil {
 			var isEmptyCond Expr
-			switch colSlot.Type.(type) {
+			switch types.CollView(colSlot.Type).(type) {
 			case *types.Vector, *types.Set, *types.Map:
 				isEmptyCond = &ExprBinary{
 					Op:    token.Eq,
@@ -221,21 +224,21 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) Expr {
 }
 
 func (fl *funcLowerer) emitPushToCol(colSlot *Local, itemVal Expr, elemTy types.Type) {
-	switch ct := colSlot.Type.(type) {
+	colAddr := &ExprAddrOf{Place: NewLocalExpr(colSlot), Typ: &types.Ptr{Elem: colSlot.Type}}
+	switch ct := types.CollView(colSlot.Type).(type) {
 	case *types.Vector:
 		fl.emit(&InstrExpr{Expr: &ExprVecPush{VecPtr: &ExprAddrOf{Place: NewLocalExpr(colSlot), Typ: &types.Ptr{Elem: ct}}, Item: EnsureExpr(itemVal, ct.Elem), VecType: ct}})
 	case *types.Set:
-		fl.emit(&InstrExpr{Expr: &ExprSetInsert{SetPtr: &ExprAddrOf{Place: NewLocalExpr(colSlot), Typ: &types.Ptr{Elem: ct}}, Item: EnsureExpr(itemVal, ct.Elem), SetType: ct}})
+		fl.emit(&InstrExpr{Expr: fl.callMethod(colSlot.Type, "insert", colAddr, EnsureExpr(itemVal, ct.Elem))})
 	case *types.Map:
 		entrySlot := fl.allocSlot("_ll_entry", elemTy)
 		fl.assignLocal(entrySlot, itemVal)
-		fl.emit(&InstrExpr{Expr: &ExprMapInsert{
-			MapPtr:  &ExprAddrOf{Place: NewLocalExpr(colSlot), Typ: &types.Ptr{Elem: ct}},
-			Key:     &ExprField{Base: NewLocalExpr(entrySlot), FieldName: "ll_key", Typ: ct.Key},
-			Val:     &ExprField{Base: NewLocalExpr(entrySlot), FieldName: "ll_value", Typ: ct.Value},
-			MapType: ct,
-		}})
+		fl.emit(&InstrExpr{Expr: fl.callMethod(colSlot.Type, "insert", colAddr,
+			&ExprField{Base: NewLocalExpr(entrySlot), FieldName: "ll_key", Typ: ct.Key},
+			&ExprField{Base: NewLocalExpr(entrySlot), FieldName: "ll_value", Typ: ct.Value},
+		)})
 	default:
+		ct = colSlot.Type
 		fi := fl.lookupMethod(ct, "push")
 		if fi != nil {
 			fl.emit(&InstrExpr{Expr: &ExprCall{
@@ -399,7 +402,7 @@ func (fl *funcLowerer) lowerLoopDriver(
 		}
 		fl.flushStmtTemps()
 
-		switch c := colTy.(type) {
+		switch c := types.CollView(colTy).(type) {
 		case *types.Vector:
 			idxVar := fl.allocSlot("_ll_vi", types.TypeInt)
 			fl.assignLocal(idxVar, NewLitInt(0, false, types.TypeInt))
@@ -485,27 +488,20 @@ func (fl *funcLowerer) lowerLoopDriver(
 			idxVar := fl.allocSlot("_ll_si", types.TypeInt)
 			fl.assignLocal(idxVar, NewLitInt(0, false, types.TypeInt))
 			fl.usedLabels[contLbl] = true
-			setEntSt := &types.Struct{
-				Name:  "ll_" + c.Mangled() + "_ent",
-				CName: "ll_" + c.Mangled() + "_ent",
-				Fields: []types.StructField{
-					{Name: "alive", CName: "alive", Type: types.TypeBool},
-					{Name: "hash", CName: "hash", Type: types.TypeU64},
-					{Name: "key", CName: "key", Type: c.Elem},
-				},
-			}
-			entriesField := &ExprField{Base: colPtrExpr, FieldName: "entries", Typ: &types.Ptr{Elem: setEntSt}, IsPtr: true}
+			entriesF, entLenF, setEntSt := collEntries(colTy)
+			fl.tc.visit(setEntSt)
+			entriesField := &ExprField{Base: colPtrExpr, FieldName: entriesF.CName, Typ: entriesF.Type, IsPtr: true}
 			entryAccess := &ExprIndex{Base: entriesField, Index: NewLocalExpr(idxVar), Typ: setEntSt}
-			aliveField := &ExprField{Base: entryAccess, FieldName: "alive", Typ: types.TypeBool}
+			aliveField := &ExprField{Base: entryAccess, FieldName: collField(setEntSt, "alive").CName, Typ: types.TypeBool}
 			notAlive := &ExprUnary{Op: token.KwNot, Operand: aliveField, Typ: types.TypeBool}
-			keyField := &ExprField{Base: entryAccess, FieldName: "key", Typ: c.Elem}
+			keyField := &ExprField{Base: entryAccess, FieldName: collField(setEntSt, "key").CName, Typ: c.Elem}
 			stepInit := []Instr{
 				NewInstrIf(notAlive, []Instr{&InstrGoto{Label: contLbl}}, nil),
 				&InstrAssign{Dst: NewLocalExpr(loc1), Expr: keyField},
 			}
 			incExpr := &ExprBinary{Op: token.Plus, Left: NewLocalExpr(idxVar), Right: NewLitInt(1, false, types.TypeInt), Typ: types.TypeInt}
 			stepAdv := []Instr{&InstrAssign{Dst: NewLocalExpr(idxVar), Expr: incExpr}}
-			entLenField := &ExprField{Base: colPtrExpr, FieldName: "ent_len", Typ: types.TypeInt, IsPtr: true}
+			entLenField := &ExprField{Base: colPtrExpr, FieldName: entLenF.CName, Typ: types.TypeInt, IsPtr: true}
 			loopCond := &ExprBinary{Op: token.Lt, Left: NewLocalExpr(idxVar), Right: entLenField, Typ: types.TypeBool}
 			emitBodyIteration(stepInit, stepAdv, loopCond)
 
@@ -513,22 +509,14 @@ func (fl *funcLowerer) lowerLoopDriver(
 			idxVar := fl.allocSlot("_ll_mi", types.TypeInt)
 			fl.assignLocal(idxVar, NewLitInt(0, false, types.TypeInt))
 			fl.usedLabels[contLbl] = true
-			mapEntSt := &types.Struct{
-				Name:  "ll_" + c.Mangled() + "_ent",
-				CName: "ll_" + c.Mangled() + "_ent",
-				Fields: []types.StructField{
-					{Name: "alive", CName: "alive", Type: types.TypeBool},
-					{Name: "hash", CName: "hash", Type: types.TypeU64},
-					{Name: "key", CName: "key", Type: c.Key},
-					{Name: "val", CName: "val", Type: c.Value},
-				},
-			}
-			entriesField := &ExprField{Base: colPtrExpr, FieldName: "entries", Typ: &types.Ptr{Elem: mapEntSt}, IsPtr: true}
+			entriesF, entLenF, mapEntSt := collEntries(colTy)
+			fl.tc.visit(mapEntSt)
+			entriesField := &ExprField{Base: colPtrExpr, FieldName: entriesF.CName, Typ: entriesF.Type, IsPtr: true}
 			entryAccess := &ExprIndex{Base: entriesField, Index: NewLocalExpr(idxVar), Typ: mapEntSt}
-			aliveField := &ExprField{Base: entryAccess, FieldName: "alive", Typ: types.TypeBool}
+			aliveField := &ExprField{Base: entryAccess, FieldName: collField(mapEntSt, "alive").CName, Typ: types.TypeBool}
 			notAlive := &ExprUnary{Op: token.KwNot, Operand: aliveField, Typ: types.TypeBool}
-			keyAccess := &ExprField{Base: entryAccess, FieldName: "key", Typ: c.Key}
-			valAccess := &ExprField{Base: entryAccess, FieldName: "val", Typ: c.Value}
+			keyAccess := &ExprField{Base: entryAccess, FieldName: collField(mapEntSt, "key").CName, Typ: c.Key}
+			valAccess := &ExprField{Base: entryAccess, FieldName: collField(mapEntSt, "val").CName, Typ: c.Value}
 			var stepInit []Instr
 			stepInit = append(stepInit, NewInstrIf(notAlive, []Instr{&InstrGoto{Label: contLbl}}, nil))
 			if loc2 == nil {
@@ -551,7 +539,7 @@ func (fl *funcLowerer) lowerLoopDriver(
 			}
 			incExpr := &ExprBinary{Op: token.Plus, Left: NewLocalExpr(idxVar), Right: NewLitInt(1, false, types.TypeInt), Typ: types.TypeInt}
 			stepAdv := []Instr{&InstrAssign{Dst: NewLocalExpr(idxVar), Expr: incExpr}}
-			entLenField := &ExprField{Base: colPtrExpr, FieldName: "ent_len", Typ: types.TypeInt, IsPtr: true}
+			entLenField := &ExprField{Base: colPtrExpr, FieldName: entLenF.CName, Typ: types.TypeInt, IsPtr: true}
 			loopCond := &ExprBinary{Op: token.Lt, Left: NewLocalExpr(idxVar), Right: entLenField, Typ: types.TypeBool}
 			emitBodyIteration(stepInit, stepAdv, loopCond)
 
@@ -942,27 +930,10 @@ func (fl *funcLowerer) lowerContainsPattern(p *ast.ContainsPattern, cinfo *sema.
 			Typ:    types.TypeBool,
 		}
 
-	case sema.ContainsBuiltinSet:
-		setTy := cinfo.ContainerType.(*types.Set)
+	case sema.ContainsBuiltinSet, sema.ContainsBuiltinMap:
+		colTy := cinfo.ContainerType
 		recvVal := fl.lowerExprRead(p.Container)
-		sTmp := fl.allocSlot("_ll_sh", setTy)
-		fl.assignLocal(sTmp, recvVal)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_set_has__" + setTy.Mangled()},
-			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(sTmp), Typ: &types.Ptr{Elem: setTy}}, EnsureExpr(needleArg, setTy.Elem)},
-			Typ:    types.TypeBool,
-		}
-
-	case sema.ContainsBuiltinMap:
-		mapTy := cinfo.ContainerType.(*types.Map)
-		recvVal := fl.lowerExprRead(p.Container)
-		mTmp := fl.allocSlot("_ll_mh", mapTy)
-		fl.assignLocal(mTmp, recvVal)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_map_has__" + mapTy.Mangled()},
-			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(mTmp), Typ: &types.Ptr{Elem: mapTy}}, EnsureExpr(needleArg, mapTy.Key)},
-			Typ:    types.TypeBool,
-		}
+		return fl.callMethod(colTy, "has", EnsureExpr(recvVal, colTy), EnsureExpr(needleArg, cinfo.ElemType))
 	}
 	return NewLitBool(false)
 }
@@ -1248,10 +1219,7 @@ func (fl *funcLowerer) lowerBinaryExpr(b *ast.BinaryExpr, inf *sema.ExprInfo, fo
 	if b.Op == token.Plus && inf.Type.Equals(types.TypeString) {
 		lhs := fl.lowerExprRead(b.Left)
 		rhs := fl.lowerExprRead(b.Right)
-		return &ExprStringConcat{
-			Left:  EnsureExpr(lhs, types.TypeString),
-			Right: EnsureExpr(rhs, types.TypeString),
-		}
+		return fl.callMethod(types.TypeString, "_concat", EnsureExpr(lhs, types.TypeString), EnsureExpr(rhs, types.TypeString))
 	}
 
 	// 7. Numeric Arithmetic & Bitwise (`+`, `-`, `*`, `/`, `%`, `&`, `|`, `^`)
@@ -1614,7 +1582,7 @@ func (fl *funcLowerer) lowerIndexExpr(idx *ast.IndexExpr, inf *sema.ExprInfo, _ 
 	file, line := formatSpanLoc(idx)
 	idxVal := fl.lowerExprRead(idx.Index)
 
-	switch v := baseTy.(type) {
+	switch v := types.CollView(baseTy).(type) {
 	case *types.Tuple:
 		fIdx := inf.TupleFieldIdx
 		fName := fmt.Sprintf("_%d", fIdx)
@@ -1684,24 +1652,15 @@ func (fl *funcLowerer) lowerIndexExpr(idx *ast.IndexExpr, inf *sema.ExprInfo, _ 
 		}
 
 	case *types.Map:
-		fl.tc.visit(v)
+		fl.tc.visit(baseTy)
 		fl.tc.visit(inf.Type)
-		var mPtr any
+		var recv Expr
 		if isArenaRef {
-			mPtr = fl.lowerExprRead(idx.Base)
-		} else if fl.isAddressable(idx.Base) {
-			mPtr = fl.lowerLValueAddr(idx.Base)
+			recv = &ExprDeref{Ptr: EnsureExpr(fl.lowerExprRead(idx.Base), rawBaseTy), Typ: baseTy}
 		} else {
-			bVal := fl.lowerExprRead(idx.Base)
-			mTmp := fl.allocSlot("_ll_mv", v)
-			fl.assignLocal(mTmp, bVal)
-			mPtr = &ExprAddrOf{Place: NewLocalExpr(mTmp), Typ: &types.Ptr{Elem: v}}
+			recv = EnsureExpr(fl.lowerExprRead(idx.Base), baseTy)
 		}
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_map_get__" + v.Mangled()},
-			Args:   []Expr{EnsureExpr(mPtr, &types.Ptr{Elem: v}), EnsureExpr(idxVal, v.Key)},
-			Typ:    types.NewOptional(v.Value),
-		}
+		return fl.callMethod(baseTy, "get", recv, EnsureExpr(idxVal, v.Key))
 
 	case *types.Ptr:
 		ptr := fl.lowerExprRead(idx.Base)
@@ -1809,22 +1768,15 @@ func (fl *funcLowerer) lowerSliceExpr(sl *ast.SliceExpr, inf *sema.ExprInfo) Exp
 		} else {
 			hiVal = &ExprField{Base: EnsureExpr(baseRef, types.TypeString), FieldName: "len", Typ: types.TypeInt}
 		}
-		fnName := "ll_str_slice_owned"
+		method := "_slice"
 		if inf.BorrowAsView {
-			fnName = "ll_str_slice_view"
+			method = "_slice_view"
 		}
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: fnName},
-			Args: []Expr{
-				EnsureExpr(baseRef, types.TypeString),
-				EnsureExpr(loVal, types.TypeInt),
-				EnsureExpr(hiVal, types.TypeInt),
-				NewLitInt(uint64(check), false, types.TypeInt),
-				&ExprLitCString{Val: file},
-				NewLitInt(uint64(line), false, types.TypeInt),
-			},
-			Typ: inf.Type,
-		}
+		return fl.callMethodAt(sl, types.TypeString, method,
+			EnsureExpr(baseRef, types.TypeString),
+			EnsureExpr(loVal, types.TypeInt),
+			EnsureExpr(hiVal, types.TypeInt),
+		)
 
 	case *types.Vector:
 		fl.tc.visit(v)
@@ -1916,27 +1868,18 @@ func (fl *funcLowerer) lowerInterpString(is *ast.InterpStringExpr) Expr {
 
 	for i, seg := range is.Segments {
 		if len(seg) > 0 {
-			fl.emit(&InstrExpr{Expr: &ExprStringPush{
-				StrPtr: &ExprAddrOf{Place: NewLocalExpr(out), Typ: &types.Ptr{Elem: types.TypeString}},
-				Item:   &ExprLitString{Val: seg},
-			}})
+			fl.emit(fl.strPush(&ExprAddrOf{Place: NewLocalExpr(out), Typ: &types.Ptr{Elem: types.TypeString}}, &ExprLitString{Val: seg}))
 		}
 		if i < len(is.Exprs) {
 			sub := is.Exprs[i]
 			subTy := fl.info(sub).Type
 			subExpr := fl.lowerExprRead(sub)
 			if subTy.Equals(types.TypeString) {
-				fl.emit(&InstrExpr{Expr: &ExprStringPush{
-					StrPtr: &ExprAddrOf{Place: NewLocalExpr(out), Typ: &types.Ptr{Elem: types.TypeString}},
-					Item:   EnsureExpr(subExpr, types.TypeString),
-				}})
+				fl.emit(fl.strPush(&ExprAddrOf{Place: NewLocalExpr(out), Typ: &types.Ptr{Elem: types.TypeString}}, subExpr))
 			} else {
 				strPart := fl.toStringCallExpr(subTy, subExpr)
 				partTmp := fl.allocStmtTemp(types.TypeString, strPart)
-				fl.emit(&InstrExpr{Expr: &ExprStringPush{
-					StrPtr: &ExprAddrOf{Place: NewLocalExpr(out), Typ: &types.Ptr{Elem: types.TypeString}},
-					Item:   NewLocalExpr(partTmp),
-				}})
+				fl.emit(fl.strPush(&ExprAddrOf{Place: NewLocalExpr(out), Typ: &types.Ptr{Elem: types.TypeString}}, NewLocalExpr(partTmp)))
 			}
 		}
 	}
@@ -1999,6 +1942,9 @@ func (fl *funcLowerer) lowerVecOrArrayLit(v *ast.VecLit, inf *sema.ExprInfo) Exp
 		return &ExprLitZero{Typ: vecTy}
 	}
 	slot := fl.allocSlot("_ll_vec", vecTy)
+	// Locals are zeroed once per call, so a literal evaluated again in a loop must start from an
+	// empty list rather than the one it built (and gave away) last time.
+	fl.assignLocal(slot, &ExprLitZero{Typ: vecTy})
 	fl.emit(&InstrExpr{Expr: &ExprCall{
 		Callee: &ExprFuncRef{Name: "ll_vec_reserve__" + vecTy.Mangled()},
 		Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(slot), Typ: &types.Ptr{Elem: vecTy}}, NewLitInt(uint64(len(v.Elems)), false, types.TypeInt)},
@@ -2118,39 +2064,41 @@ func (fl *funcLowerer) lowerTupleLit(lit *ast.TupleLit, inf *sema.ExprInfo) Expr
 }
 
 func (fl *funcLowerer) lowerSetLit(s *ast.SetLit, inf *sema.ExprInfo) Expr {
-	setTy := inf.Type.(*types.Set)
+	setTy := inf.Type
+	elemTy, _ := types.SetElem(setTy)
 	fl.tc.visit(setTy)
 	if len(s.Elems) == 0 {
 		return &ExprLitZero{Typ: setTy}
 	}
 	slot := fl.allocSlot("_ll_set", setTy)
+	fl.assignLocal(slot, fl.callMethod(setTy, "with_capacity", NewLitInt(uint64(len(s.Elems)), false, types.TypeInt)))
 	for _, el := range s.Elems {
-		elVal := fl.lowerExprOwned(el, setTy.Elem)
-		fl.emit(&InstrExpr{Expr: &ExprSetInsert{
-			SetPtr:  &ExprAddrOf{Place: NewLocalExpr(slot), Typ: &types.Ptr{Elem: setTy}},
-			Item:    EnsureExpr(elVal, setTy.Elem),
-			SetType: setTy,
-		}})
+		elVal := fl.lowerExprOwned(el, elemTy)
+		fl.emit(&InstrExpr{Expr: fl.callMethod(setTy, "insert",
+			&ExprAddrOf{Place: NewLocalExpr(slot), Typ: &types.Ptr{Elem: setTy}},
+			EnsureExpr(elVal, elemTy),
+		)})
 	}
 	return NewLocalExpr(slot)
 }
 
 func (fl *funcLowerer) lowerMapLit(m *ast.MapLit, inf *sema.ExprInfo) Expr {
-	mapTy := inf.Type.(*types.Map)
+	mapTy := inf.Type
+	keyTy, valTy, _ := types.MapKV(mapTy)
 	fl.tc.visit(mapTy)
 	if len(m.Entries) == 0 {
 		return &ExprLitZero{Typ: mapTy}
 	}
 	slot := fl.allocSlot("_ll_map", mapTy)
+	fl.assignLocal(slot, fl.callMethod(mapTy, "with_capacity", NewLitInt(uint64(len(m.Entries)), false, types.TypeInt)))
 	for _, ent := range m.Entries {
-		kVal := fl.lowerExprOwned(ent.Key, mapTy.Key)
-		vVal := fl.lowerExprOwned(ent.Value, mapTy.Value)
-		fl.emit(&InstrExpr{Expr: &ExprMapInsert{
-			MapPtr:  &ExprAddrOf{Place: NewLocalExpr(slot), Typ: &types.Ptr{Elem: mapTy}},
-			Key:     EnsureExpr(kVal, mapTy.Key),
-			Val:     EnsureExpr(vVal, mapTy.Value),
-			MapType: mapTy,
-		}})
+		kVal := fl.lowerExprOwned(ent.Key, keyTy)
+		vVal := fl.lowerExprOwned(ent.Value, valTy)
+		fl.emit(&InstrExpr{Expr: fl.callMethod(mapTy, "insert",
+			&ExprAddrOf{Place: NewLocalExpr(slot), Typ: &types.Ptr{Elem: mapTy}},
+			EnsureExpr(kVal, keyTy),
+			EnsureExpr(vVal, valTy),
+		)})
 	}
 	return NewLocalExpr(slot)
 }

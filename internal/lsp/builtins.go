@@ -681,36 +681,6 @@ func BuiltinMethodsForType(recvTy types.Type, isOptChain bool) []BuiltinMethodDo
 		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s) bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Returns `true` if any element equals `val`."})
 	}
 
-	// `#[T]` Set methods
-	if setTy, ok := recvTy.(*types.Set); ok {
-		el := setTy.Elem.String()
-		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "len()", Summary: "Returns the number of elements in the set."})
-		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if the set is empty."})
-		add(BuiltinMethodDoc{Name: "has", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s) bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "has($1)", Summary: "Returns `true` if `val` is present in the set."})
-		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s) bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Alias for `.has(val)`."})
-		add(BuiltinMethodDoc{Name: "insert", RecvMode: "&self", Signature: fmt.Sprintf("(&self, val: own %s) bool", el), Params: []string{fmt.Sprintf("val: own %s", el)}, ReturnType: "bool", Snippet: "insert($1)", Summary: "Inserts `val` into the set; returns `true` if newly added."})
-		add(BuiltinMethodDoc{Name: "remove", RecvMode: "&self", Signature: fmt.Sprintf("(&self, val: %s) bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "remove($1)", Summary: "Removes `val` from the set; returns `true` if it was present."})
-		add(BuiltinMethodDoc{Name: "clear", RecvMode: "&self", Signature: "(&self)", ReturnType: "void", Snippet: "clear()", Summary: "Removes and drops all elements in the set."})
-		add(BuiltinMethodDoc{Name: "to_vec", RecvMode: "self", Signature: fmt.Sprintf("(self) [%s]", el), ReturnType: "[" + el + "]", Snippet: "to_vec()", Summary: "Copies all set elements into a new `[T]` vector."})
-		add(BuiltinMethodDoc{Name: "to_array", RecvMode: "self", Signature: fmt.Sprintf("(self) [%s]", el), ReturnType: "[" + el + "]", Snippet: "to_array()", Summary: "Alias for `.to_vec()`. Copies all set elements into a new `[T]` vector."})
-	}
-
-	// `#[K: V]` Map methods
-	if mapTy, ok := recvTy.(*types.Map); ok {
-		k := mapTy.Key.String()
-		v := mapTy.Value.String()
-		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "len()", Summary: "Returns the number of key-value entries in the map."})
-		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if the map has 0 entries."})
-		add(BuiltinMethodDoc{Name: "has", RecvMode: "self", Signature: fmt.Sprintf("(self, key: %s) bool", k), Params: []string{fmt.Sprintf("key: %s", k)}, ReturnType: "bool", Snippet: "has($1)", Summary: "Returns `true` if `key` exists in the map."})
-		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, key: %s) bool", k), Params: []string{fmt.Sprintf("key: %s", k)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Alias for `.has(key)`."})
-		add(BuiltinMethodDoc{Name: "insert", RecvMode: "&self", Signature: fmt.Sprintf("(&self, key: own %s, val: own %s)", k, v), Params: []string{fmt.Sprintf("key: own %s", k), fmt.Sprintf("val: own %s", v)}, ReturnType: "void", Snippet: "insert($1, $2)", Summary: "Inserts or overwrites `key` with `val`."})
-		add(BuiltinMethodDoc{Name: "push", RecvMode: "&self", Signature: fmt.Sprintf("(&self, entry: own +[%s, %s])", k, v), Params: []string{fmt.Sprintf("entry: own +[%s, %s]", k, v)}, ReturnType: "void", Snippet: "push($1)", Summary: "Inserts or overwrites a `+[key, val]` entry in the map."})
-		add(BuiltinMethodDoc{Name: "remove", RecvMode: "&self", Signature: fmt.Sprintf("(&self, key: %s) ?%s", k, v), Params: []string{fmt.Sprintf("key: %s", k)}, ReturnType: "?" + v, Snippet: "remove($1)", Summary: "Removes `key` and returns its owned value `?V` (`none` if absent)."})
-		add(BuiltinMethodDoc{Name: "keys", RecvMode: "self", Signature: fmt.Sprintf("(self) [%s]", k), ReturnType: "[" + k + "]", Snippet: "keys()", Summary: "Returns all keys in insertion order as an owned `[K]` vector."})
-		add(BuiltinMethodDoc{Name: "values", RecvMode: "self", Signature: fmt.Sprintf("(self) [%s]", v), ReturnType: "[" + v + "]", Snippet: "values()", Summary: "Returns copies of all values in insertion order as `[V]`."})
-		add(BuiltinMethodDoc{Name: "clear", RecvMode: "&self", Signature: "(&self)", ReturnType: "void", Snippet: "clear()", Summary: "Drops all keys and values and resets length to 0."})
-	}
-
 	// `Arena` instance methods
 	if recvTy.Equals(types.TypeArena) {
 		add(BuiltinMethodDoc{Name: "alloc", RecvMode: "&self", Signature: "(&self, val: own T) ref[T]", Params: []string{"val: own T"}, ReturnType: "ref[T]", Snippet: "alloc($1)", Summary: "Bump-allocates `val` inside the `Arena` and returns a region-checked `ref[T]`."})

@@ -29,8 +29,6 @@ type Program struct {
 	Optionals    []*types.Optional // non-boxed optionals needing `typedef struct { bool has_value; T value; }`
 	Vectors      []*types.Vector
 	Arrays       []*types.StackArray
-	Sets         []*types.Set
-	Maps         []*types.Map
 	Tuples       []*types.Tuple
 	FuncTypes    []*types.Func
 	Interfaces   []*types.Interface
@@ -227,8 +225,6 @@ type typeCollector struct {
 	optSeen  map[string]*types.Optional
 	vecSeen  map[string]*types.Vector
 	arrSeen  map[string]*types.StackArray
-	setSeen  map[string]*types.Set
-	mapSeen  map[string]*types.Map
 	tupSeen  map[string]*types.Tuple
 	fnSeen   map[string]*types.Func
 	ifcSeen  map[string]*types.Interface
@@ -239,8 +235,6 @@ type typeCollector struct {
 	opts     []*types.Optional
 	vecs     []*types.Vector
 	arrs     []*types.StackArray
-	sets     []*types.Set
-	maps     []*types.Map
 	tups     []*types.Tuple
 	fns      []*types.Func
 	ifcs     []*types.Interface
@@ -257,8 +251,6 @@ func newTypeCollector() *typeCollector {
 		optSeen:  make(map[string]*types.Optional),
 		vecSeen:  make(map[string]*types.Vector),
 		arrSeen:  make(map[string]*types.StackArray),
-		setSeen:  make(map[string]*types.Set),
-		mapSeen:  make(map[string]*types.Map),
 		tupSeen:  make(map[string]*types.Tuple),
 		fnSeen:   make(map[string]*types.Func),
 		ifcSeen:  make(map[string]*types.Interface),
@@ -371,23 +363,9 @@ func (tc *typeCollector) visitValue(t types.Type) {
 			tc.arrs = append(tc.arrs, v)
 			tc.ordered = append(tc.ordered, v)
 		}
-	case *types.Set:
-		k := v.Mangled()
-		if _, ok := tc.setSeen[k]; !ok {
-			tc.setSeen[k] = v
-			tc.deferVisit(v.Elem)
-			tc.sets = append(tc.sets, v)
-			tc.ordered = append(tc.ordered, v)
-		}
-	case *types.Map:
-		k := v.Mangled()
-		if _, ok := tc.mapSeen[k]; !ok {
-			tc.mapSeen[k] = v
-			tc.deferVisit(v.Key)
-			tc.deferVisit(v.Value)
-			tc.maps = append(tc.maps, v)
-			tc.ordered = append(tc.ordered, v)
-		}
+	case *types.Set, *types.Map:
+		// `#[T]` and `#[K: V]` are the std/core Set and Map structs by the time code is lowered.
+		panic(fmt.Sprintf("ir: structural %s reached the type collector", v.String()))
 	case *types.Tuple:
 		k := v.Mangled()
 		if _, ok := tc.tupSeen[k]; !ok {

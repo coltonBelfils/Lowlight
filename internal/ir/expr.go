@@ -337,34 +337,6 @@ func (e *ExprConstructTuple) Type() types.Type {
 	return e.TupleType
 }
 
-// MapEntryInit holds an initialized key-value pair for map construction.
-type MapEntryInit struct {
-	Key Expr
-	Val Expr
-}
-
-// ExprConstructMap builds a hash map (`#[K: V]`).
-type ExprConstructMap struct {
-	MapType *types.Map
-	Entries []MapEntryInit
-}
-
-func (*ExprConstructMap) irExpr() {}
-func (e *ExprConstructMap) Type() types.Type {
-	return e.MapType
-}
-
-// ExprConstructSet builds a hash set (`#[T]`).
-type ExprConstructSet struct {
-	SetType *types.Set
-	Elems   []Expr
-}
-
-func (*ExprConstructSet) irExpr() {}
-func (e *ExprConstructSet) Type() types.Type {
-	return e.SetType
-}
-
 // ExprConstructClosure builds a closure / first-class function value.
 type ExprConstructClosure struct {
 	FuncType *types.Func
@@ -539,28 +511,6 @@ func (*ExprAlignOf) Type() types.Type {
 // Standard Prelude & Collection Operations
 // -----------------------------------------------------------------------------
 
-// ExprStringConcat concatenates two string expressions into a new owned string.
-type ExprStringConcat struct {
-	Left  Expr
-	Right Expr
-}
-
-func (*ExprStringConcat) irExpr() {}
-func (*ExprStringConcat) Type() types.Type {
-	return types.TypeString
-}
-
-// ExprStringPush appends a string or character to a mutable string in-place.
-type ExprStringPush struct {
-	StrPtr Expr
-	Item   Expr
-}
-
-func (*ExprStringPush) irExpr() {}
-func (*ExprStringPush) Type() types.Type {
-	return types.TypeVoid
-}
-
 // ExprToString converts a value to its string representation.
 type ExprToString struct {
 	Val     Expr
@@ -638,31 +588,6 @@ type ExprVecPush struct {
 
 func (*ExprVecPush) irExpr() {}
 func (*ExprVecPush) Type() types.Type {
-	return types.TypeVoid
-}
-
-// ExprMapInsert inserts or updates a key-value entry in a hash map.
-type ExprMapInsert struct {
-	MapPtr  Expr
-	Key     Expr
-	Val     Expr
-	MapType *types.Map
-}
-
-func (*ExprMapInsert) irExpr() {}
-func (*ExprMapInsert) Type() types.Type {
-	return types.TypeVoid
-}
-
-// ExprSetInsert inserts an element into a hash set.
-type ExprSetInsert struct {
-	SetPtr  Expr
-	Item    Expr
-	SetType *types.Set
-}
-
-func (*ExprSetInsert) irExpr() {}
-func (*ExprSetInsert) Type() types.Type {
 	return types.TypeVoid
 }
 

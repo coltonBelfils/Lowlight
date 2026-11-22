@@ -190,14 +190,6 @@ func (g *cEmitter) emitEnumsAndForwardDecls() {
 		case *types.Vector:
 			cn := CType(v)
 			g.line("typedef struct %s %s;", cn, cn)
-		case *types.Set:
-			cn := CType(v)
-			g.line("typedef struct %s_ent %s_ent;", cn, cn)
-			g.line("typedef struct %s %s;", cn, cn)
-		case *types.Map:
-			cn := CType(v)
-			g.line("typedef struct %s_ent %s_ent;", cn, cn)
-			g.line("typedef struct %s %s;", cn, cn)
 		case *types.Func:
 			cn := CType(v)
 			g.line("typedef struct %s %s;", cn, cn)
@@ -287,14 +279,6 @@ func (g *cEmitter) emitOrderedTypeDefs() {
 			cn := CType(v)
 			g.line("struct %s { %s* data; int64_t len; int64_t cap; };", cn, CType(v.Elem))
 
-		case *types.Set:
-			cn := CType(v)
-			g.line("struct %s { int64_t* buckets; int64_t buck_cap; %s_ent* entries; int64_t ent_len; int64_t ent_cap; int64_t len; };", cn, cn)
-
-		case *types.Map:
-			cn := CType(v)
-			g.line("struct %s { int64_t* buckets; int64_t buck_cap; %s_ent* entries; int64_t ent_len; int64_t ent_cap; int64_t len; };", cn, cn)
-
 		case *types.Func:
 			cn := CType(v)
 			pTypes := []string{"void*"}
@@ -322,16 +306,6 @@ func (g *cEmitter) emitOrderedTypeDefs() {
 			}
 			g.line("};")
 			g.line("struct %s { void* data; const %s* vtable; bool owned; };", v.CName, vt)
-		}
-	}
-	for _, t := range g.prog.OrderedTypes {
-		switch v := t.(type) {
-		case *types.Set:
-			cn := CType(v)
-			g.line("struct %s_ent { bool alive; uint64_t hash; %s key; };", cn, CType(v.Elem))
-		case *types.Map:
-			cn := CType(v)
-			g.line("struct %s_ent { bool alive; uint64_t hash; %s key; %s val; };", cn, CType(v.Key), CType(v.Value))
 		}
 	}
 	g.line("")
@@ -528,10 +502,6 @@ func (g *cEmitter) emitSynthesizedTypeHelpers() {
 			g.emitTupleHelpers(v)
 		case *types.Vector:
 			g.emitVectorHelpers(v)
-		case *types.Set:
-			g.emitSetHelpers(v)
-		case *types.Map:
-			g.emitMapHelpers(v)
 		case *types.Func:
 			g.emitFuncClosureHelpers(v)
 		case *types.Interface:
@@ -546,16 +516,6 @@ func (g *cEmitter) emitSynthesizedTypeHelpers() {
 			g.emitStackArrayMethods(v)
 		case *types.Vector:
 			g.emitVectorMethods(v)
-		}
-	}
-
-	// 6c. Set & Map methods
-	for _, t := range g.prog.OrderedTypes {
-		switch v := t.(type) {
-		case *types.Set:
-			g.emitSetMethods(v)
-		case *types.Map:
-			g.emitMapMethods(v)
 		}
 	}
 }
@@ -998,125 +958,6 @@ func (g *cEmitter) emitVectorHelpers(v *types.Vector) {
 		g.line("    }")
 		g.line("    ll_str_push(&s, ll_str_lit(\"]\", 1LL));")
 		g.line("    return s;")
-		g.line("}")
-	}
-}
-
-func (g *cEmitter) emitSetHelpers(s *types.Set) {
-	cSet := CType(s)
-	cEnt := cSet + "_ent"
-	g.line("static inline void %s(%s* p) {", ir.DropFnName(s), cSet)
-	g.line("    if (!p) return;")
-	if !s.Elem.IsPlain() {
-		g.line("    for (int64_t i = 0; i < p->ent_len; i++) {")
-		g.line("        if (p->entries[i].alive) %s(&p->entries[i].key);", ir.DropFnName(s.Elem))
-		g.line("    }")
-	}
-	g.line("    if (p->entries) ll_free(p->entries);")
-	g.line("    if (p->buckets) ll_free(p->buckets);")
-	g.line("    *p = (%s){0};", cSet)
-	g.line("}")
-
-	if g.canCopy(s) {
-		g.line("static inline %s %s(%s v) {", cSet, ir.CopyFnName(s), cSet)
-		g.line("    if (v.len <= 0 || !v.buckets) return (%s){0};", cSet)
-		g.line("    %s out = (%s){0};", cSet, cSet)
-		g.line("    out.buck_cap = v.buck_cap;")
-		g.line("    out.buckets = (int64_t*)ll_alloc(v.buck_cap * (int64_t)sizeof(int64_t));")
-		g.line("    memcpy(out.buckets, v.buckets, (size_t)v.buck_cap * sizeof(int64_t));")
-		g.line("    out.ent_cap = v.ent_len;")
-		g.line("    out.ent_len = v.ent_len;")
-		g.line("    out.len = v.len;")
-		g.line("    out.entries = (%s*)ll_alloc(v.ent_len * (int64_t)sizeof(%s));", cEnt, cEnt)
-		g.line("    for (int64_t i = 0; i < v.ent_len; i++) {")
-		g.line("        out.entries[i].alive = v.entries[i].alive;")
-		g.line("        out.entries[i].hash = v.entries[i].hash;")
-		g.line("        if (v.entries[i].alive) out.entries[i].key = %s(v.entries[i].key);", g.copyExpr(s.Elem))
-		g.line("    }")
-		g.line("    return out;")
-		g.line("}")
-	}
-
-	if g.canToString(s) {
-		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(s), cSet)
-		g.line("    ll_string out = ll_str_lit(\"#[\", 2LL);")
-		g.line("    bool first = true;")
-		g.line("    for (int64_t i = 0; i < v.ent_len; i++) {")
-		g.line("        if (!v.entries[i].alive) continue;")
-		g.line("        if (!first) ll_str_push(&out, ll_str_lit(\", \", 2LL));")
-		g.line("        first = false;")
-		g.line("        ll_string el = %s(v.entries[i].key);", g.toStrFn(s.Elem))
-		g.line("        ll_str_push(&out, el);")
-		g.line("        ll_drop__string(&el);")
-		g.line("    }")
-		g.line("    ll_str_push(&out, ll_str_lit(\"]\", 1LL));")
-		g.line("    return out;")
-		g.line("}")
-	}
-}
-
-func (g *cEmitter) emitMapHelpers(m *types.Map) {
-	cMap := CType(m)
-	cEnt := cMap + "_ent"
-	g.line("static inline void %s(%s* p) {", ir.DropFnName(m), cMap)
-	g.line("    if (!p) return;")
-	if !m.Key.IsPlain() || !m.Value.IsPlain() {
-		g.line("    for (int64_t i = 0; i < p->ent_len; i++) {")
-		g.line("        if (!p->entries[i].alive) continue;")
-		if !m.Key.IsPlain() {
-			g.line("        %s(&p->entries[i].key);", ir.DropFnName(m.Key))
-		}
-		if !m.Value.IsPlain() {
-			g.line("        %s(&p->entries[i].val);", ir.DropFnName(m.Value))
-		}
-		g.line("    }")
-	}
-	g.line("    if (p->entries) ll_free(p->entries);")
-	g.line("    if (p->buckets) ll_free(p->buckets);")
-	g.line("    *p = (%s){0};", cMap)
-	g.line("}")
-
-	if g.canCopy(m) {
-		g.line("static inline %s %s(%s v) {", cMap, ir.CopyFnName(m), cMap)
-		g.line("    if (v.len <= 0 || !v.buckets) return (%s){0};", cMap)
-		g.line("    %s out = (%s){0};", cMap, cMap)
-		g.line("    out.buck_cap = v.buck_cap;")
-		g.line("    out.buckets = (int64_t*)ll_alloc(v.buck_cap * (int64_t)sizeof(int64_t));")
-		g.line("    memcpy(out.buckets, v.buckets, (size_t)v.buck_cap * sizeof(int64_t));")
-		g.line("    out.ent_cap = v.ent_len;")
-		g.line("    out.ent_len = v.ent_len;")
-		g.line("    out.len = v.len;")
-		g.line("    out.entries = (%s*)ll_alloc(v.ent_len * (int64_t)sizeof(%s));", cEnt, cEnt)
-		g.line("    for (int64_t i = 0; i < v.ent_len; i++) {")
-		g.line("        out.entries[i].alive = v.entries[i].alive;")
-		g.line("        out.entries[i].hash = v.entries[i].hash;")
-		g.line("        if (v.entries[i].alive) {")
-		g.line("            out.entries[i].key = %s(v.entries[i].key);", g.copyExpr(m.Key))
-		g.line("            out.entries[i].val = %s(v.entries[i].val);", g.copyExpr(m.Value))
-		g.line("        }")
-		g.line("    }")
-		g.line("    return out;")
-		g.line("}")
-	}
-
-	if g.canToString(m) {
-		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(m), cMap)
-		g.line("    ll_string out = ll_str_lit(\"#[\", 2LL);")
-		g.line("    bool first = true;")
-		g.line("    for (int64_t i = 0; i < v.ent_len; i++) {")
-		g.line("        if (!v.entries[i].alive) continue;")
-		g.line("        if (!first) ll_str_push(&out, ll_str_lit(\", \", 2LL));")
-		g.line("        first = false;")
-		g.line("        ll_string ks = %s(v.entries[i].key);", g.toStrFn(m.Key))
-		g.line("        ll_string vs = %s(v.entries[i].val);", g.toStrFn(m.Value))
-		g.line("        ll_str_push(&out, ks);")
-		g.line("        ll_str_push(&out, ll_str_lit(\": \", 2LL));")
-		g.line("        ll_str_push(&out, vs);")
-		g.line("        ll_drop__string(&ks);")
-		g.line("        ll_drop__string(&vs);")
-		g.line("    }")
-		g.line("    ll_str_push(&out, ll_str_lit(\"]\", 1LL));")
-		g.line("    return out;")
 		g.line("}")
 	}
 }
@@ -1683,10 +1524,6 @@ func (g *cEmitter) emitExpr(e ir.Expr) string {
 		return fmt.Sprintf("((int64_t)sizeof(%s))", CType(v.QueryType))
 	case *ir.ExprAlignOf:
 		return fmt.Sprintf("((int64_t)_Alignof(%s))", CType(v.QueryType))
-	case *ir.ExprStringConcat:
-		return fmt.Sprintf("ll_str_concat(%s, %s)", g.emitExpr(v.Left), g.emitExpr(v.Right))
-	case *ir.ExprStringPush:
-		return fmt.Sprintf("ll_str_push(%s, %s)", g.emitExpr(v.StrPtr), g.emitExpr(v.Item))
 	case *ir.ExprToString:
 		return fmt.Sprintf("%s(%s)", g.toStrFn(v.ValType), g.emitExpr(v.Val))
 	case *ir.ExprDrop:
@@ -1701,10 +1538,6 @@ func (g *cEmitter) emitExpr(e ir.Expr) string {
 		return fmt.Sprintf("%s(%s)", ir.HashFnName(v.ValType), g.emitExpr(v.Val))
 	case *ir.ExprVecPush:
 		return fmt.Sprintf("ll_vec_push__%s(%s, %s)", v.VecType.Mangled(), g.emitExpr(v.VecPtr), g.emitExpr(v.Item))
-	case *ir.ExprMapInsert:
-		return fmt.Sprintf("ll_map_insert__%s(%s, %s, %s)", v.MapType.Mangled(), g.emitExpr(v.MapPtr), g.emitExpr(v.Key), g.emitExpr(v.Val))
-	case *ir.ExprSetInsert:
-		return fmt.Sprintf("ll_set_insert__%s(%s, %s)", v.SetType.Mangled(), g.emitExpr(v.SetPtr), g.emitExpr(v.Item))
 	default:
 		return fmt.Sprintf("%v", e)
 	}
@@ -1925,10 +1758,6 @@ func CType(t types.Type) string {
 	case *types.StackArray:
 		return "ll_" + v.Mangled()
 	case *types.Tuple:
-		return "ll_" + v.Mangled()
-	case *types.Set:
-		return "ll_" + v.Mangled()
-	case *types.Map:
 		return "ll_" + v.Mangled()
 	case *types.Func:
 		return "ll_" + v.Mangled()
@@ -2411,10 +2240,6 @@ func canCopyVisited(prog *ir.Program, t types.Type, seen map[types.Type]bool) bo
 			}
 		}
 		return true
-	case *types.Set:
-		return canCopyVisited(prog, v.Elem, seen)
-	case *types.Map:
-		return canCopyVisited(prog, v.Key, seen) && canCopyVisited(prog, v.Value, seen)
 	case *types.Optional:
 		return canCopyVisited(prog, v.Elem, seen)
 	case *types.Distinct:
@@ -2507,10 +2332,6 @@ func (g *cEmitter) canToStringVisited(t types.Type, seen map[types.Type]bool) bo
 			}
 		}
 		return true
-	case *types.Set:
-		return g.canToStringVisited(v.Elem, seen)
-	case *types.Map:
-		return g.canToStringVisited(v.Key, seen) && g.canToStringVisited(v.Value, seen)
 	case *types.Optional:
 		return g.canToStringVisited(v.Elem, seen)
 	case *types.Interface:

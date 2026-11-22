@@ -496,6 +496,12 @@ type Analyzer struct {
 	// Method tables: key is canonical type key (e.g. `"Point"`, `"int"`, `"string"`, `"vec"`, `"Pair"`).
 	methods    map[string]map[string]*FuncInstance
 	genMethods map[string]map[string]*GenericFuncTemplate
+	// genDropRecv names the generic structs and enums that declare a `drop` method. It is filled
+	// before any type is instantiated, so instances created while struct fields and signatures are
+	// resolved (before methods are registered) still know they are resources.
+	genDropRecv map[string]bool
+	// pendingDrops are those early instances; their `drop` is instantiated once methods exist.
+	pendingDrops []types.Type
 
 	inBodyPass   bool
 	nextTargetID int
@@ -692,6 +698,7 @@ func runCheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram 
 		usedTags:      make(map[string]string),
 		methods:       make(map[string]map[string]*FuncInstance),
 		genMethods:    genMethods,
+		genDropRecv:   make(map[string]bool),
 	}
 
 	a.initBuiltinInterfaces()
@@ -1922,8 +1929,16 @@ func (p *CheckedProgram) ImplementingTypes(ifc *types.Interface) []types.Type {
 		types.TypeString,
 		&types.Vector{Elem: types.TypeInt},
 		&types.StackArray{Size: 4, Elem: types.TypeInt},
-		&types.Map{Key: types.TypeString, Value: types.TypeInt},
-		&types.Set{Elem: types.TypeInt},
+	}
+	if p.GenStructMap != nil {
+		if inst, ok := p.GenStructMap.Instances[types.TypeString.Mangled()+"__"+types.TypeInt.Mangled()]; ok {
+			candidates = append(candidates, inst)
+		}
+	}
+	if p.GenStructSet != nil {
+		if inst, ok := p.GenStructSet.Instances[types.TypeInt.Mangled()]; ok {
+			candidates = append(candidates, inst)
+		}
 	}
 	for _, c := range candidates {
 		if p.ImplementsInterface(c, ifc) {

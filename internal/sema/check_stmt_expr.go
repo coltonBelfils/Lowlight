@@ -505,7 +505,7 @@ func typeMayHoldArenaRefVisited(t types.Type, seen map[types.Type]bool) bool {
 	if t == nil || t == types.TypeInvalid || t == types.TypeVoid || t == types.TypeNever {
 		return false
 	}
-	switch v := t.(type) {
+	switch v := types.CollView(t).(type) {
 	case *types.Ref, *types.Interface, *types.Func:
 		return true
 	case *types.Optional:
@@ -737,7 +737,7 @@ func (fc *funcChecker) consumeValue(expr ast.Expr, ty types.Type, requireExplici
 		// Note: Map indexing `ages["Alice"]` already produces a fresh owned `?V` rvalue (cloning `V`),
 		// whereas vector/array indexing `users[0]` refers to an owned element inside the vector!
 		baseTy := fc.a.infoFor(v.Base).Type
-		if _, isMap := baseTy.(*types.Map); isMap {
+		if _, _, isMap := types.MapKV(baseTy); isMap {
 			return
 		}
 		if fc.a.isIndexableType(baseTy) || fc.a.isKeyIndexableType(baseTy) {
@@ -1582,7 +1582,8 @@ func (fc *funcChecker) checkAssignStmt(s *ast.AssignStmt) types.Type {
 	// Special shorthand: `map[key] = value` (Spec §7.2 / §8.2: shorthand for `map.insert(own k, own v)`)!
 	if idx, isIdx := s.Target.(*ast.IndexExpr); isIdx && s.Op == token.Assign && s.FallbackUnwind == nil {
 		baseTy := fc.checkExpr(idx.Base, true)
-		if mapTy, isMap := baseTy.(*types.Map); isMap {
+		if mapTy, isMap := types.CollView(baseTy).(*types.Map); isMap {
+			fc.a.requireCollMethod(baseTy, "insert", idx.Span)
 			_ = fc.checkMutablePlace(idx.Base, "insert into")
 			kTy := fc.checkExprExpect(idx.Index, mapTy.Key, true)
 			fc.verifyAssignable(kTy, mapTy.Key, idx.Index, idx.Index.GetSpan(), "map key")
@@ -3058,7 +3059,7 @@ func (fc *funcChecker) checkIndexExpr(idx *ast.IndexExpr) types.Type {
 		baseTy = r.Elem
 	}
 
-	switch v := baseTy.(type) {
+	switch v := types.CollView(baseTy).(type) {
 	case *types.Vector:
 		kTy := fc.checkExprExpect(idx.Index, types.TypeInt, true)
 		fc.verifyAssignable(kTy, types.TypeInt, idx.Index, idx.Index.GetSpan(), "list index")
@@ -3094,6 +3095,8 @@ func (fc *funcChecker) checkIndexExpr(idx *ast.IndexExpr) types.Type {
 		fc.verifyAssignable(kTy, v.Key, idx.Index, idx.Index.GetSpan(), "map lookup key")
 		if !fc.a.supportsCopy(v.Value) {
 			fc.a.Rep.Errorf(idx.Span, "map value type %s does not support `.copy()` for `m[k]` lookup", v.Value.String())
+		} else {
+			fc.a.requireCollMethod(baseTy, "get", idx.Span)
 		}
 		res := types.NewOptional(v.Value)
 		inf.Type = res
@@ -3398,8 +3401,8 @@ func (fc *funcChecker) checkArrayLit(r *ast.ArrayLit, expected types.Type) types
 func (fc *funcChecker) checkSetLit(s *ast.SetLit, expected types.Type) types.Type {
 	inf := fc.a.infoFor(s)
 	var elemHint types.Type
-	if st, ok := expected.(*types.Set); ok {
-		elemHint = st.Elem
+	if el, ok := types.SetElem(expected); ok {
+		elemHint = el
 	}
 	var elemTy types.Type
 	for i, el := range s.Elems {
@@ -3421,7 +3424,15 @@ func (fc *funcChecker) checkSetLit(s *ast.SetLit, expected types.Type) types.Typ
 			fc.a.Rep.Errorf(s.Span, "set element type %s is not hashable", elemTy.String())
 		}
 	}
-	res := &types.Set{Elem: elemTy}
+	if elemTy == nil || elemTy == types.TypeInvalid {
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	res := fc.a.setType(elemTy, s.Span)
+	if res != types.TypeInvalid {
+		fc.a.requireCollMethod(res, "with_capacity", s.Span)
+		fc.a.requireCollMethod(res, "insert", s.Span)
+	}
 	inf.Type = res
 	return res
 }
@@ -3429,9 +3440,9 @@ func (fc *funcChecker) checkSetLit(s *ast.SetLit, expected types.Type) types.Typ
 func (fc *funcChecker) checkMapLit(m *ast.MapLit, expected types.Type) types.Type {
 	inf := fc.a.infoFor(m)
 	var kHint, vHint types.Type
-	if mt, ok := expected.(*types.Map); ok {
-		kHint = mt.Key
-		vHint = mt.Value
+	if k, v, ok := types.MapKV(expected); ok {
+		kHint = k
+		vHint = v
 	}
 	var kTy, vTy types.Type
 	for i, ent := range m.Entries {
@@ -3459,7 +3470,15 @@ func (fc *funcChecker) checkMapLit(m *ast.MapLit, expected types.Type) types.Typ
 			fc.a.Rep.Errorf(m.Span, "map key type %s is not hashable", kTy.String())
 		}
 	}
-	res := &types.Map{Key: kTy, Value: vTy}
+	if kTy == nil || kTy == types.TypeInvalid || vTy == nil || vTy == types.TypeInvalid {
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	res := fc.a.mapType(kTy, vTy, m.Span)
+	if res != types.TypeInvalid {
+		fc.a.requireCollMethod(res, "with_capacity", m.Span)
+		fc.a.requireCollMethod(res, "insert", m.Span)
+	}
 	inf.Type = res
 	return res
 }
@@ -3470,10 +3489,11 @@ func (fc *funcChecker) checkEmptyHashLit(e *ast.EmptyHashLit, expected types.Typ
 	if opt, ok := target.(*types.Optional); ok {
 		target = opt.Elem
 	}
-	switch v := target.(type) {
+	switch v := types.CollView(target).(type) {
 	case *types.Set, *types.Map:
-		inf.Type = v
-		return v
+		_ = v
+		inf.Type = target
+		return target
 	default:
 		fc.a.Rep.ErrorWithHint(
 			e.Span,
@@ -3718,7 +3738,7 @@ func matchTypeExprForInference(pat ast.TypeExpr, concrete types.Type, tpNames ma
 			}
 		}
 		if p.Name == "KeyIndexable" && len(p.TypeArgs) == 2 {
-			if mp, ok := concrete.(*types.Map); ok {
+			if mp, ok := types.CollView(concrete).(*types.Map); ok {
 				matchTypeExprForInference(p.TypeArgs[0], mp.Key, tpNames, out)
 				matchTypeExprForInference(p.TypeArgs[1], mp.Value, tpNames, out)
 			} else if st, ok := concrete.(*types.Struct); ok && st.Name == "Map" && len(st.TypeArgs) == 2 {
@@ -3769,11 +3789,11 @@ func matchTypeExprForInference(pat ast.TypeExpr, concrete types.Type, tpNames ma
 			matchTypeExprForInference(p.Elem, arr.Elem, tpNames, out)
 		}
 	case *ast.SetType:
-		if st, ok := concrete.(*types.Set); ok {
+		if st, ok := types.CollView(concrete).(*types.Set); ok {
 			matchTypeExprForInference(p.Elem, st.Elem, tpNames, out)
 		}
 	case *ast.MapType:
-		if mt, ok := concrete.(*types.Map); ok {
+		if mt, ok := types.CollView(concrete).(*types.Map); ok {
 			matchTypeExprForInference(p.Key, mt.Key, tpNames, out)
 			matchTypeExprForInference(p.Value, mt.Value, tpNames, out)
 		}
@@ -4419,7 +4439,7 @@ func (fc *funcChecker) resolveIterVars(h loopHeaderInfo, colTy types.Type, id in
 		}
 	}
 
-	switch c := colTy.(type) {
+	switch c := types.CollView(colTy).(type) {
 	case *types.Vector:
 		if h.var2 == "" {
 			return mkSym(h.var1, h.var1IsOpt, c.Elem, h.var1Mut), nil
@@ -4619,6 +4639,11 @@ func (fc *funcChecker) checkForExpr(fe *ast.ForExpr, expected types.Type, needVa
 		expectedItemTy = fc.a.collectableItemType(expected)
 	} else {
 		isVectorInferred = true
+	}
+	if _, isSet := types.SetElem(targetColTy); isSet {
+		fc.a.requireCollMethod(targetColTy, "insert", fe.Span)
+	} else if _, _, isMap := types.MapKV(targetColTy); isMap {
+		fc.a.requireCollMethod(targetColTy, "insert", fe.Span)
 	}
 
 	outerDepth := fc.curDepth()
@@ -5871,7 +5896,7 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 			case *ast.ArrayLit:
 				expect = &types.StackArray{Size: 1, Elem: scrutTy}
 			case *ast.SetLit:
-				expect = &types.Set{Elem: scrutTy}
+				expect = fc.a.setType(scrutTy, p.Span)
 			}
 		}
 		contTy := fc.checkExprExpect(p.Container, expect, true)
@@ -6009,7 +6034,7 @@ func (fc *funcChecker) resolveContainsPattern(p *ast.ContainsPattern, contTy, sc
 		ContainerType: contTy,
 	}
 
-	switch c := contTy.(type) {
+	switch c := types.CollView(contTy).(type) {
 	case *types.Vector:
 		if !fc.a.supportsEq(c.Elem) {
 			fc.a.Rep.Errorf(p.Span, "cannot use `when in` with `%s` because element type `%s` does not support equality", c.String(), c.Elem.String())
@@ -6027,10 +6052,12 @@ func (fc *funcChecker) resolveContainsPattern(p *ast.ContainsPattern, contTy, sc
 		info.ElemType = c.Elem
 
 	case *types.Set:
+		fc.a.requireCollMethod(contTy, "has", p.Span)
 		info.Kind = ContainsBuiltinSet
 		info.ElemType = c.Elem
 
 	case *types.Map:
+		fc.a.requireCollMethod(contTy, "has", p.Span)
 		info.Kind = ContainsBuiltinMap
 		info.ElemType = c.Key
 

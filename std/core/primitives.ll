@@ -946,6 +946,61 @@ bind string.with_capacity = (capacity: int) string: {
 	s
 }
 
+// Returns an owned copy of the string (satisfies [`Copyable`]). Copying a literal or view gives
+// an owned buffer; copying an empty string gives the empty literal, which allocates nothing.
+@inline
+bind string.copy = (self) string: unsafe {
+	let r = *ptr_cast[_StringRaw](addr_of(self))
+	if(r.len <= 0): func <- ""
+	let buf = alloc_uninit[u8](r.len + 1)
+	copy_bytes(buf, r.data, r.len)
+	ptr_write(ptr_add(buf, r.len), u8(0))
+	let out = _StringRaw[data: buf, len: r.len, cap: r.len + 1]
+	ptr_read(ptr_cast[string](addr_of(out)))
+}
+
+// Returns a new string holding `self` followed by `other`. The compiler lowers `a + b` to this.
+@inline
+bind string._concat = (self, other: string) string: unsafe {
+	let a = *ptr_cast[_StringRaw](addr_of(self))
+	let b = *ptr_cast[_StringRaw](addr_of(other))
+	let total = a.len + b.len
+	if(total == 0): func <- ""
+	let buf = alloc_uninit[u8](total + 1)
+	if(a.len > 0): copy_bytes(buf, a.data, a.len)
+	if(b.len > 0): copy_bytes(ptr_add(buf, a.len), b.data, b.len)
+	ptr_write(ptr_add(buf, total), u8(0))
+	let out = _StringRaw[data: buf, len: total, cap: total + 1]
+	ptr_read(ptr_cast[string](addr_of(out)))
+}
+
+// Returns bytes `lo` up to `hi` of the string as a borrowed view that owns nothing. The compiler
+// lowers `s[lo..hi]` to this when the slice is only borrowed, and to [`string._slice`] otherwise.
+@inline
+@track_caller
+bind string._slice_view = (self, lo: int, hi: int) string: unsafe {
+	let r = *ptr_cast[_StringRaw](addr_of(self))
+	if(lo < 0 or hi < lo or hi > r.len): panic("string slice bounds out of range")
+	let data = if(lo == 0): r.data else: ptr_add(r.data, lo)
+	let out = _StringRaw[data: data, len: hi - lo, cap: 0]
+	ptr_read(ptr_cast[string](addr_of(out)))
+}
+
+// Returns an owned copy of bytes `lo` up to `hi` of the string.
+@inline
+@track_caller
+bind string._slice = (self, lo: int, hi: int) string: unsafe {
+	let r = *ptr_cast[_StringRaw](addr_of(self))
+	if(lo < 0 or hi < lo or hi > r.len): panic("string slice bounds out of range")
+	let n = hi - lo
+	if(n == 0): func <- ""
+	let buf = alloc_uninit[u8](n + 1)
+	copy_bytes(buf, ptr_add(r.data, lo), n)
+	ptr_write(ptr_add(buf, n), u8(0))
+	let out = _StringRaw[data: buf, len: n, cap: n + 1]
+	ptr_read(ptr_cast[string](addr_of(out)))
+}
+
 // Returns the byte at zero-based offset `idx`, or `none` if out of bounds.
 bind string.get_byte = (self, idx: int) ?u8: {
 	if(idx < 0 or idx >= self.len()): func <- none

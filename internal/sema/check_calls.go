@@ -580,6 +580,10 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 			}
 		}
 	}
+	if !fc.a.checkCollMethodElems(actualRecvTy, mem.Member, call.Span) {
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
 	if fi := fc.a.LookupMethod(actualRecvTy, mem.Member, mTypeArgs, call.Span); fi != nil && !fi.IsStaticAssoc {
 		if !IsExported(mem.Member) && !fc.a.SamePackage(fc.mod, fi.Mod) && !fc.a.SamePackageDir(fc.mod, types.TypePkgDir(actualRecvTy), "") {
 			fc.a.Rep.Errorf(call.Span, "cannot call unexported method %q on type %s outside its package", mem.Member, actualRecvTy.String())
@@ -1253,7 +1257,7 @@ func paramHasInteriorRefSlotVisited(t types.Type, seen map[types.Type]bool) bool
 	if t == nil || seen[t] {
 		return false
 	}
-	switch v := t.(type) {
+	switch v := types.CollView(t).(type) {
 	case *types.Ref:
 		return typeMayHoldArenaRef(v.Elem)
 	case *types.Interface, *types.Func:
@@ -1460,6 +1464,12 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 		inf.BuiltinName = "any.copy"
 		return wrapRet(recvTy)
 	}
+	// Universal `.hash()` for hashable types with no `hash` method of their own
+	// (tuples, tag-only enums, pointers, and distinct types).
+	if mem.Member == "hash" && len(call.Args) == 0 && types.IsHashable(recvTy) {
+		inf.BuiltinName = "any.hash"
+		return wrapRet(types.TypeU64)
+	}
 	if mem.Member == "to_string" && len(call.Args) == 0 {
 		if !fc.a.supportsToString(recvTy) {
 			fc.a.Rep.Errorf(call.Span, "type %s does not implement `Printable` (`.to_string()`)", recvTy.String())
@@ -1576,98 +1586,6 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 			fc.checkSignatureArgs([]types.FuncParam{{Name: "val", Mode: types.ModeRead, Type: arr.Elem}}, call.Args, nil, call.Span)
 			inf.BuiltinName = "arr.contains"
 			return wrapRet(types.TypeBool)
-		}
-	}
-
-	// `#[T]` Set methods
-	if setTy, isSet := recvTy.(*types.Set); isSet {
-		switch mem.Member {
-		case "len":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "set.len"
-			return wrapRet(types.TypeInt)
-		case "is_empty":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "set.is_empty"
-			return wrapRet(types.TypeBool)
-		case "has", "contains":
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "val", Mode: types.ModeRead, Type: setTy.Elem}}, call.Args, nil, call.Span)
-			inf.BuiltinName = "set.has"
-			return wrapRet(types.TypeBool)
-		case "insert", "push":
-			mr := requireMutRecv()
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "val", Mode: types.ModeOwn, Type: setTy.Elem}}, call.Args, mr, call.Span)
-			inf.BuiltinName = "set.insert"
-			return wrapRet(types.TypeBool)
-		case "remove":
-			mr := requireMutRecv()
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "val", Mode: types.ModeRead, Type: setTy.Elem}}, call.Args, mr, call.Span)
-			inf.BuiltinName = "set.remove"
-			return wrapRet(types.TypeBool)
-		case "clear":
-			_ = requireMutRecv()
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "set.clear"
-			return wrapRet(types.TypeVoid)
-		case "to_vec", "to_array":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "set.to_vec"
-			return wrapRet(&types.Vector{Elem: setTy.Elem})
-		}
-	}
-
-	// `#[K: V]` Map methods
-	if mapTy, isMap := recvTy.(*types.Map); isMap {
-		switch mem.Member {
-		case "len":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "map.len"
-			return wrapRet(types.TypeInt)
-		case "is_empty":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "map.is_empty"
-			return wrapRet(types.TypeBool)
-		case "has", "contains":
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "key", Mode: types.ModeRead, Type: mapTy.Key}}, call.Args, nil, call.Span)
-			inf.BuiltinName = "map.has"
-			return wrapRet(types.TypeBool)
-		case "insert":
-			mr := requireMutRecv()
-			fc.checkSignatureArgs([]types.FuncParam{
-				{Name: "key", Mode: types.ModeOwn, Type: mapTy.Key},
-				{Name: "val", Mode: types.ModeOwn, Type: mapTy.Value},
-			}, call.Args, mr, call.Span)
-			inf.BuiltinName = "map.insert"
-			return wrapRet(types.TypeVoid)
-		case "push":
-			mr := requireMutRecv()
-			entryTy := fc.a.collectableItemType(mapTy)
-			fc.checkSignatureArgs([]types.FuncParam{
-				{Name: "entry", Mode: types.ModeOwn, Type: entryTy},
-			}, call.Args, mr, call.Span)
-			inf.BuiltinName = "map.push"
-			return wrapRet(types.TypeVoid)
-		case "remove":
-			mr := requireMutRecv()
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "key", Mode: types.ModeRead, Type: mapTy.Key}}, call.Args, mr, call.Span)
-			inf.BuiltinName = "map.remove"
-			return wrapRet(types.NewOptional(mapTy.Value))
-		case "clear":
-			_ = requireMutRecv()
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "map.clear"
-			return wrapRet(types.TypeVoid)
-		case "keys":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "map.keys"
-			return wrapRet(&types.Vector{Elem: mapTy.Key})
-		case "values":
-			if !fc.a.supportsCopy(mapTy.Value) {
-				fc.a.Rep.Errorf(call.Span, "`map.values()` requires copyable value type, got %s", mapTy.Value.String())
-			}
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "map.values"
-			return wrapRet(&types.Vector{Elem: mapTy.Value})
 		}
 	}
 

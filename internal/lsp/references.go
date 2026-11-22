@@ -174,9 +174,11 @@ func unwrapTypeForTypeDef(t types.Type) types.Type {
 			t = v.Elem
 		case *types.StackArray:
 			t = v.Elem
-		case *types.Set:
-			t = v.Elem
 		default:
+			if el, ok := types.SetElem(t); ok {
+				t = el
+				continue
+			}
 			return t
 		}
 	}

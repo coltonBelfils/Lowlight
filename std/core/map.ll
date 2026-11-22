@@ -185,8 +185,11 @@ bind Map[K, V].insert = (&self, key: own K, val: own V): {
 	let h = key.hash()
 	let existing = self.find_entry(key, h)
 	if(existing >= 0): {
+		// Writing through a raw pointer does not drop what it overwrites, so drop the old value first.
 		unsafe {
-			self.entries[existing].val = own val
+			let vp = addr_of(self.entries[existing].val)
+			let _ = ptr_read(vp)
+			ptr_write(vp, own val)
 		}
 		func <-
 	}
@@ -217,13 +220,8 @@ bind Map[K, V].insert = (&self, key: own K, val: own V): {
 	}
 	let idx = self.ent_len
 	self.ent_len += 1
-	unsafe {
-		zero_bytes(ptr_cast[u8](ptr_add(self.entries, idx)), size_of[MapSlot[K, V]]())
-		self.entries[idx].alive = true
-		self.entries[idx].hash = h
-		self.entries[idx].key = own key
-		self.entries[idx].val = own val
-	}
+	// `ptr_write` fills the empty slot without dropping its old bytes as a value.
+	unsafe ptr_write(ptr_add(self.entries, idx), MapSlot[K, V][alive: true, hash: h, key: own key, val: own val])
 	let mask = self.buck_cap - 1
 	let slot = int(h & u64(mask))
 	for(unsafe self.buckets[slot] >= 0): slot = slot + 1 & mask
@@ -237,7 +235,7 @@ bind Map[K, V].insert = (&self, key: own K, val: own V): {
 bind Map[K, V].push = (&self, entry: own MapEntry[K, V]):
 	self.insert(entry.key.copy(), entry.value.copy())
 
-// Removes and returns a copy of the value mapped to `key`, or `none` if `key` is absent.
+// Removes `key` and returns the value it mapped to, or `none` if `key` is absent.
 bind Map[K, V].remove = (&self, key: K) ?V: {
 	if(self.buck_cap == 0 or unsafe is_null(self.buckets)): func <- none
 	let h = key.hash()
@@ -249,8 +247,9 @@ bind Map[K, V].remove = (&self, key: K) ?V: {
 		if(idx >= 0):
 			unsafe {
 				if(self.entries[idx].alive and self.entries[idx].hash == h and self.entries[idx].key == key): {
-					let out = self.entries[idx].val.copy()
-					let _ = ptr_read(ptr_add(self.entries, idx))
+					// Move the value out and drop the key, so `V` need not be copyable.
+					let out = ptr_read(addr_of(self.entries[idx].val))
+					let _ = ptr_read(addr_of(self.entries[idx].key))
 					zero_bytes(ptr_cast[u8](ptr_add(self.entries, idx)), size_of[MapSlot[K, V]]())
 					self.buckets[slot] = -2
 					self.len -= 1
