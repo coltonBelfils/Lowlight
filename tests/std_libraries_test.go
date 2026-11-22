@@ -34,6 +34,7 @@ func TestStandardLibraryInlineSuites(t *testing.T) {
 		"pool",
 		"net",
 		"http",
+		"unicode",
 		"json",
 	}
 

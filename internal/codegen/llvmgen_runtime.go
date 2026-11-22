@@ -635,6 +635,30 @@ entry:
 }
 `, oomSym, oomReallocSym, leakEnvSym, oneSym, leakMsgSym, unkSym, emptySym, panicCstrJmpFmt, panicCstrErrFmt, unkSym, boundsJmpFmt, boundsFmt)
 
+	// Integer-to-char conversion check: panics unless the value is a Unicode scalar value.
+	charFmt := g.internString("invalid char code point %lld").symbol
+	g.funcSet["ll_check_char"] = true
+	g.line(`define internal i64 @ll_check_char(i64 %%v, ptr %%file, i64 %%line) {
+entry:
+    %%neg = icmp slt i64 %%v, 0
+    %%big = icmp sgt i64 %%v, 1114111
+    %%lo = icmp sge i64 %%v, 55296
+    %%hi = icmp sle i64 %%v, 57343
+    %%sur = and i1 %%lo, %%hi
+    %%b1 = or i1 %%neg, %%big
+    %%bad = or i1 %%b1, %%sur
+    br i1 %%bad, label %%fail, label %%ok
+fail:
+    %%buf = alloca [64 x i8], align 1
+    call i32 (ptr, i64, ptr, ...) @snprintf(ptr %%buf, i64 64, ptr %s, i64 %%v)
+    %%l32 = trunc i64 %%line to i32
+    call void @ll_panic_cstr(ptr %%buf, ptr %%file, i32 %%l32)
+    unreachable
+ok:
+    ret i64 %%v
+}
+`, charFmt)
+
 	g.line(`define internal ptr @ll_alloc_uninit(i64 %%size) {
 entry:
     %%pos = icmp sgt i64 %%size, 0
@@ -847,7 +871,8 @@ func (g *llvmEmitter) emitStringAndAssertRuntime() {
 	fns := []string{
 		"ll_drop__string", "ll_str_free_p", "ll_copy__string", "ll_copy_p__string",
 		"ll_str_concat_p", "ll_str_ensure_owned_cap", "ll_str_push_p", "ll_str_push_byte",
-		"ll_str_push_bytes", "ll_str_push_char", "ll_str_clear", "ll_str_slice_view_p",
+		"ll_str_push_bytes", "ll_str_push_char", "ll_str_clear", "ll_str_reserve", "ll_str_cap",
+		"ll_str_slice_view_p",
 		"ll_str_slice_owned_p", "ll_str_eq_p", "ll_str_cmp_p", "ll_str_hash_p",
 		"ll_print_str_p", "ll_panic_str_p", "ll_assert_p", "ll_format_loc",
 	}
@@ -1180,6 +1205,39 @@ clr_view:
     store i64 0, ptr %%p_len, align 8
     store i64 0, ptr %%p_cap, align 8
     ret void
+}
+
+; Ensures room for %%add more bytes (plus the NUL terminator) without reallocating.
+define internal void @ll_str_reserve(ptr %%s, i64 %%add) {
+entry:
+    %%p_len = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 1
+    %%p_cap = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 2
+    %%len = load i64, ptr %%p_len, align 8
+    %%cap = load i64, ptr %%p_cap, align 8
+    %%pos = icmp sgt i64 %%add, 0
+    %%extra = select i1 %%pos, i64 %%add, i64 0
+    %%owned = icmp sgt i64 %%cap, 0
+    %%nothing = xor i1 %%pos, true
+    %%noop = and i1 %%nothing, %%owned
+    br i1 %%noop, label %%done, label %%grow
+grow:
+    %%with_len = add i64 %%len, %%extra
+    %%needed = add i64 %%with_len, 1
+    call void @ll_str_ensure_owned_cap(ptr %%s, i64 %%needed)
+    br label %%done
+done:
+    ret void
+}
+
+; Bytes the string can hold without reallocating: 0 for literals and views.
+define internal i64 @ll_str_cap(ptr %%s) {
+entry:
+    %%p_cap = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 2
+    %%cap = load i64, ptr %%p_cap, align 8
+    %%owned = icmp sgt i64 %%cap, 0
+    %%usable = sub i64 %%cap, 1
+    %%r = select i1 %%owned, i64 %%usable, i64 0
+    ret i64 %%r
 }
 
 define internal void @ll_str_slice_view_p(ptr %%res, ptr %%s, i64 %%lo, i64 %%hi, i32 %%check, ptr %%f, i64 %%l) {
@@ -1891,11 +1949,15 @@ do_pclose:
     %%is_neg1 = icmp eq i32 %%st, -1
     br i1 %%is_neg1, label %%ret_err, label %%decode
 decode:
+    ; Exited: the exit code. Killed by a signal: 256 + the signal number. Otherwise -1.
     %%sig = and i32 %%st, 127
     %%exited = icmp eq i32 %%sig, 0
+    %%stopped = icmp eq i32 %%sig, 127
     %%code8 = lshr i32 %%st, 8
     %%code = and i32 %%code8, 255
-    %%sel = select i1 %%exited, i32 %%code, i32 %%st
+    %%by_sig = add i32 %%sig, 256
+    %%sig_or_err = select i1 %%stopped, i32 -1, i32 %%by_sig
+    %%sel = select i1 %%exited, i32 %%code, i32 %%sig_or_err
     %%res = sext i32 %%sel to i64
     ret i64 %%res
 }
@@ -1926,11 +1988,15 @@ do_sys:
     %%is_neg1 = icmp eq i32 %%st, -1
     br i1 %%is_neg1, label %%ret_err, label %%decode
 decode:
+    ; Exited: the exit code. Killed by a signal: 256 + the signal number. Otherwise -1.
     %%sig = and i32 %%st, 127
     %%exited = icmp eq i32 %%sig, 0
+    %%stopped = icmp eq i32 %%sig, 127
     %%code8 = lshr i32 %%st, 8
     %%code = and i32 %%code8, 255
-    %%sel = select i1 %%exited, i32 %%code, i32 %%st
+    %%by_sig = add i32 %%sig, 256
+    %%sig_or_err = select i1 %%stopped, i32 -1, i32 %%by_sig
+    %%sel = select i1 %%exited, i32 %%code, i32 %%sig_or_err
     %%res = sext i32 %%sel to i64
     ret i64 %%res
 }
@@ -2189,6 +2255,7 @@ func (g *llvmEmitter) emitNetAndTLSRuntime() {
 	fns := []string{
 		"ll_net_set_timeout", "ll_net_tcp_listen", "ll_net_tcp_port",
 		"ll_net_tcp_peer_port", "ll_net_tcp_peer_ipv4", "ll_net_tcp_peer_ipv6_group",
+		"ll_net_tcp_local_ipv4", "ll_net_tcp_local_ipv6_group", "ll_net_tcp_set_nodelay",
 		"ll_net_tcp_accept", "ll_net_tcp_connect", "ll_net_send_all",
 		"ll_net_recv", "ll_net_close", "ll_net_shutdown", "ll_net_socketpair",
 		"ll_tls_init", "ll_tls_available", "ll_tls_client_handshake",
@@ -2442,9 +2509,25 @@ query:
     %%ok = icmp eq i32 %%rc, 0
     br i1 %%ok, label %%chk_len, label %%ret_err
 chk_len:
-    %%got = load i32, ptr %%len_slot, align 4
-    %%is_v4 = icmp eq i32 %%got, 16
-    %%is_v6 = icmp eq i32 %%got, 28
+    ; Address family: BSD/macOS stores (sa_len, sa_family) bytes, Linux a 16-bit family.
+    %%fb0p = getelementptr inbounds i8, ptr %%sa, i64 0
+    %%fb1p = getelementptr inbounds i8, ptr %%sa, i64 1
+    %%fb0 = load i8, ptr %%fb0p, align 1
+    %%fb1 = load i8, ptr %%fb1p, align 1
+    %%bsd4a = icmp eq i8 %%fb0, 16
+    %%bsd4b = icmp eq i8 %%fb1, 2
+    %%bsd4 = and i1 %%bsd4a, %%bsd4b
+    %%lin4a = icmp eq i8 %%fb0, 2
+    %%lin4b = icmp eq i8 %%fb1, 0
+    %%lin4 = and i1 %%lin4a, %%lin4b
+    %%is_v4 = or i1 %%bsd4, %%lin4
+    %%bsd6a = icmp eq i8 %%fb0, 28
+    %%bsd6b = icmp eq i8 %%fb1, 30
+    %%bsd6 = and i1 %%bsd6a, %%bsd6b
+    %%lin6a = icmp eq i8 %%fb0, 10
+    %%lin6b = icmp eq i8 %%fb1, 0
+    %%lin6 = and i1 %%lin6a, %%lin6b
+    %%is_v6 = or i1 %%bsd6, %%lin6
     %%is_inet = or i1 %%is_v4, %%is_v6
     br i1 %%is_inet, label %%extract, label %%ret_err
 extract:
@@ -2477,8 +2560,83 @@ query:
     %%ok = icmp eq i32 %%rc, 0
     br i1 %%ok, label %%chk_len, label %%ret_err
 chk_len:
-    %%got = load i32, ptr %%len_slot, align 4
-    %%is_v4 = icmp eq i32 %%got, 16
+    ; Address family: BSD/macOS stores (sa_len, sa_family) bytes, Linux a 16-bit family.
+    %%fb0p = getelementptr inbounds i8, ptr %%sa, i64 0
+    %%fb1p = getelementptr inbounds i8, ptr %%sa, i64 1
+    %%fb0 = load i8, ptr %%fb0p, align 1
+    %%fb1 = load i8, ptr %%fb1p, align 1
+    %%bsd4a = icmp eq i8 %%fb0, 16
+    %%bsd4b = icmp eq i8 %%fb1, 2
+    %%bsd4 = and i1 %%bsd4a, %%bsd4b
+    %%lin4a = icmp eq i8 %%fb0, 2
+    %%lin4b = icmp eq i8 %%fb1, 0
+    %%lin4 = and i1 %%lin4a, %%lin4b
+    %%is_v4 = or i1 %%bsd4, %%lin4
+    %%bsd6a = icmp eq i8 %%fb0, 28
+    %%bsd6b = icmp eq i8 %%fb1, 30
+    %%bsd6 = and i1 %%bsd6a, %%bsd6b
+    %%lin6a = icmp eq i8 %%fb0, 10
+    %%lin6b = icmp eq i8 %%fb1, 0
+    %%lin6 = and i1 %%lin6a, %%lin6b
+    %%is_v6 = or i1 %%bsd6, %%lin6
+    br i1 %%is_v4, label %%extract, label %%ret_err
+extract:
+    %%p0 = getelementptr inbounds i8, ptr %%sa, i64 4
+    %%p1 = getelementptr inbounds i8, ptr %%sa, i64 5
+    %%p2 = getelementptr inbounds i8, ptr %%sa, i64 6
+    %%p3 = getelementptr inbounds i8, ptr %%sa, i64 7
+    %%b0 = load i8, ptr %%p0, align 1
+    %%b1 = load i8, ptr %%p1, align 1
+    %%b2 = load i8, ptr %%p2, align 1
+    %%b3 = load i8, ptr %%p3, align 1
+    %%w0 = zext i8 %%b0 to i64
+    %%w1 = zext i8 %%b1 to i64
+    %%w2 = zext i8 %%b2 to i64
+    %%w3 = zext i8 %%b3 to i64
+    %%s0 = shl i64 %%w0, 24
+    %%s1 = shl i64 %%w1, 16
+    %%s2 = shl i64 %%w2, 8
+    %%o1 = or i64 %%s0, %%s1
+    %%o2 = or i64 %%o1, %%s2
+    %%addr = or i64 %%o2, %%w3
+    ret i64 %%addr
+}
+
+define internal i64 @ll_net_tcp_local_ipv4(i64 %%fd) {
+entry:
+    %%bad_fd = icmp slt i64 %%fd, 0
+    br i1 %%bad_fd, label %%ret_err, label %%query
+ret_err:
+    ret i64 -1
+query:
+    %%sa = alloca [128 x i8], align 8
+    %%len_slot = alloca i32, align 4
+    call void @llvm.memset.p0.i64(ptr %%sa, i8 0, i64 128, i1 false)
+    store i32 128, ptr %%len_slot, align 4
+    %%fd32 = trunc i64 %%fd to i32
+    %%rc = call i32 @getsockname(i32 %%fd32, ptr %%sa, ptr %%len_slot)
+    %%ok = icmp eq i32 %%rc, 0
+    br i1 %%ok, label %%chk_len, label %%ret_err
+chk_len:
+    ; Address family: BSD/macOS stores (sa_len, sa_family) bytes, Linux a 16-bit family.
+    %%fb0p = getelementptr inbounds i8, ptr %%sa, i64 0
+    %%fb1p = getelementptr inbounds i8, ptr %%sa, i64 1
+    %%fb0 = load i8, ptr %%fb0p, align 1
+    %%fb1 = load i8, ptr %%fb1p, align 1
+    %%bsd4a = icmp eq i8 %%fb0, 16
+    %%bsd4b = icmp eq i8 %%fb1, 2
+    %%bsd4 = and i1 %%bsd4a, %%bsd4b
+    %%lin4a = icmp eq i8 %%fb0, 2
+    %%lin4b = icmp eq i8 %%fb1, 0
+    %%lin4 = and i1 %%lin4a, %%lin4b
+    %%is_v4 = or i1 %%bsd4, %%lin4
+    %%bsd6a = icmp eq i8 %%fb0, 28
+    %%bsd6b = icmp eq i8 %%fb1, 30
+    %%bsd6 = and i1 %%bsd6a, %%bsd6b
+    %%lin6a = icmp eq i8 %%fb0, 10
+    %%lin6b = icmp eq i8 %%fb1, 0
+    %%lin6 = and i1 %%lin6a, %%lin6b
+    %%is_v6 = or i1 %%bsd6, %%lin6
     br i1 %%is_v4, label %%extract, label %%ret_err
 extract:
     %%p0 = getelementptr inbounds i8, ptr %%sa, i64 4
@@ -2524,8 +2682,80 @@ query:
     %%ok = icmp eq i32 %%rc, 0
     br i1 %%ok, label %%chk_len, label %%ret_err
 chk_len:
-    %%got = load i32, ptr %%len_slot, align 4
-    %%is_v6 = icmp eq i32 %%got, 28
+    ; Address family: BSD/macOS stores (sa_len, sa_family) bytes, Linux a 16-bit family.
+    %%fb0p = getelementptr inbounds i8, ptr %%sa, i64 0
+    %%fb1p = getelementptr inbounds i8, ptr %%sa, i64 1
+    %%fb0 = load i8, ptr %%fb0p, align 1
+    %%fb1 = load i8, ptr %%fb1p, align 1
+    %%bsd4a = icmp eq i8 %%fb0, 16
+    %%bsd4b = icmp eq i8 %%fb1, 2
+    %%bsd4 = and i1 %%bsd4a, %%bsd4b
+    %%lin4a = icmp eq i8 %%fb0, 2
+    %%lin4b = icmp eq i8 %%fb1, 0
+    %%lin4 = and i1 %%lin4a, %%lin4b
+    %%is_v4 = or i1 %%bsd4, %%lin4
+    %%bsd6a = icmp eq i8 %%fb0, 28
+    %%bsd6b = icmp eq i8 %%fb1, 30
+    %%bsd6 = and i1 %%bsd6a, %%bsd6b
+    %%lin6a = icmp eq i8 %%fb0, 10
+    %%lin6b = icmp eq i8 %%fb1, 0
+    %%lin6 = and i1 %%lin6a, %%lin6b
+    %%is_v6 = or i1 %%bsd6, %%lin6
+    br i1 %%is_v6, label %%extract, label %%ret_err
+extract:
+    %%twice = shl i64 %%idx, 1
+    %%off_hi = add i64 %%twice, 8
+    %%off_lo = add i64 %%twice, 9
+    %%p_hi = getelementptr inbounds i8, ptr %%sa, i64 %%off_hi
+    %%p_lo = getelementptr inbounds i8, ptr %%sa, i64 %%off_lo
+    %%hi8 = load i8, ptr %%p_hi, align 1
+    %%lo8 = load i8, ptr %%p_lo, align 1
+    %%hi64 = zext i8 %%hi8 to i64
+    %%lo64 = zext i8 %%lo8 to i64
+    %%hi_sh = shl i64 %%hi64, 8
+    %%group = or i64 %%hi_sh, %%lo64
+    ret i64 %%group
+}
+
+define internal i64 @ll_net_tcp_local_ipv6_group(i64 %%fd, i64 %%idx) {
+entry:
+    %%bad_fd = icmp slt i64 %%fd, 0
+    %%bad_lo = icmp slt i64 %%idx, 0
+    %%bad_hi = icmp sgt i64 %%idx, 7
+    %%bad0 = or i1 %%bad_fd, %%bad_lo
+    %%bad = or i1 %%bad0, %%bad_hi
+    br i1 %%bad, label %%ret_err, label %%query
+ret_err:
+    ret i64 -1
+query:
+    %%sa = alloca [128 x i8], align 8
+    %%len_slot = alloca i32, align 4
+    call void @llvm.memset.p0.i64(ptr %%sa, i8 0, i64 128, i1 false)
+    store i32 128, ptr %%len_slot, align 4
+    %%fd32 = trunc i64 %%fd to i32
+    %%rc = call i32 @getsockname(i32 %%fd32, ptr %%sa, ptr %%len_slot)
+    %%ok = icmp eq i32 %%rc, 0
+    br i1 %%ok, label %%chk_len, label %%ret_err
+chk_len:
+    ; Address family: BSD/macOS stores (sa_len, sa_family) bytes, Linux a 16-bit family.
+    %%fb0p = getelementptr inbounds i8, ptr %%sa, i64 0
+    %%fb1p = getelementptr inbounds i8, ptr %%sa, i64 1
+    %%fb0 = load i8, ptr %%fb0p, align 1
+    %%fb1 = load i8, ptr %%fb1p, align 1
+    %%bsd4a = icmp eq i8 %%fb0, 16
+    %%bsd4b = icmp eq i8 %%fb1, 2
+    %%bsd4 = and i1 %%bsd4a, %%bsd4b
+    %%lin4a = icmp eq i8 %%fb0, 2
+    %%lin4b = icmp eq i8 %%fb1, 0
+    %%lin4 = and i1 %%lin4a, %%lin4b
+    %%is_v4 = or i1 %%bsd4, %%lin4
+    %%bsd6a = icmp eq i8 %%fb0, 28
+    %%bsd6b = icmp eq i8 %%fb1, 30
+    %%bsd6 = and i1 %%bsd6a, %%bsd6b
+    %%lin6a = icmp eq i8 %%fb0, 10
+    %%lin6b = icmp eq i8 %%fb1, 0
+    %%lin6 = and i1 %%lin6a, %%lin6b
+    %%is_v6 = or i1 %%bsd6, %%lin6
     br i1 %%is_v6, label %%extract, label %%ret_err
 extract:
     %%twice = shl i64 %%idx, 1
@@ -2765,17 +2995,38 @@ done:
     ret void
 }
 
-define internal void @ll_net_shutdown(i64 %%fd, i64 %%how) {
+define internal i64 @ll_net_shutdown(i64 %%fd, i64 %%how) {
 entry:
     %%ok = icmp sge i64 %%fd, 0
-    br i1 %%ok, label %%do_shut, label %%done
+    br i1 %%ok, label %%do_shut, label %%bad
 do_shut:
     %%fd32 = trunc i64 %%fd to i32
     %%how32 = trunc i64 %%how to i32
-    call i32 @shutdown(i32 %%fd32, i32 %%how32)
-    br label %%done
-done:
-    ret void
+    %%rc = call i32 @shutdown(i32 %%fd32, i32 %%how32)
+    %%failed = icmp ne i32 %%rc, 0
+    %%res = select i1 %%failed, i64 -1, i64 0
+    ret i64 %%res
+bad:
+    ret i64 -1
+}
+
+; Enables (%%on != 0) or disables Nagle's algorithm (IPPROTO_TCP = 6, TCP_NODELAY = 1).
+define internal i64 @ll_net_tcp_set_nodelay(i64 %%fd, i64 %%on) {
+entry:
+    %%bad_fd = icmp slt i64 %%fd, 0
+    br i1 %%bad_fd, label %%bad, label %%set
+set:
+    %%v = alloca i32, align 4
+    %%nz = icmp ne i64 %%on, 0
+    %%flag = zext i1 %%nz to i32
+    store i32 %%flag, ptr %%v, align 4
+    %%fd32 = trunc i64 %%fd to i32
+    %%rc = call i32 @setsockopt(i32 %%fd32, i32 6, i32 1, ptr %%v, i32 4)
+    %%failed = icmp ne i32 %%rc, 0
+    %%res = select i1 %%failed, i64 -1, i64 0
+    ret i64 %%res
+bad:
+    ret i64 -1
 }
 
 define internal i64 @ll_net_socketpair(ptr %%out_fds) {

@@ -237,11 +237,7 @@ bind test_char_utf8_length = (): {
 	assert(char(65536).len_utf8() == 4)
 	assert(char(1114111).len_utf8() == 4)
 
-	// Surrogates return 0
-	assert(char(55296).len_utf8() == 0)
-	assert(char(57343).len_utf8() == 0)
-
-	// Out-of-bounds return 0
-	assert(char(1114112).len_utf8() == 0)
-	assert(char(-1).len_utf8() == 0)
+	// Surrogates (0xD800..=0xDFFF) and values above 0x10FFFF cannot be chars: `char(n)` panics
+	// for them, so every char has a UTF-8 length of 1 to 4.
+	assert(char(55295).len_utf8() == 3 and char(57344).len_utf8() == 3, "neighbors of the surrogate range")
 }

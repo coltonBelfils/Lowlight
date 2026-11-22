@@ -286,6 +286,24 @@ func (fl *funcLowerer) lowerTypeConvertCall(call *ast.CallExpr, inf *sema.ExprIn
 		}
 	}
 
+	// `char(n)` from an integer: panic unless `n` is a Unicode scalar value.
+	if targetTy.Equals(types.TypeChar) {
+		if prim, ok := argTy.(*types.Primitive); ok && prim.IsInteger() {
+			file, line := formatSpanLoc(call)
+			val := fl.lowerExprRead(arg)
+			var asInt Expr = EnsureExpr(val, argTy)
+			if !argTy.Equals(types.TypeInt) {
+				asInt = &ExprCast{Val: asInt, From: argTy, To: types.TypeInt}
+			}
+			checked := &ExprCall{
+				Callee: &ExprFuncRef{Name: "ll_check_char"},
+				Args:   []Expr{asInt, &ExprLitCString{Val: file}, NewLitInt(uint64(line), false, types.TypeInt)},
+				Typ:    types.TypeInt,
+			}
+			return &ExprCast{Val: checked, From: types.TypeInt, To: types.TypeChar}
+		}
+	}
+
 	// Distinct conversion (`UserID(x)` or `Base(uid)`): preserve ownership if Resource!
 	if !targetTy.IsPlain() {
 		val := fl.lowerExprOwned(arg, argTy)
@@ -696,6 +714,14 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 	// `string` read methods
 	case "string.len":
 		return &ExprField{Base: EnsureExpr(recvVal, types.TypeString), FieldName: "len", Typ: types.TypeInt}, types.TypeInt
+	case "string.cap":
+		sTmp := fl.allocSlot("_ll_scap", types.TypeString)
+		fl.assignLocal(sTmp, recvVal)
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_str_cap"},
+			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(sTmp), Typ: &types.Ptr{Elem: types.TypeString}}},
+			Typ:    types.TypeInt,
+		}, types.TypeInt
 	case "string.byte_at":
 		idx := fl.lowerExprRead(call.Args[0])
 		sTmp := fl.allocSlot("_ll_sba", types.TypeString)
@@ -888,6 +914,13 @@ func (fl *funcLowerer) emitMutBuiltinMethodOnPtr(
 		return &ExprCall{
 			Callee: &ExprFuncRef{Name: "ll_str_clear"},
 			Args:   []Expr{EnsureExpr(recvPtr, types.TypeString)},
+			Typ:    types.TypeVoid,
+		}
+	case "string.reserve":
+		n := fl.lowerExprRead(call.Args[0])
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_str_reserve"},
+			Args:   []Expr{EnsureExpr(recvPtr, types.TypeString), EnsureExpr(n, types.TypeInt)},
 			Typ:    types.TypeVoid,
 		}
 
@@ -1135,6 +1168,9 @@ func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo
 		"sys_tcp_peer_port":        "ll_net_tcp_peer_port",
 		"sys_tcp_peer_ipv4":        "ll_net_tcp_peer_ipv4",
 		"sys_tcp_peer_ipv6_group":  "ll_net_tcp_peer_ipv6_group",
+		"sys_tcp_local_ipv4":       "ll_net_tcp_local_ipv4",
+		"sys_tcp_local_ipv6_group": "ll_net_tcp_local_ipv6_group",
+		"sys_tcp_set_nodelay":      "ll_net_tcp_set_nodelay",
 		"sys_tcp_accept":           "ll_net_tcp_accept",
 		"sys_tcp_connect":          "ll_net_tcp_connect",
 		"sys_net_send_all":         "ll_net_send_all",

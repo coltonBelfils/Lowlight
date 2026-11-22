@@ -48,7 +48,7 @@ func TestLLVMRuntimeSignatureConsistency(t *testing.T) {
 		"%rc = call i32 @mkdir(ptr %path, i32 493)",
 		"define internal i64 @ll_time_local_offset(i64 %epoch_sec)",
 		"store i64 %epoch_sec, ptr %sec_slot, align 8",
-		"define internal void @ll_net_shutdown(i64 %fd, i64 %how)",
+		"define internal i64 @ll_net_shutdown(i64 %fd, i64 %how)",
 		"%how32 = trunc i64 %how to i32",
 		"call i32 @shutdown(i32 %fd32, i32 %how32)",
 	} {

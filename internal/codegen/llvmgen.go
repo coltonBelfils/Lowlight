@@ -3682,15 +3682,17 @@ func (g *llvmEmitter) emitMain() {
 	initSB.WriteString("    store i32 %argc, ptr @ll_rt_argc, align 4\n")
 	initSB.WriteString("    store ptr %argv, ptr @ll_rt_argv, align 8\n")
 
-	// 2. Initialize top-level `bind` constants in declaration order
-	for _, gl := range g.prog.Globals {
+	// 2. Initialize top-level `bind` constants in declaration order. Each global's initializer
+	// is lowered separately, so its temporaries' names can repeat across globals; prefix them
+	// with the global's index to keep the slots in `main` distinct.
+	for gi, gl := range g.prog.Globals {
 		for _, loc := range gl.Locals {
-			slot := fmt.Sprintf("%%%s.slot", loc.CName)
+			slot := fmt.Sprintf("%%g%d.%s.slot", gi, loc.CName)
 			g.localSlots[loc] = slot
 			headerSB.WriteString(fmt.Sprintf("    %s = alloca %s, align 8\n", slot, g.llvmType(loc.Type)))
 			initSB.WriteString(fmt.Sprintf("    store %s zeroinitializer, ptr %s, align 8\n", g.llvmType(loc.Type), slot))
 			if loc.MovedFlag != "" {
-				flagSlot := fmt.Sprintf("%%%s.slot", loc.MovedFlag)
+				flagSlot := fmt.Sprintf("%%g%d.%s.slot", gi, loc.MovedFlag)
 				g.movedSlots[loc.MovedFlag] = flagSlot
 				if loc.MovedLocal != nil {
 					g.localSlots[loc.MovedLocal] = flagSlot
@@ -3705,7 +3707,13 @@ func (g *llvmEmitter) emitMain() {
 	g.sb = strings.Builder{}
 	g.currentBlock = "entry"
 
-	for _, gl := range g.prog.Globals {
+	for gi, gl := range g.prog.Globals {
+		// Moved-flag slots are looked up by name; point the names at this global's slots.
+		for _, loc := range gl.Locals {
+			if loc.MovedFlag != "" {
+				g.movedSlots[loc.MovedFlag] = fmt.Sprintf("%%g%d.%s.slot", gi, loc.MovedFlag)
+			}
+		}
 		for _, in := range gl.InitInstr {
 			g.emitInstr(in)
 		}

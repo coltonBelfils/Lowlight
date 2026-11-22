@@ -2082,7 +2082,7 @@ bind test_diff_formatting = (): {
 	assert_true(
 		_str_contains_sub(
 			tab_diff,
-			"\n" + _repeat_space(14) + "\t\t       ^ diff at index 9",
+			"\n" + _repeat_space(14) + "\t\t        ^ diff at index 10",
 		)
 	)
 

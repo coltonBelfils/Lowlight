@@ -182,14 +182,19 @@ bind string.split_whitespace = (self) [string]: {
 	out
 }
 
-// Splits the string on `\n` line endings while stripping any trailing `\r` from CRLF lines.
+// Splits this string into lines, removing the line terminators (`\n` or `\r\n`).
+//
+// A final line terminator ends the last line rather than starting an empty one, so
+// `"a\nb\n".lines()` is `["a", "b"]`, while `"a\nb\n\n".lines()` keeps the empty line
+// (`["a", "b", ""]`). An empty string has no lines.
 bind string.lines = (self) [string]: {
+	if(self.is_empty()): func <- []
 	let raw_lines = self.split("\n")
-	let out: [string] = []
-	for(line in raw_lines):
-		if(line.ends_with("\r")): out.push(line[0..line.len() - 1].to_string())
-		else: out.push(line.copy())
-	out
+	let count = if(self.ends_with("\n")): raw_lines.len() - 1 else: raw_lines.len()
+	for(i, line in raw_lines) [string]: {
+		if(i >= count): next <-
+		if(line.ends_with("\r")): line[0..line.len() - 1].to_string() else: line.copy()
+	}
 }
 
 // Concatenates `list` elements separated by `sep` (convenience wrapper around [`join_strings`]).
@@ -200,72 +205,6 @@ bind string.chars_list = (self) [char]: self.chars()
 
 // Returns all raw UTF-8 bytes in this string (alias for [`string.bytes`]).
 bind string.bytes_list = (self) [u8]: self.bytes()
-
-// -----------------------------------------------------------------------------
-// StringBuilder
-// -----------------------------------------------------------------------------
-
-// A growable text buffer for building a string piece by piece.
-//
-// Appending to a builder grows one buffer in place, so building a long string from many
-// pieces costs time proportional to its length, unlike repeated `a + b`.
-//
-// ```lowlight
-// let b = StringBuilder.new()
-// b.append("total: ")
-// b.append_int(42)
-// let text = b.into_string()   // "total: 42"
-// ```
-define StringBuilder struct [
-	_buf: string
-]
-
-// Creates an empty [`StringBuilder`].
-bind StringBuilder.new = () StringBuilder: StringBuilder[_buf: ""]
-
-// Creates an empty [`StringBuilder`] with room for at least `capacity` bytes before it grows.
-bind StringBuilder.with_capacity = (capacity: int) StringBuilder: {
-	let buf = ""
-	for(i in 0..capacity): buf.push_byte(u8(0))
-	buf.clear()
-	StringBuilder[_buf: own buf]
-}
-
-// Appends `text`.
-bind StringBuilder.append = (&self, text: string): self._buf.push(text)
-
-// Appends one character, UTF-8 encoded.
-bind StringBuilder.append_char = (&self, c: char): self._buf.push_char(c)
-
-// Appends one raw byte.
-bind StringBuilder.append_byte = (&self, b: u8): self._buf.push_byte(b)
-
-// Appends the decimal form of `n`.
-bind StringBuilder.append_int = (&self, n: int): self._buf.push(n.to_string())
-
-// Appends `x` formatted like [`float.to_string`].
-bind StringBuilder.append_float = (&self, x: float): self._buf.push(x.to_string())
-
-// Appends `text` followed by a newline.
-bind StringBuilder.append_line = (&self, text: string): {
-	self._buf.push(text)
-	self._buf.push_byte(u8(10))
-}
-
-// Returns the length of the built text in bytes.
-bind StringBuilder.len = (self) int: self._buf.len()
-
-// Reports whether nothing has been appended since creation or the last [`StringBuilder.clear`].
-bind StringBuilder.is_empty = (self) bool: self._buf.is_empty()
-
-// Removes all text, keeping the allocated capacity for reuse.
-bind StringBuilder.clear = (&self): self._buf.clear()
-
-// Returns a copy of the built text; the builder can keep growing.
-bind StringBuilder.to_string = (self) string: self._buf.copy()
-
-// Consumes the builder and returns its text without copying.
-bind StringBuilder.into_string = (own self) string: own self._buf
 
 // -----------------------------------------------------------------------------
 // ByteBuffer
@@ -577,24 +516,6 @@ bind test_strings_split_join = (): {
 	assert(bl[0] == u8(65) and bl[1] == u8(66) and bl[2] == u8(67), "bytes_list values")
 }
 
-@test("StringBuilder appends text, numbers, and characters")
-bind test_string_builder = (): {
-	let b = StringBuilder.with_capacity(64)
-	assert(b.is_empty() and b.len() == 0, "starts empty")
-	b.append("x = ")
-	b.append_int(-42)
-	b.append_char(',')
-	b.append_byte(u8(32))
-	b.append_float(2.5)
-	b.append_char('λ')
-	assert(b.to_string() == "x = -42, 2.5λ", "built text")
-	assert(b.len() == 14, "length in bytes")
-	b.clear()
-	b.append_line("one")
-	b.append_line("two")
-	assert(b.into_string() == "one\ntwo\n", "into_string returns the text")
-}
-
 @test("ByteBuffer reads and writes little- and big-endian integers")
 bind test_byte_buffer = (): {
 	let b = ByteBuffer.new()
@@ -627,4 +548,30 @@ bind test_byte_buffer = (): {
 
 	let from = ByteBuffer.from_string("AB")
 	assert(from.read_u16_be() == u16(0x4142), "from_string bytes")
+}
+
+@test("string.with_capacity and reserve preallocate without changing the text")
+bind test_string_capacity = (): {
+	let s = string.with_capacity(100)
+	assert(s.is_empty() and s.cap() >= 100, "with_capacity reserves room")
+	let before = s.cap()
+	for(i in 0..100): s.push_byte(u8(97))
+	assert(s.len() == 100 and s.cap() == before, "no reallocation within the reserved capacity")
+	s.reserve(1000)
+	assert(s.cap() >= 1100 and s.len() == 100, "reserve adds room after the current length")
+	assert("literal".cap() == 0, "literals own no buffer")
+	let t = "abc" + ""
+	t.reserve(0)
+	assert(t == "abc", "reserve keeps the contents")
+}
+
+@test("string.lines drops the final line terminator, not blank lines")
+bind test_string_lines_trailing_newline = (): {
+	assert(join_strings("a\nb\n".lines(), "|") == "a|b", "trailing newline ends the last line")
+	assert(join_strings("a\r\nb\r\n".lines(), "|") == "a|b", "trailing CRLF too")
+	assert(join_strings("a\nb".lines(), "|") == "a|b", "no trailing newline")
+	assert(join_strings("a\nb\n\n".lines(), "|") == "a|b|", "a blank last line is kept")
+	assert("".lines().is_empty(), "empty text has no lines")
+	assert(join_strings("\n".lines(), "|") == "", "a lone newline is one empty line")
+	assert("\n".lines().len() == 1, "a lone newline is one empty line")
 }

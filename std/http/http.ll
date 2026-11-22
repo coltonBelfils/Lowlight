@@ -1614,69 +1614,8 @@ bind Server.listen = (&self) Result[int]: {
 	value(self.port)
 }
 
-// Formats the remote address of a connected socket as `"a.b.c.d:port"` or `"[v6]:port"`,
-// or returns an empty string when it is unknown.
-bind _peer_addr = (fd: int) string: {
-	let port = unsafe sys_tcp_peer_port(fd)
-	if(port < 0): func <- ""
-	let ip = unsafe sys_tcp_peer_ipv4(fd)
-	if(ip >= 0): func <- "${_format_ipv4(ip)}:$port"
-	let groups = for(i in 0..8) [int]: unsafe sys_tcp_peer_ipv6_group(fd, i)
-	if(groups[0] < 0): func <- ""
-	"[${format_ipv6(groups)}]:$port"
-}
-
-bind _format_ipv4 = (ip: int) string: "${(ip >> 24) & 255}.${(ip >> 16) & 255}.${(ip >> 8) & 255}.${ip & 255}"
-
-bind _hex16 = (n: int) string: {
-	if(n == 0): func <- "0"
-	let digits = "0123456789abcdef"
-	let out = ""
-	let started = false
-	for(shift in [12, 8, 4, 0]): {
-		let d = (n >> shift) & 15
-		if(d == 0 and not started): next <-
-		started = true
-		out.push_byte(digits.byte_at(d))
-	}
-	out
-}
-
-// Formats eight 16-bit groups as an IPv6 address in RFC 5952 canonical form: lowercase hex,
-// no leading zeros, the longest run of two or more zero groups shortened to `::`, and
-// IPv4-mapped addresses written as `::ffff:a.b.c.d`.
-bind format_ipv6 = (groups: [int]) string: {
-	if(groups.len() != 8): func <- ""
-	let mapped = groups[0] == 0 and groups[1] == 0 and groups[2] == 0 and groups[3] == 0 and groups[4] == 0 and groups[5] == 65535
-	if(mapped): func <- "::ffff:${_format_ipv4(groups[6] << 16 | groups[7])}"
-	let best_at = -1
-	let best_len = 0
-	let run_at = -1
-	for(i in 0..8): {
-		if(groups[i] == 0): {
-			if(run_at < 0): run_at = i
-			let run_len = i - run_at + 1
-			if(run_len > best_len): {
-				best_at = run_at
-				best_len = run_len
-			}
-		} else: run_at = -1
-	}
-	if(best_len < 2): best_at = -1
-	let out = ""
-	let i = 0
-	while(i < 8): {
-		if(i == best_at): {
-			out.push("::")
-			i += best_len
-			next <-
-		}
-		if(not out.is_empty() and not out.ends_with(":")): out.push(":")
-		out.push(_hex16(groups[i]))
-		i += 1
-	}
-	out
-}
+// Formats the remote address of a connected socket, or returns an empty string when unknown.
+bind _peer_addr = (fd: int) string: net.peer_addr_of(fd) ?? ""
 
 // Serves the HTTP requests on connection `conn_fd`, then closes it.
 //
@@ -2253,12 +2192,12 @@ bind test_http_ipv6 = (): {
 	assert(parse_url("http://[::1/").is_err(), "unterminated bracket is an error")
 	assert(parse_url("http://[::1]x/").is_err(), "text after the bracket is an error")
 
-	assert(format_ipv6([0, 0, 0, 0, 0, 0, 0, 1]) == "::1", "loopback")
-	assert(format_ipv6([0, 0, 0, 0, 0, 0, 0, 0]) == "::", "unspecified")
-	assert(format_ipv6([0x2001, 0xdb8, 0, 0, 0, 0, 0, 1]) == "2001:db8::1", "longest zero run")
-	assert(format_ipv6([0x2001, 0xdb8, 0, 0, 1, 0, 0, 1]) == "2001:db8::1:0:0:1", "first of equal runs")
-	assert(format_ipv6([1, 0, 2, 3, 4, 5, 6, 7]) == "1:0:2:3:4:5:6:7", "a single zero is not shortened")
-	assert(format_ipv6([0, 0, 0, 0, 0, 0xffff, 0x7f00, 1]) == "::ffff:127.0.0.1", "IPv4-mapped")
+	assert(net.format_ipv6([0, 0, 0, 0, 0, 0, 0, 1]) == "::1", "loopback")
+	assert(net.format_ipv6([0, 0, 0, 0, 0, 0, 0, 0]) == "::", "unspecified")
+	assert(net.format_ipv6([0x2001, 0xdb8, 0, 0, 0, 0, 0, 1]) == "2001:db8::1", "longest zero run")
+	assert(net.format_ipv6([0x2001, 0xdb8, 0, 0, 1, 0, 0, 1]) == "2001:db8::1:0:0:1", "first of equal runs")
+	assert(net.format_ipv6([1, 0, 2, 3, 4, 5, 6, 7]) == "1:0:2:3:4:5:6:7", "a single zero is not shortened")
+	assert(net.format_ipv6([0, 0, 0, 0, 0, 0xffff, 0x7f00, 1]) == "::ffff:127.0.0.1", "IPv4-mapped")
 }
 
 @test("http Server answers pipelined requests and HEAD over a real connection")

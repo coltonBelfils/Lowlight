@@ -81,3 +81,19 @@ func TestCodegenOutputIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// Several top-level list constants used to emit duplicate `alloca` names in `main` with the
+// LLVM backend, because each global's temporaries are numbered separately.
+func TestMultipleListConstantsInOneProgram(t *testing.T) {
+	t.Parallel()
+	src := `
+bind A: [int] = [1, 2]
+bind B: [int] = [3]
+bind C: [string] = ["x", "y"]
+
+bind main = (): println(A.len() + B.len() + C.len())
+`
+	if out := strings.TrimSpace(runInlineStrict(t, "multi_list_consts", src, false)); out != "5" {
+		t.Fatalf("unexpected output %q", out)
+	}
+}

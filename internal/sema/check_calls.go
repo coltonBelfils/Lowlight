@@ -1507,6 +1507,15 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
 			inf.BuiltinName = "string.clear"
 			return wrapRet(types.TypeVoid)
+		case "reserve":
+			mr := requireMutRecv()
+			fc.checkSignatureArgs([]types.FuncParam{{Name: "additional", Mode: types.ModeRead, Type: types.TypeInt}}, call.Args, mr, call.Span)
+			inf.BuiltinName = "string.reserve"
+			return wrapRet(types.TypeVoid)
+		case "cap":
+			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
+			inf.BuiltinName = "string.cap"
+			return wrapRet(types.TypeInt)
 		case "byte_at":
 			fc.checkSignatureArgs([]types.FuncParam{{Name: "idx", Mode: types.ModeRead, Type: types.TypeInt}}, call.Args, nil, call.Span)
 			inf.BuiltinName = "string.byte_at"
@@ -2273,7 +2282,7 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 		return sysIntrinsic([]types.FuncParam{
 			{Name: "epoch_sec", Mode: types.ModeRead, Type: types.TypeInt},
 		}, u8p)
-	case "sys_local_tz_offset", "sys_tcp_port", "sys_tcp_peer_port", "sys_tcp_peer_ipv4":
+	case "sys_local_tz_offset", "sys_tcp_port", "sys_tcp_peer_port", "sys_tcp_peer_ipv4", "sys_tcp_local_ipv4":
 		return sysIntrinsic([]types.FuncParam{
 			{Name: "arg", Mode: types.ModeRead, Type: types.TypeInt},
 		}, types.TypeInt)
@@ -2283,7 +2292,7 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 			{Name: "port", Mode: types.ModeRead, Type: types.TypeInt},
 			{Name: "arg3", Mode: types.ModeRead, Type: types.TypeInt},
 		}, types.TypeInt)
-	case "sys_tcp_accept", "sys_net_set_timeout", "sys_tcp_peer_ipv6_group":
+	case "sys_tcp_accept", "sys_net_set_timeout", "sys_tcp_peer_ipv6_group", "sys_tcp_local_ipv6_group":
 		return sysIntrinsic([]types.FuncParam{
 			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
 			{Name: "timeout_ms", Mode: types.ModeRead, Type: types.TypeInt},
@@ -2305,11 +2314,11 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 		return sysIntrinsic([]types.FuncParam{
 			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
 		}, types.TypeVoid)
-	case "sys_net_shutdown":
+	case "sys_net_shutdown", "sys_tcp_set_nodelay":
 		return sysIntrinsic([]types.FuncParam{
 			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
-			{Name: "how", Mode: types.ModeRead, Type: types.TypeInt},
-		}, types.TypeVoid)
+			{Name: "arg", Mode: types.ModeRead, Type: types.TypeInt},
+		}, types.TypeInt)
 	case "sys_net_socketpair":
 		return sysIntrinsic([]types.FuncParam{
 			{Name: "out_fds", Mode: types.ModeRead, Type: intp},

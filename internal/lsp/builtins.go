@@ -648,6 +648,8 @@ func BuiltinMethodsForType(recvTy types.Type, isOptChain bool) []BuiltinMethodDo
 		add(BuiltinMethodDoc{Name: "push_byte", RecvMode: "&self", Signature: "(&self, b: u8)", Params: []string{"b: u8"}, ReturnType: "void", Snippet: "push_byte($1)", Summary: "Appends raw byte `b` in place."})
 		add(BuiltinMethodDoc{Name: "push_bytes", RecvMode: "&self", Signature: "(&self, bytes: ptr[u8], count: int)", Params: []string{"bytes: ptr[u8]", "count: int"}, ReturnType: "void", Snippet: "push_bytes($1, $2)", Summary: "Appends `count` raw bytes from `bytes` pointer in place."})
 		add(BuiltinMethodDoc{Name: "clear", RecvMode: "&self", Signature: "(&self)", ReturnType: "void", Snippet: "clear()", Summary: "Resets string length to 0 while retaining allocated capacity."})
+		add(BuiltinMethodDoc{Name: "reserve", RecvMode: "&self", Signature: "(&self, additional: int)", Params: []string{"additional: int"}, ReturnType: "void", Snippet: "reserve($1)", Summary: "Ensures room for `additional` more bytes without reallocating."})
+		add(BuiltinMethodDoc{Name: "cap", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "cap()", Summary: "Returns how many bytes the string can hold without reallocating (`0` for literals and views)."})
 		add(BuiltinMethodDoc{Name: "c_str", RecvMode: "self", Signature: "(self) ptr[u8]", ReturnType: "ptr[u8]", Snippet: "c_str()", NeedsUnsafe: true, Summary: "Returns NUL-terminated `ptr[u8]` pointer for C FFI. Requires `unsafe`."})
 	}
 

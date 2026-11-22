@@ -74,6 +74,162 @@ bind TcpStream.recv = (&self, max_len: int, timeout_ms: int) Result[string]: {
 	}
 }
 
+// Writes all of `data` to the socket and returns the number of bytes sent.
+//
+// # Errors
+// Fails if the stream is closed or the underlying OS send fails.
+bind TcpStream.send_bytes = (&self, data: [u8]) Result[int]: {
+	if(self._fd < 0): func <- err(Error.new("send on closed TcpStream"))
+	let buf = string.with_capacity(data.len())
+	for(b in data): buf.push_byte(b)
+	let res = unsafe sys_net_send_all(self._fd, buf.c_str(), buf.len())
+	if(res == 0): value(data.len()) else: err(Error.new("failed to send data over TCP socket"))
+}
+
+// Reads up to `max_len` bytes (defaulting to `4096` when `max_len <= 0`) as raw bytes, waiting up
+// to `timeout_ms` (negative waits indefinitely). Like [`TcpStream.recv`], one OS read may return
+// fewer bytes than `max_len`.
+//
+// # Errors
+// Fails with code `"eof"` when the peer has closed the connection, `"timeout"` when no data
+// arrives in time, or a generic [`Error`] on closed or failed sockets.
+bind TcpStream.recv_bytes = (&self, max_len: int, timeout_ms: int) Result[[u8]]: {
+	if(self._fd < 0): func <- err(Error.new("recv on closed TcpStream"))
+	let limit = if(max_len <= 0): 4096 else: max_len
+	unsafe {
+		let raw = alloc_raw[u8](limit)
+		let n = sys_net_recv(self._fd, raw, limit, timeout_ms)
+		if(n <= 0): {
+			free_raw(raw)
+			if(n == 0): func <- err(Error.coded("eof", "connection closed by peer"))
+			if(n == -2): func <- err(Error.coded("timeout", "read timeout"))
+			func <- err(Error.new("recv error"))
+		}
+		let out = for(i in 0..n) [u8]: ptr_read(ptr_add(raw, i))
+		free_raw(raw)
+		value(own out)
+	}
+}
+
+// Which directions [`TcpStream.shutdown`] closes.
+define Shutdown enum [
+	// No more reads: further `recv` calls report end of stream.
+	read,
+	// No more writes: the peer sees end of stream after the data already sent.
+	write,
+	// Both directions.
+	both,
+]
+
+// Shuts down one or both directions of the connection without closing the socket.
+//
+// Shutting down `write` is how a client tells a server it has finished sending (the server
+// reads end of stream) while still reading the reply.
+//
+// # Errors
+// Fails if the stream is closed or the OS rejects the call (for example, if not connected).
+bind TcpStream.shutdown = (&self, how: Shutdown) Result[bool]: {
+	if(self._fd < 0): func <- err(Error.new("shutdown on closed TcpStream"))
+	let code = match(how):
+		when read: 0
+		when write: 1
+		default both: 2
+	let rc = unsafe sys_net_shutdown(self._fd, code)
+	if(rc == 0): value(true) else: err(Error.new("failed to shut down TCP stream"))
+}
+
+// Returns the remote address as `"a.b.c.d:port"` or `"[v6]:port"`, or `none` if unknown.
+bind TcpStream.peer_addr = (self) ?string: peer_addr_of(self._fd)
+
+// Returns the local address as `"a.b.c.d:port"` or `"[v6]:port"`, or `none` if unknown.
+bind TcpStream.local_addr = (self) ?string: local_addr_of(self._fd)
+
+// Enables or disables `TCP_NODELAY`. With it on, small writes are sent immediately instead of
+// being coalesced (Nagle's algorithm), which lowers latency for request/response protocols.
+//
+// # Errors
+// Fails if the stream is closed or the socket does not support the option.
+bind TcpStream.set_nodelay = (&self, on: bool) Result[bool]: {
+	if(self._fd < 0): func <- err(Error.new("set_nodelay on closed TcpStream"))
+	let rc = unsafe sys_tcp_set_nodelay(self._fd, if(on): 1 else: 0)
+	if(rc == 0): value(true) else: err(Error.new("failed to set TCP_NODELAY"))
+}
+
+// Returns the remote address of connected socket descriptor `fd`, or `none` if unknown.
+bind peer_addr_of = (fd: int) ?string: {
+	let port = unsafe sys_tcp_peer_port(fd)
+	if(port < 0): func <- none
+	let ip = unsafe sys_tcp_peer_ipv4(fd)
+	if(ip >= 0): func <- "${_format_ipv4(ip)}:$port"
+	let groups = for(i in 0..8) [int]: unsafe sys_tcp_peer_ipv6_group(fd, i)
+	if(groups[0] < 0): func <- none
+	"[${format_ipv6(groups)}]:$port"
+}
+
+// Returns the local address of socket descriptor `fd`, or `none` if unknown.
+bind local_addr_of = (fd: int) ?string: {
+	let port = unsafe sys_tcp_port(fd)
+	if(port < 0): func <- none
+	let ip = unsafe sys_tcp_local_ipv4(fd)
+	if(ip >= 0): func <- "${_format_ipv4(ip)}:$port"
+	let groups = for(i in 0..8) [int]: unsafe sys_tcp_local_ipv6_group(fd, i)
+	if(groups[0] < 0): func <- none
+	"[${format_ipv6(groups)}]:$port"
+}
+
+bind _format_ipv4 = (ip: int) string: "${(ip >> 24) & 255}.${(ip >> 16) & 255}.${(ip >> 8) & 255}.${ip & 255}"
+
+bind _hex16 = (n: int) string: {
+	if(n == 0): func <- "0"
+	let digits = "0123456789abcdef"
+	let out = ""
+	let started = false
+	for(shift in [12, 8, 4, 0]): {
+		let d = (n >> shift) & 15
+		if(d == 0 and not started): next <-
+		started = true
+		out.push_byte(digits.byte_at(d))
+	}
+	out
+}
+
+// Formats eight 16-bit groups as an IPv6 address in RFC 5952 canonical form: lowercase hex,
+// no leading zeros, the longest run of two or more zero groups shortened to `::`, and
+// IPv4-mapped addresses written as `::ffff:a.b.c.d`.
+bind format_ipv6 = (groups: [int]) string: {
+	if(groups.len() != 8): func <- ""
+	let mapped = groups[0] == 0 and groups[1] == 0 and groups[2] == 0 and groups[3] == 0 and groups[4] == 0 and groups[5] == 65535
+	if(mapped): func <- "::ffff:${_format_ipv4(groups[6] << 16 | groups[7])}"
+	let best_at = -1
+	let best_len = 0
+	let run_at = -1
+	for(i in 0..8): {
+		if(groups[i] == 0): {
+			if(run_at < 0): run_at = i
+			let run_len = i - run_at + 1
+			if(run_len > best_len): {
+				best_at = run_at
+				best_len = run_len
+			}
+		} else: run_at = -1
+	}
+	if(best_len < 2): best_at = -1
+	let out = ""
+	let i = 0
+	while(i < 8): {
+		if(i == best_at): {
+			out.push("::")
+			i += best_len
+			next <-
+		}
+		if(not out.is_empty() and not out.ends_with(":")): out.push(":")
+		out.push(_hex16(groups[i]))
+		i += 1
+	}
+	out
+}
+
+
 // Opens a TCP connection to `host:port` waiting at most `timeout_ms` milliseconds.
 //
 // # Errors
@@ -259,4 +415,51 @@ bind test_net_recv_eof_and_timeout = (): {
 	let eof_res! = pair.first.recv(64, 1000)
 	assert(eof_res!.is_err(), "recv after peer close fails")
 	assert(eof_res!.unwrap_err().has_code("eof"), "peer close has code \"eof\"")
+}
+
+@test("net send_bytes and recv_bytes carry raw bytes, including zeros")
+bind test_net_bytes = (): {
+	let pair = socketpair().unwrap()
+	let data: [u8] = [u8(0), u8(255), u8(10), u8(0), u8(128)]
+	assert(pair.first.send_bytes(data).unwrap() == 5, "sent five bytes")
+	let got = pair.second.recv_bytes(16, 1000).unwrap()
+	assert(got.len() == 5 and got[0] == u8(0) and got[1] == u8(255) and got[4] == u8(128), "bytes arrive unchanged")
+}
+
+@test("net shutdown(write) ends the peer's stream but keeps reading open")
+bind test_net_shutdown = (): {
+	let pair = socketpair().unwrap()
+	let _ = pair.first.send("last words") ?? 0
+	assert(pair.first.shutdown(Shutdown.write).is_ok(), "shutdown write")
+	assert(pair.second.recv(64, 1000).unwrap() == "last words", "data before shutdown arrives")
+	let eof! = pair.second.recv(64, 1000)
+	assert(eof!.peek_err()?.has_code("eof") ?? false, "then end of stream")
+	let _ = pair.second.send("reply") ?? 0
+	assert(pair.first.recv(64, 1000).unwrap() == "reply", "the shut-down side can still read")
+	let closed = TcpStream[_fd: -1]
+	assert(closed.shutdown(Shutdown.both).is_err(), "closed streams report an error")
+}
+
+@test("net local_addr, peer_addr, and set_nodelay on a loopback connection")
+bind test_net_addresses = (): {
+	let listener! = listen_tcp("127.0.0.1", 0)
+	if(listener!.is_err()): func <-     // no loopback networking available here
+	let listener = listener!.unwrap()
+	let client = dial_tcp("127.0.0.1", listener.port()).unwrap()
+	let server_side = listener.accept(2000).unwrap()
+	let client_local = client.local_addr() ?? ""
+	assert(client_local.starts_with("127.0.0.1:"), "client local address")
+	assert(server_side.peer_addr() == client_local, "the server sees the client's address")
+	assert(client.peer_addr() == "127.0.0.1:${listener.port()}", "the client's peer is the listener port")
+	assert(client.set_nodelay(true).is_ok() and client.set_nodelay(false).is_ok(), "TCP_NODELAY toggles")
+
+	let pair = socketpair().unwrap()
+	assert(pair.first.peer_addr() == none, "Unix sockets have no IP address")
+}
+
+@test("net format_ipv6 writes RFC 5952 canonical text")
+bind test_net_format_ipv6 = (): {
+	assert(format_ipv6([0, 0, 0, 0, 0, 0, 0, 1]) == "::1", "loopback")
+	assert(format_ipv6([0x2001, 0xdb8, 0, 0, 0, 0, 0, 1]) == "2001:db8::1", "longest zero run")
+	assert(format_ipv6([0, 0, 0, 0, 0, 0xffff, 0x7f00, 1]) == "::ffff:127.0.0.1", "IPv4-mapped")
 }

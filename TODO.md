@@ -25,7 +25,7 @@ Tasks are atomic and ordered from easiest to most involved.
 - [x] Buffer pipelined remainder bytes in `_read_http_message` and `_read_http_message_tls` (`std/http.ll`).
 - [x] Implement `Transfer-Encoding: chunked` decoding in `_read_http_message` and `_read_http_message_tls` (`std/http.ll`).
 - [x] Support HTTP redirects in `Client` in `std/http.ll`.
-- [x] Add `StringBuilder` (`with_capacity`, `append`, `append_char`, `append_byte`, `append_int`, `append_float`, `to_string() own string`) in `std/strings.ll`.
+- [x] Add `StringBuilder` (`with_capacity`, `append`, `append_char`, `append_byte`, `append_int`, `append_float`, `to_string() own string`) in `std/strings.ll`. Replaced: a builder wrapping `string` gave no speed-up, since `push` already grows in place; strings instead gained `string.with_capacity(n)`, `reserve(n)`, and `cap()`.
 - [x] Add `ByteBuffer` (little-endian `u16`/`u32`/`u64` read/write helpers) in `std/strings.ll`.
 
 - [x] Fix `math.round` returning `1` for `0.49999999999999994` and losing precision at `>= 2^52` by rounding via `trunc` plus remainder instead of `floor(x + 0.5)` (`std/math/math.ll:64`).
@@ -35,14 +35,14 @@ Tasks are atomic and ordered from easiest to most involved.
 - [x] Honor precisions above 15 in `format_float` / `_format_float_fixed` (`(0.1).format_float(20)` yields only 15 decimals) in `std/core/primitives.ll`.
 - [x] Reject out-of-range float parses (`"1e400".to_float()` returns `inf` as success) or document saturation in `parse_float` (`std/core/primitives.ll:1278`). Decided: `none`; underflow still rounds to a signed zero.
 - [x] Decide whether `parse_int`/`parse_float` accept surrounding whitespace (`" 12".to_int()` currently succeeds) and make `to_int`, `to_float`, and `is_int`/`is_float` agree. Decided: rejected (trim explicitly), like Go and Rust; all four agree.
-- [ ] Trap or return `none` on invalid `char(int)` conversions (surrogates, negatives, `> 0x10FFFF`); `char(0xD800)` and `char(-1)` currently print invalid UTF-8 despite `SPECIFICATION.md` §5.10.
-- [ ] Distinguish signal termination in `os.exec` / `os.system_run` (a `SIGKILL`ed child returns `9`, same as `exit(9)`) in `ll_os_pclose`/`ll_os_system` (`internal/codegen/runtime_h.go:1185-1205`, `internal/codegen/llvmgen_runtime.go:1867-1915`) and expose `ExecResult.signal`.
-- [ ] Decide whether `string.lines` drops the trailing empty element for newline-terminated text (`"a\nb\n".lines()` returns 3 items) (`std/strings/strings.ll:186`).
-- [ ] Decide on Unicode case mapping for `string.to_upper`/`to_lower` (ASCII-only today: `"ÀB".to_lower()` gives `"Àb"`) and implement or document it.
-- [ ] Add `send_bytes`/`recv_bytes` (`[u8]`) to `TcpStream` so binary protocols avoid `string` (`std/net/net.ll`).
-- [ ] Add `TcpStream.shutdown`, `peer_addr`, `local_addr`, and `set_nodelay` to `std/net/net.ll` with runtime support in both backends.
-- [ ] Add `Result` combinators (`map`, `map_err`, `and_then`, `ok() ?T`, `unwrap_or_else`) to `std/core/result.ll`.
-- [ ] Add `List` helpers (`extend`, `truncate`, `first`, `last`, `index_of`, `swap`) to `std/core/list.ll`.
+- [x] Trap or return `none` on invalid `char(int)` conversions (surrogates, negatives, `> 0x10FFFF`); `char(0xD800)` and `char(-1)` currently print invalid UTF-8 despite `SPECIFICATION.md` §5.10. Decided: panic (`invalid char code point N`), in both backends.
+- [x] Distinguish signal termination in `os.exec` / `os.system_run` (a `SIGKILL`ed child returns `9`, same as `exit(9)`) in `ll_os_pclose`/`ll_os_system` (`internal/codegen/runtime_h.go:1185-1205`, `internal/codegen/llvmgen_runtime.go:1867-1915`) and expose `ExecResult.signal`.
+- [x] Decide whether `string.lines` drops the trailing empty element for newline-terminated text (`"a\nb\n".lines()` returns 3 items) (`std/strings/strings.ll:186`). Decided: a final `\n` ends the last line, so `"a\nb\n".lines()` is `["a", "b"]`.
+- [x] Decide on Unicode case mapping for `string.to_upper`/`to_lower` (ASCII-only today: `"ÀB".to_lower()` gives `"Àb"`) and implement or document it. Decided: the prelude stays ASCII-only; `std/unicode` adds full, language-independent mappings with Final_Sigma, plus case folding.
+- [x] Add `send_bytes`/`recv_bytes` (`[u8]`) to `TcpStream` so binary protocols avoid `string` (`std/net/net.ll`).
+- [x] Add `TcpStream.shutdown`, `peer_addr`, `local_addr`, and `set_nodelay` to `std/net/net.ll` with runtime support in both backends.
+- [x] Add `Result` combinators (`map`, `map_err`, `and_then`, `ok() ?T`, `unwrap_or_else`) to `std/core/result.ll`. `ok() ?T` already exists as `into_ok()`.
+- [x] Add `List` helpers (`extend`, `truncate`, `first`, `last`, `index_of`, `swap`) to `std/core/list.ll`.
 - [ ] Add `Set` algebra (`union`, `intersection`, `difference`, `is_subset`) to `std/core/set.ll`.
 - [ ] Add `Map` update helpers (`get_or_insert`, `update(key, fn)`, `entries`) to `std/core/map.ll`.
 - [ ] Provide borrowed read access to non-`Copyable` values in `Map`/`List` (`m.get(k)` and `m[k]` are unavailable when `V` has a custom `drop`, leaving only `remove`), e.g. a closure-scoped `with(key, ...)` API.
@@ -310,7 +310,7 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [ ] Port `internal/types` to `compiler/types.ll` (`TypeTable` / `Pool[Type]` indexed by `TypeId`).
 - [ ] Port `internal/sema` to `compiler/sema.ll` (Move state machine, Tarjan topo sort).
 - [ ] Port `internal/ir` to `compiler/ir.ll` (Basic block CFG or linear instruction list).
-- [ ] Port `internal/codegen` to `compiler/codegen.ll` (`StringBuilder`, `@embed_file` for runtime header).
+- [ ] Port `internal/codegen` to `compiler/codegen.ll` (growable strings with `reserve`, `@embed_file` for runtime header).
 - [ ] Port `internal/driver` to `compiler/driver.ll` (`std/process.ll` (`Command` spawn)).
 - [ ] Port `internal/lsp` to `compiler/lsp.ll` (JSON-RPC framing, stdio `Reader`).
 - [ ] Verify bit-for-bit Stage 2 and Stage 3 binary parity.

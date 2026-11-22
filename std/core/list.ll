@@ -245,6 +245,74 @@ bind List[T].contains = (self, item: T) bool: {
 	false
 }
 
+// Returns a copy of the first element, or `none` if the list is empty.
+bind List[T].first = (self) ?T: self.get(0)
+
+// Returns a copy of the last element, or `none` if the list is empty.
+bind List[T].last = (self) ?T: self.get(self.len - 1)
+
+// Returns the index of the first element equal to `item`, or `none`.
+bind List[T].index_of = (self, item: T) ?int: {
+	let i = 0
+	while(i < self.len): {
+		unsafe {
+			if(self.data[i] == item): func <- i
+		}
+		i += 1
+	}
+	none
+}
+
+// Exchanges the elements at indexes `i` and `j`.
+//
+// # Panics
+// If either index is out of range.
+bind List[T].swap = (&self, i: int, j: int): {
+	if(i < 0 or i >= self.len): panic("List.swap: index $i out of bounds for length ${self.len}")
+	if(j < 0 or j >= self.len): panic("List.swap: index $j out of bounds for length ${self.len}")
+	if(i == j): func <-
+	unsafe {
+		let a = ptr_read(ptr_add(self.data, i))
+		let b = ptr_read(ptr_add(self.data, j))
+		ptr_write(ptr_add(self.data, i), own b)
+		ptr_write(ptr_add(self.data, j), own a)
+	}
+}
+
+// Shortens the list to `new_len` elements, destroying the rest in reverse order. Does nothing
+// when `new_len` is at least the current length; a negative `new_len` empties the list.
+// Capacity is kept.
+bind List[T].truncate = (&self, new_len: int): {
+	let keep = if(new_len < 0): 0 else: new_len
+	if(keep >= self.len): func <-
+	if(self.cap > 0): {
+		let i = self.len - 1
+		while(i >= keep): {
+			unsafe {
+				let _ = ptr_read(ptr_add(self.data, i))
+			}
+			i -= 1
+		}
+	}
+	self.len = keep
+}
+
+// Moves every element of `other` onto the end of this list, in order, without copying the
+// elements: `other` is consumed.
+bind List[T].extend = (&self, other: own List[T]): {
+	let src = own other
+	if(src.len == 0): func <-
+	self.reserve(self.len + src.len)
+	unsafe copy_bytes(
+		ptr_cast[u8](ptr_add(self.data, self.len)),
+		ptr_cast[u8](src.data),
+		src.len * size_of[T](),
+	)
+	self.len += src.len
+	// The elements now belong to `self`; `src` frees its buffer without destroying them.
+	src.len = 0
+}
+
 // Drops all elements in reverse order and resets length to `0` while keeping capacity allocated.
 bind List[T].clear = (&self): {
 	if(self.cap > 0): {
@@ -563,4 +631,34 @@ bind test_list_iterator_guarded = (): {
 	let empty_s = List[string].new()
 	let eit = empty_s.iter()
 	assert(eit.next() == none, "empty iter none")
+}
+
+@test("List first, last, index_of, swap, truncate, and extend")
+bind test_list_helpers = (): {
+	let xs = [10, 20, 30, 20]
+	assert(xs.first() == 10 and xs.last() == 20, "first and last")
+	let empty: [int] = []
+	assert(empty.first() == none and empty.last() == none, "empty list")
+	assert(xs.index_of(20) == 1 and xs.index_of(99) == none, "index_of finds the first match")
+
+	xs.swap(0, 2)
+	assert(xs[0] == 30 and xs[2] == 10, "swap")
+	xs.swap(1, 1)
+	assert(xs[1] == 20, "swap with itself")
+
+	let words = ["a" + "1", "b" + "2", "c" + "3"]
+	words.swap(0, 2)
+	assert(words[0] == "c3" and words[2] == "a1", "swap resources")
+	words.truncate(1)
+	assert(words.len() == 1 and words[0] == "c3", "truncate drops the tail")
+	words.truncate(5)
+	assert(words.len() == 1, "truncate longer is a no-op")
+
+	words.extend(["d" + "4", "e" + "5"])
+	assert(words.len() == 3 and words[1] == "d4" and words[2] == "e5", "extend moves elements in order")
+	let more = ["f" + "6"]
+	words.extend(own more)
+	assert(words.last() == "f6", "extend from a variable")
+	words.truncate(-1)
+	assert(words.is_empty(), "negative truncate empties")
 }

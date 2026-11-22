@@ -208,6 +208,17 @@ LL_RT_FN int64_t ll_check_bounds(int64_t idx, int64_t len, const char* file, int
     return idx;
 }
 
+/* Checks an integer-to-char conversion: panics unless v is a Unicode scalar value
+   (0..=0x10FFFF, excluding the surrogates 0xD800..=0xDFFF). */
+LL_RT_FN int64_t ll_check_char(int64_t v, const char* file, int64_t line) {
+    if (LL_UNLIKELY(v < 0 || v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF))) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "invalid char code point %lld", (long long)v);
+        ll_panic_cstr(msg, file, (int)line);
+    }
+    return v;
+}
+
 /* ============================================================================
  * 2. Safe Division, Modulo, & Bitwise Shifts (UB-Free C11)
  * ========================================================================== */
@@ -453,6 +464,17 @@ static inline void ll_str_push_char(ll_string* s, uint32_t ch) {
     memcpy(s->data + s->len, utf8, (size_t)n);
     s->len += n;
     s->data[s->len] = '\0';
+}
+
+/* Ensures room for additional more bytes without reallocating (plus the NUL terminator). */
+static inline void ll_str_reserve(ll_string* s, int64_t additional) {
+    if (additional <= 0 && s->cap > 0) return;
+    ll_str_ensure_owned_cap(s, s->len + (additional > 0 ? additional : 0) + 1);
+}
+
+/* Bytes the string can hold without reallocating: 0 for literals and views. */
+static inline int64_t ll_str_cap(const ll_string* s) {
+    return s->cap > 0 ? s->cap - 1 : 0;
 }
 
 static inline void ll_str_clear(ll_string* s) {
@@ -873,8 +895,37 @@ static inline void ll_net_close(int64_t fd) {
     if (fd >= 0) close((int)fd);
 }
 
-static inline void ll_net_shutdown(int64_t fd, int64_t how) {
-    if (fd >= 0) shutdown((int)fd, (int)how);
+static inline int64_t ll_net_shutdown(int64_t fd, int64_t how) {
+    if (fd < 0) return -1LL;
+    return shutdown((int)fd, (int)how) == 0 ? 0LL : -1LL;
+}
+
+/* Local IPv4 address of a socket as a host-order integer, or -1 if not IPv4. */
+static inline int64_t ll_net_tcp_local_ipv4(int64_t fd) {
+    if (fd < 0) return -1LL;
+    struct sockaddr_storage addr;
+    socklen_t len = sizeof(addr);
+    if (getsockname((int)fd, (struct sockaddr*)&addr, &len) != 0) return -1LL;
+    if (addr.ss_family != AF_INET) return -1LL;
+    return (int64_t)ntohl(((struct sockaddr_in*)&addr)->sin_addr.s_addr);
+}
+
+/* Group idx (0..7) of a socket's local IPv6 address, or -1 if not IPv6. */
+static inline int64_t ll_net_tcp_local_ipv6_group(int64_t fd, int64_t idx) {
+    if (fd < 0 || idx < 0 || idx > 7) return -1LL;
+    struct sockaddr_storage addr;
+    socklen_t len = sizeof(addr);
+    if (getsockname((int)fd, (struct sockaddr*)&addr, &len) != 0) return -1LL;
+    if (addr.ss_family != AF_INET6) return -1LL;
+    const uint8_t* b = ((struct sockaddr_in6*)&addr)->sin6_addr.s6_addr;
+    return ((int64_t)b[2 * idx] << 8) | (int64_t)b[2 * idx + 1];
+}
+
+/* Enables (on != 0) or disables Nagle's algorithm via TCP_NODELAY; 0 on success. */
+static inline int64_t ll_net_tcp_set_nodelay(int64_t fd, int64_t on) {
+    if (fd < 0) return -1LL;
+    int v = on ? 1 : 0;
+    return setsockopt((int)fd, IPPROTO_TCP, TCP_NODELAY, &v, (socklen_t)sizeof(v)) == 0 ? 0LL : -1LL;
 }
 
 static inline int64_t ll_net_set_timeout(int64_t fd, int64_t timeout_ms) {
@@ -1254,7 +1305,9 @@ static inline int64_t ll_os_pclose(uint8_t* stream) {
     int status = pclose((FILE*)stream);
     if (status == -1) return -1LL;
     if (WIFEXITED(status)) return (int64_t)WEXITSTATUS(status);
-    return (int64_t)status;
+    /* Killed by a signal: 256 + signal number, distinct from every exit code (0..255). */
+    if (WIFSIGNALED(status)) return 256 + (int64_t)WTERMSIG(status);
+    return -1LL;
 }
 
 static inline int64_t ll_os_pread(uint8_t* stream, uint8_t* buf, int64_t max_len) {
@@ -1268,7 +1321,9 @@ static inline int64_t ll_os_system(const uint8_t* cmd) {
     int status = system((const char*)cmd);
     if (status == -1) return -1LL;
     if (WIFEXITED(status)) return (int64_t)WEXITSTATUS(status);
-    return (int64_t)status;
+    /* Killed by a signal: 256 + signal number, distinct from every exit code (0..255). */
+    if (WIFSIGNALED(status)) return 256 + (int64_t)WTERMSIG(status);
+    return -1LL;
 }
 
 static inline int64_t ll_os_file_size(const uint8_t* path) {

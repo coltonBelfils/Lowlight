@@ -795,6 +795,17 @@ bind char.to_int = (self) int: int(self)
 // Reports whether the string contains zero bytes.
 bind string.is_empty = (self) bool: self.len() == 0
 
+// Creates an empty string with room for at least `capacity` bytes before it reallocates.
+//
+// Appending with `push`, `push_char`, and `push_byte` already grows a string in place (doubling
+// its buffer as needed), so building text piece by piece is linear in its length. Reserving up
+// front only saves the intermediate reallocations when the final size is known.
+bind string.with_capacity = (capacity: int) string: {
+	let s = ""
+	s.reserve(capacity)
+	s
+}
+
 // Returns the byte at zero-based offset `idx`, or `none` if out of bounds.
 bind string.get_byte = (self, idx: int) ?u8: {
 	if(idx < 0 or idx >= self.len()): func <- none

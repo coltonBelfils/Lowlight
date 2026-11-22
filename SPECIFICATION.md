@@ -471,6 +471,7 @@ Always in scope; no import needed. Full list in [§12.2](#122-universe-functions
 | `std/strings` | String searching, splitting, joining, padding |
 | `std/strconv` | Parsing and formatting numbers and booleans |
 | `std/strfmt` | Number formatting, padding, case conversion |
+| `std/unicode` | Full Unicode case mapping and case-insensitive comparison |
 | `std/math` | Floating-point math |
 | `std/sort` | Sorting and searching lists and arrays |
 | `std/fs` | Files and the file system |
@@ -1321,7 +1322,7 @@ A conversion is written as a call to the target type.
 | integer → integer | `u8(x)`, `int(x)` | truncate or sign/zero-extend |
 | float → integer | `int(f)` | truncate toward zero |
 | integer ↔ float, float ↔ float | `float(n)`, `f32(x)` | nearest representable value |
-| `char` → integer · integer → `char` | `int(c)` · `char(n)` | code point |
+| `char` → integer · integer → `char` | `int(c)` · `char(n)` | code point; `char(n)` **panics** unless `n` is a Unicode scalar value (`0..=0x10FFFF`, excluding the surrogates `0xD800..=0xDFFF`) |
 | tag enum → integer | `int(Status.active)` | the variant's value |
 | base → distinct · distinct → base | `UserId(5)` · `int(id)` | no change in representation |
 | concrete → interface | `Shape(circle)` | boxes the value ([§3.11](#311-interfaces)) |
@@ -2189,7 +2190,8 @@ The parsers accept exactly a number: an optional sign, digits (and a `0x`, `0b`,
 | `to_upper()` · `to_lower()` | `string` | ASCII case conversion |
 | `replace(old, new)` · `replace_all(old, new)` | `string` | replace the first or every occurrence |
 | `split(sep)` | `[string]` | pieces between occurrences of `sep` |
-| `push(t)` · `push_char(c)` · `push_byte(b)` · `clear()` | | modify a mutable string in place |
+| `push(t)` · `push_char(c)` · `push_byte(b)` · `clear()` | | modify a mutable string in place; appends grow the buffer by doubling, so building a string with `push` is linear in its length |
+| `string.with_capacity(n)` · `reserve(n)` · `cap()` | `string` · · `int` | preallocate room for `n` (more) bytes; the bytes it can hold without reallocating (`0` for literals) |
 | `eq`, `cmp`, `hash`, `copy`, `to_string` | | byte-wise comparison and hashing |
 | `c_str()` | `ptr[u8]` | NUL-terminated bytes for C (unsafe) |
 
@@ -2205,6 +2207,8 @@ The parsers accept exactly a number: an optional sign, digits (and a `0x`, `0b`,
 | `len()` · `cap()` · `is_empty()` | size |
 | `push(x)` · `pop() ?T` · `insert(i, x)` · `remove(i) T` · `swap_remove(i) T` | add and remove (`insert` and `remove` trap when out of range) |
 | `get(i) ?T` · `set(i, x) bool` | checked access |
+| `first() ?T` · `last() ?T` · `index_of(x) ?int` | ends of the list; position of the first element equal to `x` |
+| `swap(i, j)` · `truncate(n)` · `extend(own other)` | exchange two elements (traps when out of range); drop elements past `n`; move all of `other` onto the end |
 | `reserve(n)` · `resize(n, v)` · `clear()` | capacity and length |
 | `contains(x)` | membership (`T` must support `==`) |
 | `copy()` · `to_string()` · `iter()` | |
@@ -2242,6 +2246,9 @@ define Result[T] result [
 | `unwrap_err()` | the error, or panic if it holds a value |
 | `into_ok() ?T` · `into_err() ?Error` · `peek_err() ?Error` | convert to optionals (`peek_err` borrows) |
 | `wrap_err(msg)` · `trace_err()` | add context or a trace frame to a failure, passing a value through unchanged (`@track_caller`) |
+| `map(f)` · `and_then(f)` | transform the value with `f: (T) U`, or continue with `f: (T) Result[U]`; failures pass through |
+| `map_err(f)` | transform the failure with `f: (own Error) Error` (for example, to wrap it); values pass through |
+| `unwrap_or_else(f)` | the value, or `f(error)` computed only on failure |
 
 Result chains ([§6.6](#66-result-chains)) are usually clearer than these methods.
 
@@ -2278,18 +2285,19 @@ The standard library is a set of ordinary packages under `std/`. Import each by 
 |---|---|
 | `std/core` | the prelude ([§12](#12-the-prelude)), imported automatically |
 | `std/chars` | character classification (`is_ascii`, `is_ascii_upper`, `is_control`, `is_punctuation`, ...), case conversion (`to_ascii_upper`), digits (`to_digit(radix)`, `from_digit`), `len_utf8` |
-| `std/strings` | `last_index_of`, `count`, `capitalize`, `repeat`, `reverse`, padding (`pad_left_char`, `center_char`), `split_whitespace`, `lines`, `join`, `chars_list`, `bytes_list`, `is_whitespace`, `is_ascii`; `StringBuilder` for building text in place; `ByteBuffer` for reading and writing little- and big-endian integers |
+| `std/strings` | `last_index_of`, `count`, `capitalize`, `repeat`, `reverse`, padding (`pad_left_char`, `center_char`), `split_whitespace`, `lines`, `join`, `chars_list`, `bytes_list`, `is_whitespace`, `is_ascii`; `ByteBuffer` for reading and writing little- and big-endian integers |
 | `std/strconv` | parsing (`string.to_int`, `to_int_radix`, `to_float`, `to_bool`, `is_numeric`, ...) and formatting (`int.to_radix`, `to_hex`, `to_bin`, `to_oct`, `float_to_exp`) |
 | `std/strfmt` | number formatting (`format_int_commas`, `format_float`, `format_bytes`, `format_percent`, `format_currency`), padding (`pad_left`, `center`, `pad_int_zeros`), case styles (`to_title`, `to_snake_case`, `to_kebab_case`, `to_camel_case`), `quote`, `unquote`, `indent`, `truncate` |
 | `std/math` | `sqrt`, `cbrt`, `pow`, `exp`, `log`, `log2`, `log10`, trigonometric and hyperbolic functions, `floor`, `ceil`, `round`, `trunc`, `fmod`, `hypot`, `is_nan`, `is_inf`, `clamp_int`, `clamp_float`, `lerp`, angle conversions, `PI` and related constants |
 | `std/sort` | `sort`, `sort_by`, `stable_sort`, `is_sorted`, `binary_search`, `lower_bound`, `upper_bound`, `reverse` for lists and arrays (as methods and functions); `Set.to_sorted_list`, `Map.to_sorted_keys` |
 | `std/fs` | the `File` resource (`File.open`, `open_read`, `open_write`, `open_append`, `read_to_string`, `read_bytes`, `write_string`, `write_bytes`, `seek`, `tell`, `size`, `flush`, `close`; closes itself on drop) and functions `read_file`, `write_file`, `append_file`, `read_bytes`, `write_bytes`, `exists`, `file_size`, `remove_file`, `rename_file`, `copy_file` |
-| `std/os` | `exec` and `system_run` (with `ExecResult`), `mkdir`, `mkdir_p`, `remove_all`, `file_exists`, `num_cpus`, `os_name`, `arch` |
+| `std/os` | `exec`, `system_run`, and `system_run_status` (an `ExecResult` with `stdout`, `exit_code`, and the terminating `signal`), `mkdir`, `mkdir_p`, `remove_all`, `file_exists`, `num_cpus`, `os_name`, `arch` |
 | `std/time` | `Duration`, `Instant` (`now`, `elapsed`), `DateTime` (`new`, `must_new`, `now_utc`, `now_local`, `from_unix_secs`, formatting and parsing with layouts such as `RFC3339`), `sleep_ms`, calendar helpers |
-| `std/net` | `TcpStream` (`connect`, `send`, `recv`, `close`), `TcpListener` (`listen`, `accept`, `port`), `dial_tcp`, `listen_tcp`, `socketpair` |
+| `std/net` | `TcpStream` (`connect`, `send`/`recv` for strings and `send_bytes`/`recv_bytes` for `[u8]`, `shutdown`, `peer_addr`, `local_addr`, `set_nodelay`, `close`), `TcpListener` (`listen`, `accept`, `port`), `dial_tcp`, `listen_tcp`, `socketpair`, `format_ipv6` |
 | `std/http` | URL parsing, `Request` and `Response`, a client (`get`, `post`, `put`, ...), a server with routing (`ServeMux`, `listen_and_serve`), and `STATUS_*` constants |
 | `std/pool` | `Pool[T]` with generational `Handle[T]`s: `alloc`, `get`, `with_mut`, `set`, `take`, `free`, iteration |
 | `std/test` | assertions for tests: `assert_eq`, `assert_ne`, `assert_true`, `assert_false`, `assert_gt`/`lt`/`ge`/`le`, `assert_approx_eq`, `assert_contains`, `assert_starts_with`, `assert_ends_with`, `assert_some`, `assert_none`, result assertions (`assert_is_ok`, `assert_is_err`, `assert_ok_eq`, `assert_err_contains`, ...), batch forms (`assert_all_*`, `assert_any_eq`), and a `_msg` variant of each |
+| `std/unicode` | full Unicode case conversion: `to_upper`, `to_lower` (with the Final_Sigma rule), `fold`, `equal_fold`, `UNICODE_VERSION`; mappings may change length (`ß` → `SS`) and are language-independent. The prelude's `string.to_upper`/`to_lower` stay ASCII-only |
 | `std/json` | JSON values and conversion (work in progress) |
 
 All of these follow the failure conventions of [§9.1](#91-choosing-a-mechanism): operations that can fail because of the outside world return `Result`, and lookups that may find nothing return `?T`.
@@ -2955,6 +2963,7 @@ A trap is a panic raised by the language itself ([§19](#19-the-runtime-contract
 | Expect | `<msg>: <error summary>` | `Result.expect(msg)` |
 | Unwrap error | `called Result.unwrap_err on an ok result` | `Result.unwrap_err()` |
 | Assertion | `assertion failed`, or the given message | `assert(cond)`, `assert(cond, msg)` |
+| Invalid character | `invalid char code point N` | `char(n)` with `n` outside the Unicode scalar values |
 | List index | `List.insert: index I out of bounds for length L` (also `List.remove`, `List.swap_remove`) | `insert`, `remove`, `swap_remove` |
 | Out of memory | `out of memory (requested N bytes)` | any allocation; aborts the process ([§19](#19-the-runtime-contract)) |
 

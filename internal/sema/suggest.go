@@ -122,7 +122,7 @@ func (fc *funcChecker) unknownNameHint(name string) (string, []string) {
 var builtinMethodNames = []string{
 	"len", "cap", "is_empty", "push", "pop", "clear", "get", "set", "has", "insert", "remove",
 	"keys", "values", "contains", "copy", "to_string", "byte_at", "get_byte", "bytes", "chars",
-	"push_char", "push_byte", "index_of", "iter",
+	"push_char", "push_byte", "index_of", "iter", "reserve",
 }
 
 // methodNames lists the methods callable on `recv` that the analyzer knows about.

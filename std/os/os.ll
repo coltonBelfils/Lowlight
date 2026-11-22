@@ -1,15 +1,25 @@
 // std/os — Process execution, filesystem queries, and host platform introspection.
 
-// Captured output and exit status returned by [`exec`].
+// Captured output and exit status returned by [`exec`] and [`system_run_status`].
 define ExecResult struct [
-	// Captured standard output produced by the command.
+	// Captured standard output produced by the command (empty for [`system_run_status`]).
 	stdout: string,
-	// Process exit code (`0` on success, `-1` if launching the process failed).
+	// Exit code (`0` to `255`), or `-1` if the command could not run or was killed by a signal.
 	exit_code: int,
+	// The signal that terminated the command (`9` for `SIGKILL`), or `0` if it exited normally.
+	signal: int = 0,
 ]
 
 // Reports whether the command exited cleanly with status `0`.
 bind ExecResult.ok = (self) bool: self.exit_code == 0
+
+// Reports whether the command was terminated by a signal rather than exiting.
+bind ExecResult.signaled = (self) bool: self.signal != 0
+
+// Builds an [`ExecResult`] from a runtime status: an exit code, `256 + signal`, or `-1`.
+bind _exec_result = (out: own string, status: int) ExecResult:
+	if(status >= 256): ExecResult[stdout: own out, exit_code: -1, signal: status - 256]
+	else: ExecResult[stdout: own out, exit_code: status, signal: 0]
 
 // Executes shell command `cmd` via a pipe, capturing stdout and returning an [`ExecResult`].
 //
@@ -28,12 +38,20 @@ bind exec = (cmd: string) ExecResult:
 			n = sys_pread(stream, raw, chunk_size)
 		}
 		free_raw(raw)
-		let code = sys_pclose(stream)
-		ExecResult[stdout: own out_str, exit_code: code]
+		let status = sys_pclose(stream)
+		_exec_result(own out_str, status)
 	}
 
-// Executes `cmd` through the host shell (`system`) and returns its integer exit code.
-bind system_run = (cmd: string) int: unsafe sys_system(cmd.c_str())
+// Executes `cmd` through the host shell (`system`) and returns its exit code, or `-1` if the
+// command could not run or was killed by a signal. Use [`system_run_status`] to see the signal.
+bind system_run = (cmd: string) int: {
+	let status = unsafe sys_system(cmd.c_str())
+	if(status >= 256): -1 else: status
+}
+
+// Executes `cmd` through the host shell (`system`) and returns its full status, including the
+// terminating signal, as an [`ExecResult`] with empty `stdout`.
+bind system_run_status = (cmd: string) ExecResult: _exec_result("", unsafe sys_system(cmd.c_str()))
 
 // Reports whether a file or directory exists at `path`.
 bind file_exists = (path: string) bool: unsafe sys_file_exists(path.c_str())
@@ -120,6 +138,18 @@ bind test_os_exec = (): {
 	assert(res.ok(), "exec ok")
 	assert(res.exit_code == 0, "exit code 0")
 	assert(res.stdout.contains("hello_os_test"), "stdout contains expected string")
+	assert(not res.signaled(), "no signal")
+
+	let exit9 = exec("exit 9")
+	assert(exit9.exit_code == 9 and exit9.signal == 0, "exit 9 is an exit code")
+	let killed = exec("kill -9 \$\$")
+	assert(killed.exit_code == -1 and killed.signal == 9 and killed.signaled(), "SIGKILL is a signal")
+	assert(not killed.ok(), "a killed command is not ok")
+
+	assert(system_run("exit 3") == 3, "system_run exit code")
+	assert(system_run("kill -15 \$\$") == -1, "system_run reports a signal as -1")
+	let st = system_run_status("kill -15 \$\$")
+	assert(st.signal == 15 and st.exit_code == -1, "system_run_status reports SIGTERM")
 }
 
 @test("os directory operations: mkdir_p, file_exists, remove_all")
