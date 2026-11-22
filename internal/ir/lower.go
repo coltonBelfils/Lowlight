@@ -877,9 +877,35 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 	// Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`)
 	lhsPtr := fl.lowerLValueAddr(s.Target)
 	rhsExpr := fl.lowerExprRead(s.Value)
+	if fi := fl.info(s.Target).OpMethod; fi != nil {
+		fl.emitOperatorAssign(fi, targetTy, lhsPtr, rhsExpr)
+		fl.flushStmtTemps()
+		return
+	}
 	file, line := formatSpanLoc(s.Target)
 	fl.emitCompoundAssign(s.Op, targetTy, lhsPtr, rhsExpr, file, line)
 	fl.flushStmtTemps()
+}
+
+// emitOperatorAssign lowers `a += b` for a type that implements the operator with a method:
+// `a.add_assign(b)`, or `a = a.add(b)` when the type only has `add`.
+func (fl *funcLowerer) emitOperatorAssign(fi *sema.FuncInstance, ty types.Type, lhsPtr, rhsExpr Expr) {
+	ptrTy := &types.Ptr{Elem: ty}
+	dst := fl.allocSlot("_ll_opdst", ptrTy)
+	fl.assignLocal(dst, EnsureExpr(lhsPtr, ptrTy))
+	ref := &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig}
+	rhs := EnsureExpr(rhsExpr, ty)
+	if fi.Sig.Params[0].Mode == types.ModeMut {
+		fl.emit(&InstrExpr{Expr: &ExprCall{Callee: ref, Args: []Expr{NewLocalExpr(dst), rhs}, Typ: types.TypeVoid}})
+		return
+	}
+	// The old value is dropped only after the new one is computed from it.
+	val := fl.allocSlot("_ll_opval", ty)
+	fl.assignLocal(val, &ExprCall{Callee: ref, Args: []Expr{&ExprDeref{Ptr: NewLocalExpr(dst), Typ: ty}, rhs}, Typ: ty})
+	if !ty.IsPlain() {
+		fl.emit(&InstrExpr{Expr: &ExprDrop{Ptr: NewLocalExpr(dst), ValType: ty}})
+	}
+	fl.emit(&InstrAssign{Dst: &ExprDeref{Ptr: NewLocalExpr(dst), Typ: ty}, Expr: NewLocalExpr(val)})
 }
 
 func (fl *funcLowerer) lowerUnpackAssignStmt(s *ast.AssignStmt) {
@@ -970,10 +996,6 @@ func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type
 }
 
 func (fl *funcLowerer) emitCompoundAssign(op token.Kind, ty types.Type, lhsPtr Expr, rhsExpr Expr, file string, line int) {
-	if op == token.PlusEq && ty.Equals(types.TypeString) {
-		fl.emit(fl.strPush(lhsPtr, rhsExpr))
-		return
-	}
 	var binOp token.Kind
 	switch op {
 	case token.PlusEq:

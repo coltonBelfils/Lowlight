@@ -363,7 +363,7 @@ From tightest to loosest binding. Full details are in [§5.1](#51-evaluation-ord
 | `.` `?.` `()` `[]` | Member, optional member, call, index or slice |
 | `-x` `not` `~` `*p` `&x` `own x` `unsafe e` | Prefix operators |
 | `*` `/` `%` | Multiply, divide, remainder |
-| `+` `-` | Add, subtract (`+` also concatenates strings) |
+| `+` `-` | Add, subtract (`+` also concatenates strings, and calls `add` on types that implement `Addable`) |
 | `<<` `>>` | Shift (traps unless `0 <= n < bit width`) |
 | `..` `..=` | Range, half-open or inclusive |
 | `<` `<=` `>` `>=` | Ordering (non-associative) |
@@ -1237,7 +1237,9 @@ An empty literal (`[]`, `#[]`) and `none` need their type from context. The elem
 | `<<` `>>` | **traps** unless `0 <= shift < bit width`; `>>` is arithmetic for signed types, logical for unsigned | not defined |
 | `&` `\|` `^` `~` | bitwise | not defined |
 
-Both operands of a binary arithmetic or bitwise operator must have the same type (a literal adapts to the other operand). `+` also concatenates two strings into a new string. These rules hold in every build mode, including `--release`; integer overflow is never undefined behavior.
+Both operands of a binary arithmetic or bitwise operator must have the same type (a literal adapts to the other operand). These rules hold in every build mode, including `--release`; integer overflow is never undefined behavior.
+
+On numbers, `+` and `+=` are the built-in operations above. On any other type, `a + b` calls `a.add(b)`, which the type provides by implementing `Addable` (`add: (self, other: Self) Self`). `a += b` calls `a.add_assign(b)` when the type implements `AddAssignable` (`add_assign: (&self, other: Self)`), and otherwise means `a = a + b`. `string` implements both: `+` concatenates into a new string and `+=` appends in place. The numeric types implement both as well, so generic code can require them ([§8.2](#82-bounds)).
 
 ### 5.4 Equality and ordering
 
@@ -1878,6 +1880,8 @@ bind main = (): {
 |---|---|
 | `==`, `!=` | `Equatable` (or `Comparable`) |
 | `<`, `<=`, `>`, `>=` | `Comparable` |
+| `+` | `Addable` |
+| `+=` | `AddAssignable` (or `Addable`) |
 | `.copy()` | `Copyable` |
 | interpolation, `.to_string()` | `Printable` |
 | use as a set element or map key | `Hashable` |
@@ -2114,7 +2118,7 @@ The `std/test` assertions are listed in [§13](#13-the-standard-library).
 
 > **At a glance**
 > - `std/core` is imported into every file automatically, unqualified.
-> - It defines the interfaces that give meaning to operators, loops, and interpolation: `Printable`, `Equatable`, `Comparable`, `Hashable`, `Copyable`, `Drop`, `Iterable`, `Iterator`, `Collectable`, `Indexable`, `KeyIndexable`, `Containable`.
+> - It defines the interfaces that give meaning to operators, loops, and interpolation: `Printable`, `Equatable`, `Comparable`, `Addable`, `AddAssignable`, `Hashable`, `Copyable`, `Drop`, `Iterable`, `Iterator`, `Collectable`, `Indexable`, `KeyIndexable`, `Containable`.
 > - It provides the collection types behind `[T]`, `#[T]`, `#[K: V]`, `[N: T]`, and `lo..hi`, plus `Result[T]`, `Error`, and the methods on primitive types.
 
 The prelude is ordinary Lowlight source in `std/core`. Where the language relies on a prelude declaration, the declaration is marked `@lang("hook")`. The compiler finds language features through these hooks rather than through names.
@@ -2128,6 +2132,8 @@ The prelude is ordinary Lowlight source in `std/core`. Where the language relies
 | `Drop` | `drop: (&self)` | `drop` | custom cleanup before a value's fields are destroyed |
 | `Equatable` | `eq: (self, other: Self) bool` | `equatable` | `==`, `!=` |
 | `Comparable` | `cmp: (self, other: Self) int` (negative, zero, positive) | `comparable` | `<`, `<=`, `>`, `>=`, and also `==` |
+| `Addable` | `add: (self, other: Self) Self` | `addable` | `+` (and `+=` without `add_assign`) |
+| `AddAssignable` | `add_assign: (&self, other: Self)` | `add_assignable` | `+=` |
 | `Hashable` | `hash: (self) u64` (equal values hash equally) | `hashable` | set elements and map keys |
 | `Iterator[T]` | `next: (&self) ?T` | `iterator` | stepping through `for` and `while` loops |
 | `Iterable[T]` | `iter: (self) Iterator[T]` | `iterable` | `for(x in v)` over any type |
@@ -2589,7 +2595,7 @@ Generics are **monomorphized**: each distinct list of type arguments produces a 
 
 ### 17.5 Interfaces
 
-Interface satisfaction is structural. When a concrete type is converted to an interface type, the analyzer verifies that the type has every method with exactly matching parameter modes and types, and records a **vtable** for the pair. Interfaces that mention `Self` other than as the receiver (`Copyable`, `Equatable`, `Comparable`) can be used only as generic bounds, never as runtime interface types.
+Interface satisfaction is structural. When a concrete type is converted to an interface type, the analyzer verifies that the type has every method with exactly matching parameter modes and types, and records a **vtable** for the pair. Interfaces that mention `Self` other than as the receiver (`Copyable`, `Equatable`, `Comparable`, `Addable`, `AddAssignable`) can be used only as generic bounds, never as runtime interface types.
 
 ## 18. Lowering and Runtime Representation
 

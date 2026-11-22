@@ -2,7 +2,7 @@
 //
 // Defines the foundational interfaces wired to compiler hooks via `@lang(...)`,
 // including [`Printable`], [`Copyable`], [`Drop`], [`Hashable`], [`Equatable`],
-// [`Comparable`], [`Iterator`], [`Iterable`], [`Collectable`], and indexing/containment
+// [`Comparable`], [`Addable`], [`AddAssignable`], [`Iterator`], [`Iterable`], [`Collectable`], and indexing/containment
 // contracts.
 
 // Types that can format themselves as a human-readable [`string`].
@@ -54,6 +54,22 @@ define Equatable interface [
 define Comparable interface [
 	// Compares `self` against `other`, returning `-1` if less, `0` if equal, or `1` if greater.
 	cmp: (self, other: Self) int,
+]
+
+// Types supporting `+`. `a + b` calls `a.add(b)` for every type except the numeric types, whose
+// `+` is built in (they implement `add` too, so generic code can require [`Addable`]).
+@lang("addable")
+define Addable interface [
+	// Returns `self` combined with `other`; both are only read.
+	add: (self, other: Self) Self,
+]
+
+// Types supporting `+=` in place. `a += b` calls `a.add_assign(b)`; a type that implements only
+// [`Addable`] gets `a = a.add(b)` instead.
+@lang("add_assignable")
+define AddAssignable interface [
+	// Adds `other` to `self` in place.
+	add_assign: (&self, other: Self),
 ]
 
 // Stateful stream producing a sequence of optional values of type [`T`].

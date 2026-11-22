@@ -764,8 +764,8 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				continue
 			}
 
-			if langItem != "" && langItem != "collectable" && langItem != "iterable" && langItem != "iterator" {
-				a.Rep.Errorf(td.Span, "unknown interface lang item @lang(%q); supported interface lang items: \"printable\", \"copyable\", \"drop\", \"hashable\", \"equatable\", \"comparable\", \"collectable\", \"iterable\", \"iterator\"", langItem)
+			if langItem != "" && langItem != "collectable" && langItem != "iterable" && langItem != "iterator" && langItem != "addable" && langItem != "add_assignable" {
+				a.Rep.Errorf(td.Span, "unknown interface lang item @lang(%q); supported interface lang items: \"printable\", \"copyable\", \"drop\", \"hashable\", \"equatable\", \"comparable\", \"addable\", \"add_assignable\", \"collectable\", \"iterable\", \"iterator\"", langItem)
 				continue
 			}
 
@@ -790,6 +790,10 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				a.Prog.IfaceIterator = ifc
 			} else if langItem == "containable" || td.Name == "Containable" {
 				a.Prog.IfaceContainable = ifc
+			} else if langItem == "addable" {
+				a.Prog.IfaceAddable = ifc
+			} else if langItem == "add_assignable" {
+				a.Prog.IfaceAddAssignable = ifc
 			}
 			a.checkAttributes(td.Attributes, ifc, td.Span, "interface")
 			if mod.IsTestFile {

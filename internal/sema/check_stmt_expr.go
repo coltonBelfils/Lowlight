@@ -1724,6 +1724,19 @@ func (fc *funcChecker) checkAssignStmt(s *ast.AssignStmt) types.Type {
 
 	// Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`)
 	valTy := fc.checkExprExpect(s.Value, targetTy, true)
+	if s.Op == token.PlusEq && targetTy != types.TypeInvalid && valTy != types.TypeInvalid && targetTy.Equals(valTy) {
+		if lp := types.UnderlyingPrimitive(targetTy); lp == nil || !lp.IsNumeric() {
+			// `a += b` calls `add_assign` (`AddAssignable`), or else assigns `a.add(b)` (`Addable`).
+			if fi := fc.a.operatorMethod(targetTy, "add_assign", s.Span); fi != nil {
+				fc.a.infoFor(s.Target).OpMethod = fi
+			} else if fi := fc.a.operatorMethod(targetTy, "add", s.Span); fi != nil {
+				fc.a.infoFor(s.Target).OpMethod = fi
+			} else if !fc.a.typeParamHasBound(targetTy, fc.a.Prog.IfaceAddAssignable) && !fc.a.typeParamHasBound(targetTy, fc.a.Prog.IfaceAddable) {
+				fc.a.Rep.Errorf(s.Span, "operator `+=` is not defined on %s (implement `AddAssignable` or `Addable`)", targetTy.String())
+			}
+			return types.TypeVoid
+		}
+	}
 	fc.checkCompoundAssignTypes(s.Op, targetTy, valTy, s.Span)
 	return types.TypeVoid
 }
@@ -1890,9 +1903,6 @@ func (fc *funcChecker) checkUnpackAssignStmt(s *ast.AssignStmt) types.Type {
 
 func (fc *funcChecker) checkCompoundAssignTypes(op token.Kind, lhs, rhs types.Type, span diag.Span) {
 	if lhs == types.TypeInvalid || rhs == types.TypeInvalid {
-		return
-	}
-	if op == token.PlusEq && lhs.Equals(types.TypeString) && rhs.Equals(types.TypeString) {
 		return
 	}
 	lp := types.UnderlyingPrimitive(lhs)
@@ -2591,12 +2601,17 @@ func (fc *funcChecker) checkBinaryExpr(b *ast.BinaryExpr, expected types.Type) t
 		return lty
 	}
 
-	if b.Op == token.Plus && lty.Equals(types.TypeString) {
-		inf.Type = types.TypeString
-		return types.TypeString
-	}
-
 	lp := types.UnderlyingPrimitive(lty)
+	if b.Op == token.Plus && (lp == nil || !lp.IsNumeric()) {
+		// `+` on anything but a number calls its `add` method (`Addable`).
+		if fi := fc.a.operatorMethod(lty, "add", b.Span); fi != nil {
+			inf.OpMethod = fi
+		} else if !fc.a.typeParamHasBound(lty, fc.a.Prog.IfaceAddable) {
+			fc.a.Rep.Errorf(b.Span, "operator `+` is not defined on %s (implement `Addable`: `add: (self, other: Self) Self`)", lty.String())
+		}
+		inf.Type = lty
+		return lty
+	}
 	switch b.Op {
 	case token.Plus, token.Minus, token.Star, token.Slash, token.Percent:
 		if lp == nil || !lp.IsNumeric() {

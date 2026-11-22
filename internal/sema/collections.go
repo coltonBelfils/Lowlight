@@ -5,6 +5,42 @@ import (
 	"lowlight/internal/types"
 )
 
+// operatorMethod returns t's method for an overloadable operator, when it has the shape the
+// operator's interface requires: `add: (self, other: Self) Self` for `+`, or
+// `add_assign: (&self, other: Self)` for `+=`.
+func (a *Analyzer) operatorMethod(t types.Type, name string, span diag.Span) *FuncInstance {
+	if _, isTP := t.(*types.TypeParamVar); isTP {
+		return nil
+	}
+	fi := a.LookupMethod(t, name, nil, span)
+	if fi == nil || fi.IsStaticAssoc || len(fi.Sig.Params) != 2 || !fi.Sig.Params[1].Type.Equals(t) {
+		return nil
+	}
+	ret := a.ensureFuncRetResolved(fi, span)
+	if name == "add_assign" {
+		if fi.Sig.Params[0].Mode != types.ModeMut || (ret != nil && !ret.Equals(types.TypeVoid)) {
+			return nil
+		}
+	} else if fi.Sig.Params[0].Mode != types.ModeRead || ret == nil || !ret.Equals(t) {
+		return nil
+	}
+	return fi
+}
+
+// typeParamHasBound reports whether t is a type parameter bounded by ifc.
+func (a *Analyzer) typeParamHasBound(t types.Type, ifc *types.Interface) bool {
+	tp, ok := t.(*types.TypeParamVar)
+	if !ok || ifc == nil {
+		return false
+	}
+	for _, b := range tp.Bounds {
+		if b == ifc || b.Name == ifc.Name {
+			return true
+		}
+	}
+	return false
+}
+
 // setType returns the set type `#[elem]`: the std/core `Set[elem]` struct.
 func (a *Analyzer) setType(elem types.Type, span diag.Span) types.Type {
 	if a.Prog.GenStructSet == nil {

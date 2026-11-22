@@ -258,6 +258,10 @@ type ExprInfo struct {
 	MethodRecvMode types.ParamMode
 	IntrinsicType  types.Type // concrete type argument `T` for `size_of[T]`, `alloc_raw[T]`, `ptr_cast[To]`, etc.
 
+	// OpMethod is the method an overloadable operator calls: `add` for `a + b` (on the binary
+	// expression), and `add_assign` or `add` for `a += b` (on the assignment target).
+	OpMethod *FuncInstance
+
 	// Member resolution (for *ast.MemberExpr)
 	EnumVariant    *types.EnumVariant
 	EnumType       *types.Enum
@@ -430,6 +434,8 @@ type CheckedProgram struct {
 	IfaceIndexable       *types.Interface
 	IfaceKeyIndexable    *types.Interface
 	IfaceContainable     *types.Interface
+	IfaceAddable         *types.Interface // `@lang("addable")`: `a + b` calls `add`
+	IfaceAddAssignable   *types.Interface // `@lang("add_assignable")`: `a += b` calls `add_assign`
 	GenIfaceCollectable  *GenericInterfaceTemplate
 	GenIfaceIterable     *GenericInterfaceTemplate
 	GenIfaceIterator     *GenericInterfaceTemplate

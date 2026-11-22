@@ -763,3 +763,40 @@ bind test_core_string_ops = (): {
 	assert(c == "lit" and c.cap() > 0 and lit.cap() == 0, "copy of a literal owns its buffer")
 	assert("".copy().cap() == 0, "copying an empty string allocates nothing")
 }
+
+define _CoreV2 struct [x: int, y: int]
+bind _CoreV2.add = (self, other: _CoreV2) _CoreV2: _CoreV2[x: self.x + other.x, y: self.y + other.y]
+
+define _CoreBag struct [items: [string]]
+bind _CoreBag.add = (self, other: _CoreBag) _CoreBag: {
+	let out = self.items.copy()
+	for(s in other.items): out.push(s.copy())
+	_CoreBag[items: out]
+}
+bind _CoreBag.add_assign = (&self, other: _CoreBag): for(s in other.items): self.items.push(s.copy())
+
+bind _core_sum[T: Addable] = (xs: [T], zero: own T) T: {
+	let acc = zero
+	for(x in xs): acc = acc + x
+	acc
+}
+
+@test("core + and += call Addable and AddAssignable")
+bind test_core_add_operators = (): {
+	let a = _CoreV2[x: 1, y: 2] + _CoreV2[x: 10, y: 20]
+	assert(a.x == 11 and a.y == 22, "struct add")
+	let p = _CoreV2[x: 0, y: 0]
+	p += _CoreV2[x: 3, y: 4]
+	assert(p.x == 3 and p.y == 4, "+= via add")
+	let b = _CoreBag[items: ["a"]]
+	b += _CoreBag[items: ["b", "c"]]
+	let c = b + _CoreBag[items: ["d"]]
+	assert(b.items.len() == 3 and c.items.len() == 4, "bag")
+	assert(_core_sum([1, 2, 3], 0) == 6, "generic int")
+	assert(_core_sum(["x", "y"], "") == "xy", "generic string")
+	assert(_core_sum([_CoreV2[x: 1, y: 1], _CoreV2[x: 2, y: 2]], _CoreV2[x: 0, y: 0]).y == 3, "generic struct")
+	let s = "a"
+	s += "b"
+	assert(s + "c" == "abc", "string")
+	assert(5.add(6) == 11, "int.add")
+}

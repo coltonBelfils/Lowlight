@@ -1215,11 +1215,16 @@ func (fl *funcLowerer) lowerBinaryExpr(b *ast.BinaryExpr, inf *sema.ExprInfo, fo
 		}
 	}
 
-	// 6. String concatenation `+`
-	if b.Op == token.Plus && inf.Type.Equals(types.TypeString) {
+	// 6. `+` on a type that implements `Addable` (strings included): `a.add(b)`
+	if b.Op == token.Plus && inf.OpMethod != nil {
+		fi := inf.OpMethod
 		lhs := fl.lowerExprRead(b.Left)
 		rhs := fl.lowerExprRead(b.Right)
-		return fl.callMethod(types.TypeString, "_concat", EnsureExpr(lhs, types.TypeString), EnsureExpr(rhs, types.TypeString))
+		return &ExprCall{
+			Callee: &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
+			Args:   []Expr{EnsureExpr(lhs, inf.Type), EnsureExpr(rhs, inf.Type)},
+			Typ:    inf.Type,
+		}
 	}
 
 	// 7. Numeric Arithmetic & Bitwise (`+`, `-`, `*`, `/`, `%`, `&`, `|`, `^`)

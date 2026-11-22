@@ -637,6 +637,94 @@ bind i16.to_string = (self) string: int(self).to_string()
 bind i32.to_string = (self) string: int(self).to_string()
 
 // -----------------------------------------------------------------------------
+// Addable & AddAssignable Implementations on Primitives
+// -----------------------------------------------------------------------------
+//
+// `+` and `+=` on numbers are built-in machine operations, so the bodies below use them
+// directly. These methods exist so numbers satisfy [`Addable`] and [`AddAssignable`] in generic
+// code (`bind sum[T: Addable] = ...`) and can be called by name.
+
+// Returns `self + other` (satisfies [`Addable`]).
+bind int.add = (self, other: int) int: self + other
+
+// Adds `other` to `self` in place (satisfies [`AddAssignable`]).
+bind int.add_assign = (&self, other: int): {
+	self += other
+}
+
+// Returns `self + other` (satisfies [`Addable`]).
+bind i32.add = (self, other: i32) i32: self + other
+
+// Adds `other` to `self` in place (satisfies [`AddAssignable`]).
+bind i32.add_assign = (&self, other: i32): {
+	self += other
+}
+
+// Returns `self + other` (satisfies [`Addable`]).
+bind i16.add = (self, other: i16) i16: self + other
+
+// Adds `other` to `self` in place (satisfies [`AddAssignable`]).
+bind i16.add_assign = (&self, other: i16): {
+	self += other
+}
+
+// Returns `self + other` (satisfies [`Addable`]).
+bind i8.add = (self, other: i8) i8: self + other
+
+// Adds `other` to `self` in place (satisfies [`AddAssignable`]).
+bind i8.add_assign = (&self, other: i8): {
+	self += other
+}
+
+// Returns `self + other` (satisfies [`Addable`]).
+bind u64.add = (self, other: u64) u64: self + other
+
+// Adds `other` to `self` in place (satisfies [`AddAssignable`]).
+bind u64.add_assign = (&self, other: u64): {
+	self += other
+}
+
+// Returns `self + other` (satisfies [`Addable`]).
+bind u32.add = (self, other: u32) u32: self + other
+
+// Adds `other` to `self` in place (satisfies [`AddAssignable`]).
+bind u32.add_assign = (&self, other: u32): {
+	self += other
+}
+
+// Returns `self + other` (satisfies [`Addable`]).
+bind u16.add = (self, other: u16) u16: self + other
+
+// Adds `other` to `self` in place (satisfies [`AddAssignable`]).
+bind u16.add_assign = (&self, other: u16): {
+	self += other
+}
+
+// Returns `self + other` (satisfies [`Addable`]).
+bind u8.add = (self, other: u8) u8: self + other
+
+// Adds `other` to `self` in place (satisfies [`AddAssignable`]).
+bind u8.add_assign = (&self, other: u8): {
+	self += other
+}
+
+// Returns `self + other` (satisfies [`Addable`]).
+bind float.add = (self, other: float) float: self + other
+
+// Adds `other` to `self` in place (satisfies [`AddAssignable`]).
+bind float.add_assign = (&self, other: float): {
+	self += other
+}
+
+// Returns `self + other` (satisfies [`Addable`]).
+bind f32.add = (self, other: f32) f32: self + other
+
+// Adds `other` to `self` in place (satisfies [`AddAssignable`]).
+bind f32.add_assign = (&self, other: f32): {
+	self += other
+}
+
+// -----------------------------------------------------------------------------
 // Equatable & Comparable Implementations on Primitives
 // -----------------------------------------------------------------------------
 
@@ -959,9 +1047,9 @@ bind string.copy = (self) string: unsafe {
 	ptr_read(ptr_cast[string](addr_of(out)))
 }
 
-// Returns a new string holding `self` followed by `other`. The compiler lowers `a + b` to this.
+// Returns a new string holding `self` followed by `other` (`a + b`, satisfies [`Addable`]).
 @inline
-bind string._concat = (self, other: string) string: unsafe {
+bind string.add = (self, other: string) string: unsafe {
 	let a = *ptr_cast[_StringRaw](addr_of(self))
 	let b = *ptr_cast[_StringRaw](addr_of(other))
 	let total = a.len + b.len
@@ -973,6 +1061,10 @@ bind string._concat = (self, other: string) string: unsafe {
 	let out = _StringRaw[data: buf, len: total, cap: total + 1]
 	ptr_read(ptr_cast[string](addr_of(out)))
 }
+
+// Appends `other` in place (`a += b`, satisfies [`AddAssignable`]).
+@inline
+bind string.add_assign = (&self, other: string): self.push(other)
 
 // Returns bytes `lo` up to `hi` of the string as a borrowed view that owns nothing. The compiler
 // lowers `s[lo..hi]` to this when the slice is only borrowed, and to [`string._slice`] otherwise.
