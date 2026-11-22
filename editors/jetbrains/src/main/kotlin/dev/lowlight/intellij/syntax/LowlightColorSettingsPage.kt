@@ -40,25 +40,24 @@ class LowlightColorSettingsPage : ColorSettingsPage {
     override fun getDisplayName(): String = "Lowlight"
 
     override fun getDemoText(): String = """
-        import "std/fmt"
-
-        // Computes the clamped distance from origin.
-        //
-        // # Arguments
-        // - `x`: Horizontal coordinate
-        // - `y`: Vertical coordinate
-        //
-        // # Returns
-        // Euclidean magnitude using [`fmt.format`].
+        // A point in the plane. `@derive` writes its `==` and `to_string`.
+        @derive(Equatable, Printable)
         define Point struct [
         	x: float,
         	y: float,
         ]
 
-        @test
-        bind test_point = () void: {
-        	let maybe? = Point[x: 3.0, y: 4.0]
-        	if(maybe?) println(fmt.format("dist={}", maybe.x))
+        // Returns the distance from the origin.
+        bind Point.len = fn(self) float: (self.x * self.x + self.y * self.y).sqrt()
+
+        @test("scaled distance")
+        bind test_point = fn(): {
+        	let p = Point[x: 3.0, y: 4.0]
+        	let factor = 2.0
+        	let scaled = cl(q: Point) float: q.len() * factor
+        	assert(scaled(p) == 10.0, "scaled length")
+        	let found? = if(p.x > 0.0): p.len() else: none
+        	println("$p ${found? ?? 0.0}")
         }
     """.trimIndent()
 }

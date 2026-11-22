@@ -495,9 +495,11 @@ When the user types `expr.` or `expr?.`, the buffer contains incomplete syntax. 
 ### 10.3 Code Actions
 
 Diagnostics carry structured data that code actions turn into edits (`code_actions.go`, `quickfix_data.go`, `codegen_more.go`). Every generated edit is formatted exactly as `lowlight fmt` would format it.
-- **Quick fixes:** insert `&` or `own` at a call site, or `.copy()`; remove a redundant `&`; rename a variable to add or remove its `?` or `!` suffix everywhere it is used; replace `!` with `not `; insert a missing trailing comma; use `?.` on an optional; add missing `match` arms or result-chain failures; add missing struct fields; implement missing interface methods; turn a top-level `let` into `bind`; wrap an operation in `unsafe`; add `@must_use`; add a missing import.
-- **Generators:** `Implement <Iface> for <Type>`, a `<Type>.new` constructor, a doc comment skeleton, and `@test` scaffolds for functions and methods.
+- **Quick fixes:** insert `&` or `own` at a call site, or `.copy()`; remove a redundant `&`; rename a variable to add or remove its `?` or `!` suffix everywhere it is used; replace `!` with `not `; insert a missing trailing comma; use `?.` on an optional; add missing `match` arms or result-chain failures; add missing struct fields; implement missing interface methods; turn a top-level `let` into `bind`; wrap an operation in `unsafe`; add `@must_use`; add a missing import; switch a literal between `fn` and `cl` (an `fn` that captures, or a `cl` that doesn't) or insert the missing keyword; add an interface to a type's `@derive(...)` when `==`, `<`, printing, copying, or hashing isn't defined, and drop one that conflicts with a hand-written method (`fn_derive_actions.go`).
+- **Generators:** `Implement <Iface> for <Type>` (not offered for an interface the type derives), `Derive <Iface> for <Type>`, a `<Type>.new` constructor, a doc comment skeleton, and `@test` scaffolds for functions and methods.
 - **Refactorings:** extract variable, extract function, toggle a `{ ... }` single-expression body, flip `if`/`else`, add an explicit `: Type`.
+
+- **Attributes:** completion after `@` and inside `@derive(`, and hover for every attribute and derived interface (`attributes.go`). A derived method's definition is its `@derive` attribute.
 
 ### 10.4 Editor Integrations (`editors/`)
 

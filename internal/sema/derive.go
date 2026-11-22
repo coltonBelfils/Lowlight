@@ -81,6 +81,8 @@ func (a *Analyzer) expandDerives(mod *Module) {
 				for _, gd := range f.Decls {
 					if md, ok := gd.(*ast.MethodDecl); ok {
 						md.Doc = fmt.Sprintf("Derived by `@derive(%s)`.", iface)
+						// Go-to-definition and references land on the attribute that wrote the method.
+						md.Span = attr.Span
 						a.derived[md] = &deriveInfo{Iface: iface, TypeName: name, Span: attr.Span, Mod: mod}
 						a.derivedOrder = append(a.derivedOrder, md)
 					}

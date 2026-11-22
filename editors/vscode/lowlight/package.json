@@ -2,7 +2,7 @@
   "name": "lowlight",
   "displayName": "Lowlight Language Support",
   "description": "Official Lowlight v1.0 IDE support: real-time syntax/type/ownership diagnostics, incremental sync, semantic tokens, rendered docs & links, autocomplete, hover, go-to-definition/type-def/declaration, cross-file references, workspace symbols, signature help, inlay hints, folding/selection ranges, code actions/refactorings, canonical formatting, and test runner.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "lowlight-lang",
   "license": "MIT",
   "engines": {

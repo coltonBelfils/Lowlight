@@ -20,7 +20,8 @@ class LowlightLexer : LexerBase() {
             "let", "bind", "define", "distinct", "struct", "enum", "interface",
             "if", "else", "for", "while", "in", "next", "match", "when", "func",
             "none", "true", "false", "self", "Self", "own",
-            "and", "or", "not", "as", "unsafe", "extern", "unpack", "import"
+            "and", "or", "not", "as", "unsafe", "extern", "unpack", "import",
+            "fn", "cl"
         )
 
         private val PRIMITIVES = setOf(
@@ -31,7 +32,8 @@ class LowlightLexer : LexerBase() {
 
         private val INTERFACES = setOf(
             "Printable", "Copyable", "Drop", "Equatable", "Comparable",
-            "Hashable", "Indexable", "Collection", "Iterable"
+            "Hashable", "Addable", "AddAssignable", "Iterator", "Iterable",
+            "Collectable", "Indexable", "KeyIndexable", "Containable"
         )
 
         private val BUILTINS = setOf(
@@ -41,7 +43,8 @@ class LowlightLexer : LexerBase() {
             "caller_location", "caller_file", "caller_line", "caller_col",
             "size_of", "align_of", "alloc_raw", "realloc_raw", "free_raw",
             "null_ptr", "is_null", "addr_of", "ptr_add", "ptr_read",
-            "ptr_write", "ptr_cast", "ptr_addr", "copy_bytes", "zero_bytes"
+            "ptr_write", "ptr_cast", "ptr_addr", "copy_bytes", "zero_bytes",
+            "alloc_uninit", "fill_bytes", "is_plain"
         )
     }
 

@@ -20,7 +20,7 @@ class LowlightPluginTest : BasePlatformTestCase() {
             import "std/fmt"
 
             // Computes doubled value.
-            bind double_it = (x: int) int: x * 2
+            bind double_it = fn(x: int) int: x * 2
             """.trimIndent()
         )
         assertEquals(LowlightFileType, file.fileType)
@@ -28,7 +28,7 @@ class LowlightPluginTest : BasePlatformTestCase() {
     }
 
     fun testCodeStyleDefaultsUseTabsAnd100Width() {
-        val file = myFixture.configureByText("style.ll", "bind main = () void: println(\"hi\")\n")
+        val file = myFixture.configureByText("style.ll", "bind main = fn() void: println(\"hi\")\n")
         val settings = CodeStyle.getSettings(project)
         val common = settings.getCommonSettings(LowlightLanguage)
         val indent = settings.getIndentOptionsByFile(file)
@@ -44,8 +44,10 @@ class LowlightPluginTest : BasePlatformTestCase() {
             /* block */
             @test
             define Color enum [ Red, Green ]
-            bind run = (opt?: int) void: {
+            bind run = fn(opt?: int) void: {
             	let arr = +[1, 0xff, 0b101, 3.5]
+            	let k = 2
+            	let f = cl(x: int) int: x * k
             	if(opt?) println("val=${'$'}opt")
             	<- none
             }
@@ -65,6 +67,8 @@ class LowlightPluginTest : BasePlatformTestCase() {
         assertTrue(tokens.any { it.first == LowlightTokenTypes.ATTRIBUTE && it.second == "@test" })
         assertTrue(tokens.any { it.first == LowlightTokenTypes.KEYWORD && it.second == "define" })
         assertTrue(tokens.any { it.first == LowlightTokenTypes.KEYWORD && it.second == "enum" })
+        assertTrue(tokens.any { it.first == LowlightTokenTypes.KEYWORD && it.second == "fn" })
+        assertTrue(tokens.any { it.first == LowlightTokenTypes.KEYWORD && it.second == "cl" })
         assertTrue(tokens.any { it.first == LowlightTokenTypes.OPTIONAL_IDENT && it.second == "opt?" })
         assertTrue(tokens.any { it.first == LowlightTokenTypes.PRIMITIVE_TYPE && it.second == "int" })
         assertTrue(tokens.any { it.first == LowlightTokenTypes.PLUS_BRACKET && it.second == "+[" })
@@ -120,14 +124,14 @@ class LowlightPluginTest : BasePlatformTestCase() {
             "\tMissing: string,",
             "]",
             "",
-            "bind label = (n: int) string:",
+            "bind label = fn(n: int) string:",
             "\tmatch(n):",
             "\t\twhen 1: \"one\"",
             "\t\twhen 2:",
             "\t\t\t\"two\"",
             "\t\tdefault: \"many\"",
             "",
-            "bind use = (k: string) Result[string]: {",
+            "bind use = fn(k: string) Result[string]: {",
             "\tlet item = find(k):",
             "\t\twhen Missing(why): func <- Err(Error.new(why))",
             "\t\tdefault panic",
@@ -152,14 +156,14 @@ class LowlightPluginTest : BasePlatformTestCase() {
 
     // Pressing Enter after a `:` header indents the non-block body.
     fun testEnterIndentsAfterColonHeader() {
-        myFixture.configureByText("enter.ll", "bind f = (x: int) int:<caret>\n")
+        myFixture.configureByText("enter.ll", "bind f = fn(x: int) int:<caret>\n")
         myFixture.type("\n")
-        myFixture.checkResult("bind f = (x: int) int:\n\t<caret>\n")
+        myFixture.checkResult("bind f = fn(x: int) int:\n\t<caret>\n")
     }
 
     // `result` after `define Name`, `default panic`, and `name!` identifiers are lexed contextually.
     fun testLexerRecognizesResultSyntax() {
-        val src = "define Lookup result [\n\tvalue: int,\n]\nbind f = (): {\n\tlet result = 1\n\tlet cfg! = load():\n\t\tdefault panic\n\tif(a!=b): panic(\"x\")\n}\n"
+        val src = "define Lookup result [\n\tvalue: int,\n]\nbind f = fn(): {\n\tlet result = 1\n\tlet cfg! = load():\n\t\tdefault panic\n\tif(a!=b): panic(\"x\")\n}\n"
         val lexer = LowlightLexer()
         lexer.start(src)
         val tokens = mutableListOf<Pair<IElementType, String>>()
@@ -187,7 +191,7 @@ class LowlightPluginTest : BasePlatformTestCase() {
         assertEquals(12, matches[1].lineOneBased)
         assertEquals(3, matches[1].colOneBased)
 
-        myFixture.addFileToProject("sub/sample_test.ll", "@test\nbind ok = (): assert(true)\n")
+        myFixture.addFileToProject("sub/sample_test.ll", "@test\nbind ok = fn(): assert(true)\n")
         val filter = dev.lowlight.intellij.testing.LowlightConsoleFilter(project)
         val outLine = "    sub/sample_test.ll:2:15: assertion failed\n"
         val res = filter.applyFilter(outLine, 100 + outLine.length)
@@ -237,11 +241,11 @@ class LowlightPluginTest : BasePlatformTestCase() {
             "gutter_test.ll",
             """
             @test("adds numbers")
-            bind test_add = (): {
+            bind test_add = fn(): {
             	assert(1 + 1 == 2)
             }
 
-            bind test_main = (): {
+            bind test_main = fn(): {
             	test_add()
             }
             """.trimIndent()

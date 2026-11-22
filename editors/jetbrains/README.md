@@ -14,10 +14,10 @@ Official JetBrains IDE plugin for **Lowlight** (`.ll`), compatible with WebStorm
   - Rendered Iteration B documentation with clickable ``[`Symbol`]`` & `[View source]` links
   - Context-aware completion, UFCS signature help, inlay hints (`types`, `parameters`)
   - Go-to-definition, type definition, declaration, implementation, cross-file find references, workspace symbols, folding ranges, selection ranges, and cross-file rename
-  - Quick fixes, code generators (`Implement <Iface> for <Type>`, `<Type>.new`, doc skeletons, `@test`), and refactorings
+  - Quick fixes, code generators (`Implement <Iface> for <Type>`, `Derive <Iface> for <Type>`, `<Type>.new`, doc skeletons, `@test`), and refactorings
   - Canonical Lowlight AST formatter (`lowlight fmt`) & tab-indented default code style (`\t`, 100-column right margin)
-  - Smart Enter indentation mirroring `lowlight fmt`: the body after a `:` header (`if(x):`, `bind f = () int:`, `else:`, `when X:`, `load(path):`) is indented, and the next statement returns to the header's level
-  - Highlighting for `!` result identifiers, `define Name result [...]`, and `default panic`
+  - Smart Enter indentation mirroring `lowlight fmt`: the body after a `:` header (`if(x):`, `bind f = fn() int:`, `else:`, `when X:`, `load(path):`) is indented, and the next statement returns to the header's level
+  - Highlighting for `!` result identifiers, `define Name result [...]`, `default panic`, the `fn`/`cl` function keywords, and the interfaces inside `@derive(...)`
 - **IDE Actions & Settings**:
   - `Tools | Lowlight` / Editor context menu: **Run Lowlight File**, **Run Lowlight Tests in File**, **Run All Lowlight Tests**, **Format with Lowlight**, **Restart Lowlight Language Server**
   - `Settings | Languages & Frameworks | Lowlight`: configure compiler binary, `LOWLIGHT_ROOT`, formatter style, inlay hints, and preferred LSP backend (`auto`, `native`, `lsp4ij`).

@@ -47,6 +47,38 @@
     "attributes": {
       "patterns": [
         {
+          "comment": "`@derive(Equatable, Printable)`: the derived interfaces are type names",
+          "begin": "(@derive)\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.annotation.lowlight"
+            },
+            "2": {
+              "name": "punctuation.section.parens.begin.lowlight"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.parens.end.lowlight"
+            }
+          },
+          "patterns": [
+            {
+              "name": "entity.name.type.interface.lowlight",
+              "match": "\\b(Equatable|Comparable|Hashable|Copyable|Printable)\\b"
+            },
+            {
+              "name": "entity.name.type.lowlight",
+              "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+            },
+            {
+              "name": "punctuation.separator.comma.lowlight",
+              "match": ","
+            }
+          ]
+        },
+        {
           "name": "storage.type.annotation.lowlight",
           "match": "@[A-Za-z_][A-Za-z0-9_]*"
         }
@@ -329,7 +361,12 @@
         },
         {
           "name": "storage.modifier.ownership.lowlight",
-          "match": "\\b(own|unsafe|unpack|fn|cl)(?!\\?)\\b"
+          "match": "\\b(own|unsafe|unpack)(?!\\?)\\b"
+        },
+        {
+          "comment": "`fn` (a function that captures nothing) and `cl` (a closure) start function literals and types",
+          "name": "storage.type.function.lowlight",
+          "match": "\\b(fn|cl)(?=\\s*\\()"
         },
         {
           "name": "keyword.operator.logical.lowlight",
@@ -353,7 +390,7 @@
         },
         {
           "name": "entity.name.type.interface.lowlight",
-          "match": "\\b(Printable|Copyable|Drop|Equatable|Comparable|Hashable|Indexable|Collection|Iterable)(?!\\?)\\b"
+          "match": "\\b(Printable|Copyable|Drop|Equatable|Comparable|Hashable|Addable|AddAssignable|Iterator|Iterable|Collectable|Indexable|KeyIndexable|Containable)(?!\\?)\\b"
         },
         {
           "name": "entity.name.type.lowlight",

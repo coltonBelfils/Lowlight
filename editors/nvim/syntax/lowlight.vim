@@ -17,7 +17,9 @@ syn match   lowlightDocLink          contained "\[`[^`]\+`\]"
 " Keywords
 syn keyword lowlightKeyword          bind define distinct struct enum interface as import extern
 syn keyword lowlightKeyword          let if else match when for while in next own unpack
-syn keyword lowlightKeyword          unsafe packed test func fn cl
+syn keyword lowlightKeyword          unsafe packed test func
+" `fn` (a function that captures nothing) and `cl` (a closure) start function literals and types
+syn keyword lowlightFuncKeyword      fn cl
 syn keyword lowlightSelf             self
 " Contextual keywords: `define Name result [...]`, a match / result chain's `default` arm,
 " and its `default panic` terminal arm.
@@ -39,6 +41,9 @@ syn keyword lowlightOperatorWord     and or not
 syn keyword lowlightType             int i8 i16 i32 i64 u8 u16 u32 u64
 syn keyword lowlightType             float f32 f64 bool char string
 syn keyword lowlightType             Arena ptr ref void never Self
+" Prelude interfaces (operators, loops, interpolation, and `@derive` arguments)
+syn keyword lowlightInterface        Printable Copyable Drop Equatable Comparable Hashable Addable AddAssignable
+syn keyword lowlightInterface        Iterator Iterable Collectable Indexable KeyIndexable Containable
 
 " Built-in Literals
 syn keyword lowlightBoolean          true false
@@ -83,6 +88,8 @@ hi def link lowlightDocHeading       Title
 hi def link lowlightDocLink          Underlined
 hi def link lowlightKeyword          Keyword
 hi def link lowlightSelf             Keyword
+hi def link lowlightFuncKeyword      StorageClass
+hi def link lowlightInterface        Type
 hi def link lowlightResultIdent      Identifier
 hi def link lowlightOptionalIdent    Identifier
 hi def link lowlightAttribute        PreProc

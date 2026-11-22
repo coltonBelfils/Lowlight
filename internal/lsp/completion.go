@@ -48,6 +48,11 @@ func (s *Server) computeCompletions(filePath string, src string, pos Position) *
 		End:   OffsetToLSP(src, offset),
 	}
 
+	// 1b. Attribute names after `@`, and interface names inside `@derive(...)`
+	if attrList := attributeCompletions(src, prefixStart, offset, prefix, replaceRange); attrList != nil {
+		return attrList
+	}
+
 	// 2. Check `.` / `?.` member access completion (`expr.|`, `expr.pre|`, `opt?.|`, `Enum.|`, `mod.|`, `Arena.|`)
 	if prefixStart >= 1 && src[prefixStart-1] == '.' {
 		// Ensure it's not a `..` range operator (`0..10`) or float literal (`3.`)
@@ -2623,7 +2628,7 @@ func baseTypeNameAndArgs(t types.Type) (string, []types.Type) {
 
 func formatFullFuncSig(fi *sema.FuncInstance) string {
 	if fi == nil || fi.Sig == nil {
-		return "()"
+		return "fn()"
 	}
 	var ps []string
 	for i, p := range fi.Sig.Params {
@@ -2645,14 +2650,14 @@ func formatFullFuncSig(fi *sema.FuncInstance) string {
 		ps = append(ps, fmt.Sprintf("%s: %s%s", pname, p.Mode.Prefix(), p.Type.String()))
 	}
 	if fi.Sig.Ret == nil || fi.Sig.Ret.Equals(types.TypeVoid) {
-		return "(" + strings.Join(ps, ", ") + ")"
+		return "fn(" + strings.Join(ps, ", ") + ")"
 	}
-	return fmt.Sprintf("(%s) %s", strings.Join(ps, ", "), fi.Sig.Ret.String())
+	return fmt.Sprintf("fn(%s) %s", strings.Join(ps, ", "), fi.Sig.Ret.String())
 }
 
 func formatMethodInstanceSig(fi *sema.FuncInstance, optChain bool) string {
 	if fi == nil || fi.Sig == nil {
-		return "()"
+		return "fn()"
 	}
 	var ps []string
 	for i, p := range fi.Sig.Params {
@@ -2674,9 +2679,9 @@ func formatMethodInstanceSig(fi *sema.FuncInstance, optChain bool) string {
 		ret = types.NewOptional(ret)
 	}
 	if ret == nil || ret.Equals(types.TypeVoid) {
-		return "(" + strings.Join(ps, ", ") + ")"
+		return "fn(" + strings.Join(ps, ", ") + ")"
 	}
-	return fmt.Sprintf("(%s) %s", strings.Join(ps, ", "), ret.String())
+	return fmt.Sprintf("fn(%s) %s", strings.Join(ps, ", "), ret.String())
 }
 
 func formatInterfaceMethodSig(m types.InterfaceMethod, optChain bool) string {
@@ -2697,9 +2702,9 @@ func formatInterfaceMethodSig(m types.InterfaceMethod, optChain bool) string {
 		ret = types.NewOptional(ret)
 	}
 	if ret == nil || ret.Equals(types.TypeVoid) {
-		return "(" + strings.Join(ps, ", ") + ")"
+		return "fn(" + strings.Join(ps, ", ") + ")"
 	}
-	return fmt.Sprintf("(%s) %s", strings.Join(ps, ", "), ret.String())
+	return fmt.Sprintf("fn(%s) %s", strings.Join(ps, ", "), ret.String())
 }
 
 func formatGenericMethodDeclSig(decl *ast.MethodDecl, recvTypeArgs []types.Type, optChain bool) string {
@@ -2732,18 +2737,18 @@ func formatGenericMethodDeclSig(decl *ast.MethodDecl, recvTypeArgs []types.Type,
 		tparamsPrefix = "[" + strings.Join(tps, ", ") + "]"
 	}
 	if decl.Ret == nil {
-		return fmt.Sprintf("%s(%s)", tparamsPrefix, strings.Join(ps, ", "))
+		return fmt.Sprintf("%sfn(%s)", tparamsPrefix, strings.Join(ps, ", "))
 	}
 	retStr := formatTypeExprSubst(decl.Ret, subst)
 	if optChain && !strings.HasPrefix(retStr, "?") {
 		retStr = "?" + retStr
 	}
-	return fmt.Sprintf("%s(%s) %s", tparamsPrefix, strings.Join(ps, ", "), retStr)
+	return fmt.Sprintf("%sfn(%s) %s", tparamsPrefix, strings.Join(ps, ", "), retStr)
 }
 
 func formatGenericVarDeclSig(vd *ast.VarDecl) string {
 	if vd == nil {
-		return "()"
+		return "fn()"
 	}
 	var tps []string
 	for _, tp := range vd.TypeParams {
@@ -2762,9 +2767,9 @@ func formatGenericVarDeclSig(vd *ast.VarDecl) string {
 		ps = append(ps, fmt.Sprintf("%s: %s", p.Name, formatTypeExpr(p.Type)))
 	}
 	if fl.Ret == nil {
-		return fmt.Sprintf("[%s](%s)", strings.Join(tps, ", "), strings.Join(ps, ", "))
+		return fmt.Sprintf("[%s]fn(%s)", strings.Join(tps, ", "), strings.Join(ps, ", "))
 	}
-	return fmt.Sprintf("[%s](%s) %s", strings.Join(tps, ", "), strings.Join(ps, ", "), formatTypeExpr(fl.Ret))
+	return fmt.Sprintf("[%s]fn(%s) %s", strings.Join(tps, ", "), strings.Join(ps, ", "), formatTypeExpr(fl.Ret))
 }
 
 func formatTypeExpr(te ast.TypeExpr) string {

@@ -139,32 +139,8 @@ func (s *Server) computeHover(filePath string, src string, pos Position) *Hover 
 	}
 
 	// 4b. Built-in functions, intrinsics, built-in types, keywords & attributes
-	if (word == "test" || word == "test_only" || word == "track_caller") && tok.Span.Start.Offset > 0 && src[tok.Span.Start.Offset-1] == '@' {
-		if word == "test" {
-			return &Hover{
-				Contents: MarkupContent{
-					Kind:  "markdown",
-					Value: "### `@test` / `@test(\"description\")`\nMarks a top-level function as an automated test case.\n\n- **Signature**: `() void` (takes 0 arguments, returns void)\n- **Run with**: `lowlight test <file.ll>`\n- **Features**: Automatic heap allocation leak checking, panic/assertion recovery, execution timer.",
-				},
-				Range: &rng,
-			}
-		}
-		if word == "track_caller" {
-			return &Hover{
-				Contents: MarkupContent{
-					Kind:  "markdown",
-					Value: "### `@track_caller`\nTracks the caller's source location (file, line, column). Any assertions, panics, or nested `@track_caller` helpers report the outer caller's call site.",
-				},
-				Range: &rng,
-			}
-		}
-		return &Hover{
-			Contents: MarkupContent{
-				Kind:  "markdown",
-				Value: "### `@test_only`\nMarks helper functions, mock structs, enums, or variables intended exclusively for test code.\n\n- **Compile-time isolated**: Production code cannot reference `@test_only` symbols.\n- **Stripped**: Automatically omitted from production binaries and `--release` builds.",
-			},
-			Range: &rng,
-		}
+	if md := attributeHover(src, tok.Span.Start.Offset, word); md != "" {
+		return &Hover{Contents: MarkupContent{Kind: "markdown", Value: md}, Range: &rng}
 	}
 	if bf := LookupBuiltinFunc(word); bf != nil {
 		badge := "Built-in function"
@@ -2152,9 +2128,9 @@ func (s *Server) computeDocumentSymbols(filePath string, src string) []DocumentS
 					ps = append(ps, fmt.Sprintf("%s: %s", p.Name, formatTypeExpr(p.Type)))
 				}
 				if fl.Ret == nil {
-					detail = "(" + strings.Join(ps, ", ") + ")"
+					detail = "fn(" + strings.Join(ps, ", ") + ")"
 				} else {
-					detail = fmt.Sprintf("(%s) %s", strings.Join(ps, ", "), formatTypeExpr(fl.Ret))
+					detail = fmt.Sprintf("fn(%s) %s", strings.Join(ps, ", "), formatTypeExpr(fl.Ret))
 				}
 			}
 			for _, attr := range decl.Attributes {

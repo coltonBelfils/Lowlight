@@ -275,6 +275,10 @@ func (s *Server) collectDiagnosticQuickFixes(
 	// 0. Fixes from the compiler's structured diagnostic data
 	s.collectDataQuickFixes(filePath, uri, src, d, addAction)
 
+	// 0b. `fn`/`cl` literals and missing `@derive` interfaces
+	s.collectFnClQuickFixes(uri, src, d, addAction)
+	s.collectDeriveQuickFixes(filePath, src, prog, d, addAction)
+
 	// 1. Missing `&` on mutable borrow parameter
 	if strings.Contains(msg, "borrows mutably") && strings.Contains(msg, "requires `&` at the call site") {
 		insertAt := Range{Start: d.Range.Start, End: d.Range.Start}
@@ -1100,7 +1104,13 @@ func (s *Server) collectProactiveGenerators(
 					addAction(act)
 				}
 			}
+			for _, act := range deriveActions(uri, src, mod, decl, decl.Name, decl.Attributes) {
+				addAction(act)
+			}
 			for _, ifc := range availableInterfaces(prog, mod) {
+				if derivesInterface(decl.Attributes, ifc.Name) {
+					continue
+				}
 				if act, ok := buildImplementInterfaceAction(uri, src, mod, decl.Name, ifc, nil); ok {
 					addAction(act)
 				}
@@ -1110,7 +1120,13 @@ func (s *Server) collectProactiveGenerators(
 			if decl.Doc == "" {
 				addAction(buildDocCommentAction(uri, src, decl.Span, decl.Attributes, decl.Name, nil, ""))
 			}
+			for _, act := range deriveActions(uri, src, mod, decl, decl.Name, decl.Attributes) {
+				addAction(act)
+			}
 			for _, ifc := range availableInterfaces(prog, mod) {
+				if derivesInterface(decl.Attributes, ifc.Name) {
+					continue
+				}
 				if act, ok := buildImplementInterfaceAction(uri, src, mod, decl.Name, ifc, nil); ok {
 					addAction(act)
 				}

@@ -115,10 +115,28 @@ var BuiltinSnippets = []CodeSnippet{
 		Summary: "Defines a method on a type. Use `&self` to mutate the receiver or `own self` to consume it.",
 	},
 	{
+		Label:   "fn lambda",
+		Detail:  "Function value that captures nothing",
+		Snippet: "fn(${1:x: int}) ${2:int}: ${0:x}",
+		Summary: "A function literal with no captures: a plain code pointer that copies freely and converts to a closure where one is expected.",
+	},
+	{
+		Label:   "cl closure",
+		Detail:  "Closure that captures variables",
+		Snippet: "cl(${1:x: int}) ${2:int}: ${0:x}",
+		Summary: "A closure literal. It owns the variables it captures (plain ones are copied, resources moved in).",
+	},
+	{
+		Label:   "derive struct",
+		Detail:  "Struct with derived methods",
+		Snippet: "@derive(${1:Equatable, Printable})\ndefine ${2:Name} struct [\n\t${3:x}: ${4:int},\n\t${5:y}: ${6:int},\n]",
+		Summary: "Defines a struct and asks `@derive` to write `eq`, `cmp`, `hash`, `copy`, or `to_string` for it.",
+	},
+	{
 		Label:   "define struct",
 		Detail:  "Define a value struct",
 		Snippet: "define ${1:Name} struct [\n\t${2:x}: ${3:int},\n\t${4:y}: ${5:int},\n]",
-		Summary: "Defines a nominal value struct with automatic deterministic cleanup.",
+		Summary: "Defines a nominal value struct with automatic deterministic cleanup. Add `@derive(...)` for `==`, printing, hashing, ordering, or `.copy()`.",
 	},
 	{
 		Label:   "define enum",
@@ -237,12 +255,14 @@ var BuiltinTypes = []BuiltinTypeDoc{
 	{Name: "Arena", Kind: KindStruct, Detail: "Bump-allocated memory region", Summary: "Region bump allocator (`Arena.new()`). Frees all `arena.alloc(val)` objects in O(1) at scope exit; statically prevents `ref[T]` escape."},
 	{Name: "ptr", Kind: KindStruct, Detail: "ptr[T] — raw pointer", Snippet: "ptr[${1:u8}]", Summary: "Raw pointer `ptr[T]` for manual memory and C FFI. Copyable Plain address; dereferencing (`*p`, `p[i]`) requires `unsafe`."},
 	{Name: "ref", Kind: KindStruct, Detail: "ref[T] — safe arena reference", Snippet: "ref[${1:Node}]", Summary: "Non-null, plain-copyable reference `ref[T]` allocated inside an `Arena`. Statically verified never to outlive its `Arena`."},
-	{Name: "Printable", Kind: KindInterface, Detail: "built-in interface `[to_string: fn(self) string]`", Summary: "Built-in interface satisfied by all primitives, enums, strings, collections of `Printable`, and user types defining `to_string`."},
-	{Name: "Copyable", Kind: KindInterface, Detail: "built-in generic bound `[copy: fn(self) Self]`", Summary: "Generic constraint (`[T: Copyable]`) satisfied by all Plain types, `string`, collections of `Copyable`, and structs without custom `Drop` (or with explicit `.copy()`)."},
+	{Name: "Printable", Kind: KindInterface, Detail: "interface `[to_string: fn(self) string]`", Summary: "Interpolation and `println`. Primitives, strings, tuples, and collections of `Printable` implement it; structs and enums do with a `to_string` method or `@derive(Printable)`."},
+	{Name: "Copyable", Kind: KindInterface, Detail: "generic bound `[copy: fn(self) Self]`", Summary: "`.copy()`. Plain types, strings, and tuples and collections of `Copyable` implement it; a non-plain struct or enum does with a `copy` method or `@derive(Copyable)`."},
 	{Name: "Drop", Kind: KindInterface, Detail: "custom destructor `[drop: fn(&self)]`", Summary: "Implemented via `bind MyType.drop = fn(&self): ...` to run custom cleanup deterministically before fields are freed."},
-	{Name: "Equatable", Kind: KindInterface, Detail: "built-in generic bound `[eq: fn(self, other: Self) bool]`", Summary: "Generic equality constraint (`[T: Equatable]`) satisfied by primitives, strings, enums, tuples/collections of `Equatable`, and types defining `eq`."},
-	{Name: "Hashable", Kind: KindInterface, Detail: "built-in generic bound `[hash: fn(self) u64]`", Summary: "Generic hash constraint (`[T: Hashable]`) required for `Set[T]` and `Map[K, V]` keys."},
-	{Name: "Comparable", Kind: KindInterface, Detail: "built-in ordering bound `[cmp: fn(self, other: Self) Ordering]`", Summary: "Generic total-ordering constraint (`[T: Comparable]`) satisfied by numeric primitives, `char`, `string`, and types implementing `cmp`."},
+	{Name: "Equatable", Kind: KindInterface, Detail: "generic bound `[eq: fn(self, other: Self) bool]`", Summary: "`==` and `!=`. Numbers, `bool`, `char`, strings, optionals, and tuples of `Equatable` implement it; structs and enums do with an `eq` (or `cmp`) method or `@derive(Equatable)`. Lists, sets, and maps have no `==`."},
+	{Name: "Hashable", Kind: KindInterface, Detail: "generic bound `[hash: fn(self) u64]`", Summary: "Set elements and map keys (which must also be `Equatable`). Integers, `bool`, `char`, strings, pointers, and tuples of `Hashable` implement it; structs and enums do with a `hash` method or `@derive(Hashable)`."},
+	{Name: "Comparable", Kind: KindInterface, Detail: "ordering bound `[cmp: fn(self, other: Self) int]`", Summary: "`<`, `<=`, `>`, `>=`, and sorting; `cmp` returns a negative number, zero, or a positive number. Numbers, `char`, strings, and tuples of `Comparable` implement it; structs and enums do with a `cmp` method or `@derive(Comparable)`."},
+	{Name: "Addable", Kind: KindInterface, Detail: "operator bound `[add: fn(self, other: Self) Self]`", Summary: "`a + b` on anything but a number calls `a.add(b)`. `string` implements it (concatenation), as do the numeric types, so generic code can require `T: Addable`."},
+	{Name: "AddAssignable", Kind: KindInterface, Detail: "operator bound `[add_assign: fn(&self, other: Self)]`", Summary: "`a += b` calls `a.add_assign(b)`; a type with only `add` gets `a = a.add(b)`. `string` implements it (appending in place)."},
 }
 
 var BuiltinFunctions = []BuiltinFuncDoc{
@@ -619,39 +639,12 @@ func BuiltinMethodsForType(recvTy types.Type, isOptChain bool) []BuiltinMethodDo
 		out = append(out, m)
 	}
 
-	// `char` methods
-	if recvTy.Equals(types.TypeChar) {
-		add(BuiltinMethodDoc{Name: "is_alpha", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_alpha()", Summary: "Returns `true` if `self` is an ASCII alphabetic letter (`'a'..='z'` or `'A'..='Z'`)."})
-		add(BuiltinMethodDoc{Name: "is_digit", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_digit()", Summary: "Returns `true` if `self` is an ASCII decimal digit (`'0'..='9'`)."})
-		add(BuiltinMethodDoc{Name: "is_alnum", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_alnum()", Summary: "Returns `true` if `self` is ASCII alphanumeric."})
-		add(BuiltinMethodDoc{Name: "is_whitespace", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_whitespace()", Summary: "Returns `true` if `self` is ASCII whitespace (`' '`, `'\\t'`, `'\\n'`, `'\\r'`)."})
-		add(BuiltinMethodDoc{Name: "to_int", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "to_int()", Summary: "Returns the Unicode code point of `self` as `int`."})
-	}
+	// `char` methods are ordinary Lowlight in std/core and std/chars; their docs come from there.
 
-	// `string` methods
+	// `string` methods the compiler provides; the rest are Lowlight in std/core and std/strings.
 	if recvTy.Equals(types.TypeString) {
 		add(BuiltinMethodDoc{Name: "len", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "len()", Summary: "Returns the UTF-8 byte length of the string in O(1)."})
-		add(BuiltinMethodDoc{Name: "is_empty", RecvMode: "self", Signature: "(self) bool", ReturnType: "bool", Snippet: "is_empty()", Summary: "Returns `true` if `.len() == 0`."})
-		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: "(self, sub: string) bool", Params: []string{"sub: string"}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Returns `true` if `sub` occurs anywhere inside `self`."})
-		add(BuiltinMethodDoc{Name: "starts_with", RecvMode: "self", Signature: "(self, sub: string) bool", Params: []string{"sub: string"}, ReturnType: "bool", Snippet: "starts_with($1)", Summary: "Returns `true` if `self` begins with `sub`."})
-		add(BuiltinMethodDoc{Name: "ends_with", RecvMode: "self", Signature: "(self, sub: string) bool", Params: []string{"sub: string"}, ReturnType: "bool", Snippet: "ends_with($1)", Summary: "Returns `true` if `self` ends with `sub`."})
-		add(BuiltinMethodDoc{Name: "index_of", RecvMode: "self", Signature: "(self, sub: string) ?int", Params: []string{"sub: string"}, ReturnType: "?int", Snippet: "index_of($1)", Summary: "Returns the byte index of the first occurrence of `sub`, or `none`."})
-		add(BuiltinMethodDoc{Name: "trim", RecvMode: "self", Signature: "(self) string", ReturnType: "string", Snippet: "trim()", Summary: "Returns a new owned `string` with leading and trailing whitespace removed."})
-		add(BuiltinMethodDoc{Name: "split", RecvMode: "self", Signature: "(self, sep: string) [string]", Params: []string{"sep: string"}, ReturnType: "[string]", Snippet: "split($1)", Summary: "Splits `self` on `sep` into a new `[string]` vector."})
-		add(BuiltinMethodDoc{Name: "replace", RecvMode: "self", Signature: "(self, old: string, new_str: string) string", Params: []string{"old: string", "new_str: string"}, ReturnType: "string", Snippet: "replace($1, $2)", Summary: "Returns a new `string` with all occurrences of `old` replaced by `new_str`."})
-		add(BuiltinMethodDoc{Name: "to_upper", RecvMode: "self", Signature: "(self) string", ReturnType: "string", Snippet: "to_upper()", Summary: "Returns an ASCII-uppercased copy of `self`."})
-		add(BuiltinMethodDoc{Name: "to_lower", RecvMode: "self", Signature: "(self) string", ReturnType: "string", Snippet: "to_lower()", Summary: "Returns an ASCII-lowercased copy of `self`."})
 		add(BuiltinMethodDoc{Name: "byte_at", RecvMode: "self", Signature: "(self, idx: int) u8", Params: []string{"idx: int"}, ReturnType: "u8", Snippet: "byte_at($1)", Summary: "Returns byte at `idx` (panics if out of bounds)."})
-		add(BuiltinMethodDoc{Name: "get_byte", RecvMode: "self", Signature: "(self, idx: int) ?u8", Params: []string{"idx: int"}, ReturnType: "?u8", Snippet: "get_byte($1)", Summary: "Bounds-checked byte lookup returning `?u8` (`none` if out of range)."})
-		add(BuiltinMethodDoc{Name: "bytes", RecvMode: "self", Signature: "(self) [u8]", ReturnType: "[u8]", Snippet: "bytes()", Summary: "Copies the string's UTF-8 bytes into an owned `[u8]` vector."})
-		add(BuiltinMethodDoc{Name: "chars", RecvMode: "self", Signature: "(self) [char]", ReturnType: "[char]", Snippet: "chars()", Summary: "Decodes UTF-8 code points into an owned `[char]` vector."})
-		add(BuiltinMethodDoc{Name: "push", RecvMode: "&self", Signature: "(&self, suffix: string)", Params: []string{"suffix: string"}, ReturnType: "void", Snippet: "push($1)", Summary: "Appends `suffix` to mutable `let` string in place."})
-		add(BuiltinMethodDoc{Name: "push_char", RecvMode: "&self", Signature: "(&self, ch: char)", Params: []string{"ch: char"}, ReturnType: "void", Snippet: "push_char($1)", Summary: "UTF-8 encodes and appends `ch` in place."})
-		add(BuiltinMethodDoc{Name: "push_byte", RecvMode: "&self", Signature: "(&self, b: u8)", Params: []string{"b: u8"}, ReturnType: "void", Snippet: "push_byte($1)", Summary: "Appends raw byte `b` in place."})
-		add(BuiltinMethodDoc{Name: "push_bytes", RecvMode: "&self", Signature: "(&self, bytes: ptr[u8], count: int)", Params: []string{"bytes: ptr[u8]", "count: int"}, ReturnType: "void", Snippet: "push_bytes($1, $2)", Summary: "Appends `count` raw bytes from `bytes` pointer in place."})
-		add(BuiltinMethodDoc{Name: "clear", RecvMode: "&self", Signature: "(&self)", ReturnType: "void", Snippet: "clear()", Summary: "Resets string length to 0 while retaining allocated capacity."})
-		add(BuiltinMethodDoc{Name: "reserve", RecvMode: "&self", Signature: "(&self, additional: int)", Params: []string{"additional: int"}, ReturnType: "void", Snippet: "reserve($1)", Summary: "Ensures room for `additional` more bytes without reallocating."})
-		add(BuiltinMethodDoc{Name: "cap", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "cap()", Summary: "Returns how many bytes the string can hold without reallocating (`0` for literals and views)."})
 		add(BuiltinMethodDoc{Name: "c_str", RecvMode: "self", Signature: "(self) ptr[u8]", ReturnType: "ptr[u8]", Snippet: "c_str()", NeedsUnsafe: true, Summary: "Returns NUL-terminated `ptr[u8]` pointer for C FFI. Requires `unsafe`."})
 	}
 

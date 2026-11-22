@@ -13,7 +13,7 @@ import "std/strconv"
 import "std/strings"
 import "std/test"
 
-@derive(copyable)
+@derive(Copyable)
 define Json enum [
 	empty,
 	null,
@@ -24,7 +24,7 @@ define Json enum [
 	object: #[string: Json],
 ]
 
-bind List[Json].eq = (self, other: List[Json]) bool: {
+bind List[Json].eq = fn(self, other: List[Json]) bool: {
 	if(self.len() != other.len()): <- false
 
 	while(i, v in self): {
@@ -44,7 +44,7 @@ bind List[Json].eq = (self, other: List[Json]) bool: {
 //     } else: true
 // }
 
-bind Json.eq = (self, other: Json) bool:
+bind Json.eq = fn(self, other: Json) bool:
 	match(self, other):
 		when empty, empty: true
 		when null, null: true
@@ -67,16 +67,16 @@ define Number enum [
 	float: float,
 ]
 
-bind Number.to_string = (self) string:
+bind Number.to_string = fn(self) string:
 	match(self):
 		when Number.int(i): i.to_string()
 		default Number.float(f): f.to_string()
 
 define Jsonable interface [
-	to_json: (self) Json
+	to_json: fn(self) Json
 ]
 
-bind Json.to_string = (json: Json) string:
+bind Json.to_string = fn(json: Json) string:
 	match(json):
 		when empty: ""
 		when null: "null"
@@ -124,7 +124,7 @@ bind Json.to_string = (json: Json) string:
 		}
 
 @test("test_json_to_string")
-bind test_json_to_string = (): {
+bind test_json_to_string = fn(): {
 	//tests from ai:
 
 	// primitives
@@ -309,7 +309,7 @@ bind test_json_to_string = (): {
 // 2. In `to_json_helper`, `str` is an `own string` parameter (immutable by default unless
 //    copied to a `let` binding), and on line 137 `str[1..str.len()-2]` drops the last 2
 //    characters instead of 1 (`str[1..str.len()-1]` strips only the closing quote).
-bind string.to_json = (self) Result[Json]: {
+bind string.to_json = fn(self) Result[Json]: {
 	let in_str = self.trim()
 
 	if(in_str.len() == 0): func <- value(Json.empty)
@@ -318,7 +318,7 @@ bind string.to_json = (self) Result[Json]: {
 	value(_to_json_helper(self, &idx): default err(own e): <- err(e.wrap("something went wrong when parsing the json string.")))
 }
 
-bind _to_json_helper = (str: string, idx: &int) Result[Json]: {
+bind _to_json_helper = fn(str: string, idx: &int) Result[Json]: {
 	if(str.len() <= idx): <- Result.fail_msg("idx is greater than the json string length")
 
 	while(char(str[idx]).is_whitespace()): idx += 1
@@ -333,7 +333,7 @@ bind _to_json_helper = (str: string, idx: &int) Result[Json]: {
 		default: Result.fail_msg("invalid json")
 }
 
-bind _parse_json_string = (str: string, idx: &int) Result[Json]: {
+bind _parse_json_string = fn(str: string, idx: &int) Result[Json]: {
 		define quote enum [
 		single,
 		double,
@@ -385,7 +385,7 @@ bind _parse_json_string = (str: string, idx: &int) Result[Json]: {
 	err(Error.new("Json endquote never reached"))
 }
 
-bind _parse_json_bool = (s: string, idx: &int) Result[Json]:
+bind _parse_json_bool = fn(s: string, idx: &int) Result[Json]:
 	match(char(s[idx])):
 		when 't': {
 			if(idx + 3 >= s.len()): func <- Result.fail_msg(
@@ -405,7 +405,7 @@ bind _parse_json_bool = (s: string, idx: &int) Result[Json]:
 		}
 		default: Result.fail_msg("expected bool")
 
-bind _parse_json_null = (s: string, idx: &int) Result[Json]: {
+bind _parse_json_null = fn(s: string, idx: &int) Result[Json]: {
 	if(idx + 3 >= s.len()): func <- Result.fail_msg("Json ended while parsing null value")
 	if(s[idx..idx + 4] == "null"): <- value(Json.null)
 	println(s[idx..idx + 4])
@@ -413,7 +413,7 @@ bind _parse_json_null = (s: string, idx: &int) Result[Json]: {
 	Result.fail_msg("Invalid null value")
 }
 
-bind _parse_json_number = (str: string, idx: &int) Result[Json]: {
+bind _parse_json_number = fn(str: string, idx: &int) Result[Json]: {
 	let dot = false
 	let neg = false
 
@@ -449,7 +449,7 @@ bind _parse_json_number = (str: string, idx: &int) Result[Json]: {
 	Result.fail_msg("Invalid number value")
 }
 
-bind _parse_json_array = (str: string, idx: &int) Result[Json]: {
+bind _parse_json_array = fn(str: string, idx: &int) Result[Json]: {
 	if(idx >= str.len()): <- Result.fail_msg(
 		"idx is out of bounds of the string str.len(): ${str.len()} idx: $idx"
 	)
@@ -485,7 +485,7 @@ bind _parse_json_array = (str: string, idx: &int) Result[Json]: {
 	value(Json.array(items))
 }
 
-bind _parse_json_object = (str: string, idx: &int) Result[Json]: {
+bind _parse_json_object = fn(str: string, idx: &int) Result[Json]: {
 	if(idx >= str.len()): <- Result.fail_msg(
 		"idx is out of bounds of the string str.len(): ${str.len()} idx: $idx"
 	)
@@ -536,10 +536,10 @@ bind _parse_json_object = (str: string, idx: &int) Result[Json]: {
 	value(Json.object(items))
 }
 
-bind Number.to_json = (self) Json: Json.number(self)
+bind Number.to_json = fn(self) Json: Json.number(self)
 
 @test("tests for string.to_json")
-bind string_to_json_test = ():
+bind string_to_json_test = fn():
 	test.assert_all_ok_eq_named[Json](
 		[
 			+[
@@ -961,28 +961,28 @@ bind string_to_json_test = ():
 		]
 	)
 
-bind bool.to_json = (self) Json: Json.bool(self)
+bind bool.to_json = fn(self) Json: Json.bool(self)
 
-bind int.to_json = (self) Json: Json.number(Number.int(self))
+bind int.to_json = fn(self) Json: Json.number(Number.int(self))
 
-bind char.to_json = (self) Json: Json.string(self.to_string())
+bind char.to_json = fn(self) Json: Json.string(self.to_string())
 
-bind float.to_json = (self) Json: Json.string(self.to_string())
+bind float.to_json = fn(self) Json: Json.string(self.to_string())
 
-bind u8.to_json = (self) Json: Json.string(self.to_string())
+bind u8.to_json = fn(self) Json: Json.string(self.to_string())
 
-bind u16.to_json = (self) Json: Json.string(self.to_string())
+bind u16.to_json = fn(self) Json: Json.string(self.to_string())
 
-bind u32.to_json = (self) Json: Json.string(self.to_string())
+bind u32.to_json = fn(self) Json: Json.string(self.to_string())
 
-bind u64.to_json = (self) Json: Json.string(self.to_string())
+bind u64.to_json = fn(self) Json: Json.string(self.to_string())
 
-bind i8.to_json = (self) Json: Json.string(self.to_string())
+bind i8.to_json = fn(self) Json: Json.string(self.to_string())
 
-bind i16.to_json = (self) Json: Json.string(self.to_string())
+bind i16.to_json = fn(self) Json: Json.string(self.to_string())
 
-bind i32.to_json = (self) Json: Json.string(self.to_string())
+bind i32.to_json = fn(self) Json: Json.string(self.to_string())
 
-// bind list.to_json = (self): Json
+// bind list.to_json = fn(self): Json
 
-// bind map.to_json = (self): Json
+// bind map.to_json = fn(self): Json
