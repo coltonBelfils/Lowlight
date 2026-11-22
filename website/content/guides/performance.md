@@ -36,8 +36,8 @@ Both backends produce identical program behavior. `lowlight emit-llvm` and `lowl
 
 Strings, lists, maps, sets, closures, and interface values allocate on the heap. Plain values, arrays, tuples, and structs of plain fields don't. To reduce allocation:
 
-- Reserve capacity when you know the size: `List[int].with_capacity(n)`, `xs.reserve(n)`.
-- Reuse buffers: `clear()` keeps a list's capacity.
+- Reserve capacity when you know the size: `List[int].with_capacity(n)`, `string.with_capacity(n)`, `xs.reserve(n)`.
+- Reuse buffers: `clear()` keeps the capacity of a list or string.
 - Use arrays (`[N: T]`) for small fixed-size data.
 - Use an [arena](/guides/memory.html) for many small, short-lived objects; allocation becomes a pointer bump and freeing is one operation.
 

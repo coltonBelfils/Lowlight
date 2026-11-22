@@ -1478,44 +1478,6 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
 			inf.BuiltinName = "string.len"
 			return wrapRet(types.TypeInt)
-		case "push":
-			mr := requireMutRecv()
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "suffix", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, mr, call.Span)
-			inf.BuiltinName = "string.push"
-			return wrapRet(types.TypeVoid)
-		case "push_char":
-			mr := requireMutRecv()
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "ch", Mode: types.ModeRead, Type: types.TypeChar}}, call.Args, mr, call.Span)
-			inf.BuiltinName = "string.push_char"
-			return wrapRet(types.TypeVoid)
-		case "push_byte":
-			mr := requireMutRecv()
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "b", Mode: types.ModeRead, Type: types.TypeU8}}, call.Args, mr, call.Span)
-			inf.BuiltinName = "string.push_byte"
-			return wrapRet(types.TypeVoid)
-		case "push_bytes":
-			mr := requireMutRecv()
-			ptrTy := &types.Ptr{Elem: types.TypeU8}
-			fc.checkSignatureArgs([]types.FuncParam{
-				{Name: "bytes", Mode: types.ModeRead, Type: ptrTy},
-				{Name: "count", Mode: types.ModeRead, Type: types.TypeInt},
-			}, call.Args, mr, call.Span)
-			inf.BuiltinName = "string.push_bytes"
-			return wrapRet(types.TypeVoid)
-		case "clear":
-			_ = requireMutRecv()
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "string.clear"
-			return wrapRet(types.TypeVoid)
-		case "reserve":
-			mr := requireMutRecv()
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "additional", Mode: types.ModeRead, Type: types.TypeInt}}, call.Args, mr, call.Span)
-			inf.BuiltinName = "string.reserve"
-			return wrapRet(types.TypeVoid)
-		case "cap":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "string.cap"
-			return wrapRet(types.TypeInt)
 		case "byte_at":
 			fc.checkSignatureArgs([]types.FuncParam{{Name: "idx", Mode: types.ModeRead, Type: types.TypeInt}}, call.Args, nil, call.Span)
 			inf.BuiltinName = "string.byte_at"

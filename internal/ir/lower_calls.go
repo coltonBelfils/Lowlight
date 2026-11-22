@@ -714,14 +714,6 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 	// `string` read methods
 	case "string.len":
 		return &ExprField{Base: EnsureExpr(recvVal, types.TypeString), FieldName: "len", Typ: types.TypeInt}, types.TypeInt
-	case "string.cap":
-		sTmp := fl.allocSlot("_ll_scap", types.TypeString)
-		fl.assignLocal(sTmp, recvVal)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_str_cap"},
-			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(sTmp), Typ: &types.Ptr{Elem: types.TypeString}}},
-			Typ:    types.TypeInt,
-		}, types.TypeInt
 	case "string.byte_at":
 		idx := fl.lowerExprRead(call.Args[0])
 		sTmp := fl.allocSlot("_ll_sba", types.TypeString)
@@ -884,46 +876,6 @@ func (fl *funcLowerer) emitMutBuiltinMethodOnPtr(
 	fl.tc.visit(recvTy)
 
 	switch inf.BuiltinName {
-	// `string` mutating methods
-	case "string.push":
-		suf := fl.lowerExprRead(call.Args[0])
-		return &ExprStringPush{StrPtr: EnsureExpr(recvPtr, types.TypeString), Item: EnsureExpr(suf, types.TypeString)}
-	case "string.push_char":
-		ch := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_str_push_char"},
-			Args:   []Expr{EnsureExpr(recvPtr, types.TypeString), EnsureExpr(ch, types.TypeChar)},
-			Typ:    types.TypeVoid,
-		}
-	case "string.push_byte":
-		b := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_str_push_byte"},
-			Args:   []Expr{EnsureExpr(recvPtr, types.TypeString), EnsureExpr(b, types.TypeU8)},
-			Typ:    types.TypeVoid,
-		}
-	case "string.push_bytes":
-		p := fl.lowerExprRead(call.Args[0])
-		cnt := fl.lowerExprRead(call.Args[1])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_str_push_bytes"},
-			Args:   []Expr{EnsureExpr(recvPtr, types.TypeString), EnsureExpr(p, &types.Ptr{Elem: types.TypeU8}), EnsureExpr(cnt, types.TypeInt)},
-			Typ:    types.TypeVoid,
-		}
-	case "string.clear":
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_str_clear"},
-			Args:   []Expr{EnsureExpr(recvPtr, types.TypeString)},
-			Typ:    types.TypeVoid,
-		}
-	case "string.reserve":
-		n := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_str_reserve"},
-			Args:   []Expr{EnsureExpr(recvPtr, types.TypeString), EnsureExpr(n, types.TypeInt)},
-			Typ:    types.TypeVoid,
-		}
-
 	// `Vector` mutating methods
 	case "vec.push":
 		vecTy := recvTy.(*types.Vector)
@@ -1109,7 +1061,8 @@ func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo
 		return &ExprCast{Val: EnsureExpr(src, srcTy), From: srcTy, To: inf.Type}
 	case "ptr_addr":
 		p := fl.lowerExprRead(call.Args[0])
-		return &ExprCast{Val: EnsureExpr(p, inf.Type), From: inf.Type, To: types.TypeU64}
+		pTy := fl.info(call.Args[0]).Type
+		return &ExprCast{Val: EnsureExpr(p, pTy), From: pTy, To: types.TypeU64}
 	case "copy_bytes":
 		dst := fl.lowerExprRead(call.Args[0])
 		src := fl.lowerExprRead(call.Args[1])

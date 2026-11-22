@@ -76,6 +76,11 @@ type Local struct {
 	MovedFlag  string // non-empty C bool var name when `Type` is a Struct with custom `Drop`
 	MovedLocal *Local // typed MIR local holding the moved boolean flag
 	IsParam    bool
+	// NoZeroInit marks a plain-typed temporary that is written before any read on every path,
+	// so the backends skip zero-initializing it. Zeroing such a slot is wasted work, and when its
+	// address reaches a call (a struct returned through a hidden pointer) the C compiler cannot
+	// prove the zeroing dead, which costs a memset per use in a loop.
+	NoZeroInit bool
 }
 
 // Function is a lowered function, method, or lambda body in MIR.

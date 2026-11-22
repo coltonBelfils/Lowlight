@@ -870,6 +870,8 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 		// (so self-referential reassignments like `s = s + "!"` never read freed `s`!)
 		valExpr := fl.lowerExprOwned(s.Value, targetTy)
 		rhsTmp := fl.allocSlot("_ll_rhs", targetTy)
+		// Assigned right here and read right below, with nothing to drop if plain.
+		rhsTmp.NoZeroInit = targetTy.IsPlain()
 		fl.assignLocal(rhsTmp, valExpr)
 		fl.flushStmtTemps()
 		fl.assignToTargetLValue(s.Target, targetTy, NewLocalExpr(rhsTmp))

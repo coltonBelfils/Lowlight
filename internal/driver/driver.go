@@ -596,7 +596,9 @@ func buildC11(opts Options, ctx *manifest.ProjectContext) (string, BuildStats, e
 			cc = clangPath
 		}
 	}
-	args := []string{"-std=c11"}
+	// `ptr_cast` lets Lowlight code view memory as another type (List and string do), which
+	// C's strict-aliasing rules would let the optimizer assume never happens.
+	args := []string{"-std=c11", "-fno-strict-aliasing"}
 	if opts.TargetTriple != "" {
 		baseCC := strings.ToLower(filepath.Base(cc))
 		if strings.Contains(baseCC, "gcc") && !strings.Contains(baseCC, "clang") {

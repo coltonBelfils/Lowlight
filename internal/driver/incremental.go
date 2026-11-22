@@ -127,7 +127,7 @@ func buildTwoPhase(
 		if backend == BackendLLVM {
 			a = append(a, "-Wno-override-module")
 		} else {
-			a = append(a, "-std=c11")
+			a = append(a, "-std=c11", "-fno-strict-aliasing") // see buildC11
 		}
 		if opts.TargetTriple != "" {
 			a = append(a, "--target="+opts.TargetTriple)

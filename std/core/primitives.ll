@@ -795,11 +795,151 @@ bind char.to_int = (self) int: int(self)
 // Reports whether the string contains zero bytes.
 bind string.is_empty = (self) bool: self.len() == 0
 
-// Creates an empty string with room for at least `capacity` bytes before it reallocates.
+// -----------------------------------------------------------------------------
+// String Buffer Methods
+// -----------------------------------------------------------------------------
 //
-// Appending with `push`, `push_char`, and `push_byte` already grows a string in place (doubling
-// its buffer as needed), so building text piece by piece is linear in its length. Reserving up
-// front only saves the intermediate reallocations when the final size is known.
+// A `string` is a `{ data, len, cap }` buffer, laid out like [`List`]. `cap == 0` marks a
+// borrowed view (a literal or slice) that owns nothing; `cap > 0` owns `cap` bytes, which always
+// include a NUL after the last byte so `c_str()` can hand the buffer to C. The methods below
+// work on that layout directly, the same way `List` does.
+
+// The in-memory layout of a `string`.
+define _StringRaw struct [
+	data: ptr[u8],
+	len: int,
+	cap: int,
+]
+
+// Returns `s` with room for at least `needed` bytes (NUL included), doubling its capacity, and
+// with a borrowed view turned into an owned copy. Kept out of the methods so their common
+// no-growth path stays small enough to inline. It takes and returns the string by value rather
+// than through a pointer so the string never has its address taken, which lets the optimizer
+// keep a local string's fields in registers.
+bind _string_grow = (s: _StringRaw, needed: int) _StringRaw: unsafe {
+	let ncap = if(s.cap > 0): s.cap else: 16
+	while(ncap < needed): ncap *= 2
+	if(s.cap > 0): func <- _StringRaw[data: realloc_raw(s.data, ncap), len: s.len, cap: ncap]
+	let buf = alloc_uninit[u8](ncap)
+	if(s.len > 0): copy_bytes(buf, s.data, s.len)
+	ptr_write(ptr_add(buf, s.len), u8(0))
+	_StringRaw[data: buf, len: s.len, cap: ncap]
+}
+
+// Appends `suffix` in place.
+//
+// Appending grows the buffer by doubling, so building a string with repeated `push` calls takes
+// time proportional to its final length.
+bind string.push = (&self, suffix: string): unsafe {
+	let n = suffix.len()
+	if(n == 0): func <-
+	let r = ptr_cast[_StringRaw](addr_of(self))
+	let src = (*ptr_cast[_StringRaw](addr_of(suffix))).data
+	let len = (*r).len
+	if((*r).cap < len + n + 1): *r = _string_push_grow(*r, src, n)
+	else: copy_bytes(ptr_add((*r).data, len), src, n)
+	(*r).len = len + n
+	ptr_write(ptr_add((*r).data, len + n), u8(0))
+}
+
+// The slow path of `string.push`: returns `s` grown, with `n` bytes from `src` copied after its
+// text. `len` is left for the caller to update. `src` may point into the buffer being grown
+// (`s.push(s)`, or a slice of `s`), so such bytes are copied out before the buffer moves.
+bind _string_push_grow = (s: _StringRaw, src: ptr[u8], n: int) _StringRaw: unsafe {
+	let start = ptr_addr(s.data)
+	let at = ptr_addr(src)
+	if(s.cap > 0 and at >= start and at < start + u64(s.cap)): {
+		let tmp = alloc_uninit[u8](n)
+		copy_bytes(tmp, src, n)
+		let g = _string_grow(s, s.len + n + 1)
+		copy_bytes(ptr_add(g.data, s.len), tmp, n)
+		free_raw(tmp)
+		func <- g
+	}
+	let g = _string_grow(s, s.len + n + 1)
+	copy_bytes(ptr_add(g.data, s.len), src, n)
+	g
+}
+
+// Appends one raw byte in place.
+bind string.push_byte = (&self, b: u8): unsafe {
+	let r = ptr_cast[_StringRaw](addr_of(self))
+	let len = (*r).len
+	if((*r).cap < len + 2): *r = _string_grow(*r, len + 2)
+	let data = (*r).data
+	ptr_write(ptr_add(data, len), b)
+	ptr_write(ptr_add(data, len + 1), u8(0))
+	(*r).len = len + 1
+}
+
+// Appends `count` raw bytes read from `bytes`.
+bind string.push_bytes = (&self, bytes: ptr[u8], count: int): unsafe {
+	if(count <= 0): func <-
+	let r = ptr_cast[_StringRaw](addr_of(self))
+	let len = (*r).len
+	if((*r).cap < len + count + 1): *r = _string_grow(*r, len + count + 1)
+	copy_bytes(ptr_add((*r).data, len), bytes, count)
+	(*r).len = len + count
+	ptr_write(ptr_add((*r).data, len + count), u8(0))
+}
+
+// Appends `ch`, encoded as UTF-8 (one to four bytes).
+bind string.push_char = (&self, ch: char): unsafe {
+	let c = int(ch)
+	if(c < 0x80): {
+		self.push_byte(u8(c))
+		func <-
+	}
+	// One capacity check for the whole sequence keeps this small enough to inline.
+	let r = ptr_cast[_StringRaw](addr_of(self))
+	let len = (*r).len
+	let n = if(c < 0x800): 2 else if(c < 0x10000): 3 else: 4
+	if((*r).cap < len + n + 1): *r = _string_grow(*r, len + n + 1)
+	let d = ptr_add((*r).data, len)
+	if(n == 2): ptr_write(d, u8(0xC0 | (c >> 6)))
+	else if(n == 3): {
+		ptr_write(d, u8(0xE0 | (c >> 12)))
+		ptr_write(ptr_add(d, 1), u8(0x80 | ((c >> 6) & 0x3F)))
+	} else: {
+		ptr_write(d, u8(0xF0 | (c >> 18)))
+		ptr_write(ptr_add(d, 1), u8(0x80 | ((c >> 12) & 0x3F)))
+		ptr_write(ptr_add(d, 2), u8(0x80 | ((c >> 6) & 0x3F)))
+	}
+	ptr_write(ptr_add(d, n - 1), u8(0x80 | (c & 0x3F)))
+	ptr_write(ptr_add(d, n), u8(0))
+	(*r).len = len + n
+}
+
+// Removes all text, keeping the allocated capacity for reuse.
+bind string.clear = (&self): unsafe {
+	let r = ptr_cast[_StringRaw](addr_of(self))
+	if((*r).cap > 0): {
+		(*r).len = 0
+		ptr_write((*r).data, u8(0))
+	} else: {
+		// A borrowed view owns nothing: just become the empty literal.
+		let empty = ""
+		(*r).data = (*ptr_cast[_StringRaw](addr_of(empty))).data
+		(*r).len = 0
+	}
+}
+
+// Makes room for at least `additional` more bytes, so appending that many does not reallocate.
+// Also turns a borrowed literal or view into an owned buffer.
+bind string.reserve = (&self, additional: int): unsafe {
+	let r = ptr_cast[_StringRaw](addr_of(self))
+	let needed = (*r).len + (if(additional > 0): additional else: 0) + 1
+	if((*r).cap < needed): *r = _string_grow(*r, needed)
+}
+
+// Returns how many bytes the string can hold without reallocating: `0` for literals and views,
+// which own no buffer.
+bind string.cap = (self) int: unsafe {
+	let c = (*ptr_cast[_StringRaw](addr_of(self))).cap
+	if(c > 0): c - 1 else: 0
+}
+
+// Creates an empty string with room for at least `capacity` bytes before it reallocates.
 bind string.with_capacity = (capacity: int) string: {
 	let s = ""
 	s.reserve(capacity)

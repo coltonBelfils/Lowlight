@@ -871,7 +871,7 @@ func (g *llvmEmitter) emitStringAndAssertRuntime() {
 	fns := []string{
 		"ll_drop__string", "ll_str_free_p", "ll_copy__string", "ll_copy_p__string",
 		"ll_str_concat_p", "ll_str_ensure_owned_cap", "ll_str_push_p", "ll_str_push_byte",
-		"ll_str_push_bytes", "ll_str_push_char", "ll_str_clear", "ll_str_reserve", "ll_str_cap",
+		"ll_str_push_bytes",
 		"ll_str_slice_view_p",
 		"ll_str_slice_owned_p", "ll_str_eq_p", "ll_str_cmp_p", "ll_str_hash_p",
 		"ll_print_str_p", "ll_panic_str_p", "ll_assert_p", "ll_format_loc",
@@ -1122,122 +1122,6 @@ do_push:
     br label %%done
 done:
     ret void
-}
-
-define internal void @ll_str_push_char(ptr %%s, i32 %%ch) {
-entry:
-    %%c1 = icmp ule i32 %%ch, 127
-    br i1 %%c1, label %%b1, label %%chk2
-b1:
-    %%b1_0 = trunc i32 %%ch to i8
-    call void @ll_str_push_byte(ptr %%s, i8 %%b1_0)
-    ret void
-chk2:
-    %%c2 = icmp ule i32 %%ch, 2047
-    br i1 %%c2, label %%b2, label %%chk3
-b2:
-    %%s2_0 = lshr i32 %%ch, 6
-    %%o2_0 = or i32 %%s2_0, 192
-    %%b2_0 = trunc i32 %%o2_0 to i8
-    %%m2_1 = and i32 %%ch, 63
-    %%o2_1 = or i32 %%m2_1, 128
-    %%b2_1 = trunc i32 %%o2_1 to i8
-    call void @ll_str_push_byte(ptr %%s, i8 %%b2_0)
-    call void @ll_str_push_byte(ptr %%s, i8 %%b2_1)
-    ret void
-chk3:
-    %%c3 = icmp ule i32 %%ch, 65535
-    br i1 %%c3, label %%b3, label %%b4
-b3:
-    %%s3_0 = lshr i32 %%ch, 12
-    %%o3_0 = or i32 %%s3_0, 224
-    %%b3_0 = trunc i32 %%o3_0 to i8
-    %%s3_1 = lshr i32 %%ch, 6
-    %%m3_1 = and i32 %%s3_1, 63
-    %%o3_1 = or i32 %%m3_1, 128
-    %%b3_1 = trunc i32 %%o3_1 to i8
-    %%m3_2 = and i32 %%ch, 63
-    %%o3_2 = or i32 %%m3_2, 128
-    %%b3_2 = trunc i32 %%o3_2 to i8
-    call void @ll_str_push_byte(ptr %%s, i8 %%b3_0)
-    call void @ll_str_push_byte(ptr %%s, i8 %%b3_1)
-    call void @ll_str_push_byte(ptr %%s, i8 %%b3_2)
-    ret void
-b4:
-    %%s4_0 = lshr i32 %%ch, 18
-    %%o4_0 = or i32 %%s4_0, 240
-    %%b4_0 = trunc i32 %%o4_0 to i8
-    %%s4_1 = lshr i32 %%ch, 12
-    %%m4_1 = and i32 %%s4_1, 63
-    %%o4_1 = or i32 %%m4_1, 128
-    %%b4_1 = trunc i32 %%o4_1 to i8
-    %%s4_2 = lshr i32 %%ch, 6
-    %%m4_2 = and i32 %%s4_2, 63
-    %%o4_2 = or i32 %%m4_2, 128
-    %%b4_2 = trunc i32 %%o4_2 to i8
-    %%m4_3 = and i32 %%ch, 63
-    %%o4_3 = or i32 %%m4_3, 128
-    %%b4_3 = trunc i32 %%o4_3 to i8
-    call void @ll_str_push_byte(ptr %%s, i8 %%b4_0)
-    call void @ll_str_push_byte(ptr %%s, i8 %%b4_1)
-    call void @ll_str_push_byte(ptr %%s, i8 %%b4_2)
-    call void @ll_str_push_byte(ptr %%s, i8 %%b4_3)
-    ret void
-}
-
-define internal void @ll_str_clear(ptr %%s) {
-entry:
-    %%p_data = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 0
-    %%p_len = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 1
-    %%p_cap = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 2
-    %%cap = load i64, ptr %%p_cap, align 8
-    %%data = load ptr, ptr %%p_data, align 8
-    %%c1 = icmp sgt i64 %%cap, 0
-    %%c2 = icmp ne ptr %%data, null
-    %%owned = and i1 %%c1, %%c2
-    br i1 %%owned, label %%clr_owned, label %%clr_view
-clr_owned:
-    store i64 0, ptr %%p_len, align 8
-    store i8 0, ptr %%data, align 1
-    ret void
-clr_view:
-    store ptr %s, ptr %%p_data, align 8
-    store i64 0, ptr %%p_len, align 8
-    store i64 0, ptr %%p_cap, align 8
-    ret void
-}
-
-; Ensures room for %%add more bytes (plus the NUL terminator) without reallocating.
-define internal void @ll_str_reserve(ptr %%s, i64 %%add) {
-entry:
-    %%p_len = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 1
-    %%p_cap = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 2
-    %%len = load i64, ptr %%p_len, align 8
-    %%cap = load i64, ptr %%p_cap, align 8
-    %%pos = icmp sgt i64 %%add, 0
-    %%extra = select i1 %%pos, i64 %%add, i64 0
-    %%owned = icmp sgt i64 %%cap, 0
-    %%nothing = xor i1 %%pos, true
-    %%noop = and i1 %%nothing, %%owned
-    br i1 %%noop, label %%done, label %%grow
-grow:
-    %%with_len = add i64 %%len, %%extra
-    %%needed = add i64 %%with_len, 1
-    call void @ll_str_ensure_owned_cap(ptr %%s, i64 %%needed)
-    br label %%done
-done:
-    ret void
-}
-
-; Bytes the string can hold without reallocating: 0 for literals and views.
-define internal i64 @ll_str_cap(ptr %%s) {
-entry:
-    %%p_cap = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 2
-    %%cap = load i64, ptr %%p_cap, align 8
-    %%owned = icmp sgt i64 %%cap, 0
-    %%usable = sub i64 %%cap, 1
-    %%r = select i1 %%owned, i64 %%usable, i64 0
-    ret i64 %%r
 }
 
 define internal void @ll_str_slice_view_p(ptr %%res, ptr %%s, i64 %%lo, i64 %%hi, i32 %%check, ptr %%f, i64 %%l) {
@@ -1510,7 +1394,7 @@ finish:
     %%out = load %%struct.ll_string, ptr %%res, align 8
     ret %%struct.ll_string %%out
 }
-`, emptySym, emptySym, emptySym, sliceOobSym, emptySym, emptySym, unkSym, unkSym,
+`, emptySym, emptySym, sliceOobSym, emptySym, emptySym, unkSym, unkSym,
 		panicColJmpFmt, panicNoColJmpFmt, panicColErrFmt, panicNoColErrFmt,
 		unkSym, locColFmt, locNoColFmt)
 }

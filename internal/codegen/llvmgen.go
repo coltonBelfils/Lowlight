@@ -1060,7 +1060,9 @@ func (g *llvmEmitter) emitFunction(fn *ir.Function) {
 			locTy = "ptr"
 		}
 		headerSB.WriteString(fmt.Sprintf("    %s = alloca %s, align 8\n", slot, locTy))
-		paramInitSB.WriteString(fmt.Sprintf("    store %s zeroinitializer, ptr %s, align 8\n", locTy, slot))
+		if !loc.NoZeroInit {
+			paramInitSB.WriteString(fmt.Sprintf("    store %s zeroinitializer, ptr %s, align 8\n", locTy, slot))
+		}
 
 		if loc.MovedFlag != "" {
 			flagSlot := fmt.Sprintf("%%%s.slot", loc.MovedFlag)

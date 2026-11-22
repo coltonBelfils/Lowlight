@@ -438,54 +438,6 @@ static inline void ll_str_push_bytes(ll_string* s, const uint8_t* bytes, int64_t
     s->data[s->len] = '\0';
 }
 
-static inline void ll_str_push_char(ll_string* s, uint32_t ch) {
-    uint8_t utf8[4];
-    int64_t n = 0;
-    if (ch <= 0x7Fu) {
-        utf8[0] = (uint8_t)ch;
-        n = 1;
-    } else if (ch <= 0x7FFu) {
-        utf8[0] = (uint8_t)(0xC0u | (ch >> 6));
-        utf8[1] = (uint8_t)(0x80u | (ch & 0x3Fu));
-        n = 2;
-    } else if (ch <= 0xFFFFu) {
-        utf8[0] = (uint8_t)(0xE0u | (ch >> 12));
-        utf8[1] = (uint8_t)(0x80u | ((ch >> 6) & 0x3Fu));
-        utf8[2] = (uint8_t)(0x80u | (ch & 0x3Fu));
-        n = 3;
-    } else {
-        utf8[0] = (uint8_t)(0xF0u | (ch >> 18));
-        utf8[1] = (uint8_t)(0x80u | ((ch >> 12) & 0x3Fu));
-        utf8[2] = (uint8_t)(0x80u | ((ch >> 6) & 0x3Fu));
-        utf8[3] = (uint8_t)(0x80u | (ch & 0x3Fu));
-        n = 4;
-    }
-    ll_str_ensure_owned_cap(s, s->len + n + 1);
-    memcpy(s->data + s->len, utf8, (size_t)n);
-    s->len += n;
-    s->data[s->len] = '\0';
-}
-
-/* Ensures room for additional more bytes without reallocating (plus the NUL terminator). */
-static inline void ll_str_reserve(ll_string* s, int64_t additional) {
-    if (additional <= 0 && s->cap > 0) return;
-    ll_str_ensure_owned_cap(s, s->len + (additional > 0 ? additional : 0) + 1);
-}
-
-/* Bytes the string can hold without reallocating: 0 for literals and views. */
-static inline int64_t ll_str_cap(const ll_string* s) {
-    return s->cap > 0 ? s->cap - 1 : 0;
-}
-
-static inline void ll_str_clear(ll_string* s) {
-    if (s->cap > 0 && s->data) {
-        s->len = 0;
-        s->data[0] = '\0';
-    } else {
-        *s = ll_str_lit("", 0);
-    }
-}
-
 static inline ll_string ll_str_slice_view(ll_string s, int64_t lo, int64_t hi, int check, const char* f, int l) {
     if (LL_UNLIKELY(check && (lo < 0 || hi < lo || hi > s.len))) {
         ll_panic_cstr("string slice bounds out of range", f, l);

@@ -242,6 +242,7 @@ C requires types to be declared before they are used by value. The `typeCollecto
 Every local variable and temporary is an `ir.Local`.
 - **Move zeroing:** a move writes the inert value into its source (null data with `cap = 0` for strings and vectors, tag `0` for tagged unions, `has_value = false` for optionals), so the scope-exit drop of a moved or maybe-moved variable is a no-op. No runtime bookkeeping is needed for most types.
 - **Drop flags:** a struct with a custom `Drop`, whose zeroed form could still be meaningful, gets a boolean `MovedFlag` local recording whether it was moved.
+- **Zero-initialization:** locals start zeroed so drops and moves see an inert value. A plain-typed temporary that is always written before it is read, such as the right-hand side of an assignment, is marked `NoZeroInit` and left uninitialized. When the address of a zeroed temporary reaches a call (a struct returned through a hidden pointer), the C compiler cannot prove the zeroing dead and pays for a `memset` on every loop iteration.
 
 ### 5.3 Moving Payloads Out of Enums
 
@@ -364,6 +365,7 @@ Every trap prints `lowlight panic at FILE:LINE: message` after flushing standard
 
 - **Zero-Copy Views:** String and vector slices use `cap = 0` as a sentinel indicating a borrowed, non-owning view. The destructor checks `if (v.cap > 0) ll_free(v.data);`, ensuring borrowed views are never freed.
 - **Copy-on-Write (CoW) Mutation:** Mutating operations (`push`, `insert`, string append) check if the backing buffer is a view (`cap == 0`). If so, they immediately allocate an independent heap buffer and copy the data before mutating.
+- **String buffer methods in Lowlight:** `push`, `push_byte`, `push_bytes`, `push_char`, `clear`, `reserve`, `cap`, and `string.with_capacity` are ordinary prelude methods in `std/core/primitives.ll`. Like `List`, they view the string as its raw `{ data, len, cap }` layout through `ptr_cast`. Each method's no-growth path is small enough to inline; growth is in separate helpers (`_string_grow`, `_string_push_grow`) that take and return the layout by value, so a local string never has its address taken and the optimizer keeps its fields in registers. The runtime still has `ll_str_push`, `ll_str_push_byte`, `ll_str_push_bytes`, and `ll_str_ensure_owned_cap` for code the compiler generates itself (`+=`, interpolation, and `to_string` of collections).
 
 ### 7.4 Insertion-Ordered Hash Tables
 
@@ -437,6 +439,7 @@ For multi-package builds on both the LLVM IR and ISO C11 backends, the driver pa
 3. **Backend Selection (`--backend <llvm|c11>`):** LLVM IR is the default backend; ISO C11 can be selected for portable C compilation.
 4. Checks `LOWLIGHT_CC`, then `CC`, then probes `PATH` for `clang` / `cc`.
 5. Invokes the compiler in Debug (`-g -O0`) or Release (`-O2`) mode while preserving deterministic safety traps in both modes.
+6. Compiles generated C with `-fno-strict-aliasing`: `ptr_cast` lets Lowlight code view memory as another type (`List` and `string` rely on it), which C's type-based aliasing rules would otherwise let the optimizer assume never happens. The LLVM backend emits no type-based alias metadata, so it needs no flag.
 
 ---
 

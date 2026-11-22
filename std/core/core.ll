@@ -46,6 +46,53 @@ bind _core_assert_utf8 = (bs: [int], expected_ch: char, expected_next: int, labe
 	assert(ch == expected_ch and next_i == expected_next, label)
 }
 
+@test("core string buffer methods")
+bind test_core_string_buffer = (): {
+	let s = "lit"
+	assert(s.cap() == 0, "a literal owns no buffer")
+	s.push("eral")
+	assert(s == "literal" and s.cap() >= 7, "push onto a literal copies it into an owned buffer")
+	s.push("")
+	assert(s == "literal", "pushing nothing is a no-op")
+
+	let b = string.with_capacity(4)
+	assert(b.len() == 0 and b.cap() >= 4, "with_capacity reserves room")
+	b.push("wxyz")
+	let view = b[1..3]
+	b.push(view)
+	assert(b == "wxyzxy", "pushing a view of the string itself survives the buffer moving")
+
+	let c = ""
+	c.push_char('a')
+	c.push_char('é')
+	c.push_char('€')
+	c.push_char('𝄞')
+	assert(c == "aé€𝄞" and c.len() == 10, "push_char encodes one to four bytes")
+	c.push_byte(u8(33))
+	let first = "a"
+	unsafe c.push_bytes(first.c_str(), 1)
+	assert(c == "aé€𝄞!a", "push_byte and push_bytes")
+
+	let cap = c.cap()
+	c.clear()
+	assert(c == "" and c.cap() == cap, "clear keeps the buffer")
+	c.reserve(100)
+	assert(c.cap() >= 100 and c.len() == 0, "reserve grows capacity")
+	c.reserve(0)
+	c.reserve(-3)
+	assert(c.cap() >= 100, "reserving nothing keeps capacity")
+
+	let v = "view"
+	v.clear()
+	assert(v == "" and v.cap() == 0, "clearing a literal leaves an empty literal")
+	let r = "abc"
+	r.reserve(0)
+	assert(r == "abc" and r.cap() >= 3, "reserve turns a literal into an owned buffer")
+	let n = string.with_capacity(-1)
+	n.push("ok")
+	assert(n == "ok", "a negative capacity is treated as zero")
+}
+
 @test("core str_utf8_next validation and decoding")
 bind test_core_str_utf8_next = (): {
 	// Valid boundary codepoints (1..4 bytes)
