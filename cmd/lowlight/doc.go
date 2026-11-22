@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"lowlight/internal/docgen"
+	"lowlight/internal/site"
 )
 
 func runDoc(args []string) int {
@@ -54,6 +55,13 @@ func runDoc(args []string) int {
 		opts.OutputDir = ""
 	}
 
+	// Markdown output and link checking are handled by docgen; HTML by the shared site builder.
+	format := strings.ToLower(opts.Format)
+	htmlOut := ""
+	if (format == "" || format == "html") && opts.OutputDir != "" {
+		htmlOut = opts.OutputDir
+		opts.OutputDir = ""
+	}
 	res, err := docgen.Generate(opts)
 	if res != nil {
 		for _, bl := range res.BrokenLinks {
@@ -64,7 +72,29 @@ func runDoc(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-
+	if htmlOut != "" {
+		ld, lerr := docgen.Load(opts.Paths, opts.ProjectRoot)
+		if lerr != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", lerr)
+			return 1
+		}
+		s, probs, berr := site.BuildAPIDocs(site.APIDocsConfig{Loaded: ld, OutDir: htmlOut})
+		if berr != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", berr)
+			return 1
+		}
+		for _, p := range probs {
+			fmt.Fprintln(os.Stderr, "warning:", p)
+		}
+		pkgs := 0
+		for _, p := range s.Pages {
+			if p.Layout == "api" {
+				pkgs++
+			}
+		}
+		fmt.Fprintf(os.Stdout, "Generated documentation for %d package(s) (%d symbols) in %s\n", pkgs, res.SymbolsCount, htmlOut)
+		return 0
+	}
 	if opts.OutputDir != "" {
 		fmt.Fprintf(os.Stdout, "Generated %s documentation for %d module(s) (%d symbols) in %s\n",
 			opts.Format, res.ModulesCount, res.SymbolsCount, opts.OutputDir)

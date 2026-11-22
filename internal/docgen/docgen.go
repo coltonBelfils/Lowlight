@@ -45,34 +45,11 @@ func Generate(opts Options) (*Result, error) {
 		format = "md"
 	}
 
-	files, rootDir, err := collectInputFiles(opts.Paths, opts.ProjectRoot)
+	loaded, err := Load(opts.Paths, opts.ProjectRoot)
 	if err != nil {
 		return nil, err
 	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("no .ll files found in specified paths")
-	}
-
-	overlays := make(map[string]string, len(files))
-	for _, f := range files {
-		raw, rErr := os.ReadFile(f)
-		if rErr != nil {
-			return nil, rErr
-		}
-		overlays[f] = string(raw)
-	}
-
-	// Run tolerant semantic analysis starting from the first file, passing all files as overlays
-	// and also indexing every requested file directly so disconnected modules are all documented.
-	rep := diag.NewReporter()
-	var prog *sema.CheckedProgram
-	if len(files) > 0 {
-		prog = sema.CheckForIDE(files[0], overlays, rootDir, rep)
-	}
-
-	idx := BuildSymbolIndex(rootDir, prog, files, overlays)
-	// Restrict documented module pages to the explicitly requested files (while keeping
-	// any transitively imported modules available for cross-link resolution).
+	files, rootDir, overlays, idx := loaded.Files, loaded.RootDir, loaded.Overlays, loaded.Index
 	requestedSet := make(map[string]bool, len(files))
 	for _, f := range files {
 		requestedSet[f] = true
@@ -96,9 +73,7 @@ func Generate(opts Options) (*Result, error) {
 		}
 		switch format {
 		case "html":
-			if err := writeHTMLDocs(opts.OutputDir, rootDir, files, overlays, idx); err != nil {
-				return res, err
-			}
+			return res, fmt.Errorf("HTML output is written by internal/site; call site.BuildAPIDocs")
 		case "md":
 			if err := writeMarkdownDocs(opts.OutputDir, rootDir, files, overlays, idx); err != nil {
 				return res, err
@@ -106,6 +81,41 @@ func Generate(opts Options) (*Result, error) {
 		}
 	}
 	return res, nil
+}
+
+// Loaded is a parsed and indexed set of Lowlight source files.
+type Loaded struct {
+	Files    []string          // documented files (absolute, sorted, no test files)
+	RootDir  string            // project root used for display names
+	Overlays map[string]string // file contents
+	Index    *SymbolIndex
+}
+
+// Load collects the .ll files under paths (skipping tests, hidden directories, editors/,
+// vendor/, node_modules/, and docs/), type-checks them tolerantly, and indexes every
+// documented declaration.
+func Load(paths []string, projectRoot string) (*Loaded, error) {
+	files, rootDir, err := collectInputFiles(paths, projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no .ll files found in specified paths")
+	}
+	overlays := make(map[string]string, len(files))
+	for _, f := range files {
+		raw, rErr := os.ReadFile(f)
+		if rErr != nil {
+			return nil, rErr
+		}
+		overlays[f] = string(raw)
+	}
+	// Run tolerant semantic analysis starting from the first file, passing all files as overlays
+	// and also indexing every requested file directly so disconnected modules are all documented.
+	rep := diag.NewReporter()
+	prog := sema.CheckForIDE(files[0], overlays, rootDir, rep)
+	idx := BuildSymbolIndex(rootDir, prog, files, overlays)
+	return &Loaded{Files: files, RootDir: rootDir, Overlays: overlays, Index: idx}, nil
 }
 
 func collectInputFiles(paths []string, projectRoot string) ([]string, string, error) {

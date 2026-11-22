@@ -1301,7 +1301,7 @@ A method called through `?.` must take `self`; `&self` and `own self` methods ca
 
 - if `a` is an optional `?T`: `a`'s value if present, otherwise `b`. `b` may be a `T`, or another `?T` (making the whole expression `?T`, so `a? ?? b? ?? 0` chains).
 - if `a` is a result: `a`'s success value, or on any failure, `b`. The failure is dropped. `b` must be the success type.
-- `b` is evaluated only when needed, and may be an unwind: `let v = x? ?? func <- fallback`. After such a guard, `v` is a plain `T`.
+- `b` is evaluated only when needed, and may be an unwind: `let v = x? ?? func <- fallback`. After such a guard, `v` is a plain `T`. An unwind is allowed on the right of `??` only when the `??` expression is the entire right-hand side of a `let`, `bind`, or assignment statement; elsewhere (inside a call argument or a struct literal), bind the value first.
 
 ### 5.9 Member access and calls
 
@@ -2673,7 +2673,7 @@ These behaviors are observable and **Required**.
    - writes `lowlight panic at FILE:LINE:COL: MESSAGE` to standard error, followed by a newline (traps raised by generated code report only `FILE:LINE`);
    - for a panic with an `Error`, writes the error's summary as the message, then `trace:` and one line per frame, `  at FILE:LINE:COL — note`;
    - exits with status `1`, without running any destruction.
-   `FILE` is the base name of the source file.
+   `FILE` is the source path as given to the compiler when it is relative; an absolute path is shown relative to the working directory when the file is inside it, and otherwise as its base name.
 4. **Under `lowlight test`**, a panic inside a test ends that test only: the runner records it as a failure with the panic message and location, and continues with the next test. Resources owned by the failed test are leaked, not destroyed.
 5. **Standard streams.** `print` and `println` write to standard output, which is buffered; `eprint` and `eprintln` write to standard error, unbuffered. Output written before a panic is never lost.
 6. **Memory exhaustion.** If an allocation fails, the program flushes standard output, writes `lowlight panic: out of memory (requested N bytes)` to standard error, and aborts. This cannot be intercepted, even by the test runner.

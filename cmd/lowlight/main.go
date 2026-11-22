@@ -592,7 +592,7 @@ Flags:
   --offline         Disallow network requests (use local cache and/or ./vendor/)
   --backend <kind>  Codegen backend: "llvm" (default) or "c11" (ISO C11 backend)
   --target <triple> Target triple for cross-compilation (e.g. "aarch64-unknown-linux-gnu")
-  --release         Optimize (-O2) and elide runtime bounds/shift checks
+  --release         Optimize (-O2); bounds, division, and shift checks stay on
   --cc <compiler>   C/LLVM compiler executable (default: $LOWLIGHT_CC, $CC, or clang/cc)
   --stdio           Run Language Server Protocol (LSP 3.17) over stdin/stdout
   --log <file>      Append JSON-RPC LSP trace logs to <file>

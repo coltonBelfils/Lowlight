@@ -44,6 +44,19 @@ LOWLIGHT_CHECK_LEAKS=1 ./lowlight run examples/http_server_and_client.ll
 
 ---
 
+## Documentation
+
+The full documentation (a tour, tutorials, guides, Lowlight by Example, the specification, the standard library reference, and the implementation guide) is a static website generated from this repository:
+
+```sh
+go run ./cmd/lowlight-site -o docs
+open docs/index.html
+```
+
+API documentation for your own project comes from `lowlight doc`.
+
+---
+
 ## CLI Reference
 
 ```text
@@ -62,14 +75,14 @@ Flags:
   -o <path>        Output executable, LLVM IR, or C11 source path
   --backend <kind> Codegen backend: "llvm" (default) or "c11" (ISO C11 backend)
   --target <triple> Target triple for cross-compilation (e.g. "aarch64-unknown-linux-gnu")
-  --release        Optimize (-O2) and elide runtime bounds/shift checks
+  --release        Optimize (-O2); bounds, division, and shift checks stay on
   --cc <compiler>  C/LLVM compiler executable (default: $LOWLIGHT_CC, $CC, or clang/cc)
   --stdio          Run Language Server Protocol (LSP 3.17) over stdin/stdout
   --log <file>     Append JSON-RPC LSP trace logs to <file>
 ```
 
 * **Debug builds (default)**: Compile with `-g -O0` and deterministic runtime bounds/shift checks with Lowlight `.ll:line` panic locations.
-* **Release builds (`--release`)**: Compile with `-O2` and elide slice/index bounds checks for peak throughput.
+* **Release builds (`--release`)**: Compile with `-O2`. Bounds, division, and shift checks stay on, so release builds trap exactly like debug builds.
 
 ---
 

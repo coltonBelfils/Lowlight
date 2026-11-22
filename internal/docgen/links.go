@@ -9,10 +9,8 @@ import (
 
 	"lowlight/internal/ast"
 	"lowlight/internal/diag"
-	"lowlight/internal/lexer"
 	"lowlight/internal/parser"
 	"lowlight/internal/sema"
-	"lowlight/internal/token"
 )
 
 // DocLink represents one parsed `[`Symbol`]` or `[label][`Symbol`]` reference in a doc comment.
@@ -886,103 +884,4 @@ func formatVarDeclSig(v *ast.VarDecl, src string) string {
 		}
 	}
 	return fmt.Sprintf("bind %s%s%s", v.Name, ty, valSnippet)
-}
-
-// HighlightLowlightHTML tokenizes a Lowlight snippet/file into HTML spans by token kind.
-func HighlightLowlightHTML(code string) string {
-	rep := diag.NewReporter()
-	toks, comments := lexer.LexWithComments("<highlight>", code, rep)
-	return highlightSourceWithLexer(code, toks, comments)
-}
-
-func highlightSourceWithLexer(code string, toks []token.Token, comments []lexer.Comment) string {
-	type spanStyle struct {
-		start int
-		end   int
-		cls   string
-	}
-	var spans []spanStyle
-	for _, tk := range toks {
-		if tk.AutoSemi || tk.Span.End.Offset <= tk.Span.Start.Offset || tk.Span.End.Offset > len(code) {
-			continue
-		}
-		var cls string
-		switch {
-		case tk.Kind >= token.KwLet && tk.Kind <= token.KwImport:
-			cls = "tok-kw"
-		case tk.Kind == token.KwSelf || tk.Kind == token.KwSelfType:
-			cls = "tok-kw"
-		case tk.Kind == token.IntLit || tk.Kind == token.FloatLit:
-			cls = "tok-num"
-		case tk.Kind == token.CharLit || tk.Kind == token.StringLit || tk.Kind == token.InterpStart || tk.Kind == token.InterpMid || tk.Kind == token.InterpEnd:
-			cls = "tok-str"
-		case tk.Kind == token.At:
-			cls = "tok-attr"
-		case tk.Kind == token.Ident && len(tk.Text) > 0 && tk.Text[0] >= 'A' && tk.Text[0] <= 'Z':
-			cls = "tok-type"
-		case isPrimitiveName(tk.Text):
-			cls = "tok-type"
-		}
-		if cls != "" {
-			s := tk.Span.Start.Offset
-			e := tk.Span.End.Offset
-			if tk.Kind == token.StringLit || tk.Kind == token.InterpStart {
-				if s > 0 && (code[s-1] == '"' || code[s-1] == '`') {
-					s--
-				}
-			}
-			spans = append(spans, spanStyle{s, e, cls})
-		}
-	}
-	for _, c := range comments {
-		if c.Span.End.Offset > c.Span.Start.Offset && c.Span.End.Offset <= len(code) {
-			spans = append(spans, spanStyle{c.Span.Start.Offset, c.Span.End.Offset, "tok-cmt"})
-		}
-	}
-	sort.Slice(spans, func(i, j int) bool {
-		if spans[i].start != spans[j].start {
-			return spans[i].start < spans[j].start
-		}
-		return spans[i].end > spans[j].end
-	})
-	var sb strings.Builder
-	pos := 0
-	for _, sp := range spans {
-		if sp.start < pos || sp.end > len(code) {
-			continue
-		}
-		if sp.start > pos {
-			sb.WriteString(htmlEscape(code[pos:sp.start]))
-		}
-		sb.WriteString(`<span class="`)
-		sb.WriteString(sp.cls)
-		sb.WriteString(`">`)
-		sb.WriteString(htmlEscape(code[sp.start:sp.end]))
-		sb.WriteString(`</span>`)
-		pos = sp.end
-	}
-	if pos < len(code) {
-		sb.WriteString(htmlEscape(code[pos:]))
-	}
-	return sb.String()
-}
-
-func isPrimitiveName(s string) bool {
-	switch s {
-	case "int", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
-		"float", "f32", "f64", "bool", "char", "string", "void", "ptr", "ref":
-		return true
-	}
-	return false
-}
-
-func htmlEscape(s string) string {
-	r := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		`"`, "&quot;",
-		"'", "&#39;",
-	)
-	return r.Replace(s)
 }

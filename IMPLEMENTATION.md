@@ -26,7 +26,8 @@ The compiler codebase is structured into cleanly decoupled packages under `inter
 ```
 Lowlight/
 ├── cmd/
-│   └── lowlight/                  # Main CLI (main.go, pkg.go, fmt.go, doc.go)
+│   ├── lowlight/                  # Main CLI (main.go, pkg.go, fmt.go, doc.go)
+│   └── lowlight-site/             # Website generator (`go run ./cmd/lowlight-site`)
 ├── internal/
 │   ├── diag/                      # Source positions, spans, error reporting, structured codes
 │   ├── token/                     # Token definitions, keywords, operator precedence
@@ -40,10 +41,12 @@ Lowlight/
 │   ├── codegen/                   # Direct LLVM IR (llvmgen.go), ISO C11 (cgen.go), & two-phase split units (split.go)
 │   ├── driver/                    # Manifest-aware orchestration, two-phase `.o` cache (incremental.go), package test runner
 │   ├── format/                    # Source formatter (`.lowlightfmt` + `[format]` in `lowlight.toml`)
-│   ├── docgen/                    # Package-aware HTML/Markdown doc generator & intra-doc link validator
+│   ├── docgen/                    # Doc-comment symbol index, intra-doc link resolution/validation, Markdown output
+│   ├── markdown/                  # Dependency-free Markdown renderer (blocks, GFM tables, doc-link hooks)
+│   ├── site/                      # Static documentation sites: `lowlight doc` package pages and the Lowlight website
 │   └── lsp/                       # Built-in Language Server Protocol (LSP 3.17) server
 ├── std/                           # Standard library package directories (`std/<pkg>/`)
-│   ├── core/                      # Implicit prelude (`core.ll`, `array.ll`, `list.ll`, `map.ll`, `set.ll`, `range.ll`, `result.ll`, `error.ll`, `primitives.ll`)
+│   ├── core/                      # Implicit prelude (`core.ll`, `interfaces.ll`, `array.ll`, `list.ll`, `map.ll`, `set.ll`, `range.ll`, `result.ll`, `error.ll`, `hash.ll`, `primitives.ll`)
 │   ├── chars/                     # Character classification & UTF-8 helpers
 │   ├── strings/                   # Extended string searching, splitting, trimming, and transformations
 │   ├── fs/                        # File system operations (`File`, `read_file`, `write_file`, `exists`)
@@ -56,10 +59,13 @@ Lowlight/
 │   ├── time/                      # `Instant`, `Duration`, and `DateTime` engine
 │   ├── net/                       # TCP stream, listener, and socketpair networking
 │   ├── http/                      # Full HTTP/1.1 and HTTPS client/server stack
+│   ├── json/                      # JSON values (hand-written, work in progress)
 │   └── test/                      # `@test` assertion & diff helpers
 ├── editors/
-│   ├── vscode/                    # Zero-NPM VS Code / Cursor extension
-│   └── nvim/                      # Neovim syntax highlighting
+│   ├── vscode/                    # Zero-NPM VS Code / Cursor extension with test controller
+│   ├── nvim/                      # Neovim syntax, indentation, LSP attach, neotest adapter
+│   └── jetbrains/                 # IntelliJ-platform plugin (native LSP or LSP4IJ, test runner)
+├── website/                       # Website content (Markdown) and Lowlight by Example programs
 ├── tests/                         # E2E test suites, ASan/UBSan harness, package & unit tests
 └── benchmarks/                    # Benchmark suite (fib, sieve, mandelbrot, matmul)
 ```
@@ -131,6 +137,8 @@ Error reporting is centralized in `internal/diag`. The `Reporter` records errors
 
 The reporter prints ANSI-colorized snippets with line numbers, source excerpts, and caret (`^---`) underlines pinpointing the exact offending token span.
 
+**Focused spans (`internal/sema/diag_focus.go`).** A type mismatch underlines the smallest sub-expression that has the wrong type (the branch of an `if`, the arm of a `match`, the operand of an operator) rather than the whole expression, and a non-exhaustive `match` or result chain underlines only its header up to the colon. The language server reports the same spans.
+
 ### 3.2 Lexer & Automatic Semicolon Insertion (`internal/lexer`)
 
 Lexical analysis operates in two distinct passes:
@@ -138,7 +146,7 @@ Lexical analysis operates in two distinct passes:
 #### Pass 1: Raw Scanning
 - Reads UTF-8 source bytes.
 - Identifies single-line comments (`//`) and multi-line comments (`/* ... */`).
-- Scans identifiers and applies the `OptIdent` lookahead rule: consumes trailing `?` into the identifier if followed by whitespace, EOF, delimiter, or dot, avoiding collision with `??`.
+- Scans identifiers and joins name suffixes: a `?` directly after an identifier becomes part of it (an `OptIdent`) unless it begins `??`; a `!` directly after an identifier becomes part of it unless it begins `!=` (Lowlight has no prefix `!`, so `cfg!.is_ok()` and `a!=b` are both unambiguous).
 - Scans numeric literals: decimal, hexadecimal (`0x`), and binary (`0b`).
 - Handles string literals and expands escape codes (`\n`, `\r`, `\t`, `\\`, `\'`, `\"`, `\0`, `\xHH`, `\u{HEX}`, `\$`).
 - Identifies string interpolation (`$ident`, `$self`, and `${expr}`). Inside `${...}`, the lexer pushes an interpolation delimiter onto its delimiter stack.
@@ -155,43 +163,50 @@ The lexer maintains a delimiter stack tracking open `{`, `(`, `[`, `#[`, and `${
 The parser combines top-down recursive descent for declarations and control structures with a Pratt operator-precedence parser for expressions.
 
 #### Speculative Lookahead
-The parser resolves grammatical ambiguities using backtracking with temporary diagnostic reporters:
-1. **Speculative Generic Invocations:** In expressions like `a < b > (c)`, the parser speculatively checks whether `ident[...]` constitutes a valid generic type argument list or relational operators.
-2. **Dangling `else` in `match` Arms:** When an `if` expression without braces occurs inside a `match` arm, an ensuing `else` followed by `:` or `<Pattern>:` belongs to the `match`, not the `if`. The parser speculatively checks for `<Pattern>:` to resolve the ambiguity correctly.
-3. **Empty Collection Ambiguity:** The empty token `#[ ]` produces an `ast.EmptyHashLit`. Semantic analysis resolves whether it represents an empty Set (`#[T]`) or an empty Map (`#[K: V]`) based on the expected type context.
+The parser resolves grammatical ambiguities with bounded lookahead and, where needed, backtracking with a temporary diagnostic reporter (`SPECIFICATION.md` §16 gives the normative rules):
+1. **Square brackets after an expression** (`looksLikeStructLitFields`, `looksLikeGenericTypeArgs`): `Type[field: ...]` or `Type[]` on a capitalized name is a struct literal; a bracket that parses as a list of types followed by `(`, a struct literal, or `.name` is type arguments (`size_of[int]()`, `List[int].new()`); anything else is an index or slice.
+2. **Parentheses** (`looksLikeFuncLit`): `(` followed by `)`, `name:` (other than a label before `{`, `for`, or `while`), or a receiver starts a function literal.
+3. **Result chains** (`isResultChainStart`, `isChainDefaultAt`): after a postfix expression, `:` starts a chain only when followed by `when`, or by `default` and then `:`, `panic` (not a call), or failure patterns ending in `:`.
+4. **Match arms** (`isMatchDefaultAt`): `default` begins the final arm when followed by `:` or by one pattern per subject and `:`; the `match` ends after that arm, so nested matches and chains never absorb an outer `match`'s arms.
+5. **Empty collections:** `#[]` produces an `ast.EmptyHashLit`; semantic analysis decides between an empty set and an empty map from the expected type.
 
 ---
 
 ## 4. Semantic Analysis & Type System (`internal/sema`)
 
-Semantic analysis is performed by `Analyzer` across 5 ordered passes:
+Semantic analysis is performed by `Analyzer`: a package loader followed by ordered declaration passes and body checking.
 
-### 4.1 The 5 Semantic Passes & Directory-as-Package Loader
+### 4.1 Semantic Passes & Directory-as-Package Loader
 
 1. **Pass 1: Package Graph, Manifest Discovery, & File Filtering:**
    - **Directory-as-Package:** Inside a `lowlight.toml` project/workspace, `std/<pkg>/`, or directory target, all active `.ll` files in a directory compile into one shared `Package` namespace (`Types`, `Symbols`, `Generic*` maps aliased across sibling `*Module`s), enabling mutual cross-file recursion and package-wide `_` privacy while keeping `import` bindings file-scoped. Standalone `.ll` scripts outside manifests remain isolated single-file packages.
    - **Target & Test File Filtering:** Excludes `*_test.ll` outside `TestMode` and filters OS/arch suffixed files (`_linux.ll`, `_darwin.ll`, `_windows.ll`, `_unix.ll`, `_amd64.ll`, `_arm64.ll`, `<stem>_<os>_<arch>.ll`) against the resolved target triple.
    - **Strict Extensionless Qualified Imports & DAG Cycles:** Resolves extensionless directory imports (`"std/math"`, `"myapp/lexer"`, `"dep/subpkg"`, or relative `"./dir"` for standalone scripts), rejects `.ll` suffixes with migration hints, enforces unique per-file qualifiers (normalizing `-` to `_`), rejects importing binary (`main`) packages, enforces `[dev-dependencies]` isolation in production code, and reports full inter-package import cycle chains (`a -> b -> a`).
    - **Canonical `PackageID` Mangling:** Assigns collision-free sanitized C/LLVM prefixes derived from canonical `PackageID` + deterministic SHA-256 disambiguation so identically named directories (`a/util` vs `b/util`) never collide at link time.
-2. **Pass 2: Nominal Type Headers:** Registers names and type structures for all `struct`, `enum`, `interface`, and distinct types across all loaded packages before inspecting function bodies.
-3. **Pass 3: Interface Collection & Global Method Tables:** Collects interface method signatures, inherent methods, and permissive cross-package extension methods (`bind pkg.Type.method = ...`), rejecting duplicate method collisions with diagnostics naming both binding sites while preserving leading-`_` and sealed-interface restrictions.
-4. **Pass 4: Topological Constant Evaluation:** Constructs a directed dependency graph of all top-level `bind` constants. Performs topological sorting (Tarjan's algorithm) to compute initialization order. Detects and reports cyclic dependency loops with exact cycle paths.
-5. **Pass 5: Function Body Analysis & Worklist Monomorphizer:** Recursively type-checks function and method bodies, tracks variable lifecycles, and instantiates generic templates on demand.
+2. **Declaration passes (`types_pass.go`):**
+   - *1A, integer constants:* evaluates `bind NAME = <integer constant expression>` so array sizes and explicit enum values can use them;
+   - *1B, type headers:* registers every `struct`, `enum`, `result`, `interface`, and distinct type in every package, so declarations are order-independent;
+   - *1C, type bodies:* resolves distinct bases, enum variants, result members (`checkResultDecl`: exactly one `value` member and at least one failure), interface signatures, and struct fields;
+   - *1D, recursion:* rejects types that contain themselves by value and marks structs reachable from themselves through `?T` as `BoxedOptional`;
+   - *1E, signatures:* registers functions, methods (including cross-package extension methods, rejecting duplicate method names with both sites reported), constants, and `extern` declarations, and enforces the `?`/`!` naming rules (`checkOptionalIdentRule`, `checkResultIdentRule`) and `_` privacy.
+3. **Constant ordering:** builds the dependency graph of top-level `bind` constants, orders initialization topologically, and reports cycles with the full path.
+4. **Body checking and worklist monomorphization:** type-checks every function and method body, tracks ownership (§4.3–4.5), checks exhaustiveness of `match` and result chains, resolves bare variant patterns and bare result constructors, and instantiates generic templates on demand.
 
 ### 4.2 Worklist Monomorphization
 
 Generic functions, structs, and enums are represented as AST templates (`GenericFuncTemplate`, `GenericStructTemplate`, `GenericEnumTemplate`).
-- When a generic call or instantiation is encountered (e.g., `Result[string, int].ok(...)` or `print_all[int](list)`), the analyzer computes concrete type arguments.
+- When a generic call or instantiation is encountered (e.g., `Result[string].value(...)` or `print_all[int](list)`), the analyzer computes concrete type arguments.
 - It queries the cache (`Instantiations`). If not present, it creates a new concrete `FuncInstance` or `types.Struct`/`types.Enum`, assigns a mangled C name, adds it to the worklist, and type-checks the monomorphized body.
 - **Recursion Depth Guard:** `const MaxMonomorphDepth = 128`. If nested generic instantiations exceed 128 levels, compilation aborts with a recursion limit error, preventing infinite compile-time expansion.
 
 ### 4.3 Move State Machine & Affine Tracking
 
-The `funcChecker` maintains a lifecycle state map for all local variables:
-- **`BindOwned`:** Variable owns an active Resource.
-- **`BindMoved`:** Variable was moved; subsequent reads, re-borrows, or moves produce compile errors.
-- **Branch Merging:** When analyzing `if/else` or `match` blocks:
-  - If a variable is moved in *any* branch, it is marked moved after the conditional unless it is reassigned on *all* branches.
+The `funcChecker` maintains a `MoveState` for every local resource variable:
+- **`MoveAlive`:** the variable owns its value.
+- **`MoveMoved`:** the value was moved on every path; reads, borrows, and moves are errors until the variable is assigned again.
+- **`MoveMaybeMoved`:** the value was moved on some paths; it is treated as unusable, but still destroyed on the paths where it was not moved.
+- **Branch Merging:** at the join after `if`/`else`, `match`, and result chains, the incoming states are merged (moved everywhere gives `MoveMoved`, somewhere gives `MoveMaybeMoved`). Paths that end in `never` (an unwind, `panic`, `exit`) are excluded from the merge.
+- **Fields:** a field can be moved out only of an `own self` receiver, which consumes `self`.
 - **Loop Move Restrictions:** Moving an outer Resource variable inside a loop body without immediate reassignment is a compile error, as the second iteration would encounter an uninitialized value.
 
 ### 4.4 Borrow Exclusivity & Alias Checker
@@ -222,18 +237,18 @@ C requires types to be declared before they are used by value. The `typeCollecto
 - Distinguishes value dependencies (struct $A$ contains struct $B$ inline) from pointer dependencies (struct $A$ contains `?B` or `ptr[B]`).
 - Performs a topological sort on value dependencies, guaranteeing that all C structs and unions are defined in valid dependency order.
 
-### 5.2 Local Slots & `NeedsMovedFlag` Optimization
+### 5.2 Local Slots, Move Zeroing, & Drop Flags
 
-Every local variable and temporary is assigned an `ir.Slot`.
-- If an owned Resource variable can be conditionally moved across branches, the IR allocates a boolean flag `_ll_moved_<var>` to track whether the variable requires destruction at scope exit.
-- **Optimization:** If static analysis proves a variable is always initialized and never moved, or always moved on all execution paths, the boolean flag is eliminated (`NeedsMovedFlag == false`), reducing C runtime overhead.
+Every local variable and temporary is an `ir.Local`.
+- **Move zeroing:** a move writes the inert value into its source (null data with `cap = 0` for strings and vectors, tag `0` for tagged unions, `has_value = false` for optionals), so the scope-exit drop of a moved or maybe-moved variable is a no-op. No runtime bookkeeping is needed for most types.
+- **Drop flags:** a struct with a custom `Drop`, whose zeroed form could still be meaningful, gets a boolean `MovedFlag` local recording whether it was moved.
 
-### 5.3 Partial Enum Move & Sibling Drops
+### 5.3 Moving Payloads Out of Enums
 
-When lowering `match` patterns that destructure a tagged union with `own` on a specific field (e.g., `when Msg.Data[own payload, id]:`):
-1. The IR assigns the target field to `payload`.
-2. The IR immediately emits drop calls for all sibling fields that are Resources (e.g., dropping `id` if Resource).
-3. The IR marks the parent enum moved so its container destructor will not double-free the payload.
+When lowering a `match` arm that moves a payload out with `own` (e.g., `when data(own payload):`):
+1. The IR moves the active payload into the binding `payload`.
+2. It zeroes the subject's tag to `0` so the enum's destructor will not free the payload again.
+3. For result chains, the implicit success arm moves the `value` payload out the same way.
 
 ### 5.4 LIFO Unwind Lowering
 
@@ -299,21 +314,22 @@ The C11 code generator (`cEmitter`) emits a single, self-contained `.c` file org
 | `f32` | `float` |
 | `bool` | `bool` (`<stdbool.h>`) |
 | `char` | `uint32_t` |
-| `string` | `ll_str` (`{ const char* data; int64_t len; int64_t cap; }`) |
-| `[T]` | `ll_vec` (`{ void* data; int64_t len; int64_t cap; }`) |
-| `[N: T]` | `typedef struct { T elems[N]; } ll_arr_*;` (wrapped in struct for value semantics) |
-| `#[T]` | `ll_set` (Robin Hood hash table) |
-| `#[K: V]` | `ll_map` (Robin Hood hash table with insertion ordering) |
-| `?T` (Plain $T$) | `struct { bool has_val; T val; }` |
+| `string` | `ll_string` (`{ uint8_t* data; int64_t len; int64_t cap; }`; `cap == 0` is a borrowed view) |
+| `[T]` | per-element-type struct `{ T* data; int64_t len; int64_t cap; }` |
+| `[N: T]` | `struct { T data[N]; }` (wrapped in a struct for value semantics) |
+| `#[T]` | hash set: bucket index array + insertion-ordered entry array (`{ alive, hash, key }`) |
+| `#[K: V]` | hash map: bucket index array + insertion-ordered entry array (`{ alive, hash, key, value }`) |
+| `?T` (Plain $T$) | `struct { bool has_value; T value; }` |
 | `?T` (Boxed $T$) | `T*` (pointer with `NULL` representing `none`) |
-| Tagged Enum | `struct { int32_t tag; union { ... } data; }` |
-| Interface | `struct { void* obj; const VTable* vtable; bool is_owned; }` |
-| Function Type | `struct { Ret (*fn)(void* env, ...); void* env; void (*drop_env)(void*); void* (*copy_env)(void*); }` |
+| Tag Enum | the declared integer type (default `int64_t`) |
+| Tagged Enum / result | `struct { int32_t tag; union { ... } data; }`, tags numbered from 1, tag 0 inert |
+| Interface | `struct { void* data; const VTable* vtable; bool owned; }` |
+| Function Type | `struct { Ret (*fn)(void* env, ...); void* env; void* (*copy_env)(const void*); void (*drop_env)(void*); }` |
 | `Arena` | `ll_arena` (chunked bump pointer list with destructor list) |
 | `ref[T]` | `T*` |
 | `ptr[T]` | `T*` |
 
-### 6.1 Core Built-in Interfaces & Dynamic Dispatch
+### 6.4 Core Built-in Interfaces & Dynamic Dispatch
 The standard library defines universal interfaces in `std/core/interfaces.ll` hooked directly into the compiler via `@lang(...)`:
 - **`@lang("indexable") Indexable[T]`**: Exposes `len: (self): int` and `get: (self, idx: int): ?T`. Implemented inherently by `List[T]` / `[T]`, `Array` / `[N: T]`, `string` (`Indexable[u8]`), and custom sequence types with integer index.
 - **`@lang("key_indexable") KeyIndexable[K, V]`**: Exposes `len: (self): int`, `has: (self, key: K): bool`, and `get: (self, key: K): ?V`. Implemented inherently by `Map[K, V]` / `#[K: V]` and custom associative types, avoiding accidental structural collision with positional sequence indexing.
@@ -329,7 +345,7 @@ The runtime is an inlined C library embedded into every compiled binary.
 ### 7.1 Memory Allocator & Leak Checker
 
 All allocations route through runtime macros:
-- `ll_alloc(size)`: Wraps `malloc`. If `LOWLIGHT_CHECK_LEAKS=1` is enabled at runtime, it increments `ll_rt_live_allocs` and tracks total bytes allocated.
+- `ll_alloc(size)`: Wraps `calloc` (zeroed memory); `ll_alloc_uninit` wraps `malloc`. Every allocation increments `ll_rt_live_allocs`. On allocation failure the runtime flushes standard output, prints `lowlight panic: out of memory (requested N bytes)`, and aborts.
 - `ll_free(p)`: Wraps `free` and decrements `ll_rt_live_allocs`.
 - `ll_check_leaks_at_exit()`: Invoked at the very end of `main()`. If `LOWLIGHT_CHECK_LEAKS=1` is set and `ll_rt_live_allocs != 0`, it prints an error detailing the leak count and aborts with exit code `99`.
 
@@ -339,20 +355,23 @@ Arithmetic macros prevent undefined behavior:
 - `LL_DIV(a, b)`: Traps with panic message if `b == 0`. Handles `INT64_MIN / -1` by wrapping to `INT64_MIN`.
 - `LL_MOD(a, b)`: Traps if `b == 0`. Handles `INT64_MIN % -1` by returning `0`.
 - `LL_LSHIFT(a, s)` / `LL_RSHIFT(a, s)`: Traps if $s < 0$ or $s \ge 64$.
-- `LL_BOUNDS_CHECK(idx, len)`: Traps if `idx < 0 || idx >= len` with `"index out of bounds"`.
-- `LL_SLICE_CHECK(lo, hi, len)`: Traps if `lo < 0 || hi < lo || hi > len` with `"slice range out of bounds"`.
+- `ll_check_bounds(idx, len, file, line)`: Traps if `idx < 0 || idx >= len` with `index I out of bounds for length L`.
+- Slice checks trap if `lo < 0 || hi < lo || hi > len` with `vector slice bounds out of range` or `string slice bounds out of range`.
+
+Every trap prints `lowlight panic at FILE:LINE: message` after flushing standard output and exits with status 1; under the test runner it `longjmp`s back to the runner, which records the failure and continues (`SPECIFICATION.md` §19 and Appendix D).
 
 ### 7.3 Strings & Vectors
 
 - **Zero-Copy Views:** String and vector slices use `cap = 0` as a sentinel indicating a borrowed, non-owning view. The destructor checks `if (v.cap > 0) ll_free(v.data);`, ensuring borrowed views are never freed.
 - **Copy-on-Write (CoW) Mutation:** Mutating operations (`push`, `insert`, string append) check if the backing buffer is a view (`cap == 0`). If so, they immediately allocate an independent heap buffer and copy the data before mutating.
 
-### 7.4 Robin Hood Hash Tables
+### 7.4 Insertion-Ordered Hash Tables
 
-Sets and Maps use an open-addressing Robin Hood hash table with backward-shift deletion:
-- Hash functions: FNV-1a for strings; SplitMix64 for integers.
-- **Insertion Ordering:** Maps maintain an array of insertion entries, guaranteeing predictable `for (k, v in map)` iteration order matching insertion sequence.
-- **Tombstone Compaction:** Deletion shifts subsequent elements backward to eliminate tombstones, preventing lookup degradation across frequent insert/delete cycles.
+Sets and maps are open-addressing hash tables with two arrays (`internal/codegen/cgen_collections.go` and the LLVM equivalent):
+- **Entries** are appended in insertion order (`{ alive, hash, key[, value] }`), which makes iteration order deterministic: `for(k, v in map)` visits keys in the order they were first inserted.
+- **Buckets** hold indexes into the entry array, found by linear probing from `hash & mask`. Deleting marks the entry dead and its bucket as a tombstone (`-2`).
+- The bucket array doubles when the load passes 70%, rehashing live entries.
+- Hashes come from the `Hashable` implementations in `std/core/hash.ll` (SplitMix64 mixing for integers) and user `hash` methods.
 
 ### 7.5 Chunked Bump Arena
 
@@ -423,7 +442,7 @@ For multi-package builds on both the LLVM IR and ISO C11 backends, the driver pa
 
 ## 9. Standard Library Implementation Architecture (`std/`)
 
-The Lowlight standard library is organized as 14 directory-as-package modules under `std/<pkg>/` implemented in pure Lowlight, imported via extensionless qualified paths (`import "std/<pkg>"`):
+The Lowlight standard library is organized as 15 directory-as-package modules under `std/<pkg>/` implemented in pure Lowlight, imported via extensionless qualified paths (`import "std/<pkg>"`):
 
 | Package | Description |
 | :--- | :--- |
@@ -441,6 +460,7 @@ The Lowlight standard library is organized as 14 directory-as-package modules un
 | `std/net/` | RAII-managed `TcpStream`, `TcpListener`, and in-memory `SocketPair` |
 | `std/http/` | HTTP/1.1 & HTTPS client/server, `ServeMux`, `ResponseWriter`, URL parser, test utilities |
 | `std/test/` | `@test` assertions (`assert_eq`, `assert_is_ok`, `assert_approx_eq`) with caller-tracked diffs |
+| `std/json/` | JSON values and conversion (hand-written work in progress) |
 
 ---
 
@@ -462,38 +482,64 @@ When the user types `expr.` or `expr?.`, the buffer contains incomplete syntax. 
 4. Emits matching methods, fields, and snippets.
 5. If the receiver is optional (`user?`), it automatically supplies `additionalTextEdits` to convert `.` to `?.`.
 
-### 10.3 The 8 Quick-Fix Code Actions
+### 10.3 Code Actions
 
-The LSP server provides automatic code-repair actions:
-1. Insert `&` at call site when an argument borrows mutably.
-2. Remove redundant `&` when an argument borrows read-only.
-3. Prefix `own ` or append `.copy()` on consuming parameters.
-4. Rename `x` to `x?` when an optional variable lacks `?`.
-5. Rename `x?` to `x` when a non-optional variable ends with `?`.
-6. Replace `!` with `not `.
-7. Insert missing trailing comma in multiline collection or argument lists.
-8. Insert `?` for `?.` optional chaining on optional types.
+Diagnostics carry structured data that code actions turn into edits (`code_actions.go`, `quickfix_data.go`, `codegen_more.go`). Every generated edit is formatted exactly as `lowlight fmt` would format it.
+- **Quick fixes:** insert `&` or `own` at a call site, or `.copy()`; remove a redundant `&`; rename a variable to add or remove its `?` or `!` suffix everywhere it is used; replace `!` with `not `; insert a missing trailing comma; use `?.` on an optional; add missing `match` arms or result-chain failures; add missing struct fields; implement missing interface methods; turn a top-level `let` into `bind`; wrap an operation in `unsafe`; add `@must_use`; add a missing import.
+- **Generators:** `Implement <Iface> for <Type>`, a `<Type>.new` constructor, a doc comment skeleton, and `@test` scaffolds for functions and methods.
+- **Refactorings:** extract variable, extract function, toggle a `{ ... }` single-expression body, flip `if`/`else`, add an explicit `: Type`.
 
-### 10.4 Zero-NPM VS Code Extension (`editors/vscode/`)
+### 10.4 Editor Integrations (`editors/`)
+
+All editors talk to the same server, and all run tests through `lowlight test --json` (`internal/driver/test_json.go`), which streams one JSON event per test (discovery, start, pass, fail with message and location).
+- **Neovim (`editors/nvim/`):** syntax, formatter-matching `indentexpr`, an `ftplugin` that attaches the server in any configuration, and a neotest adapter.
+- **JetBrains (`editors/jetbrains/`):** a Kotlin plugin using the platform's native LSP client when available and LSP4IJ otherwise, with run configurations, gutter run markers, and a test runner bridge that shows failures at their source location.
+
+#### VS Code (`editors/vscode/`)
 
 The VS Code extension (`editors/vscode/lowlight/extension.js`) is written in pure CommonJS using only the built-in VS Code API and Node's `child_process`:
 - Zero `node_modules` and zero build steps required.
 - Implements custom framing over the `lowlight lsp` standard I/O stream.
-- Includes a TextMate grammar (`syntaxes/lowlight.tmLanguage.json`), code snippets, language configuration, and packaging script (`package_vsix.py`).
+- Includes a TextMate grammar (`syntaxes/lowlight.tmLanguage.json`), code snippets, language configuration, a Testing-panel controller (`test_controller.js`), and packaging script (`package_vsix.py`).
 
 ---
 
-## 11. Verification, Testing, & Benchmarks
+## 11. Documentation Toolchain (`internal/docgen`, `internal/markdown`, `internal/site`)
 
-### 11.1 Test Harness & Sanitizers
+Documentation has two products built on one generator:
+
+- **`lowlight doc`** documents any Lowlight project: one HTML page per package (overview, index, constants, functions, types with fields, variants, and methods, and methods added to other packages' types), highlighted source pages with line anchors, and client-side search.
+- **The Lowlight website** (`go run ./cmd/lowlight-site -o docs`) adds the tour, tutorials, guides, Lowlight by Example, the specification split into one page per chapter, the style guide, this implementation guide, version history, and the standard library reference.
+
+The pieces:
+
+1. **`internal/docgen`** parses and tolerantly type-checks sources (`docgen.Load`), builds the `SymbolIndex` of every documented declaration, resolves ``[`Symbol`]`` links the way names resolve in code, and validates them (`--check-links`). The language server uses the same index for hover documentation. `--format md` output is also written here.
+2. **`internal/markdown`** is a dependency-free renderer: ATX headings with GitHub-style ids, paragraphs, nested ordered and unordered lists (tight and loose), block quotes with callout classes, fenced and indented code, GFM tables (with escaped pipes inside code), raw HTML blocks, front matter, and inline code, links, images, emphasis, and strikethrough. Hooks highlight code, rewrite link destinations, and resolve symbol references.
+3. **`internal/site`** assembles pages and writes the site:
+   - `site.go`: the page model; a two-pass build that first records every document's heading anchors and then renders with links rewritten, so `#61-bodies` in the specification resolves to the page that now holds that chapter; prev/next links; and a post-build link checker that verifies every relative `href` and fragment.
+   - `highlight.go`: syntax highlighting using the real Lowlight lexer, plus TOML, shell, and EBNF.
+   - `api.go`, `apidocs.go`: package pages from the symbol index, shared by `lowlight doc` and the website.
+   - `examples.go`, `run_examples.go`: Lowlight by Example pages from annotated `.ll` files and their `.out` outputs.
+   - `website.go`: the website's sections and sources.
+   - `theme.go`, `search.go`, `assets/`: the page shell, header navigation, sidebars, on-page table of contents, light and dark themes, copy buttons, and keyboard-driven search over a generated index. Output is static and works from `file://`.
+
+`tests/website_test.go` compiles and runs every complete program in the website's Markdown (comparing against its `output` block), runs every example against its `.out` file, and builds the site with link checking.
+
+---
+
+## 12. Verification, Testing, & Benchmarks
+
+### 12.1 Test Harness & Sanitizers
 
 The test suite in `tests/` executes with Clang sanitizers and exact leak detection:
 - `strictCFlags = ["-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined"]`
 - `LOWLIGHT_CHECK_LEAKS=1`: Verifies that `ll_rt_live_allocs == 0` upon process exit.
 - `tests/e2e_test.go`: Comprehensive end-to-end showcase tests across both debug and release configurations.
 - `tests/language_upgrades_test.go`: Exhaustive positive and negative tests for tagged union destructuring, scoped arena pinning, and release trap preservation.
+- `tests/website_test.go`: every runnable example in the website and Lowlight by Example, plus a full site build with link checking.
+- Tests run with `t.Parallel()`; the full `go test ./...` takes about a minute.
 
-### 11.2 Benchmark Results
+### 12.2 Benchmark Results
 
 Lowlight's benchmark suite (`benchmarks/`) compares native Lowlight against native C (compiled with Clang `-O2` and `-O3`) and Go 1.25 across four compute workloads:
 
