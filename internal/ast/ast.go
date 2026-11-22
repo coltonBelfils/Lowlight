@@ -209,7 +209,7 @@ func (d *DistinctTypeDecl) GetSpan() diag.Span          { return d.Span }
 func (d *DistinctTypeDecl) GetAttributes() []Attribute  { return d.Attributes }
 func (d *DistinctTypeDecl) SetAttributes(a []Attribute) { d.Attributes = a }
 
-// MethodDecl: `bind Point.translate = (&self, dx: int, dy: int) { ... }`
+// MethodDecl: `bind Point.translate = fn(&self, dx: int, dy: int): { ... }`
 // Also supports generic receivers `bind Pair[A, B].swap[C] = ...`
 type MethodDecl struct {
 	RecvModule     string // optional imported package qualifier in `bind pkg.Type.method = ...`
@@ -354,11 +354,12 @@ type TupleType struct {
 func (*TupleType) typeNode()            {}
 func (t *TupleType) GetSpan() diag.Span { return t.Span }
 
-// FuncType: `(int, int): int` or `(Event)` or `()`
+// FuncType: `fn(int, int) int`, `cl(Event)`, or `fn()`
 type FuncType struct {
-	Params []Param
-	Ret    TypeExpr // nil for void function type
-	Span   diag.Span
+	Params  []Param
+	Ret     TypeExpr // nil for void function type
+	Closure bool     // `cl(...)`: a closure; otherwise `fn(...)`: a function with no captures
+	Span    diag.Span
 }
 
 func (*FuncType) typeNode()            {}
@@ -719,12 +720,13 @@ type StructLit struct {
 func (*StructLit) exprNode()            {}
 func (e *StructLit) GetSpan() diag.Span { return e.Span }
 
-// FuncLit: `(a: int, b: int): int { a + b }`
+// FuncLit: `fn(a: int, b: int) int: a + b` or `cl(x: int) int: x + offset`
 type FuncLit struct {
-	Params []Param
-	Ret    TypeExpr // nil for void
-	Body   Expr
-	Span   diag.Span
+	Params  []Param
+	Ret     TypeExpr // nil for void
+	Body    Expr
+	Closure bool // `cl(...)`: may capture; otherwise `fn(...)`: captures nothing
+	Span    diag.Span
 }
 
 func (*FuncLit) exprNode()            {}

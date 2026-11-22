@@ -4,17 +4,17 @@
 
 // A parameter normally borrows read-only. `&T` borrows mutably,
 // and the caller must write `&` too, so changes are visible.
-bind total = (xs: [int]) int: {
+bind total = fn(xs: [int]) int: {
 	let t = 0
 	for(x in xs): t += x
 	t
 }
 
-bind double_all = (xs: &[int]): {
+bind double_all = fn(xs: &[int]): {
 	for(&x in xs): x *= 2
 }
 
-bind main = (): {
+bind main = fn(): {
 	let nums = [1, 2, 3]
 	println(total(nums))
 	double_all(&nums)

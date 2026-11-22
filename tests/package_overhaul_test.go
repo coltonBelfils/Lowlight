@@ -25,23 +25,23 @@ name = "myapp"
 version = "0.1.0"
 `)
 	writeTestFile(t, tmp, "parity/even.ll", `
-bind is_even = (n: int) bool: {
+bind is_even = fn(n: int) bool: {
 	if (n == 0): true
 	else: _is_odd(n - 1)
 }
 `)
 	writeTestFile(t, tmp, "parity/odd.ll", `
-bind _is_odd = (n: int) bool: {
+bind _is_odd = fn(n: int) bool: {
 	if (n == 0): false
 	else: is_even(n - 1)
 }
 
-bind is_odd = (n: int) bool: _is_odd(n)
+bind is_odd = fn(n: int) bool: _is_odd(n)
 `)
 	writeTestFile(t, tmp, "main.ll", `
 import "myapp/parity"
 
-bind main = (): {
+bind main = fn(): {
 	assert(parity.is_even(10))
 	assert(not parity.is_even(7))
 	assert(parity.is_odd(9))
@@ -57,8 +57,8 @@ bind main = (): {
 	// Duplicate top-level declaration across two sibling files in the same package directory must fail.
 	dupDir := t.TempDir()
 	writeTestFile(t, dupDir, "lowlight.toml", "[package]\nname = \"dupapp\"\n")
-	writeTestFile(t, dupDir, "a.ll", "bind shared = () int: 1\nbind main = (): {}\n")
-	writeTestFile(t, dupDir, "b.ll", "bind shared = () int: 2\n")
+	writeTestFile(t, dupDir, "a.ll", "bind shared = fn() int: 1\nbind main = fn(): {}\n")
+	writeTestFile(t, dupDir, "b.ll", "bind shared = fn() int: 2\n")
 	_, _, err := driver.Check(driver.Options{EntryPath: dupDir, ProjectRoot: root})
 	if err == nil {
 		t.Fatal("expected duplicate declaration error across sibling files, got nil")
@@ -78,11 +78,11 @@ func TestPackageStrictQualifiedImportsAndErrors(t *testing.T) {
 	// 2a. Hyphen normalization (`my-util` -> `my_util`) and explicit `as` alias
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, "lowlight.toml", "[package]\nname = \"demo\"\n")
-	writeTestFile(t, tmp, "my-util/util.ll", "bind answer = () int: 42\n")
+	writeTestFile(t, tmp, "my-util/util.ll", "bind answer = fn() int: 42\n")
 	writeTestFile(t, tmp, "main.ll", `
 import "demo/my-util"
 
-bind main = (): {
+bind main = fn(): {
 	assert(my_util.answer() == 42)
 	println("hyphen_ok")
 }
@@ -93,7 +93,7 @@ bind main = (): {
 
 	// 2b. Legacy `.ll` import rejected with migration hint
 	tmpLL := t.TempDir()
-	writeTestFile(t, tmpLL, "main.ll", "import \"std/math.ll\"\nbind main = (): {}\n")
+	writeTestFile(t, tmpLL, "main.ll", "import \"std/math.ll\"\nbind main = fn(): {}\n")
 	_, _, err := driver.Check(driver.Options{EntryPath: filepath.Join(tmpLL, "main.ll"), ProjectRoot: root})
 	if err == nil || !strings.Contains(err.Error(), "without the `.ll` extension") || !strings.Contains(err.Error(), `import "std/math"`) {
 		t.Fatalf("expected .ll migration error+hint, got: %v", err)
@@ -102,9 +102,9 @@ bind main = (): {
 	// 2c. Duplicate default qualifier collision error + `as` hint
 	tmpCol := t.TempDir()
 	writeTestFile(t, tmpCol, "lowlight.toml", "[package]\nname = \"col\"\n")
-	writeTestFile(t, tmpCol, "a/util/u.ll", "bind x = () int: 1\n")
-	writeTestFile(t, tmpCol, "b/util/u.ll", "bind y = () int: 2\n")
-	writeTestFile(t, tmpCol, "main.ll", "import \"col/a/util\"\nimport \"col/b/util\"\nbind main = (): {}\n")
+	writeTestFile(t, tmpCol, "a/util/u.ll", "bind x = fn() int: 1\n")
+	writeTestFile(t, tmpCol, "b/util/u.ll", "bind y = fn() int: 2\n")
+	writeTestFile(t, tmpCol, "main.ll", "import \"col/a/util\"\nimport \"col/b/util\"\nbind main = fn(): {}\n")
 	_, _, err = driver.Check(driver.Options{EntryPath: tmpCol, ProjectRoot: root})
 	if err == nil || !strings.Contains(err.Error(), "qualifier") || !strings.Contains(err.Error(), "as ") {
 		t.Fatalf("expected qualifier collision diagnostic with `as` hint, got: %v", err)
@@ -113,8 +113,8 @@ bind main = (): {
 	// 2d. Relative `./` import inside a `lowlight.toml` project rejected
 	tmpRel := t.TempDir()
 	writeTestFile(t, tmpRel, "lowlight.toml", "[package]\nname = \"relproj\"\n")
-	writeTestFile(t, tmpRel, "sub/s.ll", "bind x = () int: 1\n")
-	writeTestFile(t, tmpRel, "main.ll", "import \"./sub\"\nbind main = (): {}\n")
+	writeTestFile(t, tmpRel, "sub/s.ll", "bind x = fn() int: 1\n")
+	writeTestFile(t, tmpRel, "main.ll", "import \"./sub\"\nbind main = fn(): {}\n")
 	_, _, err = driver.Check(driver.Options{EntryPath: tmpRel, ProjectRoot: root})
 	if err == nil || !strings.Contains(err.Error(), "relative") {
 		t.Fatalf("expected relative import rejection inside lowlight.toml, got: %v", err)
@@ -123,9 +123,9 @@ bind main = (): {
 	// 2e. Inter-package import cycle chain diagnostic (`cyc/a -> cyc/b -> cyc/a`)
 	tmpCyc := t.TempDir()
 	writeTestFile(t, tmpCyc, "lowlight.toml", "[package]\nname = \"cyc\"\n")
-	writeTestFile(t, tmpCyc, "a/a.ll", "import \"cyc/b\"\nbind fa = () int: b.fb()\n")
-	writeTestFile(t, tmpCyc, "b/b.ll", "import \"cyc/a\"\nbind fb = () int: a.fa()\n")
-	writeTestFile(t, tmpCyc, "main.ll", "import \"cyc/a\"\nbind main = (): { println(a.fa()) }\n")
+	writeTestFile(t, tmpCyc, "a/a.ll", "import \"cyc/b\"\nbind fa = fn() int: b.fb()\n")
+	writeTestFile(t, tmpCyc, "b/b.ll", "import \"cyc/a\"\nbind fb = fn() int: a.fa()\n")
+	writeTestFile(t, tmpCyc, "main.ll", "import \"cyc/a\"\nbind main = fn(): { println(a.fa()) }\n")
 	_, _, err = driver.Check(driver.Options{EntryPath: tmpCyc, ProjectRoot: root})
 	if err == nil || !strings.Contains(err.Error(), "cyclic package import") || !strings.Contains(err.Error(), "cyc/a -> cyc/b -> cyc/a") {
 		t.Fatalf("expected cyclic package import chain diagnostic, got: %v", err)
@@ -134,8 +134,8 @@ bind main = (): {
 	// 2f. Importing a binary package that defines `main` is rejected
 	tmpBin := t.TempDir()
 	writeTestFile(t, tmpBin, "lowlight.toml", "[package]\nname = \"binimp\"\n")
-	writeTestFile(t, tmpBin, "app/main.ll", "bind main = (): {}\nbind hi = () int: 1\n")
-	writeTestFile(t, tmpBin, "main.ll", "import \"binimp/app\"\nbind main = (): { println(app.hi()) }\n")
+	writeTestFile(t, tmpBin, "app/main.ll", "bind main = fn(): {}\nbind hi = fn() int: 1\n")
+	writeTestFile(t, tmpBin, "main.ll", "import \"binimp/app\"\nbind main = fn(): { println(app.hi()) }\n")
 	_, _, err = driver.Check(driver.Options{EntryPath: tmpBin, ProjectRoot: root})
 	if err == nil || !strings.Contains(err.Error(), "main") {
 		t.Fatalf("expected error importing binary package defining main, got: %v", err)
@@ -150,17 +150,17 @@ func TestPackageCanonicalSymbolManglingNoCollision(t *testing.T) {
 	writeTestFile(t, tmp, "lowlight.toml", "[package]\nname = \"mangle\"\n")
 	writeTestFile(t, tmp, "a/util/util.ll", `
 define Box struct [val: int]
-bind make_box = (x: int) Box: Box[val: x + 10]
+bind make_box = fn(x: int) Box: Box[val: x + 10]
 `)
 	writeTestFile(t, tmp, "b/util/util.ll", `
 define Box struct [val: int]
-bind make_box = (x: int) Box: Box[val: x * 10]
+bind make_box = fn(x: int) Box: Box[val: x * 10]
 `)
 	writeTestFile(t, tmp, "main.ll", `
 import "mangle/a/util" as au
 import "mangle/b/util" as bu
 
-bind main = (): {
+bind main = fn(): {
 	let x = au.make_box(5)
 	let y = bu.make_box(5)
 	assert(x.val == 15)
@@ -183,7 +183,7 @@ func TestPackageTestFilesDevDepsAndTargetSuffixes(t *testing.T) {
 
 	// External dev-dependency package
 	writeTestFile(t, tmp, "mockkit/lowlight.toml", "[package]\nname = \"mockkit\"\n")
-	writeTestFile(t, tmp, "mockkit/mock.ll", "bind magic = () int: 777\n")
+	writeTestFile(t, tmp, "mockkit/mock.ll", "bind magic = fn() int: 777\n")
 
 	// Main project using `mockkit` strictly in [dev-dependencies]
 	projDir := filepath.Join(tmp, "svc")
@@ -196,14 +196,14 @@ version = "0.1.0"
 mockkit = { path = "../mockkit" }
 `)
 	writeTestFile(t, projDir, "corelib/corelib.ll", `
-bind _lib_base = () int: 700
-bind compute = (delta: int) int: _lib_base() + delta
+bind _lib_base = fn() int: 700
+bind compute = fn(delta: int) int: _lib_base() + delta
 `)
 	writeTestFile(t, projDir, "svc.ll", `
 import "svc/corelib"
 
-bind _secret_base = () int: 700
-bind main = (): {
+bind _secret_base = fn() int: 700
+bind main = fn(): {
 	println("svc=${corelib.compute(77)}")
 }
 `)
@@ -212,7 +212,7 @@ import "mockkit"
 import "std/test"
 
 @test("white-box unit test uses private helper and dev-dependency")
-bind test_whitebox = (): {
+bind test_whitebox = fn(): {
 	test.assert_eq(_secret_base() + 77, mockkit.magic())
 }
 `)
@@ -222,7 +222,7 @@ import "mockkit"
 import "std/test"
 
 @test("black-box integration test imports dev-dependency")
-bind test_integ = (): {
+bind test_integ = fn(): {
 	test.assert_eq(corelib.compute(77), mockkit.magic())
 }
 `)
@@ -257,7 +257,7 @@ mockkit = { path = "../mockkit" }
 	writeTestFile(t, badProdDir, "main.ll", `
 import "mockkit"
 
-bind main = (): {
+bind main = fn(): {
 	println(mockkit.magic())
 }
 `)
@@ -269,13 +269,13 @@ bind main = (): {
 	// OS / Arch filename suffix filtering (`_linux.ll`, `_darwin.ll`, `_amd64.ll`, `_arm64.ll`)
 	platDir := filepath.Join(tmp, "plat")
 	writeTestFile(t, platDir, "lowlight.toml", "[package]\nname = \"plat\"\n")
-	writeTestFile(t, platDir, "os_linux.ll", "bind os_tag = () string: \"linux\"\n")
-	writeTestFile(t, platDir, "os_darwin.ll", "bind os_tag = () string: \"darwin\"\n")
-	writeTestFile(t, platDir, "os_windows.ll", "bind os_tag = () string: \"windows\"\n")
-	writeTestFile(t, platDir, "arch_amd64.ll", "bind arch_tag = () string: \"amd64\"\n")
-	writeTestFile(t, platDir, "arch_arm64.ll", "bind arch_tag = () string: \"arm64\"\n")
+	writeTestFile(t, platDir, "os_linux.ll", "bind os_tag = fn() string: \"linux\"\n")
+	writeTestFile(t, platDir, "os_darwin.ll", "bind os_tag = fn() string: \"darwin\"\n")
+	writeTestFile(t, platDir, "os_windows.ll", "bind os_tag = fn() string: \"windows\"\n")
+	writeTestFile(t, platDir, "arch_amd64.ll", "bind arch_tag = fn() string: \"amd64\"\n")
+	writeTestFile(t, platDir, "arch_arm64.ll", "bind arch_tag = fn() string: \"arm64\"\n")
 	writeTestFile(t, platDir, "main.ll", `
-bind main = (): {
+bind main = fn(): {
 	println("${os_tag()}-${arch_tag()}")
 }
 `)
@@ -314,7 +314,7 @@ define Vec2 struct [
 	writeTestFile(t, tmp, "ext/ops.ll", `
 import "extdemo/geom"
 
-bind geom.Vec2.manhattan = (self) int: {
+bind geom.Vec2.manhattan = fn(self) int: {
 	self.x + self.y
 }
 `)
@@ -322,7 +322,7 @@ bind geom.Vec2.manhattan = (self) int: {
 import "extdemo/geom"
 import "extdemo/ext"
 
-bind main = (): {
+bind main = fn(): {
 	let v = geom.Vec2[x: 3, y: 4]
 	assert(v.manhattan() == 7)
 	println("ext_ok=${v.manhattan()}")
@@ -337,8 +337,8 @@ bind main = (): {
 	badPriv := t.TempDir()
 	writeTestFile(t, badPriv, "lowlight.toml", "[package]\nname = \"badpriv\"\n")
 	writeTestFile(t, badPriv, "geom/vec.ll", "define Vec2 struct [x: int, _secret: int = 1]\n")
-	writeTestFile(t, badPriv, "ext/ops.ll", "import \"badpriv/geom\"\nbind geom.Vec2.leak = (self) int: self._secret\n")
-	writeTestFile(t, badPriv, "main.ll", "import \"badpriv/geom\"\nimport \"badpriv/ext\"\nbind main = (): { let v = geom.Vec2[x: 1]; println(v.leak()) }\n")
+	writeTestFile(t, badPriv, "ext/ops.ll", "import \"badpriv/geom\"\nbind geom.Vec2.leak = fn(self) int: self._secret\n")
+	writeTestFile(t, badPriv, "main.ll", "import \"badpriv/geom\"\nimport \"badpriv/ext\"\nbind main = fn(): { let v = geom.Vec2[x: 1]; println(v.leak()) }\n")
 	_, _, err := driver.Check(driver.Options{EntryPath: badPriv, ProjectRoot: root})
 	if err == nil || !strings.Contains(err.Error(), "unexported field") {
 		t.Fatalf("expected unexported field error inside extension method, got: %v", err)
@@ -348,9 +348,9 @@ bind main = (): {
 	badDup := t.TempDir()
 	writeTestFile(t, badDup, "lowlight.toml", "[package]\nname = \"baddup\"\n")
 	writeTestFile(t, badDup, "geom/vec.ll", "define Vec2 struct [x: int, y: int]\n")
-	writeTestFile(t, badDup, "ext1/a.ll", "import \"baddup/geom\"\nbind geom.Vec2.norm = (self) int: self.x\n")
-	writeTestFile(t, badDup, "ext2/b.ll", "import \"baddup/geom\"\nbind geom.Vec2.norm = (self) int: self.y\n")
-	writeTestFile(t, badDup, "main.ll", "import \"baddup/geom\"\nimport \"baddup/ext1\"\nimport \"baddup/ext2\"\nbind main = (): { let v = geom.Vec2[x: 1, y: 2]; println(v.norm()) }\n")
+	writeTestFile(t, badDup, "ext1/a.ll", "import \"baddup/geom\"\nbind geom.Vec2.norm = fn(self) int: self.x\n")
+	writeTestFile(t, badDup, "ext2/b.ll", "import \"baddup/geom\"\nbind geom.Vec2.norm = fn(self) int: self.y\n")
+	writeTestFile(t, badDup, "main.ll", "import \"baddup/geom\"\nimport \"baddup/ext1\"\nimport \"baddup/ext2\"\nbind main = fn(): { let v = geom.Vec2[x: 1, y: 2]; println(v.norm()) }\n")
 	_, _, err = driver.Check(driver.Options{EntryPath: badDup, ProjectRoot: root})
 	if err == nil || !strings.Contains(err.Error(), "duplicate method") || !strings.Contains(err.Error(), "already defined at") {
 		t.Fatalf("expected duplicate method collision naming both sites, got: %v", err)
@@ -408,7 +408,7 @@ func TestPackageCLIEndToEndWorkspaceLockVendorTree(t *testing.T) {
 	if out, err := runCLI(libDir, "init", "--lib", "--name", "mathlib"); err != nil {
 		t.Fatalf("lowlight init --lib failed: %v\n%s", err, out)
 	}
-	writeTestFile(t, libDir, "mathlib.ll", "bind triple = (x: int) int: x * 3\n")
+	writeTestFile(t, libDir, "mathlib.ll", "bind triple = fn(x: int) int: x * 3\n")
 
 	// Add a comment to demo_app/lowlight.toml and verify `lowlight add` preserves it surgically!
 	mPath := filepath.Join(appDir, "lowlight.toml")
@@ -433,7 +433,7 @@ func TestPackageCLIEndToEndWorkspaceLockVendorTree(t *testing.T) {
 	writeTestFile(t, appDir, "main.ll", `
 import "mathlib"
 
-bind main = (): {
+bind main = fn(): {
 	println("triple=${mathlib.triple(14)}")
 }
 `)
@@ -482,10 +482,10 @@ members = ["libs/*", "cmd/api"]
 `)
 	writeTestFile(t, wsDir, "libs/shared/lowlight.toml", "[package]\nname = \"shared\"\nversion = \"0.1.0\"\n")
 	writeTestFile(t, wsDir, "libs/shared/shared.ll", `
-bind badge = () string: "ws-shared"
+bind badge = fn() string: "ws-shared"
 
 @test("shared test")
-bind test_shared = (): { assert(badge() == "ws-shared") }
+bind test_shared = fn(): { assert(badge() == "ws-shared") }
 `)
 	writeTestFile(t, wsDir, "cmd/api/lowlight.toml", `
 [package]
@@ -498,12 +498,12 @@ shared = { path = "../../libs/shared" }
 	writeTestFile(t, wsDir, "cmd/api/main.ll", `
 import "shared"
 
-bind main = (): {
+bind main = fn(): {
 	println("api:${shared.badge()}")
 }
 
 @test("api test")
-bind test_api = (): { assert(shared.badge() == "ws-shared") }
+bind test_api = fn(): { assert(shared.badge() == "ws-shared") }
 `)
 
 	if out, err := runCLI(wsDir, "check", "--workspace"); err != nil {
@@ -540,11 +540,11 @@ define Tally struct [
 	value: int,
 ]
 
-bind Tally.add = (&self, delta: int): {
+bind Tally.add = fn(&self, delta: int): {
 	self.value += delta
 }
 
-bind compute = (x: int) int: {
+bind compute = fn(x: int) int: {
 	let t = Tally[value: BASE]
 	t.add(x)
 	t.value
@@ -553,7 +553,7 @@ bind compute = (x: int) int: {
 			writeTestFile(t, proj, "main.ll", `
 import "incapp/calc"
 
-bind main = (): {
+bind main = fn(): {
 	println("v1:${calc.compute(5)}")
 }
 `)
@@ -597,11 +597,11 @@ define MainOnlyStruct struct [
 	n: int,
 ]
 
-bind main_only_helper = (s: MainOnlyStruct) string: {
+bind main_only_helper = fn(s: MainOnlyStruct) string: {
 	"${s.label}:${s.n}"
 }
 
-bind main = (): {
+bind main = fn(): {
 	let s = MainOnlyStruct[label: "v2", n: calc.compute(7)]
 	println(main_only_helper(s))
 }
@@ -632,11 +632,11 @@ define Tally struct [
 	value: int,
 ]
 
-bind Tally.add = (&self, delta: int): {
+bind Tally.add = fn(&self, delta: int): {
 	self.value += delta * 2
 }
 
-bind compute = (x: int) int: {
+bind compute = fn(x: int) int: {
 	let t = Tally[value: BASE]
 	t.add(x)
 	t.value

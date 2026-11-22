@@ -337,7 +337,20 @@ func (e *ExprConstructTuple) Type() types.Type {
 	return e.TupleType
 }
 
-// ExprConstructClosure builds a closure / first-class function value.
+// ExprFnToClosure converts an `fn` value (a code pointer) to a closure with no captured
+// environment.
+type ExprFnToClosure struct {
+	Fn Expr
+	To *types.Func
+}
+
+func (*ExprFnToClosure) irExpr() {}
+func (e *ExprFnToClosure) Type() types.Type {
+	return e.To
+}
+
+// ExprConstructClosure builds a function value: for an `fn` type just the entry function's
+// address, and for a `cl` type the closure with its environment.
 type ExprConstructClosure struct {
 	FuncType *types.Func
 	EntryFn  string

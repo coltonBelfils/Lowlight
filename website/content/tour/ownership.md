@@ -17,9 +17,9 @@ define Noisy struct [
 	name: string,
 ]
 
-bind Noisy.drop = (&self): println("dropping ${self.name}")
+bind Noisy.drop = fn(&self): println("dropping ${self.name}")
 
-bind main = (): {
+bind main = fn(): {
 	let a = Noisy[name: "a"]
 	{
 		let b = Noisy[name: "b"]
@@ -43,7 +43,7 @@ Destruction happens in reverse order of declaration. A type can run code when it
 Plain values copy freely. A resource **moves**: giving it to a new owner leaves the old variable empty. Moving an existing variable must be written `own`, so moves are never silent:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let a = "hello" + " world"
 	let b = own a              // `a` is moved into `b`
 	// println(a)              // error: use of moved variable "a"
@@ -69,17 +69,17 @@ Temporaries need no `own`: `let s = "a" + "b"` and `consume(make_list())` move v
 | `x: own T` | `f(own v)` | owns `v` | no longer has `v` |
 
 ```lowlight
-bind total = (xs: [int]) int: {
+bind total = fn(xs: [int]) int: {
 	let t = 0
 	for(x in xs): t += x
 	t
 }
 
-bind add_zero = (xs: &[int]): xs.push(0)
+bind add_zero = fn(xs: &[int]): xs.push(0)
 
-bind into_set = (xs: own [int]) #[int]: for(x in xs) #[int]: x
+bind into_set = fn(xs: own [int]) #[int]: for(x in xs) #[int]: x
 
-bind main = (): {
+bind main = fn(): {
 	let xs = [3, 1, 2]
 	println(total(xs))
 	add_zero(&xs)
@@ -112,9 +112,9 @@ That's the whole borrow system. Borrows never last longer than one call or one l
 Functions return owned values freely; returning is a move:
 
 ```lowlight
-bind make_greeting = (name: string) string: "Hello, " + name
+bind make_greeting = fn(name: string) string: "Hello, " + name
 
-bind main = (): {
+bind main = fn(): {
 	let g = make_greeting("Ada")
 	println(g)
 }

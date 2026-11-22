@@ -278,7 +278,7 @@ func TestArchiveExtractionTraversalRejected(t *testing.T) {
 	}
 
 	goodZip := makeZip(t, map[string]string{
-		"pkg-1.0.0/lib.ll": "bind answer = () int: 42\n",
+		"pkg-1.0.0/lib.ll": "bind answer = fn() int: 42\n",
 	})
 	dest := t.TempDir()
 	if err := manifest.ExtractArchiveSafe("pkg.zip", goodZip, dest); err != nil {
@@ -294,19 +294,19 @@ func TestDecentralizedIndexMVSFetchLockVendorAndOverride(t *testing.T) {
 	// Build tarballs for jsonx@1.2.0, jsonx@1.3.0, and http_ext@0.3.4 (which depends on jsonx ^1.2.0).
 	jsonx120 := makeTarGz(t, map[string]string{
 		"jsonx-1.2.0/lowlight.toml": "[package]\nname = \"jsonx\"\nversion = \"1.2.0\"\n",
-		"jsonx-1.2.0/jsonx.ll":      "bind ver = () string: \"1.2.0\"\n",
+		"jsonx-1.2.0/jsonx.ll":      "bind ver = fn() string: \"1.2.0\"\n",
 	})
 	jsonx120Hash := manifest.ComputeSHA256(jsonx120)
 
 	jsonx130 := makeTarGz(t, map[string]string{
 		"jsonx-1.3.0/lowlight.toml": "[package]\nname = \"jsonx\"\nversion = \"1.3.0\"\n",
-		"jsonx-1.3.0/jsonx.ll":      "bind ver = () string: \"1.3.0\"\n",
+		"jsonx-1.3.0/jsonx.ll":      "bind ver = fn() string: \"1.3.0\"\n",
 	})
 	jsonx130Hash := manifest.ComputeSHA256(jsonx130)
 
 	srvURL := "https://pkgs.test"
 	httpExt034 := makeTarGz(t, map[string]string{
-		"http_ext-0.3.4/router.ll": "bind route = () int: 7\n",
+		"http_ext-0.3.4/router.ll": "bind route = fn() int: 7\n",
 	})
 	httpExt034Hash := manifest.ComputeSHA256(httpExt034)
 
@@ -409,7 +409,7 @@ http_ext = { index = "%s/pkgs/http_ext.toml", version = "^0.3.0" }
 	if err := os.MkdirAll(forkDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(forkDir, "jsonx.ll"), []byte("bind ver = () string: \"fork\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(forkDir, "jsonx.ll"), []byte("bind ver = fn() string: \"fork\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	overridden := manifest.UpsertTableEntry(manifestSrc, "overrides", "jsonx", fmt.Sprintf(`{ path = %q }`, forkDir))

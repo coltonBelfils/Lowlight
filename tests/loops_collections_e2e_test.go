@@ -15,7 +15,7 @@ import (
 func TestStackArrayLiteralsPositive(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = (): {
+bind main = fn(): {
     // 1. Repeat constructor: [4: 0] -> [0, 0, 0, 0]
     let a1: [4: int] = [4: 0]
     assert(a1.len() == 4)
@@ -60,7 +60,7 @@ func TestStackArrayLiteralsMismatchNegative(t *testing.T) {
 		{
 			name: "stack_array_too_few_elements",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let arr = [4: 1, 2]
 }
 `,
@@ -69,7 +69,7 @@ bind main = (): {
 		{
 			name: "stack_array_too_many_elements",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let arr = [2: 1, 2, 3]
 }
 `,
@@ -102,7 +102,7 @@ bind main = (): {
 func TestWhileLoopPositive(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = (): {
+bind main = fn(): {
     // 1. while(true) with break produces ?int (scalar optional)
     let w1? = {
         let i = 0
@@ -180,7 +180,7 @@ bind main = (): {
 func TestForLoopComprehensionsPositive(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = (): {
+bind main = fn(): {
     // 1. Default dynamic vector collection: for(x in 1..=4) x
     let v1 = for (x in 1..=4): x
     assert(v1.len() == 4)
@@ -252,7 +252,7 @@ func TestForLoopCollectableNegative(t *testing.T) {
 		{
 			name: "for_annotated_with_non_collectable_int",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x = for (true) int: 1
 }
 `,
@@ -261,7 +261,7 @@ bind main = (): {
 		{
 			name: "for_annotated_with_string_not_collectable",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x = for (x in 0..3) string: "a"
 }
 `,
@@ -270,7 +270,7 @@ bind main = (): {
 		{
 			name: "for_annotated_with_untyped_empty_brackets",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x = for (x in 0..10) []: x
 }
 `,
@@ -279,7 +279,7 @@ bind main = (): {
 		{
 			name: "let_annotated_with_untyped_empty_brackets",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let xs: [] = []
 }
 `,
@@ -312,7 +312,7 @@ bind main = (): {
 func TestMapEntryIterationAndCollection(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = (): {
+bind main = fn(): {
     let m = #["alpha": 1, "beta": 2, "gamma": 3]
 
     // 1. Single-variable iteration binds entry as MapEntry[string, int]
@@ -361,11 +361,11 @@ bind main = (): {
 func TestPureLowlightList(t *testing.T) {
 	t.Parallel()
 	src := `
-bind print_anything = (p: Printable) string: {
+bind print_anything = fn(p: Printable) string: {
     p.to_string()
 }
 
-bind sum_iterable = (it_obj: Iterable[int]) int: {
+bind sum_iterable = fn(it_obj: Iterable[int]) int: {
     let it = it_obj.iter()
     let sum = 0
     let cur? = it.next()
@@ -376,7 +376,7 @@ bind sum_iterable = (it_obj: Iterable[int]) int: {
     sum
 }
 
-bind main = (): {
+bind main = fn(): {
     let v = List[int].new()
     v.push(10)
     v.push(20)
@@ -419,7 +419,7 @@ define Node struct [
     val: string,
 ]
 
-bind main = (): {
+bind main = fn(): {
     let p = unsafe alloc_raw[Node](1)
     unsafe {
         ptr_write(p, Node[id: 42, val: "hello"])
@@ -442,7 +442,7 @@ bind main = (): {
 func TestPureLowlightSet(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = (): {
+bind main = fn(): {
     let s = Set[int].new()
     assert(s.len == 0)
     assert(s.is_empty())
@@ -470,7 +470,7 @@ bind main = (): {
 func TestPureLowlightMap(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = (): {
+bind main = fn(): {
     let m = Map[string, int].new()
     assert(m.len == 0)
     assert(m.is_empty())

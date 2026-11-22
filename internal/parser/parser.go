@@ -21,6 +21,64 @@ type Parser struct {
 	inMatchArm            int   // > 0 when parsing the body of a `match` arm (for contextual `default:` detection)
 	matchStack            []int // stack of scrutinee counts for enclosing match expressions
 	suppressTopLabelColon bool  // true at top level of `[...]`/`#[...]`, map keys, or match patterns/conditions before `:`
+	litSites              map[*ast.FuncLit]*LegacyFuncSite
+}
+
+// LegacyFuncSite is a function literal or type written in the old form without `fn`/`cl`
+// (`(x: int) int: ...`). Closure says which keyword it should get.
+type LegacyFuncSite struct {
+	Pos     diag.Pos
+	Closure bool
+}
+
+// AcceptLegacyFuncSyntax allows the old `(params) Ret` form, which has no `fn`/`cl`. Only the
+// migration tool (internal/tools/fnmigrate) turns it on.
+var AcceptLegacyFuncSyntax = false
+
+// RecordLegacyFuncSites, when non-nil, collects every old-form site (used by the migration tool).
+var RecordLegacyFuncSites *[]*LegacyFuncSite
+
+// funcKeyword consumes `fn` or `cl` before a function literal's or type's parameter list and
+// reports whether it was `cl`. The old form without a keyword means legacyClosure.
+func (p *Parser) funcKeyword(legacyClosure bool, what string) (bool, *LegacyFuncSite) {
+	switch p.cur().Kind {
+	case token.KwFn:
+		p.advance()
+		return false, nil
+	case token.KwCl:
+		p.advance()
+		return true, nil
+	}
+	return legacyClosure, p.legacySite(legacyClosure, what)
+}
+
+// declFuncKeyword consumes the `fn` that starts a method, extern function, or interface method
+// signature, which is always a function rather than a closure.
+func (p *Parser) declFuncKeyword(what string) {
+	switch p.cur().Kind {
+	case token.KwFn:
+		p.advance()
+		return
+	case token.KwCl:
+		tk := p.advance()
+		p.rep.Errorf(tk.Span, "a %s is written `fn(...)`: it can't capture variables, so it isn't a closure (`cl`)", what)
+		return
+	}
+	p.legacySite(false, what)
+}
+
+func (p *Parser) legacySite(closure bool, what string) *LegacyFuncSite {
+	tk := p.cur()
+	site := &LegacyFuncSite{Pos: tk.Span.Start, Closure: closure}
+	if !AcceptLegacyFuncSyntax {
+		p.rep.ErrorWithHint(tk.Span, fmt.Sprintf("a %s starts with `fn` or `cl`", what),
+			"write `fn(...)` for a function that captures nothing, or `cl(...)` for a closure")
+		return site
+	}
+	if RecordLegacyFuncSites != nil {
+		*RecordLegacyFuncSites = append(*RecordLegacyFuncSites, site)
+	}
+	return site
 }
 
 // ParseFile lexes and parses a Lowlight source string into an AST.
@@ -114,6 +172,8 @@ func isSyncToken(k token.Kind) bool {
 		token.InterpEnd,
 		token.KwImport,
 		token.KwExtern,
+		token.KwFn,
+		token.KwCl,
 		token.KwDefine,
 		token.KwStruct,
 		token.KwEnum,
@@ -292,6 +352,7 @@ func (p *Parser) parseExternDecl() ast.Decl {
 		p.rep.Errorf(nameTok.Span, "reserved keyword %q requires an alias: `extern %s as <alias>: ...`", nameTok.Text, nameTok.Text)
 	}
 	p.expect(token.Colon, "after extern function name")
+	p.declFuncKeyword("extern function")
 	params, endPos := p.parseParamList(true)
 	var ret ast.TypeExpr
 	if p.canStartSigReturnType(false) {
@@ -393,6 +454,7 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 		for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
 			mTok := p.expect(token.Ident, "interface method name")
 			p.expect(token.Colon, "after interface method name")
+			p.declFuncKeyword("interface method")
 			recvMode, _, params, mEnd := p.parseMethodParams()
 			var ret ast.TypeExpr
 			if p.canStartSigReturnType(true) {
@@ -662,8 +724,9 @@ func (p *Parser) parseTopVarOrMethodDecl() ast.Decl {
 			methodTParams = p.parseTypeParams()
 		}
 		p.expect(token.Assign, "after method name")
+		p.declFuncKeyword("method")
 
-		// Note: associated functions WITHOUT `self` (like `bind Arena.new = (): Arena` or `bind Pool[T].new = (): Pool[T]`)
+		// Note: associated functions WITHOUT `self` (like `bind Arena.new = fn() Arena` or `bind Pool[T].new = fn() Pool[T]`)
 		// are also super idiomatic! Let's check if the parameter list starts with `self` / `&self` / `own self`!
 		if p.paramListStartsWithSelf() {
 			recvMode, recvExplicitTy, params, _ := p.parseMethodParams()
@@ -688,7 +751,7 @@ func (p *Parser) parseTopVarOrMethodDecl() ast.Decl {
 			}
 		}
 
-		// Associated static function on a type (`bind Arena.new = (): Arena { ... }` or `bind Pool[T].new = ...`):
+		// Associated static function on a type (`bind Arena.new = fn() Arena: { ... }` or `bind Pool[T].new = ...`):
 		// Represented with RecvExplicitTy == nil and Name, or let's add IsStatic to MethodDecl?
 		// Even simpler: let's parse `(params)[: Ret] body` as a FuncLit and store a static MethodDecl (RecvMode = -1)!
 		params, _ := p.parseParamList(true)
@@ -731,6 +794,16 @@ func (p *Parser) parseTopVarOrMethodDecl() ast.Decl {
 	}
 	p.expect(token.Assign, "in variable/function declaration")
 	val := p.parseExpr()
+	if lit, ok := val.(*ast.FuncLit); ok && isBind {
+		// A top-level function captures nothing: it is an `fn`.
+		if site := p.litSites[lit]; site != nil {
+			site.Closure = false
+			lit.Closure = false
+		} else if lit.Closure {
+			p.rep.ErrorWithHint(lit.Span, "a top-level function is written `fn(...)`, not `cl(...)`",
+				"a top-level function can't capture variables, so it is never a closure")
+		}
+	}
 	return &ast.VarDecl{
 		IsBind:     isBind,
 		Name:       name,
@@ -894,7 +967,7 @@ func (p *Parser) parseSingleParam(requireName bool) ast.Param {
 
 func (p *Parser) canStartSigReturnType(stopOnIdentColon bool) bool {
 	switch p.cur().Kind {
-	case token.KwSelfType, token.Question, token.LBracket, token.HashBrack, token.PlusBrack, token.LParen:
+	case token.KwSelfType, token.Question, token.LBracket, token.HashBrack, token.PlusBrack, token.LParen, token.KwFn, token.KwCl:
 		return true
 	case token.Ident:
 		if stopOnIdentColon && p.peekAt(1).Kind == token.Colon {
@@ -939,7 +1012,7 @@ func (p *Parser) hasTopLevelColonBeforeCloseBracket() bool {
 
 func (p *Parser) canStartHeaderType() bool {
 	switch p.cur().Kind {
-	case token.Ident, token.KwSelfType, token.Question, token.LBracket, token.HashBrack, token.PlusBrack, token.LParen:
+	case token.Ident, token.KwSelfType, token.Question, token.LBracket, token.HashBrack, token.PlusBrack, token.LParen, token.KwFn, token.KwCl:
 		return true
 	default:
 		return false
@@ -1041,7 +1114,8 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 			Elems: elems,
 			Span:  diag.Span{Start: openPb.Span.Start, End: closeBr.Span.End},
 		}
-	case token.LParen:
+	case token.LParen, token.KwFn, token.KwCl:
+		closure, _ := p.funcKeyword(true, "function type")
 		params, endPos := p.parseParamList(false)
 		var ret ast.TypeExpr
 		if p.canStartSigReturnType(false) {
@@ -1049,9 +1123,10 @@ func (p *Parser) parseTypeExpr() ast.TypeExpr {
 			endPos = ret.GetSpan().End
 		}
 		return &ast.FuncType{
-			Params: params,
-			Ret:    ret,
-			Span:   diag.Span{Start: start, End: endPos},
+			Params:  params,
+			Ret:     ret,
+			Closure: closure,
+			Span:    diag.Span{Start: start, End: endPos},
 		}
 	case token.KwSelfType:
 		tk := p.advance()
@@ -2087,6 +2162,24 @@ func (p *Parser) parsePrimaryExpr() ast.Expr {
 		p.advance()
 		return &ast.IdentExpr{Name: tk.Text, Span: tk.Span}
 
+	case token.KwFn:
+		return p.parseFuncLit()
+
+	case token.KwCl:
+		// `cl(f)` converts a function to a closure; `cl(x: T) R: body` is a closure literal.
+		if p.peekAt(1).Kind == token.LParen && !p.looksLikeFuncLitAt(1) {
+			kw := p.advance()
+			p.advance() // `(`
+			arg := p.parseExpr()
+			rp := p.expect(token.RParen, "closing `cl(...)` conversion")
+			return &ast.CallExpr{
+				Callee: &ast.IdentExpr{Name: "cl", Span: kw.Span},
+				Args:   []ast.Expr{arg},
+				Span:   diag.Span{Start: kw.Span.Start, End: rp.Span.End},
+			}
+		}
+		return p.parseFuncLit()
+
 	case token.LParen:
 		if p.looksLikeFuncLit() {
 			return p.parseFuncLit()
@@ -2150,16 +2243,22 @@ func (p *Parser) parseInterpString() *ast.InterpStringExpr {
 }
 
 func (p *Parser) looksLikeFuncLit() bool {
-	if p.cur().Kind != token.LParen {
+	return p.looksLikeFuncLitAt(0)
+}
+
+// looksLikeFuncLitAt reports whether the `(` at offset off starts a function literal's parameter
+// list rather than a parenthesized expression.
+func (p *Parser) looksLikeFuncLitAt(off int) bool {
+	if p.peekAt(off).Kind != token.LParen {
 		return false
 	}
-	k1 := p.peekAt(1).Kind
-	k2 := p.peekAt(2).Kind
+	k1 := p.peekAt(off + 1).Kind
+	k2 := p.peekAt(off + 2).Kind
 	if k1 == token.RParen {
 		return true // `(): int ...` or `() { ... }` or `() -> ...`
 	}
 	if (k1 == token.Ident || k1 == token.OptIdent) && k2 == token.Colon {
-		k3 := p.peekAt(3).Kind
+		k3 := p.peekAt(off + 3).Kind
 		if k3 == token.LBrace || k3 == token.KwFor || k3 == token.KwWhile {
 			return false // `(blk: { ... })`, `(outer: for ...)`, `(outer: while ...)`
 		}
@@ -2169,7 +2268,7 @@ func (p *Parser) looksLikeFuncLit() bool {
 		return true
 	}
 	if (k1 == token.Amp || k1 == token.KwOwn) && k2 == token.KwSelf {
-		k3 := p.peekAt(3).Kind
+		k3 := p.peekAt(off + 3).Kind
 		if k3 == token.RParen || k3 == token.Comma || k3 == token.Colon {
 			return true
 		}
@@ -2179,6 +2278,7 @@ func (p *Parser) looksLikeFuncLit() bool {
 
 func (p *Parser) parseFuncLit() *ast.FuncLit {
 	start := p.cur().Span.Start
+	closure, site := p.funcKeyword(true, "function literal")
 	params, _ := p.parseParamList(true)
 	var ret ast.TypeExpr
 	if p.cur().Kind != token.Colon && p.canStartHeaderType() {
@@ -2186,12 +2286,20 @@ func (p *Parser) parseFuncLit() *ast.FuncLit {
 	}
 	p.expect(token.Colon, "before function body")
 	body := p.parseExpr()
-	return &ast.FuncLit{
-		Params: params,
-		Ret:    ret,
-		Body:   body,
-		Span:   diag.Span{Start: start, End: body.GetSpan().End},
+	lit := &ast.FuncLit{
+		Params:  params,
+		Ret:     ret,
+		Body:    body,
+		Closure: closure,
+		Span:    diag.Span{Start: start, End: body.GetSpan().End},
 	}
+	if site != nil {
+		if p.litSites == nil {
+			p.litSites = make(map[*ast.FuncLit]*LegacyFuncSite)
+		}
+		p.litSites[lit] = site
+	}
+	return lit
 }
 
 func (p *Parser) parseVecOrRepeatArrayLit() ast.Expr {

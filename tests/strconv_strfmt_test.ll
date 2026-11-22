@@ -2,7 +2,7 @@ import "std/strings"
 import "std/strconv"
 import "std/strfmt" as fmt
 
-bind main = (): {
+bind main = fn(): {
     // 1. strconv methods on string
     let num_str = "12345"
     let n? = num_str.to_int()

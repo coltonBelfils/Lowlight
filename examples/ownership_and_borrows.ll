@@ -2,7 +2,7 @@
 // Showcases Model 2A value ownership:
 // - Plain types copy implicitly; Resource types move with `own` or clone via `.copy()`
 // - Read-only borrows (zero heap copies) vs `&` mutable borrows
-// - Custom deterministic `Drop` (`bind Tracker.drop = (&self)`)
+// - Custom deterministic `Drop` (`bind Tracker.drop = fn(&self)`)
 // - Recursive value-owned trees via auto-boxed optional `?TreeNode`
 
 define Tracker struct [
@@ -10,22 +10,22 @@ define Tracker struct [
     events: [string],
 ]
 
-bind Tracker.new = (label: string) Tracker: {
+bind Tracker.new = fn(label: string) Tracker: {
     Tracker[
         label: label.copy(),
         events: ["created:$label"],
     ]
 }
 
-bind Tracker.record = (&self, event: string): {
+bind Tracker.record = fn(&self, event: string): {
     self.events.push(event.copy())
 }
 
-bind Tracker.summary = (self) string: {
+bind Tracker.summary = fn(self) string: {
     "${self.label}(${self.events.join(", ")})"
 }
 
-bind Tracker.drop = (&self): {
+bind Tracker.drop = fn(&self): {
     println("  [drop] closing Tracker '${self.label}' with ${self.events.len()} event(s)")
 }
 
@@ -38,7 +38,7 @@ define BstNode struct [
     right?: ?BstNode,
 ]
 
-bind BstNode.leaf = (key: int, tag: string) BstNode: {
+bind BstNode.leaf = fn(key: int, tag: string) BstNode: {
     BstNode[
         key: key,
         tag: tag.copy(),
@@ -47,7 +47,7 @@ bind BstNode.leaf = (key: int, tag: string) BstNode: {
     ]
 }
 
-bind BstNode.insert = (&self, key: int, tag: string) void: {
+bind BstNode.insert = fn(&self, key: int, tag: string) void: {
     if (key < self.key): {
         if (&self.left? as left_child): {
             left_child.insert(key, tag)
@@ -65,7 +65,7 @@ bind BstNode.insert = (&self, key: int, tag: string) void: {
     }
 }
 
-bind BstNode.find = (self, key: int) ?string: {
+bind BstNode.find = fn(self, key: int) ?string: {
     if (key == self.key): {
         func <- self.tag.copy()
     }
@@ -81,17 +81,17 @@ bind BstNode.find = (self, key: int) ?string: {
     func <- none
 }
 
-bind consume_names = (names: own [string]) string: {
+bind consume_names = fn(names: own [string]) string: {
     names.join(" -> ")
 }
 
-bind append_greeting = (buf: &string, who: string): {
+bind append_greeting = fn(buf: &string, who: string): {
     buf.push("Hello, ")
     buf.push(who)
     buf.push("!")
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. Mutable borrow `&` vs read-only borrow
     let msg = ""
     append_greeting(&msg, "Lowlight")

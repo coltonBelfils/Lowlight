@@ -33,7 +33,7 @@ Replace `main.ll` with the pieces below as you go.
 Words are runs of letters and digits; everything else separates them. Build each word one character at a time:
 
 ```lowlight
-bind words = (text: string) [string]: {
+bind words = fn(text: string) [string]: {
 	let out: [string] = []
 	let cur = ""
 	for(c in text.chars()): {
@@ -47,7 +47,7 @@ bind words = (text: string) [string]: {
 	out
 }
 
-bind main = (): println(words("The cat, the hat; THE end."))
+bind main = fn(): println(words("The cat, the hat; THE end."))
 ```
 
 ```output
@@ -61,7 +61,7 @@ bind main = (): println(words("The cat, the hat; THE end."))
 A map from word to count does the counting:
 
 ```lowlight fragment
-bind count = (ws: [string]) #[string: int]: {
+bind count = fn(ws: [string]) #[string: int]: {
 	let counts: #[string: int] = #[]
 	for(w in ws): {
 		let n = counts[w] ?? 0
@@ -81,9 +81,9 @@ To sort, turn the map into a list of entries and sort that. A `for` loop with a 
 ```lowlight fragment
 import "std/sort"
 
-bind top = (counts: #[string: int], n: int) [MapEntry[string, int]]: {
+bind top = fn(counts: #[string: int], n: int) [MapEntry[string, int]]: {
 	let entries = for(word, c in counts) [MapEntry[string, int]]: MapEntry[key: word.copy(), value: c]
-	entries.sort_by((a: MapEntry[string, int], b: MapEntry[string, int]) int:
+	entries.sort_by(fn(a: MapEntry[string, int], b: MapEntry[string, int]) int:
 		if(a.value != b.value): b.value - a.value
 		else: a.key.cmp(b.key))
 	let k = min(n, entries.len())
@@ -101,7 +101,7 @@ Try the pieces together:
 import "std/sort"
 import "std/strfmt"
 
-bind words = (text: string) [string]: {
+bind words = fn(text: string) [string]: {
 	let out: [string] = []
 	let cur = ""
 	for(c in text.chars()): {
@@ -115,7 +115,7 @@ bind words = (text: string) [string]: {
 	out
 }
 
-bind count = (ws: [string]) #[string: int]: {
+bind count = fn(ws: [string]) #[string: int]: {
 	let counts: #[string: int] = #[]
 	for(w in ws): {
 		let n = counts[w] ?? 0
@@ -124,20 +124,20 @@ bind count = (ws: [string]) #[string: int]: {
 	counts
 }
 
-bind top = (counts: #[string: int], n: int) [MapEntry[string, int]]: {
+bind top = fn(counts: #[string: int], n: int) [MapEntry[string, int]]: {
 	let entries = for(word, c in counts) [MapEntry[string, int]]: MapEntry[key: word.copy(), value: c]
-	entries.sort_by((a: MapEntry[string, int], b: MapEntry[string, int]) int:
+	entries.sort_by(fn(a: MapEntry[string, int], b: MapEntry[string, int]) int:
 		if(a.value != b.value): b.value - a.value
 		else: a.key.cmp(b.key))
 	let k = min(n, entries.len())
 	for(i in 0..k) [MapEntry[string, int]]: entries[i].copy()
 }
 
-bind report = (text: string, n: int): {
+bind report = fn(text: string, n: int): {
 	for(e in top(count(words(text)), n)): println("${e.key.pad_right(12)} ${e.value}")
 }
 
-bind main = (): report("Lowlight frees memory deterministically. The memory is freed when the owner's scope ends; the owner is the variable. Lowlight has no collector, so the program is predictable.", 4)
+bind main = fn(): report("Lowlight frees memory deterministically. The memory is freed when the owner's scope ends; the owner is the variable. Lowlight has no collector, so the program is predictable.", 4)
 ```
 
 ```output
@@ -158,7 +158,7 @@ import "std/fs"
 import "std/sort"
 import "std/strfmt"
 
-bind words = (text: string) [string]: {
+bind words = fn(text: string) [string]: {
 	let out: [string] = []
 	let cur = ""
 	for(c in text.chars()): {
@@ -172,7 +172,7 @@ bind words = (text: string) [string]: {
 	out
 }
 
-bind count = (ws: [string]) #[string: int]: {
+bind count = fn(ws: [string]) #[string: int]: {
 	let counts: #[string: int] = #[]
 	for(w in ws): {
 		let n = counts[w] ?? 0
@@ -181,16 +181,16 @@ bind count = (ws: [string]) #[string: int]: {
 	counts
 }
 
-bind top = (counts: #[string: int], n: int) [MapEntry[string, int]]: {
+bind top = fn(counts: #[string: int], n: int) [MapEntry[string, int]]: {
 	let entries = for(word, c in counts) [MapEntry[string, int]]: MapEntry[key: word.copy(), value: c]
-	entries.sort_by((a: MapEntry[string, int], b: MapEntry[string, int]) int:
+	entries.sort_by(fn(a: MapEntry[string, int], b: MapEntry[string, int]) int:
 		if(a.value != b.value): b.value - a.value
 		else: a.key.cmp(b.key))
 	let k = min(n, entries.len())
 	for(i in 0..k) [MapEntry[string, int]]: entries[i].copy()
 }
 
-bind main = () int: {
+bind main = fn() int: {
 	let argv = args()
 	if(argv.len() < 2 or argv.len() > 3): {
 		eprintln("usage: wordfreq <file> [count]")
@@ -226,10 +226,10 @@ Add `wordfreq_test.ll` beside `main.ll`:
 import "std/test"
 
 @test("splits on punctuation and lowercases")
-bind test_words = (): test.assert_eq(words("Hi, hi!"), ["hi", "hi"])
+bind test_words = fn(): test.assert_eq(words("Hi, hi!"), ["hi", "hi"])
 
 @test("orders by count, then alphabetically")
-bind test_top = (): {
+bind test_top = fn(): {
 	let t = top(count(["b", "a", "b", "c", "a"]), 2)
 	test.assert_eq(t.len(), 2)
 	test.assert_eq(t[0].key, "a")

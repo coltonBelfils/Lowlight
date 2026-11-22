@@ -17,7 +17,7 @@ order: 7
 ## Lists
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let xs = [3, 1, 4]
 	xs.push(1)
 	xs.push(5)
@@ -47,7 +47,7 @@ true
 ## Maps
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let ages = #["ada": 36, "grace": 45]
 	ages["linus"] = 21
 	println(ages.len())
@@ -74,7 +74,7 @@ Reading `m[k]` always gives an optional, because the key may be missing. Maps an
 ## Sets
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let seen: #[string] = #[]
 	for(w in ["a", "b", "a", "c", "b"]): seen.insert(w.copy())
 	println(seen.len())
@@ -94,7 +94,7 @@ A loop variable borrows each element, so storing it in another collection takes 
 Arrays have a fixed size, known at compile time, and live inline (on the stack, or inside a struct):
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let grid = [4: 0]
 	grid[2] = 7
 	println(grid)
@@ -113,7 +113,7 @@ bind main = (): {
 A `for` loop with a result type builds a collection from its body's values. The result type can be a list, set, map, or any type with a `push` method:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let words = ["apple", "Bob", "kiwi", "Bob"]
 	let lengths = for(w in words) [int]: w.len()
 	let unique = for(w in words) #[string]: w.to_lower()
@@ -139,11 +139,11 @@ The prelude covers the basics. More operations live in packages: `std/sort` adds
 ```lowlight
 import "std/sort"
 
-bind main = (): {
+bind main = fn(): {
 	let xs = [5, 2, 8, 1]
 	xs.sort()
 	println(xs)
-	xs.sort_by((a: int, b: int) int: b - a)
+	xs.sort_by(fn(a: int, b: int) int: b - a)
 	println(xs)
 }
 ```

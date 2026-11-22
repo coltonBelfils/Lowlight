@@ -16,7 +16,7 @@ define Config struct [
 	verbose: bool = false,
 ]
 
-bind main = (): {
+bind main = fn(): {
 	// A struct literal names its fields.
 	let p = Point[x: 1, y: 2]
 	println(p.x + p.y)

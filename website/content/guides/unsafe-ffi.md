@@ -14,7 +14,7 @@ Lowlight's safety rules are checked by the compiler. A few operations can't be c
 `unsafe` applies to one expression or one block:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let x = 41
 	let p = unsafe addr_of(x)
 	unsafe ptr_write(p, 42)
@@ -68,16 +68,16 @@ Structs are laid out in field order with C alignment rules, so a Lowlight struct
 
 ```lowlight
 extern "math.h"
-extern cbrt: (x: f64) f64
+extern cbrt: fn(x: f64) f64
 
-bind main = (): println(unsafe cbrt(27.0))
+bind main = fn(): println(unsafe cbrt(27.0))
 ```
 
 ```output
 3
 ```
 
-- `extern "header.h"` includes a C header; `extern name: (params) Ret` declares a function.
+- `extern "header.h"` includes a C header; `extern name: fn(params) Ret` declares a function.
 - `extern name as alias: ...` gives it a different Lowlight name.
 - Parameter and return types should be plain types that match the C declaration exactly: `i32` for C `int`, `u64` for `size_t` on 64-bit systems, `ptr[u8]` for `char *`, `f64` for `double`.
 - Pass Lowlight strings as `s.c_str()`; the pointer is valid while the string is alive and unchanged.
@@ -90,10 +90,10 @@ The goal is that code using your package never writes `unsafe`. Wrap each foreig
 
 ```lowlight fragment
 extern "unistd.h"
-extern getpid as c_getpid: () i32
+extern getpid as c_getpid: fn() i32
 
 // Returns the operating system's id for this process.
-bind process_id = () int: int(unsafe c_getpid())
+bind process_id = fn() int: int(unsafe c_getpid())
 ```
 
 Checklist for a wrapper:

@@ -42,7 +42,7 @@ define Set[T: Hashable] struct [
 ]
 
 // Constructs an empty [`Set`] with zero heap allocation.
-bind Set[T].new = () Set[T]:
+bind Set[T].new = fn() Set[T]:
 	Set[T][
 		buckets: unsafe null_ptr[int](),
 		buck_cap: 0,
@@ -53,7 +53,7 @@ bind Set[T].new = () Set[T]:
 	]
 
 // Constructs an empty [`Set`] pre-sized for at least `cap` distinct elements.
-bind Set[T].with_capacity = (cap: int) Set[T]: {
+bind Set[T].with_capacity = fn(cap: int) Set[T]: {
 	if(cap <= 0): func <- Set[T].new()
 	let bcap = 8
 	for(bcap < cap * 2): bcap *= 2
@@ -77,13 +77,13 @@ bind Set[T].with_capacity = (cap: int) Set[T]: {
 }
 
 // Returns the number of live elements currently in the set.
-bind Set[T].len = (self) int: self.len
+bind Set[T].len = fn(self) int: self.len
 
 // Reports whether the set contains zero elements.
-bind Set[T].is_empty = (self) bool: self.len == 0
+bind Set[T].is_empty = fn(self) bool: self.len == 0
 
 // Internal probe lookup returning the entry index of `needle` with hash `h`, or `-1`.
-bind Set[T].find_entry = (self, needle: T, h: u64) int: {
+bind Set[T].find_entry = fn(self, needle: T, h: u64) int: {
 	if(self.buck_cap == 0 or unsafe is_null(self.buckets)): func <- -1
 	let mask = self.buck_cap - 1
 	let slot = int(h & u64(mask))
@@ -101,16 +101,16 @@ bind Set[T].find_entry = (self, needle: T, h: u64) int: {
 }
 
 // Reports whether `val` is present in the set.
-bind Set[T].has = (self, val: T) bool: {
+bind Set[T].has = fn(self, val: T) bool: {
 	let h = val.hash()
 	self.find_entry(val, h) >= 0
 }
 
 // Reports whether `val` is present in the set (satisfies [`Containable`]).
-bind Set[T].contains = (self, val: T) bool: self.has(val)
+bind Set[T].contains = fn(self, val: T) bool: self.has(val)
 
 // Internal helper that compacts tombstoned entries and rebuilds the hash bucket table at `new_bcap`.
-bind Set[T].rehash = (&self, new_bcap: int): {
+bind Set[T].rehash = fn(&self, new_bcap: int): {
 	if(self.len < self.ent_len): {
 		let w = 0
 		let r = 0
@@ -170,7 +170,7 @@ bind Set[T].rehash = (&self, new_bcap: int): {
 //
 // # Ownership
 // Consumes `val` into the set's entry storage.
-bind Set[T].insert = (&self, val: own T) bool: {
+bind Set[T].insert = fn(&self, val: own T) bool: {
 	let h = val.hash()
 	let existing = self.find_entry(val, h)
 	if(existing >= 0): func <- false
@@ -214,12 +214,12 @@ bind Set[T].insert = (&self, val: own T) bool: {
 }
 
 // Inserts `item` into the set (satisfies [`Collectable`] for set comprehensions).
-bind Set[T].push = (&self, item: own T): {
+bind Set[T].push = fn(&self, item: own T): {
 	let _ = self.insert(own item)
 }
 
 // Removes and drops `val` if present, returning `true`, or returns `false` if absent.
-bind Set[T].remove = (&self, val: T) bool: {
+bind Set[T].remove = fn(&self, val: T) bool: {
 	if(self.buck_cap == 0 or unsafe is_null(self.buckets)): func <- false
 	let h = val.hash()
 	let mask = self.buck_cap - 1
@@ -243,7 +243,7 @@ bind Set[T].remove = (&self, val: T) bool: {
 }
 
 // Drops all stored elements and resets the set to empty while retaining allocated capacity.
-bind Set[T].clear = (&self): {
+bind Set[T].clear = fn(&self): {
 	if(not unsafe is_null(self.entries)): {
 		let i = 0
 		for(i < self.ent_len): {
@@ -270,7 +270,7 @@ bind Set[T].clear = (&self): {
 }
 
 // Collects copies of all live elements into a new [`List`] in insertion order.
-bind Set[T].to_list = (self) List[T]: {
+bind Set[T].to_list = fn(self) List[T]: {
 	let out = List[T].with_capacity(self.len)
 	let i = 0
 	for(i < self.ent_len): {
@@ -283,7 +283,7 @@ bind Set[T].to_list = (self) List[T]: {
 }
 
 // Returns a deep copy of the set containing copies of every live element.
-bind Set[T].copy = (self) Set[T]: {
+bind Set[T].copy = fn(self) Set[T]: {
 	let out = Set[T].with_capacity(self.len)
 	let i = 0
 	for(i < self.ent_len): {
@@ -296,7 +296,7 @@ bind Set[T].copy = (self) Set[T]: {
 }
 
 // Formats the set as `"#[a, b, ...]"`.
-bind Set[T].to_string = (self) string: {
+bind Set[T].to_string = fn(self) string: {
 	let out = "#["
 	let first = true
 	let i = 0
@@ -325,7 +325,7 @@ define SetIterator[T: Hashable] struct [
 ]
 
 // Advances the iterator and returns a copy of the next live element, or `none` when finished.
-bind SetIterator[T].next = (&self) ?T: {
+bind SetIterator[T].next = fn(&self) ?T: {
 	for(self.idx < self.ent_len): {
 		let i = self.idx
 		self.idx += 1
@@ -337,7 +337,7 @@ bind SetIterator[T].next = (&self) ?T: {
 }
 
 // Returns a forward [`Iterator`] yielding copies of all live elements in the set.
-bind Set[T].iter = (self) Iterator[T]:
+bind Set[T].iter = fn(self) Iterator[T]:
 	SetIterator[T][
 		entries: self.entries,
 		ent_len: self.ent_len,
@@ -345,7 +345,7 @@ bind Set[T].iter = (self) Iterator[T]:
 	]
 
 // Drops all remaining live elements and frees the entry and bucket tables.
-bind Set[T].drop = (&self): {
+bind Set[T].drop = fn(&self): {
 	if(not unsafe is_null(self.entries)): {
 		let i = 0
 		for(i < self.ent_len): {
@@ -372,7 +372,7 @@ bind Set[T].drop = (&self): {
 // -----------------------------------------------------------------------------
 
 @test("Set[T] realloc_raw growth, compaction, and clear with Resource elements")
-bind test_set_realloc_and_slot_zeroing = (): {
+bind test_set_realloc_and_slot_zeroing = fn(): {
 	// Churn dirty heap blocks filled with 0xFF before Set grows via realloc_raw.
 	for(c in 0..8): {
 		let dirty = List[u8].filled(512, u8(255))
@@ -420,7 +420,7 @@ bind test_set_realloc_and_slot_zeroing = (): {
 }
 
 @test("Set[T] rehashes in place when tombstones accumulate at low load")
-bind test_set_in_place_rehash_low_load = (): {
+bind test_set_in_place_rehash_low_load = fn(): {
 	let s = Set[string].new()
 	assert(s.insert("anchor"), "insert anchor")
 	let compactions = 0

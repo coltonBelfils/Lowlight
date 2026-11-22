@@ -8,7 +8,7 @@
 
 import "std/http"
 
-bind main = (): {
+bind main = fn(): {
     println("==================================================")
     println(" Lowlight Standard HTTP Showcase (std/http.ll)    ")
     println("==================================================")
@@ -27,7 +27,7 @@ bind main = (): {
     let mux = http.ServeMux.new()
 
     // Route: "/" index (idiomatic Go pattern: verify exact path or handle root)
-    mux.handle_func("/", (req: http.Request, res: &http.ResponseWriter): {
+    mux.handle_func("/", fn(req: http.Request, res: &http.ResponseWriter): {
         if (req.path != "/"): {
             res.write_header(http.STATUS_NOT_FOUND)
             res.write("404 page not found\n")
@@ -38,14 +38,14 @@ bind main = (): {
     })
 
     // Route: "/api/hello"
-    mux.handle_func("/api/hello", (req: http.Request, res: &http.ResponseWriter): {
+    mux.handle_func("/api/hello", fn(req: http.Request, res: &http.ResponseWriter): {
         let name = req.query_param("name") ?? "friend"
         res.set_header("Content-Type", "application/json")
         res.write("{\"greeting\":\"Hello, ${name}!\"}")
     })
 
     // Route: "/api/echo" (POST handler with request body inspection)
-    mux.handle_func("/api/echo", (req: http.Request, res: &http.ResponseWriter): {
+    mux.handle_func("/api/echo", fn(req: http.Request, res: &http.ResponseWriter): {
         if (req.method != "POST"): {
             res.write_header(http.STATUS_METHOD_NOT_ALLOWED)
             res.write("{\"error\":\"Method Not Allowed\"}")
@@ -61,7 +61,7 @@ bind main = (): {
 
     let m1 = mux.copy()
     let req_home = http.Request.new("GET", "/", "")
-    let res_home = http.test_handler((r: http.Request, w: &http.ResponseWriter): {
+    let res_home = http.test_handler(cl(r: http.Request, w: &http.ResponseWriter): {
         m1.serve_http(r, &w)
     }, req_home)
     println("   GET / -> Status: ${res_home.status_code}, Body: ${res_home.body}")
@@ -69,7 +69,7 @@ bind main = (): {
 
     let m2 = mux.copy()
     let req_hello = http.Request.new("GET", "/api/hello?name=Developer", "")
-    let res_hello = http.test_handler((r: http.Request, w: &http.ResponseWriter): {
+    let res_hello = http.test_handler(cl(r: http.Request, w: &http.ResponseWriter): {
         m2.serve_http(r, &w)
     }, req_hello)
     println("   GET /api/hello?name=Developer -> Status: ${res_hello.status_code}, Body: ${res_hello.body}")
@@ -78,7 +78,7 @@ bind main = (): {
 
     let m3 = mux.copy()
     let req_404 = http.Request.new("GET", "/missing/page", "")
-    let res_404 = http.test_handler((r: http.Request, w: &http.ResponseWriter): {
+    let res_404 = http.test_handler(cl(r: http.Request, w: &http.ResponseWriter): {
         m3.serve_http(r, &w)
     }, req_404)
     println("   GET /missing/page -> Status: ${res_404.status_code}, Body: ${res_404.body.trim()}")
@@ -90,7 +90,7 @@ bind main = (): {
     req_echo.set_header("Content-Type", "application/json")
 
     let m4 = mux.copy()
-    let roundtrip_res! = http.test_roundtrip((r: http.Request, w: &http.ResponseWriter): {
+    let roundtrip_res! = http.test_roundtrip(cl(r: http.Request, w: &http.ResponseWriter): {
         m4.serve_http(r, &w)
     }, req_echo)
     assert(roundtrip_res!.is_ok())

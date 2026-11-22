@@ -30,7 +30,7 @@ Whether a struct is plain is decided by its fields, so changing one field from `
 Moving an existing variable requires `own`. A move is the only way a variable can lose its value, so `own` marks every point where that happens:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let names = ["ada", "grace"]
 	let team = own names          // `names` is now empty
 	println(team.len())
@@ -77,14 +77,14 @@ define Resource struct [
 	name: string,
 ]
 
-bind Resource.drop = (&self): println("close ${self.name}")
+bind Resource.drop = fn(&self): println("close ${self.name}")
 
 define Pair struct [
 	a: Resource,
 	b: Resource,
 ]
 
-bind main = (): {
+bind main = fn(): {
 	let p = Pair[a: Resource[name: "a"], b: Resource[name: "b"]]
 	let r = Resource[name: "r"]
 	println("end of main")
@@ -105,9 +105,9 @@ This is deterministic: the same program always destroys values at the same point
 If a variable is moved on some paths but not others, it can't be used afterwards, but the compiler still destroys it on the paths where it wasn't moved. A path that ends by leaving (`func <-`, `panic`) doesn't count as continuing:
 
 ```lowlight
-bind consume = (s: own string): println("consumed $s")
+bind consume = fn(s: own string): println("consumed $s")
 
-bind maybe_consume = (s: own string, really: bool): {
+bind maybe_consume = fn(s: own string, really: bool): {
 	if(really): {
 		consume(own s)
 		func <-
@@ -115,7 +115,7 @@ bind maybe_consume = (s: own string, really: bool): {
 	println("kept $s")        // fine: on this path, `s` was not moved
 }
 
-bind main = (): {
+bind main = fn(): {
 	maybe_consume("a" + "", true)
 	maybe_consume("b" + "", false)
 }
@@ -133,9 +133,9 @@ Inside a loop, moving a variable declared outside the loop is allowed only if ev
 A closure captures the variables it uses when it is created. Plain values are copied in; resources are **moved** in, and the outer variable becomes unusable. Inside the closure, captures are read-only.
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let prefix = "> " + ""
-	let show = (s: string) string: prefix + s     // `prefix` moves into `show`
+	let show = cl(s: string) string: prefix + s     // `prefix` moves into `show`
 	println(show("hello"))
 	// println(prefix)                            // error: moved into the closure
 }

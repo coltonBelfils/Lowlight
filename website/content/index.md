@@ -15,15 +15,15 @@ define Lookup result [
 	missing: string,
 ]
 
-bind find = (stock: #[string: int], item: string) Lookup:
+bind find = fn(stock: #[string: int], item: string) Lookup:
 	if(stock[item] as n): value(n)
 	else: missing(item.copy())
 
-bind restock = (stock: &#[string: int], item: string, n: int): {
+bind restock = fn(stock: &#[string: int], item: string, n: int): {
 	stock[item.copy()] = (stock[item] ?? 0) + n
 }
 
-bind main = (): {
+bind main = fn(): {
 	let stock = #["apples": 3]
 	restock(&stock, "pears", 5)       // `&` marks the mutation
 	let pears = find(stock, "pears"):
@@ -60,11 +60,11 @@ bind main = (): {
 </div><div>
 
 ```lowlight
-bind shout = (s: &string): s.push("!")
+bind shout = fn(s: &string): s.push("!")
 
-bind keep = (s: own string) [string]: [s]
+bind keep = fn(s: own string) [string]: [s]
 
-bind main = (): {
+bind main = fn(): {
 	let word = "hello" + ""
 	shout(&word)              // borrowed mutably, visibly
 	let all = keep(own word)  // moved: `word` is gone
@@ -86,13 +86,13 @@ define Shape enum [
 	dot,
 ]
 
-bind area = (s: Shape) float:
+bind area = fn(s: Shape) float:
 	match(s):
 		when circle(r): 3.14159 * r * r
 		when rect(wh): wh.0 * wh.1
 		default dot: 0.0
 
-bind main = (): println(area(Shape.rect(+[3.0, 4.0])))
+bind main = fn(): println(area(Shape.rect(+[3.0, 4.0])))
 ```
 
 </div></div>
@@ -103,7 +103,7 @@ bind main = (): println(area(Shape.rect(+[3.0, 4.0])))
 </div><div>
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let words = ["apple", "", "kiwi", "fig"]
 	let lengths = for(w in words) [int]: {
 		if(w.is_empty()): next <-

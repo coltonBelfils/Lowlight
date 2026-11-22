@@ -32,16 +32,16 @@ define Pair[A, B] struct [
     second: B,
 ]
 
-bind Pair[A, B].into_second = (own self) B: {
+bind Pair[A, B].into_second = fn(own self) B: {
     self.second
 }
 
-bind push_twice = (xs: &[int], v: int): {
+bind push_twice = fn(xs: &[int], v: int): {
     xs.push(v)
     xs.push(v + 1)
 }
 
-bind main = () int: {
+bind main = fn() int: {
     let list = [1, 2, 3]
     push_twice(&list, 4)
 
@@ -78,48 +78,48 @@ func TestSemaSafetyRulesRejected(t *testing.T) {
 	}{
 		{
 			name: "missing ? on optional variable",
-			src:  `bind main = (): { let bad = parse_int("42") }`,
+			src:  `bind main = fn(): { let bad = parse_int("42") }`,
 			want: "must end with `?`",
 		},
 		{
 			name: "extra ? on non-optional variable",
-			src:  `bind main = (): { let bad?: int = 42 }`,
+			src:  `bind main = fn(): { let bad?: int = 42 }`,
 			want: "non-optional type",
 		},
 		{
 			name: "deep immutability of bind map",
-			src:  `bind main = (): { bind m = #["a": 1]; m.insert("b", 2) }`,
+			src:  `bind main = fn(): { bind m = #["a": 1]; m.insert("b", 2) }`,
 			want: "deeply immutable `bind`",
 		},
 		{
 			name: "missing & at mutable call site",
 			src: `
-bind bump = (x: &int): { x += 1 }
-bind main = (): { let a = 5; bump(a) }
+bind bump = fn(x: &int): { x += 1 }
+bind main = fn(): { let a = 5; bump(a) }
 `,
 			want: "requires `&` at the call site",
 		},
 		{
 			name: "missing own at consuming call site",
 			src: `
-bind sink = (s: own string): { println(s) }
-bind main = (): { let s = "hi"; sink(s) }
+bind sink = fn(s: own string): { println(s) }
+bind main = fn(): { let s = "hi"; sink(s) }
 `,
 			want: "requires `own s` at the call site",
 		},
 		{
 			name: "use after move",
 			src: `
-bind sink = (s: own string): { println(s) }
-bind main = (): { let s = "hi"; sink(own s); println(s) }
+bind sink = fn(s: own string): { println(s) }
+bind main = fn(): { let s = "hi"; sink(own s); println(s) }
 `,
 			want: "use of moved variable",
 		},
 		{
 			name: "conditional move then read",
 			src: `
-bind sink = (s: own string): { println(s) }
-bind main = (): {
+bind sink = fn(s: own string): { println(s) }
+bind main = fn(): {
     let s = "hi"
     if (true): { sink(own s) }
     println(s)
@@ -130,15 +130,15 @@ bind main = (): {
 		{
 			name: "borrow conflict &x and x in same call",
 			src: `
-bind bad = (a: &[int], b: [int]): { a.push(b.len()) }
-bind main = (): { let xs = [1, 2]; bad(&xs, xs) }
+bind bad = fn(a: &[int], b: [int]): { a.push(b.len()) }
+bind main = fn(): { let xs = [1, 2]; bad(&xs, xs) }
 `,
 			want: "mutably borrowed",
 		},
 		{
 			name: "mutate vector while iterating",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let xs = [1, 2, 3]
     for (x in xs): {
         xs.push(x)
@@ -151,7 +151,7 @@ bind main = (): {
 			name: "arena ref escaping outer scope",
 			src: `
 define BoxedInt struct [ v: int ]
-bind main = (): {
+bind main = fn(): {
     let escaped: [ref[BoxedInt]] = []
     {
         let arena = Arena.new()
@@ -166,19 +166,19 @@ bind main = (): {
 			name: "arena ref returned without &Arena param",
 			src: `
 define BoxedInt struct [ v: int ]
-bind leak = () ref[BoxedInt]: {
+bind leak = fn() ref[BoxedInt]: {
     let arena = Arena.new()
     arena.alloc(BoxedInt[v: 1])
 }
-bind main = (): {}
+bind main = fn(): {}
 `,
 			want: "unless it takes an `&Arena` parameter",
 		},
 		{
 			name: "unwind across lambda boundary",
 			src: `
-bind main = () int: {
-    let f = () int: {
+bind main = fn() int: {
+    let f = cl() int: {
         if (true): {
             for <- 5
         }
@@ -196,7 +196,7 @@ bind main = () int: {
 			name: "non-exhaustive enum match",
 			src: `
 define Color enum [ Red, Green, Blue ]
-bind main = () int: {
+bind main = fn() int: {
     let c = Color.Red
     match (c):
         when Color.Red: 1
@@ -208,7 +208,7 @@ bind main = () int: {
 		{
 			name: "non-value block assigned to variable",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x = {
         let a = 1
         let b = 2
@@ -220,7 +220,7 @@ bind main = (): {
 		{
 			name: "unsafe pointer op outside unsafe block",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let p = null_ptr[u8]()
 }
 `,
@@ -229,7 +229,7 @@ bind main = (): {
 		{
 			name: "duplicate string pattern in match",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let s = "hello"
     match (s):
         when "hello": 1
@@ -242,7 +242,7 @@ bind main = (): {
 		{
 			name: "duplicate int pattern in match",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x = 42
     match (x):
         when 42: 1
@@ -255,18 +255,18 @@ bind main = (): {
 		{
 			name: "recursive function with omitted return type rejected",
 			src: `
-bind count_down = (n: int): {
+bind count_down = fn(n: int): {
     if (n <= 0): func <- 0
     count_down(n - 1)
 }
-bind main = (): {}
+bind main = fn(): {}
 `,
 			want: `cannot infer return type of recursive function "count_down"`,
 		},
 		{
 			name: "void cannot be used as variable type",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x: void = 1
 }
 `,
@@ -275,7 +275,7 @@ bind main = (): {
 		{
 			name: "if without else rejects non-optional eval type",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x = if (true) int: 42
 }
 `,
@@ -284,7 +284,7 @@ bind main = (): {
 		{
 			name: "while without else rejects non-optional eval type",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let i = 0
     let x = while (i < 3) int: { i += 1 }
 }
@@ -294,21 +294,21 @@ bind main = (): {
 		{
 			name: "mixed bare func <- and value func <- rejected",
 			src: `
-bind f = (b: bool): {
+bind f = fn(b: bool): {
     if (b): func <-
     42
 }
-bind main = (): {}
+bind main = fn(): {}
 `,
 			want: "mixes bare `func <-` (void) with non-void return value",
 		},
 		{
 			name: "void function rejects func <- value",
 			src: `
-bind f = () void: {
+bind f = fn() void: {
     func <- 1
 }
-bind main = (): {}
+bind main = fn(): {}
 `,
 			want: "void function cannot unwind with a value",
 		},
@@ -330,27 +330,27 @@ bind main = (): {}
 
 func TestOption2InferenceAndUnifiedSyntaxValid(t *testing.T) {
 	src := `
-bind double = (x: int): x * 2
-bind greet = (s: string): { println(s) }
-bind with_void_semi = (x: int): { x + 1; }
-bind early_ret = (b: bool): {
+bind double = fn(x: int): x * 2
+bind greet = fn(s: string): { println(s) }
+bind with_void_semi = fn(x: int): { x + 1; }
+bind early_ret = fn(b: bool): {
     if (b): func <- 10
     20
 }
-bind early_void = (b: bool): {
+bind early_void = fn(b: bool): {
     if (b): func <-
     println("ok")
 }
-bind explicit_void = () void: {
+bind explicit_void = fn() void: {
     println("explicit")
 }
 
 define Box[T] struct [ val: T ]
-bind make_list[T] = (item: T): {
+bind make_list[T] = fn(item: T): {
     for (i in 0..2) [T]: item.copy()
 }
 
-bind main = () int: {
+bind main = fn() int: {
     let bad_if?: ?int = if (true) ?int: 42
     let no_else?: ?int = if (false): 7
     let else_if_val = if (false): 1 else if (true): 2 else: 3
@@ -358,9 +358,9 @@ bind main = () int: {
         when 2: 20
         default: 0
     let l1: [int] = make_list[int](double(3))
-    let inc = (n: int): n + 1
-    let fn_arg: (int) int = (k: int): k + 5
-    let fn_void: (int) void = (k: int): { if (k > 0): println("ok") }
+    let inc = cl(n: int): n + 1
+    let fn_arg: cl(int) int = cl(k: int): k + 5
+    let fn_void: cl(int) void = cl(k: int): { if (k > 0): println("ok") }
     fn_void(1)
     greet("hi")
     with_void_semi(5)
@@ -377,7 +377,7 @@ bind main = () int: {
 
 func TestCoalesceRightAssociativeTypeInferenceAndMoves(t *testing.T) {
 	src := `
-bind pick = (a?: ?int, b?: ?int) int: {
+bind pick = fn(a?: ?int, b?: ?int) int: {
     let s = "alive".copy()
     let x = a? ?? none ?? 0
     let y = a? ?? none ?? func <- {
@@ -390,7 +390,7 @@ bind pick = (a?: ?int, b?: ?int) int: {
     x + y + z
 }
 
-bind main = (): {
+bind main = fn(): {
     println("${pick(1, 2)}")
 }
 `
@@ -406,7 +406,7 @@ define _Box[T] struct [
     value: T,
 ]
 
-bind _Box[T].wrap = (v: own T) _Box[T]: {
+bind _Box[T].wrap = fn(v: own T) _Box[T]: {
     _Box[T][value: own v]
 }
 
@@ -415,7 +415,7 @@ define _Pair[A, B] struct [
     second: B,
 ]
 
-bind _Pair[A, B].make = (a: own A, b: own B) _Pair[A, B]: {
+bind _Pair[A, B].make = fn(a: own A, b: own B) _Pair[A, B]: {
     _Pair[A, B][first: own a, second: own b]
 }
 
@@ -424,7 +424,7 @@ define _Maybe[T] enum [
     _None,
 ]
 
-bind main = (): {
+bind main = fn(): {
     let b = _Box[int].wrap(42)
     let p = _Pair[int, string].make(b.value, "ok".copy())
     let m = _Maybe[int]._Some(p.first)

@@ -24,12 +24,12 @@ define Withdrawal result [
 	frozen,
 ]
 
-bind withdraw = (balance: int, amount: int, frozen: bool) Withdrawal:
+bind withdraw = fn(balance: int, amount: int, frozen: bool) Withdrawal:
 	if(frozen): Withdrawal.frozen
 	else if(amount > balance): insufficient(amount - balance)
 	else: value(balance - amount)
 
-bind main = (): {
+bind main = fn(): {
 	let r! = withdraw(100, 30, false)
 	println(r! ?? -1)
 }
@@ -55,19 +55,19 @@ define Withdrawal result [
 	frozen,
 ]
 
-bind withdraw = (balance: int, amount: int, frozen: bool) Withdrawal:
+bind withdraw = fn(balance: int, amount: int, frozen: bool) Withdrawal:
 	if(frozen): Withdrawal.frozen
 	else if(amount > balance): insufficient(amount - balance)
 	else: value(balance - amount)
 
-bind report = (amount: int, frozen: bool) string: {
+bind report = fn(amount: int, frozen: bool) string: {
 	let left = withdraw(100, amount, frozen):
 		when insufficient(short): func <- "short by $short"
 		default frozen: func <- "account frozen"
 	"left: $left"
 }
 
-bind main = (): {
+bind main = fn(): {
 	println(report(30, false))
 	println(report(130, false))
 	println(report(10, true))
@@ -87,19 +87,19 @@ Each arm either produces a replacement value or leaves with an unwind. The chain
 For everyday code you don't need to declare a result type. The prelude's `Result[T]` has two members, `value: T` and `err: Error`, and `Error` carries a message, an optional code, a chain of causes, and a trace of where it passed:
 
 ```lowlight
-bind parse_port = (s: string) Result[int]: {
+bind parse_port = fn(s: string) Result[int]: {
 	let n = parse_int(s) ?? func <- err(Error.new("'$s' is not a number"))
 	if(n < 1 or n > 65535): func <- err(Error.new("port $n out of range"))
 	value(n)
 }
 
-bind load = (text: string) Result[int]: {
+bind load = fn(text: string) Result[int]: {
 	let port = parse_port(text):
 		default err(own e): func <- err(e.wrap("loading config"))
 	value(port)
 }
 
-bind main = (): {
+bind main = fn(): {
 	println(load("8080") ?? 0)
 	let r! = load("http")
 	if(r!.peek_err() as e): println(e.summary())
@@ -129,7 +129,7 @@ match(parse_port(s)):                           // full control
 A panic is for bugs. It prints a message with the source location, flushes output, and exits with status 1:
 
 ```lowlight panics
-bind main = (): {
+bind main = fn(): {
 	println("starting")
 	let xs = [1, 2, 3]
 	let i = 7

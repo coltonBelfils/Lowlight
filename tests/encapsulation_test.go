@@ -76,11 +76,11 @@ define BankAccount struct [
     _balance: int,
 ]
 
-bind BankAccount.new = (owner: string, initial: int) BankAccount: {
+bind BankAccount.new = fn(owner: string, initial: int) BankAccount: {
     BankAccount[owner: owner.copy(), _balance: initial]
 }
 
-bind BankAccount.balance = (self) int: {
+bind BankAccount.balance = fn(self) int: {
     self._balance
 }
 `
@@ -90,7 +90,7 @@ bind BankAccount.balance = (self) int: {
 	mainReadSrc := `
 import "./pkg_bank" as bank
 
-bind main = (): {
+bind main = fn(): {
     let acc = bank.BankAccount.new("Alice", 100)
     let b = acc._balance
     println(b)
@@ -112,7 +112,7 @@ bind main = (): {
 	mainWriteSrc := `
 import "./pkg_bank" as bank
 
-bind main = (): {
+bind main = fn(): {
     let acc = bank.BankAccount.new("Alice", 100)
     acc._balance = 500
 }
@@ -150,7 +150,7 @@ define BankAccount struct [
 	mainExplicitFieldSrc := `
 import "./pkg_bank" as bank
 
-bind main = (): {
+bind main = fn(): {
     let acc = bank.BankAccount[owner: "Alice", _balance: 1000]
     println(acc.owner)
 }
@@ -171,7 +171,7 @@ bind main = (): {
 	mainOmitFieldSrc := `
 import "./pkg_bank" as bank
 
-bind main = (): {
+bind main = fn(): {
     let acc = bank.BankAccount[owner: "Alice"]
     println(acc.owner)
 }
@@ -205,7 +205,7 @@ define ServiceConfig struct [
     _tag?: ?string,
 ]
 
-bind ServiceConfig.get_id = (self) int: {
+bind ServiceConfig.get_id = fn(self) int: {
     self._id
 }
 `
@@ -214,7 +214,7 @@ bind ServiceConfig.get_id = (self) int: {
 	mainSrc := `
 import "./pkg_config" as cfg
 
-bind main = (): {
+bind main = fn(): {
     let c = cfg.ServiceConfig[host: "localhost", port: 8080]
     assert(c.host == "localhost")
     assert(c.port == 8080)
@@ -247,11 +247,11 @@ define Counter struct [
     value: int = 0,
 ]
 
-bind Counter.increment = (&self): {
+bind Counter.increment = fn(&self): {
     self._bump()
 }
 
-bind Counter._bump = (&self): {
+bind Counter._bump = fn(&self): {
     self.value = self.value + 1
 }
 `
@@ -260,7 +260,7 @@ bind Counter._bump = (&self): {
 	mainSrc := `
 import "./pkg_counter" as cnt
 
-bind main = (): {
+bind main = fn(): {
     let c = cnt.Counter[value: 10]
     c._bump()
 }
@@ -293,11 +293,11 @@ define PublicData struct [
     info: string,
 ]
 
-bind _secret_fn = () int: {
+bind _secret_fn = fn() int: {
     999
 }
 
-bind public_fn = () int: {
+bind public_fn = fn() int: {
     _secret_fn()
 }
 `
@@ -307,7 +307,7 @@ bind public_fn = () int: {
 	mainCallFnSrc := `
 import "./pkg_internal" as lib
 
-bind main = (): {
+bind main = fn(): {
     let x = lib._secret_fn()
     println(x)
 }
@@ -328,7 +328,7 @@ bind main = (): {
 	mainPrivateTypeSrc := `
 import "./pkg_internal" as lib
 
-bind main = (): {
+bind main = fn(): {
     let s: lib._SecretData = lib._SecretData[secret: 1]
     println(s.secret)
 }
@@ -357,14 +357,14 @@ define ServiceState struct [
     active: bool,
 ]
 
-bind _internal_helper = (k: int) int: {
+bind _internal_helper = fn(k: int) int: {
     k * 2
 }
 `
 	writeTestFile(t, tmp, "pkg_shared/state.ll", stateSrc)
 
 	methodsSrc := `
-bind ServiceState.new = (key: int) ServiceState: {
+bind ServiceState.new = fn(key: int) ServiceState: {
     // Both files are in pkg_shared, so initializing _secret_key is valid!
     ServiceState[
         _secret_key: _internal_helper(key),
@@ -372,7 +372,7 @@ bind ServiceState.new = (key: int) ServiceState: {
     ]
 }
 
-bind ServiceState.key = (self) int: {
+bind ServiceState.key = fn(self) int: {
     // Both files in pkg_shared, so reading _secret_key is valid!
     self._secret_key
 }
@@ -382,7 +382,7 @@ bind ServiceState.key = (self) int: {
 	mainSrc := `
 import "./pkg_shared" as svc
 
-bind main = (): {
+bind main = fn(): {
     let s = svc.ServiceState.new(21)
     assert(s.active == true)
     assert(s.key() == 42)
@@ -406,7 +406,7 @@ bind main = (): {
 	badMainSrc := `
 import "./pkg_shared" as svc
 
-bind main = (): {
+bind main = fn(): {
     let x = svc._internal_helper(10)
 }
 `
@@ -430,23 +430,23 @@ func TestEncapsulationSealedInterface(t *testing.T) {
 
 	sealedSrc := `
 define InternalNode interface [
-    id: (self) int,
-    _token: (self) int,
+    id: fn(self) int,
+    _token: fn(self) int,
 ]
 
 define ValidNode struct [
     my_id: int,
 ]
 
-bind ValidNode.id = (self) int: {
+bind ValidNode.id = fn(self) int: {
     self.my_id
 }
 
-bind ValidNode._token = (self) int: {
+bind ValidNode._token = fn(self) int: {
     self.my_id * 10
 }
 
-bind process_node = (node: InternalNode) int: {
+bind process_node = fn(node: InternalNode) int: {
     node.id()
 }
 `
@@ -460,15 +460,15 @@ define OutsideNode struct [
     my_id: int,
 ]
 
-bind OutsideNode.id = (self) int: {
+bind OutsideNode.id = fn(self) int: {
     self.my_id
 }
 
-bind OutsideNode._token = (self) int: {
+bind OutsideNode._token = fn(self) int: {
     123
 }
 
-bind main = (): {
+bind main = fn(): {
     let out = OutsideNode[my_id: 5]
     // OutsideNode cannot satisfy sealed InternalNode!
     let res = sealed.process_node(out)
@@ -488,7 +488,7 @@ bind main = (): {
 	mainValidSrc := `
 import "./pkg_sealed" as sealed
 
-bind main = (): {
+bind main = fn(): {
     let valid = sealed.ValidNode[my_id: 7]
     let res = sealed.process_node(valid)
     assert(res == 7)
@@ -521,7 +521,7 @@ define Wallet struct [
     _history_count: int = 0,
 ]
 
-bind Wallet.new = (owner: string, initial_coins: int) Wallet: {
+bind Wallet.new = fn(owner: string, initial_coins: int) Wallet: {
     Wallet[
         owner: owner.copy(),
         _coins: initial_coins,
@@ -529,22 +529,22 @@ bind Wallet.new = (owner: string, initial_coins: int) Wallet: {
     ]
 }
 
-bind Wallet.coins = (self) int: {
+bind Wallet.coins = fn(self) int: {
     self._coins
 }
 
-bind Wallet.transactions = (self) int: {
+bind Wallet.transactions = fn(self) int: {
     self._history_count
 }
 
-bind Wallet.credit = (&self, amount: int): {
+bind Wallet.credit = fn(&self, amount: int): {
     if (amount > 0): {
         self._coins = self._coins + amount
         self._record_tx()
     }
 }
 
-bind Wallet.debit = (&self, amount: int) bool: {
+bind Wallet.debit = fn(&self, amount: int) bool: {
     if (amount > 0 and self._coins >= amount): {
         self._coins = self._coins - amount
         self._record_tx()
@@ -554,7 +554,7 @@ bind Wallet.debit = (&self, amount: int) bool: {
     }
 }
 
-bind Wallet._record_tx = (&self): {
+bind Wallet._record_tx = fn(&self): {
     self._history_count = self._history_count + 1
 }
 `
@@ -563,7 +563,7 @@ bind Wallet._record_tx = (&self): {
 	mainSrc := `
 import "./pkg_wallet" as w
 
-bind main = (): {
+bind main = fn(): {
     let wallet = w.Wallet.new("Alice", 100)
     assert(wallet.owner == "Alice")
     assert(wallet.coins() == 100)
@@ -613,11 +613,11 @@ define Token enum [
     _Eof,
 ]
 
-bind Token.make_eof = () Token: {
+bind Token.make_eof = fn() Token: {
     Token._Eof
 }
 
-bind Token.describe = (self) string: {
+bind Token.describe = fn(self) string: {
     match (self):
         when Token.Ident(s): "ident:" + s
         when Token.Number(n): "num"
@@ -631,7 +631,7 @@ bind Token.describe = (self) string: {
 	mainSrc := `
 import "./pkg_tok" as tok
 
-bind main = (): {
+bind main = fn(): {
     let t = tok.Token.Ident("foo")
     let kind = match (t):
         when tok.Token.Ident(s): "got_ident"
@@ -658,7 +658,7 @@ bind main = (): {
 	badMatchSrc := `
 import "./pkg_tok" as tok
 
-bind test_bad = (t: tok.Token) int: {
+bind test_bad = fn(t: tok.Token) int: {
     match (t):
         when tok.Token._Internal(c): 0
         default: 1
@@ -677,7 +677,7 @@ bind test_bad = (t: tok.Token) int: {
 	badNoElseSrc := `
 import "./pkg_tok" as tok
 
-bind test_bad = (t: tok.Token) int: {
+bind test_bad = fn(t: tok.Token) int: {
     match (t):
         when tok.Token.Ident(s): 0
         when tok.Token.Number(n): 1
@@ -701,7 +701,7 @@ func TestEncapsulationCorePackageProtection(t *testing.T) {
 
 	// Valid usage of std/core exported types and functions
 	validSrc := `
-bind main = (): {
+bind main = fn(): {
     let r! = Result[int].value(42)
     assert(r!.is_ok())
     assert(r!.unwrap() == 42)
@@ -719,7 +719,7 @@ bind main = (): {
 
 	// Direct call to unexported _hash_mix_u64 must fail
 	badCallSrc := `
-bind main = (): {
+bind main = fn(): {
     let h = _hash_mix_u64(u64(123))
     println(h)
 }
@@ -735,7 +735,7 @@ bind main = (): {
 
 	// Direct access to unexported ErrorFrame._file field must fail
 	badFieldSrc := `
-bind main = (): {
+bind main = fn(): {
     let f = ErrorFrame.new("a.ll", 1, 1, none)
     println(f._file)
 }
@@ -751,7 +751,7 @@ bind main = (): {
 
 	// Direct access to unexported Error._message field must fail
 	badErrFieldSrc := `
-bind main = (): {
+bind main = fn(): {
     let e = Error.new("boom")
     println(e._message)
 }
@@ -767,7 +767,7 @@ bind main = (): {
 
 	// Direct struct literal construction of Error without unexported fields must fail
 	badErrLitSrc := `
-bind main = (): {
+bind main = fn(): {
     let e = Error[]
     println(e.message())
 }

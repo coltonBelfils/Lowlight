@@ -29,7 +29,7 @@ define Point struct [
 // ```lowlight
 // let d = Point[x: 0.0, y: 0.0].distance(Point[x: 3.0, y: 4.0])   // 5.0
 // ```
-bind Point.distance = (self, other: Point) float: ...
+bind Point.distance = fn(self, other: Point) float: ...
 ```
 
 Doc comments are Markdown:

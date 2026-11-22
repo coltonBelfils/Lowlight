@@ -9,7 +9,7 @@ order: 1
 ## Printing
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	println("Hello!")
 	print("no newline, ")
 	println(42)
@@ -33,7 +33,7 @@ true
 ## Variables: `bind` and `let`
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	bind greeting = "hello"   // immutable
 	let count = 0             // mutable
 	count += 1
@@ -53,7 +53,7 @@ hello 10
 ## Numbers
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let a = 7
 	let b = 2
 	println(a / b)            // integer division truncates
@@ -80,7 +80,7 @@ bind main = (): {
 ## Booleans and characters
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let ok = 3 > 2 and not false
 	println(ok or false)
 	let c = 'λ'
@@ -102,7 +102,7 @@ The logical operators are words: `and`, `or`, `not`. A `char` is one Unicode cha
 ## Strings
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let name = "Ada"
 	let year = 1843
 	println("$name wrote the first program in $year.")
@@ -147,7 +147,7 @@ bind answer = 42
 Each statement ends at the end of its line; you never type a semicolon. A line continues when it obviously isn't finished: inside parentheses or brackets, after a binary operator, or when the next line starts with `.`:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let total = 1 +
 		2 +
 		3

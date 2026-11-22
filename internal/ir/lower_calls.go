@@ -218,6 +218,12 @@ func (fl *funcLowerer) lowerClosureValueCall(call *ast.CallExpr, _ *sema.ExprInf
 	calleeTy := fl.info(call.Callee).Type.(*types.Func)
 	fl.tc.visit(calleeTy)
 	calleeVal := fl.lowerExprRead(call.Callee)
+	if !calleeTy.Closure {
+		// An `fn` value is the entry function itself; it gets no environment.
+		cArgs := []Expr{&ExprLitZero{Typ: &types.Ptr{Elem: types.TypeVoid}}}
+		cArgs = append(cArgs, fl.lowerCallArgs(calleeTy.Params, call.Args)...)
+		return &ExprCall{Callee: EnsureExpr(calleeVal, calleeTy), Args: cArgs, Typ: calleeTy.Ret}
+	}
 	fnTmp := fl.allocSlot("_ll_clos", calleeTy)
 	fl.assignLocal(fnTmp, calleeVal)
 
@@ -415,6 +421,9 @@ func (fl *funcLowerer) lowerInterfaceMethodCall(call *ast.CallExpr, inf *sema.Ex
 
 func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
 	switch inf.BuiltinName {
+	case "cl":
+		// `cl(f)`: the argument carries the conversion (ToClosure).
+		return fl.lowerExprOwned(call.Args[0], inf.Type)
 	case "print", "println", "eprint", "eprintln":
 		isErr := strings.HasPrefix(inf.BuiltinName, "e")
 		isLn := strings.HasSuffix(inf.BuiltinName, "ln")

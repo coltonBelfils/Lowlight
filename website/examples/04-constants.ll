@@ -11,7 +11,7 @@ bind RATE = 1.5
 // Constants can be computed from other constants, in any order.
 bind DOUBLE_MAX = MAX_USERS * 2
 
-bind main = (): {
+bind main = fn(): {
 	println(MAX_USERS)
 	println(DOUBLE_MAX)
 	println("$GREETING at rate $RATE")

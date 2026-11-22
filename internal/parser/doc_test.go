@@ -37,26 +37,26 @@ define Status enum [
 // Interface doc.
 define Show interface [
 	// Render as string.
-	show: (self) string,
-	alt: (self) string, // Alt inline.
+	show: fn(self) string,
+	alt: fn(self) string, // Alt inline.
 ]
 
 // Distinct doc.
 define Meters float
 
 // Extern fn doc.
-extern sqrt: (x: float) float
+extern sqrt: fn(x: float) float
 
 // Function doc line 1.
 // Function doc line 2.
-bind add = (a: int, b: int) int: a + b
+bind add = fn(a: int, b: int) int: a + b
 
 // Detached comment with blank line below.
 
-bind detached = () int: 0
+bind detached = fn() int: 0
 
 // Method doc.
-bind Point.norm = (self) float: self.x + self.y
+bind Point.norm = fn(self) float: self.x + self.y
 `
 
 	rep := diag.NewReporter()
@@ -149,7 +149,7 @@ func TestModuleDocSkipsBannerDivider(t *testing.T) {
 //
 // Core summary line.
 
-bind f = () int: 1
+bind f = fn() int: 1
 `
 	rep := diag.NewReporter()
 	f, _ := parser.ParseFileWithComments("banner.ll", src, rep)

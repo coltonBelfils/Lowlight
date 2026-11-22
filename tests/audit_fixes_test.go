@@ -17,7 +17,7 @@ bind C = B + 1
 bind B = A * 2
 bind A = 10
 
-bind main = (): {
+bind main = fn(): {
     assert(A == 10)
     assert(B == 20)
     assert(C == 21)
@@ -30,7 +30,7 @@ bind main = (): {
 bind A = B + 1
 bind B = A + 1
 
-bind main = (): {
+bind main = fn(): {
     println(A)
 }
 `
@@ -56,11 +56,11 @@ define NonCopyable struct [
     id: int,
 ]
 
-bind NonCopyable.drop = (&self): {
+bind NonCopyable.drop = fn(&self): {
     self.id = 0
 }
 
-bind main = (): {
+bind main = fn(): {
     let v: [NonCopyable] = []
     // Push 10 elements to trigger dynamic reallocations in ll_vec_reserve
     for (i in 0..10): {
@@ -81,7 +81,7 @@ func TestInt64MinFormatting(t *testing.T) {
 import "std/strconv"
 import "std/strfmt"
 
-bind main = (): {
+bind main = fn(): {
     let min_i64 = -9223372036854775807 - 1
 
     // to_radix in base 10
@@ -115,7 +115,7 @@ func TestParseIntOverflow(t *testing.T) {
 	src := `
 import "std/strconv"
 
-bind main = (): {
+bind main = fn(): {
     // Exact bounds
     let max_ok? = strconv.parse_int_safe("9223372036854775807")
     assert(max_ok? != none)
@@ -151,7 +151,7 @@ func TestArenaEscapeAnalysisRecursion(t *testing.T) {
 define Node struct [ val: int ]
 define Holder struct [ node: ref[Node] ]
 
-bind main = (): {
+bind main = fn(): {
     let outer_ref: ?ref[Node] = none
     {
         let a = Arena.new()
@@ -177,7 +177,7 @@ bind main = (): {
 	srcIf := `
 define Node struct [ val: int ]
 
-bind main = (): {
+bind main = fn(): {
     let outer_ref: ?ref[Node] = none
     let a1 = Arena.new()
     let n1 = a1.alloc(Node[val: 1])
@@ -205,11 +205,11 @@ bind main = (): {
 func TestGenericRecursionLimit(t *testing.T) {
 	t.Parallel()
 	src := `
-bind recurse[T] = (): {
+bind recurse[T] = fn(): {
     recurse[[T]]()
 }
 
-bind main = (): {
+bind main = fn(): {
     recurse[int]()
 }
 `
@@ -231,7 +231,7 @@ bind main = (): {
 func TestMapAndSetTombstoneCompaction(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = (): {
+bind main = fn(): {
     let m = #[ "key": 0 ]
     m.clear()
 
@@ -278,7 +278,7 @@ func TestPosixDirectoryOperations(t *testing.T) {
 	src := `
 import "std/os"
 
-bind main = (): {
+bind main = fn(): {
     let test_dir = "/tmp/ll_test_mkdir_p/nested/dir/level3"
     let ok = os.mkdir_p(test_dir)
     assert(ok)
@@ -300,11 +300,11 @@ define Res struct [
     name: string,
 ]
 
-bind Res.drop = (&self): {
+bind Res.drop = fn(&self): {
     self.name = ""
 }
 
-bind main = (): {
+bind main = fn(): {
     unsafe {
         let p = alloc_raw[Res](1)
         // Assigning to raw uninitialized memory *p must NOT attempt to drop uninitialized *p!
@@ -322,7 +322,7 @@ bind main = (): {
 func TestResultInPrelude(t *testing.T) {
 	t.Parallel()
 	src := `
-bind divide = (a: int, b: int) Result[int]: {
+bind divide = fn(a: int, b: int) Result[int]: {
     if (b == 0): {
         err(Error.coded("div_zero", "division by zero"))
     } else: {
@@ -330,7 +330,7 @@ bind divide = (a: int, b: int) Result[int]: {
     }
 }
 
-bind main = (): {
+bind main = fn(): {
     let ok_res! = divide(10, 2)
     assert(ok_res!.is_ok())
     assert(not ok_res!.is_err())
@@ -358,26 +358,26 @@ define Coord struct [
 ]
 
 @must_use
-bind compute_val = (x: int) int: {
+bind compute_val = fn(x: int) int: {
     x * 2
 }
 
 @inline
-bind fast_add = (a: int, b: int) int: {
+bind fast_add = fn(a: int, b: int) int: {
     a + b
 }
 
 @noinline
-bind slow_add = (a: int, b: int) int: {
+bind slow_add = fn(a: int, b: int) int: {
     a + b
 }
 
 @deprecated("use compute_val instead")
-bind old_calc = (x: int) int: {
+bind old_calc = fn(x: int) int: {
     x * 2
 }
 
-bind main = (): {
+bind main = fn(): {
     let c = Coord[x: i32(10), y: i32(20)]
     assert(int(c.x) == 10)
     assert(int(c.y) == 20)
@@ -398,8 +398,8 @@ bind main = (): {
 	srcConflict := `
 @inline
 @noinline
-bind bad_fn = (): {}
-bind main = (): {}
+bind bad_fn = fn(): {}
+bind main = fn(): {}
 `
 	root := projectRoot(t)
 	_, _, err := driver.Check(driver.Options{
@@ -423,15 +423,15 @@ define CustomFile struct [
     fd: int,
 ]
 
-bind CustomFile.drop = (&self): {
+bind CustomFile.drop = fn(&self): {
     self.fd = -1
 }
 
-bind test_drop[T: Drop] = (item: own T): {
+bind test_drop[T: Drop] = fn(item: own T): {
     // item is dropped at the end of this scope
 }
 
-bind main = (): {
+bind main = fn(): {
     let f = CustomFile[fd: 10]
     test_drop[CustomFile](own f)
 }
@@ -443,7 +443,7 @@ bind main = (): {
 func TestStringPushBytes(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = (): {
+bind main = fn(): {
     let s = "Hello"
     unsafe {
         let raw = alloc_raw[u8](7)
@@ -470,7 +470,7 @@ func TestTopLevelComplexConstants(t *testing.T) {
 	src := `
 bind l = [1, 2, 3, 4, 5, 6]
 
-bind main = (): {
+bind main = fn(): {
     let ll? = while (i in l): i + 1
     if (ll?): {
         assert(ll == 7)
@@ -487,7 +487,7 @@ import "std/fs"
 
 bind ERR_NOT_FOUND = Error.coded("not_found", "resource not found")
 
-bind step1 = (path: string) Result[string]: {
+bind step1 = fn(path: string) Result[string]: {
     let r! = fs.read_file(path)
     if (r!.is_err()): {
         func <- err(r!.unwrap_err().with_code("not_found").wrap("step1 failed"))
@@ -495,7 +495,7 @@ bind step1 = (path: string) Result[string]: {
     r!
 }
 
-bind step2 = (path: string) Result[int]: {
+bind step2 = fn(path: string) Result[int]: {
     let r! = step1(path)
     if (r!.is_err()): {
         let e = r!.unwrap_err().trace()
@@ -504,7 +504,7 @@ bind step2 = (path: string) Result[int]: {
     value(r!.unwrap().len())
 }
 
-bind main = (): {
+bind main = fn(): {
     let r! = step2("/tmp/definitely_missing_lowlight_error_test_file_12345.txt").wrap_err("top-level load")
     assert(r!.is_err())
     assert(r!.copy().into_ok() == none)
@@ -535,10 +535,10 @@ bind main = (): {
 
 	// Verify @must_use warning when discarding a Result[T]
 	warnSrc := `
-bind make_ok = () Result[int]: {
+bind make_ok = fn() Result[int]: {
     value(1)
 }
-bind main = (): {
+bind main = fn(): {
     make_ok();
 }
 `

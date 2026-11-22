@@ -707,7 +707,7 @@ func (p *printer) printExternFnDecl(v *ast.ExternFnDecl) {
 		p.write(" as ")
 		p.write(v.Alias)
 	}
-	p.write(": ")
+	p.write(": fn")
 	p.printParamList(v.Params)
 	if v.Ret != nil {
 		p.write(" ")
@@ -849,7 +849,7 @@ func (p *printer) printInterfaceDecl(v *ast.InterfaceDecl) {
 		}
 		p.writeIndent()
 		p.write(m.Name)
-		p.write(": ")
+		p.write(": fn")
 		p.printMethodParamList(m.RecvMode, nil, m.Params)
 		if m.Ret != nil {
 			p.write(" ")
@@ -916,7 +916,7 @@ func (p *printer) printMethodDecl(v *ast.MethodDecl) {
 	p.write(".")
 	p.write(v.Name)
 	p.printTypeParams(v.TypeParams)
-	p.write(" = ")
+	p.write(" = fn")
 	p.printMethodParamList(v.RecvMode, v.RecvExplicitTy, v.Params)
 	if v.Ret != nil {
 		p.write(" ")
@@ -1032,6 +1032,11 @@ func (p *printer) printTypeExpr(t ast.TypeExpr) {
 		}
 		p.write("]")
 	case *ast.FuncType:
+		if v.Closure {
+			p.write("cl")
+		} else {
+			p.write("fn")
+		}
 		p.printParamList(v.Params)
 		if v.Ret != nil {
 			p.write(" ")
@@ -2389,6 +2394,11 @@ func (p *printer) printStructLit(v *ast.StructLit) {
 }
 
 func (p *printer) printFuncLit(v *ast.FuncLit) {
+	if v.Closure {
+		p.write("cl")
+	} else {
+		p.write("fn")
+	}
 	p.printParamList(v.Params)
 	if v.Ret != nil {
 		p.write(" ")

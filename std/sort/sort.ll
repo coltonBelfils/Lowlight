@@ -11,7 +11,7 @@
 // Interface implemented by collections that support in-place sorting.
 define Sortable interface [
 	// Sorts the elements of `self` in ascending order in place.
-	sort: (&self),
+	sort: fn(&self),
 ]
 
 // -----------------------------------------------------------------------------
@@ -19,7 +19,7 @@ define Sortable interface [
 // -----------------------------------------------------------------------------
 
 // In-place bitwise slot swap without invoking copy constructors or destructors.
-bind _swap_ptr[T] = (data: ptr[T], i: int, j: int): {
+bind _swap_ptr[T] = fn(data: ptr[T], i: int, j: int): {
 	if(i == j): func <-
 	unsafe {
 		let pi = ptr_add(data, i)
@@ -31,7 +31,7 @@ bind _swap_ptr[T] = (data: ptr[T], i: int, j: int): {
 }
 
 // Reverses elements in `[0..len)` bitwise without requiring `Copyable`.
-bind _reverse_ptr[T] = (data: ptr[T], len: int): {
+bind _reverse_ptr[T] = fn(data: ptr[T], len: int): {
 	if(len <= 1): func <-
 	let i = 0
 	let j = len - 1
@@ -43,7 +43,7 @@ bind _reverse_ptr[T] = (data: ptr[T], len: int): {
 }
 
 // Computes `2 * floor(log2(n))` for Introsort's Heapsort fallback depth limit.
-bind _max_depth = (n: int) int: {
+bind _max_depth = fn(n: int) int: {
 	let depth = 0
 	let rem = n
 	while(rem > 1): {
@@ -58,7 +58,7 @@ bind _max_depth = (n: int) int: {
 // -----------------------------------------------------------------------------
 
 // In-place insertion sort for small partitions (`hi - lo <= 16`). Stable on equal keys.
-bind _sort_insertion[T] = (data: ptr[T], lo: int, hi: int): {
+bind _sort_insertion[T] = fn(data: ptr[T], lo: int, hi: int): {
 	let i = lo + 1
 	while(i <= hi): {
 		let j = i
@@ -75,7 +75,7 @@ bind _sort_insertion[T] = (data: ptr[T], lo: int, hi: int): {
 }
 
 // Restores max-heap invariant at `root_in` over `data[lo .. lo + count)`.
-bind _sift_down[T] = (data: ptr[T], lo: int, root_in: int, count: int): {
+bind _sift_down[T] = fn(data: ptr[T], lo: int, root_in: int, count: int): {
 	let root = root_in
 	while(true): {
 		let left = 2 * root + 1
@@ -98,7 +98,7 @@ bind _sift_down[T] = (data: ptr[T], lo: int, root_in: int, count: int): {
 }
 
 // Worst-case O(n log n) in-place Heapsort fallback for `data[lo..=hi]`.
-bind _heapsort_range[T] = (data: ptr[T], lo: int, hi: int): {
+bind _heapsort_range[T] = fn(data: ptr[T], lo: int, hi: int): {
 	let count = hi - lo + 1
 	if(count <= 1): func <-
 	let start = count / 2 - 1
@@ -115,7 +115,7 @@ bind _heapsort_range[T] = (data: ptr[T], lo: int, hi: int): {
 }
 
 // Median-of-three Hoare/Lomuto partition on `data[lo..=hi]`.
-bind _partition[T] = (data: ptr[T], lo: int, hi: int) int: {
+bind _partition[T] = fn(data: ptr[T], lo: int, hi: int) int: {
 	let mid = lo + (hi - lo) / 2
 	unsafe {
 		if(data[mid] < data[lo]): _swap_ptr(data, lo, mid)
@@ -143,7 +143,7 @@ bind _partition[T] = (data: ptr[T], lo: int, hi: int) int: {
 }
 
 // Depth-bounded Introsort with tail recursion elimination onto the larger subrange.
-bind _sort_range[T] = (data: ptr[T], lo_in: int, hi_in: int, depth_in: int) void: {
+bind _sort_range[T] = fn(data: ptr[T], lo_in: int, hi_in: int, depth_in: int) void: {
 	let lo = lo_in
 	let hi = hi_in
 	let depth_limit = depth_in
@@ -169,7 +169,7 @@ bind _sort_range[T] = (data: ptr[T], lo_in: int, hi_in: int, depth_in: int) void
 // Introsort (Custom Comparator)
 // -----------------------------------------------------------------------------
 
-bind _sort_by_insertion[T] = (data: ptr[T], lo: int, hi: int, cmp_fn: (T, T) int): {
+bind _sort_by_insertion[T] = fn(data: ptr[T], lo: int, hi: int, cmp_fn: cl(T, T) int): {
 	let i = lo + 1
 	while(i <= hi): {
 		let j = i
@@ -183,7 +183,7 @@ bind _sort_by_insertion[T] = (data: ptr[T], lo: int, hi: int, cmp_fn: (T, T) int
 	}
 }
 
-bind _sift_down_by[T] = (data: ptr[T], lo: int, root_in: int, count: int, cmp_fn: (T, T) int): {
+bind _sift_down_by[T] = fn(data: ptr[T], lo: int, root_in: int, count: int, cmp_fn: cl(T, T) int): {
 	let root = root_in
 	while(true): {
 		let left = 2 * root + 1
@@ -201,7 +201,7 @@ bind _sift_down_by[T] = (data: ptr[T], lo: int, root_in: int, count: int, cmp_fn
 	}
 }
 
-bind _heapsort_by_range[T] = (data: ptr[T], lo: int, hi: int, cmp_fn: (T, T) int): {
+bind _heapsort_by_range[T] = fn(data: ptr[T], lo: int, hi: int, cmp_fn: cl(T, T) int): {
 	let count = hi - lo + 1
 	if(count <= 1): func <-
 	let start = count / 2 - 1
@@ -217,7 +217,7 @@ bind _heapsort_by_range[T] = (data: ptr[T], lo: int, hi: int, cmp_fn: (T, T) int
 	}
 }
 
-bind _partition_by[T] = (data: ptr[T], lo: int, hi: int, cmp_fn: (T, T) int) int: {
+bind _partition_by[T] = fn(data: ptr[T], lo: int, hi: int, cmp_fn: cl(T, T) int) int: {
 	let mid = lo + (hi - lo) / 2
 	unsafe {
 		if(cmp_fn(data[mid], data[lo]) < 0): _swap_ptr(data, lo, mid)
@@ -244,7 +244,7 @@ bind _partition_by[T] = (data: ptr[T], lo: int, hi: int, cmp_fn: (T, T) int) int
 	i
 }
 
-bind _sort_by_range[T] = (data: ptr[T], lo_in: int, hi_in: int, depth_in: int, cmp_fn: (T, T) int) void: {
+bind _sort_by_range[T] = fn(data: ptr[T], lo_in: int, hi_in: int, depth_in: int, cmp_fn: cl(T, T) int) void: {
 	let lo = lo_in
 	let hi = hi_in
 	let depth_limit = depth_in
@@ -270,7 +270,7 @@ bind _sort_by_range[T] = (data: ptr[T], lo_in: int, hi_in: int, depth_in: int, c
 // Stable Bottom-Up Merge Sort (Comparable & Custom Comparator)
 // -----------------------------------------------------------------------------
 
-bind _stable_sort_ptr[T] = (data: ptr[T], len: int): {
+bind _stable_sort_ptr[T] = fn(data: ptr[T], len: int): {
 	if(len <= 1): func <-
 	if(len <= 16): {
 		_sort_insertion(data, 0, len - 1)
@@ -338,7 +338,7 @@ bind _stable_sort_ptr[T] = (data: ptr[T], len: int): {
 	unsafe free_raw(buf)
 }
 
-bind _stable_sort_by_ptr[T] = (data: ptr[T], len: int, cmp_fn: (T, T) int): {
+bind _stable_sort_by_ptr[T] = fn(data: ptr[T], len: int, cmp_fn: cl(T, T) int): {
 	if(len <= 1): func <-
 	if(len <= 16): {
 		_sort_by_insertion(data, 0, len - 1, cmp_fn)
@@ -405,7 +405,7 @@ bind _stable_sort_by_ptr[T] = (data: ptr[T], len: int, cmp_fn: (T, T) int): {
 // Search & Order Verification Helpers
 // -----------------------------------------------------------------------------
 
-bind _is_sorted_ptr[T] = (data: ptr[T], len: int) bool: {
+bind _is_sorted_ptr[T] = fn(data: ptr[T], len: int) bool: {
 	if(len <= 1): func <- true
 	let i = 0
 	while(i < len - 1): {
@@ -418,7 +418,7 @@ bind _is_sorted_ptr[T] = (data: ptr[T], len: int) bool: {
 	true
 }
 
-bind _is_sorted_by_ptr[T] = (data: ptr[T], len: int, cmp_fn: (T, T) int) bool: {
+bind _is_sorted_by_ptr[T] = fn(data: ptr[T], len: int, cmp_fn: cl(T, T) int) bool: {
 	if(len <= 1): func <- true
 	let i = 0
 	while(i < len - 1): {
@@ -431,7 +431,7 @@ bind _is_sorted_by_ptr[T] = (data: ptr[T], len: int, cmp_fn: (T, T) int) bool: {
 	true
 }
 
-bind _binary_search_ptr[T] = (data: ptr[T], len: int, target: T) ?int: {
+bind _binary_search_ptr[T] = fn(data: ptr[T], len: int, target: T) ?int: {
 	if(len <= 0): func <- none
 	let lo = 0
 	let hi = len - 1
@@ -452,7 +452,7 @@ bind _binary_search_ptr[T] = (data: ptr[T], len: int, target: T) ?int: {
 	none
 }
 
-bind _binary_search_by_ptr[T] = (data: ptr[T], len: int, cmp_fn: (T) int) ?int: {
+bind _binary_search_by_ptr[T] = fn(data: ptr[T], len: int, cmp_fn: cl(T) int) ?int: {
 	if(len <= 0): func <- none
 	let lo = 0
 	let hi = len - 1
@@ -466,7 +466,7 @@ bind _binary_search_by_ptr[T] = (data: ptr[T], len: int, cmp_fn: (T) int) ?int: 
 	none
 }
 
-bind _lower_bound_ptr[T] = (data: ptr[T], len: int, target: T) int: {
+bind _lower_bound_ptr[T] = fn(data: ptr[T], len: int, target: T) int: {
 	let lo = 0
 	let hi = len
 	while(lo < hi): {
@@ -480,7 +480,7 @@ bind _lower_bound_ptr[T] = (data: ptr[T], len: int, target: T) int: {
 	lo
 }
 
-bind _upper_bound_ptr[T] = (data: ptr[T], len: int, target: T) int: {
+bind _upper_bound_ptr[T] = fn(data: ptr[T], len: int, target: T) int: {
 	let lo = 0
 	let hi = len
 	while(lo < hi): {
@@ -499,7 +499,7 @@ bind _upper_bound_ptr[T] = (data: ptr[T], len: int, target: T) int: {
 // -----------------------------------------------------------------------------
 
 // Sorts the list in place in ascending order using depth-bounded Introsort.
-bind List[T].sort = (&self): {
+bind List[T].sort = fn(&self): {
 	if(self.len <= 1): func <-
 	_sort_range(self.data, 0, self.len - 1, _max_depth(self.len))
 }
@@ -507,49 +507,49 @@ bind List[T].sort = (&self): {
 // Sorts the list in place using custom comparator `cmp_fn` via depth-bounded Introsort.
 //
 // - `cmp_fn`: Returns `< 0` when `a < b`, `0` when equal, or `> 0` when `a > b`.
-bind List[T].sort_by = (&self, cmp_fn: (T, T) int): {
+bind List[T].sort_by = fn(&self, cmp_fn: cl(T, T) int): {
 	if(self.len <= 1): func <-
 	_sort_by_range(self.data, 0, self.len - 1, _max_depth(self.len), cmp_fn)
 }
 
 // Sorts the list in place in ascending order while preserving the relative order of equal keys.
-bind List[T].stable_sort = (&self):
+bind List[T].stable_sort = fn(&self):
 	_stable_sort_ptr(self.data, self.len)
 
 // Sorts the list in place using `cmp_fn` while preserving the relative order of equal keys.
 //
 // - `cmp_fn`: Returns `< 0` when `a < b`, `0` when equal, or `> 0` when `a > b`.
-bind List[T].stable_sort_by = (&self, cmp_fn: (T, T) int):
+bind List[T].stable_sort_by = fn(&self, cmp_fn: cl(T, T) int):
 	_stable_sort_by_ptr(self.data, self.len, cmp_fn)
 
 // Reports whether elements in the list are sorted in non-decreasing ascending order.
-bind List[T].is_sorted = (self) bool:
+bind List[T].is_sorted = fn(self) bool:
 	_is_sorted_ptr(self.data, self.len)
 
 // Reports whether elements in the list are sorted according to comparator `cmp_fn`.
-bind List[T].is_sorted_by = (self, cmp_fn: (T, T) int) bool:
+bind List[T].is_sorted_by = fn(self, cmp_fn: cl(T, T) int) bool:
 	_is_sorted_by_ptr(self.data, self.len, cmp_fn)
 
 // Searches a sorted list for `target` via binary search, returning its zero-based index or `none`.
-bind List[T].binary_search = (self, target: T) ?int:
+bind List[T].binary_search = fn(self, target: T) ?int:
 	_binary_search_ptr(self.data, self.len, target)
 
 // Searches a sorted list using predicate comparator `cmp_fn`, returning a matching index or `none`.
 //
 // - `cmp_fn`: Receives an element and returns `< 0` if too small, `0` if matching, or `> 0` if too large.
-bind List[T].binary_search_by = (self, cmp_fn: (T) int) ?int:
+bind List[T].binary_search_by = fn(self, cmp_fn: cl(T) int) ?int:
 	_binary_search_by_ptr(self.data, self.len, cmp_fn)
 
 // Returns the first index `i` in `0..=self.len` where `self[i] >= target` (first element not less than `target`).
-bind List[T].lower_bound = (self, target: T) int:
+bind List[T].lower_bound = fn(self, target: T) int:
 	_lower_bound_ptr(self.data, self.len, target)
 
 // Returns the first index `i` in `0..=self.len` where `self[i] > target` (first element strictly greater than `target`).
-bind List[T].upper_bound = (self, target: T) int:
+bind List[T].upper_bound = fn(self, target: T) int:
 	_upper_bound_ptr(self.data, self.len, target)
 
 // Reverses the order of elements in the list in place.
-bind List[T].reverse = (&self):
+bind List[T].reverse = fn(&self):
 	_reverse_ptr(self.data, self.len)
 
 // -----------------------------------------------------------------------------
@@ -557,7 +557,7 @@ bind List[T].reverse = (&self):
 // -----------------------------------------------------------------------------
 
 // Sorts the fixed array or array view in place in ascending order using depth-bounded Introsort.
-bind Array[T].sort = (&self): {
+bind Array[T].sort = fn(&self): {
 	if(self.len <= 1): func <-
 	_sort_range(self.data, 0, self.len - 1, _max_depth(self.len))
 }
@@ -565,49 +565,49 @@ bind Array[T].sort = (&self): {
 // Sorts the fixed array or array view in place using custom comparator `cmp_fn`.
 //
 // - `cmp_fn`: Returns `< 0` when `a < b`, `0` when equal, or `> 0` when `a > b`.
-bind Array[T].sort_by = (&self, cmp_fn: (T, T) int): {
+bind Array[T].sort_by = fn(&self, cmp_fn: cl(T, T) int): {
 	if(self.len <= 1): func <-
 	_sort_by_range(self.data, 0, self.len - 1, _max_depth(self.len), cmp_fn)
 }
 
 // Sorts the fixed array or array view in place while preserving the relative order of equal keys.
-bind Array[T].stable_sort = (&self):
+bind Array[T].stable_sort = fn(&self):
 	_stable_sort_ptr(self.data, self.len)
 
 // Sorts the fixed array or array view in place using `cmp_fn` while preserving relative order of equal keys.
 //
 // - `cmp_fn`: Returns `< 0` when `a < b`, `0` when equal, or `> 0` when `a > b`.
-bind Array[T].stable_sort_by = (&self, cmp_fn: (T, T) int):
+bind Array[T].stable_sort_by = fn(&self, cmp_fn: cl(T, T) int):
 	_stable_sort_by_ptr(self.data, self.len, cmp_fn)
 
 // Reports whether elements in the array are sorted in non-decreasing ascending order.
-bind Array[T].is_sorted = (self) bool:
+bind Array[T].is_sorted = fn(self) bool:
 	_is_sorted_ptr(self.data, self.len)
 
 // Reports whether elements in the array are sorted according to comparator `cmp_fn`.
-bind Array[T].is_sorted_by = (self, cmp_fn: (T, T) int) bool:
+bind Array[T].is_sorted_by = fn(self, cmp_fn: cl(T, T) int) bool:
 	_is_sorted_by_ptr(self.data, self.len, cmp_fn)
 
 // Searches a sorted array for `target` via binary search, returning its zero-based index or `none`.
-bind Array[T].binary_search = (self, target: T) ?int:
+bind Array[T].binary_search = fn(self, target: T) ?int:
 	_binary_search_ptr(self.data, self.len, target)
 
 // Searches a sorted array using predicate comparator `cmp_fn`, returning a matching index or `none`.
 //
 // - `cmp_fn`: Receives an element and returns `< 0` if too small, `0` if matching, or `> 0` if too large.
-bind Array[T].binary_search_by = (self, cmp_fn: (T) int) ?int:
+bind Array[T].binary_search_by = fn(self, cmp_fn: cl(T) int) ?int:
 	_binary_search_by_ptr(self.data, self.len, cmp_fn)
 
 // Returns the first index `i` in `0..=self.len` where `self[i] >= target`.
-bind Array[T].lower_bound = (self, target: T) int:
+bind Array[T].lower_bound = fn(self, target: T) int:
 	_lower_bound_ptr(self.data, self.len, target)
 
 // Returns the first index `i` in `0..=self.len` where `self[i] > target`.
-bind Array[T].upper_bound = (self, target: T) int:
+bind Array[T].upper_bound = fn(self, target: T) int:
 	_upper_bound_ptr(self.data, self.len, target)
 
 // Reverses the order of elements in the fixed array or array view in place.
-bind Array[T].reverse = (&self):
+bind Array[T].reverse = fn(&self):
 	_reverse_ptr(self.data, self.len)
 
 // -----------------------------------------------------------------------------
@@ -615,14 +615,14 @@ bind Array[T].reverse = (&self):
 // -----------------------------------------------------------------------------
 
 // Collects all elements of this [`Set`] into a new sorted [`List`].
-bind Set[T].to_sorted_list = (self) List[T]: {
+bind Set[T].to_sorted_list = fn(self) List[T]: {
 	let out = self.to_list()
 	out.sort()
 	out
 }
 
 // Collects all keys of this [`Map`] into a new sorted [`List`].
-bind Map[K, V].to_sorted_keys = (self) List[K]: {
+bind Map[K, V].to_sorted_keys = fn(self) List[K]: {
 	let out = self.keys()
 	out.sort()
 	out
@@ -633,37 +633,37 @@ bind Map[K, V].to_sorted_keys = (self) List[K]: {
 // -----------------------------------------------------------------------------
 
 // Function form of [`List.sort`].
-bind sort[T] = (list: &List[T]): list.sort()
+bind sort[T] = fn(list: &List[T]): list.sort()
 
 // Function form of [`List.sort_by`].
-bind sort_by[T] = (list: &List[T], cmp_fn: (T, T) int): list.sort_by(cmp_fn)
+bind sort_by[T] = fn(list: &List[T], cmp_fn: cl(T, T) int): list.sort_by(cmp_fn)
 
 // Function form of [`List.stable_sort`].
-bind stable_sort[T] = (list: &List[T]): list.stable_sort()
+bind stable_sort[T] = fn(list: &List[T]): list.stable_sort()
 
 // Function form of [`List.stable_sort_by`].
-bind stable_sort_by[T] = (list: &List[T], cmp_fn: (T, T) int): list.stable_sort_by(cmp_fn)
+bind stable_sort_by[T] = fn(list: &List[T], cmp_fn: cl(T, T) int): list.stable_sort_by(cmp_fn)
 
 // Function form of [`List.is_sorted`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).
-bind is_sorted[T] = (list: List[T]) bool: list.is_sorted()
+bind is_sorted[T] = fn(list: List[T]) bool: list.is_sorted()
 
 // Function form of [`List.is_sorted_by`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).
-bind is_sorted_by[T] = (list: List[T], cmp_fn: (T, T) int) bool: list.is_sorted_by(cmp_fn)
+bind is_sorted_by[T] = fn(list: List[T], cmp_fn: cl(T, T) int) bool: list.is_sorted_by(cmp_fn)
 
 // Function form of [`List.binary_search`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).
-bind binary_search[T] = (list: List[T], target: T) ?int: list.binary_search(target)
+bind binary_search[T] = fn(list: List[T], target: T) ?int: list.binary_search(target)
 
 // Function form of [`List.binary_search_by`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).
-bind binary_search_by[T] = (list: List[T], cmp_fn: (T) int) ?int: list.binary_search_by(cmp_fn)
+bind binary_search_by[T] = fn(list: List[T], cmp_fn: cl(T) int) ?int: list.binary_search_by(cmp_fn)
 
 // Function form of [`List.lower_bound`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).
-bind lower_bound[T] = (list: List[T], target: T) int: list.lower_bound(target)
+bind lower_bound[T] = fn(list: List[T], target: T) int: list.lower_bound(target)
 
 // Function form of [`List.upper_bound`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).
-bind upper_bound[T] = (list: List[T], target: T) int: list.upper_bound(target)
+bind upper_bound[T] = fn(list: List[T], target: T) int: list.upper_bound(target)
 
 // Function form of [`List.reverse`].
-bind reverse[T] = (list: &List[T]): list.reverse()
+bind reverse[T] = fn(list: &List[T]): list.reverse()
 
 // -----------------------------------------------------------------------------
 // Inline Unit Tests
@@ -675,7 +675,7 @@ define _StablePair struct [
 	order: int,
 ]
 
-bind _StablePair.cmp = (self, other: _StablePair) int:
+bind _StablePair.cmp = fn(self, other: _StablePair) int:
 	if(self.key < other.key): -1
 	else if(self.key > other.key): 1
 	else: 0
@@ -687,20 +687,20 @@ define _NonCopyRecord struct [
 	tag: ptr[int],
 ]
 
-bind _NonCopyRecord.drop = (&self): {
+bind _NonCopyRecord.drop = fn(&self): {
 	if(not unsafe is_null(self.tag)): {
 		unsafe free_raw(self.tag)
 		self.tag = unsafe null_ptr[int]()
 	}
 }
 
-bind _NonCopyRecord.cmp = (self, other: _NonCopyRecord) int:
+bind _NonCopyRecord.cmp = fn(self, other: _NonCopyRecord) int:
 	if(self.id < other.id): -1
 	else if(self.id > other.id): 1
 	else: 0
 
 @test("sort list in-place and verify is_sorted, reverse, and large introsort")
-bind test_sort_list_comparable = (): {
+bind test_sort_list_comparable = fn(): {
 	let empty_list = List[int].new()
 	empty_list.sort()
 	assert(empty_list.is_sorted(), "empty list is sorted")
@@ -753,7 +753,7 @@ bind test_sort_list_comparable = (): {
 	assert(heap_nums.is_sorted(), "introsort heapsort fallback sorts completely")
 
 	// Exercise comparator Heapsort fallback path (depth_limit == 0)
-	let cmp_desc = (a: int, b: int) int:
+	let cmp_desc = fn(a: int, b: int) int:
 		if(a > b): -1
 		else if(a < b): 1
 		else: 0
@@ -762,14 +762,14 @@ bind test_sort_list_comparable = (): {
 }
 
 @test("sort list with custom comparator (descending)")
-bind test_sort_custom_comparator = (): {
+bind test_sort_custom_comparator = fn(): {
 	let nums = List[int].new()
 	nums.push(15)
 	nums.push(3)
 	nums.push(99)
 	nums.push(42)
 
-	let cmp_desc = (a: int, b: int) int:
+	let cmp_desc = fn(a: int, b: int) int:
 		if(a > b): -1
 		else if(a < b): 1
 		else: 0
@@ -784,7 +784,7 @@ bind test_sort_custom_comparator = (): {
 }
 
 @test("stable_sort and stable_sort_by preserve equal-key ordering")
-bind test_sort_stable = (): {
+bind test_sort_stable = fn(): {
 	let small = [
 		_StablePair[key: 3, order: 0],
 		_StablePair[key: 1, order: 1],
@@ -818,7 +818,7 @@ bind test_sort_stable = (): {
 		idx += 1
 	}
 
-	let rev_cmp = (a: _StablePair, b: _StablePair) int:
+	let rev_cmp = fn(a: _StablePair, b: _StablePair) int:
 		if(a.key > b.key): -1
 		else if(a.key < b.key): 1
 		else: 0
@@ -852,7 +852,7 @@ bind test_sort_stable = (): {
 }
 
 @test("binary_search, binary_search_by, lower_bound, and upper_bound on List, [T], [N: T], and Array[T]")
-bind test_sort_binary_search_and_bounds = (): {
+bind test_sort_binary_search_and_bounds = fn(): {
 	let list = [10, 20, 20, 20, 30, 50]
 
 	let idx1? = list.binary_search(30)
@@ -872,9 +872,9 @@ bind test_sort_binary_search_and_bounds = (): {
 	assert(list.upper_bound(25) == 4, "upper_bound between elements")
 	assert(list.upper_bound(50) == 6, "upper_bound at max")
 
-	let hit_by? = list.binary_search_by((x: int) int: x - 30)
+	let hit_by? = list.binary_search_by(fn(x: int) int: x - 30)
 	assert(hit_by? == 4, "binary_search_by finds 30")
-	let miss_by? = binary_search_by(list, (x: int) int: x - 35)
+	let miss_by? = binary_search_by(list, fn(x: int) int: x - 35)
 	assert(miss_by? == none, "binary_search_by misses 35")
 
 	// Fixed stack array [N: T] methods and standalone views
@@ -891,14 +891,14 @@ bind test_sort_binary_search_and_bounds = (): {
 	assert(upper_bound(fixed, 20) == 4, "standalone upper_bound accepts [N: T]")
 	assert(fixed.binary_search(40) == 4, "fixed array binary_search(40)")
 	assert(binary_search(fixed, 40) == 4, "standalone binary_search accepts [N: T]")
-	assert(fixed.binary_search_by((x: int) int: x - 40) == 4, "fixed array binary_search_by(40)")
-	assert(binary_search_by(fixed, (x: int) int: x - 40) == 4, "standalone binary_search_by accepts [N: T]")
+	assert(fixed.binary_search_by(fn(x: int) int: x - 40) == 4, "fixed array binary_search_by(40)")
+	assert(binary_search_by(fixed, fn(x: int) int: x - 40) == 4, "standalone binary_search_by accepts [N: T]")
 
 	fixed.reverse()
 	assert(fixed[0] == 50 and fixed[5] == 10, "fixed array reversed")
-	let desc = (a: int, b: int) int: if(a > b): -1 else if(a < b): 1 else: 0
+	let desc = fn(a: int, b: int) int: if(a > b): -1 else if(a < b): 1 else: 0
 	assert(fixed.is_sorted_by(desc), "fixed array is_sorted_by desc")
-	fixed.sort_by((a: int, b: int) int: if(a < b): -1 else if(a > b): 1 else: 0)
+	fixed.sort_by(fn(a: int, b: int) int: if(a < b): -1 else if(a > b): 1 else: 0)
 	assert(fixed.is_sorted(), "fixed array sort_by ascending")
 
 	// Array[T] slice-view struct methods and standalone views
@@ -910,11 +910,11 @@ bind test_sort_binary_search_and_bounds = (): {
 	assert(lower_bound(view, 30) == 3, "standalone lower_bound accepts Array[int]")
 	assert(upper_bound(view, 20) == 3, "standalone upper_bound accepts Array[int]")
 	assert(view.binary_search(30) == 3, "Array[int] binary_search")
-	assert(binary_search_by(view, (x: int) int: x - 30) == 3, "standalone binary_search_by accepts Array[int]")
+	assert(binary_search_by(view, fn(x: int) int: x - 30) == 3, "standalone binary_search_by accepts Array[int]")
 }
 
 @test("non-Copyable Resource structs sort, stable_sort, sort_by, and binary search with zero leaks")
-bind test_sort_non_copyable_resources = (): {
+bind test_sort_non_copyable_resources = fn(): {
 	let items = List[_NonCopyRecord].new()
 	for(i in 0..24): {
 		let p = unsafe alloc_raw[int](1)
@@ -945,10 +945,10 @@ bind test_sort_non_copyable_resources = (): {
 	let ub = items.upper_bound(probe)
 	assert(ub - lb == 3, "lower_bound..upper_bound covers all 3 records with id 5")
 
-	let by_id? = items.binary_search_by((r: _NonCopyRecord) int: r.id - 6)
+	let by_id? = items.binary_search_by(fn(r: _NonCopyRecord) int: r.id - 6)
 	assert(by_id? != none and items[by_id? ?? 0].id == 6, "binary_search_by without Copyable works")
 
-	let cmp_desc = (a: _NonCopyRecord, b: _NonCopyRecord) int:
+	let cmp_desc = fn(a: _NonCopyRecord, b: _NonCopyRecord) int:
 		if(a.id > b.id): -1
 		else if(a.id < b.id): 1
 		else: 0
@@ -959,7 +959,7 @@ bind test_sort_non_copyable_resources = (): {
 }
 
 @test("collection sorting extensions: Set.to_sorted_list and Map.to_sorted_keys")
-bind test_sort_collections = (): {
+bind test_sort_collections = fn(): {
 	let s = Set[int].new()
 	s.insert(50)
 	s.insert(10)

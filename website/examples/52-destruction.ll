@@ -8,14 +8,14 @@ define Connection struct [
 	host: string,
 ]
 
-bind Connection.open = (host: string) Connection: {
+bind Connection.open = fn(host: string) Connection: {
 	println("open ${host}")
 	Connection[host: host.copy()]
 }
 
-bind Connection.drop = (&self): println("close ${self.host}")
+bind Connection.drop = fn(&self): println("close ${self.host}")
 
-bind main = (): {
+bind main = fn(): {
 	let a = Connection.open("db")
 	{
 		let b = Connection.open("cache")

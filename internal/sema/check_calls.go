@@ -50,6 +50,34 @@ func (fc *funcChecker) checkCallExpr(call *ast.CallExpr, expected types.Type) ty
 func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Type) types.Type {
 	inf := fc.a.infoFor(call)
 
+	// `cl(f)`: convert a function to a closure. (`cl` is a keyword, so no symbol has that name.)
+	if id, isId := call.Callee.(*ast.IdentExpr); isId && id.Name == "cl" && len(call.Args) == 1 {
+		var hint types.Type
+		if clExp, ok := expected.(*types.Func); ok && clExp.Closure {
+			hint = &types.Func{Params: clExp.Params, Ret: clExp.Ret}
+		}
+		argTy := fc.checkExprExpect(call.Args[0], hint, true)
+		fnTy, ok := argTy.(*types.Func)
+		if !ok {
+			if argTy != types.TypeInvalid {
+				fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`cl(...)` converts a function to a closure, but this is %s", argTy.String())
+			}
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		clTy := fnTy.AsClosure()
+		if fnTy.Closure {
+			fc.a.Rep.Warnf(call.Span, "this is already a closure; `cl(...)` does nothing")
+		} else {
+			fc.a.infoFor(call.Args[0]).ToClosure = clTy
+		}
+		fc.consumeValue(call.Args[0], argTy, false)
+		inf.BuiltinName = "cl"
+		inf.CallKind = CallBuiltinFunc
+		inf.Type = clTy
+		return clTy
+	}
+
 	// 1. Check `Ident(...)` or `Ident[T...](...)` forms first (intrinsics, conversions, builtins, direct/generic fns)
 	if id, isId := call.Callee.(*ast.IdentExpr); isId && !id.IsOpt {
 		// Check disambiguation of `vec_of_fns[idx](args)` when parser tentatively parsed `[idx]` as TypeArgs.
@@ -557,7 +585,9 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 						continue
 					}
 					savedMoves := fc.cloneMoves()
+					fc.probing++
 					aty := fc.checkExpr(probe, true)
+					fc.probing--
 					fc.moves = savedMoves
 					matchTypeExprForInference(decl.Params[i].Type, aty, tpNames, inferred)
 				}
@@ -946,7 +976,9 @@ func (fc *funcChecker) checkGenericFuncCall(genFn *GenericFuncTemplate, call *as
 			}
 			// Check probe without committing moves yet by saving/restoring move map!
 			savedMoves := fc.cloneMoves()
+			fc.probing++
 			aty := fc.checkExpr(probe, true)
+			fc.probing--
 			fc.moves = savedMoves
 			matchTypeExprForInference(fl.Params[i].Type, aty, tpNames, inferred)
 		}

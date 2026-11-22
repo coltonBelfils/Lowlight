@@ -36,7 +36,7 @@ define Token enum [
 The tokenizer walks the input byte by byte. It returns `Result[[Token]]`: a list of tokens, or an error.
 
 ```lowlight fragment
-bind tokenize = (src: string) Result[[Token]]: {
+bind tokenize = fn(src: string) Result[[Token]]: {
 	let tokens: [Token] = []
 	let i = 0
 	while(i < src.len()): {
@@ -93,7 +93,7 @@ define Parser struct [
 	pos: int,
 ]
 
-bind Parser.peek = (self) ?Token: self.tokens.get(self.pos)
+bind Parser.peek = fn(self) ?Token: self.tokens.get(self.pos)
 ```
 
 `peek` returns an optional because there may be no token left.
@@ -101,7 +101,7 @@ bind Parser.peek = (self) ?Token: self.tokens.get(self.pos)
 `expr` parses one term and then keeps consuming `+` or `-` followed by another term:
 
 ```lowlight fragment
-bind Parser.expr = (&self) Result[float]: {
+bind Parser.expr = fn(&self) Result[float]: {
 	let left = self.term(): default err(own e): func <- err(e)
 	while(true): {
 		let t = self.peek() ?? while <-
@@ -124,7 +124,7 @@ The line `self.term(): default err(own e): func <- err(e)` is a **result chain**
 `term` has the same shape, with one extra check:
 
 ```lowlight fragment
-bind Parser.term = (&self) Result[float]: {
+bind Parser.term = fn(&self) Result[float]: {
 	let left = self.factor(): default err(own e): func <- err(e)
 	while(true): {
 		let t = self.peek() ?? while <-
@@ -146,7 +146,7 @@ bind Parser.term = (&self) Result[float]: {
 `factor` decides by the next token:
 
 ```lowlight fragment
-bind Parser.factor = (&self) Result[float]: {
+bind Parser.factor = fn(&self) Result[float]: {
 	let t = self.peek() ?? func <- err(Error.new("unexpected end of input"))
 	self.pos += 1
 	match(t):
@@ -180,7 +180,7 @@ define Token enum [
 	rparen,
 ]
 
-bind tokenize = (src: string) Result[[Token]]: {
+bind tokenize = fn(src: string) Result[[Token]]: {
 	let tokens: [Token] = []
 	let i = 0
 	while(i < src.len()): {
@@ -212,9 +212,9 @@ define Parser struct [
 	pos: int,
 ]
 
-bind Parser.peek = (self) ?Token: self.tokens.get(self.pos)
+bind Parser.peek = fn(self) ?Token: self.tokens.get(self.pos)
 
-bind Parser.expr = (&self) Result[float]: {
+bind Parser.expr = fn(&self) Result[float]: {
 	let left = self.term(): default err(own e): func <- err(e)
 	while(true): {
 		let t = self.peek() ?? while <-
@@ -229,7 +229,7 @@ bind Parser.expr = (&self) Result[float]: {
 	value(left)
 }
 
-bind Parser.term = (&self) Result[float]: {
+bind Parser.term = fn(&self) Result[float]: {
 	let left = self.factor(): default err(own e): func <- err(e)
 	while(true): {
 		let t = self.peek() ?? while <-
@@ -245,7 +245,7 @@ bind Parser.term = (&self) Result[float]: {
 	value(left)
 }
 
-bind Parser.factor = (&self) Result[float]: {
+bind Parser.factor = fn(&self) Result[float]: {
 	let t = self.peek() ?? func <- err(Error.new("unexpected end of input"))
 	self.pos += 1
 	match(t):
@@ -264,7 +264,7 @@ bind Parser.factor = (&self) Result[float]: {
 		default rparen: err(Error.new("unexpected ')'"))
 }
 
-bind calc = (src: string) Result[float]: {
+bind calc = fn(src: string) Result[float]: {
 	let tokens = tokenize(src): default err(own e): func <- err(e)
 	let p = Parser[tokens: own tokens, pos: 0]
 	let v = p.expr(): default err(own e): func <- err(e)
@@ -272,7 +272,7 @@ bind calc = (src: string) Result[float]: {
 	value(v)
 }
 
-bind main = (): {
+bind main = fn(): {
 	let inputs = ["1 + 2 * 3", "(1 + 2) * -3", "10 / 4", "1 / (2 - 2)", "2 * (3 + 4", "7 % 2", "1 2"]
 	for(src in inputs): {
 		let result = calc(src):

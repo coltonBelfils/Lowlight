@@ -208,7 +208,7 @@ func TestLSPRealtimeDiagnosticsAndLifecycle(t *testing.T) {
 	uri := lsp.PathToURI(docPath)
 
 	// 1. Open valid Lowlight program -> 0 diagnostics
-	validSrc := `bind main = (): {
+	validSrc := `bind main = fn(): {
 	let x = 42
 	println(x)
 }
@@ -227,11 +227,11 @@ func TestLSPRealtimeDiagnosticsAndLifecycle(t *testing.T) {
 	}
 
 	// 2. Introduce ownership move error + missing `?` error in live buffer
-	errSrc := `bind consume = (s: own string): {
+	errSrc := `bind consume = fn(s: own string): {
 	println(s)
 }
 
-bind main = (): {
+bind main = fn(): {
 	let msg = "hello"
 	consume(own msg)
 	println(msg)
@@ -258,11 +258,11 @@ bind main = (): {
 	}
 
 	// 3. Fix errors via didChange -> 0 diagnostics
-	fixedSrc := `bind consume = (s: own string): {
+	fixedSrc := `bind consume = fn(s: own string): {
 	println(s)
 }
 
-bind main = (): {
+bind main = fn(): {
 	let msg = "hello"
 	consume(msg.copy())
 	println(msg)
@@ -339,7 +339,7 @@ func TestLSPAutocompleteAllContexts(t *testing.T) {
 
 	// 1. Import path completion (`import "std/|"` -> `std/math`, `std/fs`, `std/pool`)
 	impItems := openAndComplete(`import "std//*CURSOR*/"
-bind main = (): {}
+bind main = fn(): {}
 `)
 	for _, want := range []string{"std/math", "std/fs", "std/pool"} {
 		if hasLabel(impItems, want) == nil {
@@ -353,12 +353,12 @@ bind main = (): {}
 	y: float,
 ]
 
-bind Point.translate = (&self, dx: float, dy: float): {
+bind Point.translate = fn(&self, dx: float, dy: float): {
 	self.x += dx
 	self.y += dy
 }
 
-bind main = (): {
+bind main = fn(): {
 	let pt = Point[x: 1.0, y: 2.0]
 	pt./*CURSOR*/
 }
@@ -370,7 +370,7 @@ bind main = (): {
 	}
 
 	// 3. Vector `[string]` built-in method completion (including string-specific `join`!)
-	vecItems := openAndComplete(`bind main = (): {
+	vecItems := openAndComplete(`bind main = fn(): {
 	let words = ["low", "light"]
 	words./*CURSOR*/
 }
@@ -384,7 +384,7 @@ bind main = (): {
 	// 4. Generic `Pool[int]` dot-completion on uninstantiated generic methods (`alloc`, `get`, `free`)!
 	poolItems := openAndComplete(`import "std/pool"
 
-bind main = (): {
+bind main = fn(): {
 	let p = pool.Pool[int].new()
 	p./*CURSOR*/
 }
@@ -402,15 +402,15 @@ bind main = (): {
 	name: string,
 ]
 
-bind User.rename = (&self, next: string): {
+bind User.rename = fn(&self, next: string): {
 	self.name = next
 }
 
-bind User.greet = (self) string: {
+bind User.greet = fn(self) string: {
 	"hi " + self.name
 }
 
-bind main = (): {
+bind main = fn(): {
 	let user?: ?User = User[name: "Ada"]
 	user?./*CURSOR*/
 }
@@ -430,7 +430,7 @@ bind main = (): {
 	// 6. Enum variant completion (`Color.|`), `Arena.|`, and module alias `math.|`
 	enumItems := openAndComplete(`import "std/math"
 define Color enum [Red, Green, Blue]
-bind main = (): {
+bind main = fn(): {
 	let c = Color./*CURSOR*/
 }
 `)
@@ -441,7 +441,7 @@ bind main = (): {
 	}
 
 	modItems := openAndComplete(`import "std/math"
-bind main = (): {
+bind main = fn(): {
 	let v = math./*CURSOR*/
 }
 `)
@@ -456,7 +456,7 @@ bind main = (): {
 	x: float,
 	y: float,
 ]
-bind main = (): {
+bind main = fn(): {
 	let pt = Point[x: 1.0, /*CURSOR*/]
 }
 `)
@@ -468,7 +468,7 @@ bind main = (): {
 	}
 
 	// 8. Narrowed optional scope inside `if (account?): { acc| }`
-	narrowItems := openAndComplete(`bind main = (): {
+	narrowItems := openAndComplete(`bind main = fn(): {
 	let account?: ?string = "pro"
 	if (account?): {
 		println(acc/*CURSOR*/)
@@ -504,11 +504,11 @@ define Counter struct [
 	value: int,
 ]
 
-bind Counter.add = (&self, delta: int, scale: int): {
+bind Counter.add = fn(&self, delta: int, scale: int): {
 	self.value += delta * scale
 }
 
-bind main = (): {
+bind main = fn(): {
 	let c = Counter[value: 10]
 	c.add(5, 2)
 	let clamped = math.clamp_int(15, 0, 10)
@@ -582,9 +582,9 @@ bind main = (): {
 	}
 
 	// 6. Quick-Fix Code Actions (missing `&`, missing `own`, `!` -> `not `)
-	fixSrc := `bind bump = (n: &int): { n += 1 }
-bind sink = (s: own string): { println(s) }
-bind main = (): {
+	fixSrc := `bind bump = fn(n: &int): { n += 1 }
+bind sink = fn(s: own string): { println(s) }
+bind main = fn(): {
 	let x = 1
 	bump(x)
 	let name = "ll"
@@ -667,9 +667,9 @@ func TestLSPDuplicateDeclarationDiagnostics(t *testing.T) {
 	dupSrc := `import "std/test"
 
 @test("pass")
-bind t = (): test.assert_eq(1, 1)
+bind t = fn(): test.assert_eq(1, 1)
 @test("fail")
-bind t = (): test.assert_eq(1, 2)`
+bind t = fn(): test.assert_eq(1, 2)`
 	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
 		TextDocument: lsp.TextDocumentItem{
 			URI:        uri,
@@ -698,9 +698,9 @@ bind t = (): test.assert_eq(1, 2)`
 	fixedSrc := `import "std/test"
 
 @test("pass")
-bind test_pass = (): test.assert_eq(1, 1)
+bind test_pass = fn(): test.assert_eq(1, 1)
 @test("fail")
-bind test_fail = (): test.assert_eq(1, 2)`
+bind test_fail = fn(): test.assert_eq(1, 2)`
 	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
 		TextDocument:   lsp.VersionedTextDocumentIdentifier{URI: uri, Version: 2},
 		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: fixedSrc}},
@@ -723,7 +723,7 @@ func TestLSPDuplicateLocalDeclarationDiagnostics(t *testing.T) {
 	docPath := filepath.Join(t.TempDir(), "dup_local_test.ll")
 	uri := lsp.PathToURI(docPath)
 
-	dupSrc := `bind main = (): {
+	dupSrc := `bind main = fn(): {
 	bind a = 1
 	bind a = 2
 
@@ -756,7 +756,7 @@ func TestLSPDuplicateLocalDeclarationDiagnostics(t *testing.T) {
 	}
 
 	// Fix via didChange
-	fixedSrc := `bind main = (): {
+	fixedSrc := `bind main = fn(): {
 	bind a1 = 1
 	bind a2 = 2
 
@@ -800,11 +800,11 @@ func TestLSPAdvancedFeatures(t *testing.T) {
 	],
 ]
 
-bind check = (val: JsonValue): {
+bind check = fn(val: JsonValue): {
 	match (val):
 }
 
-bind test_calls = (): {
+bind test_calls = fn(): {
 	let n = JsonValue.Number(3.14)
 }
 `
@@ -894,7 +894,7 @@ bind test_calls = (): {
 
 	// 4. Test Document Formatting
 	messyURI := lsp.PathToURI(filepath.Join(tmpDir, "messy.ll"))
-	messySrc := "bind main = (): {\nlet x = 1\nlet y = 2\n}\n"
+	messySrc := "bind main = fn(): {\nlet x = 1\nlet y = 2\n}\n"
 	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
 		TextDocument: lsp.TextDocumentItem{
 			URI:        messyURI,
@@ -922,7 +922,7 @@ bind test_calls = (): {
 
 	// 4b. Test Match When Indentation and Nested Match Formatting
 	matchURI := lsp.PathToURI(filepath.Join(tmpDir, "match_format.ll"))
-	matchSrc := "bind foo = (): {\nmatch (self):\nwhen 1: match (other):\nwhen 1: true\ndefault: false\ndefault: false\n}\n"
+	matchSrc := "bind foo = fn(): {\nmatch (self):\nwhen 1: match (other):\nwhen 1: true\ndefault: false\ndefault: false\n}\n"
 	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
 		TextDocument: lsp.TextDocumentItem{
 			URI:        matchURI,
@@ -945,7 +945,7 @@ bind test_calls = (): {
 	}
 	formattedMatch := matchEdits[0].NewText
 	expectedLines := []string{
-		"bind foo = ():",
+		"bind foo = fn():",
 		"    match(self):",
 		"        when 1:",
 		"            match(other):",
@@ -960,7 +960,7 @@ bind test_calls = (): {
 
 	// 4c. Test Nested Closers Indentation (]) and })
 	nestedURI := lsp.PathToURI(filepath.Join(tmpDir, "nested_closers.ll"))
-	nestedSrc := `bind main = (): {
+	nestedSrc := `bind main = fn(): {
 let json_value = Json.Object(#[
 "abc": Json.Number(Number.Int(123)),
 "def": Json.Object(#[
@@ -993,7 +993,7 @@ Json.Bool(true),
 		t.Fatalf("expected nested formatting edits, got none")
 	}
 	expectedNestedLines := []string{
-		"bind main = (): {",
+		"bind main = fn(): {",
 		"    let json_value = Json.Object(#[",
 		"        \"abc\": Json.Number(Number.Int(123)),",
 		"        \"def\": Json.Object(#[",
@@ -1046,16 +1046,16 @@ func TestLSPTestingFeatures(t *testing.T) {
 	}
 	h.notify("initialized", map[string]any{})
 
-	testSrc := `bind add = (a: int, b: int) int: { a + b }
+	testSrc := `bind add = fn(a: int, b: int) int: { a + b }
 
 @test("addition works")
-bind test_add = (): {
+bind test_add = fn(): {
 	let r = add(2, 3)
 	assert(r == 5)
 }
 
 @test
-bind test_simple = (): {
+bind test_simple = fn(): {
 	assert(true)
 }
 `
@@ -1185,18 +1185,18 @@ func TestLSPInterfaceAndImplementationDiscovery(t *testing.T) {
 	uri := lsp.PathToURI(docPath)
 
 	src := `define Greeter interface [
-    greet: (self),
+    greet: fn(self),
 ]
 
 define Bot struct [
     name: string,
 ]
 
-bind Bot.greet = (self): {
+bind Bot.greet = fn(self): {
     print(self.name)
 }
 
-bind main = (): {
+bind main = fn(): {
     let b = Bot[name: "Alice"]
     b.greet()
 }
@@ -1599,9 +1599,9 @@ func TestLSPTuples(t *testing.T) {
 	tmpDir := t.TempDir()
 	docPath := filepath.Join(tmpDir, "tuple_lsp_test.ll")
 	testSrc := `define MyPair +[int, string]
-bind MyPair.first = (self) int: self.0
-bind test_fn = (pair: +[int, string], count: int) int: { count }
-bind main = () int: {
+bind MyPair.first = fn(self) int: self.0
+bind test_fn = fn(pair: +[int, string], count: int) int: { count }
+bind main = fn() int: {
     let my_val = 42
     let pair = +[my_val, "hello"]
     let y = pair.0
@@ -1788,8 +1788,8 @@ func TestLSPIncrementalSyncConfigAndCrossFileDeps(t *testing.T) {
 	helperURI := lsp.PathToURI(helperPath)
 	appURI := lsp.PathToURI(appPath)
 
-	helperSrc := "bind double_it = (x: int) int: x * 2\n"
-	appSrc := "import \"./helper\"\nimport \"std/math\"\n\nbind main = (): {\n\tlet v = helper.double_it(math.clamp_int(-5, 0, 10))\n\tprintln(v)\n}\n"
+	helperSrc := "bind double_it = fn(x: int) int: x * 2\n"
+	appSrc := "import \"./helper\"\nimport \"std/math\"\n\nbind main = fn(): {\n\tlet v = helper.double_it(math.clamp_int(-5, 0, 10))\n\tprintln(v)\n}\n"
 
 	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
 		TextDocument: lsp.TextDocumentItem{URI: helperURI, LanguageID: "lowlight", Version: 1, Text: helperSrc},
@@ -1811,15 +1811,15 @@ func TestLSPIncrementalSyncConfigAndCrossFileDeps(t *testing.T) {
 		ContentChanges: []lsp.TextDocumentContentChangeEvent{
 			{
 				Range: &lsp.Range{
-					Start: lsp.Position{Line: 0, Character: 21},
-					End:   lsp.Position{Line: 0, Character: 24},
+					Start: lsp.Position{Line: 0, Character: 23},
+					End:   lsp.Position{Line: 0, Character: 26},
 				},
 				Text: "string",
 			},
 			{
 				Range: &lsp.Range{
-					Start: lsp.Position{Line: 0, Character: 34},
-					End:   lsp.Position{Line: 0, Character: 39},
+					Start: lsp.Position{Line: 0, Character: 36},
+					End:   lsp.Position{Line: 0, Character: 41},
 				},
 				Text: "x.len()",
 			},
@@ -1852,7 +1852,7 @@ func TestLSPIncrementalSyncConfigAndCrossFileDeps(t *testing.T) {
 			URI:        fmtURI,
 			LanguageID: "lowlight",
 			Version:    1,
-			Text:       "bind fn = (a: int, b: int) int: {\nlet sum = a + b\nsum\n}\n",
+			Text:       "bind add = fn(a: int, b: int) int: {\nlet sum = a + b\nsum\n}\n",
 		},
 	})
 	_ = h.waitDiagnostics(fmtURI)
@@ -1911,10 +1911,10 @@ define Vec2 struct [
 //
 // - ` + "`v`" + `: Input vector to scale.
 // - ` + "`k`" + `: Scalar multiplier.
-bind scale = (v: Vec2, k: float) Vec2: Vec2[x: v.x * k, y: v.y * k]
+bind scale = fn(v: Vec2, k: float) Vec2: Vec2[x: v.x * k, y: v.y * k]
 
 /* See [` + "`scale`" + `] and [` + "`Vec2.x`" + `] for scaling details. */
-bind main = (): {
+bind main = fn(): {
 	let p = Vec2[x: 1.0, y: 2.0]
 	let q = scale(p, 3.0)
 	let d = q.x
@@ -2012,25 +2012,25 @@ func TestLSPSemanticTokensReferencesRenameAndNavigation(t *testing.T) {
 
 	libSrc := `// Printable geometry.
 define Shape interface [
-	area: (self) float,
+	area: fn(self) float,
 ]
 
 define Square struct [
 	side: float,
 ]
 
-bind Square.area = (self) float: self.side * self.side
+bind Square.area = fn(self) float: self.side * self.side
 
-bind helper_sum = (val: int) int: {
+bind helper_sum = fn(val: int) int: {
 	let tmp = val + 1
 	tmp
 }
 `
 	mainSrc := `import "./shapes"
 
-bind use_square = (s: shapes.Square) float: s.area()
+bind use_square = fn(s: shapes.Square) float: s.area()
 
-bind main = (): {
+bind main = fn(): {
 	let tmp = 99
 	let x = shapes.helper_sum(tmp)
 	let sq = shapes.Square[side: 3.0]
@@ -2158,15 +2158,15 @@ func TestLSPCodeGenerationAndRefactorings(t *testing.T) {
 ]
 
 define Shape interface [
-	area: (self) float,
+	area: fn(self) float,
 ]
 
 @must_use
-bind make_code = () int: 42
+bind make_code = fn() int: 42
 
 let bad_global = 10
 
-bind use_all = (flag: bool) int: {
+bind use_all = fn(flag: bool) int: {
 	let r = Rect[]
 	let p = null_ptr[u8]()
 	make_code()
@@ -2233,7 +2233,7 @@ bind use_all = (flag: bool) int: {
 		t.Errorf("expected 'Implement Shape for Rect' code action, got: %+v", rectActions)
 	} else {
 		ed := implAct.Edit.Changes[uri][0].NewText
-		if !strings.Contains(ed, `bind Rect.area = (self) float: panic("todo")`) {
+		if !strings.Contains(ed, `bind Rect.area = fn(self) float: panic("todo")`) {
 			t.Errorf("unexpected interface stub: %q", ed)
 		}
 	}
@@ -2279,7 +2279,7 @@ bind use_all = (flag: bool) int: {
 	// Auto-import missing symbol (`clamp_int` -> `std/math`)
 	impPath := filepath.Join(wsDir, "autoimp.ll")
 	impURI := lsp.PathToURI(impPath)
-	impSrc := "bind main = (): {\n\tlet v = clamp_int(5, 0, 10)\n\tprintln(v)\n}\n"
+	impSrc := "bind main = fn(): {\n\tlet v = clamp_int(5, 0, 10)\n\tprintln(v)\n}\n"
 	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
 		TextDocument: lsp.TextDocumentItem{URI: impURI, LanguageID: "lowlight", Version: 1, Text: impSrc},
 	})

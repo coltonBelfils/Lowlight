@@ -10,13 +10,13 @@ define Parsed result [
 	not_a_number: string,
 ]
 
-bind parse = (s: string) Parsed: {
+bind parse = fn(s: string) Parsed: {
 	if(s.is_empty()): func <- empty
 	if(parse_int(s) as n): func <- value(n)
 	not_a_number(s.copy())
 }
 
-bind main = (): {
+bind main = fn(): {
 	// Names holding results end in `!`.
 	let a! = parse("42")
 	let b! = parse("x")

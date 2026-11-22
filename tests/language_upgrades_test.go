@@ -30,7 +30,7 @@ define Outcome[T, E] enum [
     Detail: +[int, E],
 ]
 
-bind Outcome[T, E].is_ok = (self) bool: {
+bind Outcome[T, E].is_ok = fn(self) bool: {
     match (self):
         when Outcome.Ok(_): true
         default: false
@@ -51,7 +51,7 @@ define Expr enum [
 ]
 
 // Match directly on ref[Expr] scrutinee!
-bind eval = (e: ref[Expr]) int: {
+bind eval = fn(e: ref[Expr]) int: {
     match (e):
         when Expr.Null: 0
         when Expr.Num(n): n
@@ -70,7 +70,7 @@ bind eval = (e: ref[Expr]) int: {
 }
 
 // Mutate payload in place directly through ref[Expr] using & binding!
-bind scale_leaf = (e: ref[Expr], factor: int) void: {
+bind scale_leaf = fn(e: ref[Expr], factor: int) void: {
     match (e):
         when Expr.Num(&n): {
             n = n * factor
@@ -103,7 +103,7 @@ define Event enum [
     Packet: PacketData,
 ]
 
-bind make_event = () Event: {
+bind make_event = fn() Event: {
     Event.Login(LoginData[
         user: "alice_" + "admin",
         token: "tok_" + "12345",
@@ -111,7 +111,7 @@ bind make_event = () Event: {
     ])
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. Plain C enum compatibility
     let c = Color.Green
     assert(int(c) == 1)
@@ -208,11 +208,11 @@ define Status enum [
     Err: string,
 ]
 
-bind check_it = () Status: {
+bind check_it = fn() Status: {
     Status.Err("problem")
 }
 
-bind main = (): {
+bind main = fn(): {
     check_it();
 }
 `
@@ -241,7 +241,7 @@ func TestTaggedUnionsNegative(t *testing.T) {
 			name: "non_exhaustive_tagged_match",
 			src: `
 define Res enum [Ok: int, Err: string, Pending]
-bind main = (): {
+bind main = fn(): {
     let r = Res.Ok(1)
     let x = match (r):
         when Res.Ok(v): v
@@ -258,7 +258,7 @@ define Bad enum [
     End,
     Loop: Bad,
 ]
-bind main = (): {}
+bind main = fn(): {}
 `,
 			wantErrPart: "recursive",
 		},
@@ -272,7 +272,7 @@ define A enum [
 define B struct [
     inner: A,
 ]
-bind main = (): {}
+bind main = fn(): {}
 `,
 			wantErrPart: "recursive",
 		},
@@ -280,7 +280,7 @@ bind main = (): {}
 			name: "int_cast_on_tagged_enum_rejected",
 			src: `
 define Msg enum [Ping, Text: string]
-bind main = (): {
+bind main = fn(): {
     let m = Msg.Ping
     let x = int(m)
     println(x)
@@ -292,7 +292,7 @@ bind main = (): {
 			name: "tagged_enum_not_hashable_in_set",
 			src: `
 define Msg enum [Ping, Code: int]
-bind main = (): {
+bind main = fn(): {
     let s = #[Msg.Ping]
     println(s.len())
 }
@@ -303,7 +303,7 @@ bind main = (): {
 			name: "use_after_own_move_in_match",
 			src: `
 define BoxedStr enum [Empty, Val: string]
-bind main = (): {
+bind main = fn(): {
     let b = BoxedStr.Val("hello")
     let s = match (b):
         when BoxedStr.Empty: ""
@@ -318,12 +318,12 @@ bind main = (): {
 			name: "own_move_from_borrowed_enum_rejected",
 			src: `
 define BoxedStr enum [Empty, Val: string]
-bind inspect = (b: BoxedStr) string: {
+bind inspect = fn(b: BoxedStr) string: {
     match (b):
         when BoxedStr.Empty: ""
         default BoxedStr.Val(own text): text
 }
-bind main = (): {}
+bind main = fn(): {}
 `,
 			wantErrPart: "cannot move",
 		},
@@ -331,12 +331,12 @@ bind main = (): {}
 			name: "own_move_from_arena_ref_enum_rejected",
 			src: `
 define BoxedStr enum [Empty, Val: string]
-bind inspect = (b: ref[BoxedStr]) string: {
+bind inspect = fn(b: ref[BoxedStr]) string: {
     match (b):
         when BoxedStr.Empty: ""
         default BoxedStr.Val(own text): text
 }
-bind main = (): {}
+bind main = fn(): {}
 `,
 			wantErrPart: "cannot move",
 		},
@@ -344,7 +344,7 @@ bind main = (): {}
 			name: "inline_struct_variant_in_enum_rejected",
 			src: `
 define PairMsg enum [Both: [a: string, b: string]]
-bind main = (): {}
+bind main = fn(): {}
 `,
 			wantErrPart: "expected",
 		},
@@ -381,11 +381,11 @@ define Node struct [
     edges: [ref[Node]],
 ]
 
-bind alloc_helper = (a: &Arena, id: int, name: string) ref[Node]: {
+bind alloc_helper = fn(a: &Arena, id: int, name: string) ref[Node]: {
     a.alloc(Node[id: id, name: name.copy(), edges: []])
 }
 
-bind main = (): {
+bind main = fn(): {
     let arena = Arena.new()
 
     // Phase 1: allocate and wire nodes inside a block, extract Plain/String summary
@@ -410,7 +410,7 @@ bind main = (): {
 
     // Reassign and own-move when unpinned
     arena = Arena.new()
-    let consume = (a: own Arena): {}
+    let consume = cl(a: own Arena): {}
     consume(own arena)
 }
 `
@@ -430,7 +430,7 @@ func TestArenaPinningAndEscapeHolesNegative(t *testing.T) {
 			name: "reset_while_pinned_in_same_scope",
 			src: `
 define Node struct [val: int]
-bind main = (): {
+bind main = fn(): {
     let arena = Arena.new()
     let n = arena.alloc(Node[val: 10])
     arena.reset()
@@ -443,7 +443,7 @@ bind main = (): {
 			name: "reassign_while_pinned",
 			src: `
 define Node struct [val: int]
-bind main = (): {
+bind main = fn(): {
     let arena = Arena.new()
     let n = arena.alloc(Node[val: 10])
     arena = Arena.new()
@@ -456,8 +456,8 @@ bind main = (): {
 			name: "move_own_arena_while_pinned",
 			src: `
 define Node struct [val: int]
-bind drop_arena = (a: own Arena): {}
-bind main = (): {
+bind drop_arena = fn(a: own Arena): {}
+bind main = fn(): {
     let arena = Arena.new()
     let n = arena.alloc(Node[val: 10])
     drop_arena(own arena)
@@ -470,10 +470,10 @@ bind main = (): {
 			name: "closure_capture_move_arena_while_pinned",
 			src: `
 define Node struct [val: int]
-bind main = (): {
+bind main = fn(): {
     let arena = Arena.new()
     let n = arena.alloc(Node[val: 10])
-    let f = () Arena: {
+    let f = cl() Arena: {
         own arena
     }
     println(n.val)
@@ -485,7 +485,7 @@ bind main = (): {
 			name: "inner_alloc_pushed_to_outer_vec_keeps_arena_pinned",
 			src: `
 define Node struct [val: int]
-bind main = (): {
+bind main = fn(): {
     let arena = Arena.new()
     let keep: [ref[Node]] = []
     {
@@ -502,20 +502,20 @@ bind main = (): {
 		{
 			name: "borrowed_mut_arena_param_reset_forbidden",
 			src: `
-bind wipe = (a: &Arena): {
+bind wipe = fn(a: &Arena): {
     a.reset()
 }
-bind main = (): {}
+bind main = fn(): {}
 `,
 			wantErrPart: "cannot call `.reset()` on borrowed",
 		},
 		{
 			name: "borrowed_mut_arena_param_reassign_forbidden",
 			src: `
-bind swap_out = (a: &Arena): {
+bind swap_out = fn(a: &Arena): {
     a = Arena.new()
 }
-bind main = (): {}
+bind main = fn(): {}
 `,
 			wantErrPart: "cannot reassign borrowed `&Arena`",
 		},
@@ -523,7 +523,7 @@ bind main = (): {}
 			name: "unwind_escape_from_block_with_local_arena",
 			src: `
 define Node struct [val: int]
-bind main = (): {
+bind main = fn(): {
     let escaped = {
         let a = Arena.new()
         let n = a.alloc(Node[val: 7])
@@ -538,11 +538,11 @@ bind main = (): {
 			name: "return_local_arena_ref_even_when_unrelated_arena_param_exists",
 			src: `
 define Node struct [val: int]
-bind sneaky = (caller_arena: &Arena) ref[Node]: {
+bind sneaky = fn(caller_arena: &Arena) ref[Node]: {
     let local_arena = Arena.new()
     local_arena.alloc(Node[val: 42])
 }
-bind main = (): {}
+bind main = fn(): {}
 `,
 			wantErrPart: "cannot escape",
 		},
@@ -550,11 +550,11 @@ bind main = (): {}
 			name: "closure_capturing_inner_arena_ref_escaping_block",
 			src: `
 define Node struct [val: int]
-bind main = (): {
+bind main = fn(): {
     let reader = {
         let a = Arena.new()
         let n = a.alloc(Node[val: 123])
-        () int: { n.val }
+        cl() int: { n.val }
     }
     println(reader())
 }
@@ -565,7 +565,7 @@ bind main = (): {
 			name: "map_index_assign_inner_arena_escape",
 			src: `
 define Node struct [val: int]
-bind main = (): {
+bind main = fn(): {
     let a1 = Arena.new()
     let m = #["root": a1.alloc(Node[val: 1])]
     {
@@ -580,7 +580,7 @@ bind main = (): {
 			name: "mutating_method_on_outer_ref_field_inner_arena_escape",
 			src: `
 define Node struct [val: int, edges: [ref[Node]]]
-bind main = (): {
+bind main = fn(): {
     let a1 = Arena.new()
     let root = a1.alloc(Node[val: 1, edges: []])
     {
@@ -596,10 +596,10 @@ bind main = (): {
 			name: "helper_call_mixing_outer_and_inner_arena_refs",
 			src: `
 define Node struct [val: int, edges: [ref[Node]]]
-bind connect = (parent: ref[Node], child: ref[Node]): {
+bind connect = fn(parent: ref[Node], child: ref[Node]): {
     parent.edges.push(child)
 }
-bind main = (): {
+bind main = fn(): {
     let a1 = Arena.new()
     let root = a1.alloc(Node[val: 1, edges: []])
     {
@@ -648,7 +648,7 @@ define Account struct [
     profile?: ?Profile,
 ]
 
-bind find_account = (id: int) ?Account: {
+bind find_account = fn(id: int) ?Account: {
     if (id == 1): {
         Account[
             name: "Ada",
@@ -674,7 +674,7 @@ define Counter struct [
     cur: int,
 ]
 
-bind Counter.next = (&self) int: {
+bind Counter.next = fn(&self) int: {
     self.cur += 1
     self.cur
 }
@@ -685,7 +685,7 @@ define MaybeBox[T] struct [
     fallback: T,
 ]
 
-bind unwrap_or_default[T: Copyable] = (val?: ?T, fallback: T) T: {
+bind unwrap_or_default[T: Copyable] = fn(val?: ?T, fallback: T) T: {
     if (val?): {
         val.copy()
     } else: {
@@ -693,7 +693,7 @@ bind unwrap_or_default[T: Copyable] = (val?: ?T, fallback: T) T: {
     }
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. Item 3A: . optional chaining without spaces (plus ?. on calls)
     let a1? = find_account(1)
     let a2? = find_account(2)
@@ -789,7 +789,7 @@ func TestStrictlyNonOptionalGenericsNegative(t *testing.T) {
 			name: "generic_struct_explicit_optional_type_arg",
 			src: `
 define Box[T] struct [val: T]
-bind main = (): {
+bind main = fn(): {
     let b = Box[?int][val: 1]
 }
 `,
@@ -799,7 +799,7 @@ bind main = (): {
 			name: "generic_enum_explicit_optional_type_arg",
 			src: `
 define Maybe[T] enum [None, Some: T]
-bind main = (): {
+bind main = fn(): {
     let m = Maybe[?string].None
 }
 `,
@@ -808,8 +808,8 @@ bind main = (): {
 		{
 			name: "generic_fn_explicit_optional_type_arg",
 			src: `
-bind id[T] = (x: T) T: { x }
-bind main = (): {
+bind id[T] = fn(x: T) T: { x }
+bind main = fn(): {
     let x?: ?int = 5
     let y? = id[?int](x?)
 }
@@ -819,8 +819,8 @@ bind main = (): {
 		{
 			name: "generic_fn_inferred_optional_for_T_rejected",
 			src: `
-bind take_non_opt[T] = (x: T) int: { 1 }
-bind main = (): {
+bind take_non_opt[T] = fn(x: T) int: { 1 }
+bind main = fn(): {
     let x?: ?int = 5
     println(take_non_opt(x?))
 }
@@ -861,7 +861,7 @@ func TestReleaseModePreservesAllSafetyTraps(t *testing.T) {
 		{
 			name: "vec_index_out_of_bounds_in_release",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let xs = [10, 20, 30]
     let idx = 3
     println(xs[idx])
@@ -872,7 +872,7 @@ bind main = (): {
 		{
 			name: "vec_slice_out_of_bounds_in_release",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let xs = [1, 2, 3, 4]
     let hi = 10
     let sub = xs[1..hi]
@@ -884,7 +884,7 @@ bind main = (): {
 		{
 			name: "string_slice_out_of_bounds_in_release",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let s = "hello"
     let hi = 9
     println(s[0..hi])
@@ -895,7 +895,7 @@ bind main = (): {
 		{
 			name: "u64_division_by_zero_in_release",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let a = u64(100)
     let z = u64(0)
     println(a / z)
@@ -906,7 +906,7 @@ bind main = (): {
 		{
 			name: "shift_count_out_of_range_in_release",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x = 1
     let amt = 64
     println(x << amt)
@@ -951,32 +951,32 @@ define Box struct [
 ]
 
 define Accumulator interface [
-    add: (&self, n: int) int,
-    reset: (&self),
+    add: fn(&self, n: int) int,
+    reset: fn(&self),
 ]
 
-bind Box.new = (v: int): Box[v: v]
-bind Box.get = (self): self.v
-bind Box.add = (&self, n: int): {
+bind Box.new = fn(v: int): Box[v: v]
+bind Box.get = fn(self): self.v
+bind Box.add = fn(&self, n: int): {
     self.v += n
     self.v
 }
-bind Box.reset = (&self) void: {
+bind Box.reset = fn(&self) void: {
     self.v = 0
 }
 
-bind double_val = (x: int): x * 2
+bind double_val = fn(x: int): x * 2
 
-bind clamp_pos = (n: int): {
+bind clamp_pos = fn(n: int): {
     if (n < 0): func <- 0
     n
 }
 
-bind touch_void = (b: &Box): {
+bind touch_void = fn(b: &Box): {
     b.add(1);
 }
 
-bind main = () void: {
+bind main = fn() void: {
     // Inferred method and function return types
     let bx = Box.new(10)
     assert(bx.get() == 10)
@@ -997,13 +997,13 @@ bind main = () void: {
     assert(acc.add(3) == 3)
 
     // Function type (ParamTypes) Ret and contextual + body lambda inference
-    let apply: ((int) int, int) int = (f: (int) int, x: int): f(x)
-    assert(apply((n: int): n + 100, 7) == 107)
+    let apply: cl(cl(int) int, int) int = cl(f: cl(int) int, x: int): f(x)
+    assert(apply(cl(n: int): n + 100, 7) == 107)
 
-    let mul = (a: int, b: int): a * b
+    let mul = cl(a: int, b: int): a * b
     assert(mul(6, 7) == 42)
 
-    let make_opt: (bool) ?int = (flag: bool): {
+    let make_opt: cl(bool) ?int = cl(flag: bool): {
         if (flag): func <- 42
         none
     }
@@ -1011,7 +1011,7 @@ bind main = () void: {
     assert(make_opt(false) == none)
 
     // if / else if / else and ?T optional if without else
-    let grade = (s: int): if (s >= 90): "A" else if (s >= 80): "B" else: "C"
+    let grade = cl(s: int): if (s >= 90): "A" else if (s >= 80): "B" else: "C"
     assert(grade(95) == "A")
     assert(grade(85) == "B")
     assert(grade(50) == "C")
@@ -1090,33 +1090,33 @@ func TestUnifiedSyntaxAndInferenceNegative(t *testing.T) {
 		{
 			name: "recursive_omitted_return",
 			src: `
-bind rec = (n: int): {
+bind rec = fn(n: int): {
     if (n <= 0): func <- 0
     rec(n - 1) + 1
 }
-bind main = (): {}
+bind main = fn(): {}
 `,
 			wantErrPart: "cannot infer return type of recursive function",
 		},
 		{
 			name: "mutual_recursive_omitted_return",
 			src: `
-bind even_fn = (n: int): {
+bind even_fn = fn(n: int): {
     if (n == 0): func <- true
     odd_fn(n - 1)
 }
-bind odd_fn = (n: int): {
+bind odd_fn = fn(n: int): {
     if (n == 0): func <- false
     even_fn(n - 1)
 }
-bind main = (): {}
+bind main = fn(): {}
 `,
 			wantErrPart: "cannot infer return type of recursive function",
 		},
 		{
 			name: "void_not_allowed_in_let",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x: void = {}
 }
 `,
@@ -1125,15 +1125,15 @@ bind main = (): {
 		{
 			name: "void_not_allowed_in_param",
 			src: `
-bind f = (x: void) void: {}
-bind main = (): {}
+bind f = fn(x: void) void: {}
+bind main = fn(): {}
 `,
 			wantErrPart: "is not a value type and can only be used as a function return type",
 		},
 		{
 			name: "void_not_allowed_in_if_eval_type",
 			src: `
-bind main = () void: {
+bind main = fn() void: {
     if (true) void: 1
 }
 `,
@@ -1142,7 +1142,7 @@ bind main = () void: {
 		{
 			name: "non_optional_if_without_else",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x? = if (true) int: 1
 }
 `,
@@ -1151,8 +1151,8 @@ bind main = (): {
 		{
 			name: "non_optional_while_without_else",
 			src: `
-bind main = (): {
-    let f = (c: bool) void: {
+bind main = fn(): {
+    let f = cl(c: bool) void: {
         let x? = while (c) int: { while <- 1 }
     }
 }
@@ -1162,15 +1162,15 @@ bind main = (): {
 		{
 			name: "old_arrow_syntax_rejected",
 			src: `
-bind f = (x: int): int -> x
-bind main = (): {}
+bind f = fn(x: int): int -> x
+bind main = fn(): {}
 `,
 			wantErrPart: "unexpected '->'",
 		},
 		{
 			name: "if_missing_colon_rejected",
 			src: `
-bind main = (): {
+bind main = fn(): {
     if (true) { 1; }
 }
 `,
@@ -1180,7 +1180,7 @@ bind main = (): {
 			name: "module_optional_chaining_val_rejected",
 			src: `
 import "std/math"
-bind main = (): {
+bind main = fn(): {
     let x? = math?.PI
 }
 `,
@@ -1190,7 +1190,7 @@ bind main = (): {
 			name: "module_optional_chaining_spaced_val_rejected",
 			src: `
 import "std/math"
-bind main = (): {
+bind main = fn(): {
     let x? = math ?. PI
 }
 `,
@@ -1200,7 +1200,7 @@ bind main = (): {
 			name: "module_optional_chaining_call_rejected",
 			src: `
 import "std/math"
-bind main = (): {
+bind main = fn(): {
     let x? = math?.clamp_int(5, 0, 10)
 }
 `,
@@ -1210,7 +1210,7 @@ bind main = (): {
 			name: "module_optional_chaining_type_assoc_rejected",
 			src: `
 import "std/http"
-bind main = (): {
+bind main = fn(): {
     let c? = http?.Client.new()
 }
 `,
@@ -1220,7 +1220,7 @@ bind main = (): {
 			name: "module_type_optional_chaining_assoc_rejected",
 			src: `
 import "std/http"
-bind main = (): {
+bind main = fn(): {
     let c? = http.Client?.new()
 }
 `,
@@ -1230,7 +1230,7 @@ bind main = (): {
 			name: "unpack_ref_escape_still_rejected",
 			src: `
 define Node struct [val: int]
-bind main = (): {
+bind main = fn(): {
     let outer_arena = Arena.new()
     let outer_ref = outer_arena.alloc(Node[val: 1])
     {
@@ -1274,13 +1274,13 @@ import "std/time"
 import "std/net"
 
 extern "math.h"
-extern cos: (x: float) float
+extern cos: fn(x: float) float
 
 define Node struct [
 	val: int,
 ]
 
-bind main = (): {
+bind main = fn(): {
 	// 1. Unpacked non-ref binding escapes inner Arena block cleanly
 	let outer_count = 0
 	let outer_node = Node[val: 0]
@@ -1356,12 +1356,12 @@ import "./consts" as dims
 
 bind LOCAL_N = dims.WIDTH + 1
 
-bind sum_three = (xs: [1 + 2: int]) int: xs[0] + xs[1] + xs[2]
-bind first_width = (xs: [dims.WIDTH: int]) int: xs[0]
+bind sum_three = fn(xs: [1 + 2: int]) int: xs[0] + xs[1] + xs[2]
+bind first_width = fn(xs: [dims.WIDTH: int]) int: xs[0]
 
-bind pass_through[T] = (v: own T) T: own v
+bind pass_through[T] = fn(v: own T) T: own v
 
-bind main = (): {
+bind main = fn(): {
 	let a: [1 + 2: int] = [10, 20, 30]
 	assert(sum_three(a) == 60)
 
@@ -1404,7 +1404,7 @@ bind main = (): {
 			name: "cross_pkg_private_const_array_size_rejected",
 			src: `
 import "./consts" as dims
-bind main = (): {
+bind main = fn(): {
 	let bad: [dims._HIDDEN: int] = [5: 0]
 }
 `,
@@ -1412,7 +1412,7 @@ bind main = (): {
 		{
 			name: "zero_const_expr_array_size_rejected",
 			src: `
-bind main = (): {
+bind main = fn(): {
 	let bad: [1 - 1: int] = []
 }
 `,
@@ -1420,7 +1420,7 @@ bind main = (): {
 		{
 			name: "negative_const_expr_array_size_rejected",
 			src: `
-bind main = (): {
+bind main = fn(): {
 	let bad: [-2: int] = [1, 2]
 }
 `,
@@ -1428,7 +1428,7 @@ bind main = (): {
 		{
 			name: "out_of_range_shift_const_expr_array_size_rejected",
 			src: `
-bind main = (): {
+bind main = fn(): {
 	let bad: [1 << 64: int] = [1: 0]
 }
 `,
@@ -1458,7 +1458,7 @@ func TestArrayRepeatAndMapBlockValuesE2E(t *testing.T) {
 	entry := writeTestFile(t, dir, "lit_blocks_e2e.ll", `
 bind N = 3
 
-bind main = (): {
+bind main = fn(): {
 	let a: [3: int] = [N: { let base = 7; base + 5 }]
 	assert(a.len == 3)
 	assert(a[0] == 12 and a[1] == 12 and a[2] == 12)

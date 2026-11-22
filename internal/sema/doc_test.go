@@ -41,21 +41,21 @@ define Outcome[T] enum [
 // Interface doc.
 define Greeter interface [
     // Greet caller.
-    greet: (self, name: string) string,
+    greet: fn(self, name: string) string,
 ]
 
 // Computes sum.
-bind add = (a: int, b: int) int: a + b
+bind add = fn(a: int, b: int) int: a + b
 
 // Swap pair.
-bind Pair[A, B].swap = (own self) Pair[B, A]: {
+bind Pair[A, B].swap = fn(own self) Pair[B, A]: {
     Pair[B, A][first: self.second, second: self.first]
 }
 
 // Idle label.
-bind Status.label = (self) string: "ok"
+bind Status.label = fn(self) string: "ok"
 
-bind main = () int: {
+bind main = fn() int: {
     let p = Pair[int, string][first: MAGIC, second: "hi"]
     let s = Status.Idle
     let o = Outcome[int].Ok(1)

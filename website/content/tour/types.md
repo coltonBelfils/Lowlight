@@ -19,7 +19,7 @@ define User struct [
 	role: string = "viewer",
 ]
 
-bind main = (): {
+bind main = fn(): {
 	let u = User[name: "Ada", age: 36]
 	println("${u.name} (${u.age}) is a ${u.role}")
 	let admin = User[name: "Grace", age: 45, role: "admin"]
@@ -45,7 +45,7 @@ define Point struct [
 	y: int,
 ]
 
-bind main = (): {
+bind main = fn(): {
 	let p = Point[x: 1, y: 2]
 	println(p == Point[x: 1, y: 2])
 	println(#[p].has(Point[x: 1, y: 2]))
@@ -74,14 +74,14 @@ define Direction enum [
 	west,
 ]
 
-bind turn_right = (d: Direction) Direction:
+bind turn_right = fn(d: Direction) Direction:
 	match(d):
 		when north: Direction.east
 		when east: Direction.south
 		when south: Direction.west
 		default west: Direction.north
 
-bind main = (): println(turn_right(Direction.west) == Direction.north)
+bind main = fn(): println(turn_right(Direction.west) == Direction.north)
 ```
 
 ```output
@@ -98,14 +98,14 @@ define Shape enum [
 	point,
 ]
 
-bind area = (s: Shape) float:
+bind area = fn(s: Shape) float:
 	match(s):
 		when circle(r): 3.14159 * r * r
 		when square(side): side * side
 		when rect(wh): wh.0 * wh.1
 		default point: 0.0
 
-bind main = (): {
+bind main = fn(): {
 	let shapes = [Shape.circle(1.0), Shape.rect(+[2.0, 3.0]), Shape.point]
 	for(s in shapes): println(area(s))
 }
@@ -124,7 +124,7 @@ You build a variant with the type name, `Shape.circle(1.0)`, and take it apart w
 A tuple groups a fixed number of values without naming them. Its literal starts with `+[`:
 
 ```lowlight
-bind min_max = (xs: [int]) +[int, int]: {
+bind min_max = fn(xs: [int]) +[int, int]: {
 	let lo = xs[0]
 	let hi = xs[0]
 	for(x in xs): {
@@ -134,7 +134,7 @@ bind min_max = (xs: [int]) +[int, int]: {
 	+[lo, hi]
 }
 
-bind main = (): {
+bind main = fn(): {
 	let pair = min_max([4, 1, 9, 3])
 	println(pair.1)
 	let lo, hi = unpack pair
@@ -155,9 +155,9 @@ bind main = (): {
 define UserId int
 define OrderId int
 
-bind lookup = (id: UserId) string: "user ${int(id)}"
+bind lookup = fn(id: UserId) string: "user ${int(id)}"
 
-bind main = (): {
+bind main = fn(): {
 	let u = UserId(7)
 	println(lookup(u))
 	// lookup(OrderId(7)) would not compile: an OrderId is not a UserId

@@ -14,7 +14,7 @@ A package is a directory of `.ll` files. Import one by its path and use its name
 import "std/strings"
 import "std/math"
 
-bind main = (): {
+bind main = fn(): {
 	println("ab".repeat(3))
 	println(strings.join(["a", "b", "c"], "-"))
 	println(math.sqrt(16.0))
@@ -41,9 +41,9 @@ define Account struct [
 	_balance: int,          // other packages can't read or set this
 ]
 
-bind Account.balance = (self) int: self._balance
+bind Account.balance = fn(self) int: self._balance
 
-bind _audit = (a: Account): println(a.owner)   // private to this package
+bind _audit = fn(a: Account): println(a.owner)   // private to this package
 ```
 
 A struct with a private field can't be built with a literal outside its package, so packages export a constructor function instead. That is how a type protects its invariants.
@@ -57,7 +57,7 @@ Tests are functions marked `@test`, in files ending in `_test.ll`:
 import "std/test"
 
 @test("a new account is empty")
-bind test_new_account = (): {
+bind test_new_account = fn(): {
 	let a = Account.new("ada")
 	test.assert_eq(a.balance(), 0)
 }

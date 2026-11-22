@@ -1394,7 +1394,7 @@ func buildImplementInterfaceAction(
 		if body == "" {
 			body = "panic(\"todo\")"
 		}
-		stubs = append(stubs, formatGeneratedDecl(fmt.Sprintf("bind %s.%s = (%s)%s: %s", typeName, m.Name, strings.Join(params, ", "), retStr, body), "\t"))
+		stubs = append(stubs, formatGeneratedDecl(fmt.Sprintf("bind %s.%s = fn(%s)%s: %s", typeName, m.Name, strings.Join(params, ", "), retStr, body), "\t"))
 	}
 
 	if len(stubs) == 0 {
@@ -1452,7 +1452,7 @@ func buildStructConstructorAction(
 		}
 	}
 
-	stub := formatGeneratedDecl(fmt.Sprintf("bind %s.new = (%s) %s: %s[%s]", decl.Name, strings.Join(paramStrs, ", "), decl.Name, decl.Name, strings.Join(fieldInits, ", ")), ind)
+	stub := formatGeneratedDecl(fmt.Sprintf("bind %s.new = fn(%s) %s: %s[%s]", decl.Name, strings.Join(paramStrs, ", "), decl.Name, decl.Name, strings.Join(fieldInits, ", ")), ind)
 	_ = prog
 
 	return CodeAction{
@@ -2474,9 +2474,9 @@ func (s *Server) tryExtractFunctionAction(
 
 	var fnStub string
 	if len(cleanedBody) == 1 && !strings.ContainsRune(selectedText, ';') && !strings.HasPrefix(strings.TrimSpace(selectedText), "let ") {
-		fnStub = fmt.Sprintf("\n\nbind extracted_fn = (%s)%s: %s", strings.Join(sigParams, ", "), retSuffix, strings.TrimSpace(selectedText))
+		fnStub = fmt.Sprintf("\n\nbind extracted_fn = fn(%s)%s: %s", strings.Join(sigParams, ", "), retSuffix, strings.TrimSpace(selectedText))
 	} else {
-		fnStub = fmt.Sprintf("\n\nbind extracted_fn = (%s)%s: {\n%s\n}", strings.Join(sigParams, ", "), retSuffix, strings.Join(cleanedBody, "\n"))
+		fnStub = fmt.Sprintf("\n\nbind extracted_fn = fn(%s)%s: {\n%s\n}", strings.Join(sigParams, ", "), retSuffix, strings.Join(cleanedBody, "\n"))
 	}
 
 	// Only offer the extraction when the new function parses on its own (a selection such as a

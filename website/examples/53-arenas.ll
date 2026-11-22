@@ -9,7 +9,7 @@ define Node struct [
 	next: [ref[Node]],
 ]
 
-bind main = (): {
+bind main = fn(): {
 	let arena = Arena.new()
 	let a = arena.alloc(Node[name: "a", next: []])
 	let b = arena.alloc(Node[name: "b", next: []])

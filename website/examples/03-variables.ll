@@ -2,7 +2,7 @@
 // Category: Basics
 // Order: 3
 
-bind main = (): {
+bind main = fn(): {
 	// `bind` introduces a name that never changes.
 	bind answer = 42
 	println(answer)

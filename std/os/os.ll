@@ -11,20 +11,20 @@ define ExecResult struct [
 ]
 
 // Reports whether the command exited cleanly with status `0`.
-bind ExecResult.ok = (self) bool: self.exit_code == 0
+bind ExecResult.ok = fn(self) bool: self.exit_code == 0
 
 // Reports whether the command was terminated by a signal rather than exiting.
-bind ExecResult.signaled = (self) bool: self.signal != 0
+bind ExecResult.signaled = fn(self) bool: self.signal != 0
 
 // Builds an [`ExecResult`] from a runtime status: an exit code, `256 + signal`, or `-1`.
-bind _exec_result = (out: own string, status: int) ExecResult:
+bind _exec_result = fn(out: own string, status: int) ExecResult:
 	if(status >= 256): ExecResult[stdout: own out, exit_code: -1, signal: status - 256]
 	else: ExecResult[stdout: own out, exit_code: status, signal: 0]
 
 // Executes shell command `cmd` via a pipe, capturing stdout and returning an [`ExecResult`].
 //
 // - `cmd`: Shell command line string executed via `popen`.
-bind exec = (cmd: string) ExecResult:
+bind exec = fn(cmd: string) ExecResult:
 	unsafe {
 		let stream = sys_popen(cmd.c_str())
 		if(stream == null_ptr[u8]()): func <- ExecResult[stdout: "", exit_code: -1]
@@ -44,28 +44,28 @@ bind exec = (cmd: string) ExecResult:
 
 // Executes `cmd` through the host shell (`system`) and returns its exit code, or `-1` if the
 // command could not run or was killed by a signal. Use [`system_run_status`] to see the signal.
-bind system_run = (cmd: string) int: {
+bind system_run = fn(cmd: string) int: {
 	let status = unsafe sys_system(cmd.c_str())
 	if(status >= 256): -1 else: status
 }
 
 // Executes `cmd` through the host shell (`system`) and returns its full status, including the
 // terminating signal, as an [`ExecResult`] with empty `stdout`.
-bind system_run_status = (cmd: string) ExecResult: _exec_result("", unsafe sys_system(cmd.c_str()))
+bind system_run_status = fn(cmd: string) ExecResult: _exec_result("", unsafe sys_system(cmd.c_str()))
 
 // Reports whether a file or directory exists at `path`.
-bind file_exists = (path: string) bool: unsafe sys_file_exists(path.c_str())
+bind file_exists = fn(path: string) bool: unsafe sys_file_exists(path.c_str())
 
 // Creates a single directory at `path`, returning `true` on success.
-bind mkdir = (path: string) bool: unsafe sys_mkdir(path.c_str()) == 0
+bind mkdir = fn(path: string) bool: unsafe sys_mkdir(path.c_str()) == 0
 
-bind _is_dir = (path: string) bool:
+bind _is_dir = fn(path: string) bool:
 	if(path.len() == 0): false
 	else if(path == "/"): file_exists("/")
 	else: file_exists("${path}/.")
 
 // Recursively creates `path` and any missing parent directories, returning `true` if `path` exists as a directory afterward.
-bind mkdir_p = (path: string) bool: {
+bind mkdir_p = fn(path: string) bool: {
 	if(path.len() == 0): func <- false
 	let target = path.copy()
 	for(target.len() > 1 and target.byte_at(target.len() - 1) == u8(47)):
@@ -91,26 +91,26 @@ bind mkdir_p = (path: string) bool: {
 }
 
 // Recursively removes `path` and any nested contents, returning `true` on success.
-bind remove_all = (path: string) bool: unsafe sys_remove_all(path.c_str()) == 0
+bind remove_all = fn(path: string) bool: unsafe sys_remove_all(path.c_str()) == 0
 
 // Returns the number of logical CPU cores available on the host system.
-bind num_cpus = () int: unsafe sys_num_cpus()
+bind num_cpus = fn() int: unsafe sys_num_cpus()
 
 // Returns the host operating system name string (for example `"darwin"` or `"linux"`).
-bind os_name = () string: str_from_cstr(unsafe sys_os_name())
+bind os_name = fn() string: str_from_cstr(unsafe sys_os_name())
 
 // Returns the host CPU architecture identifier string (for example `"arm64"` or `"x86_64"`).
-bind arch = () string: str_from_cstr(unsafe sys_os_arch())
+bind arch = fn() string: str_from_cstr(unsafe sys_os_arch())
 
 // -----------------------------------------------------------------------------
 // Inline Unit Tests
 // -----------------------------------------------------------------------------
 
 @test_only
-extern getenv as _test_getenv: (name: ptr[u8]) ptr[u8]
+extern getenv as _test_getenv: fn(name: ptr[u8]) ptr[u8]
 
 @test_only
-bind _test_tmp_path = (name: string) string: {
+bind _test_tmp_path = fn(name: string) string: {
 	let base = str_from_cstr(unsafe _test_getenv("TMPDIR".c_str()))
 	if(base.len() == 0): base = "/tmp"
 	if(base.len() > 1 and base.byte_at(base.len() - 1) == u8(47)):
@@ -121,7 +121,7 @@ bind _test_tmp_path = (name: string) string: {
 }
 
 @test("os system metadata: num_cpus, os_name, arch, and args")
-bind test_os_metadata = (): {
+bind test_os_metadata = fn(): {
 	assert(num_cpus() >= 1, "num_cpus >= 1")
 	let os = os_name()
 	assert(os.len() > 0, "os_name non-empty")
@@ -133,7 +133,7 @@ bind test_os_metadata = (): {
 }
 
 @test("os process execution: exec and ExitResult")
-bind test_os_exec = (): {
+bind test_os_exec = fn(): {
 	let res = exec("echo hello_os_test")
 	assert(res.ok(), "exec ok")
 	assert(res.exit_code == 0, "exit code 0")
@@ -153,7 +153,7 @@ bind test_os_exec = (): {
 }
 
 @test("os directory operations: mkdir_p, file_exists, remove_all")
-bind test_os_filesystem = (): {
+bind test_os_filesystem = fn(): {
 	let base = _test_tmp_path("os_dir")
 	let nested = "${base}/sub1/sub2"
 

@@ -7,12 +7,12 @@
 define Meters float
 define Seconds float
 
-bind speed = (d: Meters, t: Seconds) float: float(d) / float(t)
+bind speed = fn(d: Meters, t: Seconds) float: float(d) / float(t)
 
 // Distinct types can have their own methods.
-bind Meters.to_km = (self) float: float(self) / 1000.0
+bind Meters.to_km = fn(self) float: float(self) / 1000.0
 
-bind main = (): {
+bind main = fn(): {
 	let d = Meters(1500.0)
 	let t = Seconds(300.0)
 	println(speed(d, t))

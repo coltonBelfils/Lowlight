@@ -2,7 +2,7 @@
 // Category: Collections
 // Order: 30
 
-bind main = (): {
+bind main = fn(): {
 	// `[T]` is a growable list.
 	let xs = [10, 20, 30]
 	xs.push(40)

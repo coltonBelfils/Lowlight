@@ -9,14 +9,14 @@ order: 6
 `match` compares a value against patterns and evaluates the first arm that matches. Every `match` ends with a `default` arm.
 
 ```lowlight
-bind describe = (n: int) string:
+bind describe = fn(n: int) string:
 	match(n):
 		when 0: "zero"
 		when 1, 2, 3: "a few"
 		when in 4..100: "some"
 		default: "lots"
 
-bind main = (): {
+bind main = fn(): {
 	for(n in [0, 2, 50, 1000]): println(describe(n))
 }
 ```
@@ -52,14 +52,14 @@ define Token enum [
 	end,
 ]
 
-bind show = (t: Token) string:
+bind show = fn(t: Token) string:
 	match(t):
 		when number(n): "number $n"
 		when word(w): "word '$w'"
 		when plus: "+"
 		default end: "end of input"
 
-bind main = (): {
+bind main = fn(): {
 	let tokens = [Token.number(7), Token.plus, Token.word("x"), Token.end]
 	for(t in tokens): println(show(t))
 }
@@ -88,14 +88,14 @@ match(t):
 `match(a, b)` matches pairs. Parenthesize a combination to give one arm several alternatives:
 
 ```lowlight
-bind fizz = (n: int) string:
+bind fizz = fn(n: int) string:
 	match(n % 3, n % 5):
 		when 0, 0: "FizzBuzz"
 		when 0, _: "Fizz"
 		when _, 0: "Buzz"
 		default: n.to_string()
 
-bind main = (): {
+bind main = fn(): {
 	let out = for(i in 9..=15) [string]: fizz(i)
 	println(out)
 }
@@ -110,14 +110,14 @@ bind main = (): {
 `match:` with no subject chooses the first arm whose condition is true, a tidy replacement for long `if`/`else if` chains:
 
 ```lowlight
-bind grade = (score: int) string:
+bind grade = fn(score: int) string:
 	match:
 		when score >= 90: "A"
 		when score >= 80: "B"
 		when score >= 70: "C"
 		default: "F"
 
-bind main = (): println(grade(85))
+bind main = fn(): println(grade(85))
 ```
 
 ```output
@@ -134,12 +134,12 @@ define Msg enum [
 	quit,
 ]
 
-bind take_text = (m: own Msg) string:
+bind take_text = fn(m: own Msg) string:
 	match(m):
 		when text(own s): s
 		default quit: "(none)"
 
-bind main = (): println(take_text(Msg.text("hi" + "!")))
+bind main = fn(): println(take_text(Msg.text("hi" + "!")))
 ```
 
 ```output

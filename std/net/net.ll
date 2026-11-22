@@ -17,30 +17,30 @@ define TcpStream struct [
 ]
 
 // Returns the underlying OS file descriptor, or `-1` if closed.
-bind TcpStream.raw_fd = (self) int: self._fd
+bind TcpStream.raw_fd = fn(self) int: self._fd
 
 // Automatically closes the socket descriptor if still open when `self` leaves scope.
-bind TcpStream.drop = (&self):
+bind TcpStream.drop = fn(&self):
 	if(self._fd >= 0): {
 		unsafe sys_net_close(self._fd)
 		self._fd = -1
 	}
 
 // Explicitly closes the TCP stream descriptor early, setting it to `-1`.
-bind TcpStream.close = (&self):
+bind TcpStream.close = fn(&self):
 	if(self._fd >= 0): {
 		unsafe sys_net_close(self._fd)
 		self._fd = -1
 	}
 
 // Reports whether the stream holds an open socket descriptor (`raw_fd >= 0`).
-bind TcpStream.is_open = (self) bool: self._fd >= 0
+bind TcpStream.is_open = fn(self) bool: self._fd >= 0
 
 // Writes all bytes of `data` to the socket and returns the number of bytes sent.
 //
 // # Errors
 // Fails if the stream is closed or the underlying OS send fails.
-bind TcpStream.send = (&self, data: string) Result[int]: {
+bind TcpStream.send = fn(&self, data: string) Result[int]: {
 	if(self._fd < 0): func <- err(Error.new("send on closed TcpStream"))
 	let res = unsafe sys_net_send_all(self._fd, data.c_str(), data.len())
 	if(res == 0): value(data.len()) else: err(Error.new("failed to send data over TCP socket"))
@@ -56,7 +56,7 @@ bind TcpStream.send = (&self, data: string) Result[int]: {
 // # Errors
 // Fails with error code `"eof"` when the peer has closed the connection cleanly, `"timeout"`
 // when no data arrives within `timeout_ms`, or a generic [`Error`] on closed/failed sockets.
-bind TcpStream.recv = (&self, max_len: int, timeout_ms: int) Result[string]: {
+bind TcpStream.recv = fn(&self, max_len: int, timeout_ms: int) Result[string]: {
 	if(self._fd < 0): func <- err(Error.new("recv on closed TcpStream"))
 	let limit = if(max_len <= 0): 4096 else: max_len
 	unsafe {
@@ -78,7 +78,7 @@ bind TcpStream.recv = (&self, max_len: int, timeout_ms: int) Result[string]: {
 //
 // # Errors
 // Fails if the stream is closed or the underlying OS send fails.
-bind TcpStream.send_bytes = (&self, data: [u8]) Result[int]: {
+bind TcpStream.send_bytes = fn(&self, data: [u8]) Result[int]: {
 	if(self._fd < 0): func <- err(Error.new("send on closed TcpStream"))
 	let buf = string.with_capacity(data.len())
 	for(b in data): buf.push_byte(b)
@@ -93,7 +93,7 @@ bind TcpStream.send_bytes = (&self, data: [u8]) Result[int]: {
 // # Errors
 // Fails with code `"eof"` when the peer has closed the connection, `"timeout"` when no data
 // arrives in time, or a generic [`Error`] on closed or failed sockets.
-bind TcpStream.recv_bytes = (&self, max_len: int, timeout_ms: int) Result[[u8]]: {
+bind TcpStream.recv_bytes = fn(&self, max_len: int, timeout_ms: int) Result[[u8]]: {
 	if(self._fd < 0): func <- err(Error.new("recv on closed TcpStream"))
 	let limit = if(max_len <= 0): 4096 else: max_len
 	unsafe {
@@ -128,7 +128,7 @@ define Shutdown enum [
 //
 // # Errors
 // Fails if the stream is closed or the OS rejects the call (for example, if not connected).
-bind TcpStream.shutdown = (&self, how: Shutdown) Result[bool]: {
+bind TcpStream.shutdown = fn(&self, how: Shutdown) Result[bool]: {
 	if(self._fd < 0): func <- err(Error.new("shutdown on closed TcpStream"))
 	let code = match(how):
 		when read: 0
@@ -139,24 +139,24 @@ bind TcpStream.shutdown = (&self, how: Shutdown) Result[bool]: {
 }
 
 // Returns the remote address as `"a.b.c.d:port"` or `"[v6]:port"`, or `none` if unknown.
-bind TcpStream.peer_addr = (self) ?string: peer_addr_of(self._fd)
+bind TcpStream.peer_addr = fn(self) ?string: peer_addr_of(self._fd)
 
 // Returns the local address as `"a.b.c.d:port"` or `"[v6]:port"`, or `none` if unknown.
-bind TcpStream.local_addr = (self) ?string: local_addr_of(self._fd)
+bind TcpStream.local_addr = fn(self) ?string: local_addr_of(self._fd)
 
 // Enables or disables `TCP_NODELAY`. With it on, small writes are sent immediately instead of
 // being coalesced (Nagle's algorithm), which lowers latency for request/response protocols.
 //
 // # Errors
 // Fails if the stream is closed or the socket does not support the option.
-bind TcpStream.set_nodelay = (&self, on: bool) Result[bool]: {
+bind TcpStream.set_nodelay = fn(&self, on: bool) Result[bool]: {
 	if(self._fd < 0): func <- err(Error.new("set_nodelay on closed TcpStream"))
 	let rc = unsafe sys_tcp_set_nodelay(self._fd, if(on): 1 else: 0)
 	if(rc == 0): value(true) else: err(Error.new("failed to set TCP_NODELAY"))
 }
 
 // Returns the remote address of connected socket descriptor `fd`, or `none` if unknown.
-bind peer_addr_of = (fd: int) ?string: {
+bind peer_addr_of = fn(fd: int) ?string: {
 	let port = unsafe sys_tcp_peer_port(fd)
 	if(port < 0): func <- none
 	let ip = unsafe sys_tcp_peer_ipv4(fd)
@@ -167,7 +167,7 @@ bind peer_addr_of = (fd: int) ?string: {
 }
 
 // Returns the local address of socket descriptor `fd`, or `none` if unknown.
-bind local_addr_of = (fd: int) ?string: {
+bind local_addr_of = fn(fd: int) ?string: {
 	let port = unsafe sys_tcp_port(fd)
 	if(port < 0): func <- none
 	let ip = unsafe sys_tcp_local_ipv4(fd)
@@ -177,9 +177,9 @@ bind local_addr_of = (fd: int) ?string: {
 	"[${format_ipv6(groups)}]:$port"
 }
 
-bind _format_ipv4 = (ip: int) string: "${(ip >> 24) & 255}.${(ip >> 16) & 255}.${(ip >> 8) & 255}.${ip & 255}"
+bind _format_ipv4 = fn(ip: int) string: "${(ip >> 24) & 255}.${(ip >> 16) & 255}.${(ip >> 8) & 255}.${ip & 255}"
 
-bind _hex16 = (n: int) string: {
+bind _hex16 = fn(n: int) string: {
 	if(n == 0): func <- "0"
 	let digits = "0123456789abcdef"
 	let out = ""
@@ -196,7 +196,7 @@ bind _hex16 = (n: int) string: {
 // Formats eight 16-bit groups as an IPv6 address in RFC 5952 canonical form: lowercase hex,
 // no leading zeros, the longest run of two or more zero groups shortened to `::`, and
 // IPv4-mapped addresses written as `::ffff:a.b.c.d`.
-bind format_ipv6 = (groups: [int]) string: {
+bind format_ipv6 = fn(groups: [int]) string: {
 	if(groups.len() != 8): func <- ""
 	let mapped = groups[0] == 0 and groups[1] == 0 and groups[2] == 0 and groups[3] == 0 and groups[4] == 0 and groups[5] == 65535
 	if(mapped): func <- "::ffff:${_format_ipv4(groups[6] << 16 | groups[7])}"
@@ -234,7 +234,7 @@ bind format_ipv6 = (groups: [int]) string: {
 //
 // # Errors
 // Fails if host resolution fails or the connection cannot be established within `timeout_ms`.
-bind TcpStream.connect = (host: string, port: int, timeout_ms: int) Result[TcpStream]: {
+bind TcpStream.connect = fn(host: string, port: int, timeout_ms: int) Result[TcpStream]: {
 	let client_fd = unsafe sys_tcp_connect(host.c_str(), port, timeout_ms)
 	if(client_fd >= 0): value(TcpStream[_fd: client_fd])
 	else if(client_fd == -1): err(Error.new("failed to resolve host: $host"))
@@ -251,27 +251,27 @@ define TcpListener struct [
 ]
 
 // Returns the underlying listening socket descriptor, or `-1` if closed.
-bind TcpListener.raw_fd = (self) int: self._fd
+bind TcpListener.raw_fd = fn(self) int: self._fd
 
 // Reports whether the listener socket is still open.
-bind TcpListener.is_open = (self) bool: self._fd >= 0
+bind TcpListener.is_open = fn(self) bool: self._fd >= 0
 
 // Automatically closes the listener socket at scope exit if still open.
-bind TcpListener.drop = (&self):
+bind TcpListener.drop = fn(&self):
 	if(self._fd >= 0): {
 		unsafe sys_net_close(self._fd)
 		self._fd = -1
 	}
 
 // Explicitly closes the listener socket.
-bind TcpListener.close = (&self):
+bind TcpListener.close = fn(&self):
 	if(self._fd >= 0): {
 		unsafe sys_net_close(self._fd)
 		self._fd = -1
 	}
 
 // Returns the actual bound TCP port (useful when listening on ephemeral port `0`).
-bind TcpListener.port = (self) int: self._bound_port
+bind TcpListener.port = fn(self) int: self._bound_port
 
 // Binds and listens for incoming TCP connections on `host:port`.
 //
@@ -279,7 +279,7 @@ bind TcpListener.port = (self) int: self._bound_port
 //
 // # Errors
 // Fails if the socket cannot be bound or placed into listen state.
-bind TcpListener.listen = (host: string, port: int) Result[TcpListener]: {
+bind TcpListener.listen = fn(host: string, port: int) Result[TcpListener]: {
 	let sfd = unsafe sys_tcp_listen(host.c_str(), port, 128)
 	if(sfd < 0): func <- err(Error.new("failed to bind TCP listener on $host:$port"))
 	let actual_port = unsafe sys_tcp_port(sfd)
@@ -293,7 +293,7 @@ bind TcpListener.listen = (host: string, port: int) Result[TcpListener]: {
 //
 // # Errors
 // Fails with code `"timeout"` on accept timeout, or a generic [`Error`] on closed/failed listeners.
-bind TcpListener.accept = (&self, timeout_ms: int) Result[TcpStream]: {
+bind TcpListener.accept = fn(&self, timeout_ms: int) Result[TcpStream]: {
 	if(self._fd < 0): func <- err(Error.new("accept on closed TcpListener"))
 	let cfd = unsafe sys_tcp_accept(self._fd, timeout_ms)
 	if(cfd >= 0): value(TcpStream[_fd: cfd])
@@ -315,7 +315,7 @@ define SocketPair struct [
 //
 // # Errors
 // Fails if the kernel `socketpair` call fails.
-bind socketpair = () Result[SocketPair]: {
+bind socketpair = fn() Result[SocketPair]: {
 	let pair = unsafe {
 		let p = alloc_raw[int](2)
 		let rc = sys_net_socketpair(p)
@@ -335,17 +335,17 @@ bind socketpair = () Result[SocketPair]: {
 }
 
 // Connects to `host:port` using a default `10_000 ms` timeout (shorthand for [`TcpStream.connect`]).
-bind dial_tcp = (host: string, port: int) Result[TcpStream]: TcpStream.connect(host, port, 10000)
+bind dial_tcp = fn(host: string, port: int) Result[TcpStream]: TcpStream.connect(host, port, 10000)
 
 // Binds and listens for TCP connections on `host:port` (shorthand for [`TcpListener.listen`]).
-bind listen_tcp = (host: string, port: int) Result[TcpListener]: TcpListener.listen(host, port)
+bind listen_tcp = fn(host: string, port: int) Result[TcpListener]: TcpListener.listen(host, port)
 
 // -----------------------------------------------------------------------------
 // Inline Unit Tests
 // -----------------------------------------------------------------------------
 
 @test("net bidirectional data transfer over socketpair")
-bind test_net_socketpair_bidirectional = (): {
+bind test_net_socketpair_bidirectional = fn(): {
 	let pair_res! = socketpair()
 	assert(pair_res!.is_ok(), "socketpair succeeds")
 	let pair = pair_res!.unwrap()
@@ -374,7 +374,7 @@ bind test_net_socketpair_bidirectional = (): {
 }
 
 @test("net TcpListener ephemeral port binding and teardown")
-bind test_net_listener_bind_and_port = (): {
+bind test_net_listener_bind_and_port = fn(): {
 	let l_res! = TcpListener.listen("127.0.0.1", 0)
 	assert(l_res!.is_ok(), "listen on ephemeral port 0 succeeds")
 	let l = l_res!.unwrap()
@@ -387,7 +387,7 @@ bind test_net_listener_bind_and_port = (): {
 }
 
 @test("net closed TcpStream error handling")
-bind test_net_closed_stream_errors = (): {
+bind test_net_closed_stream_errors = fn(): {
 	let s = TcpStream[_fd: -1]
 	assert(not s.is_open(), "stream with fd -1 is not open")
 
@@ -399,7 +399,7 @@ bind test_net_closed_stream_errors = (): {
 }
 
 @test("net recv distinguishes clean EOF and timeout")
-bind test_net_recv_eof_and_timeout = (): {
+bind test_net_recv_eof_and_timeout = fn(): {
 	let pair = socketpair().unwrap()
 	let timeout_res! = pair.first.recv(64, 10)
 	assert(timeout_res!.is_err(), "recv with no data times out")
@@ -418,7 +418,7 @@ bind test_net_recv_eof_and_timeout = (): {
 }
 
 @test("net send_bytes and recv_bytes carry raw bytes, including zeros")
-bind test_net_bytes = (): {
+bind test_net_bytes = fn(): {
 	let pair = socketpair().unwrap()
 	let data: [u8] = [u8(0), u8(255), u8(10), u8(0), u8(128)]
 	assert(pair.first.send_bytes(data).unwrap() == 5, "sent five bytes")
@@ -427,7 +427,7 @@ bind test_net_bytes = (): {
 }
 
 @test("net shutdown(write) ends the peer's stream but keeps reading open")
-bind test_net_shutdown = (): {
+bind test_net_shutdown = fn(): {
 	let pair = socketpair().unwrap()
 	let _ = pair.first.send("last words") ?? 0
 	assert(pair.first.shutdown(Shutdown.write).is_ok(), "shutdown write")
@@ -441,7 +441,7 @@ bind test_net_shutdown = (): {
 }
 
 @test("net local_addr, peer_addr, and set_nodelay on a loopback connection")
-bind test_net_addresses = (): {
+bind test_net_addresses = fn(): {
 	let listener! = listen_tcp("127.0.0.1", 0)
 	if(listener!.is_err()): func <-     // no loopback networking available here
 	let listener = listener!.unwrap()
@@ -458,7 +458,7 @@ bind test_net_addresses = (): {
 }
 
 @test("net format_ipv6 writes RFC 5952 canonical text")
-bind test_net_format_ipv6 = (): {
+bind test_net_format_ipv6 = fn(): {
 	assert(format_ipv6([0, 0, 0, 0, 0, 0, 0, 1]) == "::1", "loopback")
 	assert(format_ipv6([0x2001, 0xdb8, 0, 0, 0, 0, 0, 1]) == "2001:db8::1", "longest zero run")
 	assert(format_ipv6([0, 0, 0, 0, 0, 0xffff, 0x7f00, 1]) == "::ffff:127.0.0.1", "IPv4-mapped")

@@ -12,8 +12,8 @@ An interface lists methods. Any type that has those methods satisfies it: there 
 
 ```lowlight
 define Shape interface [
-	area: (self) float,
-	name: (self) string,
+	area: fn(self) float,
+	name: fn(self) string,
 ]
 
 define Circle struct [
@@ -24,12 +24,12 @@ define Square struct [
 	side: float,
 ]
 
-bind Circle.area = (self) float: 3.0 * self.r * self.r
-bind Circle.name = (self) string: "circle"
-bind Square.area = (self) float: self.side * self.side
-bind Square.name = (self) string: "square"
+bind Circle.area = fn(self) float: 3.0 * self.r * self.r
+bind Circle.name = fn(self) string: "circle"
+bind Square.area = fn(self) float: self.side * self.side
+bind Square.name = fn(self) string: "square"
 
-bind main = (): {
+bind main = fn(): {
 	let shapes: [Shape] = [Shape(Circle[r: 1.0]), Shape(Square[side: 2.0])]
 	for(s in shapes): println("${s.name()}: ${s.area()}")
 }
@@ -60,9 +60,9 @@ define Money struct [
 	cents: int,
 ]
 
-bind Money.to_string = (self) string: "\$${self.cents / 100}.${self.cents % 100}"
+bind Money.to_string = fn(self) string: "\$${self.cents / 100}.${self.cents % 100}"
 
-bind main = (): {
+bind main = fn(): {
 	let price = Money[cents: 1999]
 	println("costs $price")
 }
@@ -79,14 +79,14 @@ Structs and enums can also get these methods written for them with `@derive(Equa
 Type parameters go in square brackets after the name:
 
 ```lowlight
-bind largest[T: Comparable + Copyable] = (xs: [T]) ?T: {
+bind largest[T: Comparable + Copyable] = fn(xs: [T]) ?T: {
 	if(xs.is_empty()): func <- none
 	let best = xs[0].copy()
 	for(x in xs): if(x > best): best = x.copy()
 	best
 }
 
-bind main = (): {
+bind main = fn(): {
 	println(largest([3, 9, 2]) ?? 0)
 	println(largest(["pear", "apple"]) ?? "")
 }
@@ -106,11 +106,11 @@ define Stack[T] struct [
 	items: [T],
 ]
 
-bind Stack[T].new = () Stack[T]: Stack[T][items: []]
-bind Stack[T].push = (&self, x: own T): self.items.push(own x)
-bind Stack[T].pop = (&self) ?T: self.items.pop()
+bind Stack[T].new = fn() Stack[T]: Stack[T][items: []]
+bind Stack[T].push = fn(&self, x: own T): self.items.push(own x)
+bind Stack[T].pop = fn(&self) ?T: self.items.pop()
 
-bind main = (): {
+bind main = fn(): {
 	let s = Stack[string].new()
 	s.push("a")
 	s.push("b")

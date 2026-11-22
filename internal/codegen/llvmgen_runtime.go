@@ -3448,7 +3448,9 @@ func (g *llvmEmitter) emitSynthesizedHelpersLLVM() {
 		case *types.Tuple:
 			g.emitTupleHelpersLLVM(v)
 		case *types.Func:
-			g.emitClosureHelpersLLVM(v)
+			if v.Closure {
+				g.emitClosureHelpersLLVM(v)
+			}
 		case *types.Interface:
 			g.emitInterfaceHelpersLLVM(v)
 		}

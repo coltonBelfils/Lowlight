@@ -122,7 +122,7 @@ func deriveStructSource(sd *ast.StructDecl, iface string) string {
 	var b strings.Builder
 	switch iface {
 	case "Equatable":
-		fmt.Fprintf(&b, "bind %s.eq = (self, other: %s) bool: ", T, T)
+		fmt.Fprintf(&b, "bind %s.eq = fn(self, other: %s) bool: ", T, T)
 		if len(sd.Fields) == 0 {
 			b.WriteString("true\n")
 			break
@@ -134,14 +134,14 @@ func deriveStructSource(sd *ast.StructDecl, iface string) string {
 		b.WriteString(strings.Join(parts, " and ") + "\n")
 	case "Comparable":
 		// Lexicographic, in field order.
-		fmt.Fprintf(&b, "bind %s.cmp = (self, other: %s) int: {\n", T, T)
+		fmt.Fprintf(&b, "bind %s.cmp = fn(self, other: %s) int: {\n", T, T)
 		for _, f := range sd.Fields {
 			r := fieldRef(f)
 			fmt.Fprintf(&b, "\tif(self.%s < other.%s): func <- -1\n\tif(self.%s > other.%s): func <- 1\n", r, r, r, r)
 		}
 		b.WriteString("\t0\n}\n")
 	case "Hashable":
-		fmt.Fprintf(&b, "bind %s.hash = (self) u64: {\n\tlet h: u64 = %s\n", T, deriveHashSeed)
+		fmt.Fprintf(&b, "bind %s.hash = fn(self) u64: {\n\tlet h: u64 = %s\n", T, deriveHashSeed)
 		for _, f := range sd.Fields {
 			fmt.Fprintf(&b, "\th = (h ^ self.%s.hash()) * %s\n", fieldRef(f), deriveHashPrime)
 		}
@@ -151,14 +151,14 @@ func deriveStructSource(sd *ast.StructDecl, iface string) string {
 		for i, f := range sd.Fields {
 			inits[i] = fmt.Sprintf("%s: self.%s.copy()", fieldRef(f), fieldRef(f))
 		}
-		fmt.Fprintf(&b, "bind %s.copy = (self) %s: %s[%s]\n", T, T, T, strings.Join(inits, ", "))
+		fmt.Fprintf(&b, "bind %s.copy = fn(self) %s: %s[%s]\n", T, T, T, strings.Join(inits, ", "))
 	case "Printable":
 		// Printed like a struct literal: `Point[x: 1, y: 2]`.
 		parts := make([]string, len(sd.Fields))
 		for i, f := range sd.Fields {
 			parts[i] = fmt.Sprintf("%s: ${self.%s}", fieldRef(f), fieldRef(f))
 		}
-		fmt.Fprintf(&b, "bind %s.to_string = (self) string: \"%s[%s]\"\n", T, sd.Name, strings.Join(parts, ", "))
+		fmt.Fprintf(&b, "bind %s.to_string = fn(self) string: \"%s[%s]\"\n", T, sd.Name, strings.Join(parts, ", "))
 	}
 	return b.String()
 }
@@ -176,15 +176,15 @@ func deriveEnumSource(ed *ast.EnumDecl, iface string) string {
 		// A tag-only enum is its integer value.
 		switch iface {
 		case "Equatable":
-			fmt.Fprintf(&b, "bind %s.eq = (self, other: %s) bool: int(self) == int(other)\n", T, T)
+			fmt.Fprintf(&b, "bind %s.eq = fn(self, other: %s) bool: int(self) == int(other)\n", T, T)
 		case "Comparable":
-			fmt.Fprintf(&b, "bind %s.cmp = (self, other: %s) int: int(self).cmp(int(other))\n", T, T)
+			fmt.Fprintf(&b, "bind %s.cmp = fn(self, other: %s) int: int(self).cmp(int(other))\n", T, T)
 		case "Hashable":
-			fmt.Fprintf(&b, "bind %s.hash = (self) u64: int(self).hash()\n", T)
+			fmt.Fprintf(&b, "bind %s.hash = fn(self) u64: int(self).hash()\n", T)
 		case "Copyable":
-			fmt.Fprintf(&b, "bind %s.copy = (self) %s: self\n", T, T)
+			fmt.Fprintf(&b, "bind %s.copy = fn(self) %s: self\n", T, T)
 		case "Printable":
-			fmt.Fprintf(&b, "bind %s.to_string = (self) string: match(self):\n", T)
+			fmt.Fprintf(&b, "bind %s.to_string = fn(self) string: match(self):\n", T)
 			for i, v := range ed.Variants {
 				kw := "when"
 				if i == len(ed.Variants)-1 {
@@ -227,7 +227,7 @@ func deriveEnumSource(ed *ast.EnumDecl, iface string) string {
 	}
 	switch iface {
 	case "Equatable":
-		fmt.Fprintf(&b, "bind %s.eq = (self, other: %s) bool: match(self):\n", T, T)
+		fmt.Fprintf(&b, "bind %s.eq = fn(self, other: %s) bool: match(self):\n", T, T)
 		arms("\t", func(i int, v ast.EnumVariant) string {
 			if v.PayloadType != nil {
 				return nested("\t", v, "a == b", "false")
@@ -236,9 +236,9 @@ func deriveEnumSource(ed *ast.EnumDecl, iface string) string {
 		})
 	case "Comparable":
 		// Variants order by declaration; equal variants by payload.
-		fmt.Fprintf(&b, "bind %s._derive_index = (self) int: match(self):\n", T)
+		fmt.Fprintf(&b, "bind %s._derive_index = fn(self) int: match(self):\n", T)
 		arms("\t", func(i int, v ast.EnumVariant) string { return fmt.Sprint(i) })
-		fmt.Fprintf(&b, "bind %s.cmp = (self, other: %s) int: {\n", T, T)
+		fmt.Fprintf(&b, "bind %s.cmp = fn(self, other: %s) int: {\n", T, T)
 		b.WriteString("\tlet ia = self._derive_index()\n\tlet ib = other._derive_index()\n")
 		b.WriteString("\tif(ia != ib): func <- if(ia < ib): -1 else: 1\n\tmatch(self):\n")
 		arms("\t\t", func(i int, v ast.EnumVariant) string {
@@ -249,7 +249,7 @@ func deriveEnumSource(ed *ast.EnumDecl, iface string) string {
 		})
 		b.WriteString("}\n")
 	case "Hashable":
-		fmt.Fprintf(&b, "bind %s.hash = (self) u64: match(self):\n", T)
+		fmt.Fprintf(&b, "bind %s.hash = fn(self) u64: match(self):\n", T)
 		arms("\t", func(i int, v ast.EnumVariant) string {
 			seed := fmt.Sprintf("u64(%d).hash()", i)
 			if v.PayloadType != nil {
@@ -258,7 +258,7 @@ func deriveEnumSource(ed *ast.EnumDecl, iface string) string {
 			return seed
 		})
 	case "Copyable":
-		fmt.Fprintf(&b, "bind %s.copy = (self) %s: match(self):\n", T, T)
+		fmt.Fprintf(&b, "bind %s.copy = fn(self) %s: match(self):\n", T, T)
 		arms("\t", func(i int, v ast.EnumVariant) string {
 			if v.PayloadType != nil {
 				return fmt.Sprintf("%s.%s(a.copy())", T, v.Name)
@@ -266,7 +266,7 @@ func deriveEnumSource(ed *ast.EnumDecl, iface string) string {
 			return T + "." + v.Name
 		})
 	case "Printable":
-		fmt.Fprintf(&b, "bind %s.to_string = (self) string: match(self):\n", T)
+		fmt.Fprintf(&b, "bind %s.to_string = fn(self) string: match(self):\n", T)
 		arms("\t", func(i int, v ast.EnumVariant) string {
 			if v.PayloadType != nil {
 				return fmt.Sprintf("\"%s.%s(${a})\"", ed.Name, v.Name)

@@ -749,7 +749,11 @@ func formatTypeStr(t ast.TypeExpr) string {
 				parts[i] = formatTypeStr(p.Type)
 			}
 		}
-		out := "(" + strings.Join(parts, ", ") + ")"
+		kw := "fn"
+		if v.Closure {
+			kw = "cl"
+		}
+		out := kw + "(" + strings.Join(parts, ", ") + ")"
 		if v.Ret != nil {
 			out += " " + formatTypeStr(v.Ret)
 		}
@@ -829,7 +833,7 @@ func formatInterfaceMethodSig(m ast.InterfaceMethod) string {
 	if m.Ret != nil {
 		ret = " " + formatTypeStr(m.Ret)
 	}
-	return fmt.Sprintf("%s: (%s)%s", m.Name, strings.Join(parts, ", "), ret)
+	return fmt.Sprintf("%s: fn(%s)%s", m.Name, strings.Join(parts, ", "), ret)
 }
 
 func formatMethodSig(v *ast.MethodDecl) string {
@@ -848,7 +852,7 @@ func formatMethodSig(v *ast.MethodDecl) string {
 	if v.Ret != nil {
 		ret = " " + formatTypeStr(v.Ret)
 	}
-	return fmt.Sprintf("bind %s%s.%s%s = (%s)%s", v.RecvType, recvTParams, v.Name, formatTypeParams(v.TypeParams), strings.Join(parts, ", "), ret)
+	return fmt.Sprintf("bind %s%s.%s%s = fn(%s)%s", v.RecvType, recvTParams, v.Name, formatTypeParams(v.TypeParams), strings.Join(parts, ", "), ret)
 }
 
 func formatExternSig(v *ast.ExternFnDecl) string {
@@ -860,7 +864,7 @@ func formatExternSig(v *ast.ExternFnDecl) string {
 	if v.Ret != nil {
 		ret = " " + formatTypeStr(v.Ret)
 	}
-	return fmt.Sprintf("extern %s: %s%s", name, formatParamsStr(v.Params), ret)
+	return fmt.Sprintf("extern %s: fn%s%s", name, formatParamsStr(v.Params), ret)
 }
 
 func formatVarDeclSig(v *ast.VarDecl, src string) string {
@@ -869,7 +873,7 @@ func formatVarDeclSig(v *ast.VarDecl, src string) string {
 		if fl.Ret != nil {
 			ret = " " + formatTypeStr(fl.Ret)
 		}
-		return fmt.Sprintf("bind %s%s = %s%s", v.Name, formatTypeParams(v.TypeParams), formatParamsStr(fl.Params), ret)
+		return fmt.Sprintf("bind %s%s = fn%s%s", v.Name, formatTypeParams(v.TypeParams), formatParamsStr(fl.Params), ret)
 	}
 	ty := ""
 	if v.Type != nil {

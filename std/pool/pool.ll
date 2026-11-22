@@ -12,7 +12,7 @@ define Handle[T] struct [
 ]
 
 // Reports whether `self` and `other` point to the same slot index and generation.
-bind Handle[T].equals = (self, other: Handle[T]) bool:
+bind Handle[T].equals = fn(self, other: Handle[T]) bool:
 	self.index == other.index and self.generation == other.generation
 
 define _PoolSlot[T] struct [
@@ -38,7 +38,7 @@ define Pool[T] struct [
 ]
 
 // Constructs an empty [`Pool`] with no pre-allocated slots.
-bind Pool[T].new = () Pool[T]:
+bind Pool[T].new = fn() Pool[T]:
 	Pool[T][
 		_slots: [],
 		_free_indices: [],
@@ -46,19 +46,19 @@ bind Pool[T].new = () Pool[T]:
 	]
 
 // Returns the number of currently live values in the pool.
-bind Pool[T].len = (self) int: self._live_count
+bind Pool[T].len = fn(self) int: self._live_count
 
 // Reports whether the pool contains zero currently live values.
-bind Pool[T].is_empty = (self) bool: self._live_count == 0
+bind Pool[T].is_empty = fn(self) bool: self._live_count == 0
 
 // Returns the total number of slots allocated by the pool (live plus free).
-bind Pool[T].capacity = (self) int: self._slots.len()
+bind Pool[T].capacity = fn(self) int: self._slots.len()
 
 // Inserts `val` into the pool (reusing a freed slot when available) and returns its [`Handle`].
 //
 // # Ownership
 // Takes ownership of `val`.
-bind Pool[T].alloc = (&self, val: own T) Handle[T]: {
+bind Pool[T].alloc = fn(&self, val: own T) Handle[T]: {
 	if(self._free_indices.len() > 0): {
 		let idx = self._free_indices.pop() ?? 0
 		let gen = self._slots[idx].generation
@@ -78,7 +78,7 @@ bind Pool[T].alloc = (&self, val: own T) Handle[T]: {
 }
 
 // Reports whether `h` points to a currently live entry matching its generation.
-bind Pool[T].has = (self, h: Handle[T]) bool: {
+bind Pool[T].has = fn(self, h: Handle[T]) bool: {
 	if(h.index < 0 or h.index >= self._slots.len()): func <- false
 	func <- self._slots[h.index].alive and self._slots[h.index].generation == h.generation
 }
@@ -88,7 +88,7 @@ bind Pool[T].has = (self, h: Handle[T]) bool: {
 // Requires `T` to be copyable; for non-copyable or custom-`Drop` resource types, borrow in place
 // with [`Pool.with`], [`Pool.with_mut`], `for (v in pool)` / `for (&v in pool)`, or extract ownership
 // via [`Pool.take`].
-bind Pool[T].get = (self, h: Handle[T]) ?T: {
+bind Pool[T].get = fn(self, h: Handle[T]) ?T: {
 	if(h.index < 0 or h.index >= self._slots.len()): func <- none
 	if(not self._slots[h.index].alive or self._slots[h.index].generation != h.generation):
 		func <- none
@@ -99,7 +99,7 @@ bind Pool[T].get = (self, h: Handle[T]) ?T: {
 // Invokes `reader` with the live value referenced by `h` without copying it, returning `none` if `h` is stale.
 //
 // - `reader`: Read-only projection function receiving the stored value.
-bind Pool[T].with[R] = (self, h: Handle[T], reader: (T) R) ?R: {
+bind Pool[T].with[R] = fn(self, h: Handle[T], reader: cl(T) R) ?R: {
 	if(h.index < 0 or h.index >= self._slots.len()): func <- none
 	if(not self._slots[h.index].alive or self._slots[h.index].generation != h.generation):
 		func <- none
@@ -111,7 +111,7 @@ bind Pool[T].with[R] = (self, h: Handle[T], reader: (T) R) ?R: {
 //
 // Works with non-copyable and custom-`Drop` resource types without copying `T`.
 // Returns `true` if `h` was valid and `mutator` ran, or `false` if `h` is out of bounds or stale.
-bind Pool[T].with_mut = (&self, h: Handle[T], mutator: (&T)) bool: {
+bind Pool[T].with_mut = fn(&self, h: Handle[T], mutator: cl(&T)) bool: {
 	if(not self.has(h)): func <- false
 	if(&self._slots[h.index].value? as val): {
 		mutator(&val)
@@ -124,7 +124,7 @@ bind Pool[T].with_mut = (&self, h: Handle[T], mutator: (&T)) bool: {
 //
 // # Ownership
 // Consumes `val` on success (or drops it if `h` is invalid).
-bind Pool[T].set = (&self, h: Handle[T], val: own T) bool: {
+bind Pool[T].set = fn(&self, h: Handle[T], val: own T) bool: {
 	if(h.index < 0 or h.index >= self._slots.len()): func <- false
 	if(not self._slots[h.index].alive or self._slots[h.index].generation != h.generation):
 		func <- false
@@ -136,7 +136,7 @@ bind Pool[T].set = (&self, h: Handle[T], val: own T) bool: {
 //
 // Advances the slot generation so `h` becomes stale and recycles the slot index.
 // Returns `none` if `h` is out of bounds or already freed.
-bind Pool[T].take = (&self, h: Handle[T]) ?T: {
+bind Pool[T].take = fn(&self, h: Handle[T]) ?T: {
 	if(not self.has(h)): func <- none
 	let out? = unsafe {
 		let p = addr_of(self._slots[h.index].value?)
@@ -154,7 +154,7 @@ bind Pool[T].take = (&self, h: Handle[T]) ?T: {
 // Drops the value at `h`, increments its slot generation, and marks it reusable.
 //
 // Returns `false` if `h` is already freed or out of bounds.
-bind Pool[T].free = (&self, h: Handle[T]) bool: {
+bind Pool[T].free = fn(&self, h: Handle[T]) bool: {
 	if(h.index < 0 or h.index >= self._slots.len()): func <- false
 	if(not self._slots[h.index].alive or self._slots[h.index].generation != h.generation):
 		func <- false
@@ -168,7 +168,7 @@ bind Pool[T].free = (&self, h: Handle[T]) bool: {
 
 // Drops all live values in the pool, invalidates all existing handles by incrementing their
 // slot generations, and recycles their slot indices while retaining backing capacity.
-bind Pool[T].clear = (&self): {
+bind Pool[T].clear = fn(&self): {
 	let i = 0
 	for(i < self._slots.len()): {
 		if(self._slots[i].alive): {
@@ -185,7 +185,7 @@ bind Pool[T].clear = (&self): {
 // Returns a list of [`Handle`] identifiers for all currently live entries in slot order.
 //
 // Works for all element types `T`, including non-copyable and custom-`Drop` resource types.
-bind Pool[T].handles = (self) [Handle[T]]: {
+bind Pool[T].handles = fn(self) [Handle[T]]: {
 	let out: [Handle[T]] = []
 	let i = 0
 	for(i < self._slots.len()): {
@@ -199,7 +199,7 @@ bind Pool[T].handles = (self) [Handle[T]]: {
 // Returns a list containing copies of all currently live values in slot order.
 //
 // Requires `T` to be copyable; for non-copyable types use `for (v in pool)` or [`Pool.iter_handles`].
-bind Pool[T].values = (self) [T]: {
+bind Pool[T].values = fn(self) [T]: {
 	let out: [T] = []
 	let i = 0
 	for(i < self._slots.len()): {
@@ -220,7 +220,7 @@ define PoolIterator[T] struct [
 ]
 
 // Advances the iterator and returns a copy of the next live element, or `none` when finished.
-bind PoolIterator[T].next = (&self) ?T: {
+bind PoolIterator[T].next = fn(&self) ?T: {
 	if(self._index >= self._items.len()): func <- none
 	let i = self._index
 	self._index += 1
@@ -228,7 +228,7 @@ bind PoolIterator[T].next = (&self) ?T: {
 }
 
 // Returns a forward [`Iterator`] yielding copies of all currently live values in slot order.
-bind Pool[T].iter = (self) Iterator[T]:
+bind Pool[T].iter = fn(self) Iterator[T]:
 	PoolIterator[T][
 		_items: self.values(),
 		_index: 0,
@@ -243,7 +243,7 @@ define PoolHandleIterator[T] struct [
 ]
 
 // Advances the iterator and returns the next live handle, or `none` when finished.
-bind PoolHandleIterator[T].next = (&self) ?Handle[T]: {
+bind PoolHandleIterator[T].next = fn(&self) ?Handle[T]: {
 	if(self._index >= self._handles.len()): func <- none
 	let i = self._index
 	self._index += 1
@@ -253,7 +253,7 @@ bind PoolHandleIterator[T].next = (&self) ?Handle[T]: {
 // Returns a forward [`Iterator`] over all currently live [`Handle`] entries in slot order.
 //
 // Works for all element types `T`, including non-copyable and custom-`Drop` resource types.
-bind Pool[T].iter_handles = (self) Iterator[Handle[T]]:
+bind Pool[T].iter_handles = fn(self) Iterator[Handle[T]]:
 	PoolHandleIterator[T][
 		_handles: self.handles(),
 		_index: 0,
@@ -264,7 +264,7 @@ bind Pool[T].iter_handles = (self) Iterator[Handle[T]]:
 // -----------------------------------------------------------------------------
 
 @test("generational pool allocation, retrieval, mutation, and len")
-bind test_pool_alloc_and_get = (): {
+bind test_pool_alloc_and_get = fn(): {
 	let pool = Pool[string].new()
 	assert(pool.len() == 0, "initial len 0")
 
@@ -284,12 +284,12 @@ bind test_pool_alloc_and_get = (): {
 	let v1_up? = pool.get(h1)
 	assert(v1_up? == "first_updated", "v1 updated matches")
 
-	let read_len? = pool.with[int](h2, (s: string) int: s.len())
+	let read_len? = pool.with[int](h2, fn(s: string) int: s.len())
 	assert(read_len? == 6, "with reader returned string length")
 }
 
 @test("generational pool free, reuse, and stale handle invalidation")
-bind test_pool_free_and_reuse = (): {
+bind test_pool_free_and_reuse = fn(): {
 	let pool = Pool[string].new()
 	let h1 = pool.alloc("slot_0")
 	let h2 = pool.alloc("slot_1")
@@ -321,7 +321,7 @@ bind test_pool_free_and_reuse = (): {
 }
 
 @test("generational handle equality and out of bounds checks")
-bind test_pool_handle_equality = (): {
+bind test_pool_handle_equality = fn(): {
 	let pool = Pool[int].new()
 	let h1 = pool.alloc(100)
 	let h2 = pool.alloc(200)
@@ -337,7 +337,7 @@ bind test_pool_handle_equality = (): {
 }
 
 @test("pool with_mut, is_empty, clear, and slot recycling")
-bind test_pool_with_mut_and_clear = (): {
+bind test_pool_with_mut_and_clear = fn(): {
 	let pool = Pool[int].new()
 	assert(pool.is_empty(), "new pool is empty")
 	pool.clear()
@@ -348,13 +348,13 @@ bind test_pool_with_mut_and_clear = (): {
 	let h3 = pool.alloc(30)
 	assert(not pool.is_empty(), "pool with items is not empty")
 
-	assert(pool.with_mut(h2, (v: &int): { v += 25 }), "with_mut on live handle returns true")
+	assert(pool.with_mut(h2, fn(v: &int): { v += 25 }), "with_mut on live handle returns true")
 	assert(pool.get(h2) == 45, "with_mut mutated value in place")
 
 	assert(pool.free(h3), "free h3")
-	assert(not pool.with_mut(h3, (v: &int): { v += 1 }), "with_mut on freed handle returns false")
+	assert(not pool.with_mut(h3, fn(v: &int): { v += 1 }), "with_mut on freed handle returns false")
 	let oob = Handle[int][index: -1, generation: 1]
-	assert(not pool.with_mut(oob, (v: &int): { v += 1 }), "with_mut on out of bounds handle returns false")
+	assert(not pool.with_mut(oob, fn(v: &int): { v += 1 }), "with_mut on out of bounds handle returns false")
 
 	let cap_before = pool.capacity()
 	pool.clear()
@@ -363,7 +363,7 @@ bind test_pool_with_mut_and_clear = (): {
 	assert(pool.capacity() == cap_before, "clear retains backing slot capacity")
 	assert(not pool.has(h1) and not pool.has(h2) and not pool.has(h3), "all handles stale after clear")
 	assert(pool.get(h1) == none and pool.get(h2) == none, "get stale handles returns none after clear")
-	assert(not pool.with_mut(h1, (v: &int): { v += 1 }), "with_mut stale after clear")
+	assert(not pool.with_mut(h1, fn(v: &int): { v += 1 }), "with_mut stale after clear")
 
 	let h4 = pool.alloc(99)
 	assert(pool.len() == 1 and not pool.is_empty(), "len 1 after realloc following clear")
@@ -373,7 +373,7 @@ bind test_pool_with_mut_and_clear = (): {
 }
 
 @test("pool iterators, snapshots, and native for loops")
-bind test_pool_iterators_and_for_loops = (): {
+bind test_pool_iterators_and_for_loops = fn(): {
 	let pool = Pool[int].new()
 	let h1 = pool.alloc(10)
 	let h2 = pool.alloc(20)
@@ -438,7 +438,7 @@ define _OwnedBuf struct [
 	len: int,
 ]
 
-bind _OwnedBuf.new = (len: int, start: int) _OwnedBuf: {
+bind _OwnedBuf.new = fn(len: int, start: int) _OwnedBuf: {
 	let p = unsafe alloc_uninit[int](len)
 	let i = 0
 	for(i < len): {
@@ -448,7 +448,7 @@ bind _OwnedBuf.new = (len: int, start: int) _OwnedBuf: {
 	func <- _OwnedBuf[raw: p, len: len]
 }
 
-bind _OwnedBuf.sum = (self) int: {
+bind _OwnedBuf.sum = fn(self) int: {
 	let acc = 0
 	let i = 0
 	for(i < self.len): {
@@ -458,7 +458,7 @@ bind _OwnedBuf.sum = (self) int: {
 	func <- acc
 }
 
-bind _OwnedBuf.add_offset = (&self, delta: int): {
+bind _OwnedBuf.add_offset = fn(&self, delta: int): {
 	let i = 0
 	for(i < self.len): {
 		unsafe {
@@ -469,7 +469,7 @@ bind _OwnedBuf.add_offset = (&self, delta: int): {
 	}
 }
 
-bind _OwnedBuf.drop = (&self): {
+bind _OwnedBuf.drop = fn(&self): {
 	if(self.len > 0): {
 		unsafe free_raw(self.raw)
 		self.raw = unsafe null_ptr[int]()
@@ -478,17 +478,17 @@ bind _OwnedBuf.drop = (&self): {
 }
 
 @test("pool with non-copyable custom Drop resource handles with, with_mut, for loops, take, and clear")
-bind test_pool_non_copyable_resource = (): {
+bind test_pool_non_copyable_resource = fn(): {
 	let pool = Pool[_OwnedBuf].new()
 	let h1 = pool.alloc(_OwnedBuf.new(3, 10))
 	let h2 = pool.alloc(_OwnedBuf.new(2, 100))
 
 	// Inferred method type parameter `R` on `Pool.with`!
-	let s1? = pool.with(h1, (b: _OwnedBuf) int: b.sum())
+	let s1? = pool.with(h1, fn(b: _OwnedBuf) int: b.sum())
 	assert(s1? == 33, "with on non-copyable resource with inferred return type")
 
-	assert(pool.with_mut(h1, (b: &_OwnedBuf): b.add_offset(5)), "with_mut on non-copyable resource")
-	assert(pool.with(h1, (b: _OwnedBuf) int: b.sum()) == 48, "with_mut updated custom Drop buffer in place")
+	assert(pool.with_mut(h1, fn(b: &_OwnedBuf): b.add_offset(5)), "with_mut on non-copyable resource")
+	assert(pool.with(h1, fn(b: _OwnedBuf) int: b.sum()) == 48, "with_mut updated custom Drop buffer in place")
 
 	// Non-copyable iteration via native `for` loops (no copy of _OwnedBuf).
 	let total = 0
@@ -499,8 +499,8 @@ bind test_pool_non_copyable_resource = (): {
 	for(h, &b in pool): {
 		if(h.equals(h2)): b.add_offset(10)
 	}
-	assert(pool.with(h1, (b: _OwnedBuf) int: b.sum()) == 51, "h1 updated via mutable for loops")
-	assert(pool.with(h2, (b: _OwnedBuf) int: b.sum()) == 223, "h2 updated via 2-var mutable for loop")
+	assert(pool.with(h1, fn(b: _OwnedBuf) int: b.sum()) == 51, "h1 updated via mutable for loops")
+	assert(pool.with(h2, fn(b: _OwnedBuf) int: b.sum()) == 223, "h2 updated via 2-var mutable for loop")
 
 	let seen_handles = 0
 	let hit = pool.iter_handles()
@@ -534,7 +534,7 @@ bind test_pool_non_copyable_resource = (): {
 	// Reallocate into taken slot and verify generation bump + clear() leak-free cleanup.
 	let h3 = pool.alloc(_OwnedBuf.new(2, 5))
 	assert(h3.index == h1.index and h3.generation > h1.generation, "take recycled slot and bumped generation")
-	assert(pool.with(h3, (b: _OwnedBuf) int: b.sum()) == 11, "new non-copyable value in recycled slot")
+	assert(pool.with(h3, fn(b: _OwnedBuf) int: b.sum()) == 11, "new non-copyable value in recycled slot")
 
 	pool.clear()
 	assert(pool.is_empty(), "clear empties non-copyable pool")

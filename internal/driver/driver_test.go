@@ -13,7 +13,7 @@ import (
 func TestMultiFileTestFailureReturnsNonZero(t *testing.T) {
 	tmpDir := t.TempDir()
 	badTest := filepath.Join(tmpDir, "bad_test.ll")
-	err := os.WriteFile(badTest, []byte("@test(\"broken\")\nbind test_bad = (): {\n\tlet x: int = \"not_an_int\"\n}\n"), 0o644)
+	err := os.WriteFile(badTest, []byte("@test(\"broken\")\nbind test_bad = fn(): {\n\tlet x: int = \"not_an_int\"\n}\n"), 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,12 +35,12 @@ func TestTestFilterRunsMatchingTestOnly(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "filter_test.ll")
 	src := `@test("alpha test")
-bind test_alpha = (): {
+bind test_alpha = fn(): {
 	assert(true, "alpha")
 }
 
 @test("beta test")
-bind test_beta = (): {
+bind test_beta = fn(): {
 	assert(false, "beta should be filtered out")
 }
 `
@@ -68,9 +68,9 @@ func TestEmitAndBuildForwardWarnings(t *testing.T) {
 	tmpDir := t.TempDir()
 	srcFile := filepath.Join(tmpDir, "warn.ll")
 	src := `@must_use
-bind get_val = () int: { 42 }
+bind get_val = fn() int: { 42 }
 
-bind main = () void: {
+bind main = fn() void: {
 	get_val()
 }
 `
@@ -131,7 +131,7 @@ func TestDiscoverTestablePackageDirsSkipsExcludedDirsRecursively(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(p, []byte("@test(\"ok\")\nbind t = (): {}\n"), 0o644); err != nil {
+		if err := os.WriteFile(p, []byte("@test(\"ok\")\nbind t = fn(): {}\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

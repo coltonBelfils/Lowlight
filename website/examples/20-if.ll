@@ -2,7 +2,7 @@
 // Category: Control flow
 // Order: 20
 
-bind main = (): {
+bind main = fn(): {
 	let n = 7
 
 	// The condition is in parentheses; the body follows a colon.

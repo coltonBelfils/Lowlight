@@ -11,7 +11,7 @@ Lowlight's control constructs all have the same shape, `keyword(header): body`, 
 ## if
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let temp = 23
 	if(temp > 30): println("hot")
 	else if(temp > 15): println("pleasant")
@@ -34,7 +34,7 @@ The condition is always in parentheses, the body follows a colon, and the body i
 `while(condition)` repeats as long as the condition holds:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let n = 27
 	let steps = 0
 	while(n != 1): {
@@ -54,7 +54,7 @@ bind main = (): {
 `for(x in collection)` visits every element of a list, array, map, set, range, or string:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	for(i in 0..3): print("$i ")
 	println()
 	for(i in 1..=3): print("$i ")
@@ -77,7 +77,7 @@ bind main = (): {
 Give a `for` loop a result type and it **collects** each value its body produces:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let squares = for(i in 1..=5) [int]: i * i
 	println(squares)
 	let evens = for(i in 1..=10) [int]: {
@@ -107,7 +107,7 @@ There is no `return`, `break`, or `continue`. Instead there is one operator, `<-
 | `name <- v` | the block or loop labeled `name` | labeled `break` |
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let words = ["alpha", "beta", "stop", "gamma"]
 	for(w in words): {
 		if(w == "stop"): for <-
@@ -129,7 +129,7 @@ beta
 Label a loop or block to leave it from inside a nested one:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let grid = [[1, 2, 3], [4, 5, 6]]
 	let where = search: while(r, row in grid) string: {
 		for(c, v in row): if(v == 5): search <- "row $r, column $c"

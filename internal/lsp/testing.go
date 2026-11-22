@@ -591,7 +591,7 @@ func (s *Server) computeTestCodeActions(filePath string, src string, cursor Rang
 				}
 				fnRange := SpanToLSP(src, decl.Span)
 				if rangesOverlap(fnRange, cursor) || cursor.Start.Line == decl.Span.Start.Line-1 {
-					testStub := fmt.Sprintf("@test(\"%s\")\nbind test_%s = (): {\n%s// TODO: add assertions\n}", decl.Name, decl.Name, ind)
+					testStub := fmt.Sprintf("@test(\"%s\")\nbind test_%s = fn(): {\n%s// TODO: add assertions\n}", decl.Name, decl.Name, ind)
 					actions = append(actions, CodeAction{
 						Title: fmt.Sprintf("Generate @test for '%s'", decl.Name),
 						Kind:  "refactor",
@@ -607,7 +607,7 @@ func (s *Server) computeTestCodeActions(filePath string, src string, cursor Rang
 				qualName := decl.RecvType + "." + decl.Name
 				fnRange := SpanToLSP(src, decl.Span)
 				if rangesOverlap(fnRange, cursor) || cursor.Start.Line == decl.Span.Start.Line-1 {
-					testStub := fmt.Sprintf("@test(\"%s\")\nbind test_%s_%s = (): {\n%s// TODO: add assertions\n}", qualName, decl.RecvType, decl.Name, ind)
+					testStub := fmt.Sprintf("@test(\"%s\")\nbind test_%s_%s = fn(): {\n%s// TODO: add assertions\n}", qualName, decl.RecvType, decl.Name, ind)
 					actions = append(actions, CodeAction{
 						Title: fmt.Sprintf("Generate @test for '%s'", qualName),
 						Kind:  "refactor",

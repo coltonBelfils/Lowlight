@@ -3,7 +3,7 @@
 // Order: 2
 
 // Lowlight has integers, floats, booleans, characters, and strings.
-bind main = (): {
+bind main = fn(): {
 	// Integers are 64-bit by default. Arithmetic works as expected,
 	// and integer division truncates.
 	println(1 + 1)

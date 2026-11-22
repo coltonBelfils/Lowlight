@@ -17,15 +17,15 @@ define Array[T] struct [
 ]
 
 // Returns the fixed number of elements in the array.
-bind Array[T].len = (self) int: self.len
+bind Array[T].len = fn(self) int: self.len
 
 // Reports whether the array has zero elements.
-bind Array[T].is_empty = (self) bool: self.len == 0
+bind Array[T].is_empty = fn(self) bool: self.len == 0
 
 // Returns a copy of the element at `idx`, or `none` if out of bounds.
 //
 // - `idx`: Zero-based element index.
-bind Array[T].get = (self, idx: int) ?T: {
+bind Array[T].get = fn(self, idx: int) ?T: {
 	if(idx < 0 or idx >= self.len): func <- none
 	unsafe self.data[idx].copy()
 }
@@ -33,7 +33,7 @@ bind Array[T].get = (self, idx: int) ?T: {
 // Reports whether any element in the array equals `item`.
 //
 // - `item`: Value to search for using `==`.
-bind Array[T].contains = (self, item: T) bool: {
+bind Array[T].contains = fn(self, item: T) bool: {
 	let i = 0
 	for(i < self.len): {
 		unsafe {
@@ -45,7 +45,7 @@ bind Array[T].contains = (self, item: T) bool: {
 }
 
 // Formats the array as a bracketed, comma-separated string (`"[a, b, ...]"`).
-bind Array[T].to_string = (self) string: {
+bind Array[T].to_string = fn(self) string: {
 	let out = "["
 	let i = 0
 	for(i < self.len): {
@@ -68,7 +68,7 @@ define ArrayIterator[T] struct [
 ]
 
 // Advances the iterator and returns a copy of the next element, or `none` when exhausted.
-bind ArrayIterator[T].next = (&self) ?T: {
+bind ArrayIterator[T].next = fn(&self) ?T: {
 	if(self.idx >= self.len): func <- none
 	let i = self.idx
 	self.idx += 1
@@ -76,7 +76,7 @@ bind ArrayIterator[T].next = (&self) ?T: {
 }
 
 // Returns a forward [`Iterator`] over copied elements of the array.
-bind Array[T].iter = (self) Iterator[T]:
+bind Array[T].iter = fn(self) Iterator[T]:
 	ArrayIterator[T][
 		data: self.data,
 		len: self.len,
@@ -88,7 +88,7 @@ bind Array[T].iter = (self) Iterator[T]:
 // -----------------------------------------------------------------------------
 
 @test_only
-bind _array_view_sum = (av: Array[int]) int: {
+bind _array_view_sum = fn(av: Array[int]) int: {
 	assert(av.len() == 4, "Array[int] view len")
 	assert(not av.is_empty(), "Array[int] view not is_empty")
 	assert(av.get(0) == 10, "Array[int] view get(0)")
@@ -109,7 +109,7 @@ bind _array_view_sum = (av: Array[int]) int: {
 }
 
 @test("core Array[T] operations and views")
-bind test_core_array = (): {
+bind test_core_array = fn(): {
 	let fixed: Array[4, int] = [4: 10, 20, 30, 40]
 	assert(fixed.len() == 4, "fixed array len")
 	assert(not fixed.is_empty(), "fixed array not is_empty")

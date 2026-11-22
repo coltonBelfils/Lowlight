@@ -14,19 +14,19 @@ func TestRangeTypeAndIterationE2E(t *testing.T) {
 	src := `
 define Step int
 
-bind make_range = (lo: int, hi: int) Range[int]: {
+bind make_range = fn(lo: int, hi: int) Range[int]: {
     lo..hi
 }
 
-bind contains_via_iface = (c: Containable[int], x: int) bool: {
+bind contains_via_iface = fn(c: Containable[int], x: int) bool: {
     c.contains(x)
 }
 
-bind format_printable = (p: Printable) string: {
+bind format_printable = fn(p: Printable) string: {
     p.to_string()
 }
 
-bind sum_iterable = (it_obj: Iterable[int]) int: {
+bind sum_iterable = fn(it_obj: Iterable[int]) int: {
     let it = it_obj.iter()
     let total = 0
     let cur? = it.next()
@@ -37,7 +37,7 @@ bind sum_iterable = (it_obj: Iterable[int]) int: {
     total
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. Half-open and closed int ranges
     let r = 1..5
     let ri = 1..=5
@@ -152,7 +152,7 @@ define CustomBox struct [
     hi: int,
 ]
 
-bind CustomBox.contains = (self, item: int) bool: {
+bind CustomBox.contains = fn(self, item: int) bool: {
     item >= self.lo and item <= self.hi
 }
 
@@ -160,11 +160,11 @@ define ResourceBag struct [
     items: [string],
 ]
 
-bind ResourceBag.contains = (self, item: string) bool: {
+bind ResourceBag.contains = fn(self, item: string) bool: {
     self.items.contains(item)
 }
 
-bind classify_int = (n: int, rng: &Range[int], lst: &List[int], arr: &[3: int], set_col: &#[int], map_col: &#[int: string], box_iface: &Containable[int]) string: {
+bind classify_int = fn(n: int, rng: &Range[int], lst: &List[int], arr: &[3: int], set_col: &#[int], map_col: &#[int: string], box_iface: &Containable[int]) string: {
     match (n):
         when in rng: "rng_var"
         when in 1..4: "range_lit"
@@ -181,27 +181,27 @@ bind classify_int = (n: int, rng: &Range[int], lst: &List[int], arr: &[3: int], 
         default: "other"
 }
 
-bind classify_char = (ch: char) string: {
+bind classify_char = fn(ch: char) string: {
     match (ch):
         when in '0'..='9': "digit"
         when in ['a', 'e', 'i', 'o', 'u']: "vowel"
         default: "other"
 }
 
-bind classify_mixed = (n: int) string: {
+bind classify_mixed = fn(n: int) string: {
     match (n):
         when 0, in 1..=3, in [10, 20]: "hit"
         default: "miss"
 }
 
-bind classify_pair = (a: int, b: char) string: {
+bind classify_pair = fn(a: int, b: char) string: {
     match (a, b):
         when in 1..=3, in ['x', 'y']: "first"
         when (in [10, 20], 'z'), (99, in 'a'..='c'): "combo"
         default: "none"
 }
 
-bind has_containable_generic[T] = (c: Containable[T], target: T) bool: {
+bind has_containable_generic[T] = fn(c: Containable[T], target: T) bool: {
     let via_method = c.contains(target)
     let via_match = match (target):
         when in c: true
@@ -209,7 +209,7 @@ bind has_containable_generic[T] = (c: Containable[T], target: T) bool: {
     via_method and via_match
 }
 
-bind check_opt_int = (o?: ?int) string: {
+bind check_opt_int = fn(o?: ?int) string: {
     let opt_list: [?int] = [10, none]
     match (o?):
         when in [1, 2, 3]: "unwrapped_in_list"
@@ -217,7 +217,7 @@ bind check_opt_int = (o?: ?int) string: {
         default: "opt_miss"
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. All built-in & custom Containable[int] types
     let rng = 100..=105
     let lst: List[int] = [10, 11]
@@ -290,7 +290,7 @@ bind main = (): {
         default: false
     assert(arr_res, "Array[3, int] contains")
 
-    bind check_arr_view = (av: Array[int], target: int) bool: {
+    bind check_arr_view = cl(av: Array[int], target: int) bool: {
         match (target):
             when in av: true
             default: false
@@ -360,7 +360,7 @@ bind main = (): {
 
     // 7. Short-circuit side-effect verification (earlier match skips later container eval)
     let eval_hits: [int] = []
-    bind mk_list = (hits: &[int]) [int]: {
+    bind mk_list = cl(hits: &[int]) [int]: {
         hits.push(1)
         [100, 200]
     }
@@ -402,7 +402,7 @@ func TestRangeAndWhenInNegativeDiagnostics(t *testing.T) {
 		{
 			name: "float_range_rejected",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let r = 1.0..2.0
 }
 `,
@@ -411,7 +411,7 @@ bind main = (): {
 		{
 			name: "bare_range_pattern_hint",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x = 3
     let y = match (x):
         when 1..5: 1
@@ -423,7 +423,7 @@ bind main = (): {
 		{
 			name: "non_containable_int",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let y = match (1):
         when in 42: 1
         default: 0
@@ -437,7 +437,7 @@ bind main = (): {
 define NoEqRes struct [
     vals: [int],
 ]
-bind main = (): {
+bind main = fn(): {
     let probe = NoEqRes[vals: [1]]
     let list = [NoEqRes[vals: [1]]]
     let hit = match (probe):
@@ -453,8 +453,8 @@ bind main = (): {
 define BadContains struct [
     x: int,
 ]
-bind BadContains.contains = (self, item: int) string: { "nope" }
-bind main = (): {
+bind BadContains.contains = fn(self, item: int) string: { "nope" }
+bind main = fn(): {
     let b = BadContains[x: 1]
     let y = match (1):
         when in b: true
@@ -469,8 +469,8 @@ bind main = (): {
 define MutContains struct [
     x: int,
 ]
-bind MutContains.contains = (&self, item: int) bool: { true }
-bind main = (): {
+bind MutContains.contains = fn(&self, item: int) bool: { true }
+bind main = fn(): {
     let b = MutContains[x: 1]
     let y = match (1):
         when in b: true
@@ -482,7 +482,7 @@ bind main = (): {
 		{
 			name: "scrutinee_container_item_type_mismatch",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let s = "abc"
     let y = match (s):
         when in [1, 2, 3]: true
@@ -494,7 +494,7 @@ bind main = (): {
 		{
 			name: "optional_range_container_rejected",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let r?: ?Range[int] = 1..5
     let y = match (2):
         when in r?: true
@@ -506,7 +506,7 @@ bind main = (): {
 		{
 			name: "optional_list_container_rejected",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let l?: ?[int] = [1, 2]
     let y = match (2):
         when in l?: true
@@ -518,7 +518,7 @@ bind main = (): {
 		{
 			name: "when_in_zero_arg_match_rejected",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let y = match ():
         when in [1, 2]: 1
         default: 0

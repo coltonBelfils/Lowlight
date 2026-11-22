@@ -2,7 +2,7 @@
 // Category: Collections
 // Order: 31
 
-bind main = (): {
+bind main = fn(): {
 	// `#[K: V]` is a hash map. Iteration follows insertion order.
 	let stock = #["apples": 5, "pears": 2]
 	stock["plums"] = 7

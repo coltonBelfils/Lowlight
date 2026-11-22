@@ -12,7 +12,7 @@ define packed WireHeader struct [
     payload_len: u32,
 ]
 
-bind checksum_bytes = (buf: ptr[u8], count: int) u32: {
+bind checksum_bytes = fn(buf: ptr[u8], count: int) u32: {
     unsafe {
         let sum: u32 = 0
         for (i in 0..count): {
@@ -23,7 +23,7 @@ bind checksum_bytes = (buf: ptr[u8], count: int) u32: {
     }
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. Packed wire layout verification: 2 + 1 + 1 + 4 == 8 bytes exact, alignment == 1!
     assert(size_of[WireHeader]() == 8)
     assert(align_of[WireHeader]() == 1)

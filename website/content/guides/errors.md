@@ -22,12 +22,12 @@ There are no exceptions. Every failure a function can produce is in its signatur
 When "not found" is a normal answer, return `?T`. The caller can't forget to check, because a `?T` can't be used as a `T`:
 
 ```lowlight
-bind find_user = (ids: [int], id: int) ?int: {
+bind find_user = fn(ids: [int], id: int) ?int: {
 	for(i, x in ids): if(x == id): func <- i
 	none
 }
 
-bind main = (): {
+bind main = fn(): {
 	let ids = [10, 20, 30]
 	let at = find_user(ids, 20) ?? -1
 	println(at)
@@ -94,18 +94,18 @@ Most code doesn't need a custom result type. The prelude's `Result[T]` has `valu
 - a **trace** of source locations where it was created and wrapped.
 
 ```lowlight
-bind read_port = (text: string) Result[int]: {
+bind read_port = fn(text: string) Result[int]: {
 	let n = parse_int(text) ?? func <- err(Error.coded("syntax", "'$text' is not a number"))
 	value(n)
 }
 
-bind load = (text: string) Result[int]: {
+bind load = fn(text: string) Result[int]: {
 	let port = read_port(text):
 		default err(own e): func <- err(e.wrap("reading the port"))
 	value(port)
 }
 
-bind main = (): {
+bind main = fn(): {
 	let r! = load("eighty")
 	if(r!.peek_err() as e): {
 		println(e.summary())
@@ -138,7 +138,7 @@ There is deliberately no shorter operator: passing a failure on is a decision, a
 Use a precise result type next to the operation, and convert to `Result[T]` where callers no longer care about the distinctions:
 
 ```lowlight fragment
-bind fetch_text = (url: string) Result[string]: {
+bind fetch_text = fn(url: string) Result[string]: {
 	let body = fetch(url):
 		when not_found(p): func <- err(Error.coded("not_found", "no page at $p"))
 		when timed_out(s): func <- err(Error.coded("timeout", "gave up after ${s}s"))

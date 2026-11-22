@@ -32,11 +32,11 @@ func mustFormat(t *testing.T, src string, opts format.Options) string {
 }
 
 func TestSingleExpressionUnwrappingAndNextLineMultiline(t *testing.T) {
-	src := `bind add = (a: int, b: int) int: {
+	src := `bind add = fn(a: int, b: int) int: {
     a + b
 }
 
-bind classify = (x: int) string: {
+bind classify = fn(x: int) string: {
     match (x):
         when 0: {
             "zero"
@@ -46,7 +46,7 @@ bind classify = (x: int) string: {
         }
 }
 
-bind clamp = (x: int) int: {
+bind clamp = fn(x: int) int: {
     if (x < 0): {
         0
     } else if (x > 10): {
@@ -56,13 +56,13 @@ bind clamp = (x: int) int: {
     }
 }
 
-bind ptr_read = (p: ptr[int]) int: {
+bind ptr_read = fn(p: ptr[int]) int: {
     unsafe {
         *p
     }
 }
 
-bind sum_loop = (n: int) int: {
+bind sum_loop = fn(n: int) int: {
     let total = 0
     for (i in 0 .. n): {
         total += i
@@ -70,41 +70,41 @@ bind sum_loop = (n: int) int: {
     total
 }
 
-bind keep_void_semi = (x: int): {
+bind keep_void_semi = fn(x: int): {
     add(x, 1);
 }
 
-bind keep_labeled = () int: {
+bind keep_labeled = fn() int: {
     outer: {
         outer <- 5
     }
 }
 `
-	want := `bind add = (a: int, b: int) int: a + b
+	want := `bind add = fn(a: int, b: int) int: a + b
 
-bind classify = (x: int) string:
+bind classify = fn(x: int) string:
 	match(x):
 		when 0: "zero"
 		default: "nonzero"
 
-bind clamp = (x: int) int:
+bind clamp = fn(x: int) int:
 	if(x < 0): 0
 	else if(x > 10): 10
 	else: x
 
-bind ptr_read = (p: ptr[int]) int: unsafe *p
+bind ptr_read = fn(p: ptr[int]) int: unsafe *p
 
-bind sum_loop = (n: int) int: {
+bind sum_loop = fn(n: int) int: {
 	let total = 0
 	for(i in 0..n): total += i
 	total
 }
 
-bind keep_void_semi = (x: int): {
+bind keep_void_semi = fn(x: int): {
 	add(x, 1);
 }
 
-bind keep_labeled = () int: outer: {
+bind keep_labeled = fn() int: outer: {
 	outer <- 5
 }
 `
@@ -115,7 +115,7 @@ bind keep_labeled = () int: outer: {
 }
 
 func TestControlFlowAndOperatorFormatting(t *testing.T) {
-	src := `bind check = (a: int, b: int, c: int) bool: {
+	src := `bind check = fn(a: int, b: int, c: int) bool: {
     let x = (a + b) * c
     let y = a - (b - c)
     let ok = (a < b) and (b < c) or (c == 0)
@@ -173,7 +173,7 @@ bind x = 1
 }
 
 func TestConfigurableIndentAndLineWidthAndConfigFile(t *testing.T) {
-	src := `bind f = (alpha: int, beta: int, gamma: int, delta: int) int: {
+	src := `bind f = fn(alpha: int, beta: int, gamma: int, delta: int) int: {
     let xs = [alpha, beta, gamma, delta]
     xs[0] + alpha + beta
 }
@@ -212,7 +212,7 @@ func TestRawLiteralsAndCommentPreservation(t *testing.T) {
 
 bind hex = 0xFF_00
 bind bin = 0b1010
-bind greet = (name: string) string: "hi, $name ${name.len()}!"
+bind greet = fn(name: string) string: "hi, $name ${name.len()}!"
 bind raw = ` + "`" + `hello\n$world` + "`" + `
 
 /*
@@ -224,7 +224,7 @@ define Point struct [
     y: int, // Y axis.
 ]
 
-bind keep_comment_block = (x: int) int: {
+bind keep_comment_block = fn(x: int) int: {
     // Keep braces around internal comment.
     x + 1
 }
@@ -296,9 +296,9 @@ func TestFormatCompileAndRunEquivalence(t *testing.T) {
 	src := `
 define Point struct [ x: int, y: int ]
 
-bind Point.sum = (self) int: { self.x + self.y }
+bind Point.sum = fn(self) int: { self.x + self.y }
 
-bind main = () int: {
+bind main = fn() int: {
     let p = Point[ x: (1 + 2) * 3, y: 10 - (4 - 1) ]
     let acc = 0
     for (i in 0 .. 4): { acc += i }
@@ -351,7 +351,7 @@ bind main = () int: {
 }
 
 func TestCoalesceAssociativityFormatting(t *testing.T) {
-	src := `bind check = (a?: ?int, b?: ?int) int: {
+	src := `bind check = fn(a?: ?int, b?: ?int) int: {
     let r1 = a? ?? b? ?? 0
     let r2 = a? ?? (b? ?? 0)
     let l1 = (a? ?? b?) ?? 0
@@ -361,7 +361,7 @@ func TestCoalesceAssociativityFormatting(t *testing.T) {
     r1 + r2 + l1 + u1 + u2 + e1
 }
 `
-	want := `bind check = (a?: ?int, b?: ?int) int: {
+	want := `bind check = fn(a?: ?int, b?: ?int) int: {
 	let r1 = a? ?? b? ?? 0
 	let r2 = a? ?? b? ?? 0
 	let l1 = (a? ?? b?) ?? 0
@@ -378,7 +378,7 @@ func TestCoalesceAssociativityFormatting(t *testing.T) {
 }
 
 func TestNonAssociativeComparisonParensPreserved(t *testing.T) {
-	src := `bind check = (a: int, b: int, c: int, f: bool) bool: {
+	src := `bind check = fn(a: int, b: int, c: int, f: bool) bool: {
     let e1 = (a == b) == f
     let e2 = f == (a != b)
     let r1 = (a < b) <= c
@@ -387,7 +387,7 @@ func TestNonAssociativeComparisonParensPreserved(t *testing.T) {
     e1 and e2 and r1 and r2 and m1
 }
 `
-	want := `bind check = (a: int, b: int, c: int, f: bool) bool: {
+	want := `bind check = fn(a: int, b: int, c: int, f: bool) bool: {
 	let e1 = (a == b) == f
 	let e2 = f == (a != b)
 	let r1 = (a < b) <= c
@@ -407,7 +407,7 @@ func TestSingleItemMultilineOmitsTrailingComma(t *testing.T) {
     value: int,
 ]
 
-bind main = (): {
+bind main = fn(): {
     let str = ` + "`\"abc\"`" + `
     println(
         "jsoned: ${match(str.len()):
@@ -429,7 +429,7 @@ bind main = (): {
 	value: int
 ]
 
-bind main = (): {
+bind main = fn(): {
 	let str = ` + "`\"abc\"`" + `
 	println(
 		"jsoned: ${match(str.len()):
@@ -456,12 +456,12 @@ bind main = (): {
 // A single-line `if` body that overflows LineWidth stays on the header line and wraps its
 // call arguments; the second pass must not then move the (now multiline) call to its own line.
 func TestOverflowingIfBodyIsIdempotent(t *testing.T) {
-	src := `bind check = (idx: int, len: int): {
+	src := `bind check = fn(idx: int, len: int): {
 	if(idx < 0 or idx > len): panic("List.insert: index $idx out of bounds for length ${len} and some more text")
 	let ok = true
 }
 `
-	want := `bind check = (idx: int, len: int): {
+	want := `bind check = fn(idx: int, len: int): {
 	if(idx < 0 or idx > len): panic(
 		"List.insert: index $idx out of bounds for length $len and some more text"
 	)
@@ -477,7 +477,7 @@ func TestOverflowingIfBodyIsIdempotent(t *testing.T) {
 // `f([ ... ])` layout on the first pass, the same layout the second pass chooses. The trial
 // render of the argument used to start at column 0, so deep nesting flipped the decision.
 func TestOverflowingSingleCompositeArgIsIdempotent(t *testing.T) {
-	src := `bind main = (): {
+	src := `bind main = fn(): {
 	let m = #[
 		"key": [
 			Json.Object(#[
@@ -488,7 +488,7 @@ func TestOverflowingSingleCompositeArgIsIdempotent(t *testing.T) {
 	]
 }
 `
-	want := `bind main = (): {
+	want := `bind main = fn(): {
 	let m = #[
 		"key": [
 			Json.Object(#[
@@ -518,7 +518,7 @@ func TestResultDeclarationsAndChainsRoundTrip(t *testing.T) {
 	Forbidden,
 ]
 
-bind describe = (k: string) string: {
+bind describe = fn(k: string) string: {
 	let r! = find(k)
 	let s = r!:
 		when Missing(why): "missing:" + why // why it failed

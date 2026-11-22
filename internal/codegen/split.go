@@ -420,6 +420,9 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 			for _, el := range v.Elems {
 				walkExpr(el)
 			}
+		case *ir.ExprFnToClosure:
+			markType(v.To)
+			walkExpr(v.Fn)
 		case *ir.ExprConstructClosure:
 			markType(v.FuncType)
 			walkExpr(v.EnvPtr)

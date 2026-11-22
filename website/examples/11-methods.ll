@@ -9,20 +9,20 @@ define Rect struct [
 
 // Methods are declared as `Type.name`. The receiver mode says what
 // the method may do: `self` reads, `&self` modifies.
-bind Rect.area = (self) int: self.w * self.h
+bind Rect.area = fn(self) int: self.w * self.h
 
-bind Rect.scale = (&self, k: int): {
+bind Rect.scale = fn(&self, k: int): {
 	self.w *= k
 	self.h *= k
 }
 
 // Without a receiver, it is an associated function: a constructor.
-bind Rect.square = (side: int) Rect: Rect[w: side, h: side]
+bind Rect.square = fn(side: int) Rect: Rect[w: side, h: side]
 
 // Methods can be added to any type, including built-in ones.
-bind int.is_even = (self) bool: self % 2 == 0
+bind int.is_even = fn(self) bool: self % 2 == 0
 
-bind main = (): {
+bind main = fn(): {
 	let r = Rect.square(3)
 	println(r.area())
 	r.scale(2)

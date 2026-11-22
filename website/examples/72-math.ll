@@ -4,7 +4,7 @@
 
 import "std/math"
 
-bind main = (): {
+bind main = fn(): {
 	println(math.sqrt(2.0))
 	println(math.pow(2.0, 10.0))
 	println(math.floor(-1.5))

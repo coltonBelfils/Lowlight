@@ -125,7 +125,7 @@ bind STATUS_GATEWAY_TIMEOUT = 504
 bind STATUS_HTTP_VERSION_NOT_SUPPORTED = 505
 
 // Returns the standard RFC reason phrase for HTTP status `code`, or `"Unknown"` if unrecognized.
-bind status_text = (code: int) string:
+bind status_text = fn(code: int) string:
 	match(code):
 		when 100: "Continue"
 		when 101: "Switching Protocols"
@@ -201,11 +201,11 @@ define Url struct [
 ]
 
 // Returns the parsed query parameter value for `key`, or `none` if absent.
-bind Url.query_param = (self, key: string) ?string: self.query[key]
+bind Url.query_param = fn(self, key: string) ?string: self.query[key]
 
 // Returns the default port of a URL scheme: `80` for `http` and `ws`, `443` for
 // `https` and `wss`, and `0` for unknown schemes.
-bind default_port = (scheme: string) int:
+bind default_port = fn(scheme: string) int:
 	match(scheme.to_lower()):
 		when "http", "ws": 80
 		when "https", "wss": 443
@@ -215,7 +215,7 @@ bind default_port = (scheme: string) int:
 //
 // The port is omitted when it is the scheme's default, so `http://x:443/` keeps its port
 // while `https://x:443/` does not. User information, the query, and the fragment are kept.
-bind Url.to_string = (self) string: {
+bind Url.to_string = fn(self) string: {
 	let out = ""
 	if(not self.scheme.is_empty()): {
 		out.push("${self.scheme}://")
@@ -233,13 +233,13 @@ bind Url.to_string = (self) string: {
 	out
 }
 
-bind _hex_digit_val = (b: u8) ?int:
+bind _hex_digit_val = fn(b: u8) ?int:
 	if(b >= 48 and b <= 57): int(b - 48)
 	else if(b >= 97 and b <= 102): int(b - 97 + 10)
 	else if(b >= 65 and b <= 70): int(b - 65 + 10)
 	else: none
 
-bind _byte_to_hex_str = (b: u8) string: {
+bind _byte_to_hex_str = fn(b: u8) string: {
 	let digits = "0123456789ABCDEF"
 	let hi = int(b >> 4)
 	let lo = int(b & 0x0F)
@@ -249,10 +249,10 @@ bind _byte_to_hex_str = (b: u8) string: {
 	out
 }
 
-bind _is_url_unreserved = (b: u8) bool: (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or (b >= 48 and b <= 57) or b == 45 or b == 95 or b == 46 or b == 126
+bind _is_url_unreserved = fn(b: u8) bool: (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or (b >= 48 and b <= 57) or b == 45 or b == 95 or b == 46 or b == 126
 
 // Percent-encodes non-unreserved bytes in `s` (encoding spaces as `"%20"`).
-bind url_encode = (s: string) string: {
+bind url_encode = fn(s: string) string: {
 	let out = ""
 	let bytes = s.bytes()
 	for(b in bytes):
@@ -266,7 +266,7 @@ bind url_encode = (s: string) string: {
 }
 
 // Decodes `%XX` hex escape sequences and `'+'` spaces in `s`.
-bind url_decode = (s: string) string: {
+bind url_decode = fn(s: string) string: {
 	let out = ""
 	let n = s.len()
 	let i = 0
@@ -294,7 +294,7 @@ bind url_decode = (s: string) string: {
 
 // Decodes `%XX` hex escape sequences in a URL path. Unlike [`url_decode`], `'+'` is kept
 // as a literal plus sign, since only query strings use `'+'` for spaces.
-bind url_path_decode = (s: string) string: {
+bind url_path_decode = fn(s: string) string: {
 	let out = ""
 	let n = s.len()
 	let i = 0
@@ -319,7 +319,7 @@ bind url_path_decode = (s: string) string: {
 // targets such as `/path?query`. The path is percent-decoded into [`Url.path`] (keeping
 // `'+'`), query parameters are decoded with `'+'` as a space, and an omitted port takes
 // the scheme's [`default_port`].
-bind parse_url = (raw: string) Result[Url]: {
+bind parse_url = fn(raw: string) Result[Url]: {
 	// The fragment is everything after the first `#`, and is never part of the path or query.
 	let fragment = ""
 	let rest = raw.copy()
@@ -445,10 +445,10 @@ define Headers struct [
 ]
 
 // Creates an empty [`Headers`].
-bind Headers.new = () Headers: Headers[_fields: []]
+bind Headers.new = fn() Headers: Headers[_fields: []]
 
 // Reports whether two header names are equal ignoring ASCII case.
-bind header_name_eq = (a: string, b: string) bool: {
+bind header_name_eq = fn(a: string, b: string) bool: {
 	if(a.len() != b.len()): func <- false
 	for(i in 0..a.len()): {
 		let x = a.byte_at(i)
@@ -462,29 +462,29 @@ bind header_name_eq = (a: string, b: string) bool: {
 }
 
 // Returns the first value of field `name`, or `none` if it is absent.
-bind Headers.get = (self, name: string) ?string: {
+bind Headers.get = fn(self, name: string) ?string: {
 	for(f in self._fields): if(header_name_eq(f.name, name)): func <- f.value.copy()
 	none
 }
 
 // Returns every value of field `name`, in the order they appear.
-bind Headers.values = (self, name: string) [string]: for(f in self._fields) [string]: {
+bind Headers.values = fn(self, name: string) [string]: for(f in self._fields) [string]: {
 	if(not header_name_eq(f.name, name)): next <-
 	f.value.copy()
 }
 
 // Reports whether field `name` is present.
-bind Headers.has = (self, name: string) bool: {
+bind Headers.has = fn(self, name: string) bool: {
 	for(f in self._fields): if(header_name_eq(f.name, name)): func <- true
 	false
 }
 
 // Appends a field, keeping any existing fields with the same name.
-bind Headers.add = (&self, name: string, value: string): self._fields.push(HeaderField[name: name.copy(), value: value.copy()])
+bind Headers.add = fn(&self, name: string, value: string): self._fields.push(HeaderField[name: name.copy(), value: value.copy()])
 
 // Sets field `name` to the single value `value`: the first existing field with that name is
 // updated in place and later ones are removed, or the field is appended if absent.
-bind Headers.set = (&self, name: string, value: string): {
+bind Headers.set = fn(&self, name: string, value: string): {
 	let kept: [HeaderField] = []
 	let done = false
 	for(f in self._fields): {
@@ -499,7 +499,7 @@ bind Headers.set = (&self, name: string, value: string): {
 }
 
 // Removes every field named `name` and returns how many were removed.
-bind Headers.remove = (&self, name: string) int: {
+bind Headers.remove = fn(&self, name: string) int: {
 	let kept = for(f in self._fields) [HeaderField]: {
 		if(header_name_eq(f.name, name)): next <-
 		f.copy()
@@ -510,16 +510,16 @@ bind Headers.remove = (&self, name: string) int: {
 }
 
 // Returns the number of fields, counting repeated names separately.
-bind Headers.len = (self) int: self._fields.len()
+bind Headers.len = fn(self) int: self._fields.len()
 
 // Reports whether there are no fields.
-bind Headers.is_empty = (self) bool: self._fields.is_empty()
+bind Headers.is_empty = fn(self) bool: self._fields.is_empty()
 
 // Returns a copy of every field, in order.
-bind Headers.fields = (self) [HeaderField]: self._fields.copy()
+bind Headers.fields = fn(self) [HeaderField]: self._fields.copy()
 
 // Reports whether `name` is a valid field name: a non-empty RFC 9110 token.
-bind _is_token = (name: string) bool: {
+bind _is_token = fn(name: string) bool: {
 	if(name.is_empty()): func <- false
 	for(i in 0..name.len()): {
 		let b = name.byte_at(i)
@@ -529,7 +529,7 @@ bind _is_token = (name: string) bool: {
 	true
 }
 
-bind string_from_byte = (b: u8) string: {
+bind string_from_byte = fn(b: u8) string: {
 	let s = ""
 	s.push_byte(b)
 	s
@@ -540,7 +540,7 @@ bind string_from_byte = (b: u8) string: {
 // Rejects field names that are not tokens, including names with whitespace before the colon,
 // which RFC 9112 forbids. A line starting with a space or tab continues the previous value
 // (obsolete line folding) and is joined with a single space.
-bind _parse_header_lines = (lines: [string], start: int) Result[Headers]: {
+bind _parse_header_lines = fn(lines: [string], start: int) Result[Headers]: {
 	let h = Headers.new()
 	for(i, raw in lines): {
 		if(i < start): next <-
@@ -563,7 +563,7 @@ bind _parse_header_lines = (lines: [string], start: int) Result[Headers]: {
 
 // Writes header fields as `Name: value` lines, removing CR, LF, and NUL bytes so values
 // cannot inject extra lines.
-bind _append_header_fields = (out: &string, headers: Headers):
+bind _append_header_fields = fn(out: &string, headers: Headers):
 	for(f in headers._fields): {
 		let name = _strip_crlf(f.name)
 		if(name.is_empty()): next <-
@@ -596,7 +596,7 @@ define Request struct [
 ]
 
 // Constructs a [`Request`] for `method`, `raw_url`, and optional `body`, setting `host` and `content-length` headers.
-bind Request.new = (method: string, raw_url: string, body: string) Request: {
+bind Request.new = fn(method: string, raw_url: string, body: string) Request: {
 	let url_res! = parse_url(raw_url)
 	let u = if(url_res!.is_ok()): url_res!.unwrap()
 	else: Url[
@@ -627,21 +627,21 @@ bind Request.new = (method: string, raw_url: string, body: string) Request: {
 }
 
 // Returns the first value of header `name` (compared case-insensitively), or `none`.
-bind Request.header = (self, name: string) ?string: self.headers.get(name)
+bind Request.header = fn(self, name: string) ?string: self.headers.get(name)
 
 // Returns every value of header `name`, in order.
-bind Request.header_values = (self, name: string) [string]: self.headers.values(name)
+bind Request.header_values = fn(self, name: string) [string]: self.headers.values(name)
 
 // Sets header `name` to a single `value`, replacing any existing values.
-bind Request.set_header = (&self, name: string, value: string): self.headers.set(name, value)
+bind Request.set_header = fn(&self, name: string, value: string): self.headers.set(name, value)
 
 // Adds a value for header `name`, keeping existing values.
-bind Request.add_header = (&self, name: string, value: string): self.headers.add(name, value)
+bind Request.add_header = fn(&self, name: string, value: string): self.headers.add(name, value)
 
 // Returns the URL query parameter value for `name`, or `none` if absent.
-bind Request.query_param = (self, name: string) ?string: self.query[name]
+bind Request.query_param = fn(self, name: string) ?string: self.query[name]
 
-bind _strip_crlf = (s: string) string: {
+bind _strip_crlf = fn(s: string) string: {
 	let has_bad = false
 	for(b in s.bytes()):
 		if(b == 13 or b == 10 or b == 0): {
@@ -656,7 +656,7 @@ bind _strip_crlf = (s: string) string: {
 
 // Percent-encodes a decoded path for a request line: unreserved characters, `/`, and the
 // RFC 3986 sub-delimiters, `:`, and `@` stay as they are.
-bind _escape_path = (path: string) string: {
+bind _escape_path = fn(path: string) string: {
 	let out = ""
 	for(b in path.bytes()): {
 		let keep = _is_url_unreserved(b) or "/!\$&'()*+,;=:@".contains(string_from_byte(b))
@@ -670,7 +670,7 @@ bind _escape_path = (path: string) string: {
 }
 
 // Serializes the request into HTTP/1.1 wire bytes (request line, CRLF headers, and body).
-bind Request.format = (self) string: {
+bind Request.format = fn(self) string: {
 	let out = ""
 	let m = _strip_crlf(if(self.method.is_empty()): "GET" else: self.method.copy())
 	let target = _strip_crlf(if(self.path.is_empty()): "/" else: _escape_path(self.path))
@@ -695,7 +695,7 @@ bind Request.format = (self) string: {
 }
 
 // Parses raw HTTP/1.1 wire bytes into a [`Request`], returning [`Result.err`] if the request line or framing is malformed.
-bind Request.parse = (raw: string) Result[Request]: {
+bind Request.parse = fn(raw: string) Result[Request]: {
 	let header_end? = raw.index_of("\r\n\r\n")
 	let sep_len = 4
 	let header_end = 0
@@ -773,7 +773,7 @@ define Response struct [
 ]
 
 // Constructs a `"200"`/status-text HTTP/1.1 [`Response`] with `body` and default `"text/plain; charset=utf-8"` content type.
-bind Response.new = (status_code: int, body: string) Response: {
+bind Response.new = fn(status_code: int, body: string) Response: {
 	let hdrs = Headers.new()
 	hdrs.set("Content-Length", "${body.len()}")
 	hdrs.set("Content-Type", "text/plain; charset=utf-8")
@@ -788,25 +788,25 @@ bind Response.new = (status_code: int, body: string) Response: {
 }
 
 // Returns the first value of header `name` (compared case-insensitively), or `none`.
-bind Response.header = (self, name: string) ?string: self.headers.get(name)
+bind Response.header = fn(self, name: string) ?string: self.headers.get(name)
 
 // Returns every value of header `name`, in order (for example, every `Set-Cookie`).
-bind Response.header_values = (self, name: string) [string]: self.headers.values(name)
+bind Response.header_values = fn(self, name: string) [string]: self.headers.values(name)
 
 // Sets header `name` to a single `value`, replacing any existing values.
-bind Response.set_header = (&self, name: string, value: string): self.headers.set(name, value)
+bind Response.set_header = fn(&self, name: string, value: string): self.headers.set(name, value)
 
 // Adds a value for header `name`, keeping existing values.
-bind Response.add_header = (&self, name: string, value: string): self.headers.add(name, value)
+bind Response.add_header = fn(&self, name: string, value: string): self.headers.add(name, value)
 
 // Reports whether `status_code` is in the 2xx success range (`200..300`).
-bind Response.is_success = (self) bool: self.status_code >= 200 and self.status_code < 300
+bind Response.is_success = fn(self) bool: self.status_code >= 200 and self.status_code < 300
 
 // Returns a copy of the response body string.
-bind Response.text = (self) string: self.body.copy()
+bind Response.text = fn(self) string: self.body.copy()
 
 // Serializes this [`Response`] into HTTP/1.1 wire bytes (status line, headers, and body).
-bind Response.format = (self) string: {
+bind Response.format = fn(self) string: {
 	let out = ""
 	let pr = _strip_crlf(if(self.proto.is_empty()): "HTTP/1.1" else: self.proto.copy())
 	let code = if(self.status_code <= 0): 200 else: self.status_code
@@ -821,7 +821,7 @@ bind Response.format = (self) string: {
 // Parses raw HTTP/1.1 wire bytes into a [`Response`], failing if headers or status line are malformed.
 //
 // A `Transfer-Encoding: chunked` body is decoded, and its trailer fields are added to the headers.
-bind Response.parse = (raw: string) Result[Response]: {
+bind Response.parse = fn(raw: string) Result[Response]: {
 	let header_end? = raw.index_of("\r\n\r\n")
 	let sep_len = 4
 	let header_end = 0
@@ -900,7 +900,7 @@ define ResponseWriter struct [
 ]
 
 // Creates a blank [`ResponseWriter`] initialized to `200 OK` with empty headers and body.
-bind ResponseWriter.new = () ResponseWriter: ResponseWriter[
+bind ResponseWriter.new = fn() ResponseWriter: ResponseWriter[
 	status_code: 200,
 	headers: Headers.new(),
 	body: "",
@@ -912,24 +912,24 @@ bind ResponseWriter.new = () ResponseWriter: ResponseWriter[
 // Subsequent calls after headers have been committed (either directly via
 // [`ResponseWriter.write_header`] or implicitly via [`ResponseWriter.write`])
 // have no effect.
-bind ResponseWriter.write_header = (&self, code: int):
+bind ResponseWriter.write_header = fn(&self, code: int):
 	if(not self._header_written): {
 		self.status_code = code
 		self._header_written = true
 	}
 
 // Sets response header `key` to a single value `val`, replacing any existing values.
-bind ResponseWriter.set_header = (&self, key: string, val: string): self.headers.set(key, val)
+bind ResponseWriter.set_header = fn(&self, key: string, val: string): self.headers.set(key, val)
 
 // Adds a value for response header `key`, keeping existing values (for example, several
 // `Set-Cookie` fields).
-bind ResponseWriter.add_header = (&self, key: string, val: string): self.headers.add(key, val)
+bind ResponseWriter.add_header = fn(&self, key: string, val: string): self.headers.add(key, val)
 
 // Returns the first value of response header `key` (compared case-insensitively), or `none`.
-bind ResponseWriter.header = (self, key: string) ?string: self.headers.get(key)
+bind ResponseWriter.header = fn(self, key: string) ?string: self.headers.get(key)
 
 // Appends `text` to the response body, committing status `200` if no status was set yet.
-bind ResponseWriter.write = (&self, text: string): {
+bind ResponseWriter.write = fn(&self, text: string): {
 	if(not self._header_written): self.write_header(200)
 	self.body.push(text)
 }
@@ -938,7 +938,7 @@ bind ResponseWriter.write = (&self, text: string): {
 //
 // If `content-type` is unset and the body is non-empty, it defaults to
 // `"text/plain; charset=utf-8"`. Status codes `<= 0` default to `200`.
-bind ResponseWriter.finish = (self) Response: {
+bind ResponseWriter.finish = fn(self) Response: {
 	let hdrs = self.headers.copy()
 	if(not hdrs.has("content-length")): hdrs.set("Content-Length", "${self.body.len()}")
 	if(not hdrs.has("content-type") and not self.body.is_empty()): hdrs.set("Content-Type", "text/plain; charset=utf-8")
@@ -959,10 +959,10 @@ bind ResponseWriter.finish = (self) Response: {
 define _Route struct [
 	pattern: string,
 	is_prefix: bool,
-	handler: (Request, &ResponseWriter),
+	handler: cl(Request, &ResponseWriter),
 ]
 
-bind _Route.copy = (self) _Route: _Route[
+bind _Route.copy = fn(self) _Route: _Route[
 	pattern: self.pattern.copy(),
 	is_prefix: self.is_prefix,
 	handler: self.handler.copy(),
@@ -978,10 +978,10 @@ define ServeMux struct [
 ]
 
 // Creates an empty [`ServeMux`] with no registered routes.
-bind ServeMux.new = () ServeMux: ServeMux[_routes: []]
+bind ServeMux.new = fn() ServeMux: ServeMux[_routes: []]
 
 // Returns a deep copy of this [`ServeMux`] and all registered route handlers.
-bind ServeMux.copy = (self) ServeMux: {
+bind ServeMux.copy = fn(self) ServeMux: {
 	let copied: [_Route] = []
 	for(r in self._routes): copied.push(r.copy())
 	ServeMux[_routes: own copied]
@@ -993,7 +993,7 @@ bind ServeMux.copy = (self) ServeMux: {
 //   any other path requires an exact match against `req.path`.
 // - `handler`: Callback invoked with the incoming [`Request`] and a mutable
 //   [`ResponseWriter`].
-bind ServeMux.handle_func = (&self, pattern: string, handler: (Request, &ResponseWriter)): {
+bind ServeMux.handle_func = fn(&self, pattern: string, handler: cl(Request, &ResponseWriter)): {
 	let is_prefix = pattern.ends_with("/")
 	self._routes.push(_Route[
 		pattern: pattern.copy(),
@@ -1003,7 +1003,7 @@ bind ServeMux.handle_func = (&self, pattern: string, handler: (Request, &Respons
 }
 
 // Dispatches `req` to the matching handler or writes a `404` fallback into `res`.
-bind ServeMux.serve_http = (self, req: Request, res: &ResponseWriter): {
+bind ServeMux.serve_http = fn(self, req: Request, res: &ResponseWriter): {
 	// 1. Check exact match
 	for(r in self._routes):
 		if(not r.is_prefix and r.pattern == req.path): {
@@ -1055,14 +1055,14 @@ define _MessageReader struct [
 	eof: bool,
 ]
 
-bind _MessageReader.plain = (fd: int) _MessageReader:
+bind _MessageReader.plain = fn(fd: int) _MessageReader:
 	_MessageReader[fd: fd, tls: unsafe null_ptr[u8](), buf: "", eof: false]
 
-bind _MessageReader.over_tls = (session: ptr[u8]) _MessageReader:
+bind _MessageReader.over_tls = fn(session: ptr[u8]) _MessageReader:
 	_MessageReader[fd: -1, tls: session, buf: "", eof: false]
 
 // Reads more bytes into `buf`, returning how many arrived (`0` at end of stream).
-bind _MessageReader.fill = (&self, timeout_ms: int) Result[int]: {
+bind _MessageReader.fill = fn(&self, timeout_ms: int) Result[int]: {
 	if(self.eof): func <- value(0)
 	let chunk_size = 8192
 	let n = unsafe {
@@ -1080,7 +1080,7 @@ bind _MessageReader.fill = (&self, timeout_ms: int) Result[int]: {
 }
 
 // Reports whether a `Transfer-Encoding` value ends with the `chunked` coding.
-bind _is_chunked = (te: string) bool: {
+bind _is_chunked = fn(te: string) bool: {
 	let codings = te.split(",")
 	if(codings.is_empty()): func <- false
 	codings[codings.len() - 1].trim().to_lower() == "chunked"
@@ -1095,13 +1095,13 @@ define _ChunkScan result [
 ]
 
 // Returns the index of the next `\n` at or after `from`, or `none`.
-bind _line_end = (data: string, from: int) ?int: {
+bind _line_end = fn(data: string, from: int) ?int: {
 	for(i in from..data.len()): if(data.byte_at(i) == 10): func <- i
 	none
 }
 
 // Decodes a chunked body that starts at the beginning of `data`.
-bind _scan_chunked = (data: string) _ChunkScan: {
+bind _scan_chunked = fn(data: string) _ChunkScan: {
 	let body = ""
 	let pos = 0
 	while(true): {
@@ -1136,7 +1136,7 @@ bind _scan_chunked = (data: string) _ChunkScan: {
 }
 
 // Returns the status code from a response status line, or `0`.
-bind _status_of = (status_line: string) int: {
+bind _status_of = fn(status_line: string) int: {
 	let parts = status_line.trim().split(" ")
 	if(parts.len() < 2): func <- 0
 	parse_int(parts[1]) ?? 0
@@ -1151,7 +1151,7 @@ bind _status_of = (status_line: string) int: {
 // # Errors
 // A `"eof"` error when the stream ends before a message starts, `"timeout"` when no data
 // arrives in time, and `"malformed"` for invalid framing.
-bind _MessageReader.read_message = (&self, request_method: string, timeout_ms: int) Result[string]: {
+bind _MessageReader.read_message = fn(&self, request_method: string, timeout_ms: int) Result[string]: {
 	// Skip blank lines that may precede a request line.
 	while(self.buf.starts_with("\r\n") or self.buf.starts_with("\n")):
 		self.buf = if(self.buf.starts_with("\r\n")): self.buf[2..].copy() else: self.buf[1..].copy()
@@ -1243,7 +1243,7 @@ bind _MessageReader.read_message = (&self, request_method: string, timeout_ms: i
 }
 
 // Reads one HTTP message from `fd` (compatibility wrapper around [`_MessageReader`]).
-bind _read_http_message = (fd: int, timeout_ms: int) Result[string]: {
+bind _read_http_message = fn(fd: int, timeout_ms: int) Result[string]: {
 	let r = _MessageReader.plain(fd)
 	r.read_message("", timeout_ms)
 }
@@ -1253,7 +1253,7 @@ define _TlsSession struct [
 	_raw: ptr[u8]
 ]
 
-bind _TlsSession.drop = (&self):
+bind _TlsSession.drop = fn(&self):
 	unsafe {
 		if(self._raw != null_ptr[u8]()): {
 			sys_tls_close(self._raw)
@@ -1261,7 +1261,7 @@ bind _TlsSession.drop = (&self):
 		}
 	}
 
-bind _TlsSession.close = (&self):
+bind _TlsSession.close = fn(&self):
 	unsafe {
 		if(self._raw != null_ptr[u8]()): {
 			sys_tls_close(self._raw)
@@ -1269,7 +1269,7 @@ bind _TlsSession.close = (&self):
 		}
 	}
 
-bind _TlsSession.send = (&self, data: string) Result[int]: {
+bind _TlsSession.send = fn(&self, data: string) Result[int]: {
 	let is_null = unsafe (self._raw == null_ptr[u8]())
 	if(is_null): func <- err(Error.new("send on closed TLS session"))
 	let res = unsafe sys_tls_send_all(self._raw, data.c_str(), data.len())
@@ -1291,7 +1291,7 @@ define Client struct [
 ]
 
 // Creates a [`Client`] with a `15000` ms timeout, no default headers, and up to 10 redirects.
-bind Client.new = () Client: Client[
+bind Client.new = fn() Client: Client[
 	timeout_ms: 15000,
 	headers: Headers.new(),
 	max_redirects: 10,
@@ -1311,11 +1311,11 @@ bind Client.new = () Client: Client[
 // initialization or handshake fails for HTTPS requests (which dynamically requires OpenSSL `libssl`),
 // sending/receiving fails, the server response is malformed, or more than `max_redirects`
 // redirects occur (code `"too_many_redirects"`).
-bind Client.do = (self, req: Request) Result[Response]: self.do_with(req, _client_round_trip)
+bind Client.do = fn(self, req: Request) Result[Response]: self.do_with(req, _client_round_trip)
 
 // Like [`Client.do`], but sends each request (the original and every redirect) through
 // `transport` instead of the network. Tests use it to exercise redirect handling.
-bind Client.do_with = (self, req: Request, transport: (Client, Request) Result[Response]) Result[Response]: {
+bind Client.do_with = fn(self, req: Request, transport: cl(Client, Request) Result[Response]) Result[Response]: {
 	let cur = req.copy()
 	let hops = 0
 	while(true): {
@@ -1348,12 +1348,12 @@ bind Client.do_with = (self, req: Request, transport: (Client, Request) Result[R
 }
 
 // Reports whether `code` is a redirect that [`Client.do`] follows.
-bind is_redirect = (code: int) bool: code == 301 or code == 302 or code == 303 or code == 307 or code == 308
+bind is_redirect = fn(code: int) bool: code == 301 or code == 302 or code == 303 or code == 307 or code == 308
 
 // Resolves a `Location` value (or any URL reference) against `base`, as RFC 3986 §5.2 describes:
 // absolute URLs are returned unchanged, and `//host/path`, `/path`, `?query`, and relative
 // paths are combined with the base's scheme, host, and directory.
-bind resolve_reference = (base: Url, reference: string) string: {
+bind resolve_reference = fn(base: Url, reference: string) string: {
 	if(reference.index_of("://") as i): if(not reference[..i].contains("/")): func <- reference.copy()
 	let origin = if(base.scheme.is_empty()): "" else: "${base.scheme}://${base.host}"
 	if(reference.starts_with("//")): func <- (if(base.scheme.is_empty()): "http" else: base.scheme.copy()) + ":" + reference
@@ -1365,7 +1365,7 @@ bind resolve_reference = (base: Url, reference: string) string: {
 	origin + _remove_dot_segments(dir + reference)
 }
 
-bind _last_slash = (s: string) int: {
+bind _last_slash = fn(s: string) int: {
 	let at = -1
 	for(i in 0..s.len()): if(s.byte_at(i) == 47): at = i
 	at
@@ -1373,7 +1373,7 @@ bind _last_slash = (s: string) int: {
 
 // Removes `.` and `..` segments from an absolute path (RFC 3986 §5.2.4), leaving any query or
 // fragment untouched.
-bind _remove_dot_segments = (path: string) string: {
+bind _remove_dot_segments = fn(path: string) string: {
 	let cut = path.len()
 	for(i in 0..path.len()): {
 		let b = path.byte_at(i)
@@ -1401,7 +1401,7 @@ bind _remove_dot_segments = (path: string) string: {
 }
 
 // Sends one request over the network without following redirects.
-bind _client_round_trip = (client: Client, req: Request) Result[Response]: {
+bind _client_round_trip = fn(client: Client, req: Request) Result[Response]: {
 	let url_res! = parse_url(req.url)
 	if(url_res!.is_err()): func <- err(
 		url_res!.unwrap_err().wrap("invalid request URL: ${req.url}")
@@ -1467,17 +1467,17 @@ bind _client_round_trip = (client: Client, req: Request) Result[Response]: {
 		Response.parse(raw_resp).wrap_err("failed to parse HTTP response")
 	}
 }
-bind Client._send_method = (self, method: string, url: string, content_type?: ?string, body: string) Result[Response]: {
+bind Client._send_method = fn(self, method: string, url: string, content_type?: ?string, body: string) Result[Response]: {
 	let req = Request.new(method, url, body)
 	if(content_type? as ct): req.set_header("Content-Type", ct)
 	self.do(req)
 }
 
 // Sends an HTTP `GET` request to `url` using this client's configuration.
-bind Client.get = (self, url: string) Result[Response]: self._send_method("GET", url, none, "")
+bind Client.get = fn(self, url: string) Result[Response]: self._send_method("GET", url, none, "")
 
 // Sends an HTTP `POST` request with `content_type` and `body` to `url`.
-bind Client.post = (self, url: string, content_type: string, body: string) Result[Response]: self._send_method(
+bind Client.post = fn(self, url: string, content_type: string, body: string) Result[Response]: self._send_method(
 	"POST",
 	url,
 	content_type,
@@ -1485,7 +1485,7 @@ bind Client.post = (self, url: string, content_type: string, body: string) Resul
 )
 
 // Sends an HTTP `PUT` request with `content_type` and `body` to `url`.
-bind Client.put = (self, url: string, content_type: string, body: string) Result[Response]: self._send_method(
+bind Client.put = fn(self, url: string, content_type: string, body: string) Result[Response]: self._send_method(
 	"PUT",
 	url,
 	content_type,
@@ -1493,7 +1493,7 @@ bind Client.put = (self, url: string, content_type: string, body: string) Result
 )
 
 // Sends an HTTP `PATCH` request with `content_type` and `body` to `url`.
-bind Client.patch = (self, url: string, content_type: string, body: string) Result[Response]: self._send_method(
+bind Client.patch = fn(self, url: string, content_type: string, body: string) Result[Response]: self._send_method(
 	"PATCH",
 	url,
 	content_type,
@@ -1501,7 +1501,7 @@ bind Client.patch = (self, url: string, content_type: string, body: string) Resu
 )
 
 // Sends an HTTP `DELETE` request to `url` using this client's configuration.
-bind Client.delete = (self, url: string) Result[Response]: self._send_method(
+bind Client.delete = fn(self, url: string) Result[Response]: self._send_method(
 	"DELETE",
 	url,
 	none,
@@ -1509,31 +1509,31 @@ bind Client.delete = (self, url: string) Result[Response]: self._send_method(
 )
 
 // Sends a one-off HTTP `GET` request to `url` with default [`Client`] settings.
-bind get = (url: string) Result[Response]: {
+bind get = fn(url: string) Result[Response]: {
 	let c = Client.new()
 	c.get(url)
 }
 
 // Sends a one-off HTTP `POST` request with `content_type` and `body` to `url`.
-bind post = (url: string, content_type: string, body: string) Result[Response]: {
+bind post = fn(url: string, content_type: string, body: string) Result[Response]: {
 	let c = Client.new()
 	c.post(url, content_type, body)
 }
 
 // Sends a one-off HTTP `PUT` request with `content_type` and `body` to `url`.
-bind put = (url: string, content_type: string, body: string) Result[Response]: {
+bind put = fn(url: string, content_type: string, body: string) Result[Response]: {
 	let c = Client.new()
 	c.put(url, content_type, body)
 }
 
 // Sends a one-off HTTP `PATCH` request with `content_type` and `body` to `url`.
-bind patch = (url: string, content_type: string, body: string) Result[Response]: {
+bind patch = fn(url: string, content_type: string, body: string) Result[Response]: {
 	let c = Client.new()
 	c.patch(url, content_type, body)
 }
 
 // Sends a one-off HTTP `DELETE` request to `url` with default [`Client`] settings.
-bind delete = (url: string) Result[Response]: {
+bind delete = fn(url: string) Result[Response]: {
 	let c = Client.new()
 	c.delete(url)
 }
@@ -1560,7 +1560,7 @@ define Server struct [
 ]
 
 // Creates a [`Server`] configured to listen on `addr` with `10000` ms read/write timeouts.
-bind Server.new = (addr: string) Server: Server[
+bind Server.new = fn(addr: string) Server: Server[
 	addr: addr.copy(),
 	port: 0,
 	listener_fd: -1,
@@ -1569,10 +1569,10 @@ bind Server.new = (addr: string) Server: Server[
 ]
 
 // Closes the underlying listener socket when the [`Server`] goes out of scope.
-bind Server.drop = (&self): self.close()
+bind Server.drop = fn(&self): self.close()
 
 // Closes the listener socket if currently open and resets `listener_fd` to `-1`.
-bind Server.close = (&self):
+bind Server.close = fn(&self):
 	if(self.listener_fd >= 0): {
 		unsafe sys_net_close(self.listener_fd)
 		self.listener_fd = -1
@@ -1586,7 +1586,7 @@ bind Server.close = (&self):
 //
 // # Errors
 // Returns [`Result.err`] if binding or listening on the address fails.
-bind Server.listen = (&self) Result[int]: {
+bind Server.listen = fn(&self) Result[int]: {
 	let host = "0.0.0.0"
 	let port = 8080
 
@@ -1619,7 +1619,7 @@ bind Server.listen = (&self) Result[int]: {
 }
 
 // Formats the remote address of a connected socket, or returns an empty string when unknown.
-bind _peer_addr = (fd: int) string: net.peer_addr_of(fd) ?? ""
+bind _peer_addr = fn(fd: int) string: net.peer_addr_of(fd) ?? ""
 
 // Serves the HTTP requests on connection `conn_fd`, then closes it.
 //
@@ -1629,7 +1629,7 @@ bind _peer_addr = (fd: int) string: net.peer_addr_of(fd) ?? ""
 // `400 Bad Request`. The handler sees the client's address in [`Request.remote_addr`].
 //
 // Returns `true` if at least one request was handled.
-bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWriter)) bool: {
+bind Server.serve_conn = fn(&self, conn_fd: int, handler: cl(Request, &ResponseWriter)) bool: {
 	let reader = _MessageReader.plain(conn_fd)
 	let remote = _peer_addr(conn_fd)
 	let served = false
@@ -1673,7 +1673,7 @@ bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWrite
 // # Errors
 // Returns a coded `"timeout"` [`Error`] when `timeout_ms` expires before a client connects,
 // or an error if listening or accepting fails.
-bind Server.serve_one = (&self, handler: (Request, &ResponseWriter), timeout_ms: int) Result[bool]: {
+bind Server.serve_one = fn(&self, handler: cl(Request, &ResponseWriter), timeout_ms: int) Result[bool]: {
 	if(self.listener_fd < 0): {
 		let lr! = self.listen()
 		if(lr!.is_err()): func <- err(lr!.unwrap_err().wrap("listen failed"))
@@ -1698,7 +1698,7 @@ bind Server.serve_one = (&self, handler: (Request, &ResponseWriter), timeout_ms:
 //
 // # Errors
 // Returns an error if listening fails, or a `"closed"` error if the listener is closed.
-bind Server.serve = (&self, handler: (Request, &ResponseWriter), max_requests: int) Result[int]: {
+bind Server.serve = fn(&self, handler: cl(Request, &ResponseWriter), max_requests: int) Result[int]: {
 	if(self.listener_fd < 0): {
 		let lr! = self.listen()
 		if(lr!.is_err()): func <- err(lr!.unwrap_err().wrap("listen failed"))
@@ -1721,22 +1721,22 @@ bind Server.serve = (&self, handler: (Request, &ResponseWriter), max_requests: i
 
 // Returns the next accept-retry delay in milliseconds: 5 ms after the first failure, then
 // doubling, capped at 1 s.
-bind _next_accept_backoff = (prev_ms: int) int:
+bind _next_accept_backoff = fn(prev_ms: int) int:
 	if(prev_ms <= 0): 5 else: min(prev_ms * 2, 1000)
 
 // Starts a [`Server`] bound to `addr` and serves requests indefinitely using `handler`.
-bind listen_and_serve = (addr: string, handler: (Request, &ResponseWriter)) Result[bool]: {
+bind listen_and_serve = fn(addr: string, handler: cl(Request, &ResponseWriter)) Result[bool]: {
 	let s = Server.new(addr)
 	let res! = s.serve(handler, 0)
 	if(res!.is_ok()): value(true) else: err(res!.unwrap_err().wrap("server error"))
 }
 
 // Starts a [`Server`] bound to `addr` and dispatches requests through `mux`.
-bind listen_and_serve_mux = (addr: string, mux: ServeMux) Result[bool]: {
+bind listen_and_serve_mux = fn(addr: string, mux: ServeMux) Result[bool]: {
 	let mux_copy = mux.copy()
 	listen_and_serve(
 		addr,
-		(req: Request, res: &ResponseWriter): mux_copy.serve_http(req, &res),
+		cl(req: Request, res: &ResponseWriter): mux_copy.serve_http(req, &res),
 	)
 }
 
@@ -1751,13 +1751,13 @@ define ResponseRecorder struct [
 ]
 
 // Creates a fresh [`ResponseRecorder`].
-bind ResponseRecorder.new = () ResponseRecorder: ResponseRecorder[writer: ResponseWriter.new()]
+bind ResponseRecorder.new = fn() ResponseRecorder: ResponseRecorder[writer: ResponseWriter.new()]
 
 // Returns the recorded HTTP response by finalizing [`ResponseRecorder.writer`].
-bind ResponseRecorder.result = (self) Response: self.writer.finish()
+bind ResponseRecorder.result = fn(self) Response: self.writer.finish()
 
 // Executes `handler` directly against `req` in memory and returns the resulting [`Response`].
-bind test_handler = (handler: (Request, &ResponseWriter), req: Request) Response: {
+bind test_handler = fn(handler: cl(Request, &ResponseWriter), req: Request) Response: {
 	let rw = ResponseWriter.new()
 	handler(req, &rw)
 	rw.finish()
@@ -1767,7 +1767,7 @@ bind test_handler = (handler: (Request, &ResponseWriter), req: Request) Response
 //
 // Serializes `req` with [`Request.format`], reads and parses it on the server end, invokes
 // `handler`, serializes the reply, and parses the client-side [`Response`].
-bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request) Result[Response]: {
+bind test_roundtrip = fn(handler: cl(Request, &ResponseWriter), req: Request) Result[Response]: {
 	let pair_res! = net.socketpair()
 	if(pair_res!.is_err()): func <- err(pair_res!.unwrap_err().wrap("socketpair failed"))
 	let pair = pair_res!.unwrap()
@@ -1813,7 +1813,7 @@ bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request) Result
 // -----------------------------------------------------------------------------
 
 @test("http status codes and standard RFC status text")
-bind test_http_status_codes_and_texts = (): {
+bind test_http_status_codes_and_texts = fn(): {
 	assert(status_text(STATUS_OK) == "OK", "200 is OK")
 	assert(status_text(STATUS_CREATED) == "Created", "201 is Created")
 	assert(status_text(STATUS_BAD_REQUEST) == "Bad Request", "400 is Bad Request")
@@ -1825,7 +1825,7 @@ bind test_http_status_codes_and_texts = (): {
 }
 
 @test("http URL parsing: scheme, hostname, port, path, query parameters")
-bind test_http_url_parsing = (): {
+bind test_http_url_parsing = fn(): {
 	let u_res! = parse_url("http://api.example.com:8080/v1/users?page=2&limit=50")
 	assert(u_res!.is_ok(), "parse_url succeeds")
 	let u = u_res!.unwrap()
@@ -1844,7 +1844,7 @@ bind test_http_url_parsing = (): {
 }
 
 @test("http Request and Response serialization and wire parsing")
-bind test_http_request_response_wire = (): {
+bind test_http_request_response_wire = fn(): {
 	let req = Request.new("POST", "/submit", "sample payload")
 	let wire = req.format()
 
@@ -1867,18 +1867,18 @@ bind test_http_request_response_wire = (): {
 }
 
 @test("http ServeMux routing and ResponseRecorder in-memory handling")
-bind test_http_serve_mux_and_handler = (): {
+bind test_http_serve_mux_and_handler = fn(): {
 	let mux = ServeMux.new()
 	mux.handle_func(
 		"/hello",
-		(req: Request, rw: &ResponseWriter): {
+		fn(req: Request, rw: &ResponseWriter): {
 			rw.write_header(STATUS_OK)
 			rw.write("hello from mux")
 		},
 	)
 	mux.handle_func(
 		"/greet",
-		(req: Request, rw: &ResponseWriter): {
+		fn(req: Request, rw: &ResponseWriter): {
 			rw.write_header(STATUS_CREATED)
 			rw.write("greetings")
 		},
@@ -1906,8 +1906,8 @@ bind test_http_serve_mux_and_handler = (): {
 }
 
 @test("http client-server roundtrip over socketpair")
-bind test_http_socketpair_roundtrip = (): {
-	let handler = (req: Request, rw: &ResponseWriter): {
+bind test_http_socketpair_roundtrip = fn(): {
+	let handler = fn(req: Request, rw: &ResponseWriter): {
 		rw.write_header(STATUS_OK)
 		rw.write("echo: ${req.body}")
 	}
@@ -1921,7 +1921,7 @@ bind test_http_socketpair_roundtrip = (): {
 }
 
 @test("http Request query serialization and CRLF header-injection guards")
-bind test_http_query_and_crlf_guards = (): {
+bind test_http_query_and_crlf_guards = fn(): {
 	let req = Request.new("GET", "/search?q=hello+world", "")
 	req.set_header("X-Safe", "val1\r\nEvil: injected")
 	req.set_header("X-Key\r\nBad", "v\n2")
@@ -1957,7 +1957,7 @@ bind test_http_query_and_crlf_guards = (): {
 }
 
 @test("http URL default ports depend on the scheme")
-bind test_http_url_default_ports = (): {
+bind test_http_url_default_ports = fn(): {
 	assert(default_port("http") == 80 and default_port("HTTPS") == 443, "http and https defaults")
 	assert(default_port("ws") == 80 and default_port("wss") == 443, "ws and wss defaults")
 	assert(default_port("gopher") == 0, "unknown schemes have no default")
@@ -1977,7 +1977,7 @@ bind test_http_url_default_ports = (): {
 }
 
 @test("http URL paths decode %XX but keep '+'; queries decode '+' as a space")
-bind test_http_url_path_vs_query_plus = (): {
+bind test_http_url_path_vs_query_plus = fn(): {
 	let u = parse_url("http://h/a+b/c%20d/e%2Bf?q=a+b&r=c%2Bd").unwrap()
 	assert(u.path == "/a+b/c d/e+f", "path keeps '+' and decodes %XX")
 	assert(u.raw_path == "/a+b/c%20d/e%2Bf", "raw path preserved")
@@ -1994,7 +1994,7 @@ bind test_http_url_path_vs_query_plus = (): {
 }
 
 @test("http URL fragments and user:password@ information")
-bind test_http_url_fragment_and_userinfo = (): {
+bind test_http_url_fragment_and_userinfo = fn(): {
 	let u = parse_url("https://ada:s%40cret@example.com:8443/docs/page?x=1#intro?not-query").unwrap()
 	assert(u.username == "ada", "username")
 	assert(u.password? == "s@cret", "password is percent-decoded")
@@ -2020,14 +2020,14 @@ bind test_http_url_fragment_and_userinfo = (): {
 }
 
 @test("http Server accept retry delay backs off and is capped")
-bind test_http_accept_backoff = (): {
+bind test_http_accept_backoff = fn(): {
 	assert(_next_accept_backoff(0) == 5, "first retry after 5 ms")
 	assert(_next_accept_backoff(5) == 10 and _next_accept_backoff(320) == 640, "doubles")
 	assert(_next_accept_backoff(640) == 1000 and _next_accept_backoff(1000) == 1000, "capped at 1 s")
 }
 
 @test("http Server fills in Request.remote_addr")
-bind test_http_server_remote_addr = (): {
+bind test_http_server_remote_addr = fn(): {
 	let srv = Server.new("127.0.0.1:0")
 	let port = srv.listen() ?? -1
 	if(port <= 0): func <-     // no loopback networking available here
@@ -2036,7 +2036,7 @@ bind test_http_server_remote_addr = (): {
 	let conn = client!.unwrap()
 	let sent = conn.send("GET /who HTTP/1.1\r\nHost: localhost\r\n\r\n") ?? 0
 	assert(sent > 0, "request sent")
-	let served = srv.serve_one((req: Request, rw: &ResponseWriter): rw.write(req.remote_addr), 2000) ?? false
+	let served = srv.serve_one(fn(req: Request, rw: &ResponseWriter): rw.write(req.remote_addr), 2000) ?? false
 	assert(served, "one request served")
 	let reply = conn.recv(4096, 2000) ?? ""
 	let body_at = reply.index_of("\r\n\r\n") ?? -1
@@ -2048,7 +2048,7 @@ bind test_http_server_remote_addr = (): {
 }
 
 @test("http Headers: case-insensitive names, repeated fields, set, and remove")
-bind test_http_headers_multi_value = (): {
+bind test_http_headers_multi_value = fn(): {
 	let h = Headers.new()
 	h.add("Set-Cookie", "a=1")
 	h.add("Content-Type", "text/plain")
@@ -2072,7 +2072,7 @@ bind test_http_headers_multi_value = (): {
 }
 
 @test("http header parsing rejects invalid names and joins folded lines")
-bind test_http_header_parsing_rules = (): {
+bind test_http_header_parsing_rules = fn(): {
 	assert(Request.parse("GET / HTTP/1.1\r\nBad Name: x\r\n\r\n").is_err(), "space inside a name")
 	assert(Request.parse("GET / HTTP/1.1\r\nHost : x\r\n\r\n").is_err(), "space before the colon")
 	assert(Request.parse("GET / HTTP/1.1\r\nno-colon\r\n\r\n").is_err(), "line without a colon")
@@ -2081,7 +2081,7 @@ bind test_http_header_parsing_rules = (): {
 }
 
 @test("http message reader frames by exact Content-Length, chunked bodies, and HEAD")
-bind test_http_reader_framing = (): {
+bind test_http_reader_framing = fn(): {
 	let pair = net.socketpair().unwrap()
 	let wire = "HTTP/1.1 200 OK\r\nX-Content-Length: 99\r\nContent-Length: 3\r\n\r\nabc"
 	wire.push("HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n4;ext=1\r\nWiki\r\n5\r\npedia\r\n0\r\nX-Trailer: done\r\n\r\n")
@@ -2107,7 +2107,7 @@ bind test_http_reader_framing = (): {
 }
 
 @test("http message reader keeps pipelined requests buffered")
-bind test_http_reader_pipelining = (): {
+bind test_http_reader_pipelining = fn(): {
 	let pair = net.socketpair().unwrap()
 	let two = "POST /a HTTP/1.1\r\nContent-Length: 2\r\n\r\nhiGET /b HTTP/1.1\r\nHost: x\r\n\r\n"
 	let _ = pair.first.send(two) ?? 0
@@ -2122,14 +2122,14 @@ bind test_http_reader_pipelining = (): {
 }
 
 @test("http requests escape decoded paths on the wire")
-bind test_http_request_path_escaping = (): {
+bind test_http_request_path_escaping = fn(): {
 	let req = Request.new("GET", "/files/a%20b%3F.txt", "")
 	assert(req.path == "/files/a b?.txt", "path is decoded")
 	assert(req.format().starts_with("GET /files/a%20b%3F.txt HTTP/1.1\r\n"), "request line is escaped")
 }
 
 @test("http URL references resolve against a base URL")
-bind test_http_resolve_reference = (): {
+bind test_http_resolve_reference = fn(): {
 	let base = parse_url("https://example.com:8443/docs/guide/intro?x=1").unwrap()
 	assert(resolve_reference(base, "http://other.test/p") == "http://other.test/p", "absolute URL")
 	assert(resolve_reference(base, "//cdn.test/a.js") == "https://cdn.test/a.js", "scheme-relative")
@@ -2139,7 +2139,7 @@ bind test_http_resolve_reference = (): {
 	assert(resolve_reference(base, "?page=2") == "https://example.com:8443/docs/guide/intro?page=2", "query only")
 }
 
-bind _fake_transport = (c: Client, r: Request) Result[Response]: {
+bind _fake_transport = fn(c: Client, r: Request) Result[Response]: {
 	let resp = match(r.path):
 		when "/start": Response.new(302, "")
 		when "/second": Response.new(301, "")
@@ -2158,7 +2158,7 @@ bind _fake_transport = (c: Client, r: Request) Result[Response]: {
 }
 
 @test("http Client follows redirects with the right method, body, and headers")
-bind test_http_client_redirects = (): {
+bind test_http_client_redirects = fn(): {
 	let c = Client.new()
 	let req = Request.new("GET", "http://example.com/start", "")
 	req.set_header("Authorization", "Bearer secret")
@@ -2186,7 +2186,7 @@ bind test_http_client_redirects = (): {
 }
 
 @test("http IPv6 hosts in URLs and canonical IPv6 formatting")
-bind test_http_ipv6 = (): {
+bind test_http_ipv6 = fn(): {
 	let u = parse_url("http://[2001:db8::1]:8080/x?y=1").unwrap()
 	assert(u.hostname == "2001:db8::1" and u.port == 8080, "bracketed host and port")
 	assert(u.host == "[2001:db8::1]:8080", "host keeps brackets")
@@ -2205,7 +2205,7 @@ bind test_http_ipv6 = (): {
 }
 
 @test("http Server answers pipelined requests and HEAD over a real connection")
-bind test_http_server_pipelining = (): {
+bind test_http_server_pipelining = fn(): {
 	let srv = Server.new("127.0.0.1:0")
 	let port = srv.listen() ?? -1
 	if(port <= 0): func <-
@@ -2214,7 +2214,7 @@ bind test_http_server_pipelining = (): {
 	let conn = client!.unwrap()
 	let reqs = "GET /one HTTP/1.1\r\nHost: x\r\n\r\nHEAD /two HTTP/1.1\r\nHost: x\r\n\r\nGET /three HTTP/1.1\r\nHost: x\r\n\r\n"
 	let _ = conn.send(reqs) ?? 0
-	let served = srv.serve_one((req: Request, rw: &ResponseWriter): rw.write("path=${req.path}"), 2000) ?? false
+	let served = srv.serve_one(fn(req: Request, rw: &ResponseWriter): rw.write("path=${req.path}"), 2000) ?? false
 	assert(served, "connection served")
 	let reader = _MessageReader.plain(conn.raw_fd())
 	let r1 = Response.parse(reader.read_message("GET", 2000).unwrap()).unwrap()
@@ -2227,7 +2227,7 @@ bind test_http_server_pipelining = (): {
 }
 
 @test("http Server reports IPv6 clients in remote_addr")
-bind test_http_server_remote_addr_ipv6 = (): {
+bind test_http_server_remote_addr_ipv6 = fn(): {
 	let srv = Server.new("[::1]:0")
 	let port = srv.listen() ?? -1
 	if(port <= 0): func <-     // no IPv6 loopback available here
@@ -2235,7 +2235,7 @@ bind test_http_server_remote_addr_ipv6 = (): {
 	if(client!.is_err()): func <-
 	let conn = client!.unwrap()
 	let _ = conn.send("GET / HTTP/1.1\r\nHost: x\r\n\r\n") ?? 0
-	let _ = srv.serve_one((req: Request, rw: &ResponseWriter): rw.write(req.remote_addr), 2000) ?? false
+	let _ = srv.serve_one(fn(req: Request, rw: &ResponseWriter): rw.write(req.remote_addr), 2000) ?? false
 	let reader = _MessageReader.plain(conn.raw_fd())
 	let resp = Response.parse(reader.read_message("GET", 2000).unwrap()).unwrap()
 	assert(resp.body.starts_with("[::1]:"), "remote_addr is the bracketed IPv6 loopback")

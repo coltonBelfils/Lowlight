@@ -91,7 +91,7 @@ func TestStdFsAndOsQualifiedImportNoConflict(t *testing.T) {
 import "std/fs"
 import "std/os"
 
-bind main = (): {
+bind main = fn(): {
     let p = "${os.os_name()}:${os.arch()}"
     assert(p.len() > 1, "os metadata present")
     assert(not fs.exists("/nonexistent_lowlight_check_path_xyz"), "exists false")
@@ -109,7 +109,7 @@ func TestStdMathNanInfStrict(t *testing.T) {
 	src := `
 import "std/math"
 
-bind main = (): {
+bind main = fn(): {
     assert(math.is_inf(math.INF) and math.is_inf(-math.INF), "inf check")
     assert(math.is_nan(math.NAN) and not math.is_inf(math.NAN), "nan check")
     assert(not math.is_nan(math.INF) and not math.is_nan(0.0), "finite/inf not nan")
@@ -147,7 +147,7 @@ func TestStdFsExistsAndMkdirPEdgeCases(t *testing.T) {
 import "std/fs"
 import "std/os"
 
-bind main = (): {
+bind main = fn(): {
     let tmp = ` + "`" + tmp + "`" + `
     let unreadable = ` + "`" + unreadable + "`" + `
     let reg = ` + "`" + regFile + "`" + `
@@ -220,7 +220,7 @@ func TestCoreReadFileNonSeekable(t *testing.T) {
 
 				srcPath := filepath.Join(subTmp, "read_stream.ll")
 				src := fmt.Sprintf(`
-bind main = (): {
+bind main = fn(): {
 	let fifo_res? = core_read_file(%q)
 	if(fifo_res? as s): {
 		assert(s.len() == 20000, "fifo length")
@@ -368,7 +368,7 @@ func TestListFilledCodegenAndBoundsPanics(t *testing.T) {
 
 	codegenSrcPath := filepath.Join(tmp, "list_filled_codegen.ll")
 	codegenSrc := `
-bind main = (): {
+bind main = fn(): {
 	let bu = List[u8].filled(16, u8(7))
 	let bb = List[bool].filled(16, true)
 	let bi = List[i8].filled(16, i8(-3))
@@ -507,7 +507,7 @@ bind main = (): {
 			t.Run(fmt.Sprintf("%s/%s", backend, pc.name), func(t *testing.T) {
 				subTmp := t.TempDir()
 				srcFile := filepath.Join(subTmp, "panic_case.ll")
-				src := fmt.Sprintf("bind main = (): {\n\tlet xs: List[int] = [10, 20]\n\t%s\n}\n", pc.callStmt)
+				src := fmt.Sprintf("bind main = fn(): {\n\tlet xs: List[int] = [10, 20]\n\t%s\n}\n", pc.callStmt)
 				if err := os.WriteFile(srcFile, []byte(src), 0o644); err != nil {
 					t.Fatal(err)
 				}

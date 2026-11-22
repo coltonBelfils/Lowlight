@@ -9,7 +9,7 @@ define Person struct [
 	age: int,
 ]
 
-bind main = (): {
+bind main = fn(): {
 	// `std/sort` adds sorting methods to lists.
 	let xs = [5, 3, 9, 1]
 	xs.sort()
@@ -17,7 +17,7 @@ bind main = (): {
 
 	// `sort_by` takes a comparison returning <0, 0, or >0.
 	let people = [Person[name: "Ada", age: 36], Person[name: "Lin", age: 21], Person[name: "Bo", age: 40]]
-	people.sort_by((a: Person, b: Person) int: a.age - b.age)
+	people.sort_by(fn(a: Person, b: Person) int: a.age - b.age)
 	for(p in people): print("${p.name} ")
 	println()
 

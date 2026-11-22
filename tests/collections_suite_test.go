@@ -19,11 +19,11 @@ import (
 func TestListComprehensive(t *testing.T) {
 	t.Parallel()
 	src := `
-bind print_val = (p: Printable) string: {
+bind print_val = fn(p: Printable) string: {
     p.to_string()
 }
 
-bind sum_iter = (it_obj: Iterable[int]) int: {
+bind sum_iter = fn(it_obj: Iterable[int]) int: {
     let it = it_obj.iter()
     let sum = 0
     let cur? = it.next()
@@ -34,7 +34,7 @@ bind sum_iter = (it_obj: Iterable[int]) int: {
     sum
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. Creation & initial state
     let list = List[int].new()
     assert(list.len == 0)
@@ -124,11 +124,11 @@ bind main = (): {
 func TestSetComprehensive(t *testing.T) {
 	t.Parallel()
 	src := `
-bind print_val = (p: Printable) string: {
+bind print_val = fn(p: Printable) string: {
     p.to_string()
 }
 
-bind sum_iter = (it_obj: Iterable[int]) int: {
+bind sum_iter = fn(it_obj: Iterable[int]) int: {
     let it = it_obj.iter()
     let sum = 0
     let cur? = it.next()
@@ -139,7 +139,7 @@ bind sum_iter = (it_obj: Iterable[int]) int: {
     sum
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. Creation & initial state
     let s = Set[int].new()
     assert(s.len == 0)
@@ -262,11 +262,11 @@ bind main = (): {
 func TestMapComprehensive(t *testing.T) {
 	t.Parallel()
 	src := `
-bind print_val = (p: Printable) string: {
+bind print_val = fn(p: Printable) string: {
     p.to_string()
 }
 
-bind count_iter = (it_obj: Iterable[MapEntry[string, int]]) int: {
+bind count_iter = fn(it_obj: Iterable[MapEntry[string, int]]) int: {
     let it = it_obj.iter()
     let count = 0
     let cur? = it.next()
@@ -277,7 +277,7 @@ bind count_iter = (it_obj: Iterable[MapEntry[string, int]]) int: {
     count
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. Creation & initial state
     let m = Map[string, int].new()
     assert(m.len == 0)
@@ -398,19 +398,19 @@ define UserId struct [
     id: int,
 ]
 
-bind UserId.hash = (self) u64: {
+bind UserId.hash = fn(self) u64: {
     self.id.hash()
 }
 
-bind UserId.copy = (self) UserId: {
+bind UserId.copy = fn(self) UserId: {
     UserId[id: self.id]
 }
 
-bind UserId.to_string = (self) string: {
+bind UserId.to_string = fn(self) string: {
     "User(${self.id})"
 }
 
-bind main = (): {
+bind main = fn(): {
     let u1 = UserId[id: 101]
     let u2 = UserId[id: 202]
     let u3 = UserId[id: 303]
@@ -455,7 +455,7 @@ func TestNonHashableRejected(t *testing.T) {
 define NoHash struct [
     x: int,
 ]
-bind main = (): {
+bind main = fn(): {
     let s = Set[NoHash].new()
 }
 `
@@ -482,7 +482,7 @@ bind main = (): {
 define NoHash struct [
     x: int,
 ]
-bind main = (): {
+bind main = fn(): {
     let m = Map[NoHash, int].new()
 }
 `
@@ -511,7 +511,7 @@ func TestVectorRemoved(t *testing.T) {
 
 	// 1. Vector[int] is unknown type
 	srcVec := `
-bind main = (): {
+bind main = fn(): {
     let v = Vector[int].new()
 }
 `
@@ -539,7 +539,7 @@ bind main = (): {
 define MyVec[T] struct [
     data: ptr[T],
 ]
-bind main = (): {}
+bind main = fn(): {}
 `
 	var stdoutLV, stderrLV bytes.Buffer
 	rcLV, errLV := driver.Run(driver.Options{
@@ -563,7 +563,7 @@ bind main = (): {}
 func TestFixedArrayAndDynamicList(t *testing.T) {
 	t.Parallel()
 	src := `
-bind sum_fixed = (arr: [4: int]) int: {
+bind sum_fixed = fn(arr: [4: int]) int: {
     let sum = 0
     let i = 0
     for (i < 4): {
@@ -573,7 +573,7 @@ bind sum_fixed = (arr: [4: int]) int: {
     sum
 }
 
-bind sum_list = (lst: List[int]) int: {
+bind sum_list = fn(lst: List[int]) int: {
     let sum = 0
     let i = 0
     for (i < lst.len): {
@@ -583,7 +583,7 @@ bind sum_list = (lst: List[int]) int: {
     sum
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. Fixed Array: explicit elements
     let arr1: [4: int] = [4: 1, 2, 3, 4]
     assert(sum_fixed(arr1) == 10)
@@ -634,7 +634,7 @@ bind main = (): {
 func TestHashingStackPureLowlight(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = (): {
+bind main = fn(): {
     // 1. Primitive integer hashes
     let i1 = 42
     let i2 = 42
@@ -696,7 +696,7 @@ func TestHashOfIntrinsicRetired(t *testing.T) {
 
 	// Attempting to call retired intrinsic hash_of(x)
 	src := `
-bind main = (): {
+bind main = fn(): {
     let x = 42
     let h = hash_of(x)
 }

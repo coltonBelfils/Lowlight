@@ -43,7 +43,7 @@ func snippetIsFormatted(t *testing.T, label, body string) {
 	topLevel := strings.HasPrefix(code, "bind ") || strings.HasPrefix(code, "define ") || strings.HasPrefix(code, "@")
 	src := code + "\n"
 	if !topLevel {
-		src = "bind main = (): {\n\tlet x = 1\n\t" + strings.ReplaceAll(code, "\n", "\n\t") + "\n}\n"
+		src = "bind main = fn(): {\n\tlet x = 1\n\t" + strings.ReplaceAll(code, "\n", "\n\t") + "\n}\n"
 	}
 	got, err := format.Format("snippet.ll", src, format.DefaultOptions())
 	if err != nil {

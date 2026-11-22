@@ -52,7 +52,7 @@ var BuiltinKeywords = []KeywordDoc{
 	{Word: "define", Detail: "nominal type declaration", Summary: "Defines a `struct`, `enum`, `result`, `interface`, or distinct derived type (`define UserId int`)."},
 	{Word: "struct", Detail: "product value type `[field: T, ...]`", Summary: "Declares a value-type struct (`define Point struct [x: float, y: float]`). Prefix `packed` for unpadded C ABI layout."},
 	{Word: "enum", Detail: "tag or tagged-union enum `[a, b, ...]`", Summary: "Declares a strongly-typed integer tag enum (`define Status enum u8 [ok = 0, err = 1]`) or tagged union."},
-	{Word: "interface", Detail: "dynamic/generic method contract", Summary: "Declares an interface (`define Shape interface [area: (self) float]`)."},
+	{Word: "interface", Detail: "dynamic/generic method contract", Summary: "Declares an interface (`define Shape interface [area: fn(self) float]`)."},
 	{Word: "if", Detail: "conditional expression / optional unwrap", Summary: "Conditional expression (`if(cond): a else: b`) or optional narrowing (`if(user?): ...` / `if(expr as val): ...`)."},
 	{Word: "else", Detail: "fallback branch in `if`, `for`, or `while`", Summary: "Fallback branch for `if`, `for ... else` (runs when a loop finishes without `for <-`), or `while ... else`."},
 	{Word: "for", Detail: "collection, range, or condition loop (`for(x in items)`, `for(i in 0..n)`)", Summary: "Loop construct supporting ranges (`for(i in 0..n)`), collection iteration (`for(x in items)`), condition loops, and `else` fallback branches."},
@@ -73,7 +73,9 @@ var BuiltinKeywords = []KeywordDoc{
 	{Word: "not", Detail: "logical negation", Summary: "Boolean negation (`not flag`). Lowlight uses `not` instead of `!`."},
 	{Word: "as", Detail: "alias or optional/result binding (`if(e as x)`)", Summary: "Binds an unwrapped optional (`if(find(id) as user)`) or a result's success value (`if(cfg! as c)`), or aliases an `import` / `extern`."},
 	{Word: "unsafe", Detail: "unsafe low-level memory block", Summary: "Enables raw pointer (`ptr[T]`) dereferences, pointer arithmetic, raw intrinsics, and `extern` C calls."},
-	{Word: "extern", Detail: "C11 header or ABI function import", Summary: "Includes a C header (`extern \"stdio.h\"`) or binds a C ABI function (`extern puts: (s: ptr[u8]) i32`)."},
+	{Word: "extern", Detail: "C11 header or ABI function import", Summary: "Includes a C header (`extern \"stdio.h\"`) or binds a C ABI function (`extern puts: fn(s: ptr[u8]) i32`)."},
+	{Word: "fn", Detail: "function that captures nothing", Summary: "Starts a function literal or type that captures no variables: `bind twice = fn(x: int) int: x * 2`, `f: fn(int) int`. An `fn` value is a plain code pointer and converts to `cl` where a closure is expected."},
+	{Word: "cl", Detail: "closure", Summary: "Starts a closure literal or type, which may capture variables and owns them: `cl(x: int) int: x + offset`, `f: cl(int) int`. `cl(f)` converts a function to a closure."},
 	{Word: "unpack", Detail: "unpack tuple elements (`let x, y = unpack ...`)", Summary: "Unpacks a tuple or distinct tuple into comma-separated variables or assignment targets (`let x, y = unpack +[5, 7]`)."},
 	{Word: "import", Detail: "import Lowlight package", Summary: "Imports exported declarations from a package directory under a required qualifier (`import \"std/math\"` -> `math.sin`)."},
 }
@@ -91,25 +93,25 @@ var BuiltinSnippets = []CodeSnippet{
 	{
 		Label:   "bind main",
 		Detail:  "Program entry point",
-		Snippet: "bind main = (): {\n\t$0\n}",
+		Snippet: "bind main = fn(): {\n\t$0\n}",
 		Summary: "Defines the Lowlight entry point function `main`.",
 	},
 	{
 		Label:   "bind func",
 		Detail:  "Define a top-level function",
-		Snippet: "bind ${1:name} = (${2:x: int}) ${3:int}: {\n\t$0\n}",
+		Snippet: "bind ${1:name} = fn(${2:x: int}) ${3:int}: {\n\t$0\n}",
 		Summary: "Defines a top-level function with a block body.",
 	},
 	{
 		Label:   "bind func expr",
 		Detail:  "Define a single-expression function",
-		Snippet: "bind ${1:name} = (${2:x: int}) ${3:int}: ${0:x}",
+		Snippet: "bind ${1:name} = fn(${2:x: int}) ${3:int}: ${0:x}",
 		Summary: "Defines a top-level function whose body is a single expression.",
 	},
 	{
 		Label:   "bind method",
 		Detail:  "Define a method on a type",
-		Snippet: "bind ${1:Type}.${2:name} = (${3:self}) ${4:int}: {\n\t$0\n}",
+		Snippet: "bind ${1:Type}.${2:name} = fn(${3:self}) ${4:int}: {\n\t$0\n}",
 		Summary: "Defines a method on a type. Use `&self` to mutate the receiver or `own self` to consume it.",
 	},
 	{
@@ -139,7 +141,7 @@ var BuiltinSnippets = []CodeSnippet{
 	{
 		Label:   "define interface",
 		Detail:  "Define an interface",
-		Snippet: "define ${1:Name} interface [\n\t${2:method}: (self) ${3:string}\n]",
+		Snippet: "define ${1:Name} interface [\n\t${2:method}: fn(self) ${3:string}\n]",
 		Summary: "Defines a structural interface for zero-allocation borrows or owned heap boxes.",
 	},
 	{
@@ -211,7 +213,7 @@ var BuiltinSnippets = []CodeSnippet{
 	{
 		Label:   "test",
 		Detail:  "Define a unit test",
-		Snippet: "@test(\"${1:description}\")\nbind test_${2:name} = (): {\n\t$0\n}",
+		Snippet: "@test(\"${1:description}\")\nbind test_${2:name} = fn(): {\n\t$0\n}",
 		Summary: "Defines a test function runnable via `lowlight test`.",
 	},
 }
@@ -235,12 +237,12 @@ var BuiltinTypes = []BuiltinTypeDoc{
 	{Name: "Arena", Kind: KindStruct, Detail: "Bump-allocated memory region", Summary: "Region bump allocator (`Arena.new()`). Frees all `arena.alloc(val)` objects in O(1) at scope exit; statically prevents `ref[T]` escape."},
 	{Name: "ptr", Kind: KindStruct, Detail: "ptr[T] — raw pointer", Snippet: "ptr[${1:u8}]", Summary: "Raw pointer `ptr[T]` for manual memory and C FFI. Copyable Plain address; dereferencing (`*p`, `p[i]`) requires `unsafe`."},
 	{Name: "ref", Kind: KindStruct, Detail: "ref[T] — safe arena reference", Snippet: "ref[${1:Node}]", Summary: "Non-null, plain-copyable reference `ref[T]` allocated inside an `Arena`. Statically verified never to outlive its `Arena`."},
-	{Name: "Printable", Kind: KindInterface, Detail: "built-in interface `[to_string: (self) string]`", Summary: "Built-in interface satisfied by all primitives, enums, strings, collections of `Printable`, and user types defining `to_string`."},
-	{Name: "Copyable", Kind: KindInterface, Detail: "built-in generic bound `[copy: (self) Self]`", Summary: "Generic constraint (`[T: Copyable]`) satisfied by all Plain types, `string`, collections of `Copyable`, and structs without custom `Drop` (or with explicit `.copy()`)."},
-	{Name: "Drop", Kind: KindInterface, Detail: "custom destructor `[drop: (&self)]`", Summary: "Implemented via `bind MyType.drop = (&self): ...` to run custom cleanup deterministically before fields are freed."},
-	{Name: "Equatable", Kind: KindInterface, Detail: "built-in generic bound `[eq: (self, other: Self) bool]`", Summary: "Generic equality constraint (`[T: Equatable]`) satisfied by primitives, strings, enums, tuples/collections of `Equatable`, and types defining `eq`."},
-	{Name: "Hashable", Kind: KindInterface, Detail: "built-in generic bound `[hash: (self) u64]`", Summary: "Generic hash constraint (`[T: Hashable]`) required for `Set[T]` and `Map[K, V]` keys."},
-	{Name: "Comparable", Kind: KindInterface, Detail: "built-in ordering bound `[cmp: (self, other: Self) Ordering]`", Summary: "Generic total-ordering constraint (`[T: Comparable]`) satisfied by numeric primitives, `char`, `string`, and types implementing `cmp`."},
+	{Name: "Printable", Kind: KindInterface, Detail: "built-in interface `[to_string: fn(self) string]`", Summary: "Built-in interface satisfied by all primitives, enums, strings, collections of `Printable`, and user types defining `to_string`."},
+	{Name: "Copyable", Kind: KindInterface, Detail: "built-in generic bound `[copy: fn(self) Self]`", Summary: "Generic constraint (`[T: Copyable]`) satisfied by all Plain types, `string`, collections of `Copyable`, and structs without custom `Drop` (or with explicit `.copy()`)."},
+	{Name: "Drop", Kind: KindInterface, Detail: "custom destructor `[drop: fn(&self)]`", Summary: "Implemented via `bind MyType.drop = fn(&self): ...` to run custom cleanup deterministically before fields are freed."},
+	{Name: "Equatable", Kind: KindInterface, Detail: "built-in generic bound `[eq: fn(self, other: Self) bool]`", Summary: "Generic equality constraint (`[T: Equatable]`) satisfied by primitives, strings, enums, tuples/collections of `Equatable`, and types defining `eq`."},
+	{Name: "Hashable", Kind: KindInterface, Detail: "built-in generic bound `[hash: fn(self) u64]`", Summary: "Generic hash constraint (`[T: Hashable]`) required for `Set[T]` and `Map[K, V]` keys."},
+	{Name: "Comparable", Kind: KindInterface, Detail: "built-in ordering bound `[cmp: fn(self, other: Self) Ordering]`", Summary: "Generic total-ordering constraint (`[T: Comparable]`) satisfied by numeric primitives, `char`, `string`, and types implementing `cmp`."},
 }
 
 var BuiltinFunctions = []BuiltinFuncDoc{

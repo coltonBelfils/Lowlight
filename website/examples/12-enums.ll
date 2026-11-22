@@ -17,13 +17,13 @@ define HttpStatus enum i32 [
 	not_found = 404,
 ]
 
-bind describe = (l: Level) string:
+bind describe = fn(l: Level) string:
 	match(l):
 		when low: "fine"
 		when medium: "watch it"
 		default high: "act now"
 
-bind main = (): {
+bind main = fn(): {
 	let l = Level.medium
 	println(describe(l))
 	println(l == Level.medium)

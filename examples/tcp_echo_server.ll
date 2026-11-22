@@ -8,7 +8,7 @@
 
 import "std/net"
 
-bind main = (): {
+bind main = fn(): {
     let host = "127.0.0.1"
     let port = 9000
 

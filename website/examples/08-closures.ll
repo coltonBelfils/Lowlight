@@ -4,14 +4,14 @@
 
 // Functions are values. A function type lists parameter types
 // and the result type.
-bind apply = (f: (int) int, x: int) int: f(x)
+bind apply = fn(f: cl(int) int, x: int) int: f(x)
 
 // A function can return a function.
-bind adder = (n: int) (int) int: (x: int) int: x + n
+bind adder = fn(n: int) cl(int) int: cl(x: int) int: x + n
 
-bind main = (): {
+bind main = fn(): {
 	// A function literal has the same shape as a declaration.
-	let square = (x: int) int: x * x
+	let square = fn(x: int) int: x * x
 	println(apply(square, 7))
 
 	// Literals capture variables from their surroundings.
@@ -20,7 +20,7 @@ bind main = (): {
 
 	// Captured strings move into the closure.
 	let tag = "[log] " + ""
-	let log = (msg: string): println(tag + msg)
+	let log = cl(msg: string): println(tag + msg)
 	log("started")
 	log("done")
 }

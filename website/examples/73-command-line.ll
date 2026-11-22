@@ -4,7 +4,7 @@
 
 // `args()` returns the program name followed by its arguments.
 // Run with arguments: lowlight run app.ll -- --name Ada
-bind main = () int: {
+bind main = fn() int: {
 	let argv = args()
 	let name = "world"
 	let i = 1

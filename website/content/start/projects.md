@@ -56,7 +56,7 @@ wordy/
 // text/count.ll
 
 // Counts the words in `s`, splitting on whitespace.
-bind word_count = (s: string) int: {
+bind word_count = fn(s: string) int: {
 	let n = 0
 	let in_word = false
 	for(ch in s.chars()): {
@@ -70,14 +70,14 @@ bind word_count = (s: string) int: {
 }
 
 // A helper only this package can use: the leading `_` makes it private.
-bind _is_letter = (c: char) bool: c.is_alpha()
+bind _is_letter = fn(c: char) bool: c.is_alpha()
 ```
 
 ```lowlight fragment
 // main.ll
 import "wordy/text"
 
-bind main = (): println(text.word_count("the quick brown fox"))
+bind main = fn(): println(text.word_count("the quick brown fox"))
 ```
 
 An imported package is used through the last segment of its path: `text.word_count`. Write `import "wordy/text" as t` to choose another name.
@@ -93,7 +93,7 @@ Test files end in `_test.ll` and live beside the code. They belong to the same p
 import "std/test"
 
 @test("counts words separated by any whitespace")
-bind test_word_count = (): {
+bind test_word_count = fn(): {
 	test.assert_eq(word_count("a  b\tc\n"), 3)
 	test.assert_eq(word_count(""), 0)
 }

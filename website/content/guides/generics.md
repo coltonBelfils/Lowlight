@@ -18,8 +18,8 @@ Both are built on **interfaces**: named sets of methods.
 
 ```lowlight fragment
 define Shape interface [
-	area: (self) float,
-	describe: (self) string,
+	area: fn(self) float,
+	describe: fn(self) string,
 ]
 ```
 
@@ -31,7 +31,7 @@ Converting a value to an interface type boxes it:
 
 ```lowlight
 define Shape interface [
-	area: (self) float,
+	area: fn(self) float,
 ]
 
 define Circle struct [
@@ -43,16 +43,16 @@ define Rect struct [
 	h: float,
 ]
 
-bind Circle.area = (self) float: 3.0 * self.r * self.r
-bind Rect.area = (self) float: self.w * self.h
+bind Circle.area = fn(self) float: 3.0 * self.r * self.r
+bind Rect.area = fn(self) float: self.w * self.h
 
-bind total = (shapes: [Shape]) float: {
+bind total = fn(shapes: [Shape]) float: {
 	let t = 0.0
 	for(s in shapes): t += s.area()
 	t
 }
 
-bind main = (): println(total([Shape(Circle[r: 1.0]), Shape(Rect[w: 2.0, h: 5.0])]))
+bind main = fn(): println(total([Shape(Circle[r: 1.0]), Shape(Rect[w: 2.0, h: 5.0])]))
 ```
 
 ```output
@@ -61,20 +61,20 @@ bind main = (): println(total([Shape(Circle[r: 1.0]), Shape(Rect[w: 2.0, h: 5.0]
 
 An interface value owns its boxed value and destroys it with the box. It is a resource, and `.copy()` copies the value inside.
 
-Interfaces that mention `Self` other than as the receiver, such as `Equatable` (`eq: (self, other: Self) bool`), can't be interface values, because the method needs to know the concrete type. They are used only as bounds.
+Interfaces that mention `Self` other than as the receiver, such as `Equatable` (`eq: fn(self, other: Self) bool`), can't be interface values, because the method needs to know the concrete type. They are used only as bounds.
 
 ## Generic functions
 
 ```lowlight
-bind count_if[T] = (xs: [T], pred: (T) bool) int: {
+bind count_if[T] = fn(xs: [T], pred: cl(T) bool) int: {
 	let n = 0
 	for(x in xs): if(pred(x)): n += 1
 	n
 }
 
-bind main = (): {
-	println(count_if([1, 5, 8, 2], (x: int) bool: x > 3))
-	println(count_if(["a", "", "b"], (s: string) bool: s.is_empty()))
+bind main = fn(): {
+	println(count_if([1, 5, 8, 2], fn(x: int) bool: x > 3))
+	println(count_if(["a", "", "b"], fn(s: string) bool: s.is_empty()))
 }
 ```
 
@@ -101,7 +101,7 @@ A bound says what a type parameter can do. Inside the function, only the bound's
 Combine bounds with `+`: `[K: Hashable + Printable, V]`.
 
 ```lowlight
-bind histogram[T: Hashable + Copyable] = (xs: [T]) #[T: int]: {
+bind histogram[T: Hashable + Copyable] = fn(xs: [T]) #[T: int]: {
 	let counts: #[T: int] = #[]
 	for(x in xs): {
 		let n = counts[x] ?? 0
@@ -110,7 +110,7 @@ bind histogram[T: Hashable + Copyable] = (xs: [T]) #[T: int]: {
 	counts
 }
 
-bind main = (): {
+bind main = fn(): {
 	let h = histogram(["a", "b", "a"])
 	println(h["a"] ?? 0)
 }
@@ -128,14 +128,14 @@ define Pair[A, B] struct [
 	second: B,
 ]
 
-bind Pair[A, B].first_ref = (self) A: self.first
+bind Pair[A, B].first_ref = fn(self) A: self.first
 
 define Tree[T] enum [
 	leaf,
 	node: [Tree[T]],
 ]
 
-bind main = (): {
+bind main = fn(): {
 	let p = Pair[int, string][first: 1, second: "one"]
 	println("${p.second} ${p.first_ref()}")
 }
@@ -145,7 +145,7 @@ bind main = (): {
 one 1
 ```
 
-Methods on a generic type repeat its parameters: `bind Pair[A, B].first_ref`. A method can add its own parameters too: `bind List[T].map[U] = (self, f: (T) U) [U]: ...`.
+Methods on a generic type repeat its parameters: `bind Pair[A, B].first_ref`. A method can add its own parameters too: `bind List[T].map[U] = fn(self, f: (T) U) [U]: ...`.
 
 ## Monomorphization
 

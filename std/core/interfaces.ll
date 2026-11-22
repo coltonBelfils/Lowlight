@@ -11,7 +11,7 @@
 @lang("printable")
 define Printable interface [
 	// Returns a human-readable string representation of `self`.
-	to_string: (self) string,
+	to_string: fn(self) string,
 ]
 
 // Types that support explicit duplication via `.copy()`.
@@ -21,7 +21,7 @@ define Printable interface [
 @lang("copyable")
 define Copyable interface [
 	// Returns an independent duplicate of `self`.
-	copy: (self) Self,
+	copy: fn(self) Self,
 ]
 
 // Types with deterministic custom cleanup logic executed when a value leaves scope.
@@ -32,28 +32,28 @@ define Copyable interface [
 @lang("drop")
 define Drop interface [
 	// Releases owned memory, file descriptors, or OS handles held by `self`.
-	drop: (&self),
+	drop: fn(&self),
 ]
 
 // Types capable of producing a 64-bit hash digest for use in [`Set`] and [`Map`].
 @lang("hashable")
 define Hashable interface [
 	// Computes a 64-bit hash code for `self`. Equal values must produce equal hashes.
-	hash: (self) u64,
+	hash: fn(self) u64,
 ]
 
 // Types supporting structural equality comparisons (`==` and `!=`).
 @lang("equatable")
 define Equatable interface [
 	// Reports whether `self` equals `other`.
-	eq: (self, other: Self) bool,
+	eq: fn(self, other: Self) bool,
 ]
 
 // Types supporting total ordering (`<`, `<=`, `>`, `>=`, and sorting).
 @lang("comparable")
 define Comparable interface [
 	// Compares `self` against `other`, returning `-1` if less, `0` if equal, or `1` if greater.
-	cmp: (self, other: Self) int,
+	cmp: fn(self, other: Self) int,
 ]
 
 // Types supporting `+`. `a + b` calls `a.add(b)` for every type except the numeric types, whose
@@ -61,7 +61,7 @@ define Comparable interface [
 @lang("addable")
 define Addable interface [
 	// Returns `self` combined with `other`; both are only read.
-	add: (self, other: Self) Self,
+	add: fn(self, other: Self) Self,
 ]
 
 // Types supporting `+=` in place. `a += b` calls `a.add_assign(b)`; a type that implements only
@@ -69,55 +69,55 @@ define Addable interface [
 @lang("add_assignable")
 define AddAssignable interface [
 	// Adds `other` to `self` in place.
-	add_assign: (&self, other: Self),
+	add_assign: fn(&self, other: Self),
 ]
 
 // Stateful stream producing a sequence of optional values of type [`T`].
 @lang("iterator")
 define Iterator[T] interface [
 	// Advances the iterator and returns the next item, or `none` when exhausted.
-	next: (&self) ?T,
+	next: fn(&self) ?T,
 ]
 
 // Containers that can construct a forward [`Iterator`] over their elements.
 @lang("iterable")
 define Iterable[T] interface [
 	// Returns a new iterator positioned at the beginning of the collection.
-	iter: (self) Iterator[T],
+	iter: fn(self) Iterator[T],
 ]
 
 // Mutable containers that can accumulate owned elements appended during comprehension loops.
 @lang("collectable")
 define Collectable[T] interface [
 	// Appends `item` into the collection, taking ownership of it.
-	push: (&self, item: own T),
+	push: fn(&self, item: own T),
 ]
 
 // Sequence containers indexable by non-negative integer positions.
 @lang("indexable")
 define Indexable[T] interface [
 	// Returns the number of elements in the sequence.
-	len: (self) int,
+	len: fn(self) int,
 	// Returns a copy of the element at `idx`, or `none` if out of bounds.
-	get: (self, idx: int) ?T,
+	get: fn(self, idx: int) ?T,
 ]
 
 // Associative containers indexable by hashable keys of type [`K`].
 @lang("key_indexable")
 define KeyIndexable[K, V] interface [
 	// Returns the number of entries in the map.
-	len: (self) int,
+	len: fn(self) int,
 	// Reports whether `key` exists in the container.
-	has: (self, key: K) bool,
+	has: fn(self, key: K) bool,
 	// Returns a copy of the value mapped to `key`, or `none` if absent.
-	get: (self, key: K) ?V,
+	get: fn(self, key: K) ?V,
 ]
 
 // Containers supporting `when in container` pattern matching and membership tests.
 @lang("containable")
 define Containable[T] interface [
 	// Reports whether `item` is contained within `self`.
-	contains: (self, item: T) bool,
+	contains: fn(self, item: T) bool,
 ]
 
 // Key-value pair yielded while iterating over a [`Map`].

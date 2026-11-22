@@ -5,11 +5,11 @@ define Point struct [
     y: int,
 ]
 
-bind Point.to_string = (self) string: {
+bind Point.to_string = fn(self) string: {
     "(${self.x}, ${self.y})"
 }
 
-bind Point.copy = (self) Point: {
+bind Point.copy = fn(self) Point: {
     Point[x: self.x, y: self.y]
 }
 
@@ -17,16 +17,16 @@ define DroppableResource struct [
     id: int,
 ]
 
-bind DroppableResource.drop = (&self): {
+bind DroppableResource.drop = fn(&self): {
     // cleanup hook
 }
 
 // Function accepting the Printable interface with dynamic vtable dispatch
-bind print_item = (item: Printable) string: {
+bind print_item = fn(item: Printable) string: {
     item.to_string()
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. Primitive .to_string() (provided implicitly by std/core.ll)
     assert((0).to_string() == "0")
     assert((12345).to_string() == "12345")

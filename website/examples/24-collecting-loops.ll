@@ -2,7 +2,7 @@
 // Category: Control flow
 // Order: 24
 
-bind main = (): {
+bind main = fn(): {
 	let words = ["apple", "fig", "banana", "kiwi"]
 
 	// A `for` loop with a result type collects its body's values.

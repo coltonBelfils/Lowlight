@@ -4,7 +4,7 @@
 
 // Raw pointers and manual memory are available inside `unsafe`,
 // which marks exactly the operations the compiler cannot check.
-bind main = (): {
+bind main = fn(): {
 	let n = 10
 	let p = unsafe addr_of(n)
 	unsafe ptr_write(p, 11)

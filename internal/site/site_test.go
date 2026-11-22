@@ -55,7 +55,7 @@ func TestBuildAPIDocs(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(tmp, "geo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	src := "// Package geo has points.\n\n// A point. See [`Point.mag2`].\ndefine Point struct [\n\t// X coordinate.\n\tx: int,\n\ty: int,\n]\n\n// Squared length.\nbind Point.mag2 = (self) int: self.x * self.x + self.y * self.y\n\n// Makes a [`Point`].\nbind make = (x: int, y: int) Point: Point[x: x, y: y]\n\nbind _hidden = () int: 1\n"
+	src := "// Package geo has points.\n\n// A point. See [`Point.mag2`].\ndefine Point struct [\n\t// X coordinate.\n\tx: int,\n\ty: int,\n]\n\n// Squared length.\nbind Point.mag2 = fn(self) int: self.x * self.x + self.y * self.y\n\n// Makes a [`Point`].\nbind make = fn(x: int, y: int) Point: Point[x: x, y: y]\n\nbind _hidden = fn() int: 1\n"
 	if err := os.WriteFile(filepath.Join(tmp, "geo", "geo.ll"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}

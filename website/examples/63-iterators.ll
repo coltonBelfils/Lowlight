@@ -10,7 +10,7 @@ define Fib struct [
 	left: int,
 ]
 
-bind Fib.next = (&self) ?int: {
+bind Fib.next = fn(&self) ?int: {
 	if(self.left == 0): func <- none
 	self.left -= 1
 	let out = self.a
@@ -18,7 +18,7 @@ bind Fib.next = (&self) ?int: {
 	out
 }
 
-bind main = (): {
+bind main = fn(): {
 	let it = Fib[a: 0, b: 1, left: 10]
 	// Pull values until `next` returns none.
 	while(true): {

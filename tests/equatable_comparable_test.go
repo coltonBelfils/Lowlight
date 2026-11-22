@@ -21,23 +21,23 @@ define Point struct [
     y: int,
 ]
 
-bind Point.copy = (self) Point: {
+bind Point.copy = fn(self) Point: {
     Point[x: self.x, y: self.y]
 }
 
-bind Point.eq = (self, other: Point) bool: {
+bind Point.eq = fn(self, other: Point) bool: {
     self.x == other.x and self.y == other.y
 }
 
-bind are_equal[T: Equatable] = (a: T, b: T) bool: {
+bind are_equal[T: Equatable] = fn(a: T, b: T) bool: {
     a == b
 }
 
-bind are_not_equal[T: Equatable] = (a: T, b: T) bool: {
+bind are_not_equal[T: Equatable] = fn(a: T, b: T) bool: {
     a != b
 }
 
-bind main = (): {
+bind main = fn(): {
     let p1 = Point[x: 10, y: 20]
     let p2 = Point[x: 10, y: 20]
     let p3 = Point[x: 10, y: 25]
@@ -69,29 +69,29 @@ define Score struct [
     pts: int,
 ]
 
-bind Score.copy = (self) Score: {
+bind Score.copy = fn(self) Score: {
     Score[pts: self.pts]
 }
 
-bind Score.cmp = (self, other: Score) int: {
+bind Score.cmp = fn(self, other: Score) int: {
     if (self.pts < other.pts): -1
     else if (self.pts > other.pts): 1
     else: 0
 }
 
-bind is_less[T: Comparable] = (a: T, b: T) bool: {
+bind is_less[T: Comparable] = fn(a: T, b: T) bool: {
     a < b
 }
 
-bind is_greater[T: Comparable] = (a: T, b: T) bool: {
+bind is_greater[T: Comparable] = fn(a: T, b: T) bool: {
     a > b
 }
 
-bind is_equal_via_cmp[T: Comparable] = (a: T, b: T) bool: {
+bind is_equal_via_cmp[T: Comparable] = fn(a: T, b: T) bool: {
     a == b
 }
 
-bind main = (): {
+bind main = fn(): {
     let s1 = Score[pts: 100]
     let s2 = Score[pts: 200]
     let s3 = Score[pts: 100]
@@ -144,15 +144,15 @@ bind main = (): {
 func TestPrimitiveEquatableAndComparable(t *testing.T) {
 	t.Parallel()
 	src := `
-bind test_generic_eq[T: Equatable] = (a: T, b: T) bool: {
+bind test_generic_eq[T: Equatable] = fn(a: T, b: T) bool: {
     a == b
 }
 
-bind test_generic_cmp[T: Comparable] = (a: T, b: T) int: {
+bind test_generic_cmp[T: Comparable] = fn(a: T, b: T) int: {
     a.cmp(b)
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. bool (Equatable only)
     assert(true.eq(true))
     assert(not true.eq(false))
@@ -255,7 +255,7 @@ func TestDistinctComparableAndEquatable(t *testing.T) {
 define Meters int
 define Seconds int
 
-bind main = (): {
+bind main = fn(): {
     let m1 = Meters(10)
     let m2 = Meters(25)
     let m3 = Meters(10)
@@ -271,8 +271,8 @@ bind main = (): {
     let highest = max(m1, m2)
     assert(highest == m2)
 
-    let cl = clamp(Meters(50), m1, m2)
-    assert(cl == m2)
+    let clamped = clamp(Meters(50), m1, m2)
+    assert(clamped == m2)
 }
 `
 	runInlineStrict(t, "distinct_comparable_equatable", src, false)
@@ -289,7 +289,7 @@ define Val enum [
     Obj: #[string: Val],
 ]
 
-bind Val.eq = (self, other: Val) bool: {
+bind Val.eq = fn(self, other: Val) bool: {
     match (self, other):
         when Val.Empty, Val.Empty: true
         when Val.Str(a), Val.Str(b): a == b
@@ -307,7 +307,7 @@ define Rank enum [
     High: int,
 ]
 
-bind Rank.cmp = (self, other: Rank) int: {
+bind Rank.cmp = fn(self, other: Rank) int: {
     let lv = match (self):
         when Rank.Low(n): n
         default Rank.High(n): n + 1000
@@ -319,10 +319,10 @@ bind Rank.cmp = (self, other: Rank) int: {
     else: 0
 }
 
-bind eq_generic[T: Equatable] = (a: T, b: T) bool: { a == b }
-bind lt_generic[T: Comparable] = (a: T, b: T) bool: { a < b }
+bind eq_generic[T: Equatable] = fn(a: T, b: T) bool: { a == b }
+bind lt_generic[T: Comparable] = fn(a: T, b: T) bool: { a < b }
 
-bind main = (): {
+bind main = fn(): {
     // 1. Tagged enum with non-equatable Map payload + custom .eq
     let v1 = Val.Obj(#["x": Val.Str("hello")])
     let v2 = Val.Obj(#["x": Val.Str("hello")])
@@ -378,7 +378,7 @@ func TestCompileTimeNegativeEquatableComparable(t *testing.T) {
 		{
 			name: "bool_ordering_disallowed",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let a = true
     let b = false
     let c = a < b
@@ -389,7 +389,7 @@ bind main = (): {
 		{
 			name: "bool_not_comparable_for_min",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let m = min(true, false)
 }
 `,
@@ -402,7 +402,7 @@ define Pair struct [
     a: int,
     b: int,
 ]
-bind main = (): {
+bind main = fn(): {
     let p1 = Pair[a: 1, b: 2]
     let p2 = Pair[a: 2, b: 3]
     let check = p1 < p2
@@ -417,10 +417,10 @@ define Pair struct [
     a: int,
     b: int,
 ]
-bind find_min[T: Comparable] = (x: T, y: T) T: {
+bind find_min[T: Comparable] = fn(x: T, y: T) T: {
     if (x < y): x else: y
 }
-bind main = (): {
+bind main = fn(): {
     let p1 = Pair[a: 1, b: 2]
     let p2 = Pair[a: 2, b: 3]
     find_min(p1, p2)
@@ -467,8 +467,8 @@ func TestDerivedEqRejectedOnResourceAndDropStructs(t *testing.T) {
 define Handle struct [
     fd: int,
 ]
-bind Handle.drop = (&self): {}
-bind main = (): {
+bind Handle.drop = fn(&self): {}
+bind main = fn(): {
     let a = Handle[fd: 1]
     let b = Handle[fd: 1]
     let same = a == b
@@ -482,7 +482,7 @@ bind main = (): {
 define Named struct [
     label: string,
 ]
-bind main = (): {
+bind main = fn(): {
     let a = Named[label: "alpha"]
     let b = Named[label: "alpha"]
     let same = a == b
@@ -520,15 +520,15 @@ define CustomRes struct [
     tag: string,
 ]
 
-bind CustomRes.drop = (&self): {
+bind CustomRes.drop = fn(&self): {
     self.fd = -1
 }
 
-bind CustomRes.eq = (self, other: CustomRes) bool: {
+bind CustomRes.eq = fn(self, other: CustomRes) bool: {
     self.fd == other.fd and self.tag == other.tag
 }
 
-bind main = (): {
+bind main = fn(): {
     let a = CustomRes[fd: 7, tag: "sock".copy()]
     let b = CustomRes[fd: 7, tag: "sock".copy()]
     let c = CustomRes[fd: 8, tag: "sock".copy()]

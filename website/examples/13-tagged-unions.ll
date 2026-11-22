@@ -12,7 +12,7 @@ define Json enum [
 ]
 
 // `match` takes the union apart. Payloads are bound by name.
-bind render = (j: Json) string:
+bind render = fn(j: Json) string:
 	match(j):
 		when null: "null"
 		when boolean(b): b.to_string()
@@ -23,7 +23,7 @@ bind render = (j: Json) string:
 			"[" + join_strings(parts, ", ") + "]"
 		}
 
-bind main = (): {
+bind main = fn(): {
 	let doc = Json.list([Json.number(1.5), Json.text("hi"), Json.boolean(true), Json.null])
 	println(render(doc))
 }

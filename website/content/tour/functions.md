@@ -11,14 +11,14 @@ order: 2
 A function is a value bound to a name:
 
 ```lowlight
-bind add = (a: int, b: int) int: a + b
+bind add = fn(a: int, b: int) int: a + b
 
-bind describe = (n: int) string: {
+bind describe = fn(n: int) string: {
 	let kind = if(n % 2 == 0): "even" else: "odd"
 	"$n is $kind"
 }
 
-bind main = (): {
+bind main = fn(): {
 	println(add(2, 3))
 	println(describe(7))
 }
@@ -38,12 +38,12 @@ Functions are declared in any order. `main` can call a function defined below it
 `func <- value` leaves the function immediately with `value`:
 
 ```lowlight
-bind first_negative = (xs: [int]) int: {
+bind first_negative = fn(xs: [int]) int: {
 	for(x in xs): if(x < 0): func <- x
 	0
 }
 
-bind main = (): println(first_negative([3, 9, -4, -1]))
+bind main = fn(): println(first_negative([3, 9, -4, -1]))
 ```
 
 ```output
@@ -54,16 +54,16 @@ bind main = (): println(first_negative([3, 9, -4, -1]))
 
 ## Function values and closures
 
-Functions are values, and a function literal can capture variables from where it is written:
+Functions are values. There are two kinds: an `fn` captures nothing and is just a pointer to code, so it copies freely; a `cl` (closure) may capture variables from where it is written, and owns what it captures:
 
 ```lowlight
-bind apply_twice = (f: (int) int, x: int) int: f(f(x))
+bind apply_twice = fn(f: cl(int) int, x: int) int: f(f(x))
 
-bind main = (): {
+bind main = fn(): {
 	let step = 5
-	let add_step = (x: int) int: x + step
+	let add_step = cl(x: int) int: x + step
 	println(apply_twice(add_step, 1))
-	println(apply_twice((x: int) int: x * x, 3))
+	println(apply_twice(fn(x: int) int: x * x, 3))
 }
 ```
 
@@ -72,7 +72,7 @@ bind main = (): {
 81
 ```
 
-A function type is written like a signature without names: `(int) int`. Captured plain values are copied into the closure; captured strings and other resources are moved in.
+A function type is written like a signature without names, with its kind: `fn(int) int` or `cl(int) int`. An `fn` goes anywhere a `cl` with the same signature is expected, as `fn(x: int) int: x * x` does above; `cl(f)` writes that conversion explicitly. Captured plain values are copied into the closure; captured strings and other resources are moved in. Writing `cl` for a closure that captures nothing draws a warning, since it could be an `fn`.
 
 ## Methods
 
@@ -83,13 +83,13 @@ define Counter struct [
 	count: int,
 ]
 
-bind Counter.new = () Counter: Counter[count: 0]
+bind Counter.new = fn() Counter: Counter[count: 0]
 
-bind Counter.bump = (&self): { self.count += 1 }
+bind Counter.bump = fn(&self): { self.count += 1 }
 
-bind Counter.value = (self) int: self.count
+bind Counter.value = fn(self) int: self.count
 
-bind main = (): {
+bind main = fn(): {
 	let c = Counter.new()
 	c.bump()
 	c.bump()
@@ -103,7 +103,7 @@ bind main = (): {
 
 - `self` reads the receiver; `&self` may change it; `own self` consumes it.
 - A function without `self`, like `Counter.new`, is an **associated function**, called on the type.
-- You can add methods to any type, including built-in ones: `bind int.double = (self) int: self * 2`.
+- You can add methods to any type, including built-in ones: `bind int.double = fn(self) int: self * 2`.
 
 A function body that is just an assignment needs braces, as in `bump` above, so that `=` is never mistaken for the end of a declaration.
 
@@ -112,9 +112,9 @@ A function body that is just an assignment needs braces, as in `bump` above, so 
 A parameter normally gives the function a read-only view of the argument. To let a function change the caller's variable, both sides say so with `&`:
 
 ```lowlight
-bind add_bonus = (score: &int, bonus: int): { score += bonus }
+bind add_bonus = fn(score: &int, bonus: int): { score += bonus }
 
-bind main = (): {
+bind main = fn(): {
 	let score = 10
 	add_bonus(&score, 5)
 	println(score)

@@ -4,9 +4,9 @@
 
 // Plain values (numbers, bools, plain structs) copy. Resources
 // (strings, lists, maps) have one owner and move.
-bind keep = (items: own [string]) int: items.len()
+bind keep = fn(items: own [string]) int: items.len()
 
-bind main = (): {
+bind main = fn(): {
 	let a = 5
 	let b = a          // a copy: both are usable
 	println(a + b)

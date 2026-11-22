@@ -464,7 +464,7 @@ func defineKindItems(prefix string, replaceRange Range) []CompletionItem {
 		{"struct", "value struct `[field: T, ...]`", "struct [\n\t${1:field}: ${2:int},\n]"},
 		{"enum", "tag enum or tagged union `[a, b: T, ...]`", "enum [\n\t${1:a},\n\t${2:b},\n]"},
 		{"result", "result type `[value: T, failure: P, ...]`", "result [\n\tvalue: ${1:T},\n\t${2:err}: ${3:Error},\n]"},
-		{"interface", "structural interface `[method: (self) T, ...]`", "interface [\n\t${1:method}: (self) ${2:string},\n]"},
+		{"interface", "structural interface `[method: fn(self) T, ...]`", "interface [\n\t${1:method}: fn(self) ${2:string},\n]"},
 	}
 	var items []CompletionItem
 	for i, k := range kinds {

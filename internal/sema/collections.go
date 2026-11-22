@@ -6,8 +6,8 @@ import (
 )
 
 // operatorMethod returns t's method for an overloadable operator, when it has the shape the
-// operator's interface requires: `add: (self, other: Self) Self` for `+`, or
-// `add_assign: (&self, other: Self)` for `+=`.
+// operator's interface requires: `add: fn(self, other: Self) Self` for `+`, or
+// `add_assign: fn(&self, other: Self)` for `+=`.
 func (a *Analyzer) operatorMethod(t types.Type, name string, span diag.Span) *FuncInstance {
 	if _, isTP := t.(*types.TypeParamVar); isTP {
 		return nil

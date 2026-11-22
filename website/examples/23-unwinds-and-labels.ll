@@ -4,14 +4,14 @@
 
 // `<-` leaves a construct early. The word before it names the
 // construct: `func`, `for`, `while`, `next`, or a label.
-bind first_pair = (xs: [int], target: int) string: {
+bind first_pair = fn(xs: [int], target: int) string: {
 	let found = outer: while(i, a in xs) string: {
 		for(b in xs[i + 1..]): if(a + b == target): outer <- "$a + $b"
 	} else: "none"
 	found
 }
 
-bind main = (): {
+bind main = fn(): {
 	println(first_pair([1, 4, 6, 9], 10))
 	println(first_pair([1, 2], 10))
 

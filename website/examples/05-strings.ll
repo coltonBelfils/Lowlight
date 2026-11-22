@@ -2,7 +2,7 @@
 // Category: Basics
 // Order: 5
 
-bind main = (): {
+bind main = fn(): {
 	let s = "Hello, Lowlight"
 
 	// `len` counts bytes. Strings are UTF-8.

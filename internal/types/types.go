@@ -758,9 +758,12 @@ type FuncParam struct {
 // ONLY if it may hold heap captures; to keep closures 100% leak-free even when
 // reassigned dynamically (`let f = ...`), first-class Func values have a lightweight
 // `{ fn, env, copy_env, drop_env }` representation where non-capturing functions have `env = NULL`!
+// Func is a function type: `fn(params) Ret`, a function that captures nothing (a plain code
+// pointer), or `cl(params) Ret`, a closure that owns its captured variables.
 type Func struct {
-	Params []FuncParam
-	Ret    Type // TypeVoid if void
+	Params  []FuncParam
+	Ret     Type // TypeVoid if void
+	Closure bool
 }
 
 func (f *Func) String() string {
@@ -768,15 +771,41 @@ func (f *Func) String() string {
 	for i, p := range f.Params {
 		ps[i] = p.Mode.Prefix() + p.Type.String()
 	}
-	if f.Ret == nil || f.Ret.Equals(TypeVoid) {
-		return "(" + strings.Join(ps, ", ") + ")"
+	kw := "fn"
+	if f.Closure {
+		kw = "cl"
 	}
-	return fmt.Sprintf("(%s) %s", strings.Join(ps, ", "), f.Ret.String())
+	if f.Ret == nil || f.Ret.Equals(TypeVoid) {
+		return kw + "(" + strings.Join(ps, ", ") + ")"
+	}
+	return fmt.Sprintf("%s(%s) %s", kw, strings.Join(ps, ", "), f.Ret.String())
+}
+
+// SameSignature reports whether f and o take and return the same types, ignoring fn vs cl.
+func (f *Func) SameSignature(o *Func) bool {
+	if len(f.Params) != len(o.Params) {
+		return false
+	}
+	for i := range f.Params {
+		if f.Params[i].Mode != o.Params[i].Mode || !f.Params[i].Type.Equals(o.Params[i].Type) {
+			return false
+		}
+	}
+	return f.Ret.Equals(o.Ret)
+}
+
+// AsClosure returns the closure type with f's signature.
+func (f *Func) AsClosure() *Func {
+	return &Func{Params: f.Params, Ret: f.Ret, Closure: true}
 }
 
 func (f *Func) Mangled() string {
 	var sb strings.Builder
-	sb.WriteString("fn")
+	if f.Closure {
+		sb.WriteString("cl")
+	} else {
+		sb.WriteString("fn")
+	}
 	for _, p := range f.Params {
 		sb.WriteByte('_')
 		switch p.Mode {
@@ -798,28 +827,12 @@ func (f *Func) Mangled() string {
 
 func (f *Func) Equals(other Type) bool {
 	o, ok := other.(*Func)
-	if !ok || len(f.Params) != len(o.Params) {
-		return false
-	}
-	for i := range f.Params {
-		if f.Params[i].Mode != o.Params[i].Mode || !f.Params[i].Type.Equals(o.Params[i].Type) {
-			return false
-		}
-	}
-	return f.Ret.Equals(o.Ret)
+	return ok && f.Closure == o.Closure && f.SameSignature(o)
 }
 
 func (f *Func) IsPlain() bool {
-	// Closures can hold heap-allocated environments, so we run `drop_env` on owned closure variables
-	// while still providing `copy_env` when `.copy()` is called (or plain copy when env == NULL).
-	// Wait: in Spec §3.3 / A4: plain-only-capturing closures copy effortlessly if `copy_env` is present,
-	// OR treating first-class Func variables as having automatic drop cleanup ensures heap-capturing
-	// closures never leak! Let's check: if `Func.IsPlain()` is false, what about `let current_op = static_add`
-	// followed by `apply_op(1, 2, current_op)`?
-	// Remember: in Model 2A, passing `current_op` to `op: (int, int): int` BORROWS `current_op` read-only!
-	// So `current_op` stays valid across any number of calls, AND if `current_op` captured a `string` or `[int]`,
-	// dropping `current_op` at scope exit or reassignment frees its captured heap data with ZERO leaks!
-	return false
+	// An `fn` is a code pointer; a `cl` owns its captured environment and is a resource.
+	return !f.Closure
 }
 
 // InterfaceMethod describes one required method on an Interface.

@@ -11,14 +11,14 @@ import "std/chars"
 // -----------------------------------------------------------------------------
 
 // Reports whether the string is non-empty and consists solely of whitespace characters.
-bind string.is_whitespace = (self) bool: {
+bind string.is_whitespace = fn(self) bool: {
 	if(self.len() == 0): func <- false
 	for(ch in self.chars()): if(not ch.is_whitespace()): func <- false
 	true
 }
 
 // Reports whether every byte in the string is valid 7-bit ASCII (`<= 127`).
-bind string.is_ascii = (self) bool: {
+bind string.is_ascii = fn(self) bool: {
 	for(i in 0..self.len()): if(self[i] > 127): func <- false
 	true
 }
@@ -27,7 +27,7 @@ bind string.is_ascii = (self) bool: {
 // Extended Substring Search
 // -----------------------------------------------------------------------------
 
-bind _matches_at = (s: string, pos: int, sub: string) bool: {
+bind _matches_at = fn(s: string, pos: int, sub: string) bool: {
 	let sub_len = sub.len()
 	let j = 0
 	for(j < sub_len): {
@@ -38,7 +38,7 @@ bind _matches_at = (s: string, pos: int, sub: string) bool: {
 }
 
 // Returns the byte offset of the last occurrence of `sub`, or `none` if absent (returns `self.len()` when `sub` is `""`).
-bind string.last_index_of = (self, sub: string) ?int: {
+bind string.last_index_of = fn(self, sub: string) ?int: {
 	if(sub.len() == 0): func <- self.len()
 	if(self.len() < sub.len()): func <- none
 	let limit = self.len() - sub.len()
@@ -51,7 +51,7 @@ bind string.last_index_of = (self, sub: string) ?int: {
 }
 
 // Counts non-overlapping occurrences of `sub` within the string (`0` if `sub` is empty).
-bind string.count = (self, sub: string) int: {
+bind string.count = fn(self, sub: string) int: {
 	let sub_len = sub.len()
 	if(sub_len == 0 or self.len() < sub_len): func <- 0
 	let count = 0
@@ -70,7 +70,7 @@ bind string.count = (self, sub: string) int: {
 // -----------------------------------------------------------------------------
 
 // Returns a copy with the first ASCII byte uppercased and all subsequent ASCII letters lowercased.
-bind string.capitalize = (self) string: {
+bind string.capitalize = fn(self) string: {
 	if(self.len() == 0): func <- ""
 	let out = ""
 	let first = self[0]
@@ -87,7 +87,7 @@ bind string.capitalize = (self) string: {
 // -----------------------------------------------------------------------------
 
 // Returns the string concatenated `count` times (empty when `count <= 0`).
-bind string.repeat = (self, count: int) string: {
+bind string.repeat = fn(self, count: int) string: {
 	if(count <= 0 or self.len() == 0): func <- ""
 	let out = ""
 	for(i in 0..count): out.push(self)
@@ -95,7 +95,7 @@ bind string.repeat = (self, count: int) string: {
 }
 
 // Returns a new string with Unicode codepoints reversed in order.
-bind string.reverse = (self) string: {
+bind string.reverse = fn(self) string: {
 	if(self.len() <= 1): func <- self.copy()
 	let cps = self.chars()
 	let out = ""
@@ -111,14 +111,14 @@ bind string.reverse = (self) string: {
 // Padding & Alignment
 // -----------------------------------------------------------------------------
 
-bind _char_count = (s: string) int: {
+bind _char_count = fn(s: string) int: {
 	let n = 0
 	for(ch in s): n += 1
 	n
 }
 
 // Left-pads the string with repeated `pad_char` until its Unicode codepoint count reaches at least `total_len`.
-bind string.pad_left_char = (self, total_len: int, pad_char: char) string: {
+bind string.pad_left_char = fn(self, total_len: int, pad_char: char) string: {
 	let char_len = _char_count(self)
 	if(char_len >= total_len): func <- self.copy()
 	let pad_count = total_len - char_len
@@ -130,7 +130,7 @@ bind string.pad_left_char = (self, total_len: int, pad_char: char) string: {
 }
 
 // Right-pads the string with repeated `pad_char` until its Unicode codepoint count reaches at least `total_len`.
-bind string.pad_right_char = (self, total_len: int, pad_char: char) string: {
+bind string.pad_right_char = fn(self, total_len: int, pad_char: char) string: {
 	let char_len = _char_count(self)
 	if(char_len >= total_len): func <- self.copy()
 	let pad_count = total_len - char_len
@@ -142,7 +142,7 @@ bind string.pad_right_char = (self, total_len: int, pad_char: char) string: {
 }
 
 // Centers the string within `total_len` Unicode codepoints by padding evenly on both sides with `pad_char`.
-bind string.center_char = (self, total_len: int, pad_char: char) string: {
+bind string.center_char = fn(self, total_len: int, pad_char: char) string: {
 	let char_len = _char_count(self)
 	if(char_len >= total_len): func <- self.copy()
 	let total_pad = total_len - char_len
@@ -161,7 +161,7 @@ bind string.center_char = (self, total_len: int, pad_char: char) string: {
 // -----------------------------------------------------------------------------
 
 // Splits the string on runs of ASCII whitespace into non-empty token substrings.
-bind string.split_whitespace = (self) [string]: {
+bind string.split_whitespace = fn(self) [string]: {
 	let out: [string] = []
 	let in_token = false
 	let start = 0
@@ -187,7 +187,7 @@ bind string.split_whitespace = (self) [string]: {
 // A final line terminator ends the last line rather than starting an empty one, so
 // `"a\nb\n".lines()` is `["a", "b"]`, while `"a\nb\n\n".lines()` keeps the empty line
 // (`["a", "b", ""]`). An empty string has no lines.
-bind string.lines = (self) [string]: {
+bind string.lines = fn(self) [string]: {
 	if(self.is_empty()): func <- []
 	let raw_lines = self.split("\n")
 	let count = if(self.ends_with("\n")): raw_lines.len() - 1 else: raw_lines.len()
@@ -198,13 +198,13 @@ bind string.lines = (self) [string]: {
 }
 
 // Concatenates `list` elements separated by `sep` (convenience wrapper around [`join_strings`]).
-bind join = (list: [string], sep: string) string: join_strings(list, sep)
+bind join = fn(list: [string], sep: string) string: join_strings(list, sep)
 
 // Returns all decoded Unicode [`char`] codepoints in this string (alias for [`string.chars`]).
-bind string.chars_list = (self) [char]: self.chars()
+bind string.chars_list = fn(self) [char]: self.chars()
 
 // Returns all raw UTF-8 bytes in this string (alias for [`string.bytes`]).
-bind string.bytes_list = (self) [u8]: self.bytes()
+bind string.bytes_list = fn(self) [u8]: self.bytes()
 
 // -----------------------------------------------------------------------------
 // ByteBuffer
@@ -229,58 +229,58 @@ define ByteBuffer struct [
 ]
 
 // Creates an empty [`ByteBuffer`].
-bind ByteBuffer.new = () ByteBuffer: ByteBuffer[_data: [], _pos: 0]
+bind ByteBuffer.new = fn() ByteBuffer: ByteBuffer[_data: [], _pos: 0]
 
 // Creates a [`ByteBuffer`] holding `bytes`, with the cursor at the start.
-bind ByteBuffer.from_bytes = (bytes: own [u8]) ByteBuffer: ByteBuffer[_data: own bytes, _pos: 0]
+bind ByteBuffer.from_bytes = fn(bytes: own [u8]) ByteBuffer: ByteBuffer[_data: own bytes, _pos: 0]
 
 // Creates a [`ByteBuffer`] holding the UTF-8 bytes of `text`, with the cursor at the start.
-bind ByteBuffer.from_string = (text: string) ByteBuffer: ByteBuffer[_data: text.bytes(), _pos: 0]
+bind ByteBuffer.from_string = fn(text: string) ByteBuffer: ByteBuffer[_data: text.bytes(), _pos: 0]
 
 // Returns the total number of bytes, read or not.
-bind ByteBuffer.len = (self) int: self._data.len()
+bind ByteBuffer.len = fn(self) int: self._data.len()
 
 // Reports whether the buffer holds no bytes.
-bind ByteBuffer.is_empty = (self) bool: self._data.is_empty()
+bind ByteBuffer.is_empty = fn(self) bool: self._data.is_empty()
 
 // Returns the cursor position: the index of the next byte to read.
-bind ByteBuffer.position = (self) int: self._pos
+bind ByteBuffer.position = fn(self) int: self._pos
 
 // Returns how many bytes remain after the cursor.
-bind ByteBuffer.remaining = (self) int: self._data.len() - self._pos
+bind ByteBuffer.remaining = fn(self) int: self._data.len() - self._pos
 
 // Moves the cursor to `pos`, returning `false` (and leaving it unchanged) if out of range.
-bind ByteBuffer.seek = (&self, pos: int) bool: {
+bind ByteBuffer.seek = fn(&self, pos: int) bool: {
 	if(pos < 0 or pos > self._data.len()): func <- false
 	self._pos = pos
 	true
 }
 
 // Removes all bytes and resets the cursor.
-bind ByteBuffer.clear = (&self): {
+bind ByteBuffer.clear = fn(&self): {
 	self._data.clear()
 	self._pos = 0
 }
 
 // Returns a copy of every byte in the buffer.
-bind ByteBuffer.bytes = (self) [u8]: self._data.copy()
+bind ByteBuffer.bytes = fn(self) [u8]: self._data.copy()
 
 // Returns the bytes as a string (they are copied as-is, not validated as UTF-8).
-bind ByteBuffer.to_string = (self) string: {
+bind ByteBuffer.to_string = fn(self) string: {
 	let out = ""
 	for(b in self._data): out.push_byte(b)
 	out
 }
 
 // Appends the low `count` bytes of `v`, least significant first (or most significant first when `big_endian`).
-bind ByteBuffer._write_uint = (&self, v: u64, count: int, big_endian: bool):
+bind ByteBuffer._write_uint = fn(&self, v: u64, count: int, big_endian: bool):
 	for(i in 0..count): {
 		let shift = if(big_endian): 8 * (count - 1 - i) else: 8 * i
 		self._data.push(u8((v >> u64(shift)) & u64(0xff)))
 	}
 
 // Reads `count` bytes as an unsigned integer, or `none` if fewer remain.
-bind ByteBuffer._read_uint = (&self, count: int, big_endian: bool) ?u64: {
+bind ByteBuffer._read_uint = fn(&self, count: int, big_endian: bool) ?u64: {
 	if(self.remaining() < count): func <- none
 	let v = u64(0)
 	for(i in 0..count): {
@@ -293,34 +293,34 @@ bind ByteBuffer._read_uint = (&self, count: int, big_endian: bool) ?u64: {
 }
 
 // Appends one byte.
-bind ByteBuffer.write_u8 = (&self, v: u8): self._data.push(v)
+bind ByteBuffer.write_u8 = fn(&self, v: u8): self._data.push(v)
 
 // Appends a 16-bit value, little-endian.
-bind ByteBuffer.write_u16 = (&self, v: u16): self._write_uint(u64(v), 2, false)
+bind ByteBuffer.write_u16 = fn(&self, v: u16): self._write_uint(u64(v), 2, false)
 
 // Appends a 32-bit value, little-endian.
-bind ByteBuffer.write_u32 = (&self, v: u32): self._write_uint(u64(v), 4, false)
+bind ByteBuffer.write_u32 = fn(&self, v: u32): self._write_uint(u64(v), 4, false)
 
 // Appends a 64-bit value, little-endian.
-bind ByteBuffer.write_u64 = (&self, v: u64): self._write_uint(v, 8, false)
+bind ByteBuffer.write_u64 = fn(&self, v: u64): self._write_uint(v, 8, false)
 
 // Appends a 16-bit value, big-endian.
-bind ByteBuffer.write_u16_be = (&self, v: u16): self._write_uint(u64(v), 2, true)
+bind ByteBuffer.write_u16_be = fn(&self, v: u16): self._write_uint(u64(v), 2, true)
 
 // Appends a 32-bit value, big-endian.
-bind ByteBuffer.write_u32_be = (&self, v: u32): self._write_uint(u64(v), 4, true)
+bind ByteBuffer.write_u32_be = fn(&self, v: u32): self._write_uint(u64(v), 4, true)
 
 // Appends a 64-bit value, big-endian.
-bind ByteBuffer.write_u64_be = (&self, v: u64): self._write_uint(v, 8, true)
+bind ByteBuffer.write_u64_be = fn(&self, v: u64): self._write_uint(v, 8, true)
 
 // Appends every byte of `bytes`.
-bind ByteBuffer.write_bytes = (&self, bytes: [u8]): for(b in bytes): self._data.push(b)
+bind ByteBuffer.write_bytes = fn(&self, bytes: [u8]): for(b in bytes): self._data.push(b)
 
 // Appends the UTF-8 bytes of `text`.
-bind ByteBuffer.write_string = (&self, text: string): for(b in text.bytes()): self._data.push(b)
+bind ByteBuffer.write_string = fn(&self, text: string): for(b in text.bytes()): self._data.push(b)
 
 // Reads one byte, or `none` at the end.
-bind ByteBuffer.read_u8 = (&self) ?u8: {
+bind ByteBuffer.read_u8 = fn(&self) ?u8: {
 	if(self.remaining() < 1): func <- none
 	let b = self._data[self._pos]
 	self._pos += 1
@@ -328,37 +328,37 @@ bind ByteBuffer.read_u8 = (&self) ?u8: {
 }
 
 // Reads a little-endian 16-bit value, or `none` if fewer than 2 bytes remain.
-bind ByteBuffer.read_u16 = (&self) ?u16: {
+bind ByteBuffer.read_u16 = fn(&self) ?u16: {
 	let v = self._read_uint(2, false) ?? func <- none
 	u16(v)
 }
 
 // Reads a little-endian 32-bit value, or `none` if fewer than 4 bytes remain.
-bind ByteBuffer.read_u32 = (&self) ?u32: {
+bind ByteBuffer.read_u32 = fn(&self) ?u32: {
 	let v = self._read_uint(4, false) ?? func <- none
 	u32(v)
 }
 
 // Reads a little-endian 64-bit value, or `none` if fewer than 8 bytes remain.
-bind ByteBuffer.read_u64 = (&self) ?u64: self._read_uint(8, false)
+bind ByteBuffer.read_u64 = fn(&self) ?u64: self._read_uint(8, false)
 
 // Reads a big-endian 16-bit value, or `none` if fewer than 2 bytes remain.
-bind ByteBuffer.read_u16_be = (&self) ?u16: {
+bind ByteBuffer.read_u16_be = fn(&self) ?u16: {
 	let v = self._read_uint(2, true) ?? func <- none
 	u16(v)
 }
 
 // Reads a big-endian 32-bit value, or `none` if fewer than 4 bytes remain.
-bind ByteBuffer.read_u32_be = (&self) ?u32: {
+bind ByteBuffer.read_u32_be = fn(&self) ?u32: {
 	let v = self._read_uint(4, true) ?? func <- none
 	u32(v)
 }
 
 // Reads a big-endian 64-bit value, or `none` if fewer than 8 bytes remain.
-bind ByteBuffer.read_u64_be = (&self) ?u64: self._read_uint(8, true)
+bind ByteBuffer.read_u64_be = fn(&self) ?u64: self._read_uint(8, true)
 
 // Reads the next `count` bytes, or `none` if fewer remain.
-bind ByteBuffer.read_bytes = (&self, count: int) ?[u8]: {
+bind ByteBuffer.read_bytes = fn(&self, count: int) ?[u8]: {
 	if(count < 0 or self.remaining() < count): func <- none
 	let out = for(i in 0..count) [u8]: self._data[self._pos + i]
 	self._pos += count
@@ -370,7 +370,7 @@ bind ByteBuffer.read_bytes = (&self, count: int) ?[u8]: {
 // -----------------------------------------------------------------------------
 
 @test("string predicates: is_empty, is_whitespace, is_ascii")
-bind test_strings_predicates = (): {
+bind test_strings_predicates = fn(): {
 	assert("".is_empty(), "empty string is_empty")
 	assert(not "hello".is_empty(), "non-empty string is not is_empty")
 
@@ -383,7 +383,7 @@ bind test_strings_predicates = (): {
 }
 
 @test("string search: starts_with, ends_with, index_of, last_index_of, contains, count")
-bind test_strings_search = (): {
+bind test_strings_search = fn(): {
 	assert("hello world".starts_with("hello"), "starts_with prefix")
 	assert(not "hello world".starts_with("world"), "starts_with non-prefix")
 	assert("hello".starts_with(""), "starts_with empty")
@@ -424,7 +424,7 @@ bind test_strings_search = (): {
 }
 
 @test("string trimming and padding")
-bind test_strings_trim_pad = (): {
+bind test_strings_trim_pad = fn(): {
 	assert("  \t hello \n ".trim_start() == "hello \n ", "trim_start")
 	assert("  \t hello \n ".trim_end() == "  \t hello", "trim_end")
 	assert("  \t hello \n ".trim() == "hello", "trim")
@@ -447,7 +447,7 @@ bind test_strings_trim_pad = (): {
 }
 
 @test("string transformations: case, repeat, reverse, replace")
-bind test_strings_transform = (): {
+bind test_strings_transform = fn(): {
 	assert("Hello, World!".to_upper() == "HELLO, WORLD!", "to_upper")
 	assert("Hello, World!".to_lower() == "hello, world!", "to_lower")
 	assert("hello world".capitalize() == "Hello world", "capitalize lower")
@@ -472,7 +472,7 @@ bind test_strings_transform = (): {
 }
 
 @test("string tokenization and joining: split, lines, join, chars/bytes")
-bind test_strings_split_join = (): {
+bind test_strings_split_join = fn(): {
 	let parts = "apple,banana,cherry".split(",")
 	assert(parts.len() == 3, "split count")
 	assert(parts[0] == "apple", "split 0")
@@ -507,9 +507,9 @@ bind test_strings_split_join = (): {
 	let joined = join(["a", "b", "c"], "::")
 	assert(joined == "a::b::c", "join strings")
 
-	let cl = "cat".chars_list()
-	assert(cl.len() == 3, "chars_list len")
-	assert(cl[0] == 'c' and cl[1] == 'a' and cl[2] == 't', "chars_list values")
+	let chars = "cat".chars_list()
+	assert(chars.len() == 3, "chars_list len")
+	assert(chars[0] == 'c' and chars[1] == 'a' and chars[2] == 't', "chars_list values")
 
 	let bl = "ABC".bytes_list()
 	assert(bl.len() == 3, "bytes_list len")
@@ -517,7 +517,7 @@ bind test_strings_split_join = (): {
 }
 
 @test("ByteBuffer reads and writes little- and big-endian integers")
-bind test_byte_buffer = (): {
+bind test_byte_buffer = fn(): {
 	let b = ByteBuffer.new()
 	b.write_u8(u8(0xAB))
 	b.write_u16(u16(0x1234))
@@ -551,7 +551,7 @@ bind test_byte_buffer = (): {
 }
 
 @test("string.with_capacity and reserve preallocate without changing the text")
-bind test_string_capacity = (): {
+bind test_string_capacity = fn(): {
 	let s = string.with_capacity(100)
 	assert(s.is_empty() and s.cap() >= 100, "with_capacity reserves room")
 	let before = s.cap()
@@ -566,7 +566,7 @@ bind test_string_capacity = (): {
 }
 
 @test("string.lines drops the final line terminator, not blank lines")
-bind test_string_lines_trailing_newline = (): {
+bind test_string_lines_trailing_newline = fn(): {
 	assert(join_strings("a\nb\n".lines(), "|") == "a|b", "trailing newline ends the last line")
 	assert(join_strings("a\r\nb\r\n".lines(), "|") == "a|b", "trailing CRLF too")
 	assert(join_strings("a\nb".lines(), "|") == "a|b", "no trailing newline")

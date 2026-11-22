@@ -5,8 +5,8 @@
 // An interface lists methods. Any type with those methods
 // satisfies it; there is no `implements`.
 define Animal interface [
-	name: (self) string,
-	sound: (self) string,
+	name: fn(self) string,
+	sound: fn(self) string,
 ]
 
 define Dog struct [
@@ -15,12 +15,12 @@ define Dog struct [
 
 define Cat struct []
 
-bind Dog.name = (self) string: self.name_.copy()
-bind Dog.sound = (self) string: "woof"
-bind Cat.name = (self) string: "cat"
-bind Cat.sound = (self) string: "meow"
+bind Dog.name = fn(self) string: self.name_.copy()
+bind Dog.sound = fn(self) string: "woof"
+bind Cat.name = fn(self) string: "cat"
+bind Cat.sound = fn(self) string: "meow"
 
-bind main = (): {
+bind main = fn(): {
 	// Converting to the interface type boxes each value, so
 	// different types can share a list.
 	let zoo: [Animal] = [Animal(Dog[name_: "Rex"]), Animal(Cat[])]

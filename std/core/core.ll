@@ -11,7 +11,7 @@
 // =============================================================================
 
 @test("core primitive string conversions and hash")
-bind test_core_primitives = (): {
+bind test_core_primitives = fn(): {
 	assert(0.to_string() == "0", "0 to_string")
 	assert(42.to_string() == "42", "42 to_string")
 	assert((-17).to_string() == "-17", "-17 to_string")
@@ -32,14 +32,14 @@ bind test_core_primitives = (): {
 }
 
 @test_only
-bind _core_bytes_str = (bs: [int]) string: {
+bind _core_bytes_str = fn(bs: [int]) string: {
 	let s = ""
 	for(b in bs): s.push_byte(u8(b))
 	s
 }
 
 @test_only
-bind _core_assert_utf8 = (bs: [int], expected_ch: char, expected_next: int, label: string): {
+bind _core_assert_utf8 = fn(bs: [int], expected_ch: char, expected_next: int, label: string): {
 	let s = _core_bytes_str(bs)
 	let next_i = -999
 	let ch = str_utf8_next(s, 0, &next_i)
@@ -47,7 +47,7 @@ bind _core_assert_utf8 = (bs: [int], expected_ch: char, expected_next: int, labe
 }
 
 @test("core string buffer methods")
-bind test_core_string_buffer = (): {
+bind test_core_string_buffer = fn(): {
 	let s = "lit"
 	assert(s.cap() == 0, "a literal owns no buffer")
 	s.push("eral")
@@ -94,7 +94,7 @@ bind test_core_string_buffer = (): {
 }
 
 @test("core str_utf8_next validation and decoding")
-bind test_core_str_utf8_next = (): {
+bind test_core_str_utf8_next = fn(): {
 	// Valid boundary codepoints (1..4 bytes)
 	_core_assert_utf8([0x00], '\0', 1, "valid 1-byte NUL")
 	_core_assert_utf8([0x7F], char(0x7F), 1, "valid 1-byte max ASCII")
@@ -175,7 +175,7 @@ bind test_core_str_utf8_next = (): {
 }
 
 @test("core comparable and math helpers")
-bind test_core_comparable_and_math = (): {
+bind test_core_comparable_and_math = fn(): {
 	assert(10.cmp(20) == -1, "10 < 20")
 	assert(20.cmp(10) == 1, "20 > 10")
 	assert(10.cmp(10) == 0, "10 == 10")
@@ -197,7 +197,7 @@ bind test_core_comparable_and_math = (): {
 }
 
 @test("core_sqrt accuracy and IEEE-754 edge cases")
-bind test_core_sqrt = (): {
+bind test_core_sqrt = fn(): {
 	let pos_inf = 1.0e308 * 10.0
 	let neg_inf = -pos_inf
 	let nan_val = pos_inf - pos_inf
@@ -244,7 +244,7 @@ bind test_core_sqrt = (): {
 }
 
 @test("core float formatting edge cases: inf, nan, -0.0, >= 2^64, large exponents")
-bind test_core_float_formatting = (): {
+bind test_core_float_formatting = fn(): {
 	let pos_inf = 1.0e308 * 10.0
 	let neg_inf = -pos_inf
 	let nan_val = pos_inf - pos_inf
@@ -331,7 +331,7 @@ bind test_core_float_formatting = (): {
 }
 
 @test_only
-bind _core_assert_parse_f64_bits = (s: string, expected_bits: u64, label: string): {
+bind _core_assert_parse_f64_bits = fn(s: string, expected_bits: u64, label: string): {
 	let p? = parse_float(s)
 	if(p? as v): {
 		let got = _float_bits(v)
@@ -340,7 +340,7 @@ bind _core_assert_parse_f64_bits = (s: string, expected_bits: u64, label: string
 }
 
 @test("core parse_float edge cases: inf, nan, -0.0, >= 2^64, extreme exponents")
-bind test_core_parse_float = (): {
+bind test_core_parse_float = fn(): {
 	let pos_inf_bits = u64(0x7FF0000000000000)
 	let neg_zero_bits = u64(1) << u64(63)
 	let neg_inf_bits = neg_zero_bits | pos_inf_bits
@@ -481,7 +481,7 @@ bind test_core_parse_float = (): {
 }
 
 @test("core Result[T] construction and unwrapping")
-bind test_core_result = (): {
+bind test_core_result = fn(): {
 	let r_ok! = Result[int].value(100)
 	assert(r_ok!.is_ok(), "is_ok")
 	assert(not r_ok!.is_err(), "not is_err")
@@ -511,7 +511,7 @@ bind test_core_result = (): {
 }
 
 @test("core Error creation, wrapping, sentinels, and trace")
-bind test_core_error = (): {
+bind test_core_error = fn(): {
 	let sentinel_nf = Error.coded("not_found", "resource not found")
 	let e0 = Error.coded("not_found", "missing config.toml")
 	let e1 = e0.wrap("loading config")
@@ -548,7 +548,7 @@ bind test_core_error = (): {
 }
 
 @test("core List[T] operations")
-bind test_core_list = (): {
+bind test_core_list = fn(): {
 	let list = List[int].new()
 	assert(list.len() == 0, "initial len 0")
 	assert(list.is_empty(), "initial is_empty")
@@ -601,7 +601,7 @@ bind test_core_list = (): {
 }
 
 @test("core Set[T] operations")
-bind test_core_set = (): {
+bind test_core_set = fn(): {
 	let s = Set[string].new()
 	assert(s.len() == 0, "set initial len")
 	assert(s.is_empty(), "set initial is_empty")
@@ -641,7 +641,7 @@ bind test_core_set = (): {
 }
 
 @test("core Map[K, V] operations")
-bind test_core_map = (): {
+bind test_core_map = fn(): {
 	let m = Map[string, int].new()
 	assert(m.len() == 0, "map initial len")
 	assert(m.is_empty(), "map initial is_empty")
@@ -695,10 +695,10 @@ bind test_core_map = (): {
 define _CoreColor enum [red, green]
 define _CoreId int
 define _CoreRes struct [name: string]
-bind _CoreRes.drop = (&self): {}
+bind _CoreRes.drop = fn(&self): {}
 
 @test("core sets and maps are the native Set and Map")
-bind test_core_set_map_native = (): {
+bind test_core_set_map_native = fn(): {
 	// `#[T]` and `#[K: V]` are `Set[T]` and `Map[K, V]`.
 	let s: Set[int] = #[1, 2, 2, 3]
 	assert(s.len() == 3, "duplicates collapse")
@@ -736,7 +736,7 @@ bind test_core_set_map_native = (): {
 }
 
 @test("core literals and comprehensions start empty on every loop iteration")
-bind test_core_literal_in_loop = (): {
+bind test_core_literal_in_loop = fn(): {
 	for(r in 0..3): {
 		let xs = [r]
 		let ys = for(i in 0..2): i + r
@@ -750,7 +750,7 @@ bind test_core_literal_in_loop = (): {
 }
 
 @test("core string concatenation, slicing, and copy")
-bind test_core_string_ops = (): {
+bind test_core_string_ops = fn(): {
 	let a = "foo"
 	let b = a + "bar"
 	assert(b == "foobar" and b.cap() > 0, "concat owns its buffer")
@@ -766,24 +766,24 @@ bind test_core_string_ops = (): {
 }
 
 define _CoreV2 struct [x: int, y: int]
-bind _CoreV2.add = (self, other: _CoreV2) _CoreV2: _CoreV2[x: self.x + other.x, y: self.y + other.y]
+bind _CoreV2.add = fn(self, other: _CoreV2) _CoreV2: _CoreV2[x: self.x + other.x, y: self.y + other.y]
 
 define _CoreBag struct [items: [string]]
-bind _CoreBag.add = (self, other: _CoreBag) _CoreBag: {
+bind _CoreBag.add = fn(self, other: _CoreBag) _CoreBag: {
 	let out = self.items.copy()
 	for(s in other.items): out.push(s.copy())
 	_CoreBag[items: out]
 }
-bind _CoreBag.add_assign = (&self, other: _CoreBag): for(s in other.items): self.items.push(s.copy())
+bind _CoreBag.add_assign = fn(&self, other: _CoreBag): for(s in other.items): self.items.push(s.copy())
 
-bind _core_sum[T: Addable] = (xs: [T], zero: own T) T: {
+bind _core_sum[T: Addable] = fn(xs: [T], zero: own T) T: {
 	let acc = zero
 	for(x in xs): acc = acc + x
 	acc
 }
 
 @test("core + and += call Addable and AddAssignable")
-bind test_core_add_operators = (): {
+bind test_core_add_operators = fn(): {
 	let a = _CoreV2[x: 1, y: 2] + _CoreV2[x: 10, y: 20]
 	assert(a.x == 11 and a.y == 22, "struct add")
 	let p = _CoreV2[x: 0, y: 0]
@@ -821,7 +821,7 @@ define _CoreBox[T] struct [item: T]
 define _CoreTree enum [leaf: int, node: [_CoreTree]]
 
 @test("core @derive generates eq, cmp, hash, copy, and to_string")
-bind test_core_derive = (): {
+bind test_core_derive = fn(): {
 	let a = _CorePt[x: 1, name: "a".copy()]
 	let b = a.copy()
 	assert(a == b and not (a != b), "struct eq and copy")

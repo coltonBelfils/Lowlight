@@ -9,21 +9,21 @@
 // Float & Number Formatting Helpers
 // -----------------------------------------------------------------------------
 
-bind _float_bits = (v: float) u64:
+bind _float_bits = fn(v: float) u64:
 	unsafe {
 		let vp = addr_of(v)
 		let up = ptr_cast[u64](vp)
 		*up
 	}
 
-bind _bits_to_float = (bits: u64) float:
+bind _bits_to_float = fn(bits: u64) float:
 	unsafe {
 		let bp = addr_of(bits)
 		let fp = ptr_cast[float](bp)
 		*fp
 	}
 
-bind _pow10_u64 = (exp: int) u64: {
+bind _pow10_u64 = fn(exp: int) u64: {
 	let res: u64 = u64(1)
 	let i = 0
 	for(i < exp): {
@@ -33,7 +33,7 @@ bind _pow10_u64 = (exp: int) u64: {
 	res
 }
 
-bind _strip_trailing_frac_zeros = (s: string) string: {
+bind _strip_trailing_frac_zeros = fn(s: string) string: {
 	let has_dot = false
 	let k = 0
 	let slen = s.len()
@@ -57,7 +57,7 @@ bind _strip_trailing_frac_zeros = (s: string) string: {
 	out
 }
 
-bind _append_zero_padded_u64 = (out: &string, val: u64, width: int): {
+bind _append_zero_padded_u64 = fn(out: &string, val: u64, width: int): {
 	let s = val.to_string()
 	let pad = width - s.len()
 	for(pad > 0): {
@@ -67,7 +67,7 @@ bind _append_zero_padded_u64 = (out: &string, val: u64, width: int): {
 	out.push(s)
 }
 
-bind _append_exp_suffix = (out: &string, exp10: int):
+bind _append_exp_suffix = fn(out: &string, exp10: int):
 	if(exp10 < 0): {
 		out.push("e-")
 		let ae = -exp10
@@ -80,7 +80,7 @@ bind _append_exp_suffix = (out: &string, exp10: int):
 	}
 
 // Formats exact integer |v| >= 2^64 (IEEE-754 biased exponent >= 1087, < 0x7ff) via base-10^9 limbs.
-bind _format_large_float_int = (mant: u64, exp: u64) string: {
+bind _format_large_float_int = fn(mant: u64, exp: u64) string: {
 	let base = u64(1000000000)
 	let m = u64(1) << u64(52) | mant
 	let limbs: [u64] = []
@@ -119,7 +119,7 @@ bind _format_large_float_int = (mant: u64, exp: u64) string: {
 }
 
 // Scales finite positive `abs_v` into `[1.0, 10.0)` using binary powers of 10, writing base-10 exponent to `exp_out`.
-bind _norm_f64_exp10 = (abs_v: float, exp_out: &int) float: {
+bind _norm_f64_exp10 = fn(abs_v: float, exp_out: &int) float: {
 	let norm = abs_v
 	let e = 0
 	if(norm >= 1.0e256): {
@@ -206,7 +206,7 @@ bind _norm_f64_exp10 = (abs_v: float, exp_out: &int) float: {
 	norm
 }
 
-bind _format_float_fixed = (v: float, prec: int) string: {
+bind _format_float_fixed = fn(v: float, prec: int) string: {
 	let bits = _float_bits(v)
 	let sign = bits >> 63 & u64(1)
 	let exp = bits >> 52 & u64(0x7ff)
@@ -258,7 +258,7 @@ bind _format_float_fixed = (v: float, prec: int) string: {
 }
 
 // Divides `a` by `d` (`0 < d < 2^32`) in place and returns the remainder.
-bind _bi_divmod_small = (a: &[u64], d: u64) u64: {
+bind _bi_divmod_small = fn(a: &[u64], d: u64) u64: {
 	let rem = u64(0)
 	let i = a.len() - 1
 	while(i >= 0): {
@@ -272,13 +272,13 @@ bind _bi_divmod_small = (a: &[u64], d: u64) u64: {
 }
 
 // Reports whether bit `i` of `a` is set.
-bind _bi_bit = (a: [u64], i: int) bool: {
+bind _bi_bit = fn(a: [u64], i: int) bool: {
 	if(i < 0 or i / 32 >= a.len()): func <- false
 	((a[i / 32] >> u64(i % 32)) & u64(1)) == u64(1)
 }
 
 // Shifts `a` right by `bits`, rounding the discarded part half to even.
-bind _bi_shr_round_even = (a: &[u64], bits: int): {
+bind _bi_shr_round_even = fn(a: &[u64], bits: int): {
 	if(bits <= 0 or a.len() == 0): func <-
 	let half = _bi_bit(a, bits - 1)
 	let below = false
@@ -304,7 +304,7 @@ bind _bi_shr_round_even = (a: &[u64], bits: int): {
 // biased exponent) with exactly `p` decimals, rounding half to even like C's `printf`.
 // Every double is an exact binary fraction, so the digits are computed exactly with big
 // integers: `round(mant · 5^p · 2^(e + p))`.
-bind _format_fixed_exact = (mant_bits: u64, exp_field: int, p: int) string: {
+bind _format_fixed_exact = fn(mant_bits: u64, exp_field: int, p: int) string: {
 	let mant = if(exp_field == 0): mant_bits else: mant_bits | (u64(1) << u64(52))
 	let e = if(exp_field == 0): -1074 else: exp_field - 1075
 	let n = _bi_from_u64(mant)
@@ -325,7 +325,7 @@ bind _format_fixed_exact = (mant_bits: u64, exp_field: int, p: int) string: {
 	digits[..int_len] + "." + digits[int_len..]
 }
 
-bind _format_exp_f64 = (v: float, prec: int) string: {
+bind _format_exp_f64 = fn(v: float, prec: int) string: {
 	let bits = _float_bits(v)
 	let sign = bits >> 63 & u64(1)
 	let exp = bits >> 52 & u64(0x7ff)
@@ -380,7 +380,7 @@ bind _format_exp_f64 = (v: float, prec: int) string: {
 
 // Formats finite, zero, `inf`, `-inf`, and `nan` [`float`] values using fixed `prec`
 // decimals when `prec >= 0`, or compact precision-6/scientific notation when `prec < 0`.
-bind format_float_prec = (v: float, prec: int) string: {
+bind format_float_prec = fn(v: float, prec: int) string: {
 	let bits = _float_bits(v)
 	let sign = bits >> 63 & u64(1)
 	let exp = bits >> 52 & u64(0x7ff)
@@ -429,14 +429,14 @@ bind format_float_prec = (v: float, prec: int) string: {
 }
 
 // Formats this [`float`] in scientific exponential notation (`e+NN`/`e-NN`) with `precision` fractional digits.
-bind float.to_exp = (self, precision: int) string: _format_exp_f64(self, precision)
+bind float.to_exp = fn(self, precision: int) string: _format_exp_f64(self, precision)
 
 // -----------------------------------------------------------------------------
 // Low-Level String & Memory Operations
 // -----------------------------------------------------------------------------
 
 // Copies `len` bytes from raw pointer `data` into a new owned [`string`], returning `""` if null or `len <= 0`.
-bind str_from_raw = (data: ptr[u8], len: int) string: {
+bind str_from_raw = fn(data: ptr[u8], len: int) string: {
 	if(len <= 0 or unsafe is_null(data)): func <- ""
 	let out = ""
 	out.push_bytes(data, len)
@@ -444,7 +444,7 @@ bind str_from_raw = (data: ptr[u8], len: int) string: {
 }
 
 // Computes the byte length of null-terminated C string `s`, or `0` if `s` is null.
-bind raw_strlen = (s: ptr[u8]) int: {
+bind raw_strlen = fn(s: ptr[u8]) int: {
 	if(unsafe is_null(s)): func <- 0
 	let n = 0
 	unsafe {
@@ -454,7 +454,7 @@ bind raw_strlen = (s: ptr[u8]) int: {
 }
 
 // Lexicographically compares the first `n` bytes at `a` and `b`, returning `-1`, `0`, or `1`.
-bind raw_memcmp = (a: ptr[u8], b: ptr[u8], n: int) i32: {
+bind raw_memcmp = fn(a: ptr[u8], b: ptr[u8], n: int) i32: {
 	let i = 0
 	unsafe {
 		for(i < n): {
@@ -469,7 +469,7 @@ bind raw_memcmp = (a: ptr[u8], b: ptr[u8], n: int) i32: {
 }
 
 // Converts null-terminated C string pointer `s` into a newly owned [`string`] (empty if null).
-bind str_from_cstr = (s: ptr[u8]) string: {
+bind str_from_cstr = fn(s: ptr[u8]) string: {
 	if(unsafe is_null(s)): func <- ""
 	let n = raw_strlen(s)
 	str_from_raw(s, n)
@@ -480,7 +480,7 @@ bind str_from_cstr = (s: ptr[u8]) string: {
 // -----------------------------------------------------------------------------
 
 // Computes the IEEE-754 square root of `x` (`NaN` for `x < 0.0` or `NaN`, `+Inf` for `+Inf`, preserving `±0.0`).
-bind core_sqrt = (x: float) float: {
+bind core_sqrt = fn(x: float) float: {
 	let inf = 1.0e308 * 10.0
 	if(not (x == x)): func <- x
 	if(x < 0.0): func <- inf - inf
@@ -505,7 +505,7 @@ bind core_sqrt = (x: float) float: {
 }
 
 // Reads the entire contents of file or stream `path` as a [`string`], or returns `none` on I/O failure.
-bind core_read_file = (path: string) ?string:
+bind core_read_file = fn(path: string) ?string:
 	unsafe {
 		let fp = sys_fopen(path.c_str(), "rb".c_str())
 		if(is_null(fp)): func <- none
@@ -525,7 +525,7 @@ bind core_read_file = (path: string) ?string:
 	}
 
 // Writes `content` to `path` (truncating/creating the file) and returns `true` on success.
-bind core_write_file = (path: string, content: string) bool:
+bind core_write_file = fn(path: string, content: string) bool:
 	unsafe {
 		let fp = sys_fopen(path.c_str(), "wb".c_str())
 		if(is_null(fp)): func <- false
@@ -536,7 +536,7 @@ bind core_write_file = (path: string, content: string) bool:
 	}
 
 // Returns the process command-line arguments (`argv`) as a list of owned strings.
-bind core_cli_args = () [string]: {
+bind core_cli_args = fn() [string]: {
 	let count = unsafe sys_argc()
 	let out: [string] = []
 	let i = 0
@@ -553,7 +553,7 @@ bind core_cli_args = () [string]: {
 // -----------------------------------------------------------------------------
 
 // Converts an integer to its decimal string representation in 100% pure Lowlight.
-bind int.to_string = (self) string: {
+bind int.to_string = fn(self) string: {
 	if(self == 0): func <- "0"
 	if(self == -9223372036854775807 - 1): func <- "-9223372036854775808"
 	let is_neg = self < 0
@@ -575,40 +575,40 @@ bind int.to_string = (self) string: {
 }
 
 // Converts a boolean to "true" or "false".
-bind bool.to_string = (self) string:
+bind bool.to_string = fn(self) string:
 	if(self): "true" else: "false"
 
 // String itself satisfies Printable by returning a copy of itself.
-bind string.to_string = (self) string: self.copy()
+bind string.to_string = fn(self) string: self.copy()
 
 // Converts a unicode character code point into a single-character string.
-bind char.to_string = (self) string: {
+bind char.to_string = fn(self) string: {
 	let s = ""
 	s.push_char(self)
 	s
 }
 
 // Converts a 64-bit floating point number to its standard decimal string representation.
-bind float.to_string = (self) string: format_float_prec(self, -1)
+bind float.to_string = fn(self) string: format_float_prec(self, -1)
 
 // Converts `self` to its decimal string representation.
-bind f32.to_string = (self) string: format_float_prec(float(self), -1)
+bind f32.to_string = fn(self) string: format_float_prec(float(self), -1)
 
 // -----------------------------------------------------------------------------
 // Fixed-Width Integer String Conversions
 // -----------------------------------------------------------------------------
 
 // Converts this unsigned 8-bit integer to its decimal string representation.
-bind u8.to_string = (self) string: int(self).to_string()
+bind u8.to_string = fn(self) string: int(self).to_string()
 
 // Converts this unsigned 16-bit integer to its decimal string representation.
-bind u16.to_string = (self) string: int(self).to_string()
+bind u16.to_string = fn(self) string: int(self).to_string()
 
 // Converts this unsigned 32-bit integer to its decimal string representation.
-bind u32.to_string = (self) string: int(self).to_string()
+bind u32.to_string = fn(self) string: int(self).to_string()
 
 // Converts this unsigned 64-bit integer to its decimal string representation.
-bind u64.to_string = (self) string: {
+bind u64.to_string = fn(self) string: {
 	if(self == 0): func <- "0"
 	let n = self
 	let reversed = ""
@@ -628,13 +628,13 @@ bind u64.to_string = (self) string: {
 }
 
 // Converts this signed 8-bit integer to its decimal string representation.
-bind i8.to_string = (self) string: int(self).to_string()
+bind i8.to_string = fn(self) string: int(self).to_string()
 
 // Converts this signed 16-bit integer to its decimal string representation.
-bind i16.to_string = (self) string: int(self).to_string()
+bind i16.to_string = fn(self) string: int(self).to_string()
 
 // Converts this signed 32-bit integer to its decimal string representation.
-bind i32.to_string = (self) string: int(self).to_string()
+bind i32.to_string = fn(self) string: int(self).to_string()
 
 // -----------------------------------------------------------------------------
 // Addable & AddAssignable Implementations on Primitives
@@ -645,82 +645,82 @@ bind i32.to_string = (self) string: int(self).to_string()
 // code (`bind sum[T: Addable] = ...`) and can be called by name.
 
 // Returns `self + other` (satisfies [`Addable`]).
-bind int.add = (self, other: int) int: self + other
+bind int.add = fn(self, other: int) int: self + other
 
 // Adds `other` to `self` in place (satisfies [`AddAssignable`]).
-bind int.add_assign = (&self, other: int): {
+bind int.add_assign = fn(&self, other: int): {
 	self += other
 }
 
 // Returns `self + other` (satisfies [`Addable`]).
-bind i32.add = (self, other: i32) i32: self + other
+bind i32.add = fn(self, other: i32) i32: self + other
 
 // Adds `other` to `self` in place (satisfies [`AddAssignable`]).
-bind i32.add_assign = (&self, other: i32): {
+bind i32.add_assign = fn(&self, other: i32): {
 	self += other
 }
 
 // Returns `self + other` (satisfies [`Addable`]).
-bind i16.add = (self, other: i16) i16: self + other
+bind i16.add = fn(self, other: i16) i16: self + other
 
 // Adds `other` to `self` in place (satisfies [`AddAssignable`]).
-bind i16.add_assign = (&self, other: i16): {
+bind i16.add_assign = fn(&self, other: i16): {
 	self += other
 }
 
 // Returns `self + other` (satisfies [`Addable`]).
-bind i8.add = (self, other: i8) i8: self + other
+bind i8.add = fn(self, other: i8) i8: self + other
 
 // Adds `other` to `self` in place (satisfies [`AddAssignable`]).
-bind i8.add_assign = (&self, other: i8): {
+bind i8.add_assign = fn(&self, other: i8): {
 	self += other
 }
 
 // Returns `self + other` (satisfies [`Addable`]).
-bind u64.add = (self, other: u64) u64: self + other
+bind u64.add = fn(self, other: u64) u64: self + other
 
 // Adds `other` to `self` in place (satisfies [`AddAssignable`]).
-bind u64.add_assign = (&self, other: u64): {
+bind u64.add_assign = fn(&self, other: u64): {
 	self += other
 }
 
 // Returns `self + other` (satisfies [`Addable`]).
-bind u32.add = (self, other: u32) u32: self + other
+bind u32.add = fn(self, other: u32) u32: self + other
 
 // Adds `other` to `self` in place (satisfies [`AddAssignable`]).
-bind u32.add_assign = (&self, other: u32): {
+bind u32.add_assign = fn(&self, other: u32): {
 	self += other
 }
 
 // Returns `self + other` (satisfies [`Addable`]).
-bind u16.add = (self, other: u16) u16: self + other
+bind u16.add = fn(self, other: u16) u16: self + other
 
 // Adds `other` to `self` in place (satisfies [`AddAssignable`]).
-bind u16.add_assign = (&self, other: u16): {
+bind u16.add_assign = fn(&self, other: u16): {
 	self += other
 }
 
 // Returns `self + other` (satisfies [`Addable`]).
-bind u8.add = (self, other: u8) u8: self + other
+bind u8.add = fn(self, other: u8) u8: self + other
 
 // Adds `other` to `self` in place (satisfies [`AddAssignable`]).
-bind u8.add_assign = (&self, other: u8): {
+bind u8.add_assign = fn(&self, other: u8): {
 	self += other
 }
 
 // Returns `self + other` (satisfies [`Addable`]).
-bind float.add = (self, other: float) float: self + other
+bind float.add = fn(self, other: float) float: self + other
 
 // Adds `other` to `self` in place (satisfies [`AddAssignable`]).
-bind float.add_assign = (&self, other: float): {
+bind float.add_assign = fn(&self, other: float): {
 	self += other
 }
 
 // Returns `self + other` (satisfies [`Addable`]).
-bind f32.add = (self, other: f32) f32: self + other
+bind f32.add = fn(self, other: f32) f32: self + other
 
 // Adds `other` to `self` in place (satisfies [`AddAssignable`]).
-bind f32.add_assign = (&self, other: f32): {
+bind f32.add_assign = fn(&self, other: f32): {
 	self += other
 }
 
@@ -729,109 +729,109 @@ bind f32.add_assign = (&self, other: f32): {
 // -----------------------------------------------------------------------------
 
 // Reports structural equality between two booleans (`self == other`).
-bind bool.eq = (self, other: bool) bool: self == other
+bind bool.eq = fn(self, other: bool) bool: self == other
 
 // Reports equality between two [`int`] values (`self == other`).
-bind int.eq = (self, other: int) bool: self == other
+bind int.eq = fn(self, other: int) bool: self == other
 
 // Compares two [`int`] values, returning `-1`, `0`, or `1`.
-bind int.cmp = (self, other: int) int:
+bind int.cmp = fn(self, other: int) int:
 	if(self < other): -1
 	else if(self > other): 1
 	else: 0
 
 // Reports equality between two [`char`] values (`self == other`).
-bind char.eq = (self, other: char) bool: self == other
+bind char.eq = fn(self, other: char) bool: self == other
 
 // Compares two Unicode scalar [`char`] codepoints, returning `-1`, `0`, or `1`.
-bind char.cmp = (self, other: char) int:
+bind char.cmp = fn(self, other: char) int:
 	if(self < other): -1
 	else if(self > other): 1
 	else: 0
 
 // Reports equality between two [`float`] values (`self == other`).
-bind float.eq = (self, other: float) bool: self == other
+bind float.eq = fn(self, other: float) bool: self == other
 
 // Compares two [`float`] values, returning `-1`, `0`, or `1`.
-bind float.cmp = (self, other: float) int:
+bind float.cmp = fn(self, other: float) int:
 	if(self < other): -1
 	else if(self > other): 1
 	else: 0
 
 // Reports equality between two [`f32`] values (`self == other`).
-bind f32.eq = (self, other: f32) bool: self == other
+bind f32.eq = fn(self, other: f32) bool: self == other
 
 // Compares two [`f32`] values, returning `-1`, `0`, or `1`.
-bind f32.cmp = (self, other: f32) int:
+bind f32.cmp = fn(self, other: f32) int:
 	if(self < other): -1
 	else if(self > other): 1
 	else: 0
 
 // Reports equality between two [`u8`] values.
-bind u8.eq = (self, other: u8) bool: self == other
+bind u8.eq = fn(self, other: u8) bool: self == other
 
 // Compares two [`u8`] values, returning `-1`, `0`, or `1`.
-bind u8.cmp = (self, other: u8) int:
+bind u8.cmp = fn(self, other: u8) int:
 	if(self < other): -1
 	else if(self > other): 1
 	else: 0
 
 // Reports equality between two [`u16`] values.
-bind u16.eq = (self, other: u16) bool: self == other
+bind u16.eq = fn(self, other: u16) bool: self == other
 
 // Compares two [`u16`] values, returning `-1`, `0`, or `1`.
-bind u16.cmp = (self, other: u16) int:
+bind u16.cmp = fn(self, other: u16) int:
 	if(self < other): -1
 	else if(self > other): 1
 	else: 0
 
 // Reports equality between two [`u32`] values.
-bind u32.eq = (self, other: u32) bool: self == other
+bind u32.eq = fn(self, other: u32) bool: self == other
 
 // Compares two [`u32`] values, returning `-1`, `0`, or `1`.
-bind u32.cmp = (self, other: u32) int:
+bind u32.cmp = fn(self, other: u32) int:
 	if(self < other): -1
 	else if(self > other): 1
 	else: 0
 
 // Reports equality between two [`u64`] values.
-bind u64.eq = (self, other: u64) bool: self == other
+bind u64.eq = fn(self, other: u64) bool: self == other
 
 // Compares two [`u64`] values, returning `-1`, `0`, or `1`.
-bind u64.cmp = (self, other: u64) int:
+bind u64.cmp = fn(self, other: u64) int:
 	if(self < other): -1
 	else if(self > other): 1
 	else: 0
 
 // Reports equality between two [`i8`] values.
-bind i8.eq = (self, other: i8) bool: self == other
+bind i8.eq = fn(self, other: i8) bool: self == other
 
 // Compares two [`i8`] values, returning `-1`, `0`, or `1`.
-bind i8.cmp = (self, other: i8) int:
+bind i8.cmp = fn(self, other: i8) int:
 	if(self < other): -1
 	else if(self > other): 1
 	else: 0
 
 // Reports equality between two [`i16`] values.
-bind i16.eq = (self, other: i16) bool: self == other
+bind i16.eq = fn(self, other: i16) bool: self == other
 
 // Compares two [`i16`] values, returning `-1`, `0`, or `1`.
-bind i16.cmp = (self, other: i16) int:
+bind i16.cmp = fn(self, other: i16) int:
 	if(self < other): -1
 	else if(self > other): 1
 	else: 0
 
 // Reports equality between two [`i32`] values.
-bind i32.eq = (self, other: i32) bool: self == other
+bind i32.eq = fn(self, other: i32) bool: self == other
 
 // Compares two [`i32`] values, returning `-1`, `0`, or `1`.
-bind i32.cmp = (self, other: i32) int:
+bind i32.cmp = fn(self, other: i32) int:
 	if(self < other): -1
 	else if(self > other): 1
 	else: 0
 
 // Reports byte-for-byte equality between `self` and `other`.
-bind string.eq = (self, other: string) bool: {
+bind string.eq = fn(self, other: string) bool: {
 	let n = self.len()
 	if(n != other.len()): func <- false
 	let i = 0
@@ -843,7 +843,7 @@ bind string.eq = (self, other: string) bool: {
 }
 
 // Performs unsigned byte lexicographical comparison against `other`, returning `-1`, `0`, or `1`.
-bind string.cmp = (self, other: string) int: {
+bind string.cmp = fn(self, other: string) int: {
 	let n1 = self.len()
 	let n2 = other.len()
 	let min_n = if(n1 < n2): n1 else: n2
@@ -865,23 +865,23 @@ bind string.cmp = (self, other: string) int: {
 // -----------------------------------------------------------------------------
 
 // Reports whether the character is an ASCII decimal digit (`'0'..'9'`).
-bind char.is_digit = (self) bool: self >= '0' and self <= '9'
+bind char.is_digit = fn(self) bool: self >= '0' and self <= '9'
 
 // Reports whether the character is an ASCII alphabetic letter (`'a'..'z'` or `'A'..'Z'`).
-bind char.is_alpha = (self) bool: (self >= 'a' and self <= 'z') or (self >= 'A' and self <= 'Z')
+bind char.is_alpha = fn(self) bool: (self >= 'a' and self <= 'z') or (self >= 'A' and self <= 'Z')
 
 // Reports whether the character is an ASCII letter or decimal digit.
-bind char.is_alnum = (self) bool: self.is_alpha() or self.is_digit()
+bind char.is_alnum = fn(self) bool: self.is_alpha() or self.is_digit()
 
 // Reports whether the character is ASCII whitespace (space, `\t`, `\n`, `\r`, vertical tab, or form feed).
-bind char.is_whitespace = (self) bool:
+bind char.is_whitespace = fn(self) bool:
 	self == ' ' or self == '\t' or self == '\n' or self == '\r' or int(self) == 11 or int(self) == 12
 
 // Returns the Unicode scalar codepoint of `self` as an [`int`].
-bind char.to_int = (self) int: int(self)
+bind char.to_int = fn(self) int: int(self)
 
 // Reports whether the string contains zero bytes.
-bind string.is_empty = (self) bool: self.len() == 0
+bind string.is_empty = fn(self) bool: self.len() == 0
 
 // -----------------------------------------------------------------------------
 // String Buffer Methods
@@ -904,7 +904,7 @@ define _StringRaw struct [
 // no-growth path stays small enough to inline. It takes and returns the string by value rather
 // than through a pointer so the string never has its address taken, which lets the optimizer
 // keep a local string's fields in registers.
-bind _string_grow = (s: _StringRaw, needed: int) _StringRaw: unsafe {
+bind _string_grow = fn(s: _StringRaw, needed: int) _StringRaw: unsafe {
 	let ncap = if(s.cap > 0): s.cap else: 16
 	while(ncap < needed): ncap *= 2
 	if(s.cap > 0): func <- _StringRaw[data: realloc_raw(s.data, ncap), len: s.len, cap: ncap]
@@ -918,7 +918,7 @@ bind _string_grow = (s: _StringRaw, needed: int) _StringRaw: unsafe {
 //
 // Appending grows the buffer by doubling, so building a string with repeated `push` calls takes
 // time proportional to its final length.
-bind string.push = (&self, suffix: string): unsafe {
+bind string.push = fn(&self, suffix: string): unsafe {
 	let n = suffix.len()
 	if(n == 0): func <-
 	let r = ptr_cast[_StringRaw](addr_of(self))
@@ -933,7 +933,7 @@ bind string.push = (&self, suffix: string): unsafe {
 // The slow path of `string.push`: returns `s` grown, with `n` bytes from `src` copied after its
 // text. `len` is left for the caller to update. `src` may point into the buffer being grown
 // (`s.push(s)`, or a slice of `s`), so such bytes are copied out before the buffer moves.
-bind _string_push_grow = (s: _StringRaw, src: ptr[u8], n: int) _StringRaw: unsafe {
+bind _string_push_grow = fn(s: _StringRaw, src: ptr[u8], n: int) _StringRaw: unsafe {
 	let start = ptr_addr(s.data)
 	let at = ptr_addr(src)
 	if(s.cap > 0 and at >= start and at < start + u64(s.cap)): {
@@ -950,7 +950,7 @@ bind _string_push_grow = (s: _StringRaw, src: ptr[u8], n: int) _StringRaw: unsaf
 }
 
 // Appends one raw byte in place.
-bind string.push_byte = (&self, b: u8): unsafe {
+bind string.push_byte = fn(&self, b: u8): unsafe {
 	let r = ptr_cast[_StringRaw](addr_of(self))
 	let len = (*r).len
 	if((*r).cap < len + 2): *r = _string_grow(*r, len + 2)
@@ -961,7 +961,7 @@ bind string.push_byte = (&self, b: u8): unsafe {
 }
 
 // Appends `count` raw bytes read from `bytes`.
-bind string.push_bytes = (&self, bytes: ptr[u8], count: int): unsafe {
+bind string.push_bytes = fn(&self, bytes: ptr[u8], count: int): unsafe {
 	if(count <= 0): func <-
 	let r = ptr_cast[_StringRaw](addr_of(self))
 	let len = (*r).len
@@ -972,7 +972,7 @@ bind string.push_bytes = (&self, bytes: ptr[u8], count: int): unsafe {
 }
 
 // Appends `ch`, encoded as UTF-8 (one to four bytes).
-bind string.push_char = (&self, ch: char): unsafe {
+bind string.push_char = fn(&self, ch: char): unsafe {
 	let c = int(ch)
 	if(c < 0x80): {
 		self.push_byte(u8(c))
@@ -999,7 +999,7 @@ bind string.push_char = (&self, ch: char): unsafe {
 }
 
 // Removes all text, keeping the allocated capacity for reuse.
-bind string.clear = (&self): unsafe {
+bind string.clear = fn(&self): unsafe {
 	let r = ptr_cast[_StringRaw](addr_of(self))
 	if((*r).cap > 0): {
 		(*r).len = 0
@@ -1014,7 +1014,7 @@ bind string.clear = (&self): unsafe {
 
 // Makes room for at least `additional` more bytes, so appending that many does not reallocate.
 // Also turns a borrowed literal or view into an owned buffer.
-bind string.reserve = (&self, additional: int): unsafe {
+bind string.reserve = fn(&self, additional: int): unsafe {
 	let r = ptr_cast[_StringRaw](addr_of(self))
 	let needed = (*r).len + (if(additional > 0): additional else: 0) + 1
 	if((*r).cap < needed): *r = _string_grow(*r, needed)
@@ -1022,13 +1022,13 @@ bind string.reserve = (&self, additional: int): unsafe {
 
 // Returns how many bytes the string can hold without reallocating: `0` for literals and views,
 // which own no buffer.
-bind string.cap = (self) int: unsafe {
+bind string.cap = fn(self) int: unsafe {
 	let c = (*ptr_cast[_StringRaw](addr_of(self))).cap
 	if(c > 0): c - 1 else: 0
 }
 
 // Creates an empty string with room for at least `capacity` bytes before it reallocates.
-bind string.with_capacity = (capacity: int) string: {
+bind string.with_capacity = fn(capacity: int) string: {
 	let s = ""
 	s.reserve(capacity)
 	s
@@ -1037,7 +1037,7 @@ bind string.with_capacity = (capacity: int) string: {
 // Returns an owned copy of the string (satisfies [`Copyable`]). Copying a literal or view gives
 // an owned buffer; copying an empty string gives the empty literal, which allocates nothing.
 @inline
-bind string.copy = (self) string: unsafe {
+bind string.copy = fn(self) string: unsafe {
 	let r = *ptr_cast[_StringRaw](addr_of(self))
 	if(r.len <= 0): func <- ""
 	let buf = alloc_uninit[u8](r.len + 1)
@@ -1049,7 +1049,7 @@ bind string.copy = (self) string: unsafe {
 
 // Returns a new string holding `self` followed by `other` (`a + b`, satisfies [`Addable`]).
 @inline
-bind string.add = (self, other: string) string: unsafe {
+bind string.add = fn(self, other: string) string: unsafe {
 	let a = *ptr_cast[_StringRaw](addr_of(self))
 	let b = *ptr_cast[_StringRaw](addr_of(other))
 	let total = a.len + b.len
@@ -1064,13 +1064,13 @@ bind string.add = (self, other: string) string: unsafe {
 
 // Appends `other` in place (`a += b`, satisfies [`AddAssignable`]).
 @inline
-bind string.add_assign = (&self, other: string): self.push(other)
+bind string.add_assign = fn(&self, other: string): self.push(other)
 
 // Returns bytes `lo` up to `hi` of the string as a borrowed view that owns nothing. The compiler
 // lowers `s[lo..hi]` to this when the slice is only borrowed, and to [`string._slice`] otherwise.
 @inline
 @track_caller
-bind string._slice_view = (self, lo: int, hi: int) string: unsafe {
+bind string._slice_view = fn(self, lo: int, hi: int) string: unsafe {
 	let r = *ptr_cast[_StringRaw](addr_of(self))
 	if(lo < 0 or hi < lo or hi > r.len): panic("string slice bounds out of range")
 	let data = if(lo == 0): r.data else: ptr_add(r.data, lo)
@@ -1081,7 +1081,7 @@ bind string._slice_view = (self, lo: int, hi: int) string: unsafe {
 // Returns an owned copy of bytes `lo` up to `hi` of the string.
 @inline
 @track_caller
-bind string._slice = (self, lo: int, hi: int) string: unsafe {
+bind string._slice = fn(self, lo: int, hi: int) string: unsafe {
 	let r = *ptr_cast[_StringRaw](addr_of(self))
 	if(lo < 0 or hi < lo or hi > r.len): panic("string slice bounds out of range")
 	let n = hi - lo
@@ -1094,16 +1094,16 @@ bind string._slice = (self, lo: int, hi: int) string: unsafe {
 }
 
 // Returns the byte at zero-based offset `idx`, or `none` if out of bounds.
-bind string.get_byte = (self, idx: int) ?u8: {
+bind string.get_byte = fn(self, idx: int) ?u8: {
 	if(idx < 0 or idx >= self.len()): func <- none
 	self.byte_at(idx)
 }
 
 // Returns the byte at zero-based offset `idx`, or `none` if out of bounds (satisfies [`Indexable`]).
-bind string.get = (self, idx: int) ?u8: self.get_byte(idx)
+bind string.get = fn(self, idx: int) ?u8: self.get_byte(idx)
 
 // Copies all UTF-8 bytes of the string into a new [`List`] of [`u8`].
-bind string.bytes = (self) [u8]: {
+bind string.bytes = fn(self) [u8]: {
 	let out: [u8] = []
 	let n = self.len()
 	let i = 0
@@ -1117,7 +1117,7 @@ bind string.bytes = (self) [u8]: {
 // Decodes one UTF-8 scalar codepoint starting at byte offset `off` in `s`, writing the next offset to `next_off`.
 //
 // Returns `'\0'` at end of string (or when `off < 0`), or replacement character `U+FFFD` (advancing by 1 byte) on malformed UTF-8 sequences (invalid continuation bytes, overlong encodings, UTF-16 surrogates, or codepoints above `U+10FFFF`).
-bind str_utf8_next = (s: string, off: int, next_off: &int) char: {
+bind str_utf8_next = fn(s: string, off: int, next_off: &int) char: {
 	let n = s.len()
 	if(off < 0): {
 		next_off = 0
@@ -1167,7 +1167,7 @@ bind str_utf8_next = (s: string, off: int, next_off: &int) char: {
 }
 
 // Decodes all UTF-8 scalar codepoints in the string into a new [`List`] of [`char`].
-bind string.chars = (self) [char]: {
+bind string.chars = fn(self) [char]: {
 	let out: [char] = []
 	let n = self.len()
 	let i = 0
@@ -1181,7 +1181,7 @@ bind string.chars = (self) [char]: {
 }
 
 // Reports whether the string begins with byte sequence `prefix`.
-bind string.starts_with = (self, prefix: string) bool: {
+bind string.starts_with = fn(self, prefix: string) bool: {
 	let plen = prefix.len()
 	if(self.len() < plen): func <- false
 	let i = 0
@@ -1193,7 +1193,7 @@ bind string.starts_with = (self, prefix: string) bool: {
 }
 
 // Reports whether the string ends with byte sequence `suffix`.
-bind string.ends_with = (self, suffix: string) bool: {
+bind string.ends_with = fn(self, suffix: string) bool: {
 	let slen = suffix.len()
 	let n = self.len()
 	if(n < slen): func <- false
@@ -1207,7 +1207,7 @@ bind string.ends_with = (self, suffix: string) bool: {
 }
 
 // Returns the zero-based byte offset of the first occurrence of `sub`, or `none` if absent.
-bind string.index_of = (self, sub: string) ?int: {
+bind string.index_of = fn(self, sub: string) ?int: {
 	let sub_len = sub.len()
 	let n = self.len()
 	if(sub_len == 0): func <- 0
@@ -1231,10 +1231,10 @@ bind string.index_of = (self, sub: string) ?int: {
 }
 
 // Reports whether `sub` appears anywhere within this string.
-bind string.contains = (self, sub: string) bool: self.index_of(sub) != none
+bind string.contains = fn(self, sub: string) bool: self.index_of(sub) != none
 
 // Returns a copy of the string with leading ASCII whitespace removed.
-bind string.trim_start = (self) string: {
+bind string.trim_start = fn(self) string: {
 	let n = self.len()
 	let start = 0
 	for(start < n): {
@@ -1249,7 +1249,7 @@ bind string.trim_start = (self) string: {
 }
 
 // Returns a copy of the string with trailing ASCII whitespace removed.
-bind string.trim_end = (self) string: {
+bind string.trim_end = fn(self) string: {
 	let end = self.len()
 	for(end > 0): {
 		let b = self.byte_at(end - 1)
@@ -1263,10 +1263,10 @@ bind string.trim_end = (self) string: {
 }
 
 // Returns a copy of the string with both leading and trailing ASCII whitespace removed.
-bind string.trim = (self) string: self.trim_start().trim_end()
+bind string.trim = fn(self) string: self.trim_start().trim_end()
 
 // Returns a copy of the string with ASCII lowercase bytes `'a'..'z'` converted to uppercase `'A'..'Z'`.
-bind string.to_upper = (self) string: {
+bind string.to_upper = fn(self) string: {
 	let out = ""
 	let n = self.len()
 	let i = 0
@@ -1279,7 +1279,7 @@ bind string.to_upper = (self) string: {
 }
 
 // Returns a copy of the string with ASCII uppercase bytes `'A'..'Z'` converted to lowercase `'a'..'z'`.
-bind string.to_lower = (self) string: {
+bind string.to_lower = fn(self) string: {
 	let out = ""
 	let n = self.len()
 	let i = 0
@@ -1292,7 +1292,7 @@ bind string.to_lower = (self) string: {
 }
 
 // Returns a new string with the first occurrence of `old_s` replaced by `new_s`.
-bind string.replace = (self, old_s: string, new_s: string) string: {
+bind string.replace = fn(self, old_s: string, new_s: string) string: {
 	if(old_s.len() == 0 or self.len() < old_s.len()): func <- self.copy()
 	let out = ""
 	let i = 0
@@ -1310,7 +1310,7 @@ bind string.replace = (self, old_s: string, new_s: string) string: {
 }
 
 // Returns a new string with every non-overlapping occurrence of `old_s` replaced by `new_s`.
-bind string.replace_all = (self, old_s: string, new_s: string) string: {
+bind string.replace_all = fn(self, old_s: string, new_s: string) string: {
 	if(old_s.len() == 0 or self.len() < old_s.len()): func <- self.copy()
 	let out = ""
 	let start = 0
@@ -1328,7 +1328,7 @@ bind string.replace_all = (self, old_s: string, new_s: string) string: {
 }
 
 // Splits the string on delimiter `sep`, or splits into individual UTF-8 character strings when `sep` is empty.
-bind string.split = (self, sep: string) [string]: {
+bind string.split = fn(self, sep: string) [string]: {
 	let out: [string] = []
 	if(sep.len() == 0): {
 		for(ch in self.chars()): out.push(ch.to_string())
@@ -1348,7 +1348,7 @@ bind string.split = (self, sep: string) [string]: {
 }
 
 // Concatenates all elements of `list` with `sep` inserted between adjacent elements.
-bind join_strings = (list: [string], sep: string) string: {
+bind join_strings = fn(list: [string], sep: string) string: {
 	if(list.len() == 0): func <- ""
 	let out = ""
 	let i = 0
@@ -1365,7 +1365,7 @@ bind join_strings = (list: [string], sep: string) string: {
 // Accepts an optional `+`/`-` sign and a base prefix (`0x`, `0b`, `0o`) matching `radix`. The whole
 // string must be the number: surrounding whitespace is rejected, so call `s.trim()` first to
 // accept it.
-bind parse_int_radix = (s: string, radix: int) ?int: {
+bind parse_int_radix = fn(s: string, radix: int) ?int: {
 	if(radix < 2 or radix > 36): func <- none
 	let trimmed = s[..]
 	let n = trimmed.len()
@@ -1420,7 +1420,7 @@ bind parse_int_radix = (s: string, radix: int) ?int: {
 //
 // Returns `none` for invalid syntax, values outside the `int` range, and surrounding whitespace
 // (trim first to accept it).
-bind parse_int = (s: string) ?int: {
+bind parse_int = fn(s: string) ?int: {
 	let trimmed = s[..]
 	if(trimmed.starts_with("0x") or trimmed.starts_with("0X") or trimmed.starts_with("-0x") or trimmed.starts_with(
 		"-0X"
@@ -1437,7 +1437,7 @@ bind parse_int = (s: string) ?int: {
 	parse_int_radix(trimmed, 10)
 }
 
-bind _ascii_eq_ignore_case = (s: string, start: int, target_lower: string) bool: {
+bind _ascii_eq_ignore_case = fn(s: string, start: int, target_lower: string) bool: {
 	let n = target_lower.len()
 	if(s.len() - start != n): func <- false
 	let j = 0
@@ -1450,7 +1450,7 @@ bind _ascii_eq_ignore_case = (s: string, start: int, target_lower: string) bool:
 	true
 }
 
-bind _pow10_f64_exact = (exp: int) float: {
+bind _pow10_f64_exact = fn(exp: int) float: {
 	let r = 1.0
 	if((exp & 1) != 0): r *= 10.0
 	if((exp & 2) != 0): r *= 100.0
@@ -1460,7 +1460,7 @@ bind _pow10_f64_exact = (exp: int) float: {
 	r
 }
 
-bind _bi_from_u64 = (x: u64) [u64]: {
+bind _bi_from_u64 = fn(x: u64) [u64]: {
 	let out: [u64] = []
 	if(x == u64(0)): func <- out
 	let mask = u64(0xFFFFFFFF)
@@ -1471,12 +1471,12 @@ bind _bi_from_u64 = (x: u64) [u64]: {
 	out
 }
 
-bind _bi_trim = (a: &[u64]):
+bind _bi_trim = fn(a: &[u64]):
 	for(a.len() > 0 and a[a.len() - 1] == u64(0)): {
 		let _ = a.pop() ?? u64(0)
 	}
 
-bind _bi_mul_add_u64 = (a: &[u64], mult: u64, add: u64): {
+bind _bi_mul_add_u64 = fn(a: &[u64], mult: u64, add: u64): {
 	let mask = u64(0xFFFFFFFF)
 	let carry = add
 	let i = 0
@@ -1493,7 +1493,7 @@ bind _bi_mul_add_u64 = (a: &[u64], mult: u64, add: u64): {
 	}
 }
 
-bind _bi_mul_pow5 = (a: &[u64], p: int): {
+bind _bi_mul_pow5 = fn(a: &[u64], p: int): {
 	let rem = p
 	for(rem >= 13): {
 		_bi_mul_add_u64(&a, u64(1220703125), u64(0)) // 5^13
@@ -1510,7 +1510,7 @@ bind _bi_mul_pow5 = (a: &[u64], p: int): {
 	}
 }
 
-bind _bi_shl = (a: &[u64], bits: int): {
+bind _bi_shl = fn(a: &[u64], bits: int): {
 	if(a.len() == 0 or bits <= 0): func <-
 	let word_shift = bits >> 5
 	let bit_shift = bits & 31
@@ -1549,7 +1549,7 @@ bind _bi_shl = (a: &[u64], bits: int): {
 	}
 }
 
-bind _bi_bit_len = (a: [u64]) int: {
+bind _bi_bit_len = fn(a: [u64]) int: {
 	let n = a.len()
 	if(n == 0): func <- 0
 	let top = a[n - 1]
@@ -1561,7 +1561,7 @@ bind _bi_bit_len = (a: [u64]) int: {
 	(n - 1) * 32 + bl
 }
 
-bind _bi_cmp = (a: [u64], b: [u64]) int: {
+bind _bi_cmp = fn(a: [u64], b: [u64]) int: {
 	let na = a.len()
 	let nb = b.len()
 	if(na != nb):
@@ -1575,7 +1575,7 @@ bind _bi_cmp = (a: [u64], b: [u64]) int: {
 	0
 }
 
-bind _bi_sub = (a: &[u64], b: [u64]): {
+bind _bi_sub = fn(a: &[u64], b: [u64]): {
 	let base = u64(0x100000000)
 	let borrow = u64(0)
 	let na = a.len()
@@ -1597,7 +1597,7 @@ bind _bi_sub = (a: &[u64], b: [u64]): {
 }
 
 // Converts exact positive decimal `num * 10^exp10` into correctly rounded IEEE-754 float64.
-bind _bigint_to_f64 = (a: own [u64], exp10: int, is_neg: bool) float: {
+bind _bigint_to_f64 = fn(a: own [u64], exp10: int, is_neg: bool) float: {
 	let sign_bit = if(is_neg): u64(1) << u64(63) else: u64(0)
 	let inf_bits = sign_bit | u64(0x7FF0000000000000)
 	if(a.len() == 0): func <- _bits_to_float(sign_bit)
@@ -1655,7 +1655,7 @@ bind _bigint_to_f64 = (a: own [u64], exp10: int, is_neg: bool) float: {
 // The result is correctly rounded. Returns `none` for invalid syntax, for surrounding whitespace
 // (trim first to accept it), and for finite numbers too large for a [`float`] (`"1e400"`); write
 // `"inf"` for infinity. Numbers too small to represent round to a signed zero.
-bind parse_float = (s: string) ?float: {
+bind parse_float = fn(s: string) ?float: {
 	let trimmed = s[..]
 	let n = trimmed.len()
 	if(n == 0): func <- none
@@ -1806,19 +1806,19 @@ bind parse_float = (s: string) ?float: {
 // -----------------------------------------------------------------------------
 
 // Returns the smaller of two comparable values.
-bind min[T: Comparable + Copyable] = (a: T, b: T) T:
+bind min[T: Comparable + Copyable] = fn(a: T, b: T) T:
 	if(a < b): a.copy() else: b.copy()
 
 // Returns the larger of two comparable values.
-bind max[T: Comparable + Copyable] = (a: T, b: T) T:
+bind max[T: Comparable + Copyable] = fn(a: T, b: T) T:
 	if(a > b): a.copy() else: b.copy()
 
 // Returns the absolute value of a signed integer.
-bind abs = (x: int) int:
+bind abs = fn(x: int) int:
 	if(x < 0): -x else: x
 
 // Clamps a value within the range [low, high].
-bind clamp[T: Comparable + Copyable] = (val: T, low: T, high: T) T:
+bind clamp[T: Comparable + Copyable] = fn(val: T, low: T, high: T) T:
 	if(val < low): low.copy()
 	else if(val > high): high.copy()
 	else: val.copy()

@@ -114,6 +114,10 @@ func (fl *funcLowerer) lowerStackArrayAddr(e ast.Expr, arrTy *types.StackArray) 
 }
 
 func (fl *funcLowerer) applyOwnedCoercions(_ ast.Expr, inf *sema.ExprInfo, valExpr Expr, targetTy types.Type) Expr {
+	if inf.ToClosure != nil {
+		fl.tc.visit(inf.ToClosure)
+		return &ExprFnToClosure{Fn: EnsureExpr(valExpr, inf.Type), To: inf.ToClosure}
+	}
 	// Owned Interface boxing (`let s: Shape = my_circle` or `[Printable(x)]`)
 	if inf.BoxInterface != nil && !inf.BorrowAsView && !inf.Type.Equals(inf.BoxInterface) {
 		return fl.boxConcreteIntoInterface(valExpr, inf.Type, inf.BoxInterface)
@@ -218,6 +222,10 @@ func (fl *funcLowerer) lowerExprRead(e ast.Expr) Expr {
 		raw = NewLocalExpr(fl.allocStmtTemp(inf.Type, raw))
 	}
 
+	if inf.ToClosure != nil {
+		fl.tc.visit(inf.ToClosure)
+		return &ExprFnToClosure{Fn: EnsureExpr(raw, inf.Type), To: inf.ToClosure}
+	}
 	if inf.WrapOptional {
 		optTy := types.NewOptional(inf.Type)
 		fl.tc.visit(optTy)

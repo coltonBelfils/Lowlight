@@ -275,7 +275,7 @@ Lowlight provides two complete, decoupled code generation backends:
 
 The LLVM emitter constructs SSA LLVM IR directly from lowered MIR:
 - **Header:** Emits `target datalayout` and `target triple` configured via CLI `--target <triple>` or detected from host platform.
-- **Type Definitions:** Emits LLVM struct types for structs, tagged enums, closures (`{ ptr, ptr, ptr, ptr }`), fat interfaces (`{ ptr, ptr, i1 }`), and collections (`{ ptr, i64, i64 }`).
+- **Type Definitions:** Emits LLVM struct types for structs, tagged enums, closures (`cl`, `{ ptr, ptr, ptr, ptr }`), fat interfaces (`{ ptr, ptr, i1 }`), and collections (`{ ptr, i64, i64 }`). An `fn` value is a bare `ptr` to an entry function that takes an unused environment pointer first, so calling it passes `null`, and converting it to a `cl` (`ExprFnToClosure`) stores the pointer with a null environment. In C it is a function-pointer typedef with the same signature as a closure's `fn` field.
 - **Alloca Entry Hoisting:** Function entry allocates local storage with alignment and generates SSA registers.
 - **Synthesized Intrinsics:** Generates SSA bounds checks, division checks, shift checks, string interpolation, and collection helpers directly in LLVM IR.
 
@@ -335,8 +335,8 @@ The C11 code generator (`cEmitter`) emits a single, self-contained `.c` file org
 
 ### 6.4 Core Built-in Interfaces & Dynamic Dispatch
 The standard library defines universal interfaces in `std/core/interfaces.ll` hooked directly into the compiler via `@lang(...)`:
-- **`@lang("indexable") Indexable[T]`**: Exposes `len: (self): int` and `get: (self, idx: int): ?T`. Implemented inherently by `List[T]` / `[T]`, `Array` / `[N: T]`, `string` (`Indexable[u8]`), and custom sequence types with integer index.
-- **`@lang("key_indexable") KeyIndexable[K, V]`**: Exposes `len: (self): int`, `has: (self, key: K): bool`, and `get: (self, key: K): ?V`. Implemented inherently by `Map[K, V]` / `#[K: V]` and custom associative types, avoiding accidental structural collision with positional sequence indexing.
+- **`@lang("indexable") Indexable[T]`**: Exposes `len: fn(self): int` and `get: fn(self, idx: int): ?T`. Implemented inherently by `List[T]` / `[T]`, `Array` / `[N: T]`, `string` (`Indexable[u8]`), and custom sequence types with integer index.
+- **`@lang("key_indexable") KeyIndexable[K, V]`**: Exposes `len: fn(self): int`, `has: fn(self, key: K): bool`, and `get: fn(self, key: K): ?V`. Implemented inherently by `Map[K, V]` / `#[K: V]` and custom associative types, avoiding accidental structural collision with positional sequence indexing.
 - **Synthesized VTables**: For native runtime structures like `[N: T]`, `string`, and `#[K: V]`, method wrappers for `len` and `get` are synthesized directly in code generation (C11 and LLVM IR) to provide zero-overhead dispatch without requiring runtime indirection or conversions.
 - **Direct Indexing**: Indexing expressions `c[idx]` on values of interface type `Indexable[T]` or `KeyIndexable[K, V]` (or generic type parameters bounded by them) lower directly into dynamic dispatch to `.get(...)`, evaluating to `?T` or `?V`. Zero-allocation stack borrowing avoids heap allocation when passing arguments to read-only interface parameters.
 

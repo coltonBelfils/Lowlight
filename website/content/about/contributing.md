@@ -101,7 +101,7 @@ The section is the page's directory. Links may point to other pages by site path
 
 // Prose for the left column, in Markdown, written as comments at column 0.
 // The code that follows appears on the right.
-bind main = (): println("hello, world")
+bind main = fn(): println("hello, world")
 ```
 
 Regenerate their expected output after changing them:

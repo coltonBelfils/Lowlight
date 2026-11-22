@@ -5,13 +5,13 @@
 import "std/http"
 
 // Handlers receive the request and a writer for the response.
-bind hello = (req: http.Request, res: &http.ResponseWriter): {
+bind hello = fn(req: http.Request, res: &http.ResponseWriter): {
 	let name = req.query_param("name") ?? "world"
 	res.set_header("Content-Type", "text/plain")
 	res.write("hello, $name")
 }
 
-bind main = (): {
+bind main = fn(): {
 	let mux = http.ServeMux.new()
 	mux.handle_func("/hello", hello)
 

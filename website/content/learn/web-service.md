@@ -26,10 +26,10 @@ A handler is a function that receives the request and a `ResponseWriter` to fill
 ```lowlight
 import "std/http"
 
-bind main = (): {
+bind main = fn(): {
 	let mux = http.ServeMux.new()
-	mux.handle_func("/health", (req: http.Request, res: &http.ResponseWriter): res.write("ok\n"))
-	mux.handle_func("/greet", (req: http.Request, res: &http.ResponseWriter): {
+	mux.handle_func("/health", fn(req: http.Request, res: &http.ResponseWriter): res.write("ok\n"))
+	mux.handle_func("/greet", fn(req: http.Request, res: &http.ResponseWriter): {
 		let name = req.query_param("name") ?? "world"
 		res.set_header("Content-Type", "text/plain; charset=utf-8")
 		res.write("hello, $name\n")
@@ -64,15 +64,15 @@ define Store struct [
 	items: [string],
 ]
 
-bind Store.add = (&self, item: string): self.items.push(item.copy())
+bind Store.add = fn(&self, item: string): self.items.push(item.copy())
 
-bind Store.render = (self) string: {
+bind Store.render = fn(self) string: {
 	let out = ""
 	for(i, item in self.items): out.push("${i + 1}. $item\n")
 	out
 }
 
-bind route_items = (store: &Store, req: http.Request, res: &http.ResponseWriter): {
+bind route_items = fn(store: &Store, req: http.Request, res: &http.ResponseWriter): {
 	match(req.method):
 		when "GET": res.write(store.render())
 		when "POST": {
@@ -88,7 +88,7 @@ bind route_items = (store: &Store, req: http.Request, res: &http.ResponseWriter)
 		default: res.write_header(http.STATUS_METHOD_NOT_ALLOWED)
 }
 
-bind call = (store: &Store, method: string, path: string, body: string): {
+bind call = fn(store: &Store, method: string, path: string, body: string): {
 	let w = http.ResponseWriter.new()
 	route_items(&store, http.Request.new(method, path, body), &w)
 	let r = w.finish()
@@ -96,7 +96,7 @@ bind call = (store: &Store, method: string, path: string, body: string): {
 	if(r.body.is_empty()): println()
 }
 
-bind main = (): {
+bind main = fn(): {
 	let store = Store[items: []]
 	call(&store, "POST", "/items", "milk")
 	call(&store, "POST", "/items", "bread")
@@ -128,18 +128,18 @@ define Store struct [
 	items: [string],
 ]
 
-bind Store.add = (&self, item: string): self.items.push(item.copy())
+bind Store.add = fn(&self, item: string): self.items.push(item.copy())
 
-bind Store.render = (self) string: {
+bind Store.render = fn(self) string: {
 	let out = ""
 	for(i, item in self.items): out.push("${i + 1}. $item\n")
 	out
 }
 
-bind main = () int: {
+bind main = fn() int: {
 	let mux = http.ServeMux.new()
-	mux.handle_func("/health", (req: http.Request, res: &http.ResponseWriter): res.write("ok\n"))
-	mux.handle_func("/greet", (req: http.Request, res: &http.ResponseWriter): {
+	mux.handle_func("/health", fn(req: http.Request, res: &http.ResponseWriter): res.write("ok\n"))
+	mux.handle_func("/greet", fn(req: http.Request, res: &http.ResponseWriter): {
 		let name = req.query_param("name") ?? "world"
 		res.write("hello, $name\n")
 	})
@@ -168,7 +168,7 @@ The client side mirrors the server:
 ```lowlight no-run
 import "std/http"
 
-bind main = () int: {
+bind main = fn() int: {
 	let client = http.Client.new()
 	let resp = client.get("http://127.0.0.1:8080/health"):
 		default err(own e): {

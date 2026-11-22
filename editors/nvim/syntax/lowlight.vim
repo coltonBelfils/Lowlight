@@ -17,7 +17,7 @@ syn match   lowlightDocLink          contained "\[`[^`]\+`\]"
 " Keywords
 syn keyword lowlightKeyword          bind define distinct struct enum interface as import extern
 syn keyword lowlightKeyword          let if else match when for while in next own unpack
-syn keyword lowlightKeyword          unsafe packed test func
+syn keyword lowlightKeyword          unsafe packed test func fn cl
 syn keyword lowlightSelf             self
 " Contextual keywords: `define Name result [...]`, a match / result chain's `default` arm,
 " and its `default panic` terminal arm.

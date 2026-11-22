@@ -4,7 +4,7 @@
 
 import "std/fs"
 
-bind main = (): {
+bind main = fn(): {
 	let path = "/tmp/lowlight_example.txt"
 
 	// File operations return results: the outside world can fail.

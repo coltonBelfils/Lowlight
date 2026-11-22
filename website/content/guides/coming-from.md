@@ -14,7 +14,7 @@ group: Writing Lowlight
 |---|---|---|---|---|
 | Immutable binding | `const int x = 1;` | `let x = 1;` | `const x = 1` | `bind x = 1` |
 | Mutable variable | `int x = 1;` | `let mut x = 1;` | `x := 1` | `let x = 1` |
-| Function | `int f(int a)` | `fn f(a: i32) -> i32` | `func f(a int) int` | `bind f = (a: int) int: ...` |
+| Function | `int f(int a)` | `fn f(a: i32) -> i32` | `func f(a int) int` | `bind f = fn(a: int) int: ...` |
 | Return | `return x;` | `return x` / tail | `return x` | `func <- x` / tail |
 | Break / continue | `break;` `continue;` | `break` `continue` | `break` `continue` | `for <-` `next <-` |
 | Struct literal | `(Point){1, 2}` | `Point { x: 1, y: 2 }` | `Point{X: 1, Y: 2}` | `Point[x: 1, y: 2]` |

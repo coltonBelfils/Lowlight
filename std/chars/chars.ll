@@ -4,27 +4,27 @@
 // `char.is_whitespace`, and `char.to_int`) live in the [`std/core/primitives`] prelude.
 
 // Reports whether this character lies within the 7-bit ASCII range (`0..=127`).
-bind char.is_ascii = (self) bool: int(self) >= 0 and int(self) <= 127
+bind char.is_ascii = fn(self) bool: int(self) >= 0 and int(self) <= 127
 
 // Reports whether this character is an uppercase ASCII letter (`'A'..='Z'`).
-bind char.is_ascii_upper = (self) bool: self >= 'A' and self <= 'Z'
+bind char.is_ascii_upper = fn(self) bool: self >= 'A' and self <= 'Z'
 
 // Reports whether this character is a lowercase ASCII letter (`'a'..='z'`).
-bind char.is_ascii_lower = (self) bool: self >= 'a' and self <= 'z'
+bind char.is_ascii_lower = fn(self) bool: self >= 'a' and self <= 'z'
 
 // Converts an ASCII lowercase letter (`'a'..='z'`) to uppercase (`'A'..='Z'`), leaving other characters unchanged.
-bind char.to_ascii_upper = (self) char:
+bind char.to_ascii_upper = fn(self) char:
 	if(self.is_ascii_lower()): char(int(self) - 32) else: self
 
 // Converts an ASCII uppercase letter (`'A'..='Z'`) to lowercase (`'a'..='z'`), leaving other characters unchanged.
-bind char.to_ascii_lower = (self) char:
+bind char.to_ascii_lower = fn(self) char:
 	if(self.is_ascii_upper()): char(int(self) + 32) else: self
 
 // Reports whether this character is an ASCII control codepoint (`0..=31` or `127` DEL).
-bind char.is_control = (self) bool: int(self) >= 0 and (int(self) < 32 or int(self) == 127)
+bind char.is_control = fn(self) bool: int(self) >= 0 and (int(self) < 32 or int(self) == 127)
 
 // Reports whether this character is an ASCII punctuation mark or symbol.
-bind char.is_punctuation = (self) bool: {
+bind char.is_punctuation = fn(self) bool: {
 	let cp = int(self)
 	(cp >= 33 and cp <= 47) or (cp >= 58 and cp <= 64) or (cp >= 91 and cp <= 96) or (cp >= 123 and cp <= 126)
 }
@@ -33,7 +33,7 @@ bind char.is_punctuation = (self) bool: {
 //
 // Accepts `'0'..'9'`, `'a'..'z'`, and `'A'..'Z'`. Returns `none` if `radix` is out of `2..=36`
 // or the character does not represent a digit smaller than `radix`.
-bind char.to_digit = (self, radix: int) ?int: {
+bind char.to_digit = fn(self, radix: int) ?int: {
 	if(radix < 2 or radix > 36): func <- none
 	let val = if(self >= '0' and self <= '9'): int(self) - 48
 	else if(self >= 'a' and self <= 'z'): int(self) - 97 + 10
@@ -45,13 +45,13 @@ bind char.to_digit = (self, radix: int) ?int: {
 // Converts a numeric digit value (`0..radix`) into its lowercase ASCII [`char`] representation.
 //
 // Returns `none` if `radix` is outside `2..=36` or `digit` is negative / `>= radix`.
-bind from_digit = (digit: int, radix: int) ?char: {
+bind from_digit = fn(digit: int, radix: int) ?char: {
 	if(radix < 2 or radix > 36 or digit < 0 or digit >= radix): func <- none
 	if(digit < 10): char(48 + digit) else: char(97 + digit - 10)
 }
 
 // Returns the UTF-8 encoded byte length (`1..=4`) of this codepoint, or `0` for surrogates/out-of-range values.
-bind char.len_utf8 = (self) int: {
+bind char.len_utf8 = fn(self) int: {
 	let cp = int(self)
 	if(cp < 0 or (cp >= 55296 and cp <= 57343) or cp > 1114111): 0
 	else if(cp <= 127): 1
@@ -65,44 +65,44 @@ bind char.len_utf8 = (self) int: {
 // -----------------------------------------------------------------------------
 
 // Function form of [`char.is_digit`].
-bind is_digit = (c: char) bool: c.is_digit()
+bind is_digit = fn(c: char) bool: c.is_digit()
 
 // Function form of [`char.is_alpha`].
-bind is_alpha = (c: char) bool: c.is_alpha()
+bind is_alpha = fn(c: char) bool: c.is_alpha()
 
 // Function form of [`char.is_alnum`].
-bind is_alnum = (c: char) bool: c.is_alnum()
+bind is_alnum = fn(c: char) bool: c.is_alnum()
 
 // Function form of [`char.is_whitespace`].
-bind is_whitespace = (c: char) bool: c.is_whitespace()
+bind is_whitespace = fn(c: char) bool: c.is_whitespace()
 
 // Function form of [`char.is_ascii`].
-bind is_ascii = (c: char) bool: c.is_ascii()
+bind is_ascii = fn(c: char) bool: c.is_ascii()
 
 // Function form of [`char.is_ascii_upper`].
-bind is_ascii_upper = (c: char) bool: c.is_ascii_upper()
+bind is_ascii_upper = fn(c: char) bool: c.is_ascii_upper()
 
 // Function form of [`char.is_ascii_lower`].
-bind is_ascii_lower = (c: char) bool: c.is_ascii_lower()
+bind is_ascii_lower = fn(c: char) bool: c.is_ascii_lower()
 
 // Function form of [`char.to_ascii_upper`].
-bind to_ascii_upper = (c: char) char: c.to_ascii_upper()
+bind to_ascii_upper = fn(c: char) char: c.to_ascii_upper()
 
 // Function form of [`char.to_ascii_lower`].
-bind to_ascii_lower = (c: char) char: c.to_ascii_lower()
+bind to_ascii_lower = fn(c: char) char: c.to_ascii_lower()
 
 // Function form of [`char.is_control`].
-bind is_control = (c: char) bool: c.is_control()
+bind is_control = fn(c: char) bool: c.is_control()
 
 // Function form of [`char.is_punctuation`].
-bind is_punctuation = (c: char) bool: c.is_punctuation()
+bind is_punctuation = fn(c: char) bool: c.is_punctuation()
 
 // -----------------------------------------------------------------------------
 // Inline Tests for std/chars.ll
 // -----------------------------------------------------------------------------
 
 @test("character classification: digits, letters, alnum, whitespace, control, punct")
-bind test_char_classification = (): {
+bind test_char_classification = fn(): {
 	// Digits
 	assert('0'.is_digit())
 	assert('5'.is_digit())
@@ -176,7 +176,7 @@ bind test_char_classification = (): {
 }
 
 @test("character case transformations")
-bind test_char_case_conversion = (): {
+bind test_char_case_conversion = fn(): {
 	assert('a'.to_ascii_upper() == 'A')
 	assert('z'.to_ascii_upper() == 'Z')
 	assert('A'.to_ascii_upper() == 'A')
@@ -193,7 +193,7 @@ bind test_char_case_conversion = (): {
 }
 
 @test("character radix and digit conversion")
-bind test_char_radix_conversion = (): {
+bind test_char_radix_conversion = fn(): {
 	// char.to_digit
 	assert('0'.to_digit(10) == 0)
 	assert('5'.to_digit(10) == 5)
@@ -223,7 +223,7 @@ bind test_char_radix_conversion = (): {
 }
 
 @test("character UTF-8 encoded byte lengths")
-bind test_char_utf8_length = (): {
+bind test_char_utf8_length = fn(): {
 	assert('a'.len_utf8() == 1)
 	assert(char(0).len_utf8() == 1)
 	assert(char(127).len_utf8() == 1)

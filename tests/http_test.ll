@@ -3,7 +3,7 @@
 
 import "std/http"
 
-bind test_status_codes = (): {
+bind test_status_codes = fn(): {
     assert(http.STATUS_OK == 200)
     assert(http.STATUS_CREATED == 201)
     assert(http.STATUS_NO_CONTENT == 204)
@@ -24,7 +24,7 @@ bind test_status_codes = (): {
     println("✓ Status codes and status text passed")
 }
 
-bind test_url_codec = (): {
+bind test_url_codec = fn(): {
     let plain = "hello world & foo=bar/baz 100%!"
     let encoded = http.url_encode(plain)
     assert(encoded == "hello%20world%20%26%20foo%3Dbar%2Fbaz%20100%25%21")
@@ -37,7 +37,7 @@ bind test_url_codec = (): {
     println("✓ URL encoding and decoding passed")
 }
 
-bind test_url_parsing = (): {
+bind test_url_parsing = fn(): {
     let u1_res! = http.parse_url("http://example.com:8080/api/v1/users?name=john&role=admin&active")
     assert(u1_res!.is_ok())
     let u1 = u1_res!.unwrap()
@@ -74,7 +74,7 @@ bind test_url_parsing = (): {
     println("✓ URL parsing passed")
 }
 
-bind test_request_response_wire = (): {
+bind test_request_response_wire = fn(): {
     // 1. Construct Request
     let req = http.Request.new("POST", "http://localhost:8080/items?filter=all", "{\"name\":\"item1\",\"qty\":10}")
     req.set_header("Content-Type", "application/json")
@@ -141,7 +141,7 @@ bind test_request_response_wire = (): {
     println("✓ Request & Response wire serialization/deserialization passed")
 }
 
-bind test_response_writer = (): {
+bind test_response_writer = fn(): {
     let rw = http.ResponseWriter.new()
     rw.set_header("Content-Type", "application/json")
     rw.set_header("X-Server", "Lowlight")
@@ -159,24 +159,24 @@ bind test_response_writer = (): {
     println("✓ ResponseWriter functionality passed")
 }
 
-bind test_serve_mux_routing = (): {
+bind test_serve_mux_routing = fn(): {
     let mux = http.ServeMux.new()
 
     // Route 1: Exact match "/hello"
-    mux.handle_func("/hello", (req: http.Request, res: &http.ResponseWriter): {
+    mux.handle_func("/hello", fn(req: http.Request, res: &http.ResponseWriter): {
         let name = req.query_param("name") ?? "stranger"
         res.set_header("Content-Type", "text/plain")
         res.write("Hello, ${name}!")
     })
 
     // Route 2: Prefix match "/api/"
-    mux.handle_func("/api/", (req: http.Request, res: &http.ResponseWriter): {
+    mux.handle_func("/api/", fn(req: http.Request, res: &http.ResponseWriter): {
         res.set_header("Content-Type", "application/json")
         res.write("{\"api_path\":\"${req.path}\"}")
     })
 
     // Route 3: Longest prefix match "/api/v2/"
-    mux.handle_func("/api/v2/", (req: http.Request, res: &http.ResponseWriter): {
+    mux.handle_func("/api/v2/", fn(req: http.Request, res: &http.ResponseWriter): {
         res.set_header("Content-Type", "application/json")
         res.write("{\"version\":2,\"path\":\"${req.path}\"}")
     })
@@ -184,7 +184,7 @@ bind test_serve_mux_routing = (): {
     // Test Route 1
     let req1 = http.Request.new("GET", "/hello?name=Alice", "")
     let m1 = mux.copy()
-    let resp1 = http.test_handler((r: http.Request, w: &http.ResponseWriter): {
+    let resp1 = http.test_handler(cl(r: http.Request, w: &http.ResponseWriter): {
         m1.serve_http(r, &w)
     }, req1)
     assert(resp1.status_code == 200)
@@ -193,7 +193,7 @@ bind test_serve_mux_routing = (): {
     // Test Route 2
     let req2 = http.Request.new("GET", "/api/users", "")
     let m2 = mux.copy()
-    let resp2 = http.test_handler((r: http.Request, w: &http.ResponseWriter): {
+    let resp2 = http.test_handler(cl(r: http.Request, w: &http.ResponseWriter): {
         m2.serve_http(r, &w)
     }, req2)
     assert(resp2.status_code == 200)
@@ -202,7 +202,7 @@ bind test_serve_mux_routing = (): {
     // Test Route 3 (Longest prefix preference over /api/)
     let req3 = http.Request.new("GET", "/api/v2/items", "")
     let m3 = mux.copy()
-    let resp3 = http.test_handler((r: http.Request, w: &http.ResponseWriter): {
+    let resp3 = http.test_handler(cl(r: http.Request, w: &http.ResponseWriter): {
         m3.serve_http(r, &w)
     }, req3)
     assert(resp3.status_code == 200)
@@ -211,7 +211,7 @@ bind test_serve_mux_routing = (): {
     // Test 404 Fallback
     let req4 = http.Request.new("GET", "/unknown/route", "")
     let m4 = mux.copy()
-    let resp4 = http.test_handler((r: http.Request, w: &http.ResponseWriter): {
+    let resp4 = http.test_handler(cl(r: http.Request, w: &http.ResponseWriter): {
         m4.serve_http(r, &w)
     }, req4)
     assert(resp4.status_code == 404)
@@ -220,9 +220,9 @@ bind test_serve_mux_routing = (): {
     println("✓ ServeMux pattern routing & fallback passed")
 }
 
-bind test_kernel_socket_roundtrip = (): {
+bind test_kernel_socket_roundtrip = fn(): {
     // Tests end-to-end client-server socket communication over a kernel socketpair
-    let handler = (req: http.Request, res: &http.ResponseWriter): {
+    let handler = fn(req: http.Request, res: &http.ResponseWriter): {
         if (req.method == "POST" and req.path == "/echo"): {
             res.set_header("Content-Type", req.header("content-type") ?? "text/plain")
             res.write_header(http.STATUS_OK)
@@ -246,7 +246,7 @@ bind test_kernel_socket_roundtrip = (): {
     println("✓ Full socket-level client/server roundtrip passed")
 }
 
-bind main = (): {
+bind main = fn(): {
     println("=== Lowlight std/http Test Suite ===")
     test_status_codes()
     test_url_codec()

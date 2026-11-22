@@ -140,10 +140,12 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [ ] Retire the hardcoded `vec.*`/`string.*` builtin method lowerings (`BuiltinName` in `internal/sema/check_calls.go` plus both backends) in favor of the `@lang` `std/core` implementations so collection semantics live in one place. Done for sets and maps (`#[T]` and `#[K: V]` are now the `Set` and `Map` structs, and both backends' hash-table code is gone), for the string buffer methods, and for the string code the compiler generates (`+`, `+=`, interpolation, slices, copies). `string.len`, `byte_at`, and `c_str` remain.
 - [ ] Operator interfaces for the rest of the operators, following `Addable`/`AddAssignable` (`std/core/interfaces.ll`, `operatorMethod` in `internal/sema/collections.go`): `-`/`-=` (`Subtractable`), `*`/`*=`, `/`/`/=`, `%`/`%=`, unary `-` (`Negatable`), and the bitwise `&`, `|`, `^`, `~`, `<<`, `>>` with their assignment forms. Decide the names, and whether one interface per operator or grouped ones (say `Numeric`) read better as bounds. Each numeric primitive should implement them in `primitives.ll` as `add` does.
 - [ ] Implement `Addable` for `[T]` (`[1] + [2]`, plus `AddAssignable` as `append`) once it's decided whether list `+` should exist.
-- [ ] Move `Arena` into `std/core`. The bump allocator and chunk list are plain Lowlight, but `reset` and `drop` must call each allocation's destructor through a stored function pointer, which Lowlight code can't do yet. Needs a design decision: a way to call a stored drop function (or a type-erased `drop_in_place`). The runtime version is already inlinable, so the change is for consistency, not speed.
-- [ ] Tuples still get `eq`/`cmp`/`hash`/`copy`/`to_string` from helpers the backends synthesize, and optionals too. Structs and enums now get them only from `@derive` or hand-written methods. Tuples need their planned overhaul first (methods on tuple types, or `@derive`-style declarations); once nothing reaches the struct/enum helpers in `cgen.go`/`llvmgen_runtime.go`, delete them. Drop glue stays compiler-generated.
+- [ ] Move `Arena` into `std/core`. A prototype written in Lowlight works today: `alloc[T]` stores a closure that captures nothing and drops the value, and `reset` calls the stored closures; it runs as fast as the runtime version, but each destructor entry is 48 bytes instead of 24. Do it once `fn` types exist (see Function Types), so entries hold an 8-byte `fn(ptr[u8])`. The checker's arena rules (pinning, `ref[T]` lifetimes) stay in the compiler.
+- [ ] **Depends on comptime.** Write tuple `eq`/`cmp`/`hash`/`copy`/`to_string` in Lowlight with `comptime for` over `elems_of[T]()`, replacing the helpers both backends synthesize for tuples. Part of the planned tuple overhaul. Do optionals at the same time (they may only need ordinary generic code).
+- [ ] **Depends on comptime.** Once `@derive` is rebuilt on comptime and tuples are done, delete the struct/enum/tuple `eq`/`cmp`/`hash`/`copy`/`to_string` helpers in `cgen.go` and `llvmgen_runtime.go`. Drop glue stays compiler-generated.
 - [ ] `json.ll` needs `@derive(Copyable)` on `Json` and `@derive(Equatable)` on `Number` (its author's file; left as is).
-- [ ] A `lowlight expand` command that prints the methods `@derive` generates.
+- [ ] **Depends on comptime.** Rebuild `@derive` on comptime: `eq`, `cmp`, `hash`, `copy`, and `to_string` become ordinary generic functions in a `std/derive` package (`comptime for(f in fields_of[T]())` with `v.field(f)`), and `@derive(I)` only attaches them (`bind Point.eq = derive.eq[Point]`). Replaces the source-text generator in `internal/sema/derive.go`, so derived code is readable and editable Lowlight and its errors come from normal type checking.
+- [ ] **Depends on comptime.** Let a type's own `@derive`-able interfaces be written by users: any std or user package can provide a comptime-generic implementation that `@derive` attaches.
 - [ ] Fix literal patterns on an optional subject: `match(o?): when 3: ...` never matches when `o?` holds `3` (`SPECIFICATION.md` §6.5 says it should).
 - [ ] Fix `for <-` in a collecting loop (`for(x in xs) [int]: ...`): bare `for <-` is rejected with "requires a value of type int" although `SPECIFICATION.md` §6.7 says it stops the loop and keeps what was collected, and `for <- value` crashes LLVM codegen (`store %struct.ll_vec_int 0`). Early exit from a collecting loop is currently impossible.
 - [ ] Make `for(x in v)` work for any type implementing `Iterable[T]` (and for `Iterator[T]` values), as `SPECIFICATION.md` §12.1 and §18.6 describe; sema currently hardcodes lists, arrays, strings, sets, maps, ranges, and `Pool` ("cannot iterate over value of type Countdown", `internal/sema/check_stmt_expr.go`).
@@ -190,9 +192,52 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [ ] Add child `stdin` pipes to `std/process.ll`.
 - [ ] Extend both backend runtimes and `std/net.ll` with `getaddrinfo`-based IPv6/dual-stack TCP and DNS resolution.
 - [ ] Extend both backend runtimes and `std/net.ll` with UDP sockets.
+- [ ] Native TLS (long term; builds on the native OS layer, which depends on comptime): TLS 1.2/1.3 written in Lowlight (handshake, record layer, X.509 certificate verification against the system root store) with the cryptography it needs (AES-GCM, ChaCha20-Poly1305, SHA-2, HMAC/HKDF, X25519, ECDSA P-256, RSA verification), replacing the OpenSSL `dlopen` loader. Until then TLS stays on OpenSSL through C interop.
+- [ ] Native DNS: a resolver written in Lowlight (read `/etc/resolv.conf` and `/etc/hosts`, A/AAAA queries over UDP with TCP fallback, timeouts and retries) so name lookup no longer goes through the C library's `getaddrinfo`.
 - [ ] Extend both backend runtimes and `std/net.ll` with nonblocking socket polling.
 - [ ] Add keep-alive connection reuse to `Client` in `std/http.ll`.
 - [ ] Add connection pooling to `Client` in `std/http.ll`.
+
+## Compile-Time Execution (comptime)
+
+Chosen over Rust-style macros (2026-11-22). Many design and implementation details are still to be worked through with the language's author before anything is built; settle them first.
+
+- [ ] Design comptime. Open questions include: the syntax (`comptime expr`, `comptime for`, `comptime if`, comptime parameters such as `[N: comptime int]`); which subset of Lowlight can run at compile time (heap use, loops, recursion limits, no I/O, determinism, `unsafe`); the type-description API (`fields_of[T]()`, `variants_of[T]()`, `elems_of[T]()`, `kind_of[T]()`, `type_name[T]()`, field attributes and visibility); access by compile-time name (`v.field(f)`, constructing a struct from compile-time field lists); the `target` description (`target.os`, `target.arch`, pointer size, endianness); how comptime code reports errors and where they point; whether comptime results can be types or new declarations; and how comptime interacts with generics, monomorphization, incremental builds, and the LSP.
+- [ ] Implement the compile-time evaluator in `internal/sema` (or a new package) for the agreed subset, with limits on steps and memory.
+- [ ] Implement the type-description built-ins and `comptime for` / `comptime if` unrolling.
+- [ ] Implement `target` and compile-time platform selection (dropped branches are not compiled for other targets).
+- [ ] Specify comptime in SPECIFICATION.md and document it on the website.
+- [ ] `lowlight expand` (or LSP support) that shows what comptime code unrolled to.
+
+Work that depends on comptime (each item below is also marked where it lives):
+
+- [ ] **Depends on comptime.** Rebuild `@derive` on comptime (see the `@derive` items above).
+- [ ] **Depends on comptime.** Tuple methods in Lowlight (see the tuple item above).
+- [ ] **Depends on comptime.** Native OS layer: replace the C `sys_*` built-ins (files, sockets, time, processes, environment, CPU count) with Lowlight in a `std/os`-level package. Same API on every platform; `comptime if(target.os == ...)` picks the implementation. Linux uses the `syscall` built-in; macOS calls `libSystem` through `extern`, since Apple doesn't keep raw system calls stable. Needs a decision on per-platform files versus `comptime if` within one file.
+- [ ] **Depends on comptime.** Compile-time tables and constants in std (CRC and Unicode tables, `math` constants) computed with `comptime` instead of written out by hand or built at startup.
+
+## Function Types (`fn` / `cl`)
+
+Decided (2026-11-22): plain functions and closures become separate types. Every function literal is written `fn(...)` or `cl(...)`; the bare `(params) Ret: body` form goes away, including for top-level `bind`s (`bind main = fn(): ...`). The names `fn`/`cl` may change later. An `fn` converts to a `cl` implicitly for now (where a `cl` is expected), and the explicit form is `cl(f)`.
+
+- [x] `fn(T) R`: a function that captures nothing. One code pointer, plain, copies freely; named functions, methods, and lambdas without captures have this type.
+- [x] `cl(T) R`: a closure. Owns its captures and moves; today's function values become this type.
+- [x] `fn` to `cl` conversion: implicit where a `cl` is expected, plus the explicit `cl(f)` (the parser tells it from a closure literal `cl(x: T) R: ...` by the missing parameter types and body). A `cl` never converts to an `fn`. Revisit whether the implicit conversion should stay.
+- [x] Warn on a `cl` literal that captures nothing when its context doesn't require a `cl` ("this could be an `fn`").
+- [ ] `extern fn(...)`: C calling convention, for C callbacks (`qsort`, signal handlers) and calling C function pointers (`dlsym`); see C interop below.
+- [x] Update the parser, sema, IR, both backends, formatter, and LSP; migrate std, tests, examples, and the website from `(...):` to `fn(...)`/`cl(...)`. (`std/json/json.ll` is its author's to migrate: `go run ./internal/tools/fnmigrate std/json/json.ll`.)
+- [ ] Migrate the closures in Go test sources (`tests/*.go`, `internal/**/*_test.go`) that capture nothing from `cl` to `fn`; the migration made every lambda there a `cl`.
+- [ ] Delete `internal/tools/fnmigrate` and the parser's legacy-syntax hooks (`AcceptLegacyFuncSyntax`, `RecordLegacyFuncSites`) once `std/json/json.ll` is migrated.
+
+## C Interop Robustness
+
+Native TLS is long term, so C interop stays; `extern` is likely C-only (undecided; the spec currently allows other languages).
+
+- [ ] `extern fn(...)` function pointer types (see Function Types).
+- [ ] C struct layout for any struct passed to C (a `@repr(c)`-style guarantee, beyond `packed`), with checks that every field has a C representation.
+- [ ] Callbacks from C into Lowlight (`extern fn` values made from Lowlight `fn`s, with panics not unwinding through C).
+- [ ] Calling C variadic functions (`printf`, `fcntl`, `open` with a mode).
+- [ ] A `syscall(number, a1, ..., a6) int` built-in that emits the target's system call instruction in both backends (inline assembly in the LLVM IR; `__asm__` in C).
 
 ## Tooling, LSP & Language Features
 

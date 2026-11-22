@@ -14,8 +14,8 @@ func TestOptionalChainThroughBoxedSelfReferentialField(t *testing.T) {
 	t.Parallel()
 	src := `
 define Node struct [ val: int, name: string, next?: ?Node ]
-bind Node.label = (self) string: "${self.name}#${self.val}"
-bind main = (): {
+bind Node.label = fn(self) string: "${self.name}#${self.val}"
+bind main = fn(): {
 	let list = Node[val: 1, name: "a", next?: Node[val: 2, name: "b", next?: Node[val: 3, name: "c", next?: none]]]
 	println("${list.next?.val ?? -1}")
 	println("${list.next?.next?.val ?? -1}")
@@ -91,7 +91,7 @@ bind A: [int] = [1, 2]
 bind B: [int] = [3]
 bind C: [string] = ["x", "y"]
 
-bind main = (): println(A.len() + B.len() + C.len())
+bind main = fn(): println(A.len() + B.len() + C.len())
 `
 	if out := strings.TrimSpace(runInlineStrict(t, "multi_list_consts", src, false)); out != "5" {
 		t.Fatalf("unexpected output %q", out)

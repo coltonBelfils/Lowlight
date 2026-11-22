@@ -4,27 +4,27 @@
 
 // A function's parameters have types, and its return type
 // follows the parameter list.
-bind add = (a: int, b: int) int: a + b
+bind add = fn(a: int, b: int) int: a + b
 
 // A body with several statements is a block; its last
 // expression is the result.
-bind hypot2 = (a: int, b: int) int: {
+bind hypot2 = fn(a: int, b: int) int: {
 	let aa = a * a
 	let bb = b * b
 	aa + bb
 }
 
 // A function that returns nothing omits the return type.
-bind greet = (name: string): println("hi $name")
+bind greet = fn(name: string): println("hi $name")
 
 // `func <-` returns early.
-bind sign = (n: int) string: {
+bind sign = fn(n: int) string: {
 	if(n < 0): func <- "negative"
 	if(n == 0): func <- "zero"
 	"positive"
 }
 
-bind main = (): {
+bind main = fn(): {
 	println(add(2, 3))
 	println(hypot2(3, 4))
 	greet("Grace")

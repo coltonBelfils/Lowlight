@@ -273,7 +273,7 @@
           }
         },
         {
-          "match": "\\b(bind)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(\\[[^\\]]*\\])?\\s*=\\s*\\()",
+          "match": "\\b(bind)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(\\[[^\\]]*\\])?\\s*=\\s*fn\\s*\\()",
           "captures": {
             "1": {
               "name": "keyword.declaration.lowlight"
@@ -329,7 +329,7 @@
         },
         {
           "name": "storage.modifier.ownership.lowlight",
-          "match": "\\b(own|unsafe|unpack)(?!\\?)\\b"
+          "match": "\\b(own|unsafe|unpack|fn|cl)(?!\\?)\\b"
         },
         {
           "name": "keyword.operator.logical.lowlight",

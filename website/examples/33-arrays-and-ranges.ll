@@ -2,7 +2,7 @@
 // Category: Collections
 // Order: 33
 
-bind main = (): {
+bind main = fn(): {
 	// `[N: T]` is a fixed-size array stored inline.
 	let zeros = [4: 0]
 	let primes = [4: 2, 3, 5, 7]

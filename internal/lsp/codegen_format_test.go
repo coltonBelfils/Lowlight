@@ -44,14 +44,14 @@ define Lookup result [
 	Expired: int,
 ]
 
-bind label = (s: Status) string:
+bind label = fn(s: Status) string:
 	match(s):
 		when Status.Active: "a"
 		default Status.Paused: "p"
 
-bind find = (k: string) Lookup: Lookup.Forbidden
+bind find = fn(k: string) Lookup: Lookup.Forbidden
 
-bind main = (): {
+bind main = fn(): {
 	let r = find("a")
 	let v = find("b"):
 		when Missing(m): m
@@ -65,8 +65,8 @@ bind main = (): {
 ]
 
 define Shape interface [
-	area: (self) float,
-	scale: (&self, by: float),
+	area: fn(self) float,
+	scale: fn(&self, by: float),
 ]
 
 define Status enum [
@@ -82,19 +82,19 @@ define Lookup result [
 ]
 
 @must_use
-bind make_code = () int: 42
+bind make_code = fn() int: 42
 
 let bad_global = 10
 
-bind describe = (s: Status) string:
+bind describe = fn(s: Status) string:
 	match(s):
 		when Status.Active: "active"
 		default: "other"
 
-bind find = (k: string) Lookup:
+bind find = fn(k: string) Lookup:
 	if(k == "a"): Lookup.value("a") else: Lookup.Forbidden
 
-bind use_all = (flag: bool, items: [int]) int: {
+bind use_all = fn(flag: bool, items: [int]) int: {
 	let r = Rect[]
 	let p = null_ptr[u8]()
 	make_code()

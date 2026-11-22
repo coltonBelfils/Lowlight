@@ -22,7 +22,7 @@ define Res result [
 	Err: string,
 ]
 
-bind find = (k: string) Lookup:
+bind find = fn(k: string) Lookup:
 	if(k == "a"): Lookup.value("found-a")
 	else if(k == "b"): Lookup.Forbidden
 	else if(k == "c"): Lookup.Expired(7)
@@ -54,7 +54,7 @@ func runResultProgram(t *testing.T, name, src string, backend driver.BackendKind
 func TestResultDeclarationsAndChains(t *testing.T) {
 	t.Parallel()
 	src := resultDeclPrelude + `
-bind describe = (k: string) string: {
+bind describe = fn(k: string) string: {
 	let s = find(k):
 		when Missing(why): "missing:" + why
 		when Forbidden: func <- "denied"
@@ -62,7 +62,7 @@ bind describe = (k: string) string: {
 	"got " + s
 }
 
-bind first_found = (ks: [string]) string: {
+bind first_found = fn(ks: [string]) string: {
 	for(k in ks): {
 		let v = find(k) ?? next <-
 		func <- v
@@ -70,33 +70,33 @@ bind first_found = (ks: [string]) string: {
 	"none"
 }
 
-bind parse = (s: string) Res:
+bind parse = fn(s: string) Res:
 	if(s == "1"): value(1)
 	else: Err("bad: " + s)
 
-bind double = (s: string) Res: {
+bind double = fn(s: string) Res: {
 	let n = parse(s):
 		default Err(e): func <- Err("while doubling: " + e)
 	value(n * 2)
 }
 
-bind classify = (n: int) Lookup:
+bind classify = fn(n: int) Lookup:
 	if(n == 0): Forbidden
 	else if(n < 0): Missing("negative")
 	else: value("n=$n")
 
-bind label = (r!: own Lookup) string: r!:
+bind label = fn(r!: own Lookup) string: r!:
 	when Missing(m): "missing:" + m
 	when Forbidden: "forbidden"
 	default Expired(_): "expired"
 
-bind load = (ok: bool) Result[string]: {
+bind load = fn(ok: bool) Result[string]: {
 	let s = find(if(ok): "a" else: "q"):
 		default: func <- err(Error.new("lookup failed"))
 	value(s + "!")
 }
 
-bind main = (): {
+bind main = fn(): {
 	println(describe("a"))
 	println(describe("b"))
 	println(describe("c"))
@@ -154,7 +154,7 @@ bind main = (): {
 func TestResultChainDefaultPanic(t *testing.T) {
 	t.Parallel()
 	src := resultDeclPrelude + `
-bind main = (): {
+bind main = fn(): {
 	println("before")
 	let v = find("c"):
 		when Missing(_): "m"
@@ -181,23 +181,23 @@ func TestResultDeclarationDiagnostics(t *testing.T) {
 		body string
 		want string
 	}{
-		{"no_value", "define Bad result [Oops: string]\nbind main = (): {}", "result Bad has no `value` member"},
-		{"no_failures", "define Bad result [value: int]\nbind main = (): {}", "result Bad has no failure variants"},
-		{"untyped_value", "define Bad result [value, Oops]\nbind main = (): {}", "the `value` member of result Bad must declare its type"},
-		{"missing_bang", "bind main = (): {\n\tlet r = find(\"a\")\n}", "has result type Lookup and must end with `!`"},
-		{"stray_bang", "bind main = (): {\n\tlet n! = 3\n}", "ends with `!` but has non-result type int"},
-		{"bang_param", "bind show = (r: Lookup) int: 0\nbind main = (): {}", "has result type Lookup and must end with `!`"},
-		{"needs_default", "bind main = (): {\n\tlet v = find(\"a\"):\n\t\twhen Forbidden: \"f\"\n\tprintln(v)\n}", "result chain must terminate with a `default` arm"},
-		{"non_exhaustive", "bind main = (): {\n\tlet v = find(\"a\"):\n\t\twhen Forbidden: \"f\"\n\t\tdefault Missing(_): \"m\"\n\tprintln(v)\n}", "non-exhaustive"},
-		{"matches_value", "bind main = (): {\n\tlet v = find(\"a\"):\n\t\twhen value(x): x\n\t\tdefault: \"f\"\n\tprintln(v)\n}", "a result chain cannot match `value`"},
-		{"unknown_failure", "bind main = (): {\n\tlet v = find(\"a\"):\n\t\twhen Gone: \"g\"\n\t\tdefault: \"f\"\n\tprintln(v)\n}", "result Lookup has no failure variant \"Gone\""},
-		{"unreachable_panic", "bind main = (): {\n\tlet v = find(\"a\"):\n\t\twhen Missing(_), Forbidden, Expired(_): \"x\"\n\t\tdefault panic\n\tprintln(v)\n}", "`default panic` is unreachable"},
-		{"non_result_subject", "bind main = (): {\n\tlet x = 3\n\tlet v = x: default panic\n}", "result chain subject must be a result type, got int"},
-		{"bare_unit_called", "bind f = () Lookup: Forbidden()\nbind main = (): {}", "member `Forbidden` of Lookup has no payload"},
-		{"bare_ambiguous", "bind Missing = (s: string) Lookup: Lookup.Forbidden\nbind f = () Lookup: Missing(\"x\")\nbind main = (): {}", "`Missing(...)` is ambiguous"},
-		{"no_implicit_wrap", "bind f = () Res: {\n\tfunc <- \"oops\"\n}\nbind main = (): {}", "type mismatch"},
-		{"bare_needs_result_context", "bind main = (): {\n\tlet x = Forbidden\n}", "undeclared"},
-		{"payload_needs_binding", "bind main = (): {\n\tlet v = find(\"a\"):\n\t\twhen Missing: \"m\"\n\t\tdefault: \"f\"\n\tprintln(v)\n}", "failure `Missing` carries a string payload"},
+		{"no_value", "define Bad result [Oops: string]\nbind main = fn(): {}", "result Bad has no `value` member"},
+		{"no_failures", "define Bad result [value: int]\nbind main = fn(): {}", "result Bad has no failure variants"},
+		{"untyped_value", "define Bad result [value, Oops]\nbind main = fn(): {}", "the `value` member of result Bad must declare its type"},
+		{"missing_bang", "bind main = fn(): {\n\tlet r = find(\"a\")\n}", "has result type Lookup and must end with `!`"},
+		{"stray_bang", "bind main = fn(): {\n\tlet n! = 3\n}", "ends with `!` but has non-result type int"},
+		{"bang_param", "bind show = fn(r: Lookup) int: 0\nbind main = fn(): {}", "has result type Lookup and must end with `!`"},
+		{"needs_default", "bind main = fn(): {\n\tlet v = find(\"a\"):\n\t\twhen Forbidden: \"f\"\n\tprintln(v)\n}", "result chain must terminate with a `default` arm"},
+		{"non_exhaustive", "bind main = fn(): {\n\tlet v = find(\"a\"):\n\t\twhen Forbidden: \"f\"\n\t\tdefault Missing(_): \"m\"\n\tprintln(v)\n}", "non-exhaustive"},
+		{"matches_value", "bind main = fn(): {\n\tlet v = find(\"a\"):\n\t\twhen value(x): x\n\t\tdefault: \"f\"\n\tprintln(v)\n}", "a result chain cannot match `value`"},
+		{"unknown_failure", "bind main = fn(): {\n\tlet v = find(\"a\"):\n\t\twhen Gone: \"g\"\n\t\tdefault: \"f\"\n\tprintln(v)\n}", "result Lookup has no failure variant \"Gone\""},
+		{"unreachable_panic", "bind main = fn(): {\n\tlet v = find(\"a\"):\n\t\twhen Missing(_), Forbidden, Expired(_): \"x\"\n\t\tdefault panic\n\tprintln(v)\n}", "`default panic` is unreachable"},
+		{"non_result_subject", "bind main = fn(): {\n\tlet x = 3\n\tlet v = x: default panic\n}", "result chain subject must be a result type, got int"},
+		{"bare_unit_called", "bind f = fn() Lookup: Forbidden()\nbind main = fn(): {}", "member `Forbidden` of Lookup has no payload"},
+		{"bare_ambiguous", "bind Missing = fn(s: string) Lookup: Lookup.Forbidden\nbind f = fn() Lookup: Missing(\"x\")\nbind main = fn(): {}", "`Missing(...)` is ambiguous"},
+		{"no_implicit_wrap", "bind f = fn() Res: {\n\tfunc <- \"oops\"\n}\nbind main = fn(): {}", "type mismatch"},
+		{"bare_needs_result_context", "bind main = fn(): {\n\tlet x = Forbidden\n}", "undeclared"},
+		{"payload_needs_binding", "bind main = fn(): {\n\tlet v = find(\"a\"):\n\t\twhen Missing: \"m\"\n\t\tdefault: \"f\"\n\tprintln(v)\n}", "failure `Missing` carries a string payload"},
 	}
 	for _, tc := range cases {
 		src := resultDeclPrelude + tc.body + "\n"

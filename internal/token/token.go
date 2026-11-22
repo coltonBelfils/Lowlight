@@ -76,7 +76,7 @@ const (
 	Gt  // >
 	Gte // >=
 
-	// Reserved Keywords (28)
+	// Reserved Keywords (30)
 	KwLet
 	KwBind
 	KwDefine
@@ -104,6 +104,8 @@ const (
 	KwUnsafe
 	KwExtern
 	KwUnpack
+	KwFn // fn: a function value with no captures
+	KwCl // cl: a closure
 	KwImport
 )
 
@@ -193,6 +195,8 @@ var kindNames = map[Kind]string{
 	KwUnsafe:    "unsafe",
 	KwExtern:    "extern",
 	KwUnpack:    "unpack",
+	KwFn:        "fn",
+	KwCl:        "cl",
 	KwImport:    "import",
 }
 
@@ -231,6 +235,8 @@ var keywords = map[string]Kind{
 	"unsafe":    KwUnsafe,
 	"extern":    KwExtern,
 	"unpack":    KwUnpack,
+	"fn":        KwFn,
+	"cl":        KwCl,
 	"import":    KwImport,
 }
 

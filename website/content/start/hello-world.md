@@ -12,7 +12,7 @@ order: 2
 Create a file named `hello.ll`:
 
 ```lowlight
-bind main = (): println("Hello, world!")
+bind main = fn(): println("Hello, world!")
 ```
 
 ```output
@@ -30,9 +30,9 @@ That's the whole program. `bind` declares a name, `main` is where execution star
 ## A slightly bigger program
 
 ```lowlight
-bind greet = (name: string) string: "Hello, $name!"
+bind greet = fn(name: string) string: "Hello, $name!"
 
-bind main = (): {
+bind main = fn(): {
 	let names = ["Ada", "Grace", "Linus"]
 	for(n in names): println(greet(n))
 	println("${names.len()} greetings")
@@ -86,7 +86,7 @@ Use `lowlight fmt --check` in CI to fail on unformatted files. See [Formatting](
 ## Command-line arguments and exit codes
 
 ```lowlight no-run
-bind main = () int: {
+bind main = fn() int: {
 	let argv = args()
 	if(argv.len() < 2): {
 		eprintln("usage: ${argv[0]} <name>")
@@ -114,7 +114,7 @@ Put tests in a file whose name ends in `_test.ll`, next to the code they test:
 import "std/test"
 
 @test("greet includes the name")
-bind test_greet = (): test.assert_eq(greet("Ada"), "Hello, Ada!")
+bind test_greet = fn(): test.assert_eq(greet("Ada"), "Hello, Ada!")
 ```
 
 ```bash

@@ -13,6 +13,7 @@ import "std/strconv"
 import "std/strings"
 import "std/test"
 
+@derive(copyable)
 define Json enum [
 	empty,
 	null,
@@ -60,6 +61,7 @@ bind Json.eq = (self, other: Json) bool:
 		}
 		default: false
 
+@derive(Equatable)
 define Number enum [
 	int: int,
 	float: float,

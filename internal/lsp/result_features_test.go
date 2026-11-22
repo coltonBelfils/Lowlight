@@ -19,17 +19,17 @@ define Lookup result [
 	Forbidden,
 ]
 
-bind find = (k: string) Lookup:
+bind find = fn(k: string) Lookup:
 	if(k == "a"): value("found") else: Missing(k.copy())
 
-bind load = (k: string) Result[string]: {
+bind load = fn(k: string) Result[string]: {
 	let item = find(k):
 		when Missing(why): func <- err(Error.new(why))
 		default Forbidden: "denied"
 	value(item)
 }
 
-bind main = (): {
+bind main = fn(): {
 	let r! = load("a")
 	println(r! ?? "none")
 }
@@ -167,10 +167,10 @@ func TestLSPResultCompletion(t *testing.T) {
 	Forbidden,
 ]
 
-bind find = (k: string) Lookup:
+bind find = fn(k: string) Lookup:
 	Lookup.Forbidden
 
-bind use = (k: string) Lookup: {
+bind use = fn(k: string) Lookup: {
 	let item = find(k):
 		when /*ARM*/
 	/*RET*/
@@ -201,9 +201,9 @@ define Other /*KIND*/
 
 // A result variable named without `!` (or a non-result named with it) gets a rename quick fix.
 func TestLSPResultBangQuickFix(t *testing.T) {
-	src := `bind load = () Result[int]: Result.value(1)
+	src := `bind load = fn() Result[int]: Result.value(1)
 
-bind main = (): {
+bind main = fn(): {
 	let r = load()
 	let n! = 3
 	println(r ?? n!)
@@ -291,14 +291,14 @@ define Lookup result [
 	Expired: int,
 ]
 
-bind label = (s: Status) string:
+bind label = fn(s: Status) string:
 	match(s):
 		when Status.Active: "a"
 		default Status.Paused: "p"
 
-bind find = (k: string) Lookup: Lookup.Forbidden
+bind find = fn(k: string) Lookup: Lookup.Forbidden
 
-bind main = (): {
+bind main = fn(): {
 	let v = find("b"):
 		when Missing(m): m.copy()
 		default Forbidden: "x"
@@ -358,9 +358,9 @@ func TestLSPDocumentationHovers(t *testing.T) {
 // ` + "```" + `
 // let x = add(1, 2)
 // ` + "```" + `
-bind add = (a: int, b: int) int: a + b
+bind add = fn(a: int, b: int) int: a + b
 
-bind main = (): {
+bind main = fn(): {
 	let e = Error.new("x")
 	println(add(1, 2) + e.message().len())
 }

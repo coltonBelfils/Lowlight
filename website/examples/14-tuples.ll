@@ -4,9 +4,9 @@
 
 // A tuple groups a fixed number of values of any types.
 // Its literal starts with `+[`.
-bind divmod = (a: int, b: int) +[int, int]: +[a / b, a % b]
+bind divmod = fn(a: int, b: int) +[int, int]: +[a / b, a % b]
 
-bind main = (): {
+bind main = fn(): {
 	let qr = divmod(17, 5)
 	println(qr.0)
 	println(qr.1)

@@ -50,6 +50,7 @@ type scopeFrame struct {
 }
 
 type funcChecker struct {
+	probing          int // > 0 while checking an argument only to infer generic type arguments
 	a                *Analyzer
 	mod              *Module
 	subst            map[string]types.Type
@@ -1020,6 +1021,16 @@ func (fc *funcChecker) verifyAssignable(got, expected types.Type, expr ast.Expr,
 	}
 	if got.Equals(expected) {
 		return true
+	}
+
+	// An `fn` converts implicitly to a closure with the same signature.
+	if fnGot, ok := got.(*types.Func); ok && !fnGot.Closure {
+		if clExp, ok := expected.(*types.Func); ok && clExp.Closure && fnGot.SameSignature(clExp) {
+			if expr != nil {
+				fc.a.infoFor(expr).ToClosure = clExp
+			}
+			return true
+		}
 	}
 
 	// Rule C1: `T` wraps implicitly into `?T`!
@@ -2607,7 +2618,7 @@ func (fc *funcChecker) checkBinaryExpr(b *ast.BinaryExpr, expected types.Type) t
 		if fi := fc.a.operatorMethod(lty, "add", b.Span); fi != nil {
 			inf.OpMethod = fi
 		} else if !fc.a.typeParamHasBound(lty, fc.a.Prog.IfaceAddable) {
-			fc.a.Rep.Errorf(b.Span, "operator `+` is not defined on %s (implement `Addable`: `add: (self, other: Self) Self`)", lty.String())
+			fc.a.Rep.Errorf(b.Span, "operator `+` is not defined on %s (implement `Addable`: `add: fn(self, other: Self) Self`)", lty.String())
 		}
 		inf.Type = lty
 		return lty
@@ -3851,7 +3862,7 @@ func (fc *funcChecker) checkFuncLit(fl *ast.FuncLit, expected types.Type) types.
 	} else {
 		inferRet = true
 	}
-	sig := &types.Func{Params: ps, Ret: expRet}
+	sig := &types.Func{Params: ps, Ret: expRet, Closure: fl.Closure}
 
 	// Push lambda boundary & capture tracker!
 	fc.funcDepth++
@@ -3947,6 +3958,16 @@ func (fc *funcChecker) checkFuncLit(fl *ast.FuncLit, expected types.Type) types.
 		caps = append(caps, *c)
 	}
 	inf.YieldArenaDepth = maxCapArenaDepth
+	if !fl.Closure && len(caps) > 0 {
+		fc.a.Rep.ErrorWithHint(fl.Span,
+			fmt.Sprintf("an `fn` can't capture variables, but this one uses %q from the enclosing scope", caps[0].Name),
+			"write `cl(...)` for a closure")
+	} else if fl.Closure && len(caps) == 0 && fc.probing == 0 {
+		// (Not while probing an argument for generic inference, which has no expected type yet.)
+		if fnExp, ok := expected.(*types.Func); !ok || !fnExp.Closure {
+			fc.a.Rep.Warnf(fl.Span, "this closure captures nothing, so it could be an `fn(...)`")
+		}
+	}
 
 	li := &LambdaInfo{
 		ID:           id,
@@ -6085,7 +6106,7 @@ func (fc *funcChecker) resolveContainsPattern(p *ast.ContainsPattern, contTy, sc
 			}
 		}
 		if cMeth == nil {
-			fc.a.Rep.Errorf(p.Span, "interface `%s` does not implement `Containable` (`contains: (self, item: T) bool`)", c.String())
+			fc.a.Rep.Errorf(p.Span, "interface `%s` does not implement `Containable` (`contains: fn(self, item: T) bool`)", c.String())
 			return nil, false
 		}
 		if cMeth.RecvMode != types.ModeRead || len(cMeth.Params) != 1 || cMeth.Params[0].Mode != types.ModeRead || !cMeth.Ret.Equals(types.TypeBool) {
@@ -6110,7 +6131,7 @@ func (fc *funcChecker) resolveContainsPattern(p *ast.ContainsPattern, contTy, sc
 		}
 		fi := fc.a.LookupMethod(contTy, "contains", nil, p.Span)
 		if fi == nil {
-			fc.a.Rep.Errorf(p.Span, "type `%s` does not implement `Containable` (`contains: (self, item: T) bool`)", contTy.String())
+			fc.a.Rep.Errorf(p.Span, "type `%s` does not implement `Containable` (`contains: fn(self, item: T) bool`)", contTy.String())
 			return nil, false
 		}
 		if fi.IsStaticAssoc || len(fi.Sig.Params) != 2 || fi.Sig.Params[0].Mode != types.ModeRead || fi.Sig.Params[1].Mode != types.ModeRead {

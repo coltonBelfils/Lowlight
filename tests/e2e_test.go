@@ -134,13 +134,13 @@ func TestPrimitivesBitwiseEnumsDistinct(t *testing.T) {
 define Color enum [Red, Green, Blue]
 define UserId int
 
-bind UserId.is_admin = (self) bool: {
+bind UserId.is_admin = fn(self) bool: {
     int(self) == 1
 }
 
 // Order-independent top-level mutual recursion with expression bodies
-bind is_even = (n: int) bool: if (n == 0): true else: is_odd(n - 1)bind is_odd  = (n: int) bool: if (n == 0): false else: is_even(n - 1)
-bind main = (): {
+bind is_even = fn(n: int) bool: if (n == 0): true else: is_odd(n - 1)bind is_odd  = fn(n: int) bool: if (n == 0): false else: is_even(n - 1)
+bind main = fn(): {
     // Fixed-width integers & wrapping two's-complement corner cases (UBSan must NOT trap!)
     let min_i64: int = -9223372036854775807 - 1
     let neg_one: int = -1
@@ -200,7 +200,7 @@ bind main = (): {
 func TestStringsAndCollections(t *testing.T) {
 	t.Parallel()
 	src := `
-bind sum_slice = (xs: [int]) int: {
+bind sum_slice = fn(xs: [int]) int: {
     let total = 0
     for (x in xs): {
         total += x
@@ -208,7 +208,7 @@ bind sum_slice = (xs: [int]) int: {
     total
 }
 
-bind main = (): {
+bind main = fn(): {
     // UTF-8 codepoint iteration + byte slicing + CoW promotion on mutation
     let greeting = "Hi 🌍!"
     let chars: [char] = []
@@ -298,17 +298,17 @@ define Account struct [
     profile?: ?Profile,
 ]
 
-bind Account.bonus = (self) int: {
+bind Account.bonus = fn(self) int: {
     (self.profile? ?.score ?? 0) + 10
 }
 
-bind parse_pair = (a: string, b: string) ?int: {
+bind parse_pair = fn(a: string, b: string) ?int: {
     let x = parse_int(a) ?? func <- none
     let y = parse_int(b) ?? func <- none
     x + y
 }
 
-bind main = (): {
+bind main = fn(): {
     // Mutable optional unwrap 'if (&opt?)' mutates inner value in place!
     let count?: ?int = 10
     if (&count?): {
@@ -357,34 +357,34 @@ bind main = (): {
 func TestCoalesceChainsAndUnwindE2E(t *testing.T) {
 	t.Parallel()
 	src := `
-bind make_pair = (flag: int) ?+[int, string]: {
+bind make_pair = fn(flag: int) ?+[int, string]: {
     if (flag == 1): +[10, "one".copy()]
     else: none
 }
 
-bind make_user_opt = (ok: bool, name: string) ?string: {
+bind make_user_opt = fn(ok: bool, name: string) ?string: {
     if (ok): name.copy()
     else: none
 }
 
-bind resolve_num = (a?: ?int, b?: ?int) int: {
+bind resolve_num = fn(a?: ?int, b?: ?int) int: {
     let v = a? ?? b? ?? func <- -1
     v * 2
 }
 
-bind resolve_str = (a?: own ?string, b?: own ?string) string: {
+bind resolve_str = fn(a?: own ?string, b?: own ?string) string: {
     let keep = "kept".copy()
     let res = a? ?? b? ?? func <- keep
     "${res}:${keep}"
 }
 
-bind resolve_str_rval = (ok1: bool, ok2: bool) string: {
+bind resolve_str_rval = fn(ok1: bool, ok2: bool) string: {
     let keep = "kept".copy()
     let res = make_user_opt(ok1, "r1") ?? make_user_opt(ok2, "r2") ?? func <- keep
     "${res}:${keep}"
 }
 
-bind resolve_unpack = (f1: int, f2: int) int: {
+bind resolve_unpack = fn(f1: int, f2: int) int: {
     let n, s = unpack make_pair(f1) ?? make_pair(f2) ?? func <- -99
     let mut_n = 0
     let m1?: ?int = if (f1 == 1): 5 else: none
@@ -393,7 +393,7 @@ bind resolve_unpack = (f1: int, f2: int) int: {
     n + s.len() + mut_n
 }
 
-bind resolve_assign = (ok1: bool, ok2: bool) int: {
+bind resolve_assign = fn(ok1: bool, ok2: bool) int: {
     let mut_n = 0
     let m1?: ?int = if (ok1): 5 else: none
     let m2?: ?int = if (ok2): 7 else: none
@@ -401,7 +401,7 @@ bind resolve_assign = (ok1: bool, ok2: bool) int: {
     mut_n * 10
 }
 
-bind main = (): {
+bind main = fn(): {
     let n1?: ?int = 3
     let n2?: ?int = 4
     let no_n?: ?int = none
@@ -455,27 +455,27 @@ func TestClosuresAndResourceCaptures(t *testing.T) {
 	src := `
 import "std/math" as math
 
-bind double_it = (x: int) int: { x * 2 }
+bind double_it = fn(x: int) int: { x * 2 }
 
-bind apply_int = (f: (int) int, v: int) int: {
+bind apply_int = fn(f: cl(int) int, v: int) int: {
     f(v)
 }
 
-bind make_greeter = (prefix: own string) (string) string: {
+bind make_greeter = fn(prefix: own string) cl(string) string: {
     // Captures Resource 'prefix' by move into heap closure environment;
     // automatically freed when the closure value itself is dropped!
-    (name: string) string: {
+    cl(name: string) string: {
         "$prefix, $name!"
     }
 }
 
-bind main = (): {
+bind main = fn(): {
     // 1. Coercing static 'bind' function into closure value
     assert(apply_int(double_it, 21) == 42)
 
     // 2. Capturing Plain value by copy & returning closure
     let factor = 10
-    let mul = (x: int) int: { x * factor }
+    let mul = cl(x: int) int: { x * factor }
     factor = 999 // Plain capture copied 10 at creation time!
     assert(apply_int(mul, 7) == 70)
 
@@ -515,8 +515,8 @@ func TestCompileTimeSafetyRejections(t *testing.T) {
 		{
 			name: "use_after_move_resource",
 			src: `
-bind consume = (s: own string): {}
-bind main = (): {
+bind consume = fn(s: own string): {}
+bind main = fn(): {
     let msg = "hello".copy()
     consume(own msg)
     println(msg)
@@ -527,7 +527,7 @@ bind main = (): {
 		{
 			name: "mutate_immutable_bind",
 			src: `
-bind main = (): {
+bind main = fn(): {
     bind x = 10
     x = 20
 }
@@ -537,12 +537,12 @@ bind main = (): {
 		{
 			name: "mutable_borrow_aliasing_conflict",
 			src: `
-bind swap_ints = (a: &int, b: &int): {
+bind swap_ints = fn(a: &int, b: &int): {
     let t = a
     a = b
     b = t
 }
-bind main = (): {
+bind main = fn(): {
     let v = 1
     swap_ints(&v, &v)
 }
@@ -552,8 +552,8 @@ bind main = (): {
 		{
 			name: "missing_amp_at_mut_call_site",
 			src: `
-bind bump = (x: &int): { x += 1 }
-bind main = (): {
+bind bump = fn(x: &int): { x += 1 }
+bind main = fn(): {
     let n = 5
     bump(n)
 }
@@ -563,7 +563,7 @@ bind main = (): {
 		{
 			name: "optional_identifier_missing_question_mark",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let bad: ?int = 5
 }
 `,
@@ -573,7 +573,7 @@ bind main = (): {
 			name: "arena_ref_escapes_inner_scope",
 			src: `
 define Node struct [val: int]
-bind main = (): {
+bind main = fn(): {
     let outer = Arena.new()
     let escaped = outer.alloc(Node[val: 1])
     {
@@ -587,10 +587,10 @@ bind main = (): {
 		{
 			name: "raw_pointer_deref_outside_unsafe",
 			src: `
-bind read_ptr = (p: ptr[int]) int: {
+bind read_ptr = fn(p: ptr[int]) int: {
     *p
 }
-bind main = (): {}
+bind main = fn(): {}
 `,
 			wantErrPart: "unsafe",
 		},
@@ -598,7 +598,7 @@ bind main = (): {}
 			name: "non_exhaustive_match_missing_else",
 			src: `
 define Color enum [Red, Green, Blue]
-bind main = (): {
+bind main = fn(): {
     let c = Color.Red
     let x = match (c):
         when Color.Red: 1
@@ -636,7 +636,7 @@ func TestRuntimeBoundsPanicInDebug(t *testing.T) {
 	t.Parallel()
 	root := projectRoot(t)
 	src := `
-bind main = (): {
+bind main = fn(): {
     let xs = [10, 20, 30]
     let boom = xs[5]
     println(boom)
@@ -690,7 +690,7 @@ func TestCLISubcommands(t *testing.T) {
 	// 2. Write a small program using `args()`
 	progPath := filepath.Join(tmp, "cli_prog.ll")
 	progSrc := `
-bind main = () int: {
+bind main = fn() int: {
     let a = args()
     println("argc=${a.len()} arg1=${a[1]}")
     0
@@ -893,9 +893,9 @@ func TestFormatLocClampsLongPath(t *testing.T) {
 	root := projectRoot(t)
 	llSrc := `
 @track_caller
-bind get_loc = () string: caller_location()
+bind get_loc = fn() string: caller_location()
 
-bind main = (): {
+bind main = fn(): {
     println(get_loc())
 }
 `
@@ -1076,7 +1076,7 @@ func TestSocketSendAfterPeerCloseNoSigpipe(t *testing.T) {
 	t.Parallel()
 	src := `import "std/net"
 
-bind main = (): {
+bind main = fn(): {
     let p1 = net.socketpair().unwrap()
     p1.second.close()
     assert(p1.first.send("hello after second closed").is_err(), "expected send after peer close to return Err")
@@ -1199,7 +1199,7 @@ func TestLLVMTlsInitClosesHandleOnDlsymFailure(t *testing.T) {
 	t.Parallel()
 	root := projectRoot(t)
 	src := `
-bind main = (): {
+bind main = fn(): {
     let a = unsafe sys_tls_available()
     println("$a")
 }

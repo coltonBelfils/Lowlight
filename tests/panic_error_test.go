@@ -69,9 +69,9 @@ func TestPanicWithErrorSharesResultFormatting(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		src := "\nbind load = () Result[int]:\n" +
+		src := "\nbind load = fn() Result[int]:\n" +
 			"\terr(Error.coded(\"not_found\", \"config missing\"))\n" +
-			"bind main = (): {\n" +
+			"bind main = fn(): {\n" +
 			"\tprintln(\"before\")\n" +
 			"\t" + tc.body + "\n" +
 			"}\n"
@@ -96,7 +96,7 @@ func TestPanicWithErrorSharesResultFormatting(t *testing.T) {
 func TestPanicRejectsOtherArgumentTypes(t *testing.T) {
 	t.Parallel()
 	for _, body := range []string{`panic(42)`, `panic([1, 2])`, `panic("a", "b")`} {
-		src := "bind main = (): {\n\t" + body + "\n}\n"
+		src := "bind main = fn(): {\n\t" + body + "\n}\n"
 		_, _, err := driver.Check(driver.Options{
 			EntryPath:   filepath.Join(t.TempDir(), "bad_panic.ll"),
 			SrcOverride: src,

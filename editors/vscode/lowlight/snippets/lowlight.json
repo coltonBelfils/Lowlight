@@ -2,7 +2,7 @@
   "Main Entry Point": {
     "prefix": "main",
     "body": [
-      "bind main = (): {",
+      "bind main = fn(): {",
       "\t$0",
       "}"
     ],
@@ -11,7 +11,7 @@
   "Function Binding": {
     "prefix": "fn",
     "body": [
-      "bind ${1:name} = (${2:x: int}) ${3:int}: {",
+      "bind ${1:name} = fn(${2:x: int}) ${3:int}: {",
       "\t$0",
       "}"
     ],
@@ -20,14 +20,14 @@
   "Expression Function": {
     "prefix": "fne",
     "body": [
-      "bind ${1:name} = (${2:x: int}) ${3:int}: ${0:x}"
+      "bind ${1:name} = fn(${2:x: int}) ${3:int}: ${0:x}"
     ],
     "description": "Top-level single-expression function"
   },
   "Method Binding": {
     "prefix": "meth",
     "body": [
-      "bind ${1:Type}.${2:method} = (${3:self}) ${4:int}: {",
+      "bind ${1:Type}.${2:method} = fn(${3:self}) ${4:int}: {",
       "\t$0",
       "}"
     ],
@@ -68,7 +68,7 @@
     "prefix": "interface",
     "body": [
       "define ${1:Name} interface [",
-      "\t${2:method}: (self) ${3:string}",
+      "\t${2:method}: fn(self) ${3:string}",
       "]"
     ],
     "description": "Structural interface"
@@ -169,7 +169,7 @@
     "prefix": "test",
     "body": [
       "@test(\"${1:description}\")",
-      "bind test_${2:name} = (): {",
+      "bind test_${2:name} = fn(): {",
       "\t$0",
       "}"
     ],

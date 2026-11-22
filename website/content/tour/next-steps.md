@@ -12,9 +12,9 @@ Lowlight is a systems language, so the machine is never out of reach. `unsafe` m
 
 ```lowlight
 extern "stdio.h"
-extern puts: (s: ptr[u8]) i32
+extern puts: fn(s: ptr[u8]) i32
 
-bind main = (): {
+bind main = fn(): {
 	let msg = "Hello from C"
 	let _ = unsafe puts(msg.c_str())
 	let n = 42

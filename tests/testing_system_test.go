@@ -72,19 +72,19 @@ func emitC(t *testing.T, src string, testMode bool, release bool) (string, error
 func TestInlineUnitTests(t *testing.T) {
 	t.Parallel()
 	src := `
-bind add = (a: int, b: int) int: a + b
-bind mul = (a: int, b: int) int: a * b
-bind main = (): {
+bind add = fn(a: int, b: int) int: a + b
+bind mul = fn(a: int, b: int) int: a * b
+bind main = fn(): {
     println("production main")
 }
 
 @test("addition works")
-bind test_add = (): {
+bind test_add = fn(): {
     assert(add(2, 3) == 5)
 }
 
 @test
-bind test_multiplication = (): {
+bind test_multiplication = fn(): {
     assert(mul(4, 5) == 20)
 }
 `
@@ -123,7 +123,7 @@ func TestDedicatedTestFileWithoutMain(t *testing.T) {
 import "std/test"
 
 @test("testing assertion library")
-bind test_assertions = (): {
+bind test_assertions = fn(): {
     test.assert_eq(10 + 20, 30)
     test.assert_ne(10, 20)
     test.assert_true(true)
@@ -163,15 +163,15 @@ func TestNonTestCallingTestFunctionRejected(t *testing.T) {
 	t.Parallel()
 	src := `
 @test("secret test")
-bind my_test = (): {
+bind my_test = fn(): {
     assert(1 == 1)
 }
 
-bind production_func = (): {
+bind production_func = fn(): {
     my_test()
 }
 
-bind main = (): {
+bind main = fn(): {
     production_func()
 }
 `
@@ -189,15 +189,15 @@ func TestNonTestCallingTestOnlyHelperRejected(t *testing.T) {
 	t.Parallel()
 	src := `
 @test_only
-bind setup_database_fixture = () int: {
+bind setup_database_fixture = fn() int: {
     42
 }
 
-bind calculate_metrics = () int: {
+bind calculate_metrics = fn() int: {
     setup_database_fixture()
 }
 
-bind main = (): {
+bind main = fn(): {
     calculate_metrics()
 }
 `
@@ -220,11 +220,11 @@ define MockUser struct [
     name: string,
 ]
 
-bind create_admin = (): {
+bind create_admin = fn(): {
     let u = MockUser[id: 1, name: "Admin"]
 }
 
-bind main = (): {
+bind main = fn(): {
     create_admin()
 }
 `
@@ -241,13 +241,13 @@ bind main = (): {
 func TestTestsOmittedFromNonTestBuild(t *testing.T) {
 	t.Parallel()
 	src := `
-bind helper = () int: 123
+bind helper = fn() int: 123
 @test("should not be compiled in release")
-bind test_secret_logic = (): {
+bind test_secret_logic = fn(): {
     assert(helper() == 123)
 }
 
-bind main = () int: {
+bind main = fn() int: {
     helper()
 }
 `
@@ -278,17 +278,17 @@ func TestTestRunnerContinuesAfterFailure(t *testing.T) {
 	t.Parallel()
 	src := `
 @test("first test passes")
-bind test_one = (): {
+bind test_one = fn(): {
     assert(1 == 1)
 }
 
 @test("second test fails")
-bind test_two = (): {
+bind test_two = fn(): {
     assert(1 == 2, "intentional failure")
 }
 
 @test("third test passes")
-bind test_three = (): {
+bind test_three = fn(): {
     assert(3 == 3)
 }
 `
@@ -319,13 +319,13 @@ func TestTestRunnerDetectsMemoryLeaks(t *testing.T) {
 	t.Parallel()
 	src := `
 @test("clean test")
-bind test_clean = (): {
+bind test_clean = fn(): {
     let lst = [1, 2, 3, 4, 5]
     assert(lst.len() == 5)
 }
 
 @test("leaky test")
-bind test_leaky = (): {
+bind test_leaky = fn(): {
     // Manually allocate raw heap memory without freeing to simulate leak
     unsafe {
         let _p = alloc_raw[u8](64)
@@ -351,9 +351,9 @@ bind test_leaky = (): {
 func TestTestsRunInReleaseMode(t *testing.T) {
 	t.Parallel()
 	src := `
-bind square = (x: int) int: x * x
+bind square = fn(x: int) int: x * x
 @test("optimized math in release mode")
-bind test_square = (): {
+bind test_square = fn(): {
     assert(square(12) == 144)
 }
 `
@@ -373,7 +373,7 @@ bind test_square = (): {
 func TestCustomTestMain(t *testing.T) {
 	t.Parallel()
 	src := `
-bind test_main = (): {
+bind test_main = fn(): {
     println("custom test_main entry point executed")
 }
 `
@@ -424,9 +424,9 @@ func TestDuplicateTestDeclarationError(t *testing.T) {
 	src := `import "std/test"
 
 @test("pass")
-bind t = (): test.assert_eq(1, 1)
+bind t = fn(): test.assert_eq(1, 1)
 @test("fail")
-bind t = (): test.assert_eq(1, 2)`
+bind t = fn(): test.assert_eq(1, 2)`
 	if err := os.WriteFile(dupPath, []byte(src), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +454,7 @@ func TestDuplicateLocalDeclarationError(t *testing.T) {
 	root := projectRoot(t)
 	tmpDir := t.TempDir()
 	dupPath := filepath.Join(tmpDir, "dup_local.ll")
-	src := `bind main = (): {
+	src := `bind main = fn(): {
 	bind a = 1
 	bind a = 2
 	let b = 1
@@ -492,9 +492,9 @@ func TestMultipleTestsWithDistinctNames(t *testing.T) {
 	src := `import "std/test"
 
 @test("pass")
-bind test_pass = (): test.assert_eq(1, 1)
+bind test_pass = fn(): test.assert_eq(1, 1)
 @test("fail")
-bind test_fail = (): test.assert_eq(1, 2)`
+bind test_fail = fn(): test.assert_eq(1, 2)`
 	if err := os.WriteFile(filePath, []byte(src), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -538,7 +538,7 @@ import "std/strings"
 import "std/fs"
 
 @test("isolated local test only")
-bind test_isolated = (): {
+bind test_isolated = fn(): {
     assert(10 + 5 == 15)
 }
 `
@@ -581,7 +581,7 @@ func TestTestScopeDirectoryWithoutTests(t *testing.T) {
 	root := projectRoot(t)
 	noTestsDir := t.TempDir()
 	dummyFile := filepath.Join(noTestsDir, "app.ll")
-	if err := os.WriteFile(dummyFile, []byte("bind main = (): {}\n"), 0644); err != nil {
+	if err := os.WriteFile(dummyFile, []byte("bind main = fn(): {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -623,9 +623,9 @@ func TestTestScopeDirectoryWithMultipleTestFiles(t *testing.T) {
 	file1 := filepath.Join(pkgA, "suite_a_test.ll")
 	src1 := `
 @test("suite A test 1")
-bind test_a1 = (): { assert(helper_fn() == 42) }
+bind test_a1 = fn(): { assert(helper_fn() == 42) }
 @test("suite A test 2")
-bind test_a2 = (): { assert(true) }
+bind test_a2 = fn(): { assert(true) }
 `
 	if err := os.WriteFile(file1, []byte(src1), 0o644); err != nil {
 		t.Fatalf("write file1: %v", err)
@@ -633,7 +633,7 @@ bind test_a2 = (): { assert(true) }
 
 	file3NoTests := filepath.Join(pkgA, "helper.ll")
 	src3 := `
-bind helper_fn = () int: { 42 }
+bind helper_fn = fn() int: { 42 }
 `
 	if err := os.WriteFile(file3NoTests, []byte(src3), 0o644); err != nil {
 		t.Fatalf("write file3: %v", err)
@@ -642,7 +642,7 @@ bind helper_fn = () int: { 42 }
 	file2 := filepath.Join(pkgB, "suite_b_test.ll")
 	src2 := `
 @test("suite B test 1")
-bind test_b1 = (): { assert(1 == 1) }
+bind test_b1 = fn(): { assert(1 == 1) }
 `
 	if err := os.WriteFile(file2, []byte(src2), 0o644); err != nil {
 		t.Fatalf("write file2: %v", err)
@@ -680,7 +680,7 @@ func TestAssertionFailureCallerLocationAndDiff(t *testing.T) {
 	src := `import "std/test"
 
 @test("equality failure with diff")
-bind test_diff = (): {
+bind test_diff = fn(): {
     test.assert_eq("hello world", "hello there")
 }
 `
@@ -714,7 +714,7 @@ func TestAssertionFailureMultilineDiff(t *testing.T) {
 	src := `import "std/test"
 
 @test("multiline failure diff")
-bind test_multi = (): {
+bind test_multi = fn(): {
     let act = "line1\nline2_bad\nline3"
     let exp = "line1\nline2_good\nline3"
     test.assert_eq(act, exp)
@@ -742,12 +742,12 @@ func TestTrackCallerHelperForwarding(t *testing.T) {
 
 @test_only
 @track_caller
-bind assert_even = (x: int): {
+bind assert_even = fn(x: int): {
     test.assert_eq(x % 2, 0)
 }
 
 @test("track caller through custom helper")
-bind test_even = (): {
+bind test_even = fn(): {
     assert_even(3)
 }
 `
@@ -766,7 +766,7 @@ func TestMultilineBacktickStringsEndToEnd(t *testing.T) {
 	t.Parallel()
 	src := "import \"std/test\"\n\n" +
 		"@test(\"backtick multiline, interpolation, and escapes\")\n" +
-		"bind test_backtick = (): {\n" +
+		"bind test_backtick = fn(): {\n" +
 		"    let name = \"World\"\n" +
 		"    let val = 42\n" +
 		"    let s = `line 1: $name\n" +
@@ -852,7 +852,7 @@ func TestAssertionApproxEqAndStringMatchFailureDiagnostics(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			src := "import \"std/test\"\n\n@test(\"failure case\")\nbind test_case = (): {\n" + tc.callLine + "\n}\n"
+			src := "import \"std/test\"\n\n@test(\"failure case\")\nbind test_case = fn(): {\n" + tc.callLine + "\n}\n"
 			out, code, err := runLowlightTest(t, src, false)
 			if code != 1 {
 				t.Fatalf("expected exit code 1, got %d (err: %v)\nOutput:\n%s", code, err, out)
@@ -968,7 +968,7 @@ func TestBatchAssertionsReportAllFailuresAndCallerLocation(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			src := "import \"std/test\"\n\n@test(\"batch failure case\")\nbind test_case = (): {\n" + tc.callLine + "\n}\n"
+			src := "import \"std/test\"\n\n@test(\"batch failure case\")\nbind test_case = fn(): {\n" + tc.callLine + "\n}\n"
 			out, code, err := runLowlightTest(t, src, false)
 			if code != 1 {
 				t.Fatalf("expected exit code 1, got %d (err: %v)\nOutput:\n%s", code, err, out)
@@ -990,9 +990,9 @@ func TestBatchAssertionsReportAllFailuresAndCallerLocation(t *testing.T) {
 func TestBatchFailureFormattingBackendParity(t *testing.T) {
 	t.Parallel()
 	src := "import \"std/test\"\n\n" +
-		"bind make_err = () Result[string]: Result[string].fail_msg(\"outer: inner failure\\n\")\n\n" +
+		"bind make_err = fn() Result[string]: Result[string].fail_msg(\"outer: inner failure\\n\")\n\n" +
 		"@test(\"batch readability parity\")\n" +
-		"bind test_batch_parity = (): {\n" +
+		"bind test_batch_parity = fn(): {\n" +
 		"    test.assert_all_ok_eq_named([\n" +
 		"        +[\"err case\", \"ok\", make_err()],\n" +
 		"        +[\"passing\", \"same\", Result[string].value(\"same\")],\n" +
@@ -1062,11 +1062,11 @@ func TestClickableRelativePathsInTestOutput(t *testing.T) {
 	}
 	src := `import "std/test"
 
-bind fail_err = () Result[int]:
+bind fail_err = fn() Result[int]:
     Result[int].fail_msg("boom")
 
 @test("relative clickable paths")
-bind test_rel = (): {
+bind test_rel = fn(): {
     test.assert_all_ok_eq_named([
         +["err", 1, fail_err()],
     ])
@@ -1102,21 +1102,21 @@ func TestTestListAndJSONOutput(t *testing.T) {
 
 	src := `import "std/test"
 
-bind helper_err = () Result[int]:
+bind helper_err = fn() Result[int]:
     Result[int].fail_msg("inner error")
 
 @test("passing math")
-bind test_pass = (): {
+bind test_pass = fn(): {
     test.assert_eq(2 + 2, 4)
 }
 
 @test("failing eq diff")
-bind test_diff = (): {
+bind test_diff = fn(): {
     test.assert_eq("actual_v", "expect_v")
 }
 
 @test("failing batch")
-bind test_batch = (): {
+bind test_batch = fn(): {
     test.assert_all_ok_eq_named([
         +["err_case", 1, helper_err()],
         +["val_case", 2, Result[int].value(9)],
@@ -1232,7 +1232,7 @@ bind test_batch = (): {
 
 	// 3. Test build_error emission in --json mode
 	badFile := filepath.Join(tmpDir, "bad_test.ll")
-	if err := os.WriteFile(badFile, []byte("@test\nbind bad = (): unknown_symbol_xyz()\n"), 0o644); err != nil {
+	if err := os.WriteFile(badFile, []byte("@test\nbind bad = fn(): unknown_symbol_xyz()\n"), 0o644); err != nil {
 		t.Fatalf("write badFile: %v", err)
 	}
 	var badOut, badErr bytes.Buffer

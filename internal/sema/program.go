@@ -262,6 +262,10 @@ type ExprInfo struct {
 	// expression), and `add_assign` or `add` for `a += b` (on the assignment target).
 	OpMethod *FuncInstance
 
+	// ToClosure is set when an `fn` value is used where the closure type `cl(...)` is expected
+	// (implicitly, or through `cl(f)`): the value is converted to that closure.
+	ToClosure *types.Func
+
 	// Member resolution (for *ast.MemberExpr)
 	EnumVariant    *types.EnumVariant
 	EnumType       *types.Enum

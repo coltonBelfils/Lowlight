@@ -352,6 +352,9 @@ func (g *llvmEmitter) llvmType(t types.Type) string {
 	case *types.Tuple:
 		return "%struct." + CType(v)
 	case *types.Func:
+		if !v.Closure {
+			return "ptr" // an `fn` value is its entry function's address
+		}
 		return "%struct.ll_closure"
 	case *types.Interface:
 		return "%struct." + v.CName
@@ -678,6 +681,9 @@ func (g *llvmEmitter) typeSize(t types.Type) int {
 		}
 		return (offset + maxAlign - 1) & -maxAlign
 	case *types.Func:
+		if !v.Closure {
+			return 8
+		}
 		return 32
 	case *types.Interface:
 		return 24
@@ -840,6 +846,8 @@ func (g *llvmEmitter) collectExprStrings(e ir.Expr) {
 		}
 	case *ir.ExprConstructClosure:
 		g.collectExprStrings(v.EnvPtr)
+	case *ir.ExprFnToClosure:
+		g.collectExprStrings(v.Fn)
 	case *ir.ExprWrapOptional:
 		g.collectExprStrings(v.Value)
 	case *ir.ExprOptionalHasValue:
@@ -1276,6 +1284,9 @@ func (g *llvmEmitter) emitTypeDrop(ptrSlot string, t types.Type) {
 			g.indentLine(1, "call void @ll_drop__Arena(ptr %s)", ptrSlot)
 		}
 	case *types.Vector, *types.Struct, *types.Distinct, *types.Interface, *types.StackArray, *types.Optional, *types.Func, *types.Tuple:
+		if f, isFn := v.(*types.Func); isFn && !f.Closure {
+			return // an `fn` owns nothing
+		}
 		fn := ir.DropFnName(v)
 		g.declareHelper(fn, "void", "ptr")
 		g.indentLine(1, "call void @%s(ptr %s)", fn, ptrSlot)
@@ -2017,6 +2028,9 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		if v.DropFn != "" && !g.funcSet[v.DropFn] {
 			g.declareHelper(v.DropFn, "void", "ptr")
 		}
+		if !v.FuncType.Closure {
+			return "@" + entryFn
+		}
 
 		closSlot := g.allocaEntry("%struct.ll_closure", 8)
 		p0 := g.newReg()
@@ -2048,6 +2062,12 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		r := g.newReg()
 		g.indentLine(1, "%s = load %%struct.ll_closure, ptr %s, align 8", r, closSlot)
 		return r
+
+	case *ir.ExprFnToClosure:
+		fnVal := g.emitExpr(v.Fn)
+		r0 := g.newReg()
+		g.indentLine(1, "%s = insertvalue %%struct.ll_closure zeroinitializer, ptr %s, 0", r0, fnVal)
+		return r0
 
 	case *ir.ExprWrapOptional:
 		if v.OptType.IsBoxed() {

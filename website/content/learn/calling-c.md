@@ -16,9 +16,9 @@ Declare a C function with `extern`, giving its Lowlight signature. Name the head
 
 ```lowlight
 extern "stdlib.h"
-extern abs as c_abs: (n: i32) i32
+extern abs as c_abs: fn(n: i32) i32
 
-bind main = (): {
+bind main = fn(): {
 	let n = unsafe c_abs(-42)
 	println(n)
 }
@@ -38,11 +38,11 @@ C strings are pointers to NUL-terminated bytes. `s.c_str()` gives one for a Lowl
 
 ```lowlight
 extern "string.h"
-extern strlen: (s: ptr[u8]) u64
+extern strlen: fn(s: ptr[u8]) u64
 
-bind c_length = (s: string) int: int(unsafe strlen(s.c_str()))
+bind c_length = fn(s: string) int: int(unsafe strlen(s.c_str()))
 
-bind main = (): {
+bind main = fn(): {
 	println(c_length("hello"))
 	println(c_length(""))
 }
@@ -61,11 +61,11 @@ When C writes into memory you provide, allocate it with the raw memory intrinsic
 
 ```lowlight
 extern "string.h"
-extern strcpy: (dst: ptr[u8], src: ptr[u8]) ptr[u8]
-extern strcat: (dst: ptr[u8], src: ptr[u8]) ptr[u8]
-extern strlen: (s: ptr[u8]) u64
+extern strcpy: fn(dst: ptr[u8], src: ptr[u8]) ptr[u8]
+extern strcat: fn(dst: ptr[u8], src: ptr[u8]) ptr[u8]
+extern strlen: fn(s: ptr[u8]) u64
 
-bind c_join = (a: string, b: string) string: {
+bind c_join = fn(a: string, b: string) string: {
 	let cap = a.len() + b.len() + 1
 	let buf = unsafe alloc_raw[u8](cap)
 	let _ = unsafe strcpy(buf, a.c_str())
@@ -77,7 +77,7 @@ bind c_join = (a: string, b: string) string: {
 	out
 }
 
-bind main = (): println(c_join("hello, ", "world"))
+bind main = fn(): println(c_join("hello, ", "world"))
 ```
 
 ```output

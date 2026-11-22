@@ -27,9 +27,9 @@ define Node struct [
 	edges: [ref[Node]],
 ]
 
-bind link = (from: ref[Node], to: ref[Node]): from.edges.push(to)
+bind link = fn(from: ref[Node], to: ref[Node]): from.edges.push(to)
 
-bind main = (): {
+bind main = fn(): {
 	let arena = Arena.new()
 	let a = arena.alloc(Node[name: "a", edges: []])
 	let b = arena.alloc(Node[name: "b", edges: []])
@@ -56,7 +56,7 @@ A `ref[T]` must never outlive its arena. The compiler guarantees it with three r
 3. A function that receives the arena as `&Arena` may return references allocated from it, because the caller owns the arena:
 
 ```lowlight fragment
-bind Node.make = (arena: &Arena, name: string) ref[Node]:
+bind Node.make = fn(arena: &Arena, name: string) ref[Node]:
 	arena.alloc(Node[name: name.copy(), edges: []])
 ```
 
@@ -76,11 +76,11 @@ define Player struct [
 	score: int,
 ]
 
-bind main = (): {
+bind main = fn(): {
 	let players = pool.Pool[Player].new()
 	let ada = players.alloc(Player[name: "Ada", score: 0])
 	let bob = players.alloc(Player[name: "Bob", score: 0])
-	players.with_mut(ada, (p: &Player): { p.score += 10 })
+	players.with_mut(ada, fn(p: &Player): { p.score += 10 })
 	println(players.get(ada)?.score ?? -1)
 	players.free(bob)
 	println(players.has(bob))

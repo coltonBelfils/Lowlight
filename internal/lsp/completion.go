@@ -2823,10 +2823,14 @@ func formatTypeExprSubst(te ast.TypeExpr, subst map[string]string) string {
 		for _, p := range v.Params {
 			ps = append(ps, formatTypeExprSubst(p.Type, subst))
 		}
-		if v.Ret == nil {
-			return "(" + strings.Join(ps, ", ") + ")"
+		kw := "fn"
+		if v.Closure {
+			kw = "cl"
 		}
-		return fmt.Sprintf("(%s) %s", strings.Join(ps, ", "), formatTypeExprSubst(v.Ret, subst))
+		if v.Ret == nil {
+			return kw + "(" + strings.Join(ps, ", ") + ")"
+		}
+		return fmt.Sprintf("%s(%s) %s", kw, strings.Join(ps, ", "), formatTypeExprSubst(v.Ret, subst))
 	default:
 		return "any"
 	}

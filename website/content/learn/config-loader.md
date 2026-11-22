@@ -54,7 +54,7 @@ define ParseResult result [
 Parsing a single value can fail in only one way, so an optional is enough:
 
 ```lowlight fragment
-bind parse_bool = (s: string) ?bool:
+bind parse_bool = fn(s: string) ?bool:
 	match(s):
 		when "true", "yes", "on": true
 		when "false", "no", "off": false
@@ -66,7 +66,7 @@ This is the first rule of failure design in Lowlight: **use the smallest tool th
 ## 4. Parse the file
 
 ```lowlight fragment
-bind parse = (text: string) ParseResult: {
+bind parse = fn(text: string) ParseResult: {
 	let host?: ?string = none
 	let port = 80
 	let debug = false
@@ -109,13 +109,13 @@ define ParseResult result [
 	bad_value: +[string, string],
 ]
 
-bind parse_bool = (s: string) ?bool:
+bind parse_bool = fn(s: string) ?bool:
 	match(s):
 		when "true", "yes", "on": true
 		when "false", "no", "off": false
 		default: none
 
-bind parse = (text: string) ParseResult: {
+bind parse = fn(text: string) ParseResult: {
 	let host?: ?string = none
 	let port = 80
 	let debug = false
@@ -135,7 +135,7 @@ bind parse = (text: string) ParseResult: {
 	value(Config[host: own host, port: port, debug: debug])
 }
 
-bind describe = (text: string) string: {
+bind describe = fn(text: string) string: {
 	let cfg = parse(text):
 		when syntax(line): func <- "line $line: expected `key = value`"
 		when missing(key): func <- "missing required key `$key`"
@@ -143,7 +143,7 @@ bind describe = (text: string) string: {
 	"${cfg.host}:${cfg.port} (debug ${cfg.debug})"
 }
 
-bind main = (): {
+bind main = fn(): {
 	println(describe("# server\nhost = example.org\nport = 8080\ndebug = yes"))
 	println(describe("host = localhost"))
 	println(describe("port = 80"))
@@ -169,7 +169,7 @@ Precise result types are ideal right next to the operation. Further up, in code 
 Convert at the boundary, adding context:
 
 ```lowlight fragment
-bind load = (name: string, text: string) Result[Config]: {
+bind load = fn(name: string, text: string) Result[Config]: {
 	let cfg = parse(text):
 		when syntax(line): func <- err(Error.coded("syntax", "$name:$line: expected `key = value`"))
 		when missing(key): func <- err(Error.coded("missing", "$name: missing `$key`"))
@@ -177,7 +177,7 @@ bind load = (name: string, text: string) Result[Config]: {
 	value(cfg)
 }
 
-bind start_server = (text: string) Result[int]: {
+bind start_server = fn(text: string) Result[int]: {
 	let cfg = load("server.conf", text):
 		default err(own e): func <- err(e.wrap("starting server"))
 	value(cfg.port)
@@ -191,7 +191,7 @@ bind start_server = (text: string) Result[int]: {
 At the top of the program, report and decide:
 
 ```lowlight fragment
-bind main = () int: {
+bind main = fn() int: {
 	let port = start_server("port = 1"):
 		default err(own e): {
 			eprintln(e.summary())
@@ -209,7 +209,7 @@ Sometimes a failure can only mean the program itself is wrong. If the config is 
 ```lowlight fragment
 bind DEFAULTS = "host = localhost\nport = 8080"
 
-bind defaults = () Config: parse(DEFAULTS): default panic
+bind defaults = fn() Config: parse(DEFAULTS): default panic
 ```
 
 If it ever fails, the program stops with `unhandled failure ParseResult.syntax` and the source location, which is exactly what you want from a bug.

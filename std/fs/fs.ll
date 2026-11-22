@@ -35,7 +35,7 @@ define File struct [
 ]
 
 // Closes the underlying file stream automatically when leaving scope if still open.
-bind File.drop = (&self):
+bind File.drop = fn(&self):
 	if(self._is_open and unsafe (self._handle != null_ptr[u8]())): {
 		let _ = unsafe sys_fclose(self._handle)
 		self._is_open = false
@@ -46,7 +46,7 @@ bind File.drop = (&self):
 //
 // # Errors
 // Returns [`Result.err`] if the file cannot be opened with the requested mode.
-bind File.open = (path: string, mode: string) Result[File]:
+bind File.open = fn(path: string, mode: string) Result[File]:
 	unsafe {
 		let fp = sys_fopen(path.c_str(), mode.c_str())
 		if(fp == null_ptr[u8]()): err(
@@ -56,22 +56,22 @@ bind File.open = (path: string, mode: string) Result[File]:
 	}
 
 // Opens an existing file for reading in binary mode (`"rb"`).
-bind File.open_read = (path: string) Result[File]: File.open(path, "rb")
+bind File.open_read = fn(path: string) Result[File]: File.open(path, "rb")
 
 // Opens a file for writing in binary mode (`"wb"`), creating it or truncating existing contents.
-bind File.open_write = (path: string) Result[File]: File.open(path, "wb")
+bind File.open_write = fn(path: string) Result[File]: File.open(path, "wb")
 
 // Opens a file for appending in binary mode (`"ab"`), creating it if missing.
-bind File.open_append = (path: string) Result[File]: File.open(path, "ab")
+bind File.open_append = fn(path: string) Result[File]: File.open(path, "ab")
 
 // Opens a file for reading and writing in binary mode (`"r+b"`).
-bind File.open_read_write = (path: string) Result[File]: File.open(path, "r+b")
+bind File.open_read_write = fn(path: string) Result[File]: File.open(path, "r+b")
 
 // Reports whether this file handle is open and non-null.
-bind File.is_valid = (self) bool: self._is_open and unsafe (self._handle != null_ptr[u8]())
+bind File.is_valid = fn(self) bool: self._is_open and unsafe (self._handle != null_ptr[u8]())
 
 // Explicitly closes the file stream and marks it closed, returning `true` if `fclose` succeeded.
-bind File.close = (&self) bool: {
+bind File.close = fn(&self) bool: {
 	if(not self._is_open or unsafe (self._handle == null_ptr[u8]())): func <- false
 	let res = unsafe sys_fclose(self._handle) == 0
 	self._is_open = false
@@ -80,7 +80,7 @@ bind File.close = (&self) bool: {
 }
 
 // Flushes any buffered output bytes to the underlying filesystem, returning `true` on success.
-bind File.flush = (&self) bool: {
+bind File.flush = fn(&self) bool: {
 	if(not self.is_valid()): func <- false
 	unsafe sys_fflush(self._handle) == 0
 }
@@ -91,7 +91,7 @@ bind File.flush = (&self) bool: {
 //
 // # Errors
 // Fails if the stream is closed or the underlying seek fails.
-bind File.seek = (&self, offset: int, whence: i32) Result[int]: {
+bind File.seek = fn(&self, offset: int, whence: i32) Result[int]: {
 	if(not self.is_valid()): func <- err(Error.new("file is not open"))
 	unsafe {
 		let rc = sys_fseek(self._handle, offset, whence)
@@ -104,7 +104,7 @@ bind File.seek = (&self, offset: int, whence: i32) Result[int]: {
 }
 
 // Returns the current byte cursor position of the open file stream.
-bind File.tell = (&self) Result[int]: {
+bind File.tell = fn(&self) Result[int]: {
 	if(not self.is_valid()): func <- err(Error.new("file is not open"))
 	unsafe {
 		let pos = sys_ftell(self._handle)
@@ -116,7 +116,7 @@ bind File.tell = (&self) Result[int]: {
 //
 // # Errors
 // Fails on non-seekable streams (pipes, FIFOs, terminals) or if the cursor cannot be restored.
-bind File.size = (&self) Result[int]: {
+bind File.size = fn(&self) Result[int]: {
 	if(not self.is_valid()): func <- err(Error.new("file is not open"))
 	unsafe {
 		let saved = sys_ftell(self._handle)
@@ -136,7 +136,7 @@ bind File.size = (&self) Result[int]: {
 //
 // # Errors
 // Fails if the stream is closed or fewer than `s.len()` bytes were written.
-bind File.write_string = (&self, s: string) Result[int]: {
+bind File.write_string = fn(&self, s: string) Result[int]: {
 	if(not self.is_valid()): func <- err(Error.new("file is not open"))
 	if(s.len() == 0): func <- value(0)
 	unsafe {
@@ -150,7 +150,7 @@ bind File.write_string = (&self, s: string) Result[int]: {
 //
 // # Errors
 // Fails if the stream is closed or a short write occurs.
-bind File.write_bytes = (&self, data: [u8]) Result[int]: {
+bind File.write_bytes = fn(&self, data: [u8]) Result[int]: {
 	if(not self.is_valid()): func <- err(Error.new("file is not open"))
 	if(data.len() == 0): func <- value(0)
 	unsafe {
@@ -171,7 +171,7 @@ bind File.write_bytes = (&self, data: [u8]) Result[int]: {
 //
 // # Errors
 // Fails if the stream is closed or the underlying read reports an I/O error (`ferror`).
-bind File.read_bytes = (&self, max_bytes: int) Result[[u8]]: {
+bind File.read_bytes = fn(&self, max_bytes: int) Result[[u8]]: {
 	if(not self.is_valid()): func <- err(Error.new("file is not open"))
 	if(max_bytes <= 0): func <- value([])
 	unsafe {
@@ -195,7 +195,7 @@ bind File.read_bytes = (&self, max_bytes: int) Result[[u8]]: {
 //
 // # Errors
 // Fails if the stream is closed or the underlying read reports an I/O error (`ferror`).
-bind File.read_all_bytes = (&self) Result[[u8]]: {
+bind File.read_all_bytes = fn(&self) Result[[u8]]: {
 	if(not self.is_valid()): func <- err(Error.new("file is not open"))
 	unsafe {
 		let chunk_size = 16384
@@ -218,7 +218,7 @@ bind File.read_all_bytes = (&self) Result[[u8]]: {
 //
 // # Errors
 // Fails if the stream is closed or the underlying read reports an I/O error (`ferror`).
-bind File.read_to_string = (&self) Result[string]: {
+bind File.read_to_string = fn(&self) Result[string]: {
 	if(not self.is_valid()): func <- err(Error.new("file is not open"))
 	unsafe {
 		let chunk_size = 8192
@@ -236,7 +236,7 @@ bind File.read_to_string = (&self) Result[string]: {
 }
 
 // Closes the stream and converts a failed `fclose` (including a failed final flush) into an error.
-bind File._close_checked = (&self) Result[bool]:
+bind File._close_checked = fn(&self) Result[bool]:
 	if(self.close()): value(true) else: err(Error.new("failed to flush and close file"))
 
 // -----------------------------------------------------------------------------
@@ -244,7 +244,7 @@ bind File._close_checked = (&self) Result[bool]:
 // -----------------------------------------------------------------------------
 
 // Reads the entire contents of `path` into an owned [`string`], wrapping any I/O error with context.
-bind read_file = (path: string) Result[string]: {
+bind read_file = fn(path: string) Result[string]: {
 	let f_res! = File.open_read(path)
 	if(f_res!.is_err()): func <- err(f_res!.unwrap_err().wrap("failed to open file \"$path\""))
 	let f = f_res!.unwrap()
@@ -252,13 +252,13 @@ bind read_file = (path: string) Result[string]: {
 }
 
 // Alias for [`read_file`].
-bind read_to_string = (path: string) Result[string]: read_file(path)
+bind read_to_string = fn(path: string) Result[string]: read_file(path)
 
 // Legacy alias for [`read_file`].
-bind read_text = (path: string) Result[string]: read_file(path)
+bind read_text = fn(path: string) Result[string]: read_file(path)
 
 // Writes `content` to `path`, creating the file or truncating existing contents.
-bind write_file = (path: string, content: string) Result[bool]: {
+bind write_file = fn(path: string, content: string) Result[bool]: {
 	let f_res! = File.open_write(path)
 	if(f_res!.is_err()): func <- err(
 		f_res!.unwrap_err().wrap("failed to open file \"$path\" for writing")
@@ -270,13 +270,13 @@ bind write_file = (path: string, content: string) Result[bool]: {
 }
 
 // Alias for [`write_file`].
-bind write_to_file = (path: string, content: string) Result[bool]: write_file(path, content)
+bind write_to_file = fn(path: string, content: string) Result[bool]: write_file(path, content)
 
 // Legacy alias for [`write_file`].
-bind write_text = (path: string, content: string) Result[bool]: write_file(path, content)
+bind write_text = fn(path: string, content: string) Result[bool]: write_file(path, content)
 
 // Appends `content` to the end of `path`, creating the file if it does not yet exist.
-bind append_file = (path: string, content: string) Result[bool]: {
+bind append_file = fn(path: string, content: string) Result[bool]: {
 	let f_res! = File.open_append(path)
 	if(f_res!.is_err()): func <- err(
 		f_res!.unwrap_err().wrap("failed to open file \"$path\" for appending")
@@ -291,7 +291,7 @@ bind append_file = (path: string, content: string) Result[bool]: {
 //
 // Reads until EOF rather than trusting the reported size, so non-seekable
 // sources (pipes, FIFOs, `/dev/stdin`, procfs files) are read completely.
-bind read_bytes = (path: string) Result[[u8]]: {
+bind read_bytes = fn(path: string) Result[[u8]]: {
 	let f_res! = File.open_read(path)
 	if(f_res!.is_err()): func <- err(f_res!.unwrap_err().wrap("failed to open file \"$path\""))
 	let f = f_res!.unwrap()
@@ -299,7 +299,7 @@ bind read_bytes = (path: string) Result[[u8]]: {
 }
 
 // Writes byte sequence `data` to `path`, creating or overwriting the target file.
-bind write_bytes = (path: string, data: [u8]) Result[bool]: {
+bind write_bytes = fn(path: string, data: [u8]) Result[bool]: {
 	let f_res! = File.open_write(path)
 	if(f_res!.is_err()): func <- err(
 		f_res!.unwrap_err().wrap("failed to open file \"$path\" for writing")
@@ -311,13 +311,13 @@ bind write_bytes = (path: string, data: [u8]) Result[bool]: {
 }
 
 // Reports whether a file or directory exists at `path`.
-bind exists = (path: string) bool: {
+bind exists = fn(path: string) bool: {
 	if(path.len() == 0): func <- false
 	unsafe sys_file_exists(path.c_str())
 }
 
 // Queries the total byte size of the file at `path`.
-bind file_size = (path: string) Result[int]: {
+bind file_size = fn(path: string) Result[int]: {
 	let f_res! = File.open_read(path)
 	if(f_res!.is_err()): func <- err(f_res!.unwrap_err().wrap("failed to open file \"$path\""))
 	let f = f_res!.unwrap()
@@ -325,19 +325,19 @@ bind file_size = (path: string) Result[int]: {
 }
 
 // Deletes the file at `path`, returning `true` on success.
-bind remove_file = (path: string) bool:
+bind remove_file = fn(path: string) bool:
 	unsafe {
 		sys_remove(path.c_str()) == 0
 	}
 
 // Renames or moves `old_path` to `new_path`, returning `true` on success.
-bind rename_file = (old_path: string, new_path: string) bool:
+bind rename_file = fn(old_path: string, new_path: string) bool:
 	unsafe {
 		sys_rename(old_path.c_str(), new_path.c_str()) == 0
 	}
 
 // Copies bytes from `src_path` to `dst_path` in 16 KiB chunks and returns total bytes copied.
-bind copy_file = (src_path: string, dst_path: string) Result[int]: {
+bind copy_file = fn(src_path: string, dst_path: string) Result[int]: {
 	let src_res! = File.open_read(src_path)
 	if(src_res!.is_err()): func <- err(
 		src_res!.unwrap_err().wrap("failed to open source \"$src_path\"")
@@ -380,10 +380,10 @@ bind copy_file = (src_path: string, dst_path: string) Result[int]: {
 // -----------------------------------------------------------------------------
 
 @test_only
-extern getenv as _test_getenv: (name: ptr[u8]) ptr[u8]
+extern getenv as _test_getenv: fn(name: ptr[u8]) ptr[u8]
 
 @test_only
-bind _test_tmp_path = (name: string) string: {
+bind _test_tmp_path = fn(name: string) string: {
 	let base = str_from_cstr(unsafe _test_getenv("TMPDIR".c_str()))
 	if(base.len() == 0): base = "/tmp"
 	if(base.len() > 1 and base.byte_at(base.len() - 1) == u8(47)): base = base[0..base.len() - 1]
@@ -393,7 +393,7 @@ bind _test_tmp_path = (name: string) string: {
 }
 
 @test("filesystem high-level operations: write, read, append, copy, rename, remove")
-bind test_fs_high_level = (): {
+bind test_fs_high_level = fn(): {
 	let prefix = _test_tmp_path("fs_hl")
 	let p1 = "$prefix.txt"
 	let p2 = "${prefix}_copy.txt"
@@ -442,7 +442,7 @@ bind test_fs_high_level = (): {
 }
 
 @test("filesystem binary byte I/O: write_bytes, read_bytes")
-bind test_fs_bytes = (): {
+bind test_fs_bytes = fn(): {
 	let path = "${_test_tmp_path("fs_bytes")}.bin"
 	let _ = remove_file(path)
 
@@ -464,7 +464,7 @@ bind test_fs_bytes = (): {
 }
 
 @test("filesystem File stream operations: seek, tell, read, write, flush, close")
-bind test_fs_file_stream = (): {
+bind test_fs_file_stream = fn(): {
 	let path = "${_test_tmp_path("fs_stream")}.txt"
 	let _ = remove_file(path)
 
@@ -496,16 +496,16 @@ bind test_fs_file_stream = (): {
 }
 
 @test_only
-extern pipe as _test_pipe: (fds: ptr[i32]) i32
+extern pipe as _test_pipe: fn(fds: ptr[i32]) i32
 
 @test_only
-extern close as _test_close: (fd: i32) i32
+extern close as _test_close: fn(fd: i32) i32
 
 @test("filesystem non-seekable streams: read_bytes and read_to_string read a pipe to EOF")
-bind test_fs_non_seekable = (): {
+bind test_fs_non_seekable = fn(): {
 	// Larger than the old 8 KiB fallback but within the minimum pipe buffer (16 KiB on macOS).
 	let payload_len = 12000
-	let run = (as_string: bool): {
+	let run = cl(as_string: bool): {
 		unsafe {
 			let fds = alloc_raw[i32](2)
 			assert(_test_pipe(fds) == i32(0), "pipe() succeeds")
@@ -543,7 +543,7 @@ bind test_fs_non_seekable = (): {
 }
 
 @test("filesystem read errors are reported instead of treated as EOF")
-bind test_fs_read_errors = (): {
+bind test_fs_read_errors = fn(): {
 	let path = "${_test_tmp_path("fs_ferror")}.txt"
 	assert(write_file(path, "data").is_ok(), "write_file succeeds")
 

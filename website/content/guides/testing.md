@@ -14,7 +14,7 @@ Testing is built into the language and toolchain. A test is a function marked `@
 ```lowlight
 import "std/test"
 
-bind slugify = (s: string) string: {
+bind slugify = fn(s: string) string: {
 	let out = ""
 	for(c in s.to_lower().chars()): {
 		if(c.is_alnum()): out.push_char(c)
@@ -25,12 +25,12 @@ bind slugify = (s: string) string: {
 }
 
 @test("lowercases and joins words with dashes")
-bind test_slugify_words = (): test.assert_eq(slugify("Hello World"), "hello-world")
+bind test_slugify_words = fn(): test.assert_eq(slugify("Hello World"), "hello-world")
 
 @test("collapses punctuation")
-bind test_slugify_punct = (): test.assert_eq(slugify("Ready, set... go!"), "ready-set-go")
+bind test_slugify_punct = fn(): test.assert_eq(slugify("Ready, set... go!"), "ready-set-go")
 
-bind main = (): println(slugify("Lowlight by Example"))
+bind main = fn(): println(slugify("Lowlight by Example"))
 ```
 
 ```output
@@ -64,7 +64,7 @@ When a helper function calls an assertion, the failure should point at the test 
 
 ```lowlight fragment
 @track_caller
-bind assert_valid_slug = (s: string): {
+bind assert_valid_slug = fn(s: string): {
 	test.assert_eq_msg(slugify(s), slugify(slugify(s)), "slugify should be idempotent")
 }
 ```

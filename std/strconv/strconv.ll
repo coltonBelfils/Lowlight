@@ -8,14 +8,14 @@
 // -----------------------------------------------------------------------------
 
 // Parses a base-10 integer string into `?int`, returning `none` on invalid syntax or overflow.
-bind parse_int_safe = (s: string) ?int: parse_int_radix(s, 10)
+bind parse_int_safe = fn(s: string) ?int: parse_int_radix(s, 10)
 
 // Parses a floating-point number string into `?float`, returning `none` on invalid input.
-bind parse_float_safe = (s: string) ?float: parse_float(s)
+bind parse_float_safe = fn(s: string) ?float: parse_float(s)
 
 // Parses a case-sensitive boolean string (`"true"`/`"1"`/`"yes"`/`"on"` or `"false"`/`"0"`/`"no"`/`"off"`),
 // returning `none` if unrecognized.
-bind parse_bool = (s: string) ?bool: {
+bind parse_bool = fn(s: string) ?bool: {
 	let trimmed = s.trim()
 	if(trimmed == "true" or trimmed == "1" or trimmed == "yes" or trimmed == "on"): true
 	else if(trimmed == "false" or trimmed == "0" or trimmed == "no" or trimmed == "off"): false
@@ -26,7 +26,7 @@ bind parse_bool = (s: string) ?bool: {
 // Formatting Methods on Primitive Types (int, float, bool)
 // -----------------------------------------------------------------------------
 
-bind _int_to_radix_with_case = (v: int, radix: int, upper: bool) string: {
+bind _int_to_radix_with_case = fn(v: int, radix: int, upper: bool) string: {
 	if(radix < 2 or radix > 36): func <- ""
 	if(v == 0): func <- "0"
 	let is_neg = v < 0
@@ -52,47 +52,47 @@ bind _int_to_radix_with_case = (v: int, radix: int, upper: bool) string: {
 }
 
 // Formats this [`int`] as lowercase digits in base `radix` (`2..=36`), returning `""` if invalid.
-bind int.to_radix = (self, radix: int) string: _int_to_radix_with_case(self, radix, false)
+bind int.to_radix = fn(self, radix: int) string: _int_to_radix_with_case(self, radix, false)
 
 // Formats this [`int`] as uppercase digits in base `radix` (`2..=36`), returning `""` if invalid.
-bind int.to_radix_upper = (self, radix: int) string: _int_to_radix_with_case(self, radix, true)
+bind int.to_radix_upper = fn(self, radix: int) string: _int_to_radix_with_case(self, radix, true)
 
 // Formats this [`int`] in hexadecimal (uppercase when `upper` is `true`).
-bind int.to_hex = (self, upper: bool) string: _int_to_radix_with_case(self, 16, upper)
+bind int.to_hex = fn(self, upper: bool) string: _int_to_radix_with_case(self, 16, upper)
 
 // Formats this [`int`] in base-2 binary without a `"0b"` prefix.
-bind int.to_bin = (self) string: _int_to_radix_with_case(self, 2, false)
+bind int.to_bin = fn(self) string: _int_to_radix_with_case(self, 2, false)
 
 // Formats this [`int`] in base-8 octal without a `"0o"` prefix.
-bind int.to_oct = (self) string: _int_to_radix_with_case(self, 8, false)
+bind int.to_oct = fn(self) string: _int_to_radix_with_case(self, 8, false)
 
 // Formats signed integer `v` in base 10.
-bind int_to_str = (v: int) string: "$v"
+bind int_to_str = fn(v: int) string: "$v"
 
 // Function form of [`int.to_radix`].
-bind int_to_radix = (v: int, radix: int) string: v.to_radix(radix)
+bind int_to_radix = fn(v: int, radix: int) string: v.to_radix(radix)
 
 // Function form of [`int.to_radix_upper`].
-bind int_to_radix_upper = (v: int, radix: int) string: v.to_radix_upper(radix)
+bind int_to_radix_upper = fn(v: int, radix: int) string: v.to_radix_upper(radix)
 
 // Function form of [`int.to_hex`].
-bind int_to_hex = (v: int, upper: bool) string: v.to_hex(upper)
+bind int_to_hex = fn(v: int, upper: bool) string: v.to_hex(upper)
 
 // Function form of [`int.to_bin`].
-bind int_to_bin = (v: int) string: v.to_bin()
+bind int_to_bin = fn(v: int) string: v.to_bin()
 
 // Function form of [`int.to_oct`].
-bind int_to_oct = (v: int) string: v.to_oct()
+bind int_to_oct = fn(v: int) string: v.to_oct()
 
 // Formats float `v` with `precision` fractional digits (or compact general format if `< 0`).
-bind float_to_str = (v: float, precision: int) string:
+bind float_to_str = fn(v: float, precision: int) string:
 	if(precision < 0): "$v" else: format_float_prec(v, precision)
 
 // Formats float `v` in exponential scientific notation with `precision` fractional digits.
-bind float_to_exp = (v: float, precision: int) string: v.to_exp(precision)
+bind float_to_exp = fn(v: float, precision: int) string: v.to_exp(precision)
 
 // Formats boolean `v` as `"true"` or `"false"`.
-bind bool_to_str = (v: bool) string:
+bind bool_to_str = fn(v: bool) string:
 	if(v): "true" else: "false"
 
 // -----------------------------------------------------------------------------
@@ -100,49 +100,49 @@ bind bool_to_str = (v: bool) string:
 // -----------------------------------------------------------------------------
 
 // Parses this string as a base-10 signed integer, returning `none` if invalid or out of range.
-bind string.to_int = (self) ?int: parse_int_radix(self, 10)
+bind string.to_int = fn(self) ?int: parse_int_radix(self, 10)
 
 // Parses this string as a signed integer in base `radix` (`2..=36`), or returns `none`.
-bind string.to_int_radix = (self, radix: int) ?int: parse_int_radix(self, radix)
+bind string.to_int_radix = fn(self, radix: int) ?int: parse_int_radix(self, radix)
 
 // Parses this string as a floating-point number, returning `none` on invalid syntax.
-bind string.to_float = (self) ?float: parse_float_safe(self)
+bind string.to_float = fn(self) ?float: parse_float_safe(self)
 
 // Parses this string as a boolean token using [`parse_bool`].
-bind string.to_bool = (self) ?bool: parse_bool(self)
+bind string.to_bool = fn(self) ?bool: parse_bool(self)
 
 // Reports whether this string parses cleanly as a floating-point number.
-bind string.is_numeric = (self) bool: {
+bind string.is_numeric = fn(self) bool: {
 	let f? = parse_float_safe(self)
 	if(f?): true else: false
 }
 
 // Reports whether this string parses cleanly as a base-10 integer.
-bind string.is_int = (self) bool: {
+bind string.is_int = fn(self) bool: {
 	let n? = parse_int_radix(self, 10)
 	if(n?): true else: false
 }
 
 // Reports whether this string parses cleanly as a float (alias for [`string.is_numeric`]).
-bind string.is_float = (self) bool: {
+bind string.is_float = fn(self) bool: {
 	let f? = parse_float_safe(self)
 	if(f?): true else: false
 }
 
 // Reports whether this string parses cleanly as a base-16 hexadecimal integer.
-bind string.is_hex = (self) bool: {
+bind string.is_hex = fn(self) bool: {
 	let h? = parse_int_radix(self, 16)
 	if(h?): true else: false
 }
 
 // Reports whether this string parses cleanly as a base-2 binary integer.
-bind string.is_bin = (self) bool: {
+bind string.is_bin = fn(self) bool: {
 	let b? = parse_int_radix(self, 2)
 	if(b?): true else: false
 }
 
 // Reports whether this string parses cleanly as a base-8 octal integer.
-bind string.is_oct = (self) bool: {
+bind string.is_oct = fn(self) bool: {
 	let o? = parse_int_radix(self, 8)
 	if(o?): true else: false
 }
@@ -152,7 +152,7 @@ bind string.is_oct = (self) bool: {
 // -----------------------------------------------------------------------------
 
 @test("strconv integer parsing (decimal and boundaries)")
-bind test_strconv_parse_int = (): {
+bind test_strconv_parse_int = fn(): {
 	let n0? = "0".to_int()
 	assert(n0? == 0, "0 to_int")
 
@@ -187,7 +187,7 @@ bind test_strconv_parse_int = (): {
 }
 
 @test("strconv radix parsing (binary, octal, hex, base36)")
-bind test_strconv_radix = (): {
+bind test_strconv_radix = fn(): {
 	let b1? = "1011".to_int_radix(2)
 	assert(b1? == 11, "bin 1011")
 
@@ -220,7 +220,7 @@ bind test_strconv_radix = (): {
 }
 
 @test("strconv integer formatting: to_bin, to_oct, to_hex, to_radix")
-bind test_strconv_format_int = (): {
+bind test_strconv_format_int = fn(): {
 	assert(42.to_bin() == "101010", "42 to_bin")
 	assert(63.to_oct() == "77", "63 to_oct")
 	assert(255.to_hex(false) == "ff", "255 to_hex lower")
@@ -232,7 +232,7 @@ bind test_strconv_format_int = (): {
 }
 
 @test("strconv float and boolean parsing/formatting")
-bind test_strconv_float_and_bool = (): {
+bind test_strconv_float_and_bool = fn(): {
 	let f? = "3.1415".to_float()
 	assert(f? != none, "parse valid float")
 
@@ -264,7 +264,7 @@ bind test_strconv_float_and_bool = (): {
 }
 
 @test("strconv string type check predicates")
-bind test_strconv_predicates = (): {
+bind test_strconv_predicates = fn(): {
 	assert("12345".is_int(), "12345 is_int")
 	assert(not "123.45".is_int(), "123.45 is not is_int")
 

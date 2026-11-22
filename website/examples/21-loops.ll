@@ -2,7 +2,7 @@
 // Category: Control flow
 // Order: 21
 
-bind main = (): {
+bind main = fn(): {
 	// `for` visits each element of a collection or range.
 	for(i in 0..3): print("$i ")
 	println()

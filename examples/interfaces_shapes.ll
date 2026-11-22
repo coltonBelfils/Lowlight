@@ -8,9 +8,9 @@
 import "std/math"
 
 define Shape interface [
-    name: (self) string,
-    area: (self) float,
-    scale: (&self, factor: float),
+    name: fn(self) string,
+    area: fn(self) float,
+    scale: fn(&self, factor: float),
 ]
 
 define Circle struct [
@@ -18,28 +18,28 @@ define Circle struct [
     radius: float,
 ]
 
-bind Circle.name = (self) string: { self.label.copy() }
-bind Circle.area = (self) float: { math.PI * self.radius * self.radius }
-bind Circle.scale = (&self, factor: float): { self.radius *= factor }
+bind Circle.name = fn(self) string: { self.label.copy() }
+bind Circle.area = fn(self) float: { math.PI * self.radius * self.radius }
+bind Circle.scale = fn(&self, factor: float): { self.radius *= factor }
 
 define Rect struct [
     w: float,
     h: float,
 ]
 
-bind Rect.name = (self) string: { "rect(${self.w}x${self.h})" }
-bind Rect.area = (self) float: { self.w * self.h }
-bind Rect.scale = (&self, factor: float): {
+bind Rect.name = fn(self) string: { "rect(${self.w}x${self.h})" }
+bind Rect.area = fn(self) float: { self.w * self.h }
+bind Rect.scale = fn(&self, factor: float): {
     self.w *= factor
     self.h *= factor
 }
 
 // Zero-allocation read-only fat-pointer borrow!
-bind describe_shape = (s: Shape) string: {
+bind describe_shape = fn(s: Shape) string: {
     "${s.name()}: area=${math.round(s.area() * 100.0) / 100.0}"
 }
 
-bind main = (): {
+bind main = fn(): {
     let c = Circle[label: "unit-disc", radius: 1.0]
     let r = Rect[w: 3.0, h: 4.0]
 

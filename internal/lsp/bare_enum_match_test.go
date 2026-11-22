@@ -15,10 +15,10 @@ define Expr enum [
 	Text: string,
 ]
 
-bind make_res = (ok: bool) Result[string]:
+bind make_res = fn(ok: bool) Result[string]:
 	if (ok): value("ok") else: err(Error.new("bad"))
 
-bind describe = (e: own Expr, r!: own Result[string]) string: {
+bind describe = fn(e: own Expr, r!: own Result[string]) string: {
 	let part = match (own e):
 		when Empty: "empty"
 		default Text(own s): s
@@ -28,7 +28,7 @@ bind describe = (e: own Expr, r!: own Result[string]) string: {
 	part + ":" + out
 }
 
-bind main = (): {
+bind main = fn(): {
 	let e = Expr.Text("hi")
 	let r! = make_res(true)
 	println(describe(own e, own r!))
@@ -84,7 +84,7 @@ func TestLSPBareEnumMatchReferencesAndRename(t *testing.T) {
 	Text: string,
 ]
 
-bind use_it = (e: own Expr, r!: own Result[string]) string: {
+bind use_it = fn(e: own Expr, r!: own Result[string]) string: {
 	let a = match (own e):
 		when Empty: "empty"
 		default Text(own s): s
@@ -94,7 +94,7 @@ bind use_it = (e: own Expr, r!: own Result[string]) string: {
 	a + b
 }
 
-bind main = (): {
+bind main = fn(): {
 	let e1 = Expr.Empty
 	let e2 = Expr.Text("hi")
 	println(use_it(own e1, Result.value("x")))
@@ -237,7 +237,7 @@ func TestLSPBareEnumMatchCompletion(t *testing.T) {
 	Text: string,
 ]
 
-bind f = (e: Expr) string:
+bind f = fn(e: Expr) string:
 	match (e):
 		when /*CURSOR*/
 `
@@ -245,7 +245,7 @@ bind f = (e: Expr) string:
 		t.Errorf("match enum `when` completion missing %v", miss)
 	}
 
-	resDefSrc := `bind f = (r!: Result[string]) string:
+	resDefSrc := `bind f = fn(r!: Result[string]) string:
 	match (r!):
 		default /*CURSOR*/
 `
@@ -258,7 +258,7 @@ bind f = (e: Expr) string:
 	Text: string,
 ]
 
-bind f = (e: own Expr) string:
+bind f = fn(e: own Expr) string:
 	match (own e):
 		when Text(own msg): m/*CURSOR*/
 		default: ""
@@ -272,7 +272,7 @@ bind f = (e: own Expr) string:
 	Text: string,
 ]
 
-bind f = (e: Expr, r!: Result[int]) string:
+bind f = fn(e: Expr, r!: Result[int]) string:
 	match (e, r!):
 		when Empty, /*CURSOR*/
 `
@@ -289,7 +289,7 @@ func TestLSPGenerateMissingArmsBareEnumMatch(t *testing.T) {
 	Stopped,
 ]
 
-bind label = (s: Status) string:
+bind label = fn(s: Status) string:
 	match (s):
 		when Active: "a"
 		default Paused: "p"

@@ -9,7 +9,7 @@ order: 4
 Lowlight has no `null`. A value that might be missing has an **optional type**, `?T`, and the name that holds it **must end in `?`**:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let age? = parse_int("42")       // ?int
 	let bad? = parse_int("forty")    // none
 	println(age?)
@@ -29,7 +29,7 @@ The `?` is part of the name, and the compiler enforces it in both directions: a 
 **Supply a fallback** with `??`:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let port? = parse_int("80a")
 	let p = port? ?? 8080
 	println(p)
@@ -43,7 +43,7 @@ bind main = (): {
 **Check and use it** with `if(x?)`. Inside the branch, the plain name refers to the value:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let count? = parse_int("12")
 	if(count?): println(count + 1)
 	else: println("not a number")
@@ -57,7 +57,7 @@ bind main = (): {
 **Bind an expression's value** with `if(expr as name)`:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let ages = #["ada": 36, "grace": 45]
 	if(ages["grace"] as a): println("grace is $a")
 	if(ages["linus"] as a): println("linus is $a")
@@ -73,12 +73,12 @@ no linus
 **Leave early if it's missing.** The right side of `??` may be an unwind, so a guard and the unwrap are one line:
 
 ```lowlight
-bind double = (s: string) int: {
+bind double = fn(s: string) int: {
 	let n = parse_int(s) ?? func <- 0
 	n * 2
 }
 
-bind main = (): println(double("21") + double("x"))
+bind main = fn(): println(double("21") + double("x"))
 ```
 
 ```output
@@ -95,7 +95,7 @@ define Person struct [
 	manager?: ?Person,
 ]
 
-bind main = (): {
+bind main = fn(): {
 	let ada = Person[name: "Ada", manager?: Person[name: "Grace"]]
 	println(ada.manager?.name ?? "nobody")
 	println(ada.manager?.manager?.name ?? "nobody")

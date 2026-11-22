@@ -4,7 +4,7 @@
 
 import "std/strfmt"
 
-bind main = (): {
+bind main = fn(): {
 	let name = "Ada"
 	let items = 3
 

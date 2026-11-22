@@ -269,7 +269,7 @@ func (s *Site) addStdlib(root string) error {
 
 The standard library is a set of ordinary Lowlight packages under ` + "`std/`" + `. Import one by path and use its exported names through the last path segment:
 
-` + "```lowlight\nimport \"std/fs\"\n\nbind main = (): {\n\tlet text = fs.read_text(\"notes.txt\") ?? \"\"\n\tprintln(text.len())\n}\n```" + `
+` + "```lowlight\nimport \"std/fs\"\n\nbind main = fn(): {\n\tlet text = fs.read_text(\"notes.txt\") ?? \"\"\n\tprintln(text.len())\n}\n```" + `
 
 ` + "`std/core`" + ` is the **prelude**: it is imported into every file automatically, unqualified, and defines the collection types, ` + "`Result`" + ` and ` + "`Error`" + `, the methods on primitive types, and the interfaces behind operators and loops. See [the prelude chapter of the specification](/spec/the-prelude.html) for how the language relies on it.
 

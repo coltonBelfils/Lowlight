@@ -31,7 +31,7 @@ define Point struct [
 
 // Returns origin distance squared.
 // See [` + "`make_point`" + `] for construction.
-bind Point.mag2 = (self) int: self.x * self.x + self.y * self.y
+bind Point.mag2 = fn(self) int: self.x * self.x + self.y * self.y
 
 // Constructs a [` + "`Point`" + `] with given coordinates.
 //
@@ -39,13 +39,13 @@ bind Point.mag2 = (self) int: self.x * self.x + self.y * self.y
 // ` + "```lowlight" + `
 // let p = make_point(3, 4)
 // ` + "```" + `
-bind make_point = (x: int, y: int) Point: Point[x: x, y: y]
+bind make_point = fn(x: int, y: int) Point: Point[x: x, y: y]
 
 // Internal helper should not appear in public docs.
-bind _secret = () int: 1
+bind _secret = fn() int: 1
 
 @test("smoke")
-bind test_alpha = (): {
+bind test_alpha = fn(): {
 	assert(make_point(1, 2).mag2() == 5)
 }
 `
@@ -54,12 +54,12 @@ bind test_alpha = (): {
 import "./alpha"
 
 // Converts a [` + "`Point`" + `] via [` + "`Point.mag2`" + `].
-bind use_point = (p: alpha.Point) int: p.mag2()
+bind use_point = fn(p: alpha.Point) int: p.mag2()
 `
 	if err := os.WriteFile(aPath, []byte(alphaSrc), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(aTestPath, []byte("@test(\"hidden\")\nbind test_hidden = (): {}\n"), 0644); err != nil {
+	if err := os.WriteFile(aTestPath, []byte("@test(\"hidden\")\nbind test_hidden = fn(): {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(bPath, []byte(betaSrc), 0644); err != nil {
@@ -97,7 +97,7 @@ bind use_point = (p: alpha.Point) int: p.mag2()
 	// Broken link verification
 	brokenPath := filepath.Join(tmp, "broken.ll")
 	brokenSrc := `// References [` + "`NonExistentType`" + `].
-bind broken_fn = () int: 0
+bind broken_fn = fn() int: 0
 `
 	if err := os.WriteFile(brokenPath, []byte(brokenSrc), 0644); err != nil {
 		t.Fatal(err)

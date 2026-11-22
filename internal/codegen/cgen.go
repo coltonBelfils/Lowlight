@@ -191,8 +191,10 @@ func (g *cEmitter) emitEnumsAndForwardDecls() {
 			cn := CType(v)
 			g.line("typedef struct %s %s;", cn, cn)
 		case *types.Func:
-			cn := CType(v)
-			g.line("typedef struct %s %s;", cn, cn)
+			if v.Closure {
+				cn := CType(v)
+				g.line("typedef struct %s %s;", cn, cn)
+			}
 		case *types.Interface:
 			vt := ir.VTableTypeName(v)
 			g.line("typedef struct %s %s;", vt, vt)
@@ -202,6 +204,17 @@ func (g *cEmitter) emitEnumsAndForwardDecls() {
 	for _, t := range g.prog.OrderedTypes {
 		if v, ok := t.(*types.Distinct); ok {
 			g.line("typedef %s %s;", CType(v.Base), v.CName)
+		}
+	}
+	// An `fn` value is a pointer to an entry function taking the (unused) environment first,
+	// like a closure's `fn` field.
+	for _, t := range g.prog.OrderedTypes {
+		if v, ok := t.(*types.Func); ok && !v.Closure {
+			pTypes := []string{"void*"}
+			for _, p := range v.Params {
+				pTypes = append(pTypes, paramCType(p.Mode, p.Type))
+			}
+			g.line("typedef %s (*%s)(%s);", CType(v.Ret), CType(v), strings.Join(pTypes, ", "))
 		}
 	}
 	g.line("")
@@ -280,6 +293,9 @@ func (g *cEmitter) emitOrderedTypeDefs() {
 			g.line("struct %s { %s* data; int64_t len; int64_t cap; };", cn, CType(v.Elem))
 
 		case *types.Func:
+			if !v.Closure {
+				continue
+			}
 			cn := CType(v)
 			pTypes := []string{"void*"}
 			for _, p := range v.Params {
@@ -503,7 +519,9 @@ func (g *cEmitter) emitSynthesizedTypeHelpers() {
 		case *types.Vector:
 			g.emitVectorHelpers(v)
 		case *types.Func:
-			g.emitFuncClosureHelpers(v)
+			if v.Closure {
+				g.emitFuncClosureHelpers(v)
+			}
 		case *types.Interface:
 			g.emitInterfaceHelpers(v)
 		}
@@ -1440,7 +1458,12 @@ func (g *cEmitter) emitExpr(e ir.Expr) string {
 			fields[i] = fmt.Sprintf("._%d = %s", i, g.emitExpr(el))
 		}
 		return fmt.Sprintf("(%s){ %s }", CType(v.TupleType), strings.Join(fields, ", "))
+	case *ir.ExprFnToClosure:
+		return fmt.Sprintf("(%s){ .fn = %s, .env = NULL, .copy_env = NULL, .drop_env = NULL }", CType(v.To), g.emitExpr(v.Fn))
 	case *ir.ExprConstructClosure:
+		if !v.FuncType.Closure {
+			return fmt.Sprintf("((%s)%s)", CType(v.FuncType), v.EntryFn)
+		}
 		envStr := "NULL"
 		if v.EnvPtr != nil {
 			envStr = fmt.Sprintf("(void*)%s", g.emitExpr(v.EnvPtr))

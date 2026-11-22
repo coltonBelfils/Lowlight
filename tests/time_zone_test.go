@@ -16,7 +16,7 @@ func TestLocalTimeZoneNamesFollowTZ(t *testing.T) {
 	src := `
 import "std/time"
 
-bind main = (): {
+bind main = fn(): {
 	let winter = time.DateTime.from_unix_secs(1700000000, true)
 	let summer = time.DateTime.from_unix_secs(1690000000, true)
 	println("${winter.zone_name} ${winter.offset_secs}")

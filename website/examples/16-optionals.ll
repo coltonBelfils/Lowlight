@@ -4,12 +4,12 @@
 
 // A value that may be absent has type `?T`, and the name that
 // holds it ends in `?`. There is no null.
-bind find = (xs: [string], target: string) ?int: {
+bind find = fn(xs: [string], target: string) ?int: {
 	for(i, x in xs): if(x == target): func <- i
 	none
 }
 
-bind main = (): {
+bind main = fn(): {
 	let names = ["ada", "grace", "linus"]
 
 	// `??` supplies a fallback.

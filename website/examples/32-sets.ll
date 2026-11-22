@@ -2,7 +2,7 @@
 // Category: Collections
 // Order: 32
 
-bind main = (): {
+bind main = fn(): {
 	// `#[T]` is a hash set.
 	let seen = #[1, 2, 3]
 

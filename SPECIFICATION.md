@@ -66,15 +66,15 @@ This part shows the language by example. Each section links to the reference cha
 ## Hello, world
 
 ```lowlight
-bind main = (): println("Hello, world!")
+bind main = fn(): println("Hello, world!")
 ```
 
-Save it as `hello.ll` and run `lowlight run hello.ll`. A program is a set of top-level declarations; `main` is the entry point. `bind name = value` declares something that never changes, here a function. `(): ...` is a function that takes nothing; its body follows the colon.
+Save it as `hello.ll` and run `lowlight run hello.ll`. A program is a set of top-level declarations; `main` is the entry point. `bind name = value` declares something that never changes, here a function. `fn(): ...` is a function that takes nothing; its body follows the colon.
 
 ## Values and variables
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let count = 3            // `let`: a variable you may reassign
 	count += 1
 	bind limit = 10          // `bind`: never reassigned
@@ -96,17 +96,17 @@ See [§2 Lexical Structure](#2-lexical-structure) and [§3 Types](#3-types).
 ## Functions
 
 ```lowlight
-bind square = (x: int) int: x * x
+bind square = fn(x: int) int: x * x
 
-bind describe = (n: int) string: {
+bind describe = fn(n: int) string: {
 	let kind = if(n % 2 == 0): "even" else: "odd"
 	"$n is $kind"
 }
 
-bind main = (): {
+bind main = fn(): {
 	println(square(7))
 	println(describe(7))
-	let twice = (x: int) int: x * 2      // a function value
+	let twice = fn(x: int) int: x * 2      // a function value
 	println(twice(21))
 }
 ```
@@ -129,14 +129,14 @@ define Shape enum [
 	empty,
 ]
 
-bind Point.length_squared = (self) float: self.x * self.x + self.y * self.y
+bind Point.length_squared = fn(self) float: self.x * self.x + self.y * self.y
 
-bind area = (s: Shape) float: match(s):
+bind area = fn(s: Shape) float: match(s):
 	when circle(r): 3.14159 * r * r
 	when rect(p): p.x * p.y
 	default empty: 0.0
 
-bind main = (): {
+bind main = fn(): {
 	let p = Point[x: 3.0, y: 4.0]
 	println(p.length_squared())
 	println(area(Shape.rect(p)))
@@ -146,7 +146,7 @@ bind main = (): {
 
 - `struct` groups named fields; build one with `Type[field: value, ...]`.
 - `enum` lists alternatives (variants); a variant may carry one value. Outside a `match`, a variant is named with its type, `Shape.circle(1.0)`; inside a `match` arm it is named bare, `when circle(r)`.
-- `bind Type.method = (self) ...` adds a method. `self` is read-only; write `&self` to mutate the receiver.
+- `bind Type.method = fn(self) ...` adds a method. `self` is read-only; write `&self` to mutate the receiver.
 - `match` must handle every case. The last arm always starts with `default`.
 
 See [§3.7 Structs](#37-structs), [§3.8 Enums](#38-enums), and [§6.5 Pattern matching](#65-pattern-matching).
@@ -156,12 +156,12 @@ See [§3.7 Structs](#37-structs), [§3.8 Enums](#38-enums), and [§6.5 Pattern m
 There is no `null`. A value that may be absent has an optional type `?T`, and its name ends in `?`:
 
 ```lowlight
-bind find_index = (items: [string], wanted: string) ?int: {
+bind find_index = fn(items: [string], wanted: string) ?int: {
 	for(i, item in items): if(item == wanted): func <- i
 	none
 }
 
-bind main = (): {
+bind main = fn(): {
 	let names = ["ada", "grace", "linus"]
 	let pos? = find_index(names, "grace")
 	if(pos?): println("found at $pos")      // inside, `pos` is a plain int
@@ -184,19 +184,19 @@ define Lookup result [
 	forbidden,
 ]
 
-bind find = (key: string) Lookup:
+bind find = fn(key: string) Lookup:
 	if(key == "secret"): forbidden
 	else if(key == "name"): value("Lowlight")
 	else: missing(key.copy())
 
-bind greet = (key: string) string: {
+bind greet = fn(key: string) string: {
 	let who = find(key):
 		when missing(k): func <- "no entry for $k"
 		default forbidden: "stranger"
 	"hello, $who"
 }
 
-bind main = (): {
+bind main = fn(): {
 	println(greet("name"))
 	println(greet("secret"))
 	println(greet("age"))
@@ -217,7 +217,7 @@ See [§3.9 Results](#39-results), [§6.6 Result chains](#66-result-chains), and 
 ## Control flow
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	// `for` collects its body's values into a list.
 	let squares = for(n in 1..=5): n * n
 	println(squares)
@@ -252,11 +252,11 @@ See [§6 Control Flow](#6-control-flow).
 Every value has exactly one owner. Small fixed-size values (numbers, `bool`, `char`, plain structs) are **plain** and copy freely. Values that own memory or system resources (`string`, lists, maps, files) are **resources**: they move rather than copy, and are freed automatically at the end of their owner's scope.
 
 ```lowlight
-bind shout = (s: string) string: s.to_upper()       // read-only borrow
-bind append_bang = (s: &string): s.push("!")        // mutable borrow
-bind consume = (s: own string): println("took $s")  // takes ownership
+bind shout = fn(s: string) string: s.to_upper()       // read-only borrow
+bind append_bang = fn(s: &string): s.push("!")        // mutable borrow
+bind consume = fn(s: own string): println("took $s")  // takes ownership
 
-bind main = (): {
+bind main = fn(): {
 	let msg = "hi" + " there"
 	println(shout(msg))      // borrowed; msg is still ours
 	append_bang(&msg)        // `&` at the call site: msg may change
@@ -283,12 +283,12 @@ A directory of `.ll` files is a package. Other packages are used through a quali
 import "std/strings"
 
 @test("join puts separators between items")
-bind test_join = (): {
+bind test_join = fn(): {
 	let joined = strings.join(["a", "b", "c"], "-")
 	assert(joined == "a-b-c", "unexpected: $joined")
 }
 
-bind main = (): println(strings.join(["x", "y"], ", "))
+bind main = fn(): println(strings.join(["x", "y"], ", "))
 ```
 
 `lowlight test` runs every `@test` function and checks each one for leaks. Names beginning with `_` are private to their package.
@@ -311,16 +311,16 @@ Tables for looking things up. Each row links to its full definition.
 
 | Form | Example | Reference |
 |---|---|---|
-| Constant or function | `bind limit = 100` · `bind add = (a: int, b: int) int: a + b` | [§4.2](#42-bind-and-let), [§4.3](#43-functions) |
+| Constant or function | `bind limit = 100` · `bind add = fn(a: int, b: int) int: a + b` | [§4.2](#42-bind-and-let), [§4.3](#43-functions) |
 | Mutable variable (inside functions only) | `let total = 0` | [§4.2](#42-bind-and-let) |
-| Method | `bind Point.norm = (self) float: ...` | [§4.4](#44-methods-and-associated-functions) |
-| Associated function | `bind Point.origin = () Point: Point[x: 0.0, y: 0.0]` | [§4.4](#44-methods-and-associated-functions) |
+| Method | `bind Point.norm = fn(self) float: ...` | [§4.4](#44-methods-and-associated-functions) |
+| Associated function | `bind Point.origin = fn() Point: Point[x: 0.0, y: 0.0]` | [§4.4](#44-methods-and-associated-functions) |
 | Struct | `define Point struct [x: float, y: float]` | [§3.7](#37-structs) |
 | Enum | `define Color enum [red, green]` · `define Shape enum [circle: float, empty]` | [§3.8](#38-enums) |
 | Result type | `define Lookup result [value: Item, missing: string]` | [§3.9](#39-results) |
-| Interface | `define Shape interface [area: (self) float]` | [§3.11](#311-interfaces) |
+| Interface | `define Shape interface [area: fn(self) float]` | [§3.11](#311-interfaces) |
 | Distinct type | `define UserId int` | [§3.10](#310-distinct-types) |
-| Generic | `define Stack[T] struct [items: [T]]` · `bind first[T] = (xs: [T]) ?T: xs.get(0)` | [§8](#8-generics) |
+| Generic | `define Stack[T] struct [items: [T]]` · `bind first[T] = fn(xs: [T]) ?T: xs.get(0)` | [§8](#8-generics) |
 | Import | `import "std/fs"` · `import "std/math" as m` | [§4.6](#46-packages-and-imports) |
 | Foreign function | `extern "stdio.h"` · `extern puts: (s: ptr[u8]) i32` | [§10.4](#104-foreign-functions) |
 | Tuple unpacking | `let x, y = unpack +[1, 2]` | [§4.2](#42-bind-and-let) |
@@ -340,7 +340,8 @@ Tables for looking things up. Each row links to its full definition.
 | `#[T]` · `#[K: V]` | Set · map | resource | [§3.6](#36-collections) |
 | `+[A, B, ...]` | Tuple | plain if all parts are | [§3.6](#36-collections) |
 | `Range[T]` | `lo..hi`, `lo..=hi` | plain | [§3.6](#36-collections) |
-| `(A, B) R` · `(A)` | Function returning `R` · returning nothing | resource | [§3.12](#312-functions-and-closures) |
+| `fn(A, B) R` · `fn(A)` | Function returning `R` · returning nothing | plain | [§3.12](#312-functions-and-closures) |
+| `cl(A, B) R` · `cl(A)` | Closure returning `R` · returning nothing | resource | [§3.12](#312-functions-and-closures) |
 | `Arena` · `ref[T]` | Region allocator · reference into it | resource · plain | [§3.13](#313-arenas) |
 | `ptr[T]` | Raw pointer | plain | [§3.14](#314-raw-pointers) |
 | `void` · `never` | No value (return types only) · does not return | | [§3.15](#315-void-and-never) |
@@ -560,7 +561,7 @@ So a method chain can continue on the next line by starting it with `.`, and `el
 **Block values.** An expression at the end of a block, followed only by an inserted semicolon or by `}`, is the block's value. An explicitly written `;` after it discards it, and the block then has type `void`.
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let total = [1, 2, 3]
 		.len()                // continues the previous line
 	let doubled = {
@@ -615,13 +616,13 @@ The wildcard `_` is not a name: it discards a value in unpacking and patterns, a
 
 ### 2.6 Keywords
 
-These 28 words are reserved and cannot be used as identifiers:
+These 30 words are reserved and cannot be used as identifiers:
 
 ```
-and      as       bind     define   else     enum     extern   false
-for      func     if       import   in       interface         let
-match    none     not      or       own      self     Self     struct
-true     unpack   unsafe   when     while
+and      as       bind     cl       define   else     enum     extern
+false    fn       for      func     if       import   in       interface
+let      match    none     not      or       own      self     Self
+struct   true     unpack   unsafe   when     while
 ```
 
 These words are **contextual**: they have special meaning only in the positions listed, and are ordinary identifiers everywhere else.
@@ -662,7 +663,7 @@ These words are **contextual**: they have special meaning only in the positions 
 Each interpolated value must implement `Printable` ([§12.1](#121-core-interfaces)); interpolation calls its `to_string()` and concatenates the pieces. Interpolation is resolved at compile time; there is no runtime formatting language.
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let name = "Ada"
 	let n = 3
 	println("Hello $name! You have ${n * 2} messages.")
@@ -746,7 +747,7 @@ The full method set is in [§12.5](#125-strings-and-characters).
 `?T` is a value that is either a `T` or absent. `none` is the absent value.
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let name?: ?string = "Ada"
 	let empty?: ?string = none
 	println(name? ?? "nobody")
@@ -791,7 +792,7 @@ define User struct [
 	role: string = "viewer",
 ]
 
-bind main = (): {
+bind main = fn(): {
 	let u = User[id: 1, name: "Ada"]      // `email?` and `role` take their defaults
 	println("${u.name} is a ${u.role}")
 }
@@ -850,12 +851,12 @@ define Lookup result [
 	forbidden,
 ]
 
-bind find = (key: string) Lookup:
+bind find = fn(key: string) Lookup:
 	if(key == "admin"): forbidden
 	else if(key == "name"): value("Ada")
 	else: missing(key.copy())
 
-bind main = (): {
+bind main = fn(): {
 	let r! = find("name")
 	println(r! ?? "unknown")
 	let who = find("admin"):
@@ -883,9 +884,9 @@ bind main = (): {
 define UserId int
 define Pair +[int, string]
 
-bind Pair.first = (self) int: self.0
+bind Pair.first = fn(self) int: self.0
 
-bind main = (): {
+bind main = fn(): {
 	let id = UserId(42)
 	println(int(id))
 	let p: Pair = +[7, "seven"]
@@ -901,8 +902,8 @@ An interface is a set of method signatures:
 
 ```lowlight
 define Shape interface [
-	area: (self) float,
-	scale: (&self, by: float),
+	area: fn(self) float,
+	scale: fn(&self, by: float),
 ]
 ```
 
@@ -920,23 +921,32 @@ The prelude's interfaces, which give meaning to operators and loops, are listed 
 
 ### 3.12 Functions and closures
 
-A function type is `(ParamTypes) ReturnType`, or `(ParamTypes)` for no result. Parameter modes are part of the type: `(&[int], own string) bool`.
+There are two kinds of function value:
 
-A function literal is `(params) ReturnType: body` or `(params): body`. The body is one expression or a block. Without a written return type, it is inferred from the body and context. A literal that refers to variables of the enclosing scope is a **closure**:
+- **`fn`**: a function that captures nothing. Its type is `fn(ParamTypes) ReturnType`, or `fn(ParamTypes)` for no result. An `fn` value is a code pointer: it is plain and copies freely. Top-level functions, methods, and function literals written `fn(...)` have `fn` types.
+- **`cl`**: a closure. Its type is `cl(ParamTypes) ReturnType`. A closure owns the variables it captures, so it is a resource: it moves, and `.copy()` duplicates it with its captures.
+
+Parameter modes are part of both types: `fn(&[int], own string) bool`.
+
+A function literal is `fn(params) ReturnType: body` or `cl(params) ReturnType: body`, or without `ReturnType` for no result. The body is one expression or a block. Without a written return type, it is inferred from the body and context. A `cl` literal may refer to variables of the enclosing scope; an `fn` literal that does so is an error. Captures follow these rules:
 
 - plain captured values are copied in;
 - resource captured values are **moved** in (the outer variable becomes unusable), so write `own` or `.copy()` as needed;
 - mutable borrows (`&T` parameters and `if(&x?)` bindings) cannot be captured;
 - captured variables are read-only inside the closure.
 
-Every function value is a resource. A top-level `bind` function captures nothing and converts to a function type without allocation.
+Conversions:
+
+1. An `fn` converts implicitly to a `cl` with the same parameter and return types wherever a closure is expected, without allocating. `cl(f)` writes the conversion explicitly.
+2. A `cl` never converts to an `fn`.
+3. A `cl` literal that captures nothing, in a place that doesn't require a closure, draws a warning: it could be an `fn`.
 
 ```lowlight
-bind apply = (xs: [int], f: (int) int) [int]: for(x in xs): f(x)
+bind apply = fn(xs: [int], f: cl(int) int) [int]: for(x in xs): f(x)
 
-bind main = (): {
+bind main = fn(): {
 	let offset = 10
-	println(apply([1, 2, 3], (x: int) int: x + offset))
+	println(apply([1, 2, 3], cl(x: int) int: x + offset))
 }
 ```
 
@@ -979,7 +989,7 @@ Everything else, including integer widening, needs an explicit conversion.
 > **At a glance**
 > - A file is a list of top-level declarations: `bind`, `define`, `import`, and `extern`. Order doesn't matter.
 > - `bind` names something that never changes; `let` (inside functions only) names a variable.
-> - Methods are top-level `bind`s on a type name: `bind Point.norm = (self) float: ...`.
+> - Methods are top-level `bind`s on a type name: `bind Point.norm = fn(self) float: ...`.
 > - A directory is a package. `import "std/fs"` makes its exported names available as `fs.name`.
 > - A leading `_` makes any name private to its package.
 
@@ -989,11 +999,11 @@ A source file contains, in any order:
 
 | Declaration | Form |
 |---|---|
-| Constant or function | `bind NAME = expr` · `bind name = (params) Ret: body` |
-| Method or associated function | `bind Type.name = (self, params) Ret: body` |
+| Constant or function | `bind NAME = expr` · `bind name = fn(params) Ret: body` |
+| Method or associated function | `bind Type.name = fn(self, params) Ret: body` |
 | Type | `define Name struct [...]`, `enum [...]`, `result [...]`, `interface [...]`, or `define Name BaseType` |
 | Import | `import "path"` · `import "path" as alias` |
-| Foreign function or header | `extern name: (params) Ret` · `extern "header.h"` |
+| Foreign function or header | `extern name: fn(params) Ret` · `extern "header.h"` |
 
 Any of these may be preceded by attributes ([§4.8](#48-attributes)) and documentation comments ([§2.2](#22-whitespace-and-comments)). Declarations are **order-independent**: a declaration may refer to any other declaration in its package or in an imported package, wherever it appears. Two top-level declarations of the same name in one package are an error. `let` is not allowed at top level.
 
@@ -1022,13 +1032,13 @@ Body     = Expr | Block ;
 ```
 
 ```lowlight
-bind add = (a: int, b: int) int: a + b
+bind add = fn(a: int, b: int) int: a + b
 
-bind greet = (name: string): {
+bind greet = fn(name: string): {
 	println("Hello, $name")
 }
 
-bind main = (): {
+bind main = fn(): {
 	greet("Ada")
 	println(add(2, 3))
 }
@@ -1038,11 +1048,11 @@ bind main = (): {
 
 1. The return type follows the parameter list. Omit it (or write `void`) when the function returns nothing.
 2. The body's value is the return value. `func <- value` returns early ([§6.7](#67-unwinds-and-labels)).
-3. A body without braces must be an expression. Assignments and declarations are statements ([§5.12](#512-assignment)), so a function whose body assigns needs braces: `bind reset = (&self): { self.count = 0 }`. (The bodies of `if`, loops, and `match` arms may be a single assignment.)
+3. A body without braces must be an expression. Assignments and declarations are statements ([§5.12](#512-assignment)), so a function whose body assigns needs braces: `bind reset = fn(&self): { self.count = 0 }`. (The bodies of `if`, loops, and `match` arms may be a single assignment.)
 4. Parameters are read-only borrows by default; `&T` and `own T` select the other modes ([§7.3](#73-parameter-modes)). Parameter names follow the `?` and `!` naming rules.
 5. A function declared with type parameters is generic ([§8](#8-generics)).
 6. Functions may be recursive and mutually recursive. A function whose return type is omitted and inferred cannot take part in a recursive cycle; give it an explicit return type.
-7. Functions are values: `bind f = add` has type `(int, int) int`.
+7. Functions are values: `bind f = add` has type `fn(int, int) int`, and converts to `cl(int, int) int` where a closure is expected ([§3.12](#312-functions-and-closures)).
 
 ### 4.4 Methods and associated functions
 
@@ -1053,12 +1063,12 @@ define Counter struct [
 	count: int,
 ]
 
-bind Counter.new = () Counter: Counter[count: 0]          // associated function
-bind Counter.value = (self) int: self.count               // read-only receiver
-bind Counter.bump = (&self): { self.count += 1 }           // mutable receiver
-bind Counter.into_count = (own self) int: self.count      // consuming receiver
+bind Counter.new = fn() Counter: Counter[count: 0]          // associated function
+bind Counter.value = fn(self) int: self.count               // read-only receiver
+bind Counter.bump = fn(&self): { self.count += 1 }           // mutable receiver
+bind Counter.into_count = fn(own self) int: self.count      // consuming receiver
 
-bind main = (): {
+bind main = fn(): {
 	let c = Counter.new()
 	c.bump()
 	c.bump()
@@ -1072,7 +1082,7 @@ bind main = (): {
 1. **Receivers.** The first parameter `self`, `&self`, or `own self` makes the function a method; its receiver mode works like the corresponding parameter mode. `self: Type` may also be written explicitly.
 2. **Calls.** `value.method(args)` calls a method. For an `&self` method the receiver is borrowed mutably without writing `&` (the receiver must be a mutable place). For an `own self` method the receiver is moved, and the variable becomes unusable.
 3. **Associated functions** have no receiver and are called on the type: `Counter.new()`.
-4. **Any type.** Methods may be attached to structs, enums, results, distinct types, primitive types (`bind int.double = (self) int: self * 2`), and generic types (`bind Stack[T].peek = (self) ?T: ...`). A method may have its own type parameters: `bind List[T].map[U] = ...`.
+4. **Any type.** Methods may be attached to structs, enums, results, distinct types, primitive types (`bind int.double = fn(self) int: self * 2`), and generic types (`bind Stack[T].peek = fn(self) ?T: ...`). A method may have its own type parameters: `bind List[T].map[U] = ...`.
 5. **Extension methods.** A package may add methods to types it did not define, including types from other packages and primitives. Three rules keep this coherent:
    - no two declarations anywhere in a program may attach the same method name to the same type;
    - an extension method cannot see the type's private (`_`) fields, variants, or methods;
@@ -1143,7 +1153,7 @@ define Counter struct [
 
 // Other packages cannot write Counter[...] because `_token` has no default,
 // so the package exports a constructor:
-bind Counter.new = (name: own string, token: int) Counter: Counter[name: own name, _token: token]
+bind Counter.new = fn(name: own string, token: int) Counter: Counter[name: own name, _token: token]
 ```
 
 Child directories are separate packages: `a/b` cannot see `a`'s private names, and `a` cannot see `a/b`'s.
@@ -1224,7 +1234,8 @@ There is no cast operator. `as` is used only in imports, `extern` aliases, and `
 | `#[a, b]`, `#[k: v]`, `#[]` | a set or a map |
 | `+[a, b]` | a tuple |
 | `lo..hi`, `lo..=hi` | a range |
-| `(params) Ret: body` | a function value ([§3.12](#312-functions-and-closures)) |
+| `fn(params) Ret: body` · `cl(params) Ret: body` | a function or closure value ([§3.12](#312-functions-and-closures)) |
+| `cl(f)` | a function converted to a closure ([§3.12](#312-functions-and-closures)) |
 | `Iface(value)` | an interface box ([§3.11](#311-interfaces)) |
 | `T(x)` for a primitive or distinct `T` | a conversion ([§5.10](#510-conversions)) |
 
@@ -1242,7 +1253,7 @@ An empty literal (`[]`, `#[]`) and `none` need their type from context. The elem
 
 Both operands of a binary arithmetic or bitwise operator must have the same type (a literal adapts to the other operand). These rules hold in every build mode, including `--release`; integer overflow is never undefined behavior.
 
-On numbers, `+` and `+=` are the built-in operations above. On any other type, `a + b` calls `a.add(b)`, which the type provides by implementing `Addable` (`add: (self, other: Self) Self`). `a += b` calls `a.add_assign(b)` when the type implements `AddAssignable` (`add_assign: (&self, other: Self)`), and otherwise means `a = a + b`. `string` implements both: `+` concatenates into a new string and `+=` appends in place. The numeric types implement both as well, so generic code can require them ([§8.2](#82-bounds)).
+On numbers, `+` and `+=` are the built-in operations above. On any other type, `a + b` calls `a.add(b)`, which the type provides by implementing `Addable` (`add: fn(self, other: Self) Self`). `a += b` calls `a.add_assign(b)` when the type implements `AddAssignable` (`add_assign: fn(&self, other: Self)`), and otherwise means `a = a + b`. `string` implements both: `+` concatenates into a new string and `+=` appends in place. The numeric types implement both as well, so generic code can require them ([§8.2](#82-bounds)).
 
 ### 5.4 Equality and ordering
 
@@ -1252,11 +1263,11 @@ On numbers, `+` and `+=` are the built-in operations above. On any other type, `
 - optionals of equatable types (`none == none`; `x? == none` tests absence);
 - tuples, compared element by element;
 - distinct types whose base supports equality;
-- any type with an `eq: (self, other: Self) bool` method (`Equatable`), or with a `cmp` method (`a == b` exactly when `a.cmp(b) == 0`).
+- any type with an `eq: fn(self, other: Self) bool` method (`Equatable`), or with a `cmp` method (`a == b` exactly when `a.cmp(b) == 0`).
 
 Structs, enums, and results have `==` only through such a method, written by hand or by `@derive(Equatable)` ([§12.2](#122-deriving-methods)). Lists, sets, and maps have no `==`.
 
-`<`, `<=`, `>`, `>=` require a type that supports ordering: numbers, `char`, `string` (byte-wise lexicographic), and types with a `cmp: (self, other: Self) int` method (`Comparable`), which returns a negative number, zero, or a positive number. `bool` and enums are not ordered.
+`<`, `<=`, `>`, `>=` require a type that supports ordering: numbers, `char`, `string` (byte-wise lexicographic), and types with a `cmp: fn(self, other: Self) int` method (`Comparable`), which returns a negative number, zero, or a positive number. `bool` and enums are not ordered.
 
 In generic code, `==` needs the bound `T: Equatable` and `<` needs `T: Comparable` ([§8.2](#82-bounds)).
 
@@ -1293,7 +1304,7 @@ define User struct [
 	manager?: ?User,
 ]
 
-bind main = (): {
+bind main = fn(): {
 	let u = User[name: "Ada", manager?: User[name: "Grace"]]
 	println(u.manager?.name ?? "none")
 	println(u.manager?.manager?.name ?? "none")
@@ -1390,7 +1401,7 @@ Cond    = Expr                          (* a bool *)
 3. **Binding, `if(e as v)`.** `e` is any optional expression or result expression. The branch runs when `e` holds a value (for a result, its success value), with `v` bound to it. `else` runs otherwise and binds nothing. `if(&e as v)` binds `v` mutably and requires `e` to be a mutable place.
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let score = 72
 	let grade = if(score >= 90): "A" else if(score >= 70): "B" else: "C"
 	println(grade)
@@ -1423,7 +1434,7 @@ Binding    = [ "&" ] Name ;
 - `while(true) T: ...` (a loop with no normal exit) has type `T` and needs no `else`.
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let items = [4, 8, 15, 16]
 	let first_odd = while(x in items) int: {
 		if(x % 2 == 1): while <- x
@@ -1465,7 +1476,7 @@ ForExpr = [ Label ":" ] "for" "(" LoopHeader ")" [ Type ] ":" Body [ "else" ":" 
 Loop variables are read-only views of the elements. Write `&x` (or `k, &v`) to bind mutable borrows of a list's, array's, or map's elements; the collection must be mutable. The collection cannot be modified by other means while it is being iterated.
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let squares = for(n in 1..=4): n * n
 	println(squares)
 
@@ -1507,19 +1518,19 @@ define Shape enum [
 	point,
 ]
 
-bind label = (s: Status) string:
+bind label = fn(s: Status) string:
 	match(s):
 		when pending: "waiting"
 		when active: "running"
 		default closed: "done"
 
-bind area = (s: Shape) float:
+bind area = fn(s: Shape) float:
 	match(s):
 		when circle(r): 3.14159 * r * r
 		when square(side): side * side
 		default point: 0.0
 
-bind main = (): {
+bind main = fn(): {
 	println(label(Status.active))
 	println(area(Shape.square(3.0)))
 	let n = 42
@@ -1592,13 +1603,13 @@ define Lookup result [
 	expired: int,
 ]
 
-bind find = (key: string) Lookup:
+bind find = fn(key: string) Lookup:
 	if(key == "a"): value("apple")
 	else if(key == "x"): forbidden
 	else if(key == "old"): expired(3)
 	else: missing(key.copy())
 
-bind describe = (key: string) string: {
+bind describe = fn(key: string) string: {
 	let item = find(key):
 		when missing(k): func <- "no $k"
 		when forbidden: "(hidden)"
@@ -1606,7 +1617,7 @@ bind describe = (key: string) string: {
 	"got $item"
 }
 
-bind main = (): {
+bind main = fn(): {
 	println(describe("a"))
 	println(describe("x"))
 	println(describe("old"))
@@ -1649,7 +1660,7 @@ There are no `return`, `break`, or `continue` statements. The **unwind** operato
 **Labels.** A block or loop may be labeled: `name: { ... }`, `name: for(...)`, `name: while(...)`. Labels are visible only inside the labeled construct.
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let grid = [[1, 2], [3, 4], [5, 6]]
 	let found = outer: while(row in grid) string: {
 		for(x in row): if(x == 4): outer <- "found 4"
@@ -1688,7 +1699,7 @@ Every value has exactly one **owner**: a variable, a field or element of another
 ### 7.2 Moves
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let a = "hello" + " world"
 	let b = own a            // moves the string from `a` to `b`
 	// println(a)            // error: use of moved variable "a"
@@ -1728,17 +1739,17 @@ A field can be moved out only of an `own self` receiver, and doing so consumes `
 | `x: own T` | `f(own v)`, or `f(temp)` | the value itself | `v` is moved |
 
 ```lowlight
-bind total = (xs: [int]) int: {
+bind total = fn(xs: [int]) int: {
 	let t = 0
 	for(x in xs): t += x
 	t
 }
 
-bind add_zero = (xs: &[int]): xs.push(0)
+bind add_zero = fn(xs: &[int]): xs.push(0)
 
-bind into_set = (xs: own [int]) #[int]: for(x in xs) #[int]: x
+bind into_set = fn(xs: own [int]) #[int]: for(x in xs) #[int]: x
 
-bind main = (): {
+bind main = fn(): {
 	let xs = [3, 1, 2]
 	println(total(xs))
 	add_zero(&xs)
@@ -1753,7 +1764,7 @@ bind main = (): {
 2. An `own T` argument that is an existing variable must be written with `own`.
 3. A read-only parameter cannot be modified, moved out of, or passed on as `&` or `own`. To keep a copy, call `.copy()`.
 4. Receivers follow the same modes: `self`, `&self`, `own self` ([§4.4](#44-methods-and-associated-functions)). For `&self`, the receiver is borrowed automatically without writing `&`.
-5. A function type records its parameter modes: `(&[int])` and `([int])` are different types.
+5. A function type records its parameter modes: `fn(&[int])` and `fn([int])` are different types.
 
 ### 7.4 Borrowing rules
 
@@ -1768,7 +1779,7 @@ While a mutable borrow of a place is active, nothing else may use that place. A 
 
 When a scope ends, whether normally or by an unwind leaving it, every resource it still owns is destroyed, **in reverse order of declaration**. Destroying a value:
 
-1. runs its `drop` method, if its type implements `Drop` (`bind T.drop = (&self): ...`);
+1. runs its `drop` method, if its type implements `Drop` (`bind T.drop = fn(&self): ...`);
 2. then destroys its fields (struct), its active payload (enum), or its elements (collection), in reverse order.
 
 ```lowlight
@@ -1776,9 +1787,9 @@ define Noisy struct [
 	name: string,
 ]
 
-bind Noisy.drop = (&self): println("drop ${self.name}")
+bind Noisy.drop = fn(&self): println("drop ${self.name}")
 
-bind main = (): {
+bind main = fn(): {
 	let a = Noisy[name: "a"]
 	let b = Noisy[name: "b"]
 	{
@@ -1807,7 +1818,7 @@ define Node struct [
 	value: int,
 ]
 
-bind main = (): {
+bind main = fn(): {
 	let arena = Arena.new()
 	let n = arena.alloc(Node[value: 7])
 	println(n.value)
@@ -1830,14 +1841,14 @@ A function literal that uses variables from its enclosing scope captures them wh
 - variables bound by mutable borrow (`&` parameters, `&` loop variables, `if(&x?)`) cannot be captured;
 - inside the closure, captured variables are read-only.
 
-The closure value owns its captures and destroys them when it is destroyed. A closure is a resource; `.copy()` duplicates it and its captures.
+The closure value owns its captures and destroys them when it is destroyed. A closure is a resource; `.copy()` duplicates it and its captures. Only `cl(...)` literals capture; an `fn(...)` literal that uses an outer variable is an error ([§3.12](#312-functions-and-closures)).
 
 ---
 
 ## 8. Generics
 
 > **At a glance**
-> - Type parameters go in brackets after the name: `define Stack[T] struct [...]`, `bind first[T] = (xs: [T]) ?T: ...`.
+> - Type parameters go in brackets after the name: `define Stack[T] struct [...]`, `bind first[T] = fn(xs: [T]) ?T: ...`.
 > - Bounds restrict them: `[T: Comparable + Copyable]`.
 > - Type arguments are usually inferred; write them when they aren't: `Stack[int][items: []]`, `size_of[u8]()`.
 > - Generic code is compiled separately for each set of type arguments. A type parameter is never an optional.
@@ -1851,18 +1862,18 @@ define Stack[T] struct [
 	items: [T],
 ]
 
-bind Stack[T].push = (&self, x: own T): self.items.push(own x)
+bind Stack[T].push = fn(&self, x: own T): self.items.push(own x)
 
-bind Stack[T].peek = (self) ?T: self.items.get(self.items.len() - 1)
+bind Stack[T].peek = fn(self) ?T: self.items.get(self.items.len() - 1)
 
-bind largest[T: Comparable + Copyable] = (xs: [T]) ?T: {
+bind largest[T: Comparable + Copyable] = fn(xs: [T]) ?T: {
 	if(xs.len() == 0): func <- none
 	let best = xs[0].copy()
 	for(x in xs): if(x > best): best = x.copy()
 	best
 }
 
-bind main = (): {
+bind main = fn(): {
 	let s = Stack[int][items: []]
 	s.push(3)
 	s.push(5)
@@ -1931,13 +1942,13 @@ The language-level rules for result types are in [§3.9](#39-results) (declarati
 A typical function that propagates failures:
 
 ```lowlight
-bind parse_port = (raw: string) Result[int]: {
+bind parse_port = fn(raw: string) Result[int]: {
 	let port = parse_int(raw) ?? func <- err(Error.coded("invalid_port", "not a number: $raw"))
 	if(port < 1 or port > 65535): func <- err(Error.coded("invalid_port", "out of range: $port"))
 	value(port)
 }
 
-bind main = (): {
+bind main = fn(): {
 	println(parse_port("8080") ?? 0)
 	let p = parse_port("http"):
 		default err(own e): {
@@ -1984,14 +1995,14 @@ The location reported is where the panic was raised. Inside a function marked `@
 > **At a glance**
 > - `unsafe expr` or `unsafe { ... }` allows raw-pointer operations, raw allocation, and calls to `extern` functions.
 > - Inside `unsafe`, ownership, borrowing, and destruction rules still apply; only the listed operations are added.
-> - `extern "header.h"` and `extern name: (params) Ret` declare foreign functions.
+> - `extern "header.h"` and `extern name: fn(params) Ret` declare foreign functions.
 
 ### 10.1 Unsafe expressions
 
 `unsafe` is a prefix operator that applies to one expression, often a block:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let x = 5
 	let y = unsafe {
 		let p = addr_of(x)
@@ -2049,16 +2060,16 @@ ExternName = Name | StringLit | Keyword ;
 
 ```lowlight
 extern "stdio.h"
-extern puts: (s: ptr[u8]) i32
+extern puts: fn(s: ptr[u8]) i32
 
-bind main = (): {
+bind main = fn(): {
 	let msg = "hello from C"
 	let _ = unsafe puts(msg.c_str())
 }
 ```
 
 - `extern "header.h"` names a header (or another target-specific binding unit) that provides foreign declarations.
-- `extern name: (params) Ret` declares a function with the platform's C calling convention. `as alias` gives it a different local name, which is required when the foreign name is a Lowlight keyword (`extern "match" as c_match: ...`).
+- `extern name: fn(params) Ret` declares a function with the platform's C calling convention. `as alias` gives it a different local name, which is required when the foreign name is a Lowlight keyword (`extern "match" as c_match: ...`).
 - Parameter and return types should be plain types with a C representation: numbers, `bool`, `char`, `ptr[T]`, and plain structs.
 - Every call is unsafe.
 - Foreign functions are outside Lowlight's guarantees. They must not unwind through Lowlight frames, and pointers they keep must not outlive the memory they point to.
@@ -2078,15 +2089,15 @@ bind main = (): {
 ```lowlight
 import "std/test"
 
-bind add = (a: int, b: int) int: a + b
+bind add = fn(a: int, b: int) int: a + b
 
 @test("add sums its arguments")
-bind test_add = (): {
+bind test_add = fn(): {
 	test.assert_eq(add(2, 3), 5)
 	assert(add(-1, 1) == 0)
 }
 
-bind main = (): println(add(1, 1))
+bind main = fn(): println(add(1, 1))
 ```
 
 1. `@test` marks a top-level function with no parameters that returns nothing. Its name is free; the optional string is a description.
@@ -2107,7 +2118,7 @@ bind main = (): println(add(1, 1))
 
 `lowlight test [paths]` compiles one test program per package and runs every test in it.
 
-- If a package defines `bind test_main = (): ...`, that is the entry point instead.
+- If a package defines `bind test_main = fn(): ...`, that is the entry point instead.
 - Each test runs in turn. A test **fails** if it panics (including a failed assertion) or if it leaves heap allocations unreleased: `--- FAIL: name (leaked N heap allocation(s))`.
 - A panic in one test is contained to that test, and the run continues. Because no destruction runs after a panic, a panicking test may also report leaks.
 - The runner reports each test's result and duration, and exits with a non-zero status if any test failed.
@@ -2129,20 +2140,20 @@ The prelude is ordinary Lowlight source in `std/core`. Where the language relies
 
 | Interface | Methods | Hook | Gives meaning to |
 |---|---|---|---|
-| `Printable` | `to_string: (self) string` | `printable` | interpolation, `print`/`println`, `to_string()` |
-| `Copyable` | `copy: (self) Self` | `copyable` | `.copy()`, repeat array literals |
-| `Drop` | `drop: (&self)` | `drop` | custom cleanup before a value's fields are destroyed |
-| `Equatable` | `eq: (self, other: Self) bool` | `equatable` | `==`, `!=` |
-| `Comparable` | `cmp: (self, other: Self) int` (negative, zero, positive) | `comparable` | `<`, `<=`, `>`, `>=`, and also `==` |
-| `Addable` | `add: (self, other: Self) Self` | `addable` | `+` (and `+=` without `add_assign`) |
-| `AddAssignable` | `add_assign: (&self, other: Self)` | `add_assignable` | `+=` |
-| `Hashable` | `hash: (self) u64` (equal values hash equally) | `hashable` | set elements and map keys |
-| `Iterator[T]` | `next: (&self) ?T` | `iterator` | stepping through `for` and `while` loops |
-| `Iterable[T]` | `iter: (self) Iterator[T]` | `iterable` | `for(x in v)` over any type |
-| `Collectable[T]` | `push: (&self, item: own T)` | `collectable` | the collection a `for` loop builds |
-| `Indexable[T]` | `len: (self) int`, `get: (self, idx: int) ?T` | `indexable` | `v[i]` on user types |
-| `KeyIndexable[K, V]` | `len`, `has: (self, key: K) bool`, `get: (self, key: K) ?V` | `key_indexable` | `v[k]` on user types |
-| `Containable[T]` | `contains: (self, item: T) bool` | `containable` | `when in v:` patterns |
+| `Printable` | `to_string: fn(self) string` | `printable` | interpolation, `print`/`println`, `to_string()` |
+| `Copyable` | `copy: fn(self) Self` | `copyable` | `.copy()`, repeat array literals |
+| `Drop` | `drop: fn(&self)` | `drop` | custom cleanup before a value's fields are destroyed |
+| `Equatable` | `eq: fn(self, other: Self) bool` | `equatable` | `==`, `!=` |
+| `Comparable` | `cmp: fn(self, other: Self) int` (negative, zero, positive) | `comparable` | `<`, `<=`, `>`, `>=`, and also `==` |
+| `Addable` | `add: fn(self, other: Self) Self` | `addable` | `+` (and `+=` without `add_assign`) |
+| `AddAssignable` | `add_assign: fn(&self, other: Self)` | `add_assignable` | `+=` |
+| `Hashable` | `hash: fn(self) u64` (equal values hash equally) | `hashable` | set elements and map keys |
+| `Iterator[T]` | `next: fn(&self) ?T` | `iterator` | stepping through `for` and `while` loops |
+| `Iterable[T]` | `iter: fn(self) Iterator[T]` | `iterable` | `for(x in v)` over any type |
+| `Collectable[T]` | `push: fn(&self, item: own T)` | `collectable` | the collection a `for` loop builds |
+| `Indexable[T]` | `len: fn(self) int`, `get: fn(self, idx: int) ?T` | `indexable` | `v[i]` on user types |
+| `KeyIndexable[K, V]` | `len`, `has: fn(self, key: K) bool`, `get: fn(self, key: K) ?V` | `key_indexable` | `v[k]` on user types |
+| `Containable[T]` | `contains: fn(self, item: T) bool` | `containable` | `when in v:` patterns |
 
 The prelude also binds `list`, `array`, `set`, `map`, and `range` hooks to the types `List`, `Array`, `Set`, `Map`, and `Range`, which implement `[T]`, `[N: T]`, `#[T]`, `#[K: V]`, and `lo..hi`. Implementing an interface's methods on your own type is all it takes for that type to work with the corresponding syntax.
 
@@ -2181,14 +2192,14 @@ These are built into the language and need no import.
 
 | Function | Type | Meaning |
 |---|---|---|
-| `print(v)` · `println(v)` | `(Printable)` | write `v.to_string()` to standard output; `println` adds a newline, and `println()` writes only a newline |
-| `eprint(v)` · `eprintln(v)` | `(Printable)` | the same, to standard error |
-| `panic(msg)` | `(string \| Error) never` | stop the program ([§9.3](#93-panics)) |
-| `assert(cond)` · `assert(cond, msg)` | `(bool [, string])` | panic with `msg` (or "assertion failed") if `cond` is false |
-| `exit(code)` | `(int) never` | end the process immediately with status `code`; no destruction runs |
-| `args()` | `() [string]` | the command-line arguments, starting with the program name |
-| `abs(x)` | `(int) int` | absolute value (for floats, `math.abs_float` in `std/math`) |
-| `min(a, b)` · `max(a, b)` | numeric `(T, T) T` | the smaller or larger of two numbers of the same type |
+| `print(v)` · `println(v)` | `fn(Printable)` | write `v.to_string()` to standard output; `println` adds a newline, and `println()` writes only a newline |
+| `eprint(v)` · `eprintln(v)` | `fn(Printable)` | the same, to standard error |
+| `panic(msg)` | `fn(string \| Error) never` | stop the program ([§9.3](#93-panics)) |
+| `assert(cond)` · `assert(cond, msg)` | `fn(bool [, string])` | panic with `msg` (or "assertion failed") if `cond` is false |
+| `exit(code)` | `fn(int) never` | end the process immediately with status `code`; no destruction runs |
+| `args()` | `fn() [string]` | the command-line arguments, starting with the program name |
+| `abs(x)` | `fn(int) int` | absolute value (for floats, `math.abs_float` in `std/math`) |
+| `min(a, b)` · `max(a, b)` | numeric `fn(T, T) T` | the smaller or larger of two numbers of the same type |
 | `caller_location()`, `caller_file()`, `caller_line()`, `caller_col()` | | the caller's source location ([§11.2](#112-caller-locations)) |
 | `size_of[T]()`, `align_of[T]()`, `is_plain[T]()` | | layout queries ([§10.3](#103-memory-intrinsics)) |
 
@@ -2281,8 +2292,8 @@ define Result[T] result [
 | `unwrap_err()` | the error, or panic if it holds a value |
 | `into_ok() ?T` · `into_err() ?Error` · `peek_err() ?Error` | convert to optionals (`peek_err` borrows) |
 | `wrap_err(msg)` · `trace_err()` | add context or a trace frame to a failure, passing a value through unchanged (`@track_caller`) |
-| `map(f)` · `and_then(f)` | transform the value with `f: (T) U`, or continue with `f: (T) Result[U]`; failures pass through |
-| `map_err(f)` | transform the failure with `f: (own Error) Error` (for example, to wrap it); values pass through |
+| `map(f)` · `and_then(f)` | transform the value with `f: cl(T) U`, or continue with `f: cl(T) Result[U]`; failures pass through |
+| `map_err(f)` | transform the failure with `f: cl(own Error) Error` (for example, to wrap it); values pass through |
 | `unwrap_or_else(f)` | the value, or `f(error)` computed only on failure |
 
 Result chains ([§6.6](#66-result-chains)) are usually clearer than these methods.
@@ -2303,7 +2314,7 @@ Result chains ([§6.6](#66-result-chains)) are usually clearer than these method
 | `e.to_string()` | the summary, then the trace, one frame per line |
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let e = Error.coded("disk_full", "no space left").wrap("saving report")
 	println(e.summary())
 	println(e.has_code("disk_full"))
@@ -2696,7 +2707,8 @@ A loop with a result type `T` creates an empty `T` before the loop, and each bod
 ### 18.7 Functions, closures, and interfaces
 
 - A **top-level function** is a C function. Read-only parameters of resource type are passed by value without copying (the caller keeps ownership, and the callee never drops them); `&T` parameters are pointers; `own T` parameters are passed by value, and the callee drops them.
-- A **function value** is `{ fn, env, copy_env, drop_env }`: a code pointer taking the environment as a hidden first argument, a pointer to a heap environment struct holding the captures, and functions to copy and destroy it. A top-level function used as a value gets a static thunk with a null environment.
+- An **`fn` value** is one code pointer to an entry function that takes an (unused) environment pointer as a hidden first argument; a top-level function used as a value points to a static thunk. Calling it passes a null environment.
+- A **closure** (`cl`) is `{ fn, env, copy_env, drop_env }`: the same kind of code pointer, a pointer to a heap environment struct holding the captures, and functions to copy and destroy it. Converting an `fn` to a `cl` stores its code pointer with a null environment.
 - An **interface value** is `{ data, vtable, owned }`: a pointer to a heap copy of the concrete value, a pointer to the static vtable for (type, interface), which holds a drop function, a clone function, and one entry per method, and a flag saying whether the box owns `data`.
 
 ### 18.8 Strings and interpolation
@@ -2808,14 +2820,14 @@ AttrArg     = StringLit | Ident ;
 ImportDecl  = "import" StringLit [ "as" Ident ] ;
 
 ExternDecl  = "extern" StringLit
-            | "extern" ( Ident | StringLit | Keyword ) [ "as" Ident ] ":" "(" [ Params ] ")" [ Type ] ;
+            | "extern" ( Ident | StringLit | Keyword ) [ "as" Ident ] ":" "fn" "(" [ Params ] ")" [ Type ] ;
 
 VarDecl     = ( "let" | "bind" ) Name [ ":" Type ] "=" Expr
             | ( "let" | "bind" ) Target { "," Target } "=" "unpack" Expr ;
 Target      = ( Name | "_" ) [ ":" Type ] ;
 
-FuncDecl    = "bind" Ident [ TypeParams ] "=" FuncLit ;
-MethodDecl  = "bind" TypeRef "." Ident [ TypeParams ] "=" FuncLit ;
+FuncDecl    = "bind" Ident [ TypeParams ] "=" FuncLit ;                    (* must be "fn" *)
+MethodDecl  = "bind" TypeRef "." Ident [ TypeParams ] "=" FuncLit ;         (* must be "fn" *)
 TypeRef     = ( Ident | PrimitiveType | "string" ) [ TypeParams ] ;
 
 TypeDecl    = "define" [ "packed" ] Ident [ TypeParams ] TypeBody ;
@@ -2827,7 +2839,7 @@ TypeBody    = "struct" "[" [ Field { "," Field } ] "]"
 Field       = { Attribute } Name ":" Type [ "=" Expr ] ;
 Variant     = { Attribute } Ident [ "=" Expr ]                  (* unit variant, optional tag value *)
             | { Attribute } Ident ":" Type ;                    (* payload variant *)
-MethodSig   = { Attribute } Ident ":" "(" [ Params ] ")" [ Type ] ;
+MethodSig   = { Attribute } Ident ":" "fn" "(" [ Params ] ")" [ Type ] ;
 
 TypeParams  = "[" TypeParam { "," TypeParam } "]" ;
 TypeParam   = Ident [ ":" Ident { "+" Ident } ] ;
@@ -2843,7 +2855,7 @@ Type        = PrimitiveType | "string" | "void" | "never"
             | "#[" Type "]"                                     (* set *)
             | "#[" Type ":" Type "]"                            (* map *)
             | "+[" [ Type { "," Type } ] "]"                    (* tuple *)
-            | "(" [ ParamType { "," ParamType } ] ")" [ Type ]  (* function *)
+            | ( "fn" | "cl" ) "(" [ ParamType { "," ParamType } ] ")" [ Type ]  (* function, closure *)
             | "ref" "[" Type "]" | "ptr" "[" Type "]"
             | "Self"
             | [ Ident "." ] Ident [ TypeArgs ] ;                (* named, possibly from a package *)
@@ -2903,10 +2915,11 @@ Primary     = Literal | Name | "self" | "Self"
             | FuncLit | Block | "unsafe" Block | Labeled
             | IfExpr | ForExpr | WhileExpr | MatchExpr
             | PrimitiveType "(" Expr ")"                                        (* conversion *)
+            | "cl" "(" Expr ")"                                                 (* fn to closure *)
             | "(" Expr ")" ;
 TypeName    = [ Ident "." ] Ident ;                                             (* begins with an uppercase letter *)
 FieldInit   = Name ":" Expr ;
-FuncLit     = "(" [ Params ] ")" [ Type ] ":" Body ;
+FuncLit     = ( "fn" | "cl" ) "(" [ Params ] ")" [ Type ] ":" Body ;
 Params      = Param { "," Param } ;
 Param       = ( Name ":" [ "&" | "own" ] Type ) | [ "&" | "own" ] "self" [ ":" Type ] ;
 Labeled     = Ident ":" ( Block | ForExpr | WhileExpr ) ;
@@ -2944,7 +2957,7 @@ ChainEnd    = "default" [ FailureCases ] ":" Body
 
 ## Appendix B: Keywords and Contextual Words
 
-**Reserved keywords** (28): `and`, `as`, `bind`, `define`, `else`, `enum`, `extern`, `false`, `for`, `func`, `if`, `import`, `in`, `interface`, `let`, `match`, `none`, `not`, `or`, `own`, `self`, `Self`, `struct`, `true`, `unpack`, `unsafe`, `when`, `while`.
+**Reserved keywords** (30): `and`, `as`, `bind`, `cl`, `define`, `else`, `enum`, `extern`, `false`, `fn`, `for`, `func`, `if`, `import`, `in`, `interface`, `let`, `match`, `none`, `not`, `or`, `own`, `self`, `Self`, `struct`, `true`, `unpack`, `unsafe`, `when`, `while`.
 
 **Contextual words**, identifiers everywhere except as shown:
 

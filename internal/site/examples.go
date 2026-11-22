@@ -23,7 +23,7 @@ import (
 //	// Order: 1
 //
 //	// Every program starts at `main`.
-//	bind main = (): println("hello")
+//	bind main = fn(): println("hello")
 //
 // The expected output lives next to the program in a file with the same name and
 // the extension .out; tests run every example and compare.

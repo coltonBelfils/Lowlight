@@ -20,7 +20,7 @@ Editors format with the same engine through the language server, and every code 
 ## What the formatter does
 
 - Indents with tabs (by default), one level per block or body.
-- Puts a single-expression body on the header's line when it fits (`bind f = (x: int) int: x + 1`), and on the next line, indented, when it doesn't.
+- Puts a single-expression body on the header's line when it fits (`bind f = fn(x: int) int: x + 1`), and on the next line, indented, when it doesn't.
 - Normalizes spacing around operators, after commas and colons, and inside brackets.
 - Breaks long argument lists, literals, and parameter lists one item per line, with the trailing comma that multi-line lists require.
 - Keeps your comments and the blank lines that separate groups of statements.

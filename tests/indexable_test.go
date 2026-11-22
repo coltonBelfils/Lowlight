@@ -16,7 +16,7 @@ import (
 func TestIndexableList(t *testing.T) {
 	t.Parallel()
 	src := `
-bind sum_indexable = (col: Indexable[int]) int: {
+bind sum_indexable = fn(col: Indexable[int]) int: {
     let total = 0
     let n = col.len()
     let i = 0
@@ -29,7 +29,7 @@ bind sum_indexable = (col: Indexable[int]) int: {
     total
 }
 
-bind sum_via_indexing = (col: Indexable[int]) int: {
+bind sum_via_indexing = fn(col: Indexable[int]) int: {
     let total = 0
     let n = col.len()
     let i = 0
@@ -41,7 +41,7 @@ bind sum_via_indexing = (col: Indexable[int]) int: {
     total
 }
 
-bind main = (): {
+bind main = fn(): {
     let lst = [10, 20, 30, 40]
 
     assert(sum_indexable(lst) == 100)
@@ -58,14 +58,14 @@ bind main = (): {
 func TestIndexableArray(t *testing.T) {
 	t.Parallel()
 	src := `
-bind first_and_last = (col: Indexable[int]) int: {
+bind first_and_last = fn(col: Indexable[int]) int: {
     let n = col.len()
     let first = col.get(0) ?? 0
     let last = col[n - 1] ?? 0
     first + last
 }
 
-bind main = (): {
+bind main = fn(): {
     let arr = [4: 100, 200, 300, 400]
 
     assert(first_and_last(arr) == 500)
@@ -77,7 +77,7 @@ bind main = (): {
 func TestIndexableString(t *testing.T) {
 	t.Parallel()
 	src := `
-bind count_matching_bytes = (s: Indexable[u8], target: u8) int: {
+bind count_matching_bytes = fn(s: Indexable[u8], target: u8) int: {
     let count = 0
     let n = s.len()
     let i = 0
@@ -90,7 +90,7 @@ bind count_matching_bytes = (s: Indexable[u8], target: u8) int: {
     count
 }
 
-bind main = (): {
+bind main = fn(): {
     let text = "hello world"
     assert(count_matching_bytes(text, u8('l')) == 3)
     assert(count_matching_bytes(text, u8('o')) == 2)
@@ -109,9 +109,9 @@ define CustomSeq struct [
     third: int,
 ]
 
-bind CustomSeq.len = (self) int: { 3 }
+bind CustomSeq.len = fn(self) int: { 3 }
 
-bind CustomSeq.get = (self, idx: int) ?int: {
+bind CustomSeq.get = fn(self, idx: int) ?int: {
     match (idx):
         when 0: self.first
         when 1: self.second
@@ -119,11 +119,11 @@ bind CustomSeq.get = (self, idx: int) ?int: {
         default: none
 }
 
-bind get_second = (col: Indexable[int]) ?int: {
+bind get_second = fn(col: Indexable[int]) ?int: {
     col[1]
 }
 
-bind main = (): {
+bind main = fn(): {
     let seq = CustomSeq[first: 7, second: 14, third: 21]
 
     assert(seq.len() == 3)
@@ -141,15 +141,15 @@ bind main = (): {
 func TestIndexableGenericBounds(t *testing.T) {
 	t.Parallel()
 	src := `
-bind first_element[T: Copyable] = (col: Indexable[T]) ?T: {
+bind first_element[T: Copyable] = fn(col: Indexable[T]) ?T: {
     col.get(0)
 }
 
-bind element_at[T: Copyable] = (col: Indexable[T], idx: int) ?T: {
+bind element_at[T: Copyable] = fn(col: Indexable[T], idx: int) ?T: {
     col[idx]
 }
 
-bind main = (): {
+bind main = fn(): {
     let lst = ["apple", "banana", "cherry"]
     assert(first_element(lst) == "apple")
     assert(element_at(lst, 1) == "banana")
@@ -166,15 +166,15 @@ bind main = (): {
 func TestKeyIndexableMap(t *testing.T) {
 	t.Parallel()
 	src := `
-bind lookup_or_zero = (m: KeyIndexable[string, int], key: string) int: {
+bind lookup_or_zero = fn(m: KeyIndexable[string, int], key: string) int: {
     m.get(key) ?? 0
 }
 
-bind lookup_via_bracket = (m: KeyIndexable[string, int], key: string) int: {
+bind lookup_via_bracket = fn(m: KeyIndexable[string, int], key: string) int: {
     m[key] ?? 0
 }
 
-bind main = (): {
+bind main = fn(): {
     let ages: #[string: int] = #["Alice": 30, "Bob": 25]
 
     assert(lookup_or_zero(ages, "Alice") == 30)
@@ -200,8 +200,8 @@ func TestIndexableNegativeTypeChecks(t *testing.T) {
 		{
 			name: "unindexable_int_as_argument",
 			src: `
-bind takes_indexable = (col: Indexable[int]): {}
-bind main = (): {
+bind takes_indexable = fn(col: Indexable[int]): {}
+bind main = fn(): {
     takes_indexable(123)
 }
 `,
@@ -213,10 +213,10 @@ bind main = (): {
 define NotIndexable struct [
     value: int,
 ]
-bind find_first = (col: Indexable[int]) ?int: {
+bind find_first = fn(col: Indexable[int]) ?int: {
     col.get(0)
 }
-bind main = (): {
+bind main = fn(): {
     let item = NotIndexable[value: 42]
     find_first(item)
 }

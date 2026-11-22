@@ -1427,7 +1427,7 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 		if v.Ret != nil {
 			ret = a.resolveReturnType(mod, v.Ret, subst, allowSelf)
 		}
-		return &types.Func{Params: ps, Ret: ret}
+		return &types.Func{Params: ps, Ret: ret, Closure: v.Closure}
 
 	case *ast.NamedType:
 		if v.Module == "" && v.Name == "<error>" {
@@ -2789,7 +2789,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 			a.Prog.MethodTable[key][decl.Name] = fi
 			a.Prog.Funcs = append(a.Prog.Funcs, fi)
 
-			// Check if this is `Drop` (`bind MyStruct.drop = (&self)` or `bind MyEnum.drop = (&self)`)
+			// Check if this is `Drop` (`bind MyStruct.drop = fn(&self)` or `bind MyEnum.drop = fn(&self)`)
 			if st, isSt := recvTy.(*types.Struct); isSt && decl.Name == "drop" {
 				if decl.RecvMode != ast.RecvMut || len(decl.Params) != 0 || (fi.Sig.Ret != nil && !fi.Sig.Ret.Equals(types.TypeVoid)) {
 					a.Rep.Errorf(decl.Span, "`%s.drop` must have signature `(&self)` or `(&self) void`", st.Name)

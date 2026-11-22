@@ -28,7 +28,7 @@ define List[T] struct [
 ]
 
 // Constructs an empty [`List`] with zero allocated capacity.
-bind List[T].new = () List[T]:
+bind List[T].new = fn() List[T]:
 	List[T][
 		data: unsafe null_ptr[T](),
 		len: 0,
@@ -38,7 +38,7 @@ bind List[T].new = () List[T]:
 // Constructs an empty [`List`] with space pre-allocated for at least `cap` elements.
 //
 // - `cap`: Number of element slots to allocate immediately when positive.
-bind List[T].with_capacity = (cap: int) List[T]: {
+bind List[T].with_capacity = fn(cap: int) List[T]: {
 	if(cap <= 0): func <- List[T].new()
 	let p = unsafe alloc_raw[T](cap)
 	List[T][
@@ -52,7 +52,7 @@ bind List[T].with_capacity = (cap: int) List[T]: {
 //
 // Uses `alloc_uninit` + `fill_bytes` (`memset`) for 1-byte Plain types (`bool`, `u8`, `i8`)
 // and a capacity-check-free fill loop for all other types.
-bind List[T].filled = (len: int, val: T) List[T]: {
+bind List[T].filled = fn(len: int, val: T) List[T]: {
 	if(len <= 0): func <- List[T].new()
 	let p = unsafe alloc_uninit[T](len)
 	if(is_plain[T]() and size_of[T]() == 1): {
@@ -75,16 +75,16 @@ bind List[T].filled = (len: int, val: T) List[T]: {
 }
 
 // Returns the number of elements currently in the list.
-bind List[T].len = (self) int: self.len
+bind List[T].len = fn(self) int: self.len
 
 // Returns the number of element slots currently allocated on the heap.
-bind List[T].cap = (self) int: self.cap
+bind List[T].cap = fn(self) int: self.cap
 
 // Reports whether the list contains zero elements.
-bind List[T].is_empty = (self) bool: self.len == 0
+bind List[T].is_empty = fn(self) bool: self.len == 0
 
 // Ensures the list has allocated capacity for at least `min_cap` elements without changing its length.
-bind List[T].reserve = (&self, min_cap: int): {
+bind List[T].reserve = fn(&self, min_cap: int): {
 	if(min_cap <= self.cap): func <-
 	let ncap = if(self.cap > 0): self.cap else: 4
 	for(ncap < min_cap): {
@@ -104,14 +104,14 @@ bind List[T].reserve = (&self, min_cap: int): {
 //
 // # Ownership
 // Takes ownership of `item`.
-bind List[T].push = (&self, item: own T): {
+bind List[T].push = fn(&self, item: own T): {
 	if(self.len + 1 > self.cap): self.reserve(self.len + 1)
 	unsafe ptr_write(ptr_add(self.data, self.len), own item)
 	self.len += 1
 }
 
 // Removes and returns the last element from the list, or `none` if the list is empty.
-bind List[T].pop = (&self) ?T: {
+bind List[T].pop = fn(&self) ?T: {
 	if(self.len <= 0): func <- none
 	self.len -= 1
 	unsafe {
@@ -121,7 +121,7 @@ bind List[T].pop = (&self) ?T: {
 }
 
 // Returns a copy of the element at `idx`, or `none` if out of bounds.
-bind List[T].get = (self, idx: int) ?T: {
+bind List[T].get = fn(self, idx: int) ?T: {
 	if(idx < 0 or idx >= self.len): func <- none
 	unsafe self.data[idx].copy()
 }
@@ -129,7 +129,7 @@ bind List[T].get = (self, idx: int) ?T: {
 // Replaces the element at `idx` with `val`, dropping the previous element.
 //
 // Returns `false` (dropping `val`) if `idx` is out of bounds.
-bind List[T].set = (&self, idx: int, val: own T) bool: {
+bind List[T].set = fn(&self, idx: int, val: own T) bool: {
 	if(idx < 0 or idx >= self.len): func <- false
 	unsafe {
 		let _ = ptr_read(ptr_add(self.data, idx))
@@ -141,7 +141,7 @@ bind List[T].set = (&self, idx: int, val: own T) bool: {
 // Inserts `item` at position `idx`, shifting elements at `idx..len` one slot right.
 //
 // Panics if `idx < 0` or `idx > self.len`.
-bind List[T].insert = (&self, idx: int, item: own T): {
+bind List[T].insert = fn(&self, idx: int, item: own T): {
 	if(idx < 0 or idx > self.len):
 		panic("List.insert: index $idx out of bounds for length ${self.len}")
 	if(self.len + 1 > self.cap): self.reserve(self.len + 1)
@@ -160,7 +160,7 @@ bind List[T].insert = (&self, idx: int, item: own T): {
 // Removes and returns the element at `idx`, shifting elements after `idx` one slot left.
 //
 // Panics if `idx < 0` or `idx >= self.len`.
-bind List[T].remove = (&self, idx: int) T: {
+bind List[T].remove = fn(&self, idx: int) T: {
 	if(idx < 0 or idx >= self.len):
 		panic("List.remove: index $idx out of bounds for length ${self.len}")
 	unsafe {
@@ -181,7 +181,7 @@ bind List[T].remove = (&self, idx: int) T: {
 // Removes and returns the element at `idx` in O(1) time by moving the last element into its slot.
 //
 // Does not preserve element ordering. Panics if `idx < 0` or `idx >= self.len`.
-bind List[T].swap_remove = (&self, idx: int) T: {
+bind List[T].swap_remove = fn(&self, idx: int) T: {
 	if(idx < 0 or idx >= self.len):
 		panic("List.swap_remove: index $idx out of bounds for length ${self.len}")
 	unsafe {
@@ -200,7 +200,7 @@ bind List[T].swap_remove = (&self, idx: int) T: {
 // When shrinking, trailing elements are dropped in reverse order. When growing, new slots
 // are filled using `fill_bytes` (`memset`) for 1-byte Plain types (`bool`, `u8`, `i8`) or a
 // capacity-check-free fill loop for other types.
-bind List[T].resize = (&self, new_len: int, val: T): {
+bind List[T].resize = fn(&self, new_len: int, val: T): {
 	let target = if(new_len < 0): 0 else: new_len
 	if(target < self.len): {
 		if(self.cap > 0 and not is_plain[T]()): {
@@ -234,7 +234,7 @@ bind List[T].resize = (&self, new_len: int, val: T): {
 }
 
 // Reports whether any element in the list equals `item`.
-bind List[T].contains = (self, item: T) bool: {
+bind List[T].contains = fn(self, item: T) bool: {
 	let i = 0
 	for(i < self.len): {
 		unsafe {
@@ -246,13 +246,13 @@ bind List[T].contains = (self, item: T) bool: {
 }
 
 // Returns a copy of the first element, or `none` if the list is empty.
-bind List[T].first = (self) ?T: self.get(0)
+bind List[T].first = fn(self) ?T: self.get(0)
 
 // Returns a copy of the last element, or `none` if the list is empty.
-bind List[T].last = (self) ?T: self.get(self.len - 1)
+bind List[T].last = fn(self) ?T: self.get(self.len - 1)
 
 // Returns the index of the first element equal to `item`, or `none`.
-bind List[T].index_of = (self, item: T) ?int: {
+bind List[T].index_of = fn(self, item: T) ?int: {
 	let i = 0
 	while(i < self.len): {
 		unsafe {
@@ -267,7 +267,7 @@ bind List[T].index_of = (self, item: T) ?int: {
 //
 // # Panics
 // If either index is out of range.
-bind List[T].swap = (&self, i: int, j: int): {
+bind List[T].swap = fn(&self, i: int, j: int): {
 	if(i < 0 or i >= self.len): panic("List.swap: index $i out of bounds for length ${self.len}")
 	if(j < 0 or j >= self.len): panic("List.swap: index $j out of bounds for length ${self.len}")
 	if(i == j): func <-
@@ -282,7 +282,7 @@ bind List[T].swap = (&self, i: int, j: int): {
 // Shortens the list to `new_len` elements, destroying the rest in reverse order. Does nothing
 // when `new_len` is at least the current length; a negative `new_len` empties the list.
 // Capacity is kept.
-bind List[T].truncate = (&self, new_len: int): {
+bind List[T].truncate = fn(&self, new_len: int): {
 	let keep = if(new_len < 0): 0 else: new_len
 	if(keep >= self.len): func <-
 	if(self.cap > 0): {
@@ -299,7 +299,7 @@ bind List[T].truncate = (&self, new_len: int): {
 
 // Moves every element of `other` onto the end of this list, in order, without copying the
 // elements: `other` is consumed.
-bind List[T].extend = (&self, other: own List[T]): {
+bind List[T].extend = fn(&self, other: own List[T]): {
 	let src = own other
 	if(src.len == 0): func <-
 	self.reserve(self.len + src.len)
@@ -314,7 +314,7 @@ bind List[T].extend = (&self, other: own List[T]): {
 }
 
 // Drops all elements in reverse order and resets length to `0` while keeping capacity allocated.
-bind List[T].clear = (&self): {
+bind List[T].clear = fn(&self): {
 	if(self.cap > 0): {
 		let i = self.len - 1
 		for(i >= 0): {
@@ -328,7 +328,7 @@ bind List[T].clear = (&self): {
 }
 
 // Returns a deep copy of the list by copying every element in order.
-bind List[T].copy = (self) List[T]: {
+bind List[T].copy = fn(self) List[T]: {
 	if(self.len <= 0): func <- List[T].new()
 	let p = unsafe alloc_uninit[T](self.len)
 	if(is_plain[T]()): {
@@ -348,7 +348,7 @@ bind List[T].copy = (self) List[T]: {
 }
 
 // Formats the list as a bracketed, comma-separated string (`"[a, b, ...]"`).
-bind List[T].to_string = (self) string: {
+bind List[T].to_string = fn(self) string: {
 	let out = "["
 	let i = 0
 	for(i < self.len): {
@@ -372,7 +372,7 @@ define ListIterator[T] struct [
 ]
 
 // Advances the iterator and returns a copy of the next element, or `none` when finished.
-bind ListIterator[T].next = (&self) ?T: {
+bind ListIterator[T].next = fn(&self) ?T: {
 	if(self.idx >= self.items.len): func <- none
 	let i = self.idx
 	self.idx += 1
@@ -380,14 +380,14 @@ bind ListIterator[T].next = (&self) ?T: {
 }
 
 // Returns a forward [`Iterator`] over an owned snapshot of the list's elements.
-bind List[T].iter = (self) Iterator[T]:
+bind List[T].iter = fn(self) Iterator[T]:
 	ListIterator[T][
 		items: self.copy(),
 		idx: 0,
 	]
 
 // Drops all remaining elements in reverse order and frees the backing heap allocation.
-bind List[T].drop = (&self): {
+bind List[T].drop = fn(&self): {
 	if(self.cap > 0): {
 		let i = self.len - 1
 		for(i >= 0): {
@@ -408,7 +408,7 @@ bind List[T].drop = (&self): {
 // -----------------------------------------------------------------------------
 
 @test("List set and reserve (Plain and Resource)")
-bind test_list_set_and_reserve = (): {
+bind test_list_set_and_reserve = fn(): {
 	let xs = List[int].new()
 	xs.reserve(-5)
 	assert(xs.cap() == 0 and xs.len() == 0, "reserve negative on empty")
@@ -447,7 +447,7 @@ bind test_list_set_and_reserve = (): {
 }
 
 @test("List insert, remove, and swap_remove (Plain and Resource)")
-bind test_list_insert_remove_swap_remove = (): {
+bind test_list_insert_remove_swap_remove = fn(): {
 	// Plain int list: insert at front, middle, end across reallocations
 	let xs = List[int].new()
 	xs.insert(0, 20)
@@ -502,7 +502,7 @@ bind test_list_insert_remove_swap_remove = (): {
 }
 
 @test("List filled and resize (1-byte Plain, multi-byte Plain, and Resource)")
-bind test_list_filled_and_resize = (): {
+bind test_list_filled_and_resize = fn(): {
 	// Empty/negative filled
 	let b0 = List[bool].filled(0, true)
 	assert(b0.len() == 0 and b0.cap() == 0 and b0.is_empty(), "filled(0)")
@@ -584,7 +584,7 @@ bind test_list_filled_and_resize = (): {
 }
 
 @test("ListIterator guarded against source mutations and drop")
-bind test_list_iterator_guarded = (): {
+bind test_list_iterator_guarded = fn(): {
 	// Plain int iterator survives push/realloc, set, insert, remove, swap_remove, resize, clear
 	let xs = List[int].new()
 	xs.push(10)
@@ -634,7 +634,7 @@ bind test_list_iterator_guarded = (): {
 }
 
 @test("List first, last, index_of, swap, truncate, and extend")
-bind test_list_helpers = (): {
+bind test_list_helpers = fn(): {
 	let xs = [10, 20, 30, 20]
 	assert(xs.first() == 10 and xs.last() == 20, "first and last")
 	let empty: [int] = []

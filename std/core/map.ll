@@ -45,7 +45,7 @@ define Map[K: Hashable, V] struct [
 ]
 
 // Constructs an empty [`Map`] with zero heap allocation.
-bind Map[K, V].new = () Map[K, V]:
+bind Map[K, V].new = fn() Map[K, V]:
 	Map[K, V][
 		buckets: unsafe null_ptr[int](),
 		buck_cap: 0,
@@ -56,7 +56,7 @@ bind Map[K, V].new = () Map[K, V]:
 	]
 
 // Constructs an empty [`Map`] pre-sized for at least `cap` key-value entries.
-bind Map[K, V].with_capacity = (cap: int) Map[K, V]: {
+bind Map[K, V].with_capacity = fn(cap: int) Map[K, V]: {
 	if(cap <= 0): func <- Map[K, V].new()
 	let bcap = 8
 	for(bcap < cap * 2): bcap *= 2
@@ -80,13 +80,13 @@ bind Map[K, V].with_capacity = (cap: int) Map[K, V]: {
 }
 
 // Returns the number of live key-value entries currently in the map.
-bind Map[K, V].len = (self) int: self.len
+bind Map[K, V].len = fn(self) int: self.len
 
 // Reports whether the map contains zero entries.
-bind Map[K, V].is_empty = (self) bool: self.len == 0
+bind Map[K, V].is_empty = fn(self) bool: self.len == 0
 
 // Internal probe lookup returning the entry index of `needle` with hash `h`, or `-1`.
-bind Map[K, V].find_entry = (self, needle: K, h: u64) int: {
+bind Map[K, V].find_entry = fn(self, needle: K, h: u64) int: {
 	if(self.buck_cap == 0 or unsafe is_null(self.buckets)): func <- -1
 	let mask = self.buck_cap - 1
 	let slot = int(h & u64(mask))
@@ -104,16 +104,16 @@ bind Map[K, V].find_entry = (self, needle: K, h: u64) int: {
 }
 
 // Reports whether `key` exists in the map.
-bind Map[K, V].has = (self, key: K) bool: {
+bind Map[K, V].has = fn(self, key: K) bool: {
 	let h = key.hash()
 	self.find_entry(key, h) >= 0
 }
 
 // Reports whether `key` exists in the map (satisfies [`Containable`]).
-bind Map[K, V].contains = (self, key: K) bool: self.has(key)
+bind Map[K, V].contains = fn(self, key: K) bool: self.has(key)
 
 // Returns a copy of the value mapped to `key`, or `none` if `key` is absent.
-bind Map[K, V].get = (self, key: K) ?V: {
+bind Map[K, V].get = fn(self, key: K) ?V: {
 	let h = key.hash()
 	let idx = self.find_entry(key, h)
 	if(idx < 0): func <- none
@@ -121,7 +121,7 @@ bind Map[K, V].get = (self, key: K) ?V: {
 }
 
 // Internal helper that compacts tombstoned slots and rebuilds the bucket table at `new_bcap`.
-bind Map[K, V].rehash = (&self, new_bcap: int): {
+bind Map[K, V].rehash = fn(&self, new_bcap: int): {
 	if(self.len < self.ent_len): {
 		let w = 0
 		let r = 0
@@ -181,7 +181,7 @@ bind Map[K, V].rehash = (&self, new_bcap: int): {
 //
 // # Ownership
 // Consumes ownership of both `key` and `val`.
-bind Map[K, V].insert = (&self, key: own K, val: own V): {
+bind Map[K, V].insert = fn(&self, key: own K, val: own V): {
 	let h = key.hash()
 	let existing = self.find_entry(key, h)
 	if(existing >= 0): {
@@ -232,11 +232,11 @@ bind Map[K, V].insert = (&self, key: own K, val: own V): {
 }
 
 // Inserts a [`MapEntry`] pair into the map (satisfies [`Collectable`] for map comprehensions).
-bind Map[K, V].push = (&self, entry: own MapEntry[K, V]):
+bind Map[K, V].push = fn(&self, entry: own MapEntry[K, V]):
 	self.insert(entry.key.copy(), entry.value.copy())
 
 // Removes `key` and returns the value it mapped to, or `none` if `key` is absent.
-bind Map[K, V].remove = (&self, key: K) ?V: {
+bind Map[K, V].remove = fn(&self, key: K) ?V: {
 	if(self.buck_cap == 0 or unsafe is_null(self.buckets)): func <- none
 	let h = key.hash()
 	let mask = self.buck_cap - 1
@@ -262,7 +262,7 @@ bind Map[K, V].remove = (&self, key: K) ?V: {
 }
 
 // Drops all stored entries and resets the map to empty while retaining allocated capacity.
-bind Map[K, V].clear = (&self): {
+bind Map[K, V].clear = fn(&self): {
 	if(not unsafe is_null(self.entries)): {
 		let i = 0
 		for(i < self.ent_len): {
@@ -289,7 +289,7 @@ bind Map[K, V].clear = (&self): {
 }
 
 // Returns a new [`List`] containing copies of all keys in insertion order.
-bind Map[K, V].keys = (self) List[K]: {
+bind Map[K, V].keys = fn(self) List[K]: {
 	let out = List[K].with_capacity(self.len)
 	let i = 0
 	for(i < self.ent_len): {
@@ -302,7 +302,7 @@ bind Map[K, V].keys = (self) List[K]: {
 }
 
 // Returns a new [`List`] containing copies of all values in insertion order.
-bind Map[K, V].values = (self) List[V]: {
+bind Map[K, V].values = fn(self) List[V]: {
 	let out = List[V].with_capacity(self.len)
 	let i = 0
 	for(i < self.ent_len): {
@@ -315,7 +315,7 @@ bind Map[K, V].values = (self) List[V]: {
 }
 
 // Returns a deep copy of the map with copies of all keys and values.
-bind Map[K, V].copy = (self) Map[K, V]: {
+bind Map[K, V].copy = fn(self) Map[K, V]: {
 	let out = Map[K, V].with_capacity(self.len)
 	let i = 0
 	for(i < self.ent_len): {
@@ -329,7 +329,7 @@ bind Map[K, V].copy = (self) Map[K, V]: {
 }
 
 // Formats the map as `"#[k1: v1, k2: v2, ...]"`.
-bind Map[K, V].to_string = (self) string: {
+bind Map[K, V].to_string = fn(self) string: {
 	let out = "#["
 	let first = true
 	let i = 0
@@ -360,7 +360,7 @@ define MapIterator[K: Hashable, V] struct [
 ]
 
 // Advances the iterator and returns a copy of the next live [`MapEntry`], or `none` when finished.
-bind MapIterator[K, V].next = (&self) ?MapEntry[K, V]: {
+bind MapIterator[K, V].next = fn(&self) ?MapEntry[K, V]: {
 	for(self.idx < self.ent_len): {
 		let i = self.idx
 		self.idx += 1
@@ -376,7 +376,7 @@ bind MapIterator[K, V].next = (&self) ?MapEntry[K, V]: {
 }
 
 // Returns a forward [`Iterator`] yielding [`MapEntry`] copies in insertion order.
-bind Map[K, V].iter = (self) Iterator[MapEntry[K, V]]:
+bind Map[K, V].iter = fn(self) Iterator[MapEntry[K, V]]:
 	MapIterator[K, V][
 		entries: self.entries,
 		ent_len: self.ent_len,
@@ -384,7 +384,7 @@ bind Map[K, V].iter = (self) Iterator[MapEntry[K, V]]:
 	]
 
 // Drops all remaining keys/values and frees the entry and bucket tables.
-bind Map[K, V].drop = (&self): {
+bind Map[K, V].drop = fn(&self): {
 	if(not unsafe is_null(self.entries)): {
 		let i = 0
 		for(i < self.ent_len): {
@@ -411,7 +411,7 @@ bind Map[K, V].drop = (&self): {
 // -----------------------------------------------------------------------------
 
 @test("Map[K, V] realloc_raw growth, compaction, and clear with Resource keys and values")
-bind test_map_realloc_and_slot_zeroing = (): {
+bind test_map_realloc_and_slot_zeroing = fn(): {
 	// Churn dirty heap blocks filled with 0xFF before Map grows via realloc_raw.
 	for(c in 0..8): {
 		let dirty = List[u8].filled(512, u8(255))
@@ -491,7 +491,7 @@ bind test_map_realloc_and_slot_zeroing = (): {
 }
 
 @test("Map[K, V] rehashes in place when tombstones accumulate at low load")
-bind test_map_in_place_rehash_low_load = (): {
+bind test_map_in_place_rehash_low_load = fn(): {
 	let m = Map[string, string].new()
 	m.insert("anchor", "stay")
 	let compactions = 0

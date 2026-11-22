@@ -14,8 +14,8 @@ func TestParseComprehensiveLanguageConstructs(t *testing.T) {
 	src := `
 import "std/pool.ll" as pool
 extern "math.h"
-extern cos: (x: float) float
-extern free_ptr: (p: int)
+extern cos: fn(x: float) float
+extern free_ptr: fn(p: int)
 
 define UserID int
 
@@ -26,8 +26,8 @@ define Status enum u8 [
 ]
 
 define Printable interface [
-    to_string: (self) string,
-    noop: (self),
+    to_string: fn(self) string,
+    noop: fn(self),
 ]
 
 define Pair[A: Printable, B] struct [
@@ -36,14 +36,14 @@ define Pair[A: Printable, B] struct [
     note?: ?string,
 ]
 
-bind Pair[A, B].swap = (own self) Pair[B, A]: {
+bind Pair[A, B].swap = fn(own self) Pair[B, A]: {
     Pair[B, A][
         first: self.second,
         second: self.first,
     ]
 }
 
-bind main = () int: {
+bind main = fn() int: {
     let p = Pair[int, string][
         first: 42,
         second: "answer",
@@ -110,7 +110,7 @@ define Bad struct [
 
 func TestForbidNestedUnwindInArgList(t *testing.T) {
 	src := `
-bind main = (): {
+bind main = fn(): {
     println(func <-)
 }
 `
@@ -132,8 +132,8 @@ func TestExpectPreservesSyncTokens(t *testing.T) {
 		{
 			name: "missing rparen before rbrace preserves closing brace and next decl",
 			src: `
-bind first = (): { let x = foo(1 }
-bind second = () int: { 2 }
+bind first = fn(): { let x = foo(1 }
+bind second = fn() int: { 2 }
 `,
 			wantWantMsg: "expected )",
 			wantDiags:   1,
@@ -150,7 +150,7 @@ bind second = () int: { 2 }
 		{
 			name: "missing rparen before let preserves next statement",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let x = foo(1
     let y = 2
     y
@@ -170,7 +170,7 @@ bind main = () int: {
 		{
 			name: "missing colon before lbrace preserves function block body",
 			src: `
-bind main = () int {
+bind main = fn() int {
     42
 }
 `,
@@ -211,7 +211,7 @@ define Good struct [
 			src: `
 import
 @test
-bind ok = () int: { 1 }
+bind ok = fn() int: { 1 }
 `,
 			wantWantMsg: "expected string literal",
 			wantDiags:   1,
@@ -228,7 +228,7 @@ bind ok = () int: { 1 }
 		{
 			name: "missing parameter ident before colon preserves colon and type",
 			src: `
-bind f = (a: int, : int) int: { 1 }
+bind f = fn(a: int, : int) int: { 1 }
 `,
 			wantWantMsg: "expected identifier",
 			wantDiags:   1,
@@ -243,7 +243,7 @@ bind f = (a: int, : int) int: { 1 }
 		{
 			name: "missing assign before lparen preserves function literal",
 			src: `
-bind f (x: int) int: { x }
+bind f fn(x: int) int: { x }
 `,
 			wantWantMsg: "expected =",
 			wantDiags:   1,
@@ -260,7 +260,7 @@ bind f (x: int) int: { x }
 		{
 			name: "missing member ident before InterpEnd preserves string terminator",
 			src: `
-bind f = () string: {
+bind f = fn() string: {
     let s = "v=${foo.}"
     s
 }
@@ -307,17 +307,17 @@ func TestEmptyBracketTypeRejectionAndValuePreservation(t *testing.T) {
 		},
 		{
 			name:    "function param type []",
-			src:     "bind f = (xs: []) int: { 0 }\n",
+			src:     "bind f = fn(xs: []) int: { 0 }\n",
 			wantMsg: "untyped `[]` is not a valid type",
 		},
 		{
 			name:    "function return type []",
-			src:     "bind f = () []: { [] }\n",
+			src:     "bind f = fn() []: { [] }\n",
 			wantMsg: "untyped `[]` is not a valid type",
 		},
 		{
 			name:    "for eval type []",
-			src:     "bind f = () [int]: { for (x in 0..10) []: x }\n",
+			src:     "bind f = fn() [int]: { for (x in 0..10) []: x }\n",
 			wantMsg: "untyped `[]` is not a valid type",
 		},
 		{
@@ -370,7 +370,7 @@ func TestEmptyBracketTypeRejectionAndValuePreservation(t *testing.T) {
 		src := `
 define Empty struct []
 
-bind main = (): {
+bind main = fn(): {
     let xs: [int] = []
     let e = Empty[]
     let typed = for (x in 0..5) [int]: x
@@ -394,7 +394,7 @@ define Opts struct [
     default: int,
 ]
 
-bind f = (flag: bool, x: int) int: {
+bind f = fn(flag: bool, x: int) int: {
     let default = 42
     let opts = Opts[default: default]
     let a = match (x):
@@ -420,7 +420,7 @@ bind f = (flag: bool, x: int) int: {
 
 	t.Run("old else arm on match is rejected cleanly", func(t *testing.T) {
 		src := `
-bind f = (x: int) int: {
+bind f = fn(x: int) int: {
     match (x):
         when 1: 10
         else: 20
@@ -439,7 +439,7 @@ bind f = (x: int) int: {
 
 	t.Run("enclosing if/for/while else after containerless match", func(t *testing.T) {
 		src := `
-bind f = (flag: bool, x: int) int: {
+bind f = fn(flag: bool, x: int) int: {
     let a = if (flag): match (x):
         when 1: 10
         default: 20
@@ -488,16 +488,16 @@ bind f = (flag: bool, x: int) int: {
 func TestUnifiedEvalTypeAndVoidSignatures(t *testing.T) {
 	src := `
 define Iface interface [
-    a: (self),
-    b: (self) int,
-    c: (self, cb: (int) bool) (int),
+    a: fn(self),
+    b: fn(self) int,
+    c: fn(self, cb: cl(int) bool) cl(int),
 ]
 
-bind f = () void: { println("hi") }
-bind ho = () (int) bool: (x: int) bool: x > 0
-bind nested = () (int): (y: int): println("$y")
+bind f = fn() void: { println("hi") }
+bind ho = fn() cl(int) bool: cl(x: int) bool: x > 0
+bind nested = fn() cl(int): cl(y: int): println("$y")
 
-bind main = (x: int) int: {
+bind main = fn(x: int) int: {
     let a = if (x > 0) int: 1 else if (x == 0) int: 2 else: 3
     let b = if (x > 0) ?int: x
     let c = while (x > 0) ?int: while <- 7
@@ -560,7 +560,7 @@ func TestCoalesceRightAssociative(t *testing.T) {
 	}
 
 	src := `
-bind main = (): {
+bind main = fn(): {
     let r1 = a? ?? b? ?? c
     bind r2 = a? ?? b? ?? c
     let r3 = 0
@@ -635,8 +635,8 @@ bind main = (): {
 
 	// Verify non-top-level `?? <unwind>` remains rejected.
 	badCases := []string{
-		"bind f = () int: { let x = a? ?? (b? ?? func <- 0); x }\n",
-		"bind f = () int: { id(a? ?? b? ?? func <- 0) }\n",
+		"bind f = fn() int: { let x = a? ?? (b? ?? func <- 0); x }\n",
+		"bind f = fn() int: { id(a? ?? b? ?? func <- 0) }\n",
 	}
 	for _, bc := range badCases {
 		badRep := diag.NewReporter()
@@ -721,7 +721,7 @@ func TestNonAssociativeComparisonsAndRanges(t *testing.T) {
 
 func TestPrivateTypeArgsBeforeDot(t *testing.T) {
 	src := `
-bind f = (mod_arg: int) int: {
+bind f = fn(mod_arg: int) int: {
     let a = _Private[int].m()
     let b = _Pair[int, string].make(1, "ok")
     let c = mod._Private[int].m()
@@ -817,16 +817,16 @@ bind f = (mod_arg: int) int: {
 
 func TestQualifiedAndConstExprStackArrayTypes(t *testing.T) {
 	src := `
-bind wrap[T] = (v: T) T: v
+bind wrap[T] = fn(v: T) T: v
 
-bind test = (
+bind test = fn(
     a: [mod.C: int],
     b: [1 + 2: int],
     c: [(1 + 2) * mod.C: ?string],
     d: [1 << 3: [2 + 2: u8]],
     e: [[mod.C: int]],
     f: [#[string: int]],
-    g: [(x: int, y: [1 + 1: int]) [mod.C: bool]],
+    g: [cl(x: int, y: [1 + 1: int]) [mod.C: bool]],
 ): {
     let local_a: [mod.C + 1: int] = [1, 2, 3, 4]
     let _ = wrap[[1 + 2: int]](local_a)
@@ -899,7 +899,7 @@ bind test = (
 
 func TestDisambiguateArrayRepeatAndMapLiteralsWithBlocks(t *testing.T) {
 	src := `
-bind test = (k: string, k1: string, k2: string) void: {
+bind test = fn(k: string, k1: string, k2: string) void: {
     let arr_repeat = [N: { 42 }]
     let arr_expr_count = [1 + N: { let x = 2; x + 1 }]
     let arr_multi = [N: { 1 }, { 2 }]
@@ -1053,12 +1053,12 @@ define OneVariant enum [
 ]
 
 define OneMethod interface [
-	show: (
+	show: fn(
 		self
 	) string
 ]
 
-bind single_param = (
+bind single_param = fn(
 	x: List[
 		int
 	]
@@ -1103,7 +1103,7 @@ bind single_param = (
 
 	// Trailing comma on a 2-item multiline argument list is still required.
 	badCallSrc := `
-bind main = (): {
+bind main = fn(): {
 	println(
 		"a",
 		"b"

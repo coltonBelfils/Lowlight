@@ -14,11 +14,11 @@ define Point struct [
 ]
 
 @inline
-bind add = (a: int, b: int) int: {
+bind add = fn(a: int, b: int) int: {
     a + b
 }
 
-bind main = (): {
+bind main = fn(): {
     let p = Point[x: 1, y: 2]
     let res = add(p.x, p.y)
     assert(res == 3)
@@ -36,7 +36,7 @@ func TestDeprecatedDocAttributeRejected(t *testing.T) {
 define Point struct [
     x: int,
 ]
-bind main = (): {}
+bind main = fn(): {}
 `
 	rep := checkSrc(src)
 	if !rep.HasErrors() {
@@ -58,9 +58,9 @@ func TestAttributesLangItemDiagnostics(t *testing.T) {
 			src: `
 @lang("nonexistent_item")
 define CustomIf interface [
-    foo: (self),
+    foo: fn(self),
 ]
-bind main = (): {}
+bind main = fn(): {}
 `,
 			expectedErr: `unknown interface lang item @lang("nonexistent_item")`,
 		},
@@ -71,7 +71,7 @@ bind main = (): {}
 define MyStruct struct [
     x: int,
 ]
-bind main = (): {}
+bind main = fn(): {}
 `,
 			expectedErr: `unknown struct lang item @lang("printable")`,
 		},
@@ -80,9 +80,9 @@ bind main = (): {}
 			src: `
 @lang()
 define MyIface interface [
-    bar: (self),
+    bar: fn(self),
 ]
-bind main = (): {}
+bind main = fn(): {}
 `,
 			expectedErr: `@lang attribute requires a string argument`,
 		},
@@ -91,9 +91,9 @@ bind main = (): {}
 			src: `
 @lang("printable")
 define AnotherPrintable interface [
-    to_string: (self) string,
+    to_string: fn(self) string,
 ]
-bind main = (): {}
+bind main = fn(): {}
 `,
 			expectedErr: `duplicate lang item @lang("printable")`,
 		},

@@ -16,30 +16,30 @@ func TestMatchMethodPatternsE2E(t *testing.T) {
 import "std/core"
 
 define Checker interface [
-    is_ok: (self) bool,
+    is_ok: fn(self) bool,
 ]
 
 define Box struct [
     val: int,
 ]
 
-bind Box.in_range = (self, lo: int, hi: int) bool: {
+bind Box.in_range = fn(self, lo: int, hi: int) bool: {
     self.val >= lo and self.val <= hi
 }
 
-bind Box.matches_eq[T] = (self, target: T) bool: {
+bind Box.matches_eq[T] = fn(self, target: T) bool: {
     false
 }
 
-bind Box.is_even = (self) bool: {
+bind Box.is_even = fn(self) bool: {
     self.val % 2 == 0
 }
 
-bind Box.is_ok = (self) bool: {
+bind Box.is_ok = fn(self) bool: {
     self.val > 0
 }
 
-bind Box.has_int[T] = (self, x: int) bool: {
+bind Box.has_int[T] = fn(self, x: int) bool: {
     self.val == x
 }
 
@@ -49,15 +49,15 @@ define Token enum [
     Empty,
 ]
 
-bind Token.is_empty_tok = (self) bool: {
+bind Token.is_empty_tok = fn(self) bool: {
     match (self):
         when Token.Empty: true
         default: false
 }
 
-bind bool.is_false = (self) bool: not self
+bind bool.is_false = fn(self) bool: not self
 
-bind scan_number = (str: string) string: {
+bind scan_number = fn(str: string) string: {
     let idx = 0
     let num = ""
     while (idx < str.len()): {
@@ -69,7 +69,7 @@ bind scan_number = (str: string) string: {
     num
 }
 
-bind classify_char = (ch: char) string: {
+bind classify_char = fn(ch: char) string: {
     match (ch):
         when is_digit(): "digit"
         when is_alpha(): "alpha"
@@ -77,29 +77,29 @@ bind classify_char = (ch: char) string: {
         default: "other"
 }
 
-bind classify_list = (xs: [int]) string: {
+bind classify_list = fn(xs: [int]) string: {
     match (xs):
         when is_empty(): "empty"
         when contains(42): "has_42"
         default: "other"
 }
 
-bind classify_set_map = (s: #[int], m: #[string: int]) string: {
+bind classify_set_map = fn(s: #[int], m: #[string: int]) string: {
     match (s, m):
         when is_empty(), is_empty(): "both_empty"
         when (has(1), has("a")), (contains(2), contains("b")): "pair_hit"
         default: "miss"
 }
 
-bind check_iface = (c: Checker) bool: {
+bind check_iface = fn(c: Checker) bool: {
     match (c):
         when is_ok(): true
         default: false
 }
 
-bind free_flag = () bool: true
+bind free_flag = fn() bool: true
 
-bind main = (): {
+bind main = fn(): {
     // 1. User's motivating char loop pattern
     assert(scan_number("12.34abc") == "12.34", "scan_number stops at non-digit/dot")
     assert(scan_number("xyz") == "", "scan_number empty on leading alpha")
@@ -183,7 +183,7 @@ bind main = (): {
 
     // 8. Short-circuiting: later arm args are not evaluated if earlier arm matches
     let arg_calls = 0
-    bind bump = (cnt: &int) int: {
+    bind bump = cl(cnt: &int) int: {
         cnt += 1
         99
     }
@@ -209,8 +209,8 @@ func TestMatchMethodPatternNegativeDiagnostics(t *testing.T) {
 			name: "non_bool_return_type",
 			src: `
 define Box struct [ v: int ]
-bind Box.get_v = (self) int: self.v
-bind main = (): {
+bind Box.get_v = fn(self) int: self.v
+bind main = fn(): {
     let b = Box[v: 1]
     let x = match (b):
         when get_v(): 1
@@ -223,11 +223,11 @@ bind main = (): {
 			name: "mutating_self_method_rejected",
 			src: `
 define Box struct [ v: int ]
-bind Box.bump = (&self) bool: {
+bind Box.bump = fn(&self) bool: {
     self.v += 1
     true
 }
-bind main = (): {
+bind main = fn(): {
     let b = Box[v: 1]
     let x = match (b):
         when bump(): 1
@@ -240,8 +240,8 @@ bind main = (): {
 			name: "consuming_self_method_rejected",
 			src: `
 define Box struct [ v: int ]
-bind Box.consume = (own self) bool: true
-bind main = (): {
+bind Box.consume = fn(own self) bool: true
+bind main = fn(): {
     let b = Box[v: 1]
     let x = match (b):
         when consume(): 1
@@ -253,7 +253,7 @@ bind main = (): {
 		{
 			name: "builtin_mutating_method_rejected",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let s = #[1, 2]
     let x = match (s):
         when insert(3): 1
@@ -265,7 +265,7 @@ bind main = (): {
 		{
 			name: "optional_scrutinee_rejected",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let ch?: ?char = '5'
     let x = match (ch?):
         when is_digit(): 1
@@ -277,7 +277,7 @@ bind main = (): {
 		{
 			name: "missing_method_rejected",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x = match ('a'):
         when no_such_method(): 1
         default: 0
@@ -288,7 +288,7 @@ bind main = (): {
 		{
 			name: "wrong_arg_count_rejected",
 			src: `
-bind main = (): {
+bind main = fn(): {
     let x = match ('a'):
         when is_digit(1): 1
         default: 0
@@ -299,8 +299,8 @@ bind main = (): {
 		{
 			name: "non_exhaustive_bool_with_method_pattern",
 			src: `
-bind bool.is_false = (self) bool: not self
-bind main = (): {
+bind bool.is_false = fn(self) bool: not self
+bind main = fn(): {
     let b = true
     let x = match (b):
         when true: 1
@@ -335,7 +335,7 @@ bind main = (): {
 
 func TestFormatMatchMethodPattern(t *testing.T) {
 	t.Parallel()
-	src := `bind check = (ch: char) bool: {
+	src := `bind check = fn(ch: char) bool: {
 	match(ch):
 		when is_digit(), '.': true
 		when is_ascii_hex[int](16): true

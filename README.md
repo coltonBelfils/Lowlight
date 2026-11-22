@@ -115,15 +115,15 @@ define Buffer struct [
     bytes: [u8],
 ]
 
-bind Buffer.drop = (&self) -> {
+bind Buffer.drop = fn(&self) -> {
     println("closing ${self.tag} (${self.bytes.len()} bytes)")
 }
 
-bind append_header = (buf: &Buffer, magic: u8) -> {
+bind append_header = fn(buf: &Buffer, magic: u8) -> {
     buf.bytes.push(magic)
 }
 
-bind main = () -> {
+bind main = fn() -> {
     let pkt = Buffer[tag: "net", bytes: [0x01, 0x02]]
     append_header(&pkt, 0xFF) // `&` makes mutation visible at the call site
 } // `pkt` deterministically runs `Buffer.drop`, then frees `bytes` and `tag`
@@ -133,12 +133,12 @@ bind main = () -> {
 Every variable, parameter, or struct field of type `?T` **must** end with `?` (`user?`). Any identifier without `?` (`user`) is guaranteed at a glance to be non-null:
 
 ```lowlight
-bind parse_port = (raw: string): ?int -> {
+bind parse_port = fn(raw: string): ?int -> {
     let n = parse_int(raw) ?? func <- none
     if (n > 0 and n <= 65535) n else none
 }
 
-bind main = () -> {
+bind main = fn() -> {
     let port? = parse_port("8080")
     if (port?) {
         println("Listening on $port") // `port` (no `?`) is narrowed to `int`!
@@ -160,7 +160,7 @@ bind main = () -> {
 ### 5. Low-Level `unsafe`, Raw Pointers & C ABI FFI
 ```lowlight
 extern "string.h"
-extern memcmp as c_memcmp: (a: ptr[u8], b: ptr[u8], n: u64): i32
+extern memcmp as c_memcmp: fn(a: ptr[u8], b: ptr[u8], n: u64): i32
 
 define packed WireHeader struct [
     magic: u16,

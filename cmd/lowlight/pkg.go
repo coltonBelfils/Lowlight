@@ -162,14 +162,14 @@ edition = "2026"
 	var srcFile, srcContent, testFile, testContent string
 	if isLib {
 		srcFile = filepath.Join(absDir, qualName+".ll")
-		srcContent = fmt.Sprintf("// Package %s.\n\nbind greet = (name: string) string: {\n\t\"Hello, ${name}!\"\n}\n", pkgName)
+		srcContent = fmt.Sprintf("// Package %s.\n\nbind greet = fn(name: string) string: {\n\t\"Hello, ${name}!\"\n}\n", pkgName)
 		testFile = filepath.Join(absDir, qualName+"_test.ll")
-		testContent = "import \"std/test\"\n\n@test(\"greet formats message\")\nbind test_greet = (): {\n\ttest.assert_eq(greet(\"Lowlight\"), \"Hello, Lowlight!\")\n}\n"
+		testContent = "import \"std/test\"\n\n@test(\"greet formats message\")\nbind test_greet = fn(): {\n\ttest.assert_eq(greet(\"Lowlight\"), \"Hello, Lowlight!\")\n}\n"
 	} else {
 		srcFile = filepath.Join(absDir, "main.ll")
-		srcContent = "bind greet = (name: string) string: {\n\t\"Hello, ${name}!\"\n}\n\nbind main = (): {\n\tprintln(greet(\"Lowlight\"))\n}\n"
+		srcContent = "bind greet = fn(name: string) string: {\n\t\"Hello, ${name}!\"\n}\n\nbind main = fn(): {\n\tprintln(greet(\"Lowlight\"))\n}\n"
 		testFile = filepath.Join(absDir, qualName+"_test.ll")
-		testContent = "import \"std/test\"\n\n@test(\"greet formats message\")\nbind test_greet = (): {\n\ttest.assert_eq(greet(\"world\"), \"Hello, world!\")\n}\n"
+		testContent = "import \"std/test\"\n\n@test(\"greet formats message\")\nbind test_greet = fn(): {\n\ttest.assert_eq(greet(\"world\"), \"Hello, world!\")\n}\n"
 	}
 
 	if _, err := os.Stat(srcFile); os.IsNotExist(err) {

@@ -16,8 +16,8 @@ func TestHTTPClientPutPatchDeleteEndToEnd(t *testing.T) {
 	strictSrc := `
 import "std/http"
 
-bind main = (): {
-	let handler = (req: http.Request, res: &http.ResponseWriter): {
+bind main = fn(): {
+	let handler = cl(req: http.Request, res: &http.ResponseWriter): {
 		let tag = req.query_param("tag") ?? ""
 		let ct = req.header("content-type") ?? ""
 		res.write_header(http.STATUS_OK)
@@ -56,7 +56,7 @@ bind main = (): {
 	clientWireSrc := `
 import "std/http"
 
-bind main = (): {
+bind main = fn(): {
 	let c = http.Client.new()
 
 	let r_put = c.put("http://example.test/items/1?tag=v1", "application/json", "{\"ok\":true}").unwrap()

@@ -10,15 +10,15 @@ import (
 func TestTuplesEndToEnd(t *testing.T) {
 	t.Parallel()
 	src := `
-bind make_pair = (x: int, y: string) +[int, string]: {
+bind make_pair = fn(x: int, y: string) +[int, string]: {
     +[x, y.copy()]
 }
 
-bind sum_pair = (p: +[int, int]) int: {
+bind sum_pair = fn(p: +[int, int]) int: {
     p.0 + p.1
 }
 
-bind main = () int: {
+bind main = fn() int: {
     // 1. Creation and type annotation
     let t: +[int, string] = +[5, "abc"]
     println("${t}")
@@ -26,7 +26,7 @@ bind main = () int: {
     println(t.1)
 
     // 2. Calling function in tuple
-    let fn_tup = +[(x: int) int: x * 2, (msg: string) string: msg.copy()]
+    let fn_tup = +[cl(x: int) int: x * 2, cl(msg: string) string: msg.copy()]
     let res = fn_tup.0(21)
     println("fn_call=${res}")
     println(fn_tup.1("world"))
@@ -98,7 +98,7 @@ empty == +[]
 func TestTuplesRelease(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = () int: {
+bind main = fn() int: {
     let t = +[123, "release_test", true]
     println("${t}")
     0
@@ -114,7 +114,7 @@ bind main = () int: {
 func TestTuplesInCollections(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = () int: {
+bind main = fn() int: {
     // 1. Vector of tuples
     let pairs = [+[1, "one"], +[2, "two"]]
     println("${pairs.len()}: ${pairs[0]}")
@@ -153,7 +153,7 @@ func TestTuplesSemanticsErrors(t *testing.T) {
 		{
 			name: "index_out_of_bounds",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let t = +[1, 2]
     let x = t.2
     0
@@ -164,7 +164,7 @@ bind main = () int: {
 		{
 			name: "bracket_index_disallowed",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let t = +[1, 2]
     let x = t[0]
     0
@@ -175,7 +175,7 @@ bind main = () int: {
 		{
 			name: "bracket_negative_index_disallowed",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let t = +[1, 2]
     let x = t[-1]
     0
@@ -186,7 +186,7 @@ bind main = () int: {
 		{
 			name: "dot_negative_index_disallowed",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let t = +[1, 2]
     let x = t.-1
     0
@@ -197,7 +197,7 @@ bind main = () int: {
 		{
 			name: "dot_leading_zero_disallowed",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let t = +[1, 2]
     let x = t.00
     0
@@ -208,7 +208,7 @@ bind main = () int: {
 		{
 			name: "dot_underscore_disallowed",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let t = +[1, 2]
     let x = t.0_1
     0
@@ -219,7 +219,7 @@ bind main = () int: {
 		{
 			name: "dot_hex_disallowed",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let t = +[1, 2]
     let x = t.0x1
     0
@@ -230,7 +230,7 @@ bind main = () int: {
 		{
 			name: "type_mismatch",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let t: +[int, string] = +[1, 2]
     0
 }
@@ -243,7 +243,7 @@ bind main = () int: {
 define Bad struct [
     x: +[int, Bad],
 ]
-bind main = () int: 0
+bind main = fn() int: 0
 `,
 			err: "infinite size",
 		},
@@ -269,9 +269,9 @@ bind main = () int: 0
 func TestTuplesBugsFixes(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = () int: {
+bind main = fn() int: {
     // 1. Function in tuple call
-    let fns = +[(x: int) int: x + 10, (y: int) int: y * 3]
+    let fns = +[cl(x: int) int: x + 10, cl(y: int) int: y * 3]
     println("f0: ${fns.0(5)}")
     println("f1: ${fns.1(5)}")
 
@@ -348,7 +348,7 @@ boxed_plain: +[7, 8]
 func TestTuplesPlainBoxRelease(t *testing.T) {
 	t.Parallel()
 	src := `
-bind main = () int: {
+bind main = fn() int: {
     let p: Printable = +[10, 20]
     println("${p}")
     0
@@ -365,17 +365,17 @@ func TestDistinctTuples(t *testing.T) {
 	t.Parallel()
 	src := `
 define Pair +[int, string]
-define FnPair +[(int) int, string]
+define FnPair +[cl(int) int, string]
 
-bind Pair.first = (self) int: self.0
-bind Pair.second = (self) string: self.1.copy()
-bind Pair.summary = (self) string: "${self.0}: ${self.1}"
+bind Pair.first = fn(self) int: self.0
+bind Pair.second = fn(self) string: self.1.copy()
+bind Pair.summary = fn(self) string: "${self.0}: ${self.1}"
 
-bind mutate_pair = (p: &Pair): {
+bind mutate_pair = fn(p: &Pair): {
     p.0 = p.0 + 100
 }
 
-bind main = () int: {
+bind main = fn() int: {
     // 1. Construction via Constructor Call: let f = foo(+[10, "abc"])
     let p1 = Pair(+[10, "alpha"])
     println("p1.0=${p1.0}")
@@ -392,7 +392,7 @@ bind main = () int: {
     println("summary=${p2.summary()}")
 
     // 4. Calling closures in distinct tuple
-    let fp: FnPair = +[(n: int) int: n * 3, "tripler"]
+    let fp: FnPair = +[cl(n: int) int: n * 3, "tripler"]
     println("fn_call=${fp.0(14)}")
     println("fn_name=${fp.1}")
 
@@ -443,7 +443,7 @@ func TestDistinctTuplesSemanticsErrors(t *testing.T) {
 			name: "bracket_index_disallowed_on_distinct_tuple",
 			src: `
 define Pair +[int, string]
-bind main = () int: {
+bind main = fn() int: {
     let p: Pair = +[10, "abc"]
     p[0]
 }
@@ -454,8 +454,8 @@ bind main = () int: {
 			name: "assign_bare_tuple_without_annotation_rejected",
 			src: `
 define Pair +[int, string]
-bind takes_pair = (p: Pair) int: p.0
-bind main = () int: {
+bind takes_pair = fn(p: Pair) int: p.0
+bind main = fn() int: {
     let bare = +[10, "abc"]
     takes_pair(bare)
 }
@@ -466,7 +466,7 @@ bind main = () int: {
 			name: "distinct_tuple_dot_out_of_bounds",
 			src: `
 define Pair +[int, string]
-bind main = () int: {
+bind main = fn() int: {
     let p: Pair = +[10, "abc"]
     p.2
 }
@@ -495,18 +495,18 @@ func TestTupleUnpack(t *testing.T) {
 	src := `
 define Pair +[int, string]
 
-bind make_triple = () +[int, string, bool]: +[42, "owned_str", true]
+bind make_triple = fn() +[int, string, bool]: +[42, "owned_str", true]
 
-bind maybe_pair = (ok: bool) ?+[int, string]: {
+bind maybe_pair = fn(ok: bool) ?+[int, string]: {
     if (ok): +[99, "from_opt"] else: none
 }
 
-bind unwrap_or_early = (ok: bool) string: {
+bind unwrap_or_early = fn(ok: bool) string: {
     let n, s = unpack maybe_pair(ok) ?? func <- "early_none"
     "${n}:${s}"
 }
 
-bind main = () int: {
+bind main = fn() int: {
     // 1. Basic let x, y = unpack +[5, 7]
     let x, y = unpack +[5, 7]
     println("xy=${x},${y}")
@@ -567,7 +567,7 @@ func TestTupleUnpackErrors(t *testing.T) {
 		{
 			name: "missing_unpack_keyword_in_let",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let x, y = +[5, 7]
     x + y
 }
@@ -577,7 +577,7 @@ bind main = () int: {
 		{
 			name: "missing_unpack_keyword_in_assign",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let x = 1
     let y = 2
     x, y = +[5, 7]
@@ -589,7 +589,7 @@ bind main = () int: {
 		{
 			name: "arity_mismatch_in_let_unpack",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let x, y, z = unpack +[5, 7]
     0
 }
@@ -599,7 +599,7 @@ bind main = () int: {
 		{
 			name: "arity_mismatch_in_assign_unpack",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let x = 1
     let y = 2
     x, y = unpack +[5, 7, 9]
@@ -611,7 +611,7 @@ bind main = () int: {
 		{
 			name: "unpack_non_tuple",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     let x, y = unpack 42
     0
 }
@@ -621,7 +621,7 @@ bind main = () int: {
 		{
 			name: "reassign_bind_in_unpack",
 			src: `
-bind main = () int: {
+bind main = fn() int: {
     bind x = 1
     let y = 2
     x, y = unpack +[5, 7]

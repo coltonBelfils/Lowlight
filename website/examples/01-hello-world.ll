@@ -7,4 +7,4 @@
 //
 // `bind` gives a name to a value; here the value is a function
 // whose body is the single expression after the colon.
-bind main = (): println("hello, world")
+bind main = fn(): println("hello, world")

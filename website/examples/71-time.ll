@@ -4,7 +4,7 @@
 
 import "std/time"
 
-bind main = (): {
+bind main = fn(): {
 	// Durations are exact nanosecond counts that format themselves.
 	let d = time.Duration.from_secs(1.5)
 	println(d)

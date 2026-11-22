@@ -4,7 +4,7 @@
 
 // Type parameters go in brackets. A bound says what the type
 // must support; here, `<` and `.copy()`.
-bind smallest[T: Comparable + Copyable] = (xs: [T]) ?T: {
+bind smallest[T: Comparable + Copyable] = fn(xs: [T]) ?T: {
 	if(xs.is_empty()): func <- none
 	let best = xs[0].copy()
 	for(x in xs): if(x < best): best = x.copy()
@@ -17,9 +17,9 @@ define Box[T] struct [
 	label: string,
 ]
 
-bind Box[T].describe = (self) string: "box: ${self.label}"
+bind Box[T].describe = fn(self) string: "box: ${self.label}"
 
-bind main = (): {
+bind main = fn(): {
 	println(smallest([5, 2, 8]) ?? 0)
 	println(smallest(["pear", "fig", "plum"]) ?? "")
 	let b = Box[int][item: 7, label: "lucky"]

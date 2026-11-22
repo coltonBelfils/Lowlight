@@ -11,7 +11,7 @@ define GraphNode struct [
     edges: [ref[GraphNode]],
 ]
 
-bind GraphNode.alloc = (arena: &Arena, id: int, label: string) ref[GraphNode]: {
+bind GraphNode.alloc = fn(arena: &Arena, id: int, label: string) ref[GraphNode]: {
     arena.alloc(GraphNode[
         id: id,
         label: label.copy(),
@@ -19,12 +19,12 @@ bind GraphNode.alloc = (arena: &Arena, id: int, label: string) ref[GraphNode]: {
     ])
 }
 
-bind connect = (from: ref[GraphNode], to: ref[GraphNode]): {
+bind connect = fn(from: ref[GraphNode], to: ref[GraphNode]): {
     from.edges.push(to)
 }
 
 // Breadth-first reachability over a cyclic `ref[GraphNode]` graph!
-bind bfs_order = (start: ref[GraphNode]) [string]: {
+bind bfs_order = fn(start: ref[GraphNode]) [string]: {
     let visited = #[start.id]
     let queue: [ref[GraphNode]] = [start]
     let order: [string] = []
@@ -45,7 +45,7 @@ bind bfs_order = (start: ref[GraphNode]) [string]: {
     order
 }
 
-bind main = (): {
+bind main = fn(): {
     let arena = Arena.with_capacity(2048)
 
     // Phase 1: Build a directed cyclic graph A <-> B -> C -> A inside a scoped phase block

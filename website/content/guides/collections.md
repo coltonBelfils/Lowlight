@@ -29,7 +29,7 @@ Collections own their elements. That has three consequences worth knowing:
 - **Removing** an element (`pop`, `remove`, `take`) gives you ownership of it.
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let queue = ["a" + "", "b" + "", "c" + ""]
 	let first = queue.remove(0)        // we own `first` now
 	let copies = for(s in queue) [string]: s.copy()
@@ -47,7 +47,7 @@ a [b, c] 0
 A `for` loop with a result type is Lowlight's `map`/`filter`/`collect`:
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let nums = [3, 8, 1, 9, 4]
 	let big = for(n in nums) [int]: {
 		if(n < 4): next <-
@@ -82,7 +82,7 @@ The result type may be any type whose `push` method accepts the body's value (th
 | `while(x in it)` | like `for`, but never collects; leave with `while <- v` |
 
 ```lowlight
-bind main = (): {
+bind main = fn(): {
 	let scores = [70, 85, 92]
 	for(&s in scores): s += 5
 	println(scores)
@@ -97,20 +97,20 @@ While a loop iterates a collection, the collection can't be modified or moved. T
 
 ## Your own iterators
 
-An iterator is any type with a `next: (&self) ?T` method, which returns the next element or `none` at the end. Drive one with a `while` loop:
+An iterator is any type with a `next: fn(&self) ?T` method, which returns the next element or `none` at the end. Drive one with a `while` loop:
 
 ```lowlight
 define Countdown struct [
 	cur: int,
 ]
 
-bind Countdown.next = (&self) ?int: {
+bind Countdown.next = fn(&self) ?int: {
 	if(self.cur <= 0): func <- none
 	self.cur -= 1
 	self.cur + 1
 }
 
-bind main = (): {
+bind main = fn(): {
 	let it = Countdown[cur: 3]
 	while(true): {
 		let i = it.next() ?? while <-
