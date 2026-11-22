@@ -166,7 +166,9 @@ bind test_strconv_parse_int = (): {
 	assert(n3? == 77, "+77 to_int")
 
 	let n4? = "   999 \t".to_int()
-	assert(n4? == 999, "trimmed to_int")
+	assert(n4? == none, "surrounding whitespace is rejected")
+	assert("   999 \t".trim().to_int() == 999, "trim first to accept whitespace")
+	assert(" 1.5".is_float() == " 1.5".is_numeric() and not " 7".is_int(), "predicates agree with the parsers")
 
 	let bad1? = "".to_int()
 	assert(bad1? == none, "empty is none")

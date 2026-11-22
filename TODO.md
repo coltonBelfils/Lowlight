@@ -25,16 +25,16 @@ Tasks are atomic and ordered from easiest to most involved.
 - [x] Buffer pipelined remainder bytes in `_read_http_message` and `_read_http_message_tls` (`std/http.ll`).
 - [x] Implement `Transfer-Encoding: chunked` decoding in `_read_http_message` and `_read_http_message_tls` (`std/http.ll`).
 - [x] Support HTTP redirects in `Client` in `std/http.ll`.
-- [ ] Add `StringBuilder` (`with_capacity`, `append`, `append_char`, `append_byte`, `append_int`, `append_float`, `to_string() own string`) in `std/strings.ll`.
-- [ ] Add `ByteBuffer` (little-endian `u16`/`u32`/`u64` read/write helpers) in `std/strings.ll`.
+- [x] Add `StringBuilder` (`with_capacity`, `append`, `append_char`, `append_byte`, `append_int`, `append_float`, `to_string() own string`) in `std/strings.ll`.
+- [x] Add `ByteBuffer` (little-endian `u16`/`u32`/`u64` read/write helpers) in `std/strings.ll`.
 
-- [ ] Fix `math.round` returning `1` for `0.49999999999999994` and losing precision at `>= 2^52` by rounding via `trunc` plus remainder instead of `floor(x + 0.5)` (`std/math/math.ll:64`).
-- [ ] Fix `math.cbrt` for extreme magnitudes (`cbrt(1e-300)` returns `inf`, `cbrt(1e300)` returns `1e296`) by normalizing the exponent before Newton iteration and handling `inf`/`nan` (`std/math/math.ll:142`).
-- [ ] Make `math.hypot` overflow-safe via scaling (`hypot(1e200, 1e200)` returns `inf`) (`std/math/math.ll:157`).
-- [ ] Fix large-argument reduction in `sin`/`cos`/`tan` (`sin(1e15)` returns `0.8376` instead of `0.8583`) with Cody–Waite / Payne–Hanek reduction in `_reduce_angle` (`std/math/math.ll`).
-- [ ] Honor precisions above 15 in `format_float` / `_format_float_fixed` (`(0.1).format_float(20)` yields only 15 decimals) in `std/core/primitives.ll`.
-- [ ] Reject out-of-range float parses (`"1e400".to_float()` returns `inf` as success) or document saturation in `parse_float` (`std/core/primitives.ll:1278`).
-- [ ] Decide whether `parse_int`/`parse_float` accept surrounding whitespace (`" 12".to_int()` currently succeeds) and make `to_int`, `to_float`, and `is_int`/`is_float` agree.
+- [x] Fix `math.round` returning `1` for `0.49999999999999994` and losing precision at `>= 2^52` by rounding via `trunc` plus remainder instead of `floor(x + 0.5)` (`std/math/math.ll:64`).
+- [x] Fix `math.cbrt` for extreme magnitudes (`cbrt(1e-300)` returns `inf`, `cbrt(1e300)` returns `1e296`) by normalizing the exponent before Newton iteration and handling `inf`/`nan` (`std/math/math.ll:142`).
+- [x] Make `math.hypot` overflow-safe via scaling (`hypot(1e200, 1e200)` returns `inf`) (`std/math/math.ll:157`).
+- [x] Fix large-argument reduction in `sin`/`cos`/`tan` (`sin(1e15)` returns `0.8376` instead of `0.8583`) with Cody–Waite / Payne–Hanek reduction in `_reduce_angle` (`std/math/math.ll`).
+- [x] Honor precisions above 15 in `format_float` / `_format_float_fixed` (`(0.1).format_float(20)` yields only 15 decimals) in `std/core/primitives.ll`.
+- [x] Reject out-of-range float parses (`"1e400".to_float()` returns `inf` as success) or document saturation in `parse_float` (`std/core/primitives.ll:1278`). Decided: `none`; underflow still rounds to a signed zero.
+- [x] Decide whether `parse_int`/`parse_float` accept surrounding whitespace (`" 12".to_int()` currently succeeds) and make `to_int`, `to_float`, and `is_int`/`is_float` agree. Decided: rejected (trim explicitly), like Go and Rust; all four agree.
 - [ ] Trap or return `none` on invalid `char(int)` conversions (surrogates, negatives, `> 0x10FFFF`); `char(0xD800)` and `char(-1)` currently print invalid UTF-8 despite `SPECIFICATION.md` §5.10.
 - [ ] Distinguish signal termination in `os.exec` / `os.system_run` (a `SIGKILL`ed child returns `9`, same as `exit(9)`) in `ll_os_pclose`/`ll_os_system` (`internal/codegen/runtime_h.go:1185-1205`, `internal/codegen/llvmgen_runtime.go:1867-1915`) and expose `ExecResult.signal`.
 - [ ] Decide whether `string.lines` drops the trailing empty element for newline-terminated text (`"a\nb\n".lines()` returns 3 items) (`std/strings/strings.ll:186`).

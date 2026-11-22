@@ -303,7 +303,8 @@ bind test_core_parse_float = (): {
 	_core_assert_parse_f64_bits("+inf", pos_inf_bits, "parse +inf")
 	_core_assert_parse_f64_bits("INF", pos_inf_bits, "parse INF")
 	_core_assert_parse_f64_bits("Infinity", pos_inf_bits, "parse Infinity")
-	_core_assert_parse_f64_bits("  +Infinity  ", pos_inf_bits, "parse +Infinity")
+	_core_assert_parse_f64_bits("+Infinity", pos_inf_bits, "parse +Infinity")
+	assert(parse_float("  +Infinity  ") == none, "surrounding whitespace is rejected")
 	_core_assert_parse_f64_bits("-inf", neg_inf_bits, "parse -inf")
 	_core_assert_parse_f64_bits("-INF", neg_inf_bits, "parse -INF")
 	_core_assert_parse_f64_bits("-Infinity", neg_inf_bits, "parse -Infinity")
@@ -330,7 +331,9 @@ bind test_core_parse_float = (): {
 	// Standard values, dot forms, and exact precision
 	_core_assert_parse_f64_bits(".5", _float_bits(0.5), "parse .5")
 	_core_assert_parse_f64_bits("5.", _float_bits(5.0), "parse 5.")
-	_core_assert_parse_f64_bits("  -3.14159  ", _float_bits(-3.14159), "parse -3.14159")
+	_core_assert_parse_f64_bits("-3.14159", _float_bits(-3.14159), "parse -3.14159")
+	assert(parse_float("  -3.14159  ") == none and parse_float("1.5\n") == none, "whitespace is rejected")
+	_core_assert_parse_f64_bits("  -3.14159  ".trim(), _float_bits(-3.14159), "trim first to accept whitespace")
 	_core_assert_parse_f64_bits("+42.25", _float_bits(42.25), "parse +42.25")
 	_core_assert_parse_f64_bits("0.1", _float_bits(0.1), "parse 0.1 exact")
 	_core_assert_parse_f64_bits(
@@ -360,18 +363,11 @@ bind test_core_parse_float = (): {
 		_float_bits(1.7976931348623157e308),
 		"parse DBL_MAX",
 	)
-	_core_assert_parse_f64_bits(
-		"1.7976931348623159e308",
-		pos_inf_bits,
-		"parse above DBL_MAX overflows",
-	)
-	_core_assert_parse_f64_bits("1e309", pos_inf_bits, "parse 1e309 overflows")
-	_core_assert_parse_f64_bits("1e99999999999999999999", pos_inf_bits, "parse huge +exp overflows")
-	_core_assert_parse_f64_bits(
-		"-1e99999999999999999999",
-		neg_inf_bits,
-		"parse neg huge +exp overflows",
-	)
+	// Finite numbers too large for a float are out of range, not infinity.
+	assert(parse_float("1.7976931348623159e308") == none, "above DBL_MAX is out of range")
+	assert(parse_float("1e309") == none and parse_float("1e400") == none, "1e309 and 1e400 are out of range")
+	assert(parse_float("1e99999999999999999999") == none, "huge exponent is out of range")
+	assert(parse_float("-1e99999999999999999999") == none, "huge negative is out of range")
 	_core_assert_parse_f64_bits(
 		"2.2250738585072014e-308",
 		_float_bits(2.2250738585072014e-308),

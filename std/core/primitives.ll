@@ -217,11 +217,16 @@ bind _format_float_fixed = (v: float, prec: int) string: {
 		func <- "inf"
 	}
 	let p = if(prec < 0): 0
-	else if(prec > 15): 15
+	else if(prec > 1100): 1100
 	else: prec
 	let is_neg = sign != u64(0)
 	let abs_v = if(is_neg): -v else: v
 	let out = if(is_neg): "-" else: ""
+	if(p > 15): {
+		// Beyond 15 digits, the u64 fast path below would lose digits: expand exactly.
+		out.push(_format_fixed_exact(mant, int(exp), p))
+		func <- out
+	}
 	if(exp >= u64(1075)): {
 		// |v| >= 2^52 is an exact integer with zero fractional part.
 		if(exp < u64(1087)): out.push(u64(abs_v).to_string())
@@ -250,6 +255,74 @@ bind _format_float_fixed = (v: float, prec: int) string: {
 		_append_zero_padded_u64(&out, frac, p)
 	}
 	out
+}
+
+// Divides `a` by `d` (`0 < d < 2^32`) in place and returns the remainder.
+bind _bi_divmod_small = (a: &[u64], d: u64) u64: {
+	let rem = u64(0)
+	let i = a.len() - 1
+	while(i >= 0): {
+		let cur = (rem << u64(32)) | a[i]
+		a[i] = cur / d
+		rem = cur % d
+		i -= 1
+	}
+	_bi_trim(&a)
+	rem
+}
+
+// Reports whether bit `i` of `a` is set.
+bind _bi_bit = (a: [u64], i: int) bool: {
+	if(i < 0 or i / 32 >= a.len()): func <- false
+	((a[i / 32] >> u64(i % 32)) & u64(1)) == u64(1)
+}
+
+// Shifts `a` right by `bits`, rounding the discarded part half to even.
+bind _bi_shr_round_even = (a: &[u64], bits: int): {
+	if(bits <= 0 or a.len() == 0): func <-
+	let half = _bi_bit(a, bits - 1)
+	let below = false
+	for(i in 0..bits - 1): if(_bi_bit(a, i)): {
+		below = true
+		for <-
+	}
+	let word_shift = bits / 32
+	let bit_shift = bits % 32
+	let shifted: [u64] = []
+	for(i in word_shift..a.len()): {
+		let lo = a[i] >> u64(bit_shift)
+		let hi = if(bit_shift == 0 or i + 1 >= a.len()): u64(0) else: (a[i + 1] << u64(32 - bit_shift)) & u64(0xFFFFFFFF)
+		shifted.push(lo | hi)
+	}
+	_bi_trim(&shifted)
+	let odd = shifted.len() > 0 and (shifted[0] & u64(1)) == u64(1)
+	if(half and (below or odd)): _bi_mul_add_u64(&shifted, u64(1), u64(1))
+	a = own shifted
+}
+
+// Formats `mant · 2^(exp_field - 1075)` (a finite, non-negative double's significand and
+// biased exponent) with exactly `p` decimals, rounding half to even like C's `printf`.
+// Every double is an exact binary fraction, so the digits are computed exactly with big
+// integers: `round(mant · 5^p · 2^(e + p))`.
+bind _format_fixed_exact = (mant_bits: u64, exp_field: int, p: int) string: {
+	let mant = if(exp_field == 0): mant_bits else: mant_bits | (u64(1) << u64(52))
+	let e = if(exp_field == 0): -1074 else: exp_field - 1075
+	let n = _bi_from_u64(mant)
+	_bi_mul_pow5(&n, p)
+	if(e + p >= 0): _bi_shl(&n, e + p) else: _bi_shr_round_even(&n, -(e + p))
+	// Decimal digits, nine at a time.
+	let groups: [u64] = []
+	while(n.len() > 0): groups.push(_bi_divmod_small(&n, u64(1000000000)))
+	let digits = ""
+	for(i, g in groups): {
+		let idx = groups.len() - 1 - i
+		let chunk = groups[idx].to_string()
+		if(i > 0): for(z in chunk.len()..9): digits.push_byte(u8(48))
+		digits.push(chunk)
+	}
+	while(digits.len() < p + 1): digits = "0" + digits
+	let int_len = digits.len() - p
+	digits[..int_len] + "." + digits[int_len..]
 }
 
 bind _format_exp_f64 = (v: float, prec: int) string: {
@@ -991,10 +1064,12 @@ bind join_strings = (list: [string], sep: string) string: {
 
 // Parses a signed 64-bit integer from `s` in base `radix` (`2..=36`), or returns `none` if invalid or out of range.
 //
-// Strips surrounding whitespace and accepts optional `+`/`-` signs plus base prefixes (`0x`, `0b`, `0o`) matching `radix`.
+// Accepts an optional `+`/`-` sign and a base prefix (`0x`, `0b`, `0o`) matching `radix`. The whole
+// string must be the number: surrounding whitespace is rejected, so call `s.trim()` first to
+// accept it.
 bind parse_int_radix = (s: string, radix: int) ?int: {
 	if(radix < 2 or radix > 36): func <- none
-	let trimmed = s.trim()
+	let trimmed = s[..]
 	let n = trimmed.len()
 	if(n == 0): func <- none
 
@@ -1044,8 +1119,11 @@ bind parse_int_radix = (s: string, radix: int) ?int: {
 }
 
 // Parses a signed 64-bit integer from `s`, automatically recognizing `0x` (hex), `0b` (binary), `0o` (octal), or decimal.
+//
+// Returns `none` for invalid syntax, values outside the `int` range, and surrounding whitespace
+// (trim first to accept it).
 bind parse_int = (s: string) ?int: {
-	let trimmed = s.trim()
+	let trimmed = s[..]
 	if(trimmed.starts_with("0x") or trimmed.starts_with("0X") or trimmed.starts_with("-0x") or trimmed.starts_with(
 		"-0X"
 	) or trimmed.starts_with("+0x") or trimmed.starts_with("+0X")):
@@ -1275,8 +1353,12 @@ bind _bigint_to_f64 = (a: own [u64], exp10: int, is_neg: bool) float: {
 }
 
 // Parses a decimal floating-point number (including `inf`, `infinity`, `nan`, signed zero, and arbitrary scientific exponents) from `s`, or returns `none`.
+//
+// The result is correctly rounded. Returns `none` for invalid syntax, for surrounding whitespace
+// (trim first to accept it), and for finite numbers too large for a [`float`] (`"1e400"`); write
+// `"inf"` for infinity. Numbers too small to represent round to a signed zero.
 bind parse_float = (s: string) ?float: {
-	let trimmed = s.trim()
+	let trimmed = s[..]
 	let n = trimmed.len()
 	if(n == 0): func <- none
 
@@ -1401,7 +1483,7 @@ bind parse_float = (s: string) ?float: {
 
 	let total_exp = dec_exp + exp_signed
 	let sci_exp = total_exp + stored_digits - 1
-	if(sci_exp > 309): func <- _bits_to_float(sign_bit | u64(0x7FF0000000000000))
+	if(sci_exp > 309): func <- none
 	if(sci_exp < -325): func <- _bits_to_float(sign_bit)
 
 	if(sig_count <= 15 and total_exp >= -22 and total_exp <= 22): {
@@ -1415,7 +1497,10 @@ bind parse_float = (s: string) ?float: {
 		_bi_mul_add_u64(&num_limbs, u64(10), u64(1))
 		total_exp -= 1
 	}
-	_bigint_to_f64(own num_limbs, total_exp, is_neg)
+	let result = _bigint_to_f64(own num_limbs, total_exp, is_neg)
+	// A finite decimal that rounds to infinity is out of range.
+	if((_float_bits(result) & u64(0x7FFFFFFFFFFFFFFF)) == u64(0x7FF0000000000000)): func <- none
+	result
 }
 
 // -----------------------------------------------------------------------------

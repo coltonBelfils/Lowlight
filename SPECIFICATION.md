@@ -2162,6 +2162,8 @@ The prelude adds these ordinary functions:
 |---|---|
 | `parse_int(s)` · `parse_int_radix(s, radix)` | `?int` |
 | `parse_float(s)` | `?float` |
+
+The parsers accept exactly a number: an optional sign, digits (and a `0x`, `0b`, or `0o` prefix for integers; a fraction, exponent, `inf`, or `nan` for floats). They return `none` for anything else, including surrounding whitespace (call `s.trim()` first to accept it) and values out of range: an integer outside `int`, or a finite decimal too large for a `float` (`"1e400"`). Decimals too small to represent round to a signed zero. `parse_float` is correctly rounded.
 | `join_strings(parts, sep)` | `string` |
 
 ### 12.3 Methods on primitive types
@@ -2276,7 +2278,7 @@ The standard library is a set of ordinary packages under `std/`. Import each by 
 |---|---|
 | `std/core` | the prelude ([§12](#12-the-prelude)), imported automatically |
 | `std/chars` | character classification (`is_ascii`, `is_ascii_upper`, `is_control`, `is_punctuation`, ...), case conversion (`to_ascii_upper`), digits (`to_digit(radix)`, `from_digit`), `len_utf8` |
-| `std/strings` | `last_index_of`, `count`, `capitalize`, `repeat`, `reverse`, padding (`pad_left_char`, `center_char`), `split_whitespace`, `lines`, `join`, `chars_list`, `bytes_list`, `is_whitespace`, `is_ascii` |
+| `std/strings` | `last_index_of`, `count`, `capitalize`, `repeat`, `reverse`, padding (`pad_left_char`, `center_char`), `split_whitespace`, `lines`, `join`, `chars_list`, `bytes_list`, `is_whitespace`, `is_ascii`; `StringBuilder` for building text in place; `ByteBuffer` for reading and writing little- and big-endian integers |
 | `std/strconv` | parsing (`string.to_int`, `to_int_radix`, `to_float`, `to_bool`, `is_numeric`, ...) and formatting (`int.to_radix`, `to_hex`, `to_bin`, `to_oct`, `float_to_exp`) |
 | `std/strfmt` | number formatting (`format_int_commas`, `format_float`, `format_bytes`, `format_percent`, `format_currency`), padding (`pad_left`, `center`, `pad_int_zeros`), case styles (`to_title`, `to_snake_case`, `to_kebab_case`, `to_camel_case`), `quote`, `unquote`, `indent`, `truncate` |
 | `std/math` | `sqrt`, `cbrt`, `pow`, `exp`, `log`, `log2`, `log10`, trigonometric and hyperbolic functions, `floor`, `ceil`, `round`, `trunc`, `fmod`, `hypot`, `is_nan`, `is_inf`, `clamp_int`, `clamp_float`, `lerp`, angle conversions, `PI` and related constants |

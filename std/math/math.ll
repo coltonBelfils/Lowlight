@@ -61,8 +61,17 @@ bind ceil = (x: float) float: {
 }
 
 // Rounds `x` to the nearest integer (as [`float`]), rounding halves away from zero.
-bind round = (x: float) float:
-	if(x >= 0.0): floor(x + 0.5) else: ceil(x - 0.5)
+//
+// Exact for every input: the fractional part is computed as `x - trunc(x)` (exact in IEEE-754)
+// rather than by adding `0.5`, which misrounds `0.49999999999999994` and large odd integers.
+// Values of magnitude `2^52` or more are already integers and are returned unchanged.
+bind round = (x: float) float: {
+	if(is_nan(x) or is_inf(x) or abs_float(x) >= 4503599627370496.0): func <- x
+	let t = trunc(x)
+	let d = x - t
+	let r = if(d >= 0.5): t + 1.0 else if(d <= -0.5): t - 1.0 else: t
+	if(r == 0.0 and x < 0.0): -0.0 else: r
+}
 
 // Returns the IEEE-754 floating-point remainder of `x / y` (`NaN` if `x` is `±Inf`, `y == 0.0`, or either is `NaN`; `x` if `y` is `±Inf` and `x` is finite).
 bind fmod = (x: float, y: float) float: {
@@ -138,23 +147,51 @@ bind sqrt = (x: float) float: {
 	g * scale
 }
 
-// Computes the real cube root (`x^(1/3)`) of `x` (preserving negative signs).
+// Computes the real cube root (`x^(1/3)`) of `x`, preserving its sign.
+//
+// `cbrt(±0)`, `cbrt(±inf)`, and `cbrt(nan)` return their argument. The argument is first scaled
+// by powers of 8 into `[1, 8)` (exactly, since `cbrt(8^k · m) = 2^k · cbrt(m)`), so the Newton
+// iteration converges for every magnitude, including subnormals.
 bind cbrt = (x: float) float: {
-	if(x == 0.0): func <- 0.0
+	if(is_nan(x) or is_inf(x) or x == 0.0): func <- x
 	let is_neg = x < 0.0
-	let ax = if(is_neg): -x else: x
-	let g = ax
-	if(g > 1.0): g = ax / 3.0
-	let i = 0
-	for(i < 20): {
-		g = (2.0 * g + ax / (g * g)) / 3.0
-		i += 1
+	let m = if(is_neg): -x else: x
+	let scale = 1.0
+	let big = 1152921504606846976.0      // 2^60 = 8^20
+	let big_root = 1048576.0             // 2^20
+	while(m >= big): {
+		m /= big
+		scale *= big_root
 	}
-	if(is_neg): -g else: g
+	while(m < 1.0): {
+		m *= big
+		scale /= big_root
+	}
+	while(m >= 8.0): {
+		m /= 8.0
+		scale *= 2.0
+	}
+	// Newton's method from above converges monotonically to cbrt(m) in [1, 2).
+	let g = 2.0
+	for(i in 0..8): g = (2.0 * g + m / (g * g)) / 3.0
+	let r = g * scale
+	if(is_neg): -r else: r
 }
 
-// Returns Euclidean hypotenuse `sqrt(x * x + y * y)`.
-bind hypot = (x: float, y: float) float: sqrt(x * x + y * y)
+// Returns the Euclidean length `sqrt(x * x + y * y)` without overflow or underflow in the
+// intermediate squares: `hypot(1e200, 1e200)` is `1.414e200`. Infinite arguments give `inf`
+// (even if the other is `nan`); otherwise a `nan` argument gives `nan`.
+bind hypot = (x: float, y: float) float: {
+	if(is_inf(x) or is_inf(y)): func <- INF
+	if(is_nan(x) or is_nan(y)): func <- NAN
+	let ax = abs_float(x)
+	let ay = abs_float(y)
+	let big = if(ax > ay): ax else: ay
+	let small = if(ax > ay): ay else: ax
+	if(big == 0.0): func <- 0.0
+	let q = small / big
+	big * sqrt(1.0 + q * q)
+}
 
 bind _scale_pow2 = (v: float, k: int) float: {
 	let res = v
@@ -391,6 +428,137 @@ bind pow = (base: float, exponent: float) float: {
 	exp(exponent * log(base))
 }
 
+// Bits of 2/π after the binary point, 32 per word (1280 bits): enough to reduce any finite
+// double exactly (the largest needs bits up to about position 1160).
+bind _TWO_OVER_PI: [u64] = [
+	0xa2f9836e,
+	0x4e441529,
+	0xfc2757d1,
+	0xf534ddc0,
+	0xdb629599,
+	0x3c439041,
+	0xfe5163ab,
+	0xdebbc561,
+	0xb7246e3a,
+	0x424dd2e0,
+	0x06492eea,
+	0x09d1921c,
+	0xfe1deb1c,
+	0xb129a73e,
+	0xe88235f5,
+	0x2ebb4484,
+	0xe99c7026,
+	0xb45f7e41,
+	0x3991d639,
+	0x835339f4,
+	0x9c845f8b,
+	0xbdf9283b,
+	0x1ff897ff,
+	0xde05980f,
+	0xef2f118b,
+	0x5a0a6d1f,
+	0x6d367ecf,
+	0x27cb09b7,
+	0x4f463f66,
+	0x9e5fea2d,
+	0x7527bac7,
+	0xebe5f17b,
+	0x3d0739f7,
+	0x8a5292ea,
+	0x6bfb5fb1,
+	0x1f8d5d08,
+	0x56033046,
+	0xfc7b6bab,
+	0xf0cfbc20,
+	0x9af4361d,
+]
+
+bind _PIO2_HI = 1.5707963267948966
+bind _PIO2_LO = 6.123233995736766e-17
+
+bind _float_bits_of = (v: float) u64:
+	unsafe {
+		let vp = addr_of(v)
+		*ptr_cast[u64](vp)
+	}
+
+// Returns the 32 bits of 2/π starting at bit `pos` (bit 0 is the first after the point).
+bind _two_over_pi_bits = (pos: int) u64: {
+	let w = pos / 32
+	let b = pos % 32
+	let hi = _TWO_OVER_PI.get(w) ?? u64(0)
+	if(b == 0): func <- hi
+	let lo = _TWO_OVER_PI.get(w + 1) ?? u64(0)
+	((hi << u64(b)) | (lo >> u64(32 - b))) & u64(0xffffffff)
+}
+
+// Returns `n <= 32` bits of a little-endian 32-bit-limb integer, starting at bit `pos`.
+bind _limb_bits = (limbs: [u64], pos: int, n: int) u64: {
+	let w = pos / 32
+	let b = pos % 32
+	let lo = limbs.get(w) ?? u64(0)
+	let hi = limbs.get(w + 1) ?? u64(0)
+	let joined = (lo >> u64(b)) | (if(b == 0): u64(0) else: hi << u64(32 - b))
+	let mask = (u64(1) << u64(n)) - u64(1)
+	joined & mask
+}
+
+// Payne–Hanek argument reduction: returns `+[q, r]` with `x = (4k + q)·π/2 + r`, `q` in `0..4`,
+// and `r` in `[-π/4, π/4]`, computed exactly from the binary expansion of 2/π. Unlike
+// `fmod(x, TAU)`, whose error grows with `x` because `TAU` is rounded, this is accurate for every
+// finite double (`sin(1e15)`, `cos(1e300)`).
+bind _rem_pio2 = (x: float) +[int, float]: {
+	let bits = _float_bits_of(abs_float(x))
+	let exp_field = int((bits >> u64(52)) & u64(0x7ff))
+	let frac = bits & u64(0xfffffffffffff)
+	let mant = if(exp_field == 0): frac else: frac | (u64(1) << u64(52))
+	let e = if(exp_field == 0): -1074 else: exp_field - 1075      // |x| = mant · 2^e
+
+	// Only bits of 2/π from position e - 2 onward affect (x · 2/π) mod 4.
+	let j0 = if(e - 2 > 0): e - 2 else: 0
+	let s = e - j0
+	// 192 bits of 2/π as six 32-bit limbs, least significant first.
+	let w = for(k in 0..6) [u64]: _two_over_pi_bits(j0 + 32 * (5 - k))
+	let m = [mant & u64(0xffffffff), mant >> u64(32)]
+
+	// P = mant · W, eight 32-bit limbs, least significant first.
+	let p: [u64] = [u64(0), u64(0), u64(0), u64(0), u64(0), u64(0), u64(0), u64(0)]
+	for(i in 0..6): {
+		let carry = u64(0)
+		for(j in 0..2): {
+			let t = w[i] * m[j] + p[i + j] + carry
+			p[i + j] = t & u64(0xffffffff)
+			carry = t >> u64(32)
+		}
+		p[i + 2] = carry
+	}
+
+	// x · 2/π mod 4 = P · 2^(s - 192): the quadrant is the two bits above position 192 - s,
+	// and the fraction is the bits below it.
+	let point = 192 - s
+	let q = int(_limb_bits(p, point, 2))
+	// The 128 fraction bits below the point, most significant chunk first.
+	let chunks = for(k in 1..=4) [u64]: _limb_bits(p, point - 32 * k, 32)
+	// A fraction of one half or more is taken as (fraction - 1) in the next quadrant. Negate it
+	// exactly in 128-bit two's complement before converting, so values just below a multiple of
+	// π/2 keep their precision.
+	let negative = chunks[0] >= u64(0x80000000)
+	if(negative): {
+		q += 1
+		let carry = u64(1)
+		for(i in [3, 2, 1, 0]): {
+			let t = (chunks[i] ^ u64(0xffffffff)) + carry
+			chunks[i] = t & u64(0xffffffff)
+			carry = t >> u64(32)
+		}
+	}
+	let f = 0.0
+	for(i in [3, 2, 1, 0]): f = (f + float(chunks[i])) / 4294967296.0
+	if(negative): f = -f
+	let r = f * _PIO2_HI + f * _PIO2_LO
+	if(x < 0.0): +[(4 - q % 4) % 4, -r] else: +[q % 4, r]
+}
+
 bind _reduce_angle = (x: float) float: {
 	if(is_nan(x) or is_inf(x)): func <- NAN
 	let r = fmod(x, TAU)
@@ -428,25 +596,34 @@ bind _cos_poly = (r: float) float: {
 // Computes the sine of angle `x` (in radians), returning `NaN` for `NaN` and `±Inf`.
 bind sin = (x: float) float: {
 	if(is_nan(x) or is_inf(x)): func <- NAN
-	let r = _reduce_angle(x)
-	let half_pi = PI * 0.5
-	if(r > half_pi): r = PI - r
-	else if(r < -half_pi): r = -PI - r
-	_sin_poly(r)
+	if(abs_float(x) <= 0.7853981633974483): func <- _sin_poly(x)
+	let q, r = unpack _rem_pio2(x)
+	match(q):
+		when 0: _sin_poly(r)
+		when 1: _cos_poly(r)
+		when 2: -_sin_poly(r)
+		default: -_cos_poly(r)
 }
 
 // Computes the cosine of angle `x` (in radians), returning `NaN` for `NaN` and `±Inf`.
 bind cos = (x: float) float: {
 	if(is_nan(x) or is_inf(x)): func <- NAN
-	let r = _reduce_angle(x)
-	let half_pi = PI * 0.5
-	if(r > half_pi): func <- -_cos_poly(PI - r)
-	if(r < -half_pi): func <- -_cos_poly(-PI - r)
-	_cos_poly(r)
+	if(abs_float(x) <= 0.7853981633974483): func <- _cos_poly(x)
+	let q, r = unpack _rem_pio2(x)
+	match(q):
+		when 0: _cos_poly(r)
+		when 1: -_sin_poly(r)
+		when 2: -_cos_poly(r)
+		default: _sin_poly(r)
 }
 
 // Computes the tangent (`sin(x) / cos(x)`) of angle `x` (in radians).
-bind tan = (x: float) float: sin(x) / cos(x)
+bind tan = (x: float) float: {
+	if(is_nan(x) or is_inf(x)): func <- NAN
+	if(abs_float(x) <= 0.7853981633974483): func <- _sin_poly(x) / _cos_poly(x)
+	let q, r = unpack _rem_pio2(x)
+	if(q % 2 == 0): _sin_poly(r) / _cos_poly(r) else: -_cos_poly(r) / _sin_poly(r)
+}
 
 bind _atan_unit = (x: float) float: {
 	let offset = 0.0
@@ -887,4 +1064,40 @@ bind test_math_non_finite = (): {
 	assert(not is_nan(-0.0) and not is_inf(-0.0), "-0.0 finite")
 	assert(not is_nan(PI) and not is_inf(PI), "PI finite")
 	assert(not is_nan(1.0e308) and not is_inf(1.0e308), "1e308 finite")
+}
+
+bind _close = (a: float, b: float, tol: float) bool: abs_float(a - b) <= tol * (if(abs_float(b) > 1.0): abs_float(b) else: 1.0)
+
+@test("math sin, cos, and tan stay accurate for huge arguments and near multiples of pi/2")
+bind test_math_trig_reduction = (): {
+	// Reference values from the C library (Payne–Hanek-reduced).
+	assert(_close(sin(1e15), 0.8582727931702359, 1e-15), "sin(1e15)")
+	assert(_close(cos(1e15), -0.5131937377869702, 1e-15), "cos(1e15)")
+	assert(_close(tan(1e15), -1.672414782127583, 1e-14), "tan(1e15)")
+	assert(_close(sin(-1e15), -0.8582727931702359, 1e-15), "sin is odd")
+	assert(_close(sin(1e22), -0.8522008497671888, 1e-15), "sin(1e22)")
+	assert(_close(cos(1e300), -0.5753861119575491, 1e-15), "cos(1e300)")
+	assert(_close(sin(1e6), -0.34999350217129294, 1e-15), "sin(1e6)")
+	assert(_close(sin(TAU), -2.4492935982947064e-16, 1e-30), "sin(2pi) is the tiny rounding residue")
+	assert(_close(sin(1570796326.7948966), -1.660070645726475e-08, 1e-22), "just below a multiple of pi/2")
+	assert(_close(cos(3.0), -0.9899924966004454, 1e-15), "cos(3)")
+}
+
+@test("math round, cbrt, and hypot are exact or overflow-safe at the extremes")
+bind test_math_extremes = (): {
+	assert(round(0.49999999999999994) == 0.0, "largest double below 0.5 rounds down")
+	assert(round(2.5) == 3.0 and round(-2.5) == -3.0, "halves round away from zero")
+	assert(round(4503599627370497.0) == 4503599627370497.0, "large integers are unchanged")
+	assert(round(-0.4) == 0.0, "small negatives round to (negative) zero")
+
+	assert(_close(cbrt(1e-300), 1e-100, 1e-15), "cbrt(1e-300)")
+	assert(_close(cbrt(1e300), 1e100, 1e-15), "cbrt(1e300)")
+	assert(cbrt(-27.0) == -3.0 and cbrt(8.0) == 2.0, "exact cubes")
+	assert(_close(cbrt(5e-324), 1.7031839360032603e-108, 1e-15), "subnormal")
+	assert(is_inf(cbrt(INF)) and is_nan(cbrt(NAN)), "non-finite inputs")
+
+	assert(_close(hypot(1e200, 1e200), 1.414213562373095e+200, 1e-15), "no overflow")
+	assert(_close(hypot(3e-200, 4e-200), 5e-200, 1e-15), "no underflow")
+	assert(hypot(3.0, 4.0) == 5.0, "3-4-5")
+	assert(is_inf(hypot(INF, NAN)) and is_nan(hypot(1.0, NAN)), "non-finite inputs")
 }

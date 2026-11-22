@@ -202,6 +202,231 @@ bind string.chars_list = (self) [char]: self.chars()
 bind string.bytes_list = (self) [u8]: self.bytes()
 
 // -----------------------------------------------------------------------------
+// StringBuilder
+// -----------------------------------------------------------------------------
+
+// A growable text buffer for building a string piece by piece.
+//
+// Appending to a builder grows one buffer in place, so building a long string from many
+// pieces costs time proportional to its length, unlike repeated `a + b`.
+//
+// ```lowlight
+// let b = StringBuilder.new()
+// b.append("total: ")
+// b.append_int(42)
+// let text = b.into_string()   // "total: 42"
+// ```
+define StringBuilder struct [
+	_buf: string
+]
+
+// Creates an empty [`StringBuilder`].
+bind StringBuilder.new = () StringBuilder: StringBuilder[_buf: ""]
+
+// Creates an empty [`StringBuilder`] with room for at least `capacity` bytes before it grows.
+bind StringBuilder.with_capacity = (capacity: int) StringBuilder: {
+	let buf = ""
+	for(i in 0..capacity): buf.push_byte(u8(0))
+	buf.clear()
+	StringBuilder[_buf: own buf]
+}
+
+// Appends `text`.
+bind StringBuilder.append = (&self, text: string): self._buf.push(text)
+
+// Appends one character, UTF-8 encoded.
+bind StringBuilder.append_char = (&self, c: char): self._buf.push_char(c)
+
+// Appends one raw byte.
+bind StringBuilder.append_byte = (&self, b: u8): self._buf.push_byte(b)
+
+// Appends the decimal form of `n`.
+bind StringBuilder.append_int = (&self, n: int): self._buf.push(n.to_string())
+
+// Appends `x` formatted like [`float.to_string`].
+bind StringBuilder.append_float = (&self, x: float): self._buf.push(x.to_string())
+
+// Appends `text` followed by a newline.
+bind StringBuilder.append_line = (&self, text: string): {
+	self._buf.push(text)
+	self._buf.push_byte(u8(10))
+}
+
+// Returns the length of the built text in bytes.
+bind StringBuilder.len = (self) int: self._buf.len()
+
+// Reports whether nothing has been appended since creation or the last [`StringBuilder.clear`].
+bind StringBuilder.is_empty = (self) bool: self._buf.is_empty()
+
+// Removes all text, keeping the allocated capacity for reuse.
+bind StringBuilder.clear = (&self): self._buf.clear()
+
+// Returns a copy of the built text; the builder can keep growing.
+bind StringBuilder.to_string = (self) string: self._buf.copy()
+
+// Consumes the builder and returns its text without copying.
+bind StringBuilder.into_string = (own self) string: own self._buf
+
+// -----------------------------------------------------------------------------
+// ByteBuffer
+// -----------------------------------------------------------------------------
+
+// A growable byte buffer with a read cursor, for binary formats and protocols.
+//
+// `write_*` methods append to the end; `read_*` methods consume from the cursor and return
+// `none` when too few bytes remain. Multi-byte integers are little-endian by default, with
+// `_be` variants for big-endian (network byte order).
+//
+// ```lowlight
+// let b = ByteBuffer.new()
+// b.write_u16(0x1234)
+// b.write_u32_be(7)
+// let x = b.read_u16() ?? 0       // 0x1234
+// let y = b.read_u32_be() ?? 0    // 7
+// ```
+define ByteBuffer struct [
+	_data: [u8],
+	_pos: int,
+]
+
+// Creates an empty [`ByteBuffer`].
+bind ByteBuffer.new = () ByteBuffer: ByteBuffer[_data: [], _pos: 0]
+
+// Creates a [`ByteBuffer`] holding `bytes`, with the cursor at the start.
+bind ByteBuffer.from_bytes = (bytes: own [u8]) ByteBuffer: ByteBuffer[_data: own bytes, _pos: 0]
+
+// Creates a [`ByteBuffer`] holding the UTF-8 bytes of `text`, with the cursor at the start.
+bind ByteBuffer.from_string = (text: string) ByteBuffer: ByteBuffer[_data: text.bytes(), _pos: 0]
+
+// Returns the total number of bytes, read or not.
+bind ByteBuffer.len = (self) int: self._data.len()
+
+// Reports whether the buffer holds no bytes.
+bind ByteBuffer.is_empty = (self) bool: self._data.is_empty()
+
+// Returns the cursor position: the index of the next byte to read.
+bind ByteBuffer.position = (self) int: self._pos
+
+// Returns how many bytes remain after the cursor.
+bind ByteBuffer.remaining = (self) int: self._data.len() - self._pos
+
+// Moves the cursor to `pos`, returning `false` (and leaving it unchanged) if out of range.
+bind ByteBuffer.seek = (&self, pos: int) bool: {
+	if(pos < 0 or pos > self._data.len()): func <- false
+	self._pos = pos
+	true
+}
+
+// Removes all bytes and resets the cursor.
+bind ByteBuffer.clear = (&self): {
+	self._data.clear()
+	self._pos = 0
+}
+
+// Returns a copy of every byte in the buffer.
+bind ByteBuffer.bytes = (self) [u8]: self._data.copy()
+
+// Returns the bytes as a string (they are copied as-is, not validated as UTF-8).
+bind ByteBuffer.to_string = (self) string: {
+	let out = ""
+	for(b in self._data): out.push_byte(b)
+	out
+}
+
+// Appends the low `count` bytes of `v`, least significant first (or most significant first when `big_endian`).
+bind ByteBuffer._write_uint = (&self, v: u64, count: int, big_endian: bool):
+	for(i in 0..count): {
+		let shift = if(big_endian): 8 * (count - 1 - i) else: 8 * i
+		self._data.push(u8((v >> u64(shift)) & u64(0xff)))
+	}
+
+// Reads `count` bytes as an unsigned integer, or `none` if fewer remain.
+bind ByteBuffer._read_uint = (&self, count: int, big_endian: bool) ?u64: {
+	if(self.remaining() < count): func <- none
+	let v = u64(0)
+	for(i in 0..count): {
+		let b = u64(self._data[self._pos + i])
+		let shift = if(big_endian): 8 * (count - 1 - i) else: 8 * i
+		v = v | (b << u64(shift))
+	}
+	self._pos += count
+	v
+}
+
+// Appends one byte.
+bind ByteBuffer.write_u8 = (&self, v: u8): self._data.push(v)
+
+// Appends a 16-bit value, little-endian.
+bind ByteBuffer.write_u16 = (&self, v: u16): self._write_uint(u64(v), 2, false)
+
+// Appends a 32-bit value, little-endian.
+bind ByteBuffer.write_u32 = (&self, v: u32): self._write_uint(u64(v), 4, false)
+
+// Appends a 64-bit value, little-endian.
+bind ByteBuffer.write_u64 = (&self, v: u64): self._write_uint(v, 8, false)
+
+// Appends a 16-bit value, big-endian.
+bind ByteBuffer.write_u16_be = (&self, v: u16): self._write_uint(u64(v), 2, true)
+
+// Appends a 32-bit value, big-endian.
+bind ByteBuffer.write_u32_be = (&self, v: u32): self._write_uint(u64(v), 4, true)
+
+// Appends a 64-bit value, big-endian.
+bind ByteBuffer.write_u64_be = (&self, v: u64): self._write_uint(v, 8, true)
+
+// Appends every byte of `bytes`.
+bind ByteBuffer.write_bytes = (&self, bytes: [u8]): for(b in bytes): self._data.push(b)
+
+// Appends the UTF-8 bytes of `text`.
+bind ByteBuffer.write_string = (&self, text: string): for(b in text.bytes()): self._data.push(b)
+
+// Reads one byte, or `none` at the end.
+bind ByteBuffer.read_u8 = (&self) ?u8: {
+	if(self.remaining() < 1): func <- none
+	let b = self._data[self._pos]
+	self._pos += 1
+	b
+}
+
+// Reads a little-endian 16-bit value, or `none` if fewer than 2 bytes remain.
+bind ByteBuffer.read_u16 = (&self) ?u16: {
+	let v = self._read_uint(2, false) ?? func <- none
+	u16(v)
+}
+
+// Reads a little-endian 32-bit value, or `none` if fewer than 4 bytes remain.
+bind ByteBuffer.read_u32 = (&self) ?u32: {
+	let v = self._read_uint(4, false) ?? func <- none
+	u32(v)
+}
+
+// Reads a little-endian 64-bit value, or `none` if fewer than 8 bytes remain.
+bind ByteBuffer.read_u64 = (&self) ?u64: self._read_uint(8, false)
+
+// Reads a big-endian 16-bit value, or `none` if fewer than 2 bytes remain.
+bind ByteBuffer.read_u16_be = (&self) ?u16: {
+	let v = self._read_uint(2, true) ?? func <- none
+	u16(v)
+}
+
+// Reads a big-endian 32-bit value, or `none` if fewer than 4 bytes remain.
+bind ByteBuffer.read_u32_be = (&self) ?u32: {
+	let v = self._read_uint(4, true) ?? func <- none
+	u32(v)
+}
+
+// Reads a big-endian 64-bit value, or `none` if fewer than 8 bytes remain.
+bind ByteBuffer.read_u64_be = (&self) ?u64: self._read_uint(8, true)
+
+// Reads the next `count` bytes, or `none` if fewer remain.
+bind ByteBuffer.read_bytes = (&self, count: int) ?[u8]: {
+	if(count < 0 or self.remaining() < count): func <- none
+	let out = for(i in 0..count) [u8]: self._data[self._pos + i]
+	self._pos += count
+	out
+}
+
+// -----------------------------------------------------------------------------
 // Inline Unit Tests
 // -----------------------------------------------------------------------------
 
@@ -350,4 +575,56 @@ bind test_strings_split_join = (): {
 	let bl = "ABC".bytes_list()
 	assert(bl.len() == 3, "bytes_list len")
 	assert(bl[0] == u8(65) and bl[1] == u8(66) and bl[2] == u8(67), "bytes_list values")
+}
+
+@test("StringBuilder appends text, numbers, and characters")
+bind test_string_builder = (): {
+	let b = StringBuilder.with_capacity(64)
+	assert(b.is_empty() and b.len() == 0, "starts empty")
+	b.append("x = ")
+	b.append_int(-42)
+	b.append_char(',')
+	b.append_byte(u8(32))
+	b.append_float(2.5)
+	b.append_char('λ')
+	assert(b.to_string() == "x = -42, 2.5λ", "built text")
+	assert(b.len() == 14, "length in bytes")
+	b.clear()
+	b.append_line("one")
+	b.append_line("two")
+	assert(b.into_string() == "one\ntwo\n", "into_string returns the text")
+}
+
+@test("ByteBuffer reads and writes little- and big-endian integers")
+bind test_byte_buffer = (): {
+	let b = ByteBuffer.new()
+	b.write_u8(u8(0xAB))
+	b.write_u16(u16(0x1234))
+	b.write_u32(u32(0xDEADBEEF))
+	b.write_u64(u64(0x0102030405060708))
+	b.write_u16_be(u16(0x1234))
+	b.write_u32_be(u32(7))
+	b.write_string("hi")
+	assert(b.len() == 1 + 2 + 4 + 8 + 2 + 4 + 2, "length")
+	let raw = b.bytes()
+	assert(raw[1] == u8(0x34) and raw[2] == u8(0x12), "u16 is little-endian")
+	assert(raw[15] == u8(0x12) and raw[16] == u8(0x34), "u16_be is big-endian")
+
+	assert(b.read_u8() == u8(0xAB), "u8")
+	assert(b.read_u16() == u16(0x1234), "u16")
+	assert(b.read_u32() == u32(0xDEADBEEF), "u32")
+	assert(b.read_u64() == u64(0x0102030405060708), "u64")
+	assert(b.read_u16_be() == u16(0x1234), "u16_be")
+	assert(b.read_u32_be() == u32(7), "u32_be")
+	assert(b.remaining() == 2, "two bytes left")
+	assert(b.read_u32() == none, "not enough bytes for u32")
+	assert(b.position() == 21, "a failed read does not move the cursor")
+	let tail = b.read_bytes(2) ?? []
+	assert(tail.len() == 2 and tail[0] == u8(104), "read_bytes")
+	assert(b.read_u8() == none, "end of buffer")
+	assert(b.seek(0) and b.read_u8() == u8(0xAB), "seek back to the start")
+	assert(not b.seek(99), "seek out of range")
+
+	let from = ByteBuffer.from_string("AB")
+	assert(from.read_u16_be() == u16(0x4142), "from_string bytes")
 }

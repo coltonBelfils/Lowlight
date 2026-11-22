@@ -578,3 +578,13 @@ bind test_strfmt_count_occurrences = (): {
 	assert(large.count_occurrences("aa") == 5000, "count_occurrences 10k pair")
 	assert(large.count_occurrences("b") == 0, "count_occurrences 10k absent")
 }
+
+@test("format_float honors precision beyond 15 digits exactly")
+bind test_strfmt_high_precision = (): {
+	assert((0.1).format_float(20) == "0.10000000000000000555", "0.1 to 20 places")
+	assert((1.0 / 3.0).format_float(25) == "0.3333333333333333148296163", "1/3 to 25 places")
+	assert((2.5).format_float(17) == "2.50000000000000000", "exact value padded")
+	assert((-0.000123).format_float(20) == "-0.00012300000000000001", "negative")
+	assert((1e22).format_float(16) == "10000000000000000000000.0000000000000000", "large integer")
+	assert((0.1).format_float(2) == "0.10", "short precisions unchanged")
+}
