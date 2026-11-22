@@ -177,33 +177,60 @@ define Url struct [
 	raw: string,
 	// URL scheme such as `"http"` or `"https"`, or empty for relative paths.
 	scheme: string,
-	// Host and optional port string (`"example.com:8080"`).
+	// Host and optional port string (`"example.com:8080"`), without any user information.
 	host: string,
 	// Hostname without port (`"example.com"`).
 	hostname: string,
-	// Port number (`80` or `443` inferred by scheme if omitted).
+	// Port number, or the scheme's default port (see [`default_port`]) when omitted.
 	port: int,
-	// Normalized path component starting with `"/"`.
+	// Percent-decoded path starting with `"/"`. A `'+'` in a path is a literal plus sign.
 	path: string,
 	// Raw query string without leading `"?"`.
 	raw_query: string,
-	// Percent-decoded query parameter key-value map.
+	// Percent-decoded query parameter key-value map (`'+'` decodes to a space).
 	query: #[string: string],
+	// Path exactly as written, still percent-encoded (`"/a%20b"`); empty for synthesized URLs.
+	raw_path: string = "",
+	// Fragment after `"#"`, as written; never sent to servers.
+	fragment: string = "",
+	// Percent-decoded user name from `user:password@host`, or empty.
+	username: string = "",
+	// Percent-decoded password from `user:password@host`, or `none` when absent.
+	password?: ?string,
 ]
 
 // Returns the parsed query parameter value for `key`, or `none` if absent.
 bind Url.query_param = (self, key: string) ?string: self.query[key]
 
+// Returns the default port of a URL scheme: `80` for `http` and `ws`, `443` for
+// `https` and `wss`, and `0` for unknown schemes.
+bind default_port = (scheme: string) int:
+	match(scheme.to_lower()):
+		when "http", "ws": 80
+		when "https", "wss": 443
+		default: 0
+
 // Reconstructs a normalized URL or relative path string from this [`Url`].
-bind Url.to_string = (self) string:
-	if(self.scheme.is_empty()):
-		if(self.raw_query.is_empty()): self.path.copy() else: "${self.path}?${self.raw_query}"
-	else: {
-		let hp = if(self.port == 80 or self.port == 443): self.hostname.copy()
-		else: "${self.hostname}:${self.port}"
-		if(self.raw_query.is_empty()): "${self.scheme}://$hp${self.path}"
-		else: "${self.scheme}://$hp${self.path}?${self.raw_query}"
+//
+// The port is omitted when it is the scheme's default, so `http://x:443/` keeps its port
+// while `https://x:443/` does not. User information, the query, and the fragment are kept.
+bind Url.to_string = (self) string: {
+	let out = ""
+	if(not self.scheme.is_empty()): {
+		out.push("${self.scheme}://")
+		if(not self.username.is_empty() or self.password? != none): {
+			out.push(url_encode(self.username))
+			if(self.password? as pw): out.push(":${url_encode(pw)}")
+			out.push("@")
+		}
+		out.push(self.hostname)
+		if(self.port > 0 and self.port != default_port(self.scheme)): out.push(":${self.port}")
 	}
+	out.push(if(self.raw_path.is_empty()): self.path.copy() else: self.raw_path.copy())
+	if(not self.raw_query.is_empty()): out.push("?${self.raw_query}")
+	if(not self.fragment.is_empty()): out.push("#${self.fragment}")
+	out
+}
 
 bind _hex_digit_val = (b: u8) ?int:
 	if(b >= 48 and b <= 57): int(b - 48)
@@ -264,63 +291,95 @@ bind url_decode = (s: string) string: {
 	out
 }
 
-// Parses a full HTTP/HTTPS URL or relative request target into a structured [`Url`].
-bind parse_url = (raw: string) Result[Url]: {
-	let scheme = ""
-	let rest = raw.copy()
-	let default_port = 80
-
-	if(raw.starts_with("http://")): {
-		scheme = "http"
-		rest = raw[7..raw.len()]
-		default_port = 80
-	} else if(raw.starts_with("https://")): {
-		scheme = "https"
-		rest = raw[8..raw.len()]
-		default_port = 443
+// Decodes `%XX` hex escape sequences in a URL path. Unlike [`url_decode`], `'+'` is kept
+// as a literal plus sign, since only query strings use `'+'` for spaces.
+bind url_path_decode = (s: string) string: {
+	let out = ""
+	let n = s.len()
+	let i = 0
+	while(i < n): {
+		let b = s.byte_at(i)
+		if(b == 37 and i + 2 < n): {
+			if(_hex_digit_val(s.byte_at(i + 1)) as h1): if(_hex_digit_val(s.byte_at(i + 2)) as h2): {
+				out.push_byte(u8(h1 << 4 | h2))
+				i += 3
+				next <-
+			}
+		}
+		out.push_byte(b)
+		i += 1
 	}
+	out
+}
+
+// Parses a full HTTP/HTTPS URL or relative request target into a structured [`Url`].
+//
+// Accepts `scheme://[user[:password]@]host[:port][/path][?query][#fragment]` and relative
+// targets such as `/path?query`. The path is percent-decoded into [`Url.path`] (keeping
+// `'+'`), query parameters are decoded with `'+'` as a space, and an omitted port takes
+// the scheme's [`default_port`].
+bind parse_url = (raw: string) Result[Url]: {
+	// The fragment is everything after the first `#`, and is never part of the path or query.
+	let fragment = ""
+	let rest = raw.copy()
+	if(raw.index_of("#") as hash): {
+		fragment = raw[hash + 1..]
+		rest = raw[..hash]
+	}
+
+	let scheme = ""
+	if(rest.index_of("://") as sep): {
+		let candidate = rest[..sep]
+		if(not candidate.is_empty() and not candidate.contains("/") and not candidate.contains("?")): {
+			scheme = candidate.to_lower()
+			rest = rest[sep + 3..]
+		}
+	}
+	let scheme_port = default_port(scheme)
 
 	let host = ""
 	let hostname = ""
-	let port = default_port
+	let port = scheme_port
+	let username = ""
+	let password?: ?string = none
 	let path_and_query = "/"
 
 	if(scheme != ""): {
-		let slash? = rest.index_of("/")
-		if(slash?): {
-			host = rest[0..slash]
-			path_and_query = rest[slash..rest.len()]
-		} else: {
-			let q? = rest.index_of("?")
-			if(q?): {
-				host = rest[0..q]
-				path_and_query = rest[q..rest.len()]
-			} else: {
-				host = rest.copy()
-				path_and_query = "/"
-			}
+		// The authority runs up to the first `/` or `?`.
+		let end = rest.len()
+		if(rest.index_of("/") as slash): end = slash
+		if(rest.index_of("?") as q): if(q < end): end = q
+		let authority = rest[..end]
+		path_and_query = if(end < rest.len()): rest[end..] else: "/"
+
+		// User information is everything before the last `@`.
+		host = authority.copy()
+		let at = -1
+		for(i, c in authority): if(c == '@'): at = i
+		if(at >= 0): {
+			let userinfo = authority[..at]
+			host = authority[at + 1..]
+			if(userinfo.index_of(":") as colon): {
+				username = url_path_decode(userinfo[..colon])
+				password? = url_path_decode(userinfo[colon + 1..])
+			} else: username = url_path_decode(userinfo)
 		}
 
-		let colon? = host.index_of(":")
-		if(colon?): {
+		if(host.index_of(":") as colon): {
 			hostname = host[0..colon]
-			let port_str = host[colon + 1..host.len()]
-			port = parse_int(port_str) ?? default_port
-		} else: {
-			hostname = host.copy()
-			port = default_port
-		}
+			port = parse_int(host[colon + 1..]) ?? scheme_port
+		} else: hostname = host.copy()
 	} else: path_and_query = rest.copy()
 
-	let path = "/"
+	let raw_path = "/"
 	let raw_query = ""
-	let q_idx? = path_and_query.index_of("?")
-	if(q_idx?): {
-		path = path_and_query[0..q_idx]
+	if(path_and_query.index_of("?") as q_idx): {
+		raw_path = path_and_query[0..q_idx]
 		raw_query = path_and_query[q_idx + 1..path_and_query.len()]
-	} else: path = path_and_query.copy()
+	} else: raw_path = path_and_query.copy()
 
-	if(path.is_empty()): path = "/"
+	if(raw_path.is_empty()): raw_path = "/"
+	let path = url_path_decode(raw_path)
 
 	let query: #[string: string] = #[]
 	if(not raw_query.is_empty()): {
@@ -347,6 +406,10 @@ bind parse_url = (raw: string) Result[Url]: {
 		path: path,
 		raw_query: raw_query,
 		query: query,
+		raw_path: raw_path,
+		fragment: fragment,
+		username: username,
+		password?: password?,
 	])
 }
 
@@ -1254,7 +1317,18 @@ bind Server.listen = (&self) Result[int]: {
 	value(self.port)
 }
 
+// Formats the remote address of a connected socket as `"a.b.c.d:port"`, or returns an empty
+// string when it is unknown or not IPv4.
+bind _peer_addr = (fd: int) string: {
+	let port = unsafe sys_tcp_peer_port(fd)
+	let ip = unsafe sys_tcp_peer_ipv4(fd)
+	if(port < 0 or ip < 0): func <- ""
+	"${(ip >> 24) & 255}.${(ip >> 16) & 255}.${(ip >> 8) & 255}.${ip & 255}:$port"
+}
+
 // Reads one HTTP request from `conn_fd`, invokes `handler`, writes the response, and closes `conn_fd`.
+//
+// The handler sees the client's address in [`Request.remote_addr`].
 //
 // Malformed requests receive a `400 Bad Request` response and return `false`.
 bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWriter)) bool: {
@@ -1274,6 +1348,7 @@ bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWrite
 		func <- false
 	}
 	let req = req_res!.unwrap()
+	req.remote_addr = _peer_addr(conn_fd)
 	let rw = ResponseWriter.new()
 	handler(req, &rw)
 
@@ -1311,21 +1386,38 @@ bind Server.serve_one = (&self, handler: (Request, &ResponseWriter), timeout_ms:
 //
 // Stops once `max_requests` valid requests have been served, or runs indefinitely when
 // `max_requests <= 0`. Returns the total number of valid requests served.
+//
+// A failed `accept` (for example, when the process is out of file descriptors) is retried
+// after a delay that starts at 5 ms and doubles up to 1 s, instead of spinning; the delay
+// resets after the next successful accept.
+//
+// # Errors
+// Returns an error if listening fails, or a `"closed"` error if the listener is closed.
 bind Server.serve = (&self, handler: (Request, &ResponseWriter), max_requests: int) Result[int]: {
 	if(self.listener_fd < 0): {
 		let lr! = self.listen()
 		if(lr!.is_err()): func <- err(lr!.unwrap_err().wrap("listen failed"))
 	}
 	let served = 0
-	for(max_requests <= 0 or served < max_requests): {
+	let backoff_ms = 0
+	while(max_requests <= 0 or served < max_requests): {
+		if(self.listener_fd < 0): func <- err(Error.coded("closed", "server listener is closed"))
 		let client_fd = unsafe sys_tcp_accept(self.listener_fd, -1)
-		if(client_fd >= 0): {
-			let ok = self.serve_conn(client_fd, handler)
-			if(ok): served += 1
+		if(client_fd < 0): {
+			backoff_ms = _next_accept_backoff(backoff_ms)
+			unsafe sys_sleep_ms(backoff_ms)
+			next <-
 		}
+		backoff_ms = 0
+		if(self.serve_conn(client_fd, handler)): served += 1
 	}
 	value(served)
 }
+
+// Returns the next accept-retry delay in milliseconds: 5 ms after the first failure, then
+// doubling, capped at 1 s.
+bind _next_accept_backoff = (prev_ms: int) int:
+	if(prev_ms <= 0): 5 else: min(prev_ms * 2, 1000)
 
 // Starts a [`Server`] bound to `addr` and serves requests indefinitely using `handler`.
 bind listen_and_serve = (addr: string, handler: (Request, &ResponseWriter)) Result[bool]: {
@@ -1555,4 +1647,95 @@ bind test_http_query_and_crlf_guards = (): {
 	)
 	let rparsed = Response.parse(rwire).unwrap()
 	assert(rparsed.header("set-cookie") == none, "Set-Cookie header not present")
+}
+
+@test("http URL default ports depend on the scheme")
+bind test_http_url_default_ports = (): {
+	assert(default_port("http") == 80 and default_port("HTTPS") == 443, "http and https defaults")
+	assert(default_port("ws") == 80 and default_port("wss") == 443, "ws and wss defaults")
+	assert(default_port("gopher") == 0, "unknown schemes have no default")
+
+	let plain_on_443 = parse_url("http://example.com:443/x").unwrap()
+	assert(plain_on_443.port == 443, "explicit port kept")
+	assert(plain_on_443.to_string() == "http://example.com:443/x", "non-default port printed for http")
+
+	let tls_on_443 = parse_url("https://example.com:443/x").unwrap()
+	assert(tls_on_443.to_string() == "https://example.com/x", "default port omitted for https")
+
+	let tls_on_80 = parse_url("https://example.com:80/").unwrap()
+	assert(tls_on_80.to_string() == "https://example.com:80/", "port 80 is not the https default")
+
+	let implicit = parse_url("https://example.com").unwrap()
+	assert(implicit.port == 443 and implicit.path == "/", "implicit https port and root path")
+}
+
+@test("http URL paths decode %XX but keep '+'; queries decode '+' as a space")
+bind test_http_url_path_vs_query_plus = (): {
+	let u = parse_url("http://h/a+b/c%20d/e%2Bf?q=a+b&r=c%2Bd").unwrap()
+	assert(u.path == "/a+b/c d/e+f", "path keeps '+' and decodes %XX")
+	assert(u.raw_path == "/a+b/c%20d/e%2Bf", "raw path preserved")
+	assert(u.query_param("q") == "a b", "query '+' is a space")
+	assert(u.query_param("r") == "c+d", "query %2B is a plus")
+	assert(u.to_string() == "http://h/a+b/c%20d/e%2Bf?q=a+b&r=c%2Bd", "round-trips with the raw path")
+	assert(url_path_decode("x+y%41") == "x+yA", "url_path_decode keeps '+'")
+	assert(url_decode("x+y%41") == "x yA", "url_decode turns '+' into a space")
+
+	let rel = parse_url("/files/a+b.txt?download=1").unwrap()
+	assert(rel.path == "/files/a+b.txt", "relative target path keeps '+'")
+	let req = Request.new("GET", "/files/a%20b.txt", "")
+	assert(req.path == "/files/a b.txt", "request path is decoded")
+}
+
+@test("http URL fragments and user:password@ information")
+bind test_http_url_fragment_and_userinfo = (): {
+	let u = parse_url("https://ada:s%40cret@example.com:8443/docs/page?x=1#intro?not-query").unwrap()
+	assert(u.username == "ada", "username")
+	assert(u.password? == "s@cret", "password is percent-decoded")
+	assert(u.host == "example.com:8443" and u.hostname == "example.com", "host excludes userinfo")
+	assert(u.port == 8443, "explicit port")
+	assert(u.path == "/docs/page" and u.raw_query == "x=1", "path and query exclude the fragment")
+	assert(u.fragment == "intro?not-query", "fragment is everything after '#'")
+	assert(u.to_string() == "https://ada:s%40cret@example.com:8443/docs/page?x=1#intro?not-query", "round-trip")
+
+	let user_only = parse_url("http://bob@h/").unwrap()
+	assert(user_only.username == "bob" and user_only.password? == none, "user without password")
+	assert(user_only.to_string() == "http://bob@h/", "user without password round-trips")
+
+	let empty_pw = parse_url("http://bob:@h/").unwrap()
+	assert(empty_pw.password? == "", "empty password is present, not none")
+
+	let frag_only = parse_url("/guide#install").unwrap()
+	assert(frag_only.path == "/guide" and frag_only.fragment == "install", "relative fragment")
+	assert(frag_only.to_string() == "/guide#install", "relative fragment round-trips")
+
+	let at_in_path = parse_url("http://h/users/@me").unwrap()
+	assert(at_in_path.username == "" and at_in_path.hostname == "h", "'@' in the path is not userinfo")
+}
+
+@test("http Server accept retry delay backs off and is capped")
+bind test_http_accept_backoff = (): {
+	assert(_next_accept_backoff(0) == 5, "first retry after 5 ms")
+	assert(_next_accept_backoff(5) == 10 and _next_accept_backoff(320) == 640, "doubles")
+	assert(_next_accept_backoff(640) == 1000 and _next_accept_backoff(1000) == 1000, "capped at 1 s")
+}
+
+@test("http Server fills in Request.remote_addr")
+bind test_http_server_remote_addr = (): {
+	let srv = Server.new("127.0.0.1:0")
+	let port = srv.listen() ?? -1
+	if(port <= 0): func <-     // no loopback networking available here
+	let client! = net.TcpStream.connect("127.0.0.1", port, 2000)
+	if(client!.is_err()): func <-
+	let conn = client!.unwrap()
+	let sent = conn.send("GET /who HTTP/1.1\r\nHost: localhost\r\n\r\n") ?? 0
+	assert(sent > 0, "request sent")
+	let served = srv.serve_one((req: Request, rw: &ResponseWriter): rw.write(req.remote_addr), 2000) ?? false
+	assert(served, "one request served")
+	let reply = conn.recv(4096, 2000) ?? ""
+	let body_at = reply.index_of("\r\n\r\n") ?? -1
+	assert(body_at >= 0, "response has a body")
+	let body = reply[body_at + 4..]
+	assert(body.starts_with("127.0.0.1:"), "remote_addr is the client's loopback address")
+	let client_port = parse_int(body["127.0.0.1:".len()..]) ?? 0
+	assert(client_port > 0 and client_port != port, "remote_addr carries the client's own port")
 }

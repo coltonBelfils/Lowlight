@@ -707,6 +707,27 @@ static inline int64_t ll_net_tcp_port(int64_t fd) {
     return (int64_t)ntohs(addr.sin_port);
 }
 
+/* Peer address of a connected socket: the remote port (IPv4 or IPv6), or -1. */
+static inline int64_t ll_net_tcp_peer_port(int64_t fd) {
+    if (fd < 0) return -1LL;
+    struct sockaddr_storage addr;
+    socklen_t len = sizeof(addr);
+    if (getpeername((int)fd, (struct sockaddr*)&addr, &len) != 0) return -1LL;
+    if (addr.ss_family == AF_INET) return (int64_t)ntohs(((struct sockaddr_in*)&addr)->sin_port);
+    if (addr.ss_family == AF_INET6) return (int64_t)ntohs(((struct sockaddr_in6*)&addr)->sin6_port);
+    return -1LL;
+}
+
+/* Peer IPv4 address of a connected socket as a host-order integer, or -1 if not IPv4. */
+static inline int64_t ll_net_tcp_peer_ipv4(int64_t fd) {
+    if (fd < 0) return -1LL;
+    struct sockaddr_storage addr;
+    socklen_t len = sizeof(addr);
+    if (getpeername((int)fd, (struct sockaddr*)&addr, &len) != 0) return -1LL;
+    if (addr.ss_family != AF_INET) return -1LL;
+    return (int64_t)ntohl(((struct sockaddr_in*)&addr)->sin_addr.s_addr);
+}
+
 static inline void ll_net_set_nosigpipe(int fd) {
 #ifdef SO_NOSIGPIPE
     int opt = 1;

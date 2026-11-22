@@ -34,7 +34,7 @@ func TestStandardLibraryInlineSuites(t *testing.T) {
 		"pool",
 		"net",
 		"http",
-		"json.ll",
+		"json",
 	}
 
 	for _, pkg := range stdPackages {

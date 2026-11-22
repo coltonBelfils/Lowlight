@@ -13,13 +13,12 @@ Tasks are atomic and ordered from easiest to most involved.
 - [x] Fix local timezone names in `format_go` (`std/time.ll:244,523-636`).
 - [x] Validate `DateTime` components in `std/time.ll`.
 - [x] Support ISO 8601 `Z`, fractional, and `+HH:MM` offsets in `std/time.ll`.
-- [ ] Add `assert_panics` to `std/test/test.ll` by running the closure in a forked child process (panics are abort-only per `SPECIFICATION.md` §9.3, so no in-language recovery), reporting the child's panic message or "did not panic"; re-exec the test binary with a filter on platforms without `fork`.
-- [ ] Fix `Server.serve` CPU spin on repeated `accept` failures in `std/http.ll`.
-- [ ] Populate `req.remote_addr` in HTTP `Server` connection handling in `std/http.ll`.
-- [ ] Fix path vs query `+` decoding in `parse_url` (`std/http.ll`).
-- [ ] Use scheme-aware default ports in `parse_url` and `URL.to_string` (`std/http.ll`).
-- [ ] Support `#fragment` and `user:pass@` in `parse_url` and `URL.to_string` (`std/http.ll`).
-- [ ] Support IPv6 `[::1]:port` in `parse_url` and `URL.to_string` (`std/http.ll`).
+- [x] Fix `Server.serve` CPU spin on repeated `accept` failures in `std/http.ll`.
+- [x] Populate `req.remote_addr` in HTTP `Server` connection handling in `std/http.ll`.
+- [x] Fix path vs query `+` decoding in `parse_url` (`std/http.ll`).
+- [x] Use scheme-aware default ports in `parse_url` and `URL.to_string` (`std/http.ll`).
+- [x] Support `#fragment` and `user:pass@` in `parse_url` and `URL.to_string` (`std/http.ll`).
+- [ ] Support IPv6 `[::1]:port` in `parse_url` and `URL.to_string` (`std/http.ll`), and report IPv6 peers in `Request.remote_addr` (`sys_tcp_peer_ipv4` covers IPv4 only; IPv6 peers currently get an empty string).
 - [ ] Implement exact case-insensitive header parsing in `std/http.ll`.
 - [ ] Support multi-value headers in `std/http.ll`.
 - [ ] Handle `HEAD` response framing in `_read_http_message` and `_read_http_message_tls` (`std/http.ll`).
@@ -140,7 +139,13 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [x] Make codegen output deterministic: the order of function-type/closure helper typedefs and `ll_drop__fn_*`/`ll_copy__fn_*` definitions changes between runs on both backends (`ir.Lower` fed the type collector from the pointer-keyed `BodyMaps.ExprInfos` map; it now visits entries in source-span order). This blocks reproducible builds and Stage 2/3 parity and can perturb `computeObjCacheKey` (`internal/driver/incremental.go:59`).
 - [ ] Retire the hardcoded `map.*`/`set.*`/`vec.*`/`string.*` builtin method lowerings (`BuiltinName` in `internal/sema/check_calls.go` plus both backends) in favor of the `@lang` `std/core` implementations so collection semantics live in one place.
 - [ ] Fix literal patterns on an optional subject: `match(o?): when 3: ...` never matches when `o?` holds `3` (`SPECIFICATION.md` §6.5 says it should).
-- [ ] Fix `for <- value` crashing LLVM codegen; either support a value for `for <-` or reject it in sema with a diagnostic (the spec documents only bare `for <-`).
+- [ ] Fix `for <-` in a collecting loop (`for(x in xs) [int]: ...`): bare `for <-` is rejected with "requires a value of type int" although `SPECIFICATION.md` §6.7 says it stops the loop and keeps what was collected, and `for <- value` crashes LLVM codegen (`store %struct.ll_vec_int 0`). Early exit from a collecting loop is currently impossible.
+- [ ] Make `for(x in v)` work for any type implementing `Iterable[T]` (and for `Iterator[T]` values), as `SPECIFICATION.md` §12.1 and §18.6 describe; sema currently hardcodes lists, arrays, strings, sets, maps, ranges, and `Pool` ("cannot iterate over value of type Countdown", `internal/sema/check_stmt_expr.go`).
+- [ ] Fix passing a `bool`-returning collection mutator straight to `println`: `println(s.insert(4))` on a set emits `call @ll_m_bool_to_string(void ...)` (invalid LLVM IR); binding the result first works.
+- [ ] Improve the diagnostic for a missing associated function on an imported type: `time.Duration.seconds(9)` reports `undeclared identifier "time"` instead of saying `Duration` has no `seconds`.
+- [ ] Decide how to take several fields out of an `own self` receiver: moving one field consumes `self`, so `Pair.swap = (own self)` cannot move both `first` and `second` (no struct destructuring exists).
+- [ ] Fix assigning a `??`-with-unwind guard to an optional variable: `p? = parse_int(s) ?? func <- -1` emits invalid LLVM IR and C (the `int` result is not wrapped into `?int`) in both backends.
+- [ ] Fix the `std/test` self-test "diff formatting helpers": the tab-indented multiline diff assertion at `std/test/test.ll:2082` fails on both backends (`go test ./tests -run TestStandardLibraryInlineSuites`), already failing at commit 2794079.
 - [ ] Mark `List.insert`, `List.remove`, and `List.swap_remove` `@track_caller` so their out-of-bounds panics report the caller's location instead of `list.ll`.
 - [ ] Decide whether `abs` is numeric like `min`/`max`: the prelude's `abs(x: int) int` shadows the numeric builtin, so `abs(-2.5)` is a type error (`SPECIFICATION.md` §12.2 documents the `int` form).
 - [ ] Update the 61 `§` section references in Go comments (`internal/`, `cmd/`, `tests/`) to the rewritten spec's numbering.
@@ -291,6 +296,7 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [ ] Implement core concurrency and synchronization stdlib modules (`Thread` / scoped spawn, `Atomic*`, `Mutex[T]`, `RwLock[T]`, `Condvar`, `Barrier`, `Once`, and channels) with matching semantics and tests across both C11 and LLVM backends.
 - [ ] Implement the decided parallel computing runtime (explicit or managed `ThreadPool`, parallel fork-join / slice / iterator algorithms, and any portable SIMD primitives) and scale `std/net.ll` and `std/http.ll` for concurrent I/O.
 - [ ] Add ThreadSanitizer (`--tsan` / `-fsanitize=thread`) and race-detection test support in `internal/driver` alongside deterministic multithreaded stress and compile-fail tests.
+- [ ] Once the parallelism model above is in place, add `assert_panics` to `std/test/test.ll` by running the closure in a forked child process (panics are abort-only per `SPECIFICATION.md` §9.3, so no in-language recovery), reporting the child's panic message or "did not panic"; re-exec the test binary with a filter on platforms without `fork`.
 
 ## Self-Hosting Compiler & Stage Parity
 

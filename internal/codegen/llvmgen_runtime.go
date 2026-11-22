@@ -312,6 +312,7 @@ func (g *llvmEmitter) emitRuntimeAndDeclarations() {
 		{"bind", "declare i32 @bind(i32, ptr, i32)"},
 		{"listen", "declare i32 @listen(i32, i32)"},
 		{"getsockname", "declare i32 @getsockname(i32, ptr, ptr)"},
+		{"getpeername", "declare i32 @getpeername(i32, ptr, ptr)"},
 		{"accept", "declare i32 @accept(i32, ptr, ptr)"},
 		{"connect", "declare i32 @connect(i32, ptr, i32)"},
 		{"poll", "declare i32 @poll(ptr, i32, i32)"},
@@ -2187,6 +2188,7 @@ func (g *llvmEmitter) emitNetAndTLSRuntime() {
 
 	fns := []string{
 		"ll_net_set_timeout", "ll_net_tcp_listen", "ll_net_tcp_port",
+		"ll_net_tcp_peer_port", "ll_net_tcp_peer_ipv4",
 		"ll_net_tcp_accept", "ll_net_tcp_connect", "ll_net_send_all",
 		"ll_net_recv", "ll_net_close", "ll_net_shutdown", "ll_net_socketpair",
 		"ll_tls_init", "ll_tls_available", "ll_tls_client_handshake",
@@ -2419,6 +2421,84 @@ extract:
     %%hi_sh = shl i64 %%hi64, 8
     %%port = or i64 %%hi_sh, %%lo64
     ret i64 %%port
+}
+
+; Remote port of a connected socket. sockaddr_in and sockaddr_in6 both keep the
+; big-endian port at byte offset 2 on every supported platform.
+define internal i64 @ll_net_tcp_peer_port(i64 %%fd) {
+entry:
+    %%bad_fd = icmp slt i64 %%fd, 0
+    br i1 %%bad_fd, label %%ret_err, label %%query
+ret_err:
+    ret i64 -1
+query:
+    %%sa = alloca [128 x i8], align 8
+    %%len_slot = alloca i32, align 4
+    call void @llvm.memset.p0.i64(ptr %%sa, i8 0, i64 128, i1 false)
+    store i32 128, ptr %%len_slot, align 4
+    %%fd32 = trunc i64 %%fd to i32
+    %%rc = call i32 @getpeername(i32 %%fd32, ptr %%sa, ptr %%len_slot)
+    %%ok = icmp eq i32 %%rc, 0
+    br i1 %%ok, label %%chk_len, label %%ret_err
+chk_len:
+    %%got = load i32, ptr %%len_slot, align 4
+    %%is_v4 = icmp eq i32 %%got, 16
+    %%is_v6 = icmp eq i32 %%got, 28
+    %%is_inet = or i1 %%is_v4, %%is_v6
+    br i1 %%is_inet, label %%extract, label %%ret_err
+extract:
+    %%p_hi = getelementptr inbounds i8, ptr %%sa, i64 2
+    %%p_lo = getelementptr inbounds i8, ptr %%sa, i64 3
+    %%hi8 = load i8, ptr %%p_hi, align 1
+    %%lo8 = load i8, ptr %%p_lo, align 1
+    %%hi64 = zext i8 %%hi8 to i64
+    %%lo64 = zext i8 %%lo8 to i64
+    %%hi_sh = shl i64 %%hi64, 8
+    %%port = or i64 %%hi_sh, %%lo64
+    ret i64 %%port
+}
+
+; Remote IPv4 address of a connected socket as a host-order integer, or -1 when the
+; peer is not IPv4 (an IPv4 sockaddr_in is exactly 16 bytes; the address is at offset 4).
+define internal i64 @ll_net_tcp_peer_ipv4(i64 %%fd) {
+entry:
+    %%bad_fd = icmp slt i64 %%fd, 0
+    br i1 %%bad_fd, label %%ret_err, label %%query
+ret_err:
+    ret i64 -1
+query:
+    %%sa = alloca [128 x i8], align 8
+    %%len_slot = alloca i32, align 4
+    call void @llvm.memset.p0.i64(ptr %%sa, i8 0, i64 128, i1 false)
+    store i32 128, ptr %%len_slot, align 4
+    %%fd32 = trunc i64 %%fd to i32
+    %%rc = call i32 @getpeername(i32 %%fd32, ptr %%sa, ptr %%len_slot)
+    %%ok = icmp eq i32 %%rc, 0
+    br i1 %%ok, label %%chk_len, label %%ret_err
+chk_len:
+    %%got = load i32, ptr %%len_slot, align 4
+    %%is_v4 = icmp eq i32 %%got, 16
+    br i1 %%is_v4, label %%extract, label %%ret_err
+extract:
+    %%p0 = getelementptr inbounds i8, ptr %%sa, i64 4
+    %%p1 = getelementptr inbounds i8, ptr %%sa, i64 5
+    %%p2 = getelementptr inbounds i8, ptr %%sa, i64 6
+    %%p3 = getelementptr inbounds i8, ptr %%sa, i64 7
+    %%b0 = load i8, ptr %%p0, align 1
+    %%b1 = load i8, ptr %%p1, align 1
+    %%b2 = load i8, ptr %%p2, align 1
+    %%b3 = load i8, ptr %%p3, align 1
+    %%w0 = zext i8 %%b0 to i64
+    %%w1 = zext i8 %%b1 to i64
+    %%w2 = zext i8 %%b2 to i64
+    %%w3 = zext i8 %%b3 to i64
+    %%s0 = shl i64 %%w0, 24
+    %%s1 = shl i64 %%w1, 16
+    %%s2 = shl i64 %%w2, 8
+    %%o1 = or i64 %%s0, %%s1
+    %%o2 = or i64 %%o1, %%s2
+    %%addr = or i64 %%o2, %%w3
+    ret i64 %%addr
 }
 
 define internal i64 @ll_net_tcp_accept(i64 %%listener_fd, i64 %%timeout_ms) {
