@@ -130,6 +130,7 @@ func TestAllShowcaseExamplesStrict(t *testing.T) {
 func TestPrimitivesBitwiseEnumsDistinct(t *testing.T) {
 	t.Parallel()
 	src := `
+@derive(Equatable, Printable)
 define Color enum [Red, Green, Blue]
 define UserId int
 

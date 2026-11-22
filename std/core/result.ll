@@ -16,6 +16,7 @@
 // 	else: value(a / b)
 // ```
 @must_use
+@derive(Equatable, Copyable, Printable)
 define Result[T] result [
 	// Success value of type [`T`].
 	value: T,

@@ -393,6 +393,7 @@ bind main = (): {
 func TestCustomHashableWithSetAndMap(t *testing.T) {
 	t.Parallel()
 	src := `
+@derive(Equatable)
 define UserId struct [
     id: int,
 ]

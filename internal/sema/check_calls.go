@@ -1466,7 +1466,7 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 	}
 	// Universal `.hash()` for hashable types with no `hash` method of their own
 	// (tuples, tag-only enums, pointers, and distinct types).
-	if mem.Member == "hash" && len(call.Args) == 0 && types.IsHashable(recvTy) {
+	if mem.Member == "hash" && len(call.Args) == 0 && fc.a.supportsHash(recvTy) {
 		inf.BuiltinName = "any.hash"
 		return wrapRet(types.TypeU64)
 	}

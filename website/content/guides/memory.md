@@ -69,6 +69,8 @@ Use nested blocks to delimit phases. After the block that allocated, the arena i
 ```lowlight
 import "std/pool"
 
+// `players.get` returns a copy.
+@derive(Copyable)
 define Player struct [
 	name: string,
 	score: int,

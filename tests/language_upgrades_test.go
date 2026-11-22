@@ -22,6 +22,7 @@ define Color enum [Red, Green, Blue]
 
 // Generic tagged union with unit and single-payload variants
 @must_use
+@derive(Equatable, Copyable, Printable)
 define Outcome[T, E] enum [
     Empty,
     Ok: T,

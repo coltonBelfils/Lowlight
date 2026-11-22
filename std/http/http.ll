@@ -172,6 +172,7 @@ bind status_text = (code: int) string:
 // ============================================================================
 
 // Parsed HTTP or HTTPS [`Url`] components including percent-decoded query parameters.
+@derive(Copyable)
 define Url struct [
 	// Original unparsed URL string.
 	raw: string,
@@ -425,6 +426,7 @@ bind parse_url = (raw: string) Result[Url]: {
 // ============================================================================
 
 // One HTTP header field: a name as written on the wire and its value.
+@derive(Copyable)
 define HeaderField struct [
 	// Field name with its original capitalization (`"Content-Type"`).
 	name: string,
@@ -437,6 +439,7 @@ define HeaderField struct [
 // Names compare case-insensitively (ASCII only, as RFC 9110 specifies), keep the spelling they
 // were set with, and may repeat: `Set-Cookie` and other list-valued fields keep every value
 // in order. Use [`Headers.get`] for the first value and [`Headers.values`] for all of them.
+@derive(Copyable)
 define Headers struct [
 	_fields: [HeaderField]
 ]
@@ -572,6 +575,7 @@ bind _append_header_fields = (out: &string, headers: Headers):
 // ============================================================================
 
 // HTTP request message constructed by callers or parsed off the wire by [`Server`].
+@derive(Copyable)
 define Request struct [
 	// Uppercase HTTP method (`"GET"`, `"POST"`, etc.).
 	method: string,

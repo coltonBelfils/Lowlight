@@ -404,7 +404,7 @@ func (g *cEmitter) emitForwardPrototypes() {
 				g.line("static inline int64_t %s(%s a, %s b);", ir.CmpFnName(t), CType(t), CType(t))
 			}
 		}
-		if types.IsHashable(t) {
+		if CanHashType(g.prog, t) {
 			switch t.(type) {
 			case *types.Distinct, *types.Tuple:
 				g.line("static inline uint64_t %s(%s v);", ir.HashFnName(t), CType(t))
@@ -533,7 +533,7 @@ func (g *cEmitter) emitDistinctHelpers(d *types.Distinct) {
 			g.line("static inline %s %s(%s v) { return (%s)%s((%s)v); }", cD, ir.CopyFnName(d), cD, cD, g.copyExpr(d.Base), cBase)
 		}
 	}
-	if types.IsHashable(d) {
+	if CanHashType(g.prog, d) {
 		g.line("static inline uint64_t %s(%s v) { return %s; }", ir.HashFnName(d), cD, g.hashInlineExpr(d.Base, fmt.Sprintf("((%s)v)", cBase)))
 	}
 	if customCmp := g.prog.Checked.LookupConcreteMethod(d, "cmp"); customCmp != nil {
@@ -904,7 +904,7 @@ func (g *cEmitter) emitTupleHelpers(tup *types.Tuple) {
 		g.line("    return s;")
 		g.line("}")
 	}
-	if types.IsHashable(tup) {
+	if CanHashType(g.prog, tup) {
 		g.line("static inline uint64_t %s(%s v) {", ir.HashFnName(tup), cTup)
 		g.line("    (void)v;")
 		g.line("    uint64_t h = 1469598103934665603ULL;")

@@ -3,6 +3,8 @@
 // Order: 10
 
 // A struct groups named fields. Fields may have defaults.
+// `@derive` writes methods for it: here `eq`, so points compare with `==`.
+@derive(Equatable)
 define Point struct [
 	x: int,
 	y: int,
@@ -28,6 +30,6 @@ bind main = (): {
 	q.x = 10
 	println(q.x)
 
-	// Structs of plain fields compare with `==` automatically.
+	// `==` calls the derived `eq`, which compares field by field.
 	println(p == Point[x: 1, y: 2])
 }

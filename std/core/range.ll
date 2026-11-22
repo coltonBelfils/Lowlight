@@ -15,6 +15,7 @@
 // assert(total == 15)
 // ```
 @lang("range")
+@derive(Equatable)
 define Range[T] struct [
 	// Lower bound of the interval (inclusive).
 	start: T,

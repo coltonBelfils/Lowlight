@@ -40,6 +40,7 @@ define Status enum [
 	Closed,
 ]
 
+@derive(Equatable)
 define Color enum [
 	Red,
 	Green,

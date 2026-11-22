@@ -29,7 +29,7 @@ define Token enum [
 ]
 ```
 
-`Token` holds only plain values, so it is itself plain: tokens copy freely and compare with `==` automatically.
+`Token` holds only plain values, so it is itself plain: tokens copy freely. (To compare tokens with `==`, it would add `@derive(Equatable)`.)
 
 ## The tokenizer
 

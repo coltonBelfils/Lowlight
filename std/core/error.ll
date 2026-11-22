@@ -5,6 +5,7 @@
 
 
 // Single source-location frame inside an [`Error`] propagation trace.
+@derive(Copyable)
 define ErrorFrame struct [
 	_file: string,
 	_line: int,
@@ -61,6 +62,7 @@ bind ErrorFrame.eq = (self, other: ErrorFrame) bool:
 // let err = Error.coded("E_IO", "open failed").wrap("loading config")
 // assert(err.has_code("E_IO"))
 // ```
+@derive(Copyable)
 define Error struct [
 	_message: string,
 	_code?: ?string,

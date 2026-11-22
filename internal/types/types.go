@@ -883,8 +883,6 @@ func IsHashable(t Type) bool {
 	switch v := t.(type) {
 	case *Primitive:
 		return v.IsInteger() || v.Kind == PrimBool || v.Kind == PrimChar || v.Kind == PrimString
-	case *Enum:
-		return !v.IsTagged
 	case *Ptr:
 		return true
 	case *Distinct:
@@ -912,17 +910,6 @@ func supportsEqVisited(t Type, seen map[Type]bool) bool {
 		return v.Kind != PrimVoid && v.Kind != PrimArena
 	case *Ptr, *Ref:
 		return true
-	case *Enum:
-		if !v.IsTagged || seen[v] {
-			return true
-		}
-		seen[v] = true
-		for _, vr := range v.Variants {
-			if vr.Kind == VariantTuple && vr.Payload != nil && !supportsEqVisited(vr.Payload, seen) {
-				return false
-			}
-		}
-		return true
 	case *Distinct:
 		return supportsEqVisited(v.Base, seen)
 	case *Optional:
@@ -934,21 +921,8 @@ func supportsEqVisited(t Type, seen map[Type]bool) bool {
 			}
 		}
 		return true
-	case *Struct:
-		if v.HasCustomDrop || !v.IsPlain() {
-			return false
-		}
-		if seen[v] {
-			return true
-		}
-		seen[v] = true
-		for _, f := range v.Fields {
-			if !supportsEqVisited(f.Type, seen) {
-				return false
-			}
-		}
-		return true
 	default:
+		// Structs and enums have `==` only through an `eq` or `cmp` method (`@derive`).
 		return false
 	}
 }

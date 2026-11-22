@@ -5823,7 +5823,7 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 			}
 		}
 		fc.verifyAssignable(pty, scrutTy, p.Expr, p.Span, "`match` pattern")
-		if _, isNone := p.Expr.(*ast.NoneLit); !isNone && fc.a.infoFor(p.Expr).EnumVariant == nil && !types.SupportsEq(scrutTy) {
+		if _, isNone := p.Expr.(*ast.NoneLit); !isNone && fc.a.infoFor(p.Expr).EnumVariant == nil && !fc.a.supportsEq(scrutTy) {
 			fc.a.Rep.Errorf(p.Span, "cannot match value pattern of type `%s` because it does not support `==`", scrutTy.String())
 		}
 		if enumScrut != nil {

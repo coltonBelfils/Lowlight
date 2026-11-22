@@ -3,6 +3,7 @@
 // recursive-descent AST parser, and tree-walking evaluator written in Lowlight!
 // Demonstrates how ergonomic Lowlight already is for writing compiler passes.
 
+@derive(Equatable)
 define TokKind enum [
     num,
     ident,

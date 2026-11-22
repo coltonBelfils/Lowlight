@@ -282,6 +282,7 @@ bind main = (): {
 func TestCustomEquatableAndComparableTaggedEnum(t *testing.T) {
 	t.Parallel()
 	src := `
+@derive(Copyable)
 define Val enum [
     Empty,
     Str: string,

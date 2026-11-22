@@ -37,6 +37,7 @@ func TestStackArrayEqualsStrictSize(t *testing.T) {
 	}
 }
 
+// Structs only get `==` from an `eq` method (written or `@derive(Equatable)`), which sema checks.
 func TestSupportsEqRejectsResourceAndDropStructs(t *testing.T) {
 	plainPt := &types.Struct{
 		Name: "Pt",
@@ -45,8 +46,8 @@ func TestSupportsEqRejectsResourceAndDropStructs(t *testing.T) {
 			{Name: "y", Type: types.TypeInt},
 		},
 	}
-	if !types.SupportsEq(plainPt) {
-		t.Fatal("expected Plain struct Pt to support derived ==")
+	if types.SupportsEq(plainPt) {
+		t.Fatal("expected struct Pt to have no built-in == (it needs @derive(Equatable) or an eq method)")
 	}
 
 	dropHandle := &types.Struct{

@@ -691,6 +691,7 @@ bind test_core_map = (): {
 	assert(m.is_empty(), "is_empty after clear")
 }
 
+@derive(Equatable, Hashable)
 define _CoreColor enum [red, green]
 define _CoreId int
 define _CoreRes struct [name: string]
@@ -799,4 +800,51 @@ bind test_core_add_operators = (): {
 	s += "b"
 	assert(s + "c" == "abc", "string")
 	assert(5.add(6) == 11, "int.add")
+}
+
+@derive(Equatable, Comparable, Hashable, Copyable, Printable)
+define _CorePt struct [x: int, name: string]
+
+@derive(Equatable, Copyable, Printable)
+define _CoreOptPt struct [x: int, tag?: ?string]
+
+@derive(Equatable, Comparable, Hashable, Printable)
+define _CoreLevel enum [low, mid = 5, high]
+
+@derive(Equatable, Comparable, Hashable, Copyable, Printable)
+define _CoreShape enum [circle: float, label: string, empty]
+
+@derive(Equatable, Copyable, Printable)
+define _CoreBox[T] struct [item: T]
+
+@derive(Copyable, Printable)
+define _CoreTree enum [leaf: int, node: [_CoreTree]]
+
+@test("core @derive generates eq, cmp, hash, copy, and to_string")
+bind test_core_derive = (): {
+	let a = _CorePt[x: 1, name: "a".copy()]
+	let b = a.copy()
+	assert(a == b and not (a != b), "struct eq and copy")
+	assert(a.hash() == b.hash(), "equal values hash equally")
+	assert(_CorePt[x: 1, name: "b"] > a and _CorePt[x: 0, name: "z"] < a, "struct cmp in field order")
+	assert(a.to_string() == "_CorePt[x: 1, name: a]", "struct to_string")
+	let o = _CoreOptPt[x: 2, tag?: "t"]
+	assert(o == o.copy() and "$o" == "_CoreOptPt[x: 2, tag?: t]", "optional fields")
+	assert(#[a.copy(), b.copy()].len() == 1, "struct as set element")
+
+	assert(_CoreLevel.mid == _CoreLevel.mid and _CoreLevel.low < _CoreLevel.high, "tag enum eq and cmp")
+	assert("${_CoreLevel.high}" == "_CoreLevel.high", "tag enum to_string")
+	assert(#[_CoreLevel.low: 1][_CoreLevel.low] == 1, "tag enum as map key")
+
+	let c = _CoreShape.circle(1.5)
+	assert(c == _CoreShape.circle(1.5) and c != _CoreShape.circle(2.0) and c != _CoreShape.empty, "tagged eq")
+	assert(c < _CoreShape.label("x") and _CoreShape.label("a") < _CoreShape.label("b"), "tagged cmp")
+	assert(c.hash() == _CoreShape.circle(1.5).hash(), "tagged hash")
+	assert(_CoreShape.label("hi".copy()).copy() == _CoreShape.label("hi"), "tagged copy")
+	assert("$c ${_CoreShape.empty}" == "_CoreShape.circle(1.5) _CoreShape.empty", "tagged to_string")
+
+	assert(_CoreBox[int][item: 3] == _CoreBox[int][item: 3], "generic struct eq")
+	assert("${_CoreBox[string][item: "s"]}" == "_CoreBox[item: s]", "generic struct to_string")
+	let t = _CoreTree.node([_CoreTree.leaf(1), _CoreTree.node([])])
+	assert("${t.copy()}" == "_CoreTree.node([_CoreTree.leaf(1), _CoreTree.node([])])", "recursive enum")
 }

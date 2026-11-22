@@ -34,11 +34,39 @@ admin
 
 A struct literal is `Type[field: value, ...]`, naming each field. Fields with a default may be left out. Struct fields are read with `.`, and assigned with `.` too when the struct is in a `let` variable.
 
-## Enums
+## Deriving methods
 
-An enum lists alternatives. Variants are lowercase. A **tag enum** has no data:
+Structs and enums start with no `==`, `<`, hashing, `.copy()` (unless every field is plain), or printing. Either write the method, or ask for it with `@derive`, which writes it for you as ordinary Lowlight code:
 
 ```lowlight
+@derive(Equatable, Hashable, Printable)
+define Point struct [
+	x: int,
+	y: int,
+]
+
+bind main = (): {
+	let p = Point[x: 1, y: 2]
+	println(p == Point[x: 1, y: 2])
+	println(#[p].has(Point[x: 1, y: 2]))
+	println(p)
+}
+```
+
+```output
+true
+true
+Point[x: 1, y: 2]
+```
+
+The derivable interfaces are `Equatable` (`eq`, field by field), `Comparable` (`cmp`, by field order; enums by variant order, then payload), `Hashable` (`hash`), `Copyable` (`copy`), and `Printable` (`to_string`). Every field must support the interface. On a generic type, a derived method exists only for instances whose fields support it: `Box[int]` gets `eq`, `Box[File]` doesn't.
+
+## Enums
+
+An enum lists alternatives. Variants are lowercase. A **tag enum** has no data. `@derive(Equatable)` gives it `==` (see [Deriving methods](#deriving-methods)):
+
+```lowlight
+@derive(Equatable)
 define Direction enum [
 	north,
 	east,

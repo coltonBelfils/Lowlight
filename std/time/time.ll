@@ -177,6 +177,7 @@ bind format_tz_offset = (offset_secs: int, with_colon: bool) string: {
 // let dt = DateTime.must_new(2026, 1, 15, 9, 30, 0, false)
 // assert(dt.to_date_only() == "2026-01-15")
 // ```
+@derive(Copyable)
 define DateTime struct [
 	// Full calendar year (e.g. `2026`).
 	year: int,

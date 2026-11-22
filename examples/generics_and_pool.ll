@@ -6,6 +6,7 @@
 import "std/pool"
 import "std/math"
 
+@derive(Copyable)
 define Entity struct [
     name: string,
     hp: int,

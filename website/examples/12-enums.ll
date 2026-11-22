@@ -3,6 +3,8 @@
 // Order: 12
 
 // A tag enum lists named alternatives. Variants are lowercase.
+// `@derive(Equatable)` gives it `==`.
+@derive(Equatable)
 define Level enum [
 	low,
 	medium,

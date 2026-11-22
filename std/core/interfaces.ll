@@ -121,6 +121,7 @@ define Containable[T] interface [
 ]
 
 // Key-value pair yielded while iterating over a [`Map`].
+@derive(Equatable, Copyable, Printable)
 define MapEntry[K: Hashable, V] struct [
 	// Entry lookup key.
 	key: K,

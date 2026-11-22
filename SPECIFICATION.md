@@ -442,13 +442,14 @@ Moving an existing resource variable always needs `own`: `let b = own a`, `[own 
 | `@deprecated` · `@deprecated("msg")` | declaration | warns at each use |
 | `@inline` · `@noinline` | function | inlining hint |
 | `@packed` (or `define packed T struct`) | struct | no padding between fields |
+| `@derive(Equatable, ...)` | struct, enum | writes the interfaces' methods ([§12.2](#122-deriving-methods)) |
 | `@lang("name")` | prelude declaration | binds a language hook (prelude only) |
 
 See [§4.8](#48-attributes).
 
 ## Universe functions
 
-Always in scope; no import needed. Full list in [§12.2](#122-universe-functions).
+Always in scope; no import needed. Full list in [§12.3](#123-universe-functions).
 
 | Function | Meaning |
 |---|---|
@@ -738,7 +739,7 @@ Arithmetic semantics, including wrapping and traps, are in [§5.3](#53-arithmeti
 | `for(i, ch in s)` | each `char` with the byte offset where it starts |
 | `s.push(t)`, `s.push_char(c)` | append in place (needs a mutable `s`) |
 
-The full method set is in [§12.4](#124-strings-and-characters).
+The full method set is in [§12.5](#125-strings-and-characters).
 
 ### 3.5 Optionals
 
@@ -806,6 +807,7 @@ bind main = (): {
 6. A struct is plain if all its fields are plain, and a resource otherwise.
 7. `define packed Name struct [...]` (or `@packed`) lays fields out with no padding, for binary formats and hardware layouts.
 8. Visibility of fields and construction from other packages is in [§4.7](#47-visibility).
+9. A struct has no `==`, ordering, hashing, or printing, and copies only if it is plain, until it gets the methods by hand or with `@derive` ([§12.2](#122-deriving-methods)).
 
 ### 3.8 Enums
 
@@ -821,7 +823,7 @@ define Status enum i32 [
 ]
 ```
 
-Tag enums are plain, `Copyable`, and `Hashable`. `int(Status.active)` converts a variant to its value; integers never convert to enums.
+Tag enums are plain, so they are `Copyable`; `==`, ordering, hashing, and printing come from `@derive` or hand-written methods ([§12.2](#122-deriving-methods)). `int(Status.active)` converts a variant to its value; integers never convert to enums.
 
 **Tagged unions** have at least one variant carrying a payload (or have type parameters). Each variant is a **unit variant** (`null`) or carries exactly **one** value (`number: float`; use a struct or tuple for several values).
 
@@ -869,7 +871,7 @@ bind main = (): {
 3. There is no implicit conversion into a result. A `T` or a failure payload is never wrapped automatically; every result value names its member.
 4. Names holding a result end in `!` ([§2.5](#25-identifiers)).
 5. Only result types support result chains ([§6.6](#66-result-chains)), `??` ([§5.8](#58-optional-chaining-and-fallback)), and `if(r! as v)` ([§6.2](#62-if)). They may also be inspected with an ordinary `match` on `Name.value(v)` and the failure variants.
-6. **`Result[T]`** is the prelude's general-purpose result, `define Result[T] result [value: T, err: Error]`, marked `@must_use`. Nothing about it is special; it is an ordinary result declaration ([§12.6](#126-result-and-error)).
+6. **`Result[T]`** is the prelude's general-purpose result, `define Result[T] result [value: T, err: Error]`, marked `@must_use`. Nothing about it is special; it is an ordinary result declaration ([§12.7](#127-result-and-error)).
 
 `result` is a contextual word; `let result = 1` is fine.
 
@@ -1159,6 +1161,7 @@ An attribute is `@name` or `@name(args)` written before a declaration (or a stru
 | `@deprecated`, `@deprecated("message")` | declaration | each use produces a warning (with the message, if given) |
 | `@inline`, `@noinline` | function, method | request or forbid inlining; no semantic effect |
 | `@packed` | struct | lay fields out without padding (same as `define packed`) |
+| `@derive(I, ...)` | struct, enum | generate the methods of `Equatable`, `Comparable`, `Hashable`, `Copyable`, or `Printable` ([§12.2](#122-deriving-methods)) |
 | `@lang("hook")` | prelude declaration | binds a declaration to a language feature ([§12.1](#121-core-interfaces)); reserved for `std/core` |
 
 An attribute on a kind of declaration it does not apply to is an error.
@@ -1178,7 +1181,7 @@ A package that declares a top-level `main` is a program; one that doesn't is a l
 > **At a glance**
 > - Operands are evaluated left to right, once.
 > - Integer arithmetic wraps; division by zero and out-of-range shifts trap.
-> - `==` and `<` work on numbers, strings, and types that implement `Equatable` / `Comparable`; plain structs and enums get `==` automatically.
+> - `==` and `<` work on numbers, strings, and types that implement `Equatable` / `Comparable`; structs and enums get them from `@derive` or a hand-written method.
 > - `xs[i]` traps when out of range; `xs.get(i)` returns `?T`. `m[k]` on a map is always `?V`.
 > - `a?.b` reaches through an optional; `x ?? fallback` supplies a default for an optional or a result.
 
@@ -1247,12 +1250,11 @@ On numbers, `+` and `+=` are the built-in operations above. On any other type, `
 
 - numbers, `bool`, `char`, and `string` (byte-wise);
 - optionals of equatable types (`none == none`; `x? == none` tests absence);
-- enums and results whose payloads support equality, compared variant and payload;
-- tuples, and plain structs, compared field by field;
+- tuples, compared element by element;
 - distinct types whose base supports equality;
 - any type with an `eq: (self, other: Self) bool` method (`Equatable`), or with a `cmp` method (`a == b` exactly when `a.cmp(b) == 0`).
 
-Lists, sets, maps, and structs with resource fields have no `==` unless they define `eq`.
+Structs, enums, and results have `==` only through such a method, written by hand or by `@derive(Equatable)` ([§12.2](#122-deriving-methods)). Lists, sets, and maps have no `==`.
 
 `<`, `<=`, `>`, `>=` require a type that supports ordering: numbers, `char`, `string` (byte-wise lexicographic), and types with a `cmp: (self, other: Self) int` method (`Comparable`), which returns a negative number, zero, or a positive number. `bool` and enums are not ordered.
 
@@ -1329,7 +1331,7 @@ A conversion is written as a call to the target type.
 | base → distinct · distinct → base | `UserId(5)` · `int(id)` | no change in representation |
 | concrete → interface | `Shape(circle)` | boxes the value ([§3.11](#311-interfaces)) |
 
-Converting to `string` is `.to_string()` or interpolation. Parsing a string is `parse_int`, `parse_float`, or `std/strconv` ([§12.2](#122-universe-functions)).
+Converting to `string` is `.to_string()` or interpolation. Parsing a string is `parse_int`, `parse_float`, or `std/strconv` ([§12.3](#123-universe-functions)).
 
 ### 5.11 Blocks
 
@@ -1715,7 +1717,7 @@ A field can be moved out only of an `own self` receiver, and doing so consumes `
 
 **Moves and control flow.** If a variable is moved on some paths and not others, it counts as moved afterwards and cannot be used, but it is still destroyed correctly on the paths where it was not moved. A moved `let` variable may be assigned a new value, which makes it usable again. A path that ends in an unwind or a panic does not count: moving `s` and then leaving with `func <-` leaves `s` usable after the `if`. Inside a loop body, a variable declared outside the loop may be moved only if every path through the body assigns it again before the next iteration.
 
-**Copying.** `.copy()` duplicates a resource deeply. All plain types, strings, collections of `Copyable` elements, and structs and enums whose parts are `Copyable` (and that have no `Drop`) provide it; other types may define `copy` themselves ([§12.1](#121-core-interfaces)).
+**Copying.** `.copy()` duplicates a resource deeply. All plain types, strings, tuples and collections of `Copyable` elements provide it. A non-plain struct or enum provides it only through a `copy` method, written by hand or by `@derive(Copyable)` ([§12.2](#122-deriving-methods)).
 
 ### 7.3 Parameter modes
 
@@ -1924,7 +1926,7 @@ Library code must not panic on bad external input.
 
 ### 9.2 Results
 
-The language-level rules for result types are in [§3.9](#39-results) (declaration and construction), [§6.6](#66-result-chains) (chains), [§5.8](#58-optional-chaining-and-fallback) (`??`), and [§6.2](#62-if) (`if(r! as v)`). The standard `Result[T]` and `Error` types, including error chains, codes, and traces, are in [§12.6](#126-result-and-error).
+The language-level rules for result types are in [§3.9](#39-results) (declaration and construction), [§6.6](#66-result-chains) (chains), [§5.8](#58-optional-chaining-and-fallback) (`??`), and [§6.2](#62-if) (`if(r! as v)`). The standard `Result[T]` and `Error` types, including error chains, codes, and traces, are in [§12.7](#127-result-and-error).
 
 A typical function that propagates failures:
 
@@ -2146,7 +2148,34 @@ The prelude also binds `list`, `array`, `set`, `map`, and `range` hooks to the t
 
 `MapEntry[K, V]` is a struct with fields `key` and `value`, used when iterating and collecting maps.
 
-### 12.2 Universe functions
+### 12.2 Deriving methods
+
+`@derive(I, ...)` on a struct or enum writes the methods of the listed interfaces as ordinary Lowlight methods, checked like hand-written ones. It is the only way, besides writing the method, for a struct or enum to get them.
+
+| Interface | Generated method |
+|---|---|
+| `Equatable` | `eq`: every field (or the variant and its payload) compares equal |
+| `Comparable` | `cmp`: fields in declaration order; for enums, variants in declaration order, then the payload |
+| `Hashable` | `hash`: combines the hashes of every field (or the variant and its payload) |
+| `Copyable` | `copy`: copies every field (or the payload) |
+| `Printable` | `to_string`: `Point[x: 1, y: 2]` for structs, `Shape.circle(1.5)` and `Level.high` for enums |
+
+```lowlight
+@derive(Equatable, Hashable, Printable)
+define Point struct [
+	x: int,
+	y: int,
+]
+```
+
+Rules:
+
+1. Every field or payload must support the interface; otherwise `@derive` is an error naming the field.
+2. On a generic type, a derived method exists only for the instances whose fields support it: with `@derive(Equatable)` on `Box[T]`, `Box[int]` has `eq` and `Box[File]` does not.
+3. A type may not both derive an interface and define its method by hand.
+4. Tuples are not declared, so they cannot use `@derive`; they support `==`, hashing, copying, and printing whenever their elements do ([§3.6](#36-collections)).
+
+### 12.3 Universe functions
 
 These are built into the language and need no import.
 
@@ -2173,7 +2202,7 @@ The prelude adds these ordinary functions:
 The parsers accept exactly a number: an optional sign, digits (and a `0x`, `0b`, or `0o` prefix for integers; a fraction, exponent, `inf`, or `nan` for floats). They return `none` for anything else, including surrounding whitespace (call `s.trim()` first to accept it) and values out of range: an integer outside `int`, or a finite decimal too large for a `float` (`"1e400"`). Decimals too small to represent round to a signed zero. `parse_float` is correctly rounded.
 | `join_strings(parts, sep)` | `string` |
 
-### 12.3 Methods on primitive types
+### 12.4 Methods on primitive types
 
 | On | Methods |
 |---|---|
@@ -2181,7 +2210,7 @@ The parsers accept exactly a number: an optional sign, digits (and a `0x`, `0b`,
 | `float` | `to_exp(precision)` |
 | `char` | `is_digit()`, `is_alpha()`, `is_alnum()`, `is_whitespace()`, `to_int()` (more in `std/chars`) |
 
-### 12.4 Strings and characters
+### 12.5 Strings and characters
 
 | Method | Type | Meaning |
 |---|---|---|
@@ -2203,7 +2232,7 @@ The parsers accept exactly a number: an optional sign, digits (and a `0x`, `0b`,
 
 `std/strings`, `std/strconv`, and `std/strfmt` add many more ([§13](#13-the-standard-library)).
 
-### 12.5 Collections
+### 12.6 Collections
 
 **List** `[T]`:
 
@@ -2229,7 +2258,7 @@ The parsers accept exactly a number: an optional sign, digits (and a `0x`, `0b`,
 
 Sorting and searching are in `std/sort`, which adds methods such as `sort`, `sort_by`, `binary_search`, and `reverse` to lists and arrays.
 
-### 12.6 Result and Error
+### 12.7 Result and Error
 
 ```lowlight
 @must_use
@@ -2927,7 +2956,7 @@ ChainEnd    = "default" [ FailureCases ] ":" Body
 | `result` | `define Name result [...]` |
 | `packed` | `define packed Name struct [...]` |
 
-**Predeclared names**, which are not keywords: the primitive types (`int`, `i8`…`u64`, `float`, `f32`, `f64`, `bool`, `char`, `string`), `void`, `never`, `ref`, `ptr`, the universe functions ([§12.2](#122-universe-functions)), and every name exported by the prelude ([§12](#12-the-prelude)).
+**Predeclared names**, which are not keywords: the primitive types (`int`, `i8`…`u64`, `float`, `f32`, `f64`, `bool`, `char`, `string`), `void`, `never`, `ref`, `ptr`, the universe functions ([§12.3](#123-universe-functions)), and every name exported by the prelude ([§12](#12-the-prelude)).
 
 ## Appendix C: Operator Precedence
 

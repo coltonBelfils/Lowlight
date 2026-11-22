@@ -4,6 +4,8 @@
 
 import "std/pool"
 
+// `pool.get` returns a copy, so a task must be copyable.
+@derive(Copyable)
 define Task struct [
 	title: string,
 	done: bool,

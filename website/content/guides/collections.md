@@ -138,4 +138,4 @@ The prelude's `Iterator[T]` and `Iterable[T]` interfaces describe this protocol,
 
 - `std/sort`: `sort`, `sort_by`, `stable_sort`, `binary_search`, `lower_bound`, `upper_bound`, `reverse`, `is_sorted`, and sorted views of sets and map keys.
 - `std/strings`: `join`, `split_whitespace`, `lines`, and more for lists of strings.
-- [The prelude reference](/spec/the-prelude.html#125-collections) lists every built-in collection method.
+- [The prelude reference](/spec/the-prelude.html#126-collections) lists every built-in collection method.

@@ -141,6 +141,7 @@ func TestWhenInContainmentPatternsE2E(t *testing.T) {
 	src := `
 import "std/core"
 
+@derive(Equatable)
 define Pt struct [
     x: int,
     y: int,

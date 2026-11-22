@@ -72,7 +72,7 @@ bind main = (): {
 costs $19.99
 ```
 
-Plain structs and enums also get `==` automatically, comparing field by field.
+Structs and enums can also get these methods written for them with `@derive(Equatable, Printable)`, which compares and prints field by field ([Deriving methods](types.md#deriving-methods)).
 
 ## Generic functions
 

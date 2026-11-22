@@ -47,11 +47,28 @@ func (a *Analyzer) setType(elem types.Type, span diag.Span) types.Type {
 		a.Rep.Errorf(span, "set type `#[%s]` requires std/core `Set` (`@lang(\"set\")`)", elem.String())
 		return types.TypeInvalid
 	}
+	a.requireEquatable(elem, span, "set element type")
 	st := a.instantiateStruct(a.Prog.GenStructSet, []types.Type{elem}, span)
 	if st == nil {
 		return types.TypeInvalid
 	}
 	return st
+}
+
+// requireEquatable reports, at the place a set or map type is written, an element or key type
+// that has no `==` (sets and maps compare keys after hashing them). Before methods exist (while
+// signatures and fields are resolved) the check waits for the body pass.
+func (a *Analyzer) requireEquatable(t types.Type, span diag.Span, context string) {
+	if _, isTP := t.(*types.TypeParamVar); isTP || t == types.TypeInvalid || a.Prog.IfaceEquatable == nil {
+		return
+	}
+	if !a.inBodyPass {
+		a.deferredIfaceChecks = append(a.deferredIfaceChecks, deferredIfaceCheck{Concrete: t, Iface: a.Prog.IfaceEquatable, Span: span, Context: context})
+		return
+	}
+	if !a.supportsEq(t) {
+		a.Rep.Errorf(span, "type %s does not satisfy interface %s (%s)", t.String(), a.Prog.IfaceEquatable.Name, context)
+	}
 }
 
 // mapType returns the map type `#[k: v]`: the std/core `Map[k, v]` struct.
@@ -60,6 +77,7 @@ func (a *Analyzer) mapType(k, v types.Type, span diag.Span) types.Type {
 		a.Rep.Errorf(span, "map type `#[%s: %s]` requires std/core `Map` (`@lang(\"map\")`)", k.String(), v.String())
 		return types.TypeInvalid
 	}
+	a.requireEquatable(k, span, "map key type")
 	st := a.instantiateStruct(a.Prog.GenStructMap, []types.Type{k, v}, span)
 	if st == nil {
 		return types.TypeInvalid
