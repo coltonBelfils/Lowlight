@@ -2188,7 +2188,7 @@ func (g *llvmEmitter) emitNetAndTLSRuntime() {
 
 	fns := []string{
 		"ll_net_set_timeout", "ll_net_tcp_listen", "ll_net_tcp_port",
-		"ll_net_tcp_peer_port", "ll_net_tcp_peer_ipv4",
+		"ll_net_tcp_peer_port", "ll_net_tcp_peer_ipv4", "ll_net_tcp_peer_ipv6_group",
 		"ll_net_tcp_accept", "ll_net_tcp_connect", "ll_net_send_all",
 		"ll_net_recv", "ll_net_close", "ll_net_shutdown", "ll_net_socketpair",
 		"ll_tls_init", "ll_tls_available", "ll_tls_client_handshake",
@@ -2325,6 +2325,7 @@ chk_star:
 use_null_host:
     br label %%do_gai
 use_given_host:
+    store i32 0, ptr %%p_fam, align 4
     br label %%do_gai
 do_gai:
     %%bind_host = phi ptr [ null, %%use_null_host ], [ %%host, %%use_given_host ]
@@ -2499,6 +2500,46 @@ extract:
     %%o2 = or i64 %%o1, %%s2
     %%addr = or i64 %%o2, %%w3
     ret i64 %%addr
+}
+
+; Group idx (0..7) of a connected socket's IPv6 peer address, or -1 when the peer is
+; not IPv6 (a sockaddr_in6 is 28 bytes; sin6_addr starts at byte offset 8).
+define internal i64 @ll_net_tcp_peer_ipv6_group(i64 %%fd, i64 %%idx) {
+entry:
+    %%bad_fd = icmp slt i64 %%fd, 0
+    %%bad_lo = icmp slt i64 %%idx, 0
+    %%bad_hi = icmp sgt i64 %%idx, 7
+    %%bad0 = or i1 %%bad_fd, %%bad_lo
+    %%bad = or i1 %%bad0, %%bad_hi
+    br i1 %%bad, label %%ret_err, label %%query
+ret_err:
+    ret i64 -1
+query:
+    %%sa = alloca [128 x i8], align 8
+    %%len_slot = alloca i32, align 4
+    call void @llvm.memset.p0.i64(ptr %%sa, i8 0, i64 128, i1 false)
+    store i32 128, ptr %%len_slot, align 4
+    %%fd32 = trunc i64 %%fd to i32
+    %%rc = call i32 @getpeername(i32 %%fd32, ptr %%sa, ptr %%len_slot)
+    %%ok = icmp eq i32 %%rc, 0
+    br i1 %%ok, label %%chk_len, label %%ret_err
+chk_len:
+    %%got = load i32, ptr %%len_slot, align 4
+    %%is_v6 = icmp eq i32 %%got, 28
+    br i1 %%is_v6, label %%extract, label %%ret_err
+extract:
+    %%twice = shl i64 %%idx, 1
+    %%off_hi = add i64 %%twice, 8
+    %%off_lo = add i64 %%twice, 9
+    %%p_hi = getelementptr inbounds i8, ptr %%sa, i64 %%off_hi
+    %%p_lo = getelementptr inbounds i8, ptr %%sa, i64 %%off_lo
+    %%hi8 = load i8, ptr %%p_hi, align 1
+    %%lo8 = load i8, ptr %%p_lo, align 1
+    %%hi64 = zext i8 %%hi8 to i64
+    %%lo64 = zext i8 %%lo8 to i64
+    %%hi_sh = shl i64 %%hi64, 8
+    %%group = or i64 %%hi_sh, %%lo64
+    ret i64 %%group
 }
 
 define internal i64 @ll_net_tcp_accept(i64 %%listener_fd, i64 %%timeout_ms) {

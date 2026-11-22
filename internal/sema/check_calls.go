@@ -2283,7 +2283,7 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 			{Name: "port", Mode: types.ModeRead, Type: types.TypeInt},
 			{Name: "arg3", Mode: types.ModeRead, Type: types.TypeInt},
 		}, types.TypeInt)
-	case "sys_tcp_accept", "sys_net_set_timeout":
+	case "sys_tcp_accept", "sys_net_set_timeout", "sys_tcp_peer_ipv6_group":
 		return sysIntrinsic([]types.FuncParam{
 			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
 			{Name: "timeout_ms", Mode: types.ModeRead, Type: types.TypeInt},

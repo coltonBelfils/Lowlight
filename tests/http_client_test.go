@@ -62,13 +62,13 @@ bind main = (): {
 	let r_put = c.put("http://example.test/items/1?tag=v1", "application/json", "{\"ok\":true}").unwrap()
 	assert(r_put.status_code == 200)
 	assert(r_put.body.starts_with("PUT /items/1?tag=v1 HTTP/1.1\r\n"))
-	assert(r_put.body.contains("content-type: application/json\r\n"))
+	assert(r_put.body.contains("Content-Type: application/json\r\n"))
 	assert(r_put.body.ends_with("\r\n\r\n{\"ok\":true}"))
 
 	let r_patch = c.patch("http://example.test/items/1?tag=v2", "text/plain", "delta").unwrap()
 	assert(r_patch.status_code == 200)
 	assert(r_patch.body.starts_with("PATCH /items/1?tag=v2 HTTP/1.1\r\n"))
-	assert(r_patch.body.contains("content-type: text/plain\r\n"))
+	assert(r_patch.body.contains("Content-Type: text/plain\r\n"))
 	assert(r_patch.body.ends_with("\r\n\r\ndelta"))
 
 	let r_del = c.delete("http://example.test/items/1?tag=v3").unwrap()

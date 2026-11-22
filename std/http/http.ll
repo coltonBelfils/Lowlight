@@ -177,9 +177,9 @@ define Url struct [
 	raw: string,
 	// URL scheme such as `"http"` or `"https"`, or empty for relative paths.
 	scheme: string,
-	// Host and optional port string (`"example.com:8080"`), without any user information.
+	// Host and optional port as written (`"example.com:8080"`, `"[::1]:8080"`), without user information.
 	host: string,
-	// Hostname without port (`"example.com"`).
+	// Hostname without port or brackets (`"example.com"`, `"::1"`).
 	hostname: string,
 	// Port number, or the scheme's default port (see [`default_port`]) when omitted.
 	port: int,
@@ -223,7 +223,7 @@ bind Url.to_string = (self) string: {
 			if(self.password? as pw): out.push(":${url_encode(pw)}")
 			out.push("@")
 		}
-		out.push(self.hostname)
+		out.push(if(self.hostname.contains(":")): "[${self.hostname}]" else: self.hostname.copy())
 		if(self.port > 0 and self.port != default_port(self.scheme)): out.push(":${self.port}")
 	}
 	out.push(if(self.raw_path.is_empty()): self.path.copy() else: self.raw_path.copy())
@@ -365,7 +365,14 @@ bind parse_url = (raw: string) Result[Url]: {
 			} else: username = url_path_decode(userinfo)
 		}
 
-		if(host.index_of(":") as colon): {
+		if(host.starts_with("[")): {
+			// An IPv6 literal: `[addr]` or `[addr]:port`.
+			let close = host.index_of("]") ?? func <- err(Error.coded("invalid_url", "missing ']' in IPv6 host: $host"))
+			hostname = host[1..close]
+			let after = host[close + 1..]
+			if(after.starts_with(":")): port = parse_int(after[1..]) ?? scheme_port
+			else if(not after.is_empty()): func <- err(Error.coded("invalid_url", "unexpected text after IPv6 host: $host"))
+		} else if(host.index_of(":") as colon): {
 			hostname = host[0..colon]
 			port = parse_int(host[colon + 1..]) ?? scheme_port
 		} else: hostname = host.copy()
@@ -414,7 +421,154 @@ bind parse_url = (raw: string) Result[Url]: {
 }
 
 // ============================================================================
-// 3. HTTP Request
+// 3. Header Fields
+// ============================================================================
+
+// One HTTP header field: a name as written on the wire and its value.
+define HeaderField struct [
+	// Field name with its original capitalization (`"Content-Type"`).
+	name: string,
+	// Field value with surrounding whitespace removed.
+	value: string,
+]
+
+// An ordered list of HTTP header fields.
+//
+// Names compare case-insensitively (ASCII only, as RFC 9110 specifies), keep the spelling they
+// were set with, and may repeat: `Set-Cookie` and other list-valued fields keep every value
+// in order. Use [`Headers.get`] for the first value and [`Headers.values`] for all of them.
+define Headers struct [
+	_fields: [HeaderField]
+]
+
+// Creates an empty [`Headers`].
+bind Headers.new = () Headers: Headers[_fields: []]
+
+// Reports whether two header names are equal ignoring ASCII case.
+bind header_name_eq = (a: string, b: string) bool: {
+	if(a.len() != b.len()): func <- false
+	for(i in 0..a.len()): {
+		let x = a.byte_at(i)
+		let y = b.byte_at(i)
+		if(x == y): next <-
+		let lx = if(x >= 65 and x <= 90): x + 32 else: x
+		let ly = if(y >= 65 and y <= 90): y + 32 else: y
+		if(lx != ly): func <- false
+	}
+	true
+}
+
+// Returns the first value of field `name`, or `none` if it is absent.
+bind Headers.get = (self, name: string) ?string: {
+	for(f in self._fields): if(header_name_eq(f.name, name)): func <- f.value.copy()
+	none
+}
+
+// Returns every value of field `name`, in the order they appear.
+bind Headers.values = (self, name: string) [string]: for(f in self._fields) [string]: {
+	if(not header_name_eq(f.name, name)): next <-
+	f.value.copy()
+}
+
+// Reports whether field `name` is present.
+bind Headers.has = (self, name: string) bool: {
+	for(f in self._fields): if(header_name_eq(f.name, name)): func <- true
+	false
+}
+
+// Appends a field, keeping any existing fields with the same name.
+bind Headers.add = (&self, name: string, value: string): self._fields.push(HeaderField[name: name.copy(), value: value.copy()])
+
+// Sets field `name` to the single value `value`: the first existing field with that name is
+// updated in place and later ones are removed, or the field is appended if absent.
+bind Headers.set = (&self, name: string, value: string): {
+	let kept: [HeaderField] = []
+	let done = false
+	for(f in self._fields): {
+		if(not header_name_eq(f.name, name)): kept.push(f.copy())
+		else if(not done): {
+			kept.push(HeaderField[name: f.name.copy(), value: value.copy()])
+			done = true
+		}
+	}
+	if(not done): kept.push(HeaderField[name: name.copy(), value: value.copy()])
+	self._fields = own kept
+}
+
+// Removes every field named `name` and returns how many were removed.
+bind Headers.remove = (&self, name: string) int: {
+	let kept = for(f in self._fields) [HeaderField]: {
+		if(header_name_eq(f.name, name)): next <-
+		f.copy()
+	}
+	let removed = self._fields.len() - kept.len()
+	self._fields = own kept
+	removed
+}
+
+// Returns the number of fields, counting repeated names separately.
+bind Headers.len = (self) int: self._fields.len()
+
+// Reports whether there are no fields.
+bind Headers.is_empty = (self) bool: self._fields.is_empty()
+
+// Returns a copy of every field, in order.
+bind Headers.fields = (self) [HeaderField]: self._fields.copy()
+
+// Reports whether `name` is a valid field name: a non-empty RFC 9110 token.
+bind _is_token = (name: string) bool: {
+	if(name.is_empty()): func <- false
+	for(i in 0..name.len()): {
+		let b = name.byte_at(i)
+		let ok = (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or "!#\$%&'*+-.^_`|~".contains(string_from_byte(b))
+		if(not ok): func <- false
+	}
+	true
+}
+
+bind string_from_byte = (b: u8) string: {
+	let s = ""
+	s.push_byte(b)
+	s
+}
+
+// Parses header lines (each `Name: value`, without line terminators) into [`Headers`].
+//
+// Rejects field names that are not tokens, including names with whitespace before the colon,
+// which RFC 9112 forbids. A line starting with a space or tab continues the previous value
+// (obsolete line folding) and is joined with a single space.
+bind _parse_header_lines = (lines: [string], start: int) Result[Headers]: {
+	let h = Headers.new()
+	for(i, raw in lines): {
+		if(i < start): next <-
+		let line = if(raw.ends_with("\r")): raw[..raw.len() - 1] else: raw[..]
+		if(line.is_empty()): next <-
+		let first = line.byte_at(0)
+		if(first == 32 or first == 9): {
+			let n = h._fields.len()
+			if(n == 0): func <- err(Error.coded("malformed", "header continuation line before any field"))
+			h._fields[n - 1].value.push(" ${line.trim()}")
+			next <-
+		}
+		let colon = line.index_of(":") ?? func <- err(Error.coded("malformed", "header line without ':': $line"))
+		let name = line[..colon]
+		if(not _is_token(name)): func <- err(Error.coded("malformed", "invalid header field name '$name'"))
+		h.add(name, line[colon + 1..].trim())
+	}
+	value(h)
+}
+
+// Writes header fields as `Name: value` lines, removing CR, LF, and NUL bytes so values
+// cannot inject extra lines.
+bind _append_header_fields = (out: &string, headers: Headers):
+	for(f in headers._fields): {
+		let name = _strip_crlf(f.name)
+		if(name.is_empty()): next <-
+		out.push("$name: ${_strip_crlf(f.value)}\r\n")
+	}
+
+// ============================================================================
+// 4. HTTP Request
 // ============================================================================
 
 // HTTP request message constructed by callers or parsed off the wire by [`Server`].
@@ -427,13 +581,13 @@ define Request struct [
 	path: string,
 	// Protocol version string (defaults to `"HTTP/1.1"`).
 	proto: string,
-	// Lowercased HTTP header map.
-	headers: #[string: string],
+	// Header fields, in order (see [`Headers`]).
+	headers: Headers,
 	// Parsed URL query parameters.
 	query: #[string: string],
 	// Request payload body bytes as a string.
 	body: string,
-	// Client remote network address if populated.
+	// Client address on the server side (`"127.0.0.1:52000"`, `"[::1]:52000"`), or empty.
 	remote_addr: string,
 ]
 
@@ -452,9 +606,9 @@ bind Request.new = (method: string, raw_url: string, body: string) Request: {
 		query: #[],
 	]
 
-	let hdrs: #[string: string] = #[]
-	if(not u.host.is_empty()): hdrs["host"] = u.host.copy()
-	if(not body.is_empty()): hdrs["content-length"] = "${body.len()}"
+	let hdrs = Headers.new()
+	if(not u.host.is_empty()): hdrs.set("Host", u.host)
+	if(not body.is_empty()): hdrs.set("Content-Length", "${body.len()}")
 
 	Request[
 		method: method.to_upper(),
@@ -468,19 +622,17 @@ bind Request.new = (method: string, raw_url: string, body: string) Request: {
 	]
 }
 
-// Performs a case-insensitive header lookup for `name`, returning `none` if absent.
-bind Request.header = (self, name: string) ?string: {
-	let lower = name.to_lower()
-	let direct? = self.headers[lower]
-	if(direct? != none): func <- direct?
-	for(k, v in self.headers): if(k.to_lower() == lower): func <- v.copy()
-	none
-}
+// Returns the first value of header `name` (compared case-insensitively), or `none`.
+bind Request.header = (self, name: string) ?string: self.headers.get(name)
 
-// Sets header `name` (normalized to lowercase) to `value`.
-bind Request.set_header = (&self, name: string, value: string): {
-	self.headers[name.to_lower()] = value.copy()
-}
+// Returns every value of header `name`, in order.
+bind Request.header_values = (self, name: string) [string]: self.headers.values(name)
+
+// Sets header `name` to a single `value`, replacing any existing values.
+bind Request.set_header = (&self, name: string, value: string): self.headers.set(name, value)
+
+// Adds a value for header `name`, keeping existing values.
+bind Request.add_header = (&self, name: string, value: string): self.headers.add(name, value)
 
 // Returns the URL query parameter value for `name`, or `none` if absent.
 bind Request.query_param = (self, name: string) ?string: self.query[name]
@@ -498,19 +650,26 @@ bind _strip_crlf = (s: string) string: {
 	out
 }
 
-bind _append_sanitized_headers = (out: &string, headers: #[string: string]):
-	for(k, v in headers): {
-		let hk = _strip_crlf(k)
-		if(hk.is_empty()): next <-
-		let hv = _strip_crlf(v)
-		out.push("$hk: $hv\r\n")
+// Percent-encodes a decoded path for a request line: unreserved characters, `/`, and the
+// RFC 3986 sub-delimiters, `:`, and `@` stay as they are.
+bind _escape_path = (path: string) string: {
+	let out = ""
+	for(b in path.bytes()): {
+		let keep = _is_url_unreserved(b) or "/!\$&'()*+,;=:@".contains(string_from_byte(b))
+		if(keep): out.push_byte(b)
+		else: {
+			out.push("%")
+			out.push(_byte_to_hex_str(b))
+		}
 	}
+	out
+}
 
 // Serializes the request into HTTP/1.1 wire bytes (request line, CRLF headers, and body).
 bind Request.format = (self) string: {
 	let out = ""
 	let m = _strip_crlf(if(self.method.is_empty()): "GET" else: self.method.copy())
-	let target = _strip_crlf(if(self.path.is_empty()): "/" else: self.path.copy())
+	let target = _strip_crlf(if(self.path.is_empty()): "/" else: _escape_path(self.path))
 	if(not self.query.is_empty()): {
 		let first = not target.contains("?")
 		for(k, v in self.query): {
@@ -525,7 +684,7 @@ bind Request.format = (self) string: {
 	}
 	let pr = _strip_crlf(if(self.proto.is_empty()): "HTTP/1.1" else: self.proto.copy())
 	out.push("$m $target $pr\r\n")
-	_append_sanitized_headers(&out, self.headers)
+	_append_header_fields(&out, self.headers)
 	out.push("\r\n")
 	if(not self.body.is_empty()): out.push(self.body)
 	out
@@ -577,17 +736,7 @@ bind Request.parse = (raw: string) Result[Request]: {
 		query: #[],
 	]
 
-	let headers: #[string: string] = #[]
-	for(i in 1..lines.len()): {
-		let line = (lines.get(i) ?? "").trim()
-		if(line.is_empty()): next <-
-		let colon? = line.index_of(":")
-		if(colon?): {
-			let k = line[0..colon].trim().to_lower()
-			let v = line[colon + 1..line.len()].trim()
-			headers[k] = v
-		}
-	}
+	let headers = _parse_header_lines(lines, 1): default err(own e): func <- err(e)
 
 	value(Request[
 		method: method,
@@ -602,7 +751,7 @@ bind Request.parse = (raw: string) Result[Request]: {
 }
 
 // ============================================================================
-// 4. HTTP Response
+// 5. HTTP Response
 // ============================================================================
 
 // HTTP response message produced by handlers ([`ResponseWriter.finish`]) or returned by [`Client.do`].
@@ -613,17 +762,17 @@ define Response struct [
 	status: string,
 	// Protocol version string (e.g. `"HTTP/1.1"`).
 	proto: string,
-	// Lowercased response header map.
-	headers: #[string: string],
+	// Header fields, in order (see [`Headers`]).
+	headers: Headers,
 	// Response payload body.
 	body: string,
 ]
 
 // Constructs a `"200"`/status-text HTTP/1.1 [`Response`] with `body` and default `"text/plain; charset=utf-8"` content type.
 bind Response.new = (status_code: int, body: string) Response: {
-	let hdrs: #[string: string] = #[]
-	hdrs["content-length"] = "${body.len()}"
-	hdrs["content-type"] = "text/plain; charset=utf-8"
+	let hdrs = Headers.new()
+	hdrs.set("Content-Length", "${body.len()}")
+	hdrs.set("Content-Type", "text/plain; charset=utf-8")
 
 	Response[
 		status_code: status_code,
@@ -634,19 +783,17 @@ bind Response.new = (status_code: int, body: string) Response: {
 	]
 }
 
-// Performs a case-insensitive header lookup for `name`, returning `none` if absent.
-bind Response.header = (self, name: string) ?string: {
-	let lower = name.to_lower()
-	let direct? = self.headers[lower]
-	if(direct? != none): func <- direct?
-	for(k, v in self.headers): if(k.to_lower() == lower): func <- v.copy()
-	none
-}
+// Returns the first value of header `name` (compared case-insensitively), or `none`.
+bind Response.header = (self, name: string) ?string: self.headers.get(name)
 
-// Sets response header `name` (normalized to lowercase) to `value`.
-bind Response.set_header = (&self, name: string, value: string): {
-	self.headers[name.to_lower()] = value.copy()
-}
+// Returns every value of header `name`, in order (for example, every `Set-Cookie`).
+bind Response.header_values = (self, name: string) [string]: self.headers.values(name)
+
+// Sets header `name` to a single `value`, replacing any existing values.
+bind Response.set_header = (&self, name: string, value: string): self.headers.set(name, value)
+
+// Adds a value for header `name`, keeping existing values.
+bind Response.add_header = (&self, name: string, value: string): self.headers.add(name, value)
 
 // Reports whether `status_code` is in the 2xx success range (`200..300`).
 bind Response.is_success = (self) bool: self.status_code >= 200 and self.status_code < 300
@@ -661,13 +808,15 @@ bind Response.format = (self) string: {
 	let code = if(self.status_code <= 0): 200 else: self.status_code
 	let msg = _strip_crlf(if(self.status.is_empty()): status_text(code) else: self.status.copy())
 	out.push("$pr $code $msg\r\n")
-	_append_sanitized_headers(&out, self.headers)
+	_append_header_fields(&out, self.headers)
 	out.push("\r\n")
 	if(not self.body.is_empty()): out.push(self.body)
 	out
 }
 
 // Parses raw HTTP/1.1 wire bytes into a [`Response`], failing if headers or status line are malformed.
+//
+// A `Transfer-Encoding: chunked` body is decoded, and its trailer fields are added to the headers.
 bind Response.parse = (raw: string) Result[Response]: {
 	let header_end? = raw.index_of("\r\n\r\n")
 	let sep_len = 4
@@ -707,16 +856,15 @@ bind Response.parse = (raw: string) Result[Response]: {
 		status_msg = msg_parts.join(" ")
 	} else: status_msg = status_text(status_code)
 
-	let headers: #[string: string] = #[]
-	for(i in 1..lines.len()): {
-		let line = (lines.get(i) ?? "").trim()
-		if(line.is_empty()): next <-
-		let colon? = line.index_of(":")
-		if(colon?): {
-			let k = line[0..colon].trim().to_lower()
-			let v = line[colon + 1..line.len()].trim()
-			headers[k] = v
-		}
+	let headers = _parse_header_lines(lines, 1): default err(own e): func <- err(e)
+	let body = body_part.copy()
+	if(_is_chunked(headers.get("transfer-encoding") ?? "")): {
+		let decoded = _scan_chunked(body_part):
+			when incomplete: func <- err(Error.coded("malformed", "chunked body is incomplete"))
+			default malformed(why): func <- err(Error.coded("malformed", "malformed chunked body: $why"))
+		let text, _, trailers = unpack decoded
+		for(f in trailers): headers.add(f.name, f.value)
+		body = own text
 	}
 
 	value(Response[
@@ -724,12 +872,12 @@ bind Response.parse = (raw: string) Result[Response]: {
 		status: status_msg,
 		proto: proto,
 		headers: headers,
-		body: body_part.copy(),
+		body: body,
 	])
 }
 
 // ============================================================================
-// 5. ResponseWriter (for HTTP handlers)
+// 6. ResponseWriter (for HTTP handlers)
 // ============================================================================
 
 // Incremental builder used by HTTP server handlers to assemble an outgoing [`Response`].
@@ -740,8 +888,8 @@ bind Response.parse = (raw: string) Result[Response]: {
 define ResponseWriter struct [
 	// HTTP status code recorded for the response (defaults to `200`).
 	status_code: int,
-	// Lowercased response header map.
-	headers: #[string: string],
+	// Header fields, in order (see [`Headers`]).
+	headers: Headers,
 	// Accumulated response body payload.
 	body: string,
 	_header_written: bool,
@@ -750,7 +898,7 @@ define ResponseWriter struct [
 // Creates a blank [`ResponseWriter`] initialized to `200 OK` with empty headers and body.
 bind ResponseWriter.new = () ResponseWriter: ResponseWriter[
 	status_code: 200,
-	headers: #[],
+	headers: Headers.new(),
 	body: "",
 	_header_written: false,
 ]
@@ -766,13 +914,15 @@ bind ResponseWriter.write_header = (&self, code: int):
 		self._header_written = true
 	}
 
-// Sets response header `key` (normalized to lowercase) to a copy of `val`.
-bind ResponseWriter.set_header = (&self, key: string, val: string): {
-	self.headers[key.to_lower()] = val.copy()
-}
+// Sets response header `key` to a single value `val`, replacing any existing values.
+bind ResponseWriter.set_header = (&self, key: string, val: string): self.headers.set(key, val)
 
-// Returns the value of response header `key` using case-insensitive lookup, or `none`.
-bind ResponseWriter.header = (self, key: string) ?string: self.headers[key.to_lower()]
+// Adds a value for response header `key`, keeping existing values (for example, several
+// `Set-Cookie` fields).
+bind ResponseWriter.add_header = (&self, key: string, val: string): self.headers.add(key, val)
+
+// Returns the first value of response header `key` (compared case-insensitively), or `none`.
+bind ResponseWriter.header = (self, key: string) ?string: self.headers.get(key)
 
 // Appends `text` to the response body, committing status `200` if no status was set yet.
 bind ResponseWriter.write = (&self, text: string): {
@@ -786,8 +936,8 @@ bind ResponseWriter.write = (&self, text: string): {
 // `"text/plain; charset=utf-8"`. Status codes `<= 0` default to `200`.
 bind ResponseWriter.finish = (self) Response: {
 	let hdrs = self.headers.copy()
-	if(hdrs["content-length"] == none): hdrs["content-length"] = "${self.body.len()}"
-	if(hdrs["content-type"] == none and not self.body.is_empty()): hdrs["content-type"] = "text/plain; charset=utf-8"
+	if(not hdrs.has("content-length")): hdrs.set("Content-Length", "${self.body.len()}")
+	if(not hdrs.has("content-type") and not self.body.is_empty()): hdrs.set("Content-Type", "text/plain; charset=utf-8")
 
 	Response[
 		status_code: if(self.status_code > 0): self.status_code else: 200,
@@ -799,7 +949,7 @@ bind ResponseWriter.finish = (self) Response: {
 }
 
 // ============================================================================
-// 6. Router & Multiplexer (ServeMux)
+// 7. Router & Multiplexer (ServeMux)
 // ============================================================================
 
 define _Route struct [
@@ -884,86 +1034,214 @@ bind ServeMux.serve_http = (self, req: Request, res: &ResponseWriter): {
 }
 
 // ============================================================================
-// 7. Internal Socket Message Reading Helper
+// 8. Internal Socket Message Reading Helper
 // ============================================================================
 
-bind _read_http_message = (fd: int, timeout_ms: int) Result[string]: {
-	let buf = ""
-	let chunk_size = 4096
-	unsafe {
-		let raw_chunk = alloc_raw[u8](chunk_size)
-		let total_needed = -1
-		let sep_found = false
+// Reads HTTP/1.1 messages from a socket or TLS session, one at a time.
+//
+// Bytes received past the end of one message stay in `buf` for the next one, so a client
+// may pipeline several requests on one connection. Framing follows RFC 9112: a chunked
+// `Transfer-Encoding` wins over `Content-Length`; responses to `HEAD`, and `1xx`, `204`,
+// and `304` responses, have no body; a request without either has no body; a response
+// without either runs until the connection closes.
+define _MessageReader struct [
+	fd: int,
+	tls: ptr[u8],
+	buf: string,
+	eof: bool,
+]
 
-		for(true): {
-			let n = sys_net_recv(fd, raw_chunk, chunk_size, timeout_ms)
-			if(n < 0): {
-				free_raw(raw_chunk)
-				if(n == -2): func <- err(
-					Error.coded("timeout", "timeout waiting for HTTP data")
-				)
-				func <- err(Error.new("socket error during recv"))
+bind _MessageReader.plain = (fd: int) _MessageReader:
+	_MessageReader[fd: fd, tls: unsafe null_ptr[u8](), buf: "", eof: false]
+
+bind _MessageReader.over_tls = (session: ptr[u8]) _MessageReader:
+	_MessageReader[fd: -1, tls: session, buf: "", eof: false]
+
+// Reads more bytes into `buf`, returning how many arrived (`0` at end of stream).
+bind _MessageReader.fill = (&self, timeout_ms: int) Result[int]: {
+	if(self.eof): func <- value(0)
+	let chunk_size = 8192
+	let n = unsafe {
+		let chunk = alloc_raw[u8](chunk_size)
+		let got = if(is_null(self.tls)): sys_net_recv(self.fd, chunk, chunk_size, timeout_ms)
+		else: sys_tls_recv(self.tls, chunk, chunk_size, timeout_ms)
+		if(got > 0): self.buf.push_bytes(chunk, got)
+		free_raw(chunk)
+		got
+	}
+	if(n == -2): func <- err(Error.coded("timeout", "timeout waiting for HTTP data"))
+	if(n < 0): func <- err(Error.new("connection error while reading HTTP data"))
+	if(n == 0): self.eof = true
+	value(n)
+}
+
+// Reports whether a `Transfer-Encoding` value ends with the `chunked` coding.
+bind _is_chunked = (te: string) bool: {
+	let codings = te.split(",")
+	if(codings.is_empty()): func <- false
+	codings[codings.len() - 1].trim().to_lower() == "chunked"
+}
+
+// The outcome of scanning a chunked body: the decoded body, the number of bytes it occupied
+// (including the final chunk and trailers), and its trailer fields.
+define _ChunkScan result [
+	value: +[string, int, [HeaderField]],
+	incomplete,
+	malformed: string,
+]
+
+// Returns the index of the next `\n` at or after `from`, or `none`.
+bind _line_end = (data: string, from: int) ?int: {
+	for(i in from..data.len()): if(data.byte_at(i) == 10): func <- i
+	none
+}
+
+// Decodes a chunked body that starts at the beginning of `data`.
+bind _scan_chunked = (data: string) _ChunkScan: {
+	let body = ""
+	let pos = 0
+	while(true): {
+		let eol = _line_end(data, pos) ?? func <- incomplete
+		let size_line = data[pos..eol].trim()
+		let hex = if(size_line.index_of(";") as semi): size_line[..semi].trim() else: size_line.copy()
+		let size = parse_int_radix(hex, 16) ?? func <- malformed("invalid chunk size '$hex'")
+		if(size < 0): func <- malformed("negative chunk size")
+		pos = eol + 1
+		if(size == 0): {
+			let trailers: [HeaderField] = []
+			while(true): {
+				let tl_end = _line_end(data, pos) ?? func <- incomplete
+				let line = data[pos..tl_end].trim()
+				pos = tl_end + 1
+				if(line.is_empty()): while <-
+				if(line.index_of(":") as c): trailers.push(HeaderField[name: line[..c].trim(), value: line[c + 1..].trim()])
 			}
-			if(n == 0): for <-
-			buf.push_bytes(raw_chunk, n)
-
-			if(not sep_found): {
-				let sep? = buf.index_of("\r\n\r\n")
-				if(sep? != none): {
-					sep_found = true
-					let header_end = sep? ?? 0
-					let header_text = buf[0..header_end].to_lower()
-					let cl_idx? = header_text.index_of("content-length:")
-					if(cl_idx? != none): {
-						let cl_start = (cl_idx? ?? 0) + 15
-						let rest = header_text[cl_start..header_text.len()]
-						let line_end? = rest.index_of("\r\n")
-						let cl_val_str = if(line_end? != none): rest[0..(line_end? ?? 0)].trim()
-						else: rest.trim()
-						let cl? = parse_int(cl_val_str)
-						if(cl? != none): total_needed = header_end + 4 + (cl? ?? 0)
-					} else: {
-						let first_line_end? = header_text.index_of("\r\n")
-						let first_line = if(first_line_end? != none): header_text[0..(first_line_end? ?? 0)]
-						else: header_text
-						if(first_line.starts_with("get ") or first_line.starts_with("head ") or first_line.starts_with(
-							"delete "
-						) or first_line.starts_with("options ")): total_needed = header_end + 4
-					}
-				} else: {
-					let lf_sep? = buf.index_of("\n\n")
-					if(lf_sep? != none): {
-						sep_found = true
-						let header_end = lf_sep? ?? 0
-						let header_text = buf[0..header_end].to_lower()
-						let cl_idx? = header_text.index_of("content-length:")
-						if(cl_idx? != none): {
-							let cl_start = (cl_idx? ?? 0) + 15
-							let rest = header_text[cl_start..header_text.len()]
-							let line_end? = rest.index_of("\n")
-							let cl_val_str = if(line_end? != none): rest[0..(line_end? ?? 0)].trim()
-							else: rest.trim()
-							let cl? = parse_int(cl_val_str)
-							if(cl? != none): total_needed = header_end + 2 + (cl? ?? 0)
-						} else: {
-							let first_line_end? = header_text.index_of("\n")
-							let first_line = if(first_line_end? != none): header_text[0..(first_line_end? ?? 0)]
-							else: header_text
-							if(first_line.starts_with("get ") or first_line.starts_with("head ") or first_line.starts_with(
-								"delete "
-							) or first_line.starts_with("options ")): total_needed = header_end + 2
-						}
-					}
-				}
-			}
-
-			if(total_needed >= 0 and buf.len() >= total_needed): for <-
+			func <- value(+[own body, pos, own trailers])
 		}
+		if(data.len() < pos + size + 1): func <- incomplete
+		body.push(data[pos..pos + size])
+		pos += size
+		if(data.byte_at(pos) == 13): {
+			if(data.len() < pos + 2): func <- incomplete
+			if(data.byte_at(pos + 1) != 10): func <- malformed("missing line break after chunk data")
+			pos += 2
+		} else if(data.byte_at(pos) == 10): pos += 1
+		else: func <- malformed("missing line break after chunk data")
+	}
+	incomplete
+}
 
-		free_raw(raw_chunk)
+// Returns the status code from a response status line, or `0`.
+bind _status_of = (status_line: string) int: {
+	let parts = status_line.trim().split(" ")
+	if(parts.len() < 2): func <- 0
+	parse_int(parts[1]) ?? 0
+}
+
+// Reads one complete message and returns it re-framed with a `Content-Length` body.
+//
+// `request_method` is empty when reading a request, and the method of the request being
+// answered when reading a response. Chunked bodies are decoded (trailers become header
+// fields), and the rest of the buffer is kept for the next message.
+//
+// # Errors
+// A `"eof"` error when the stream ends before a message starts, `"timeout"` when no data
+// arrives in time, and `"malformed"` for invalid framing.
+bind _MessageReader.read_message = (&self, request_method: string, timeout_ms: int) Result[string]: {
+	// Skip blank lines that may precede a request line.
+	while(self.buf.starts_with("\r\n") or self.buf.starts_with("\n")):
+		self.buf = if(self.buf.starts_with("\r\n")): self.buf[2..].copy() else: self.buf[1..].copy()
+
+	// 1. The header block.
+	let head_end = -1
+	let sep_len = 0
+	while(head_end < 0): {
+		let crlf = self.buf.index_of("\r\n\r\n") ?? -1
+		let lf = self.buf.index_of("\n\n") ?? -1
+		if(crlf >= 0 and (lf < 0 or crlf <= lf)): {
+			head_end = crlf
+			sep_len = 4
+			while <-
+		}
+		if(lf >= 0): {
+			head_end = lf
+			sep_len = 2
+			while <-
+		}
+		let n = self.fill(timeout_ms): default err(own e): func <- err(e)
+		if(n == 0): {
+			if(self.buf.trim().is_empty()): func <- err(Error.coded("eof", "connection closed before an HTTP message"))
+			func <- err(Error.coded("malformed", "connection closed in the middle of HTTP headers"))
+		}
+	}
+	let lines = self.buf[..head_end].split("\n")
+	let start_line = lines[0].trim()
+	let fields = _parse_header_lines(lines, 1): default err(own e): func <- err(e)
+	let body_start = head_end + sep_len
+
+	// 2. Decide how the body is framed.
+	let is_response = not request_method.is_empty()
+	let status = if(is_response): _status_of(start_line) else: 0
+	let no_body = is_response and (request_method.to_upper() == "HEAD" or (status >= 100 and status < 200) or status == 204 or status == 304)
+	let chunked = _is_chunked(fields.get("transfer-encoding") ?? "")
+	let body = ""
+	let consumed = body_start
+	if(no_body): {}
+	else if(chunked): {
+		while(true): {
+			let decoded = _scan_chunked(self.buf[body_start..]):
+				when incomplete: {
+					let n = self.fill(timeout_ms): default err(own e): func <- err(e)
+					if(n == 0): func <- err(Error.coded("malformed", "connection closed in the middle of a chunked body"))
+					next <-
+				}
+				default malformed(why): func <- err(Error.coded("malformed", "malformed chunked body: $why"))
+			let text, used, trailers = unpack decoded
+			body = own text
+			consumed = body_start + used
+			fields.remove("transfer-encoding")
+			for(f in trailers): fields.add(f.name, f.value)
+			fields.set("Content-Length", "${body.len()}")
+			while <-
+		}
+	} else if(fields.get("content-length") as cl_text): {
+		// Repeated or comma-separated lengths must agree.
+		let length = -1
+		for(part in cl_text.split(",")): {
+			let v = parse_int(part.trim()) ?? func <- err(Error.coded("malformed", "invalid Content-Length '$cl_text'"))
+			if(v < 0 or (length >= 0 and v != length)): func <- err(Error.coded("malformed", "invalid Content-Length '$cl_text'"))
+			length = v
+		}
+		for(other in fields.values("content-length")):
+			if(parse_int(other.trim()) != length): func <- err(Error.coded("malformed", "conflicting Content-Length fields"))
+		while(self.buf.len() < body_start + length): {
+			let n = self.fill(timeout_ms): default err(own e): func <- err(e)
+			if(n == 0): func <- err(Error.coded("malformed", "connection closed before the body was complete"))
+		}
+		body = self.buf[body_start..body_start + length].copy()
+		consumed = body_start + length
+	} else if(is_response): {
+		while(not self.eof): {
+			let _ = self.fill(timeout_ms): default err(own e): func <- err(e)
+		}
+		body = self.buf[body_start..].copy()
+		consumed = self.buf.len()
+		fields.set("Content-Length", "${body.len()}")
 	}
 
-	if(buf.is_empty()): err(Error.new("empty HTTP message")) else: value(own buf)
+	// 3. Re-frame the message and keep any pipelined bytes.
+	let msg = "$start_line\r\n"
+	_append_header_fields(&msg, fields)
+	msg.push("\r\n")
+	msg.push(body)
+	self.buf = self.buf[consumed..].copy()
+	value(own msg)
+}
+
+// Reads one HTTP message from `fd` (compatibility wrapper around [`_MessageReader`]).
+bind _read_http_message = (fd: int, timeout_ms: int) Result[string]: {
+	let r = _MessageReader.plain(fd)
+	r.read_message("", timeout_ms)
 }
 
 // _TlsSession wraps an active TLS session and ensures proper cleanup via Drop.
@@ -994,102 +1272,25 @@ bind _TlsSession.send = (&self, data: string) Result[int]: {
 	if(res == 0): value(data.len()) else: err(Error.new("failed to send data over TLS"))
 }
 
-bind _read_http_message_tls = (session: ptr[u8], timeout_ms: int) Result[string]: {
-	let buf = ""
-	let chunk_size = 4096
-	let total_needed = -1
-	let sep_found = false
-
-	unsafe {
-		let raw_chunk = alloc_raw[u8](chunk_size)
-
-		for(true): {
-			let n = sys_tls_recv(session, raw_chunk, chunk_size, timeout_ms)
-			if(n < 0): {
-				free_raw(raw_chunk)
-				if(n == -2): func <- err(
-					Error.coded("timeout", "timeout waiting for HTTP data over TLS")
-				)
-				func <- err(Error.new("TLS error during recv"))
-			}
-			if(n == 0): for <-
-			buf.push_bytes(raw_chunk, n)
-
-			if(not sep_found): {
-				let sep? = buf.index_of("\r\n\r\n")
-				if(sep? != none): {
-					sep_found = true
-					let header_end = sep? ?? 0
-					let header_text = buf[0..header_end].to_lower()
-					let cl_idx? = header_text.index_of("content-length:")
-					if(cl_idx? != none): {
-						let cl_start = (cl_idx? ?? 0) + 15
-						let rest = header_text[cl_start..header_text.len()]
-						let line_end? = rest.index_of("\r\n")
-						let cl_val_str = if(line_end? != none): rest[0..(line_end? ?? 0)].trim()
-						else: rest.trim()
-						let cl? = parse_int(cl_val_str)
-						if(cl? != none): total_needed = header_end + 4 + (cl? ?? 0)
-					} else: {
-						let first_line_end? = header_text.index_of("\r\n")
-						let first_line = if(first_line_end? != none): header_text[0..(first_line_end? ?? 0)]
-						else: header_text
-						if(first_line.starts_with("get ") or first_line.starts_with("head ") or first_line.starts_with(
-							"delete "
-						) or first_line.starts_with("options ")): total_needed = header_end + 4
-					}
-				} else: {
-					let lf_sep? = buf.index_of("\n\n")
-					if(lf_sep? != none): {
-						sep_found = true
-						let header_end = lf_sep? ?? 0
-						let header_text = buf[0..header_end].to_lower()
-						let cl_idx? = header_text.index_of("content-length:")
-						if(cl_idx? != none): {
-							let cl_start = (cl_idx? ?? 0) + 15
-							let rest = header_text[cl_start..header_text.len()]
-							let line_end? = rest.index_of("\n")
-							let cl_val_str = if(line_end? != none): rest[0..(line_end? ?? 0)].trim()
-							else: rest.trim()
-							let cl? = parse_int(cl_val_str)
-							if(cl? != none): total_needed = header_end + 2 + (cl? ?? 0)
-						} else: {
-							let first_line_end? = header_text.index_of("\n")
-							let first_line = if(first_line_end? != none): header_text[0..(first_line_end? ?? 0)]
-							else: header_text
-							if(first_line.starts_with("get ") or first_line.starts_with("head ") or first_line.starts_with(
-								"delete "
-							) or first_line.starts_with("options ")): total_needed = header_end + 2
-						}
-					}
-				}
-			}
-
-			if(total_needed >= 0 and buf.len() >= total_needed): for <-
-		}
-
-		free_raw(raw_chunk)
-	}
-
-	if(buf.is_empty()): err(Error.new("empty HTTP message")) else: value(own buf)
-}
-
 // ============================================================================
-// 8. HTTP Client
+// 9. HTTP Client
 // ============================================================================
 
-// Configurable HTTP/HTTPS client with default headers and request timeout.
+// Configurable HTTP/HTTPS client with default headers, a request timeout, and redirects.
 define Client struct [
 	// Socket connect, write, and response-read timeout in milliseconds (default `15000`).
 	timeout_ms: int,
 	// Default headers attached to outgoing requests when not already present on the [`Request`].
-	headers: #[string: string],
+	headers: Headers,
+	// How many redirects [`Client.do`] follows before failing; `0` returns redirects as is.
+	max_redirects: int = 10,
 ]
 
-// Creates a [`Client`] with a `15000` ms timeout and no default headers.
+// Creates a [`Client`] with a `15000` ms timeout, no default headers, and up to 10 redirects.
 bind Client.new = () Client: Client[
 	timeout_ms: 15000,
-	headers: #[],
+	headers: Headers.new(),
+	max_redirects: 10,
 ]
 
 // Executes `req` over HTTP or HTTPS (`https://` or port `443`) and returns the parsed [`Response`].
@@ -1097,11 +1298,106 @@ bind Client.new = () Client: Client[
 // Populates `Host`, `User-Agent`, `Accept`, `Connection: close`, `Content-Length` (when the body
 // is non-empty), and any client-level default headers if not already set on `req`.
 //
+// Follows `301`, `302`, `303`, `307`, and `308` redirects up to [`Client.max_redirects`]: `303`
+// (and `301`/`302` after a `POST`) continue with a bodiless `GET`, while `307` and `308` repeat the
+// method and body. `Authorization` and `Cookie` headers are not sent to a different host.
+//
 // # Errors
 // Returns [`Result.err`] if `req.url` cannot be parsed, the TCP connection fails, TLS
 // initialization or handshake fails for HTTPS requests (which dynamically requires OpenSSL `libssl`),
-// sending/receiving fails, or the server response is malformed.
-bind Client.do = (self, req: Request) Result[Response]: {
+// sending/receiving fails, the server response is malformed, or more than `max_redirects`
+// redirects occur (code `"too_many_redirects"`).
+bind Client.do = (self, req: Request) Result[Response]: self.do_with(req, _client_round_trip)
+
+// Like [`Client.do`], but sends each request (the original and every redirect) through
+// `transport` instead of the network. Tests use it to exercise redirect handling.
+bind Client.do_with = (self, req: Request, transport: (Client, Request) Result[Response]) Result[Response]: {
+	let cur = req.copy()
+	let hops = 0
+	while(true): {
+		let resp = transport(self, cur): default err(own e): func <- err(e)
+		if(not is_redirect(resp.status_code) or self.max_redirects <= 0): func <- value(resp)
+		let location = resp.header("location") ?? func <- value(resp)
+		if(hops >= self.max_redirects): func <- err(
+			Error.coded("too_many_redirects", "stopped after ${self.max_redirects} redirects")
+		)
+		let base = parse_url(cur.url): default err(own e): func <- err(e.wrap("invalid request URL: ${cur.url}"))
+		let next_url = resolve_reference(base, location)
+		let next_base = parse_url(next_url): default err(own e): func <- err(e.wrap("invalid redirect target: $location"))
+		let code = resp.status_code
+		let method = if(code == 303 and cur.method != "HEAD"): "GET"
+		else if((code == 301 or code == 302) and cur.method == "POST"): "GET"
+		else: cur.method.copy()
+		let keep_body = (code == 307 or code == 308)
+		let next = Request.new(method, next_url, if(keep_body): cur.body.copy() else: "")
+		let same_host = header_name_eq(base.host, next_base.host)
+		for(f in cur.headers.fields()): {
+			if(header_name_eq(f.name, "host") or header_name_eq(f.name, "content-length")): next <-
+			if(not same_host and (header_name_eq(f.name, "authorization") or header_name_eq(f.name, "cookie"))): next <-
+			if(not keep_body and header_name_eq(f.name, "content-type")): next <-
+			next.add_header(f.name, f.value)
+		}
+		cur = own next
+		hops += 1
+	}
+	err(Error.new("redirect loop ended unexpectedly"))
+}
+
+// Reports whether `code` is a redirect that [`Client.do`] follows.
+bind is_redirect = (code: int) bool: code == 301 or code == 302 or code == 303 or code == 307 or code == 308
+
+// Resolves a `Location` value (or any URL reference) against `base`, as RFC 3986 §5.2 describes:
+// absolute URLs are returned unchanged, and `//host/path`, `/path`, `?query`, and relative
+// paths are combined with the base's scheme, host, and directory.
+bind resolve_reference = (base: Url, reference: string) string: {
+	if(reference.index_of("://") as i): if(not reference[..i].contains("/")): func <- reference.copy()
+	let origin = if(base.scheme.is_empty()): "" else: "${base.scheme}://${base.host}"
+	if(reference.starts_with("//")): func <- (if(base.scheme.is_empty()): "http" else: base.scheme.copy()) + ":" + reference
+	let base_path = if(base.raw_path.is_empty()): base.path.copy() else: base.raw_path.copy()
+	if(reference.starts_with("/")): func <- origin + _remove_dot_segments(reference)
+	if(reference.is_empty() or reference.starts_with("#")): func <- origin + base_path + (if(base.raw_query.is_empty()): "" else: "?${base.raw_query}") + reference
+	if(reference.starts_with("?")): func <- origin + base_path + reference
+	let dir = base_path[..(_last_slash(base_path) + 1)]
+	origin + _remove_dot_segments(dir + reference)
+}
+
+bind _last_slash = (s: string) int: {
+	let at = -1
+	for(i in 0..s.len()): if(s.byte_at(i) == 47): at = i
+	at
+}
+
+// Removes `.` and `..` segments from an absolute path (RFC 3986 §5.2.4), leaving any query or
+// fragment untouched.
+bind _remove_dot_segments = (path: string) string: {
+	let cut = path.len()
+	for(i in 0..path.len()): {
+		let b = path.byte_at(i)
+		if(b == 63 or b == 35): {
+			cut = i
+			for <-
+		}
+	}
+	let segs = path[..cut].split("/")
+	let out: [string] = []
+	for(i, seg in segs): {
+		let last = i == segs.len() - 1
+		if(seg == "." or seg == ".."): {
+			if(seg == ".." and out.len() > 1): {
+				let _? = out.pop()
+			}
+			if(last): out.push("")
+			next <-
+		}
+		out.push(seg.copy())
+	}
+	let result = join_strings(out, "/")
+	if(not result.starts_with("/")): result = "/" + result
+	result + path[cut..]
+}
+
+// Sends one request over the network without following redirects.
+bind _client_round_trip = (client: Client, req: Request) Result[Response]: {
 	let url_res! = parse_url(req.url)
 	if(url_res!.is_err()): func <- err(
 		url_res!.unwrap_err().wrap("invalid request URL: ${req.url}")
@@ -1114,10 +1410,10 @@ bind Client.do = (self, req: Request) Result[Response]: {
 	else: 80
 
 	let mut_req = req.copy()
-	if(mut_req.header("host") == none): mut_req.set_header(
-		"Host",
-		if(port == 80 or port == 443): host.copy() else: "$host:$port",
-	)
+	if(mut_req.header("host") == none): {
+		let shown = if(host.contains(":")): "[$host]" else: host.copy()
+		mut_req.set_header("Host", if(port == default_port(u.scheme)): shown else: "$shown:$port")
+	}
 	if(mut_req.header("user-agent") == none): mut_req.set_header("User-Agent", "Lowlight-HTTP/1.0")
 	if(mut_req.header("accept") == none): mut_req.set_header("Accept", "*/*")
 	if(mut_req.header("connection") == none): mut_req.set_header("Connection", "close")
@@ -1125,10 +1421,10 @@ bind Client.do = (self, req: Request) Result[Response]: {
 		"Content-Length",
 		"${mut_req.body.len()}",
 	)
-	for(k, v in self.headers): if(mut_req.header(k) == none): mut_req.set_header(k.copy(), v.copy())
+	for(f in client.headers.fields()): if(not mut_req.headers.has(f.name)): mut_req.add_header(f.name, f.value)
 
 	let wire = mut_req.format()
-	let stream_res! = net.TcpStream.connect(host, port, self.timeout_ms)
+	let stream_res! = net.TcpStream.connect(host, port, client.timeout_ms)
 	if(stream_res!.is_err()): func <- err(stream_res!.unwrap_err().wrap("connection failed"))
 	let stream = stream_res!.unwrap()
 
@@ -1151,11 +1447,9 @@ bind Client.do = (self, req: Request) Result[Response]: {
 			send_res!.unwrap_err().wrap("failed to send HTTP request over TLS")
 		)
 
-		let msg_res! = _read_http_message_tls(tls_sess._raw, self.timeout_ms)
-		if(msg_res!.is_err()): func <- err(
-			msg_res!.unwrap_err().wrap("failed to read HTTP response over TLS")
-		)
-		let raw_resp = msg_res!.unwrap()
+		let reader = _MessageReader.over_tls(tls_sess._raw)
+		let raw_resp = reader.read_message(mut_req.method, client.timeout_ms):
+			default err(own e): func <- err(e.wrap("failed to read HTTP response over TLS"))
 		Response.parse(raw_resp).wrap_err("failed to parse HTTP response")
 	} else: {
 		let send_res! = stream.send(wire)
@@ -1163,15 +1457,12 @@ bind Client.do = (self, req: Request) Result[Response]: {
 			send_res!.unwrap_err().wrap("failed to send HTTP request")
 		)
 
-		let msg_res! = _read_http_message(stream.raw_fd(), self.timeout_ms)
-		if(msg_res!.is_err()): func <- err(
-			msg_res!.unwrap_err().wrap("failed to read HTTP response")
-		)
-		let raw_resp = msg_res!.unwrap()
+		let reader = _MessageReader.plain(stream.raw_fd())
+		let raw_resp = reader.read_message(mut_req.method, client.timeout_ms):
+			default err(own e): func <- err(e.wrap("failed to read HTTP response"))
 		Response.parse(raw_resp).wrap_err("failed to parse HTTP response")
 	}
 }
-
 bind Client._send_method = (self, method: string, url: string, content_type?: ?string, body: string) Result[Response]: {
 	let req = Request.new(method, url, body)
 	if(content_type? as ct): req.set_header("Content-Type", ct)
@@ -1244,7 +1535,7 @@ bind delete = (url: string) Result[Response]: {
 }
 
 // ============================================================================
-// 9. HTTP Server
+// 10. HTTP Server
 // ============================================================================
 
 // Synchronous HTTP/1.1 TCP server binding to an address and dispatching requests.
@@ -1295,7 +1586,13 @@ bind Server.listen = (&self) Result[int]: {
 	let host = "0.0.0.0"
 	let port = 8080
 
-	if(not self.addr.is_empty()): {
+	if(self.addr.starts_with("[")): {
+		// An IPv6 address: `[addr]` or `[addr]:port`.
+		let close = self.addr.index_of("]") ?? func <- err(Error.new("invalid server address ${self.addr}"))
+		host = self.addr[1..close]
+		let rest = self.addr[close + 1..]
+		if(rest.starts_with(":")): port = parse_int(rest[1..]) ?? 8080
+	} else if(not self.addr.is_empty()): {
 		let colon? = self.addr.index_of(":")
 		if(colon?): {
 			let h = self.addr[0..colon].trim()
@@ -1317,48 +1614,113 @@ bind Server.listen = (&self) Result[int]: {
 	value(self.port)
 }
 
-// Formats the remote address of a connected socket as `"a.b.c.d:port"`, or returns an empty
-// string when it is unknown or not IPv4.
+// Formats the remote address of a connected socket as `"a.b.c.d:port"` or `"[v6]:port"`,
+// or returns an empty string when it is unknown.
 bind _peer_addr = (fd: int) string: {
 	let port = unsafe sys_tcp_peer_port(fd)
+	if(port < 0): func <- ""
 	let ip = unsafe sys_tcp_peer_ipv4(fd)
-	if(port < 0 or ip < 0): func <- ""
-	"${(ip >> 24) & 255}.${(ip >> 16) & 255}.${(ip >> 8) & 255}.${ip & 255}:$port"
+	if(ip >= 0): func <- "${_format_ipv4(ip)}:$port"
+	let groups = for(i in 0..8) [int]: unsafe sys_tcp_peer_ipv6_group(fd, i)
+	if(groups[0] < 0): func <- ""
+	"[${format_ipv6(groups)}]:$port"
 }
 
-// Reads one HTTP request from `conn_fd`, invokes `handler`, writes the response, and closes `conn_fd`.
-//
-// The handler sees the client's address in [`Request.remote_addr`].
-//
-// Malformed requests receive a `400 Bad Request` response and return `false`.
-bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWriter)) bool: {
-	let raw_req_res! = _read_http_message(conn_fd, self.read_timeout_ms)
-	if(raw_req_res!.is_err()): {
-		unsafe sys_net_close(conn_fd)
-		func <- false
-	}
-	let raw_req = raw_req_res!.unwrap()
-	let req_res! = Request.parse(raw_req)
-	if(req_res!.is_err()): {
-		let bad_resp = "HTTP/1.1 400 Bad Request\r\nContent-Length: 15\r\nConnection: close\r\n\r\n400 Bad Request"
-		unsafe {
-			let _ = sys_net_send_all(conn_fd, bad_resp.c_str(), bad_resp.len())
-			sys_net_close(conn_fd)
-		}
-		func <- false
-	}
-	let req = req_res!.unwrap()
-	req.remote_addr = _peer_addr(conn_fd)
-	let rw = ResponseWriter.new()
-	handler(req, &rw)
+bind _format_ipv4 = (ip: int) string: "${(ip >> 24) & 255}.${(ip >> 16) & 255}.${(ip >> 8) & 255}.${ip & 255}"
 
-	let resp = rw.finish()
-	let wire = resp.format()
-	unsafe {
-		let _ = sys_net_send_all(conn_fd, wire.c_str(), wire.len())
-		sys_net_close(conn_fd)
+bind _hex16 = (n: int) string: {
+	if(n == 0): func <- "0"
+	let digits = "0123456789abcdef"
+	let out = ""
+	let started = false
+	for(shift in [12, 8, 4, 0]): {
+		let d = (n >> shift) & 15
+		if(d == 0 and not started): next <-
+		started = true
+		out.push_byte(digits.byte_at(d))
 	}
-	true
+	out
+}
+
+// Formats eight 16-bit groups as an IPv6 address in RFC 5952 canonical form: lowercase hex,
+// no leading zeros, the longest run of two or more zero groups shortened to `::`, and
+// IPv4-mapped addresses written as `::ffff:a.b.c.d`.
+bind format_ipv6 = (groups: [int]) string: {
+	if(groups.len() != 8): func <- ""
+	let mapped = groups[0] == 0 and groups[1] == 0 and groups[2] == 0 and groups[3] == 0 and groups[4] == 0 and groups[5] == 65535
+	if(mapped): func <- "::ffff:${_format_ipv4(groups[6] << 16 | groups[7])}"
+	let best_at = -1
+	let best_len = 0
+	let run_at = -1
+	for(i in 0..8): {
+		if(groups[i] == 0): {
+			if(run_at < 0): run_at = i
+			let run_len = i - run_at + 1
+			if(run_len > best_len): {
+				best_at = run_at
+				best_len = run_len
+			}
+		} else: run_at = -1
+	}
+	if(best_len < 2): best_at = -1
+	let out = ""
+	let i = 0
+	while(i < 8): {
+		if(i == best_at): {
+			out.push("::")
+			i += best_len
+			next <-
+		}
+		if(not out.is_empty() and not out.ends_with(":")): out.push(":")
+		out.push(_hex16(groups[i]))
+		i += 1
+	}
+	out
+}
+
+// Serves the HTTP requests on connection `conn_fd`, then closes it.
+//
+// Requests the client has already pipelined on the connection are answered in order; the
+// connection closes once no further request is waiting, or when the client asks for it with
+// `Connection: close`. Responses to `HEAD` carry headers only. A malformed request gets a
+// `400 Bad Request`. The handler sees the client's address in [`Request.remote_addr`].
+//
+// Returns `true` if at least one request was handled.
+bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWriter)) bool: {
+	let reader = _MessageReader.plain(conn_fd)
+	let remote = _peer_addr(conn_fd)
+	let served = false
+	while(true): {
+		let raw_req = reader.read_message("", self.read_timeout_ms):
+			default err(own e): {
+				if(e.has_code("malformed")): {
+					let bad = "HTTP/1.1 400 Bad Request\r\nContent-Length: 15\r\nConnection: close\r\n\r\n400 Bad Request"
+					let _ = unsafe sys_net_send_all(conn_fd, bad.c_str(), bad.len())
+				}
+				while <-
+			}
+		let req = Request.parse(raw_req):
+			default err(own e): {
+				let bad = "HTTP/1.1 400 Bad Request\r\nContent-Length: 15\r\nConnection: close\r\n\r\n400 Bad Request"
+				let _ = unsafe sys_net_send_all(conn_fd, bad.c_str(), bad.len())
+				while <-
+			}
+		req.remote_addr = remote.copy()
+		let rw = ResponseWriter.new()
+		handler(req, &rw)
+		let resp = rw.finish()
+		if(req.method == "HEAD"): resp.body = ""
+
+		let client_closes = (req.header("connection") ?? "").to_lower().contains("close") or req.proto == "HTTP/1.0"
+		let close = client_closes or reader.buf.trim().is_empty()
+		if(close): resp.set_header("Connection", "close")
+		let wire = resp.format()
+		let sent = unsafe sys_net_send_all(conn_fd, wire.c_str(), wire.len())
+		served = true
+		if(close or sent != 0): while <-
+	}
+	unsafe sys_net_close(conn_fd)
+	served
 }
 
 // Accepts and serves a single connection, waiting up to `timeout_ms` milliseconds.
@@ -1436,7 +1798,7 @@ bind listen_and_serve_mux = (addr: string, mux: ServeMux) Result[bool]: {
 }
 
 // ============================================================================
-// 10. Testing Utilities (ResponseRecorder & Mock Transport)
+// 11. Testing Utilities (ResponseRecorder & Mock Transport)
 // ============================================================================
 
 // In-memory response recorder wrapping a [`ResponseWriter`] for handler unit tests.
@@ -1473,7 +1835,8 @@ bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request) Result
 		send_res!.unwrap_err().wrap("failed to send request to socketpair")
 	)
 
-	let srv_req_res! = _read_http_message(pair.second.raw_fd(), 2000)
+	let srv_reader = _MessageReader.plain(pair.second.raw_fd())
+	let srv_req_res! = srv_reader.read_message("", 2000)
 	if(srv_req_res!.is_err()): func <- err(
 		srv_req_res!.unwrap_err().wrap("server failed to read request")
 	)
@@ -1493,7 +1856,8 @@ bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request) Result
 		srv_send_res!.unwrap_err().wrap("server failed to send response")
 	)
 
-	let client_read_res! = _read_http_message(pair.first.raw_fd(), 2000)
+	let client_reader = _MessageReader.plain(pair.first.raw_fd())
+	let client_read_res! = client_reader.read_message(req.method, 2000)
 	if(client_read_res!.is_err()): func <- err(
 		client_read_res!.unwrap_err().wrap("client failed to read response")
 	)
@@ -1738,4 +2102,198 @@ bind test_http_server_remote_addr = (): {
 	assert(body.starts_with("127.0.0.1:"), "remote_addr is the client's loopback address")
 	let client_port = parse_int(body["127.0.0.1:".len()..]) ?? 0
 	assert(client_port > 0 and client_port != port, "remote_addr carries the client's own port")
+}
+
+@test("http Headers: case-insensitive names, repeated fields, set, and remove")
+bind test_http_headers_multi_value = (): {
+	let h = Headers.new()
+	h.add("Set-Cookie", "a=1")
+	h.add("Content-Type", "text/plain")
+	h.add("set-cookie", "b=2")
+	assert(h.get("SET-COOKIE") == "a=1", "get returns the first value, any case")
+	assert(join_strings(h.values("Set-Cookie"), "|") == "a=1|b=2", "values keeps every field in order")
+	assert(h.len() == 3, "repeated names count separately")
+	h.set("content-type", "text/html")
+	assert(join_strings(h.values("Content-Type"), "|") == "text/html", "set replaces the value")
+	assert(h.fields()[1].name == "Content-Type", "set keeps the original name and position")
+	assert(h.remove("SET-cookie") == 2 and not h.has("set-cookie"), "remove drops every value")
+	assert(header_name_eq("X-Request-Id", "x-request-ID") and not header_name_eq("x-content-length", "content-length"), "exact name comparison")
+
+	let rw = ResponseWriter.new()
+	rw.add_header("Set-Cookie", "session=xyz")
+	rw.add_header("Set-Cookie", "theme=dark")
+	rw.write("ok")
+	let wire = rw.finish().format()
+	let parsed = Response.parse(wire).unwrap()
+	assert(join_strings(parsed.header_values("set-cookie"), "|") == "session=xyz|theme=dark", "both cookies survive the wire")
+}
+
+@test("http header parsing rejects invalid names and joins folded lines")
+bind test_http_header_parsing_rules = (): {
+	assert(Request.parse("GET / HTTP/1.1\r\nBad Name: x\r\n\r\n").is_err(), "space inside a name")
+	assert(Request.parse("GET / HTTP/1.1\r\nHost : x\r\n\r\n").is_err(), "space before the colon")
+	assert(Request.parse("GET / HTTP/1.1\r\nno-colon\r\n\r\n").is_err(), "line without a colon")
+	let folded = Request.parse("GET / HTTP/1.1\r\nX-Long: one\r\n two\r\n\r\n").unwrap()
+	assert(folded.header("x-long") == "one two", "obsolete folding joins with a space")
+}
+
+@test("http message reader frames by exact Content-Length, chunked bodies, and HEAD")
+bind test_http_reader_framing = (): {
+	let pair = net.socketpair().unwrap()
+	let wire = "HTTP/1.1 200 OK\r\nX-Content-Length: 99\r\nContent-Length: 3\r\n\r\nabc"
+	wire.push("HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n4;ext=1\r\nWiki\r\n5\r\npedia\r\n0\r\nX-Trailer: done\r\n\r\n")
+	wire.push("HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n")
+	wire.push("HTTP/1.1 204 No Content\r\nContent-Length: 7\r\n\r\n")
+	let _ = pair.first.send(wire) ?? 0
+	let reader = _MessageReader.plain(pair.second.raw_fd())
+
+	let first = Response.parse(reader.read_message("GET", 2000).unwrap()).unwrap()
+	assert(first.body == "abc", "X-Content-Length does not frame the body")
+
+	let chunked = Response.parse(reader.read_message("GET", 2000).unwrap()).unwrap()
+	assert(chunked.body == "Wikipedia", "chunked body decoded, extensions ignored")
+	assert(chunked.header("x-trailer") == "done", "trailer becomes a header")
+	assert(chunked.header("content-length") == "9" and not chunked.headers.has("transfer-encoding"), "re-framed")
+
+	let head = Response.parse(reader.read_message("HEAD", 2000).unwrap()).unwrap()
+	assert(head.body.is_empty() and head.header("content-length") == "1000", "HEAD response has no body")
+
+	let no_content = Response.parse(reader.read_message("GET", 2000).unwrap()).unwrap()
+	assert(no_content.status_code == 204 and no_content.body.is_empty(), "204 has no body")
+	assert(reader.buf.is_empty(), "nothing left over")
+}
+
+@test("http message reader keeps pipelined requests buffered")
+bind test_http_reader_pipelining = (): {
+	let pair = net.socketpair().unwrap()
+	let two = "POST /a HTTP/1.1\r\nContent-Length: 2\r\n\r\nhiGET /b HTTP/1.1\r\nHost: x\r\n\r\n"
+	let _ = pair.first.send(two) ?? 0
+	let reader = _MessageReader.plain(pair.second.raw_fd())
+	let a = Request.parse(reader.read_message("", 2000).unwrap()).unwrap()
+	let b = Request.parse(reader.read_message("", 2000).unwrap()).unwrap()
+	assert(a.path == "/a" and a.body == "hi", "first request and its body")
+	assert(b.path == "/b" and b.body.is_empty(), "second request read from the buffered remainder")
+
+	let parsed = Response.parse("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n").unwrap()
+	assert(parsed.body == "abc", "Response.parse decodes chunked bodies too")
+}
+
+@test("http requests escape decoded paths on the wire")
+bind test_http_request_path_escaping = (): {
+	let req = Request.new("GET", "/files/a%20b%3F.txt", "")
+	assert(req.path == "/files/a b?.txt", "path is decoded")
+	assert(req.format().starts_with("GET /files/a%20b%3F.txt HTTP/1.1\r\n"), "request line is escaped")
+}
+
+@test("http URL references resolve against a base URL")
+bind test_http_resolve_reference = (): {
+	let base = parse_url("https://example.com:8443/docs/guide/intro?x=1").unwrap()
+	assert(resolve_reference(base, "http://other.test/p") == "http://other.test/p", "absolute URL")
+	assert(resolve_reference(base, "//cdn.test/a.js") == "https://cdn.test/a.js", "scheme-relative")
+	assert(resolve_reference(base, "/login") == "https://example.com:8443/login", "absolute path")
+	assert(resolve_reference(base, "setup") == "https://example.com:8443/docs/guide/setup", "relative path")
+	assert(resolve_reference(base, "../api/./list") == "https://example.com:8443/docs/api/list", "dot segments")
+	assert(resolve_reference(base, "?page=2") == "https://example.com:8443/docs/guide/intro?page=2", "query only")
+}
+
+bind _fake_transport = (c: Client, r: Request) Result[Response]: {
+	let resp = match(r.path):
+		when "/start": Response.new(302, "")
+		when "/second": Response.new(301, "")
+		when "/form": Response.new(303, "")
+		when "/keep": Response.new(307, "")
+		when "/loop": Response.new(302, "")
+		default: Response.new(200, "${r.method} ${r.url} body=${r.body} auth=${r.header("authorization") ?? "-"}")
+	match(r.path):
+		when "/start": resp.set_header("Location", "/second")
+		when "/second": resp.set_header("Location", "http://other.test/final")
+		when "/form": resp.set_header("Location", "/done")
+		when "/keep": resp.set_header("Location", "/kept")
+		when "/loop": resp.set_header("Location", "/loop")
+		default: {}
+	value(resp)
+}
+
+@test("http Client follows redirects with the right method, body, and headers")
+bind test_http_client_redirects = (): {
+	let c = Client.new()
+	let req = Request.new("GET", "http://example.com/start", "")
+	req.set_header("Authorization", "Bearer secret")
+	let final = c.do_with(req, _fake_transport).unwrap()
+	assert(final.body == "GET http://other.test/final body= auth=-", "followed two hops; auth dropped across hosts")
+
+	let same_host = Request.new("GET", "http://example.com/keep", "")
+	same_host.set_header("Authorization", "Bearer secret")
+	let kept_auth = c.do_with(same_host, _fake_transport).unwrap()
+	assert(kept_auth.body.ends_with("auth=Bearer secret"), "auth kept on the same host")
+
+	let post = c.do_with(Request.new("POST", "http://example.com/form", "a=1"), _fake_transport).unwrap()
+	assert(post.body == "GET http://example.com/done body= auth=-", "303 becomes a bodiless GET")
+
+	let keep = c.do_with(Request.new("POST", "http://example.com/keep", "a=1"), _fake_transport).unwrap()
+	assert(keep.body == "POST http://example.com/kept body=a=1 auth=-", "307 repeats the method and body")
+
+	let looped! = c.do_with(Request.new("GET", "http://example.com/loop", ""), _fake_transport)
+	assert(looped!.peek_err()?.has_code("too_many_redirects") ?? false, "redirect loops stop")
+
+	let manual = Client.new()
+	manual.max_redirects = 0
+	let first = manual.do_with(Request.new("GET", "http://example.com/start", ""), _fake_transport).unwrap()
+	assert(first.status_code == 302 and first.header("location") == "/second", "max_redirects = 0 returns the redirect")
+}
+
+@test("http IPv6 hosts in URLs and canonical IPv6 formatting")
+bind test_http_ipv6 = (): {
+	let u = parse_url("http://[2001:db8::1]:8080/x?y=1").unwrap()
+	assert(u.hostname == "2001:db8::1" and u.port == 8080, "bracketed host and port")
+	assert(u.host == "[2001:db8::1]:8080", "host keeps brackets")
+	assert(u.to_string() == "http://[2001:db8::1]:8080/x?y=1", "round-trips with brackets")
+	let d = parse_url("https://[::1]/").unwrap()
+	assert(d.hostname == "::1" and d.port == 443, "default port with an IPv6 host")
+	assert(parse_url("http://[::1/").is_err(), "unterminated bracket is an error")
+	assert(parse_url("http://[::1]x/").is_err(), "text after the bracket is an error")
+
+	assert(format_ipv6([0, 0, 0, 0, 0, 0, 0, 1]) == "::1", "loopback")
+	assert(format_ipv6([0, 0, 0, 0, 0, 0, 0, 0]) == "::", "unspecified")
+	assert(format_ipv6([0x2001, 0xdb8, 0, 0, 0, 0, 0, 1]) == "2001:db8::1", "longest zero run")
+	assert(format_ipv6([0x2001, 0xdb8, 0, 0, 1, 0, 0, 1]) == "2001:db8::1:0:0:1", "first of equal runs")
+	assert(format_ipv6([1, 0, 2, 3, 4, 5, 6, 7]) == "1:0:2:3:4:5:6:7", "a single zero is not shortened")
+	assert(format_ipv6([0, 0, 0, 0, 0, 0xffff, 0x7f00, 1]) == "::ffff:127.0.0.1", "IPv4-mapped")
+}
+
+@test("http Server answers pipelined requests and HEAD over a real connection")
+bind test_http_server_pipelining = (): {
+	let srv = Server.new("127.0.0.1:0")
+	let port = srv.listen() ?? -1
+	if(port <= 0): func <-
+	let client! = net.TcpStream.connect("127.0.0.1", port, 2000)
+	if(client!.is_err()): func <-
+	let conn = client!.unwrap()
+	let reqs = "GET /one HTTP/1.1\r\nHost: x\r\n\r\nHEAD /two HTTP/1.1\r\nHost: x\r\n\r\nGET /three HTTP/1.1\r\nHost: x\r\n\r\n"
+	let _ = conn.send(reqs) ?? 0
+	let served = srv.serve_one((req: Request, rw: &ResponseWriter): rw.write("path=${req.path}"), 2000) ?? false
+	assert(served, "connection served")
+	let reader = _MessageReader.plain(conn.raw_fd())
+	let r1 = Response.parse(reader.read_message("GET", 2000).unwrap()).unwrap()
+	let r2 = Response.parse(reader.read_message("HEAD", 2000).unwrap()).unwrap()
+	let r3 = Response.parse(reader.read_message("GET", 2000).unwrap()).unwrap()
+	assert(r1.body == "path=/one", "first pipelined response")
+	assert(r2.body.is_empty() and r2.header("content-length") == "9", "HEAD response has headers only")
+	assert(r3.body == "path=/three", "third pipelined response")
+	assert(r3.header("connection") == "close", "the last response closes the connection")
+}
+
+@test("http Server reports IPv6 clients in remote_addr")
+bind test_http_server_remote_addr_ipv6 = (): {
+	let srv = Server.new("[::1]:0")
+	let port = srv.listen() ?? -1
+	if(port <= 0): func <-     // no IPv6 loopback available here
+	let client! = net.TcpStream.connect("::1", port, 2000)
+	if(client!.is_err()): func <-
+	let conn = client!.unwrap()
+	let _ = conn.send("GET / HTTP/1.1\r\nHost: x\r\n\r\n") ?? 0
+	let _ = srv.serve_one((req: Request, rw: &ResponseWriter): rw.write(req.remote_addr), 2000) ?? false
+	let reader = _MessageReader.plain(conn.raw_fd())
+	let resp = Response.parse(reader.read_message("GET", 2000).unwrap()).unwrap()
+	assert(resp.body.starts_with("[::1]:"), "remote_addr is the bracketed IPv6 loopback")
 }

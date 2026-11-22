@@ -1134,6 +1134,7 @@ func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo
 		"sys_tcp_port":             "ll_net_tcp_port",
 		"sys_tcp_peer_port":        "ll_net_tcp_peer_port",
 		"sys_tcp_peer_ipv4":        "ll_net_tcp_peer_ipv4",
+		"sys_tcp_peer_ipv6_group":  "ll_net_tcp_peer_ipv6_group",
 		"sys_tcp_accept":           "ll_net_tcp_accept",
 		"sys_tcp_connect":          "ll_net_tcp_connect",
 		"sys_net_send_all":         "ll_net_send_all",

@@ -662,13 +662,14 @@ static inline int64_t ll_net_tcp_listen(const uint8_t* host_u8, int64_t port, in
     char port_str[32];
     snprintf(port_str, sizeof(port_str), "%lld", (long long)port);
 
+    const char* node = (host && strlen(host) > 0 && strcmp(host, "0.0.0.0") != 0) ? host : NULL;
+
+    /* The wildcard ("" or "0.0.0.0") binds IPv4; an explicit host may be IPv4 or IPv6. */
     struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;
+    hints.ai_family = node ? AF_UNSPEC : AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
-
-    const char* node = (host && strlen(host) > 0 && strcmp(host, "0.0.0.0") != 0) ? host : NULL;
     struct addrinfo* res = NULL;
     int rc = getaddrinfo(node, port_str, &hints, &res);
     if (rc != 0 || !res) {
@@ -728,6 +729,17 @@ static inline int64_t ll_net_tcp_peer_ipv4(int64_t fd) {
     return (int64_t)ntohl(((struct sockaddr_in*)&addr)->sin_addr.s_addr);
 }
 
+/* Group idx (0..7) of a connected socket's IPv6 peer address, or -1 if not IPv6. */
+static inline int64_t ll_net_tcp_peer_ipv6_group(int64_t fd, int64_t idx) {
+    if (fd < 0 || idx < 0 || idx > 7) return -1LL;
+    struct sockaddr_storage addr;
+    socklen_t len = sizeof(addr);
+    if (getpeername((int)fd, (struct sockaddr*)&addr, &len) != 0) return -1LL;
+    if (addr.ss_family != AF_INET6) return -1LL;
+    const uint8_t* b = ((struct sockaddr_in6*)&addr)->sin6_addr.s6_addr;
+    return ((int64_t)b[2 * idx] << 8) | (int64_t)b[2 * idx + 1];
+}
+
 static inline void ll_net_set_nosigpipe(int fd) {
 #ifdef SO_NOSIGPIPE
     int opt = 1;
@@ -764,7 +776,7 @@ static inline int64_t ll_net_tcp_connect(const uint8_t* host_u8, int64_t port, i
 
     struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;
+    hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
     struct addrinfo* res = NULL;

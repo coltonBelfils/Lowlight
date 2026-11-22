@@ -18,13 +18,13 @@ Tasks are atomic and ordered from easiest to most involved.
 - [x] Fix path vs query `+` decoding in `parse_url` (`std/http.ll`).
 - [x] Use scheme-aware default ports in `parse_url` and `URL.to_string` (`std/http.ll`).
 - [x] Support `#fragment` and `user:pass@` in `parse_url` and `URL.to_string` (`std/http.ll`).
-- [ ] Support IPv6 `[::1]:port` in `parse_url` and `URL.to_string` (`std/http.ll`), and report IPv6 peers in `Request.remote_addr` (`sys_tcp_peer_ipv4` covers IPv4 only; IPv6 peers currently get an empty string).
-- [ ] Implement exact case-insensitive header parsing in `std/http.ll`.
-- [ ] Support multi-value headers in `std/http.ll`.
-- [ ] Handle `HEAD` response framing in `_read_http_message` and `_read_http_message_tls` (`std/http.ll`).
-- [ ] Buffer pipelined remainder bytes in `_read_http_message` and `_read_http_message_tls` (`std/http.ll`).
-- [ ] Implement `Transfer-Encoding: chunked` decoding in `_read_http_message` and `_read_http_message_tls` (`std/http.ll`).
-- [ ] Support HTTP redirects in `Client` in `std/http.ll`.
+- [x] Support IPv6 `[::1]:port` in `parse_url` and `URL.to_string` (`std/http.ll`), and report IPv6 peers in `Request.remote_addr` (`sys_tcp_peer_ipv4` covers IPv4 only; IPv6 peers currently get an empty string).
+- [x] Implement exact case-insensitive header parsing in `std/http.ll`.
+- [x] Support multi-value headers in `std/http.ll`.
+- [x] Handle `HEAD` response framing in `_read_http_message` and `_read_http_message_tls` (`std/http.ll`).
+- [x] Buffer pipelined remainder bytes in `_read_http_message` and `_read_http_message_tls` (`std/http.ll`).
+- [x] Implement `Transfer-Encoding: chunked` decoding in `_read_http_message` and `_read_http_message_tls` (`std/http.ll`).
+- [x] Support HTTP redirects in `Client` in `std/http.ll`.
 - [ ] Add `StringBuilder` (`with_capacity`, `append`, `append_char`, `append_byte`, `append_int`, `append_float`, `to_string() own string`) in `std/strings.ll`.
 - [ ] Add `ByteBuffer` (little-endian `u16`/`u32`/`u64` read/write helpers) in `std/strings.ll`.
 
@@ -141,6 +141,8 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [ ] Fix literal patterns on an optional subject: `match(o?): when 3: ...` never matches when `o?` holds `3` (`SPECIFICATION.md` §6.5 says it should).
 - [ ] Fix `for <-` in a collecting loop (`for(x in xs) [int]: ...`): bare `for <-` is rejected with "requires a value of type int" although `SPECIFICATION.md` §6.7 says it stops the loop and keeps what was collected, and `for <- value` crashes LLVM codegen (`store %struct.ll_vec_int 0`). Early exit from a collecting loop is currently impossible.
 - [ ] Make `for(x in v)` work for any type implementing `Iterable[T]` (and for `Iterator[T]` values), as `SPECIFICATION.md` §12.1 and §18.6 describe; sema currently hardcodes lists, arrays, strings, sets, maps, ranges, and `Pool` ("cannot iterate over value of type Countdown", `internal/sema/check_stmt_expr.go`).
+- [ ] **Soundness:** binding an element of a borrowed resource list moves it out without an error: in `bind f = (xs: [string]) int: { let r = xs[0]; r.len() }`, `r` is dropped at the end of `f`, freeing the caller's string (use-after-free / double free under ASan). `let r = xs[i]` on a read-only `[T]` of resources should be a compile error (suggest `.copy()`) or a borrow.
+- [ ] Allow `let _ = expr` for an optional-typed `expr`: the wildcard is reported as "variable `_` has optional type ?T and must end with `?`", although `SPECIFICATION.md` §2.5 exempts `_` from the naming rules.
 - [ ] Fix passing a `bool`-returning collection mutator straight to `println`: `println(s.insert(4))` on a set emits `call @ll_m_bool_to_string(void ...)` (invalid LLVM IR); binding the result first works.
 - [ ] Improve the diagnostic for a missing associated function on an imported type: `time.Duration.seconds(9)` reports `undeclared identifier "time"` instead of saying `Duration` has no `seconds`.
 - [ ] Decide how to take several fields out of an `own self` receiver: moving one field consumes `self`, so `Pair.swap = (own self)` cannot move both `first` and `second` (no struct destructuring exists).

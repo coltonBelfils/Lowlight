@@ -89,7 +89,7 @@ bind test_request_response_wire = (): {
 
     let req_wire = req.format()
     assert(req_wire.contains("POST /items?filter=all HTTP/1.1\r\n"))
-    assert(req_wire.contains("content-type: application/json\r\n"))
+    assert(req_wire.contains("Content-Type: application/json\r\n"))
     assert(req_wire.contains("{\"name\":\"item1\",\"qty\":10}"))
 
     // 2. Parse Request from wire string
