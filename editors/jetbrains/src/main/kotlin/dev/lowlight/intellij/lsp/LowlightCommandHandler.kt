@@ -10,6 +10,7 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import dev.lowlight.intellij.actions.LowlightProcessRunner
+import dev.lowlight.intellij.testing.LowlightTestLauncher
 import java.io.File
 import java.net.URI
 
@@ -47,24 +48,22 @@ object LowlightCommandHandler {
                 val path = resolveTargetPath(args.getOrNull(0), contextFile) ?: return
                 val testName = asString(args.getOrNull(1))
                 if (testName != null && testName.isNotBlank()) {
-                    LowlightProcessRunner.runInConsole(
+                    LowlightTestLauncher.runTests(
                         project,
                         "Lowlight Test: $testName",
-                        "test",
                         path,
-                        "-run",
-                        testName
+                        "^${Regex.escape(testName)}$"
                     )
                 } else {
-                    LowlightProcessRunner.runInConsole(project, "Lowlight Test: ${File(path).name}", "test", path)
+                    LowlightTestLauncher.runTests(project, "Lowlight Test: ${File(path).name}", path)
                 }
             }
             "lowlight.runAllTests" -> {
                 val path = resolveTargetPath(args.firstOrNull(), contextFile)
                 if (path != null) {
-                    LowlightProcessRunner.runInConsole(project, "Lowlight Tests: ${File(path).name}", "test", path)
+                    LowlightTestLauncher.runTests(project, "Lowlight Tests: ${File(path).name}", path)
                 } else {
-                    LowlightProcessRunner.runInConsole(project, "Lowlight Tests: Project", "test")
+                    LowlightTestLauncher.runTests(project, "Lowlight Tests: Project", null)
                 }
             }
             "lowlight.goToLocation" -> {

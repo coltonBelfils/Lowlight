@@ -356,7 +356,7 @@ func (g *llvmEmitter) emitRuntimeAndDeclarations() {
 		g.line("@ll_rt_argc = external global i32, align 4")
 		g.line("@ll_rt_argv = external global ptr, align 8")
 		g.line("@ll_test_current_jmp = external global ptr, align 8")
-		g.line("@ll_test_last_panic = external global [8192 x i8], align 1")
+		g.line("@ll_test_last_panic = external global [65536 x i8], align 1")
 		g.line("@ll_ssl_loaded = external global i32, align 4")
 		g.line("@ll_ssl_d = external global [19 x ptr], align 8")
 	case UnitLinkMain:
@@ -364,7 +364,7 @@ func (g *llvmEmitter) emitRuntimeAndDeclarations() {
 		g.line("@ll_rt_argc = global i32 0, align 4")
 		g.line("@ll_rt_argv = global ptr null, align 8")
 		g.line("@ll_test_current_jmp = global ptr null, align 8")
-		g.line("@ll_test_last_panic = global [8192 x i8] zeroinitializer, align 1")
+		g.line("@ll_test_last_panic = global [65536 x i8] zeroinitializer, align 1")
 		g.line("@ll_ssl_loaded = global i32 -1, align 4")
 		g.line("@ll_ssl_d = global [19 x ptr] zeroinitializer, align 8")
 	default:
@@ -372,7 +372,7 @@ func (g *llvmEmitter) emitRuntimeAndDeclarations() {
 		g.line("@ll_rt_argc = internal global i32 0, align 4")
 		g.line("@ll_rt_argv = internal global ptr null, align 8")
 		g.line("@ll_test_current_jmp = internal global ptr null, align 8")
-		g.line("@ll_test_last_panic = internal global [8192 x i8] zeroinitializer, align 1")
+		g.line("@ll_test_last_panic = internal global [65536 x i8] zeroinitializer, align 1")
 		g.line("@ll_ssl_loaded = internal global i32 -1, align 4")
 		g.line("@ll_ssl_d = internal global [19 x ptr] zeroinitializer, align 8")
 	}
@@ -570,7 +570,7 @@ entry:
     %%in_test = icmp ne ptr %%jmp, null
     br i1 %%in_test, label %%test_jmp, label %%fatal
 test_jmp:
-    call i32 (ptr, i64, ptr, ...) @snprintf(ptr @ll_test_last_panic, i64 8192, ptr %s, ptr %%f, i32 %%line, ptr %%m)
+    call i32 (ptr, i64, ptr, ...) @snprintf(ptr @ll_test_last_panic, i64 65536, ptr %s, ptr %%f, i32 %%line, ptr %%m)
     call void @longjmp(ptr %%jmp, i32 1)
     unreachable
 fatal:
@@ -595,7 +595,7 @@ fail:
     %%in_test = icmp ne ptr %%jmp, null
     br i1 %%in_test, label %%test_jmp, label %%fatal
 test_jmp:
-    call i32 (ptr, i64, ptr, ...) @snprintf(ptr @ll_test_last_panic, i64 8192, ptr %s, ptr %%f, i64 %%line, i64 %%idx, i64 %%len)
+    call i32 (ptr, i64, ptr, ...) @snprintf(ptr @ll_test_last_panic, i64 65536, ptr %s, ptr %%f, i64 %%line, i64 %%idx, i64 %%len)
     call void @longjmp(ptr %%jmp, i32 1)
     unreachable
 fatal:
@@ -1380,11 +1380,11 @@ dispatch:
 test_jmp:
     br i1 %%has_col, label %%tj_col, label %%tj_nocol
 tj_col:
-    call i32 (ptr, i64, ptr, ...) @snprintf(ptr @ll_test_last_panic, i64 8192, ptr %s, i32 %%fl, ptr %%fd, i64 %%line, i64 %%col, i32 %%ml, ptr %%md)
+    call i32 (ptr, i64, ptr, ...) @snprintf(ptr @ll_test_last_panic, i64 65536, ptr %s, i32 %%fl, ptr %%fd, i64 %%line, i64 %%col, i32 %%ml, ptr %%md)
     call void @longjmp(ptr %%jmp, i32 1)
     unreachable
 tj_nocol:
-    call i32 (ptr, i64, ptr, ...) @snprintf(ptr @ll_test_last_panic, i64 8192, ptr %s, i32 %%fl, ptr %%fd, i64 %%line, i32 %%ml, ptr %%md)
+    call i32 (ptr, i64, ptr, ...) @snprintf(ptr @ll_test_last_panic, i64 65536, ptr %s, i32 %%fl, ptr %%fd, i64 %%line, i32 %%ml, ptr %%md)
     call void @longjmp(ptr %%jmp, i32 1)
     unreachable
 fatal:
@@ -3141,14 +3141,57 @@ func (g *llvmEmitter) emitTestHarnessRuntime() {
 	runFmt := g.internString("=== RUN   %s\n").symbol
 	passFmt := g.internString("--- PASS: %s (%lld\xc2\xb5s, 0 leaks)\n").symbol
 	leakFmt := g.internString("--- FAIL: %s (leaked %lld heap allocation(s))\n").symbol
-	failMultiFmt := g.internString("--- FAIL: %s\n    %s\n").symbol
+	failMultiHeaderFmt := g.internString("--- FAIL: %s\n").symbol
+	indentLineFmt := g.internString("    %.*s\n").symbol
+	emptyLineFmt := g.internString("\n").symbol
 	failSingleFmt := g.internString("--- FAIL: %s (%s)\n").symbol
 	summaryFmt := g.internString("\nTest results: %d passed, %d failed (total %d)\n").symbol
 
+	g.funcSet["ll_print_indented_panic"] = true
 	g.funcSet["ll_run_test_case"] = true
 	g.funcSet["ll_report_test_summary"] = true
 
-	g.line(`define internal i32 @ll_run_test_case(ptr %%test_fn, ptr %%desc) {
+	g.line(`define internal void @ll_print_indented_panic(ptr %%msg) {
+entry:
+    br label %%loop
+loop:
+    %%p = phi ptr [ %%msg, %%entry ], [ %%next_p, %%advance ]
+    %%first = load i8, ptr %%p, align 1
+    %%is_end = icmp eq i8 %%first, 0
+    br i1 %%is_end, label %%done, label %%body
+body:
+    %%nl = call ptr @strchr(ptr %%p, i32 10)
+    %%has_nl = icmp ne ptr %%nl, null
+    br i1 %%has_nl, label %%len_nl, label %%len_end
+len_nl:
+    %%nl_i = ptrtoint ptr %%nl to i64
+    %%p_i = ptrtoint ptr %%p to i64
+    %%len1 = sub i64 %%nl_i, %%p_i
+    br label %%check_empty
+len_end:
+    %%len2 = call i64 @strlen(ptr %%p)
+    br label %%check_empty
+check_empty:
+    %%len = phi i64 [ %%len1, %%len_nl ], [ %%len2, %%len_end ]
+    %%is_empty = icmp eq i64 %%len, 0
+    br i1 %%is_empty, label %%emit_empty, label %%emit_indent
+emit_empty:
+    call i32 (ptr, ...) @printf(ptr %s)
+    br label %%loop_next
+emit_indent:
+    %%len32 = trunc i64 %%len to i32
+    call i32 (ptr, ...) @printf(ptr %s, i32 %%len32, ptr %%p)
+    br label %%loop_next
+loop_next:
+    br i1 %%has_nl, label %%advance, label %%done
+advance:
+    %%next_p = getelementptr i8, ptr %%nl, i64 1
+    br label %%loop
+done:
+    ret void
+}
+
+define internal i32 @ll_run_test_case(ptr %%test_fn, ptr %%desc) {
 entry:
     %%jmp_buf = alloca [512 x i8], align 16
     call void @llvm.memset.p0.i64(ptr %%jmp_buf, i8 0, i64 512, i1 false)
@@ -3188,7 +3231,8 @@ on_panic:
     %%has_nl = icmp ne ptr %%nl, null
     br i1 %%has_nl, label %%print_multi, label %%print_single
 print_multi:
-    call i32 (ptr, ...) @printf(ptr %s, ptr %%desc, ptr @ll_test_last_panic)
+    call i32 (ptr, ...) @printf(ptr %s, ptr %%desc)
+    call void @ll_print_indented_panic(ptr @ll_test_last_panic)
     br label %%ret_fail
 print_single:
     call i32 (ptr, ...) @printf(ptr %s, ptr %%desc, ptr @ll_test_last_panic)
@@ -3204,7 +3248,7 @@ entry:
     call i32 (ptr, ...) @printf(ptr %s, i32 %%pass_count, i32 %%fail_count, i32 %%total_count)
     ret void
 }
-`, runFmt, leakFmt, passFmt, failMultiFmt, failSingleFmt, summaryFmt)
+`, emptyLineFmt, indentLineFmt, runFmt, leakFmt, passFmt, failMultiHeaderFmt, failSingleFmt, summaryFmt)
 }
 
 // -----------------------------------------------------------------------------

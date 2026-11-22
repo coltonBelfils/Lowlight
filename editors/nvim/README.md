@@ -48,13 +48,31 @@ This installs:
 | `<leader>d` | **Line Diagnostic** | Open floating window with full diagnostic explanation and hints |
 | `<leader>cl` | **Run CodeLens** | Trigger inline CodeLens at cursor (`▶ Run` main, `▶ Run Test`, or Implementations dropdown) |
 | `<leader>rr` | **Run File** | Run `main` in current file (`lowlight run %`) |
-| `<leader>tr` | **Run Test** | Run tests in current file via `lowlight test %` |
-| `<leader>tf` | **Run File Tests** | Run all tests in the current file |
-| `<leader>ta` | **Run All Tests** | Run entire test suite across the project (`lowlight test`) |
+| `<leader>tr` | **Run Nearest Test** | Run the `@test` nearest the cursor (or current file) asynchronously via `lowlight test --json` with inline virtual text, failure diagnostics, and quickfix navigation |
+| `<leader>tf` | **Run File Tests** | Run all tests in the current file asynchronously via `lowlight test --json` |
+| `<leader>ta` | **Run All Tests** | Run entire test suite across the project with quickfix + trace navigation |
+| `<leader>tt` | **Pick & Run Test** | Discover all `@test` cases (`lowlight test --list --json`) and run one interactively |
+| `<leader>to` | **Test Output** | Open the formatted test output split (`gF` / `<CR>` jumps directly to `file:line:col`) |
 
 ---
 
-## 3. Editor-Agnostic Interface Discovery & Dropdown Navigation
+## 3. Native Test Runner & `neotest-lowlight`
+
+Out of the box (no extra plugins required), running tests (`<leader>tr` / `<leader>tf` / `<leader>ta` / `:LowlightTestPick`) streams `lowlight test --json` asynchronously, annotates `@test` lines with inline `✓ <duration>` / `✗ failed` virtual text, places `vim.diagnostic` errors on failing assertions, populates the quickfix list with failure and stack trace locations (`at file.ll:line:col`), and lets you press `gF` on any link in `:LowlightTestOutput`.
+
+If you use **neotest**, a native `neotest-lowlight` adapter is included and installed automatically to `lua/neotest-lowlight`:
+
+```lua
+require('neotest').setup({
+  adapters = {
+    require('neotest-lowlight'),
+  },
+})
+```
+
+---
+
+## 4. Editor-Agnostic Interface Discovery & Dropdown Navigation
 
 The Lowlight Language Server Protocol (LSP) works identically across Neovim, VS Code, and other editors:
 - **Interface Implementations Dropdown**: In Neovim, triggering the implementation CodeLens (via `<leader>cl` or `gi`) opens an interactive dropdown menu powered by `vim.ui.select`. It integrates seamlessly with whatever picker you use (built-in Neovim float menu, `telescope.nvim`, `fzf-lua`, or `dressing.nvim`).

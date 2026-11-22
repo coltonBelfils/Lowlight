@@ -29,17 +29,17 @@ bind Tracker.drop = (&self): {
     println("  [drop] closing Tracker '${self.label}' with ${self.events.len()} event(s)")
 }
 
-// Recursive binary search tree: `?BSTNode` is automatically heap-boxed and
+// Recursive binary search tree: `?BstNode` is automatically heap-boxed and
 // deterministically freed without manual pointers or reference cycles!
-define BSTNode struct [
+define BstNode struct [
     key: int,
     tag: string,
-    left?: ?BSTNode,
-    right?: ?BSTNode,
+    left?: ?BstNode,
+    right?: ?BstNode,
 ]
 
-bind BSTNode.leaf = (key: int, tag: string) BSTNode: {
-    BSTNode[
+bind BstNode.leaf = (key: int, tag: string) BstNode: {
+    BstNode[
         key: key,
         tag: tag.copy(),
         left?: none,
@@ -47,25 +47,25 @@ bind BSTNode.leaf = (key: int, tag: string) BSTNode: {
     ]
 }
 
-bind BSTNode.insert = (&self, key: int, tag: string) void: {
+bind BstNode.insert = (&self, key: int, tag: string) void: {
     if (key < self.key): {
         if (&self.left? as left_child): {
             left_child.insert(key, tag)
         } else: {
-            self.left? = BSTNode.leaf(key, tag)
+            self.left? = BstNode.leaf(key, tag)
         }
     } else if (key > self.key): {
         if (&self.right? as right_child): {
             right_child.insert(key, tag)
         } else: {
-            self.right? = BSTNode.leaf(key, tag)
+            self.right? = BstNode.leaf(key, tag)
         }
     } else: {
         self.tag = tag.copy()
     }
 }
 
-bind BSTNode.find = (self, key: int) ?string: {
+bind BstNode.find = (self, key: int) ?string: {
     if (key == self.key): {
         func <- self.tag.copy()
     }
@@ -115,7 +115,7 @@ bind main = (): {
     }
 
     // 4. Recursive Binary Search Tree
-    let root = BSTNode.leaf(50, "root")
+    let root = BstNode.leaf(50, "root")
     root.insert(25, "left")
     root.insert(75, "right")
     root.insert(10, "far-left")

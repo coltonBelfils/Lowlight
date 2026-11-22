@@ -177,25 +177,27 @@ type BodyMaps struct {
 	// `default panic` stands for). The shared AST is never rewritten, so parsed files can be
 	// cached and checked concurrently.
 	MatchArms map[*ast.MatchExpr][]ast.MatchArm
-	ContainsPatterns map[*ast.ContainsPattern]*ContainsInfo
-	MethodPatterns   map[*ast.MethodPattern]*MethodPatternInfo
+	ContainsPatterns    map[*ast.ContainsPattern]*ContainsInfo
+	MethodPatterns      map[*ast.MethodPattern]*MethodPatternInfo
+	BareVariantPatterns map[*ast.MethodPattern]*ast.VariantPattern
 }
 
 // NewBodyMaps allocates a fresh set of per-body AST side tables.
 func NewBodyMaps() *BodyMaps {
 	return &BodyMaps{
-		ExprInfos:        make(map[ast.Expr]*ExprInfo),
-		UnwindInfos:      make(map[*ast.UnwindStmt]*UnwindInfo),
-		VarSymbols:       make(map[*ast.VarStmt]*Symbol),
-		UnpackVarSymbols: make(map[*ast.VarStmt][]*Symbol),
-		ForSymbols:       make(map[*ast.ForExpr][2]*Symbol),
-		WhileSymbols:     make(map[*ast.WhileExpr][2]*Symbol),
-		IfUnwrapSyms:     make(map[*ast.IfExpr]*Symbol),
-		IfOriginSyms:     make(map[*ast.IfExpr]*Symbol),
-		PatternSyms:      make(map[*ast.VariantPattern][]*Symbol),
-		MatchArms:        make(map[*ast.MatchExpr][]ast.MatchArm),
-		ContainsPatterns: make(map[*ast.ContainsPattern]*ContainsInfo),
-		MethodPatterns:   make(map[*ast.MethodPattern]*MethodPatternInfo),
+		ExprInfos:           make(map[ast.Expr]*ExprInfo),
+		UnwindInfos:         make(map[*ast.UnwindStmt]*UnwindInfo),
+		VarSymbols:          make(map[*ast.VarStmt]*Symbol),
+		UnpackVarSymbols:    make(map[*ast.VarStmt][]*Symbol),
+		ForSymbols:          make(map[*ast.ForExpr][2]*Symbol),
+		WhileSymbols:        make(map[*ast.WhileExpr][2]*Symbol),
+		IfUnwrapSyms:        make(map[*ast.IfExpr]*Symbol),
+		IfOriginSyms:        make(map[*ast.IfExpr]*Symbol),
+		PatternSyms:         make(map[*ast.VariantPattern][]*Symbol),
+		MatchArms:           make(map[*ast.MatchExpr][]ast.MatchArm),
+		ContainsPatterns:    make(map[*ast.ContainsPattern]*ContainsInfo),
+		MethodPatterns:      make(map[*ast.MethodPattern]*MethodPatternInfo),
+		BareVariantPatterns: make(map[*ast.MethodPattern]*ast.VariantPattern),
 	}
 }
 

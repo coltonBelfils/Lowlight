@@ -92,7 +92,7 @@ bind label = (r!: own Lookup) string: r!:
 
 bind load = (ok: bool) Result[string]: {
 	let s = find(if(ok): "a" else: "q"):
-		default: func <- Err(Error.new("lookup failed"))
+		default: func <- err(Error.new("lookup failed"))
 	value(s + "!")
 }
 

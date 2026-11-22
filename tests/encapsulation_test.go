@@ -702,7 +702,7 @@ func TestEncapsulationCorePackageProtection(t *testing.T) {
 	// Valid usage of std/core exported types and functions
 	validSrc := `
 bind main = (): {
-    let r! = Result[int].ok(42)
+    let r! = Result[int].value(42)
     assert(r!.is_ok())
     assert(r!.unwrap() == 42)
 }

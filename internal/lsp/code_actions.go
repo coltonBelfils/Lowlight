@@ -548,14 +548,15 @@ func (s *Server) collectMatchQuickFixes(
 			rawMissing = strings.TrimSpace(rawMissing[:nl])
 		}
 		me := findMatchExprAt(prog, LSPToOffset(src, d.Range.Start))
+		useBare := me == nil || me.ResultChain || !matchUsesQualifiedVariants(me)
 		var whenArms []string
 		for _, vn := range strings.Split(rawMissing, ", ") {
 			if vn = strings.TrimSpace(vn); vn == "" {
 				continue
 			}
 			pat := formatVariantPatternForMatch(prog, mod, vn)
-			if me != nil && me.ResultChain {
-				// Result chain arms name failures bare: `Expired(n)`, not `Lookup.Expired(n)`.
+			if useBare {
+				// Result chains and bare-style enum matches name variants without the type prefix.
 				if dot := strings.Index(pat, "."); dot >= 0 && !strings.Contains(pat[:dot], "(") {
 					pat = pat[dot+1:]
 				}
@@ -610,6 +611,32 @@ func fullMatchRange(prog *sema.CheckedProgram, src string, r Range) Range {
 		return Range{Start: OffsetToLSP(src, me.Span.Start.Offset), End: OffsetToLSP(src, me.Span.End.Offset)}
 	}
 	return r
+}
+
+// matchUsesQualifiedVariants reports whether an enum `match` explicitly writes any qualified
+// variant pattern (`when Status.active:`). Empty matches and bare matches default to bare patterns.
+func matchUsesQualifiedVariants(me *ast.MatchExpr) bool {
+	if me == nil {
+		return false
+	}
+	for _, arm := range me.Arms {
+		if arm.Synthetic {
+			continue
+		}
+		for _, pat := range arm.AllPatterns() {
+			switch p := pat.(type) {
+			case *ast.ExprPattern:
+				if _, isMem := p.Expr.(*ast.MemberExpr); isMem {
+					return true
+				}
+			case *ast.VariantPattern:
+				if !p.Contextual {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // findMatchExprAt returns the innermost checked `match` or result chain containing offset.
@@ -1703,7 +1730,7 @@ func buildDocCommentAction(
 	if strings.HasPrefix(retType, "Result[") {
 		sb.WriteString(indent + "//\n")
 		sb.WriteString(indent + "// # Errors\n")
-		sb.WriteString(indent + "// Returns [`Result.fail`] if TODO.\n")
+		sb.WriteString(indent + "// Returns [`Result.err`] if TODO.\n")
 	}
 
 	pos := Position{Line: insertLine, Character: 0}

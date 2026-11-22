@@ -65,13 +65,19 @@ bind test_core_str_utf8_next = (): {
 	// Invalid continuation bytes
 	let s2_bad = _core_bytes_str([0xC3, 0x41])
 	let c2_bad = s2_bad.chars()
-	assert(c2_bad.len() == 2 and c2_bad[0] == fffd and c2_bad[1] == 'A', "2-byte bad continuation preserves ASCII")
+	assert(
+		c2_bad.len() == 2 and c2_bad[0] == fffd and c2_bad[1] == 'A',
+		"2-byte bad continuation preserves ASCII",
+	)
 
 	let s3_bad1 = _core_bytes_str([0xE2, 0x41, 0x80])
 	let n3_0 = 0
 	assert(str_utf8_next(s3_bad1, 0, &n3_0) == fffd and n3_0 == 1, "3-byte bad b1 yields FFFD")
 	let n3_1 = 0
-	assert(str_utf8_next(s3_bad1, 1, &n3_1) == 'A' and n3_1 == 2, "3-byte bad b1 preserves following A")
+	assert(
+		str_utf8_next(s3_bad1, 1, &n3_1) == 'A' and n3_1 == 2,
+		"3-byte bad b1 preserves following A",
+	)
 
 	_core_assert_utf8([0xE2, 0x82, 0x41], fffd, 1, "3-byte bad b2")
 	_core_assert_utf8([0xF0, 0x9F, 0x98, 0x41], fffd, 1, "4-byte bad b3")
@@ -115,7 +121,10 @@ bind test_core_str_utf8_next = (): {
 	let mixed = _core_bytes_str([0xC3, 0x41, 0xE2, 0x82, 0xAC])
 	let collected: [char] = []
 	for(ch in mixed): collected.push(ch)
-	assert(collected.len() == 3 and collected[0] == fffd and collected[1] == 'A' and collected[2] == '€', "for-in recovers after malformed UTF-8")
+	assert(
+		collected.len() == 3 and collected[0] == fffd and collected[1] == 'A' and collected[2] == '€',
+		"for-in recovers after malformed UTF-8",
+	)
 }
 
 @test("core comparable and math helpers")
@@ -167,9 +176,9 @@ bind test_core_sqrt = (): {
 	let z = 0.0
 	let nz = -z
 	let r_pz = core_sqrt(z)
-	assert(r_pz == 0.0 and (1.0 / r_pz) == pos_inf, "core_sqrt(+0.0) preserves +0.0")
+	assert(r_pz == 0.0 and 1.0 / r_pz == pos_inf, "core_sqrt(+0.0) preserves +0.0")
 	let r_nz = core_sqrt(nz)
-	assert(r_nz == 0.0 and (1.0 / r_nz) == neg_inf, "core_sqrt(-0.0) preserves -0.0")
+	assert(r_nz == 0.0 and 1.0 / r_nz == neg_inf, "core_sqrt(-0.0) preserves -0.0")
 
 	// +Inf
 	assert(core_sqrt(pos_inf) == pos_inf, "core_sqrt(+Inf) == +Inf")
@@ -229,16 +238,28 @@ bind test_core_float_formatting = (): {
 	assert(format_float_prec(999999.5, -1) == "1e+06", "carry into 1e+06")
 	assert(format_float_prec(-999999.5, -1) == "-1e+06", "neg carry into -1e+06")
 	assert(format_float_prec(100.0, -1) == "100", "compact integer preserves trailing zeros")
-	assert(_strip_trailing_frac_zeros("100") == "100", "strip_trailing_frac_zeros skips integer without dot")
-	assert((9.999e20).to_exp(2) == "1.00e+21", "to_exp carry increments exponent")
+	assert(
+		_strip_trailing_frac_zeros("100") == "100",
+		"strip_trailing_frac_zeros skips integer without dot",
+	)
+	assert(9.999e20.to_exp(2) == "1.00e+21", "to_exp carry increments exponent")
 
 	// Values near and >= 2^64 (exact fixed & compact formatting)
 	assert(format_float_prec(4503599627370495.5, 0) == "4503599627370496", "2^52 - 0.5 fixed 0")
 	assert(format_float_prec(4503599627370495.5, 1) == "4503599627370495.5", "2^52 - 0.5 fixed 1")
-	assert(format_float_prec(18446744073709549568.0, 0) == "18446744073709549568", "2^64 - 2048 fixed 0")
-	assert(format_float_prec(18446744073709549568.0, 2) == "18446744073709549568.00", "2^64 - 2048 fixed 2")
+	assert(
+		format_float_prec(18446744073709549568.0, 0) == "18446744073709549568",
+		"2^64 - 2048 fixed 0",
+	)
+	assert(
+		format_float_prec(18446744073709549568.0, 2) == "18446744073709549568.00",
+		"2^64 - 2048 fixed 2",
+	)
 	assert(format_float_prec(18446744073709551616.0, 0) == "18446744073709551616", "2^64 fixed 0")
-	assert(format_float_prec(18446744073709551616.0, 2) == "18446744073709551616.00", "2^64 fixed 2")
+	assert(
+		format_float_prec(18446744073709551616.0, 2) == "18446744073709551616.00",
+		"2^64 fixed 2",
+	)
 	assert(format_float_prec(18446744073709551616.0, -1) == "1.84467e+19", "2^64 compact")
 	assert(format_float_prec(1.0e20, 2) == "100000000000000000000.00", "1e20 fixed 2")
 	assert(format_float_prec(-1.0e20, 2) == "-100000000000000000000.00", "-1e20 fixed 2")
@@ -248,7 +269,7 @@ bind test_core_float_formatting = (): {
 	// Large & tiny exponents (1e308, DBL_MAX, 1e-308, subnormal 5e-324)
 	assert(format_float_prec(1.0e308, -1) == "1e+308", "1e308 compact")
 	assert(format_float_prec(-1.0e308, -1) == "-1e+308", "-1e308 compact")
-	assert((1.0e308).to_exp(2) == "1.00e+308", "1e308 to_exp")
+	assert(1.0e308.to_exp(2) == "1.00e+308", "1e308 to_exp")
 	assert((-1.0e308).to_exp(2) == "-1.00e+308", "-1e308 to_exp")
 	let big_fixed = format_float_prec(1.0e308, 0)
 	assert(big_fixed.len() == 309 and big_fixed.starts_with("10000000000000000"), "1e308 fixed 0")
@@ -258,7 +279,7 @@ bind test_core_float_formatting = (): {
 	assert(format_float_prec(1.0e-308, -1) == "1e-308", "1e-308 compact")
 	assert(format_float_prec(5.0e-324, -1) == "4.94066e-324", "subnormal 5e-324 compact")
 	assert(format_float_prec(-5.0e-324, -1) == "-4.94066e-324", "neg subnormal -5e-324 compact")
-	assert((5.0e-324).to_exp(2) == "4.94e-324", "subnormal 5e-324 to_exp")
+	assert(5.0e-324.to_exp(2) == "4.94e-324", "subnormal 5e-324 to_exp")
 	assert(format_float_prec(-5.0e-324, 2) == "-0.00", "neg subnormal fixed 2")
 }
 
@@ -290,8 +311,7 @@ bind test_core_parse_float = (): {
 	let nan_strs = ["nan", "NaN", "NAN", "+nan", "-nan"]
 	for(ns in nan_strs): {
 		let p? = parse_float(ns)
-		if(p? as v): assert(not (v == v), "parse nan")
-		else: assert(false, "parse nan not none")
+		if(p? as v): assert(not (v == v), "parse nan") else: assert(false, "parse nan not none")
 	}
 
 	// Signed zero (+0.0 vs -0.0)
@@ -313,28 +333,72 @@ bind test_core_parse_float = (): {
 	_core_assert_parse_f64_bits("  -3.14159  ", _float_bits(-3.14159), "parse -3.14159")
 	_core_assert_parse_f64_bits("+42.25", _float_bits(42.25), "parse +42.25")
 	_core_assert_parse_f64_bits("0.1", _float_bits(0.1), "parse 0.1 exact")
-	_core_assert_parse_f64_bits("3.141592653589793", _float_bits(3.141592653589793), "parse pi exact")
+	_core_assert_parse_f64_bits(
+		"3.141592653589793",
+		_float_bits(3.141592653589793),
+		"parse pi exact",
+	)
 
 	// Values >= 2^64
-	_core_assert_parse_f64_bits("18446744073709551616", _float_bits(18446744073709551616.0), "parse 2^64")
-	_core_assert_parse_f64_bits("-18446744073709551616", _float_bits(-18446744073709551616.0), "parse -2^64")
+	_core_assert_parse_f64_bits(
+		"18446744073709551616",
+		_float_bits(18446744073709551616.0),
+		"parse 2^64",
+	)
+	_core_assert_parse_f64_bits(
+		"-18446744073709551616",
+		_float_bits(-18446744073709551616.0),
+		"parse -2^64",
+	)
 	_core_assert_parse_f64_bits("1e20", _float_bits(1.0e20), "parse 1e20")
 	_core_assert_parse_f64_bits("1e23", _float_bits(1.0e23), "parse 1e23 exact")
 
 	// Large/tiny exponents, DBL_MAX/DBL_MIN, subnormals, tie-to-even, huge clamped exponents
 	_core_assert_parse_f64_bits("1e308", _float_bits(1.0e308), "parse 1e308 exact")
-	_core_assert_parse_f64_bits("1.7976931348623157e308", _float_bits(1.7976931348623157e308), "parse DBL_MAX")
-	_core_assert_parse_f64_bits("1.7976931348623159e308", pos_inf_bits, "parse above DBL_MAX overflows")
+	_core_assert_parse_f64_bits(
+		"1.7976931348623157e308",
+		_float_bits(1.7976931348623157e308),
+		"parse DBL_MAX",
+	)
+	_core_assert_parse_f64_bits(
+		"1.7976931348623159e308",
+		pos_inf_bits,
+		"parse above DBL_MAX overflows",
+	)
 	_core_assert_parse_f64_bits("1e309", pos_inf_bits, "parse 1e309 overflows")
 	_core_assert_parse_f64_bits("1e99999999999999999999", pos_inf_bits, "parse huge +exp overflows")
-	_core_assert_parse_f64_bits("-1e99999999999999999999", neg_inf_bits, "parse neg huge +exp overflows")
-	_core_assert_parse_f64_bits("2.2250738585072014e-308", _float_bits(2.2250738585072014e-308), "parse DBL_MIN")
-	_core_assert_parse_f64_bits("2.2250738585072011e-308", u64(0x000fffffffffffff), "parse largest subnormal")
-	_core_assert_parse_f64_bits("2.2250738585072012e-308", _float_bits(2.2250738585072014e-308), "parse subnormal rounding to DBL_MIN")
+	_core_assert_parse_f64_bits(
+		"-1e99999999999999999999",
+		neg_inf_bits,
+		"parse neg huge +exp overflows",
+	)
+	_core_assert_parse_f64_bits(
+		"2.2250738585072014e-308",
+		_float_bits(2.2250738585072014e-308),
+		"parse DBL_MIN",
+	)
+	_core_assert_parse_f64_bits(
+		"2.2250738585072011e-308",
+		u64(0x000fffffffffffff),
+		"parse largest subnormal",
+	)
+	_core_assert_parse_f64_bits(
+		"2.2250738585072012e-308",
+		_float_bits(2.2250738585072014e-308),
+		"parse subnormal rounding to DBL_MIN",
+	)
 	_core_assert_parse_f64_bits("5e-324", u64(1), "parse min subnormal")
 	_core_assert_parse_f64_bits("-5e-324", neg_zero_bits | u64(1), "parse neg min subnormal")
-	_core_assert_parse_f64_bits("2.4703282292062327e-324", u64(0), "parse subnormal half tie-to-even")
-	_core_assert_parse_f64_bits("2.4703282292062328e-324", u64(1), "parse just above subnormal midpoint")
+	_core_assert_parse_f64_bits(
+		"2.4703282292062327e-324",
+		u64(0),
+		"parse subnormal half tie-to-even",
+	)
+	_core_assert_parse_f64_bits(
+		"2.4703282292062328e-324",
+		u64(1),
+		"parse just above subnormal midpoint",
+	)
 
 	// Long digit strings with compensating exponents
 	let long_one = "1"
@@ -349,33 +413,48 @@ bind test_core_parse_float = (): {
 
 	// Invalid inputs return none
 	let bad_cases = [
-		"", "   ", "+", "-", ".", "+.", "-.", "e5", ".e5",
-		"1e", "1e+", "1e-", "1e+a", "1e99999999999999999999x",
-		"1.2.3", "12abc", "infin", "infinity2", "nana", "++1",
+		"",
+		"   ",
+		"+",
+		"-",
+		".",
+		"+.",
+		"-.",
+		"e5",
+		".e5",
+		"1e",
+		"1e+",
+		"1e-",
+		"1e+a",
+		"1e99999999999999999999x",
+		"1.2.3",
+		"12abc",
+		"infin",
+		"infinity2",
+		"nana",
+		"++1",
 	]
-	for(bc in bad_cases): {
-		assert(parse_float(bc) == none, "invalid parse_float input")
-	}
+	for(bc in bad_cases): assert(parse_float(bc) == none, "invalid parse_float input")
 }
 
 @test("core Result[T] construction and unwrapping")
 bind test_core_result = (): {
-	let r_ok! = Result[int].ok(100)
+	let r_ok! = Result[int].value(100)
 	assert(r_ok!.is_ok(), "is_ok")
 	assert(not r_ok!.is_err(), "not is_err")
 	assert(r_ok!.copy().unwrap_or(0) == 100, "unwrap_or on ok")
 	assert(r_ok!.copy().into_ok() == 100, "into_ok on ok")
 	assert(r_ok!.peek_err() == none, "peek_err on ok")
 	let matched_int = match(r_ok!.copy()):
-		when Result.value(v): v
-		default Result.Err(_): -1
+		when value(v): v
+		default err(_): -1
 	assert(matched_int == 100, "match Result.value")
 	assert(r_ok!.unwrap() == 100, "unwrap on ok")
 
 	let r_str! = Result[string].value("hello_" + "world")
 	let matched_str = match(own r_str!):
-		when Result.value(own s): s
-		default Result.Err(_): ""
+		when value(own s): s
+		default err(_): ""
 	assert(matched_str == "hello_world", "match Result.value on Resource string")
 
 	let r_err! = Result[int].fail_msg("failure")

@@ -15,7 +15,7 @@ import "std/strfmt"
 // Implements [`Printable`].
 define Duration struct [
 	// Signed duration magnitude in nanoseconds.
-	nanos: int,
+	nanos: int
 ]
 
 // Constructs a [`Duration`] from an exact nanosecond count.
@@ -45,6 +45,7 @@ bind Duration.to_secs = (self) float: float(self.nanos) / 1000000000.0
 // Formats the duration automatically using `ns`, `µs`, `ms`, or `s` units.
 bind Duration.to_string = (self) string: {
 	let sign = if(self.nanos < 0): "-" else: ""
+
 	// Use a float magnitude so negating the minimum `int` cannot overflow.
 	let mag = if(self.nanos < 0): -float(self.nanos) else: float(self.nanos)
 	if(mag < 1000.0): "$sign${int(mag)} ns"
@@ -63,7 +64,7 @@ bind Duration.to_string = (self) string: {
 // ```
 define Instant struct [
 	// Monotonic timestamp in nanoseconds.
-	nanos: int,
+	nanos: int
 ]
 
 // Captures the current monotonic timestamp via the OS clock.
@@ -173,7 +174,7 @@ bind format_tz_offset = (offset_secs: int, with_colon: bool) string: {
 //
 // # Example
 // ```lowlight
-// let dt = DateTime.new(2026, 1, 15, 9, 30, 0, false)
+// let dt = DateTime.must_new(2026, 1, 15, 9, 30, 0, false)
 // assert(dt.to_date_only() == "2026-01-15")
 // ```
 define DateTime struct [
@@ -292,8 +293,11 @@ bind DateTime.now_local = () DateTime: {
 }
 
 // Constructs a [`DateTime`] from Unix epoch seconds, in local time when `is_local` is `true` or UTC otherwise.
-bind DateTime.from_unix_secs = (secs: int, is_local: bool) DateTime:
-	_build_datetime_from_epoch(secs, 0, is_local)
+bind DateTime.from_unix_secs = (secs: int, is_local: bool) DateTime: _build_datetime_from_epoch(
+	secs,
+	0,
+	is_local,
+)
 
 // Constructs a [`DateTime`] from Unix epoch milliseconds, preserving millisecond sub-second precision.
 bind DateTime.from_unix_millis = (ms: int, is_local: bool) DateTime: {
@@ -309,7 +313,7 @@ bind DateTime.from_unix_nanos = (nanos: int, is_local: bool) DateTime: {
 	_build_datetime_from_epoch(sec, nano, is_local)
 }
 
-// Smallest and largest years accepted by [`DateTime.new`] / [`DateTime.try_new`].
+// Smallest and largest years accepted by [`DateTime.new`] / [`DateTime.must_new`].
 bind MIN_YEAR: int = -999999
 bind MAX_YEAR: int = 999999
 
@@ -318,7 +322,8 @@ bind is_leap_year = (year: int) bool: (year % 4 == 0 and year % 100 != 0) or yea
 
 // Returns the number of days in `month` (`1..=12`) of `year`, or `0` for an invalid month.
 bind days_in_month = (year: int, month: int) int:
-	if(month == 2): if(is_leap_year(year)): 29 else: 28
+	if(month == 2):
+		if(is_leap_year(year)): 29 else: 28
 	else if(month == 4 or month == 6 or month == 9 or month == 11): 30
 	else if(month >= 1 and month <= 12): 31
 	else: 0
@@ -327,8 +332,10 @@ bind days_in_month = (year: int, month: int) int:
 bind _civil_error = (year: int, month: int, day: int, hour: int, minute: int, second: int) ?string:
 	if(year < MIN_YEAR or year > MAX_YEAR): "year $year out of range $MIN_YEAR..=$MAX_YEAR"
 	else if(month < 1 or month > 12): "month $month out of range 1..=12"
-	else if(day < 1 or day > days_in_month(year, month)):
-		"day $day out of range 1..=${days_in_month(year, month)} for $year-${strfmt.pad_int_zeros(month, 2)}"
+	else if(day < 1 or day > days_in_month(year, month)): "day $day out of range 1..=${days_in_month(
+		year,
+		month,
+	)} for $year-${strfmt.pad_int_zeros(month, 2)}"
 	else if(hour < 0 or hour > 23): "hour $hour out of range 0..=23"
 	else if(minute < 0 or minute > 59): "minute $minute out of range 0..=59"
 	else if(second < 0 or second > 59): "second $second out of range 0..=59"
@@ -339,7 +346,7 @@ bind _civil_error = (year: int, month: int, day: int, hour: int, minute: int, se
 // # Errors
 // Fails if any component is out of range (`month` outside `1..=12`, `day` past the end of the
 // month, `hour > 23`, `minute > 59`, `second > 59`, or `year` outside [`MIN_YEAR`]`..=`[`MAX_YEAR`]).
-bind DateTime.try_new = (
+bind DateTime.new = (
 	year: int,
 	month: int,
 	day: int,
@@ -349,17 +356,17 @@ bind DateTime.try_new = (
 	is_local: bool,
 ) Result[DateTime]: {
 	let err? = _civil_error(year, month, day, hour, minute, second)
-	if(err? as msg): func <- Result[DateTime].fail(Error.coded("invalid_datetime", msg))
+	if(err? as msg): func <- err(Error.coded("invalid_datetime", msg))
 	let utc_sec = _days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second
 	let off = if(is_local): unsafe sys_local_tz_offset(utc_sec) else: 0
 	let sec = utc_sec - off
-	Result[DateTime].ok(_build_datetime_from_epoch(sec, 0, is_local))
+	value(_build_datetime_from_epoch(sec, 0, is_local))
 }
 
 // Constructs a [`DateTime`] from civil date/time components in UTC (`is_local == false`) or local time.
 //
-// Panics if any component is out of range; use [`DateTime.try_new`] to handle invalid input.
-bind DateTime.new = (
+// Panics if any component is out of range; use [`DateTime.new`] to handle invalid input.
+bind DateTime.must_new = (
 	year: int,
 	month: int,
 	day: int,
@@ -369,8 +376,8 @@ bind DateTime.new = (
 	is_local: bool,
 ) DateTime: {
 	let err? = _civil_error(year, month, day, hour, minute, second)
-	if(err? as msg): panic("DateTime.new: $msg")
-	DateTime.try_new(year, month, day, hour, minute, second, is_local).unwrap()
+	if(err? as msg): panic("DateTime.must_new: $msg")
+	DateTime.new(year, month, day, hour, minute, second, is_local): default panic
 }
 
 // Reports whether `self.year` is a Gregorian leap year.
@@ -381,16 +388,16 @@ bind DateTime.is_leap_year = (self) bool: is_leap_year(self.year)
 // -----------------------------------------------------------------------------
 
 // Go reference layout constant (`"01/02 03:04:05PM '06 -0700"`).
-bind Layout = "01/02 03:04:05PM '06 -0700"
+bind LAYOUT = "01/02 03:04:05PM '06 -0700"
 
 // ANSI C date-time layout for [`DateTime.format_go`].
 bind ANSIC = "Mon Jan _2 15:04:05 2006"
 
 // Unix `date(1)` layout for [`DateTime.format_go`].
-bind UnixDate = "Mon Jan _2 15:04:05 MST 2006"
+bind UNIX_DATE = "Mon Jan _2 15:04:05 MST 2006"
 
 // Ruby date-time layout for [`DateTime.format_go`].
-bind RubyDate = "Mon Jan 02 15:04:05 -0700 2006"
+bind RUBY_DATE = "Mon Jan 02 15:04:05 -0700 2006"
 
 // RFC 822 date-time layout with named timezone.
 bind RFC822 = "02 Jan 06 15:04 MST"
@@ -411,31 +418,31 @@ bind RFC1123Z = "Mon, 02 Jan 2006 15:04:05 -0700"
 bind RFC3339 = "2006-01-02T15:04:05Z07:00"
 
 // RFC 3339 date-time layout including nanoseconds.
-bind RFC3339Nano = "2006-01-02T15:04:05.999999999Z07:00"
+bind RFC3339_NANO = "2006-01-02T15:04:05.999999999Z07:00"
 
 // Short 12-hour clock layout (`"3:04PM"`).
-bind Kitchen = "3:04PM"
+bind KITCHEN = "3:04PM"
 
 // Syslog-style short timestamp layout (`"Jan _2 15:04:05"`).
-bind Stamp = "Jan _2 15:04:05"
+bind STAMP = "Jan _2 15:04:05"
 
 // Syslog timestamp layout with milliseconds.
-bind StampMilli = "Jan _2 15:04:05.000"
+bind STAMP_MILLI = "Jan _2 15:04:05.000"
 
 // Syslog timestamp layout with microseconds.
-bind StampMicro = "Jan _2 15:04:05.000000"
+bind STAMP_MICRO = "Jan _2 15:04:05.000000"
 
 // Syslog timestamp layout with nanoseconds.
-bind StampNano = "Jan _2 15:04:05.000000000"
+bind STAMP_NANO = "Jan _2 15:04:05.000000000"
 
 // Common SQL / log timestamp layout (`"2006-01-02 15:04:05"`).
-bind DateTimeFormat = "2006-01-02 15:04:05"
+bind DATETIME_FORMAT = "2006-01-02 15:04:05"
 
 // Calendar date layout (`"2006-01-02"`).
-bind DateOnly = "2006-01-02"
+bind DATE_ONLY = "2006-01-02"
 
 // Wall clock time-of-day layout (`"15:04:05"`).
-bind TimeOnly = "15:04:05"
+bind TIME_ONLY = "15:04:05"
 
 // ISO-8601 date-time layout (`"2006-01-02T15:04:05Z07:00"`).
 bind ISO8601 = "2006-01-02T15:04:05Z07:00"
@@ -546,7 +553,7 @@ bind DateTime.format = (self, pattern: string) string: {
 					"${strfmt.pad_int_zeros(self.year, 4)}-${strfmt.pad_int_zeros(self.month, 2)}-${strfmt.pad_int_zeros(
 						self.day,
 						2,
-					)}",
+					)}"
 				)
 				i += 2
 			} else if(spec == "T"): {
@@ -554,11 +561,13 @@ bind DateTime.format = (self, pattern: string) string: {
 					"${strfmt.pad_int_zeros(self.hour, 2)}:${strfmt.pad_int_zeros(self.minute, 2)}:${strfmt.pad_int_zeros(
 						self.second,
 						2,
-					)}",
+					)}"
 				)
 				i += 2
 			} else if(spec == "R"): {
-				out.push("${strfmt.pad_int_zeros(self.hour, 2)}:${strfmt.pad_int_zeros(self.minute, 2)}")
+				out.push(
+					"${strfmt.pad_int_zeros(self.hour, 2)}:${strfmt.pad_int_zeros(self.minute, 2)}"
+				)
 				i += 2
 			} else if(spec == "%"): {
 				out.push("%")
@@ -729,7 +738,7 @@ bind DateTime.format_go = (self, layout: string) string: {
 // Pure Lowlight Companion Formatting Methods (Zero GC, Native Speed)
 // -----------------------------------------------------------------------------
 
-// Formats this [`DateTime`] using the Go reference [`Layout`] convention (`"MM/DD hh:mm:ssAM 'YY ±HHMM"`).
+// Formats this [`DateTime`] using the Go reference [`LAYOUT`] convention (`"MM/DD hh:mm:ssAM 'YY ±HHMM"`).
 bind DateTime.to_layout = (self) string: {
 	let mo = strfmt.pad_int_zeros(self.month, 2)
 	let dy = strfmt.pad_int_zeros(self.day, 2)
@@ -757,7 +766,7 @@ bind DateTime.to_ansic = (self) string: {
 	"$w $m $d $h:$mi:$s $y"
 }
 
-// Formats this [`DateTime`] in [`UnixDate`] layout with timezone label.
+// Formats this [`DateTime`] in [`UNIX_DATE`] layout with timezone label.
 bind DateTime.to_unix_date = (self) string: {
 	let w = weekday_abbr(self.weekday)
 	let m = month_abbr(self.month)
@@ -769,7 +778,7 @@ bind DateTime.to_unix_date = (self) string: {
 	"$w $m $d $h:$mi:$s ${self.zone_name} $y"
 }
 
-// Formats this [`DateTime`] in [`RubyDate`] layout with numeric timezone offset.
+// Formats this [`DateTime`] in [`RUBY_DATE`] layout with numeric timezone offset.
 bind DateTime.to_ruby_date = (self) string: {
 	let w = weekday_abbr(self.weekday)
 	let m = month_abbr(self.month)
@@ -857,7 +866,7 @@ bind DateTime.to_rfc3339 = (self) string: {
 // Alias for [`DateTime.to_rfc3339`].
 bind DateTime.to_iso = (self) string: self.to_rfc3339()
 
-// Formats this [`DateTime`] in [`RFC3339Nano`] layout, with up to 9 fractional digits and
+// Formats this [`DateTime`] in [`RFC3339_NANO`] layout, with up to 9 fractional digits and
 // trailing zeros removed (the fraction is omitted when it is zero), matching Go.
 bind DateTime.to_rfc3339_nano = (self) string: {
 	let d = "${strfmt.pad_int_zeros(self.year, 4)}-${strfmt.pad_int_zeros(self.month, 2)}-${strfmt.pad_int_zeros(
@@ -873,7 +882,7 @@ bind DateTime.to_rfc3339_nano = (self) string: {
 	"${d}T$tm$tz"
 }
 
-// Formats this [`DateTime`] in 12-hour [`Kitchen`] clock format (`"3:04PM"`).
+// Formats this [`DateTime`] in 12-hour [`KITCHEN`] clock format (`"3:04PM"`).
 bind DateTime.to_kitchen = (self) string: {
 	let h12 = if(self.hour == 0): 12
 	else if(self.hour > 12): self.hour - 12
@@ -883,7 +892,7 @@ bind DateTime.to_kitchen = (self) string: {
 	"$h12:$mi$ampm"
 }
 
-// Formats this [`DateTime`] in [`Stamp`] layout (`"Jan _2 15:04:05"`).
+// Formats this [`DateTime`] in [`STAMP`] layout (`"Jan _2 15:04:05"`).
 bind DateTime.to_stamp = (self) string: {
 	let m = month_abbr(self.month)
 	let d = strfmt.pad_int_spaces(self.day, 2)
@@ -894,7 +903,7 @@ bind DateTime.to_stamp = (self) string: {
 	"$m $d $tm"
 }
 
-// Formats this [`DateTime`] in [`StampMilli`] layout with millisecond precision.
+// Formats this [`DateTime`] in [`STAMP_MILLI`] layout with millisecond precision.
 bind DateTime.to_stamp_milli = (self) string: {
 	let m = month_abbr(self.month)
 	let d = strfmt.pad_int_spaces(self.day, 2)
@@ -906,7 +915,7 @@ bind DateTime.to_stamp_milli = (self) string: {
 	"$m $d $tm"
 }
 
-// Formats this [`DateTime`] in [`StampMicro`] layout with microsecond precision.
+// Formats this [`DateTime`] in [`STAMP_MICRO`] layout with microsecond precision.
 bind DateTime.to_stamp_micro = (self) string: {
 	let m = month_abbr(self.month)
 	let d = strfmt.pad_int_spaces(self.day, 2)
@@ -918,7 +927,7 @@ bind DateTime.to_stamp_micro = (self) string: {
 	"$m $d $tm"
 }
 
-// Formats this [`DateTime`] in [`StampNano`] layout with nanosecond precision.
+// Formats this [`DateTime`] in [`STAMP_NANO`] layout with nanosecond precision.
 bind DateTime.to_stamp_nano = (self) string: {
 	let m = month_abbr(self.month)
 	let d = strfmt.pad_int_spaces(self.day, 2)
@@ -947,15 +956,19 @@ bind DateTime.to_datetime_string = (self) string: {
 bind DateTime.to_string = (self) string: self.to_datetime_string()
 
 // Formats only the calendar date portion as `"YYYY-MM-DD"`.
-bind DateTime.to_date_only = (self) string:
-	"${strfmt.pad_int_zeros(self.year, 4)}-${strfmt.pad_int_zeros(self.month, 2)}-${strfmt.pad_int_zeros(self.day, 2)}"
+bind DateTime.to_date_only = (self) string: "${strfmt.pad_int_zeros(self.year, 4)}-${strfmt.pad_int_zeros(
+	self.month,
+	2,
+)}-${strfmt.pad_int_zeros(self.day, 2)}"
 
 // Alias for [`DateTime.to_date_only`].
 bind DateTime.to_date_string = (self) string: self.to_date_only()
 
 // Formats only the wall-clock time portion as `"HH:MM:SS"`.
-bind DateTime.to_time_only = (self) string:
-	"${strfmt.pad_int_zeros(self.hour, 2)}:${strfmt.pad_int_zeros(self.minute, 2)}:${strfmt.pad_int_zeros(self.second, 2)}"
+bind DateTime.to_time_only = (self) string: "${strfmt.pad_int_zeros(self.hour, 2)}:${strfmt.pad_int_zeros(
+	self.minute,
+	2,
+)}:${strfmt.pad_int_zeros(self.second, 2)}"
 
 // Alias for [`DateTime.to_time_only`].
 bind DateTime.to_time_string = (self) string: self.to_time_only()
@@ -995,7 +1008,7 @@ bind DateTime.sub_duration = (self, d: Duration) DateTime: {
 
 // Computes the signed elapsed [`Duration`] `self - other`, or `none` if it does not fit in a
 // [`Duration`] (about ±292 years).
-bind DateTime.try_diff = (self, other: DateTime) ?Duration: {
+bind DateTime.diff = (self, other: DateTime) ?Duration: {
 	let secs = self.unix_secs - other.unix_secs
 	let ns = self.nanosecond - other.nanosecond
 	let max_secs = 9223372036
@@ -1010,9 +1023,9 @@ bind DateTime.try_diff = (self, other: DateTime) ?Duration: {
 // Computes the signed elapsed [`Duration`] `self - other`.
 //
 // Saturates to the minimum/maximum [`Duration`] when the span exceeds about ±292 years; use
-// [`DateTime.try_diff`] to detect that case.
-bind DateTime.diff = (self, other: DateTime) Duration: {
-	let d? = self.try_diff(other)
+// [`DateTime.diff`] to detect that case.
+bind DateTime.diff_saturating = (self, other: DateTime) Duration: {
+	let d? = self.diff(other)
 	if(d? as d): func <- d
 	if(self.unix_secs > other.unix_secs): Duration[nanos: 9223372036854775807]
 	else: Duration[nanos: -9223372036854775807 - 1]
@@ -1056,6 +1069,7 @@ bind string.to_datetime = (self) ?DateTime: {
 	let i = 10
 	if(i < n): {
 		let sep = s.byte_at(i)
+
 		// `T`, `t`, or space separates the date from the time.
 		if(sep != u8(84) and sep != u8(116) and sep != u8(32)): func <- none
 		h = _parse_digits(s, i + 1, 2) ?? func <- none
@@ -1082,9 +1096,8 @@ bind string.to_datetime = (self) ?DateTime: {
 		}
 		if(i < n): {
 			let z = s.byte_at(i)
-			if(z == u8(90) or z == u8(122)): {
-				i += 1
-			} else if(z == u8(43) or z == u8(45)): {
+			if(z == u8(90) or z == u8(122)): i += 1
+			else if(z == u8(43) or z == u8(45)): {
 				let oh = _parse_digits(s, i + 1, 2) ?? func <- none
 				i += 3
 				let om = 0
@@ -1147,7 +1160,7 @@ bind test_time_instant = (): {
 
 @test("time DateTime creation, formatting, duration arithmetic, and parsing")
 bind test_time_datetime_and_parse = (): {
-	let dt = DateTime.new(2026, 11, 4, 15, 30, 45, false)
+	let dt = DateTime.must_new(2026, 11, 4, 15, 30, 45, false)
 	assert(dt.year == 2026, "year matches")
 	assert(dt.month == 11, "month matches")
 	assert(dt.day == 4, "day matches")
@@ -1166,7 +1179,7 @@ bind test_time_datetime_and_parse = (): {
 	assert(p.hour == 15 and p.minute == 30 and p.second == 45, "parsed time matches")
 
 	let dt_plus = dt.copy().add_duration(Duration.from_secs(15.0))
-	let diff = dt_plus.diff(dt)
+	let diff = dt_plus.diff(dt) ?? panic("diff overflow")
 	assert(diff.to_secs() == 15.0, "diff is 15 seconds")
 }
 
@@ -1194,7 +1207,10 @@ bind test_time_pre_epoch_subsecond = (): {
 
 	let epoch = DateTime.from_unix_secs(0, false)
 	let before = epoch.sub_duration(Duration.from_nanos(250))
-	assert(before.unix_secs == -1 and before.nanosecond == 999999750, "sub_duration across the epoch")
+	assert(
+		before.unix_secs == -1 and before.nanosecond == 999999750,
+		"sub_duration across the epoch",
+	)
 	let after = before.add_duration(Duration.from_nanos(250))
 	assert(after.unix_secs == 0 and after.nanosecond == 0, "add_duration back to the epoch")
 }
@@ -1213,25 +1229,40 @@ bind test_time_negative_duration_string = (): {
 
 @test("time arithmetic does not overflow for dates far from 1970")
 bind test_time_arith_far_dates = (): {
-	let far = DateTime.new(2400, 3, 1, 12, 0, 0, false)
+	let far = DateTime.must_new(2400, 3, 1, 12, 0, 0, false)
 	let later = far.add_duration(Duration.from_nanos(1500000000))
-	assert(later.year == 2400 and later.second == 1 and later.nanosecond == 500000000, "add_duration in 2400")
+	assert(
+		later.year == 2400 and later.second == 1 and later.nanosecond == 500000000,
+		"add_duration in 2400",
+	)
 	let earlier = far.sub_duration(Duration.from_nanos(1))
-	assert(earlier.hour == 11 and earlier.minute == 59 and earlier.second == 59, "sub_duration in 2400")
+	assert(
+		earlier.hour == 11 and earlier.minute == 59 and earlier.second == 59,
+		"sub_duration in 2400",
+	)
 	assert(earlier.nanosecond == 999999999, "sub_duration borrows a second")
-	assert(later.diff(far).to_nanos() == 1500000000, "diff between 2400 dates")
+	assert(
+		(later.diff(far) ?? panic("diff overflow")).to_nanos() == 1500000000,
+		"diff between 2400 dates",
+	)
 
-	let ancient = DateTime.new(1500, 1, 1, 0, 0, 0, false)
+	let ancient = DateTime.must_new(1500, 1, 1, 0, 0, 0, false)
 	assert(ancient.add_duration(Duration.from_secs(86400.0)).day == 2, "add a day in 1500")
 
-	let near = DateTime.new(2000, 1, 1, 0, 0, 0, false)
-	let mid = DateTime.new(2200, 1, 1, 0, 0, 0, false)
-	let span? = mid.try_diff(near)
+	let near = DateTime.must_new(2000, 1, 1, 0, 0, 0, false)
+	let mid = DateTime.must_new(2200, 1, 1, 0, 0, 0, false)
+	let span? = mid.diff(near)
 	assert(span? != none, "200-year span fits in a Duration")
-	let huge? = far.try_diff(ancient)
+	let huge? = far.diff(ancient)
 	assert(huge? == none, "900-year span does not fit in a Duration")
-	assert(far.diff(ancient).to_nanos() == 9223372036854775807, "diff saturates high")
-	assert(ancient.diff(far).to_nanos() == -9223372036854775807 - 1, "diff saturates low")
+	assert(
+		far.diff_saturating(ancient).to_nanos() == 9223372036854775807,
+		"diff_saturating saturates high",
+	)
+	assert(
+		ancient.diff_saturating(far).to_nanos() == -9223372036854775807 - 1,
+		"diff_saturating saturates low",
+	)
 
 	let min_d = Duration.from_nanos(-9223372036854775807 - 1)
 	let shifted = mid.sub_duration(min_d)
@@ -1250,8 +1281,11 @@ bind test_time_format_go_fraction = (): {
 	let whole = DateTime.from_unix_secs(1700000000, false)
 	assert(whole.format_go("05.999") == "20", "zero fraction omits separator")
 	assert(whole.format_go("05.000") == "20.000", "zero fraction keeps fixed digits")
-	assert(whole.format_go("15.0007") == "22.0007", "a 0-run followed by a digit is not a fraction token")
-	assert(dt.format_go(RFC3339Nano) == "2023-11-14T22:13:20.12Z", "RFC3339Nano trims")
+	assert(
+		whole.format_go("15.0007") == "22.0007",
+		"a 0-run followed by a digit is not a fraction token",
+	)
+	assert(dt.format_go(RFC3339_NANO) == "2023-11-14T22:13:20.12Z", "RFC3339_NANO trims")
 	assert(dt.to_rfc3339_nano() == "2023-11-14T22:13:20.12Z", "to_rfc3339_nano matches Go")
 }
 
@@ -1267,20 +1301,20 @@ bind test_time_local_zone_name = (): {
 
 @test("time DateTime components are validated")
 bind test_time_validation = (): {
-	assert(DateTime.try_new(2024, 2, 29, 0, 0, 0, false).is_ok(), "leap day 2024 is valid")
-	assert(DateTime.try_new(2023, 2, 29, 0, 0, 0, false).is_err(), "Feb 29 2023 is invalid")
-	assert(DateTime.try_new(1900, 2, 29, 0, 0, 0, false).is_err(), "1900 is not a leap year")
-	assert(DateTime.try_new(2000, 2, 29, 0, 0, 0, false).is_ok(), "2000 is a leap year")
-	assert(DateTime.try_new(2024, 13, 1, 0, 0, 0, false).is_err(), "month 13")
-	assert(DateTime.try_new(2024, 0, 1, 0, 0, 0, false).is_err(), "month 0")
-	assert(DateTime.try_new(2024, 4, 31, 0, 0, 0, false).is_err(), "April 31")
-	assert(DateTime.try_new(2024, 1, 0, 0, 0, 0, false).is_err(), "day 0")
-	assert(DateTime.try_new(2024, 1, 1, 24, 0, 0, false).is_err(), "hour 24")
-	assert(DateTime.try_new(2024, 1, 1, 0, 60, 0, false).is_err(), "minute 60")
-	assert(DateTime.try_new(2024, 1, 1, 0, 0, 60, false).is_err(), "second 60")
-	assert(DateTime.try_new(2024, 1, 1, -1, 0, 0, false).is_err(), "negative hour")
-	assert(DateTime.try_new(MAX_YEAR + 1, 1, 1, 0, 0, 0, false).is_err(), "year above MAX_YEAR")
-	let err = DateTime.try_new(2023, 2, 29, 0, 0, 0, false).unwrap_err()
+	assert(DateTime.new(2024, 2, 29, 0, 0, 0, false).is_ok(), "leap day 2024 is valid")
+	assert(DateTime.new(2023, 2, 29, 0, 0, 0, false).is_err(), "Feb 29 2023 is invalid")
+	assert(DateTime.new(1900, 2, 29, 0, 0, 0, false).is_err(), "1900 is not a leap year")
+	assert(DateTime.new(2000, 2, 29, 0, 0, 0, false).is_ok(), "2000 is a leap year")
+	assert(DateTime.new(2024, 13, 1, 0, 0, 0, false).is_err(), "month 13")
+	assert(DateTime.new(2024, 0, 1, 0, 0, 0, false).is_err(), "month 0")
+	assert(DateTime.new(2024, 4, 31, 0, 0, 0, false).is_err(), "April 31")
+	assert(DateTime.new(2024, 1, 0, 0, 0, 0, false).is_err(), "day 0")
+	assert(DateTime.new(2024, 1, 1, 24, 0, 0, false).is_err(), "hour 24")
+	assert(DateTime.new(2024, 1, 1, 0, 60, 0, false).is_err(), "minute 60")
+	assert(DateTime.new(2024, 1, 1, 0, 0, 60, false).is_err(), "second 60")
+	assert(DateTime.new(2024, 1, 1, -1, 0, 0, false).is_err(), "negative hour")
+	assert(DateTime.new(MAX_YEAR + 1, 1, 1, 0, 0, 0, false).is_err(), "year above MAX_YEAR")
+	let err = DateTime.new(2023, 2, 29, 0, 0, 0, false).unwrap_err()
 	assert(err.has_code("invalid_datetime"), "error code")
 	assert(err.message().contains("day 29"), "error names the bad component")
 	assert(days_in_month(2024, 2) == 29 and days_in_month(2023, 2) == 28, "days_in_month February")
@@ -1289,38 +1323,95 @@ bind test_time_validation = (): {
 
 @test("time ISO 8601 parsing of Z, fractions, and offsets")
 bind test_time_iso8601_parse = (): {
-	let z = "2024-03-10T12:34:56Z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	let z = "2024-03-10T12:34:56Z".to_datetime() ?? DateTime.must_new(1, 1, 1, 0, 0, 0, false)
 	assert(z.unix_secs == 1710074096 and z.offset_secs == 0, "Z suffix is UTC")
 
-	let frac = "2024-03-10T12:34:56.123456789Z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	let frac = "2024-03-10T12:34:56.123456789Z".to_datetime() ?? DateTime.must_new(
+		1,
+		1,
+		1,
+		0,
+		0,
+		0,
+		false,
+	)
 	assert(frac.nanosecond == 123456789, "nanosecond fraction")
-	let short = "2024-03-10T12:34:56.5Z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	let short = "2024-03-10T12:34:56.5Z".to_datetime() ?? DateTime.must_new(1, 1, 1, 0, 0, 0, false)
 	assert(short.nanosecond == 500000000, "one-digit fraction")
-	let long = "2024-03-10T12:34:56.1234567891234Z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	let long = "2024-03-10T12:34:56.1234567891234Z".to_datetime() ?? DateTime.must_new(
+		1,
+		1,
+		1,
+		0,
+		0,
+		0,
+		false,
+	)
 	assert(long.nanosecond == 123456789, "fraction past nanoseconds is truncated")
-	let comma = "2024-03-10T12:34:56,25Z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	let comma = "2024-03-10T12:34:56,25Z".to_datetime() ?? DateTime.must_new(
+		1,
+		1,
+		1,
+		0,
+		0,
+		0,
+		false,
+	)
 	assert(comma.nanosecond == 250000000, "comma fraction separator")
 
-	let plus = "2024-03-10T18:04:56+05:30".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	let plus = "2024-03-10T18:04:56+05:30".to_datetime() ?? DateTime.must_new(
+		1,
+		1,
+		1,
+		0,
+		0,
+		0,
+		false,
+	)
 	assert(plus.unix_secs == 1710074096, "+05:30 converts to the same instant")
-	assert(plus.offset_secs == 19800 and plus.hour == 18 and plus.minute == 4, "+05:30 keeps local fields")
-	assert(plus.to_rfc3339() == "2024-03-10T18:04:56+05:30", "+05:30 round-trips through to_rfc3339")
+	assert(
+		plus.offset_secs == 19800 and plus.hour == 18 and plus.minute == 4,
+		"+05:30 keeps local fields",
+	)
+	assert(
+		plus.to_rfc3339() == "2024-03-10T18:04:56+05:30",
+		"+05:30 round-trips through to_rfc3339",
+	)
 	assert(plus.zone_name == "+0530", "fixed offset zone label")
 
-	let minus = "2024-03-10T07:34:56-0500".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	let minus = "2024-03-10T07:34:56-0500".to_datetime() ?? DateTime.must_new(
+		1,
+		1,
+		1,
+		0,
+		0,
+		0,
+		false,
+	)
 	assert(minus.unix_secs == 1710074096 and minus.offset_secs == -18000, "-0500 offset")
-	let hours_only = "2024-03-10T14:34:56+02".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	let hours_only = "2024-03-10T14:34:56+02".to_datetime() ?? DateTime.must_new(
+		1,
+		1,
+		1,
+		0,
+		0,
+		0,
+		false,
+	)
 	assert(hours_only.unix_secs == 1710074096, "+HH offset")
-	let lower = "2024-03-10t12:34:56z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	let lower = "2024-03-10t12:34:56z".to_datetime() ?? DateTime.must_new(1, 1, 1, 0, 0, 0, false)
 	assert(lower.unix_secs == 1710074096, "lowercase t and z")
-	let no_secs = "2024-03-10T12:34Z".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	let no_secs = "2024-03-10T12:34Z".to_datetime() ?? DateTime.must_new(1, 1, 1, 0, 0, 0, false)
 	assert(no_secs.unix_secs == 1710074040, "HH:MM without seconds")
 	let shifted = plus.add_duration(Duration.from_secs(60.0))
-	assert(shifted.offset_secs == 19800 and shifted.minute == 5, "arithmetic keeps the fixed offset")
+	assert(
+		shifted.offset_secs == 19800 and shifted.minute == 5,
+		"arithmetic keeps the fixed offset",
+	)
 
-	let date_only = "2024-03-10".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	let date_only = "2024-03-10".to_datetime() ?? DateTime.must_new(1, 1, 1, 0, 0, 0, false)
 	assert(date_only.hour == 0 and date_only.offset_secs == 0, "date only is UTC midnight")
-	let spaced = "2024-03-10 12:34:56".to_datetime() ?? DateTime.new(1, 1, 1, 0, 0, 0, false)
+	let spaced = "2024-03-10 12:34:56".to_datetime() ?? DateTime.must_new(1, 1, 1, 0, 0, 0, false)
 	assert(spaced.unix_secs == 1710074096, "space separator without zone is UTC")
 
 	assert("2024-13-10T12:34:56Z".to_datetime() == none, "month 13 rejected")

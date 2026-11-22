@@ -75,7 +75,7 @@ func derivedMethodBody(mod *sema.Module, typeName, ifcName, method string) strin
 			if i == len(v.Variants)-1 {
 				kw = "default"
 			}
-			lines = append(lines, fmt.Sprintf("\t%s %s.%s: \"%s\"", kw, typeName, ev.Name, ev.Name))
+			lines = append(lines, fmt.Sprintf("\t%s %s: \"%s\"", kw, ev.Name, ev.Name))
 		}
 		return "\n\t" + strings.Join(lines, "\n\t")
 	}
@@ -152,7 +152,7 @@ func (s *Server) expandCaseActions(uri, src, ind string, prog *sema.CheckedProgr
 			if i == len(en.Variants)-1 {
 				kw = "default"
 			}
-			arms = append(arms, fmt.Sprintf("%s%s%s %s: panic(\"todo\")", indent, ind, kw, pattern(v, false)))
+			arms = append(arms, fmt.Sprintf("%s%s%s %s: panic(\"todo\")", indent, ind, kw, pattern(v, true)))
 		}
 		title = fmt.Sprintf("Expand into `match` on every variant of `%s`", en.String())
 		head = "match(" + code + "):"

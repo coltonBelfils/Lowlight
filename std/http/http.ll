@@ -1,6 +1,6 @@
 // std/http — HTTP/1.1 client, server, router, URL parser, and test utilities.
 //
-// Provides [`URL`], [`Request`], [`Response`], [`ResponseWriter`], [`ServeMux`],
+// Provides [`Url`], [`Request`], [`Response`], [`ResponseWriter`], [`ServeMux`],
 // blocking [`Client`] (HTTP and dynamic OpenSSL HTTPS), [`Server`], and in-memory
 // testing helpers ([`ResponseRecorder`], [`test_handler`], [`test_roundtrip`]).
 
@@ -171,8 +171,8 @@ bind status_text = (code: int) string:
 // 2. URL Parsing & Percent-Encoding
 // ============================================================================
 
-// Parsed HTTP or HTTPS [`URL`] components including percent-decoded query parameters.
-define URL struct [
+// Parsed HTTP or HTTPS [`Url`] components including percent-decoded query parameters.
+define Url struct [
 	// Original unparsed URL string.
 	raw: string,
 	// URL scheme such as `"http"` or `"https"`, or empty for relative paths.
@@ -192,10 +192,10 @@ define URL struct [
 ]
 
 // Returns the parsed query parameter value for `key`, or `none` if absent.
-bind URL.query_param = (self, key: string) ?string: self.query[key]
+bind Url.query_param = (self, key: string) ?string: self.query[key]
 
-// Reconstructs a normalized URL or relative path string from this [`URL`].
-bind URL.to_string = (self) string:
+// Reconstructs a normalized URL or relative path string from this [`Url`].
+bind Url.to_string = (self) string:
 	if(self.scheme.is_empty()):
 		if(self.raw_query.is_empty()): self.path.copy() else: "${self.path}?${self.raw_query}"
 	else: {
@@ -221,8 +221,7 @@ bind _byte_to_hex_str = (b: u8) string: {
 	out
 }
 
-bind _is_url_unreserved = (b: u8) bool:
-	(b >= 65 and b <= 90) or (b >= 97 and b <= 122) or (b >= 48 and b <= 57) or b == 45 or b == 95 or b == 46 or b == 126
+bind _is_url_unreserved = (b: u8) bool: (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or (b >= 48 and b <= 57) or b == 45 or b == 95 or b == 46 or b == 126
 
 // Percent-encodes non-unreserved bytes in `s` (encoding spaces as `"%20"`).
 bind url_encode = (s: string) string: {
@@ -265,8 +264,8 @@ bind url_decode = (s: string) string: {
 	out
 }
 
-// Parses a full HTTP/HTTPS URL or relative request target into a structured [`URL`].
-bind parse_url = (raw: string) Result[URL]: {
+// Parses a full HTTP/HTTPS URL or relative request target into a structured [`Url`].
+bind parse_url = (raw: string) Result[Url]: {
 	let scheme = ""
 	let rest = raw.copy()
 	let default_port = 80
@@ -339,7 +338,7 @@ bind parse_url = (raw: string) Result[URL]: {
 		}
 	}
 
-	Result[URL].ok(URL[
+	value(Url[
 		raw: raw.copy(),
 		scheme: scheme,
 		host: host,
@@ -379,17 +378,16 @@ define Request struct [
 bind Request.new = (method: string, raw_url: string, body: string) Request: {
 	let url_res! = parse_url(raw_url)
 	let u = if(url_res!.is_ok()): url_res!.unwrap()
-	else:
-		URL[
-			raw: raw_url.copy(),
-			scheme: "",
-			host: "",
-			hostname: "",
-			port: 80,
-			path: if(raw_url.starts_with("/")): raw_url.copy() else: "/",
-			raw_query: "",
-			query: #[],
-		]
+	else: Url[
+		raw: raw_url.copy(),
+		scheme: "",
+		host: "",
+		hostname: "",
+		port: 80,
+		path: if(raw_url.starts_with("/")): raw_url.copy() else: "/",
+		raw_query: "",
+		query: #[],
+	]
 
 	let hdrs: #[string: string] = #[]
 	if(not u.host.is_empty()): hdrs["host"] = u.host.copy()
@@ -433,19 +431,17 @@ bind _strip_crlf = (s: string) string: {
 		}
 	if(not has_bad): func <- s.copy()
 	let out = ""
-	for(b in s.bytes()):
-		if(b != 13 and b != 10 and b != 0): out.push_byte(b)
+	for(b in s.bytes()): if(b != 13 and b != 10 and b != 0): out.push_byte(b)
 	out
 }
 
-bind _append_sanitized_headers = (out: &string, headers: #[string: string]): {
+bind _append_sanitized_headers = (out: &string, headers: #[string: string]):
 	for(k, v in headers): {
 		let hk = _strip_crlf(k)
 		if(hk.is_empty()): next <-
 		let hv = _strip_crlf(v)
 		out.push("$hk: $hv\r\n")
 	}
-}
 
 // Serializes the request into HTTP/1.1 wire bytes (request line, CRLF headers, and body).
 bind Request.format = (self) string: {
@@ -472,7 +468,7 @@ bind Request.format = (self) string: {
 	out
 }
 
-// Parses raw HTTP/1.1 wire bytes into a [`Request`], returning [`Result.Err`] if the request line or framing is malformed.
+// Parses raw HTTP/1.1 wire bytes into a [`Request`], returning [`Result.err`] if the request line or framing is malformed.
 bind Request.parse = (raw: string) Result[Request]: {
 	let header_end? = raw.index_of("\r\n\r\n")
 	let sep_len = 4
@@ -486,22 +482,20 @@ bind Request.parse = (raw: string) Result[Request]: {
 		if(lf_end? != none): {
 			header_end = lf_end? ?? 0
 			sep_len = 2
-		} else:
-			func <- Result[Request].fail(
-				Error.new("malformed HTTP request: missing header terminator"),
-			)
+		} else: func <- err(
+			Error.new("malformed HTTP request: missing header terminator")
+		)
 	}
 
 	let header_part = raw[0..header_end]
 	let body_part = raw[header_end + sep_len..raw.len()]
 
 	let lines = header_part.split("\n")
-	if(lines.is_empty()): func <- Result[Request].fail(Error.new("empty request"))
+	if(lines.is_empty()): func <- err(Error.new("empty request"))
 
 	let req_line = (lines.get(0) ?? "").trim()
 	let parts = req_line.split(" ")
-	if(parts.len() < 2):
-		func <- Result[Request].fail(Error.new("invalid HTTP request line: $req_line"))
+	if(parts.len() < 2): func <- err(Error.new("invalid HTTP request line: $req_line"))
 
 	let method = (parts.get(0) ?? "").to_upper()
 	let raw_target = parts.get(1) ?? "/"
@@ -509,17 +503,16 @@ bind Request.parse = (raw: string) Result[Request]: {
 
 	let url_res! = parse_url(raw_target)
 	let parsed_url = if(url_res!.is_ok()): url_res!.unwrap()
-	else:
-		URL[
-			raw: raw_target.copy(),
-			scheme: "",
-			host: "",
-			hostname: "",
-			port: 80,
-			path: raw_target.copy(),
-			raw_query: "",
-			query: #[],
-		]
+	else: Url[
+		raw: raw_target.copy(),
+		scheme: "",
+		host: "",
+		hostname: "",
+		port: 80,
+		path: raw_target.copy(),
+		raw_query: "",
+		query: #[],
+	]
 
 	let headers: #[string: string] = #[]
 	for(i in 1..lines.len()): {
@@ -533,7 +526,7 @@ bind Request.parse = (raw: string) Result[Request]: {
 		}
 	}
 
-	Result[Request].ok(Request[
+	value(Request[
 		method: method,
 		url: parsed_url.raw.copy(),
 		path: parsed_url.path.copy(),
@@ -625,22 +618,20 @@ bind Response.parse = (raw: string) Result[Response]: {
 		if(lf_end? != none): {
 			header_end = lf_end? ?? 0
 			sep_len = 2
-		} else:
-			func <- Result[Response].fail(
-				Error.new("malformed HTTP response: missing header terminator"),
-			)
+		} else: func <- err(
+			Error.new("malformed HTTP response: missing header terminator")
+		)
 	}
 
 	let header_part = raw[0..header_end]
 	let body_part = raw[header_end + sep_len..raw.len()]
 
 	let lines = header_part.split("\n")
-	if(lines.is_empty()): func <- Result[Response].fail(Error.new("empty response"))
+	if(lines.is_empty()): func <- err(Error.new("empty response"))
 
 	let status_line = (lines.get(0) ?? "").trim()
 	let parts = status_line.split(" ")
-	if(parts.len() < 2):
-		func <- Result[Response].fail(Error.new("invalid HTTP status line: $status_line"))
+	if(parts.len() < 2): func <- err(Error.new("invalid HTTP status line: $status_line"))
 
 	let proto = parts.get(0) ?? "HTTP/1.1"
 	let code_str = parts.get(1) ?? "200"
@@ -665,7 +656,7 @@ bind Response.parse = (raw: string) Result[Response]: {
 		}
 	}
 
-	Result[Response].ok(Response[
+	value(Response[
 		status_code: status_code,
 		status: status_msg,
 		proto: proto,
@@ -694,13 +685,12 @@ define ResponseWriter struct [
 ]
 
 // Creates a blank [`ResponseWriter`] initialized to `200 OK` with empty headers and body.
-bind ResponseWriter.new = () ResponseWriter:
-	ResponseWriter[
-		status_code: 200,
-		headers: #[],
-		body: "",
-		_header_written: false,
-	]
+bind ResponseWriter.new = () ResponseWriter: ResponseWriter[
+	status_code: 200,
+	headers: #[],
+	body: "",
+	_header_written: false,
+]
 
 // Records the HTTP status `code` if headers have not yet been written.
 //
@@ -734,8 +724,7 @@ bind ResponseWriter.write = (&self, text: string): {
 bind ResponseWriter.finish = (self) Response: {
 	let hdrs = self.headers.copy()
 	if(hdrs["content-length"] == none): hdrs["content-length"] = "${self.body.len()}"
-	if(hdrs["content-type"] == none and not self.body.is_empty()):
-		hdrs["content-type"] = "text/plain; charset=utf-8"
+	if(hdrs["content-type"] == none and not self.body.is_empty()): hdrs["content-type"] = "text/plain; charset=utf-8"
 
 	Response[
 		status_code: if(self.status_code > 0): self.status_code else: 200,
@@ -756,12 +745,11 @@ define _Route struct [
 	handler: (Request, &ResponseWriter),
 ]
 
-bind _Route.copy = (self) _Route:
-	_Route[
-		pattern: self.pattern.copy(),
-		is_prefix: self.is_prefix,
-		handler: self.handler.copy(),
-	]
+bind _Route.copy = (self) _Route: _Route[
+	pattern: self.pattern.copy(),
+	is_prefix: self.is_prefix,
+	handler: self.handler.copy(),
+]
 
 // HTTP path multiplexer routing incoming [`Request`] values to registered handlers.
 //
@@ -769,7 +757,7 @@ bind _Route.copy = (self) _Route:
 // multiple matching prefixes, the longest pattern wins. Unmatched paths fall
 // back to `404 Not Found`.
 define ServeMux struct [
-	_routes: [_Route],
+	_routes: [_Route]
 ]
 
 // Creates an empty [`ServeMux`] with no registered routes.
@@ -848,11 +836,10 @@ bind _read_http_message = (fd: int, timeout_ms: int) Result[string]: {
 			let n = sys_net_recv(fd, raw_chunk, chunk_size, timeout_ms)
 			if(n < 0): {
 				free_raw(raw_chunk)
-				if(n == -2):
-					func <- Result[string].fail(
-						Error.coded("timeout", "timeout waiting for HTTP data"),
-					)
-				func <- Result[string].fail(Error.new("socket error during recv"))
+				if(n == -2): func <- err(
+					Error.coded("timeout", "timeout waiting for HTTP data")
+				)
+				func <- err(Error.new("socket error during recv"))
 			}
 			if(n == 0): for <-
 			buf.push_bytes(raw_chunk, n)
@@ -874,11 +861,10 @@ bind _read_http_message = (fd: int, timeout_ms: int) Result[string]: {
 						if(cl? != none): total_needed = header_end + 4 + (cl? ?? 0)
 					} else: {
 						let first_line_end? = header_text.index_of("\r\n")
-						let first_line = if(first_line_end? != none):
-							header_text[0..(first_line_end? ?? 0)]
+						let first_line = if(first_line_end? != none): header_text[0..(first_line_end? ?? 0)]
 						else: header_text
 						if(first_line.starts_with("get ") or first_line.starts_with("head ") or first_line.starts_with(
-							"delete ",
+							"delete "
 						) or first_line.starts_with("options ")): total_needed = header_end + 4
 					}
 				} else: {
@@ -898,11 +884,10 @@ bind _read_http_message = (fd: int, timeout_ms: int) Result[string]: {
 							if(cl? != none): total_needed = header_end + 2 + (cl? ?? 0)
 						} else: {
 							let first_line_end? = header_text.index_of("\n")
-							let first_line = if(first_line_end? != none):
-								header_text[0..(first_line_end? ?? 0)]
+							let first_line = if(first_line_end? != none): header_text[0..(first_line_end? ?? 0)]
 							else: header_text
 							if(first_line.starts_with("get ") or first_line.starts_with("head ") or first_line.starts_with(
-								"delete ",
+								"delete "
 							) or first_line.starts_with("options ")): total_needed = header_end + 2
 						}
 					}
@@ -915,13 +900,12 @@ bind _read_http_message = (fd: int, timeout_ms: int) Result[string]: {
 		free_raw(raw_chunk)
 	}
 
-	if(buf.is_empty()): Result[string].fail(Error.new("empty HTTP message"))
-	else: Result[string].ok(own buf)
+	if(buf.is_empty()): err(Error.new("empty HTTP message")) else: value(own buf)
 }
 
 // _TlsSession wraps an active TLS session and ensures proper cleanup via Drop.
 define _TlsSession struct [
-	_raw: ptr[u8],
+	_raw: ptr[u8]
 ]
 
 bind _TlsSession.drop = (&self):
@@ -942,10 +926,9 @@ bind _TlsSession.close = (&self):
 
 bind _TlsSession.send = (&self, data: string) Result[int]: {
 	let is_null = unsafe (self._raw == null_ptr[u8]())
-	if(is_null): func <- Result[int].fail(Error.new("send on closed TLS session"))
+	if(is_null): func <- err(Error.new("send on closed TLS session"))
 	let res = unsafe sys_tls_send_all(self._raw, data.c_str(), data.len())
-	if(res == 0): Result[int].ok(data.len())
-	else: Result[int].fail(Error.new("failed to send data over TLS"))
+	if(res == 0): value(data.len()) else: err(Error.new("failed to send data over TLS"))
 }
 
 bind _read_http_message_tls = (session: ptr[u8], timeout_ms: int) Result[string]: {
@@ -961,11 +944,10 @@ bind _read_http_message_tls = (session: ptr[u8], timeout_ms: int) Result[string]
 			let n = sys_tls_recv(session, raw_chunk, chunk_size, timeout_ms)
 			if(n < 0): {
 				free_raw(raw_chunk)
-				if(n == -2):
-					func <- Result[string].fail(
-						Error.coded("timeout", "timeout waiting for HTTP data over TLS"),
-					)
-				func <- Result[string].fail(Error.new("TLS error during recv"))
+				if(n == -2): func <- err(
+					Error.coded("timeout", "timeout waiting for HTTP data over TLS")
+				)
+				func <- err(Error.new("TLS error during recv"))
 			}
 			if(n == 0): for <-
 			buf.push_bytes(raw_chunk, n)
@@ -987,11 +969,10 @@ bind _read_http_message_tls = (session: ptr[u8], timeout_ms: int) Result[string]
 						if(cl? != none): total_needed = header_end + 4 + (cl? ?? 0)
 					} else: {
 						let first_line_end? = header_text.index_of("\r\n")
-						let first_line = if(first_line_end? != none):
-							header_text[0..(first_line_end? ?? 0)]
+						let first_line = if(first_line_end? != none): header_text[0..(first_line_end? ?? 0)]
 						else: header_text
 						if(first_line.starts_with("get ") or first_line.starts_with("head ") or first_line.starts_with(
-							"delete ",
+							"delete "
 						) or first_line.starts_with("options ")): total_needed = header_end + 4
 					}
 				} else: {
@@ -1011,11 +992,10 @@ bind _read_http_message_tls = (session: ptr[u8], timeout_ms: int) Result[string]
 							if(cl? != none): total_needed = header_end + 2 + (cl? ?? 0)
 						} else: {
 							let first_line_end? = header_text.index_of("\n")
-							let first_line = if(first_line_end? != none):
-								header_text[0..(first_line_end? ?? 0)]
+							let first_line = if(first_line_end? != none): header_text[0..(first_line_end? ?? 0)]
 							else: header_text
 							if(first_line.starts_with("get ") or first_line.starts_with("head ") or first_line.starts_with(
-								"delete ",
+								"delete "
 							) or first_line.starts_with("options ")): total_needed = header_end + 2
 						}
 					}
@@ -1028,8 +1008,7 @@ bind _read_http_message_tls = (session: ptr[u8], timeout_ms: int) Result[string]
 		free_raw(raw_chunk)
 	}
 
-	if(buf.is_empty()): Result[string].fail(Error.new("empty HTTP message"))
-	else: Result[string].ok(own buf)
+	if(buf.is_empty()): err(Error.new("empty HTTP message")) else: value(own buf)
 }
 
 // ============================================================================
@@ -1045,11 +1024,10 @@ define Client struct [
 ]
 
 // Creates a [`Client`] with a `15000` ms timeout and no default headers.
-bind Client.new = () Client:
-	Client[
-		timeout_ms: 15000,
-		headers: #[],
-	]
+bind Client.new = () Client: Client[
+	timeout_ms: 15000,
+	headers: #[],
+]
 
 // Executes `req` over HTTP or HTTPS (`https://` or port `443`) and returns the parsed [`Response`].
 //
@@ -1057,13 +1035,14 @@ bind Client.new = () Client:
 // is non-empty), and any client-level default headers if not already set on `req`.
 //
 // # Errors
-// Returns [`Result.fail`] if `req.url` cannot be parsed, the TCP connection fails, TLS
+// Returns [`Result.err`] if `req.url` cannot be parsed, the TCP connection fails, TLS
 // initialization or handshake fails for HTTPS requests (which dynamically requires OpenSSL `libssl`),
 // sending/receiving fails, or the server response is malformed.
 bind Client.do = (self, req: Request) Result[Response]: {
 	let url_res! = parse_url(req.url)
-	if(url_res!.is_err()):
-		func <- Result[Response].fail(url_res!.unwrap_err().wrap("invalid request URL: ${req.url}"))
+	if(url_res!.is_err()): func <- err(
+		url_res!.unwrap_err().wrap("invalid request URL: ${req.url}")
+	)
 	let u = url_res!.unwrap()
 	let is_tls = u.scheme == "https" or u.port == 443
 	let host = if(not u.hostname.is_empty()): u.hostname.copy() else: "127.0.0.1"
@@ -1072,94 +1051,104 @@ bind Client.do = (self, req: Request) Result[Response]: {
 	else: 80
 
 	let mut_req = req.copy()
-	if(mut_req.header("host") == none):
-		mut_req.set_header("Host", if(port == 80 or port == 443): host.copy() else: "$host:$port")
+	if(mut_req.header("host") == none): mut_req.set_header(
+		"Host",
+		if(port == 80 or port == 443): host.copy() else: "$host:$port",
+	)
 	if(mut_req.header("user-agent") == none): mut_req.set_header("User-Agent", "Lowlight-HTTP/1.0")
 	if(mut_req.header("accept") == none): mut_req.set_header("Accept", "*/*")
 	if(mut_req.header("connection") == none): mut_req.set_header("Connection", "close")
-	if(not mut_req.body.is_empty() and mut_req.header("content-length") == none):
-		mut_req.set_header("Content-Length", "${mut_req.body.len()}")
+	if(not mut_req.body.is_empty() and mut_req.header("content-length") == none): mut_req.set_header(
+		"Content-Length",
+		"${mut_req.body.len()}",
+	)
 	for(k, v in self.headers): if(mut_req.header(k) == none): mut_req.set_header(k.copy(), v.copy())
 
 	let wire = mut_req.format()
 	let stream_res! = net.TcpStream.connect(host, port, self.timeout_ms)
-	if(stream_res!.is_err()):
-		func <- Result[Response].fail(stream_res!.unwrap_err().wrap("connection failed"))
+	if(stream_res!.is_err()): func <- err(stream_res!.unwrap_err().wrap("connection failed"))
 	let stream = stream_res!.unwrap()
 
 	if(is_tls): {
 		let avail = unsafe sys_tls_available()
-		if(avail == 0):
-			func <- Result[Response].fail(
-				Error.new(
-					"HTTPS requires libssl (OpenSSL 1.1 / 3.0), which could not be loaded dynamically",
-				),
+		if(avail == 0): func <- err(
+			Error.new(
+				"HTTPS requires libssl (OpenSSL 1.1 / 3.0), which could not be loaded dynamically"
 			)
+		)
 		let raw_sess = unsafe sys_tls_client_handshake(stream.raw_fd(), host.c_str())
 		let is_null = unsafe (raw_sess == null_ptr[u8]())
-		if(is_null):
-			func <- Result[Response].fail(
-				Error.new("TLS handshake failed connecting to $host:$port"),
-			)
+		if(is_null): func <- err(
+			Error.new("TLS handshake failed connecting to $host:$port")
+		)
 		let tls_sess = _TlsSession[_raw: raw_sess]
 
 		let send_res! = tls_sess.send(wire)
-		if(send_res!.is_err()):
-			func <- Result[Response].fail(
-				send_res!.unwrap_err().wrap("failed to send HTTP request over TLS"),
-			)
+		if(send_res!.is_err()): func <- err(
+			send_res!.unwrap_err().wrap("failed to send HTTP request over TLS")
+		)
 
 		let msg_res! = _read_http_message_tls(tls_sess._raw, self.timeout_ms)
-		if(msg_res!.is_err()):
-			func <- Result[Response].fail(
-				msg_res!.unwrap_err().wrap("failed to read HTTP response over TLS"),
-			)
+		if(msg_res!.is_err()): func <- err(
+			msg_res!.unwrap_err().wrap("failed to read HTTP response over TLS")
+		)
 		let raw_resp = msg_res!.unwrap()
 		Response.parse(raw_resp).wrap_err("failed to parse HTTP response")
 	} else: {
 		let send_res! = stream.send(wire)
-		if(send_res!.is_err()):
-			func <- Result[Response].fail(send_res!.unwrap_err().wrap("failed to send HTTP request"))
+		if(send_res!.is_err()): func <- err(
+			send_res!.unwrap_err().wrap("failed to send HTTP request")
+		)
 
 		let msg_res! = _read_http_message(stream.raw_fd(), self.timeout_ms)
-		if(msg_res!.is_err()):
-			func <- Result[Response].fail(msg_res!.unwrap_err().wrap("failed to read HTTP response"))
+		if(msg_res!.is_err()): func <- err(
+			msg_res!.unwrap_err().wrap("failed to read HTTP response")
+		)
 		let raw_resp = msg_res!.unwrap()
 		Response.parse(raw_resp).wrap_err("failed to parse HTTP response")
 	}
 }
 
-bind Client._send_method = (
-	self,
-	method: string,
-	url: string,
-	content_type?: ?string,
-	body: string,
-) Result[Response]: {
+bind Client._send_method = (self, method: string, url: string, content_type?: ?string, body: string) Result[Response]: {
 	let req = Request.new(method, url, body)
 	if(content_type? as ct): req.set_header("Content-Type", ct)
 	self.do(req)
 }
 
 // Sends an HTTP `GET` request to `url` using this client's configuration.
-bind Client.get = (self, url: string) Result[Response]:
-	self._send_method("GET", url, none, "")
+bind Client.get = (self, url: string) Result[Response]: self._send_method("GET", url, none, "")
 
 // Sends an HTTP `POST` request with `content_type` and `body` to `url`.
-bind Client.post = (self, url: string, content_type: string, body: string) Result[Response]:
-	self._send_method("POST", url, content_type, body)
+bind Client.post = (self, url: string, content_type: string, body: string) Result[Response]: self._send_method(
+	"POST",
+	url,
+	content_type,
+	body,
+)
 
 // Sends an HTTP `PUT` request with `content_type` and `body` to `url`.
-bind Client.put = (self, url: string, content_type: string, body: string) Result[Response]:
-	self._send_method("PUT", url, content_type, body)
+bind Client.put = (self, url: string, content_type: string, body: string) Result[Response]: self._send_method(
+	"PUT",
+	url,
+	content_type,
+	body,
+)
 
 // Sends an HTTP `PATCH` request with `content_type` and `body` to `url`.
-bind Client.patch = (self, url: string, content_type: string, body: string) Result[Response]:
-	self._send_method("PATCH", url, content_type, body)
+bind Client.patch = (self, url: string, content_type: string, body: string) Result[Response]: self._send_method(
+	"PATCH",
+	url,
+	content_type,
+	body,
+)
 
 // Sends an HTTP `DELETE` request to `url` using this client's configuration.
-bind Client.delete = (self, url: string) Result[Response]:
-	self._send_method("DELETE", url, none, "")
+bind Client.delete = (self, url: string) Result[Response]: self._send_method(
+	"DELETE",
+	url,
+	none,
+	"",
+)
 
 // Sends a one-off HTTP `GET` request to `url` with default [`Client`] settings.
 bind get = (url: string) Result[Response]: {
@@ -1213,14 +1202,13 @@ define Server struct [
 ]
 
 // Creates a [`Server`] configured to listen on `addr` with `10000` ms read/write timeouts.
-bind Server.new = (addr: string) Server:
-	Server[
-		addr: addr.copy(),
-		port: 0,
-		listener_fd: -1,
-		read_timeout_ms: 10000,
-		write_timeout_ms: 10000,
-	]
+bind Server.new = (addr: string) Server: Server[
+	addr: addr.copy(),
+	port: 0,
+	listener_fd: -1,
+	read_timeout_ms: 10000,
+	write_timeout_ms: 10000,
+]
 
 // Closes the underlying listener socket when the [`Server`] goes out of scope.
 bind Server.drop = (&self): self.close()
@@ -1239,7 +1227,7 @@ bind Server.close = (&self):
 // stored in `self.port`.
 //
 // # Errors
-// Returns [`Result.fail`] if binding or listening on the address fails.
+// Returns [`Result.err`] if binding or listening on the address fails.
 bind Server.listen = (&self) Result[int]: {
 	let host = "0.0.0.0"
 	let port = 8080
@@ -1259,11 +1247,11 @@ bind Server.listen = (&self) Result[int]: {
 	}
 
 	let sfd = unsafe sys_tcp_listen(host.c_str(), port, 128)
-	if(sfd < 0): func <- Result[int].fail(Error.new("failed to bind server on ${self.addr}"))
+	if(sfd < 0): func <- err(Error.new("failed to bind server on ${self.addr}"))
 	self.listener_fd = sfd
 	let actual_port = unsafe sys_tcp_port(sfd)
 	self.port = if(actual_port > 0): actual_port else: port
-	Result[int].ok(self.port)
+	value(self.port)
 }
 
 // Reads one HTTP request from `conn_fd`, invokes `handler`, writes the response, and closes `conn_fd`.
@@ -1308,16 +1296,15 @@ bind Server.serve_conn = (&self, conn_fd: int, handler: (Request, &ResponseWrite
 bind Server.serve_one = (&self, handler: (Request, &ResponseWriter), timeout_ms: int) Result[bool]: {
 	if(self.listener_fd < 0): {
 		let lr! = self.listen()
-		if(lr!.is_err()): func <- Result[bool].fail(lr!.unwrap_err().wrap("listen failed"))
+		if(lr!.is_err()): func <- err(lr!.unwrap_err().wrap("listen failed"))
 	}
 	let client_fd = unsafe sys_tcp_accept(self.listener_fd, timeout_ms)
 	if(client_fd < 0): {
-		if(client_fd == -2):
-			func <- Result[bool].fail(Error.coded("timeout", "timeout waiting for connection"))
-		func <- Result[bool].fail(Error.new("accept error"))
+		if(client_fd == -2): func <- err(Error.coded("timeout", "timeout waiting for connection"))
+		func <- err(Error.new("accept error"))
 	}
 	let ok = self.serve_conn(client_fd, handler)
-	Result[bool].ok(ok)
+	value(ok)
 }
 
 // Runs the accept loop, handling connections sequentially with `handler`.
@@ -1327,7 +1314,7 @@ bind Server.serve_one = (&self, handler: (Request, &ResponseWriter), timeout_ms:
 bind Server.serve = (&self, handler: (Request, &ResponseWriter), max_requests: int) Result[int]: {
 	if(self.listener_fd < 0): {
 		let lr! = self.listen()
-		if(lr!.is_err()): func <- Result[int].fail(lr!.unwrap_err().wrap("listen failed"))
+		if(lr!.is_err()): func <- err(lr!.unwrap_err().wrap("listen failed"))
 	}
 	let served = 0
 	for(max_requests <= 0 or served < max_requests): {
@@ -1337,15 +1324,14 @@ bind Server.serve = (&self, handler: (Request, &ResponseWriter), max_requests: i
 			if(ok): served += 1
 		}
 	}
-	Result[int].ok(served)
+	value(served)
 }
 
 // Starts a [`Server`] bound to `addr` and serves requests indefinitely using `handler`.
 bind listen_and_serve = (addr: string, handler: (Request, &ResponseWriter)) Result[bool]: {
 	let s = Server.new(addr)
 	let res! = s.serve(handler, 0)
-	if(res!.is_ok()): Result[bool].ok(true)
-	else: Result[bool].fail(res!.unwrap_err().wrap("server error"))
+	if(res!.is_ok()): value(true) else: err(res!.unwrap_err().wrap("server error"))
 }
 
 // Starts a [`Server`] bound to `addr` and dispatches requests through `mux`.
@@ -1364,7 +1350,7 @@ bind listen_and_serve_mux = (addr: string, mux: ServeMux) Result[bool]: {
 // In-memory response recorder wrapping a [`ResponseWriter`] for handler unit tests.
 define ResponseRecorder struct [
 	// Underlying [`ResponseWriter`] capturing status, headers, and body writes.
-	writer: ResponseWriter,
+	writer: ResponseWriter
 ]
 
 // Creates a fresh [`ResponseRecorder`].
@@ -1386,27 +1372,23 @@ bind test_handler = (handler: (Request, &ResponseWriter), req: Request) Response
 // `handler`, serializes the reply, and parses the client-side [`Response`].
 bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request) Result[Response]: {
 	let pair_res! = net.socketpair()
-	if(pair_res!.is_err()):
-		func <- Result[Response].fail(pair_res!.unwrap_err().wrap("socketpair failed"))
+	if(pair_res!.is_err()): func <- err(pair_res!.unwrap_err().wrap("socketpair failed"))
 	let pair = pair_res!.unwrap()
 
 	let req_wire = req.format()
 	let send_res! = pair.first.send(req_wire)
-	if(send_res!.is_err()):
-		func <- Result[Response].fail(
-			send_res!.unwrap_err().wrap("failed to send request to socketpair"),
-		)
+	if(send_res!.is_err()): func <- err(
+		send_res!.unwrap_err().wrap("failed to send request to socketpair")
+	)
 
 	let srv_req_res! = _read_http_message(pair.second.raw_fd(), 2000)
-	if(srv_req_res!.is_err()):
-		func <- Result[Response].fail(
-			srv_req_res!.unwrap_err().wrap("server failed to read request"),
-		)
+	if(srv_req_res!.is_err()): func <- err(
+		srv_req_res!.unwrap_err().wrap("server failed to read request")
+	)
 	let parsed_req_res! = Request.parse(srv_req_res!.unwrap())
-	if(parsed_req_res!.is_err()):
-		func <- Result[Response].fail(
-			parsed_req_res!.unwrap_err().wrap("server failed to parse request"),
-		)
+	if(parsed_req_res!.is_err()): func <- err(
+		parsed_req_res!.unwrap_err().wrap("server failed to parse request")
+	)
 	let srv_req = parsed_req_res!.unwrap()
 
 	let rw = ResponseWriter.new()
@@ -1415,16 +1397,14 @@ bind test_roundtrip = (handler: (Request, &ResponseWriter), req: Request) Result
 	let resp_wire = resp.format()
 
 	let srv_send_res! = pair.second.send(resp_wire)
-	if(srv_send_res!.is_err()):
-		func <- Result[Response].fail(
-			srv_send_res!.unwrap_err().wrap("server failed to send response"),
-		)
+	if(srv_send_res!.is_err()): func <- err(
+		srv_send_res!.unwrap_err().wrap("server failed to send response")
+	)
 
 	let client_read_res! = _read_http_message(pair.first.raw_fd(), 2000)
-	if(client_read_res!.is_err()):
-		func <- Result[Response].fail(
-			client_read_res!.unwrap_err().wrap("client failed to read response"),
-		)
+	if(client_read_res!.is_err()): func <- err(
+		client_read_res!.unwrap_err().wrap("client failed to read response")
+	)
 	let client_wire = client_read_res!.unwrap()
 	Response.parse(client_wire)
 }
@@ -1549,18 +1529,30 @@ bind test_http_query_and_crlf_guards = (): {
 	req.method = "GET\r\nInjected"
 	req.proto = "HTTP/1.1\r\nSmuggled"
 	let wire = req.format()
-	assert(wire.starts_with("GETInjected /search?q=hello%20world HTTP/1.1Smuggled\r\n"), "query and start line sanitized")
+	assert(
+		wire.starts_with("GETInjected /search?q=hello%20world HTTP/1.1Smuggled\r\n"),
+		"query and start line sanitized",
+	)
 	assert(not wire.contains("\r\nEvil:"), "injected header line prevented in Request.format")
 	let parsed = Request.parse(wire).unwrap()
 	assert(parsed.header("evil") == none, "Evil header not present")
-	assert((parsed.query_param("q") ?? "") == "hello world", "query param survives Request.format roundtrip")
+	assert(
+		(parsed.query_param("q") ?? "") == "hello world",
+		"query param survives Request.format roundtrip",
+	)
 
 	let resp = Response.new(200, "ok")
 	resp.status = "OK\r\nInjected-Resp: 1"
 	resp.set_header("X-Resp", "a\r\nSet-Cookie: bad=1")
 	let rwire = resp.format()
-	assert(not rwire.contains("\r\nSet-Cookie:"), "injected header line prevented in Response.format")
-	assert(not rwire.contains("\r\nInjected-Resp:"), "injected status header prevented in Response.format")
+	assert(
+		not rwire.contains("\r\nSet-Cookie:"),
+		"injected header line prevented in Response.format",
+	)
+	assert(
+		not rwire.contains("\r\nInjected-Resp:"),
+		"injected status header prevented in Response.format",
+	)
 	let rparsed = Response.parse(rwire).unwrap()
 	assert(rparsed.header("set-cookie") == none, "Set-Cookie header not present")
 }

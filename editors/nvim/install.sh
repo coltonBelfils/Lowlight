@@ -16,10 +16,12 @@ cp -f "${SCRIPT_DIR}/ftdetect/lowlight.vim" "${NVIM_CONFIG}/ftdetect/lowlight.vi
 cp -f "${SCRIPT_DIR}/syntax/lowlight.vim" "${NVIM_CONFIG}/syntax/lowlight.vim"
 echo "  ✓ Installed ftdetect/lowlight.vim and syntax/lowlight.vim"
 
-# 2. Install plugin/lowlight.lua directly from editors/nvim/init.lua
+# 2. Install plugin/lowlight.lua directly from editors/nvim/init.lua and neotest-lowlight adapter
 rm -f "${NVIM_CONFIG}/after/ftplugin/lowlight.lua"
 cp -f "${SCRIPT_DIR}/init.lua" "${NVIM_CONFIG}/plugin/lowlight.lua"
-echo "  ✓ Installed plugin/lowlight.lua"
+mkdir -p "${NVIM_CONFIG}/lua/neotest-lowlight"
+cp -f "${SCRIPT_DIR}/lua/neotest-lowlight/init.lua" "${NVIM_CONFIG}/lua/neotest-lowlight/init.lua"
+echo "  ✓ Installed plugin/lowlight.lua and lua/neotest-lowlight/init.lua"
 
 # 3. If init.lua does not exist, provide default init.lua
 if [ ! -f "${NVIM_CONFIG}/init.lua" ]; then

@@ -474,6 +474,17 @@ func (s *Server) hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *se
 			if arm.Synthetic {
 				continue
 			}
+			hoverVariantPattern := func(vp *ast.VariantPattern) string {
+				if bm != nil {
+					syms := bm.PatternSyms[vp]
+					for i, b := range vp.Bindings {
+						if spanContainsOffset(b.Span, offset) && tok.Text == b.BindName && i < len(syms) && syms[i] != nil {
+							return s.formatSymbolHover(prog, mod, syms[i])
+						}
+					}
+				}
+				return s.hoverInExpr(prog, mod, bm, vp.Target, offset, tok)
+			}
 			for _, pat := range arm.AllPatterns() {
 				if ep, ok := pat.(*ast.ExprPattern); ok && spanContainsOffset(ep.Span, offset) {
 					if md := s.hoverInExpr(prog, mod, bm, ep.Expr, offset, tok); md != "" {
@@ -487,6 +498,12 @@ func (s *Server) hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *se
 				}
 				if mp, ok := pat.(*ast.MethodPattern); ok && spanContainsOffset(mp.Span, offset) {
 					if bm != nil {
+						if vp := bm.BareVariantPatterns[mp]; vp != nil {
+							if md := hoverVariantPattern(vp); md != "" {
+								return md
+							}
+							continue
+						}
 						if mpInfo := bm.MethodPatterns[mp]; mpInfo != nil && mpInfo.Call != nil {
 							if md := s.hoverInExpr(prog, mod, bm, mpInfo.Call, offset, tok); md != "" {
 								return md
@@ -500,15 +517,7 @@ func (s *Server) hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *se
 					}
 				}
 				if vp, ok := pat.(*ast.VariantPattern); ok && spanContainsOffset(vp.Span, offset) {
-					if bm != nil {
-						syms := bm.PatternSyms[vp]
-						for i, b := range vp.Bindings {
-							if spanContainsOffset(b.Span, offset) && tok.Text == b.BindName && i < len(syms) && syms[i] != nil {
-								return s.formatSymbolHover(prog, mod, syms[i])
-							}
-						}
-					}
-					if md := s.hoverInExpr(prog, mod, bm, vp.Target, offset, tok); md != "" {
+					if md := hoverVariantPattern(vp); md != "" {
 						return md
 					}
 				}
@@ -559,7 +568,7 @@ func (s *Server) hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *se
 		}
 
 	case *ast.MemberExpr:
-		if spanContainsOffset(v.Base.GetSpan(), offset) {
+		if spanContainsOffset(v.Base.GetSpan(), offset) && !isPlaceholderIdent(v.Base) {
 			return s.hoverInExpr(prog, mod, bm, v.Base, offset, tok)
 		}
 		inf := exprInfoFromBM(prog, bm, v)
@@ -612,8 +621,13 @@ func (s *Server) hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *se
 		}
 
 	case *ast.IdentExpr:
-		if inf := exprInfoFromBM(prog, bm, v); inf != nil && inf.Sym != nil {
-			return s.formatSymbolHover(prog, mod, inf.Sym)
+		if inf := exprInfoFromBM(prog, bm, v); inf != nil {
+			if inf.Sym != nil {
+				return s.formatSymbolHover(prog, mod, inf.Sym)
+			}
+			if inf.EnumVariant != nil && inf.EnumType != nil {
+				return s.formatEnumVariantHover(prog, mod, inf.EnumType, inf.EnumVariant)
+			}
 		}
 
 	case *ast.BinaryExpr:
@@ -951,13 +965,13 @@ func contextualKeywordHover(src string, tok token.Token) string {
 			return "```lowlight\ndefine Name[T] result [\n    value: T,\n    Failure: Payload,\n]\n```\n" +
 				"Declares a **result type**: exactly one `value` member (the success payload) plus one or more failure variants.\n\n" +
 				"- Names holding a result end in `!` (`let cfg! = load(path)`).\n" +
-				"- Handle failures with a result chain (`load(path): when Missing(k): ... default ...`), `??`, or `if (r! as v)`.\n" +
-				"- Construct with bare members where a result is expected: `value(x)`, `Missing(k)`, `Err(e)`."
+				"- Handle failures with a result chain (`load(path): when missing(k): ... default ...`), `??`, or `if (r! as v)`.\n" +
+				"- Construct with bare members where a result is expected: `value(x)`, `missing(k)`, `err(e)`."
 		}
 	case "panic":
 		if strings.HasSuffix(before, "default") {
 			return "```lowlight\ndefault panic\n```\nEnds a result chain: every failure no arm handles panics with " +
-				"`unhandled failure Name.Variant` at this line. Use it where those failures are not expected."
+				"`unhandled failure Name.variant` at this line. Use it where those failures are not expected."
 		}
 	case "default":
 		after := strings.TrimLeft(src[tok.Span.End.Offset:], " \t")
@@ -1391,7 +1405,7 @@ func (s *Server) computeDefinition(filePath string, src string, pos Position) *L
 		return s.spanToLocation(sp)
 	}
 
-	// 2. Check nominal types (`Point`, `Status`, `Pool`, `UserID`)
+	// 2. Check nominal types (`Point`, `Status`, `Pool`, `UserId`)
 	word := tok.Text
 	if nom := lookupNominalType(mod, "", word); nom != nil {
 		if sp, ok2 := prog.TypeSpans[nom]; ok2 && sp.Start.File != "" {
@@ -1781,6 +1795,14 @@ func definitionSpanInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.
 				}
 				if mp, ok := pat.(*ast.MethodPattern); ok && spanContainsOffset(mp.Span, offset) {
 					if bm != nil {
+						if vp := bm.BareVariantPatterns[mp]; vp != nil {
+							if spanContainsOffset(vp.Target.GetSpan(), offset) {
+								if sp := definitionSpanInExpr(prog, mod, bm, vp.Target, offset, tok); sp.Start.File != "" {
+									return sp
+								}
+							}
+							continue
+						}
 						if mpInfo := bm.MethodPatterns[mp]; mpInfo != nil && mpInfo.Call != nil {
 							if sp := definitionSpanInExpr(prog, mod, bm, mpInfo.Call, offset, tok); sp.Start.File != "" {
 								return sp
@@ -1896,7 +1918,7 @@ func definitionSpanInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.
 		if inf := exprInfoFromBM(prog, bm, v); inf != nil && inf.Sym != nil && inf.Sym.Span.Start.File != "" {
 			return inf.Sym.Span
 		}
-		// Bare result member (`Forbidden`, or the callee of `value(x)` / `Err(e)`)
+		// Bare result member (`forbidden`, or the callee of `value(x)` / `err(e)`)
 		if inf := exprInfoFromBM(prog, bm, v); inf != nil && inf.EnumType != nil && inf.EnumVariant != nil {
 			return findEnumVariantSpan(prog, inf.EnumType, inf.EnumVariant.Name)
 		}
@@ -2838,8 +2860,8 @@ func formatVariantPatternForMatch(prog *sema.CheckedProgram, mod *sema.Module, v
 						}
 						if v.Name == "value" {
 							argName = "val"
-						} else if v.Name == "Err" {
-							argName = "err"
+						} else if v.Name == "err" {
+							argName = "e"
 						}
 						return fmt.Sprintf("%s(%s)", variantName, argName)
 					}
@@ -2855,8 +2877,8 @@ func formatVariantPatternForMatch(prog *sema.CheckedProgram, mod *sema.Module, v
 					argName := "val"
 					if v.Name == "value" {
 						argName = "val"
-					} else if v.Name == "Err" {
-						argName = "err"
+					} else if v.Name == "err" {
+						argName = "e"
 					}
 					return fmt.Sprintf("%s(%s)", variantName, argName)
 				}

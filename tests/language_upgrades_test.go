@@ -1320,8 +1320,8 @@ bind main = (): {
 	assert(os.file_exists(%q))
 	let _ = os.remove_all(%q)
 
-	let dt_win = time.DateTime.new(2024, 1, 15, 12, 0, 0, true)
-	let dt_sum = time.DateTime.new(2024, 7, 15, 12, 0, 0, true)
+	let dt_win = time.DateTime.must_new(2024, 1, 15, 12, 0, 0, true)
+	let dt_sum = time.DateTime.must_new(2024, 7, 15, 12, 0, 0, true)
 	println("tz=${dt_win.offset_secs}:${dt_sum.offset_secs}")
 
 	let sp = net.socketpair().unwrap()

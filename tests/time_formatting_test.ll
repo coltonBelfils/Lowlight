@@ -2,7 +2,7 @@ import "std/time"
 
 bind main = (): {
     // 1. Fixed test date: 2026-10-31 15:30:45 UTC
-    let dt = time.DateTime.new(2026, 10, 31, 15, 30, 45, false)
+    let dt = time.DateTime.must_new(2026, 10, 31, 15, 30, 45, false)
 
     assert(dt.year == 2026)
     assert(dt.month == 10)
@@ -67,25 +67,25 @@ bind main = (): {
     assert(dt.to_layout() == "10/31 03:30:45PM '26 +0000")
 
     // Verify format constants work interchangeably with format_go
-    assert(dt.format_go(time.Kitchen) == dt.to_kitchen())
-    assert(dt.format_go(time.DateOnly) == dt.to_date_only())
-    assert(dt.format_go(time.TimeOnly) == dt.to_time_only())
-    assert(dt.format_go(time.DateTimeFormat) == dt.to_datetime_string())
+    assert(dt.format_go(time.KITCHEN) == dt.to_kitchen())
+    assert(dt.format_go(time.DATE_ONLY) == dt.to_date_only())
+    assert(dt.format_go(time.TIME_ONLY) == dt.to_time_only())
+    assert(dt.format_go(time.DATETIME_FORMAT) == dt.to_datetime_string())
     assert(dt.format_go(time.ANSIC) == dt.to_ansic())
-    assert(dt.format_go(time.UnixDate) == dt.to_unix_date())
-    assert(dt.format_go(time.RubyDate) == dt.to_ruby_date())
+    assert(dt.format_go(time.UNIX_DATE) == dt.to_unix_date())
+    assert(dt.format_go(time.RUBY_DATE) == dt.to_ruby_date())
     assert(dt.format_go(time.RFC822) == dt.to_rfc822())
     assert(dt.format_go(time.RFC822Z) == dt.to_rfc822z())
     assert(dt.format_go(time.RFC850) == dt.to_rfc850())
     assert(dt.format_go(time.RFC1123) == dt.to_rfc1123())
     assert(dt.format_go(time.RFC1123Z) == dt.to_rfc1123z())
     assert(dt.format_go(time.RFC3339) == dt.to_rfc3339())
-    assert(dt.format_go(time.RFC3339Nano) == dt.to_rfc3339_nano())
-    assert(dt.format_go(time.Stamp) == dt.to_stamp())
-    assert(dt.format_go(time.StampMilli) == dt.to_stamp_milli())
-    assert(dt.format_go(time.StampMicro) == dt.to_stamp_micro())
-    assert(dt.format_go(time.StampNano) == dt.to_stamp_nano())
-    assert(dt.format_go(time.Layout) == dt.to_layout())
+    assert(dt.format_go(time.RFC3339_NANO) == dt.to_rfc3339_nano())
+    assert(dt.format_go(time.STAMP) == dt.to_stamp())
+    assert(dt.format_go(time.STAMP_MILLI) == dt.to_stamp_milli())
+    assert(dt.format_go(time.STAMP_MICRO) == dt.to_stamp_micro())
+    assert(dt.format_go(time.STAMP_NANO) == dt.to_stamp_nano())
+    assert(dt.format_go(time.LAYOUT) == dt.to_layout())
 
     // Verify POSIX format constants work interchangeably with format
     assert(dt.format(time.C_FMT_DATETIME) == "2026-10-31 15:30:45")
@@ -99,7 +99,7 @@ bind main = (): {
     assert(dt_later.hour == 16)
     assert(dt_later.minute == 30)
 
-    let diff = dt_later.diff(dt)
+    let diff = dt_later.diff(dt) ?? panic("diff overflow")
     assert(diff.to_secs() == 3600.0)
 
     // 6. Parsing ISO strings using string.to_datetime()

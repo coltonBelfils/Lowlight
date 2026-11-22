@@ -558,7 +558,7 @@ func (idx *SymbolIndex) ResolveLink(target, currentModPath, currentType string) 
 		}
 	}
 
-	// 4. Current module exact `FullName` (e.g., `Error`, `List.push`, `Result.Err`).
+	// 4. Current module exact `FullName` (e.g., `Error`, `List.push`, `Result.err`).
 	if currentModName != "" {
 		if found := idx.findInModule(currentModName, clean); found != nil {
 			return found, false

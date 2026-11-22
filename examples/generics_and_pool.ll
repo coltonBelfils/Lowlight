@@ -1,6 +1,6 @@
 // examples/generics_and_pool.ll
 // Showcases monomorphized generics with interface bounds (`[T: Printable + Copyable]`),
-// generic `Result[T, E]` from the core prelude, and the generational `Pool[T]` / `Handle[T]`
+// generic `Result[T]` from the core prelude, and the generational `Pool[T]` / `Handle[T]`
 // from `std/pool` (stale-handle safety + O(1) slot reuse).
 
 import "std/pool"
@@ -63,8 +63,8 @@ bind main = (): {
     assert(dragon_name == "Dragon")
 
     // 3. Generic Result[T] round-trip
-    let ok_res! = Result[int].ok(42)
-    let err_res! = Result[int].fail(Error.new("offline"))
+    let ok_res! = Result[int].value(42)
+    let err_res! = Result[int].err(Error.new("offline"))
     assert(ok_res!.is_ok())
     assert(err_res!.is_err())
     assert(ok_res!.unwrap_or(0) == 42)

@@ -107,6 +107,12 @@ func (s *Server) computeCompletions(filePath string, src string, pos Position) *
 		}
 	}
 
+	// 4c. Bare variant names in a `match` arm on an enum (`match(e):` / `when |`)
+	if matchItems, inMatchPat := s.completeMatchArmEnumPatterns(filePath, src, offset, prefixStart, prefix, replaceRange); inMatchPat {
+		items := append(matchItems, s.completeScopedSymbols(prog, mod, src, offset, prefix, replaceRange, false)...)
+		return &CompletionList{IsIncomplete: false, Items: items}
+	}
+
 	// 4. Check Type Annotation position (`let x: |`, `(a: |)`, `define Foo |`, `[T: |]`)
 	if isTypeAnnotationContext(toks) {
 		items := s.completeTypeNames(prog, mod, prefix, replaceRange, isParamTypeContext(toks))
@@ -114,9 +120,9 @@ func (s *Server) computeCompletions(filePath string, src string, pos Position) *
 	}
 
 	// 5. General expression / statement / top-level completion
-	atTop := len(toks) == 0 || isTopLevelContext(toks)
+	atTop := (len(toks) == 0 || isTopLevelContext(toks)) && !isInsideFuncBody(mod, offset)
 	items := s.completeScopedSymbols(prog, mod, src, offset, prefix, replaceRange, atTop)
-	// Inside a function returning a result, offer its bare members (`value(...)`, `Err(...)`).
+	// Inside a function returning a result, offer its bare members (`value(...)`, `err(...)`).
 	if !atTop {
 		if en := enclosingResultReturn(prog, mod, offset); en != nil {
 			items = append(resultMemberItems(en, prefix, replaceRange, false), items...)
@@ -322,7 +328,7 @@ func (s *Server) completeDotMember(
 					Items:        items,
 				}
 			}
-			// Concrete nominal type (`Enum.`, `Point.`, `UserID.`)
+			// Concrete nominal type (`Enum.`, `Point.`, `UserId.`)
 			if nomTy := lookupNominalType(mod, "", baseId.Name); nomTy != nil {
 				if en, isEn := nomTy.(*types.Enum); isEn {
 					items := s.completeEnumVariants(prog, mod, en, prefix, replaceRange)
@@ -1572,6 +1578,25 @@ func isTopLevelContext(toks []token.Token) bool {
 	return braceDepth == 0
 }
 
+func isInsideFuncBody(mod *sema.Module, offset int) bool {
+	if mod == nil || mod.File == nil {
+		return false
+	}
+	for _, d := range mod.File.Decls {
+		switch decl := d.(type) {
+		case *ast.VarDecl:
+			if fl, ok := decl.Value.(*ast.FuncLit); ok && fl.Body != nil && spanContainsOffset(fl.Body.GetSpan(), offset) {
+				return true
+			}
+		case *ast.MethodDecl:
+			if decl.Body != nil && spanContainsOffset(decl.Body.GetSpan(), offset) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *Server) completeScopedSymbols(
 	prog *sema.CheckedProgram,
 	mod *sema.Module,
@@ -2094,7 +2119,13 @@ func walkExprScopes(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMa
 			if arm.Body != nil && spanContainsOffset(arm.Body.GetSpan(), offset) {
 				if bm != nil {
 					for _, pat := range arm.AllPatterns() {
-						if vp, isVP := pat.(*ast.VariantPattern); isVP {
+						var vp *ast.VariantPattern
+						if p, isVP := pat.(*ast.VariantPattern); isVP {
+							vp = p
+						} else if mp, isMP := pat.(*ast.MethodPattern); isMP {
+							vp = bm.BareVariantPatterns[mp]
+						}
+						if vp != nil {
 							for _, sym := range bm.PatternSyms[vp] {
 								if sym != nil {
 									*out = append(*out, scopedSymEntry{sym: sym, badge: "pattern"})

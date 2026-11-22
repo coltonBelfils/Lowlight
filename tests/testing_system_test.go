@@ -2,7 +2,9 @@ package tests
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -131,7 +133,7 @@ bind test_assertions = (): {
     test.assert_ge(50, 50)
     test.assert_le(50, 50)
 
-    let ok_res! = Result[int].ok(42)
+    let ok_res! = Result[int].value(42)
     test.assert_is_ok(&ok_res!)
 
     let err_res! = Result[int].fail_msg("boom")
@@ -823,7 +825,7 @@ func TestAssertionApproxEqAndStringMatchFailureDiagnostics(t *testing.T) {
 		},
 		{
 			name:     "assert_ok_eq_when_value_mismatch",
-			callLine: `    test.assert_ok_eq(Result[int].ok(7), 42)`,
+			callLine: `    test.assert_ok_eq(Result[int].value(7), 42)`,
 			want:     []string{"test_file.ll:5:5:", "values are not equal", "expected: 42", "got: 7"},
 		},
 		{
@@ -833,17 +835,17 @@ func TestAssertionApproxEqAndStringMatchFailureDiagnostics(t *testing.T) {
 		},
 		{
 			name:     "assert_ok_gt_when_value_fails",
-			callLine: `    test.assert_ok_gt(Result[int].ok(5), 10)`,
+			callLine: `    test.assert_ok_gt(Result[int].value(5), 10)`,
 			want:     []string{"test_file.ll:5:5:", "expected actual > threshold", "actual: 5", "threshold: 10"},
 		},
 		{
 			name:     "assert_ok_contains_when_mismatch",
-			callLine: `    test.assert_ok_contains(Result[string].ok("hello"), "xyz")`,
+			callLine: `    test.assert_ok_contains(Result[string].value("hello"), "xyz")`,
 			want:     []string{"test_file.ll:5:5:", "contain substring", "actual: hello", "substring: xyz"},
 		},
 		{
 			name:     "assert_err_contains_when_ok",
-			callLine: `    test.assert_err_contains(Result[int].ok(1), "boom")`,
+			callLine: `    test.assert_err_contains(Result[int].value(1), "boom")`,
 			want:     []string{"test_file.ll:5:5:", "expected Result to be Err, but got Ok"},
 		},
 	}
@@ -909,7 +911,7 @@ func TestBatchAssertionsReportAllFailuresAndCallerLocation(t *testing.T) {
 		},
 		{
 			name:     "assert_all_ok_eq_reports_both_err_and_value_mismatch",
-			callLine: `    test.assert_all_ok_eq_msg([+[10, Result[int].fail_msg("boom")], +[20, Result[int].ok(20)], +[30, Result[int].ok(99)]], "parse batch")`,
+			callLine: `    test.assert_all_ok_eq_msg([+[10, Result[int].fail_msg("boom")], +[20, Result[int].value(20)], +[30, Result[int].value(99)]], "parse batch")`,
 			want: []string{
 				"test_file.ll:5:5:",
 				"parse batch: 2 of 3 case(s) failed (1 passed)",
@@ -942,9 +944,24 @@ func TestBatchAssertionsReportAllFailuresAndCallerLocation(t *testing.T) {
 			callLine: `    test.assert_any_eq([+[1, 2], +[3, 4]])`,
 			want: []string{
 				"test_file.ll:5:5:",
-				"no (expected, actual) pair matched",
+				"no (expected, actual) pair matched\n\n      [0] expected: 1, got: 2",
 				"[0] expected: 1, got: 2",
 				"[1] expected: 3, got: 4",
+			},
+		},
+		{
+			name:     "assert_all_ok_eq_named_err_and_value_mismatch_spacing_and_alignment",
+			callLine: `    test.assert_all_ok_eq_named_msg([+["bad err", 10, Result[int].fail_msg("boom")], +["passes", 20, Result[int].value(20)], +["wrong val", 30, Result[int].value(99)]], "parse batch")`,
+			want: []string{
+				"test_file.ll:5:5:",
+				"parse batch: 2 of 3 case(s) failed (1 passed)\n\n    ✗ case [0] (bad err):",
+				"      expected Result to be Ok, but got Err\n        error: boom\n        trace:\n          at ",
+				"\n\n    ✗ case [2] (wrong val):\n      values are not equal\n        expected: 30\n             got: 99",
+			},
+			notWant: []string{
+				"case [1]",
+				"passes",
+				"\n    \n",
 			},
 		},
 	}
@@ -967,5 +984,267 @@ func TestBatchAssertionsReportAllFailuresAndCallerLocation(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBatchFailureFormattingBackendParity(t *testing.T) {
+	t.Parallel()
+	src := "import \"std/test\"\n\n" +
+		"bind make_err = () Result[string]: Result[string].fail_msg(\"outer: inner failure\\n\")\n\n" +
+		"@test(\"batch readability parity\")\n" +
+		"bind test_batch_parity = (): {\n" +
+		"    test.assert_all_ok_eq_named([\n" +
+		"        +[\"err case\", \"ok\", make_err()],\n" +
+		"        +[\"passing\", \"same\", Result[string].value(\"same\")],\n" +
+		"        +[\"tab diff\", \"top\\n\\t\\t\\\"k\\\": [1]\", Result[string].value(\"top\\n\\t\\t\\\"k\\\": []\")],\n" +
+		"    ])\n" +
+		"}\n"
+
+	tmpDir := t.TempDir()
+	entryPath := filepath.Join(tmpDir, "test_file.ll")
+	if err := os.WriteFile(entryPath, []byte(src), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+	root := projectRoot(t)
+
+	runBackend := func(backend driver.BackendKind) string {
+		opts := driver.Options{
+			EntryPath:   entryPath,
+			ProjectRoot: root,
+			Backend:     backend,
+			TestMode:    true,
+		}
+		var stdout, stderr bytes.Buffer
+		code, err := driver.Test(opts, &stdout, &stderr)
+		out := stdout.String() + stderr.String()
+		if code != 1 {
+			t.Fatalf("[%s] expected exit code 1, got %d (err: %v)\nOutput:\n%s", backend, code, err, out)
+		}
+		return out
+	}
+
+	c11Out := runBackend(driver.BackendC11)
+	llvmOut := runBackend(driver.BackendLLVM)
+
+	if c11Out != llvmOut {
+		t.Fatalf("C11 and LLVM batch failure output diverged:\n--- C11 ---\n%s\n--- LLVM ---\n%s", c11Out, llvmOut)
+	}
+	for _, want := range []string{
+		"2 of 3 case(s) failed (1 passed)\n\n    ✗ case [0] (err case):",
+		"        error: outer: inner failure\n        trace:\n          at ",
+		"\n\n    ✗ case [2] (tab diff):\n      values are not equal\n        first mismatch at line 2:\n          expected: \t\t\"k\": [1]\n               got: \t\t\"k\": []\n                    \t\t      ^ diff at index 8",
+	} {
+		if !strings.Contains(c11Out, want) {
+			t.Errorf("expected output to contain %q\nOutput:\n%s", want, c11Out)
+		}
+	}
+	if strings.Contains(c11Out, "\n    \n") {
+		t.Errorf("unexpected whitespace-only blank line in output:\n%s", c11Out)
+	}
+}
+
+func TestClickableRelativePathsInTestOutput(t *testing.T) {
+	t.Parallel()
+	root := projectRoot(t)
+	tmpBinDir := t.TempDir()
+	binPath := filepath.Join(tmpBinDir, "lowlight")
+
+	buildCmd := exec.Command("go", "build", "-o", binPath, "./cmd/lowlight")
+	buildCmd.Dir = root
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build failed: %v\n%s", err, string(out))
+	}
+
+	workDir := t.TempDir()
+	subDir := filepath.Join(workDir, "pkg", "nested")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	src := `import "std/test"
+
+bind fail_err = () Result[int]:
+    Result[int].fail_msg("boom")
+
+@test("relative clickable paths")
+bind test_rel = (): {
+    test.assert_all_ok_eq_named([
+        +["err", 1, fail_err()],
+    ])
+}
+`
+	testPath := filepath.Join(subDir, "clickable_test.ll")
+	if err := os.WriteFile(testPath, []byte(src), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	runCmd := exec.Command(binPath, "test", "pkg/nested/clickable_test.ll")
+	runCmd.Dir = workDir
+	env := os.Environ()
+	env = append(env, "LOWLIGHT_ROOT="+root)
+	runCmd.Env = env
+	outBytes, err := runCmd.CombinedOutput()
+	out := string(outBytes)
+	if err == nil {
+		t.Fatalf("expected non-zero exit code for failing test\nOutput:\n%s", out)
+	}
+	if !strings.Contains(out, "pkg/nested/clickable_test.ll:8:5:") {
+		t.Errorf("expected workspace-relative clickable caller location in output:\n%s", out)
+	}
+	if !strings.Contains(out, "at pkg/nested/clickable_test.ll:4:") {
+		t.Errorf("expected workspace-relative clickable stack trace location in output:\n%s", out)
+	}
+}
+
+func TestTestListAndJSONOutput(t *testing.T) {
+	t.Parallel()
+	root := projectRoot(t)
+	tmpDir := t.TempDir()
+
+	src := `import "std/test"
+
+bind helper_err = () Result[int]:
+    Result[int].fail_msg("inner error")
+
+@test("passing math")
+bind test_pass = (): {
+    test.assert_eq(2 + 2, 4)
+}
+
+@test("failing eq diff")
+bind test_diff = (): {
+    test.assert_eq("actual_v", "expect_v")
+}
+
+@test("failing batch")
+bind test_batch = (): {
+    test.assert_all_ok_eq_named([
+        +["err_case", 1, helper_err()],
+        +["val_case", 2, Result[int].value(9)],
+    ])
+}
+`
+	filePath := filepath.Join(tmpDir, "json_suite.ll")
+	if err := os.WriteFile(filePath, []byte(src), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	// 1. Test --list plain and --list --json (with and without -run filter)
+	{
+		var out bytes.Buffer
+		code, err := driver.Test(driver.Options{
+			Targets:     []string{filePath},
+			ProjectRoot: root,
+			TestList:    true,
+		}, &out, &out)
+		if err != nil || code != 0 {
+			t.Fatalf("--list failed: code=%d err=%v\n%s", code, err, out.String())
+		}
+		if !strings.Contains(out.String(), "test_pass\tpassing math") || !strings.Contains(out.String(), "test_batch\tfailing batch") {
+			t.Errorf("unexpected --list output:\n%s", out.String())
+		}
+	}
+
+	{
+		var out bytes.Buffer
+		code, err := driver.Test(driver.Options{
+			Targets:     []string{filePath},
+			ProjectRoot: root,
+			TestList:    true,
+			TestJSON:    true,
+			TestFilter:  "diff",
+		}, &out, &out)
+		if err != nil || code != 0 {
+			t.Fatalf("--list --json failed: code=%d err=%v\n%s", code, err, out.String())
+		}
+		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+		if len(lines) != 1 {
+			t.Fatalf("expected 1 filtered test event, got %d:\n%s", len(lines), out.String())
+		}
+		var disc driver.DiscoveredTest
+		if err := json.Unmarshal([]byte(lines[0]), &disc); err != nil {
+			t.Fatalf("unmarshal list event: %v", err)
+		}
+		if disc.Name != "test_diff" || disc.Desc != "failing eq diff" || disc.Line != 12 {
+			t.Errorf("unexpected discovered metadata: %+v", disc)
+		}
+	}
+
+	// 2. Test --json streaming output across both C11 and LLVM backends
+	for _, backend := range []driver.BackendKind{driver.BackendC11, driver.BackendLLVM} {
+		var stdout, stderr bytes.Buffer
+		code, err := driver.Test(driver.Options{
+			Targets:     []string{filePath},
+			ProjectRoot: root,
+			Backend:     backend,
+			TestJSON:    true,
+		}, &stdout, &stderr)
+		if err != nil || code != 1 {
+			t.Fatalf("[%s] expected code 1 err nil, got code=%d err=%v\nstdout:\n%s\nstderr:\n%s",
+				backend, code, err, stdout.String(), stderr.String())
+		}
+
+		var events []driver.TestEvent
+		for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			var ev driver.TestEvent
+			if uErr := json.Unmarshal([]byte(line), &ev); uErr != nil {
+				t.Fatalf("[%s] invalid JSON line %q: %v", backend, line, uErr)
+			}
+			events = append(events, ev)
+		}
+
+		var sawPass, sawDiffFail, sawBatchFail, sawSummary bool
+		for _, ev := range events {
+			switch {
+			case ev.Event == "pass" && ev.Name == "test_pass":
+				sawPass = true
+			case ev.Event == "fail" && ev.Name == "test_diff":
+				sawDiffFail = true
+				if ev.FailLine != 13 || ev.Expected == nil || *ev.Expected != "expect_v" || ev.Actual == nil || *ev.Actual != "actual_v" {
+					t.Errorf("[%s] unexpected diff fail fields: %+v", backend, ev)
+				}
+			case ev.Event == "fail" && ev.Name == "test_batch":
+				sawBatchFail = true
+				if len(ev.Cases) != 2 {
+					t.Errorf("[%s] expected 2 batch cases, got %+v", backend, ev.Cases)
+				} else {
+					if ev.Cases[0].Label != "err_case" || ev.Cases[0].FailLine != 4 {
+						t.Errorf("[%s] expected err_case trace at line 4, got %+v", backend, ev.Cases[0])
+					}
+					if ev.Cases[1].Label != "val_case" || ev.Cases[1].Expected == nil || *ev.Cases[1].Expected != "2" || ev.Cases[1].Actual == nil || *ev.Cases[1].Actual != "9" {
+						t.Errorf("[%s] expected val_case diff 2 vs 9, got %+v", backend, ev.Cases[1])
+					}
+				}
+			case ev.Event == "summary":
+				sawSummary = true
+				if ev.Passed != 1 || ev.Failed != 2 || ev.Total != 3 {
+					t.Errorf("[%s] unexpected summary: %+v", backend, ev)
+				}
+			}
+		}
+		if !sawPass || !sawDiffFail || !sawBatchFail || !sawSummary {
+			t.Errorf("[%s] missing expected events (pass=%v diff=%v batch=%v summary=%v)\nstdout:\n%s",
+				backend, sawPass, sawDiffFail, sawBatchFail, sawSummary, stdout.String())
+		}
+	}
+
+	// 3. Test build_error emission in --json mode
+	badFile := filepath.Join(tmpDir, "bad_test.ll")
+	if err := os.WriteFile(badFile, []byte("@test\nbind bad = (): unknown_symbol_xyz()\n"), 0o644); err != nil {
+		t.Fatalf("write badFile: %v", err)
+	}
+	var badOut, badErr bytes.Buffer
+	code, err := driver.Test(driver.Options{
+		Targets:     []string{badFile},
+		ProjectRoot: root,
+		TestJSON:    true,
+	}, &badOut, &badErr)
+	if err != nil || code != 1 {
+		t.Fatalf("expected code 1 on build_error, got %d (err: %v)", code, err)
+	}
+	if !strings.Contains(badOut.String(), `"event":"build_error"`) {
+		t.Errorf("expected build_error event in stdout:\n%s", badOut.String())
 	}
 }

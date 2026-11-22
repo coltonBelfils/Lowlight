@@ -20,7 +20,7 @@ type Parser struct {
 	rep                   *diag.Reporter
 	inMatchArm            int   // > 0 when parsing the body of a `match` arm (for contextual `default:` detection)
 	matchStack            []int // stack of scrutinee counts for enclosing match expressions
-	suppressTopLabelColon bool  // true at top level of a `[...]`/`#[...]` head or map key before `:`
+	suppressTopLabelColon bool  // true at top level of `[...]`/`#[...]`, map keys, or match patterns/conditions before `:`
 }
 
 // ParseFile lexes and parses a Lowlight source string into an AST.
@@ -2072,7 +2072,7 @@ func (p *Parser) parsePrimaryExpr() ast.Expr {
 
 	case token.Ident:
 		// Check for labeled loop or labeled block: `outer: for (...)`, `outer: while (...)`, or `blk: { ... }`
-		// Suppressed at top level of a `[...]`/`#[...]` head or map key before `:` so `[N: { ... }]` and `#[k: { ... }]` resolve cleanly.
+		// Suppressed at top level of a `[...]`/`#[...]` head, map key, or `match` arm clause before `:`.
 		if !p.suppressTopLabelColon && p.peekAt(1).Kind == token.Colon && (p.peekAt(2).Kind == token.KwFor || p.peekAt(2).Kind == token.KwWhile || p.peekAt(2).Kind == token.LBrace) {
 			lblTok := p.advance()
 			p.advance() // `:`
@@ -2927,13 +2927,13 @@ func (p *Parser) parseMatchArmCases(numScrut int) []ast.MatchCase {
 				p.rep.ErrorWithHint(inTok.Span,
 					"cannot use `when in ...` in a 0-argument `match`",
 					"provide a scrutinee (`match (x): when in ...:`) or write a boolean condition expression")
-				container := p.parseExpr()
+				container := p.parseExprNoTopLabelColon()
 				cases = append(cases, ast.MatchCase{
 					Patterns: []ast.Pattern{&ast.ContainsPattern{Container: container, Span: diag.Span{Start: inTok.Span.Start, End: container.GetSpan().End}}},
 					Span:     diag.Span{Start: inTok.Span.Start, End: container.GetSpan().End},
 				})
 			} else {
-				cond := p.parseExpr()
+				cond := p.parseExprNoTopLabelColon()
 				cases = append(cases, ast.MatchCase{
 					Patterns: []ast.Pattern{&ast.ExprPattern{Expr: cond, Span: cond.GetSpan()}},
 					Span:     cond.GetSpan(),
@@ -3009,7 +3009,7 @@ func (p *Parser) parseMatchArmCases(numScrut int) []ast.MatchCase {
 func (p *Parser) parseSinglePattern() ast.Pattern {
 	if p.cur().Kind == token.KwIn {
 		inTok := p.advance()
-		container := p.parseExpr()
+		container := p.parseExprNoTopLabelColon()
 		return &ast.ContainsPattern{
 			Container: container,
 			Span:      diag.Span{Start: inTok.Span.Start, End: container.GetSpan().End},
@@ -3073,6 +3073,9 @@ func (p *Parser) parseSinglePattern() ast.Pattern {
 }
 
 func (p *Parser) parsePatternAtom() ast.Expr {
+	prev := p.suppressTopLabelColon
+	p.suppressTopLabelColon = true
+	defer func() { p.suppressTopLabelColon = prev }()
 	if p.cur().Kind == token.Minus {
 		m := p.advance()
 		operand := p.parsePrimaryExpr()

@@ -4,6 +4,7 @@ const vscode = require('vscode');
 const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { createLowlightTestController } = require('./test_controller');
 
 /** @type {LowlightClient | null} */
 let client = null;
@@ -903,6 +904,17 @@ function activate(context) {
   client = new LowlightClient(context, outputChannel, diagnosticCollection, statusBarItem);
   client.start();
 
+  const testController = createLowlightTestController(context, {
+    resolveServerBinary,
+    resolveStdlibRoot,
+    log: (msg) => {
+      if (outputChannel) {
+        const ts = new Date().toISOString().slice(11, 23);
+        outputChannel.appendLine(`[${ts}] ${msg}`);
+      }
+    },
+  });
+
   const selector = [{ language: 'lowlight', scheme: 'file' }];
 
   const inlayHintsEmitter = new vscode.EventEmitter();
@@ -1727,11 +1739,16 @@ function activate(context) {
       if (editor && editor.document.isDirty) {
         await editor.document.save();
       }
+      const useTerminal = Boolean(vscode.workspace.getConfiguration('lowlight').get('test.useTerminal', false));
+      if (!useTerminal && testController) {
+        await testController.runTestByCommand(targetFile, testName);
+        return;
+      }
       const binPath = resolveServerBinary(context);
       const term = getOrCreateRunTerminal('Lowlight Test');
       term.show(true);
       const cmd = testName
-        ? `${quoteShellArg(binPath)} test ${quoteShellArg(targetFile)} -run ${quoteShellArg(testName)}`
+        ? `${quoteShellArg(binPath)} test ${quoteShellArg(targetFile)} -run ${quoteShellArg('^' + testName + '$')}`
         : `${quoteShellArg(binPath)} test ${quoteShellArg(targetFile)}`;
       term.sendText(cmd);
     }),
@@ -1739,30 +1756,43 @@ function activate(context) {
     vscode.commands.registerCommand('lowlight.runAllTests', async (filePath) => {
       const editor = vscode.window.activeTextEditor;
       let targetFile = filePath || (editor && editor.document.uri.fsPath);
-      if (!targetFile) {
-        return;
-      }
-      if (targetFile.startsWith('file://')) {
+      if (targetFile && targetFile.startsWith('file://')) {
         targetFile = vscode.Uri.parse(targetFile).fsPath;
       }
       if (editor && editor.document.isDirty) {
         await editor.document.save();
       }
+      const useTerminal = Boolean(vscode.workspace.getConfiguration('lowlight').get('test.useTerminal', false));
+      if (!useTerminal && testController) {
+        await testController.runAllTestsByCommand(targetFile);
+        return;
+      }
+      if (!targetFile) {
+        return;
+      }
       const binPath = resolveServerBinary(context);
       const term = getOrCreateRunTerminal('Lowlight Test');
       term.show(true);
       term.sendText(`${quoteShellArg(binPath)} test ${quoteShellArg(targetFile)}`);
+    }),
+
+    vscode.commands.registerCommand('lowlight.refreshTests', async () => {
+      if (testController) {
+        await testController.refresh();
+      }
     })
   );
 
   function getOrCreateRunTerminal(name) {
     if (!runTerminal || runTerminal.exitStatus !== undefined) {
       const stdRoot = resolveStdlibRoot(context);
+      const folders = vscode.workspace.workspaceFolders || [];
+      const cwd = folders.length > 0 ? folders[0].uri.fsPath : undefined;
       const env = {};
       if (stdRoot) {
         env.LOWLIGHT_ROOT = stdRoot;
       }
-      runTerminal = vscode.window.createTerminal({ name, env });
+      runTerminal = vscode.window.createTerminal({ name, cwd, env });
     }
     return runTerminal;
   }

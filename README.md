@@ -8,7 +8,7 @@ It is designed around a deliberate balance:
 
 > [!NOTE]
 > **Branch Organization**:
-> * **`auto-v1-prototype`**: Contains the complete, finalized v1.0 specification ([`SPECIFICATION.md`](./SPECIFICATION.md)), implementation guide ([`IMPLEMENTATION.md`](./IMPLEMENTATION.md)), full changelog ([`VERSION_HISTORY.md`](./VERSION_HISTORY.md)), Go reference compiler, `std/` library, showcase examples, and strict ASan/UBSan + zero-leak test suite.
+> * **`auto-v1-prototype`**: Contains the complete, finalized v1.0 specification ([`SPECIFICATION.md`](./SPECIFICATION.md)), style guide ([`CONVENTIONS.md`](./CONVENTIONS.md)), implementation guide ([`IMPLEMENTATION.md`](./IMPLEMENTATION.md)), full changelog ([`VERSION_HISTORY.md`](./VERSION_HISTORY.md)), Go reference compiler, `std/` library, showcase examples, and strict ASan/UBSan + zero-leak test suite.
 > * **`main`**: Preserved untouched at Draft v0.5 / Critique v0.7 (`f82b473`) so open design questions can later be revisited step-by-step from scratch.
 
 ---
@@ -166,6 +166,7 @@ The Go compiler is structured with clean, explicit data structures and zero exte
 | Path | Description |
 | :--- | :--- |
 | [`SPECIFICATION.md`](./SPECIFICATION.md) | Authoritative Lowlight v1.0 Language Specification |
+| [`CONVENTIONS.md`](./CONVENTIONS.md) | Idiomatic Lowlight Style Guide & Naming Conventions |
 | [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) | Architecture, Runtime, LLVM IR & ISO C11 Backends, and Toolchain Guide |
 | [`TODO.md`](./TODO.md) | Comprehensive Language, Stdlib & Self-Hosting Master Roadmap |
 | [`README.md`](./README.md) | Quickstart, CLI reference, language tour & compiler overview |

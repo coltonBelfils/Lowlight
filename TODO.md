@@ -13,7 +13,7 @@ Tasks are atomic and ordered from easiest to most involved.
 - [x] Fix local timezone names in `format_go` (`std/time.ll:244,523-636`).
 - [x] Validate `DateTime` components in `std/time.ll`.
 - [x] Support ISO 8601 `Z`, fractional, and `+HH:MM` offsets in `std/time.ll`.
-- [ ] Add `assert_panics` to `std/test/test.ll` by running the closure in a forked child process (panics are abort-only per `SPECIFICATION.md` §9.6.1, so no in-language recovery), reporting the child's panic message or "did not panic"; re-exec the test binary with a filter on platforms without `fork`.
+- [ ] Add `assert_panics` to `std/test/test.ll` by running the closure in a forked child process (panics are abort-only per `SPECIFICATION.md` §9.3, so no in-language recovery), reporting the child's panic message or "did not panic"; re-exec the test binary with a filter on platforms without `fork`.
 - [ ] Fix `Server.serve` CPU spin on repeated `accept` failures in `std/http.ll`.
 - [ ] Populate `req.remote_addr` in HTTP `Server` connection handling in `std/http.ll`.
 - [ ] Fix path vs query `+` decoding in `parse_url` (`std/http.ll`).
@@ -36,7 +36,7 @@ Tasks are atomic and ordered from easiest to most involved.
 - [ ] Honor precisions above 15 in `format_float` / `_format_float_fixed` (`(0.1).format_float(20)` yields only 15 decimals) in `std/core/primitives.ll`.
 - [ ] Reject out-of-range float parses (`"1e400".to_float()` returns `inf` as success) or document saturation in `parse_float` (`std/core/primitives.ll:1278`).
 - [ ] Decide whether `parse_int`/`parse_float` accept surrounding whitespace (`" 12".to_int()` currently succeeds) and make `to_int`, `to_float`, and `is_int`/`is_float` agree.
-- [ ] Trap or return `none` on invalid `char(int)` conversions (surrogates, negatives, `> 0x10FFFF`); `char(0xD800)` and `char(-1)` currently print invalid UTF-8 despite `SPECIFICATION.md` §3.3.
+- [ ] Trap or return `none` on invalid `char(int)` conversions (surrogates, negatives, `> 0x10FFFF`); `char(0xD800)` and `char(-1)` currently print invalid UTF-8 despite `SPECIFICATION.md` §5.10.
 - [ ] Distinguish signal termination in `os.exec` / `os.system_run` (a `SIGKILL`ed child returns `9`, same as `exit(9)`) in `ll_os_pclose`/`ll_os_system` (`internal/codegen/runtime_h.go:1185-1205`, `internal/codegen/llvmgen_runtime.go:1867-1915`) and expose `ExecResult.signal`.
 - [ ] Decide whether `string.lines` drops the trailing empty element for newline-terminated text (`"a\nb\n".lines()` returns 3 items) (`std/strings/strings.ll:186`).
 - [ ] Decide on Unicode case mapping for `string.to_upper`/`to_lower` (ASCII-only today: `"ÀB".to_lower()` gives `"Àb"`) and implement or document it.
@@ -52,9 +52,9 @@ Tasks are atomic and ordered from easiest to most involved.
 
 ## Failure Model & API Naming Consistency
 
-Apply the `Result` vs. `panic` rules and the `x` / `try_x` naming convention from `SPECIFICATION.md` §9.6.1 across `std`.
+Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention from `SPECIFICATION.md` §9.1 across `std`.
 
-- [ ] Decide whether optional lookups (`List.get`, `Array.get`, `Map.get` returning `?T`, paired with panicking `xs[i]`) are an accepted exception to the `try_` prefix, and document the decision in `SPECIFICATION.md` §9.6.1.
+- [ ] Decide whether optional lookups (`List.get`, `Array.get`, `Map.get` returning `?T`, paired with panicking `xs[i]`) are an accepted exception to the `try_` prefix, and document the decision in `SPECIFICATION.md` §9.1.
 - [ ] Make `List.set` panic on an out-of-range index like `insert`/`remove` (it returns `false` and silently drops `val`), and add `List.try_set` (`std/core/list.ll:132`).
 - [ ] Add `List.try_insert`, `List.try_remove`, and `List.try_swap_remove` returning `Result`/`?T` alongside the panicking forms (`std/core/list.ll:144-200`).
 - [ ] Rename `strconv.parse_int_safe` / `parse_float_safe` (which return `?T`) to fit the convention, or remove them as duplicates of `parse_int` / `parse_float`, deprecating the old names with `@deprecated` (`std/strconv/strconv.ll:11-14`).
@@ -62,19 +62,20 @@ Apply the `Result` vs. `panic` rules and the `x` / `try_x` naming convention fro
 - [ ] Return `Result` with the OS error message instead of `bool` from `os.mkdir`, `os.mkdir_p`, and `os.remove_all` (`std/os/os.ll`).
 - [ ] Return `Result[ExecResult]` from `os.exec` instead of reporting a failed launch as `exit_code: -1` (`std/os/os.ll:17`).
 - [ ] Replace success-only `Result[bool]` returns (`fs.write_file`, `fs.append_file`, `fs.write_bytes`) with a unit result (`Result[void]` or a dedicated unit type), adding compiler support if needed.
-- [ ] Audit `std` (especially `std/http`, `std/strconv`, `std/time` parsing) for panics reachable from external input, and convert them to `Result`/`?T` per §9.6.1.
+- [ ] Audit `std` (especially `std/http`, `std/strconv`, `std/time` parsing) for panics reachable from external input, and convert them to `Result`/`?T` per §9.1.
 - [ ] Require a `# Panics` doc section on every public std function that can panic, and add a `lowlight doc` lint that flags missing ones.
 
 ## Result Declarations & Result Chains
 
-`define Name result [...]`, `!` names, result chains, bare member constructors, `??`, and `if (r! as v)` are implemented (`SPECIFICATION.md` §3.8.3, §7.6.5). Remaining work:
+`define Name result [...]`, `!` names, result chains, bare member constructors, `??`, and `if (r! as v)` are implemented (`SPECIFICATION.md` §3.9, §6.6). Remaining work:
 
 - [ ] Support a payload-less `value` member (a unit result) so success-only APIs stop returning `Result[bool]`.
-- [ ] Decide whether `Result[T].ok(v)` stays now that the variant constructor `Result[T].value(v)` exists, and remove one of them.
-- [ ] Teach LSP completion to offer a result's bare members (`value(...)`, `Err(...)`) where a result is expected.
+- [x] Decide whether `Result[T].ok(v)` stays now that the variant constructor `Result[T].value(v)` exists, and remove one of them.
+- [ ] Teach LSP completion to offer a result's bare members (`value(...)`, `err(...)`) where a result is expected.
 - [ ] Rewrite std's `if (r!.is_err()): func <- ...unwrap_err()...` / `r!.unwrap()` sequences in `std/fs`, `std/http`, `std/net`, and `std/test` as result chains.
 - [ ] Teach LSP hover, go-to-definition, and completion about the bare failure names in chain patterns (`when Missing(why):`), which resolve against the subject's result type.
 - [ ] Allow a result chain on a borrowed subject (`(r!: Result[string])` parameters) without moving a non-Plain value out, e.g. by binding the value as a borrow when the chain's value is only read.
+- [ ] Include the error's message and trace in the `default panic` output for `Result[T]` (`expr: default panic` on an `err(e)` currently prints only `unhandled failure Result.err`).
 
 ## Parser, Sema, IR, Codegen & Runtime Hardening
 
@@ -138,6 +139,11 @@ Apply the `Result` vs. `panic` rules and the `x` / `try_x` naming convention fro
 - [ ] Detect stack overflow and print a Lowlight panic (guard page plus `sigaltstack` SIGSEGV handler) instead of dying silently with exit code 139, in both runtimes.
 - [x] Make codegen output deterministic: the order of function-type/closure helper typedefs and `ll_drop__fn_*`/`ll_copy__fn_*` definitions changes between runs on both backends (`ir.Lower` fed the type collector from the pointer-keyed `BodyMaps.ExprInfos` map; it now visits entries in source-span order). This blocks reproducible builds and Stage 2/3 parity and can perturb `computeObjCacheKey` (`internal/driver/incremental.go:59`).
 - [ ] Retire the hardcoded `map.*`/`set.*`/`vec.*`/`string.*` builtin method lowerings (`BuiltinName` in `internal/sema/check_calls.go` plus both backends) in favor of the `@lang` `std/core` implementations so collection semantics live in one place.
+- [ ] Fix literal patterns on an optional subject: `match(o?): when 3: ...` never matches when `o?` holds `3` (`SPECIFICATION.md` §6.5 says it should).
+- [ ] Fix `for <- value` crashing LLVM codegen; either support a value for `for <-` or reject it in sema with a diagnostic (the spec documents only bare `for <-`).
+- [ ] Mark `List.insert`, `List.remove`, and `List.swap_remove` `@track_caller` so their out-of-bounds panics report the caller's location instead of `list.ll`.
+- [ ] Decide whether `abs` is numeric like `min`/`max`: the prelude's `abs(x: int) int` shadows the numeric builtin, so `abs(-2.5)` is a type error (`SPECIFICATION.md` §12.2 documents the `int` form).
+- [ ] Update the 61 `§` section references in Go comments (`internal/`, `cmd/`, `tests/`) to the rewritten spec's numbering.
 
 ## New Stdlib Modules & Networking Extensions
 
@@ -205,7 +211,7 @@ Apply the `Result` vs. `panic` rules and the `x` / `try_x` naming convention fro
 - [ ] Remove the remaining in-place AST rewrites in sema (`xs[i].m` and `fns[i](...)` disambiguation, now serialized by `astRewriteMu`) by resolving them into side tables, so cached ASTs are strictly read-only.
 - [ ] Turn `examples/playground.ll` into a buildable example (it has no `main`) or move it out of `examples/`.
 - [ ] Move `std/json.ll` into a `std/json/` package directory like the other std packages.
-- [ ] Update `SPECIFICATION.md` §3.4: `s.len()` returns the byte count and `s.byte_len()` does not exist; reconcile spec and implementation, including `for (i, ch in s)` byte-offset semantics.
+- [x] Update `SPECIFICATION.md` §3.4: `s.len()` returns the byte count and `s.byte_len()` does not exist; reconcile spec and implementation, including `for (i, ch in s)` byte-offset semantics.
 - [x] Add a codegen determinism test (emit LLVM and C twice and compare) (`tests/codegen_regressions_test.go`).
 - [ ] Add a differential test that runs every e2e program under both backends and compares stdout.
 - [ ] Add Go native fuzz targets (`FuzzLexer`, `FuzzParser`, `FuzzFormat` idempotency, `FuzzCheck`, `FuzzCheckForIDE`) seeded from `std/` and `examples/`.
@@ -227,7 +233,7 @@ Apply the `Result` vs. `panic` rules and the `x` / `try_x` naming convention fro
 - [ ] `float`, `u8`–`u64`, and `i8`–`i32` `to_json` produce `Json.String` instead of `Json.Number`.
 - [ ] Single-quoted strings are accepted, which isn't standard JSON.
 - [ ] Error messages say "Jason".
-- [ ] Migrate to the result declaration changes: `Result.Ok` is now `Result.value`, names holding a `Result` must end in `!`, and `Error.wrap` now consumes the error, so `Result.Err(e)` at lines 460, 498, and 513 needs `Result.Err(own e)`.
+- [ ] Migrate to the result declaration changes: `Result.Ok` is now `Result.value`, `Result.ok`/`Result.fail` were removed, `Result.Err` is now `Result.err`, names holding a `Result` must end in `!`, and `Error.wrap` now consumes the error, so `Result.Err(e)` / `Err(e)` at lines 460, 498, and 513 need `err(own e)`.
 
 ## Compiler Backend & Allocators
 
@@ -266,10 +272,10 @@ Apply the `Result` vs. `panic` rules and the `x` / `try_x` naming convention fro
 ### Open Concurrency & Parallelism Design Decisions
 
 - [ ] Decide Lowlight's core concurrency model: OS `1:1` threads vs. M:N green fibers/goroutines vs. stackless `async`/`await` (or a layered combination), and whether structured concurrency (`scope` / fork-join) is the primary safe primitive over detached threads.
-- [ ] Decide how compile-time data-race freedom (`SPECIFICATION.md` §1) is enforced across threads: opt-in or auto marker interfaces (`Send`/`Sync` equivalents) vs. structural derivation from Plain/Resource rules, and explicit handling of `ptr[T]`, `ref[T]`, `Arena`, thread-unsafe FFI state, and top-level Resource `bind` constants.
-- [ ] Decide scoped-borrowing rules without lifetime annotations (`SPECIFICATION.md` §1 axiom 4): how structured concurrency and parallel algorithms can borrow stack read-only (`T`) or disjoint mutable (`&T`) data safely without closure/reference escape.
-- [ ] Decide cross-thread shared ownership vs. strict move-only transfer: reconcile the "no reference-counting runtime" axiom (`SPECIFICATION.md` §1) with shared concurrent handles (explicit opt-in `Arc[T]`/`Shared[T]` vs. message passing + scoped sharing only).
-- [ ] Decide interior mutability ergonomics under explicit `&` call-site mutation (`SPECIFICATION.md` §1 axiom 6): locking APIs (`Mutex[T]`, `RwLock[T]`), RAII lock guards (`Drop`) vs. closure-based `with_lock(&T)` scopes, and lock poisoning vs. non-poisoning behavior.
+- [ ] Decide how compile-time data-race freedom (`SPECIFICATION.md` §1.2) is enforced across threads: opt-in or auto marker interfaces (`Send`/`Sync` equivalents) vs. structural derivation from Plain/Resource rules, and explicit handling of `ptr[T]`, `ref[T]`, `Arena`, thread-unsafe FFI state, and top-level Resource `bind` constants.
+- [ ] Decide scoped-borrowing rules without lifetime annotations (`SPECIFICATION.md` §1.2 principle 5): how structured concurrency and parallel algorithms can borrow stack read-only (`T`) or disjoint mutable (`&T`) data safely without closure/reference escape.
+- [ ] Decide cross-thread shared ownership vs. strict move-only transfer: reconcile the "no reference-counting runtime" axiom (`SPECIFICATION.md` §1.2) with shared concurrent handles (explicit opt-in `Arc[T]`/`Shared[T]` vs. message passing + scoped sharing only).
+- [ ] Decide interior mutability ergonomics under explicit `&` call-site mutation (`SPECIFICATION.md` §1.2 principle 6): locking APIs (`Mutex[T]`, `RwLock[T]`), RAII lock guards (`Drop`) vs. closure-based `with_lock(&T)` scopes, and lock poisoning vs. non-poisoning behavior.
 - [ ] Decide Lowlight's formal memory model and atomic primitives: supported `Atomic[T]` types, memory ordering guarantees (SC-DRF, relaxed/acquire/release/acqrel/seqcst), memory fences, and `safe` vs. `unsafe` boundaries for concurrent raw `ptr[T]` access.
 - [ ] Decide message-passing, synchronization, and thread-local primitives (`Channel` / MPSC vs. MPMC, `select` syntax vs. helper API, `Condvar`, `Barrier`, `Once`/`OnceLock`, and `@thread_local` vs. explicit context passing).
 - [ ] Decide parallel computing & vectorization model: thread-pool ownership (global runtime pool vs. explicit `ThreadPool` keeping no hidden runtime), parallel `for`/map/reduce/join APIs, work-stealing scheduling, and explicit portable SIMD types/intrinsics vs. compiler auto-vectorization.

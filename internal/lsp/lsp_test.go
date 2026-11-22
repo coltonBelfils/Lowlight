@@ -848,7 +848,7 @@ bind test_calls = (): {
 				t.Fatalf("expected workspace edit in match arms action: %+v", act)
 			}
 			edits := act.Edit.Changes[uri]
-			if len(edits) == 0 || !strings.Contains(edits[0].NewText, "JsonValue.Null") {
+			if len(edits) == 0 || !strings.Contains(edits[0].NewText, "when Null:") || strings.Contains(edits[0].NewText, "JsonValue.Null") {
 				t.Errorf("unexpected edit text: %+v", edits)
 			}
 		}

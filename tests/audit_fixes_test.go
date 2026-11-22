@@ -324,9 +324,9 @@ func TestResultInPrelude(t *testing.T) {
 	src := `
 bind divide = (a: int, b: int) Result[int]: {
     if (b == 0): {
-        Result[int].fail(Error.coded("div_zero", "division by zero"))
+        err(Error.coded("div_zero", "division by zero"))
     } else: {
-        Result[int].ok(a / b)
+        value(a / b)
     }
 }
 
@@ -490,7 +490,7 @@ bind ERR_NOT_FOUND = Error.coded("not_found", "resource not found")
 bind step1 = (path: string) Result[string]: {
     let r! = fs.read_file(path)
     if (r!.is_err()): {
-        func <- Result[string].fail(r!.unwrap_err().with_code("not_found").wrap("step1 failed"))
+        func <- err(r!.unwrap_err().with_code("not_found").wrap("step1 failed"))
     }
     r!
 }
@@ -499,9 +499,9 @@ bind step2 = (path: string) Result[int]: {
     let r! = step1(path)
     if (r!.is_err()): {
         let e = r!.unwrap_err().trace()
-        func <- Result[int].fail(e.wrap("step2 failed"))
+        func <- err(e.wrap("step2 failed"))
     }
-    Result[int].ok(r!.unwrap().len())
+    value(r!.unwrap().len())
 }
 
 bind main = (): {
@@ -536,7 +536,7 @@ bind main = (): {
 	// Verify @must_use warning when discarding a Result[T]
 	warnSrc := `
 bind make_ok = () Result[int]: {
-    Result[int].ok(1)
+    value(1)
 }
 bind main = (): {
     make_ok();

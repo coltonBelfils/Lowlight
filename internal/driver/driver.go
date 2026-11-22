@@ -49,6 +49,8 @@ type Options struct {
 	WarnWriter    io.Writer // Optional writer for compiler warnings (defaults to os.Stderr)
 	TestMode      bool      // Compile and run test entry point / test harness
 	TestFilter    string    // Optional regex/substring filter for @test functions (-run)
+	TestJSON      bool      // Emit structured NDJSON test events (--json)
+	TestList      bool      // List discovered tests without compiling/running (--list)
 	TargetTriple  string    // Target triple for cross-compilation (e.g. "aarch64-unknown-linux-gnu")
 	Package       string    // Optional workspace member selector (`-p <pkg>`)
 	Workspace     bool      // Operate across all workspace members (`--workspace`)
@@ -845,14 +847,39 @@ func Test(opts Options, stdout, stderr io.Writer) (int, error) {
 	}
 
 	if len(candidates) == 0 {
+		if opts.TestList {
+			return 0, nil
+		}
 		targetName := "."
 		if len(rawTargets) == 1 {
 			targetName = rawTargets[0]
+		}
+		if opts.TestJSON {
+			if stdout != nil {
+				emitTestJSONEvent(stdout, TestEvent{Event: "summary", Passed: 0, Failed: 0, Total: 0, Packages: 0})
+			}
+			return 0, nil
 		}
 		if stdout != nil {
 			fmt.Fprintf(stdout, "?   \t%s\t[no tests to run]\n", targetName)
 		}
 		return 0, nil
+	}
+
+	if opts.TestList {
+		listInputs := make([]testListTarget, len(candidates))
+		for i, c := range candidates {
+			listInputs[i] = testListTarget{path: c.path, isDir: c.isDir}
+		}
+		return runTestList(opts, listInputs, targetInfo, stdout)
+	}
+
+	if opts.TestJSON {
+		jsonInputs := make([]testListTarget, len(candidates))
+		for i, c := range candidates {
+			jsonInputs[i] = testListTarget{path: c.path, isDir: c.isDir, isExplicitSingleFile: c.isExplicitSingleFile}
+		}
+		return runTestsJSON(opts, jsonInputs, targetInfo, stdout, stderr)
 	}
 
 	// Single explicit file mode:

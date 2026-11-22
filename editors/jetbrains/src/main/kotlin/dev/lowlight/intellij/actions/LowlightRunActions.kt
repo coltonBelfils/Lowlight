@@ -23,6 +23,8 @@ import com.intellij.openapi.vfs.VirtualFile
 import dev.lowlight.intellij.LowlightFileType
 import dev.lowlight.intellij.lsp.LowlightLspBackendBridge
 import dev.lowlight.intellij.settings.LowlightSettingsState
+import dev.lowlight.intellij.testing.LowlightConsoleFilter
+import dev.lowlight.intellij.testing.LowlightTestLauncher
 import dev.lowlight.intellij.util.LowlightPaths
 import java.awt.BorderLayout
 import java.nio.charset.StandardCharsets
@@ -36,6 +38,7 @@ internal object LowlightProcessRunner {
         ProcessTerminatedListener.attach(handler)
 
         val console = TextConsoleBuilderFactory.getInstance().createBuilder(project).console
+        console.addMessageFilter(LowlightConsoleFilter(project))
         console.attachToProcess(handler)
 
         val panel = JPanel(BorderLayout())
@@ -90,7 +93,7 @@ class LowlightRunFileTestsAction : AnAction("Run Lowlight Tests in File", "Execu
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
-        LowlightProcessRunner.runInConsole(project, "Lowlight Test: ${file.name}", "test", file.path)
+        LowlightTestLauncher.runTests(project, "Lowlight Tests: ${file.name}", file.path)
     }
 }
 
@@ -103,7 +106,7 @@ class LowlightRunAllTestsAction : AnAction("Run All Lowlight Tests", "Execute `l
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        LowlightProcessRunner.runInConsole(project, "Lowlight Test: Project", "test")
+        LowlightTestLauncher.runTests(project, "Lowlight Tests: Project", null)
     }
 }
 

@@ -13,7 +13,7 @@
 // let _ = conn.send("GET / HTTP/1.0\r\n\r\n")
 // ```
 define TcpStream struct [
-	_fd: int,
+	_fd: int
 ]
 
 // Returns the underlying OS file descriptor, or `-1` if closed.
@@ -41,10 +41,9 @@ bind TcpStream.is_open = (self) bool: self._fd >= 0
 // # Errors
 // Fails if the stream is closed or the underlying OS send fails.
 bind TcpStream.send = (&self, data: string) Result[int]: {
-	if(self._fd < 0): func <- Result[int].fail(Error.new("send on closed TcpStream"))
+	if(self._fd < 0): func <- err(Error.new("send on closed TcpStream"))
 	let res = unsafe sys_net_send_all(self._fd, data.c_str(), data.len())
-	if(res == 0): Result[int].ok(data.len())
-	else: Result[int].fail(Error.new("failed to send data over TCP socket"))
+	if(res == 0): value(data.len()) else: err(Error.new("failed to send data over TCP socket"))
 }
 
 // Reads up to `max_len` bytes (defaulting to `4096` when `max_len <= 0`) waiting up to `timeout_ms`.
@@ -58,20 +57,20 @@ bind TcpStream.send = (&self, data: string) Result[int]: {
 // Fails with error code `"eof"` when the peer has closed the connection cleanly, `"timeout"`
 // when no data arrives within `timeout_ms`, or a generic [`Error`] on closed/failed sockets.
 bind TcpStream.recv = (&self, max_len: int, timeout_ms: int) Result[string]: {
-	if(self._fd < 0): func <- Result[string].fail(Error.new("recv on closed TcpStream"))
+	if(self._fd < 0): func <- err(Error.new("recv on closed TcpStream"))
 	let limit = if(max_len <= 0): 4096 else: max_len
 	unsafe {
 		let raw = alloc_raw[u8](limit)
 		let n = sys_net_recv(self._fd, raw, limit, timeout_ms)
 		if(n <= 0): {
 			free_raw(raw)
-			if(n == 0): func <- Result[string].fail(Error.coded("eof", "connection closed by peer"))
-			if(n == -2): func <- Result[string].fail(Error.coded("timeout", "read timeout"))
-			func <- Result[string].fail(Error.new("recv error"))
+			if(n == 0): func <- err(Error.coded("eof", "connection closed by peer"))
+			if(n == -2): func <- err(Error.coded("timeout", "read timeout"))
+			func <- err(Error.new("recv error"))
 		}
 		let out = str_from_raw(raw, n)
 		free_raw(raw)
-		Result[string].ok(own out)
+		value(own out)
 	}
 }
 
@@ -81,9 +80,9 @@ bind TcpStream.recv = (&self, max_len: int, timeout_ms: int) Result[string]: {
 // Fails if host resolution fails or the connection cannot be established within `timeout_ms`.
 bind TcpStream.connect = (host: string, port: int, timeout_ms: int) Result[TcpStream]: {
 	let client_fd = unsafe sys_tcp_connect(host.c_str(), port, timeout_ms)
-	if(client_fd >= 0): Result[TcpStream].ok(TcpStream[_fd: client_fd])
-	else if(client_fd == -1): Result[TcpStream].fail(Error.new("failed to resolve host: $host"))
-	else: Result[TcpStream].fail(Error.new("failed to connect to $host:$port"))
+	if(client_fd >= 0): value(TcpStream[_fd: client_fd])
+	else if(client_fd == -1): err(Error.new("failed to resolve host: $host"))
+	else: err(Error.new("failed to connect to $host:$port"))
 }
 
 // Bound, listening TCP server socket.
@@ -126,10 +125,9 @@ bind TcpListener.port = (self) int: self._bound_port
 // Fails if the socket cannot be bound or placed into listen state.
 bind TcpListener.listen = (host: string, port: int) Result[TcpListener]: {
 	let sfd = unsafe sys_tcp_listen(host.c_str(), port, 128)
-	if(sfd < 0):
-		func <- Result[TcpListener].fail(Error.new("failed to bind TCP listener on $host:$port"))
+	if(sfd < 0): func <- err(Error.new("failed to bind TCP listener on $host:$port"))
 	let actual_port = unsafe sys_tcp_port(sfd)
-	Result[TcpListener].ok(TcpListener[
+	value(TcpListener[
 		_fd: sfd,
 		_bound_port: if(actual_port > 0): actual_port else: port,
 	])
@@ -140,11 +138,11 @@ bind TcpListener.listen = (host: string, port: int) Result[TcpListener]: {
 // # Errors
 // Fails with code `"timeout"` on accept timeout, or a generic [`Error`] on closed/failed listeners.
 bind TcpListener.accept = (&self, timeout_ms: int) Result[TcpStream]: {
-	if(self._fd < 0): func <- Result[TcpStream].fail(Error.new("accept on closed TcpListener"))
+	if(self._fd < 0): func <- err(Error.new("accept on closed TcpListener"))
 	let cfd = unsafe sys_tcp_accept(self._fd, timeout_ms)
-	if(cfd >= 0): Result[TcpStream].ok(TcpStream[_fd: cfd])
-	else if(cfd == -2): Result[TcpStream].fail(Error.coded("timeout", "accept timeout"))
-	else: Result[TcpStream].fail(Error.new("failed to accept incoming TCP connection"))
+	if(cfd >= 0): value(TcpStream[_fd: cfd])
+	else if(cfd == -2): err(Error.coded("timeout", "accept timeout"))
+	else: err(Error.new("failed to accept incoming TCP connection"))
 }
 
 // Pair of interconnected bidirectional [`TcpStream`] endpoints.
@@ -167,7 +165,7 @@ bind socketpair = () Result[SocketPair]: {
 		let rc = sys_net_socketpair(p)
 		if(rc != 0): {
 			free_raw(p)
-			func <- Result[SocketPair].fail(Error.new("failed to create socketpair"))
+			func <- err(Error.new("failed to create socketpair"))
 		}
 		let f0 = ptr_read(p)
 		let f1 = ptr_read(ptr_add(p, 1))
@@ -177,7 +175,7 @@ bind socketpair = () Result[SocketPair]: {
 			second: TcpStream[_fd: f1],
 		]
 	}
-	Result[SocketPair].ok(own pair)
+	value(own pair)
 }
 
 // Connects to `host:port` using a default `10_000 ms` timeout (shorthand for [`TcpStream.connect`]).

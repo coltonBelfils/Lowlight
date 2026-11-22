@@ -151,11 +151,26 @@ LL_RT_FN void ll_check_leaks_at_exit(void) {
 
 #ifdef LL_UNIT_PKG
 extern jmp_buf* ll_test_current_jmp;
-extern char ll_test_last_panic[8192];
+extern char ll_test_last_panic[65536];
 #else
 LL_RT_GLOBAL jmp_buf* ll_test_current_jmp = NULL;
-LL_RT_GLOBAL char ll_test_last_panic[8192] = {0};
+LL_RT_GLOBAL char ll_test_last_panic[65536] = {0};
 #endif
+
+static inline void ll_print_indented_panic(const char* msg) {
+    const char* p = msg;
+    while (*p != '\0') {
+        const char* nl = strchr(p, '\n');
+        size_t len = nl ? (size_t)(nl - p) : strlen(p);
+        if (len > 0) {
+            printf("    %.*s\n", (int)len, p);
+        } else {
+            printf("\n");
+        }
+        if (!nl) break;
+        p = nl + 1;
+    }
+}
 
 LL_RT_FN _Noreturn void ll_panic_cstr(const char* msg, const char* file, int line) {
     if (ll_test_current_jmp != NULL) {

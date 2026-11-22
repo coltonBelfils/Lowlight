@@ -24,7 +24,7 @@ bind find = (k: string) Lookup:
 
 bind load = (k: string) Result[string]: {
 	let item = find(k):
-		when Missing(why): func <- Err(Error.new(why))
+		when Missing(why): func <- err(Error.new(why))
 		default Forbidden: "denied"
 	value(item)
 }
@@ -94,7 +94,7 @@ func (rh *resultHarness) definitionLine(pos lsp.Position) int {
 }
 
 // Hover and go-to-definition resolve result declarations, bare chain patterns (`when Missing`),
-// and bare member constructors (`value(...)`, `Err(...)`).
+// and bare member constructors (`value(...)`, `err(...)`).
 func TestLSPResultHoverAndDefinition(t *testing.T) {
 	rh := newResultHarness(t, resultFeaturesSrc)
 	if diags := rh.h.waitDiagnostics(rh.uri); len(diags) != 0 {
@@ -113,8 +113,8 @@ func TestLSPResultHoverAndDefinition(t *testing.T) {
 	if md := rh.hover(rh.at("value(\"found\")", 0, 1)); !strings.Contains(md, "value") || !strings.Contains(md, "The cached item") {
 		t.Errorf("hover on bare constructor `value`: %q", md)
 	}
-	if md := rh.hover(rh.at("Err(Error", 0, 1)); !strings.Contains(md, "Err") || !strings.Contains(md, "Result") {
-		t.Errorf("hover on bare constructor `Err`: %q", md)
+	if md := rh.hover(rh.at("err(Error", 0, 1)); !strings.Contains(md, "err") || !strings.Contains(md, "Result") {
+		t.Errorf("hover on bare constructor `err`: %q", md)
 	}
 	if md := rh.hover(rh.at("r! ??", 0, 0)); !strings.Contains(md, "r!") || !strings.Contains(md, "Result[string]") {
 		t.Errorf("hover on `r!`: %q", md)
@@ -267,7 +267,7 @@ func TestLSPResultSemanticTokens(t *testing.T) {
 		needle string
 		n      int
 	}{
-		{"Missing(why)", 0}, {"Forbidden: \"denied\"", 0}, {"value(\"found\")", 0}, {"Missing(k.copy", 0}, {"Err(Error", 0},
+		{"Missing(why)", 0}, {"Forbidden: \"denied\"", 0}, {"value(\"found\")", 0}, {"Missing(k.copy", 0}, {"err(Error", 0},
 	} {
 		if got := typeAt(rh.at(c.needle, c.n, 0)); got != enumMember {
 			t.Errorf("token %q: type %d, want enumMember (%d)", c.needle, got, enumMember)

@@ -70,7 +70,7 @@ func TestPanicWithErrorSharesResultFormatting(t *testing.T) {
 	}
 	for _, tc := range cases {
 		src := "\nbind load = () Result[int]:\n" +
-			"\tResult[int].fail(Error.coded(\"not_found\", \"config missing\"))\n" +
+			"\terr(Error.coded(\"not_found\", \"config missing\"))\n" +
 			"bind main = (): {\n" +
 			"\tprintln(\"before\")\n" +
 			"\t" + tc.body + "\n" +

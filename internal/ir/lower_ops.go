@@ -711,6 +711,10 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) Expr {
 				if i < numScrut {
 					if vp, isVP := pat.(*ast.VariantPattern); isVP {
 						fl.emitVariantPatternBindings(vp, scrutInfos[i].scrutTy, scrutInfos[i].scrutPtrExpr, scrutInfos[i].scrutValExpr, armScope)
+					} else if mp, isMP := pat.(*ast.MethodPattern); isMP {
+						if vp := fl.bm.BareVariantPatterns[mp]; vp != nil {
+							fl.emitVariantPatternBindings(vp, scrutInfos[i].scrutTy, scrutInfos[i].scrutPtrExpr, scrutInfos[i].scrutValExpr, armScope)
+						}
 					}
 				}
 			}
@@ -777,6 +781,18 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) Expr {
 					si := scrutInfos[i]
 					fl.pushInstrBuf()
 					var slotCond Expr
+					variantTagCond := func(vp *ast.VariantPattern) Expr {
+						mem := vp.Target.(*ast.MemberExpr)
+						if vr := fl.info(mem).EnumVariant; vr != nil {
+							return &ExprBinary{
+								Op:    token.Eq,
+								Left:  &ExprField{Base: EnsureExpr(si.scrutPtrExpr, &types.Ptr{Elem: si.scrutTy}), FieldName: "tag", Typ: types.TypeInt, IsPtr: true},
+								Right: &ExprLitInt{Val: uint64(vr.Value), Typ: types.TypeInt},
+								Typ:   types.TypeBool,
+							}
+						}
+						return nil
+					}
 					switch p := pat.(type) {
 					case *ast.ExprPattern:
 						if _, isNone := p.Expr.(*ast.NoneLit); isNone {
@@ -805,7 +821,9 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) Expr {
 					case *ast.ContainsPattern:
 						slotCond = fl.lowerContainsPattern(p, fl.bm.ContainsPatterns[p], si.scrutValExpr)
 					case *ast.MethodPattern:
-						if mpInfo := fl.bm.MethodPatterns[p]; mpInfo != nil {
+						if vp := fl.bm.BareVariantPatterns[p]; vp != nil {
+							slotCond = variantTagCond(vp)
+						} else if mpInfo := fl.bm.MethodPatterns[p]; mpInfo != nil {
 							if fl.exprOverrides == nil {
 								fl.exprOverrides = make(map[ast.Expr]Expr)
 							}
@@ -816,15 +834,7 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) Expr {
 							slotCond = NewLitBool(false)
 						}
 					case *ast.VariantPattern:
-						mem := p.Target.(*ast.MemberExpr)
-						if vr := fl.info(mem).EnumVariant; vr != nil {
-							slotCond = &ExprBinary{
-								Op:    token.Eq,
-								Left:  &ExprField{Base: EnsureExpr(si.scrutPtrExpr, &types.Ptr{Elem: si.scrutTy}), FieldName: "tag", Typ: types.TypeInt, IsPtr: true},
-								Right: &ExprLitInt{Val: uint64(vr.Value), Typ: types.TypeInt},
-								Typ:   types.TypeBool,
-							}
-						}
+						slotCond = variantTagCond(p)
 					}
 					if slotCond != nil {
 						fl.assignLocal(caseMatch, EnsureExpr(slotCond, types.TypeBool))

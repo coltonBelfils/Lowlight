@@ -4,15 +4,15 @@
 // Demonstrates how ergonomic Lowlight already is for writing compiler passes.
 
 define TokKind enum [
-    Num,
-    Ident,
-    Plus,
-    Minus,
-    Star,
-    Slash,
-    LParen,
-    RParen,
-    End,
+    num,
+    ident,
+    plus,
+    minus,
+    star,
+    slash,
+    l_paren,
+    r_paren,
+    end,
 ]
 
 define Token struct [
@@ -44,7 +44,7 @@ bind tokenize = (src: string) [Token]: {
             }
             let slice = src[start..i].copy()
             let val = parse_float(slice) ?? 0.0
-            toks.push(Token[kind: TokKind.Num, text: own slice, num: val])
+            toks.push(Token[kind: TokKind.num, text: own slice, num: val])
             next <-
         }
         if (ch.is_alpha() or ch == '_'): {
@@ -57,32 +57,32 @@ bind tokenize = (src: string) [Token]: {
                     for <-
                 }
             }
-            toks.push(Token[kind: TokKind.Ident, text: src[start..i].copy(), num: 0.0])
+            toks.push(Token[kind: TokKind.ident, text: src[start..i].copy(), num: 0.0])
             next <-
         }
 
         let single_kind = match (ch):
-        when '+': TokKind.Plus
-        when '-': TokKind.Minus
-        when '*': TokKind.Star
-        when '/': TokKind.Slash
-        when '(': TokKind.LParen
-        when ')': TokKind.RParen
+        when '+': TokKind.plus
+        when '-': TokKind.minus
+        when '*': TokKind.star
+        when '/': TokKind.slash
+        when '(': TokKind.l_paren
+        when ')': TokKind.r_paren
         default:  panic("unexpected character in expression: ${string(ch)}")
 
         toks.push(Token[kind: single_kind, text: string(ch), num: 0.0])
         i += 1
     }
 
-    toks.push(Token[kind: TokKind.End, text: "", num: 0.0])
+    toks.push(Token[kind: TokKind.end, text: "", num: 0.0])
     toks
 }
 
 define NodeKind enum [
-    Lit,
-    Var,
-    Neg,
-    Bin,
+    lit,
+    var,
+    neg,
+    bin,
 ]
 
 define ExprNode struct [
@@ -105,12 +105,12 @@ bind ParserState.peek = (self) TokKind: {
 
 bind parse_expr = (arena: &Arena, st: &ParserState) ref[ExprNode]: {
     let lhs = parse_term(&arena, &st)
-    for (st.peek() == TokKind.Plus or st.peek() == TokKind.Minus): {
+    for (st.peek() == TokKind.plus or st.peek() == TokKind.minus): {
         let op = st.peek()
         st.pos += 1
         let rhs = parse_term(&arena, &st)
         lhs = arena.alloc(ExprNode[
-            kind: NodeKind.Bin,
+            kind: NodeKind.bin,
             op: op,
             num: 0.0,
             name: "",
@@ -123,12 +123,12 @@ bind parse_expr = (arena: &Arena, st: &ParserState) ref[ExprNode]: {
 
 bind parse_term = (arena: &Arena, st: &ParserState) ref[ExprNode]: {
     let lhs = parse_unary(&arena, &st)
-    for (st.peek() == TokKind.Star or st.peek() == TokKind.Slash): {
+    for (st.peek() == TokKind.star or st.peek() == TokKind.slash): {
         let op = st.peek()
         st.pos += 1
         let rhs = parse_unary(&arena, &st)
         lhs = arena.alloc(ExprNode[
-            kind: NodeKind.Bin,
+            kind: NodeKind.bin,
             op: op,
             num: 0.0,
             name: "",
@@ -140,12 +140,12 @@ bind parse_term = (arena: &Arena, st: &ParserState) ref[ExprNode]: {
 }
 
 bind parse_unary = (arena: &Arena, st: &ParserState) ref[ExprNode]: {
-    if (st.peek() == TokKind.Minus): {
+    if (st.peek() == TokKind.minus): {
         st.pos += 1
         let sub = parse_unary(&arena, &st)
         func <- arena.alloc(ExprNode[
-            kind: NodeKind.Neg,
-            op: TokKind.Minus,
+            kind: NodeKind.neg,
+            op: TokKind.minus,
             num: 0.0,
             name: "",
             left?: sub,
@@ -157,34 +157,34 @@ bind parse_unary = (arena: &Arena, st: &ParserState) ref[ExprNode]: {
 
 bind parse_primary = (arena: &Arena, st: &ParserState) ref[ExprNode]: {
     let k = st.peek()
-    if (k == TokKind.Num): {
+    if (k == TokKind.num): {
         let v = st.tokens[st.pos].num
         st.pos += 1
         func <- arena.alloc(ExprNode[
-            kind: NodeKind.Lit,
-            op: TokKind.End,
+            kind: NodeKind.lit,
+            op: TokKind.end,
             num: v,
             name: "",
             left?: none,
             right?: none,
         ])
     }
-    if (k == TokKind.Ident): {
+    if (k == TokKind.ident): {
         let nm = st.tokens[st.pos].text.copy()
         st.pos += 1
         func <- arena.alloc(ExprNode[
-            kind: NodeKind.Var,
-            op: TokKind.End,
+            kind: NodeKind.var,
+            op: TokKind.end,
             num: 0.0,
             name: own nm,
             left?: none,
             right?: none,
         ])
     }
-    if (k == TokKind.LParen): {
+    if (k == TokKind.l_paren): {
         st.pos += 1
         let inner = parse_expr(&arena, &st)
-        assert(st.peek() == TokKind.RParen, "expected closing ')'")
+        assert(st.peek() == TokKind.r_paren, "expected closing ')'")
         st.pos += 1
         func <- inner
     }
@@ -193,22 +193,22 @@ bind parse_primary = (arena: &Arena, st: &ParserState) ref[ExprNode]: {
 
 bind eval_node = (node: ref[ExprNode], env: #[string: float]) float: {
     match (node.kind):
-    when NodeKind.Lit: node.num
-    when NodeKind.Var: env[node.name] ?? panic("unbound variable: ${node.name}")
-    when NodeKind.Neg: {
+    when lit: node.num
+    when var: env[node.name] ?? panic("unbound variable: ${node.name}")
+    when neg: {
         let l = node.left? ?? panic("missing neg operand")
         -eval_node(l, env)
     }
-    default NodeKind.Bin: {
+    default bin: {
         let l = node.left? ?? panic("missing left operand")
         let r = node.right? ?? panic("missing right operand")
         let lv = eval_node(l, env)
         let rv = eval_node(r, env)
         match (node.op):
-        when TokKind.Plus:  lv + rv
-        when TokKind.Minus: lv - rv
-        when TokKind.Star:  lv * rv
-        default:            lv / rv
+        when plus:  lv + rv
+        when minus: lv - rv
+        when star:  lv * rv
+        default:    lv / rv
     }
 }
 
@@ -216,7 +216,7 @@ bind evaluate = (src: string, env: #[string: float]) float: {
     let arena = Arena.new()
     let st = ParserState[tokens: tokenize(src), pos: 0]
     let root = parse_expr(&arena, &st)
-    assert(st.peek() == TokKind.End, "unexpected trailing tokens")
+    assert(st.peek() == TokKind.end, "unexpected trailing tokens")
     eval_node(root, env)
 }
 

@@ -853,6 +853,14 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 			if arm.Synthetic {
 				continue
 			}
+			visitVariantPat := func(vp *ast.VariantPattern) {
+				c.visitExpr(bm, vp.Target, false)
+				for _, b := range vp.Bindings {
+					if !b.IsWildcard && b.BindName != "" {
+						c.emitHeaderIdentInSpan(b.Span, b.BindName, semTokVariable, semModDeclaration|semModReadonly)
+					}
+				}
+			}
 			for _, pat := range arm.AllPatterns() {
 				switch p := pat.(type) {
 				case *ast.ExprPattern:
@@ -861,6 +869,10 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 					c.visitExpr(bm, p.Container, false)
 				case *ast.MethodPattern:
 					if bm != nil {
+						if vp := bm.BareVariantPatterns[p]; vp != nil {
+							visitVariantPat(vp)
+							continue
+						}
 						if mpInfo := bm.MethodPatterns[p]; mpInfo != nil && mpInfo.Call != nil {
 							c.visitExpr(bm, mpInfo.Call, false)
 							continue
@@ -874,10 +886,7 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 					}
 					c.emitLastIdentInSpan(p.MethodSpan, p.Method, semTokMethod, 0)
 				case *ast.VariantPattern:
-					c.visitExpr(bm, p.Target, false)
-					for _, b := range p.Bindings {
-						c.emitHeaderIdentInSpan(b.Span, b.BindName, semTokVariable, semModDeclaration|semModReadonly)
-					}
+					visitVariantPat(p)
 				}
 			}
 			c.visitExpr(bm, arm.Body, false)
@@ -1016,7 +1025,7 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 			mods |= semModModification
 		}
 		if inf != nil && inf.Sym == nil && inf.EnumVariant != nil {
-			// Bare result member: `Forbidden`, or the callee of `value(x)` / `Err(e)`
+			// Bare result member: `forbidden`, or the callee of `value(x)` / `err(e)`
 			c.emitFirstIdentInSpan(v.Span, v.Name, semTokEnumMember, semModReadonly)
 			return
 		}

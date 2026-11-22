@@ -765,6 +765,17 @@ func resolveRefTargetAt(prog *sema.CheckedProgram, mod *sema.Module, filePath, s
 				if arm.Synthetic {
 					continue
 				}
+				resolveVariantPat := func(vp *ast.VariantPattern) *refTarget {
+					if bm != nil && spanContainsOffset(vp.Span, offset) {
+						syms := bm.PatternSyms[vp]
+						for i, b := range vp.Bindings {
+							if spanContainsOffset(b.Span, offset) && tok.Text == b.BindName && i < len(syms) && syms[i] != nil {
+								return resolveFromSym(syms[i], bodySpan, bm)
+							}
+						}
+					}
+					return inExpr(bm, vp.Target, bodySpan)
+				}
 				for _, pat := range arm.AllPatterns() {
 					switch p := pat.(type) {
 					case *ast.ExprPattern:
@@ -777,6 +788,12 @@ func resolveRefTargetAt(prog *sema.CheckedProgram, mod *sema.Module, filePath, s
 						}
 					case *ast.MethodPattern:
 						if bm != nil {
+							if vp := bm.BareVariantPatterns[p]; vp != nil {
+								if r := resolveVariantPat(vp); r != nil {
+									return r
+								}
+								continue
+							}
 							if mpInfo := bm.MethodPatterns[p]; mpInfo != nil && mpInfo.Call != nil {
 								if r := inExpr(bm, mpInfo.Call, bodySpan); r != nil {
 									return r
@@ -789,15 +806,7 @@ func resolveRefTargetAt(prog *sema.CheckedProgram, mod *sema.Module, filePath, s
 							}
 						}
 					case *ast.VariantPattern:
-						if bm != nil && spanContainsOffset(p.Span, offset) {
-							syms := bm.PatternSyms[p]
-							for i, b := range p.Bindings {
-								if spanContainsOffset(b.Span, offset) && tok.Text == b.BindName && i < len(syms) && syms[i] != nil {
-									return resolveFromSym(syms[i], bodySpan, bm)
-								}
-							}
-						}
-						if r := inExpr(bm, p.Target, bodySpan); r != nil {
+						if r := resolveVariantPat(p); r != nil {
 							return r
 						}
 					}
@@ -907,7 +916,7 @@ func resolveRefTargetAt(prog *sema.CheckedProgram, mod *sema.Module, filePath, s
 			}
 			return inExpr(bm, v.Callee, bodySpan)
 		case *ast.MemberExpr:
-			if spanContainsOffset(v.Base.GetSpan(), offset) {
+			if spanContainsOffset(v.Base.GetSpan(), offset) && !isPlaceholderIdent(v.Base) {
 				if id, ok := v.Base.(*ast.IdentExpr); ok {
 					if targetMod, isMod := mod.Aliased[id.Name]; isMod && targetMod != nil {
 						return &refTarget{kind: refModuleAlias, name: id.Name, ownerFile: absClean(mod.Path)}
@@ -979,8 +988,19 @@ func resolveRefTargetAt(prog *sema.CheckedProgram, mod *sema.Module, filePath, s
 				return resolveTypeByName(v.Module, v.TypeName)
 			}
 		case *ast.IdentExpr:
-			if inf := exprInfoFromBM(prog, bm, v); inf != nil && inf.Sym != nil {
-				return resolveFromSym(inf.Sym, bodySpan, bm)
+			if inf := exprInfoFromBM(prog, bm, v); inf != nil {
+				if inf.Sym != nil {
+					return resolveFromSym(inf.Sym, bodySpan, bm)
+				}
+				if inf.EnumVariant != nil && inf.EnumType != nil {
+					tKey, tName := typeKeyForNominal(inf.EnumType)
+					return &refTarget{
+						kind:          refVariant,
+						name:          inf.EnumVariant.Name,
+						ownerTypeKey:  tKey,
+						ownerTypeName: tName,
+					}
+				}
 			}
 			if LookupBuiltinFunc(v.Name) != nil || LookupBuiltinTypeDoc(v.Name) != nil || LookupKeywordDoc(v.Name) != nil {
 				return &refTarget{kind: refNone, isBuiltin: true}
@@ -1688,6 +1708,21 @@ func collectOccsInModule(
 				if arm.Synthetic {
 					continue
 				}
+				scanVariantPat := func(vp *ast.VariantPattern) {
+					scanExpr(bm, vp.Target)
+					if bm != nil {
+						syms := bm.PatternSyms[vp]
+						for i, b := range vp.Bindings {
+							if i < len(syms) {
+								if ok, unwrap := matchSym(syms[i]); ok {
+									if tk, okTk := findFirstTokenNamed(toks, b.Span, b.BindName); okTk {
+										addOcc(refOccurrence{filePath: absPath, startOff: tk.Span.Start.Offset, endOff: tk.Span.End.Offset, isDecl: true, isUnwrap: unwrap})
+									}
+								}
+							}
+						}
+					}
+				}
 				for _, pat := range arm.AllPatterns() {
 					switch p := pat.(type) {
 					case *ast.ExprPattern:
@@ -1696,6 +1731,10 @@ func collectOccsInModule(
 						scanExpr(bm, p.Container)
 					case *ast.MethodPattern:
 						if bm != nil {
+							if vp := bm.BareVariantPatterns[p]; vp != nil {
+								scanVariantPat(vp)
+								continue
+							}
 							if mpInfo := bm.MethodPatterns[p]; mpInfo != nil && mpInfo.Call != nil {
 								scanExpr(bm, mpInfo.Call)
 								continue
@@ -1705,19 +1744,7 @@ func collectOccsInModule(
 							scanExpr(bm, a)
 						}
 					case *ast.VariantPattern:
-						scanExpr(bm, p.Target)
-						if bm != nil {
-							syms := bm.PatternSyms[p]
-							for i, b := range p.Bindings {
-								if i < len(syms) {
-									if ok, unwrap := matchSym(syms[i]); ok {
-										if tk, okTk := findFirstTokenNamed(toks, b.Span, b.BindName); okTk {
-											addOcc(refOccurrence{filePath: absPath, startOff: tk.Span.Start.Offset, endOff: tk.Span.End.Offset, isDecl: true, isUnwrap: unwrap})
-										}
-									}
-								}
-							}
-						}
+						scanVariantPat(p)
 					}
 				}
 				scanExpr(bm, arm.Body)
@@ -1870,19 +1897,26 @@ func collectOccsInModule(
 					}
 				}
 			}
-			if inf := exprInfoFromBM(prog, bm, v); inf != nil && inf.Sym != nil {
-				if ok, unwrap := matchSym(inf.Sym); ok {
-					// Note: `findFirstTokenNamed` avoids duplicating trailing `?` vs `Ident` span
-					want := v.Name
-					if strings.HasSuffix(tgt.name, "?") && v.IsOpt {
-						want = v.Name + "?"
-						if tk, okTk := findFirstTokenNamed(toks, v.Span, want); okTk {
-							addOcc(refOccurrence{filePath: absPath, startOff: tk.Span.Start.Offset, endOff: tk.Span.End.Offset, isUnwrap: unwrap})
-							return
-						}
-					}
+			if inf := exprInfoFromBM(prog, bm, v); inf != nil {
+				if tgt.kind == refVariant && inf.Sym == nil && inf.EnumVariant != nil && inf.EnumVariant.Name == tgt.name && typeKeyMatch(inf.EnumType, tgt.ownerTypeKey, tgt.ownerTypeName) {
 					if tk, okTk := findFirstTokenNamed(toks, v.Span, v.Name); okTk {
-						addOcc(refOccurrence{filePath: absPath, startOff: tk.Span.Start.Offset, endOff: tk.Span.End.Offset, isUnwrap: unwrap})
+						addOcc(refOccurrence{filePath: absPath, startOff: tk.Span.Start.Offset, endOff: tk.Span.End.Offset})
+					}
+				}
+				if inf.Sym != nil {
+					if ok, unwrap := matchSym(inf.Sym); ok {
+						// Note: `findFirstTokenNamed` avoids duplicating trailing `?` vs `Ident` span
+						want := v.Name
+						if strings.HasSuffix(tgt.name, "?") && v.IsOpt {
+							want = v.Name + "?"
+							if tk, okTk := findFirstTokenNamed(toks, v.Span, want); okTk {
+								addOcc(refOccurrence{filePath: absPath, startOff: tk.Span.Start.Offset, endOff: tk.Span.End.Offset, isUnwrap: unwrap})
+								return
+							}
+						}
+						if tk, okTk := findFirstTokenNamed(toks, v.Span, v.Name); okTk {
+							addOcc(refOccurrence{filePath: absPath, startOff: tk.Span.Start.Offset, endOff: tk.Span.End.Offset, isUnwrap: unwrap})
+						}
 					}
 				}
 			}

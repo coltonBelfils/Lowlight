@@ -2,6 +2,7 @@ package ir
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -321,6 +322,9 @@ func lowerFuncInstance(
 		IsTest:         fi.IsTest,
 		IsTestOnly:     fi.IsTestOnly,
 		TestDesc:       fi.TestDesc,
+		File:           fi.DeclSpan.Start.File,
+		Line:           fi.DeclSpan.Start.Line,
+		Col:            fi.DeclSpan.Start.Col,
 	}
 }
 
@@ -543,8 +547,23 @@ func formatSpanPos(e ast.Expr) (string, int, int) {
 		return "<input>", sp.Start.Line, sp.Start.Col
 	}
 	cleanPath := filepath.Clean(sp.Start.File)
-	if rel, err := filepath.Rel(".", cleanPath); err == nil && !strings.HasPrefix(rel, "..") {
-		return rel, sp.Start.Line, sp.Start.Col
+	if !filepath.IsAbs(cleanPath) {
+		return filepath.ToSlash(cleanPath), sp.Start.Line, sp.Start.Col
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		if absCwd, errCwd := filepath.Abs(cwd); errCwd == nil {
+			if rel, errRel := filepath.Rel(absCwd, cleanPath); errRel == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+				return filepath.ToSlash(rel), sp.Start.Line, sp.Start.Col
+			}
+			// Handle symlinked working directories (such as macOS /var -> /private/var).
+			if realCwd, err1 := filepath.EvalSymlinks(absCwd); err1 == nil {
+				if realPath, err2 := filepath.EvalSymlinks(cleanPath); err2 == nil {
+					if rel, errRel := filepath.Rel(realCwd, realPath); errRel == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+						return filepath.ToSlash(rel), sp.Start.Line, sp.Start.Col
+					}
+				}
+			}
+		}
 	}
 	return filepath.Base(cleanPath), sp.Start.Line, sp.Start.Col
 }

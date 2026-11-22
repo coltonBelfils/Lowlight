@@ -95,6 +95,9 @@ type Function struct {
 	IsTest         bool
 	IsTestOnly     bool
 	TestDesc       string
+	File           string
+	Line           int
+	Col            int
 }
 
 // -----------------------------------------------------------------------------

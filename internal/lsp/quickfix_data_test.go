@@ -24,7 +24,7 @@ func TestLSPDataDrivenQuickFixes(t *testing.T) {
 		{"wrap_value", "bind load = () Result[int]: 1\nbind main = (): println(load() ?? 0)\n",
 			"Wrap in `value(...)`", "value(1)"},
 		{"wrap_failure", "bind load = () Result[int]: Error.new(\"x\")\nbind main = (): println(load() ?? 0)\n",
-			"Wrap in `Err(...)`", "Err(Error.new(\"x\"))"},
+			"Wrap in `err(...)`", "err(Error.new(\"x\"))"},
 		{"rename_function", "bind main = (): {\n\tprintn(\"hi\")\n}\n",
 			"Change to `println`", "\tprintln(\"hi\")"},
 		{"rename_suffix", "bind find = () ?int: none\nbind main = (): {\n\tlet n? = find()\n\tprintln(n ?? 0)\n}\n",
@@ -131,12 +131,12 @@ bind main = (): {
 	status := actionsAt("Status enum")
 	if a, ok := status["Implement Printable for Status"]; !ok {
 		t.Errorf("missing Printable for Status")
-	} else if out := applyTextEdits(src, a.Edit.Changes[rh.uri]); !strings.Contains(out, "bind Status.to_string = (self) string:\n\tmatch(self):\n\t\twhen Status.Active: \"Active\"\n\t\tdefault Status.Stopped: \"Stopped\"") {
+	} else if out := applyTextEdits(src, a.Edit.Changes[rh.uri]); !strings.Contains(out, "bind Status.to_string = (self) string:\n\tmatch(self):\n\t\twhen Active: \"Active\"\n\t\tdefault Stopped: \"Stopped\"") {
 		t.Errorf("enum to_string:\n%s", out)
 	}
 	if a, ok := actionsAt("\ts\n")["Expand into `match` on every variant of `Status`"]; !ok {
 		t.Errorf("missing match expansion")
-	} else if out := applyTextEdits(src, a.Edit.Changes[rh.uri]); !strings.Contains(out, "\tmatch(s):\n\t\twhen Status.Active: panic(\"todo\")\n\t\tdefault Status.Stopped: panic(\"todo\")\n") {
+	} else if out := applyTextEdits(src, a.Edit.Changes[rh.uri]); !strings.Contains(out, "\tmatch(s):\n\t\twhen Active: panic(\"todo\")\n\t\tdefault Stopped: panic(\"todo\")\n") {
 		t.Errorf("match expansion:\n%s", out)
 	}
 	if a, ok := actionsAt("find(\"a\")\n}")["Handle every failure of `Lookup`"]; !ok {

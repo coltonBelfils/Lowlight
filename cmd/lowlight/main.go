@@ -425,6 +425,10 @@ func parseTestFlags(args []string) (driver.Options, error) {
 		case "--release":
 			opts.Release = true
 			opts.ReleaseSet = true
+		case "--json":
+			opts.TestJSON = true
+		case "--list":
+			opts.TestList = true
 		case "--workspace":
 			opts.Workspace = true
 		case "--locked":
@@ -558,7 +562,7 @@ func printUsage(w *os.File) {
 Usage:
   lowlight build     [-o <bin>] [-p <pkg>|--workspace] [--locked] [--offline] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path>]
   lowlight run       [-p <pkg>] [--locked] [--offline] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path>] [-- <args...>]
-  lowlight test      [-p <pkg>|--workspace] [--locked] [--offline] [-run <regex>] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path...>]
+  lowlight test      [-p <pkg>|--workspace] [--locked] [--offline] [-run <regex>] [--list] [--json] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path...>]
   lowlight check     [-p <pkg>|--workspace] [--locked] [--offline] [--target <triple>] [<path>]
   lowlight emit-llvm [-o <file.ll>] [-p <pkg>] [--locked] [--offline] [--target <triple>] [--release] [<path>]
   lowlight emit-c    [-o <file.c>]  [-p <pkg>] [--locked] [--offline] [--target <triple>] [--release] [<path>]

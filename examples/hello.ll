@@ -2,23 +2,23 @@
 // A quick tour of Lowlight: functions, string interpolation, ranges, and match.
 
 define Grade enum [
-    Excellent,
-    Solid,
-    NeedsWork,
+    excellent,
+    solid,
+    needs_work,
 ]
 
 bind classify_score = (score: int) Grade: {
     match (score):
-    when in 90..=100: Grade.Excellent
-    when in 70..90:   Grade.Solid
-    default:       Grade.NeedsWork
+    when in 90..=100: Grade.excellent
+    when in 70..90:   Grade.solid
+    default:       Grade.needs_work
 }
 
 bind describe = (g: Grade) string: {
     match (g):
-    when Grade.Excellent: "excellent"
-    when Grade.Solid:     "solid"
-    default Grade.NeedsWork: "needs work"
+    when excellent: "excellent"
+    when solid:     "solid"
+    default needs_work: "needs work"
 }
 
 bind main = (): {

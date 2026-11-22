@@ -5470,6 +5470,17 @@ func (fc *funcChecker) checkMultiArgExhaustiveness(me *ast.MatchExpr, scrutTys [
 				}
 			}
 			return false
+		case *ast.MethodPattern:
+			if fc.a.curBM != nil {
+				if vp := fc.a.curBM.BareVariantPatterns[p]; vp != nil {
+					if mem, ok := vp.Target.(*ast.MemberExpr); ok {
+						if vr := fc.a.infoFor(mem).EnumVariant; vr != nil {
+							return vr.Name == vName
+						}
+					}
+				}
+			}
+			return false
 		default:
 			return false
 		}
@@ -5519,6 +5530,220 @@ func (fc *funcChecker) checkMultiArgExhaustiveness(me *ast.MatchExpr, scrutTys [
 	}
 }
 
+func extractVariantBindingFromExpr(arg ast.Expr) (ast.VariantPatternBinding, bool) {
+	switch v := arg.(type) {
+	case *ast.IdentExpr:
+		if v.Name == "self" {
+			return ast.VariantPatternBinding{}, false
+		}
+		if v.Name == "_" {
+			return ast.VariantPatternBinding{
+				IsWildcard: true,
+				Span:       v.Span,
+			}, true
+		}
+		return ast.VariantPatternBinding{
+			BindName:  v.Name,
+			IsOptName: v.IsOpt,
+			Mode:      ast.PatternBindRead,
+			Span:      v.Span,
+		}, true
+	case *ast.UnaryExpr:
+		var mode ast.PatternBindMode
+		switch v.Op {
+		case token.Amp:
+			mode = ast.PatternBindMut
+		case token.KwOwn:
+			mode = ast.PatternBindOwn
+		default:
+			return ast.VariantPatternBinding{}, false
+		}
+		id, ok := v.Operand.(*ast.IdentExpr)
+		if !ok || id.Name == "self" || id.Name == "_" {
+			return ast.VariantPatternBinding{}, false
+		}
+		return ast.VariantPatternBinding{
+			BindName:  id.Name,
+			IsOptName: id.IsOpt,
+			Mode:      mode,
+			Span:      v.Span,
+		}, true
+	default:
+		return ast.VariantPatternBinding{}, false
+	}
+}
+
+func (a *Analyzer) hasInstanceMethodOnEnum(en *types.Enum, name string) bool {
+	if en == nil {
+		return false
+	}
+	if mset, ok := a.methods[TypeMethodKey(en)]; ok {
+		if fi, ok2 := mset[name]; ok2 && !fi.IsStaticAssoc {
+			return true
+		}
+	}
+	if gset, ok := a.genMethods[en.Name]; ok {
+		if gtmpl, ok2 := gset[name]; ok2 && gtmpl != nil && gtmpl.MethodDecl != nil && gtmpl.MethodDecl.RecvMode != ast.ReceiverMode(-1) {
+			return true
+		}
+	}
+	return false
+}
+
+func (fc *funcChecker) declareVariantPatternBinding(b ast.VariantPatternBinding, fty types.Type, scrutArenaDepth int) (sym *Symbol, hasBind, hasMut, hasOwnRes bool) {
+	if b.IsWildcard {
+		return nil, false, false, false
+	}
+	hasBind = true
+	fc.a.checkOptionalIdentRule(b.BindName, b.IsOptName, fty, b.Span, "pattern binding")
+	bkind := BindReadBorrow
+	isBind := true
+	switch b.Mode {
+	case ast.PatternBindMut:
+		hasMut = true
+		bkind = BindMutBorrow
+		isBind = false
+	case ast.PatternBindOwn:
+		bkind = BindOwned
+		isBind = false // owned local binding
+		if !fty.IsPlain() {
+			hasOwnRes = true
+		}
+	case ast.PatternBindRead:
+		if fty.IsPlain() {
+			bkind = BindOwned
+		} else {
+			bkind = BindReadBorrow
+		}
+		isBind = true
+	}
+	sym = fc.declareLocal(b.BindName, fty, isBind, bkind, b.Span)
+	if typeMayHoldArenaRef(fty) {
+		sym.ArenaDepth = scrutArenaDepth
+	}
+	return sym, hasBind, hasMut, hasOwnRes
+}
+
+func (fc *funcChecker) checkBareUnitEnumPattern(id *ast.IdentExpr, pSpan diag.Span, enumScrut *types.Enum, covered map[string]bool) bool {
+	samePkg := fc.a.SamePackageDir(fc.mod, enumScrut.PkgDir, "") || fc.a.SamePackage(fc.mod, fc.a.typeModule(enumScrut))
+	v, isVariant := enumScrut.VariantByName(id.Name)
+	sym := fc.lookupVar(id.Name)
+	if isVariant {
+		if sym != nil {
+			if sym.IsTopLevel && fc.a.inBodyPass {
+				fc.a.resolveTopVar(sym)
+			}
+			if sym.Type != nil && sym.Type != types.TypeInvalid && sym.Type.Equals(enumScrut) {
+				fc.a.Rep.ErrorWithHint(
+					pSpan,
+					fmt.Sprintf("pattern %q is ambiguous: it names both a variant of %s and a variable in scope", id.Name, enumScrut.String()),
+					fmt.Sprintf("write `%s.%s` for the enum variant", enumScrut.Name, id.Name),
+				)
+				fc.a.infoFor(id).Type = types.TypeInvalid
+				return true
+			}
+		}
+		if !samePkg && !IsExported(v.Name) {
+			fc.a.Rep.Errorf(pSpan, "cannot match unexported enum variant %q of %s outside its package", v.Name, enumScrut.String())
+			fc.a.infoFor(id).Type = types.TypeInvalid
+			return true
+		}
+		if covered != nil {
+			if covered[v.Name] {
+				fc.a.Rep.Errorf(pSpan, "duplicate enum variant `%s.%s` in `match`", enumScrut.Name, v.Name)
+			}
+			covered[v.Name] = true
+		}
+		if v.Kind != types.VariantUnit {
+			fc.a.Rep.Errorf(pSpan, "variant `%s.%s` carries a payload of type %s; match with `%s(val)` or `%s(_)`",
+				enumScrut.String(), v.Name, v.Payload.String(), v.Name, v.Name)
+			fc.a.infoFor(id).Type = types.TypeInvalid
+			return true
+		}
+		inf := fc.a.infoFor(id)
+		inf.EnumType = enumScrut
+		inf.EnumVariant = v
+		inf.Type = enumScrut
+		return true
+	}
+	if sym == nil {
+		var variantNames []string
+		for _, ev := range enumScrut.Variants {
+			if samePkg || IsExported(ev.Name) {
+				variantNames = append(variantNames, ev.Name)
+			}
+		}
+		hint := ""
+		var cands []string
+		if c := closestNames(id.Name, variantNames); len(c) > 0 {
+			hint = fmt.Sprintf("did you mean `%s`?", strings.Join(c, "` or `"))
+			cands = c
+		} else {
+			hint, cands = fc.unknownNameHint(id.Name)
+		}
+		fc.a.errorWithRename(id.Span, fmt.Sprintf("enum %s has no variant %q", enumScrut.String(), id.Name), id.Name, hint, cands)
+		fc.a.infoFor(id).Type = types.TypeInvalid
+		return true
+	}
+	return false
+}
+
+func (fc *funcChecker) checkBarePayloadEnumPattern(p *ast.MethodPattern, enumScrut *types.Enum, v *types.EnumVariant, scrutArenaDepth int, covered map[string]bool) (hasBind, hasMut, hasOwnRes bool) {
+	if fc.a.hasInstanceMethodOnEnum(enumScrut, p.Method) {
+		fc.a.Rep.ErrorWithHint(
+			p.Span,
+			fmt.Sprintf("pattern `%s(...)` is ambiguous: it names both a variant and a method of %s", p.Method, enumScrut.String()),
+			fmt.Sprintf("write `%s.%s(...)` for the enum variant", enumScrut.Name, p.Method),
+		)
+		return false, false, false
+	}
+	samePkg := fc.a.SamePackageDir(fc.mod, enumScrut.PkgDir, "") || fc.a.SamePackage(fc.mod, fc.a.typeModule(enumScrut))
+	if !samePkg && !IsExported(v.Name) {
+		fc.a.Rep.Errorf(p.Span, "cannot match unexported enum variant %q of %s outside its package", v.Name, enumScrut.String())
+		return false, false, false
+	}
+	if covered != nil {
+		if covered[v.Name] {
+			fc.a.Rep.Errorf(p.Span, "duplicate enum variant `%s.%s` in `match`", enumScrut.Name, v.Name)
+		}
+		covered[v.Name] = true
+	}
+	if v.Kind == types.VariantUnit {
+		fc.a.Rep.Errorf(p.Span, "variant `%s.%s` has no payload; match with `when %s:`", enumScrut.String(), v.Name, v.Name)
+		return false, false, false
+	}
+	if len(p.Args) != 1 {
+		fc.a.Rep.Errorf(p.Span, "variant `%s.%s` expects 1 payload binding, got %d", enumScrut.String(), v.Name, len(p.Args))
+		return false, false, false
+	}
+	b, ok := extractVariantBindingFromExpr(p.Args[0])
+	if !ok {
+		fc.a.Rep.Errorf(p.Span, "invalid payload binding in variant pattern `%s(...)`: expected a variable name (optionally `&name` or `own name`) or `_`", p.Method)
+		return false, false, false
+	}
+	placeholder := &ast.IdentExpr{Span: diag.Span{Start: p.MethodSpan.Start, End: p.MethodSpan.Start}}
+	targetMem := &ast.MemberExpr{
+		Base:   placeholder,
+		Member: p.Method,
+		Span:   p.MethodSpan,
+	}
+	vp := &ast.VariantPattern{
+		Target:     targetMem,
+		Bindings:   []ast.VariantPatternBinding{b},
+		Contextual: true,
+		Span:       p.Span,
+	}
+	fc.a.infoFor(targetMem).EnumType = enumScrut
+	fc.a.infoFor(targetMem).EnumVariant = v
+	fc.a.infoFor(targetMem).Type = enumScrut
+	sym, hasBind, hasMut, hasOwnRes := fc.declareVariantPatternBinding(b, v.Payload, scrutArenaDepth)
+	if fc.a.curBM != nil {
+		fc.a.curBM.PatternSyms[vp] = []*Symbol{sym}
+		fc.a.curBM.BareVariantPatterns[p] = vp
+	}
+	return hasBind, hasMut, hasOwnRes
+}
+
 func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, enumScrut *types.Enum, scrutArenaDepth int, covered map[string]bool) (hasBind, hasMut, hasOwnRes bool) {
 	switch p := pat.(type) {
 	case *ast.WildcardPattern:
@@ -5528,6 +5753,13 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 		return false, false, false
 
 	case *ast.ExprPattern:
+		if enumScrut != nil {
+			if id, isId := p.Expr.(*ast.IdentExpr); isId && !id.IsOpt && id.Name != "self" {
+				if fc.checkBareUnitEnumPattern(id, p.Span, enumScrut, covered) {
+					return false, false, false
+				}
+			}
+		}
 		pty := fc.checkExprExpect(p.Expr, scrutTy, true)
 		if scrutTy == types.TypeInvalid || pty == types.TypeInvalid {
 			return false, false, false
@@ -5658,6 +5890,11 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 			}
 			return false, false, false
 		}
+		if enumScrut != nil && len(p.TypeArgs) == 0 {
+			if v, isVariant := enumScrut.VariantByName(p.Method); isVariant {
+				return fc.checkBarePayloadEnumPattern(p, enumScrut, v, scrutArenaDepth, covered)
+			}
+		}
 		if _, isOpt := scrutTy.(*types.Optional); isOpt {
 			fc.a.Rep.Errorf(p.Span, "cannot call method `%s` on optional scrutinee of type `%s` in `match` pattern", p.Method, scrutTy.String())
 			for _, a := range p.Args {
@@ -5742,40 +5979,6 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 			covered[v.Name] = true
 		}
 
-		declarePatBinding := func(b ast.VariantPatternBinding, fty types.Type) *Symbol {
-			if b.IsWildcard {
-				return nil
-			}
-			hasBind = true
-			fc.a.checkOptionalIdentRule(b.BindName, b.IsOptName, fty, b.Span, "pattern binding")
-			bkind := BindReadBorrow
-			isBind := true
-			switch b.Mode {
-			case ast.PatternBindMut:
-				hasMut = true
-				bkind = BindMutBorrow
-				isBind = false
-			case ast.PatternBindOwn:
-				bkind = BindOwned
-				isBind = false // owned local binding
-				if !fty.IsPlain() {
-					hasOwnRes = true
-				}
-			case ast.PatternBindRead:
-				if fty.IsPlain() {
-					bkind = BindOwned
-				} else {
-					bkind = BindReadBorrow
-				}
-				isBind = true
-			}
-			sym := fc.declareLocal(b.BindName, fty, isBind, bkind, b.Span)
-			if typeMayHoldArenaRef(fty) {
-				sym.ArenaDepth = scrutArenaDepth
-			}
-			return sym
-		}
-
 		syms := make([]*Symbol, len(p.Bindings))
 		if v.Kind == types.VariantUnit {
 			fc.a.Rep.Errorf(p.Span, "variant `%s.%s` has no payload; match with `when %s.%s:`", enumScrut.String(), v.Name, enumScrut.Name, v.Name)
@@ -5785,7 +5988,7 @@ func (fc *funcChecker) checkMatchPattern(pat ast.Pattern, scrutTy types.Type, en
 			fc.a.Rep.Errorf(p.Span, "variant `%s.%s` expects 1 payload binding, got %d", enumScrut.String(), v.Name, len(p.Bindings))
 			return false, false, false
 		}
-		syms[0] = declarePatBinding(p.Bindings[0], v.Payload)
+		syms[0], hasBind, hasMut, hasOwnRes = fc.declareVariantPatternBinding(p.Bindings[0], v.Payload, scrutArenaDepth)
 		if hasMut && hasOwnRes {
 			fc.a.Rep.Errorf(p.Span, "cannot mix mutable borrow (`&`) and ownership move (`own`) in the same variant pattern")
 		}
@@ -6041,33 +6244,7 @@ func (fc *funcChecker) checkContextualFailurePattern(p *ast.VariantPattern, mem 
 	}
 	b := p.Bindings[0]
 	syms := make([]*Symbol, 1)
-	if !b.IsWildcard {
-		hasBind = true
-		fc.a.checkOptionalIdentRule(b.BindName, b.IsOptName, v.Payload, b.Span, "pattern binding")
-		bkind := BindReadBorrow
-		isBind := true
-		switch b.Mode {
-		case ast.PatternBindMut:
-			hasMut = true
-			bkind = BindMutBorrow
-			isBind = false
-		case ast.PatternBindOwn:
-			bkind = BindOwned
-			isBind = false
-			if !v.Payload.IsPlain() {
-				hasOwnRes = true
-			}
-		case ast.PatternBindRead:
-			if v.Payload.IsPlain() {
-				bkind = BindOwned
-			}
-		}
-		sym := fc.declareLocal(b.BindName, v.Payload, isBind, bkind, b.Span)
-		if typeMayHoldArenaRef(v.Payload) {
-			sym.ArenaDepth = scrutArenaDepth
-		}
-		syms[0] = sym
-	}
+	syms[0], hasBind, hasMut, hasOwnRes = fc.declareVariantPatternBinding(b, v.Payload, scrutArenaDepth)
 	fc.a.curBM.PatternSyms[p] = syms
 	return hasBind, hasMut, hasOwnRes
 }
@@ -6112,7 +6289,7 @@ func guardUnwrapElem(ty types.Type) (types.Type, bool) {
 }
 
 // checkBareResultMember resolves a bare member name of the expected result type `en`:
-// `value(x)`, `Err(e)`, `Missing(key)` construct payload members and `Forbidden` a unit failure,
+// `value(x)`, `err(e)`, `missing(key)` construct payload members and `forbidden` a unit failure,
 // wherever a result is expected (return position, `func <-`, annotated `let`, arguments). This is
 // the construction counterpart of a result chain's bare failure patterns. Names that resolve to a
 // variable or function in scope are not treated as members unless they are called while also

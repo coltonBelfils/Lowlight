@@ -80,6 +80,11 @@
         "icon": "$(beaker)"
       },
       {
+        "command": "lowlight.refreshTests",
+        "title": "Lowlight: Refresh Tests",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "lowlight.showOutput",
         "title": "Lowlight: Show Language Server Output"
       }
@@ -140,6 +145,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show parameter name inlay hints at function and method call sites."
+        },
+        "lowlight.test.useTerminal": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run tests via the integrated terminal instead of VS Code's native Testing UI."
         }
       }
     }

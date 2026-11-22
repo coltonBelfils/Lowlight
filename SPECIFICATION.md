@@ -1,2299 +1,2356 @@
 # The Lowlight Language Specification
 
-**Language Edition:** 2026  
-**Document Status:** Normative Language Reference  
+**Edition:** 2026 · **Status:** Normative reference
+
+Lowlight is a statically typed, expression-oriented systems language. It gives you C-level control over memory and data layout without a garbage collector, reference counting, or lifetime annotations, and it rules out null references, use-after-free, double-free, and ignored failures at compile time.
+
+This document is the complete definition of the language. It serves three readers:
+
+| If you want to… | Read |
+|---|---|
+| Learn Lowlight from scratch | [Part I: A Tour of Lowlight](#part-i-a-tour-of-lowlight), then the "At a glance" box that opens each reference chapter |
+| Look up how to write something | [Part II: Quick Reference](#part-ii-quick-reference) |
+| Know exactly what a construct means | [Part III: Language Reference](#part-iii-language-reference) |
+| Build a Lowlight compiler or tool | Part III, then [Part IV: Implementer's Guide](#part-iv-implementers-guide) and the [Appendices](#appendices) |
+
+Every chapter of Part III is layered the same way, so you can stop reading as soon as you have what you need:
+
+1. **At a glance**: a short example and the handful of rules you use every day.
+2. **Rules**: the normative definition, complete enough to decide every edge case.
+
+Everything about *how* a compiler realizes the rules (parsing strategy, analysis passes, data layouts, the runtime) is collected in Part IV, organized by compiler stage and linked back to the rules it implements. Part IV never adds language rules beyond those it marks **Required**.
 
 ---
 
-## Abstract
+## Contents
 
-Lowlight is a statically typed, expression-oriented systems programming language engineered for uncompromising memory safety, predictable zero-cost execution, and human ergonomics. Lowlight eliminates entire classes of software defects—including null pointer dereferences, data races, use-after-free, double-free, dangling pointers, unhandled error states, and unconstrained memory leaks—without employing a garbage collector, a reference-counting runtime, or manual lifetime annotations.
+**[Part I: A Tour of Lowlight](#part-i-a-tour-of-lowlight)**
+- [Hello, world](#hello-world) · [Values and variables](#values-and-variables) · [Functions](#functions) · [Types you define](#types-you-define) · [Optionals](#optionals) · [Results and failures](#results-and-failures) · [Control flow](#control-flow) · [Ownership in five minutes](#ownership-in-five-minutes) · [Packages and tests](#packages-and-tests) · [Where to go next](#where-to-go-next)
 
-Lowlight enforces memory safety through an affine ownership model with deterministic LIFO lexical destruction, strict borrow exclusivity, compile-time region escape analysis, and an explicit distinction between trivially copyable *Plain* values and destructured *Resource* values.
+**[Part II: Quick Reference](#part-ii-quick-reference)**
+- [Declarations](#declarations) · [Types](#types) · [Naming rules](#naming-rules) · [Operators](#operators) · [Control flow forms](#control-flow-forms) · [Unwinds](#unwinds) · [Ownership and parameter modes](#ownership-and-parameter-modes) · [Handling absence and failure](#handling-absence-and-failure) · [Attributes](#attributes) · [Universe functions](#universe-functions) · [Standard library packages](#standard-library-packages)
 
-This document serves as the complete, authoritative, and implementation-independent specification of the Lowlight programming language. A conforming Lowlight compiler or toolchain may target native machine code via LLVM, ISO C (C11), WebAssembly, the Java Virtual Machine, or JavaScript. Any compiler that satisfies the syntax, type system, ownership rules, semantic constraints, and standard prelude behavior described herein is a conforming implementation of Lowlight.
-
----
-
-## Table of Contents
-
-1. [Introduction & Design Principles](#1-introduction--design-principles)
+**[Part III: Language Reference](#part-iii-language-reference)**
+1. [Conventions and Conformance](#1-conventions-and-conformance)
 2. [Lexical Structure](#2-lexical-structure)
-   - [2.1 Source Representation & Unicode](#21-source-representation--unicode)
-   - [2.2 Whitespace, Comments, & Semicolons](#22-whitespace-comments--semicolons)
-   - [2.3 Automatic Semicolon Insertion (ASI)](#23-automatic-semicolon-insertion-asi)
-   - [2.4 Multiline Trailing Commas](#24-multiline-trailing-commas)
-   - [2.5 Identifiers, Optional Identifiers & Result Identifiers](#25-identifiers-optional-identifiers--result-identifiers)
-   - [2.6 Keywords & Contextual Keywords](#26-keywords--contextual-keywords)
-   - [2.7 Literals](#27-literals)
-   - [2.8 String Literals & String Interpolation](#28-string-literals--string-interpolation)
-   - [2.9 Operators & Delimiters](#29-operators--delimiters)
-3. [Type System & Value Categories](#3-type-system--value-categories)
-   - [3.1 Value Categories: Plain vs. Resource](#31-value-categories-plain-vs-resource)
-   - [3.2 Primitive Numerical Types](#32-primitive-numerical-types)
-   - [3.3 Boolean & Character Types](#33-boolean--character-types)
-   - [3.4 The String Type](#34-the-string-type)
-   - [3.5 Optional Types (`?T`) & Flattening Invariant](#35-optional-types-t--flattening-invariant)
-   - [3.6 Collection Types (`[T]`, `[N: T]`, `#[T]`, `#[K: V]`)](#36-collection-types-t-n-t-t-k-v)
-   - [3.7 Structs & Field Punning](#37-structs--field-punning)
-   - [3.8 Enums: Pure Tag Enums & Tagged Unions](#38-enums-pure-tag-enums--tagged-unions)
-   - [3.9 Distinct Types](#39-distinct-types)
-   - [3.10 Structural Interfaces & `Self`](#310-structural-interfaces--self)
-   - [3.11 First-Class Functions & Closures](#311-first-class-functions--closures)
-   - [3.12 Arenas (`Arena`) & Scoped References (`ref[T]`)](#312-arenas-arena--scoped-references-reft)
-   - [3.13 Raw Pointers (`ptr[T]`)](#313-raw-pointers-ptrt)
-   - [3.14 Internal & Control Types (`void`, `never`)](#314-internal--control-types-void-never)
-4. [Program Structure, Packages, & Visibility](#4-program-structure-packages--visibility)
-   - [4.1 Packages, Compilation Units, & Target File Selection](#41-packages-compilation-units--target-file-selection)
-   - [4.2 Order-Independent Declarations & Global Method Coherence](#42-order-independent-declarations--global-method-coherence)
-   - [4.3 Package Paths & Qualified Imports](#43-package-paths--qualified-imports)
-   - [4.4 Encapsulation & Visibility](#44-encapsulation--visibility)
-   - [4.5 Program Entry Points (`main`) & Library Packages](#45-program-entry-points-main--library-packages)
-   - [4.6 Compiler Attributes](#46-compiler-attributes)
-   - [4.7 Implicit Standard Prelude (`std/core`)](#47-implicit-standard-prelude-stdcore)
-5. [Ownership, Borrowing, & Lifetime Mechanics](#5-ownership-borrowing--lifetime-mechanics)
-   - [5.1 Affine Value Ownership](#51-affine-value-ownership)
-   - [5.2 Value Moves & The Explicit `own` Qualifier](#52-value-moves--the-explicit-own-qualifier)
-   - [5.3 Parameter Passing Modes (`T`, `&T`, `own T`)](#53-parameter-passing-modes-t-t-own-t)
-   - [5.4 Borrow Exclusivity & Alias Invariants](#54-borrow-exclusivity--alias-invariants)
-   - [5.5 Deterministic Destruction & Custom `Drop`](#55-deterministic-destruction--custom-drop)
-   - [5.6 Scoped Arena Pinning & Escape Analysis](#56-scoped-arena-pinning--escape-analysis)
-6. [Expressions & Evaluation Semantics](#6-expressions--evaluation-semantics)
-   - [6.1 Operator Precedence & Associativity](#61-operator-precedence--associativity)
-   - [6.2 Arithmetic Semantics & Boundary Traps](#62-arithmetic-semantics--boundary-traps)
-   - [6.3 Equality & Comparison](#63-equality--comparison)
-   - [6.4 Indexing & Slicing](#64-indexing--slicing)
-   - [6.5 Member Access, UFCS, & Receiver Auto-Borrowing](#65-member-access-ufcs--receiver-auto-borrowing)
-   - [6.6 Optional Chaining & Coalescing (`?.`, `??`)](#66-optional-chaining--coalescing--)
-   - [6.7 Function Calls & Closures](#67-function-calls--closures)
-7. [Statements & Control Flow](#7-statements--control-flow)
-   - [7.1 Lexical Blocks & Block Value Rules](#71-lexical-blocks--block-value-rules)
-   - [7.2 Variable Declarations (`let` vs. `bind`)](#72-variable-declarations-let-vs-bind)
-   - [7.3 Assignment & Compound Mutation](#73-assignment--compound-mutation)
-   - [7.4 Conditional Branches (`if` / `else`) & Optional Unwrapping](#74-conditional-branches-if--else--optional-unwrapping)
-   - [7.5 Loops (`for`) & Iteration Value Semantics](#75-loops-for--iteration-value-semantics)
-   - [7.6 Pattern Matching (`match` / `when`)](#76-pattern-matching-match--when)
-   - [7.7 Targeted Lexical Unwinding (`<-`)](#77-targeted-lexical-unwinding--)
-8. [Generics & Monomorphization](#8-generics--monomorphization)
-   - [8.1 Generic Declarations](#81-generic-declarations)
-   - [8.2 Interface Constraints & Bounds](#82-interface-constraints--bounds)
-   - [8.3 The Strictly Non-Optional Generic Rule](#83-the-strictly-non-optional-generic-rule)
-   - [8.4 Type Inference & Monomorphization Limits](#84-type-inference--monomorphization-limits)
-9. [Standard Library Contract & Built-in Operations](#9-standard-library-contract--built-in-operations)
-   - [9.1 Built-in Primitive Methods & Character Package (`std/chars`)](#91-built-in-primitive-methods--character-package-stdchars)
-   - [9.2 String Built-ins & Standard Strings Package (`std/strings`)](#92-string-built-ins--standard-strings-package-stdstrings)
-   - [9.3 Collection Operations & Sorting (`std/sort`)](#93-collection-operations--sorting-stdsort)
-   - [9.4 File System Operations (`std/fs`)](#94-file-system-operations-stdfs)
-   - [9.5 Operating System & Universe Functions (`std/os`)](#95-operating-system--universe-functions-stdos)
-   - [9.6 The `Result[T]` and `Error` Standard Types](#96-the-resultt-and-error-standard-types)
-   - [9.7 Testing System & Standard Testing Package (`std/test`)](#97-testing-system--standard-testing-package-stdtest)
-10. [Unsafe Operations & Foreign ABI Interoperability](#10-unsafe-operations--foreign-abi-interoperability)
-    - [10.1 The `unsafe` Block and Prefix Expression](#101-the-unsafe-block-and-prefix-expression)
-    - [10.2 Raw Pointer Mechanics (`ptr[T]`)](#102-raw-pointer-mechanics-ptrt)
-    - [10.3 Safe Sizing vs. Unsafe Memory Intrinsics](#103-safe-sizing-vs-unsafe-memory-intrinsics)
-    - [10.4 Foreign Function Interface (`extern`)](#104-foreign-function-interface-extern)
-11. [Formal Grammar Specification (EBNF)](#11-formal-grammar-specification-ebnf)
-12. [Package Manifest, Lockfile, & Decentralized Dependency Protocol](#12-package-manifest-lockfile--decentralized-dependency-protocol)
-    - [12.1 Repository Layout & Manifest Optionality](#121-repository-layout--manifest-optionality)
-    - [12.2 Manifest Format & Schema (`lowlight.toml`)](#122-manifest-format--schema-lowlighttoml)
-    - [12.3 Deterministic Lockfile (`lowlight.lock`)](#123-deterministic-lockfile-lowlightlock)
-    - [12.4 Decentralized Static Package Index Protocol](#124-decentralized-static-package-index-protocol)
-    - [12.5 Dependency Resolution (MVS), Local Canonical Storage, & Precedence](#125-dependency-resolution-mvs-local-canonical-storage--precedence)
-    - [12.6 Manifest Tooling, Package CLI, & Two-Phase Compilation](#126-manifest-tooling-package-cli--two-phase-compilation)
+3. [Types](#3-types)
+4. [Declarations and Program Structure](#4-declarations-and-program-structure)
+5. [Expressions](#5-expressions)
+6. [Control Flow](#6-control-flow)
+7. [Ownership, Borrowing, and Destruction](#7-ownership-borrowing-and-destruction)
+8. [Generics](#8-generics)
+9. [Failure Handling](#9-failure-handling)
+10. [Unsafe Code and Foreign Functions](#10-unsafe-code-and-foreign-functions)
+11. [Testing](#11-testing)
+12. [The Prelude](#12-the-prelude)
+13. [The Standard Library](#13-the-standard-library)
+14. [Packages, Manifests, and Dependencies](#14-packages-manifests-and-dependencies)
+
+**[Part IV: Implementer's Guide](#part-iv-implementers-guide)**
+15. [Compiler Architecture](#15-compiler-architecture)
+16. [Parsing Ambiguities and Their Resolution](#16-parsing-ambiguities-and-their-resolution)
+17. [Semantic Analysis](#17-semantic-analysis)
+18. [Lowering and Runtime Representation](#18-lowering-and-runtime-representation)
+19. [The Runtime Contract](#19-the-runtime-contract)
+20. [Conformance Checklist](#20-conformance-checklist)
+
+**[Appendices](#appendices)**
+- [A. Grammar](#appendix-a-grammar) · [B. Keywords and Contextual Words](#appendix-b-keywords-and-contextual-words) · [C. Operator Precedence](#appendix-c-operator-precedence) · [D. Runtime Traps](#appendix-d-runtime-traps) · [E. Glossary](#appendix-e-glossary)
 
 ---
 
-## 1. Introduction & Design Principles
+# Part I: A Tour of Lowlight
 
-Lowlight is designed to provide the absolute control and raw efficiency of unmanaged systems languages (such as C) alongside the structural elegance and safety guarantees of modern functional and affine languages.
+This part shows the language by example. Each section links to the reference chapter that defines it precisely. Every program here compiles and runs as written.
 
-The language architecture adheres to seven foundational axioms:
+## Hello, world
 
-1. **Deterministic Lifecycle Over Tracing Garbage Collection:** Memory and system resources (file handles, network sockets, OS allocations) must have predictable lifetimes bound directly to lexical scopes. No background runtime pauses, reference-counting overhead, or unpredictable finalizers exist in safe Lowlight.
-2. **Values vs. Resources:** Every type in Lowlight is statically partitioned into either a *Plain* type or a *Resource* type. Plain types are freely copyable bitwise values without destructors. Resource types represent unique capabilities that cannot be copied implicitly; they obey affine ownership rules and are dropped exactly once at the end of their owning scope.
-3. **No Null References:** The concept of `null` or `nil` does not exist. The absence of a value is expressed strictly via optional types (`?T`). Optionals do not nest, cannot wrap other optionals, and require explicit syntactic acknowledgment (`?`) at declaration, assignment, unwrap, and access.
-4. **No Lifetime Annotations:** Safe Lowlight enforces reference validity through static borrow exclusivity, lexical tree nesting, and scoped arena pinning. Programmers never write lifetime variables (such as `'a`), yet references can never outlive the data they borrow.
-5. **Expression Orientation with Syntactic Clarity:** Every block, conditional branch, match arm, and loop is an expression capable of yielding a value. Braces (`{}`) delimit compound blocks and scopes, parentheses (`()`) delimit headers and argument lists, brackets (`[]`) delimit type parameters, indexing, struct fields, and lists, hash-brackets (`#[ ]`) delimit sets and maps, and plus-brackets (`+[ ]`) delimit tuples.
-6. **Explicit Mutation and Consumption:** Functions cannot mutate caller arguments unless the caller explicitly prefixes the argument with `&` at the call site. Similarly, an existing owned resource cannot be moved into another owner without explicit qualification via the `own` keyword.
-7. **Target Neutrality:** The semantics of Lowlight are entirely decoupled from any specific machine representation, intermediate representation, or transpiler backend. A conforming implementation may lower to machine instructions, bytecode, or high-level source code, provided the observable behaviors, ownership invariants, and runtime trap guarantees defined in this specification are preserved.
+```lowlight
+bind main = (): println("Hello, world!")
+```
+
+Save it as `hello.ll` and run `lowlight run hello.ll`. A program is a set of top-level declarations; `main` is the entry point. `bind name = value` declares something that never changes, here a function. `(): ...` is a function that takes nothing; its body follows the colon.
+
+## Values and variables
+
+```lowlight
+bind main = (): {
+	let count = 3            // `let`: a variable you may reassign
+	count += 1
+	bind limit = 10          // `bind`: never reassigned
+	let ratio = 2.5          // float
+	let name = "Lowlight"    // string
+	let initial = 'L'        // char
+	let ok = count < limit   // bool
+	println("$name has $count of $limit, ok: $ok, ratio ${ratio * 2.0}, starts with $initial")
+}
+```
+
+- Types are inferred; write them when you want to: `let count: int = 3`.
+- Numbers never convert implicitly. `int`, `float`, `u8`, `i32` and the rest are separate types; convert explicitly with `float(count)` or `u8(n)`.
+- `"$name"` and `"${expr}"` interpolate any value that can print itself.
+- A `{ ... }` block is an expression whose value is its last line.
+
+See [§2 Lexical Structure](#2-lexical-structure) and [§3 Types](#3-types).
+
+## Functions
+
+```lowlight
+bind square = (x: int) int: x * x
+
+bind describe = (n: int) string: {
+	let kind = if(n % 2 == 0): "even" else: "odd"
+	"$n is $kind"
+}
+
+bind main = (): {
+	println(square(7))
+	println(describe(7))
+	let twice = (x: int) int: x * 2      // a function value
+	println(twice(21))
+}
+```
+
+A function is written `(parameters) ReturnType: body`. The body is a single expression or a `{ ... }` block. Leave the return type out when the function returns nothing. `if (...): a else: b` is an expression, so it can initialize a variable.
+
+See [§4.3 Functions](#43-functions) and [§5 Expressions](#5-expressions).
+
+## Types you define
+
+```lowlight
+define Point struct [
+	x: float,
+	y: float,
+]
+
+define Shape enum [
+	circle: float,
+	rect: Point,
+	empty,
+]
+
+bind Point.length_squared = (self) float: self.x * self.x + self.y * self.y
+
+bind area = (s: Shape) float: match(s):
+	when circle(r): 3.14159 * r * r
+	when rect(p): p.x * p.y
+	default empty: 0.0
+
+bind main = (): {
+	let p = Point[x: 3.0, y: 4.0]
+	println(p.length_squared())
+	println(area(Shape.rect(p)))
+	println(area(Shape.circle(1.0)))
+}
+```
+
+- `struct` groups named fields; build one with `Type[field: value, ...]`.
+- `enum` lists alternatives (variants); a variant may carry one value. Outside a `match`, a variant is named with its type, `Shape.circle(1.0)`; inside a `match` arm it is named bare, `when circle(r)`.
+- `bind Type.method = (self) ...` adds a method. `self` is read-only; write `&self` to mutate the receiver.
+- `match` must handle every case. The last arm always starts with `default`.
+
+See [§3.7 Structs](#37-structs), [§3.8 Enums](#38-enums), and [§6.5 Pattern matching](#65-pattern-matching).
+
+## Optionals
+
+There is no `null`. A value that may be absent has an optional type `?T`, and its name ends in `?`:
+
+```lowlight
+bind find_index = (items: [string], wanted: string) ?int: {
+	for(i, item in items): if(item == wanted): func <- i
+	none
+}
+
+bind main = (): {
+	let names = ["ada", "grace", "linus"]
+	let pos? = find_index(names, "grace")
+	if(pos?): println("found at $pos")      // inside, `pos` is a plain int
+	println(find_index(names, "bob") ?? -1)  // `??` supplies a fallback
+}
+```
+
+`func <- i` returns `i` from the function early. It's one of the unwinds described in [§6.7](#67-unwinds-and-labels).
+
+See [§3.5 Optionals](#35-optionals).
+
+## Results and failures
+
+An operation that can fail returns a **result**. Names that hold one end in `!`:
+
+```lowlight
+define Lookup result [
+	value: string,
+	missing: string,
+	forbidden,
+]
+
+bind find = (key: string) Lookup:
+	if(key == "secret"): forbidden
+	else if(key == "name"): value("Lowlight")
+	else: missing(key.copy())
+
+bind greet = (key: string) string: {
+	let who = find(key):
+		when missing(k): func <- "no entry for $k"
+		default forbidden: "stranger"
+	"hello, $who"
+}
+
+bind main = (): {
+	println(greet("name"))
+	println(greet("secret"))
+	println(greet("age"))
+	let r! = find("name")
+	println(r! ?? "fallback")
+}
+```
+
+- A result type has one success member, `value`, plus failure cases.
+- Where a result is expected you name the member directly: `value(x)`, `missing(k)`, `forbidden`.
+- `expr:` followed by `when` arms is a **result chain**. It evaluates to the success value, and each arm handles a failure by producing a value or leaving with an unwind. `default panic` ends a chain when the remaining failures should never happen.
+- The standard `Result[T]` (`value: T` or `err: Error`) is used throughout the standard library.
+
+Unrecoverable bugs, such as an index out of bounds or a failed `assert`, **panic**: the program stops with a message. Panics can't be caught.
+
+See [§3.9 Results](#39-results), [§6.6 Result chains](#66-result-chains), and [§9 Failure Handling](#9-failure-handling).
+
+## Control flow
+
+```lowlight
+bind main = (): {
+	// `for` collects its body's values into a list.
+	let squares = for(n in 1..=5): n * n
+	println(squares)
+
+	// `next <-` skips an element.
+	let odd = for(n in 1..10): {
+		if(n % 2 == 0): next <-
+		n
+	}
+	println(odd)
+
+	// `while` produces a single value; `while <-` leaves with one.
+	let first_big = while(n in 1..100) int: {
+		if(n * n > 50): while <- n
+	} else: 0
+	println(first_big)
+
+	// `match` with no subject is a chain of conditions.
+	let size = match:
+		when first_big > 5: "large"
+		default: "small"
+	println(size)
+}
+```
+
+Lowlight has no `break`, `continue`, or `return` keywords. One operator, `<-`, leaves a construct, and the word before it says which one: `func <-` returns, `for <-` and `while <-` break, `next <-` continues, and `label <-` leaves a labeled block or loop.
+
+See [§6 Control Flow](#6-control-flow).
+
+## Ownership in five minutes
+
+Every value has exactly one owner. Small fixed-size values (numbers, `bool`, `char`, plain structs) are **plain** and copy freely. Values that own memory or system resources (`string`, lists, maps, files) are **resources**: they move rather than copy, and are freed automatically at the end of their owner's scope.
+
+```lowlight
+bind shout = (s: string) string: s.to_upper()       // read-only borrow
+bind append_bang = (s: &string): s.push("!")        // mutable borrow
+bind consume = (s: own string): println("took $s")  // takes ownership
+
+bind main = (): {
+	let msg = "hi" + " there"
+	println(shout(msg))      // borrowed; msg is still ours
+	append_bang(&msg)        // `&` at the call site: msg may change
+	println(msg)
+	consume(own msg)         // `own` at the call site: msg moves away
+	// println(msg)          // error: use of moved variable "msg"
+	let copy = shout("x").copy()
+	println(copy)
+}
+```
+
+- A parameter is borrowed read-only by default.
+- `&T` lets the function change your variable, and you must write `&` when you call it.
+- `own T` takes the value, and you must write `own` when you call it.
+- Nothing is ever mutated or moved without a visible marker at the call site.
+
+See [§7 Ownership, Borrowing, and Destruction](#7-ownership-borrowing-and-destruction).
+
+## Packages and tests
+
+A directory of `.ll` files is a package. Other packages are used through a qualifier:
+
+```lowlight
+import "std/strings"
+
+@test("join puts separators between items")
+bind test_join = (): {
+	let joined = strings.join(["a", "b", "c"], "-")
+	assert(joined == "a-b-c", "unexpected: $joined")
+}
+
+bind main = (): println(strings.join(["x", "y"], ", "))
+```
+
+`lowlight test` runs every `@test` function and checks each one for leaks. Names beginning with `_` are private to their package.
+
+See [§4.6 Packages and imports](#46-packages-and-imports), [§11 Testing](#11-testing), and [§14 Packages, Manifests, and Dependencies](#14-packages-manifests-and-dependencies).
+
+## Where to go next
+
+- Keep [Part II: Quick Reference](#part-ii-quick-reference) open while you write code.
+- Read the "At a glance" box at the top of each chapter in [Part III](#part-iii-language-reference) for a fuller picture, and the rest of each chapter when you need the exact rules.
+- Run `lowlight doc` to browse the standard library's API documentation.
+
+---
+
+# Part II: Quick Reference
+
+Tables for looking things up. Each row links to its full definition.
+
+## Declarations
+
+| Form | Example | Reference |
+|---|---|---|
+| Constant or function | `bind limit = 100` · `bind add = (a: int, b: int) int: a + b` | [§4.2](#42-bind-and-let), [§4.3](#43-functions) |
+| Mutable variable (inside functions only) | `let total = 0` | [§4.2](#42-bind-and-let) |
+| Method | `bind Point.norm = (self) float: ...` | [§4.4](#44-methods-and-associated-functions) |
+| Associated function | `bind Point.origin = () Point: Point[x: 0.0, y: 0.0]` | [§4.4](#44-methods-and-associated-functions) |
+| Struct | `define Point struct [x: float, y: float]` | [§3.7](#37-structs) |
+| Enum | `define Color enum [red, green]` · `define Shape enum [circle: float, empty]` | [§3.8](#38-enums) |
+| Result type | `define Lookup result [value: Item, missing: string]` | [§3.9](#39-results) |
+| Interface | `define Shape interface [area: (self) float]` | [§3.11](#311-interfaces) |
+| Distinct type | `define UserId int` | [§3.10](#310-distinct-types) |
+| Generic | `define Stack[T] struct [items: [T]]` · `bind first[T] = (xs: [T]) ?T: xs.get(0)` | [§8](#8-generics) |
+| Import | `import "std/fs"` · `import "std/math" as m` | [§4.6](#46-packages-and-imports) |
+| Foreign function | `extern "stdio.h"` · `extern puts: (s: ptr[u8]) i32` | [§10.4](#104-foreign-functions) |
+| Tuple unpacking | `let x, y = unpack +[1, 2]` | [§4.2](#42-bind-and-let) |
+
+## Types
+
+| Type | Meaning | Category | Reference |
+|---|---|---|---|
+| `int` `i8` `i16` `i32` `i64` | Signed integers (`int` = `i64`) | plain | [§3.2](#32-numbers) |
+| `u8` `u16` `u32` `u64` | Unsigned integers | plain | [§3.2](#32-numbers) |
+| `float` `f32` `f64` | IEEE-754 floats (`float` = `f64`) | plain | [§3.2](#32-numbers) |
+| `bool` · `char` | Truth value · Unicode scalar value | plain | [§3.3](#33-bool-and-char) |
+| `string` | Owned UTF-8 text | resource | [§3.4](#34-strings) |
+| `?T` | `T` or `none` | as `T` | [§3.5](#35-optionals) |
+| `[T]` | Growable list | resource | [§3.6](#36-collections) |
+| `[N: T]` | Fixed-size array | as `T` | [§3.6](#36-collections) |
+| `#[T]` · `#[K: V]` | Set · map | resource | [§3.6](#36-collections) |
+| `+[A, B, ...]` | Tuple | plain if all parts are | [§3.6](#36-collections) |
+| `Range[T]` | `lo..hi`, `lo..=hi` | plain | [§3.6](#36-collections) |
+| `(A, B) R` · `(A)` | Function returning `R` · returning nothing | resource | [§3.12](#312-functions-and-closures) |
+| `Arena` · `ref[T]` | Region allocator · reference into it | resource · plain | [§3.13](#313-arenas) |
+| `ptr[T]` | Raw pointer | plain | [§3.14](#314-raw-pointers) |
+| `void` · `never` | No value (return types only) · does not return | | [§3.15](#315-void-and-never) |
+
+## Naming rules
+
+| Rule | Example | Reference |
+|---|---|---|
+| A name holding an optional ends in `?`; no other name may | `let user? = find(id)` | [§2.5](#25-identifiers) |
+| A name holding a result ends in `!`; no other name may | `let cfg! = load(path)` | [§2.5](#25-identifiers) |
+| A leading `_` makes a declaration, field, variant, or method private to its package | `bind _helper = ...` · `_count: int` | [§4.7](#47-visibility) |
+| Convention: types `PascalCase`; variants, functions, variables, fields `snake_case`; top-level constants `SCREAMING_SNAKE_CASE` (see [CONVENTIONS.md](CONVENTIONS.md)) | `Point`, `Shape.circle`, `read_file`, `MAX_RETRIES` | [§2.5](#25-identifiers) |
+
+## Operators
+
+From tightest to loosest binding. Full details are in [§5.1](#51-evaluation-order-and-precedence) and [Appendix C](#appendix-c-operator-precedence).
+
+| Operators | Meaning |
+|---|---|
+| `.` `?.` `()` `[]` | Member, optional member, call, index or slice |
+| `-x` `not` `~` `*p` `&x` `own x` `unsafe e` | Prefix operators |
+| `*` `/` `%` | Multiply, divide, remainder |
+| `+` `-` | Add, subtract (`+` also concatenates strings) |
+| `<<` `>>` | Shift (traps unless `0 <= n < bit width`) |
+| `..` `..=` | Range, half-open or inclusive |
+| `<` `<=` `>` `>=` | Ordering (non-associative) |
+| `==` `!=` | Equality (non-associative) |
+| `&` · `^` · `\|` | Bitwise and · xor · or |
+| `and` · `or` | Short-circuit logic |
+| `??` | Fallback for an optional or result |
+| `<-` | Unwind (leave a construct) |
+
+Assignment is a statement: `=` `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`. There is no `!` negation (use `not`) and no `as` cast (write `int(x)`, `float(x)`, ...).
+
+## Control flow forms
+
+| Form | Value | Reference |
+|---|---|---|
+| `if(c): a else: b` | `a` or `b` | [§6.2](#62-if) |
+| `if(c): a` | `?T`: `a` or `none` | [§6.2](#62-if) |
+| `if(x?): ...` · `if(&x?): ...` | Narrows `x?` to `x` (read-only, mutable) | [§6.2](#62-if) |
+| `if(e as v): ...` | Binds the value of an optional or result | [§6.2](#62-if) |
+| `while(cond): ...` · `while(x in xs) T: ... else: d` | A single value (`?T` without `else`) | [§6.3](#63-while) |
+| `for(x in xs): body` | A list of each iteration's value | [§6.4](#64-for) |
+| `for(x in xs) #[T]: body` | Any collection that can `push` | [§6.4](#64-for) |
+| `match(v): when P: ... default: ...` | Pattern match; must end in `default`; variants are named bare (`when pending:`) | [§6.5](#65-pattern-matching) |
+| `match: when cond: ... default: ...` | Condition chain | [§6.5](#65-pattern-matching) |
+| `expr: when Failure(x): ... default ...` | Result chain; evaluates to the success value | [§6.6](#66-result-chains) |
+| `name: { ... }` · `name: for(...)` | Labeled block or loop | [§6.7](#67-unwinds-and-labels) |
+
+## Unwinds
+
+| Write | Leaves | With value |
+|---|---|---|
+| `func <- v` | the function (return) | the return value |
+| `for <-` · `while <- v` | the innermost `for` / `while` (break) | `for`: what it has collected; `while`: `v` |
+| `next <-` | the current iteration of the innermost loop (continue) | |
+| `<- v` | the innermost `{ }` block | the block's value |
+| `if <- v` · `match <- v` | the innermost `if` / `match` | its value |
+| `name <- v` · `next name <-` | the labeled construct · next iteration of the labeled loop | |
+
+An unwind has type `never`, so `let x = find() ?? func <- fallback` and similar guards type-check. Unwinds never cross a function boundary. See [§6.7](#67-unwinds-and-labels).
+
+## Ownership and parameter modes
+
+| Parameter | At the call site | The function may | Reference |
+|---|---|---|---|
+| `x: T` | `f(x)` | read (plain values are copied) | [§7.3](#73-parameter-modes) |
+| `x: &T` | `f(&x)` | read and modify the caller's variable | [§7.3](#73-parameter-modes) |
+| `x: own T` | `f(own x)` (a temporary needs nothing) | keep or destroy the value | [§7.3](#73-parameter-modes) |
+| receiver `self` · `&self` · `own self` | `v.m()` | as above, for the receiver | [§4.4](#44-methods-and-associated-functions) |
+
+Moving an existing resource variable always needs `own`: `let b = own a`, `[own a]`, `Point[name: own s]`. Copy a resource with `.copy()`.
+
+## Handling absence and failure
+
+| You have | Do this | Write |
+|---|---|---|
+| `x?: ?T` | use it if present | `if(x?): use(x)` |
+| | supply a default | `x? ?? default` |
+| | leave if absent | `let v = x? ?? func <- fallback` |
+| | reach through it | `x?.field`, `x?.method()` |
+| `r!: R` (a result) | handle each failure | `r!: when missing(k): ... default forbidden: ...` |
+| | handle every failure alike | `r!: default: fallback` |
+| | assert it can't fail | `r!: default panic` |
+| | discard the failure | `r! ?? fallback` |
+| | use the value only if it succeeded | `if(r! as v): use(v) else: ...` |
+| | pass the failure up | `default err(own e): func <- err(e.wrap("context"))` |
+| a bug or broken invariant | stop the program | `panic("msg")`, `assert(cond, "msg")` |
+
+## Attributes
+
+| Attribute | On | Effect |
+|---|---|---|
+| `@test` · `@test("name")` | function | a test run by `lowlight test` |
+| `@test_only` | any declaration | usable only from tests |
+| `@track_caller` | function | panics and `caller_*()` report the caller's location |
+| `@must_use` · `@nodiscard` | function, type | discarding the value is an error |
+| `@deprecated` · `@deprecated("msg")` | declaration | warns at each use |
+| `@inline` · `@noinline` | function | inlining hint |
+| `@packed` (or `define packed T struct`) | struct | no padding between fields |
+| `@lang("name")` | prelude declaration | binds a language hook (prelude only) |
+
+See [§4.8](#48-attributes).
+
+## Universe functions
+
+Always in scope; no import needed. Full list in [§12.2](#122-universe-functions).
+
+| Function | Meaning |
+|---|---|
+| `print(v)` · `println(v)` · `eprint(v)` · `eprintln(v)` | Write to stdout / stderr (`println()` alone prints a newline) |
+| `panic(msg)` · `panic(err)` | Stop the program (`never`) |
+| `assert(cond)` · `assert(cond, msg)` | Panic if `cond` is false |
+| `exit(code)` | End the process (`never`) |
+| `args()` | Command-line arguments, `[string]` |
+| `parse_int(s)` · `parse_float(s)` | `?int` · `?float` |
+| `abs(x)` · `min(a, b)` · `max(a, b)` | Numeric helpers |
+| `caller_location()` · `caller_file()` · `caller_line()` · `caller_col()` | Source location of the caller |
+| `size_of[T]()` · `align_of[T]()` · `is_plain[T]()` | Layout queries |
+
+## Standard library packages
+
+| Package | Provides |
+|---|---|
+| `std/core` | The prelude: interfaces, collections, `Result`, `Error` (always imported) ([§12](#12-the-prelude)) |
+| `std/chars` | Character classification and conversion |
+| `std/strings` | String searching, splitting, joining, padding |
+| `std/strconv` | Parsing and formatting numbers and booleans |
+| `std/strfmt` | Number formatting, padding, case conversion |
+| `std/math` | Floating-point math |
+| `std/sort` | Sorting and searching lists and arrays |
+| `std/fs` | Files and the file system |
+| `std/os` | Processes, directories, platform information |
+| `std/time` | Durations, instants, dates and times, formatting |
+| `std/net` | TCP sockets |
+| `std/http` | HTTP client, server, and routing |
+| `std/pool` | Handle-based object pools |
+| `std/test` | Rich test assertions |
+
+See [§13](#13-the-standard-library).
+
+---
+
+# Part III: Language Reference
+
+## 1. Conventions and Conformance
+
+### 1.1 How rules are written
+
+- **must** and **must not** state requirements on programs: a program that breaks one is rejected at compile time unless the rule says it is a runtime trap. When they appear in implementation notes, they state requirements on implementations.
+- **Trap** means the program stops at run time with a panic ([§9.3](#93-panics)). Traps are deterministic: the same program and input always trap at the same point, in every build mode.
+- Grammar fragments use EBNF: `[ x ]` is optional, `{ x }` repeats zero or more times, `a | b` is a choice, and quoted text is literal. The complete grammar is [Appendix A](#appendix-a-grammar).
+- Code examples that define `main` are complete programs. Other examples are fragments that assume surrounding declarations.
+
+### 1.2 Design principles
+
+These principles explain the rules that follow. When a rule seems surprising, one of them is usually the reason.
+
+1. **Deterministic lifetimes.** Memory and system resources are released at the end of the scope that owns them, in reverse order of creation. There is no garbage collector, reference counting, or finalizer thread.
+2. **Plain values and resources.** Every type is either *plain* (copied bit for bit, nothing to release) or a *resource* (owned by exactly one place, moved rather than copied, released automatically).
+3. **No null.** Absence is an optional type `?T`. Optionals never nest, and every name that holds one says so with a trailing `?`.
+4. **Failure is a value.** An operation that can fail returns a result type, and every name that holds one says so with a trailing `!`. Bugs panic and cannot be caught.
+5. **No lifetime annotations.** References are kept valid by lexical scoping, borrow exclusivity, and arena pinning, never by annotations in the program.
+6. **Visible effects.** A function can change the caller's variable only if the call site says `&`, and can take ownership of it only if the call site says `own`.
+7. **Expressions everywhere.** Blocks, conditionals, loops, and matches are expressions that produce values.
+8. **Target neutrality.** The semantics do not depend on a machine or backend. An implementation may compile to native code, C, or another target, as long as observable behavior, ownership guarantees, and traps match this document.
+
+### 1.3 Conformance
+
+A conforming implementation:
+
+1. accepts every program this document defines as valid, and rejects every program it defines as invalid, with a diagnostic at or near the offending construct;
+2. produces the observable behavior this document defines: output, exit status, traps, and the order in which resources are released;
+3. provides the prelude ([§12](#12-the-prelude)) with the behavior specified there.
+
+The standard library packages of [§13](#13-the-standard-library) are part of the distribution but are ordinary Lowlight code; their detailed API is documented by `lowlight doc`.
 
 ---
 
 ## 2. Lexical Structure
 
-### 2.1 Source Representation & Unicode
+> **At a glance**
+> - Source is UTF-8. Identifiers, keywords, and operators are ASCII.
+> - Newlines end statements; you rarely write `;`. A line that starts with `else`, `when`, `.`, or `?.` continues the previous one.
+> - A multi-line list of two or more items needs a trailing comma.
+> - `name?` names an optional and `name!` names a result; the suffix is part of the name.
+> - Strings: `"..."` on one line, `` `...` `` across lines; both interpolate `$name` and `${expr}`.
 
-A Lowlight source file is a sequence of Unicode characters encoded in UTF-8. Non-ASCII characters are permitted inside comments, character literals, and string literals. Identifiers, keywords, operators, and delimiters must consist strictly of ASCII characters.
+### 2.1 Source text
 
-### 2.2 Whitespace, Comments, & Semicolons
+A source file is a sequence of Unicode characters encoded in UTF-8, stored in a file with the `.ll` extension. Non-ASCII characters may appear only in comments, character literals, and string literals. Line endings `\r\n` are equivalent to `\n`.
 
-Whitespace is defined as ASCII space (`U+0020`), horizontal tab (`U+0009`), carriage return (`U+000D`), and line feed (`U+000A`). Whitespace separates tokens and formats source text but is otherwise insignificant except when resolving Automatic Semicolon Insertion (ASI) or parsing the whitespace-delimited unwind operator (`<-`).
+### 2.2 Whitespace and comments
 
-Lowlight supports two forms of comments:
-- **Single-line comments:** Begin with `//` and extend to the end of the line.
-- **Multi-line comments:** Begin with `/*` and terminate with `*/`. Multi-line comments do not nest; the first occurrence of `*/` closes the comment.
+Whitespace is space (U+0020), tab (U+0009), carriage return (U+000D), and line feed (U+000A). It separates tokens and is otherwise insignificant, except that newlines drive automatic semicolon insertion ([§2.3](#23-statement-separation)) and the unwind operator must be separated by whitespace ([§2.9](#29-operators-and-punctuation)).
 
-Documentation comments follow Go conventions using standard `//` or `/* ... */` comments immediately preceding a declaration (or its `@attributes`) with no blank line between them, inline trailing comments on struct fields, enum variants, and interface methods, or top-of-file comment blocks for module documentation. Markdown and intra-doc ``[`Symbol`]`` links are supported by the LSP and `lowlight doc`.
+- A line comment starts with `//` and runs to the end of the line.
+- A block comment starts with `/*` and ends at the first `*/`. Block comments do not nest.
 
-Semicolons (`;`) are statement terminators. An explicit semicolon written at the end of a block expression suppresses the tail value and causes the block to yield `void`.
+**Documentation comments** are ordinary comments placed immediately before a declaration (or before its attributes), with no blank line between them, or at the end of the line declaring a struct field, enum variant, or interface method. A comment block at the top of a file documents the package. Documentation is Markdown; ``[`Name`]`` links to another declaration, and `# Heading` lines (such as `# Panics` or `# Example`) start sections. Tools (`lowlight doc`, the language server) render these; the compiler otherwise ignores them.
 
-### 2.3 Automatic Semicolon Insertion (ASI)
+### 2.3 Statement separation
 
-To eliminate unnecessary punctuation while preserving unambiguous parsing, Lowlight employs a deterministic delimiter-stack Automatic Semicolon Insertion algorithm.
+Statements are separated by semicolons. Most semicolons are inserted automatically by the lexer, so source code rarely contains them.
 
-#### 2.3.1 Delimiter Stack
-The lexer tracks an internal stack of open delimiters:
-- `{` pushes a brace context.
-- `(` pushes a paren context.
-- `[` and `#[` push a bracket context.
-- `${` pushes an interpolation context.
+**Rule.** At a newline (or end of file), the lexer inserts a semicolon if all of the following hold:
 
-A newline is eligible for semicolon insertion only when `blockLevelAfter` is true: that is, when the delimiter stack is empty (top-level scope) or when the outermost open delimiter on the stack is a curly brace (`{`). When inside parentheses `(...)`, brackets `[...]`, hash-brackets `#[...]`, or string interpolation `${...}`, ASI is entirely disabled.
+1. **Block level.** Every delimiter opened so far and not yet closed is a `{`. Inside `( )`, `[ ]`, `#[ ]`, `+[ ]`, or `${ }` no semicolons are inserted, so expressions in parentheses, argument lists, and collection literals may span lines freely.
+2. **Value end.** The last token on the line is one of: an identifier (including `name?` and `name!`), a literal (integer, float, character, string, or the end of an interpolated string), `true`, `false`, `none`, `self`, `Self`, `)`, `]`, `}`, or `<-`.
+3. **No continuation.** The first token on the next line is not `else`, `when`, `.`, or `?.`.
 
-#### 2.3.2 Insertion Trigger
-When `blockLevelAfter` is true and a newline or end-of-file (`EOF`) is encountered, the lexer inserts an artificial semicolon token (`AutoSemi`) if and only if the immediately preceding token belongs to the set of **value-terminating tokens**:
-- Identifiers and Optional Identifiers (`Ident`, `OptIdent`)
-- Numeric, Boolean, None, Character, and String literals (`IntLit`, `FloatLit`, `CharLit`, `StringLit`, `InterpEnd`, `true`, `false`, `none`)
-- Closing delimiters: `)`, `]`, `}`
-- Special keywords: `self`, `Self`
-- The unwind operator: `<-`
+So a method chain can continue on the next line by starting it with `.`, and `else:` and `when` arms can begin new lines.
 
-#### 2.3.3 Lookahead Exceptions
-An `AutoSemi` is **not** inserted if the next non-whitespace token is one of the following continuation tokens:
-- `else`
-- `when`
-- `.` (member access)
-- `?.` (optional member access)
+**Block values.** An expression at the end of a block, followed only by an inserted semicolon or by `}`, is the block's value. An explicitly written `;` after it discards it, and the block then has type `void`.
 
-#### 2.3.4 Block Tail Value Preservation
-The parser distinguishes an explicit semicolon (`;`) from an `AutoSemi`:
-- An explicit `;` after the final expression of a block discards its result, yielding `void`.
-- An `AutoSemi` (or an unpunctuated expression immediately followed by `}`) preserves the expression as the block's tail return value.
+```lowlight
+bind main = (): {
+	let total = [1, 2, 3]
+		.len()                // continues the previous line
+	let doubled = {
+		let t = total * 2
+		t                     // the block's value
+	}
+	println(doubled)
+}
+```
 
-### 2.4 Multiline Trailing Commas
+### 2.4 Trailing commas
 
-Lowlight enforces clean diffs in multiline collection literals, argument lists, and parameter definitions via a trailing comma rule:
+In any comma-separated list of **two or more** items enclosed in `( )`, `[ ]`, `#[ ]`, or `+[ ]`, if the closing delimiter is on a later line than both the opening delimiter and the last item, the last item **must** be followed by a comma. Otherwise a trailing comma is optional.
 
-For any comma-delimited sequence of 2 or more items enclosed by delimiters `( ... )`, `[ ... ]`, or `#[ ... ]`:
-- If the closing delimiter is placed on a line strictly greater than the opening delimiter's line, AND strictly greater than the last element's line, a trailing comma **must** follow the final element.
-- Omitting the trailing comma in such a multi-item multiline declaration is a static syntax error.
-- Trailing commas are optional for single-item lists/calls or if the closing delimiter shares the line of the last item or opening delimiter.
+The rule applies to every comma-separated list: struct fields, enum variants, interface methods, parameters, arguments, struct literal fields, list, array, set, map, and tuple literals, type parameters and arguments, and pattern lists.
 
-This rule applies uniformly across all 13 comma-separated lists in Lowlight:
-1. Struct field declarations
-2. Enum variant declarations
-3. Interface method declarations
-4. Function parameter declarations
-5. Function call argument lists
-6. Struct literal field initializations
-7. List literals (`[ ... ]`)
-8. Stack array literals (`[ ... ]`)
-9. Set literals (`#[ ... ]`)
-10. Map literals (`#[ ... ]`)
-11. Generic type parameter declarations (`[T, U]`)
-12. Generic type argument lists (`[int, string]`)
-13. `match` pattern lists (`when A, B, C:`)
+```lowlight
+define Point struct [
+	x: float,
+	y: float,     // required: two items, `]` on its own line
+]
+```
 
-### 2.5 Identifiers, Optional Identifiers & Result Identifiers
-
-Lowlight distinguishes between standard identifiers, optional identifiers, and result identifiers:
+### 2.5 Identifiers
 
 ```ebnf
-Ident    = [a-zA-Z_] [a-zA-Z0-9_]* ;
-OptIdent = Ident "?" ;
-ResIdent = Ident "!" ;
+Ident     = ( Letter | "_" ) { Letter | Digit | "_" } ;
+OptIdent  = Ident "?" ;
+ResIdent  = Ident "!" ;
 ```
 
-- **Standard Identifiers (`Ident`):** Name types, functions, constants, non-optional variables, enum variants, and struct fields.
-- **Optional Identifiers (`OptIdent`):** Identifiers ending with a literal question mark `?` (e.g., `user?`, `count?`, `next?`). 
-- **Optional Invariant:** Any local variable, function parameter, struct field, or enum variant carrying an optional type `?T` **must** be named using an `OptIdent`. Conversely, a variable holding a non-optional type must never end with `?`. Violating this invariant produces a static compile error.
-- **Result Identifiers (`ResIdent`):** Identifiers ending with a literal exclamation mark `!` (e.g., `cfg!`, `conn!`).
-- **Result Invariant:** Any local variable, function parameter, struct field, loop variable, or pattern binding holding a result type (a type declared with `define Name result [...]`, §3.8.3, including `Result[T]`) **must** be named using a `ResIdent`, and an identifier holding any other type must never end with `!`. As with `?`, the suffix makes every place a failure can flow visible where it is used. The rule applies to an optional result as `name?` (the outer `?` wins).
+Identifiers are case-sensitive and ASCII. The suffix of an `OptIdent` or `ResIdent` is part of the name: `user` and `user?` are different names.
 
-#### Lexical Disambiguation of `!`
-Lowlight has no prefix `!` operator (negation is `not`), so a `!` immediately following an identifier is part of a `ResIdent` unless it begins `!=`: `cfg!.is_ok()` is `ResIdent("cfg!")` followed by `.`, while `a!=b` is `a != b`. The formatter always surrounds `!=` with spaces. In simple string interpolation (`"Hello $name!"`), a trailing `!` (like a trailing `?`) is literal text; reference a result identifier inside a string with braces: `"${conn!.is_ok()}"`.
+**The optional naming rule.** A variable, parameter, struct field, loop variable, or pattern binding whose type is an optional `?T` **must** have a name ending in `?`. A name ending in `?` **must not** hold a non-optional type.
 
-#### Lexical Disambiguation of `?`
-The lexer scans a trailing `?` into an `OptIdent` only if the character following the identifier is `?` and that `?` is not part of a double question mark operator (`??`), unless a third `?` follows (e.g., in `x???` parsed as `x? ??`). If `?` is immediately followed by a dot `.`, it is scanned as part of the `OptIdent` (e.g., `user?.name` produces `OptIdent("user?")` followed by `.` followed by `Ident("name")`).
+**The result naming rule.** A variable, parameter, struct field, loop variable, or pattern binding whose type is a result type ([§3.9](#39-results)) **must** have a name ending in `!`. A name ending in `!` **must not** hold a non-result type. An optional result is named with `?` (the outer optional wins).
 
-### 2.6 Keywords & Contextual Keywords
-
-The following 26 tokens are permanently reserved keywords and cannot be used as standard identifiers:
-
-```
-as          bind        define      else        enum        extern      
-false       for         func        if          import      in          
-interface   let         match       none        not         or          
-own         self        Self        struct      true        unsafe      
-when        and         
+```lowlight
+let count? = parse_int("42")     // ?int
+let cfg! = load_config(path)     // a result
+let total = 3                    // neither
 ```
 
-#### Contextual Keywords
-The tokens `next`, `packed`, `default`, and `result` are contextual keywords. They retain identifier status in general expression and declaration contexts, but trigger special parsing under specific grammatical rules:
-- `next`: Treated as a loop continue keyword strictly when followed by `<-` (i.e., `next <-` or `next <label> <-`). In all other positions (e.g., `let next = 10`, `item.next()`, `let next? = find()`), `next` is a regular identifier.
-- `packed`: Treated as a struct layout modifier strictly when appearing between `define` and the struct name (e.g., `define packed Header struct [ ... ]`).
-- `default`: Treated as the terminal closing arm of a `match` expression or result chain when followed by `:` or `<MatchClauses>:` (`default:` or `default Status.Closed:`), or, in a result chain only, by `panic` (`default panic`, §7.6.5). Outside these terminal arms (e.g., `let default = 0` or struct field `default: int`), `default` is a regular identifier.
-- `result`: Treated as a declaration kind strictly in `define Name[T] result [ ... ]` (§3.8.3). Elsewhere (e.g., `let result = compute()`), `result` is a regular identifier.
+The wildcard `_` is not a name: it discards a value in unpacking and patterns, and is exempt from both rules.
 
-The type name `never` is an internal semantic type and is not a surface keyword. While `void` is not a reserved keyword either, it is accepted specifically in function, method, interface, `extern`, and closure return-type positions to denote an empty return; using `void` as a value, variable, parameter, field, container element, or control-flow evaluation type is a compile-time error.
+**How the suffixes are lexed.**
+- `?` directly after an identifier joins it, unless it begins `??`. (`x???` lexes as `x?` followed by `??`.) `user?.name` is `user?` `.` `name`.
+- `!` directly after an identifier joins it, unless it begins `!=`. Lowlight has no prefix `!` operator (negation is `not`), so this is unambiguous: `a!=b` is `a != b`, and `cfg!.is_ok()` is `cfg!` `.` `is_ok` `(` `)`.
+- In simple string interpolation, `$name` ends before a trailing `?` or `!`, so `"Hello $name!"` prints the exclamation mark. To interpolate a suffixed name, use braces: `"${user?.name}"`, `"${cfg!.is_ok()}"`.
+
+**Conventions** (not enforced by the compiler): types and interfaces use `PascalCase`, with acronyms written as words (`Url`, `HttpClient`); enum variants, result members, functions, variables, fields, and packages use `snake_case`; top-level constants use `SCREAMING_SNAKE_CASE`. [CONVENTIONS.md](CONVENTIONS.md) is the full style guide. A leading `_` is not a convention but a rule: it makes a declaration package-private ([§4.7](#47-visibility)).
+
+### 2.6 Keywords
+
+These 28 words are reserved and cannot be used as identifiers:
+
+```
+and      as       bind     define   else     enum     extern   false
+for      func     if       import   in       interface         let
+match    none     not      or       own      self     Self     struct
+true     unpack   unsafe   when     while
+```
+
+These words are **contextual**: they have special meaning only in the positions listed, and are ordinary identifiers everywhere else.
+
+| Word | Special when | Example |
+|---|---|---|
+| `next` | followed by `<-`, or by a label and `<-` | `next <-`, `next outer <-` |
+| `default` | starting the last arm of a `match` or result chain | `default:`, `default red:`, `default panic` |
+| `panic` | directly after `default` in a result chain, not followed by `(` | `default panic` |
+| `result` | after `define Name[...]` | `define Lookup result [...]` |
+| `packed` | between `define` and a struct name | `define packed Header struct [...]` |
+
+`void` and `never` are type names, not keywords. `void` is accepted only as a return type ([§3.15](#315-void-and-never)).
 
 ### 2.7 Literals
 
-#### 2.7.1 Integer Literals
-Integer literals represent exact whole numbers. Underscores (`_`) may be placed between digits for readability.
-- **Decimal:** Digits `0` through `9` (e.g., `42`, `1_000_000`).
-- **Hexadecimal:** Prefixed with `0x` or `0X`, followed by hexadecimal digits `0`–`9`, `a`–`f`, `A`–`F` (e.g., `0xFF`, `0x1A_3F`).
-- **Binary:** Prefixed with `0b` or `0B`, followed by binary digits `0` and `1` (e.g., `0b1010`, `0b1111_0000`).
+**Integers.** Decimal (`42`), hexadecimal (`0xFF`, `0X1f`), and binary (`0b1010`), with optional `_` between digits (`1_000_000`). An integer literal takes the integer type expected by its context; with no expectation it is `int`. A literal that does not fit the expected type is an error.
 
-Integer literals adapt to expected integer types (`i8`–`i64`, `u8`–`u64`). If unconstrained, an integer literal defaults to `int` (`i64`).
+**Floats.** Digits, a `.`, at least one digit, and an optional exponent: `3.14`, `0.5`, `1.0e-4`, `2.5E+3`. `1.` and `.5` are not float literals (this keeps `1..10` and member access unambiguous). A float literal takes `f32` or `f64` from context and defaults to `float`.
 
-#### 2.7.2 Floating-Point Literals
-Floating-point literals represent IEEE-754 numbers.
-- Must contain an integer part, a decimal point `.`, and at least one fractional digit, optionally followed by an exponent `e` or `E` with an optional sign (e.g., `3.14`, `0.5`, `1.0e-4`, `2.5E+3`).
-- A digit must immediately follow the decimal point: `1.` is illegal to avoid lexical ambiguity with range syntax (`1..10`) and member access.
-- Floating-point literals adapt to `f32` or `f64`. If unconstrained, a float literal defaults to `float` (`f64`).
+**Booleans.** `true` and `false`.
 
-#### 2.7.3 Boolean Literals
-The literals `true` and `false` represent the truth values of type `bool`.
+**None.** `none` is the absent value of every optional type. It needs an optional type from context: `let x? = none` without an annotation is an error, while `let x?: ?int = none` is valid.
 
-#### 2.7.4 The `none` Literal
-The literal `none` denotes the absence of a value in an optional type `?T`. It represents the unit state of optionality and is assignable to any `?T`.
+**Characters.** A single Unicode scalar value in single quotes: `'a'`, `'🦀'`, `'\n'`. Escapes: `\n` `\r` `\t` `\\` `\'` `\"` `\0`, `\xHH` (a byte value), and `\u{H...}` (one to six hex digits, a valid scalar value).
 
-#### 2.7.5 Character Literals
-A character literal is enclosed in single quotes `'` and represents a single 32-bit Unicode scalar value (`char`):
-- Examples: `'a'`, `'Z'`, `'9'`, `'\n'`, `'\''`, `'🦀'`.
-- Valid escape sequences: `\n`, `\r`, `\t`, `\\`, `\'`, `\"`, `\0`, `\xHH` (8-bit hex), `\u{HEX}` (up to 6-digit hex Unicode scalar).
+### 2.8 Strings
 
-### 2.8 String Literals & String Interpolation
+**Double-quoted strings** `"..."` may not contain a raw newline. Escapes are those of character literals plus `\$` (a literal dollar sign).
 
-Lowlight supports two forms of string literals: double-quoted strings (`"..."`) and multiline backtick strings (``` `...` ```). Both produce immutable sequences of UTF-8 encoded bytes (`string`).
+**Backtick strings** `` `...` `` may span lines; newlines are kept as `\n`. Quotes need no escaping. `` \` `` is a backtick and `\$` a dollar sign. The usual escapes (`\n`, `\t`, `\\`, `\xHH`, `\u{...}`, ...) are decoded; any other backslash sequence, such as `\d` or `C:\path`, is kept verbatim.
 
-#### 2.8.1 Double-Quoted Strings
-Double-quoted strings are enclosed in double quotes `"..."`. Literal newlines cannot appear unescaped within double-quoted strings.
+**Interpolation** works in both forms:
 
-Within a double-quoted string literal, the following escape sequences are recognized:
-- `\n` (newline, `0x0A`)
-- `\r` (carriage return, `0x0D`)
-- `\t` (tab, `0x09`)
-- `\\` (literal backslash)
-- `\'` (literal single quote)
-- `\"` (literal double quote)
-- `\0` (null byte, `0x00`)
-- `\$` (literal dollar sign, suppresses interpolation)
-- `\xHH` (hexadecimal byte value)
-- `\u{HEX}` (Unicode scalar value in UTF-8)
+- `$name` inserts a variable (or `$self` the receiver). The name ends at the first character that cannot continue an identifier, so a trailing `?` or `!` is literal text.
+- `${expr}` inserts any expression. Inside the braces, the full expression grammar applies, including nested strings.
 
-#### 2.8.2 Multiline Backtick Strings
-Multiline backtick strings are enclosed in backticks (``` `...` ```). They have the following properties:
-- **Preserved Literal Newlines:** Newlines in source code are preserved verbatim without requiring `\n` escape sequences. Line endings are normalized to LF (`\n`).
-- **Unescaped Quotes:** Both double quotes (`"`) and single quotes (`'`) may appear unescaped anywhere within backticks, making backtick strings ideal for JSON, HTML, SQL, and code generation templates.
-- **Backtick Escapes:** A literal backtick inside a backtick string is written as `\` followed by a backtick (``` \` ```).
-- **Verbatim Backslashes:** Standard escape sequences (`\n`, `\r`, `\t`, `\0`, `\\`, `\'`, `\"`, `\xHH`, and `\u{HEX}`) are decoded. Any other backslash sequence (such as `\d`, `\s`, or file paths like `C:\path`) is preserved verbatim without triggering an unknown-escape error.
-- **Interpolation:** Backtick strings natively support identical interpolation semantics as double-quoted strings (`$ident` and `${expr}`). Literal dollar signs must be escaped as `\$`.
+Each interpolated value must implement `Printable` ([§12.1](#121-core-interfaces)); interpolation calls its `to_string()` and concatenates the pieces. Interpolation is resolved at compile time; there is no runtime formatting language.
 
-#### 2.8.3 String Interpolation
-Lowlight strings natively support embedded expression interpolation:
-- **Identifier Interpolation:** `$ident` interpolates the string representation of an in-scope variable. If the variable is an optional, `$ident` stops before a trailing `?` unless wrapped in braces.
-- **Self Interpolation:** `$self` interpolates the receiver within instance methods.
-- **Arbitrary Expression Interpolation:** `${expr}` evaluates any valid Lowlight expression and embeds its string representation.
-
-Any type interpolated into a string must implement the standard `Printable` interface (defining `.to_string() string`). Interpolation is expanded at compile time into formatted string concatenation without runtime reflection.
-
-### 2.9 Operators & Delimiters
-
-Lowlight reserves the following punctuation symbols:
-
-```
-+       -       *       /       %       
-&       |       ^       ~       <<      >>      
-==      !=      <       <=      >       >=      
-=       +=      -=      *=      /=      %=      
-&=      |=      ^=      <<=     >>=     
-.       ?.      ..      ..=     ::      
-?       ??      <-
-(       )       [       ]       {       }       #[
-:       ,       ;       @       $
+```lowlight
+bind main = (): {
+	let name = "Ada"
+	let n = 3
+	println("Hello $name! You have ${n * 2} messages.")
+	let json = `{"name": "$name"}`
+	println(json)
+}
 ```
 
-#### The Whitespace-Delimited Unwind Operator (`<-`)
-The unwind operator `<-` indicates an explicit non-local exit, return, break, or continue. To eliminate ambiguity with relational comparisons such as `a < -b`, the operator `<-` is lexed as an unwind token if and only if:
-1. It is preceded by the start of a file, whitespace, a comment, or an interpolation open delimiter `${`; AND
-2. It is followed by end-of-file, whitespace, a semicolon, a closing delimiter (`)`, `]`, `}`), a comma, or a comment.
+### 2.9 Operators and punctuation
+
+```
++   -   *   /   %   &   |   ^   ~   <<  >>
+==  !=  <   <=  >   >=
+=   +=  -=  *=  /=  %=  &=  |=  ^=  <<= >>=
+.   ?.  ..  ..= ?   ??  <-
+(   )   [   ]   {   }   #[  +[
+:   ,   ;   @   $
+```
+
+**The unwind operator `<-`** is recognized only when it is preceded by whitespace (or the start of the file, a comment, or `${`) and followed by whitespace, end of file, `;`, a closing delimiter, `,`, or a comment. Everywhere else, `<` and `-` are separate tokens, so `a<-b` means `a < -b`.
 
 ---
 
-## 3. Type System & Value Categories
+## 3. Types
 
-Lowlight is a strictly typed, statically verified language. Types are fully resolved at compile time.
+> **At a glance**
+> - Every type is either **plain** (copied freely, nothing to release) or a **resource** (one owner, moves, released automatically). See [§3.1](#31-plain-values-and-resources).
+> - No implicit conversions between numeric types: write `float(n)`, `u8(x)`, `int(c)`.
+> - `?T` is "maybe a `T`". There is no null, and `??T` does not exist.
+> - Build values with brackets: `Point[x: 1.0, y: 2.0]`, `[1, 2]`, `#["k": v]`, `+[a, b]`.
+> - `define X result [value: T, Failure: P]` declares a result type; `Result[T]` is the standard one.
 
-```
-Type = Primitive
-     | string
-     | "?" Type
-     | "[" Type "]"
-     | "[" IntLit ":" Type "]"
-     | "#[" Type "]"
-     | "#[" Type ":" Type "]"
-     | TypeIdent [ "[" TypeArgs "]" ]
-     | "(" [ ParamTypes ] ")" [ ":" Type ]
-     | "ref" "[" Type "]"
-     | "ptr" "[" Type "]"
-     ;
-```
+### 3.1 Plain values and resources
 
-### 3.1 Value Categories: Plain vs. Resource
+Every type belongs to exactly one of two categories.
 
-Every type $T$ in Lowlight belongs to one of two mutually exclusive value categories:
+**Plain types** have a fixed size, own no heap memory or system resource, and have no destructor. Copying one copies its bits; both copies are independent. Plain types are: the numeric types, `bool`, `char`, pure tag enums, `ptr[T]`, `ref[T]`, `Range[T]`, and structs, fixed arrays, tuples, tagged enums, and distinct types all of whose parts are plain. Every plain type satisfies `Copyable`.
 
-```
-                      +-------------------+
-                      |   Lowlight Types  |
-                      +-------------------+
-                                |
-             +------------------+------------------+
-             |                                     |
-    +-----------------+                   +-----------------+
-    |   Plain Types   |                   |  Resource Types |
-    +-----------------+                   +-----------------+
-    | Trivially       |                   | Unique owner,   |
-    | copyable,       |                   | affine moves,   |
-    | no destructor   |                   | deterministic   |
-    |                 |                   | drop on exit    |
-    +-----------------+                   +-----------------+
-    | Primitives,     |                   | string, [T],    |
-    | pure enums,     |                   | #[T], #[K: V],  |
-    | ptr[T],         |                   | Arena, closures,|
-    | Plain structs   |                   | Resource structs|
-    +-----------------+                   +-----------------+
-```
+**Resource types** own something that must be released: heap memory (`string`, `[T]`, `#[T]`, `#[K: V]`), an arena, a closure environment, an interface box, or an operating-system resource. A struct, array, tuple, enum, or distinct type that contains a resource is a resource, and so is any type with a `Drop` implementation. A resource has exactly one owner. Assigning or passing it **moves** it, and when its owner's scope ends without moving it, it is destroyed ([§7.5](#75-destruction)).
 
-#### Plain Types
-- A type is Plain if it occupies a fixed-size memory footprint, contains no heap allocations, holds no active OS resources, and requires no custom destructor.
-- Plain values are **trivially copyable**. Assigning, passing, or returning a Plain value duplicates its bits.
-- Plain types automatically satisfy the standard `Copyable` interface.
-- Primitives (`int`, `float`, `bool`, `char`), pure tag enums, distinct types wrapping Plain bases, raw pointers `ptr[T]`, and fixed arrays/structs whose elements are all Plain are Plain types.
+The category is computed from the type's structure; it is never declared.
 
-#### Resource Types
-- A type is a Resource if it owns dynamically allocated heap memory, manages an OS resource, contains a custom `Drop` implementation, or wraps another Resource type.
-- Resource values obey **affine ownership**. They cannot be implicitly copied. Assigning or passing an owned Resource moves the value, invalidating the source variable.
-- When a Resource variable reaches the end of its enclosing lexical scope without being moved, its destructor is executed automatically and deterministically.
-- `string`, vectors `[T]`, sets `#[T]`, maps `#[K: V]`, `Arena`, first-class closures, interfaces, and any struct or tagged union carrying a Resource field are Resource types.
+### 3.2 Numbers
 
-### 3.2 Primitive Numerical Types
+| Type | Size | Range |
+|---|---|---|
+| `i8` `i16` `i32` `i64` | 8–64 bits | two's complement |
+| `int` | 64 bits | same type as `i64` |
+| `u8` `u16` `u32` `u64` | 8–64 bits | unsigned |
+| `f32` · `f64` | 32 · 64 bits | IEEE-754 |
+| `float` | 64 bits | same type as `f64` |
 
-Lowlight provides exact-width signed and unsigned integers, as well as IEEE-754 floating-point numbers:
+Numeric types never convert implicitly, in either direction. Convert with a conversion call named after the target type: `int(x)`, `i32(x)`, `u8(x)`, `float(x)`, `f32(x)`. Integer-to-integer conversion truncates or sign-extends; float-to-integer truncates toward zero; integer-to-float rounds to nearest.
 
-| Type | Bit Width | Category | Description |
-| :--- | :--- | :--- | :--- |
-| `i8` | 8 | Plain | Signed 8-bit two's complement integer |
-| `i16` | 16 | Plain | Signed 16-bit two's complement integer |
-| `i32` | 32 | Plain | Signed 32-bit two's complement integer |
-| `i64` | 64 | Plain | Signed 64-bit two's complement integer |
-| `int` | 64 | Plain | Canonical signed integer (alias for `i64`) |
-| `u8` | 8 | Plain | Unsigned 8-bit integer (byte) |
-| `u16` | 16 | Plain | Unsigned 16-bit integer |
-| `u32` | 32 | Plain | Unsigned 32-bit integer |
-| `u64` | 64 | Plain | Unsigned 64-bit integer |
-| `f32` | 32 | Plain | Single-precision IEEE-754 floating point |
-| `f64` | 64 | Plain | Double-precision IEEE-754 floating point |
-| `float` | 64 | Plain | Canonical float (alias for `f64`) |
+Arithmetic semantics, including wrapping and traps, are in [§5.3](#53-arithmetic).
 
-Lowlight strictly prohibits implicit widening or narrowing between numerical types. All cross-type numerical conversions must be stated explicitly using constructor syntax (e.g., `i32(my_int)`, `int(my_u8)`, `float(my_i32)`).
+### 3.3 Bool and char
 
-### 3.3 Boolean & Character Types
+- `bool` holds `true` or `false`. Conditions (`if`, `while`, `for`, `match` guards, `and`, `or`, `not`) must be exactly `bool`; there is no implicit truthiness.
+- `char` holds one Unicode scalar value (U+0000–U+D7FF or U+E000–U+10FFFF) in 32 bits. `int(c)` gives its code point and `char(n)` converts an integer back.
 
-- **`bool`:** A 1-byte logical type representing either `true` or `false`. Condition expressions in `if` and `for` must evaluate strictly to `bool`.
-- **`char`:** A 32-bit unsigned type representing a Unicode scalar value (`0x0000` to `0xD7FF` or `0xE000` to `0x10FFFF`). Surrogates are invalid characters.
+### 3.4 Strings
 
-### 3.4 The String Type
+`string` is UTF-8 text. It is a resource: a string built at run time owns its buffer and frees it at the end of its owner's scope. A string literal refers to static memory and allocates nothing until it is modified or copied.
 
-The `string` type represents an immutable, UTF-8 encoded text sequence. A `string` value carries:
-1. A pointer to contiguous UTF-8 byte data;
-2. A 64-bit length (count of valid UTF-8 bytes);
-3. A 64-bit capacity.
+| Operation | Meaning |
+|---|---|
+| `s.len()` | length in **bytes** |
+| `s[i]` | the byte at offset `i`, a `u8`; traps if out of bounds |
+| `s[lo..hi]` | the substring of bytes `lo` to `hi`, a `string`; traps if out of bounds |
+| `a + b` | concatenation (a new string) |
+| `a == b`, `a < b` | byte-wise equality and ordering |
+| `for(ch in s)` | each `char`, decoded from UTF-8 |
+| `for(i, ch in s)` | each `char` with the byte offset where it starts |
+| `s.push(t)`, `s.push_char(c)` | append in place (needs a mutable `s`) |
 
-`string` is a Resource type. When created via concatenation, formatting, or slicing promotion, the string owns its heap buffer and frees it upon scope exit. Static string literals borrow read-only static memory (`capacity == 0`) and perform zero heap allocations.
+The full method set is in [§12.4](#124-strings-and-characters).
 
-- `s.len()` returns the count of UTF-8 characters (Unicode scalar values).
-- `s.byte_len()` returns the exact byte count.
-- `s[i]` and `s.byte_at(i)` yield the raw `u8` byte at index `i` (with bounds checking).
-- Iterating a string via `for (ch in s)` yields `char` scalars; iterating via `for (i, ch in s)` yields `(byte_offset: int, ch: char)`.
+### 3.5 Optionals
 
-### 3.5 Optional Types (`?T`) & Flattening Invariant
-
-Any type $T$ may be modified with a leading question mark to form an optional type `?T`. An optional represents a value that is either present (containing a value of type $T$) or absent (`none`).
+`?T` is a value that is either a `T` or absent. `none` is the absent value.
 
 ```lowlight
-let name?: ?string = "Alice"
-let empty?: ?string = none
+bind main = (): {
+	let name?: ?string = "Ada"
+	let empty?: ?string = none
+	println(name? ?? "nobody")
+	println(empty? ?? "nobody")
+}
 ```
 
-#### 3.5.1 The Non-Nesting Invariant
-Optional types in Lowlight **do not nest**. Syntactically writing `??T` is a compile error, and generic substitution of `?T` into a type parameter yielding an optional automatically flattens to `?T`. There is no distinction between "an absent optional" and "a present optional containing absence."
+**Rules.**
 
-#### 3.5.2 The Optional Naming Rule
-Every variable, parameter, or field holding an optional type must end with `?`. Conversely, non-optional bindings must not end with `?`:
+1. **No nesting.** `??T` is not a type. Optionals inside optionals cannot arise: a generic parameter can never be instantiated with an optional ([§8.3](#83-type-parameters-are-never-optional)).
+2. **Naming.** A name holding `?T` ends in `?` ([§2.5](#25-identifiers)).
+3. **Implicit wrapping.** A `T` is accepted wherever a `?T` is expected and is wrapped automatically. This is the only implicit conversion in the language besides interface boxing ([§3.11](#311-interfaces)).
+4. **Using the value.** You cannot use a `?T` as a `T`. Unwrap it with `if(x?)`, `if(e as v)`, `??`, optional chaining `?.`, or a `match` on `none`. See [§5.8](#58-optional-chaining-and-fallback) and [§6.2](#62-if).
+5. **Recursive types.** A struct may contain an optional field of its own type, `next?: ?Node`; such a field is stored behind a pointer. A struct may not contain itself directly.
 
-```lowlight
-let count?: ?int = 42       // Valid
-let total: int = 100        // Valid
-let bad: ?int = 10          // Compile Error: must be named `bad?`
-let invalid?: int = 20      // Compile Error: non-optional cannot end with `?`
-```
+### 3.6 Collections
 
-#### 3.5.3 Implicit Wrapping
-A non-optional value of type $T$ implicitly coerces to `?T` when assigned or passed to a function parameter:
+**Lists** `[T]` (the prelude type `List[T]`): growable, heap-allocated, contiguous. A resource; dropping a list drops every element. Literals: `[]`, `[1, 2, 3]`. `xs[i]` is bounds-checked and traps when out of range; `xs.get(i)` returns `?T` instead.
 
-```lowlight
-bind find_id = () ?int: 100   // 100 implicitly wraps into ?int
-```
+**Arrays** `[N: T]` (the prelude type `Array`): exactly `N` elements stored inline, no heap allocation. `N` is a positive compile-time constant. Plain if `T` is plain. Literals:
+- `[N: v]` repeats `v` `N` times (`T` must be `Copyable` when `N > 1`);
+- `[N: a, b, c, ...]` lists exactly `N` elements (any other count greater than one is an error);
+- `[a, b, c]` where a `[N: T]` is expected.
 
-#### 3.5.4 Recursive Struct Boxing
-A struct cannot directly embed an unboxed instance of itself. However, a struct field may reference its own type if wrapped in an optional (`?Node`). In this case, the compiler automatically represents the optional field as a heap-allocated pointer (box), allowing recursive data structures without explicit manual pointer management:
+An array can be passed where a read-only `[T]` is expected.
 
-```lowlight
-define Node struct [
-    value: int,
-    next?: ?Node,           // Automatically boxed nullable pointer
-]
-```
+**Sets** `#[T]` (`Set[T]`): unordered unique elements; `T` must be `Hashable`. Literal `#[1, 2, 3]`; `#[]` needs a type from context.
 
-### 3.6 Collection Types (`[T]`, `[N: T]`, `#[T]`, `#[K: V]`)
+**Maps** `#[K: V]` (`Map[K, V]`): hash maps that iterate in insertion order; `K` must be `Hashable`. Literal `#["a": 1, "b": 2]`; `#[]` needs a type from context. `m[k]` means `m.get(k)` and yields `?V`. `m[k] = v` means `m.insert(k, v)`. Iterating a map yields `MapEntry[K, V]` values (fields `key` and `value`), or two variables with `for(k, v in m)`.
 
-Lowlight collection nomenclature distinguishes between:
-1. **Array**: The fixed-size array type (`[N: T]`), stack-allocated with zero heap overhead.
-2. **List**: The dynamically resizable list type (`[T]` / `List[T]`), heap-allocated.
-*(Note: `Vector` is not an alias to either and is not part of Lowlight.)*
+**Tuples** `+[A, B, ...]`: fixed groups of two or more values of any types, stored inline. Literal `+[1, "a"]`. Elements are accessed by position, `t.0` and `t.1`; `t[0]` is not allowed. Unpack with `let a, b = unpack t` ([§4.2](#42-bind-and-let)). A tuple is plain if all its elements are, and is `Printable` (as `+[1, a]`), equatable, and `Hashable` when all its elements are.
 
-#### 3.6.1 Dynamic Lists (`[T]` / `List[T]`)
-A list `[T]` (defined in `std/core/list.ll` as `@lang("list") List[T]`) is a dynamically resizable, heap-allocated contiguous sequence of elements of type $T$.
-- Lists are Resource types. Dropping a list drops every element in the list and frees its backing buffer.
-- Empty list literal: `[]`.
-- Populated list literal: `[1, 2, 3]`.
-- Indexing `lst[i]` is bounds-checked at runtime and panics on out-of-bounds access.
+**Ranges** `Range[T]`: `lo..hi` (excludes `hi`) and `lo..=hi` (includes `hi`) over integer types, integer-based distinct types, and `char`. Float ranges are rejected. A range is a plain value: it can be stored, passed, iterated, and used in `when in` patterns. Methods: `contains`, `is_empty`, `len`, `iter`, `to_string`.
 
-#### 3.6.2 Fixed Arrays (`[N: T]` / `Array`)
-A fixed array `[N: T]` represents an inline, fixed-size contiguous sequence of exactly $N$ elements of type $T$, where $N$ is a compile-time constant integer $> 0$.
-- An array carries **zero heap allocation overhead**.
-- Category: An array is Plain if $T$ is Plain; it is a Resource if $T$ is a Resource.
-- **Repeat constructor:** `[N: value]` initializes $N$ elements with `value` (e.g., `[4: 0]` creates `[0, 0, 0, 0]`). If $N > 1$, $T$ must implement `Copyable`.
-- **Explicit element constructor:** `[N: e0, e1, ..., eN-1]` creates an array of size $N$ with explicit comma-separated elements (e.g., `[4: 1, 2, 3, 4]`). A single element `[1: 0]` is valid as either a 1-element array or repeat. Any element count mismatch where $M > 1$ and $M \ne N$ (e.g., `[4: 1, 2]`) is a compile-time error.
-- **List constructor:** `[1, 2, 3, 4]` when typed against an expected `[4: int]`.
-- **Automatic Sequence View Coercion:** An array `[N: T]` or `&[N: T]` can be passed directly to any function expecting a read-only sequence view `[T]`, enabling zero-cost generic algorithms across fixed and dynamic sequences.
-
-#### 3.6.3 Sets (`#[T]` / `Set[T: Hashable]`)
-A set `#[T]` (defined in `std/core/set.ll` as `@lang("set") Set[T: Hashable]`) is an unordered collection of unique elements of type $T$.
-- **Constraint:** Requires $T$ to satisfy the built-in `Hashable` interface (`T: Hashable`, providing `hash() u64` and equality `==`).
-- Sets are Resource types.
-- Literal syntax: `#[1, 2, 3]`. Empty set: `#[]` (resolved from expected type context).
-
-#### 3.6.4 Maps (`#[K: V]` / `Map[K: Hashable, V]`)
-A map `#[K: V]` (defined in `std/core/map.ll` as `@lang("map") Map[K: Hashable, V]`) is a hash table associating unique keys of type $K$ with values of type $V$.
-- **Constraint:** Requires key type $K$ to satisfy `Hashable` (`K: Hashable`).
-- Maps preserve insertion order during iteration.
-- Maps are Resource types.
-- Literal syntax: `#["a": 1, "b": 2]`. Empty map: `#[]` (resolved from expected type context).
-- **Access & Lookup:** Calling `m.get(key)` returns an optional `?V`. Alternatively, map index lookup syntax `m[key]` is syntactic sugar for `m.get(key)` (yielding `?V`, containing the value if present, or `none` if absent).
-- **Mutation & Insertion:** Calling `m.insert(key, val)` updates or inserts an entry. Alternatively, assignment syntax `m[key] = val` is syntactic sugar for `m.insert(key, val)`.
-
-#### 3.6.5 Tuples (`+[T0, T1, ...]`)
-A tuple `+[T0, T1, ...]` is an ordered, fixed-size heterogeneous product type with at least 2 elements and zero heap allocation overhead.
-- **Value Literal:** `+[e0, e1, ...]`, e.g., `+[5, "abc"]`.
-- **Type Syntax:** `+[T0, T1, ...]`, e.g., `let t: +[int, string] = +[5, "abc"]`.
-- **Field Access:** Tuple elements are 0-indexed and accessed via canonical non-negative integer dot syntax (`t.0`, `t.1`). Bracket indexing (`t[0]`) is not permitted on tuples.
-- **Unpacking:** Tuple and distinct-tuple values can be unpacked into comma-separated bindings or assignment targets using the `unpack` keyword (`let x, y = unpack +[5, 7]`, `bind a, _ = unpack pair`, `x, y = unpack +[y, x]`).
-- **Category:** A tuple is Plain if every element type is Plain; it is a Resource type if any element is a Resource type. When a resource tuple is dropped, non-plain elements are dropped in reverse order.
-- **Traits & Equality:**
-  - A tuple automatically implements `Printable` (`.to_string()`), formatting as `+[<e0>, <e1>, ...]`, if all element types implement `Printable`.
-  - A tuple automatically supports equality (`==`, `!=`) if all element types support equality.
-  - A tuple is `Hashable` if all element types are `Hashable`, allowing tuples to be used as `Map` keys (e.g., `#[+[int, int]: string]`) or `Set` elements (e.g., `#[+[int, string]]`).
-
-#### 3.6.6 Ranges (`Range[T]`)
-A `Range[T]` value (`defined` in `std/core/range.ll` as `@lang("range") Range[T]`) is a compact Plain struct (`[start: T, end: T, inclusive: bool]`) representing a half-open (`start..end`) or closed (`start..=end`) interval over discrete ordered types:
-- **Syntax:** `lo..hi` (half-open $[lo, hi)$) or `lo..=hi` (closed $[lo, hi]$). Both expressions yield first-class `Range[T]` values that can be bound to variables, passed to functions, iterated in loops, or matched with `when in`.
-- **Element Constraint (`T`):** `T` must be a primitive integer type (`int`, `i8`–`i64`, `u8`–`u64`), a distinct type with an integer underlying type, or `char`. Floating-point ranges (`f32`, `f64`/`float`) are rejected at compile time.
-- **Category & Traits:** `Range[T]` is Plain (zero heap allocation), satisfies structural equality (`==`, `!=`), implements `Printable` (`.to_string()` formats as `"start..end"` or `"start..=end"`), `Iterable[T]` (`for`/`while`), and `Containable[T]` (`r.contains(val)` and `when in r:`).
-- **Methods:** `r.contains(item: T) bool`, `r.is_empty() bool`, `r.len() int`, `r.iter() Iterator[T]`, `r.to_string() string`.
-
-### 3.7 Structs & Field Punning
-
-A struct is a user-defined nominal record grouping named fields:
+### 3.7 Structs
 
 ```lowlight
 define User struct [
-    id: int,
-    name: string,
-    email?: ?string,
-    role: string = "viewer",    // Default field value
-]
-```
-
-#### Construction & Field Punning
-Struct instances are constructed with bracket notation `Type[ ... ]`. When an in-scope variable matches a field name, explicit value assignment may be omitted (field punning):
-
-```lowlight
-let id = 1
-let name = "Bob"
-let email?: ?string = "bob@example.com"
-
-// Full syntax:
-let u1 = User[id: id, name: name, email?: email?, role: "admin"]
-
-// Punning syntax:
-let u2 = User[id, name, email?]  // role defaults to "viewer"
-```
-
-- **Field Defaults & Optionals:** Fields with default initializers or optional types (which default to `none`) may be omitted during construction.
-- **Case Sensitivity:** Like all identifiers in Lowlight (variable names, field names, and enum variants), struct type names are strictly case-sensitive. By convention, type names use PascalCase (e.g., `User`, `Node`, `EmptyHeader`).
-- **Empty Structs:** Structs declared with zero fields (e.g., `define Empty struct []`) are constructed with empty brackets: `Empty[]`.
-
-### 3.8 Enums: Pure Tag Enums & Tagged Unions
-
-Lowlight supports two distinct enum models:
-
-#### 3.8.1 Flavor A: Pure Tag Enums
-A pure tag enum represents a closed set of symbolic scalar constants backed by an integer primitive:
-
-```lowlight
-define Color enum [
-    Red,
-    Green,
-    Blue,
+	id: int,
+	name: string,
+	email?: ?string,
+	role: string = "viewer",
 ]
 
+bind main = (): {
+	let u = User[id: 1, name: "Ada"]      // `email?` and `role` take their defaults
+	println("${u.name} is a ${u.role}")
+}
+```
+
+**Rules.**
+
+1. A struct is a nominal record of named fields. Fields are accessed with `.field`.
+2. A struct literal is `Type[field: value, ...]`, naming every field it sets. Fields may appear in any order.
+3. Fields with a default (`= expr`) and optional fields (default `none`) may be omitted from a literal. All other fields are required.
+4. A struct with no fields is written `define Empty struct []` and built as `Empty[]`.
+5. A generic struct literal may give type arguments: `Pair[int, string][first: 1, second: "a"]`. Usually they are inferred.
+6. A struct is plain if all its fields are plain, and a resource otherwise.
+7. `define packed Name struct [...]` (or `@packed`) lays fields out with no padding, for binary formats and hardware layouts.
+8. Visibility of fields and construction from other packages is in [§4.7](#47-visibility).
+
+### 3.8 Enums
+
+An enum lists alternatives. There are two kinds.
+
+**Tag enums** have no payloads. Each variant has an integer value, counting from 0 or from the previous explicit value plus one. The underlying type is `int` unless written: `define Status enum u8 [...]`.
+
+```lowlight
 define Status enum i32 [
-    Pending = 0,
-    Active = 1,
-    Suspended = 10,
-    Closed = 11,
+	pending = 0,
+	active,
+	closed = 10,
 ]
 ```
 
-- **Base Type:** Defaults to `int` if omitted; can be explicitly specified as any integer primitive (`i8`–`i64`, `u8`–`u64`).
-- **Discriminants:** Auto-increment from `0` or the previous explicit discriminant plus one.
-- **Category:** Pure tag enums are always Plain and satisfy `Copyable` and `Hashable`.
-- **Conversion:** Pure enums explicitly convert to their underlying integer type via cast syntax: `int(Color.Green)`. Integers do **not** implicitly or explicitly convert to enums to ensure variant validity.
+Tag enums are plain, `Copyable`, and `Hashable`. `int(Status.active)` converts a variant to its value; integers never convert to enums.
 
-#### 3.8.2 Flavor B: Tagged Unions & Generic Enums
-A tagged union represents a value that can take on one of several distinct variant shapes, each optionally carrying data payloads:
+**Tagged unions** have at least one variant carrying a payload (or have type parameters). Each variant is a **unit variant** (`null`) or carries exactly **one** value (`number: float`; use a struct or tuple for several values).
 
 ```lowlight
-define JsonObj struct [
-    keys: [string],
-    values: [JsonValue],
-]
-
-define JsonValue enum [
-    Null,
-    Bool: bool,
-    Number: float,
-    Str: string,
-    Arr: [JsonValue],
-    Obj: JsonObj,
+define Json enum [
+	null,
+	boolean: bool,
+	number: float,
+	text: string,
+	list: [Json],
 ]
 ```
 
-Variants support two shapes:
-1. **Unit Variant:** Carries no payload (e.g., `Null`). Constructed as `JsonValue.Null`.
-2. **Payload Variant:** Carries a single value payload (e.g., `Number: float`, `Obj: JsonObj`, or a tuple `Pair: +[int, string]`). Constructed as `JsonValue.Number(3.14)` or `JsonValue.Obj(JsonObj[keys: k, values: v])`.
+In expressions, variants are written with the enum's name: `Json.null`, `Json.number(1.5)`. In `match` patterns they are normally written bare (`when number(n):`; [§6.5](#65-pattern-matching)). Type arguments of a generic enum are inferred from the expected type when possible. A tagged union is a resource if any payload is. It has no integer value, cannot be converted with `int(...)`, and is inspected with `match` ([§6.5](#65-pattern-matching)).
 
-Tagged unions are Resource types if any variant carries a Resource. They do not have an integer base type, cannot have manual discriminants assigned, cannot be converted to `int`, and cannot be used as map keys. Tagged union variants are inspected and destructured using `match`.
+### 3.9 Results
 
-#### 3.8.3 Result Declarations (`define Name result [...]`)
-A result declaration is a tagged union that describes an operation's outcome: exactly one success member, always named `value`, plus one or more failure variants:
+A **result type** describes the outcome of an operation: a success value or one of several failures. It is declared like a tagged union with the word `result`:
 
 ```lowlight
 define Lookup result [
-    value: Item,
-    Missing: string,
-    Forbidden,
-    Expired: Time,
+	value: string,
+	missing: string,
+	forbidden,
 ]
 
-@must_use
-define Result[T] result [   // the standard prelude's general-purpose result (§9.6)
-    value: T,
-    Err: Error,
-]
-```
-
-- `result` is a contextual keyword, recognized only after `define Name[T]`.
-- The `value` member must declare its type. Failure variants follow the ordinary variant shapes (unit or single payload).
-- A result is constructed like any enum: `Lookup.value(item)`, `Lookup.Missing(key)`, `Lookup.Forbidden`. Generic arguments are inferred from the expected type (`Result.Err(e)` where a `Result[Config]` is expected).
-- **Bare members:** Wherever a result is expected (a function's return value, `func <-`, an annotated `let`, an argument, an `if`/`match` branch producing the result), its members may be named without the type: `value(item)`, `Missing(key)`, `Forbidden`, `Err(e.wrap("loading"))`. This is the construction counterpart of a result chain's bare failure patterns (§7.6.5). A bare name that also names a variable or function in scope is reported as ambiguous; qualify it (`Lookup.Missing(...)`).
-- There is no implicit wrapping: a bare `Error` or `T` is never converted to a result. Every result value names its member.
-
-```lowlight
 bind find = (key: string) Lookup:
-    if (not cache.has(key)): Missing(key)
-    else if (not allowed(key)): Forbidden
-    else: value(cache[key])
+	if(key == "admin"): forbidden
+	else if(key == "name"): value("Ada")
+	else: missing(key.copy())
+
+bind main = (): {
+	let r! = find("name")
+	println(r! ?? "unknown")
+	let who = find("admin"):
+		default: "nobody"
+	println(who)
+}
 ```
-- Result types, and only result types, support result chains (§7.6.5), `??` fallbacks (§6.6), and `if (r! as v)` (§7.4.1). Names holding them must end in `!` (§2.5).
-- Nothing about `Result[T]` is special: any result declaration has the same capabilities.
 
-### 3.9 Distinct Types
+**Rules.**
 
-A distinct type defines a new nominal type wrapping an existing base type without runtime overhead:
+1. A result declaration has exactly one member named `value`, which must declare its type (the success payload), and at least one other variant (the failures). Failures are unit or single-payload variants.
+2. A result is constructed like an enum (`Lookup.value(x)`, `Lookup.missing(k)`, `Lookup.forbidden`) or, wherever a result type is expected, by its **bare member name**: `value(x)`, `missing(k)`, `forbidden`. "Expected" means the function's return value, the value of `func <-`, an annotated variable, an argument, or an `if`/`match` branch that produces the result. If a bare name also names a variable or function in scope, it is ambiguous and must be qualified.
+3. There is no implicit conversion into a result. A `T` or a failure payload is never wrapped automatically; every result value names its member.
+4. Names holding a result end in `!` ([§2.5](#25-identifiers)).
+5. Only result types support result chains ([§6.6](#66-result-chains)), `??` ([§5.8](#58-optional-chaining-and-fallback)), and `if(r! as v)` ([§6.2](#62-if)). They may also be inspected with an ordinary `match` on `Name.value(v)` and the failure variants.
+6. **`Result[T]`** is the prelude's general-purpose result, `define Result[T] result [value: T, err: Error]`, marked `@must_use`. Nothing about it is special; it is an ordinary result declaration ([§12.6](#126-result-and-error)).
+
+`result` is a contextual word; `let result = 1` is fine.
+
+### 3.10 Distinct types
+
+`define Name BaseType` creates a new type with the same representation as `BaseType` that does not mix with it:
 
 ```lowlight
 define UserId int
-define OrderId int
 define Pair +[int, string]
-```
 
-`UserId` and `OrderId` share the same memory representation as `int`, but cannot be implicitly mixed or compared. Distinct types can be constructed using a type-conversion call (e.g., `UserId(42)` or `Pair(+[10, "abc"])`) or initialized directly from a matching literal when type-annotated (`let p: Pair = +[10, "abc"]`). Explicit conversion is required to unwrap primitives: `int(my_user_id)`. For distinct tuples, positional elements can be accessed directly (`p.0`, `p.1`), and inherent custom methods can be attached to the distinct type:
-
-```lowlight
 bind Pair.first = (self) int: self.0
-bind Pair.second = (self) string: self.1.copy()
+
+bind main = (): {
+	let id = UserId(42)
+	println(int(id))
+	let p: Pair = +[7, "seven"]
+	println(p.first())
+}
 ```
 
-Distinct types inherit the value category (Plain vs. Resource) of their underlying base type.
+Build a value with a conversion call (`UserId(42)`) or a literal where the distinct type is expected. Unwrap with a conversion to the base type (`int(id)`). Distinct types may have methods, and inherit the category of their base. A distinct tuple keeps positional access (`p.0`).
 
-### 3.10 Structural Interfaces & `Self`
+### 3.11 Interfaces
 
-An interface specifies a set of method signatures that a type must implement:
+An interface is a set of method signatures:
 
 ```lowlight
-define Writer interface [
-    write: (&self, data: string) int,
-    flush: (&self),
+define Shape interface [
+	area: (self) float,
+	scale: (&self, by: float),
 ]
 ```
 
-#### Structural Conformance
-Lowlight interfaces are **structural**: a type does not explicitly declare that it implements an interface. If a type provides matching inherent or UFCS methods satisfying all required signatures and receiver modes, it automatically satisfies the interface.
+**Rules.**
 
-#### The `Self` Type
-Inside an interface definition, `Self` refers to the concrete implementing type.
+1. **Structural conformance.** A type implements an interface when it has every listed method with matching parameter types, return type, and receiver mode. It never declares that it does.
+2. **Receivers.** Methods take `self` (read-only), `&self` (mutable), or `own self` (consuming). `Self` inside an interface stands for the implementing type.
+3. **Interface values.** An interface type used as a value type is a dynamically dispatched box holding the concrete value and a method table. It is a resource. Box a value explicitly with a conversion call, `Shape(circle)`.
+4. **Implicit boxing.** A concrete value passed where an interface is expected is converted automatically; for a read-only parameter it is borrowed without allocation.
+5. **Generic bounds.** Interfaces also constrain type parameters, `[T: Printable + Equatable]`, with static dispatch ([§8.2](#82-bounds)).
+6. **Sealed interfaces.** An interface with at least one `_`-prefixed method can be implemented only inside its own package ([§4.7](#47-visibility)).
+7. An interface that uses `Self` in a parameter can be a bound but not a value type.
 
-#### Receiver Modes
-Methods on an interface may specify three receiver modes:
-- `(self)`: Read-only borrow.
-- `(&self)`: Exclusive mutable borrow.
-- `(own self)`: Ownership consuming.
+The prelude's interfaces, which give meaning to operators and loops, are listed in [§12.1](#121-core-interfaces).
 
-#### Interface Values
-An interface can be used as a dynamically dispatched trait object:
-- `Writer`: An owned interface fat pointer (carrying a pointer to the value and a pointer to the compiler-generated virtual method table).
-- `&Writer`: A borrowed interface view. Calling `.copy()` on an owned interface duplicates the underlying value via the vtable's copy function.
+### 3.12 Functions and closures
 
-#### Core Built-in Interfaces (`std/core/interfaces.ll`)
-The standard prelude provides universal interfaces wired to compiler semantics and language operators via `@lang(...)`:
-- **`@lang("printable") Printable`**: Universal stringification (`to_string: (self) string`).
-- **`@lang("copyable") Copyable`**: Explicit value replication (`copy: (self) Self`).
-- **`@lang("drop") Drop`**: Deterministic RAII destruction (`drop: (&self)`).
-- **`@lang("hashable") Hashable`**: 64-bit hashing (`hash: (self) u64`). Required by `Set[T: Hashable]` elements and `Map[K: Hashable, V]` keys.
-- **`@lang("equatable") Equatable`**: Universal equivalence relation checking (`eq: (self, other: Self) bool`). Backs `==` and `!=`.
-- **`@lang("comparable") Comparable`**: Universal total ordering (`cmp: (self, other: Self) int`). Returns `< 0` for Less, `0` for Equal, and `> 0` for Greater. Backs `<`, `<=`, `>`, `>=`. Any type implementing `Comparable` automatically satisfies `Equatable`.
-- **`@lang("collectable") Collectable[T]`**: Target for `for`-loop collection accumulators (`push: (&self, item: T)`).
-- **`@lang("iterable") Iterable[T]`**: Sequences producing iterators (`iter: (self) Iterator[T]`).
-- **`@lang("iterator") Iterator[T]`**: Stateful iteration cursor (`next: (&self) ?T`).
-- **`@lang("indexable") Indexable[T]`**: Uniform sequential random access interface (`len: (self) int`, `get: (self, idx: int) ?T`). Satisfied by `List[T]` / `[T]`, `[N: T]`, `string` (`Indexable[u8]`), and custom sequence types implementing `len` and integer `get`.
-- **`@lang("key_indexable") KeyIndexable[K, V]`**: Uniform associative key lookup interface (`len: (self) int`, `has: (self, key: K) bool`, `get: (self, key: K) ?V`). Satisfied by `Map[K, V]` / `#[K: V]` and custom associative types implementing `len`, `has`, and `get`. This cleanly distinguishes sequential indexing from associative key lookup, avoiding accidental structural interface collisions.
-- **`@lang("containable") Containable[T]`**: Uniform membership testing interface (`contains: (self, item: T) bool`). Backs `when in <expr>` containment patterns in `match`. Satisfied by `Range[T]`, `[T]` / `List[T]` (for element types supporting equality), `[N: T]` / `Array[T]` (for element types supporting equality), `#[T]` / `Set[T]`, `#[K: V]` / `Map[K, V]` (as `Containable[K]`, checking key presence), `string` (as `Containable[string]`, checking substring containment), and any user type implementing `contains: (self, item: T) bool`.
+A function type is `(ParamTypes) ReturnType`, or `(ParamTypes)` for no result. Parameter modes are part of the type: `(&[int], own string) bool`.
 
-### 3.11 First-Class Functions & Closures
+A function literal is `(params) ReturnType: body` or `(params): body`. The body is one expression or a block. Without a written return type, it is inferred from the body and context. A literal that refers to variables of the enclosing scope is a **closure**:
 
-Functions in Lowlight are first-class citizens. Function types are denoted `(ParamTypes) RetType` (or `(ParamTypes)` / `(ParamTypes) void` for functions yielding no value):
+- plain captured values are copied in;
+- resource captured values are **moved** in (the outer variable becomes unusable), so write `own` or `.copy()` as needed;
+- mutable borrows (`&T` parameters and `if(&x?)` bindings) cannot be captured;
+- captured variables are read-only inside the closure.
+
+Every function value is a resource. A top-level `bind` function captures nothing and converts to a function type without allocation.
 
 ```lowlight
-bind filter_nums = (nums: [int], predicate: (int) bool) [int]: { ... }
+bind apply = (xs: [int], f: (int) int) [int]: for(x in xs): f(x)
+
+bind main = (): {
+	let offset = 10
+	println(apply([1, 2, 3], (x: int) int: x + offset))
+}
 ```
 
-A function literal (lambda) is written `(params) [Ret]: bodyExpr`, where `bodyExpr` is any expression (either a block `{ ... }` or a single expression). If `Ret` is omitted, the compiler infers the return type from contextual expectations or the body expression (requiring an explicit return type only when recursive dependencies form an inference cycle):
+### 3.13 Arenas
 
-```lowlight
-let is_positive = (x: int) bool: x > 0
-let add = (a: int, b: int) int: { a + b }
-let inferred_double = (x: int): x * 2
-```
+An `Arena` is a region allocator: `arena.alloc(value)` moves `value` into the arena and returns a `ref[T]`, a plain reference that is valid as long as the arena is. Dropping the arena (or `arena.reset()`) frees everything in it at once, running any `Drop` implementations in reverse order of allocation.
 
-#### Closures as Resource Types
-A function literal that captures variables from its surrounding lexical scope is a closure.
-- **Category:** Closures are **Resource types**. A closure value carries an execution entry point, an environment payload, a destructor pointer, and a copy pointer.
-- **Capture Rules:**
-  - Variables with Plain types are copied into the closure environment.
-  - Variables with Resource types are **moved** into the closure environment (invalidating the outer variable).
-  - Mutable borrows (`&T`) cannot be captured by closures to prevent dangling references.
-  - Captured variables are deeply immutable within the closure body.
-- Top-level `bind` functions that capture no environment automatically coerce to function types with zero heap allocation.
+The compiler guarantees that no `ref[T]` outlives its arena ([§7.6](#76-arenas-and-references)). `Arena.new()` creates one. `arena.bytes_used()` reports usage.
 
-### 3.12 Arenas (`Arena`) & Scoped References (`ref[T]`)
+### 3.14 Raw pointers
 
-An `Arena` is a fast, chunked bump-allocator that manages the lifetime of a collection of objects in a single memory region.
+`ptr[T]` is an unmanaged address, a plain value used for foreign-function interfaces and low-level memory work. Creating, reading through, writing through, and offsetting a pointer all require `unsafe` ([§10](#10-unsafe-code-and-foreign-functions)).
 
-```lowlight
-let arena = Arena.new()
-let r = arena.alloc(User[id: 1, name: "Alice"])
-```
+### 3.15 Void and never
 
-- **`Arena`:** A Resource type. When the `Arena` goes out of scope or is explicitly reset via `arena.reset()`, all memory allocated within it is freed at once. If any allocated objects implement `Drop`, their destructors are executed in LIFO order during arena cleanup.
-- **`ref[T]`:** A safe, borrowed reference to a value of type $T$ allocated inside an `Arena`.
-- **Scoped Pinning:** Allocating from a local `Arena` pins the arena to that scope. A pinned arena cannot be reset, reassigned, or moved while references derived from it remain active.
-- **Escape Prevention:** The type checker strictly prevents `ref[T]` from escaping the lexical scope of its creating `Arena`. A `ref[T]` cannot be returned from a function (unless allocated from a caller-provided `&Arena` parameter), cannot be stored in an outer container, and cannot be captured across scope boundaries.
+- `void` means "no value". It may appear only as a return type (of functions, methods, interface methods, `extern` functions, and function types), and may be omitted there. A block whose last statement ends in an explicit `;` has type `void`.
+- `never` is the type of expressions that do not complete normally: unwinds (`func <-`, `next <-`, ...), `panic(...)`, `exit(...)`, and loops with no way out. A `never` expression is accepted wherever any type is expected. It is not written in programs.
 
-### 3.13 Raw Pointers (`ptr[T]`)
+### 3.16 Type equivalence and implicit conversions
 
-`ptr[T]` represents an unmanaged, raw memory address. It is a Plain type used exclusively for low-level systems programming and C ABI interoperability.
-- Safe Lowlight can create raw pointers (`ptr_null()`, `ptr_from_ref(&x)`), query their addresses, and pass them to foreign functions.
-- Dereferencing a raw pointer (`*p`, `*p = val`, `p[i]`) is an unsafe operation and is permitted only inside an `unsafe` block or prefix expression.
+Lowlight is nominal: two struct, enum, distinct, or interface types are the same only if they are the same declaration (with the same type arguments). Structural types (lists, maps, sets, arrays, tuples, functions, optionals) are the same when their parts are.
 
-### 3.14 Internal & Control Types (`void`, `never`)
+The language performs only these implicit conversions:
 
-- **`void`:** The unit type, indicating the absence of a meaningful value. Blocks ending with a semicolon, functions returning `void` (explicitly via `void` or inferred from a void-typed body/context), and side-effect statements evaluate to `void`. `void` is allowed only in return-type positions and is rejected in value, variable, parameter, field, container, and evaluation-type positions.
-- **`never`:** The bottom type. Represents computations that never terminate or yield control to their subsequent statement (e.g., `panic()`, infinite loops without breaks, unconditional `<-` unwinds). A subexpression of type `never` is compatible with any expected type.
+| From | To | Where |
+|---|---|---|
+| `T` | `?T` | any expected `?T` |
+| a concrete type | an interface it implements | any expected interface |
+| `[N: T]` | a read-only `[T]` | arguments |
+| an integer or float literal | any integer or float type it fits | any expected numeric type |
+| a string literal | a distinct type over `string` | any expected distinct type |
+| `never` | anything | everywhere |
+
+Everything else, including integer widening, needs an explicit conversion.
 
 ---
 
-## 4. Program Structure, Packages, & Visibility
+## 4. Declarations and Program Structure
 
-### 4.1 Packages, Compilation Units, & Target File Selection
+> **At a glance**
+> - A file is a list of top-level declarations: `bind`, `define`, `import`, and `extern`. Order doesn't matter.
+> - `bind` names something that never changes; `let` (inside functions only) names a variable.
+> - Methods are top-level `bind`s on a type name: `bind Point.norm = (self) float: ...`.
+> - A directory is a package. `import "std/fs"` makes its exported names available as `fs.name`.
+> - A leading `_` makes any name private to its package.
 
-Lowlight organizes programs into **directory-level packages** made of source files with the `.ll` extension:
+### 4.1 Top-level declarations
 
-- **Directory-as-Package Cohesion:** Every physical directory containing active `.ll` source files constitutes a single **package**. All active `.ll` files in that directory share one package namespace (`PackageID`): top-level types, constants, functions, and methods declared in one file are directly visible to every sibling file in the same directory without `import` statements, and intra-package references may form arbitrary mutual recursion across sibling files.
-- **Standalone Single-File Invocation:** When compiling an explicit standalone `.ll` file outside any `lowlight.toml` manifest directory (e.g., `lowlight run hello.ll` or an individual script in a shared scripts directory), that file compiles as an isolated single-file `main` package rather than sweeping in unrelated neighboring scripts. Explicit directory imports (`import "./helper"`) and directory invocations (`lowlight build .`) always load the full target directory as a package.
-- **No `package` File Header:** Source files do not write a `package <name>` declaration at the top of the file; package identity is determined by directory location and manifest metadata (§4.3).
+A source file contains, in any order:
 
-#### Test & Platform-Conditional File Selection
-Within any package directory, source file inclusion is governed by deterministic filename suffixes:
+| Declaration | Form |
+|---|---|
+| Constant or function | `bind NAME = expr` · `bind name = (params) Ret: body` |
+| Method or associated function | `bind Type.name = (self, params) Ret: body` |
+| Type | `define Name struct [...]`, `enum [...]`, `result [...]`, `interface [...]`, or `define Name BaseType` |
+| Import | `import "path"` · `import "path" as alias` |
+| Foreign function or header | `extern name: (params) Ret` · `extern "header.h"` |
 
-1. **Test Files (`*_test.ll`):** Files ending in `_test.ll` belong to the enclosing package for white-box unit testing, are compiled **only** during `lowlight test`, and are excluded from `build`, `run`, `check` (non-test), `emit-*`, and downstream imports (§9.7).
-2. **OS & Architecture Suffixes:** Non-test files matching `<stem>_<os>.ll`, `<stem>_<arch>.ll`, `<stem>_<os>_<arch>.ll`, or `<stem>_<osgroup>.ll` (where `<os>` is e.g. `linux`, `darwin`, `windows`, `freebsd`; `<osgroup>` includes `unix` matching POSIX targets such as `linux`, `darwin`, and BSDs; and `<arch>` is e.g. `amd64`, `arm64`, `riscv64`, `x86`) are included in compilation if and only if every tag in the suffix matches the active target triple (`--target` or host default). Un-suffixed `.ll` files apply unconditionally to all targets.
-   - Example: a `fs` package may place shared declarations in `fs.ll`, POSIX implementation details in `fs_unix.ll`, and Win32 implementation details in `fs_windows.ll`.
-   - Future `@cfg(...)` attributes and `comptime` conditionals complement file suffixes for fine-grained intra-file target selection.
+Any of these may be preceded by attributes ([§4.8](#48-attributes)) and documentation comments ([§2.2](#22-whitespace-and-comments)). Declarations are **order-independent**: a declaration may refer to any other declaration in its package or in an imported package, wherever it appears. Two top-level declarations of the same name in one package are an error. `let` is not allowed at top level.
 
-#### Two-Phase Package Compilation Model
-Lowlight permits a conforming toolchain to compile concrete (non-generic) code per package into cached `.o` / LLVM IR bitcode units keyed by canonical `PackageID`, target triple, build flags, and transitive input hashes, while lowering monomorphized generic instantiations and global structural-interface dispatch tables in a shared specialization/root link unit (§12.6).
+### 4.2 Bind and let
 
-### 4.2 Order-Independent Declarations & Global Method Coherence
+```ebnf
+VarDecl = ( "let" | "bind" ) Name [ ":" Type ] "=" Expr
+        | ( "let" | "bind" ) Target { "," Target } "=" "unpack" Expr ;
+Target  = ( Name | "_" ) [ ":" Type ] ;
+```
 
-Source files contain top-level declarations:
-- Constant and function bindings: `bind NAME = expr`
-- Method and associated function bindings: `bind TypeName.method = (self, ...) [Ret]: <expr>`
-- Distinct types: `define Name BaseType`
-- Struct declarations: `define Name struct [ ... ]`
-- Enum declarations: `define Name enum [ ... ]`
-- Interface declarations: `define Name interface [ ... ]`
-- Foreign FFI declarations: `extern ...`
+- `let` declares a **mutable** variable: it may be reassigned, mutated through its methods, and passed as `&`. It is allowed only inside function bodies.
+- `bind` declares an **immutable** binding: it may not be reassigned, mutated, or passed as `&`, and neither may anything reachable through it. Top-level `bind`s are constants or functions.
+- The type annotation is optional when it can be inferred. It is required when the value alone does not determine a type (`let xs: [int] = []`, `let x?: ?int = none`).
+- **Unpacking** splits a tuple, or a distinct type over a tuple, into separate bindings: `let x, y = unpack +[1, 2]`. `_` discards an element. The number of targets must equal the tuple's length. Assignment can unpack too: `a, b = unpack +[b, a]`.
+- A local binding may shadow an outer one in an inner block.
 
-Top-level declarations are **order-independent** across all files belonging to the same package and across imported packages. Declaring two top-level types, constants, or functions with the same identifier anywhere within the same package directory is a compile error.
+**Top-level constants** are evaluated before `main` runs, in dependency order. A cycle between constants is an error. Resource-valued constants are released at program exit in reverse order of initialization.
 
-#### 4.2.1 Method & Associated Function Declarations
-Methods are declared at the top level by binding a function to a type name using dot notation (`bind TypeName.method = ...`):
+### 4.3 Functions
+
+```ebnf
+FuncDecl = "bind" Name [ TypeParams ] "=" "(" [ Params ] ")" [ Type ] ":" Body ;
+Param    = Name ":" [ "&" | "own" ] Type ;
+Body     = Expr | Block ;
+```
 
 ```lowlight
-// Inherent method with read-only borrow receiver (self):
-bind User.display = (self) string: {
-    "$self.name <$self.email?>"
+bind add = (a: int, b: int) int: a + b
+
+bind greet = (name: string): {
+	println("Hello, $name")
 }
 
-// Inherent method with mutable borrow receiver (&self):
-bind User.set_email = (&self, new_email: string): {
-    self.email? = new_email
-}
-
-// Inherent method with consuming ownership receiver (own self):
-bind User.into_name = (own self) string: {
-    own self.name
-}
-
-// Associated (static) constructor function (omits self receiver):
-bind User.new = (id: int, name: string) User: {
-    User[id, name, email?: none, role: "viewer"]
+bind main = (): {
+	greet("Ada")
+	println(add(2, 3))
 }
 ```
 
-- **Receiver Modes:**
-  - `(self)`: Read-only borrow. The method borrows the instance immutably.
-  - `(&self)`: Exclusive mutable borrow. The method can modify the receiver's fields. The caller's receiver is automatically borrowed by reference (`&`).
-  - `(own self)`: Ownership consuming. Consumes the receiver instance, invalidating the caller's variable upon call.
-- **Associated Functions:** Functions declared on a type without a `self` receiver (such as `bind Point.origin = () Point: ...`) act as namespaced functions called as `Point.origin()`.
-- **Target Types & Permissive Coherence (No Strict Orphan Ban):** Methods may be attached to structs, enums, distinct types, interfaces, and primitive types (`int`, `float`, `string`, etc.), either within the type's defining package or externally as extension methods, subject to three coherence invariants:
-  1. **No Duplicate Method Collisions:** Across all reachable packages in a compiled program, no two declarations may bind the same method name onto the same underlying concrete or generic type. Any collision fails compilation with a diagnostic naming both binding sites.
-  2. **Encapsulation Preservation:** An external extension method remains subject to package-private visibility (§4.4) and cannot read/write unexported `_` fields, instantiate unexported `_` enum variants, or call unexported `_` helpers of a foreign type.
-  3. **Sealed Interface Preservation:** External packages remain prohibited from satisfying unexported `_` methods of sealed interfaces (§4.4.6).
-- **Method Visibility:** Inherent and attached methods are part of the type's API and are automatically callable via dot notation (`val.method(...)`) wherever `val`'s type is in scope (excluding `_`-prefixed private methods outside their defining package).
+**Rules.**
 
-#### Constant Initialization & Cycle Detection
-Top-level `bind` constants are evaluated at compile time. The compiler performs a topological sort on global constants across the package graph. If a circular dependency is detected (e.g., constant $A$ depends on $B$, which depends on $A$), compilation fails with a cyclic dependency error. Mutable variables (`let`) are strictly forbidden at the top level.
+1. The return type follows the parameter list. Omit it (or write `void`) when the function returns nothing.
+2. The body's value is the return value. `func <- value` returns early ([§6.7](#67-unwinds-and-labels)).
+3. A body without braces must be an expression. Assignments and declarations are statements ([§5.12](#512-assignment)), so a function whose body assigns needs braces: `bind reset = (&self): { self.count = 0 }`. (The bodies of `if`, loops, and `match` arms may be a single assignment.)
+4. Parameters are read-only borrows by default; `&T` and `own T` select the other modes ([§7.3](#73-parameter-modes)). Parameter names follow the `?` and `!` naming rules.
+5. A function declared with type parameters is generic ([§8](#8-generics)).
+6. Functions may be recursive and mutually recursive. A function whose return type is omitted and inferred cannot take part in a recursive cycle; give it an explicit return type.
+7. Functions are values: `bind f = add` has type `(int, int) int`.
 
-### 4.3 Package Paths & Qualified Imports
+### 4.4 Methods and associated functions
 
-External and cross-package dependencies are brought into scope at the file level using extensionless `import` statements targeting **package directories** rather than individual `.ll` files:
+A method is a function attached to a type, declared at top level with the type's name:
+
+```lowlight
+define Counter struct [
+	count: int,
+]
+
+bind Counter.new = () Counter: Counter[count: 0]          // associated function
+bind Counter.value = (self) int: self.count               // read-only receiver
+bind Counter.bump = (&self): { self.count += 1 }           // mutable receiver
+bind Counter.into_count = (own self) int: self.count      // consuming receiver
+
+bind main = (): {
+	let c = Counter.new()
+	c.bump()
+	c.bump()
+	println(c.value())
+	println(c.into_count())
+}
+```
+
+**Rules.**
+
+1. **Receivers.** The first parameter `self`, `&self`, or `own self` makes the function a method; its receiver mode works like the corresponding parameter mode. `self: Type` may also be written explicitly.
+2. **Calls.** `value.method(args)` calls a method. For an `&self` method the receiver is borrowed mutably without writing `&` (the receiver must be a mutable place). For an `own self` method the receiver is moved, and the variable becomes unusable.
+3. **Associated functions** have no receiver and are called on the type: `Counter.new()`.
+4. **Any type.** Methods may be attached to structs, enums, results, distinct types, primitive types (`bind int.double = (self) int: self * 2`), and generic types (`bind Stack[T].peek = (self) ?T: ...`). A method may have its own type parameters: `bind List[T].map[U] = ...`.
+5. **Extension methods.** A package may add methods to types it did not define, including types from other packages and primitives. Three rules keep this coherent:
+   - no two declarations anywhere in a program may attach the same method name to the same type;
+   - an extension method cannot see the type's private (`_`) fields, variants, or methods;
+   - an extension method cannot implement a sealed interface's private methods.
+6. **Lookup order.** `v.name(args)` resolves to, in order: a method of `v`'s type; a method required by an interface bound on `v`'s type parameter; a function `name` in scope whose first parameter accepts `v` (uniform function call syntax).
+
+### 4.5 Type declarations
+
+```ebnf
+TypeDecl = "define" [ "packed" ] Name [ TypeParams ] TypeBody ;
+TypeBody = "struct" "[" [ Fields ] "]"
+         | "enum" [ IntType ] "[" [ Variants ] "]"
+         | "result" "[" Variants "]"
+         | "interface" "[" [ MethodSigs ] "]"
+         | Type ;                                    (* distinct type *)
+```
+
+Each kind is described in [§3](#3-types): structs [§3.7](#37-structs), enums [§3.8](#38-enums), results [§3.9](#39-results), distinct types [§3.10](#310-distinct-types), and interfaces [§3.11](#311-interfaces). Type declarations may also appear inside a function body, where they are local to that function; local type declarations cannot be generic.
+
+### 4.6 Packages and imports
+
+**Packages.** Every directory containing `.ll` files is one **package**. All files in the directory share one namespace: a top-level name declared in one file is visible in every other file of the package without importing it, and files may refer to each other freely. Files do not declare a package name; identity comes from the directory and the manifest ([§14](#14-packages-manifests-and-dependencies)).
+
+When a single `.ll` file outside any project is compiled directly (`lowlight run script.ll`), it forms a package by itself; sibling files are not pulled in.
+
+**File selection.** Within a package directory:
+
+- files named `*_test.ll` belong to the package only when running tests ([§11](#11-testing));
+- files named `name_<os>.ll`, `name_<arch>.ll`, `name_<os>_<arch>.ll`, or `name_unix.ll` are included only when compiling for a matching target (for example `fs_linux.ll`, `fs_windows.ll`, `net_unix.ll`, `atomic_arm64.ll`);
+- every other `.ll` file is always included.
+
+**Imports.**
 
 ```lowlight
 import "std/fs"
 import "std/math" as m
-import "compiler/lexer"
-import "jsonx"                  // Declared external dependency in lowlight.toml
-import "./helpers"              // Valid in standalone manifest-free scripts/dirs only
 ```
 
-#### Package Naming
-Every package has a default local qualifier identifier inferred without file headers:
-- For subpackages (`"std/fs"`, `"compiler/lexer"`, `"./models/user"`), the default qualifier is the normalized basename of the target directory (runs of non-identifier characters such as `-` become `_`, e.g., `my-pkg` binds `my_pkg`).
-- For dependency roots (`"jsonx"`) and manifest roots (`"<proj>"`), the qualifier comes from the dependency key or `[package].name` in `lowlight.toml` (§12.2).
+1. An import names a package **directory**, without a `.ll` suffix. `import "std/fs.ll"` is an error.
+2. Its exported declarations become available through a **qualifier**: by default the last path segment (`fs.read_file(...)`), with characters that cannot appear in identifiers replaced by `_` (`my-lib` becomes `my_lib`), or the alias given with `as`. Imported names are never injected unqualified.
+3. Two imports in one file with the same qualifier are an error; give one an alias.
+4. Imports are per file: each file lists what it uses, even though other declarations are shared across the package.
+5. The package dependency graph must be acyclic. A cycle of imports is an error that names the cycle.
+6. A package that declares `main` cannot be imported.
+7. Paths resolve to standard library packages (`std/...`), packages of the current project (`<project>/sub/dir`), declared dependencies (`<dep>`, `<dep>/sub`), and workspace members. Relative paths (`./helpers`, `../shared`) are allowed only for code outside any project. See [§14.3](#143-import-path-resolution).
 
-#### Strictly Qualified Imports (No Open Imports)
-- **`import "pkg"`:** Imports all exported declarations from the package directory and binds them strictly under the inferred qualifier (`fs.read_file(...)`, `lexer.Scanner.new(...)`).
-- **`import "pkg" as alias`:** Overrides the default qualifier with `alias` (e.g., `m.sin(m.PI)`).
-- **Qualifier Collisions:** If a single source file imports two packages sharing the same default qualifier (e.g., `import "a/utils"` and `import "b/utils"`), at least one must provide an explicit `as <alias>`; otherwise compilation fails with a name-collision error.
-- **No Unqualified Non-Prelude Imports:** Non-prelude packages never inject top-level types, constants, or functions directly into the importing file's bare scope; only the implicit `std/core` prelude (§4.7) is available unqualified.
-- **File-Scoped Import Bindings:** `import` declarations are scoped to the `.ll` file in which they appear, keeping dependencies per source file explicit even though non-import declarations are shared across the enclosing package directory.
+The prelude `std/core` is imported implicitly into every file, unqualified ([§12](#12-the-prelude)).
 
-#### Import Path Addressing & Legacy Migration
-- **Extensionless Package Specifiers:** Import paths omit `.ll` suffixes and target a package directory. Passing a `.ll` file suffix (e.g., `import "std/fs.ll"`) is a compile-time error with a migration hint directing callers to the extensionless package path (`import "std/fs"`) and qualified symbol access (`fs.<symbol>`).
-- **Inside a `lowlight.toml` Project or Workspace:** Non-relative package paths resolve deterministically against:
-  1. Standard library packages (`"std/<pkg>"` or `"std/<group>/<pkg>"`);
-  2. Current project subpackages (`"<proj>/<subpkg>"`, matching filesystem path `./<subpkg>/` 1:1);
-  3. Declared `[dependencies]` (and `[dev-dependencies]` during tests) in `lowlight.toml` (`"<dep>"`, `"<dep>/<subpkg>"`);
-  4. Sibling `[workspace]` member packages.
-  Relative `./` and `../` import paths are prohibited inside manifest-managed projects so every package has a single canonical import path.
-- **Standalone Manifest-Free Scripts:** When no `lowlight.toml` applies, imports resolve against `"std/<pkg>"` and directory-relative `"./..."` / `"../..."` subpackages.
+### 4.7 Visibility
 
-#### Inter-Package DAG vs. Intra-Package Recursion
-- **No Inter-Package Import Cycles:** Package dependency edges must form a strict Directed Acyclic Graph (DAG). Circular package imports (`pkgA` -> `pkgB` -> `pkgA`) are rejected at compile time with the full cycle chain.
-- **Intra-Package Cross-File Freedom:** Sibling `.ll` files inside the same directory belong to one compilation unit and freely reference each other's types, constants, functions, and methods in any order without creating cycles.
+There are no visibility keywords. A name is **private to its package** if it begins with `_`, and **exported** otherwise. This applies to top-level declarations, struct fields, enum and result variants, methods, and interface methods.
 
-### 4.4 Encapsulation & Visibility
+Outside the declaring package:
 
-Lowlight enforces Go-style encapsulation solely through a leading underscore (`_`) naming convention and directory-as-package boundaries. There are no explicit visibility keywords (`pub`, `private`, `export`) and no reserved subpackage-privacy directory names (such as `internal/`).
-
-#### 4.4.1 Exported vs. Unexported Identifiers
-- **Exported Identifiers:** Any top-level symbol, struct field, enum variant, or method whose identifier does **not** begin with an underscore `_` (e.g., `Point`, `x`, `y`, `new`, `distance`) is exported and accessible by all external packages.
-- **Unexported Identifiers:** Any top-level symbol, struct field, enum variant, or method whose identifier begins with an underscore `_` (e.g., `_secret`, `_id`, `_tag?`, `_validate`, `_InternalState`) is unexported and strictly private to the defining package directory.
-
-#### 4.4.2 Package Boundary & Multi-File Package Sharing
-- **Directory as Package:** The sole package privacy boundary in Lowlight is the physical directory containing the `.ll` files.
-- **Multi-File Package Sharing:** All source files residing in the same directory (including `*_test.ll` during `lowlight test`) belong to the same package and can freely access each other's unexported types, functions, constants, struct fields, methods, and enum variants without restriction.
-- **Inter-Package Isolation:** Files residing in different directories constitute distinct packages. An external package importing a package cannot access any unexported (`_`-prefixed) items from that package, even in nested child directories (`foo/sub` cannot see `_`-prefixed items of `foo`, and `foo` cannot see `_`-prefixed items of `foo/sub`).
-- **Standard Library Packages:** Every standard library module resides in its own directory package (`std/fs/`, `std/net/`, `std/math/`, `std/test/`, `std/core/`, etc.) with uniform directory-package isolation. `std/core/` is implicitly imported into every compilation unit as the standard prelude (§4.7).
-
-#### 4.4.3 Struct Field Access & Construction Invariants
-- **Member Access:** Outside the defining package, reading (`val._field`) or writing (`val._field = x`) an unexported struct field is a compile error.
-- **Struct Literal Invariant Protection:** Outside packages cannot initialize unexported fields in struct literals (`Struct[..., _field: val]`).
-- **Constructor Enforcement:**
-  - If a struct declares one or more unexported fields that do not have explicit default values and are not optional (`?T`), outside packages **cannot** construct the struct via struct literals (`Struct[...]`). Any attempt to do so produces a compile-time error directing the caller to an exported constructor or factory function (e.g., `Struct.new(...)`).
-  - If all unexported fields have explicit default initializers (e.g., `_id: int = 0`) or are optional (e.g., `_tag?: ?string`), external packages may construct the struct literal by supplying only the exported fields; the unexported fields are automatically initialized to their default or `none` values.
+1. a private top-level name cannot be referenced;
+2. a private field cannot be read, written, or set in a struct literal;
+3. a struct whose private fields are not all optional or defaulted cannot be built with a struct literal at all, so the package must provide a constructor such as `Type.new(...)`;
+4. a private variant cannot be constructed, matched, or named;
+5. a private method cannot be called by any route (`v._m()`, `Type._m(v)`, or `pkg.Type._m(v)`);
+6. an interface with at least one private method (a **sealed** interface) cannot be implemented.
 
 ```lowlight
-// pkg/counter.ll
 define Counter struct [
-    name: string,
-    _count: int = 0,
-    _token: int,
+	name: string,
+	_count: int = 0,
+	_token: int,
 ]
 
-// Outside packages cannot write Counter[name: "requests", _token: 1] because _token is unexported.
-// Counter must provide an exported constructor:
-bind Counter.new = (name: string, token: int) Counter: {
-    Counter[name: name, _count: 0, _token: token]
-}
+// Other packages cannot write Counter[...] because `_token` has no default,
+// so the package exports a constructor:
+bind Counter.new = (name: own string, token: int) Counter: Counter[name: own name, _token: token]
 ```
 
-#### 4.4.4 Method Encapsulation
-- Methods bound to types using a leading underscore (e.g., `bind Counter._bump = (&self): { ... }`) are package-private.
-- Calling an unexported method from outside its defining package—whether as an instance method (`c._bump()`), a namespaced call (`Counter._bump(&c)`), or a package-qualified call (`pkg.Counter._bump(&c)`)—is rejected at compile time.
+Child directories are separate packages: `a/b` cannot see `a`'s private names, and `a` cannot see `a/b`'s.
 
-#### 4.4.5 Enum Variant Encapsulation
-- Enum variants declared with a leading underscore (e.g., `define Token enum [ Ident(string), _Eof ]`) are private to the declaring package.
-- External packages cannot instantiate, pattern match against, or reference unexported enum variants.
+### 4.8 Attributes
 
-#### 4.4.6 Sealed Interfaces
-- An interface is **sealed** if it declares one or more unexported methods (e.g., `_seal: (self) void` or `_token: (self) int`).
-- Only types defined within the **same package** as the sealed interface can implement it and satisfy its vtable requirements.
-- External packages cannot satisfy sealed interfaces, guaranteeing closed type hierarchies and preventing third-party extension when exhaustive dispatch or internal safety invariants are required.
+An attribute is `@name` or `@name(args)` written before a declaration (or a struct field).
 
-```lowlight
-// astpkg/ast.ll
-define AstNode interface [
-    span: (self) Span,
-    _seal: (self) int, // Unexported method seals this interface
-]
-```
+| Attribute | Applies to | Meaning |
+|---|---|---|
+| `@test`, `@test("description")` | function | a test case ([§11](#11-testing)) |
+| `@test_only` | any declaration | may be used only from tests; stripped from normal builds |
+| `@track_caller` | function, method | panics, `Error.new`, and `caller_*()` inside report the **caller's** location; chains through nested `@track_caller` functions |
+| `@must_use`, `@nodiscard` | function, method, type | discarding the returned value (or any value of the type) is an error; bind it or write `let _ = ...` |
+| `@deprecated`, `@deprecated("message")` | declaration | each use produces a warning (with the message, if given) |
+| `@inline`, `@noinline` | function, method | request or forbid inlining; no semantic effect |
+| `@packed` | struct | lay fields out without padding (same as `define packed`) |
+| `@lang("hook")` | prelude declaration | binds a declaration to a language feature ([§12.1](#121-core-interfaces)); reserved for `std/core` |
 
-#### 4.4.7 Tooling & Language Server Protocol (LSP)
-- The Lowlight Language Server (`internal/lsp`) automatically filters unexported symbols, types, struct fields, methods, and enum variants during autocompletion and hover inspections when requested from outside the defining package, ensuring IDE suggestions accurately reflect legal visibility.
+An attribute on a kind of declaration it does not apply to is an error.
 
-### 4.5 Program Entry Points (`main`) & Library Packages
+### 4.9 The entry point
 
-A package is either an **executable (binary) package** or an importable **library package**:
+A package that declares a top-level `main` is a program; one that doesn't is a library.
 
-- **Executable Packages:** Any package defining a top-level `main` function (`bind main = () [void | int]: ...`) is a binary target (typically the project root package for single-binary apps or `./cmd/<app>/` directories for multi-binary projects).
-  - **Parameters:** `main` must accept exactly zero parameters. Command-line arguments are accessed via the universe function `args() [string]`.
-  - **Return Value:** `main` must return `void` (either explicitly via `() void:` or inferred via `():` when yielding no value, exiting with process status code `0`) or `int` (used as the process exit code). Note that `void` is only permitted in return-type position and cannot be used as a value, variable, field, or container type.
-- **Non-Importable Binaries:** Importing a package that defines `main` from another package is a compile error; shared code must reside in library packages that omit `main`.
-
-### 4.6 Compiler Attributes
-
-Attributes apply compiler metadata and layout directives to declarations using the `@name` or `@name(...)` syntax:
-
-| Attribute | Target | Description |
-| :--- | :--- | :--- |
-| `@inline` | Function, Method | Instructs the compiler to inline the function body directly at call sites |
-| `@noinline` | Function, Method | Inhibits inlining, ensuring the function is emitted as a distinct subroutine |
-| `@must_use` / `@nodiscard` | Function, Struct | Emits a compile error if the returned value is discarded |
-| `@deprecated` | Declaration | Emits a compile warning upon use |
-| `@deprecated("msg")` | Declaration | Emits a compile warning with a custom deprecation message |
-| `@packed` | Struct | Suppresses field alignment padding (byte-packed layout) |
-| `@lang("...")` | Declaration | Binds a declaration to an internal compiler-known language hook |
-
-#### Attribute Definitions
-- **Function Inlining (`@inline` and `@noinline`):**
-  - **Inlining** is a compiler optimization where the machine instructions or body of a function are substituted directly at each call site rather than generating a call instruction / jump. This eliminates function call overhead (such as stack frame allocation and register saves) at the cost of potential executable size expansion.
-  - `@inline` directs the compiler to always inline the annotated function or method whenever possible.
-  - `@noinline` instructs the compiler to never inline the function, preserving it as an independent subroutine (useful for cold error handlers or stack trace readability).
-- **Packed Struct Layout (`@packed`):**
-  - In standard structs, compilers automatically insert unused **alignment padding bytes** between fields to align each data member to natural machine word boundaries (e.g., aligning 64-bit integers to 8-byte boundaries) for hardware efficiency.
-  - `@packed` disables all alignment padding. The compiler arranges fields consecutively in memory byte-for-byte. This layout is critical when modeling hardware registers, binary network packet headers, or serialized disk structures.
-- **Compiler-Known Hooks (`@lang("...")`):**
-  - A **compiler hook** is an internal mechanism that links a user-space declaration with core language semantics and runtime behaviors. Lowlight does not hard-code standard library names into the compiler; instead, declarations marked with `@lang` inform the compiler how to synthesize operations:
-    - `@lang("printable")`: Designates the interface whose `.to_string() string` method is invoked during string interpolation (`${expr}`) and universe printing (`print`/`println`).
-    - `@lang("copyable")`: Designates the interface providing the `.copy() Self` method for deep duplication.
-    - `@lang("drop")`: Designates the interface whose `.drop(&self)` method is automatically invoked during deterministic LIFO destruction.
-    - `@lang("range")`: Binds the generic `Range[T]` struct constructed by `..` and `..=` range expressions.
-    - `@lang("containable")`: Binds the `Containable[T]` interface used to typecheck and lower `when in <expr>` match patterns.
-    - `@lang("panic")` and `@lang("assert")`: Bind the universe error and assertion functions.
-
-### 4.7 Implicit Standard Prelude (`std/core`)
-
-Every Lowlight compilation unit automatically imports the core standard prelude package (`std/core/`) without requiring an `import` statement or package prefix. The prelude defines essential language interfaces and universe functions:
-
-```lowlight
-@lang("printable")
-define Printable interface [
-    to_string: (self) string,
-]
-
-@lang("copyable")
-define Copyable interface [
-    copy: (self) Self,
-]
-
-@lang("drop")
-define Drop interface [
-    drop: (&self),
-]
-```
-
-The prelude also supplies primitive `.to_string()` implementations for all basic types, the canonical `Result[T]` and `Error` types, core collections (`List`, `Array`, `Set`, `Map`, `Range`), and universe math/print functions (`min`, `max`, `abs`, `clamp`, `print`, `println`, `panic`, `assert`, `args`).
+- `main` takes no parameters and returns nothing or an `int`.
+- Returning normally exits with status `0`, or with the returned `int`. A panic exits with status `1` ([§9.3](#93-panics)). `exit(code)` exits immediately with `code`.
+- Command-line arguments are available through `args()`.
 
 ---
 
-## 5. Ownership, Borrowing, & Lifetime Mechanics
+## 5. Expressions
 
-Lowlight enforces memory safety through an affine ownership model verified at compile time.
+> **At a glance**
+> - Operands are evaluated left to right, once.
+> - Integer arithmetic wraps; division by zero and out-of-range shifts trap.
+> - `==` and `<` work on numbers, strings, and types that implement `Equatable` / `Comparable`; plain structs and enums get `==` automatically.
+> - `xs[i]` traps when out of range; `xs.get(i)` returns `?T`. `m[k]` on a map is always `?V`.
+> - `a?.b` reaches through an optional; `x ?? fallback` supplies a default for an optional or a result.
 
-### 5.1 Affine Value Ownership
+### 5.1 Evaluation order and precedence
 
-Every value in a Lowlight program has a single, unique owner at any point during execution.
-- If a value has a Plain type, copying the value produces an independent duplicate. Both copies are valid and operate autonomously.
-- If a value has a Resource type, assignment or transfer transfers ownership (a **move**). Once moved, the source binding becomes uninitialized and inert; any subsequent attempt to read, pass, or mutate the moved variable is a compile error.
+Every expression's operands, a call's arguments, and a literal's elements are evaluated **left to right**, each exactly once. `and`, `or`, `??`, and conditional constructs evaluate only the operands they need.
+
+| Precedence | Operators | Associativity |
+|---|---|---|
+| 1 (tightest) | `.` `?.` call `()` index/slice `[]` | left |
+| 2 | prefix `-` `not` `~` `*` `&` `own` `unsafe` | right |
+| 3 | `*` `/` `%` | left |
+| 4 | `+` `-` | left |
+| 5 | `<<` `>>` | left |
+| 6 | `..` `..=` | none |
+| 7 | `<` `<=` `>` `>=` | none |
+| 8 | `==` `!=` | none |
+| 9 | `&` | left |
+| 10 | `^` | left |
+| 11 | `\|` | left |
+| 12 | `and` | left |
+| 13 | `or` | left |
+| 14 | `??` | right |
+| 15 (loosest) | unwind `<-` | right |
+
+"None" means the operator cannot be chained: `a < b < c` and `a == b == c` are errors; write `a < b and b < c`. Comparisons bind more tightly than the bitwise operators `&`, `^`, and `|`, so `x & mask == 0` means `x & (mask == 0)`, a type error; write `(x & mask) == 0`.
+
+There is no cast operator. `as` is used only in imports, `extern` aliases, and `if(e as v)`.
+
+### 5.2 Literals and constructors
+
+| Expression | Builds |
+|---|---|
+| `42`, `0xFF`, `3.5`, `'c'`, `"text"`, `` `text` ``, `true`, `none` | literals ([§2.7](#27-literals)) |
+| `Type[field: value, ...]` | a struct ([§3.7](#37-structs)) |
+| `Type.variant`, `Type.variant(payload)` | an enum or result value ([§3.8](#38-enums), [§3.9](#39-results)) |
+| `value(x)`, `missing(k)` where a result is expected | a result value by its bare member ([§3.9](#39-results)) |
+| `[a, b]`, `[]` | a list |
+| `[N: v]`, `[N: a, b, ...]` | an array |
+| `#[a, b]`, `#[k: v]`, `#[]` | a set or a map |
+| `+[a, b]` | a tuple |
+| `lo..hi`, `lo..=hi` | a range |
+| `(params) Ret: body` | a function value ([§3.12](#312-functions-and-closures)) |
+| `Iface(value)` | an interface box ([§3.11](#311-interfaces)) |
+| `T(x)` for a primitive or distinct `T` | a conversion ([§5.10](#510-conversions)) |
+
+An empty literal (`[]`, `#[]`) and `none` need their type from context. The element type of a non-empty literal is the type of its elements, which must agree (after literal adaptation and implicit conversions, [§3.16](#316-type-equivalence-and-implicit-conversions)). Elements that move existing resource variables must say `own` ([§7.2](#72-moves)).
+
+### 5.3 Arithmetic
+
+| Operation | Integers | Floats |
+|---|---|---|
+| `+` `-` `*`, unary `-` | two's-complement **wrapping** in the operand type | IEEE-754 |
+| `/` | truncates toward zero; **traps** if the divisor is zero; `MIN / -1` wraps to `MIN` | IEEE-754 (`1.0 / 0.0` is `inf`) |
+| `%` | sign follows the dividend; **traps** on a zero divisor; `MIN % -1` is `0` | not defined |
+| `<<` `>>` | **traps** unless `0 <= shift < bit width`; `>>` is arithmetic for signed types, logical for unsigned | not defined |
+| `&` `\|` `^` `~` | bitwise | not defined |
+
+Both operands of a binary arithmetic or bitwise operator must have the same type (a literal adapts to the other operand). `+` also concatenates two strings into a new string. These rules hold in every build mode, including `--release`; integer overflow is never undefined behavior.
+
+### 5.4 Equality and ordering
+
+`a == b` and `a != b` require both operands to have the same type, and that type to support equality:
+
+- numbers, `bool`, `char`, and `string` (byte-wise);
+- optionals of equatable types (`none == none`; `x? == none` tests absence);
+- enums and results whose payloads support equality, compared variant and payload;
+- tuples, and plain structs, compared field by field;
+- distinct types whose base supports equality;
+- any type with an `eq: (self, other: Self) bool` method (`Equatable`), or with a `cmp` method (`a == b` exactly when `a.cmp(b) == 0`).
+
+Lists, sets, maps, and structs with resource fields have no `==` unless they define `eq`.
+
+`<`, `<=`, `>`, `>=` require a type that supports ordering: numbers, `char`, `string` (byte-wise lexicographic), and types with a `cmp: (self, other: Self) int` method (`Comparable`), which returns a negative number, zero, or a positive number. `bool` and enums are not ordered.
+
+In generic code, `==` needs the bound `T: Equatable` and `<` needs `T: Comparable` ([§8.2](#82-bounds)).
+
+### 5.5 Logic and bitwise operators
+
+`and`, `or`, and `not` take and produce `bool`; `and` and `or` short-circuit. There are no `&&`, `||`, or `!` operators. The bitwise operators `&`, `|`, `^`, and `~` work on integers of one type.
+
+### 5.6 Ranges
+
+`lo..hi` is the half-open range `lo <= x < hi`; `lo..=hi` includes `hi`. Both bounds must have the same integer, integer-based distinct, or `char` type; float ranges are errors. A range whose upper bound is below its lower bound is empty. Ranges are values of type `Range[T]` ([§3.6](#36-collections)); in a `match` pattern a range is used as `when in lo..hi:` ([§6.5](#65-pattern-matching)).
+
+### 5.7 Indexing and slicing
+
+| Expression | On | Result |
+|---|---|---|
+| `xs[i]` | list `[T]`, array `[N: T]` | the element; **traps** unless `0 <= i < len`; assignable when `xs` is mutable |
+| `s[i]` | `string` | the byte at offset `i`, a `u8`; **traps** when out of range |
+| `m[k]` | map `#[K: V]` | `?V` (same as `m.get(k)`); assignment `m[k] = v` inserts or replaces |
+| `c[i]` | a type implementing `Indexable[T]` | `?T`, via `c.get(i)` |
+| `c[k]` | a type implementing `KeyIndexable[K, V]` | `?V`, via `c.get(k)` |
+| `p[i]` | `ptr[T]` (in `unsafe`) | the element at `p + i * size_of[T]()`, unchecked |
+| `xs[lo..hi]`, `xs[lo..=hi]` | list, array, string | the elements from `lo` up to `hi`; **traps** unless `0 <= lo <= hi <= len` |
+| `xs[..hi]`, `xs[lo..]` | list, array, string | a missing bound is `0` or `len` |
+
+The index must be an `int` (or an integer literal). A slice of a list or array is a read-only view of the original elements; a slice of a string is a `string`.
+
+### 5.8 Optional chaining and fallback
+
+**Optional chaining.** On an optional `?T`, `a?.field` and `a?.method(args)` evaluate to `none` if `a` is `none`, and otherwise access the member and wrap the result in an optional. A name ending in `?` may use plain `.` (`user?.name` and `user?.name` are the same; the `?` belongs to the name). Once a chain short-circuits, the rest of it is skipped:
 
 ```lowlight
-let s1 = "Hello, world!"
-let s2 = own s1          // s1 is moved to s2; s1 can no longer be accessed
-// println(s1)           // Compile Error: use of moved value `s1`
-```
+define User struct [
+	name: string,
+	manager?: ?User,
+]
 
-### 5.2 Value Moves & The Explicit `own` Qualifier
-
-To ensure that resource transfers are obvious during code review, Lowlight requires the `own` keyword when moving an existing owned Resource variable into:
-1. A new `let` or `bind` variable;
-2. An assignment target;
-3. A struct field or enum variant payload;
-4. A collection literal;
-5. A function argument expecting an `own` parameter.
-
-```lowlight
-let u = User[id: 1, name: "Alice"]
-let list = [own u]       // Explicit `own` required to move existing local
-```
-
-#### Implicit Move Exceptions
-Rvalues (temporary expressions that have no persistent binding name), function return tail expressions, and `<-` unwinds move implicitly without requiring `own`:
-
-```lowlight
-bind make_user = () User: {
-    let u = User[id: 2, name: "Bob"]
-    u                    // Valid: tail return moves implicitly
+bind main = (): {
+	let u = User[name: "Ada", manager?: User[name: "Grace"]]
+	println(u.manager?.name ?? "none")
+	println(u.manager?.manager?.name ?? "none")
 }
 ```
 
-### 5.3 Parameter Passing Modes (`T`, `&T`, `own T`)
+A method called through `?.` must take `self`; `&self` and `own self` methods cannot be called through an optional chain.
 
-Lowlight provides three parameter modes for function and method signatures:
+**Fallback `??`.** `a ?? b`:
 
-```
-                      +---------------------------------------+
-                      |           Parameter Modes             |
-                      +---------------------------------------+
-                      |                                       |
-       +--------------+--------------+         +--------------+--------------+
-       |                             |         |                             |
-+--------------+              +--------------+ |                      +--------------+
-| Read-Only: T |              | Mutable: &T  | |                      | Transfer:    |
-| (Default)    |              |              | |                      | own T        |
-+--------------+              +--------------+ |                      +--------------+
-| Borrows value|              | Borrows with | |                      | Takes unique |
-| for reading; |              | exclusive    | |                      | ownership;   |
-| caller keeps |              | mutation;    | |                      | caller drops |
-| ownership.   |              | caller writes| |                      | rights.      |
-| Plain copied;|              | explicit `&` | |                      | Caller writes|
-| Resource     |              | at call site.| |                      | explicit     |
-| borrowed.    |              +--------------+ |                      | `own` local. |
-+--------------+                               +----------------------+--------------+
-```
+- if `a` is an optional `?T`: `a`'s value if present, otherwise `b`. `b` may be a `T`, or another `?T` (making the whole expression `?T`, so `a? ?? b? ?? 0` chains).
+- if `a` is a result: `a`'s success value, or on any failure, `b`. The failure is dropped. `b` must be the success type.
+- `b` is evaluated only when needed, and may be an unwind: `let v = x? ?? func <- fallback`. After such a guard, `v` is a plain `T`.
 
-1. **Read-Only Borrow (`p: T`):** The default parameter mode. The function borrows the value for inspection. If $T$ is Plain, the value is passed by bitwise copy. If $T$ is a Resource, the compiler automatically passes an immutable reference. The caller retains ownership.
-2. **Mutable Borrow (`p: &T`):** Grants the function exclusive, mutable access to the caller's variable for the duration of the call. **The caller must explicitly write `&` at the call site** (e.g., `update(&state)`).
-3. **Ownership Transfer (`p: own T`):** The function consumes the value and assumes full responsibility for its lifecycle. The caller relinquishes ownership.
+### 5.9 Member access and calls
 
-### 5.4 Borrow Exclusivity & Alias Invariants
+- `v.field` reads a field. On a mutable place, `v.field = x` and `v.field += x` assign to it.
+- `v.method(args)` calls a method ([§4.4](#44-methods-and-associated-functions)); a `&self` receiver is borrowed automatically.
+- `f(args)` calls a function or function value. Arguments are evaluated left to right.
+- An argument for a `&T` parameter must be written `&place`; one for an `own T` parameter that moves an existing variable must be written `own place` ([§7.3](#73-parameter-modes)).
+- Explicit type arguments go before the argument list: `size_of[int]()`, `parse[Config](text)`. They are usually inferred.
+- Method calls on a separate line may continue a chain by starting with `.` ([§2.3](#23-statement-separation)).
 
-To eliminate data races, iterator invalidation, and dangling pointers, Lowlight enforces two borrow exclusivity invariants at every call site:
+### 5.10 Conversions
 
-#### Rule 1: No Multiple Mutable Aliases
-A mutable place cannot be borrowed mutably more than once in the same expression:
+A conversion is written as a call to the target type.
 
-```lowlight
-// Suppose `modify` has signature: (a: &State, b: &State)
-modify(&state, &state)   // Compile Error: cannot borrow `state` mutably more than once
-```
+| From → to | Write | Behavior |
+|---|---|---|
+| integer → integer | `u8(x)`, `int(x)` | truncate or sign/zero-extend |
+| float → integer | `int(f)` | truncate toward zero |
+| integer ↔ float, float ↔ float | `float(n)`, `f32(x)` | nearest representable value |
+| `char` → integer · integer → `char` | `int(c)` · `char(n)` | code point |
+| tag enum → integer | `int(Status.active)` | the variant's value |
+| base → distinct · distinct → base | `UserId(5)` · `int(id)` | no change in representation |
+| concrete → interface | `Shape(circle)` | boxes the value ([§3.11](#311-interfaces)) |
 
-#### Rule 2: No Read/Write Aliasing
-A mutable place cannot be read or moved while simultaneously borrowed mutably in the same expression:
+Converting to `string` is `.to_string()` or interpolation. Parsing a string is `parse_int`, `parse_float`, or `std/strconv` ([§12.2](#122-universe-functions)).
 
-```lowlight
-// Suppose `update_and_check` has signature: (s: &State, val: State)
-update_and_check(&state, state) // Compile Error: cannot read `state` while mutably borrowed
+### 5.11 Blocks
+
+`{ stmt; stmt; expr }` is an expression. It opens a scope, runs its statements in order, and evaluates to its final expression ([§2.3](#23-statement-separation)). A block without a final expression, or whose final expression is followed by an explicit `;`, has type `void`. Resource variables declared in the block are released when it ends ([§7.5](#75-destruction)). A labeled block, `name: { ... }`, can be left early with `name <- value` ([§6.7](#67-unwinds-and-labels)). `unsafe { ... }` is a block in which unsafe operations are allowed ([§10](#10-unsafe-code-and-foreign-functions)).
+
+### 5.12 Assignment
+
+Assignment is a statement, not an expression:
+
+```ebnf
+Assign = Place ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" ) Expr
+       | Place { "," Place } "=" "unpack" Expr ;
+Place  = Name | Place "." Name | Place "[" Expr "]" | "*" Expr ;
 ```
 
-*(Note: If `val` is a Plain copy evaluated prior to the call, read access is permitted; if `state` is a Resource or passed as a view, it is rejected.)*
-
-### 5.5 Deterministic Destruction & Custom `Drop`
-
-When a lexical scope exits (via natural block completion or an explicit `<-` targeted unwind), all Resource variables declared within that scope that have not been moved are destroyed in **reverse order of declaration (LIFO)**.
-
-#### Struct Destruction
-When a struct is dropped:
-1. If the struct implements the `Drop` interface, its `.drop(&self)` method is executed first.
-2. All member fields of the struct are dropped in reverse order of declaration.
-
-#### Enum Destruction
-When an enum instance is dropped, if the active variant carries a payload, that payload's destructor is executed. If a `match` arm performs a partial move on one variant field, all unmoved sibling fields are dropped immediately, and the enum is marked inert.
-
-#### Global Destruction
-Top-level constants holding Resource values are destroyed at program exit in reverse order of initialization.
-
-### 5.6 Scoped Arena Pinning & Escape Analysis
-
-Lowlight permits fast region allocation via `Arena` without risking dangling pointers:
-1. When `arena.alloc(value)` is invoked, `arena` is **pinned** to the current lexical scope depth.
-2. While pinned, `arena.reset()`, reassigning `arena`, or moving `own arena` (including capturing it in a closure) is a static compile error.
-3. A `ref[T]` reference derived from an `Arena` cannot escape the scope of that `Arena`. Specifically:
-   - A `ref[T]` cannot be returned from a function unless the function borrows an external `&Arena` parameter.
-   - A `ref[T]` cannot be stored into a vector, map, or struct located in an outer scope.
-   - A `ref[T]` cannot be assigned to an outer variable.
-4. Once the inner scope exits and all references derived from the allocation expire, the arena unpins automatically.
+1. The target must be a **mutable place**: a `let` variable, a field or element of one, a field reached through `&self` or a `&T` parameter, or (in `unsafe`) a pointer dereference.
+2. `a op= b` means `a = a op b`, with `a` evaluated once.
+3. The right side is evaluated first. Assigning to a place that holds a resource releases the old value after the new one is computed, so `s = s + "!"` is safe.
+4. Assigning an existing resource variable moves it, so write `own`: `slot = own value`.
+5. `a, b = unpack t` assigns each element of a tuple; `a, b = unpack +[b, a]` swaps.
 
 ---
 
-## 6. Expressions & Evaluation Semantics
+## 6. Control Flow
 
-Lowlight is an expression-oriented language: almost every construct evaluates to a value.
+> **At a glance**
+> - `if`, `while`, `for`, and `match` are expressions. Headers are written `keyword(...)` and followed by `:` and a body (an expression or a block).
+> - `if` without `else` produces `?T`. `while` produces one value; `for` collects a list.
+> - `match` must cover every case and always ends with a `default` arm. Variants are named bare: `when pending:`, `when num(n):`.
+> - A result chain, `expr: when failure: ... default ...`, evaluates to the success value.
+> - `<-` leaves a construct: `func <-`, `for <-`, `while <-`, `next <-`, `name <-`.
 
-### 6.1 Operator Precedence & Associativity
+### 6.1 Bodies
 
-The following table defines operator precedence from highest (binding tightest) to lowest:
+Every control construct has the shape `keyword(header) [EvalType]: Body`. A **body** is a single expression (which may be a single assignment or an unwind) or a `{ ... }` block. When a body is on the next line it is indented; the formatter decides between the two layouts.
 
-| Level | Operator | Description | Associativity |
-| :---: | :--- | :--- | :---: |
-| **12** | `.` `?.` `()` `[]` | Member access, optional chaining, call, index | Left-to-right |
-| **11** | `-` `not` `~` `*` `&` `unsafe` | Unary negation, logical not, bitwise not, pointer deref, borrow, unsafe prefix | Right-to-left |
-| **10** | `*` `/` `%` | Multiplicative arithmetic | Left-to-right |
-| **9** | `+` `-` | Additive arithmetic | Left-to-right |
-| **8** | `<<` `>>` | Bitwise shift left, shift right | Left-to-right |
-| **7** | `..` `..=` | Half-open and closed range construction (`Range[T]`) | Non-associative |
-| **6** | `<` `<=` `>` `>=` | Relational comparisons | Non-associative |
-| **5** | `==` `!=` | Structural equality and inequality | Non-associative |
-| **4** | `&` | Bitwise AND | Left-to-right |
-| **3** | `^` | Bitwise XOR | Left-to-right |
-| **2** | `\|` | Bitwise OR | Left-to-right |
-| **1** | `and` | Short-circuit logical AND | Left-to-right |
-| **0** | `or` | Short-circuit logical OR | Left-to-right |
-| **-1** | `??` | Optional null-coalescing fallback | Right-to-left |
-| **-2** | `<-` | Lexical unwind (return, break, continue) | Right-to-left |
+The optional **evaluation type** written before the `:` states the construct's result type, as in `if(c) int: a else: b` or `while(true) string: ...`. It is needed only when the type cannot be inferred.
 
-> [!NOTE]
-> There is no infix `as` operator for type casting. All type conversions are written explicitly using constructor-style syntax (e.g., `int(x)`, `u8(x)`, `float(x)`). The keyword `as` is reserved exclusively for import qualifier overrides (`import "pkg" as name`), foreign function aliases (`extern name as alias`), and optional pattern unwrapping in conditional bindings (`if (expr? as val)`).
+A construct in **statement position** (its value unused) runs for its effects only. In that position, `if` needs no `else`, a `for` loop collects nothing and allocates nothing, and a `while` loop produces nothing.
 
-Subexpressions are strictly evaluated from left to right.
+### 6.2 If
 
-### 6.2 Arithmetic Semantics & Boundary Traps
-
-Lowlight enforces mathematical predictability across all compilation modes (including debug and `--release`):
-
-#### Two's Complement Integer Arithmetic
-Addition (`+`), subtraction (`-`), multiplication (`*`), and unary negation (`-`) operate with standard two's complement wrapping arithmetic across all integer widths (`i8`–`i64`, `u8`–`u64`). Integer overflow does not cause undefined behavior.
-
-#### Checked Division & Modulo
-- Dividing or taking the remainder by zero (`x / 0`, `x % 0`) **always deterministically traps and terminates the process with a safety panic**.
-- Minimum integer division wrapping: For signed types, dividing the minimum representable value by `-1` (`MIN_INT / -1`) wraps to `MIN_INT`, and `MIN_INT % -1` evaluates to `0`.
-
-#### Checked Bitwise Shifts
-Bitwise shift operations (`<<`, `>>`) require the right-hand shift operand $S$ to satisfy $0 \le S < \text{bit\_width}$. If $S < 0$ or $S \ge \text{bit\_width}$, the operation **always deterministically traps**.
-
-### 6.3 Equality & Comparison
-
-- **`==` and `!=` (Equality):** Checked via the `Equatable` interface:
-  - Primitives (`int`, `float`, `char`, `bool`, fixed-width integers) lower directly to native C equality operators (`((a) == (b))`) with zero runtime overhead.
-  - Strings compare byte-by-byte via `ll_str_eq(a, b)` (or `.eq(other)`).
-  - Custom structs and user types satisfy equality by implementing `.eq(self, other: Self) bool` or `.cmp(self, other: Self) int` (where `a == b` $\iff$ `a.cmp(b) == 0`).
-  - Structural equality is automatically synthesized for Plain structs, tagged enums, optionals, and distinct types whose fields satisfy equality.
-  - Generic parameters bounded by `[T: Equatable]` or `[T: Comparable]` permit `==` and `!=`.
-- **`<`, `<=`, `>`, `>=` (Ordering):** Checked via the `Comparable` interface:
-  - Primitives (`int`, `float`, `char`, fixed-width integers) lower directly to native C relational operators (`((a) < (b))`) with zero runtime overhead.
-  - Strings compare lexicographically by byte values via `ll_str_cmp(a, b)` (or `.cmp(other)`).
-  - Custom structs and user types satisfy ordering by implementing `.cmp(self, other: Self) int` (returning negative for `<`, zero for `==`, and positive for `>`).
-  - Generic parameters bounded by `[T: Comparable]` permit relational operators (`<`, `<=`, `>`, `>=`).
-  - Types that do not implement `Comparable` (such as `bool` or unorderable structs) cannot be used with relational operators and produce a compile-time diagnostic error.
-- **Prelude Order Utilities (`min`, `max`, `clamp`):**
-  - `min[T: Comparable + Copyable](a: T, b: T) T`: Returns the smaller value.
-  - `max[T: Comparable + Copyable](a: T, b: T) T`: Returns the larger value.
-  - `clamp[T: Comparable + Copyable](val: T, low: T, high: T) T`: Clamps `val` within `[low, high]`.
-
-
-### 6.4 Indexing & Slicing
-
-#### Indexing
-Collection indexing `c[i]` applies to dynamic lists `[T]`, fixed arrays `[N: T]`, strings, maps `#[K: V]`, `Indexable[T]` and `KeyIndexable[K, V]` interfaces, and raw pointers `ptr[T]`:
-- **Lists (`[T]`) & Arrays (`[N: T]`):** `c[i]` yields the element at index $i$ (or allows mutable in-place assignment `c[i] = val` when `c` is a mutable place). The index $i$ must satisfy $0 \le i < \text{len}$. Out-of-bounds access **deterministically traps with a safety panic**.
-- **Strings (`string`):** `s[i]` yields the raw `u8` byte at byte offset $i$ (bounds checked: $0 \le i < \text{byte\_len}$). Traps on out-of-bounds access.
-- **Maps (`#[K: V]`):** `m[key]` looks up `key` in map `m` and yields an optional `?V` (syntactic sugar for `m.get(key)`). If `key` is present in `m`, `m[key]` evaluates to the corresponding value wrapped in `?V`; if absent, it evaluates to `none`. Assigning to a map index `m[key] = val` is syntactic sugar for `m.set(key, val)`.
-- **`Indexable[T]` & `KeyIndexable[K, V]`:** When `c` is an interface value of type `Indexable[T]` (or a generic type parameter bounded by `Indexable[T]`), `c[i]` dynamically dispatches through the vtable to `c.get(i)`, returning an optional `?T`. Similarly, for `KeyIndexable[K, V]`, `m[k]` dynamically dispatches to `m.get(k)` returning an optional `?V`.
-- **Raw Pointers (`ptr[T]`):** In `unsafe` expressions, `p[i]` performs raw pointer arithmetic and dereferences the memory location at address $p + i \times \text{sizeof}(T)$.
-
-#### Slicing
-Slicing extracts a contiguous sub-range view from a vector, array, or string:
-- `c[lo..hi]`: Half-open range $[lo, hi)$.
-- `c[lo..=hi]`: Closed range $[lo, hi]$.
-- Omitting `lo` defaults to `0`; omitting `hi` defaults to `c.len()`.
-- Slicing validates that $0 \le lo \le hi \le \text{len}$ at runtime; invalid ranges trap deterministically.
-- Slicing returns a borrowed sequence view without copying heap memory.
-
-### 6.5 Member Access, UFCS, & Receiver Auto-Borrowing
-
-Member access uses the dot operator `.` (`object.member`).
-
-#### Uniform Function Call Syntax (UFCS)
-If an expression `recv.method(args)` is called, the compiler resolves the call in the following priority order:
-1. Inherent methods defined directly on the type of `recv`.
-2. Interface methods implemented by the type of `recv`.
-3. Standalone functions in scope whose first parameter matches the type of `recv`: `method(recv, args)`.
-
-#### Receiver Auto-Borrowing
-When calling a method with receiver `(&self)` on a mutable place, the compiler automatically borrows the receiver by reference (`&recv`). The caller is not required to write `(&recv).method()`.
-
-### 6.6 Optional Chaining & Coalescing (`?.`, `??`)
-
-#### Optional Chaining (`?.`)
-Accessing a member or method on an optional base `?T` requires optional chaining syntax `?.` (or a dot following an `OptIdent`):
-
-```lowlight
-let user?: ?User = find_user(id)
-let name?: ?string = user?.name
-let length?: ?int = user?.name.len()  // Chain short-circuits to none if user? is none
+```ebnf
+IfExpr  = "if" "(" Cond ")" [ Type ] ":" Body { "else" "if" "(" Cond ")" [ Type ] ":" Body } [ "else" ":" Body ] ;
+Cond    = Expr                          (* a bool *)
+        | [ "&" ] OptName               (* narrow an optional variable *)
+        | [ "&" ] Expr "as" Name ;      (* bind an optional's or a result's value *)
 ```
 
-- If the base evaluates to `none`, the entire chained expression immediately short-circuits and evaluates to `none`.
-- Once an optional chain is initiated, subsequent standard dot accesses continue short-circuiting.
-- Calling a method that requires `(&self)` or `(own self)` over an optional chain `?.` is a compile error.
+**Values.** With `else`, both branches must have compatible types and the `if` has that type; an unwinding branch (type `never`) is compatible with anything. Without `else`, an `if` used as a value has type `?T` (the branch's value or `none`). An explicit non-optional evaluation type without `else` is an error.
 
-#### Optional Null-Coalescing (`??`)
-The fallback operator `??` unwraps an optional value or provides a default:
+**Conditions.**
 
-```lowlight
-let display_name: string = user?.name ?? "Guest"
-```
-
-The right-hand operand is evaluated lazily only when the left-hand operand evaluates to `none`.
-
-`??` also applies to results (§3.8.3): `r! ?? fallback` evaluates to the success `value`, or, on any failure, drops the failure and evaluates `fallback` (a value of the success type, or an unwind such as `?? next <-`). Use a result chain (§7.6.5) when the failure must be inspected.
+1. **Boolean.** The condition must be `bool`.
+2. **Optional narrowing, `if(x?)`.** If the optional variable `x?` is present, the branch runs with `x` (no `?`) bound to its value as a read-only view. `if(&x?)` binds `x` as a mutable borrow of the value inside `x?`, which must be mutable. While the branch runs, `x?` itself cannot be used.
+3. **Binding, `if(e as v)`.** `e` is any optional expression or result expression. The branch runs when `e` holds a value (for a result, its success value), with `v` bound to it. `else` runs otherwise and binds nothing. `if(&e as v)` binds `v` mutably and requires `e` to be a mutable place.
 
 ```lowlight
-let port = parse_port(s) ?? 8080
-let item = cache.lookup(key) ?? next <-
+bind main = (): {
+	let score = 72
+	let grade = if(score >= 90): "A" else if(score >= 70): "B" else: "C"
+	println(grade)
+
+	let bonus? = if(score > 50): 10          // ?int
+	println(bonus? ?? 0)
+
+	let n? = parse_int("41")
+	if(&n?): n += 1
+	if(n?): println("n is $n")
+
+	if(parse_int("x") as v): println(v) else: println("not a number")
+}
 ```
 
-### 6.7 Function Calls & Closures
+### 6.3 While
 
-Functions and closures are called using parentheses `f(arg1, arg2)`. Arguments are evaluated strictly from left to right.
-- Arguments matching `&T` parameters must be explicitly prefixed with `&`.
-- Arguments moving existing Resource locals into `own T` parameters must be explicitly prefixed with `own`.
+```ebnf
+WhileExpr  = [ Label ":" ] "while" "(" LoopHeader ")" [ Type ] ":" Body [ "else" ":" Body ] ;
+LoopHeader = Expr                                       (* a bool condition *)
+           | Binding [ "," Binding ] "in" Expr ;        (* iteration *)
+Binding    = [ "&" ] Name ;
+```
+
+`while` runs its body while the condition holds, or once per element when the header is an iteration ([§6.4](#64-for) describes iteration). It produces **at most one value**:
+
+- `while <- v` leaves the loop and makes `v` the loop's value;
+- with `else`, the loop's value is `T`: the `while <- v` value, or the `else` body's value if the loop ends without one;
+- without `else`, the loop's value is `?T`: `none` if it ends without `while <- v`;
+- `while(true) T: ...` (a loop with no normal exit) has type `T` and needs no `else`.
+
+```lowlight
+bind main = (): {
+	let items = [4, 8, 15, 16]
+	let first_odd = while(x in items) int: {
+		if(x % 2 == 1): while <- x
+	} else: -1
+	println(first_odd)
+
+	let i = 0
+	while(i < 3): {
+		println(i)
+		i += 1
+	}
+}
+```
+
+### 6.4 For
+
+```ebnf
+ForExpr = [ Label ":" ] "for" "(" LoopHeader ")" [ Type ] ":" Body [ "else" ":" Body ] ;
+```
+
+`for` iterates, and used as a value it **collects**: the value of each iteration's body is pushed into a collection, and the collection is the loop's value.
+
+- With no evaluation type the collection is a list `[T]` of the body's type. An evaluation type may name any `Collectable` type, such as `#[T]`, `#[K: V]` (pushing `MapEntry` values), or `[T]`. Any other type is an error.
+- `next <-` skips the current iteration without pushing anything.
+- `for <-` stops the loop and yields what has been collected so far.
+- An `else` body runs when the loop finishes without `for <-`.
+
+**Headers.** `for(cond)` loops while `cond` is true. `for(x in e)` iterates `e`:
+
+| `e` | `for(x in e)` | `for(a, b in e)` |
+|---|---|---|
+| `lo..hi`, `lo..=hi`, `Range[T]` | each value | n/a |
+| `[T]`, `[N: T]` | each element | `a` = index, `b` = element |
+| `string` | each `char` | `a` = byte offset, `b` = `char` |
+| `#[T]` | each element | n/a |
+| `#[K: V]` | each `MapEntry[K, V]` (`.key`, `.value`) | `a` = key, `b` = value |
+| any `Iterable[T]` | each `next()` value until `none` | n/a |
+
+Loop variables are read-only views of the elements. Write `&x` (or `k, &v`) to bind mutable borrows of a list's, array's, or map's elements; the collection must be mutable. The collection cannot be modified by other means while it is being iterated.
+
+```lowlight
+bind main = (): {
+	let squares = for(n in 1..=4): n * n
+	println(squares)
+
+	let evens = for(n in 0..10) #[int]: {
+		if(n % 2 != 0): next <-
+		n
+	}
+	println(evens.len())
+
+	let scores = [3, 5, 8]
+	for(&s in scores): s *= 10
+	for(i, s in scores): println("$i: $s")
+}
+```
+
+### 6.5 Pattern matching
+
+```ebnf
+MatchExpr = "match" [ "(" Expr { "," Expr } ")" ] [ Type ] ":"
+            { "when" Cases ":" Body } "default" [ Cases ] ":" Body ;
+Cases     = Case { "," Case } ;
+Case      = Pattern                                   (* one subject *)
+          | Pattern { "," Pattern }                   (* several subjects: one pattern each *)
+          | "(" Pattern { "," Pattern } ")" ;         (* several subjects: one combination of several *)
+```
+
+A `match` compares one or more **subjects** against the arms in order and evaluates the first arm that matches. It has no braces; each arm starts with `when` and the last one with `default`.
+
+```lowlight
+define Status enum [
+	pending,
+	active,
+	closed,
+]
+
+define Shape enum [
+	circle: float,
+	square: float,
+	point,
+]
+
+bind label = (s: Status) string:
+	match(s):
+		when pending: "waiting"
+		when active: "running"
+		default closed: "done"
+
+bind area = (s: Shape) float:
+	match(s):
+		when circle(r): 3.14159 * r * r
+		when square(side): side * side
+		default point: 0.0
+
+bind main = (): {
+	println(label(Status.active))
+	println(area(Shape.square(3.0)))
+	let n = 42
+	let kind = match(n):
+		when 0: "zero"
+		when 1, 2, 3: "small"
+		when in 4..100: "medium"
+		default: "large"
+	println(kind)
+	let sign = match:
+		when n < 0: "negative"
+		when n == 0: "zero"
+		default: "positive"
+	println(sign)
+}
+```
+
+**Patterns.**
+
+| Pattern | Matches |
+|---|---|
+| a literal (`3`, `'x'`, `"text"`, `true`, `none`) | a subject equal to it |
+| `_` | anything |
+| a variant, bare: `pending`, `circle(r)` | that variant of the subject's enum or result type, binding its payload |
+| a variant, qualified: `Status.pending`, `Shape.circle(r)` | the same, written with the type name |
+| `in container` | when `container.contains(subject)` (`Containable[T]`): ranges, lists, arrays, sets, maps (keys), strings (substrings) |
+| `method(args)` | when `subject.method(args)` returns `true`; the method must take `self` and return `bool` |
+
+**Variant names.** Inside a pattern, a variant of the subject's enum or result type is normally written **bare**. The qualified form is always allowed and is required in two cases:
+
+- a bare unit name (`pending`) that is also the name of a variable in scope with the subject's type;
+- a bare payload pattern without type arguments (`len(n)`) that is also the name of a method of the subject's type.
+
+Both are reported as ambiguous.
+
+**Payload bindings.** `circle(r)` binds `r` to the payload as a read-only view (a copy, if plain). `circle(&r)` binds a mutable borrow (the subject must be a mutable place). `word(own w)` moves the payload out, after which the subject is consumed. `circle(_)` matches without binding. Binding names follow the `?` and `!` rules. A payload pattern holds only bindings and `_`: it cannot test the payload's value (match on the payload inside the arm instead). Each variant may appear in at most one arm of a `match`.
+
+**Optional subjects.** A subject of type `?T` is matched by `none`, by patterns for `T`'s values, and by `in` patterns whose container holds `T` or `?T`. Method patterns cannot be used on an optional subject.
+
+**Forms.**
+
+- **One subject**, `match(x):`. Each `when` lists one or more patterns separated by commas; the arm matches if any of them does.
+- **Several subjects**, `match(a, b):`. An arm's patterns match positionally: `when circle(r), 0:`. To give one arm several combinations, parenthesize each: `when (point, _), (_, 0):`.
+- **No subject**, `match:` (or `match():`). Each `when` lists `bool` conditions; the arm runs if any is true. It must end with a plain `default:`.
+
+**Exhaustiveness.** Every `match` must handle every possible value, and its last arm must begin with `default`:
+
+- `default:` with no pattern matches everything that remains;
+- `default Pattern:` is allowed only when the earlier arms plus this pattern cover every case of an enum, result, or `bool` subject (or every combination, for several subjects), which the compiler checks. Putting the last variant on `default` instead of writing a catch-all means that adding a variant later produces a compile error at every `match` that misses it.
+
+Method and `in` patterns never count toward exhaustiveness.
+
+**Values.** All arms must produce compatible types (unwinding arms are compatible with anything), and the `match` has that type. A `match` in statement position may have arms of any type.
+
+### 6.6 Result chains
+
+A **result chain** handles the failures of a result-typed expression ([§3.9](#39-results)) and evaluates to its success value.
+
+```ebnf
+ResultChain = PostfixExpr ":" { "when" FailureCases ":" Body } ChainEnd ;
+ChainEnd    = "default" [ FailureCases ] ":" Body
+            | "default" "panic" ;
+```
+
+```lowlight
+define Lookup result [
+	value: string,
+	missing: string,
+	forbidden,
+	expired: int,
+]
+
+bind find = (key: string) Lookup:
+	if(key == "a"): value("apple")
+	else if(key == "x"): forbidden
+	else if(key == "old"): expired(3)
+	else: missing(key.copy())
+
+bind describe = (key: string) string: {
+	let item = find(key):
+		when missing(k): func <- "no $k"
+		when forbidden: "(hidden)"
+		default expired(days): "expired $days days ago"
+	"got $item"
+}
+
+bind main = (): {
+	println(describe("a"))
+	println(describe("x"))
+	println(describe("old"))
+	println(describe("zz"))
+	let sure = find("a"): default panic
+	println(sure)
+}
+```
+
+**Rules.**
+
+1. **Subject.** The chain is written directly after a postfix expression (a name, call, member access, or index). The subject must have a result type. Writing `subject:` followed by a `when` or `default` arm starts the chain.
+2. **Arms.** Each `when` names one or more failure variants of the subject's type, bare (`missing(k)`, `forbidden`), with the payload-binding rules of [§6.5](#65-pattern-matching). The `value` member is never named: the chain itself evaluates to it. Naming `value`, or a variant that is not a failure of the subject's type, is an error.
+3. **Arm bodies** either unwind or evaluate to the success type.
+4. **Ending.** The chain must end with exactly one of:
+   - `default failure(...):`, which handles the last failure exhaustively;
+   - `default:` with a body, which handles every remaining failure without binding it;
+   - `default panic`, with no colon and no body. Each remaining failure then panics with `unhandled failure Type.variant` at that line. On its own, `expr: default panic` unwraps any result.
+
+   A chain that leaves a failure unhandled with no such ending is an error, as is `default panic` when nothing remains to handle.
+5. **Ownership.** The chain consumes its subject. A resource success value is moved out of it.
+6. **Propagation.** To pass a failure to the caller, construct the caller's result type with a bare member: `default err(own e): func <- err(e.wrap("loading"))`.
+7. **Nesting.** A chain ends at its `default` arm, so a chain inside a `match` arm does not absorb the `match`'s later arms.
+
+### 6.7 Unwinds and labels
+
+There are no `return`, `break`, or `continue` statements. The **unwind** operator `<-` leaves a construct, and the word before it says which one.
+
+| Unwind | Leaves | Value |
+|---|---|---|
+| `func <- [v]` | the innermost function or function literal | the return value |
+| `for <-` | the innermost `for` loop | none; the loop yields what it has collected |
+| `while <- [v]` | the innermost `while` loop | the loop's value |
+| `next <- ` | the current iteration of the innermost `for` or `while` | none |
+| `<- [v]` | the innermost `{ }` block | the block's value |
+| `if <- [v]` · `match <- [v]` | the innermost `if` · `match` | its value |
+| `name <- [v]` | the labeled block or loop `name` | its value |
+| `next name <-` | the current iteration of the labeled loop `name` | none |
+
+**Labels.** A block or loop may be labeled: `name: { ... }`, `name: for(...)`, `name: while(...)`. Labels are visible only inside the labeled construct.
+
+```lowlight
+bind main = (): {
+	let grid = [[1, 2], [3, 4], [5, 6]]
+	let found = outer: while(row in grid) string: {
+		for(x in row): if(x == 4): outer <- "found 4"
+	} else: "not found"
+	println(found)
+}
+```
+
+**Rules.**
+
+1. An unwind is an expression of type `never`, so it can stand wherever a value is expected: `let user = find(id) ?? func <- missing(id)`.
+2. An unwind cannot cross a function boundary. `func <-` inside a function literal returns from that literal.
+3. The value must match what the target produces. A bare `func <-` is allowed only in a function that returns nothing.
+4. Leaving scopes runs all pending destruction, innermost scope first, in reverse order of declaration ([§7.5](#75-destruction)).
 
 ---
 
-## 7. Statements & Control Flow
+## 7. Ownership, Borrowing, and Destruction
 
-### 7.1 Lexical Blocks & Block Value Rules
+> **At a glance**
+> - Plain values copy. Resources have one owner and **move**, and moving an existing variable needs `own`.
+> - Parameters borrow read-only by default; `&T` borrows mutably (call with `&x`); `own T` takes ownership (call with `own x`).
+> - You cannot use a variable after moving it, or touch a value while something else mutably borrows it.
+> - A resource is destroyed when its owner's scope ends, in reverse order of declaration. `Drop` adds custom cleanup.
+> - `.copy()` makes an independent duplicate of a resource.
 
-A block `{ ... }` groups a sequence of declarations and expressions into a distinct lexical scope.
+The rules in this chapter are checked at compile time. They make use-after-free, double-free, and dangling references impossible in code outside `unsafe`, without any runtime bookkeeping.
+
+### 7.1 Owners
+
+Every value has exactly one **owner**: a variable, a field or element of another value, a temporary, or an arena. When an owner goes away, so does what it owns.
+
+- A **plain** value ([§3.1](#31-plain-values-and-resources)) is copied whenever it is assigned, passed, or returned. Each copy is independent, and nothing needs to be released.
+- A **resource** is moved instead. After a move the source no longer holds a value: using it is an error until it is assigned again.
+
+### 7.2 Moves
 
 ```lowlight
-let result = {
-    let a = 10
-    let b = 20
-    a + b                // Block evaluates to 30
+bind main = (): {
+	let a = "hello" + " world"
+	let b = own a            // moves the string from `a` to `b`
+	// println(a)            // error: use of moved variable "a"
+	println(b)
+	let c = b.copy()         // an independent duplicate; `b` is still usable
+	println(b + c)
 }
 ```
 
-- **Tail Value:** The value of a block is the value of its final expression, provided it is not followed by an explicit semicolon.
-- **Void Blocks:** A block ending with an explicit semicolon (`;`) evaluates to `void`.
+**Moving an existing variable requires `own`.** Whenever the value of an existing resource variable (or a field of one) is moved into a new owner, the move is written `own x`:
 
-### 7.2 Variable Declarations (`let` vs. `bind`)
+- initializing or assigning a variable: `let b = own a`, `slot = own a`;
+- a struct field, enum payload, or collection element: `User[name: own n]`, `Shape.label(own s)`, `[own a, own b]`;
+- an `own` parameter: `consume(own a)`;
+- moving a field out of an `own self` receiver: `own self.name`.
 
-Lowlight provides two binding forms:
-- **`let`:** Declares a mutable variable. The variable may be reassigned via `=`.
-- **`bind`:** Declares an immutable constant. Once initialized, the binding cannot be reassigned or mutated. Top-level variables must use `bind`.
+A field can be moved out only of an `own self` receiver, and doing so consumes `self`: read any other fields you need first. Moving a field out of any other value is an error; use `.copy()` to duplicate it.
+
+**Moves that need no `own`:**
+
+- a temporary, which has no name: `consume("a" + "b")`, `[make_user()]`;
+- the value a function returns, through its final expression or `func <-`;
+- the value an unwind carries;
+- a variable captured by a closure ([§7.7](#77-closures-and-captures));
+- a payload moved out by a pattern, which says `own` in the pattern instead ([§6.5](#65-pattern-matching)).
+
+**Moves and control flow.** If a variable is moved on some paths and not others, it counts as moved afterwards and cannot be used, but it is still destroyed correctly on the paths where it was not moved. A moved `let` variable may be assigned a new value, which makes it usable again. A path that ends in an unwind or a panic does not count: moving `s` and then leaving with `func <-` leaves `s` usable after the `if`. Inside a loop body, a variable declared outside the loop may be moved only if every path through the body assigns it again before the next iteration.
+
+**Copying.** `.copy()` duplicates a resource deeply. All plain types, strings, collections of `Copyable` elements, and structs and enums whose parts are `Copyable` (and that have no `Drop`) provide it; other types may define `copy` themselves ([§12.1](#121-core-interfaces)).
+
+### 7.3 Parameter modes
+
+| Parameter | The call writes | The function gets | The caller afterwards |
+|---|---|---|---|
+| `x: T` (default) | `f(v)` | a read-only view: a copy if `T` is plain, a borrow otherwise | keeps `v` unchanged |
+| `x: &T` | `f(&v)` | an exclusive, mutable borrow of `v` | keeps `v`, possibly changed |
+| `x: own T` | `f(own v)`, or `f(temp)` | the value itself | `v` is moved |
 
 ```lowlight
-let x = 10
-x = 20                   // Valid
+bind total = (xs: [int]) int: {
+	let t = 0
+	for(x in xs): t += x
+	t
+}
 
-bind y = 100
-// y = 200               // Compile Error: cannot reassign immutable binding `y`
-```
+bind add_zero = (xs: &[int]): xs.push(0)
 
-### 7.3 Assignment & Compound Mutation
+bind into_set = (xs: own [int]) #[int]: for(x in xs) #[int]: x
 
-Assignment (`=`) and compound operators (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`) update mutable places:
-- The left-hand target must be a mutable place (a `let` variable, a field of a mutable struct, or an indexed element of a mutable vector or array).
-- Compound assignment `a += b` is semantically equivalent to `a = a + b`, evaluating the place `a` once.
-
-### 7.4 Conditional Branches (`if` / `else`) & Optional Unwrapping
-
-An `if` statement evaluates a condition and selects a branch:
-
-```lowlight
-let message = if (score >= 50): "Pass" else: "Fail"
-```
-
-#### Evaluation Rules
-Every conditional uses the unified header form `if (<condition>) [<evaluation_type>]: <body_expr> [else if (<condition>) [<evaluation_type>]: <branch>]* [else: <else_expr>]`, where `<body_expr>` may be either a block `{ ... }` or any single expression. When an `if` construct is evaluated as a value expression:
-- **With `else` Branch (Type `T`):** Both branches must evaluate to compatible types, and the `if` expression evaluates to their unified type `T`.
-- **Without `else` Branch (Type `?T`):** If the `else` branch is omitted, the `if` expression evaluates to an optional `?T` of the `then` branch value. Writing a non-optional explicit `<evaluation_type>` without an `else` branch is a compile-time error, whereas `?T` is permitted. If the condition is true, it yields the evaluated value wrapped in `?T`; if false, it evaluates to `none`:
-  ```lowlight
-  let bonus?: ?int = if (completed_on_time): 500
-  ```
-When an `if` expression is used in statement position (not assigned to a variable or yielded from a block), the branches execute purely for side effects and evaluate to `void`.
-
-#### 7.4.1 Optional Unwrapping in `if`
-Lowlight provides concise, type-narrowing unwrapping directly inside `if` conditions:
-
-##### Form A: Direct Optional Variable Narrowing
-```lowlight
-let opt?: ?string = get_name()
-if (opt?): {
-    // Inside this block, `opt` is narrowed to non-optional `string`
-    println("Hello, " + opt)
+bind main = (): {
+	let xs = [3, 1, 2]
+	println(total(xs))
+	add_zero(&xs)
+	let s = into_set(own xs)
+	println(s.len())
 }
 ```
 
-##### Form B: Mutable Optional Borrow
+**Rules.**
+
+1. A `&T` argument must be a mutable place (a `let` variable, or a field or element reached from one, or from another `&` binding) and must be written with `&`. A `bind` value cannot be passed as `&`.
+2. An `own T` argument that is an existing variable must be written with `own`.
+3. A read-only parameter cannot be modified, moved out of, or passed on as `&` or `own`. To keep a copy, call `.copy()`.
+4. Receivers follow the same modes: `self`, `&self`, `own self` ([§4.4](#44-methods-and-associated-functions)). For `&self`, the receiver is borrowed automatically without writing `&`.
+5. A function type records its parameter modes: `(&[int])` and `([int])` are different types.
+
+### 7.4 Borrowing rules
+
+While a mutable borrow of a place is active, nothing else may use that place. A read-only borrow prevents mutation and moves. Concretely:
+
+1. **No two mutable borrows** of the same place in one call: `swap(&a, &a)` is an error.
+2. **No reading while mutably borrowed** in one call: `update(&state, state)` is an error when `state` is a resource. (A plain argument is copied before the call starts and is allowed.)
+3. **No mutation or moves during iteration.** Inside `for(x in xs)`, `xs` cannot be pushed to, cleared, reassigned, or moved. The same applies to an optional narrowed by `if(x?)` or `if(&x?)`, which is borrowed for the duration of the branch.
+4. **Borrows do not escape.** A borrowed parameter cannot be returned, stored in a longer-lived value, or captured by a closure. Since every borrow lasts at most one call or one branch, no lifetime annotations are needed.
+
+### 7.5 Destruction
+
+When a scope ends, whether normally or by an unwind leaving it, every resource it still owns is destroyed, **in reverse order of declaration**. Destroying a value:
+
+1. runs its `drop` method, if its type implements `Drop` (`bind T.drop = (&self): ...`);
+2. then destroys its fields (struct), its active payload (enum), or its elements (collection), in reverse order.
+
 ```lowlight
-if (&opt?): {
-    // Inside this block, `opt` is narrowed to mutable `&string`
-    opt.push_str(" (verified)")
+define Noisy struct [
+	name: string,
+]
+
+bind Noisy.drop = (&self): println("drop ${self.name}")
+
+bind main = (): {
+	let a = Noisy[name: "a"]
+	let b = Noisy[name: "b"]
+	{
+		let c = Noisy[name: "c"]
+	}
+	println("end of main")
 }
 ```
 
-##### Form C: Expression Binding Unwrapping (`as`)
-```lowlight
-if (get_user() as u): {
-    // `u` is bound to the unwrapped, non-optional User value
-    println(u.name)
-}
+This prints `drop c`, `end of main`, `drop b`, `drop a`.
 
-if (&get_user() as u): {
-    // `u` is bound as a mutable borrow `&User`
-}
-```
+**Other rules.**
 
-##### Form D: Result Unwrapping
-On a result (§3.8.3), `if (r! as v)` (and `if (&r! as v)`) takes the branch when `r!` holds its `value`, binding `v` to the success value. `else` runs on any failure and binds nothing. Use a result chain (§7.6.5) when the failure is needed.
+- A value that has been moved is not destroyed by its old owner.
+- When a `match` arm moves one payload out with `own`, the rest of the subject is destroyed at that point.
+- Temporaries are destroyed at the end of the statement that created them.
+- Resource constants are destroyed at program exit, in reverse order of initialization.
+- A panic ends the process **without** running destruction ([§9.3](#93-panics)).
 
-```lowlight
-if (cfg! as c): start(c) else: retry()
-```
+### 7.6 Arenas and references
 
-##### Value Yielding from Optional Unwraps
-Like boolean `if` expressions, optional unwrapping `if` expressions can produce values (evaluating to `T` with `else`, or `?T` without `else`). The resulting value does not need to be captured if executed purely for side effects:
+An `Arena` owns many values that are destroyed together. `arena.alloc(v)` moves `v` into the arena and returns a `ref[T]`, a plain, non-null reference usable like the value itself (`r.field`, `r.method()`).
 
 ```lowlight
-// Used as a value expression:
-let display_name: string = if (opt?): "User: $opt" else: "Anonymous"
+define Node struct [
+	value: int,
+]
 
-// Used as a statement (value not captured):
-if (opt?): {
-    println("Welcome back, $opt")
+bind main = (): {
+	let arena = Arena.new()
+	let n = arena.alloc(Node[value: 7])
+	println(n.value)
 }
 ```
 
-### 7.5 Loops: Scalar Loops (`while`) & Collection Loops (`for`)
+The compiler guarantees that no `ref[T]` outlives its arena:
 
-Lowlight distinguishes between two distinct loop forms based on their evaluated output:
-- **`while`**: Evaluates to a **scalar** value (`T` with `else`, or `?T` without `else`).
-- **`for`**: Evaluates to a **collection** satisfying `Collectable[T]` (defaulting to dynamic vector `[T]`).
+1. Allocating from an arena **pins** it for the rest of the scope where the allocation happened. A pinned arena cannot be reset, reassigned, or moved, including into a closure.
+2. A `ref[T]` cannot escape the scope of its arena: it cannot be returned, stored into a value from an outer scope, or assigned to an outer variable.
+3. The exception is a function that receives the arena as `&Arena`: references allocated from it may be returned, because the arena belongs to the caller.
+4. When the scope that pinned the arena ends, the arena is unpinned. Dropping or resetting it then destroys everything it holds, in reverse order of allocation.
 
-Both forms share the same loop headers: boolean conditions (`(cond)`), range literals or `Range[T]` expressions over integer/`char` types (`(i in lo..hi)`, `(ch in 'a'..='z')`, `(i in my_range)`), and collection iterators (`(x in collection)`).
+### 7.7 Closures and captures
 
-#### 7.5.1 Scalar Loops (`while`)
-The `while` loop construct evaluates to a scalar:
-```lowlight
-while (<condition> | <identifier> in <iterable>) [<evaluation_type>]: <body> [else: <else_body>]
-```
+A function literal that uses variables from its enclosing scope captures them when it is created:
 
-1. **Scalar Value Semantics:**
-   - With `else`: Evaluates to `T` (scalar guaranteed). If zero iterations run, or no break executes, evaluates to `else_body`.
-   - Without `else`: Evaluates to `?T` (scalar optional). If zero iterations run, evaluates to `none`.
-   - Infinite Loops: `while (true) T: <expr>` evaluates to `T` directly without requiring an `else` clause (otherwise, specifying a non-optional `<evaluation_type>` on a `while` without `else` is a compile-time error, while `?T` is permitted).
-2. **Early Exit (`while <- val`):**
-   Executing `while <- val` immediately terminates the loop and evaluates the entire `while` expression to `val`.
-3. **Examples:**
-   ```lowlight
-   let res1? = while (true): 1
-   let res2: int = while (true) int: 1
-   let found: bool = while (x in 1..10) bool: {
-       if (x == 5): while <- true
-   } else: false
-   ```
-4. **Statement Position:**
-   When placed in void or statement position, `while` executes purely for side effects without allocating.
+- plain variables are **copied** into the closure;
+- resource variables are **moved** into the closure. The outer variable is then moved; use `.copy()` first to keep it;
+- variables bound by mutable borrow (`&` parameters, `&` loop variables, `if(&x?)`) cannot be captured;
+- inside the closure, captured variables are read-only.
 
-#### 7.5.2 Collection Loops (`for`)
-The `for` loop construct evaluates to a collection:
-```lowlight
-for (<condition> | <identifier> in <iterable>) [<evaluation_type>: Collectable]: <body> [else: <else_body>]
-```
-
-1. **Collection Value Semantics:**
-   - Evaluates to `T: Collectable` where each iteration's body expression is pushed into the collection via `.push()`.
-   - Default Collection: If no type annotation is provided, `for` evaluates to dynamic List `[Elem]` with element type inferred from the body.
-   - Specific Collections: Any type implementing `Collectable` (e.g. `[int]`, `#[int]`, or `#[string: int]`) can be specified.
-   - Non-Collectable Error: Annotating with a non-`Collectable` type (e.g., `for (true) int: { ... }`) is a compile-time error (`type int does not implement Collectable`).
-2. **Filtering (`next <-`):**
-   Calling `next <-` inside the loop skips the rest of the current iteration without adding anything to the collection.
-3. **Early Break (`for <-`):**
-   Calling `for <-` terminates the loop early and yields the collection accumulated up to that point.
-4. **Examples:**
-   ```lowlight
-   bind v = for (x in 1..=4): x              // [1, 2, 3, 4]
-   let v2 = for (x in 0..10) [int]: x       // [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-
-   let evens = for (x in 0..10): {
-       if (x % 2 != 0): next <-              // Filters out odds
-       x
-   }                                        // [0, 2, 4, 6, 8]
-
-   let s = for (x in 0..5) #[int]: (x % 3)  // #[0, 1, 2]
-   ```
-5. **Statement Position:**
-   When a `for` loop is placed in statement or void position, it executes purely for side effects without allocating any collection.
-
-#### 7.5.3 Collection Iteration & Uniform Map Interface
-Lowlight provides the universal `Iterable[T]`, `Iterator[T]`, and `Collectable[T]` interfaces in `std/core/interfaces.ll`.
-
-All built-in collections (`[T]`, `[N: T]`, `string`, `#[T]`, `#[K: V]`) and `Range[T]` implement `Iterable[T]`, and built-in collections implement `Collectable[T]`:
-1. **Single-Variable Map Iteration:**
-   Maps yield key-value pairs wrapped in the standard `MapEntry[K, V]` struct (`[key: K, value: V]`):
-   ```lowlight
-   for (entry in my_map): {
-       println(entry.key)
-       println(entry.value)
-   }
-   ```
-2. **Two-Variable Map Iteration:**
-   For backward compatibility and convenience, two-variable iteration `for (k, v in my_map)` remains fully supported.
-3. **Map Collection via `push`:**
-   Maps implement `Collectable[MapEntry[K, V]]` via `my_map.push(entry)` and can be constructed directly with `for`:
-   ```lowlight
-   let doubled = for (entry in my_map) #[string: int]: {
-       MapEntry[string, int][key: entry.key.copy(), value: entry.value * 2]
-   }
-   ```
-
-### 7.6 Pattern Matching (`match` / `when`)
-
-Lowlight provides a clean, **container-free** pattern matching expression delimited by `match [(scrutinees)] [<evaluation_type>]:` (or `match:` for 0 scrutinees without an evaluation type) and terminated strictly by a `default:` or exhaustive `default Pattern:` arm:
-
-```lowlight
-let label = match (status):
-    when Status.Pending: "Waiting"
-    when Status.Active: "Running"
-    when Status.Suspended: "Paused"
-    default: "Unknown"
-```
-
-Notice that `match` does **not** use enclosing curly braces `{}`. Arms begin with `when` (or `default` for the final arm), followed by match clause(s) and a colon `:`, followed by an action body (which can be a single expression or a `{ ... }` block).
-
-#### 7.6.1 0-Argument, 1-Argument, and Multi-Argument Forms
-Lowlight's `match` expression supports 0, 1, or multiple scrutinee arguments:
-
-1. **0-Argument `match` (`match:` or `match () [<type>]:`):**
-   Acts as a streamlined conditional chain where each `when` arm evaluates one or more comma-separated boolean condition expressions (evaluated left-to-right with `or` semantics):
-   ```lowlight
-   let tier = match ():
-       when score >= 90: "A"
-       when score >= 80, extra_credit: "B"
-       default: "C"
-   ```
-   A 0-argument `match` must always terminate with an open fallback `default:`.
-
-2. **1-Argument `match (x) [<type>]:`:**
-   Matches a single scrutinee against one or more comma-separated alternative patterns (matching if any pattern matches):
-   ```lowlight
-   let category = match (ch):
-       when ' ', '\t', '\n': "whitespace"
-       when in '0'..='9': "digit"
-       when _: "other"
-       default: "unreachable"
-   ```
-   - **Containment pattern (`when in <expr>`):** Checks membership in any container expression satisfying `Containable[T]` (evaluating `<expr>.contains(scrutinee)` lazily left-to-right and short-circuiting on the first match). Valid containers include `Range[T]` literals and variables (`when in '0'..='9':`, `when in r:`), lists (`when in ['1', '2', '3']:`), fixed arrays (`[N: T]`), sets (`#[T]`), maps (`#[K: V]`, matching against map keys), strings (`string`, checking substring containment via `when in s:`), boxed `Containable[T]` interface values, and custom types implementing `contains(self, item: T) bool`. Bare range expressions in patterns (e.g. `when 1..=5:`) are rejected when matching a non-`Range` scrutinee and must use `when in 1..=5:`. Can be mixed freely with literal/variant patterns (`when 0, in 1..=5, in [10, 20]:`) and used in multi-argument `match` arms (`when in 1..=5, in 10..=20:`). For optional scrutinees `?T`, a container may hold either `?T` or unwrapped `T` (matching `some(v)` when `v` is contained).
-   - **Method predicate pattern (`when method[T...](args...)`):** Calls a read-only (`self`) method on the corresponding scrutinee that returns `bool` (evaluating `scrutinee.method(args...)` lazily left-to-right and short-circuiting on the first match). Mutating (`&self`) and consuming (`own self`) methods, non-`bool` return types, and optional scrutinees (`?T`) are rejected, and method predicate patterns do not count toward enum/bool exhaustiveness. Can be mixed freely with other patterns (`when is_digit(), '.':`) and used in multi-argument `match` arms (`when is_digit(), is_alpha():`).
-
-3. **Multi-Argument `match (s1, s2, ...) [<type>]:` ($N \ge 2$):**
-   Matches multiple scrutinees positionally. All scrutinees are evaluated left-to-right once upon entering the `match`:
-   - **Single-combination arm:** A list of $N$ comma-separated patterns, matching each argument positionally:
-     ```lowlight
-     match (self, other):
-         when Json.String(s), Json.String(os): s == os
-         when Json.Bool(b), Json.Bool(ob): b == ob
-         default: false
-     ```
-   - **Multi-combination OR arm:** When an arm handles multiple argument combinations, each combination is enclosed in parentheses:
-     ```lowlight
-     match (self, other):
-         when (Json.Empty, Json.Empty), (Json.Null, Json.Null): true
-         when Json.String(s), Json.String(os): s == os
-         default: false
-     ```
-   - **Wildcard pattern (`_`):** Matches any value in that argument position without performing an equality check.
-
-#### 7.6.2 Variant Destructuring
-`match` destructures payload variants of tagged unions:
-
-```lowlight
-match (expr):
-    when Expr.Num(n): println("Number: $n")
-    when Expr.Add(pair): println("Addition: ${pair.left} + ${pair.right}")
-    default Expr.Var(name): println("Var: $name")
-```
-
-#### 7.6.3 Ownership & Moves in Patterns
-When matching on an owned tagged union, an arm may move out the variant payload using `own` (e.g., `when Msg.Data(own payload): ...`). In this case:
-1. Ownership of `payload` is transferred to the arm scope.
-2. The parent enum instance is marked moved and inert.
-3. Conflicting `&` borrows or `own` moves on the same root variable across a multi-argument `match` arm are statically rejected.
-
-#### 7.6.4 Exhaustiveness & The Mandatory `default` Arm
-Every `match` expression must be exhaustive and **must terminate with a `default` arm**, guaranteeing unambiguous end-of-match resolution even when nested (and keeping `else` unambiguous inside unbraced `when` arms):
-- **Open Fallback (`default:`):** Matches any remaining values with a default action:
-  ```lowlight
-  let label = match (code):
-      when 200: "OK"
-      when 404: "Not Found"
-      default: "Other"
-  ```
-- **Exhaustive Variant Arm (`default Pattern:`):** When all possible variants (or combinations of variants across multi-argument matches) of enum/bool scrutinees are handled explicitly, the final variant or combination is placed on the `default` arm (e.g., `default Status.Closed: 300` or `default Color.Blue, Status.Closed: 4`). The compiler statically verifies that every combination in the Cartesian product is covered.
-
-#### 7.6.5 Result Chains
-A result chain handles the failures of a result-typed expression (§3.8.3) and evaluates to its success `value`. It is written as the expression followed by `:` and `when` arms over the bare failure variant names. Like `match`, it must terminate with a `default` arm:
-
-```lowlight
-let item = cache.lookup(key):
-    when Missing(why): func <- Page.not_found(why)
-    when Forbidden: next <-
-    default Expired(_): cache.refresh(key)
-
-let cfg = load_config(path):
-    default Err(e): func <- Err(e.wrap("starting server"))
-```
-
-- **Arms:** Each arm either unwinds (`func <-`, `next <-`, ...) or evaluates to the success type, exactly like `match` arms. Patterns name failure variants without qualification (`Missing(why)`, `Forbidden`); payload bindings follow the ordinary rules (`own x`, `&x`, `_`). The success `value` is never matched: the chain evaluates to it.
-- **Terminal arm:** The chain ends with one of:
-  - `default Failure(...):`, which exhaustively handles the last failure variant.
-  - `default:` followed by a value or unwind, which handles every remaining failure without binding it.
-  - `default panic`, with no colon. Every unhandled failure panics with `unhandled failure Name.Variant` at that line. This is the explicit way to say "these failures are not expected here". On its own (`load(path): default panic`), it is a generic unwrap for any result type.
-- **Ownership:** The chain consumes its subject. A non-Plain success value is moved out.
-- **Propagation:** To pass a failure up, construct the caller's result with a bare member (§3.8.3): `default Err(e): func <- Err(e.wrap("starting server"))`.
-
-Nested chains terminate at their `default` arm, so a chain inside a `match` arm never swallows the enclosing `match`'s later `when` arms.
-
-### 7.7 Targeted Lexical Unwinding (`<-`)
-
-Lowlight eliminates traditional ambiguous keywords (`break`, `continue`, `return`) in favor of the unified, targeted **unwind operator** `<-`.
-
-```
-UnwindTarget = "<-" [ Expr ]
-             | "if" "<-" [ Expr ]
-             | "match" "<-" [ Expr ]
-             | "for" "<-" [ Expr ]
-             | "next" "<-" [ Expr ]
-             | Ident "<-" [ Expr ]
-             | "next" Ident "<-" [ Expr ]
-             | "func" "<-" [ Expr ]
-             ;
-```
-
-#### The 8 Unwind Forms
-
-| Syntax | Target Construct | Action |
-| :--- | :--- | :--- |
-| `<- [expr]` | Enclosing lexical block `{}` | Breaks from the immediately enclosing block, yielding `expr` |
-| `if <- [expr]` | Enclosing `if` expression | Breaks out of the surrounding `if` construct with `expr` |
-| `match <- [expr]` | Enclosing `match` expression | Breaks out of the surrounding `match` construct with `expr` |
-| `for <- [expr]` | Enclosing `for` loop | Breaks from the loop, yielding `expr` as the loop result |
-| `next <- [expr]` | Enclosing `for` loop | Skips to the next loop iteration (continue), optionally yielding `expr` |
-| `<label> <- [expr]` | Block or loop labeled `<label>` | Breaks out of the labeled construct across nested blocks |
-| `next <label> <- [expr]` | Loop labeled `<label>` | Skips to the next iteration of the outer labeled loop |
-| `func <- [expr]` | Enclosing function | Early return from the function, yielding `expr` |
-
-#### Boundary & Safety Invariants
-1. **No Closure Boundary Crossing:** An unwind statement **cannot cross a function or lambda boundary**. A `func <-` inside a closure returns from that closure, not the outer enclosing function.
-2. **LIFO Drop Guarantee:** When an unwind statement transfers control outward across nested scopes, the compiler guarantees that all local Resource variables in all bypassed scopes are dropped in strict reverse declaration order before control resumes at the target.
-3. **The `?? <unwind>` Guard Pattern:** Because unwinds are expressions of type `never`, an unwind may be used directly on the right-hand side of a `??` coalescing operator:
-
-```lowlight
-let user = find_user(id) ?? func <- Err("User not found")
-// Beyond this line, `user` is guaranteed to be present and non-optional
-```
+The closure value owns its captures and destroys them when it is destroyed. A closure is a resource; `.copy()` duplicates it and its captures.
 
 ---
 
-## 8. Generics & Monomorphization
+## 8. Generics
 
-Lowlight supports parameterized polymorphism across structs, enums, functions, and methods.
+> **At a glance**
+> - Type parameters go in brackets after the name: `define Stack[T] struct [...]`, `bind first[T] = (xs: [T]) ?T: ...`.
+> - Bounds restrict them: `[T: Comparable + Copyable]`.
+> - Type arguments are usually inferred; write them when they aren't: `Stack[int][items: []]`, `size_of[u8]()`.
+> - Generic code is compiled separately for each set of type arguments. A type parameter is never an optional.
 
-### 8.1 Generic Declarations
+### 8.1 Generic declarations
 
-Generic parameters are declared inside brackets `[...]`:
+Structs, enums, results, interfaces, functions, and methods may take type parameters:
 
 ```lowlight
 define Stack[T] struct [
-    items: [T],
+	items: [T],
 ]
 
-bind swap[T] = (a: &T, b: &T): {
-    let tmp = own *a
-    *a = own *b
-    *b = own tmp
+bind Stack[T].push = (&self, x: own T): self.items.push(own x)
+
+bind Stack[T].peek = (self) ?T: self.items.get(self.items.len() - 1)
+
+bind largest[T: Comparable + Copyable] = (xs: [T]) ?T: {
+	if(xs.len() == 0): func <- none
+	let best = xs[0].copy()
+	for(x in xs): if(x > best): best = x.copy()
+	best
+}
+
+bind main = (): {
+	let s = Stack[int][items: []]
+	s.push(3)
+	s.push(5)
+	println(s.peek() ?? 0)
+	println(largest(["b", "z", "a"]) ?? "")
 }
 ```
 
-### 8.2 Interface Constraints & Bounds
+- A method of a generic type repeats the type's parameters on its name: `bind Stack[T].push = ...`. A method may add parameters of its own: `bind Stack[T].map[U] = ...`.
+- Generic type declarations must be at top level.
 
-Generic type parameters can be constrained by one or more interfaces using the `:` syntax:
+### 8.2 Bounds
 
-```lowlight
-bind print_all[T: Printable + Copyable] = (items: [T]): {
-    for (item in items): {
-        println(item.to_string())
-    }
-}
-```
+`[T: A + B]` requires every type argument for `T` to implement interfaces `A` and `B`. Inside the generic code, values of type `T` may use exactly the operations the bounds provide, plus those available for every type (moving, borrowing, and passing to other generic code with compatible bounds):
 
-Inside the body of `print_all`, values of type `T` are guaranteed to provide all methods specified by `Printable` and `Copyable`.
+| To use | The bound must include |
+|---|---|
+| `==`, `!=` | `Equatable` (or `Comparable`) |
+| `<`, `<=`, `>`, `>=` | `Comparable` |
+| `.copy()` | `Copyable` |
+| interpolation, `.to_string()` | `Printable` |
+| use as a set element or map key | `Hashable` |
+| any other method | an interface that declares it |
 
-### 8.3 The Strictly Non-Optional Generic Rule
+Calls through bounds are resolved statically, at compile time.
 
-To preserve the invariant that optional types do not nest (`??T` is impossible), Lowlight enforces that **all generic type parameters `T` strictly represent non-optional types**.
-- Instantiating a generic type with an optional (e.g., `Stack[?int]`) is a static compile error.
-- To store optional values inside a generic data structure, the generic declaration itself must explicitly write `?T`:
+### 8.3 Type parameters are never optional
 
-```lowlight
-define Container[T] struct [
-    item?: ?T,               // Valid: represents optional T
-]
-```
+A type argument may not be an optional type: `Stack[?int]` is an error. A generic type that needs optional values writes `?T` itself (`item?: ?T`). This keeps optionals from nesting: `?T` with `T` substituted is always exactly one level of optional.
 
-### 8.4 Type Inference & Monomorphization Limits
+### 8.4 Inference and instantiation
 
-- **Inference:** When calling a generic function or constructing a generic variant, type arguments may be omitted if they can be uniquely inferred from call arguments or expected return types.
-- **Full Monomorphization:** Lowlight compiles generic code via static monomorphization. Each distinct combination of concrete type arguments generates specialized machine representation.
-- **Recursion Guard:** To prevent compiler infinite loops from recursively expanded generic types (e.g., `struct Box[T] { next: Box[Box[T]] }`), the compiler enforces a maximum monomorphization depth of **128**. Exceeding this limit halts compilation with an instantiation depth error.
+1. Type arguments may be omitted when they can be determined from the arguments, the expected type, or a literal's contents. Otherwise they must be given: `Stack[int][items: []]`, `parse[Config](text)`, `size_of[T]()`.
+2. Each distinct set of type arguments produces a separate instantiation (monomorphization). There is no runtime type information and no boxing of generic values.
+3. Instantiation may nest at most 128 levels deep; a type that expands without bound (such as `Box[T]` containing `Box[Box[T]]`) is reported as an error.
 
 ---
 
-## 9. Standard Library Contract & Built-in Operations
+## 9. Failure Handling
 
-Conforming Lowlight implementations provide a built-in standard runtime contract along with native standard library modules implemented directly in Lowlight.
+> **At a glance**
+> - Expected failures (missing files, bad input, refused connections) are **results**: return `Result[T]` or your own result type, and handle them with chains, `??`, or `if(r! as v)`.
+> - Bugs and broken invariants **panic**: the program stops. Panics can't be caught.
+> - Absence that isn't an error is an optional, `?T`.
+> - Fallible operations take the plain name (`File.open`). A panicking convenience twin is `must_*`.
 
-### 9.1 Built-in Primitive Methods & Character Package (`std/chars`)
+### 9.1 Choosing a mechanism
 
-All primitive types provide canonical conversion and formatting methods:
-- `int.to_string() string`
-- `float.to_string() string`
-- `bool.to_string() string`
-- `char.to_string() string`
+| Situation | Use |
+|---|---|
+| A value may legitimately be absent (`map[k]`, `parse_int`, an iterator's end) | `?T` |
+| A correct program can still fail because of its input or environment | `Result[T]` (with an `Error`) |
+| Callers need to react differently to distinct failure cases | a custom result type |
+| A precondition was violated or an invariant is broken: a bug | `panic`, `assert` |
 
-The `std/chars` package provides comprehensive character classification, ASCII case conversion, radix conversions, and UTF-8 encoding measurements:
+Library code must not panic on bad external input.
 
-#### Character Inherent Methods
-- `ch.is_digit() bool`: Returns `true` if `ch` is an ASCII decimal digit (`'0'..'9'`).
-- `ch.is_alpha() bool`: Returns `true` if `ch` is an ASCII letter (`'a'..'z'` or `'A'..'Z'`).
-- `ch.is_alnum() bool`: Returns `true` if `ch` is alphanumeric.
-- `ch.is_whitespace() bool`: Returns `true` if `ch` is ASCII whitespace (`' '`, `'\t'`, `'\n'`, `'\r'`, `0x0B`, `0x0C`).
-- `ch.is_ascii() bool`: Returns `true` if `ch <= 0x7F`.
-- `ch.is_ascii_upper() bool`: Returns `true` if `ch` is an uppercase ASCII letter.
-- `ch.is_ascii_lower() bool`: Returns `true` if `ch` is a lowercase ASCII letter.
-- `ch.is_control() bool`: Returns `true` if `ch` is an ASCII control character (`< 32` or `127`).
-- `ch.is_punctuation() bool`: Returns `true` if `ch` is ASCII punctuation.
-- `ch.to_ascii_upper() char`: Converts ASCII lowercase to uppercase; non-ASCII/uppercase characters unchanged.
-- `ch.to_ascii_lower() char`: Converts ASCII uppercase to lowercase; non-ASCII/lowercase characters unchanged.
-- `ch.to_digit(radix: int) ?int`: Parses `ch` as a digit in radix $2 \le \text{radix} \le 36$; returns `none` if invalid.
-- `ch.len_utf8() int`: Returns the UTF-8 byte length required to encode `ch` (1 to 4 bytes).
+**Naming.** A fallible operation has the plain name and returns a result or optional: `DateTime.new(...) Result[DateTime]`, `File.open(path) Result[File]`, `DateTime.diff(other) ?Duration`. There is no `try_` prefix. If a panicking twin is useful, typically for known-good literals in tests, it is named `must_*`: `DateTime.must_new(...)`. An alternative that avoids failure some other way gets a descriptive name, such as `diff_saturating`. See `CONVENTIONS.md`.
 
-#### Character Static & Free Functions
-- `char.from_digit(digit: int, radix: int) ?char`: Converts numeric value into character digit.
-- Standalone free functions: `chars.is_digit(ch)`, `chars.is_alpha(ch)`, `chars.is_alnum(ch)`, `chars.is_whitespace(ch)`, `chars.to_ascii_upper(ch)`, `chars.to_ascii_lower(ch)`, `chars.to_digit(ch, radix)`, `chars.from_digit(digit, radix)`.
+### 9.2 Results
 
-### 9.2 String Built-ins & Standard Strings Package (`std/strings`)
+The language-level rules for result types are in [§3.9](#39-results) (declaration and construction), [§6.6](#66-result-chains) (chains), [§5.8](#58-optional-chaining-and-fallback) (`??`), and [§6.2](#62-if) (`if(r! as v)`). The standard `Result[T]` and `Error` types, including error chains, codes, and traces, are in [§12.6](#126-result-and-error).
 
-The `string` type represents an immutable UTF-8 text sequence. The standard library package `std/strings` provides a complete suite of string methods:
-
-#### Inherent String Operations
-- `s.len() int`: Returns Unicode scalar count.
-- `s.byte_len() int`: Returns UTF-8 byte count.
-- `s.byte_at(i: int) u8`: Returns the byte at index `i` (bounds-checked).
-- `s.is_empty() bool`: Returns `true` if `s.byte_len() == 0`.
-- `s.is_whitespace() bool`: Returns `true` if all characters are whitespace.
-- `s.is_ascii() bool`: Returns `true` if all characters are ASCII.
-
-#### Search & Inspection
-- `s.starts_with(prefix: string) bool`
-- `s.ends_with(suffix: string) bool`
-- `s.contains(sub: string) bool`
-- `s.index_of(sub: string) ?int`: Returns start index of first occurrence of `sub`, or `none`.
-- `s.last_index_of(sub: string) ?int`: Returns start index of last occurrence of `sub`, or `none`.
-- `s.count(sub: string) int`: Returns non-overlapping occurrence count of `sub`.
-
-#### Trimming
-- `s.trim() string`: Trims leading and trailing whitespace.
-- `s.trim_start() string`: Trims leading whitespace.
-- `s.trim_end() string`: Trims trailing whitespace.
-
-#### Case & Transformation
-- `s.to_lower() string`: Returns lowercase string (also `to_lowercase()`).
-- `s.to_upper() string`: Returns uppercase string (also `to_uppercase()`).
-- `s.capitalize() string`: Capitalizes first character and lowercases remainder.
-- `s.repeat(n: int) string`: Repeats string `n` times.
-- `s.reverse() string`: Reverses character order.
-- `s.replace(old: string, new: string) string`: Replaces first occurrence of `old` with `new`.
-- `s.replace_all(old: string, new: string) string`: Replaces all occurrences of `old` with `new`.
-
-#### Padding & Formatting
-- `s.pad_left(width: int, pad_ch: char = ' ') string`
-- `s.pad_right(width: int, pad_ch: char = ' ') string`
-- `s.center(width: int, pad_ch: char = ' ') string`
-
-#### Splitting, Joining & Conversions
-- `s.split(delim: string) [string]`: Splits `s` by `delim`.
-- `s.split_whitespace() [string]`: Splits `s` by contiguous whitespace runs.
-- `s.lines() [string]`: Splits `s` into lines across `\n` and `\r\n`.
-- `s.chars_list() [char]`: Returns an owned list of Unicode `char` scalars.
-- `s.bytes_list() [u8]`: Returns an owned list of raw `u8` bytes.
-- `strings.join(parts: [string], sep: string) string`: Joins list of strings with `sep`.
-
-### 9.3 Collection Operations & Sorting (`std/sort`)
-
-#### Dynamic Lists (`[T]` / `List[T]`)
-- `lst.len() int`: Element count.
-- `lst.cap() int`: Allocated capacity.
-- `lst.push(val: own T)`: Appends `val` to the list.
-- `lst.pop() ?T`: Removes and returns the last element, or `none` if empty.
-- `lst.get(i: int) ?T`: Retrieves element at index `i` as optional `?T`.
-- `lst.contains(val: T) bool`: Returns `true` if `val` appears in the list (requires element equality).
-- `lst.clear()`: Drops all elements and resets length to zero.
-
-#### Fixed Arrays (`[N: T]` / `Array[T]`)
-- `arr.len() int`: Compile-time array length `N`.
-- `arr.is_empty() bool`: Returns `true` if the array has zero elements.
-- `arr.get(i: int) ?T`: Retrieves element at index `i` as optional `?T`.
-- `arr.contains(val: T) bool`: Returns `true` if `val` appears in the array (requires element equality).
-
-#### Ranges (`Range[T]`)
-- `r.contains(item: T) bool`: Returns `true` if `item` lies within `[start, end)` (`inclusive == false`) or `[start, end]` (`inclusive == true`).
-- `r.is_empty() bool`: Returns `true` if the range contains no elements.
-- `r.len() int`: Returns the number of elements in the range.
-- `r.iter() Iterator[T]`: Returns an iterator yielding each element in ascending order.
-- `r.to_string() string`: Formats `"start..end"` or `"start..=end"`.
-
-#### Sets (`#[T]` / `Set[T: Hashable]`)
-- `s.len() int`
-- `s.insert(val: own T) bool`: Inserts `val`; returns `true` if inserted, `false` if already present.
-- `s.contains(val: T) bool`
-- `s.remove(val: T) bool`
-- `s.clear()`
-
-#### Maps (`#[K: V]` / `Map[K: Hashable, V]`)
-- `m.len() int`
-- `m.get(key: K) ?V`: Returns a read-only borrow of the value for `key`, or `none`.
-- `m.has(key: K) bool`
-- `m.contains(key: K) bool`: Returns `true` if `key` is present in the map, implementing `Containable[K]`.
-- `m.set(key: own K, val: own V) ?V`: Inserts or updates the entry; returns prior value if replaced.
-- `m.remove(key: K) ?V`: Removes key and returns prior value.
-- `m.keys() [K]`
-- `m.values() [V]`
-- `m.clear()`
-
-#### The `Sortable` Interface & Collection Sorting (`std/sort`)
-The `std/sort` package provides high-performance in-place sorting based on Quicksort with median-of-three Lomuto partitioning and insertion sort optimization for sub-partitions $\le 16$ elements:
+A typical function that propagates failures:
 
 ```lowlight
-define Sortable interface [
-    sort: (&self),
-]
-```
+bind parse_port = (raw: string) Result[int]: {
+	let port = parse_int(raw) ?? func <- err(Error.coded("invalid_port", "not a number: $raw"))
+	if(port < 1 or port > 65535): func <- err(Error.coded("invalid_port", "out of range: $port"))
+	value(port)
+}
 
-- `lst.sort()`: Sorts list in-place in ascending order (requires `T: Comparable`).
-- `lst.sort_by(cmp_fn: (a: &T, b: &T) int)`: In-place sorts using custom comparator function returning negative, zero, or positive integer.
-- `lst.is_sorted() bool`: Checks whether list is sorted in non-decreasing order.
-- `lst.binary_search(target: &T) ?int`: Binary search on sorted list; returns index of match or `none`.
-- `lst.reverse()`: Reverses list in-place.
-- `s.to_sorted_list() [T]`: Converts set elements to a newly allocated sorted list.
-- `m.to_sorted_keys() [K]`: Extracts map keys into a newly allocated sorted list.
-- Standalone functions: `sort.sort(&lst)`, `sort.sort_by(&lst, cmp_fn)`, `sort.is_sorted(lst)`, `sort.binary_search(lst, target)`.
-
-### 9.4 File System Operations (`std/fs`)
-
-Lowlight provides robust native file system and file stream operations through `std/fs`:
-
-#### The `File` Resource Struct
-```lowlight
-define File struct [
-    handle: ptr[u8],
-    is_open: bool,
-]
-```
-- Implements `Drop` via `File.drop(&self)`: Automatically closes any open file descriptor upon scope exit, preventing file descriptor leaks under all normal control flow paths (block completion and `<-` unwinds). A panic aborts the process without running `Drop` (§9.6.1); the operating system reclaims the descriptor and the C stdio buffers are flushed at exit.
-
-#### Constructors
-- `File.open(path: string, mode: string) Result[File]`
-- `File.open_read(path: string) Result[File]` (mode `"rb"`)
-- `File.open_write(path: string) Result[File]` (mode `"wb"`)
-- `File.open_append(path: string) Result[File]` (mode `"ab"`)
-- `File.open_read_write(path: string) Result[File]` (mode `"w+b"`)
-
-#### Stream Methods
-- `file.close() bool`: Closes stream explicitly.
-- `file.flush() bool`: Flushes internal buffers.
-- `file.seek(offset: int, whence: i32) Result[int]`: Seeks to position using `SEEK_SET = 0`, `SEEK_CUR = 1`, or `SEEK_END = 2`.
-- `file.tell() Result[int]`: Returns current stream position offset.
-- `file.size() Result[int]`: Returns total file size in bytes.
-- `file.write_string(s: string) Result[int]`: Writes UTF-8 text to stream.
-- `file.write_bytes(bytes: [u8]) Result[int]`: Writes byte slice to stream.
-- `file.read_bytes(max_bytes: int) Result[[u8]]`: Reads up to `max_bytes` into an owned list.
-- `file.read_to_string() Result[string]`: Reads remaining file stream contents to end as string.
-
-#### Top-Level Convenience Functions
-- `fs.read_file(path: string) Result[string]` (alias `fs.read_to_string`, `fs.read_text`)
-- `fs.write_file(path: string, content: string) Result[bool]` (alias `fs.write_to_file`, `fs.write_text`)
-- `fs.append_file(path: string, content: string) Result[bool]`
-- `fs.read_bytes(path: string) Result[[u8]]`
-- `fs.write_bytes(path: string, bytes: [u8]) Result[bool]`
-- `fs.exists(path: string) bool`
-- `fs.file_size(path: string) Result[int]`
-- `fs.remove_file(path: string) bool`
-- `fs.rename_file(old_path: string, new_path: string) bool`
-- `fs.copy_file(src_path: string, dst_path: string) Result[int]`
-
-### 9.5 Operating System & Universe Functions (`std/os`)
-
-The following functions are available globally in all scopes:
-- `print(val: Printable)`: Writes string representation to standard output without newline.
-- `println(val: Printable)`: Writes string representation to standard output with trailing newline.
-- `eprint(val: Printable)`: Writes string representation to standard error.
-- `eprintln(val: Printable)`: Writes string representation to standard error with trailing newline.
-- `panic(msg: string) never` / `panic(err: Error) never`: Aborts the process with a fatal error (§9.6.1). A string panics with that message; an `Error` panics with its full formatted chain and trace (`err.to_string()`). Standard output is flushed before the message is written to standard error. `panic` cannot be caught or recovered from in Lowlight code, and no `Drop` implementations run.
-- `assert(cond: bool [, msg: string])`: Evaluates `cond`; panics if `cond` is `false`.
-- `args() [string]`: Returns command-line invocation arguments as an owned `[string]` list. Implemented in pure native Lowlight in `std/os` by iterating runtime argument counts and accessing argument vector elements.
-
-### 9.6 The `Result[T]` and `Error` Standard Types
-
-The standard prelude defines the canonical error-handling types `Result[T]` and `Error` (`std/core/error.ll` and `std/core/result.ll`):
-
-```lowlight
-define ErrorFrame struct [
-    _file: string,
-    _line: int,
-    _col: int,
-    _note?: ?string,
-]
-
-define Error struct [
-    _message: string,
-    _code?: ?string,
-    _cause?: ?Error,
-    _frames: [ErrorFrame],
-]
-
-@must_use
-define Result[T] result [
-    value: T,
-    Err: Error,
-]
-```
-
-`Result[T]` is an ordinary result declaration (§3.8.3). Handle it with result chains (§7.6.5), `??`, `if (r! as v)`, `match` on `Result.value(v)` / `Result.Err(e)`, or the methods below.
-
-```lowlight
-bind read_config = (path: string) Result[Config]: {
-    let text = fs.read_text(path):
-        default Err(e): func <- Err(e.wrap("reading config"))
-    value(parse_config(text))
+bind main = (): {
+	println(parse_port("8080") ?? 0)
+	let p = parse_port("http"):
+		default err(own e): {
+			println(e.summary())
+			80
+		}
+	println(p)
 }
 ```
 
-#### `Error` Inherent Methods
-- `Error.new(msg: string) Error` (`@track_caller`): Creates an error capturing the call-site `file:line:col` frame.
-- `Error.coded(code: string, msg: string) Error` (`@track_caller`): Creates a coded/sentinel error with `_code?` set.
-- `err.wrap(msg: string) Error` (`@track_caller`): Wraps `err` as `_cause?` with a new context message and call-site frame.
-- `err.trace() Error` (`@track_caller`): Appends the current call-site frame to the error's trace without adding a new wrapper layer.
-- `err.with_code(code: string) Error`: Returns a copy with `_code?` attached.
-- `err.is(target: Error) bool`: Walks the `_cause?` chain (matching sentinel codes or uncoded messages).
-- `err.has_code(code: string) bool`: Returns `true` if any layer in the chain carries `code`.
-- `err.cause() ?Error`: Returns the direct wrapped cause, if any.
-- `err.root() Error`: Returns the innermost originating `Error` in the chain.
-- `err.message() string` / `err.code() ?string` / `err.frames() [ErrorFrame]`
-- `err.summary() string`: Single-line colon-joined chain (`outer: middle: root`).
-- `err.to_string() string`: Multi-line formatted error summary and location trace (`Printable`).
+Values of `@must_use` types, which include `Result[T]`, cannot be silently discarded ([§4.8](#48-attributes)).
 
-#### `Result[T]` Inherent Methods
-- `Result[T].ok(val: own T) Result[T]`
-- `Result[T].fail(err: own Error) Result[T]`
-- `Result[T].fail_msg(msg: string) Result[T]` (`@track_caller`)
-- `res.is_ok() bool` / `res.is_err() bool`
-- `res.unwrap() T` (`@track_caller`): Returns value if ok; if failed, panics with the error wrapped as `"called Result.unwrap on an error"` at the caller's location (`panic(err.wrap(...))`).
-- `res.expect(msg: string) T` (`@track_caller`): Returns value if ok; if failed, panics with the error wrapped as `msg` at the caller's location (`panic(err.wrap(msg))`).
-- `res.unwrap_or(fallback: own T) T`: Returns value if ok; otherwise returns `fallback`.
-- `res.unwrap_err() Error` (`@track_caller`): Returns `Error` if failed; panics if ok.
-- `res.into_ok() ?T` / `res.into_err() ?Error` / `res.peek_err() ?Error`
-- `res.wrap_err(msg: string) Result[T]` (`@track_caller`): Wraps the error with `msg` and caller frame if failed.
-- `res.trace_err() Result[T]` (`@track_caller`): Appends a caller frame to the error if failed.
+### 9.3 Panics
 
-Because `Result` is marked `@must_use`, ignoring a returned `Result` without inspection generates a compiler warning/check.
+A **panic** stops the program. Panics come from:
 
-#### 9.6.1 Failure Model: `Result` vs. `panic`
+- `panic(msg)` with a `string`, or `panic(err)` with an `Error`;
+- `assert(cond)` and `assert(cond, msg)` when `cond` is false;
+- a result chain's `default panic`, and the `unwrap` and `expect` methods of `Result`;
+- runtime **traps** ([Appendix D](#appendix-d-runtime-traps)): index or slice out of range, division by zero, an out-of-range shift, and similar.
 
-Lowlight has two failure channels that share one error type. They are deliberately not merged: they answer different questions about *who can act* on a failure.
+When a panic occurs:
 
-| | `Result[T]` (recoverable) | `panic` (fatal) |
+1. standard output is flushed;
+2. `lowlight panic at FILE:LINE:COL: MESSAGE` is written to standard error. For an `Error`, its full chain and trace follow;
+3. the process exits with status `1`.
+
+No destruction runs: no `drop` methods, no scope cleanup. The operating system reclaims memory and handles. A panic cannot be caught, recovered from, or inspected by Lowlight code.
+
+Panics are abort-only for three reasons:
+
+- Catching them would add an invisible exit to every call, contrary to Lowlight's explicit `<-` control flow.
+- Every `drop` would have to tolerate half-finished state.
+- Every backend would need unwinding machinery.
+
+Test runners isolate panics per test ([§11.3](#113-the-test-runner)), but that is a property of the tool, not the language.
+
+The location reported is where the panic was raised. Inside a function marked `@track_caller`, the caller's location is used instead ([§4.8](#48-attributes)).
+
+---
+
+## 10. Unsafe Code and Foreign Functions
+
+> **At a glance**
+> - `unsafe expr` or `unsafe { ... }` allows raw-pointer operations, raw allocation, and calls to `extern` functions.
+> - Inside `unsafe`, ownership, borrowing, and destruction rules still apply; only the listed operations are added.
+> - `extern "header.h"` and `extern name: (params) Ret` declare foreign functions.
+
+### 10.1 Unsafe expressions
+
+`unsafe` is a prefix operator that applies to one expression, often a block:
+
+```lowlight
+bind main = (): {
+	let x = 5
+	let y = unsafe {
+		let p = addr_of(x)
+		ptr_read(p) + 1
+	}
+	println(y)
+}
+```
+
+The following operations are **unsafe**: each is an error unless it appears inside an `unsafe` expression.
+
+- dereferencing a pointer, `*p`, `*p = v`, and indexing one, `p[i]`;
+- the pointer intrinsics: `null_ptr`, `is_null`, `addr_of`, `ptr_add`, `ptr_read`, `ptr_write`, `ptr_cast`, `ptr_addr`;
+- the raw memory intrinsics: `alloc_raw`, `alloc_uninit`, `realloc_raw`, `free_raw`, `copy_bytes`, `zero_bytes`, `fill_bytes`;
+- calling an `extern` function;
+- `s.c_str()`, which exposes a string's bytes as a `ptr[u8]`.
+
+In unsafe code the programmer, not the compiler, guarantees that pointers are valid, aligned, non-null where required, and point to live memory of the right type. All other rules (types, moves, borrows, destruction) still apply.
+
+### 10.2 Raw pointers
+
+`ptr[T]` is a plain address. The intrinsics, with their types:
+
+| Intrinsic | Type | Meaning |
 |---|---|---|
-| **Meaning** | An expected outcome the caller can act on: missing file, refused connection, malformed input. | A bug or broken invariant no caller can repair: out-of-bounds index, division by zero, failed `assert`, `unwrap` of an error, violated precondition. |
-| **Mechanism** | An ordinary value in the function signature, `@must_use`, handled explicitly (result chains, `??`, `if (r! as v)`, `wrap_err`, `match`). | Aborts the process. Standard output is flushed, the message and trace are written to standard error, and the process exits with status `1`. |
-| **Payload** | `Error` (message, optional code, cause chain, frames). | A `string` or the same `Error`; `unwrap`/`expect` panic with the original `Error` wrapped, so a fatal error prints exactly like a reported one. |
-| **Cleanup** | Normal LIFO `Drop` on every scope exit. | No unwinding and no `Drop`. The operating system reclaims memory and descriptors. |
-| **Recovery** | Always: the caller decides. | Never in Lowlight code. There is no `recover`/`catch`. Test harnesses may isolate panics (§9.7), but that is tooling, not a language feature. |
+| `null_ptr[T]()` | `ptr[T]` | the null pointer |
+| `is_null(p)` | `bool` | tests for null |
+| `addr_of(place)` | `ptr[T]` | the address of a variable, field, or element |
+| `ptr_add(p, n)` | `ptr[T]` | `p` offset by `n` elements |
+| `ptr_read(p)` · `*p` | `T` | reads the value at `p` (a bitwise copy) |
+| `ptr_write(p, v)` · `*p = v` | | writes `v` (moved) to `p` without destroying the old contents |
+| `ptr_cast[U](p)` | `ptr[U]` | reinterprets a pointer, or an integer address, as `ptr[U]` |
+| `ptr_addr(p)` | `u64` | the numeric address |
 
-**Choosing a channel.** Return `Result` when a correct program can still hit the failure because of its environment or input. Panic only when the caller broke a documented precondition or the program's own invariants are violated. Library code must not panic on bad external input.
+### 10.3 Memory intrinsics
 
-**Why panics are not recoverable.** Recoverable panics would add an invisible non-local exit to every call (contradicting the explicit, targeted `<-` control flow of §7.7), require every `Drop` to tolerate half-finished state during unwinding, and impose unwinding machinery on every backend (§1, axiom 7). Making `panic` abort-only keeps `Result` the single way to handle errors and keeps panics cheap and predictable.
+| Intrinsic | Unsafe | Meaning |
+|---|---|---|
+| `size_of[T]()` · `align_of[T]()` | no | size and alignment of `T` in bytes, as compile-time constants |
+| `is_plain[T]()` | no | whether `T` is plain |
+| `alloc_raw[T](n)` · `alloc_uninit[T](n)` | yes | allocate room for `n` values of `T`, zeroed or uninitialized |
+| `realloc_raw(p, n)` | yes | resize an allocation to `n` elements |
+| `free_raw(p)` | yes | release an allocation (does not destroy its contents) |
+| `copy_bytes(dst, src, n)` · `zero_bytes(dst, n)` · `fill_bytes(dst, b, n)` | yes | byte operations on `ptr[u8]` |
 
-**API naming convention.** When an operation has both a fallible and an asserting form, the asserting form takes the plain name and panics on failure, and the fallible form is prefixed with `try_` and returns `Result[T]` (or `?T` when absence is the only failure). Example: `DateTime.new(...)` panics on out-of-range components; `DateTime.try_new(...)` returns `Result[DateTime]`. An operation whose failure is an ordinary outcome (I/O, parsing, networking) has only the `Result` form.
+Memory from `alloc_raw` is not tracked by ownership: it must be released with `free_raw`, and values written into it are not destroyed automatically.
 
-### 9.7 Testing System & Standard Testing Package (`std/test`)
-
-Lowlight provides an integrated compile-time testing framework and standard assertion package (`import "std/test"`, qualified as `test.*`):
-
-#### Package Test Organization & Source Scope
-Tests may be structured in three complementary ways:
-1. **Inline `@test` Functions:** `@test` and `@test_only` declarations inside regular package `.ll` files.
-2. **Dedicated White-Box Test Files (`*_test.ll`):** Sibling files in a package directory named `*_test.ll`. These files belong to the same package boundary (granting full access to unexported `_` declarations) and may import `[dev-dependencies]` (§12.2), while remaining completely excluded from non-test `build`, `run`, `check`, `emit-*`, and downstream imports.
-3. **External Black-Box Integration Packages (`tests/`):** Packages under `tests/` import public targets purely via their exported APIs and `[dev-dependencies]`.
-
-#### Test Annotations (`@test`, `@test_only`, `@track_caller`)
-- `@test` / `@test("description")`: Marks a top-level function as a test case. The function takes 0 parameters and returns `void`. The function identifier can have any name—the `@test` attribute marks it as a test.
-- `@test_only`: Marks helper functions, mock structs, enums, interfaces, distinct types, or globals intended exclusively for test code.
-- `@track_caller`: Instructs the compiler to implicitly track and propagate the caller's source location (`file:line:col`). When an assertion or `panic` occurs inside a `@track_caller` function, the failure diagnostic reports the caller's call-site location instead of the internal function body. Nested `@track_caller` helpers forward the outer caller's call site seamlessly.
-
-#### Builtin Caller Inspection
-- `caller_location() string`: Returns the caller's source position formatted as `file:line:col`.
-- `caller_file() string`: Returns the caller's source file path.
-- `caller_line() int`: Returns the caller's 1-based source line.
-- `caller_col() int`: Returns the caller's 1-based source column.
-
-#### Compile-Time Isolation & Build Stripping
-- **Call-Graph Restriction**: Any function or declaration not marked `@test` or `@test_only` in non-test package files is strictly prohibited from calling or referencing any symbol marked `@test` or `@test_only` or any `[dev-dependencies]` package. Attempting to access test symbols or dev dependencies from production code produces a static compile-time error.
-- **Release & Non-Test Build Stripping**: In standard application builds (`lowlight build` or `--release`), all `*_test.ll` files are excluded and all inline `@test` / `@test_only` items are omitted during lowering and excluded from generated code and binaries.
-
-#### Dedicated Test Entry Point & Runner (`lowlight test`)
-Running `lowlight test [<path...>]` compiles and tests at **package granularity** (one test binary per tested package rather than isolated per-file compilations):
-- Inside a `lowlight.toml` project or `[workspace]`, `lowlight test` with no arguments runs all packages in the project or workspace (including their `*_test.ll` files and integration packages under `tests/`).
-- If `bind test_main = ()` is explicitly defined in the tested package, it serves as the test entry point.
-- Otherwise, the compiler automatically synthesizes a single test runner per package (supporting both the default LLVM IR backend and the C11 backend) that discovers and executes all `@test` functions in that package and its included `*_test.ll` files.
-- **Per-Test Leak Checking**: The runner evaluates `ll_rt_live_allocs` before and after each test function. Any test that leaks heap memory fails with: `--- FAIL: <test> (leaked N heap allocation(s))`.
-- **Panic Isolation**: The generated test runner guards each test with C `setjmp`/`longjmp` so a failed assertion or panic fails that test and the suite continues. This is a property of the test harness, not of the language (§9.6.1): no `Drop` runs for the abandoned test, so a panicking test may also report leaked allocations, and Lowlight code itself can never catch a panic.
-- **High-Resolution Timing**: Reports execution duration per test in microseconds.
-
-#### Standard Testing Assertions (`std/test`)
-Importing `"std/test"` binds the `test` qualifier providing comprehensive assertion utilities with automatic caller location tracking (`@track_caller`), column-aligned value formatting, and character-level or multiline visual diff markers:
-- `test.assert_eq[T: Equatable + Printable](actual: T, expected: T)`
-- `test.assert_eq_msg[T: Equatable + Printable](actual: T, expected: T, msg: string)`
-- `test.assert_ne[T: Equatable + Printable](actual: T, unexpected: T)`
-- `test.assert_ne_msg[T: Equatable + Printable](actual: T, unexpected: T, msg: string)`
-- `test.assert_true(cond: bool)` / `test.assert_true_msg(cond: bool, msg: string)`
-- `test.assert_false(cond: bool)` / `test.assert_false_msg(cond: bool, msg: string)`
-- `test.assert_gt[T: Comparable + Printable](actual: T, expected: T)`
-- `test.assert_lt[T: Comparable + Printable](actual: T, expected: T)`
-- `test.assert_ge[T: Comparable + Printable](actual: T, expected: T)`
-- `test.assert_le[T: Comparable + Printable](actual: T, expected: T)`
-- `test.assert_is_ok[T](res: &Result[T])` / `test.assert_is_ok_msg(...)`
-- `test.assert_is_err[T](res: &Result[T])` / `test.assert_is_err_msg(...)`
-- `test.assert_some[T](val?: ?T)`
-- `test.assert_none[T](val?: ?T)`
-- Batch assertions (`test.assert_all_*` / `test.assert_all_*_msg`): mirror the full assertion suite over slices/arrays — `[+[T, T]]` (with `.0` as `expected` and `.1` as `actual`), `[+[T, Result[T]]]`, or unary `[T]` — evaluating every case rather than stopping at the first failure and reporting an aggregate pass/fail summary with per-index diffs (`assert_all_eq`, `assert_all_ne`, `assert_all_approx_eq`, `assert_all_true`, `assert_all_false`, `assert_all_gt`, `assert_all_lt`, `assert_all_ge`, `assert_all_le`, `assert_all_contains`, `assert_all_starts_with`, `assert_all_ends_with`, `assert_all_is_ok`, `assert_all_is_err`, `assert_all_ok_*`, `assert_all_err_contains`, `assert_all_some`, `assert_all_none`), plus `assert_all_eq_named` / `assert_all_ok_eq_named` (`+[label, expected, actual]`), `assert_all_eq_by`, `assert_all_with`, and `assert_any_eq`.
-
-Failed assertions display:
-```
---- FAIL: my_test
-    my_test.ll:15:5: assertion failed: values are not equal
-  expected: hello there
-       got: hello world
-                  ^ diff at index 6
-```
-For multiline strings (e.g. JSON payloads), assertions report the mismatched line number, aligned strings, and intra-line difference indicator.
-
----
-
-## 10. Unsafe Operations & Foreign ABI Interoperability
-
-Lowlight isolates all potentially memory-unsafe operations behind explicit syntactic boundaries.
-
-### 10.1 The `unsafe` Prefix Operator
-
-In Lowlight, an executable block `{ ... }` is an expression. The `unsafe` keyword is a **unary prefix operator** that can precede any expression:
-
-```
-unsafe <expr>
-```
-
-Operations that can violate memory safety—such as raw pointer dereferences (`*p`), writing through raw pointers (`*p = val`), pointer offsets (`p[i]`), calling foreign functions, or raw heap memory allocation—are permitted only within an `unsafe <expr>`:
-
-```lowlight
-// `unsafe` applied to a block expression:
-unsafe {
-    let p = ptr_from_ref(&x)
-    *p = 100
-}
-
-// `unsafe` applied directly to a single operation:
-let val = unsafe *raw_ptr
-unsafe foreign_function_call(arg1, arg2)
-```
-
-Within an `unsafe` expression, the programmer assumes full responsibility for pointer validity, non-null guarantees, and memory alignment. Safe Lowlight invariants—including affine move semantics, borrow exclusivity, and deterministic destruction—continue to be strictly enforced by the compiler even inside `unsafe`.
-
-### 10.2 Raw Pointer Mechanics (`ptr[T]`)
-
-Raw pointers `ptr[T]` allow unmanaged address manipulation:
-- `ptr_null[T]() ptr[T]`: Produces a null pointer.
-- `ptr_from_ref[T](r: &T) ptr[T]`: Converts a safe reference to a raw pointer.
-- `*p`: Dereferences a pointer to read its value (unsafe).
-- `*p = val`: Overwrites the target memory location with `val` without running prior destructors (unsafe).
-- `p[i]`: Accesses memory at offset $p + i \times \text{sizeof}(T)$ (unsafe).
-- `ptr_add[T](p: ptr[T], offset: int) ptr[T]`: Performs pointer arithmetic.
-
-### 10.3 Safe Sizing vs. Unsafe Memory Intrinsics
-
-- **Safe Sizing Functions:**
-  - `size_of[T]() int`: Returns the byte size of type $T$ at compile time.
-  - `align_of[T]() int`: Returns the byte alignment of type $T$ at compile time.
-- **Unsafe Allocator Intrinsics:**
-  - `alloc_raw(bytes: int, align: int) ptr[u8]`: Allocates unmanaged heap memory (unsafe).
-  - `free_raw(p: ptr[u8])`: Releases unmanaged heap memory (unsafe).
-  - `copy_raw(src: ptr[u8], dst: ptr[u8], bytes: int)`: Copies non-overlapping memory (unsafe).
-
-### 10.4 Foreign Function Interface (`extern`)
-
-Lowlight provides a target-agnostic Foreign Function Interface (FFI) declaration mechanism for interacting with external libraries and runtimes:
-
-```lowlight
-extern "C" "stdio.h" [
-    puts: (s: ptr[u8]) i32,
-    fopen: (path: ptr[u8], mode: ptr[u8]) ptr[u8],
-    fclose: (stream: ptr[u8]) i32,
-]
-```
-
-- **Target-Agnostic ABI Specification:** The string identifying the foreign ABI (e.g., `"C"`) specifies the foreign calling convention. For compilers targeting ISO C or native machine code, `"C"` designates the standard platform C ABI. Compilers targeting other environments (such as the JVM or WebAssembly) map corresponding ABI identifiers (e.g., `"java"` or `"wasm"`) to their target platforms. C interoperability is one specific ABI mapping, not an inherent semantic assumption of Lowlight.
-- **Header / Source Library Path:** An optional second string provides target-specific binding metadata (such as a C header file `"stdio.h"` or shared library).
-- **Symbol Renaming (`as`):** Foreign symbols may be renamed to expose an ergonomic local identifier:
-  ```lowlight
-  extern "C" [
-      c_rename as lowlight_name: (arg: int),
-  ]
-  ```
-- **Safety Boundary:** All foreign functions are inherently outside the safety guarantees of Lowlight. Every invocation of an `extern` function is an unsafe operation and must be preceded by `unsafe`.
-
----
-
-## 11. Formal Grammar Specification (EBNF)
+### 10.4 Foreign functions
 
 ```ebnf
-(* Lowlight Grammar Specification in Extended Backus-Naur Form *)
+ExternDecl = "extern" StringLit                                      (* a header to include *)
+           | "extern" ExternName [ "as" Name ] ":" "(" [ Params ] ")" [ Type ] ;
+ExternName = Name | StringLit | Keyword ;
+```
 
-Program             = { TopDeclaration } EOF ;
+```lowlight
+extern "stdio.h"
+extern puts: (s: ptr[u8]) i32
 
-TopDeclaration      = [ AttributeList ] ( BindDecl
-                                        | MethodDecl
-                                        | StructDecl
-                                        | EnumDecl
-                                        | InterfaceDecl
-                                        | DistinctDecl
-                                        | ExternDecl
-                                        | ImportDecl ) ;
+bind main = (): {
+	let msg = "hello from C"
+	let _ = unsafe puts(msg.c_str())
+}
+```
 
-AttributeList       = { "@" Ident [ "(" [ AttrArgList ] ")" ] } ;
-AttrArgList         = AttrArg { "," AttrArg } [ "," ] ;
-AttrArg             = StringLit | Ident ;
+- `extern "header.h"` names a header (or another target-specific binding unit) that provides foreign declarations.
+- `extern name: (params) Ret` declares a function with the platform's C calling convention. `as alias` gives it a different local name, which is required when the foreign name is a Lowlight keyword (`extern "match" as c_match: ...`).
+- Parameter and return types should be plain types with a C representation: numbers, `bool`, `char`, `ptr[T]`, and plain structs.
+- Every call is unsafe.
+- Foreign functions are outside Lowlight's guarantees. They must not unwind through Lowlight frames, and pointers they keep must not outlive the memory they point to.
 
-(* Package path StringLit targets a directory package without `.ll` extension *)
-ImportDecl          = "import" StringLit [ "as" Ident ] ;
+---
 
-BindDecl            = "bind" Ident [ ":" Type ] "=" Expr
-                    | "bind" UnpackBindTargets "=" "unpack" Expr ;
-MethodDecl          = "bind" Ident [ TypeParams ] "." Ident [ TypeParams ] "=" ( FuncLit | Expr ) ;
-LetDecl             = "let" ( Ident | OptIdent ) [ ":" Type ] "=" Expr
-                    | "let" UnpackBindTargets "=" "unpack" Expr ;
-UnpackBindTargets   = UnpackBindTarget { "," UnpackBindTarget } [ "," ] ;
-UnpackBindTarget    = ( "_" | Ident | OptIdent ) [ ":" Type ] ;
+## 11. Testing
 
-DistinctDecl        = "define" Ident Type ;
+> **At a glance**
+> - Mark a no-argument function with `@test` (or `@test("description")`); `lowlight test` runs it.
+> - Put larger suites in `name_test.ll` files next to the code; they see the package's private names.
+> - Each test is checked for heap leaks, and a panic fails only that test.
+> - `std/test` provides assertions with readable diffs.
 
-StructDecl          = "define" [ "packed" ] Ident [ TypeParams ] "struct" "[" [ FieldDeclList ] "]" ;
-FieldDeclList       = FieldDecl { "," FieldDecl } [ "," ] ;
-FieldDecl           = [ AttributeList ] ( Ident | OptIdent ) ":" Type [ "=" Expr ] ;
+### 11.1 Declaring tests
 
-EnumDecl            = "define" Ident [ TypeParams ] "enum" [ IntegerType ] "[" [ VariantList ] "]" ;
-VariantList         = VariantDecl { "," VariantDecl } [ "," ] ;
-VariantDecl         = UnitVariant | PayloadVariant ;
-UnitVariant         = Ident [ "=" ConstExpr ] ;
-PayloadVariant      = Ident ":" Type ;
+```lowlight
+import "std/test"
 
-InterfaceDecl       = "define" Ident [ TypeParams ] "interface" "[" [ MethodSigList ] "]" ;
-MethodSigList       = MethodSig { "," MethodSig } [ "," ] ;
-MethodSig           = Ident ":" "(" [ ParamList ] ")" [ Type ] ;
+bind add = (a: int, b: int) int: a + b
 
-ExternDecl          = "extern" StringLit
-                    | "extern" ( Ident | StringLit | Keyword ) [ "as" Ident ] ":" "(" [ ParamList ] ")" [ Type ] ;
+@test("add sums its arguments")
+bind test_add = (): {
+	test.assert_eq(add(2, 3), 5)
+	assert(add(-1, 1) == 0)
+}
 
-TypeParams          = "[" TypeParam { "," TypeParam } [ "," ] "]" ;
-TypeParam           = Ident [ ":" InterfaceBounds ] ;
-InterfaceBounds     = TypeIdent { "+" TypeIdent } ;
+bind main = (): println(add(1, 1))
+```
 
-TypeArgs            = "[" Type { "," Type } [ "," ] "]" ;
+1. `@test` marks a top-level function with no parameters that returns nothing. Its name is free; the optional string is a description.
+2. Tests may live in any file of a package, or in files named `*_test.ll`, which are compiled only for testing and belong to the package (so they see `_` names).
+3. `@test_only` marks helpers, types, and constants intended for tests. Non-test code may not refer to `@test` or `@test_only` declarations, or to `[dev-dependencies]` ([§14.2](#142-the-manifest)). Normal builds omit all test code.
+4. Black-box tests that use a package only through its exported API go in separate packages under `tests/`.
 
-Type                = PrimitiveType
-                    | "string"
-                    | "?" Type
-                    | "[" Type "]"
-                    | "[" IntLit ":" Type "]"
-                    | "#[" Type "]"
-                    | "#[" Type ":" Type "]"
-                    | "+[" [ TypeList ] "]"
-                    | Ident [ TypeArgs ]
-                    | "(" [ TypeList ] ")" [ Type ]
-                    | "ref" "[" Type "]"
-                    | "ptr" "[" Type "]"
-                    ;
+### 11.2 Caller locations
 
-PrimitiveType       = "int" | "i8" | "i16" | "i32" | "i64"
-                    | "u8" | "u16" | "u32" | "u64"
-                    | "float" | "f32" | "f64"
-                    | "bool" | "char" ;
+`@track_caller` on a function makes panics, `Error.new`, `Error.wrap`, and `caller_*()` inside it report the location of the call to that function. Calls through nested `@track_caller` functions report the outermost caller. This is how assertion helpers report the line of the failing test.
 
-Expr                = UnwindExpr
-                    | AssignmentExpr
-                    | CoalesceExpr ;
+| Function | Returns |
+|---|---|
+| `caller_location()` | `"file:line:col"` |
+| `caller_file()` · `caller_line()` · `caller_col()` | its parts |
 
-AssignmentExpr      = PlaceExpr { "," PlaceExpr } "=" "unpack" Expr
-                    | PlaceExpr ( "=" | "+=" | "-=" | "*=" | "/=" | "%="
-                                | "&=" | "|=" | "^=" | "<<=" | ">>=" ) Expr ;
+### 11.3 The test runner
 
-CoalesceExpr        = LogicalOrExpr [ "??" CoalesceExpr ] ;
-LogicalOrExpr       = LogicalAndExpr { "or" LogicalAndExpr } ;
-LogicalAndExpr      = BitwiseOrExpr { "and" BitwiseOrExpr } ;
-BitwiseOrExpr       = BitwiseXorExpr { "|" BitwiseXorExpr } ;
-BitwiseXorExpr      = BitwiseAndExpr { "^" BitwiseAndExpr } ;
-BitwiseAndExpr      = EqualityExpr { "&" EqualityExpr } ;
-EqualityExpr        = RelationalExpr [ ( "==" | "!=" ) RelationalExpr ] ;
-RelationalExpr      = RangeExpr [ ( "<" | "<=" | ">" | ">=" ) RangeExpr ] ;
-RangeExpr           = ShiftExpr [ ( ".." | "..=" ) ShiftExpr ] ;
-ShiftExpr           = AdditiveExpr { ( "<<" | ">>" ) AdditiveExpr } ;
-AdditiveExpr        = MultiplicativeExpr { ( "+" | "-" ) MultiplicativeExpr } ;
-MultiplicativeExpr  = UnaryExpr { ( "*" | "/" | "%" ) UnaryExpr } ;
+`lowlight test [paths]` compiles one test program per package and runs every test in it.
 
-UnaryExpr           = ( "-" | "not" | "~" | "*" | "&" | "own" | "unsafe" ) UnaryExpr
-                    | PostfixExpr ;
+- If a package defines `bind test_main = (): ...`, that is the entry point instead.
+- Each test runs in turn. A test **fails** if it panics (including a failed assertion) or if it leaves heap allocations unreleased: `--- FAIL: name (leaked N heap allocation(s))`.
+- A panic in one test is contained to that test, and the run continues. Because no destruction runs after a panic, a panicking test may also report leaks.
+- The runner reports each test's result and duration, and exits with a non-zero status if any test failed.
 
-PostfixExpr         = PrimaryExpr { MemberAccess
-                                  | OptionalMemberAccess
-                                  | CallExpr
-                                  | IndexExpr
-                                  | SliceExpr } ;
+The `std/test` assertions are listed in [§13](#13-the-standard-library).
 
-MemberAccess         = "." Ident ;
-OptionalMemberAccess = "?." Ident ;
-CallExpr             = [ TypeArgs ] "(" [ ArgList ] ")" ;
-IndexExpr            = "[" Expr "]" ;
-SliceExpr            = "[" [ Expr ] ".." [ Expr ] "]"
-                     | "[" [ Expr ] "..=" Expr "]" ;
+---
 
-PrimaryExpr         = Literal
-                    | Ident
-                    | OptIdent
-                    | StructLit
-                    | ListLit
-                    | ArrayLit
-                    | SetOrMapLit
-                    | TupleLit
-                    | BlockExpr
-                    | IfExpr
-                    | ForExpr
-                    | WhileExpr
-                    | MatchExpr
-                    | LambdaExpr
-                    | "(" Expr ")" ;
+## 12. The Prelude
 
-Literal             = IntLit | FloatLit | BoolLit | CharLit | StringLit | "none" ;
+> **At a glance**
+> - `std/core` is imported into every file automatically, unqualified.
+> - It defines the interfaces that give meaning to operators, loops, and interpolation: `Printable`, `Equatable`, `Comparable`, `Hashable`, `Copyable`, `Drop`, `Iterable`, `Iterator`, `Collectable`, `Indexable`, `KeyIndexable`, `Containable`.
+> - It provides the collection types behind `[T]`, `#[T]`, `#[K: V]`, `[N: T]`, and `lo..hi`, plus `Result[T]`, `Error`, and the methods on primitive types.
 
-StructLit           = Ident [ TypeArgs ] "[" [ StructFieldInitList ] "]" ;
-StructFieldInitList = StructFieldInit { "," StructFieldInit } [ "," ] ;
-StructFieldInit     = ( Ident | OptIdent ) [ ":" Expr ] ;
+The prelude is ordinary Lowlight source in `std/core`. Where the language relies on a prelude declaration, the declaration is marked `@lang("hook")`. The compiler finds language features through these hooks rather than through names.
 
-ListLit             = "[" [ ExprList ] "]" ;
-ArrayLit            = "[" ConstExpr ":" Expr { "," Expr } [ "," ] "]" ;
+### 12.1 Core interfaces
 
-SetOrMapLit         = "#[" [ SetElements | MapEntries ] "]" ;
-SetElements         = Expr { "," Expr } [ "," ] ;
-MapEntries          = MapEntry { "," MapEntry } [ "," ] ;
-MapEntry            = Expr ":" Expr ;
+| Interface | Methods | Hook | Gives meaning to |
+|---|---|---|---|
+| `Printable` | `to_string: (self) string` | `printable` | interpolation, `print`/`println`, `to_string()` |
+| `Copyable` | `copy: (self) Self` | `copyable` | `.copy()`, repeat array literals |
+| `Drop` | `drop: (&self)` | `drop` | custom cleanup before a value's fields are destroyed |
+| `Equatable` | `eq: (self, other: Self) bool` | `equatable` | `==`, `!=` |
+| `Comparable` | `cmp: (self, other: Self) int` (negative, zero, positive) | `comparable` | `<`, `<=`, `>`, `>=`, and also `==` |
+| `Hashable` | `hash: (self) u64` (equal values hash equally) | `hashable` | set elements and map keys |
+| `Iterator[T]` | `next: (&self) ?T` | `iterator` | stepping through `for` and `while` loops |
+| `Iterable[T]` | `iter: (self) Iterator[T]` | `iterable` | `for(x in v)` over any type |
+| `Collectable[T]` | `push: (&self, item: own T)` | `collectable` | the collection a `for` loop builds |
+| `Indexable[T]` | `len: (self) int`, `get: (self, idx: int) ?T` | `indexable` | `v[i]` on user types |
+| `KeyIndexable[K, V]` | `len`, `has: (self, key: K) bool`, `get: (self, key: K) ?V` | `key_indexable` | `v[k]` on user types |
+| `Containable[T]` | `contains: (self, item: T) bool` | `containable` | `when in v:` patterns |
 
-TupleLit            = "+[" [ ExprList ] "]" ;
+The prelude also binds `list`, `array`, `set`, `map`, and `range` hooks to the types `List`, `Array`, `Set`, `Map`, and `Range`, which implement `[T]`, `[N: T]`, `#[T]`, `#[K: V]`, and `lo..hi`. Implementing an interface's methods on your own type is all it takes for that type to work with the corresponding syntax.
 
-BlockExpr           = "{" { Statement } [ Expr ] "}" ;
+`MapEntry[K, V]` is a struct with fields `key` and `value`, used when iterating and collecting maps.
 
-Statement           = [ AttributeList ] ( LetDecl
-                                          | BindDecl
-                                          | Expr ) ( ";" | AutoSemi ) ;
+### 12.2 Universe functions
 
-IfExpr              = "if" "(" IfCondition ")" [ Type ] ":" ActionBody [ "else" ( IfExpr | ":" ActionBody ) ] ;
-IfCondition         = [ "&" ] OptIdent
-                    | [ "&" ] Expr "as" Ident
-                    | Expr ;
+These are built into the language and need no import.
 
-ForExpr             = [ Ident ":" ] "for" "(" ForHeader ")" [ Type ] ":" ActionBody [ "else" ":" ActionBody ] ;
-WhileExpr           = [ Ident ":" ] "while" "(" ForHeader ")" [ Type ] ":" ActionBody [ "else" ":" ActionBody ] ;
-ForHeader           = [ "&" ] ( Ident | OptIdent ) [ "," [ "&" ] ( Ident | OptIdent ) ] "in" Expr
-                    | Expr ;
+| Function | Type | Meaning |
+|---|---|---|
+| `print(v)` · `println(v)` | `(Printable)` | write `v.to_string()` to standard output; `println` adds a newline, and `println()` writes only a newline |
+| `eprint(v)` · `eprintln(v)` | `(Printable)` | the same, to standard error |
+| `panic(msg)` | `(string \| Error) never` | stop the program ([§9.3](#93-panics)) |
+| `assert(cond)` · `assert(cond, msg)` | `(bool [, string])` | panic with `msg` (or "assertion failed") if `cond` is false |
+| `exit(code)` | `(int) never` | end the process immediately with status `code`; no destruction runs |
+| `args()` | `() [string]` | the command-line arguments, starting with the program name |
+| `abs(x)` | `(int) int` | absolute value (for floats, `math.abs_float` in `std/math`) |
+| `min(a, b)` · `max(a, b)` | numeric `(T, T) T` | the smaller or larger of two numbers of the same type |
+| `caller_location()`, `caller_file()`, `caller_line()`, `caller_col()` | | the caller's source location ([§11.2](#112-caller-locations)) |
+| `size_of[T]()`, `align_of[T]()`, `is_plain[T]()` | | layout queries ([§10.3](#103-memory-intrinsics)) |
 
-MatchExpr           = "match" ( ":" | "(" [ ArgList ] ")" [ Type ] ":" ) { MatchArm } MatchDefaultArm ;
-MatchArm            = "when" MatchClauses ":" ActionBody ;
-MatchDefaultArm     = "default" [ MatchClauses ] ":" ActionBody ;
-MatchClauses        = MatchClause { "," MatchClause } [ "," ] ;
-MatchClause         = "(" Pattern { "," Pattern } [ "," ] ")"
-                    | Pattern { "," Pattern } ;
-Pattern             = Literal
-                    | "_"
-                    | Ident [ TypeArgs ] "(" [ ArgList ] ")"
-                    | Ident
-                    | Ident "." Ident [ "(" PatternBinding ")" ]
-                    | "in" Expr ;
+The prelude adds these ordinary functions:
 
-ActionBody          = BlockExpr | Expr ;
+| Function | Type |
+|---|---|
+| `parse_int(s)` · `parse_int_radix(s, radix)` | `?int` |
+| `parse_float(s)` | `?float` |
+| `join_strings(parts, sep)` | `string` |
 
-UnwindExpr          = "<-" [ Expr ]
-                    | "if" "<-" [ Expr ]
-                    | "match" "<-" [ Expr ]
-                    | "for" "<-" [ Expr ]
-                    | "next" "<-" [ Expr ]
-                    | Ident "<-" [ Expr ]
-                    | "next" Ident "<-" [ Expr ]
-                    | "func" "<-" [ Expr ] ;
+### 12.3 Methods on primitive types
 
-LambdaExpr          = "(" [ ParamList ] ")" [ Type ] ":" ActionBody ;
+| On | Methods |
+|---|---|
+| every primitive | `to_string()`; numbers, `char`, `bool` also `eq`, `hash`; numbers and `char` also `cmp` |
+| `float` | `to_exp(precision)` |
+| `char` | `is_digit()`, `is_alpha()`, `is_alnum()`, `is_whitespace()`, `to_int()` (more in `std/chars`) |
 
-ParamList           = Param { "," Param } [ "," ] ;
-Param               = [ "own" | "&" ] ( Ident | OptIdent ) ":" Type ;
+### 12.4 Strings and characters
 
-ArgList             = Arg { "," Arg } [ "," ] ;
-Arg                 = [ "own" | "&" ] Expr ;
+| Method | Type | Meaning |
+|---|---|---|
+| `len()` | `int` | length in bytes |
+| `is_empty()` | `bool` | `len() == 0` |
+| `byte_at(i)` · `s[i]` | `u8` | byte at offset `i`; traps when out of range |
+| `get(i)` · `get_byte(i)` | `?u8` | byte at offset `i`, or `none` |
+| `bytes()` · `chars()` | `[u8]` · `[char]` | the bytes, or the decoded characters |
+| `starts_with(p)` · `ends_with(p)` · `contains(sub)` | `bool` | substring tests |
+| `index_of(sub)` | `?int` | byte offset of the first occurrence |
+| `trim()` · `trim_start()` · `trim_end()` | `string` | without surrounding whitespace |
+| `to_upper()` · `to_lower()` | `string` | ASCII case conversion |
+| `replace(old, new)` · `replace_all(old, new)` | `string` | replace the first or every occurrence |
+| `split(sep)` | `[string]` | pieces between occurrences of `sep` |
+| `push(t)` · `push_char(c)` · `push_byte(b)` · `clear()` | | modify a mutable string in place |
+| `eq`, `cmp`, `hash`, `copy`, `to_string` | | byte-wise comparison and hashing |
+| `c_str()` | `ptr[u8]` | NUL-terminated bytes for C (unsafe) |
+
+`std/strings`, `std/strconv`, and `std/strfmt` add many more ([§13](#13-the-standard-library)).
+
+### 12.5 Collections
+
+**List** `[T]`:
+
+| Method | Meaning |
+|---|---|
+| `List[T].new()` · `List[T].with_capacity(n)` · `List[T].filled(n, v)` | construct |
+| `len()` · `cap()` · `is_empty()` | size |
+| `push(x)` · `pop() ?T` · `insert(i, x)` · `remove(i) T` · `swap_remove(i) T` | add and remove (`insert` and `remove` trap when out of range) |
+| `get(i) ?T` · `set(i, x) bool` | checked access |
+| `reserve(n)` · `resize(n, v)` · `clear()` | capacity and length |
+| `contains(x)` | membership (`T` must support `==`) |
+| `copy()` · `to_string()` · `iter()` | |
+
+**Array** `[N: T]`: `len()`, `is_empty()`, `get(i) ?T`, `contains(x)`, `to_string()`, `iter()`.
+
+**Set** `#[T]`: `Set[T].new()`, `with_capacity(n)`, `len()`, `is_empty()`, `insert(x) bool` (false if already present), `has(x)` / `contains(x)`, `remove(x) bool`, `clear()`, `to_list()`, `copy()`, `to_string()`, `iter()`.
+
+**Map** `#[K: V]`: `Map[K, V].new()`, `with_capacity(n)`, `len()`, `is_empty()`, `get(k) ?V`, `has(k)` / `contains(k)`, `insert(k, v)`, `remove(k) ?V`, `clear()`, `keys() [K]`, `values() [V]` (both in insertion order), `copy()`, `to_string()`, `iter()`.
+
+**Range** `Range[T]`: `contains(x)`, `is_empty()`, `len()`, `to_string()`, `iter()`.
+
+Sorting and searching are in `std/sort`, which adds methods such as `sort`, `sort_by`, `binary_search`, and `reverse` to lists and arrays.
+
+### 12.6 Result and Error
+
+```lowlight
+@must_use
+define Result[T] result [
+	value: T,
+	err: Error,
+]
+```
+
+**Constructing.** Where a `Result[T]` is expected, write `value(x)` or `err(e)`. Elsewhere, qualify: `Result[int].value(1)`, `Result[int].err(e)`. `Result[T].fail_msg(msg)` is shorthand for `err(Error.new(msg))`, recording the caller's location.
+
+**Methods.**
+
+| Method | Meaning |
+|---|---|
+| `is_ok()` · `is_err()` | which member it holds |
+| `unwrap()` | the value, or panic with the error wrapped as `"called Result.unwrap on an error"` (`@track_caller`) |
+| `expect(msg)` | the value, or panic with the error wrapped as `msg` (`@track_caller`) |
+| `unwrap_or(fallback)` | the value, or `fallback` |
+| `unwrap_err()` | the error, or panic if it holds a value |
+| `into_ok() ?T` · `into_err() ?Error` · `peek_err() ?Error` | convert to optionals (`peek_err` borrows) |
+| `wrap_err(msg)` · `trace_err()` | add context or a trace frame to a failure, passing a value through unchanged (`@track_caller`) |
+
+Result chains ([§6.6](#66-result-chains)) are usually clearer than these methods.
+
+**Error.** An `Error` holds a message, an optional code, an optional cause (another `Error`), and a trace of source locations (`ErrorFrame`s). Its fields are private.
+
+| Method | Meaning |
+|---|---|
+| `Error.new(msg)` | a new error, recording the caller's location (`@track_caller`) |
+| `Error.coded(code, msg)` | the same, with a machine-readable code such as `"not_found"` |
+| `e.wrap(msg)` | consumes `e` and returns a new error with message `msg` whose cause is `e` (`@track_caller`) |
+| `e.trace()` | consumes `e` and returns it with the caller's location appended (`@track_caller`) |
+| `e.with_code(code)` | consumes `e` and returns it with `code` set |
+| `e.message()` · `e.code() ?string` · `e.cause() ?Error` · `e.root()` · `e.frames()` | accessors |
+| `e.is(target)` | whether any error in the chain matches `target` (same code, or same message if uncoded) |
+| `e.has_code(code)` | whether any error in the chain has `code` |
+| `e.summary()` | one line: `outer: middle: root` |
+| `e.to_string()` | the summary, then the trace, one frame per line |
+
+```lowlight
+bind main = (): {
+	let e = Error.coded("disk_full", "no space left").wrap("saving report")
+	println(e.summary())
+	println(e.has_code("disk_full"))
+}
 ```
 
 ---
 
-## 12. Package Manifest, Lockfile, & Decentralized Dependency Protocol
+## 13. The Standard Library
 
-This section normatively specifies Lowlight's project layout, `lowlight.toml` manifest schema, deterministic `lowlight.lock` lockfile, decentralized static package index protocol, dependency resolution, and two-phase package compilation model.
+The standard library is a set of ordinary packages under `std/`. Import each by path; its exported names are used through the last path segment (`import "std/fs"` gives `fs.read_file`). This chapter summarizes each package. Run `lowlight doc` for the complete API with documentation.
 
-### 12.1 Repository Layout & Manifest Optionality
+| Package | Contents |
+|---|---|
+| `std/core` | the prelude ([§12](#12-the-prelude)), imported automatically |
+| `std/chars` | character classification (`is_ascii`, `is_ascii_upper`, `is_control`, `is_punctuation`, ...), case conversion (`to_ascii_upper`), digits (`to_digit(radix)`, `from_digit`), `len_utf8` |
+| `std/strings` | `last_index_of`, `count`, `capitalize`, `repeat`, `reverse`, padding (`pad_left_char`, `center_char`), `split_whitespace`, `lines`, `join`, `chars_list`, `bytes_list`, `is_whitespace`, `is_ascii` |
+| `std/strconv` | parsing (`string.to_int`, `to_int_radix`, `to_float`, `to_bool`, `is_numeric`, ...) and formatting (`int.to_radix`, `to_hex`, `to_bin`, `to_oct`, `float_to_exp`) |
+| `std/strfmt` | number formatting (`format_int_commas`, `format_float`, `format_bytes`, `format_percent`, `format_currency`), padding (`pad_left`, `center`, `pad_int_zeros`), case styles (`to_title`, `to_snake_case`, `to_kebab_case`, `to_camel_case`), `quote`, `unquote`, `indent`, `truncate` |
+| `std/math` | `sqrt`, `cbrt`, `pow`, `exp`, `log`, `log2`, `log10`, trigonometric and hyperbolic functions, `floor`, `ceil`, `round`, `trunc`, `fmod`, `hypot`, `is_nan`, `is_inf`, `clamp_int`, `clamp_float`, `lerp`, angle conversions, `PI` and related constants |
+| `std/sort` | `sort`, `sort_by`, `stable_sort`, `is_sorted`, `binary_search`, `lower_bound`, `upper_bound`, `reverse` for lists and arrays (as methods and functions); `Set.to_sorted_list`, `Map.to_sorted_keys` |
+| `std/fs` | the `File` resource (`File.open`, `open_read`, `open_write`, `open_append`, `read_to_string`, `read_bytes`, `write_string`, `write_bytes`, `seek`, `tell`, `size`, `flush`, `close`; closes itself on drop) and functions `read_file`, `write_file`, `append_file`, `read_bytes`, `write_bytes`, `exists`, `file_size`, `remove_file`, `rename_file`, `copy_file` |
+| `std/os` | `exec` and `system_run` (with `ExecResult`), `mkdir`, `mkdir_p`, `remove_all`, `file_exists`, `num_cpus`, `os_name`, `arch` |
+| `std/time` | `Duration`, `Instant` (`now`, `elapsed`), `DateTime` (`new`, `must_new`, `now_utc`, `now_local`, `from_unix_secs`, formatting and parsing with layouts such as `RFC3339`), `sleep_ms`, calendar helpers |
+| `std/net` | `TcpStream` (`connect`, `send`, `recv`, `close`), `TcpListener` (`listen`, `accept`, `port`), `dial_tcp`, `listen_tcp`, `socketpair` |
+| `std/http` | URL parsing, `Request` and `Response`, a client (`get`, `post`, `put`, ...), a server with routing (`ServeMux`, `listen_and_serve`), and `STATUS_*` constants |
+| `std/pool` | `Pool[T]` with generational `Handle[T]`s: `alloc`, `get`, `with_mut`, `set`, `take`, `free`, iteration |
+| `std/test` | assertions for tests: `assert_eq`, `assert_ne`, `assert_true`, `assert_false`, `assert_gt`/`lt`/`ge`/`le`, `assert_approx_eq`, `assert_contains`, `assert_starts_with`, `assert_ends_with`, `assert_some`, `assert_none`, result assertions (`assert_is_ok`, `assert_is_err`, `assert_ok_eq`, `assert_err_contains`, ...), batch forms (`assert_all_*`, `assert_any_eq`), and a `_msg` variant of each |
+| `std/json` | JSON values and conversion (work in progress) |
 
-- **Zero-Config Standalone Scripts:** `lowlight.toml` is **optional**. Standalone `.ll` scripts and small manifest-free examples compile and run directly via `lowlight run script.ll` or `lowlight build dir/` with zero configuration files.
-- **Root Discovery:** When present, `lowlight.toml` marks a package root or `[workspace]` root. Toolchain components (`sema`, `driver`, `docgen`, `fmt`, `lsp`) walk upward from the target path to locate the nearest `lowlight.toml` (linking to an enclosing `[workspace]` root if the package is listed as a member). Toolchain standard-library lookup (`LOWLIGHT_ROOT` / `StdDir`) is kept strictly separate from user project root discovery.
-- **Flat Go-Style Project Layout:** Lowlight projects map directory paths **1:1** to import paths without an intervening `src/` wrapper directory:
-  ```text
-  myapp/
-  ├── lowlight.toml        # Root manifest (package "myapp" and/or [workspace])
-  ├── lowlight.lock        # Deterministic resolved dependency lockfile
-  ├── main.ll              # Root binary (or root library `.ll` files)
-  ├── myapp_test.ll        # White-box unit tests for root package
-  ├── lexer/               # Imported as `import "myapp/lexer"` -> `lexer.*`
-  │   ├── scanner.ll
-  │   └── scanner_test.ll
-  ├── cmd/
-  │   ├── api/main.ll      # Executable target (`lowlight build ./cmd/api`)
-  │   └── cli/main.ll      # Executable target (`lowlight build ./cmd/cli`)
-  ├── tests/               # Black-box integration test packages
-  │   └── end_to_end/
-  │       └── api_test.ll
-  └── vendor/              # Optional vendored dependencies (`lowlight vendor`)
-  ```
-- **Ignored Tool Directories:** Hidden tool directories (`.git/`, `.lowlight/`), `editors/`, and `node_modules/` are never treated as Lowlight packages during discovery scans.
+All of these follow the failure conventions of [§9.1](#91-choosing-a-mechanism): operations that can fail because of the outside world return `Result`, and lookups that may find nothing return `?T`.
 
-### 12.2 Manifest Format & Schema (`lowlight.toml`)
+---
 
-Manifests use standard UTF-8 **TOML** syntax parsed by a single shared zero-dependency parser across `lowlight.toml`, `lowlight.lock`, and decentralized static index files.
+## 14. Packages, Manifests, and Dependencies
+
+> **At a glance**
+> - A single `.ll` file runs with no configuration: `lowlight run hello.ll`.
+> - A project has a `lowlight.toml` at its root. Directories map one-to-one to import paths: `myapp/lexer/` is `import "myapp/lexer"`.
+> - Dependencies are local paths, archive URLs with a SHA-256 hash, or versions from a static index. `lowlight.lock` pins them exactly.
+> - Builds never touch the network; `lowlight fetch` and `lowlight update` do.
+
+### 14.1 Project layout
+
+`lowlight.toml` is optional. Without one, a file or directory compiles on its own, and imports resolve to `std/...` and to relative directories. With one, it marks a project root (or a workspace root), found by walking up from the file being compiled.
+
+```text
+myapp/
+├── lowlight.toml        # manifest
+├── lowlight.lock        # resolved dependencies (generated)
+├── main.ll              # the root package (a program, because it has `main`)
+├── myapp_test.ll        # tests for the root package
+├── lexer/               # package "myapp/lexer"
+│   ├── scanner.ll
+│   └── scanner_test.ll
+├── cmd/
+│   └── tool/main.ll     # another program: lowlight build ./cmd/tool
+├── tests/               # black-box integration test packages
+└── vendor/              # optional vendored dependencies
+```
+
+Hidden directories (`.git/`, `.lowlight/`), `editors/`, and `node_modules/` are never treated as packages.
+
+### 14.2 The manifest
+
+`lowlight.toml` is TOML:
 
 ```toml
 [package]
 name = "myapp"
 version = "0.2.0"
 edition = "2026"
-description = "Concurrent worker service"
+description = "A worker service"
 license = "MIT"
 
 [dependencies]
 local_utils = { path = "../local_utils" }
-jsonx = { url = "https://example.org/jsonx/v1.2.0.tar.gz", hash = "sha256:9a3f..." }
+jsonx = { url = "https://example.org/jsonx-1.2.0.tar.gz", hash = "sha256:9a3f..." }
 http_ext = { index = "https://acme.dev/pkgs/http_ext.toml", version = "^0.3" }
 
 [dev-dependencies]
-benchkit = { url = "https://example.org/bench/v0.1.0.tar.gz", hash = "sha256:4c1d..." }
+benchkit = { url = "https://example.org/benchkit-0.1.0.tar.gz", hash = "sha256:4c1d..." }
 
 [overrides]
 jsonx = { path = "../my_jsonx_fork" }
 
 [workspace]
-members = ["libs/shared", "cmd/api"]
+members = ["libs/shared", "cmd/*"]
 
 [build]
 backend = "llvm"
-# release = false
-# c_flags = ["-O2"]
 
 [format]
 indent_style = "tabs"
@@ -2302,50 +2359,37 @@ line_width = 100
 
 [target.linux]
 c_libs = ["ssl", "crypto"]
-
-[target.windows]
-c_libs = ["ws2_32"]
 ```
 
-#### Table & Field Definitions
+| Table | Contents |
+|---|---|
+| `[package]` | `name` (required; letters, digits, `_`, `-`, starting with a letter or `_`; also the root import path), `version` (SemVer, default `0.1.0`), `edition` (default `2026`), and optional `description`, `license`, `authors`, `repository`, `homepage`, `keywords`, `bin` (output file name). Optional in a workspace-only root. |
+| `[dependencies]` | name → source. Exactly one of: `{ path = "..." }` (relative to this manifest); `{ url = "https://...", hash = "sha256:<64 hex>" }` (a `.tar.gz`, `.tgz`, or `.zip`); `{ index = "https://.../pkg.toml", version = "<constraint>" }`. Constraints support `^`, `~`, `=`, `<`, `<=`, `>`, `>=`, `*`, and intersections. The key is the dependency's import root. |
+| `[dev-dependencies]` | the same, usable only from tests ([§11](#11-testing)); never part of normal builds or passed on to dependents |
+| `[overrides]` | root manifest only: force every reference to a dependency, direct or transitive, to a given `path` or `url` + `hash` |
+| `[workspace]` | `members` (paths, or trailing `*` globs) and optional `exclude`. Members share one lockfile, `[overrides]`, and `vendor/`. |
+| `[build]` | defaults for `backend` (`"llvm"` or `"c11"`), `release`, `target`, `cc`, `c_flags`, `c_libs`; command-line flags take precedence |
+| `[format]` | formatter settings ([§2](#2-lexical-structure)); a `.lowlightfmt` file in a directory overrides them for that directory |
+| `[target.<selector>]` | settings applied when the target matches an OS (`linux`, `darwin`, `windows`), OS group (`unix`), architecture (`amd64`, `arm64`, `riscv64`), or full triple (`[target."aarch64-unknown-linux-gnu"]`): `dependencies`, `dev-dependencies`, `c_libs`, `c_flags` |
 
-1. **`[package]`** *(required for standalone/member packages; optional on virtual `[workspace]` root manifests)*:
-   - `name` (`string`, required): Canonical package name and root import prefix (`"name"`, `"name/subpkg"`). Must begin with an ASCII letter or `_` and contain only ASCII alphanumerics, `_`, or `-` (`-` normalizes to `_` when bound as a default qualifier in `import`).
-   - `version` (`string`, optional for local binaries, required for published packages; defaults to `"0.1.0"`): Semantic Version `MAJOR.MINOR.PATCH[-prerelease][+build]`.
-   - `edition` (`string`, optional, default `"2026"`): Language edition targeting specification compatibility.
-   - Optional metadata: `description` (`string`), `license` (`string`, SPDX identifier), `authors` (`[string]`), `repository` (`string`), `homepage` (`string`), `keywords` (`[string]`).
-   - `bin` (`string`, optional): Overrides the default output executable filename when building the root binary package.
+Dependency tables may also be written as TOML sub-tables (`[dependencies.jsonx]`).
 
-2. **`[dependencies]` and `[dev-dependencies]`**:
-   - Keys define the dependency's local import root (`"<dep>"`, `"<dep>/subpkg"`).
-   - **Canonical Format:** Tooling generates compact single-line inline tables (`foo = { ... }`), while conforming parsers accept standard TOML `[dependencies.<name>]` / `[dev-dependencies.<name>]` sub-tables identically.
-   - Each dependency entry must specify **exact source provenance** using one of three mutually exclusive shapes:
-     - **Local Path:** `{ path = "<rel_or_abs_dir>" }` — relative paths resolve from the directory containing that `lowlight.toml`.
-     - **Immutable Archive URL:** `{ url = "https://...", hash = "sha256:<64-hex>" }` — exact SHA-256 checksum required; supports `.tar.gz`, `.tgz`, and `.zip` archives.
-     - **Static Index + SemVer:** `{ index = "https://.../pkg.toml", version = "<constraint>" }` — resolves via a decentralized static TOML index (§12.4) supporting SemVer comparators (`^`, `~`, `=`, `<`, `<=`, `>`, `>=`, space/comma intersections, and `*`).
-   - **`[dev-dependencies]` Isolation:** Resolved and importable strictly inside `*_test.ll`, `@test`/`@test_only` items, and `tests/` integration packages; never linked into normal library/binary builds or propagated to downstream dependents.
+### 14.3 Import path resolution
 
-3. **`[overrides]`** *(root project or root workspace manifest only; ignored in external dependencies with a warning)*:
-   - Forces all direct and transitive references to dependency `<key>` across the build graph to resolve to a pinned `{ path = "..." }` fork or `{ url = "...", hash = "..." }` archive (used to test local patches or break incompatible diamond conflicts).
+Inside a project, a non-relative import path resolves, in order, to:
 
-4. **`[workspace]`**:
-   - `members = [...]` (`[string]`): Workspace package directory paths or trailing `*` globs (e.g., `"libs/*"`), each containing its own `lowlight.toml`.
-   - `exclude = [...]` (`[string]`, optional): Directories excluded from glob expansion.
-   - Workspace members share one root `lowlight.lock`, root `[overrides]`, and `./vendor/`. A member manifest may appear alongside `[workspace]` in the same root `lowlight.toml` or remain purely virtual (`[workspace]` without `[package]`).
+1. a standard library package, `std/<pkg>` (or `std/<group>/<pkg>`);
+2. a package of this project, `<name>/<sub/dir>`, matching the directory `./<sub/dir>/`;
+3. a declared dependency, `<dep>` or `<dep>/<sub/dir>` (dev-dependencies only from tests);
+4. a workspace member.
 
-5. **`[build]`**:
-   - Optional project build defaults: `backend` (`"llvm"` | `"c11"`), `release` (`bool`), `target` (default target triple), `cc` (`string`), `c_flags` (`[string]`), `c_libs` (`[string]`). CLI flags always override `[build]`.
+Relative imports (`./x`, `../x`) are not allowed inside projects, so every package has one canonical path. Outside a project, imports resolve to `std/...` and to relative paths.
 
-6. **`[format]`**:
-   - Optional formatting defaults matching `.lowlightfmt` (`indent_style = "tabs" | "spaces"`, `tab_width`, `line_width`). Standalone `.lowlightfmt` files continue working in manifest-free directories and act as directory-scoped overrides when placed inside subdirectories.
+The default qualifier of a project or dependency root is its `[package].name` or dependency key; of a subdirectory, the directory name.
 
-7. **`[target.<selector>]`**:
-   - Applies target-conditional configuration when matching the active `--target` triple (by OS e.g. `linux`, `darwin`, `windows`; OS group `unix`; arch e.g. `amd64`, `arm64`, `riscv64`; or quoted full triple `[target."aarch64-unknown-linux-gnu"]`).
-   - Supports nested `dependencies`, `dev-dependencies`, `c_libs`, and `c_flags`.
+### 14.4 The lockfile
 
-### 12.3 Deterministic Lockfile (`lowlight.lock`)
-
-`lowlight.lock` sits at the project or workspace root, is generated/maintained by `lowlight` commands, and ensures bit-exact dependency resolution:
+`lowlight.lock` sits at the project or workspace root. It is written by `lowlight` and should be committed:
 
 ```toml
 # Code generated by `lowlight`; DO NOT EDIT.
@@ -2358,38 +2402,17 @@ index = "https://acme.dev/pkgs/http_ext.toml"
 url = "https://acme.dev/tarballs/http_ext-0.3.4.tar.gz"
 hash = "sha256:71e2..."
 dependencies = ["jsonx"]
-
-[[package]]
-name = "jsonx"
-version = "1.2.0"
-url = "https://example.org/jsonx/v1.2.0.tar.gz"
-hash = "sha256:9a3f..."
 ```
 
-- `lock_version` (`int`): Schema format version (`1`).
-- `[[package]]` entries are sorted deterministically by `(name, version, url)`:
-  - `name` (`string`): Canonical dependency package name.
-  - `version` (`string`): Exact resolved SemVer version (or `"0.0.0"` when unspecified by a raw `url` archive without a manifest version).
-  - `index` (`string`, optional): Source static index URL when resolved via `index`.
-  - `url` (`string`, optional): Remote tarball URL (for `url` and `index` entries).
-  - `hash` (`string`, optional): Lowercase `"sha256:<64-hex>"` archive digest (mandatory for all remote packages).
-  - `path` (`string`, optional): Root-relative local directory for locked `path` dependencies.
-  - `dependencies` (`[string]`, optional): Lexicographically sorted transitive dependency names.
+Entries are sorted by name, version, and URL. Each has `name` and `version` (`0.0.0` for a raw archive without a version), and as applicable `index`, `url`, `hash` (required for every remote package), `path`, and the sorted names of its own `dependencies`.
 
-### 12.4 Decentralized Static Package Index Protocol
+### 14.5 Package indexes
 
-Any static HTTP server or object store can host upgradeable Lowlight dependencies by serving a single TOML index file at `index = "https://.../pkg.toml"`:
+A dependency's `index` is a single static TOML file, so any web server or object store can host packages:
 
 ```toml
 [package]
 name = "http_ext"
-description = "HTTP router and middleware utilities"
-license = "MIT"
-
-[versions."0.3.3"]
-url = "https://acme.dev/tarballs/http_ext-0.3.3.tar.gz"
-hash = "sha256:aa10..."
-yanked = false
 
 [versions."0.3.4"]
 url = "https://acme.dev/tarballs/http_ext-0.3.4.tar.gz"
@@ -2397,45 +2420,575 @@ hash = "sha256:71e2..."
 
 [versions."0.3.4".dependencies]
 jsonx = { index = "https://example.org/pkgs/jsonx.toml", version = "^1.2.0" }
+
+[versions."0.3.3"]
+url = "https://acme.dev/tarballs/http_ext-0.3.3.tar.gz"
+hash = "sha256:aa10..."
+yanked = true
 ```
 
-- **Zero Server API Needed:** Clients fetch `<index>` over HTTPS using standard HTTP GET (with standard conditional caching headers such as `ETag`/`If-None-Match` permitted during explicit `lowlight update`).
-- **Pre-Fetch Graph Resolution:** Including `[versions."...".dependencies]` (and optional `[versions."...".target.<selector>.dependencies]`) inside the static index allows Minimal Version Selection to resolve the complete dependency graph before downloading any tarball.
-- **Yanked Versions:** Versions with `yanked = true` are skipped during new resolution (`add` / `update`), while existing matching `lowlight.lock` pins remain buildable for reproducibility.
-- **Integrity & Archive Safety:**
-  - Remote indexes and archives require HTTPS (loopback test endpoints excepted).
-  - Every fetched archive is verified against its `sha256` digest prior to extraction.
-  - Archive extractors must reject `..` path traversal, absolute member paths, and symlinks pointing outside the extracted package root; a uniform single top-level directory wrapper in release archives is automatically unwrapped cleanly.
+- Each version lists its archive, its hash, and optionally its dependencies (also per target), so the whole graph can be resolved before downloading anything.
+- Yanked versions are skipped for new resolutions but remain usable when already locked.
+- Indexes and archives must be served over HTTPS (except on loopback), and every archive is checked against its hash before it is extracted.
+- Extraction rejects absolute paths, `..` components, and links pointing outside the package. A single top-level directory in an archive is unwrapped.
 
-### 12.5 Dependency Resolution (MVS), Local Canonical Storage, & Precedence
+### 14.6 Resolution
 
-- **Unified Graph / Single Version per Dependency (MVS):**
-  - Lowlight permits at most **one** resolved artifact per dependency identity in a build graph, preventing split nominal types across diamond callers.
-  - Overlapping SemVer requirements from multiple dependents resolve via **Minimal Version Selection (MVS)**: pick the smallest non-yanked version satisfying all constraints.
-  - Incompatible constraints (e.g., conflicting major versions or mismatched raw `{ url, hash }` entries for the same package name/endpoint) fail resolution with a clear conflict diagnostic pointing to root `[overrides]`.
-- **Canonical Local Copy Policy:**
-  - Once a dependency is fetched into the local cache (`$LOWLIGHT_CACHE` or `~/.lowlight/cache/sha256/<hex>/`) or vendored into `./vendor/<name>/`, that local copy is the **canonical source of truth** until an explicit `lowlight update` or manifest change.
-- **Resolution Precedence:** For any imported external dependency `<dep>`, the compiler resolves package files in strict order:
-  1. Root `[overrides]` (`path` or pinned `url`+`hash`);
-  2. Matching `[workspace]` member package;
-  3. `./vendor/<dep>/` at the project or workspace root (when `./vendor/` is present, all remote fetches are bypassed and `./vendor/` is authoritative);
-  4. Matching entry in `lowlight.lock` materialized inside `$LOWLIGHT_CACHE` / `~/.lowlight/cache`.
-- **Zero Implicit Network Builds:** Ordinary compiler and IDE invocations (`check`, `build`, `run`, `test`, `doc`, `emit-*`, `lsp`) do **not** make hidden network calls behind the user's back. If a required locked dependency is missing from both `./vendor/` and the local cache (or if `--locked` detects `lowlight.toml` / `lowlight.lock` drift), compilation fails cleanly instructing the user to run `lowlight fetch` or `lowlight update`. `--offline` forbids all network operations across every subcommand.
+1. **One version per dependency.** A build graph contains at most one copy of each dependency. Version constraints from all dependents are combined, and **minimal version selection** picks the smallest non-yanked version satisfying all of them. Unsatisfiable constraints, or conflicting `url` + `hash` pins, are errors that suggest an `[overrides]` entry.
+2. **Precedence.** A dependency's files come from, in order: `[overrides]`; a matching workspace member; `vendor/<dep>/` (when `vendor/` exists, it is authoritative and nothing is fetched); the locked version in the local cache (`$LOWLIGHT_CACHE`, default `~/.lowlight/cache`).
+3. **No hidden network access.** `check`, `build`, `run`, `test`, `doc`, `emit-*`, and the language server never use the network. A missing dependency, or a lockfile that disagrees with the manifest under `--locked`, is an error that tells you to run `lowlight fetch` or `lowlight update`. `--offline` forbids network access for every command.
 
-### 12.6 Manifest Tooling, Package CLI, & Two-Phase Compilation
+### 14.7 Commands
 
-- **Surgical Manifest Mutation:** `lowlight add`, `lowlight remove`, and `lowlight update` apply comment-preserving AST/line-aware edits to `lowlight.toml`, modifying only the targeted entry lines while preserving surrounding comments, ordering, and spacing. `lowlight fmt` formats `.ll` code (using `.lowlightfmt` / `[format]`) and optionally checks or sorts `[dependencies]` when explicitly run on manifests.
-- **Package Management CLI Commands (`cmd/lowlight`):**
-  - `lowlight init` / `lowlight new <name>`: initializes `lowlight.toml`, starter package `.ll` file, and `@test` template.
-  - `lowlight add <name> [flags]` / `lowlight remove <name>`: adds/removes `path`, `url`+`hash`, or `index`+`version` entries (computing `sha256` during add when fetching a `url`).
-  - `lowlight fetch`: verifies/populates `lowlight.lock` and unpacks missing dependencies into the local cache without bumping already-locked versions.
-  - `lowlight update [<pkg>...]`: resolves newer matching index versions under MVS, refreshes `lowlight.lock`, and downloads updated canonical copies.
-  - `lowlight vendor`: materializes the resolved dependency tree into `./vendor/` for hermetic offline check-in.
-  - `lowlight tree`: prints the resolved dependency DAG.
-  - **Zero-Arg Project Defaults:** Inside a `lowlight.toml` project or workspace, `build`, `run`, `check`, `test`, `doc`, `emit-llvm`, and `emit-c` default to the current directory package or workspace root (`-p <pkg>`, `--workspace`, `--locked`, `--offline`).
-- **Two-Phase Incremental Compilation & Caching (`internal/driver`):**
-  1. **Phase 1 — Separate Concrete Package Units:** Non-generic functions, globals, and concrete types in each library package compile per-package into cached `.o` object or LLVM IR bitcode units keyed by canonical `(PackageID, target_triple, release_mode, c_flags, transitive_hashes)`. Unchanged dependencies reuse cached compilation units cleanly.
-  2. **Phase 2 — Shared Specialization & Link Unit:** Monomorphized generic instantiations across packages, structural interface virtual method tables, and program entry / test-runner code emit into a shared specialization/root unit linked together with all cached package units.
+| Command | Effect |
+|---|---|
+| `lowlight new <name>` · `lowlight init [--lib]` | create a project |
+| `lowlight add <dep> ...` · `lowlight remove <dep>` | edit `[dependencies]`, preserving comments and layout (computing the hash for a `url`) |
+| `lowlight fetch` | download what the lockfile lists, without changing versions |
+| `lowlight update [<dep>...]` | re-resolve to newer allowed versions and rewrite the lockfile |
+| `lowlight vendor` | copy all dependencies into `vendor/` |
+| `lowlight tree` | print the dependency graph |
+| `lowlight build`, `run`, `check`, `test`, `doc`, `fmt`, `emit-llvm`, `emit-c` | inside a project, default to the current package; `-p <pkg>` and `--workspace` select others |
 
 ---
-*End of Lowlight Language Specification.*
+
+# Part IV: Implementer's Guide
+
+Part III defines what programs mean. This part explains how the reference compiler implements that meaning, and which choices a new implementation must make in the same way to be conforming. Where this part describes the reference compiler's internals (names of passes, C type layouts), it is **informative**: another implementation may do things differently as long as the observable behavior is the same. Statements marked **Required** are normative.
+
+## 15. Compiler Architecture
+
+The reference compiler is written in Go. One pipeline serves every command:
+
+```text
+source files ─► lexer ─► parser ─► AST ─► semantic analysis ─► checked program
+                                             (types, names,       │
+                                              ownership)          ▼
+                     executable ◄─ C compiler / linker ◄─ backend ◄─ MIR (lowering)
+                                                         (LLVM IR or C11)
+```
+
+| Stage | Package | Responsibility |
+|---|---|---|
+| Lexing | `internal/lexer`, `internal/token` | tokens, semicolon insertion, `?`/`!` name suffixes, `<-` recognition, string interpolation |
+| Parsing | `internal/parser`, `internal/ast` | a syntax tree for each file; doc comments |
+| Semantic analysis | `internal/sema`, `internal/types` | name resolution across a package, type checking, monomorphization, ownership and borrow checking, exhaustiveness |
+| Lowering | `internal/ir` | a mid-level IR (MIR) in which every type is concrete, and every temporary, move, and destruction is explicit |
+| Code generation | `internal/codegen` | LLVM IR (default) or ISO C11 from MIR, plus a small C runtime |
+| Driver | `internal/driver` | packages, caching, invoking `clang`/`cc`, running programs and tests |
+| Tools | `internal/format`, `internal/docgen`, `internal/lsp`, `internal/manifest` | formatter, documentation, language server, manifests and dependencies |
+
+**Compilation units.** A package is all `.ll` files in one directory, minus test files outside `lowlight test` and files excluded by platform suffixes ([§4.6](#46-packages-and-imports)). Packages form a directed acyclic graph through their imports; inside a package, declarations may refer to each other in any order and recursively.
+
+**Two-phase builds.** When building a project, each non-generic package is compiled to its own cached object file, keyed by a hash of its sources, the compiler version, and its dependencies' interfaces. Generic instantiations and interface vtables, which depend on how packages are used together, go into one shared unit compiled last. `--no-incremental` disables the cache. This is an optimization only; the output must be the same.
+
+## 16. Parsing Ambiguities and Their Resolution
+
+Lowlight's grammar ([Appendix A](#appendix-a-grammar)) is written to be readable, and a few constructs need lookahead or context to parse. A conforming parser must resolve each of them as described here (**Required**).
+
+### 16.1 Semicolon insertion
+
+The lexer keeps a stack of open delimiters. At each newline it inserts `;` exactly when the rules of [§2.3](#23-statement-separation) hold: only `{` is open (or nothing), the line ends in a value-ending token, and the next line does not begin with `else`, `when`, `.`, or `?.`. The parser then treats `;` as a statement terminator and is never involved in the decision.
+
+Consequences that implementations must reproduce:
+
+- A binary operator at the end of a line continues the expression (`a +` newline `b`); one at the start of the next line does not.
+- Inside `( )`, `[ ]`, `#[ ]`, `+[ ]`, and `${ }`, newlines are insignificant, so a long condition can be wrapped in parentheses.
+- `default` is not a continuation token. A `match` or chain arm beginning with `default` on a new line works because the preceding line ends an arm body with `;` inserted, and `default` is then recognized as starting the closing arm (§16.5).
+
+### 16.2 Name suffixes and `<-`
+
+- `?` and `!` join the preceding identifier when they directly follow it, except when they begin `??` or `!=` ([§2.5](#25-identifiers)). There is no space allowed between a name and its suffix.
+- `<-` is a single token only with whitespace (or a start-of-input context) before it and whitespace, a terminator, or a closing delimiter after it ([§2.9](#29-operators-and-punctuation)). Otherwise `<` and `-` are separate tokens.
+
+### 16.3 Square brackets after an expression
+
+After an expression, `[` can begin an index, a slice, generic type arguments, or a struct literal. The parser decides as follows:
+
+1. **Struct literal.** If the expression could be a type name (an identifier or qualified name that starts with an uppercase letter, possibly with type arguments) and the bracket is either `[]` or begins `name:` or `name?:`, it is a struct literal: `Point[x: 1, y: 2]`, `Config[]`.
+2. **Type arguments.** Otherwise, the parser tries to read the bracket's contents as a comma-separated list of types. If that succeeds and the `]` is followed by `(` (a generic call: `size_of[int]()`), by a struct literal (`Pair[int][a: 1, b: 2]`), or, for a type-like name, by `.` and a name (`List[int].new()`), the bracket is type arguments.
+3. **Index or slice.** Otherwise it is an index or a slice, a slice when the contents contain a top-level `..` or `..=`.
+
+So `xs[i]`, `xs[0..2]`, and `grid[row][col]` are indexes, and `List[string].new()` is a call with type arguments. A conforming parser may implement rule 2 by speculative parsing with backtracking, as the reference parser does.
+
+### 16.4 Parentheses: grouping or function literal
+
+`(` starts a function literal when it is followed by `)`, by `name:` (except `name: {`, `name: for`, and `name: while`, which are labels inside a grouping), or by a receiver (`self`, `&self`, `own self`). Otherwise it is a parenthesized expression or a tuple of `match` subjects.
+
+### 16.5 Colons
+
+A `:` has several roles: type annotations, struct literal fields, map entries, array sizes, labels, the start of a body, and the start of a result chain. They are separated by position:
+
+- In a declaration, `name:` before `=` is a type annotation.
+- Inside `[ ]` or `#[ ]` after a field name or key, it separates a field or entry.
+- `name: {`, `name: for(`, and `name: while(` at the start of an expression are labels.
+- After an `if`, `for`, `while`, or `match` header (and its optional result type), and after a function's parameter list and return type, `:` begins the body.
+- After a postfix expression, `:` begins a **result chain** if the next token is `when`, or is `default` followed by `:`, by `panic` (not followed by `(`), or by a list of failure patterns that ends in `:`. Anything else is not a chain.
+
+The last rule means `x: default panic` is a chain while `default panic(...)` is not, and that a label or annotation is never mistaken for a chain.
+
+### 16.6 Match arms and `default`
+
+In a `match`, each arm begins with `when` or with the contextual word `default`. `default` starts the final arm when it is followed by `:` or by patterns (as many as there are subjects) and then `:`. After the final arm's body, the `match` is complete: a following `when` belongs to an enclosing `match`. This is what lets a result chain or `match` be nested inside another `match`'s arm ([§6.6](#66-result-chains)).
+
+### 16.7 Contextual words
+
+`next`, `default`, `panic`, `result`, and `packed` are identifiers except in the positions listed in [§2.6](#26-keywords). In particular, `next` is an unwind only when directly followed by `<-` or by a name and `<-`; a variable named `next` or a method `it.next()` is unaffected.
+
+### 16.8 Bodies
+
+A body after `:` is either a block `{ ... }` or a single expression. In `if`, loop, and `match` arm bodies the expression may also be an assignment statement or an unwind. A function body that is a bare assignment must be written as a block ([§6.1](#61-bodies)).
+
+## 17. Semantic Analysis
+
+### 17.1 Passes
+
+Name resolution is **order-independent** within a package. The reference analyzer runs these passes over all packages of the program:
+
+1. **Integer constants.** Evaluate top-level `bind NAME = <integer constant expression>` so that array sizes and explicit enum values can use them.
+2. **Type headers.** Register every `define` name, so types may refer to each other in any order.
+3. **Type bodies.** Resolve distinct types' bases, enum variants, result members, interface signatures, and struct fields.
+4. **Recursion check.** Reject types that contain themselves by value (infinite size). Mark structs reached from themselves through an optional (`next?: ?Node`) so that such optionals are boxed (§18.2).
+5. **Signatures.** Register functions, methods, constants, and `extern` declarations, and check for duplicates and conflicting method names on a type.
+6. **Bodies.** Check every function body: types, name rules (`?`, `!`, `_`), ownership, borrowing, exhaustiveness, unwind targets. Generic declarations are checked once in generic form against their bounds, and then each instantiation is created on demand (§17.4).
+
+Top-level constants whose initializers depend on each other are initialized in dependency order; a cycle is an error.
+
+### 17.2 Ownership checking
+
+For each function, the checker tracks a **move state** for every local resource variable: alive, moved, or maybe moved.
+
+- A move (`own x`, a capture, moving a payload in a pattern) changes the state to moved. Reading a moved or maybe-moved variable is an error; assigning to it makes it alive.
+- At a join point (after `if`/`else`, `match`, the end of a loop), the states from all incoming paths are merged: moved on every path gives moved, moved on some gives maybe moved, otherwise alive. Paths that end in `never` (an unwind, `panic`, `exit`) are excluded from the merge.
+- A loop body that moves an outer variable must reassign it on every path before the next iteration.
+- A field can be moved out only of an `own self` receiver. Doing so consumes the receiver: `self` counts as moved, so no other field can be read afterwards, and the remaining fields are destroyed individually.
+
+Borrow checking is local because borrows never outlive a call or a branch ([§7.4](#74-borrowing-rules)). For each call, the checker compares the places passed as `&`, `own`, and read-only arguments and reports overlaps. For each `for` loop and each narrowed optional, it records the borrowed place and rejects mutation or moves of it inside the body. Arena pinning ([§7.6](#76-arenas-and-references)) is tracked per scope.
+
+### 17.3 Patterns and exhaustiveness
+
+A `match` on enum, result, or `bool` subjects is checked by computing, for each subject, the set of variants (or `true`/`false`) not yet covered by earlier arms. Each variant pattern removes its variant; since payload patterns contain only bindings and `_`, a variant pattern always covers its whole variant, and naming a variant a second time is an error. For several subjects, coverage is computed over the product of their cases, with `_` covering every case of its subject. `default Pattern:` is accepted only when its patterns cover exactly what remains; `default:` is always accepted. Literal, `in`, and method patterns never count toward coverage, so a `match` on numbers or strings always ends in `default:`.
+
+**Bare names in patterns.** In a pattern, a bare identifier (or a bare call form `name(...)`) that names a variant of the subject's enum or result type is that variant. It is an error, reported as ambiguous, when a bare unit name is also a variable in scope, or a bare payload pattern is also a method of the subject's type ([§6.5](#65-pattern-matching)). An identifier that names no variant is resolved as an ordinary expression (a constant to compare against).
+
+**Bare constructors.** In an expression whose expected type is an enum or result type `E`, a bare call or name that matches a variant of `E` (`value(x)`, `err(e)`, `missing(k)`) constructs that variant, unless a variable or function of the same name is in scope, in which case that name wins.
+
+### 17.4 Generics
+
+Generics are **monomorphized**: each distinct list of type arguments produces a separate copy of the function or type, checked and lowered with the arguments substituted. Instantiation is driven by use and recurses: instantiating `Tree[int]` may instantiate `List[Tree[int]]`. A depth of 128 nested instantiations is the limit, beyond which compilation fails with an error (so `f[T]` calling `f[List[T]]` is rejected instead of looping forever). Type arguments that are optional types are rejected ([§8.3](#83-type-parameters-are-never-optional)).
+
+### 17.5 Interfaces
+
+Interface satisfaction is structural. When a concrete type is converted to an interface type, the analyzer verifies that the type has every method with exactly matching parameter modes and types, and records a **vtable** for the pair. Interfaces that mention `Self` other than as the receiver (`Copyable`, `Equatable`, `Comparable`) can be used only as generic bounds, never as runtime interface types.
+
+## 18. Lowering and Runtime Representation
+
+This chapter describes the representation used by the reference compiler. It is informative except where marked: programs cannot observe layouts (other than through `size_of`, `unsafe` code, and `extern` calls), and another implementation may choose differently. Layouts of `packed` structs and of types passed to `extern` functions follow the C ABI of the target (**Required**).
+
+### 18.1 Primitive and composite values
+
+| Lowlight | Representation |
+|---|---|
+| `int`, `i8`…`i64`, `u8`…`u64` | the C integer of that width (`int` is 64-bit) |
+| `float`, `f32`, `f64` | IEEE-754 `double` / `float` |
+| `bool` | C `bool` |
+| `char` | 32-bit Unicode scalar value |
+| `string` | `{ data: *u8, len: i64, cap: i64 }`. `cap == 0` means a borrowed view (a literal or a slice) that is not freed; `cap > 0` means owned heap memory. |
+| struct | a C struct with fields in declaration order (an empty struct has one padding byte) |
+| tuple `+[A, B]` | a struct with fields `_0`, `_1`, ... |
+| array `[N: T]` | a struct wrapping `T data[N]` |
+| list `[T]` | `{ data: *T, len: i64, cap: i64 }` |
+| set, map | open-addressing hash tables: a bucket index array plus an insertion-ordered entry array (so iteration follows insertion order) |
+| distinct type | the base type's representation |
+| `ref[T]` | a non-null pointer into an arena |
+| `ptr[T]` | a raw C pointer |
+
+### 18.2 Optionals
+
+`?T` is a struct `{ has_value: bool, value: T }`. The exception is an optional of a struct that refers to itself through optionals (`next?: ?Node`), detected in §17.1 step 4: such optionals are **boxed**, represented as a nullable pointer to a heap-allocated `T`. Boxing is what gives recursive structs a finite size. It is invisible to programs, except that moving a boxed optional moves only the pointer.
+
+Because `?T` never nests ([§3.5](#35-optionals)), no representation for `??T` is needed.
+
+### 18.3 Enums and results
+
+- A **tag enum** is a C integer of the declared (or default) width holding each variant's value.
+- A **tagged union** (an enum with any payload variant, or a result type) is `{ tag: i32, data: union { ...payloads } }`. Tags are numbered from **1** in declaration order. Tag **0** is reserved as an inert state that is never observed by programs: a value whose payload has been moved out, or that has been destroyed, is set to tag 0 so that destroying it again does nothing.
+
+### 18.4 Moves and destruction
+
+MIR makes every destruction an explicit instruction. The lowering inserts them as follows:
+
+1. At each scope exit (normal end, or an unwind leaving it), it emits a drop for each live resource local of that scope, in reverse declaration order.
+2. A move **zeroes** its source (a string or list with `cap = 0` and null data, a union with tag 0, an optional with `has_value = false`), so a drop of a moved value is a no-op. This is how maybe-moved variables are destroyed correctly without runtime flags.
+3. For a struct with a custom `Drop`, whose zeroed form could still be a meaningful value, a separate boolean **drop flag** records whether it was moved.
+4. Temporaries are materialized into hidden locals and dropped at the end of their statement.
+5. A drop function exists for every resource type: for a struct with `Drop`, it calls `drop(&self)` first, then drops fields in reverse order; for a tagged union, it switches on the tag; for a collection, it drops each element and frees the buffer.
+
+`.copy()` on built-in types and on structs and enums without a custom implementation is a generated deep copy function.
+
+### 18.5 Control flow
+
+- `if`, `match`, and blocks that produce values are lowered to assignments into a result local followed by jumps.
+- An **unwind** becomes: evaluate its value into the target's result local, emit drops for every scope between the unwind and its target (innermost first), then jump to the target's exit label. `func <- v` jumps to the function's return sequence.
+- A **result chain** `e: when a(x): A ... default ...` is lowered as a `match` on `e` with an implicit first arm `when value(v): v` that moves the success value out, followed by the written arms. `default panic` becomes an arm that calls the panic routine with `unhandled failure Type.variant` and the chain's source location.
+- `a ?? b` evaluates `a` into a temporary, tests `has_value` (or the `value` tag), and evaluates `b` only on the other branch. On a result, the failure payload is dropped before `b` is evaluated.
+- `a?.m()` is a conditional on `a`'s presence that wraps the result in an optional.
+
+### 18.6 Loops
+
+A `for(x in c)` loop is lowered according to the type of `c`:
+
+| `c` | Lowering |
+|---|---|
+| range | a counted loop from the start to the end bound |
+| list, array, string, slice | an index loop over `0..len` (strings by byte offset) |
+| set, map | a loop over the entry array, skipping deleted entries |
+| a type with `iter()` | `let it = c.iter()`, then `while` `it.next()` has a value |
+| an `Iterator` | `next()` directly |
+
+A loop with a result type `T` creates an empty `T` before the loop, and each body value is passed to `T.push` (`Collectable`). A `while` loop's value comes only from its unwinds and its `else` arm. `next <-` jumps to the loop's continue label after dropping the iteration's locals.
+
+### 18.7 Functions, closures, and interfaces
+
+- A **top-level function** is a C function. Read-only parameters of resource type are passed by value without copying (the caller keeps ownership, and the callee never drops them); `&T` parameters are pointers; `own T` parameters are passed by value, and the callee drops them.
+- A **function value** is `{ fn, env, copy_env, drop_env }`: a code pointer taking the environment as a hidden first argument, a pointer to a heap environment struct holding the captures, and functions to copy and destroy it. A top-level function used as a value gets a static thunk with a null environment.
+- An **interface value** is `{ data, vtable, owned }`: a pointer to a heap copy of the concrete value, a pointer to the static vtable for (type, interface), which holds a drop function, a clone function, and one entry per method, and a flag saying whether the box owns `data`.
+
+### 18.8 Strings and interpolation
+
+A string literal is a borrowed view of static data. `"a ${x} b"` is lowered to a sequence of appends into a new owned string: literal parts are copied, and each `${expr}` appends `expr.to_string()` (with built-in fast paths for numbers, `bool`, `char`, and `string`). The temporary strings from `to_string` are dropped immediately.
+
+### 18.9 Backends
+
+The LLVM backend emits textual LLVM IR, which `clang` compiles and links with the runtime. The C11 backend emits a single C file that includes the runtime header (`runtime_h.go`) and compiles with any C11 compiler. Both must produce the same observable behavior. In both, integer arithmetic is emitted so that wrapping is defined (never relying on C signed-overflow behavior), and the checks of [§5.3](#53-arithmetic) and [§5.7](#57-indexing-and-slicing) stay in `--release` builds.
+
+## 19. The Runtime Contract
+
+These behaviors are observable and **Required**.
+
+1. **Program start.** Before `main` runs, top-level constants are initialized in dependency order. `args()` returns the arguments as given to the process.
+2. **Program end.** When `main` returns, resource constants are destroyed in reverse initialization order, standard output is flushed, and the process exits with `0` (or the `int` `main` returned). `exit(code)` flushes standard output and exits immediately with `code`, without destruction.
+3. **Panics and traps.** A panic, from `panic`, `assert`, a failed `unwrap`/`expect`, `default panic`, or a runtime trap ([Appendix D](#appendix-d-runtime-traps)):
+   - flushes standard output;
+   - writes `lowlight panic at FILE:LINE:COL: MESSAGE` to standard error, followed by a newline (traps raised by generated code report only `FILE:LINE`);
+   - for a panic with an `Error`, writes the error's summary as the message, then `trace:` and one line per frame, `  at FILE:LINE:COL — note`;
+   - exits with status `1`, without running any destruction.
+   `FILE` is the base name of the source file.
+4. **Under `lowlight test`**, a panic inside a test ends that test only: the runner records it as a failure with the panic message and location, and continues with the next test. Resources owned by the failed test are leaked, not destroyed.
+5. **Standard streams.** `print` and `println` write to standard output, which is buffered; `eprint` and `eprintln` write to standard error, unbuffered. Output written before a panic is never lost.
+6. **Memory exhaustion.** If an allocation fails, the program flushes standard output, writes `lowlight panic: out of memory (requested N bytes)` to standard error, and aborts. This cannot be intercepted, even by the test runner.
+
+## 20. Conformance Checklist
+
+An implementation is conforming when it does all of the following. Each item links to the rule it summarizes.
+
+**Lexing and parsing**
+- [ ] Inserts semicolons exactly as in [§2.3](#23-statement-separation) and enforces trailing commas as in [§2.4](#24-trailing-commas).
+- [ ] Lexes `?`/`!` suffixes and `<-` as in [§2.5](#25-identifiers) and [§2.9](#29-operators-and-punctuation).
+- [ ] Resolves the ambiguities of [§16](#16-parsing-ambiguities-and-their-resolution) the same way.
+- [ ] Accepts exactly the grammar of [Appendix A](#appendix-a-grammar).
+
+**Names and declarations**
+- [ ] Enforces the `?` and `!` naming rules and `_`-prefixed package privacy ([§2.5](#25-identifiers), [§4.7](#47-visibility)).
+- [ ] Resolves top-level names order-independently within a package and rejects import cycles ([§4.6](#46-packages-and-imports)).
+- [ ] Applies attributes as in [§4.8](#48-attributes).
+
+**Types**
+- [ ] Never nests optionals and never implicitly converts between numeric types ([§3.5](#35-optionals), [§3.16](#316-type-equivalence-and-implicit-conversions)).
+- [ ] Distinguishes plain values from resources ([§3.1](#31-plain-values-and-resources)).
+- [ ] Rejects infinite-size recursive types and accepts recursion through optionals, collections, and references ([§3.7](#37-structs)).
+- [ ] Checks result declarations: exactly one `value` member and at least one failure ([§3.9](#39-results)).
+- [ ] Checks interface satisfaction structurally ([§3.11](#311-interfaces)).
+
+**Expressions and control flow**
+- [ ] Evaluates operands left to right, once ([§5.1](#51-evaluation-order-and-precedence)).
+- [ ] Wraps integer arithmetic and traps on division by zero, bad shifts, and out-of-range indexes and slices in every build mode ([§5.3](#53-arithmetic), [§5.7](#57-indexing-and-slicing)).
+- [ ] Requires `default` at the end of every `match` and checks exhaustiveness ([§6.5](#65-pattern-matching)).
+- [ ] Implements result chains, including `default panic` ([§6.6](#66-result-chains)).
+- [ ] Implements all unwind forms and labels, with destruction on exit ([§6.7](#67-unwinds-and-labels)).
+
+**Ownership**
+- [ ] Requires `own` for moves of existing variables, and rejects use after move, including maybe-moved variables ([§7.2](#72-moves)).
+- [ ] Enforces parameter modes and the borrowing rules ([§7.3](#73-parameter-modes), [§7.4](#74-borrowing-rules)).
+- [ ] Destroys values deterministically in reverse declaration order, running `drop` first ([§7.5](#75-destruction)).
+- [ ] Prevents `ref[T]` from outliving its arena ([§7.6](#76-arenas-and-references)).
+
+**Generics, failure, unsafe, testing**
+- [ ] Monomorphizes generics, checks bounds, and rejects optional type arguments ([§8](#8-generics)).
+- [ ] Implements `Result`, `Error`, and panics with the exact output format ([§9](#9-failure-handling), [§19](#19-the-runtime-contract)).
+- [ ] Requires `unsafe` for the operations of [§10](#10-unsafe-code-and-foreign-functions) and follows the C ABI for `extern`.
+- [ ] Discovers and runs tests as in [§11](#11-testing).
+
+**Library and tooling**
+- [ ] Provides the prelude of [§12](#12-the-prelude) with the `@lang` hooks.
+- [ ] Resolves imports and dependencies as in [§14](#14-packages-manifests-and-dependencies), with no network access during builds.
+
+---
+
+# Appendices
+
+## Appendix A: Grammar
+
+This is the complete syntax of Lowlight in Extended Backus–Naur Form. `{ x }` means zero or more, `[ x ]` means optional, and quoted text is literal. Semicolons (`;`) are those written or inserted by the lexer ([§2.3](#23-statement-separation)). Every comma-separated list allows a trailing comma, which is required when the list spans lines ([§2.4](#24-trailing-commas)). Ambiguities are resolved as in [§16](#16-parsing-ambiguities-and-their-resolution).
+
+### A.1 Lexical elements
+
+```ebnf
+Ident       = ( Letter | "_" ) { Letter | Digit | "_" } ;
+OptIdent    = Ident "?" ;                         (* no space before "?" *)
+ResIdent    = Ident "!" ;                         (* no space before "!" *)
+Name        = Ident | OptIdent | ResIdent ;
+
+IntLit      = DecDigits | ( "0x" | "0X" ) HexDigits | "0b" BinDigits ;      (* "_" allowed between digits *)
+FloatLit    = DecDigits "." DecDigits [ Exponent ] ;
+Exponent    = ( "e" | "E" ) [ "+" | "-" ] DecDigits ;
+CharLit     = "'" ( Char | Escape ) "'" ;
+StringLit   = '"' { Char | Escape | Interp } '"'
+            | "`" { AnyChar | Interp } "`" ;
+Interp      = "$" ( Ident | "self" ) | "${" Expr "}" ;
+Escape      = "\n" | "\t" | "\r" | "\0" | "\\" | "\'" | '\"' | "\$" | "\`" | "\x" Hex Hex | "\u{" Hex { Hex } "}" ;   (* "\`" in backtick strings only *)
+BoolLit     = "true" | "false" ;
+Literal     = IntLit | FloatLit | CharLit | StringLit | BoolLit | "none" ;
+```
+
+### A.2 Files and declarations
+
+```ebnf
+File        = { TopDecl ";" } ;
+TopDecl     = { Attribute } ( ImportDecl | ExternDecl | TypeDecl | VarDecl | FuncDecl | MethodDecl ) ;
+
+Attribute   = "@" Ident [ "(" [ AttrArg { "," AttrArg } ] ")" ] ;
+AttrArg     = StringLit | Ident ;
+
+ImportDecl  = "import" StringLit [ "as" Ident ] ;
+
+ExternDecl  = "extern" StringLit
+            | "extern" ( Ident | StringLit | Keyword ) [ "as" Ident ] ":" "(" [ Params ] ")" [ Type ] ;
+
+VarDecl     = ( "let" | "bind" ) Name [ ":" Type ] "=" Expr
+            | ( "let" | "bind" ) Target { "," Target } "=" "unpack" Expr ;
+Target      = ( Name | "_" ) [ ":" Type ] ;
+
+FuncDecl    = "bind" Ident [ TypeParams ] "=" FuncLit ;
+MethodDecl  = "bind" TypeRef "." Ident [ TypeParams ] "=" FuncLit ;
+TypeRef     = ( Ident | PrimitiveType | "string" ) [ TypeParams ] ;
+
+TypeDecl    = "define" [ "packed" ] Ident [ TypeParams ] TypeBody ;
+TypeBody    = "struct" "[" [ Field { "," Field } ] "]"
+            | "enum" [ IntType ] "[" [ Variant { "," Variant } ] "]"
+            | "result" "[" Variant { "," Variant } "]"
+            | "interface" "[" [ MethodSig { "," MethodSig } ] "]"
+            | Type ;                                            (* distinct type *)
+Field       = { Attribute } Name ":" Type [ "=" Expr ] ;
+Variant     = { Attribute } Ident [ "=" Expr ]                  (* unit variant, optional tag value *)
+            | { Attribute } Ident ":" Type ;                    (* payload variant *)
+MethodSig   = { Attribute } Ident ":" "(" [ Params ] ")" [ Type ] ;
+
+TypeParams  = "[" TypeParam { "," TypeParam } "]" ;
+TypeParam   = Ident [ ":" Ident { "+" Ident } ] ;
+```
+
+### A.3 Types
+
+```ebnf
+Type        = PrimitiveType | "string" | "void" | "never"
+            | "?" Type                                          (* optional *)
+            | "[" Type "]"                                      (* list *)
+            | "[" Expr ":" Type "]"                             (* array; constant size *)
+            | "#[" Type "]"                                     (* set *)
+            | "#[" Type ":" Type "]"                            (* map *)
+            | "+[" [ Type { "," Type } ] "]"                    (* tuple *)
+            | "(" [ ParamType { "," ParamType } ] ")" [ Type ]  (* function *)
+            | "ref" "[" Type "]" | "ptr" "[" Type "]"
+            | "Self"
+            | [ Ident "." ] Ident [ TypeArgs ] ;                (* named, possibly from a package *)
+ParamType   = [ "&" | "own" ] Type ;
+TypeArgs    = "[" Type { "," Type } "]" ;
+PrimitiveType = "int" | "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
+              | "float" | "f32" | "f64" | "bool" | "char" ;
+IntType     = "int" | "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" ;
+```
+
+### A.4 Statements and bodies
+
+```ebnf
+Block       = "{" { Stmt ";" } [ Expr ] "}" ;
+Stmt        = { Attribute } ( VarDecl | TypeDecl | Assign | Expr ) ;
+Assign      = Place AssignOp Expr
+            | Place { "," Place } "=" "unpack" Expr ;
+AssignOp    = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
+Place       = Name | Place "." Name | Place "[" Expr "]" | "*" UnaryExpr ;
+
+Body        = Block | Expr | Assign ;                          (* Assign not allowed as a function body *)
+```
+
+### A.5 Expressions
+
+```ebnf
+Expr        = Unwind | Coalesce ;
+Unwind      = ( "func" | "for" | "while" | "if" | "match" | "next" [ Ident ] | Ident ) "<-" [ Expr ]
+            | "<-" [ Expr ] ;
+Coalesce    = OrExpr [ "??" Expr ] ;
+OrExpr      = AndExpr { "or" AndExpr } ;
+AndExpr     = BitOrExpr { "and" BitOrExpr } ;
+BitOrExpr   = BitXorExpr { "|" BitXorExpr } ;
+BitXorExpr  = BitAndExpr { "^" BitAndExpr } ;
+BitAndExpr  = EqExpr { "&" EqExpr } ;
+EqExpr      = RelExpr [ ( "==" | "!=" ) RelExpr ] ;
+RelExpr     = RangeExpr [ ( "<" | "<=" | ">" | ">=" ) RangeExpr ] ;
+RangeExpr   = ShiftExpr [ ( ".." | "..=" ) ShiftExpr ] ;
+ShiftExpr   = AddExpr { ( "<<" | ">>" ) AddExpr } ;
+AddExpr     = MulExpr { ( "+" | "-" ) MulExpr } ;
+MulExpr     = UnaryExpr { ( "*" | "/" | "%" ) UnaryExpr } ;
+UnaryExpr   = ( "-" | "not" | "~" | "*" | "&" | "own" | "unsafe" ) UnaryExpr
+            | ChainExpr ;
+ChainExpr   = PostfixExpr [ ResultChain ] ;
+
+PostfixExpr = Primary { "." Name | "?." Name | [ TypeArgs ] "(" [ Args ] ")" | "[" Expr "]" | "[" Slice "]" } ;
+Slice       = [ Expr ] ".." [ Expr ] | [ Expr ] "..=" Expr ;
+Args        = Arg { "," Arg } ;
+Arg         = [ "&" | "own" ] Expr ;
+
+Primary     = Literal | Name | "self" | "Self"
+            | TypeName [ TypeArgs ] "[" [ FieldInit { "," FieldInit } ] "]"   (* struct literal *)
+            | "[" [ Expr { "," Expr } ] "]"                                     (* list *)
+            | "[" Expr ":" Expr { "," Expr } "]"                                (* array *)
+            | "#[" [ Expr { "," Expr } | Expr ":" Expr { "," Expr ":" Expr } ] "]"   (* set or map *)
+            | "+[" [ Expr { "," Expr } ] "]"                                    (* tuple *)
+            | FuncLit | Block | "unsafe" Block | Labeled
+            | IfExpr | ForExpr | WhileExpr | MatchExpr
+            | PrimitiveType "(" Expr ")"                                        (* conversion *)
+            | "(" Expr ")" ;
+TypeName    = [ Ident "." ] Ident ;                                             (* begins with an uppercase letter *)
+FieldInit   = Name ":" Expr ;
+FuncLit     = "(" [ Params ] ")" [ Type ] ":" Body ;
+Params      = Param { "," Param } ;
+Param       = ( Name ":" [ "&" | "own" ] Type ) | [ "&" | "own" ] "self" [ ":" Type ] ;
+Labeled     = Ident ":" ( Block | ForExpr | WhileExpr ) ;
+```
+
+### A.6 Control flow
+
+```ebnf
+IfExpr      = "if" "(" Cond ")" [ Type ] ":" Body
+              { "else" "if" "(" Cond ")" [ Type ] ":" Body }
+              [ "else" ":" Body ] ;
+Cond        = Expr | [ "&" ] OptIdent | [ "&" ] Expr "as" Name ;
+
+ForExpr     = "for" "(" LoopHeader ")" [ Type ] ":" Body [ "else" ":" Body ] ;
+WhileExpr   = "while" "(" LoopHeader ")" [ Type ] ":" Body [ "else" ":" Body ] ;
+LoopHeader  = Expr | LoopVar [ "," LoopVar ] "in" Expr ;
+LoopVar     = [ "&" ] ( Name | "_" ) ;
+
+MatchExpr   = "match" [ "(" [ Expr { "," Expr } ] ")" ] [ Type ] ":"
+              { "when" Cases ":" Body } "default" [ Cases ] ":" Body ;
+Cases       = Case { "," Case } ;
+Case        = Pattern | "(" Pattern { "," Pattern } ")" ;
+Pattern     = Literal | "_" | "in" Expr
+            | [ TypeName "." ] Ident [ "(" PayloadBind ")" ]        (* variant *)
+            | Ident "(" [ Args ] ")"                                (* method pattern *)
+            | Expr ;                                                (* in `match:` arms: a bool condition *)
+PayloadBind = "_" | [ "&" | "own" ] Name ;
+
+ResultChain = ":" { "when" FailureCases ":" Body } ChainEnd ;
+FailureCases = FailurePat { "," FailurePat } ;
+FailurePat  = Ident [ "(" PayloadBind ")" ] ;
+ChainEnd    = "default" [ FailureCases ] ":" Body
+            | "default" "panic" ;
+```
+
+## Appendix B: Keywords and Contextual Words
+
+**Reserved keywords** (28): `and`, `as`, `bind`, `define`, `else`, `enum`, `extern`, `false`, `for`, `func`, `if`, `import`, `in`, `interface`, `let`, `match`, `none`, `not`, `or`, `own`, `self`, `Self`, `struct`, `true`, `unpack`, `unsafe`, `when`, `while`.
+
+**Contextual words**, identifiers everywhere except as shown:
+
+| Word | Special meaning |
+|---|---|
+| `next` | `next <-`, `next label <-` |
+| `default` | the final arm of a `match` or result chain |
+| `panic` | `default panic` in a result chain |
+| `result` | `define Name result [...]` |
+| `packed` | `define packed Name struct [...]` |
+
+**Predeclared names**, which are not keywords: the primitive types (`int`, `i8`…`u64`, `float`, `f32`, `f64`, `bool`, `char`, `string`), `void`, `never`, `ref`, `ptr`, the universe functions ([§12.2](#122-universe-functions)), and every name exported by the prelude ([§12](#12-the-prelude)).
+
+## Appendix C: Operator Precedence
+
+From tightest to loosest:
+
+| Level | Operators | Associativity |
+|---|---|---|
+| 1 | `.` `?.` `()` `[]` | left |
+| 2 | prefix `-` `not` `~` `*` `&` `own` `unsafe` | right |
+| 3 | `*` `/` `%` | left |
+| 4 | `+` `-` | left |
+| 5 | `<<` `>>` | left |
+| 6 | `..` `..=` | none |
+| 7 | `<` `<=` `>` `>=` | none |
+| 8 | `==` `!=` | none |
+| 9 | `&` | left |
+| 10 | `^` | left |
+| 11 | `\|` | left |
+| 12 | `and` | left |
+| 13 | `or` | left |
+| 14 | `??` | right |
+| 15 | unwind `<-` | right |
+
+A result chain's `:` applies to a postfix expression, so `a.b(c): default panic` chains on the call. Assignment is a statement, not an operator.
+
+## Appendix D: Runtime Traps
+
+A trap is a panic raised by the language itself ([§19](#19-the-runtime-contract)). Every trap below is checked in every build mode.
+
+| Trap | Message | Raised by |
+|---|---|---|
+| Index out of range | `index I out of bounds for length L` | `xs[i]`, `s[i]`, `arr[i]` |
+| Slice out of range | `vector slice bounds out of range` · `string slice bounds out of range` | `xs[lo..hi]`, `s[lo..hi]` |
+| Division by zero | `integer division by zero` · `unsigned division by zero` | `/` |
+| Remainder by zero | `integer modulo by zero` · `unsigned modulo by zero` | `%` |
+| Bad shift | `shift count out of range` | `<<`, `>>` with a count outside `0 ..< bits` |
+| Unhandled failure | `unhandled failure Type.variant` | `default panic` in a result chain |
+| Unwrap | `called Result.unwrap on an error: <error summary>` | `Result.unwrap()` |
+| Expect | `<msg>: <error summary>` | `Result.expect(msg)` |
+| Unwrap error | `called Result.unwrap_err on an ok result` | `Result.unwrap_err()` |
+| Assertion | `assertion failed`, or the given message | `assert(cond)`, `assert(cond, msg)` |
+| List index | `List.insert: index I out of bounds for length L` (also `List.remove`, `List.swap_remove`) | `insert`, `remove`, `swap_remove` |
+| Out of memory | `out of memory (requested N bytes)` | any allocation; aborts the process ([§19](#19-the-runtime-contract)) |
+
+Arithmetic overflow is **not** a trap: integer arithmetic wraps ([§5.3](#53-arithmetic)).
+
+## Appendix E: Glossary
+
+| Term | Meaning |
+|---|---|
+| **arena** | an owner of many values destroyed together, handing out `ref[T]` references ([§7.6](#76-arenas-and-references)) |
+| **associated function** | a function attached to a type without a receiver, called as `Type.name()` ([§4.4](#44-methods-and-associated-functions)) |
+| **bind** | declare an immutable name ([§4.2](#42-bind-and-let)) |
+| **body** | the block or single expression after a `:` in a function, `if`, loop, or arm ([§6.1](#61-bodies)) |
+| **borrow** | temporary access to a value without owning it; read-only by default, mutable with `&` ([§7.3](#73-parameter-modes)) |
+| **bound** | an interface a type parameter must satisfy, `T: Hashable` ([§8.2](#82-bounds)) |
+| **destruction** | releasing a resource at the end of its owner's scope, running `drop` first if defined ([§7.5](#75-destruction)) |
+| **distinct type** | a new nominal type with the representation of an existing one ([§3.10](#310-distinct-types)) |
+| **exhaustive** | covering every possible value of a `match` subject ([§6.5](#65-pattern-matching)) |
+| **failure** | any member of a result type other than `value` ([§3.9](#39-results)) |
+| **instantiation** | a copy of a generic declaration with concrete type arguments ([§8.4](#84-inference-and-instantiation)) |
+| **label** | a name on a block or loop, targeted by `name <-` ([§6.7](#67-unwinds-and-labels)) |
+| **move** | transfer of a resource to a new owner, leaving the source unusable ([§7.2](#72-moves)) |
+| **narrowing** | treating an optional variable as its value inside `if(x?)` ([§6.2](#62-if)) |
+| **optional** | `?T`, a value that may be absent ([§3.5](#35-optionals)) |
+| **owner** | the variable, field, element, temporary, or arena responsible for destroying a value ([§7.1](#71-owners)) |
+| **package** | all `.ll` files in one directory ([§4.6](#46-packages-and-imports)) |
+| **place** | an expression that denotes storage: a variable, field, element, or dereference ([§5.12](#512-assignment)) |
+| **plain value** | a value with no owned resources, copied freely ([§3.1](#31-plain-values-and-resources)) |
+| **prelude** | `std/core`, imported implicitly into every file ([§12](#12-the-prelude)) |
+| **receiver** | the `self` parameter of a method, in mode `self`, `&self`, or `own self` ([§4.4](#44-methods-and-associated-functions)) |
+| **resource** | a value that owns memory or another resource and therefore moves instead of copying ([§3.1](#31-plain-values-and-resources)) |
+| **result chain** | `expr: when ... default ...`, handling a result's failures and evaluating to its value ([§6.6](#66-result-chains)) |
+| **result type** | a type declared with `result`, with one `value` member and one or more failures ([§3.9](#39-results)) |
+| **subject** | the value or values a `match` examines ([§6.5](#65-pattern-matching)) |
+| **tag enum** | an enum with no payloads, each variant an integer ([§3.8](#38-enums)) |
+| **tagged union** | an enum with at least one payload variant ([§3.8](#38-enums)) |
+| **trap** | a panic raised by the language on an invalid operation ([Appendix D](#appendix-d-runtime-traps)) |
+| **unwind** | `<-`, leaving a function, loop, block, or iteration early ([§6.7](#67-unwinds-and-labels)) |
+| **vtable** | the table of method pointers behind an interface value ([§18.7](#187-functions-closures-and-interfaces)) |

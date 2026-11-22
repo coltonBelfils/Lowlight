@@ -58,6 +58,17 @@
         <notificationGroup
             id="Lowlight"
             displayType="BALLOON"/>
+
+        <consoleFilterProvider
+            implementation="dev.lowlight.intellij.testing.LowlightConsoleFilterProvider"/>
+
+        <configurationType
+            implementation="dev.lowlight.intellij.testing.LowlightTestConfigurationType"/>
+        <runConfigurationProducer
+            implementation="dev.lowlight.intellij.testing.LowlightTestConfigurationProducer"/>
+        <runLineMarkerContributor
+            language="Lowlight"
+            implementationClass="dev.lowlight.intellij.testing.LowlightRunLineMarkerContributor"/>
     </extensions>
 
     <actions>

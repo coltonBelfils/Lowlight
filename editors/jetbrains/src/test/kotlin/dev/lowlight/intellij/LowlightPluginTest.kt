@@ -175,4 +175,98 @@ class LowlightPluginTest : BasePlatformTestCase() {
         assertTrue(tokens.any { it.first == LowlightTokenTypes.BUILTIN_FUNC && it.second == "panic" })
         assertTrue(tokens.any { it.first == LowlightTokenTypes.IDENTIFIER && it.second == "a" })
     }
+
+    fun testConsoleFilterMatchesFileLineAndCol() {
+        val line = "    at std/json/json.ll:316:64 — error and sub/app.ll:12:3"
+        val matches = dev.lowlight.intellij.testing.LowlightConsoleFilter.findMatches(line)
+        assertEquals(2, matches.size)
+        assertEquals("std/json/json.ll", matches[0].rawPath)
+        assertEquals(316, matches[0].lineOneBased)
+        assertEquals(64, matches[0].colOneBased)
+        assertEquals("sub/app.ll", matches[1].rawPath)
+        assertEquals(12, matches[1].lineOneBased)
+        assertEquals(3, matches[1].colOneBased)
+
+        myFixture.addFileToProject("sub/sample_test.ll", "@test\nbind ok = (): assert(true)\n")
+        val filter = dev.lowlight.intellij.testing.LowlightConsoleFilter(project)
+        val outLine = "    sub/sample_test.ll:2:15: assertion failed\n"
+        val res = filter.applyFilter(outLine, 100 + outLine.length)
+        assertNotNull("Expected console filter match when project file exists", res)
+        assertEquals(1, res!!.resultItems.size)
+        val item = res.resultItems[0]
+        assertEquals(104, item.highlightStartOffset)
+        assertEquals(104 + "sub/sample_test.ll:2:15".length, item.highlightEndOffset)
+    }
+
+    fun testTeamCityBridgeTranslatesNdjsonEvents() {
+        val bridge = dev.lowlight.intellij.testing.LowlightTeamCityBridge()
+        val runMsgs = bridge.processLine(
+            """{"event":"run","package":"std/json","file":"/tmp/a.ll","relFile":"std/json/a.ll","line":10,"col":1,"name":"t_pass","desc":"passes cleanly"}"""
+        )
+        assertEquals(2, runMsgs.size)
+        assertTrue(runMsgs[0].startsWith("##teamcity[testSuiteStarted name='std/json/a.ll'"))
+        assertTrue(runMsgs[1].contains("testStarted name='passes cleanly'"))
+        assertTrue(runMsgs[1].contains("locationHint='lowlight:///tmp/a.ll?line=10&col=1'"))
+
+        val passMsgs = bridge.processLine(
+            """{"event":"pass","file":"/tmp/a.ll","relFile":"std/json/a.ll","name":"t_pass","desc":"passes cleanly","durationUs":2500,"output":"hi\n"}"""
+        )
+        assertEquals(2, passMsgs.size)
+        assertTrue(passMsgs[0].contains("testStdOut"))
+        assertTrue(passMsgs[1].contains("testFinished name='passes cleanly' duration='2'"))
+
+        bridge.processLine(
+            """{"event":"run","package":"std/json","file":"/tmp/a.ll","relFile":"std/json/a.ll","line":20,"col":1,"name":"t_fail","desc":"diff fail"}"""
+        )
+        val failMsgs = bridge.processLine(
+            """{"event":"fail","file":"/tmp/a.ll","relFile":"std/json/a.ll","name":"t_fail","desc":"diff fail","message":"std/json/a.ll:22:5: assertion failed\n  expected: 'a'\n       got: 'b'","expected":"'a'","actual":"'b'"}"""
+        )
+        assertEquals(2, failMsgs.size)
+        assertTrue(failMsgs[0].contains("type='comparisonFailure'"))
+        assertTrue(failMsgs[0].contains("expected='|'a|''"))
+        assertTrue(failMsgs[0].contains("actual='|'b|''"))
+        assertTrue(failMsgs[1].contains("testFinished name='diff fail'"))
+
+        val endMsgs = bridge.finish()
+        assertEquals(1, endMsgs.size)
+        assertTrue(endMsgs[0].contains("testSuiteFinished name='std/json/a.ll'"))
+    }
+
+    fun testRunLineMarkerAndTestLocator() {
+        val psiFile = myFixture.configureByText(
+            "gutter_test.ll",
+            """
+            @test("adds numbers")
+            bind test_add = (): {
+            	assert(1 + 1 == 2)
+            }
+
+            bind test_main = (): {
+            	test_add()
+            }
+            """.trimIndent()
+        )
+        val contributor = dev.lowlight.intellij.testing.LowlightRunLineMarkerContributor()
+        val text = psiFile.text
+        val atTestOffset = text.indexOf("@test")
+        val atLeaf = psiFile.findElementAt(atTestOffset)!!
+        val info = contributor.getInfo(atLeaf)
+        assertNotNull("Expected gutter Run icon on @test attribute", info)
+
+        val insideTestOffset = text.indexOf("assert")
+        val insideLeaf = psiFile.findElementAt(insideTestOffset)!!
+        val enclosing = dev.lowlight.intellij.testing.LowlightRunLineMarkerContributor.findEnclosingOrAdjacentTest(insideLeaf)
+        assertNotNull(enclosing)
+        assertEquals("test_add", enclosing!!.fnName)
+        assertEquals("adds numbers", enclosing.displayName)
+
+        val testMainOffset = text.indexOf("test_main")
+        val testMainLeaf = psiFile.findElementAt(testMainOffset)!!
+        assertNotNull("Expected gutter Run icon on test_main", contributor.getInfo(testMainLeaf))
+
+        val parsed = dev.lowlight.intellij.testing.LowlightTestLocator.parsePathAndPos("/tmp/foo.ll?line=14&col=5")
+        assertEquals("/tmp/foo.ll", parsed.filePath)
+        assertEquals(14, parsed.line)
+        assertEquals(5, parsed.col)
+    }
 }

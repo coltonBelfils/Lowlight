@@ -47,8 +47,8 @@
     "prefix": "enum",
     "body": [
       "define ${1:Status} enum [",
-      "\t${2:Active},",
-      "\t${3:Stopped},",
+      "\t${2:active},",
+      "\t${3:stopped},",
       "]"
     ],
     "description": "Tag enum"
@@ -58,8 +58,8 @@
     "body": [
       "define ${1:Lookup} result [",
       "\tvalue: ${2:string},",
-      "\t${3:Missing}: ${4:string},",
-      "\t${5:Forbidden},",
+      "\t${3:missing}: ${4:string},",
+      "\t${5:forbidden},",
       "]"
     ],
     "description": "Result type: one `value` member plus failure variants"
@@ -145,15 +145,15 @@
     "prefix": "chain",
     "body": [
       "${1:load()}:",
-      "\tdefault Err(${2:e}): func <- Err($2.wrap(\"${3:context}\"))"
+      "\tdefault err(${2:e}): func <- err($2.wrap(\"${3:context}\"))"
     ],
-    "description": "Evaluate to the value; propagate `Err` with context"
+    "description": "Evaluate to the value; propagate `err` with context"
   },
   "Result Chain When": {
     "prefix": "chainw",
     "body": [
       "${1:find(key)}:",
-      "\twhen ${2:Missing}(${3:_}): ${4:fallback}",
+      "\twhen ${2:missing}(${3:_}): ${4:fallback}",
       "\tdefault panic"
     ],
     "description": "Handle listed failures; panic on the rest"

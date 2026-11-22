@@ -49,9 +49,9 @@ type KeywordDoc struct {
 var BuiltinKeywords = []KeywordDoc{
 	{Word: "let", Detail: "mutable owned local variable", Summary: "Declares a mutable owned local variable (`let x = 10` or `let v: [int] = []`)."},
 	{Word: "bind", Detail: "immutable binding, function, or method", Summary: "Declares a deeply immutable value, constant, function, or method (`bind add = (a: int, b: int) int: a + b`)."},
-	{Word: "define", Detail: "nominal type declaration", Summary: "Defines a `struct`, `enum`, `result`, `interface`, or distinct derived type (`define UserID int`)."},
+	{Word: "define", Detail: "nominal type declaration", Summary: "Defines a `struct`, `enum`, `result`, `interface`, or distinct derived type (`define UserId int`)."},
 	{Word: "struct", Detail: "product value type `[field: T, ...]`", Summary: "Declares a value-type struct (`define Point struct [x: float, y: float]`). Prefix `packed` for unpadded C ABI layout."},
-	{Word: "enum", Detail: "tag or tagged-union enum `[A, B, ...]`", Summary: "Declares a strongly-typed integer tag enum (`define Status enum u8 [Ok = 0, Err = 1]`) or tagged union."},
+	{Word: "enum", Detail: "tag or tagged-union enum `[a, b, ...]`", Summary: "Declares a strongly-typed integer tag enum (`define Status enum u8 [ok = 0, err = 1]`) or tagged union."},
 	{Word: "interface", Detail: "dynamic/generic method contract", Summary: "Declares an interface (`define Shape interface [area: (self) float]`)."},
 	{Word: "if", Detail: "conditional expression / optional unwrap", Summary: "Conditional expression (`if(cond): a else: b`) or optional narrowing (`if(user?): ...` / `if(expr as val): ...`)."},
 	{Word: "else", Detail: "fallback branch in `if`, `for`, or `while`", Summary: "Fallback branch for `if`, `for ... else` (runs when a loop finishes without `for <-`), or `while ... else`."},
@@ -187,26 +187,26 @@ var BuiltinSnippets = []CodeSnippet{
 	{
 		Label:   "match enum",
 		Detail:  "Exhaustively match enum variants",
-		Snippet: "match(${1:val}):\n\twhen ${2:Type}.${3:Variant}: ${4:expr}\n\tdefault: ${0:panic(\"todo\")}",
+		Snippet: "match(${1:val}):\n\twhen ${2:variant}: ${3:expr}\n\tdefault: ${0:panic(\"todo\")}",
 		Summary: "Exhaustively matches over enum variants.",
 	},
 	{
 		Label:   "result chain",
-		Detail:  "Handle a result's failures, propagating `Err`",
-		Snippet: "${1:load()}:\n\tdefault Err(${2:e}): func <- Err($2.wrap(\"${3:context}\"))",
+		Detail:  "Handle a result's failures, propagating `err`",
+		Snippet: "${1:load()}:\n\tdefault err(${2:e}): func <- err($2.wrap(\"${3:context}\"))",
 		Summary: "Evaluates to the result's `value`; on failure, returns it from the enclosing function with added context.",
 	},
 	{
 		Label:   "result chain when",
 		Detail:  "Handle specific failures of a result",
-		Snippet: "${1:find(key)}:\n\twhen ${2:Missing}(${3:_}): ${4:fallback}\n\tdefault panic",
+		Snippet: "${1:find(key)}:\n\twhen ${2:missing}(${3:_}): ${4:fallback}\n\tdefault panic",
 		Summary: "Handles listed failures (each arm unwinds or evaluates to the value type); `default panic` panics on the rest.",
 	},
 	{
 		Label:   "default panic",
 		Detail:  "Unwrap a result, panicking on failure",
 		Snippet: "${1:load()}: default panic",
-		Summary: "Evaluates to the result's `value` and panics with `unhandled failure Name.Variant` on any failure.",
+		Summary: "Evaluates to the result's `value` and panics with `unhandled failure Name.variant` on any failure.",
 	},
 	{
 		Label:   "test",
