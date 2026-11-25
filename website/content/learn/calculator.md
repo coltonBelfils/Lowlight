@@ -21,6 +21,7 @@ The program has three parts:
 A token is a number, an operator, or a parenthesis. That's an enum with payloads:
 
 ```lowlight fragment
+@derive(Equatable)
 define Token enum [
 	num: float,
 	op: char,
@@ -29,7 +30,7 @@ define Token enum [
 ]
 ```
 
-`Token` holds only plain values, so it is itself plain: tokens copy freely. (To compare tokens with `==`, it would add `@derive(Equatable)`.)
+`Token` holds only plain values, so it is itself plain: tokens copy freely, and `@derive(Equatable)` lets them be compared with `==` and `!=`.
 
 ## The tokenizer
 
@@ -173,6 +174,7 @@ The `match` is exhaustive: its last arm names the last variant, `rparen`, so add
 `calc` runs both stages and checks that every token was used. Here is the complete program:
 
 ```lowlight
+@derive(Equatable)
 define Token enum [
 	num: float,
 	op: char,

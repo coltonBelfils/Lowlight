@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutorial: a web service · Lowlight</title>
+<meta name="description" content="Build a small HTTP API with std/http, test its handlers in-process, and serve it.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a class="active" href="index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Tutorials</a></div><div class="sidebar-group">Tutorials</div><ul><li><a href="word-count.html">A command-line tool</a></li><li><a href="calculator.html">A calculator</a></li><li><a href="config-loader.html">Handling errors</a></li><li><a class="active" href="web-service.html">A web service</a></li><li><a href="calling-c.html">Calling C</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Tutorials</a><span class="sep">/</span><span>Tutorials</span></nav><h1 id="tutorial-a-web-service"><a class="anchor" href="#tutorial-a-web-service" aria-hidden="true">#</a>Tutorial: a web service</h1>
+<p><code>std/http</code> contains an HTTP/1.1 client and server. In this tutorial you'll build a small key-value API:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Request</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>GET /health</code></td><td>responds <code>ok</code></td></tr>
+<tr><td><code>GET /greet?name=Ada</code></td><td>responds <code>hello, Ada</code></td></tr>
+<tr><td><code>GET /items</code></td><td>lists the stored items</td></tr>
+<tr><td><code>POST /items</code> with a body</td><td>stores the body as a new item</td></tr>
+</tbody>
+</table></div>
+<p>You'll test every handler without opening a socket, then serve the API for real.</p>
+<h2 id="1-handlers-and-a-router"><a class="anchor" href="#1-handlers-and-a-router" aria-hidden="true">#</a>1. Handlers and a router</h2>
+<p>A handler is a function that receives the request and a <code>ResponseWriter</code> to fill in. A <code>ServeMux</code> routes paths to handlers:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/http&quot;</span>
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> mux = http.<span class="t">ServeMux</span>.<span class="f">new</span>()
+	mux.<span class="f">handle_func</span>(<span class="s">&quot;/health&quot;</span>, (req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): res.<span class="f">write</span>(<span class="s">&quot;ok\n&quot;</span>))
+	mux.<span class="f">handle_func</span>(<span class="s">&quot;/greet&quot;</span>, (req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): {
+		<span class="k">let</span> name = req.<span class="f">query_param</span>(<span class="s">&quot;name&quot;</span>) ?? <span class="s">&quot;world&quot;</span>
+		res.<span class="f">set_header</span>(<span class="s">&quot;Content-Type&quot;</span>, <span class="s">&quot;text/plain; charset=utf-8&quot;</span>)
+		res.<span class="f">write</span>(<span class="s">&quot;hello, </span>$name<span class="s">\n&quot;</span>)
+	})
+
+	<span class="m">// Exercise the router directly: no network needed.</span>
+	<span class="k">let</span> w = http.<span class="t">ResponseWriter</span>.<span class="f">new</span>()
+	mux.<span class="f">serve_http</span>(http.<span class="t">Request</span>.<span class="f">new</span>(<span class="s">&quot;GET&quot;</span>, <span class="s">&quot;/greet?name=Ada&quot;</span>, <span class="s">&quot;&quot;</span>), &amp;w)
+	<span class="k">let</span> resp = w.<span class="f">finish</span>()
+	<span class="f">print</span>(<span class="s">&quot;</span>${resp.status_code}<span class="s"> </span>${resp.body}<span class="s">&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>200 hello, Ada</code></pre>
+<ul>
+<li>The writer is passed as <code>&amp;http.ResponseWriter</code>: the handler changes it, and the <code>&amp;</code> in the type says so.
+</li>
+<li><code>req.query_param</code> returns an optional, because the parameter may be absent.
+</li>
+<li><code>mux.serve_http(request, &amp;writer)</code> is exactly what the server calls for each connection. Calling it yourself is how you test handlers.
+</li>
+</ul>
+<h2 id="2-state-shared-between-requests"><a class="anchor" href="#2-state-shared-between-requests" aria-hidden="true">#</a>2. State shared between requests</h2>
+<p>Handlers are closures. A closure <strong>moves</strong> the values it captures, and a captured value is read-only inside it, so mutable state must live somewhere the handler can reach by reference. The simplest choice for a single-threaded server is a small store type whose methods take <code>&amp;self</code>, owned by the closure that uses it.</p>
+<p>Here the store is captured by the one handler that serves both methods of <code>/items</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/http&quot;</span>
+
+<span class="k">define</span> <span class="t">Store</span> <span class="k">struct</span> [
+	items: [<span class="t">string</span>],
+]
+
+<span class="k">bind</span> <span class="t">Store</span>.add = (&amp;<span class="k">self</span>, item: <span class="t">string</span>): <span class="k">self</span>.items.<span class="f">push</span>(item.<span class="f">copy</span>())
+
+<span class="k">bind</span> <span class="t">Store</span>.render = (<span class="k">self</span>) <span class="t">string</span>: {
+	<span class="k">let</span> out = <span class="s">&quot;&quot;</span>
+	<span class="k">for</span>(i, item <span class="k">in</span> <span class="k">self</span>.items): out.<span class="f">push</span>(<span class="s">&quot;</span>${i + <span class="n">1</span>}<span class="s">. </span>$item<span class="s">\n&quot;</span>)
+	out
+}
+
+<span class="k">bind</span> route_items = (store: &amp;<span class="t">Store</span>, req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): {
+	<span class="k">match</span>(req.method):
+		<span class="k">when</span> <span class="s">&quot;GET&quot;</span>: res.<span class="f">write</span>(store.<span class="f">render</span>())
+		<span class="k">when</span> <span class="s">&quot;POST&quot;</span>: {
+			<span class="k">if</span>(req.body.<span class="f">is_empty</span>()): {
+				res.<span class="f">write_header</span>(http.<span class="t">STATUS_BAD_REQUEST</span>)
+				res.<span class="f">write</span>(<span class="s">&quot;empty item\n&quot;</span>)
+				<span class="k">func</span> <span class="u">&lt;-</span>
+			}
+			store.<span class="f">add</span>(req.body)
+			res.<span class="f">write_header</span>(http.<span class="t">STATUS_CREATED</span>)
+			res.<span class="f">write</span>(<span class="s">&quot;stored\n&quot;</span>)
+		}
+		<span class="k">default</span>: res.<span class="f">write_header</span>(http.<span class="t">STATUS_METHOD_NOT_ALLOWED</span>)
+}
+
+<span class="k">bind</span> call = (store: &amp;<span class="t">Store</span>, method: <span class="t">string</span>, path: <span class="t">string</span>, body: <span class="t">string</span>): {
+	<span class="k">let</span> w = http.<span class="t">ResponseWriter</span>.<span class="f">new</span>()
+	<span class="f">route_items</span>(&amp;store, http.<span class="t">Request</span>.<span class="f">new</span>(method, path, body), &amp;w)
+	<span class="k">let</span> r = w.<span class="f">finish</span>()
+	<span class="f">print</span>(<span class="s">&quot;</span>$method<span class="s"> </span>$path<span class="s"> -&gt; </span>${r.status_code}<span class="s"> </span>${r.body}<span class="s">&quot;</span>)
+	<span class="k">if</span>(r.body.<span class="f">is_empty</span>()): <span class="f">println</span>()
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> store = <span class="t">Store</span>[items: []]
+	<span class="f">call</span>(&amp;store, <span class="s">&quot;POST&quot;</span>, <span class="s">&quot;/items&quot;</span>, <span class="s">&quot;milk&quot;</span>)
+	<span class="f">call</span>(&amp;store, <span class="s">&quot;POST&quot;</span>, <span class="s">&quot;/items&quot;</span>, <span class="s">&quot;bread&quot;</span>)
+	<span class="f">call</span>(&amp;store, <span class="s">&quot;POST&quot;</span>, <span class="s">&quot;/items&quot;</span>, <span class="s">&quot;&quot;</span>)
+	<span class="f">call</span>(&amp;store, <span class="s">&quot;GET&quot;</span>, <span class="s">&quot;/items&quot;</span>, <span class="s">&quot;&quot;</span>)
+	<span class="f">call</span>(&amp;store, <span class="s">&quot;DELETE&quot;</span>, <span class="s">&quot;/items&quot;</span>, <span class="s">&quot;&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>POST /items -&gt; 201 stored
+POST /items -&gt; 201 stored
+POST /items -&gt; 400 empty item
+GET /items -&gt; 200 1. milk
+2. bread
+DELETE /items -&gt; 405 </code></pre>
+<p><code>route_items</code> takes the store as <code>&amp;Store</code>, so it is an ordinary function you can test directly, as <code>main</code> does here. Even passing along a borrow you were given is marked: <code>call</code> writes <code>route_items(&amp;store, ...)</code>. Notice how every effect is visible: <code>store.add</code> changes the store through <code>&amp;self</code>, <code>res.write_header</code> changes the writer, and nothing else can.</p>
+<h2 id="3-serve-it"><a class="anchor" href="#3-serve-it" aria-hidden="true">#</a>3. Serve it</h2>
+<p>To serve for real, register the handlers and call <code>http.listen_and_serve_mux</code>. The store moves into the <code>/items</code> closure, which owns it for the life of the server:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/http&quot;</span>
+
+<span class="k">define</span> <span class="t">Store</span> <span class="k">struct</span> [
+	items: [<span class="t">string</span>],
+]
+
+<span class="k">bind</span> <span class="t">Store</span>.add = (&amp;<span class="k">self</span>, item: <span class="t">string</span>): <span class="k">self</span>.items.<span class="f">push</span>(item.<span class="f">copy</span>())
+
+<span class="k">bind</span> <span class="t">Store</span>.render = (<span class="k">self</span>) <span class="t">string</span>: {
+	<span class="k">let</span> out = <span class="s">&quot;&quot;</span>
+	<span class="k">for</span>(i, item <span class="k">in</span> <span class="k">self</span>.items): out.<span class="f">push</span>(<span class="s">&quot;</span>${i + <span class="n">1</span>}<span class="s">. </span>$item<span class="s">\n&quot;</span>)
+	out
+}
+
+<span class="k">bind</span> main = () <span class="t">int</span>: {
+	<span class="k">let</span> mux = http.<span class="t">ServeMux</span>.<span class="f">new</span>()
+	mux.<span class="f">handle_func</span>(<span class="s">&quot;/health&quot;</span>, (req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): res.<span class="f">write</span>(<span class="s">&quot;ok\n&quot;</span>))
+	mux.<span class="f">handle_func</span>(<span class="s">&quot;/greet&quot;</span>, (req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): {
+		<span class="k">let</span> name = req.<span class="f">query_param</span>(<span class="s">&quot;name&quot;</span>) ?? <span class="s">&quot;world&quot;</span>
+		res.<span class="f">write</span>(<span class="s">&quot;hello, </span>$name<span class="s">\n&quot;</span>)
+	})
+	<span class="k">let</span> addr = <span class="s">&quot;127.0.0.1:8080&quot;</span>
+	<span class="f">println</span>(<span class="s">&quot;listening on http://</span>$addr<span class="s">&quot;</span>)
+	<span class="k">let</span> served = http.<span class="f">listen_and_serve_mux</span>(addr, mux):
+		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): {
+			<span class="f">eprintln</span>(e.<span class="f">wrap</span>(<span class="s">&quot;serving </span>$addr<span class="s">&quot;</span>).<span class="f">summary</span>())
+			<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1</span>
+		}
+	<span class="n">0</span>
+}</code></pre>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">lowlight</span> run server.ll
+curl <span class="s">&#39;localhost:8080/greet?name=Ada&#39;</span></code></pre>
+<p><code>listen_and_serve_mux</code> returns a <code>Result</code>, because binding the port can fail (for example, when another program already uses it). The result chain turns that into a message and an exit status.</p>
+<h2 id="4-calling-other-services"><a class="anchor" href="#4-calling-other-services" aria-hidden="true">#</a>4. Calling other services</h2>
+<p>The client side mirrors the server:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/http&quot;</span>
+
+<span class="k">bind</span> main = () <span class="t">int</span>: {
+	<span class="k">let</span> client = http.<span class="t">Client</span>.<span class="f">new</span>()
+	<span class="k">let</span> resp = client.<span class="f">get</span>(<span class="s">&quot;http://127.0.0.1:8080/health&quot;</span>):
+		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): {
+			<span class="f">eprintln</span>(e.<span class="f">summary</span>())
+			<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1</span>
+		}
+	<span class="f">println</span>(<span class="s">&quot;</span>${resp.status_code}<span class="s">: </span>${resp.<span class="f">text</span>()}<span class="s">&quot;</span>)
+	<span class="n">0</span>
+}</code></pre>
+<p><code>std/http</code> also supports HTTPS (through the system's OpenSSL, loaded at run time), request headers, <code>post</code>, <code>put</code>, and <code>patch</code>. See the <a href="../std/http.html">package reference</a>.</p>
+<h2 id="what-you-practiced"><a class="anchor" href="#what-you-practiced" aria-hidden="true">#</a>What you practiced</h2>
+<ul>
+<li>Closures as handlers, and what capturing means for ownership.
+</li>
+<li><code>&amp;</code> parameters as the visible way to change a writer or a store.
+</li>
+<li>Testing handlers in-process by calling <code>serve_http</code> yourself.
+</li>
+<li>Turning a <code>Result</code> from the outside world into a clear message at the program's edge.
+</li>
+</ul>
+<h2 id="exercises"><a class="anchor" href="#exercises" aria-hidden="true">#</a>Exercises</h2>
+<ol>
+<li>Add <code>DELETE /items?index=N</code>, responding <code>404</code> when the index is out of range.
+</li>
+<li>Respond with JSON when the request has <code>Accept: application/json</code> (<code>req.header(&quot;Accept&quot;)</code>).
+</li>
+<li>Write <code>@test</code> functions for <code>route_items</code> that check status codes and bodies.
+</li>
+</ol>
+</article><nav class="prev-next"><a class="prev" href="config-loader.html"><span>Previous</span>Tutorial: a config loader</a><a class="next" href="calling-c.html"><span>Next</span>Tutorial: calling C</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#1-handlers-and-a-router">1. Handlers and a router</a></li><li><a href="#2-state-shared-between-requests">2. State shared between requests</a></li><li><a href="#3-serve-it">3. Serve it</a></li><li><a href="#4-calling-other-services">4. Calling other services</a></li><li><a href="#what-you-practiced">What you practiced</a></li><li><a href="#exercises">Exercises</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tutorials</a><a href="word-count.html">A command-line tool</a><a href="calculator.html">A calculator</a><a href="config-loader.html">Handling errors</a><a href="web-service.html">A web service</a><a href="calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

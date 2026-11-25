@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>14. Packages, Manifests, and Dependencies · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a class="active" href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../ref/index.html">Reference</a></div><div class="sidebar-group">Specification</div><ul><li><a href="index.html">Overview and contents</a></li><li><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a></li><li><a href="quick-reference.html">Quick Reference</a></li></ul><div class="sidebar-group">Language reference</div><ul><li><a href="conventions-and-conformance.html">1. Conventions and Conformance</a></li><li><a href="lexical-structure.html">2. Lexical Structure</a></li><li><a href="types.html">3. Types</a></li><li><a href="declarations-and-program-structure.html">4. Declarations and Program Structure</a></li><li><a href="expressions.html">5. Expressions</a></li><li><a href="control-flow.html">6. Control Flow</a></li><li><a href="ownership-borrowing-and-destruction.html">7. Ownership, Borrowing, and Destruction</a></li><li><a href="generics.html">8. Generics</a></li><li><a href="failure-handling.html">9. Failure Handling</a></li><li><a href="unsafe-code-and-foreign-functions.html">10. Unsafe Code and Foreign Functions</a></li><li><a href="testing.html">11. Testing</a></li><li><a href="the-prelude.html">12. The Prelude</a></li><li><a href="the-standard-library.html">13. The Standard Library</a></li><li><a class="active" href="packages-manifests-and-dependencies.html">14. Packages, Manifests, and Dependencies</a></li></ul><div class="sidebar-group">Implementer&#39;s guide</div><ul><li><a href="implementers-guide.html">About this part</a></li><li><a href="compiler-architecture.html">15. Compiler Architecture</a></li><li><a href="parsing-ambiguities-and-their-resolution.html">16. Parsing Ambiguities and Their Resolution</a></li><li><a href="semantic-analysis.html">17. Semantic Analysis</a></li><li><a href="lowering-and-runtime-representation.html">18. Lowering and Runtime Representation</a></li><li><a href="the-runtime-contract.html">19. The Runtime Contract</a></li><li><a href="conformance-checklist.html">20. Conformance Checklist</a></li></ul><div class="sidebar-group">Appendices</div><ul><li><a href="appendix-a-grammar.html">Appendix A: Grammar</a></li><li><a href="appendix-b-keywords-and-contextual-words.html">Appendix B: Keywords and Contextual Words</a></li><li><a href="appendix-c-operator-precedence.html">Appendix C: Operator Precedence</a></li><li><a href="appendix-d-runtime-traps.html">Appendix D: Runtime Traps</a></li><li><a href="appendix-e-glossary.html">Appendix E: Glossary</a></li></ul><div class="sidebar-group">Tools</div><ul><li><a href="../ref/cli.html">Command-line tool</a></li><li><a href="../ref/formatter.html">Formatting</a></li><li><a href="../ref/documentation.html">Documentation comments</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../ref/index.html">Reference</a><span class="sep">/</span><span>Language reference</span></nav><h1 id="14-packages-manifests-and-dependencies"><a class="anchor" href="#14-packages-manifests-and-dependencies" aria-hidden="true">#</a>14. Packages, Manifests, and Dependencies</h1>
+<blockquote class="glance">
+<p><strong>At a glance</strong></p>
+<ul>
+<li>A single <code>.ll</code> file runs with no configuration: <code>lowlight run hello.ll</code>.
+</li>
+<li>A project has a <code>lowlight.toml</code> at its root. Directories map one-to-one to import paths: <code>myapp/lexer/</code> is <code>import &quot;myapp/lexer&quot;</code>.
+</li>
+<li>Dependencies are local paths, archive URLs with a SHA-256 hash, or versions from a static index. <code>lowlight.lock</code> pins them exactly.
+</li>
+<li>Builds never touch the network; <code>lowlight fetch</code> and <code>lowlight update</code> do.
+</li>
+</ul>
+</blockquote>
+<h2 id="141-project-layout"><a class="anchor" href="#141-project-layout" aria-hidden="true">#</a>14.1 Project layout</h2>
+<p><code>lowlight.toml</code> is optional. Without one, a file or directory compiles on its own, and imports resolve to <code>std/...</code> and to relative directories. With one, it marks a project root (or a workspace root), found by walking up from the file being compiled.</p>
+<pre class="lang-text" data-lang="text"><code>myapp/
+├── lowlight.toml        # manifest
+├── lowlight.lock        # resolved dependencies (generated)
+├── main.ll              # the root package (a program, because it has `main`)
+├── myapp_test.ll        # tests for the root package
+├── lexer/               # package &quot;myapp/lexer&quot;
+│   ├── scanner.ll
+│   └── scanner_test.ll
+├── cmd/
+│   └── tool/main.ll     # another program: lowlight build ./cmd/tool
+├── tests/               # black-box integration test packages
+└── vendor/              # optional vendored dependencies</code></pre>
+<p>Hidden directories (<code>.git/</code>, <code>.lowlight/</code>), <code>editors/</code>, and <code>node_modules/</code> are never treated as packages.</p>
+<h2 id="142-the-manifest"><a class="anchor" href="#142-the-manifest" aria-hidden="true">#</a>14.2 The manifest</h2>
+<p><code>lowlight.toml</code> is TOML:</p>
+<pre class="lang-toml" data-lang="toml"><code><span class="t">[package]</span>
+<span class="k">name</span> = <span class="s">&quot;myapp&quot;</span>
+<span class="k">version</span> = <span class="s">&quot;0.2.0&quot;</span>
+<span class="k">edition</span> = <span class="s">&quot;2026&quot;</span>
+<span class="k">description</span> = <span class="s">&quot;A worker service&quot;</span>
+<span class="k">license</span> = <span class="s">&quot;MIT&quot;</span>
+
+<span class="t">[dependencies]</span>
+<span class="k">local_utils</span> = { <span class="k">path</span> = <span class="s">&quot;../local_utils&quot;</span> }
+<span class="k">jsonx</span> = { <span class="k">url</span> = <span class="s">&quot;https://example.org/jsonx-1.2.0.tar.gz&quot;</span>, <span class="k">hash</span> = <span class="s">&quot;sha256:9a3f...&quot;</span> }
+<span class="k">http_ext</span> = { <span class="k">index</span> = <span class="s">&quot;https://acme.dev/pkgs/http_ext.toml&quot;</span>, <span class="k">version</span> = <span class="s">&quot;^0.3&quot;</span> }
+
+<span class="t">[dev-dependencies]</span>
+<span class="k">benchkit</span> = { <span class="k">url</span> = <span class="s">&quot;https://example.org/benchkit-0.1.0.tar.gz&quot;</span>, <span class="k">hash</span> = <span class="s">&quot;sha256:4c1d...&quot;</span> }
+
+<span class="t">[overrides]</span>
+<span class="k">jsonx</span> = { <span class="k">path</span> = <span class="s">&quot;../my_jsonx_fork&quot;</span> }
+
+<span class="t">[workspace]</span>
+<span class="k">members</span> = <span class="t">[&quot;libs/shared&quot;, &quot;cmd/*&quot;]</span>
+
+<span class="t">[build]</span>
+<span class="k">backend</span> = <span class="s">&quot;llvm&quot;</span>
+
+<span class="t">[format]</span>
+<span class="k">indent_style</span> = <span class="s">&quot;tabs&quot;</span>
+<span class="k">tab_width</span> = <span class="n">4</span>
+<span class="k">line_width</span> = <span class="n">100</span>
+
+<span class="t">[target.linux]</span>
+<span class="k">c_libs</span> = <span class="t">[&quot;ssl&quot;, &quot;crypto&quot;]</span></code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Table</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td><code>[package]</code></td><td><code>name</code> (required; letters, digits, <code>_</code>, <code>-</code>, starting with a letter or <code>_</code>; also the root import path), <code>version</code> (SemVer, default <code>0.1.0</code>), <code>edition</code> (default <code>2026</code>), and optional <code>description</code>, <code>license</code>, <code>authors</code>, <code>repository</code>, <code>homepage</code>, <code>keywords</code>, <code>bin</code> (output file name). Optional in a workspace-only root.</td></tr>
+<tr><td><code>[dependencies]</code></td><td>name → source. Exactly one of: <code>{ path = &quot;...&quot; }</code> (relative to this manifest); <code>{ url = &quot;https://...&quot;, hash = &quot;sha256:&lt;64 hex&gt;&quot; }</code> (a <code>.tar.gz</code>, <code>.tgz</code>, or <code>.zip</code>); <code>{ index = &quot;https://.../pkg.toml&quot;, version = &quot;&lt;constraint&gt;&quot; }</code>. Constraints support <code>^</code>, <code>~</code>, <code>=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>*</code>, and intersections. The key is the dependency's import root.</td></tr>
+<tr><td><code>[dev-dependencies]</code></td><td>the same, usable only from tests (<a href="testing.html#11-testing">§11</a>); never part of normal builds or passed on to dependents</td></tr>
+<tr><td><code>[overrides]</code></td><td>root manifest only: force every reference to a dependency, direct or transitive, to a given <code>path</code> or <code>url</code> + <code>hash</code></td></tr>
+<tr><td><code>[workspace]</code></td><td><code>members</code> (paths, or trailing <code>*</code> globs) and optional <code>exclude</code>. Members share one lockfile, <code>[overrides]</code>, and <code>vendor/</code>.</td></tr>
+<tr><td><code>[build]</code></td><td>defaults for <code>backend</code> (<code>&quot;llvm&quot;</code> or <code>&quot;c11&quot;</code>), <code>release</code>, <code>target</code>, <code>cc</code>, <code>c_flags</code>, <code>c_libs</code>; command-line flags take precedence</td></tr>
+<tr><td><code>[format]</code></td><td>formatter settings (<a href="lexical-structure.html#2-lexical-structure">§2</a>); a <code>.lowlightfmt</code> file in a directory overrides them for that directory</td></tr>
+<tr><td><code>[target.&lt;selector&gt;]</code></td><td>settings applied when the target matches an OS (<code>linux</code>, <code>darwin</code>, <code>windows</code>), OS group (<code>unix</code>), architecture (<code>amd64</code>, <code>arm64</code>, <code>riscv64</code>), or full triple (<code>[target.&quot;aarch64-unknown-linux-gnu&quot;]</code>): <code>dependencies</code>, <code>dev-dependencies</code>, <code>c_libs</code>, <code>c_flags</code></td></tr>
+</tbody>
+</table></div>
+<p>Dependency tables may also be written as TOML sub-tables (<code>[dependencies.jsonx]</code>).</p>
+<h2 id="143-import-path-resolution"><a class="anchor" href="#143-import-path-resolution" aria-hidden="true">#</a>14.3 Import path resolution</h2>
+<p>Inside a project, a non-relative import path resolves, in order, to:</p>
+<ol>
+<li>a standard library package, <code>std/&lt;pkg&gt;</code> (or <code>std/&lt;group&gt;/&lt;pkg&gt;</code>);
+</li>
+<li>a package of this project, <code>&lt;name&gt;/&lt;sub/dir&gt;</code>, matching the directory <code>./&lt;sub/dir&gt;/</code>;
+</li>
+<li>a declared dependency, <code>&lt;dep&gt;</code> or <code>&lt;dep&gt;/&lt;sub/dir&gt;</code> (dev-dependencies only from tests);
+</li>
+<li>a workspace member.
+</li>
+</ol>
+<p>Relative imports (<code>./x</code>, <code>../x</code>) are not allowed inside projects, so every package has one canonical path. Outside a project, imports resolve to <code>std/...</code> and to relative paths.</p>
+<p>The default qualifier of a project or dependency root is its <code>[package].name</code> or dependency key; of a subdirectory, the directory name.</p>
+<h2 id="144-the-lockfile"><a class="anchor" href="#144-the-lockfile" aria-hidden="true">#</a>14.4 The lockfile</h2>
+<p><code>lowlight.lock</code> sits at the project or workspace root. It is written by <code>lowlight</code> and should be committed:</p>
+<pre class="lang-toml" data-lang="toml"><code><span class="m"># Code generated by `lowlight`; DO NOT EDIT.</span>
+<span class="k">lock_version</span> = <span class="n">1</span>
+
+<span class="t">[[package]]</span>
+<span class="k">name</span> = <span class="s">&quot;http_ext&quot;</span>
+<span class="k">version</span> = <span class="s">&quot;0.3.4&quot;</span>
+<span class="k">index</span> = <span class="s">&quot;https://acme.dev/pkgs/http_ext.toml&quot;</span>
+<span class="k">url</span> = <span class="s">&quot;https://acme.dev/tarballs/http_ext-0.3.4.tar.gz&quot;</span>
+<span class="k">hash</span> = <span class="s">&quot;sha256:71e2...&quot;</span>
+<span class="k">dependencies</span> = <span class="t">[&quot;jsonx&quot;]</span></code></pre>
+<p>Entries are sorted by name, version, and URL. Each has <code>name</code> and <code>version</code> (<code>0.0.0</code> for a raw archive without a version), and as applicable <code>index</code>, <code>url</code>, <code>hash</code> (required for every remote package), <code>path</code>, and the sorted names of its own <code>dependencies</code>.</p>
+<h2 id="145-package-indexes"><a class="anchor" href="#145-package-indexes" aria-hidden="true">#</a>14.5 Package indexes</h2>
+<p>A dependency's <code>index</code> is a single static TOML file, so any web server or object store can host packages:</p>
+<pre class="lang-toml" data-lang="toml"><code><span class="t">[package]</span>
+<span class="k">name</span> = <span class="s">&quot;http_ext&quot;</span>
+
+<span class="t">[versions.&quot;0.3.4&quot;]</span>
+<span class="k">url</span> = <span class="s">&quot;https://acme.dev/tarballs/http_ext-0.3.4.tar.gz&quot;</span>
+<span class="k">hash</span> = <span class="s">&quot;sha256:71e2...&quot;</span>
+
+<span class="t">[versions.&quot;0.3.4&quot;.dependencies]</span>
+<span class="k">jsonx</span> = { <span class="k">index</span> = <span class="s">&quot;https://example.org/pkgs/jsonx.toml&quot;</span>, <span class="k">version</span> = <span class="s">&quot;^1.2.0&quot;</span> }
+
+<span class="t">[versions.&quot;0.3.3&quot;]</span>
+<span class="k">url</span> = <span class="s">&quot;https://acme.dev/tarballs/http_ext-0.3.3.tar.gz&quot;</span>
+<span class="k">hash</span> = <span class="s">&quot;sha256:aa10...&quot;</span>
+<span class="k">yanked</span> = <span class="c">true</span></code></pre>
+<ul>
+<li>Each version lists its archive, its hash, and optionally its dependencies (also per target), so the whole graph can be resolved before downloading anything.
+</li>
+<li>Yanked versions are skipped for new resolutions but remain usable when already locked.
+</li>
+<li>Indexes and archives must be served over HTTPS (except on loopback), and every archive is checked against its hash before it is extracted.
+</li>
+<li>Extraction rejects absolute paths, <code>..</code> components, and links pointing outside the package. A single top-level directory in an archive is unwrapped.
+</li>
+</ul>
+<h2 id="146-resolution"><a class="anchor" href="#146-resolution" aria-hidden="true">#</a>14.6 Resolution</h2>
+<ol>
+<li><strong>One version per dependency.</strong> A build graph contains at most one copy of each dependency. Version constraints from all dependents are combined, and <strong>minimal version selection</strong> picks the smallest non-yanked version satisfying all of them. Unsatisfiable constraints, or conflicting <code>url</code> + <code>hash</code> pins, are errors that suggest an <code>[overrides]</code> entry.
+</li>
+<li><strong>Precedence.</strong> A dependency's files come from, in order: <code>[overrides]</code>; a matching workspace member; <code>vendor/&lt;dep&gt;/</code> (when <code>vendor/</code> exists, it is authoritative and nothing is fetched); the locked version in the local cache (<code>$LOWLIGHT_CACHE</code>, default <code>~/.lowlight/cache</code>).
+</li>
+<li><strong>No hidden network access.</strong> <code>check</code>, <code>build</code>, <code>run</code>, <code>test</code>, <code>doc</code>, <code>emit-*</code>, and the language server never use the network. A missing dependency, or a lockfile that disagrees with the manifest under <code>--locked</code>, is an error that tells you to run <code>lowlight fetch</code> or <code>lowlight update</code>. <code>--offline</code> forbids network access for every command.
+</li>
+</ol>
+<h2 id="147-commands"><a class="anchor" href="#147-commands" aria-hidden="true">#</a>14.7 Commands</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Command</th><th>Effect</th></tr></thead>
+<tbody>
+<tr><td><code>lowlight new &lt;name&gt;</code> · <code>lowlight init [--lib]</code></td><td>create a project</td></tr>
+<tr><td><code>lowlight add &lt;dep&gt; ...</code> · <code>lowlight remove &lt;dep&gt;</code></td><td>edit <code>[dependencies]</code>, preserving comments and layout (computing the hash for a <code>url</code>)</td></tr>
+<tr><td><code>lowlight fetch</code></td><td>download what the lockfile lists, without changing versions</td></tr>
+<tr><td><code>lowlight update [&lt;dep&gt;...]</code></td><td>re-resolve to newer allowed versions and rewrite the lockfile</td></tr>
+<tr><td><code>lowlight vendor</code></td><td>copy all dependencies into <code>vendor/</code></td></tr>
+<tr><td><code>lowlight tree</code></td><td>print the dependency graph</td></tr>
+<tr><td><code>lowlight build</code>, <code>run</code>, <code>check</code>, <code>test</code>, <code>doc</code>, <code>fmt</code>, <code>emit-llvm</code>, <code>emit-c</code></td><td>inside a project, default to the current package; <code>-p &lt;pkg&gt;</code> and <code>--workspace</code> select others</td></tr>
+</tbody>
+</table></div>
+<hr />
+</article><nav class="prev-next"><a class="prev" href="the-standard-library.html"><span>Previous</span>13. The Standard Library</a><a class="next" href="implementers-guide.html"><span>Next</span>Implementer&#39;s Guide</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#141-project-layout">14.1 Project layout</a></li><li><a href="#142-the-manifest">14.2 The manifest</a></li><li><a href="#143-import-path-resolution">14.3 Import path resolution</a></li><li><a href="#144-the-lockfile">14.4 The lockfile</a></li><li><a href="#145-package-indexes">14.5 Package indexes</a></li><li><a href="#146-resolution">14.6 Resolution</a></li><li><a href="#147-commands">14.7 Commands</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

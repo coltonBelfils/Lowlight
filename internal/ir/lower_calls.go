@@ -116,9 +116,6 @@ func (fl *funcLowerer) lowerDirectFuncCall(call *ast.CallExpr, inf *sema.ExprInf
 	if inf.MethodRecv != nil && inf.IsOptChain {
 		optRecv := fl.info(inf.MethodRecv).Type.(*types.Optional)
 		fl.tc.visit(optRecv)
-		recvOptVal := fl.lowerExprRead(inf.MethodRecv)
-		recvTmp := fl.allocSlot("_ll_mopt", optRecv)
-		fl.assignLocal(recvTmp, recvOptVal)
 
 		var resSlot *Local
 		var resOpt *types.Optional
@@ -129,50 +126,61 @@ func (fl *funcLowerer) lowerDirectFuncCall(call *ast.CallExpr, inf *sema.ExprInf
 			fl.assignLocal(resSlot, optNoneExpr(resOpt))
 		}
 
-		fl.pushInstrBuf()
-		var unwrapped Expr = optUnwrapValExpr(recvTmp, optRecv)
-		if rf, isRef := optRecv.Elem.(*types.Ref); isRef {
-			_ = rf
-			unwrapped = &ExprDeref{Ptr: unwrapped, Typ: rf.Elem}
-		}
-		cArgs := make([]Expr, 0, 1+len(call.Args))
-		cArgs = append(cArgs, unwrapped)
-		for _, a := range fl.lowerCallArgs(fi.Sig.Params[1:], call.Args) {
-			cArgs = append(cArgs, a)
-		}
-		if fi.TrackCaller {
-			if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerFileLoc != nil {
-				cArgs = append(cArgs,
-					NewLocalExpr(fl.callerFileLoc),
-					NewLocalExpr(fl.callerLineLoc),
-					NewLocalExpr(fl.callerColLoc),
-				)
+		emitCallWithUnwrapped := func(unwrapped Expr) {
+			cArgs := make([]Expr, 0, 1+len(call.Args))
+			cArgs = append(cArgs, unwrapped)
+			for _, a := range fl.lowerCallArgs(fi.Sig.Params[1:], call.Args) {
+				cArgs = append(cArgs, a)
+			}
+			if fi.TrackCaller {
+				if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerFileLoc != nil {
+					cArgs = append(cArgs,
+						NewLocalExpr(fl.callerFileLoc),
+						NewLocalExpr(fl.callerLineLoc),
+						NewLocalExpr(fl.callerColLoc),
+					)
+				} else {
+					file, line, col := formatSpanPos(call)
+					cArgs = append(cArgs,
+						NewLitString(file),
+						NewLitInt(uint64(line), false, types.TypeInt),
+						NewLitInt(uint64(col), false, types.TypeInt),
+					)
+				}
+			}
+			callExpr := &ExprCall{
+				Callee: &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
+				Args:   cArgs,
+				Typ:    fi.Sig.Ret,
+			}
+			if resSlot != nil {
+				if _, retAlreadyOpt := fi.Sig.Ret.(*types.Optional); retAlreadyOpt {
+					fl.assignLocal(resSlot, callExpr)
+				} else {
+					fl.assignLocal(resSlot, fl.wrapInOptionalExpr(callExpr, resOpt))
+				}
 			} else {
-				file, line, col := formatSpanPos(call)
-				cArgs = append(cArgs,
-					NewLitString(file),
-					NewLitInt(uint64(line), false, types.TypeInt),
-					NewLitInt(uint64(col), false, types.TypeInt),
-				)
+				fl.emit(&InstrExpr{Expr: callExpr})
 			}
 		}
-		callExpr := &ExprCall{
-			Callee:  &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig},
-			Args:    cArgs,
-			Typ:     fi.Sig.Ret,
-		}
-		if resSlot != nil {
-			if _, retAlreadyOpt := fi.Sig.Ret.(*types.Optional); retAlreadyOpt {
-				fl.assignLocal(resSlot, callExpr)
-			} else {
-				fl.assignLocal(resSlot, fl.wrapInOptionalExpr(callExpr, resOpt))
-			}
-		} else {
-			fl.emit(&InstrExpr{Expr: callExpr})
-		}
-		thenBuf := fl.popInstrBuf()
 
-		fl.emit(&InstrIf{Cond: optHasValueExpr(recvTmp, optRecv), Then: thenBuf})
+		if !fl.lowerOptChainBorrow(inf.MethodRecv, optRecv, func(elemPtr Expr, elemTy types.Type) {
+			emitCallWithUnwrapped(&ExprDeref{Ptr: elemPtr, Typ: elemTy})
+		}) {
+			recvOptVal := fl.lowerExprRead(inf.MethodRecv)
+			recvTmp := fl.allocSlot("_ll_mopt", optRecv)
+			fl.assignLocal(recvTmp, recvOptVal)
+
+			fl.pushInstrBuf()
+			var unwrapped Expr = optUnwrapValExpr(recvTmp, optRecv)
+			if rf, isRef := optRecv.Elem.(*types.Ref); isRef {
+				unwrapped = &ExprDeref{Ptr: unwrapped, Typ: rf.Elem}
+			}
+			emitCallWithUnwrapped(unwrapped)
+			thenBuf := fl.popInstrBuf()
+
+			fl.emit(&InstrIf{Cond: optHasValueExpr(recvTmp, optRecv), Then: thenBuf})
+		}
 		if resSlot != nil {
 			return NewLocalExpr(resSlot)
 		}
@@ -347,9 +355,6 @@ func (fl *funcLowerer) lowerInterfaceMethodCall(call *ast.CallExpr, inf *sema.Ex
 		fl.tc.visit(optRecv)
 		fl.tc.visit(ifc)
 
-		recvTmp := fl.allocSlot("_ll_iopt", optRecv)
-		fl.assignLocal(recvTmp, fl.lowerExprRead(inf.MethodRecv))
-
 		var resSlot *Local
 		var resOpt *types.Optional
 		if !im.Ret.Equals(types.TypeVoid) {
@@ -359,31 +364,41 @@ func (fl *funcLowerer) lowerInterfaceMethodCall(call *ast.CallExpr, inf *sema.Ex
 			fl.assignLocal(resSlot, optNoneExpr(resOpt))
 		}
 
-		fl.pushInstrBuf()
-		ifcVal := optUnwrapValExpr(recvTmp, optRecv)
-		ifcTmp := fl.allocSlot("_ll_iv", ifc)
-		fl.assignLocal(ifcTmp, ifcVal)
+		emitIfaceCallWithVal := func(ifcVal Expr) {
+			ifcTmp := fl.allocSlot("_ll_iv", ifc)
+			fl.assignLocal(ifcTmp, ifcVal)
 
-		cArgs := make([]Expr, 0, 1+len(call.Args))
-		cArgs = append(cArgs, &ExprField{Base: NewLocalExpr(ifcTmp), FieldName: "data", Typ: &types.Ptr{Elem: types.TypeVoid}})
-		for _, a := range fl.lowerCallArgs(im.Params, call.Args) {
-			cArgs = append(cArgs, a)
-		}
-		vtField := &ExprField{Base: NewLocalExpr(ifcTmp), FieldName: "vtable", Typ: &types.Ptr{Elem: types.TypeVoid}}
-		fnField := &ExprField{Base: vtField, FieldName: "m_" + im.Name, Typ: &types.Func{Params: im.Params, Ret: im.Ret}}
-		callExpr := &ExprCall{Callee: fnField, Args: cArgs, Typ: im.Ret}
-
-		if resSlot != nil {
-			if _, retOpt := im.Ret.(*types.Optional); retOpt {
-				fl.assignLocal(resSlot, callExpr)
-			} else {
-				fl.assignLocal(resSlot, fl.wrapInOptionalExpr(callExpr, resOpt))
+			cArgs := make([]Expr, 0, 1+len(call.Args))
+			cArgs = append(cArgs, &ExprField{Base: NewLocalExpr(ifcTmp), FieldName: "data", Typ: &types.Ptr{Elem: types.TypeVoid}})
+			for _, a := range fl.lowerCallArgs(im.Params, call.Args) {
+				cArgs = append(cArgs, a)
 			}
-		} else {
-			fl.emit(&InstrExpr{Expr: callExpr})
+			vtField := &ExprField{Base: NewLocalExpr(ifcTmp), FieldName: "vtable", Typ: &types.Ptr{Elem: types.TypeVoid}}
+			fnField := &ExprField{Base: vtField, FieldName: "m_" + im.Name, Typ: &types.Func{Params: im.Params, Ret: im.Ret}}
+			callExpr := &ExprCall{Callee: fnField, Args: cArgs, Typ: im.Ret}
+
+			if resSlot != nil {
+				if _, retOpt := im.Ret.(*types.Optional); retOpt {
+					fl.assignLocal(resSlot, callExpr)
+				} else {
+					fl.assignLocal(resSlot, fl.wrapInOptionalExpr(callExpr, resOpt))
+				}
+			} else {
+				fl.emit(&InstrExpr{Expr: callExpr})
+			}
 		}
-		thenBuf := fl.popInstrBuf()
-		fl.emit(&InstrIf{Cond: optHasValueExpr(recvTmp, optRecv), Then: thenBuf})
+
+		if !fl.lowerOptChainBorrow(inf.MethodRecv, optRecv, func(elemPtr Expr, elemTy types.Type) {
+			emitIfaceCallWithVal(&ExprDeref{Ptr: elemPtr, Typ: elemTy})
+		}) {
+			recvTmp := fl.allocSlot("_ll_iopt", optRecv)
+			fl.assignLocal(recvTmp, fl.lowerExprRead(inf.MethodRecv))
+
+			fl.pushInstrBuf()
+			emitIfaceCallWithVal(optUnwrapValExpr(recvTmp, optRecv))
+			thenBuf := fl.popInstrBuf()
+			fl.emit(&InstrIf{Cond: optHasValueExpr(recvTmp, optRecv), Then: thenBuf})
+		}
 		if resSlot != nil {
 			return NewLocalExpr(resSlot)
 		}
@@ -622,8 +637,123 @@ func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprIn
 			Args:   []Expr{EnsureExpr(code, types.TypeInt)},
 			Typ:    types.TypeNever,
 		}
+
+	case "variant_index":
+		en := inf.EnumType
+		fl.tc.visit(en)
+		argVal := fl.lowerExprRead(call.Args[0])
+		if _, isRef := fl.info(call.Args[0]).Type.(*types.Ref); isRef {
+			argVal = &ExprDeref{Ptr: argVal, Typ: en}
+		}
+		return fl.emitEnumVariantIdxExpr(en, argVal)
+
+	case "make_variant":
+		en := inf.EnumType
+		vr := inf.EnumVariant
+		fl.tc.visit(en)
+		var payload Expr
+		if vr != nil && vr.Kind == types.VariantTuple && vr.Payload != nil && len(call.Args) >= 2 {
+			payload = EnsureExpr(fl.lowerExprOwned(call.Args[1], vr.Payload), vr.Payload)
+		}
+		return &ExprConstructEnum{
+			EnumType: en,
+			Variant:  vr,
+			Payload:  payload,
+		}
 	}
 	return nil
+}
+
+func enumVariantTagEqExpr(valExpr Expr, en *types.Enum, vr *types.EnumVariant) Expr {
+	if en.IsTagged {
+		return &ExprBinary{
+			Op:    token.Eq,
+			Left:  &ExprField{Base: EnsureExpr(valExpr, en), FieldName: "tag", Typ: types.TypeInt},
+			Right: NewLitInt(uint64(vr.Value), vr.Value < 0, types.TypeInt),
+			Typ:   types.TypeBool,
+		}
+	}
+	return &ExprBinary{
+		Op:    token.Eq,
+		Left:  EnsureExpr(valExpr, en),
+		Right: &ExprConstructEnum{EnumType: en, Variant: vr},
+		Typ:   types.TypeBool,
+	}
+}
+
+func (fl *funcLowerer) emitEnumTagAssert(enumExpr Expr, en *types.Enum, vr *types.EnumVariant, isPtr bool, call ast.Expr) {
+	var tagExpr Expr
+	if isPtr {
+		tagExpr = &ExprField{Base: EnsureExpr(enumExpr, &types.Ptr{Elem: en}), FieldName: "tag", Typ: types.TypeInt, IsPtr: true}
+	} else {
+		tagExpr = &ExprField{Base: EnsureExpr(enumExpr, en), FieldName: "tag", Typ: types.TypeInt, IsPtr: false}
+	}
+	cond := &ExprBinary{
+		Op:    token.Neq,
+		Left:  tagExpr,
+		Right: NewLitInt(uint64(vr.Value), vr.Value < 0, types.TypeInt),
+		Typ:   types.TypeBool,
+	}
+	var fileExpr, lineExpr, colExpr Expr
+	if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerFileLoc != nil {
+		fileExpr = NewLocalExpr(fl.callerFileLoc)
+		lineExpr = NewLocalExpr(fl.callerLineLoc)
+		colExpr = NewLocalExpr(fl.callerColLoc)
+	} else {
+		f, l, c := formatSpanPos(call)
+		fileExpr = NewLitString(f)
+		lineExpr = NewLitInt(uint64(l), false, types.TypeInt)
+		colExpr = NewLitInt(uint64(c), false, types.TypeInt)
+	}
+	msg := fmt.Sprintf("variant payload access failed: expected %s.%s", en.Name, vr.Name)
+	fl.emit(&InstrIf{
+		Cond: cond,
+		Then: []Instr{
+			&InstrExpr{
+				Expr: &ExprCall{
+					Callee: &ExprFuncRef{Name: "ll_panic_str"},
+					Args:   []Expr{NewLitString(msg), fileExpr, lineExpr, colExpr},
+					Typ:    types.TypeNever,
+				},
+			},
+		},
+	})
+}
+
+func (fl *funcLowerer) emitEnumVariantIdxExpr(en *types.Enum, valExpr Expr) Expr {
+	allSeq := true
+	for i, vr := range en.Variants {
+		if vr.Value != int64(i) {
+			allSeq = false
+			break
+		}
+	}
+	if allSeq {
+		if en.IsTagged {
+			return &ExprField{Base: EnsureExpr(valExpr, en), FieldName: "tag", Typ: types.TypeInt}
+		}
+		return &ExprCast{Val: EnsureExpr(valExpr, en), From: en, To: types.TypeInt}
+	}
+	vTmp := fl.allocSlot("_ll_vidx_v", en)
+	fl.assignLocal(vTmp, EnsureExpr(valExpr, en))
+	resSlot := fl.allocSlot("_ll_vidx", types.TypeInt)
+	fl.assignLocal(resSlot, NewLitInt(0, false, types.TypeInt))
+	var elseTail []Instr
+	for i := len(en.Variants) - 1; i >= 0; i-- {
+		vr := &en.Variants[i]
+		cond := enumVariantTagEqExpr(NewLocalExpr(vTmp), en, vr)
+		elseTail = []Instr{
+			&InstrIf{
+				Cond: cond,
+				Then: []Instr{&InstrAssign{Dst: NewLocalExpr(resSlot), Expr: NewLitInt(uint64(i), false, types.TypeInt)}},
+				Else: elseTail,
+			},
+		}
+	}
+	for _, ins := range elseTail {
+		fl.emit(ins)
+	}
+	return NewLocalExpr(resSlot)
 }
 
 // -----------------------------------------------------------------------------
@@ -638,29 +768,41 @@ func (fl *funcLowerer) lowerBuiltinMethodCall(call *ast.CallExpr, inf *sema.Expr
 		fl.tc.visit(optRecv)
 		fl.tc.visit(resOpt)
 
-		recvTmp := fl.allocSlot("_ll_bopt", optRecv)
-		fl.assignLocal(recvTmp, fl.lowerExprRead(inf.MethodRecv))
 		resSlot := fl.allocSlot("_ll_bres", resOpt)
 		fl.assignLocal(resSlot, optNoneExpr(resOpt))
 
-		fl.pushInstrBuf()
-		innerTy := optRecv.Elem
-		unwrapped := optUnwrapValExpr(recvTmp, optRecv)
-		if rf, isRef := innerTy.(*types.Ref); isRef {
-			innerTy = rf.Elem
-			unwrapped = &ExprDeref{Ptr: unwrapped, Typ: innerTy}
+		emitBuiltinWithUnwrapped := func(innerTy types.Type, unwrapped Expr) {
+			uTmp := fl.allocSlot("_ll_buw", innerTy)
+			fl.assignLocal(uTmp, unwrapped)
+			innerCall, innerRetTy := fl.emitReadBuiltinMethodOnVal(call, inf, innerTy, NewLocalExpr(uTmp))
+			if !innerRetTy.IsPlain() && (inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload") {
+				innerCall = fl.copyCallExpr(innerRetTy, innerCall)
+			}
+			if _, retAlreadyOpt := innerRetTy.(*types.Optional); retAlreadyOpt {
+				fl.assignLocal(resSlot, innerCall)
+			} else {
+				fl.assignLocal(resSlot, fl.wrapInOptionalExpr(innerCall, resOpt))
+			}
 		}
-		uTmp := fl.allocSlot("_ll_buw", innerTy)
-		fl.assignLocal(uTmp, unwrapped)
-		innerCall, innerRetTy := fl.emitReadBuiltinMethodOnVal(call, inf, innerTy, NewLocalExpr(uTmp))
-		if _, retAlreadyOpt := innerRetTy.(*types.Optional); retAlreadyOpt {
-			fl.assignLocal(resSlot, innerCall)
-		} else {
-			fl.assignLocal(resSlot, fl.wrapInOptionalExpr(innerCall, resOpt))
-		}
-		thenBuf := fl.popInstrBuf()
 
-		fl.emit(&InstrIf{Cond: optHasValueExpr(recvTmp, optRecv), Then: thenBuf})
+		if !fl.lowerOptChainBorrow(inf.MethodRecv, optRecv, func(elemPtr Expr, elemTy types.Type) {
+			emitBuiltinWithUnwrapped(elemTy, &ExprDeref{Ptr: elemPtr, Typ: elemTy})
+		}) {
+			recvTmp := fl.allocSlot("_ll_bopt", optRecv)
+			fl.assignLocal(recvTmp, fl.lowerExprRead(inf.MethodRecv))
+
+			fl.pushInstrBuf()
+			innerTy := optRecv.Elem
+			unwrapped := optUnwrapValExpr(recvTmp, optRecv)
+			if rf, isRef := innerTy.(*types.Ref); isRef {
+				innerTy = rf.Elem
+				unwrapped = &ExprDeref{Ptr: unwrapped, Typ: innerTy}
+			}
+			emitBuiltinWithUnwrapped(innerTy, unwrapped)
+			thenBuf := fl.popInstrBuf()
+
+			fl.emit(&InstrIf{Cond: optHasValueExpr(recvTmp, optRecv), Then: thenBuf})
+		}
 		return NewLocalExpr(resSlot)
 	}
 
@@ -713,6 +855,76 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 
 	case "any.hash":
 		return fl.hashCallExpr(recvTy, recvVal), types.TypeU64
+
+	case "struct.field":
+		st := recvTy.(*types.Struct)
+		sf, _ := st.FieldByName(inf.ResolvedField)
+		if sf == nil && inf.TupleFieldIdx >= 0 && inf.TupleFieldIdx < len(st.Fields) {
+			sf = &st.Fields[inf.TupleFieldIdx]
+		}
+		return &ExprField{Base: EnsureExpr(recvVal, recvTy), FieldName: sf.CName, Typ: sf.Type, IsPtr: false}, sf.Type
+
+	case "seq.elem":
+		fIdx := inf.TupleFieldIdx
+		switch v := recvTy.(type) {
+		case *types.Tuple:
+			return &ExprField{
+				Base:      EnsureExpr(recvVal, recvTy),
+				FieldName: fmt.Sprintf("_%d", fIdx),
+				FieldIdx:  fIdx,
+				Typ:       v.Elems[fIdx],
+				IsPtr:     false,
+			}, v.Elems[fIdx]
+		case *types.StackArray:
+			return &ExprIndex{
+				Base: &ExprField{
+					Base:      EnsureExpr(recvVal, recvTy),
+					FieldName: "data",
+					Typ:       &types.Ptr{Elem: v.Elem},
+				},
+				Index: NewLitInt(uint64(fIdx), false, types.TypeInt),
+				Typ:   v.Elem,
+			}, v.Elem
+		}
+
+	case "enum.is_variant":
+		en := inf.EnumType
+		return enumVariantTagEqExpr(recvVal, en, inf.EnumVariant), types.TypeBool
+
+	case "enum.payload":
+		en := inf.EnumType
+		vr := inf.EnumVariant
+		eTmp := fl.allocSlot("_ll_epay", en)
+		fl.assignLocal(eTmp, EnsureExpr(recvVal, en))
+		fl.emitEnumTagAssert(NewLocalExpr(eTmp), en, vr, false, call)
+		return &ExprField{
+			Base:      &ExprField{Base: NewLocalExpr(eTmp), FieldName: "data"},
+			FieldName: vr.CName,
+			Typ:       vr.Payload,
+		}, vr.Payload
+
+	case "enum.as_variant":
+		en := inf.EnumType
+		vr := inf.EnumVariant
+		eTmp := fl.allocSlot("_ll_eas", en)
+		fl.assignLocal(eTmp, EnsureExpr(recvVal, en))
+		resOpt := types.NewOptional(vr.Payload)
+		fl.tc.visit(resOpt)
+		resSlot := fl.allocSlot("_ll_asres", resOpt)
+		fl.assignLocal(resSlot, optNoneExpr(resOpt))
+		fl.pushInstrBuf()
+		payVal := Expr(&ExprField{
+			Base:      &ExprField{Base: NewLocalExpr(eTmp), FieldName: "data"},
+			FieldName: vr.CName,
+			Typ:       vr.Payload,
+		})
+		if !vr.Payload.IsPlain() {
+			payVal = fl.copyCallExpr(vr.Payload, payVal)
+		}
+		fl.assignLocal(resSlot, fl.wrapInOptionalExpr(payVal, resOpt))
+		thenBuf := fl.popInstrBuf()
+		fl.emit(&InstrIf{Cond: enumVariantTagEqExpr(NewLocalExpr(eTmp), en, vr), Then: thenBuf})
+		return NewLocalExpr(resSlot), resOpt
 
 	case "float.to_bits":
 		return &ExprFloatBits{Val: EnsureExpr(recvVal, types.TypeFloat), FloatType: types.TypeFloat, Typ: types.TypeU64}, types.TypeU64

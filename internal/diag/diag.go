@@ -177,6 +177,36 @@ func (r *Reporter) Diagnostics() []Diagnostic {
 	return r.diags
 }
 
+// Len returns the current number of recorded diagnostics (including warnings/notes).
+func (r *Reporter) Len() int {
+	return len(r.diags)
+}
+
+// HasErrorSince reports whether any Error diagnostic was recorded at index >= start.
+func (r *Reporter) HasErrorSince(start int) bool {
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < len(r.diags); i++ {
+		if r.diags[i].Severity == Error {
+			return true
+		}
+	}
+	return false
+}
+
+// RewriteErrorsSince maps every Error diagnostic at index >= start through fn.
+func (r *Reporter) RewriteErrorsSince(start int, fn func(Diagnostic) Diagnostic) {
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < len(r.diags); i++ {
+		if r.diags[i].Severity == Error {
+			r.diags[i] = fn(r.diags[i])
+		}
+	}
+}
+
 // Format renders all collected diagnostics into a human-readable string.
 func (r *Reporter) Format() string {
 	var sb strings.Builder

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packages and tests · Lowlight</title>
+<meta name="description" content="Imports, visibility, and writing tests.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a class="active" href="index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Tour</a></div><ul><li><a href="basics.html">Basics</a></li><li><a href="functions.html">Functions</a></li><li><a href="types.html">Your own types</a></li><li><a href="optionals.html">Optionals</a></li><li><a href="control-flow.html">Control flow</a></li><li><a href="matching.html">Pattern matching</a></li><li><a href="collections.html">Collections</a></li><li><a href="results.html">Results and errors</a></li><li><a href="ownership.html">Ownership</a></li><li><a href="interfaces-generics.html">Interfaces and generics</a></li><li><a class="active" href="packages-tests.html">Packages and tests</a></li><li><a href="next-steps.html">Next steps</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Tour</a></nav><h1 id="packages-and-tests"><a class="anchor" href="#packages-and-tests" aria-hidden="true">#</a>Packages and tests</h1>
+<h2 id="imports"><a class="anchor" href="#imports" aria-hidden="true">#</a>Imports</h2>
+<p>A package is a directory of <code>.ll</code> files. Import one by its path and use its names through the last segment of the path:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/strings&quot;</span>
+<span class="k">import</span> <span class="s">&quot;std/math&quot;</span>
+
+<span class="k">bind</span> main = (): {
+	<span class="f">println</span>(<span class="s">&quot;ab&quot;</span>.<span class="f">repeat</span>(<span class="n">3</span>))
+	<span class="f">println</span>(strings.<span class="f">join</span>([<span class="s">&quot;a&quot;</span>, <span class="s">&quot;b&quot;</span>, <span class="s">&quot;c&quot;</span>], <span class="s">&quot;-&quot;</span>))
+	<span class="f">println</span>(math.<span class="f">sqrt</span>(<span class="n">16.0</span>))
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>ababab
+a-b-c
+4</code></pre>
+<p>Imports are always qualified, except for methods: importing a package also makes the methods it adds to existing types (like <code>string.repeat</code> from <code>std/strings</code>) available. The prelude, <code>std/core</code>, is imported everywhere automatically.</p>
+<p>Inside a project, your own packages are imported by the project name followed by the directory: <code>import &quot;myapp/parser&quot;</code>. See <a href="../start/projects.html">Your first project</a>.</p>
+<h2 id="visibility"><a class="anchor" href="#visibility" aria-hidden="true">#</a>Visibility</h2>
+<p>Everything is public unless its name starts with <code>_</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Account</span> <span class="k">struct</span> [
+	owner: <span class="t">string</span>,
+	_balance: <span class="t">int</span>,          <span class="m">// other packages can&#39;t read or set this</span>
+]
+
+<span class="k">bind</span> <span class="t">Account</span>.balance = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._balance
+
+<span class="k">bind</span> _audit = (a: <span class="t">Account</span>): <span class="f">println</span>(a.owner)   <span class="m">// private to this package</span></code></pre>
+<p>A struct with a private field can't be built with a literal outside its package, so packages export a constructor function instead. That is how a type protects its invariants.</p>
+<h2 id="tests"><a class="anchor" href="#tests" aria-hidden="true">#</a>Tests</h2>
+<p>Tests are functions marked <code>@test</code>, in files ending in <code>_test.ll</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="m">// account_test.ll</span>
+<span class="k">import</span> <span class="s">&quot;std/test&quot;</span>
+
+<span class="a">@test</span>(<span class="s">&quot;a new account is empty&quot;</span>)
+<span class="k">bind</span> test_new_account = (): {
+	<span class="k">let</span> a = <span class="t">Account</span>.<span class="f">new</span>(<span class="s">&quot;ada&quot;</span>)
+	test.<span class="f">assert_eq</span>(a.<span class="f">balance</span>(), <span class="n">0</span>)
+}</code></pre>
+<p>Run them with <code>lowlight test</code>. Each test runs in isolation: a failed assertion or a panic fails that test only, and the runner reports the file and line. <code>std/test</code> has assertions for equality, ordering, approximate floats, strings, optionals, and results, each with a <code>_msg</code> variant for a custom message.</p>
+<p>A helper marked <code>@track_caller</code> reports failures at its caller's location, so assertion helpers point at the test that failed rather than at themselves.</p>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">lowlight</span> test                 <span class="m"># all packages</span>
+<span class="f">lowlight</span> test <span class="a">-run</span> balance    <span class="m"># only tests whose names match</span>
+<span class="f">lowlight</span> test <span class="a">--list</span>          <span class="m"># list tests without running them</span></code></pre>
+<h2 id="next"><a class="anchor" href="#next" aria-hidden="true">#</a>Next</h2>
+<p><span class="repo-link" title="In the Lowlight repository: website/content/tour/next-steps.html">Next steps →</span></p>
+</article><nav class="prev-next"><a class="prev" href="interfaces-generics.html"><span>Previous</span>Interfaces and generics</a><a class="next" href="next-steps.html"><span>Next</span>Next steps</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#imports">Imports</a></li><li><a href="#visibility">Visibility</a></li><li><a href="#tests">Tests</a></li><li><a href="#next">Next</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tour</a><a href="basics.html">Basics</a><a href="functions.html">Functions</a><a href="types.html">Your own types</a><a href="optionals.html">Optionals</a><a href="control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

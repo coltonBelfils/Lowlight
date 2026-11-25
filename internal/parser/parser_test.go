@@ -1279,3 +1279,74 @@ const demo = fn(v: [int]) int: {
 		t.Fatalf("expected `else comptime if` diagnostic, got:\n%s", badRep.Format())
 	}
 }
+
+func TestParseDottedAndFieldVariantAttributes(t *testing.T) {
+	src := `
+@derivable(
+    eq: derive.eq,
+    cmp: mod.custom_cmp,
+)
+define MyIface interface [
+    eq: fn(self, other: Self) bool,
+    cmp: fn(self, other: Self) int,
+]
+
+@table("users")
+define User struct [
+    // Primary id
+    @json("user_id")
+    id: int = 0,
+    @skip
+    secret?: ?string,
+]
+
+define State enum [
+    // Initial state
+    @tag("INIT")
+    Idle,
+    @renamed("BUSY")
+    Busy: int,
+]
+`
+	rep := diag.NewReporter()
+	f := parser.ParseFile("attrs_fields.ll", src, rep)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected parse errors:\n%s", rep.Format())
+	}
+	if len(f.Decls) != 3 {
+		t.Fatalf("expected 3 decls, got %d", len(f.Decls))
+	}
+	ifc := f.Decls[0].(*ast.InterfaceDecl)
+	if len(ifc.Attributes) != 1 || ifc.Attributes[0].Name != "derivable" {
+		t.Fatalf("unexpected interface attrs: %+v", ifc.Attributes)
+	}
+	if len(ifc.Attributes[0].Args) != 2 || ifc.Attributes[0].Args[0] != "eq: derive.eq" || ifc.Attributes[0].Args[1] != "cmp: mod.custom_cmp" {
+		t.Fatalf("unexpected dotted attribute args: %#v", ifc.Attributes[0].Args)
+	}
+	sd := f.Decls[1].(*ast.StructDecl)
+	if len(sd.Fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(sd.Fields))
+	}
+	if len(sd.Fields[0].Attributes) != 1 || sd.Fields[0].Attributes[0].Name != "json" || sd.Fields[0].Attributes[0].Args[0] != "user_id" {
+		t.Fatalf("unexpected field[0] attrs: %+v", sd.Fields[0].Attributes)
+	}
+	if sd.Fields[0].Doc != "Primary id" {
+		t.Fatalf("expected doc comment attached before field attribute, got %q", sd.Fields[0].Doc)
+	}
+	if len(sd.Fields[1].Attributes) != 1 || sd.Fields[1].Attributes[0].Name != "skip" {
+		t.Fatalf("unexpected field[1] attrs: %+v", sd.Fields[1].Attributes)
+	}
+	ed := f.Decls[2].(*ast.EnumDecl)
+	if len(ed.Variants) != 2 {
+		t.Fatalf("expected 2 variants, got %d", len(ed.Variants))
+	}
+	if ed.Variants[0].Doc != "Initial state" {
+		t.Fatalf("expected doc comment attached before variant attribute, got %q", ed.Variants[0].Doc)
+	}
+	if len(ed.Variants[0].Attributes) != 1 || ed.Variants[0].Attributes[0].Name != "tag" {
+		t.Fatalf("unexpected variant[0] attrs: %+v", ed.Variants[0].Attributes)
+	}
+	if len(ed.Variants[1].Attributes) != 1 || ed.Variants[1].Attributes[0].Name != "renamed" {
+		t.Fatalf("unexpected variant[1] attrs: %+v", ed.Variants[1].Attributes)
+	}
+}

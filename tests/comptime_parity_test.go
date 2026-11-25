@@ -473,3 +473,495 @@ bind main = fn(): {
 	}
 }
 
+func TestComptimeParityFieldElemAndCollectFor(t *testing.T) {
+	src := `
+@table("items")
+define Entry struct [
+	@col("id")
+	id: int,
+	@col("name")
+	name: string = "anon",
+	note?: ?string,
+]
+
+define CustomBox struct [
+	label: string,
+	drops: ptr[int],
+]
+
+bind CustomBox.drop = fn(&self): {
+	if(unsafe ptr_addr(self.drops) != u64(0)): {
+		unsafe { self.drops[0] += 1 }
+	}
+}
+
+bind CustomBox.take_label = fn(own self) string:
+	own self.field(comp.fields_of[CustomBox]()[0])
+
+define DropPair struct [
+	a: CustomBox,
+	b: CustomBox,
+	c: CustomBox,
+]
+
+define Bag struct [
+	first: string,
+	second: string,
+	def: string = "fallback_" + "str",
+]
+
+@comptime_only
+const ct_work = fn() string: {
+	let e = Entry[id: 1, name: "ct", note?: "yes"]
+	const fs = comp.fields_of[Entry]()
+	e.field(fs[0]) += 9
+	let bump = fn(r: &int): { r += 5 }
+	bump(&e.field("id"))
+
+	let built = comptime for(f in fs) Entry: {
+		comptime if(f.name == "id"): 77
+		else: { next <- }
+	}
+	let t = comptime for(el in comp.elems_of[+[int, string]]()) +[int, string]: {
+		comptime if(el.index == 0): 42
+		else: el.type_name.copy()
+	}
+	let arr = comptime for(el in comp.elems_of[[3: int]]()) [3: int]: el.index * 3 + 1
+	"${e.id}:${e.field("name")}:${built.id}:${built.name}:${t.0}:${t.1}:${arr[2]}"
+}
+
+const CT_VAL = ct_work()
+
+bind main = fn(): {
+	let drop_cnt = 0
+	// 1. Runtime field/elem read, mutation, & borrow, ref, ?.field, own self.field
+	let e = Entry[id: 1, name: "ct", note?: "yes"]
+	e.field(comp.fields_of[Entry]()[0]) += 9
+	let bump = fn(r: &int): { r += 5 }
+	bump(&e.field("id"))
+
+	let opt?: ?Entry = Entry[id: 88, name: "optn"]
+	let opt_id = opt?.field(comp.fields_of[Entry]()[0]) ?? -1
+	assert(opt_id == 88)
+
+	let ar = Arena.new()
+	let re = ar.alloc(Entry[id: 100, name: "arena"])
+	re.field(comp.fields_of[Entry]()[0]) += 23
+	assert(re.id == 123)
+
+	let cbox = CustomBox[label: "box_lbl", drops: unsafe addr_of(drop_cnt)]
+	let taken = cbox.take_label()
+	assert(taken == "box_lbl")
+	assert(drop_cnt == 1)
+
+	// Verify early break mid-collecting comptime for drops ALREADY populated fields (0 & 1) and NOT unpopulated field 2!
+	// Check both enclosing block unwind ('dp_brk <-') and loop break ('for <-').
+	let early_drops = 0
+	{
+		let dp_res = dp_brk: {
+			comptime for(f in comp.fields_of[DropPair]()) DropPair: {
+				if(f.name == "c"): {
+					dp_brk <- DropPair[
+						a: CustomBox[label: "fb_a", drops: unsafe addr_of(early_drops)],
+						b: CustomBox[label: "fb_b", drops: unsafe addr_of(early_drops)],
+						c: CustomBox[label: "fb_c", drops: unsafe addr_of(early_drops)],
+					]
+				}
+				CustomBox[label: "iter_${f.name}", drops: unsafe addr_of(early_drops)]
+			}
+		}
+		assert(dp_res.a.label == "fb_a")
+		assert(early_drops == 2, "expected 2 partial iter drops on block unwind, got $early_drops")
+	}
+	assert(early_drops == 5, "expected 5 total drops after dp_res scope exit, got $early_drops")
+
+	let early_drops2 = 0
+	{
+		let lp_res = comptime for(f in comp.fields_of[DropPair]()) DropPair: {
+			if(f.name == "c"): {
+				for <- DropPair[
+					a: CustomBox[label: "lp_a", drops: unsafe addr_of(early_drops2)],
+					b: CustomBox[label: "lp_b", drops: unsafe addr_of(early_drops2)],
+					c: CustomBox[label: "lp_c", drops: unsafe addr_of(early_drops2)],
+				]
+			}
+			CustomBox[label: "iter_${f.name}", drops: unsafe addr_of(early_drops2)]
+		}
+		assert(lp_res.a.label == "lp_a")
+		assert(early_drops2 == 2, "expected 2 partial iter drops on for<- break, got $early_drops2")
+	}
+	assert(early_drops2 == 5, "expected 5 total drops after lp_res scope exit, got $early_drops2")
+
+	// 2. Runtime struct/tuple/array collecting comptime for + Resource values + defaults + early break
+	let bag = comptime for(f in comp.fields_of[Bag]()) Bag: {
+		comptime if(f.has_default): next <-
+		else: "v_${f.name}"
+	}
+	assert(bag.first == "v_first" and bag.second == "v_second" and bag.def == "fallback_str")
+
+	// Early break mid-collecting comptime for after iteration 0 & 1 allocated Resource strings:
+	// elems 0 and 1 must drop cleanly in LIFO order with 0 leaked bytes!
+	let early_bag = out: {
+		comptime for(f in comp.fields_of[Bag]()) Bag: {
+			if(f.name == "def"): {
+				out <- Bag[first: "early1", second: "early2", def: "early3"]
+			}
+			"tmp_${f.name}_alloc"
+		}
+		Bag[first: "x", second: "y"]
+	}
+	assert(early_bag.first == "early1" and early_bag.def == "early3")
+
+	// Tuple and StackArray with Resource elements + early break cleanup
+	let rtuple = comptime for(el in comp.elems_of[+[string, int, string]]()) +[string, int, string]: {
+		comptime if(el.index == 1): 303
+		else: "s_${el.index}"
+	}
+	assert(rtuple.0 == "s_0" and rtuple.1 == 303 and rtuple.2 == "s_2")
+
+	let rarr = comptime for(el in comp.elems_of[[3: string]]()) [3: string]: "el_${el.index}"
+	assert(rarr[0] == "el_0" and rarr[2] == "el_2")
+	rarr.elem(1) = "el_mod"
+	rtuple.elem(1) += 1
+	assert(rarr.elem(1) == "el_mod" and rtuple.elem(1) == 304)
+	rtuple.elem(1) -= 1
+
+	// Crossable projection at runtime
+	let f0_name = comp.fields_of[Entry]()[0].name
+	let f0_col = comp.fields_of[Entry]()[0].attrs[0].args[0]
+	let triple = comp.TARGET.triple
+	assert(f0_name == "id" and f0_col == "id" and triple.len() > 0)
+
+	let built = comptime for(f in comp.fields_of[Entry]()) Entry: {
+		comptime if(f.name == "id"): 77
+		else: { next <- }
+	}
+	let t = comptime for(el in comp.elems_of[+[int, string]]()) +[int, string]: {
+		comptime if(el.index == 0): 42
+		else: el.type_name.copy()
+	}
+	let arr = comptime for(el in comp.elems_of[[3: int]]()) [3: int]: el.index * 3 + 1
+	let rt_val = "${e.id}:${e.field("name")}:${built.id}:${built.name}:${t.0}:${t.1}:${arr[2]}"
+	assert(CT_VAL == rt_val, "parity mismatch: $CT_VAL vs $rt_val")
+	println("$CT_VAL|${bag.def}|${early_bag.first}|${rtuple.1}|${rarr[1]}|$f0_col")
+}
+`
+	want := "15:ct:77:anon:42:string:7|fallback_str|early1|303|el_mod|id\n"
+	dir := t.TempDir()
+	mainPath := filepath.Join(dir, "main.ll")
+	if err := os.WriteFile(mainPath, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := projectRoot(t)
+	for _, release := range []bool{false, true} {
+		for _, backend := range []driver.BackendKind{driver.BackendC11, driver.BackendLLVM} {
+			var stdout, stderr bytes.Buffer
+			rc, err := driver.Run(driver.Options{
+				EntryPath:   mainPath,
+				ProjectRoot: root,
+				Backend:     backend,
+				Release:     release,
+				ExtraCFlags: strictCFlags,
+				Env: []string{
+					"LOWLIGHT_CHECK_LEAKS=1",
+					"ASAN_OPTIONS=detect_leaks=0",
+				},
+			}, nil, &stdout, &stderr)
+			if err != nil {
+				t.Fatalf("backend=%s release=%v error:\n%v\nstderr:\n%s", backend, release, err, stderr.String())
+			}
+			if rc != 0 {
+				t.Fatalf("backend=%s release=%v rc=%d\nstdout:\n%s\nstderr:\n%s", backend, release, rc, stdout.String(), stderr.String())
+			}
+			if got := stdout.String(); got != want {
+				t.Fatalf("backend=%s release=%v mismatch:\ngot:\n%s\nwant:\n%s", backend, release, got, want)
+			}
+		}
+	}
+}
+
+func TestComptimeFieldPrivacyMultiPkg(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "secret")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	modSrc := `
+define Vault struct [
+	pub_v: int = 1,
+	_priv_v: int = 42,
+]
+`
+	mainSrc := `
+import "secret"
+
+bind main = fn(): {
+	let v = secret.Vault[]
+	let _ = v.field(comp.fields_of[secret.Vault]()[1])
+}
+`
+	if err := os.WriteFile(filepath.Join(sub, "secret.ll"), []byte(modSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(dir, "main.ll")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	_, err := driver.Run(driver.Options{
+		EntryPath:   mainPath,
+		ProjectRoot: projectRoot(t),
+		Backend:     driver.BackendC11,
+	}, nil, &stdout, &stderr)
+	if err == nil {
+		t.Fatalf("expected unexported field access error across packages, succeeded cleanly")
+	}
+	if !bytes.Contains([]byte(err.Error()+stderr.String()), []byte("cannot access unexported field \"_priv_v\"")) {
+		t.Fatalf("unexpected error for private field access:\nerr=%v\nstderr=%s", err, stderr.String())
+	}
+}
+
+func TestComptimeParityVariantIntrinsics(t *testing.T) {
+	src := `
+define Sparse enum [
+	Zero = 3,
+	One = 9,
+	Two = 20,
+]
+
+define CustomPay struct [
+	txt: string,
+	drops: ptr[int],
+]
+
+bind CustomPay.drop = fn(&self): {
+	if(unsafe ptr_addr(self.drops) != u64(0)): {
+		unsafe { self.drops[0] += 1 }
+	}
+}
+
+define Msg enum [
+	Ping,
+	Text: string,
+	Custom: CustomPay,
+	Num: int,
+]
+
+const Msg.take_text = fn(own self) string:
+	own self.payload(comp.variants_of[Msg]()[1])
+
+define ParseRes result [
+	value: int,
+	ErrMsg: string,
+	Done,
+]
+
+@comptime_only
+const ct_variants = fn() string: {
+	let sp = make_variant[Sparse](comp.variants_of[Sparse]()[1])
+	assert(variant_index(sp) == 1)
+	assert(sp.is_variant(comp.variants_of[Sparse]()[1]))
+
+	let m = make_variant[Msg](comp.variants_of[Msg]()[3], 10)
+	m.payload(comp.variants_of[Msg]()[3]) += 5
+	assert(m.payload("Num") == 15)
+
+	let ms = make_variant[Msg](comp.variants_of[Msg]()[1], "ct")
+	if(ms.as_variant(comp.variants_of[Msg]()[1]) as &s): {
+		s.push("_edit")
+	}
+
+	let r! = make_variant[ParseRes](comp.variants_of[ParseRes]()[1], "bad")
+	let ri = variant_index(r!)
+	let taken = Msg.Text("moved").take_text()
+	"${variant_index(sp)}:${m.payload(comp.variants_of[Msg]()[3])}:${ms.payload("Text")}:$ri:$taken"
+}
+
+const CT_VAR = ct_variants()
+
+bind make_temp_msg = fn() Msg:
+	make_variant[Msg](comp.variants_of[Msg]()[1], "temp_" + "msg")
+
+bind main = fn(): {
+	let sp = make_variant[Sparse](comp.variants_of[Sparse]()[1])
+	assert(variant_index(sp) == 1)
+	assert(sp.is_variant(comp.variants_of[Sparse]()[1]))
+
+	let m = make_variant[Msg](comp.variants_of[Msg]()[3], 10)
+	m.payload(comp.variants_of[Msg]()[3]) += 5
+	let bump = fn(x: &int): { x += 0 }
+	bump(&m.payload(comp.variants_of[Msg]()[3]))
+	assert(m.payload("Num") == 15)
+
+	let ms = make_variant[Msg](comp.variants_of[Msg]()[1], "ct".copy())
+	if(&ms.as_variant(comp.variants_of[Msg]()[1]) as s): {
+		s.push("_edit")
+	}
+
+	// Non-Copyable Resource (CustomPay) zero-copy borrow + mutation via as_variant & ref[Msg]
+	let drop_cnt = 0
+	{
+		let cm = make_variant[Msg](comp.variants_of[Msg]()[2], CustomPay[txt: "noncopy".copy(), drops: unsafe addr_of(drop_cnt)])
+		if(cm.as_variant(comp.variants_of[Msg]()[2]) as &cp): {
+			cp.txt.push("!")
+		} else: {
+			panic("expected Custom")
+		}
+		assert(cm.payload(comp.variants_of[Msg]()[2]).txt == "noncopy!")
+	}
+	assert(drop_cnt == 1, "expected 1 CustomPay drop, got $drop_cnt")
+
+	// Temp rvalue enum inside if(make_temp_msg().as_variant(vr) as s): must not leak!
+	if(make_temp_msg().as_variant(comp.variants_of[Msg]()[1]) as s): {
+		assert(s == "temp_msg")
+	} else: {
+		panic("expected temp_msg")
+	}
+
+	// Arena ref[Msg] + optional chaining ?.is_variant / ?.payload
+	let ar = Arena.new()
+	let rm = ar.alloc(make_variant[Msg](comp.variants_of[Msg]()[3], 41))
+	rm.payload(comp.variants_of[Msg]()[3]) += 1
+	assert(variant_index(rm) == 3 and rm.payload("Num") == 42)
+	let opt_m?: ?Msg = make_variant[Msg](comp.variants_of[Msg]()[1], "opt".copy())
+	assert((opt_m?.is_variant(comp.variants_of[Msg]()[1]) ?? false))
+	assert((opt_m?.payload(comp.variants_of[Msg]()[1]) ?? "") == "opt")
+
+	let r! = make_variant[ParseRes](comp.variants_of[ParseRes]()[1], "bad")
+	let ri = variant_index(r!)
+	let taken = Msg.Text("moved".copy()).take_text()
+	let rt_var = "${variant_index(sp)}:${m.payload(comp.variants_of[Msg]()[3])}:${ms.payload("Text")}:$ri:$taken"
+	assert(CT_VAR == rt_var, "parity mismatch: $CT_VAR vs $rt_var")
+	println(rt_var)
+}
+`
+	want := "1:15:ct_edit:1:moved\n"
+	dir := t.TempDir()
+	mainPath := filepath.Join(dir, "main.ll")
+	if err := os.WriteFile(mainPath, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := projectRoot(t)
+	for _, release := range []bool{false, true} {
+		for _, backend := range []driver.BackendKind{driver.BackendC11, driver.BackendLLVM} {
+			var stdout, stderr bytes.Buffer
+			rc, err := driver.Run(driver.Options{
+				EntryPath:   mainPath,
+				ProjectRoot: root,
+				Backend:     backend,
+				Release:     release,
+				ExtraCFlags: strictCFlags,
+				Env: []string{
+					"LOWLIGHT_CHECK_LEAKS=1",
+					"ASAN_OPTIONS=detect_leaks=0",
+				},
+			}, nil, &stdout, &stderr)
+			if err != nil {
+				t.Fatalf("backend=%s release=%v error:\n%v\nstderr:\n%s", backend, release, err, stderr.String())
+			}
+			if rc != 0 {
+				t.Fatalf("backend=%s release=%v rc=%d\nstdout:\n%s\nstderr:\n%s", backend, release, rc, stdout.String(), stderr.String())
+			}
+			if got := stdout.String(); got != want {
+				t.Fatalf("backend=%s release=%v mismatch:\ngot:\n%s\nwant:\n%s", backend, release, got, want)
+			}
+		}
+	}
+}
+
+func TestVariantPayloadWrongTagTrap(t *testing.T) {
+	src := `
+define E enum [
+	A: int,
+	B: string,
+]
+bind main = fn(): {
+	let v = E.A(12)
+	let _ = v.payload(comp.variants_of[E]()[1]).len()
+}
+`
+	dir := t.TempDir()
+	mainPath := filepath.Join(dir, "main.ll")
+	if err := os.WriteFile(mainPath, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := projectRoot(t)
+	for _, release := range []bool{false, true} {
+		for _, backend := range []driver.BackendKind{driver.BackendC11, driver.BackendLLVM} {
+			var stdout, stderr bytes.Buffer
+			rc, err := driver.Run(driver.Options{
+				EntryPath:   mainPath,
+				ProjectRoot: root,
+				Backend:     backend,
+				Release:     release,
+			}, nil, &stdout, &stderr)
+			if err != nil {
+				t.Fatalf("backend=%s release=%v build/run error: %v\nstderr:\n%s", backend, release, err, stderr.String())
+			}
+			if rc == 0 || !bytes.Contains(stderr.Bytes(), []byte("variant payload access failed")) {
+				t.Fatalf("backend=%s release=%v expected trap with variant mismatch message, rc=%d stderr=%q",
+					backend, release, rc, stderr.String())
+			}
+		}
+	}
+}
+
+func TestComptimeVariantPrivacyMultiPkg(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "secret")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	modSrc := `
+define VaultE enum [
+	Pub: int,
+	_Priv: int,
+]
+const make_priv = fn() VaultE: VaultE._Priv(99)
+`
+	if err := os.WriteFile(filepath.Join(sub, "secret.ll"), []byte(modSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		code string
+	}{
+		{
+			name: "is_variant",
+			code: "import \"secret\"\nbind main = fn(): { let v = secret.make_priv(); let _ = v.is_variant(comp.variants_of[secret.VaultE]()[1]) }\n",
+		},
+		{
+			name: "payload",
+			code: "import \"secret\"\nbind main = fn(): { let v = secret.make_priv(); let _ = v.payload(comp.variants_of[secret.VaultE]()[1]) }\n",
+		},
+		{
+			name: "as_variant",
+			code: "import \"secret\"\nbind main = fn(): { let v = secret.make_priv(); if(v.as_variant(comp.variants_of[secret.VaultE]()[1]) as p): { let _ = p } }\n",
+		},
+		{
+			name: "make_variant",
+			code: "import \"secret\"\nbind main = fn(): { let _ = make_variant[secret.VaultE](comp.variants_of[secret.VaultE]()[1], 5) }\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mainPath := filepath.Join(dir, tc.name+".ll")
+			if err := os.WriteFile(mainPath, []byte(tc.code), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			_, err := driver.Run(driver.Options{
+				EntryPath:   mainPath,
+				ProjectRoot: projectRoot(t),
+				Backend:     driver.BackendC11,
+			}, nil, &stdout, &stderr)
+			if err == nil {
+				t.Fatalf("expected private variant error for %s", tc.name)
+			}
+			if !bytes.Contains([]byte(err.Error()+stderr.String()), []byte("cannot access unexported variant")) {
+				t.Fatalf("unexpected error for %s:\nerr=%v\nstderr=%s", tc.name, err, stderr.String())
+			}
+		})
+	}
+}
+

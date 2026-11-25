@@ -32,6 +32,28 @@ func (a *Analyzer) moduleTag(mod *Module) string {
 	return types.SanitizeCIdent(base)
 }
 
+func isCompEnumLangItem(li string) bool {
+	return li == "target_os" || li == "target_arch" || li == "target_endian" || li == "comp_type_kind"
+}
+
+func isCompStructLangItem(li string) bool {
+	return li == "target_info" || li == "comp_attr_info" || li == "comp_field_info" || li == "comp_variant_info" || li == "comp_elem_info"
+}
+
+func astAttrsToTypeAttrs(attrs []ast.Attribute) []types.Attribute {
+	if len(attrs) == 0 {
+		return nil
+	}
+	out := make([]types.Attribute, len(attrs))
+	for i, a := range attrs {
+		out[i] = types.Attribute{
+			Name: a.Name,
+			Args: append([]string(nil), a.Args...),
+		}
+	}
+	return out
+}
+
 // typeTag is the C/LLVM symbol tag for a type named name declared in mod. Entry-package types
 // normally have no tag, like std/core's; one that shadows a std/core type name (a user's own
 // `Status` or `Error`) is tagged `main` so the two don't share symbols.
@@ -46,16 +68,13 @@ func (a *Analyzer) typeTag(mod *Module, name string) string {
 			for _, d := range f.ActiveDecls() {
 				switch td := d.(type) {
 				case *ast.StructDecl:
-					if la := ast.FindAttribute(td.Attributes, "lang"); la != nil && len(la.Args) > 0 && strings.Trim(la.Args[0], "\"") == "target_info" {
+					if la := ast.FindAttribute(td.Attributes, "lang"); la != nil && len(la.Args) > 0 && isCompStructLangItem(strings.Trim(la.Args[0], "\"")) {
 						continue
 					}
 					a.coreTypeNames[td.Name] = true
 				case *ast.EnumDecl:
-					if la := ast.FindAttribute(td.Attributes, "lang"); la != nil && len(la.Args) > 0 {
-						li := strings.Trim(la.Args[0], "\"")
-						if li == "target_os" || li == "target_arch" || li == "target_endian" {
-							continue
-						}
+					if la := ast.FindAttribute(td.Attributes, "lang"); la != nil && len(la.Args) > 0 && isCompEnumLangItem(strings.Trim(la.Args[0], "\"")) {
+						continue
 					}
 					a.coreTypeNames[td.Name] = true
 				case *ast.InterfaceDecl:
@@ -73,6 +92,19 @@ func (a *Analyzer) typeTag(mod *Module, name string) string {
 }
 
 func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.Span, kind string) {
+	if len(attrs) > 0 {
+		ta := astAttrsToTypeAttrs(attrs)
+		switch t := target.(type) {
+		case *types.Struct:
+			t.Attributes = ta
+		case *types.Enum:
+			t.Attributes = ta
+		case *types.Distinct:
+			t.Attributes = ta
+		case *types.Interface:
+			t.Attributes = ta
+		}
+	}
 	hasInline := false
 	hasNoInline := false
 
@@ -180,6 +212,8 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 				dt.IsTestOnly = true
 			} else if ifc, ok := target.(*types.Interface); ok {
 				ifc.IsTestOnly = true
+			} else if kind == "struct field" || kind == "enum variant" {
+				a.Rep.Errorf(attr.Span, "@test_only attribute cannot be applied to a %s", kind)
 			}
 		case "track_caller":
 			if kind != "function" && kind != "method" {
@@ -279,14 +313,29 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 				a.Rep.Errorf(attr.Span, "@comptime_limit attribute cannot be applied to a %s declaration", kind)
 			}
 		case "lang":
+			if kind == "struct field" || kind == "enum variant" {
+				a.Rep.Errorf(attr.Span, "@lang attribute cannot be applied to a %s", kind)
+			}
 			// handled specially on interfaces and top-level func/symbols
 		case "derive":
 			if kind != "struct" && kind != "enum" {
 				a.Rep.Errorf(attr.Span, "@derive can only be applied to a struct or enum, not a %s", kind)
 			}
 			// expanded into methods by expandDerives
+		case "derivable":
+			if kind != "interface" {
+				a.Rep.Errorf(attr.Span, "@derivable can only be applied to an interface, not a %s", kind)
+			}
+		case "doc":
+			a.Rep.Errorf(attr.Span, "unknown attribute @doc (use `//` doc comments instead)")
 		default:
-			a.Rep.Errorf(attr.Span, "unknown attribute @%s", attr.Name)
+			switch kind {
+			case "struct", "enum", "interface", "distinct type", "struct field", "enum variant":
+				// Custom attributes allowed on type declarations, struct fields, and enum variants
+				// so `comp.attrs_of[T]()`, `FieldInfo.attrs`, and `VariantInfo.attrs` can inspect them.
+			default:
+				a.Rep.Errorf(attr.Span, "unknown attribute @%s", attr.Name)
+			}
 		}
 	}
 
@@ -300,6 +349,10 @@ func isCompNamespaceOnlyType(t types.Type) bool {
 	case *types.Struct:
 		return v.CompNamespaceOnly
 	case *types.Enum:
+		return v.CompNamespaceOnly
+	case *types.Distinct:
+		return v.CompNamespaceOnly
+	case *types.Interface:
 		return v.CompNamespaceOnly
 	}
 	return false
@@ -474,8 +527,8 @@ func (a *Analyzer) initCompTarget() {
 	if a.corePkg == nil {
 		return
 	}
-	// Stage 1: Register @lang("target_os" | "target_arch" | "target_endian") enums first
-	// because Target struct references them in its fields.
+	// Stage 1: Register @lang("target_os" | "target_arch" | "target_endian" | "comp_type_kind") enums first
+	// because comp structs may reference them in their fields.
 	for _, mod := range a.corePkg.Files {
 		for _, d := range mod.ActiveDecls() {
 			ed, ok := d.(*ast.EnumDecl)
@@ -487,7 +540,7 @@ func (a *Analyzer) initCompTarget() {
 				continue
 			}
 			li := strings.Trim(la.Args[0], "\"")
-			if li != "target_os" && li != "target_arch" && li != "target_endian" {
+			if !isCompEnumLangItem(li) {
 				continue
 			}
 			if _, dup := mod.Types[ed.Name]; dup {
@@ -504,11 +557,12 @@ func (a *Analyzer) initCompTarget() {
 			a.checkAttributes(ed.Attributes, en, ed.Span, "enum")
 			for idx, v := range ed.Variants {
 				en.Variants = append(en.Variants, types.EnumVariant{
-					Name:  v.Name,
-					CName: "v_" + types.SanitizeCIdent(v.Name),
-					Value: int64(idx),
-					Kind:  types.VariantUnit,
-					Doc:   v.Doc,
+					Name:       v.Name,
+					CName:      "v_" + types.SanitizeCIdent(v.Name),
+					Value:      int64(idx),
+					Kind:       types.VariantUnit,
+					Attributes: astAttrsToTypeAttrs(v.Attributes),
+					Doc:        v.Doc,
 				})
 			}
 			mod.Types[ed.Name] = en
@@ -524,10 +578,18 @@ func (a *Analyzer) initCompTarget() {
 				a.Prog.EnumTargetArch = en
 			case "target_endian":
 				a.Prog.EnumEndian = en
+			case "comp_type_kind":
+				a.Prog.EnumTypeKind = en
 			}
 		}
 	}
-	// Stage 2: Register @lang("target_info") Target struct and resolve its fields.
+	// Stage 2: Register @lang comp structs first, then populate fields so nested refs like `[AttrInfo]` resolve cleanly.
+	type compStructEntry struct {
+		mod *Module
+		sd  *ast.StructDecl
+		st  *types.Struct
+	}
+	var stage2 []compStructEntry
 	for _, mod := range a.corePkg.Files {
 		for _, d := range mod.ActiveDecls() {
 			sd, ok := d.(*ast.StructDecl)
@@ -535,7 +597,11 @@ func (a *Analyzer) initCompTarget() {
 				continue
 			}
 			la := ast.FindAttribute(sd.Attributes, "lang")
-			if la == nil || len(la.Args) == 0 || strings.Trim(la.Args[0], "\"") != "target_info" {
+			if la == nil || len(la.Args) == 0 {
+				continue
+			}
+			li := strings.Trim(la.Args[0], "\"")
+			if !isCompStructLangItem(li) {
 				continue
 			}
 			if _, dup := mod.Types[sd.Name]; dup {
@@ -546,7 +612,7 @@ func (a *Analyzer) initCompTarget() {
 				CName:             "ll_s_comp_" + sd.Name,
 				PkgDir:            mod.Dir,
 				Doc:               sd.Doc,
-				Lang:              "target_info",
+				Lang:              li,
 				CompNamespaceOnly: true,
 			}
 			a.checkAttributes(sd.Attributes, st, sd.Span, "struct")
@@ -556,9 +622,23 @@ func (a *Analyzer) initCompTarget() {
 			a.Prog.StructMods[st] = mod
 			a.Prog.TypeSpans[st] = sd.Span
 			a.Prog.Structs = append(a.Prog.Structs, st)
-			a.Prog.StructTarget = st
-			a.populateStructFields(mod, st, sd, nil)
+			switch li {
+			case "target_info":
+				a.Prog.StructTarget = st
+			case "comp_attr_info":
+				a.Prog.StructAttrInfo = st
+			case "comp_field_info":
+				a.Prog.StructFieldInfo = st
+			case "comp_variant_info":
+				a.Prog.StructVariantInfo = st
+			case "comp_elem_info":
+				a.Prog.StructElemInfo = st
+			}
+			stage2 = append(stage2, compStructEntry{mod: mod, sd: sd, st: st})
 		}
+	}
+	for _, item := range stage2 {
+		a.populateStructFields(item.mod, item.st, item.sd, nil)
 	}
 	if tv := a.buildTargetCtVal(); tv != nil {
 		a.Prog.CompTargetSym = &Symbol{
@@ -910,10 +990,11 @@ func (a *Analyzer) runTypeAndSymbolRegistration() {
 	// Pass 1E: Register extern headers/functions, top-level functions/vars, and methods
 	// (including those generated by `@derive`).
 	for _, mod := range a.Prog.Modules {
-		a.expandDerives(mod)
-	}
-	for _, mod := range a.Prog.Modules {
 		a.registerFunctionsAndMethods(mod)
+	}
+	a.resolveDerivableAttrs()
+	for _, mod := range a.Prog.Modules {
+		a.expandDerives(mod)
 	}
 	a.validateAllConstGenericParams()
 	a.instantiatePendingDrops()
@@ -1057,8 +1138,36 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 						if a.Prog.StructTarget != nil {
 							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"target_info\")")
 						}
+					case "comp_attr_info":
+						if existing, ok := mod.Types[td.Name].(*types.Struct); ok && existing == a.Prog.StructAttrInfo && existing != nil {
+							continue
+						}
+						if a.Prog.StructAttrInfo != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"comp_attr_info\")")
+						}
+					case "comp_field_info":
+						if existing, ok := mod.Types[td.Name].(*types.Struct); ok && existing == a.Prog.StructFieldInfo && existing != nil {
+							continue
+						}
+						if a.Prog.StructFieldInfo != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"comp_field_info\")")
+						}
+					case "comp_variant_info":
+						if existing, ok := mod.Types[td.Name].(*types.Struct); ok && existing == a.Prog.StructVariantInfo && existing != nil {
+							continue
+						}
+						if a.Prog.StructVariantInfo != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"comp_variant_info\")")
+						}
+					case "comp_elem_info":
+						if existing, ok := mod.Types[td.Name].(*types.Struct); ok && existing == a.Prog.StructElemInfo && existing != nil {
+							continue
+						}
+						if a.Prog.StructElemInfo != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"comp_elem_info\")")
+						}
 					default:
-						a.Rep.Errorf(td.Span, "unknown struct lang item @lang(%q); supported struct lang items: \"list\", \"array\", \"set\", \"map\", \"range\", \"arena\", \"target_info\"", langItem)
+						a.Rep.Errorf(td.Span, "unknown struct lang item @lang(%q); supported struct lang items: \"list\", \"array\", \"set\", \"map\", \"range\", \"arena\", \"target_info\", \"comp_*\"", langItem)
 					}
 				}
 			}
@@ -1088,7 +1197,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				}
 				continue
 			}
-			if langItem != "" && langItem != "arena" && langItem != "target_info" {
+			if langItem != "" && langItem != "arena" && !isCompStructLangItem(langItem) {
 				a.Rep.Errorf(td.Span, "struct lang item @lang(%q) must be a generic struct", langItem)
 			}
 			if a.checkDupType(mod, td.Name, td.Span) {
@@ -1098,7 +1207,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			if tag := a.typeTag(mod, td.Name); tag != "" {
 				cname = fmt.Sprintf("ll_s_%s_%s", tag, td.Name)
 			}
-			if langItem == "target_info" {
+			if isCompStructLangItem(langItem) {
 				cname = "ll_s_comp_" + td.Name
 			}
 			st := &types.Struct{
@@ -1112,11 +1221,22 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			if langItem == "arena" {
 				st.Lang = "arena"
 				a.Prog.StructArena = st
-			} else if langItem == "target_info" {
-				st.Lang = "target_info"
+			} else if isCompStructLangItem(langItem) {
+				st.Lang = langItem
 				st.CompNamespaceOnly = true
-				a.Prog.StructTarget = st
 				a.Prog.CompTypes[td.Name] = st
+				switch langItem {
+				case "target_info":
+					a.Prog.StructTarget = st
+				case "comp_attr_info":
+					a.Prog.StructAttrInfo = st
+				case "comp_field_info":
+					a.Prog.StructFieldInfo = st
+				case "comp_variant_info":
+					a.Prog.StructVariantInfo = st
+				case "comp_elem_info":
+					a.Prog.StructElemInfo = st
+				}
 			}
 			if mod.IsTestFile {
 				st.IsTestOnly = true
@@ -1156,8 +1276,15 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 						if a.Prog.EnumEndian != nil {
 							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"target_endian\")")
 						}
+					case "comp_type_kind":
+						if existing, ok := mod.Types[td.Name].(*types.Enum); ok && existing == a.Prog.EnumTypeKind && existing != nil {
+							continue
+						}
+						if a.Prog.EnumTypeKind != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"comp_type_kind\")")
+						}
 					default:
-						a.Rep.Errorf(langAttr.Span, "unknown enum lang item @lang(%q); supported: \"target_os\", \"target_arch\", \"target_endian\"", enumLangItem)
+						a.Rep.Errorf(langAttr.Span, "unknown enum lang item @lang(%q); supported: \"target_os\", \"target_arch\", \"target_endian\", \"comp_type_kind\"", enumLangItem)
 					}
 				}
 			}
@@ -1214,6 +1341,10 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				en.CompNamespaceOnly = true
 				a.Prog.EnumEndian = en
 				a.Prog.CompTypes[td.Name] = en
+			case "comp_type_kind":
+				en.CompNamespaceOnly = true
+				a.Prog.EnumTypeKind = en
+				a.Prog.CompTypes[td.Name] = en
 			}
 			if mod.IsTestFile {
 				en.IsTestOnly = true
@@ -1235,6 +1366,9 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			}
 
 			if len(td.TypeParams) > 0 {
+				if derivAttr := ast.FindAttribute(td.Attributes, "derivable"); derivAttr != nil {
+					a.Rep.Errorf(derivAttr.Span, "@derivable cannot be applied to generic interface %s", td.Name)
+				}
 				if a.checkDupType(mod, td.Name, td.Span) {
 					continue
 				}
@@ -1271,7 +1405,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				a.Prog.IfacePrintable.Name = td.Name
 				a.Prog.IfacePrintable.Doc = td.Doc
 				a.Prog.TypeSpans[a.Prog.IfacePrintable] = td.Span
-				mod.Types[td.Name] = a.Prog.IfacePrintable
+				a.finishBuiltinInterfaceDecl(mod, a.Prog.IfacePrintable, td)
 				continue
 			}
 
@@ -1283,7 +1417,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				a.Prog.IfaceCopyable.Name = td.Name
 				a.Prog.IfaceCopyable.Doc = td.Doc
 				a.Prog.TypeSpans[a.Prog.IfaceCopyable] = td.Span
-				mod.Types[td.Name] = a.Prog.IfaceCopyable
+				a.finishBuiltinInterfaceDecl(mod, a.Prog.IfaceCopyable, td)
 				continue
 			}
 
@@ -1295,7 +1429,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				a.Prog.IfaceDrop.Name = td.Name
 				a.Prog.IfaceDrop.Doc = td.Doc
 				a.Prog.TypeSpans[a.Prog.IfaceDrop] = td.Span
-				mod.Types[td.Name] = a.Prog.IfaceDrop
+				a.finishBuiltinInterfaceDecl(mod, a.Prog.IfaceDrop, td)
 				continue
 			}
 
@@ -1312,7 +1446,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				}
 				a.Prog.IfaceHashable.Doc = td.Doc
 				a.Prog.TypeSpans[a.Prog.IfaceHashable] = td.Span
-				mod.Types[td.Name] = a.Prog.IfaceHashable
+				a.finishBuiltinInterfaceDecl(mod, a.Prog.IfaceHashable, td)
 				continue
 			}
 
@@ -1324,7 +1458,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				a.Prog.IfaceEquatable.Name = td.Name
 				a.Prog.IfaceEquatable.Doc = td.Doc
 				a.Prog.TypeSpans[a.Prog.IfaceEquatable] = td.Span
-				mod.Types[td.Name] = a.Prog.IfaceEquatable
+				a.finishBuiltinInterfaceDecl(mod, a.Prog.IfaceEquatable, td)
 				continue
 			}
 
@@ -1336,7 +1470,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				a.Prog.IfaceComparable.Name = td.Name
 				a.Prog.IfaceComparable.Doc = td.Doc
 				a.Prog.TypeSpans[a.Prog.IfaceComparable] = td.Span
-				mod.Types[td.Name] = a.Prog.IfaceComparable
+				a.finishBuiltinInterfaceDecl(mod, a.Prog.IfaceComparable, td)
 				continue
 			}
 
@@ -1379,6 +1513,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			a.Prog.TypeSpans[ifc] = td.Span
 			a.Prog.InterfaceMods[ifc] = mod
 			a.Prog.Interfaces = append(a.Prog.Interfaces, ifc)
+			a.recordInterfaceDecl(ifc, td)
 
 		case *ast.DistinctTypeDecl:
 			if langAttr := ast.FindAttribute(td.Attributes, "lang"); langAttr != nil {
@@ -1560,12 +1695,14 @@ func (a *Analyzer) resolveDistinctsAndEnums(mod *Module) {
 						a.Rep.Errorf(v.Span, "enum discriminant %d overflows underlying type %s", nextVal, en.Underlying.String())
 					}
 				}
+				a.checkAttributes(v.Attributes, nil, v.Span, "enum variant")
 				en.Variants = append(en.Variants, types.EnumVariant{
-					Name:  v.Name,
-					CName: "v_" + types.SanitizeCIdent(v.Name),
-					Value: nextVal,
-					Kind:  types.VariantUnit,
-					Doc:   v.Doc,
+					Name:       v.Name,
+					CName:      "v_" + types.SanitizeCIdent(v.Name),
+					Value:      nextVal,
+					Kind:       types.VariantUnit,
+					Attributes: astAttrsToTypeAttrs(v.Attributes),
+					Doc:        v.Doc,
 				})
 				nextVal++
 			}
@@ -1691,25 +1828,28 @@ func (a *Analyzer) populateEnumVariants(mod *Module, en *types.Enum, td *ast.Enu
 		}
 		seen[v.Name] = true
 		vcname := "v_" + types.SanitizeCIdent(v.Name)
+		a.checkAttributes(v.Attributes, nil, v.Span, "enum variant")
 		if v.PayloadType == nil {
 			en.Variants = append(en.Variants, types.EnumVariant{
-				Name:  v.Name,
-				CName: vcname,
-				Value: tagVal,
-				Kind:  types.VariantUnit,
-				Doc:   v.Doc,
+				Name:       v.Name,
+				CName:      vcname,
+				Value:      tagVal,
+				Kind:       types.VariantUnit,
+				Attributes: astAttrsToTypeAttrs(v.Attributes),
+				Doc:        v.Doc,
 			})
 			tagVal++
 			continue
 		}
 		pty := a.resolveValueType(mod, v.PayloadType, subst, false)
 		en.Variants = append(en.Variants, types.EnumVariant{
-			Name:    v.Name,
-			CName:   vcname,
-			Value:   tagVal,
-			Kind:    types.VariantTuple,
-			Payload: pty,
-			Doc:     v.Doc,
+			Name:       v.Name,
+			CName:      vcname,
+			Value:      tagVal,
+			Kind:       types.VariantTuple,
+			Payload:    pty,
+			Attributes: astAttrsToTypeAttrs(v.Attributes),
+			Doc:        v.Doc,
 		})
 		tagVal++
 	}
@@ -1759,8 +1899,11 @@ func (a *Analyzer) populateStructFields(mod *Module, st *types.Struct, td *ast.S
 			continue
 		}
 		seen[f.Name] = true
+		a.checkAttributes(f.Attributes, nil, f.Span, "struct field")
 		fty := a.resolveValueType(mod, f.Type, subst, false)
-		a.checkOptionalIdentRule(f.Name, f.IsOpt, fty, f.Span, "struct field")
+		if !isDirectSubstTypeParam(f.Type, subst) {
+			a.checkOptionalIdentRule(f.Name, f.IsOpt, fty, f.Span, "struct field")
+		}
 		cname := types.SanitizeCIdent(f.Name)
 		if st.Name == "List" || strings.HasPrefix(st.Name, "List[") || st.Name == "Array" || strings.HasPrefix(st.Name, "Array[") {
 			cname = f.Name
@@ -1770,6 +1913,7 @@ func (a *Analyzer) populateStructFields(mod *Module, st *types.Struct, td *ast.S
 			CName:      cname,
 			Type:       fty,
 			HasDefault: f.Default != nil,
+			Attributes: astAttrsToTypeAttrs(f.Attributes),
 			Doc:        f.Doc,
 		})
 	}
@@ -1878,10 +2022,90 @@ func isStructOrEnum(t types.Type) bool {
 	return false
 }
 
+func derivePkgScopeID(m *Module) string {
+	if m == nil {
+		return ""
+	}
+	if m.Pkg != nil && m.Pkg.ID != "" {
+		return m.Pkg.ID
+	}
+	if m.Dir != "" {
+		return m.Dir
+	}
+	return m.Path
+}
+
+func (a *Analyzer) hasDeriveAccess(fn *FuncInstance, t types.Type) bool {
+	if fn == nil || fn.DeriveTarget == nil || t == nil || !fn.DeriveTarget.Equals(t) {
+		return false
+	}
+	if fn.DerivePkg == "" {
+		return true
+	}
+	return derivePkgScopeID(fn.Mod) == fn.DerivePkg
+}
+
+func isRealStructType(st *types.Struct) bool {
+	if st == nil {
+		return false
+	}
+	switch st.Lang {
+	case "list", "array", "set", "map", "range", "arena":
+		return false
+	}
+	return true
+}
+
+func isFieldInspectableStruct(st *types.Struct) bool {
+	return isRealStructType(st) || (st != nil && st.Lang == "range")
+}
+
+func (a *Analyzer) resolveQueryType(mod *Module, te ast.TypeExpr, subst map[string]types.Type) types.Type {
+	return a.resolveValueTypeOpts(mod, te, subst, false, true)
+}
+
 // resolveValueType resolves a TypeExpr in an owned/value position (forbidding `&T` and `own T`).
 func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[string]types.Type, allowSelf bool) types.Type {
+	return a.resolveValueTypeOpts(mod, te, subst, allowSelf, false)
+}
+
+func isDirectSubstTypeParam(te ast.TypeExpr, subst map[string]types.Type) bool {
+	if len(subst) == 0 || te == nil {
+		return false
+	}
+	for {
+		switch v := te.(type) {
+		case *ast.MutBorrowType:
+			te = v.Elem
+		case *ast.OwnType:
+			te = v.Elem
+		case *ast.NamedType:
+			if v.Module == "" && len(v.TypeArgs) == 0 {
+				_, ok := subst[v.Name]
+				return ok
+			}
+			return false
+		default:
+			return false
+		}
+	}
+}
+
+func (a *Analyzer) finishBuiltinInterfaceDecl(mod *Module, ifc *types.Interface, td *ast.InterfaceDecl) {
+	ifc.PkgDir = mod.Dir
+	ifc.Attributes = astAttrsToTypeAttrs(td.Attributes)
+	a.checkAttributes(td.Attributes, ifc, td.Span, "interface")
+	mod.Types[td.Name] = ifc
+	a.Prog.InterfaceMods[ifc] = mod
+	a.recordInterfaceDecl(ifc, td)
+}
+
+func (a *Analyzer) resolveValueTypeOpts(mod *Module, te ast.TypeExpr, subst map[string]types.Type, allowSelf, allowSelfIface bool) types.Type {
 	if te == nil {
 		return types.TypeVoid
+	}
+	if mapped, ok := a.synthTypeExprs[te]; ok {
+		return mapped
 	}
 	switch v := te.(type) {
 	case *ast.MutBorrowType:
@@ -1939,7 +2163,7 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 			return types.TypeInvalid
 		}
 		if _, isTP := elem.(*types.TypeParamVar); !isTP {
-			if !types.IsHashable(elem) && !a.inBodyPass {
+			if !a.inBodyPass {
 				if a.Prog.IfaceHashable != nil {
 					a.deferredIfaceChecks = append(a.deferredIfaceChecks, deferredIfaceCheck{
 						Concrete: elem,
@@ -1949,7 +2173,7 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 					})
 				}
 			} else {
-				isH := types.IsHashable(elem) || (a.Prog.IfaceHashable != nil && a.ImplementsInterface(elem, a.Prog.IfaceHashable))
+				isH := (a.Prog.IfaceHashable != nil && a.ImplementsInterface(elem, a.Prog.IfaceHashable)) || types.IsHashable(elem)
 				if !isH {
 					a.Rep.Errorf(v.Elem.GetSpan(), "set element type %s is not hashable", elem.String())
 					return types.TypeInvalid
@@ -1965,7 +2189,7 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 			return types.TypeInvalid
 		}
 		if _, isTP := kt.(*types.TypeParamVar); !isTP {
-			if !types.IsHashable(kt) && !a.inBodyPass {
+			if !a.inBodyPass {
 				if a.Prog.IfaceHashable != nil {
 					a.deferredIfaceChecks = append(a.deferredIfaceChecks, deferredIfaceCheck{
 						Concrete: kt,
@@ -1975,7 +2199,7 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 					})
 				}
 			} else {
-				isH := types.IsHashable(kt) || (a.Prog.IfaceHashable != nil && a.ImplementsInterface(kt, a.Prog.IfaceHashable))
+				isH := (a.Prog.IfaceHashable != nil && a.ImplementsInterface(kt, a.Prog.IfaceHashable)) || types.IsHashable(kt)
 				if !isH {
 					a.Rep.Errorf(v.Key.GetSpan(), "map key type %s is not hashable", kt.String())
 					return types.TypeInvalid
@@ -2142,7 +2366,7 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 			a.Rep.Errorf(v.Span, "unknown type %q", v.Name)
 			return types.TypeInvalid
 		}
-		if ifc, isIfc := found.(*types.Interface); isIfc && ifc.UsesSelf {
+		if ifc, isIfc := found.(*types.Interface); isIfc && ifc.UsesSelf && !allowSelfIface {
 			a.Rep.Errorf(v.Span, "interface %s uses `Self` and can only be used as a generic constraint (`[T: %s]`), not as a runtime value type", ifc.Name, ifc.Name)
 			return types.TypeInvalid
 		}
@@ -2643,6 +2867,12 @@ func (a *Analyzer) instantiateStruct(tmpl *GenericStructTemplate, typeArgs []typ
 		Packed:   tmpl.Decl.Packed || ast.FindAttribute(tmpl.Decl.Attributes, "packed") != nil,
 		Doc:      tmpl.Decl.Doc,
 		TypeArgs: typeArgs,
+	}
+	for _, ta := range typeArgs {
+		if types.FindComptimeOnlyType(ta) != nil {
+			inst.IsComptimeOnly = true
+			break
+		}
 	}
 	switch tmpl {
 	case a.Prog.GenStructList:
@@ -3327,6 +3557,12 @@ func (a *Analyzer) instantiateEnum(tmpl *GenericEnumTemplate, typeArgs []types.T
 		TypeArgs:   typeArgs,
 		Underlying: types.TypeInt,
 	}
+	for _, ta := range typeArgs {
+		if types.FindComptimeOnlyType(ta) != nil {
+			inst.IsComptimeOnly = true
+			break
+		}
+	}
 	a.checkAttributes(tmpl.Decl.Attributes, inst, tmpl.Decl.Span, "enum")
 	if !hasTypeParam {
 		tmpl.Instances[key] = inst
@@ -3364,9 +3600,6 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 	}
 
 	decls := mod.ActiveDecls()
-	if len(mod.DerivedDecls) > 0 {
-		decls = append(append([]ast.Decl(nil), decls...), mod.DerivedDecls...)
-	}
 	for _, d := range decls {
 		switch decl := d.(type) {
 		case *ast.ExternHeaderDecl:
@@ -3566,66 +3799,70 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 			a.Prog.TopVars = append(a.Prog.TopVars, &TopVarInit{Sym: sym, Decl: decl, Mod: mod})
 
 		case *ast.MethodDecl:
-			recvDisplay := decl.RecvType
-			if decl.RecvModule != "" {
-				recvDisplay = decl.RecvModule + "." + decl.RecvType
-			}
-			if len(decl.RecvTypeParams) > 0 || len(decl.TypeParams) > 0 {
-				if a.genMethods[decl.RecvType] == nil {
-					a.genMethods[decl.RecvType] = make(map[string]*GenericFuncTemplate)
-				}
-				if existing, dup := a.genMethods[decl.RecvType][decl.Name]; dup && existing != nil && existing.MethodDecl != nil {
-					a.Rep.Errorf(decl.Span, "duplicate method `%s.%s` (already defined at %s)", recvDisplay, decl.Name, existing.MethodDecl.Span.String())
-					continue
-				}
-				a.genMethods[decl.RecvType][decl.Name] = &GenericFuncTemplate{
-					Name:       decl.RecvType + "." + decl.Name,
-					MethodDecl: decl,
-					Mod:        mod,
-					Instances:  make(map[string]*FuncInstance),
-				}
-				continue
-			}
+			a.registerMethodDecl(mod, decl)
+		}
+	}
+}
 
-			recvTy := a.lookupTypeInModule(mod, decl.RecvModule, decl.RecvType)
-			if recvTy == nil {
-				a.Rep.Errorf(decl.Span, "unknown receiver type %q in method declaration", recvDisplay)
-				continue
-			}
-			fi := a.buildMethodInstance(mod, recvTy, decl, nil)
-			key := TypeMethodKey(recvTy)
-			if a.methods[key] == nil {
-				a.methods[key] = make(map[string]*FuncInstance)
-			}
-			if existing, dup := a.methods[key][decl.Name]; dup {
-				if existing != nil && existing.DeclSpan.Start.File != "" {
-					a.Rep.Errorf(decl.Span, "duplicate method `%s.%s` (already defined at %s)", recvDisplay, decl.Name, existing.DeclSpan.String())
-				} else {
-					a.Rep.Errorf(decl.Span, "duplicate method `%s.%s`", recvDisplay, decl.Name)
-				}
-				continue
-			}
-			a.methods[key][decl.Name] = fi
-			if a.Prog.MethodTable[key] == nil {
-				a.Prog.MethodTable[key] = make(map[string]*FuncInstance)
-			}
-			a.Prog.MethodTable[key][decl.Name] = fi
-			a.Prog.Funcs = append(a.Prog.Funcs, fi)
+func (a *Analyzer) registerMethodDecl(mod *Module, decl *ast.MethodDecl) {
+	recvDisplay := decl.RecvType
+	if decl.RecvModule != "" {
+		recvDisplay = decl.RecvModule + "." + decl.RecvType
+	}
+	if len(decl.RecvTypeParams) > 0 || len(decl.TypeParams) > 0 {
+		if a.genMethods[decl.RecvType] == nil {
+			a.genMethods[decl.RecvType] = make(map[string]*GenericFuncTemplate)
+		}
+		if existing, dup := a.genMethods[decl.RecvType][decl.Name]; dup && existing != nil && existing.MethodDecl != nil {
+			a.Rep.Errorf(decl.Span, "duplicate method `%s.%s` (already defined at %s)", recvDisplay, decl.Name, existing.MethodDecl.Span.String())
+			return
+		}
+		a.genMethods[decl.RecvType][decl.Name] = &GenericFuncTemplate{
+			Name:       decl.RecvType + "." + decl.Name,
+			MethodDecl: decl,
+			Mod:        mod,
+			Instances:  make(map[string]*FuncInstance),
+		}
+		return
+	}
 
-			// Check if this is `Drop` (`bind MyStruct.drop = fn(&self)` or `bind MyEnum.drop = fn(&self)`)
-			if st, isSt := recvTy.(*types.Struct); isSt && decl.Name == "drop" {
-				if decl.RecvMode != ast.RecvMut || len(decl.Params) != 0 || (fi.Sig.Ret != nil && !fi.Sig.Ret.Equals(types.TypeVoid)) {
-					a.Rep.Errorf(decl.Span, "`%s.drop` must have signature `(&self)` or `(&self) void`", st.Name)
-				} else {
-					st.HasCustomDrop = true
-				}
-			} else if en, isEn := recvTy.(*types.Enum); isEn && decl.Name == "drop" {
-				if decl.RecvMode != ast.RecvMut || len(decl.Params) != 0 || (fi.Sig.Ret != nil && !fi.Sig.Ret.Equals(types.TypeVoid)) {
-					a.Rep.Errorf(decl.Span, "`%s.drop` must have signature `(&self)` or `(&self) void`", en.Name)
-				} else {
-					en.HasCustomDrop = true
-				}
-			}
+	recvTy := a.lookupTypeInModule(mod, decl.RecvModule, decl.RecvType)
+	if recvTy == nil {
+		a.Rep.Errorf(decl.Span, "unknown receiver type %q in method declaration", recvDisplay)
+		return
+	}
+	fi := a.buildMethodInstance(mod, recvTy, decl, nil)
+	key := TypeMethodKey(recvTy)
+	if a.methods[key] == nil {
+		a.methods[key] = make(map[string]*FuncInstance)
+	}
+	if existing, dup := a.methods[key][decl.Name]; dup {
+		if existing != nil && existing.DeclSpan.Start.File != "" {
+			a.Rep.Errorf(decl.Span, "duplicate method `%s.%s` (already defined at %s)", recvDisplay, decl.Name, existing.DeclSpan.String())
+		} else {
+			a.Rep.Errorf(decl.Span, "duplicate method `%s.%s`", recvDisplay, decl.Name)
+		}
+		return
+	}
+	a.methods[key][decl.Name] = fi
+	if a.Prog.MethodTable[key] == nil {
+		a.Prog.MethodTable[key] = make(map[string]*FuncInstance)
+	}
+	a.Prog.MethodTable[key][decl.Name] = fi
+	a.Prog.Funcs = append(a.Prog.Funcs, fi)
+
+	// Check if this is `Drop` (`bind MyStruct.drop = fn(&self)` or `bind MyEnum.drop = fn(&self)`)
+	if st, isSt := recvTy.(*types.Struct); isSt && decl.Name == "drop" {
+		if decl.RecvMode != ast.RecvMut || len(decl.Params) != 0 || (fi.Sig.Ret != nil && !fi.Sig.Ret.Equals(types.TypeVoid)) {
+			a.Rep.Errorf(decl.Span, "`%s.drop` must have signature `(&self)` or `(&self) void`", st.Name)
+		} else {
+			st.HasCustomDrop = true
+		}
+	} else if en, isEn := recvTy.(*types.Enum); isEn && decl.Name == "drop" {
+		if decl.RecvMode != ast.RecvMut || len(decl.Params) != 0 || (fi.Sig.Ret != nil && !fi.Sig.Ret.Equals(types.TypeVoid)) {
+			a.Rep.Errorf(decl.Span, "`%s.drop` must have signature `(&self)` or `(&self) void`", en.Name)
+		} else {
+			en.HasCustomDrop = true
 		}
 	}
 }
@@ -3660,7 +3897,9 @@ func (a *Analyzer) buildFuncInstanceFromLit(mod *Module, name string, fl *ast.Fu
 	var pspans []diag.Span
 	for _, p := range fl.Params {
 		pm, pt := a.resolveParamType(mod, p.Type, subst, false)
-		a.checkOptionalIdentRule(p.Name, p.IsOptName, pt, p.Span, "parameter")
+		if !isDirectSubstTypeParam(p.Type, subst) {
+			a.checkOptionalIdentRule(p.Name, p.IsOptName, pt, p.Span, "parameter")
+		}
 		ps = append(ps, types.FuncParam{Name: p.Name, Mode: pm, Type: pt})
 		pnames = append(pnames, p.Name)
 		pspans = append(pspans, p.Span)
@@ -3719,7 +3958,9 @@ func (a *Analyzer) buildMethodInstance(mod *Module, recvTy types.Type, decl *ast
 
 	for _, p := range decl.Params {
 		pm, pt := a.resolveParamType(mod, p.Type, subst, false)
-		a.checkOptionalIdentRule(p.Name, p.IsOptName, pt, p.Span, "parameter")
+		if !isDirectSubstTypeParam(p.Type, subst) {
+			a.checkOptionalIdentRule(p.Name, p.IsOptName, pt, p.Span, "parameter")
+		}
 		ps = append(ps, types.FuncParam{Name: p.Name, Mode: pm, Type: pt})
 		pnames = append(pnames, p.Name)
 		pspans = append(pspans, p.Span)
@@ -3742,6 +3983,10 @@ func (a *Analyzer) buildMethodInstance(mod *Module, recvTy types.Type, decl *ast
 		cSuffix += "__" + strings.Join(keys, "__")
 	}
 
+	var deriveInfoEntry *deriveInfo
+	if a.derived != nil {
+		deriveInfoEntry = a.derived[decl]
+	}
 	fi := &FuncInstance{
 		Name:          fmt.Sprintf("%s.%s", recvTy.String(), decl.Name),
 		CName:         fmt.Sprintf("ll_m_%s_%s", recvTy.Mangled(), sanitizeSymbolName(cSuffix)),
@@ -3759,10 +4004,17 @@ func (a *Analyzer) buildMethodInstance(mod *Module, recvTy types.Type, decl *ast
 		RetInferred:   retInferred,
 		IsDrop:        decl.Name == "drop" && (isStructOrEnum(recvTy)),
 		IsConst:       decl.IsConst,
-		IsDerived:     a.derived[decl] != nil,
+		IsDerived:     deriveInfoEntry != nil,
 		Doc:           decl.Doc,
 	}
+	if deriveInfoEntry != nil {
+		fi.DeriveAttrSpan = deriveInfoEntry.Span
+		fi.DeriveIfaceName = deriveInfoEntry.Iface
+	}
 	a.checkAttributes(decl.Attributes, fi, decl.Span, "method")
+	if deriveInfoEntry != nil && fi.IsConst && fi.Sig != nil && types.FindComptimeOnlyType(fi.Sig) != nil {
+		fi.ComptimeOnly = true
+	}
 	return fi
 }
 
@@ -3789,6 +4041,20 @@ func extractSortedSubst(subst map[string]types.Type) []string {
 func sanitizeSymbolName(s string) string {
 	r := strings.NewReplacer("[", "_", "]", "_", ",", "_", " ", "", "?", "_opt", ".", "_")
 	return r.Replace(s)
+}
+
+func sanitizeDeriveScopeSuffix(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' {
+			b.WriteByte(c)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 func (a *Analyzer) lookupGenericMethodTemplate(recvTy types.Type, methodName string) *GenericFuncTemplate {
@@ -3851,10 +4117,139 @@ func (a *Analyzer) LookupMethod(recvTy types.Type, methodName string, methodType
 		}
 		_ = recvArgs
 	}
+	if len(methodTypeArgs) == 0 {
+		switch tv := recvTy.(type) {
+		case *types.Tuple:
+			return a.lookupTupleMethod(tv, methodName, span)
+		case *types.Optional:
+			return a.lookupOptionalMethod(tv, methodName, span)
+		}
+	}
 	return nil
 }
 
+func (a *Analyzer) lookupTupleMethod(tup *types.Tuple, methodName string, span diag.Span) *FuncInstance {
+	if a.coreMod == nil || tup == nil {
+		return nil
+	}
+	var coreFnName string
+	switch methodName {
+	case "eq":
+		for _, el := range tup.Elems {
+			if !a.supportsEq(el) {
+				return nil
+			}
+		}
+		coreFnName = "_tuple_eq"
+	case "cmp":
+		for _, el := range tup.Elems {
+			if !a.supportsCmp(el) {
+				return nil
+			}
+		}
+		coreFnName = "_tuple_cmp"
+	case "hash":
+		for _, el := range tup.Elems {
+			if !a.supportsHash(el) {
+				return nil
+			}
+		}
+		coreFnName = "_tuple_hash"
+	case "copy":
+		for _, el := range tup.Elems {
+			if !a.supportsCopy(el) {
+				return nil
+			}
+		}
+		coreFnName = "_tuple_copy"
+	case "to_string":
+		for _, el := range tup.Elems {
+			if !a.supportsToString(el) {
+				return nil
+			}
+		}
+		coreFnName = "_tuple_to_string"
+	default:
+		return nil
+	}
+	tmpl := a.lookupGenericFnInModOrPkg(a.coreMod, coreFnName, a.coreMod)
+	if tmpl == nil {
+		return nil
+	}
+	fi := a.instantiateGenericFunc(tmpl, []types.Type{tup}, span)
+	if fi == nil {
+		return nil
+	}
+	a.cacheSynthMethod(TypeMethodKey(tup), methodName, fi)
+	return fi
+}
+
+func (a *Analyzer) lookupOptionalMethod(opt *types.Optional, methodName string, span diag.Span) *FuncInstance {
+	if a.coreMod == nil || opt == nil {
+		return nil
+	}
+	var coreFnName string
+	switch methodName {
+	case "eq":
+		if !a.supportsEq(opt.Elem) {
+			return nil
+		}
+		coreFnName = "_opt_eq"
+	case "copy":
+		if !a.supportsCopy(opt.Elem) {
+			return nil
+		}
+		coreFnName = "_opt_copy"
+	case "to_string":
+		if !a.supportsToString(opt.Elem) {
+			return nil
+		}
+		coreFnName = "_opt_to_string"
+	default:
+		return nil
+	}
+	tmpl := a.lookupGenericFnInModOrPkg(a.coreMod, coreFnName, a.coreMod)
+	if tmpl == nil {
+		return nil
+	}
+	fi := a.instantiateGenericFunc(tmpl, []types.Type{opt.Elem}, span)
+	if fi == nil {
+		return nil
+	}
+	a.cacheSynthMethod(TypeMethodKey(opt), methodName, fi)
+	return fi
+}
+
+func (a *Analyzer) cacheSynthMethod(mkey, methodName string, fi *FuncInstance) {
+	if a.methods[mkey] == nil {
+		a.methods[mkey] = make(map[string]*FuncInstance)
+	}
+	prevM, hadM := a.methods[mkey][methodName]
+	a.methods[mkey][methodName] = fi
+	if a.Prog.MethodTable[mkey] == nil {
+		a.Prog.MethodTable[mkey] = make(map[string]*FuncInstance)
+	}
+	prevMT, hadMT := a.Prog.MethodTable[mkey][methodName]
+	a.Prog.MethodTable[mkey][methodName] = fi
+	a.recordTrialUndo(func() {
+		if hadM {
+			a.methods[mkey][methodName] = prevM
+		} else {
+			delete(a.methods[mkey], methodName)
+		}
+		if hadMT {
+			a.Prog.MethodTable[mkey][methodName] = prevMT
+		} else {
+			delete(a.Prog.MethodTable[mkey], methodName)
+		}
+	})
+}
+
 func (a *Analyzer) instantiateMethod(tmpl *GenericFuncTemplate, recvTy types.Type, methodTypeArgs []types.Type, span diag.Span) *FuncInstance {
+	return a.instantiateMethodWithDerive(tmpl, recvTy, methodTypeArgs, span, nil, "")
+}
+
+func (a *Analyzer) instantiateMethodWithDerive(tmpl *GenericFuncTemplate, recvTy types.Type, methodTypeArgs []types.Type, span diag.Span, deriveTarget types.Type, derivePkg string) *FuncInstance {
 	if a.monoDepth >= MaxMonomorphDepth {
 		a.Rep.Errorf(span, "generic instantiation recursion depth limit (%d) exceeded while instantiating %s.%s", MaxMonomorphDepth, tmpl.MethodDecl.RecvType, tmpl.MethodDecl.Name)
 		return nil
@@ -3895,6 +4290,11 @@ func (a *Analyzer) instantiateMethod(tmpl *GenericFuncTemplate, recvTy types.Typ
 			a.verifyBounds(tmpl.Mod, tp, methodTypeArgs[i], span, decl.Name)
 		}
 	}
+	deriveSuffix := ""
+	if deriveTarget != nil {
+		deriveSuffix = fmt.Sprintf("derive_%s_%s", deriveTarget.Mangled(), sanitizeDeriveScopeSuffix(derivePkg))
+		keyParts = append(keyParts, deriveSuffix)
+	}
 	instKey := strings.Join(keyParts, "__")
 	if existing, ok := tmpl.Instances[instKey]; ok {
 		return existing
@@ -3903,21 +4303,54 @@ func (a *Analyzer) instantiateMethod(tmpl *GenericFuncTemplate, recvTy types.Typ
 		a.Rep.Errorf(span, "generic method `%s.%s` instantiation limit (%d) exceeded", decl.RecvType, decl.Name, MaxInstantiationsPerTemplate)
 		return nil
 	}
-	if info := a.derived[decl]; info != nil && !a.deriveApplies(info, recvTy) {
-		return nil
+	deriveInfoEntry := a.derived[decl]
+	trialKey := ""
+	if deriveInfoEntry != nil {
+		trialKey = fmt.Sprintf("%s::%s::%s", recvTy.Mangled(), deriveInfoEntry.Iface, deriveInfoEntry.Method)
+		if a.deriveFailed[trialKey] {
+			return nil
+		}
 	}
 
+	funcsBase := len(a.Prog.Funcs)
 	fi := a.buildMethodInstance(tmpl.Mod, recvTy, decl, subst)
 	fi.IsGenericInst = true
+	fi.DeriveTarget = deriveTarget
+	fi.DerivePkg = derivePkg
+	if deriveSuffix != "" {
+		fi.CName += "__" + deriveSuffix
+	}
+	if fi.IsConst && fi.Sig != nil && types.FindComptimeOnlyType(fi.Sig) != nil {
+		fi.ComptimeOnly = true
+	}
 	tmpl.Instances[instKey] = fi
-	if len(methodTypeArgs) == 0 {
+	mtUndo := func() { delete(tmpl.Instances, instKey) }
+	if len(methodTypeArgs) == 0 && deriveTarget == nil {
 		mkey := TypeMethodKey(recvTy)
 		if a.Prog.MethodTable[mkey] == nil {
 			a.Prog.MethodTable[mkey] = make(map[string]*FuncInstance)
 		}
+		prevMT, hadPrevMT := a.Prog.MethodTable[mkey][decl.Name]
 		a.Prog.MethodTable[mkey][decl.Name] = fi
+		oldUndo := mtUndo
+		mtUndo = func() {
+			oldUndo()
+			if hadPrevMT {
+				a.Prog.MethodTable[mkey][decl.Name] = prevMT
+			} else {
+				delete(a.Prog.MethodTable[mkey], decl.Name)
+			}
+		}
 	}
+	a.recordTrialUndo(mtUndo)
 	a.Prog.Funcs = append(a.Prog.Funcs, fi)
+
+	if deriveInfoEntry != nil && len(methodTypeArgs) == 0 && deriveTarget == nil {
+		if !a.verifyGenericDerivedMethod(deriveInfoEntry, recvTy, fi, funcsBase, trialKey, mtUndo) {
+			return nil
+		}
+	}
+
 	// Typecheck body immediately if we are already in or past body checking!
 	if a.inBodyPass {
 		if fi.RetInferred {
@@ -3930,6 +4363,10 @@ func (a *Analyzer) instantiateMethod(tmpl *GenericFuncTemplate, recvTy types.Typ
 }
 
 func (a *Analyzer) instantiateGenericFunc(tmpl *GenericFuncTemplate, typeArgs []types.Type, span diag.Span) *FuncInstance {
+	return a.instantiateGenericFuncWithDerive(tmpl, typeArgs, span, nil, "")
+}
+
+func (a *Analyzer) instantiateGenericFuncWithDerive(tmpl *GenericFuncTemplate, typeArgs []types.Type, span diag.Span, deriveTarget types.Type, derivePkg string) *FuncInstance {
 	if a.monoDepth >= MaxMonomorphDepth {
 		a.Rep.Errorf(span, "generic instantiation recursion depth limit (%d) exceeded while instantiating %s", MaxMonomorphDepth, tmpl.VarDecl.Name)
 		return nil
@@ -3956,6 +4393,11 @@ func (a *Analyzer) instantiateGenericFunc(tmpl *GenericFuncTemplate, typeArgs []
 		a.verifyBounds(tmpl.Mod, tp, typeArgs[i], span, decl.Name)
 	}
 	key := strings.Join(parts, "__")
+	deriveSuffix := ""
+	if deriveTarget != nil {
+		deriveSuffix = fmt.Sprintf("derive_%s_%s", deriveTarget.Mangled(), sanitizeDeriveScopeSuffix(derivePkg))
+		key += "__" + deriveSuffix
+	}
 	if existing, ok := tmpl.Instances[key]; ok {
 		return existing
 	}
@@ -3971,13 +4413,19 @@ func (a *Analyzer) instantiateGenericFunc(tmpl *GenericFuncTemplate, typeArgs []
 	fi.Doc = decl.Doc
 	fi.IsConst = decl.IsConst
 	fi.IsGenericInst = true
+	fi.DeriveTarget = deriveTarget
+	fi.DerivePkg = derivePkg
 	cname := fmt.Sprintf("ll_gfn_%s__%s", decl.Name, key)
 	if tag := a.moduleTag(tmpl.Mod); tag != "" {
 		cname = fmt.Sprintf("ll_gfn_%s_%s__%s", tag, decl.Name, key)
 	}
 	fi.CName = cname
 	a.checkAttributes(decl.Attributes, fi, decl.Span, "function")
+	if fi.IsConst && fi.Sig != nil && types.FindComptimeOnlyType(fi.Sig) != nil {
+		fi.ComptimeOnly = true
+	}
 	tmpl.Instances[key] = fi
+	a.recordTrialUndo(func() { delete(tmpl.Instances, key) })
 	a.Prog.Funcs = append(a.Prog.Funcs, fi)
 	if a.inBodyPass {
 		if fi.RetInferred {
@@ -4240,6 +4688,12 @@ func (a *Analyzer) supportsToStringVisited(t types.Type, seen map[types.Type]boo
 	if a.LookupMethod(t, "to_string", nil, diag.Span{}) != nil {
 		return true
 	}
+	if en, ok := t.(*types.Enum); ok && !en.IsTagged && a.isCompBuiltinEnum(en) {
+		return true
+	}
+	if st, ok := t.(*types.Struct); ok && a.isCompBuiltinStruct(st) {
+		return true
+	}
 	switch v := t.(type) {
 	case *types.Primitive:
 		return v.Kind != types.PrimVoid
@@ -4287,6 +4741,9 @@ func (a *Analyzer) supportsCopyVisited(t types.Type, seen map[types.Type]bool) b
 	if a.LookupMethod(t, "copy", nil, diag.Span{}) != nil {
 		return true
 	}
+	if st, ok := t.(*types.Struct); ok && a.isCompBuiltinStruct(st) {
+		return true
+	}
 	switch v := t.(type) {
 	case *types.Primitive:
 		return v.Kind == types.PrimString
@@ -4320,20 +4777,24 @@ func (a *Analyzer) supportsCopyVisited(t types.Type, seen map[types.Type]bool) b
 	}
 }
 
+func (a *Analyzer) isCompBuiltinEnum(en *types.Enum) bool {
+	return en != nil && (en == a.Prog.EnumTargetOs || en == a.Prog.EnumTargetArch || en == a.Prog.EnumEndian || en == a.Prog.EnumTypeKind)
+}
+
+func (a *Analyzer) isCompBuiltinStruct(st *types.Struct) bool {
+	return st != nil && (st == a.Prog.StructTarget || st == a.Prog.StructAttrInfo || st == a.Prog.StructFieldInfo || st == a.Prog.StructVariantInfo || st == a.Prog.StructElemInfo)
+}
+
 func (a *Analyzer) supportsEq(t types.Type) bool {
 	if t == nil || t == types.TypeInvalid {
 		return false
 	}
 	switch v := t.(type) {
-	case *types.Optional:
-		return a.supportsEq(v.Elem)
-	case *types.Tuple:
-		for _, el := range v.Elems {
-			if !a.supportsEq(el) {
-				return false
-			}
+	case *types.Optional, *types.Tuple:
+		if a.LookupMethod(t, "eq", nil, diag.Span{}) != nil {
+			return true
 		}
-		return true
+		return a.LookupMethod(t, "cmp", nil, diag.Span{}) != nil
 	case *types.Distinct:
 		if a.LookupMethod(t, "eq", nil, diag.Span{}) != nil || a.LookupMethod(t, "cmp", nil, diag.Span{}) != nil {
 			return true
@@ -4343,10 +4804,10 @@ func (a *Analyzer) supportsEq(t types.Type) bool {
 	if types.SupportsEq(t) {
 		return true
 	}
-	if en, ok := t.(*types.Enum); ok && !en.IsTagged && (en == a.Prog.EnumTargetOs || en == a.Prog.EnumTargetArch || en == a.Prog.EnumEndian) {
+	if en, ok := t.(*types.Enum); ok && !en.IsTagged && a.isCompBuiltinEnum(en) {
 		return true
 	}
-	if st, ok := t.(*types.Struct); ok && st == a.Prog.StructTarget {
+	if st, ok := t.(*types.Struct); ok && a.isCompBuiltinStruct(st) {
 		return true
 	}
 	if a.LookupMethod(t, "eq", nil, diag.Span{}) != nil {
@@ -4372,19 +4833,14 @@ func (a *Analyzer) supportsCmp(t types.Type) bool {
 	if p := types.UnderlyingPrimitive(t); p != nil {
 		return p.IsNumeric() || p.Kind == types.PrimChar || p.Kind == types.PrimString
 	}
+	if en, ok := t.(*types.Enum); ok && !en.IsTagged && a.isCompBuiltinEnum(en) {
+		return true
+	}
 	if a.LookupMethod(t, "cmp", nil, diag.Span{}) != nil {
 		return true
 	}
 	if d, isDist := t.(*types.Distinct); isDist {
 		return a.supportsCmp(d.Base)
-	}
-	if tup, isTup := t.(*types.Tuple); isTup {
-		for _, el := range tup.Elems {
-			if !a.supportsCmp(el) {
-				return false
-			}
-		}
-		return true
 	}
 	if tp, isTP := t.(*types.TypeParamVar); isTP {
 		for _, b := range tp.Bounds {
@@ -4394,6 +4850,22 @@ func (a *Analyzer) supportsCmp(t types.Type) bool {
 		}
 	}
 	return false
+}
+
+func (a *Analyzer) supportsHash(t types.Type) bool {
+	if t == nil || t == types.TypeInvalid {
+		return false
+	}
+	switch v := t.(type) {
+	case *types.Tuple:
+		return a.LookupMethod(t, "hash", nil, diag.Span{}) != nil
+	case *types.Distinct:
+		if a.LookupMethod(t, "hash", nil, diag.Span{}) != nil {
+			return true
+		}
+		return a.supportsHash(v.Base)
+	}
+	return types.IsHashable(t) || a.LookupMethod(t, "hash", nil, diag.Span{}) != nil
 }
 
 // cRepresentable reports whether values of `t` can cross into C unchanged: numbers, `bool`,

@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>set.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>set.ll</h1><p>Source of package <a href="../core.html"><code>std/core</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/core/set — Open-addressed hash set ([`Set`]) backed by linear probing.</span></span>
+<span class="src-line" id="L2"><span class="m">//</span></span>
+<span class="src-line" id="L3"><span class="m">// Requires element types implementing [`Hashable`] (and [`Equatable`] / [`Copyable`] for</span></span>
+<span class="src-line" id="L4"><span class="m">// containment and iteration). Backed by `#[T]` type and literal syntax.</span></span>
+<span class="src-line" id="L5"></span>
+<span class="src-line" id="L6"></span>
+<span class="src-line" id="L7"><span class="m">// Internal entry slot stored in a [`Set`]&#39;s entry table.</span></span>
+<span class="src-line" id="L8"><span class="k">define</span> <span class="t">SetEntry</span>[<span class="t">T</span>: <span class="t">Hashable</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L9">	<span class="m">// Whether this slot holds a live element (`false` when removed tombstone).</span></span>
+<span class="src-line" id="L10">	alive: <span class="t">bool</span>,</span>
+<span class="src-line" id="L11">	<span class="m">// Cached 64-bit hash digest of `key`.</span></span>
+<span class="src-line" id="L12">	hash: <span class="t">u64</span>,</span>
+<span class="src-line" id="L13">	<span class="m">// Stored element key when `alive` is `true`.</span></span>
+<span class="src-line" id="L14">	key: <span class="t">T</span>,</span>
+<span class="src-line" id="L15">]</span>
+<span class="src-line" id="L16"></span>
+<span class="src-line" id="L17"><span class="m">// Dynamic open-addressed hash set of unique elements of type [`T`].</span></span>
+<span class="src-line" id="L18"><span class="m">//</span></span>
+<span class="src-line" id="L19"><span class="m">// Backed by set type syntax `#[T]` and literals (`#[1, 2, 3]`). Implements</span></span>
+<span class="src-line" id="L20"><span class="m">// [`Containable`], [`Collectable`], [`Iterable`], [`Copyable`], [`Printable`], and [`Drop`].</span></span>
+<span class="src-line" id="L21"><span class="m">//</span></span>
+<span class="src-line" id="L22"><span class="m">// # Example</span></span>
+<span class="src-line" id="L23"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L24"><span class="m">// let seen = #[ &quot;alpha&quot;, &quot;beta&quot; ]</span></span>
+<span class="src-line" id="L25"><span class="m">// assert(seen.insert(&quot;gamma&quot;))</span></span>
+<span class="src-line" id="L26"><span class="m">// assert(seen.contains(&quot;alpha&quot;))</span></span>
+<span class="src-line" id="L27"><span class="m">// ```</span></span>
+<span class="src-line" id="L28"><span class="a">@lang</span>(<span class="s">&quot;set&quot;</span>)</span>
+<span class="src-line" id="L29"><span class="k">define</span> <span class="t">Set</span>[<span class="t">T</span>: <span class="t">Hashable</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L30">	<span class="m">// Bucket index table mapping hashes to entry indices (`-1` empty, `-2` tombstone).</span></span>
+<span class="src-line" id="L31">	buckets: <span class="t">ptr</span>[<span class="t">int</span>],</span>
+<span class="src-line" id="L32">	<span class="m">// Allocated bucket table size (power of two).</span></span>
+<span class="src-line" id="L33">	buck_cap: <span class="t">int</span>,</span>
+<span class="src-line" id="L34">	<span class="m">// Dense entry array holding element keys and cached hashes.</span></span>
+<span class="src-line" id="L35">	entries: <span class="t">ptr</span>[<span class="t">SetEntry</span>[<span class="t">T</span>]],</span>
+<span class="src-line" id="L36">	<span class="m">// Allocated capacity of `entries`.</span></span>
+<span class="src-line" id="L37">	ent_cap: <span class="t">int</span>,</span>
+<span class="src-line" id="L38">	<span class="m">// High-water mark of used/tombstoned slots in `entries`.</span></span>
+<span class="src-line" id="L39">	ent_len: <span class="t">int</span>,</span>
+<span class="src-line" id="L40">	<span class="m">// Number of live elements in the set.</span></span>
+<span class="src-line" id="L41">	len: <span class="t">int</span>,</span>
+<span class="src-line" id="L42">]</span>
+<span class="src-line" id="L43"></span>
+<span class="src-line" id="L44"><span class="m">// Constructs an empty [`Set`] with zero heap allocation.</span></span>
+<span class="src-line" id="L45"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].new = () <span class="t">Set</span>[<span class="t">T</span>]:</span>
+<span class="src-line" id="L46">	<span class="t">Set</span>[<span class="t">T</span>][</span>
+<span class="src-line" id="L47">		buckets: <span class="k">unsafe</span> null_ptr[<span class="t">int</span>](),</span>
+<span class="src-line" id="L48">		buck_cap: <span class="n">0</span>,</span>
+<span class="src-line" id="L49">		entries: <span class="k">unsafe</span> null_ptr[<span class="t">SetEntry</span>[<span class="t">T</span>]](),</span>
+<span class="src-line" id="L50">		ent_cap: <span class="n">0</span>,</span>
+<span class="src-line" id="L51">		ent_len: <span class="n">0</span>,</span>
+<span class="src-line" id="L52">		len: <span class="n">0</span>,</span>
+<span class="src-line" id="L53">	]</span>
+<span class="src-line" id="L54"></span>
+<span class="src-line" id="L55"><span class="m">// Constructs an empty [`Set`] pre-sized for at least `cap` distinct elements.</span></span>
+<span class="src-line" id="L56"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].with_capacity = (cap: <span class="t">int</span>) <span class="t">Set</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L57">	<span class="k">if</span>(cap &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">Set</span>[<span class="t">T</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L58">	<span class="k">let</span> bcap = <span class="n">8</span></span>
+<span class="src-line" id="L59">	<span class="k">for</span>(bcap &lt; cap * <span class="n">2</span>): bcap *= <span class="n">2</span></span>
+<span class="src-line" id="L60">	<span class="k">let</span> b = <span class="k">unsafe</span> alloc_raw[<span class="t">int</span>](bcap)</span>
+<span class="src-line" id="L61">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L62">	<span class="k">for</span>(i &lt; bcap): {</span>
+<span class="src-line" id="L63">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L64">			b[i] = -<span class="n">1</span></span>
+<span class="src-line" id="L65">		}</span>
+<span class="src-line" id="L66">		i += <span class="n">1</span></span>
+<span class="src-line" id="L67">	}</span>
+<span class="src-line" id="L68">	<span class="k">let</span> e = <span class="k">unsafe</span> alloc_raw[<span class="t">SetEntry</span>[<span class="t">T</span>]](cap)</span>
+<span class="src-line" id="L69">	<span class="t">Set</span>[<span class="t">T</span>][</span>
+<span class="src-line" id="L70">		buckets: b,</span>
+<span class="src-line" id="L71">		buck_cap: bcap,</span>
+<span class="src-line" id="L72">		entries: e,</span>
+<span class="src-line" id="L73">		ent_cap: cap,</span>
+<span class="src-line" id="L74">		ent_len: <span class="n">0</span>,</span>
+<span class="src-line" id="L75">		len: <span class="n">0</span>,</span>
+<span class="src-line" id="L76">	]</span>
+<span class="src-line" id="L77">}</span>
+<span class="src-line" id="L78"></span>
+<span class="src-line" id="L79"><span class="m">// Returns the number of live elements currently in the set.</span></span>
+<span class="src-line" id="L80"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].len = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>.len</span>
+<span class="src-line" id="L81"></span>
+<span class="src-line" id="L82"><span class="m">// Reports whether the set contains zero elements.</span></span>
+<span class="src-line" id="L83"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].is_empty = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>.len == <span class="n">0</span></span>
+<span class="src-line" id="L84"></span>
+<span class="src-line" id="L85"><span class="m">// Internal probe lookup returning the entry index of `needle` with hash `h`, or `-1`.</span></span>
+<span class="src-line" id="L86"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].find_entry = (<span class="k">self</span>, needle: <span class="t">T</span>, h: <span class="t">u64</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L87">	<span class="k">if</span>(<span class="k">self</span>.buck_cap == <span class="n">0</span> <span class="k">or</span> <span class="k">unsafe</span> <span class="f">is_null</span>(<span class="k">self</span>.buckets)): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="n">1</span></span>
+<span class="src-line" id="L88">	<span class="k">let</span> mask = <span class="k">self</span>.buck_cap - <span class="n">1</span></span>
+<span class="src-line" id="L89">	<span class="k">let</span> slot = <span class="t">int</span>(h &amp; <span class="t">u64</span>(mask))</span>
+<span class="src-line" id="L90">	<span class="k">for</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L91">		<span class="k">let</span> idx = <span class="k">unsafe</span> <span class="k">self</span>.buckets[slot]</span>
+<span class="src-line" id="L92">		<span class="k">if</span>(idx == -<span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="n">1</span></span>
+<span class="src-line" id="L93">		<span class="k">if</span>(idx &gt;= <span class="n">0</span>):</span>
+<span class="src-line" id="L94">			<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L95">				<span class="k">if</span>(<span class="k">self</span>.entries[idx].alive <span class="k">and</span> <span class="k">self</span>.entries[idx].hash == h <span class="k">and</span> <span class="k">self</span>.entries[idx].key == needle):</span>
+<span class="src-line" id="L96">					<span class="k">func</span> <span class="u">&lt;-</span> idx</span>
+<span class="src-line" id="L97">			}</span>
+<span class="src-line" id="L98">		slot = slot + <span class="n">1</span> &amp; mask</span>
+<span class="src-line" id="L99">	}</span>
+<span class="src-line" id="L100">	-<span class="n">1</span></span>
+<span class="src-line" id="L101">}</span>
+<span class="src-line" id="L102"></span>
+<span class="src-line" id="L103"><span class="m">// Reports whether `val` is present in the set.</span></span>
+<span class="src-line" id="L104"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].has = (<span class="k">self</span>, val: <span class="t">T</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L105">	<span class="k">let</span> h = val.<span class="f">hash</span>()</span>
+<span class="src-line" id="L106">	<span class="k">self</span>.<span class="f">find_entry</span>(val, h) &gt;= <span class="n">0</span></span>
+<span class="src-line" id="L107">}</span>
+<span class="src-line" id="L108"></span>
+<span class="src-line" id="L109"><span class="m">// Reports whether `val` is present in the set (satisfies [`Containable`]).</span></span>
+<span class="src-line" id="L110"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].contains = (<span class="k">self</span>, val: <span class="t">T</span>) <span class="t">bool</span>: <span class="k">self</span>.<span class="f">has</span>(val)</span>
+<span class="src-line" id="L111"></span>
+<span class="src-line" id="L112"><span class="m">// Internal helper that compacts tombstoned entries and rebuilds the hash bucket table at `new_bcap`.</span></span>
+<span class="src-line" id="L113"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].rehash = (&amp;<span class="k">self</span>, new_bcap: <span class="t">int</span>): {</span>
+<span class="src-line" id="L114">	<span class="k">if</span>(<span class="k">self</span>.len &lt; <span class="k">self</span>.ent_len): {</span>
+<span class="src-line" id="L115">		<span class="k">let</span> w = <span class="n">0</span></span>
+<span class="src-line" id="L116">		<span class="k">let</span> r = <span class="n">0</span></span>
+<span class="src-line" id="L117">		<span class="k">for</span>(r &lt; <span class="k">self</span>.ent_len): {</span>
+<span class="src-line" id="L118">			<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L119">				<span class="k">if</span>(<span class="k">self</span>.entries[r].alive): {</span>
+<span class="src-line" id="L120">					<span class="k">if</span>(w != r):</span>
+<span class="src-line" id="L121">						<span class="f">copy_bytes</span>(</span>
+<span class="src-line" id="L122">							ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.entries, w)),</span>
+<span class="src-line" id="L123">							ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.entries, r)),</span>
+<span class="src-line" id="L124">							size_of[<span class="t">SetEntry</span>[<span class="t">T</span>]](),</span>
+<span class="src-line" id="L125">						)</span>
+<span class="src-line" id="L126">					w += <span class="n">1</span></span>
+<span class="src-line" id="L127">				}</span>
+<span class="src-line" id="L128">			}</span>
+<span class="src-line" id="L129">			r += <span class="n">1</span></span>
+<span class="src-line" id="L130">		}</span>
+<span class="src-line" id="L131">		<span class="k">if</span>(w &lt; <span class="k">self</span>.ent_len): {</span>
+<span class="src-line" id="L132">			<span class="k">unsafe</span> <span class="f">zero_bytes</span>(</span>
+<span class="src-line" id="L133">				ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.entries, w)),</span>
+<span class="src-line" id="L134">				(<span class="k">self</span>.ent_len - w) * size_of[<span class="t">SetEntry</span>[<span class="t">T</span>]](),</span>
+<span class="src-line" id="L135">			)</span>
+<span class="src-line" id="L136">		}</span>
+<span class="src-line" id="L137">		<span class="k">self</span>.ent_len = w</span>
+<span class="src-line" id="L138">	}</span>
+<span class="src-line" id="L139">	<span class="k">let</span> in_place = new_bcap == <span class="k">self</span>.buck_cap <span class="k">and</span> <span class="k">not</span> <span class="k">unsafe</span> <span class="f">is_null</span>(<span class="k">self</span>.buckets)</span>
+<span class="src-line" id="L140">	<span class="k">let</span> nb = <span class="k">if</span>(in_place): <span class="k">self</span>.buckets <span class="k">else</span>: <span class="k">unsafe</span> alloc_raw[<span class="t">int</span>](new_bcap)</span>
+<span class="src-line" id="L141">	<span class="k">let</span> bi = <span class="n">0</span></span>
+<span class="src-line" id="L142">	<span class="k">for</span>(bi &lt; new_bcap): {</span>
+<span class="src-line" id="L143">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L144">			nb[bi] = -<span class="n">1</span></span>
+<span class="src-line" id="L145">		}</span>
+<span class="src-line" id="L146">		bi += <span class="n">1</span></span>
+<span class="src-line" id="L147">	}</span>
+<span class="src-line" id="L148">	<span class="k">let</span> mask = new_bcap - <span class="n">1</span></span>
+<span class="src-line" id="L149">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L150">	<span class="k">for</span>(i &lt; <span class="k">self</span>.ent_len): {</span>
+<span class="src-line" id="L151">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L152">			<span class="k">if</span>(<span class="k">self</span>.entries[i].alive): {</span>
+<span class="src-line" id="L153">				<span class="k">let</span> slot = <span class="t">int</span>(<span class="k">self</span>.entries[i].hash &amp; <span class="t">u64</span>(mask))</span>
+<span class="src-line" id="L154">				<span class="k">for</span>(nb[slot] &gt;= <span class="n">0</span>): slot = slot + <span class="n">1</span> &amp; mask</span>
+<span class="src-line" id="L155">				nb[slot] = i</span>
+<span class="src-line" id="L156">			}</span>
+<span class="src-line" id="L157">		}</span>
+<span class="src-line" id="L158">		i += <span class="n">1</span></span>
+<span class="src-line" id="L159">	}</span>
+<span class="src-line" id="L160">	<span class="k">if</span>(<span class="k">not</span> in_place): {</span>
+<span class="src-line" id="L161">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L162">			<span class="k">if</span>(<span class="k">not</span> <span class="f">is_null</span>(<span class="k">self</span>.buckets)): <span class="f">free_raw</span>(<span class="k">self</span>.buckets)</span>
+<span class="src-line" id="L163">		}</span>
+<span class="src-line" id="L164">		<span class="k">self</span>.buckets = nb</span>
+<span class="src-line" id="L165">		<span class="k">self</span>.buck_cap = new_bcap</span>
+<span class="src-line" id="L166">	}</span>
+<span class="src-line" id="L167">}</span>
+<span class="src-line" id="L168"></span>
+<span class="src-line" id="L169"><span class="m">// Inserts `val` if absent and returns `true`, or leaves the set unchanged and returns `false`.</span></span>
+<span class="src-line" id="L170"><span class="m">//</span></span>
+<span class="src-line" id="L171"><span class="m">// # Ownership</span></span>
+<span class="src-line" id="L172"><span class="m">// Consumes `val` into the set&#39;s entry storage.</span></span>
+<span class="src-line" id="L173"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].insert = (&amp;<span class="k">self</span>, val: <span class="k">own</span> <span class="t">T</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L174">	<span class="k">let</span> h = val.<span class="f">hash</span>()</span>
+<span class="src-line" id="L175">	<span class="k">let</span> existing = <span class="k">self</span>.<span class="f">find_entry</span>(val, h)</span>
+<span class="src-line" id="L176">	<span class="k">if</span>(existing &gt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L177"></span>
+<span class="src-line" id="L178">	<span class="k">if</span>(<span class="k">self</span>.buck_cap == <span class="n">0</span> <span class="k">or</span> (<span class="k">self</span>.ent_len + <span class="n">1</span>) * <span class="n">10</span> &gt;= <span class="k">self</span>.buck_cap * <span class="n">7</span>): {</span>
+<span class="src-line" id="L179">		<span class="k">let</span> target_bcap = <span class="k">if</span>(<span class="k">self</span>.buck_cap == <span class="n">0</span>): <span class="n">16</span> <span class="k">else</span>: {</span>
+<span class="src-line" id="L180">			<span class="k">if</span>(<span class="k">self</span>.len * <span class="n">2</span> &gt;= <span class="k">self</span>.buck_cap): <span class="k">self</span>.buck_cap * <span class="n">2</span> <span class="k">else</span>: <span class="k">self</span>.buck_cap</span>
+<span class="src-line" id="L181">		}</span>
+<span class="src-line" id="L182">		<span class="k">self</span>.<span class="f">rehash</span>(target_bcap)</span>
+<span class="src-line" id="L183">	}</span>
+<span class="src-line" id="L184">	<span class="k">if</span>(<span class="k">self</span>.ent_len + <span class="n">1</span> &gt; <span class="k">self</span>.ent_cap): {</span>
+<span class="src-line" id="L185">		<span class="k">let</span> old_cap = <span class="k">self</span>.ent_cap</span>
+<span class="src-line" id="L186">		<span class="k">let</span> ncap = <span class="k">if</span>(old_cap &gt; <span class="n">0</span>): old_cap * <span class="n">2</span> <span class="k">else</span>: <span class="n">8</span></span>
+<span class="src-line" id="L187">		<span class="k">let</span> ne = <span class="k">unsafe</span> {</span>
+<span class="src-line" id="L188">			<span class="k">if</span>(old_cap == <span class="n">0</span>): {</span>
+<span class="src-line" id="L189">				alloc_raw[<span class="t">SetEntry</span>[<span class="t">T</span>]](ncap)</span>
+<span class="src-line" id="L190">			} <span class="k">else</span>: {</span>
+<span class="src-line" id="L191">				<span class="k">let</span> p = <span class="f">realloc_raw</span>(<span class="k">self</span>.entries, ncap)</span>
+<span class="src-line" id="L192">				<span class="f">zero_bytes</span>(</span>
+<span class="src-line" id="L193">					ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(p, old_cap)),</span>
+<span class="src-line" id="L194">					(ncap - old_cap) * size_of[<span class="t">SetEntry</span>[<span class="t">T</span>]](),</span>
+<span class="src-line" id="L195">				)</span>
+<span class="src-line" id="L196">				p</span>
+<span class="src-line" id="L197">			}</span>
+<span class="src-line" id="L198">		}</span>
+<span class="src-line" id="L199">		<span class="k">self</span>.entries = ne</span>
+<span class="src-line" id="L200">		<span class="k">self</span>.ent_cap = ncap</span>
+<span class="src-line" id="L201">	}</span>
+<span class="src-line" id="L202">	<span class="k">let</span> idx = <span class="k">self</span>.ent_len</span>
+<span class="src-line" id="L203">	<span class="k">self</span>.ent_len += <span class="n">1</span></span>
+<span class="src-line" id="L204">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L205">		<span class="f">zero_bytes</span>(ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.entries, idx)), size_of[<span class="t">SetEntry</span>[<span class="t">T</span>]]())</span>
+<span class="src-line" id="L206">		<span class="k">self</span>.entries[idx].alive = <span class="c">true</span></span>
+<span class="src-line" id="L207">		<span class="k">self</span>.entries[idx].hash = h</span>
+<span class="src-line" id="L208">		<span class="k">self</span>.entries[idx].key = <span class="k">own</span> val</span>
+<span class="src-line" id="L209">	}</span>
+<span class="src-line" id="L210">	<span class="k">let</span> mask = <span class="k">self</span>.buck_cap - <span class="n">1</span></span>
+<span class="src-line" id="L211">	<span class="k">let</span> slot = <span class="t">int</span>(h &amp; <span class="t">u64</span>(mask))</span>
+<span class="src-line" id="L212">	<span class="k">for</span>(<span class="k">unsafe</span> <span class="k">self</span>.buckets[slot] &gt;= <span class="n">0</span>): slot = slot + <span class="n">1</span> &amp; mask</span>
+<span class="src-line" id="L213">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L214">		<span class="k">self</span>.buckets[slot] = idx</span>
+<span class="src-line" id="L215">	}</span>
+<span class="src-line" id="L216">	<span class="k">self</span>.len += <span class="n">1</span></span>
+<span class="src-line" id="L217">	<span class="c">true</span></span>
+<span class="src-line" id="L218">}</span>
+<span class="src-line" id="L219"></span>
+<span class="src-line" id="L220"><span class="m">// Inserts `item` into the set (satisfies [`Collectable`] for set comprehensions).</span></span>
+<span class="src-line" id="L221"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].push = (&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>): {</span>
+<span class="src-line" id="L222">	<span class="k">let</span> _ = <span class="k">self</span>.<span class="f">insert</span>(<span class="k">own</span> item)</span>
+<span class="src-line" id="L223">}</span>
+<span class="src-line" id="L224"></span>
+<span class="src-line" id="L225"><span class="m">// Removes and drops `val` if present, returning `true`, or returns `false` if absent.</span></span>
+<span class="src-line" id="L226"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].remove = (&amp;<span class="k">self</span>, val: <span class="t">T</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L227">	<span class="k">if</span>(<span class="k">self</span>.buck_cap == <span class="n">0</span> <span class="k">or</span> <span class="k">unsafe</span> <span class="f">is_null</span>(<span class="k">self</span>.buckets)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L228">	<span class="k">let</span> h = val.<span class="f">hash</span>()</span>
+<span class="src-line" id="L229">	<span class="k">let</span> mask = <span class="k">self</span>.buck_cap - <span class="n">1</span></span>
+<span class="src-line" id="L230">	<span class="k">let</span> slot = <span class="t">int</span>(h &amp; <span class="t">u64</span>(mask))</span>
+<span class="src-line" id="L231">	<span class="k">for</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L232">		<span class="k">let</span> idx = <span class="k">unsafe</span> <span class="k">self</span>.buckets[slot]</span>
+<span class="src-line" id="L233">		<span class="k">if</span>(idx == -<span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L234">		<span class="k">if</span>(idx &gt;= <span class="n">0</span>):</span>
+<span class="src-line" id="L235">			<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L236">				<span class="k">if</span>(<span class="k">self</span>.entries[idx].alive <span class="k">and</span> <span class="k">self</span>.entries[idx].hash == h <span class="k">and</span> <span class="k">self</span>.entries[idx].key == val): {</span>
+<span class="src-line" id="L237">					<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.entries, idx))</span>
+<span class="src-line" id="L238">					<span class="f">zero_bytes</span>(ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.entries, idx)), size_of[<span class="t">SetEntry</span>[<span class="t">T</span>]]())</span>
+<span class="src-line" id="L239">					<span class="k">self</span>.buckets[slot] = -<span class="n">2</span></span>
+<span class="src-line" id="L240">					<span class="k">self</span>.len -= <span class="n">1</span></span>
+<span class="src-line" id="L241">					<span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
+<span class="src-line" id="L242">				}</span>
+<span class="src-line" id="L243">			}</span>
+<span class="src-line" id="L244">		slot = slot + <span class="n">1</span> &amp; mask</span>
+<span class="src-line" id="L245">	}</span>
+<span class="src-line" id="L246">	<span class="c">false</span></span>
+<span class="src-line" id="L247">}</span>
+<span class="src-line" id="L248"></span>
+<span class="src-line" id="L249"><span class="m">// Drops all stored elements and resets the set to empty while retaining allocated capacity.</span></span>
+<span class="src-line" id="L250"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].clear = (&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L251">	<span class="k">if</span>(<span class="k">not</span> <span class="k">unsafe</span> <span class="f">is_null</span>(<span class="k">self</span>.entries)): {</span>
+<span class="src-line" id="L252">		<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L253">		<span class="k">for</span>(i &lt; <span class="k">self</span>.ent_len): {</span>
+<span class="src-line" id="L254">			<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L255">				<span class="k">if</span>(<span class="k">self</span>.entries[i].alive): {</span>
+<span class="src-line" id="L256">					<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.entries, i))</span>
+<span class="src-line" id="L257">				}</span>
+<span class="src-line" id="L258">				<span class="f">zero_bytes</span>(ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.entries, i)), size_of[<span class="t">SetEntry</span>[<span class="t">T</span>]]())</span>
+<span class="src-line" id="L259">			}</span>
+<span class="src-line" id="L260">			i += <span class="n">1</span></span>
+<span class="src-line" id="L261">		}</span>
+<span class="src-line" id="L262">	}</span>
+<span class="src-line" id="L263">	<span class="k">if</span>(<span class="k">self</span>.buck_cap &gt; <span class="n">0</span> <span class="k">and</span> <span class="k">unsafe</span> <span class="k">not</span> <span class="f">is_null</span>(<span class="k">self</span>.buckets)): {</span>
+<span class="src-line" id="L264">		<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L265">		<span class="k">for</span>(i &lt; <span class="k">self</span>.buck_cap): {</span>
+<span class="src-line" id="L266">			<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L267">				<span class="k">self</span>.buckets[i] = -<span class="n">1</span></span>
+<span class="src-line" id="L268">			}</span>
+<span class="src-line" id="L269">			i += <span class="n">1</span></span>
+<span class="src-line" id="L270">		}</span>
+<span class="src-line" id="L271">	}</span>
+<span class="src-line" id="L272">	<span class="k">self</span>.ent_len = <span class="n">0</span></span>
+<span class="src-line" id="L273">	<span class="k">self</span>.len = <span class="n">0</span></span>
+<span class="src-line" id="L274">}</span>
+<span class="src-line" id="L275"></span>
+<span class="src-line" id="L276"><span class="m">// Collects copies of all live elements into a new [`List`] in insertion order.</span></span>
+<span class="src-line" id="L277"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].to_list = (<span class="k">self</span>) <span class="t">List</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L278">	<span class="k">let</span> out = <span class="t">List</span>[<span class="t">T</span>].<span class="f">with_capacity</span>(<span class="k">self</span>.len)</span>
+<span class="src-line" id="L279">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L280">	<span class="k">for</span>(i &lt; <span class="k">self</span>.ent_len): {</span>
+<span class="src-line" id="L281">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L282">			<span class="k">if</span>(<span class="k">self</span>.entries[i].alive): out.<span class="f">push</span>(<span class="k">self</span>.entries[i].key.<span class="f">copy</span>())</span>
+<span class="src-line" id="L283">		}</span>
+<span class="src-line" id="L284">		i += <span class="n">1</span></span>
+<span class="src-line" id="L285">	}</span>
+<span class="src-line" id="L286">	out</span>
+<span class="src-line" id="L287">}</span>
+<span class="src-line" id="L288"></span>
+<span class="src-line" id="L289"><span class="m">// Returns a deep copy of the set containing copies of every live element.</span></span>
+<span class="src-line" id="L290"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].copy = (<span class="k">self</span>) <span class="t">Set</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L291">	<span class="k">let</span> out = <span class="t">Set</span>[<span class="t">T</span>].<span class="f">with_capacity</span>(<span class="k">self</span>.len)</span>
+<span class="src-line" id="L292">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L293">	<span class="k">for</span>(i &lt; <span class="k">self</span>.ent_len): {</span>
+<span class="src-line" id="L294">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L295">			<span class="k">if</span>(<span class="k">self</span>.entries[i].alive): out.<span class="f">insert</span>(<span class="k">self</span>.entries[i].key.<span class="f">copy</span>())</span>
+<span class="src-line" id="L296">		}</span>
+<span class="src-line" id="L297">		i += <span class="n">1</span></span>
+<span class="src-line" id="L298">	}</span>
+<span class="src-line" id="L299">	out</span>
+<span class="src-line" id="L300">}</span>
+<span class="src-line" id="L301"></span>
+<span class="src-line" id="L302"><span class="m">// Formats the set as `&quot;#[a, b, ...]&quot;`.</span></span>
+<span class="src-line" id="L303"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].to_string = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L304">	<span class="k">let</span> out = <span class="s">&quot;#[&quot;</span></span>
+<span class="src-line" id="L305">	<span class="k">let</span> first = <span class="c">true</span></span>
+<span class="src-line" id="L306">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L307">	<span class="k">for</span>(i &lt; <span class="k">self</span>.ent_len): {</span>
+<span class="src-line" id="L308">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L309">			<span class="k">if</span>(<span class="k">self</span>.entries[i].alive): {</span>
+<span class="src-line" id="L310">				<span class="k">if</span>(<span class="k">not</span> first): out.<span class="f">push</span>(<span class="s">&quot;, &quot;</span>)</span>
+<span class="src-line" id="L311">				out.<span class="f">push</span>(<span class="k">self</span>.entries[i].key.<span class="f">to_string</span>())</span>
+<span class="src-line" id="L312">				first = <span class="c">false</span></span>
+<span class="src-line" id="L313">			}</span>
+<span class="src-line" id="L314">		}</span>
+<span class="src-line" id="L315">		i += <span class="n">1</span></span>
+<span class="src-line" id="L316">	}</span>
+<span class="src-line" id="L317">	out.<span class="f">push</span>(<span class="s">&quot;]&quot;</span>)</span>
+<span class="src-line" id="L318">	out</span>
+<span class="src-line" id="L319">}</span>
+<span class="src-line" id="L320"></span>
+<span class="src-line" id="L321"><span class="m">// Stateful forward iterator yielding copies of live elements from a [`Set`].</span></span>
+<span class="src-line" id="L322"><span class="k">define</span> <span class="t">SetIterator</span>[<span class="t">T</span>: <span class="t">Hashable</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L323">	<span class="m">// Pointer to the backing set entry array.</span></span>
+<span class="src-line" id="L324">	entries: <span class="t">ptr</span>[<span class="t">SetEntry</span>[<span class="t">T</span>]],</span>
+<span class="src-line" id="L325">	<span class="m">// Number of entry slots to scan.</span></span>
+<span class="src-line" id="L326">	ent_len: <span class="t">int</span>,</span>
+<span class="src-line" id="L327">	<span class="m">// Next slot index to check.</span></span>
+<span class="src-line" id="L328">	idx: <span class="t">int</span>,</span>
+<span class="src-line" id="L329">]</span>
+<span class="src-line" id="L330"></span>
+<span class="src-line" id="L331"><span class="m">// Advances the iterator and returns a copy of the next live element, or `none` when finished.</span></span>
+<span class="src-line" id="L332"><span class="k">bind</span> <span class="t">SetIterator</span>[<span class="t">T</span>].next = (&amp;<span class="k">self</span>) ?<span class="t">T</span>: {</span>
+<span class="src-line" id="L333">	<span class="k">for</span>(<span class="k">self</span>.idx &lt; <span class="k">self</span>.ent_len): {</span>
+<span class="src-line" id="L334">		<span class="k">let</span> i = <span class="k">self</span>.idx</span>
+<span class="src-line" id="L335">		<span class="k">self</span>.idx += <span class="n">1</span></span>
+<span class="src-line" id="L336">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L337">			<span class="k">if</span>(<span class="k">self</span>.entries[i].alive): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.entries[i].key.<span class="f">copy</span>()</span>
+<span class="src-line" id="L338">		}</span>
+<span class="src-line" id="L339">	}</span>
+<span class="src-line" id="L340">	<span class="c">none</span></span>
+<span class="src-line" id="L341">}</span>
+<span class="src-line" id="L342"></span>
+<span class="src-line" id="L343"><span class="m">// Returns a forward [`Iterator`] yielding copies of all live elements in the set.</span></span>
+<span class="src-line" id="L344"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].iter = (<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">T</span>]:</span>
+<span class="src-line" id="L345">	<span class="t">SetIterator</span>[<span class="t">T</span>][</span>
+<span class="src-line" id="L346">		entries: <span class="k">self</span>.entries,</span>
+<span class="src-line" id="L347">		ent_len: <span class="k">self</span>.ent_len,</span>
+<span class="src-line" id="L348">		idx: <span class="n">0</span>,</span>
+<span class="src-line" id="L349">	]</span>
+<span class="src-line" id="L350"></span>
+<span class="src-line" id="L351"><span class="m">// Drops all remaining live elements and frees the entry and bucket tables.</span></span>
+<span class="src-line" id="L352"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].drop = (&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L353">	<span class="k">if</span>(<span class="k">not</span> <span class="k">unsafe</span> <span class="f">is_null</span>(<span class="k">self</span>.entries)): {</span>
+<span class="src-line" id="L354">		<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L355">		<span class="k">for</span>(i &lt; <span class="k">self</span>.ent_len): {</span>
+<span class="src-line" id="L356">			<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L357">				<span class="k">if</span>(<span class="k">self</span>.entries[i].alive): {</span>
+<span class="src-line" id="L358">					<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.entries, i))</span>
+<span class="src-line" id="L359">				}</span>
+<span class="src-line" id="L360">			}</span>
+<span class="src-line" id="L361">			i += <span class="n">1</span></span>
+<span class="src-line" id="L362">		}</span>
+<span class="src-line" id="L363">		<span class="k">unsafe</span> <span class="f">free_raw</span>(<span class="k">self</span>.entries)</span>
+<span class="src-line" id="L364">	}</span>
+<span class="src-line" id="L365">	<span class="k">if</span>(<span class="k">not</span> <span class="k">unsafe</span> <span class="f">is_null</span>(<span class="k">self</span>.buckets)): <span class="k">unsafe</span> <span class="f">free_raw</span>(<span class="k">self</span>.buckets)</span>
+<span class="src-line" id="L366">	<span class="k">self</span>.entries = <span class="k">unsafe</span> null_ptr[<span class="t">SetEntry</span>[<span class="t">T</span>]]()</span>
+<span class="src-line" id="L367">	<span class="k">self</span>.buckets = <span class="k">unsafe</span> null_ptr[<span class="t">int</span>]()</span>
+<span class="src-line" id="L368">	<span class="k">self</span>.buck_cap = <span class="n">0</span></span>
+<span class="src-line" id="L369">	<span class="k">self</span>.ent_cap = <span class="n">0</span></span>
+<span class="src-line" id="L370">	<span class="k">self</span>.ent_len = <span class="n">0</span></span>
+<span class="src-line" id="L371">	<span class="k">self</span>.len = <span class="n">0</span></span>
+<span class="src-line" id="L372">}</span>
+<span class="src-line" id="L373"></span>
+<span class="src-line" id="L374"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L375"><span class="m">// Inline Unit Tests</span></span>
+<span class="src-line" id="L376"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L377"></span>
+<span class="src-line" id="L378"><span class="a">@test</span>(<span class="s">&quot;Set[T] realloc_raw growth, compaction, and clear with Resource elements&quot;</span>)</span>
+<span class="src-line" id="L379"><span class="k">bind</span> test_set_realloc_and_slot_zeroing = (): {</span>
+<span class="src-line" id="L380">	<span class="m">// Churn dirty heap blocks filled with 0xFF before Set grows via realloc_raw.</span></span>
+<span class="src-line" id="L381">	<span class="k">for</span>(c <span class="k">in</span> <span class="n">0</span>..<span class="n">8</span>): {</span>
+<span class="src-line" id="L382">		<span class="k">let</span> dirty = <span class="t">List</span>[<span class="t">u8</span>].<span class="f">filled</span>(<span class="n">512</span>, <span class="t">u8</span>(<span class="n">255</span>))</span>
+<span class="src-line" id="L383">		<span class="f">assert</span>(dirty[<span class="n">0</span>] == <span class="t">u8</span>(<span class="n">255</span>), <span class="s">&quot;dirty block populated&quot;</span>)</span>
+<span class="src-line" id="L384">	}</span>
+<span class="src-line" id="L385"></span>
+<span class="src-line" id="L386">	<span class="k">let</span> s = <span class="t">Set</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L387">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">64</span>): {</span>
+<span class="src-line" id="L388">		<span class="f">assert</span>(s.<span class="f">insert</span>(<span class="s">&quot;entry_key_</span>$i<span class="s">&quot;</span>), <span class="s">&quot;insert entry_key_</span>$i<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L389">	}</span>
+<span class="src-line" id="L390">	<span class="f">assert</span>(s.<span class="f">len</span>() == <span class="n">64</span>, <span class="s">&quot;len after 64 inserts&quot;</span>)</span>
+<span class="src-line" id="L391"></span>
+<span class="src-line" id="L392">	<span class="m">// Remove even keys, then insert 40 more to trigger rehash compaction &amp; slot reuse.</span></span>
+<span class="src-line" id="L393">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">32</span>): {</span>
+<span class="src-line" id="L394">		<span class="k">let</span> even = i * <span class="n">2</span></span>
+<span class="src-line" id="L395">		<span class="f">assert</span>(s.<span class="f">remove</span>(<span class="s">&quot;entry_key_</span>$even<span class="s">&quot;</span>), <span class="s">&quot;remove even entry_key&quot;</span>)</span>
+<span class="src-line" id="L396">	}</span>
+<span class="src-line" id="L397">	<span class="f">assert</span>(s.<span class="f">len</span>() == <span class="n">32</span>, <span class="s">&quot;len after 32 removes&quot;</span>)</span>
+<span class="src-line" id="L398"></span>
+<span class="src-line" id="L399">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">40</span>): {</span>
+<span class="src-line" id="L400">		<span class="f">assert</span>(s.<span class="f">insert</span>(<span class="s">&quot;compacted_key_</span>$i<span class="s">&quot;</span>), <span class="s">&quot;insert compacted_key_</span>$i<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L401">	}</span>
+<span class="src-line" id="L402">	<span class="f">assert</span>(s.<span class="f">len</span>() == <span class="n">72</span>, <span class="s">&quot;len after 40 compacted inserts&quot;</span>)</span>
+<span class="src-line" id="L403"></span>
+<span class="src-line" id="L404">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">32</span>): {</span>
+<span class="src-line" id="L405">		<span class="k">let</span> even = i * <span class="n">2</span></span>
+<span class="src-line" id="L406">		<span class="k">let</span> odd = i * <span class="n">2</span> + <span class="n">1</span></span>
+<span class="src-line" id="L407">		<span class="f">assert</span>(<span class="k">not</span> s.<span class="f">has</span>(<span class="s">&quot;entry_key_</span>$even<span class="s">&quot;</span>), <span class="s">&quot;removed even key stays absent&quot;</span>)</span>
+<span class="src-line" id="L408">		<span class="f">assert</span>(s.<span class="f">has</span>(<span class="s">&quot;entry_key_</span>$odd<span class="s">&quot;</span>), <span class="s">&quot;remaining odd key present&quot;</span>)</span>
+<span class="src-line" id="L409">	}</span>
+<span class="src-line" id="L410">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">40</span>): {</span>
+<span class="src-line" id="L411">		<span class="f">assert</span>(s.<span class="f">has</span>(<span class="s">&quot;compacted_key_</span>$i<span class="s">&quot;</span>), <span class="s">&quot;compacted key present&quot;</span>)</span>
+<span class="src-line" id="L412">	}</span>
+<span class="src-line" id="L413"></span>
+<span class="src-line" id="L414">	<span class="m">// Clear and re-insert into previously occupied/zeroed slots.</span></span>
+<span class="src-line" id="L415">	s.<span class="f">clear</span>()</span>
+<span class="src-line" id="L416">	<span class="f">assert</span>(s.<span class="f">is_empty</span>(), <span class="s">&quot;empty after clear&quot;</span>)</span>
+<span class="src-line" id="L417">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">20</span>): {</span>
+<span class="src-line" id="L418">		<span class="f">assert</span>(s.<span class="f">insert</span>(<span class="s">&quot;cleared_key_</span>$i<span class="s">&quot;</span>), <span class="s">&quot;reinsert after clear&quot;</span>)</span>
+<span class="src-line" id="L419">	}</span>
+<span class="src-line" id="L420">	<span class="f">assert</span>(s.<span class="f">len</span>() == <span class="n">20</span>, <span class="s">&quot;len == 20 after clear + reinsert&quot;</span>)</span>
+<span class="src-line" id="L421">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">20</span>): {</span>
+<span class="src-line" id="L422">		<span class="f">assert</span>(s.<span class="f">has</span>(<span class="s">&quot;cleared_key_</span>$i<span class="s">&quot;</span>), <span class="s">&quot;cleared_key present&quot;</span>)</span>
+<span class="src-line" id="L423">	}</span>
+<span class="src-line" id="L424">}</span>
+<span class="src-line" id="L425"></span>
+<span class="src-line" id="L426"><span class="a">@test</span>(<span class="s">&quot;Set[T] rehashes in place when tombstones accumulate at low load&quot;</span>)</span>
+<span class="src-line" id="L427"><span class="k">bind</span> test_set_in_place_rehash_low_load = (): {</span>
+<span class="src-line" id="L428">	<span class="k">let</span> s = <span class="t">Set</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L429">	<span class="f">assert</span>(s.<span class="f">insert</span>(<span class="s">&quot;anchor&quot;</span>), <span class="s">&quot;insert anchor&quot;</span>)</span>
+<span class="src-line" id="L430">	<span class="k">let</span> compactions = <span class="n">0</span></span>
+<span class="src-line" id="L431">	<span class="k">let</span> prev_ent_len = s.ent_len</span>
+<span class="src-line" id="L432">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">40</span>): {</span>
+<span class="src-line" id="L433">		<span class="f">assert</span>(s.<span class="f">insert</span>(<span class="s">&quot;temp_</span>$i<span class="s">&quot;</span>), <span class="s">&quot;insert temp_</span>$i<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L434">		<span class="k">if</span>(s.ent_len &lt; prev_ent_len): compactions += <span class="n">1</span></span>
+<span class="src-line" id="L435">		prev_ent_len = s.ent_len</span>
+<span class="src-line" id="L436">		<span class="f">assert</span>(s.<span class="f">remove</span>(<span class="s">&quot;temp_</span>$i<span class="s">&quot;</span>), <span class="s">&quot;remove temp_</span>$i<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L437">	}</span>
+<span class="src-line" id="L438">	<span class="f">assert</span>(s.<span class="f">len</span>() == <span class="n">1</span>, <span class="s">&quot;only anchor remains&quot;</span>)</span>
+<span class="src-line" id="L439">	<span class="f">assert</span>(s.<span class="f">has</span>(<span class="s">&quot;anchor&quot;</span>), <span class="s">&quot;anchor survived in-place compaction&quot;</span>)</span>
+<span class="src-line" id="L440">	<span class="f">assert</span>(s.buck_cap == <span class="n">16</span>, <span class="s">&quot;buck_cap stays 16 at low load&quot;</span>)</span>
+<span class="src-line" id="L441">	<span class="f">assert</span>(compactions &gt;= <span class="n">3</span>, <span class="s">&quot;tombstones compacted in place multiple times&quot;</span>)</span>
+<span class="src-line" id="L442">	<span class="f">assert</span>(s.ent_len &lt;= <span class="n">11</span>, <span class="s">&quot;ent_len bounded by load factor&quot;</span>)</span>
+<span class="src-line" id="L443">}</span>
+<span class="src-line" id="L444"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>12. The Prelude · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a class="active" href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../ref/index.html">Reference</a></div><div class="sidebar-group">Specification</div><ul><li><a href="index.html">Overview and contents</a></li><li><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a></li><li><a href="quick-reference.html">Quick Reference</a></li></ul><div class="sidebar-group">Language reference</div><ul><li><a href="conventions-and-conformance.html">1. Conventions and Conformance</a></li><li><a href="lexical-structure.html">2. Lexical Structure</a></li><li><a href="types.html">3. Types</a></li><li><a href="declarations-and-program-structure.html">4. Declarations and Program Structure</a></li><li><a href="expressions.html">5. Expressions</a></li><li><a href="control-flow.html">6. Control Flow</a></li><li><a href="ownership-borrowing-and-destruction.html">7. Ownership, Borrowing, and Destruction</a></li><li><a href="generics.html">8. Generics</a></li><li><a href="failure-handling.html">9. Failure Handling</a></li><li><a href="unsafe-code-and-foreign-functions.html">10. Unsafe Code and Foreign Functions</a></li><li><a href="testing.html">11. Testing</a></li><li><a class="active" href="the-prelude.html">12. The Prelude</a></li><li><a href="the-standard-library.html">13. The Standard Library</a></li><li><a href="packages-manifests-and-dependencies.html">14. Packages, Manifests, and Dependencies</a></li></ul><div class="sidebar-group">Implementer&#39;s guide</div><ul><li><a href="implementers-guide.html">About this part</a></li><li><a href="compiler-architecture.html">15. Compiler Architecture</a></li><li><a href="parsing-ambiguities-and-their-resolution.html">16. Parsing Ambiguities and Their Resolution</a></li><li><a href="semantic-analysis.html">17. Semantic Analysis</a></li><li><a href="lowering-and-runtime-representation.html">18. Lowering and Runtime Representation</a></li><li><a href="the-runtime-contract.html">19. The Runtime Contract</a></li><li><a href="conformance-checklist.html">20. Conformance Checklist</a></li></ul><div class="sidebar-group">Appendices</div><ul><li><a href="appendix-a-grammar.html">Appendix A: Grammar</a></li><li><a href="appendix-b-keywords-and-contextual-words.html">Appendix B: Keywords and Contextual Words</a></li><li><a href="appendix-c-operator-precedence.html">Appendix C: Operator Precedence</a></li><li><a href="appendix-d-runtime-traps.html">Appendix D: Runtime Traps</a></li><li><a href="appendix-e-glossary.html">Appendix E: Glossary</a></li></ul><div class="sidebar-group">Tools</div><ul><li><a href="../ref/cli.html">Command-line tool</a></li><li><a href="../ref/formatter.html">Formatting</a></li><li><a href="../ref/documentation.html">Documentation comments</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../ref/index.html">Reference</a><span class="sep">/</span><span>Language reference</span></nav><h1 id="12-the-prelude"><a class="anchor" href="#12-the-prelude" aria-hidden="true">#</a>12. The Prelude</h1>
+<blockquote class="glance">
+<p><strong>At a glance</strong></p>
+<ul>
+<li><code>std/core</code> is imported into every file automatically, unqualified.
+</li>
+<li>It defines the interfaces that give meaning to operators, loops, and interpolation: <code>Printable</code>, <code>Equatable</code>, <code>Comparable</code>, <code>Hashable</code>, <code>Copyable</code>, <code>Drop</code>, <code>Iterable</code>, <code>Iterator</code>, <code>Collectable</code>, <code>Indexable</code>, <code>KeyIndexable</code>, <code>Containable</code>.
+</li>
+<li>It provides the collection types behind <code>[T]</code>, <code>#[T]</code>, <code>#[K: V]</code>, <code>[N: T]</code>, and <code>lo..hi</code>, plus <code>Result[T]</code>, <code>Error</code>, and the methods on primitive types.
+</li>
+</ul>
+</blockquote>
+<p>The prelude is ordinary Lowlight source in <code>std/core</code>. Where the language relies on a prelude declaration, the declaration is marked <code>@lang(&quot;hook&quot;)</code>. The compiler finds language features through these hooks rather than through names.</p>
+<h2 id="121-core-interfaces"><a class="anchor" href="#121-core-interfaces" aria-hidden="true">#</a>12.1 Core interfaces</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Interface</th><th>Methods</th><th>Hook</th><th>Gives meaning to</th></tr></thead>
+<tbody>
+<tr><td><code>Printable</code></td><td><code>to_string: (self) string</code></td><td><code>printable</code></td><td>interpolation, <code>print</code>/<code>println</code>, <code>to_string()</code></td></tr>
+<tr><td><code>Copyable</code></td><td><code>copy: (self) Self</code></td><td><code>copyable</code></td><td><code>.copy()</code>, repeat array literals</td></tr>
+<tr><td><code>Drop</code></td><td><code>drop: (&amp;self)</code></td><td><code>drop</code></td><td>custom cleanup before a value's fields are destroyed</td></tr>
+<tr><td><code>Equatable</code></td><td><code>eq: (self, other: Self) bool</code></td><td><code>equatable</code></td><td><code>==</code>, <code>!=</code></td></tr>
+<tr><td><code>Comparable</code></td><td><code>cmp: (self, other: Self) int</code> (negative, zero, positive)</td><td><code>comparable</code></td><td><code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, and also <code>==</code></td></tr>
+<tr><td><code>Hashable</code></td><td><code>hash: (self) u64</code> (equal values hash equally)</td><td><code>hashable</code></td><td>set elements and map keys</td></tr>
+<tr><td><code>Iterator[T]</code></td><td><code>next: (&amp;self) ?T</code></td><td><code>iterator</code></td><td>stepping through <code>for</code> and <code>while</code> loops</td></tr>
+<tr><td><code>Iterable[T]</code></td><td><code>iter: (self) Iterator[T]</code></td><td><code>iterable</code></td><td><code>for(x in v)</code> over any type</td></tr>
+<tr><td><code>Collectable[T]</code></td><td><code>push: (&amp;self, item: own T)</code></td><td><code>collectable</code></td><td>the collection a <code>for</code> loop builds</td></tr>
+<tr><td><code>Indexable[T]</code></td><td><code>len: (self) int</code>, <code>get: (self, idx: int) ?T</code></td><td><code>indexable</code></td><td><code>v[i]</code> on user types</td></tr>
+<tr><td><code>KeyIndexable[K, V]</code></td><td><code>len</code>, <code>has: (self, key: K) bool</code>, <code>get: (self, key: K) ?V</code></td><td><code>key_indexable</code></td><td><code>v[k]</code> on user types</td></tr>
+<tr><td><code>Containable[T]</code></td><td><code>contains: (self, item: T) bool</code></td><td><code>containable</code></td><td><code>when in v:</code> patterns</td></tr>
+</tbody>
+</table></div>
+<p>The prelude also binds <code>list</code>, <code>array</code>, <code>set</code>, <code>map</code>, and <code>range</code> hooks to the types <code>List</code>, <code>Array</code>, <code>Set</code>, <code>Map</code>, and <code>Range</code>, which implement <code>[T]</code>, <code>[N: T]</code>, <code>#[T]</code>, <code>#[K: V]</code>, and <code>lo..hi</code>. Implementing an interface's methods on your own type is all it takes for that type to work with the corresponding syntax.</p>
+<p><code>MapEntry[K, V]</code> is a struct with fields <code>key</code> and <code>value</code>, used when iterating and collecting maps.</p>
+<h2 id="122-universe-functions"><a class="anchor" href="#122-universe-functions" aria-hidden="true">#</a>12.2 Universe functions</h2>
+<p>These are built into the language and need no import.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Function</th><th>Type</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>print(v)</code> · <code>println(v)</code></td><td><code>(Printable)</code></td><td>write <code>v.to_string()</code> to standard output; <code>println</code> adds a newline, and <code>println()</code> writes only a newline</td></tr>
+<tr><td><code>eprint(v)</code> · <code>eprintln(v)</code></td><td><code>(Printable)</code></td><td>the same, to standard error</td></tr>
+<tr><td><code>panic(msg)</code></td><td><code>(string | Error) never</code></td><td>stop the program (<a href="failure-handling.html#93-panics">§9.3</a>)</td></tr>
+<tr><td><code>assert(cond)</code> · <code>assert(cond, msg)</code></td><td><code>(bool [, string])</code></td><td>panic with <code>msg</code> (or &quot;assertion failed&quot;) if <code>cond</code> is false</td></tr>
+<tr><td><code>exit(code)</code></td><td><code>(int) never</code></td><td>end the process immediately with status <code>code</code>; no destruction runs</td></tr>
+<tr><td><code>args()</code></td><td><code>() [string]</code></td><td>the command-line arguments, starting with the program name</td></tr>
+<tr><td><code>abs(x)</code></td><td><code>(int) int</code></td><td>absolute value (for floats, <code>math.abs_float</code> in <code>std/math</code>)</td></tr>
+<tr><td><code>min(a, b)</code> · <code>max(a, b)</code></td><td>numeric <code>(T, T) T</code></td><td>the smaller or larger of two numbers of the same type</td></tr>
+<tr><td><code>caller_location()</code>, <code>caller_file()</code>, <code>caller_line()</code>, <code>caller_col()</code></td><td></td><td>the caller's source location (<a href="testing.html#112-caller-locations">§11.2</a>)</td></tr>
+<tr><td><code>size_of[T]()</code>, <code>align_of[T]()</code>, <code>is_plain[T]()</code></td><td></td><td>layout queries (<a href="unsafe-code-and-foreign-functions.html#103-memory-intrinsics">§10.3</a>)</td></tr>
+</tbody>
+</table></div>
+<p>The prelude adds these ordinary functions:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Function</th><th>Type</th></tr></thead>
+<tbody>
+<tr><td><code>parse_int(s)</code> · <code>parse_int_radix(s, radix)</code></td><td><code>?int</code></td></tr>
+<tr><td><code>parse_float(s)</code></td><td><code>?float</code></td></tr>
+</tbody>
+</table></div>
+<p>The parsers accept exactly a number: an optional sign, digits (and a <code>0x</code>, <code>0b</code>, or <code>0o</code> prefix for integers; a fraction, exponent, <code>inf</code>, or <code>nan</code> for floats). They return <code>none</code> for anything else, including surrounding whitespace (call <code>s.trim()</code> first to accept it) and values out of range: an integer outside <code>int</code>, or a finite decimal too large for a <code>float</code> (<code>&quot;1e400&quot;</code>). Decimals too small to represent round to a signed zero. <code>parse_float</code> is correctly rounded.
+| <code>join_strings(parts, sep)</code> | <code>string</code> |</p>
+<h2 id="123-methods-on-primitive-types"><a class="anchor" href="#123-methods-on-primitive-types" aria-hidden="true">#</a>12.3 Methods on primitive types</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>On</th><th>Methods</th></tr></thead>
+<tbody>
+<tr><td>every primitive</td><td><code>to_string()</code>; numbers, <code>char</code>, <code>bool</code> also <code>eq</code>, <code>hash</code>; numbers and <code>char</code> also <code>cmp</code></td></tr>
+<tr><td><code>float</code></td><td><code>to_exp(precision)</code></td></tr>
+<tr><td><code>char</code></td><td><code>is_digit()</code>, <code>is_alpha()</code>, <code>is_alnum()</code>, <code>is_whitespace()</code>, <code>to_int()</code> (more in <code>std/chars</code>)</td></tr>
+</tbody>
+</table></div>
+<h2 id="124-strings-and-characters"><a class="anchor" href="#124-strings-and-characters" aria-hidden="true">#</a>12.4 Strings and characters</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Method</th><th>Type</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>len()</code></td><td><code>int</code></td><td>length in bytes</td></tr>
+<tr><td><code>is_empty()</code></td><td><code>bool</code></td><td><code>len() == 0</code></td></tr>
+<tr><td><code>byte_at(i)</code> · <code>s[i]</code></td><td><code>u8</code></td><td>byte at offset <code>i</code>; traps when out of range</td></tr>
+<tr><td><code>get(i)</code> · <code>get_byte(i)</code></td><td><code>?u8</code></td><td>byte at offset <code>i</code>, or <code>none</code></td></tr>
+<tr><td><code>bytes()</code> · <code>chars()</code></td><td><code>[u8]</code> · <code>[char]</code></td><td>the bytes, or the decoded characters</td></tr>
+<tr><td><code>starts_with(p)</code> · <code>ends_with(p)</code> · <code>contains(sub)</code></td><td><code>bool</code></td><td>substring tests</td></tr>
+<tr><td><code>index_of(sub)</code></td><td><code>?int</code></td><td>byte offset of the first occurrence</td></tr>
+<tr><td><code>trim()</code> · <code>trim_start()</code> · <code>trim_end()</code></td><td><code>string</code></td><td>without surrounding whitespace</td></tr>
+<tr><td><code>to_upper()</code> · <code>to_lower()</code></td><td><code>string</code></td><td>ASCII case conversion</td></tr>
+<tr><td><code>replace(old, new)</code> · <code>replace_all(old, new)</code></td><td><code>string</code></td><td>replace the first or every occurrence</td></tr>
+<tr><td><code>split(sep)</code></td><td><code>[string]</code></td><td>pieces between occurrences of <code>sep</code></td></tr>
+<tr><td><code>push(t)</code> · <code>push_char(c)</code> · <code>push_byte(b)</code> · <code>clear()</code></td><td></td><td>modify a mutable string in place; appends grow the buffer by doubling, so building a string with <code>push</code> is linear in its length</td></tr>
+<tr><td><code>string.with_capacity(n)</code> · <code>reserve(n)</code> · <code>cap()</code></td><td><code>string</code> · · <code>int</code></td><td>preallocate room for <code>n</code> (more) bytes; the bytes it can hold without reallocating (<code>0</code> for literals)</td></tr>
+<tr><td><code>eq</code>, <code>cmp</code>, <code>hash</code>, <code>copy</code>, <code>to_string</code></td><td></td><td>byte-wise comparison and hashing</td></tr>
+<tr><td><code>c_str()</code></td><td><code>ptr[u8]</code></td><td>NUL-terminated bytes for C (unsafe)</td></tr>
+</tbody>
+</table></div>
+<p><code>std/strings</code>, <code>std/strconv</code>, and <code>std/strfmt</code> add many more (<a href="the-standard-library.html#13-the-standard-library">§13</a>).</p>
+<h2 id="125-collections"><a class="anchor" href="#125-collections" aria-hidden="true">#</a>12.5 Collections</h2>
+<p><strong>List</strong> <code>[T]</code>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Method</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>List[T].new()</code> · <code>List[T].with_capacity(n)</code> · <code>List[T].filled(n, v)</code></td><td>construct</td></tr>
+<tr><td><code>len()</code> · <code>cap()</code> · <code>is_empty()</code></td><td>size</td></tr>
+<tr><td><code>push(x)</code> · <code>pop() ?T</code> · <code>insert(i, x)</code> · <code>remove(i) T</code> · <code>swap_remove(i) T</code></td><td>add and remove (<code>insert</code> and <code>remove</code> trap when out of range)</td></tr>
+<tr><td><code>get(i) ?T</code> · <code>set(i, x) bool</code></td><td>checked access</td></tr>
+<tr><td><code>first() ?T</code> · <code>last() ?T</code> · <code>index_of(x) ?int</code></td><td>ends of the list; position of the first element equal to <code>x</code></td></tr>
+<tr><td><code>swap(i, j)</code> · <code>truncate(n)</code> · <code>extend(own other)</code></td><td>exchange two elements (traps when out of range); drop elements past <code>n</code>; move all of <code>other</code> onto the end</td></tr>
+<tr><td><code>reserve(n)</code> · <code>resize(n, v)</code> · <code>clear()</code></td><td>capacity and length</td></tr>
+<tr><td><code>contains(x)</code></td><td>membership (<code>T</code> must support <code>==</code>)</td></tr>
+<tr><td><code>copy()</code> · <code>to_string()</code> · <code>iter()</code></td><td></td></tr>
+</tbody>
+</table></div>
+<p><strong>Array</strong> <code>[N: T]</code>: <code>len()</code>, <code>is_empty()</code>, <code>get(i) ?T</code>, <code>contains(x)</code>, <code>to_string()</code>, <code>iter()</code>.</p>
+<p><strong>Set</strong> <code>#[T]</code>: <code>Set[T].new()</code>, <code>with_capacity(n)</code>, <code>len()</code>, <code>is_empty()</code>, <code>insert(x) bool</code> (false if already present), <code>has(x)</code> / <code>contains(x)</code>, <code>remove(x) bool</code>, <code>clear()</code>, <code>to_list()</code>, <code>copy()</code>, <code>to_string()</code>, <code>iter()</code>.</p>
+<p><strong>Map</strong> <code>#[K: V]</code>: <code>Map[K, V].new()</code>, <code>with_capacity(n)</code>, <code>len()</code>, <code>is_empty()</code>, <code>get(k) ?V</code>, <code>has(k)</code> / <code>contains(k)</code>, <code>insert(k, v)</code>, <code>remove(k) ?V</code>, <code>clear()</code>, <code>keys() [K]</code>, <code>values() [V]</code> (both in insertion order), <code>copy()</code>, <code>to_string()</code>, <code>iter()</code>.</p>
+<p><strong>Range</strong> <code>Range[T]</code>: <code>contains(x)</code>, <code>is_empty()</code>, <code>len()</code>, <code>to_string()</code>, <code>iter()</code>.</p>
+<p>Sorting and searching are in <code>std/sort</code>, which adds methods such as <code>sort</code>, <code>sort_by</code>, <code>binary_search</code>, and <code>reverse</code> to lists and arrays.</p>
+<h2 id="126-result-and-error"><a class="anchor" href="#126-result-and-error" aria-hidden="true">#</a>12.6 Result and Error</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="a">@must_use</span>
+<span class="k">define</span> <span class="t">Result</span>[<span class="t">T</span>] <span class="k">result</span> [
+	value: <span class="t">T</span>,
+	err: <span class="t">Error</span>,
+]</code></pre>
+<p><strong>Constructing.</strong> Where a <code>Result[T]</code> is expected, write <code>value(x)</code> or <code>err(e)</code>. Elsewhere, qualify: <code>Result[int].value(1)</code>, <code>Result[int].err(e)</code>. <code>Result[T].fail_msg(msg)</code> is shorthand for <code>err(Error.new(msg))</code>, recording the caller's location.</p>
+<p><strong>Methods.</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Method</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>is_ok()</code> · <code>is_err()</code></td><td>which member it holds</td></tr>
+<tr><td><code>unwrap()</code></td><td>the value, or panic with the error wrapped as <code>&quot;called Result.unwrap on an error&quot;</code> (<code>@track_caller</code>)</td></tr>
+<tr><td><code>expect(msg)</code></td><td>the value, or panic with the error wrapped as <code>msg</code> (<code>@track_caller</code>)</td></tr>
+<tr><td><code>unwrap_or(fallback)</code></td><td>the value, or <code>fallback</code></td></tr>
+<tr><td><code>unwrap_err()</code></td><td>the error, or panic if it holds a value</td></tr>
+<tr><td><code>into_ok() ?T</code> · <code>into_err() ?Error</code> · <code>peek_err() ?Error</code></td><td>convert to optionals (<code>peek_err</code> borrows)</td></tr>
+<tr><td><code>wrap_err(msg)</code> · <code>trace_err()</code></td><td>add context or a trace frame to a failure, passing a value through unchanged (<code>@track_caller</code>)</td></tr>
+<tr><td><code>map(f)</code> · <code>and_then(f)</code></td><td>transform the value with <code>f: (T) U</code>, or continue with <code>f: (T) Result[U]</code>; failures pass through</td></tr>
+<tr><td><code>map_err(f)</code></td><td>transform the failure with <code>f: (own Error) Error</code> (for example, to wrap it); values pass through</td></tr>
+<tr><td><code>unwrap_or_else(f)</code></td><td>the value, or <code>f(error)</code> computed only on failure</td></tr>
+</tbody>
+</table></div>
+<p>Result chains (<a href="control-flow.html#66-result-chains">§6.6</a>) are usually clearer than these methods.</p>
+<p><strong>Error.</strong> An <code>Error</code> holds a message, an optional code, an optional cause (another <code>Error</code>), and a trace of source locations (<code>ErrorFrame</code>s). Its fields are private.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Method</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>Error.new(msg)</code></td><td>a new error, recording the caller's location (<code>@track_caller</code>)</td></tr>
+<tr><td><code>Error.coded(code, msg)</code></td><td>the same, with a machine-readable code such as <code>&quot;not_found&quot;</code></td></tr>
+<tr><td><code>e.wrap(msg)</code></td><td>consumes <code>e</code> and returns a new error with message <code>msg</code> whose cause is <code>e</code> (<code>@track_caller</code>)</td></tr>
+<tr><td><code>e.trace()</code></td><td>consumes <code>e</code> and returns it with the caller's location appended (<code>@track_caller</code>)</td></tr>
+<tr><td><code>e.with_code(code)</code></td><td>consumes <code>e</code> and returns it with <code>code</code> set</td></tr>
+<tr><td><code>e.message()</code> · <code>e.code() ?string</code> · <code>e.cause() ?Error</code> · <code>e.root()</code> · <code>e.frames()</code></td><td>accessors</td></tr>
+<tr><td><code>e.is(target)</code></td><td>whether any error in the chain matches <code>target</code> (same code, or same message if uncoded)</td></tr>
+<tr><td><code>e.has_code(code)</code></td><td>whether any error in the chain has <code>code</code></td></tr>
+<tr><td><code>e.summary()</code></td><td>one line: <code>outer: middle: root</code></td></tr>
+<tr><td><code>e.to_string()</code></td><td>the summary, then the trace, one frame per line</td></tr>
+</tbody>
+</table></div>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> e = <span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;disk_full&quot;</span>, <span class="s">&quot;no space left&quot;</span>).<span class="f">wrap</span>(<span class="s">&quot;saving report&quot;</span>)
+	<span class="f">println</span>(e.<span class="f">summary</span>())
+	<span class="f">println</span>(e.<span class="f">has_code</span>(<span class="s">&quot;disk_full&quot;</span>))
+}</code></pre>
+<hr />
+</article><nav class="prev-next"><a class="prev" href="testing.html"><span>Previous</span>11. Testing</a><a class="next" href="the-standard-library.html"><span>Next</span>13. The Standard Library</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#121-core-interfaces">12.1 Core interfaces</a></li><li><a href="#122-universe-functions">12.2 Universe functions</a></li><li><a href="#123-methods-on-primitive-types">12.3 Methods on primitive types</a></li><li><a href="#124-strings-and-characters">12.4 Strings and characters</a></li><li><a href="#125-collections">12.5 Collections</a></li><li><a href="#126-result-and-error">12.6 Result and Error</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

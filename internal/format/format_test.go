@@ -604,3 +604,42 @@ bind mixed_if = fn(flag: bool) int: {
 		t.Fatalf("comptime round-trip not idempotent!\n--- out1 ---\n%s--- out2 ---\n%s", out1, out2)
 	}
 }
+
+func TestFormatDottedAndFieldVariantAttributes(t *testing.T) {
+	src := `@derivable(eq: derive.eq, cmp: mod.cmp)
+define EqIface interface [
+	eq: fn(self, other: Self) bool,
+]
+
+@table("users")
+define User struct [
+	// Primary key
+	@json("user_id")
+	id: int,
+	@skip
+	secret?: ?string,
+]
+
+define Kind enum [
+	// First variant
+	@tag("A")
+	Alpha,
+	@renamed("B")
+	Beta: int,
+]
+`
+	out := mustFormat(t, src, format.DefaultOptions())
+	for _, want := range []string{
+		"@derivable(eq: derive.eq, cmp: mod.cmp)",
+		"// Primary key",
+		"@json(\"user_id\")",
+		"@skip",
+		"// First variant",
+		"@tag(\"A\")",
+		"@renamed(\"B\")",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("formatted output missing %q:\n%s", want, out)
+		}
+	}
+}

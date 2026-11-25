@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>strings.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>strings.ll</h1><p>Source of package <a href="../strings.html"><code>std/strings</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/strings — Extended string search, padding, splitting, and manipulation helpers.</span></span>
+<span class="src-line" id="L2"><span class="m">//</span></span>
+<span class="src-line" id="L3"><span class="m">// Builds on the core prelude methods (`is_empty`, `starts_with`, `ends_with`, `index_of`,</span></span>
+<span class="src-line" id="L4"><span class="m">// `contains`, `trim`, `to_upper`, `to_lower`, `replace`, `split`, `chars`, `bytes`,</span></span>
+<span class="src-line" id="L5"><span class="m">// `join_strings`) from [`std/core/primitives`] and [`std/chars`].</span></span>
+<span class="src-line" id="L6"></span>
+<span class="src-line" id="L7"><span class="k">import</span> <span class="s">&quot;std/chars&quot;</span></span>
+<span class="src-line" id="L8"></span>
+<span class="src-line" id="L9"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L10"><span class="m">// Inspection &amp; Predicates</span></span>
+<span class="src-line" id="L11"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L12"></span>
+<span class="src-line" id="L13"><span class="m">// Reports whether the string is non-empty and consists solely of whitespace characters.</span></span>
+<span class="src-line" id="L14"><span class="k">bind</span> <span class="t">string</span>.is_whitespace = (<span class="k">self</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L15">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L16">	<span class="k">for</span>(ch <span class="k">in</span> <span class="k">self</span>.<span class="f">chars</span>()): <span class="k">if</span>(<span class="k">not</span> ch.<span class="f">is_whitespace</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L17">	<span class="c">true</span></span>
+<span class="src-line" id="L18">}</span>
+<span class="src-line" id="L19"></span>
+<span class="src-line" id="L20"><span class="m">// Reports whether every byte in the string is valid 7-bit ASCII (`&lt;= 127`).</span></span>
+<span class="src-line" id="L21"><span class="k">bind</span> <span class="t">string</span>.is_ascii = (<span class="k">self</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L22">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="k">self</span>.<span class="f">len</span>()): <span class="k">if</span>(<span class="k">self</span>[i] &gt; <span class="n">127</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L23">	<span class="c">true</span></span>
+<span class="src-line" id="L24">}</span>
+<span class="src-line" id="L25"></span>
+<span class="src-line" id="L26"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L27"><span class="m">// Extended Substring Search</span></span>
+<span class="src-line" id="L28"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L29"></span>
+<span class="src-line" id="L30"><span class="k">bind</span> _matches_at = (s: <span class="t">string</span>, pos: <span class="t">int</span>, sub: <span class="t">string</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L31">	<span class="k">let</span> sub_len = sub.<span class="f">len</span>()</span>
+<span class="src-line" id="L32">	<span class="k">let</span> j = <span class="n">0</span></span>
+<span class="src-line" id="L33">	<span class="k">for</span>(j &lt; sub_len): {</span>
+<span class="src-line" id="L34">		<span class="k">if</span>(s.<span class="f">byte_at</span>(pos + j) != sub.<span class="f">byte_at</span>(j)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L35">		j += <span class="n">1</span></span>
+<span class="src-line" id="L36">	}</span>
+<span class="src-line" id="L37">	<span class="c">true</span></span>
+<span class="src-line" id="L38">}</span>
+<span class="src-line" id="L39"></span>
+<span class="src-line" id="L40"><span class="m">// Returns the byte offset of the last occurrence of `sub`, or `none` if absent (returns `self.len()` when `sub` is `&quot;&quot;`).</span></span>
+<span class="src-line" id="L41"><span class="k">bind</span> <span class="t">string</span>.last_index_of = (<span class="k">self</span>, sub: <span class="t">string</span>) ?<span class="t">int</span>: {</span>
+<span class="src-line" id="L42">	<span class="k">if</span>(sub.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">len</span>()</span>
+<span class="src-line" id="L43">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">len</span>() &lt; sub.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L44">	<span class="k">let</span> limit = <span class="k">self</span>.<span class="f">len</span>() - sub.<span class="f">len</span>()</span>
+<span class="src-line" id="L45">	<span class="k">let</span> i = limit</span>
+<span class="src-line" id="L46">	<span class="k">while</span>(i &gt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L47">		<span class="k">if</span>(<span class="f">_matches_at</span>(<span class="k">self</span>, i, sub)): <span class="k">func</span> <span class="u">&lt;-</span> i</span>
+<span class="src-line" id="L48">		i -= <span class="n">1</span></span>
+<span class="src-line" id="L49">	}</span>
+<span class="src-line" id="L50">	<span class="c">none</span></span>
+<span class="src-line" id="L51">}</span>
+<span class="src-line" id="L52"></span>
+<span class="src-line" id="L53"><span class="m">// Counts non-overlapping occurrences of `sub` within the string (`0` if `sub` is empty).</span></span>
+<span class="src-line" id="L54"><span class="k">bind</span> <span class="t">string</span>.count = (<span class="k">self</span>, sub: <span class="t">string</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L55">	<span class="k">let</span> sub_len = sub.<span class="f">len</span>()</span>
+<span class="src-line" id="L56">	<span class="k">if</span>(sub_len == <span class="n">0</span> <span class="k">or</span> <span class="k">self</span>.<span class="f">len</span>() &lt; sub_len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0</span></span>
+<span class="src-line" id="L57">	<span class="k">let</span> count = <span class="n">0</span></span>
+<span class="src-line" id="L58">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L59">	<span class="k">let</span> limit = <span class="k">self</span>.<span class="f">len</span>() - sub_len</span>
+<span class="src-line" id="L60">	<span class="k">while</span>(i &lt;= limit):</span>
+<span class="src-line" id="L61">		<span class="k">if</span>(<span class="f">_matches_at</span>(<span class="k">self</span>, i, sub)): {</span>
+<span class="src-line" id="L62">			count += <span class="n">1</span></span>
+<span class="src-line" id="L63">			i += sub_len</span>
+<span class="src-line" id="L64">		} <span class="k">else</span>: i += <span class="n">1</span></span>
+<span class="src-line" id="L65">	count</span>
+<span class="src-line" id="L66">}</span>
+<span class="src-line" id="L67"></span>
+<span class="src-line" id="L68"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L69"><span class="m">// Capitalization</span></span>
+<span class="src-line" id="L70"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L71"></span>
+<span class="src-line" id="L72"><span class="m">// Returns a copy with the first ASCII byte uppercased and all subsequent ASCII letters lowercased.</span></span>
+<span class="src-line" id="L73"><span class="k">bind</span> <span class="t">string</span>.capitalize = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L74">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L75">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L76">	<span class="k">let</span> first = <span class="k">self</span>[<span class="n">0</span>]</span>
+<span class="src-line" id="L77">	<span class="k">if</span>(first &gt;= <span class="n">97</span> <span class="k">and</span> first &lt;= <span class="n">122</span>): out.<span class="f">push_byte</span>(first - <span class="n">32</span>) <span class="k">else</span>: out.<span class="f">push_byte</span>(first)</span>
+<span class="src-line" id="L78">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">1</span>..<span class="k">self</span>.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L79">		<span class="k">let</span> b = <span class="k">self</span>[i]</span>
+<span class="src-line" id="L80">		<span class="k">if</span>(b &gt;= <span class="n">65</span> <span class="k">and</span> b &lt;= <span class="n">90</span>): out.<span class="f">push_byte</span>(b + <span class="n">32</span>) <span class="k">else</span>: out.<span class="f">push_byte</span>(b)</span>
+<span class="src-line" id="L81">	}</span>
+<span class="src-line" id="L82">	out</span>
+<span class="src-line" id="L83">}</span>
+<span class="src-line" id="L84"></span>
+<span class="src-line" id="L85"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L86"><span class="m">// Replacement &amp; Manipulation</span></span>
+<span class="src-line" id="L87"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L88"></span>
+<span class="src-line" id="L89"><span class="m">// Returns the string concatenated `count` times (empty when `count &lt;= 0`).</span></span>
+<span class="src-line" id="L90"><span class="k">bind</span> <span class="t">string</span>.repeat = (<span class="k">self</span>, count: <span class="t">int</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L91">	<span class="k">if</span>(count &lt;= <span class="n">0</span> <span class="k">or</span> <span class="k">self</span>.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L92">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L93">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..count): out.<span class="f">push</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L94">	out</span>
+<span class="src-line" id="L95">}</span>
+<span class="src-line" id="L96"></span>
+<span class="src-line" id="L97"><span class="m">// Returns a new string with Unicode codepoints reversed in order.</span></span>
+<span class="src-line" id="L98"><span class="k">bind</span> <span class="t">string</span>.reverse = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L99">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">len</span>() &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">copy</span>()</span>
+<span class="src-line" id="L100">	<span class="k">let</span> cps = <span class="k">self</span>.<span class="f">chars</span>()</span>
+<span class="src-line" id="L101">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L102">	<span class="k">let</span> i = cps.<span class="f">len</span>() - <span class="n">1</span></span>
+<span class="src-line" id="L103">	<span class="k">while</span>(i &gt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L104">		out.<span class="f">push_char</span>(cps[i])</span>
+<span class="src-line" id="L105">		i -= <span class="n">1</span></span>
+<span class="src-line" id="L106">	}</span>
+<span class="src-line" id="L107">	out</span>
+<span class="src-line" id="L108">}</span>
+<span class="src-line" id="L109"></span>
+<span class="src-line" id="L110"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L111"><span class="m">// Padding &amp; Alignment</span></span>
+<span class="src-line" id="L112"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L113"></span>
+<span class="src-line" id="L114"><span class="k">bind</span> _char_count = (s: <span class="t">string</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L115">	<span class="k">let</span> n = <span class="n">0</span></span>
+<span class="src-line" id="L116">	<span class="k">for</span>(ch <span class="k">in</span> s): n += <span class="n">1</span></span>
+<span class="src-line" id="L117">	n</span>
+<span class="src-line" id="L118">}</span>
+<span class="src-line" id="L119"></span>
+<span class="src-line" id="L120"><span class="m">// Left-pads the string with repeated `pad_char` until its Unicode codepoint count reaches at least `total_len`.</span></span>
+<span class="src-line" id="L121"><span class="k">bind</span> <span class="t">string</span>.pad_left_char = (<span class="k">self</span>, total_len: <span class="t">int</span>, pad_char: <span class="t">char</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L122">	<span class="k">let</span> char_len = <span class="f">_char_count</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L123">	<span class="k">if</span>(char_len &gt;= total_len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">copy</span>()</span>
+<span class="src-line" id="L124">	<span class="k">let</span> pad_count = total_len - char_len</span>
+<span class="src-line" id="L125">	<span class="k">let</span> pad_str = pad_char.<span class="f">to_string</span>().<span class="f">repeat</span>(pad_count)</span>
+<span class="src-line" id="L126">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L127">	out.<span class="f">push</span>(pad_str)</span>
+<span class="src-line" id="L128">	out.<span class="f">push</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L129">	out</span>
+<span class="src-line" id="L130">}</span>
+<span class="src-line" id="L131"></span>
+<span class="src-line" id="L132"><span class="m">// Right-pads the string with repeated `pad_char` until its Unicode codepoint count reaches at least `total_len`.</span></span>
+<span class="src-line" id="L133"><span class="k">bind</span> <span class="t">string</span>.pad_right_char = (<span class="k">self</span>, total_len: <span class="t">int</span>, pad_char: <span class="t">char</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L134">	<span class="k">let</span> char_len = <span class="f">_char_count</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L135">	<span class="k">if</span>(char_len &gt;= total_len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">copy</span>()</span>
+<span class="src-line" id="L136">	<span class="k">let</span> pad_count = total_len - char_len</span>
+<span class="src-line" id="L137">	<span class="k">let</span> pad_str = pad_char.<span class="f">to_string</span>().<span class="f">repeat</span>(pad_count)</span>
+<span class="src-line" id="L138">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L139">	out.<span class="f">push</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L140">	out.<span class="f">push</span>(pad_str)</span>
+<span class="src-line" id="L141">	out</span>
+<span class="src-line" id="L142">}</span>
+<span class="src-line" id="L143"></span>
+<span class="src-line" id="L144"><span class="m">// Centers the string within `total_len` Unicode codepoints by padding evenly on both sides with `pad_char`.</span></span>
+<span class="src-line" id="L145"><span class="k">bind</span> <span class="t">string</span>.center_char = (<span class="k">self</span>, total_len: <span class="t">int</span>, pad_char: <span class="t">char</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L146">	<span class="k">let</span> char_len = <span class="f">_char_count</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L147">	<span class="k">if</span>(char_len &gt;= total_len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">copy</span>()</span>
+<span class="src-line" id="L148">	<span class="k">let</span> total_pad = total_len - char_len</span>
+<span class="src-line" id="L149">	<span class="k">let</span> left_pad = total_pad / <span class="n">2</span></span>
+<span class="src-line" id="L150">	<span class="k">let</span> right_pad = total_pad - left_pad</span>
+<span class="src-line" id="L151">	<span class="k">let</span> pad_unit = pad_char.<span class="f">to_string</span>()</span>
+<span class="src-line" id="L152">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L153">	out.<span class="f">push</span>(pad_unit.<span class="f">repeat</span>(left_pad))</span>
+<span class="src-line" id="L154">	out.<span class="f">push</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L155">	out.<span class="f">push</span>(pad_unit.<span class="f">repeat</span>(right_pad))</span>
+<span class="src-line" id="L156">	out</span>
+<span class="src-line" id="L157">}</span>
+<span class="src-line" id="L158"></span>
+<span class="src-line" id="L159"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L160"><span class="m">// Splitting, Tokenization, &amp; Joining</span></span>
+<span class="src-line" id="L161"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L162"></span>
+<span class="src-line" id="L163"><span class="m">// Splits the string on runs of ASCII whitespace into non-empty token substrings.</span></span>
+<span class="src-line" id="L164"><span class="k">bind</span> <span class="t">string</span>.split_whitespace = (<span class="k">self</span>) [<span class="t">string</span>]: {</span>
+<span class="src-line" id="L165">	<span class="k">let</span> out: [<span class="t">string</span>] = []</span>
+<span class="src-line" id="L166">	<span class="k">let</span> in_token = <span class="c">false</span></span>
+<span class="src-line" id="L167">	<span class="k">let</span> start = <span class="n">0</span></span>
+<span class="src-line" id="L168">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="k">self</span>.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L169">		<span class="k">let</span> b = <span class="k">self</span>[i]</span>
+<span class="src-line" id="L170">		<span class="k">let</span> is_ws = b &lt; <span class="t">u8</span>(<span class="n">128</span>) <span class="k">and</span> <span class="t">char</span>(<span class="t">int</span>(b)).<span class="f">is_whitespace</span>()</span>
+<span class="src-line" id="L171">		<span class="k">if</span>(is_ws): {</span>
+<span class="src-line" id="L172">			<span class="k">if</span>(in_token): {</span>
+<span class="src-line" id="L173">				out.<span class="f">push</span>(<span class="k">self</span>[start..i].<span class="f">to_string</span>())</span>
+<span class="src-line" id="L174">				in_token = <span class="c">false</span></span>
+<span class="src-line" id="L175">			}</span>
+<span class="src-line" id="L176">		} <span class="k">else</span> <span class="k">if</span>(<span class="k">not</span> in_token): {</span>
+<span class="src-line" id="L177">			start = i</span>
+<span class="src-line" id="L178">			in_token = <span class="c">true</span></span>
+<span class="src-line" id="L179">		}</span>
+<span class="src-line" id="L180">	}</span>
+<span class="src-line" id="L181">	<span class="k">if</span>(in_token): out.<span class="f">push</span>(<span class="k">self</span>[start..<span class="k">self</span>.<span class="f">len</span>()].<span class="f">to_string</span>())</span>
+<span class="src-line" id="L182">	out</span>
+<span class="src-line" id="L183">}</span>
+<span class="src-line" id="L184"></span>
+<span class="src-line" id="L185"><span class="m">// Splits this string into lines, removing the line terminators (`\n` or `\r\n`).</span></span>
+<span class="src-line" id="L186"><span class="m">//</span></span>
+<span class="src-line" id="L187"><span class="m">// A final line terminator ends the last line rather than starting an empty one, so</span></span>
+<span class="src-line" id="L188"><span class="m">// `&quot;a\nb\n&quot;.lines()` is `[&quot;a&quot;, &quot;b&quot;]`, while `&quot;a\nb\n\n&quot;.lines()` keeps the empty line</span></span>
+<span class="src-line" id="L189"><span class="m">// (`[&quot;a&quot;, &quot;b&quot;, &quot;&quot;]`). An empty string has no lines.</span></span>
+<span class="src-line" id="L190"><span class="k">bind</span> <span class="t">string</span>.lines = (<span class="k">self</span>) [<span class="t">string</span>]: {</span>
+<span class="src-line" id="L191">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">is_empty</span>()): <span class="k">func</span> <span class="u">&lt;-</span> []</span>
+<span class="src-line" id="L192">	<span class="k">let</span> raw_lines = <span class="k">self</span>.<span class="f">split</span>(<span class="s">&quot;\n&quot;</span>)</span>
+<span class="src-line" id="L193">	<span class="k">let</span> count = <span class="k">if</span>(<span class="k">self</span>.<span class="f">ends_with</span>(<span class="s">&quot;\n&quot;</span>)): raw_lines.<span class="f">len</span>() - <span class="n">1</span> <span class="k">else</span>: raw_lines.<span class="f">len</span>()</span>
+<span class="src-line" id="L194">	<span class="k">for</span>(i, line <span class="k">in</span> raw_lines) [<span class="t">string</span>]: {</span>
+<span class="src-line" id="L195">		<span class="k">if</span>(i &gt;= count): <span class="k">next</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L196">		<span class="k">if</span>(line.<span class="f">ends_with</span>(<span class="s">&quot;\r&quot;</span>)): line[<span class="n">0</span>..line.<span class="f">len</span>() - <span class="n">1</span>].<span class="f">to_string</span>() <span class="k">else</span>: line.<span class="f">copy</span>()</span>
+<span class="src-line" id="L197">	}</span>
+<span class="src-line" id="L198">}</span>
+<span class="src-line" id="L199"></span>
+<span class="src-line" id="L200"><span class="m">// Concatenates `list` elements separated by `sep` (convenience wrapper around [`join_strings`]).</span></span>
+<span class="src-line" id="L201"><span class="k">bind</span> join = (list: [<span class="t">string</span>], sep: <span class="t">string</span>) <span class="t">string</span>: <span class="f">join_strings</span>(list, sep)</span>
+<span class="src-line" id="L202"></span>
+<span class="src-line" id="L203"><span class="m">// Returns all decoded Unicode [`char`] codepoints in this string (alias for [`string.chars`]).</span></span>
+<span class="src-line" id="L204"><span class="k">bind</span> <span class="t">string</span>.chars_list = (<span class="k">self</span>) [<span class="t">char</span>]: <span class="k">self</span>.<span class="f">chars</span>()</span>
+<span class="src-line" id="L205"></span>
+<span class="src-line" id="L206"><span class="m">// Returns all raw UTF-8 bytes in this string (alias for [`string.bytes`]).</span></span>
+<span class="src-line" id="L207"><span class="k">bind</span> <span class="t">string</span>.bytes_list = (<span class="k">self</span>) [<span class="t">u8</span>]: <span class="k">self</span>.<span class="f">bytes</span>()</span>
+<span class="src-line" id="L208"></span>
+<span class="src-line" id="L209"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L210"><span class="m">// ByteBuffer</span></span>
+<span class="src-line" id="L211"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L212"></span>
+<span class="src-line" id="L213"><span class="m">// A growable byte buffer with a read cursor, for binary formats and protocols.</span></span>
+<span class="src-line" id="L214"><span class="m">//</span></span>
+<span class="src-line" id="L215"><span class="m">// `write_*` methods append to the end; `read_*` methods consume from the cursor and return</span></span>
+<span class="src-line" id="L216"><span class="m">// `none` when too few bytes remain. Multi-byte integers are little-endian by default, with</span></span>
+<span class="src-line" id="L217"><span class="m">// `_be` variants for big-endian (network byte order).</span></span>
+<span class="src-line" id="L218"><span class="m">//</span></span>
+<span class="src-line" id="L219"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L220"><span class="m">// let b = ByteBuffer.new()</span></span>
+<span class="src-line" id="L221"><span class="m">// b.write_u16(0x1234)</span></span>
+<span class="src-line" id="L222"><span class="m">// b.write_u32_be(7)</span></span>
+<span class="src-line" id="L223"><span class="m">// let x = b.read_u16() ?? 0       // 0x1234</span></span>
+<span class="src-line" id="L224"><span class="m">// let y = b.read_u32_be() ?? 0    // 7</span></span>
+<span class="src-line" id="L225"><span class="m">// ```</span></span>
+<span class="src-line" id="L226"><span class="k">define</span> <span class="t">ByteBuffer</span> <span class="k">struct</span> [</span>
+<span class="src-line" id="L227">	_data: [<span class="t">u8</span>],</span>
+<span class="src-line" id="L228">	_pos: <span class="t">int</span>,</span>
+<span class="src-line" id="L229">]</span>
+<span class="src-line" id="L230"></span>
+<span class="src-line" id="L231"><span class="m">// Creates an empty [`ByteBuffer`].</span></span>
+<span class="src-line" id="L232"><span class="k">bind</span> <span class="t">ByteBuffer</span>.new = () <span class="t">ByteBuffer</span>: <span class="t">ByteBuffer</span>[_data: [], _pos: <span class="n">0</span>]</span>
+<span class="src-line" id="L233"></span>
+<span class="src-line" id="L234"><span class="m">// Creates a [`ByteBuffer`] holding `bytes`, with the cursor at the start.</span></span>
+<span class="src-line" id="L235"><span class="k">bind</span> <span class="t">ByteBuffer</span>.from_bytes = (bytes: <span class="k">own</span> [<span class="t">u8</span>]) <span class="t">ByteBuffer</span>: <span class="t">ByteBuffer</span>[_data: <span class="k">own</span> bytes, _pos: <span class="n">0</span>]</span>
+<span class="src-line" id="L236"></span>
+<span class="src-line" id="L237"><span class="m">// Creates a [`ByteBuffer`] holding the UTF-8 bytes of `text`, with the cursor at the start.</span></span>
+<span class="src-line" id="L238"><span class="k">bind</span> <span class="t">ByteBuffer</span>.from_string = (text: <span class="t">string</span>) <span class="t">ByteBuffer</span>: <span class="t">ByteBuffer</span>[_data: text.<span class="f">bytes</span>(), _pos: <span class="n">0</span>]</span>
+<span class="src-line" id="L239"></span>
+<span class="src-line" id="L240"><span class="m">// Returns the total number of bytes, read or not.</span></span>
+<span class="src-line" id="L241"><span class="k">bind</span> <span class="t">ByteBuffer</span>.len = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._data.<span class="f">len</span>()</span>
+<span class="src-line" id="L242"></span>
+<span class="src-line" id="L243"><span class="m">// Reports whether the buffer holds no bytes.</span></span>
+<span class="src-line" id="L244"><span class="k">bind</span> <span class="t">ByteBuffer</span>.is_empty = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>._data.<span class="f">is_empty</span>()</span>
+<span class="src-line" id="L245"></span>
+<span class="src-line" id="L246"><span class="m">// Returns the cursor position: the index of the next byte to read.</span></span>
+<span class="src-line" id="L247"><span class="k">bind</span> <span class="t">ByteBuffer</span>.position = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._pos</span>
+<span class="src-line" id="L248"></span>
+<span class="src-line" id="L249"><span class="m">// Returns how many bytes remain after the cursor.</span></span>
+<span class="src-line" id="L250"><span class="k">bind</span> <span class="t">ByteBuffer</span>.remaining = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._data.<span class="f">len</span>() - <span class="k">self</span>._pos</span>
+<span class="src-line" id="L251"></span>
+<span class="src-line" id="L252"><span class="m">// Moves the cursor to `pos`, returning `false` (and leaving it unchanged) if out of range.</span></span>
+<span class="src-line" id="L253"><span class="k">bind</span> <span class="t">ByteBuffer</span>.seek = (&amp;<span class="k">self</span>, pos: <span class="t">int</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L254">	<span class="k">if</span>(pos &lt; <span class="n">0</span> <span class="k">or</span> pos &gt; <span class="k">self</span>._data.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L255">	<span class="k">self</span>._pos = pos</span>
+<span class="src-line" id="L256">	<span class="c">true</span></span>
+<span class="src-line" id="L257">}</span>
+<span class="src-line" id="L258"></span>
+<span class="src-line" id="L259"><span class="m">// Removes all bytes and resets the cursor.</span></span>
+<span class="src-line" id="L260"><span class="k">bind</span> <span class="t">ByteBuffer</span>.clear = (&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L261">	<span class="k">self</span>._data.<span class="f">clear</span>()</span>
+<span class="src-line" id="L262">	<span class="k">self</span>._pos = <span class="n">0</span></span>
+<span class="src-line" id="L263">}</span>
+<span class="src-line" id="L264"></span>
+<span class="src-line" id="L265"><span class="m">// Returns a copy of every byte in the buffer.</span></span>
+<span class="src-line" id="L266"><span class="k">bind</span> <span class="t">ByteBuffer</span>.bytes = (<span class="k">self</span>) [<span class="t">u8</span>]: <span class="k">self</span>._data.<span class="f">copy</span>()</span>
+<span class="src-line" id="L267"></span>
+<span class="src-line" id="L268"><span class="m">// Returns the bytes as a string (they are copied as-is, not validated as UTF-8).</span></span>
+<span class="src-line" id="L269"><span class="k">bind</span> <span class="t">ByteBuffer</span>.to_string = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L270">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L271">	<span class="k">for</span>(b <span class="k">in</span> <span class="k">self</span>._data): out.<span class="f">push_byte</span>(b)</span>
+<span class="src-line" id="L272">	out</span>
+<span class="src-line" id="L273">}</span>
+<span class="src-line" id="L274"></span>
+<span class="src-line" id="L275"><span class="m">// Appends the low `count` bytes of `v`, least significant first (or most significant first when `big_endian`).</span></span>
+<span class="src-line" id="L276"><span class="k">bind</span> <span class="t">ByteBuffer</span>._write_uint = (&amp;<span class="k">self</span>, v: <span class="t">u64</span>, count: <span class="t">int</span>, big_endian: <span class="t">bool</span>):</span>
+<span class="src-line" id="L277">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..count): {</span>
+<span class="src-line" id="L278">		<span class="k">let</span> shift = <span class="k">if</span>(big_endian): <span class="n">8</span> * (count - <span class="n">1</span> - i) <span class="k">else</span>: <span class="n">8</span> * i</span>
+<span class="src-line" id="L279">		<span class="k">self</span>._data.<span class="f">push</span>(<span class="t">u8</span>((v &gt;&gt; <span class="t">u64</span>(shift)) &amp; <span class="t">u64</span>(<span class="n">0xff</span>)))</span>
+<span class="src-line" id="L280">	}</span>
+<span class="src-line" id="L281"></span>
+<span class="src-line" id="L282"><span class="m">// Reads `count` bytes as an unsigned integer, or `none` if fewer remain.</span></span>
+<span class="src-line" id="L283"><span class="k">bind</span> <span class="t">ByteBuffer</span>._read_uint = (&amp;<span class="k">self</span>, count: <span class="t">int</span>, big_endian: <span class="t">bool</span>) ?<span class="t">u64</span>: {</span>
+<span class="src-line" id="L284">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">remaining</span>() &lt; count): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L285">	<span class="k">let</span> v = <span class="t">u64</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L286">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..count): {</span>
+<span class="src-line" id="L287">		<span class="k">let</span> b = <span class="t">u64</span>(<span class="k">self</span>._data[<span class="k">self</span>._pos + i])</span>
+<span class="src-line" id="L288">		<span class="k">let</span> shift = <span class="k">if</span>(big_endian): <span class="n">8</span> * (count - <span class="n">1</span> - i) <span class="k">else</span>: <span class="n">8</span> * i</span>
+<span class="src-line" id="L289">		v = v | (b &lt;&lt; <span class="t">u64</span>(shift))</span>
+<span class="src-line" id="L290">	}</span>
+<span class="src-line" id="L291">	<span class="k">self</span>._pos += count</span>
+<span class="src-line" id="L292">	v</span>
+<span class="src-line" id="L293">}</span>
+<span class="src-line" id="L294"></span>
+<span class="src-line" id="L295"><span class="m">// Appends one byte.</span></span>
+<span class="src-line" id="L296"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u8 = (&amp;<span class="k">self</span>, v: <span class="t">u8</span>): <span class="k">self</span>._data.<span class="f">push</span>(v)</span>
+<span class="src-line" id="L297"></span>
+<span class="src-line" id="L298"><span class="m">// Appends a 16-bit value, little-endian.</span></span>
+<span class="src-line" id="L299"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u16 = (&amp;<span class="k">self</span>, v: <span class="t">u16</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(<span class="t">u64</span>(v), <span class="n">2</span>, <span class="c">false</span>)</span>
+<span class="src-line" id="L300"></span>
+<span class="src-line" id="L301"><span class="m">// Appends a 32-bit value, little-endian.</span></span>
+<span class="src-line" id="L302"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u32 = (&amp;<span class="k">self</span>, v: <span class="t">u32</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(<span class="t">u64</span>(v), <span class="n">4</span>, <span class="c">false</span>)</span>
+<span class="src-line" id="L303"></span>
+<span class="src-line" id="L304"><span class="m">// Appends a 64-bit value, little-endian.</span></span>
+<span class="src-line" id="L305"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u64 = (&amp;<span class="k">self</span>, v: <span class="t">u64</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(v, <span class="n">8</span>, <span class="c">false</span>)</span>
+<span class="src-line" id="L306"></span>
+<span class="src-line" id="L307"><span class="m">// Appends a 16-bit value, big-endian.</span></span>
+<span class="src-line" id="L308"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u16_be = (&amp;<span class="k">self</span>, v: <span class="t">u16</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(<span class="t">u64</span>(v), <span class="n">2</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L309"></span>
+<span class="src-line" id="L310"><span class="m">// Appends a 32-bit value, big-endian.</span></span>
+<span class="src-line" id="L311"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u32_be = (&amp;<span class="k">self</span>, v: <span class="t">u32</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(<span class="t">u64</span>(v), <span class="n">4</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L312"></span>
+<span class="src-line" id="L313"><span class="m">// Appends a 64-bit value, big-endian.</span></span>
+<span class="src-line" id="L314"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u64_be = (&amp;<span class="k">self</span>, v: <span class="t">u64</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(v, <span class="n">8</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L315"></span>
+<span class="src-line" id="L316"><span class="m">// Appends every byte of `bytes`.</span></span>
+<span class="src-line" id="L317"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_bytes = (&amp;<span class="k">self</span>, bytes: [<span class="t">u8</span>]): <span class="k">for</span>(b <span class="k">in</span> bytes): <span class="k">self</span>._data.<span class="f">push</span>(b)</span>
+<span class="src-line" id="L318"></span>
+<span class="src-line" id="L319"><span class="m">// Appends the UTF-8 bytes of `text`.</span></span>
+<span class="src-line" id="L320"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_string = (&amp;<span class="k">self</span>, text: <span class="t">string</span>): <span class="k">for</span>(b <span class="k">in</span> text.<span class="f">bytes</span>()): <span class="k">self</span>._data.<span class="f">push</span>(b)</span>
+<span class="src-line" id="L321"></span>
+<span class="src-line" id="L322"><span class="m">// Reads one byte, or `none` at the end.</span></span>
+<span class="src-line" id="L323"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u8 = (&amp;<span class="k">self</span>) ?<span class="t">u8</span>: {</span>
+<span class="src-line" id="L324">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">remaining</span>() &lt; <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L325">	<span class="k">let</span> b = <span class="k">self</span>._data[<span class="k">self</span>._pos]</span>
+<span class="src-line" id="L326">	<span class="k">self</span>._pos += <span class="n">1</span></span>
+<span class="src-line" id="L327">	b</span>
+<span class="src-line" id="L328">}</span>
+<span class="src-line" id="L329"></span>
+<span class="src-line" id="L330"><span class="m">// Reads a little-endian 16-bit value, or `none` if fewer than 2 bytes remain.</span></span>
+<span class="src-line" id="L331"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u16 = (&amp;<span class="k">self</span>) ?<span class="t">u16</span>: {</span>
+<span class="src-line" id="L332">	<span class="k">let</span> v = <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">2</span>, <span class="c">false</span>) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L333">	<span class="t">u16</span>(v)</span>
+<span class="src-line" id="L334">}</span>
+<span class="src-line" id="L335"></span>
+<span class="src-line" id="L336"><span class="m">// Reads a little-endian 32-bit value, or `none` if fewer than 4 bytes remain.</span></span>
+<span class="src-line" id="L337"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u32 = (&amp;<span class="k">self</span>) ?<span class="t">u32</span>: {</span>
+<span class="src-line" id="L338">	<span class="k">let</span> v = <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">4</span>, <span class="c">false</span>) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L339">	<span class="t">u32</span>(v)</span>
+<span class="src-line" id="L340">}</span>
+<span class="src-line" id="L341"></span>
+<span class="src-line" id="L342"><span class="m">// Reads a little-endian 64-bit value, or `none` if fewer than 8 bytes remain.</span></span>
+<span class="src-line" id="L343"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u64 = (&amp;<span class="k">self</span>) ?<span class="t">u64</span>: <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">8</span>, <span class="c">false</span>)</span>
+<span class="src-line" id="L344"></span>
+<span class="src-line" id="L345"><span class="m">// Reads a big-endian 16-bit value, or `none` if fewer than 2 bytes remain.</span></span>
+<span class="src-line" id="L346"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u16_be = (&amp;<span class="k">self</span>) ?<span class="t">u16</span>: {</span>
+<span class="src-line" id="L347">	<span class="k">let</span> v = <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">2</span>, <span class="c">true</span>) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L348">	<span class="t">u16</span>(v)</span>
+<span class="src-line" id="L349">}</span>
+<span class="src-line" id="L350"></span>
+<span class="src-line" id="L351"><span class="m">// Reads a big-endian 32-bit value, or `none` if fewer than 4 bytes remain.</span></span>
+<span class="src-line" id="L352"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u32_be = (&amp;<span class="k">self</span>) ?<span class="t">u32</span>: {</span>
+<span class="src-line" id="L353">	<span class="k">let</span> v = <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">4</span>, <span class="c">true</span>) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L354">	<span class="t">u32</span>(v)</span>
+<span class="src-line" id="L355">}</span>
+<span class="src-line" id="L356"></span>
+<span class="src-line" id="L357"><span class="m">// Reads a big-endian 64-bit value, or `none` if fewer than 8 bytes remain.</span></span>
+<span class="src-line" id="L358"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u64_be = (&amp;<span class="k">self</span>) ?<span class="t">u64</span>: <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">8</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L359"></span>
+<span class="src-line" id="L360"><span class="m">// Reads the next `count` bytes, or `none` if fewer remain.</span></span>
+<span class="src-line" id="L361"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_bytes = (&amp;<span class="k">self</span>, count: <span class="t">int</span>) ?[<span class="t">u8</span>]: {</span>
+<span class="src-line" id="L362">	<span class="k">if</span>(count &lt; <span class="n">0</span> <span class="k">or</span> <span class="k">self</span>.<span class="f">remaining</span>() &lt; count): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L363">	<span class="k">let</span> out = <span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..count) [<span class="t">u8</span>]: <span class="k">self</span>._data[<span class="k">self</span>._pos + i]</span>
+<span class="src-line" id="L364">	<span class="k">self</span>._pos += count</span>
+<span class="src-line" id="L365">	out</span>
+<span class="src-line" id="L366">}</span>
+<span class="src-line" id="L367"></span>
+<span class="src-line" id="L368"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L369"><span class="m">// Inline Unit Tests</span></span>
+<span class="src-line" id="L370"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L371"></span>
+<span class="src-line" id="L372"><span class="a">@test</span>(<span class="s">&quot;string predicates: is_empty, is_whitespace, is_ascii&quot;</span>)</span>
+<span class="src-line" id="L373"><span class="k">bind</span> test_strings_predicates = (): {</span>
+<span class="src-line" id="L374">	<span class="f">assert</span>(<span class="s">&quot;&quot;</span>.<span class="f">is_empty</span>(), <span class="s">&quot;empty string is_empty&quot;</span>)</span>
+<span class="src-line" id="L375">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;hello&quot;</span>.<span class="f">is_empty</span>(), <span class="s">&quot;non-empty string is not is_empty&quot;</span>)</span>
+<span class="src-line" id="L376"></span>
+<span class="src-line" id="L377">	<span class="f">assert</span>(<span class="s">&quot; \t\r\n &quot;</span>.<span class="f">is_whitespace</span>(), <span class="s">&quot;whitespace string&quot;</span>)</span>
+<span class="src-line" id="L378">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;&quot;</span>.<span class="f">is_whitespace</span>(), <span class="s">&quot;empty is not whitespace&quot;</span>)</span>
+<span class="src-line" id="L379">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;  hello  &quot;</span>.<span class="f">is_whitespace</span>(), <span class="s">&quot;mixed is not whitespace&quot;</span>)</span>
+<span class="src-line" id="L380"></span>
+<span class="src-line" id="L381">	<span class="f">assert</span>(<span class="s">&quot;hello 123!&quot;</span>.<span class="f">is_ascii</span>(), <span class="s">&quot;ascii string&quot;</span>)</span>
+<span class="src-line" id="L382">	<span class="f">assert</span>(<span class="s">&quot;&quot;</span>.<span class="f">is_ascii</span>(), <span class="s">&quot;empty string is ascii&quot;</span>)</span>
+<span class="src-line" id="L383">}</span>
+<span class="src-line" id="L384"></span>
+<span class="src-line" id="L385"><span class="a">@test</span>(<span class="s">&quot;string search: starts_with, ends_with, index_of, last_index_of, contains, count&quot;</span>)</span>
+<span class="src-line" id="L386"><span class="k">bind</span> test_strings_search = (): {</span>
+<span class="src-line" id="L387">	<span class="f">assert</span>(<span class="s">&quot;hello world&quot;</span>.<span class="f">starts_with</span>(<span class="s">&quot;hello&quot;</span>), <span class="s">&quot;starts_with prefix&quot;</span>)</span>
+<span class="src-line" id="L388">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;hello world&quot;</span>.<span class="f">starts_with</span>(<span class="s">&quot;world&quot;</span>), <span class="s">&quot;starts_with non-prefix&quot;</span>)</span>
+<span class="src-line" id="L389">	<span class="f">assert</span>(<span class="s">&quot;hello&quot;</span>.<span class="f">starts_with</span>(<span class="s">&quot;&quot;</span>), <span class="s">&quot;starts_with empty&quot;</span>)</span>
+<span class="src-line" id="L390"></span>
+<span class="src-line" id="L391">	<span class="f">assert</span>(<span class="s">&quot;hello world&quot;</span>.<span class="f">ends_with</span>(<span class="s">&quot;world&quot;</span>), <span class="s">&quot;ends_with suffix&quot;</span>)</span>
+<span class="src-line" id="L392">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;hello world&quot;</span>.<span class="f">ends_with</span>(<span class="s">&quot;hello&quot;</span>), <span class="s">&quot;ends_with non-suffix&quot;</span>)</span>
+<span class="src-line" id="L393">	<span class="f">assert</span>(<span class="s">&quot;hello&quot;</span>.<span class="f">ends_with</span>(<span class="s">&quot;&quot;</span>), <span class="s">&quot;ends_with empty&quot;</span>)</span>
+<span class="src-line" id="L394"></span>
+<span class="src-line" id="L395">	<span class="f">assert</span>(<span class="s">&quot;hello world&quot;</span>.<span class="f">contains</span>(<span class="s">&quot;lo wo&quot;</span>), <span class="s">&quot;contains substring&quot;</span>)</span>
+<span class="src-line" id="L396">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;hello world&quot;</span>.<span class="f">contains</span>(<span class="s">&quot;xyz&quot;</span>), <span class="s">&quot;contains non-substring&quot;</span>)</span>
+<span class="src-line" id="L397"></span>
+<span class="src-line" id="L398">	<span class="k">let</span> idx1? = <span class="s">&quot;banana&quot;</span>.<span class="f">index_of</span>(<span class="s">&quot;an&quot;</span>)</span>
+<span class="src-line" id="L399">	<span class="f">assert</span>(idx1? == <span class="n">1</span>, <span class="s">&quot;index_of an&quot;</span>)</span>
+<span class="src-line" id="L400">	<span class="k">let</span> idx2? = <span class="s">&quot;banana&quot;</span>.<span class="f">index_of</span>(<span class="s">&quot;xyz&quot;</span>)</span>
+<span class="src-line" id="L401">	<span class="f">assert</span>(idx2? == <span class="c">none</span>, <span class="s">&quot;index_of missing&quot;</span>)</span>
+<span class="src-line" id="L402">	<span class="k">let</span> idx3? = <span class="s">&quot;banana&quot;</span>.<span class="f">index_of</span>(<span class="s">&quot;&quot;</span>)</span>
+<span class="src-line" id="L403">	<span class="f">assert</span>(idx3? == <span class="n">0</span>, <span class="s">&quot;index_of empty&quot;</span>)</span>
+<span class="src-line" id="L404"></span>
+<span class="src-line" id="L405">	<span class="k">let</span> lidx1? = <span class="s">&quot;banana&quot;</span>.<span class="f">last_index_of</span>(<span class="s">&quot;an&quot;</span>)</span>
+<span class="src-line" id="L406">	<span class="f">assert</span>(lidx1? == <span class="n">3</span>, <span class="s">&quot;last_index_of an&quot;</span>)</span>
+<span class="src-line" id="L407">	<span class="k">let</span> lidx2? = <span class="s">&quot;banana&quot;</span>.<span class="f">last_index_of</span>(<span class="s">&quot;xyz&quot;</span>)</span>
+<span class="src-line" id="L408">	<span class="f">assert</span>(lidx2? == <span class="c">none</span>, <span class="s">&quot;last_index_of missing&quot;</span>)</span>
+<span class="src-line" id="L409">	<span class="k">let</span> lidx3? = <span class="s">&quot;banana&quot;</span>.<span class="f">last_index_of</span>(<span class="s">&quot;&quot;</span>)</span>
+<span class="src-line" id="L410">	<span class="f">assert</span>(lidx3? == <span class="n">6</span>, <span class="s">&quot;last_index_of empty&quot;</span>)</span>
+<span class="src-line" id="L411"></span>
+<span class="src-line" id="L412">	<span class="f">assert</span>(<span class="s">&quot;banana&quot;</span>.<span class="f">count</span>(<span class="s">&quot;an&quot;</span>) == <span class="n">2</span>, <span class="s">&quot;count an&quot;</span>)</span>
+<span class="src-line" id="L413">	<span class="f">assert</span>(<span class="s">&quot;banana&quot;</span>.<span class="f">count</span>(<span class="s">&quot;na&quot;</span>) == <span class="n">2</span>, <span class="s">&quot;count na&quot;</span>)</span>
+<span class="src-line" id="L414">	<span class="f">assert</span>(<span class="s">&quot;banana&quot;</span>.<span class="f">count</span>(<span class="s">&quot;z&quot;</span>) == <span class="n">0</span>, <span class="s">&quot;count missing&quot;</span>)</span>
+<span class="src-line" id="L415">	<span class="f">assert</span>(<span class="s">&quot;aaaa&quot;</span>.<span class="f">count</span>(<span class="s">&quot;aa&quot;</span>) == <span class="n">2</span>, <span class="s">&quot;count non-overlapping&quot;</span>)</span>
+<span class="src-line" id="L416">	<span class="f">assert</span>(<span class="s">&quot;aaa&quot;</span>.<span class="f">count</span>(<span class="s">&quot;aa&quot;</span>) == <span class="n">1</span>, <span class="s">&quot;count odd non-overlapping&quot;</span>)</span>
+<span class="src-line" id="L417">	<span class="f">assert</span>(<span class="s">&quot;abc&quot;</span>.<span class="f">count</span>(<span class="s">&quot;&quot;</span>) == <span class="n">0</span>, <span class="s">&quot;count empty needle&quot;</span>)</span>
+<span class="src-line" id="L418">	<span class="f">assert</span>(<span class="s">&quot;ab&quot;</span>.<span class="f">count</span>(<span class="s">&quot;abcd&quot;</span>) == <span class="n">0</span>, <span class="s">&quot;count longer needle&quot;</span>)</span>
+<span class="src-line" id="L419"></span>
+<span class="src-line" id="L420">	<span class="k">let</span> large = <span class="s">&quot;a&quot;</span>.<span class="f">repeat</span>(<span class="n">10000</span>)</span>
+<span class="src-line" id="L421">	<span class="f">assert</span>(large.<span class="f">count</span>(<span class="s">&quot;a&quot;</span>) == <span class="n">10000</span>, <span class="s">&quot;count 10k single-byte&quot;</span>)</span>
+<span class="src-line" id="L422">	<span class="f">assert</span>(large.<span class="f">count</span>(<span class="s">&quot;aa&quot;</span>) == <span class="n">5000</span>, <span class="s">&quot;count 10k pair&quot;</span>)</span>
+<span class="src-line" id="L423">	<span class="f">assert</span>(large.<span class="f">count</span>(<span class="s">&quot;z&quot;</span>) == <span class="n">0</span>, <span class="s">&quot;count 10k absent&quot;</span>)</span>
+<span class="src-line" id="L424">}</span>
+<span class="src-line" id="L425"></span>
+<span class="src-line" id="L426"><span class="a">@test</span>(<span class="s">&quot;string trimming and padding&quot;</span>)</span>
+<span class="src-line" id="L427"><span class="k">bind</span> test_strings_trim_pad = (): {</span>
+<span class="src-line" id="L428">	<span class="f">assert</span>(<span class="s">&quot;  \t hello \n &quot;</span>.<span class="f">trim_start</span>() == <span class="s">&quot;hello \n &quot;</span>, <span class="s">&quot;trim_start&quot;</span>)</span>
+<span class="src-line" id="L429">	<span class="f">assert</span>(<span class="s">&quot;  \t hello \n &quot;</span>.<span class="f">trim_end</span>() == <span class="s">&quot;  \t hello&quot;</span>, <span class="s">&quot;trim_end&quot;</span>)</span>
+<span class="src-line" id="L430">	<span class="f">assert</span>(<span class="s">&quot;  \t hello \n &quot;</span>.<span class="f">trim</span>() == <span class="s">&quot;hello&quot;</span>, <span class="s">&quot;trim&quot;</span>)</span>
+<span class="src-line" id="L431"></span>
+<span class="src-line" id="L432">	<span class="f">assert</span>(<span class="s">&quot;abc&quot;</span>.<span class="f">pad_left_char</span>(<span class="n">6</span>, <span class="s">&#39;0&#39;</span>) == <span class="s">&quot;000abc&quot;</span>, <span class="s">&quot;pad_left_char&quot;</span>)</span>
+<span class="src-line" id="L433">	<span class="f">assert</span>(<span class="s">&quot;abc&quot;</span>.<span class="f">pad_left_char</span>(<span class="n">2</span>, <span class="s">&#39;0&#39;</span>) == <span class="s">&quot;abc&quot;</span>, <span class="s">&quot;pad_left_char no-op when shorter&quot;</span>)</span>
+<span class="src-line" id="L434">	<span class="f">assert</span>(<span class="s">&quot;abc&quot;</span>.<span class="f">pad_right_char</span>(<span class="n">6</span>, <span class="s">&#39;-&#39;</span>) == <span class="s">&quot;abc---&quot;</span>, <span class="s">&quot;pad_right_char&quot;</span>)</span>
+<span class="src-line" id="L435">	<span class="f">assert</span>(<span class="s">&quot;abc&quot;</span>.<span class="f">pad_right_char</span>(<span class="n">3</span>, <span class="s">&#39;-&#39;</span>) == <span class="s">&quot;abc&quot;</span>, <span class="s">&quot;pad_right_char no-op&quot;</span>)</span>
+<span class="src-line" id="L436">	<span class="f">assert</span>(<span class="s">&quot;abc&quot;</span>.<span class="f">center_char</span>(<span class="n">7</span>, <span class="s">&#39;=&#39;</span>) == <span class="s">&quot;==abc==&quot;</span>, <span class="s">&quot;center_char odd&quot;</span>)</span>
+<span class="src-line" id="L437">	<span class="f">assert</span>(<span class="s">&quot;abc&quot;</span>.<span class="f">center_char</span>(<span class="n">6</span>, <span class="s">&#39;=&#39;</span>) == <span class="s">&quot;=abc==&quot;</span>, <span class="s">&quot;center_char even&quot;</span>)</span>
+<span class="src-line" id="L438"></span>
+<span class="src-line" id="L439">	<span class="f">assert</span>(<span class="s">&quot;café&quot;</span>.<span class="f">pad_left_char</span>(<span class="n">6</span>, <span class="s">&#39;0&#39;</span>) == <span class="s">&quot;00café&quot;</span>, <span class="s">&quot;pad_left_char utf8&quot;</span>)</span>
+<span class="src-line" id="L440">	<span class="f">assert</span>(<span class="s">&quot;café&quot;</span>.<span class="f">pad_left_char</span>(<span class="n">4</span>, <span class="s">&#39;0&#39;</span>) == <span class="s">&quot;café&quot;</span>, <span class="s">&quot;pad_left_char utf8 exact&quot;</span>)</span>
+<span class="src-line" id="L441">	<span class="f">assert</span>(<span class="s">&quot;café&quot;</span>.<span class="f">pad_left_char</span>(-<span class="n">2</span>, <span class="s">&#39;0&#39;</span>) == <span class="s">&quot;café&quot;</span>, <span class="s">&quot;pad_left_char utf8 negative&quot;</span>)</span>
+<span class="src-line" id="L442">	<span class="f">assert</span>(<span class="s">&quot;café&quot;</span>.<span class="f">pad_right_char</span>(<span class="n">6</span>, <span class="s">&#39;·&#39;</span>) == <span class="s">&quot;café··&quot;</span>, <span class="s">&quot;pad_right_char utf8&quot;</span>)</span>
+<span class="src-line" id="L443">	<span class="f">assert</span>(<span class="s">&quot;αβ&quot;</span>.<span class="f">center_char</span>(<span class="n">5</span>, <span class="s">&#39;★&#39;</span>) == <span class="s">&quot;★αβ★★&quot;</span>, <span class="s">&quot;center_char utf8&quot;</span>)</span>
+<span class="src-line" id="L444">	<span class="f">assert</span>(<span class="s">&quot;😀&quot;</span>.<span class="f">center_char</span>(<span class="n">5</span>, <span class="s">&#39;=&#39;</span>) == <span class="s">&quot;==😀==&quot;</span>, <span class="s">&quot;center_char emoji&quot;</span>)</span>
+<span class="src-line" id="L445">	<span class="f">assert</span>(<span class="s">&quot;&quot;</span>.<span class="f">pad_left_char</span>(<span class="n">3</span>, <span class="s">&#39;é&#39;</span>) == <span class="s">&quot;ééé&quot;</span>, <span class="s">&quot;pad_left_char empty utf8&quot;</span>)</span>
+<span class="src-line" id="L446">	<span class="f">assert</span>(<span class="s">&quot;&quot;</span>.<span class="f">pad_left_char</span>(<span class="n">0</span>, <span class="s">&#39;é&#39;</span>) == <span class="s">&quot;&quot;</span>, <span class="s">&quot;pad_left_char empty zero&quot;</span>)</span>
+<span class="src-line" id="L447">}</span>
+<span class="src-line" id="L448"></span>
+<span class="src-line" id="L449"><span class="a">@test</span>(<span class="s">&quot;string transformations: case, repeat, reverse, replace&quot;</span>)</span>
+<span class="src-line" id="L450"><span class="k">bind</span> test_strings_transform = (): {</span>
+<span class="src-line" id="L451">	<span class="f">assert</span>(<span class="s">&quot;Hello, World!&quot;</span>.<span class="f">to_upper</span>() == <span class="s">&quot;HELLO, WORLD!&quot;</span>, <span class="s">&quot;to_upper&quot;</span>)</span>
+<span class="src-line" id="L452">	<span class="f">assert</span>(<span class="s">&quot;Hello, World!&quot;</span>.<span class="f">to_lower</span>() == <span class="s">&quot;hello, world!&quot;</span>, <span class="s">&quot;to_lower&quot;</span>)</span>
+<span class="src-line" id="L453">	<span class="f">assert</span>(<span class="s">&quot;hello world&quot;</span>.<span class="f">capitalize</span>() == <span class="s">&quot;Hello world&quot;</span>, <span class="s">&quot;capitalize lower&quot;</span>)</span>
+<span class="src-line" id="L454">	<span class="f">assert</span>(<span class="s">&quot;HELLO WORLD&quot;</span>.<span class="f">capitalize</span>() == <span class="s">&quot;Hello world&quot;</span>, <span class="s">&quot;capitalize upper&quot;</span>)</span>
+<span class="src-line" id="L455"></span>
+<span class="src-line" id="L456">	<span class="f">assert</span>(<span class="s">&quot;ab&quot;</span>.<span class="f">repeat</span>(<span class="n">3</span>) == <span class="s">&quot;ababab&quot;</span>, <span class="s">&quot;repeat 3&quot;</span>)</span>
+<span class="src-line" id="L457">	<span class="f">assert</span>(<span class="s">&quot;xyz&quot;</span>.<span class="f">repeat</span>(<span class="n">0</span>) == <span class="s">&quot;&quot;</span>, <span class="s">&quot;repeat 0&quot;</span>)</span>
+<span class="src-line" id="L458"></span>
+<span class="src-line" id="L459">	<span class="f">assert</span>(<span class="s">&quot;hello&quot;</span>.<span class="f">reverse</span>() == <span class="s">&quot;olleh&quot;</span>, <span class="s">&quot;reverse string&quot;</span>)</span>
+<span class="src-line" id="L460">	<span class="f">assert</span>(<span class="s">&quot;&quot;</span>.<span class="f">reverse</span>() == <span class="s">&quot;&quot;</span>, <span class="s">&quot;reverse empty&quot;</span>)</span>
+<span class="src-line" id="L461">	<span class="f">assert</span>(<span class="s">&quot;a&quot;</span>.<span class="f">reverse</span>() == <span class="s">&quot;a&quot;</span>, <span class="s">&quot;reverse single ascii&quot;</span>)</span>
+<span class="src-line" id="L462">	<span class="f">assert</span>(<span class="s">&quot;é&quot;</span>.<span class="f">reverse</span>() == <span class="s">&quot;é&quot;</span>, <span class="s">&quot;reverse single 2-byte char&quot;</span>)</span>
+<span class="src-line" id="L463">	<span class="f">assert</span>(<span class="s">&quot;中&quot;</span>.<span class="f">reverse</span>() == <span class="s">&quot;中&quot;</span>, <span class="s">&quot;reverse single 3-byte char&quot;</span>)</span>
+<span class="src-line" id="L464">	<span class="f">assert</span>(<span class="s">&quot;😀&quot;</span>.<span class="f">reverse</span>() == <span class="s">&quot;😀&quot;</span>, <span class="s">&quot;reverse single 4-byte emoji&quot;</span>)</span>
+<span class="src-line" id="L465">	<span class="f">assert</span>(<span class="s">&quot;café&quot;</span>.<span class="f">reverse</span>() == <span class="s">&quot;éfac&quot;</span>, <span class="s">&quot;reverse utf8&quot;</span>)</span>
+<span class="src-line" id="L466">	<span class="f">assert</span>(<span class="s">&quot;aé中😀b&quot;</span>.<span class="f">reverse</span>() == <span class="s">&quot;b😀中éa&quot;</span>, <span class="s">&quot;reverse mixed multibyte&quot;</span>)</span>
+<span class="src-line" id="L467">	<span class="f">assert</span>(<span class="s">&quot;café 🌍 日本語&quot;</span>.<span class="f">reverse</span>().<span class="f">reverse</span>() == <span class="s">&quot;café 🌍 日本語&quot;</span>, <span class="s">&quot;reverse roundtrip utf8&quot;</span>)</span>
+<span class="src-line" id="L468"></span>
+<span class="src-line" id="L469">	<span class="f">assert</span>(<span class="s">&quot;hello world world&quot;</span>.<span class="f">replace</span>(<span class="s">&quot;world&quot;</span>, <span class="s">&quot;there&quot;</span>) == <span class="s">&quot;hello there world&quot;</span>, <span class="s">&quot;replace first&quot;</span>)</span>
+<span class="src-line" id="L470">	<span class="f">assert</span>(<span class="s">&quot;banana&quot;</span>.<span class="f">replace_all</span>(<span class="s">&quot;an&quot;</span>, <span class="s">&quot;XX&quot;</span>) == <span class="s">&quot;bXXXXa&quot;</span>, <span class="s">&quot;replace_all&quot;</span>)</span>
+<span class="src-line" id="L471">	<span class="f">assert</span>(<span class="s">&quot;hello&quot;</span>.<span class="f">replace</span>(<span class="s">&quot;xyz&quot;</span>, <span class="s">&quot;abc&quot;</span>) == <span class="s">&quot;hello&quot;</span>, <span class="s">&quot;replace not found&quot;</span>)</span>
+<span class="src-line" id="L472">}</span>
+<span class="src-line" id="L473"></span>
+<span class="src-line" id="L474"><span class="a">@test</span>(<span class="s">&quot;string tokenization and joining: split, lines, join, chars/bytes&quot;</span>)</span>
+<span class="src-line" id="L475"><span class="k">bind</span> test_strings_split_join = (): {</span>
+<span class="src-line" id="L476">	<span class="k">let</span> parts = <span class="s">&quot;apple,banana,cherry&quot;</span>.<span class="f">split</span>(<span class="s">&quot;,&quot;</span>)</span>
+<span class="src-line" id="L477">	<span class="f">assert</span>(parts.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;split count&quot;</span>)</span>
+<span class="src-line" id="L478">	<span class="f">assert</span>(parts[<span class="n">0</span>] == <span class="s">&quot;apple&quot;</span>, <span class="s">&quot;split 0&quot;</span>)</span>
+<span class="src-line" id="L479">	<span class="f">assert</span>(parts[<span class="n">1</span>] == <span class="s">&quot;banana&quot;</span>, <span class="s">&quot;split 1&quot;</span>)</span>
+<span class="src-line" id="L480">	<span class="f">assert</span>(parts[<span class="n">2</span>] == <span class="s">&quot;cherry&quot;</span>, <span class="s">&quot;split 2&quot;</span>)</span>
+<span class="src-line" id="L481"></span>
+<span class="src-line" id="L482">	<span class="k">let</span> words = <span class="s">&quot;  one \t two \r\n three  &quot;</span>.<span class="f">split_whitespace</span>()</span>
+<span class="src-line" id="L483">	<span class="f">assert</span>(words.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;split_whitespace count&quot;</span>)</span>
+<span class="src-line" id="L484">	<span class="f">assert</span>(words[<span class="n">0</span>] == <span class="s">&quot;one&quot;</span>, <span class="s">&quot;word 0&quot;</span>)</span>
+<span class="src-line" id="L485">	<span class="f">assert</span>(words[<span class="n">1</span>] == <span class="s">&quot;two&quot;</span>, <span class="s">&quot;word 1&quot;</span>)</span>
+<span class="src-line" id="L486">	<span class="f">assert</span>(words[<span class="n">2</span>] == <span class="s">&quot;three&quot;</span>, <span class="s">&quot;word 2&quot;</span>)</span>
+<span class="src-line" id="L487"></span>
+<span class="src-line" id="L488">	<span class="k">let</span> vf_ws = <span class="s">&quot;a&quot;</span> + <span class="t">char</span>(<span class="n">11</span>).<span class="f">to_string</span>() + <span class="s">&quot;b&quot;</span> + <span class="t">char</span>(<span class="n">12</span>).<span class="f">to_string</span>() + <span class="s">&quot;c&quot;</span></span>
+<span class="src-line" id="L489">	<span class="k">let</span> vf_words = vf_ws.<span class="f">split_whitespace</span>()</span>
+<span class="src-line" id="L490">	<span class="f">assert</span>(vf_words.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;split_whitespace splits vertical tab and form feed&quot;</span>)</span>
+<span class="src-line" id="L491">	<span class="f">assert</span>(vf_words[<span class="n">0</span>] == <span class="s">&quot;a&quot;</span> <span class="k">and</span> vf_words[<span class="n">1</span>] == <span class="s">&quot;b&quot;</span> <span class="k">and</span> vf_words[<span class="n">2</span>] == <span class="s">&quot;c&quot;</span>, <span class="s">&quot;vt/ff words match&quot;</span>)</span>
+<span class="src-line" id="L492"></span>
+<span class="src-line" id="L493">	<span class="k">let</span> only_ws = <span class="s">&quot; \t\r\n&quot;</span> + <span class="t">char</span>(<span class="n">11</span>).<span class="f">to_string</span>() + <span class="t">char</span>(<span class="n">12</span>).<span class="f">to_string</span>()</span>
+<span class="src-line" id="L494">	<span class="f">assert</span>(only_ws.<span class="f">is_whitespace</span>(), <span class="s">&quot;all ascii whitespace chars match is_whitespace&quot;</span>)</span>
+<span class="src-line" id="L495">	<span class="f">assert</span>(only_ws.<span class="f">split_whitespace</span>().<span class="f">is_empty</span>(), <span class="s">&quot;all-whitespace splits to empty&quot;</span>)</span>
+<span class="src-line" id="L496">	<span class="f">assert</span>(<span class="s">&quot;&quot;</span>.<span class="f">split_whitespace</span>().<span class="f">is_empty</span>(), <span class="s">&quot;empty splits to empty&quot;</span>)</span>
+<span class="src-line" id="L497"></span>
+<span class="src-line" id="L498">	<span class="k">let</span> utf8_words = <span class="s">&quot;  α\tβ  &quot;</span>.<span class="f">split_whitespace</span>()</span>
+<span class="src-line" id="L499">	<span class="f">assert</span>(utf8_words.<span class="f">len</span>() == <span class="n">2</span> <span class="k">and</span> utf8_words[<span class="n">0</span>] == <span class="s">&quot;α&quot;</span> <span class="k">and</span> utf8_words[<span class="n">1</span>] == <span class="s">&quot;β&quot;</span>, <span class="s">&quot;utf8 tokens preserved&quot;</span>)</span>
+<span class="src-line" id="L500"></span>
+<span class="src-line" id="L501">	<span class="k">let</span> lns = <span class="s">&quot;line1\r\nline2\nline3&quot;</span>.<span class="f">lines</span>()</span>
+<span class="src-line" id="L502">	<span class="f">assert</span>(lns.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;lines count&quot;</span>)</span>
+<span class="src-line" id="L503">	<span class="f">assert</span>(lns[<span class="n">0</span>] == <span class="s">&quot;line1&quot;</span>, <span class="s">&quot;line 0&quot;</span>)</span>
+<span class="src-line" id="L504">	<span class="f">assert</span>(lns[<span class="n">1</span>] == <span class="s">&quot;line2&quot;</span>, <span class="s">&quot;line 1&quot;</span>)</span>
+<span class="src-line" id="L505">	<span class="f">assert</span>(lns[<span class="n">2</span>] == <span class="s">&quot;line3&quot;</span>, <span class="s">&quot;line 2&quot;</span>)</span>
+<span class="src-line" id="L506"></span>
+<span class="src-line" id="L507">	<span class="k">let</span> joined = <span class="f">join</span>([<span class="s">&quot;a&quot;</span>, <span class="s">&quot;b&quot;</span>, <span class="s">&quot;c&quot;</span>], <span class="s">&quot;::&quot;</span>)</span>
+<span class="src-line" id="L508">	<span class="f">assert</span>(joined == <span class="s">&quot;a::b::c&quot;</span>, <span class="s">&quot;join strings&quot;</span>)</span>
+<span class="src-line" id="L509"></span>
+<span class="src-line" id="L510">	<span class="k">let</span> cl = <span class="s">&quot;cat&quot;</span>.<span class="f">chars_list</span>()</span>
+<span class="src-line" id="L511">	<span class="f">assert</span>(cl.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;chars_list len&quot;</span>)</span>
+<span class="src-line" id="L512">	<span class="f">assert</span>(cl[<span class="n">0</span>] == <span class="s">&#39;c&#39;</span> <span class="k">and</span> cl[<span class="n">1</span>] == <span class="s">&#39;a&#39;</span> <span class="k">and</span> cl[<span class="n">2</span>] == <span class="s">&#39;t&#39;</span>, <span class="s">&quot;chars_list values&quot;</span>)</span>
+<span class="src-line" id="L513"></span>
+<span class="src-line" id="L514">	<span class="k">let</span> bl = <span class="s">&quot;ABC&quot;</span>.<span class="f">bytes_list</span>()</span>
+<span class="src-line" id="L515">	<span class="f">assert</span>(bl.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;bytes_list len&quot;</span>)</span>
+<span class="src-line" id="L516">	<span class="f">assert</span>(bl[<span class="n">0</span>] == <span class="t">u8</span>(<span class="n">65</span>) <span class="k">and</span> bl[<span class="n">1</span>] == <span class="t">u8</span>(<span class="n">66</span>) <span class="k">and</span> bl[<span class="n">2</span>] == <span class="t">u8</span>(<span class="n">67</span>), <span class="s">&quot;bytes_list values&quot;</span>)</span>
+<span class="src-line" id="L517">}</span>
+<span class="src-line" id="L518"></span>
+<span class="src-line" id="L519"><span class="a">@test</span>(<span class="s">&quot;ByteBuffer reads and writes little- and big-endian integers&quot;</span>)</span>
+<span class="src-line" id="L520"><span class="k">bind</span> test_byte_buffer = (): {</span>
+<span class="src-line" id="L521">	<span class="k">let</span> b = <span class="t">ByteBuffer</span>.<span class="f">new</span>()</span>
+<span class="src-line" id="L522">	b.<span class="f">write_u8</span>(<span class="t">u8</span>(<span class="n">0xAB</span>))</span>
+<span class="src-line" id="L523">	b.<span class="f">write_u16</span>(<span class="t">u16</span>(<span class="n">0x1234</span>))</span>
+<span class="src-line" id="L524">	b.<span class="f">write_u32</span>(<span class="t">u32</span>(<span class="n">0xDEADBEEF</span>))</span>
+<span class="src-line" id="L525">	b.<span class="f">write_u64</span>(<span class="t">u64</span>(<span class="n">0x0102030405060708</span>))</span>
+<span class="src-line" id="L526">	b.<span class="f">write_u16_be</span>(<span class="t">u16</span>(<span class="n">0x1234</span>))</span>
+<span class="src-line" id="L527">	b.<span class="f">write_u32_be</span>(<span class="t">u32</span>(<span class="n">7</span>))</span>
+<span class="src-line" id="L528">	b.<span class="f">write_string</span>(<span class="s">&quot;hi&quot;</span>)</span>
+<span class="src-line" id="L529">	<span class="f">assert</span>(b.<span class="f">len</span>() == <span class="n">1</span> + <span class="n">2</span> + <span class="n">4</span> + <span class="n">8</span> + <span class="n">2</span> + <span class="n">4</span> + <span class="n">2</span>, <span class="s">&quot;length&quot;</span>)</span>
+<span class="src-line" id="L530">	<span class="k">let</span> raw = b.<span class="f">bytes</span>()</span>
+<span class="src-line" id="L531">	<span class="f">assert</span>(raw[<span class="n">1</span>] == <span class="t">u8</span>(<span class="n">0x34</span>) <span class="k">and</span> raw[<span class="n">2</span>] == <span class="t">u8</span>(<span class="n">0x12</span>), <span class="s">&quot;u16 is little-endian&quot;</span>)</span>
+<span class="src-line" id="L532">	<span class="f">assert</span>(raw[<span class="n">15</span>] == <span class="t">u8</span>(<span class="n">0x12</span>) <span class="k">and</span> raw[<span class="n">16</span>] == <span class="t">u8</span>(<span class="n">0x34</span>), <span class="s">&quot;u16_be is big-endian&quot;</span>)</span>
+<span class="src-line" id="L533"></span>
+<span class="src-line" id="L534">	<span class="f">assert</span>(b.<span class="f">read_u8</span>() == <span class="t">u8</span>(<span class="n">0xAB</span>), <span class="s">&quot;u8&quot;</span>)</span>
+<span class="src-line" id="L535">	<span class="f">assert</span>(b.<span class="f">read_u16</span>() == <span class="t">u16</span>(<span class="n">0x1234</span>), <span class="s">&quot;u16&quot;</span>)</span>
+<span class="src-line" id="L536">	<span class="f">assert</span>(b.<span class="f">read_u32</span>() == <span class="t">u32</span>(<span class="n">0xDEADBEEF</span>), <span class="s">&quot;u32&quot;</span>)</span>
+<span class="src-line" id="L537">	<span class="f">assert</span>(b.<span class="f">read_u64</span>() == <span class="t">u64</span>(<span class="n">0x0102030405060708</span>), <span class="s">&quot;u64&quot;</span>)</span>
+<span class="src-line" id="L538">	<span class="f">assert</span>(b.<span class="f">read_u16_be</span>() == <span class="t">u16</span>(<span class="n">0x1234</span>), <span class="s">&quot;u16_be&quot;</span>)</span>
+<span class="src-line" id="L539">	<span class="f">assert</span>(b.<span class="f">read_u32_be</span>() == <span class="t">u32</span>(<span class="n">7</span>), <span class="s">&quot;u32_be&quot;</span>)</span>
+<span class="src-line" id="L540">	<span class="f">assert</span>(b.<span class="f">remaining</span>() == <span class="n">2</span>, <span class="s">&quot;two bytes left&quot;</span>)</span>
+<span class="src-line" id="L541">	<span class="f">assert</span>(b.<span class="f">read_u32</span>() == <span class="c">none</span>, <span class="s">&quot;not enough bytes for u32&quot;</span>)</span>
+<span class="src-line" id="L542">	<span class="f">assert</span>(b.<span class="f">position</span>() == <span class="n">21</span>, <span class="s">&quot;a failed read does not move the cursor&quot;</span>)</span>
+<span class="src-line" id="L543">	<span class="k">let</span> tail = b.<span class="f">read_bytes</span>(<span class="n">2</span>) ?? []</span>
+<span class="src-line" id="L544">	<span class="f">assert</span>(tail.<span class="f">len</span>() == <span class="n">2</span> <span class="k">and</span> tail[<span class="n">0</span>] == <span class="t">u8</span>(<span class="n">104</span>), <span class="s">&quot;read_bytes&quot;</span>)</span>
+<span class="src-line" id="L545">	<span class="f">assert</span>(b.<span class="f">read_u8</span>() == <span class="c">none</span>, <span class="s">&quot;end of buffer&quot;</span>)</span>
+<span class="src-line" id="L546">	<span class="f">assert</span>(b.<span class="f">seek</span>(<span class="n">0</span>) <span class="k">and</span> b.<span class="f">read_u8</span>() == <span class="t">u8</span>(<span class="n">0xAB</span>), <span class="s">&quot;seek back to the start&quot;</span>)</span>
+<span class="src-line" id="L547">	<span class="f">assert</span>(<span class="k">not</span> b.<span class="f">seek</span>(<span class="n">99</span>), <span class="s">&quot;seek out of range&quot;</span>)</span>
+<span class="src-line" id="L548"></span>
+<span class="src-line" id="L549">	<span class="k">let</span> from = <span class="t">ByteBuffer</span>.<span class="f">from_string</span>(<span class="s">&quot;AB&quot;</span>)</span>
+<span class="src-line" id="L550">	<span class="f">assert</span>(from.<span class="f">read_u16_be</span>() == <span class="t">u16</span>(<span class="n">0x4142</span>), <span class="s">&quot;from_string bytes&quot;</span>)</span>
+<span class="src-line" id="L551">}</span>
+<span class="src-line" id="L552"></span>
+<span class="src-line" id="L553"><span class="a">@test</span>(<span class="s">&quot;string.with_capacity and reserve preallocate without changing the text&quot;</span>)</span>
+<span class="src-line" id="L554"><span class="k">bind</span> test_string_capacity = (): {</span>
+<span class="src-line" id="L555">	<span class="k">let</span> s = <span class="t">string</span>.<span class="f">with_capacity</span>(<span class="n">100</span>)</span>
+<span class="src-line" id="L556">	<span class="f">assert</span>(s.<span class="f">is_empty</span>() <span class="k">and</span> s.<span class="f">cap</span>() &gt;= <span class="n">100</span>, <span class="s">&quot;with_capacity reserves room&quot;</span>)</span>
+<span class="src-line" id="L557">	<span class="k">let</span> before = s.<span class="f">cap</span>()</span>
+<span class="src-line" id="L558">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">100</span>): s.<span class="f">push_byte</span>(<span class="t">u8</span>(<span class="n">97</span>))</span>
+<span class="src-line" id="L559">	<span class="f">assert</span>(s.<span class="f">len</span>() == <span class="n">100</span> <span class="k">and</span> s.<span class="f">cap</span>() == before, <span class="s">&quot;no reallocation within the reserved capacity&quot;</span>)</span>
+<span class="src-line" id="L560">	s.<span class="f">reserve</span>(<span class="n">1000</span>)</span>
+<span class="src-line" id="L561">	<span class="f">assert</span>(s.<span class="f">cap</span>() &gt;= <span class="n">1100</span> <span class="k">and</span> s.<span class="f">len</span>() == <span class="n">100</span>, <span class="s">&quot;reserve adds room after the current length&quot;</span>)</span>
+<span class="src-line" id="L562">	<span class="f">assert</span>(<span class="s">&quot;literal&quot;</span>.<span class="f">cap</span>() == <span class="n">0</span>, <span class="s">&quot;literals own no buffer&quot;</span>)</span>
+<span class="src-line" id="L563">	<span class="k">let</span> t = <span class="s">&quot;abc&quot;</span> + <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L564">	t.<span class="f">reserve</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L565">	<span class="f">assert</span>(t == <span class="s">&quot;abc&quot;</span>, <span class="s">&quot;reserve keeps the contents&quot;</span>)</span>
+<span class="src-line" id="L566">}</span>
+<span class="src-line" id="L567"></span>
+<span class="src-line" id="L568"><span class="a">@test</span>(<span class="s">&quot;string.lines drops the final line terminator, not blank lines&quot;</span>)</span>
+<span class="src-line" id="L569"><span class="k">bind</span> test_string_lines_trailing_newline = (): {</span>
+<span class="src-line" id="L570">	<span class="f">assert</span>(<span class="f">join_strings</span>(<span class="s">&quot;a\nb\n&quot;</span>.<span class="f">lines</span>(), <span class="s">&quot;|&quot;</span>) == <span class="s">&quot;a|b&quot;</span>, <span class="s">&quot;trailing newline ends the last line&quot;</span>)</span>
+<span class="src-line" id="L571">	<span class="f">assert</span>(<span class="f">join_strings</span>(<span class="s">&quot;a\r\nb\r\n&quot;</span>.<span class="f">lines</span>(), <span class="s">&quot;|&quot;</span>) == <span class="s">&quot;a|b&quot;</span>, <span class="s">&quot;trailing CRLF too&quot;</span>)</span>
+<span class="src-line" id="L572">	<span class="f">assert</span>(<span class="f">join_strings</span>(<span class="s">&quot;a\nb&quot;</span>.<span class="f">lines</span>(), <span class="s">&quot;|&quot;</span>) == <span class="s">&quot;a|b&quot;</span>, <span class="s">&quot;no trailing newline&quot;</span>)</span>
+<span class="src-line" id="L573">	<span class="f">assert</span>(<span class="f">join_strings</span>(<span class="s">&quot;a\nb\n\n&quot;</span>.<span class="f">lines</span>(), <span class="s">&quot;|&quot;</span>) == <span class="s">&quot;a|b|&quot;</span>, <span class="s">&quot;a blank last line is kept&quot;</span>)</span>
+<span class="src-line" id="L574">	<span class="f">assert</span>(<span class="s">&quot;&quot;</span>.<span class="f">lines</span>().<span class="f">is_empty</span>(), <span class="s">&quot;empty text has no lines&quot;</span>)</span>
+<span class="src-line" id="L575">	<span class="f">assert</span>(<span class="f">join_strings</span>(<span class="s">&quot;\n&quot;</span>.<span class="f">lines</span>(), <span class="s">&quot;|&quot;</span>) == <span class="s">&quot;&quot;</span>, <span class="s">&quot;a lone newline is one empty line&quot;</span>)</span>
+<span class="src-line" id="L576">	<span class="f">assert</span>(<span class="s">&quot;\n&quot;</span>.<span class="f">lines</span>().<span class="f">len</span>() == <span class="n">1</span>, <span class="s">&quot;a lone newline is one empty line&quot;</span>)</span>
+<span class="src-line" id="L577">}</span>
+<span class="src-line" id="L578"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

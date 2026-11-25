@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>6. Control Flow · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a class="active" href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../ref/index.html">Reference</a></div><div class="sidebar-group">Specification</div><ul><li><a href="index.html">Overview and contents</a></li><li><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a></li><li><a href="quick-reference.html">Quick Reference</a></li></ul><div class="sidebar-group">Language reference</div><ul><li><a href="conventions-and-conformance.html">1. Conventions and Conformance</a></li><li><a href="lexical-structure.html">2. Lexical Structure</a></li><li><a href="types.html">3. Types</a></li><li><a href="declarations-and-program-structure.html">4. Declarations and Program Structure</a></li><li><a href="expressions.html">5. Expressions</a></li><li><a class="active" href="control-flow.html">6. Control Flow</a></li><li><a href="ownership-borrowing-and-destruction.html">7. Ownership, Borrowing, and Destruction</a></li><li><a href="generics.html">8. Generics</a></li><li><a href="failure-handling.html">9. Failure Handling</a></li><li><a href="unsafe-code-and-foreign-functions.html">10. Unsafe Code and Foreign Functions</a></li><li><a href="testing.html">11. Testing</a></li><li><a href="the-prelude.html">12. The Prelude</a></li><li><a href="the-standard-library.html">13. The Standard Library</a></li><li><a href="packages-manifests-and-dependencies.html">14. Packages, Manifests, and Dependencies</a></li></ul><div class="sidebar-group">Implementer&#39;s guide</div><ul><li><a href="implementers-guide.html">About this part</a></li><li><a href="compiler-architecture.html">15. Compiler Architecture</a></li><li><a href="parsing-ambiguities-and-their-resolution.html">16. Parsing Ambiguities and Their Resolution</a></li><li><a href="semantic-analysis.html">17. Semantic Analysis</a></li><li><a href="lowering-and-runtime-representation.html">18. Lowering and Runtime Representation</a></li><li><a href="the-runtime-contract.html">19. The Runtime Contract</a></li><li><a href="conformance-checklist.html">20. Conformance Checklist</a></li></ul><div class="sidebar-group">Appendices</div><ul><li><a href="appendix-a-grammar.html">Appendix A: Grammar</a></li><li><a href="appendix-b-keywords-and-contextual-words.html">Appendix B: Keywords and Contextual Words</a></li><li><a href="appendix-c-operator-precedence.html">Appendix C: Operator Precedence</a></li><li><a href="appendix-d-runtime-traps.html">Appendix D: Runtime Traps</a></li><li><a href="appendix-e-glossary.html">Appendix E: Glossary</a></li></ul><div class="sidebar-group">Tools</div><ul><li><a href="../ref/cli.html">Command-line tool</a></li><li><a href="../ref/formatter.html">Formatting</a></li><li><a href="../ref/documentation.html">Documentation comments</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../ref/index.html">Reference</a><span class="sep">/</span><span>Language reference</span></nav><h1 id="6-control-flow"><a class="anchor" href="#6-control-flow" aria-hidden="true">#</a>6. Control Flow</h1>
+<blockquote class="glance">
+<p><strong>At a glance</strong></p>
+<ul>
+<li><code>if</code>, <code>while</code>, <code>for</code>, and <code>match</code> are expressions. Headers are written <code>keyword(...)</code> and followed by <code>:</code> and a body (an expression or a block).
+</li>
+<li><code>if</code> without <code>else</code> produces <code>?T</code>. <code>while</code> produces one value; <code>for</code> collects a list.
+</li>
+<li><code>match</code> must cover every case and always ends with a <code>default</code> arm. Variants are named bare: <code>when pending:</code>, <code>when num(n):</code>.
+</li>
+<li>A result chain, <code>expr: when failure: ... default ...</code>, evaluates to the success value.
+</li>
+<li><code>&lt;-</code> leaves a construct: <code>func &lt;-</code>, <code>for &lt;-</code>, <code>while &lt;-</code>, <code>next &lt;-</code>, <code>name &lt;-</code>.
+</li>
+</ul>
+</blockquote>
+<h2 id="61-bodies"><a class="anchor" href="#61-bodies" aria-hidden="true">#</a>6.1 Bodies</h2>
+<p>Every control construct has the shape <code>keyword(header) [EvalType]: Body</code>. A <strong>body</strong> is a single expression (which may be a single assignment or an unwind) or a <code>{ ... }</code> block. When a body is on the next line it is indented; the formatter decides between the two layouts.</p>
+<p>The optional <strong>evaluation type</strong> written before the <code>:</code> states the construct's result type, as in <code>if(c) int: a else: b</code> or <code>while(true) string: ...</code>. It is needed only when the type cannot be inferred.</p>
+<p>A construct in <strong>statement position</strong> (its value unused) runs for its effects only. In that position, <code>if</code> needs no <code>else</code>, a <code>for</code> loop collects nothing and allocates nothing, and a <code>while</code> loop produces nothing.</p>
+<h2 id="62-if"><a class="anchor" href="#62-if" aria-hidden="true">#</a>6.2 If</h2>
+<pre class="lang-ebnf" data-lang="ebnf"><code><span class="t">IfExpr</span>  = <span class="s">&quot;if&quot;</span> <span class="s">&quot;(&quot;</span> <span class="t">Cond</span> <span class="s">&quot;)&quot;</span> [ <span class="t">Type</span> ] <span class="s">&quot;:&quot;</span> <span class="t">Body</span> { <span class="s">&quot;else&quot;</span> <span class="s">&quot;if&quot;</span> <span class="s">&quot;(&quot;</span> <span class="t">Cond</span> <span class="s">&quot;)&quot;</span> [ <span class="t">Type</span> ] <span class="s">&quot;:&quot;</span> <span class="t">Body</span> } [ <span class="s">&quot;else&quot;</span> <span class="s">&quot;:&quot;</span> <span class="t">Body</span> ] ;
+<span class="t">Cond</span>    = <span class="t">Expr</span>                          <span class="m">(* a bool *)</span>
+        | [ <span class="s">&quot;&amp;&quot;</span> ] <span class="t">OptName</span>               <span class="m">(* narrow an optional variable *)</span>
+        | [ <span class="s">&quot;&amp;&quot;</span> ] <span class="t">Expr</span> <span class="s">&quot;as&quot;</span> <span class="t">Name</span> ;      <span class="m">(* bind an optional&#39;s or a result&#39;s value *)</span></code></pre>
+<p><strong>Values.</strong> With <code>else</code>, both branches must have compatible types and the <code>if</code> has that type; an unwinding branch (type <code>never</code>) is compatible with anything. Without <code>else</code>, an <code>if</code> used as a value has type <code>?T</code> (the branch's value or <code>none</code>). An explicit non-optional evaluation type without <code>else</code> is an error.</p>
+<p><strong>Conditions.</strong></p>
+<ol>
+<li><strong>Boolean.</strong> The condition must be <code>bool</code>.
+</li>
+<li><strong>Optional narrowing, <code>if(x?)</code>.</strong> If the optional variable <code>x?</code> is present, the branch runs with <code>x</code> (no <code>?</code>) bound to its value as a read-only view. <code>if(&amp;x?)</code> binds <code>x</code> as a mutable borrow of the value inside <code>x?</code>, which must be mutable. While the branch runs, <code>x?</code> itself cannot be used.
+</li>
+<li><strong>Binding, <code>if(e as v)</code>.</strong> <code>e</code> is any optional expression or result expression. The branch runs when <code>e</code> holds a value (for a result, its success value), with <code>v</code> bound to it. <code>else</code> runs otherwise and binds nothing. <code>if(&amp;e as v)</code> binds <code>v</code> mutably and requires <code>e</code> to be a mutable place.
+</li>
+</ol>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> score = <span class="n">72</span>
+	<span class="k">let</span> grade = <span class="k">if</span>(score &gt;= <span class="n">90</span>): <span class="s">&quot;A&quot;</span> <span class="k">else</span> <span class="k">if</span>(score &gt;= <span class="n">70</span>): <span class="s">&quot;B&quot;</span> <span class="k">else</span>: <span class="s">&quot;C&quot;</span>
+	<span class="f">println</span>(grade)
+
+	<span class="k">let</span> bonus? = <span class="k">if</span>(score &gt; <span class="n">50</span>): <span class="n">10</span>          <span class="m">// ?int</span>
+	<span class="f">println</span>(bonus? ?? <span class="n">0</span>)
+
+	<span class="k">let</span> n? = <span class="f">parse_int</span>(<span class="s">&quot;41&quot;</span>)
+	<span class="k">if</span>(&amp;n?): n += <span class="n">1</span>
+	<span class="k">if</span>(n?): <span class="f">println</span>(<span class="s">&quot;n is </span>$n<span class="s">&quot;</span>)
+
+	<span class="k">if</span>(<span class="f">parse_int</span>(<span class="s">&quot;x&quot;</span>) <span class="k">as</span> v): <span class="f">println</span>(v) <span class="k">else</span>: <span class="f">println</span>(<span class="s">&quot;not a number&quot;</span>)
+}</code></pre>
+<h2 id="63-while"><a class="anchor" href="#63-while" aria-hidden="true">#</a>6.3 While</h2>
+<pre class="lang-ebnf" data-lang="ebnf"><code><span class="t">WhileExpr</span>  = [ <span class="t">Label</span> <span class="s">&quot;:&quot;</span> ] <span class="s">&quot;while&quot;</span> <span class="s">&quot;(&quot;</span> <span class="t">LoopHeader</span> <span class="s">&quot;)&quot;</span> [ <span class="t">Type</span> ] <span class="s">&quot;:&quot;</span> <span class="t">Body</span> [ <span class="s">&quot;else&quot;</span> <span class="s">&quot;:&quot;</span> <span class="t">Body</span> ] ;
+<span class="t">LoopHeader</span> = <span class="t">Expr</span>                                       <span class="m">(* a bool condition *)</span>
+           | <span class="t">Binding</span> [ <span class="s">&quot;,&quot;</span> <span class="t">Binding</span> ] <span class="s">&quot;in&quot;</span> <span class="t">Expr</span> ;        <span class="m">(* iteration *)</span>
+<span class="t">Binding</span>    = [ <span class="s">&quot;&amp;&quot;</span> ] <span class="t">Name</span> ;</code></pre>
+<p><code>while</code> runs its body while the condition holds, or once per element when the header is an iteration (<a href="#64-for">§6.4</a> describes iteration). It produces <strong>at most one value</strong>:</p>
+<ul>
+<li><code>while &lt;- v</code> leaves the loop and makes <code>v</code> the loop's value;
+</li>
+<li>with <code>else</code>, the loop's value is <code>T</code>: the <code>while &lt;- v</code> value, or the <code>else</code> body's value if the loop ends without one;
+</li>
+<li>without <code>else</code>, the loop's value is <code>?T</code>: <code>none</code> if it ends without <code>while &lt;- v</code>;
+</li>
+<li><code>while(true) T: ...</code> (a loop with no normal exit) has type <code>T</code> and needs no <code>else</code>.
+</li>
+</ul>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> items = [<span class="n">4</span>, <span class="n">8</span>, <span class="n">15</span>, <span class="n">16</span>]
+	<span class="k">let</span> first_odd = <span class="k">while</span>(x <span class="k">in</span> items) <span class="t">int</span>: {
+		<span class="k">if</span>(x % <span class="n">2</span> == <span class="n">1</span>): <span class="k">while</span> <span class="u">&lt;-</span> x
+	} <span class="k">else</span>: -<span class="n">1</span>
+	<span class="f">println</span>(first_odd)
+
+	<span class="k">let</span> i = <span class="n">0</span>
+	<span class="k">while</span>(i &lt; <span class="n">3</span>): {
+		<span class="f">println</span>(i)
+		i += <span class="n">1</span>
+	}
+}</code></pre>
+<h2 id="64-for"><a class="anchor" href="#64-for" aria-hidden="true">#</a>6.4 For</h2>
+<pre class="lang-ebnf" data-lang="ebnf"><code><span class="t">ForExpr</span> = [ <span class="t">Label</span> <span class="s">&quot;:&quot;</span> ] <span class="s">&quot;for&quot;</span> <span class="s">&quot;(&quot;</span> <span class="t">LoopHeader</span> <span class="s">&quot;)&quot;</span> [ <span class="t">Type</span> ] <span class="s">&quot;:&quot;</span> <span class="t">Body</span> [ <span class="s">&quot;else&quot;</span> <span class="s">&quot;:&quot;</span> <span class="t">Body</span> ] ;</code></pre>
+<p><code>for</code> iterates, and used as a value it <strong>collects</strong>: the value of each iteration's body is pushed into a collection, and the collection is the loop's value.</p>
+<ul>
+<li>With no evaluation type the collection is a list <code>[T]</code> of the body's type. An evaluation type may name any <code>Collectable</code> type, such as <code>#[T]</code>, <code>#[K: V]</code> (pushing <code>MapEntry</code> values), or <code>[T]</code>. Any other type is an error.
+</li>
+<li><code>next &lt;-</code> skips the current iteration without pushing anything.
+</li>
+<li><code>for &lt;-</code> stops the loop and yields what has been collected so far.
+</li>
+<li>An <code>else</code> body runs when the loop finishes without <code>for &lt;-</code>.
+</li>
+</ul>
+<p><strong>Headers.</strong> <code>for(cond)</code> loops while <code>cond</code> is true. <code>for(x in e)</code> iterates <code>e</code>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th><code>e</code></th><th><code>for(x in e)</code></th><th><code>for(a, b in e)</code></th></tr></thead>
+<tbody>
+<tr><td><code>lo..hi</code>, <code>lo..=hi</code>, <code>Range[T]</code></td><td>each value</td><td>n/a</td></tr>
+<tr><td><code>[T]</code>, <code>[N: T]</code></td><td>each element</td><td><code>a</code> = index, <code>b</code> = element</td></tr>
+<tr><td><code>string</code></td><td>each <code>char</code></td><td><code>a</code> = byte offset, <code>b</code> = <code>char</code></td></tr>
+<tr><td><code>#[T]</code></td><td>each element</td><td>n/a</td></tr>
+<tr><td><code>#[K: V]</code></td><td>each <code>MapEntry[K, V]</code> (<code>.key</code>, <code>.value</code>)</td><td><code>a</code> = key, <code>b</code> = value</td></tr>
+<tr><td>any <code>Iterable[T]</code></td><td>each <code>next()</code> value until <code>none</code></td><td>n/a</td></tr>
+</tbody>
+</table></div>
+<p>Loop variables are read-only views of the elements. Write <code>&amp;x</code> (or <code>k, &amp;v</code>) to bind mutable borrows of a list's, array's, or map's elements; the collection must be mutable. The collection cannot be modified by other means while it is being iterated.</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> squares = <span class="k">for</span>(n <span class="k">in</span> <span class="n">1</span>..=<span class="n">4</span>): n * n
+	<span class="f">println</span>(squares)
+
+	<span class="k">let</span> evens = <span class="k">for</span>(n <span class="k">in</span> <span class="n">0</span>..<span class="n">10</span>) #[<span class="t">int</span>]: {
+		<span class="k">if</span>(n % <span class="n">2</span> != <span class="n">0</span>): <span class="k">next</span> <span class="u">&lt;-</span>
+		n
+	}
+	<span class="f">println</span>(evens.<span class="f">len</span>())
+
+	<span class="k">let</span> scores = [<span class="n">3</span>, <span class="n">5</span>, <span class="n">8</span>]
+	<span class="k">for</span>(&amp;s <span class="k">in</span> scores): s *= <span class="n">10</span>
+	<span class="k">for</span>(i, s <span class="k">in</span> scores): <span class="f">println</span>(<span class="s">&quot;</span>$i<span class="s">: </span>$s<span class="s">&quot;</span>)
+}</code></pre>
+<h2 id="65-pattern-matching"><a class="anchor" href="#65-pattern-matching" aria-hidden="true">#</a>6.5 Pattern matching</h2>
+<pre class="lang-ebnf" data-lang="ebnf"><code><span class="t">MatchExpr</span> = <span class="s">&quot;match&quot;</span> [ <span class="s">&quot;(&quot;</span> <span class="t">Expr</span> { <span class="s">&quot;,&quot;</span> <span class="t">Expr</span> } <span class="s">&quot;)&quot;</span> ] [ <span class="t">Type</span> ] <span class="s">&quot;:&quot;</span>
+            { <span class="s">&quot;when&quot;</span> <span class="t">Cases</span> <span class="s">&quot;:&quot;</span> <span class="t">Body</span> } <span class="s">&quot;default&quot;</span> [ <span class="t">Cases</span> ] <span class="s">&quot;:&quot;</span> <span class="t">Body</span> ;
+<span class="t">Cases</span>     = <span class="t">Case</span> { <span class="s">&quot;,&quot;</span> <span class="t">Case</span> } ;
+<span class="t">Case</span>      = <span class="t">Pattern</span>                                   <span class="m">(* one subject *)</span>
+          | <span class="t">Pattern</span> { <span class="s">&quot;,&quot;</span> <span class="t">Pattern</span> }                   <span class="m">(* several subjects: one pattern each *)</span>
+          | <span class="s">&quot;(&quot;</span> <span class="t">Pattern</span> { <span class="s">&quot;,&quot;</span> <span class="t">Pattern</span> } <span class="s">&quot;)&quot;</span> ;         <span class="m">(* several subjects: one combination of several *)</span></code></pre>
+<p>A <code>match</code> compares one or more <strong>subjects</strong> against the arms in order and evaluates the first arm that matches. It has no braces; each arm starts with <code>when</code> and the last one with <code>default</code>.</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Status</span> <span class="k">enum</span> [
+	pending,
+	active,
+	closed,
+]
+
+<span class="k">define</span> <span class="t">Shape</span> <span class="k">enum</span> [
+	circle: <span class="t">float</span>,
+	square: <span class="t">float</span>,
+	point,
+]
+
+<span class="k">bind</span> label = (s: <span class="t">Status</span>) <span class="t">string</span>:
+	<span class="k">match</span>(s):
+		<span class="k">when</span> pending: <span class="s">&quot;waiting&quot;</span>
+		<span class="k">when</span> active: <span class="s">&quot;running&quot;</span>
+		<span class="k">default</span> closed: <span class="s">&quot;done&quot;</span>
+
+<span class="k">bind</span> area = (s: <span class="t">Shape</span>) <span class="t">float</span>:
+	<span class="k">match</span>(s):
+		<span class="k">when</span> <span class="f">circle</span>(r): <span class="n">3.14159</span> * r * r
+		<span class="k">when</span> <span class="f">square</span>(side): side * side
+		<span class="k">default</span> point: <span class="n">0.0</span>
+
+<span class="k">bind</span> main = (): {
+	<span class="f">println</span>(<span class="f">label</span>(<span class="t">Status</span>.active))
+	<span class="f">println</span>(<span class="f">area</span>(<span class="t">Shape</span>.<span class="f">square</span>(<span class="n">3.0</span>)))
+	<span class="k">let</span> n = <span class="n">42</span>
+	<span class="k">let</span> kind = <span class="k">match</span>(n):
+		<span class="k">when</span> <span class="n">0</span>: <span class="s">&quot;zero&quot;</span>
+		<span class="k">when</span> <span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>: <span class="s">&quot;small&quot;</span>
+		<span class="k">when</span> <span class="k">in</span> <span class="n">4</span>..<span class="n">100</span>: <span class="s">&quot;medium&quot;</span>
+		<span class="k">default</span>: <span class="s">&quot;large&quot;</span>
+	<span class="f">println</span>(kind)
+	<span class="k">let</span> sign = <span class="k">match</span>:
+		<span class="k">when</span> n &lt; <span class="n">0</span>: <span class="s">&quot;negative&quot;</span>
+		<span class="k">when</span> n == <span class="n">0</span>: <span class="s">&quot;zero&quot;</span>
+		<span class="k">default</span>: <span class="s">&quot;positive&quot;</span>
+	<span class="f">println</span>(sign)
+}</code></pre>
+<p><strong>Patterns.</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Pattern</th><th>Matches</th></tr></thead>
+<tbody>
+<tr><td>a literal (<code>3</code>, <code>&#39;x&#39;</code>, <code>&quot;text&quot;</code>, <code>true</code>, <code>none</code>)</td><td>a subject equal to it</td></tr>
+<tr><td><code>_</code></td><td>anything</td></tr>
+<tr><td>a variant, bare: <code>pending</code>, <code>circle(r)</code></td><td>that variant of the subject's enum or result type, binding its payload</td></tr>
+<tr><td>a variant, qualified: <code>Status.pending</code>, <code>Shape.circle(r)</code></td><td>the same, written with the type name</td></tr>
+<tr><td><code>in container</code></td><td>when <code>container.contains(subject)</code> (<code>Containable[T]</code>): ranges, lists, arrays, sets, maps (keys), strings (substrings)</td></tr>
+<tr><td><code>method(args)</code></td><td>when <code>subject.method(args)</code> returns <code>true</code>; the method must take <code>self</code> and return <code>bool</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>Variant names.</strong> Inside a pattern, a variant of the subject's enum or result type is normally written <strong>bare</strong>. The qualified form is always allowed and is required in two cases:</p>
+<ul>
+<li>a bare unit name (<code>pending</code>) that is also the name of a variable in scope with the subject's type;
+</li>
+<li>a bare payload pattern without type arguments (<code>len(n)</code>) that is also the name of a method of the subject's type.
+</li>
+</ul>
+<p>Both are reported as ambiguous.</p>
+<p><strong>Payload bindings.</strong> <code>circle(r)</code> binds <code>r</code> to the payload as a read-only view (a copy, if plain). <code>circle(&amp;r)</code> binds a mutable borrow (the subject must be a mutable place). <code>word(own w)</code> moves the payload out, after which the subject is consumed. <code>circle(_)</code> matches without binding. Binding names follow the <code>?</code> and <code>!</code> rules. A payload pattern holds only bindings and <code>_</code>: it cannot test the payload's value (match on the payload inside the arm instead). Each variant may appear in at most one arm of a <code>match</code>.</p>
+<p><strong>Optional subjects.</strong> A subject of type <code>?T</code> is matched by <code>none</code>, by patterns for <code>T</code>'s values, and by <code>in</code> patterns whose container holds <code>T</code> or <code>?T</code>. Method patterns cannot be used on an optional subject.</p>
+<p><strong>Forms.</strong></p>
+<ul>
+<li><strong>One subject</strong>, <code>match(x):</code>. Each <code>when</code> lists one or more patterns separated by commas; the arm matches if any of them does.
+</li>
+<li><strong>Several subjects</strong>, <code>match(a, b):</code>. An arm's patterns match positionally: <code>when circle(r), 0:</code>. To give one arm several combinations, parenthesize each: <code>when (point, _), (_, 0):</code>.
+</li>
+<li><strong>No subject</strong>, <code>match:</code> (or <code>match():</code>). Each <code>when</code> lists <code>bool</code> conditions; the arm runs if any is true. It must end with a plain <code>default:</code>.
+</li>
+</ul>
+<p><strong>Exhaustiveness.</strong> Every <code>match</code> must handle every possible value, and its last arm must begin with <code>default</code>:</p>
+<ul>
+<li><code>default:</code> with no pattern matches everything that remains;
+</li>
+<li><code>default Pattern:</code> is allowed only when the earlier arms plus this pattern cover every case of an enum, result, or <code>bool</code> subject (or every combination, for several subjects), which the compiler checks. Putting the last variant on <code>default</code> instead of writing a catch-all means that adding a variant later produces a compile error at every <code>match</code> that misses it.
+</li>
+</ul>
+<p>Method and <code>in</code> patterns never count toward exhaustiveness.</p>
+<p><strong>Values.</strong> All arms must produce compatible types (unwinding arms are compatible with anything), and the <code>match</code> has that type. A <code>match</code> in statement position may have arms of any type.</p>
+<h2 id="66-result-chains"><a class="anchor" href="#66-result-chains" aria-hidden="true">#</a>6.6 Result chains</h2>
+<p>A <strong>result chain</strong> handles the failures of a result-typed expression (<a href="types.html#39-results">§3.9</a>) and evaluates to its success value.</p>
+<pre class="lang-ebnf" data-lang="ebnf"><code><span class="t">ResultChain</span> = <span class="t">PostfixExpr</span> <span class="s">&quot;:&quot;</span> { <span class="s">&quot;when&quot;</span> <span class="t">FailureCases</span> <span class="s">&quot;:&quot;</span> <span class="t">Body</span> } <span class="t">ChainEnd</span> ;
+<span class="t">ChainEnd</span>    = <span class="s">&quot;default&quot;</span> [ <span class="t">FailureCases</span> ] <span class="s">&quot;:&quot;</span> <span class="t">Body</span>
+            | <span class="s">&quot;default&quot;</span> <span class="s">&quot;panic&quot;</span> ;</code></pre>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Lookup</span> <span class="k">result</span> [
+	value: <span class="t">string</span>,
+	missing: <span class="t">string</span>,
+	forbidden,
+	expired: <span class="t">int</span>,
+]
+
+<span class="k">bind</span> find = (key: <span class="t">string</span>) <span class="t">Lookup</span>:
+	<span class="k">if</span>(key == <span class="s">&quot;a&quot;</span>): <span class="f">value</span>(<span class="s">&quot;apple&quot;</span>)
+	<span class="k">else</span> <span class="k">if</span>(key == <span class="s">&quot;x&quot;</span>): forbidden
+	<span class="k">else</span> <span class="k">if</span>(key == <span class="s">&quot;old&quot;</span>): <span class="f">expired</span>(<span class="n">3</span>)
+	<span class="k">else</span>: <span class="f">missing</span>(key.<span class="f">copy</span>())
+
+<span class="k">bind</span> describe = (key: <span class="t">string</span>) <span class="t">string</span>: {
+	<span class="k">let</span> item = <span class="f">find</span>(key):
+		<span class="k">when</span> <span class="f">missing</span>(k): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;no </span>$k<span class="s">&quot;</span>
+		<span class="k">when</span> forbidden: <span class="s">&quot;(hidden)&quot;</span>
+		<span class="k">default</span> <span class="f">expired</span>(days): <span class="s">&quot;expired </span>$days<span class="s"> days ago&quot;</span>
+	<span class="s">&quot;got </span>$item<span class="s">&quot;</span>
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="f">println</span>(<span class="f">describe</span>(<span class="s">&quot;a&quot;</span>))
+	<span class="f">println</span>(<span class="f">describe</span>(<span class="s">&quot;x&quot;</span>))
+	<span class="f">println</span>(<span class="f">describe</span>(<span class="s">&quot;old&quot;</span>))
+	<span class="f">println</span>(<span class="f">describe</span>(<span class="s">&quot;zz&quot;</span>))
+	<span class="k">let</span> sure = <span class="f">find</span>(<span class="s">&quot;a&quot;</span>): <span class="k">default</span> <span class="k">panic</span>
+	<span class="f">println</span>(sure)
+}</code></pre>
+<p><strong>Rules.</strong></p>
+<ol>
+<li><p><strong>Subject.</strong> The chain is written directly after a postfix expression (a name, call, member access, or index). The subject must have a result type. Writing <code>subject:</code> followed by a <code>when</code> or <code>default</code> arm starts the chain.</p>
+</li>
+<li><p><strong>Arms.</strong> Each <code>when</code> names one or more failure variants of the subject's type, bare (<code>missing(k)</code>, <code>forbidden</code>), with the payload-binding rules of <a href="#65-pattern-matching">§6.5</a>. The <code>value</code> member is never named: the chain itself evaluates to it. Naming <code>value</code>, or a variant that is not a failure of the subject's type, is an error.</p>
+</li>
+<li><p><strong>Arm bodies</strong> either unwind or evaluate to the success type.</p>
+</li>
+<li><p><strong>Ending.</strong> The chain must end with exactly one of:</p>
+<ul>
+<li><code>default failure(...):</code>, which handles the last failure exhaustively;
+</li>
+<li><code>default:</code> with a body, which handles every remaining failure without binding it;
+</li>
+<li><code>default panic</code>, with no colon and no body. Each remaining failure then panics with <code>unhandled failure Type.variant</code> at that line. On its own, <code>expr: default panic</code> unwraps any result.
+</li>
+</ul>
+<p>A chain that leaves a failure unhandled with no such ending is an error, as is <code>default panic</code> when nothing remains to handle.</p>
+</li>
+<li><p><strong>Ownership.</strong> The chain consumes its subject. A resource success value is moved out of it.</p>
+</li>
+<li><p><strong>Propagation.</strong> To pass a failure to the caller, construct the caller's result type with a bare member: <code>default err(own e): func &lt;- err(e.wrap(&quot;loading&quot;))</code>.</p>
+</li>
+<li><p><strong>Nesting.</strong> A chain ends at its <code>default</code> arm, so a chain inside a <code>match</code> arm does not absorb the <code>match</code>'s later arms.</p>
+</li>
+</ol>
+<h2 id="67-unwinds-and-labels"><a class="anchor" href="#67-unwinds-and-labels" aria-hidden="true">#</a>6.7 Unwinds and labels</h2>
+<p>There are no <code>return</code>, <code>break</code>, or <code>continue</code> statements. The <strong>unwind</strong> operator <code>&lt;-</code> leaves a construct, and the word before it says which one.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Unwind</th><th>Leaves</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td><code>func &lt;- [v]</code></td><td>the innermost function or function literal</td><td>the return value</td></tr>
+<tr><td><code>for &lt;-</code></td><td>the innermost <code>for</code> loop</td><td>none; the loop yields what it has collected</td></tr>
+<tr><td><code>while &lt;- [v]</code></td><td>the innermost <code>while</code> loop</td><td>the loop's value</td></tr>
+<tr><td><code>next &lt;- </code></td><td>the current iteration of the innermost <code>for</code> or <code>while</code></td><td>none</td></tr>
+<tr><td><code>&lt;- [v]</code></td><td>the innermost <code>{ }</code> block</td><td>the block's value</td></tr>
+<tr><td><code>if &lt;- [v]</code> · <code>match &lt;- [v]</code></td><td>the innermost <code>if</code> · <code>match</code></td><td>its value</td></tr>
+<tr><td><code>name &lt;- [v]</code></td><td>the labeled block or loop <code>name</code></td><td>its value</td></tr>
+<tr><td><code>next name &lt;-</code></td><td>the current iteration of the labeled loop <code>name</code></td><td>none</td></tr>
+</tbody>
+</table></div>
+<p><strong>Labels.</strong> A block or loop may be labeled: <code>name: { ... }</code>, <code>name: for(...)</code>, <code>name: while(...)</code>. Labels are visible only inside the labeled construct.</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> grid = [[<span class="n">1</span>, <span class="n">2</span>], [<span class="n">3</span>, <span class="n">4</span>], [<span class="n">5</span>, <span class="n">6</span>]]
+	<span class="k">let</span> found = outer: <span class="k">while</span>(row <span class="k">in</span> grid) <span class="t">string</span>: {
+		<span class="k">for</span>(x <span class="k">in</span> row): <span class="k">if</span>(x == <span class="n">4</span>): outer <span class="u">&lt;-</span> <span class="s">&quot;found 4&quot;</span>
+	} <span class="k">else</span>: <span class="s">&quot;not found&quot;</span>
+	<span class="f">println</span>(found)
+}</code></pre>
+<p><strong>Rules.</strong></p>
+<ol>
+<li>An unwind is an expression of type <code>never</code>, so it can stand wherever a value is expected: <code>let user = find(id) ?? func &lt;- missing(id)</code>.
+</li>
+<li>An unwind cannot cross a function boundary. <code>func &lt;-</code> inside a function literal returns from that literal.
+</li>
+<li>The value must match what the target produces. A bare <code>func &lt;-</code> is allowed only in a function that returns nothing.
+</li>
+<li>Leaving scopes runs all pending destruction, innermost scope first, in reverse order of declaration (<a href="ownership-borrowing-and-destruction.html#75-destruction">§7.5</a>).
+</li>
+</ol>
+<hr />
+</article><nav class="prev-next"><a class="prev" href="expressions.html"><span>Previous</span>5. Expressions</a><a class="next" href="ownership-borrowing-and-destruction.html"><span>Next</span>7. Ownership, Borrowing, and Destruction</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#61-bodies">6.1 Bodies</a></li><li><a href="#62-if">6.2 If</a></li><li><a href="#63-while">6.3 While</a></li><li><a href="#64-for">6.4 For</a></li><li><a href="#65-pattern-matching">6.5 Pattern matching</a></li><li><a href="#66-result-chains">6.6 Result chains</a></li><li><a href="#67-unwinds-and-labels">6.7 Unwinds and labels</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

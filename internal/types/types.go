@@ -454,11 +454,18 @@ func (r *Ref) Equals(other Type) bool {
 func (r *Ref) IsPlain() bool { return true }
 
 // StructField describes a resolved field on a Struct.
+// Attribute holds a resolved source attribute attached to a type, field, or variant.
+type Attribute struct {
+	Name string
+	Args []string
+}
+
 type StructField struct {
 	Name       string // includes trailing `?` if optional (`next?`)
 	CName      string // sanitized C identifier (`next_opt`)
 	Type       Type
 	HasDefault bool
+	Attributes []Attribute
 	Doc        string
 }
 
@@ -474,6 +481,7 @@ type Struct struct {
 	IsTestOnly        bool
 	IsComptimeOnly    bool
 	CompNamespaceOnly bool // declared in std/core for `comp.*` only, not exposed bare in prelude
+	Attributes        []Attribute
 	Doc               string
 	Fields        []StructField
 	HasCustomDrop bool
@@ -569,12 +577,13 @@ const (
 
 // EnumVariant describes a variant in a pure tag enum or a tagged union enum.
 type EnumVariant struct {
-	Name    string
-	CName   string
-	Value   int64 // 0-based (or explicit) for pure tag enums; 1..N for tagged unions (0 = inert moved/dropped sentinel)
-	Kind    EnumVariantKind
-	Payload Type // non-nil for VariantTuple
-	Doc     string
+	Name       string
+	CName      string
+	Value      int64 // 0-based (or explicit) for pure tag enums; 1..N for tagged unions (0 = inert moved/dropped sentinel)
+	Kind       EnumVariantKind
+	Payload    Type // non-nil for VariantTuple
+	Attributes []Attribute
+	Doc        string
 }
 
 // Enum represents a strongly-typed tag enum (`define Status enum ...`)
@@ -589,6 +598,7 @@ type Enum struct {
 	IsTestOnly        bool
 	IsComptimeOnly    bool
 	CompNamespaceOnly bool // declared in std/core for `comp.*` only, not exposed bare in prelude
+	Attributes        []Attribute
 	Doc               string
 	IsTagged      bool   // true when any variant carries a payload or enum has generic type parameters
 	IsResult      bool   // declared with `define Name result [...]`: one `value` member plus failure variants
@@ -706,6 +716,7 @@ type Distinct struct {
 	IsTestOnly        bool
 	IsComptimeOnly    bool
 	CompNamespaceOnly bool // declared in std/core for `comp.*` only, not exposed bare in prelude
+	Attributes        []Attribute
 	Doc               string
 	Base           Type
 }
@@ -967,9 +978,11 @@ type Interface struct {
 	IsTestOnly        bool
 	IsComptimeOnly    bool
 	CompNamespaceOnly bool // declared in std/core for `comp.*` only, not exposed bare in prelude
+	Attributes        []Attribute
 	Doc               string
-	Methods        []InterfaceMethod
-	UsesSelf   bool // if true (e.g. Copyable), usable as generic bound `[T: Copyable]`, not runtime fat pointer
+	Methods           []InterfaceMethod
+	DerivableMethods  map[string]string // optional `@derivable(method: impl_name)` mappings
+	UsesSelf          bool              // if true (e.g. Copyable), usable as generic bound `[T: Copyable]`, not runtime fat pointer
 }
 
 func (i *Interface) String() string  { return i.Name }

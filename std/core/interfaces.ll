@@ -9,6 +9,7 @@
 //
 // Required for string interpolation (`"$val"`) and `println`.
 @lang("printable")
+@derivable(to_string: derive.to_string)
 define Printable interface [
 	// Returns a human-readable string representation of `self`.
 	to_string: fn(self) string,
@@ -19,6 +20,7 @@ define Printable interface [
 // Unlike Plain types (which are bitwise-copied implicitly), Resource types
 // must satisfy [`Copyable`] to be duplicated without moving ownership.
 @lang("copyable")
+@derivable(copy: derive.copy)
 define Copyable interface [
 	// Returns an independent duplicate of `self`.
 	copy: fn(self) Self,
@@ -37,6 +39,7 @@ define Drop interface [
 
 // Types capable of producing a 64-bit hash digest for use in [`Set`] and [`Map`].
 @lang("hashable")
+@derivable(hash: derive.hash)
 define Hashable interface [
 	// Computes a 64-bit hash code for `self`. Equal values must produce equal hashes.
 	hash: fn(self) u64,
@@ -44,6 +47,7 @@ define Hashable interface [
 
 // Types supporting structural equality comparisons (`==` and `!=`).
 @lang("equatable")
+@derivable(eq: derive.eq)
 define Equatable interface [
 	// Reports whether `self` equals `other`.
 	eq: fn(self, other: Self) bool,
@@ -51,6 +55,7 @@ define Equatable interface [
 
 // Types supporting total ordering (`<`, `<=`, `>`, `>=`, and sorting).
 @lang("comparable")
+@derivable(cmp: derive.cmp)
 define Comparable interface [
 	// Compares `self` against `other`, returning `-1` if less, `0` if equal, or `1` if greater.
 	cmp: fn(self, other: Self) int,

@@ -412,6 +412,10 @@ const Map[K, V].to_string = fn(self) string: {
 	out
 }
 
+// const Map[K, V].eq = fn(self, other: Self) bool: {
+//
+// }
+
 // Stateful forward iterator yielding copied [`MapEntry`] pairs from a [`Map`].
 define MapIterator[K: Hashable, V] struct [
 	// Pointer to the backing map slot array.

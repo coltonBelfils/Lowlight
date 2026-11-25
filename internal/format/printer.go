@@ -603,6 +603,29 @@ func isOneLineBind(d ast.Decl, p *printer) bool {
 	return okSingle && (p.opts.LineWidth <= 0 || p.opts.VisualLen(trial) <= p.opts.LineWidth)
 }
 
+func isValidAttrDottedIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	parts := strings.Split(s, ".")
+	for _, part := range parts {
+		if !isValidPlainIdent(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func isValidPlainAttrArg(s string) bool {
+	if isValidAttrDottedIdent(s) || isPlainIntLit(s) {
+		return true
+	}
+	if key, val, ok := strings.Cut(s, ": "); ok {
+		return isValidPlainIdent(key) && (isValidAttrDottedIdent(val) || isPlainIntLit(val) || (strings.HasPrefix(val, "-") && isPlainIntLit(val[1:])))
+	}
+	return false
+}
+
 func (p *printer) printAttributes(attrs []ast.Attribute) {
 	for _, a := range attrs {
 		p.writeIndent()
@@ -622,8 +645,18 @@ func (p *printer) printAttributes(attrs []ast.Attribute) {
 				if i > 0 {
 					p.write(", ")
 				}
-				if a.Name == "test" || a.Name == "deprecated" || a.Name == "lang" || (!isValidPlainIdent(arg) && !isPlainIntLit(arg) && !strings.Contains(arg, ": ")) {
-					p.write(strconv.Quote(arg))
+				if a.Name == "test" || a.Name == "deprecated" || a.Name == "lang" || !isValidPlainAttrArg(arg) {
+					if key, val, ok := strings.Cut(arg, ": "); ok && isValidPlainIdent(key) {
+						p.write(key)
+						p.write(": ")
+						if isValidAttrDottedIdent(val) || isPlainIntLit(val) || (strings.HasPrefix(val, "-") && isPlainIntLit(val[1:])) {
+							p.write(val)
+						} else {
+							p.write(strconv.Quote(val))
+						}
+					} else {
+						p.write(strconv.Quote(arg))
+					}
 				} else {
 					p.write(arg)
 				}
@@ -857,6 +890,19 @@ func (p *printer) printStructDecl(v *ast.StructDecl) {
 	p.newline()
 	p.indent++
 	for _, f := range v.Fields {
+		startPos := f.Span.Start
+		if len(f.Attributes) > 0 && f.Attributes[0].Span.Start.Offset > 0 && (startPos.Offset == 0 || f.Attributes[0].Span.Start.Offset < startPos.Offset) {
+			startPos = f.Attributes[0].Span.Start
+		}
+		if startPos.Offset > 0 {
+			_ = p.emitCommentsBefore(startPos.Offset, startPos.Line, false)
+		}
+		for _, a := range f.Attributes {
+			if a.Span.Start.Offset > 0 {
+				_ = p.emitCommentsBefore(a.Span.Start.Offset, a.Span.Start.Line, false)
+			}
+			p.printAttributes([]ast.Attribute{a})
+		}
 		if f.Span.Start.Offset > 0 {
 			_ = p.emitCommentsBefore(f.Span.Start.Offset, f.Span.Start.Line, false)
 		}
@@ -902,6 +948,19 @@ func (p *printer) printEnumDecl(v *ast.EnumDecl) {
 	p.newline()
 	p.indent++
 	for _, ev := range v.Variants {
+		startPos := ev.Span.Start
+		if len(ev.Attributes) > 0 && ev.Attributes[0].Span.Start.Offset > 0 && (startPos.Offset == 0 || ev.Attributes[0].Span.Start.Offset < startPos.Offset) {
+			startPos = ev.Attributes[0].Span.Start
+		}
+		if startPos.Offset > 0 {
+			_ = p.emitCommentsBefore(startPos.Offset, startPos.Line, false)
+		}
+		for _, a := range ev.Attributes {
+			if a.Span.Start.Offset > 0 {
+				_ = p.emitCommentsBefore(a.Span.Start.Offset, a.Span.Start.Line, false)
+			}
+			p.printAttributes([]ast.Attribute{a})
+		}
 		if ev.Span.Start.Offset > 0 {
 			_ = p.emitCommentsBefore(ev.Span.Start.Offset, ev.Span.Start.Line, false)
 		}

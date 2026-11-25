@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>json.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>json.ll</h1><p>Source of package <a href="../json.html"><code>std/json</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">//This file is completely written by hand by me. It is very much a work in progress and no decision about the language or code should at all be made based on this file. Please leave it as is. Feel free to comment on it though.</span></span>
+<span class="src-line" id="L2"></span>
+<span class="src-line" id="L3"><span class="m">/*</span></span>
+<span class="src-line" id="L4"><span class="m">Json.to_string</span></span>
+<span class="src-line" id="L5"><span class="m">to_json</span></span>
+<span class="src-line" id="L6"><span class="m">Jsonable (maybe a better name is needed)</span></span>
+<span class="src-line" id="L7"><span class="m">Json type</span></span>
+<span class="src-line" id="L8"><span class="m">Json.eq()</span></span>
+<span class="src-line" id="L9"><span class="m"> */</span></span>
+<span class="src-line" id="L10"></span>
+<span class="src-line" id="L11"><span class="k">import</span> <span class="s">&quot;std/chars&quot;</span></span>
+<span class="src-line" id="L12"><span class="k">import</span> <span class="s">&quot;std/strconv&quot;</span></span>
+<span class="src-line" id="L13"><span class="k">import</span> <span class="s">&quot;std/strings&quot;</span></span>
+<span class="src-line" id="L14"><span class="k">import</span> <span class="s">&quot;std/test&quot;</span></span>
+<span class="src-line" id="L15"></span>
+<span class="src-line" id="L16"><span class="k">define</span> <span class="t">Json</span> <span class="k">enum</span> [</span>
+<span class="src-line" id="L17">	empty,</span>
+<span class="src-line" id="L18">	null,</span>
+<span class="src-line" id="L19">	<span class="t">string</span>: <span class="t">string</span>,</span>
+<span class="src-line" id="L20">	<span class="t">bool</span>: <span class="t">bool</span>,</span>
+<span class="src-line" id="L21">	number: <span class="t">Number</span>,</span>
+<span class="src-line" id="L22">	array: [<span class="t">Json</span>],</span>
+<span class="src-line" id="L23">	object: #[<span class="t">string</span>: <span class="t">Json</span>],</span>
+<span class="src-line" id="L24">]</span>
+<span class="src-line" id="L25"></span>
+<span class="src-line" id="L26"><span class="k">bind</span> <span class="t">List</span>[<span class="t">Json</span>].eq = (<span class="k">self</span>, other: <span class="t">List</span>[<span class="t">Json</span>]) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L27">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">len</span>() != other.<span class="f">len</span>()): <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L28"></span>
+<span class="src-line" id="L29">	<span class="k">while</span>(i, v <span class="k">in</span> <span class="k">self</span>): {</span>
+<span class="src-line" id="L30">		<span class="k">if</span>(<span class="k">self</span>[i] != other[i]): <span class="k">while</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L31">	} <span class="k">else</span>: <span class="c">true</span></span>
+<span class="src-line" id="L32">}</span>
+<span class="src-line" id="L33"></span>
+<span class="src-line" id="L34"><span class="m">// bind List[Json].eq = (self, other: List[Json]) bool:</span></span>
+<span class="src-line" id="L35"><span class="m">// 	if(self.len() != other.len()): false</span></span>
+<span class="src-line" id="L36"><span class="m">// 	else: (while(i, v in self): if(self[i] != other[i]): while &lt;- false) ?? true</span></span>
+<span class="src-line" id="L37"></span>
+<span class="src-line" id="L38"><span class="m">// bind Map[string, Json].eq = (self, other: Map[string, Json]) bool: {</span></span>
+<span class="src-line" id="L39"><span class="m">//     if(self.len() != other.len()): &lt;- false</span></span>
+<span class="src-line" id="L40"></span>
+<span class="src-line" id="L41"><span class="m">//     while(i in self): {</span></span>
+<span class="src-line" id="L42"><span class="m">//         if((not other.contains(i.key)) or i.value != other[i.key]): while &lt;- false</span></span>
+<span class="src-line" id="L43"><span class="m">//     } else: true</span></span>
+<span class="src-line" id="L44"><span class="m">// }</span></span>
+<span class="src-line" id="L45"></span>
+<span class="src-line" id="L46"><span class="k">bind</span> <span class="t">Json</span>.eq = (<span class="k">self</span>, other: <span class="t">Json</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L47">	<span class="k">match</span>(<span class="k">self</span>, other):</span>
+<span class="src-line" id="L48">		<span class="k">when</span> empty, empty: <span class="c">true</span></span>
+<span class="src-line" id="L49">		<span class="k">when</span> null, null: <span class="c">true</span></span>
+<span class="src-line" id="L50">		<span class="k">when</span> <span class="t">string</span>(s), <span class="t">string</span>(os): s == os</span>
+<span class="src-line" id="L51">		<span class="k">when</span> <span class="t">bool</span>(b), <span class="t">bool</span>(ob): b == ob</span>
+<span class="src-line" id="L52">		<span class="k">when</span> <span class="f">number</span>(n), <span class="f">number</span>(on): n == on</span>
+<span class="src-line" id="L53">		<span class="k">when</span> <span class="f">array</span>(a), <span class="f">array</span>(oa): a == oa</span>
+<span class="src-line" id="L54">		<span class="k">when</span> <span class="f">object</span>(o), <span class="f">object</span>(oo): {</span>
+<span class="src-line" id="L55">			<span class="k">if</span>(o.<span class="f">len</span>() != oo.<span class="f">len</span>()): <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L56"></span>
+<span class="src-line" id="L57">			<span class="k">while</span>(i <span class="k">in</span> o): {</span>
+<span class="src-line" id="L58">				<span class="k">if</span>(<span class="k">not</span> oo.<span class="f">contains</span>(i.key) <span class="k">or</span> i.value != oo[i.key]): <span class="k">while</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L59">			} <span class="k">else</span>: <span class="c">true</span></span>
+<span class="src-line" id="L60">		}</span>
+<span class="src-line" id="L61">		<span class="k">default</span>: <span class="c">false</span></span>
+<span class="src-line" id="L62"></span>
+<span class="src-line" id="L63"><span class="k">define</span> <span class="t">Number</span> <span class="k">enum</span> [</span>
+<span class="src-line" id="L64">	<span class="t">int</span>: <span class="t">int</span>,</span>
+<span class="src-line" id="L65">	<span class="t">float</span>: <span class="t">float</span>,</span>
+<span class="src-line" id="L66">]</span>
+<span class="src-line" id="L67"></span>
+<span class="src-line" id="L68"><span class="k">bind</span> <span class="t">Number</span>.to_string = (<span class="k">self</span>) <span class="t">string</span>:</span>
+<span class="src-line" id="L69">	<span class="k">match</span>(<span class="k">self</span>):</span>
+<span class="src-line" id="L70">		<span class="k">when</span> <span class="t">Number</span>.<span class="t">int</span>(i): i.<span class="f">to_string</span>()</span>
+<span class="src-line" id="L71">		<span class="k">default</span> <span class="t">Number</span>.<span class="t">float</span>(f): f.<span class="f">to_string</span>()</span>
+<span class="src-line" id="L72"></span>
+<span class="src-line" id="L73"><span class="k">define</span> <span class="t">Jsonable</span> <span class="k">interface</span> [</span>
+<span class="src-line" id="L74">	to_json: (<span class="k">self</span>) <span class="t">Json</span></span>
+<span class="src-line" id="L75">]</span>
+<span class="src-line" id="L76"></span>
+<span class="src-line" id="L77"><span class="k">bind</span> <span class="t">Json</span>.to_string = (json: <span class="t">Json</span>) <span class="t">string</span>:</span>
+<span class="src-line" id="L78">	<span class="k">match</span>(json):</span>
+<span class="src-line" id="L79">		<span class="k">when</span> empty: <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L80">		<span class="k">when</span> null: <span class="s">&quot;null&quot;</span></span>
+<span class="src-line" id="L81">		<span class="k">when</span> <span class="t">string</span>(s): <span class="s">&quot;\&quot;</span>${s.<span class="f">to_string</span>()}<span class="s">\&quot;&quot;</span></span>
+<span class="src-line" id="L82">		<span class="k">when</span> <span class="t">bool</span>(b): b.<span class="f">to_string</span>()</span>
+<span class="src-line" id="L83">		<span class="k">when</span> <span class="f">number</span>(n): n.<span class="f">to_string</span>()</span>
+<span class="src-line" id="L84">		<span class="m">/*match(n):</span></span>
+<span class="src-line" id="L85"><span class="m">		when Number.int(i): i.to_string()</span></span>
+<span class="src-line" id="L86"><span class="m">		default Number.float(f): f.to_string()*/</span></span>
+<span class="src-line" id="L87">		<span class="k">when</span> <span class="f">array</span>(a): {</span>
+<span class="src-line" id="L88">			<span class="k">let</span> out = <span class="s">&quot;[&quot;</span></span>
+<span class="src-line" id="L89"></span>
+<span class="src-line" id="L90">			<span class="k">for</span>(i <span class="k">in</span> a):</span>
+<span class="src-line" id="L91">				out += {</span>
+<span class="src-line" id="L92">					i.<span class="f">to_string</span>() + <span class="s">&quot;, &quot;</span></span>
+<span class="src-line" id="L93">				}</span>
+<span class="src-line" id="L94"></span>
+<span class="src-line" id="L95">			<span class="k">if</span>(out == <span class="s">&quot;[&quot;</span>): <span class="k">match</span> <span class="u">&lt;-</span> <span class="s">&quot;[]&quot;</span></span>
+<span class="src-line" id="L96"></span>
+<span class="src-line" id="L97">			<span class="f">assert</span>(out.<span class="f">len</span>() &gt; <span class="n">1</span>)</span>
+<span class="src-line" id="L98">			out = out[<span class="n">0</span>..out.<span class="f">len</span>() - <span class="n">2</span>]</span>
+<span class="src-line" id="L99"></span>
+<span class="src-line" id="L100">			out += <span class="s">&quot;]&quot;</span></span>
+<span class="src-line" id="L101"></span>
+<span class="src-line" id="L102">			out</span>
+<span class="src-line" id="L103">		}</span>
+<span class="src-line" id="L104">		<span class="k">default</span> <span class="f">object</span>(o): {</span>
+<span class="src-line" id="L105">			<span class="k">let</span> out = <span class="s">&quot;{&quot;</span></span>
+<span class="src-line" id="L106"></span>
+<span class="src-line" id="L107">			<span class="k">for</span>(i <span class="k">in</span> o):</span>
+<span class="src-line" id="L108">				out += {</span>
+<span class="src-line" id="L109">					<span class="s">&quot;\n\&quot;&quot;</span> + i.key.<span class="f">to_string</span>() + <span class="s">&quot;\&quot;: &quot;</span> + i.value.<span class="f">to_string</span>() + <span class="s">&quot;,&quot;</span></span>
+<span class="src-line" id="L110">				}</span>
+<span class="src-line" id="L111"></span>
+<span class="src-line" id="L112">			<span class="k">if</span>(out == <span class="s">&quot;{&quot;</span>): <span class="u">&lt;-</span> <span class="s">&quot;{}&quot;</span></span>
+<span class="src-line" id="L113"></span>
+<span class="src-line" id="L114">			<span class="f">assert</span>(out.<span class="f">len</span>() &gt; <span class="n">0</span>)</span>
+<span class="src-line" id="L115">			out = out[<span class="n">0</span>..out.<span class="f">len</span>() - <span class="n">1</span>]</span>
+<span class="src-line" id="L116"></span>
+<span class="src-line" id="L117">			out = out.<span class="f">replace_all</span>(<span class="s">&quot;\n&quot;</span>, <span class="s">&quot;\n\t&quot;</span>)</span>
+<span class="src-line" id="L118"></span>
+<span class="src-line" id="L119">			out += <span class="s">&quot;\n}&quot;</span></span>
+<span class="src-line" id="L120"></span>
+<span class="src-line" id="L121">			out</span>
+<span class="src-line" id="L122">		}</span>
+<span class="src-line" id="L123"></span>
+<span class="src-line" id="L124"><span class="a">@test</span>(<span class="s">&quot;test_json_to_string&quot;</span>)</span>
+<span class="src-line" id="L125"><span class="k">bind</span> test_json_to_string = (): {</span>
+<span class="src-line" id="L126">	<span class="m">//tests from ai:</span></span>
+<span class="src-line" id="L127"></span>
+<span class="src-line" id="L128">	<span class="m">// primitives</span></span>
+<span class="src-line" id="L129">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.empty.<span class="f">to_string</span>(), <span class="s">&quot;&quot;</span>)</span>
+<span class="src-line" id="L130">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>).<span class="f">to_string</span>(), <span class="s">&quot;false&quot;</span>)</span>
+<span class="src-line" id="L131">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;&quot;</span>).<span class="f">to_string</span>(), <span class="s">&quot;\&quot;\&quot;&quot;</span>)</span>
+<span class="src-line" id="L132">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;hello world&quot;</span>).<span class="f">to_string</span>(), <span class="s">&quot;\&quot;hello world\&quot;&quot;</span>)</span>
+<span class="src-line" id="L133">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;123&quot;</span>).<span class="f">to_string</span>(), <span class="s">&quot;\&quot;123\&quot;&quot;</span>)</span>
+<span class="src-line" id="L134">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;true&quot;</span>).<span class="f">to_string</span>(), <span class="s">&quot;\&quot;true\&quot;&quot;</span>)</span>
+<span class="src-line" id="L135">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;a: b, [c], {d}&quot;</span>).<span class="f">to_string</span>(), <span class="s">&quot;\&quot;a: b, [c], {d}\&quot;&quot;</span>)</span>
+<span class="src-line" id="L136">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;&#39;single&#39;&quot;</span>).<span class="f">to_string</span>(), <span class="s">&quot;\&quot;&#39;single&#39;\&quot;&quot;</span>)</span>
+<span class="src-line" id="L137">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">0</span>)).<span class="f">to_string</span>(), <span class="s">&quot;0&quot;</span>)</span>
+<span class="src-line" id="L138">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(-<span class="n">1</span>)).<span class="f">to_string</span>(), <span class="s">&quot;-1&quot;</span>)</span>
+<span class="src-line" id="L139">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(-<span class="n">42</span>)).<span class="f">to_string</span>(), <span class="s">&quot;-42&quot;</span>)</span>
+<span class="src-line" id="L140">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1000000</span>)).<span class="f">to_string</span>(), <span class="s">&quot;1000000&quot;</span>)</span>
+<span class="src-line" id="L141">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">0.0</span>)).<span class="f">to_string</span>(), <span class="s">&quot;0&quot;</span>)</span>
+<span class="src-line" id="L142">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">0.5</span>)).<span class="f">to_string</span>(), <span class="s">&quot;0.5&quot;</span>)</span>
+<span class="src-line" id="L143">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(-<span class="n">1.5</span>)).<span class="f">to_string</span>(), <span class="s">&quot;-1.5&quot;</span>)</span>
+<span class="src-line" id="L144">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">123.456</span>)).<span class="f">to_string</span>(), <span class="s">&quot;123.456&quot;</span>)</span>
+<span class="src-line" id="L145"></span>
+<span class="src-line" id="L146">	<span class="m">// array tests</span></span>
+<span class="src-line" id="L147">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;&quot;</span>)]).<span class="f">to_string</span>(), <span class="s">&quot;[\&quot;\&quot;]&quot;</span>)</span>
+<span class="src-line" id="L148">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>)]).<span class="f">to_string</span>(), <span class="s">&quot;[true]&quot;</span>)</span>
+<span class="src-line" id="L149">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>)]).<span class="f">to_string</span>(), <span class="s">&quot;[false]&quot;</span>)</span>
+<span class="src-line" id="L150">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">0</span>))]).<span class="f">to_string</span>(), <span class="s">&quot;[0]&quot;</span>)</span>
+<span class="src-line" id="L151">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(-<span class="n">2.5</span>))]).<span class="f">to_string</span>(), <span class="s">&quot;[-2.5]&quot;</span>)</span>
+<span class="src-line" id="L152">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">array</span>([])]).<span class="f">to_string</span>(), <span class="s">&quot;[[]]&quot;</span>)</span>
+<span class="src-line" id="L153">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">object</span>(#[])]).<span class="f">to_string</span>(), <span class="s">&quot;[{}]&quot;</span>)</span>
+<span class="src-line" id="L154">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L155">		<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>), <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>), <span class="t">Json</span>.null]).<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L156">		<span class="s">&quot;[true, false, null]&quot;</span>,</span>
+<span class="src-line" id="L157">	)</span>
+<span class="src-line" id="L158">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L159">		<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">array</span>([]), <span class="t">Json</span>.<span class="f">array</span>([]), <span class="t">Json</span>.<span class="f">array</span>([])]).<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L160">		<span class="s">&quot;[[], [], []]&quot;</span>,</span>
+<span class="src-line" id="L161">	)</span>
+<span class="src-line" id="L162">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L163">		<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">array</span>([])])]).<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L164">		<span class="s">&quot;[[[]]]&quot;</span>,</span>
+<span class="src-line" id="L165">	)</span>
+<span class="src-line" id="L166">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L167">		<span class="t">Json</span></span>
+<span class="src-line" id="L168">			.<span class="f">array</span>([</span>
+<span class="src-line" id="L169">				<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>)), <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">2</span>))]),</span>
+<span class="src-line" id="L170">				<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">3</span>)), <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">4</span>))]),</span>
+<span class="src-line" id="L171">			])</span>
+<span class="src-line" id="L172">			.<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L173">		<span class="s">&quot;[[1, 2], [3, 4]]&quot;</span>,</span>
+<span class="src-line" id="L174">	)</span>
+<span class="src-line" id="L175">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L176">		<span class="t">Json</span></span>
+<span class="src-line" id="L177">			.<span class="f">array</span>([</span>
+<span class="src-line" id="L178">				<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;a&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>))]),</span>
+<span class="src-line" id="L179">				<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;b&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">2</span>))]),</span>
+<span class="src-line" id="L180">			])</span>
+<span class="src-line" id="L181">			.<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L182">		<span class="s">&quot;[{\n\t\&quot;a\&quot;: 1\n}, {\n\t\&quot;b\&quot;: 2\n}]&quot;</span>,</span>
+<span class="src-line" id="L183">	)</span>
+<span class="src-line" id="L184"></span>
+<span class="src-line" id="L185">	<span class="m">// object tests</span></span>
+<span class="src-line" id="L186">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L187">		<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;&quot;</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;empty key&quot;</span>)]).<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L188">		<span class="s">&quot;{\n\t\&quot;\&quot;: \&quot;empty key\&quot;\n}&quot;</span>,</span>
+<span class="src-line" id="L189">	)</span>
+<span class="src-line" id="L190">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L191">		<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;flag&quot;</span>: <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>)]).<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L192">		<span class="s">&quot;{\n\t\&quot;flag\&quot;: false\n}&quot;</span>,</span>
+<span class="src-line" id="L193">	)</span>
+<span class="src-line" id="L194">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L195">		<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;num&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(-<span class="n">99</span>))]).<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L196">		<span class="s">&quot;{\n\t\&quot;num\&quot;: -99\n}&quot;</span>,</span>
+<span class="src-line" id="L197">	)</span>
+<span class="src-line" id="L198">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L199">		<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;pi&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">3.14</span>))]).<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L200">		<span class="s">&quot;{\n\t\&quot;pi\&quot;: 3.14\n}&quot;</span>,</span>
+<span class="src-line" id="L201">	)</span>
+<span class="src-line" id="L202">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L203">		<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;arr&quot;</span>: <span class="t">Json</span>.<span class="f">array</span>([])]).<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L204">		<span class="s">&quot;{\n\t\&quot;arr\&quot;: []\n}&quot;</span>,</span>
+<span class="src-line" id="L205">	)</span>
+<span class="src-line" id="L206">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L207">		<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;obj&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[])]).<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L208">		<span class="s">&quot;{\n\t\&quot;obj\&quot;: {}\n}&quot;</span>,</span>
+<span class="src-line" id="L209">	)</span>
+<span class="src-line" id="L210">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L211">		<span class="t">Json</span></span>
+<span class="src-line" id="L212">			.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L213">				<span class="s">&quot;a&quot;</span>: <span class="t">Json</span>.<span class="f">array</span>([]),</span>
+<span class="src-line" id="L214">				<span class="s">&quot;b&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[]),</span>
+<span class="src-line" id="L215">				<span class="s">&quot;c&quot;</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;&quot;</span>),</span>
+<span class="src-line" id="L216">			])</span>
+<span class="src-line" id="L217">			.<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L218">		<span class="s">&quot;{\n\t\&quot;a\&quot;: [],\n\t\&quot;b\&quot;: {},\n\t\&quot;c\&quot;: \&quot;\&quot;\n}&quot;</span>,</span>
+<span class="src-line" id="L219">	)</span>
+<span class="src-line" id="L220">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L221">		<span class="t">Json</span></span>
+<span class="src-line" id="L222">			.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L223">				<span class="s">&quot;items&quot;</span>: <span class="t">Json</span>.<span class="f">array</span>([</span>
+<span class="src-line" id="L224">					<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;id&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>))]),</span>
+<span class="src-line" id="L225">					<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;id&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">2</span>))]),</span>
+<span class="src-line" id="L226">				])</span>
+<span class="src-line" id="L227">			])</span>
+<span class="src-line" id="L228">			.<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L229">		<span class="s">&quot;{\n\t\&quot;items\&quot;: [{\n\t\t\&quot;id\&quot;: 1\n\t}, {\n\t\t\&quot;id\&quot;: 2\n\t}]\n}&quot;</span>,</span>
+<span class="src-line" id="L230">	)</span>
+<span class="src-line" id="L231">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L232">		<span class="t">Json</span></span>
+<span class="src-line" id="L233">			.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L234">				<span class="s">&quot;a&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L235">					<span class="s">&quot;b&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L236">						<span class="s">&quot;c&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L237">							<span class="s">&quot;d&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">42</span>))</span>
+<span class="src-line" id="L238">						])</span>
+<span class="src-line" id="L239">					])</span>
+<span class="src-line" id="L240">				])</span>
+<span class="src-line" id="L241">			])</span>
+<span class="src-line" id="L242">			.<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L243">		<span class="s">&quot;{\n\t\&quot;a\&quot;: {\n\t\t\&quot;b\&quot;: {\n\t\t\t\&quot;c\&quot;: {\n\t\t\t\t\&quot;d\&quot;: 42\n\t\t\t}\n\t\t}\n\t}\n}&quot;</span>,</span>
+<span class="src-line" id="L244">	)</span>
+<span class="src-line" id="L245"></span>
+<span class="src-line" id="L246">	<span class="m">//my tests</span></span>
+<span class="src-line" id="L247"></span>
+<span class="src-line" id="L248">	<span class="m">//Json.empty</span></span>
+<span class="src-line" id="L249">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.null.<span class="f">to_string</span>(), <span class="s">&quot;null&quot;</span>)</span>
+<span class="src-line" id="L250">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;abc&quot;</span>).<span class="f">to_string</span>(), <span class="s">&quot;\&quot;abc\&quot;&quot;</span>)</span>
+<span class="src-line" id="L251">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>).<span class="f">to_string</span>(), <span class="s">&quot;true&quot;</span>)</span>
+<span class="src-line" id="L252">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>).<span class="f">to_string</span>(), <span class="s">&quot;true&quot;</span>)</span>
+<span class="src-line" id="L253">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>)).<span class="f">to_string</span>(), <span class="s">&quot;1&quot;</span>)</span>
+<span class="src-line" id="L254">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">1.0</span>)).<span class="f">to_string</span>(), <span class="s">&quot;1&quot;</span>)</span>
+<span class="src-line" id="L255">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">1.5</span>)).<span class="f">to_string</span>(), <span class="s">&quot;1.5&quot;</span>)</span>
+<span class="src-line" id="L256">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">array</span>([]).<span class="f">to_string</span>(), <span class="s">&quot;[]&quot;</span>)</span>
+<span class="src-line" id="L257">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.null]).<span class="f">to_string</span>(), <span class="s">&quot;[null]&quot;</span>)</span>
+<span class="src-line" id="L258">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.null, <span class="t">Json</span>.null]).<span class="f">to_string</span>(), <span class="s">&quot;[null, null]&quot;</span>)</span>
+<span class="src-line" id="L259">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.null, <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;abc&quot;</span>)]).<span class="f">to_string</span>(), <span class="s">&quot;[null, \&quot;abc\&quot;]&quot;</span>)</span>
+<span class="src-line" id="L260">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L261">		<span class="t">Json</span></span>
+<span class="src-line" id="L262">			.<span class="f">array</span>([</span>
+<span class="src-line" id="L263">				<span class="t">Json</span>.null,</span>
+<span class="src-line" id="L264">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;abc&quot;</span>),</span>
+<span class="src-line" id="L265">				<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>),</span>
+<span class="src-line" id="L266">				<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">5</span>)),</span>
+<span class="src-line" id="L267">				<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">3.4</span>)),</span>
+<span class="src-line" id="L268">				<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.null]),</span>
+<span class="src-line" id="L269">			])</span>
+<span class="src-line" id="L270">			.<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L271">		<span class="s">&quot;[null, \&quot;abc\&quot;, false, 5, 3.4, [null]]&quot;</span>,</span>
+<span class="src-line" id="L272">	)</span>
+<span class="src-line" id="L273"></span>
+<span class="src-line" id="L274">	<span class="m">//object tests</span></span>
+<span class="src-line" id="L275">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">object</span>(#[]).<span class="f">to_string</span>(), <span class="s">&quot;{}&quot;</span>)</span>
+<span class="src-line" id="L276">	test.<span class="f">assert_eq</span>(<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;abc&quot;</span>: <span class="t">Json</span>.null]).<span class="f">to_string</span>(), <span class="s">&quot;{\n\t\&quot;abc\&quot;: null\n}&quot;</span>)</span>
+<span class="src-line" id="L277">	test.<span class="f">assert_eq</span>(</span>
+<span class="src-line" id="L278">		<span class="t">Json</span></span>
+<span class="src-line" id="L279">			.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L280">				<span class="s">&quot;abc&quot;</span>: <span class="t">Json</span>.null,</span>
+<span class="src-line" id="L281">				<span class="s">&quot;def&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L282">					<span class="s">&quot;ghi&quot;</span>: <span class="t">Json</span>.<span class="f">array</span>([</span>
+<span class="src-line" id="L283">						<span class="t">Json</span>.null,</span>
+<span class="src-line" id="L284">						<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;abc&quot;</span>),</span>
+<span class="src-line" id="L285">						<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>),</span>
+<span class="src-line" id="L286">						<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">5</span>)),</span>
+<span class="src-line" id="L287">						<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">3.4</span>)),</span>
+<span class="src-line" id="L288">						<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.null]),</span>
+<span class="src-line" id="L289">					]),</span>
+<span class="src-line" id="L290">					<span class="s">&quot;jkl&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L291">						<span class="s">&quot;mno&quot;</span>: <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>),</span>
+<span class="src-line" id="L292">						<span class="s">&quot;pqr&quot;</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;value&quot;</span>),</span>
+<span class="src-line" id="L293">					]),</span>
+<span class="src-line" id="L294">				]),</span>
+<span class="src-line" id="L295">			])</span>
+<span class="src-line" id="L296">			.<span class="f">to_string</span>(),</span>
+<span class="src-line" id="L297">		<span class="s">&quot;{\n\t\&quot;abc\&quot;: null,\n\t\&quot;def\&quot;: {\n\t\t\&quot;ghi\&quot;: [null, \&quot;abc\&quot;, false, 5, 3.4, [null]],\n\t\t\&quot;jkl\&quot;: {\n\t\t\t\&quot;mno\&quot;: true,\n\t\t\t\&quot;pqr\&quot;: \&quot;value\&quot;\n\t\t}\n\t}\n}&quot;</span>,</span>
+<span class="src-line" id="L298">	)</span>
+<span class="src-line" id="L299">}</span>
+<span class="src-line" id="L300"></span>
+<span class="src-line" id="L301"><span class="m">//bind string.to_json = (self): Json Json.string(self.copy())</span></span>
+<span class="src-line" id="L302"></span>
+<span class="src-line" id="L303"><span class="m">// NOTE (Audit Comment):</span></span>
+<span class="src-line" id="L304"><span class="m">// 1. In `string.to_json` below, the return type is `Result[Json, string]`, so:</span></span>
+<span class="src-line" id="L305"><span class="m">//    - Line 118-119 (`when &#39;t&#39;` / `when &#39;f&#39;`) and line 123 need `Result.ok(...)`</span></span>
+<span class="src-line" id="L306"><span class="m">//      (e.g. `func &lt;- Result.ok(Json.bool(true))` and `Result.ok(out)`).</span></span>
+<span class="src-line" id="L307"><span class="m">// 2. In `to_json_helper`, `str` is an `own string` parameter (immutable by default unless</span></span>
+<span class="src-line" id="L308"><span class="m">//    copied to a `let` binding), and on line 137 `str[1..str.len()-2]` drops the last 2</span></span>
+<span class="src-line" id="L309"><span class="m">//    characters instead of 1 (`str[1..str.len()-1]` strips only the closing quote).</span></span>
+<span class="src-line" id="L310"><span class="k">bind</span> <span class="t">string</span>.to_json = (<span class="k">self</span>) <span class="t">Result</span>[<span class="t">Json</span>]: {</span>
+<span class="src-line" id="L311">	<span class="k">let</span> in_str = <span class="k">self</span>.<span class="f">trim</span>()</span>
+<span class="src-line" id="L312"></span>
+<span class="src-line" id="L313">	<span class="k">if</span>(in_str.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">value</span>(<span class="t">Json</span>.empty)</span>
+<span class="src-line" id="L314"></span>
+<span class="src-line" id="L315">	<span class="k">let</span> idx = <span class="n">0</span></span>
+<span class="src-line" id="L316">	<span class="f">value</span>(<span class="f">_to_json_helper</span>(<span class="k">self</span>, &amp;idx): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="u">&lt;-</span> <span class="f">err</span>(e.<span class="f">wrap</span>(<span class="s">&quot;something went wrong when parsing the json string.&quot;</span>)))</span>
+<span class="src-line" id="L317">}</span>
+<span class="src-line" id="L318"></span>
+<span class="src-line" id="L319"><span class="k">bind</span> _to_json_helper = (str: <span class="t">string</span>, idx: &amp;<span class="t">int</span>) <span class="t">Result</span>[<span class="t">Json</span>]: {</span>
+<span class="src-line" id="L320">	<span class="k">if</span>(str.<span class="f">len</span>() &lt;= idx): <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;idx is greater than the json string length&quot;</span>)</span>
+<span class="src-line" id="L321"></span>
+<span class="src-line" id="L322">	<span class="k">while</span>(<span class="t">char</span>(str[idx]).<span class="f">is_whitespace</span>()): idx += <span class="n">1</span></span>
+<span class="src-line" id="L323"></span>
+<span class="src-line" id="L324">	<span class="k">match</span>(<span class="t">char</span>(str[idx])):</span>
+<span class="src-line" id="L325">		<span class="k">when</span> <span class="s">&#39;{&#39;</span>: <span class="f">_parse_json_object</span>(str, &amp;idx)</span>
+<span class="src-line" id="L326">		<span class="k">when</span> <span class="s">&#39;[&#39;</span>: <span class="f">_parse_json_array</span>(str, &amp;idx)</span>
+<span class="src-line" id="L327">		<span class="k">when</span> <span class="s">&#39;&quot;&#39;</span>, <span class="s">&#39;\&#39;&#39;</span>: <span class="f">_parse_json_string</span>(str, &amp;idx)</span>
+<span class="src-line" id="L328">		<span class="k">when</span> <span class="s">&#39;t&#39;</span>, <span class="s">&#39;f&#39;</span>: <span class="f">_parse_json_bool</span>(str, &amp;idx)</span>
+<span class="src-line" id="L329">		<span class="k">when</span> <span class="k">in</span> <span class="s">&#39;0&#39;</span>..=<span class="s">&#39;9&#39;</span>, <span class="s">&#39;-&#39;</span>: <span class="f">_parse_json_number</span>(str, &amp;idx)</span>
+<span class="src-line" id="L330">		<span class="k">when</span> <span class="s">&#39;n&#39;</span>: <span class="f">_parse_json_null</span>(str, &amp;idx)</span>
+<span class="src-line" id="L331">		<span class="k">default</span>: <span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;invalid json&quot;</span>)</span>
+<span class="src-line" id="L332">}</span>
+<span class="src-line" id="L333"></span>
+<span class="src-line" id="L334"><span class="k">bind</span> _parse_json_string = (str: <span class="t">string</span>, idx: &amp;<span class="t">int</span>) <span class="t">Result</span>[<span class="t">Json</span>]: {</span>
+<span class="src-line" id="L335">		<span class="k">define</span> quote <span class="k">enum</span> [</span>
+<span class="src-line" id="L336">		single,</span>
+<span class="src-line" id="L337">		double,</span>
+<span class="src-line" id="L338">	]</span>
+<span class="src-line" id="L339"></span>
+<span class="src-line" id="L340">	<span class="k">let</span> q = <span class="k">if</span>(<span class="t">char</span>(str[idx]) == <span class="s">&#39;&quot;&#39;</span>): quote.double</span>
+<span class="src-line" id="L341">	<span class="k">else</span> <span class="k">if</span>(<span class="t">char</span>(str[idx]) == <span class="s">&#39;\&#39;&#39;</span>): quote.single</span>
+<span class="src-line" id="L342">	<span class="k">else</span>: <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;Json string expected to start with \&quot; or \&#39;&quot;</span>))</span>
+<span class="src-line" id="L343"></span>
+<span class="src-line" id="L344">	<span class="k">let</span> res = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L345"></span>
+<span class="src-line" id="L346">	idx = idx + <span class="n">1</span></span>
+<span class="src-line" id="L347">	<span class="k">while</span>(idx &lt; str.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L348">		<span class="k">if</span>(<span class="t">char</span>(str[idx]) == <span class="s">&#39;\\&#39;</span> <span class="k">and</span> idx + <span class="n">1</span> &lt; str.<span class="f">len</span>()):</span>
+<span class="src-line" id="L349">			<span class="k">match</span>(q):</span>
+<span class="src-line" id="L350">				<span class="k">when</span> quote.single:</span>
+<span class="src-line" id="L351">					<span class="k">if</span>(<span class="t">char</span>(str[idx]) == <span class="s">&#39;\&#39;&#39;</span>): {</span>
+<span class="src-line" id="L352">						res += <span class="t">string</span>(<span class="t">char</span>(str[idx]))</span>
+<span class="src-line" id="L353">						idx = idx + <span class="n">1</span></span>
+<span class="src-line" id="L354">						res += <span class="t">string</span>(<span class="t">char</span>(str[idx]))</span>
+<span class="src-line" id="L355">						idx = idx + <span class="n">1</span></span>
+<span class="src-line" id="L356">						<span class="k">next</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L357">					}</span>
+<span class="src-line" id="L358">				<span class="k">default</span> quote.double:</span>
+<span class="src-line" id="L359">					<span class="k">if</span>(<span class="t">char</span>(str[idx]) == <span class="s">&#39;\&quot;&#39;</span>): {</span>
+<span class="src-line" id="L360">						res += <span class="t">string</span>(<span class="t">char</span>(str[idx]))</span>
+<span class="src-line" id="L361">						idx = idx + <span class="n">1</span></span>
+<span class="src-line" id="L362">						res += <span class="t">string</span>(<span class="t">char</span>(str[idx]))</span>
+<span class="src-line" id="L363">						idx = idx + <span class="n">1</span></span>
+<span class="src-line" id="L364">						<span class="k">next</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L365">					}</span>
+<span class="src-line" id="L366"></span>
+<span class="src-line" id="L367">		<span class="k">match</span>(q):</span>
+<span class="src-line" id="L368">			<span class="k">when</span> quote.single:</span>
+<span class="src-line" id="L369">				<span class="k">if</span>(<span class="t">char</span>(str[idx]) == <span class="s">&#39;\&#39;&#39;</span>): {</span>
+<span class="src-line" id="L370">					idx = idx + <span class="n">1</span></span>
+<span class="src-line" id="L371">					<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">value</span>(<span class="t">Json</span>.<span class="t">string</span>(res))</span>
+<span class="src-line" id="L372">				}</span>
+<span class="src-line" id="L373">			<span class="k">default</span> quote.double:</span>
+<span class="src-line" id="L374">				<span class="k">if</span>(<span class="t">char</span>(str[idx]) == <span class="s">&#39;\&quot;&#39;</span>): {</span>
+<span class="src-line" id="L375">					idx = idx + <span class="n">1</span></span>
+<span class="src-line" id="L376">					<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">value</span>(<span class="t">Json</span>.<span class="t">string</span>(res))</span>
+<span class="src-line" id="L377">				}</span>
+<span class="src-line" id="L378"></span>
+<span class="src-line" id="L379">		res += <span class="t">string</span>(<span class="t">char</span>(str[idx]))</span>
+<span class="src-line" id="L380">		idx = idx + <span class="n">1</span></span>
+<span class="src-line" id="L381">	}</span>
+<span class="src-line" id="L382"></span>
+<span class="src-line" id="L383">	<span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;Json endquote never reached&quot;</span>))</span>
+<span class="src-line" id="L384">}</span>
+<span class="src-line" id="L385"></span>
+<span class="src-line" id="L386"><span class="k">bind</span> _parse_json_bool = (s: <span class="t">string</span>, idx: &amp;<span class="t">int</span>) <span class="t">Result</span>[<span class="t">Json</span>]:</span>
+<span class="src-line" id="L387">	<span class="k">match</span>(<span class="t">char</span>(s[idx])):</span>
+<span class="src-line" id="L388">		<span class="k">when</span> <span class="s">&#39;t&#39;</span>: {</span>
+<span class="src-line" id="L389">			<span class="k">if</span>(idx + <span class="n">3</span> &gt;= s.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(</span>
+<span class="src-line" id="L390">				<span class="s">&quot;Json ended while parsing boolean true value&quot;</span></span>
+<span class="src-line" id="L391">			)</span>
+<span class="src-line" id="L392">			<span class="k">if</span>(s[idx..idx + <span class="n">4</span>] != <span class="s">&quot;true&quot;</span>): <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;Invalid boolean value&quot;</span>)</span>
+<span class="src-line" id="L393">			idx = idx + <span class="n">4</span></span>
+<span class="src-line" id="L394">			<span class="f">value</span>(<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>))</span>
+<span class="src-line" id="L395">		}</span>
+<span class="src-line" id="L396">		<span class="k">when</span> <span class="s">&#39;f&#39;</span>: {</span>
+<span class="src-line" id="L397">			<span class="k">if</span>(idx + <span class="n">4</span> &gt;= s.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(</span>
+<span class="src-line" id="L398">				<span class="s">&quot;Json ended while parsing boolean false value&quot;</span></span>
+<span class="src-line" id="L399">			)</span>
+<span class="src-line" id="L400">			<span class="k">if</span>(s[idx..idx + <span class="n">5</span>] != <span class="s">&quot;false&quot;</span>): <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;Invalid boolean value&quot;</span>)</span>
+<span class="src-line" id="L401">			idx = idx + <span class="n">5</span></span>
+<span class="src-line" id="L402">			<span class="f">value</span>(<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>))</span>
+<span class="src-line" id="L403">		}</span>
+<span class="src-line" id="L404">		<span class="k">default</span>: <span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;expected bool&quot;</span>)</span>
+<span class="src-line" id="L405"></span>
+<span class="src-line" id="L406"><span class="k">bind</span> _parse_json_null = (s: <span class="t">string</span>, idx: &amp;<span class="t">int</span>) <span class="t">Result</span>[<span class="t">Json</span>]: {</span>
+<span class="src-line" id="L407">	<span class="k">if</span>(idx + <span class="n">3</span> &gt;= s.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;Json ended while parsing null value&quot;</span>)</span>
+<span class="src-line" id="L408">	<span class="k">if</span>(s[idx..idx + <span class="n">4</span>] == <span class="s">&quot;null&quot;</span>): <span class="u">&lt;-</span> <span class="f">value</span>(<span class="t">Json</span>.null)</span>
+<span class="src-line" id="L409">	<span class="f">println</span>(s[idx..idx + <span class="n">4</span>])</span>
+<span class="src-line" id="L410">	idx = idx + <span class="n">4</span></span>
+<span class="src-line" id="L411">	<span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;Invalid null value&quot;</span>)</span>
+<span class="src-line" id="L412">}</span>
+<span class="src-line" id="L413"></span>
+<span class="src-line" id="L414"><span class="k">bind</span> _parse_json_number = (str: <span class="t">string</span>, idx: &amp;<span class="t">int</span>) <span class="t">Result</span>[<span class="t">Json</span>]: {</span>
+<span class="src-line" id="L415">	<span class="k">let</span> dot = <span class="c">false</span></span>
+<span class="src-line" id="L416">	<span class="k">let</span> neg = <span class="c">false</span></span>
+<span class="src-line" id="L417"></span>
+<span class="src-line" id="L418">	<span class="k">let</span> num = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L419"></span>
+<span class="src-line" id="L420">	<span class="k">while</span>(idx &lt; str.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L421">		<span class="k">match</span>(<span class="t">char</span>(str[idx])):</span>
+<span class="src-line" id="L422">			<span class="k">when</span> <span class="f">is_digit</span>(): num += <span class="t">string</span>(<span class="t">char</span>(str[idx]))</span>
+<span class="src-line" id="L423">			<span class="k">when</span> <span class="s">&#39;.&#39;</span>: {</span>
+<span class="src-line" id="L424">				<span class="k">if</span>(dot): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;Invalid number value&quot;</span>)</span>
+<span class="src-line" id="L425">				dot = <span class="c">true</span></span>
+<span class="src-line" id="L426">				num += <span class="t">string</span>(<span class="t">char</span>(str[idx]))</span>
+<span class="src-line" id="L427">			}</span>
+<span class="src-line" id="L428">			<span class="k">when</span> <span class="s">&#39;-&#39;</span>: {</span>
+<span class="src-line" id="L429">				<span class="k">if</span>(neg): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;Invalid number value&quot;</span>)</span>
+<span class="src-line" id="L430">				neg = <span class="c">true</span></span>
+<span class="src-line" id="L431">			}</span>
+<span class="src-line" id="L432">			<span class="k">default</span>: <span class="k">while</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L433"></span>
+<span class="src-line" id="L434">		idx = idx + <span class="n">1</span></span>
+<span class="src-line" id="L435">	}</span>
+<span class="src-line" id="L436"></span>
+<span class="src-line" id="L437">	<span class="k">if</span>(dot): {</span>
+<span class="src-line" id="L438">		<span class="k">let</span> fl? = num.<span class="f">to_float</span>()</span>
+<span class="src-line" id="L439"></span>
+<span class="src-line" id="L440">		<span class="k">if</span>(fl?): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">value</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="k">if</span>(neg): -fl <span class="k">else</span>: fl)))</span>
+<span class="src-line" id="L441">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L442">		<span class="k">let</span> i? = num.<span class="f">to_int</span>()</span>
+<span class="src-line" id="L443"></span>
+<span class="src-line" id="L444">		<span class="k">if</span>(i?): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">value</span>(<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="k">if</span>(neg): -i <span class="k">else</span>: i)))</span>
+<span class="src-line" id="L445">	}</span>
+<span class="src-line" id="L446"></span>
+<span class="src-line" id="L447">	<span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;Invalid number value&quot;</span>)</span>
+<span class="src-line" id="L448">}</span>
+<span class="src-line" id="L449"></span>
+<span class="src-line" id="L450"><span class="k">bind</span> _parse_json_array = (str: <span class="t">string</span>, idx: &amp;<span class="t">int</span>) <span class="t">Result</span>[<span class="t">Json</span>]: {</span>
+<span class="src-line" id="L451">	<span class="k">if</span>(idx &gt;= str.<span class="f">len</span>()): <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(</span>
+<span class="src-line" id="L452">		<span class="s">&quot;idx is out of bounds of the string str.len(): </span>${str.<span class="f">len</span>()}<span class="s"> idx: </span>$idx<span class="s">&quot;</span></span>
+<span class="src-line" id="L453">	)</span>
+<span class="src-line" id="L454">	<span class="k">if</span>(<span class="t">char</span>(str[idx]) != <span class="s">&#39;[&#39;</span>): <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;Json array expected to start with [&quot;</span>)</span>
+<span class="src-line" id="L455"></span>
+<span class="src-line" id="L456">	<span class="k">let</span> items: [<span class="t">Json</span>] = []</span>
+<span class="src-line" id="L457"></span>
+<span class="src-line" id="L458">	idx += <span class="n">1</span></span>
+<span class="src-line" id="L459"></span>
+<span class="src-line" id="L460">	<span class="k">while</span>(<span class="t">char</span>(str[idx]).<span class="f">is_whitespace</span>()): idx += <span class="n">1</span></span>
+<span class="src-line" id="L461"></span>
+<span class="src-line" id="L462">	<span class="k">if</span>(<span class="t">char</span>(str[idx]) == <span class="s">&#39;]&#39;</span>): <span class="u">&lt;-</span> <span class="f">value</span>(<span class="t">Json</span>.<span class="f">array</span>([]))</span>
+<span class="src-line" id="L463"></span>
+<span class="src-line" id="L464">	<span class="k">while</span>(idx &lt; str.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L465">		<span class="k">let</span> t = <span class="f">_to_json_helper</span>(str, &amp;idx):</span>
+<span class="src-line" id="L466">			<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e.<span class="f">wrap</span>(<span class="s">&quot;&quot;</span>))</span>
+<span class="src-line" id="L467"></span>
+<span class="src-line" id="L468">		<span class="k">while</span>(<span class="t">char</span>(str[idx]).<span class="f">is_whitespace</span>()): idx += <span class="n">1</span></span>
+<span class="src-line" id="L469"></span>
+<span class="src-line" id="L470">		<span class="k">match</span>(<span class="t">char</span>(str[idx])):</span>
+<span class="src-line" id="L471">			<span class="k">when</span> <span class="s">&#39;,&#39;</span>: {}</span>
+<span class="src-line" id="L472">			<span class="k">when</span> <span class="s">&#39;]&#39;</span>: <span class="k">while</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L473">			<span class="k">default</span>: <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(</span>
+<span class="src-line" id="L474">				<span class="s">&quot;Invalid Json array. Expected , or ]. Got: </span>${<span class="t">char</span>(str[idx])}<span class="s">&quot;</span></span>
+<span class="src-line" id="L475">			)</span>
+<span class="src-line" id="L476"></span>
+<span class="src-line" id="L477">		idx = idx + <span class="n">1</span></span>
+<span class="src-line" id="L478">		<span class="k">while</span>(<span class="t">char</span>(str[idx]).<span class="f">is_whitespace</span>()): idx += <span class="n">1</span></span>
+<span class="src-line" id="L479">	}</span>
+<span class="src-line" id="L480"></span>
+<span class="src-line" id="L481">	idx += <span class="n">1</span></span>
+<span class="src-line" id="L482"></span>
+<span class="src-line" id="L483">	<span class="f">value</span>(<span class="t">Json</span>.<span class="f">array</span>(items))</span>
+<span class="src-line" id="L484">}</span>
+<span class="src-line" id="L485"></span>
+<span class="src-line" id="L486"><span class="k">bind</span> _parse_json_object = (str: <span class="t">string</span>, idx: &amp;<span class="t">int</span>) <span class="t">Result</span>[<span class="t">Json</span>]: {</span>
+<span class="src-line" id="L487">	<span class="k">if</span>(idx &gt;= str.<span class="f">len</span>()): <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(</span>
+<span class="src-line" id="L488">		<span class="s">&quot;idx is out of bounds of the string str.len(): </span>${str.<span class="f">len</span>()}<span class="s"> idx: </span>$idx<span class="s">&quot;</span></span>
+<span class="src-line" id="L489">	)</span>
+<span class="src-line" id="L490">	<span class="k">if</span>(<span class="t">char</span>(str[idx]) != <span class="s">&#39;{&#39;</span>): <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;Json object expected to start with {&quot;</span>)</span>
+<span class="src-line" id="L491"></span>
+<span class="src-line" id="L492">	<span class="k">let</span> items: #[<span class="t">string</span>: <span class="t">Json</span>] = #[]</span>
+<span class="src-line" id="L493"></span>
+<span class="src-line" id="L494">	idx += <span class="n">1</span></span>
+<span class="src-line" id="L495"></span>
+<span class="src-line" id="L496">	<span class="k">while</span>(<span class="t">char</span>(str[idx]).<span class="f">is_whitespace</span>()): idx += <span class="n">1</span></span>
+<span class="src-line" id="L497"></span>
+<span class="src-line" id="L498">	<span class="k">if</span>(<span class="t">char</span>(str[idx]) == <span class="s">&#39;}&#39;</span>): <span class="u">&lt;-</span> <span class="f">value</span>(<span class="t">Json</span>.<span class="f">object</span>(#[]))</span>
+<span class="src-line" id="L499"></span>
+<span class="src-line" id="L500">	<span class="k">while</span>(idx &lt; str.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L501">		<span class="k">let</span> key_raw = <span class="f">_parse_json_string</span>(str, &amp;idx):</span>
+<span class="src-line" id="L502">			<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e.<span class="f">wrap</span>(<span class="s">&quot;failed to parse Jason object member key&quot;</span>))</span>
+<span class="src-line" id="L503">		<span class="k">let</span> key = key_raw.<span class="f">to_string</span>()</span>
+<span class="src-line" id="L504"></span>
+<span class="src-line" id="L505">		key = key[<span class="n">1</span>..]</span>
+<span class="src-line" id="L506">		key = key[..key.<span class="f">len</span>() - <span class="n">1</span>] <span class="m">// this doesn&#39;t seem ideal. There needs to be a string functon for this</span></span>
+<span class="src-line" id="L507"></span>
+<span class="src-line" id="L508">		<span class="k">while</span>(<span class="t">char</span>(str[idx]).<span class="f">is_whitespace</span>()): idx += <span class="n">1</span></span>
+<span class="src-line" id="L509"></span>
+<span class="src-line" id="L510">		<span class="k">if</span>(<span class="t">char</span>(str[idx]) != <span class="s">&#39;:&#39;</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(<span class="s">&quot;failed to parse Jason object :&quot;</span>)</span>
+<span class="src-line" id="L511">		idx += <span class="n">1</span></span>
+<span class="src-line" id="L512"></span>
+<span class="src-line" id="L513">		<span class="k">while</span>(<span class="t">char</span>(str[idx]).<span class="f">is_whitespace</span>()): idx += <span class="n">1</span></span>
+<span class="src-line" id="L514"></span>
+<span class="src-line" id="L515">		<span class="k">match</span>(<span class="f">_to_json_helper</span>(str, &amp;idx)):</span>
+<span class="src-line" id="L516">			<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> o): items.<span class="f">push</span>(<span class="t">MapEntry</span>[key: key, value: o])</span>
+<span class="src-line" id="L517">			<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L518">				e.<span class="f">wrap</span>(<span class="s">&quot;failed to parse Jason object member value&quot;</span>)</span>
+<span class="src-line" id="L519">			)</span>
+<span class="src-line" id="L520"></span>
+<span class="src-line" id="L521">		<span class="k">match</span>(<span class="t">char</span>(str[idx])):</span>
+<span class="src-line" id="L522">			<span class="k">when</span> <span class="s">&#39;,&#39;</span>: {}</span>
+<span class="src-line" id="L523">			<span class="k">when</span> <span class="s">&#39;}&#39;</span>: <span class="k">while</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L524">			<span class="k">default</span>: <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">Result</span>.<span class="f">fail_msg</span>(</span>
+<span class="src-line" id="L525">				<span class="s">&quot;Invalid Json object. Expected , or }. Got: </span>${<span class="t">char</span>(str[idx])}<span class="s">&quot;</span></span>
+<span class="src-line" id="L526">			)</span>
+<span class="src-line" id="L527"></span>
+<span class="src-line" id="L528">		idx = idx + <span class="n">1</span></span>
+<span class="src-line" id="L529">		<span class="k">while</span>(<span class="t">char</span>(str[idx]).<span class="f">is_whitespace</span>()): idx += <span class="n">1</span></span>
+<span class="src-line" id="L530">	}</span>
+<span class="src-line" id="L531"></span>
+<span class="src-line" id="L532">	idx += <span class="n">1</span></span>
+<span class="src-line" id="L533"></span>
+<span class="src-line" id="L534">	<span class="f">value</span>(<span class="t">Json</span>.<span class="f">object</span>(items))</span>
+<span class="src-line" id="L535">}</span>
+<span class="src-line" id="L536"></span>
+<span class="src-line" id="L537"><span class="k">bind</span> <span class="t">Number</span>.to_json = (<span class="k">self</span>) <span class="t">Json</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L538"></span>
+<span class="src-line" id="L539"><span class="a">@test</span>(<span class="s">&quot;tests for string.to_json&quot;</span>)</span>
+<span class="src-line" id="L540"><span class="k">bind</span> string_to_json_test = ():</span>
+<span class="src-line" id="L541">	test.assert_all_ok_eq_named[<span class="t">Json</span>](</span>
+<span class="src-line" id="L542">		[</span>
+<span class="src-line" id="L543">			+[</span>
+<span class="src-line" id="L544">				<span class="s">&quot;empty string&quot;</span>,</span>
+<span class="src-line" id="L545">				<span class="t">Json</span>.empty,</span>
+<span class="src-line" id="L546">				<span class="s">``</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L547">			],</span>
+<span class="src-line" id="L548">			+[</span>
+<span class="src-line" id="L549">				<span class="s">&quot;double quote string&quot;</span>,</span>
+<span class="src-line" id="L550">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;abc&quot;</span>),</span>
+<span class="src-line" id="L551">				<span class="s">`&quot;abc&quot;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L552">			],</span>
+<span class="src-line" id="L553">			+[</span>
+<span class="src-line" id="L554">				<span class="s">&quot;single quote string&quot;</span>,</span>
+<span class="src-line" id="L555">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;abc&quot;</span>),</span>
+<span class="src-line" id="L556">				<span class="s">`&#39;abc&#39;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L557">			],</span>
+<span class="src-line" id="L558">			+[</span>
+<span class="src-line" id="L559">				<span class="s">&quot;double quote empty string&quot;</span>,</span>
+<span class="src-line" id="L560">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;&quot;</span>),</span>
+<span class="src-line" id="L561">				<span class="s">`&quot;&quot;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L562">			],</span>
+<span class="src-line" id="L563">			+[</span>
+<span class="src-line" id="L564">				<span class="s">&quot;single quote empty string&quot;</span>,</span>
+<span class="src-line" id="L565">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;&quot;</span>),</span>
+<span class="src-line" id="L566">				<span class="s">`&#39;&#39;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L567">			],</span>
+<span class="src-line" id="L568">			+[</span>
+<span class="src-line" id="L569">				<span class="s">&quot;single quote in double quote&quot;</span>,</span>
+<span class="src-line" id="L570">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;&#39;&quot;</span>),</span>
+<span class="src-line" id="L571">				<span class="s">`&quot;&#39;&quot;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L572">			],</span>
+<span class="src-line" id="L573">			+[</span>
+<span class="src-line" id="L574">				<span class="s">&quot;double quote in single quote&quot;</span>,</span>
+<span class="src-line" id="L575">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">`&quot;`</span>),</span>
+<span class="src-line" id="L576">				<span class="s">`&#39;&quot;&#39;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L577">			],</span>
+<span class="src-line" id="L578">			+[</span>
+<span class="src-line" id="L579">				<span class="s">&quot;true&quot;</span>,</span>
+<span class="src-line" id="L580">				<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>),</span>
+<span class="src-line" id="L581">				<span class="s">`true`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L582">			],</span>
+<span class="src-line" id="L583">			+[</span>
+<span class="src-line" id="L584">				<span class="s">&quot;false&quot;</span>,</span>
+<span class="src-line" id="L585">				<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>),</span>
+<span class="src-line" id="L586">				<span class="s">`false`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L587">			],</span>
+<span class="src-line" id="L588">			+[</span>
+<span class="src-line" id="L589">				<span class="s">&quot;null&quot;</span>,</span>
+<span class="src-line" id="L590">				<span class="t">Json</span>.null,</span>
+<span class="src-line" id="L591">				<span class="s">`null`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L592">			],</span>
+<span class="src-line" id="L593">			+[</span>
+<span class="src-line" id="L594">				<span class="s">&quot;5&quot;</span>,</span>
+<span class="src-line" id="L595">				<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">5</span>)),</span>
+<span class="src-line" id="L596">				<span class="s">`5`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L597">			],</span>
+<span class="src-line" id="L598">			+[</span>
+<span class="src-line" id="L599">				<span class="s">&quot;5.5&quot;</span>,</span>
+<span class="src-line" id="L600">				<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">5.5</span>)),</span>
+<span class="src-line" id="L601">				<span class="s">`5.5`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L602">			],</span>
+<span class="src-line" id="L603">			+[</span>
+<span class="src-line" id="L604">				<span class="s">&quot;empty array&quot;</span>,</span>
+<span class="src-line" id="L605">				<span class="t">Json</span>.<span class="f">array</span>([]),</span>
+<span class="src-line" id="L606">				<span class="s">`[]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L607">			],</span>
+<span class="src-line" id="L608">			+[</span>
+<span class="src-line" id="L609">				<span class="s">&quot;full array&quot;</span>,</span>
+<span class="src-line" id="L610">				<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;abc&quot;</span>), <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">123</span>)), <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>)]),</span>
+<span class="src-line" id="L611">				<span class="s">`[&quot;abc&quot;, 123, false]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L612">			],</span>
+<span class="src-line" id="L613">			+[</span>
+<span class="src-line" id="L614">				<span class="s">&quot;nested array&quot;</span>,</span>
+<span class="src-line" id="L615">				<span class="t">Json</span>.<span class="f">array</span>([</span>
+<span class="src-line" id="L616">					<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;abc&quot;</span>),</span>
+<span class="src-line" id="L617">					<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">123</span>)),</span>
+<span class="src-line" id="L618">					<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>),</span>
+<span class="src-line" id="L619">					<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;abc&quot;</span>), <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">123</span>)), <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>)]),</span>
+<span class="src-line" id="L620">				]),</span>
+<span class="src-line" id="L621">				<span class="s">`[&quot;abc&quot;, 123, false, [&quot;abc&quot;, 123, false]]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L622">			],</span>
+<span class="src-line" id="L623">			+[</span>
+<span class="src-line" id="L624">				<span class="s">&quot;empty object&quot;</span>,</span>
+<span class="src-line" id="L625">				<span class="t">Json</span>.<span class="f">object</span>(#[]),</span>
+<span class="src-line" id="L626">				<span class="s">`{}`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L627">			],</span>
+<span class="src-line" id="L628">			+[</span>
+<span class="src-line" id="L629">				<span class="s">&quot;object&quot;</span>,</span>
+<span class="src-line" id="L630">				<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;abc&quot;</span>: <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>)]),</span>
+<span class="src-line" id="L631">				<span class="s">`{&quot;abc&quot;: true}`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L632">			],</span>
+<span class="src-line" id="L633">			+[</span>
+<span class="src-line" id="L634">				<span class="s">&quot;full object&quot;</span>,</span>
+<span class="src-line" id="L635">				<span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L636">					<span class="s">&quot;abc&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">123</span>)),</span>
+<span class="src-line" id="L637">					<span class="s">&quot;xyz&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">5.3</span>)),</span>
+<span class="src-line" id="L638">					<span class="s">&quot;def&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L639">						<span class="s">&quot;abc&quot;</span>: <span class="t">Json</span>.<span class="f">array</span>([</span>
+<span class="src-line" id="L640">							<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>)),</span>
+<span class="src-line" id="L641">							<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">2</span>)),</span>
+<span class="src-line" id="L642">							<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">3</span>)),</span>
+<span class="src-line" id="L643">							<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;abc&quot;</span>),</span>
+<span class="src-line" id="L644">							<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>),</span>
+<span class="src-line" id="L645">						])</span>
+<span class="src-line" id="L646">					]),</span>
+<span class="src-line" id="L647">				]),</span>
+<span class="src-line" id="L648">				<span class="s">`{&quot;abc&quot;: 123, &quot;xyz&quot;: 5.3, &quot;def&quot;: {&quot;abc&quot;: [1, 2, 3, &quot;abc&quot;, true]}}`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L649">			],</span>
+<span class="src-line" id="L650">			<span class="m">// tests from ai:</span></span>
+<span class="src-line" id="L651"></span>
+<span class="src-line" id="L652">			<span class="m">// whitespace handling</span></span>
+<span class="src-line" id="L653">			+[</span>
+<span class="src-line" id="L654">				<span class="s">&quot;whitespace only spaces&quot;</span>,</span>
+<span class="src-line" id="L655">				<span class="t">Json</span>.empty,</span>
+<span class="src-line" id="L656">				<span class="s">&quot;     &quot;</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L657">			],</span>
+<span class="src-line" id="L658">			+[</span>
+<span class="src-line" id="L659">				<span class="s">&quot;whitespace only mixed&quot;</span>,</span>
+<span class="src-line" id="L660">				<span class="t">Json</span>.empty,</span>
+<span class="src-line" id="L661">				<span class="s">&quot; \t\n\r &quot;</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L662">			],</span>
+<span class="src-line" id="L663">			+[</span>
+<span class="src-line" id="L664">				<span class="s">&quot;leading and trailing whitespace around string&quot;</span>,</span>
+<span class="src-line" id="L665">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;abc&quot;</span>),</span>
+<span class="src-line" id="L666">				<span class="s">&quot;  \t \&quot;abc\&quot; \n &quot;</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L667">			],</span>
+<span class="src-line" id="L668">			+[</span>
+<span class="src-line" id="L669">				<span class="s">&quot;leading and trailing whitespace around bool&quot;</span>,</span>
+<span class="src-line" id="L670">				<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>),</span>
+<span class="src-line" id="L671">				<span class="s">&quot;\n\t true \t\n&quot;</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L672">			],</span>
+<span class="src-line" id="L673">			+[</span>
+<span class="src-line" id="L674">				<span class="s">&quot;leading and trailing whitespace around null&quot;</span>,</span>
+<span class="src-line" id="L675">				<span class="t">Json</span>.null,</span>
+<span class="src-line" id="L676">				<span class="s">&quot;   null   &quot;</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L677">			],</span>
+<span class="src-line" id="L678">			+[</span>
+<span class="src-line" id="L679">				<span class="s">&quot;leading and trailing whitespace around number&quot;</span>,</span>
+<span class="src-line" id="L680">				<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">42</span>)),</span>
+<span class="src-line" id="L681">				<span class="s">&quot;  42  &quot;</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L682">			],</span>
+<span class="src-line" id="L683">			+[</span>
+<span class="src-line" id="L684">				<span class="s">&quot;whitespace inside empty array&quot;</span>,</span>
+<span class="src-line" id="L685">				<span class="t">Json</span>.<span class="f">array</span>([]),</span>
+<span class="src-line" id="L686">				<span class="s">&quot;[ \t\n ]&quot;</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L687">			],</span>
+<span class="src-line" id="L688">			+[</span>
+<span class="src-line" id="L689">				<span class="s">&quot;whitespace inside empty object&quot;</span>,</span>
+<span class="src-line" id="L690">				<span class="t">Json</span>.<span class="f">object</span>(#[]),</span>
+<span class="src-line" id="L691">				<span class="s">&quot;{ \t\n }&quot;</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L692">			],</span>
+<span class="src-line" id="L693">			<span class="m">// strings</span></span>
+<span class="src-line" id="L694">			+[</span>
+<span class="src-line" id="L695">				<span class="s">&quot;string with spaces&quot;</span>,</span>
+<span class="src-line" id="L696">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;hello world&quot;</span>),</span>
+<span class="src-line" id="L697">				<span class="s">`&quot;hello world&quot;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L698">			],</span>
+<span class="src-line" id="L699">			+[</span>
+<span class="src-line" id="L700">				<span class="s">&quot;string containing digits&quot;</span>,</span>
+<span class="src-line" id="L701">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;12345&quot;</span>),</span>
+<span class="src-line" id="L702">				<span class="s">`&quot;12345&quot;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L703">			],</span>
+<span class="src-line" id="L704">			+[</span>
+<span class="src-line" id="L705">				<span class="s">&quot;string containing keywords&quot;</span>,</span>
+<span class="src-line" id="L706">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;true false null&quot;</span>),</span>
+<span class="src-line" id="L707">				<span class="s">`&quot;true false null&quot;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L708">			],</span>
+<span class="src-line" id="L709">			+[</span>
+<span class="src-line" id="L710">				<span class="s">&quot;string containing json delimiters&quot;</span>,</span>
+<span class="src-line" id="L711">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;a: b, [1, 2], {x: y}&quot;</span>),</span>
+<span class="src-line" id="L712">				<span class="s">`&quot;a: b, [1, 2], {x: y}&quot;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L713">			],</span>
+<span class="src-line" id="L714">			+[</span>
+<span class="src-line" id="L715">				<span class="s">&quot;string with escaped double quotes&quot;</span>,</span>
+<span class="src-line" id="L716">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">`hello \&quot;world\&quot;`</span>),</span>
+<span class="src-line" id="L717">				<span class="s">`&quot;hello \&quot;world\&quot;&quot;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L718">			],</span>
+<span class="src-line" id="L719">			+[</span>
+<span class="src-line" id="L720">				<span class="s">&quot;string with escaped single quotes&quot;</span>,</span>
+<span class="src-line" id="L721">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">`hello \&#39;world\&#39;`</span>),</span>
+<span class="src-line" id="L722">				<span class="s">`&#39;hello \&#39;world\&#39;&#39;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L723">			],</span>
+<span class="src-line" id="L724">			+[</span>
+<span class="src-line" id="L725">				<span class="s">&quot;string with special symbols&quot;</span>,</span>
+<span class="src-line" id="L726">				<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;!@#\$%^&amp;*()_+-=/?&quot;</span>),</span>
+<span class="src-line" id="L727">				<span class="s">`&quot;!@#\$%^&amp;*()_+-=/?&quot;`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L728">			],</span>
+<span class="src-line" id="L729">			<span class="m">// numbers</span></span>
+<span class="src-line" id="L730">			+[</span>
+<span class="src-line" id="L731">				<span class="s">&quot;zero int&quot;</span>,</span>
+<span class="src-line" id="L732">				<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">0</span>)),</span>
+<span class="src-line" id="L733">				<span class="s">`0`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L734">			],</span>
+<span class="src-line" id="L735">			+[</span>
+<span class="src-line" id="L736">				<span class="s">&quot;multi digit int&quot;</span>,</span>
+<span class="src-line" id="L737">				<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">987654</span>)),</span>
+<span class="src-line" id="L738">				<span class="s">`987654`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L739">			],</span>
+<span class="src-line" id="L740">			+[</span>
+<span class="src-line" id="L741">				<span class="s">&quot;negative int&quot;</span>,</span>
+<span class="src-line" id="L742">				<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(-<span class="n">42</span>)),</span>
+<span class="src-line" id="L743">				<span class="s">`-42`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L744">			],</span>
+<span class="src-line" id="L745">			+[</span>
+<span class="src-line" id="L746">				<span class="s">&quot;zero float&quot;</span>,</span>
+<span class="src-line" id="L747">				<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">0.0</span>)),</span>
+<span class="src-line" id="L748">				<span class="s">`0.0`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L749">			],</span>
+<span class="src-line" id="L750">			+[</span>
+<span class="src-line" id="L751">				<span class="s">&quot;small float&quot;</span>,</span>
+<span class="src-line" id="L752">				<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">0.005</span>)),</span>
+<span class="src-line" id="L753">				<span class="s">`0.005`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L754">			],</span>
+<span class="src-line" id="L755">			+[</span>
+<span class="src-line" id="L756">				<span class="s">&quot;multi digit float&quot;</span>,</span>
+<span class="src-line" id="L757">				<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">123.456</span>)),</span>
+<span class="src-line" id="L758">				<span class="s">`123.456`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L759">			],</span>
+<span class="src-line" id="L760">			+[</span>
+<span class="src-line" id="L761">				<span class="s">&quot;negative float&quot;</span>,</span>
+<span class="src-line" id="L762">				<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(-<span class="n">3.14</span>)),</span>
+<span class="src-line" id="L763">				<span class="s">`-3.14`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L764">			],</span>
+<span class="src-line" id="L765">			<span class="m">// arrays</span></span>
+<span class="src-line" id="L766">			+[</span>
+<span class="src-line" id="L767">				<span class="s">&quot;single element array null&quot;</span>,</span>
+<span class="src-line" id="L768">				<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.null]),</span>
+<span class="src-line" id="L769">				<span class="s">`[null]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L770">			],</span>
+<span class="src-line" id="L771">			+[</span>
+<span class="src-line" id="L772">				<span class="s">&quot;single element array string&quot;</span>,</span>
+<span class="src-line" id="L773">				<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;only&quot;</span>)]),</span>
+<span class="src-line" id="L774">				<span class="s">`[&quot;only&quot;]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L775">			],</span>
+<span class="src-line" id="L776">			+[</span>
+<span class="src-line" id="L777">				<span class="s">&quot;single element array bool&quot;</span>,</span>
+<span class="src-line" id="L778">				<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>)]),</span>
+<span class="src-line" id="L779">				<span class="s">`[true]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L780">			],</span>
+<span class="src-line" id="L781">			+[</span>
+<span class="src-line" id="L782">				<span class="s">&quot;single element array int&quot;</span>,</span>
+<span class="src-line" id="L783">				<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">7</span>))]),</span>
+<span class="src-line" id="L784">				<span class="s">`[7]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L785">			],</span>
+<span class="src-line" id="L786">			+[</span>
+<span class="src-line" id="L787">				<span class="s">&quot;single element array float&quot;</span>,</span>
+<span class="src-line" id="L788">				<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">2.5</span>))]),</span>
+<span class="src-line" id="L789">				<span class="s">`[2.5]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L790">			],</span>
+<span class="src-line" id="L791">			+[</span>
+<span class="src-line" id="L792">				<span class="s">&quot;array with no spaces&quot;</span>,</span>
+<span class="src-line" id="L793">				<span class="t">Json</span>.<span class="f">array</span>([</span>
+<span class="src-line" id="L794">					<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>)),</span>
+<span class="src-line" id="L795">					<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">2</span>)),</span>
+<span class="src-line" id="L796">					<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">3</span>)),</span>
+<span class="src-line" id="L797">				]),</span>
+<span class="src-line" id="L798">				<span class="s">`[1,2,3]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L799">			],</span>
+<span class="src-line" id="L800">			+[</span>
+<span class="src-line" id="L801">				<span class="s">&quot;array with extra whitespace and newlines&quot;</span>,</span>
+<span class="src-line" id="L802">				<span class="t">Json</span>.<span class="f">array</span>([</span>
+<span class="src-line" id="L803">					<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;a&quot;</span>),</span>
+<span class="src-line" id="L804">					<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;b&quot;</span>),</span>
+<span class="src-line" id="L805">					<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;c&quot;</span>),</span>
+<span class="src-line" id="L806">				]),</span>
+<span class="src-line" id="L807">				<span class="s">&quot;[\n\t\&quot;a\&quot; ,\n\t\&quot;b\&quot; ,\n\t\&quot;c\&quot;\n]&quot;</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L808">			],</span>
+<span class="src-line" id="L809">			+[</span>
+<span class="src-line" id="L810">				<span class="s">&quot;array of nulls and bools&quot;</span>,</span>
+<span class="src-line" id="L811">				<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.null, <span class="t">Json</span>.null, <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>), <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>)]),</span>
+<span class="src-line" id="L812">				<span class="s">`[null, null, true, false]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L813">			],</span>
+<span class="src-line" id="L814">			+[</span>
+<span class="src-line" id="L815">				<span class="s">&quot;array with mixed quote styles&quot;</span>,</span>
+<span class="src-line" id="L816">				<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;double&quot;</span>), <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;single&quot;</span>)]),</span>
+<span class="src-line" id="L817">				<span class="s">`[&quot;double&quot;, &#39;single&#39;]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L818">			],</span>
+<span class="src-line" id="L819">			+[</span>
+<span class="src-line" id="L820">				<span class="s">&quot;nested empty arrays&quot;</span>,</span>
+<span class="src-line" id="L821">				<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">array</span>([]), <span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">array</span>([])])]),</span>
+<span class="src-line" id="L822">				<span class="s">`[[], [[]]]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L823">			],</span>
+<span class="src-line" id="L824">			+[</span>
+<span class="src-line" id="L825">				<span class="s">&quot;2d array of ints&quot;</span>,</span>
+<span class="src-line" id="L826">				<span class="t">Json</span>.<span class="f">array</span>([</span>
+<span class="src-line" id="L827">					<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>)), <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">2</span>))]),</span>
+<span class="src-line" id="L828">					<span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">3</span>)), <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">4</span>))]),</span>
+<span class="src-line" id="L829">				]),</span>
+<span class="src-line" id="L830">				<span class="s">`[[1, 2], [3, 4]]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L831">			],</span>
+<span class="src-line" id="L832">			+[</span>
+<span class="src-line" id="L833">				<span class="s">&quot;array of objects&quot;</span>,</span>
+<span class="src-line" id="L834">				<span class="t">Json</span>.<span class="f">array</span>([</span>
+<span class="src-line" id="L835">					<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;a&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>))]),</span>
+<span class="src-line" id="L836">					<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;b&quot;</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;two&quot;</span>)]),</span>
+<span class="src-line" id="L837">					<span class="t">Json</span>.<span class="f">object</span>(#[]),</span>
+<span class="src-line" id="L838">				]),</span>
+<span class="src-line" id="L839">				<span class="s">`[{&quot;a&quot;: 1}, {&quot;b&quot;: &quot;two&quot;}, {}]`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L840">			],</span>
+<span class="src-line" id="L841">			<span class="m">// objects</span></span>
+<span class="src-line" id="L842">			+[</span>
+<span class="src-line" id="L843">				<span class="s">&quot;object with empty string key&quot;</span>,</span>
+<span class="src-line" id="L844">				<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;&quot;</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;val&quot;</span>)]),</span>
+<span class="src-line" id="L845">				<span class="s">`{&quot;&quot;: &quot;val&quot;}`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L846">			],</span>
+<span class="src-line" id="L847">			+[</span>
+<span class="src-line" id="L848">				<span class="s">&quot;object with single quoted key and value&quot;</span>,</span>
+<span class="src-line" id="L849">				<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;key&quot;</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;val&quot;</span>)]),</span>
+<span class="src-line" id="L850">				<span class="s">`{&#39;key&#39;: &#39;val&#39;}`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L851">			],</span>
+<span class="src-line" id="L852">			+[</span>
+<span class="src-line" id="L853">				<span class="s">&quot;object with null value&quot;</span>,</span>
+<span class="src-line" id="L854">				<span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;a&quot;</span>: <span class="t">Json</span>.null]),</span>
+<span class="src-line" id="L855">				<span class="s">`{&quot;a&quot;: null}`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L856">			],</span>
+<span class="src-line" id="L857">			+[</span>
+<span class="src-line" id="L858">				<span class="s">&quot;object with multiple null and bool values&quot;</span>,</span>
+<span class="src-line" id="L859">				<span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L860">					<span class="s">&quot;a&quot;</span>: <span class="t">Json</span>.null,</span>
+<span class="src-line" id="L861">					<span class="s">&quot;b&quot;</span>: <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>),</span>
+<span class="src-line" id="L862">					<span class="s">&quot;c&quot;</span>: <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>),</span>
+<span class="src-line" id="L863">					<span class="s">&quot;d&quot;</span>: <span class="t">Json</span>.null,</span>
+<span class="src-line" id="L864">				]),</span>
+<span class="src-line" id="L865">				<span class="s">`{&quot;a&quot;: null, &quot;b&quot;: true, &quot;c&quot;: false, &quot;d&quot;: null}`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L866">			],</span>
+<span class="src-line" id="L867">			+[</span>
+<span class="src-line" id="L868">				<span class="s">&quot;object with no spaces&quot;</span>,</span>
+<span class="src-line" id="L869">				<span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L870">					<span class="s">&quot;a&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>)),</span>
+<span class="src-line" id="L871">					<span class="s">&quot;b&quot;</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;two&quot;</span>),</span>
+<span class="src-line" id="L872">					<span class="s">&quot;c&quot;</span>: <span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>), <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>)]),</span>
+<span class="src-line" id="L873">				]),</span>
+<span class="src-line" id="L874">				<span class="s">`{&quot;a&quot;:1,&quot;b&quot;:&quot;two&quot;,&quot;c&quot;:[true,false]}`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L875">			],</span>
+<span class="src-line" id="L876">			+[</span>
+<span class="src-line" id="L877">				<span class="s">&quot;object with spaces before colon and commas&quot;</span>,</span>
+<span class="src-line" id="L878">				<span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L879">					<span class="s">&quot;a&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>)),</span>
+<span class="src-line" id="L880">					<span class="s">&quot;b&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">2</span>)),</span>
+<span class="src-line" id="L881">				]),</span>
+<span class="src-line" id="L882">				<span class="s">`{ &quot;a&quot; : 1 , &quot;b&quot; : 2 }`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L883">			],</span>
+<span class="src-line" id="L884">			+[</span>
+<span class="src-line" id="L885">				<span class="s">&quot;object with empty array and empty object values&quot;</span>,</span>
+<span class="src-line" id="L886">				<span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L887">					<span class="s">&quot;arr&quot;</span>: <span class="t">Json</span>.<span class="f">array</span>([]),</span>
+<span class="src-line" id="L888">					<span class="s">&quot;obj&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[]),</span>
+<span class="src-line" id="L889">				]),</span>
+<span class="src-line" id="L890">				<span class="s">`{&quot;arr&quot;: [], &quot;obj&quot;: {}}`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L891">			],</span>
+<span class="src-line" id="L892">			+[</span>
+<span class="src-line" id="L893">				<span class="s">&quot;object containing array of objects&quot;</span>,</span>
+<span class="src-line" id="L894">				<span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L895">					<span class="s">&quot;users&quot;</span>: <span class="t">Json</span>.<span class="f">array</span>([</span>
+<span class="src-line" id="L896">						<span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L897">							<span class="s">&quot;id&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>)),</span>
+<span class="src-line" id="L898">							<span class="s">&quot;active&quot;</span>: <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>),</span>
+<span class="src-line" id="L899">						]),</span>
+<span class="src-line" id="L900">						<span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L901">							<span class="s">&quot;id&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">2</span>)),</span>
+<span class="src-line" id="L902">							<span class="s">&quot;active&quot;</span>: <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>),</span>
+<span class="src-line" id="L903">						]),</span>
+<span class="src-line" id="L904">					])</span>
+<span class="src-line" id="L905">				]),</span>
+<span class="src-line" id="L906">				<span class="s">`{&quot;users&quot;: [{&quot;id&quot;: 1, &quot;active&quot;: true}, {&quot;id&quot;: 2, &quot;active&quot;: false}]}`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L907">			],</span>
+<span class="src-line" id="L908">			+[</span>
+<span class="src-line" id="L909">				<span class="s">&quot;pretty printed multiline object&quot;</span>,</span>
+<span class="src-line" id="L910">				<span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L911">					<span class="s">&quot;name&quot;</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;test&quot;</span>),</span>
+<span class="src-line" id="L912">					<span class="s">&quot;count&quot;</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">3</span>)),</span>
+<span class="src-line" id="L913">					<span class="s">&quot;nested&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L914">						<span class="s">&quot;flag&quot;</span>: <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>),</span>
+<span class="src-line" id="L915">						<span class="s">&quot;list&quot;</span>: <span class="t">Json</span>.<span class="f">array</span>([<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>)), <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">2</span>))]),</span>
+<span class="src-line" id="L916">					]),</span>
+<span class="src-line" id="L917">				]),</span>
+<span class="src-line" id="L918">				<span class="s">&quot;{\n\t\&quot;name\&quot;: \&quot;test\&quot;,\n\t\&quot;count\&quot;: 3,\n\t\&quot;nested\&quot;: {\n\t\t\&quot;flag\&quot;: false,\n\t\t\&quot;list\&quot;: [1, 2]\n\t}\n}&quot;</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L919">			],</span>
+<span class="src-line" id="L920">			+[</span>
+<span class="src-line" id="L921">				<span class="s">&quot;deeply nested object&quot;</span>,</span>
+<span class="src-line" id="L922">				<span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L923">					<span class="s">&quot;a&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L924">						<span class="s">&quot;b&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L925">							<span class="s">&quot;c&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L926">								<span class="s">&quot;d&quot;</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;deep&quot;</span>)</span>
+<span class="src-line" id="L927">							])</span>
+<span class="src-line" id="L928">						])</span>
+<span class="src-line" id="L929">					])</span>
+<span class="src-line" id="L930">				]),</span>
+<span class="src-line" id="L931">				<span class="s">`{&quot;a&quot;: {&quot;b&quot;: {&quot;c&quot;: {&quot;d&quot;: &quot;deep&quot;}}}}`</span>.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L932">			],</span>
+<span class="src-line" id="L933">			+[</span>
+<span class="src-line" id="L934">				<span class="s">&quot;round trip from Json.to_string&quot;</span>,</span>
+<span class="src-line" id="L935">				<span class="t">Json</span>.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L936">					<span class="s">&quot;a&quot;</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;hello&quot;</span>),</span>
+<span class="src-line" id="L937">					<span class="s">&quot;b&quot;</span>: <span class="t">Json</span>.<span class="f">array</span>([</span>
+<span class="src-line" id="L938">						<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>)),</span>
+<span class="src-line" id="L939">						<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">2.5</span>)),</span>
+<span class="src-line" id="L940">						<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>),</span>
+<span class="src-line" id="L941">						<span class="t">Json</span>.null,</span>
+<span class="src-line" id="L942">					]),</span>
+<span class="src-line" id="L943">					<span class="s">&quot;c&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;x&quot;</span>: <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>)]),</span>
+<span class="src-line" id="L944">				]),</span>
+<span class="src-line" id="L945">				<span class="t">Json</span></span>
+<span class="src-line" id="L946">					.<span class="f">object</span>(#[</span>
+<span class="src-line" id="L947">						<span class="s">&quot;a&quot;</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="s">&quot;hello&quot;</span>),</span>
+<span class="src-line" id="L948">						<span class="s">&quot;b&quot;</span>: <span class="t">Json</span>.<span class="f">array</span>([</span>
+<span class="src-line" id="L949">							<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="n">1</span>)),</span>
+<span class="src-line" id="L950">							<span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">float</span>(<span class="n">2.5</span>)),</span>
+<span class="src-line" id="L951">							<span class="t">Json</span>.<span class="t">bool</span>(<span class="c">true</span>),</span>
+<span class="src-line" id="L952">							<span class="t">Json</span>.null,</span>
+<span class="src-line" id="L953">						]),</span>
+<span class="src-line" id="L954">						<span class="s">&quot;c&quot;</span>: <span class="t">Json</span>.<span class="f">object</span>(#[<span class="s">&quot;x&quot;</span>: <span class="t">Json</span>.<span class="t">bool</span>(<span class="c">false</span>)]),</span>
+<span class="src-line" id="L955">					])</span>
+<span class="src-line" id="L956">					.<span class="f">to_string</span>()</span>
+<span class="src-line" id="L957">					.<span class="f">to_json</span>(),</span>
+<span class="src-line" id="L958">			],</span>
+<span class="src-line" id="L959">		]</span>
+<span class="src-line" id="L960">	)</span>
+<span class="src-line" id="L961"></span>
+<span class="src-line" id="L962"><span class="k">bind</span> <span class="t">bool</span>.to_json = (<span class="k">self</span>) <span class="t">Json</span>: <span class="t">Json</span>.<span class="t">bool</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L963"></span>
+<span class="src-line" id="L964"><span class="k">bind</span> <span class="t">int</span>.to_json = (<span class="k">self</span>) <span class="t">Json</span>: <span class="t">Json</span>.<span class="f">number</span>(<span class="t">Number</span>.<span class="t">int</span>(<span class="k">self</span>))</span>
+<span class="src-line" id="L965"></span>
+<span class="src-line" id="L966"><span class="k">bind</span> <span class="t">char</span>.to_json = (<span class="k">self</span>) <span class="t">Json</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="k">self</span>.<span class="f">to_string</span>())</span>
+<span class="src-line" id="L967"></span>
+<span class="src-line" id="L968"><span class="k">bind</span> <span class="t">float</span>.to_json = (<span class="k">self</span>) <span class="t">Json</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="k">self</span>.<span class="f">to_string</span>())</span>
+<span class="src-line" id="L969"></span>
+<span class="src-line" id="L970"><span class="k">bind</span> <span class="t">u8</span>.to_json = (<span class="k">self</span>) <span class="t">Json</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="k">self</span>.<span class="f">to_string</span>())</span>
+<span class="src-line" id="L971"></span>
+<span class="src-line" id="L972"><span class="k">bind</span> <span class="t">u16</span>.to_json = (<span class="k">self</span>) <span class="t">Json</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="k">self</span>.<span class="f">to_string</span>())</span>
+<span class="src-line" id="L973"></span>
+<span class="src-line" id="L974"><span class="k">bind</span> <span class="t">u32</span>.to_json = (<span class="k">self</span>) <span class="t">Json</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="k">self</span>.<span class="f">to_string</span>())</span>
+<span class="src-line" id="L975"></span>
+<span class="src-line" id="L976"><span class="k">bind</span> <span class="t">u64</span>.to_json = (<span class="k">self</span>) <span class="t">Json</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="k">self</span>.<span class="f">to_string</span>())</span>
+<span class="src-line" id="L977"></span>
+<span class="src-line" id="L978"><span class="k">bind</span> <span class="t">i8</span>.to_json = (<span class="k">self</span>) <span class="t">Json</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="k">self</span>.<span class="f">to_string</span>())</span>
+<span class="src-line" id="L979"></span>
+<span class="src-line" id="L980"><span class="k">bind</span> <span class="t">i16</span>.to_json = (<span class="k">self</span>) <span class="t">Json</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="k">self</span>.<span class="f">to_string</span>())</span>
+<span class="src-line" id="L981"></span>
+<span class="src-line" id="L982"><span class="k">bind</span> <span class="t">i32</span>.to_json = (<span class="k">self</span>) <span class="t">Json</span>: <span class="t">Json</span>.<span class="t">string</span>(<span class="k">self</span>.<span class="f">to_string</span>())</span>
+<span class="src-line" id="L983"></span>
+<span class="src-line" id="L984"><span class="m">// bind list.to_json = (self): Json</span></span>
+<span class="src-line" id="L985"></span>
+<span class="src-line" id="L986"><span class="m">// bind map.to_json = (self): Json</span></span>
+<span class="src-line" id="L987"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fs.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>fs.ll</h1><p>Source of package <a href="../fs.html"><code>std/fs</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/fs — RAII file stream I/O ([`File`]) and whole-file filesystem helpers.</span></span>
+<span class="src-line" id="L2"><span class="m">//</span></span>
+<span class="src-line" id="L3"><span class="m">// Provides [`File`] with automatic [`Drop`] descriptor cleanup along with</span></span>
+<span class="src-line" id="L4"><span class="m">// convenience wrappers ([`read_file`], [`write_file`], [`read_bytes`], [`copy_file`]).</span></span>
+<span class="src-line" id="L5"></span>
+<span class="src-line" id="L6"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L7"><span class="m">// Seek Constants</span></span>
+<span class="src-line" id="L8"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L9"></span>
+<span class="src-line" id="L10"><span class="m">// Seek origin from the start of the file (`0`), used with [`File.seek`].</span></span>
+<span class="src-line" id="L11"><span class="k">bind</span> <span class="t">SEEK_SET</span>: <span class="t">i32</span> = <span class="n">0</span></span>
+<span class="src-line" id="L12"></span>
+<span class="src-line" id="L13"><span class="m">// Seek origin relative to the current cursor offset (`1`), used with [`File.seek`].</span></span>
+<span class="src-line" id="L14"><span class="k">bind</span> <span class="t">SEEK_CUR</span>: <span class="t">i32</span> = <span class="n">1</span></span>
+<span class="src-line" id="L15"></span>
+<span class="src-line" id="L16"><span class="m">// Seek origin relative to the end of the file (`2`), used with [`File.seek`].</span></span>
+<span class="src-line" id="L17"><span class="k">bind</span> <span class="t">SEEK_END</span>: <span class="t">i32</span> = <span class="n">2</span></span>
+<span class="src-line" id="L18"></span>
+<span class="src-line" id="L19"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L20"><span class="m">// File Stream Type with RAII Drop</span></span>
+<span class="src-line" id="L21"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L22"></span>
+<span class="src-line" id="L23"><span class="m">// Buffered OS file stream supporting binary/text reads, writes, and seeking.</span></span>
+<span class="src-line" id="L24"><span class="m">//</span></span>
+<span class="src-line" id="L25"><span class="m">// Implements [`Drop`] to automatically close the file descriptor at scope exit.</span></span>
+<span class="src-line" id="L26"><span class="m">//</span></span>
+<span class="src-line" id="L27"><span class="m">// # Example</span></span>
+<span class="src-line" id="L28"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L29"><span class="m">// let f = File.open_write(&quot;/tmp/hello.txt&quot;).unwrap()</span></span>
+<span class="src-line" id="L30"><span class="m">// let _ = f.write_string(&quot;hello&quot;).unwrap()</span></span>
+<span class="src-line" id="L31"><span class="m">// ```</span></span>
+<span class="src-line" id="L32"><span class="k">define</span> <span class="t">File</span> <span class="k">struct</span> [</span>
+<span class="src-line" id="L33">	_handle: <span class="t">ptr</span>[<span class="t">u8</span>],</span>
+<span class="src-line" id="L34">	_is_open: <span class="t">bool</span>,</span>
+<span class="src-line" id="L35">]</span>
+<span class="src-line" id="L36"></span>
+<span class="src-line" id="L37"><span class="m">// Closes the underlying file stream automatically when leaving scope if still open.</span></span>
+<span class="src-line" id="L38"><span class="k">bind</span> <span class="t">File</span>.drop = (&amp;<span class="k">self</span>):</span>
+<span class="src-line" id="L39">	<span class="k">if</span>(<span class="k">self</span>._is_open <span class="k">and</span> <span class="k">unsafe</span> (<span class="k">self</span>._handle != null_ptr[<span class="t">u8</span>]())): {</span>
+<span class="src-line" id="L40">		<span class="k">let</span> _ = <span class="k">unsafe</span> <span class="f">sys_fclose</span>(<span class="k">self</span>._handle)</span>
+<span class="src-line" id="L41">		<span class="k">self</span>._is_open = <span class="c">false</span></span>
+<span class="src-line" id="L42">		<span class="k">self</span>._handle = <span class="k">unsafe</span> null_ptr[<span class="t">u8</span>]()</span>
+<span class="src-line" id="L43">	}</span>
+<span class="src-line" id="L44"></span>
+<span class="src-line" id="L45"><span class="m">// Opens a [`File`] handle at `path` using C stdio mode string `mode` (such as `&quot;rb&quot;` or `&quot;wb&quot;`).</span></span>
+<span class="src-line" id="L46"><span class="m">//</span></span>
+<span class="src-line" id="L47"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L48"><span class="m">// Returns [`Result.err`] if the file cannot be opened with the requested mode.</span></span>
+<span class="src-line" id="L49"><span class="k">bind</span> <span class="t">File</span>.open = (path: <span class="t">string</span>, mode: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">File</span>]:</span>
+<span class="src-line" id="L50">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L51">		<span class="k">let</span> fp = <span class="f">sys_fopen</span>(path.<span class="f">c_str</span>(), mode.<span class="f">c_str</span>())</span>
+<span class="src-line" id="L52">		<span class="k">if</span>(fp == null_ptr[<span class="t">u8</span>]()): <span class="f">err</span>(</span>
+<span class="src-line" id="L53">			<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to open file \&quot;</span>$path<span class="s">\&quot; with mode \&quot;</span>$mode<span class="s">\&quot;&quot;</span>)</span>
+<span class="src-line" id="L54">		)</span>
+<span class="src-line" id="L55">		<span class="k">else</span>: <span class="f">value</span>(<span class="t">File</span>[_handle: fp, _is_open: <span class="c">true</span>])</span>
+<span class="src-line" id="L56">	}</span>
+<span class="src-line" id="L57"></span>
+<span class="src-line" id="L58"><span class="m">// Opens an existing file for reading in binary mode (`&quot;rb&quot;`).</span></span>
+<span class="src-line" id="L59"><span class="k">bind</span> <span class="t">File</span>.open_read = (path: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">File</span>]: <span class="t">File</span>.<span class="f">open</span>(path, <span class="s">&quot;rb&quot;</span>)</span>
+<span class="src-line" id="L60"></span>
+<span class="src-line" id="L61"><span class="m">// Opens a file for writing in binary mode (`&quot;wb&quot;`), creating it or truncating existing contents.</span></span>
+<span class="src-line" id="L62"><span class="k">bind</span> <span class="t">File</span>.open_write = (path: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">File</span>]: <span class="t">File</span>.<span class="f">open</span>(path, <span class="s">&quot;wb&quot;</span>)</span>
+<span class="src-line" id="L63"></span>
+<span class="src-line" id="L64"><span class="m">// Opens a file for appending in binary mode (`&quot;ab&quot;`), creating it if missing.</span></span>
+<span class="src-line" id="L65"><span class="k">bind</span> <span class="t">File</span>.open_append = (path: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">File</span>]: <span class="t">File</span>.<span class="f">open</span>(path, <span class="s">&quot;ab&quot;</span>)</span>
+<span class="src-line" id="L66"></span>
+<span class="src-line" id="L67"><span class="m">// Opens a file for reading and writing in binary mode (`&quot;r+b&quot;`).</span></span>
+<span class="src-line" id="L68"><span class="k">bind</span> <span class="t">File</span>.open_read_write = (path: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">File</span>]: <span class="t">File</span>.<span class="f">open</span>(path, <span class="s">&quot;r+b&quot;</span>)</span>
+<span class="src-line" id="L69"></span>
+<span class="src-line" id="L70"><span class="m">// Reports whether this file handle is open and non-null.</span></span>
+<span class="src-line" id="L71"><span class="k">bind</span> <span class="t">File</span>.is_valid = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>._is_open <span class="k">and</span> <span class="k">unsafe</span> (<span class="k">self</span>._handle != null_ptr[<span class="t">u8</span>]())</span>
+<span class="src-line" id="L72"></span>
+<span class="src-line" id="L73"><span class="m">// Explicitly closes the file stream and marks it closed, returning `true` if `fclose` succeeded.</span></span>
+<span class="src-line" id="L74"><span class="k">bind</span> <span class="t">File</span>.close = (&amp;<span class="k">self</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L75">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>._is_open <span class="k">or</span> <span class="k">unsafe</span> (<span class="k">self</span>._handle == null_ptr[<span class="t">u8</span>]())): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L76">	<span class="k">let</span> res = <span class="k">unsafe</span> <span class="f">sys_fclose</span>(<span class="k">self</span>._handle) == <span class="n">0</span></span>
+<span class="src-line" id="L77">	<span class="k">self</span>._is_open = <span class="c">false</span></span>
+<span class="src-line" id="L78">	<span class="k">self</span>._handle = <span class="k">unsafe</span> null_ptr[<span class="t">u8</span>]()</span>
+<span class="src-line" id="L79">	res</span>
+<span class="src-line" id="L80">}</span>
+<span class="src-line" id="L81"></span>
+<span class="src-line" id="L82"><span class="m">// Flushes any buffered output bytes to the underlying filesystem, returning `true` on success.</span></span>
+<span class="src-line" id="L83"><span class="k">bind</span> <span class="t">File</span>.flush = (&amp;<span class="k">self</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L84">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">is_valid</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L85">	<span class="k">unsafe</span> <span class="f">sys_fflush</span>(<span class="k">self</span>._handle) == <span class="n">0</span></span>
+<span class="src-line" id="L86">}</span>
+<span class="src-line" id="L87"></span>
+<span class="src-line" id="L88"><span class="m">// Moves the file cursor to `offset` relative to `whence` ([`SEEK_SET`], [`SEEK_CUR`], or [`SEEK_END`]).</span></span>
+<span class="src-line" id="L89"><span class="m">//</span></span>
+<span class="src-line" id="L90"><span class="m">// Returns the new byte offset from the start of the file.</span></span>
+<span class="src-line" id="L91"><span class="m">//</span></span>
+<span class="src-line" id="L92"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L93"><span class="m">// Fails if the stream is closed or the underlying seek fails.</span></span>
+<span class="src-line" id="L94"><span class="k">bind</span> <span class="t">File</span>.seek = (&amp;<span class="k">self</span>, offset: <span class="t">int</span>, whence: <span class="t">i32</span>) <span class="t">Result</span>[<span class="t">int</span>]: {</span>
+<span class="src-line" id="L95">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">is_valid</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;file is not open&quot;</span>))</span>
+<span class="src-line" id="L96">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L97">		<span class="k">let</span> rc = <span class="f">sys_fseek</span>(<span class="k">self</span>._handle, offset, whence)</span>
+<span class="src-line" id="L98">		<span class="k">if</span>(rc != <span class="n">0</span>): <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;fseek failed&quot;</span>))</span>
+<span class="src-line" id="L99">		<span class="k">else</span>: {</span>
+<span class="src-line" id="L100">			<span class="k">let</span> pos = <span class="f">sys_ftell</span>(<span class="k">self</span>._handle)</span>
+<span class="src-line" id="L101">			<span class="k">if</span>(pos &lt; <span class="n">0</span>): <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;ftell failed after seek&quot;</span>)) <span class="k">else</span>: <span class="f">value</span>(pos)</span>
+<span class="src-line" id="L102">		}</span>
+<span class="src-line" id="L103">	}</span>
+<span class="src-line" id="L104">}</span>
+<span class="src-line" id="L105"></span>
+<span class="src-line" id="L106"><span class="m">// Returns the current byte cursor position of the open file stream.</span></span>
+<span class="src-line" id="L107"><span class="k">bind</span> <span class="t">File</span>.tell = (&amp;<span class="k">self</span>) <span class="t">Result</span>[<span class="t">int</span>]: {</span>
+<span class="src-line" id="L108">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">is_valid</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;file is not open&quot;</span>))</span>
+<span class="src-line" id="L109">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L110">		<span class="k">let</span> pos = <span class="f">sys_ftell</span>(<span class="k">self</span>._handle)</span>
+<span class="src-line" id="L111">		<span class="k">if</span>(pos &lt; <span class="n">0</span>): <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;ftell failed&quot;</span>)) <span class="k">else</span>: <span class="f">value</span>(pos)</span>
+<span class="src-line" id="L112">	}</span>
+<span class="src-line" id="L113">}</span>
+<span class="src-line" id="L114"></span>
+<span class="src-line" id="L115"><span class="m">// Queries the total byte size of the file while preserving the current cursor position.</span></span>
+<span class="src-line" id="L116"><span class="m">//</span></span>
+<span class="src-line" id="L117"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L118"><span class="m">// Fails on non-seekable streams (pipes, FIFOs, terminals) or if the cursor cannot be restored.</span></span>
+<span class="src-line" id="L119"><span class="k">bind</span> <span class="t">File</span>.size = (&amp;<span class="k">self</span>) <span class="t">Result</span>[<span class="t">int</span>]: {</span>
+<span class="src-line" id="L120">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">is_valid</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;file is not open&quot;</span>))</span>
+<span class="src-line" id="L121">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L122">		<span class="k">let</span> saved = <span class="f">sys_ftell</span>(<span class="k">self</span>._handle)</span>
+<span class="src-line" id="L123">		<span class="k">if</span>(saved &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to query file position&quot;</span>))</span>
+<span class="src-line" id="L124">		<span class="k">if</span>(<span class="f">sys_fseek</span>(<span class="k">self</span>._handle, <span class="n">0</span>, <span class="t">SEEK_END</span>) != <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L125">			<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to seek to end&quot;</span>)</span>
+<span class="src-line" id="L126">		)</span>
+<span class="src-line" id="L127">		<span class="k">let</span> total = <span class="f">sys_ftell</span>(<span class="k">self</span>._handle)</span>
+<span class="src-line" id="L128">		<span class="k">if</span>(<span class="f">sys_fseek</span>(<span class="k">self</span>._handle, saved, <span class="t">SEEK_SET</span>) != <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L129">			<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to restore file position&quot;</span>)</span>
+<span class="src-line" id="L130">		)</span>
+<span class="src-line" id="L131">		<span class="k">if</span>(total &lt; <span class="n">0</span>): <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to query file size&quot;</span>)) <span class="k">else</span>: <span class="f">value</span>(total)</span>
+<span class="src-line" id="L132">	}</span>
+<span class="src-line" id="L133">}</span>
+<span class="src-line" id="L134"></span>
+<span class="src-line" id="L135"><span class="m">// Writes all UTF-8 bytes of `s` to the stream and returns the number of bytes written.</span></span>
+<span class="src-line" id="L136"><span class="m">//</span></span>
+<span class="src-line" id="L137"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L138"><span class="m">// Fails if the stream is closed or fewer than `s.len()` bytes were written.</span></span>
+<span class="src-line" id="L139"><span class="k">bind</span> <span class="t">File</span>.write_string = (&amp;<span class="k">self</span>, s: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">int</span>]: {</span>
+<span class="src-line" id="L140">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">is_valid</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;file is not open&quot;</span>))</span>
+<span class="src-line" id="L141">	<span class="k">if</span>(s.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">value</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L142">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L143">		<span class="k">let</span> written = <span class="f">sys_fwrite</span>(s.<span class="f">c_str</span>(), <span class="n">1</span>, s.<span class="f">len</span>(), <span class="k">self</span>._handle)</span>
+<span class="src-line" id="L144">		<span class="k">if</span>(written &lt; s.<span class="f">len</span>()): <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;short write: wrote </span>$written<span class="s"> of </span>${s.<span class="f">len</span>()}<span class="s"> bytes&quot;</span>))</span>
+<span class="src-line" id="L145">		<span class="k">else</span>: <span class="f">value</span>(written)</span>
+<span class="src-line" id="L146">	}</span>
+<span class="src-line" id="L147">}</span>
+<span class="src-line" id="L148"></span>
+<span class="src-line" id="L149"><span class="m">// Writes all bytes of `data` to the stream and returns the byte count written.</span></span>
+<span class="src-line" id="L150"><span class="m">//</span></span>
+<span class="src-line" id="L151"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L152"><span class="m">// Fails if the stream is closed or a short write occurs.</span></span>
+<span class="src-line" id="L153"><span class="k">bind</span> <span class="t">File</span>.write_bytes = (&amp;<span class="k">self</span>, data: [<span class="t">u8</span>]) <span class="t">Result</span>[<span class="t">int</span>]: {</span>
+<span class="src-line" id="L154">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">is_valid</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;file is not open&quot;</span>))</span>
+<span class="src-line" id="L155">	<span class="k">if</span>(data.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">value</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L156">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L157">		<span class="k">let</span> raw = alloc_raw[<span class="t">u8</span>](data.<span class="f">len</span>())</span>
+<span class="src-line" id="L158">		<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..data.<span class="f">len</span>()): <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(raw, i), data[i])</span>
+<span class="src-line" id="L159">		<span class="k">let</span> written = <span class="f">sys_fwrite</span>(raw, <span class="n">1</span>, data.<span class="f">len</span>(), <span class="k">self</span>._handle)</span>
+<span class="src-line" id="L160">		<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L161">		<span class="k">if</span>(written &lt; data.<span class="f">len</span>()): <span class="f">err</span>(</span>
+<span class="src-line" id="L162">			<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;short write: wrote </span>$written<span class="s"> of </span>${data.<span class="f">len</span>()}<span class="s"> bytes&quot;</span>)</span>
+<span class="src-line" id="L163">		)</span>
+<span class="src-line" id="L164">		<span class="k">else</span>: <span class="f">value</span>(written)</span>
+<span class="src-line" id="L165">	}</span>
+<span class="src-line" id="L166">}</span>
+<span class="src-line" id="L167"></span>
+<span class="src-line" id="L168"><span class="m">// Reads up to `max_bytes` from the current stream offset into a byte list (`[u8]`).</span></span>
+<span class="src-line" id="L169"><span class="m">//</span></span>
+<span class="src-line" id="L170"><span class="m">// Returns fewer than `max_bytes` bytes only when EOF is reached first.</span></span>
+<span class="src-line" id="L171"><span class="m">//</span></span>
+<span class="src-line" id="L172"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L173"><span class="m">// Fails if the stream is closed or the underlying read reports an I/O error (`ferror`).</span></span>
+<span class="src-line" id="L174"><span class="k">bind</span> <span class="t">File</span>.read_bytes = (&amp;<span class="k">self</span>, max_bytes: <span class="t">int</span>) <span class="t">Result</span>[[<span class="t">u8</span>]]: {</span>
+<span class="src-line" id="L175">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">is_valid</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;file is not open&quot;</span>))</span>
+<span class="src-line" id="L176">	<span class="k">if</span>(max_bytes &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">value</span>([])</span>
+<span class="src-line" id="L177">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L178">		<span class="k">let</span> raw = alloc_raw[<span class="t">u8</span>](max_bytes)</span>
+<span class="src-line" id="L179">		<span class="k">let</span> n = <span class="f">sys_fread</span>(raw, <span class="n">1</span>, max_bytes, <span class="k">self</span>._handle)</span>
+<span class="src-line" id="L180">		<span class="k">if</span>(n &lt; max_bytes <span class="k">and</span> <span class="f">sys_ferror</span>(<span class="k">self</span>._handle) != <span class="t">i32</span>(<span class="n">0</span>)): {</span>
+<span class="src-line" id="L181">			<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L182">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;read error after </span>$n<span class="s"> bytes&quot;</span>))</span>
+<span class="src-line" id="L183">		}</span>
+<span class="src-line" id="L184">		<span class="k">let</span> out: [<span class="t">u8</span>] = []</span>
+<span class="src-line" id="L185">		<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..n): out.<span class="f">push</span>(raw[i])</span>
+<span class="src-line" id="L186">		<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L187">		<span class="f">value</span>(<span class="k">own</span> out)</span>
+<span class="src-line" id="L188">	}</span>
+<span class="src-line" id="L189">}</span>
+<span class="src-line" id="L190"></span>
+<span class="src-line" id="L191"><span class="m">// Reads all remaining bytes from the current stream cursor to EOF into a byte list (`[u8]`).</span></span>
+<span class="src-line" id="L192"><span class="m">//</span></span>
+<span class="src-line" id="L193"><span class="m">// Reads in fixed-size chunks without querying the file size, so it works on</span></span>
+<span class="src-line" id="L194"><span class="m">// non-seekable streams such as pipes, FIFOs, and character devices.</span></span>
+<span class="src-line" id="L195"><span class="m">//</span></span>
+<span class="src-line" id="L196"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L197"><span class="m">// Fails if the stream is closed or the underlying read reports an I/O error (`ferror`).</span></span>
+<span class="src-line" id="L198"><span class="k">bind</span> <span class="t">File</span>.read_all_bytes = (&amp;<span class="k">self</span>) <span class="t">Result</span>[[<span class="t">u8</span>]]: {</span>
+<span class="src-line" id="L199">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">is_valid</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;file is not open&quot;</span>))</span>
+<span class="src-line" id="L200">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L201">		<span class="k">let</span> chunk_size = <span class="n">16384</span></span>
+<span class="src-line" id="L202">		<span class="k">let</span> raw = alloc_raw[<span class="t">u8</span>](chunk_size)</span>
+<span class="src-line" id="L203">		<span class="k">let</span> out: [<span class="t">u8</span>] = []</span>
+<span class="src-line" id="L204">		<span class="k">for</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L205">			<span class="k">let</span> n = <span class="f">sys_fread</span>(raw, <span class="n">1</span>, chunk_size, <span class="k">self</span>._handle)</span>
+<span class="src-line" id="L206">			<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..n): out.<span class="f">push</span>(raw[i])</span>
+<span class="src-line" id="L207">			<span class="k">if</span>(n &lt; chunk_size): <span class="k">for</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L208">		}</span>
+<span class="src-line" id="L209">		<span class="k">let</span> had_err = <span class="f">sys_ferror</span>(<span class="k">self</span>._handle) != <span class="t">i32</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L210">		<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L211">		<span class="k">if</span>(had_err): <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;read error after </span>${out.<span class="f">len</span>()}<span class="s"> bytes&quot;</span>)) <span class="k">else</span>: <span class="f">value</span>(<span class="k">own</span> out)</span>
+<span class="src-line" id="L212">	}</span>
+<span class="src-line" id="L213">}</span>
+<span class="src-line" id="L214"></span>
+<span class="src-line" id="L215"><span class="m">// Reads all remaining bytes from the current stream cursor to EOF as a [`string`].</span></span>
+<span class="src-line" id="L216"><span class="m">//</span></span>
+<span class="src-line" id="L217"><span class="m">// Works on non-seekable streams (pipes, FIFOs, character devices).</span></span>
+<span class="src-line" id="L218"><span class="m">//</span></span>
+<span class="src-line" id="L219"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L220"><span class="m">// Fails if the stream is closed or the underlying read reports an I/O error (`ferror`).</span></span>
+<span class="src-line" id="L221"><span class="k">bind</span> <span class="t">File</span>.read_to_string = (&amp;<span class="k">self</span>) <span class="t">Result</span>[<span class="t">string</span>]: {</span>
+<span class="src-line" id="L222">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">is_valid</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;file is not open&quot;</span>))</span>
+<span class="src-line" id="L223">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L224">		<span class="k">let</span> chunk_size = <span class="n">8192</span></span>
+<span class="src-line" id="L225">		<span class="k">let</span> raw = alloc_raw[<span class="t">u8</span>](chunk_size)</span>
+<span class="src-line" id="L226">		<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L227">		<span class="k">for</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L228">			<span class="k">let</span> n = <span class="f">sys_fread</span>(raw, <span class="n">1</span>, chunk_size, <span class="k">self</span>._handle)</span>
+<span class="src-line" id="L229">			<span class="k">if</span>(n &gt; <span class="n">0</span>): out.<span class="f">push_bytes</span>(raw, n)</span>
+<span class="src-line" id="L230">			<span class="k">if</span>(n &lt; chunk_size): <span class="k">for</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L231">		}</span>
+<span class="src-line" id="L232">		<span class="k">let</span> had_err = <span class="f">sys_ferror</span>(<span class="k">self</span>._handle) != <span class="t">i32</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L233">		<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L234">		<span class="k">if</span>(had_err): <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;read error after </span>${out.<span class="f">len</span>()}<span class="s"> bytes&quot;</span>)) <span class="k">else</span>: <span class="f">value</span>(<span class="k">own</span> out)</span>
+<span class="src-line" id="L235">	}</span>
+<span class="src-line" id="L236">}</span>
+<span class="src-line" id="L237"></span>
+<span class="src-line" id="L238"><span class="m">// Closes the stream and converts a failed `fclose` (including a failed final flush) into an error.</span></span>
+<span class="src-line" id="L239"><span class="k">bind</span> <span class="t">File</span>._close_checked = (&amp;<span class="k">self</span>) <span class="t">Result</span>[<span class="t">bool</span>]:</span>
+<span class="src-line" id="L240">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">close</span>()): <span class="f">value</span>(<span class="c">true</span>) <span class="k">else</span>: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to flush and close file&quot;</span>))</span>
+<span class="src-line" id="L241"></span>
+<span class="src-line" id="L242"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L243"><span class="m">// Top-Level Convenience Functions</span></span>
+<span class="src-line" id="L244"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L245"></span>
+<span class="src-line" id="L246"><span class="m">// Reads the entire contents of `path` into an owned [`string`], wrapping any I/O error with context.</span></span>
+<span class="src-line" id="L247"><span class="k">bind</span> read_file = (path: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">string</span>]: {</span>
+<span class="src-line" id="L248">	<span class="k">let</span> f_res! = <span class="t">File</span>.<span class="f">open_read</span>(path)</span>
+<span class="src-line" id="L249">	<span class="k">if</span>(f_res!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(f_res!.<span class="f">unwrap_err</span>().<span class="f">wrap</span>(<span class="s">&quot;failed to open file \&quot;</span>$path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L250">	<span class="k">let</span> f = f_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L251">	f.<span class="f">read_to_string</span>().<span class="f">wrap_err</span>(<span class="s">&quot;failed to read file \&quot;</span>$path<span class="s">\&quot;&quot;</span>)</span>
+<span class="src-line" id="L252">}</span>
+<span class="src-line" id="L253"></span>
+<span class="src-line" id="L254"><span class="m">// Alias for [`read_file`].</span></span>
+<span class="src-line" id="L255"><span class="k">bind</span> read_to_string = (path: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">string</span>]: <span class="f">read_file</span>(path)</span>
+<span class="src-line" id="L256"></span>
+<span class="src-line" id="L257"><span class="m">// Legacy alias for [`read_file`].</span></span>
+<span class="src-line" id="L258"><span class="k">bind</span> read_text = (path: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">string</span>]: <span class="f">read_file</span>(path)</span>
+<span class="src-line" id="L259"></span>
+<span class="src-line" id="L260"><span class="m">// Writes `content` to `path`, creating the file or truncating existing contents.</span></span>
+<span class="src-line" id="L261"><span class="k">bind</span> write_file = (path: <span class="t">string</span>, content: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">bool</span>]: {</span>
+<span class="src-line" id="L262">	<span class="k">let</span> f_res! = <span class="t">File</span>.<span class="f">open_write</span>(path)</span>
+<span class="src-line" id="L263">	<span class="k">if</span>(f_res!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L264">		f_res!.<span class="f">unwrap_err</span>().<span class="f">wrap</span>(<span class="s">&quot;failed to open file \&quot;</span>$path<span class="s">\&quot; for writing&quot;</span>)</span>
+<span class="src-line" id="L265">	)</span>
+<span class="src-line" id="L266">	<span class="k">let</span> f = f_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L267">	<span class="k">let</span> w_res! = f.<span class="f">write_string</span>(content)</span>
+<span class="src-line" id="L268">	<span class="k">if</span>(w_res!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(w_res!.<span class="f">unwrap_err</span>().<span class="f">wrap</span>(<span class="s">&quot;failed to write to \&quot;</span>$path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L269">	f.<span class="f">_close_checked</span>().<span class="f">wrap_err</span>(<span class="s">&quot;failed to write to \&quot;</span>$path<span class="s">\&quot;&quot;</span>)</span>
+<span class="src-line" id="L270">}</span>
+<span class="src-line" id="L271"></span>
+<span class="src-line" id="L272"><span class="m">// Alias for [`write_file`].</span></span>
+<span class="src-line" id="L273"><span class="k">bind</span> write_to_file = (path: <span class="t">string</span>, content: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">bool</span>]: <span class="f">write_file</span>(path, content)</span>
+<span class="src-line" id="L274"></span>
+<span class="src-line" id="L275"><span class="m">// Legacy alias for [`write_file`].</span></span>
+<span class="src-line" id="L276"><span class="k">bind</span> write_text = (path: <span class="t">string</span>, content: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">bool</span>]: <span class="f">write_file</span>(path, content)</span>
+<span class="src-line" id="L277"></span>
+<span class="src-line" id="L278"><span class="m">// Appends `content` to the end of `path`, creating the file if it does not yet exist.</span></span>
+<span class="src-line" id="L279"><span class="k">bind</span> append_file = (path: <span class="t">string</span>, content: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">bool</span>]: {</span>
+<span class="src-line" id="L280">	<span class="k">let</span> f_res! = <span class="t">File</span>.<span class="f">open_append</span>(path)</span>
+<span class="src-line" id="L281">	<span class="k">if</span>(f_res!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L282">		f_res!.<span class="f">unwrap_err</span>().<span class="f">wrap</span>(<span class="s">&quot;failed to open file \&quot;</span>$path<span class="s">\&quot; for appending&quot;</span>)</span>
+<span class="src-line" id="L283">	)</span>
+<span class="src-line" id="L284">	<span class="k">let</span> f = f_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L285">	<span class="k">let</span> w_res! = f.<span class="f">write_string</span>(content)</span>
+<span class="src-line" id="L286">	<span class="k">if</span>(w_res!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(w_res!.<span class="f">unwrap_err</span>().<span class="f">wrap</span>(<span class="s">&quot;failed to append to \&quot;</span>$path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L287">	f.<span class="f">_close_checked</span>().<span class="f">wrap_err</span>(<span class="s">&quot;failed to append to \&quot;</span>$path<span class="s">\&quot;&quot;</span>)</span>
+<span class="src-line" id="L288">}</span>
+<span class="src-line" id="L289"></span>
+<span class="src-line" id="L290"><span class="m">// Reads the entire file at `path` into a raw byte list (`[u8]`).</span></span>
+<span class="src-line" id="L291"><span class="m">//</span></span>
+<span class="src-line" id="L292"><span class="m">// Reads until EOF rather than trusting the reported size, so non-seekable</span></span>
+<span class="src-line" id="L293"><span class="m">// sources (pipes, FIFOs, `/dev/stdin`, procfs files) are read completely.</span></span>
+<span class="src-line" id="L294"><span class="k">bind</span> read_bytes = (path: <span class="t">string</span>) <span class="t">Result</span>[[<span class="t">u8</span>]]: {</span>
+<span class="src-line" id="L295">	<span class="k">let</span> f_res! = <span class="t">File</span>.<span class="f">open_read</span>(path)</span>
+<span class="src-line" id="L296">	<span class="k">if</span>(f_res!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(f_res!.<span class="f">unwrap_err</span>().<span class="f">wrap</span>(<span class="s">&quot;failed to open file \&quot;</span>$path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L297">	<span class="k">let</span> f = f_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L298">	f.<span class="f">read_all_bytes</span>().<span class="f">wrap_err</span>(<span class="s">&quot;failed to read bytes from \&quot;</span>$path<span class="s">\&quot;&quot;</span>)</span>
+<span class="src-line" id="L299">}</span>
+<span class="src-line" id="L300"></span>
+<span class="src-line" id="L301"><span class="m">// Writes byte sequence `data` to `path`, creating or overwriting the target file.</span></span>
+<span class="src-line" id="L302"><span class="k">bind</span> write_bytes = (path: <span class="t">string</span>, data: [<span class="t">u8</span>]) <span class="t">Result</span>[<span class="t">bool</span>]: {</span>
+<span class="src-line" id="L303">	<span class="k">let</span> f_res! = <span class="t">File</span>.<span class="f">open_write</span>(path)</span>
+<span class="src-line" id="L304">	<span class="k">if</span>(f_res!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L305">		f_res!.<span class="f">unwrap_err</span>().<span class="f">wrap</span>(<span class="s">&quot;failed to open file \&quot;</span>$path<span class="s">\&quot; for writing&quot;</span>)</span>
+<span class="src-line" id="L306">	)</span>
+<span class="src-line" id="L307">	<span class="k">let</span> f = f_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L308">	<span class="k">let</span> w_res! = f.<span class="f">write_bytes</span>(data)</span>
+<span class="src-line" id="L309">	<span class="k">if</span>(w_res!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(w_res!.<span class="f">unwrap_err</span>().<span class="f">wrap</span>(<span class="s">&quot;failed to write bytes to \&quot;</span>$path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L310">	f.<span class="f">_close_checked</span>().<span class="f">wrap_err</span>(<span class="s">&quot;failed to write bytes to \&quot;</span>$path<span class="s">\&quot;&quot;</span>)</span>
+<span class="src-line" id="L311">}</span>
+<span class="src-line" id="L312"></span>
+<span class="src-line" id="L313"><span class="m">// Reports whether a file or directory exists at `path`.</span></span>
+<span class="src-line" id="L314"><span class="k">bind</span> exists = (path: <span class="t">string</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L315">	<span class="k">if</span>(path.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L316">	<span class="k">unsafe</span> <span class="f">sys_file_exists</span>(path.<span class="f">c_str</span>())</span>
+<span class="src-line" id="L317">}</span>
+<span class="src-line" id="L318"></span>
+<span class="src-line" id="L319"><span class="m">// Queries the total byte size of the file at `path`.</span></span>
+<span class="src-line" id="L320"><span class="k">bind</span> file_size = (path: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">int</span>]: {</span>
+<span class="src-line" id="L321">	<span class="k">let</span> f_res! = <span class="t">File</span>.<span class="f">open_read</span>(path)</span>
+<span class="src-line" id="L322">	<span class="k">if</span>(f_res!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(f_res!.<span class="f">unwrap_err</span>().<span class="f">wrap</span>(<span class="s">&quot;failed to open file \&quot;</span>$path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L323">	<span class="k">let</span> f = f_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L324">	f.<span class="f">size</span>().<span class="f">wrap_err</span>(<span class="s">&quot;failed to query size of \&quot;</span>$path<span class="s">\&quot;&quot;</span>)</span>
+<span class="src-line" id="L325">}</span>
+<span class="src-line" id="L326"></span>
+<span class="src-line" id="L327"><span class="m">// Deletes the file at `path`, returning `true` on success.</span></span>
+<span class="src-line" id="L328"><span class="k">bind</span> remove_file = (path: <span class="t">string</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L329">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L330">		<span class="f">sys_remove</span>(path.<span class="f">c_str</span>()) == <span class="n">0</span></span>
+<span class="src-line" id="L331">	}</span>
+<span class="src-line" id="L332"></span>
+<span class="src-line" id="L333"><span class="m">// Renames or moves `old_path` to `new_path`, returning `true` on success.</span></span>
+<span class="src-line" id="L334"><span class="k">bind</span> rename_file = (old_path: <span class="t">string</span>, new_path: <span class="t">string</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L335">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L336">		<span class="f">sys_rename</span>(old_path.<span class="f">c_str</span>(), new_path.<span class="f">c_str</span>()) == <span class="n">0</span></span>
+<span class="src-line" id="L337">	}</span>
+<span class="src-line" id="L338"></span>
+<span class="src-line" id="L339"><span class="m">// Copies bytes from `src_path` to `dst_path` in 16 KiB chunks and returns total bytes copied.</span></span>
+<span class="src-line" id="L340"><span class="k">bind</span> copy_file = (src_path: <span class="t">string</span>, dst_path: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">int</span>]: {</span>
+<span class="src-line" id="L341">	<span class="k">let</span> src_res! = <span class="t">File</span>.<span class="f">open_read</span>(src_path)</span>
+<span class="src-line" id="L342">	<span class="k">if</span>(src_res!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L343">		src_res!.<span class="f">unwrap_err</span>().<span class="f">wrap</span>(<span class="s">&quot;failed to open source \&quot;</span>$src_path<span class="s">\&quot;&quot;</span>)</span>
+<span class="src-line" id="L344">	)</span>
+<span class="src-line" id="L345">	<span class="k">let</span> dst_res! = <span class="t">File</span>.<span class="f">open_write</span>(dst_path)</span>
+<span class="src-line" id="L346">	<span class="k">if</span>(dst_res!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L347">		dst_res!.<span class="f">unwrap_err</span>().<span class="f">wrap</span>(<span class="s">&quot;failed to open destination \&quot;</span>$dst_path<span class="s">\&quot;&quot;</span>)</span>
+<span class="src-line" id="L348">	)</span>
+<span class="src-line" id="L349">	<span class="k">let</span> src = src_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L350">	<span class="k">let</span> dst = dst_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L351"></span>
+<span class="src-line" id="L352">	<span class="k">let</span> total_copied = <span class="n">0</span></span>
+<span class="src-line" id="L353">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L354">		<span class="k">let</span> chunk_size = <span class="n">16384</span></span>
+<span class="src-line" id="L355">		<span class="k">let</span> raw = alloc_raw[<span class="t">u8</span>](chunk_size)</span>
+<span class="src-line" id="L356">		<span class="k">let</span> n = <span class="f">sys_fread</span>(raw, <span class="n">1</span>, chunk_size, src._handle)</span>
+<span class="src-line" id="L357">		<span class="k">while</span>(n &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L358">			<span class="k">let</span> written = <span class="f">sys_fwrite</span>(raw, <span class="n">1</span>, n, dst._handle)</span>
+<span class="src-line" id="L359">			<span class="k">if</span>(written &lt; n): {</span>
+<span class="src-line" id="L360">				<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L361">				<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;write failure during copy&quot;</span>))</span>
+<span class="src-line" id="L362">			}</span>
+<span class="src-line" id="L363">			total_copied += written</span>
+<span class="src-line" id="L364">			n = <span class="f">sys_fread</span>(raw, <span class="n">1</span>, chunk_size, src._handle)</span>
+<span class="src-line" id="L365">		}</span>
+<span class="src-line" id="L366">		<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L367">		<span class="k">if</span>(<span class="f">sys_ferror</span>(src._handle) != <span class="t">i32</span>(<span class="n">0</span>)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L368">			<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;read failure during copy from \&quot;</span>$src_path<span class="s">\&quot;&quot;</span>)</span>
+<span class="src-line" id="L369">		)</span>
+<span class="src-line" id="L370">	}</span>
+<span class="src-line" id="L371">	<span class="k">let</span> close_res! = dst.<span class="f">_close_checked</span>()</span>
+<span class="src-line" id="L372">	<span class="k">if</span>(close_res!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L373">		close_res!.<span class="f">unwrap_err</span>().<span class="f">wrap</span>(<span class="s">&quot;failed to finish \&quot;</span>$dst_path<span class="s">\&quot;&quot;</span>)</span>
+<span class="src-line" id="L374">	)</span>
+<span class="src-line" id="L375">	<span class="f">value</span>(total_copied)</span>
+<span class="src-line" id="L376">}</span>
+<span class="src-line" id="L377"></span>
+<span class="src-line" id="L378"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L379"><span class="m">// Inline Unit Tests</span></span>
+<span class="src-line" id="L380"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L381"></span>
+<span class="src-line" id="L382"><span class="a">@test_only</span></span>
+<span class="src-line" id="L383"><span class="k">extern</span> getenv <span class="k">as</span> _test_getenv: (name: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">ptr</span>[<span class="t">u8</span>]</span>
+<span class="src-line" id="L384"></span>
+<span class="src-line" id="L385"><span class="a">@test_only</span></span>
+<span class="src-line" id="L386"><span class="k">bind</span> _test_tmp_path = (name: <span class="t">string</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L387">	<span class="k">let</span> base = <span class="f">str_from_cstr</span>(<span class="k">unsafe</span> <span class="f">_test_getenv</span>(<span class="s">&quot;TMPDIR&quot;</span>.<span class="f">c_str</span>()))</span>
+<span class="src-line" id="L388">	<span class="k">if</span>(base.<span class="f">len</span>() == <span class="n">0</span>): base = <span class="s">&quot;/tmp&quot;</span></span>
+<span class="src-line" id="L389">	<span class="k">if</span>(base.<span class="f">len</span>() &gt; <span class="n">1</span> <span class="k">and</span> base.<span class="f">byte_at</span>(base.<span class="f">len</span>() - <span class="n">1</span>) == <span class="t">u8</span>(<span class="n">47</span>)): base = base[<span class="n">0</span>..base.<span class="f">len</span>() - <span class="n">1</span>]</span>
+<span class="src-line" id="L390">	<span class="k">let</span> mono = <span class="k">unsafe</span> <span class="f">sys_monotonic_nanos</span>()</span>
+<span class="src-line" id="L391">	<span class="k">let</span> epoch = <span class="k">unsafe</span> <span class="f">sys_epoch_nanos_now</span>()</span>
+<span class="src-line" id="L392">	<span class="s">&quot;</span>$base<span class="s">/lowlight_test_</span>${name}<span class="s">_</span>${mono}<span class="s">_</span>$epoch<span class="s">&quot;</span></span>
+<span class="src-line" id="L393">}</span>
+<span class="src-line" id="L394"></span>
+<span class="src-line" id="L395"><span class="a">@test</span>(<span class="s">&quot;filesystem high-level operations: write, read, append, copy, rename, remove&quot;</span>)</span>
+<span class="src-line" id="L396"><span class="k">bind</span> test_fs_high_level = (): {</span>
+<span class="src-line" id="L397">	<span class="k">let</span> prefix = <span class="f">_test_tmp_path</span>(<span class="s">&quot;fs_hl&quot;</span>)</span>
+<span class="src-line" id="L398">	<span class="k">let</span> p1 = <span class="s">&quot;</span>$prefix<span class="s">.txt&quot;</span></span>
+<span class="src-line" id="L399">	<span class="k">let</span> p2 = <span class="s">&quot;</span>${prefix}<span class="s">_copy.txt&quot;</span></span>
+<span class="src-line" id="L400">	<span class="k">let</span> p3 = <span class="s">&quot;</span>${prefix}<span class="s">_renamed.txt&quot;</span></span>
+<span class="src-line" id="L401"></span>
+<span class="src-line" id="L402">	<span class="m">// Clean up any stale files from previous runs</span></span>
+<span class="src-line" id="L403">	<span class="k">let</span> _ = <span class="f">remove_file</span>(p1)</span>
+<span class="src-line" id="L404">	<span class="k">let</span> _ = <span class="f">remove_file</span>(p2)</span>
+<span class="src-line" id="L405">	<span class="k">let</span> _ = <span class="f">remove_file</span>(p3)</span>
+<span class="src-line" id="L406"></span>
+<span class="src-line" id="L407">	<span class="f">assert</span>(<span class="f">write_file</span>(p1, <span class="s">&quot;hello lowlight\n&quot;</span>).<span class="f">is_ok</span>(), <span class="s">&quot;write_file succeeds&quot;</span>)</span>
+<span class="src-line" id="L408">	<span class="f">assert</span>(<span class="f">exists</span>(p1), <span class="s">&quot;file exists after write&quot;</span>)</span>
+<span class="src-line" id="L409"></span>
+<span class="src-line" id="L410">	<span class="k">let</span> sz_res! = <span class="f">file_size</span>(p1)</span>
+<span class="src-line" id="L411">	<span class="f">assert</span>(sz_res!.<span class="f">is_ok</span>(), <span class="s">&quot;file_size succeeds&quot;</span>)</span>
+<span class="src-line" id="L412">	<span class="f">assert</span>(sz_res!.<span class="f">unwrap</span>() == <span class="n">15</span>, <span class="s">&quot;file_size is 15&quot;</span>)</span>
+<span class="src-line" id="L413"></span>
+<span class="src-line" id="L414">	<span class="k">let</span> content_res! = <span class="f">read_file</span>(p1)</span>
+<span class="src-line" id="L415">	<span class="f">assert</span>(content_res!.<span class="f">is_ok</span>(), <span class="s">&quot;read_file succeeds&quot;</span>)</span>
+<span class="src-line" id="L416">	<span class="f">assert</span>(content_res!.<span class="f">unwrap</span>() == <span class="s">&quot;hello lowlight\n&quot;</span>, <span class="s">&quot;content matches&quot;</span>)</span>
+<span class="src-line" id="L417"></span>
+<span class="src-line" id="L418">	<span class="f">assert</span>(<span class="f">append_file</span>(p1, <span class="s">&quot;appended line\n&quot;</span>).<span class="f">is_ok</span>(), <span class="s">&quot;append_file succeeds&quot;</span>)</span>
+<span class="src-line" id="L419">	<span class="k">let</span> app_res! = <span class="f">read_file</span>(p1)</span>
+<span class="src-line" id="L420">	<span class="f">assert</span>(app_res!.<span class="f">is_ok</span>(), <span class="s">&quot;read_file after append succeeds&quot;</span>)</span>
+<span class="src-line" id="L421">	<span class="f">assert</span>(app_res!.<span class="f">unwrap</span>() == <span class="s">&quot;hello lowlight\nappended line\n&quot;</span>, <span class="s">&quot;appended content matches&quot;</span>)</span>
+<span class="src-line" id="L422"></span>
+<span class="src-line" id="L423">	<span class="k">let</span> cp_res! = <span class="f">copy_file</span>(p1, p2)</span>
+<span class="src-line" id="L424">	<span class="f">assert</span>(cp_res!.<span class="f">is_ok</span>(), <span class="s">&quot;copy_file succeeds&quot;</span>)</span>
+<span class="src-line" id="L425">	<span class="f">assert</span>(<span class="f">exists</span>(p2), <span class="s">&quot;copied file exists&quot;</span>)</span>
+<span class="src-line" id="L426">	<span class="k">let</span> cp_content = <span class="f">read_file</span>(p2).<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L427">	<span class="f">assert</span>(cp_content == <span class="s">&quot;hello lowlight\nappended line\n&quot;</span>, <span class="s">&quot;copied content matches&quot;</span>)</span>
+<span class="src-line" id="L428"></span>
+<span class="src-line" id="L429">	<span class="f">assert</span>(<span class="f">rename_file</span>(p2, p3), <span class="s">&quot;rename_file succeeds&quot;</span>)</span>
+<span class="src-line" id="L430">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">exists</span>(p2), <span class="s">&quot;old path does not exist after rename&quot;</span>)</span>
+<span class="src-line" id="L431">	<span class="f">assert</span>(<span class="f">exists</span>(p3), <span class="s">&quot;new path exists after rename&quot;</span>)</span>
+<span class="src-line" id="L432"></span>
+<span class="src-line" id="L433">	<span class="f">assert</span>(<span class="f">remove_file</span>(p1), <span class="s">&quot;remove_file p1 succeeds&quot;</span>)</span>
+<span class="src-line" id="L434">	<span class="f">assert</span>(<span class="f">remove_file</span>(p3), <span class="s">&quot;remove_file p3 succeeds&quot;</span>)</span>
+<span class="src-line" id="L435">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">exists</span>(p1), <span class="s">&quot;p1 does not exist after remove&quot;</span>)</span>
+<span class="src-line" id="L436">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">exists</span>(p3), <span class="s">&quot;p3 does not exist after remove&quot;</span>)</span>
+<span class="src-line" id="L437">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">exists</span>(<span class="s">&quot;&quot;</span>), <span class="s">&quot;empty path does not exist&quot;</span>)</span>
+<span class="src-line" id="L438"></span>
+<span class="src-line" id="L439">	<span class="k">let</span> tmp_parent = <span class="f">str_from_cstr</span>(<span class="k">unsafe</span> <span class="f">_test_getenv</span>(<span class="s">&quot;TMPDIR&quot;</span>.<span class="f">c_str</span>()))</span>
+<span class="src-line" id="L440">	<span class="k">if</span>(tmp_parent.<span class="f">len</span>() == <span class="n">0</span>): tmp_parent = <span class="s">&quot;/tmp&quot;</span></span>
+<span class="src-line" id="L441">	<span class="f">assert</span>(<span class="f">exists</span>(tmp_parent), <span class="s">&quot;exists returns true for directory&quot;</span>)</span>
+<span class="src-line" id="L442">}</span>
+<span class="src-line" id="L443"></span>
+<span class="src-line" id="L444"><span class="a">@test</span>(<span class="s">&quot;filesystem binary byte I/O: write_bytes, read_bytes&quot;</span>)</span>
+<span class="src-line" id="L445"><span class="k">bind</span> test_fs_bytes = (): {</span>
+<span class="src-line" id="L446">	<span class="k">let</span> path = <span class="s">&quot;</span>${<span class="f">_test_tmp_path</span>(<span class="s">&quot;fs_bytes&quot;</span>)}<span class="s">.bin&quot;</span></span>
+<span class="src-line" id="L447">	<span class="k">let</span> _ = <span class="f">remove_file</span>(path)</span>
+<span class="src-line" id="L448"></span>
+<span class="src-line" id="L449">	<span class="k">let</span> test_data: [<span class="t">u8</span>] = [<span class="t">u8</span>(<span class="n">0</span>), <span class="t">u8</span>(<span class="n">127</span>), <span class="t">u8</span>(<span class="n">128</span>), <span class="t">u8</span>(<span class="n">255</span>), <span class="t">u8</span>(<span class="n">42</span>)]</span>
+<span class="src-line" id="L450">	<span class="k">let</span> w_res! = <span class="f">write_bytes</span>(path, test_data)</span>
+<span class="src-line" id="L451">	<span class="f">assert</span>(w_res!.<span class="f">is_ok</span>(), <span class="s">&quot;write_bytes succeeds&quot;</span>)</span>
+<span class="src-line" id="L452"></span>
+<span class="src-line" id="L453">	<span class="k">let</span> r_res! = <span class="f">read_bytes</span>(path)</span>
+<span class="src-line" id="L454">	<span class="f">assert</span>(r_res!.<span class="f">is_ok</span>(), <span class="s">&quot;read_bytes succeeds&quot;</span>)</span>
+<span class="src-line" id="L455">	<span class="k">let</span> read_data = r_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L456">	<span class="f">assert</span>(read_data.<span class="f">len</span>() == <span class="n">5</span>, <span class="s">&quot;read_data length matches&quot;</span>)</span>
+<span class="src-line" id="L457">	<span class="f">assert</span>(read_data[<span class="n">0</span>] == <span class="t">u8</span>(<span class="n">0</span>), <span class="s">&quot;byte 0 matches&quot;</span>)</span>
+<span class="src-line" id="L458">	<span class="f">assert</span>(read_data[<span class="n">1</span>] == <span class="t">u8</span>(<span class="n">127</span>), <span class="s">&quot;byte 1 matches&quot;</span>)</span>
+<span class="src-line" id="L459">	<span class="f">assert</span>(read_data[<span class="n">2</span>] == <span class="t">u8</span>(<span class="n">128</span>), <span class="s">&quot;byte 2 matches&quot;</span>)</span>
+<span class="src-line" id="L460">	<span class="f">assert</span>(read_data[<span class="n">3</span>] == <span class="t">u8</span>(<span class="n">255</span>), <span class="s">&quot;byte 3 matches&quot;</span>)</span>
+<span class="src-line" id="L461">	<span class="f">assert</span>(read_data[<span class="n">4</span>] == <span class="t">u8</span>(<span class="n">42</span>), <span class="s">&quot;byte 4 matches&quot;</span>)</span>
+<span class="src-line" id="L462"></span>
+<span class="src-line" id="L463">	<span class="f">assert</span>(<span class="f">remove_file</span>(path), <span class="s">&quot;remove binary test file&quot;</span>)</span>
+<span class="src-line" id="L464">}</span>
+<span class="src-line" id="L465"></span>
+<span class="src-line" id="L466"><span class="a">@test</span>(<span class="s">&quot;filesystem File stream operations: seek, tell, read, write, flush, close&quot;</span>)</span>
+<span class="src-line" id="L467"><span class="k">bind</span> test_fs_file_stream = (): {</span>
+<span class="src-line" id="L468">	<span class="k">let</span> path = <span class="s">&quot;</span>${<span class="f">_test_tmp_path</span>(<span class="s">&quot;fs_stream&quot;</span>)}<span class="s">.txt&quot;</span></span>
+<span class="src-line" id="L469">	<span class="k">let</span> _ = <span class="f">remove_file</span>(path)</span>
+<span class="src-line" id="L470"></span>
+<span class="src-line" id="L471">	<span class="k">let</span> f_write_res! = <span class="t">File</span>.<span class="f">open_write</span>(path)</span>
+<span class="src-line" id="L472">	<span class="f">assert</span>(f_write_res!.<span class="f">is_ok</span>(), <span class="s">&quot;File.open_write succeeds&quot;</span>)</span>
+<span class="src-line" id="L473">	<span class="k">let</span> f_w = f_write_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L474">	<span class="f">assert</span>(f_w.<span class="f">is_valid</span>(), <span class="s">&quot;file stream is valid&quot;</span>)</span>
+<span class="src-line" id="L475">	<span class="k">let</span> w1_res! = f_w.<span class="f">write_string</span>(<span class="s">&quot;ABCDEF012345&quot;</span>)</span>
+<span class="src-line" id="L476">	<span class="f">assert</span>(w1_res!.<span class="f">is_ok</span>(), <span class="s">&quot;write_string succeeds&quot;</span>)</span>
+<span class="src-line" id="L477">	<span class="f">assert</span>(f_w.<span class="f">flush</span>(), <span class="s">&quot;flush succeeds&quot;</span>)</span>
+<span class="src-line" id="L478">	<span class="f">assert</span>(f_w.<span class="f">close</span>(), <span class="s">&quot;close succeeds&quot;</span>)</span>
+<span class="src-line" id="L479"></span>
+<span class="src-line" id="L480">	<span class="k">let</span> f_rw_res! = <span class="t">File</span>.<span class="f">open_read_write</span>(path)</span>
+<span class="src-line" id="L481">	<span class="f">assert</span>(f_rw_res!.<span class="f">is_ok</span>(), <span class="s">&quot;File.open_read_write succeeds&quot;</span>)</span>
+<span class="src-line" id="L482">	<span class="k">let</span> f_rw = f_rw_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L483"></span>
+<span class="src-line" id="L484">	<span class="k">let</span> seek_res! = f_rw.<span class="f">seek</span>(<span class="n">6</span>, <span class="t">SEEK_SET</span>)</span>
+<span class="src-line" id="L485">	<span class="f">assert</span>(seek_res!.<span class="f">is_ok</span>(), <span class="s">&quot;seek to offset 6&quot;</span>)</span>
+<span class="src-line" id="L486">	<span class="k">let</span> tell_res! = f_rw.<span class="f">tell</span>()</span>
+<span class="src-line" id="L487">	<span class="f">assert</span>(tell_res!.<span class="f">is_ok</span>(), <span class="s">&quot;tell succeeds&quot;</span>)</span>
+<span class="src-line" id="L488">	<span class="f">assert</span>(tell_res!.<span class="f">unwrap</span>() == <span class="n">6</span>, <span class="s">&quot;position is 6&quot;</span>)</span>
+<span class="src-line" id="L489"></span>
+<span class="src-line" id="L490">	<span class="k">let</span> rem_res! = f_rw.<span class="f">read_to_string</span>()</span>
+<span class="src-line" id="L491">	<span class="f">assert</span>(rem_res!.<span class="f">is_ok</span>(), <span class="s">&quot;read_to_string succeeds&quot;</span>)</span>
+<span class="src-line" id="L492">	<span class="f">assert</span>(rem_res!.<span class="f">unwrap</span>() == <span class="s">&quot;012345&quot;</span>, <span class="s">&quot;read from offset matches&quot;</span>)</span>
+<span class="src-line" id="L493"></span>
+<span class="src-line" id="L494">	<span class="k">let</span> _ = f_rw.<span class="f">close</span>()</span>
+<span class="src-line" id="L495">	<span class="f">assert</span>(<span class="f">remove_file</span>(path), <span class="s">&quot;remove stream test file&quot;</span>)</span>
+<span class="src-line" id="L496">}</span>
+<span class="src-line" id="L497"></span>
+<span class="src-line" id="L498"><span class="a">@test_only</span></span>
+<span class="src-line" id="L499"><span class="k">extern</span> pipe <span class="k">as</span> _test_pipe: (fds: <span class="t">ptr</span>[<span class="t">i32</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L500"></span>
+<span class="src-line" id="L501"><span class="a">@test_only</span></span>
+<span class="src-line" id="L502"><span class="k">extern</span> close <span class="k">as</span> _test_close: (fd: <span class="t">i32</span>) <span class="t">i32</span></span>
+<span class="src-line" id="L503"></span>
+<span class="src-line" id="L504"><span class="a">@test</span>(<span class="s">&quot;filesystem non-seekable streams: read_bytes and read_to_string read a pipe to EOF&quot;</span>)</span>
+<span class="src-line" id="L505"><span class="k">bind</span> test_fs_non_seekable = (): {</span>
+<span class="src-line" id="L506">	<span class="m">// Larger than the old 8 KiB fallback but within the minimum pipe buffer (16 KiB on macOS).</span></span>
+<span class="src-line" id="L507">	<span class="k">let</span> payload_len = <span class="n">12000</span></span>
+<span class="src-line" id="L508">	<span class="k">let</span> run = (as_string: <span class="t">bool</span>): {</span>
+<span class="src-line" id="L509">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L510">			<span class="k">let</span> fds = alloc_raw[<span class="t">i32</span>](<span class="n">2</span>)</span>
+<span class="src-line" id="L511">			<span class="f">assert</span>(<span class="f">_test_pipe</span>(fds) == <span class="t">i32</span>(<span class="n">0</span>), <span class="s">&quot;pipe() succeeds&quot;</span>)</span>
+<span class="src-line" id="L512">			<span class="k">let</span> payload: [<span class="t">u8</span>] = []</span>
+<span class="src-line" id="L513">			<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..payload_len): payload.<span class="f">push</span>(<span class="t">u8</span>(<span class="n">65</span> + i % <span class="n">26</span>))</span>
+<span class="src-line" id="L514">			<span class="k">let</span> w = <span class="t">File</span>.<span class="f">open_write</span>(<span class="s">&quot;/dev/fd/</span>${fds[<span class="n">1</span>]}<span class="s">&quot;</span>).<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L515">			<span class="f">assert</span>(w.<span class="f">write_bytes</span>(payload).<span class="f">unwrap</span>() == payload_len, <span class="s">&quot;pipe write succeeds&quot;</span>)</span>
+<span class="src-line" id="L516">			<span class="f">assert</span>(w.<span class="f">close</span>(), <span class="s">&quot;pipe writer stream closes&quot;</span>)</span>
+<span class="src-line" id="L517"></span>
+<span class="src-line" id="L518">			<span class="m">// The stream may hold a dup of the fd; close the original so the reader sees EOF.</span></span>
+<span class="src-line" id="L519">			<span class="k">let</span> _ = <span class="f">_test_close</span>(fds[<span class="n">1</span>])</span>
+<span class="src-line" id="L520">			<span class="k">let</span> path = <span class="s">&quot;/dev/fd/</span>${fds[<span class="n">0</span>]}<span class="s">&quot;</span></span>
+<span class="src-line" id="L521">			<span class="k">if</span>(as_string): {</span>
+<span class="src-line" id="L522">				<span class="k">let</span> f = <span class="t">File</span>.<span class="f">open_read</span>(path).<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L523">				<span class="f">assert</span>(f.<span class="f">size</span>().<span class="f">is_err</span>(), <span class="s">&quot;size fails on a pipe&quot;</span>)</span>
+<span class="src-line" id="L524">				<span class="k">let</span> s! = f.<span class="f">read_to_string</span>()</span>
+<span class="src-line" id="L525">				<span class="f">assert</span>(s!.<span class="f">is_ok</span>(), <span class="s">&quot;read_to_string on pipe succeeds&quot;</span>)</span>
+<span class="src-line" id="L526">				<span class="f">assert</span>(s!.<span class="f">unwrap</span>().<span class="f">len</span>() == payload_len, <span class="s">&quot;read_to_string reads the whole pipe&quot;</span>)</span>
+<span class="src-line" id="L527">			} <span class="k">else</span>: {</span>
+<span class="src-line" id="L528">				<span class="k">let</span> r! = <span class="f">read_bytes</span>(path)</span>
+<span class="src-line" id="L529">				<span class="f">assert</span>(r!.<span class="f">is_ok</span>(), <span class="s">&quot;read_bytes on pipe succeeds&quot;</span>)</span>
+<span class="src-line" id="L530">				<span class="k">let</span> data = r!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L531">				<span class="f">assert</span>(data.<span class="f">len</span>() == payload_len, <span class="s">&quot;read_bytes reads the whole pipe&quot;</span>)</span>
+<span class="src-line" id="L532">				<span class="f">assert</span>(</span>
+<span class="src-line" id="L533">					data[payload_len - <span class="n">1</span>] == <span class="t">u8</span>(<span class="n">65</span> + (payload_len - <span class="n">1</span>) % <span class="n">26</span>),</span>
+<span class="src-line" id="L534">					<span class="s">&quot;last byte matches&quot;</span>,</span>
+<span class="src-line" id="L535">				)</span>
+<span class="src-line" id="L536">			}</span>
+<span class="src-line" id="L537">			<span class="k">let</span> _ = <span class="f">_test_close</span>(fds[<span class="n">0</span>])</span>
+<span class="src-line" id="L538">			<span class="f">free_raw</span>(fds)</span>
+<span class="src-line" id="L539">		}</span>
+<span class="src-line" id="L540">	}</span>
+<span class="src-line" id="L541">	<span class="f">run</span>(<span class="c">false</span>)</span>
+<span class="src-line" id="L542">	<span class="f">run</span>(<span class="c">true</span>)</span>
+<span class="src-line" id="L543">}</span>
+<span class="src-line" id="L544"></span>
+<span class="src-line" id="L545"><span class="a">@test</span>(<span class="s">&quot;filesystem read errors are reported instead of treated as EOF&quot;</span>)</span>
+<span class="src-line" id="L546"><span class="k">bind</span> test_fs_read_errors = (): {</span>
+<span class="src-line" id="L547">	<span class="k">let</span> path = <span class="s">&quot;</span>${<span class="f">_test_tmp_path</span>(<span class="s">&quot;fs_ferror&quot;</span>)}<span class="s">.txt&quot;</span></span>
+<span class="src-line" id="L548">	<span class="f">assert</span>(<span class="f">write_file</span>(path, <span class="s">&quot;data&quot;</span>).<span class="f">is_ok</span>(), <span class="s">&quot;write_file succeeds&quot;</span>)</span>
+<span class="src-line" id="L549"></span>
+<span class="src-line" id="L550">	<span class="m">// Reading from a write-only stream sets the stream error flag.</span></span>
+<span class="src-line" id="L551">	<span class="k">let</span> f = <span class="t">File</span>.<span class="f">open_append</span>(path).<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L552">	<span class="f">assert</span>(f.<span class="f">read_to_string</span>().<span class="f">is_err</span>(), <span class="s">&quot;read_to_string reports ferror&quot;</span>)</span>
+<span class="src-line" id="L553">	<span class="f">assert</span>(f.<span class="f">read_bytes</span>(<span class="n">4</span>).<span class="f">is_err</span>(), <span class="s">&quot;read_bytes reports ferror&quot;</span>)</span>
+<span class="src-line" id="L554">	<span class="f">assert</span>(f.<span class="f">read_all_bytes</span>().<span class="f">is_err</span>(), <span class="s">&quot;read_all_bytes reports ferror&quot;</span>)</span>
+<span class="src-line" id="L555">	<span class="k">let</span> _ = f.<span class="f">close</span>()</span>
+<span class="src-line" id="L556"></span>
+<span class="src-line" id="L557">	<span class="k">let</span> closed = <span class="t">File</span>.<span class="f">open_read</span>(path).<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L558">	<span class="f">assert</span>(closed.<span class="f">close</span>(), <span class="s">&quot;close succeeds&quot;</span>)</span>
+<span class="src-line" id="L559">	<span class="f">assert</span>(<span class="k">not</span> closed.<span class="f">close</span>(), <span class="s">&quot;second close reports failure&quot;</span>)</span>
+<span class="src-line" id="L560">	<span class="f">assert</span>(<span class="k">not</span> closed.<span class="f">flush</span>(), <span class="s">&quot;flush on closed file reports failure&quot;</span>)</span>
+<span class="src-line" id="L561">	<span class="f">assert</span>(closed.<span class="f">read_all_bytes</span>().<span class="f">is_err</span>(), <span class="s">&quot;read on closed file fails&quot;</span>)</span>
+<span class="src-line" id="L562"></span>
+<span class="src-line" id="L563">	<span class="f">assert</span>(<span class="f">remove_file</span>(path), <span class="s">&quot;remove ferror test file&quot;</span>)</span>
+<span class="src-line" id="L564">}</span>
+<span class="src-line" id="L565"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

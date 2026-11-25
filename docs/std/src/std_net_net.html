@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>net.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>net.ll</h1><p>Source of package <a href="../net.html"><code>std/net</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/net — TCP sockets, listeners, and bidirectional socket pairs.</span></span>
+<span class="src-line" id="L2"><span class="m">//</span></span>
+<span class="src-line" id="L3"><span class="m">// Provides [`TcpStream`], [`TcpListener`], and [`SocketPair`] with deterministic</span></span>
+<span class="src-line" id="L4"><span class="m">// [`Drop`] cleanup for socket descriptors and timeout-aware I/O returning [`Result`].</span></span>
+<span class="src-line" id="L5"></span>
+<span class="src-line" id="L6"><span class="m">// Connected bidirectional TCP socket stream.</span></span>
+<span class="src-line" id="L7"><span class="m">//</span></span>
+<span class="src-line" id="L8"><span class="m">// Implements [`Drop`] to close the underlying socket descriptor automatically at scope exit.</span></span>
+<span class="src-line" id="L9"><span class="m">//</span></span>
+<span class="src-line" id="L10"><span class="m">// # Example</span></span>
+<span class="src-line" id="L11"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L12"><span class="m">// let conn = dial_tcp(&quot;127.0.0.1&quot;, 8080).unwrap()</span></span>
+<span class="src-line" id="L13"><span class="m">// let _ = conn.send(&quot;GET / HTTP/1.0\r\n\r\n&quot;)</span></span>
+<span class="src-line" id="L14"><span class="m">// ```</span></span>
+<span class="src-line" id="L15"><span class="k">define</span> <span class="t">TcpStream</span> <span class="k">struct</span> [</span>
+<span class="src-line" id="L16">	_fd: <span class="t">int</span></span>
+<span class="src-line" id="L17">]</span>
+<span class="src-line" id="L18"></span>
+<span class="src-line" id="L19"><span class="m">// Returns the underlying OS file descriptor, or `-1` if closed.</span></span>
+<span class="src-line" id="L20"><span class="k">bind</span> <span class="t">TcpStream</span>.raw_fd = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._fd</span>
+<span class="src-line" id="L21"></span>
+<span class="src-line" id="L22"><span class="m">// Automatically closes the socket descriptor if still open when `self` leaves scope.</span></span>
+<span class="src-line" id="L23"><span class="k">bind</span> <span class="t">TcpStream</span>.drop = (&amp;<span class="k">self</span>):</span>
+<span class="src-line" id="L24">	<span class="k">if</span>(<span class="k">self</span>._fd &gt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L25">		<span class="k">unsafe</span> <span class="f">sys_net_close</span>(<span class="k">self</span>._fd)</span>
+<span class="src-line" id="L26">		<span class="k">self</span>._fd = -<span class="n">1</span></span>
+<span class="src-line" id="L27">	}</span>
+<span class="src-line" id="L28"></span>
+<span class="src-line" id="L29"><span class="m">// Explicitly closes the TCP stream descriptor early, setting it to `-1`.</span></span>
+<span class="src-line" id="L30"><span class="k">bind</span> <span class="t">TcpStream</span>.close = (&amp;<span class="k">self</span>):</span>
+<span class="src-line" id="L31">	<span class="k">if</span>(<span class="k">self</span>._fd &gt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L32">		<span class="k">unsafe</span> <span class="f">sys_net_close</span>(<span class="k">self</span>._fd)</span>
+<span class="src-line" id="L33">		<span class="k">self</span>._fd = -<span class="n">1</span></span>
+<span class="src-line" id="L34">	}</span>
+<span class="src-line" id="L35"></span>
+<span class="src-line" id="L36"><span class="m">// Reports whether the stream holds an open socket descriptor (`raw_fd &gt;= 0`).</span></span>
+<span class="src-line" id="L37"><span class="k">bind</span> <span class="t">TcpStream</span>.is_open = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>._fd &gt;= <span class="n">0</span></span>
+<span class="src-line" id="L38"></span>
+<span class="src-line" id="L39"><span class="m">// Writes all bytes of `data` to the socket and returns the number of bytes sent.</span></span>
+<span class="src-line" id="L40"><span class="m">//</span></span>
+<span class="src-line" id="L41"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L42"><span class="m">// Fails if the stream is closed or the underlying OS send fails.</span></span>
+<span class="src-line" id="L43"><span class="k">bind</span> <span class="t">TcpStream</span>.send = (&amp;<span class="k">self</span>, data: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">int</span>]: {</span>
+<span class="src-line" id="L44">	<span class="k">if</span>(<span class="k">self</span>._fd &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;send on closed TcpStream&quot;</span>))</span>
+<span class="src-line" id="L45">	<span class="k">let</span> res = <span class="k">unsafe</span> <span class="f">sys_net_send_all</span>(<span class="k">self</span>._fd, data.<span class="f">c_str</span>(), data.<span class="f">len</span>())</span>
+<span class="src-line" id="L46">	<span class="k">if</span>(res == <span class="n">0</span>): <span class="f">value</span>(data.<span class="f">len</span>()) <span class="k">else</span>: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to send data over TCP socket&quot;</span>))</span>
+<span class="src-line" id="L47">}</span>
+<span class="src-line" id="L48"></span>
+<span class="src-line" id="L49"><span class="m">// Reads up to `max_len` bytes (defaulting to `4096` when `max_len &lt;= 0`) waiting up to `timeout_ms`.</span></span>
+<span class="src-line" id="L50"><span class="m">//</span></span>
+<span class="src-line" id="L51"><span class="m">// Returns the bytes received by a single OS read, which may be fewer than `max_len`.</span></span>
+<span class="src-line" id="L52"><span class="m">//</span></span>
+<span class="src-line" id="L53"><span class="m">// - `max_len`: Maximum byte count to read in one call.</span></span>
+<span class="src-line" id="L54"><span class="m">// - `timeout_ms`: Timeout in milliseconds (negative waits indefinitely).</span></span>
+<span class="src-line" id="L55"><span class="m">//</span></span>
+<span class="src-line" id="L56"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L57"><span class="m">// Fails with error code `&quot;eof&quot;` when the peer has closed the connection cleanly, `&quot;timeout&quot;`</span></span>
+<span class="src-line" id="L58"><span class="m">// when no data arrives within `timeout_ms`, or a generic [`Error`] on closed/failed sockets.</span></span>
+<span class="src-line" id="L59"><span class="k">bind</span> <span class="t">TcpStream</span>.recv = (&amp;<span class="k">self</span>, max_len: <span class="t">int</span>, timeout_ms: <span class="t">int</span>) <span class="t">Result</span>[<span class="t">string</span>]: {</span>
+<span class="src-line" id="L60">	<span class="k">if</span>(<span class="k">self</span>._fd &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;recv on closed TcpStream&quot;</span>))</span>
+<span class="src-line" id="L61">	<span class="k">let</span> limit = <span class="k">if</span>(max_len &lt;= <span class="n">0</span>): <span class="n">4096</span> <span class="k">else</span>: max_len</span>
+<span class="src-line" id="L62">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L63">		<span class="k">let</span> raw = alloc_raw[<span class="t">u8</span>](limit)</span>
+<span class="src-line" id="L64">		<span class="k">let</span> n = <span class="f">sys_net_recv</span>(<span class="k">self</span>._fd, raw, limit, timeout_ms)</span>
+<span class="src-line" id="L65">		<span class="k">if</span>(n &lt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L66">			<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L67">			<span class="k">if</span>(n == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;eof&quot;</span>, <span class="s">&quot;connection closed by peer&quot;</span>))</span>
+<span class="src-line" id="L68">			<span class="k">if</span>(n == -<span class="n">2</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;timeout&quot;</span>, <span class="s">&quot;read timeout&quot;</span>))</span>
+<span class="src-line" id="L69">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;recv error&quot;</span>))</span>
+<span class="src-line" id="L70">		}</span>
+<span class="src-line" id="L71">		<span class="k">let</span> out = <span class="f">str_from_raw</span>(raw, n)</span>
+<span class="src-line" id="L72">		<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L73">		<span class="f">value</span>(<span class="k">own</span> out)</span>
+<span class="src-line" id="L74">	}</span>
+<span class="src-line" id="L75">}</span>
+<span class="src-line" id="L76"></span>
+<span class="src-line" id="L77"><span class="m">// Writes all of `data` to the socket and returns the number of bytes sent.</span></span>
+<span class="src-line" id="L78"><span class="m">//</span></span>
+<span class="src-line" id="L79"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L80"><span class="m">// Fails if the stream is closed or the underlying OS send fails.</span></span>
+<span class="src-line" id="L81"><span class="k">bind</span> <span class="t">TcpStream</span>.send_bytes = (&amp;<span class="k">self</span>, data: [<span class="t">u8</span>]) <span class="t">Result</span>[<span class="t">int</span>]: {</span>
+<span class="src-line" id="L82">	<span class="k">if</span>(<span class="k">self</span>._fd &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;send on closed TcpStream&quot;</span>))</span>
+<span class="src-line" id="L83">	<span class="k">let</span> buf = <span class="t">string</span>.<span class="f">with_capacity</span>(data.<span class="f">len</span>())</span>
+<span class="src-line" id="L84">	<span class="k">for</span>(b <span class="k">in</span> data): buf.<span class="f">push_byte</span>(b)</span>
+<span class="src-line" id="L85">	<span class="k">let</span> res = <span class="k">unsafe</span> <span class="f">sys_net_send_all</span>(<span class="k">self</span>._fd, buf.<span class="f">c_str</span>(), buf.<span class="f">len</span>())</span>
+<span class="src-line" id="L86">	<span class="k">if</span>(res == <span class="n">0</span>): <span class="f">value</span>(data.<span class="f">len</span>()) <span class="k">else</span>: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to send data over TCP socket&quot;</span>))</span>
+<span class="src-line" id="L87">}</span>
+<span class="src-line" id="L88"></span>
+<span class="src-line" id="L89"><span class="m">// Reads up to `max_len` bytes (defaulting to `4096` when `max_len &lt;= 0`) as raw bytes, waiting up</span></span>
+<span class="src-line" id="L90"><span class="m">// to `timeout_ms` (negative waits indefinitely). Like [`TcpStream.recv`], one OS read may return</span></span>
+<span class="src-line" id="L91"><span class="m">// fewer bytes than `max_len`.</span></span>
+<span class="src-line" id="L92"><span class="m">//</span></span>
+<span class="src-line" id="L93"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L94"><span class="m">// Fails with code `&quot;eof&quot;` when the peer has closed the connection, `&quot;timeout&quot;` when no data</span></span>
+<span class="src-line" id="L95"><span class="m">// arrives in time, or a generic [`Error`] on closed or failed sockets.</span></span>
+<span class="src-line" id="L96"><span class="k">bind</span> <span class="t">TcpStream</span>.recv_bytes = (&amp;<span class="k">self</span>, max_len: <span class="t">int</span>, timeout_ms: <span class="t">int</span>) <span class="t">Result</span>[[<span class="t">u8</span>]]: {</span>
+<span class="src-line" id="L97">	<span class="k">if</span>(<span class="k">self</span>._fd &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;recv on closed TcpStream&quot;</span>))</span>
+<span class="src-line" id="L98">	<span class="k">let</span> limit = <span class="k">if</span>(max_len &lt;= <span class="n">0</span>): <span class="n">4096</span> <span class="k">else</span>: max_len</span>
+<span class="src-line" id="L99">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L100">		<span class="k">let</span> raw = alloc_raw[<span class="t">u8</span>](limit)</span>
+<span class="src-line" id="L101">		<span class="k">let</span> n = <span class="f">sys_net_recv</span>(<span class="k">self</span>._fd, raw, limit, timeout_ms)</span>
+<span class="src-line" id="L102">		<span class="k">if</span>(n &lt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L103">			<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L104">			<span class="k">if</span>(n == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;eof&quot;</span>, <span class="s">&quot;connection closed by peer&quot;</span>))</span>
+<span class="src-line" id="L105">			<span class="k">if</span>(n == -<span class="n">2</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;timeout&quot;</span>, <span class="s">&quot;read timeout&quot;</span>))</span>
+<span class="src-line" id="L106">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;recv error&quot;</span>))</span>
+<span class="src-line" id="L107">		}</span>
+<span class="src-line" id="L108">		<span class="k">let</span> out = <span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..n) [<span class="t">u8</span>]: <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(raw, i))</span>
+<span class="src-line" id="L109">		<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L110">		<span class="f">value</span>(<span class="k">own</span> out)</span>
+<span class="src-line" id="L111">	}</span>
+<span class="src-line" id="L112">}</span>
+<span class="src-line" id="L113"></span>
+<span class="src-line" id="L114"><span class="m">// Which directions [`TcpStream.shutdown`] closes.</span></span>
+<span class="src-line" id="L115"><span class="k">define</span> <span class="t">Shutdown</span> <span class="k">enum</span> [</span>
+<span class="src-line" id="L116">	<span class="m">// No more reads: further `recv` calls report end of stream.</span></span>
+<span class="src-line" id="L117">	read,</span>
+<span class="src-line" id="L118">	<span class="m">// No more writes: the peer sees end of stream after the data already sent.</span></span>
+<span class="src-line" id="L119">	write,</span>
+<span class="src-line" id="L120">	<span class="m">// Both directions.</span></span>
+<span class="src-line" id="L121">	both,</span>
+<span class="src-line" id="L122">]</span>
+<span class="src-line" id="L123"></span>
+<span class="src-line" id="L124"><span class="m">// Shuts down one or both directions of the connection without closing the socket.</span></span>
+<span class="src-line" id="L125"><span class="m">//</span></span>
+<span class="src-line" id="L126"><span class="m">// Shutting down `write` is how a client tells a server it has finished sending (the server</span></span>
+<span class="src-line" id="L127"><span class="m">// reads end of stream) while still reading the reply.</span></span>
+<span class="src-line" id="L128"><span class="m">//</span></span>
+<span class="src-line" id="L129"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L130"><span class="m">// Fails if the stream is closed or the OS rejects the call (for example, if not connected).</span></span>
+<span class="src-line" id="L131"><span class="k">bind</span> <span class="t">TcpStream</span>.shutdown = (&amp;<span class="k">self</span>, how: <span class="t">Shutdown</span>) <span class="t">Result</span>[<span class="t">bool</span>]: {</span>
+<span class="src-line" id="L132">	<span class="k">if</span>(<span class="k">self</span>._fd &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;shutdown on closed TcpStream&quot;</span>))</span>
+<span class="src-line" id="L133">	<span class="k">let</span> code = <span class="k">match</span>(how):</span>
+<span class="src-line" id="L134">		<span class="k">when</span> read: <span class="n">0</span></span>
+<span class="src-line" id="L135">		<span class="k">when</span> write: <span class="n">1</span></span>
+<span class="src-line" id="L136">		<span class="k">default</span> both: <span class="n">2</span></span>
+<span class="src-line" id="L137">	<span class="k">let</span> rc = <span class="k">unsafe</span> <span class="f">sys_net_shutdown</span>(<span class="k">self</span>._fd, code)</span>
+<span class="src-line" id="L138">	<span class="k">if</span>(rc == <span class="n">0</span>): <span class="f">value</span>(<span class="c">true</span>) <span class="k">else</span>: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to shut down TCP stream&quot;</span>))</span>
+<span class="src-line" id="L139">}</span>
+<span class="src-line" id="L140"></span>
+<span class="src-line" id="L141"><span class="m">// Returns the remote address as `&quot;a.b.c.d:port&quot;` or `&quot;[v6]:port&quot;`, or `none` if unknown.</span></span>
+<span class="src-line" id="L142"><span class="k">bind</span> <span class="t">TcpStream</span>.peer_addr = (<span class="k">self</span>) ?<span class="t">string</span>: <span class="f">peer_addr_of</span>(<span class="k">self</span>._fd)</span>
+<span class="src-line" id="L143"></span>
+<span class="src-line" id="L144"><span class="m">// Returns the local address as `&quot;a.b.c.d:port&quot;` or `&quot;[v6]:port&quot;`, or `none` if unknown.</span></span>
+<span class="src-line" id="L145"><span class="k">bind</span> <span class="t">TcpStream</span>.local_addr = (<span class="k">self</span>) ?<span class="t">string</span>: <span class="f">local_addr_of</span>(<span class="k">self</span>._fd)</span>
+<span class="src-line" id="L146"></span>
+<span class="src-line" id="L147"><span class="m">// Enables or disables `TCP_NODELAY`. With it on, small writes are sent immediately instead of</span></span>
+<span class="src-line" id="L148"><span class="m">// being coalesced (Nagle&#39;s algorithm), which lowers latency for request/response protocols.</span></span>
+<span class="src-line" id="L149"><span class="m">//</span></span>
+<span class="src-line" id="L150"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L151"><span class="m">// Fails if the stream is closed or the socket does not support the option.</span></span>
+<span class="src-line" id="L152"><span class="k">bind</span> <span class="t">TcpStream</span>.set_nodelay = (&amp;<span class="k">self</span>, on: <span class="t">bool</span>) <span class="t">Result</span>[<span class="t">bool</span>]: {</span>
+<span class="src-line" id="L153">	<span class="k">if</span>(<span class="k">self</span>._fd &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;set_nodelay on closed TcpStream&quot;</span>))</span>
+<span class="src-line" id="L154">	<span class="k">let</span> rc = <span class="k">unsafe</span> <span class="f">sys_tcp_set_nodelay</span>(<span class="k">self</span>._fd, <span class="k">if</span>(on): <span class="n">1</span> <span class="k">else</span>: <span class="n">0</span>)</span>
+<span class="src-line" id="L155">	<span class="k">if</span>(rc == <span class="n">0</span>): <span class="f">value</span>(<span class="c">true</span>) <span class="k">else</span>: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to set TCP_NODELAY&quot;</span>))</span>
+<span class="src-line" id="L156">}</span>
+<span class="src-line" id="L157"></span>
+<span class="src-line" id="L158"><span class="m">// Returns the remote address of connected socket descriptor `fd`, or `none` if unknown.</span></span>
+<span class="src-line" id="L159"><span class="k">bind</span> peer_addr_of = (fd: <span class="t">int</span>) ?<span class="t">string</span>: {</span>
+<span class="src-line" id="L160">	<span class="k">let</span> port = <span class="k">unsafe</span> <span class="f">sys_tcp_peer_port</span>(fd)</span>
+<span class="src-line" id="L161">	<span class="k">if</span>(port &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L162">	<span class="k">let</span> ip = <span class="k">unsafe</span> <span class="f">sys_tcp_peer_ipv4</span>(fd)</span>
+<span class="src-line" id="L163">	<span class="k">if</span>(ip &gt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;</span>${<span class="f">_format_ipv4</span>(ip)}<span class="s">:</span>$port<span class="s">&quot;</span></span>
+<span class="src-line" id="L164">	<span class="k">let</span> groups = <span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">8</span>) [<span class="t">int</span>]: <span class="k">unsafe</span> <span class="f">sys_tcp_peer_ipv6_group</span>(fd, i)</span>
+<span class="src-line" id="L165">	<span class="k">if</span>(groups[<span class="n">0</span>] &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L166">	<span class="s">&quot;[</span>${<span class="f">format_ipv6</span>(groups)}<span class="s">]:</span>$port<span class="s">&quot;</span></span>
+<span class="src-line" id="L167">}</span>
+<span class="src-line" id="L168"></span>
+<span class="src-line" id="L169"><span class="m">// Returns the local address of socket descriptor `fd`, or `none` if unknown.</span></span>
+<span class="src-line" id="L170"><span class="k">bind</span> local_addr_of = (fd: <span class="t">int</span>) ?<span class="t">string</span>: {</span>
+<span class="src-line" id="L171">	<span class="k">let</span> port = <span class="k">unsafe</span> <span class="f">sys_tcp_port</span>(fd)</span>
+<span class="src-line" id="L172">	<span class="k">if</span>(port &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L173">	<span class="k">let</span> ip = <span class="k">unsafe</span> <span class="f">sys_tcp_local_ipv4</span>(fd)</span>
+<span class="src-line" id="L174">	<span class="k">if</span>(ip &gt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;</span>${<span class="f">_format_ipv4</span>(ip)}<span class="s">:</span>$port<span class="s">&quot;</span></span>
+<span class="src-line" id="L175">	<span class="k">let</span> groups = <span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">8</span>) [<span class="t">int</span>]: <span class="k">unsafe</span> <span class="f">sys_tcp_local_ipv6_group</span>(fd, i)</span>
+<span class="src-line" id="L176">	<span class="k">if</span>(groups[<span class="n">0</span>] &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L177">	<span class="s">&quot;[</span>${<span class="f">format_ipv6</span>(groups)}<span class="s">]:</span>$port<span class="s">&quot;</span></span>
+<span class="src-line" id="L178">}</span>
+<span class="src-line" id="L179"></span>
+<span class="src-line" id="L180"><span class="k">bind</span> _format_ipv4 = (ip: <span class="t">int</span>) <span class="t">string</span>: <span class="s">&quot;</span>${(ip &gt;&gt; <span class="n">24</span>) &amp; <span class="n">255</span>}<span class="s">.</span>${(ip &gt;&gt; <span class="n">16</span>) &amp; <span class="n">255</span>}<span class="s">.</span>${(ip &gt;&gt; <span class="n">8</span>) &amp; <span class="n">255</span>}<span class="s">.</span>${ip &amp; <span class="n">255</span>}<span class="s">&quot;</span></span>
+<span class="src-line" id="L181"></span>
+<span class="src-line" id="L182"><span class="k">bind</span> _hex16 = (n: <span class="t">int</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L183">	<span class="k">if</span>(n == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;0&quot;</span></span>
+<span class="src-line" id="L184">	<span class="k">let</span> digits = <span class="s">&quot;0123456789abcdef&quot;</span></span>
+<span class="src-line" id="L185">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L186">	<span class="k">let</span> started = <span class="c">false</span></span>
+<span class="src-line" id="L187">	<span class="k">for</span>(shift <span class="k">in</span> [<span class="n">12</span>, <span class="n">8</span>, <span class="n">4</span>, <span class="n">0</span>]): {</span>
+<span class="src-line" id="L188">		<span class="k">let</span> d = (n &gt;&gt; shift) &amp; <span class="n">15</span></span>
+<span class="src-line" id="L189">		<span class="k">if</span>(d == <span class="n">0</span> <span class="k">and</span> <span class="k">not</span> started): <span class="k">next</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L190">		started = <span class="c">true</span></span>
+<span class="src-line" id="L191">		out.<span class="f">push_byte</span>(digits.<span class="f">byte_at</span>(d))</span>
+<span class="src-line" id="L192">	}</span>
+<span class="src-line" id="L193">	out</span>
+<span class="src-line" id="L194">}</span>
+<span class="src-line" id="L195"></span>
+<span class="src-line" id="L196"><span class="m">// Formats eight 16-bit groups as an IPv6 address in RFC 5952 canonical form: lowercase hex,</span></span>
+<span class="src-line" id="L197"><span class="m">// no leading zeros, the longest run of two or more zero groups shortened to `::`, and</span></span>
+<span class="src-line" id="L198"><span class="m">// IPv4-mapped addresses written as `::ffff:a.b.c.d`.</span></span>
+<span class="src-line" id="L199"><span class="k">bind</span> format_ipv6 = (groups: [<span class="t">int</span>]) <span class="t">string</span>: {</span>
+<span class="src-line" id="L200">	<span class="k">if</span>(groups.<span class="f">len</span>() != <span class="n">8</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L201">	<span class="k">let</span> mapped = groups[<span class="n">0</span>] == <span class="n">0</span> <span class="k">and</span> groups[<span class="n">1</span>] == <span class="n">0</span> <span class="k">and</span> groups[<span class="n">2</span>] == <span class="n">0</span> <span class="k">and</span> groups[<span class="n">3</span>] == <span class="n">0</span> <span class="k">and</span> groups[<span class="n">4</span>] == <span class="n">0</span> <span class="k">and</span> groups[<span class="n">5</span>] == <span class="n">65535</span></span>
+<span class="src-line" id="L202">	<span class="k">if</span>(mapped): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;::ffff:</span>${<span class="f">_format_ipv4</span>(groups[<span class="n">6</span>] &lt;&lt; <span class="n">16</span> | groups[<span class="n">7</span>])}<span class="s">&quot;</span></span>
+<span class="src-line" id="L203">	<span class="k">let</span> best_at = -<span class="n">1</span></span>
+<span class="src-line" id="L204">	<span class="k">let</span> best_len = <span class="n">0</span></span>
+<span class="src-line" id="L205">	<span class="k">let</span> run_at = -<span class="n">1</span></span>
+<span class="src-line" id="L206">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">8</span>): {</span>
+<span class="src-line" id="L207">		<span class="k">if</span>(groups[i] == <span class="n">0</span>): {</span>
+<span class="src-line" id="L208">			<span class="k">if</span>(run_at &lt; <span class="n">0</span>): run_at = i</span>
+<span class="src-line" id="L209">			<span class="k">let</span> run_len = i - run_at + <span class="n">1</span></span>
+<span class="src-line" id="L210">			<span class="k">if</span>(run_len &gt; best_len): {</span>
+<span class="src-line" id="L211">				best_at = run_at</span>
+<span class="src-line" id="L212">				best_len = run_len</span>
+<span class="src-line" id="L213">			}</span>
+<span class="src-line" id="L214">		} <span class="k">else</span>: run_at = -<span class="n">1</span></span>
+<span class="src-line" id="L215">	}</span>
+<span class="src-line" id="L216">	<span class="k">if</span>(best_len &lt; <span class="n">2</span>): best_at = -<span class="n">1</span></span>
+<span class="src-line" id="L217">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L218">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L219">	<span class="k">while</span>(i &lt; <span class="n">8</span>): {</span>
+<span class="src-line" id="L220">		<span class="k">if</span>(i == best_at): {</span>
+<span class="src-line" id="L221">			out.<span class="f">push</span>(<span class="s">&quot;::&quot;</span>)</span>
+<span class="src-line" id="L222">			i += best_len</span>
+<span class="src-line" id="L223">			<span class="k">next</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L224">		}</span>
+<span class="src-line" id="L225">		<span class="k">if</span>(<span class="k">not</span> out.<span class="f">is_empty</span>() <span class="k">and</span> <span class="k">not</span> out.<span class="f">ends_with</span>(<span class="s">&quot;:&quot;</span>)): out.<span class="f">push</span>(<span class="s">&quot;:&quot;</span>)</span>
+<span class="src-line" id="L226">		out.<span class="f">push</span>(<span class="f">_hex16</span>(groups[i]))</span>
+<span class="src-line" id="L227">		i += <span class="n">1</span></span>
+<span class="src-line" id="L228">	}</span>
+<span class="src-line" id="L229">	out</span>
+<span class="src-line" id="L230">}</span>
+<span class="src-line" id="L231"></span>
+<span class="src-line" id="L232"></span>
+<span class="src-line" id="L233"><span class="m">// Opens a TCP connection to `host:port` waiting at most `timeout_ms` milliseconds.</span></span>
+<span class="src-line" id="L234"><span class="m">//</span></span>
+<span class="src-line" id="L235"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L236"><span class="m">// Fails if host resolution fails or the connection cannot be established within `timeout_ms`.</span></span>
+<span class="src-line" id="L237"><span class="k">bind</span> <span class="t">TcpStream</span>.connect = (host: <span class="t">string</span>, port: <span class="t">int</span>, timeout_ms: <span class="t">int</span>) <span class="t">Result</span>[<span class="t">TcpStream</span>]: {</span>
+<span class="src-line" id="L238">	<span class="k">let</span> client_fd = <span class="k">unsafe</span> <span class="f">sys_tcp_connect</span>(host.<span class="f">c_str</span>(), port, timeout_ms)</span>
+<span class="src-line" id="L239">	<span class="k">if</span>(client_fd &gt;= <span class="n">0</span>): <span class="f">value</span>(<span class="t">TcpStream</span>[_fd: client_fd])</span>
+<span class="src-line" id="L240">	<span class="k">else</span> <span class="k">if</span>(client_fd == -<span class="n">1</span>): <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to resolve host: </span>$host<span class="s">&quot;</span>))</span>
+<span class="src-line" id="L241">	<span class="k">else</span>: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to connect to </span>$host<span class="s">:</span>$port<span class="s">&quot;</span>))</span>
+<span class="src-line" id="L242">}</span>
+<span class="src-line" id="L243"></span>
+<span class="src-line" id="L244"><span class="m">// Bound, listening TCP server socket.</span></span>
+<span class="src-line" id="L245"><span class="m">//</span></span>
+<span class="src-line" id="L246"><span class="m">// Implements [`Drop`] to close the listening socket when leaving scope. Pass port `0`</span></span>
+<span class="src-line" id="L247"><span class="m">// to [`TcpListener.listen`] to bind an ephemeral OS-assigned port.</span></span>
+<span class="src-line" id="L248"><span class="k">define</span> <span class="t">TcpListener</span> <span class="k">struct</span> [</span>
+<span class="src-line" id="L249">	_fd: <span class="t">int</span>,</span>
+<span class="src-line" id="L250">	_bound_port: <span class="t">int</span>,</span>
+<span class="src-line" id="L251">]</span>
+<span class="src-line" id="L252"></span>
+<span class="src-line" id="L253"><span class="m">// Returns the underlying listening socket descriptor, or `-1` if closed.</span></span>
+<span class="src-line" id="L254"><span class="k">bind</span> <span class="t">TcpListener</span>.raw_fd = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._fd</span>
+<span class="src-line" id="L255"></span>
+<span class="src-line" id="L256"><span class="m">// Reports whether the listener socket is still open.</span></span>
+<span class="src-line" id="L257"><span class="k">bind</span> <span class="t">TcpListener</span>.is_open = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>._fd &gt;= <span class="n">0</span></span>
+<span class="src-line" id="L258"></span>
+<span class="src-line" id="L259"><span class="m">// Automatically closes the listener socket at scope exit if still open.</span></span>
+<span class="src-line" id="L260"><span class="k">bind</span> <span class="t">TcpListener</span>.drop = (&amp;<span class="k">self</span>):</span>
+<span class="src-line" id="L261">	<span class="k">if</span>(<span class="k">self</span>._fd &gt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L262">		<span class="k">unsafe</span> <span class="f">sys_net_close</span>(<span class="k">self</span>._fd)</span>
+<span class="src-line" id="L263">		<span class="k">self</span>._fd = -<span class="n">1</span></span>
+<span class="src-line" id="L264">	}</span>
+<span class="src-line" id="L265"></span>
+<span class="src-line" id="L266"><span class="m">// Explicitly closes the listener socket.</span></span>
+<span class="src-line" id="L267"><span class="k">bind</span> <span class="t">TcpListener</span>.close = (&amp;<span class="k">self</span>):</span>
+<span class="src-line" id="L268">	<span class="k">if</span>(<span class="k">self</span>._fd &gt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L269">		<span class="k">unsafe</span> <span class="f">sys_net_close</span>(<span class="k">self</span>._fd)</span>
+<span class="src-line" id="L270">		<span class="k">self</span>._fd = -<span class="n">1</span></span>
+<span class="src-line" id="L271">	}</span>
+<span class="src-line" id="L272"></span>
+<span class="src-line" id="L273"><span class="m">// Returns the actual bound TCP port (useful when listening on ephemeral port `0`).</span></span>
+<span class="src-line" id="L274"><span class="k">bind</span> <span class="t">TcpListener</span>.port = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._bound_port</span>
+<span class="src-line" id="L275"></span>
+<span class="src-line" id="L276"><span class="m">// Binds and listens for incoming TCP connections on `host:port`.</span></span>
+<span class="src-line" id="L277"><span class="m">//</span></span>
+<span class="src-line" id="L278"><span class="m">// Pass `0` for `port` to request an ephemeral port from the OS, retrievable via [`TcpListener.port`].</span></span>
+<span class="src-line" id="L279"><span class="m">//</span></span>
+<span class="src-line" id="L280"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L281"><span class="m">// Fails if the socket cannot be bound or placed into listen state.</span></span>
+<span class="src-line" id="L282"><span class="k">bind</span> <span class="t">TcpListener</span>.listen = (host: <span class="t">string</span>, port: <span class="t">int</span>) <span class="t">Result</span>[<span class="t">TcpListener</span>]: {</span>
+<span class="src-line" id="L283">	<span class="k">let</span> sfd = <span class="k">unsafe</span> <span class="f">sys_tcp_listen</span>(host.<span class="f">c_str</span>(), port, <span class="n">128</span>)</span>
+<span class="src-line" id="L284">	<span class="k">if</span>(sfd &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to bind TCP listener on </span>$host<span class="s">:</span>$port<span class="s">&quot;</span>))</span>
+<span class="src-line" id="L285">	<span class="k">let</span> actual_port = <span class="k">unsafe</span> <span class="f">sys_tcp_port</span>(sfd)</span>
+<span class="src-line" id="L286">	<span class="f">value</span>(<span class="t">TcpListener</span>[</span>
+<span class="src-line" id="L287">		_fd: sfd,</span>
+<span class="src-line" id="L288">		_bound_port: <span class="k">if</span>(actual_port &gt; <span class="n">0</span>): actual_port <span class="k">else</span>: port,</span>
+<span class="src-line" id="L289">	])</span>
+<span class="src-line" id="L290">}</span>
+<span class="src-line" id="L291"></span>
+<span class="src-line" id="L292"><span class="m">// Accepts the next incoming TCP connection, waiting at most `timeout_ms` milliseconds.</span></span>
+<span class="src-line" id="L293"><span class="m">//</span></span>
+<span class="src-line" id="L294"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L295"><span class="m">// Fails with code `&quot;timeout&quot;` on accept timeout, or a generic [`Error`] on closed/failed listeners.</span></span>
+<span class="src-line" id="L296"><span class="k">bind</span> <span class="t">TcpListener</span>.accept = (&amp;<span class="k">self</span>, timeout_ms: <span class="t">int</span>) <span class="t">Result</span>[<span class="t">TcpStream</span>]: {</span>
+<span class="src-line" id="L297">	<span class="k">if</span>(<span class="k">self</span>._fd &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;accept on closed TcpListener&quot;</span>))</span>
+<span class="src-line" id="L298">	<span class="k">let</span> cfd = <span class="k">unsafe</span> <span class="f">sys_tcp_accept</span>(<span class="k">self</span>._fd, timeout_ms)</span>
+<span class="src-line" id="L299">	<span class="k">if</span>(cfd &gt;= <span class="n">0</span>): <span class="f">value</span>(<span class="t">TcpStream</span>[_fd: cfd])</span>
+<span class="src-line" id="L300">	<span class="k">else</span> <span class="k">if</span>(cfd == -<span class="n">2</span>): <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;timeout&quot;</span>, <span class="s">&quot;accept timeout&quot;</span>))</span>
+<span class="src-line" id="L301">	<span class="k">else</span>: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to accept incoming TCP connection&quot;</span>))</span>
+<span class="src-line" id="L302">}</span>
+<span class="src-line" id="L303"></span>
+<span class="src-line" id="L304"><span class="m">// Pair of interconnected bidirectional [`TcpStream`] endpoints.</span></span>
+<span class="src-line" id="L305"><span class="k">define</span> <span class="t">SocketPair</span> <span class="k">struct</span> [</span>
+<span class="src-line" id="L306">	<span class="m">// First socket endpoint.</span></span>
+<span class="src-line" id="L307">	first: <span class="t">TcpStream</span>,</span>
+<span class="src-line" id="L308">	<span class="m">// Second connected socket endpoint.</span></span>
+<span class="src-line" id="L309">	second: <span class="t">TcpStream</span>,</span>
+<span class="src-line" id="L310">]</span>
+<span class="src-line" id="L311"></span>
+<span class="src-line" id="L312"><span class="m">// Creates a connected pair of bidirectional [`TcpStream`] sockets backed by an OS `socketpair`.</span></span>
+<span class="src-line" id="L313"><span class="m">//</span></span>
+<span class="src-line" id="L314"><span class="m">// Useful for in-memory protocol tests and local IPC pipelines.</span></span>
+<span class="src-line" id="L315"><span class="m">//</span></span>
+<span class="src-line" id="L316"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L317"><span class="m">// Fails if the kernel `socketpair` call fails.</span></span>
+<span class="src-line" id="L318"><span class="k">bind</span> socketpair = () <span class="t">Result</span>[<span class="t">SocketPair</span>]: {</span>
+<span class="src-line" id="L319">	<span class="k">let</span> pair = <span class="k">unsafe</span> {</span>
+<span class="src-line" id="L320">		<span class="k">let</span> p = alloc_raw[<span class="t">int</span>](<span class="n">2</span>)</span>
+<span class="src-line" id="L321">		<span class="k">let</span> rc = <span class="f">sys_net_socketpair</span>(p)</span>
+<span class="src-line" id="L322">		<span class="k">if</span>(rc != <span class="n">0</span>): {</span>
+<span class="src-line" id="L323">			<span class="f">free_raw</span>(p)</span>
+<span class="src-line" id="L324">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;failed to create socketpair&quot;</span>))</span>
+<span class="src-line" id="L325">		}</span>
+<span class="src-line" id="L326">		<span class="k">let</span> f0 = <span class="f">ptr_read</span>(p)</span>
+<span class="src-line" id="L327">		<span class="k">let</span> f1 = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(p, <span class="n">1</span>))</span>
+<span class="src-line" id="L328">		<span class="f">free_raw</span>(p)</span>
+<span class="src-line" id="L329">		<span class="t">SocketPair</span>[</span>
+<span class="src-line" id="L330">			first: <span class="t">TcpStream</span>[_fd: f0],</span>
+<span class="src-line" id="L331">			second: <span class="t">TcpStream</span>[_fd: f1],</span>
+<span class="src-line" id="L332">		]</span>
+<span class="src-line" id="L333">	}</span>
+<span class="src-line" id="L334">	<span class="f">value</span>(<span class="k">own</span> pair)</span>
+<span class="src-line" id="L335">}</span>
+<span class="src-line" id="L336"></span>
+<span class="src-line" id="L337"><span class="m">// Connects to `host:port` using a default `10_000 ms` timeout (shorthand for [`TcpStream.connect`]).</span></span>
+<span class="src-line" id="L338"><span class="k">bind</span> dial_tcp = (host: <span class="t">string</span>, port: <span class="t">int</span>) <span class="t">Result</span>[<span class="t">TcpStream</span>]: <span class="t">TcpStream</span>.<span class="f">connect</span>(host, port, <span class="n">10000</span>)</span>
+<span class="src-line" id="L339"></span>
+<span class="src-line" id="L340"><span class="m">// Binds and listens for TCP connections on `host:port` (shorthand for [`TcpListener.listen`]).</span></span>
+<span class="src-line" id="L341"><span class="k">bind</span> listen_tcp = (host: <span class="t">string</span>, port: <span class="t">int</span>) <span class="t">Result</span>[<span class="t">TcpListener</span>]: <span class="t">TcpListener</span>.<span class="f">listen</span>(host, port)</span>
+<span class="src-line" id="L342"></span>
+<span class="src-line" id="L343"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L344"><span class="m">// Inline Unit Tests</span></span>
+<span class="src-line" id="L345"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L346"></span>
+<span class="src-line" id="L347"><span class="a">@test</span>(<span class="s">&quot;net bidirectional data transfer over socketpair&quot;</span>)</span>
+<span class="src-line" id="L348"><span class="k">bind</span> test_net_socketpair_bidirectional = (): {</span>
+<span class="src-line" id="L349">	<span class="k">let</span> pair_res! = <span class="f">socketpair</span>()</span>
+<span class="src-line" id="L350">	<span class="f">assert</span>(pair_res!.<span class="f">is_ok</span>(), <span class="s">&quot;socketpair succeeds&quot;</span>)</span>
+<span class="src-line" id="L351">	<span class="k">let</span> pair = pair_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L352"></span>
+<span class="src-line" id="L353">	<span class="f">assert</span>(pair.first.<span class="f">is_open</span>(), <span class="s">&quot;pair.first is open&quot;</span>)</span>
+<span class="src-line" id="L354">	<span class="f">assert</span>(pair.second.<span class="f">is_open</span>(), <span class="s">&quot;pair.second is open&quot;</span>)</span>
+<span class="src-line" id="L355"></span>
+<span class="src-line" id="L356">	<span class="k">let</span> send1_res! = pair.first.<span class="f">send</span>(<span class="s">&quot;ping from first&quot;</span>)</span>
+<span class="src-line" id="L357">	<span class="f">assert</span>(send1_res!.<span class="f">is_ok</span>(), <span class="s">&quot;send from first succeeds&quot;</span>)</span>
+<span class="src-line" id="L358"></span>
+<span class="src-line" id="L359">	<span class="k">let</span> recv1_res! = pair.second.<span class="f">recv</span>(<span class="n">1024</span>, <span class="n">1000</span>)</span>
+<span class="src-line" id="L360">	<span class="f">assert</span>(recv1_res!.<span class="f">is_ok</span>(), <span class="s">&quot;recv on second succeeds&quot;</span>)</span>
+<span class="src-line" id="L361">	<span class="f">assert</span>(recv1_res!.<span class="f">unwrap</span>() == <span class="s">&quot;ping from first&quot;</span>, <span class="s">&quot;second received expected payload&quot;</span>)</span>
+<span class="src-line" id="L362"></span>
+<span class="src-line" id="L363">	<span class="k">let</span> send2_res! = pair.second.<span class="f">send</span>(<span class="s">&quot;pong from second&quot;</span>)</span>
+<span class="src-line" id="L364">	<span class="f">assert</span>(send2_res!.<span class="f">is_ok</span>(), <span class="s">&quot;send from second succeeds&quot;</span>)</span>
+<span class="src-line" id="L365"></span>
+<span class="src-line" id="L366">	<span class="k">let</span> recv2_res! = pair.first.<span class="f">recv</span>(<span class="n">1024</span>, <span class="n">1000</span>)</span>
+<span class="src-line" id="L367">	<span class="f">assert</span>(recv2_res!.<span class="f">is_ok</span>(), <span class="s">&quot;recv on first succeeds&quot;</span>)</span>
+<span class="src-line" id="L368">	<span class="f">assert</span>(recv2_res!.<span class="f">unwrap</span>() == <span class="s">&quot;pong from second&quot;</span>, <span class="s">&quot;first received expected payload&quot;</span>)</span>
+<span class="src-line" id="L369"></span>
+<span class="src-line" id="L370">	pair.first.<span class="f">close</span>()</span>
+<span class="src-line" id="L371">	pair.second.<span class="f">close</span>()</span>
+<span class="src-line" id="L372">	<span class="f">assert</span>(<span class="k">not</span> pair.first.<span class="f">is_open</span>(), <span class="s">&quot;first is closed&quot;</span>)</span>
+<span class="src-line" id="L373">	<span class="f">assert</span>(<span class="k">not</span> pair.second.<span class="f">is_open</span>(), <span class="s">&quot;second is closed&quot;</span>)</span>
+<span class="src-line" id="L374">}</span>
+<span class="src-line" id="L375"></span>
+<span class="src-line" id="L376"><span class="a">@test</span>(<span class="s">&quot;net TcpListener ephemeral port binding and teardown&quot;</span>)</span>
+<span class="src-line" id="L377"><span class="k">bind</span> test_net_listener_bind_and_port = (): {</span>
+<span class="src-line" id="L378">	<span class="k">let</span> l_res! = <span class="t">TcpListener</span>.<span class="f">listen</span>(<span class="s">&quot;127.0.0.1&quot;</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L379">	<span class="f">assert</span>(l_res!.<span class="f">is_ok</span>(), <span class="s">&quot;listen on ephemeral port 0 succeeds&quot;</span>)</span>
+<span class="src-line" id="L380">	<span class="k">let</span> l = l_res!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L381"></span>
+<span class="src-line" id="L382">	<span class="k">let</span> bound_p = l.<span class="f">port</span>()</span>
+<span class="src-line" id="L383">	<span class="f">assert</span>(bound_p &gt; <span class="n">0</span>, <span class="s">&quot;ephemeral port is positive integer&quot;</span>)</span>
+<span class="src-line" id="L384"></span>
+<span class="src-line" id="L385">	l.<span class="f">close</span>()</span>
+<span class="src-line" id="L386">	<span class="f">assert</span>(<span class="k">not</span> l.<span class="f">is_open</span>(), <span class="s">&quot;listener fd invalidated after close&quot;</span>)</span>
+<span class="src-line" id="L387">}</span>
+<span class="src-line" id="L388"></span>
+<span class="src-line" id="L389"><span class="a">@test</span>(<span class="s">&quot;net closed TcpStream error handling&quot;</span>)</span>
+<span class="src-line" id="L390"><span class="k">bind</span> test_net_closed_stream_errors = (): {</span>
+<span class="src-line" id="L391">	<span class="k">let</span> s = <span class="t">TcpStream</span>[_fd: -<span class="n">1</span>]</span>
+<span class="src-line" id="L392">	<span class="f">assert</span>(<span class="k">not</span> s.<span class="f">is_open</span>(), <span class="s">&quot;stream with fd -1 is not open&quot;</span>)</span>
+<span class="src-line" id="L393"></span>
+<span class="src-line" id="L394">	<span class="k">let</span> send_res! = s.<span class="f">send</span>(<span class="s">&quot;test&quot;</span>)</span>
+<span class="src-line" id="L395">	<span class="f">assert</span>(send_res!.<span class="f">is_err</span>(), <span class="s">&quot;send on closed stream returns error&quot;</span>)</span>
+<span class="src-line" id="L396"></span>
+<span class="src-line" id="L397">	<span class="k">let</span> recv_res! = s.<span class="f">recv</span>(<span class="n">512</span>, <span class="n">100</span>)</span>
+<span class="src-line" id="L398">	<span class="f">assert</span>(recv_res!.<span class="f">is_err</span>(), <span class="s">&quot;recv on closed stream returns error&quot;</span>)</span>
+<span class="src-line" id="L399">}</span>
+<span class="src-line" id="L400"></span>
+<span class="src-line" id="L401"><span class="a">@test</span>(<span class="s">&quot;net recv distinguishes clean EOF and timeout&quot;</span>)</span>
+<span class="src-line" id="L402"><span class="k">bind</span> test_net_recv_eof_and_timeout = (): {</span>
+<span class="src-line" id="L403">	<span class="k">let</span> pair = <span class="f">socketpair</span>().<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L404">	<span class="k">let</span> timeout_res! = pair.first.<span class="f">recv</span>(<span class="n">64</span>, <span class="n">10</span>)</span>
+<span class="src-line" id="L405">	<span class="f">assert</span>(timeout_res!.<span class="f">is_err</span>(), <span class="s">&quot;recv with no data times out&quot;</span>)</span>
+<span class="src-line" id="L406">	<span class="f">assert</span>(timeout_res!.<span class="f">unwrap_err</span>().<span class="f">has_code</span>(<span class="s">&quot;timeout&quot;</span>), <span class="s">&quot;timeout has code \&quot;timeout\&quot;&quot;</span>)</span>
+<span class="src-line" id="L407"></span>
+<span class="src-line" id="L408">	<span class="k">let</span> payload = <span class="s">&quot;bin\u{0}ary\u{1}&quot;</span></span>
+<span class="src-line" id="L409">	<span class="f">assert</span>(pair.second.<span class="f">send</span>(payload).<span class="f">is_ok</span>(), <span class="s">&quot;send succeeds&quot;</span>)</span>
+<span class="src-line" id="L410">	<span class="k">let</span> got! = pair.first.<span class="f">recv</span>(<span class="n">64</span>, <span class="n">1000</span>)</span>
+<span class="src-line" id="L411">	<span class="f">assert</span>(got!.<span class="f">is_ok</span>(), <span class="s">&quot;recv after send succeeds&quot;</span>)</span>
+<span class="src-line" id="L412">	<span class="f">assert</span>(got!.<span class="f">unwrap</span>() == payload, <span class="s">&quot;payload with NUL bytes round-trips&quot;</span>)</span>
+<span class="src-line" id="L413"></span>
+<span class="src-line" id="L414">	pair.second.<span class="f">close</span>()</span>
+<span class="src-line" id="L415">	<span class="k">let</span> eof_res! = pair.first.<span class="f">recv</span>(<span class="n">64</span>, <span class="n">1000</span>)</span>
+<span class="src-line" id="L416">	<span class="f">assert</span>(eof_res!.<span class="f">is_err</span>(), <span class="s">&quot;recv after peer close fails&quot;</span>)</span>
+<span class="src-line" id="L417">	<span class="f">assert</span>(eof_res!.<span class="f">unwrap_err</span>().<span class="f">has_code</span>(<span class="s">&quot;eof&quot;</span>), <span class="s">&quot;peer close has code \&quot;eof\&quot;&quot;</span>)</span>
+<span class="src-line" id="L418">}</span>
+<span class="src-line" id="L419"></span>
+<span class="src-line" id="L420"><span class="a">@test</span>(<span class="s">&quot;net send_bytes and recv_bytes carry raw bytes, including zeros&quot;</span>)</span>
+<span class="src-line" id="L421"><span class="k">bind</span> test_net_bytes = (): {</span>
+<span class="src-line" id="L422">	<span class="k">let</span> pair = <span class="f">socketpair</span>().<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L423">	<span class="k">let</span> data: [<span class="t">u8</span>] = [<span class="t">u8</span>(<span class="n">0</span>), <span class="t">u8</span>(<span class="n">255</span>), <span class="t">u8</span>(<span class="n">10</span>), <span class="t">u8</span>(<span class="n">0</span>), <span class="t">u8</span>(<span class="n">128</span>)]</span>
+<span class="src-line" id="L424">	<span class="f">assert</span>(pair.first.<span class="f">send_bytes</span>(data).<span class="f">unwrap</span>() == <span class="n">5</span>, <span class="s">&quot;sent five bytes&quot;</span>)</span>
+<span class="src-line" id="L425">	<span class="k">let</span> got = pair.second.<span class="f">recv_bytes</span>(<span class="n">16</span>, <span class="n">1000</span>).<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L426">	<span class="f">assert</span>(got.<span class="f">len</span>() == <span class="n">5</span> <span class="k">and</span> got[<span class="n">0</span>] == <span class="t">u8</span>(<span class="n">0</span>) <span class="k">and</span> got[<span class="n">1</span>] == <span class="t">u8</span>(<span class="n">255</span>) <span class="k">and</span> got[<span class="n">4</span>] == <span class="t">u8</span>(<span class="n">128</span>), <span class="s">&quot;bytes arrive unchanged&quot;</span>)</span>
+<span class="src-line" id="L427">}</span>
+<span class="src-line" id="L428"></span>
+<span class="src-line" id="L429"><span class="a">@test</span>(<span class="s">&quot;net shutdown(write) ends the peer&#39;s stream but keeps reading open&quot;</span>)</span>
+<span class="src-line" id="L430"><span class="k">bind</span> test_net_shutdown = (): {</span>
+<span class="src-line" id="L431">	<span class="k">let</span> pair = <span class="f">socketpair</span>().<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L432">	<span class="k">let</span> _ = pair.first.<span class="f">send</span>(<span class="s">&quot;last words&quot;</span>) ?? <span class="n">0</span></span>
+<span class="src-line" id="L433">	<span class="f">assert</span>(pair.first.<span class="f">shutdown</span>(<span class="t">Shutdown</span>.write).<span class="f">is_ok</span>(), <span class="s">&quot;shutdown write&quot;</span>)</span>
+<span class="src-line" id="L434">	<span class="f">assert</span>(pair.second.<span class="f">recv</span>(<span class="n">64</span>, <span class="n">1000</span>).<span class="f">unwrap</span>() == <span class="s">&quot;last words&quot;</span>, <span class="s">&quot;data before shutdown arrives&quot;</span>)</span>
+<span class="src-line" id="L435">	<span class="k">let</span> eof! = pair.second.<span class="f">recv</span>(<span class="n">64</span>, <span class="n">1000</span>)</span>
+<span class="src-line" id="L436">	<span class="f">assert</span>(eof!.<span class="f">peek_err</span>()?.<span class="f">has_code</span>(<span class="s">&quot;eof&quot;</span>) ?? <span class="c">false</span>, <span class="s">&quot;then end of stream&quot;</span>)</span>
+<span class="src-line" id="L437">	<span class="k">let</span> _ = pair.second.<span class="f">send</span>(<span class="s">&quot;reply&quot;</span>) ?? <span class="n">0</span></span>
+<span class="src-line" id="L438">	<span class="f">assert</span>(pair.first.<span class="f">recv</span>(<span class="n">64</span>, <span class="n">1000</span>).<span class="f">unwrap</span>() == <span class="s">&quot;reply&quot;</span>, <span class="s">&quot;the shut-down side can still read&quot;</span>)</span>
+<span class="src-line" id="L439">	<span class="k">let</span> closed = <span class="t">TcpStream</span>[_fd: -<span class="n">1</span>]</span>
+<span class="src-line" id="L440">	<span class="f">assert</span>(closed.<span class="f">shutdown</span>(<span class="t">Shutdown</span>.both).<span class="f">is_err</span>(), <span class="s">&quot;closed streams report an error&quot;</span>)</span>
+<span class="src-line" id="L441">}</span>
+<span class="src-line" id="L442"></span>
+<span class="src-line" id="L443"><span class="a">@test</span>(<span class="s">&quot;net local_addr, peer_addr, and set_nodelay on a loopback connection&quot;</span>)</span>
+<span class="src-line" id="L444"><span class="k">bind</span> test_net_addresses = (): {</span>
+<span class="src-line" id="L445">	<span class="k">let</span> listener! = <span class="f">listen_tcp</span>(<span class="s">&quot;127.0.0.1&quot;</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L446">	<span class="k">if</span>(listener!.<span class="f">is_err</span>()): <span class="k">func</span> <span class="u">&lt;-</span>     <span class="m">// no loopback networking available here</span></span>
+<span class="src-line" id="L447">	<span class="k">let</span> listener = listener!.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L448">	<span class="k">let</span> client = <span class="f">dial_tcp</span>(<span class="s">&quot;127.0.0.1&quot;</span>, listener.<span class="f">port</span>()).<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L449">	<span class="k">let</span> server_side = listener.<span class="f">accept</span>(<span class="n">2000</span>).<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L450">	<span class="k">let</span> client_local = client.<span class="f">local_addr</span>() ?? <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L451">	<span class="f">assert</span>(client_local.<span class="f">starts_with</span>(<span class="s">&quot;127.0.0.1:&quot;</span>), <span class="s">&quot;client local address&quot;</span>)</span>
+<span class="src-line" id="L452">	<span class="f">assert</span>(server_side.<span class="f">peer_addr</span>() == client_local, <span class="s">&quot;the server sees the client&#39;s address&quot;</span>)</span>
+<span class="src-line" id="L453">	<span class="f">assert</span>(client.<span class="f">peer_addr</span>() == <span class="s">&quot;127.0.0.1:</span>${listener.<span class="f">port</span>()}<span class="s">&quot;</span>, <span class="s">&quot;the client&#39;s peer is the listener port&quot;</span>)</span>
+<span class="src-line" id="L454">	<span class="f">assert</span>(client.<span class="f">set_nodelay</span>(<span class="c">true</span>).<span class="f">is_ok</span>() <span class="k">and</span> client.<span class="f">set_nodelay</span>(<span class="c">false</span>).<span class="f">is_ok</span>(), <span class="s">&quot;TCP_NODELAY toggles&quot;</span>)</span>
+<span class="src-line" id="L455"></span>
+<span class="src-line" id="L456">	<span class="k">let</span> pair = <span class="f">socketpair</span>().<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L457">	<span class="f">assert</span>(pair.first.<span class="f">peer_addr</span>() == <span class="c">none</span>, <span class="s">&quot;Unix sockets have no IP address&quot;</span>)</span>
+<span class="src-line" id="L458">}</span>
+<span class="src-line" id="L459"></span>
+<span class="src-line" id="L460"><span class="a">@test</span>(<span class="s">&quot;net format_ipv6 writes RFC 5952 canonical text&quot;</span>)</span>
+<span class="src-line" id="L461"><span class="k">bind</span> test_net_format_ipv6 = (): {</span>
+<span class="src-line" id="L462">	<span class="f">assert</span>(<span class="f">format_ipv6</span>([<span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">1</span>]) == <span class="s">&quot;::1&quot;</span>, <span class="s">&quot;loopback&quot;</span>)</span>
+<span class="src-line" id="L463">	<span class="f">assert</span>(<span class="f">format_ipv6</span>([<span class="n">0x2001</span>, <span class="n">0xdb8</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">1</span>]) == <span class="s">&quot;2001:db8::1&quot;</span>, <span class="s">&quot;longest zero run&quot;</span>)</span>
+<span class="src-line" id="L464">	<span class="f">assert</span>(<span class="f">format_ipv6</span>([<span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0xffff</span>, <span class="n">0x7f00</span>, <span class="n">1</span>]) == <span class="s">&quot;::ffff:127.0.0.1&quot;</span>, <span class="s">&quot;IPv4-mapped&quot;</span>)</span>
+<span class="src-line" id="L465">}</span>
+<span class="src-line" id="L466"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

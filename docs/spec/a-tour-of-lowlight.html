@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Tour of Lowlight · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a class="active" href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../ref/index.html">Reference</a></div><div class="sidebar-group">Specification</div><ul><li><a href="index.html">Overview and contents</a></li><li><a class="active" href="a-tour-of-lowlight.html">A Tour of Lowlight</a></li><li><a href="quick-reference.html">Quick Reference</a></li></ul><div class="sidebar-group">Language reference</div><ul><li><a href="conventions-and-conformance.html">1. Conventions and Conformance</a></li><li><a href="lexical-structure.html">2. Lexical Structure</a></li><li><a href="types.html">3. Types</a></li><li><a href="declarations-and-program-structure.html">4. Declarations and Program Structure</a></li><li><a href="expressions.html">5. Expressions</a></li><li><a href="control-flow.html">6. Control Flow</a></li><li><a href="ownership-borrowing-and-destruction.html">7. Ownership, Borrowing, and Destruction</a></li><li><a href="generics.html">8. Generics</a></li><li><a href="failure-handling.html">9. Failure Handling</a></li><li><a href="unsafe-code-and-foreign-functions.html">10. Unsafe Code and Foreign Functions</a></li><li><a href="testing.html">11. Testing</a></li><li><a href="the-prelude.html">12. The Prelude</a></li><li><a href="the-standard-library.html">13. The Standard Library</a></li><li><a href="packages-manifests-and-dependencies.html">14. Packages, Manifests, and Dependencies</a></li></ul><div class="sidebar-group">Implementer&#39;s guide</div><ul><li><a href="implementers-guide.html">About this part</a></li><li><a href="compiler-architecture.html">15. Compiler Architecture</a></li><li><a href="parsing-ambiguities-and-their-resolution.html">16. Parsing Ambiguities and Their Resolution</a></li><li><a href="semantic-analysis.html">17. Semantic Analysis</a></li><li><a href="lowering-and-runtime-representation.html">18. Lowering and Runtime Representation</a></li><li><a href="the-runtime-contract.html">19. The Runtime Contract</a></li><li><a href="conformance-checklist.html">20. Conformance Checklist</a></li></ul><div class="sidebar-group">Appendices</div><ul><li><a href="appendix-a-grammar.html">Appendix A: Grammar</a></li><li><a href="appendix-b-keywords-and-contextual-words.html">Appendix B: Keywords and Contextual Words</a></li><li><a href="appendix-c-operator-precedence.html">Appendix C: Operator Precedence</a></li><li><a href="appendix-d-runtime-traps.html">Appendix D: Runtime Traps</a></li><li><a href="appendix-e-glossary.html">Appendix E: Glossary</a></li></ul><div class="sidebar-group">Tools</div><ul><li><a href="../ref/cli.html">Command-line tool</a></li><li><a href="../ref/formatter.html">Formatting</a></li><li><a href="../ref/documentation.html">Documentation comments</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../ref/index.html">Reference</a><span class="sep">/</span><span>Specification</span></nav><h1 id="part-i-a-tour-of-lowlight"><a class="anchor" href="#part-i-a-tour-of-lowlight" aria-hidden="true">#</a>Part I: A Tour of Lowlight</h1>
+<p>This part shows the language by example. Each section links to the reference chapter that defines it precisely. Every program here compiles and runs as written.</p>
+<h2 id="hello-world"><a class="anchor" href="#hello-world" aria-hidden="true">#</a>Hello, world</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): <span class="f">println</span>(<span class="s">&quot;Hello, world!&quot;</span>)</code></pre>
+<p>Save it as <code>hello.ll</code> and run <code>lowlight run hello.ll</code>. A program is a set of top-level declarations; <code>main</code> is the entry point. <code>bind name = value</code> declares something that never changes, here a function. <code>(): ...</code> is a function that takes nothing; its body follows the colon.</p>
+<h2 id="values-and-variables"><a class="anchor" href="#values-and-variables" aria-hidden="true">#</a>Values and variables</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> count = <span class="n">3</span>            <span class="m">// `let`: a variable you may reassign</span>
+	count += <span class="n">1</span>
+	<span class="k">bind</span> limit = <span class="n">10</span>          <span class="m">// `bind`: never reassigned</span>
+	<span class="k">let</span> ratio = <span class="n">2.5</span>          <span class="m">// float</span>
+	<span class="k">let</span> name = <span class="s">&quot;Lowlight&quot;</span>    <span class="m">// string</span>
+	<span class="k">let</span> initial = <span class="s">&#39;L&#39;</span>        <span class="m">// char</span>
+	<span class="k">let</span> ok = count &lt; limit   <span class="m">// bool</span>
+	<span class="f">println</span>(<span class="s">&quot;</span>$name<span class="s"> has </span>$count<span class="s"> of </span>$limit<span class="s">, ok: </span>$ok<span class="s">, ratio </span>${ratio * <span class="n">2.0</span>}<span class="s">, starts with </span>$initial<span class="s">&quot;</span>)
+}</code></pre>
+<ul>
+<li>Types are inferred; write them when you want to: <code>let count: int = 3</code>.
+</li>
+<li>Numbers never convert implicitly. <code>int</code>, <code>float</code>, <code>u8</code>, <code>i32</code> and the rest are separate types; convert explicitly with <code>float(count)</code> or <code>u8(n)</code>.
+</li>
+<li><code>&quot;$name&quot;</code> and <code>&quot;${expr}&quot;</code> interpolate any value that can print itself.
+</li>
+<li>A <code>{ ... }</code> block is an expression whose value is its last line.
+</li>
+</ul>
+<p>See <a href="lexical-structure.html#2-lexical-structure">§2 Lexical Structure</a> and <a href="types.html#3-types">§3 Types</a>.</p>
+<h2 id="functions"><a class="anchor" href="#functions" aria-hidden="true">#</a>Functions</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> square = (x: <span class="t">int</span>) <span class="t">int</span>: x * x
+
+<span class="k">bind</span> describe = (n: <span class="t">int</span>) <span class="t">string</span>: {
+	<span class="k">let</span> kind = <span class="k">if</span>(n % <span class="n">2</span> == <span class="n">0</span>): <span class="s">&quot;even&quot;</span> <span class="k">else</span>: <span class="s">&quot;odd&quot;</span>
+	<span class="s">&quot;</span>$n<span class="s"> is </span>$kind<span class="s">&quot;</span>
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="f">println</span>(<span class="f">square</span>(<span class="n">7</span>))
+	<span class="f">println</span>(<span class="f">describe</span>(<span class="n">7</span>))
+	<span class="k">let</span> twice = (x: <span class="t">int</span>) <span class="t">int</span>: x * <span class="n">2</span>      <span class="m">// a function value</span>
+	<span class="f">println</span>(<span class="f">twice</span>(<span class="n">21</span>))
+}</code></pre>
+<p>A function is written <code>(parameters) ReturnType: body</code>. The body is a single expression or a <code>{ ... }</code> block. Leave the return type out when the function returns nothing. <code>if (...): a else: b</code> is an expression, so it can initialize a variable.</p>
+<p>See <a href="declarations-and-program-structure.html#43-functions">§4.3 Functions</a> and <a href="expressions.html#5-expressions">§5 Expressions</a>.</p>
+<h2 id="types-you-define"><a class="anchor" href="#types-you-define" aria-hidden="true">#</a>Types you define</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Point</span> <span class="k">struct</span> [
+	x: <span class="t">float</span>,
+	y: <span class="t">float</span>,
+]
+
+<span class="k">define</span> <span class="t">Shape</span> <span class="k">enum</span> [
+	circle: <span class="t">float</span>,
+	rect: <span class="t">Point</span>,
+	empty,
+]
+
+<span class="k">bind</span> <span class="t">Point</span>.length_squared = (<span class="k">self</span>) <span class="t">float</span>: <span class="k">self</span>.x * <span class="k">self</span>.x + <span class="k">self</span>.y * <span class="k">self</span>.y
+
+<span class="k">bind</span> area = (s: <span class="t">Shape</span>) <span class="t">float</span>: <span class="k">match</span>(s):
+	<span class="k">when</span> <span class="f">circle</span>(r): <span class="n">3.14159</span> * r * r
+	<span class="k">when</span> <span class="f">rect</span>(p): p.x * p.y
+	<span class="k">default</span> empty: <span class="n">0.0</span>
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> p = <span class="t">Point</span>[x: <span class="n">3.0</span>, y: <span class="n">4.0</span>]
+	<span class="f">println</span>(p.<span class="f">length_squared</span>())
+	<span class="f">println</span>(<span class="f">area</span>(<span class="t">Shape</span>.<span class="f">rect</span>(p)))
+	<span class="f">println</span>(<span class="f">area</span>(<span class="t">Shape</span>.<span class="f">circle</span>(<span class="n">1.0</span>)))
+}</code></pre>
+<ul>
+<li><code>struct</code> groups named fields; build one with <code>Type[field: value, ...]</code>.
+</li>
+<li><code>enum</code> lists alternatives (variants); a variant may carry one value. Outside a <code>match</code>, a variant is named with its type, <code>Shape.circle(1.0)</code>; inside a <code>match</code> arm it is named bare, <code>when circle(r)</code>.
+</li>
+<li><code>bind Type.method = (self) ...</code> adds a method. <code>self</code> is read-only; write <code>&amp;self</code> to mutate the receiver.
+</li>
+<li><code>match</code> must handle every case. The last arm always starts with <code>default</code>.
+</li>
+</ul>
+<p>See <a href="types.html#37-structs">§3.7 Structs</a>, <a href="types.html#38-enums">§3.8 Enums</a>, and <a href="control-flow.html#65-pattern-matching">§6.5 Pattern matching</a>.</p>
+<h2 id="optionals"><a class="anchor" href="#optionals" aria-hidden="true">#</a>Optionals</h2>
+<p>There is no <code>null</code>. A value that may be absent has an optional type <code>?T</code>, and its name ends in <code>?</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> find_index = (items: [<span class="t">string</span>], wanted: <span class="t">string</span>) ?<span class="t">int</span>: {
+	<span class="k">for</span>(i, item <span class="k">in</span> items): <span class="k">if</span>(item == wanted): <span class="k">func</span> <span class="u">&lt;-</span> i
+	<span class="c">none</span>
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> names = [<span class="s">&quot;ada&quot;</span>, <span class="s">&quot;grace&quot;</span>, <span class="s">&quot;linus&quot;</span>]
+	<span class="k">let</span> pos? = <span class="f">find_index</span>(names, <span class="s">&quot;grace&quot;</span>)
+	<span class="k">if</span>(pos?): <span class="f">println</span>(<span class="s">&quot;found at </span>$pos<span class="s">&quot;</span>)      <span class="m">// inside, `pos` is a plain int</span>
+	<span class="f">println</span>(<span class="f">find_index</span>(names, <span class="s">&quot;bob&quot;</span>) ?? -<span class="n">1</span>)  <span class="m">// `??` supplies a fallback</span>
+}</code></pre>
+<p><code>func &lt;- i</code> returns <code>i</code> from the function early. It's one of the unwinds described in <a href="control-flow.html#67-unwinds-and-labels">§6.7</a>.</p>
+<p>See <a href="types.html#35-optionals">§3.5 Optionals</a>.</p>
+<h2 id="results-and-failures"><a class="anchor" href="#results-and-failures" aria-hidden="true">#</a>Results and failures</h2>
+<p>An operation that can fail returns a <strong>result</strong>. Names that hold one end in <code>!</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Lookup</span> <span class="k">result</span> [
+	value: <span class="t">string</span>,
+	missing: <span class="t">string</span>,
+	forbidden,
+]
+
+<span class="k">bind</span> find = (key: <span class="t">string</span>) <span class="t">Lookup</span>:
+	<span class="k">if</span>(key == <span class="s">&quot;secret&quot;</span>): forbidden
+	<span class="k">else</span> <span class="k">if</span>(key == <span class="s">&quot;name&quot;</span>): <span class="f">value</span>(<span class="s">&quot;Lowlight&quot;</span>)
+	<span class="k">else</span>: <span class="f">missing</span>(key.<span class="f">copy</span>())
+
+<span class="k">bind</span> greet = (key: <span class="t">string</span>) <span class="t">string</span>: {
+	<span class="k">let</span> who = <span class="f">find</span>(key):
+		<span class="k">when</span> <span class="f">missing</span>(k): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;no entry for </span>$k<span class="s">&quot;</span>
+		<span class="k">default</span> forbidden: <span class="s">&quot;stranger&quot;</span>
+	<span class="s">&quot;hello, </span>$who<span class="s">&quot;</span>
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="f">println</span>(<span class="f">greet</span>(<span class="s">&quot;name&quot;</span>))
+	<span class="f">println</span>(<span class="f">greet</span>(<span class="s">&quot;secret&quot;</span>))
+	<span class="f">println</span>(<span class="f">greet</span>(<span class="s">&quot;age&quot;</span>))
+	<span class="k">let</span> r! = <span class="f">find</span>(<span class="s">&quot;name&quot;</span>)
+	<span class="f">println</span>(r! ?? <span class="s">&quot;fallback&quot;</span>)
+}</code></pre>
+<ul>
+<li>A result type has one success member, <code>value</code>, plus failure cases.
+</li>
+<li>Where a result is expected you name the member directly: <code>value(x)</code>, <code>missing(k)</code>, <code>forbidden</code>.
+</li>
+<li><code>expr:</code> followed by <code>when</code> arms is a <strong>result chain</strong>. It evaluates to the success value, and each arm handles a failure by producing a value or leaving with an unwind. <code>default panic</code> ends a chain when the remaining failures should never happen.
+</li>
+<li>The standard <code>Result[T]</code> (<code>value: T</code> or <code>err: Error</code>) is used throughout the standard library.
+</li>
+</ul>
+<p>Unrecoverable bugs, such as an index out of bounds or a failed <code>assert</code>, <strong>panic</strong>: the program stops with a message. Panics can't be caught.</p>
+<p>See <a href="types.html#39-results">§3.9 Results</a>, <a href="control-flow.html#66-result-chains">§6.6 Result chains</a>, and <a href="failure-handling.html#9-failure-handling">§9 Failure Handling</a>.</p>
+<h2 id="control-flow"><a class="anchor" href="#control-flow" aria-hidden="true">#</a>Control flow</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="m">// `for` collects its body&#39;s values into a list.</span>
+	<span class="k">let</span> squares = <span class="k">for</span>(n <span class="k">in</span> <span class="n">1</span>..=<span class="n">5</span>): n * n
+	<span class="f">println</span>(squares)
+
+	<span class="m">// `next &lt;-` skips an element.</span>
+	<span class="k">let</span> odd = <span class="k">for</span>(n <span class="k">in</span> <span class="n">1</span>..<span class="n">10</span>): {
+		<span class="k">if</span>(n % <span class="n">2</span> == <span class="n">0</span>): <span class="k">next</span> <span class="u">&lt;-</span>
+		n
+	}
+	<span class="f">println</span>(odd)
+
+	<span class="m">// `while` produces a single value; `while &lt;-` leaves with one.</span>
+	<span class="k">let</span> first_big = <span class="k">while</span>(n <span class="k">in</span> <span class="n">1</span>..<span class="n">100</span>) <span class="t">int</span>: {
+		<span class="k">if</span>(n * n &gt; <span class="n">50</span>): <span class="k">while</span> <span class="u">&lt;-</span> n
+	} <span class="k">else</span>: <span class="n">0</span>
+	<span class="f">println</span>(first_big)
+
+	<span class="m">// `match` with no subject is a chain of conditions.</span>
+	<span class="k">let</span> size = <span class="k">match</span>:
+		<span class="k">when</span> first_big &gt; <span class="n">5</span>: <span class="s">&quot;large&quot;</span>
+		<span class="k">default</span>: <span class="s">&quot;small&quot;</span>
+	<span class="f">println</span>(size)
+}</code></pre>
+<p>Lowlight has no <code>break</code>, <code>continue</code>, or <code>return</code> keywords. One operator, <code>&lt;-</code>, leaves a construct, and the word before it says which one: <code>func &lt;-</code> returns, <code>for &lt;-</code> and <code>while &lt;-</code> break, <code>next &lt;-</code> continues, and <code>label &lt;-</code> leaves a labeled block or loop.</p>
+<p>See <a href="control-flow.html#6-control-flow">§6 Control Flow</a>.</p>
+<h2 id="ownership-in-five-minutes"><a class="anchor" href="#ownership-in-five-minutes" aria-hidden="true">#</a>Ownership in five minutes</h2>
+<p>Every value has exactly one owner. Small fixed-size values (numbers, <code>bool</code>, <code>char</code>, plain structs) are <strong>plain</strong> and copy freely. Values that own memory or system resources (<code>string</code>, lists, maps, files) are <strong>resources</strong>: they move rather than copy, and are freed automatically at the end of their owner's scope.</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> shout = (s: <span class="t">string</span>) <span class="t">string</span>: s.<span class="f">to_upper</span>()       <span class="m">// read-only borrow</span>
+<span class="k">bind</span> append_bang = (s: &amp;<span class="t">string</span>): s.<span class="f">push</span>(<span class="s">&quot;!&quot;</span>)        <span class="m">// mutable borrow</span>
+<span class="k">bind</span> consume = (s: <span class="k">own</span> <span class="t">string</span>): <span class="f">println</span>(<span class="s">&quot;took </span>$s<span class="s">&quot;</span>)  <span class="m">// takes ownership</span>
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> msg = <span class="s">&quot;hi&quot;</span> + <span class="s">&quot; there&quot;</span>
+	<span class="f">println</span>(<span class="f">shout</span>(msg))      <span class="m">// borrowed; msg is still ours</span>
+	<span class="f">append_bang</span>(&amp;msg)        <span class="m">// `&amp;` at the call site: msg may change</span>
+	<span class="f">println</span>(msg)
+	<span class="f">consume</span>(<span class="k">own</span> msg)         <span class="m">// `own` at the call site: msg moves away</span>
+	<span class="m">// println(msg)          // error: use of moved variable &quot;msg&quot;</span>
+	<span class="k">let</span> copy = <span class="f">shout</span>(<span class="s">&quot;x&quot;</span>).<span class="f">copy</span>()
+	<span class="f">println</span>(copy)
+}</code></pre>
+<ul>
+<li>A parameter is borrowed read-only by default.
+</li>
+<li><code>&amp;T</code> lets the function change your variable, and you must write <code>&amp;</code> when you call it.
+</li>
+<li><code>own T</code> takes the value, and you must write <code>own</code> when you call it.
+</li>
+<li>Nothing is ever mutated or moved without a visible marker at the call site.
+</li>
+</ul>
+<p>See <a href="ownership-borrowing-and-destruction.html#7-ownership-borrowing-and-destruction">§7 Ownership, Borrowing, and Destruction</a>.</p>
+<h2 id="packages-and-tests"><a class="anchor" href="#packages-and-tests" aria-hidden="true">#</a>Packages and tests</h2>
+<p>A directory of <code>.ll</code> files is a package. Other packages are used through a qualifier:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/strings&quot;</span>
+
+<span class="a">@test</span>(<span class="s">&quot;join puts separators between items&quot;</span>)
+<span class="k">bind</span> test_join = (): {
+	<span class="k">let</span> joined = strings.<span class="f">join</span>([<span class="s">&quot;a&quot;</span>, <span class="s">&quot;b&quot;</span>, <span class="s">&quot;c&quot;</span>], <span class="s">&quot;-&quot;</span>)
+	<span class="f">assert</span>(joined == <span class="s">&quot;a-b-c&quot;</span>, <span class="s">&quot;unexpected: </span>$joined<span class="s">&quot;</span>)
+}
+
+<span class="k">bind</span> main = (): <span class="f">println</span>(strings.<span class="f">join</span>([<span class="s">&quot;x&quot;</span>, <span class="s">&quot;y&quot;</span>], <span class="s">&quot;, &quot;</span>))</code></pre>
+<p><code>lowlight test</code> runs every <code>@test</code> function and checks each one for leaks. Names beginning with <code>_</code> are private to their package.</p>
+<p>See <a href="declarations-and-program-structure.html#46-packages-and-imports">§4.6 Packages and imports</a>, <a href="testing.html#11-testing">§11 Testing</a>, and <a href="packages-manifests-and-dependencies.html#14-packages-manifests-and-dependencies">§14 Packages, Manifests, and Dependencies</a>.</p>
+<h2 id="where-to-go-next"><a class="anchor" href="#where-to-go-next" aria-hidden="true">#</a>Where to go next</h2>
+<ul>
+<li>Keep <a href="quick-reference.html#part-ii-quick-reference">Part II: Quick Reference</a> open while you write code.
+</li>
+<li>Read the &quot;At a glance&quot; box at the top of each chapter in <a href="conventions-and-conformance.html#part-iii-language-reference">Part III</a> for a fuller picture, and the rest of each chapter when you need the exact rules.
+</li>
+<li>Run <code>lowlight doc</code> to browse the standard library's API documentation.
+</li>
+</ul>
+<hr />
+</article><nav class="prev-next"><a class="prev" href="index.html"><span>Previous</span>The Lowlight Language Specification</a><a class="next" href="quick-reference.html"><span>Next</span>Quick Reference</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#hello-world">Hello, world</a></li><li><a href="#values-and-variables">Values and variables</a></li><li><a href="#functions">Functions</a></li><li><a href="#types-you-define">Types you define</a></li><li><a href="#optionals">Optionals</a></li><li><a href="#results-and-failures">Results and failures</a></li><li><a href="#control-flow">Control flow</a></li><li><a href="#ownership-in-five-minutes">Ownership in five minutes</a></li><li><a href="#packages-and-tests">Packages and tests</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

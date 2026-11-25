@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4. Declarations and Program Structure · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a class="active" href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../ref/index.html">Reference</a></div><div class="sidebar-group">Specification</div><ul><li><a href="index.html">Overview and contents</a></li><li><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a></li><li><a href="quick-reference.html">Quick Reference</a></li></ul><div class="sidebar-group">Language reference</div><ul><li><a href="conventions-and-conformance.html">1. Conventions and Conformance</a></li><li><a href="lexical-structure.html">2. Lexical Structure</a></li><li><a href="types.html">3. Types</a></li><li><a class="active" href="declarations-and-program-structure.html">4. Declarations and Program Structure</a></li><li><a href="expressions.html">5. Expressions</a></li><li><a href="control-flow.html">6. Control Flow</a></li><li><a href="ownership-borrowing-and-destruction.html">7. Ownership, Borrowing, and Destruction</a></li><li><a href="generics.html">8. Generics</a></li><li><a href="failure-handling.html">9. Failure Handling</a></li><li><a href="unsafe-code-and-foreign-functions.html">10. Unsafe Code and Foreign Functions</a></li><li><a href="testing.html">11. Testing</a></li><li><a href="the-prelude.html">12. The Prelude</a></li><li><a href="the-standard-library.html">13. The Standard Library</a></li><li><a href="packages-manifests-and-dependencies.html">14. Packages, Manifests, and Dependencies</a></li></ul><div class="sidebar-group">Implementer&#39;s guide</div><ul><li><a href="implementers-guide.html">About this part</a></li><li><a href="compiler-architecture.html">15. Compiler Architecture</a></li><li><a href="parsing-ambiguities-and-their-resolution.html">16. Parsing Ambiguities and Their Resolution</a></li><li><a href="semantic-analysis.html">17. Semantic Analysis</a></li><li><a href="lowering-and-runtime-representation.html">18. Lowering and Runtime Representation</a></li><li><a href="the-runtime-contract.html">19. The Runtime Contract</a></li><li><a href="conformance-checklist.html">20. Conformance Checklist</a></li></ul><div class="sidebar-group">Appendices</div><ul><li><a href="appendix-a-grammar.html">Appendix A: Grammar</a></li><li><a href="appendix-b-keywords-and-contextual-words.html">Appendix B: Keywords and Contextual Words</a></li><li><a href="appendix-c-operator-precedence.html">Appendix C: Operator Precedence</a></li><li><a href="appendix-d-runtime-traps.html">Appendix D: Runtime Traps</a></li><li><a href="appendix-e-glossary.html">Appendix E: Glossary</a></li></ul><div class="sidebar-group">Tools</div><ul><li><a href="../ref/cli.html">Command-line tool</a></li><li><a href="../ref/formatter.html">Formatting</a></li><li><a href="../ref/documentation.html">Documentation comments</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../ref/index.html">Reference</a><span class="sep">/</span><span>Language reference</span></nav><h1 id="4-declarations-and-program-structure"><a class="anchor" href="#4-declarations-and-program-structure" aria-hidden="true">#</a>4. Declarations and Program Structure</h1>
+<blockquote class="glance">
+<p><strong>At a glance</strong></p>
+<ul>
+<li>A file is a list of top-level declarations: <code>bind</code>, <code>define</code>, <code>import</code>, and <code>extern</code>. Order doesn't matter.
+</li>
+<li><code>bind</code> names something that never changes; <code>let</code> (inside functions only) names a variable.
+</li>
+<li>Methods are top-level <code>bind</code>s on a type name: <code>bind Point.norm = (self) float: ...</code>.
+</li>
+<li>A directory is a package. <code>import &quot;std/fs&quot;</code> makes its exported names available as <code>fs.name</code>.
+</li>
+<li>A leading <code>_</code> makes any name private to its package.
+</li>
+</ul>
+</blockquote>
+<h2 id="41-top-level-declarations"><a class="anchor" href="#41-top-level-declarations" aria-hidden="true">#</a>4.1 Top-level declarations</h2>
+<p>A source file contains, in any order:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Declaration</th><th>Form</th></tr></thead>
+<tbody>
+<tr><td>Constant or function</td><td><code>bind NAME = expr</code> · <code>bind name = (params) Ret: body</code></td></tr>
+<tr><td>Method or associated function</td><td><code>bind Type.name = (self, params) Ret: body</code></td></tr>
+<tr><td>Type</td><td><code>define Name struct [...]</code>, <code>enum [...]</code>, <code>result [...]</code>, <code>interface [...]</code>, or <code>define Name BaseType</code></td></tr>
+<tr><td>Import</td><td><code>import &quot;path&quot;</code> · <code>import &quot;path&quot; as alias</code></td></tr>
+<tr><td>Foreign function or header</td><td><code>extern name: (params) Ret</code> · <code>extern &quot;header.h&quot;</code></td></tr>
+</tbody>
+</table></div>
+<p>Any of these may be preceded by attributes (<a href="#48-attributes">§4.8</a>) and documentation comments (<a href="lexical-structure.html#22-whitespace-and-comments">§2.2</a>). Declarations are <strong>order-independent</strong>: a declaration may refer to any other declaration in its package or in an imported package, wherever it appears. Two top-level declarations of the same name in one package are an error. <code>let</code> is not allowed at top level.</p>
+<h2 id="42-bind-and-let"><a class="anchor" href="#42-bind-and-let" aria-hidden="true">#</a>4.2 Bind and let</h2>
+<pre class="lang-ebnf" data-lang="ebnf"><code><span class="t">VarDecl</span> = ( <span class="s">&quot;let&quot;</span> | <span class="s">&quot;bind&quot;</span> ) <span class="t">Name</span> [ <span class="s">&quot;:&quot;</span> <span class="t">Type</span> ] <span class="s">&quot;=&quot;</span> <span class="t">Expr</span>
+        | ( <span class="s">&quot;let&quot;</span> | <span class="s">&quot;bind&quot;</span> ) <span class="t">Target</span> { <span class="s">&quot;,&quot;</span> <span class="t">Target</span> } <span class="s">&quot;=&quot;</span> <span class="s">&quot;unpack&quot;</span> <span class="t">Expr</span> ;
+<span class="t">Target</span>  = ( <span class="t">Name</span> | <span class="s">&quot;_&quot;</span> ) [ <span class="s">&quot;:&quot;</span> <span class="t">Type</span> ] ;</code></pre>
+<ul>
+<li><code>let</code> declares a <strong>mutable</strong> variable: it may be reassigned, mutated through its methods, and passed as <code>&amp;</code>. It is allowed only inside function bodies.
+</li>
+<li><code>bind</code> declares an <strong>immutable</strong> binding: it may not be reassigned, mutated, or passed as <code>&amp;</code>, and neither may anything reachable through it. Top-level <code>bind</code>s are constants or functions.
+</li>
+<li>The type annotation is optional when it can be inferred. It is required when the value alone does not determine a type (<code>let xs: [int] = []</code>, <code>let x?: ?int = none</code>).
+</li>
+<li><strong>Unpacking</strong> splits a tuple, or a distinct type over a tuple, into separate bindings: <code>let x, y = unpack +[1, 2]</code>. <code>_</code> discards an element. The number of targets must equal the tuple's length. Assignment can unpack too: <code>a, b = unpack +[b, a]</code>.
+</li>
+<li>A local binding may shadow an outer one in an inner block.
+</li>
+</ul>
+<p><strong>Top-level constants</strong> are evaluated before <code>main</code> runs, in dependency order. A cycle between constants is an error. Resource-valued constants are released at program exit in reverse order of initialization.</p>
+<h2 id="43-functions"><a class="anchor" href="#43-functions" aria-hidden="true">#</a>4.3 Functions</h2>
+<pre class="lang-ebnf" data-lang="ebnf"><code><span class="t">FuncDecl</span> = <span class="s">&quot;bind&quot;</span> <span class="t">Name</span> [ <span class="t">TypeParams</span> ] <span class="s">&quot;=&quot;</span> <span class="s">&quot;(&quot;</span> [ <span class="t">Params</span> ] <span class="s">&quot;)&quot;</span> [ <span class="t">Type</span> ] <span class="s">&quot;:&quot;</span> <span class="t">Body</span> ;
+<span class="t">Param</span>    = <span class="t">Name</span> <span class="s">&quot;:&quot;</span> [ <span class="s">&quot;&amp;&quot;</span> | <span class="s">&quot;own&quot;</span> ] <span class="t">Type</span> ;
+<span class="t">Body</span>     = <span class="t">Expr</span> | <span class="t">Block</span> ;</code></pre>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> add = (a: <span class="t">int</span>, b: <span class="t">int</span>) <span class="t">int</span>: a + b
+
+<span class="k">bind</span> greet = (name: <span class="t">string</span>): {
+	<span class="f">println</span>(<span class="s">&quot;Hello, </span>$name<span class="s">&quot;</span>)
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="f">greet</span>(<span class="s">&quot;Ada&quot;</span>)
+	<span class="f">println</span>(<span class="f">add</span>(<span class="n">2</span>, <span class="n">3</span>))
+}</code></pre>
+<p><strong>Rules.</strong></p>
+<ol>
+<li>The return type follows the parameter list. Omit it (or write <code>void</code>) when the function returns nothing.
+</li>
+<li>The body's value is the return value. <code>func &lt;- value</code> returns early (<a href="control-flow.html#67-unwinds-and-labels">§6.7</a>).
+</li>
+<li>A body without braces must be an expression. Assignments and declarations are statements (<a href="expressions.html#512-assignment">§5.12</a>), so a function whose body assigns needs braces: <code>bind reset = (&amp;self): { self.count = 0 }</code>. (The bodies of <code>if</code>, loops, and <code>match</code> arms may be a single assignment.)
+</li>
+<li>Parameters are read-only borrows by default; <code>&amp;T</code> and <code>own T</code> select the other modes (<a href="ownership-borrowing-and-destruction.html#73-parameter-modes">§7.3</a>). Parameter names follow the <code>?</code> and <code>!</code> naming rules.
+</li>
+<li>A function declared with type parameters is generic (<a href="generics.html#8-generics">§8</a>).
+</li>
+<li>Functions may be recursive and mutually recursive. A function whose return type is omitted and inferred cannot take part in a recursive cycle; give it an explicit return type.
+</li>
+<li>Functions are values: <code>bind f = add</code> has type <code>(int, int) int</code>.
+</li>
+</ol>
+<h2 id="44-methods-and-associated-functions"><a class="anchor" href="#44-methods-and-associated-functions" aria-hidden="true">#</a>4.4 Methods and associated functions</h2>
+<p>A method is a function attached to a type, declared at top level with the type's name:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Counter</span> <span class="k">struct</span> [
+	count: <span class="t">int</span>,
+]
+
+<span class="k">bind</span> <span class="t">Counter</span>.new = () <span class="t">Counter</span>: <span class="t">Counter</span>[count: <span class="n">0</span>]          <span class="m">// associated function</span>
+<span class="k">bind</span> <span class="t">Counter</span>.value = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>.count               <span class="m">// read-only receiver</span>
+<span class="k">bind</span> <span class="t">Counter</span>.bump = (&amp;<span class="k">self</span>): { <span class="k">self</span>.count += <span class="n">1</span> }           <span class="m">// mutable receiver</span>
+<span class="k">bind</span> <span class="t">Counter</span>.into_count = (<span class="k">own</span> <span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>.count      <span class="m">// consuming receiver</span>
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> c = <span class="t">Counter</span>.<span class="f">new</span>()
+	c.<span class="f">bump</span>()
+	c.<span class="f">bump</span>()
+	<span class="f">println</span>(c.<span class="f">value</span>())
+	<span class="f">println</span>(c.<span class="f">into_count</span>())
+}</code></pre>
+<p><strong>Rules.</strong></p>
+<ol>
+<li><strong>Receivers.</strong> The first parameter <code>self</code>, <code>&amp;self</code>, or <code>own self</code> makes the function a method; its receiver mode works like the corresponding parameter mode. <code>self: Type</code> may also be written explicitly.
+</li>
+<li><strong>Calls.</strong> <code>value.method(args)</code> calls a method. For an <code>&amp;self</code> method the receiver is borrowed mutably without writing <code>&amp;</code> (the receiver must be a mutable place). For an <code>own self</code> method the receiver is moved, and the variable becomes unusable.
+</li>
+<li><strong>Associated functions</strong> have no receiver and are called on the type: <code>Counter.new()</code>.
+</li>
+<li><strong>Any type.</strong> Methods may be attached to structs, enums, results, distinct types, primitive types (<code>bind int.double = (self) int: self * 2</code>), and generic types (<code>bind Stack[T].peek = (self) ?T: ...</code>). A method may have its own type parameters: <code>bind List[T].map[U] = ...</code>.
+</li>
+<li><strong>Extension methods.</strong> A package may add methods to types it did not define, including types from other packages and primitives. Three rules keep this coherent:
+<ul>
+<li>no two declarations anywhere in a program may attach the same method name to the same type;
+</li>
+<li>an extension method cannot see the type's private (<code>_</code>) fields, variants, or methods;
+</li>
+<li>an extension method cannot implement a sealed interface's private methods.
+</li>
+</ul>
+</li>
+<li><strong>Lookup order.</strong> <code>v.name(args)</code> resolves to, in order: a method of <code>v</code>'s type; a method required by an interface bound on <code>v</code>'s type parameter; a function <code>name</code> in scope whose first parameter accepts <code>v</code> (uniform function call syntax).
+</li>
+</ol>
+<h2 id="45-type-declarations"><a class="anchor" href="#45-type-declarations" aria-hidden="true">#</a>4.5 Type declarations</h2>
+<pre class="lang-ebnf" data-lang="ebnf"><code><span class="t">TypeDecl</span> = <span class="s">&quot;define&quot;</span> [ <span class="s">&quot;packed&quot;</span> ] <span class="t">Name</span> [ <span class="t">TypeParams</span> ] <span class="t">TypeBody</span> ;
+<span class="t">TypeBody</span> = <span class="s">&quot;struct&quot;</span> <span class="s">&quot;[&quot;</span> [ <span class="t">Fields</span> ] <span class="s">&quot;]&quot;</span>
+         | <span class="s">&quot;enum&quot;</span> [ <span class="t">IntType</span> ] <span class="s">&quot;[&quot;</span> [ <span class="t">Variants</span> ] <span class="s">&quot;]&quot;</span>
+         | <span class="s">&quot;result&quot;</span> <span class="s">&quot;[&quot;</span> <span class="t">Variants</span> <span class="s">&quot;]&quot;</span>
+         | <span class="s">&quot;interface&quot;</span> <span class="s">&quot;[&quot;</span> [ <span class="t">MethodSigs</span> ] <span class="s">&quot;]&quot;</span>
+         | <span class="t">Type</span> ;                                    <span class="m">(* distinct type *)</span></code></pre>
+<p>Each kind is described in <a href="types.html#3-types">§3</a>: structs <a href="types.html#37-structs">§3.7</a>, enums <a href="types.html#38-enums">§3.8</a>, results <a href="types.html#39-results">§3.9</a>, distinct types <a href="types.html#310-distinct-types">§3.10</a>, and interfaces <a href="types.html#311-interfaces">§3.11</a>. Type declarations may also appear inside a function body, where they are local to that function; local type declarations cannot be generic.</p>
+<h2 id="46-packages-and-imports"><a class="anchor" href="#46-packages-and-imports" aria-hidden="true">#</a>4.6 Packages and imports</h2>
+<p><strong>Packages.</strong> Every directory containing <code>.ll</code> files is one <strong>package</strong>. All files in the directory share one namespace: a top-level name declared in one file is visible in every other file of the package without importing it, and files may refer to each other freely. Files do not declare a package name; identity comes from the directory and the manifest (<a href="packages-manifests-and-dependencies.html#14-packages-manifests-and-dependencies">§14</a>).</p>
+<p>When a single <code>.ll</code> file outside any project is compiled directly (<code>lowlight run script.ll</code>), it forms a package by itself; sibling files are not pulled in.</p>
+<p><strong>File selection.</strong> Within a package directory:</p>
+<ul>
+<li>files named <code>*_test.ll</code> belong to the package only when running tests (<a href="testing.html#11-testing">§11</a>);
+</li>
+<li>files named <code>name_&lt;os&gt;.ll</code>, <code>name_&lt;arch&gt;.ll</code>, <code>name_&lt;os&gt;_&lt;arch&gt;.ll</code>, or <code>name_unix.ll</code> are included only when compiling for a matching target (for example <code>fs_linux.ll</code>, <code>fs_windows.ll</code>, <code>net_unix.ll</code>, <code>atomic_arm64.ll</code>);
+</li>
+<li>every other <code>.ll</code> file is always included.
+</li>
+</ul>
+<p><strong>Imports.</strong></p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/fs&quot;</span>
+<span class="k">import</span> <span class="s">&quot;std/math&quot;</span> <span class="k">as</span> m</code></pre>
+<ol>
+<li>An import names a package <strong>directory</strong>, without a <code>.ll</code> suffix. <code>import &quot;std/fs.ll&quot;</code> is an error.
+</li>
+<li>Its exported declarations become available through a <strong>qualifier</strong>: by default the last path segment (<code>fs.read_file(...)</code>), with characters that cannot appear in identifiers replaced by <code>_</code> (<code>my-lib</code> becomes <code>my_lib</code>), or the alias given with <code>as</code>. Imported names are never injected unqualified.
+</li>
+<li>Two imports in one file with the same qualifier are an error; give one an alias.
+</li>
+<li>Imports are per file: each file lists what it uses, even though other declarations are shared across the package.
+</li>
+<li>The package dependency graph must be acyclic. A cycle of imports is an error that names the cycle.
+</li>
+<li>A package that declares <code>main</code> cannot be imported.
+</li>
+<li>Paths resolve to standard library packages (<code>std/...</code>), packages of the current project (<code>&lt;project&gt;/sub/dir</code>), declared dependencies (<code>&lt;dep&gt;</code>, <code>&lt;dep&gt;/sub</code>), and workspace members. Relative paths (<code>./helpers</code>, <code>../shared</code>) are allowed only for code outside any project. See <a href="packages-manifests-and-dependencies.html#143-import-path-resolution">§14.3</a>.
+</li>
+</ol>
+<p>The prelude <code>std/core</code> is imported implicitly into every file, unqualified (<a href="the-prelude.html#12-the-prelude">§12</a>).</p>
+<h2 id="47-visibility"><a class="anchor" href="#47-visibility" aria-hidden="true">#</a>4.7 Visibility</h2>
+<p>There are no visibility keywords. A name is <strong>private to its package</strong> if it begins with <code>_</code>, and <strong>exported</strong> otherwise. This applies to top-level declarations, struct fields, enum and result variants, methods, and interface methods.</p>
+<p>Outside the declaring package:</p>
+<ol>
+<li>a private top-level name cannot be referenced;
+</li>
+<li>a private field cannot be read, written, or set in a struct literal;
+</li>
+<li>a struct whose private fields are not all optional or defaulted cannot be built with a struct literal at all, so the package must provide a constructor such as <code>Type.new(...)</code>;
+</li>
+<li>a private variant cannot be constructed, matched, or named;
+</li>
+<li>a private method cannot be called by any route (<code>v._m()</code>, <code>Type._m(v)</code>, or <code>pkg.Type._m(v)</code>);
+</li>
+<li>an interface with at least one private method (a <strong>sealed</strong> interface) cannot be implemented.
+</li>
+</ol>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Counter</span> <span class="k">struct</span> [
+	name: <span class="t">string</span>,
+	_count: <span class="t">int</span> = <span class="n">0</span>,
+	_token: <span class="t">int</span>,
+]
+
+<span class="m">// Other packages cannot write Counter[...] because `_token` has no default,</span>
+<span class="m">// so the package exports a constructor:</span>
+<span class="k">bind</span> <span class="t">Counter</span>.new = (name: <span class="k">own</span> <span class="t">string</span>, token: <span class="t">int</span>) <span class="t">Counter</span>: <span class="t">Counter</span>[name: <span class="k">own</span> name, _token: token]</code></pre>
+<p>Child directories are separate packages: <code>a/b</code> cannot see <code>a</code>'s private names, and <code>a</code> cannot see <code>a/b</code>'s.</p>
+<h2 id="48-attributes"><a class="anchor" href="#48-attributes" aria-hidden="true">#</a>4.8 Attributes</h2>
+<p>An attribute is <code>@name</code> or <code>@name(args)</code> written before a declaration (or a struct field).</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Attribute</th><th>Applies to</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>@test</code>, <code>@test(&quot;description&quot;)</code></td><td>function</td><td>a test case (<a href="testing.html#11-testing">§11</a>)</td></tr>
+<tr><td><code>@test_only</code></td><td>any declaration</td><td>may be used only from tests; stripped from normal builds</td></tr>
+<tr><td><code>@track_caller</code></td><td>function, method</td><td>panics, <code>Error.new</code>, and <code>caller_*()</code> inside report the <strong>caller's</strong> location; chains through nested <code>@track_caller</code> functions</td></tr>
+<tr><td><code>@must_use</code>, <code>@nodiscard</code></td><td>function, method, type</td><td>discarding the returned value (or any value of the type) is an error; bind it or write <code>let _ = ...</code></td></tr>
+<tr><td><code>@deprecated</code>, <code>@deprecated(&quot;message&quot;)</code></td><td>declaration</td><td>each use produces a warning (with the message, if given)</td></tr>
+<tr><td><code>@inline</code>, <code>@noinline</code></td><td>function, method</td><td>request or forbid inlining; no semantic effect</td></tr>
+<tr><td><code>@packed</code></td><td>struct</td><td>lay fields out without padding (same as <code>define packed</code>)</td></tr>
+<tr><td><code>@lang(&quot;hook&quot;)</code></td><td>prelude declaration</td><td>binds a declaration to a language feature (<a href="the-prelude.html#121-core-interfaces">§12.1</a>); reserved for <code>std/core</code></td></tr>
+</tbody>
+</table></div>
+<p>An attribute on a kind of declaration it does not apply to is an error.</p>
+<h2 id="49-the-entry-point"><a class="anchor" href="#49-the-entry-point" aria-hidden="true">#</a>4.9 The entry point</h2>
+<p>A package that declares a top-level <code>main</code> is a program; one that doesn't is a library.</p>
+<ul>
+<li><code>main</code> takes no parameters and returns nothing or an <code>int</code>.
+</li>
+<li>Returning normally exits with status <code>0</code>, or with the returned <code>int</code>. A panic exits with status <code>1</code> (<a href="failure-handling.html#93-panics">§9.3</a>). <code>exit(code)</code> exits immediately with <code>code</code>.
+</li>
+<li>Command-line arguments are available through <code>args()</code>.
+</li>
+</ul>
+<hr />
+</article><nav class="prev-next"><a class="prev" href="types.html"><span>Previous</span>3. Types</a><a class="next" href="expressions.html"><span>Next</span>5. Expressions</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#41-top-level-declarations">4.1 Top-level declarations</a></li><li><a href="#42-bind-and-let">4.2 Bind and let</a></li><li><a href="#43-functions">4.3 Functions</a></li><li><a href="#44-methods-and-associated-functions">4.4 Methods and associated functions</a></li><li><a href="#45-type-declarations">4.5 Type declarations</a></li><li><a href="#46-packages-and-imports">4.6 Packages and imports</a></li><li><a href="#47-visibility">4.7 Visibility</a></li><li><a href="#48-attributes">4.8 Attributes</a></li><li><a href="#49-the-entry-point">4.9 The entry point</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

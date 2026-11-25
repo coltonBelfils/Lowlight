@@ -154,22 +154,22 @@ Source (.ll)
 
 **Goal:** Implement full compile-time reflection, migrate `@derive` and tuples into pure Lowlight, and delete `internal/sema/derive.go` + backend struct/enum/tuple helper synthesis.
 
-1. **`comp` Descriptor Types & Predicates (new `std/core/comp.ll`, [`internal/sema/types_pass.go`](./internal/sema/types_pass.go)):**
-   * Define `@comptime_only` `TypeKind` (`tag_enum_kind`, `tagged_union_kind`, ...), `AttrInfo`, `FieldInfo`, `VariantInfo`, and `ElemInfo` in `std/core/comp.ll`.
-   * Support descriptor predicates (`f.implements(I)`, `f.has_attr(name)`, `f.attr(name)`, `vr.payload_implements(I)`, `e.implements(I)`).
-2. **`comp.*_of[T]()` Reflection Builtins ([`internal/sema/check_calls.go`](./internal/sema/check_calls.go)):**
-   * Implement `comp.type_name[T]()`, `comp.kind_of[T]()`, `comp.fields_of[T]()`, `comp.variants_of[T]()`, `comp.elems_of[T]()`, `comp.attrs_of[T]()`, and `comp.implements[T, I]()`.
-3. **Struct/Tuple Access & Collecting Construction ([`internal/sema/check_stmt_expr.go`](./internal/sema/check_stmt_expr.go), [`check_calls.go`](./internal/sema/check_calls.go), [`internal/ir/`](./internal/ir)):**
-   * Implement `v.field(f)` and `t.elem(e)` (disambiguating `FieldInfo`/`ElemInfo` args from user methods) for read, `&`, assign, and move, plus collecting `comptime for(...) T:` struct/tuple construction (`next <-` defaults/none for optional/defaulted fields).
-4. **Enum/Result Variant Intrinsics & `_` Privacy ([`internal/sema/check_stmt_expr.go`](./internal/sema/check_stmt_expr.go), [`check_calls.go`](./internal/sema/check_calls.go), [`internal/ir/`](./internal/ir)):**
-   * Implement `variant_index(v)`, `v.is_variant(vr)`, `v.payload(vr)` / `if(v.as_variant(vr) as p)`, and `make_variant[T](vr [, own payload])`.
-   * Enforce `_` field/variant privacy outside `T`'s package unless the `FuncInstance` carries `@derive(...)` authorization from `T`'s declaration. Authorization covers the derived function and the calls it makes inside the derive package with the same `T`, and cached instances are keyed on authorization as well as type arguments (`H16`).
-5. **`@derivable(...)` & `std/derive` (new `std/derive/derive.ll`, [`std/core/interfaces.ll`](./std/core/interfaces.ll), [`internal/sema/derive.go`](./internal/sema/derive.go)):**
-   * Support `@derivable(method: generic_fn, ...)` on interfaces and tag `Equatable`, `Comparable`, `Hashable`, `Copyable`, `Printable`.
-   * Implement `std/derive` (`eq`, `cmp`, `hash`, `copy`, `to_string`) in Lowlight for structs, enums, results, and tuples, and benchmark release-build speed and std check time against the current compiler-generated helpers (`H16`).
-   * Replace `internal/sema/derive.go` source-text generation with `@derivable` instantiation (`@derive` privacy authorization, `const` attachment when all field ops are `const` else `bind`, conditional generics, `BoxedOptional`), support custom user `@derivable` interfaces, and delete `internal/sema/derive.go`.
-6. **Tuple & Optional Lowlight Generics + Backend Cleanup ([`std/core/`](./std/core), [`internal/codegen/cgen.go`](./internal/codegen/cgen.go), [`llvmgen_runtime.go`](./internal/codegen/llvmgen_runtime.go)):**
-   * Move tuple `eq`/`cmp`/`hash`/`copy`/`to_string` to Lowlight generics over `elems_of[T]()` (and optionals to `std/core`), then delete compiler-synthesized struct/enum/tuple helpers in `cgen.go` and `llvmgen_runtime.go` (keeping drop glue compiler-generated), running full `@derive` and tuple E2E verification.
+1. **`comp` Descriptor Types & Predicates (`std/core/comp.ll`, [`internal/sema/types_pass.go`](./internal/sema/types_pass.go)):** *(done)*
+   * Defined `@comptime_only` `TypeKind` (`tag_enum_kind`, `tagged_union_kind`, ...), `AttrInfo`, `FieldInfo`, `VariantInfo`, and `ElemInfo` in [`std/core/comp.ll`](./std/core/comp.ll).
+   * Supported descriptor predicates (`f.implements(I)`, `f.has_attr(name)`, `f.attr(name)`, `vr.payload_implements(I)`, `e.implements(I)`).
+2. **`comp.*_of[T]()` Reflection Builtins ([`internal/sema/check_calls.go`](./internal/sema/check_calls.go)):** *(done)*
+   * Implemented `comp.type_name[T]()`, `comp.kind_of[T]()`, `comp.fields_of[T]()`, `comp.variants_of[T]()`, `comp.elems_of[T]()`, `comp.attrs_of[T]()`, and `comp.implements[T, I]()`.
+3. **Struct/Tuple Access & Collecting Construction ([`internal/sema/check_stmt_expr.go`](./internal/sema/check_stmt_expr.go), [`check_calls.go`](./internal/sema/check_calls.go), [`internal/ir/`](./internal/ir)):** *(done)*
+   * Implemented `v.field(f)` and `t.elem(e)` (disambiguating `FieldInfo`/`ElemInfo` args from user methods) for read, `&`, assign, and move, plus collecting `comptime for(...) T:` struct/tuple construction (`next <-` defaults/none for optional/defaulted fields).
+4. **Enum/Result Variant Intrinsics & `_` Privacy ([`internal/sema/check_stmt_expr.go`](./internal/sema/check_stmt_expr.go), [`check_calls.go`](./internal/sema/check_calls.go), [`internal/ir/`](./internal/ir)):** *(done)*
+   * Implemented `variant_index(v)`, `v.is_variant(vr)`, `v.payload(vr)` / `if(v.as_variant(vr) as p)`, and `make_variant[T](vr [, own payload])`.
+   * Enforced `_` field/variant privacy outside `T`'s package unless the `FuncInstance` carries `@derive(...)` authorization from `T`'s declaration. Authorization covers the derived function and the calls it makes inside the derive package with the same `T`, and cached instances are keyed on authorization as well as type arguments (`H16`).
+5. **`@derivable(...)` & `std/derive` ([`std/derive/derive.ll`](./std/derive/derive.ll), [`std/core/interfaces.ll`](./std/core/interfaces.ll), [`internal/sema/derivable.go`](./internal/sema/derivable.go)):** *(done)*
+   * Supported `@derivable(method: generic_fn, ...)` on interfaces and tagged `Equatable`, `Comparable`, `Hashable`, `Copyable`, `Printable`.
+   * Implemented [`std/derive/derive.ll`](./std/derive/derive.ll) (`eq`, `cmp`, `hash`, `copy`, `to_string`) in Lowlight for structs, enums, and results, and benchmarked release-build speed and std check time (`std/core std/sort` test check time improved from `2.01s` to `1.58s`, LLVM `--release` `54/56ms -> 45/50ms`, C11 `--release` `53/55ms -> 63/62ms`; `H16`).
+   * Replaced deleted `internal/sema/derive.go` source-text generation with [`internal/sema/derivable.go`](./internal/sema/derivable.go) `@derivable` instantiation (`@derive` privacy authorization, `const` attachment when all field ops are `const` else `bind`, conditional generics, `BoxedOptional`), plus custom user `@derivable` interfaces.
+6. **Tuple & Optional Lowlight Generics + Backend Cleanup ([`std/core/tuples.ll`](./std/core/tuples.ll), [`std/core/optional.ll`](./std/core/optional.ll), [`internal/codegen/cgen.go`](./internal/codegen/cgen.go), [`llvmgen.go`](./internal/codegen/llvmgen.go), [`llvmgen_runtime.go`](./internal/codegen/llvmgen_runtime.go)):** *(done)*
+   * Moved tuple `eq`/`cmp`/`hash`/`copy`/`to_string` to Lowlight generics over `elems_of[T]()` (`std/core/tuples.ll`) and optionals (`_opt_eq`/`_opt_copy`/`_opt_to_string`) to `std/core/optional.ll` via `LookupMethod`, then deleted compiler-synthesized struct/tagged-enum/optional/tuple eq/cmp/hash/copy/to_string helpers in `cgen.go`, `llvmgen.go`, and `llvmgen_runtime.go` (keeping drop/boxopt glue compiler-generated), with full `@derive` and tuple E2E verification.
 
 ---
 

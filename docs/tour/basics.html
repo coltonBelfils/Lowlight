@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Basics · Lowlight</title>
+<meta name="description" content="Values, variables, printing, numbers, and strings.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a class="active" href="index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Tour</a></div><ul><li><a class="active" href="basics.html">Basics</a></li><li><a href="functions.html">Functions</a></li><li><a href="types.html">Your own types</a></li><li><a href="optionals.html">Optionals</a></li><li><a href="control-flow.html">Control flow</a></li><li><a href="matching.html">Pattern matching</a></li><li><a href="collections.html">Collections</a></li><li><a href="results.html">Results and errors</a></li><li><a href="ownership.html">Ownership</a></li><li><a href="interfaces-generics.html">Interfaces and generics</a></li><li><a href="packages-tests.html">Packages and tests</a></li><li><a href="next-steps.html">Next steps</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Tour</a></nav><h1 id="basics"><a class="anchor" href="#basics" aria-hidden="true">#</a>Basics</h1>
+<h2 id="printing"><a class="anchor" href="#printing" aria-hidden="true">#</a>Printing</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="f">println</span>(<span class="s">&quot;Hello!&quot;</span>)
+	<span class="f">print</span>(<span class="s">&quot;no newline, &quot;</span>)
+	<span class="f">println</span>(<span class="n">42</span>)
+	<span class="f">println</span>(<span class="n">3.5</span>)
+	<span class="f">println</span>(<span class="c">true</span>)
+	<span class="f">println</span>()
+	<span class="f">eprintln</span>(<span class="s">&quot;this goes to standard error&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>Hello!
+no newline, 42
+3.5
+true
+</code></pre>
+<p><code>println</code> writes any value that can be shown as text, followed by a newline. <code>print</code> omits the newline, and <code>eprint</code>/<code>eprintln</code> write to standard error.</p>
+<h2 id="variables-bind-and-let"><a class="anchor" href="#variables-bind-and-let" aria-hidden="true">#</a>Variables: <code>bind</code> and <code>let</code></h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">bind</span> greeting = <span class="s">&quot;hello&quot;</span>   <span class="m">// immutable</span>
+	<span class="k">let</span> count = <span class="n">0</span>             <span class="m">// mutable</span>
+	count += <span class="n">1</span>
+	count = count * <span class="n">10</span>
+	<span class="f">println</span>(<span class="s">&quot;</span>$greeting<span class="s"> </span>$count<span class="s">&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>hello 10</code></pre>
+<p><code>bind</code> introduces a name that never changes. <code>let</code> introduces a variable you can assign to again. Prefer <code>bind</code>; reach for <code>let</code> when the value really changes. Types are inferred, but you can write them: <code>let count: int = 0</code>.</p>
+<p><code>bind</code> is deep: you cannot change anything reachable through a <code>bind</code>, not even an element of a list.</p>
+<h2 id="numbers"><a class="anchor" href="#numbers" aria-hidden="true">#</a>Numbers</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> a = <span class="n">7</span>
+	<span class="k">let</span> b = <span class="n">2</span>
+	<span class="f">println</span>(a / b)            <span class="m">// integer division truncates</span>
+	<span class="f">println</span>(a % b)
+	<span class="f">println</span>(<span class="t">float</span>(a) / <span class="n">2.0</span>)   <span class="m">// convert explicitly</span>
+	<span class="k">let</span> small: <span class="t">u8</span> = <span class="n">250</span>
+	<span class="f">println</span>(small + <span class="n">10</span>)       <span class="m">// integers wrap around</span>
+	<span class="f">println</span>(<span class="n">0xFF</span> + <span class="n">0b101</span>)
+	<span class="f">println</span>(<span class="n">1_000_000</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>3
+1
+3.5
+4
+260
+1000000</code></pre>
+<p><code>int</code> is a 64-bit signed integer and <code>float</code> is a 64-bit double. Sized types exist too: <code>i8</code> to <code>i64</code>, <code>u8</code> to <code>u64</code>, <code>f32</code>, <code>f64</code>. Numbers <strong>never convert implicitly</strong>: <code>int + float</code> is an error, and you write <code>float(a)</code> or <code>int(f)</code> to convert. Integer arithmetic wraps on overflow, and dividing by zero stops the program with a clear message instead of doing something undefined.</p>
+<h2 id="booleans-and-characters"><a class="anchor" href="#booleans-and-characters" aria-hidden="true">#</a>Booleans and characters</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> ok = <span class="n">3</span> &gt; <span class="n">2</span> <span class="k">and</span> <span class="k">not</span> <span class="c">false</span>
+	<span class="f">println</span>(ok <span class="k">or</span> <span class="c">false</span>)
+	<span class="k">let</span> c = <span class="s">&#39;λ&#39;</span>
+	<span class="f">println</span>(c)
+	<span class="f">println</span>(<span class="t">int</span>(<span class="s">&#39;A&#39;</span>))
+	<span class="f">println</span>(<span class="s">&#39;7&#39;</span>.<span class="f">is_digit</span>())
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>true
+λ
+65
+true</code></pre>
+<p>The logical operators are words: <code>and</code>, <code>or</code>, <code>not</code>. A <code>char</code> is one Unicode character, in single quotes.</p>
+<h2 id="strings"><a class="anchor" href="#strings" aria-hidden="true">#</a>Strings</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> name = <span class="s">&quot;Ada&quot;</span>
+	<span class="k">let</span> year = <span class="n">1843</span>
+	<span class="f">println</span>(<span class="s">&quot;</span>$name<span class="s"> wrote the first program in </span>$year<span class="s">.&quot;</span>)
+	<span class="f">println</span>(<span class="s">&quot;In </span>${<span class="n">2026</span> - year}<span class="s"> years, a lot has changed.&quot;</span>)
+	<span class="k">let</span> s = <span class="s">&quot;Hello, &quot;</span> + name
+	<span class="f">println</span>(s.<span class="f">len</span>())
+	<span class="f">println</span>(s.<span class="f">to_upper</span>())
+	<span class="f">println</span>(s.<span class="f">contains</span>(<span class="s">&quot;Ada&quot;</span>))
+	<span class="f">println</span>(s[<span class="n">0</span>..<span class="n">5</span>])
+	<span class="k">let</span> raw = <span class="s">`multi-line strings
+use backticks, and &quot;quotes&quot; need no escaping`</span>
+	<span class="f">println</span>(raw)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>Ada wrote the first program in 1843.
+In 183 years, a lot has changed.
+10
+HELLO, ADA
+true
+Hello
+multi-line strings
+use backticks, and &quot;quotes&quot; need no escaping</code></pre>
+<p>Strings are UTF-8. <code>s.len()</code> is the length in <strong>bytes</strong>, <code>s[i]</code> is a byte, and <code>s[a..b]</code> is a substring by byte offsets. Use <code>s.chars()</code> to work with characters. <code>$name</code> and <code>${expression}</code> interpolate any printable value.</p>
+<h2 id="comments"><a class="anchor" href="#comments" aria-hidden="true">#</a>Comments</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="m">// A line comment.</span>
+<span class="m">/* A block comment. */</span>
+
+<span class="m">// Comments directly above a declaration are its documentation.</span>
+<span class="m">// They may use Markdown, and [`println`] links to other symbols.</span>
+<span class="k">bind</span> answer = <span class="n">42</span></code></pre>
+<h2 id="statements-and-lines"><a class="anchor" href="#statements-and-lines" aria-hidden="true">#</a>Statements and lines</h2>
+<p>Each statement ends at the end of its line; you never type a semicolon. A line continues when it obviously isn't finished: inside parentheses or brackets, after a binary operator, or when the next line starts with <code>.</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> total = <span class="n">1</span> +
+		<span class="n">2</span> +
+		<span class="n">3</span>
+	<span class="k">let</span> shout = <span class="s">&quot;quiet&quot;</span>
+		.<span class="f">to_upper</span>()
+	<span class="f">println</span>(<span class="s">&quot;</span>$total<span class="s"> </span>$shout<span class="s">&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>6 QUIET</code></pre>
+<h2 id="next"><a class="anchor" href="#next" aria-hidden="true">#</a>Next</h2>
+<p><span class="repo-link" title="In the Lowlight repository: website/content/tour/functions.html">Functions →</span></p>
+</article><nav class="prev-next"><a class="prev" href="index.html"><span>Previous</span>A tour of Lowlight</a><a class="next" href="functions.html"><span>Next</span>Functions</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#printing">Printing</a></li><li><a href="#variables-bind-and-let">Variables: bind and let</a></li><li><a href="#numbers">Numbers</a></li><li><a href="#booleans-and-characters">Booleans and characters</a></li><li><a href="#strings">Strings</a></li><li><a href="#comments">Comments</a></li><li><a href="#statements-and-lines">Statements and lines</a></li><li><a href="#next">Next</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tour</a><a href="basics.html">Basics</a><a href="functions.html">Functions</a><a href="types.html">Your own types</a><a href="optionals.html">Optionals</a><a href="control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

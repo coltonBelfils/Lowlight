@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor setup · Lowlight</title>
+<meta name="description" content="Set up VS Code, Neovim, or a JetBrains IDE with the Lowlight language server.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a class="active" href="index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Get Started</a></div><ul><li><a href="install.html">Install</a></li><li><a href="hello-world.html">First program</a></li><li><a href="projects.html">First project</a></li><li><a class="active" href="editors.html">Editors</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Get Started</a></nav><h1 id="editor-setup"><a class="anchor" href="#editor-setup" aria-hidden="true">#</a>Editor setup</h1>
+<p>Every Lowlight editor integration is powered by the same <strong>language server</strong>, built into the compiler: <code>lowlight lsp --stdio</code>. Editors get the compiler's own diagnostics, so what your editor reports is exactly what <code>lowlight check</code> reports.</p>
+<h2 id="what-the-language-server-provides"><a class="anchor" href="#what-the-language-server-provides" aria-hidden="true">#</a>What the language server provides</h2>
+<ul>
+<li><strong>Diagnostics as you type</strong>: syntax, types, ownership and borrowing, exhaustiveness, and the <code>?</code>/<code>!</code> naming rules, underlined precisely (only the part of an expression that is wrong).
+</li>
+<li><strong>Completion</strong> for members, methods, enum variants, result members, imports, and struct fields.
+</li>
+<li><strong>Hover</strong> documentation rendered from doc comments, with links to other symbols.
+</li>
+<li><strong>Navigation</strong>: go to definition, type definition, implementation, find references, workspace symbols, rename.
+</li>
+<li><strong>Quick fixes</strong>: add a missing <code>&amp;</code> or <code>own</code>, rename a variable to end in <code>?</code> or <code>!</code>, add missing <code>match</code> arms or struct fields, implement an interface, add an import, and more.
+</li>
+<li><strong>Generators and refactorings</strong>: <code>Type.new</code> constructors, doc comment skeletons, <code>@test</code> scaffolds, extract variable or function, flip <code>if</code>/<code>else</code>.
+</li>
+<li><strong>Formatting</strong> identical to <code>lowlight fmt</code>, inlay hints for inferred types and parameter names, semantic highlighting, and run/test code lenses.
+</li>
+</ul>
+<h2 id="vs-code-and-cursor"><a class="anchor" href="#vs-code-and-cursor" aria-hidden="true">#</a>VS Code and Cursor</h2>
+<p>The extension lives in <code>editors/vscode/</code>. Install it with:</p>
+<pre class="lang-bash" data-lang="bash"><code>./editors/vscode/install.sh</code></pre>
+<p>or from the Command Palette: <strong>Extensions: Install from VSIX…</strong> and choose <code>editors/vscode/lowlight-vscode-*.vsix</code>.</p>
+<p>The extension finds the <code>lowlight</code> executable on your <code>PATH</code> (or in the open workspace). Settings:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Setting</th><th>Default</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>lowlight.serverPath</code></td><td><code>&quot;&quot;</code></td><td>path to the <code>lowlight</code> executable</td></tr>
+<tr><td><code>lowlight.stdlibPath</code></td><td><code>&quot;&quot;</code></td><td>directory containing <code>std/</code></td></tr>
+<tr><td><code>lowlight.format.indent</code></td><td><code>&quot;tabs&quot;</code></td><td><code>&quot;tabs&quot;</code> or <code>&quot;spaces&quot;</code>, when no <code>.lowlightfmt</code> is present</td></tr>
+<tr><td><code>lowlight.format.tabWidth</code></td><td><code>4</code></td><td>indent width</td></tr>
+<tr><td><code>lowlight.format.lineWidth</code></td><td><code>100</code></td><td>maximum line width</td></tr>
+<tr><td><code>lowlight.inlayHints.types</code> · <code>.parameters</code></td><td><code>true</code></td><td>show inferred types and parameter names</td></tr>
+<tr><td><code>lowlight.trace</code></td><td><code>false</code></td><td>log language server traffic</td></tr>
+</tbody>
+</table></div>
+<p>The <strong>▶ Run</strong> button in the editor title bar runs the current file, and the Testing panel lists and runs every <code>@test</code>.</p>
+<h2 id="neovim"><a class="anchor" href="#neovim" aria-hidden="true">#</a>Neovim</h2>
+<pre class="lang-bash" data-lang="bash"><code>./editors/<span class="f">nvim</span>/install.sh</code></pre>
+<p>The installer adds file detection, syntax highlighting, formatter-matching indentation, and an <code>ftplugin</code> that attaches the language server in any Neovim configuration (0.10 or newer recommended). A <a href="https://github.com/nvim-neotest/neotest">neotest</a> adapter in <code>editors/nvim/lua/neotest-lowlight</code> runs tests from the editor.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Keys</th><th>Action</th></tr></thead>
+<tbody>
+<tr><td><code>K</code></td><td>hover documentation</td></tr>
+<tr><td><code>gd</code> · <code>gD</code> · <code>gy</code> · <code>gi</code></td><td>definition · declaration · type definition · implementation</td></tr>
+<tr><td><code>gr</code> · <code>gS</code></td><td>references · workspace symbols</td></tr>
+<tr><td><code>&lt;leader&gt;ca</code></td><td>code actions (quick fixes, generators, refactorings)</td></tr>
+<tr><td><code>&lt;leader&gt;rn</code></td><td>rename</td></tr>
+<tr><td><code>&lt;leader&gt;f</code></td><td>format</td></tr>
+<tr><td><code>&lt;C-k&gt;</code></td><td>signature help</td></tr>
+<tr><td><code>[d</code> · <code>]d</code> · <code>&lt;leader&gt;d</code></td><td>previous, next, and current diagnostic</td></tr>
+<tr><td><code>&lt;leader&gt;rr</code></td><td>run the current file</td></tr>
+</tbody>
+</table></div>
+<h2 id="jetbrains-ides"><a class="anchor" href="#jetbrains-ides" aria-hidden="true">#</a>JetBrains IDEs</h2>
+<p>The plugin in <code>editors/jetbrains/</code> works in IntelliJ IDEA, CLion, GoLand, RustRover, WebStorm, PyCharm, and Android Studio (2024.1 or newer). It uses the IDE's built-in LSP support when available, and otherwise the LSP4IJ plugin.</p>
+<pre class="lang-bash" data-lang="bash"><code>./editors/jetbrains/install.sh</code></pre>
+<p>or build it with <code>./gradlew buildPlugin</code> in <code>editors/jetbrains</code> and use <strong>Install Plugin from Disk…</strong>. Configure it under <strong>Settings › Languages &amp; Frameworks › Lowlight</strong>. The <strong>Tools › Lowlight</strong> menu runs files and tests, formats, and restarts the server; tests appear in the IDE's test runner with clickable failure locations.</p>
+<h2 id="other-editors"><a class="anchor" href="#other-editors" aria-hidden="true">#</a>Other editors</h2>
+<p>Any editor with LSP support works. Configure it to start:</p>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">lowlight</span> lsp <span class="a">--stdio</span></code></pre>
+<p>for files ending in <code>.ll</code>. Add <code>--log /tmp/lowlight-lsp.log</code> to record the protocol traffic when something goes wrong.</p>
+</article><nav class="prev-next"><a class="prev" href="projects.html"><span>Previous</span>Your first project</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#what-the-language-server-provides">What the language server provides</a></li><li><a href="#vs-code-and-cursor">VS Code and Cursor</a></li><li><a href="#neovim">Neovim</a></li><li><a href="#jetbrains-ides">JetBrains IDEs</a></li><li><a href="#other-editors">Other editors</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="index.html">Get Started</a><a href="install.html">Install</a><a href="hello-world.html">First program</a><a href="projects.html">First project</a><a href="editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

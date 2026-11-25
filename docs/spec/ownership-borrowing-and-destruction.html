@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>7. Ownership, Borrowing, and Destruction · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a class="active" href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../ref/index.html">Reference</a></div><div class="sidebar-group">Specification</div><ul><li><a href="index.html">Overview and contents</a></li><li><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a></li><li><a href="quick-reference.html">Quick Reference</a></li></ul><div class="sidebar-group">Language reference</div><ul><li><a href="conventions-and-conformance.html">1. Conventions and Conformance</a></li><li><a href="lexical-structure.html">2. Lexical Structure</a></li><li><a href="types.html">3. Types</a></li><li><a href="declarations-and-program-structure.html">4. Declarations and Program Structure</a></li><li><a href="expressions.html">5. Expressions</a></li><li><a href="control-flow.html">6. Control Flow</a></li><li><a class="active" href="ownership-borrowing-and-destruction.html">7. Ownership, Borrowing, and Destruction</a></li><li><a href="generics.html">8. Generics</a></li><li><a href="failure-handling.html">9. Failure Handling</a></li><li><a href="unsafe-code-and-foreign-functions.html">10. Unsafe Code and Foreign Functions</a></li><li><a href="testing.html">11. Testing</a></li><li><a href="the-prelude.html">12. The Prelude</a></li><li><a href="the-standard-library.html">13. The Standard Library</a></li><li><a href="packages-manifests-and-dependencies.html">14. Packages, Manifests, and Dependencies</a></li></ul><div class="sidebar-group">Implementer&#39;s guide</div><ul><li><a href="implementers-guide.html">About this part</a></li><li><a href="compiler-architecture.html">15. Compiler Architecture</a></li><li><a href="parsing-ambiguities-and-their-resolution.html">16. Parsing Ambiguities and Their Resolution</a></li><li><a href="semantic-analysis.html">17. Semantic Analysis</a></li><li><a href="lowering-and-runtime-representation.html">18. Lowering and Runtime Representation</a></li><li><a href="the-runtime-contract.html">19. The Runtime Contract</a></li><li><a href="conformance-checklist.html">20. Conformance Checklist</a></li></ul><div class="sidebar-group">Appendices</div><ul><li><a href="appendix-a-grammar.html">Appendix A: Grammar</a></li><li><a href="appendix-b-keywords-and-contextual-words.html">Appendix B: Keywords and Contextual Words</a></li><li><a href="appendix-c-operator-precedence.html">Appendix C: Operator Precedence</a></li><li><a href="appendix-d-runtime-traps.html">Appendix D: Runtime Traps</a></li><li><a href="appendix-e-glossary.html">Appendix E: Glossary</a></li></ul><div class="sidebar-group">Tools</div><ul><li><a href="../ref/cli.html">Command-line tool</a></li><li><a href="../ref/formatter.html">Formatting</a></li><li><a href="../ref/documentation.html">Documentation comments</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../ref/index.html">Reference</a><span class="sep">/</span><span>Language reference</span></nav><h1 id="7-ownership-borrowing-and-destruction"><a class="anchor" href="#7-ownership-borrowing-and-destruction" aria-hidden="true">#</a>7. Ownership, Borrowing, and Destruction</h1>
+<blockquote class="glance">
+<p><strong>At a glance</strong></p>
+<ul>
+<li>Plain values copy. Resources have one owner and <strong>move</strong>, and moving an existing variable needs <code>own</code>.
+</li>
+<li>Parameters borrow read-only by default; <code>&amp;T</code> borrows mutably (call with <code>&amp;x</code>); <code>own T</code> takes ownership (call with <code>own x</code>).
+</li>
+<li>You cannot use a variable after moving it, or touch a value while something else mutably borrows it.
+</li>
+<li>A resource is destroyed when its owner's scope ends, in reverse order of declaration. <code>Drop</code> adds custom cleanup.
+</li>
+<li><code>.copy()</code> makes an independent duplicate of a resource.
+</li>
+</ul>
+</blockquote>
+<p>The rules in this chapter are checked at compile time. They make use-after-free, double-free, and dangling references impossible in code outside <code>unsafe</code>, without any runtime bookkeeping.</p>
+<h2 id="71-owners"><a class="anchor" href="#71-owners" aria-hidden="true">#</a>7.1 Owners</h2>
+<p>Every value has exactly one <strong>owner</strong>: a variable, a field or element of another value, a temporary, or an arena. When an owner goes away, so does what it owns.</p>
+<ul>
+<li>A <strong>plain</strong> value (<a href="types.html#31-plain-values-and-resources">§3.1</a>) is copied whenever it is assigned, passed, or returned. Each copy is independent, and nothing needs to be released.
+</li>
+<li>A <strong>resource</strong> is moved instead. After a move the source no longer holds a value: using it is an error until it is assigned again.
+</li>
+</ul>
+<h2 id="72-moves"><a class="anchor" href="#72-moves" aria-hidden="true">#</a>7.2 Moves</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> a = <span class="s">&quot;hello&quot;</span> + <span class="s">&quot; world&quot;</span>
+	<span class="k">let</span> b = <span class="k">own</span> a            <span class="m">// moves the string from `a` to `b`</span>
+	<span class="m">// println(a)            // error: use of moved variable &quot;a&quot;</span>
+	<span class="f">println</span>(b)
+	<span class="k">let</span> c = b.<span class="f">copy</span>()         <span class="m">// an independent duplicate; `b` is still usable</span>
+	<span class="f">println</span>(b + c)
+}</code></pre>
+<p><strong>Moving an existing variable requires <code>own</code>.</strong> Whenever the value of an existing resource variable (or a field of one) is moved into a new owner, the move is written <code>own x</code>:</p>
+<ul>
+<li>initializing or assigning a variable: <code>let b = own a</code>, <code>slot = own a</code>;
+</li>
+<li>a struct field, enum payload, or collection element: <code>User[name: own n]</code>, <code>Shape.label(own s)</code>, <code>[own a, own b]</code>;
+</li>
+<li>an <code>own</code> parameter: <code>consume(own a)</code>;
+</li>
+<li>moving a field out of an <code>own self</code> receiver: <code>own self.name</code>.
+</li>
+</ul>
+<p>A field can be moved out only of an <code>own self</code> receiver, and doing so consumes <code>self</code>: read any other fields you need first. Moving a field out of any other value is an error; use <code>.copy()</code> to duplicate it.</p>
+<p><strong>Moves that need no <code>own</code>:</strong></p>
+<ul>
+<li>a temporary, which has no name: <code>consume(&quot;a&quot; + &quot;b&quot;)</code>, <code>[make_user()]</code>;
+</li>
+<li>the value a function returns, through its final expression or <code>func &lt;-</code>;
+</li>
+<li>the value an unwind carries;
+</li>
+<li>a variable captured by a closure (<a href="#77-closures-and-captures">§7.7</a>);
+</li>
+<li>a payload moved out by a pattern, which says <code>own</code> in the pattern instead (<a href="control-flow.html#65-pattern-matching">§6.5</a>).
+</li>
+</ul>
+<p><strong>Moves and control flow.</strong> If a variable is moved on some paths and not others, it counts as moved afterwards and cannot be used, but it is still destroyed correctly on the paths where it was not moved. A moved <code>let</code> variable may be assigned a new value, which makes it usable again. A path that ends in an unwind or a panic does not count: moving <code>s</code> and then leaving with <code>func &lt;-</code> leaves <code>s</code> usable after the <code>if</code>. Inside a loop body, a variable declared outside the loop may be moved only if every path through the body assigns it again before the next iteration.</p>
+<p><strong>Copying.</strong> <code>.copy()</code> duplicates a resource deeply. All plain types, strings, collections of <code>Copyable</code> elements, and structs and enums whose parts are <code>Copyable</code> (and that have no <code>Drop</code>) provide it; other types may define <code>copy</code> themselves (<a href="the-prelude.html#121-core-interfaces">§12.1</a>).</p>
+<h2 id="73-parameter-modes"><a class="anchor" href="#73-parameter-modes" aria-hidden="true">#</a>7.3 Parameter modes</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Parameter</th><th>The call writes</th><th>The function gets</th><th>The caller afterwards</th></tr></thead>
+<tbody>
+<tr><td><code>x: T</code> (default)</td><td><code>f(v)</code></td><td>a read-only view: a copy if <code>T</code> is plain, a borrow otherwise</td><td>keeps <code>v</code> unchanged</td></tr>
+<tr><td><code>x: &amp;T</code></td><td><code>f(&amp;v)</code></td><td>an exclusive, mutable borrow of <code>v</code></td><td>keeps <code>v</code>, possibly changed</td></tr>
+<tr><td><code>x: own T</code></td><td><code>f(own v)</code>, or <code>f(temp)</code></td><td>the value itself</td><td><code>v</code> is moved</td></tr>
+</tbody>
+</table></div>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> total = (xs: [<span class="t">int</span>]) <span class="t">int</span>: {
+	<span class="k">let</span> t = <span class="n">0</span>
+	<span class="k">for</span>(x <span class="k">in</span> xs): t += x
+	t
+}
+
+<span class="k">bind</span> add_zero = (xs: &amp;[<span class="t">int</span>]): xs.<span class="f">push</span>(<span class="n">0</span>)
+
+<span class="k">bind</span> into_set = (xs: <span class="k">own</span> [<span class="t">int</span>]) #[<span class="t">int</span>]: <span class="k">for</span>(x <span class="k">in</span> xs) #[<span class="t">int</span>]: x
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> xs = [<span class="n">3</span>, <span class="n">1</span>, <span class="n">2</span>]
+	<span class="f">println</span>(<span class="f">total</span>(xs))
+	<span class="f">add_zero</span>(&amp;xs)
+	<span class="k">let</span> s = <span class="f">into_set</span>(<span class="k">own</span> xs)
+	<span class="f">println</span>(s.<span class="f">len</span>())
+}</code></pre>
+<p><strong>Rules.</strong></p>
+<ol>
+<li>A <code>&amp;T</code> argument must be a mutable place (a <code>let</code> variable, or a field or element reached from one, or from another <code>&amp;</code> binding) and must be written with <code>&amp;</code>. A <code>bind</code> value cannot be passed as <code>&amp;</code>.
+</li>
+<li>An <code>own T</code> argument that is an existing variable must be written with <code>own</code>.
+</li>
+<li>A read-only parameter cannot be modified, moved out of, or passed on as <code>&amp;</code> or <code>own</code>. To keep a copy, call <code>.copy()</code>.
+</li>
+<li>Receivers follow the same modes: <code>self</code>, <code>&amp;self</code>, <code>own self</code> (<a href="declarations-and-program-structure.html#44-methods-and-associated-functions">§4.4</a>). For <code>&amp;self</code>, the receiver is borrowed automatically without writing <code>&amp;</code>.
+</li>
+<li>A function type records its parameter modes: <code>(&amp;[int])</code> and <code>([int])</code> are different types.
+</li>
+</ol>
+<h2 id="74-borrowing-rules"><a class="anchor" href="#74-borrowing-rules" aria-hidden="true">#</a>7.4 Borrowing rules</h2>
+<p>While a mutable borrow of a place is active, nothing else may use that place. A read-only borrow prevents mutation and moves. Concretely:</p>
+<ol>
+<li><strong>No two mutable borrows</strong> of the same place in one call: <code>swap(&amp;a, &amp;a)</code> is an error.
+</li>
+<li><strong>No reading while mutably borrowed</strong> in one call: <code>update(&amp;state, state)</code> is an error when <code>state</code> is a resource. (A plain argument is copied before the call starts and is allowed.)
+</li>
+<li><strong>No mutation or moves during iteration.</strong> Inside <code>for(x in xs)</code>, <code>xs</code> cannot be pushed to, cleared, reassigned, or moved. The same applies to an optional narrowed by <code>if(x?)</code> or <code>if(&amp;x?)</code>, which is borrowed for the duration of the branch.
+</li>
+<li><strong>Borrows do not escape.</strong> A borrowed parameter cannot be returned, stored in a longer-lived value, or captured by a closure. Since every borrow lasts at most one call or one branch, no lifetime annotations are needed.
+</li>
+</ol>
+<h2 id="75-destruction"><a class="anchor" href="#75-destruction" aria-hidden="true">#</a>7.5 Destruction</h2>
+<p>When a scope ends, whether normally or by an unwind leaving it, every resource it still owns is destroyed, <strong>in reverse order of declaration</strong>. Destroying a value:</p>
+<ol>
+<li>runs its <code>drop</code> method, if its type implements <code>Drop</code> (<code>bind T.drop = (&amp;self): ...</code>);
+</li>
+<li>then destroys its fields (struct), its active payload (enum), or its elements (collection), in reverse order.
+</li>
+</ol>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Noisy</span> <span class="k">struct</span> [
+	name: <span class="t">string</span>,
+]
+
+<span class="k">bind</span> <span class="t">Noisy</span>.drop = (&amp;<span class="k">self</span>): <span class="f">println</span>(<span class="s">&quot;drop </span>${<span class="k">self</span>.name}<span class="s">&quot;</span>)
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> a = <span class="t">Noisy</span>[name: <span class="s">&quot;a&quot;</span>]
+	<span class="k">let</span> b = <span class="t">Noisy</span>[name: <span class="s">&quot;b&quot;</span>]
+	{
+		<span class="k">let</span> c = <span class="t">Noisy</span>[name: <span class="s">&quot;c&quot;</span>]
+	}
+	<span class="f">println</span>(<span class="s">&quot;end of main&quot;</span>)
+}</code></pre>
+<p>This prints <code>drop c</code>, <code>end of main</code>, <code>drop b</code>, <code>drop a</code>.</p>
+<p><strong>Other rules.</strong></p>
+<ul>
+<li>A value that has been moved is not destroyed by its old owner.
+</li>
+<li>When a <code>match</code> arm moves one payload out with <code>own</code>, the rest of the subject is destroyed at that point.
+</li>
+<li>Temporaries are destroyed at the end of the statement that created them.
+</li>
+<li>Resource constants are destroyed at program exit, in reverse order of initialization.
+</li>
+<li>A panic ends the process <strong>without</strong> running destruction (<a href="failure-handling.html#93-panics">§9.3</a>).
+</li>
+</ul>
+<h2 id="76-arenas-and-references"><a class="anchor" href="#76-arenas-and-references" aria-hidden="true">#</a>7.6 Arenas and references</h2>
+<p>An <code>Arena</code> owns many values that are destroyed together. <code>arena.alloc(v)</code> moves <code>v</code> into the arena and returns a <code>ref[T]</code>, a plain, non-null reference usable like the value itself (<code>r.field</code>, <code>r.method()</code>).</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Node</span> <span class="k">struct</span> [
+	value: <span class="t">int</span>,
+]
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> arena = <span class="t">Arena</span>.<span class="f">new</span>()
+	<span class="k">let</span> n = arena.<span class="f">alloc</span>(<span class="t">Node</span>[value: <span class="n">7</span>])
+	<span class="f">println</span>(n.value)
+}</code></pre>
+<p>The compiler guarantees that no <code>ref[T]</code> outlives its arena:</p>
+<ol>
+<li>Allocating from an arena <strong>pins</strong> it for the rest of the scope where the allocation happened. A pinned arena cannot be reset, reassigned, or moved, including into a closure.
+</li>
+<li>A <code>ref[T]</code> cannot escape the scope of its arena: it cannot be returned, stored into a value from an outer scope, or assigned to an outer variable.
+</li>
+<li>The exception is a function that receives the arena as <code>&amp;Arena</code>: references allocated from it may be returned, because the arena belongs to the caller.
+</li>
+<li>When the scope that pinned the arena ends, the arena is unpinned. Dropping or resetting it then destroys everything it holds, in reverse order of allocation.
+</li>
+</ol>
+<h2 id="77-closures-and-captures"><a class="anchor" href="#77-closures-and-captures" aria-hidden="true">#</a>7.7 Closures and captures</h2>
+<p>A function literal that uses variables from its enclosing scope captures them when it is created:</p>
+<ul>
+<li>plain variables are <strong>copied</strong> into the closure;
+</li>
+<li>resource variables are <strong>moved</strong> into the closure. The outer variable is then moved; use <code>.copy()</code> first to keep it;
+</li>
+<li>variables bound by mutable borrow (<code>&amp;</code> parameters, <code>&amp;</code> loop variables, <code>if(&amp;x?)</code>) cannot be captured;
+</li>
+<li>inside the closure, captured variables are read-only.
+</li>
+</ul>
+<p>The closure value owns its captures and destroys them when it is destroyed. A closure is a resource; <code>.copy()</code> duplicates it and its captures.</p>
+<hr />
+</article><nav class="prev-next"><a class="prev" href="control-flow.html"><span>Previous</span>6. Control Flow</a><a class="next" href="generics.html"><span>Next</span>8. Generics</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#71-owners">7.1 Owners</a></li><li><a href="#72-moves">7.2 Moves</a></li><li><a href="#73-parameter-modes">7.3 Parameter modes</a></li><li><a href="#74-borrowing-rules">7.4 Borrowing rules</a></li><li><a href="#75-destruction">7.5 Destruction</a></li><li><a href="#76-arenas-and-references">7.6 Arenas and references</a></li><li><a href="#77-closures-and-captures">7.7 Closures and captures</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

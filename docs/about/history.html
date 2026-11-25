@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Version history · Lowlight</title>
+<meta name="description" content="How the language and toolchain have changed, release by release.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">About</a></div><ul><li><a href="contributing.html">Contributing</a></li><li><a href="faq.html">FAQ</a></li><li><a class="active" href="history.html">Version history</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">About</a></nav><h1 id="lowlight-document-version-history--changelog"><a class="anchor" href="#lowlight-document-version-history--changelog" aria-hidden="true">#</a>Lowlight Document Version History &amp; Changelog</h1>
+<p>This document tracks the complete chronological evolution of the <strong>Lowlight</strong> (originally explored under the working folder name <strong>&quot;Lightweight Language&quot;</strong>) specification and critique documents, along with links to the verbatim historical snapshots stored in <code>./version_history/</code>.</p>
+<hr />
+<h2 id="1-archive-directory-structure"><a class="anchor" href="#1-archive-directory-structure" aria-hidden="true">#</a>1. Archive Directory Structure</h2>
+<pre class="lang-text" data-lang="text"><code>Lowlight-Export/
+├── README.md                      # Quickstart, CLI guide, language tour &amp; compiler architecture
+├── SPECIFICATION.md               # Authoritative Language Specification (v1.0)
+├── IMPLEMENTATION.md              # Implementation Guide: Architecture, Runtime, LLVM IR &amp; C11 Backends
+├── VERSION_HISTORY.md             # This file: complete version history &amp; diffs
+├── cmd/lowlight/                  # Lowlight CLI entrypoint (`build`, `run`, `test`, `emit-llvm`, `emit-c`, `check`, `lsp`)
+├── internal/                      # Complete compiler pipeline (`diag`, `token`, `lexer`, `ast`, `parser`, `types`, `sema`, `ir`, `codegen`, `driver`, `lsp`)
+├── std/                           # Standard library (`core/`, `math.ll`, `fs.ll`, `pool.ll`, `net.ll`, `http.ll`, etc.)
+├── examples/                      # End-to-end showcase Lowlight programs
+├── tests/                         # Strict LLVM and C11 test suites with ASan/UBSan &amp; zero-leak verification
+└── version_history/
+    ├── specification/
+    │   ├── v0.0_initial_seed_sample.md      # Oct 16, 2026 (16:12 PDT) — Original user seed code
+    │   ├── v0.1_LANGUAGE_SPECIFICATION.md   # Oct 17, 2026 (15:53 PDT) — First complete spec artifact
+    │   ├── v0.1_SPECIFICATION.md            # Oct 17, 2026 (17:35 PDT) — Workspace spec (Draft v0.1)
+    │   ├── v0.2_SPECIFICATION.md            # Oct 21, 2026 (15:25 PDT) — Updated spec (Draft v0.2)
+    │   ├── v0.3_SPECIFICATION.md            # Oct 21, 2026 (23:38 PDT) — Updated spec (Draft v0.3)
+    │   ├── v0.4_SPECIFICATION.md            # Oct 22, 2026 (13:15 PDT) — Updated spec (Draft v0.4)
+    │   ├── v0.5_SPECIFICATION.md            # Oct 22, 2026 (15:52 PDT) — Updated spec (Draft v0.5)
+    │   └── v1.0_SPECIFICATION.md            # Finalized Lowlight v1.0 Specification (branch auto-v1-prototype)
+    └── critique/
+        ├── v0.1_spec_critique.md            # Oct 17, 2026 (17:48 PDT) — Initial critique of Spec v0.1
+        ├── round1_user_comments.md          # Oct 20, 2026 (17:39 PDT) — 21 inline user comments on v0.1
+        ├── v0.2_spec_critique.md            # Oct 20, 2026 (17:44 PDT) — Critique updated with Round 1
+        ├── round2_user_comments.md          # Oct 21, 2026 (12:41 PDT) — 7 inline user comments on v0.2
+        ├── v0.3_initial_spec_critique.md    # Oct 21, 2026 (12:46 PDT) — Critique updated with Round 2
+        ├── round3_user_comments.md          # Oct 21, 2026 (15:23 PDT) — 1 inline user comment on v0.3
+        ├── v0.3_final_spec_critique.md      # Oct 21, 2026 (15:25 PDT) — Critique updated with Round 3
+        ├── round4_user_comments.md          # Oct 21, 2026 (23:33 PDT) — 31 inline user comments on v0.3
+        ├── v0.4_spec_critique.md            # Oct 21, 2026 (23:42 PDT) — Critique updated with Round 4
+        ├── round5_user_comments.md          # Oct 22, 2026 (13:10 PDT) — 18 inline user comments on v0.4
+        ├── v0.5_spec_critique.md            # Oct 22, 2026 (13:17 PDT) — Critique updated with Round 5
+        ├── round6_user_comments.md          # Oct 22, 2026 (15:48 PDT) — 6 inline user comments on v0.5
+        ├── v0.6_spec_critique.md            # Oct 22, 2026 (15:54 PDT) — Critique updated with Round 6
+        ├── v0.6_spec_audit.md               # Oct 22, 2026 (17:32 PDT) — Full audit of Spec v0.5 (merged into v0.7)
+        └── v0.7_spec_critique.md            # Oct 22, 2026 (23:29 PDT) — Merged critique + audit, memory model &amp; self-hosting</code></pre>
+<hr />
+<h2 id="2-language-specification-version-history-specificationmd"><a class="anchor" href="#2-language-specification-version-history-specificationmd" aria-hidden="true">#</a>2. Language Specification Version History (<code>SPECIFICATION.md</code>)</h2>
+<h3 id="version-00--initial-seed-syntax-sample"><a class="anchor" href="#version-00--initial-seed-syntax-sample" aria-hidden="true">#</a>Version 0.0 — Initial Seed Syntax Sample</h3>
+<ul>
+<li><strong>File</strong>: <span class="repo-link" title="In the Lowlight repository: version_history/specification/v0.0_initial_seed_sample.md"><code>./version_history/specification/v0.0_initial_seed_sample.md</code></span>
+</li>
+<li><strong>Date</strong>: October 16, 2026 (16:12 PDT)
+</li>
+<li><strong>Summary</strong>:
+<ul>
+<li>Provided by the user as the opening prompt of the Lowlight design session, accompanied by the instruction: <em>&quot;Run all design decisions past me. I know there will be many. Don't start on implamentation until everything is ironed out.&quot;</em>
+</li>
+<li>Introduced the core aesthetic and syntax ideas:
+<ul>
+<li><code>let</code> vs. <code>bind</code> variable declarations (<code>let a = 5</code>, <code>bind c = 10</code>).
+</li>
+<li>Braceless and braced <code>if (...) ... else ...</code> expressions (<code>let b = if (c == 10) 5 else 8</code>).
+</li>
+<li>Block expressions <code>{ ... }</code> yielding their final expression or unwinding early with <code>&lt;-</code> (<code>&lt;- 20</code>).
+</li>
+<li>List/array literals <code>[1, 2, 3]</code>, <code>[3][1, 2, 3]</code> (later refined to <code>[3: 1, 2, 3]</code>), and <code>[0..10]</code>.
+</li>
+<li><code>define custom struct [ a: int, b: float = 8.9, ]</code> using square brackets <code>[]</code> for type definitions and struct literals <code>custom[a: 5]</code>.
+</li>
+<li>First-class function syntax <code>let func = (a int, b float) { ... }</code>.
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h3 id="version-01--first-complete-formal-language-specification"><a class="anchor" href="#version-01--first-complete-formal-language-specification" aria-hidden="true">#</a>Version 0.1 — First Complete Formal Language Specification</h3>
+<ul>
+<li><strong>Files</strong>:
+<ul>
+<li>Artifact copy: <span class="repo-link" title="In the Lowlight repository: version_history/specification/v0.1_LANGUAGE_SPECIFICATION.md"><code>./version_history/specification/v0.1_LANGUAGE_SPECIFICATION.md</code></span> (Oct 17, 2026, 15:53 PDT)
+</li>
+<li>Workspace copy: <span class="repo-link" title="In the Lowlight repository: version_history/specification/v0.1_SPECIFICATION.md"><code>./version_history/specification/v0.1_SPECIFICATION.md</code></span> (Oct 17, 2026, 17:35 PDT — identical body; title changed from <code># Formal Language Specification (Draft v0.1)</code> to <code># Lowlight Language Specification (Draft v0.1)</code>)
+</li>
+</ul>
+</li>
+<li><strong>Summary</strong>:
+<ul>
+<li>Synthesized all 6 interactive design phases from Conversation 1 into a 13-section specification:
+<ul>
+<li><strong>§1 Core Philosophy &amp; Principles</strong>: Zero-cost C transpilation, compile-time safety without GC, expression-oriented blocks, and <code>{}</code> (code) vs. <code>[]</code> (data/types) delimiter separation.
+</li>
+<li><strong>§2 Lexical Structure</strong>: Optional semicolons, <code>//</code> comments, identifiers (including trailing <code>?</code> for optionals), and reserved keywords (<code>let</code>, <code>bind</code>, <code>define</code>, <code>struct</code>, <code>enum</code>, <code>interface</code>, <code>if</code>, <code>else</code>, <code>for</code>, <code>in</code>, <code>match</code>, <code>when</code>, <code>none</code>, <code>true</code>, <code>false</code>).
+</li>
+<li><strong>§3 Variable Declarations &amp; Mutability</strong>: <code>let</code> (mutable) vs. <code>bind</code> (deeply immutable for primitives/structs, shallowly immutable for Maps/Sets/Vectors), plus <code>let</code> (C function pointer) vs. <code>bind</code> (static C function) for functions.
+</li>
+<li><strong>§4 Primitive Types &amp; Strings</strong>: <code>int</code> (<code>i64</code>), <code>i8</code>..<code>i64</code>, <code>u8</code>..<code>u64</code>, <code>float</code> (<code>f64</code>), <code>f32</code>, <code>bool</code>, <code>char</code> (32-bit Unicode), <code>string</code> (owned heap), <code>&amp;string</code> (slice), <code>&amp;-string</code> (mutable borrow), and <code>$ident</code> / <code>${expr}</code> string interpolation.
+</li>
+<li><strong>§5 Ownership, Move Semantics &amp; Borrowing</strong>: Single ownership, automatic C scope drop, move on assignment/pass for heap types, copy for scalars, <code>&amp;T</code> (immutable borrow), and <code>&amp;-T</code> (mutable borrow requiring <code>&amp;-</code> at call sites).
+</li>
+<li><strong>§6 Optionals &amp; Non-Value Safety</strong>: No <code>unit</code> type for empty blocks; optional variables end with <code>?</code> (<code>user?</code>), hold <code>none</code> or a value, narrow to <code>user</code> inside <code>if (user?)</code>, and support <code>??</code> fallback.
+</li>
+<li><strong>§7 Compound Data Structures</strong>: Dynamic vectors <code>[1, 2, 3]</code> (<code>[int]</code>), fixed stack arrays <code>[3: 1, 2, 3]</code> and <code>[100: 0]</code> (<code>[3: int]</code>), hash sets <code>#[1, 2, 3]</code>, hash maps <code>#[&quot;a&quot;: 1]</code>, and mandatory trailing commas on multi-line <code>[]</code> definitions.
+</li>
+<li><strong>§8 User-Defined Types (<code>define</code>)</strong>: Unified <code>define Name struct [...]</code>, <code>define Name enum [...]</code>, <code>define Name interface [...]</code>, and <code>define Name BaseType</code>.
+</li>
+<li><strong>§9 Methods &amp; UFCS</strong>: Namespaced methods (<code>bind Point.length = (self &amp;Point) ...</code>), UFCS dot calls, and implicit structural interface implementation (including extending built-in types like <code>int</code>).
+</li>
+<li><strong>§10 Functions</strong>: <code>(param1 type1) { ... }</code> or single-expression body; exhaustive control-flow return check.
+</li>
+<li><strong>§11 Control Flow &amp; Targeted Unwinding</strong>: <code>if</code>/<code>else</code> expressions, unified <code>for</code> loops (ranges, collections, while-style, infinite, loop-as-expression returning <code>T</code> with <code>else</code> or <code>?T</code> without <code>else</code>), and targeted unwinding (<code>&lt;- val</code>, <code>for &lt;- val</code>, <code>func_name &lt;- val</code>, <code>label &lt;- val</code>).
+</li>
+<li><strong>§12 Pattern Matching (<code>match</code>)</strong>: Container-free <code>match (expr) when Pattern: expr ... else: expr</code>.
+</li>
+<li><strong>§13 C Transpilation &amp; Runtime Model</strong>: Direct C99/C11 mapping table (<code>Opt_T</code>, fat pointer interfaces, tagged union enums, deterministic cleanup before C <code>goto</code>/<code>return</code>).
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h3 id="version-02--updated-language-specification-current"><a class="anchor" href="#version-02--updated-language-specification-current" aria-hidden="true">#</a>Version 0.2 — Updated Language Specification (Current)</h3>
+<ul>
+<li><strong>Files</strong>:
+<ul>
+<li>Current export root: <a href="../spec/index.html"><code>./SPECIFICATION.md</code></a>
+</li>
+<li>Version archive copy: <span class="repo-link" title="In the Lowlight repository: version_history/specification/v0.2_SPECIFICATION.md"><code>./version_history/specification/v0.2_SPECIFICATION.md</code></span>
+</li>
+</ul>
+</li>
+<li><strong>Date</strong>: October 21, 2026 (15:25 PDT)
+</li>
+<li><strong>Detailed Diffs from Draft v0.1 to Draft v0.2</strong>:
+<ol>
+<li><strong>§1 Principle 3 (Expression-Oriented Control Flow with Strict Statements)</strong>:
+<ul>
+<li>Clarified that control-flow constructs (<code>if</code>, <code>for</code>, <code>match</code>, <code>{}</code> blocks) are expressions, whereas <strong>declarations (<code>let</code>, <code>bind</code>, <code>define</code>), assignments (<code>=</code>), and unwinds (<code>&lt;-</code>) are statements</strong> that do not evaluate to values.
+</li>
+<li>Added explicit support for <code>void</code> functions (functions omitting a return type) and <code>void</code> statement loops alongside value-returning functions and loops.
+</li>
+</ul>
+</li>
+<li><strong>§2.3 Identifiers &amp; §6 Optionals (<code>?T</code> vs. <code>name?</code>)</strong>:
+<ul>
+<li>Formalized that the <strong>underlying type</strong> is written <code>?T</code> (e.g., <code>?int</code>, <code>?User</code>), while any <strong>identifier</strong> (variable, parameter, or struct field) holding an optional value must end with <code>?</code> (<code>user?</code>).
+</li>
+<li>Clarified that <code>user</code> (type <code>T</code>) and <code>user?</code> (type <code>?T</code>) are <strong>two distinct identifiers</strong> in the language.
+</li>
+<li>Added <strong>Optional Flattening (§6.2)</strong>: Nested optionals <code>?(?T)</code> automatically flatten to <code>?T</code>, and optional types <code>?T</code> are allowed inside collections (e.g., <code>[?int]</code>, <code>#[string: ?User]</code>).
+</li>
+</ul>
+</li>
+<li><strong>§4.2 String Interpolation (<code>$ident</code> vs. <code>?</code>)</strong>:
+<ul>
+<li>Added the rule that bare <code>$ident</code> interpolation only parses non-optional identifiers (stopping before <code>?</code>), because optional variables cannot be interacted with before unwrapping. Thus <code>&quot;Are you $ready?&quot;</code> interpolates non-optional <code>ready</code> followed by a literal <code>?</code> character.
+</li>
+</ul>
+</li>
+<li><strong>§5.3 Call-Site Transparency vs. Method Receiver Auto-Borrowing</strong>:
+<ul>
+<li>Clarified that direct function calls require explicit <code>&amp;-</code> at the call site (<code>push(&amp;-my_list, 4)</code> and <code>Point.translate(&amp;-pt, 5, 5)</code>), whereas UFCS method calls (<code>pt.translate(5, 5)</code>) implicitly borrow the receiver <code>pt</code> according to the method's <code>self</code> signature (<code>&amp;Point</code> or <code>&amp;-Point</code>), verifying at compile time that <code>pt</code> was declared with <code>let</code> if <code>self</code> requires <code>&amp;-</code>.
+</li>
+</ul>
+</li>
+<li><strong>§6.3 Presence Testing, Borrowed Unwrapping &amp; Shadowing in <code>if (name?)</code></strong>:
+<ul>
+<li>Specified that <code>if (flag?)</code> on a <code>?bool</code> tests <strong>value presence</strong> (<code>has_value</code>), never the inner boolean truthiness.
+</li>
+<li>Specified that inside <code>if (user?) { ... }</code>, the unwrapped variable <code>user</code> is bound as a <strong>borrow</strong> of <code>user?</code> (preventing mutation of <code>user?</code> to <code>none</code> while <code>user</code> is borrowed) and <strong>shadows</strong> any outer variable named <code>user</code>.
+</li>
+</ul>
+</li>
+<li><strong>§6.4 Unified Dot Chaining (<code>.</code>) on Optionals</strong>:
+<ul>
+<li>Specified that the standard dot operator <code>.</code> works on both non-optional values and optional expressions (<code>?T</code>), short-circuiting to <code>none</code> (yielding <code>?FieldType</code>) if the left-hand side is <code>none</code> (e.g., <code>find_user(id)?.address?.city ?? &quot;Unknown&quot;</code>).
+</li>
+</ul>
+</li>
+<li><strong>§6.5 Fallback &amp; Early Unwind (<code>??</code>)</strong>:
+<ul>
+<li>Added the guard-unwrap pattern allowing an unwind statement on the top-level right-hand side of <code>??</code> in a declaration or assignment: <code>bind user = find_user(id) ?? func &lt;- none</code>.
+</li>
+</ul>
+</li>
+<li><strong>§8.3, §9, §10 Explicit Function Return Types (<code>:ReturnType</code>)</strong>:
+<ul>
+<li>Added mandatory <code>:ReturnType</code> (or <code>:?ReturnType</code>) syntax after parameter lists for all value-returning functions, lambdas, methods, and interface signatures (e.g., <code>bind add = (a int, b int): int { a + b }</code>, <code>bind find_user = (id int): ?User { ... }</code>), while functions that omit <code>:ReturnType</code> compile to <code>void</code>.
+</li>
+</ul>
+</li>
+<li><strong>§11.3 Targeted Unwinding (<code>&lt;-</code>) Enhancements &amp; Restrictions</strong>:
+<ul>
+<li>Added three new keyword targets alongside <code>{}</code> block unwind (<code>&lt;-</code>), <code>for &lt;-</code>, and <code>label &lt;-</code>:
+<ul>
+<li><strong><code>if &lt;- val</code></strong>: Unwinds out of the nearest enclosing <code>if</code> expression.
+</li>
+<li><strong><code>next &lt;-</code> / <code>next &lt;- val</code></strong>: Skips to the next iteration of the nearest enclosing <code>for</code> loop from any nesting depth.
+</li>
+<li><strong><code>func &lt;- val</code> / <code>func &lt;-</code></strong>: Returns early from the current enclosing function or method (alongside <code>func_name &lt;- val</code>).
+</li>
+</ul>
+</li>
+<li>Added <strong>Bare Unwinds (<code>target &lt;-</code>)</strong>: Allowed without a value when exiting a non-value <code>{}</code> block, skipping a loop iteration (<code>next &lt;-</code>), breaking a <code>void</code> loop (<code>for &lt;-</code>), or returning from a <code>void</code> function (<code>func &lt;-</code>).
+</li>
+<li>Clarified that braceless <code>if (cond) &lt;- val</code> unwinds the nearest enclosing <code>{ ... }</code> block, whereas <code>if (cond) if &lt;- val</code> unwinds the <code>if</code>.
+</li>
+<li>Added <strong>Function/Lambda Boundary Rule</strong>: Unwinds (<code>&lt;-</code>) cannot cross a function or lambda boundary (compile-time error).
+</li>
+<li>Added <strong>Valid Positions for <code>&lt;-</code> Statements</strong>: Unwinds may only appear as standalone statements (including <code>if</code>/<code>match</code> arms) or on the top-level right-hand side of <code>??</code> in a variable declaration or assignment—never nested inside function call arguments or sub-expressions.
+</li>
+</ul>
+</li>
+</ol>
+</li>
+</ul>
+<hr />
+<h2 id="3-critique-specification-version-history-spec_critiquemd"><a class="anchor" href="#3-critique-specification-version-history-spec_critiquemd" aria-hidden="true">#</a>3. Critique Specification Version History (<code>SPEC_CRITIQUE.md</code>)</h2>
+<h3 id="version-01--initial-critique-of-draft-v01"><a class="anchor" href="#version-01--initial-critique-of-draft-v01" aria-hidden="true">#</a>Version 0.1 — Initial Critique of Draft v0.1</h3>
+<ul>
+<li><strong>File</strong>: <span class="repo-link" title="In the Lowlight repository: version_history/critique/v0.1_spec_critique.md"><code>./version_history/critique/v0.1_spec_critique.md</code></span>
+</li>
+<li><strong>Date</strong>: October 17, 2026 (17:48 PDT)
+</li>
+<li><strong>Summary</strong>:
+<ul>
+<li>Organized into <strong>Part 1 (Top 6 Cross-Cutting / Structural Questions)</strong> and <strong>Part 2 (Section-by-Section Critique, §1–§13)</strong>:
+<ul>
+<li><strong>Part 1.A</strong>: Borrow Checker &amp; Lifetime Model (First-class references with lifetimes vs. strict second-class scoped references + method auto-borrowing vs. explicit <code>&amp;-</code> + reborrowing).
+</li>
+<li><strong>Part 1.B</strong>: Grammar Ambiguities from Optional Semicolons &amp; Newlines (<code>a\n -b</code>, <code>return\n expr</code>, multiline <code>if</code>/<code>else</code>).
+</li>
+<li><strong>Part 1.C</strong>: Container-Free <code>match</code> Termination Ambiguity (how <code>match</code> knows when it ends when exhaustive without <code>else</code>, or when nested inside another <code>match</code>).
+</li>
+<li><strong>Part 1.D</strong>: Optional Naming Rule (<code>name?</code>) vs. General Type System (function return types, collections of optionals, <code>?bool</code> in <code>if (flag?)</code>, <code>user</code> vs. <code>user?</code> collision, string interpolation <code>&quot;Are you $ready?&quot;</code>).
+</li>
+<li><strong>Part 1.E</strong>: Targeted Unwinding (<code>&lt;-</code>) Corner Cases (braceless <code>if (c) &lt;- 5</code>, skipping iterations in nested blocks inside <code>for</code>, variable shadowing vs. <code>func_name &lt;-</code>, method returns, unwinding inside sub-expressions, and temporary cleanup).
+</li>
+<li><strong>Part 1.F</strong>: Strict Non-Value Safety vs. Void Functions &amp; Statement Loops (<code>append_tag</code> returning void, statement <code>for</code> loops, <code>for (true)</code> without <code>else</code>).
+</li>
+<li><strong>Part 2 (§1–§13)</strong>: Detailed edge cases for every section of the spec.
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h3 id="round-1-user-comments-on-critique-v01"><a class="anchor" href="#round-1-user-comments-on-critique-v01" aria-hidden="true">#</a>Round 1 User Comments (on Critique v0.1)</h3>
+<ul>
+<li><strong>File</strong>: <span class="repo-link" title="In the Lowlight repository: version_history/critique/round1_user_comments.md"><code>./version_history/critique/round1_user_comments.md</code></span>
+</li>
+<li><strong>Date</strong>: October 20, 2026 (17:39 PDT)
+</li>
+<li><strong>Summary of the 21 Inline User Comments</strong>:
+<ol>
+<li>Leaning toward Option 2 (second-class references) for lifetimes; asked for pros/cons of Option 1 vs. Option 2.
+</li>
+<li>Confirmed method calls (<code>pt.translate(5, 5)</code>) auto-borrow receiver, while direct calls (<code>Point.translate(&amp;-pt, 5, 5)</code>) require explicit <code>&amp;-</code>.
+</li>
+<li>Asked for a recommendation on how reborrowing (<code>push(&amp;-list, 4)</code> when <code>list</code> is already <code>&amp;-[int]</code>) should work.
+</li>
+<li>Chose Go-style automatic semicolon insertion rules adapted for Lowlight.
+</li>
+<li>Asked whether <code>end</code> or significant indentation (or another option) is better for terminating <code>match</code>.
+</li>
+<li>Decided functions should declare explicit return types (<code>:Type</code> / <code>:?Type</code>).
+</li>
+<li>Asked what &quot;nested optionals (<code>??T</code>) vs. flattening&quot; means and for pros/cons.
+</li>
+<li>Asked if a <code>?.</code> chaining operator is worth having since <code>?</code> is already at the end of optional variable names (<code>user?.name</code>).
+</li>
+<li>Clarified that the underlying type is <code>?T</code>, and any variable of that type must end in <code>?</code>.
+</li>
+<li>Decided <code>if (flag?)</code> on <code>?bool</code> tests presence (<code>has_value</code>), because the optional wrapper must be unwrapped before interacting with the inner value.
+</li>
+<li>Clarified <code>user</code> and <code>user?</code> are two different identifiers (<code>T</code> vs. <code>?T</code>); asked what was meant by narrowing edge cases.
+</li>
+<li>Asked how <code>&quot;Are you $ready?&quot;</code> should be handled in string interpolation.
+</li>
+<li>Clarified <code>&lt;-</code> only unwinds <code>{ ... }</code> blocks (or explicit named targets); suggested <code>if &lt;-</code> for unwinding an <code>if</code>.
+</li>
+<li>Asked why <code>&lt;- value</code> as <code>continue</code> in a <code>for</code> loop is a problem.
+</li>
+<li>Asked how variable shadowing could collide with <code>func_name &lt;-</code>, and proposed <code>func &lt;-</code> as a general keyword target for returning from the current function/method.
+</li>
+<li>Stated a return cannot cross function calls and asked what &quot;lexically enclosing&quot; means.
+</li>
+<li>Stated assignments and definitions are statements (not expressions), unwinds are statements except on the RHS of <code>??</code> (<code>let a = b? ?? if &lt;- 0</code>).
+</li>
+<li>Asked what &quot;freeing temporaries on jump&quot; means.
+</li>
+<li>Confirmed functions can be <code>void</code> (non-value-returning) and have a return type when they return a value.
+</li>
+<li>Confirmed <code>for</code> loops can also be <code>void</code> when not used as values.
+</li>
+<li>Confirmed <code>for (true)</code> without <code>else</code> can still return <code>?T</code> for consistency.
+</li>
+</ol>
+</li>
+</ul>
+<hr />
+<h3 id="version-02--critique-updated-with-round-1-feedback"><a class="anchor" href="#version-02--critique-updated-with-round-1-feedback" aria-hidden="true">#</a>Version 0.2 — Critique Updated with Round 1 Feedback</h3>
+<ul>
+<li><strong>File</strong>: <span class="repo-link" title="In the Lowlight repository: version_history/critique/v0.2_spec_critique.md"><code>./version_history/critique/v0.2_spec_critique.md</code></span>
+</li>
+<li><strong>Date</strong>: October 20, 2026 (17:44 PDT)
+</li>
+<li><strong>Summary of Changes from Critique v0.1</strong>:
+<ul>
+<li>Reorganized Part 1 into Sections A–F directly answering the user's 21 Round 1 comments:
+<ul>
+<li><strong>Section A</strong>: Detailed pros/cons of Lifetimes Option 1 (Rust-style <code>&#39;a</code>) vs. Option 2 (strict second-class references) vs. <strong>Option 2.5</strong> (second-class references + tied return borrows from <code>self</code> or sole borrowed parameter).
+</li>
+<li><strong>Section B</strong>: Locked in method receiver auto-borrowing vs. explicit call-site <code>&amp;-</code>; proposed <strong>Reference Flattening (Reborrowing)</strong> rule.
+</li>
+<li><strong>Section C</strong>: Drafted concrete Go-style newline/semicolon insertion rules adapted for Lowlight (<code>()</code>/<code>[]</code> ignore newlines; <code>{}</code>/top-level insert <code>;</code> after identifiers, literals, <code>)</code>, <code>]</code>, <code>}</code>, type names, or bare <code>&lt;-</code>, unless the next line starts with <code>else</code>, <code>when</code>, or <code>.</code>).
+</li>
+<li><strong>Section D</strong>: Compared <code>end</code> vs. indentation for <code>match</code> and proposed 3 native alternatives: Option 1 (<code>match (x) { ... }</code>), Option 2 (<code>match (x) [ ... ]</code>), and Option 3 (greedy <code>when</code>/<code>else</code> continuation with <code>(...)</code> for nested matches).
+</li>
+<li><strong>Section E</strong>: Recorded resolved optional rules and explained: (1) Nested optionals <code>??T</code> vs. flattening <code>?T</code>, (2) Unified <code>?.</code> dot chaining on expressions, (3) <code>if (user?)</code> borrow semantics and shadowing of outer <code>user</code>, and (4) Why <code>&quot;Are you $ready?&quot;</code> works automatically when bare <code>$ident</code> only parses non-optional identifiers.
+</li>
+<li><strong>Section F</strong>: Recorded resolved unwinding rules and explained: (1) Why skipping a loop iteration from inside <code>if (n &lt; 0) { ... }</code> needs bare <code>&lt;-</code> and <code>next &lt;-</code>, (2) Jump-target namespace vs. variable shadowing and <code>func &lt;-</code>, (3) Why unwinding across nested function/lambda boundaries must be a compile error, (4) What freeing heap temporaries on mid-expression unwind means, and (5) Void functions and statement loops.
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h3 id="round-2-user-comments-on-critique-v02"><a class="anchor" href="#round-2-user-comments-on-critique-v02" aria-hidden="true">#</a>Round 2 User Comments (on Critique v0.2)</h3>
+<ul>
+<li><strong>File</strong>: <span class="repo-link" title="In the Lowlight repository: version_history/critique/round2_user_comments.md"><code>./version_history/critique/round2_user_comments.md</code></span>
+</li>
+<li><strong>Date</strong>: October 21, 2026 (12:41 PDT)
+</li>
+<li><strong>Summary of the 7 Inline User Comments</strong>:
+<ol>
+<li>Agreed to flatten <code>??T</code> to <code>?T</code> and allow optional types in collections/optionals.
+</li>
+<li>Agreed to allow unified dot-chaining <code>.</code> on both optionals and non-optionals.
+</li>
+<li>Agreed that <code>if (user?)</code> treats <code>user</code> as a borrow of <code>user?</code>, and asked: <em>&quot;Should there be syntax to show it is a borrow?&quot;</em>
+</li>
+<li>Decided that an outer <code>user</code> is shadowed inside <code>if (user?)</code>.
+</li>
+<li>Liked <code>next &lt;-</code> as an unwind target, and asked to rethink <code>for</code> loops so that <strong>both the <code>for</code> loop itself and each individual iteration are treated consistently as expressions</strong>.
+</li>
+<li>Agreed that unwinding across a nested function or lambda boundary is a compile-time error.
+</li>
+<li>Asked whether it would be better to <strong>disallow unwind statements inside sub-expressions</strong>, only allowing them in assignment/declaration statements (<code>??</code>) or as bare/standalone unwind statements.
+</li>
+</ol>
+</li>
+</ul>
+<hr />
+<h3 id="version-03-initial--critique-updated-with-round-2-feedback"><a class="anchor" href="#version-03-initial--critique-updated-with-round-2-feedback" aria-hidden="true">#</a>Version 0.3 (Initial) — Critique Updated with Round 2 Feedback</h3>
+<ul>
+<li><strong>File</strong>: <span class="repo-link" title="In the Lowlight repository: version_history/critique/v0.3_initial_spec_critique.md"><code>./version_history/critique/v0.3_initial_spec_critique.md</code></span>
+</li>
+<li><strong>Date</strong>: October 21, 2026 (12:46 PDT)
+</li>
+<li><strong>Summary of Changes from Critique v0.2</strong>:
+<ul>
+<li>Preserved Sections A–D of Part 1 and all of Part 2 (since the user noted they had not yet reviewed Sections A–D or Part 2).
+</li>
+<li>Updated <strong>Section E</strong> with all Round 2 optional resolutions and added a follow-up comparing two options for <code>if (user?)</code> borrow syntax:
+<ul>
+<li><strong>Option 1 (Recommended)</strong>: Implicit immutable borrow <code>if (user?)</code>, explicit mutable borrow <code>if (&amp;-user?)</code>.
+</li>
+<li><strong>Option 2</strong>: Always explicit <code>if (&amp;user?)</code> vs. <code>if (&amp;-user?)</code> vs. <code>if (user?)</code> (move).
+</li>
+</ul>
+</li>
+<li>Updated <strong>Section F</strong> with Round 2 unwinding resolutions and added two follow-ups:
+<ul>
+<li><strong>Follow-Up 1 (Rethinking <code>for</code> Loops Around Expressions)</strong>: Explored <strong>Design 1</strong> (Iteration values collect into <code>[T]</code> by default, with <code>next &lt;- val</code> yielding an element, bare <code>next &lt;-</code> filtering/skipping, and <code>for &lt;- val</code> breaking early), <strong>Design 2</strong> (Accumulator/Fold model <code>for (x in list, sum = 0) { ... }</code> with zero heap allocation), and <strong>Design 3</strong> (Combined model supporting fold loops, search loops, and comprehensions).
+</li>
+<li><strong>Follow-Up 2 (Where Can <code>&lt;-</code> Unwind Statements Appear?)</strong>: Recommended restricting <code>&lt;-</code> strictly to standalone statements and the top-level RHS of <code>??</code> in declarations/assignments, forbidding <code>&lt;-</code> inside function arguments or sub-expressions.
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h3 id="round-3-user-comment-on-critique-v03-initial--spec-v02-update"><a class="anchor" href="#round-3-user-comment-on-critique-v03-initial--spec-v02-update" aria-hidden="true">#</a>Round 3 User Comment (on Critique v0.3 Initial) &amp; Spec v0.2 Update</h3>
+<ul>
+<li><strong>Files</strong>:
+<ul>
+<li>User comment: <span class="repo-link" title="In the Lowlight repository: version_history/critique/round3_user_comments.md"><code>./version_history/critique/round3_user_comments.md</code></span> (Oct 21, 2026, 15:23 PDT)
+</li>
+<li>Final Critique v0.3: <span class="repo-link" title="In the Lowlight repository: SPEC_CRITIQUE.md"><code>./SPEC_CRITIQUE.md</code></span> and <span class="repo-link" title="In the Lowlight repository: version_history/critique/v0.3_final_spec_critique.md"><code>./version_history/critique/v0.3_final_spec_critique.md</code></span> (Oct 21, 2026, 15:25 PDT)
+</li>
+</ul>
+</li>
+<li><strong>Summary</strong>:
+<ul>
+<li>The user approved <strong>Section F Follow-Up 2</strong> (<em>&quot;This all looks good&quot;</em>) and requested: <em>&quot;Update the specification document to make it fully up to date with our changes.&quot;</em>
+</li>
+<li><code>SPECIFICATION.md</code> was updated from <strong>Draft v0.1</strong> to <strong>Draft v0.2</strong> incorporating all resolved decisions from Rounds 1, 2, and 3.
+</li>
+<li><code>SPEC_CRITIQUE.md</code> (v0.3 Final) was updated to mark Section F Follow-Up 2 as resolved and synchronize line number references with <code>SPECIFICATION.md</code> (Draft v0.2).
+</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h3 id="round-4-user-comments-on-critique-v03--critique-v04--spec-v03-update"><a class="anchor" href="#round-4-user-comments-on-critique-v03--critique-v04--spec-v03-update" aria-hidden="true">#</a>Round 4 User Comments (on Critique v0.3) &amp; Critique v0.4 / Spec v0.3 Update</h3>
+<ul>
+<li><strong>Files</strong>:
+<ul>
+<li>User comments: <span class="repo-link" title="In the Lowlight repository: version_history/critique/round4_user_comments.md"><code>./version_history/critique/round4_user_comments.md</code></span> (Oct 21, 2026, 23:33 PDT)
+</li>
+<li>Updated Spec v0.3: <a href="../spec/index.html"><code>./SPECIFICATION.md</code></a> and <span class="repo-link" title="In the Lowlight repository: version_history/specification/v0.3_SPECIFICATION.md"><code>./version_history/specification/v0.3_SPECIFICATION.md</code></span> (Oct 21, 2026, 23:38 PDT)
+</li>
+<li>Updated Critique v0.4: <span class="repo-link" title="In the Lowlight repository: SPEC_CRITIQUE.md"><code>./SPEC_CRITIQUE.md</code></span> and <span class="repo-link" title="In the Lowlight repository: version_history/critique/v0.4_spec_critique.md"><code>./version_history/critique/v0.4_spec_critique.md</code></span> (Oct 21, 2026, 23:42 PDT)
+</li>
+</ul>
+</li>
+<li><strong>Summary</strong>:
+<ul>
+<li>The user provided 31 inline comments across both Part 1 and Part 2 of <code>spec_critique.md</code> (v0.3).
+</li>
+<li>Locked-in decisions were applied to <code>SPECIFICATION.md</code> (Draft v0.3), and <code>SPEC_CRITIQUE.md</code> (v0.4) was updated with detailed answers, comparisons, and new design options for all remaining open questions.
+</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h3 id="round-5-user-comments-on-critique-v04--critique-v05--spec-v04-update"><a class="anchor" href="#round-5-user-comments-on-critique-v04--critique-v05--spec-v04-update" aria-hidden="true">#</a>Round 5 User Comments (on Critique v0.4) &amp; Critique v0.5 / Spec v0.4 Update</h3>
+<ul>
+<li><strong>Files</strong>:
+<ul>
+<li>User comments: <span class="repo-link" title="In the Lowlight repository: version_history/critique/round5_user_comments.md"><code>./version_history/critique/round5_user_comments.md</code></span> (Oct 22, 2026, 13:10 PDT)
+</li>
+<li>Updated Spec v0.4: <a href="../spec/index.html"><code>./SPECIFICATION.md</code></a> and <span class="repo-link" title="In the Lowlight repository: version_history/specification/v0.4_SPECIFICATION.md"><code>./version_history/specification/v0.4_SPECIFICATION.md</code></span> (Oct 22, 2026, 13:15 PDT)
+</li>
+<li>Updated Critique v0.5: <span class="repo-link" title="In the Lowlight repository: SPEC_CRITIQUE.md"><code>./SPEC_CRITIQUE.md</code></span> and <span class="repo-link" title="In the Lowlight repository: version_history/critique/v0.5_spec_critique.md"><code>./version_history/critique/v0.5_spec_critique.md</code></span> (Oct 22, 2026, 13:17 PDT)
+</li>
+</ul>
+</li>
+<li><strong>Summary</strong>:
+<ul>
+<li>The user provided 18 inline comments on <code>spec_critique.md</code> (v0.4), locking in Pure Option 2 lifetimes, the built-in <code>Copyable</code> interface (<code>.copy()</code>), Design 3 (&quot;Last Iteration Wins&quot;) for <code>for</code> loops, numeric underscores, optional parameter names in function types, copy-capturing lambdas, automatic heap boxing for recursive <code>?Node</code> fields, and <code>0..10</code> / <code>0..=10</code> ranges.
+</li>
+<li>Updated <code>SPECIFICATION.md</code> to Draft v0.4 and <code>SPEC_CRITIQUE.md</code> to v0.5 with a full multi-context showcase of Design 3 <code>for</code> loops, a 40-line side-by-side comparison of Model 1 vs. Model 2 parameter borrowing, Option 1 vs. Option 2 shadowing, and Robust C-style enums vs. tagged unions.
+</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h3 id="round-6-user-comments-on-critique-v05--critique-v06--spec-v05-update"><a class="anchor" href="#round-6-user-comments-on-critique-v05--critique-v06--spec-v05-update" aria-hidden="true">#</a>Round 6 User Comments (on Critique v0.5) &amp; Critique v0.6 / Spec v0.5 Update</h3>
+<ul>
+<li><strong>Files</strong>:
+<ul>
+<li>User comments: <span class="repo-link" title="In the Lowlight repository: version_history/critique/round6_user_comments.md"><code>./version_history/critique/round6_user_comments.md</code></span> (Oct 22, 2026, 15:48 PDT)
+</li>
+<li>Updated Spec v0.5: <a href="../spec/index.html"><code>./SPECIFICATION.md</code></a> and <span class="repo-link" title="In the Lowlight repository: version_history/specification/v0.5_SPECIFICATION.md"><code>./version_history/specification/v0.5_SPECIFICATION.md</code></span> (Oct 22, 2026, 15:52 PDT)
+</li>
+<li>Updated Critique v0.6: <span class="repo-link" title="In the Lowlight repository: SPEC_CRITIQUE.md"><code>./SPEC_CRITIQUE.md</code></span> and <span class="repo-link" title="In the Lowlight repository: version_history/critique/v0.6_spec_critique.md"><code>./version_history/critique/v0.6_spec_critique.md</code></span> (Oct 22, 2026, 15:54 PDT)
+</li>
+</ul>
+</li>
+<li><strong>Summary</strong>:
+<ul>
+<li>The user provided 6 inline comments on <code>spec_critique.md</code> (v0.5), locking in Idea 1 for <code>match</code> (<code>else:</code> / <code>else FinalVariant:</code>), Option 1 for variable shadowing, Option 1 for Enums (Robust C-Style Enums only), and Model 2 default read-only borrowing with <code>&amp;</code> replacing <code>&amp;-</code> as the mutable borrow marker across the language.
+</li>
+<li>Updated <code>SPECIFICATION.md</code> to Draft v0.5 and <code>SPEC_CRITIQUE.md</code> to v0.6 addressing the two follow-up questions on <code>for</code> loops (<code>T</code> vs. <code>?T</code> and <code>next &lt;-</code>), recommending Model 2A over 2B, and surfacing the final two parked items (<code>let Type.method</code> and <code>for (i, item in list)</code>).
+</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h3 id="v06-spec-audit"><a class="anchor" href="#v06-spec-audit" aria-hidden="true">#</a>v0.6 Spec Audit</h3>
+<ul>
+<li><strong>File</strong>: <span class="repo-link" title="In the Lowlight repository: version_history/critique/v0.6_spec_audit.md"><code>./version_history/critique/v0.6_spec_audit.md</code></span> (Oct 22, 2026, 17:32 PDT)
+</li>
+<li><strong>Summary</strong>:
+<ul>
+<li>Full pass over Spec Draft v0.5 for holes and contradictions: structural holes (A1–A6), inconsistencies (B1–B10), unwritten default rules (C1–C13), deferred items (D), and housekeeping (E). Corrected two earlier claims (no <code>move</code> keyword needed; interfaces replacing payload enums).
+</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h3 id="critique-v07--critique--audit-merged-memory-model--self-hosting-roadmap"><a class="anchor" href="#critique-v07--critique--audit-merged-memory-model--self-hosting-roadmap" aria-hidden="true">#</a>Critique v0.7 — Critique &amp; Audit Merged; Memory Model &amp; Self-Hosting Roadmap</h3>
+<ul>
+<li><strong>Files</strong>:
+<ul>
+<li>Merged Critique v0.7: <span class="repo-link" title="In the Lowlight repository: SPEC_CRITIQUE.md"><code>./SPEC_CRITIQUE.md</code></span> and <span class="repo-link" title="In the Lowlight repository: version_history/critique/v0.7_spec_critique.md"><code>./version_history/critique/v0.7_spec_critique.md</code></span> (Oct 22, 2026, 23:29 PDT)
+</li>
+</ul>
+</li>
+<li><strong>Summary</strong>:
+<ul>
+<li>Merged the v0.6 critique and the v0.6 audit into a single working document, <code>SPEC_CRITIQUE.md</code>. From now on, this is the only review document.
+</li>
+<li>Added <strong>Part M (Memory Model &amp; Native / Self-Hosting Roadmap)</strong> after a discussion of ownership and borrowing. It records these constraints: all memory management is decided at compile time, with no GC, refcounting, or copy-on-write. Second-class references are retained. The long-term goal is a native, self-hosted compiler.
+</li>
+<li>Part M covers: <code>own</code> consume mode (M1); indices, pools with generational handles, and arenas for multi-path data (M2); arenas as user-definable typed regions, Option B (M3); unwinding as cleanup edges (M4); <code>Drop</code> (M5); an allocator interface (M6); generics as a prerequisite (M7); an <code>unsafe</code>/intrinsics layer (M8); FFI/syscalls (M9); a shared mid-level IR (M10); a specified memory layout (M11); and concurrency (M12).
+</li>
+<li>Added <strong>Part N (&quot;C-isms&quot; checklist)</strong> of C-inherited behaviour Lowlight must define itself, plus rule C14 (drop order). Added self-hosting notes to A3, A5, B9, C8, C13, and Part D, with a recommended phase order.
+</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h3 id="lowlight-v10-specification--complete-go-reference-compiler-branch-auto-v1-prototype"><a class="anchor" href="#lowlight-v10-specification--complete-go-reference-compiler-branch-auto-v1-prototype" aria-hidden="true">#</a>Lowlight v1.0 Specification &amp; Complete Go Reference Compiler (Branch <code>auto-v1-prototype</code>)</h3>
+<ul>
+<li><strong>Files</strong>:
+<ul>
+<li>Decision Log: <span class="repo-link" title="In the Lowlight repository: DECISIONS.md"><code>./DECISIONS.md</code></span>
+</li>
+<li>Finalized Specification: <a href="../spec/index.html"><code>./SPECIFICATION.md</code></a> and <span class="repo-link" title="In the Lowlight repository: version_history/specification/v1.0_SPECIFICATION.md"><code>./version_history/specification/v1.0_SPECIFICATION.md</code></span>
+</li>
+<li>Reference Compiler &amp; Tests: <code>cmd/lowlight/</code>, <code>internal/</code>, <code>std/</code>, <code>examples/</code>, <code>tests/</code>
+</li>
+</ul>
+</li>
+<li><strong>Summary</strong>:
+<ul>
+<li>Preserved <code>main</code> untouched at the Draft v0.5 / Critique v0.7 checkpoint (<code>f82b473</code>) so interactive step-by-step design can later resume cleanly from <code>main</code>.
+</li>
+<li>On <code>auto-v1-prototype</code>, resolved every open item across Parts 0, A, M, B, C, D, E, and N of <code>SPEC_CRITIQUE.md</code>, balancing lightweight ergonomics with low-level systems control:
+<ul>
+<li>Model 2A ownership (<code>T</code> read-only default borrow, <code>&amp;T</code> call-site visible mutable borrow, <code>own T</code> move/consume), custom <code>Drop</code>, and synthesized <code>.copy()</code>.
+</li>
+<li>Lifetime-free memory safety + lexical region <code>Arena</code> / <code>ref[T]</code> (with compile-time escape verification) + generational <code>Pool[T]</code> / <code>Handle[T]</code> in <code>std/pool.ll</code>.
+</li>
+<li>Monomorphized generics (<code>[T: Bound1 + Bound2]</code>), stack fat-pointer borrowed interfaces + owned boxed interface values (<code>Shape(c)</code>), and first-class closures (Plain copy capture + Resource move capture).
+</li>
+<li>Full low-level systems escape hatch: <code>unsafe { ... }</code>, <code>ptr[T]</code> &amp; memory intrinsics, <code>define packed Name struct [...]</code>, and <code>extern &quot;header.h&quot;</code> / <code>extern sym [as alias]: ...</code> C ABI interop.
+</li>
+<li>Backend-independent arithmetic &amp; layout rules (UB-free wrapping signed/unsigned arithmetic, deterministic insertion-order sets/maps, UTF-8 strings + slices).
+</li>
+</ul>
+</li>
+<li>Implemented and verified the complete, zero-dependency Go reference compiler (<code>lexer -&gt; parser -&gt; sema -&gt; ir -&gt; C11 codegen -&gt; driver</code>), <code>std/</code> modules, 8 showcase programs, and strict ASan/UBSan + <code>LOWLIGHT_CHECK_LEAKS=1</code> E2E test suite.
+</li>
+</ul>
+</li>
+</ul>
+<hr />
+<h3 id="lowlight-v10-consolidation-bug-fixes--collection-unification"><a class="anchor" href="#lowlight-v10-consolidation-bug-fixes--collection-unification" aria-hidden="true">#</a>Lowlight v1.0 Consolidation, Bug Fixes &amp; Collection Unification</h3>
+<ul>
+<li><strong>Date</strong>: November 9, 2026
+</li>
+<li><strong>Files</strong>:
+<ul>
+<li>Authoritative Specification: <a href="../spec/index.html"><code>./SPECIFICATION.md</code></a>
+</li>
+<li>Implementation Guide: <a href="../internals/index.html"><code>./IMPLEMENTATION.md</code></a>
+</li>
+<li>Project Guide: <span class="repo-link" title="In the Lowlight repository: README.md"><code>./README.md</code></span>
+</li>
+<li>Changelog: <a href="history.html"><code>./VERSION_HISTORY.md</code></a>
+</li>
+</ul>
+</li>
+<li><strong>Summary of Changes</strong>:
+<ol>
+<li><strong>Bug Fixes</strong>:
+<ul>
+<li><strong>Bug 1</strong>: Disallow <code>own</code> moves on immutable top-level <code>bind</code> constants in <code>check_stmt_expr.go</code>.
+</li>
+<li><strong>Bug 2</strong>: Fix relational (<code>&lt;, &lt;=, &gt;, &gt;=</code>) vs equality (<code>==, !=</code>) operator precedence in <code>parser.go</code>.
+</li>
+<li><strong>Bug 3</strong>: Fully implement omitted slice bounds (<code>[..hi]</code>, <code>[lo..]</code>, <code>[..]</code>, <code>[..=hi]</code>) in parser, sema, and IR lowering.
+</li>
+<li><strong>Bug 4</strong>: Enforce that <strong>all</strong> <code>match</code> expressions must terminate with an <code>else</code> arm (whether open fallback <code>else:</code> or exhaustive pattern <code>else Pattern:</code>), eliminating the exception for exhaustive enums.
+</li>
+</ul>
+</li>
+<li><strong>Collection Unification</strong>:
+<ul>
+<li>Unified <code>List[T]</code> and <code>[T]</code> into the exact same type (<code>[T]</code> is syntactic sugar for <code>List[T]</code>).
+</li>
+<li>Unified <code>Array[T]</code> and <code>[N: T]</code> into the exact same type (<code>[N: T]</code> is syntactic sugar for <code>Array[T]</code>).
+</li>
+<li>Core definitions moved to <code>std/core/list.ll</code> and <code>std/core/array.ll</code> with compiler hooks (<code>@lang(&quot;list&quot;)</code> and <code>@lang(&quot;array&quot;)</code>).
+</li>
+<li>Symmetrical <code>.len</code>, <code>.cap</code>, indexing <code>[i]</code>, slicing <code>[lo..hi]</code>, and iteration <code>for (x in col)</code> across both representations on both C11 and direct LLVM IR backends.
+</li>
+</ul>
+</li>
+<li><strong>Syntax &amp; Precedence Refinements</strong>:
+<ul>
+<li>Removed infix <code>as</code> from the precedence table in <code>SPECIFICATION.md</code> §6.1; type conversions are constructor-style <code>int(x)</code>.
+</li>
+<li>Added direct LLVM IR backend (<code>internal/codegen/llvmgen.go</code>) as the default backend, alongside portable ISO C11.
+</li>
+<li>Added cross-compilation <code>--target &lt;triple&gt;</code> flag to compiler CLI, driver, and LLVM/C11 codegen.
+</li>
+<li>Updated LSP, VS Code grammar, and Neovim syntax definitions with <code>while</code> keyword and latest constructs.
+</li>
+</ul>
+</li>
+<li><strong>Documentation Consolidation</strong>:
+<ul>
+<li>Consolidated documentation down to 4 canonical root files: <code>SPECIFICATION.md</code>, <code>IMPLEMENTATION.md</code>, <code>README.md</code>, and <code>VERSION_HISTORY.md</code>. All historical decision logs and critiques archived.
+</li>
+</ul>
+</li>
+<li><strong>Indexable &amp; KeyIndexable Interfaces</strong>:
+<ul>
+<li>Added <code>@lang(&quot;indexable&quot;) Indexable[T]</code> and <code>@lang(&quot;key_indexable&quot;) KeyIndexable[K, V]</code> core interfaces in <code>std/core/interfaces.ll</code>.
+</li>
+<li>Supported by <code>List[T]</code> / <code>[T]</code>, <code>Array</code> / <code>[N: T]</code>, <code>string</code> (<code>Indexable[u8]</code>), and <code>Map</code> / <code>#[K: V]</code>, plus custom user types implementing <code>.len()</code> and <code>.get()</code>.
+</li>
+<li>Seamless indexing syntax <code>col[idx]</code> and <code>map[key]</code> directly on interface fat pointers and bounded generic parameters, dynamically dispatching to <code>.get(...)</code> and returning <code>?T</code> / <code>?V</code>.
+</li>
+<li>Zero-allocation stack borrowing for interface parameters without heap boxing.
+</li>
+<li>Fully verified across direct LLVM IR and C11 backends under AddressSanitizer and leak detection.
+</li>
+</ul>
+</li>
+</ol>
+</li>
+</ul>
+</article><nav class="prev-next"><a class="prev" href="faq.html"><span>Previous</span>Frequently asked questions</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#1-archive-directory-structure">1. Archive Directory Structure</a></li><li><a href="#2-language-specification-version-history-specificationmd">2. Language Specification Version History (SPECIFICATION.md)</a></li><li class="sub"><a href="#version-00--initial-seed-syntax-sample">Version 0.0 — Initial Seed Syntax Sample</a></li><li class="sub"><a href="#version-01--first-complete-formal-language-specification">Version 0.1 — First Complete Formal Language Specification</a></li><li class="sub"><a href="#version-02--updated-language-specification-current">Version 0.2 — Updated Language Specification (Current)</a></li><li><a href="#3-critique-specification-version-history-spec_critiquemd">3. Critique Specification Version History (SPEC_CRITIQUE.md)</a></li><li class="sub"><a href="#version-01--initial-critique-of-draft-v01">Version 0.1 — Initial Critique of Draft v0.1</a></li><li class="sub"><a href="#round-1-user-comments-on-critique-v01">Round 1 User Comments (on Critique v0.1)</a></li><li class="sub"><a href="#version-02--critique-updated-with-round-1-feedback">Version 0.2 — Critique Updated with Round 1 Feedback</a></li><li class="sub"><a href="#round-2-user-comments-on-critique-v02">Round 2 User Comments (on Critique v0.2)</a></li><li class="sub"><a href="#version-03-initial--critique-updated-with-round-2-feedback">Version 0.3 (Initial) — Critique Updated with Round 2 Feedback</a></li><li class="sub"><a href="#round-3-user-comment-on-critique-v03-initial--spec-v02-update">Round 3 User Comment (on Critique v0.3 Initial) &amp; Spec v0.2 Update</a></li><li class="sub"><a href="#round-4-user-comments-on-critique-v03--critique-v04--spec-v03-update">Round 4 User Comments (on Critique v0.3) &amp; Critique v0.4 / Spec v0.3 Update</a></li><li class="sub"><a href="#round-5-user-comments-on-critique-v04--critique-v05--spec-v04-update">Round 5 User Comments (on Critique v0.4) &amp; Critique v0.5 / Spec v0.4 Update</a></li><li class="sub"><a href="#round-6-user-comments-on-critique-v05--critique-v06--spec-v05-update">Round 6 User Comments (on Critique v0.5) &amp; Critique v0.6 / Spec v0.5 Update</a></li><li class="sub"><a href="#v06-spec-audit">v0.6 Spec Audit</a></li><li class="sub"><a href="#critique-v07--critique--audit-merged-memory-model--self-hosting-roadmap">Critique v0.7 — Critique &amp; Audit Merged; Memory Model &amp; Self-Hosting Roadmap</a></li><li class="sub"><a href="#lowlight-v10-specification--complete-go-reference-compiler-branch-auto-v1-prototype">Lowlight v1.0 Specification &amp; Complete Go Reference Compiler (Branch auto-v1-prototype)</a></li><li class="sub"><a href="#lowlight-v10-consolidation-bug-fixes--collection-unification">Lowlight v1.0 Consolidation, Bug Fixes &amp; Collection Unification</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="index.html">About</a><a href="contributing.html">Contributing</a><a href="faq.html">FAQ</a><a href="history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

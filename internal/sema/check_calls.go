@@ -83,6 +83,8 @@ func (fc *funcChecker) checkInterpConst(ty types.Type, span diag.Span) {
 		return
 	}
 	switch t := ty.(type) {
+	case *types.Distinct:
+		fc.checkInterpConst(t.Base, span)
 	case *types.Tuple:
 		for _, el := range t.Elems {
 			fc.checkInterpConst(el, span)
@@ -91,6 +93,30 @@ func (fc *funcChecker) checkInterpConst(ty types.Type, span diag.Span) {
 		fc.checkInterpConst(t.Elem, span)
 	case *types.Optional:
 		fc.checkInterpConst(t.Elem, span)
+	}
+}
+
+func (fc *funcChecker) checkConstBinaryMethod(ty types.Type, isEq bool, span diag.Span) {
+	for ty != nil && ty != types.TypeInvalid {
+		if fn := fc.a.LookupMethod(ty, "cmp", nil, span); !isEq && fn != nil {
+			fc.checkFuncConstAndComptimeAccess(fn, span)
+			return
+		}
+		if isEq {
+			if fn := fc.a.LookupMethod(ty, "eq", nil, span); fn != nil {
+				fc.checkFuncConstAndComptimeAccess(fn, span)
+				return
+			}
+			if fn := fc.a.LookupMethod(ty, "cmp", nil, span); fn != nil {
+				fc.checkFuncConstAndComptimeAccess(fn, span)
+				return
+			}
+		}
+		if d, isDist := ty.(*types.Distinct); isDist {
+			ty = d.Base
+			continue
+		}
+		break
 	}
 }
 
@@ -112,7 +138,33 @@ func (fc *funcChecker) checkCallExpr(call *ast.CallExpr, expected types.Type) ty
 }
 
 func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Type) types.Type {
+	savedChain := fc.allowComptimeChain
+	fc.allowComptimeChain = 0
+	defer func() { fc.allowComptimeChain = savedChain }()
 	inf := fc.a.infoFor(call)
+
+	// Derived wrapper delegation to `@derivable` handler (`derive.eq[Self]`, custom handlers, etc.).
+	if fc.a.deriveCallBindings != nil {
+		if db := fc.a.deriveCallBindings[call]; db != nil && fc.curFn != nil {
+			recvTy := fc.curFn.RecvType
+			fi := fc.a.instantiateGenericFuncWithDerive(db.ImplTmpl, []types.Type{recvTy}, call.Span, recvTy, derivePkgScopeID(db.ImplTmpl.Mod))
+			if fi == nil {
+				return types.TypeInvalid
+			}
+			if fi.DeriveAttrSpan.Start.File == "" {
+				fi.DeriveAttrSpan = db.AttrSpan
+				fi.DeriveIfaceName = db.Iface.Name
+			}
+			fc.checkSignatureArgs(fi.Sig.Params, call.Args, nil, call.Span)
+			inf.CallKind = CallDirectFunc
+			fc.recordTargetFunc(inf, fi, call.Span)
+			ret := fi.Sig.Ret
+			if ret == nil {
+				ret = types.TypeVoid
+			}
+			return ret
+		}
+	}
 
 	// `cl(f)`: convert a function to a closure. (`cl` is a keyword, so no symbol has that name.)
 	if id, isId := call.Callee.(*ast.IdentExpr); isId && id.Name == "cl" && len(call.Args) == 1 {
@@ -261,7 +313,7 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 	//    - Instance UFCS dot-method call (`pt.translate(5, 5)`, `v.push(4)`, `opt?.to_string()`)
 	//    - Struct field holding a closure (`handler.on_click(ev)`)
 	if mem, isMem := call.Callee.(*ast.MemberExpr); isMem {
-		return fc.checkMemberCallExpr(mem, call, expected)
+		return fc.checkMemberCallExpr(mem, call, expected, savedChain > 0)
 	}
 
 	// 3. Arbitrary expression callee (`get_adder()(1, 2)`)
@@ -414,7 +466,7 @@ func (fc *funcChecker) checkTypeConversionOrBox(targetTy types.Type, call *ast.C
 // Member / Method / Namespaced Calls
 // -----------------------------------------------------------------------------
 
-func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallExpr, expected types.Type) types.Type {
+func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallExpr, expected types.Type, inChain bool) types.Type {
 	inf := fc.a.infoFor(call)
 	fc.maybeRewriteIndexedMemberBase(mem)
 
@@ -427,7 +479,7 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 	if baseId, isId := mem.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && len(mem.BaseTypeArgs) == 0 && fc.lookupVar(baseId.Name) == nil {
 		if _, isMod := fc.mod.Aliased[baseId.Name]; !isMod {
 			if baseId.Name == "comp" {
-				return fc.checkCompNamespaceCall(mem, call)
+				return fc.checkCompNamespaceCall(mem, call, inChain)
 			}
 			if baseId.Name == "type" {
 				return fc.checkTypeNamespaceCall(mem, call)
@@ -649,15 +701,19 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 				hasVisualQ = true
 			}
 		}
-		if !hasVisualQ {
-			fc.a.Rep.ErrorWithHint(
-				mem.Span,
-				fmt.Sprintf("cannot call `.%s(...)` on optional value of type %s without `?`", mem.Member, recvTy.String()),
-				fmt.Sprintf("write `?.%s(...)` to short-circuit to `none`", mem.Member),
-			)
+		if !hasVisualQ && len(call.TypeArgs) == 0 && (mem.Member == "eq" || mem.Member == "copy" || mem.Member == "to_string") && fc.a.LookupMethod(optR, mem.Member, nil, call.Span) != nil {
+			// Direct Optional method call (`List[?T].copy()`, generic `T = ?int`, etc.).
+		} else {
+			if !hasVisualQ {
+				fc.a.Rep.ErrorWithHint(
+					mem.Span,
+					fmt.Sprintf("cannot call `.%s(...)` on optional value of type %s without `?`", mem.Member, recvTy.String()),
+					fmt.Sprintf("write `?.%s(...)` to short-circuit to `none`", mem.Member),
+				)
+			}
+			isOptChain = true
+			actualRecvTy = optR.Elem
 		}
-		isOptChain = true
-		actualRecvTy = optR.Elem
 	} else if mem.QuestDot {
 		fc.a.Rep.Report(diag.Diagnostic{
 			Severity: diag.Error,
@@ -801,6 +857,9 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 		inf.MethodRecv = mem.Base
 		inf.MethodRecvMode = recvMode
 		inf.IsOptChain = isOptChain
+		if isOptChain && recvMode == types.ModeRead {
+			fc.clearPendingOptChainErr(mem.Base)
+		}
 		retTy := fc.a.ensureFuncRetResolved(fi, call.Span)
 		if isOptChain && retTy != types.TypeInvalid && !retTy.Equals(types.TypeVoid) {
 			retTy = types.NewOptional(retTy)
@@ -810,7 +869,11 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 	}
 
 	// 3c. Built-in Methods (`.copy()`, `.to_string()`, `string.*`, `char.*`, `vec.*`, `set.*`, `map.*`, `Arena.*`)
-	return fc.checkBuiltinMethodCall(actualRecvTy, isArenaRef, isOptChain, inMatchPattern, mem, call)
+	ret := fc.checkBuiltinMethodCall(actualRecvTy, isArenaRef, isOptChain, inMatchPattern, mem, call)
+	if isOptChain && inf.MethodRecvMode != types.ModeMut && (ret != types.TypeInvalid || mem.Member == "copy") {
+		fc.clearPendingOptChainErr(mem.Base)
+	}
+	return ret
 }
 
 // checkArenaMethodRules applies the rules that keep `ref[T]`s from outliving their `Arena` to a
@@ -1188,7 +1251,13 @@ func (fc *funcChecker) checkGenericFuncCall(genFn *GenericFuncTemplate, call *as
 		}
 	}
 
-	fi := fc.a.instantiateGenericFunc(genFn, targs, call.Span)
+	var fi *FuncInstance
+	if fc.curFn != nil && fc.curFn.DeriveTarget != nil && fc.a.SamePackage(fc.curFn.Mod, genFn.Mod) &&
+		(fc.curFn.DerivePkg == "" || derivePkgScopeID(genFn.Mod) == fc.curFn.DerivePkg) {
+		fi = fc.a.instantiateGenericFuncWithDerive(genFn, targs, call.Span, fc.curFn.DeriveTarget, fc.curFn.DerivePkg)
+	} else {
+		fi = fc.a.instantiateGenericFunc(genFn, targs, call.Span)
+	}
 	if fi == nil {
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
@@ -1217,6 +1286,9 @@ func (fc *funcChecker) checkInterfaceMethodCall(ifc *types.Interface, mem *ast.M
 			inf.BuiltinName = "Interface.copy"
 			inf.MethodRecv = mem.Base
 			inf.IsOptChain = isOptChain
+			if isOptChain {
+				fc.clearPendingOptChainErr(mem.Base)
+			}
 			ret := types.Type(ifc)
 			if isOptChain {
 				ret = types.NewOptional(ifc)
@@ -1261,6 +1333,9 @@ func (fc *funcChecker) checkInterfaceMethodCall(ifc *types.Interface, mem *ast.M
 	inf.MethodRecv = mem.Base
 	inf.MethodRecvMode = found.RecvMode
 	inf.IsOptChain = isOptChain
+	if isOptChain && found.RecvMode == types.ModeRead {
+		fc.clearPendingOptChainErr(mem.Base)
+	}
 	ret := found.Ret
 	if isOptChain && !ret.Equals(types.TypeVoid) {
 		ret = types.NewOptional(ret)
@@ -1645,6 +1720,465 @@ func (fc *funcChecker) markViewIfApplicable(expr ast.Expr, paramTy types.Type) {
 // Built-in Methods, Universe Functions & Raw Memory Intrinsics
 // -----------------------------------------------------------------------------
 
+func (fc *funcChecker) resolveInterfaceArgExpr(arg ast.Expr, ctx string) *types.Interface {
+	var modAlias, name string
+	var typeArgExprs []ast.TypeExpr
+	resolveTypeExprFromExpr := func(e ast.Expr) (string, string, bool) {
+		switch v := e.(type) {
+		case *ast.IdentExpr:
+			if v.IsOpt {
+				return "", "", false
+			}
+			return "", v.Name, true
+		case *ast.MemberExpr:
+			if v.QuestDot || v.MemberHasOpt {
+				return "", "", false
+			}
+			if id, ok := v.Base.(*ast.IdentExpr); ok && !id.IsOpt {
+				return id.Name, v.Member, true
+			}
+		}
+		return "", "", false
+	}
+	if ma, nm, ok := resolveTypeExprFromExpr(arg); ok {
+		modAlias, name = ma, nm
+	} else if idx, isIdx := arg.(*ast.IndexExpr); isIdx {
+		// Handle generic interface with a single type arg e.g. `Container[int]`
+		if ma, nm, ok := resolveTypeExprFromExpr(idx.Base); ok {
+			modAlias, name = ma, nm
+			typeArgExprs = []ast.TypeExpr{&ast.NamedType{Name: "__expr"}}
+			_ = typeArgExprs
+		}
+	}
+	if name == "" {
+		fc.a.Rep.Errorf(arg.GetSpan(), "`%s` expects an interface name argument", ctx)
+		return nil
+	}
+	if _, isIdx := arg.(*ast.IndexExpr); !isIdx {
+		ty := fc.a.lookupTypeInModule(fc.mod, modAlias, name)
+		if ifc, ok := ty.(*types.Interface); ok {
+			return ifc
+		}
+		if modAlias == "" {
+			if st, ok := fc.subst[name]; ok {
+				if ifc, ok2 := st.(*types.Interface); ok2 {
+					return ifc
+				}
+			}
+		}
+		fc.a.Rep.Errorf(arg.GetSpan(), "%q in `%s` is not an interface", name, ctx)
+		return nil
+	}
+	fc.a.Rep.Errorf(arg.GetSpan(), "generic interface arguments in `%s` are not supported directly; bind or pass the interface type", ctx)
+	return nil
+}
+
+func (fc *funcChecker) evalComptimeArg(arg ast.Expr) (types.Type, *ctVal, bool) {
+	prevDepth := fc.comptimeExprDepth
+	prevMin := fc.comptimeMinScope
+	fc.comptimeExprDepth++
+	if prevDepth == 0 {
+		fc.comptimeMinScope = fc.curDepth() + 1
+	}
+	beforeErrs := fc.a.errorCount()
+	aty := fc.checkExpr(arg, true)
+	var cv *ctVal
+	ok := false
+	if aty != types.TypeInvalid && fc.a.errorCount() == beforeErrs {
+		cv, ok = fc.a.evalComptimeExprInChecker(fc, arg, 0)
+	}
+	fc.comptimeExprDepth = prevDepth
+	fc.comptimeMinScope = prevMin
+	return aty, cv, ok
+}
+
+func (fc *funcChecker) checkGenericFieldAccess(st *types.Struct, isArenaRef, isOptChain bool, mem *ast.MemberExpr, call *ast.CallExpr, inf *ExprInfo, wrapRet func(types.Type) types.Type) types.Type {
+	if len(call.TypeArgs) > 0 {
+		fc.a.Rep.Errorf(call.Span, "`%s.field` does not take type arguments", st.String())
+	}
+	if len(call.Args) != 1 {
+		fc.a.Rep.Errorf(call.Span, "`v.field(f)` expects 1 argument (`comp.FieldInfo` or `const string`), got %d", len(call.Args))
+		for _, a := range call.Args {
+			fc.checkExpr(a, true)
+		}
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	aty, cv, ok := fc.evalComptimeArg(call.Args[0])
+	if !ok || cv == nil {
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+
+	var sf *types.StructField
+	fieldIdx := -1
+	switch {
+	case fc.a.Prog.StructFieldInfo != nil && aty.Equals(fc.a.Prog.StructFieldInfo):
+		if cv.kind != ctStruct || cv.st == nil || cv.st.refl == nil || cv.st.refl.Kind != "field" {
+			fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`v.field(f)` requires a `comp.FieldInfo` from `comp.fields_of[%s]()`", st.String())
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		if !cv.st.refl.TargetType.Equals(st) {
+			fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`comp.FieldInfo` belongs to %s, not %s", cv.st.refl.TargetType.String(), st.String())
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		idx := cv.st.refl.Index
+		if idx < 0 || idx >= len(st.Fields) {
+			fc.a.Rep.Errorf(call.Args[0].GetSpan(), "invalid `FieldInfo` index %d for struct %s", idx, st.String())
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		sf = &st.Fields[idx]
+		fieldIdx = idx
+
+	case aty.Equals(types.TypeString):
+		name := cv.s
+		for i := range st.Fields {
+			if st.Fields[i].Name == name {
+				sf = &st.Fields[i]
+				fieldIdx = i
+				break
+			}
+		}
+		if sf == nil {
+			if optF, _ := st.FieldByName(name + "?"); optF != nil {
+				fc.a.Rep.ErrorWithHint(
+					call.Args[0].GetSpan(),
+					fmt.Sprintf("struct %s has optional field %q, not %q", st.String(), name+"?", name),
+					fmt.Sprintf("write %q (including trailing `?`)", name+"?"),
+				)
+			} else {
+				fc.a.Rep.Errorf(call.Args[0].GetSpan(), "struct %s has no field %q", st.String(), name)
+			}
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+
+	default:
+		fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`v.field(f)` expects `comp.FieldInfo` or `string`, got %s", aty.String())
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+
+	if !IsExported(sf.Name) && !fc.a.SamePackageDir(fc.mod, st.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(st)) && !fc.a.hasDeriveAccess(fc.curFn, st) {
+		fc.a.Rep.Errorf(call.Span, "cannot access unexported field %q of struct %s outside its package", sf.Name, st.String())
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+
+	if isOptChain && !sf.Type.IsPlain() && !fc.a.supportsCopy(sf.Type) {
+		fc.a.Rep.Errorf(call.Span, "cannot clone Resource field %q (%s) through optional `?.field(...)`: type does not implement `Copyable`", sf.Name, sf.Type.String())
+	}
+
+	if isArenaRef {
+		inf.DerefStructPtr = true
+	} else if baseTy := fc.a.infoFor(mem.Base).Type; baseTy != nil {
+		if optB, isOpt := baseTy.(*types.Optional); isOpt && optB.IsBoxed() {
+			inf.DerefStructPtr = true
+		}
+	}
+	inf.BuiltinName = "struct.field"
+	inf.ResolvedField = sf.Name
+	inf.TupleFieldIdx = fieldIdx
+	return wrapRet(sf.Type)
+}
+
+func (fc *funcChecker) checkGenericElemAccess(recvTy types.Type, isArenaRef, isOptChain bool, mem *ast.MemberExpr, call *ast.CallExpr, inf *ExprInfo, wrapRet func(types.Type) types.Type) types.Type {
+	if len(call.TypeArgs) > 0 {
+		fc.a.Rep.Errorf(call.Span, "`%s.elem` does not take type arguments", recvTy.String())
+	}
+	if len(call.Args) != 1 {
+		fc.a.Rep.Errorf(call.Span, "`t.elem(e)` expects 1 argument (`comp.ElemInfo` or `const int`), got %d", len(call.Args))
+		for _, a := range call.Args {
+			fc.checkExpr(a, true)
+		}
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	aty, cv, ok := fc.evalComptimeArg(call.Args[0])
+	if !ok || cv == nil {
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+
+	var elemCount int
+	var elemAt func(int) types.Type
+	switch v := recvTy.(type) {
+	case *types.Tuple:
+		elemCount = len(v.Elems)
+		elemAt = func(i int) types.Type { return v.Elems[i] }
+	case *types.StackArray:
+		elemCount = int(v.Size)
+		elemAt = func(int) types.Type { return v.Elem }
+	default:
+		fc.a.Rep.Errorf(call.Span, "`t.elem` requires a tuple or fixed array `[N: T]`, got %s", recvTy.String())
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+
+	idx := -1
+	switch {
+	case fc.a.Prog.StructElemInfo != nil && aty.Equals(fc.a.Prog.StructElemInfo):
+		if cv.kind != ctStruct || cv.st == nil || cv.st.refl == nil || cv.st.refl.Kind != "elem" {
+			fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`t.elem(e)` requires a `comp.ElemInfo` from `comp.elems_of[%s]()`", recvTy.String())
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		if !cv.st.refl.TargetType.Equals(recvTy) {
+			fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`comp.ElemInfo` belongs to %s, not %s", cv.st.refl.TargetType.String(), recvTy.String())
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
+		}
+		idx = cv.st.refl.Index
+
+	case func() bool { p := types.UnderlyingPrimitive(aty); return p != nil && p.IsInteger() }():
+		idx = int(cv.asInt64())
+
+	default:
+		fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`t.elem(e)` expects `comp.ElemInfo` or `int`, got %s", aty.String())
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+
+	if idx < 0 || idx >= elemCount {
+		fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`elem` index %d out of bounds for %s (len %d)", idx, recvTy.String(), elemCount)
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+
+	elemTy := elemAt(idx)
+	if isOptChain && !elemTy.IsPlain() && !fc.a.supportsCopy(elemTy) {
+		fc.a.Rep.Errorf(call.Span, "cannot clone Resource element %d (%s) through optional `?.elem(...)`: type does not implement `Copyable`", idx, elemTy.String())
+	}
+	if isArenaRef {
+		inf.DerefStructPtr = true
+	}
+	inf.BuiltinName = "seq.elem"
+	inf.TupleFieldIdx = idx
+	return wrapRet(elemTy)
+}
+
+func (fc *funcChecker) checkDescriptorAttrMethod(descType, prefix string, mem *ast.MemberExpr, call *ast.CallExpr, isOptChain bool, inf *ExprInfo, wrapRet func(types.Type) types.Type) types.Type {
+	if !fc.inComptimeOnlyContext() {
+		fc.a.Rep.ErrorWithHint(
+			call.Span,
+			fmt.Sprintf("cannot call `@comptime_only` method `%s.%s` outside a compile-time context", descType, mem.Member),
+			"wrap the call in `comptime if(...)`, `comptime { ... }`, or a `@comptime_only` function",
+		)
+	}
+	if len(call.TypeArgs) > 0 {
+		fc.a.Rep.Errorf(call.Span, "`%s.%s` does not take type arguments", descType, mem.Member)
+	}
+	if len(call.Args) != 1 {
+		fc.a.Rep.Errorf(call.Span, "`%s.%s(name)` expects 1 `string` argument, got %d", descType, mem.Member, len(call.Args))
+		for _, a := range call.Args {
+			fc.checkExpr(a, true)
+		}
+	} else {
+		fc.checkSignatureArgs([]types.FuncParam{{Name: "name", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, nil, call.Span)
+	}
+	inf.BuiltinName = prefix + "." + mem.Member
+	if mem.Member == "has_attr" {
+		return wrapRet(types.TypeBool)
+	}
+	var ret types.Type = types.TypeInvalid
+	if fc.a.Prog.StructAttrInfo != nil {
+		ret = types.NewOptional(fc.a.Prog.StructAttrInfo)
+	}
+	return wrapRet(ret)
+}
+
+func (fc *funcChecker) resolveVariantInfoArg(en *types.Enum, arg ast.Expr, ctx string) (*types.EnumVariant, int, bool) {
+	aty, cv, ok := fc.evalComptimeArg(arg)
+	if !ok || cv == nil {
+		return nil, -1, false
+	}
+	var vr *types.EnumVariant
+	idx := -1
+	switch {
+	case fc.a.Prog.StructVariantInfo != nil && aty.Equals(fc.a.Prog.StructVariantInfo):
+		if cv.kind != ctStruct || cv.st == nil || cv.st.refl == nil || cv.st.refl.Kind != "variant" {
+			fc.a.Rep.Errorf(arg.GetSpan(), "`%s` requires a `comp.VariantInfo` from `comp.variants_of[%s]()`", ctx, en.String())
+			return nil, -1, false
+		}
+		if !cv.st.refl.TargetType.Equals(en) {
+			fc.a.Rep.Errorf(arg.GetSpan(), "`comp.VariantInfo` belongs to %s, not %s", cv.st.refl.TargetType.String(), en.String())
+			return nil, -1, false
+		}
+		i := cv.st.refl.Index
+		if i < 0 || i >= len(en.Variants) {
+			fc.a.Rep.Errorf(arg.GetSpan(), "invalid `VariantInfo` index %d for enum %s", i, en.String())
+			return nil, -1, false
+		}
+		vr = &en.Variants[i]
+		idx = i
+	case aty.Equals(types.TypeString):
+		for i := range en.Variants {
+			if en.Variants[i].Name == cv.s {
+				vr = &en.Variants[i]
+				idx = i
+				break
+			}
+		}
+		if vr == nil {
+			fc.a.Rep.Errorf(arg.GetSpan(), "enum %s has no variant %q", en.String(), cv.s)
+			return nil, -1, false
+		}
+	default:
+		fc.a.Rep.Errorf(arg.GetSpan(), "`%s` expects `comp.VariantInfo` or `string`, got %s", ctx, aty.String())
+		return nil, -1, false
+	}
+
+	if !IsExported(vr.Name) && !fc.a.SamePackageDir(fc.mod, en.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(en)) && !fc.a.hasDeriveAccess(fc.curFn, en) {
+		fc.a.Rep.Errorf(arg.GetSpan(), "cannot access unexported variant `%s.%s` outside its package", en.Name, vr.Name)
+		return nil, -1, false
+	}
+	return vr, idx, true
+}
+
+func (fc *funcChecker) checkEnumIsVariant(en *types.Enum, mem *ast.MemberExpr, call *ast.CallExpr, inf *ExprInfo, wrapRet func(types.Type) types.Type) types.Type {
+	if len(call.TypeArgs) > 0 {
+		fc.a.Rep.Errorf(call.Span, "`%s.is_variant` does not take type arguments", en.String())
+	}
+	if en.IsComptimeOnly && !fc.inComptimeOnlyContext() {
+		fc.a.Rep.ErrorWithHint(
+			call.Span,
+			fmt.Sprintf("cannot inspect `@comptime_only` enum %s outside a compile-time context", en.Name),
+			"use it inside `comptime`, a `const` initializer, or another `@comptime_only` function",
+		)
+	}
+	if len(call.Args) != 1 {
+		fc.a.Rep.Errorf(call.Span, "`v.is_variant(vr)` expects 1 argument (`comp.VariantInfo` or `const string`), got %d", len(call.Args))
+		for _, a := range call.Args {
+			fc.checkExpr(a, true)
+		}
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	vr, idx, ok := fc.resolveVariantInfoArg(en, call.Args[0], "v.is_variant(vr)")
+	if !ok {
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	inf.BuiltinName = "enum.is_variant"
+	inf.EnumType = en
+	inf.EnumVariant = vr
+	inf.TupleFieldIdx = idx
+	return wrapRet(types.TypeBool)
+}
+
+func (fc *funcChecker) checkEnumPayloadAccess(en *types.Enum, isArenaRef, isOptChain bool, mem *ast.MemberExpr, call *ast.CallExpr, inf *ExprInfo, wrapRet func(types.Type) types.Type) types.Type {
+	_ = mem
+	if len(call.TypeArgs) > 0 {
+		fc.a.Rep.Errorf(call.Span, "`%s.payload` does not take type arguments", en.String())
+	}
+	if en.IsComptimeOnly && !fc.inComptimeOnlyContext() {
+		fc.a.Rep.ErrorWithHint(
+			call.Span,
+			fmt.Sprintf("cannot inspect `@comptime_only` enum %s outside a compile-time context", en.Name),
+			"use it inside `comptime`, a `const` initializer, or another `@comptime_only` function",
+		)
+	}
+	if len(call.Args) != 1 {
+		fc.a.Rep.Errorf(call.Span, "`v.payload(vr)` expects 1 argument (`comp.VariantInfo` or `const string`), got %d", len(call.Args))
+		for _, a := range call.Args {
+			fc.checkExpr(a, true)
+		}
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	vr, idx, ok := fc.resolveVariantInfoArg(en, call.Args[0], "v.payload(vr)")
+	if !ok {
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	if vr.Kind != types.VariantTuple || vr.Payload == nil {
+		fc.a.Rep.Errorf(call.Args[0].GetSpan(), "variant `%s.%s` has no payload", en.Name, vr.Name)
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	if isOptChain && !vr.Payload.IsPlain() && !fc.a.supportsCopy(vr.Payload) {
+		fc.a.Rep.Errorf(call.Span, "cannot clone Resource payload of variant %q (%s) through optional `?.payload(...)`: type does not implement `Copyable`", vr.Name, vr.Payload.String())
+	}
+	if isArenaRef {
+		inf.DerefStructPtr = true
+	}
+	inf.BuiltinName = "enum.payload"
+	inf.EnumType = en
+	inf.EnumVariant = vr
+	inf.TupleFieldIdx = idx
+	return wrapRet(vr.Payload)
+}
+
+func (fc *funcChecker) checkEnumAsVariant(en *types.Enum, isOptChain bool, mem *ast.MemberExpr, call *ast.CallExpr, inf *ExprInfo, wrapRet func(types.Type) types.Type) types.Type {
+	_ = mem
+	if len(call.TypeArgs) > 0 {
+		fc.a.Rep.Errorf(call.Span, "`%s.as_variant` does not take type arguments", en.String())
+	}
+	if en.IsComptimeOnly && !fc.inComptimeOnlyContext() {
+		fc.a.Rep.ErrorWithHint(
+			call.Span,
+			fmt.Sprintf("cannot inspect `@comptime_only` enum %s outside a compile-time context", en.Name),
+			"use it inside `comptime`, a `const` initializer, or another `@comptime_only` function",
+		)
+	}
+	if len(call.Args) != 1 {
+		fc.a.Rep.Errorf(call.Span, "`v.as_variant(vr)` expects 1 argument (`comp.VariantInfo` or `const string`), got %d", len(call.Args))
+		for _, a := range call.Args {
+			fc.checkExpr(a, true)
+		}
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	vr, idx, ok := fc.resolveVariantInfoArg(en, call.Args[0], "v.as_variant(vr)")
+	if !ok {
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	if vr.Kind != types.VariantTuple || vr.Payload == nil {
+		fc.a.Rep.Errorf(call.Args[0].GetSpan(), "variant `%s.%s` has no payload (use `v.is_variant(...)` instead)", en.Name, vr.Name)
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	inIfUnwrap := fc.ifUnwrapCondExpr == call && !isOptChain
+	if !inIfUnwrap && !vr.Payload.IsPlain() && !fc.a.supportsCopy(vr.Payload) {
+		fc.a.Rep.ErrorWithHint(
+			call.Span,
+			fmt.Sprintf("cannot extract non-Copyable Resource payload of variant %q (%s) outside `if (v.as_variant(vr) as p)`", vr.Name, vr.Payload.String()),
+			"use `if (v.as_variant(vr) as p): ...` to borrow the payload without copying",
+		)
+	}
+	inf.BuiltinName = "enum.as_variant"
+	inf.EnumType = en
+	inf.EnumVariant = vr
+	inf.TupleFieldIdx = idx
+	return wrapRet(types.NewOptional(vr.Payload))
+}
+
+func (fc *funcChecker) checkDescriptorImplementsMethod(descType, prefix string, mem *ast.MemberExpr, call *ast.CallExpr, isOptChain bool, inf *ExprInfo, wrapRet func(types.Type) types.Type) types.Type {
+	if !fc.inComptimeOnlyContext() {
+		fc.a.Rep.ErrorWithHint(
+			call.Span,
+			fmt.Sprintf("cannot call `@comptime_only` method `%s.%s` outside a compile-time context", descType, mem.Member),
+			"wrap the call in `comptime if(...)`, `comptime { ... }`, or a `@comptime_only` function",
+		)
+	}
+	if len(call.TypeArgs) > 0 {
+		fc.a.Rep.Errorf(call.Span, "`%s.%s` does not take type arguments", descType, mem.Member)
+	}
+	if len(call.Args) != 1 {
+		fc.a.Rep.Errorf(call.Span, "`%s.%s(Interface)` expects 1 interface argument, got %d", descType, mem.Member, len(call.Args))
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	ifc := fc.resolveInterfaceArgExpr(call.Args[0], descType+"."+mem.Member)
+	inf.BuiltinName = prefix + "." + mem.Member
+	inf.ResolvedIface = ifc
+	return wrapRet(types.TypeBool)
+}
+
 func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isOptChain, inMatchPattern bool, mem *ast.MemberExpr, call *ast.CallExpr) types.Type {
 	inf := fc.a.infoFor(call)
 	inf.CallKind = CallBuiltinMethod
@@ -1711,6 +2245,49 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
 			inf.BuiltinName = "f32.to_bits"
 			return wrapRet(types.TypeU32)
+		}
+	}
+
+	// `comp` descriptor predicates (`FieldInfo`, `VariantInfo`, `ElemInfo`)
+	if stRecv, isSt := recvTy.(*types.Struct); isSt {
+		switch {
+		case fc.a.Prog.StructFieldInfo != nil && stRecv == fc.a.Prog.StructFieldInfo:
+			switch mem.Member {
+			case "has_attr", "attr":
+				return fc.checkDescriptorAttrMethod("comp.FieldInfo", "comp_field", mem, call, isOptChain, inf, wrapRet)
+			case "implements":
+				return fc.checkDescriptorImplementsMethod("comp.FieldInfo", "comp_field", mem, call, isOptChain, inf, wrapRet)
+			}
+		case fc.a.Prog.StructVariantInfo != nil && stRecv == fc.a.Prog.StructVariantInfo:
+			switch mem.Member {
+			case "has_attr", "attr":
+				return fc.checkDescriptorAttrMethod("comp.VariantInfo", "comp_variant", mem, call, isOptChain, inf, wrapRet)
+			case "payload_implements":
+				return fc.checkDescriptorImplementsMethod("comp.VariantInfo", "comp_variant", mem, call, isOptChain, inf, wrapRet)
+			}
+		case fc.a.Prog.StructElemInfo != nil && stRecv == fc.a.Prog.StructElemInfo:
+			if mem.Member == "implements" {
+				return fc.checkDescriptorImplementsMethod("comp.ElemInfo", "comp_elem", mem, call, isOptChain, inf, wrapRet)
+			}
+		}
+		if mem.Member == "field" && isFieldInspectableStruct(stRecv) {
+			return fc.checkGenericFieldAccess(stRecv, isArenaRef, isOptChain, mem, call, inf, wrapRet)
+		}
+	}
+	if mem.Member == "elem" {
+		switch recvTy.(type) {
+		case *types.Tuple, *types.StackArray:
+			return fc.checkGenericElemAccess(recvTy, isArenaRef, isOptChain, mem, call, inf, wrapRet)
+		}
+	}
+	if enRecv, isEn := recvTy.(*types.Enum); isEn {
+		switch mem.Member {
+		case "is_variant":
+			return fc.checkEnumIsVariant(enRecv, mem, call, inf, wrapRet)
+		case "payload":
+			return fc.checkEnumPayloadAccess(enRecv, isArenaRef, isOptChain, mem, call, inf, wrapRet)
+		case "as_variant":
+			return fc.checkEnumAsVariant(enRecv, isOptChain, mem, call, inf, wrapRet)
 		}
 	}
 
@@ -1905,7 +2482,7 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 		inf.Type = types.TypeNever
 		return true, types.TypeNever
 
-	case "embed_str", "embed_bytes":
+	case "embed_str", "embed_bytes", "type_name", "kind_of", "fields_of", "variants_of", "elems_of", "attrs_of":
 		fc.a.Rep.ErrorWithHint(
 			call.Span,
 			fmt.Sprintf("`%s` belongs in the `comp` namespace (`comp.%s`)", name, name),
@@ -1916,13 +2493,18 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 		}
 		inf.CallKind = CallBuiltinFunc
 		inf.BuiltinName = "comp." + name
-		if name == "embed_bytes" {
+		switch name {
+		case "embed_bytes":
 			retTy := &types.Vector{Elem: types.TypeU8}
 			inf.Type = retTy
 			return true, retTy
+		case "type_name", "embed_str":
+			inf.Type = types.TypeString
+			return true, types.TypeString
+		default:
+			inf.Type = types.TypeInvalid
+			return true, types.TypeInvalid
 		}
-		inf.Type = types.TypeString
-		return true, types.TypeString
 
 	case "caller_location":
 		if len(call.Args) != 0 {
@@ -2014,24 +2596,138 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 		inf.BuiltinName = "exit"
 		inf.Type = types.TypeNever
 		return true, types.TypeNever
+
+	case "variant_index":
+		if len(call.TypeArgs) > 0 {
+			fc.a.Rep.Errorf(call.Span, "`variant_index(v)` does not take type arguments")
+		}
+		if len(call.Args) != 1 {
+			fc.a.Rep.Errorf(call.Span, "`variant_index(v)` expects 1 enum or result argument, got %d", len(call.Args))
+			for _, a := range call.Args {
+				fc.checkExpr(a, true)
+			}
+			inf.Type = types.TypeInt
+			return true, types.TypeInt
+		}
+		aty := fc.checkExpr(call.Args[0], true)
+		effTy := aty
+		if rf, isRef := effTy.(*types.Ref); isRef {
+			effTy = rf.Elem
+		}
+		en, ok := effTy.(*types.Enum)
+		if !ok {
+			if aty != types.TypeInvalid {
+				fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`variant_index(v)` requires an enum or result value, got %s", aty.String())
+			}
+			inf.Type = types.TypeInt
+			return true, types.TypeInt
+		}
+		if en.IsComptimeOnly && !fc.inComptimeOnlyContext() {
+			fc.a.Rep.ErrorWithHint(
+				call.Span,
+				fmt.Sprintf("cannot inspect `@comptime_only` enum %s outside a compile-time context", en.Name),
+				"use it inside `comptime`, a `const` initializer, or another `@comptime_only` function",
+			)
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "variant_index"
+		inf.EnumType = en
+		inf.Type = types.TypeInt
+		return true, types.TypeInt
+
+	case "make_variant":
+		if len(call.TypeArgs) != 1 {
+			fc.a.Rep.Errorf(call.Span, "`make_variant[T](vr, ...)` requires 1 enum or result type argument")
+			for _, a := range call.Args {
+				fc.checkExpr(a, true)
+			}
+			inf.Type = types.TypeInvalid
+			return true, types.TypeInvalid
+		}
+		targetTy := fc.a.resolveValueTypeOpts(fc.mod, call.TypeArgs[0], fc.subst, false, false)
+		en, ok := targetTy.(*types.Enum)
+		if !ok {
+			if targetTy != types.TypeInvalid {
+				fc.a.Rep.Errorf(call.TypeArgs[0].GetSpan(), "`make_variant[T](...)` requires an enum or result type argument, got %s", targetTy.String())
+			}
+			for _, a := range call.Args {
+				fc.checkExpr(a, true)
+			}
+			inf.Type = types.TypeInvalid
+			return true, types.TypeInvalid
+		}
+		if en.IsComptimeOnly && !fc.inComptimeOnlyContext() {
+			fc.a.Rep.ErrorWithHint(
+				call.Span,
+				fmt.Sprintf("cannot construct `@comptime_only` enum %s outside a compile-time context", en.Name),
+				"construct it inside `comptime`, a `const` initializer, or a `@comptime_only` function",
+			)
+		}
+		if len(call.Args) == 0 {
+			fc.a.Rep.Errorf(call.Span, "`make_variant[%s](vr, ...)` expects at least 1 argument", en.String())
+			inf.Type = types.TypeInvalid
+			return true, types.TypeInvalid
+		}
+		vr, idx, vOk := fc.resolveVariantInfoArg(en, call.Args[0], "make_variant")
+		if !vOk {
+			for _, a := range call.Args[1:] {
+				fc.checkExpr(a, true)
+			}
+			inf.Type = types.TypeInvalid
+			return true, types.TypeInvalid
+		}
+		if vr.Kind == types.VariantTuple && vr.Payload != nil {
+			fc.checkSignatureArgs([]types.FuncParam{{Name: "payload", Mode: types.ModeOwn, Type: vr.Payload}}, call.Args[1:], nil, call.Span)
+		} else if len(call.Args) != 1 {
+			fc.a.Rep.Errorf(call.Span, "unit variant `%s.%s` takes no payload argument", en.Name, vr.Name)
+			for _, a := range call.Args[1:] {
+				fc.checkExpr(a, true)
+			}
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "make_variant"
+		inf.EnumType = en
+		inf.EnumVariant = vr
+		inf.TupleFieldIdx = idx
+		inf.Type = en
+		return true, en
 	}
 	return false, nil
 }
 
-func (fc *funcChecker) checkCompNamespaceCall(mem *ast.MemberExpr, call *ast.CallExpr) types.Type {
+func (fc *funcChecker) checkCompNamespaceCall(mem *ast.MemberExpr, call *ast.CallExpr, inChain bool) types.Type {
 	inf := fc.a.infoFor(call)
-	if !fc.inComptimeOnlyContext() {
+	chainable := inChain && (mem.Member == "fields_of" || mem.Member == "variants_of" || mem.Member == "elems_of" || mem.Member == "attrs_of")
+	if !fc.inComptimeOnlyContext() && !chainable {
 		fc.a.Rep.ErrorWithHint(
 			call.Span,
 			fmt.Sprintf("cannot call `@comptime_only` builtin `comp.%s` outside a compile-time context", mem.Member),
 			"wrap the call in `comptime { ... }`, a `const` initializer, or a `@comptime_only` function",
 		)
 	}
-	if len(call.TypeArgs) > 0 {
-		fc.a.Rep.Errorf(call.Span, "`comp.%s` does not take type arguments", mem.Member)
+	noTypeArgs := func() {
+		if len(call.TypeArgs) > 0 {
+			fc.a.Rep.Errorf(call.Span, "`comp.%s` does not take type arguments", mem.Member)
+		}
+	}
+	requireOneQueryTypeArg := func() types.Type {
+		if len(call.TypeArgs) != 1 {
+			fc.a.Rep.Errorf(call.Span, "`comp.%s[T]()` requires 1 type argument", mem.Member)
+			return types.TypeInvalid
+		}
+		return fc.a.resolveQueryType(fc.mod, call.TypeArgs[0], fc.subst)
+	}
+	requireZeroValueArgs := func(sig string) {
+		if len(call.Args) != 0 {
+			fc.a.Rep.Errorf(call.Span, "`%s` expects 0 arguments, got %d", sig, len(call.Args))
+			for _, a := range call.Args {
+				fc.checkExpr(a, true)
+			}
+		}
 	}
 	switch mem.Member {
 	case "compile_error":
+		noTypeArgs()
 		if len(call.Args) != 1 {
 			fc.a.Rep.Errorf(call.Span, "`comp.compile_error(msg)` expects 1 `string` argument, got %d", len(call.Args))
 			for _, a := range call.Args {
@@ -2046,6 +2742,7 @@ func (fc *funcChecker) checkCompNamespaceCall(mem *ast.MemberExpr, call *ast.Cal
 		return types.TypeNever
 
 	case "log":
+		noTypeArgs()
 		if len(call.Args) != 1 {
 			fc.a.Rep.Errorf(call.Span, "`comp.log(val)` expects 1 argument, got %d", len(call.Args))
 			for _, a := range call.Args {
@@ -2065,6 +2762,7 @@ func (fc *funcChecker) checkCompNamespaceCall(mem *ast.MemberExpr, call *ast.Cal
 		return types.TypeVoid
 
 	case "embed_str":
+		noTypeArgs()
 		if len(call.Args) != 1 {
 			fc.a.Rep.Errorf(call.Span, "`comp.embed_str(path)` expects 1 `string` argument, got %d", len(call.Args))
 			for _, a := range call.Args {
@@ -2079,6 +2777,7 @@ func (fc *funcChecker) checkCompNamespaceCall(mem *ast.MemberExpr, call *ast.Cal
 		return types.TypeString
 
 	case "embed_bytes":
+		noTypeArgs()
 		if len(call.Args) != 1 {
 			fc.a.Rep.Errorf(call.Span, "`comp.embed_bytes(path)` expects 1 `string` argument, got %d", len(call.Args))
 			for _, a := range call.Args {
@@ -2093,11 +2792,132 @@ func (fc *funcChecker) checkCompNamespaceCall(mem *ast.MemberExpr, call *ast.Cal
 		inf.Type = retTy
 		return retTy
 
+	case "type_name":
+		ty := requireOneQueryTypeArg()
+		requireZeroValueArgs("comp.type_name[T]()")
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "comp.type_name"
+		inf.IntrinsicType = ty
+		inf.Type = types.TypeString
+		return types.TypeString
+
+	case "kind_of":
+		ty := requireOneQueryTypeArg()
+		requireZeroValueArgs("comp.kind_of[T]()")
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "comp.kind_of"
+		inf.IntrinsicType = ty
+		var retTy types.Type = types.TypeInvalid
+		if fc.a.Prog.EnumTypeKind != nil {
+			retTy = fc.a.Prog.EnumTypeKind
+		}
+		inf.Type = retTy
+		return retTy
+
+	case "fields_of":
+		ty := requireOneQueryTypeArg()
+		requireZeroValueArgs("comp.fields_of[T]()")
+		if ty != types.TypeInvalid {
+			if _, isTP := ty.(*types.TypeParamVar); !isTP {
+				if st, isSt := ty.(*types.Struct); !isSt || !isFieldInspectableStruct(st) {
+					fc.a.Rep.Errorf(call.Span, "`comp.fields_of[T]()` requires a struct type, got %s", ty.String())
+				}
+			}
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "comp.fields_of"
+		inf.IntrinsicType = ty
+		var retTy types.Type = types.TypeInvalid
+		if fc.a.Prog.StructFieldInfo != nil {
+			retTy = &types.Vector{Elem: fc.a.Prog.StructFieldInfo}
+		}
+		inf.Type = retTy
+		return retTy
+
+	case "variants_of":
+		ty := requireOneQueryTypeArg()
+		requireZeroValueArgs("comp.variants_of[T]()")
+		if ty != types.TypeInvalid {
+			if _, isTP := ty.(*types.TypeParamVar); !isTP {
+				if _, isEn := ty.(*types.Enum); !isEn {
+					fc.a.Rep.Errorf(call.Span, "`comp.variants_of[T]()` requires an enum or result type, got %s", ty.String())
+				}
+			}
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "comp.variants_of"
+		inf.IntrinsicType = ty
+		var retTy types.Type = types.TypeInvalid
+		if fc.a.Prog.StructVariantInfo != nil {
+			retTy = &types.Vector{Elem: fc.a.Prog.StructVariantInfo}
+		}
+		inf.Type = retTy
+		return retTy
+
+	case "elems_of":
+		ty := requireOneQueryTypeArg()
+		requireZeroValueArgs("comp.elems_of[T]()")
+		if ty != types.TypeInvalid {
+			if _, isTP := ty.(*types.TypeParamVar); !isTP {
+				switch ty.(type) {
+				case *types.Tuple, *types.StackArray:
+				default:
+					fc.a.Rep.Errorf(call.Span, "`comp.elems_of[T]()` requires a tuple or fixed array `[N: T]`, got %s", ty.String())
+				}
+			}
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "comp.elems_of"
+		inf.IntrinsicType = ty
+		var retTy types.Type = types.TypeInvalid
+		if fc.a.Prog.StructElemInfo != nil {
+			retTy = &types.Vector{Elem: fc.a.Prog.StructElemInfo}
+		}
+		inf.Type = retTy
+		return retTy
+
+	case "attrs_of":
+		ty := requireOneQueryTypeArg()
+		requireZeroValueArgs("comp.attrs_of[T]()")
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "comp.attrs_of"
+		inf.IntrinsicType = ty
+		var retTy types.Type = types.TypeInvalid
+		if fc.a.Prog.StructAttrInfo != nil {
+			retTy = &types.Vector{Elem: fc.a.Prog.StructAttrInfo}
+		}
+		inf.Type = retTy
+		return retTy
+
+	case "implements":
+		var targetTy types.Type = types.TypeInvalid
+		var ifc *types.Interface
+		if len(call.TypeArgs) != 2 {
+			fc.a.Rep.Errorf(call.Span, "`comp.implements[T, I]()` requires 2 type arguments")
+		} else {
+			targetTy = fc.a.resolveQueryType(fc.mod, call.TypeArgs[0], fc.subst)
+			iTy := fc.a.resolveQueryType(fc.mod, call.TypeArgs[1], fc.subst)
+			if iTy != types.TypeInvalid {
+				var ok bool
+				ifc, ok = iTy.(*types.Interface)
+				if !ok {
+					fc.a.Rep.Errorf(call.TypeArgs[1].GetSpan(), "`comp.implements[T, I]()` second type argument %s is not an interface", iTy.String())
+				}
+			}
+		}
+		requireZeroValueArgs("comp.implements[T, I]()")
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "comp.implements"
+		inf.IntrinsicType = targetTy
+		inf.ResolvedIface = ifc
+		inf.Type = types.TypeBool
+		return types.TypeBool
+
 	default:
 		fc.a.Rep.ErrorWithHint(
 			mem.Span,
 			fmt.Sprintf("unknown `comp` builtin %q", mem.Member),
-			"available `comp` builtins: `comp.compile_error`, `comp.log`, `comp.embed_str`, `comp.embed_bytes` (and target constant `comp.TARGET`)",
+			"available `comp` builtins: `comp.type_name`, `comp.kind_of`, `comp.fields_of`, `comp.variants_of`, `comp.elems_of`, `comp.attrs_of`, `comp.implements`, `comp.compile_error`, `comp.log`, `comp.embed_str`, `comp.embed_bytes` (and `comp.TARGET`)",
 		)
 		for _, a := range call.Args {
 			fc.checkExpr(a, true)

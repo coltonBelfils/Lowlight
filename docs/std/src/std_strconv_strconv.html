@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>strconv.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>strconv.ll</h1><p>Source of package <a href="../strconv.html"><code>std/strconv</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/strconv — Parsing and formatting conversions between strings and primitive scalar types.</span></span>
+<span class="src-line" id="L2"><span class="m">//</span></span>
+<span class="src-line" id="L3"><span class="m">// Provides optional-safe parsing (`to_int`, `to_float`, `to_bool`, [`parse_bool`]) and</span></span>
+<span class="src-line" id="L4"><span class="m">// configurable radix formatting (`to_hex`, `to_bin`, `to_oct`, `to_radix`) in pure Lowlight.</span></span>
+<span class="src-line" id="L5"></span>
+<span class="src-line" id="L6"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L7"><span class="m">// Parsing Functions (String -&gt; Value)</span></span>
+<span class="src-line" id="L8"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L9"></span>
+<span class="src-line" id="L10"><span class="m">// Parses a base-10 integer string into `?int`, returning `none` on invalid syntax or overflow.</span></span>
+<span class="src-line" id="L11"><span class="k">bind</span> parse_int_safe = (s: <span class="t">string</span>) ?<span class="t">int</span>: <span class="f">parse_int_radix</span>(s, <span class="n">10</span>)</span>
+<span class="src-line" id="L12"></span>
+<span class="src-line" id="L13"><span class="m">// Parses a floating-point number string into `?float`, returning `none` on invalid input.</span></span>
+<span class="src-line" id="L14"><span class="k">bind</span> parse_float_safe = (s: <span class="t">string</span>) ?<span class="t">float</span>: <span class="f">parse_float</span>(s)</span>
+<span class="src-line" id="L15"></span>
+<span class="src-line" id="L16"><span class="m">// Parses a case-sensitive boolean string (`&quot;true&quot;`/`&quot;1&quot;`/`&quot;yes&quot;`/`&quot;on&quot;` or `&quot;false&quot;`/`&quot;0&quot;`/`&quot;no&quot;`/`&quot;off&quot;`),</span></span>
+<span class="src-line" id="L17"><span class="m">// returning `none` if unrecognized.</span></span>
+<span class="src-line" id="L18"><span class="k">bind</span> parse_bool = (s: <span class="t">string</span>) ?<span class="t">bool</span>: {</span>
+<span class="src-line" id="L19">	<span class="k">let</span> trimmed = s.<span class="f">trim</span>()</span>
+<span class="src-line" id="L20">	<span class="k">if</span>(trimmed == <span class="s">&quot;true&quot;</span> <span class="k">or</span> trimmed == <span class="s">&quot;1&quot;</span> <span class="k">or</span> trimmed == <span class="s">&quot;yes&quot;</span> <span class="k">or</span> trimmed == <span class="s">&quot;on&quot;</span>): <span class="c">true</span></span>
+<span class="src-line" id="L21">	<span class="k">else</span> <span class="k">if</span>(trimmed == <span class="s">&quot;false&quot;</span> <span class="k">or</span> trimmed == <span class="s">&quot;0&quot;</span> <span class="k">or</span> trimmed == <span class="s">&quot;no&quot;</span> <span class="k">or</span> trimmed == <span class="s">&quot;off&quot;</span>): <span class="c">false</span></span>
+<span class="src-line" id="L22">	<span class="k">else</span>: <span class="c">none</span></span>
+<span class="src-line" id="L23">}</span>
+<span class="src-line" id="L24"></span>
+<span class="src-line" id="L25"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L26"><span class="m">// Formatting Methods on Primitive Types (int, float, bool)</span></span>
+<span class="src-line" id="L27"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L28"></span>
+<span class="src-line" id="L29"><span class="k">bind</span> _int_to_radix_with_case = (v: <span class="t">int</span>, radix: <span class="t">int</span>, upper: <span class="t">bool</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L30">	<span class="k">if</span>(radix &lt; <span class="n">2</span> <span class="k">or</span> radix &gt; <span class="n">36</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L31">	<span class="k">if</span>(v == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;0&quot;</span></span>
+<span class="src-line" id="L32">	<span class="k">let</span> is_neg = v &lt; <span class="n">0</span></span>
+<span class="src-line" id="L33">	<span class="k">let</span> mag: <span class="t">u64</span> = <span class="k">if</span>(is_neg): <span class="t">u64</span>(<span class="n">0</span>) - <span class="t">u64</span>(v) <span class="k">else</span>: <span class="t">u64</span>(v)</span>
+<span class="src-line" id="L34">	<span class="k">let</span> r: <span class="t">u64</span> = <span class="t">u64</span>(radix)</span>
+<span class="src-line" id="L35">	<span class="k">let</span> chars = <span class="k">if</span>(upper): <span class="s">&quot;0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ&quot;</span></span>
+<span class="src-line" id="L36">	<span class="k">else</span>: <span class="s">&quot;0123456789abcdefghijklmnopqrstuvwxyz&quot;</span></span>
+<span class="src-line" id="L37">	<span class="k">let</span> rev = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L38">	<span class="k">for</span>(mag &gt; <span class="t">u64</span>(<span class="n">0</span>)): {</span>
+<span class="src-line" id="L39">		<span class="k">let</span> rem = <span class="t">int</span>(mag % r)</span>
+<span class="src-line" id="L40">		rev.<span class="f">push_byte</span>(chars.<span class="f">byte_at</span>(rem))</span>
+<span class="src-line" id="L41">		mag /= r</span>
+<span class="src-line" id="L42">	}</span>
+<span class="src-line" id="L43">	<span class="k">if</span>(is_neg): rev.<span class="f">push</span>(<span class="s">&quot;-&quot;</span>)</span>
+<span class="src-line" id="L44">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L45">	<span class="k">let</span> n_rev = rev.<span class="f">len</span>()</span>
+<span class="src-line" id="L46">	<span class="k">let</span> i = n_rev - <span class="n">1</span></span>
+<span class="src-line" id="L47">	<span class="k">for</span>(i &gt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L48">		out.<span class="f">push</span>(rev[i..i + <span class="n">1</span>])</span>
+<span class="src-line" id="L49">		i -= <span class="n">1</span></span>
+<span class="src-line" id="L50">	}</span>
+<span class="src-line" id="L51">	out</span>
+<span class="src-line" id="L52">}</span>
+<span class="src-line" id="L53"></span>
+<span class="src-line" id="L54"><span class="m">// Formats this [`int`] as lowercase digits in base `radix` (`2..=36`), returning `&quot;&quot;` if invalid.</span></span>
+<span class="src-line" id="L55"><span class="k">bind</span> <span class="t">int</span>.to_radix = (<span class="k">self</span>, radix: <span class="t">int</span>) <span class="t">string</span>: <span class="f">_int_to_radix_with_case</span>(<span class="k">self</span>, radix, <span class="c">false</span>)</span>
+<span class="src-line" id="L56"></span>
+<span class="src-line" id="L57"><span class="m">// Formats this [`int`] as uppercase digits in base `radix` (`2..=36`), returning `&quot;&quot;` if invalid.</span></span>
+<span class="src-line" id="L58"><span class="k">bind</span> <span class="t">int</span>.to_radix_upper = (<span class="k">self</span>, radix: <span class="t">int</span>) <span class="t">string</span>: <span class="f">_int_to_radix_with_case</span>(<span class="k">self</span>, radix, <span class="c">true</span>)</span>
+<span class="src-line" id="L59"></span>
+<span class="src-line" id="L60"><span class="m">// Formats this [`int`] in hexadecimal (uppercase when `upper` is `true`).</span></span>
+<span class="src-line" id="L61"><span class="k">bind</span> <span class="t">int</span>.to_hex = (<span class="k">self</span>, upper: <span class="t">bool</span>) <span class="t">string</span>: <span class="f">_int_to_radix_with_case</span>(<span class="k">self</span>, <span class="n">16</span>, upper)</span>
+<span class="src-line" id="L62"></span>
+<span class="src-line" id="L63"><span class="m">// Formats this [`int`] in base-2 binary without a `&quot;0b&quot;` prefix.</span></span>
+<span class="src-line" id="L64"><span class="k">bind</span> <span class="t">int</span>.to_bin = (<span class="k">self</span>) <span class="t">string</span>: <span class="f">_int_to_radix_with_case</span>(<span class="k">self</span>, <span class="n">2</span>, <span class="c">false</span>)</span>
+<span class="src-line" id="L65"></span>
+<span class="src-line" id="L66"><span class="m">// Formats this [`int`] in base-8 octal without a `&quot;0o&quot;` prefix.</span></span>
+<span class="src-line" id="L67"><span class="k">bind</span> <span class="t">int</span>.to_oct = (<span class="k">self</span>) <span class="t">string</span>: <span class="f">_int_to_radix_with_case</span>(<span class="k">self</span>, <span class="n">8</span>, <span class="c">false</span>)</span>
+<span class="src-line" id="L68"></span>
+<span class="src-line" id="L69"><span class="m">// Formats signed integer `v` in base 10.</span></span>
+<span class="src-line" id="L70"><span class="k">bind</span> int_to_str = (v: <span class="t">int</span>) <span class="t">string</span>: <span class="s">&quot;</span>$v<span class="s">&quot;</span></span>
+<span class="src-line" id="L71"></span>
+<span class="src-line" id="L72"><span class="m">// Function form of [`int.to_radix`].</span></span>
+<span class="src-line" id="L73"><span class="k">bind</span> int_to_radix = (v: <span class="t">int</span>, radix: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">to_radix</span>(radix)</span>
+<span class="src-line" id="L74"></span>
+<span class="src-line" id="L75"><span class="m">// Function form of [`int.to_radix_upper`].</span></span>
+<span class="src-line" id="L76"><span class="k">bind</span> int_to_radix_upper = (v: <span class="t">int</span>, radix: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">to_radix_upper</span>(radix)</span>
+<span class="src-line" id="L77"></span>
+<span class="src-line" id="L78"><span class="m">// Function form of [`int.to_hex`].</span></span>
+<span class="src-line" id="L79"><span class="k">bind</span> int_to_hex = (v: <span class="t">int</span>, upper: <span class="t">bool</span>) <span class="t">string</span>: v.<span class="f">to_hex</span>(upper)</span>
+<span class="src-line" id="L80"></span>
+<span class="src-line" id="L81"><span class="m">// Function form of [`int.to_bin`].</span></span>
+<span class="src-line" id="L82"><span class="k">bind</span> int_to_bin = (v: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">to_bin</span>()</span>
+<span class="src-line" id="L83"></span>
+<span class="src-line" id="L84"><span class="m">// Function form of [`int.to_oct`].</span></span>
+<span class="src-line" id="L85"><span class="k">bind</span> int_to_oct = (v: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">to_oct</span>()</span>
+<span class="src-line" id="L86"></span>
+<span class="src-line" id="L87"><span class="m">// Formats float `v` with `precision` fractional digits (or compact general format if `&lt; 0`).</span></span>
+<span class="src-line" id="L88"><span class="k">bind</span> float_to_str = (v: <span class="t">float</span>, precision: <span class="t">int</span>) <span class="t">string</span>:</span>
+<span class="src-line" id="L89">	<span class="k">if</span>(precision &lt; <span class="n">0</span>): <span class="s">&quot;</span>$v<span class="s">&quot;</span> <span class="k">else</span>: <span class="f">format_float_prec</span>(v, precision)</span>
+<span class="src-line" id="L90"></span>
+<span class="src-line" id="L91"><span class="m">// Formats float `v` in exponential scientific notation with `precision` fractional digits.</span></span>
+<span class="src-line" id="L92"><span class="k">bind</span> float_to_exp = (v: <span class="t">float</span>, precision: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">to_exp</span>(precision)</span>
+<span class="src-line" id="L93"></span>
+<span class="src-line" id="L94"><span class="m">// Formats boolean `v` as `&quot;true&quot;` or `&quot;false&quot;`.</span></span>
+<span class="src-line" id="L95"><span class="k">bind</span> bool_to_str = (v: <span class="t">bool</span>) <span class="t">string</span>:</span>
+<span class="src-line" id="L96">	<span class="k">if</span>(v): <span class="s">&quot;true&quot;</span> <span class="k">else</span>: <span class="s">&quot;false&quot;</span></span>
+<span class="src-line" id="L97"></span>
+<span class="src-line" id="L98"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L99"><span class="m">// String Extension Methods (Uniform Method Call Syntax)</span></span>
+<span class="src-line" id="L100"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L101"></span>
+<span class="src-line" id="L102"><span class="m">// Parses this string as a base-10 signed integer, returning `none` if invalid or out of range.</span></span>
+<span class="src-line" id="L103"><span class="k">bind</span> <span class="t">string</span>.to_int = (<span class="k">self</span>) ?<span class="t">int</span>: <span class="f">parse_int_radix</span>(<span class="k">self</span>, <span class="n">10</span>)</span>
+<span class="src-line" id="L104"></span>
+<span class="src-line" id="L105"><span class="m">// Parses this string as a signed integer in base `radix` (`2..=36`), or returns `none`.</span></span>
+<span class="src-line" id="L106"><span class="k">bind</span> <span class="t">string</span>.to_int_radix = (<span class="k">self</span>, radix: <span class="t">int</span>) ?<span class="t">int</span>: <span class="f">parse_int_radix</span>(<span class="k">self</span>, radix)</span>
+<span class="src-line" id="L107"></span>
+<span class="src-line" id="L108"><span class="m">// Parses this string as a floating-point number, returning `none` on invalid syntax.</span></span>
+<span class="src-line" id="L109"><span class="k">bind</span> <span class="t">string</span>.to_float = (<span class="k">self</span>) ?<span class="t">float</span>: <span class="f">parse_float_safe</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L110"></span>
+<span class="src-line" id="L111"><span class="m">// Parses this string as a boolean token using [`parse_bool`].</span></span>
+<span class="src-line" id="L112"><span class="k">bind</span> <span class="t">string</span>.to_bool = (<span class="k">self</span>) ?<span class="t">bool</span>: <span class="f">parse_bool</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L113"></span>
+<span class="src-line" id="L114"><span class="m">// Reports whether this string parses cleanly as a floating-point number.</span></span>
+<span class="src-line" id="L115"><span class="k">bind</span> <span class="t">string</span>.is_numeric = (<span class="k">self</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L116">	<span class="k">let</span> f? = <span class="f">parse_float_safe</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L117">	<span class="k">if</span>(f?): <span class="c">true</span> <span class="k">else</span>: <span class="c">false</span></span>
+<span class="src-line" id="L118">}</span>
+<span class="src-line" id="L119"></span>
+<span class="src-line" id="L120"><span class="m">// Reports whether this string parses cleanly as a base-10 integer.</span></span>
+<span class="src-line" id="L121"><span class="k">bind</span> <span class="t">string</span>.is_int = (<span class="k">self</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L122">	<span class="k">let</span> n? = <span class="f">parse_int_radix</span>(<span class="k">self</span>, <span class="n">10</span>)</span>
+<span class="src-line" id="L123">	<span class="k">if</span>(n?): <span class="c">true</span> <span class="k">else</span>: <span class="c">false</span></span>
+<span class="src-line" id="L124">}</span>
+<span class="src-line" id="L125"></span>
+<span class="src-line" id="L126"><span class="m">// Reports whether this string parses cleanly as a float (alias for [`string.is_numeric`]).</span></span>
+<span class="src-line" id="L127"><span class="k">bind</span> <span class="t">string</span>.is_float = (<span class="k">self</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L128">	<span class="k">let</span> f? = <span class="f">parse_float_safe</span>(<span class="k">self</span>)</span>
+<span class="src-line" id="L129">	<span class="k">if</span>(f?): <span class="c">true</span> <span class="k">else</span>: <span class="c">false</span></span>
+<span class="src-line" id="L130">}</span>
+<span class="src-line" id="L131"></span>
+<span class="src-line" id="L132"><span class="m">// Reports whether this string parses cleanly as a base-16 hexadecimal integer.</span></span>
+<span class="src-line" id="L133"><span class="k">bind</span> <span class="t">string</span>.is_hex = (<span class="k">self</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L134">	<span class="k">let</span> h? = <span class="f">parse_int_radix</span>(<span class="k">self</span>, <span class="n">16</span>)</span>
+<span class="src-line" id="L135">	<span class="k">if</span>(h?): <span class="c">true</span> <span class="k">else</span>: <span class="c">false</span></span>
+<span class="src-line" id="L136">}</span>
+<span class="src-line" id="L137"></span>
+<span class="src-line" id="L138"><span class="m">// Reports whether this string parses cleanly as a base-2 binary integer.</span></span>
+<span class="src-line" id="L139"><span class="k">bind</span> <span class="t">string</span>.is_bin = (<span class="k">self</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L140">	<span class="k">let</span> b? = <span class="f">parse_int_radix</span>(<span class="k">self</span>, <span class="n">2</span>)</span>
+<span class="src-line" id="L141">	<span class="k">if</span>(b?): <span class="c">true</span> <span class="k">else</span>: <span class="c">false</span></span>
+<span class="src-line" id="L142">}</span>
+<span class="src-line" id="L143"></span>
+<span class="src-line" id="L144"><span class="m">// Reports whether this string parses cleanly as a base-8 octal integer.</span></span>
+<span class="src-line" id="L145"><span class="k">bind</span> <span class="t">string</span>.is_oct = (<span class="k">self</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L146">	<span class="k">let</span> o? = <span class="f">parse_int_radix</span>(<span class="k">self</span>, <span class="n">8</span>)</span>
+<span class="src-line" id="L147">	<span class="k">if</span>(o?): <span class="c">true</span> <span class="k">else</span>: <span class="c">false</span></span>
+<span class="src-line" id="L148">}</span>
+<span class="src-line" id="L149"></span>
+<span class="src-line" id="L150"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L151"><span class="m">// Inline Unit Tests</span></span>
+<span class="src-line" id="L152"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L153"></span>
+<span class="src-line" id="L154"><span class="a">@test</span>(<span class="s">&quot;strconv integer parsing (decimal and boundaries)&quot;</span>)</span>
+<span class="src-line" id="L155"><span class="k">bind</span> test_strconv_parse_int = (): {</span>
+<span class="src-line" id="L156">	<span class="k">let</span> n0? = <span class="s">&quot;0&quot;</span>.<span class="f">to_int</span>()</span>
+<span class="src-line" id="L157">	<span class="f">assert</span>(n0? == <span class="n">0</span>, <span class="s">&quot;0 to_int&quot;</span>)</span>
+<span class="src-line" id="L158"></span>
+<span class="src-line" id="L159">	<span class="k">let</span> n1? = <span class="s">&quot;42&quot;</span>.<span class="f">to_int</span>()</span>
+<span class="src-line" id="L160">	<span class="f">assert</span>(n1? == <span class="n">42</span>, <span class="s">&quot;42 to_int&quot;</span>)</span>
+<span class="src-line" id="L161"></span>
+<span class="src-line" id="L162">	<span class="k">let</span> n2? = <span class="s">&quot;-123&quot;</span>.<span class="f">to_int</span>()</span>
+<span class="src-line" id="L163">	<span class="f">assert</span>(n2? == -<span class="n">123</span>, <span class="s">&quot;-123 to_int&quot;</span>)</span>
+<span class="src-line" id="L164"></span>
+<span class="src-line" id="L165">	<span class="k">let</span> n3? = <span class="s">&quot;+77&quot;</span>.<span class="f">to_int</span>()</span>
+<span class="src-line" id="L166">	<span class="f">assert</span>(n3? == <span class="n">77</span>, <span class="s">&quot;+77 to_int&quot;</span>)</span>
+<span class="src-line" id="L167"></span>
+<span class="src-line" id="L168">	<span class="k">let</span> n4? = <span class="s">&quot;   999 \t&quot;</span>.<span class="f">to_int</span>()</span>
+<span class="src-line" id="L169">	<span class="f">assert</span>(n4? == <span class="c">none</span>, <span class="s">&quot;surrounding whitespace is rejected&quot;</span>)</span>
+<span class="src-line" id="L170">	<span class="f">assert</span>(<span class="s">&quot;   999 \t&quot;</span>.<span class="f">trim</span>().<span class="f">to_int</span>() == <span class="n">999</span>, <span class="s">&quot;trim first to accept whitespace&quot;</span>)</span>
+<span class="src-line" id="L171">	<span class="f">assert</span>(<span class="s">&quot; 1.5&quot;</span>.<span class="f">is_float</span>() == <span class="s">&quot; 1.5&quot;</span>.<span class="f">is_numeric</span>() <span class="k">and</span> <span class="k">not</span> <span class="s">&quot; 7&quot;</span>.<span class="f">is_int</span>(), <span class="s">&quot;predicates agree with the parsers&quot;</span>)</span>
+<span class="src-line" id="L172"></span>
+<span class="src-line" id="L173">	<span class="k">let</span> bad1? = <span class="s">&quot;&quot;</span>.<span class="f">to_int</span>()</span>
+<span class="src-line" id="L174">	<span class="f">assert</span>(bad1? == <span class="c">none</span>, <span class="s">&quot;empty is none&quot;</span>)</span>
+<span class="src-line" id="L175"></span>
+<span class="src-line" id="L176">	<span class="k">let</span> bad2? = <span class="s">&quot;abc&quot;</span>.<span class="f">to_int</span>()</span>
+<span class="src-line" id="L177">	<span class="f">assert</span>(bad2? == <span class="c">none</span>, <span class="s">&quot;alpha is none&quot;</span>)</span>
+<span class="src-line" id="L178"></span>
+<span class="src-line" id="L179">	<span class="k">let</span> bad3? = <span class="s">&quot;12a34&quot;</span>.<span class="f">to_int</span>()</span>
+<span class="src-line" id="L180">	<span class="f">assert</span>(bad3? == <span class="c">none</span>, <span class="s">&quot;mixed is none&quot;</span>)</span>
+<span class="src-line" id="L181"></span>
+<span class="src-line" id="L182">	<span class="k">let</span> max_int? = <span class="s">&quot;9223372036854775807&quot;</span>.<span class="f">to_int</span>()</span>
+<span class="src-line" id="L183">	<span class="f">assert</span>(max_int? == <span class="n">9223372036854775807</span>, <span class="s">&quot;INT64_MAX to_int&quot;</span>)</span>
+<span class="src-line" id="L184"></span>
+<span class="src-line" id="L185">	<span class="k">let</span> min_int? = <span class="s">&quot;-9223372036854775808&quot;</span>.<span class="f">to_int</span>()</span>
+<span class="src-line" id="L186">	<span class="f">assert</span>(min_int? == -<span class="n">9223372036854775807</span> - <span class="n">1</span>, <span class="s">&quot;INT64_MIN to_int&quot;</span>)</span>
+<span class="src-line" id="L187">}</span>
+<span class="src-line" id="L188"></span>
+<span class="src-line" id="L189"><span class="a">@test</span>(<span class="s">&quot;strconv radix parsing (binary, octal, hex, base36)&quot;</span>)</span>
+<span class="src-line" id="L190"><span class="k">bind</span> test_strconv_radix = (): {</span>
+<span class="src-line" id="L191">	<span class="k">let</span> b1? = <span class="s">&quot;1011&quot;</span>.<span class="f">to_int_radix</span>(<span class="n">2</span>)</span>
+<span class="src-line" id="L192">	<span class="f">assert</span>(b1? == <span class="n">11</span>, <span class="s">&quot;bin 1011&quot;</span>)</span>
+<span class="src-line" id="L193"></span>
+<span class="src-line" id="L194">	<span class="k">let</span> b2? = <span class="s">&quot;0b1011&quot;</span>.<span class="f">to_int_radix</span>(<span class="n">2</span>)</span>
+<span class="src-line" id="L195">	<span class="f">assert</span>(b2? == <span class="n">11</span>, <span class="s">&quot;bin 0b1011&quot;</span>)</span>
+<span class="src-line" id="L196"></span>
+<span class="src-line" id="L197">	<span class="k">let</span> o1? = <span class="s">&quot;77&quot;</span>.<span class="f">to_int_radix</span>(<span class="n">8</span>)</span>
+<span class="src-line" id="L198">	<span class="f">assert</span>(o1? == <span class="n">63</span>, <span class="s">&quot;oct 77&quot;</span>)</span>
+<span class="src-line" id="L199"></span>
+<span class="src-line" id="L200">	<span class="k">let</span> o2? = <span class="s">&quot;0o77&quot;</span>.<span class="f">to_int_radix</span>(<span class="n">8</span>)</span>
+<span class="src-line" id="L201">	<span class="f">assert</span>(o2? == <span class="n">63</span>, <span class="s">&quot;oct 0o77&quot;</span>)</span>
+<span class="src-line" id="L202"></span>
+<span class="src-line" id="L203">	<span class="k">let</span> h1? = <span class="s">&quot;FF&quot;</span>.<span class="f">to_int_radix</span>(<span class="n">16</span>)</span>
+<span class="src-line" id="L204">	<span class="f">assert</span>(h1? == <span class="n">255</span>, <span class="s">&quot;hex FF&quot;</span>)</span>
+<span class="src-line" id="L205"></span>
+<span class="src-line" id="L206">	<span class="k">let</span> h2? = <span class="s">&quot;0x1A&quot;</span>.<span class="f">to_int_radix</span>(<span class="n">16</span>)</span>
+<span class="src-line" id="L207">	<span class="f">assert</span>(h2? == <span class="n">26</span>, <span class="s">&quot;hex 0x1A&quot;</span>)</span>
+<span class="src-line" id="L208"></span>
+<span class="src-line" id="L209">	<span class="k">let</span> h3? = <span class="s">&quot;-0xff&quot;</span>.<span class="f">to_int_radix</span>(<span class="n">16</span>)</span>
+<span class="src-line" id="L210">	<span class="f">assert</span>(h3? == -<span class="n">255</span>, <span class="s">&quot;hex -0xff&quot;</span>)</span>
+<span class="src-line" id="L211"></span>
+<span class="src-line" id="L212">	<span class="k">let</span> z? = <span class="s">&quot;z&quot;</span>.<span class="f">to_int_radix</span>(<span class="n">36</span>)</span>
+<span class="src-line" id="L213">	<span class="f">assert</span>(z? == <span class="n">35</span>, <span class="s">&quot;base36 z&quot;</span>)</span>
+<span class="src-line" id="L214"></span>
+<span class="src-line" id="L215">	<span class="k">let</span> inv1? = <span class="s">&quot;10&quot;</span>.<span class="f">to_int_radix</span>(<span class="n">1</span>)</span>
+<span class="src-line" id="L216">	<span class="f">assert</span>(inv1? == <span class="c">none</span>, <span class="s">&quot;radix 1 is none&quot;</span>)</span>
+<span class="src-line" id="L217"></span>
+<span class="src-line" id="L218">	<span class="k">let</span> inv2? = <span class="s">&quot;10&quot;</span>.<span class="f">to_int_radix</span>(<span class="n">37</span>)</span>
+<span class="src-line" id="L219">	<span class="f">assert</span>(inv2? == <span class="c">none</span>, <span class="s">&quot;radix 37 is none&quot;</span>)</span>
+<span class="src-line" id="L220">}</span>
+<span class="src-line" id="L221"></span>
+<span class="src-line" id="L222"><span class="a">@test</span>(<span class="s">&quot;strconv integer formatting: to_bin, to_oct, to_hex, to_radix&quot;</span>)</span>
+<span class="src-line" id="L223"><span class="k">bind</span> test_strconv_format_int = (): {</span>
+<span class="src-line" id="L224">	<span class="f">assert</span>(<span class="n">42</span>.<span class="f">to_bin</span>() == <span class="s">&quot;101010&quot;</span>, <span class="s">&quot;42 to_bin&quot;</span>)</span>
+<span class="src-line" id="L225">	<span class="f">assert</span>(<span class="n">63</span>.<span class="f">to_oct</span>() == <span class="s">&quot;77&quot;</span>, <span class="s">&quot;63 to_oct&quot;</span>)</span>
+<span class="src-line" id="L226">	<span class="f">assert</span>(<span class="n">255</span>.<span class="f">to_hex</span>(<span class="c">false</span>) == <span class="s">&quot;ff&quot;</span>, <span class="s">&quot;255 to_hex lower&quot;</span>)</span>
+<span class="src-line" id="L227">	<span class="f">assert</span>(<span class="n">255</span>.<span class="f">to_hex</span>(<span class="c">true</span>) == <span class="s">&quot;FF&quot;</span>, <span class="s">&quot;255 to_hex upper&quot;</span>)</span>
+<span class="src-line" id="L228">	<span class="f">assert</span>((-<span class="n">255</span>).<span class="f">to_hex</span>(<span class="c">true</span>) == <span class="s">&quot;-FF&quot;</span>, <span class="s">&quot;-255 to_hex upper&quot;</span>)</span>
+<span class="src-line" id="L229">	<span class="f">assert</span>(<span class="n">35</span>.<span class="f">to_radix</span>(<span class="n">36</span>) == <span class="s">&quot;z&quot;</span>, <span class="s">&quot;35 to_radix 36&quot;</span>)</span>
+<span class="src-line" id="L230">	<span class="f">assert</span>(<span class="n">0</span>.<span class="f">to_bin</span>() == <span class="s">&quot;0&quot;</span>, <span class="s">&quot;0 to_bin&quot;</span>)</span>
+<span class="src-line" id="L231">	<span class="f">assert</span>(<span class="n">0</span>.<span class="f">to_hex</span>(<span class="c">false</span>) == <span class="s">&quot;0&quot;</span>, <span class="s">&quot;0 to_hex&quot;</span>)</span>
+<span class="src-line" id="L232">}</span>
+<span class="src-line" id="L233"></span>
+<span class="src-line" id="L234"><span class="a">@test</span>(<span class="s">&quot;strconv float and boolean parsing/formatting&quot;</span>)</span>
+<span class="src-line" id="L235"><span class="k">bind</span> test_strconv_float_and_bool = (): {</span>
+<span class="src-line" id="L236">	<span class="k">let</span> f? = <span class="s">&quot;3.1415&quot;</span>.<span class="f">to_float</span>()</span>
+<span class="src-line" id="L237">	<span class="f">assert</span>(f? != <span class="c">none</span>, <span class="s">&quot;parse valid float&quot;</span>)</span>
+<span class="src-line" id="L238"></span>
+<span class="src-line" id="L239">	<span class="k">let</span> bad_f? = <span class="s">&quot;not_a_float&quot;</span>.<span class="f">to_float</span>()</span>
+<span class="src-line" id="L240">	<span class="f">assert</span>(bad_f? == <span class="c">none</span>, <span class="s">&quot;parse invalid float is none&quot;</span>)</span>
+<span class="src-line" id="L241"></span>
+<span class="src-line" id="L242">	<span class="f">assert</span>(<span class="f">float_to_str</span>(<span class="n">3.14159</span>, <span class="n">2</span>) == <span class="s">&quot;3.14&quot;</span>, <span class="s">&quot;float_to_str precision 2&quot;</span>)</span>
+<span class="src-line" id="L243"></span>
+<span class="src-line" id="L244">	<span class="k">let</span> b_true? = <span class="s">&quot;true&quot;</span>.<span class="f">to_bool</span>()</span>
+<span class="src-line" id="L245">	<span class="f">assert</span>(b_true? == <span class="c">true</span>, <span class="s">&quot;parse true&quot;</span>)</span>
+<span class="src-line" id="L246"></span>
+<span class="src-line" id="L247">	<span class="k">let</span> b_yes? = <span class="s">&quot;yes&quot;</span>.<span class="f">to_bool</span>()</span>
+<span class="src-line" id="L248">	<span class="f">assert</span>(b_yes? == <span class="c">true</span>, <span class="s">&quot;parse yes&quot;</span>)</span>
+<span class="src-line" id="L249"></span>
+<span class="src-line" id="L250">	<span class="k">let</span> b_one? = <span class="s">&quot;1&quot;</span>.<span class="f">to_bool</span>()</span>
+<span class="src-line" id="L251">	<span class="f">assert</span>(b_one? == <span class="c">true</span>, <span class="s">&quot;parse 1&quot;</span>)</span>
+<span class="src-line" id="L252"></span>
+<span class="src-line" id="L253">	<span class="k">let</span> b_false? = <span class="s">&quot;false&quot;</span>.<span class="f">to_bool</span>()</span>
+<span class="src-line" id="L254">	<span class="f">assert</span>(b_false? == <span class="c">false</span>, <span class="s">&quot;parse false&quot;</span>)</span>
+<span class="src-line" id="L255"></span>
+<span class="src-line" id="L256">	<span class="k">let</span> b_no? = <span class="s">&quot;no&quot;</span>.<span class="f">to_bool</span>()</span>
+<span class="src-line" id="L257">	<span class="f">assert</span>(b_no? == <span class="c">false</span>, <span class="s">&quot;parse no&quot;</span>)</span>
+<span class="src-line" id="L258"></span>
+<span class="src-line" id="L259">	<span class="k">let</span> b_zero? = <span class="s">&quot;0&quot;</span>.<span class="f">to_bool</span>()</span>
+<span class="src-line" id="L260">	<span class="f">assert</span>(b_zero? == <span class="c">false</span>, <span class="s">&quot;parse 0&quot;</span>)</span>
+<span class="src-line" id="L261"></span>
+<span class="src-line" id="L262">	<span class="k">let</span> b_invalid? = <span class="s">&quot;maybe&quot;</span>.<span class="f">to_bool</span>()</span>
+<span class="src-line" id="L263">	<span class="f">assert</span>(b_invalid? == <span class="c">none</span>, <span class="s">&quot;parse maybe is none&quot;</span>)</span>
+<span class="src-line" id="L264">}</span>
+<span class="src-line" id="L265"></span>
+<span class="src-line" id="L266"><span class="a">@test</span>(<span class="s">&quot;strconv string type check predicates&quot;</span>)</span>
+<span class="src-line" id="L267"><span class="k">bind</span> test_strconv_predicates = (): {</span>
+<span class="src-line" id="L268">	<span class="f">assert</span>(<span class="s">&quot;12345&quot;</span>.<span class="f">is_int</span>(), <span class="s">&quot;12345 is_int&quot;</span>)</span>
+<span class="src-line" id="L269">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;123.45&quot;</span>.<span class="f">is_int</span>(), <span class="s">&quot;123.45 is not is_int&quot;</span>)</span>
+<span class="src-line" id="L270"></span>
+<span class="src-line" id="L271">	<span class="f">assert</span>(<span class="s">&quot;123.45&quot;</span>.<span class="f">is_float</span>(), <span class="s">&quot;123.45 is_float&quot;</span>)</span>
+<span class="src-line" id="L272">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;abc&quot;</span>.<span class="f">is_float</span>(), <span class="s">&quot;abc is not is_float&quot;</span>)</span>
+<span class="src-line" id="L273"></span>
+<span class="src-line" id="L274">	<span class="f">assert</span>(<span class="s">&quot;10101&quot;</span>.<span class="f">is_bin</span>(), <span class="s">&quot;10101 is_bin&quot;</span>)</span>
+<span class="src-line" id="L275">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;10201&quot;</span>.<span class="f">is_bin</span>(), <span class="s">&quot;10201 is not is_bin&quot;</span>)</span>
+<span class="src-line" id="L276"></span>
+<span class="src-line" id="L277">	<span class="f">assert</span>(<span class="s">&quot;1a2f&quot;</span>.<span class="f">is_hex</span>(), <span class="s">&quot;1a2f is_hex&quot;</span>)</span>
+<span class="src-line" id="L278">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;1a2g&quot;</span>.<span class="f">is_hex</span>(), <span class="s">&quot;1a2g is not is_hex&quot;</span>)</span>
+<span class="src-line" id="L279"></span>
+<span class="src-line" id="L280">	<span class="f">assert</span>(<span class="s">&quot;77&quot;</span>.<span class="f">is_oct</span>(), <span class="s">&quot;77 is_oct&quot;</span>)</span>
+<span class="src-line" id="L281">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;88&quot;</span>.<span class="f">is_oct</span>(), <span class="s">&quot;88 is not is_oct&quot;</span>)</span>
+<span class="src-line" id="L282">}</span>
+<span class="src-line" id="L283"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

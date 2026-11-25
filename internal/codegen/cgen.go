@@ -514,6 +514,9 @@ func (g *cEmitter) emitForwardPrototypes() {
 	}
 
 	for _, en := range g.prog.Enums {
+		if en.IsTagged {
+			continue
+		}
 		g.line("static inline ll_string %s(%s v);", ir.ToStrFnName(en), CType(en))
 		g.line("static inline uint64_t %s(%s v);", ir.HashFnName(en), CType(en))
 	}
@@ -522,52 +525,30 @@ func (g *cEmitter) emitForwardPrototypes() {
 		if !t.IsPlain() {
 			g.line("static inline void %s(%s* p);", ir.DropFnName(t), CType(t))
 		}
-		if g.canCopy(t) && !t.IsPlain() {
-			g.line("static inline %s %s(%s v);", CType(t), ir.CopyFnName(t), CType(t))
-		}
-		hasEq := CanEqType(g.prog, t)
-		if hasEq {
-			switch t.(type) {
-			case *types.Struct, *types.Optional, *types.Enum, *types.Tuple:
-				g.line("static inline bool %s(%s a, %s b);", ir.EqFnName(t), CType(t), CType(t))
+		switch t.(type) {
+		case *types.Distinct, *types.Vector, *types.StackArray, *types.Func, *types.Interface:
+			if g.canCopy(t) && !t.IsPlain() {
+				g.line("static inline %s %s(%s v);", CType(t), ir.CopyFnName(t), CType(t))
 			}
 		}
-		if g.prog.Checked.LookupConcreteMethod(t, "cmp") != nil {
-			g.line("static inline int64_t %s(%s a, %s b);", ir.CmpFnName(t), CType(t), CType(t))
-		} else if d, isDist := t.(*types.Distinct); isDist {
-			if g.prog.Checked.LookupConcreteMethod(d.Base, "cmp") != nil || types.UnderlyingPrimitive(d.Base) != nil {
-				g.line("static inline int64_t %s(%s a, %s b);", ir.CmpFnName(t), CType(t), CType(t))
+		if d, isDist := t.(*types.Distinct); isDist {
+			if CanCmpType(g.prog, d) {
+				g.line("static inline int64_t %s(%s a, %s b);", ir.CmpFnName(d), CType(d), CType(d))
 			}
-		} else if tup, isTup := t.(*types.Tuple); isTup {
-			if g.canCmp(tup) {
-				g.line("static inline int64_t %s(%s a, %s b);", ir.CmpFnName(t), CType(t), CType(t))
+			if CanHashType(g.prog, d) {
+				g.line("static inline uint64_t %s(%s v);", ir.HashFnName(d), CType(d))
 			}
 		}
-		if CanHashType(g.prog, t) {
-			switch t.(type) {
-			case *types.Distinct, *types.Tuple:
-				g.line("static inline uint64_t %s(%s v);", ir.HashFnName(t), CType(t))
+		switch t.(type) {
+		case *types.Distinct, *types.Vector, *types.StackArray, *types.Interface:
+			if g.canToString(t) {
+				g.line("static inline ll_string %s(%s v);", ir.ToStrFnName(t), CType(t))
 			}
-		}
-		if g.prog.Checked.LookupConcreteMethod(t, "hash") != nil {
-			g.line("static inline uint64_t %s(%s v);", ir.HashFnName(t), CType(t))
-		}
-		if g.canToString(t) {
-			g.line("static inline ll_string %s(%s v);", ir.ToStrFnName(t), CType(t))
 		}
 		if st, isSt := t.(*types.Struct); isSt && st.BoxedOptional {
 			optSt := types.NewOptional(st)
 			g.line("static inline %s* %s(%s v);", st.CName, ir.BoxOptFnName(st), st.CName)
 			g.line("static inline void %s(%s** p);", ir.DropFnName(optSt), st.CName)
-			if g.canCopy(optSt) {
-				g.line("static inline %s* %s(%s* p);", st.CName, ir.CopyFnName(optSt), st.CName)
-			}
-			if CanEqType(g.prog, optSt) {
-				g.line("static inline bool %s(%s* a, %s* b);", ir.EqFnName(optSt), st.CName, st.CName)
-			}
-			if g.canToString(optSt) {
-				g.line("static inline ll_string %s(%s* p);", ir.ToStrFnName(optSt), st.CName)
-			}
 		}
 	}
 	g.line("")
@@ -589,8 +570,11 @@ func (g *cEmitter) hashMixFnName() string {
 }
 
 func (g *cEmitter) emitSynthesizedTypeHelpers() {
-	// Enum helpers
+	// Simple tag enum helpers (for built-in compiler/reflect enums; tagged enums use Lowlight methods)
 	for _, en := range g.prog.Enums {
+		if en.IsTagged {
+			continue
+		}
 		cEn := CType(en)
 		g.line("static inline uint64_t %s(%s v) { return %s((uint64_t)v); }", ir.HashFnName(en), cEn, g.hashMixFnName())
 		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(en), cEn)
@@ -677,19 +661,11 @@ func (g *cEmitter) emitDistinctHelpers(d *types.Distinct) {
 	if CanHashType(g.prog, d) {
 		g.line("static inline uint64_t %s(%s v) { return %s; }", ir.HashFnName(d), cD, g.hashInlineExpr(d.Base, fmt.Sprintf("((%s)v)", cBase)))
 	}
-	if customCmp := g.prog.Checked.LookupConcreteMethod(d, "cmp"); customCmp != nil {
-		g.line("static inline int64_t %s(%s a, %s b) { return %s(a, b); }", ir.CmpFnName(d), cD, cD, customCmp.CName)
-	} else if customBase := g.prog.Checked.LookupConcreteMethod(d.Base, "cmp"); customBase != nil {
-		g.line("static inline int64_t %s(%s a, %s b) { return %s((%s)a, (%s)b); }", ir.CmpFnName(d), cD, cD, customBase.CName, cBase, cBase)
-	} else if tup, isTup := d.Base.(*types.Tuple); isTup && g.canCmp(tup) {
-		g.line("static inline int64_t %s(%s a, %s b) { return %s((%s)a, (%s)b); }", ir.CmpFnName(d), cD, cD, ir.CmpFnName(tup), cBase, cBase)
-	} else if p := types.UnderlyingPrimitive(d.Base); p != nil {
-		if p.Kind == types.PrimString {
-			if cmpM := g.prog.Checked.LookupConcreteMethod(types.TypeString, "cmp"); cmpM != nil {
-				g.line("static inline int64_t %s(%s a, %s b) { return %s((ll_string)a, (ll_string)b); }", ir.CmpFnName(d), cD, cD, cmpM.CName)
-			}
+	if CanCmpType(g.prog, d) {
+		if customCmp := g.prog.Checked.LookupConcreteMethod(d, "cmp"); customCmp != nil {
+			g.line("static inline int64_t %s(%s a, %s b) { return %s(a, b); }", ir.CmpFnName(d), cD, cD, customCmp.CName)
 		} else {
-			g.line("static inline int64_t %s(%s a, %s b) { return (a < b) ? -1 : ((a > b) ? 1 : 0); }", ir.CmpFnName(d), cD, cD)
+			g.line("static inline int64_t %s(%s a, %s b) { return %s; }", ir.CmpFnName(d), cD, cD, g.cmpInlineExpr(d.Base, fmt.Sprintf("((%s)a)", cBase), fmt.Sprintf("((%s)b)", cBase)))
 		}
 	}
 	if g.canToString(d) {
@@ -699,24 +675,6 @@ func (g *cEmitter) emitDistinctHelpers(d *types.Distinct) {
 			g.line("static inline ll_string %s(%s v) { return %s((%s)v); }", ir.ToStrFnName(d), cD, g.toStrFn(d.Base), cBase)
 		}
 	}
-}
-
-// emitCustomEqAndCmp emits `ll_eq__` / `ll_cmp__` wrappers delegating to user-defined
-// `.eq` / `.cmp` methods when present, returning true if equality was satisfied.
-func (g *cEmitter) emitCustomEqAndCmp(t types.Type, cTy string) bool {
-	handledEq := false
-	if custom := g.prog.Checked.LookupConcreteMethod(t, "eq"); custom != nil {
-		g.line("static inline bool %s(%s a, %s b) { return %s(a, b); }", ir.EqFnName(t), cTy, cTy, custom.CName)
-		handledEq = true
-	}
-	if customCmp := g.prog.Checked.LookupConcreteMethod(t, "cmp"); customCmp != nil {
-		if !handledEq {
-			g.line("static inline bool %s(%s a, %s b) { return %s(a, b) == 0; }", ir.EqFnName(t), cTy, cTy, customCmp.CName)
-			handledEq = true
-		}
-		g.line("static inline int64_t %s(%s a, %s b) { return %s(a, b); }", ir.CmpFnName(t), cTy, cTy, customCmp.CName)
-	}
-	return handledEq
 }
 
 func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
@@ -742,77 +700,6 @@ func (g *cEmitter) emitTaggedEnumHelpers(en *types.Enum) {
 		g.line("    *p = (%s){0};", cEn)
 		g.line("}")
 	}
-
-	// copy
-	if g.canCopy(en) && !en.IsPlain() {
-		g.line("static inline %s %s(%s v) {", cEn, ir.CopyFnName(en), cEn)
-		if custom := g.prog.Checked.LookupConcreteMethod(en, "copy"); custom != nil {
-			g.line("    return %s(v);", custom.CName)
-		} else {
-			g.line("    %s out = (%s){0};", cEn, cEn)
-			g.line("    out.tag = v.tag;")
-			g.line("    switch (v.tag) {")
-			for _, vr := range en.Variants {
-				if vr.Kind == types.VariantTuple && vr.Payload != nil {
-					if vr.Payload.IsPlain() {
-						g.line("        case %d: out.data.%s = v.data.%s; break;", vr.Value, vr.CName, vr.CName)
-					} else {
-						g.line("        case %d: out.data.%s = %s(v.data.%s); break;", vr.Value, vr.CName, g.copyExpr(vr.Payload), vr.CName)
-					}
-				}
-			}
-			g.line("        default: break;")
-			g.line("    }")
-			g.line("    return out;")
-		}
-		g.line("}")
-	}
-
-	// eq / cmp
-	if !g.emitCustomEqAndCmp(en, cEn) && CanEqType(g.prog, en) {
-		g.line("static inline bool %s(%s a, %s b) {", ir.EqFnName(en), cEn, cEn)
-		g.line("    if (a.tag != b.tag) return false;")
-		g.line("    switch (a.tag) {")
-		for _, vr := range en.Variants {
-			if vr.Kind == types.VariantTuple && vr.Payload != nil {
-				g.line("        case %d: return %s;", vr.Value, g.eqInlineExpr(vr.Payload, "a.data."+vr.CName, "b.data."+vr.CName))
-			}
-		}
-		g.line("        default: return true;")
-		g.line("    }")
-		g.line("}")
-	}
-
-	// to_string
-	if g.canToString(en) {
-		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(en), cEn)
-		if custom := g.prog.Checked.LookupConcreteMethod(en, "to_string"); custom != nil {
-			g.line("    return %s(v);", g.toStrFn(en))
-		} else {
-			g.line("    switch (v.tag) {")
-			for _, vr := range en.Variants {
-				switch vr.Kind {
-				case types.VariantUnit:
-					label := fmt.Sprintf("%s.%s", en.Name, vr.Name)
-					g.line("        case %d: return ll_str_lit(%q, %dLL);", vr.Value, label, len(label))
-				case types.VariantTuple:
-					prefix := fmt.Sprintf("%s.%s(", en.Name, vr.Name)
-					g.line("        case %d: {", vr.Value)
-					g.line("            ll_string s = ll_str_lit(%q, %dLL);", prefix, len(prefix))
-					g.line("            ll_string p0 = %s(v.data.%s);", g.toStrFn(vr.Payload), vr.CName)
-					g.line("            ll_str_push(&s, p0);")
-					g.line("            ll_drop__string(&p0);")
-					g.line("            ll_str_push(&s, ll_str_lit(\")\", 1LL));")
-					g.line("            return s;")
-					g.line("        }")
-				}
-			}
-			fallback := en.Name + "(?)"
-			g.line("        default: return ll_str_lit(%q, %dLL);", fallback, len(fallback))
-			g.line("    }")
-		}
-		g.line("}")
-	}
 }
 
 func (g *cEmitter) emitStructHelpers(st *types.Struct) {
@@ -836,49 +723,6 @@ func (g *cEmitter) emitStructHelpers(st *types.Struct) {
 		g.line("    *p = (%s){0};", cSt)
 		g.line("}")
 	}
-
-	// copy
-	if g.canCopy(st) && !st.IsPlain() {
-		g.line("static inline %s %s(%s v) {", cSt, ir.CopyFnName(st), cSt)
-		if custom := g.prog.Checked.LookupConcreteMethod(st, "copy"); custom != nil {
-			g.line("    return %s(v);", custom.CName)
-		} else {
-			g.line("    %s out = (%s){0};", cSt, cSt)
-			g.line("    (void)v;")
-			for _, f := range st.Fields {
-				if f.Type.IsPlain() {
-					g.line("    out.%s = v.%s;", f.CName, f.CName)
-				} else {
-					g.line("    out.%s = %s(v.%s);", f.CName, g.copyExpr(f.Type), f.CName)
-				}
-			}
-			g.line("    return out;")
-		}
-		g.line("}")
-	}
-
-	// eq / cmp
-	if !g.emitCustomEqAndCmp(st, cSt) && CanEqType(g.prog, st) {
-		g.line("static inline bool %s(%s a, %s b) {", ir.EqFnName(st), cSt, cSt)
-		g.line("    (void)a; (void)b;")
-		for _, f := range st.Fields {
-			g.line("    if (!(%s)) return false;", stripOuterParens(g.eqInlineExpr(f.Type, "a."+f.CName, "b."+f.CName)))
-		}
-		g.line("    return true;")
-		g.line("}")
-	}
-
-	// to_string (only if custom `to_string` defined)
-	if g.canToString(st) {
-		if custom := g.prog.Checked.LookupConcreteMethod(st, "to_string"); custom != nil {
-			g.line("static inline ll_string %s(%s v) { return %s(v); }", ir.ToStrFnName(st), cSt, g.toStrFn(st))
-		}
-	}
-
-	// hash (if custom `hash` method defined)
-	if custom := g.prog.Checked.LookupConcreteMethod(st, "hash"); custom != nil {
-		g.line("static inline uint64_t %s(%s v) { return %s(v); }", ir.HashFnName(st), cSt, custom.CName)
-	}
 }
 
 func (g *cEmitter) emitBoxedOptionalHelpers(st *types.Struct) {
@@ -899,28 +743,6 @@ func (g *cEmitter) emitBoxedOptionalHelpers(st *types.Struct) {
 	g.line("    ll_free(*p);")
 	g.line("    *p = NULL;")
 	g.line("}")
-
-	if g.canCopy(optSt) {
-		g.line("static inline %s* %s(%s* p) {", cSt, ir.CopyFnName(optSt), cSt)
-		g.line("    if (!p) return NULL;")
-		g.line("    return %s(%s(*p));", ir.BoxOptFnName(st), g.copyExpr(st))
-		g.line("}")
-	}
-
-	if CanEqType(g.prog, optSt) {
-		g.line("static inline bool %s(%s* a, %s* b) {", ir.EqFnName(optSt), cSt, cSt)
-		g.line("    if (!a && !b) return true;")
-		g.line("    if (!a || !b) return false;")
-		g.line("    return %s;", g.eqInlineExpr(st, "*a", "*b"))
-		g.line("}")
-	}
-
-	if g.canToString(optSt) {
-		g.line("static inline ll_string %s(%s* p) {", ir.ToStrFnName(optSt), cSt)
-		g.line("    if (!p) return ll_str_lit(\"none\", 4LL);")
-		g.line("    return %s(*p);", g.toStrFn(st))
-		g.line("}")
-	}
 }
 
 func (g *cEmitter) emitFlatOptionalHelpers(o *types.Optional) {
@@ -928,25 +750,6 @@ func (g *cEmitter) emitFlatOptionalHelpers(o *types.Optional) {
 	if !o.IsPlain() {
 		g.line("static inline void %s(%s* p) {", ir.DropFnName(o), cOpt)
 		g.line("    if (p && p->has_value) { %s(&p->value); p->has_value = false; }", ir.DropFnName(o.Elem))
-		g.line("}")
-	}
-	if g.canCopy(o) && !o.IsPlain() {
-		g.line("static inline %s %s(%s v) {", cOpt, ir.CopyFnName(o), cOpt)
-		g.line("    if (!v.has_value) return (%s){ .has_value = false };", cOpt)
-		g.line("    return (%s){ .has_value = true, .value = %s(v.value) };", cOpt, g.copyExpr(o.Elem))
-		g.line("}")
-	}
-	if CanEqType(g.prog, o) {
-		g.line("static inline bool %s(%s a, %s b) {", ir.EqFnName(o), cOpt, cOpt)
-		g.line("    if (!a.has_value && !b.has_value) return true;")
-		g.line("    if (!a.has_value || !b.has_value) return false;")
-		g.line("    return %s;", g.eqInlineExpr(o.Elem, "a.value", "b.value"))
-		g.line("}")
-	}
-	if g.canToString(o) {
-		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(o), cOpt)
-		g.line("    if (!v.has_value) return ll_str_lit(\"none\", 4LL);")
-		g.line("    return %s(v.value);", g.toStrFn(o.Elem))
 		g.line("}")
 	}
 }
@@ -993,66 +796,6 @@ func (g *cEmitter) emitTupleHelpers(tup *types.Tuple) {
 				g.line("    %s(&p->_%d);", ir.DropFnName(el), i)
 			}
 		}
-		g.line("}")
-	}
-	if g.canCopy(tup) && !tup.IsPlain() {
-		g.line("static inline %s %s(%s v) {", cTup, ir.CopyFnName(tup), cTup)
-		g.line("    %s res;", cTup)
-		for i, el := range tup.Elems {
-			if el.IsPlain() {
-				g.line("    res._%d = v._%d;", i, i)
-			} else {
-				g.line("    res._%d = %s(v._%d);", i, g.copyExpr(el), i)
-			}
-		}
-		if len(tup.Elems) == 0 {
-			g.line("    res._ll_empty = 0;")
-		}
-		g.line("    return res;")
-		g.line("}")
-	}
-	if CanEqType(g.prog, tup) {
-		g.line("static inline bool %s(%s a, %s b) {", ir.EqFnName(tup), cTup, cTup)
-		g.line("    (void)a; (void)b;")
-		for i, el := range tup.Elems {
-			g.line("    if (!(%s)) return false;", stripOuterParens(g.eqInlineExpr(el, fmt.Sprintf("a._%d", i), fmt.Sprintf("b._%d", i))))
-		}
-		g.line("    return true;")
-		g.line("}")
-	}
-	if g.canCmp(tup) {
-		g.line("static inline int64_t %s(%s a, %s b) {", ir.CmpFnName(tup), cTup, cTup)
-		g.line("    (void)a; (void)b;")
-		for i, el := range tup.Elems {
-			g.line("    { int64_t c = %s; if (c != 0) return c; }", g.cmpInlineExpr(el, fmt.Sprintf("a._%d", i), fmt.Sprintf("b._%d", i)))
-		}
-		g.line("    return 0;")
-		g.line("}")
-	}
-	if g.canToString(tup) {
-		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(tup), cTup)
-		g.line("    (void)v;")
-		g.line("    ll_string s = ll_str_lit(\"+[\", 2LL);")
-		for i, el := range tup.Elems {
-			if i > 0 {
-				g.line("    ll_str_push(&s, ll_str_lit(\", \", 2LL));")
-			}
-			g.line("    ll_string p%d = %s(v._%d);", i, g.toStrFn(el), i)
-			g.line("    ll_str_push(&s, p%d);", i)
-			g.line("    ll_drop__string(&p%d);", i)
-		}
-		g.line("    ll_str_push(&s, ll_str_lit(\"]\", 1LL));")
-		g.line("    return s;")
-		g.line("}")
-	}
-	if CanHashType(g.prog, tup) {
-		g.line("static inline uint64_t %s(%s v) {", ir.HashFnName(tup), cTup)
-		g.line("    (void)v;")
-		g.line("    uint64_t h = 1469598103934665603ULL;")
-		for i, el := range tup.Elems {
-			g.line("    h = (h ^ %s) * 1099511628211ULL;", g.hashInlineExpr(el, fmt.Sprintf("v._%d", i)))
-		}
-		g.line("    return h;")
 		g.line("}")
 	}
 }
@@ -1728,13 +1471,13 @@ func (g *cEmitter) emitExpr(e ir.Expr) string {
 	case *ir.ExprDrop:
 		return fmt.Sprintf("%s(%s)", ir.DropFnName(v.ValType), g.emitExpr(v.Ptr))
 	case *ir.ExprCopy:
-		return fmt.Sprintf("%s(%s)", ir.CopyFnName(v.ValType), g.emitExpr(v.Val))
+		return fmt.Sprintf("%s(%s)", g.copyExpr(v.ValType), g.emitExpr(v.Val))
 	case *ir.ExprEq:
-		return fmt.Sprintf("%s(%s, %s)", ir.EqFnName(v.ValType), g.emitExpr(v.Left), g.emitExpr(v.Right))
+		return g.eqInlineExpr(v.ValType, g.emitExpr(v.Left), g.emitExpr(v.Right))
 	case *ir.ExprCmp:
-		return fmt.Sprintf("%s(%s, %s)", ir.CmpFnName(v.ValType), g.emitExpr(v.Left), g.emitExpr(v.Right))
+		return g.cmpInlineExpr(v.ValType, g.emitExpr(v.Left), g.emitExpr(v.Right))
 	case *ir.ExprHash:
-		return fmt.Sprintf("%s(%s)", ir.HashFnName(v.ValType), g.emitExpr(v.Val))
+		return g.hashInlineExpr(v.ValType, g.emitExpr(v.Val))
 	case *ir.ExprVecPush:
 		return fmt.Sprintf("ll_vec_push__%s(%s, %s)", v.VecType.Mangled(), g.emitExpr(v.VecPtr), g.emitExpr(v.Item))
 	default:
@@ -2066,11 +1809,10 @@ func (g *cEmitter) emitInstrList(indent int, ins []ir.Instr) {
 			if v.Expr != nil {
 				code := g.emitExpr(v.Expr)
 				if code != "" {
-					switch v.Expr.(type) {
-					case *ir.ExprLocal, *ir.ExprGlobal, *ir.ExprField:
-						// A discarded value, such as a statement chain's unused success value.
+					if v.Expr.Type() != nil && !v.Expr.Type().Equals(types.TypeVoid) {
+						// Explicitly cast discarded non-void expressions to void so -Wunused-value stays quiet.
 						g.indentLine(indent, "(void)(%s);", code)
-					default:
+					} else {
 						g.indentLine(indent, "%s;", code)
 					}
 				}
@@ -2309,32 +2051,6 @@ func (g *cEmitter) emitCTestMain() {
 // Capability & Inline Expression Helpers
 // -----------------------------------------------------------------------------
 
-func (g *cEmitter) canCmp(t types.Type) bool {
-	if custom := g.prog.Checked.LookupConcreteMethod(t, "cmp"); custom != nil {
-		return true
-	}
-	if p, isPrim := t.(*types.Primitive); isPrim {
-		return p.IsNumeric() || p.Kind == types.PrimBool || p.Kind == types.PrimChar || p.Kind == types.PrimString
-	}
-	switch v := t.(type) {
-	case *types.Distinct:
-		return g.canCmp(v.Base)
-	case *types.Enum:
-		return !v.IsTagged
-	case *types.Tuple:
-		if len(v.Elems) == 0 {
-			return false
-		}
-		for _, el := range v.Elems {
-			if !g.canCmp(el) {
-				return false
-			}
-		}
-		return true
-	}
-	return false
-}
-
 func (g *cEmitter) cmpInlineExpr(t types.Type, a, b string) string {
 	if customCmp := g.prog.Checked.LookupConcreteMethod(t, "cmp"); customCmp != nil {
 		return fmt.Sprintf("%s(%s, %s)", customCmp.CName, a, b)
@@ -2350,8 +2066,6 @@ func (g *cEmitter) cmpInlineExpr(t types.Type, a, b string) string {
 	switch v := t.(type) {
 	case *types.Distinct:
 		return g.cmpInlineExpr(v.Base, fmt.Sprintf("(%s)(%s)", CType(v.Base), a), fmt.Sprintf("(%s)(%s)", CType(v.Base), b))
-	case *types.Tuple:
-		return fmt.Sprintf("%s(%s, %s)", ir.CmpFnName(v), a, b)
 	case *types.Enum:
 		if !v.IsTagged {
 			return fmt.Sprintf("(((%s) < (%s)) ? -1LL : (((%s) > (%s)) ? 1LL : 0LL))", a, b, a, b)
@@ -2389,17 +2103,15 @@ func (g *cEmitter) eqInlineExpr(t types.Type, a, b string) string {
 		}
 		return fmt.Sprintf("((%s) == (%s))", a, b)
 	case *types.Enum:
-		if v.IsTagged {
-			return fmt.Sprintf("%s(%s, %s)", ir.EqFnName(t), a, b)
+		if !v.IsTagged {
+			return fmt.Sprintf("((%s) == (%s))", a, b)
 		}
-		return fmt.Sprintf("((%s) == (%s))", a, b)
+		return "false"
 	case *types.Ptr, *types.Ref:
 		return fmt.Sprintf("((%s) == (%s))", a, b)
 	case *types.Distinct:
 		cBase := CType(v.Base)
 		return g.eqInlineExpr(v.Base, fmt.Sprintf("((%s)(%s))", cBase, a), fmt.Sprintf("((%s)(%s))", cBase, b))
-	case *types.Struct, *types.Optional, *types.Tuple:
-		return fmt.Sprintf("%s(%s, %s)", ir.EqFnName(t), a, b)
 	default:
 		return fmt.Sprintf("((%s) == (%s))", a, b)
 	}
@@ -2412,10 +2124,11 @@ func (g *cEmitter) hashInlineExpr(t types.Type, expr string) string {
 	switch v := t.(type) {
 	case *types.Distinct:
 		return fmt.Sprintf("%s(%s)", ir.HashFnName(v), expr)
-	case *types.Tuple:
-		return fmt.Sprintf("%s(%s)", ir.HashFnName(v), expr)
 	case *types.Enum:
-		return fmt.Sprintf("%s((uint64_t)(%s))", g.hashMixFnName(), expr)
+		if !v.IsTagged {
+			return fmt.Sprintf("%s((uint64_t)(%s))", g.hashMixFnName(), expr)
+		}
+		return "0ULL"
 	case *types.Ptr:
 		return fmt.Sprintf("%s((uint64_t)(uintptr_t)(%s))", g.hashMixFnName(), expr)
 	default:
@@ -2448,48 +2161,11 @@ func canCopyVisited(prog *ir.Program, t types.Type, seen map[types.Type]bool) bo
 		return canCopyVisited(prog, v.Elem, seen)
 	case *types.StackArray:
 		return canCopyVisited(prog, v.Elem, seen)
-	case *types.Tuple:
-		for _, el := range v.Elems {
-			if !canCopyVisited(prog, el, seen) {
-				return false
-			}
-		}
-		return true
-	case *types.Optional:
-		return canCopyVisited(prog, v.Elem, seen)
 	case *types.Distinct:
 		return canCopyVisited(prog, v.Base, seen)
 	case *types.Interface:
 		return !v.UsesSelf
 	case *types.Func:
-		return true
-	case *types.Enum:
-		if v.HasCustomDrop {
-			return false
-		}
-		if !v.IsTagged || seen[v] {
-			return true
-		}
-		seen[v] = true
-		for _, vr := range v.Variants {
-			if vr.Kind == types.VariantTuple && vr.Payload != nil && !canCopyVisited(prog, vr.Payload, seen) {
-				return false
-			}
-		}
-		return true
-	case *types.Struct:
-		if v.HasCustomDrop {
-			return false
-		}
-		if seen[v] {
-			return true
-		}
-		seen[v] = true
-		for _, f := range v.Fields {
-			if !canCopyVisited(prog, f.Type, seen) {
-				return false
-			}
-		}
 		return true
 	default:
 		return false
@@ -2508,52 +2184,7 @@ func (g *cEmitter) toStrFn(t types.Type) string {
 }
 
 func (g *cEmitter) canToString(t types.Type) bool {
-	return g.canToStringVisited(t, make(map[types.Type]bool))
-}
-
-func (g *cEmitter) canToStringVisited(t types.Type, seen map[types.Type]bool) bool {
-	if t == nil {
-		return false
-	}
-	if g.prog.Checked.LookupConcreteMethod(t, "to_string") != nil {
-		return true
-	}
-	switch v := t.(type) {
-	case *types.Primitive:
-		return v.Kind != types.PrimVoid
-	case *types.Ptr, *types.Ref:
-		return true
-	case *types.Enum:
-		if !v.IsTagged || seen[v] {
-			return true
-		}
-		seen[v] = true
-		for _, vr := range v.Variants {
-			if vr.Kind == types.VariantTuple && vr.Payload != nil && !g.canToStringVisited(vr.Payload, seen) {
-				return false
-			}
-		}
-		return true
-	case *types.Distinct:
-		return g.canToStringVisited(v.Base, seen)
-	case *types.Vector:
-		return g.canToStringVisited(v.Elem, seen)
-	case *types.StackArray:
-		return g.canToStringVisited(v.Elem, seen)
-	case *types.Tuple:
-		for _, el := range v.Elems {
-			if !g.canToStringVisited(el, seen) {
-				return false
-			}
-		}
-		return true
-	case *types.Optional:
-		return g.canToStringVisited(v.Elem, seen)
-	case *types.Interface:
-		return v == g.prog.Checked.IfacePrintable
-	default:
-		return false
-	}
+	return CanToStringType(g.prog, t)
 }
 
 // stripOuterParens removes redundant balanced outer parentheses around a C condition

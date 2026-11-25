@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>9. Failure Handling · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a class="active" href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../ref/index.html">Reference</a></div><div class="sidebar-group">Specification</div><ul><li><a href="index.html">Overview and contents</a></li><li><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a></li><li><a href="quick-reference.html">Quick Reference</a></li></ul><div class="sidebar-group">Language reference</div><ul><li><a href="conventions-and-conformance.html">1. Conventions and Conformance</a></li><li><a href="lexical-structure.html">2. Lexical Structure</a></li><li><a href="types.html">3. Types</a></li><li><a href="declarations-and-program-structure.html">4. Declarations and Program Structure</a></li><li><a href="expressions.html">5. Expressions</a></li><li><a href="control-flow.html">6. Control Flow</a></li><li><a href="ownership-borrowing-and-destruction.html">7. Ownership, Borrowing, and Destruction</a></li><li><a href="generics.html">8. Generics</a></li><li><a class="active" href="failure-handling.html">9. Failure Handling</a></li><li><a href="unsafe-code-and-foreign-functions.html">10. Unsafe Code and Foreign Functions</a></li><li><a href="testing.html">11. Testing</a></li><li><a href="the-prelude.html">12. The Prelude</a></li><li><a href="the-standard-library.html">13. The Standard Library</a></li><li><a href="packages-manifests-and-dependencies.html">14. Packages, Manifests, and Dependencies</a></li></ul><div class="sidebar-group">Implementer&#39;s guide</div><ul><li><a href="implementers-guide.html">About this part</a></li><li><a href="compiler-architecture.html">15. Compiler Architecture</a></li><li><a href="parsing-ambiguities-and-their-resolution.html">16. Parsing Ambiguities and Their Resolution</a></li><li><a href="semantic-analysis.html">17. Semantic Analysis</a></li><li><a href="lowering-and-runtime-representation.html">18. Lowering and Runtime Representation</a></li><li><a href="the-runtime-contract.html">19. The Runtime Contract</a></li><li><a href="conformance-checklist.html">20. Conformance Checklist</a></li></ul><div class="sidebar-group">Appendices</div><ul><li><a href="appendix-a-grammar.html">Appendix A: Grammar</a></li><li><a href="appendix-b-keywords-and-contextual-words.html">Appendix B: Keywords and Contextual Words</a></li><li><a href="appendix-c-operator-precedence.html">Appendix C: Operator Precedence</a></li><li><a href="appendix-d-runtime-traps.html">Appendix D: Runtime Traps</a></li><li><a href="appendix-e-glossary.html">Appendix E: Glossary</a></li></ul><div class="sidebar-group">Tools</div><ul><li><a href="../ref/cli.html">Command-line tool</a></li><li><a href="../ref/formatter.html">Formatting</a></li><li><a href="../ref/documentation.html">Documentation comments</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../ref/index.html">Reference</a><span class="sep">/</span><span>Language reference</span></nav><h1 id="9-failure-handling"><a class="anchor" href="#9-failure-handling" aria-hidden="true">#</a>9. Failure Handling</h1>
+<blockquote class="glance">
+<p><strong>At a glance</strong></p>
+<ul>
+<li>Expected failures (missing files, bad input, refused connections) are <strong>results</strong>: return <code>Result[T]</code> or your own result type, and handle them with chains, <code>??</code>, or <code>if(r! as v)</code>.
+</li>
+<li>Bugs and broken invariants <strong>panic</strong>: the program stops. Panics can't be caught.
+</li>
+<li>Absence that isn't an error is an optional, <code>?T</code>.
+</li>
+<li>Fallible operations take the plain name (<code>File.open</code>). A panicking convenience twin is <code>must_*</code>.
+</li>
+</ul>
+</blockquote>
+<h2 id="91-choosing-a-mechanism"><a class="anchor" href="#91-choosing-a-mechanism" aria-hidden="true">#</a>9.1 Choosing a mechanism</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Situation</th><th>Use</th></tr></thead>
+<tbody>
+<tr><td>A value may legitimately be absent (<code>map[k]</code>, <code>parse_int</code>, an iterator's end)</td><td><code>?T</code></td></tr>
+<tr><td>A correct program can still fail because of its input or environment</td><td><code>Result[T]</code> (with an <code>Error</code>)</td></tr>
+<tr><td>Callers need to react differently to distinct failure cases</td><td>a custom result type</td></tr>
+<tr><td>A precondition was violated or an invariant is broken: a bug</td><td><code>panic</code>, <code>assert</code></td></tr>
+</tbody>
+</table></div>
+<p>Library code must not panic on bad external input.</p>
+<p><strong>Naming.</strong> A fallible operation has the plain name and returns a result or optional: <code>DateTime.new(...) Result[DateTime]</code>, <code>File.open(path) Result[File]</code>, <code>DateTime.diff(other) ?Duration</code>. There is no <code>try_</code> prefix. If a panicking twin is useful, typically for known-good literals in tests, it is named <code>must_*</code>: <code>DateTime.must_new(...)</code>. An alternative that avoids failure some other way gets a descriptive name, such as <code>diff_saturating</code>. See <code>CONVENTIONS.md</code>.</p>
+<h2 id="92-results"><a class="anchor" href="#92-results" aria-hidden="true">#</a>9.2 Results</h2>
+<p>The language-level rules for result types are in <a href="types.html#39-results">§3.9</a> (declaration and construction), <a href="control-flow.html#66-result-chains">§6.6</a> (chains), <a href="expressions.html#58-optional-chaining-and-fallback">§5.8</a> (<code>??</code>), and <a href="control-flow.html#62-if">§6.2</a> (<code>if(r! as v)</code>). The standard <code>Result[T]</code> and <code>Error</code> types, including error chains, codes, and traces, are in <a href="the-prelude.html#126-result-and-error">§12.6</a>.</p>
+<p>A typical function that propagates failures:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> parse_port = (raw: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">int</span>]: {
+	<span class="k">let</span> port = <span class="f">parse_int</span>(raw) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;invalid_port&quot;</span>, <span class="s">&quot;not a number: </span>$raw<span class="s">&quot;</span>))
+	<span class="k">if</span>(port &lt; <span class="n">1</span> <span class="k">or</span> port &gt; <span class="n">65535</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;invalid_port&quot;</span>, <span class="s">&quot;out of range: </span>$port<span class="s">&quot;</span>))
+	<span class="f">value</span>(port)
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="f">println</span>(<span class="f">parse_port</span>(<span class="s">&quot;8080&quot;</span>) ?? <span class="n">0</span>)
+	<span class="k">let</span> p = <span class="f">parse_port</span>(<span class="s">&quot;http&quot;</span>):
+		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): {
+			<span class="f">println</span>(e.<span class="f">summary</span>())
+			<span class="n">80</span>
+		}
+	<span class="f">println</span>(p)
+}</code></pre>
+<p>Values of <code>@must_use</code> types, which include <code>Result[T]</code>, cannot be silently discarded (<a href="declarations-and-program-structure.html#48-attributes">§4.8</a>).</p>
+<h2 id="93-panics"><a class="anchor" href="#93-panics" aria-hidden="true">#</a>9.3 Panics</h2>
+<p>A <strong>panic</strong> stops the program. Panics come from:</p>
+<ul>
+<li><code>panic(msg)</code> with a <code>string</code>, or <code>panic(err)</code> with an <code>Error</code>;
+</li>
+<li><code>assert(cond)</code> and <code>assert(cond, msg)</code> when <code>cond</code> is false;
+</li>
+<li>a result chain's <code>default panic</code>, and the <code>unwrap</code> and <code>expect</code> methods of <code>Result</code>;
+</li>
+<li>runtime <strong>traps</strong> (<a href="appendix-d-runtime-traps.html#appendix-d-runtime-traps">Appendix D</a>): index or slice out of range, division by zero, an out-of-range shift, and similar.
+</li>
+</ul>
+<p>When a panic occurs:</p>
+<ol>
+<li>standard output is flushed;
+</li>
+<li><code>lowlight panic at FILE:LINE:COL: MESSAGE</code> is written to standard error. For an <code>Error</code>, its full chain and trace follow;
+</li>
+<li>the process exits with status <code>1</code>.
+</li>
+</ol>
+<p>No destruction runs: no <code>drop</code> methods, no scope cleanup. The operating system reclaims memory and handles. A panic cannot be caught, recovered from, or inspected by Lowlight code.</p>
+<p>Panics are abort-only for three reasons:</p>
+<ul>
+<li>Catching them would add an invisible exit to every call, contrary to Lowlight's explicit <code>&lt;-</code> control flow.
+</li>
+<li>Every <code>drop</code> would have to tolerate half-finished state.
+</li>
+<li>Every backend would need unwinding machinery.
+</li>
+</ul>
+<p>Test runners isolate panics per test (<a href="testing.html#113-the-test-runner">§11.3</a>), but that is a property of the tool, not the language.</p>
+<p>The location reported is where the panic was raised. Inside a function marked <code>@track_caller</code>, the caller's location is used instead (<a href="declarations-and-program-structure.html#48-attributes">§4.8</a>).</p>
+<hr />
+</article><nav class="prev-next"><a class="prev" href="generics.html"><span>Previous</span>8. Generics</a><a class="next" href="unsafe-code-and-foreign-functions.html"><span>Next</span>10. Unsafe Code and Foreign Functions</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#91-choosing-a-mechanism">9.1 Choosing a mechanism</a></li><li><a href="#92-results">9.2 Results</a></li><li><a href="#93-panics">9.3 Panics</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contributing · Lowlight</title>
+<meta name="description" content="How the repository is organized, how to build and test the compiler, and how to work on the language, library, and website.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">About</a></div><ul><li><a class="active" href="contributing.html">Contributing</a></li><li><a href="faq.html">FAQ</a></li><li><a href="history.html">Version history</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">About</a></nav><h1 id="contributing"><a class="anchor" href="#contributing" aria-hidden="true">#</a>Contributing</h1>
+<h2 id="repository-layout"><a class="anchor" href="#repository-layout" aria-hidden="true">#</a>Repository layout</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Path</th><th>Contains</th></tr></thead>
+<tbody>
+<tr><td><code>cmd/lowlight/</code></td><td>the <code>lowlight</code> command</td></tr>
+<tr><td><code>cmd/lowlight-site/</code></td><td>the website generator</td></tr>
+<tr><td><code>internal/</code></td><td>the compiler, tools, and language server (<a href="../internals/index.html">Internals</a>)</td></tr>
+<tr><td><code>std/</code></td><td>the standard library, written in Lowlight</td></tr>
+<tr><td><code>tests/</code></td><td>end-to-end tests</td></tr>
+<tr><td><code>examples/</code></td><td>larger showcase programs</td></tr>
+<tr><td><code>editors/</code></td><td>VS Code, Neovim, and JetBrains integrations</td></tr>
+<tr><td><code>benchmarks/</code></td><td>benchmarks with C and Go equivalents</td></tr>
+<tr><td><code>website/</code></td><td>the website's hand-written content and examples</td></tr>
+<tr><td><code>SPECIFICATION.md</code></td><td>the language definition</td></tr>
+<tr><td><code>CONVENTIONS.md</code></td><td>the style guide</td></tr>
+<tr><td><code>IMPLEMENTATION.md</code></td><td>how the compiler and runtime are built</td></tr>
+<tr><td><code>TODO.md</code></td><td>known issues and planned work</td></tr>
+</tbody>
+</table></div>
+<h2 id="building-and-testing"><a class="anchor" href="#building-and-testing" aria-hidden="true">#</a>Building and testing</h2>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">go</span> build <span class="a">-o</span> <span class="f">lowlight</span> ./cmd/<span class="f">lowlight</span>
+<span class="f">go</span> test ./...</code></pre>
+<p>The test suite covers the lexer, parser, semantic analysis, code generation (with both backends, under AddressSanitizer and leak checking), the standard library, the language server, the formatter, the documentation generator, and this website. Tests run in parallel; a full run takes about a minute.</p>
+<p>Lowlight's own test files (<code>*_test.ll</code>) run with <code>lowlight test</code>, for example:</p>
+<pre class="lang-bash" data-lang="bash"><code>./<span class="f">lowlight</span> test std/strings</code></pre>
+<h2 id="changing-the-language"><a class="anchor" href="#changing-the-language" aria-hidden="true">#</a>Changing the language</h2>
+<p>The specification is the source of truth. A language change updates, together:</p>
+<ol>
+<li><code>SPECIFICATION.md</code>: the rule, in the right chapter, and the grammar in Appendix A if syntax changes;
+</li>
+<li>the compiler, with tests in <code>tests/</code> and the affected <code>internal/</code> packages;
+</li>
+<li>the language server's completion, hover, and quick fixes, if they involve the change;
+</li>
+<li><code>CONVENTIONS.md</code>, if idiomatic style changes;
+</li>
+<li>the editor syntax files in <code>editors/</code>, if keywords or syntax change;
+</li>
+<li>the website's tour and guides, where they cover the feature.
+</li>
+</ol>
+<p>Examples in the specification are runnable, and so are examples on this website: if a change breaks one, the test suite says which.</p>
+<h2 id="changing-the-standard-library"><a class="anchor" href="#changing-the-standard-library" aria-hidden="true">#</a>Changing the standard library</h2>
+<p>Standard library packages are ordinary Lowlight in <code>std/</code>. Document every exported declaration with a doc comment whose first sentence stands alone (it becomes the summary in indexes and search). Follow the failure conventions: fallible operations return results or optionals, and their panicking twins are named <code>must_*</code>. Add tests in the package's <code>_test.ll</code> file.</p>
+<h2 id="the-website"><a class="anchor" href="#the-website" aria-hidden="true">#</a>The website</h2>
+<p>The site is built by:</p>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">go</span> run ./cmd/<span class="f">lowlight</span><span class="a">-site</span> <span class="a">-o</span> docs</code></pre>
+<p>and written to <code>docs/</code>. Open <code>docs/index.html</code> in a browser; the site works directly from disk.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Source</th><th>Becomes</th></tr></thead>
+<tbody>
+<tr><td><code>website/content/**/*.md</code></td><td>the home page, Get Started, Tour, Tutorials, Guides, Reference tools, and About pages</td></tr>
+<tr><td><code>website/examples/*.ll</code> (and <code>.out</code>)</td><td>Lowlight by Example</td></tr>
+<tr><td><code>SPECIFICATION.md</code></td><td>the specification, one page per chapter</td></tr>
+<tr><td><code>CONVENTIONS.md</code></td><td>Effective Lowlight</td></tr>
+<tr><td><code>IMPLEMENTATION.md</code></td><td>Internals, one page per section</td></tr>
+<tr><td><code>VERSION_HISTORY.md</code></td><td>Version history</td></tr>
+<tr><td>doc comments in <code>std/</code></td><td>the package reference</td></tr>
+</tbody>
+</table></div>
+<p><strong>Content pages</strong> are Markdown with a front matter block:</p>
+<pre class="lang-text" data-lang="text"><code>---
+title: Ownership and borrowing
+nav: Ownership          (shorter sidebar label, optional)
+summary: One sentence for search results and link previews.
+order: 10               (position within the section)
+group: Core ideas       (sidebar group, optional)
+---</code></pre>
+<p>The section is the page's directory. Links may point to other pages by site path (<code>/guides/errors.html</code>), to repository Markdown files (<code>SPECIFICATION.md#61-bodies</code>, resolved to the right page), or to standard library symbols with <a class="ref" href="../std/core.html#List.push" title="bind List[T].push = (&amp;self, item: own T)"><code>List.push</code></a>-style references.</p>
+<p><strong>Code blocks</strong> tagged <code>lowlight</code> that contain <code>bind main</code> are compiled and run by <code>go test ./tests -run TestWebsite</code>. Put the expected output in an <code>```output</code> block right after the program, and the test compares it exactly. Mark a block <code>no-run</code> (<code>```lowlight no-run</code>) to only type-check it, such as a server or a program that reads files; <code>fragment</code> for an excerpt that isn't a complete program; and <code>panics</code> for a program that is supposed to panic (its output block then includes the panic message).</p>
+<p><strong>Examples</strong> are <code>.ll</code> files with a header and prose comments:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="m">// Title: Hello, world</span>
+<span class="m">// Category: Basics</span>
+<span class="m">// Order: 1</span>
+
+<span class="m">// Prose for the left column, in Markdown, written as comments at column 0.</span>
+<span class="m">// The code that follows appears on the right.</span>
+<span class="k">bind</span> main = (): <span class="f">println</span>(<span class="s">&quot;hello, world&quot;</span>)</code></pre>
+<p>Regenerate their expected output after changing them:</p>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">go</span> run ./cmd/<span class="f">lowlight</span><span class="a">-site</span> <span class="a">-update-examples</span> <span class="a">-o</span> docs</code></pre>
+<p><code>go run ./cmd/lowlight-site -strict</code> fails on any broken internal link or anchor, and the test suite builds the site the same way.</p>
+<p>The generator lives in <code>internal/site</code> (pages, theme, search, link checking, and the package reference) and <code>internal/markdown</code> (a dependency-free Markdown renderer). <code>lowlight doc</code> uses the same package-reference pages for any Lowlight project.</p>
+</article><nav class="prev-next"><a class="prev" href="index.html"><span>Previous</span>About Lowlight</a><a class="next" href="faq.html"><span>Next</span>Frequently asked questions</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#repository-layout">Repository layout</a></li><li><a href="#building-and-testing">Building and testing</a></li><li><a href="#changing-the-language">Changing the language</a></li><li><a href="#changing-the-standard-library">Changing the standard library</a></li><li><a href="#the-website">The website</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="index.html">About</a><a href="contributing.html">Contributing</a><a href="faq.html">FAQ</a><a href="history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

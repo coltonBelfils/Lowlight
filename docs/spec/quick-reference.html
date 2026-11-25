@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quick Reference · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a class="active" href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../ref/index.html">Reference</a></div><div class="sidebar-group">Specification</div><ul><li><a href="index.html">Overview and contents</a></li><li><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a></li><li><a class="active" href="quick-reference.html">Quick Reference</a></li></ul><div class="sidebar-group">Language reference</div><ul><li><a href="conventions-and-conformance.html">1. Conventions and Conformance</a></li><li><a href="lexical-structure.html">2. Lexical Structure</a></li><li><a href="types.html">3. Types</a></li><li><a href="declarations-and-program-structure.html">4. Declarations and Program Structure</a></li><li><a href="expressions.html">5. Expressions</a></li><li><a href="control-flow.html">6. Control Flow</a></li><li><a href="ownership-borrowing-and-destruction.html">7. Ownership, Borrowing, and Destruction</a></li><li><a href="generics.html">8. Generics</a></li><li><a href="failure-handling.html">9. Failure Handling</a></li><li><a href="unsafe-code-and-foreign-functions.html">10. Unsafe Code and Foreign Functions</a></li><li><a href="testing.html">11. Testing</a></li><li><a href="the-prelude.html">12. The Prelude</a></li><li><a href="the-standard-library.html">13. The Standard Library</a></li><li><a href="packages-manifests-and-dependencies.html">14. Packages, Manifests, and Dependencies</a></li></ul><div class="sidebar-group">Implementer&#39;s guide</div><ul><li><a href="implementers-guide.html">About this part</a></li><li><a href="compiler-architecture.html">15. Compiler Architecture</a></li><li><a href="parsing-ambiguities-and-their-resolution.html">16. Parsing Ambiguities and Their Resolution</a></li><li><a href="semantic-analysis.html">17. Semantic Analysis</a></li><li><a href="lowering-and-runtime-representation.html">18. Lowering and Runtime Representation</a></li><li><a href="the-runtime-contract.html">19. The Runtime Contract</a></li><li><a href="conformance-checklist.html">20. Conformance Checklist</a></li></ul><div class="sidebar-group">Appendices</div><ul><li><a href="appendix-a-grammar.html">Appendix A: Grammar</a></li><li><a href="appendix-b-keywords-and-contextual-words.html">Appendix B: Keywords and Contextual Words</a></li><li><a href="appendix-c-operator-precedence.html">Appendix C: Operator Precedence</a></li><li><a href="appendix-d-runtime-traps.html">Appendix D: Runtime Traps</a></li><li><a href="appendix-e-glossary.html">Appendix E: Glossary</a></li></ul><div class="sidebar-group">Tools</div><ul><li><a href="../ref/cli.html">Command-line tool</a></li><li><a href="../ref/formatter.html">Formatting</a></li><li><a href="../ref/documentation.html">Documentation comments</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../ref/index.html">Reference</a><span class="sep">/</span><span>Specification</span></nav><h1 id="part-ii-quick-reference"><a class="anchor" href="#part-ii-quick-reference" aria-hidden="true">#</a>Part II: Quick Reference</h1>
+<p>Tables for looking things up. Each row links to its full definition.</p>
+<h2 id="declarations"><a class="anchor" href="#declarations" aria-hidden="true">#</a>Declarations</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Form</th><th>Example</th><th>Reference</th></tr></thead>
+<tbody>
+<tr><td>Constant or function</td><td><code>bind limit = 100</code> · <code>bind add = (a: int, b: int) int: a + b</code></td><td><a href="declarations-and-program-structure.html#42-bind-and-let">§4.2</a>, <a href="declarations-and-program-structure.html#43-functions">§4.3</a></td></tr>
+<tr><td>Mutable variable (inside functions only)</td><td><code>let total = 0</code></td><td><a href="declarations-and-program-structure.html#42-bind-and-let">§4.2</a></td></tr>
+<tr><td>Method</td><td><code>bind Point.norm = (self) float: ...</code></td><td><a href="declarations-and-program-structure.html#44-methods-and-associated-functions">§4.4</a></td></tr>
+<tr><td>Associated function</td><td><code>bind Point.origin = () Point: Point[x: 0.0, y: 0.0]</code></td><td><a href="declarations-and-program-structure.html#44-methods-and-associated-functions">§4.4</a></td></tr>
+<tr><td>Struct</td><td><code>define Point struct [x: float, y: float]</code></td><td><a href="types.html#37-structs">§3.7</a></td></tr>
+<tr><td>Enum</td><td><code>define Color enum [red, green]</code> · <code>define Shape enum [circle: float, empty]</code></td><td><a href="types.html#38-enums">§3.8</a></td></tr>
+<tr><td>Result type</td><td><code>define Lookup result [value: Item, missing: string]</code></td><td><a href="types.html#39-results">§3.9</a></td></tr>
+<tr><td>Interface</td><td><code>define Shape interface [area: (self) float]</code></td><td><a href="types.html#311-interfaces">§3.11</a></td></tr>
+<tr><td>Distinct type</td><td><code>define UserId int</code></td><td><a href="types.html#310-distinct-types">§3.10</a></td></tr>
+<tr><td>Generic</td><td><code>define Stack[T] struct [items: [T]]</code> · <code>bind first[T] = (xs: [T]) ?T: xs.get(0)</code></td><td><a href="generics.html#8-generics">§8</a></td></tr>
+<tr><td>Import</td><td><code>import &quot;std/fs&quot;</code> · <code>import &quot;std/math&quot; as m</code></td><td><a href="declarations-and-program-structure.html#46-packages-and-imports">§4.6</a></td></tr>
+<tr><td>Foreign function</td><td><code>extern &quot;stdio.h&quot;</code> · <code>extern puts: (s: ptr[u8]) i32</code></td><td><a href="unsafe-code-and-foreign-functions.html#104-foreign-functions">§10.4</a></td></tr>
+<tr><td>Tuple unpacking</td><td><code>let x, y = unpack +[1, 2]</code></td><td><a href="declarations-and-program-structure.html#42-bind-and-let">§4.2</a></td></tr>
+</tbody>
+</table></div>
+<h2 id="types"><a class="anchor" href="#types" aria-hidden="true">#</a>Types</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Type</th><th>Meaning</th><th>Category</th><th>Reference</th></tr></thead>
+<tbody>
+<tr><td><code>int</code> <code>i8</code> <code>i16</code> <code>i32</code> <code>i64</code></td><td>Signed integers (<code>int</code> = <code>i64</code>)</td><td>plain</td><td><a href="types.html#32-numbers">§3.2</a></td></tr>
+<tr><td><code>u8</code> <code>u16</code> <code>u32</code> <code>u64</code></td><td>Unsigned integers</td><td>plain</td><td><a href="types.html#32-numbers">§3.2</a></td></tr>
+<tr><td><code>float</code> <code>f32</code> <code>f64</code></td><td>IEEE-754 floats (<code>float</code> = <code>f64</code>)</td><td>plain</td><td><a href="types.html#32-numbers">§3.2</a></td></tr>
+<tr><td><code>bool</code> · <code>char</code></td><td>Truth value · Unicode scalar value</td><td>plain</td><td><a href="types.html#33-bool-and-char">§3.3</a></td></tr>
+<tr><td><code>string</code></td><td>Owned UTF-8 text</td><td>resource</td><td><a href="types.html#34-strings">§3.4</a></td></tr>
+<tr><td><code>?T</code></td><td><code>T</code> or <code>none</code></td><td>as <code>T</code></td><td><a href="types.html#35-optionals">§3.5</a></td></tr>
+<tr><td><code>[T]</code></td><td>Growable list</td><td>resource</td><td><a href="types.html#36-collections">§3.6</a></td></tr>
+<tr><td><code>[N: T]</code></td><td>Fixed-size array</td><td>as <code>T</code></td><td><a href="types.html#36-collections">§3.6</a></td></tr>
+<tr><td><code>#[T]</code> · <code>#[K: V]</code></td><td>Set · map</td><td>resource</td><td><a href="types.html#36-collections">§3.6</a></td></tr>
+<tr><td><code>+[A, B, ...]</code></td><td>Tuple</td><td>plain if all parts are</td><td><a href="types.html#36-collections">§3.6</a></td></tr>
+<tr><td><code>Range[T]</code></td><td><code>lo..hi</code>, <code>lo..=hi</code></td><td>plain</td><td><a href="types.html#36-collections">§3.6</a></td></tr>
+<tr><td><code>(A, B) R</code> · <code>(A)</code></td><td>Function returning <code>R</code> · returning nothing</td><td>resource</td><td><a href="types.html#312-functions-and-closures">§3.12</a></td></tr>
+<tr><td><code>Arena</code> · <code>ref[T]</code></td><td>Region allocator · reference into it</td><td>resource · plain</td><td><a href="types.html#313-arenas">§3.13</a></td></tr>
+<tr><td><code>ptr[T]</code></td><td>Raw pointer</td><td>plain</td><td><a href="types.html#314-raw-pointers">§3.14</a></td></tr>
+<tr><td><code>void</code> · <code>never</code></td><td>No value (return types only) · does not return</td><td></td><td><a href="types.html#315-void-and-never">§3.15</a></td></tr>
+</tbody>
+</table></div>
+<h2 id="naming-rules"><a class="anchor" href="#naming-rules" aria-hidden="true">#</a>Naming rules</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Rule</th><th>Example</th><th>Reference</th></tr></thead>
+<tbody>
+<tr><td>A name holding an optional ends in <code>?</code>; no other name may</td><td><code>let user? = find(id)</code></td><td><a href="lexical-structure.html#25-identifiers">§2.5</a></td></tr>
+<tr><td>A name holding a result ends in <code>!</code>; no other name may</td><td><code>let cfg! = load(path)</code></td><td><a href="lexical-structure.html#25-identifiers">§2.5</a></td></tr>
+<tr><td>A leading <code>_</code> makes a declaration, field, variant, or method private to its package</td><td><code>bind _helper = ...</code> · <code>_count: int</code></td><td><a href="declarations-and-program-structure.html#47-visibility">§4.7</a></td></tr>
+<tr><td>Convention: types <code>PascalCase</code>; variants, functions, variables, fields <code>snake_case</code>; top-level constants <code>SCREAMING_SNAKE_CASE</code> (see <a href="../guides/effective-lowlight.html">CONVENTIONS.md</a>)</td><td><code>Point</code>, <code>Shape.circle</code>, <code>read_file</code>, <code>MAX_RETRIES</code></td><td><a href="lexical-structure.html#25-identifiers">§2.5</a></td></tr>
+</tbody>
+</table></div>
+<h2 id="operators"><a class="anchor" href="#operators" aria-hidden="true">#</a>Operators</h2>
+<p>From tightest to loosest binding. Full details are in <a href="expressions.html#51-evaluation-order-and-precedence">§5.1</a> and <a href="appendix-c-operator-precedence.html#appendix-c-operator-precedence">Appendix C</a>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Operators</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>.</code> <code>?.</code> <code>()</code> <code>[]</code></td><td>Member, optional member, call, index or slice</td></tr>
+<tr><td><code>-x</code> <code>not</code> <code>~</code> <code>*p</code> <code>&amp;x</code> <code>own x</code> <code>unsafe e</code></td><td>Prefix operators</td></tr>
+<tr><td><code>*</code> <code>/</code> <code>%</code></td><td>Multiply, divide, remainder</td></tr>
+<tr><td><code>+</code> <code>-</code></td><td>Add, subtract (<code>+</code> also concatenates strings)</td></tr>
+<tr><td><code>&lt;&lt;</code> <code>&gt;&gt;</code></td><td>Shift (traps unless <code>0 &lt;= n &lt; bit width</code>)</td></tr>
+<tr><td><code>..</code> <code>..=</code></td><td>Range, half-open or inclusive</td></tr>
+<tr><td><code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code></td><td>Ordering (non-associative)</td></tr>
+<tr><td><code>==</code> <code>!=</code></td><td>Equality (non-associative)</td></tr>
+<tr><td><code>&amp;</code> · <code>^</code> · <code>|</code></td><td>Bitwise and · xor · or</td></tr>
+<tr><td><code>and</code> · <code>or</code></td><td>Short-circuit logic</td></tr>
+<tr><td><code>??</code></td><td>Fallback for an optional or result</td></tr>
+<tr><td><code>&lt;-</code></td><td>Unwind (leave a construct)</td></tr>
+</tbody>
+</table></div>
+<p>Assignment is a statement: <code>=</code> <code>+=</code> <code>-=</code> <code>*=</code> <code>/=</code> <code>%=</code> <code>&amp;=</code> <code>|=</code> <code>^=</code> <code>&lt;&lt;=</code> <code>&gt;&gt;=</code>. There is no <code>!</code> negation (use <code>not</code>) and no <code>as</code> cast (write <code>int(x)</code>, <code>float(x)</code>, ...).</p>
+<h2 id="control-flow-forms"><a class="anchor" href="#control-flow-forms" aria-hidden="true">#</a>Control flow forms</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Form</th><th>Value</th><th>Reference</th></tr></thead>
+<tbody>
+<tr><td><code>if(c): a else: b</code></td><td><code>a</code> or <code>b</code></td><td><a href="control-flow.html#62-if">§6.2</a></td></tr>
+<tr><td><code>if(c): a</code></td><td><code>?T</code>: <code>a</code> or <code>none</code></td><td><a href="control-flow.html#62-if">§6.2</a></td></tr>
+<tr><td><code>if(x?): ...</code> · <code>if(&amp;x?): ...</code></td><td>Narrows <code>x?</code> to <code>x</code> (read-only, mutable)</td><td><a href="control-flow.html#62-if">§6.2</a></td></tr>
+<tr><td><code>if(e as v): ...</code></td><td>Binds the value of an optional or result</td><td><a href="control-flow.html#62-if">§6.2</a></td></tr>
+<tr><td><code>while(cond): ...</code> · <code>while(x in xs) T: ... else: d</code></td><td>A single value (<code>?T</code> without <code>else</code>)</td><td><a href="control-flow.html#63-while">§6.3</a></td></tr>
+<tr><td><code>for(x in xs): body</code></td><td>A list of each iteration's value</td><td><a href="control-flow.html#64-for">§6.4</a></td></tr>
+<tr><td><code>for(x in xs) #[T]: body</code></td><td>Any collection that can <code>push</code></td><td><a href="control-flow.html#64-for">§6.4</a></td></tr>
+<tr><td><code>match(v): when P: ... default: ...</code></td><td>Pattern match; must end in <code>default</code>; variants are named bare (<code>when pending:</code>)</td><td><a href="control-flow.html#65-pattern-matching">§6.5</a></td></tr>
+<tr><td><code>match: when cond: ... default: ...</code></td><td>Condition chain</td><td><a href="control-flow.html#65-pattern-matching">§6.5</a></td></tr>
+<tr><td><code>expr: when Failure(x): ... default ...</code></td><td>Result chain; evaluates to the success value</td><td><a href="control-flow.html#66-result-chains">§6.6</a></td></tr>
+<tr><td><code>name: { ... }</code> · <code>name: for(...)</code></td><td>Labeled block or loop</td><td><a href="control-flow.html#67-unwinds-and-labels">§6.7</a></td></tr>
+</tbody>
+</table></div>
+<h2 id="unwinds"><a class="anchor" href="#unwinds" aria-hidden="true">#</a>Unwinds</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Write</th><th>Leaves</th><th>With value</th></tr></thead>
+<tbody>
+<tr><td><code>func &lt;- v</code></td><td>the function (return)</td><td>the return value</td></tr>
+<tr><td><code>for &lt;-</code> · <code>while &lt;- v</code></td><td>the innermost <code>for</code> / <code>while</code> (break)</td><td><code>for</code>: what it has collected; <code>while</code>: <code>v</code></td></tr>
+<tr><td><code>next &lt;-</code></td><td>the current iteration of the innermost loop (continue)</td><td></td></tr>
+<tr><td><code>&lt;- v</code></td><td>the innermost <code>{ }</code> block</td><td>the block's value</td></tr>
+<tr><td><code>if &lt;- v</code> · <code>match &lt;- v</code></td><td>the innermost <code>if</code> / <code>match</code></td><td>its value</td></tr>
+<tr><td><code>name &lt;- v</code> · <code>next name &lt;-</code></td><td>the labeled construct · next iteration of the labeled loop</td><td></td></tr>
+</tbody>
+</table></div>
+<p>An unwind has type <code>never</code>, so <code>let x = find() ?? func &lt;- fallback</code> and similar guards type-check. Unwinds never cross a function boundary. See <a href="control-flow.html#67-unwinds-and-labels">§6.7</a>.</p>
+<h2 id="ownership-and-parameter-modes"><a class="anchor" href="#ownership-and-parameter-modes" aria-hidden="true">#</a>Ownership and parameter modes</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Parameter</th><th>At the call site</th><th>The function may</th><th>Reference</th></tr></thead>
+<tbody>
+<tr><td><code>x: T</code></td><td><code>f(x)</code></td><td>read (plain values are copied)</td><td><a href="ownership-borrowing-and-destruction.html#73-parameter-modes">§7.3</a></td></tr>
+<tr><td><code>x: &amp;T</code></td><td><code>f(&amp;x)</code></td><td>read and modify the caller's variable</td><td><a href="ownership-borrowing-and-destruction.html#73-parameter-modes">§7.3</a></td></tr>
+<tr><td><code>x: own T</code></td><td><code>f(own x)</code> (a temporary needs nothing)</td><td>keep or destroy the value</td><td><a href="ownership-borrowing-and-destruction.html#73-parameter-modes">§7.3</a></td></tr>
+<tr><td>receiver <code>self</code> · <code>&amp;self</code> · <code>own self</code></td><td><code>v.m()</code></td><td>as above, for the receiver</td><td><a href="declarations-and-program-structure.html#44-methods-and-associated-functions">§4.4</a></td></tr>
+</tbody>
+</table></div>
+<p>Moving an existing resource variable always needs <code>own</code>: <code>let b = own a</code>, <code>[own a]</code>, <code>Point[name: own s]</code>. Copy a resource with <code>.copy()</code>.</p>
+<h2 id="handling-absence-and-failure"><a class="anchor" href="#handling-absence-and-failure" aria-hidden="true">#</a>Handling absence and failure</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>You have</th><th>Do this</th><th>Write</th></tr></thead>
+<tbody>
+<tr><td><code>x?: ?T</code></td><td>use it if present</td><td><code>if(x?): use(x)</code></td></tr>
+<tr><td></td><td>supply a default</td><td><code>x? ?? default</code></td></tr>
+<tr><td></td><td>leave if absent</td><td><code>let v = x? ?? func &lt;- fallback</code></td></tr>
+<tr><td></td><td>reach through it</td><td><code>x?.field</code>, <code>x?.method()</code></td></tr>
+<tr><td><code>r!: R</code> (a result)</td><td>handle each failure</td><td><code>r!: when missing(k): ... default forbidden: ...</code></td></tr>
+<tr><td></td><td>handle every failure alike</td><td><code>r!: default: fallback</code></td></tr>
+<tr><td></td><td>assert it can't fail</td><td><code>r!: default panic</code></td></tr>
+<tr><td></td><td>discard the failure</td><td><code>r! ?? fallback</code></td></tr>
+<tr><td></td><td>use the value only if it succeeded</td><td><code>if(r! as v): use(v) else: ...</code></td></tr>
+<tr><td></td><td>pass the failure up</td><td><code>default err(own e): func &lt;- err(e.wrap(&quot;context&quot;))</code></td></tr>
+<tr><td>a bug or broken invariant</td><td>stop the program</td><td><code>panic(&quot;msg&quot;)</code>, <code>assert(cond, &quot;msg&quot;)</code></td></tr>
+</tbody>
+</table></div>
+<h2 id="attributes"><a class="anchor" href="#attributes" aria-hidden="true">#</a>Attributes</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Attribute</th><th>On</th><th>Effect</th></tr></thead>
+<tbody>
+<tr><td><code>@test</code> · <code>@test(&quot;name&quot;)</code></td><td>function</td><td>a test run by <code>lowlight test</code></td></tr>
+<tr><td><code>@test_only</code></td><td>any declaration</td><td>usable only from tests</td></tr>
+<tr><td><code>@track_caller</code></td><td>function</td><td>panics and <code>caller_*()</code> report the caller's location</td></tr>
+<tr><td><code>@must_use</code> · <code>@nodiscard</code></td><td>function, type</td><td>discarding the value is an error</td></tr>
+<tr><td><code>@deprecated</code> · <code>@deprecated(&quot;msg&quot;)</code></td><td>declaration</td><td>warns at each use</td></tr>
+<tr><td><code>@inline</code> · <code>@noinline</code></td><td>function</td><td>inlining hint</td></tr>
+<tr><td><code>@packed</code> (or <code>define packed T struct</code>)</td><td>struct</td><td>no padding between fields</td></tr>
+<tr><td><code>@lang(&quot;name&quot;)</code></td><td>prelude declaration</td><td>binds a language hook (prelude only)</td></tr>
+</tbody>
+</table></div>
+<p>See <a href="declarations-and-program-structure.html#48-attributes">§4.8</a>.</p>
+<h2 id="universe-functions"><a class="anchor" href="#universe-functions" aria-hidden="true">#</a>Universe functions</h2>
+<p>Always in scope; no import needed. Full list in <a href="the-prelude.html#122-universe-functions">§12.2</a>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Function</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>print(v)</code> · <code>println(v)</code> · <code>eprint(v)</code> · <code>eprintln(v)</code></td><td>Write to stdout / stderr (<code>println()</code> alone prints a newline)</td></tr>
+<tr><td><code>panic(msg)</code> · <code>panic(err)</code></td><td>Stop the program (<code>never</code>)</td></tr>
+<tr><td><code>assert(cond)</code> · <code>assert(cond, msg)</code></td><td>Panic if <code>cond</code> is false</td></tr>
+<tr><td><code>exit(code)</code></td><td>End the process (<code>never</code>)</td></tr>
+<tr><td><code>args()</code></td><td>Command-line arguments, <code>[string]</code></td></tr>
+<tr><td><code>parse_int(s)</code> · <code>parse_float(s)</code></td><td><code>?int</code> · <code>?float</code></td></tr>
+<tr><td><code>abs(x)</code> · <code>min(a, b)</code> · <code>max(a, b)</code></td><td>Numeric helpers</td></tr>
+<tr><td><code>caller_location()</code> · <code>caller_file()</code> · <code>caller_line()</code> · <code>caller_col()</code></td><td>Source location of the caller</td></tr>
+<tr><td><code>size_of[T]()</code> · <code>align_of[T]()</code> · <code>is_plain[T]()</code></td><td>Layout queries</td></tr>
+</tbody>
+</table></div>
+<h2 id="standard-library-packages"><a class="anchor" href="#standard-library-packages" aria-hidden="true">#</a>Standard library packages</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Package</th><th>Provides</th></tr></thead>
+<tbody>
+<tr><td><code>std/core</code></td><td>The prelude: interfaces, collections, <code>Result</code>, <code>Error</code> (always imported) (<a href="the-prelude.html#12-the-prelude">§12</a>)</td></tr>
+<tr><td><code>std/chars</code></td><td>Character classification and conversion</td></tr>
+<tr><td><code>std/strings</code></td><td>String searching, splitting, joining, padding</td></tr>
+<tr><td><code>std/strconv</code></td><td>Parsing and formatting numbers and booleans</td></tr>
+<tr><td><code>std/strfmt</code></td><td>Number formatting, padding, case conversion</td></tr>
+<tr><td><code>std/unicode</code></td><td>Full Unicode case mapping and case-insensitive comparison</td></tr>
+<tr><td><code>std/math</code></td><td>Floating-point math</td></tr>
+<tr><td><code>std/sort</code></td><td>Sorting and searching lists and arrays</td></tr>
+<tr><td><code>std/fs</code></td><td>Files and the file system</td></tr>
+<tr><td><code>std/os</code></td><td>Processes, directories, platform information</td></tr>
+<tr><td><code>std/time</code></td><td>Durations, instants, dates and times, formatting</td></tr>
+<tr><td><code>std/net</code></td><td>TCP sockets</td></tr>
+<tr><td><code>std/http</code></td><td>HTTP client, server, and routing</td></tr>
+<tr><td><code>std/pool</code></td><td>Handle-based object pools</td></tr>
+<tr><td><code>std/test</code></td><td>Rich test assertions</td></tr>
+</tbody>
+</table></div>
+<p>See <a href="the-standard-library.html#13-the-standard-library">§13</a>.</p>
+<hr />
+</article><nav class="prev-next"><a class="prev" href="a-tour-of-lowlight.html"><span>Previous</span>A Tour of Lowlight</a><a class="next" href="conventions-and-conformance.html"><span>Next</span>1. Conventions and Conformance</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#declarations">Declarations</a></li><li><a href="#types">Types</a></li><li><a href="#naming-rules">Naming rules</a></li><li><a href="#operators">Operators</a></li><li><a href="#control-flow-forms">Control flow forms</a></li><li><a href="#unwinds">Unwinds</a></li><li><a href="#ownership-and-parameter-modes">Ownership and parameter modes</a></li><li><a href="#handling-absence-and-failure">Handling absence and failure</a></li><li><a href="#attributes">Attributes</a></li><li><a href="#universe-functions">Universe functions</a></li><li><a href="#standard-library-packages">Standard library packages</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

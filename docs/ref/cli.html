@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The lowlight command · Lowlight</title>
+<meta name="description" content="Every subcommand and flag of the lowlight command.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a class="active" href="index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Reference</a></div><div class="sidebar-group">Specification</div><ul><li><a href="../spec/index.html">Overview and contents</a></li><li><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a></li><li><a href="../spec/quick-reference.html">Quick Reference</a></li></ul><div class="sidebar-group">Language reference</div><ul><li><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a></li><li><a href="../spec/lexical-structure.html">2. Lexical Structure</a></li><li><a href="../spec/types.html">3. Types</a></li><li><a href="../spec/declarations-and-program-structure.html">4. Declarations and Program Structure</a></li><li><a href="../spec/expressions.html">5. Expressions</a></li><li><a href="../spec/control-flow.html">6. Control Flow</a></li><li><a href="../spec/ownership-borrowing-and-destruction.html">7. Ownership, Borrowing, and Destruction</a></li><li><a href="../spec/generics.html">8. Generics</a></li><li><a href="../spec/failure-handling.html">9. Failure Handling</a></li><li><a href="../spec/unsafe-code-and-foreign-functions.html">10. Unsafe Code and Foreign Functions</a></li><li><a href="../spec/testing.html">11. Testing</a></li><li><a href="../spec/the-prelude.html">12. The Prelude</a></li><li><a href="../spec/the-standard-library.html">13. The Standard Library</a></li><li><a href="../spec/packages-manifests-and-dependencies.html">14. Packages, Manifests, and Dependencies</a></li></ul><div class="sidebar-group">Implementer&#39;s guide</div><ul><li><a href="../spec/implementers-guide.html">About this part</a></li><li><a href="../spec/compiler-architecture.html">15. Compiler Architecture</a></li><li><a href="../spec/parsing-ambiguities-and-their-resolution.html">16. Parsing Ambiguities and Their Resolution</a></li><li><a href="../spec/semantic-analysis.html">17. Semantic Analysis</a></li><li><a href="../spec/lowering-and-runtime-representation.html">18. Lowering and Runtime Representation</a></li><li><a href="../spec/the-runtime-contract.html">19. The Runtime Contract</a></li><li><a href="../spec/conformance-checklist.html">20. Conformance Checklist</a></li></ul><div class="sidebar-group">Appendices</div><ul><li><a href="../spec/appendix-a-grammar.html">Appendix A: Grammar</a></li><li><a href="../spec/appendix-b-keywords-and-contextual-words.html">Appendix B: Keywords and Contextual Words</a></li><li><a href="../spec/appendix-c-operator-precedence.html">Appendix C: Operator Precedence</a></li><li><a href="../spec/appendix-d-runtime-traps.html">Appendix D: Runtime Traps</a></li><li><a href="../spec/appendix-e-glossary.html">Appendix E: Glossary</a></li></ul><div class="sidebar-group">Tools</div><ul><li><a class="active" href="cli.html">Command-line tool</a></li><li><a href="formatter.html">Formatting</a></li><li><a href="documentation.html">Documentation comments</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Reference</a><span class="sep">/</span><span>Tools</span></nav><h1 id="the-lowlight-command"><a class="anchor" href="#the-lowlight-command" aria-hidden="true">#</a>The <code>lowlight</code> command</h1>
+<pre class="lang-text" data-lang="text"><code>lowlight &lt;command&gt; [flags] [arguments]</code></pre>
+<p>Run <code>lowlight help</code> for a summary. Inside a project, commands act on the current package by default; outside one, they take a file or directory.</p>
+<h2 id="building-and-running"><a class="anchor" href="#building-and-running" aria-hidden="true">#</a>Building and running</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Command</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>lowlight run [path] [-- args...]</code></td><td>compile and run a program; arguments after <code>--</code> go to the program</td></tr>
+<tr><td><code>lowlight build [-o out] [path]</code></td><td>compile an executable (named after the file or package by default)</td></tr>
+<tr><td><code>lowlight check [path]</code></td><td>report errors without generating code</td></tr>
+<tr><td><code>lowlight test [paths...]</code></td><td>compile and run tests (<a href="../guides/testing.html">Testing</a>)</td></tr>
+<tr><td><code>lowlight emit-llvm [-o file.ll] [path]</code></td><td>write the generated LLVM IR</td></tr>
+<tr><td><code>lowlight emit-c [-o file.c] [path]</code></td><td>write the generated C11 source</td></tr>
+</tbody>
+</table></div>
+<p>Flags shared by these commands:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>--release</code></td><td>optimize (<code>-O2</code>); safety checks stay on</td></tr>
+<tr><td><code>--backend llvm|c11</code></td><td>choose the code generator (default <code>llvm</code>)</td></tr>
+<tr><td><code>--target &lt;triple&gt;</code></td><td>cross-compile, for example <code>aarch64-unknown-linux-gnu</code></td></tr>
+<tr><td><code>--cc &lt;compiler&gt;</code></td><td>the C or LLVM compiler to invoke (default <code>$LOWLIGHT_CC</code>, <code>$CC</code>, <code>clang</code>, then <code>cc</code>)</td></tr>
+<tr><td><code>-p, --package &lt;name&gt;</code></td><td>select a workspace member</td></tr>
+<tr><td><code>--workspace</code></td><td>act on every workspace member (<code>build</code>, <code>test</code>, <code>check</code>)</td></tr>
+<tr><td><code>--locked</code></td><td>require <code>lowlight.lock</code> to match <code>lowlight.toml</code></td></tr>
+<tr><td><code>--offline</code></td><td>forbid network access</td></tr>
+</tbody>
+</table></div>
+<p><code>test</code> also accepts <code>-run &lt;regex&gt;</code> (only matching tests), <code>--list</code> (list without running), and <code>--json</code> (one JSON event per line, for tools).</p>
+<h2 id="projects-and-dependencies"><a class="anchor" href="#projects-and-dependencies" aria-hidden="true">#</a>Projects and dependencies</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Command</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>lowlight new &lt;dir&gt; [--lib|--bin] [--name &lt;n&gt;]</code></td><td>create a project in a new directory</td></tr>
+<tr><td><code>lowlight init [--lib|--bin] [--name &lt;n&gt;] [dir]</code></td><td>create a project in an existing directory</td></tr>
+<tr><td><code>lowlight add &lt;name&gt; --path &lt;dir&gt;</code></td><td>add a local dependency</td></tr>
+<tr><td><code>lowlight add &lt;name&gt; --url &lt;url&gt; [--hash sha256:...]</code></td><td>add an archive dependency (computes the hash if omitted)</td></tr>
+<tr><td><code>lowlight add &lt;name&gt; --index &lt;url&gt; --version &lt;constraint&gt;</code></td><td>add a versioned dependency from an index</td></tr>
+<tr><td><code>lowlight remove &lt;name&gt;</code></td><td>remove a dependency</td></tr>
+<tr><td><code>lowlight fetch</code></td><td>download what the lockfile lists</td></tr>
+<tr><td><code>lowlight update [names...]</code></td><td>re-resolve to newer allowed versions</td></tr>
+<tr><td><code>lowlight vendor</code></td><td>copy dependencies into <code>vendor/</code></td></tr>
+<tr><td><code>lowlight tree</code></td><td>print the dependency graph</td></tr>
+</tbody>
+</table></div>
+<p><code>add</code> and <code>remove</code> take <code>--dev</code> for dev-dependencies and <code>--override</code> for <code>[overrides]</code>. They preserve the manifest's comments and layout.</p>
+<h2 id="tools"><a class="anchor" href="#tools" aria-hidden="true">#</a>Tools</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Command</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>lowlight fmt [-w] [--check] [paths...]</code></td><td>format source (<span class="repo-link" title="In the Lowlight repository: website/content/ref/formatter.html">Formatting</span>)</td></tr>
+<tr><td><code>lowlight doc [-o dir] [--format html|md] [--check-links] [paths...]</code></td><td>generate API documentation (<span class="repo-link" title="In the Lowlight repository: website/content/ref/documentation.html">Documentation comments</span>)</td></tr>
+<tr><td><code>lowlight lsp --stdio [--log file]</code></td><td>run the language server for editors</td></tr>
+<tr><td><code>lowlight version</code></td><td>print the version</td></tr>
+</tbody>
+</table></div>
+<h2 id="environment-variables"><a class="anchor" href="#environment-variables" aria-hidden="true">#</a>Environment variables</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Variable</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>LOWLIGHT_ROOT</code></td><td>the directory containing <code>std/</code>, when it can't be found next to the executable</td></tr>
+<tr><td><code>LOWLIGHT_CC</code></td><td>the default C compiler</td></tr>
+<tr><td><code>LOWLIGHT_BACKEND</code></td><td>the default backend (<code>llvm</code> or <code>c11</code>)</td></tr>
+<tr><td><code>LOWLIGHT_CACHE</code></td><td>the dependency and build cache (default <code>~/.lowlight/cache</code>)</td></tr>
+<tr><td><code>LOWLIGHT_CHECK_LEAKS=1</code></td><td>make a program verify at exit that it freed every allocation</td></tr>
+</tbody>
+</table></div>
+<h2 id="exit-status"><a class="anchor" href="#exit-status" aria-hidden="true">#</a>Exit status</h2>
+<p><code>build</code>, <code>check</code>, <code>test</code>, and the other commands exit with status 0 on success and 1 on any error or test failure. <code>run</code> exits with the program's own status.</p>
+</article><nav class="prev-next"><a class="prev" href="../spec/appendix-e-glossary.html"><span>Previous</span>Appendix E: Glossary</a><a class="next" href="formatter.html"><span>Next</span>Formatting</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#building-and-running">Building and running</a></li><li><a href="#projects-and-dependencies">Projects and dependencies</a></li><li><a href="#tools">Tools</a></li><li><a href="#environment-variables">Environment variables</a></li><li><a href="#exit-status">Exit status</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

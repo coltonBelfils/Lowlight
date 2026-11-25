@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5. Expressions · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a class="active" href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../ref/index.html">Reference</a></div><div class="sidebar-group">Specification</div><ul><li><a href="index.html">Overview and contents</a></li><li><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a></li><li><a href="quick-reference.html">Quick Reference</a></li></ul><div class="sidebar-group">Language reference</div><ul><li><a href="conventions-and-conformance.html">1. Conventions and Conformance</a></li><li><a href="lexical-structure.html">2. Lexical Structure</a></li><li><a href="types.html">3. Types</a></li><li><a href="declarations-and-program-structure.html">4. Declarations and Program Structure</a></li><li><a class="active" href="expressions.html">5. Expressions</a></li><li><a href="control-flow.html">6. Control Flow</a></li><li><a href="ownership-borrowing-and-destruction.html">7. Ownership, Borrowing, and Destruction</a></li><li><a href="generics.html">8. Generics</a></li><li><a href="failure-handling.html">9. Failure Handling</a></li><li><a href="unsafe-code-and-foreign-functions.html">10. Unsafe Code and Foreign Functions</a></li><li><a href="testing.html">11. Testing</a></li><li><a href="the-prelude.html">12. The Prelude</a></li><li><a href="the-standard-library.html">13. The Standard Library</a></li><li><a href="packages-manifests-and-dependencies.html">14. Packages, Manifests, and Dependencies</a></li></ul><div class="sidebar-group">Implementer&#39;s guide</div><ul><li><a href="implementers-guide.html">About this part</a></li><li><a href="compiler-architecture.html">15. Compiler Architecture</a></li><li><a href="parsing-ambiguities-and-their-resolution.html">16. Parsing Ambiguities and Their Resolution</a></li><li><a href="semantic-analysis.html">17. Semantic Analysis</a></li><li><a href="lowering-and-runtime-representation.html">18. Lowering and Runtime Representation</a></li><li><a href="the-runtime-contract.html">19. The Runtime Contract</a></li><li><a href="conformance-checklist.html">20. Conformance Checklist</a></li></ul><div class="sidebar-group">Appendices</div><ul><li><a href="appendix-a-grammar.html">Appendix A: Grammar</a></li><li><a href="appendix-b-keywords-and-contextual-words.html">Appendix B: Keywords and Contextual Words</a></li><li><a href="appendix-c-operator-precedence.html">Appendix C: Operator Precedence</a></li><li><a href="appendix-d-runtime-traps.html">Appendix D: Runtime Traps</a></li><li><a href="appendix-e-glossary.html">Appendix E: Glossary</a></li></ul><div class="sidebar-group">Tools</div><ul><li><a href="../ref/cli.html">Command-line tool</a></li><li><a href="../ref/formatter.html">Formatting</a></li><li><a href="../ref/documentation.html">Documentation comments</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../ref/index.html">Reference</a><span class="sep">/</span><span>Language reference</span></nav><h1 id="5-expressions"><a class="anchor" href="#5-expressions" aria-hidden="true">#</a>5. Expressions</h1>
+<blockquote class="glance">
+<p><strong>At a glance</strong></p>
+<ul>
+<li>Operands are evaluated left to right, once.
+</li>
+<li>Integer arithmetic wraps; division by zero and out-of-range shifts trap.
+</li>
+<li><code>==</code> and <code>&lt;</code> work on numbers, strings, and types that implement <code>Equatable</code> / <code>Comparable</code>; plain structs and enums get <code>==</code> automatically.
+</li>
+<li><code>xs[i]</code> traps when out of range; <code>xs.get(i)</code> returns <code>?T</code>. <code>m[k]</code> on a map is always <code>?V</code>.
+</li>
+<li><code>a?.b</code> reaches through an optional; <code>x ?? fallback</code> supplies a default for an optional or a result.
+</li>
+</ul>
+</blockquote>
+<h2 id="51-evaluation-order-and-precedence"><a class="anchor" href="#51-evaluation-order-and-precedence" aria-hidden="true">#</a>5.1 Evaluation order and precedence</h2>
+<p>Every expression's operands, a call's arguments, and a literal's elements are evaluated <strong>left to right</strong>, each exactly once. <code>and</code>, <code>or</code>, <code>??</code>, and conditional constructs evaluate only the operands they need.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Precedence</th><th>Operators</th><th>Associativity</th></tr></thead>
+<tbody>
+<tr><td>1 (tightest)</td><td><code>.</code> <code>?.</code> call <code>()</code> index/slice <code>[]</code></td><td>left</td></tr>
+<tr><td>2</td><td>prefix <code>-</code> <code>not</code> <code>~</code> <code>*</code> <code>&amp;</code> <code>own</code> <code>unsafe</code></td><td>right</td></tr>
+<tr><td>3</td><td><code>*</code> <code>/</code> <code>%</code></td><td>left</td></tr>
+<tr><td>4</td><td><code>+</code> <code>-</code></td><td>left</td></tr>
+<tr><td>5</td><td><code>&lt;&lt;</code> <code>&gt;&gt;</code></td><td>left</td></tr>
+<tr><td>6</td><td><code>..</code> <code>..=</code></td><td>none</td></tr>
+<tr><td>7</td><td><code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code></td><td>none</td></tr>
+<tr><td>8</td><td><code>==</code> <code>!=</code></td><td>none</td></tr>
+<tr><td>9</td><td><code>&amp;</code></td><td>left</td></tr>
+<tr><td>10</td><td><code>^</code></td><td>left</td></tr>
+<tr><td>11</td><td><code>|</code></td><td>left</td></tr>
+<tr><td>12</td><td><code>and</code></td><td>left</td></tr>
+<tr><td>13</td><td><code>or</code></td><td>left</td></tr>
+<tr><td>14</td><td><code>??</code></td><td>right</td></tr>
+<tr><td>15 (loosest)</td><td>unwind <code>&lt;-</code></td><td>right</td></tr>
+</tbody>
+</table></div>
+<p>&quot;None&quot; means the operator cannot be chained: <code>a &lt; b &lt; c</code> and <code>a == b == c</code> are errors; write <code>a &lt; b and b &lt; c</code>. Comparisons bind more tightly than the bitwise operators <code>&amp;</code>, <code>^</code>, and <code>|</code>, so <code>x &amp; mask == 0</code> means <code>x &amp; (mask == 0)</code>, a type error; write <code>(x &amp; mask) == 0</code>.</p>
+<p>There is no cast operator. <code>as</code> is used only in imports, <code>extern</code> aliases, and <code>if(e as v)</code>.</p>
+<h2 id="52-literals-and-constructors"><a class="anchor" href="#52-literals-and-constructors" aria-hidden="true">#</a>5.2 Literals and constructors</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Expression</th><th>Builds</th></tr></thead>
+<tbody>
+<tr><td><code>42</code>, <code>0xFF</code>, <code>3.5</code>, <code>&#39;c&#39;</code>, <code>&quot;text&quot;</code>, <code>`text`</code>, <code>true</code>, <code>none</code></td><td>literals (<a href="lexical-structure.html#27-literals">§2.7</a>)</td></tr>
+<tr><td><code>Type[field: value, ...]</code></td><td>a struct (<a href="types.html#37-structs">§3.7</a>)</td></tr>
+<tr><td><code>Type.variant</code>, <code>Type.variant(payload)</code></td><td>an enum or result value (<a href="types.html#38-enums">§3.8</a>, <a href="types.html#39-results">§3.9</a>)</td></tr>
+<tr><td><code>value(x)</code>, <code>missing(k)</code> where a result is expected</td><td>a result value by its bare member (<a href="types.html#39-results">§3.9</a>)</td></tr>
+<tr><td><code>[a, b]</code>, <code>[]</code></td><td>a list</td></tr>
+<tr><td><code>[N: v]</code>, <code>[N: a, b, ...]</code></td><td>an array</td></tr>
+<tr><td><code>#[a, b]</code>, <code>#[k: v]</code>, <code>#[]</code></td><td>a set or a map</td></tr>
+<tr><td><code>+[a, b]</code></td><td>a tuple</td></tr>
+<tr><td><code>lo..hi</code>, <code>lo..=hi</code></td><td>a range</td></tr>
+<tr><td><code>(params) Ret: body</code></td><td>a function value (<a href="types.html#312-functions-and-closures">§3.12</a>)</td></tr>
+<tr><td><code>Iface(value)</code></td><td>an interface box (<a href="types.html#311-interfaces">§3.11</a>)</td></tr>
+<tr><td><code>T(x)</code> for a primitive or distinct <code>T</code></td><td>a conversion (<a href="#510-conversions">§5.10</a>)</td></tr>
+</tbody>
+</table></div>
+<p>An empty literal (<code>[]</code>, <code>#[]</code>) and <code>none</code> need their type from context. The element type of a non-empty literal is the type of its elements, which must agree (after literal adaptation and implicit conversions, <a href="types.html#316-type-equivalence-and-implicit-conversions">§3.16</a>). Elements that move existing resource variables must say <code>own</code> (<a href="ownership-borrowing-and-destruction.html#72-moves">§7.2</a>).</p>
+<h2 id="53-arithmetic"><a class="anchor" href="#53-arithmetic" aria-hidden="true">#</a>5.3 Arithmetic</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Operation</th><th>Integers</th><th>Floats</th></tr></thead>
+<tbody>
+<tr><td><code>+</code> <code>-</code> <code>*</code>, unary <code>-</code></td><td>two's-complement <strong>wrapping</strong> in the operand type</td><td>IEEE-754</td></tr>
+<tr><td><code>/</code></td><td>truncates toward zero; <strong>traps</strong> if the divisor is zero; <code>MIN / -1</code> wraps to <code>MIN</code></td><td>IEEE-754 (<code>1.0 / 0.0</code> is <code>inf</code>)</td></tr>
+<tr><td><code>%</code></td><td>sign follows the dividend; <strong>traps</strong> on a zero divisor; <code>MIN % -1</code> is <code>0</code></td><td>not defined</td></tr>
+<tr><td><code>&lt;&lt;</code> <code>&gt;&gt;</code></td><td><strong>traps</strong> unless <code>0 &lt;= shift &lt; bit width</code>; <code>&gt;&gt;</code> is arithmetic for signed types, logical for unsigned</td><td>not defined</td></tr>
+<tr><td><code>&amp;</code> <code>|</code> <code>^</code> <code>~</code></td><td>bitwise</td><td>not defined</td></tr>
+</tbody>
+</table></div>
+<p>Both operands of a binary arithmetic or bitwise operator must have the same type (a literal adapts to the other operand). <code>+</code> also concatenates two strings into a new string. These rules hold in every build mode, including <code>--release</code>; integer overflow is never undefined behavior.</p>
+<h2 id="54-equality-and-ordering"><a class="anchor" href="#54-equality-and-ordering" aria-hidden="true">#</a>5.4 Equality and ordering</h2>
+<p><code>a == b</code> and <code>a != b</code> require both operands to have the same type, and that type to support equality:</p>
+<ul>
+<li>numbers, <code>bool</code>, <code>char</code>, and <code>string</code> (byte-wise);
+</li>
+<li>optionals of equatable types (<code>none == none</code>; <code>x? == none</code> tests absence);
+</li>
+<li>enums and results whose payloads support equality, compared variant and payload;
+</li>
+<li>tuples, and plain structs, compared field by field;
+</li>
+<li>distinct types whose base supports equality;
+</li>
+<li>any type with an <code>eq: (self, other: Self) bool</code> method (<code>Equatable</code>), or with a <code>cmp</code> method (<code>a == b</code> exactly when <code>a.cmp(b) == 0</code>).
+</li>
+</ul>
+<p>Lists, sets, maps, and structs with resource fields have no <code>==</code> unless they define <code>eq</code>.</p>
+<p><code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code> require a type that supports ordering: numbers, <code>char</code>, <code>string</code> (byte-wise lexicographic), and types with a <code>cmp: (self, other: Self) int</code> method (<code>Comparable</code>), which returns a negative number, zero, or a positive number. <code>bool</code> and enums are not ordered.</p>
+<p>In generic code, <code>==</code> needs the bound <code>T: Equatable</code> and <code>&lt;</code> needs <code>T: Comparable</code> (<a href="generics.html#82-bounds">§8.2</a>).</p>
+<h2 id="55-logic-and-bitwise-operators"><a class="anchor" href="#55-logic-and-bitwise-operators" aria-hidden="true">#</a>5.5 Logic and bitwise operators</h2>
+<p><code>and</code>, <code>or</code>, and <code>not</code> take and produce <code>bool</code>; <code>and</code> and <code>or</code> short-circuit. There are no <code>&amp;&amp;</code>, <code>||</code>, or <code>!</code> operators. The bitwise operators <code>&amp;</code>, <code>|</code>, <code>^</code>, and <code>~</code> work on integers of one type.</p>
+<h2 id="56-ranges"><a class="anchor" href="#56-ranges" aria-hidden="true">#</a>5.6 Ranges</h2>
+<p><code>lo..hi</code> is the half-open range <code>lo &lt;= x &lt; hi</code>; <code>lo..=hi</code> includes <code>hi</code>. Both bounds must have the same integer, integer-based distinct, or <code>char</code> type; float ranges are errors. A range whose upper bound is below its lower bound is empty. Ranges are values of type <code>Range[T]</code> (<a href="types.html#36-collections">§3.6</a>); in a <code>match</code> pattern a range is used as <code>when in lo..hi:</code> (<a href="control-flow.html#65-pattern-matching">§6.5</a>).</p>
+<h2 id="57-indexing-and-slicing"><a class="anchor" href="#57-indexing-and-slicing" aria-hidden="true">#</a>5.7 Indexing and slicing</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Expression</th><th>On</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td><code>xs[i]</code></td><td>list <code>[T]</code>, array <code>[N: T]</code></td><td>the element; <strong>traps</strong> unless <code>0 &lt;= i &lt; len</code>; assignable when <code>xs</code> is mutable</td></tr>
+<tr><td><code>s[i]</code></td><td><code>string</code></td><td>the byte at offset <code>i</code>, a <code>u8</code>; <strong>traps</strong> when out of range</td></tr>
+<tr><td><code>m[k]</code></td><td>map <code>#[K: V]</code></td><td><code>?V</code> (same as <code>m.get(k)</code>); assignment <code>m[k] = v</code> inserts or replaces</td></tr>
+<tr><td><code>c[i]</code></td><td>a type implementing <code>Indexable[T]</code></td><td><code>?T</code>, via <code>c.get(i)</code></td></tr>
+<tr><td><code>c[k]</code></td><td>a type implementing <code>KeyIndexable[K, V]</code></td><td><code>?V</code>, via <code>c.get(k)</code></td></tr>
+<tr><td><code>p[i]</code></td><td><code>ptr[T]</code> (in <code>unsafe</code>)</td><td>the element at <code>p + i * size_of[T]()</code>, unchecked</td></tr>
+<tr><td><code>xs[lo..hi]</code>, <code>xs[lo..=hi]</code></td><td>list, array, string</td><td>the elements from <code>lo</code> up to <code>hi</code>; <strong>traps</strong> unless <code>0 &lt;= lo &lt;= hi &lt;= len</code></td></tr>
+<tr><td><code>xs[..hi]</code>, <code>xs[lo..]</code></td><td>list, array, string</td><td>a missing bound is <code>0</code> or <code>len</code></td></tr>
+</tbody>
+</table></div>
+<p>The index must be an <code>int</code> (or an integer literal). A slice of a list or array is a read-only view of the original elements; a slice of a string is a <code>string</code>.</p>
+<h2 id="58-optional-chaining-and-fallback"><a class="anchor" href="#58-optional-chaining-and-fallback" aria-hidden="true">#</a>5.8 Optional chaining and fallback</h2>
+<p><strong>Optional chaining.</strong> On an optional <code>?T</code>, <code>a?.field</code> and <code>a?.method(args)</code> evaluate to <code>none</code> if <code>a</code> is <code>none</code>, and otherwise access the member and wrap the result in an optional. A name ending in <code>?</code> may use plain <code>.</code> (<code>user?.name</code> and <code>user?.name</code> are the same; the <code>?</code> belongs to the name). Once a chain short-circuits, the rest of it is skipped:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">User</span> <span class="k">struct</span> [
+	name: <span class="t">string</span>,
+	manager?: ?<span class="t">User</span>,
+]
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> u = <span class="t">User</span>[name: <span class="s">&quot;Ada&quot;</span>, manager?: <span class="t">User</span>[name: <span class="s">&quot;Grace&quot;</span>]]
+	<span class="f">println</span>(u.manager?.name ?? <span class="s">&quot;none&quot;</span>)
+	<span class="f">println</span>(u.manager?.manager?.name ?? <span class="s">&quot;none&quot;</span>)
+}</code></pre>
+<p>A method called through <code>?.</code> must take <code>self</code>; <code>&amp;self</code> and <code>own self</code> methods cannot be called through an optional chain.</p>
+<p><strong>Fallback <code>??</code>.</strong> <code>a ?? b</code>:</p>
+<ul>
+<li>if <code>a</code> is an optional <code>?T</code>: <code>a</code>'s value if present, otherwise <code>b</code>. <code>b</code> may be a <code>T</code>, or another <code>?T</code> (making the whole expression <code>?T</code>, so <code>a? ?? b? ?? 0</code> chains).
+</li>
+<li>if <code>a</code> is a result: <code>a</code>'s success value, or on any failure, <code>b</code>. The failure is dropped. <code>b</code> must be the success type.
+</li>
+<li><code>b</code> is evaluated only when needed, and may be an unwind: <code>let v = x? ?? func &lt;- fallback</code>. After such a guard, <code>v</code> is a plain <code>T</code>. An unwind is allowed on the right of <code>??</code> only when the <code>??</code> expression is the entire right-hand side of a <code>let</code>, <code>bind</code>, or assignment statement; elsewhere (inside a call argument or a struct literal), bind the value first.
+</li>
+</ul>
+<h2 id="59-member-access-and-calls"><a class="anchor" href="#59-member-access-and-calls" aria-hidden="true">#</a>5.9 Member access and calls</h2>
+<ul>
+<li><code>v.field</code> reads a field. On a mutable place, <code>v.field = x</code> and <code>v.field += x</code> assign to it.
+</li>
+<li><code>v.method(args)</code> calls a method (<a href="declarations-and-program-structure.html#44-methods-and-associated-functions">§4.4</a>); a <code>&amp;self</code> receiver is borrowed automatically.
+</li>
+<li><code>f(args)</code> calls a function or function value. Arguments are evaluated left to right.
+</li>
+<li>An argument for a <code>&amp;T</code> parameter must be written <code>&amp;place</code>; one for an <code>own T</code> parameter that moves an existing variable must be written <code>own place</code> (<a href="ownership-borrowing-and-destruction.html#73-parameter-modes">§7.3</a>).
+</li>
+<li>Explicit type arguments go before the argument list: <code>size_of[int]()</code>, <code>parse[Config](text)</code>. They are usually inferred.
+</li>
+<li>Method calls on a separate line may continue a chain by starting with <code>.</code> (<a href="lexical-structure.html#23-statement-separation">§2.3</a>).
+</li>
+</ul>
+<h2 id="510-conversions"><a class="anchor" href="#510-conversions" aria-hidden="true">#</a>5.10 Conversions</h2>
+<p>A conversion is written as a call to the target type.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>From → to</th><th>Write</th><th>Behavior</th></tr></thead>
+<tbody>
+<tr><td>integer → integer</td><td><code>u8(x)</code>, <code>int(x)</code></td><td>truncate or sign/zero-extend</td></tr>
+<tr><td>float → integer</td><td><code>int(f)</code></td><td>truncate toward zero</td></tr>
+<tr><td>integer ↔ float, float ↔ float</td><td><code>float(n)</code>, <code>f32(x)</code></td><td>nearest representable value</td></tr>
+<tr><td><code>char</code> → integer · integer → <code>char</code></td><td><code>int(c)</code> · <code>char(n)</code></td><td>code point; <code>char(n)</code> <strong>panics</strong> unless <code>n</code> is a Unicode scalar value (<code>0..=0x10FFFF</code>, excluding the surrogates <code>0xD800..=0xDFFF</code>)</td></tr>
+<tr><td>tag enum → integer</td><td><code>int(Status.active)</code></td><td>the variant's value</td></tr>
+<tr><td>base → distinct · distinct → base</td><td><code>UserId(5)</code> · <code>int(id)</code></td><td>no change in representation</td></tr>
+<tr><td>concrete → interface</td><td><code>Shape(circle)</code></td><td>boxes the value (<a href="types.html#311-interfaces">§3.11</a>)</td></tr>
+</tbody>
+</table></div>
+<p>Converting to <code>string</code> is <code>.to_string()</code> or interpolation. Parsing a string is <code>parse_int</code>, <code>parse_float</code>, or <code>std/strconv</code> (<a href="the-prelude.html#122-universe-functions">§12.2</a>).</p>
+<h2 id="511-blocks"><a class="anchor" href="#511-blocks" aria-hidden="true">#</a>5.11 Blocks</h2>
+<p><code>{ stmt; stmt; expr }</code> is an expression. It opens a scope, runs its statements in order, and evaluates to its final expression (<a href="lexical-structure.html#23-statement-separation">§2.3</a>). A block without a final expression, or whose final expression is followed by an explicit <code>;</code>, has type <code>void</code>. Resource variables declared in the block are released when it ends (<a href="ownership-borrowing-and-destruction.html#75-destruction">§7.5</a>). A labeled block, <code>name: { ... }</code>, can be left early with <code>name &lt;- value</code> (<a href="control-flow.html#67-unwinds-and-labels">§6.7</a>). <code>unsafe { ... }</code> is a block in which unsafe operations are allowed (<a href="unsafe-code-and-foreign-functions.html#10-unsafe-code-and-foreign-functions">§10</a>).</p>
+<h2 id="512-assignment"><a class="anchor" href="#512-assignment" aria-hidden="true">#</a>5.12 Assignment</h2>
+<p>Assignment is a statement, not an expression:</p>
+<pre class="lang-ebnf" data-lang="ebnf"><code><span class="t">Assign</span> = <span class="t">Place</span> ( <span class="s">&quot;=&quot;</span> | <span class="s">&quot;+=&quot;</span> | <span class="s">&quot;-=&quot;</span> | <span class="s">&quot;*=&quot;</span> | <span class="s">&quot;/=&quot;</span> | <span class="s">&quot;%=&quot;</span> | <span class="s">&quot;&amp;=&quot;</span> | <span class="s">&quot;|=&quot;</span> | <span class="s">&quot;^=&quot;</span> | <span class="s">&quot;&lt;&lt;=&quot;</span> | <span class="s">&quot;&gt;&gt;=&quot;</span> ) <span class="t">Expr</span>
+       | <span class="t">Place</span> { <span class="s">&quot;,&quot;</span> <span class="t">Place</span> } <span class="s">&quot;=&quot;</span> <span class="s">&quot;unpack&quot;</span> <span class="t">Expr</span> ;
+<span class="t">Place</span>  = <span class="t">Name</span> | <span class="t">Place</span> <span class="s">&quot;.&quot;</span> <span class="t">Name</span> | <span class="t">Place</span> <span class="s">&quot;[&quot;</span> <span class="t">Expr</span> <span class="s">&quot;]&quot;</span> | <span class="s">&quot;*&quot;</span> <span class="t">Expr</span> ;</code></pre>
+<ol>
+<li>The target must be a <strong>mutable place</strong>: a <code>let</code> variable, a field or element of one, a field reached through <code>&amp;self</code> or a <code>&amp;T</code> parameter, or (in <code>unsafe</code>) a pointer dereference.
+</li>
+<li><code>a op= b</code> means <code>a = a op b</code>, with <code>a</code> evaluated once.
+</li>
+<li>The right side is evaluated first. Assigning to a place that holds a resource releases the old value after the new one is computed, so <code>s = s + &quot;!&quot;</code> is safe.
+</li>
+<li>Assigning an existing resource variable moves it, so write <code>own</code>: <code>slot = own value</code>.
+</li>
+<li><code>a, b = unpack t</code> assigns each element of a tuple; <code>a, b = unpack +[b, a]</code> swaps.
+</li>
+</ol>
+<hr />
+</article><nav class="prev-next"><a class="prev" href="declarations-and-program-structure.html"><span>Previous</span>4. Declarations and Program Structure</a><a class="next" href="control-flow.html"><span>Next</span>6. Control Flow</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#51-evaluation-order-and-precedence">5.1 Evaluation order and precedence</a></li><li><a href="#52-literals-and-constructors">5.2 Literals and constructors</a></li><li><a href="#53-arithmetic">5.3 Arithmetic</a></li><li><a href="#54-equality-and-ordering">5.4 Equality and ordering</a></li><li><a href="#55-logic-and-bitwise-operators">5.5 Logic and bitwise operators</a></li><li><a href="#56-ranges">5.6 Ranges</a></li><li><a href="#57-indexing-and-slicing">5.7 Indexing and slicing</a></li><li><a href="#58-optional-chaining-and-fallback">5.8 Optional chaining and fallback</a></li><li><a href="#59-member-access-and-calls">5.9 Member access and calls</a></li><li><a href="#510-conversions">5.10 Conversions</a></li><li><a href="#511-blocks">5.11 Blocks</a></li><li><a href="#512-assignment">5.12 Assignment</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

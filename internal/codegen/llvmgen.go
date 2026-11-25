@@ -1741,9 +1741,27 @@ func (g *llvmEmitter) emitCopyVal(destAddr, srcAddr string, t types.Type) {
 	}
 	if opt, ok := t.(*types.Optional); ok {
 		if opt.IsBoxed() {
-			fn := "ll_copy_p__" + opt.Mangled()
-			g.declareHelper(fn, "void", "ptr, ptr")
-			g.indentLine(1, "call void @%s(ptr %s, ptr %s)", fn, destAddr, srcAddr)
+			boxPtr := g.newReg()
+			g.indentLine(1, "%s = load ptr, ptr %s, align 8", boxPtr, srcAddr)
+			hasVal := g.newReg()
+			g.indentLine(1, "%s = icmp ne ptr %s, null", hasVal, boxPtr)
+			lSome := g.newBlockLabel("opt.box.copy.some")
+			lNone := g.newBlockLabel("opt.box.copy.none")
+			lCont := g.newBlockLabel("opt.box.copy.cont")
+			g.indentLine(1, "br i1 %s, label %%%s, label %%%s", hasVal, lSome, lNone)
+			g.isTerminated = true
+			g.emitLabel(lSome)
+			newBox := g.newReg()
+			g.indentLine(1, "%s = call ptr @ll_alloc(i64 %d)", newBox, g.typeSize(opt.Elem))
+			g.emitCopyVal(newBox, boxPtr, opt.Elem)
+			g.indentLine(1, "store ptr %s, ptr %s, align 8", newBox, destAddr)
+			g.indentLine(1, "br label %%%s", lCont)
+			g.isTerminated = true
+			g.emitLabel(lNone)
+			g.indentLine(1, "store ptr null, ptr %s, align 8", destAddr)
+			g.indentLine(1, "br label %%%s", lCont)
+			g.isTerminated = true
+			g.emitLabel(lCont)
 			return
 		}
 		pHasSrc := g.newReg()
@@ -2221,7 +2239,10 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		if tyStr == "i1" {
 			return "false"
 		}
-		if strings.HasPrefix(tyStr, "i") || tyStr == "float" || tyStr == "double" {
+		if tyStr == "float" || tyStr == "double" {
+			return "0.0"
+		}
+		if strings.HasPrefix(tyStr, "i") {
 			return "0"
 		}
 		zSlot := g.allocaEntry(tyStr, 8)
@@ -2360,10 +2381,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		if v.Left.Type() != nil && !g.isScalar(v.Left.Type()) && !g.isFloat(v.Left.Type()) && (v.Op == token.Eq || v.Op == token.Neq) {
 			leftAddr := g.emitLValueAddr(v.Left)
 			rightAddr := g.emitLValueAddr(v.Right)
-			fn := "ll_eq_p__" + v.Left.Type().Mangled()
-			g.declareHelper(fn, "i1", "ptr, ptr")
-			eqReg := g.newReg()
-			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", eqReg, fn, leftAddr, rightAddr)
+			eqReg := g.emitValueEqInline(leftAddr, rightAddr, v.Left.Type())
 			if v.Op == token.Eq {
 				return eqReg
 			}
@@ -2740,10 +2758,8 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 			return r
 		}
 		srcAddr := g.emitLValueAddr(v.Val)
-		fn := "ll_tostr_p__" + v.ValType.Mangled()
-		g.declareHelper(fn, "void", "ptr, ptr")
 		resSlot := g.allocaEntry("%struct.ll_string", 8)
-		g.indentLine(1, "call void @%s(ptr %s, ptr %s)", fn, resSlot, srcAddr)
+		g.emitValueToStrInline(resSlot, srcAddr, v.ValType)
 		r := g.newReg()
 		g.indentLine(1, "%s = load %%struct.ll_string, ptr %s, align 8", r, resSlot)
 		return r
@@ -2781,25 +2797,12 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		}
 		leftAddr := g.emitLValueAddr(v.Left)
 		rightAddr := g.emitLValueAddr(v.Right)
-		fn := "ll_eq_p__" + v.ValType.Mangled()
-		g.declareHelper(fn, "i1", "ptr, ptr")
-		r := g.newReg()
-		g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, fn, leftAddr, rightAddr)
-		return r
+		return g.emitValueEqInline(leftAddr, rightAddr, v.ValType)
 
 	case *ir.ExprCmp:
 		leftAddr := g.emitLValueAddr(v.Left)
 		rightAddr := g.emitLValueAddr(v.Right)
-		if v.ValType != nil && v.ValType.Equals(types.TypeString) {
-			r := g.newReg()
-			g.indentLine(1, "%s = call i64 @ll_str_cmp_p(ptr %s, ptr %s)", r, leftAddr, rightAddr)
-			return r
-		}
-		fn := "ll_cmp_p__" + v.ValType.Mangled()
-		g.declareHelper(fn, "i64", "ptr, ptr")
-		r := g.newReg()
-		g.indentLine(1, "%s = call i64 @%s(ptr %s, ptr %s)", r, fn, leftAddr, rightAddr)
-		return r
+		return g.emitValueCmpInline(leftAddr, rightAddr, v.ValType)
 
 	case *ir.ExprHash:
 		if v.ValType != nil && v.ValType.Equals(types.TypeString) {
@@ -2825,12 +2828,8 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 			g.indentLine(1, "%s = call i64 @ll_hash_mix64(i64 %s)", r, i)
 			return r
 		}
-		val := g.emitExpr(v.Val)
-		fn := ir.HashFnName(v.ValType)
-		g.declareHelper(fn, "i64", g.llvmType(v.ValType))
-		r := g.newReg()
-		g.indentLine(1, "%s = call i64 @%s(%s %s)", r, fn, g.llvmType(v.ValType), val)
-		return r
+		addr := g.emitLValueAddr(v.Val)
+		return g.emitValueHashInline(addr, v.ValType)
 
 	case *ir.ExprVecPush:
 		vecAddr := g.emitExpr(v.VecPtr)
@@ -3156,13 +3155,7 @@ func (g *llvmEmitter) emitBinaryOp(op token.Kind, lVal, rVal string, t types.Typ
 		} else if g.isScalar(t) {
 			g.indentLine(1, "%s = icmp eq %s %s, %s", r, tyStr, lVal, rVal)
 		} else {
-			slotL := g.allocaEntry(tyStr, g.typeAlign(t))
-			g.indentLine(1, "store %s %s, ptr %s, align %d", tyStr, lVal, slotL, g.typeAlign(t))
-			slotR := g.allocaEntry(tyStr, g.typeAlign(t))
-			g.indentLine(1, "store %s %s, ptr %s, align %d", tyStr, rVal, slotR, g.typeAlign(t))
-			fn := "ll_eq_p__" + t.Mangled()
-			g.declareHelper(fn, "i1", "ptr, ptr")
-			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, fn, slotL, slotR)
+			return g.emitValueEqByVal(lVal, rVal, t)
 		}
 		return r
 
@@ -3172,14 +3165,7 @@ func (g *llvmEmitter) emitBinaryOp(op token.Kind, lVal, rVal string, t types.Typ
 		} else if g.isScalar(t) {
 			g.indentLine(1, "%s = icmp ne %s %s, %s", r, tyStr, lVal, rVal)
 		} else {
-			slotL := g.allocaEntry(tyStr, g.typeAlign(t))
-			g.indentLine(1, "store %s %s, ptr %s, align %d", tyStr, lVal, slotL, g.typeAlign(t))
-			slotR := g.allocaEntry(tyStr, g.typeAlign(t))
-			g.indentLine(1, "store %s %s, ptr %s, align %d", tyStr, rVal, slotR, g.typeAlign(t))
-			fn := "ll_eq_p__" + t.Mangled()
-			g.declareHelper(fn, "i1", "ptr, ptr")
-			eqReg := g.newReg()
-			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", eqReg, fn, slotL, slotR)
+			eqReg := g.emitValueEqByVal(lVal, rVal, t)
 			g.indentLine(1, "%s = xor i1 %s, true", r, eqReg)
 		}
 		return r
@@ -3837,9 +3823,7 @@ func (g *llvmEmitter) emitVTables() {
 		if CanCopyType(g.prog, vt.Concrete) {
 			sz := g.typeSize(vt.Concrete)
 			g.indentLine(1, "%%nb = call ptr @ll_alloc(i64 %d)", sz)
-			copyP := "ll_copy_p__" + vt.Concrete.Mangled()
-			g.declareHelper(copyP, "void", "ptr, ptr")
-			g.indentLine(1, "call void @%s(ptr %%nb, ptr %%_data.param)", copyP)
+			g.emitValueCopyInline("%nb", "%_data.param", vt.Concrete)
 			g.indentRaw(1, "ret ptr %nb")
 		} else {
 			g.indentLine(1, "call void @ll_panic_cstr(ptr null, ptr null, i32 0)")
@@ -3995,9 +3979,7 @@ func (g *llvmEmitter) emitVTables() {
 				}
 			} else if im.Name == "to_string" {
 				g.indentRaw(1, "%_tostr_res = alloca %struct.ll_string, align 8")
-				toStrP := "ll_tostr_p__" + vt.Concrete.Mangled()
-				g.declareHelper(toStrP, "void", "ptr, ptr")
-				g.indentLine(1, "call void @%s(ptr %%_tostr_res, ptr %%_self.param)", toStrP)
+				g.emitValueToStrInline("%_tostr_res", "%_self.param", vt.Concrete)
 				g.indentRaw(1, "%res = load %struct.ll_string, ptr %_tostr_res, align 8")
 				g.indentRaw(1, "ret %struct.ll_string %res")
 			} else {

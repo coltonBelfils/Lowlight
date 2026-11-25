@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pool.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>pool.ll</h1><p>Source of package <a href="../pool.html"><code>std/pool</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/pool — Generational arena [`Pool`] and stale-safe [`Handle`] identifiers.</span></span>
+<span class="src-line" id="L2"><span class="m">//</span></span>
+<span class="src-line" id="L3"><span class="m">// Enables cyclic graphs, entity-component tables, and UI node trees in safe Lowlight</span></span>
+<span class="src-line" id="L4"><span class="m">// with O(1) slot reuse and automatic generation checks without garbage collection.</span></span>
+<span class="src-line" id="L5"></span>
+<span class="src-line" id="L6"><span class="m">// Generational slot identifier referencing a value inside a [`Pool`].</span></span>
+<span class="src-line" id="L7"><span class="k">define</span> <span class="t">Handle</span>[<span class="t">T</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L8">	<span class="m">// Zero-based backing slot index inside the pool.</span></span>
+<span class="src-line" id="L9">	index: <span class="t">int</span>,</span>
+<span class="src-line" id="L10">	<span class="m">// Monotonic slot generation used to reject stale handles after [`Pool.free`].</span></span>
+<span class="src-line" id="L11">	generation: <span class="t">int</span>,</span>
+<span class="src-line" id="L12">]</span>
+<span class="src-line" id="L13"></span>
+<span class="src-line" id="L14"><span class="m">// Reports whether `self` and `other` point to the same slot index and generation.</span></span>
+<span class="src-line" id="L15"><span class="k">bind</span> <span class="t">Handle</span>[<span class="t">T</span>].equals = (<span class="k">self</span>, other: <span class="t">Handle</span>[<span class="t">T</span>]) <span class="t">bool</span>:</span>
+<span class="src-line" id="L16">	<span class="k">self</span>.index == other.index <span class="k">and</span> <span class="k">self</span>.generation == other.generation</span>
+<span class="src-line" id="L17"></span>
+<span class="src-line" id="L18"><span class="k">define</span> _PoolSlot[<span class="t">T</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L19">	value?: ?<span class="t">T</span>,</span>
+<span class="src-line" id="L20">	generation: <span class="t">int</span>,</span>
+<span class="src-line" id="L21">	alive: <span class="t">bool</span>,</span>
+<span class="src-line" id="L22">]</span>
+<span class="src-line" id="L23"></span>
+<span class="src-line" id="L24"><span class="m">// Safe generational arena managing values of type [`T`] addressed by [`Handle`].</span></span>
+<span class="src-line" id="L25"><span class="m">//</span></span>
+<span class="src-line" id="L26"><span class="m">// # Example</span></span>
+<span class="src-line" id="L27"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L28"><span class="m">// let pool = Pool[string].new()</span></span>
+<span class="src-line" id="L29"><span class="m">// let h = pool.alloc(&quot;node&quot;)</span></span>
+<span class="src-line" id="L30"><span class="m">// assert(pool.get(h) == &quot;node&quot;)</span></span>
+<span class="src-line" id="L31"><span class="m">// assert(pool.free(h))</span></span>
+<span class="src-line" id="L32"><span class="m">// assert(pool.get(h) == none)</span></span>
+<span class="src-line" id="L33"><span class="m">// ```</span></span>
+<span class="src-line" id="L34"><span class="k">define</span> <span class="t">Pool</span>[<span class="t">T</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L35">	_slots: [_PoolSlot[<span class="t">T</span>]],</span>
+<span class="src-line" id="L36">	_free_indices: [<span class="t">int</span>],</span>
+<span class="src-line" id="L37">	_live_count: <span class="t">int</span>,</span>
+<span class="src-line" id="L38">]</span>
+<span class="src-line" id="L39"></span>
+<span class="src-line" id="L40"><span class="m">// Constructs an empty [`Pool`] with no pre-allocated slots.</span></span>
+<span class="src-line" id="L41"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].new = () <span class="t">Pool</span>[<span class="t">T</span>]:</span>
+<span class="src-line" id="L42">	<span class="t">Pool</span>[<span class="t">T</span>][</span>
+<span class="src-line" id="L43">		_slots: [],</span>
+<span class="src-line" id="L44">		_free_indices: [],</span>
+<span class="src-line" id="L45">		_live_count: <span class="n">0</span>,</span>
+<span class="src-line" id="L46">	]</span>
+<span class="src-line" id="L47"></span>
+<span class="src-line" id="L48"><span class="m">// Returns the number of currently live values in the pool.</span></span>
+<span class="src-line" id="L49"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].len = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._live_count</span>
+<span class="src-line" id="L50"></span>
+<span class="src-line" id="L51"><span class="m">// Reports whether the pool contains zero currently live values.</span></span>
+<span class="src-line" id="L52"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].is_empty = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>._live_count == <span class="n">0</span></span>
+<span class="src-line" id="L53"></span>
+<span class="src-line" id="L54"><span class="m">// Returns the total number of slots allocated by the pool (live plus free).</span></span>
+<span class="src-line" id="L55"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].capacity = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._slots.<span class="f">len</span>()</span>
+<span class="src-line" id="L56"></span>
+<span class="src-line" id="L57"><span class="m">// Inserts `val` into the pool (reusing a freed slot when available) and returns its [`Handle`].</span></span>
+<span class="src-line" id="L58"><span class="m">//</span></span>
+<span class="src-line" id="L59"><span class="m">// # Ownership</span></span>
+<span class="src-line" id="L60"><span class="m">// Takes ownership of `val`.</span></span>
+<span class="src-line" id="L61"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].alloc = (&amp;<span class="k">self</span>, val: <span class="k">own</span> <span class="t">T</span>) <span class="t">Handle</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L62">	<span class="k">if</span>(<span class="k">self</span>._free_indices.<span class="f">len</span>() &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L63">		<span class="k">let</span> idx = <span class="k">self</span>._free_indices.<span class="f">pop</span>() ?? <span class="n">0</span></span>
+<span class="src-line" id="L64">		<span class="k">let</span> gen = <span class="k">self</span>._slots[idx].generation</span>
+<span class="src-line" id="L65">		<span class="k">self</span>._slots[idx].value? = <span class="k">own</span> val</span>
+<span class="src-line" id="L66">		<span class="k">self</span>._slots[idx].alive = <span class="c">true</span></span>
+<span class="src-line" id="L67">		<span class="k">self</span>._live_count += <span class="n">1</span></span>
+<span class="src-line" id="L68">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="t">Handle</span>[<span class="t">T</span>][index: idx, generation: gen]</span>
+<span class="src-line" id="L69">	}</span>
+<span class="src-line" id="L70">	<span class="k">let</span> idx = <span class="k">self</span>._slots.<span class="f">len</span>()</span>
+<span class="src-line" id="L71">	<span class="k">self</span>._slots.<span class="f">push</span>(_PoolSlot[<span class="t">T</span>][</span>
+<span class="src-line" id="L72">		value?: <span class="k">own</span> val,</span>
+<span class="src-line" id="L73">		generation: <span class="n">1</span>,</span>
+<span class="src-line" id="L74">		alive: <span class="c">true</span>,</span>
+<span class="src-line" id="L75">	])</span>
+<span class="src-line" id="L76">	<span class="k">self</span>._live_count += <span class="n">1</span></span>
+<span class="src-line" id="L77">	<span class="k">func</span> <span class="u">&lt;-</span> <span class="t">Handle</span>[<span class="t">T</span>][index: idx, generation: <span class="n">1</span>]</span>
+<span class="src-line" id="L78">}</span>
+<span class="src-line" id="L79"></span>
+<span class="src-line" id="L80"><span class="m">// Reports whether `h` points to a currently live entry matching its generation.</span></span>
+<span class="src-line" id="L81"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].has = (<span class="k">self</span>, h: <span class="t">Handle</span>[<span class="t">T</span>]) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L82">	<span class="k">if</span>(h.index &lt; <span class="n">0</span> <span class="k">or</span> h.index &gt;= <span class="k">self</span>._slots.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L83">	<span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>._slots[h.index].alive <span class="k">and</span> <span class="k">self</span>._slots[h.index].generation == h.generation</span>
+<span class="src-line" id="L84">}</span>
+<span class="src-line" id="L85"></span>
+<span class="src-line" id="L86"><span class="m">// Returns a copy of the value referenced by `h`, or `none` if `h` is out of bounds or stale.</span></span>
+<span class="src-line" id="L87"><span class="m">//</span></span>
+<span class="src-line" id="L88"><span class="m">// Requires `T` to be copyable; for non-copyable or custom-`Drop` resource types, borrow in place</span></span>
+<span class="src-line" id="L89"><span class="m">// with [`Pool.with`], [`Pool.with_mut`], `for (v in pool)` / `for (&amp;v in pool)`, or extract ownership</span></span>
+<span class="src-line" id="L90"><span class="m">// via [`Pool.take`].</span></span>
+<span class="src-line" id="L91"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].get = (<span class="k">self</span>, h: <span class="t">Handle</span>[<span class="t">T</span>]) ?<span class="t">T</span>: {</span>
+<span class="src-line" id="L92">	<span class="k">if</span>(h.index &lt; <span class="n">0</span> <span class="k">or</span> h.index &gt;= <span class="k">self</span>._slots.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L93">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>._slots[h.index].alive <span class="k">or</span> <span class="k">self</span>._slots[h.index].generation != h.generation):</span>
+<span class="src-line" id="L94">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L95">	<span class="k">if</span>(<span class="k">self</span>._slots[h.index].value? <span class="k">as</span> val): <span class="k">func</span> <span class="u">&lt;-</span> val.<span class="f">copy</span>()</span>
+<span class="src-line" id="L96">	<span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L97">}</span>
+<span class="src-line" id="L98"></span>
+<span class="src-line" id="L99"><span class="m">// Invokes `reader` with the live value referenced by `h` without copying it, returning `none` if `h` is stale.</span></span>
+<span class="src-line" id="L100"><span class="m">//</span></span>
+<span class="src-line" id="L101"><span class="m">// - `reader`: Read-only projection function receiving the stored value.</span></span>
+<span class="src-line" id="L102"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].with[<span class="t">R</span>] = (<span class="k">self</span>, h: <span class="t">Handle</span>[<span class="t">T</span>], reader: (<span class="t">T</span>) <span class="t">R</span>) ?<span class="t">R</span>: {</span>
+<span class="src-line" id="L103">	<span class="k">if</span>(h.index &lt; <span class="n">0</span> <span class="k">or</span> h.index &gt;= <span class="k">self</span>._slots.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L104">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>._slots[h.index].alive <span class="k">or</span> <span class="k">self</span>._slots[h.index].generation != h.generation):</span>
+<span class="src-line" id="L105">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L106">	<span class="k">if</span>(<span class="k">self</span>._slots[h.index].value? <span class="k">as</span> val): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">reader</span>(val)</span>
+<span class="src-line" id="L107">	<span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L108">}</span>
+<span class="src-line" id="L109"></span>
+<span class="src-line" id="L110"><span class="m">// Invokes `mutator` with a mutable borrow of the live value referenced by `h` in place.</span></span>
+<span class="src-line" id="L111"><span class="m">//</span></span>
+<span class="src-line" id="L112"><span class="m">// Works with non-copyable and custom-`Drop` resource types without copying `T`.</span></span>
+<span class="src-line" id="L113"><span class="m">// Returns `true` if `h` was valid and `mutator` ran, or `false` if `h` is out of bounds or stale.</span></span>
+<span class="src-line" id="L114"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].with_mut = (&amp;<span class="k">self</span>, h: <span class="t">Handle</span>[<span class="t">T</span>], mutator: (&amp;<span class="t">T</span>)) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L115">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">has</span>(h)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L116">	<span class="k">if</span>(&amp;<span class="k">self</span>._slots[h.index].value? <span class="k">as</span> val): {</span>
+<span class="src-line" id="L117">		<span class="f">mutator</span>(&amp;val)</span>
+<span class="src-line" id="L118">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
+<span class="src-line" id="L119">	}</span>
+<span class="src-line" id="L120">	<span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L121">}</span>
+<span class="src-line" id="L122"></span>
+<span class="src-line" id="L123"><span class="m">// Replaces the value stored at `h` with `val`, returning `false` if `h` is invalid or freed.</span></span>
+<span class="src-line" id="L124"><span class="m">//</span></span>
+<span class="src-line" id="L125"><span class="m">// # Ownership</span></span>
+<span class="src-line" id="L126"><span class="m">// Consumes `val` on success (or drops it if `h` is invalid).</span></span>
+<span class="src-line" id="L127"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].set = (&amp;<span class="k">self</span>, h: <span class="t">Handle</span>[<span class="t">T</span>], val: <span class="k">own</span> <span class="t">T</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L128">	<span class="k">if</span>(h.index &lt; <span class="n">0</span> <span class="k">or</span> h.index &gt;= <span class="k">self</span>._slots.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L129">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>._slots[h.index].alive <span class="k">or</span> <span class="k">self</span>._slots[h.index].generation != h.generation):</span>
+<span class="src-line" id="L130">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L131">	<span class="k">self</span>._slots[h.index].value? = <span class="k">own</span> val</span>
+<span class="src-line" id="L132">	<span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
+<span class="src-line" id="L133">}</span>
+<span class="src-line" id="L134"></span>
+<span class="src-line" id="L135"><span class="m">// Removes and returns the owned value at `h` without requiring `T` to be copyable.</span></span>
+<span class="src-line" id="L136"><span class="m">//</span></span>
+<span class="src-line" id="L137"><span class="m">// Advances the slot generation so `h` becomes stale and recycles the slot index.</span></span>
+<span class="src-line" id="L138"><span class="m">// Returns `none` if `h` is out of bounds or already freed.</span></span>
+<span class="src-line" id="L139"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].take = (&amp;<span class="k">self</span>, h: <span class="t">Handle</span>[<span class="t">T</span>]) ?<span class="t">T</span>: {</span>
+<span class="src-line" id="L140">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">has</span>(h)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L141">	<span class="k">let</span> out? = <span class="k">unsafe</span> {</span>
+<span class="src-line" id="L142">		<span class="k">let</span> p = <span class="f">addr_of</span>(<span class="k">self</span>._slots[h.index].value?)</span>
+<span class="src-line" id="L143">		<span class="k">let</span> v? = <span class="f">ptr_read</span>(p)</span>
+<span class="src-line" id="L144">		<span class="f">zero_bytes</span>(ptr_cast[<span class="t">u8</span>](p), size_of[?<span class="t">T</span>]())</span>
+<span class="src-line" id="L145">		v?</span>
+<span class="src-line" id="L146">	}</span>
+<span class="src-line" id="L147">	<span class="k">self</span>._slots[h.index].alive = <span class="c">false</span></span>
+<span class="src-line" id="L148">	<span class="k">self</span>._slots[h.index].generation += <span class="n">1</span></span>
+<span class="src-line" id="L149">	<span class="k">self</span>._free_indices.<span class="f">push</span>(h.index)</span>
+<span class="src-line" id="L150">	<span class="k">self</span>._live_count -= <span class="n">1</span></span>
+<span class="src-line" id="L151">	<span class="k">func</span> <span class="u">&lt;-</span> <span class="k">own</span> out?</span>
+<span class="src-line" id="L152">}</span>
+<span class="src-line" id="L153"></span>
+<span class="src-line" id="L154"><span class="m">// Drops the value at `h`, increments its slot generation, and marks it reusable.</span></span>
+<span class="src-line" id="L155"><span class="m">//</span></span>
+<span class="src-line" id="L156"><span class="m">// Returns `false` if `h` is already freed or out of bounds.</span></span>
+<span class="src-line" id="L157"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].free = (&amp;<span class="k">self</span>, h: <span class="t">Handle</span>[<span class="t">T</span>]) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L158">	<span class="k">if</span>(h.index &lt; <span class="n">0</span> <span class="k">or</span> h.index &gt;= <span class="k">self</span>._slots.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L159">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>._slots[h.index].alive <span class="k">or</span> <span class="k">self</span>._slots[h.index].generation != h.generation):</span>
+<span class="src-line" id="L160">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L161">	<span class="k">self</span>._slots[h.index].value? = <span class="c">none</span></span>
+<span class="src-line" id="L162">	<span class="k">self</span>._slots[h.index].alive = <span class="c">false</span></span>
+<span class="src-line" id="L163">	<span class="k">self</span>._slots[h.index].generation += <span class="n">1</span></span>
+<span class="src-line" id="L164">	<span class="k">self</span>._free_indices.<span class="f">push</span>(h.index)</span>
+<span class="src-line" id="L165">	<span class="k">self</span>._live_count -= <span class="n">1</span></span>
+<span class="src-line" id="L166">	<span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
+<span class="src-line" id="L167">}</span>
+<span class="src-line" id="L168"></span>
+<span class="src-line" id="L169"><span class="m">// Drops all live values in the pool, invalidates all existing handles by incrementing their</span></span>
+<span class="src-line" id="L170"><span class="m">// slot generations, and recycles their slot indices while retaining backing capacity.</span></span>
+<span class="src-line" id="L171"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].clear = (&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L172">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L173">	<span class="k">for</span>(i &lt; <span class="k">self</span>._slots.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L174">		<span class="k">if</span>(<span class="k">self</span>._slots[i].alive): {</span>
+<span class="src-line" id="L175">			<span class="k">self</span>._slots[i].value? = <span class="c">none</span></span>
+<span class="src-line" id="L176">			<span class="k">self</span>._slots[i].alive = <span class="c">false</span></span>
+<span class="src-line" id="L177">			<span class="k">self</span>._slots[i].generation += <span class="n">1</span></span>
+<span class="src-line" id="L178">			<span class="k">self</span>._free_indices.<span class="f">push</span>(i)</span>
+<span class="src-line" id="L179">		}</span>
+<span class="src-line" id="L180">		i += <span class="n">1</span></span>
+<span class="src-line" id="L181">	}</span>
+<span class="src-line" id="L182">	<span class="k">self</span>._live_count = <span class="n">0</span></span>
+<span class="src-line" id="L183">}</span>
+<span class="src-line" id="L184"></span>
+<span class="src-line" id="L185"><span class="m">// Returns a list of [`Handle`] identifiers for all currently live entries in slot order.</span></span>
+<span class="src-line" id="L186"><span class="m">//</span></span>
+<span class="src-line" id="L187"><span class="m">// Works for all element types `T`, including non-copyable and custom-`Drop` resource types.</span></span>
+<span class="src-line" id="L188"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].handles = (<span class="k">self</span>) [<span class="t">Handle</span>[<span class="t">T</span>]]: {</span>
+<span class="src-line" id="L189">	<span class="k">let</span> out: [<span class="t">Handle</span>[<span class="t">T</span>]] = []</span>
+<span class="src-line" id="L190">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L191">	<span class="k">for</span>(i &lt; <span class="k">self</span>._slots.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L192">		<span class="k">if</span>(<span class="k">self</span>._slots[i].alive):</span>
+<span class="src-line" id="L193">			out.<span class="f">push</span>(<span class="t">Handle</span>[<span class="t">T</span>][index: i, generation: <span class="k">self</span>._slots[i].generation])</span>
+<span class="src-line" id="L194">		i += <span class="n">1</span></span>
+<span class="src-line" id="L195">	}</span>
+<span class="src-line" id="L196">	<span class="k">func</span> <span class="u">&lt;-</span> <span class="k">own</span> out</span>
+<span class="src-line" id="L197">}</span>
+<span class="src-line" id="L198"></span>
+<span class="src-line" id="L199"><span class="m">// Returns a list containing copies of all currently live values in slot order.</span></span>
+<span class="src-line" id="L200"><span class="m">//</span></span>
+<span class="src-line" id="L201"><span class="m">// Requires `T` to be copyable; for non-copyable types use `for (v in pool)` or [`Pool.iter_handles`].</span></span>
+<span class="src-line" id="L202"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].values = (<span class="k">self</span>) [<span class="t">T</span>]: {</span>
+<span class="src-line" id="L203">	<span class="k">let</span> out: [<span class="t">T</span>] = []</span>
+<span class="src-line" id="L204">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L205">	<span class="k">for</span>(i &lt; <span class="k">self</span>._slots.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L206">		<span class="k">if</span>(<span class="k">self</span>._slots[i].alive): {</span>
+<span class="src-line" id="L207">			<span class="k">if</span>(<span class="k">self</span>._slots[i].value? <span class="k">as</span> val): out.<span class="f">push</span>(val.<span class="f">copy</span>())</span>
+<span class="src-line" id="L208">		}</span>
+<span class="src-line" id="L209">		i += <span class="n">1</span></span>
+<span class="src-line" id="L210">	}</span>
+<span class="src-line" id="L211">	<span class="k">func</span> <span class="u">&lt;-</span> <span class="k">own</span> out</span>
+<span class="src-line" id="L212">}</span>
+<span class="src-line" id="L213"></span>
+<span class="src-line" id="L214"><span class="m">// Stateful forward iterator yielding copied elements from an owned snapshot of a [`Pool`].</span></span>
+<span class="src-line" id="L215"><span class="m">//</span></span>
+<span class="src-line" id="L216"><span class="m">// Owning a snapshot guards iteration against mutations or freeing on the source pool.</span></span>
+<span class="src-line" id="L217"><span class="k">define</span> <span class="t">PoolIterator</span>[<span class="t">T</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L218">	_items: [<span class="t">T</span>],</span>
+<span class="src-line" id="L219">	_index: <span class="t">int</span>,</span>
+<span class="src-line" id="L220">]</span>
+<span class="src-line" id="L221"></span>
+<span class="src-line" id="L222"><span class="m">// Advances the iterator and returns a copy of the next live element, or `none` when finished.</span></span>
+<span class="src-line" id="L223"><span class="k">bind</span> <span class="t">PoolIterator</span>[<span class="t">T</span>].next = (&amp;<span class="k">self</span>) ?<span class="t">T</span>: {</span>
+<span class="src-line" id="L224">	<span class="k">if</span>(<span class="k">self</span>._index &gt;= <span class="k">self</span>._items.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L225">	<span class="k">let</span> i = <span class="k">self</span>._index</span>
+<span class="src-line" id="L226">	<span class="k">self</span>._index += <span class="n">1</span></span>
+<span class="src-line" id="L227">	<span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>._items.<span class="f">get</span>(i)</span>
+<span class="src-line" id="L228">}</span>
+<span class="src-line" id="L229"></span>
+<span class="src-line" id="L230"><span class="m">// Returns a forward [`Iterator`] yielding copies of all currently live values in slot order.</span></span>
+<span class="src-line" id="L231"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].iter = (<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">T</span>]:</span>
+<span class="src-line" id="L232">	<span class="t">PoolIterator</span>[<span class="t">T</span>][</span>
+<span class="src-line" id="L233">		_items: <span class="k">self</span>.<span class="f">values</span>(),</span>
+<span class="src-line" id="L234">		_index: <span class="n">0</span>,</span>
+<span class="src-line" id="L235">	]</span>
+<span class="src-line" id="L236"></span>
+<span class="src-line" id="L237"><span class="m">// Stateful forward iterator yielding currently live [`Handle`] entries from a [`Pool`].</span></span>
+<span class="src-line" id="L238"><span class="m">//</span></span>
+<span class="src-line" id="L239"><span class="m">// Works for all element types `T`, including non-copyable and custom-`Drop` resource types.</span></span>
+<span class="src-line" id="L240"><span class="k">define</span> <span class="t">PoolHandleIterator</span>[<span class="t">T</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L241">	_handles: [<span class="t">Handle</span>[<span class="t">T</span>]],</span>
+<span class="src-line" id="L242">	_index: <span class="t">int</span>,</span>
+<span class="src-line" id="L243">]</span>
+<span class="src-line" id="L244"></span>
+<span class="src-line" id="L245"><span class="m">// Advances the iterator and returns the next live handle, or `none` when finished.</span></span>
+<span class="src-line" id="L246"><span class="k">bind</span> <span class="t">PoolHandleIterator</span>[<span class="t">T</span>].next = (&amp;<span class="k">self</span>) ?<span class="t">Handle</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L247">	<span class="k">if</span>(<span class="k">self</span>._index &gt;= <span class="k">self</span>._handles.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L248">	<span class="k">let</span> i = <span class="k">self</span>._index</span>
+<span class="src-line" id="L249">	<span class="k">self</span>._index += <span class="n">1</span></span>
+<span class="src-line" id="L250">	<span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>._handles.<span class="f">get</span>(i)</span>
+<span class="src-line" id="L251">}</span>
+<span class="src-line" id="L252"></span>
+<span class="src-line" id="L253"><span class="m">// Returns a forward [`Iterator`] over all currently live [`Handle`] entries in slot order.</span></span>
+<span class="src-line" id="L254"><span class="m">//</span></span>
+<span class="src-line" id="L255"><span class="m">// Works for all element types `T`, including non-copyable and custom-`Drop` resource types.</span></span>
+<span class="src-line" id="L256"><span class="k">bind</span> <span class="t">Pool</span>[<span class="t">T</span>].iter_handles = (<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">Handle</span>[<span class="t">T</span>]]:</span>
+<span class="src-line" id="L257">	<span class="t">PoolHandleIterator</span>[<span class="t">T</span>][</span>
+<span class="src-line" id="L258">		_handles: <span class="k">self</span>.<span class="f">handles</span>(),</span>
+<span class="src-line" id="L259">		_index: <span class="n">0</span>,</span>
+<span class="src-line" id="L260">	]</span>
+<span class="src-line" id="L261"></span>
+<span class="src-line" id="L262"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L263"><span class="m">// Inline Unit Tests</span></span>
+<span class="src-line" id="L264"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L265"></span>
+<span class="src-line" id="L266"><span class="a">@test</span>(<span class="s">&quot;generational pool allocation, retrieval, mutation, and len&quot;</span>)</span>
+<span class="src-line" id="L267"><span class="k">bind</span> test_pool_alloc_and_get = (): {</span>
+<span class="src-line" id="L268">	<span class="k">let</span> pool = <span class="t">Pool</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L269">	<span class="f">assert</span>(pool.<span class="f">len</span>() == <span class="n">0</span>, <span class="s">&quot;initial len 0&quot;</span>)</span>
+<span class="src-line" id="L270"></span>
+<span class="src-line" id="L271">	<span class="k">let</span> h1 = pool.<span class="f">alloc</span>(<span class="s">&quot;first&quot;</span>)</span>
+<span class="src-line" id="L272">	<span class="k">let</span> h2 = pool.<span class="f">alloc</span>(<span class="s">&quot;second&quot;</span>)</span>
+<span class="src-line" id="L273">	<span class="f">assert</span>(pool.<span class="f">len</span>() == <span class="n">2</span>, <span class="s">&quot;len after 2 allocs&quot;</span>)</span>
+<span class="src-line" id="L274"></span>
+<span class="src-line" id="L275">	<span class="f">assert</span>(pool.<span class="f">has</span>(h1), <span class="s">&quot;pool has h1&quot;</span>)</span>
+<span class="src-line" id="L276">	<span class="f">assert</span>(pool.<span class="f">has</span>(h2), <span class="s">&quot;pool has h2&quot;</span>)</span>
+<span class="src-line" id="L277"></span>
+<span class="src-line" id="L278">	<span class="k">let</span> v1? = pool.<span class="f">get</span>(h1)</span>
+<span class="src-line" id="L279">	<span class="f">assert</span>(v1? == <span class="s">&quot;first&quot;</span>, <span class="s">&quot;v1 matches&quot;</span>)</span>
+<span class="src-line" id="L280">	<span class="k">let</span> v2? = pool.<span class="f">get</span>(h2)</span>
+<span class="src-line" id="L281">	<span class="f">assert</span>(v2? == <span class="s">&quot;second&quot;</span>, <span class="s">&quot;v2 matches&quot;</span>)</span>
+<span class="src-line" id="L282"></span>
+<span class="src-line" id="L283">	<span class="f">assert</span>(pool.<span class="f">set</span>(h1, <span class="s">&quot;first_updated&quot;</span>), <span class="s">&quot;set succeeds&quot;</span>)</span>
+<span class="src-line" id="L284">	<span class="k">let</span> v1_up? = pool.<span class="f">get</span>(h1)</span>
+<span class="src-line" id="L285">	<span class="f">assert</span>(v1_up? == <span class="s">&quot;first_updated&quot;</span>, <span class="s">&quot;v1 updated matches&quot;</span>)</span>
+<span class="src-line" id="L286"></span>
+<span class="src-line" id="L287">	<span class="k">let</span> read_len? = pool.with[<span class="t">int</span>](h2, (s: <span class="t">string</span>) <span class="t">int</span>: s.<span class="f">len</span>())</span>
+<span class="src-line" id="L288">	<span class="f">assert</span>(read_len? == <span class="n">6</span>, <span class="s">&quot;with reader returned string length&quot;</span>)</span>
+<span class="src-line" id="L289">}</span>
+<span class="src-line" id="L290"></span>
+<span class="src-line" id="L291"><span class="a">@test</span>(<span class="s">&quot;generational pool free, reuse, and stale handle invalidation&quot;</span>)</span>
+<span class="src-line" id="L292"><span class="k">bind</span> test_pool_free_and_reuse = (): {</span>
+<span class="src-line" id="L293">	<span class="k">let</span> pool = <span class="t">Pool</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L294">	<span class="k">let</span> h1 = pool.<span class="f">alloc</span>(<span class="s">&quot;slot_0&quot;</span>)</span>
+<span class="src-line" id="L295">	<span class="k">let</span> h2 = pool.<span class="f">alloc</span>(<span class="s">&quot;slot_1&quot;</span>)</span>
+<span class="src-line" id="L296"></span>
+<span class="src-line" id="L297">	<span class="f">assert</span>(pool.<span class="f">free</span>(h1), <span class="s">&quot;free h1 succeeds&quot;</span>)</span>
+<span class="src-line" id="L298">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">free</span>(h1), <span class="s">&quot;double free h1 returns false&quot;</span>)</span>
+<span class="src-line" id="L299">	<span class="f">assert</span>(pool.<span class="f">len</span>() == <span class="n">1</span>, <span class="s">&quot;len after 1 free&quot;</span>)</span>
+<span class="src-line" id="L300"></span>
+<span class="src-line" id="L301">	<span class="m">// Stale handle detection</span></span>
+<span class="src-line" id="L302">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">has</span>(h1), <span class="s">&quot;has stale h1 returns false&quot;</span>)</span>
+<span class="src-line" id="L303">	<span class="k">let</span> stale? = pool.<span class="f">get</span>(h1)</span>
+<span class="src-line" id="L304">	<span class="f">assert</span>(stale? == <span class="c">none</span>, <span class="s">&quot;get stale h1 returns none&quot;</span>)</span>
+<span class="src-line" id="L305"></span>
+<span class="src-line" id="L306">	<span class="m">// Allocate again: should reuse slot index of h1 with incremented generation</span></span>
+<span class="src-line" id="L307">	<span class="k">let</span> h3 = pool.<span class="f">alloc</span>(<span class="s">&quot;slot_0_reused&quot;</span>)</span>
+<span class="src-line" id="L308">	<span class="f">assert</span>(pool.<span class="f">len</span>() == <span class="n">2</span>, <span class="s">&quot;len after reusing slot&quot;</span>)</span>
+<span class="src-line" id="L309">	<span class="f">assert</span>(h3.index == h1.index, <span class="s">&quot;reused same slot index&quot;</span>)</span>
+<span class="src-line" id="L310">	<span class="f">assert</span>(h3.generation &gt; h1.generation, <span class="s">&quot;generation incremented&quot;</span>)</span>
+<span class="src-line" id="L311"></span>
+<span class="src-line" id="L312">	<span class="m">// Original handle h1 still cannot access the new item in the same slot</span></span>
+<span class="src-line" id="L313">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">has</span>(h1), <span class="s">&quot;old handle h1 still invalid&quot;</span>)</span>
+<span class="src-line" id="L314">	<span class="k">let</span> old_v? = pool.<span class="f">get</span>(h1)</span>
+<span class="src-line" id="L315">	<span class="f">assert</span>(old_v? == <span class="c">none</span>, <span class="s">&quot;old handle get returns none&quot;</span>)</span>
+<span class="src-line" id="L316"></span>
+<span class="src-line" id="L317">	<span class="m">// New handle h3 can access it cleanly</span></span>
+<span class="src-line" id="L318">	<span class="f">assert</span>(pool.<span class="f">has</span>(h3), <span class="s">&quot;new handle h3 valid&quot;</span>)</span>
+<span class="src-line" id="L319">	<span class="k">let</span> new_v? = pool.<span class="f">get</span>(h3)</span>
+<span class="src-line" id="L320">	<span class="f">assert</span>(new_v? == <span class="s">&quot;slot_0_reused&quot;</span>, <span class="s">&quot;new handle get succeeds&quot;</span>)</span>
+<span class="src-line" id="L321">}</span>
+<span class="src-line" id="L322"></span>
+<span class="src-line" id="L323"><span class="a">@test</span>(<span class="s">&quot;generational handle equality and out of bounds checks&quot;</span>)</span>
+<span class="src-line" id="L324"><span class="k">bind</span> test_pool_handle_equality = (): {</span>
+<span class="src-line" id="L325">	<span class="k">let</span> pool = <span class="t">Pool</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L326">	<span class="k">let</span> h1 = pool.<span class="f">alloc</span>(<span class="n">100</span>)</span>
+<span class="src-line" id="L327">	<span class="k">let</span> h2 = pool.<span class="f">alloc</span>(<span class="n">200</span>)</span>
+<span class="src-line" id="L328"></span>
+<span class="src-line" id="L329">	<span class="f">assert</span>(h1.<span class="f">equals</span>(h1), <span class="s">&quot;h1 equals h1&quot;</span>)</span>
+<span class="src-line" id="L330">	<span class="f">assert</span>(<span class="k">not</span> h1.<span class="f">equals</span>(h2), <span class="s">&quot;h1 not equals h2&quot;</span>)</span>
+<span class="src-line" id="L331"></span>
+<span class="src-line" id="L332">	<span class="k">let</span> out_of_bounds = <span class="t">Handle</span>[<span class="t">int</span>][index: <span class="n">9999</span>, generation: <span class="n">1</span>]</span>
+<span class="src-line" id="L333">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">has</span>(out_of_bounds), <span class="s">&quot;out of bounds has is false&quot;</span>)</span>
+<span class="src-line" id="L334">	<span class="k">let</span> oob? = pool.<span class="f">get</span>(out_of_bounds)</span>
+<span class="src-line" id="L335">	<span class="f">assert</span>(oob? == <span class="c">none</span>, <span class="s">&quot;out of bounds get is none&quot;</span>)</span>
+<span class="src-line" id="L336">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">free</span>(out_of_bounds), <span class="s">&quot;out of bounds free is false&quot;</span>)</span>
+<span class="src-line" id="L337">}</span>
+<span class="src-line" id="L338"></span>
+<span class="src-line" id="L339"><span class="a">@test</span>(<span class="s">&quot;pool with_mut, is_empty, clear, and slot recycling&quot;</span>)</span>
+<span class="src-line" id="L340"><span class="k">bind</span> test_pool_with_mut_and_clear = (): {</span>
+<span class="src-line" id="L341">	<span class="k">let</span> pool = <span class="t">Pool</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L342">	<span class="f">assert</span>(pool.<span class="f">is_empty</span>(), <span class="s">&quot;new pool is empty&quot;</span>)</span>
+<span class="src-line" id="L343">	pool.<span class="f">clear</span>()</span>
+<span class="src-line" id="L344">	<span class="f">assert</span>(pool.<span class="f">is_empty</span>() <span class="k">and</span> pool.<span class="f">len</span>() == <span class="n">0</span>, <span class="s">&quot;clear on empty pool stays empty&quot;</span>)</span>
+<span class="src-line" id="L345"></span>
+<span class="src-line" id="L346">	<span class="k">let</span> h1 = pool.<span class="f">alloc</span>(<span class="n">10</span>)</span>
+<span class="src-line" id="L347">	<span class="k">let</span> h2 = pool.<span class="f">alloc</span>(<span class="n">20</span>)</span>
+<span class="src-line" id="L348">	<span class="k">let</span> h3 = pool.<span class="f">alloc</span>(<span class="n">30</span>)</span>
+<span class="src-line" id="L349">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">is_empty</span>(), <span class="s">&quot;pool with items is not empty&quot;</span>)</span>
+<span class="src-line" id="L350"></span>
+<span class="src-line" id="L351">	<span class="f">assert</span>(pool.<span class="f">with_mut</span>(h2, (v: &amp;<span class="t">int</span>): { v += <span class="n">25</span> }), <span class="s">&quot;with_mut on live handle returns true&quot;</span>)</span>
+<span class="src-line" id="L352">	<span class="f">assert</span>(pool.<span class="f">get</span>(h2) == <span class="n">45</span>, <span class="s">&quot;with_mut mutated value in place&quot;</span>)</span>
+<span class="src-line" id="L353"></span>
+<span class="src-line" id="L354">	<span class="f">assert</span>(pool.<span class="f">free</span>(h3), <span class="s">&quot;free h3&quot;</span>)</span>
+<span class="src-line" id="L355">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">with_mut</span>(h3, (v: &amp;<span class="t">int</span>): { v += <span class="n">1</span> }), <span class="s">&quot;with_mut on freed handle returns false&quot;</span>)</span>
+<span class="src-line" id="L356">	<span class="k">let</span> oob = <span class="t">Handle</span>[<span class="t">int</span>][index: -<span class="n">1</span>, generation: <span class="n">1</span>]</span>
+<span class="src-line" id="L357">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">with_mut</span>(oob, (v: &amp;<span class="t">int</span>): { v += <span class="n">1</span> }), <span class="s">&quot;with_mut on out of bounds handle returns false&quot;</span>)</span>
+<span class="src-line" id="L358"></span>
+<span class="src-line" id="L359">	<span class="k">let</span> cap_before = pool.<span class="f">capacity</span>()</span>
+<span class="src-line" id="L360">	pool.<span class="f">clear</span>()</span>
+<span class="src-line" id="L361">	<span class="f">assert</span>(pool.<span class="f">is_empty</span>(), <span class="s">&quot;pool is empty after clear&quot;</span>)</span>
+<span class="src-line" id="L362">	<span class="f">assert</span>(pool.<span class="f">len</span>() == <span class="n">0</span>, <span class="s">&quot;len is 0 after clear&quot;</span>)</span>
+<span class="src-line" id="L363">	<span class="f">assert</span>(pool.<span class="f">capacity</span>() == cap_before, <span class="s">&quot;clear retains backing slot capacity&quot;</span>)</span>
+<span class="src-line" id="L364">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">has</span>(h1) <span class="k">and</span> <span class="k">not</span> pool.<span class="f">has</span>(h2) <span class="k">and</span> <span class="k">not</span> pool.<span class="f">has</span>(h3), <span class="s">&quot;all handles stale after clear&quot;</span>)</span>
+<span class="src-line" id="L365">	<span class="f">assert</span>(pool.<span class="f">get</span>(h1) == <span class="c">none</span> <span class="k">and</span> pool.<span class="f">get</span>(h2) == <span class="c">none</span>, <span class="s">&quot;get stale handles returns none after clear&quot;</span>)</span>
+<span class="src-line" id="L366">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">with_mut</span>(h1, (v: &amp;<span class="t">int</span>): { v += <span class="n">1</span> }), <span class="s">&quot;with_mut stale after clear&quot;</span>)</span>
+<span class="src-line" id="L367"></span>
+<span class="src-line" id="L368">	<span class="k">let</span> h4 = pool.<span class="f">alloc</span>(<span class="n">99</span>)</span>
+<span class="src-line" id="L369">	<span class="f">assert</span>(pool.<span class="f">len</span>() == <span class="n">1</span> <span class="k">and</span> <span class="k">not</span> pool.<span class="f">is_empty</span>(), <span class="s">&quot;len 1 after realloc following clear&quot;</span>)</span>
+<span class="src-line" id="L370">	<span class="f">assert</span>(pool.<span class="f">capacity</span>() == cap_before, <span class="s">&quot;reused existing cleared slot without growing capacity&quot;</span>)</span>
+<span class="src-line" id="L371">	<span class="f">assert</span>(pool.<span class="f">get</span>(h4) == <span class="n">99</span>, <span class="s">&quot;new allocation after clear returns stored value&quot;</span>)</span>
+<span class="src-line" id="L372">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">has</span>(h1) <span class="k">and</span> <span class="k">not</span> pool.<span class="f">has</span>(h2), <span class="s">&quot;previous handles remain invalid after reuse&quot;</span>)</span>
+<span class="src-line" id="L373">}</span>
+<span class="src-line" id="L374"></span>
+<span class="src-line" id="L375"><span class="a">@test</span>(<span class="s">&quot;pool iterators, snapshots, and native for loops&quot;</span>)</span>
+<span class="src-line" id="L376"><span class="k">bind</span> test_pool_iterators_and_for_loops = (): {</span>
+<span class="src-line" id="L377">	<span class="k">let</span> pool = <span class="t">Pool</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L378">	<span class="k">let</span> h1 = pool.<span class="f">alloc</span>(<span class="n">10</span>)</span>
+<span class="src-line" id="L379">	<span class="k">let</span> h2 = pool.<span class="f">alloc</span>(<span class="n">20</span>)</span>
+<span class="src-line" id="L380">	<span class="k">let</span> h3 = pool.<span class="f">alloc</span>(<span class="n">30</span>)</span>
+<span class="src-line" id="L381">	<span class="f">assert</span>(pool.<span class="f">free</span>(h2), <span class="s">&quot;free middle slot&quot;</span>)</span>
+<span class="src-line" id="L382">	<span class="k">let</span> h4 = pool.<span class="f">alloc</span>(<span class="n">40</span>)</span>
+<span class="src-line" id="L383">	<span class="k">let</span> h5 = pool.<span class="f">alloc</span>(<span class="n">50</span>)</span>
+<span class="src-line" id="L384">	<span class="f">assert</span>(pool.<span class="f">free</span>(h4), <span class="s">&quot;leave a freed middle hole&quot;</span>)</span>
+<span class="src-line" id="L385"></span>
+<span class="src-line" id="L386">	<span class="m">// Snapshot lists and explicit iterators skip freed slots.</span></span>
+<span class="src-line" id="L387">	<span class="k">let</span> hs = pool.<span class="f">handles</span>()</span>
+<span class="src-line" id="L388">	<span class="k">let</span> vs = pool.<span class="f">values</span>()</span>
+<span class="src-line" id="L389">	<span class="f">assert</span>(hs.<span class="f">len</span>() == <span class="n">3</span> <span class="k">and</span> vs.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;handles and values match live count&quot;</span>)</span>
+<span class="src-line" id="L390">	<span class="f">assert</span>(hs[<span class="n">0</span>].<span class="f">equals</span>(h1) <span class="k">and</span> hs[<span class="n">1</span>].<span class="f">equals</span>(h3) <span class="k">and</span> hs[<span class="n">2</span>].<span class="f">equals</span>(h5), <span class="s">&quot;handles in slot order&quot;</span>)</span>
+<span class="src-line" id="L391">	<span class="f">assert</span>(vs.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">10</span> <span class="k">and</span> vs.<span class="f">get</span>(<span class="n">1</span>) == <span class="n">30</span> <span class="k">and</span> vs.<span class="f">get</span>(<span class="n">2</span>) == <span class="n">50</span>, <span class="s">&quot;values in slot order&quot;</span>)</span>
+<span class="src-line" id="L392"></span>
+<span class="src-line" id="L393">	<span class="k">let</span> it = pool.<span class="f">iter</span>()</span>
+<span class="src-line" id="L394">	<span class="k">let</span> it_sum = <span class="n">0</span></span>
+<span class="src-line" id="L395">	<span class="k">for</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L396">		<span class="k">let</span> next? = it.<span class="f">next</span>()</span>
+<span class="src-line" id="L397">		<span class="k">if</span>(next? <span class="k">as</span> val): it_sum += val <span class="k">else</span>: <span class="k">for</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L398">	}</span>
+<span class="src-line" id="L399">	<span class="f">assert</span>(it_sum == <span class="n">90</span>, <span class="s">&quot;PoolIterator sums live values&quot;</span>)</span>
+<span class="src-line" id="L400"></span>
+<span class="src-line" id="L401">	<span class="k">let</span> hit = pool.<span class="f">iter_handles</span>()</span>
+<span class="src-line" id="L402">	<span class="k">let</span> hit_count = <span class="n">0</span></span>
+<span class="src-line" id="L403">	<span class="k">for</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L404">		<span class="k">let</span> next? = hit.<span class="f">next</span>()</span>
+<span class="src-line" id="L405">		<span class="k">if</span>(next? <span class="k">as</span> h): {</span>
+<span class="src-line" id="L406">			<span class="f">assert</span>(pool.<span class="f">has</span>(h), <span class="s">&quot;PoolHandleIterator yields live handle&quot;</span>)</span>
+<span class="src-line" id="L407">			hit_count += <span class="n">1</span></span>
+<span class="src-line" id="L408">		} <span class="k">else</span>: <span class="k">for</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L409">	}</span>
+<span class="src-line" id="L410">	<span class="f">assert</span>(hit_count == <span class="n">3</span>, <span class="s">&quot;PoolHandleIterator visits exact live count&quot;</span>)</span>
+<span class="src-line" id="L411"></span>
+<span class="src-line" id="L412">	<span class="m">// Native 1-var read-only and mutable for loops.</span></span>
+<span class="src-line" id="L413">	<span class="k">let</span> sum_ro = <span class="n">0</span></span>
+<span class="src-line" id="L414">	<span class="k">for</span>(v <span class="k">in</span> pool): sum_ro += v</span>
+<span class="src-line" id="L415">	<span class="f">assert</span>(sum_ro == <span class="n">90</span>, <span class="s">&quot;for(v in pool) visits all live values&quot;</span>)</span>
+<span class="src-line" id="L416"></span>
+<span class="src-line" id="L417">	<span class="k">for</span>(&amp;v <span class="k">in</span> pool): v += <span class="n">5</span></span>
+<span class="src-line" id="L418">	<span class="f">assert</span>(pool.<span class="f">get</span>(h1) == <span class="n">15</span> <span class="k">and</span> pool.<span class="f">get</span>(h3) == <span class="n">35</span> <span class="k">and</span> pool.<span class="f">get</span>(h5) == <span class="n">55</span>, <span class="s">&quot;for(&amp;v in pool) mutates slots in place&quot;</span>)</span>
+<span class="src-line" id="L419"></span>
+<span class="src-line" id="L420">	<span class="m">// Native 2-var (handle, value) and (handle, &amp;mut value) loops.</span></span>
+<span class="src-line" id="L421">	<span class="k">let</span> pair_count = <span class="n">0</span></span>
+<span class="src-line" id="L422">	<span class="k">let</span> pair_sum = <span class="n">0</span></span>
+<span class="src-line" id="L423">	<span class="k">for</span>(h, v <span class="k">in</span> pool): {</span>
+<span class="src-line" id="L424">		<span class="f">assert</span>(pool.<span class="f">has</span>(h), <span class="s">&quot;2-var loop handle is valid&quot;</span>)</span>
+<span class="src-line" id="L425">		pair_sum += v</span>
+<span class="src-line" id="L426">		pair_count += <span class="n">1</span></span>
+<span class="src-line" id="L427">	}</span>
+<span class="src-line" id="L428">	<span class="f">assert</span>(pair_count == <span class="n">3</span> <span class="k">and</span> pair_sum == <span class="n">105</span>, <span class="s">&quot;for(h, v in pool) visits all live pairs&quot;</span>)</span>
+<span class="src-line" id="L429"></span>
+<span class="src-line" id="L430">	<span class="k">for</span>(h, &amp;v <span class="k">in</span> pool): {</span>
+<span class="src-line" id="L431">		<span class="k">if</span>(h.<span class="f">equals</span>(h3)): v += <span class="n">100</span></span>
+<span class="src-line" id="L432">	}</span>
+<span class="src-line" id="L433">	<span class="f">assert</span>(pool.<span class="f">get</span>(h1) == <span class="n">15</span> <span class="k">and</span> pool.<span class="f">get</span>(h3) == <span class="n">135</span> <span class="k">and</span> pool.<span class="f">get</span>(h5) == <span class="n">55</span>, <span class="s">&quot;for(h, &amp;v in pool) mutates matching handle&quot;</span>)</span>
+<span class="src-line" id="L434">}</span>
+<span class="src-line" id="L435"></span>
+<span class="src-line" id="L436"><span class="k">define</span> _OwnedBuf <span class="k">struct</span> [</span>
+<span class="src-line" id="L437">	raw: <span class="t">ptr</span>[<span class="t">int</span>],</span>
+<span class="src-line" id="L438">	len: <span class="t">int</span>,</span>
+<span class="src-line" id="L439">]</span>
+<span class="src-line" id="L440"></span>
+<span class="src-line" id="L441"><span class="k">bind</span> _OwnedBuf.new = (len: <span class="t">int</span>, start: <span class="t">int</span>) _OwnedBuf: {</span>
+<span class="src-line" id="L442">	<span class="k">let</span> p = <span class="k">unsafe</span> alloc_uninit[<span class="t">int</span>](len)</span>
+<span class="src-line" id="L443">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L444">	<span class="k">for</span>(i &lt; len): {</span>
+<span class="src-line" id="L445">		<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(p, i), start + i)</span>
+<span class="src-line" id="L446">		i += <span class="n">1</span></span>
+<span class="src-line" id="L447">	}</span>
+<span class="src-line" id="L448">	<span class="k">func</span> <span class="u">&lt;-</span> _OwnedBuf[raw: p, len: len]</span>
+<span class="src-line" id="L449">}</span>
+<span class="src-line" id="L450"></span>
+<span class="src-line" id="L451"><span class="k">bind</span> _OwnedBuf.sum = (<span class="k">self</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L452">	<span class="k">let</span> acc = <span class="n">0</span></span>
+<span class="src-line" id="L453">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L454">	<span class="k">for</span>(i &lt; <span class="k">self</span>.len): {</span>
+<span class="src-line" id="L455">		acc += <span class="k">unsafe</span> <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.raw, i))</span>
+<span class="src-line" id="L456">		i += <span class="n">1</span></span>
+<span class="src-line" id="L457">	}</span>
+<span class="src-line" id="L458">	<span class="k">func</span> <span class="u">&lt;-</span> acc</span>
+<span class="src-line" id="L459">}</span>
+<span class="src-line" id="L460"></span>
+<span class="src-line" id="L461"><span class="k">bind</span> _OwnedBuf.add_offset = (&amp;<span class="k">self</span>, delta: <span class="t">int</span>): {</span>
+<span class="src-line" id="L462">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L463">	<span class="k">for</span>(i &lt; <span class="k">self</span>.len): {</span>
+<span class="src-line" id="L464">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L465">			<span class="k">let</span> cur = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.raw, i))</span>
+<span class="src-line" id="L466">			<span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.raw, i), cur + delta)</span>
+<span class="src-line" id="L467">		}</span>
+<span class="src-line" id="L468">		i += <span class="n">1</span></span>
+<span class="src-line" id="L469">	}</span>
+<span class="src-line" id="L470">}</span>
+<span class="src-line" id="L471"></span>
+<span class="src-line" id="L472"><span class="k">bind</span> _OwnedBuf.drop = (&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L473">	<span class="k">if</span>(<span class="k">self</span>.len &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L474">		<span class="k">unsafe</span> <span class="f">free_raw</span>(<span class="k">self</span>.raw)</span>
+<span class="src-line" id="L475">		<span class="k">self</span>.raw = <span class="k">unsafe</span> null_ptr[<span class="t">int</span>]()</span>
+<span class="src-line" id="L476">		<span class="k">self</span>.len = <span class="n">0</span></span>
+<span class="src-line" id="L477">	}</span>
+<span class="src-line" id="L478">}</span>
+<span class="src-line" id="L479"></span>
+<span class="src-line" id="L480"><span class="a">@test</span>(<span class="s">&quot;pool with non-copyable custom Drop resource handles with, with_mut, for loops, take, and clear&quot;</span>)</span>
+<span class="src-line" id="L481"><span class="k">bind</span> test_pool_non_copyable_resource = (): {</span>
+<span class="src-line" id="L482">	<span class="k">let</span> pool = <span class="t">Pool</span>[_OwnedBuf].<span class="f">new</span>()</span>
+<span class="src-line" id="L483">	<span class="k">let</span> h1 = pool.<span class="f">alloc</span>(_OwnedBuf.<span class="f">new</span>(<span class="n">3</span>, <span class="n">10</span>))</span>
+<span class="src-line" id="L484">	<span class="k">let</span> h2 = pool.<span class="f">alloc</span>(_OwnedBuf.<span class="f">new</span>(<span class="n">2</span>, <span class="n">100</span>))</span>
+<span class="src-line" id="L485"></span>
+<span class="src-line" id="L486">	<span class="m">// Inferred method type parameter `R` on `Pool.with`!</span></span>
+<span class="src-line" id="L487">	<span class="k">let</span> s1? = pool.<span class="f">with</span>(h1, (b: _OwnedBuf) <span class="t">int</span>: b.<span class="f">sum</span>())</span>
+<span class="src-line" id="L488">	<span class="f">assert</span>(s1? == <span class="n">33</span>, <span class="s">&quot;with on non-copyable resource with inferred return type&quot;</span>)</span>
+<span class="src-line" id="L489"></span>
+<span class="src-line" id="L490">	<span class="f">assert</span>(pool.<span class="f">with_mut</span>(h1, (b: &amp;_OwnedBuf): b.<span class="f">add_offset</span>(<span class="n">5</span>)), <span class="s">&quot;with_mut on non-copyable resource&quot;</span>)</span>
+<span class="src-line" id="L491">	<span class="f">assert</span>(pool.<span class="f">with</span>(h1, (b: _OwnedBuf) <span class="t">int</span>: b.<span class="f">sum</span>()) == <span class="n">48</span>, <span class="s">&quot;with_mut updated custom Drop buffer in place&quot;</span>)</span>
+<span class="src-line" id="L492"></span>
+<span class="src-line" id="L493">	<span class="m">// Non-copyable iteration via native `for` loops (no copy of _OwnedBuf).</span></span>
+<span class="src-line" id="L494">	<span class="k">let</span> total = <span class="n">0</span></span>
+<span class="src-line" id="L495">	<span class="k">for</span>(b <span class="k">in</span> pool): total += b.<span class="f">sum</span>()</span>
+<span class="src-line" id="L496">	<span class="f">assert</span>(total == <span class="n">249</span>, <span class="s">&quot;for(b in pool) borrows non-copyable resources without copying&quot;</span>)</span>
+<span class="src-line" id="L497"></span>
+<span class="src-line" id="L498">	<span class="k">for</span>(&amp;b <span class="k">in</span> pool): b.<span class="f">add_offset</span>(<span class="n">1</span>)</span>
+<span class="src-line" id="L499">	<span class="k">for</span>(h, &amp;b <span class="k">in</span> pool): {</span>
+<span class="src-line" id="L500">		<span class="k">if</span>(h.<span class="f">equals</span>(h2)): b.<span class="f">add_offset</span>(<span class="n">10</span>)</span>
+<span class="src-line" id="L501">	}</span>
+<span class="src-line" id="L502">	<span class="f">assert</span>(pool.<span class="f">with</span>(h1, (b: _OwnedBuf) <span class="t">int</span>: b.<span class="f">sum</span>()) == <span class="n">51</span>, <span class="s">&quot;h1 updated via mutable for loops&quot;</span>)</span>
+<span class="src-line" id="L503">	<span class="f">assert</span>(pool.<span class="f">with</span>(h2, (b: _OwnedBuf) <span class="t">int</span>: b.<span class="f">sum</span>()) == <span class="n">223</span>, <span class="s">&quot;h2 updated via 2-var mutable for loop&quot;</span>)</span>
+<span class="src-line" id="L504"></span>
+<span class="src-line" id="L505">	<span class="k">let</span> seen_handles = <span class="n">0</span></span>
+<span class="src-line" id="L506">	<span class="k">let</span> hit = pool.<span class="f">iter_handles</span>()</span>
+<span class="src-line" id="L507">	<span class="k">for</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L508">		<span class="k">let</span> next? = hit.<span class="f">next</span>()</span>
+<span class="src-line" id="L509">		<span class="k">if</span>(next? <span class="k">as</span> h): {</span>
+<span class="src-line" id="L510">			<span class="f">assert</span>(pool.<span class="f">has</span>(h), <span class="s">&quot;iter_handles works on non-copyable Pool&quot;</span>)</span>
+<span class="src-line" id="L511">			seen_handles += <span class="n">1</span></span>
+<span class="src-line" id="L512">		} <span class="k">else</span>: <span class="k">for</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L513">	}</span>
+<span class="src-line" id="L514">	<span class="f">assert</span>(seen_handles == <span class="n">2</span> <span class="k">and</span> pool.<span class="f">handles</span>().<span class="f">len</span>() == <span class="n">2</span>, <span class="s">&quot;handle snapshot works on non-copyable Pool&quot;</span>)</span>
+<span class="src-line" id="L515"></span>
+<span class="src-line" id="L516">	<span class="k">let</span> ro_sum = <span class="n">0</span></span>
+<span class="src-line" id="L517">	<span class="k">for</span>(h, b <span class="k">in</span> pool): {</span>
+<span class="src-line" id="L518">		<span class="f">assert</span>(pool.<span class="f">has</span>(h), <span class="s">&quot;2-var read-only loop handle valid on non-copyable Pool&quot;</span>)</span>
+<span class="src-line" id="L519">		ro_sum += b.<span class="f">sum</span>()</span>
+<span class="src-line" id="L520">	}</span>
+<span class="src-line" id="L521">	<span class="f">assert</span>(ro_sum == <span class="n">274</span>, <span class="s">&quot;2-var read-only loop sums non-copyable Pool&quot;</span>)</span>
+<span class="src-line" id="L522"></span>
+<span class="src-line" id="L523">	<span class="m">// Extract ownership with take() without Copyable.</span></span>
+<span class="src-line" id="L524">	<span class="k">let</span> taken? = pool.<span class="f">take</span>(h1)</span>
+<span class="src-line" id="L525">	<span class="f">assert</span>(pool.<span class="f">len</span>() == <span class="n">1</span>, <span class="s">&quot;take decremented pool len&quot;</span>)</span>
+<span class="src-line" id="L526">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">has</span>(h1), <span class="s">&quot;taken handle is invalidated&quot;</span>)</span>
+<span class="src-line" id="L527">	<span class="f">assert</span>(pool.<span class="f">take</span>(h1) == <span class="c">none</span>, <span class="s">&quot;second take on stale handle returns none&quot;</span>)</span>
+<span class="src-line" id="L528">	<span class="k">if</span>(&amp;taken? <span class="k">as</span> b): {</span>
+<span class="src-line" id="L529">		<span class="f">assert</span>(b.<span class="f">sum</span>() == <span class="n">51</span>, <span class="s">&quot;taken non-copyable resource preserves value&quot;</span>)</span>
+<span class="src-line" id="L530">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L531">		<span class="f">assert</span>(<span class="c">false</span>, <span class="s">&quot;take returned none for valid handle&quot;</span>)</span>
+<span class="src-line" id="L532">	}</span>
+<span class="src-line" id="L533"></span>
+<span class="src-line" id="L534">	<span class="m">// Reallocate into taken slot and verify generation bump + clear() leak-free cleanup.</span></span>
+<span class="src-line" id="L535">	<span class="k">let</span> h3 = pool.<span class="f">alloc</span>(_OwnedBuf.<span class="f">new</span>(<span class="n">2</span>, <span class="n">5</span>))</span>
+<span class="src-line" id="L536">	<span class="f">assert</span>(h3.index == h1.index <span class="k">and</span> h3.generation &gt; h1.generation, <span class="s">&quot;take recycled slot and bumped generation&quot;</span>)</span>
+<span class="src-line" id="L537">	<span class="f">assert</span>(pool.<span class="f">with</span>(h3, (b: _OwnedBuf) <span class="t">int</span>: b.<span class="f">sum</span>()) == <span class="n">11</span>, <span class="s">&quot;new non-copyable value in recycled slot&quot;</span>)</span>
+<span class="src-line" id="L538"></span>
+<span class="src-line" id="L539">	pool.<span class="f">clear</span>()</span>
+<span class="src-line" id="L540">	<span class="f">assert</span>(pool.<span class="f">is_empty</span>(), <span class="s">&quot;clear empties non-copyable pool&quot;</span>)</span>
+<span class="src-line" id="L541">	<span class="f">assert</span>(<span class="k">not</span> pool.<span class="f">has</span>(h2) <span class="k">and</span> <span class="k">not</span> pool.<span class="f">has</span>(h3), <span class="s">&quot;clear invalidates remaining handles&quot;</span>)</span>
+<span class="src-line" id="L542">}</span>
+<span class="src-line" id="L543"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

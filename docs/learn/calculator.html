@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutorial: a calculator · Lowlight</title>
+<meta name="description" content="Write a tokenizer, a recursive-descent parser, and an evaluator, using enums, match, methods, and Result.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a class="active" href="index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Tutorials</a></div><div class="sidebar-group">Tutorials</div><ul><li><a href="word-count.html">A command-line tool</a></li><li><a class="active" href="calculator.html">A calculator</a></li><li><a href="config-loader.html">Handling errors</a></li><li><a href="web-service.html">A web service</a></li><li><a href="calling-c.html">Calling C</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Tutorials</a><span class="sep">/</span><span>Tutorials</span></nav><h1 id="tutorial-a-calculator"><a class="anchor" href="#tutorial-a-calculator" aria-hidden="true">#</a>Tutorial: a calculator</h1>
+<p>In this tutorial you'll build a calculator that evaluates expressions like <code>(1 + 2) * -3</code>. Along the way you'll use enums with payloads, <code>match</code>, a struct with <code>&amp;self</code> methods, recursion, and <code>Result</code> for reporting errors such as division by zero.</p>
+<p>The program has three parts:</p>
+<ol>
+<li>a <strong>tokenizer</strong> that turns text into a list of tokens;
+</li>
+<li>a <strong>parser</strong> that reads the tokens according to the grammar and computes the value as it goes;
+</li>
+<li>a small <strong>driver</strong> that prints results and errors.
+</li>
+</ol>
+<h2 id="tokens"><a class="anchor" href="#tokens" aria-hidden="true">#</a>Tokens</h2>
+<p>A token is a number, an operator, or a parenthesis. That's an enum with payloads:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Token</span> <span class="k">enum</span> [
+	num: <span class="t">float</span>,
+	op: <span class="t">char</span>,
+	lparen,
+	rparen,
+]</code></pre>
+<p><code>Token</code> holds only plain values, so it is itself plain: tokens copy freely and compare with <code>==</code> automatically.</p>
+<h2 id="the-tokenizer"><a class="anchor" href="#the-tokenizer" aria-hidden="true">#</a>The tokenizer</h2>
+<p>The tokenizer walks the input byte by byte. It returns <code>Result[[Token]]</code>: a list of tokens, or an error.</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> tokenize = (src: <span class="t">string</span>) <span class="t">Result</span>[[<span class="t">Token</span>]]: {
+	<span class="k">let</span> tokens: [<span class="t">Token</span>] = []
+	<span class="k">let</span> i = <span class="n">0</span>
+	<span class="k">while</span>(i &lt; src.<span class="f">len</span>()): {
+		<span class="k">let</span> c = <span class="t">char</span>(src[i])
+		<span class="k">if</span>(c.<span class="f">is_whitespace</span>()): {
+			i += <span class="n">1</span>
+			<span class="k">next</span> <span class="u">&lt;-</span>
+		}
+		<span class="k">if</span>(c.<span class="f">is_digit</span>() <span class="k">or</span> c == <span class="s">&#39;.&#39;</span>): {
+			<span class="k">let</span> start = i
+			<span class="k">while</span>(i &lt; src.<span class="f">len</span>() <span class="k">and</span> (<span class="t">char</span>(src[i]).<span class="f">is_digit</span>() <span class="k">or</span> <span class="t">char</span>(src[i]) == <span class="s">&#39;.&#39;</span>)): i += <span class="n">1</span>
+			<span class="k">let</span> text = src[start..i]
+			<span class="k">let</span> n = <span class="f">parse_float</span>(text) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;bad number &#39;</span>$text<span class="s">&#39;&quot;</span>))
+			tokens.<span class="f">push</span>(<span class="t">Token</span>.<span class="f">num</span>(n))
+			<span class="k">next</span> <span class="u">&lt;-</span>
+		}
+		<span class="k">match</span>(c):
+			<span class="k">when</span> <span class="s">&#39;+&#39;</span>, <span class="s">&#39;-&#39;</span>, <span class="s">&#39;*&#39;</span>, <span class="s">&#39;/&#39;</span>: tokens.<span class="f">push</span>(<span class="t">Token</span>.<span class="f">op</span>(c))
+			<span class="k">when</span> <span class="s">&#39;(&#39;</span>: tokens.<span class="f">push</span>(<span class="t">Token</span>.lparen)
+			<span class="k">when</span> <span class="s">&#39;)&#39;</span>: tokens.<span class="f">push</span>(<span class="t">Token</span>.rparen)
+			<span class="k">default</span>: <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;unexpected &#39;</span>$c<span class="s">&#39; at offset </span>$i<span class="s">&quot;</span>))
+		i += <span class="n">1</span>
+	}
+	<span class="f">value</span>(tokens)
+}</code></pre>
+<p>Things to notice:</p>
+<ul>
+<li><code>src[i]</code> is a byte (<code>u8</code>); <code>char(...)</code> converts it. The input here is ASCII, so bytes and characters coincide.
+</li>
+<li><code>next &lt;-</code> skips to the next iteration of the <code>while</code> loop, like <code>continue</code>.
+</li>
+<li><code>parse_float(text) ?? func &lt;- err(...)</code> either produces the number or leaves the function with an error, in one line.
+</li>
+<li><code>value(tokens)</code> and <code>err(...)</code> construct the two members of <code>Result</code>. Since the function's return type is a <code>Result</code>, the members can be named bare.
+</li>
+</ul>
+<h2 id="the-grammar"><a class="anchor" href="#the-grammar" aria-hidden="true">#</a>The grammar</h2>
+<p>Operator precedence comes from the structure of the grammar. Multiplication binds tighter than addition because a <em>term</em> is made of <em>factors</em>:</p>
+<pre class="lang-ebnf" data-lang="ebnf"><code>expr   = term { (<span class="s">&quot;+&quot;</span> | <span class="s">&quot;-&quot;</span>) term } ;
+term   = factor { (<span class="s">&quot;*&quot;</span> | <span class="s">&quot;/&quot;</span>) factor } ;
+factor = number | <span class="s">&quot;-&quot;</span> factor | <span class="s">&quot;(&quot;</span> expr <span class="s">&quot;)&quot;</span> ;</code></pre>
+<p>Each rule becomes one method, and each method returns <code>Result[float]</code>.</p>
+<h2 id="the-parser"><a class="anchor" href="#the-parser" aria-hidden="true">#</a>The parser</h2>
+<p>The parser keeps the tokens and a position:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Parser</span> <span class="k">struct</span> [
+	tokens: [<span class="t">Token</span>],
+	pos: <span class="t">int</span>,
+]
+
+<span class="k">bind</span> <span class="t">Parser</span>.peek = (<span class="k">self</span>) ?<span class="t">Token</span>: <span class="k">self</span>.tokens.<span class="f">get</span>(<span class="k">self</span>.pos)</code></pre>
+<p><code>peek</code> returns an optional because there may be no token left.</p>
+<p><code>expr</code> parses one term and then keeps consuming <code>+</code> or <code>-</code> followed by another term:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> <span class="t">Parser</span>.expr = (&amp;<span class="k">self</span>) <span class="t">Result</span>[<span class="t">float</span>]: {
+	<span class="k">let</span> left = <span class="k">self</span>.<span class="f">term</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+	<span class="k">while</span>(<span class="c">true</span>): {
+		<span class="k">let</span> t = <span class="k">self</span>.<span class="f">peek</span>() ?? <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="k">let</span> o = <span class="k">match</span>(t):
+			<span class="k">when</span> <span class="f">op</span>(c): c
+			<span class="k">default</span>: <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="k">if</span>(o != <span class="s">&#39;+&#39;</span> <span class="k">and</span> o != <span class="s">&#39;-&#39;</span>): <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="k">self</span>.pos += <span class="n">1</span>
+		<span class="k">let</span> right = <span class="k">self</span>.<span class="f">term</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+		left = <span class="k">if</span>(o == <span class="s">&#39;+&#39;</span>): left + right <span class="k">else</span>: left - right
+	}
+	<span class="f">value</span>(left)
+}</code></pre>
+<p>The line <code>self.term(): default err(own e): func &lt;- err(e)</code> is a <strong>result chain</strong>. It evaluates to the term's value, or, if <code>term</code> failed, passes the same error on to our caller. You'll write this line a lot; it's Lowlight's explicit form of &quot;propagate the error&quot;.</p>
+<p><code>while &lt;-</code> leaves the loop when there is no operator to consume. Notice that <code>match</code> is an expression here: it produces the operator character, or leaves the loop.</p>
+<p><code>term</code> has the same shape, with one extra check:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> <span class="t">Parser</span>.term = (&amp;<span class="k">self</span>) <span class="t">Result</span>[<span class="t">float</span>]: {
+	<span class="k">let</span> left = <span class="k">self</span>.<span class="f">factor</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+	<span class="k">while</span>(<span class="c">true</span>): {
+		<span class="k">let</span> t = <span class="k">self</span>.<span class="f">peek</span>() ?? <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="k">let</span> o = <span class="k">match</span>(t):
+			<span class="k">when</span> <span class="f">op</span>(c): c
+			<span class="k">default</span>: <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="k">if</span>(o != <span class="s">&#39;*&#39;</span> <span class="k">and</span> o != <span class="s">&#39;/&#39;</span>): <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="k">self</span>.pos += <span class="n">1</span>
+		<span class="k">let</span> right = <span class="k">self</span>.<span class="f">factor</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+		<span class="k">if</span>(o == <span class="s">&#39;/&#39;</span> <span class="k">and</span> right == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;div_zero&quot;</span>, <span class="s">&quot;division by zero&quot;</span>))
+		left = <span class="k">if</span>(o == <span class="s">&#39;*&#39;</span>): left * right <span class="k">else</span>: left / right
+	}
+	<span class="f">value</span>(left)
+}</code></pre>
+<p><code>Error.coded</code> attaches a machine-readable code to the error, which callers can test with <code>e.has_code(&quot;div_zero&quot;)</code>.</p>
+<p><code>factor</code> decides by the next token:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> <span class="t">Parser</span>.factor = (&amp;<span class="k">self</span>) <span class="t">Result</span>[<span class="t">float</span>]: {
+	<span class="k">let</span> t = <span class="k">self</span>.<span class="f">peek</span>() ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;unexpected end of input&quot;</span>))
+	<span class="k">self</span>.pos += <span class="n">1</span>
+	<span class="k">match</span>(t):
+		<span class="k">when</span> <span class="f">num</span>(n): <span class="f">value</span>(n)
+		<span class="k">when</span> <span class="f">op</span>(c): {
+			<span class="k">if</span>(c != <span class="s">&#39;-&#39;</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;unexpected &#39;</span>$c<span class="s">&#39;&quot;</span>))
+			<span class="k">let</span> v = <span class="k">self</span>.<span class="f">factor</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+			<span class="f">value</span>(-v)
+		}
+		<span class="k">when</span> lparen: {
+			<span class="k">let</span> v = <span class="k">self</span>.<span class="f">expr</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+			<span class="k">if</span>(<span class="k">self</span>.<span class="f">peek</span>() != <span class="t">Token</span>.rparen): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;missing &#39;)&#39;&quot;</span>))
+			<span class="k">self</span>.pos += <span class="n">1</span>
+			<span class="f">value</span>(v)
+		}
+		<span class="k">default</span> rparen: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;unexpected &#39;)&#39;&quot;</span>))
+}</code></pre>
+<p>The <code>match</code> is exhaustive: its last arm names the last variant, <code>rparen</code>, so adding a token type later would make this function fail to compile until it handles the new token. <code>self.peek() != Token.rparen</code> compares an optional with a value: it is true when the optional is <code>none</code> or holds something else.</p>
+<h2 id="putting-it-together"><a class="anchor" href="#putting-it-together" aria-hidden="true">#</a>Putting it together</h2>
+<p><code>calc</code> runs both stages and checks that every token was used. Here is the complete program:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Token</span> <span class="k">enum</span> [
+	num: <span class="t">float</span>,
+	op: <span class="t">char</span>,
+	lparen,
+	rparen,
+]
+
+<span class="k">bind</span> tokenize = (src: <span class="t">string</span>) <span class="t">Result</span>[[<span class="t">Token</span>]]: {
+	<span class="k">let</span> tokens: [<span class="t">Token</span>] = []
+	<span class="k">let</span> i = <span class="n">0</span>
+	<span class="k">while</span>(i &lt; src.<span class="f">len</span>()): {
+		<span class="k">let</span> c = <span class="t">char</span>(src[i])
+		<span class="k">if</span>(c.<span class="f">is_whitespace</span>()): {
+			i += <span class="n">1</span>
+			<span class="k">next</span> <span class="u">&lt;-</span>
+		}
+		<span class="k">if</span>(c.<span class="f">is_digit</span>() <span class="k">or</span> c == <span class="s">&#39;.&#39;</span>): {
+			<span class="k">let</span> start = i
+			<span class="k">while</span>(i &lt; src.<span class="f">len</span>() <span class="k">and</span> (<span class="t">char</span>(src[i]).<span class="f">is_digit</span>() <span class="k">or</span> <span class="t">char</span>(src[i]) == <span class="s">&#39;.&#39;</span>)): i += <span class="n">1</span>
+			<span class="k">let</span> text = src[start..i]
+			<span class="k">let</span> n = <span class="f">parse_float</span>(text) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;bad number &#39;</span>$text<span class="s">&#39;&quot;</span>))
+			tokens.<span class="f">push</span>(<span class="t">Token</span>.<span class="f">num</span>(n))
+			<span class="k">next</span> <span class="u">&lt;-</span>
+		}
+		<span class="k">match</span>(c):
+			<span class="k">when</span> <span class="s">&#39;+&#39;</span>, <span class="s">&#39;-&#39;</span>, <span class="s">&#39;*&#39;</span>, <span class="s">&#39;/&#39;</span>: tokens.<span class="f">push</span>(<span class="t">Token</span>.<span class="f">op</span>(c))
+			<span class="k">when</span> <span class="s">&#39;(&#39;</span>: tokens.<span class="f">push</span>(<span class="t">Token</span>.lparen)
+			<span class="k">when</span> <span class="s">&#39;)&#39;</span>: tokens.<span class="f">push</span>(<span class="t">Token</span>.rparen)
+			<span class="k">default</span>: <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;unexpected &#39;</span>$c<span class="s">&#39; at offset </span>$i<span class="s">&quot;</span>))
+		i += <span class="n">1</span>
+	}
+	<span class="f">value</span>(tokens)
+}
+
+<span class="k">define</span> <span class="t">Parser</span> <span class="k">struct</span> [
+	tokens: [<span class="t">Token</span>],
+	pos: <span class="t">int</span>,
+]
+
+<span class="k">bind</span> <span class="t">Parser</span>.peek = (<span class="k">self</span>) ?<span class="t">Token</span>: <span class="k">self</span>.tokens.<span class="f">get</span>(<span class="k">self</span>.pos)
+
+<span class="k">bind</span> <span class="t">Parser</span>.expr = (&amp;<span class="k">self</span>) <span class="t">Result</span>[<span class="t">float</span>]: {
+	<span class="k">let</span> left = <span class="k">self</span>.<span class="f">term</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+	<span class="k">while</span>(<span class="c">true</span>): {
+		<span class="k">let</span> t = <span class="k">self</span>.<span class="f">peek</span>() ?? <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="k">let</span> o = <span class="k">match</span>(t):
+			<span class="k">when</span> <span class="f">op</span>(c): c
+			<span class="k">default</span>: <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="k">if</span>(o != <span class="s">&#39;+&#39;</span> <span class="k">and</span> o != <span class="s">&#39;-&#39;</span>): <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="k">self</span>.pos += <span class="n">1</span>
+		<span class="k">let</span> right = <span class="k">self</span>.<span class="f">term</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+		left = <span class="k">if</span>(o == <span class="s">&#39;+&#39;</span>): left + right <span class="k">else</span>: left - right
+	}
+	<span class="f">value</span>(left)
+}
+
+<span class="k">bind</span> <span class="t">Parser</span>.term = (&amp;<span class="k">self</span>) <span class="t">Result</span>[<span class="t">float</span>]: {
+	<span class="k">let</span> left = <span class="k">self</span>.<span class="f">factor</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+	<span class="k">while</span>(<span class="c">true</span>): {
+		<span class="k">let</span> t = <span class="k">self</span>.<span class="f">peek</span>() ?? <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="k">let</span> o = <span class="k">match</span>(t):
+			<span class="k">when</span> <span class="f">op</span>(c): c
+			<span class="k">default</span>: <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="k">if</span>(o != <span class="s">&#39;*&#39;</span> <span class="k">and</span> o != <span class="s">&#39;/&#39;</span>): <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="k">self</span>.pos += <span class="n">1</span>
+		<span class="k">let</span> right = <span class="k">self</span>.<span class="f">factor</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+		<span class="k">if</span>(o == <span class="s">&#39;/&#39;</span> <span class="k">and</span> right == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;div_zero&quot;</span>, <span class="s">&quot;division by zero&quot;</span>))
+		left = <span class="k">if</span>(o == <span class="s">&#39;*&#39;</span>): left * right <span class="k">else</span>: left / right
+	}
+	<span class="f">value</span>(left)
+}
+
+<span class="k">bind</span> <span class="t">Parser</span>.factor = (&amp;<span class="k">self</span>) <span class="t">Result</span>[<span class="t">float</span>]: {
+	<span class="k">let</span> t = <span class="k">self</span>.<span class="f">peek</span>() ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;unexpected end of input&quot;</span>))
+	<span class="k">self</span>.pos += <span class="n">1</span>
+	<span class="k">match</span>(t):
+		<span class="k">when</span> <span class="f">num</span>(n): <span class="f">value</span>(n)
+		<span class="k">when</span> <span class="f">op</span>(c): {
+			<span class="k">if</span>(c != <span class="s">&#39;-&#39;</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;unexpected &#39;</span>$c<span class="s">&#39;&quot;</span>))
+			<span class="k">let</span> v = <span class="k">self</span>.<span class="f">factor</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+			<span class="f">value</span>(-v)
+		}
+		<span class="k">when</span> lparen: {
+			<span class="k">let</span> v = <span class="k">self</span>.<span class="f">expr</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+			<span class="k">if</span>(<span class="k">self</span>.<span class="f">peek</span>() != <span class="t">Token</span>.rparen): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;missing &#39;)&#39;&quot;</span>))
+			<span class="k">self</span>.pos += <span class="n">1</span>
+			<span class="f">value</span>(v)
+		}
+		<span class="k">default</span> rparen: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;unexpected &#39;)&#39;&quot;</span>))
+}
+
+<span class="k">bind</span> calc = (src: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">float</span>]: {
+	<span class="k">let</span> tokens = <span class="f">tokenize</span>(src): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+	<span class="k">let</span> p = <span class="t">Parser</span>[tokens: <span class="k">own</span> tokens, pos: <span class="n">0</span>]
+	<span class="k">let</span> v = p.<span class="f">expr</span>(): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+	<span class="k">if</span>(p.pos &lt; p.tokens.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;unexpected input after the expression&quot;</span>))
+	<span class="f">value</span>(v)
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> inputs = [<span class="s">&quot;1 + 2 * 3&quot;</span>, <span class="s">&quot;(1 + 2) * -3&quot;</span>, <span class="s">&quot;10 / 4&quot;</span>, <span class="s">&quot;1 / (2 - 2)&quot;</span>, <span class="s">&quot;2 * (3 + 4&quot;</span>, <span class="s">&quot;7 % 2&quot;</span>, <span class="s">&quot;1 2&quot;</span>]
+	<span class="k">for</span>(src <span class="k">in</span> inputs): {
+		<span class="k">let</span> result = <span class="f">calc</span>(src):
+			<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): {
+				<span class="f">println</span>(<span class="s">&quot;</span>$src<span class="s">  =&gt;  error: </span>${e.<span class="f">message</span>()}<span class="s">&quot;</span>)
+				<span class="k">next</span> <span class="u">&lt;-</span>
+			}
+		<span class="f">println</span>(<span class="s">&quot;</span>$src<span class="s">  =&gt;  </span>$result<span class="s">&quot;</span>)
+	}
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>1 + 2 * 3  =&gt;  7
+(1 + 2) * -3  =&gt;  -9
+10 / 4  =&gt;  2.5
+1 / (2 - 2)  =&gt;  error: division by zero
+2 * (3 + 4  =&gt;  error: missing &#39;)&#39;
+7 % 2  =&gt;  error: unexpected &#39;%&#39; at offset 2
+1 2  =&gt;  error: unexpected input after the expression</code></pre>
+<h2 id="what-you-practiced"><a class="anchor" href="#what-you-practiced" aria-hidden="true">#</a>What you practiced</h2>
+<ul>
+<li><strong>Enums with payloads</strong> model data that comes in several shapes, and <code>match</code> takes them apart exhaustively.
+</li>
+<li><strong><code>&amp;self</code> methods</strong> let the parser advance its own position.
+</li>
+<li><strong><code>Result</code> and result chains</strong> report errors without exceptions: every place an error can pass through is visible in the code.
+</li>
+<li><strong>Unwinds</strong> (<code>next &lt;-</code>, <code>while &lt;-</code>, <code>func &lt;-</code>) replace <code>continue</code>, <code>break</code>, and <code>return</code>, and say exactly what they leave.
+</li>
+</ul>
+<h2 id="exercises"><a class="anchor" href="#exercises" aria-hidden="true">#</a>Exercises</h2>
+<ol>
+<li>Add the <code>%</code> operator to <code>term</code>.
+</li>
+<li>Add exponentiation, <code>^</code>, which binds tighter than <code>*</code> and groups to the right: <code>2 ^ 3 ^ 2</code> is <code>2 ^ 9</code>. (Hint: add a <code>power</code> rule between <code>term</code> and <code>factor</code> that calls itself for its right operand.)
+</li>
+<li>Build a tree instead of computing as you parse: define <code>Expr</code> as an enum with <code>num: float</code> and <code>binary: Binary</code>, where <code>Binary</code> is a struct holding the operator and a list of two operands. Then write <code>eval(e: Expr) Result[float]</code>.
+</li>
+<li>Write tests for <code>calc</code> in <code>calc_test.ll</code> using <code>std/test</code>, including the error cases (<code>test.assert_err_contains</code>).
+</li>
+</ol>
+</article><nav class="prev-next"><a class="prev" href="word-count.html"><span>Previous</span>Tutorial: a word-frequency tool</a><a class="next" href="config-loader.html"><span>Next</span>Tutorial: a config loader</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#tokens">Tokens</a></li><li><a href="#the-tokenizer">The tokenizer</a></li><li><a href="#the-grammar">The grammar</a></li><li><a href="#the-parser">The parser</a></li><li><a href="#putting-it-together">Putting it together</a></li><li><a href="#what-you-practiced">What you practiced</a></li><li><a href="#exercises">Exercises</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tutorials</a><a href="word-count.html">A command-line tool</a><a href="calculator.html">A calculator</a><a href="config-loader.html">Handling errors</a><a href="web-service.html">A web service</a><a href="calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

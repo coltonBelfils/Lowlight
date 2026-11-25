@@ -76,7 +76,7 @@ func attachDeclsDocComments(decls []ast.Decl, standalone []lexer.Comment, traili
 			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), moduleDocSpan)
 			for i := range decl.Fields {
 				f := &decl.Fields[i]
-				doc, sp := findLeadingDoc(standalone, f.Span.Start.Line, diag.Span{})
+				doc, sp := findLeadingDoc(standalone, fieldStartLineWithAttrs(*f), diag.Span{})
 				if doc == "" {
 					doc, sp = findTrailingDoc(trailingByLine, f.Span.End.Line)
 				}
@@ -87,7 +87,7 @@ func attachDeclsDocComments(decls []ast.Decl, standalone []lexer.Comment, traili
 			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), moduleDocSpan)
 			for i := range decl.Variants {
 				v := &decl.Variants[i]
-				doc, sp := findLeadingDoc(standalone, v.Span.Start.Line, diag.Span{})
+				doc, sp := findLeadingDoc(standalone, variantStartLineWithAttrs(*v), diag.Span{})
 				if doc == "" {
 					doc, sp = findTrailingDoc(trailingByLine, v.Span.End.Line)
 				}
@@ -132,6 +132,23 @@ func declStartLineWithAttrs(d ast.Decl) int {
 		}
 	}
 	return line
+}
+
+func startLineWithAttrs(line int, attrs []ast.Attribute) int {
+	for _, a := range attrs {
+		if a.Span.Start.Line > 0 && a.Span.Start.Line < line {
+			line = a.Span.Start.Line
+		}
+	}
+	return line
+}
+
+func fieldStartLineWithAttrs(f ast.StructField) int {
+	return startLineWithAttrs(f.Span.Start.Line, f.Attributes)
+}
+
+func variantStartLineWithAttrs(v ast.EnumVariant) int {
+	return startLineWithAttrs(v.Span.Start.Line, v.Attributes)
 }
 
 func splitCommentBlocks(comments []lexer.Comment) [][]lexer.Comment {

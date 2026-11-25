@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Optionals · Lowlight</title>
+<meta name="description" content="Values that may be absent, without null.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a class="active" href="index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Tour</a></div><ul><li><a href="basics.html">Basics</a></li><li><a href="functions.html">Functions</a></li><li><a href="types.html">Your own types</a></li><li><a class="active" href="optionals.html">Optionals</a></li><li><a href="control-flow.html">Control flow</a></li><li><a href="matching.html">Pattern matching</a></li><li><a href="collections.html">Collections</a></li><li><a href="results.html">Results and errors</a></li><li><a href="ownership.html">Ownership</a></li><li><a href="interfaces-generics.html">Interfaces and generics</a></li><li><a href="packages-tests.html">Packages and tests</a></li><li><a href="next-steps.html">Next steps</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Tour</a></nav><h1 id="optionals"><a class="anchor" href="#optionals" aria-hidden="true">#</a>Optionals</h1>
+<p>Lowlight has no <code>null</code>. A value that might be missing has an <strong>optional type</strong>, <code>?T</code>, and the name that holds it <strong>must end in <code>?</code></strong>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> age? = <span class="f">parse_int</span>(<span class="s">&quot;42&quot;</span>)       <span class="m">// ?int</span>
+	<span class="k">let</span> bad? = <span class="f">parse_int</span>(<span class="s">&quot;forty&quot;</span>)    <span class="m">// none</span>
+	<span class="f">println</span>(age?)
+	<span class="f">println</span>(bad?)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>42
+none</code></pre>
+<p>The <code>?</code> is part of the name, and the compiler enforces it in both directions: a name ending in <code>?</code> must hold an optional, and an optional must be held by a name ending in <code>?</code>. So whenever you read <code>x?</code>, you know it might be absent, and whenever you read <code>x</code>, you know it isn't.</p>
+<h2 id="getting-the-value-out"><a class="anchor" href="#getting-the-value-out" aria-hidden="true">#</a>Getting the value out</h2>
+<p><strong>Supply a fallback</strong> with <code>??</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> port? = <span class="f">parse_int</span>(<span class="s">&quot;80a&quot;</span>)
+	<span class="k">let</span> p = port? ?? <span class="n">8080</span>
+	<span class="f">println</span>(p)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>8080</code></pre>
+<p><strong>Check and use it</strong> with <code>if(x?)</code>. Inside the branch, the plain name refers to the value:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> count? = <span class="f">parse_int</span>(<span class="s">&quot;12&quot;</span>)
+	<span class="k">if</span>(count?): <span class="f">println</span>(count + <span class="n">1</span>)
+	<span class="k">else</span>: <span class="f">println</span>(<span class="s">&quot;not a number&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>13</code></pre>
+<p><strong>Bind an expression's value</strong> with <code>if(expr as name)</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> ages = #[<span class="s">&quot;ada&quot;</span>: <span class="n">36</span>, <span class="s">&quot;grace&quot;</span>: <span class="n">45</span>]
+	<span class="k">if</span>(ages[<span class="s">&quot;grace&quot;</span>] <span class="k">as</span> a): <span class="f">println</span>(<span class="s">&quot;grace is </span>$a<span class="s">&quot;</span>)
+	<span class="k">if</span>(ages[<span class="s">&quot;linus&quot;</span>] <span class="k">as</span> a): <span class="f">println</span>(<span class="s">&quot;linus is </span>$a<span class="s">&quot;</span>)
+	<span class="k">else</span>: <span class="f">println</span>(<span class="s">&quot;no linus&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>grace is 45
+no linus</code></pre>
+<p><strong>Leave early if it's missing.</strong> The right side of <code>??</code> may be an unwind, so a guard and the unwrap are one line:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> double = (s: <span class="t">string</span>) <span class="t">int</span>: {
+	<span class="k">let</span> n = <span class="f">parse_int</span>(s) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0</span>
+	n * <span class="n">2</span>
+}
+
+<span class="k">bind</span> main = (): <span class="f">println</span>(<span class="f">double</span>(<span class="s">&quot;21&quot;</span>) + <span class="f">double</span>(<span class="s">&quot;x&quot;</span>))</code></pre>
+<pre class="lang-output" data-lang="output"><code>42</code></pre>
+<h2 id="optional-fields-and-chaining"><a class="anchor" href="#optional-fields-and-chaining" aria-hidden="true">#</a>Optional fields and chaining</h2>
+<p>Struct fields can be optional too, with the same naming rule. <code>?.</code> reaches through an optional, producing <code>none</code> if anything along the way is absent:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Person</span> <span class="k">struct</span> [
+	name: <span class="t">string</span>,
+	manager?: ?<span class="t">Person</span>,
+]
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> ada = <span class="t">Person</span>[name: <span class="s">&quot;Ada&quot;</span>, manager?: <span class="t">Person</span>[name: <span class="s">&quot;Grace&quot;</span>]]
+	<span class="f">println</span>(ada.manager?.name ?? <span class="s">&quot;nobody&quot;</span>)
+	<span class="f">println</span>(ada.manager?.manager?.name ?? <span class="s">&quot;nobody&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>Grace
+nobody</code></pre>
+<p>An optional field is <code>none</code> when omitted from a literal. A struct may contain an optional of its own type, which is how linked structures like trees are built.</p>
+<h2 id="rules-worth-knowing"><a class="anchor" href="#rules-worth-knowing" aria-hidden="true">#</a>Rules worth knowing</h2>
+<ul>
+<li>Optionals never nest: there is no <code>??int</code>.
+</li>
+<li><code>none</code> needs to know its type: <code>let x?: ?int = none</code>.
+</li>
+<li>A value is wrapped into an optional automatically: <code>let x?: ?int = 5</code> works.
+</li>
+</ul>
+<h2 id="next"><a class="anchor" href="#next" aria-hidden="true">#</a>Next</h2>
+<p><span class="repo-link" title="In the Lowlight repository: website/content/tour/control-flow.html">Control flow →</span></p>
+</article><nav class="prev-next"><a class="prev" href="types.html"><span>Previous</span>Your own types</a><a class="next" href="control-flow.html"><span>Next</span>Control flow</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#getting-the-value-out">Getting the value out</a></li><li><a href="#optional-fields-and-chaining">Optional fields and chaining</a></li><li><a href="#rules-worth-knowing">Rules worth knowing</a></li><li><a href="#next">Next</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tour</a><a href="basics.html">Basics</a><a href="functions.html">Functions</a><a href="types.html">Your own types</a><a href="optionals.html">Optionals</a><a href="control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

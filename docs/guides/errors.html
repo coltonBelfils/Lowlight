@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Failure handling · Lowlight</title>
+<meta name="description" content="Choosing between optionals, results, and panics; designing result types; adding context to errors.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a class="active" href="index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Guides</a></div><div class="sidebar-group">Writing Lowlight</div><ul><li><a href="effective-lowlight.html">Effective Lowlight (conventions)</a></li><li><a href="coming-from.html">Coming from C, Rust, or Go</a></li></ul><div class="sidebar-group">Core ideas</div><ul><li><a href="ownership.html">Ownership and borrowing</a></li><li><a class="active" href="errors.html">Failure handling</a></li><li><a href="collections.html">Collections and iteration</a></li><li><a href="generics.html">Interfaces and generics</a></li><li><a href="memory.html">Memory, arenas, and pools</a></li></ul><div class="sidebar-group">Working with code</div><ul><li><a href="packages.html">Packages and dependencies</a></li><li><a href="testing.html">Testing</a></li><li><a href="unsafe-ffi.html">Unsafe code and C</a></li><li><a href="performance.html">Performance</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Guides</a><span class="sep">/</span><span>Core ideas</span></nav><h1 id="failure-handling"><a class="anchor" href="#failure-handling" aria-hidden="true">#</a>Failure handling</h1>
+<p>Lowlight has three tools for things that don't go as planned, and choosing the right one is most of the skill:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Situation</th><th>Tool</th><th>The caller sees</th></tr></thead>
+<tbody>
+<tr><td>A value may legitimately be absent: a map lookup, parsing a number, the end of an iterator</td><td><code>?T</code></td><td><code>x?</code>, <code>??</code>, <code>if(x?)</code></td></tr>
+<tr><td>An operation can fail for reasons outside the program: I/O, user input, the network</td><td>a result type</td><td><code>x!</code>, result chains</td></tr>
+<tr><td>Something that should be impossible happened: a broken invariant, an index the program computed wrongly</td><td>a panic</td><td>a crash with a location</td></tr>
+</tbody>
+</table></div>
+<p>There are no exceptions. Every failure a function can produce is in its signature, and every place a failure is handled or passed on is visible in the code.</p>
+<h2 id="optionals-for-absence"><a class="anchor" href="#optionals-for-absence" aria-hidden="true">#</a>Optionals for absence</h2>
+<p>When &quot;not found&quot; is a normal answer, return <code>?T</code>. The caller can't forget to check, because a <code>?T</code> can't be used as a <code>T</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> find_user = (ids: [<span class="t">int</span>], id: <span class="t">int</span>) ?<span class="t">int</span>: {
+	<span class="k">for</span>(i, x <span class="k">in</span> ids): <span class="k">if</span>(x == id): <span class="k">func</span> <span class="u">&lt;-</span> i
+	<span class="c">none</span>
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> ids = [<span class="n">10</span>, <span class="n">20</span>, <span class="n">30</span>]
+	<span class="k">let</span> at = <span class="f">find_user</span>(ids, <span class="n">20</span>) ?? -<span class="n">1</span>
+	<span class="f">println</span>(at)
+	<span class="k">if</span>(<span class="f">find_user</span>(ids, <span class="n">99</span>) <span class="k">as</span> i): <span class="f">println</span>(i)
+	<span class="k">else</span>: <span class="f">println</span>(<span class="s">&quot;not found&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>1
+not found</code></pre>
+<h2 id="result-types-for-failures"><a class="anchor" href="#result-types-for-failures" aria-hidden="true">#</a>Result types for failures</h2>
+<p>When the caller needs to know <strong>why</strong> something failed, return a result. A result type has a <code>value</code> member for success and one member per kind of failure:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Fetch</span> <span class="k">result</span> [
+	value: <span class="t">string</span>,
+	not_found: <span class="t">string</span>,      <span class="m">// the missing path</span>
+	timed_out: <span class="t">int</span>,         <span class="m">// seconds waited</span>
+	refused,
+]</code></pre>
+<p>Design result types around <strong>what the caller will do differently</strong>. If two failures are always handled the same way, they can be one member. If a caller might retry on <code>timed_out</code> but not on <code>not_found</code>, keep them apart. Each payload should carry what's needed to explain or act on the failure, and no more.</p>
+<p>Names that hold results end in <code>!</code> (<code>let page! = fetch(url)</code>), so a reader always knows a value may be a failure.</p>
+<h3 id="handling-failures-result-chains"><a class="anchor" href="#handling-failures-result-chains" aria-hidden="true">#</a>Handling failures: result chains</h3>
+<p>A result chain handles failures by name and evaluates to the success value:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">let</span> page = <span class="f">fetch</span>(url):
+	<span class="k">when</span> <span class="f">not_found</span>(path): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;missing: </span>$path<span class="s">&quot;</span>
+	<span class="k">when</span> <span class="f">timed_out</span>(secs): <span class="f">retry</span>(url, secs * <span class="n">2</span>)
+	<span class="k">default</span> refused: <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;connection refused&quot;</span></code></pre>
+<p>Each arm either produces a replacement value or unwinds. The chain must handle every failure, and its last arm starts with <code>default</code>:</p>
+<ul>
+<li><code>default failure(x):</code> handles the last failure by name. Prefer this: adding a failure to the type later makes every chain that misses it a compile error.
+</li>
+<li><code>default:</code> handles all remaining failures the same way.
+</li>
+<li><code>default panic</code> declares that the remaining failures can't happen here. If one does, the program stops with <code>unhandled failure Fetch.refused</code> and the location.
+</li>
+</ul>
+<h3 id="other-ways-in"><a class="anchor" href="#other-ways-in" aria-hidden="true">#</a>Other ways in</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Write</th><th>Gives</th></tr></thead>
+<tbody>
+<tr><td><code>r! ?? fallback</code></td><td>the value, or <code>fallback</code> for any failure</td></tr>
+<tr><td><code>if(r! as v): ...</code></td><td>runs the branch only on success</td></tr>
+<tr><td><code>match(r!): when Fetch.value(v): ... </code></td><td>full control, all members</td></tr>
+<tr><td><code>r!.is_ok()</code>, <code>r!.is_err()</code></td><td>a <code>bool</code> (for <code>Result[T]</code>)</td></tr>
+</tbody>
+</table></div>
+<h2 id="resultt-and-error"><a class="anchor" href="#resultt-and-error" aria-hidden="true">#</a>Result[T] and Error</h2>
+<p>Most code doesn't need a custom result type. The prelude's <code>Result[T]</code> has <code>value: T</code> and <code>err: Error</code>. An <code>Error</code> carries:</p>
+<ul>
+<li>a <strong>message</strong>, <code>e.message()</code>;
+</li>
+<li>an optional machine-readable <strong>code</strong>, <code>Error.coded(&quot;not_found&quot;, &quot;...&quot;)</code>, tested with <code>e.has_code(...)</code>;
+</li>
+<li>a <strong>cause</strong>, the error it wraps, so a chain of context builds up;
+</li>
+<li>a <strong>trace</strong> of source locations where it was created and wrapped.
+</li>
+</ul>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> read_port = (text: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">int</span>]: {
+	<span class="k">let</span> n = <span class="f">parse_int</span>(text) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;syntax&quot;</span>, <span class="s">&quot;&#39;</span>$text<span class="s">&#39; is not a number&quot;</span>))
+	<span class="f">value</span>(n)
+}
+
+<span class="k">bind</span> load = (text: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">int</span>]: {
+	<span class="k">let</span> port = <span class="f">read_port</span>(text):
+		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e.<span class="f">wrap</span>(<span class="s">&quot;reading the port&quot;</span>))
+	<span class="f">value</span>(port)
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> r! = <span class="f">load</span>(<span class="s">&quot;eighty&quot;</span>)
+	<span class="k">if</span>(r!.<span class="f">peek_err</span>() <span class="k">as</span> e): {
+		<span class="f">println</span>(e.<span class="f">summary</span>())
+		<span class="f">println</span>(e.<span class="f">has_code</span>(<span class="s">&quot;syntax&quot;</span>))
+		<span class="f">println</span>(e.<span class="f">root</span>().<span class="f">message</span>())
+	}
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>reading the port: &#39;eighty&#39; is not a number
+true
+&#39;eighty&#39; is not a number</code></pre>
+<h3 id="passing-failures-up"><a class="anchor" href="#passing-failures-up" aria-hidden="true">#</a>Passing failures up</h3>
+<p>The propagation idiom is a one-line chain:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">let</span> cfg = <span class="f">load_config</span>(path): <span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e.<span class="f">wrap</span>(<span class="s">&quot;starting server&quot;</span>))</code></pre>
+<p>There is deliberately no shorter operator: passing a failure on is a decision, and the line shows where it happens and what context it adds. Add context that the inner function couldn't know (&quot;starting server&quot;, &quot;for user 42&quot;), not a restatement of the error.</p>
+<p><code>own e</code> moves the error out so it can be wrapped. Errors are resources, so the compiler makes sure every error is handled, wrapped, or deliberately dropped.</p>
+<h3 id="converting-between-result-types"><a class="anchor" href="#converting-between-result-types" aria-hidden="true">#</a>Converting between result types</h3>
+<p>Use a precise result type next to the operation, and convert to <code>Result[T]</code> where callers no longer care about the distinctions:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> fetch_text = (url: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">string</span>]: {
+	<span class="k">let</span> body = <span class="f">fetch</span>(url):
+		<span class="k">when</span> <span class="f">not_found</span>(p): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;not_found&quot;</span>, <span class="s">&quot;no page at </span>$p<span class="s">&quot;</span>))
+		<span class="k">when</span> <span class="f">timed_out</span>(s): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;timeout&quot;</span>, <span class="s">&quot;gave up after </span>${s}<span class="s">s&quot;</span>))
+		<span class="k">default</span> refused: <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;connection refused&quot;</span>))
+	<span class="f">value</span>(body)
+}</code></pre>
+<h2 id="panics-for-bugs"><a class="anchor" href="#panics-for-bugs" aria-hidden="true">#</a>Panics for bugs</h2>
+<p>A panic means &quot;the program is wrong&quot;. It prints <code>lowlight panic at file:line:col: message</code> (plus the error's trace for <code>panic(error)</code>), flushes standard output, and exits with status 1. Destructors don't run, and panics can't be caught, so a panic is never a way to handle an expected failure.</p>
+<p>Use:</p>
+<ul>
+<li><code>assert(condition, &quot;message&quot;)</code> to check invariants;
+</li>
+<li><code>panic(&quot;message&quot;)</code> when control reaches a place it never should;
+</li>
+<li><code>xs[i]</code> (which panics when out of range) when an invalid index would be a bug, and <code>xs.get(i)</code> when it's a normal case;
+</li>
+<li><code>default panic</code> in a chain when the remaining failures are impossible in context.
+</li>
+</ul>
+<h2 id="naming-fallible-and-panicking-twins"><a class="anchor" href="#naming-fallible-and-panicking-twins" aria-hidden="true">#</a>Naming: fallible and panicking twins</h2>
+<p>When an API offers both forms, the fallible one gets the plain name and the panicking one is prefixed with <code>must_</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">let</span> dt! = <span class="t">DateTime</span>.<span class="f">new</span>(<span class="n">2026</span>, <span class="n">2</span>, <span class="n">30</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)        <span class="m">// a result: the date may be invalid</span>
+<span class="k">let</span> launch = <span class="t">DateTime</span>.<span class="f">must_new</span>(<span class="n">2026</span>, <span class="n">1</span>, <span class="n">15</span>, <span class="n">9</span>, <span class="n">0</span>, <span class="n">0</span>) <span class="m">// panics if invalid: for constants you know are valid</span></code></pre>
+<h2 id="in-tests"><a class="anchor" href="#in-tests" aria-hidden="true">#</a>In tests</h2>
+<p><code>std/test</code> has assertions for results: <code>test.assert_is_ok(r!)</code>, <code>test.assert_is_err(r!)</code>, <code>test.assert_ok_eq(r!, expected)</code>, and <code>test.assert_err_contains(r!, &quot;fragment&quot;)</code>. See <span class="repo-link" title="In the Lowlight repository: website/content/guides/testing.html">Testing</span>.</p>
+</article><nav class="prev-next"><a class="prev" href="ownership.html"><span>Previous</span>Ownership and borrowing</a><a class="next" href="collections.html"><span>Next</span>Collections and iteration</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#optionals-for-absence">Optionals for absence</a></li><li><a href="#result-types-for-failures">Result types for failures</a></li><li class="sub"><a href="#handling-failures-result-chains">Handling failures: result chains</a></li><li class="sub"><a href="#other-ways-in">Other ways in</a></li><li><a href="#resultt-and-error">Result[T] and Error</a></li><li class="sub"><a href="#passing-failures-up">Passing failures up</a></li><li class="sub"><a href="#converting-between-result-types">Converting between result types</a></li><li><a href="#panics-for-bugs">Panics for bugs</a></li><li><a href="#naming-fallible-and-panicking-twins">Naming: fallible and panicking twins</a></li><li><a href="#in-tests">In tests</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="index.html">Guides</a><a href="effective-lowlight.html">Effective Lowlight (conventions)</a><a href="coming-from.html">Coming from C, Rust, or Go</a><a href="ownership.html">Ownership and borrowing</a><a href="errors.html">Failure handling</a><a href="collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

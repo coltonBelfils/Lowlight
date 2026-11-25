@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Collections and iteration · Lowlight</title>
+<meta name="description" content="Lists, maps, sets, and arrays in depth; collecting loops; and writing your own iterators.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a class="active" href="index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Guides</a></div><div class="sidebar-group">Writing Lowlight</div><ul><li><a href="effective-lowlight.html">Effective Lowlight (conventions)</a></li><li><a href="coming-from.html">Coming from C, Rust, or Go</a></li></ul><div class="sidebar-group">Core ideas</div><ul><li><a href="ownership.html">Ownership and borrowing</a></li><li><a href="errors.html">Failure handling</a></li><li><a class="active" href="collections.html">Collections and iteration</a></li><li><a href="generics.html">Interfaces and generics</a></li><li><a href="memory.html">Memory, arenas, and pools</a></li></ul><div class="sidebar-group">Working with code</div><ul><li><a href="packages.html">Packages and dependencies</a></li><li><a href="testing.html">Testing</a></li><li><a href="unsafe-ffi.html">Unsafe code and C</a></li><li><a href="performance.html">Performance</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Guides</a><span class="sep">/</span><span>Core ideas</span></nav><h1 id="collections-and-iteration"><a class="anchor" href="#collections-and-iteration" aria-hidden="true">#</a>Collections and iteration</h1>
+<h2 id="choosing-a-collection"><a class="anchor" href="#choosing-a-collection" aria-hidden="true">#</a>Choosing a collection</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Need</th><th>Use</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>an ordered sequence that grows</td><td><code>[T]</code> (<code>List[T]</code>)</td><td><code>push</code>, <code>pop</code>, <code>insert</code>, <code>remove</code>; <code>xs[i]</code> panics out of range, <code>xs.get(i)</code> doesn't</td></tr>
+<tr><td>a fixed number of elements, inline</td><td><code>[N: T]</code> (<code>Array[T]</code>)</td><td>no allocation; size is part of the type</td></tr>
+<tr><td>lookup by key</td><td><code>#[K: V]</code> (<code>Map[K, V]</code>)</td><td><code>K</code> must be <code>Hashable</code>; <code>m[k]</code> is <code>?V</code></td></tr>
+<tr><td>membership</td><td><code>#[T]</code> (<code>Set[T]</code>)</td><td><code>T</code> must be <code>Hashable</code></td></tr>
+<tr><td>a span of numbers or characters</td><td><code>a..b</code>, <code>a..=b</code> (<code>Range[T]</code>)</td><td>plain value; no allocation</td></tr>
+<tr><td>a fixed group of different types</td><td><code>+[A, B]</code> (tuple)</td><td>access with <code>.0</code>, <code>.1</code>; unpack with <code>unpack</code></td></tr>
+</tbody>
+</table></div>
+<p>Maps and sets iterate in <strong>insertion order</strong>. Iteration is deterministic across runs and platforms.</p>
+<h2 id="ownership-and-elements"><a class="anchor" href="#ownership-and-elements" aria-hidden="true">#</a>Ownership and elements</h2>
+<p>Collections own their elements. That has three consequences worth knowing:</p>
+<ul>
+<li><strong>Reading</strong> an element (<code>xs[i]</code>, a loop variable) gives a read-only view. To keep it, <code>.copy()</code> it.
+</li>
+<li><strong>Adding</strong> an element moves it in: <code>xs.push(item)</code> with a temporary, or <code>xs.push(own item)</code> with a variable.
+</li>
+<li><strong>Removing</strong> an element (<code>pop</code>, <code>remove</code>, <code>take</code>) gives you ownership of it.
+</li>
+</ul>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> queue = [<span class="s">&quot;a&quot;</span> + <span class="s">&quot;&quot;</span>, <span class="s">&quot;b&quot;</span> + <span class="s">&quot;&quot;</span>, <span class="s">&quot;c&quot;</span> + <span class="s">&quot;&quot;</span>]
+	<span class="k">let</span> first = queue.<span class="f">remove</span>(<span class="n">0</span>)        <span class="m">// we own `first` now</span>
+	<span class="k">let</span> copies = <span class="k">for</span>(s <span class="k">in</span> queue) [<span class="t">string</span>]: s.<span class="f">copy</span>()
+	queue.<span class="f">clear</span>()
+	<span class="f">println</span>(<span class="s">&quot;</span>$first<span class="s"> </span>$copies<span class="s"> </span>${queue.<span class="f">len</span>()}<span class="s">&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>a [b, c] 0</code></pre>
+<h2 id="loops-that-build-collections"><a class="anchor" href="#loops-that-build-collections" aria-hidden="true">#</a>Loops that build collections</h2>
+<p>A <code>for</code> loop with a result type is Lowlight's <code>map</code>/<code>filter</code>/<code>collect</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> nums = [<span class="n">3</span>, <span class="n">8</span>, <span class="n">1</span>, <span class="n">9</span>, <span class="n">4</span>]
+	<span class="k">let</span> big = <span class="k">for</span>(n <span class="k">in</span> nums) [<span class="t">int</span>]: {
+		<span class="k">if</span>(n &lt; <span class="n">4</span>): <span class="k">next</span> <span class="u">&lt;-</span>
+		n * <span class="n">10</span>
+	}
+	<span class="k">let</span> set = <span class="k">for</span>(n <span class="k">in</span> nums) #[<span class="t">int</span>]: n % <span class="n">3</span>
+	<span class="k">let</span> by_index = <span class="k">for</span>(i, n <span class="k">in</span> nums) #[<span class="t">int</span>: <span class="t">int</span>]: <span class="t">MapEntry</span>[key: n, value: i]
+	<span class="f">println</span>(big)
+	<span class="f">println</span>(set.<span class="f">len</span>())
+	<span class="f">println</span>(by_index[<span class="n">9</span>] ?? -<span class="n">1</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>[80, 90, 40]
+3
+3</code></pre>
+<p>The result type may be any type whose <code>push</code> method accepts the body's value (the <code>Collectable</code> interface), including your own.</p>
+<h2 id="iterating"><a class="anchor" href="#iterating" aria-hidden="true">#</a>Iterating</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Loop</th><th>Visits</th></tr></thead>
+<tbody>
+<tr><td><code>for(x in xs)</code></td><td>each element (read-only)</td></tr>
+<tr><td><code>for(i, x in xs)</code></td><td>index and element</td></tr>
+<tr><td><code>for(&amp;x in xs)</code></td><td>each element, mutably (when <code>xs</code> is mutable)</td></tr>
+<tr><td><code>for(k, v in m)</code></td><td>each key and value of a map</td></tr>
+<tr><td><code>for(c in s.chars())</code></td><td>each character of a string</td></tr>
+<tr><td><code>for(c in s)</code> · <code>for(i, c in s)</code></td><td>each character of a string, with the byte offset where it starts</td></tr>
+<tr><td><code>while(x in it)</code></td><td>like <code>for</code>, but never collects; leave with <code>while &lt;- v</code></td></tr>
+</tbody>
+</table></div>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> scores = [<span class="n">70</span>, <span class="n">85</span>, <span class="n">92</span>]
+	<span class="k">for</span>(&amp;s <span class="k">in</span> scores): s += <span class="n">5</span>
+	<span class="f">println</span>(scores)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>[75, 90, 97]</code></pre>
+<p>While a loop iterates a collection, the collection can't be modified or moved. To build a changed version, collect into a new one.</p>
+<h2 id="your-own-iterators"><a class="anchor" href="#your-own-iterators" aria-hidden="true">#</a>Your own iterators</h2>
+<p>An iterator is any type with a <code>next: (&amp;self) ?T</code> method, which returns the next element or <code>none</code> at the end. Drive one with a <code>while</code> loop:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Countdown</span> <span class="k">struct</span> [
+	cur: <span class="t">int</span>,
+]
+
+<span class="k">bind</span> <span class="t">Countdown</span>.next = (&amp;<span class="k">self</span>) ?<span class="t">int</span>: {
+	<span class="k">if</span>(<span class="k">self</span>.cur &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span>
+	<span class="k">self</span>.cur -= <span class="n">1</span>
+	<span class="k">self</span>.cur + <span class="n">1</span>
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> it = <span class="t">Countdown</span>[cur: <span class="n">3</span>]
+	<span class="k">while</span>(<span class="c">true</span>): {
+		<span class="k">let</span> i = it.<span class="f">next</span>() ?? <span class="k">while</span> <span class="u">&lt;-</span>
+		<span class="f">print</span>(<span class="s">&quot;</span>$i<span class="s"> &quot;</span>)
+	}
+	<span class="f">println</span>(<span class="s">&quot;liftoff&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>3 2 1 liftoff</code></pre>
+<p><code>let i = it.next() ?? while &lt;-</code> takes the next element or leaves the loop when there is none.</p>
+<p>The prelude's <code>Iterator[T]</code> and <code>Iterable[T]</code> interfaces describe this protocol, and the standard collections implement them. Today <code>for</code> loops iterate the built-in collections, ranges, strings, and <code>Pool</code>; for other iterators, use the <code>while</code> pattern above.</p>
+<h2 id="equality-hashing-and-printing"><a class="anchor" href="#equality-hashing-and-printing" aria-hidden="true">#</a>Equality, hashing, and printing</h2>
+<ul>
+<li><code>==</code> works on lists, maps, and sets only if you define <code>eq</code>; compare lengths and elements explicitly, or use <code>std/test</code>'s assertions in tests.
+</li>
+<li>Elements of sets and keys of maps must be <code>Hashable</code>. Numbers, <code>bool</code>, <code>char</code>, strings, tag enums, and tuples of those are; give your own types a <code>hash</code> method (and <code>eq</code>) to use them as keys.
+</li>
+<li>Every collection of printable elements is printable: <code>println([1, 2])</code> prints <code>[1, 2]</code>.
+</li>
+</ul>
+<h2 id="more-operations"><a class="anchor" href="#more-operations" aria-hidden="true">#</a>More operations</h2>
+<ul>
+<li><code>std/sort</code>: <code>sort</code>, <code>sort_by</code>, <code>stable_sort</code>, <code>binary_search</code>, <code>lower_bound</code>, <code>upper_bound</code>, <code>reverse</code>, <code>is_sorted</code>, and sorted views of sets and map keys.
+</li>
+<li><code>std/strings</code>: <code>join</code>, <code>split_whitespace</code>, <code>lines</code>, and more for lists of strings.
+</li>
+<li><a href="../spec/the-prelude.html#125-collections">The prelude reference</a> lists every built-in collection method.
+</li>
+</ul>
+</article><nav class="prev-next"><a class="prev" href="errors.html"><span>Previous</span>Failure handling</a><a class="next" href="generics.html"><span>Next</span>Interfaces and generics</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#choosing-a-collection">Choosing a collection</a></li><li><a href="#ownership-and-elements">Ownership and elements</a></li><li><a href="#loops-that-build-collections">Loops that build collections</a></li><li><a href="#iterating">Iterating</a></li><li><a href="#your-own-iterators">Your own iterators</a></li><li><a href="#equality-hashing-and-printing">Equality, hashing, and printing</a></li><li><a href="#more-operations">More operations</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="index.html">Guides</a><a href="effective-lowlight.html">Effective Lowlight (conventions)</a><a href="coming-from.html">Coming from C, Rust, or Go</a><a href="ownership.html">Ownership and borrowing</a><a href="errors.html">Failure handling</a><a href="collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

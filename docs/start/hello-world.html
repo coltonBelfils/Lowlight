@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your first program · Lowlight</title>
+<meta name="description" content="Write, run, build, format, and test a Lowlight program.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a class="active" href="index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Get Started</a></div><ul><li><a href="install.html">Install</a></li><li><a class="active" href="hello-world.html">First program</a></li><li><a href="projects.html">First project</a></li><li><a href="editors.html">Editors</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Get Started</a></nav><h1 id="your-first-program"><a class="anchor" href="#your-first-program" aria-hidden="true">#</a>Your first program</h1>
+<h2 id="hello-world"><a class="anchor" href="#hello-world" aria-hidden="true">#</a>Hello, world</h2>
+<p>Create a file named <code>hello.ll</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): <span class="f">println</span>(<span class="s">&quot;Hello, world!&quot;</span>)</code></pre>
+<pre class="lang-output" data-lang="output"><code>Hello, world!</code></pre>
+<p>Run it:</p>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">lowlight</span> run hello.ll</code></pre>
+<p>That's the whole program. <code>bind</code> declares a name, <code>main</code> is where execution starts, <code>()</code> means it takes no parameters, and the part after <code>:</code> is its body: here, a single expression.</p>
+<h2 id="a-slightly-bigger-program"><a class="anchor" href="#a-slightly-bigger-program" aria-hidden="true">#</a>A slightly bigger program</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> greet = (name: <span class="t">string</span>) <span class="t">string</span>: <span class="s">&quot;Hello, </span>$name<span class="s">!&quot;</span>
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> names = [<span class="s">&quot;Ada&quot;</span>, <span class="s">&quot;Grace&quot;</span>, <span class="s">&quot;Linus&quot;</span>]
+	<span class="k">for</span>(n <span class="k">in</span> names): <span class="f">println</span>(<span class="f">greet</span>(n))
+	<span class="f">println</span>(<span class="s">&quot;</span>${names.<span class="f">len</span>()}<span class="s"> greetings&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>Hello, Ada!
+Hello, Grace!
+Hello, Linus!
+3 greetings</code></pre>
+<p>A few things to notice:</p>
+<ul>
+<li><code>greet</code> declares its parameter type and return type: <code>(name: string) string</code>.
+</li>
+<li>A body with several statements is a block in braces. Statements end at the end of the line; there are no semicolons to type.
+</li>
+<li><code>$name</code> and <code>${expr}</code> interpolate values into strings.
+</li>
+<li><code>[...]</code> is a list literal, and <code>for(n in names)</code> loops over it.
+</li>
+</ul>
+<h2 id="building-an-executable"><a class="anchor" href="#building-an-executable" aria-hidden="true">#</a>Building an executable</h2>
+<p><code>run</code> compiles to a temporary executable and runs it. To keep the executable:</p>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">lowlight</span> build hello.ll        <span class="m"># writes ./hello</span>
+./hello
+<span class="f">lowlight</span> build <span class="a">-o</span> greet <span class="a">--release</span> hello.ll</code></pre>
+<p><code>--release</code> turns on optimizations. Safety checks (array bounds, division by zero, shift counts) stay on in every build.</p>
+<h2 id="checking-without-running"><a class="anchor" href="#checking-without-running" aria-hidden="true">#</a>Checking without running</h2>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">lowlight</span> check hello.ll</code></pre>
+<p><code>check</code> reports every error without generating code. It is fast enough to run on every save, and it is what your editor's language server does as you type.</p>
+<h2 id="formatting"><a class="anchor" href="#formatting" aria-hidden="true">#</a>Formatting</h2>
+<p>Lowlight has one standard format. Format a file in place:</p>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">lowlight</span> fmt <span class="a">-w</span> hello.ll</code></pre>
+<p>Use <code>lowlight fmt --check</code> in CI to fail on unformatted files. See <a href="../ref/formatter.html">Formatting</a> for the few settings there are.</p>
+<h2 id="command-line-arguments-and-exit-codes"><a class="anchor" href="#command-line-arguments-and-exit-codes" aria-hidden="true">#</a>Command-line arguments and exit codes</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = () <span class="t">int</span>: {
+	<span class="k">let</span> argv = <span class="f">args</span>()
+	<span class="k">if</span>(argv.<span class="f">len</span>() &lt; <span class="n">2</span>): {
+		<span class="f">eprintln</span>(<span class="s">&quot;usage: </span>${argv[<span class="n">0</span>]}<span class="s"> &lt;name&gt;&quot;</span>)
+		<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">2</span>
+	}
+	<span class="f">println</span>(<span class="s">&quot;hi, </span>${argv[<span class="n">1</span>]}<span class="s">&quot;</span>)
+	<span class="n">0</span>
+}</code></pre>
+<p><code>args()</code> returns the program name followed by its arguments. Pass arguments after <code>--</code> when using <code>run</code>:</p>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">lowlight</span> run greet.ll -- Ada</code></pre>
+<p><code>main</code> may return an <code>int</code>, which becomes the exit status. <code>func &lt;- 2</code> returns early from the function: Lowlight's <code>return</code>.</p>
+<h2 id="a-first-test"><a class="anchor" href="#a-first-test" aria-hidden="true">#</a>A first test</h2>
+<p>Put tests in a file whose name ends in <code>_test.ll</code>, next to the code they test:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="m">// greet_test.ll</span>
+<span class="k">import</span> <span class="s">&quot;std/test&quot;</span>
+
+<span class="a">@test</span>(<span class="s">&quot;greet includes the name&quot;</span>)
+<span class="k">bind</span> test_greet = (): test.<span class="f">assert_eq</span>(<span class="f">greet</span>(<span class="s">&quot;Ada&quot;</span>), <span class="s">&quot;Hello, Ada!&quot;</span>)</code></pre>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">lowlight</span> test</code></pre>
+<p>Tests can call everything in their package, including private names. See <a href="../guides/testing.html">Testing</a>.</p>
+<h2 id="next"><a class="anchor" href="#next" aria-hidden="true">#</a>Next</h2>
+<p><span class="repo-link" title="In the Lowlight repository: website/content/start/projects.html">Create a project →</span></p>
+</article><nav class="prev-next"><a class="prev" href="install.html"><span>Previous</span>Installing Lowlight</a><a class="next" href="projects.html"><span>Next</span>Your first project</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#hello-world">Hello, world</a></li><li><a href="#a-slightly-bigger-program">A slightly bigger program</a></li><li><a href="#building-an-executable">Building an executable</a></li><li><a href="#checking-without-running">Checking without running</a></li><li><a href="#formatting">Formatting</a></li><li><a href="#command-line-arguments-and-exit-codes">Command-line arguments and exit codes</a></li><li><a href="#a-first-test">A first test</a></li><li><a href="#next">Next</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="index.html">Get Started</a><a href="install.html">Install</a><a href="hello-world.html">First program</a><a href="projects.html">First project</a><a href="editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

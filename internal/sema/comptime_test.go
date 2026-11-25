@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"lowlight/internal/ast"
 	"lowlight/internal/diag"
 	"lowlight/internal/types"
 )
@@ -1127,9 +1128,14 @@ const X = TargetOs.linux
 `, "undeclared")
 	assertComptimeError(t, "comp.TARGET rejected in runtime code", `
 bind main = fn(): {
-	let _ = comp.TARGET.is_unix
+	let _ = comp.TARGET
 }
 `, "cannot use `@comptime_only` constant `comp.TARGET`")
+	assertComptimeError(t, "comp.TARGET non-crossable field rejected in runtime code", `
+bind main = fn(): {
+	let _ = comp.TARGET.os
+}
+`, "@comptime_only")
 	assertComptimeError(t, "comp.TargetOs rejected in runtime code", `
 bind main = fn(): {
 	let _ = comp.TargetOs.linux
@@ -1820,6 +1826,748 @@ bind main = fn(): {
 	mutBs, _, _ := listStructBytes(mutBytes)
 	if origBs[1] != 20 || mutBs[1] != 77 {
 		t.Fatalf("CoW failed for List[u8]: orig[1]=%d mut[1]=%d", origBs[1], mutBs[1])
+	}
+}
+
+func TestComptimeReflectionAndDescriptors(t *testing.T) {
+	t.Parallel()
+	src := `
+define UserId int
+
+define CustomIface interface [
+	tag: fn(self) int,
+]
+
+define Pair[A, B] struct [
+	first: A,
+	second: B,
+]
+
+@table("records")
+@derive(Copyable)
+define Record struct [
+	@json("record_id")
+	id: int = 1,
+	@skip
+	_secret?: ?string,
+	unprintable: NoPrint,
+]
+
+define NoPrint struct [
+	v: int,
+]
+
+define Tag enum u8 [
+	@code("0")
+	Alpha = 2,
+	_Beta = 7,
+]
+
+@packed
+define PlainPacked struct [
+	a: u8,
+	b: u8,
+]
+
+define Action enum [
+	@unit_attr
+	Quit,
+	Write: string,
+	_Internal: NoPrint,
+]
+
+define MyRes result [
+	value: int,
+	@fail
+	NotFound: string,
+	Empty,
+]
+
+bind Record.tag = fn(self) int: self.id
+
+@comptime_only
+const check_all_kinds = fn() bool: {
+	assert(comp.kind_of[int]() == comp.TypeKind.primitive_kind)
+	assert(comp.kind_of[string]() == comp.TypeKind.string_kind)
+	assert(comp.kind_of[?int]() == comp.TypeKind.optional_kind)
+	assert(comp.kind_of[[int]]() == comp.TypeKind.list_kind)
+	assert(comp.kind_of[List[int]]() == comp.TypeKind.list_kind)
+	assert(comp.kind_of[[3: u8]]() == comp.TypeKind.array_kind)
+	assert(comp.kind_of[#[int]]() == comp.TypeKind.set_kind)
+	assert(comp.kind_of[#[string: int]]() == comp.TypeKind.map_kind)
+	assert(comp.kind_of[+[int, bool]]() == comp.TypeKind.tuple_kind)
+	assert(comp.kind_of[Record]() == comp.TypeKind.struct_kind)
+	assert(comp.kind_of[Tag]() == comp.TypeKind.tag_enum_kind)
+	assert(comp.kind_of[Action]() == comp.TypeKind.tagged_union_kind)
+	assert(comp.kind_of[MyRes]() == comp.TypeKind.result_kind)
+	assert(comp.kind_of[UserId]() == comp.TypeKind.distinct_kind)
+	assert(comp.kind_of[Equatable]() == comp.TypeKind.interface_kind)
+	assert(comp.kind_of[CustomIface]() == comp.TypeKind.interface_kind)
+	assert(comp.kind_of[fn(int) int]() == comp.TypeKind.fn_kind)
+	assert(comp.kind_of[cl(int) int]() == comp.TypeKind.cl_kind)
+	assert(comp.kind_of[extern fn(int) int]() == comp.TypeKind.extern_fn_kind)
+	assert(comp.kind_of[ptr[u8]]() == comp.TypeKind.ptr_kind)
+	assert(comp.kind_of[ref[Record]]() == comp.TypeKind.ref_kind)
+	assert(comp.kind_of[Arena]() == comp.TypeKind.arena_kind)
+	assert(comp.kind_of[Range[int]]() == comp.TypeKind.range_kind)
+	true
+}
+
+@comptime_only
+const check_reflection = fn() string: {
+	assert(check_all_kinds())
+	assert(comp.type_name[Record]() == "Record")
+	assert(comp.type_name[List[int]]() == "List[int]")
+	assert(comp.type_name[Pair[int, string]]() == "Pair[int, string]")
+
+	assert(comp.implements[int, Equatable]())
+	assert(comp.implements[Record, CustomIface]())
+	assert(not comp.implements[NoPrint, Printable]())
+
+	let r_attrs = comp.attrs_of[Record]()
+	assert(r_attrs.len() == 2)
+	assert(r_attrs[0].name == "table")
+	assert(r_attrs[0].args.len() == 1 and r_attrs[0].args[0] == "records")
+	assert(r_attrs[1].name == "derive")
+
+	let fields = comp.fields_of[Record]()
+	assert(fields.len() == 3)
+	let f0 = fields[0].copy()
+	assert(f0.name == "id" and f0.type_name == "int")
+	assert(not f0.is_opt and f0.is_public and f0.has_default)
+	assert(f0.has_attr("json"))
+	assert(not f0.has_attr("missing"))
+	if(f0.attr("json") as ja): {
+		assert(ja.args.len() == 1 and ja.args[0] == "record_id")
+	} else: {
+		panic("missing json attr")
+	}
+	assert(f0.implements(Equatable))
+
+	let f1 = fields[1].copy()
+	assert(f1.name == "_secret?" and f1.type_name == "?string")
+	assert(f1.is_opt and not f1.is_public and not f1.has_default)
+	assert(f1.has_attr("skip"))
+
+	let f2 = fields[2].copy()
+	assert(not f2.implements(Printable))
+
+	let tags = comp.variants_of[Tag]()
+	assert(tags.len() == 2)
+	assert(tags[0].name == "Alpha" and tags[0].index == 0 and (tags[0].tag_value? ?? -1) == 2)
+	assert(not tags[0].has_payload and tags[0].is_public)
+	assert(tags[0].has_attr("code"))
+	assert(tags[1].name == "_Beta" and tags[1].index == 1 and (tags[1].tag_value? ?? -1) == 7 and not tags[1].is_public)
+
+	let acts = comp.variants_of[Action]()
+	assert(acts.len() == 3)
+	assert(acts[0].tag_value? == none and not acts[0].has_payload and acts[0].has_attr("unit_attr"))
+	assert(acts[1].has_payload and acts[1].payload_implements(Printable))
+	assert(not acts[2].is_public and acts[2].has_payload and not acts[2].payload_implements(Printable))
+
+	let ress = comp.variants_of[MyRes]()
+	assert(ress.len() == 3)
+	assert(ress[0].name == "value" and ress[0].has_payload)
+	assert(ress[1].name == "NotFound" and ress[1].has_attr("fail") and ress[1].payload_implements(Equatable))
+	assert(ress[2].name == "Empty" and not ress[2].has_payload)
+
+	let tup_elems = comp.elems_of[+[int, bool]]()
+	assert(tup_elems.len() == 2)
+	assert(tup_elems[0].index == 0 and tup_elems[0].type_name == "int" and tup_elems[0].implements(Comparable))
+	assert(tup_elems[1].index == 1 and tup_elems[1].type_name == "bool" and not tup_elems[1].implements(Comparable))
+
+	let arr_elems = comp.elems_of[[3: NoPrint]]()
+	assert(arr_elems.len() == 3)
+	assert(arr_elems[2].index == 2 and arr_elems[2].type_name == "NoPrint" and not arr_elems[2].implements(Equatable))
+
+	let empty_tup = comp.elems_of[+[]]()
+	assert(empty_tup.len() == 0)
+
+	f0.name + ":" + comp.type_name[Record]()
+}
+
+const REFL_OUT: string = check_reflection()
+
+bind main = fn(): {
+	assert(REFL_OUT == "id:Record")
+}
+`
+	prog, rep := checkComptimeSrc(t, src)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected errors:\n%s", rep.Format())
+	}
+	sym := prog.EntryMod.Symbols["REFL_OUT"]
+	if sym == nil || sym.ConstVal == nil {
+		t.Fatalf("missing REFL_OUT const val")
+	}
+	if cv, ok := sym.ConstVal.(*ctVal); !ok || cv.s != "id:Record" {
+		t.Fatalf("REFL_OUT = %#v, want id:Record", sym.ConstVal)
+	}
+
+	// Negative checks
+	negCases := []struct {
+		name string
+		code string
+		want string
+	}{
+		{
+			name: "fields_of_non_struct",
+			code: "const X = comp.fields_of[int]()\n",
+			want: "requires a struct type",
+		},
+		{
+			name: "variants_of_non_enum",
+			code: "define S struct [x: int]\nconst X = comp.variants_of[S]()\n",
+			want: "requires an enum or result type",
+		},
+		{
+			name: "elems_of_list",
+			code: "const X = comp.elems_of[[int]]()\n",
+			want: "requires a tuple or fixed array",
+		},
+		{
+			name: "implements_non_iface",
+			code: "const X = comp.implements[int, string]()\n",
+			want: "is not an interface",
+		},
+		{
+			name: "runtime_comp_fields_of",
+			code: "define S struct [x: int]\nbind main = fn(): { let _ = comp.fields_of[S]() }\n",
+			want: "outside a compile-time context",
+		},
+		{
+			name: "const_escape_type_kind",
+			code: "const K = comp.kind_of[int]()\n",
+			want: "@comptime_only",
+		},
+		{
+			name: "runtime_fn_descriptor_param",
+			code: "bind f = fn(x: comp.FieldInfo) int: 0\n",
+			want: "@comptime_only",
+		},
+	}
+	for _, nc := range negCases {
+		assertComptimeError(t, nc.name, nc.code, nc.want)
+	}
+}
+
+func TestComptimeFieldElemAndCollectingFor(t *testing.T) {
+	t.Parallel()
+	src := `
+@json("user")
+define Item struct [
+	@tag("primary")
+	count: int = 5,
+	label?: ?string,
+	note: string = "def",
+]
+
+define Empty struct []
+
+define ResBox struct [
+	tag: string,
+	code: int,
+]
+
+const ResBox.take_tag = fn(own self) string:
+	own self.field(comp.fields_of[ResBox]()[0])
+
+@comptime_only
+const test_field_elem_ops = fn() string: {
+	let it = Item[count: 10, label?: "hi"]
+	const fs = comp.fields_of[Item]()
+	// Read by FieldInfo and by const string (including optional trailing ?)
+	assert(it.field(fs[0]) == 10)
+	assert(it.field("label?") == "hi")
+	assert(it.field(fs[2]) == "def")
+
+	// Mutate via =, +=, &v.field(f)
+	it.field(fs[0]) = 20
+	it.field("count") += 7
+	let bump = fn(p: &int): { p += 3 }
+	bump(&it.field(fs[0]))
+	assert(it.count == 30)
+
+	// Optional chaining ?.field
+	let opt_some?: ?Item = Item[count: 99, label?: "yes"]
+	let opt_none?: ?Item = none
+	assert((opt_some?.field(fs[0]) ?? -1) == 99)
+	assert((opt_some?.field(fs[1]) ?? "no") == "yes")
+	assert((opt_none?.field(fs[0]) ?? -1) == -1)
+
+	// Tuple & StackArray elem
+	let tup = +[11, "tup", true]
+	const tes = comp.elems_of[+[int, string, bool]]()
+	assert(tup.elem(tes[0]) == 11 and tup.elem(1) == "tup")
+	tup.elem(tes[0]) = 111
+	let opt_tup?: ?+[int, string] = +[7, "ok"]
+	assert((opt_tup?.elem(0) ?? -1) == 7)
+
+	let arr = [3: 4, 5, 6]
+	const aes = comp.elems_of[[3: int]]()
+	arr.elem(aes[1]) += 10
+	assert(arr.elem(1) == 15)
+
+	// own self.field move
+	let rb = ResBox[tag: "moved", code: 9]
+	assert(rb.take_tag() == "moved")
+
+	// Collecting comptime for: Struct (with next <- val + bare next <- defaults), Empty, Tuple, Array
+	let built = comptime for(f in fs) Item: {
+		comptime if(f.name == "count"): 77
+		else: { next <- }
+	}
+	assert(built.count == 77 and built.label? == none and built.note == "def")
+
+	let empty_built = comptime for(f in comp.fields_of[Empty]()) Empty: 0
+
+	let built_tup = comptime for(e in tes) +[int, string, bool]: {
+		comptime if(e.index == 0): 123
+		else comptime if(e.index == 1): "abc"
+		else: true
+	}
+	assert(built_tup.0 == 123 and built_tup.1 == "abc" and built_tup.2)
+
+	let built_arr = comptime for(e in comp.elems_of[[3: int]]()) [3: int]: e.index * 10 + 1
+	assert(built_arr[0] == 1 and built_arr[1] == 11 and built_arr[2] == 21)
+
+	let empty_tup = comptime for(e in comp.elems_of[+[]]()) +[]: 0
+	let _ = empty_tup
+
+	// Early func <- break in struct collecting comptime for
+	let early = brk: {
+		comptime for(f in fs) Item: {
+			if(f.name == "label?"): brk <- Item[count: 555]
+			next <-
+		}
+		Item[count: 0]
+	}
+	assert(early.count == 555)
+	let _ = empty_built
+
+	"${it.count}:${built.count}:${built.note}:${built_tup.1}:${built_arr[2]}"
+}
+
+const CT_FE_OUT: string = test_field_elem_ops()
+
+bind rt_test = fn() string: {
+	let it = Item[count: 1, label?: "rt"]
+	let ar = Arena.new()
+	let r = ar.alloc(Item[count: 42])
+	r.field(comp.fields_of[Item]()[0]) += 8
+	assert(r.field("count") == 50)
+
+	let fname = comp.fields_of[Item]()[0].name
+	let fattr = comp.fields_of[Item]()[0].attrs[0].name
+	let farg = comp.fields_of[Item]()[0].attrs[0].args[0]
+	let built = comptime for(f in comp.fields_of[Item]()) Item: {
+		comptime if(f.name == "count"): 42
+		else: { next <- }
+	}
+	let t2 = comptime for(e in comp.elems_of[+[int, string]]()) +[int, string]: {
+		comptime if(e.index == 0): 9
+		else: "$fname=$fattr($farg):${e.type_name}:${comp.TARGET.triple}"
+	}
+	let _ = it.field(comp.fields_of[Item]()[0])
+	"${built.count}:${built.note}:${t2.0}:${fname}"
+}
+
+bind main = fn(): {
+	assert(CT_FE_OUT == "30:77:def:abc:21")
+	let _ = rt_test()
+}
+`
+	prog, rep := checkComptimeSrc(t, src)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected errors:\n%s", rep.Format())
+	}
+	sym := prog.EntryMod.Symbols["CT_FE_OUT"]
+	if sym == nil || sym.ConstVal == nil {
+		t.Fatalf("missing CT_FE_OUT const val")
+	}
+	if cv, ok := sym.ConstVal.(*ctVal); !ok || cv.s != "30:77:def:abc:21" {
+		t.Fatalf("CT_FE_OUT = %#v, want 30:77:def:abc:21", sym.ConstVal)
+	}
+	// Verify ExpandModuleAST cleanly expands runtime collecting `comptime for` and crossable projections.
+	if expanded := ExpandModuleAST(prog, prog.EntryMod); expanded == nil {
+		t.Fatalf("ExpandModuleAST returned nil")
+	}
+
+	negCases := []struct {
+		name string
+		code string
+		want string
+	}{
+		{
+			name: "mismatched_field_info_struct",
+			code: "define A struct [x: int]\ndefine B struct [x: int]\nconst bad = fn() int: { let b = B[x: 1]; b.field(comp.fields_of[A]()[0]) }\nconst X = bad()\n",
+			want: "belongs to A, not B",
+		},
+		{
+			name: "missing_opt_question_mark_in_field",
+			code: "define A struct [x?: ?int]\nconst bad = fn() ?int: { let a = A[]; a.field(\"x\") }\nconst X = bad()\n",
+			want: "including trailing `?`",
+		},
+		{
+			name: "elem_out_of_bounds",
+			code: "const bad = fn() int: { let t = +[1, 2]; t.elem(5) }\nconst X = bad()\n",
+			want: "out of bounds",
+		},
+		{
+			name: "opt_chain_field_non_copyable_resource",
+			code: "define NoCp struct [s: string]\ndefine Wrap struct [n: NoCp]\nbind f = fn(w?: ?Wrap) ?NoCp: w?.field(comp.fields_of[Wrap]()[0])\n",
+			want: "does not implement `Copyable`",
+		},
+		{
+			name: "non_crossable_field_info_in_runtime",
+			code: "define S struct [x: int]\nbind f = fn() string: { let fs = comp.fields_of[S](); let x = fs[0]; x.name }\n",
+			want: "@comptime_only",
+		},
+		{
+			name: "non_crossable_attrs_slice_in_runtime",
+			code: "@tag\ndefine S struct [x: int]\nbind f = fn() int: { let fs = comp.attrs_of[S](); let a = fs; a.len() }\n",
+			want: "@comptime_only",
+		},
+		{
+			name: "bare_next_on_required_field",
+			code: "define Req struct [x: int]\nbind f = fn() Req: comptime for(fd in comp.fields_of[Req]()) Req: { next <- }\n",
+			want: "cannot use bare `next <-` for required field",
+		},
+		{
+			name: "tuple_collect_wrong_iter_type",
+			code: "bind f = fn() +[int, string]: comptime for(e in comp.elems_of[+[int, string]]()) +[int, string]: 42\n",
+			want: "type mismatch",
+		},
+	}
+	for _, nc := range negCases {
+		assertComptimeError(t, nc.name, nc.code, nc.want)
+	}
+}
+
+func TestComptimeVariantIntrinsics(t *testing.T) {
+	t.Parallel()
+	src := `
+define SparseTag enum [
+	Alpha = 2,
+	_Beta = 7,
+	Gamma = 11,
+]
+
+define Packet enum [
+	Empty,
+	Msg: string,
+	Num: int,
+]
+
+const Packet.take_msg = fn(own self) string:
+	own self.payload(comp.variants_of[Packet]()[1])
+
+define ResVal result [
+	value: int,
+	BadInput: string,
+	Missing,
+]
+
+@comptime_only
+const test_variants = fn() string: {
+	// 1. variant_index on sparse custom tag enum returns 0-based declaration index
+	let s0 = SparseTag.Alpha
+	let s1 = SparseTag._Beta
+	let s2 = SparseTag.Gamma
+	assert(variant_index(s0) == 0 and variant_index(s1) == 1 and variant_index(s2) == 2)
+
+	// 2. is_variant + optional chaining
+	const svs = comp.variants_of[SparseTag]()
+	assert(s1.is_variant(svs[1]) and not s1.is_variant(svs[0]))
+	assert(s2.is_variant("Gamma"))
+	let opt_s?: ?SparseTag = SparseTag._Beta
+	assert((opt_s?.is_variant(svs[1]) ?? false))
+
+	// 3. tagged union + payload + mutate + &borrow + own move
+	const pvs = comp.variants_of[Packet]()
+	let p = make_variant[Packet](pvs[2], 10)
+	assert(variant_index(p) == 2 and p.is_variant(pvs[2]))
+	assert(p.payload(pvs[2]) == 10)
+	p.payload(pvs[2]) += 5
+	let add_ten = fn(x: &int): { x += 10 }
+	add_ten(&p.payload("Num"))
+	assert(p.payload(pvs[2]) == 25)
+
+	// 4. as_variant with non-Copyable Resource & mutable unwrap
+	let p_msg = make_variant[Packet](pvs[1], "hi")
+	if(p_msg.as_variant(pvs[1]) as m): {
+		assert(m == "hi")
+	} else: {
+		panic("expected Msg")
+	}
+	if(p_msg.as_variant(pvs[1]) as &m): {
+		m.push("!")
+	}
+	assert(p_msg.payload(pvs[1]) == "hi!")
+
+	let p_empty = make_variant[Packet](pvs[0])
+	assert(variant_index(p_empty) == 0 and p_empty.is_variant(pvs[0]))
+	assert(p_empty.as_variant(pvs[1]) == none)
+
+	// own self.payload move
+	let pm = Packet.Msg("moved_res")
+	assert(pm.take_msg() == "moved_res")
+
+	// Result variant intrinsics
+	const rvs = comp.variants_of[ResVal]()
+	let r_ok! = make_variant[ResVal](rvs[0], 77)
+	let r_err! = make_variant[ResVal](rvs[1], "oops")
+	let r_unit! = make_variant[ResVal](rvs[2])
+	assert(variant_index(r_ok!) == 0 and r_ok!.is_variant(rvs[0]) and r_ok!.payload(rvs[0]) == 77)
+	assert(variant_index(r_err!) == 1 and r_err!.payload(rvs[1]) == "oops")
+	assert(variant_index(r_unit!) == 2 and r_unit!.is_variant(rvs[2]))
+
+	"${p.payload(pvs[2])}:${p_msg.payload(pvs[1])}:${r_ok!.payload(rvs[0])}"
+}
+
+const CT_VAR_OUT: string = test_variants()
+
+bind rt_variants = fn() string: {
+	let s = make_variant[SparseTag](comp.variants_of[SparseTag]()[1])
+	let p = make_variant[Packet](comp.variants_of[Packet]()[1], "rt")
+	if(&p.as_variant(comp.variants_of[Packet]()[1]) as m): {
+		m.push("_mut")
+	}
+	let vi = variant_index(s)
+	"${vi}:${p.payload(comp.variants_of[Packet]()[1])}"
+}
+
+bind main = fn(): {
+	assert(CT_VAR_OUT == "25:hi!:77")
+	let _ = rt_variants()
+}
+`
+	prog, rep := checkComptimeSrc(t, src)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected errors:\n%s", rep.Format())
+	}
+	sym := prog.EntryMod.Symbols["CT_VAR_OUT"]
+	if sym == nil || sym.ConstVal == nil {
+		t.Fatalf("missing CT_VAR_OUT const val")
+	}
+	if cv, ok := sym.ConstVal.(*ctVal); !ok || cv.s != "25:hi!:77" {
+		t.Fatalf("CT_VAR_OUT = %#v, want 25:hi!:77", sym.ConstVal)
+	}
+	if expanded := ExpandModuleAST(prog, prog.EntryMod); expanded == nil {
+		t.Fatalf("ExpandModuleAST returned nil")
+	}
+
+	negCases := []struct {
+		name string
+		code string
+		want string
+	}{
+		{
+			name: "payload_on_unit_variant",
+			code: "define E enum [A, B: int]\nbind f = fn(e: E) int: e.payload(comp.variants_of[E]()[0])\n",
+			want: "has no payload",
+		},
+		{
+			name: "as_variant_on_unit_variant",
+			code: "define E enum [A, B: int]\nbind f = fn(e: E) ?int: e.as_variant(comp.variants_of[E]()[0])\n",
+			want: "has no payload",
+		},
+		{
+			name: "standalone_as_variant_non_copyable_resource",
+			code: "define R struct [s: string]\ndefine E enum [None, Box: R]\nbind f = fn(e: E) ?R: e.as_variant(comp.variants_of[E]()[1])\n",
+			want: "non-Copyable Resource payload",
+		},
+		{
+			name: "variant_info_wrong_enum",
+			code: "define A enum [X: int]\ndefine B enum [X: int]\nbind f = fn(a: A) bool: a.is_variant(comp.variants_of[B]()[0])\n",
+			want: "belongs to B, not A",
+		},
+		{
+			name: "make_variant_non_enum",
+			code: "bind f = fn() int: make_variant[int](0)\n",
+			want: "requires an enum or result type",
+		},
+		{
+			name: "make_variant_unit_with_extra_arg",
+			code: "define E enum [A, B: int]\nbind f = fn() E: make_variant[E](comp.variants_of[E]()[0], 1)\n",
+			want: "takes no payload",
+		},
+		{
+			name: "make_variant_missing_payload",
+			code: "define E enum [A, B: int]\nbind f = fn() E: make_variant[E](comp.variants_of[E]()[1])\n",
+			want: "expected 1 argument(s), got 0",
+		},
+		{
+			name: "variant_index_non_enum",
+			code: "bind f = fn() int: variant_index(42)\n",
+			want: "requires an enum or result value",
+		},
+		{
+			name: "comptime_payload_wrong_variant_aborts",
+			code: "define E enum [A: int, B: string]\nconst bad = fn() string: { let e = E.A(1); e.payload(comp.variants_of[E]()[1]) }\nconst X = bad()\n",
+			want: "variant payload access failed",
+		},
+		{
+			name: "mut_as_variant_on_bind_rejected",
+			code: "define E enum [A, B: int]\nbind f = fn(): { bind e = E.B(1); if(&e.as_variant(comp.variants_of[E]()[1]) as p): { p += 1 } }\n",
+			want: "cannot mutably unwrap deeply immutable",
+		},
+	}
+	for _, nc := range negCases {
+		assertComptimeError(t, nc.name, nc.code, nc.want)
+	}
+}
+
+func TestScopedDerivePrivacyAuthorizationH16(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, sub := range []string{"secret", "drv", "outsider"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writePkg := func(rel, content string) string {
+		p := filepath.Join(dir, rel)
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	writePkg("secret/secret.ll", `
+define Vault struct [
+	pub_v: int = 10,
+	_priv_v: int = 32,
+]
+
+define Hidden enum [
+	Empty,
+	_Val: int,
+]
+
+const make_secret = fn() Vault: Vault[]
+const make_hidden = fn(v: int) Hidden: Hidden._Val(v)
+`)
+
+	writePkg("outsider/outsider.ll", `
+const peek_field[T] = fn(v: T) int:
+	v.field(comp.fields_of[T]()[1])
+`)
+
+	writePkg("drv/drv.ll", `
+import "outsider"
+
+const inner_sum[T] = fn(v: T) int:
+	v.field(comp.fields_of[T]()[0]) + v.field(comp.fields_of[T]()[1])
+
+const derive_sum[T] = fn(v: T) int:
+	inner_sum[T](v)
+
+const leak_to_outsider[T] = fn(v: T) int:
+	outsider.peek_field[T](v)
+
+const derive_enum[E] = fn(e: E) int: {
+	let reconstructed = make_variant[E](comp.variants_of[E]()[1], 5)
+	if(e.as_variant(comp.variants_of[E]()[1]) as p): p + reconstructed.payload(comp.variants_of[E]()[1]) else: 0
+}
+`)
+
+	// 1. User calling drv functions directly WITHOUT @derive must be rejected (no private access)!
+	userBadEntry := writePkg("bad_main.ll", `
+import "secret"
+import "drv"
+
+bind main = fn(): {
+	let v = secret.make_secret()
+	let _ = drv.derive_sum[secret.Vault](v)
+}
+`)
+	repBad := diag.NewReporter()
+	_ = Check(userBadEntry, "", dir, repBad)
+	if !repBad.HasErrors() || !strings.Contains(repBad.Format(), "cannot access unexported field \"_priv_v\"") {
+		t.Fatalf("expected unexported field error for user calling drv directly, got:\n%s", repBad.Format())
+	}
+
+	// 2. Clean entry importing secret & drv without instantiating private templates yet,
+	// so we can exercise instantiateGenericFuncWithDerive vs instantiateGenericFunc directly (`H16`).
+	cleanEntry := writePkg("good_main.ll", `
+import "secret"
+import "drv"
+
+bind main = fn(): {
+	let v = secret.make_secret()
+	let h = secret.make_hidden(7)
+	let _ = v.pub_v
+	let _ = variant_index(h)
+}
+`)
+	rep := diag.NewReporter()
+	prog := Check(cleanEntry, "", dir, rep)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected clean entry errors:\n%s", rep.Format())
+	}
+
+	secMod := prog.EntryMod.Aliased["secret"]
+	drvMod := prog.EntryMod.Aliased["drv"]
+	vaultTy := secMod.Types["Vault"].(*types.Struct)
+	hiddenTy := secMod.Types["Hidden"].(*types.Enum)
+	derivePkg := derivePkgScopeID(drvMod)
+
+	sumTmpl := drvMod.GenericFuncs["derive_sum"]
+	innerTmpl := drvMod.GenericFuncs["inner_sum"]
+	leakTmpl := drvMod.GenericFuncs["leak_to_outsider"]
+	enumTmpl := drvMod.GenericFuncs["derive_enum"]
+
+	newTestAnalyzer := func(r *diag.Reporter) *Analyzer {
+		return &Analyzer{
+			Rep:            r,
+			Prog:           prog,
+			curBM:          prog.TopBodyMaps,
+			inBodyPass:     true,
+			loadedPkgs:     make(map[string]*Package),
+			loadingPkgSet:  make(map[string]bool),
+			usedTags:       make(map[string]string),
+			methods:        make(map[string]map[string]*FuncInstance),
+			genMethods:     make(map[string]map[string]*GenericFuncTemplate),
+			genDropRecv:    make(map[string]bool),
+			derived:        make(map[*ast.MethodDecl]*deriveInfo),
+			deriveChecking: make(map[string]bool),
+		}
+	}
+
+	// Authorized @derive instantiation for (Vault, drv) succeeds and propagates to sibling `inner_sum` in `drv`,
+	// while using a distinct cache key from non-derive instantiation!
+	repAuth := diag.NewReporter()
+	aAuth := newTestAnalyzer(repAuth)
+	fiDerive := aAuth.instantiateGenericFuncWithDerive(sumTmpl, []types.Type{vaultTy}, diag.Span{}, vaultTy, derivePkg)
+	if repAuth.HasErrors() || fiDerive == nil {
+		t.Fatalf("expected authorized derive_sum[Vault] to succeed, got errors:\n%s", repAuth.Format())
+	}
+	fiEnum := aAuth.instantiateGenericFuncWithDerive(enumTmpl, []types.Type{hiddenTy}, diag.Span{}, hiddenTy, derivePkg)
+	if repAuth.HasErrors() || fiEnum == nil {
+		t.Fatalf("expected authorized derive_enum[Hidden] to succeed, got errors:\n%s", repAuth.Format())
+	}
+
+	// Calling the SAME template as user (no derive target) MUST miss the derive cache entry and fail privacy!
+	repUser := diag.NewReporter()
+	aUser := newTestAnalyzer(repUser)
+	fiUser := aUser.instantiateGenericFunc(sumTmpl, []types.Type{vaultTy}, diag.Span{})
+	if !repUser.HasErrors() || !strings.Contains(repUser.Format(), "cannot access unexported field \"_priv_v\"") {
+		t.Fatalf("expected non-derive instantiateGenericFunc to fail private access (no cache poisoning), got:\n%s", repUser.Format())
+	}
+	if fiUser == fiDerive || fiUser.CName == fiDerive.CName {
+		t.Fatalf("H16 cache key/CName collision between derived and non-derived instantiations: %q vs %q", fiDerive.CName, fiUser.CName)
+	}
+	if len(innerTmpl.Instances) != 2 {
+		t.Fatalf("expected 2 isolated instances in inner_sum (derive vs user), got %d instances", len(innerTmpl.Instances))
+	}
+
+	// Authorized derive calling outside package template MUST NOT grant derive privilege across packages!
+	repLeak := diag.NewReporter()
+	aLeak := newTestAnalyzer(repLeak)
+	_ = aLeak.instantiateGenericFuncWithDerive(leakTmpl, []types.Type{vaultTy}, diag.Span{}, vaultTy, derivePkg)
+	if !repLeak.HasErrors() || !strings.Contains(repLeak.Format(), "cannot access unexported field \"_priv_v\"") {
+		t.Fatalf("expected cross-package call inside derive NOT to leak private field access, got:\n%s", repLeak.Format())
 	}
 }
 

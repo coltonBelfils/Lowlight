@@ -238,33 +238,57 @@ func (p *Parser) parseAttributes() []ast.Attribute {
 		end := nameTok.Span.End
 		if p.cur().Kind == token.LParen {
 			p.advance() // consume '('
-			for p.cur().Kind != token.RParen && p.cur().Kind != token.EOF {
+			parseAttrVal := func() string {
+				switch p.cur().Kind {
+				case token.StringLit:
+					return p.advance().Text
+				case token.Ident:
+					var sb strings.Builder
+					sb.WriteString(p.advance().Text)
+					for p.cur().Kind == token.Dot && p.peekAt(1).Kind == token.Ident {
+						p.advance() // consume '.'
+						sb.WriteByte('.')
+						sb.WriteString(p.advance().Text)
+					}
+					return sb.String()
+				case token.Minus:
+					if p.peekAt(1).Kind == token.IntLit || p.peekAt(1).Kind == token.FloatLit {
+						p.advance()
+						return "-" + p.advance().Text
+					}
+					return p.advance().Text
+				default:
+					return p.advance().Text
+				}
+			}
+			for {
+				p.skipSemis()
+				if p.cur().Kind == token.RParen || p.cur().Kind == token.EOF {
+					break
+				}
 				var argVal string
 				if p.cur().Kind == token.Ident && p.peekAt(1).Kind == token.Colon {
 					key := p.advance().Text
 					p.advance() // consume ':'
+					p.skipSemis()
 					if p.cur().Kind != token.EOF && p.cur().Kind != token.RParen && p.cur().Kind != token.Comma {
-						valTok := p.advance()
-						argVal = key + ": " + valTok.Text
+						argVal = key + ": " + parseAttrVal()
 					} else {
 						p.rep.Errorf(p.cur().Span, "expected value after `%s:` in `@%s` attribute", key, nameTok.Text)
 						argVal = key + ":"
 					}
-				} else if p.cur().Kind == token.StringLit {
-					argVal = p.advance().Text
-				} else if p.cur().Kind == token.Ident {
-					argVal = p.advance().Text
 				} else {
-					tok := p.advance()
-					argVal = tok.Text
+					argVal = parseAttrVal()
 				}
 				args = append(args, argVal)
+				p.skipSemis()
 				if p.cur().Kind == token.Comma {
 					p.advance()
 				} else {
 					break
 				}
 			}
+			p.skipSemis()
 			rParen := p.expect(token.RParen, "to close attribute argument list")
 			end = rParen.Span.End
 		}
@@ -477,6 +501,11 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 		var lastEnd diag.Pos
 		hadComma := false
 		for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
+			fAttrs := p.parseAttributes()
+			if len(fAttrs) > 0 && (p.cur().Kind == token.RBracket || p.cur().Kind == token.EOF) {
+				p.rep.Errorf(fAttrs[0].Span, "expected struct field after attribute")
+				break
+			}
 			fStart := p.cur().Span.Start
 			var fname string
 			isOpt := false
@@ -495,11 +524,12 @@ func (p *Parser) parseDefineDecl() ast.Decl {
 				fEnd = defExpr.GetSpan().End
 			}
 			fields = append(fields, ast.StructField{
-				Name:    fname,
-				IsOpt:   isOpt,
-				Type:    fty,
-				Default: defExpr,
-				Span:    diag.Span{Start: fStart, End: fEnd},
+				Name:       fname,
+				IsOpt:      isOpt,
+				Type:       fty,
+				Default:    defExpr,
+				Attributes: fAttrs,
+				Span:       diag.Span{Start: fStart, End: fEnd},
 			})
 			lastEnd = fEnd
 			if _, ok := p.match(token.Comma); ok {
@@ -586,6 +616,11 @@ func (p *Parser) parseStructDefFields(ctx string) ([]ast.StructField, diag.Pos) 
 	var lastEnd diag.Pos
 	hadComma := false
 	for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
+		fAttrs := p.parseAttributes()
+		if len(fAttrs) > 0 && (p.cur().Kind == token.RBracket || p.cur().Kind == token.EOF) {
+			p.rep.Errorf(fAttrs[0].Span, "expected struct field after attribute")
+			break
+		}
 		fStart := p.cur().Span.Start
 		var fname string
 		isOpt := false
@@ -604,11 +639,12 @@ func (p *Parser) parseStructDefFields(ctx string) ([]ast.StructField, diag.Pos) 
 			fEnd = defExpr.GetSpan().End
 		}
 		fields = append(fields, ast.StructField{
-			Name:    fname,
-			IsOpt:   isOpt,
-			Type:    fty,
-			Default: defExpr,
-			Span:    diag.Span{Start: fStart, End: fEnd},
+			Name:       fname,
+			IsOpt:      isOpt,
+			Type:       fty,
+			Default:    defExpr,
+			Attributes: fAttrs,
+			Span:       diag.Span{Start: fStart, End: fEnd},
 		})
 		lastEnd = fEnd
 		if _, ok := p.match(token.Comma); ok {
@@ -647,6 +683,11 @@ func (p *Parser) parseEnumBody(kw, nameTok token.Token, tparams []ast.TypeParam,
 	hadComma := false
 	hasPayloads := false
 	for p.cur().Kind != token.RBracket && p.cur().Kind != token.EOF {
+		vAttrs := p.parseAttributes()
+		if len(vAttrs) > 0 && (p.cur().Kind == token.RBracket || p.cur().Kind == token.EOF) {
+			p.rep.Errorf(vAttrs[0].Span, "expected "+kindLabel+" variant after attribute")
+			break
+		}
 		vTok := p.expect(token.Ident, kindLabel+" variant name")
 		vEnd := vTok.Span.End
 		var valExpr ast.Expr
@@ -663,6 +704,7 @@ func (p *Parser) parseEnumBody(kw, nameTok token.Token, tparams []ast.TypeParam,
 			Name:        vTok.Text,
 			Value:       valExpr,
 			PayloadType: payloadTy,
+			Attributes:  vAttrs,
 			Span:        diag.Span{Start: vTok.Span.Start, End: vEnd},
 		})
 		lastEnd = vEnd
@@ -2688,6 +2730,9 @@ func (p *Parser) parseIfExprMode(isComptime bool) *ast.IfExpr {
 			if u, isU := condExpr.(*ast.UnaryExpr); isU && u.Op == token.Amp {
 				mutUnwrap = true
 				condExpr = u.Operand
+			}
+			if _, hasAmp := p.match(token.Amp); hasAmp {
+				mutUnwrap = true
 			}
 			if p.cur().Kind == token.OptIdent {
 				bad := p.advance()

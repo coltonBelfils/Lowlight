@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutorial: calling C · Lowlight</title>
+<meta name="description" content="Declare C functions, pass strings and buffers across the boundary, and wrap unsafe calls in safe functions.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a class="active" href="index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Tutorials</a></div><div class="sidebar-group">Tutorials</div><ul><li><a href="word-count.html">A command-line tool</a></li><li><a href="calculator.html">A calculator</a></li><li><a href="config-loader.html">Handling errors</a></li><li><a href="web-service.html">A web service</a></li><li><a class="active" href="calling-c.html">Calling C</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Tutorials</a><span class="sep">/</span><span>Tutorials</span></nav><h1 id="tutorial-calling-c"><a class="anchor" href="#tutorial-calling-c" aria-hidden="true">#</a>Tutorial: calling C</h1>
+<p>Lowlight calls C functions directly, with no wrapper generator and no runtime cost. In this tutorial you'll use a few functions from the C standard library and learn the pattern for using C safely: keep each <code>unsafe</code> operation small, and wrap it in a function that safe code can call.</p>
+<h2 id="1-declare-and-call"><a class="anchor" href="#1-declare-and-call" aria-hidden="true">#</a>1. Declare and call</h2>
+<p>Declare a C function with <code>extern</code>, giving its Lowlight signature. Name the header that declares it with <code>extern &quot;header.h&quot;</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">extern</span> <span class="s">&quot;stdlib.h&quot;</span>
+<span class="k">extern</span> abs <span class="k">as</span> c_abs: (n: <span class="t">i32</span>) <span class="t">i32</span>
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> n = <span class="k">unsafe</span> <span class="f">c_abs</span>(-<span class="n">42</span>)
+	<span class="f">println</span>(n)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>42</code></pre>
+<ul>
+<li><code>as c_abs</code> gives the function a Lowlight name, avoiding a clash with the built-in <code>abs</code>.
+</li>
+<li>Every call to a C function is <code>unsafe</code>, because the compiler cannot check what it does. <code>unsafe</code> prefixes the one expression that needs it.
+</li>
+<li>C's <code>int</code> is <code>i32</code> in Lowlight. Use the exact sized types that match the C declaration.
+</li>
+</ul>
+<h2 id="2-strings"><a class="anchor" href="#2-strings" aria-hidden="true">#</a>2. Strings</h2>
+<p>C strings are pointers to NUL-terminated bytes. <code>s.c_str()</code> gives one for a Lowlight string; it is valid as long as the string is alive and unchanged:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">extern</span> <span class="s">&quot;string.h&quot;</span>
+<span class="k">extern</span> strlen: (s: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">u64</span>
+
+<span class="k">bind</span> c_length = (s: <span class="t">string</span>) <span class="t">int</span>: <span class="t">int</span>(<span class="k">unsafe</span> <span class="f">strlen</span>(s.<span class="f">c_str</span>()))
+
+<span class="k">bind</span> main = (): {
+	<span class="f">println</span>(<span class="f">c_length</span>(<span class="s">&quot;hello&quot;</span>))
+	<span class="f">println</span>(<span class="f">c_length</span>(<span class="s">&quot;&quot;</span>))
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>5
+0</code></pre>
+<p><code>c_length</code> is a <strong>safe wrapper</strong>: callers pass an ordinary string and get an <code>int</code>, and the only <code>unsafe</code> expression is inside. That's the pattern to follow. Keep <code>unsafe</code> at the edge of your program, in small functions whose safety you can check by reading them.</p>
+<h2 id="3-buffers"><a class="anchor" href="#3-buffers" aria-hidden="true">#</a>3. Buffers</h2>
+<p>When C writes into memory you provide, allocate it with the raw memory intrinsics and free it yourself:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">extern</span> <span class="s">&quot;string.h&quot;</span>
+<span class="k">extern</span> strcpy: (dst: <span class="t">ptr</span>[<span class="t">u8</span>], src: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">ptr</span>[<span class="t">u8</span>]
+<span class="k">extern</span> strcat: (dst: <span class="t">ptr</span>[<span class="t">u8</span>], src: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">ptr</span>[<span class="t">u8</span>]
+<span class="k">extern</span> strlen: (s: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">u64</span>
+
+<span class="k">bind</span> c_join = (a: <span class="t">string</span>, b: <span class="t">string</span>) <span class="t">string</span>: {
+	<span class="k">let</span> cap = a.<span class="f">len</span>() + b.<span class="f">len</span>() + <span class="n">1</span>
+	<span class="k">let</span> buf = <span class="k">unsafe</span> alloc_raw[<span class="t">u8</span>](cap)
+	<span class="k">let</span> _ = <span class="k">unsafe</span> <span class="f">strcpy</span>(buf, a.<span class="f">c_str</span>())
+	<span class="k">let</span> _ = <span class="k">unsafe</span> <span class="f">strcat</span>(buf, b.<span class="f">c_str</span>())
+	<span class="k">let</span> n = <span class="t">int</span>(<span class="k">unsafe</span> <span class="f">strlen</span>(buf))
+	<span class="k">let</span> out = <span class="s">&quot;&quot;</span>
+	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..n): out.<span class="f">push_byte</span>(<span class="k">unsafe</span> <span class="f">ptr_read</span>(<span class="k">unsafe</span> <span class="f">ptr_add</span>(buf, i)))
+	<span class="k">unsafe</span> <span class="f">free_raw</span>(buf)
+	out
+}
+
+<span class="k">bind</span> main = (): <span class="f">println</span>(<span class="f">c_join</span>(<span class="s">&quot;hello, &quot;</span>, <span class="s">&quot;world&quot;</span>))</code></pre>
+<pre class="lang-output" data-lang="output"><code>hello, world</code></pre>
+<ul>
+<li><code>alloc_raw[u8](n)</code> returns a <code>ptr[u8]</code> to <code>n</code> bytes; <code>free_raw</code> releases it. Nothing frees raw memory automatically: that is what makes it raw.
+</li>
+<li><code>ptr_add(p, i)</code> advances a pointer by <code>i</code> elements, and <code>ptr_read</code> loads through it.
+</li>
+<li>The bytes are copied into <code>out</code> before <code>free_raw</code>, so the returned string owns its own memory.
+</li>
+<li><code>let _ = ...</code> explicitly discards the pointer that <code>strcpy</code> and <code>strcat</code> return.
+</li>
+</ul>
+<p>C <strong>variadic</strong> functions such as <code>printf</code> and <code>snprintf</code> cannot be declared with <code>extern</code>: their calling convention differs from fixed-parameter functions on several platforms. Wrap them in a small C function with fixed parameters, or use the Lowlight standard library (<code>std/strfmt</code> formats numbers).</p>
+<h2 id="4-linking-libraries"><a class="anchor" href="#4-linking-libraries" aria-hidden="true">#</a>4. Linking libraries</h2>
+<p>Functions outside the C standard library need their library linked. In a project, list it in the manifest:</p>
+<pre class="lang-toml" data-lang="toml"><code><span class="t">[build]</span>
+<span class="k">c_libs</span> = <span class="t">[&quot;z&quot;]</span>
+
+<span class="t">[target.linux]</span>
+<span class="k">c_libs</span> = <span class="t">[&quot;m&quot;]</span></code></pre>
+<p>For a one-off build, pass flags through the C compiler with <code>--cc</code> and environment variables, or put the declarations in a package that your project imports.</p>
+<h2 id="5-what-unsafe-does-and-doesnt-promise"><a class="anchor" href="#5-what-unsafe-does-and-doesnt-promise" aria-hidden="true">#</a>5. What <code>unsafe</code> does and doesn't promise</h2>
+<p>Inside an <code>unsafe</code> expression, you take responsibility for:</p>
+<ul>
+<li>pointers being valid, aligned, and pointing to live memory of the right type;
+</li>
+<li>memory allocated with <code>alloc_raw</code> being freed exactly once;
+</li>
+<li>C functions being called according to their documentation.
+</li>
+</ul>
+<p>Everything outside <code>unsafe</code> keeps Lowlight's guarantees. A wrapper like <code>c_length</code> is safe only if its <code>unsafe</code> part is correct for <strong>every</strong> input, which is why wrappers should be small enough to verify by reading.</p>
+<p>Read <a href="../guides/unsafe-ffi.html">Unsafe code and C</a> for pointers, packed structs, and the full list of intrinsics.</p>
+</article><nav class="prev-next"><a class="prev" href="web-service.html"><span>Previous</span>Tutorial: a web service</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#1-declare-and-call">1. Declare and call</a></li><li><a href="#2-strings">2. Strings</a></li><li><a href="#3-buffers">3. Buffers</a></li><li><a href="#4-linking-libraries">4. Linking libraries</a></li><li><a href="#5-what-unsafe-does-and-doesnt-promise">5. What unsafe does and doesn&#39;t promise</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tutorials</a><a href="word-count.html">A command-line tool</a><a href="calculator.html">A calculator</a><a href="config-loader.html">Handling errors</a><a href="web-service.html">A web service</a><a href="calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

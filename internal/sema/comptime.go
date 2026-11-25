@@ -51,10 +51,17 @@ type ctMapEntry struct {
 	val *ctVal
 }
 
+type ctReflectMeta struct {
+	TargetType types.Type
+	Index      int
+	Kind       string // "field", "variant", or "elem"
+}
+
 type ctStructBox struct {
 	ty         *types.Struct
 	fields     map[string]*ctVal
 	fieldOrder []string
+	refl       *ctReflectMeta
 }
 
 type ctListBox struct {
@@ -225,6 +232,7 @@ type ctSignal struct {
 	targetID   int
 	label      string
 	isContinue bool
+	isDefault  bool
 	val        *ctVal
 	errMsg     string
 	errSpan    diag.Span
@@ -774,7 +782,7 @@ func (v *ctVal) cloneWithDepth(depth int) *ctVal {
 			fields[k] = fv.cloneWithDepth(depth + 1)
 		}
 		order := append([]string(nil), v.st.fieldOrder...)
-		return &ctVal{kind: ctStruct, ty: v.ty, st: &ctStructBox{ty: v.st.ty, fields: fields, fieldOrder: order}}
+		return &ctVal{kind: ctStruct, ty: v.ty, st: &ctStructBox{ty: v.st.ty, fields: fields, fieldOrder: order, refl: v.st.refl}}
 	case ctSet:
 		elems := make([]*ctVal, len(v.set.elems))
 		for i, el := range v.set.elems {
@@ -3586,8 +3594,177 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 				return s.evalIndexSet(bv, idxVal, nv, v.Span)
 			},
 		}, okSig()
+
+	case *ast.CallExpr:
+		inf := s.infoFor(v)
+		if inf != nil && !inf.IsOptChain && (inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload") {
+			if mem, isMem := v.Callee.(*ast.MemberExpr); isMem {
+				basePlace, sig := s.evalDerefBasePlace(mem.Base, v.Span)
+				if sig.kind != sigNone {
+					return ctPlace{}, sig
+				}
+				fieldName := inf.ResolvedField
+				elemIdx := inf.TupleFieldIdx
+				builtin := inf.BuiltinName
+				enumVar := inf.EnumVariant
+				return ctPlace{
+					get: func() (*ctVal, ctSignal) {
+						bv, s1 := basePlace.get()
+						if s1.kind != sigNone {
+							return nil, s1
+						}
+						bv, s1 = s.derefCtVal(bv, v.Span)
+						if s1.kind != sigNone {
+							return nil, s1
+						}
+						switch builtin {
+						case "struct.field":
+							return s.readStructFieldCtVal(bv, fieldName, inf.Type, v.Span)
+						case "enum.payload":
+							return s.readEnumPayloadCtVal(bv, elemIdx, enumVar, v.Span)
+						default:
+							return s.readSeqElemCtVal(bv, elemIdx, v.Span)
+						}
+					},
+					set: func(nv *ctVal) ctSignal {
+						bv, s1 := basePlace.get()
+						if s1.kind != sigNone {
+							return s1
+						}
+						targetPlace := basePlace
+						for bv != nil && bv.kind == ctPointer {
+							if bv.ptrVal == nil {
+								return abortSig(v.Span, "cannot dereference nil pointer/reference at compile time")
+							}
+							dp, s2 := s.ptrDerefPlace(bv.ptrVal, v.Span)
+							if s2.kind != sigNone {
+								return s2
+							}
+							targetPlace = dp
+							bv, s1 = targetPlace.get()
+							if s1.kind != sigNone {
+								return s1
+							}
+						}
+						if builtin == "enum.payload" {
+							if bv == nil || bv.kind != ctEnum {
+								return abortSig(v.Span, "cannot assign variant payload on non-enum at compile time")
+							}
+							if bv.variantIdx != elemIdx {
+								return abortSig(v.Span, "variant payload assignment failed: active variant mismatch")
+							}
+							bv.payload = nv
+							return targetPlace.set(bv)
+						}
+						if builtin == "struct.field" {
+							if bv != nil && bv.kind == ctStruct && bv.st != nil {
+								bv.st.fields[fieldName] = nv
+								return targetPlace.set(bv)
+							}
+							return abortSig(v.Span, "cannot assign field %q at compile time", fieldName)
+						}
+						if bv != nil && bv.kind == ctTuple && bv.tup != nil && elemIdx >= 0 && elemIdx < len(bv.tup.elems) {
+							bv.tup.elems[elemIdx] = nv
+							return targetPlace.set(bv)
+						}
+						if bv != nil && bv.kind == ctArray && bv.arr != nil && elemIdx >= 0 && elemIdx < len(bv.arr.elems) {
+							bv.arr.elems[elemIdx] = nv
+							if bv.arr.alloc != nil && elemIdx < len(bv.arr.alloc.cells) {
+								bv.arr.alloc.cells[elemIdx] = nv
+							}
+							return targetPlace.set(bv)
+						}
+						return abortSig(v.Span, "cannot assign element %d at compile time", elemIdx)
+					},
+				}, okSig()
+			}
+		}
 	}
 	return ctPlace{}, abortSig(e.GetSpan(), "expression is not an addressable place at compile time")
+}
+
+func (s *ctState) evalDerefBasePlace(base ast.Expr, span diag.Span) (ctPlace, ctSignal) {
+	baseInf := s.infoFor(base)
+	if baseInf != nil {
+		switch baseInf.Type.(type) {
+		case *types.Ptr, *types.Ref:
+			pv, sig := s.evalExpr(base)
+			if sig.kind != sigNone {
+				return ctPlace{}, sig
+			}
+			if pv != nil && pv.kind == ctPointer && pv.ptrVal != nil {
+				return s.ptrDerefPlace(pv.ptrVal, span)
+			}
+			if pv == nil || pv.kind == ctPointer {
+				return ctPlace{}, abortSig(span, "cannot dereference nil pointer/reference at compile time")
+			}
+			// `ModeMut` ref param (`&self`) already dereferences via `refPlace` inside `evalExpr`;
+			// fall through to `evalPlace(base)` so writes go back through `refPlace`.
+		}
+	}
+	return s.evalPlace(base)
+}
+
+func (s *ctState) derefCtVal(bv *ctVal, span diag.Span) (*ctVal, ctSignal) {
+	for bv != nil && bv.kind == ctPointer {
+		if bv.ptrVal == nil {
+			return nil, abortSig(span, "cannot dereference nil pointer/reference at compile time")
+		}
+		dp, sig := s.ptrDerefPlace(bv.ptrVal, span)
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+		var s2 ctSignal
+		bv, s2 = dp.get()
+		if s2.kind != sigNone {
+			return nil, s2
+		}
+	}
+	return bv, okSig()
+}
+
+func (s *ctState) readStructFieldCtVal(bv *ctVal, fieldName string, expectTy types.Type, span diag.Span) (*ctVal, ctSignal) {
+	if bv != nil && bv.kind == ctStruct && bv.st != nil {
+		if fv, ok := bv.st.fields[fieldName]; ok && fv != nil {
+			return fv, okSig()
+		}
+		return newCtNone(expectTy), okSig()
+	}
+	return nil, abortSig(span, "cannot access field %q at compile time", fieldName)
+}
+
+func (s *ctState) readEnumPayloadCtVal(bv *ctVal, variantIdx int, vr *types.EnumVariant, span diag.Span) (*ctVal, ctSignal) {
+	if bv == nil || bv.kind != ctEnum {
+		return nil, abortSig(span, "cannot access variant payload on non-enum at compile time")
+	}
+	if bv.variantIdx != variantIdx {
+		vname := fmt.Sprintf("#%d", bv.variantIdx)
+		if bv.en != nil && bv.variantIdx >= 0 && bv.variantIdx < len(bv.en.Variants) {
+			vname = bv.en.Variants[bv.variantIdx].Name
+		}
+		want := fmt.Sprintf("#%d", variantIdx)
+		if vr != nil {
+			want = vr.Name
+		}
+		return nil, abortSig(span, "variant payload access failed: expected %q, got %q", want, vname)
+	}
+	return bv.payload, okSig()
+}
+
+func (s *ctState) readSeqElemCtVal(bv *ctVal, idx int, span diag.Span) (*ctVal, ctSignal) {
+	if bv != nil && bv.kind == ctTuple && bv.tup != nil {
+		if idx >= 0 && idx < len(bv.tup.elems) {
+			return bv.tup.elems[idx], okSig()
+		}
+		return nil, abortSig(span, "tuple index %d out of bounds (len %d)", idx, len(bv.tup.elems))
+	}
+	if bv != nil && bv.kind == ctArray && bv.arr != nil {
+		if idx >= 0 && idx < len(bv.arr.elems) {
+			return bv.arr.elems[idx], okSig()
+		}
+		return nil, abortSig(span, "array index %d out of bounds (len %d)", idx, len(bv.arr.elems))
+	}
+	return nil, abortSig(span, "cannot access element %d on %T at compile time", idx, bv)
 }
 
 func (s *ctState) curMod() *Module {
@@ -4299,29 +4476,15 @@ func (s *ctState) evalStructLit(sl *ast.StructLit, inf *ExprInfo) (*ctVal, ctSig
 	}
 
 	// Evaluate default field expressions and optional defaults (`none`) for omitted fields.
-	decl := s.a.Prog.StructDecls[st]
-	mod := s.a.Prog.StructMods[st]
-	bm := s.a.Prog.StructBodyMaps[st]
 	for i, sf := range st.Fields {
 		if provided[sf.Name] {
 			continue
 		}
-		if sf.HasDefault && decl != nil && i < len(decl.Fields) && decl.Fields[i].Default != nil {
-			s.frames = append(s.frames, ctFrame{
-				mod:      mod,
-				bm:       bm,
-				callSpan: decl.Fields[i].Default.GetSpan(),
-				locals:   make(map[*Symbol]*ctSlot),
-			})
-			defVal, sig := s.evalExpr(decl.Fields[i].Default)
-			s.frames = s.frames[:len(s.frames)-1]
-			if sig.kind != sigNone {
-				return nil, sig
-			}
-			fields[sf.Name] = defVal.clone().wrapResult(sf.Type)
-		} else {
-			fields[sf.Name] = newCtNone(sf.Type)
+		dv, sig := s.evalStructDefaultOrNone(st, i)
+		if sig.kind != sigNone {
+			return nil, sig
 		}
+		fields[sf.Name] = dv
 	}
 	if sig := s.allocMem(int64(len(order))*24, sl.Span); sig.kind != sigNone {
 		return nil, sig
@@ -4331,6 +4494,31 @@ func (s *ctState) evalStructLit(sl *ast.StructLit, inf *ExprInfo) (*ctVal, ctSig
 		ty:   st,
 		st:   &ctStructBox{ty: st, fields: fields, fieldOrder: order},
 	}, okSig()
+}
+
+func (s *ctState) evalStructDefaultOrNone(st *types.Struct, idx int) (*ctVal, ctSignal) {
+	if st == nil || idx < 0 || idx >= len(st.Fields) {
+		return nil, okSig()
+	}
+	sf := st.Fields[idx]
+	decl := s.a.Prog.StructDecls[st]
+	if sf.HasDefault && decl != nil && idx < len(decl.Fields) && decl.Fields[idx].Default != nil {
+		mod := s.a.Prog.StructMods[st]
+		bm := s.a.Prog.StructBodyMaps[st]
+		s.frames = append(s.frames, ctFrame{
+			mod:      mod,
+			bm:       bm,
+			callSpan: decl.Fields[idx].Default.GetSpan(),
+			locals:   make(map[*Symbol]*ctSlot),
+		})
+		defVal, sig := s.evalExpr(decl.Fields[idx].Default)
+		s.frames = s.frames[:len(s.frames)-1]
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+		return defVal.clone().wrapResult(sf.Type), okSig()
+	}
+	return newCtNone(sf.Type), okSig()
 }
 
 func (s *ctState) evalUnary(u *ast.UnaryExpr, inf *ExprInfo) (*ctVal, ctSignal) {
@@ -4446,30 +4634,61 @@ func (s *ctState) evalBinary(b *ast.BinaryExpr, inf *ExprInfo) (*ctVal, ctSignal
 	}
 
 	switch b.Op {
-	case token.Eq:
-		return newCtBool(lv.equals(s.a, rv)), okSig()
-	case token.Neq:
-		return newCtBool(!lv.equals(s.a, rv)), okSig()
-	case token.Lt:
+	case token.Eq, token.Neq:
+		isNoneCmp := false
+		if _, rNone := b.Right.(*ast.NoneLit); rNone {
+			isNoneCmp = true
+		} else if _, lNone := b.Left.(*ast.NoneLit); lNone {
+			isNoneCmp = true
+		}
+		if !isNoneCmp {
+			cmpTy := s.binaryLeftOrWrappedType(b, lv)
+			if handled, eq, sig := s.evalMethodEq(cmpTy, lv, rv, b.Span); handled || sig.kind != sigNone {
+				if sig.kind != sigNone {
+					return nil, sig
+				}
+				if b.Op == token.Neq {
+					eq = !eq
+				}
+				return newCtBool(eq), okSig()
+			}
+		}
+		eq := lv.equals(s.a, rv)
+		if b.Op == token.Neq {
+			eq = !eq
+		}
+		return newCtBool(eq), okSig()
+	case token.Lt, token.Lte, token.Gt, token.Gte:
 		if lv.kind == ctFloat && (math.IsNaN(lv.f) || math.IsNaN(rv.f)) {
 			return newCtBool(false), okSig()
 		}
-		return newCtBool(lv.cmpVal(rv) < 0), okSig()
-	case token.Lte:
-		if lv.kind == ctFloat && (math.IsNaN(lv.f) || math.IsNaN(rv.f)) {
-			return newCtBool(false), okSig()
+		lty := s.binaryLeftType(b, lv)
+		if handled, c, sig := s.evalMethodCmp(lty, lv, rv, b.Span); handled || sig.kind != sigNone {
+			if sig.kind != sigNone {
+				return nil, sig
+			}
+			switch b.Op {
+			case token.Lt:
+				return newCtBool(c < 0), okSig()
+			case token.Lte:
+				return newCtBool(c <= 0), okSig()
+			case token.Gt:
+				return newCtBool(c > 0), okSig()
+			case token.Gte:
+				return newCtBool(c >= 0), okSig()
+			}
 		}
-		return newCtBool(lv.cmpVal(rv) <= 0), okSig()
-	case token.Gt:
-		if lv.kind == ctFloat && (math.IsNaN(lv.f) || math.IsNaN(rv.f)) {
-			return newCtBool(false), okSig()
+		c := lv.cmpVal(rv)
+		switch b.Op {
+		case token.Lt:
+			return newCtBool(c < 0), okSig()
+		case token.Lte:
+			return newCtBool(c <= 0), okSig()
+		case token.Gt:
+			return newCtBool(c > 0), okSig()
+		case token.Gte:
+			return newCtBool(c >= 0), okSig()
 		}
-		return newCtBool(lv.cmpVal(rv) > 0), okSig()
-	case token.Gte:
-		if lv.kind == ctFloat && (math.IsNaN(lv.f) || math.IsNaN(rv.f)) {
-			return newCtBool(false), okSig()
-		}
-		return newCtBool(lv.cmpVal(rv) >= 0), okSig()
 	}
 
 	if lv.kind == ctFloat {
@@ -4486,6 +4705,84 @@ func (s *ctState) evalBinary(b *ast.BinaryExpr, inf *ExprInfo) (*ctVal, ctSignal
 		return newCtString(out), okSig()
 	}
 	return nil, abortSig(b.Span, "unsupported binary operator `%s` at compile time", b.Op.String())
+}
+
+func (s *ctState) binaryLeftType(b *ast.BinaryExpr, lv *ctVal) types.Type {
+	if lInf := s.infoFor(b.Left); lInf != nil && lInf.Type != nil {
+		return lInf.Type
+	}
+	if lv != nil {
+		return lv.ty
+	}
+	return nil
+}
+
+func (s *ctState) binaryLeftOrWrappedType(b *ast.BinaryExpr, lv *ctVal) types.Type {
+	if lInf := s.infoFor(b.Left); lInf != nil && lInf.Type != nil {
+		if lInf.WrapOptional {
+			if rInf := s.infoFor(b.Right); rInf != nil && rInf.Type != nil {
+				return rInf.Type
+			}
+		}
+		return lInf.Type
+	}
+	if lv != nil {
+		return lv.ty
+	}
+	return nil
+}
+
+func (s *ctState) evalMethodEq(ty types.Type, lv, rv *ctVal, span diag.Span) (bool, bool, ctSignal) {
+	if ty == nil || s.a == nil || s.a.Prog == nil {
+		return false, false, okSig()
+	}
+	if p, isPrim := ty.(*types.Primitive); isPrim && p.Kind != types.PrimString {
+		return false, false, okSig()
+	}
+	if en, isEn := ty.(*types.Enum); isEn && !en.IsTagged && s.a.isCompBuiltinEnum(en) {
+		return false, false, okSig()
+	}
+	if eqM := s.a.Prog.LookupConcreteMethod(ty, "eq"); eqM != nil {
+		res, sig := s.callFuncInstance(eqM, valArgs(lv, rv), span)
+		if sig.kind != sigNone {
+			return true, false, sig
+		}
+		return true, res.b, okSig()
+	}
+	if cmpM := s.a.Prog.LookupConcreteMethod(ty, "cmp"); cmpM != nil {
+		res, sig := s.callFuncInstance(cmpM, valArgs(lv, rv), span)
+		if sig.kind != sigNone {
+			return true, false, sig
+		}
+		return true, res.asInt64() == 0, okSig()
+	}
+	if d, isDist := ty.(*types.Distinct); isDist {
+		return s.evalMethodEq(d.Base, lv, rv, span)
+	}
+	return false, false, okSig()
+}
+
+func (s *ctState) evalMethodCmp(ty types.Type, lv, rv *ctVal, span diag.Span) (bool, int64, ctSignal) {
+	if ty == nil || s.a == nil || s.a.Prog == nil {
+		return false, 0, okSig()
+	}
+	if p, isPrim := ty.(*types.Primitive); isPrim && p.Kind != types.PrimString {
+		return false, 0, okSig()
+	}
+	if en, isEn := ty.(*types.Enum); isEn && !en.IsTagged {
+		return false, 0, okSig()
+	}
+	if cmpM := s.a.Prog.LookupConcreteMethod(ty, "cmp"); cmpM != nil {
+		res, sig := s.callFuncInstance(cmpM, valArgs(lv, rv), span)
+		if sig.kind != sigNone {
+			return true, 0, sig
+		}
+		return true, res.asInt64(), okSig()
+	}
+	if d, isDist := ty.(*types.Distinct); isDist {
+		return s.evalMethodCmp(d.Base, lv, rv, span)
+	}
+	return false, 0, okSig()
 }
 
 func (s *ctState) evalFloatBinary(op token.Kind, lv, rv *ctVal, span diag.Span) (*ctVal, ctSignal) {
@@ -4722,6 +5019,7 @@ func (s *ctState) evalStmt(st ast.Stmt) (*ctVal, ctSignal) {
 			targetKind: uwi.TargetKind,
 			targetID:   uwi.TargetID,
 			isContinue: uwi.IsContinue,
+			isDefault:  uwi.IsStructFieldDefault,
 			val:        val,
 		}
 	case *ast.DeclStmt:
@@ -4731,7 +5029,7 @@ func (s *ctState) evalStmt(st ast.Stmt) (*ctVal, ctSignal) {
 		if sig.kind != sigNone {
 			return nil, sig
 		}
-		if val != nil && !isCtLvalueExpr(v.Expr) && !s.sharesLiveSlotAlloc(val) {
+		if val != nil && !s.isCtLvalueExpr(v.Expr) && !s.sharesLiveSlotAlloc(val) {
 			if dsig := s.dropValue(val.ty, val, v.Span); dsig.kind != sigNone {
 				return nil, dsig
 			}
@@ -5044,6 +5342,7 @@ func (s *ctState) evalIf(ie *ast.IfExpr, inf *ExprInfo) (*ctVal, ctSignal) {
 	var unwrapSym *Symbol
 	var originSlot *ctSlot
 	var boundVal *ctVal
+	var variantRefPlace *ctPlace
 
 	if fr != nil && fr.bm != nil {
 		unwrapSym = fr.bm.IfUnwrapSyms[ie]
@@ -5072,6 +5371,92 @@ func (s *ctState) evalIf(ie *ast.IfExpr, inf *ExprInfo) (*ctVal, ctSignal) {
 		}
 
 	case ast.IfCondOptBind:
+		var condCall *ast.CallExpr
+		ce := ie.Cond
+		for ce != nil {
+			if ue, ok := ce.(*ast.UnsafeExpr); ok {
+				ce = ue.Expr
+				continue
+			}
+			if cx, ok := ce.(*ast.ComptimeExpr); ok {
+				ce = cx.Expr
+				continue
+			}
+			if c, ok := ce.(*ast.CallExpr); ok {
+				condCall = c
+			}
+			break
+		}
+		if condCall != nil {
+			if cInf := s.infoFor(condCall); cInf != nil && !cInf.IsOptChain && cInf.BuiltinName == "enum.as_variant" {
+				if ie.MutUnwrap {
+					enumPlace, sig := s.evalDerefBasePlace(cInf.MethodRecv, ie.Cond.GetSpan())
+					if sig.kind != sigNone {
+						return nil, sig
+					}
+					bv, sig := enumPlace.get()
+					if sig.kind != sigNone {
+						return nil, sig
+					}
+					targetPlace := enumPlace
+					for bv != nil && bv.kind == ctPointer {
+						if bv.ptrVal == nil {
+							return nil, abortSig(ie.Cond.GetSpan(), "cannot dereference nil reference in `as_variant`")
+						}
+						dp, s2 := s.ptrDerefPlace(bv.ptrVal, ie.Cond.GetSpan())
+						if s2.kind != sigNone {
+							return nil, s2
+						}
+						targetPlace = dp
+						bv, sig = targetPlace.get()
+						if sig.kind != sigNone {
+							return nil, sig
+						}
+					}
+					if bv != nil && bv.kind == ctEnum && bv.variantIdx == cInf.TupleFieldIdx {
+						takeThen = true
+						boundVal = bv.payload
+						vIdx := cInf.TupleFieldIdx
+						vr := cInf.EnumVariant
+						rp := ctPlace{
+							get: func() (*ctVal, ctSignal) {
+								cur, s1 := targetPlace.get()
+								if s1.kind != sigNone {
+									return nil, s1
+								}
+								return s.readEnumPayloadCtVal(cur, vIdx, vr, ie.Then.GetSpan())
+							},
+							set: func(nv *ctVal) ctSignal {
+								cur, s1 := targetPlace.get()
+								if s1.kind != sigNone {
+									return s1
+								}
+								if cur == nil || cur.kind != ctEnum || cur.variantIdx != vIdx {
+									return abortSig(ie.Then.GetSpan(), "cannot assign payload of mismatched enum variant")
+								}
+								cur.payload = nv
+								return targetPlace.set(cur)
+							},
+						}
+						variantRefPlace = &rp
+					}
+				} else {
+					bv, sig := s.evalExpr(cInf.MethodRecv)
+					if sig.kind != sigNone {
+						return nil, sig
+					}
+					bv, sig = s.derefCtVal(bv, ie.Cond.GetSpan())
+					if sig.kind != sigNone {
+						return nil, sig
+					}
+					if bv != nil && bv.kind == ctEnum && bv.variantIdx == cInf.TupleFieldIdx {
+						takeThen = true
+						boundVal = bv.payload.clone()
+					}
+				}
+				break
+			}
+		}
 		if ie.MutUnwrap {
 			pl, sig := s.evalPlace(ie.Cond)
 			if sig.kind != sigNone {
@@ -5116,7 +5501,9 @@ func (s *ctState) evalIf(ie *ast.IfExpr, inf *ExprInfo) (*ctVal, ctSignal) {
 	if takeThen {
 		s.pushDropScope()
 		if unwrapSym != nil && fr != nil {
-			if ie.MutUnwrap && originSlot != nil {
+			if variantRefPlace != nil {
+				fr.locals[unwrapSym] = &ctSlot{ty: unwrapSym.Type, refPlace: variantRefPlace}
+			} else if ie.MutUnwrap && originSlot != nil {
 				// Share element value directly for `&x` mut unwrap, sync back on pop if scalar.
 				fr.locals[unwrapSym] = &ctSlot{val: boundVal, ty: unwrapSym.Type}
 			} else {
@@ -5124,7 +5511,7 @@ func (s *ctState) evalIf(ie *ast.IfExpr, inf *ExprInfo) (*ctVal, ctSignal) {
 			}
 		}
 		res, sig = s.evalExpr(ie.Then)
-		if unwrapSym != nil && ie.MutUnwrap && fr != nil {
+		if unwrapSym != nil && ie.MutUnwrap && variantRefPlace == nil && fr != nil {
 			if sl := fr.locals[unwrapSym]; sl != nil && sl.val != nil && originSlot != nil && originSlot.val != nil {
 				if originSlot.val.kind == ctOpt {
 					originSlot.val.optElem = sl.val
@@ -5160,6 +5547,155 @@ type loopEval struct {
 	elseExpr   ast.Expr
 	span       diag.Span
 	isFor      bool
+}
+
+func (s *ctState) evalFixedCollectUnrolledFor(le loopEval, uf *UnrolledFor, targetID int, fr *ctFrame) (*ctVal, ctSignal) {
+	slotCount := len(uf.Iters)
+	if uf.CollectStruct != nil {
+		slotCount = len(uf.CollectStruct.Fields)
+	} else if uf.CollectTuple != nil {
+		slotCount = len(uf.CollectTuple.Elems)
+	} else if uf.CollectArray != nil {
+		slotCount = int(uf.CollectArray.Size)
+	}
+	fixedVals := make([]*ctVal, slotCount)
+	fixedFilled := make([]bool, slotCount)
+	var filledOrder []int
+
+	dropPopulated := func(span diag.Span) ctSignal {
+		for i := len(filledOrder) - 1; i >= 0; i-- {
+			idx := filledOrder[i]
+			if !fixedFilled[idx] || fixedVals[idx] == nil {
+				continue
+			}
+			var elemTy types.Type
+			switch {
+			case uf.CollectStruct != nil && idx < len(uf.CollectStruct.Fields):
+				elemTy = uf.CollectStruct.Fields[idx].Type
+			case uf.CollectTuple != nil && idx < len(uf.CollectTuple.Elems):
+				elemTy = uf.CollectTuple.Elems[idx]
+			case uf.CollectArray != nil:
+				elemTy = uf.CollectArray.Elem
+			}
+			if dsig := s.dropValue(elemTy, fixedVals[idx], span); dsig.kind != sigNone {
+				return dsig
+			}
+			fixedFilled[idx] = false
+			fixedVals[idx] = nil
+		}
+		return okSig()
+	}
+
+	for _, it := range uf.Iters {
+		if sig := s.step(le.span); sig.kind != sigNone {
+			_ = dropPopulated(le.span)
+			return nil, sig
+		}
+		if it.IdxSym != nil && it.IdxVal != nil {
+			fr.locals[it.IdxSym] = &ctSlot{val: it.IdxVal.clone(), ty: it.IdxSym.Type}
+		}
+		if it.ItemSym != nil && it.ItemVal != nil {
+			fr.locals[it.ItemSym] = &ctSlot{val: it.ItemVal.clone(), ty: it.ItemSym.Type}
+		}
+		s.pushDropScope()
+		val, bsig := s.evalExpr(it.Body)
+		dsig := s.popDropScope(it.Body.GetSpan())
+		if bsig.kind == sigAbort {
+			_ = dropPopulated(it.Body.GetSpan())
+			return nil, bsig
+		}
+		if dsig.kind == sigAbort {
+			_ = dropPopulated(it.Body.GetSpan())
+			return nil, dsig
+		}
+		if bsig.kind == sigUnwind {
+			if bsig.targetID == targetID {
+				if bsig.isContinue {
+					var storeVal *ctVal
+					if bsig.isDefault && uf.CollectStruct != nil {
+						dv, defSig := s.evalStructDefaultOrNone(uf.CollectStruct, it.TargetIdx)
+						if defSig.kind != sigNone {
+							_ = dropPopulated(it.Body.GetSpan())
+							return nil, defSig
+						}
+						storeVal = dv
+					} else if bsig.val != nil {
+						storeVal = bsig.val.clone()
+					}
+					if it.TargetIdx >= 0 && it.TargetIdx < len(fixedVals) {
+						fixedVals[it.TargetIdx] = storeVal
+						fixedFilled[it.TargetIdx] = true
+						filledOrder = append(filledOrder, it.TargetIdx)
+					}
+					continue
+				}
+				if ds := dropPopulated(it.Body.GetSpan()); ds.kind != sigNone {
+					return nil, ds
+				}
+				if bsig.val != nil {
+					return bsig.val, okSig()
+				}
+				return newCtVoid(), okSig()
+			}
+			_ = dropPopulated(it.Body.GetSpan())
+			return nil, bsig
+		}
+		if dsig.kind == sigUnwind {
+			_ = dropPopulated(it.Body.GetSpan())
+			return nil, dsig
+		}
+		if it.TargetIdx >= 0 && it.TargetIdx < len(fixedVals) && val != nil {
+			fixedVals[it.TargetIdx] = val.clone()
+			fixedFilled[it.TargetIdx] = true
+			filledOrder = append(filledOrder, it.TargetIdx)
+		}
+	}
+
+	switch {
+	case uf.CollectStruct != nil:
+		st := uf.CollectStruct
+		fields := make(map[string]*ctVal, len(st.Fields))
+		order := make([]string, len(st.Fields))
+		for i, sf := range st.Fields {
+			order[i] = sf.Name
+			if i < len(fixedVals) && fixedFilled[i] && fixedVals[i] != nil {
+				fields[sf.Name] = fixedVals[i]
+			} else {
+				dv, defSig := s.evalStructDefaultOrNone(st, i)
+				if defSig.kind != sigNone {
+					_ = dropPopulated(le.span)
+					return nil, defSig
+				}
+				fields[sf.Name] = dv
+			}
+		}
+		if sig := s.allocMem(int64(len(order))*24, le.span); sig.kind != sigNone {
+			_ = dropPopulated(le.span)
+			return nil, sig
+		}
+		resTy := le.evalType
+		if resTy == nil {
+			resTy = st
+		}
+		return &ctVal{
+			kind: ctStruct,
+			ty:   resTy,
+			st:   &ctStructBox{ty: st, fields: fields, fieldOrder: order},
+		}, okSig()
+	case uf.CollectTuple != nil:
+		resTy := le.evalType
+		if resTy == nil {
+			resTy = uf.CollectTuple
+		}
+		return &ctVal{kind: ctTuple, ty: resTy, tup: &ctTupleBox{elems: fixedVals}}, okSig()
+	case uf.CollectArray != nil:
+		resTy := le.evalType
+		if resTy == nil {
+			resTy = uf.CollectArray
+		}
+		return &ctVal{kind: ctArray, ty: resTy, arr: &ctArrayBox{elems: fixedVals, elemTy: uf.CollectArray.Elem}}, okSig()
+	}
+	return newCtVoid(), okSig()
 }
 
 func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
@@ -5276,6 +5812,9 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 
 	if fe, ok := le.expr.(*ast.ForExpr); ok && fr != nil && fr.bm != nil {
 		if uf, hasUF := fr.bm.ComptimeForUnrolls[fe]; hasUF && uf != nil {
+			if uf.CollectStruct != nil || uf.CollectTuple != nil || uf.CollectArray != nil {
+				return s.evalFixedCollectUnrolledFor(le, uf, targetID, fr)
+			}
 			for _, it := range uf.Iters {
 				if sig := s.step(le.span); sig.kind != sigNone {
 					return nil, sig
@@ -6027,7 +6566,7 @@ func (s *ctState) evalCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, ctSignal)
 		argStart := 0
 		if inf.MethodRecv != nil {
 			argStart = 1
-			if inf.MethodRecvMode == types.ModeRead && len(args) > 0 && args[0].val != nil && !isCtLvalueExpr(inf.MethodRecv) {
+			if inf.MethodRecvMode == types.ModeRead && len(args) > 0 && args[0].val != nil && !s.isCtLvalueExpr(inf.MethodRecv) {
 				tempDrops = append(tempDrops, struct {
 					val  *ctVal
 					span diag.Span
@@ -6044,7 +6583,7 @@ func (s *ctState) evalCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, ctSignal)
 				return nil, sig
 			}
 			args = append(args, av)
-			if mode == types.ModeRead && av.val != nil && !isCtLvalueExpr(aExpr) {
+			if mode == types.ModeRead && av.val != nil && !s.isCtLvalueExpr(aExpr) {
 				tempDrops = append(tempDrops, struct {
 					val  *ctVal
 					span diag.Span
@@ -6114,7 +6653,7 @@ func (s *ctState) evalCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, ctSignal)
 	return nil, abortSig(call.Span, "unsupported call kind %v at compile time", inf.CallKind)
 }
 
-func isCtLvalueExpr(e ast.Expr) bool {
+func (s *ctState) isCtLvalueExpr(e ast.Expr) bool {
 	for e != nil {
 		switch v := e.(type) {
 		case *ast.ComptimeExpr:
@@ -6125,6 +6664,21 @@ func isCtLvalueExpr(e ast.Expr) bool {
 			return true
 		case *ast.UnaryExpr:
 			return v.Op == token.Star || v.Op == token.Amp
+		case *ast.CallExpr:
+			if s != nil {
+				if inf := s.infoFor(v); inf != nil && !inf.IsOptChain && (inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload") {
+					if mem, isMem := v.Callee.(*ast.MemberExpr); isMem {
+						if bInf := s.infoFor(mem.Base); bInf != nil {
+							switch bInf.Type.(type) {
+							case *types.Ptr, *types.Ref:
+								return true
+							}
+						}
+						return s.isCtLvalueExpr(mem.Base)
+					}
+				}
+			}
+			return false
 		default:
 			return false
 		}
@@ -6231,7 +6785,9 @@ func (s *ctState) callFuncInstance(fi *FuncInstance, argList []ctArg, callSpan d
 	if sig.kind == sigUnwind && sig.targetKind == ast.UnwindFunc {
 		if fi.BodyMaps != nil && sig.targetID == fi.FuncTargetID {
 			if sig.val != nil {
-				return sig.val.clone().wrapResult(fi.Sig.Ret), okSig()
+				out := sig.val.clone().wrapResult(fi.Sig.Ret)
+				s.preserveDescriptorMeta(fi, argList, out)
+				return out, okSig()
 			}
 			return newCtVoid(), okSig()
 		}
@@ -6243,7 +6799,23 @@ func (s *ctState) callFuncInstance(fi *FuncInstance, argList []ctArg, callSpan d
 	if val != nil && fi.Sig != nil {
 		val = val.wrapResult(fi.Sig.Ret)
 	}
+	s.preserveDescriptorMeta(fi, argList, val)
 	return val, okSig()
+}
+
+func (s *ctState) preserveDescriptorMeta(fi *FuncInstance, argList []ctArg, res *ctVal) {
+	if fi == nil || res == nil || res.kind != ctStruct || res.st == nil || !fi.IsMethod || fi.IsStaticAssoc || len(argList) != 1 {
+		return
+	}
+	isDescCopy := fi.RecvType == s.a.Prog.StructFieldInfo ||
+		fi.RecvType == s.a.Prog.StructVariantInfo ||
+		fi.RecvType == s.a.Prog.StructElemInfo
+	if !isDescCopy || !strings.HasSuffix(fi.Name, ".copy") {
+		return
+	}
+	if sv := argList[0].val; sv != nil && sv.kind == ctStruct && sv.st != nil && sv.st.refl != nil {
+		res.st.refl = sv.st.refl
+	}
 }
 
 func (s *ctState) callLambda(lam *LambdaInfo, captures map[*Symbol]*ctSlot, argList []ctArg, callSpan diag.Span) (*ctVal, ctSignal) {
@@ -7079,6 +7651,33 @@ func (s *ctState) evalBuiltinFuncCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 	case "comp.embed_bytes":
 		return s.evalCompEmbed(call, true)
 
+	case "comp.type_name":
+		if inf.IntrinsicType == nil {
+			return newCtString(""), okSig()
+		}
+		return newCtString(inf.IntrinsicType.String()), okSig()
+
+	case "comp.kind_of":
+		return s.evalCompKindOf(inf.IntrinsicType, call.Span)
+
+	case "comp.fields_of":
+		return s.evalCompFieldsOf(inf.IntrinsicType, call.Span)
+
+	case "comp.variants_of":
+		return s.evalCompVariantsOf(inf.IntrinsicType, call.Span)
+
+	case "comp.elems_of":
+		return s.evalCompElemsOf(inf.IntrinsicType, call.Span)
+
+	case "comp.attrs_of":
+		return s.evalCompAttrsOf(inf.IntrinsicType, call.Span)
+
+	case "comp.implements":
+		if inf.IntrinsicType == nil || inf.ResolvedIface == nil {
+			return newCtBool(false), okSig()
+		}
+		return newCtBool(s.a.ImplementsInterface(inf.IntrinsicType, inf.ResolvedIface)), okSig()
+
 	case "panic":
 		mv, sig := s.evalExpr(call.Args[0])
 		if sig.kind != sigNone {
@@ -7154,6 +7753,41 @@ func (s *ctState) evalBuiltinFuncCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 			return lv.clone(), okSig()
 		}
 		return rv.clone(), okSig()
+
+	case "variant_index":
+		ev, sig := s.evalExpr(call.Args[0])
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+		ev, sig = s.derefCtVal(ev, call.Args[0].GetSpan())
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+		if ev == nil || ev.kind != ctEnum {
+			return nil, abortSig(call.Span, "`variant_index` requires an enum or result value at compile time")
+		}
+		return newCtSignedInt(int64(ev.variantIdx), types.TypeInt), okSig()
+
+	case "make_variant":
+		en := inf.EnumType
+		vr := inf.EnumVariant
+		idx := inf.TupleFieldIdx
+		if en == nil || vr == nil {
+			return nil, abortSig(call.Span, "unresolved enum or variant in `make_variant`")
+		}
+		var payload *ctVal
+		if vr.Kind == types.VariantTuple && vr.Payload != nil && len(call.Args) >= 2 {
+			av, sig := s.evalCallArg(call.Args[1], types.ModeOwn)
+			if sig.kind != sigNone {
+				return nil, sig
+			}
+			pv, sig := av.getVal(call.Args[1].GetSpan())
+			if sig.kind != sigNone {
+				return nil, sig
+			}
+			payload = pv.clone().wrapResult(vr.Payload)
+		}
+		return &ctVal{kind: ctEnum, ty: en, en: en, variantIdx: idx, payload: payload}, okSig()
 
 	default:
 		return nil, abortSig(call.Span, "host I/O / OS builtin `%s` cannot run at compile time", inf.BuiltinName)
@@ -7547,6 +8181,81 @@ func (s *ctState) evalBuiltinMethodCall(call *ast.CallExpr, inf *ExprInfo) (*ctV
 			}
 		}
 		res = newCtBool(found)
+	case "comp_field.has_attr", "comp_variant.has_attr":
+		nv, s1 := s.evalExpr(call.Args[0])
+		if s1.kind != sigNone {
+			return nil, s1
+		}
+		_, ok := findCompAttrByName(rv, nv.s)
+		res = newCtBool(ok)
+	case "comp_field.attr", "comp_variant.attr":
+		nv, s1 := s.evalExpr(call.Args[0])
+		if s1.kind != sigNone {
+			return nil, s1
+		}
+		if match, ok := findCompAttrByName(rv, nv.s); ok && match != nil {
+			res = newCtSome(inf.Type, match.clone())
+		} else {
+			res = newCtNone(inf.Type)
+		}
+	case "comp_field.implements":
+		res, sig = s.evalDescriptorImplements(rv, inf.ResolvedIface, "field", call.Span)
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+	case "comp_variant.payload_implements":
+		res, sig = s.evalDescriptorImplements(rv, inf.ResolvedIface, "variant", call.Span)
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+	case "comp_elem.implements":
+		res, sig = s.evalDescriptorImplements(rv, inf.ResolvedIface, "elem", call.Span)
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+	case "struct.field":
+		dv, s1 := s.derefCtVal(rv, call.Span)
+		if s1.kind != sigNone {
+			return nil, s1
+		}
+		res, s1 = s.readStructFieldCtVal(dv, inf.ResolvedField, inf.Type, call.Span)
+		if s1.kind != sigNone {
+			return nil, s1
+		}
+	case "seq.elem":
+		dv, s1 := s.derefCtVal(rv, call.Span)
+		if s1.kind != sigNone {
+			return nil, s1
+		}
+		res, s1 = s.readSeqElemCtVal(dv, inf.TupleFieldIdx, call.Span)
+		if s1.kind != sigNone {
+			return nil, s1
+		}
+	case "enum.is_variant":
+		dv, s1 := s.derefCtVal(rv, call.Span)
+		if s1.kind != sigNone {
+			return nil, s1
+		}
+		res = newCtBool(dv != nil && dv.kind == ctEnum && dv.variantIdx == inf.TupleFieldIdx)
+	case "enum.payload":
+		dv, s1 := s.derefCtVal(rv, call.Span)
+		if s1.kind != sigNone {
+			return nil, s1
+		}
+		res, s1 = s.readEnumPayloadCtVal(dv, inf.TupleFieldIdx, inf.EnumVariant, call.Span)
+		if s1.kind != sigNone {
+			return nil, s1
+		}
+	case "enum.as_variant":
+		dv, s1 := s.derefCtVal(rv, call.Span)
+		if s1.kind != sigNone {
+			return nil, s1
+		}
+		if dv != nil && dv.kind == ctEnum && dv.variantIdx == inf.TupleFieldIdx {
+			res = newCtSome(inf.Type, dv.payload.clone())
+		} else {
+			res = newCtNone(inf.Type)
+		}
 	default:
 		return nil, abortSig(call.Span, "unsupported builtin method %q at compile time", inf.BuiltinName)
 	}
@@ -7554,6 +8263,79 @@ func (s *ctState) evalBuiltinMethodCall(call *ast.CallExpr, inf *ExprInfo) (*ctV
 		return newCtSome(inf.Type, res), okSig()
 	}
 	return res, okSig()
+}
+
+func findCompAttrByName(desc *ctVal, name string) (*ctVal, bool) {
+	if desc == nil || desc.kind != ctStruct || desc.st == nil {
+		return nil, false
+	}
+	attrsVal := desc.st.fields["attrs"]
+	if attrsVal == nil {
+		return nil, false
+	}
+	var attrs []*ctVal
+	if elems, ok := listStructElems(attrsVal); ok {
+		attrs = elems
+	} else if attrsVal.kind == ctList && attrsVal.list != nil {
+		attrs = attrsVal.list.elems
+	}
+	for _, a := range attrs {
+		if a != nil && a.kind == ctStruct && a.st != nil {
+			if nv := a.st.fields["name"]; nv != nil && nv.s == name {
+				return a, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func (s *ctState) evalDescriptorImplements(rv *ctVal, ifc *types.Interface, expectKind string, span diag.Span) (*ctVal, ctSignal) {
+	if ifc == nil {
+		return newCtBool(false), okSig()
+	}
+	if rv == nil || rv.kind != ctStruct || rv.st == nil || rv.st.refl == nil || rv.st.refl.TargetType == nil {
+		return nil, abortSig(span, "descriptor value is missing compiler reflection metadata (use values from `comp.*_of[T]()`)")
+	}
+	if rv.st.refl.Kind != expectKind {
+		return nil, abortSig(span, "invalid descriptor kind %q (expected %q)", rv.st.refl.Kind, expectKind)
+	}
+	targetTy := rv.st.refl.TargetType
+	idx := rv.st.refl.Index
+	var memberTy types.Type
+	switch expectKind {
+	case "field":
+		st, ok := targetTy.(*types.Struct)
+		if !ok || idx < 0 || idx >= len(st.Fields) {
+			return nil, abortSig(span, "invalid `FieldInfo` index %d for type %s", idx, targetTy.String())
+		}
+		memberTy = st.Fields[idx].Type
+	case "variant":
+		en, ok := targetTy.(*types.Enum)
+		if !ok || idx < 0 || idx >= len(en.Variants) {
+			return nil, abortSig(span, "invalid `VariantInfo` index %d for type %s", idx, targetTy.String())
+		}
+		vr := en.Variants[idx]
+		if vr.Kind != types.VariantTuple || vr.Payload == nil {
+			return newCtBool(false), okSig()
+		}
+		memberTy = vr.Payload
+	case "elem":
+		switch t := targetTy.(type) {
+		case *types.Tuple:
+			if idx < 0 || idx >= len(t.Elems) {
+				return nil, abortSig(span, "invalid `ElemInfo` index %d for tuple %s", idx, targetTy.String())
+			}
+			memberTy = t.Elems[idx]
+		case *types.StackArray:
+			if int64(idx) < 0 || int64(idx) >= t.Size {
+				return nil, abortSig(span, "invalid `ElemInfo` index %d for array %s", idx, targetTy.String())
+			}
+			memberTy = t.Elem
+		default:
+			return nil, abortSig(span, "invalid `ElemInfo` target type %s", targetTy.String())
+		}
+	}
+	return newCtBool(s.a.ImplementsInterface(memberTy, ifc)), okSig()
 }
 
 func (s *ctState) evalIndexGet(bv, iv *ctVal, span diag.Span) (*ctVal, ctSignal) {
@@ -8239,6 +9021,246 @@ func ctValToConstValue(v *ctVal, expectedTy types.Type) *types.ConstValue {
 		}
 	}
 	return nil
+}
+
+func (s *ctState) evalCompKindOf(ty types.Type, span diag.Span) (*ctVal, ctSignal) {
+	en := s.a.Prog.EnumTypeKind
+	if en == nil {
+		return nil, abortSig(span, "`comp.TypeKind` is not available")
+	}
+	variantName := ""
+	switch v := ty.(type) {
+	case *types.Primitive:
+		if v.Kind == types.PrimString {
+			variantName = "string_kind"
+		} else {
+			variantName = "primitive_kind"
+		}
+	case *types.Optional:
+		variantName = "optional_kind"
+	case *types.Vector:
+		variantName = "list_kind"
+	case *types.StackArray:
+		variantName = "array_kind"
+	case *types.Set:
+		variantName = "set_kind"
+	case *types.Map:
+		variantName = "map_kind"
+	case *types.Tuple:
+		variantName = "tuple_kind"
+	case *types.Struct:
+		switch v.Lang {
+		case "list":
+			variantName = "list_kind"
+		case "array":
+			variantName = "array_kind"
+		case "set":
+			variantName = "set_kind"
+		case "map":
+			variantName = "map_kind"
+		case "range":
+			variantName = "range_kind"
+		case "arena":
+			variantName = "arena_kind"
+		default:
+			variantName = "struct_kind"
+		}
+	case *types.Enum:
+		switch {
+		case v.IsResult:
+			variantName = "result_kind"
+		case v.IsTagged:
+			variantName = "tagged_union_kind"
+		default:
+			variantName = "tag_enum_kind"
+		}
+	case *types.Distinct:
+		variantName = "distinct_kind"
+	case *types.Interface:
+		variantName = "interface_kind"
+	case *types.Func:
+		switch {
+		case v.Closure:
+			variantName = "cl_kind"
+		case v.Extern:
+			variantName = "extern_fn_kind"
+		default:
+			variantName = "fn_kind"
+		}
+	case *types.Ptr:
+		variantName = "ptr_kind"
+	case *types.Ref:
+		variantName = "ref_kind"
+	default:
+		return nil, abortSig(span, "`comp.kind_of` unsupported type %v", ty)
+	}
+	for idx, vr := range en.Variants {
+		if vr.Name == variantName {
+			return &ctVal{kind: ctEnum, ty: en, en: en, variantIdx: idx}, okSig()
+		}
+	}
+	return nil, abortSig(span, "missing variant %q in `comp.TypeKind`", variantName)
+}
+
+func (s *ctState) evalCompAttrList(attrs []types.Attribute, span diag.Span) (*ctVal, ctSignal) {
+	attrSt := s.a.Prog.StructAttrInfo
+	if attrSt == nil {
+		return nil, abortSig(span, "`comp.AttrInfo` is not available")
+	}
+	strListTy := &types.Vector{Elem: types.TypeString}
+	attrListTy := &types.Vector{Elem: attrSt}
+	elems := make([]*ctVal, 0, len(attrs))
+	for _, a := range attrs {
+		argVals := make([]*ctVal, len(a.Args))
+		for i, arg := range a.Args {
+			argVals[i] = newCtString(arg)
+		}
+		argsList, sig := s.makeListStruct(strListTy, argVals, span)
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+		elems = append(elems, &ctVal{
+			kind: ctStruct,
+			ty:   attrSt,
+			st: &ctStructBox{
+				ty: attrSt,
+				fields: map[string]*ctVal{
+					"name": newCtString(a.Name),
+					"args": argsList,
+				},
+				fieldOrder: []string{"name", "args"},
+			},
+		})
+	}
+	return s.makeListStruct(attrListTy, elems, span)
+}
+
+func (s *ctState) evalCompFieldsOf(ty types.Type, span diag.Span) (*ctVal, ctSignal) {
+	fieldSt := s.a.Prog.StructFieldInfo
+	st, ok := ty.(*types.Struct)
+	if fieldSt == nil || !ok || !isFieldInspectableStruct(st) {
+		return nil, abortSig(span, "`comp.fields_of` requires a struct type")
+	}
+	elems := make([]*ctVal, 0, len(st.Fields))
+	for idx, f := range st.Fields {
+		attrsVal, sig := s.evalCompAttrList(f.Attributes, span)
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+		_, isOpt := f.Type.(*types.Optional)
+		isOpt = isOpt || strings.HasSuffix(f.Name, "?")
+		isPub := IsExported(strings.TrimSuffix(f.Name, "?"))
+		elems = append(elems, &ctVal{
+			kind: ctStruct,
+			ty:   fieldSt,
+			st: &ctStructBox{
+				ty: fieldSt,
+				fields: map[string]*ctVal{
+					"name":        newCtString(f.Name),
+					"type_name":   newCtString(f.Type.String()),
+					"is_opt":      newCtBool(isOpt),
+					"is_public":   newCtBool(isPub),
+					"has_default": newCtBool(f.HasDefault),
+					"attrs":       attrsVal,
+				},
+				fieldOrder: []string{"name", "type_name", "is_opt", "is_public", "has_default", "attrs"},
+				refl:       &ctReflectMeta{TargetType: st, Index: idx, Kind: "field"},
+			},
+		})
+	}
+	return s.makeListStruct(&types.Vector{Elem: fieldSt}, elems, span)
+}
+
+func (s *ctState) evalCompVariantsOf(ty types.Type, span diag.Span) (*ctVal, ctSignal) {
+	varSt := s.a.Prog.StructVariantInfo
+	en, ok := ty.(*types.Enum)
+	if varSt == nil || !ok {
+		return nil, abortSig(span, "`comp.variants_of` requires an enum or result type")
+	}
+	optIntTy := types.NewOptional(types.TypeInt)
+	elems := make([]*ctVal, 0, len(en.Variants))
+	for idx, vr := range en.Variants {
+		attrsVal, sig := s.evalCompAttrList(vr.Attributes, span)
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+		var tagVal *ctVal
+		if !en.IsTagged && !en.IsResult {
+			tagVal = newCtSome(optIntTy, newCtSignedInt(vr.Value, types.TypeInt))
+		} else {
+			tagVal = newCtNone(optIntTy)
+		}
+		hasPayload := vr.Kind == types.VariantTuple && vr.Payload != nil
+		elems = append(elems, &ctVal{
+			kind: ctStruct,
+			ty:   varSt,
+			st: &ctStructBox{
+				ty: varSt,
+				fields: map[string]*ctVal{
+					"name":        newCtString(vr.Name),
+					"index":       newCtSignedInt(int64(idx), types.TypeInt),
+					"tag_value?":  tagVal,
+					"has_payload": newCtBool(hasPayload),
+					"is_public":   newCtBool(IsExported(vr.Name)),
+					"attrs":       attrsVal,
+				},
+				fieldOrder: []string{"name", "index", "tag_value?", "has_payload", "is_public", "attrs"},
+				refl:       &ctReflectMeta{TargetType: en, Index: idx, Kind: "variant"},
+			},
+		})
+	}
+	return s.makeListStruct(&types.Vector{Elem: varSt}, elems, span)
+}
+
+func (s *ctState) evalCompElemsOf(ty types.Type, span diag.Span) (*ctVal, ctSignal) {
+	elemSt := s.a.Prog.StructElemInfo
+	if elemSt == nil {
+		return nil, abortSig(span, "`comp.ElemInfo` is not available")
+	}
+	var elemTypes []types.Type
+	switch v := ty.(type) {
+	case *types.Tuple:
+		elemTypes = v.Elems
+	case *types.StackArray:
+		elemTypes = make([]types.Type, v.Size)
+		for i := range elemTypes {
+			elemTypes[i] = v.Elem
+		}
+	default:
+		return nil, abortSig(span, "`comp.elems_of` requires a tuple or fixed array `[N: T]`")
+	}
+	elems := make([]*ctVal, 0, len(elemTypes))
+	for idx, et := range elemTypes {
+		elems = append(elems, &ctVal{
+			kind: ctStruct,
+			ty:   elemSt,
+			st: &ctStructBox{
+				ty: elemSt,
+				fields: map[string]*ctVal{
+					"index":     newCtSignedInt(int64(idx), types.TypeInt),
+					"type_name": newCtString(et.String()),
+				},
+				fieldOrder: []string{"index", "type_name"},
+				refl:       &ctReflectMeta{TargetType: ty, Index: idx, Kind: "elem"},
+			},
+		})
+	}
+	return s.makeListStruct(&types.Vector{Elem: elemSt}, elems, span)
+}
+
+func (s *ctState) evalCompAttrsOf(ty types.Type, span diag.Span) (*ctVal, ctSignal) {
+	var attrs []types.Attribute
+	switch v := ty.(type) {
+	case *types.Struct:
+		attrs = v.Attributes
+	case *types.Enum:
+		attrs = v.Attributes
+	case *types.Distinct:
+		attrs = v.Attributes
+	case *types.Interface:
+		attrs = v.Attributes
+	}
+	return s.evalCompAttrList(attrs, span)
 }
 
 func (a *Analyzer) buildTargetCtVal() *ctVal {

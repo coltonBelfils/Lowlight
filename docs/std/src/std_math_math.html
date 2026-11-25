@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>math.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>math.ll</h1><p>Source of package <a href="../math.html"><code>std/math</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/math — Mathematical constants, rounding, powers, logarithms, and trigonometry.</span></span>
+<span class="src-line" id="L2"><span class="m">//</span></span>
+<span class="src-line" id="L3"><span class="m">// Implemented in pure Lowlight over 64-bit IEEE-754 floats (`float`) and integers (`int`).</span></span>
+<span class="src-line" id="L4"></span>
+<span class="src-line" id="L5"><span class="m">// Ratio of a circle&#39;s circumference to its diameter (`pi`).</span></span>
+<span class="src-line" id="L6"><span class="k">bind</span> <span class="t">PI</span>: <span class="t">float</span> = <span class="n">3.14159265358979323846</span></span>
+<span class="src-line" id="L7"></span>
+<span class="src-line" id="L8"><span class="m">// Full turn circle constant (`2 * pi`).</span></span>
+<span class="src-line" id="L9"><span class="k">bind</span> <span class="t">TAU</span>: <span class="t">float</span> = <span class="n">6.28318530717958647692</span></span>
+<span class="src-line" id="L10"></span>
+<span class="src-line" id="L11"><span class="m">// Euler&#39;s number (`e`), base of natural logarithms.</span></span>
+<span class="src-line" id="L12"><span class="k">bind</span> <span class="t">E</span>: <span class="t">float</span> = <span class="n">2.71828182845904523536</span></span>
+<span class="src-line" id="L13"></span>
+<span class="src-line" id="L14"><span class="m">// Natural logarithm of `2`.</span></span>
+<span class="src-line" id="L15"><span class="k">bind</span> <span class="t">LN2</span>: <span class="t">float</span> = <span class="n">0.69314718055994530942</span></span>
+<span class="src-line" id="L16"></span>
+<span class="src-line" id="L17"><span class="m">// Natural logarithm of `10`.</span></span>
+<span class="src-line" id="L18"><span class="k">bind</span> <span class="t">LN10</span>: <span class="t">float</span> = <span class="n">2.30258509299404568402</span></span>
+<span class="src-line" id="L19"></span>
+<span class="src-line" id="L20"><span class="m">// Square root of `2`.</span></span>
+<span class="src-line" id="L21"><span class="k">bind</span> <span class="t">SQRT2</span>: <span class="t">float</span> = <span class="n">1.41421356237309504880</span></span>
+<span class="src-line" id="L22"></span>
+<span class="src-line" id="L23"><span class="m">// Square root of `3`.</span></span>
+<span class="src-line" id="L24"><span class="k">bind</span> <span class="t">SQRT3</span>: <span class="t">float</span> = <span class="n">1.73205080756887729353</span></span>
+<span class="src-line" id="L25"></span>
+<span class="src-line" id="L26"><span class="m">// Positive IEEE-754 infinity (`+Inf`).</span></span>
+<span class="src-line" id="L27"><span class="k">bind</span> <span class="t">INF</span>: <span class="t">float</span> = <span class="n">1.0e308</span> * <span class="n">10.0</span></span>
+<span class="src-line" id="L28"></span>
+<span class="src-line" id="L29"><span class="m">// Quiet IEEE-754 Not-a-Number (`NaN`).</span></span>
+<span class="src-line" id="L30"><span class="k">bind</span> <span class="t">NAN</span>: <span class="t">float</span> = <span class="t">INF</span> - <span class="t">INF</span></span>
+<span class="src-line" id="L31"></span>
+<span class="src-line" id="L32"><span class="m">// Reports whether `x` is IEEE-754 Not-a-Number (`NaN`).</span></span>
+<span class="src-line" id="L33"><span class="k">bind</span> is_nan = (x: <span class="t">float</span>) <span class="t">bool</span>: <span class="k">not</span> (x == x)</span>
+<span class="src-line" id="L34"></span>
+<span class="src-line" id="L35"><span class="m">// Reports whether `x` is positive or negative IEEE-754 infinity (`+Inf` or `-Inf`).</span></span>
+<span class="src-line" id="L36"><span class="k">bind</span> is_inf = (x: <span class="t">float</span>) <span class="t">bool</span>: x == <span class="t">INF</span> <span class="k">or</span> x == -<span class="t">INF</span></span>
+<span class="src-line" id="L37"></span>
+<span class="src-line" id="L38"><span class="m">// Returns the absolute value (`|x|`) of floating-point number `x`.</span></span>
+<span class="src-line" id="L39"><span class="k">bind</span> abs_float = (x: <span class="t">float</span>) <span class="t">float</span>:</span>
+<span class="src-line" id="L40">	<span class="k">if</span>(x &lt; <span class="n">0.0</span>): -x <span class="k">else</span>: x</span>
+<span class="src-line" id="L41"></span>
+<span class="src-line" id="L42"><span class="m">// Returns the absolute value of `x` (alias for [`abs_float`]).</span></span>
+<span class="src-line" id="L43"><span class="k">bind</span> fabs = (x: <span class="t">float</span>) <span class="t">float</span>: <span class="f">abs_float</span>(x)</span>
+<span class="src-line" id="L44"></span>
+<span class="src-line" id="L45"><span class="m">// Truncates `x` toward zero, discarding any fractional digits.</span></span>
+<span class="src-line" id="L46"><span class="k">bind</span> trunc = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L47">	<span class="k">if</span>(<span class="f">is_nan</span>(x) <span class="k">or</span> <span class="f">abs_float</span>(x) &gt;= <span class="n">4503599627370496.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> x</span>
+<span class="src-line" id="L48">	<span class="t">float</span>(<span class="t">int</span>(x))</span>
+<span class="src-line" id="L49">}</span>
+<span class="src-line" id="L50"></span>
+<span class="src-line" id="L51"><span class="m">// Returns the largest integer value (as [`float`]) less than or equal to `x`.</span></span>
+<span class="src-line" id="L52"><span class="k">bind</span> floor = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L53">	<span class="k">let</span> t = <span class="f">trunc</span>(x)</span>
+<span class="src-line" id="L54">	<span class="k">if</span>(x &lt; t): t - <span class="n">1.0</span> <span class="k">else</span>: t</span>
+<span class="src-line" id="L55">}</span>
+<span class="src-line" id="L56"></span>
+<span class="src-line" id="L57"><span class="m">// Returns the smallest integer value (as [`float`]) greater than or equal to `x`.</span></span>
+<span class="src-line" id="L58"><span class="k">bind</span> ceil = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L59">	<span class="k">let</span> t = <span class="f">trunc</span>(x)</span>
+<span class="src-line" id="L60">	<span class="k">if</span>(x &gt; t): t + <span class="n">1.0</span> <span class="k">else</span>: t</span>
+<span class="src-line" id="L61">}</span>
+<span class="src-line" id="L62"></span>
+<span class="src-line" id="L63"><span class="m">// Rounds `x` to the nearest integer (as [`float`]), rounding halves away from zero.</span></span>
+<span class="src-line" id="L64"><span class="m">//</span></span>
+<span class="src-line" id="L65"><span class="m">// Exact for every input: the fractional part is computed as `x - trunc(x)` (exact in IEEE-754)</span></span>
+<span class="src-line" id="L66"><span class="m">// rather than by adding `0.5`, which misrounds `0.49999999999999994` and large odd integers.</span></span>
+<span class="src-line" id="L67"><span class="m">// Values of magnitude `2^52` or more are already integers and are returned unchanged.</span></span>
+<span class="src-line" id="L68"><span class="k">bind</span> round = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L69">	<span class="k">if</span>(<span class="f">is_nan</span>(x) <span class="k">or</span> <span class="f">is_inf</span>(x) <span class="k">or</span> <span class="f">abs_float</span>(x) &gt;= <span class="n">4503599627370496.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> x</span>
+<span class="src-line" id="L70">	<span class="k">let</span> t = <span class="f">trunc</span>(x)</span>
+<span class="src-line" id="L71">	<span class="k">let</span> d = x - t</span>
+<span class="src-line" id="L72">	<span class="k">let</span> r = <span class="k">if</span>(d &gt;= <span class="n">0.5</span>): t + <span class="n">1.0</span> <span class="k">else</span> <span class="k">if</span>(d &lt;= -<span class="n">0.5</span>): t - <span class="n">1.0</span> <span class="k">else</span>: t</span>
+<span class="src-line" id="L73">	<span class="k">if</span>(r == <span class="n">0.0</span> <span class="k">and</span> x &lt; <span class="n">0.0</span>): -<span class="n">0.0</span> <span class="k">else</span>: r</span>
+<span class="src-line" id="L74">}</span>
+<span class="src-line" id="L75"></span>
+<span class="src-line" id="L76"><span class="m">// Returns the IEEE-754 floating-point remainder of `x / y` (`NaN` if `x` is `±Inf`, `y == 0.0`, or either is `NaN`; `x` if `y` is `±Inf` and `x` is finite).</span></span>
+<span class="src-line" id="L77"><span class="k">bind</span> fmod = (x: <span class="t">float</span>, y: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L78">	<span class="k">if</span>(<span class="f">is_nan</span>(x) <span class="k">or</span> <span class="f">is_nan</span>(y) <span class="k">or</span> <span class="f">is_inf</span>(x) <span class="k">or</span> y == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L79">	<span class="k">if</span>(<span class="f">is_inf</span>(y) <span class="k">or</span> x == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> x</span>
+<span class="src-line" id="L80">	<span class="k">let</span> ax = <span class="f">abs_float</span>(x)</span>
+<span class="src-line" id="L81">	<span class="k">let</span> ay = <span class="f">abs_float</span>(y)</span>
+<span class="src-line" id="L82">	<span class="k">if</span>(ax &lt; ay): <span class="k">func</span> <span class="u">&lt;-</span> x</span>
+<span class="src-line" id="L83">	<span class="k">if</span>(ax == ay): {</span>
+<span class="src-line" id="L84">		<span class="k">if</span>(x &lt; <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="n">0.0</span></span>
+<span class="src-line" id="L85">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L86">	}</span>
+<span class="src-line" id="L87">	<span class="k">let</span> p64 = <span class="n">18446744073709551616.0</span></span>
+<span class="src-line" id="L88">	<span class="k">let</span> pm64 = <span class="n">1.0</span> / p64</span>
+<span class="src-line" id="L89">	<span class="k">let</span> d = ay</span>
+<span class="src-line" id="L90">	<span class="k">let</span> k = <span class="n">0</span></span>
+<span class="src-line" id="L91">	<span class="k">for</span>(d &lt;= ax * pm64): {</span>
+<span class="src-line" id="L92">		d *= p64</span>
+<span class="src-line" id="L93">		k += <span class="n">64</span></span>
+<span class="src-line" id="L94">	}</span>
+<span class="src-line" id="L95">	<span class="k">for</span>(d &lt;= ax * <span class="n">0.5</span>): {</span>
+<span class="src-line" id="L96">		d *= <span class="n">2.0</span></span>
+<span class="src-line" id="L97">		k += <span class="n">1</span></span>
+<span class="src-line" id="L98">	}</span>
+<span class="src-line" id="L99">	<span class="k">for</span>(ax &gt;= ay): {</span>
+<span class="src-line" id="L100">		<span class="k">if</span>(ax &gt;= d): ax -= d</span>
+<span class="src-line" id="L101">		<span class="k">if</span>(ax &gt;= ay): {</span>
+<span class="src-line" id="L102">			<span class="k">for</span>(k &gt;= <span class="n">64</span> <span class="k">and</span> ax &lt; d * pm64): {</span>
+<span class="src-line" id="L103">				d *= pm64</span>
+<span class="src-line" id="L104">				k -= <span class="n">64</span></span>
+<span class="src-line" id="L105">			}</span>
+<span class="src-line" id="L106">			<span class="k">for</span>(k &gt; <span class="n">0</span> <span class="k">and</span> ax &lt; d): {</span>
+<span class="src-line" id="L107">				d *= <span class="n">0.5</span></span>
+<span class="src-line" id="L108">				k -= <span class="n">1</span></span>
+<span class="src-line" id="L109">			}</span>
+<span class="src-line" id="L110">		}</span>
+<span class="src-line" id="L111">	}</span>
+<span class="src-line" id="L112">	<span class="k">if</span>(x &lt; <span class="n">0.0</span>): -ax <span class="k">else</span>: ax</span>
+<span class="src-line" id="L113">}</span>
+<span class="src-line" id="L114"></span>
+<span class="src-line" id="L115"><span class="m">// Computes the non-negative square root of `x` (`NaN` for `x &lt; 0.0` or `NaN`, `+Inf` for `+Inf`, `±0.0` preserved).</span></span>
+<span class="src-line" id="L116"><span class="k">bind</span> sqrt = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L117">	<span class="k">if</span>(<span class="f">is_nan</span>(x) <span class="k">or</span> x &lt; <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L118">	<span class="k">if</span>(x == <span class="n">0.0</span> <span class="k">or</span> x == <span class="t">INF</span>): <span class="k">func</span> <span class="u">&lt;-</span> x</span>
+<span class="src-line" id="L119">	<span class="k">let</span> scale = <span class="n">1.0</span></span>
+<span class="src-line" id="L120">	<span class="k">let</span> m = x</span>
+<span class="src-line" id="L121">	<span class="k">let</span> p64 = <span class="n">18446744073709551616.0</span></span>
+<span class="src-line" id="L122">	<span class="k">let</span> pm64 = <span class="n">1.0</span> / p64</span>
+<span class="src-line" id="L123">	<span class="k">let</span> s32 = <span class="n">4294967296.0</span></span>
+<span class="src-line" id="L124">	<span class="k">let</span> sm32 = <span class="n">1.0</span> / s32</span>
+<span class="src-line" id="L125">	<span class="k">for</span>(m &gt;= p64): {</span>
+<span class="src-line" id="L126">		m *= pm64</span>
+<span class="src-line" id="L127">		scale *= s32</span>
+<span class="src-line" id="L128">	}</span>
+<span class="src-line" id="L129">	<span class="k">for</span>(m &lt; pm64): {</span>
+<span class="src-line" id="L130">		m *= p64</span>
+<span class="src-line" id="L131">		scale *= sm32</span>
+<span class="src-line" id="L132">	}</span>
+<span class="src-line" id="L133">	<span class="k">for</span>(m &gt;= <span class="n">4.0</span>): {</span>
+<span class="src-line" id="L134">		m *= <span class="n">0.25</span></span>
+<span class="src-line" id="L135">		scale *= <span class="n">2.0</span></span>
+<span class="src-line" id="L136">	}</span>
+<span class="src-line" id="L137">	<span class="k">for</span>(m &lt; <span class="n">0.25</span>): {</span>
+<span class="src-line" id="L138">		m *= <span class="n">4.0</span></span>
+<span class="src-line" id="L139">		scale *= <span class="n">0.5</span></span>
+<span class="src-line" id="L140">	}</span>
+<span class="src-line" id="L141">	<span class="k">let</span> g = <span class="n">0.5</span> * (<span class="n">1.0</span> + m)</span>
+<span class="src-line" id="L142">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L143">	<span class="k">for</span>(i &lt; <span class="n">8</span>): {</span>
+<span class="src-line" id="L144">		g = <span class="n">0.5</span> * (g + m / g)</span>
+<span class="src-line" id="L145">		i += <span class="n">1</span></span>
+<span class="src-line" id="L146">	}</span>
+<span class="src-line" id="L147">	g * scale</span>
+<span class="src-line" id="L148">}</span>
+<span class="src-line" id="L149"></span>
+<span class="src-line" id="L150"><span class="m">// Computes the real cube root (`x^(1/3)`) of `x`, preserving its sign.</span></span>
+<span class="src-line" id="L151"><span class="m">//</span></span>
+<span class="src-line" id="L152"><span class="m">// `cbrt(±0)`, `cbrt(±inf)`, and `cbrt(nan)` return their argument. The argument is first scaled</span></span>
+<span class="src-line" id="L153"><span class="m">// by powers of 8 into `[1, 8)` (exactly, since `cbrt(8^k · m) = 2^k · cbrt(m)`), so the Newton</span></span>
+<span class="src-line" id="L154"><span class="m">// iteration converges for every magnitude, including subnormals.</span></span>
+<span class="src-line" id="L155"><span class="k">bind</span> cbrt = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L156">	<span class="k">if</span>(<span class="f">is_nan</span>(x) <span class="k">or</span> <span class="f">is_inf</span>(x) <span class="k">or</span> x == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> x</span>
+<span class="src-line" id="L157">	<span class="k">let</span> is_neg = x &lt; <span class="n">0.0</span></span>
+<span class="src-line" id="L158">	<span class="k">let</span> m = <span class="k">if</span>(is_neg): -x <span class="k">else</span>: x</span>
+<span class="src-line" id="L159">	<span class="k">let</span> scale = <span class="n">1.0</span></span>
+<span class="src-line" id="L160">	<span class="k">let</span> big = <span class="n">1152921504606846976.0</span>      <span class="m">// 2^60 = 8^20</span></span>
+<span class="src-line" id="L161">	<span class="k">let</span> big_root = <span class="n">1048576.0</span>             <span class="m">// 2^20</span></span>
+<span class="src-line" id="L162">	<span class="k">while</span>(m &gt;= big): {</span>
+<span class="src-line" id="L163">		m /= big</span>
+<span class="src-line" id="L164">		scale *= big_root</span>
+<span class="src-line" id="L165">	}</span>
+<span class="src-line" id="L166">	<span class="k">while</span>(m &lt; <span class="n">1.0</span>): {</span>
+<span class="src-line" id="L167">		m *= big</span>
+<span class="src-line" id="L168">		scale /= big_root</span>
+<span class="src-line" id="L169">	}</span>
+<span class="src-line" id="L170">	<span class="k">while</span>(m &gt;= <span class="n">8.0</span>): {</span>
+<span class="src-line" id="L171">		m /= <span class="n">8.0</span></span>
+<span class="src-line" id="L172">		scale *= <span class="n">2.0</span></span>
+<span class="src-line" id="L173">	}</span>
+<span class="src-line" id="L174">	<span class="m">// Newton&#39;s method from above converges monotonically to cbrt(m) in [1, 2).</span></span>
+<span class="src-line" id="L175">	<span class="k">let</span> g = <span class="n">2.0</span></span>
+<span class="src-line" id="L176">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">8</span>): g = (<span class="n">2.0</span> * g + m / (g * g)) / <span class="n">3.0</span></span>
+<span class="src-line" id="L177">	<span class="k">let</span> r = g * scale</span>
+<span class="src-line" id="L178">	<span class="k">if</span>(is_neg): -r <span class="k">else</span>: r</span>
+<span class="src-line" id="L179">}</span>
+<span class="src-line" id="L180"></span>
+<span class="src-line" id="L181"><span class="m">// Returns the Euclidean length `sqrt(x * x + y * y)` without overflow or underflow in the</span></span>
+<span class="src-line" id="L182"><span class="m">// intermediate squares: `hypot(1e200, 1e200)` is `1.414e200`. Infinite arguments give `inf`</span></span>
+<span class="src-line" id="L183"><span class="m">// (even if the other is `nan`); otherwise a `nan` argument gives `nan`.</span></span>
+<span class="src-line" id="L184"><span class="k">bind</span> hypot = (x: <span class="t">float</span>, y: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L185">	<span class="k">if</span>(<span class="f">is_inf</span>(x) <span class="k">or</span> <span class="f">is_inf</span>(y)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">INF</span></span>
+<span class="src-line" id="L186">	<span class="k">if</span>(<span class="f">is_nan</span>(x) <span class="k">or</span> <span class="f">is_nan</span>(y)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L187">	<span class="k">let</span> ax = <span class="f">abs_float</span>(x)</span>
+<span class="src-line" id="L188">	<span class="k">let</span> ay = <span class="f">abs_float</span>(y)</span>
+<span class="src-line" id="L189">	<span class="k">let</span> big = <span class="k">if</span>(ax &gt; ay): ax <span class="k">else</span>: ay</span>
+<span class="src-line" id="L190">	<span class="k">let</span> small = <span class="k">if</span>(ax &gt; ay): ay <span class="k">else</span>: ax</span>
+<span class="src-line" id="L191">	<span class="k">if</span>(big == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L192">	<span class="k">let</span> q = small / big</span>
+<span class="src-line" id="L193">	big * <span class="f">sqrt</span>(<span class="n">1.0</span> + q * q)</span>
+<span class="src-line" id="L194">}</span>
+<span class="src-line" id="L195"></span>
+<span class="src-line" id="L196"><span class="k">bind</span> _scale_pow2 = (v: <span class="t">float</span>, k: <span class="t">int</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L197">	<span class="k">let</span> res = v</span>
+<span class="src-line" id="L198">	<span class="k">let</span> rem = k</span>
+<span class="src-line" id="L199">	<span class="k">if</span>(rem &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L200">		<span class="k">for</span>(rem &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L201">			<span class="k">let</span> step = <span class="k">if</span>(rem &gt; <span class="n">512</span>): <span class="n">512</span> <span class="k">else</span>: rem</span>
+<span class="src-line" id="L202">			<span class="k">let</span> base = <span class="n">2.0</span></span>
+<span class="src-line" id="L203">			<span class="k">let</span> e = step</span>
+<span class="src-line" id="L204">			<span class="k">for</span>(e &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L205">				<span class="k">if</span>((e &amp; <span class="n">1</span>) != <span class="n">0</span>): res *= base</span>
+<span class="src-line" id="L206">				e &gt;&gt;= <span class="n">1</span></span>
+<span class="src-line" id="L207">				<span class="k">if</span>(e &gt; <span class="n">0</span>): base *= base</span>
+<span class="src-line" id="L208">			}</span>
+<span class="src-line" id="L209">			rem -= step</span>
+<span class="src-line" id="L210">		}</span>
+<span class="src-line" id="L211">	} <span class="k">else</span> <span class="k">if</span>(rem &lt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L212">		<span class="k">let</span> neg_rem = -rem</span>
+<span class="src-line" id="L213">		<span class="k">for</span>(neg_rem &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L214">			<span class="k">let</span> step = <span class="k">if</span>(neg_rem &gt; <span class="n">512</span>): <span class="n">512</span> <span class="k">else</span>: neg_rem</span>
+<span class="src-line" id="L215">			<span class="k">let</span> base = <span class="n">0.5</span></span>
+<span class="src-line" id="L216">			<span class="k">let</span> e = step</span>
+<span class="src-line" id="L217">			<span class="k">for</span>(e &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L218">				<span class="k">if</span>((e &amp; <span class="n">1</span>) != <span class="n">0</span>): res *= base</span>
+<span class="src-line" id="L219">				e &gt;&gt;= <span class="n">1</span></span>
+<span class="src-line" id="L220">				<span class="k">if</span>(e &gt; <span class="n">0</span>): base *= base</span>
+<span class="src-line" id="L221">			}</span>
+<span class="src-line" id="L222">			neg_rem -= step</span>
+<span class="src-line" id="L223">		}</span>
+<span class="src-line" id="L224">	}</span>
+<span class="src-line" id="L225">	res</span>
+<span class="src-line" id="L226">}</span>
+<span class="src-line" id="L227"></span>
+<span class="src-line" id="L228"><span class="k">bind</span> _exp_scaled = (x: <span class="t">float</span>, extra_k: <span class="t">int</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L229">	<span class="k">let</span> ln2_hi = <span class="n">0.693147180369123816490</span></span>
+<span class="src-line" id="L230">	<span class="k">let</span> ln2_lo = <span class="n">1.90821492927058770002e-10</span></span>
+<span class="src-line" id="L231">	<span class="k">let</span> k = <span class="t">int</span>(<span class="f">round</span>(x / <span class="t">LN2</span>))</span>
+<span class="src-line" id="L232">	<span class="k">let</span> r = (x - <span class="t">float</span>(k) * ln2_hi) - <span class="t">float</span>(k) * ln2_lo</span>
+<span class="src-line" id="L233">	<span class="k">let</span> term = <span class="n">1.0</span></span>
+<span class="src-line" id="L234">	<span class="k">let</span> sum = <span class="n">1.0</span></span>
+<span class="src-line" id="L235">	<span class="k">let</span> n = <span class="n">1</span></span>
+<span class="src-line" id="L236">	<span class="k">for</span>(n &lt;= <span class="n">16</span>): {</span>
+<span class="src-line" id="L237">		term = term * r / <span class="t">float</span>(n)</span>
+<span class="src-line" id="L238">		sum += term</span>
+<span class="src-line" id="L239">		n += <span class="n">1</span></span>
+<span class="src-line" id="L240">	}</span>
+<span class="src-line" id="L241">	<span class="f">_scale_pow2</span>(sum, k + extra_k)</span>
+<span class="src-line" id="L242">}</span>
+<span class="src-line" id="L243"></span>
+<span class="src-line" id="L244"><span class="m">// Computes the base-[`E`] exponential function (`e^x`), handling `NaN`, `±Inf`, overflow (`&gt; 710.0`), and subnormal/underflow (`&lt; -745.2`).</span></span>
+<span class="src-line" id="L245"><span class="k">bind</span> exp = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L246">	<span class="k">if</span>(<span class="f">is_nan</span>(x)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L247">	<span class="k">if</span>(x == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1.0</span></span>
+<span class="src-line" id="L248">	<span class="k">if</span>(x &gt; <span class="n">710.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">INF</span></span>
+<span class="src-line" id="L249">	<span class="k">if</span>(x &lt; -<span class="n">745.2</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L250">	<span class="f">_exp_scaled</span>(x, <span class="n">0</span>)</span>
+<span class="src-line" id="L251">}</span>
+<span class="src-line" id="L252"></span>
+<span class="src-line" id="L253"><span class="m">// Computes the base-2 exponential function (`2^x`), handling `NaN`, `±Inf`, overflow (`&gt;= 1024.0`), and subnormal/underflow (`&lt;= -1075.0`).</span></span>
+<span class="src-line" id="L254"><span class="k">bind</span> exp2 = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L255">	<span class="k">if</span>(<span class="f">is_nan</span>(x)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L256">	<span class="k">if</span>(x == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1.0</span></span>
+<span class="src-line" id="L257">	<span class="k">if</span>(x &gt;= <span class="n">1024.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">INF</span></span>
+<span class="src-line" id="L258">	<span class="k">if</span>(x &lt;= -<span class="n">1075.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L259">	<span class="k">let</span> k = <span class="t">int</span>(<span class="f">round</span>(x))</span>
+<span class="src-line" id="L260">	<span class="k">let</span> f = x - <span class="t">float</span>(k)</span>
+<span class="src-line" id="L261">	<span class="k">let</span> sum = <span class="n">1.0</span></span>
+<span class="src-line" id="L262">	<span class="k">if</span>(f != <span class="n">0.0</span>): {</span>
+<span class="src-line" id="L263">		<span class="k">let</span> r = f * <span class="t">LN2</span></span>
+<span class="src-line" id="L264">		<span class="k">let</span> term = <span class="n">1.0</span></span>
+<span class="src-line" id="L265">		<span class="k">let</span> n = <span class="n">1</span></span>
+<span class="src-line" id="L266">		<span class="k">for</span>(n &lt;= <span class="n">16</span>): {</span>
+<span class="src-line" id="L267">			term = term * r / <span class="t">float</span>(n)</span>
+<span class="src-line" id="L268">			sum += term</span>
+<span class="src-line" id="L269">			n += <span class="n">1</span></span>
+<span class="src-line" id="L270">		}</span>
+<span class="src-line" id="L271">	}</span>
+<span class="src-line" id="L272">	<span class="f">_scale_pow2</span>(sum, k)</span>
+<span class="src-line" id="L273">}</span>
+<span class="src-line" id="L274"></span>
+<span class="src-line" id="L275"><span class="m">// Computes the natural logarithm `ln(x)` (`NaN` for `x &lt; 0.0` or `NaN`, `-Inf` for `±0.0`, `+Inf` for `+Inf`).</span></span>
+<span class="src-line" id="L276"><span class="k">bind</span> log = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L277">	<span class="k">if</span>(<span class="f">is_nan</span>(x) <span class="k">or</span> x &lt; <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L278">	<span class="k">if</span>(x == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="t">INF</span></span>
+<span class="src-line" id="L279">	<span class="k">if</span>(x == <span class="t">INF</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">INF</span></span>
+<span class="src-line" id="L280">	<span class="k">if</span>(x == <span class="n">1.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L281">	<span class="k">let</span> k = <span class="n">0</span></span>
+<span class="src-line" id="L282">	<span class="k">let</span> m = x</span>
+<span class="src-line" id="L283">	<span class="k">let</span> p64 = <span class="n">18446744073709551616.0</span></span>
+<span class="src-line" id="L284">	<span class="k">let</span> pm64 = <span class="n">1.0</span> / p64</span>
+<span class="src-line" id="L285">	<span class="k">for</span>(m &gt;= p64): {</span>
+<span class="src-line" id="L286">		m *= pm64</span>
+<span class="src-line" id="L287">		k += <span class="n">64</span></span>
+<span class="src-line" id="L288">	}</span>
+<span class="src-line" id="L289">	<span class="k">for</span>(m &lt; pm64): {</span>
+<span class="src-line" id="L290">		m *= p64</span>
+<span class="src-line" id="L291">		k -= <span class="n">64</span></span>
+<span class="src-line" id="L292">	}</span>
+<span class="src-line" id="L293">	<span class="k">for</span>(m &gt;= <span class="t">SQRT2</span>): {</span>
+<span class="src-line" id="L294">		m *= <span class="n">0.5</span></span>
+<span class="src-line" id="L295">		k += <span class="n">1</span></span>
+<span class="src-line" id="L296">	}</span>
+<span class="src-line" id="L297">	<span class="k">for</span>(m &lt; <span class="n">0.70710678118654752440</span>): {</span>
+<span class="src-line" id="L298">		m *= <span class="n">2.0</span></span>
+<span class="src-line" id="L299">		k -= <span class="n">1</span></span>
+<span class="src-line" id="L300">	}</span>
+<span class="src-line" id="L301">	<span class="k">let</span> u = (m - <span class="n">1.0</span>) / (m + <span class="n">1.0</span>)</span>
+<span class="src-line" id="L302">	<span class="k">let</span> u2 = u * u</span>
+<span class="src-line" id="L303">	<span class="k">let</span> term = u</span>
+<span class="src-line" id="L304">	<span class="k">let</span> sum = u</span>
+<span class="src-line" id="L305">	<span class="k">let</span> n = <span class="n">1</span></span>
+<span class="src-line" id="L306">	<span class="k">for</span>(n &lt;= <span class="n">15</span>): {</span>
+<span class="src-line" id="L307">		term *= u2</span>
+<span class="src-line" id="L308">		sum += term / <span class="t">float</span>(<span class="n">2</span> * n + <span class="n">1</span>)</span>
+<span class="src-line" id="L309">		n += <span class="n">1</span></span>
+<span class="src-line" id="L310">	}</span>
+<span class="src-line" id="L311">	<span class="n">2.0</span> * sum + <span class="t">float</span>(k) * <span class="t">LN2</span></span>
+<span class="src-line" id="L312">}</span>
+<span class="src-line" id="L313"></span>
+<span class="src-line" id="L314"><span class="m">// Computes the base-10 logarithm of `x`.</span></span>
+<span class="src-line" id="L315"><span class="k">bind</span> log10 = (x: <span class="t">float</span>) <span class="t">float</span>: <span class="f">log</span>(x) / <span class="t">LN10</span></span>
+<span class="src-line" id="L316"></span>
+<span class="src-line" id="L317"><span class="m">// Computes the base-2 logarithm of `x` (`NaN` for `x &lt; 0.0` or `NaN`, `-Inf` for `±0.0`, `+Inf` for `+Inf`).</span></span>
+<span class="src-line" id="L318"><span class="k">bind</span> log2 = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L319">	<span class="k">if</span>(<span class="f">is_nan</span>(x) <span class="k">or</span> x &lt; <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L320">	<span class="k">if</span>(x == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="t">INF</span></span>
+<span class="src-line" id="L321">	<span class="k">if</span>(x == <span class="t">INF</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">INF</span></span>
+<span class="src-line" id="L322">	<span class="k">if</span>(x == <span class="n">1.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L323">	<span class="k">let</span> k = <span class="n">0</span></span>
+<span class="src-line" id="L324">	<span class="k">let</span> m = x</span>
+<span class="src-line" id="L325">	<span class="k">let</span> p64 = <span class="n">18446744073709551616.0</span></span>
+<span class="src-line" id="L326">	<span class="k">let</span> pm64 = <span class="n">1.0</span> / p64</span>
+<span class="src-line" id="L327">	<span class="k">for</span>(m &gt;= p64): {</span>
+<span class="src-line" id="L328">		m *= pm64</span>
+<span class="src-line" id="L329">		k += <span class="n">64</span></span>
+<span class="src-line" id="L330">	}</span>
+<span class="src-line" id="L331">	<span class="k">for</span>(m &lt; pm64): {</span>
+<span class="src-line" id="L332">		m *= p64</span>
+<span class="src-line" id="L333">		k -= <span class="n">64</span></span>
+<span class="src-line" id="L334">	}</span>
+<span class="src-line" id="L335">	<span class="k">for</span>(m &gt;= <span class="t">SQRT2</span>): {</span>
+<span class="src-line" id="L336">		m *= <span class="n">0.5</span></span>
+<span class="src-line" id="L337">		k += <span class="n">1</span></span>
+<span class="src-line" id="L338">	}</span>
+<span class="src-line" id="L339">	<span class="k">for</span>(m &lt; <span class="n">0.70710678118654752440</span>): {</span>
+<span class="src-line" id="L340">		m *= <span class="n">2.0</span></span>
+<span class="src-line" id="L341">		k -= <span class="n">1</span></span>
+<span class="src-line" id="L342">	}</span>
+<span class="src-line" id="L343">	<span class="k">let</span> u = (m - <span class="n">1.0</span>) / (m + <span class="n">1.0</span>)</span>
+<span class="src-line" id="L344">	<span class="k">let</span> u2 = u * u</span>
+<span class="src-line" id="L345">	<span class="k">let</span> term = u</span>
+<span class="src-line" id="L346">	<span class="k">let</span> sum = u</span>
+<span class="src-line" id="L347">	<span class="k">let</span> n = <span class="n">1</span></span>
+<span class="src-line" id="L348">	<span class="k">for</span>(n &lt;= <span class="n">15</span>): {</span>
+<span class="src-line" id="L349">		term *= u2</span>
+<span class="src-line" id="L350">		sum += term / <span class="t">float</span>(<span class="n">2</span> * n + <span class="n">1</span>)</span>
+<span class="src-line" id="L351">		n += <span class="n">1</span></span>
+<span class="src-line" id="L352">	}</span>
+<span class="src-line" id="L353">	(<span class="n">2.0</span> * sum) / <span class="t">LN2</span> + <span class="t">float</span>(k)</span>
+<span class="src-line" id="L354">}</span>
+<span class="src-line" id="L355"></span>
+<span class="src-line" id="L356"><span class="k">bind</span> _is_odd_int = (y: <span class="t">float</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L357">	<span class="k">if</span>(<span class="f">is_nan</span>(y) <span class="k">or</span> <span class="f">is_inf</span>(y)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L358">	<span class="k">if</span>(y != <span class="f">trunc</span>(y)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L359">	<span class="k">let</span> ay = <span class="f">abs_float</span>(y)</span>
+<span class="src-line" id="L360">	<span class="k">if</span>(ay &gt;= <span class="n">9007199254740992.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L361">	(<span class="t">int</span>(ay) &amp; <span class="n">1</span>) != <span class="n">0</span></span>
+<span class="src-line" id="L362">}</span>
+<span class="src-line" id="L363"></span>
+<span class="src-line" id="L364"><span class="m">// Computes `base` raised to `exponent` (`base^exponent`), following IEEE-754 special-case rules.</span></span>
+<span class="src-line" id="L365"><span class="k">bind</span> pow = (base: <span class="t">float</span>, exponent: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L366">	<span class="k">if</span>(exponent == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1.0</span></span>
+<span class="src-line" id="L367">	<span class="k">if</span>(base == <span class="n">1.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1.0</span></span>
+<span class="src-line" id="L368">	<span class="k">if</span>(<span class="f">is_nan</span>(base) <span class="k">or</span> <span class="f">is_nan</span>(exponent)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L369">	<span class="k">if</span>(base == <span class="n">0.0</span>): {</span>
+<span class="src-line" id="L370">		<span class="k">let</span> is_neg_zero = (<span class="n">1.0</span> / base) &lt; <span class="n">0.0</span></span>
+<span class="src-line" id="L371">		<span class="k">if</span>(exponent &lt; <span class="n">0.0</span>): {</span>
+<span class="src-line" id="L372">			<span class="k">if</span>(is_neg_zero <span class="k">and</span> <span class="f">_is_odd_int</span>(exponent)): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="t">INF</span></span>
+<span class="src-line" id="L373">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="t">INF</span></span>
+<span class="src-line" id="L374">		}</span>
+<span class="src-line" id="L375">		<span class="k">if</span>(is_neg_zero <span class="k">and</span> <span class="f">_is_odd_int</span>(exponent)): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="n">0.0</span></span>
+<span class="src-line" id="L376">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L377">	}</span>
+<span class="src-line" id="L378">	<span class="k">if</span>(base == -<span class="n">1.0</span> <span class="k">and</span> <span class="f">is_inf</span>(exponent)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1.0</span></span>
+<span class="src-line" id="L379">	<span class="k">if</span>(<span class="f">is_inf</span>(exponent)): {</span>
+<span class="src-line" id="L380">		<span class="k">let</span> ab = <span class="f">abs_float</span>(base)</span>
+<span class="src-line" id="L381">		<span class="k">if</span>(exponent == <span class="t">INF</span>): {</span>
+<span class="src-line" id="L382">			<span class="k">if</span>(ab &gt; <span class="n">1.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">INF</span></span>
+<span class="src-line" id="L383">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L384">		}</span>
+<span class="src-line" id="L385">		<span class="k">if</span>(ab &gt; <span class="n">1.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L386">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="t">INF</span></span>
+<span class="src-line" id="L387">	}</span>
+<span class="src-line" id="L388">	<span class="k">if</span>(<span class="f">is_inf</span>(base)): {</span>
+<span class="src-line" id="L389">		<span class="k">if</span>(base == <span class="t">INF</span>): {</span>
+<span class="src-line" id="L390">			<span class="k">if</span>(exponent &gt; <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">INF</span></span>
+<span class="src-line" id="L391">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L392">		}</span>
+<span class="src-line" id="L393">		<span class="k">if</span>(exponent &gt; <span class="n">0.0</span>): {</span>
+<span class="src-line" id="L394">			<span class="k">if</span>(<span class="f">_is_odd_int</span>(exponent)): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="t">INF</span></span>
+<span class="src-line" id="L395">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="t">INF</span></span>
+<span class="src-line" id="L396">		}</span>
+<span class="src-line" id="L397">		<span class="k">if</span>(<span class="f">_is_odd_int</span>(exponent)): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="n">0.0</span></span>
+<span class="src-line" id="L398">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L399">	}</span>
+<span class="src-line" id="L400">	<span class="k">if</span>(base &lt; <span class="n">0.0</span>): {</span>
+<span class="src-line" id="L401">		<span class="k">if</span>(exponent != <span class="f">trunc</span>(exponent)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L402">		<span class="k">if</span>(base == -<span class="n">1.0</span>): {</span>
+<span class="src-line" id="L403">			<span class="k">if</span>(<span class="f">_is_odd_int</span>(exponent)): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="n">1.0</span></span>
+<span class="src-line" id="L404">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1.0</span></span>
+<span class="src-line" id="L405">		}</span>
+<span class="src-line" id="L406">		<span class="k">let</span> mag = <span class="f">pow</span>(-base, exponent)</span>
+<span class="src-line" id="L407">		<span class="k">if</span>(<span class="f">_is_odd_int</span>(exponent)): <span class="k">func</span> <span class="u">&lt;-</span> -mag</span>
+<span class="src-line" id="L408">		<span class="k">func</span> <span class="u">&lt;-</span> mag</span>
+<span class="src-line" id="L409">	}</span>
+<span class="src-line" id="L410">	<span class="k">let</span> exp_trunc = <span class="f">trunc</span>(exponent)</span>
+<span class="src-line" id="L411">	<span class="k">if</span>(exponent == exp_trunc <span class="k">and</span> <span class="f">abs_float</span>(exponent) &lt;= <span class="n">1048576.0</span>): {</span>
+<span class="src-line" id="L412">		<span class="k">let</span> n = <span class="t">int</span>(exp_trunc)</span>
+<span class="src-line" id="L413">		<span class="k">let</span> is_neg_exp = n &lt; <span class="n">0</span></span>
+<span class="src-line" id="L414">		<span class="k">let</span> p = <span class="k">if</span>(is_neg_exp): -n <span class="k">else</span>: n</span>
+<span class="src-line" id="L415">		<span class="k">let</span> acc = <span class="n">1.0</span></span>
+<span class="src-line" id="L416">		<span class="k">let</span> b = base</span>
+<span class="src-line" id="L417">		<span class="k">for</span>(p &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L418">			<span class="k">if</span>((p &amp; <span class="n">1</span>) == <span class="n">1</span>): acc *= b</span>
+<span class="src-line" id="L419">			p = p &gt;&gt; <span class="n">1</span></span>
+<span class="src-line" id="L420">			<span class="k">if</span>(p &gt; <span class="n">0</span>): b *= b</span>
+<span class="src-line" id="L421">		}</span>
+<span class="src-line" id="L422">		<span class="k">if</span>(is_neg_exp): {</span>
+<span class="src-line" id="L423">			<span class="k">if</span>(<span class="k">not</span> <span class="f">is_inf</span>(acc)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1.0</span> / acc</span>
+<span class="src-line" id="L424">		} <span class="k">else</span>: {</span>
+<span class="src-line" id="L425">			<span class="k">func</span> <span class="u">&lt;-</span> acc</span>
+<span class="src-line" id="L426">		}</span>
+<span class="src-line" id="L427">	}</span>
+<span class="src-line" id="L428">	<span class="f">exp</span>(exponent * <span class="f">log</span>(base))</span>
+<span class="src-line" id="L429">}</span>
+<span class="src-line" id="L430"></span>
+<span class="src-line" id="L431"><span class="m">// Bits of 2/π after the binary point, 32 per word (1280 bits): enough to reduce any finite</span></span>
+<span class="src-line" id="L432"><span class="m">// double exactly (the largest needs bits up to about position 1160).</span></span>
+<span class="src-line" id="L433"><span class="k">bind</span> _TWO_OVER_PI: [<span class="t">u64</span>] = [</span>
+<span class="src-line" id="L434">	<span class="n">0xa2f9836e</span>,</span>
+<span class="src-line" id="L435">	<span class="n">0x4e441529</span>,</span>
+<span class="src-line" id="L436">	<span class="n">0xfc2757d1</span>,</span>
+<span class="src-line" id="L437">	<span class="n">0xf534ddc0</span>,</span>
+<span class="src-line" id="L438">	<span class="n">0xdb629599</span>,</span>
+<span class="src-line" id="L439">	<span class="n">0x3c439041</span>,</span>
+<span class="src-line" id="L440">	<span class="n">0xfe5163ab</span>,</span>
+<span class="src-line" id="L441">	<span class="n">0xdebbc561</span>,</span>
+<span class="src-line" id="L442">	<span class="n">0xb7246e3a</span>,</span>
+<span class="src-line" id="L443">	<span class="n">0x424dd2e0</span>,</span>
+<span class="src-line" id="L444">	<span class="n">0x06492eea</span>,</span>
+<span class="src-line" id="L445">	<span class="n">0x09d1921c</span>,</span>
+<span class="src-line" id="L446">	<span class="n">0xfe1deb1c</span>,</span>
+<span class="src-line" id="L447">	<span class="n">0xb129a73e</span>,</span>
+<span class="src-line" id="L448">	<span class="n">0xe88235f5</span>,</span>
+<span class="src-line" id="L449">	<span class="n">0x2ebb4484</span>,</span>
+<span class="src-line" id="L450">	<span class="n">0xe99c7026</span>,</span>
+<span class="src-line" id="L451">	<span class="n">0xb45f7e41</span>,</span>
+<span class="src-line" id="L452">	<span class="n">0x3991d639</span>,</span>
+<span class="src-line" id="L453">	<span class="n">0x835339f4</span>,</span>
+<span class="src-line" id="L454">	<span class="n">0x9c845f8b</span>,</span>
+<span class="src-line" id="L455">	<span class="n">0xbdf9283b</span>,</span>
+<span class="src-line" id="L456">	<span class="n">0x1ff897ff</span>,</span>
+<span class="src-line" id="L457">	<span class="n">0xde05980f</span>,</span>
+<span class="src-line" id="L458">	<span class="n">0xef2f118b</span>,</span>
+<span class="src-line" id="L459">	<span class="n">0x5a0a6d1f</span>,</span>
+<span class="src-line" id="L460">	<span class="n">0x6d367ecf</span>,</span>
+<span class="src-line" id="L461">	<span class="n">0x27cb09b7</span>,</span>
+<span class="src-line" id="L462">	<span class="n">0x4f463f66</span>,</span>
+<span class="src-line" id="L463">	<span class="n">0x9e5fea2d</span>,</span>
+<span class="src-line" id="L464">	<span class="n">0x7527bac7</span>,</span>
+<span class="src-line" id="L465">	<span class="n">0xebe5f17b</span>,</span>
+<span class="src-line" id="L466">	<span class="n">0x3d0739f7</span>,</span>
+<span class="src-line" id="L467">	<span class="n">0x8a5292ea</span>,</span>
+<span class="src-line" id="L468">	<span class="n">0x6bfb5fb1</span>,</span>
+<span class="src-line" id="L469">	<span class="n">0x1f8d5d08</span>,</span>
+<span class="src-line" id="L470">	<span class="n">0x56033046</span>,</span>
+<span class="src-line" id="L471">	<span class="n">0xfc7b6bab</span>,</span>
+<span class="src-line" id="L472">	<span class="n">0xf0cfbc20</span>,</span>
+<span class="src-line" id="L473">	<span class="n">0x9af4361d</span>,</span>
+<span class="src-line" id="L474">]</span>
+<span class="src-line" id="L475"></span>
+<span class="src-line" id="L476"><span class="k">bind</span> _PIO2_HI = <span class="n">1.5707963267948966</span></span>
+<span class="src-line" id="L477"><span class="k">bind</span> _PIO2_LO = <span class="n">6.123233995736766e-17</span></span>
+<span class="src-line" id="L478"></span>
+<span class="src-line" id="L479"><span class="k">bind</span> _float_bits_of = (v: <span class="t">float</span>) <span class="t">u64</span>:</span>
+<span class="src-line" id="L480">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L481">		<span class="k">let</span> vp = <span class="f">addr_of</span>(v)</span>
+<span class="src-line" id="L482">		*ptr_cast[<span class="t">u64</span>](vp)</span>
+<span class="src-line" id="L483">	}</span>
+<span class="src-line" id="L484"></span>
+<span class="src-line" id="L485"><span class="m">// Returns the 32 bits of 2/π starting at bit `pos` (bit 0 is the first after the point).</span></span>
+<span class="src-line" id="L486"><span class="k">bind</span> _two_over_pi_bits = (pos: <span class="t">int</span>) <span class="t">u64</span>: {</span>
+<span class="src-line" id="L487">	<span class="k">let</span> w = pos / <span class="n">32</span></span>
+<span class="src-line" id="L488">	<span class="k">let</span> b = pos % <span class="n">32</span></span>
+<span class="src-line" id="L489">	<span class="k">let</span> hi = _TWO_OVER_PI.<span class="f">get</span>(w) ?? <span class="t">u64</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L490">	<span class="k">if</span>(b == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> hi</span>
+<span class="src-line" id="L491">	<span class="k">let</span> lo = _TWO_OVER_PI.<span class="f">get</span>(w + <span class="n">1</span>) ?? <span class="t">u64</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L492">	((hi &lt;&lt; <span class="t">u64</span>(b)) | (lo &gt;&gt; <span class="t">u64</span>(<span class="n">32</span> - b))) &amp; <span class="t">u64</span>(<span class="n">0xffffffff</span>)</span>
+<span class="src-line" id="L493">}</span>
+<span class="src-line" id="L494"></span>
+<span class="src-line" id="L495"><span class="m">// Returns `n &lt;= 32` bits of a little-endian 32-bit-limb integer, starting at bit `pos`.</span></span>
+<span class="src-line" id="L496"><span class="k">bind</span> _limb_bits = (limbs: [<span class="t">u64</span>], pos: <span class="t">int</span>, n: <span class="t">int</span>) <span class="t">u64</span>: {</span>
+<span class="src-line" id="L497">	<span class="k">let</span> w = pos / <span class="n">32</span></span>
+<span class="src-line" id="L498">	<span class="k">let</span> b = pos % <span class="n">32</span></span>
+<span class="src-line" id="L499">	<span class="k">let</span> lo = limbs.<span class="f">get</span>(w) ?? <span class="t">u64</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L500">	<span class="k">let</span> hi = limbs.<span class="f">get</span>(w + <span class="n">1</span>) ?? <span class="t">u64</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L501">	<span class="k">let</span> joined = (lo &gt;&gt; <span class="t">u64</span>(b)) | (<span class="k">if</span>(b == <span class="n">0</span>): <span class="t">u64</span>(<span class="n">0</span>) <span class="k">else</span>: hi &lt;&lt; <span class="t">u64</span>(<span class="n">32</span> - b))</span>
+<span class="src-line" id="L502">	<span class="k">let</span> mask = (<span class="t">u64</span>(<span class="n">1</span>) &lt;&lt; <span class="t">u64</span>(n)) - <span class="t">u64</span>(<span class="n">1</span>)</span>
+<span class="src-line" id="L503">	joined &amp; mask</span>
+<span class="src-line" id="L504">}</span>
+<span class="src-line" id="L505"></span>
+<span class="src-line" id="L506"><span class="m">// Payne–Hanek argument reduction: returns `+[q, r]` with `x = (4k + q)·π/2 + r`, `q` in `0..4`,</span></span>
+<span class="src-line" id="L507"><span class="m">// and `r` in `[-π/4, π/4]`, computed exactly from the binary expansion of 2/π. Unlike</span></span>
+<span class="src-line" id="L508"><span class="m">// `fmod(x, TAU)`, whose error grows with `x` because `TAU` is rounded, this is accurate for every</span></span>
+<span class="src-line" id="L509"><span class="m">// finite double (`sin(1e15)`, `cos(1e300)`).</span></span>
+<span class="src-line" id="L510"><span class="k">bind</span> _rem_pio2 = (x: <span class="t">float</span>) +[<span class="t">int</span>, <span class="t">float</span>]: {</span>
+<span class="src-line" id="L511">	<span class="k">let</span> bits = <span class="f">_float_bits_of</span>(<span class="f">abs_float</span>(x))</span>
+<span class="src-line" id="L512">	<span class="k">let</span> exp_field = <span class="t">int</span>((bits &gt;&gt; <span class="t">u64</span>(<span class="n">52</span>)) &amp; <span class="t">u64</span>(<span class="n">0x7ff</span>))</span>
+<span class="src-line" id="L513">	<span class="k">let</span> frac = bits &amp; <span class="t">u64</span>(<span class="n">0xfffffffffffff</span>)</span>
+<span class="src-line" id="L514">	<span class="k">let</span> mant = <span class="k">if</span>(exp_field == <span class="n">0</span>): frac <span class="k">else</span>: frac | (<span class="t">u64</span>(<span class="n">1</span>) &lt;&lt; <span class="t">u64</span>(<span class="n">52</span>))</span>
+<span class="src-line" id="L515">	<span class="k">let</span> e = <span class="k">if</span>(exp_field == <span class="n">0</span>): -<span class="n">1074</span> <span class="k">else</span>: exp_field - <span class="n">1075</span>      <span class="m">// |x| = mant · 2^e</span></span>
+<span class="src-line" id="L516"></span>
+<span class="src-line" id="L517">	<span class="m">// Only bits of 2/π from position e - 2 onward affect (x · 2/π) mod 4.</span></span>
+<span class="src-line" id="L518">	<span class="k">let</span> j0 = <span class="k">if</span>(e - <span class="n">2</span> &gt; <span class="n">0</span>): e - <span class="n">2</span> <span class="k">else</span>: <span class="n">0</span></span>
+<span class="src-line" id="L519">	<span class="k">let</span> s = e - j0</span>
+<span class="src-line" id="L520">	<span class="m">// 192 bits of 2/π as six 32-bit limbs, least significant first.</span></span>
+<span class="src-line" id="L521">	<span class="k">let</span> w = <span class="k">for</span>(k <span class="k">in</span> <span class="n">0</span>..<span class="n">6</span>) [<span class="t">u64</span>]: <span class="f">_two_over_pi_bits</span>(j0 + <span class="n">32</span> * (<span class="n">5</span> - k))</span>
+<span class="src-line" id="L522">	<span class="k">let</span> m = [mant &amp; <span class="t">u64</span>(<span class="n">0xffffffff</span>), mant &gt;&gt; <span class="t">u64</span>(<span class="n">32</span>)]</span>
+<span class="src-line" id="L523"></span>
+<span class="src-line" id="L524">	<span class="m">// P = mant · W, eight 32-bit limbs, least significant first.</span></span>
+<span class="src-line" id="L525">	<span class="k">let</span> p: [<span class="t">u64</span>] = [<span class="t">u64</span>(<span class="n">0</span>), <span class="t">u64</span>(<span class="n">0</span>), <span class="t">u64</span>(<span class="n">0</span>), <span class="t">u64</span>(<span class="n">0</span>), <span class="t">u64</span>(<span class="n">0</span>), <span class="t">u64</span>(<span class="n">0</span>), <span class="t">u64</span>(<span class="n">0</span>), <span class="t">u64</span>(<span class="n">0</span>)]</span>
+<span class="src-line" id="L526">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">6</span>): {</span>
+<span class="src-line" id="L527">		<span class="k">let</span> carry = <span class="t">u64</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L528">		<span class="k">for</span>(j <span class="k">in</span> <span class="n">0</span>..<span class="n">2</span>): {</span>
+<span class="src-line" id="L529">			<span class="k">let</span> t = w[i] * m[j] + p[i + j] + carry</span>
+<span class="src-line" id="L530">			p[i + j] = t &amp; <span class="t">u64</span>(<span class="n">0xffffffff</span>)</span>
+<span class="src-line" id="L531">			carry = t &gt;&gt; <span class="t">u64</span>(<span class="n">32</span>)</span>
+<span class="src-line" id="L532">		}</span>
+<span class="src-line" id="L533">		p[i + <span class="n">2</span>] = carry</span>
+<span class="src-line" id="L534">	}</span>
+<span class="src-line" id="L535"></span>
+<span class="src-line" id="L536">	<span class="m">// x · 2/π mod 4 = P · 2^(s - 192): the quadrant is the two bits above position 192 - s,</span></span>
+<span class="src-line" id="L537">	<span class="m">// and the fraction is the bits below it.</span></span>
+<span class="src-line" id="L538">	<span class="k">let</span> point = <span class="n">192</span> - s</span>
+<span class="src-line" id="L539">	<span class="k">let</span> q = <span class="t">int</span>(<span class="f">_limb_bits</span>(p, point, <span class="n">2</span>))</span>
+<span class="src-line" id="L540">	<span class="m">// The 128 fraction bits below the point, most significant chunk first.</span></span>
+<span class="src-line" id="L541">	<span class="k">let</span> chunks = <span class="k">for</span>(k <span class="k">in</span> <span class="n">1</span>..=<span class="n">4</span>) [<span class="t">u64</span>]: <span class="f">_limb_bits</span>(p, point - <span class="n">32</span> * k, <span class="n">32</span>)</span>
+<span class="src-line" id="L542">	<span class="m">// A fraction of one half or more is taken as (fraction - 1) in the next quadrant. Negate it</span></span>
+<span class="src-line" id="L543">	<span class="m">// exactly in 128-bit two&#39;s complement before converting, so values just below a multiple of</span></span>
+<span class="src-line" id="L544">	<span class="m">// π/2 keep their precision.</span></span>
+<span class="src-line" id="L545">	<span class="k">let</span> negative = chunks[<span class="n">0</span>] &gt;= <span class="t">u64</span>(<span class="n">0x80000000</span>)</span>
+<span class="src-line" id="L546">	<span class="k">if</span>(negative): {</span>
+<span class="src-line" id="L547">		q += <span class="n">1</span></span>
+<span class="src-line" id="L548">		<span class="k">let</span> carry = <span class="t">u64</span>(<span class="n">1</span>)</span>
+<span class="src-line" id="L549">		<span class="k">for</span>(i <span class="k">in</span> [<span class="n">3</span>, <span class="n">2</span>, <span class="n">1</span>, <span class="n">0</span>]): {</span>
+<span class="src-line" id="L550">			<span class="k">let</span> t = (chunks[i] ^ <span class="t">u64</span>(<span class="n">0xffffffff</span>)) + carry</span>
+<span class="src-line" id="L551">			chunks[i] = t &amp; <span class="t">u64</span>(<span class="n">0xffffffff</span>)</span>
+<span class="src-line" id="L552">			carry = t &gt;&gt; <span class="t">u64</span>(<span class="n">32</span>)</span>
+<span class="src-line" id="L553">		}</span>
+<span class="src-line" id="L554">	}</span>
+<span class="src-line" id="L555">	<span class="k">let</span> f = <span class="n">0.0</span></span>
+<span class="src-line" id="L556">	<span class="k">for</span>(i <span class="k">in</span> [<span class="n">3</span>, <span class="n">2</span>, <span class="n">1</span>, <span class="n">0</span>]): f = (f + <span class="t">float</span>(chunks[i])) / <span class="n">4294967296.0</span></span>
+<span class="src-line" id="L557">	<span class="k">if</span>(negative): f = -f</span>
+<span class="src-line" id="L558">	<span class="k">let</span> r = f * _PIO2_HI + f * _PIO2_LO</span>
+<span class="src-line" id="L559">	<span class="k">if</span>(x &lt; <span class="n">0.0</span>): +[(<span class="n">4</span> - q % <span class="n">4</span>) % <span class="n">4</span>, -r] <span class="k">else</span>: +[q % <span class="n">4</span>, r]</span>
+<span class="src-line" id="L560">}</span>
+<span class="src-line" id="L561"></span>
+<span class="src-line" id="L562"><span class="k">bind</span> _reduce_angle = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L563">	<span class="k">if</span>(<span class="f">is_nan</span>(x) <span class="k">or</span> <span class="f">is_inf</span>(x)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L564">	<span class="k">let</span> r = <span class="f">fmod</span>(x, <span class="t">TAU</span>)</span>
+<span class="src-line" id="L565">	<span class="k">if</span>(r &gt; <span class="t">PI</span>): r -= <span class="t">TAU</span></span>
+<span class="src-line" id="L566">	<span class="k">else</span> <span class="k">if</span>(r &lt; -<span class="t">PI</span>): r += <span class="t">TAU</span></span>
+<span class="src-line" id="L567">	r</span>
+<span class="src-line" id="L568">}</span>
+<span class="src-line" id="L569"></span>
+<span class="src-line" id="L570"><span class="k">bind</span> _sin_poly = (r: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L571">	<span class="k">let</span> r2 = r * r</span>
+<span class="src-line" id="L572">	<span class="k">let</span> term = r</span>
+<span class="src-line" id="L573">	<span class="k">let</span> sum = r</span>
+<span class="src-line" id="L574">	<span class="k">let</span> n = <span class="n">1</span></span>
+<span class="src-line" id="L575">	<span class="k">for</span>(n &lt;= <span class="n">10</span>): {</span>
+<span class="src-line" id="L576">		term = -term * r2 / <span class="t">float</span>(<span class="n">2</span> * n * (<span class="n">2</span> * n + <span class="n">1</span>))</span>
+<span class="src-line" id="L577">		sum += term</span>
+<span class="src-line" id="L578">		n += <span class="n">1</span></span>
+<span class="src-line" id="L579">	}</span>
+<span class="src-line" id="L580">	sum</span>
+<span class="src-line" id="L581">}</span>
+<span class="src-line" id="L582"></span>
+<span class="src-line" id="L583"><span class="k">bind</span> _cos_poly = (r: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L584">	<span class="k">let</span> r2 = r * r</span>
+<span class="src-line" id="L585">	<span class="k">let</span> term = <span class="n">1.0</span></span>
+<span class="src-line" id="L586">	<span class="k">let</span> sum = <span class="n">1.0</span></span>
+<span class="src-line" id="L587">	<span class="k">let</span> n = <span class="n">1</span></span>
+<span class="src-line" id="L588">	<span class="k">for</span>(n &lt;= <span class="n">10</span>): {</span>
+<span class="src-line" id="L589">		term = -term * r2 / <span class="t">float</span>((<span class="n">2</span> * n - <span class="n">1</span>) * <span class="n">2</span> * n)</span>
+<span class="src-line" id="L590">		sum += term</span>
+<span class="src-line" id="L591">		n += <span class="n">1</span></span>
+<span class="src-line" id="L592">	}</span>
+<span class="src-line" id="L593">	sum</span>
+<span class="src-line" id="L594">}</span>
+<span class="src-line" id="L595"></span>
+<span class="src-line" id="L596"><span class="m">// Computes the sine of angle `x` (in radians), returning `NaN` for `NaN` and `±Inf`.</span></span>
+<span class="src-line" id="L597"><span class="k">bind</span> sin = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L598">	<span class="k">if</span>(<span class="f">is_nan</span>(x) <span class="k">or</span> <span class="f">is_inf</span>(x)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L599">	<span class="k">if</span>(<span class="f">abs_float</span>(x) &lt;= <span class="n">0.7853981633974483</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">_sin_poly</span>(x)</span>
+<span class="src-line" id="L600">	<span class="k">let</span> q, r = <span class="k">unpack</span> <span class="f">_rem_pio2</span>(x)</span>
+<span class="src-line" id="L601">	<span class="k">match</span>(q):</span>
+<span class="src-line" id="L602">		<span class="k">when</span> <span class="n">0</span>: <span class="f">_sin_poly</span>(r)</span>
+<span class="src-line" id="L603">		<span class="k">when</span> <span class="n">1</span>: <span class="f">_cos_poly</span>(r)</span>
+<span class="src-line" id="L604">		<span class="k">when</span> <span class="n">2</span>: -<span class="f">_sin_poly</span>(r)</span>
+<span class="src-line" id="L605">		<span class="k">default</span>: -<span class="f">_cos_poly</span>(r)</span>
+<span class="src-line" id="L606">}</span>
+<span class="src-line" id="L607"></span>
+<span class="src-line" id="L608"><span class="m">// Computes the cosine of angle `x` (in radians), returning `NaN` for `NaN` and `±Inf`.</span></span>
+<span class="src-line" id="L609"><span class="k">bind</span> cos = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L610">	<span class="k">if</span>(<span class="f">is_nan</span>(x) <span class="k">or</span> <span class="f">is_inf</span>(x)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L611">	<span class="k">if</span>(<span class="f">abs_float</span>(x) &lt;= <span class="n">0.7853981633974483</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">_cos_poly</span>(x)</span>
+<span class="src-line" id="L612">	<span class="k">let</span> q, r = <span class="k">unpack</span> <span class="f">_rem_pio2</span>(x)</span>
+<span class="src-line" id="L613">	<span class="k">match</span>(q):</span>
+<span class="src-line" id="L614">		<span class="k">when</span> <span class="n">0</span>: <span class="f">_cos_poly</span>(r)</span>
+<span class="src-line" id="L615">		<span class="k">when</span> <span class="n">1</span>: -<span class="f">_sin_poly</span>(r)</span>
+<span class="src-line" id="L616">		<span class="k">when</span> <span class="n">2</span>: -<span class="f">_cos_poly</span>(r)</span>
+<span class="src-line" id="L617">		<span class="k">default</span>: <span class="f">_sin_poly</span>(r)</span>
+<span class="src-line" id="L618">}</span>
+<span class="src-line" id="L619"></span>
+<span class="src-line" id="L620"><span class="m">// Computes the tangent (`sin(x) / cos(x)`) of angle `x` (in radians).</span></span>
+<span class="src-line" id="L621"><span class="k">bind</span> tan = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L622">	<span class="k">if</span>(<span class="f">is_nan</span>(x) <span class="k">or</span> <span class="f">is_inf</span>(x)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L623">	<span class="k">if</span>(<span class="f">abs_float</span>(x) &lt;= <span class="n">0.7853981633974483</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">_sin_poly</span>(x) / <span class="f">_cos_poly</span>(x)</span>
+<span class="src-line" id="L624">	<span class="k">let</span> q, r = <span class="k">unpack</span> <span class="f">_rem_pio2</span>(x)</span>
+<span class="src-line" id="L625">	<span class="k">if</span>(q % <span class="n">2</span> == <span class="n">0</span>): <span class="f">_sin_poly</span>(r) / <span class="f">_cos_poly</span>(r) <span class="k">else</span>: -<span class="f">_cos_poly</span>(r) / <span class="f">_sin_poly</span>(r)</span>
+<span class="src-line" id="L626">}</span>
+<span class="src-line" id="L627"></span>
+<span class="src-line" id="L628"><span class="k">bind</span> _atan_unit = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L629">	<span class="k">let</span> offset = <span class="n">0.0</span></span>
+<span class="src-line" id="L630">	<span class="k">let</span> t = x</span>
+<span class="src-line" id="L631">	<span class="k">if</span>(t &gt; <span class="n">2.0</span> - <span class="t">SQRT3</span>): {</span>
+<span class="src-line" id="L632">		offset = <span class="t">PI</span> / <span class="n">6.0</span></span>
+<span class="src-line" id="L633">		t = (<span class="t">SQRT3</span> * t - <span class="n">1.0</span>) / (<span class="t">SQRT3</span> + t)</span>
+<span class="src-line" id="L634">	}</span>
+<span class="src-line" id="L635">	<span class="k">let</span> t2 = t * t</span>
+<span class="src-line" id="L636">	<span class="k">let</span> term = t</span>
+<span class="src-line" id="L637">	<span class="k">let</span> sum = t</span>
+<span class="src-line" id="L638">	<span class="k">let</span> n = <span class="n">1</span></span>
+<span class="src-line" id="L639">	<span class="k">for</span>(n &lt;= <span class="n">12</span>): {</span>
+<span class="src-line" id="L640">		term = -term * t2</span>
+<span class="src-line" id="L641">		sum += term / <span class="t">float</span>(<span class="n">2</span> * n + <span class="n">1</span>)</span>
+<span class="src-line" id="L642">		n += <span class="n">1</span></span>
+<span class="src-line" id="L643">	}</span>
+<span class="src-line" id="L644">	offset + sum</span>
+<span class="src-line" id="L645">}</span>
+<span class="src-line" id="L646"></span>
+<span class="src-line" id="L647"><span class="m">// Computes the principal value arctangent of `x` in radians (`-PI/2..=PI/2`).</span></span>
+<span class="src-line" id="L648"><span class="k">bind</span> atan = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L649">	<span class="k">if</span>(x == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L650">	<span class="k">let</span> is_neg = x &lt; <span class="n">0.0</span></span>
+<span class="src-line" id="L651">	<span class="k">let</span> ax = <span class="k">if</span>(is_neg): -x <span class="k">else</span>: x</span>
+<span class="src-line" id="L652">	<span class="k">let</span> res = <span class="k">if</span>(ax &gt; <span class="n">1.0</span>): <span class="t">PI</span> * <span class="n">0.5</span> - <span class="f">_atan_unit</span>(<span class="n">1.0</span> / ax) <span class="k">else</span>: <span class="f">_atan_unit</span>(ax)</span>
+<span class="src-line" id="L653">	<span class="k">if</span>(is_neg): -res <span class="k">else</span>: res</span>
+<span class="src-line" id="L654">}</span>
+<span class="src-line" id="L655"></span>
+<span class="src-line" id="L656"><span class="m">// Computes the four-quadrant inverse tangent of `y / x` in radians (`-PI..=PI`), returning `0.0` at `(0, 0)`.</span></span>
+<span class="src-line" id="L657"><span class="k">bind</span> atan2 = (y: <span class="t">float</span>, x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L658">	<span class="k">if</span>(x &gt; <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">atan</span>(y / x)</span>
+<span class="src-line" id="L659">	<span class="k">if</span>(x &lt; <span class="n">0.0</span>): {</span>
+<span class="src-line" id="L660">		<span class="k">if</span>(y &gt;= <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">atan</span>(y / x) + <span class="t">PI</span></span>
+<span class="src-line" id="L661">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">atan</span>(y / x) - <span class="t">PI</span></span>
+<span class="src-line" id="L662">	}</span>
+<span class="src-line" id="L663">	<span class="k">if</span>(y &gt; <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">PI</span> * <span class="n">0.5</span></span>
+<span class="src-line" id="L664">	<span class="k">if</span>(y &lt; <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="t">PI</span> * <span class="n">0.5</span></span>
+<span class="src-line" id="L665">	<span class="n">0.0</span></span>
+<span class="src-line" id="L666">}</span>
+<span class="src-line" id="L667"></span>
+<span class="src-line" id="L668"><span class="m">// Computes the inverse sine (`arcsin(x)`) in radians, clamping inputs outside `-1.0..=1.0`.</span></span>
+<span class="src-line" id="L669"><span class="k">bind</span> asin = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L670">	<span class="k">if</span>(x &gt;= <span class="n">1.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">PI</span> * <span class="n">0.5</span></span>
+<span class="src-line" id="L671">	<span class="k">if</span>(x &lt;= -<span class="n">1.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="t">PI</span> * <span class="n">0.5</span></span>
+<span class="src-line" id="L672">	<span class="f">atan2</span>(x, <span class="f">sqrt</span>(<span class="n">1.0</span> - x * x))</span>
+<span class="src-line" id="L673">}</span>
+<span class="src-line" id="L674"></span>
+<span class="src-line" id="L675"><span class="m">// Computes the inverse cosine (`arccos(x)`) in radians, clamping inputs outside `-1.0..=1.0`.</span></span>
+<span class="src-line" id="L676"><span class="k">bind</span> acos = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L677">	<span class="k">if</span>(x &gt;= <span class="n">1.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.0</span></span>
+<span class="src-line" id="L678">	<span class="k">if</span>(x &lt;= -<span class="n">1.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">PI</span></span>
+<span class="src-line" id="L679">	<span class="f">atan2</span>(<span class="f">sqrt</span>(<span class="n">1.0</span> - x * x), x)</span>
+<span class="src-line" id="L680">}</span>
+<span class="src-line" id="L681"></span>
+<span class="src-line" id="L682"><span class="m">// Computes the hyperbolic sine of `x`, handling `NaN`, `±Inf`, small-angle precision, and large values up to `~710.475`.</span></span>
+<span class="src-line" id="L683"><span class="k">bind</span> sinh = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L684">	<span class="k">if</span>(<span class="f">is_nan</span>(x)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L685">	<span class="k">if</span>(<span class="f">is_inf</span>(x) <span class="k">or</span> x == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> x</span>
+<span class="src-line" id="L686">	<span class="k">let</span> ax = <span class="f">abs_float</span>(x)</span>
+<span class="src-line" id="L687">	<span class="k">if</span>(ax &lt; <span class="n">1.0</span>): {</span>
+<span class="src-line" id="L688">		<span class="k">let</span> x2 = x * x</span>
+<span class="src-line" id="L689">		<span class="k">let</span> term = x</span>
+<span class="src-line" id="L690">		<span class="k">let</span> sum = x</span>
+<span class="src-line" id="L691">		<span class="k">let</span> n = <span class="n">1</span></span>
+<span class="src-line" id="L692">		<span class="k">for</span>(n &lt;= <span class="n">10</span>): {</span>
+<span class="src-line" id="L693">			term = term * x2 / <span class="t">float</span>(<span class="n">2</span> * n * (<span class="n">2</span> * n + <span class="n">1</span>))</span>
+<span class="src-line" id="L694">			sum += term</span>
+<span class="src-line" id="L695">			n += <span class="n">1</span></span>
+<span class="src-line" id="L696">		}</span>
+<span class="src-line" id="L697">		<span class="k">func</span> <span class="u">&lt;-</span> sum</span>
+<span class="src-line" id="L698">	}</span>
+<span class="src-line" id="L699">	<span class="k">if</span>(ax &lt;= <span class="n">22.0</span>): {</span>
+<span class="src-line" id="L700">		<span class="k">let</span> e = <span class="f">exp</span>(ax)</span>
+<span class="src-line" id="L701">		<span class="k">let</span> res = <span class="n">0.5</span> * (e - <span class="n">1.0</span> / e)</span>
+<span class="src-line" id="L702">		<span class="k">if</span>(x &lt; <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> -res</span>
+<span class="src-line" id="L703">		<span class="k">func</span> <span class="u">&lt;-</span> res</span>
+<span class="src-line" id="L704">	}</span>
+<span class="src-line" id="L705">	<span class="k">if</span>(ax &lt;= <span class="n">711.0</span>): {</span>
+<span class="src-line" id="L706">		<span class="k">let</span> res = <span class="f">_exp_scaled</span>(ax, -<span class="n">1</span>)</span>
+<span class="src-line" id="L707">		<span class="k">if</span>(x &lt; <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> -res</span>
+<span class="src-line" id="L708">		<span class="k">func</span> <span class="u">&lt;-</span> res</span>
+<span class="src-line" id="L709">	}</span>
+<span class="src-line" id="L710">	<span class="k">if</span>(x &lt; <span class="n">0.0</span>): -<span class="t">INF</span> <span class="k">else</span>: <span class="t">INF</span></span>
+<span class="src-line" id="L711">}</span>
+<span class="src-line" id="L712"></span>
+<span class="src-line" id="L713"><span class="m">// Computes the hyperbolic cosine of `x`, handling `NaN`, `±Inf`, and large values up to `~710.475`.</span></span>
+<span class="src-line" id="L714"><span class="k">bind</span> cosh = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L715">	<span class="k">if</span>(<span class="f">is_nan</span>(x)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L716">	<span class="k">if</span>(<span class="f">is_inf</span>(x)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">INF</span></span>
+<span class="src-line" id="L717">	<span class="k">if</span>(x == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1.0</span></span>
+<span class="src-line" id="L718">	<span class="k">let</span> ax = <span class="f">abs_float</span>(x)</span>
+<span class="src-line" id="L719">	<span class="k">if</span>(ax &lt;= <span class="n">22.0</span>): {</span>
+<span class="src-line" id="L720">		<span class="k">let</span> e = <span class="f">exp</span>(ax)</span>
+<span class="src-line" id="L721">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0.5</span> * (e + <span class="n">1.0</span> / e)</span>
+<span class="src-line" id="L722">	}</span>
+<span class="src-line" id="L723">	<span class="k">if</span>(ax &lt;= <span class="n">711.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">_exp_scaled</span>(ax, -<span class="n">1</span>)</span>
+<span class="src-line" id="L724">	<span class="t">INF</span></span>
+<span class="src-line" id="L725">}</span>
+<span class="src-line" id="L726"></span>
+<span class="src-line" id="L727"><span class="m">// Computes the hyperbolic tangent of `x` (`±1.0` for `±Inf` and `|x| &gt;= 20.0`, `NaN` for `NaN`).</span></span>
+<span class="src-line" id="L728"><span class="k">bind</span> tanh = (x: <span class="t">float</span>) <span class="t">float</span>: {</span>
+<span class="src-line" id="L729">	<span class="k">if</span>(<span class="f">is_nan</span>(x)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">NAN</span></span>
+<span class="src-line" id="L730">	<span class="k">if</span>(x == <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> x</span>
+<span class="src-line" id="L731">	<span class="k">let</span> ax = <span class="f">abs_float</span>(x)</span>
+<span class="src-line" id="L732">	<span class="k">if</span>(ax &gt;= <span class="n">20.0</span>): {</span>
+<span class="src-line" id="L733">		<span class="k">if</span>(x &lt; <span class="n">0.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="n">1.0</span></span>
+<span class="src-line" id="L734">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1.0</span></span>
+<span class="src-line" id="L735">	}</span>
+<span class="src-line" id="L736">	<span class="k">if</span>(ax &lt; <span class="n">1.0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">sinh</span>(x) / <span class="f">cosh</span>(x)</span>
+<span class="src-line" id="L737">	<span class="k">let</span> e2 = <span class="f">exp</span>(<span class="n">2.0</span> * ax)</span>
+<span class="src-line" id="L738">	<span class="k">let</span> res = (e2 - <span class="n">1.0</span>) / (e2 + <span class="n">1.0</span>)</span>
+<span class="src-line" id="L739">	<span class="k">if</span>(x &lt; <span class="n">0.0</span>): -res <span class="k">else</span>: res</span>
+<span class="src-line" id="L740">}</span>
+<span class="src-line" id="L741"></span>
+<span class="src-line" id="L742"><span class="m">// Converts degrees to radians.</span></span>
+<span class="src-line" id="L743"><span class="k">bind</span> deg_to_rad = (deg: <span class="t">float</span>) <span class="t">float</span>: deg * (<span class="t">PI</span> / <span class="n">180.0</span>)</span>
+<span class="src-line" id="L744"></span>
+<span class="src-line" id="L745"><span class="m">// Converts radians to degrees.</span></span>
+<span class="src-line" id="L746"><span class="k">bind</span> rad_to_deg = (rad: <span class="t">float</span>) <span class="t">float</span>: rad * (<span class="n">180.0</span> / <span class="t">PI</span>)</span>
+<span class="src-line" id="L747"></span>
+<span class="src-line" id="L748"><span class="m">// Clamps integer `val` inclusively within `[lo, hi]`.</span></span>
+<span class="src-line" id="L749"><span class="k">bind</span> clamp_int = (val: <span class="t">int</span>, lo: <span class="t">int</span>, hi: <span class="t">int</span>) <span class="t">int</span>:</span>
+<span class="src-line" id="L750">	<span class="k">if</span>(val &lt; lo): lo</span>
+<span class="src-line" id="L751">	<span class="k">else</span> <span class="k">if</span>(val &gt; hi): hi</span>
+<span class="src-line" id="L752">	<span class="k">else</span>: val</span>
+<span class="src-line" id="L753"></span>
+<span class="src-line" id="L754"><span class="m">// Clamps floating-point `val` inclusively within `[lo, hi]`.</span></span>
+<span class="src-line" id="L755"><span class="k">bind</span> clamp_float = (val: <span class="t">float</span>, lo: <span class="t">float</span>, hi: <span class="t">float</span>) <span class="t">float</span>:</span>
+<span class="src-line" id="L756">	<span class="k">if</span>(val &lt; lo): lo</span>
+<span class="src-line" id="L757">	<span class="k">else</span> <span class="k">if</span>(val &gt; hi): hi</span>
+<span class="src-line" id="L758">	<span class="k">else</span>: val</span>
+<span class="src-line" id="L759"></span>
+<span class="src-line" id="L760"><span class="m">// Linearly interpolates between `a` (`t == 0.0`) and `b` (`t == 1.0`).</span></span>
+<span class="src-line" id="L761"><span class="k">bind</span> lerp = (a: <span class="t">float</span>, b: <span class="t">float</span>, t: <span class="t">float</span>) <span class="t">float</span>: a + (b - a) * t</span>
+<span class="src-line" id="L762"></span>
+<span class="src-line" id="L763"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L764"><span class="m">// Inline Unit Tests</span></span>
+<span class="src-line" id="L765"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L766"></span>
+<span class="src-line" id="L767"><span class="a">@test</span>(<span class="s">&quot;math trigonometry, constants, and angle conversions&quot;</span>)</span>
+<span class="src-line" id="L768"><span class="k">bind</span> test_math_trig_and_angles = (): {</span>
+<span class="src-line" id="L769">	<span class="f">assert</span>(<span class="f">sin</span>(<span class="n">0.0</span>) == <span class="n">0.0</span>, <span class="s">&quot;sin(0)&quot;</span>)</span>
+<span class="src-line" id="L770">	<span class="f">assert</span>(<span class="f">cos</span>(<span class="n">0.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;cos(0)&quot;</span>)</span>
+<span class="src-line" id="L771">	<span class="f">assert</span>(<span class="f">tan</span>(<span class="n">0.0</span>) == <span class="n">0.0</span>, <span class="s">&quot;tan(0)&quot;</span>)</span>
+<span class="src-line" id="L772"></span>
+<span class="src-line" id="L773">	<span class="k">let</span> rad = <span class="f">deg_to_rad</span>(<span class="n">180.0</span>)</span>
+<span class="src-line" id="L774">	<span class="f">assert</span>(<span class="f">abs_float</span>(rad - <span class="t">PI</span>) &lt; <span class="n">0.0001</span>, <span class="s">&quot;180 deg to rad&quot;</span>)</span>
+<span class="src-line" id="L775"></span>
+<span class="src-line" id="L776">	<span class="k">let</span> deg = <span class="f">rad_to_deg</span>(<span class="t">PI</span>)</span>
+<span class="src-line" id="L777">	<span class="f">assert</span>(<span class="f">abs_float</span>(deg - <span class="n">180.0</span>) &lt; <span class="n">0.0001</span>, <span class="s">&quot;PI rad to deg&quot;</span>)</span>
+<span class="src-line" id="L778"></span>
+<span class="src-line" id="L779">	<span class="f">assert</span>(<span class="f">hypot</span>(<span class="n">3.0</span>, <span class="n">4.0</span>) == <span class="n">5.0</span>, <span class="s">&quot;hypot 3-4-5&quot;</span>)</span>
+<span class="src-line" id="L780">}</span>
+<span class="src-line" id="L781"></span>
+<span class="src-line" id="L782"><span class="a">@test</span>(<span class="s">&quot;math powers, exponentials, and logarithms&quot;</span>)</span>
+<span class="src-line" id="L783"><span class="k">bind</span> test_math_powers_and_logs = (): {</span>
+<span class="src-line" id="L784">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="n">2.0</span>, <span class="n">3.0</span>) == <span class="n">8.0</span>, <span class="s">&quot;pow 2^3&quot;</span>)</span>
+<span class="src-line" id="L785">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="n">10.0</span>, <span class="n">2.0</span>) == <span class="n">100.0</span>, <span class="s">&quot;pow 10^2&quot;</span>)</span>
+<span class="src-line" id="L786">	<span class="f">assert</span>(<span class="f">exp</span>(<span class="n">0.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;exp(0)&quot;</span>)</span>
+<span class="src-line" id="L787">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">log</span>(<span class="t">E</span>) - <span class="n">1.0</span>) &lt; <span class="n">0.0001</span>, <span class="s">&quot;log(e) == 1&quot;</span>)</span>
+<span class="src-line" id="L788">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">log10</span>(<span class="n">100.0</span>) - <span class="n">2.0</span>) &lt; <span class="n">0.0001</span>, <span class="s">&quot;log10(100) == 2&quot;</span>)</span>
+<span class="src-line" id="L789">}</span>
+<span class="src-line" id="L790"></span>
+<span class="src-line" id="L791"><span class="a">@test</span>(<span class="s">&quot;math log2 and exp2 accuracy and IEEE-754 edge cases&quot;</span>)</span>
+<span class="src-line" id="L792"><span class="k">bind</span> test_math_log2_exp2 = (): {</span>
+<span class="src-line" id="L793">	<span class="m">// exp2 exact integer powers</span></span>
+<span class="src-line" id="L794">	<span class="f">assert</span>(<span class="f">exp2</span>(<span class="n">0.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;exp2(0)&quot;</span>)</span>
+<span class="src-line" id="L795">	<span class="f">assert</span>(<span class="f">exp2</span>(-<span class="n">0.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;exp2(-0)&quot;</span>)</span>
+<span class="src-line" id="L796">	<span class="f">assert</span>(<span class="f">exp2</span>(<span class="n">1.0</span>) == <span class="n">2.0</span>, <span class="s">&quot;exp2(1)&quot;</span>)</span>
+<span class="src-line" id="L797">	<span class="f">assert</span>(<span class="f">exp2</span>(<span class="n">3.0</span>) == <span class="n">8.0</span>, <span class="s">&quot;exp2(3)&quot;</span>)</span>
+<span class="src-line" id="L798">	<span class="f">assert</span>(<span class="f">exp2</span>(<span class="n">10.0</span>) == <span class="n">1024.0</span>, <span class="s">&quot;exp2(10)&quot;</span>)</span>
+<span class="src-line" id="L799">	<span class="f">assert</span>(<span class="f">exp2</span>(-<span class="n">3.0</span>) == <span class="n">0.125</span>, <span class="s">&quot;exp2(-3)&quot;</span>)</span>
+<span class="src-line" id="L800">	<span class="k">let</span> e1023 = <span class="f">exp2</span>(<span class="n">1023.0</span>)</span>
+<span class="src-line" id="L801">	<span class="f">assert</span>(e1023 &gt; <span class="n">8.98e307</span> <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(e1023), <span class="s">&quot;exp2(1023) finite&quot;</span>)</span>
+<span class="src-line" id="L802">	<span class="f">assert</span>(<span class="f">exp2</span>(-<span class="n">1074.0</span>) == <span class="n">5.0e-324</span>, <span class="s">&quot;exp2(-1074) smallest subnormal&quot;</span>)</span>
+<span class="src-line" id="L803"></span>
+<span class="src-line" id="L804">	<span class="m">// exp2 fractional powers</span></span>
+<span class="src-line" id="L805">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">exp2</span>(<span class="n">0.5</span>) - <span class="t">SQRT2</span>) &lt; <span class="n">1.0e-12</span>, <span class="s">&quot;exp2(0.5) == sqrt(2)&quot;</span>)</span>
+<span class="src-line" id="L806">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">exp2</span>(-<span class="n">0.5</span>) - <span class="n">0.7071067811865475</span>) &lt; <span class="n">1.0e-12</span>, <span class="s">&quot;exp2(-0.5)&quot;</span>)</span>
+<span class="src-line" id="L807">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">exp2</span>(<span class="n">3.5</span>) - <span class="n">11.313708498984761</span>) &lt; <span class="n">1.0e-12</span>, <span class="s">&quot;exp2(3.5)&quot;</span>)</span>
+<span class="src-line" id="L808">	<span class="k">let</span> e1023_5 = <span class="f">exp2</span>(<span class="n">1023.5</span>)</span>
+<span class="src-line" id="L809">	<span class="f">assert</span>(e1023_5 &gt; <span class="n">1.27e308</span> <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(e1023_5), <span class="s">&quot;exp2(1023.5) finite&quot;</span>)</span>
+<span class="src-line" id="L810"></span>
+<span class="src-line" id="L811">	<span class="m">// exp2 IEEE-754 edge cases</span></span>
+<span class="src-line" id="L812">	<span class="f">assert</span>(<span class="f">exp2</span>(<span class="n">1024.0</span>) == <span class="t">INF</span>, <span class="s">&quot;exp2(1024) == INF&quot;</span>)</span>
+<span class="src-line" id="L813">	<span class="f">assert</span>(<span class="f">exp2</span>(<span class="t">INF</span>) == <span class="t">INF</span>, <span class="s">&quot;exp2(INF) == INF&quot;</span>)</span>
+<span class="src-line" id="L814">	<span class="f">assert</span>(<span class="f">exp2</span>(-<span class="n">1075.0</span>) == <span class="n">0.0</span>, <span class="s">&quot;exp2(-1075) == 0&quot;</span>)</span>
+<span class="src-line" id="L815">	<span class="f">assert</span>(<span class="f">exp2</span>(-<span class="t">INF</span>) == <span class="n">0.0</span>, <span class="s">&quot;exp2(-INF) == 0&quot;</span>)</span>
+<span class="src-line" id="L816">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">exp2</span>(<span class="t">NAN</span>)), <span class="s">&quot;exp2(NAN) is NaN&quot;</span>)</span>
+<span class="src-line" id="L817"></span>
+<span class="src-line" id="L818">	<span class="m">// log2 exact powers of 2</span></span>
+<span class="src-line" id="L819">	<span class="f">assert</span>(<span class="f">log2</span>(<span class="n">1.0</span>) == <span class="n">0.0</span>, <span class="s">&quot;log2(1)&quot;</span>)</span>
+<span class="src-line" id="L820">	<span class="f">assert</span>(<span class="f">log2</span>(<span class="n">2.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;log2(2)&quot;</span>)</span>
+<span class="src-line" id="L821">	<span class="f">assert</span>(<span class="f">log2</span>(<span class="n">8.0</span>) == <span class="n">3.0</span>, <span class="s">&quot;log2(8)&quot;</span>)</span>
+<span class="src-line" id="L822">	<span class="f">assert</span>(<span class="f">log2</span>(<span class="n">1024.0</span>) == <span class="n">10.0</span>, <span class="s">&quot;log2(1024)&quot;</span>)</span>
+<span class="src-line" id="L823">	<span class="f">assert</span>(<span class="f">log2</span>(<span class="n">0.125</span>) == -<span class="n">3.0</span>, <span class="s">&quot;log2(0.125)&quot;</span>)</span>
+<span class="src-line" id="L824">	<span class="f">assert</span>(<span class="f">log2</span>(<span class="n">5.0e-324</span>) == -<span class="n">1074.0</span>, <span class="s">&quot;log2(5e-324)&quot;</span>)</span>
+<span class="src-line" id="L825"></span>
+<span class="src-line" id="L826">	<span class="m">// log2 non-powers of 2 &amp; round-trips</span></span>
+<span class="src-line" id="L827">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">log2</span>(<span class="t">SQRT2</span>) - <span class="n">0.5</span>) &lt; <span class="n">1.0e-12</span>, <span class="s">&quot;log2(sqrt(2)) == 0.5&quot;</span>)</span>
+<span class="src-line" id="L828">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">log2</span>(<span class="n">10.0</span>) - <span class="n">3.321928094887362</span>) &lt; <span class="n">1.0e-12</span>, <span class="s">&quot;log2(10)&quot;</span>)</span>
+<span class="src-line" id="L829">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">log2</span>(<span class="f">exp2</span>(<span class="n">7.25</span>)) - <span class="n">7.25</span>) &lt; <span class="n">1.0e-12</span>, <span class="s">&quot;log2(exp2(7.25))&quot;</span>)</span>
+<span class="src-line" id="L830">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">exp2</span>(<span class="f">log2</span>(<span class="n">42.5</span>)) - <span class="n">42.5</span>) &lt; <span class="n">1.0e-11</span>, <span class="s">&quot;exp2(log2(42.5))&quot;</span>)</span>
+<span class="src-line" id="L831">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">log2</span>(<span class="n">1.7976931348623157e308</span>) - <span class="n">1024.0</span>) &lt; <span class="n">1.0e-12</span>, <span class="s">&quot;log2(DBL_MAX)&quot;</span>)</span>
+<span class="src-line" id="L832"></span>
+<span class="src-line" id="L833">	<span class="m">// log2 IEEE-754 edge cases</span></span>
+<span class="src-line" id="L834">	<span class="f">assert</span>(<span class="f">log2</span>(<span class="n">0.0</span>) == -<span class="t">INF</span>, <span class="s">&quot;log2(0) == -INF&quot;</span>)</span>
+<span class="src-line" id="L835">	<span class="f">assert</span>(<span class="f">log2</span>(-<span class="n">0.0</span>) == -<span class="t">INF</span>, <span class="s">&quot;log2(-0) == -INF&quot;</span>)</span>
+<span class="src-line" id="L836">	<span class="f">assert</span>(<span class="f">log2</span>(<span class="t">INF</span>) == <span class="t">INF</span>, <span class="s">&quot;log2(INF) == INF&quot;</span>)</span>
+<span class="src-line" id="L837">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">log2</span>(-<span class="n">1.0</span>)), <span class="s">&quot;log2(-1) is NaN&quot;</span>)</span>
+<span class="src-line" id="L838">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">log2</span>(-<span class="t">INF</span>)), <span class="s">&quot;log2(-INF) is NaN&quot;</span>)</span>
+<span class="src-line" id="L839">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">log2</span>(<span class="t">NAN</span>)), <span class="s">&quot;log2(NAN) is NaN&quot;</span>)</span>
+<span class="src-line" id="L840">}</span>
+<span class="src-line" id="L841"></span>
+<span class="src-line" id="L842"><span class="a">@test</span>(<span class="s">&quot;math hyperbolic functions: sinh, cosh, tanh&quot;</span>)</span>
+<span class="src-line" id="L843"><span class="k">bind</span> test_math_hyperbolic = (): {</span>
+<span class="src-line" id="L844">	<span class="m">// sinh</span></span>
+<span class="src-line" id="L845">	<span class="k">let</span> sh0 = <span class="f">sinh</span>(<span class="n">0.0</span>)</span>
+<span class="src-line" id="L846">	<span class="f">assert</span>(sh0 == <span class="n">0.0</span> <span class="k">and</span> <span class="n">1.0</span> / sh0 &gt; <span class="n">0.0</span>, <span class="s">&quot;sinh(+0.0)&quot;</span>)</span>
+<span class="src-line" id="L847">	<span class="k">let</span> shn0 = <span class="f">sinh</span>(-<span class="n">0.0</span>)</span>
+<span class="src-line" id="L848">	<span class="f">assert</span>(shn0 == <span class="n">0.0</span> <span class="k">and</span> <span class="n">1.0</span> / shn0 &lt; <span class="n">0.0</span>, <span class="s">&quot;sinh(-0.0)&quot;</span>)</span>
+<span class="src-line" id="L849">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">sinh</span>(<span class="n">1.0e-12</span>) - <span class="n">1.0e-12</span>) &lt; <span class="n">1.0e-22</span>, <span class="s">&quot;sinh(1e-12)&quot;</span>)</span>
+<span class="src-line" id="L850">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">sinh</span>(-<span class="n">1.0e-12</span>) + <span class="n">1.0e-12</span>) &lt; <span class="n">1.0e-22</span>, <span class="s">&quot;sinh(-1e-12)&quot;</span>)</span>
+<span class="src-line" id="L851">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">sinh</span>(<span class="n">0.5</span>) - <span class="n">0.5210953054937474</span>) &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;sinh(0.5)&quot;</span>)</span>
+<span class="src-line" id="L852">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">sinh</span>(-<span class="n">0.5</span>) + <span class="n">0.5210953054937474</span>) &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;sinh(-0.5)&quot;</span>)</span>
+<span class="src-line" id="L853">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">sinh</span>(<span class="n">1.0</span>) - <span class="n">1.1752011936438014</span>) &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;sinh(1.0)&quot;</span>)</span>
+<span class="src-line" id="L854">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">sinh</span>(-<span class="n">1.0</span>) + <span class="n">1.1752011936438014</span>) &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;sinh(-1.0)&quot;</span>)</span>
+<span class="src-line" id="L855">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">sinh</span>(<span class="n">5.0</span>) - <span class="n">74.20321057778875</span>) &lt; <span class="n">1.0e-11</span>, <span class="s">&quot;sinh(5.0)&quot;</span>)</span>
+<span class="src-line" id="L856">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">sinh</span>(-<span class="n">5.0</span>) + <span class="n">74.20321057778875</span>) &lt; <span class="n">1.0e-11</span>, <span class="s">&quot;sinh(-5.0)&quot;</span>)</span>
+<span class="src-line" id="L857">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">sinh</span>(<span class="n">22.5</span>) - <span class="n">2955261031.5116453</span>) / <span class="n">2955261031.5116453</span> &lt; <span class="n">1.0e-12</span>, <span class="s">&quot;sinh(22.5)&quot;</span>)</span>
+<span class="src-line" id="L858">	<span class="k">let</span> sh710 = <span class="f">sinh</span>(<span class="n">710.0</span>)</span>
+<span class="src-line" id="L859">	<span class="f">assert</span>(sh710 &gt; <span class="n">1.11e308</span> <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(sh710), <span class="s">&quot;sinh(710) finite&quot;</span>)</span>
+<span class="src-line" id="L860">	<span class="k">let</span> shm710 = <span class="f">sinh</span>(-<span class="n">710.0</span>)</span>
+<span class="src-line" id="L861">	<span class="f">assert</span>(shm710 &lt; -<span class="n">1.11e308</span> <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(shm710), <span class="s">&quot;sinh(-710) finite&quot;</span>)</span>
+<span class="src-line" id="L862">	<span class="f">assert</span>(<span class="f">sinh</span>(<span class="n">711.0</span>) == <span class="t">INF</span>, <span class="s">&quot;sinh(711) == INF&quot;</span>)</span>
+<span class="src-line" id="L863">	<span class="f">assert</span>(<span class="f">sinh</span>(-<span class="n">711.0</span>) == -<span class="t">INF</span>, <span class="s">&quot;sinh(-711) == -INF&quot;</span>)</span>
+<span class="src-line" id="L864">	<span class="f">assert</span>(<span class="f">sinh</span>(<span class="t">INF</span>) == <span class="t">INF</span>, <span class="s">&quot;sinh(INF) == INF&quot;</span>)</span>
+<span class="src-line" id="L865">	<span class="f">assert</span>(<span class="f">sinh</span>(-<span class="t">INF</span>) == -<span class="t">INF</span>, <span class="s">&quot;sinh(-INF) == -INF&quot;</span>)</span>
+<span class="src-line" id="L866">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">sinh</span>(<span class="t">NAN</span>)), <span class="s">&quot;sinh(NAN) is NaN&quot;</span>)</span>
+<span class="src-line" id="L867"></span>
+<span class="src-line" id="L868">	<span class="m">// cosh</span></span>
+<span class="src-line" id="L869">	<span class="f">assert</span>(<span class="f">cosh</span>(<span class="n">0.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;cosh(+0.0)&quot;</span>)</span>
+<span class="src-line" id="L870">	<span class="f">assert</span>(<span class="f">cosh</span>(-<span class="n">0.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;cosh(-0.0)&quot;</span>)</span>
+<span class="src-line" id="L871">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">cosh</span>(<span class="n">1.0e-8</span>) - <span class="n">1.0</span>) &lt; <span class="n">1.0e-15</span>, <span class="s">&quot;cosh(1e-8)&quot;</span>)</span>
+<span class="src-line" id="L872">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">cosh</span>(<span class="n">1.0</span>) - <span class="n">1.5430806348152437</span>) &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;cosh(1.0)&quot;</span>)</span>
+<span class="src-line" id="L873">	<span class="f">assert</span>(<span class="f">cosh</span>(-<span class="n">1.0</span>) == <span class="f">cosh</span>(<span class="n">1.0</span>), <span class="s">&quot;cosh even symmetry&quot;</span>)</span>
+<span class="src-line" id="L874">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">cosh</span>(<span class="n">5.0</span>) - <span class="n">74.20994852478785</span>) &lt; <span class="n">1.0e-11</span>, <span class="s">&quot;cosh(5.0)&quot;</span>)</span>
+<span class="src-line" id="L875">	<span class="k">let</span> ch710 = <span class="f">cosh</span>(<span class="n">710.0</span>)</span>
+<span class="src-line" id="L876">	<span class="f">assert</span>(ch710 &gt; <span class="n">1.11e308</span> <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(ch710), <span class="s">&quot;cosh(710) finite&quot;</span>)</span>
+<span class="src-line" id="L877">	<span class="k">let</span> chm710 = <span class="f">cosh</span>(-<span class="n">710.0</span>)</span>
+<span class="src-line" id="L878">	<span class="f">assert</span>(chm710 &gt; <span class="n">1.11e308</span> <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(chm710), <span class="s">&quot;cosh(-710) finite&quot;</span>)</span>
+<span class="src-line" id="L879">	<span class="f">assert</span>(<span class="f">cosh</span>(<span class="n">711.0</span>) == <span class="t">INF</span>, <span class="s">&quot;cosh(711) == INF&quot;</span>)</span>
+<span class="src-line" id="L880">	<span class="f">assert</span>(<span class="f">cosh</span>(-<span class="n">711.0</span>) == <span class="t">INF</span>, <span class="s">&quot;cosh(-711) == INF&quot;</span>)</span>
+<span class="src-line" id="L881">	<span class="f">assert</span>(<span class="f">cosh</span>(<span class="t">INF</span>) == <span class="t">INF</span>, <span class="s">&quot;cosh(INF) == INF&quot;</span>)</span>
+<span class="src-line" id="L882">	<span class="f">assert</span>(<span class="f">cosh</span>(-<span class="t">INF</span>) == <span class="t">INF</span>, <span class="s">&quot;cosh(-INF) == INF&quot;</span>)</span>
+<span class="src-line" id="L883">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">cosh</span>(<span class="t">NAN</span>)), <span class="s">&quot;cosh(NAN) is NaN&quot;</span>)</span>
+<span class="src-line" id="L884"></span>
+<span class="src-line" id="L885">	<span class="m">// cosh^2(x) - sinh^2(x) == 1</span></span>
+<span class="src-line" id="L886">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">cosh</span>(<span class="n">2.5</span>) * <span class="f">cosh</span>(<span class="n">2.5</span>) - <span class="f">sinh</span>(<span class="n">2.5</span>) * <span class="f">sinh</span>(<span class="n">2.5</span>) - <span class="n">1.0</span>) &lt; <span class="n">1.0e-11</span>, <span class="s">&quot;cosh^2 - sinh^2 == 1&quot;</span>)</span>
+<span class="src-line" id="L887"></span>
+<span class="src-line" id="L888">	<span class="m">// tanh</span></span>
+<span class="src-line" id="L889">	<span class="k">let</span> th0 = <span class="f">tanh</span>(<span class="n">0.0</span>)</span>
+<span class="src-line" id="L890">	<span class="f">assert</span>(th0 == <span class="n">0.0</span> <span class="k">and</span> <span class="n">1.0</span> / th0 &gt; <span class="n">0.0</span>, <span class="s">&quot;tanh(+0.0)&quot;</span>)</span>
+<span class="src-line" id="L891">	<span class="k">let</span> thn0 = <span class="f">tanh</span>(-<span class="n">0.0</span>)</span>
+<span class="src-line" id="L892">	<span class="f">assert</span>(thn0 == <span class="n">0.0</span> <span class="k">and</span> <span class="n">1.0</span> / thn0 &lt; <span class="n">0.0</span>, <span class="s">&quot;tanh(-0.0)&quot;</span>)</span>
+<span class="src-line" id="L893">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">tanh</span>(<span class="n">1.0e-12</span>) - <span class="n">1.0e-12</span>) &lt; <span class="n">1.0e-22</span>, <span class="s">&quot;tanh(1e-12)&quot;</span>)</span>
+<span class="src-line" id="L894">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">tanh</span>(<span class="n">0.5</span>) - <span class="n">0.46211715726000974</span>) &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;tanh(0.5)&quot;</span>)</span>
+<span class="src-line" id="L895">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">tanh</span>(-<span class="n">0.5</span>) + <span class="n">0.46211715726000974</span>) &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;tanh(-0.5)&quot;</span>)</span>
+<span class="src-line" id="L896">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">tanh</span>(<span class="n">1.0</span>) - <span class="n">0.7615941559557649</span>) &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;tanh(1.0)&quot;</span>)</span>
+<span class="src-line" id="L897">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">tanh</span>(-<span class="n">1.0</span>) + <span class="n">0.7615941559557649</span>) &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;tanh(-1.0)&quot;</span>)</span>
+<span class="src-line" id="L898">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">tanh</span>(<span class="n">5.0</span>) - <span class="n">0.9999092042625951</span>) &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;tanh(5.0)&quot;</span>)</span>
+<span class="src-line" id="L899">	<span class="f">assert</span>(<span class="f">tanh</span>(<span class="n">20.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;tanh(20) == 1&quot;</span>)</span>
+<span class="src-line" id="L900">	<span class="f">assert</span>(<span class="f">tanh</span>(-<span class="n">20.0</span>) == -<span class="n">1.0</span>, <span class="s">&quot;tanh(-20) == -1&quot;</span>)</span>
+<span class="src-line" id="L901">	<span class="f">assert</span>(<span class="f">tanh</span>(<span class="n">1000.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;tanh(1000) == 1&quot;</span>)</span>
+<span class="src-line" id="L902">	<span class="f">assert</span>(<span class="f">tanh</span>(-<span class="n">1000.0</span>) == -<span class="n">1.0</span>, <span class="s">&quot;tanh(-1000) == -1&quot;</span>)</span>
+<span class="src-line" id="L903">	<span class="f">assert</span>(<span class="f">tanh</span>(<span class="t">INF</span>) == <span class="n">1.0</span>, <span class="s">&quot;tanh(INF) == 1&quot;</span>)</span>
+<span class="src-line" id="L904">	<span class="f">assert</span>(<span class="f">tanh</span>(-<span class="t">INF</span>) == -<span class="n">1.0</span>, <span class="s">&quot;tanh(-INF) == -1&quot;</span>)</span>
+<span class="src-line" id="L905">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">tanh</span>(<span class="t">NAN</span>)), <span class="s">&quot;tanh(NAN) is NaN&quot;</span>)</span>
+<span class="src-line" id="L906">}</span>
+<span class="src-line" id="L907"></span>
+<span class="src-line" id="L908"><span class="a">@test</span>(<span class="s">&quot;math IEEE-754 out-of-domain and non-finite edge cases&quot;</span>)</span>
+<span class="src-line" id="L909"><span class="k">bind</span> test_math_ieee754_edge_cases = (): {</span>
+<span class="src-line" id="L910">	<span class="m">// rounding on non-finite inputs</span></span>
+<span class="src-line" id="L911">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">trunc</span>(<span class="t">NAN</span>)), <span class="s">&quot;trunc(NAN)&quot;</span>)</span>
+<span class="src-line" id="L912">	<span class="f">assert</span>(<span class="f">trunc</span>(<span class="t">INF</span>) == <span class="t">INF</span> <span class="k">and</span> <span class="f">trunc</span>(-<span class="t">INF</span>) == -<span class="t">INF</span>, <span class="s">&quot;trunc(±INF)&quot;</span>)</span>
+<span class="src-line" id="L913">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">floor</span>(<span class="t">NAN</span>)), <span class="s">&quot;floor(NAN)&quot;</span>)</span>
+<span class="src-line" id="L914">	<span class="f">assert</span>(<span class="f">floor</span>(<span class="t">INF</span>) == <span class="t">INF</span> <span class="k">and</span> <span class="f">floor</span>(-<span class="t">INF</span>) == -<span class="t">INF</span>, <span class="s">&quot;floor(±INF)&quot;</span>)</span>
+<span class="src-line" id="L915">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">ceil</span>(<span class="t">NAN</span>)), <span class="s">&quot;ceil(NAN)&quot;</span>)</span>
+<span class="src-line" id="L916">	<span class="f">assert</span>(<span class="f">ceil</span>(<span class="t">INF</span>) == <span class="t">INF</span> <span class="k">and</span> <span class="f">ceil</span>(-<span class="t">INF</span>) == -<span class="t">INF</span>, <span class="s">&quot;ceil(±INF)&quot;</span>)</span>
+<span class="src-line" id="L917">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">round</span>(<span class="t">NAN</span>)), <span class="s">&quot;round(NAN)&quot;</span>)</span>
+<span class="src-line" id="L918">	<span class="f">assert</span>(<span class="f">round</span>(<span class="t">INF</span>) == <span class="t">INF</span> <span class="k">and</span> <span class="f">round</span>(-<span class="t">INF</span>) == -<span class="t">INF</span>, <span class="s">&quot;round(±INF)&quot;</span>)</span>
+<span class="src-line" id="L919"></span>
+<span class="src-line" id="L920">	<span class="m">// fmod IEEE-754</span></span>
+<span class="src-line" id="L921">	<span class="f">assert</span>(<span class="f">fmod</span>(<span class="n">5.5</span>, <span class="n">2.0</span>) == <span class="n">1.5</span>, <span class="s">&quot;fmod(5.5, 2.0)&quot;</span>)</span>
+<span class="src-line" id="L922">	<span class="f">assert</span>(<span class="f">fmod</span>(-<span class="n">5.5</span>, <span class="n">2.0</span>) == -<span class="n">1.5</span>, <span class="s">&quot;fmod(-5.5, 2.0)&quot;</span>)</span>
+<span class="src-line" id="L923">	<span class="f">assert</span>(<span class="f">fmod</span>(<span class="n">5.5</span>, -<span class="n">2.0</span>) == <span class="n">1.5</span>, <span class="s">&quot;fmod(5.5, -2.0)&quot;</span>)</span>
+<span class="src-line" id="L924">	<span class="f">assert</span>(<span class="f">fmod</span>(-<span class="n">5.5</span>, -<span class="n">2.0</span>) == -<span class="n">1.5</span>, <span class="s">&quot;fmod(-5.5, -2.0)&quot;</span>)</span>
+<span class="src-line" id="L925">	<span class="k">let</span> fmn0 = <span class="f">fmod</span>(-<span class="n">4.0</span>, <span class="n">2.0</span>)</span>
+<span class="src-line" id="L926">	<span class="f">assert</span>(fmn0 == <span class="n">0.0</span> <span class="k">and</span> <span class="n">1.0</span> / fmn0 &lt; <span class="n">0.0</span>, <span class="s">&quot;fmod(-4, 2) == -0.0&quot;</span>)</span>
+<span class="src-line" id="L927">	<span class="f">assert</span>(<span class="f">fmod</span>(<span class="n">5.0</span>, <span class="t">INF</span>) == <span class="n">5.0</span>, <span class="s">&quot;fmod(5, INF) == 5&quot;</span>)</span>
+<span class="src-line" id="L928">	<span class="f">assert</span>(<span class="f">fmod</span>(-<span class="n">5.0</span>, -<span class="t">INF</span>) == -<span class="n">5.0</span>, <span class="s">&quot;fmod(-5, -INF) == -5&quot;</span>)</span>
+<span class="src-line" id="L929">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">fmod</span>(<span class="n">1.0</span>, <span class="n">0.0</span>)), <span class="s">&quot;fmod(1, 0) is NaN&quot;</span>)</span>
+<span class="src-line" id="L930">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">fmod</span>(<span class="n">0.0</span>, <span class="n">0.0</span>)), <span class="s">&quot;fmod(0, 0) is NaN&quot;</span>)</span>
+<span class="src-line" id="L931">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">fmod</span>(<span class="t">INF</span>, <span class="n">2.0</span>)), <span class="s">&quot;fmod(INF, 2) is NaN&quot;</span>)</span>
+<span class="src-line" id="L932">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">fmod</span>(-<span class="t">INF</span>, <span class="n">2.0</span>)), <span class="s">&quot;fmod(-INF, 2) is NaN&quot;</span>)</span>
+<span class="src-line" id="L933">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">fmod</span>(<span class="t">INF</span>, <span class="t">INF</span>)), <span class="s">&quot;fmod(INF, INF) is NaN&quot;</span>)</span>
+<span class="src-line" id="L934">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">fmod</span>(<span class="t">NAN</span>, <span class="n">2.0</span>)), <span class="s">&quot;fmod(NAN, 2) is NaN&quot;</span>)</span>
+<span class="src-line" id="L935">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">fmod</span>(<span class="n">2.0</span>, <span class="t">NAN</span>)), <span class="s">&quot;fmod(2, NAN) is NaN&quot;</span>)</span>
+<span class="src-line" id="L936">	<span class="k">let</span> fm_big = <span class="f">fmod</span>(<span class="n">1.0e20</span>, <span class="n">3.0</span>)</span>
+<span class="src-line" id="L937">	<span class="f">assert</span>(fm_big &gt;= <span class="n">0.0</span> <span class="k">and</span> fm_big &lt; <span class="n">3.0</span>, <span class="s">&quot;fmod large finite range&quot;</span>)</span>
+<span class="src-line" id="L938">	<span class="f">assert</span>(<span class="f">fmod</span>(<span class="n">1.5e-323</span>, <span class="n">5.0e-324</span>) == <span class="n">0.0</span>, <span class="s">&quot;fmod subnormal exact&quot;</span>)</span>
+<span class="src-line" id="L939"></span>
+<span class="src-line" id="L940">	<span class="m">// sqrt IEEE-754</span></span>
+<span class="src-line" id="L941">	<span class="f">assert</span>(<span class="f">sqrt</span>(<span class="n">0.0</span>) == <span class="n">0.0</span>, <span class="s">&quot;sqrt(+0.0)&quot;</span>)</span>
+<span class="src-line" id="L942">	<span class="k">let</span> sn0 = <span class="f">sqrt</span>(-<span class="n">0.0</span>)</span>
+<span class="src-line" id="L943">	<span class="f">assert</span>(sn0 == <span class="n">0.0</span> <span class="k">and</span> <span class="n">1.0</span> / sn0 &lt; <span class="n">0.0</span>, <span class="s">&quot;sqrt(-0.0) preserves sign&quot;</span>)</span>
+<span class="src-line" id="L944">	<span class="f">assert</span>(<span class="f">sqrt</span>(<span class="t">INF</span>) == <span class="t">INF</span>, <span class="s">&quot;sqrt(INF) == INF&quot;</span>)</span>
+<span class="src-line" id="L945">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">sqrt</span>(-<span class="n">1.0</span>)), <span class="s">&quot;sqrt(-1) is NaN&quot;</span>)</span>
+<span class="src-line" id="L946">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">sqrt</span>(-<span class="t">INF</span>)), <span class="s">&quot;sqrt(-INF) is NaN&quot;</span>)</span>
+<span class="src-line" id="L947">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">sqrt</span>(<span class="t">NAN</span>)), <span class="s">&quot;sqrt(NAN) is NaN&quot;</span>)</span>
+<span class="src-line" id="L948">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">sqrt</span>(<span class="n">5.0e-324</span>) - <span class="n">2.2227587494850775e-162</span>) / <span class="n">2.2227587494850775e-162</span> &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;sqrt(5e-324)&quot;</span>)</span>
+<span class="src-line" id="L949">	<span class="k">let</span> s_max = <span class="f">sqrt</span>(<span class="n">1.7976931348623157e308</span>)</span>
+<span class="src-line" id="L950">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">is_inf</span>(s_max) <span class="k">and</span> s_max &gt; <span class="n">1.34e154</span>, <span class="s">&quot;sqrt(DBL_MAX) finite&quot;</span>)</span>
+<span class="src-line" id="L951"></span>
+<span class="src-line" id="L952">	<span class="m">// exp IEEE-754</span></span>
+<span class="src-line" id="L953">	<span class="f">assert</span>(<span class="f">exp</span>(<span class="t">INF</span>) == <span class="t">INF</span>, <span class="s">&quot;exp(INF) == INF&quot;</span>)</span>
+<span class="src-line" id="L954">	<span class="f">assert</span>(<span class="f">exp</span>(<span class="n">710.0</span>) == <span class="t">INF</span>, <span class="s">&quot;exp(710) == INF&quot;</span>)</span>
+<span class="src-line" id="L955">	<span class="f">assert</span>(<span class="f">exp</span>(<span class="n">1.0e10</span>) == <span class="t">INF</span>, <span class="s">&quot;exp(1e10) == INF&quot;</span>)</span>
+<span class="src-line" id="L956">	<span class="f">assert</span>(<span class="f">exp</span>(-<span class="t">INF</span>) == <span class="n">0.0</span>, <span class="s">&quot;exp(-INF) == 0&quot;</span>)</span>
+<span class="src-line" id="L957">	<span class="f">assert</span>(<span class="f">exp</span>(-<span class="n">746.0</span>) == <span class="n">0.0</span>, <span class="s">&quot;exp(-746) == 0&quot;</span>)</span>
+<span class="src-line" id="L958">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">exp</span>(<span class="t">NAN</span>)), <span class="s">&quot;exp(NAN) is NaN&quot;</span>)</span>
+<span class="src-line" id="L959">	<span class="k">let</span> e709 = <span class="f">exp</span>(<span class="n">709.0</span>)</span>
+<span class="src-line" id="L960">	<span class="f">assert</span>(e709 &gt; <span class="n">8.21e307</span> <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(e709), <span class="s">&quot;exp(709) finite&quot;</span>)</span>
+<span class="src-line" id="L961">	<span class="f">assert</span>(<span class="f">exp</span>(-<span class="n">744.4400719213812</span>) == <span class="n">5.0e-324</span>, <span class="s">&quot;exp(-744.44) subnormal&quot;</span>)</span>
+<span class="src-line" id="L962"></span>
+<span class="src-line" id="L963">	<span class="m">// log &amp; log10 IEEE-754</span></span>
+<span class="src-line" id="L964">	<span class="f">assert</span>(<span class="f">log</span>(<span class="n">0.0</span>) == -<span class="t">INF</span>, <span class="s">&quot;log(+0) == -INF&quot;</span>)</span>
+<span class="src-line" id="L965">	<span class="f">assert</span>(<span class="f">log</span>(-<span class="n">0.0</span>) == -<span class="t">INF</span>, <span class="s">&quot;log(-0) == -INF&quot;</span>)</span>
+<span class="src-line" id="L966">	<span class="f">assert</span>(<span class="f">log</span>(<span class="t">INF</span>) == <span class="t">INF</span>, <span class="s">&quot;log(INF) == INF&quot;</span>)</span>
+<span class="src-line" id="L967">	<span class="f">assert</span>(<span class="f">log</span>(<span class="n">1.0</span>) == <span class="n">0.0</span>, <span class="s">&quot;log(1) == 0&quot;</span>)</span>
+<span class="src-line" id="L968">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">log</span>(-<span class="n">1.0</span>)), <span class="s">&quot;log(-1) is NaN&quot;</span>)</span>
+<span class="src-line" id="L969">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">log</span>(-<span class="t">INF</span>)), <span class="s">&quot;log(-INF) is NaN&quot;</span>)</span>
+<span class="src-line" id="L970">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">log</span>(<span class="t">NAN</span>)), <span class="s">&quot;log(NAN) is NaN&quot;</span>)</span>
+<span class="src-line" id="L971">	<span class="f">assert</span>(<span class="f">log10</span>(<span class="n">0.0</span>) == -<span class="t">INF</span>, <span class="s">&quot;log10(0) == -INF&quot;</span>)</span>
+<span class="src-line" id="L972">	<span class="f">assert</span>(<span class="f">log10</span>(<span class="t">INF</span>) == <span class="t">INF</span>, <span class="s">&quot;log10(INF) == INF&quot;</span>)</span>
+<span class="src-line" id="L973">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">log10</span>(-<span class="n">1.0</span>)), <span class="s">&quot;log10(-1) is NaN&quot;</span>)</span>
+<span class="src-line" id="L974">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">log</span>(<span class="n">5.0e-324</span>) + <span class="n">744.4400719213812</span>) / <span class="n">744.4400719213812</span> &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;log(5e-324)&quot;</span>)</span>
+<span class="src-line" id="L975">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="f">log</span>(<span class="n">1.7976931348623157e308</span>) - <span class="n">709.782712893384</span>) / <span class="n">709.782712893384</span> &lt; <span class="n">1.0e-13</span>, <span class="s">&quot;log(DBL_MAX)&quot;</span>)</span>
+<span class="src-line" id="L976"></span>
+<span class="src-line" id="L977">	<span class="m">// pow IEEE-754</span></span>
+<span class="src-line" id="L978">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="t">NAN</span>, <span class="n">0.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;pow(NAN, +0)&quot;</span>)</span>
+<span class="src-line" id="L979">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="t">NAN</span>, -<span class="n">0.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;pow(NAN, -0)&quot;</span>)</span>
+<span class="src-line" id="L980">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="n">0.0</span>, <span class="n">0.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;pow(0, 0)&quot;</span>)</span>
+<span class="src-line" id="L981">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="t">INF</span>, <span class="n">0.0</span>) == <span class="n">1.0</span>, <span class="s">&quot;pow(INF, 0)&quot;</span>)</span>
+<span class="src-line" id="L982">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="n">1.0</span>, <span class="t">NAN</span>) == <span class="n">1.0</span>, <span class="s">&quot;pow(1, NAN)&quot;</span>)</span>
+<span class="src-line" id="L983">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="n">1.0</span>, <span class="t">INF</span>) == <span class="n">1.0</span>, <span class="s">&quot;pow(1, INF)&quot;</span>)</span>
+<span class="src-line" id="L984">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="n">1.0</span>, -<span class="t">INF</span>) == <span class="n">1.0</span>, <span class="s">&quot;pow(1, -INF)&quot;</span>)</span>
+<span class="src-line" id="L985">	<span class="f">assert</span>(<span class="f">pow</span>(-<span class="n">1.0</span>, <span class="t">INF</span>) == <span class="n">1.0</span>, <span class="s">&quot;pow(-1, INF)&quot;</span>)</span>
+<span class="src-line" id="L986">	<span class="f">assert</span>(<span class="f">pow</span>(-<span class="n">1.0</span>, -<span class="t">INF</span>) == <span class="n">1.0</span>, <span class="s">&quot;pow(-1, -INF)&quot;</span>)</span>
+<span class="src-line" id="L987">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="n">0.0</span>, -<span class="n">1.0</span>) == <span class="t">INF</span>, <span class="s">&quot;pow(+0, -1)&quot;</span>)</span>
+<span class="src-line" id="L988">	<span class="f">assert</span>(<span class="f">pow</span>(-<span class="n">0.0</span>, -<span class="n">1.0</span>) == -<span class="t">INF</span>, <span class="s">&quot;pow(-0, -1)&quot;</span>)</span>
+<span class="src-line" id="L989">	<span class="f">assert</span>(<span class="f">pow</span>(-<span class="n">0.0</span>, -<span class="n">2.0</span>) == <span class="t">INF</span>, <span class="s">&quot;pow(-0, -2)&quot;</span>)</span>
+<span class="src-line" id="L990">	<span class="k">let</span> pn0_3 = <span class="f">pow</span>(-<span class="n">0.0</span>, <span class="n">3.0</span>)</span>
+<span class="src-line" id="L991">	<span class="f">assert</span>(pn0_3 == <span class="n">0.0</span> <span class="k">and</span> <span class="n">1.0</span> / pn0_3 &lt; <span class="n">0.0</span>, <span class="s">&quot;pow(-0, 3) == -0.0&quot;</span>)</span>
+<span class="src-line" id="L992">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">pow</span>(<span class="n">0.0</span>, <span class="t">NAN</span>)), <span class="s">&quot;pow(0, NAN)&quot;</span>)</span>
+<span class="src-line" id="L993">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">pow</span>(<span class="n">2.0</span>, <span class="t">NAN</span>)), <span class="s">&quot;pow(2, NAN)&quot;</span>)</span>
+<span class="src-line" id="L994">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">pow</span>(<span class="t">NAN</span>, <span class="n">2.0</span>)), <span class="s">&quot;pow(NAN, 2)&quot;</span>)</span>
+<span class="src-line" id="L995">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="n">2.0</span>, <span class="t">INF</span>) == <span class="t">INF</span>, <span class="s">&quot;pow(2, INF)&quot;</span>)</span>
+<span class="src-line" id="L996">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="n">2.0</span>, -<span class="t">INF</span>) == <span class="n">0.0</span>, <span class="s">&quot;pow(2, -INF)&quot;</span>)</span>
+<span class="src-line" id="L997">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="n">0.5</span>, <span class="t">INF</span>) == <span class="n">0.0</span>, <span class="s">&quot;pow(0.5, INF)&quot;</span>)</span>
+<span class="src-line" id="L998">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="n">0.5</span>, -<span class="t">INF</span>) == <span class="t">INF</span>, <span class="s">&quot;pow(0.5, -INF)&quot;</span>)</span>
+<span class="src-line" id="L999">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="t">INF</span>, <span class="n">2.0</span>) == <span class="t">INF</span>, <span class="s">&quot;pow(INF, 2)&quot;</span>)</span>
+<span class="src-line" id="L1000">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="t">INF</span>, -<span class="n">2.0</span>) == <span class="n">0.0</span>, <span class="s">&quot;pow(INF, -2)&quot;</span>)</span>
+<span class="src-line" id="L1001">	<span class="f">assert</span>(<span class="f">pow</span>(-<span class="t">INF</span>, <span class="n">3.0</span>) == -<span class="t">INF</span>, <span class="s">&quot;pow(-INF, 3)&quot;</span>)</span>
+<span class="src-line" id="L1002">	<span class="f">assert</span>(<span class="f">pow</span>(-<span class="t">INF</span>, <span class="n">2.0</span>) == <span class="t">INF</span>, <span class="s">&quot;pow(-INF, 2)&quot;</span>)</span>
+<span class="src-line" id="L1003">	<span class="k">let</span> pinf_m3 = <span class="f">pow</span>(-<span class="t">INF</span>, -<span class="n">3.0</span>)</span>
+<span class="src-line" id="L1004">	<span class="f">assert</span>(pinf_m3 == <span class="n">0.0</span> <span class="k">and</span> <span class="n">1.0</span> / pinf_m3 &lt; <span class="n">0.0</span>, <span class="s">&quot;pow(-INF, -3) == -0.0&quot;</span>)</span>
+<span class="src-line" id="L1005">	<span class="f">assert</span>(<span class="f">pow</span>(-<span class="t">INF</span>, -<span class="n">2.0</span>) == <span class="n">0.0</span>, <span class="s">&quot;pow(-INF, -2)&quot;</span>)</span>
+<span class="src-line" id="L1006">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">pow</span>(-<span class="n">2.0</span>, <span class="n">0.5</span>)), <span class="s">&quot;pow(-2, 0.5) is NaN&quot;</span>)</span>
+<span class="src-line" id="L1007">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">pow</span>(-<span class="n">2.0</span>, -<span class="n">0.5</span>)), <span class="s">&quot;pow(-2, -0.5) is NaN&quot;</span>)</span>
+<span class="src-line" id="L1008">	<span class="f">assert</span>(<span class="f">pow</span>(-<span class="n">2.0</span>, <span class="n">3.0</span>) == -<span class="n">8.0</span>, <span class="s">&quot;pow(-2, 3)&quot;</span>)</span>
+<span class="src-line" id="L1009">	<span class="f">assert</span>(<span class="f">pow</span>(-<span class="n">2.0</span>, <span class="n">2.0</span>) == <span class="n">4.0</span>, <span class="s">&quot;pow(-2, 2)&quot;</span>)</span>
+<span class="src-line" id="L1010">	<span class="f">assert</span>(<span class="f">pow</span>(-<span class="n">2.0</span>, -<span class="n">3.0</span>) == -<span class="n">0.125</span>, <span class="s">&quot;pow(-2, -3)&quot;</span>)</span>
+<span class="src-line" id="L1011">	<span class="f">assert</span>(<span class="f">pow</span>(<span class="n">2.0</span>, -<span class="n">1074.0</span>) == <span class="n">5.0e-324</span>, <span class="s">&quot;pow(2, -1074) subnormal&quot;</span>)</span>
+<span class="src-line" id="L1012"></span>
+<span class="src-line" id="L1013">	<span class="m">// sin, cos, tan non-finite &amp; large finite</span></span>
+<span class="src-line" id="L1014">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">sin</span>(<span class="t">INF</span>)) <span class="k">and</span> <span class="f">is_nan</span>(<span class="f">sin</span>(-<span class="t">INF</span>)) <span class="k">and</span> <span class="f">is_nan</span>(<span class="f">sin</span>(<span class="t">NAN</span>)), <span class="s">&quot;sin non-finite is NaN&quot;</span>)</span>
+<span class="src-line" id="L1015">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">cos</span>(<span class="t">INF</span>)) <span class="k">and</span> <span class="f">is_nan</span>(<span class="f">cos</span>(-<span class="t">INF</span>)) <span class="k">and</span> <span class="f">is_nan</span>(<span class="f">cos</span>(<span class="t">NAN</span>)), <span class="s">&quot;cos non-finite is NaN&quot;</span>)</span>
+<span class="src-line" id="L1016">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="f">tan</span>(<span class="t">INF</span>)) <span class="k">and</span> <span class="f">is_nan</span>(<span class="f">tan</span>(-<span class="t">INF</span>)) <span class="k">and</span> <span class="f">is_nan</span>(<span class="f">tan</span>(<span class="t">NAN</span>)), <span class="s">&quot;tan non-finite is NaN&quot;</span>)</span>
+<span class="src-line" id="L1017">	<span class="k">let</span> s_big = <span class="f">sin</span>(<span class="n">1.0e20</span>)</span>
+<span class="src-line" id="L1018">	<span class="k">let</span> c_big = <span class="f">cos</span>(<span class="n">1.0e20</span>)</span>
+<span class="src-line" id="L1019">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">is_nan</span>(s_big) <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(s_big) <span class="k">and</span> s_big &gt;= -<span class="n">1.0</span> <span class="k">and</span> s_big &lt;= <span class="n">1.0</span>, <span class="s">&quot;sin(1e20) bounded&quot;</span>)</span>
+<span class="src-line" id="L1020">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">is_nan</span>(c_big) <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(c_big) <span class="k">and</span> c_big &gt;= -<span class="n">1.0</span> <span class="k">and</span> c_big &lt;= <span class="n">1.0</span>, <span class="s">&quot;cos(1e20) bounded&quot;</span>)</span>
+<span class="src-line" id="L1021">}</span>
+<span class="src-line" id="L1022"></span>
+<span class="src-line" id="L1023"><span class="a">@test</span>(<span class="s">&quot;math rounding, clamping, and interpolation&quot;</span>)</span>
+<span class="src-line" id="L1024"><span class="k">bind</span> test_math_rounding_and_interpolation = (): {</span>
+<span class="src-line" id="L1025">	<span class="f">assert</span>(<span class="f">floor</span>(<span class="n">3.7</span>) == <span class="n">3.0</span>, <span class="s">&quot;floor positive&quot;</span>)</span>
+<span class="src-line" id="L1026">	<span class="f">assert</span>(<span class="f">floor</span>(-<span class="n">3.2</span>) == -<span class="n">4.0</span>, <span class="s">&quot;floor negative&quot;</span>)</span>
+<span class="src-line" id="L1027"></span>
+<span class="src-line" id="L1028">	<span class="f">assert</span>(<span class="f">ceil</span>(<span class="n">3.2</span>) == <span class="n">4.0</span>, <span class="s">&quot;ceil positive&quot;</span>)</span>
+<span class="src-line" id="L1029">	<span class="f">assert</span>(<span class="f">ceil</span>(-<span class="n">3.7</span>) == -<span class="n">3.0</span>, <span class="s">&quot;ceil negative&quot;</span>)</span>
+<span class="src-line" id="L1030"></span>
+<span class="src-line" id="L1031">	<span class="f">assert</span>(<span class="f">round</span>(<span class="n">3.4</span>) == <span class="n">3.0</span>, <span class="s">&quot;round down&quot;</span>)</span>
+<span class="src-line" id="L1032">	<span class="f">assert</span>(<span class="f">round</span>(<span class="n">3.6</span>) == <span class="n">4.0</span>, <span class="s">&quot;round up&quot;</span>)</span>
+<span class="src-line" id="L1033"></span>
+<span class="src-line" id="L1034">	<span class="f">assert</span>(<span class="f">abs_float</span>(-<span class="n">42.5</span>) == <span class="n">42.5</span>, <span class="s">&quot;abs_float negative&quot;</span>)</span>
+<span class="src-line" id="L1035">	<span class="f">assert</span>(<span class="f">abs_float</span>(<span class="n">42.5</span>) == <span class="n">42.5</span>, <span class="s">&quot;abs_float positive&quot;</span>)</span>
+<span class="src-line" id="L1036"></span>
+<span class="src-line" id="L1037">	<span class="f">assert</span>(<span class="f">clamp_int</span>(<span class="n">15</span>, <span class="n">0</span>, <span class="n">10</span>) == <span class="n">10</span>, <span class="s">&quot;clamp_int upper&quot;</span>)</span>
+<span class="src-line" id="L1038">	<span class="f">assert</span>(<span class="f">clamp_int</span>(-<span class="n">5</span>, <span class="n">0</span>, <span class="n">10</span>) == <span class="n">0</span>, <span class="s">&quot;clamp_int lower&quot;</span>)</span>
+<span class="src-line" id="L1039">	<span class="f">assert</span>(<span class="f">clamp_int</span>(<span class="n">5</span>, <span class="n">0</span>, <span class="n">10</span>) == <span class="n">5</span>, <span class="s">&quot;clamp_int within&quot;</span>)</span>
+<span class="src-line" id="L1040"></span>
+<span class="src-line" id="L1041">	<span class="f">assert</span>(<span class="f">clamp_float</span>(<span class="n">15.5</span>, <span class="n">0.0</span>, <span class="n">10.0</span>) == <span class="n">10.0</span>, <span class="s">&quot;clamp_float upper&quot;</span>)</span>
+<span class="src-line" id="L1042">	<span class="f">assert</span>(<span class="f">lerp</span>(<span class="n">10.0</span>, <span class="n">20.0</span>, <span class="n">0.5</span>) == <span class="n">15.0</span>, <span class="s">&quot;lerp midpoint&quot;</span>)</span>
+<span class="src-line" id="L1043">	<span class="f">assert</span>(<span class="f">lerp</span>(<span class="n">0.0</span>, <span class="n">100.0</span>, <span class="n">0.25</span>) == <span class="n">25.0</span>, <span class="s">&quot;lerp quarter&quot;</span>)</span>
+<span class="src-line" id="L1044">}</span>
+<span class="src-line" id="L1045"></span>
+<span class="src-line" id="L1046"><span class="a">@test</span>(<span class="s">&quot;math non-finite IEEE-754 constants and predicates: INF, NAN, is_nan, is_inf&quot;</span>)</span>
+<span class="src-line" id="L1047"><span class="k">bind</span> test_math_non_finite = (): {</span>
+<span class="src-line" id="L1048">	<span class="f">assert</span>(<span class="f">is_inf</span>(<span class="t">INF</span>), <span class="s">&quot;INF is_inf&quot;</span>)</span>
+<span class="src-line" id="L1049">	<span class="f">assert</span>(<span class="f">is_inf</span>(-<span class="t">INF</span>), <span class="s">&quot;-INF is_inf&quot;</span>)</span>
+<span class="src-line" id="L1050">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">is_nan</span>(<span class="t">INF</span>), <span class="s">&quot;INF not is_nan&quot;</span>)</span>
+<span class="src-line" id="L1051">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">is_nan</span>(-<span class="t">INF</span>), <span class="s">&quot;-INF not is_nan&quot;</span>)</span>
+<span class="src-line" id="L1052">	<span class="f">assert</span>(<span class="t">INF</span> &gt; <span class="n">1.0e308</span>, <span class="s">&quot;INF &gt; 1e308&quot;</span>)</span>
+<span class="src-line" id="L1053">	<span class="f">assert</span>(-<span class="t">INF</span> &lt; -<span class="n">1.0e308</span>, <span class="s">&quot;-INF &lt; -1e308&quot;</span>)</span>
+<span class="src-line" id="L1054">	<span class="f">assert</span>(<span class="t">INF</span> + <span class="n">1.0</span> == <span class="t">INF</span>, <span class="s">&quot;INF + 1 == INF&quot;</span>)</span>
+<span class="src-line" id="L1055">	<span class="f">assert</span>(-<span class="t">INF</span> - <span class="n">1.0</span> == -<span class="t">INF</span>, <span class="s">&quot;-INF - 1 == -INF&quot;</span>)</span>
+<span class="src-line" id="L1056"></span>
+<span class="src-line" id="L1057">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="t">NAN</span>), <span class="s">&quot;NAN is_nan&quot;</span>)</span>
+<span class="src-line" id="L1058">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">is_inf</span>(<span class="t">NAN</span>), <span class="s">&quot;NAN not is_inf&quot;</span>)</span>
+<span class="src-line" id="L1059">	<span class="f">assert</span>(<span class="k">not</span> (<span class="t">NAN</span> == <span class="t">NAN</span>), <span class="s">&quot;NAN != NAN equality&quot;</span>)</span>
+<span class="src-line" id="L1060">	<span class="f">assert</span>(<span class="k">not</span> (<span class="t">NAN</span> &lt; <span class="n">0.0</span>) <span class="k">and</span> <span class="k">not</span> (<span class="t">NAN</span> &gt; <span class="n">0.0</span>), <span class="s">&quot;NAN unordered&quot;</span>)</span>
+<span class="src-line" id="L1061">	<span class="f">assert</span>(<span class="f">is_nan</span>(<span class="t">NAN</span> + <span class="n">1.0</span>), <span class="s">&quot;NAN + 1 stays NaN&quot;</span>)</span>
+<span class="src-line" id="L1062"></span>
+<span class="src-line" id="L1063">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">is_nan</span>(<span class="n">0.0</span>) <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(<span class="n">0.0</span>), <span class="s">&quot;0.0 finite&quot;</span>)</span>
+<span class="src-line" id="L1064">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">is_nan</span>(-<span class="n">0.0</span>) <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(-<span class="n">0.0</span>), <span class="s">&quot;-0.0 finite&quot;</span>)</span>
+<span class="src-line" id="L1065">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">is_nan</span>(<span class="t">PI</span>) <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(<span class="t">PI</span>), <span class="s">&quot;PI finite&quot;</span>)</span>
+<span class="src-line" id="L1066">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">is_nan</span>(<span class="n">1.0e308</span>) <span class="k">and</span> <span class="k">not</span> <span class="f">is_inf</span>(<span class="n">1.0e308</span>), <span class="s">&quot;1e308 finite&quot;</span>)</span>
+<span class="src-line" id="L1067">}</span>
+<span class="src-line" id="L1068"></span>
+<span class="src-line" id="L1069"><span class="k">bind</span> _close = (a: <span class="t">float</span>, b: <span class="t">float</span>, tol: <span class="t">float</span>) <span class="t">bool</span>: <span class="f">abs_float</span>(a - b) &lt;= tol * (<span class="k">if</span>(<span class="f">abs_float</span>(b) &gt; <span class="n">1.0</span>): <span class="f">abs_float</span>(b) <span class="k">else</span>: <span class="n">1.0</span>)</span>
+<span class="src-line" id="L1070"></span>
+<span class="src-line" id="L1071"><span class="a">@test</span>(<span class="s">&quot;math sin, cos, and tan stay accurate for huge arguments and near multiples of pi/2&quot;</span>)</span>
+<span class="src-line" id="L1072"><span class="k">bind</span> test_math_trig_reduction = (): {</span>
+<span class="src-line" id="L1073">	<span class="m">// Reference values from the C library (Payne–Hanek-reduced).</span></span>
+<span class="src-line" id="L1074">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">sin</span>(<span class="n">1e15</span>), <span class="n">0.8582727931702359</span>, <span class="n">1e-15</span>), <span class="s">&quot;sin(1e15)&quot;</span>)</span>
+<span class="src-line" id="L1075">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">cos</span>(<span class="n">1e15</span>), -<span class="n">0.5131937377869702</span>, <span class="n">1e-15</span>), <span class="s">&quot;cos(1e15)&quot;</span>)</span>
+<span class="src-line" id="L1076">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">tan</span>(<span class="n">1e15</span>), -<span class="n">1.672414782127583</span>, <span class="n">1e-14</span>), <span class="s">&quot;tan(1e15)&quot;</span>)</span>
+<span class="src-line" id="L1077">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">sin</span>(-<span class="n">1e15</span>), -<span class="n">0.8582727931702359</span>, <span class="n">1e-15</span>), <span class="s">&quot;sin is odd&quot;</span>)</span>
+<span class="src-line" id="L1078">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">sin</span>(<span class="n">1e22</span>), -<span class="n">0.8522008497671888</span>, <span class="n">1e-15</span>), <span class="s">&quot;sin(1e22)&quot;</span>)</span>
+<span class="src-line" id="L1079">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">cos</span>(<span class="n">1e300</span>), -<span class="n">0.5753861119575491</span>, <span class="n">1e-15</span>), <span class="s">&quot;cos(1e300)&quot;</span>)</span>
+<span class="src-line" id="L1080">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">sin</span>(<span class="n">1e6</span>), -<span class="n">0.34999350217129294</span>, <span class="n">1e-15</span>), <span class="s">&quot;sin(1e6)&quot;</span>)</span>
+<span class="src-line" id="L1081">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">sin</span>(<span class="t">TAU</span>), -<span class="n">2.4492935982947064e-16</span>, <span class="n">1e-30</span>), <span class="s">&quot;sin(2pi) is the tiny rounding residue&quot;</span>)</span>
+<span class="src-line" id="L1082">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">sin</span>(<span class="n">1570796326.7948966</span>), -<span class="n">1.660070645726475e-08</span>, <span class="n">1e-22</span>), <span class="s">&quot;just below a multiple of pi/2&quot;</span>)</span>
+<span class="src-line" id="L1083">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">cos</span>(<span class="n">3.0</span>), -<span class="n">0.9899924966004454</span>, <span class="n">1e-15</span>), <span class="s">&quot;cos(3)&quot;</span>)</span>
+<span class="src-line" id="L1084">}</span>
+<span class="src-line" id="L1085"></span>
+<span class="src-line" id="L1086"><span class="a">@test</span>(<span class="s">&quot;math round, cbrt, and hypot are exact or overflow-safe at the extremes&quot;</span>)</span>
+<span class="src-line" id="L1087"><span class="k">bind</span> test_math_extremes = (): {</span>
+<span class="src-line" id="L1088">	<span class="f">assert</span>(<span class="f">round</span>(<span class="n">0.49999999999999994</span>) == <span class="n">0.0</span>, <span class="s">&quot;largest double below 0.5 rounds down&quot;</span>)</span>
+<span class="src-line" id="L1089">	<span class="f">assert</span>(<span class="f">round</span>(<span class="n">2.5</span>) == <span class="n">3.0</span> <span class="k">and</span> <span class="f">round</span>(-<span class="n">2.5</span>) == -<span class="n">3.0</span>, <span class="s">&quot;halves round away from zero&quot;</span>)</span>
+<span class="src-line" id="L1090">	<span class="f">assert</span>(<span class="f">round</span>(<span class="n">4503599627370497.0</span>) == <span class="n">4503599627370497.0</span>, <span class="s">&quot;large integers are unchanged&quot;</span>)</span>
+<span class="src-line" id="L1091">	<span class="f">assert</span>(<span class="f">round</span>(-<span class="n">0.4</span>) == <span class="n">0.0</span>, <span class="s">&quot;small negatives round to (negative) zero&quot;</span>)</span>
+<span class="src-line" id="L1092"></span>
+<span class="src-line" id="L1093">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">cbrt</span>(<span class="n">1e-300</span>), <span class="n">1e-100</span>, <span class="n">1e-15</span>), <span class="s">&quot;cbrt(1e-300)&quot;</span>)</span>
+<span class="src-line" id="L1094">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">cbrt</span>(<span class="n">1e300</span>), <span class="n">1e100</span>, <span class="n">1e-15</span>), <span class="s">&quot;cbrt(1e300)&quot;</span>)</span>
+<span class="src-line" id="L1095">	<span class="f">assert</span>(<span class="f">cbrt</span>(-<span class="n">27.0</span>) == -<span class="n">3.0</span> <span class="k">and</span> <span class="f">cbrt</span>(<span class="n">8.0</span>) == <span class="n">2.0</span>, <span class="s">&quot;exact cubes&quot;</span>)</span>
+<span class="src-line" id="L1096">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">cbrt</span>(<span class="n">5e-324</span>), <span class="n">1.7031839360032603e-108</span>, <span class="n">1e-15</span>), <span class="s">&quot;subnormal&quot;</span>)</span>
+<span class="src-line" id="L1097">	<span class="f">assert</span>(<span class="f">is_inf</span>(<span class="f">cbrt</span>(<span class="t">INF</span>)) <span class="k">and</span> <span class="f">is_nan</span>(<span class="f">cbrt</span>(<span class="t">NAN</span>)), <span class="s">&quot;non-finite inputs&quot;</span>)</span>
+<span class="src-line" id="L1098"></span>
+<span class="src-line" id="L1099">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">hypot</span>(<span class="n">1e200</span>, <span class="n">1e200</span>), <span class="n">1.414213562373095e+200</span>, <span class="n">1e-15</span>), <span class="s">&quot;no overflow&quot;</span>)</span>
+<span class="src-line" id="L1100">	<span class="f">assert</span>(<span class="f">_close</span>(<span class="f">hypot</span>(<span class="n">3e-200</span>, <span class="n">4e-200</span>), <span class="n">5e-200</span>, <span class="n">1e-15</span>), <span class="s">&quot;no underflow&quot;</span>)</span>
+<span class="src-line" id="L1101">	<span class="f">assert</span>(<span class="f">hypot</span>(<span class="n">3.0</span>, <span class="n">4.0</span>) == <span class="n">5.0</span>, <span class="s">&quot;3-4-5&quot;</span>)</span>
+<span class="src-line" id="L1102">	<span class="f">assert</span>(<span class="f">is_inf</span>(<span class="f">hypot</span>(<span class="t">INF</span>, <span class="t">NAN</span>)) <span class="k">and</span> <span class="f">is_nan</span>(<span class="f">hypot</span>(<span class="n">1.0</span>, <span class="t">NAN</span>)), <span class="s">&quot;non-finite inputs&quot;</span>)</span>
+<span class="src-line" id="L1103">}</span>
+<span class="src-line" id="L1104"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

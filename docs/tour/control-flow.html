@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control flow · Lowlight</title>
+<meta name="description" content="if, while, for, and leaving early with unwinds and labels.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a class="active" href="index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Tour</a></div><ul><li><a href="basics.html">Basics</a></li><li><a href="functions.html">Functions</a></li><li><a href="types.html">Your own types</a></li><li><a href="optionals.html">Optionals</a></li><li><a class="active" href="control-flow.html">Control flow</a></li><li><a href="matching.html">Pattern matching</a></li><li><a href="collections.html">Collections</a></li><li><a href="results.html">Results and errors</a></li><li><a href="ownership.html">Ownership</a></li><li><a href="interfaces-generics.html">Interfaces and generics</a></li><li><a href="packages-tests.html">Packages and tests</a></li><li><a href="next-steps.html">Next steps</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Tour</a></nav><h1 id="control-flow"><a class="anchor" href="#control-flow" aria-hidden="true">#</a>Control flow</h1>
+<p>Lowlight's control constructs all have the same shape, <code>keyword(header): body</code>, and they are all <strong>expressions</strong>: they produce values.</p>
+<h2 id="if"><a class="anchor" href="#if" aria-hidden="true">#</a>if</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> temp = <span class="n">23</span>
+	<span class="k">if</span>(temp &gt; <span class="n">30</span>): <span class="f">println</span>(<span class="s">&quot;hot&quot;</span>)
+	<span class="k">else</span> <span class="k">if</span>(temp &gt; <span class="n">15</span>): <span class="f">println</span>(<span class="s">&quot;pleasant&quot;</span>)
+	<span class="k">else</span>: <span class="f">println</span>(<span class="s">&quot;cold&quot;</span>)
+
+	<span class="k">let</span> label = <span class="k">if</span>(temp &gt; <span class="n">20</span>): <span class="s">&quot;warm&quot;</span> <span class="k">else</span>: <span class="s">&quot;cool&quot;</span>
+	<span class="f">println</span>(label)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>pleasant
+warm</code></pre>
+<p>The condition is always in parentheses, the body follows a colon, and the body is one expression or a <code>{ }</code> block. There's no ternary operator because <code>if</code> already is one.</p>
+<h2 id="while"><a class="anchor" href="#while" aria-hidden="true">#</a>while</h2>
+<p><code>while(condition)</code> repeats as long as the condition holds:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> n = <span class="n">27</span>
+	<span class="k">let</span> steps = <span class="n">0</span>
+	<span class="k">while</span>(n != <span class="n">1</span>): {
+		n = <span class="k">if</span>(n % <span class="n">2</span> == <span class="n">0</span>): n / <span class="n">2</span> <span class="k">else</span>: <span class="n">3</span> * n + <span class="n">1</span>
+		steps += <span class="n">1</span>
+	}
+	<span class="f">println</span>(steps)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>111</code></pre>
+<h2 id="for"><a class="anchor" href="#for" aria-hidden="true">#</a>for</h2>
+<p><code>for(x in collection)</code> visits every element of a list, array, map, set, range, or string:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">3</span>): <span class="f">print</span>(<span class="s">&quot;</span>$i<span class="s"> &quot;</span>)
+	<span class="f">println</span>()
+	<span class="k">for</span>(i <span class="k">in</span> <span class="n">1</span>..=<span class="n">3</span>): <span class="f">print</span>(<span class="s">&quot;</span>$i<span class="s"> &quot;</span>)
+	<span class="f">println</span>()
+	<span class="k">for</span>(i, name <span class="k">in</span> [<span class="s">&quot;ada&quot;</span>, <span class="s">&quot;grace&quot;</span>]): <span class="f">println</span>(<span class="s">&quot;</span>$i<span class="s">: </span>$name<span class="s">&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>0 1 2 
+1 2 3 
+0: ada
+1: grace</code></pre>
+<p><code>a..b</code> is the range from <code>a</code> up to but excluding <code>b</code>; <code>a..=b</code> includes <code>b</code>. With two loop variables, the first is the index (or the key, for a map).</p>
+<h3 id="loops-that-produce-values"><a class="anchor" href="#loops-that-produce-values" aria-hidden="true">#</a>Loops that produce values</h3>
+<p>Give a <code>for</code> loop a result type and it <strong>collects</strong> each value its body produces:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> squares = <span class="k">for</span>(i <span class="k">in</span> <span class="n">1</span>..=<span class="n">5</span>) [<span class="t">int</span>]: i * i
+	<span class="f">println</span>(squares)
+	<span class="k">let</span> evens = <span class="k">for</span>(i <span class="k">in</span> <span class="n">1</span>..=<span class="n">10</span>) [<span class="t">int</span>]: {
+		<span class="k">if</span>(i % <span class="n">2</span> != <span class="n">0</span>): <span class="k">next</span> <span class="u">&lt;-</span>
+		i
+	}
+	<span class="f">println</span>(evens)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>[1, 4, 9, 16, 25]
+[2, 4, 6, 8, 10]</code></pre>
+<h2 id="leaving-early-unwinds"><a class="anchor" href="#leaving-early-unwinds" aria-hidden="true">#</a>Leaving early: unwinds</h2>
+<p>There is no <code>return</code>, <code>break</code>, or <code>continue</code>. Instead there is one operator, <code>&lt;-</code>, which <strong>unwinds</strong> out of a construct. The word in front says which:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Write</th><th>Leaves</th><th></th></tr></thead>
+<tbody>
+<tr><td><code>func &lt;- v</code></td><td>the function</td><td>like <code>return v</code></td></tr>
+<tr><td><code>for &lt;-</code></td><td>the innermost <code>for</code></td><td>like <code>break</code></td></tr>
+<tr><td><code>while &lt;- v</code></td><td>the innermost <code>while</code>, giving it a value</td><td><code>break</code> with a value</td></tr>
+<tr><td><code>next &lt;-</code></td><td>the current iteration</td><td>like <code>continue</code></td></tr>
+<tr><td><code>&lt;- v</code></td><td>the innermost <code>{ }</code> block, giving it a value</td><td></td></tr>
+<tr><td><code>name &lt;- v</code></td><td>the block or loop labeled <code>name</code></td><td>labeled <code>break</code></td></tr>
+</tbody>
+</table></div>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> words = [<span class="s">&quot;alpha&quot;</span>, <span class="s">&quot;beta&quot;</span>, <span class="s">&quot;stop&quot;</span>, <span class="s">&quot;gamma&quot;</span>]
+	<span class="k">for</span>(w <span class="k">in</span> words): {
+		<span class="k">if</span>(w == <span class="s">&quot;stop&quot;</span>): <span class="k">for</span> <span class="u">&lt;-</span>
+		<span class="f">println</span>(w)
+	}
+	<span class="k">let</span> found = <span class="k">while</span>(<span class="c">true</span>) <span class="t">int</span>: <span class="k">while</span> <span class="u">&lt;-</span> <span class="n">7</span>
+	<span class="f">println</span>(found)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>alpha
+beta
+7</code></pre>
+<h3 id="labels"><a class="anchor" href="#labels" aria-hidden="true">#</a>Labels</h3>
+<p>Label a loop or block to leave it from inside a nested one:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> grid = [[<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>], [<span class="n">4</span>, <span class="n">5</span>, <span class="n">6</span>]]
+	<span class="k">let</span> where = search: <span class="k">while</span>(r, row <span class="k">in</span> grid) <span class="t">string</span>: {
+		<span class="k">for</span>(c, v <span class="k">in</span> row): <span class="k">if</span>(v == <span class="n">5</span>): search <span class="u">&lt;-</span> <span class="s">&quot;row </span>$r<span class="s">, column </span>$c<span class="s">&quot;</span>
+	} <span class="k">else</span>: <span class="s">&quot;not found&quot;</span>
+	<span class="f">println</span>(where)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>row 1, column 1</code></pre>
+<p><code>while</code> can iterate too (<code>while(x in xs)</code>); unlike <code>for</code>, it never collects, so its value comes only from its unwinds and its optional <code>else:</code> arm, which runs when the loop finishes without being unwound. That makes it the natural loop for searching.</p>
+<p>Unwinding always cleans up: every value owned by a scope you leave is freed on the way out.</p>
+<h2 id="next"><a class="anchor" href="#next" aria-hidden="true">#</a>Next</h2>
+<p><span class="repo-link" title="In the Lowlight repository: website/content/tour/matching.html">Pattern matching →</span></p>
+</article><nav class="prev-next"><a class="prev" href="optionals.html"><span>Previous</span>Optionals</a><a class="next" href="matching.html"><span>Next</span>Pattern matching</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#if">if</a></li><li><a href="#while">while</a></li><li><a href="#for">for</a></li><li class="sub"><a href="#loops-that-produce-values">Loops that produce values</a></li><li><a href="#leaving-early-unwinds">Leaving early: unwinds</a></li><li class="sub"><a href="#labels">Labels</a></li><li><a href="#next">Next</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tour</a><a href="basics.html">Basics</a><a href="functions.html">Functions</a><a href="types.html">Your own types</a><a href="optionals.html">Optionals</a><a href="control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

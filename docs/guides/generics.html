@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interfaces and generics · Lowlight</title>
+<meta name="description" content="Structural interfaces, interface values, generic functions and types, bounds, and monomorphization.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a class="active" href="index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Guides</a></div><div class="sidebar-group">Writing Lowlight</div><ul><li><a href="effective-lowlight.html">Effective Lowlight (conventions)</a></li><li><a href="coming-from.html">Coming from C, Rust, or Go</a></li></ul><div class="sidebar-group">Core ideas</div><ul><li><a href="ownership.html">Ownership and borrowing</a></li><li><a href="errors.html">Failure handling</a></li><li><a href="collections.html">Collections and iteration</a></li><li><a class="active" href="generics.html">Interfaces and generics</a></li><li><a href="memory.html">Memory, arenas, and pools</a></li></ul><div class="sidebar-group">Working with code</div><ul><li><a href="packages.html">Packages and dependencies</a></li><li><a href="testing.html">Testing</a></li><li><a href="unsafe-ffi.html">Unsafe code and C</a></li><li><a href="performance.html">Performance</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Guides</a><span class="sep">/</span><span>Core ideas</span></nav><h1 id="interfaces-and-generics"><a class="anchor" href="#interfaces-and-generics" aria-hidden="true">#</a>Interfaces and generics</h1>
+<p>Lowlight has two ways to write code that works with many types:</p>
+<ul>
+<li><strong>Generics</strong> (<code>[T: Bound]</code>) are resolved at compile time. Each use gets specialized code, with no runtime cost.
+</li>
+<li><strong>Interface values</strong> (<code>Shape(x)</code>) are resolved at run time through a table of methods, so one list can hold values of different types.
+</li>
+</ul>
+<p>Both are built on <strong>interfaces</strong>: named sets of methods.</p>
+<h2 id="interfaces-are-structural"><a class="anchor" href="#interfaces-are-structural" aria-hidden="true">#</a>Interfaces are structural</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Shape</span> <span class="k">interface</span> [
+	area: (<span class="k">self</span>) <span class="t">float</span>,
+	describe: (<span class="k">self</span>) <span class="t">string</span>,
+]</code></pre>
+<p>A type satisfies <code>Shape</code> simply by having those methods, with the same receiver and parameter modes. There is no <code>implements</code> clause, so you can make a type from another package satisfy your interface by adding methods to it.</p>
+<h2 id="interface-values"><a class="anchor" href="#interface-values" aria-hidden="true">#</a>Interface values</h2>
+<p>Converting a value to an interface type boxes it:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Shape</span> <span class="k">interface</span> [
+	area: (<span class="k">self</span>) <span class="t">float</span>,
+]
+
+<span class="k">define</span> <span class="t">Circle</span> <span class="k">struct</span> [
+	r: <span class="t">float</span>,
+]
+
+<span class="k">define</span> <span class="t">Rect</span> <span class="k">struct</span> [
+	w: <span class="t">float</span>,
+	h: <span class="t">float</span>,
+]
+
+<span class="k">bind</span> <span class="t">Circle</span>.area = (<span class="k">self</span>) <span class="t">float</span>: <span class="n">3.0</span> * <span class="k">self</span>.r * <span class="k">self</span>.r
+<span class="k">bind</span> <span class="t">Rect</span>.area = (<span class="k">self</span>) <span class="t">float</span>: <span class="k">self</span>.w * <span class="k">self</span>.h
+
+<span class="k">bind</span> total = (shapes: [<span class="t">Shape</span>]) <span class="t">float</span>: {
+	<span class="k">let</span> t = <span class="n">0.0</span>
+	<span class="k">for</span>(s <span class="k">in</span> shapes): t += s.<span class="f">area</span>()
+	t
+}
+
+<span class="k">bind</span> main = (): <span class="f">println</span>(<span class="f">total</span>([<span class="t">Shape</span>(<span class="t">Circle</span>[r: <span class="n">1.0</span>]), <span class="t">Shape</span>(<span class="t">Rect</span>[w: <span class="n">2.0</span>, h: <span class="n">5.0</span>])]))</code></pre>
+<pre class="lang-output" data-lang="output"><code>13</code></pre>
+<p>An interface value owns its boxed value and destroys it with the box. It is a resource, and <code>.copy()</code> copies the value inside.</p>
+<p>Interfaces that mention <code>Self</code> other than as the receiver, such as <code>Equatable</code> (<code>eq: (self, other: Self) bool</code>), can't be interface values, because the method needs to know the concrete type. They are used only as bounds.</p>
+<h2 id="generic-functions"><a class="anchor" href="#generic-functions" aria-hidden="true">#</a>Generic functions</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> count_if[<span class="t">T</span>] = (xs: [<span class="t">T</span>], pred: (<span class="t">T</span>) <span class="t">bool</span>) <span class="t">int</span>: {
+	<span class="k">let</span> n = <span class="n">0</span>
+	<span class="k">for</span>(x <span class="k">in</span> xs): <span class="k">if</span>(<span class="f">pred</span>(x)): n += <span class="n">1</span>
+	n
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="f">println</span>(<span class="f">count_if</span>([<span class="n">1</span>, <span class="n">5</span>, <span class="n">8</span>, <span class="n">2</span>], (x: <span class="t">int</span>) <span class="t">bool</span>: x &gt; <span class="n">3</span>))
+	<span class="f">println</span>(<span class="f">count_if</span>([<span class="s">&quot;a&quot;</span>, <span class="s">&quot;&quot;</span>, <span class="s">&quot;b&quot;</span>], (s: <span class="t">string</span>) <span class="t">bool</span>: s.<span class="f">is_empty</span>()))
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>2
+1</code></pre>
+<p>Type arguments are inferred from the arguments when possible. When they aren't, write them: <code>size_of[int]()</code>, <code>List[string].new()</code>.</p>
+<h2 id="bounds"><a class="anchor" href="#bounds" aria-hidden="true">#</a>Bounds</h2>
+<p>A bound says what a type parameter can do. Inside the function, only the bound's methods and operators are available:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Bound</th><th>Allows</th></tr></thead>
+<tbody>
+<tr><td><code>T: Equatable</code></td><td><code>==</code>, <code>!=</code></td></tr>
+<tr><td><code>T: Comparable</code></td><td><code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>==</code></td></tr>
+<tr><td><code>T: Hashable</code></td><td>use as a map key or set element</td></tr>
+<tr><td><code>T: Printable</code></td><td><code>&quot;$x&quot;</code>, <code>println(x)</code></td></tr>
+<tr><td><code>T: Copyable</code></td><td><code>x.copy()</code></td></tr>
+<tr><td><code>T: MyInterface</code></td><td>the interface's methods</td></tr>
+</tbody>
+</table></div>
+<p>Combine bounds with <code>+</code>: <code>[K: Hashable + Printable, V]</code>.</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> histogram[<span class="t">T</span>: <span class="t">Hashable</span> + <span class="t">Copyable</span>] = (xs: [<span class="t">T</span>]) #[<span class="t">T</span>: <span class="t">int</span>]: {
+	<span class="k">let</span> counts: #[<span class="t">T</span>: <span class="t">int</span>] = #[]
+	<span class="k">for</span>(x <span class="k">in</span> xs): {
+		<span class="k">let</span> n = counts[x] ?? <span class="n">0</span>
+		counts[x.<span class="f">copy</span>()] = n + <span class="n">1</span>
+	}
+	counts
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> h = <span class="f">histogram</span>([<span class="s">&quot;a&quot;</span>, <span class="s">&quot;b&quot;</span>, <span class="s">&quot;a&quot;</span>])
+	<span class="f">println</span>(h[<span class="s">&quot;a&quot;</span>] ?? <span class="n">0</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>2</code></pre>
+<h2 id="generic-types"><a class="anchor" href="#generic-types" aria-hidden="true">#</a>Generic types</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Pair</span>[<span class="t">A</span>, <span class="t">B</span>] <span class="k">struct</span> [
+	first: <span class="t">A</span>,
+	second: <span class="t">B</span>,
+]
+
+<span class="k">bind</span> <span class="t">Pair</span>[<span class="t">A</span>, <span class="t">B</span>].first_ref = (<span class="k">self</span>) <span class="t">A</span>: <span class="k">self</span>.first
+
+<span class="k">define</span> <span class="t">Tree</span>[<span class="t">T</span>] <span class="k">enum</span> [
+	leaf,
+	node: [<span class="t">Tree</span>[<span class="t">T</span>]],
+]
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> p = <span class="t">Pair</span>[<span class="t">int</span>, <span class="t">string</span>][first: <span class="n">1</span>, second: <span class="s">&quot;one&quot;</span>]
+	<span class="f">println</span>(<span class="s">&quot;</span>${p.second}<span class="s"> </span>${p.<span class="f">first_ref</span>()}<span class="s">&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>one 1</code></pre>
+<p>Methods on a generic type repeat its parameters: <code>bind Pair[A, B].first_ref</code>. A method can add its own parameters too: <code>bind List[T].map[U] = (self, f: (T) U) [U]: ...</code>.</p>
+<h2 id="monomorphization"><a class="anchor" href="#monomorphization" aria-hidden="true">#</a>Monomorphization</h2>
+<p>Generic code is compiled once per distinct set of type arguments. <code>count_if[int]</code> and <code>count_if[string]</code> are two separate functions in the executable, each as efficient as if written by hand. The cost is code size, and compile time for heavily generic code. Instantiations that would never end (a function calling itself with <code>List[T]</code>) stop at a nesting depth of 128 with an error.</p>
+<p>Two rules follow from this design:</p>
+<ul>
+<li><strong>A type argument is never optional.</strong> <code>Box[?int]</code> isn't allowed; write <code>?T</code> inside the generic declaration where absence is meant. This keeps optionals from nesting.
+</li>
+<li><strong>Generic code is checked once</strong>, in its generic form, against its bounds. An error in a generic function is reported where it's written, not at each use.
+</li>
+</ul>
+<h2 id="choosing-between-generics-and-interface-values"><a class="anchor" href="#choosing-between-generics-and-interface-values" aria-hidden="true">#</a>Choosing between generics and interface values</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Use generics when</th><th>Use interface values when</th></tr></thead>
+<tbody>
+<tr><td>all values in a call have the same type</td><td>one collection holds values of different types</td></tr>
+<tr><td>performance matters (calls are direct and inlinable)</td><td>the set of types is open-ended, like plugins</td></tr>
+<tr><td>you need <code>Self</code>-based interfaces (<code>==</code>, <code>&lt;</code>, <code>.copy()</code>)</td><td>you want to hide the concrete type</td></tr>
+</tbody>
+</table></div>
+<h2 id="built-in-interfaces"><a class="anchor" href="#built-in-interfaces" aria-hidden="true">#</a>Built-in interfaces</h2>
+<p>The prelude defines the interfaces behind operators, loops, and printing. <a href="../spec/the-prelude.html#121-core-interfaces">The prelude chapter</a> lists them all with the features they enable.</p>
+</article><nav class="prev-next"><a class="prev" href="collections.html"><span>Previous</span>Collections and iteration</a><a class="next" href="memory.html"><span>Next</span>Memory: arenas and pools</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#interfaces-are-structural">Interfaces are structural</a></li><li><a href="#interface-values">Interface values</a></li><li><a href="#generic-functions">Generic functions</a></li><li><a href="#bounds">Bounds</a></li><li><a href="#generic-types">Generic types</a></li><li><a href="#monomorphization">Monomorphization</a></li><li><a href="#choosing-between-generics-and-interface-values">Choosing between generics and interface values</a></li><li><a href="#built-in-interfaces">Built-in interfaces</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="index.html">Guides</a><a href="effective-lowlight.html">Effective Lowlight (conventions)</a><a href="coming-from.html">Coming from C, Rust, or Go</a><a href="ownership.html">Ownership and borrowing</a><a href="errors.html">Failure handling</a><a href="collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

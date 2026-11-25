@@ -268,6 +268,24 @@ func (ex *astExpander) expandExprWithBM(e ast.Expr, bm *BodyMaps, isVoid, hasExp
 		}
 		return ex.expandExprWithBM(v.Expr, bm, isVoid, hasExpectedCtx)
 
+	case *ast.MemberExpr, *ast.IndexExpr:
+		if cv, ok := bm.ComptimeVals[e]; ok && cv != nil {
+			var expectedTy types.Type
+			if inf := bm.ExprInfos[e]; inf != nil {
+				expectedTy = inf.Type
+			}
+			if sd := ExportStaticData(cv, expectedTy); sd != nil {
+				if folded := ex.staticDataToASTExpr(sd, hasExpectedCtx); folded != nil {
+					return folded, true
+				}
+			}
+		}
+	}
+
+	switch v := e.(type) {
+	case *ast.ComptimeExpr:
+		return ex.expandExprWithBM(v.Expr, bm, isVoid, hasExpectedCtx)
+
 	case *ast.IfExpr:
 		if v.IsComptime {
 			if branch, ok := bm.ComptimeIfBranch[v]; ok {
@@ -362,6 +380,53 @@ func (ex *astExpander) expandExprWithBM(e ast.Expr, bm *BodyMaps, isVoid, hasExp
 				}
 				if len(uf.Iters) == 0 && v.Else != nil {
 					return ex.expandExprWithBM(v.Else, bm, false, hasExpectedCtx)
+				}
+				if uf.CollectStruct != nil && !forUnrollHasUnwind(uf) {
+					flds := make([]ast.StructFieldInit, 0, len(uf.Iters))
+					for idx, it := range uf.Iters {
+						tIdx := it.TargetIdx
+						if tIdx < 0 {
+							tIdx = idx
+						}
+						if tIdx < len(uf.CollectStruct.Fields) {
+							flds = append(flds, ast.StructFieldInit{
+								Name:  uf.CollectStruct.Fields[tIdx].Name,
+								Value: ex.buildExpandedForIterExpr(it, bm, false),
+								Span:  expandSynthSpan,
+							})
+						}
+					}
+					var typeArgs []ast.TypeExpr
+					if len(uf.CollectStruct.TypeArgs) > 0 {
+						typeArgs = make([]ast.TypeExpr, len(uf.CollectStruct.TypeArgs))
+						for i, ta := range uf.CollectStruct.TypeArgs {
+							typeArgs[i] = ex.typeToASTTypeExpr(ta)
+						}
+					}
+					return &ast.StructLit{
+						TypeName: uf.CollectStruct.Name,
+						TypeArgs: typeArgs,
+						Fields:   flds,
+						Span:     expandSynthSpan,
+					}, true
+				}
+				if uf.CollectTuple != nil && !forUnrollHasUnwind(uf) {
+					elems := make([]ast.Expr, 0, len(uf.Iters))
+					for _, it := range uf.Iters {
+						elems = append(elems, ex.buildExpandedForIterExpr(it, bm, false))
+					}
+					return &ast.TupleLit{Elems: elems, Span: expandSynthSpan}, true
+				}
+				if uf.CollectArray != nil && !forUnrollHasUnwind(uf) {
+					elems := make([]ast.Expr, 0, len(uf.Iters))
+					for _, it := range uf.Iters {
+						elems = append(elems, ex.buildExpandedForIterExpr(it, bm, false))
+					}
+					return &ast.ArrayLit{
+						Count: &ast.IntLit{Val: uint64(uf.CollectArray.Size), Span: expandSynthSpan},
+						Elems: elems,
+						Span:  expandSynthSpan,
+					}, true
 				}
 				// Try clean vector literal representation when target is a Vec/unknown List and bodies don't unwind early.
 				var isVecTarget bool
@@ -458,6 +523,48 @@ func (ex *astExpander) expandExprWithBM(e ast.Expr, bm *BodyMaps, isVoid, hasExp
 		return &cp, true
 
 	case *ast.CallExpr:
+		if inf := bm.ExprInfos[v]; inf != nil {
+			if inf.BuiltinName == "struct.field" && inf.MethodRecv != nil {
+				base, _ := ex.expandExprWithBM(inf.MethodRecv, bm, false, false)
+				return &ast.MemberExpr{Base: base, Member: inf.ResolvedField, QuestDot: inf.IsOptChain, Span: v.Span}, true
+			}
+			if inf.BuiltinName == "seq.elem" && inf.MethodRecv != nil {
+				base, _ := ex.expandExprWithBM(inf.MethodRecv, bm, false, false)
+				recvTy := types.Type(nil)
+				if rinf := bm.ExprInfos[inf.MethodRecv]; rinf != nil {
+					recvTy = rinf.Type
+				}
+				if rf, isRef := recvTy.(*types.Ref); isRef {
+					recvTy = rf.Elem
+				}
+				if _, isArr := recvTy.(*types.StackArray); isArr && !inf.IsOptChain {
+					return &ast.IndexExpr{Base: base, Index: &ast.IntLit{Val: uint64(inf.TupleFieldIdx), Span: v.Span}, Span: v.Span}, true
+				}
+				return &ast.MemberExpr{Base: base, Member: strconv.Itoa(inf.TupleFieldIdx), QuestDot: inf.IsOptChain, Span: v.Span}, true
+			}
+			if (inf.BuiltinName == "enum.is_variant" || inf.BuiltinName == "enum.payload" || inf.BuiltinName == "enum.as_variant") && inf.MethodRecv != nil && inf.EnumVariant != nil {
+				base, _ := ex.expandExprWithBM(inf.MethodRecv, bm, false, false)
+				memName := strings.TrimPrefix(inf.BuiltinName, "enum.")
+				return &ast.CallExpr{
+					Callee: &ast.MemberExpr{Base: base, Member: memName, QuestDot: inf.IsOptChain, Span: v.Span},
+					Args:   []ast.Expr{&ast.StringLit{Val: inf.EnumVariant.Name, Span: v.Span}},
+					Span:   v.Span,
+				}, true
+			}
+			if inf.BuiltinName == "make_variant" && inf.EnumType != nil && inf.EnumVariant != nil {
+				args := []ast.Expr{&ast.StringLit{Val: inf.EnumVariant.Name, Span: v.Span}}
+				if len(v.Args) >= 2 {
+					a1, _ := ex.expandExprWithBM(v.Args[1], bm, false, true)
+					args = append(args, a1)
+				}
+				return &ast.CallExpr{
+					Callee:   &ast.IdentExpr{Name: "make_variant", Span: v.Span},
+					TypeArgs: cloneASTTypeExprs(v.TypeArgs),
+					Args:     args,
+					Span:     v.Span,
+				}, true
+			}
+		}
 		cp := *v
 		cp.Callee, _ = ex.expandExprWithBM(v.Callee, bm, false, false)
 		cp.TypeArgs = cloneASTTypeExprs(v.TypeArgs)

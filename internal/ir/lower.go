@@ -54,7 +54,7 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 		tc.visit(tv.Sym.Type)
 	}
 	for _, fi := range prog.Funcs {
-		if fi.ComptimeOnly {
+		if fi.ComptimeOnly || types.FindComptimeOnlyType(fi.Sig) != nil {
 			continue
 		}
 		for _, p := range fi.Sig.Params {
@@ -181,7 +181,7 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 
 	// 2. Lower all concrete & monomorphized functions/methods (omitting `@comptime_only`)
 	for _, fi := range prog.Funcs {
-		if fi.ComptimeOnly {
+		if fi.ComptimeOnly || types.FindComptimeOnlyType(fi.Sig) != nil {
 			continue
 		}
 		if (fi.IsTest || fi.IsTestOnly) && !testMode {
@@ -243,15 +243,17 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 // -----------------------------------------------------------------------------
 
 type mirScope struct {
-	targetID      int
-	breakLabel    string
-	continueLabel string
-	resultVar     *Local
-	hasValVar     *Local // non-nil in value-producing `for` loops to drop overwritten iteration values
-	loopElemTy    types.Type
-	isForNoElse   bool
-	isFunc        bool
-	ownedLocals   []*Local
+	targetID           int
+	breakLabel         string
+	continueLabel      string
+	resultVar          *Local
+	hasValVar          *Local // non-nil in value-producing `for` loops to drop overwritten iteration values
+	collectIterSlot    *Local // non-nil inside fixed-composite-collecting `comptime for`: current iteration's field/elem slot
+	collectUsedDefault *Local // non-nil inside struct-collecting `comptime for`: set true when bare `next <-` skips iteration
+	loopElemTy         types.Type
+	isForNoElse        bool
+	isFunc             bool
+	ownedLocals        []*Local
 }
 
 type funcLowerer struct {
@@ -1131,30 +1133,43 @@ func (fl *funcLowerer) lowerUnwindStmt(u *ast.UnwindStmt) {
 	tgt := fl.scopes[targetIdx]
 
 	// 1. Evaluate unwind payload (if any) BEFORE dropping scopes along the jump path!
-	if u.Value != nil && tgt.resultVar != nil {
-		if tgt.hasValVar != nil {
-			// Target is a value-producing loop (`while <- val`):
-			elemTy := tgt.loopElemTy
-			needsWrap := tgt.isForNoElse
-			uInf := fl.info(u.Value)
-			if rawTy := uInf.Type; tgt.isForNoElse && ((rawTy != nil && rawTy.Equals(tgt.resultVar.Type)) || uInf.WrapOptional) {
-				elemTy = tgt.resultVar.Type
-				needsWrap = false
-			}
-			valExpr := fl.lowerExprOwned(u.Value, elemTy)
-			valTmp := fl.allocSlot("_ll_uval", elemTy)
-			fl.assignLocal(valTmp, valExpr)
-			fl.flushStmtTemps()
-
-			// Drop any prior iteration value held in `tgt.resultVar` before overwriting!
-			fl.storeLoopRunningResult(tgt, NewLocalExpr(valTmp), needsWrap)
-		} else {
-			destTy := tgt.resultVar.Type
+	if u.Value != nil {
+		if uinf.IsContinue && tgt.collectIterSlot != nil {
+			destTy := tgt.collectIterSlot.Type
 			valExpr := fl.lowerExprOwned(u.Value, destTy)
-			fl.assignLocal(tgt.resultVar, valExpr)
+			fl.assignLocal(tgt.collectIterSlot, valExpr)
+			fl.flushStmtTemps()
+		} else if tgt.resultVar != nil {
+			if tgt.hasValVar != nil {
+				// Target is a value-producing loop (`while <- val`):
+				elemTy := tgt.loopElemTy
+				needsWrap := tgt.isForNoElse
+				uInf := fl.info(u.Value)
+				if rawTy := uInf.Type; tgt.isForNoElse && ((rawTy != nil && rawTy.Equals(tgt.resultVar.Type)) || uInf.WrapOptional) {
+					elemTy = tgt.resultVar.Type
+					needsWrap = false
+				}
+				valExpr := fl.lowerExprOwned(u.Value, elemTy)
+				valTmp := fl.allocSlot("_ll_uval", elemTy)
+				fl.assignLocal(valTmp, valExpr)
+				fl.flushStmtTemps()
+
+				// Drop any prior iteration value held in `tgt.resultVar` before overwriting!
+				fl.storeLoopRunningResult(tgt, NewLocalExpr(valTmp), needsWrap)
+			} else {
+				destTy := tgt.resultVar.Type
+				valExpr := fl.lowerExprOwned(u.Value, destTy)
+				fl.assignLocal(tgt.resultVar, valExpr)
+				fl.flushStmtTemps()
+			}
+		} else {
+			fl.lowerVoidExpr(u.Value)
 			fl.flushStmtTemps()
 		}
 	} else {
+		if uinf.IsContinue && uinf.IsStructFieldDefault && tgt.collectUsedDefault != nil {
+			fl.emit(&InstrAssign{Dst: NewLocalExpr(tgt.collectUsedDefault), Expr: NewLitBool(true)})
+		}
 		fl.flushStmtTemps()
 	}
 

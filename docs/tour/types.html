@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your own types · Lowlight</title>
+<meta name="description" content="Structs, enums, tuples, and distinct types.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a class="active" href="index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Tour</a></div><ul><li><a href="basics.html">Basics</a></li><li><a href="functions.html">Functions</a></li><li><a class="active" href="types.html">Your own types</a></li><li><a href="optionals.html">Optionals</a></li><li><a href="control-flow.html">Control flow</a></li><li><a href="matching.html">Pattern matching</a></li><li><a href="collections.html">Collections</a></li><li><a href="results.html">Results and errors</a></li><li><a href="ownership.html">Ownership</a></li><li><a href="interfaces-generics.html">Interfaces and generics</a></li><li><a href="packages-tests.html">Packages and tests</a></li><li><a href="next-steps.html">Next steps</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Tour</a></nav><h1 id="your-own-types"><a class="anchor" href="#your-own-types" aria-hidden="true">#</a>Your own types</h1>
+<p>All new types are declared with <code>define</code>.</p>
+<h2 id="structs"><a class="anchor" href="#structs" aria-hidden="true">#</a>Structs</h2>
+<p>A struct groups named fields:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">User</span> <span class="k">struct</span> [
+	name: <span class="t">string</span>,
+	age: <span class="t">int</span>,
+	role: <span class="t">string</span> = <span class="s">&quot;viewer&quot;</span>,
+]
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> u = <span class="t">User</span>[name: <span class="s">&quot;Ada&quot;</span>, age: <span class="n">36</span>]
+	<span class="f">println</span>(<span class="s">&quot;</span>${u.name}<span class="s"> (</span>${u.age}<span class="s">) is a </span>${u.role}<span class="s">&quot;</span>)
+	<span class="k">let</span> admin = <span class="t">User</span>[name: <span class="s">&quot;Grace&quot;</span>, age: <span class="n">45</span>, role: <span class="s">&quot;admin&quot;</span>]
+	<span class="f">println</span>(admin.role)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>Ada (36) is a viewer
+admin</code></pre>
+<p>A struct literal is <code>Type[field: value, ...]</code>, naming each field. Fields with a default may be left out. Struct fields are read with <code>.</code>, and assigned with <code>.</code> too when the struct is in a <code>let</code> variable.</p>
+<h2 id="enums"><a class="anchor" href="#enums" aria-hidden="true">#</a>Enums</h2>
+<p>An enum lists alternatives. Variants are lowercase. A <strong>tag enum</strong> has no data:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Direction</span> <span class="k">enum</span> [
+	north,
+	east,
+	south,
+	west,
+]
+
+<span class="k">bind</span> turn_right = (d: <span class="t">Direction</span>) <span class="t">Direction</span>:
+	<span class="k">match</span>(d):
+		<span class="k">when</span> north: <span class="t">Direction</span>.east
+		<span class="k">when</span> east: <span class="t">Direction</span>.south
+		<span class="k">when</span> south: <span class="t">Direction</span>.west
+		<span class="k">default</span> west: <span class="t">Direction</span>.north
+
+<span class="k">bind</span> main = (): <span class="f">println</span>(<span class="f">turn_right</span>(<span class="t">Direction</span>.west) == <span class="t">Direction</span>.north)</code></pre>
+<pre class="lang-output" data-lang="output"><code>true</code></pre>
+<p>Variants can also <strong>carry a value</strong>, making the enum a tagged union. Each variant carries at most one value; use a struct or tuple for more:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Shape</span> <span class="k">enum</span> [
+	circle: <span class="t">float</span>,
+	square: <span class="t">float</span>,
+	rect: +[<span class="t">float</span>, <span class="t">float</span>],
+	point,
+]
+
+<span class="k">bind</span> area = (s: <span class="t">Shape</span>) <span class="t">float</span>:
+	<span class="k">match</span>(s):
+		<span class="k">when</span> <span class="f">circle</span>(r): <span class="n">3.14159</span> * r * r
+		<span class="k">when</span> <span class="f">square</span>(side): side * side
+		<span class="k">when</span> <span class="f">rect</span>(wh): wh.<span class="n">0</span> * wh.<span class="n">1</span>
+		<span class="k">default</span> point: <span class="n">0.0</span>
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> shapes = [<span class="t">Shape</span>.<span class="f">circle</span>(<span class="n">1.0</span>), <span class="t">Shape</span>.<span class="f">rect</span>(+[<span class="n">2.0</span>, <span class="n">3.0</span>]), <span class="t">Shape</span>.point]
+	<span class="k">for</span>(s <span class="k">in</span> shapes): <span class="f">println</span>(<span class="f">area</span>(s))
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>3.14159
+6
+0</code></pre>
+<p>You build a variant with the type name, <code>Shape.circle(1.0)</code>, and take it apart with <code>match</code>, where variants are written bare. More on that in <span class="repo-link" title="In the Lowlight repository: website/content/tour/matching.html">Pattern matching</span>.</p>
+<h2 id="tuples"><a class="anchor" href="#tuples" aria-hidden="true">#</a>Tuples</h2>
+<p>A tuple groups a fixed number of values without naming them. Its literal starts with <code>+[</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> min_max = (xs: [<span class="t">int</span>]) +[<span class="t">int</span>, <span class="t">int</span>]: {
+	<span class="k">let</span> lo = xs[<span class="n">0</span>]
+	<span class="k">let</span> hi = xs[<span class="n">0</span>]
+	<span class="k">for</span>(x <span class="k">in</span> xs): {
+		lo = <span class="f">min</span>(lo, x)
+		hi = <span class="f">max</span>(hi, x)
+	}
+	+[lo, hi]
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> pair = <span class="f">min_max</span>([<span class="n">4</span>, <span class="n">1</span>, <span class="n">9</span>, <span class="n">3</span>])
+	<span class="f">println</span>(pair.<span class="n">1</span>)
+	<span class="k">let</span> lo, hi = <span class="k">unpack</span> pair
+	<span class="f">println</span>(<span class="s">&quot;</span>$lo<span class="s">..</span>$hi<span class="s">&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>9
+1..9</code></pre>
+<h2 id="distinct-types"><a class="anchor" href="#distinct-types" aria-hidden="true">#</a>Distinct types</h2>
+<p><code>define Name Base</code> makes a new type with the same representation as <code>Base</code> that does not mix with it:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">UserId</span> <span class="t">int</span>
+<span class="k">define</span> <span class="t">OrderId</span> <span class="t">int</span>
+
+<span class="k">bind</span> lookup = (id: <span class="t">UserId</span>) <span class="t">string</span>: <span class="s">&quot;user </span>${<span class="t">int</span>(id)}<span class="s">&quot;</span>
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> u = <span class="t">UserId</span>(<span class="n">7</span>)
+	<span class="f">println</span>(<span class="f">lookup</span>(u))
+	<span class="m">// lookup(OrderId(7)) would not compile: an OrderId is not a UserId</span>
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>user 7</code></pre>
+<h2 id="plain-values-and-resources"><a class="anchor" href="#plain-values-and-resources" aria-hidden="true">#</a>Plain values and resources</h2>
+<p>Every type is either <strong>plain</strong> or a <strong>resource</strong>, and the difference matters throughout Lowlight:</p>
+<ul>
+<li><strong>Plain</strong> values (numbers, <code>bool</code>, <code>char</code>, tag enums, and structs made only of plain fields) are copied whenever they are assigned or passed. Each copy is independent.
+</li>
+<li><strong>Resources</strong> (strings, lists, maps, sets, and anything containing them) own memory. They have one owner at a time, they <strong>move</strong> instead of copying, and they are freed automatically when their owner goes out of scope.
+</li>
+</ul>
+<p>The <code>User</code> above is a resource because it contains strings; <code>+[int, int]</code> is plain. <span class="repo-link" title="In the Lowlight repository: website/content/tour/ownership.html">Ownership</span> explains what that means in practice.</p>
+<h2 id="next"><a class="anchor" href="#next" aria-hidden="true">#</a>Next</h2>
+<p><span class="repo-link" title="In the Lowlight repository: website/content/tour/optionals.html">Optionals →</span></p>
+</article><nav class="prev-next"><a class="prev" href="functions.html"><span>Previous</span>Functions</a><a class="next" href="optionals.html"><span>Next</span>Optionals</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#structs">Structs</a></li><li><a href="#enums">Enums</a></li><li><a href="#tuples">Tuples</a></li><li><a href="#distinct-types">Distinct types</a></li><li><a href="#plain-values-and-resources">Plain values and resources</a></li><li><a href="#next">Next</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tour</a><a href="basics.html">Basics</a><a href="functions.html">Functions</a><a href="types.html">Your own types</a><a href="optionals.html">Optionals</a><a href="control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

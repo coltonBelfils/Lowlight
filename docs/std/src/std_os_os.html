@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>os.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>os.ll</h1><p>Source of package <a href="../os.html"><code>std/os</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/os — Process execution, filesystem queries, and host platform introspection.</span></span>
+<span class="src-line" id="L2"></span>
+<span class="src-line" id="L3"><span class="m">// Captured output and exit status returned by [`exec`] and [`system_run_status`].</span></span>
+<span class="src-line" id="L4"><span class="k">define</span> <span class="t">ExecResult</span> <span class="k">struct</span> [</span>
+<span class="src-line" id="L5">	<span class="m">// Captured standard output produced by the command (empty for [`system_run_status`]).</span></span>
+<span class="src-line" id="L6">	stdout: <span class="t">string</span>,</span>
+<span class="src-line" id="L7">	<span class="m">// Exit code (`0` to `255`), or `-1` if the command could not run or was killed by a signal.</span></span>
+<span class="src-line" id="L8">	exit_code: <span class="t">int</span>,</span>
+<span class="src-line" id="L9">	<span class="m">// The signal that terminated the command (`9` for `SIGKILL`), or `0` if it exited normally.</span></span>
+<span class="src-line" id="L10">	signal: <span class="t">int</span> = <span class="n">0</span>,</span>
+<span class="src-line" id="L11">]</span>
+<span class="src-line" id="L12"></span>
+<span class="src-line" id="L13"><span class="m">// Reports whether the command exited cleanly with status `0`.</span></span>
+<span class="src-line" id="L14"><span class="k">bind</span> <span class="t">ExecResult</span>.ok = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>.exit_code == <span class="n">0</span></span>
+<span class="src-line" id="L15"></span>
+<span class="src-line" id="L16"><span class="m">// Reports whether the command was terminated by a signal rather than exiting.</span></span>
+<span class="src-line" id="L17"><span class="k">bind</span> <span class="t">ExecResult</span>.signaled = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>.signal != <span class="n">0</span></span>
+<span class="src-line" id="L18"></span>
+<span class="src-line" id="L19"><span class="m">// Builds an [`ExecResult`] from a runtime status: an exit code, `256 + signal`, or `-1`.</span></span>
+<span class="src-line" id="L20"><span class="k">bind</span> _exec_result = (out: <span class="k">own</span> <span class="t">string</span>, status: <span class="t">int</span>) <span class="t">ExecResult</span>:</span>
+<span class="src-line" id="L21">	<span class="k">if</span>(status &gt;= <span class="n">256</span>): <span class="t">ExecResult</span>[stdout: <span class="k">own</span> out, exit_code: -<span class="n">1</span>, signal: status - <span class="n">256</span>]</span>
+<span class="src-line" id="L22">	<span class="k">else</span>: <span class="t">ExecResult</span>[stdout: <span class="k">own</span> out, exit_code: status, signal: <span class="n">0</span>]</span>
+<span class="src-line" id="L23"></span>
+<span class="src-line" id="L24"><span class="m">// Executes shell command `cmd` via a pipe, capturing stdout and returning an [`ExecResult`].</span></span>
+<span class="src-line" id="L25"><span class="m">//</span></span>
+<span class="src-line" id="L26"><span class="m">// - `cmd`: Shell command line string executed via `popen`.</span></span>
+<span class="src-line" id="L27"><span class="k">bind</span> exec = (cmd: <span class="t">string</span>) <span class="t">ExecResult</span>:</span>
+<span class="src-line" id="L28">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L29">		<span class="k">let</span> stream = <span class="f">sys_popen</span>(cmd.<span class="f">c_str</span>())</span>
+<span class="src-line" id="L30">		<span class="k">if</span>(stream == null_ptr[<span class="t">u8</span>]()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">ExecResult</span>[stdout: <span class="s">&quot;&quot;</span>, exit_code: -<span class="n">1</span>]</span>
+<span class="src-line" id="L31">		<span class="k">let</span> chunk_size = <span class="n">4096</span></span>
+<span class="src-line" id="L32">		<span class="k">let</span> raw = alloc_raw[<span class="t">u8</span>](chunk_size)</span>
+<span class="src-line" id="L33">		<span class="k">let</span> out_str = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L34">		<span class="k">let</span> n = <span class="f">sys_pread</span>(stream, raw, chunk_size)</span>
+<span class="src-line" id="L35">		<span class="k">for</span>(n &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L36">			<span class="k">let</span> chunk = <span class="f">str_from_raw</span>(raw, n)</span>
+<span class="src-line" id="L37">			out_str.<span class="f">push</span>(chunk)</span>
+<span class="src-line" id="L38">			n = <span class="f">sys_pread</span>(stream, raw, chunk_size)</span>
+<span class="src-line" id="L39">		}</span>
+<span class="src-line" id="L40">		<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L41">		<span class="k">let</span> status = <span class="f">sys_pclose</span>(stream)</span>
+<span class="src-line" id="L42">		<span class="f">_exec_result</span>(<span class="k">own</span> out_str, status)</span>
+<span class="src-line" id="L43">	}</span>
+<span class="src-line" id="L44"></span>
+<span class="src-line" id="L45"><span class="m">// Executes `cmd` through the host shell (`system`) and returns its exit code, or `-1` if the</span></span>
+<span class="src-line" id="L46"><span class="m">// command could not run or was killed by a signal. Use [`system_run_status`] to see the signal.</span></span>
+<span class="src-line" id="L47"><span class="k">bind</span> system_run = (cmd: <span class="t">string</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L48">	<span class="k">let</span> status = <span class="k">unsafe</span> <span class="f">sys_system</span>(cmd.<span class="f">c_str</span>())</span>
+<span class="src-line" id="L49">	<span class="k">if</span>(status &gt;= <span class="n">256</span>): -<span class="n">1</span> <span class="k">else</span>: status</span>
+<span class="src-line" id="L50">}</span>
+<span class="src-line" id="L51"></span>
+<span class="src-line" id="L52"><span class="m">// Executes `cmd` through the host shell (`system`) and returns its full status, including the</span></span>
+<span class="src-line" id="L53"><span class="m">// terminating signal, as an [`ExecResult`] with empty `stdout`.</span></span>
+<span class="src-line" id="L54"><span class="k">bind</span> system_run_status = (cmd: <span class="t">string</span>) <span class="t">ExecResult</span>: <span class="f">_exec_result</span>(<span class="s">&quot;&quot;</span>, <span class="k">unsafe</span> <span class="f">sys_system</span>(cmd.<span class="f">c_str</span>()))</span>
+<span class="src-line" id="L55"></span>
+<span class="src-line" id="L56"><span class="m">// Reports whether a file or directory exists at `path`.</span></span>
+<span class="src-line" id="L57"><span class="k">bind</span> file_exists = (path: <span class="t">string</span>) <span class="t">bool</span>: <span class="k">unsafe</span> <span class="f">sys_file_exists</span>(path.<span class="f">c_str</span>())</span>
+<span class="src-line" id="L58"></span>
+<span class="src-line" id="L59"><span class="m">// Creates a single directory at `path`, returning `true` on success.</span></span>
+<span class="src-line" id="L60"><span class="k">bind</span> mkdir = (path: <span class="t">string</span>) <span class="t">bool</span>: <span class="k">unsafe</span> <span class="f">sys_mkdir</span>(path.<span class="f">c_str</span>()) == <span class="n">0</span></span>
+<span class="src-line" id="L61"></span>
+<span class="src-line" id="L62"><span class="k">bind</span> _is_dir = (path: <span class="t">string</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L63">	<span class="k">if</span>(path.<span class="f">len</span>() == <span class="n">0</span>): <span class="c">false</span></span>
+<span class="src-line" id="L64">	<span class="k">else</span> <span class="k">if</span>(path == <span class="s">&quot;/&quot;</span>): <span class="f">file_exists</span>(<span class="s">&quot;/&quot;</span>)</span>
+<span class="src-line" id="L65">	<span class="k">else</span>: <span class="f">file_exists</span>(<span class="s">&quot;</span>${path}<span class="s">/.&quot;</span>)</span>
+<span class="src-line" id="L66"></span>
+<span class="src-line" id="L67"><span class="m">// Recursively creates `path` and any missing parent directories, returning `true` if `path` exists as a directory afterward.</span></span>
+<span class="src-line" id="L68"><span class="k">bind</span> mkdir_p = (path: <span class="t">string</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L69">	<span class="k">if</span>(path.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L70">	<span class="k">let</span> target = path.<span class="f">copy</span>()</span>
+<span class="src-line" id="L71">	<span class="k">for</span>(target.<span class="f">len</span>() &gt; <span class="n">1</span> <span class="k">and</span> target.<span class="f">byte_at</span>(target.<span class="f">len</span>() - <span class="n">1</span>) == <span class="t">u8</span>(<span class="n">47</span>)):</span>
+<span class="src-line" id="L72">		target = target[<span class="n">0</span>..target.<span class="f">len</span>() - <span class="n">1</span>]</span>
+<span class="src-line" id="L73">	<span class="k">if</span>(<span class="f">_is_dir</span>(target)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
+<span class="src-line" id="L74">	<span class="k">let</span> n = target.<span class="f">len</span>()</span>
+<span class="src-line" id="L75">	<span class="k">let</span> i = <span class="n">1</span></span>
+<span class="src-line" id="L76">	<span class="k">for</span>(i &lt; n): {</span>
+<span class="src-line" id="L77">		<span class="k">if</span>(target.<span class="f">byte_at</span>(i) == <span class="t">u8</span>(<span class="n">47</span>)): {</span>
+<span class="src-line" id="L78">			<span class="k">let</span> sub = target[<span class="n">0</span>..i]</span>
+<span class="src-line" id="L79">			<span class="k">if</span>(<span class="k">not</span> <span class="f">_is_dir</span>(sub)): {</span>
+<span class="src-line" id="L80">				<span class="k">if</span>(<span class="f">file_exists</span>(sub) <span class="k">or</span> <span class="k">not</span> <span class="f">mkdir</span>(sub)): {</span>
+<span class="src-line" id="L81">					<span class="k">if</span>(<span class="k">not</span> <span class="f">_is_dir</span>(sub)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L82">				}</span>
+<span class="src-line" id="L83">			}</span>
+<span class="src-line" id="L84">		}</span>
+<span class="src-line" id="L85">		i += <span class="n">1</span></span>
+<span class="src-line" id="L86">	}</span>
+<span class="src-line" id="L87">	<span class="k">if</span>(<span class="f">_is_dir</span>(target)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
+<span class="src-line" id="L88">	<span class="k">if</span>(<span class="f">file_exists</span>(target)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L89">	<span class="k">if</span>(<span class="f">mkdir</span>(target)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
+<span class="src-line" id="L90">	<span class="f">_is_dir</span>(target)</span>
+<span class="src-line" id="L91">}</span>
+<span class="src-line" id="L92"></span>
+<span class="src-line" id="L93"><span class="m">// Recursively removes `path` and any nested contents, returning `true` on success.</span></span>
+<span class="src-line" id="L94"><span class="k">bind</span> remove_all = (path: <span class="t">string</span>) <span class="t">bool</span>: <span class="k">unsafe</span> <span class="f">sys_remove_all</span>(path.<span class="f">c_str</span>()) == <span class="n">0</span></span>
+<span class="src-line" id="L95"></span>
+<span class="src-line" id="L96"><span class="m">// Returns the number of logical CPU cores available on the host system.</span></span>
+<span class="src-line" id="L97"><span class="k">bind</span> num_cpus = () <span class="t">int</span>: <span class="k">unsafe</span> <span class="f">sys_num_cpus</span>()</span>
+<span class="src-line" id="L98"></span>
+<span class="src-line" id="L99"><span class="m">// Returns the host operating system name string (for example `&quot;darwin&quot;` or `&quot;linux&quot;`).</span></span>
+<span class="src-line" id="L100"><span class="k">bind</span> os_name = () <span class="t">string</span>: <span class="f">str_from_cstr</span>(<span class="k">unsafe</span> <span class="f">sys_os_name</span>())</span>
+<span class="src-line" id="L101"></span>
+<span class="src-line" id="L102"><span class="m">// Returns the host CPU architecture identifier string (for example `&quot;arm64&quot;` or `&quot;x86_64&quot;`).</span></span>
+<span class="src-line" id="L103"><span class="k">bind</span> arch = () <span class="t">string</span>: <span class="f">str_from_cstr</span>(<span class="k">unsafe</span> <span class="f">sys_os_arch</span>())</span>
+<span class="src-line" id="L104"></span>
+<span class="src-line" id="L105"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L106"><span class="m">// Inline Unit Tests</span></span>
+<span class="src-line" id="L107"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L108"></span>
+<span class="src-line" id="L109"><span class="a">@test_only</span></span>
+<span class="src-line" id="L110"><span class="k">extern</span> getenv <span class="k">as</span> _test_getenv: (name: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">ptr</span>[<span class="t">u8</span>]</span>
+<span class="src-line" id="L111"></span>
+<span class="src-line" id="L112"><span class="a">@test_only</span></span>
+<span class="src-line" id="L113"><span class="k">bind</span> _test_tmp_path = (name: <span class="t">string</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L114">	<span class="k">let</span> base = <span class="f">str_from_cstr</span>(<span class="k">unsafe</span> <span class="f">_test_getenv</span>(<span class="s">&quot;TMPDIR&quot;</span>.<span class="f">c_str</span>()))</span>
+<span class="src-line" id="L115">	<span class="k">if</span>(base.<span class="f">len</span>() == <span class="n">0</span>): base = <span class="s">&quot;/tmp&quot;</span></span>
+<span class="src-line" id="L116">	<span class="k">if</span>(base.<span class="f">len</span>() &gt; <span class="n">1</span> <span class="k">and</span> base.<span class="f">byte_at</span>(base.<span class="f">len</span>() - <span class="n">1</span>) == <span class="t">u8</span>(<span class="n">47</span>)):</span>
+<span class="src-line" id="L117">		base = base[<span class="n">0</span>..base.<span class="f">len</span>() - <span class="n">1</span>]</span>
+<span class="src-line" id="L118">	<span class="k">let</span> mono = <span class="k">unsafe</span> <span class="f">sys_monotonic_nanos</span>()</span>
+<span class="src-line" id="L119">	<span class="k">let</span> epoch = <span class="k">unsafe</span> <span class="f">sys_epoch_nanos_now</span>()</span>
+<span class="src-line" id="L120">	<span class="s">&quot;</span>${base}<span class="s">/lowlight_test_</span>${name}<span class="s">_</span>${mono}<span class="s">_</span>${epoch}<span class="s">&quot;</span></span>
+<span class="src-line" id="L121">}</span>
+<span class="src-line" id="L122"></span>
+<span class="src-line" id="L123"><span class="a">@test</span>(<span class="s">&quot;os system metadata: num_cpus, os_name, arch, and args&quot;</span>)</span>
+<span class="src-line" id="L124"><span class="k">bind</span> test_os_metadata = (): {</span>
+<span class="src-line" id="L125">	<span class="f">assert</span>(<span class="f">num_cpus</span>() &gt;= <span class="n">1</span>, <span class="s">&quot;num_cpus &gt;= 1&quot;</span>)</span>
+<span class="src-line" id="L126">	<span class="k">let</span> os = <span class="f">os_name</span>()</span>
+<span class="src-line" id="L127">	<span class="f">assert</span>(os.<span class="f">len</span>() &gt; <span class="n">0</span>, <span class="s">&quot;os_name non-empty&quot;</span>)</span>
+<span class="src-line" id="L128">	<span class="k">let</span> a = <span class="f">arch</span>()</span>
+<span class="src-line" id="L129">	<span class="f">assert</span>(a.<span class="f">len</span>() &gt; <span class="n">0</span>, <span class="s">&quot;arch non-empty&quot;</span>)</span>
+<span class="src-line" id="L130"></span>
+<span class="src-line" id="L131">	<span class="k">let</span> cmd_args = <span class="f">args</span>()</span>
+<span class="src-line" id="L132">	<span class="f">assert</span>(cmd_args.<span class="f">len</span>() &gt;= <span class="n">1</span>, <span class="s">&quot;args contains at least argv[0]&quot;</span>)</span>
+<span class="src-line" id="L133">}</span>
+<span class="src-line" id="L134"></span>
+<span class="src-line" id="L135"><span class="a">@test</span>(<span class="s">&quot;os process execution: exec and ExitResult&quot;</span>)</span>
+<span class="src-line" id="L136"><span class="k">bind</span> test_os_exec = (): {</span>
+<span class="src-line" id="L137">	<span class="k">let</span> res = <span class="f">exec</span>(<span class="s">&quot;echo hello_os_test&quot;</span>)</span>
+<span class="src-line" id="L138">	<span class="f">assert</span>(res.<span class="f">ok</span>(), <span class="s">&quot;exec ok&quot;</span>)</span>
+<span class="src-line" id="L139">	<span class="f">assert</span>(res.exit_code == <span class="n">0</span>, <span class="s">&quot;exit code 0&quot;</span>)</span>
+<span class="src-line" id="L140">	<span class="f">assert</span>(res.stdout.<span class="f">contains</span>(<span class="s">&quot;hello_os_test&quot;</span>), <span class="s">&quot;stdout contains expected string&quot;</span>)</span>
+<span class="src-line" id="L141">	<span class="f">assert</span>(<span class="k">not</span> res.<span class="f">signaled</span>(), <span class="s">&quot;no signal&quot;</span>)</span>
+<span class="src-line" id="L142"></span>
+<span class="src-line" id="L143">	<span class="k">let</span> exit9 = <span class="f">exec</span>(<span class="s">&quot;exit 9&quot;</span>)</span>
+<span class="src-line" id="L144">	<span class="f">assert</span>(exit9.exit_code == <span class="n">9</span> <span class="k">and</span> exit9.signal == <span class="n">0</span>, <span class="s">&quot;exit 9 is an exit code&quot;</span>)</span>
+<span class="src-line" id="L145">	<span class="k">let</span> killed = <span class="f">exec</span>(<span class="s">&quot;kill -9 \$\$&quot;</span>)</span>
+<span class="src-line" id="L146">	<span class="f">assert</span>(killed.exit_code == -<span class="n">1</span> <span class="k">and</span> killed.signal == <span class="n">9</span> <span class="k">and</span> killed.<span class="f">signaled</span>(), <span class="s">&quot;SIGKILL is a signal&quot;</span>)</span>
+<span class="src-line" id="L147">	<span class="f">assert</span>(<span class="k">not</span> killed.<span class="f">ok</span>(), <span class="s">&quot;a killed command is not ok&quot;</span>)</span>
+<span class="src-line" id="L148"></span>
+<span class="src-line" id="L149">	<span class="f">assert</span>(<span class="f">system_run</span>(<span class="s">&quot;exit 3&quot;</span>) == <span class="n">3</span>, <span class="s">&quot;system_run exit code&quot;</span>)</span>
+<span class="src-line" id="L150">	<span class="f">assert</span>(<span class="f">system_run</span>(<span class="s">&quot;kill -15 \$\$&quot;</span>) == -<span class="n">1</span>, <span class="s">&quot;system_run reports a signal as -1&quot;</span>)</span>
+<span class="src-line" id="L151">	<span class="k">let</span> st = <span class="f">system_run_status</span>(<span class="s">&quot;kill -15 \$\$&quot;</span>)</span>
+<span class="src-line" id="L152">	<span class="f">assert</span>(st.signal == <span class="n">15</span> <span class="k">and</span> st.exit_code == -<span class="n">1</span>, <span class="s">&quot;system_run_status reports SIGTERM&quot;</span>)</span>
+<span class="src-line" id="L153">}</span>
+<span class="src-line" id="L154"></span>
+<span class="src-line" id="L155"><span class="a">@test</span>(<span class="s">&quot;os directory operations: mkdir_p, file_exists, remove_all&quot;</span>)</span>
+<span class="src-line" id="L156"><span class="k">bind</span> test_os_filesystem = (): {</span>
+<span class="src-line" id="L157">	<span class="k">let</span> base = <span class="f">_test_tmp_path</span>(<span class="s">&quot;os_dir&quot;</span>)</span>
+<span class="src-line" id="L158">	<span class="k">let</span> nested = <span class="s">&quot;</span>${base}<span class="s">/sub1/sub2&quot;</span></span>
+<span class="src-line" id="L159"></span>
+<span class="src-line" id="L160">	<span class="k">let</span> _ = <span class="f">remove_all</span>(base)</span>
+<span class="src-line" id="L161">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">file_exists</span>(nested), <span class="s">&quot;nested does not exist before mkdir_p&quot;</span>)</span>
+<span class="src-line" id="L162"></span>
+<span class="src-line" id="L163">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(nested), <span class="s">&quot;mkdir_p succeeds&quot;</span>)</span>
+<span class="src-line" id="L164">	<span class="f">assert</span>(<span class="f">file_exists</span>(nested), <span class="s">&quot;nested exists after mkdir_p&quot;</span>)</span>
+<span class="src-line" id="L165">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(nested), <span class="s">&quot;mkdir_p on existing dir is idempotent&quot;</span>)</span>
+<span class="src-line" id="L166">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(<span class="s">&quot;</span>${base}<span class="s">/trailing/&quot;</span>), <span class="s">&quot;mkdir_p handles trailing slash&quot;</span>)</span>
+<span class="src-line" id="L167">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">mkdir_p</span>(<span class="s">&quot;&quot;</span>), <span class="s">&quot;mkdir_p rejects empty path&quot;</span>)</span>
+<span class="src-line" id="L168"></span>
+<span class="src-line" id="L169">	<span class="k">let</span> reg = <span class="s">&quot;</span>${base}<span class="s">/reg_file.txt&quot;</span></span>
+<span class="src-line" id="L170">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L171">		<span class="k">let</span> fp = <span class="f">sys_fopen</span>(reg.<span class="f">c_str</span>(), <span class="s">&quot;wb&quot;</span>.<span class="f">c_str</span>())</span>
+<span class="src-line" id="L172">		<span class="f">assert</span>(fp != null_ptr[<span class="t">u8</span>](), <span class="s">&quot;create regular file succeeds&quot;</span>)</span>
+<span class="src-line" id="L173">		<span class="k">let</span> _ = <span class="f">sys_fclose</span>(fp)</span>
+<span class="src-line" id="L174">	}</span>
+<span class="src-line" id="L175">	<span class="f">assert</span>(<span class="f">file_exists</span>(reg), <span class="s">&quot;regular file exists&quot;</span>)</span>
+<span class="src-line" id="L176">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">mkdir_p</span>(reg), <span class="s">&quot;mkdir_p fails when target is regular file&quot;</span>)</span>
+<span class="src-line" id="L177">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">mkdir_p</span>(<span class="s">&quot;</span>${reg}<span class="s">/&quot;</span>), <span class="s">&quot;mkdir_p fails when target is regular file with trailing slash&quot;</span>)</span>
+<span class="src-line" id="L178">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">mkdir_p</span>(<span class="s">&quot;</span>${reg}<span class="s">/child/dir&quot;</span>), <span class="s">&quot;mkdir_p fails when ancestor is regular file&quot;</span>)</span>
+<span class="src-line" id="L179"></span>
+<span class="src-line" id="L180">	<span class="f">assert</span>(<span class="f">remove_all</span>(base), <span class="s">&quot;remove_all succeeds&quot;</span>)</span>
+<span class="src-line" id="L181">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">file_exists</span>(base), <span class="s">&quot;base does not exist after remove_all&quot;</span>)</span>
+<span class="src-line" id="L182">}</span>
+<span class="src-line" id="L183"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

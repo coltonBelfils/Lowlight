@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutorial: a config loader · Lowlight</title>
+<meta name="description" content="Design result types for a config file parser, handle each failure precisely, and add context as errors cross layers.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a class="active" href="index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Tutorials</a></div><div class="sidebar-group">Tutorials</div><ul><li><a href="word-count.html">A command-line tool</a></li><li><a href="calculator.html">A calculator</a></li><li><a class="active" href="config-loader.html">Handling errors</a></li><li><a href="web-service.html">A web service</a></li><li><a href="calling-c.html">Calling C</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Tutorials</a><span class="sep">/</span><span>Tutorials</span></nav><h1 id="tutorial-a-config-loader"><a class="anchor" href="#tutorial-a-config-loader" aria-hidden="true">#</a>Tutorial: a config loader</h1>
+<p>Error handling is where Lowlight differs most from languages with exceptions. In this tutorial you'll write a parser for a small configuration format and practice every tool Lowlight gives you for failures:</p>
+<ul>
+<li>custom <strong>result types</strong> that name each way an operation can fail;
+</li>
+<li><strong>result chains</strong> that handle failures by name;
+</li>
+<li>the general-purpose <strong><code>Result[T]</code> and <code>Error</code></strong>, with wrapping and codes;
+</li>
+<li>choosing between a <strong>result</strong>, an <strong>optional</strong>, and a <strong>panic</strong>.
+</li>
+</ul>
+<p>The format is lines of <code>key = value</code>, with <code>#</code> comments:</p>
+<pre class="lang-text" data-lang="text"><code># server settings
+host = example.org
+port = 8080
+debug = true</code></pre>
+<h2 id="1-the-configuration-type"><a class="anchor" href="#1-the-configuration-type" aria-hidden="true">#</a>1. The configuration type</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Config</span> <span class="k">struct</span> [
+	host: <span class="t">string</span>,
+	port: <span class="t">int</span>,
+	debug: <span class="t">bool</span>,
+]</code></pre>
+<h2 id="2-name-the-failures"><a class="anchor" href="#2-name-the-failures" aria-hidden="true">#</a>2. Name the failures</h2>
+<p>Parsing can fail in three distinct ways, and a caller may want to treat each differently: point at the bad line, report the missing key, or explain the bad value. A <strong>result type</strong> lists them:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">ParseResult</span> <span class="k">result</span> [
+	value: <span class="t">Config</span>,
+	syntax: <span class="t">int</span>,               <span class="m">// the line number that isn&#39;t `key = value`</span>
+	missing: <span class="t">string</span>,           <span class="m">// a required key that never appeared</span>
+	bad_value: +[<span class="t">string</span>, <span class="t">string</span>],
+]</code></pre>
+<p><code>value</code> is the success member. The others are failures, each carrying just the data needed to explain it.</p>
+<h2 id="3-parse-one-value-at-a-time"><a class="anchor" href="#3-parse-one-value-at-a-time" aria-hidden="true">#</a>3. Parse one value at a time</h2>
+<p>Parsing a single value can fail in only one way, so an optional is enough:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> parse_bool = (s: <span class="t">string</span>) ?<span class="t">bool</span>:
+	<span class="k">match</span>(s):
+		<span class="k">when</span> <span class="s">&quot;true&quot;</span>, <span class="s">&quot;yes&quot;</span>, <span class="s">&quot;on&quot;</span>: <span class="c">true</span>
+		<span class="k">when</span> <span class="s">&quot;false&quot;</span>, <span class="s">&quot;no&quot;</span>, <span class="s">&quot;off&quot;</span>: <span class="c">false</span>
+		<span class="k">default</span>: <span class="c">none</span></code></pre>
+<p>This is the first rule of failure design in Lowlight: <strong>use the smallest tool that fits</strong>. A lookup that may find nothing returns <code>?T</code>. Reach for a result when the caller needs to know <em>why</em>.</p>
+<h2 id="4-parse-the-file"><a class="anchor" href="#4-parse-the-file" aria-hidden="true">#</a>4. Parse the file</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> parse = (text: <span class="t">string</span>) <span class="t">ParseResult</span>: {
+	<span class="k">let</span> host?: ?<span class="t">string</span> = <span class="c">none</span>
+	<span class="k">let</span> port = <span class="n">80</span>
+	<span class="k">let</span> debug = <span class="c">false</span>
+	<span class="k">for</span>(i, raw <span class="k">in</span> text.<span class="f">split</span>(<span class="s">&quot;\n&quot;</span>)): {
+		<span class="k">let</span> line = raw.<span class="f">trim</span>()
+		<span class="k">if</span>(line.<span class="f">is_empty</span>() <span class="k">or</span> line.<span class="f">starts_with</span>(<span class="s">&quot;#&quot;</span>)): <span class="k">next</span> <span class="u">&lt;-</span>
+		<span class="k">let</span> eq = line.<span class="f">index_of</span>(<span class="s">&quot;=&quot;</span>) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">syntax</span>(i + <span class="n">1</span>)
+		<span class="k">let</span> key = line[..eq].<span class="f">trim</span>()
+		<span class="k">let</span> val = line[eq + <span class="n">1</span>..].<span class="f">trim</span>()
+		<span class="k">match</span>(key):
+			<span class="k">when</span> <span class="s">&quot;host&quot;</span>: host? = val.<span class="f">copy</span>()
+			<span class="k">when</span> <span class="s">&quot;port&quot;</span>: port = <span class="f">parse_int</span>(val) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">bad_value</span>(+[<span class="s">&quot;port&quot;</span>, val.<span class="f">copy</span>()])
+			<span class="k">when</span> <span class="s">&quot;debug&quot;</span>: debug = <span class="f">parse_bool</span>(val) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">bad_value</span>(+[<span class="s">&quot;debug&quot;</span>, val.<span class="f">copy</span>()])
+			<span class="k">default</span>: <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">bad_value</span>(+[<span class="s">&quot;key&quot;</span>, key.<span class="f">copy</span>()])
+	}
+	<span class="k">let</span> host = host? ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">missing</span>(<span class="s">&quot;host&quot;</span>)
+	<span class="f">value</span>(<span class="t">Config</span>[host: <span class="k">own</span> host, port: port, debug: debug])
+}</code></pre>
+<p>Each failure is one expression: <code>?? func &lt;- syntax(i + 1)</code> means &quot;use the value, or return this failure&quot;. An unwind after <code>??</code> must be the whole right-hand side of a <code>let</code>, <code>bind</code>, or assignment, which keeps these exits easy to spot at the start of a line. <code>syntax(...)</code>, <code>bad_value(...)</code>, and <code>value(...)</code> are the result's members, named bare because the function returns a <code>ParseResult</code>.</p>
+<p><code>host?</code> and <code>port?</code> start as <code>none</code> and get filled in. A bare <code>none</code> has no type of its own, so they are annotated. At the end, a missing <code>host</code> is a failure while a missing <code>port</code> defaults to 80.</p>
+<h2 id="5-handle-each-failure"><a class="anchor" href="#5-handle-each-failure" aria-hidden="true">#</a>5. Handle each failure</h2>
+<p>A caller handles the failures by name with a result chain:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Config</span> <span class="k">struct</span> [
+	host: <span class="t">string</span>,
+	port: <span class="t">int</span>,
+	debug: <span class="t">bool</span>,
+]
+
+<span class="k">define</span> <span class="t">ParseResult</span> <span class="k">result</span> [
+	value: <span class="t">Config</span>,
+	syntax: <span class="t">int</span>,
+	missing: <span class="t">string</span>,
+	bad_value: +[<span class="t">string</span>, <span class="t">string</span>],
+]
+
+<span class="k">bind</span> parse_bool = (s: <span class="t">string</span>) ?<span class="t">bool</span>:
+	<span class="k">match</span>(s):
+		<span class="k">when</span> <span class="s">&quot;true&quot;</span>, <span class="s">&quot;yes&quot;</span>, <span class="s">&quot;on&quot;</span>: <span class="c">true</span>
+		<span class="k">when</span> <span class="s">&quot;false&quot;</span>, <span class="s">&quot;no&quot;</span>, <span class="s">&quot;off&quot;</span>: <span class="c">false</span>
+		<span class="k">default</span>: <span class="c">none</span>
+
+<span class="k">bind</span> parse = (text: <span class="t">string</span>) <span class="t">ParseResult</span>: {
+	<span class="k">let</span> host?: ?<span class="t">string</span> = <span class="c">none</span>
+	<span class="k">let</span> port = <span class="n">80</span>
+	<span class="k">let</span> debug = <span class="c">false</span>
+	<span class="k">for</span>(i, raw <span class="k">in</span> text.<span class="f">split</span>(<span class="s">&quot;\n&quot;</span>)): {
+		<span class="k">let</span> line = raw.<span class="f">trim</span>()
+		<span class="k">if</span>(line.<span class="f">is_empty</span>() <span class="k">or</span> line.<span class="f">starts_with</span>(<span class="s">&quot;#&quot;</span>)): <span class="k">next</span> <span class="u">&lt;-</span>
+		<span class="k">let</span> eq = line.<span class="f">index_of</span>(<span class="s">&quot;=&quot;</span>) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">syntax</span>(i + <span class="n">1</span>)
+		<span class="k">let</span> key = line[..eq].<span class="f">trim</span>()
+		<span class="k">let</span> val = line[eq + <span class="n">1</span>..].<span class="f">trim</span>()
+		<span class="k">match</span>(key):
+			<span class="k">when</span> <span class="s">&quot;host&quot;</span>: host? = val.<span class="f">copy</span>()
+			<span class="k">when</span> <span class="s">&quot;port&quot;</span>: port = <span class="f">parse_int</span>(val) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">bad_value</span>(+[<span class="s">&quot;port&quot;</span>, val.<span class="f">copy</span>()])
+			<span class="k">when</span> <span class="s">&quot;debug&quot;</span>: debug = <span class="f">parse_bool</span>(val) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">bad_value</span>(+[<span class="s">&quot;debug&quot;</span>, val.<span class="f">copy</span>()])
+			<span class="k">default</span>: <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">bad_value</span>(+[<span class="s">&quot;key&quot;</span>, key.<span class="f">copy</span>()])
+	}
+	<span class="k">let</span> host = host? ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">missing</span>(<span class="s">&quot;host&quot;</span>)
+	<span class="f">value</span>(<span class="t">Config</span>[host: <span class="k">own</span> host, port: port, debug: debug])
+}
+
+<span class="k">bind</span> describe = (text: <span class="t">string</span>) <span class="t">string</span>: {
+	<span class="k">let</span> cfg = <span class="f">parse</span>(text):
+		<span class="k">when</span> <span class="f">syntax</span>(line): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;line </span>$line<span class="s">: expected `key = value`&quot;</span>
+		<span class="k">when</span> <span class="f">missing</span>(key): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;missing required key `</span>$key<span class="s">`&quot;</span>
+		<span class="k">default</span> <span class="f">bad_value</span>(kv): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;invalid </span>${kv.<span class="n">0</span>}<span class="s">: &#39;</span>${kv.<span class="n">1</span>}<span class="s">&#39;&quot;</span>
+	<span class="s">&quot;</span>${cfg.host}<span class="s">:</span>${cfg.port}<span class="s"> (debug </span>${cfg.debug}<span class="s">)&quot;</span>
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="f">println</span>(<span class="f">describe</span>(<span class="s">&quot;# server\nhost = example.org\nport = 8080\ndebug = yes&quot;</span>))
+	<span class="f">println</span>(<span class="f">describe</span>(<span class="s">&quot;host = localhost&quot;</span>))
+	<span class="f">println</span>(<span class="f">describe</span>(<span class="s">&quot;port = 80&quot;</span>))
+	<span class="f">println</span>(<span class="f">describe</span>(<span class="s">&quot;host = x\nport = eighty&quot;</span>))
+	<span class="f">println</span>(<span class="f">describe</span>(<span class="s">&quot;host = x\nverbose&quot;</span>))
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>example.org:8080 (debug true)
+localhost:80 (debug false)
+missing required key `host`
+invalid port: &#39;eighty&#39;
+line 2: expected `key = value`</code></pre>
+<p>The chain must handle every failure. Because the last arm <em>names</em> <code>bad_value</code> (rather than a catch-all <code>default:</code>), adding a fourth failure to <code>ParseResult</code> later would make this chain fail to compile until it handles the new case.</p>
+<h2 id="6-crossing-a-layer-resultt-and-error"><a class="anchor" href="#6-crossing-a-layer-resultt-and-error" aria-hidden="true">#</a>6. Crossing a layer: <code>Result[T]</code> and <code>Error</code></h2>
+<p>Precise result types are ideal right next to the operation. Further up, in code that just needs to load a config and report problems, the general <code>Result[T]</code> is more convenient. Its failure is an <code>Error</code>, which carries a message, an optional code, a cause, and a trace.</p>
+<p>Convert at the boundary, adding context:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> load = (name: <span class="t">string</span>, text: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">Config</span>]: {
+	<span class="k">let</span> cfg = <span class="f">parse</span>(text):
+		<span class="k">when</span> <span class="f">syntax</span>(line): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;syntax&quot;</span>, <span class="s">&quot;</span>$name<span class="s">:</span>$line<span class="s">: expected `key = value`&quot;</span>))
+		<span class="k">when</span> <span class="f">missing</span>(key): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;missing&quot;</span>, <span class="s">&quot;</span>$name<span class="s">: missing `</span>$key<span class="s">`&quot;</span>))
+		<span class="k">default</span> <span class="f">bad_value</span>(kv): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;invalid&quot;</span>, <span class="s">&quot;</span>$name<span class="s">: invalid </span>${kv.<span class="n">0</span>}<span class="s"> &#39;</span>${kv.<span class="n">1</span>}<span class="s">&#39;&quot;</span>))
+	<span class="f">value</span>(cfg)
+}
+
+<span class="k">bind</span> start_server = (text: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">int</span>]: {
+	<span class="k">let</span> cfg = <span class="f">load</span>(<span class="s">&quot;server.conf&quot;</span>, text):
+		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e.<span class="f">wrap</span>(<span class="s">&quot;starting server&quot;</span>))
+	<span class="f">value</span>(cfg.port)
+}</code></pre>
+<ul>
+<li><code>Error.coded(code, message)</code> gives the error a code that callers can test with <code>e.has_code(&quot;missing&quot;)</code>, without parsing the message.
+</li>
+<li><code>e.wrap(&quot;starting server&quot;)</code> makes a new error whose cause is <code>e</code>. Messages read from the outside in: <code>starting server: server.conf: missing </code>host``.
+</li>
+<li><code>own e</code> moves the error out of the result so it can be wrapped; errors are resources, and the compiler makes sure each one is either handled or passed on.
+</li>
+</ul>
+<p>At the top of the program, report and decide:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = () <span class="t">int</span>: {
+	<span class="k">let</span> port = <span class="f">start_server</span>(<span class="s">&quot;port = 1&quot;</span>):
+		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): {
+			<span class="f">eprintln</span>(e.<span class="f">summary</span>())
+			<span class="k">func</span> <span class="u">&lt;-</span> <span class="k">if</span>(e.<span class="f">has_code</span>(<span class="s">&quot;missing&quot;</span>)): <span class="n">2</span> <span class="k">else</span>: <span class="n">1</span>
+		}
+	<span class="f">println</span>(<span class="s">&quot;listening on </span>$port<span class="s">&quot;</span>)
+	<span class="n">0</span>
+}</code></pre>
+<h2 id="7-when-to-panic-instead"><a class="anchor" href="#7-when-to-panic-instead" aria-hidden="true">#</a>7. When to panic instead</h2>
+<p>Sometimes a failure can only mean the program itself is wrong. If the config is built into the program, a parse error is a bug, not a user mistake. Say so with <code>default panic</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> <span class="t">DEFAULTS</span> = <span class="s">&quot;host = localhost\nport = 8080&quot;</span>
+
+<span class="k">bind</span> defaults = () <span class="t">Config</span>: <span class="f">parse</span>(<span class="t">DEFAULTS</span>): <span class="k">default</span> <span class="k">panic</span></code></pre>
+<p>If it ever fails, the program stops with <code>unhandled failure ParseResult.syntax</code> and the source location, which is exactly what you want from a bug.</p>
+<h2 id="what-you-practiced"><a class="anchor" href="#what-you-practiced" aria-hidden="true">#</a>What you practiced</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Situation</th><th>Tool</th></tr></thead>
+<tbody>
+<tr><td>a value may legitimately be absent</td><td><code>?T</code>, with <code>??</code> and <code>if(x as v)</code></td></tr>
+<tr><td>the caller must distinguish ways of failing</td><td>a custom result type and a result chain</td></tr>
+<tr><td>failures pass through layers that add context</td><td><code>Result[T]</code>, <code>Error.wrap</code>, <code>Error.coded</code></td></tr>
+<tr><td>failure means the program is wrong</td><td><code>default panic</code>, <code>assert</code>, <code>panic</code></td></tr>
+</tbody>
+</table></div>
+<p>Read <a href="../guides/errors.html">Failure handling</a> for the complete guide.</p>
+<h2 id="exercises"><a class="anchor" href="#exercises" aria-hidden="true">#</a>Exercises</h2>
+<ol>
+<li>Report <em>all</em> syntax errors at once instead of stopping at the first. (Hint: change the <code>syntax</code> member to carry a <code>[int]</code>.)
+</li>
+<li>Add a <code>timeout</code> key whose value is a duration such as <code>30s</code> or <code>5m</code>, with its own failure member.
+</li>
+<li>Write tests for each failure using <code>test.assert_true</code> and a <code>match</code> on the result.
+</li>
+</ol>
+</article><nav class="prev-next"><a class="prev" href="calculator.html"><span>Previous</span>Tutorial: a calculator</a><a class="next" href="web-service.html"><span>Next</span>Tutorial: a web service</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#1-the-configuration-type">1. The configuration type</a></li><li><a href="#2-name-the-failures">2. Name the failures</a></li><li><a href="#3-parse-one-value-at-a-time">3. Parse one value at a time</a></li><li><a href="#4-parse-the-file">4. Parse the file</a></li><li><a href="#5-handle-each-failure">5. Handle each failure</a></li><li><a href="#6-crossing-a-layer-resultt-and-error">6. Crossing a layer: Result[T] and Error</a></li><li><a href="#7-when-to-panic-instead">7. When to panic instead</a></li><li><a href="#what-you-practiced">What you practiced</a></li><li><a href="#exercises">Exercises</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tutorials</a><a href="word-count.html">A command-line tool</a><a href="calculator.html">A calculator</a><a href="config-loader.html">Handling errors</a><a href="web-service.html">A web service</a><a href="calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

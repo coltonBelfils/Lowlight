@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lowlight — systems programming with nothing hidden</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-home" data-root="">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="start/index.html">Get Started</a><a href="tour/index.html">Tour</a><a href="learn/index.html">Tutorials</a><a href="guides/index.html">Guides</a><a href="examples/index.html">By Example</a><a href="ref/index.html">Reference</a><a href="std/index.html">Packages</a><a href="internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><main class="home"><section class="hero"><div class="hero-inner"><div>
+<h1>Systems programming with <em>nothing hidden</em>.</h1>
+<p class="lead">Lowlight gives you C-level control over memory and data layout with no garbage collector, no null, and no lifetime annotations. Every mutation, move, failure, and early exit is marked right where it happens, so code reads the way it runs.</p>
+<div class="buttons"><a class="btn btn-primary" href="start/index.html">Get started</a><a class="btn btn-ghost" href="tour/index.html">Take the tour</a><a class="btn btn-ghost" href="spec/index.html">Read the spec</a></div>
+</div><div>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Lookup</span> <span class="k">result</span> [
+	value: <span class="t">int</span>,
+	missing: <span class="t">string</span>,
+]
+
+<span class="k">bind</span> find = (stock: #[<span class="t">string</span>: <span class="t">int</span>], item: <span class="t">string</span>) <span class="t">Lookup</span>:
+	<span class="k">if</span>(stock[item] <span class="k">as</span> n): <span class="f">value</span>(n)
+	<span class="k">else</span>: <span class="f">missing</span>(item.<span class="f">copy</span>())
+
+<span class="k">bind</span> restock = (stock: &amp;#[<span class="t">string</span>: <span class="t">int</span>], item: <span class="t">string</span>, n: <span class="t">int</span>): {
+	stock[item.<span class="f">copy</span>()] = (stock[item] ?? <span class="n">0</span>) + n
+}
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> stock = #[<span class="s">&quot;apples&quot;</span>: <span class="n">3</span>]
+	<span class="f">restock</span>(&amp;stock, <span class="s">&quot;pears&quot;</span>, <span class="n">5</span>)       <span class="m">// `&amp;` marks the mutation</span>
+	<span class="k">let</span> pears = <span class="f">find</span>(stock, <span class="s">&quot;pears&quot;</span>):
+		<span class="k">default</span> <span class="f">missing</span>(what): {
+			<span class="f">println</span>(<span class="s">&quot;no </span>$what<span class="s">&quot;</span>)
+			<span class="k">func</span> <span class="u">&lt;-</span>
+		}
+	<span class="f">println</span>(<span class="s">&quot;pears: </span>$pears<span class="s">&quot;</span>)
+}</code></pre>
+</div></div></section>
+<section class="home-section">
+<h2>Why Lowlight</h2>
+<p class="sub">A small set of rules, each visible in the code you read.</p>
+<div class="features">
+<div class="feature"><span class="icon">⏚</span><h3>Deterministic memory</h3><p>Values are freed at the end of the scope that owns them, in reverse order. No collector, no reference counting, no pauses.</p></div>
+<div class="feature"><span class="icon">&amp;</span><h3>Visible effects</h3><p>A call can change your variable only if you write <code>&amp;x</code>, and take it only if you write <code>own x</code>. Nothing happens behind your back.</p></div>
+<div class="feature"><span class="icon">?</span><h3>No null</h3><p>Absence is an optional type <code>?T</code>, and every name holding one ends in <code>?</code>. You cannot forget to check.</p></div>
+<div class="feature"><span class="icon">!</span><h3>Failures are values</h3><p>Operations that can fail return a result type; names holding one end in <code>!</code>. Result chains handle each failure by name.</p></div>
+<div class="feature"><span class="icon">⇠</span><h3>Expressions everywhere</h3><p><code>if</code>, <code>match</code>, loops, and blocks produce values. Early exits are one operator, <code>&lt;-</code>, aimed at exactly the construct you leave.</p></div>
+<div class="feature"><span class="icon">⚙</span><h3>Down to the metal</h3><p>Raw pointers, packed structs, and C functions are one <code>unsafe</code> away. Compiles to LLVM IR or portable C11.</p></div>
+</div>
+</section>
+<section class="home-section">
+<h2>Read code, see what it does</h2>
+<p class="sub">Three small programs. Each one runs exactly as shown.</p>
+<div class="showcase"><div>
+<h3>Ownership you can see</h3>
+<p>Plain values copy. Resources such as strings and lists have one owner, and moving one is spelled <code>own</code>. A read-only parameter borrows; <code>&amp;</code> lends it for changing.</p>
+<p><a href="tour/ownership.html">Ownership in the tour →</a></p>
+</div><div>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> shout = (s: &amp;<span class="t">string</span>): s.<span class="f">push</span>(<span class="s">&quot;!&quot;</span>)
+
+<span class="k">bind</span> keep = (s: <span class="k">own</span> <span class="t">string</span>) [<span class="t">string</span>]: [s]
+
+<span class="k">bind</span> main = (): {
+	<span class="k">let</span> word = <span class="s">&quot;hello&quot;</span> + <span class="s">&quot;&quot;</span>
+	<span class="f">shout</span>(&amp;word)              <span class="m">// borrowed mutably, visibly</span>
+	<span class="k">let</span> all = <span class="f">keep</span>(<span class="k">own</span> word)  <span class="m">// moved: `word` is gone</span>
+	<span class="f">println</span>(all[<span class="n">0</span>])
+}</code></pre>
+</div></div>
+<div class="showcase"><div>
+<h3>Patterns, not ceremony</h3>
+<p>Enums carry data; <code>match</code> takes them apart. Variants are named bare, and every <code>match</code> ends with a <code>default</code> arm the compiler checks for completeness.</p>
+<p><a href="tour/matching.html">Pattern matching →</a></p>
+</div><div>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Shape</span> <span class="k">enum</span> [
+	circle: <span class="t">float</span>,
+	rect: +[<span class="t">float</span>, <span class="t">float</span>],
+	dot,
+]
+
+<span class="k">bind</span> area = (s: <span class="t">Shape</span>) <span class="t">float</span>:
+	<span class="k">match</span>(s):
+		<span class="k">when</span> <span class="f">circle</span>(r): <span class="n">3.14159</span> * r * r
+		<span class="k">when</span> <span class="f">rect</span>(wh): wh.<span class="n">0</span> * wh.<span class="n">1</span>
+		<span class="k">default</span> dot: <span class="n">0.0</span>
+
+<span class="k">bind</span> main = (): <span class="f">println</span>(<span class="f">area</span>(<span class="t">Shape</span>.<span class="f">rect</span>(+[<span class="n">3.0</span>, <span class="n">4.0</span>])))</code></pre>
+</div></div>
+<div class="showcase"><div>
+<h3>Loops that build things</h3>
+<p>A loop with a result type collects its body's values. The unwind <code>next &lt;-</code> skips an item. No accumulator boilerplate.</p>
+<p><a href="tour/collections.html">Collections and loops →</a></p>
+</div><div>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> words = [<span class="s">&quot;apple&quot;</span>, <span class="s">&quot;&quot;</span>, <span class="s">&quot;kiwi&quot;</span>, <span class="s">&quot;fig&quot;</span>]
+	<span class="k">let</span> lengths = <span class="k">for</span>(w <span class="k">in</span> words) [<span class="t">int</span>]: {
+		<span class="k">if</span>(w.<span class="f">is_empty</span>()): <span class="k">next</span> <span class="u">&lt;-</span>
+		w.<span class="f">len</span>()
+	}
+	<span class="f">println</span>(lengths)
+}</code></pre>
+</div></div>
+</section>
+<section class="home-section">
+<h2>Find your way</h2>
+<p class="sub">Documentation for every stage, from your first program to writing your own compiler.</p>
+<div class="cards">
+<a class="card" href="start/index.html"><span class="tag">Start</span><h3>Get started</h3><p>Install the toolchain, run your first program, and set up your editor.</p></a>
+<a class="card" href="tour/index.html"><span class="tag">Learn</span><h3>A tour of Lowlight</h3><p>The whole language in twelve short, runnable lessons.</p></a>
+<a class="card" href="learn/index.html"><span class="tag">Learn</span><h3>Tutorials</h3><p>Build real programs step by step: a word counter, a calculator, a config loader, a web service.</p></a>
+<a class="card" href="examples/index.html"><span class="tag">Learn</span><h3>Lowlight by Example</h3><p>Annotated, runnable programs, one idea at a time.</p></a>
+<a class="card" href="guides/index.html"><span class="tag">Guides</span><h3>Guides</h3><p>In-depth explanations: ownership, failure handling, generics, packages, testing, performance.</p></a>
+<a class="card" href="guides/effective-lowlight.html"><span class="tag">Guides</span><h3>Effective Lowlight</h3><p>The style guide: naming, formatting, and idioms that make code read well.</p></a>
+<a class="card" href="spec/index.html"><span class="tag">Reference</span><h3>Language specification</h3><p>The complete, precise definition of the language, with a quick reference.</p></a>
+<a class="card" href="std/index.html"><span class="tag">Reference</span><h3>Standard library</h3><p>Every package, type, and function, generated from the source.</p></a>
+<a class="card" href="internals/index.html"><span class="tag">Internals</span><h3>How it's built</h3><p>The compiler pipeline, runtime, and tooling, for contributors and implementers.</p></a>
+</div>
+</section>
+<section class="home-cta">
+<div class="buttons" style="justify-content:center"><a class="btn btn-primary" href="start/install.html">Install Lowlight</a></div>
+</section>
+</main><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="start/index.html">Get Started</a><a href="start/install.html">Install</a><a href="start/hello-world.html">First program</a><a href="start/projects.html">First project</a><a href="start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="tour/index.html">Tour</a><a href="tour/basics.html">Basics</a><a href="tour/functions.html">Functions</a><a href="tour/types.html">Your own types</a><a href="tour/optionals.html">Optionals</a><a href="tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="learn/index.html">Tutorials</a><a href="learn/word-count.html">A command-line tool</a><a href="learn/calculator.html">A calculator</a><a href="learn/config-loader.html">Handling errors</a><a href="learn/web-service.html">A web service</a><a href="learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="guides/index.html">Guides</a><a href="guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="guides/coming-from.html">Coming from C, Rust, or Go</a><a href="guides/ownership.html">Ownership and borrowing</a><a href="guides/errors.html">Failure handling</a><a href="guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="examples/index.html">By Example</a><a href="examples/hello-world.html">Hello, world</a><a href="examples/values.html">Values</a><a href="examples/variables.html">Variables</a><a href="examples/constants.html">Constants</a><a href="examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="ref/index.html">Reference</a><a href="spec/index.html">Overview and contents</a><a href="spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="spec/quick-reference.html">Quick Reference</a><a href="spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="std/index.html">Packages</a><a href="std/chars.html">std/chars</a><a href="std/core.html">std/core</a><a href="std/fs.html">std/fs</a><a href="std/http.html">std/http</a><a href="std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="internals/index.html">Internals</a><a href="internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="about/index.html">About</a><a href="about/contributing.html">Contributing</a><a href="about/faq.html">FAQ</a><a href="about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="search-index.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>

@@ -161,9 +161,13 @@ type FuncInstance struct {
 	IsTestMain     bool
 	IsAlwaysInline bool
 	IsNoInline     bool
-	IsConst        bool
-	IsGenericInst  bool
-	IsDerived      bool
+	IsConst         bool
+	IsGenericInst   bool
+	DeriveTarget    types.Type // non-nil when instantiated via `@derive` for target type T (`H16`)
+	DerivePkg       string     // package ID/dir authorized for private `_` members of DeriveTarget (`H16`)
+	DeriveAttrSpan  diag.Span  // `@derive(...)` span for error attribution on concrete/generic derives
+	DeriveIfaceName string     // interface name requested at DeriveAttrSpan
+	IsDerived       bool
 	ConstFail      *ConstFailReason
 	ComptimeOnly     bool
 	ComptimeLimit    int
@@ -190,16 +194,20 @@ type ConstFailReason struct {
 
 // UnrolledIter holds one statically unrolled iteration of a `comptime for` loop.
 type UnrolledIter struct {
-	IdxSym  *Symbol
-	ItemSym *Symbol
-	IdxVal  *ctVal
-	ItemVal *ctVal
-	Body    ast.Expr // Deep-cloned per iteration so AST side tables remain isolated.
+	IdxSym    *Symbol
+	ItemSym   *Symbol
+	IdxVal    *ctVal
+	ItemVal   *ctVal
+	Body      ast.Expr // Deep-cloned per iteration so AST side tables remain isolated.
+	TargetIdx int      // Concrete field/element index when collecting into struct/tuple/array.
 }
 
 // UnrolledFor holds the statically unrolled iterations for a `comptime for` expression.
 type UnrolledFor struct {
-	Iters []UnrolledIter
+	Iters         []UnrolledIter
+	CollectStruct *types.Struct
+	CollectTuple  *types.Tuple
+	CollectArray  *types.StackArray
 }
 
 // BodyMaps holds per-monomorphized-body AST side tables so multiple generic
@@ -322,12 +330,15 @@ type ExprInfo struct {
 	// (implicitly, or through `cl(f)`): the value is converted to that closure.
 	ToClosure *types.Func
 
-	// Member resolution (for *ast.MemberExpr)
+	// Member resolution (for *ast.MemberExpr and generic `.field`/`.elem`)
 	EnumVariant    *types.EnumVariant
 	EnumType       *types.Enum
-	IsOptChain     bool // true when `.` / `?.` short-circuits on an optional base (`?Base -> ?Result`)
-	DerefStructPtr bool // true when accessing field on boxed `?RecursiveStruct` or `ref[Struct]`
-	TupleFieldIdx  int  // 0-based field index when MemberExpr or IndexExpr accesses a tuple element
+	ResolvedIface  *types.Interface
+	ResolvedField      string // non-empty for resolved `.field(...)` access
+	ComptimeProjection bool   // true when expression crossed from `@comptime_only` into `ComptimeVals`
+	IsOptChain         bool   // true when `.` / `?.` short-circuits on an optional base (`?Base -> ?Result`)
+	DerefStructPtr bool   // true when accessing field on boxed `?RecursiveStruct` or `ref[Struct]`
+	TupleFieldIdx  int    // 0-based field/elem index for tuple `.0`, `.field(...)`, or `.elem(...)`
 
 	// Struct literal resolution (for *ast.StructLit)
 	StructType *types.Struct
@@ -373,11 +384,12 @@ type MethodPatternInfo struct {
 
 // UnwindInfo records which enclosing construct an `*ast.UnwindStmt` jumps to.
 type UnwindInfo struct {
-	TargetID       int
-	TargetKind     ast.UnwindTargetKind
-	IsContinue     bool // true for `next <-` and `next label <-`
-	WrapInOptional bool // true when `for <- val` yields `T` into a `?T` loop (or `?T` function)
-	ResultType     types.Type
+	TargetID             int
+	TargetKind           ast.UnwindTargetKind
+	IsContinue           bool // true for `next <-` and `next label <-`
+	WrapInOptional       bool // true when `for <- val` yields `T` into a `?T` loop (or `?T` function)
+	IsStructFieldDefault bool // true for bare `next <-` inside struct-collecting `comptime for`
+	ResultType           types.Type
 }
 
 // VTableImpl describes a `(ConcreteType, Interface)` implementation pair needed at runtime.
@@ -503,6 +515,7 @@ type CheckedProgram struct {
 	StdDir         string
 	CoreMod        *Module
 	CorePkg        *Package
+	DerivePkg      *Package
 	ManifestCtx    *manifest.ProjectContext
 	ResolvedDeps   *manifest.ResolvedGraph
 	Target         manifest.TargetInfo
@@ -538,6 +551,11 @@ type CheckedProgram struct {
 	EnumTargetArch       *types.Enum   // std/core's `@lang("target_arch")` TargetArch
 	EnumEndian           *types.Enum   // std/core's `@lang("target_endian")` Endian
 	StructTarget         *types.Struct // std/core's `@lang("target_info")` Target
+	EnumTypeKind         *types.Enum   // std/core's `@lang("comp_type_kind")` TypeKind
+	StructAttrInfo       *types.Struct // std/core's `@lang("comp_attr_info")` AttrInfo
+	StructFieldInfo      *types.Struct // std/core's `@lang("comp_field_info")` FieldInfo
+	StructVariantInfo    *types.Struct // std/core's `@lang("comp_variant_info")` VariantInfo
+	StructElemInfo       *types.Struct // std/core's `@lang("comp_elem_info")` ElemInfo
 	CompTargetSym        *Symbol       // synthetic `@comptime_only const` for `comp.TARGET`
 	CompTypes            map[string]types.Type
 	GenStructs           []*GenericStructTemplate
@@ -591,6 +609,7 @@ type Analyzer struct {
 	loadingPkgStack []string            // ordered Package.ID stack for cycle chain diagnostics
 	usedTags        map[string]string   // sanitized C/LLVM tag -> Package.ID
 	corePkg         *Package
+	derivePkg       *Package
 	coreMod         *Module
 	coreTypeNames   map[string]bool // type names std/core declares; see typeTag
 
@@ -605,9 +624,17 @@ type Analyzer struct {
 	pendingDrops []types.Type
 	// derived maps each method generated by `@derive` to its origin; deriveChecking guards
 	// recursive types while deciding whether a generic instance gets a derived method.
-	derived        map[*ast.MethodDecl]*deriveInfo
-	derivedOrder   []*ast.MethodDecl // derived methods in source order, for deterministic output
-	deriveChecking map[string]bool
+	derived            map[*ast.MethodDecl]*deriveInfo
+	derivedOrder       []*ast.MethodDecl // derived methods in source order, for deterministic output
+	deriveChecking     map[string]bool
+	derivePassed       map[string]bool
+	deriveFailed       map[string]bool
+	ifaceDecls         map[*types.Interface]*ast.InterfaceDecl
+	derivable          map[*types.Interface]map[string]*derivableEntry
+	deriveCallBindings map[*ast.CallExpr]*deriveCallBinding
+	synthTypeExprs     map[ast.TypeExpr]types.Type
+	inDeriveTrial      int
+	trialUndos         []func()
 
 	inBodyPass    bool
 	nextTargetID  int
@@ -853,11 +880,17 @@ func runCheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram 
 		loadedPkgs:     make(map[string]*Package),
 		loadingPkgSet:  make(map[string]bool),
 		usedTags:       make(map[string]string),
-		methods:        make(map[string]map[string]*FuncInstance),
-		genMethods:     genMethods,
-		genDropRecv:    make(map[string]bool),
-		derived:        make(map[*ast.MethodDecl]*deriveInfo),
-		deriveChecking: make(map[string]bool),
+		methods:            make(map[string]map[string]*FuncInstance),
+		genMethods:         genMethods,
+		genDropRecv:        make(map[string]bool),
+		derived:            make(map[*ast.MethodDecl]*deriveInfo),
+		deriveChecking:     make(map[string]bool),
+		derivePassed:       make(map[string]bool),
+		deriveFailed:       make(map[string]bool),
+		ifaceDecls:         make(map[*types.Interface]*ast.InterfaceDecl),
+		derivable:          make(map[*types.Interface]map[string]*derivableEntry),
+		deriveCallBindings: make(map[*ast.CallExpr]*deriveCallBinding),
+		synthTypeExprs:     make(map[ast.TypeExpr]types.Type),
 	}
 
 	a.initBuiltinInterfaces()
@@ -873,9 +906,11 @@ func runCheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram 
 	prog.containableItemFn = a.containableItemType
 	prog.instantiateIfcFn = a.instantiateInterface
 
-	// Determine whether the entry itself is `std/core`.
+	// Determine whether the entry itself is `std/core` or `std/derive`.
 	coreDir := filepath.Join(stdDir, "core")
+	deriveDir := filepath.Join(stdDir, "derive")
 	entryIsCore := dirExists(coreDir) && filepath.Clean(entryDir) == filepath.Clean(coreDir)
+	entryIsDerive := dirExists(deriveDir) && filepath.Clean(entryDir) == filepath.Clean(deriveDir)
 
 	// Load implicit `std/core` directory package first (unless entry IS `std/core`).
 	if dirExists(coreDir) && !entryIsCore {
@@ -884,6 +919,14 @@ func runCheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram 
 			a.coreMod = a.corePkg.PrimaryMod
 			prog.CorePkg = a.corePkg
 			prog.CoreMod = a.coreMod
+		}
+	}
+
+	// Load built-in `std/derive` package for `@derivable` hooks on `std/core` interfaces.
+	if dirExists(deriveDir) && !entryIsCore && !entryIsDerive {
+		a.derivePkg = a.loadPackageDir(deriveDir, "std/derive", "derive", true, false, false, false, diag.Span{})
+		if a.derivePkg != nil {
+			prog.DerivePkg = a.derivePkg
 		}
 	}
 
@@ -908,6 +951,12 @@ func runCheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram 
 				}
 			}
 		}
+		if dirExists(deriveDir) {
+			a.derivePkg = a.loadPackageDir(deriveDir, "std/derive", "derive", true, false, false, false, diag.Span{})
+			if a.derivePkg != nil {
+				prog.DerivePkg = a.derivePkg
+			}
+		}
 	} else {
 		useDirPackage := entryIsDir || mCtx != nil || a.isInsideStdSubdir(absEntry)
 		if useDirPackage {
@@ -915,6 +964,10 @@ func runCheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram 
 			entryPkg = a.loadPackageDir(entryDir, pkgID, pkgName, isStd, false, true, isIntegTest, diag.Span{})
 			if entryPkg != nil {
 				entryMod = entryPkg.PrimaryMod
+				if entryIsDerive {
+					a.derivePkg = entryPkg
+					prog.DerivePkg = entryPkg
+				}
 				if !entryIsDir {
 					for _, f := range entryPkg.Files {
 						if filepath.Clean(f.Path) == filepath.Clean(absEntry) {

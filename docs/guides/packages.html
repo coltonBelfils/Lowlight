@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packages and dependencies · Lowlight</title>
+<meta name="description" content="Projects, imports, visibility, the manifest, lockfiles, workspaces, vendoring, and platform-specific settings.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a class="active" href="index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Guides</a></div><div class="sidebar-group">Writing Lowlight</div><ul><li><a href="effective-lowlight.html">Effective Lowlight (conventions)</a></li><li><a href="coming-from.html">Coming from C, Rust, or Go</a></li></ul><div class="sidebar-group">Core ideas</div><ul><li><a href="ownership.html">Ownership and borrowing</a></li><li><a href="errors.html">Failure handling</a></li><li><a href="collections.html">Collections and iteration</a></li><li><a href="generics.html">Interfaces and generics</a></li><li><a href="memory.html">Memory, arenas, and pools</a></li></ul><div class="sidebar-group">Working with code</div><ul><li><a class="active" href="packages.html">Packages and dependencies</a></li><li><a href="testing.html">Testing</a></li><li><a href="unsafe-ffi.html">Unsafe code and C</a></li><li><a href="performance.html">Performance</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Guides</a><span class="sep">/</span><span>Working with code</span></nav><h1 id="packages-and-dependencies"><a class="anchor" href="#packages-and-dependencies" aria-hidden="true">#</a>Packages and dependencies</h1>
+<h2 id="files-packages-projects"><a class="anchor" href="#files-packages-projects" aria-hidden="true">#</a>Files, packages, projects</h2>
+<ul>
+<li>A <strong>file</strong> (<code>.ll</code>) can be compiled and run on its own: <code>lowlight run tool.ll</code>.
+</li>
+<li>A <strong>package</strong> is all the <code>.ll</code> files in one directory. They share a namespace: declarations in one file are visible in the others without imports. A package with a <code>main</code> function is a program; one without is a library.
+</li>
+<li>A <strong>project</strong> is a directory tree with a <code>lowlight.toml</code> at its root. Each subdirectory is a package named by its path: the directory <code>myapp/lexer/</code> is the package <code>myapp/lexer</code>.
+</li>
+</ul>
+<pre class="lang-text" data-lang="text"><code>myapp/
+├── lowlight.toml
+├── lowlight.lock
+├── main.ll            # package &quot;myapp&quot;
+├── lexer/             # package &quot;myapp/lexer&quot;
+│   ├── scanner.ll
+│   └── scanner_test.ll
+├── cmd/tool/main.ll   # a second program: lowlight build ./cmd/tool
+└── tests/             # black-box test packages</code></pre>
+<p>Files can be restricted to a platform by their name: <code>net_linux.ll</code>, <code>net_darwin.ll</code>, <code>net_windows.ll</code>, <code>net_unix.ll</code>, or an architecture such as <code>simd_arm64.ll</code>.</p>
+<h2 id="imports-and-names"><a class="anchor" href="#imports-and-names" aria-hidden="true">#</a>Imports and names</h2>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/fs&quot;</span>              <span class="m">// the standard library</span>
+<span class="k">import</span> <span class="s">&quot;myapp/lexer&quot;</span>         <span class="m">// a package in this project</span>
+<span class="k">import</span> <span class="s">&quot;jsonx&quot;</span>               <span class="m">// a dependency</span>
+<span class="k">import</span> <span class="s">&quot;myapp/lexer&quot;</span> <span class="k">as</span> lx   <span class="m">// with a different name</span></code></pre>
+<p>Imported names are always qualified (<code>fs.read_file</code>, <code>lexer.Token</code>), so you can tell where every name comes from. Importing a package also brings in the methods it adds to types defined elsewhere, which is how <code>std/sort</code> gives lists a <code>sort</code> method.</p>
+<p>Packages may not import each other in a cycle. Within a package, declarations may refer to each other in any order.</p>
+<h2 id="visibility"><a class="anchor" href="#visibility" aria-hidden="true">#</a>Visibility</h2>
+<p>A name is <strong>exported</strong> unless it starts with <code>_</code>. This applies to functions, types, constants, methods, struct fields, enum variants, and interface methods.</p>
+<ul>
+<li>A struct with a private field can't be built with a literal, or have that field read, outside its package. Export a constructor to control how values are made.
+</li>
+<li>An interface with a private method is <strong>sealed</strong>: only its own package can implement it.
+</li>
+<li>Methods added to another package's type can't see that type's private members.
+</li>
+</ul>
+<h2 id="the-manifest"><a class="anchor" href="#the-manifest" aria-hidden="true">#</a>The manifest</h2>
+<pre class="lang-toml" data-lang="toml"><code><span class="t">[package]</span>
+<span class="k">name</span> = <span class="s">&quot;myapp&quot;</span>
+<span class="k">version</span> = <span class="s">&quot;0.2.0&quot;</span>
+<span class="k">edition</span> = <span class="s">&quot;2026&quot;</span>
+
+<span class="t">[dependencies]</span>
+<span class="k">shared</span> = { <span class="k">path</span> = <span class="s">&quot;../shared&quot;</span> }
+<span class="k">jsonx</span> = { <span class="k">url</span> = <span class="s">&quot;https://example.org/jsonx-1.2.0.tar.gz&quot;</span>, <span class="k">hash</span> = <span class="s">&quot;sha256:9a3f...&quot;</span> }
+<span class="k">http_ext</span> = { <span class="k">index</span> = <span class="s">&quot;https://acme.dev/pkgs/http_ext.toml&quot;</span>, <span class="k">version</span> = <span class="s">&quot;^0.3&quot;</span> }
+
+<span class="t">[dev-dependencies]</span>
+<span class="k">benchkit</span> = { <span class="k">path</span> = <span class="s">&quot;../benchkit&quot;</span> }
+
+<span class="t">[build]</span>
+<span class="k">backend</span> = <span class="s">&quot;llvm&quot;</span>
+<span class="k">c_libs</span> = <span class="t">[&quot;m&quot;]</span>
+
+<span class="t">[format]</span>
+<span class="k">indent_style</span> = <span class="s">&quot;tabs&quot;</span>
+<span class="k">line_width</span> = <span class="n">100</span></code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Dependency source</th><th>Written</th><th>Use for</th></tr></thead>
+<tbody>
+<tr><td>local path</td><td><code>{ path = &quot;../shared&quot; }</code></td><td>code in the same repository or checkout</td></tr>
+<tr><td>archive</td><td><code>{ url = &quot;...&quot;, hash = &quot;sha256:...&quot; }</code></td><td>a specific release, pinned by content</td></tr>
+<tr><td>index</td><td><code>{ index = &quot;...&quot;, version = &quot;^1.2&quot; }</code></td><td>versioned packages with resolution</td></tr>
+</tbody>
+</table></div>
+<p><code>[dev-dependencies]</code> are available only to tests. The <a href="../spec/packages-manifests-and-dependencies.html#142-the-manifest">manifest reference</a> lists every table and field.</p>
+<h2 id="commands"><a class="anchor" href="#commands" aria-hidden="true">#</a>Commands</h2>
+<pre class="lang-bash" data-lang="bash"><code><span class="f">lowlight</span> add jsonx <span class="a">--url</span> https://example.org/jsonx-1.2.0.tar.gz   <span class="m"># computes the hash</span>
+<span class="f">lowlight</span> add shared <span class="a">--path</span> ../shared
+<span class="f">lowlight</span> remove jsonx
+<span class="f">lowlight</span> fetch           <span class="m"># download exactly what lowlight.lock lists</span>
+<span class="f">lowlight</span> update          <span class="m"># move to the newest versions the constraints allow</span>
+<span class="f">lowlight</span> update jsonx    <span class="m"># just one</span>
+<span class="f">lowlight</span> tree            <span class="m"># show the dependency graph</span>
+<span class="f">lowlight</span> vendor          <span class="m"># copy all dependencies into ./vendor</span></code></pre>
+<h2 id="reproducible-builds"><a class="anchor" href="#reproducible-builds" aria-hidden="true">#</a>Reproducible builds</h2>
+<ul>
+<li><strong><code>lowlight.lock</code></strong> records the exact version, URL, and SHA-256 hash of every dependency. Commit it.
+</li>
+<li><strong>Builds never use the network.</strong> <code>build</code>, <code>run</code>, <code>test</code>, and <code>check</code> read only the local cache (<code>~/.lowlight/cache</code>, or <code>$LOWLIGHT_CACHE</code>) and <code>vendor/</code>. If something is missing, they tell you to run <code>lowlight fetch</code>.
+</li>
+<li><strong><code>--locked</code></strong> fails if the lockfile doesn't match the manifest, which is what you want in CI. <code>--offline</code> forbids network access even for <code>fetch</code> and <code>update</code>.
+</li>
+<li>Every downloaded archive is checked against its hash before it is unpacked.
+</li>
+</ul>
+<h2 id="version-resolution"><a class="anchor" href="#version-resolution" aria-hidden="true">#</a>Version resolution</h2>
+<p>Lowlight uses <strong>minimal version selection</strong>: from all the constraints on a dependency in the whole build, it picks the <em>smallest</em> version that satisfies them all. A build never silently moves to a newer version because one was published; only <code>lowlight update</code> does that. There is exactly one version of each dependency in a build.</p>
+<p>Constraints use SemVer operators: <code>^1.2</code> (compatible with 1.2), <code>~1.2.3</code> (patch updates), <code>=1.2.3</code>, comparisons (<code>&gt;=1.0, &lt;2.0</code>), and <code>*</code>.</p>
+<h2 id="overrides-workspaces-and-vendoring"><a class="anchor" href="#overrides-workspaces-and-vendoring" aria-hidden="true">#</a>Overrides, workspaces, and vendoring</h2>
+<ul>
+<li><strong><code>[overrides]</code></strong> in the root manifest replaces a dependency everywhere in the graph, including transitively, with a local path or a different archive. Use it to test a fix to a dependency.
+</li>
+<li><strong><code>[workspace]</code></strong> groups several packages in one repository, with one lockfile and shared overrides: <code>members = [&quot;libs/*&quot;, &quot;cmd/server&quot;]</code>. Select a member with <code>-p name</code>, or operate on all with <code>--workspace</code>.
+</li>
+<li><strong><code>vendor/</code></strong>: when present, it is authoritative, and nothing is fetched. <code>lowlight vendor</code> creates it.
+</li>
+</ul>
+<h2 id="platform-specific-settings"><a class="anchor" href="#platform-specific-settings" aria-hidden="true">#</a>Platform-specific settings</h2>
+<pre class="lang-toml" data-lang="toml"><code><span class="t">[target.linux]</span>
+<span class="k">c_libs</span> = <span class="t">[&quot;ssl&quot;, &quot;crypto&quot;]</span>
+
+<span class="t">[target.darwin.dependencies]</span>
+<span class="k">cocoa_bindings</span> = { <span class="k">path</span> = <span class="s">&quot;../cocoa&quot;</span> }
+
+<span class="t">[target.&quot;aarch64-unknown-linux-gnu&quot;]</span>
+<span class="k">c_flags</span> = <span class="t">[&quot;-mcpu=neoverse-n1&quot;]</span></code></pre>
+<p>Selectors are an OS (<code>linux</code>, <code>darwin</code>, <code>windows</code>), <code>unix</code>, an architecture (<code>amd64</code>, <code>arm64</code>, <code>riscv64</code>), or a full target triple. Cross-compile with <code>--target &lt;triple&gt;</code>.</p>
+<h2 id="hosting-packages"><a class="anchor" href="#hosting-packages" aria-hidden="true">#</a>Hosting packages</h2>
+<p>An index is a single static TOML file listing versions, archive URLs, hashes, and each version's dependencies, so any web server or object store can host packages. No registry service is needed. See <a href="../spec/packages-manifests-and-dependencies.html#145-package-indexes">the index format</a>.</p>
+</article><nav class="prev-next"><a class="prev" href="memory.html"><span>Previous</span>Memory: arenas and pools</a><a class="next" href="testing.html"><span>Next</span>Testing</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#files-packages-projects">Files, packages, projects</a></li><li><a href="#imports-and-names">Imports and names</a></li><li><a href="#visibility">Visibility</a></li><li><a href="#the-manifest">The manifest</a></li><li><a href="#commands">Commands</a></li><li><a href="#reproducible-builds">Reproducible builds</a></li><li><a href="#version-resolution">Version resolution</a></li><li><a href="#overrides-workspaces-and-vendoring">Overrides, workspaces, and vendoring</a></li><li><a href="#platform-specific-settings">Platform-specific settings</a></li><li><a href="#hosting-packages">Hosting packages</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="index.html">Guides</a><a href="effective-lowlight.html">Effective Lowlight (conventions)</a><a href="coming-from.html">Coming from C, Rust, or Go</a><a href="ownership.html">Ownership and borrowing</a><a href="errors.html">Failure handling</a><a href="collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

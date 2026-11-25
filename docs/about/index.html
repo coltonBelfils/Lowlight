@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About Lowlight · Lowlight</title>
+<meta name="description" content="What Lowlight is for, the principles behind it, and the state of the project.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">About</a></div><ul><li><a href="contributing.html">Contributing</a></li><li><a href="faq.html">FAQ</a></li><li><a href="history.html">Version history</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><h1 id="about-lowlight"><a class="anchor" href="#about-lowlight" aria-hidden="true">#</a>About Lowlight</h1>
+<p>Lowlight is a compiled systems programming language. It aims to give programmers the control of C (native code, predictable memory layout, direct access to the machine and to C libraries) while removing the classes of bugs that make systems code hard: use-after-free, double free, null dereferences, uninitialized data, undefined behavior, and ignored errors.</p>
+<p>Its distinguishing idea is <strong>visibility</strong>. Lowlight doesn't hide effects behind convenient syntax. Wherever something important happens, the source says so, at the place it happens:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>What happens</th><th>How you see it</th></tr></thead>
+<tbody>
+<tr><td>a call changes your variable</td><td><code>f(&amp;x)</code></td></tr>
+<tr><td>a call takes your value</td><td><code>f(own x)</code></td></tr>
+<tr><td>a value may be absent</td><td>its name ends in <code>?</code></td></tr>
+<tr><td>a value may be a failure</td><td>its name ends in <code>!</code></td></tr>
+<tr><td>a failure is passed on</td><td>a result chain at the call</td></tr>
+<tr><td>a function or loop is left early</td><td><code>func &lt;-</code>, <code>for &lt;-</code>, <code>next &lt;-</code></td></tr>
+<tr><td>the compiler can't check something</td><td><code>unsafe</code></td></tr>
+<tr><td>a name is private</td><td>it starts with <code>_</code></td></tr>
+</tbody>
+</table></div>
+<p>Everything else stays light: types are inferred, variants are named bare in patterns, single-expression bodies need no braces, and statements need no semicolons.</p>
+<h2 id="design-principles"><a class="anchor" href="#design-principles" aria-hidden="true">#</a>Design principles</h2>
+<ol>
+<li><strong>Deterministic lifetimes.</strong> Memory and other resources are released at the end of the scope that owns them, in reverse order. No garbage collector, no reference counting.
+</li>
+<li><strong>Plain values and resources.</strong> Every type either copies freely or has exactly one owner and moves.
+</li>
+<li><strong>No null.</strong> Absence is a type, <code>?T</code>.
+</li>
+<li><strong>Failure is a value.</strong> Operations that can fail return result types; bugs panic and can't be caught.
+</li>
+<li><strong>No lifetime annotations.</strong> Borrows are kept short enough that the compiler never needs them.
+</li>
+<li><strong>Visible effects.</strong> Mutation and ownership transfer are marked at the call site.
+</li>
+<li><strong>Expressions everywhere.</strong> Blocks, conditionals, loops, and matches produce values.
+</li>
+<li><strong>Target neutrality.</strong> The language means the same thing on every backend and platform.
+</li>
+</ol>
+<p>The <a href="../spec/conventions-and-conformance.html#12-design-principles">specification</a> states these principles and the rules that follow from them.</p>
+<h2 id="status"><a class="anchor" href="#status" aria-hidden="true">#</a>Status</h2>
+<p>Lowlight is under active development. The compiler, standard library, language server, editor integrations, formatter, documentation generator, test runner, and package manager are all functional and tested, and the language definition is complete. Concurrency is being designed, and the language may still change in small ways before a stable release. <span class="repo-link" title="In the Lowlight repository: website/content/about/history.html">Version history</span> records how it has evolved.</p>
+<h2 id="this-documentation"><a class="anchor" href="#this-documentation" aria-hidden="true">#</a>This documentation</h2>
+<p>Everything on this site is generated from the Lowlight repository by <code>go run ./cmd/lowlight-site</code>:</p>
+<ul>
+<li>the <strong>specification</strong>, <strong>style guide</strong>, and <strong>implementation guide</strong> are the repository's <code>SPECIFICATION.md</code>, <code>CONVENTIONS.md</code>, and <code>IMPLEMENTATION.md</code>;
+</li>
+<li>the <strong>package reference</strong> is generated from the standard library's doc comments;
+</li>
+<li>the <strong>tour</strong>, <strong>tutorials</strong>, <strong>guides</strong>, and <strong>examples</strong> live in <code>website/</code>, and every program in them is compiled and run by the test suite, so the documentation can't drift from the compiler.
+</li>
+</ul>
+<h2 id="more"><a class="anchor" href="#more" aria-hidden="true">#</a>More</h2>
+<ul>
+<li><span class="repo-link" title="In the Lowlight repository: website/content/about/faq.html">Frequently asked questions</span>
+</li>
+<li><span class="repo-link" title="In the Lowlight repository: website/content/about/contributing.html">Contributing</span>
+</li>
+<li><span class="repo-link" title="In the Lowlight repository: website/content/about/history.html">Version history</span>
+</li>
+</ul>
+</article><nav class="prev-next"><span></span><a class="next" href="contributing.html"><span>Next</span>Contributing</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#design-principles">Design principles</a></li><li><a href="#status">Status</a></li><li><a href="#this-documentation">This documentation</a></li><li><a href="#more">More</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="index.html">About</a><a href="contributing.html">Contributing</a><a href="faq.html">FAQ</a><a href="history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

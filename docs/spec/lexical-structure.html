@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2. Lexical Structure · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a class="active" href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../ref/index.html">Reference</a></div><div class="sidebar-group">Specification</div><ul><li><a href="index.html">Overview and contents</a></li><li><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a></li><li><a href="quick-reference.html">Quick Reference</a></li></ul><div class="sidebar-group">Language reference</div><ul><li><a href="conventions-and-conformance.html">1. Conventions and Conformance</a></li><li><a class="active" href="lexical-structure.html">2. Lexical Structure</a></li><li><a href="types.html">3. Types</a></li><li><a href="declarations-and-program-structure.html">4. Declarations and Program Structure</a></li><li><a href="expressions.html">5. Expressions</a></li><li><a href="control-flow.html">6. Control Flow</a></li><li><a href="ownership-borrowing-and-destruction.html">7. Ownership, Borrowing, and Destruction</a></li><li><a href="generics.html">8. Generics</a></li><li><a href="failure-handling.html">9. Failure Handling</a></li><li><a href="unsafe-code-and-foreign-functions.html">10. Unsafe Code and Foreign Functions</a></li><li><a href="testing.html">11. Testing</a></li><li><a href="the-prelude.html">12. The Prelude</a></li><li><a href="the-standard-library.html">13. The Standard Library</a></li><li><a href="packages-manifests-and-dependencies.html">14. Packages, Manifests, and Dependencies</a></li></ul><div class="sidebar-group">Implementer&#39;s guide</div><ul><li><a href="implementers-guide.html">About this part</a></li><li><a href="compiler-architecture.html">15. Compiler Architecture</a></li><li><a href="parsing-ambiguities-and-their-resolution.html">16. Parsing Ambiguities and Their Resolution</a></li><li><a href="semantic-analysis.html">17. Semantic Analysis</a></li><li><a href="lowering-and-runtime-representation.html">18. Lowering and Runtime Representation</a></li><li><a href="the-runtime-contract.html">19. The Runtime Contract</a></li><li><a href="conformance-checklist.html">20. Conformance Checklist</a></li></ul><div class="sidebar-group">Appendices</div><ul><li><a href="appendix-a-grammar.html">Appendix A: Grammar</a></li><li><a href="appendix-b-keywords-and-contextual-words.html">Appendix B: Keywords and Contextual Words</a></li><li><a href="appendix-c-operator-precedence.html">Appendix C: Operator Precedence</a></li><li><a href="appendix-d-runtime-traps.html">Appendix D: Runtime Traps</a></li><li><a href="appendix-e-glossary.html">Appendix E: Glossary</a></li></ul><div class="sidebar-group">Tools</div><ul><li><a href="../ref/cli.html">Command-line tool</a></li><li><a href="../ref/formatter.html">Formatting</a></li><li><a href="../ref/documentation.html">Documentation comments</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../ref/index.html">Reference</a><span class="sep">/</span><span>Language reference</span></nav><h1 id="2-lexical-structure"><a class="anchor" href="#2-lexical-structure" aria-hidden="true">#</a>2. Lexical Structure</h1>
+<blockquote class="glance">
+<p><strong>At a glance</strong></p>
+<ul>
+<li>Source is UTF-8. Identifiers, keywords, and operators are ASCII.
+</li>
+<li>Newlines end statements; you rarely write <code>;</code>. A line that starts with <code>else</code>, <code>when</code>, <code>.</code>, or <code>?.</code> continues the previous one.
+</li>
+<li>A multi-line list of two or more items needs a trailing comma.
+</li>
+<li><code>name?</code> names an optional and <code>name!</code> names a result; the suffix is part of the name.
+</li>
+<li>Strings: <code>&quot;...&quot;</code> on one line, <code>`...`</code> across lines; both interpolate <code>$name</code> and <code>${expr}</code>.
+</li>
+</ul>
+</blockquote>
+<h2 id="21-source-text"><a class="anchor" href="#21-source-text" aria-hidden="true">#</a>2.1 Source text</h2>
+<p>A source file is a sequence of Unicode characters encoded in UTF-8, stored in a file with the <code>.ll</code> extension. Non-ASCII characters may appear only in comments, character literals, and string literals. Line endings <code>\r\n</code> are equivalent to <code>\n</code>.</p>
+<h2 id="22-whitespace-and-comments"><a class="anchor" href="#22-whitespace-and-comments" aria-hidden="true">#</a>2.2 Whitespace and comments</h2>
+<p>Whitespace is space (U+0020), tab (U+0009), carriage return (U+000D), and line feed (U+000A). It separates tokens and is otherwise insignificant, except that newlines drive automatic semicolon insertion (<a href="#23-statement-separation">§2.3</a>) and the unwind operator must be separated by whitespace (<a href="#29-operators-and-punctuation">§2.9</a>).</p>
+<ul>
+<li>A line comment starts with <code>//</code> and runs to the end of the line.
+</li>
+<li>A block comment starts with <code>/*</code> and ends at the first <code>*/</code>. Block comments do not nest.
+</li>
+</ul>
+<p><strong>Documentation comments</strong> are ordinary comments placed immediately before a declaration (or before its attributes), with no blank line between them, or at the end of the line declaring a struct field, enum variant, or interface method. A comment block at the top of a file documents the package. Documentation is Markdown; <code>[`Name`]</code> links to another declaration, and <code># Heading</code> lines (such as <code># Panics</code> or <code># Example</code>) start sections. Tools (<code>lowlight doc</code>, the language server) render these; the compiler otherwise ignores them.</p>
+<h2 id="23-statement-separation"><a class="anchor" href="#23-statement-separation" aria-hidden="true">#</a>2.3 Statement separation</h2>
+<p>Statements are separated by semicolons. Most semicolons are inserted automatically by the lexer, so source code rarely contains them.</p>
+<p><strong>Rule.</strong> At a newline (or end of file), the lexer inserts a semicolon if all of the following hold:</p>
+<ol>
+<li><strong>Block level.</strong> Every delimiter opened so far and not yet closed is a <code>{</code>. Inside <code>( )</code>, <code>[ ]</code>, <code>#[ ]</code>, <code>+[ ]</code>, or <code>${ }</code> no semicolons are inserted, so expressions in parentheses, argument lists, and collection literals may span lines freely.
+</li>
+<li><strong>Value end.</strong> The last token on the line is one of: an identifier (including <code>name?</code> and <code>name!</code>), a literal (integer, float, character, string, or the end of an interpolated string), <code>true</code>, <code>false</code>, <code>none</code>, <code>self</code>, <code>Self</code>, <code>)</code>, <code>]</code>, <code>}</code>, or <code>&lt;-</code>.
+</li>
+<li><strong>No continuation.</strong> The first token on the next line is not <code>else</code>, <code>when</code>, <code>.</code>, or <code>?.</code>.
+</li>
+</ol>
+<p>So a method chain can continue on the next line by starting it with <code>.</code>, and <code>else:</code> and <code>when</code> arms can begin new lines.</p>
+<p><strong>Block values.</strong> An expression at the end of a block, followed only by an inserted semicolon or by <code>}</code>, is the block's value. An explicitly written <code>;</code> after it discards it, and the block then has type <code>void</code>.</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> total = [<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>]
+		.<span class="f">len</span>()                <span class="m">// continues the previous line</span>
+	<span class="k">let</span> doubled = {
+		<span class="k">let</span> t = total * <span class="n">2</span>
+		t                     <span class="m">// the block&#39;s value</span>
+	}
+	<span class="f">println</span>(doubled)
+}</code></pre>
+<h2 id="24-trailing-commas"><a class="anchor" href="#24-trailing-commas" aria-hidden="true">#</a>2.4 Trailing commas</h2>
+<p>In any comma-separated list of <strong>two or more</strong> items enclosed in <code>( )</code>, <code>[ ]</code>, <code>#[ ]</code>, or <code>+[ ]</code>, if the closing delimiter is on a later line than both the opening delimiter and the last item, the last item <strong>must</strong> be followed by a comma. Otherwise a trailing comma is optional.</p>
+<p>The rule applies to every comma-separated list: struct fields, enum variants, interface methods, parameters, arguments, struct literal fields, list, array, set, map, and tuple literals, type parameters and arguments, and pattern lists.</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Point</span> <span class="k">struct</span> [
+	x: <span class="t">float</span>,
+	y: <span class="t">float</span>,     <span class="m">// required: two items, `]` on its own line</span>
+]</code></pre>
+<h2 id="25-identifiers"><a class="anchor" href="#25-identifiers" aria-hidden="true">#</a>2.5 Identifiers</h2>
+<pre class="lang-ebnf" data-lang="ebnf"><code><span class="t">Ident</span>     = ( <span class="t">Letter</span> | <span class="s">&quot;_&quot;</span> ) { <span class="t">Letter</span> | <span class="t">Digit</span> | <span class="s">&quot;_&quot;</span> } ;
+<span class="t">OptIdent</span>  = <span class="t">Ident</span> <span class="s">&quot;?&quot;</span> ;
+<span class="t">ResIdent</span>  = <span class="t">Ident</span> <span class="s">&quot;!&quot;</span> ;</code></pre>
+<p>Identifiers are case-sensitive and ASCII. The suffix of an <code>OptIdent</code> or <code>ResIdent</code> is part of the name: <code>user</code> and <code>user?</code> are different names.</p>
+<p><strong>The optional naming rule.</strong> A variable, parameter, struct field, loop variable, or pattern binding whose type is an optional <code>?T</code> <strong>must</strong> have a name ending in <code>?</code>. A name ending in <code>?</code> <strong>must not</strong> hold a non-optional type.</p>
+<p><strong>The result naming rule.</strong> A variable, parameter, struct field, loop variable, or pattern binding whose type is a result type (<a href="types.html#39-results">§3.9</a>) <strong>must</strong> have a name ending in <code>!</code>. A name ending in <code>!</code> <strong>must not</strong> hold a non-result type. An optional result is named with <code>?</code> (the outer optional wins).</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">let</span> count? = <span class="f">parse_int</span>(<span class="s">&quot;42&quot;</span>)     <span class="m">// ?int</span>
+<span class="k">let</span> cfg! = <span class="f">load_config</span>(path)     <span class="m">// a result</span>
+<span class="k">let</span> total = <span class="n">3</span>                    <span class="m">// neither</span></code></pre>
+<p>The wildcard <code>_</code> is not a name: it discards a value in unpacking and patterns, and is exempt from both rules.</p>
+<p><strong>How the suffixes are lexed.</strong></p>
+<ul>
+<li><code>?</code> directly after an identifier joins it, unless it begins <code>??</code>. (<code>x???</code> lexes as <code>x?</code> followed by <code>??</code>.) <code>user?.name</code> is <code>user?</code> <code>.</code> <code>name</code>.
+</li>
+<li><code>!</code> directly after an identifier joins it, unless it begins <code>!=</code>. Lowlight has no prefix <code>!</code> operator (negation is <code>not</code>), so this is unambiguous: <code>a!=b</code> is <code>a != b</code>, and <code>cfg!.is_ok()</code> is <code>cfg!</code> <code>.</code> <code>is_ok</code> <code>(</code> <code>)</code>.
+</li>
+<li>In simple string interpolation, <code>$name</code> ends before a trailing <code>?</code> or <code>!</code>, so <code>&quot;Hello $name!&quot;</code> prints the exclamation mark. To interpolate a suffixed name, use braces: <code>&quot;${user?.name}&quot;</code>, <code>&quot;${cfg!.is_ok()}&quot;</code>.
+</li>
+</ul>
+<p><strong>Conventions</strong> (not enforced by the compiler): types and interfaces use <code>PascalCase</code>, with acronyms written as words (<code>Url</code>, <code>HttpClient</code>); enum variants, result members, functions, variables, fields, and packages use <code>snake_case</code>; top-level constants use <code>SCREAMING_SNAKE_CASE</code>. <a href="../guides/effective-lowlight.html">CONVENTIONS.md</a> is the full style guide. A leading <code>_</code> is not a convention but a rule: it makes a declaration package-private (<a href="declarations-and-program-structure.html#47-visibility">§4.7</a>).</p>
+<h2 id="26-keywords"><a class="anchor" href="#26-keywords" aria-hidden="true">#</a>2.6 Keywords</h2>
+<p>These 28 words are reserved and cannot be used as identifiers:</p>
+<pre><code><span class="k">and</span>      <span class="k">as</span>       <span class="k">bind</span>     <span class="k">define</span>   <span class="k">else</span>     <span class="k">enum</span>     <span class="k">extern</span>   <span class="c">false</span>
+<span class="k">for</span>      <span class="k">func</span>     <span class="k">if</span>       <span class="k">import</span>   <span class="k">in</span>       <span class="k">interface</span>         <span class="k">let</span>
+<span class="k">match</span>    <span class="c">none</span>     <span class="k">not</span>      <span class="k">or</span>       <span class="k">own</span>      <span class="k">self</span>     <span class="k">Self</span>     <span class="k">struct</span>
+<span class="c">true</span>     <span class="k">unpack</span>   <span class="k">unsafe</span>   <span class="k">when</span>     <span class="k">while</span></code></pre>
+<p>These words are <strong>contextual</strong>: they have special meaning only in the positions listed, and are ordinary identifiers everywhere else.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Word</th><th>Special when</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td><code>next</code></td><td>followed by <code>&lt;-</code>, or by a label and <code>&lt;-</code></td><td><code>next &lt;-</code>, <code>next outer &lt;-</code></td></tr>
+<tr><td><code>default</code></td><td>starting the last arm of a <code>match</code> or result chain</td><td><code>default:</code>, <code>default red:</code>, <code>default panic</code></td></tr>
+<tr><td><code>panic</code></td><td>directly after <code>default</code> in a result chain, not followed by <code>(</code></td><td><code>default panic</code></td></tr>
+<tr><td><code>result</code></td><td>after <code>define Name[...]</code></td><td><code>define Lookup result [...]</code></td></tr>
+<tr><td><code>packed</code></td><td>between <code>define</code> and a struct name</td><td><code>define packed Header struct [...]</code></td></tr>
+</tbody>
+</table></div>
+<p><code>void</code> and <code>never</code> are type names, not keywords. <code>void</code> is accepted only as a return type (<a href="types.html#315-void-and-never">§3.15</a>).</p>
+<h2 id="27-literals"><a class="anchor" href="#27-literals" aria-hidden="true">#</a>2.7 Literals</h2>
+<p><strong>Integers.</strong> Decimal (<code>42</code>), hexadecimal (<code>0xFF</code>, <code>0X1f</code>), and binary (<code>0b1010</code>), with optional <code>_</code> between digits (<code>1_000_000</code>). An integer literal takes the integer type expected by its context; with no expectation it is <code>int</code>. A literal that does not fit the expected type is an error.</p>
+<p><strong>Floats.</strong> Digits, a <code>.</code>, at least one digit, and an optional exponent: <code>3.14</code>, <code>0.5</code>, <code>1.0e-4</code>, <code>2.5E+3</code>. <code>1.</code> and <code>.5</code> are not float literals (this keeps <code>1..10</code> and member access unambiguous). A float literal takes <code>f32</code> or <code>f64</code> from context and defaults to <code>float</code>.</p>
+<p><strong>Booleans.</strong> <code>true</code> and <code>false</code>.</p>
+<p><strong>None.</strong> <code>none</code> is the absent value of every optional type. It needs an optional type from context: <code>let x? = none</code> without an annotation is an error, while <code>let x?: ?int = none</code> is valid.</p>
+<p><strong>Characters.</strong> A single Unicode scalar value in single quotes: <code>&#39;a&#39;</code>, <code>&#39;🦀&#39;</code>, <code>&#39;\n&#39;</code>. Escapes: <code>\n</code> <code>\r</code> <code>\t</code> <code>\\</code> <code>\&#39;</code> <code>\&quot;</code> <code>\0</code>, <code>\xHH</code> (a byte value), and <code>\u{H...}</code> (one to six hex digits, a valid scalar value).</p>
+<h2 id="28-strings"><a class="anchor" href="#28-strings" aria-hidden="true">#</a>2.8 Strings</h2>
+<p><strong>Double-quoted strings</strong> <code>&quot;...&quot;</code> may not contain a raw newline. Escapes are those of character literals plus <code>\$</code> (a literal dollar sign).</p>
+<p><strong>Backtick strings</strong> <code>`...`</code> may span lines; newlines are kept as <code>\n</code>. Quotes need no escaping. <code>\`</code> is a backtick and <code>\$</code> a dollar sign. The usual escapes (<code>\n</code>, <code>\t</code>, <code>\\</code>, <code>\xHH</code>, <code>\u{...}</code>, ...) are decoded; any other backslash sequence, such as <code>\d</code> or <code>C:\path</code>, is kept verbatim.</p>
+<p><strong>Interpolation</strong> works in both forms:</p>
+<ul>
+<li><code>$name</code> inserts a variable (or <code>$self</code> the receiver). The name ends at the first character that cannot continue an identifier, so a trailing <code>?</code> or <code>!</code> is literal text.
+</li>
+<li><code>${expr}</code> inserts any expression. Inside the braces, the full expression grammar applies, including nested strings.
+</li>
+</ul>
+<p>Each interpolated value must implement <code>Printable</code> (<a href="the-prelude.html#121-core-interfaces">§12.1</a>); interpolation calls its <code>to_string()</code> and concatenates the pieces. Interpolation is resolved at compile time; there is no runtime formatting language.</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+	<span class="k">let</span> name = <span class="s">&quot;Ada&quot;</span>
+	<span class="k">let</span> n = <span class="n">3</span>
+	<span class="f">println</span>(<span class="s">&quot;Hello </span>$name<span class="s">! You have </span>${n * <span class="n">2</span>}<span class="s"> messages.&quot;</span>)
+	<span class="k">let</span> json = <span class="s">`{&quot;name&quot;: &quot;</span>$name<span class="s">&quot;}`</span>
+	<span class="f">println</span>(json)
+}</code></pre>
+<h2 id="29-operators-and-punctuation"><a class="anchor" href="#29-operators-and-punctuation" aria-hidden="true">#</a>2.9 Operators and punctuation</h2>
+<pre><code>+   -   *   /   %   &amp;   |   ^   ~   &lt;&lt;  &gt;&gt;
+==  !=  &lt;   &lt;=  &gt;   &gt;=
+=   +=  -=  *=  /=  %=  &amp;=  |=  ^=  &lt;&lt;= &gt;&gt;=
+.   ?.  ..  ..= ?   ??  &lt;-
+(   )   [   ]   {   }   #[  +[
+:   ,   ;   @   $</code></pre>
+<p><strong>The unwind operator <code>&lt;-</code></strong> is recognized only when it is preceded by whitespace (or the start of the file, a comment, or <code>${</code>) and followed by whitespace, end of file, <code>;</code>, a closing delimiter, <code>,</code>, or a comment. Everywhere else, <code>&lt;</code> and <code>-</code> are separate tokens, so <code>a&lt;-b</code> means <code>a &lt; -b</code>.</p>
+<hr />
+</article><nav class="prev-next"><a class="prev" href="conventions-and-conformance.html"><span>Previous</span>1. Conventions and Conformance</a><a class="next" href="types.html"><span>Next</span>3. Types</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#21-source-text">2.1 Source text</a></li><li><a href="#22-whitespace-and-comments">2.2 Whitespace and comments</a></li><li><a href="#23-statement-separation">2.3 Statement separation</a></li><li><a href="#24-trailing-commas">2.4 Trailing commas</a></li><li><a href="#25-identifiers">2.5 Identifiers</a></li><li><a href="#26-keywords">2.6 Keywords</a></li><li><a href="#27-literals">2.7 Literals</a></li><li><a href="#28-strings">2.8 Strings</a></li><li><a href="#29-operators-and-punctuation">2.9 Operators and punctuation</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

@@ -121,13 +121,14 @@ type StructDecl struct {
 }
 
 type StructField struct {
-	Name    string
-	IsOpt   bool // true if field identifier ended with `?`
-	Type    TypeExpr
-	Default Expr // optional default value expression
-	Doc     string
-	DocSpan diag.Span
-	Span    diag.Span
+	Name       string
+	IsOpt      bool // true if field identifier ended with `?`
+	Type       TypeExpr
+	Default    Expr // optional default value expression
+	Attributes []Attribute
+	Doc        string
+	DocSpan    diag.Span
+	Span       diag.Span
 }
 
 func (*StructDecl) declNode()                     {}
@@ -153,6 +154,7 @@ type EnumVariant struct {
 	Name        string
 	Value       Expr     // optional explicit discriminant (pure tag enums only)
 	PayloadType TypeExpr // optional single-value payload (`Ok: T`)
+	Attributes  []Attribute
 	Doc         string
 	DocSpan     diag.Span
 	Span        diag.Span

@@ -96,12 +96,12 @@ Chosen over Rust-style macros (2026-11-22); full language design finalized with 
 
 ### Phase 6 — Reflection API (`comp.*`), `@derivable`, `std/derive`, & tuple generics
 
-- [ ] Define `@comptime_only` descriptors (`TypeKind` with uniform `tag_enum_kind` / `tagged_union_kind`, `AttrInfo`, `FieldInfo`, `VariantInfo`, `ElemInfo`) under `comp` / `std/core/comp.ll`, and support descriptor predicates (`f.implements(I)`, `f.has_attr(name)`, `f.attr(name)`, `vr.payload_implements(I)`, `e.implements(I)`).
-- [ ] Implement `comp.type_name[T]()`, `comp.kind_of[T]()`, `comp.fields_of[T]()`, `comp.variants_of[T]()`, `comp.elems_of[T]()`, `comp.attrs_of[T]()`, and `comp.implements[T, I]()` in `internal/sema/check_calls.go`.
-- [ ] Implement `v.field(f)` / `t.elem(e)` (read, `&`, assign, move; disambiguated from user methods via `FieldInfo`/`ElemInfo`) and collecting `comptime for(...) T:` struct/tuple construction (`next <-` defaults/none for optional/defaulted fields).
-- [ ] Implement `variant_index(v)`, `v.is_variant(vr)`, `v.payload(vr)` / `if(v.as_variant(vr) as p)`, `make_variant[T](vr [, own payload])`, and enforce `_` privacy outside `T`'s package unless authorized by `@derive(...)` (scoped strictly to the derived wrapper package `H16`).
-- [ ] Add `@derivable(...)` interface support (`Equatable`, `Comparable`, `Hashable`, `Copyable`, `Printable` plus custom std/user interfaces), write `std/derive/derive.ll`, benchmark release perf vs runtime helpers (`H16`), replace `internal/sema/derive.go` with `@derivable` instantiation, and delete `internal/sema/derive.go`.
-- [ ] Move tuple `eq`/`cmp`/`hash`/`copy`/`to_string` to Lowlight generics over `comp.elems_of[T]()` (and optionals to `std/core`), then delete the struct/enum/tuple helpers in `cgen.go` and `llvmgen_runtime.go` (drop glue stays compiler-generated). **Also needs:** [Tuples](#3-tuples).
+- [x] Define `@comptime_only` descriptors (`TypeKind` with uniform `tag_enum_kind` / `tagged_union_kind`, `AttrInfo`, `FieldInfo`, `VariantInfo`, `ElemInfo`) under `comp` / `std/core/comp.ll`, and support descriptor predicates (`f.implements(I)`, `f.has_attr(name)`, `f.attr(name)`, `vr.payload_implements(I)`, `e.implements(I)`).
+- [x] Implement `comp.type_name[T]()`, `comp.kind_of[T]()`, `comp.fields_of[T]()`, `comp.variants_of[T]()`, `comp.elems_of[T]()`, `comp.attrs_of[T]()`, and `comp.implements[T, I]()` in `internal/sema/check_calls.go`.
+- [x] Implement `v.field(f)` / `t.elem(e)` (read, `&`, assign, move; disambiguated from user methods via `FieldInfo`/`ElemInfo`) and collecting `comptime for(...) T:` struct/tuple construction (`next <-` defaults/none for optional/defaulted fields).
+- [x] Implement `variant_index(v)`, `v.is_variant(vr)`, `v.payload(vr)` / `if(v.as_variant(vr) as p)`, `make_variant[T](vr [, own payload])`, and enforce `_` privacy outside `T`'s package unless authorized by `@derive(...)` (scoped strictly to the derived wrapper package `H16`).
+- [x] Add `@derivable(...)` interface support (`Equatable`, `Comparable`, `Hashable`, `Copyable`, `Printable` plus custom std/user interfaces) in `internal/sema/derivable.go`, write `std/derive/derive.ll`, benchmark release perf vs runtime helpers (`H16`), replace `internal/sema/derive.go` with `@derivable` instantiation, and delete `internal/sema/derive.go`.
+- [x] Move tuple `eq`/`cmp`/`hash`/`copy`/`to_string` to Lowlight generics (`std/core/tuples.ll` over `comp.elems_of[T]()`, and optionals in `std/core/optional.ll`), then delete the struct/enum/tuple/optional eq/cmp/hash/copy/to_string helpers in `cgen.go` and `llvmgen_runtime.go` (drop/boxopt glue stays compiler-generated). **Also needs:** [Tuples](#3-tuples).
 
 ### Phase 7 — Diagnostics, `lowlight expand`, LSP, & editors
 
@@ -131,10 +131,10 @@ Chosen over Rust-style macros (2026-11-22); full language design finalized with 
 Tuples are due for an overhaul (2026-11-22); `@derive` deliberately doesn't apply to them yet.
 
 - [ ] **Decision:** the tuple overhaul: what changes about tuples (syntax, destructuring, etc.); `eq`/`cmp`/`hash`/`copy`/`to_string` are decided to be comptime-generic over `elems_of[T]()` (`COMPTIME_DESIGN.md`).
-  - [ ] Tuple `eq`/`cmp`/`hash`/`copy`/`to_string` written in Lowlight (with `comptime for` over `elems_of[T]()`), replacing the helpers both backends synthesize. Do optionals at the same time (they may only need ordinary generic code). **Also needs:** [comptime type-description built-ins](#1-compile-time-execution-comptime).
+  - [x] Tuple `eq`/`cmp`/`hash`/`copy`/`to_string` written in Lowlight (`std/core/tuples.ll` with `comptime for` over `elems_of[T]()`), plus optionals (`std/core/optional.ll`), replacing the helpers both backends synthesize. **Also needs:** [comptime type-description built-ins](#1-compile-time-execution-comptime).
   - [ ] Flat tuple destructuring in declarations (`let +[a, b] = ...`, including mutable, typed, and wildcard elements).
     - [ ] Nested tuple destructuring in declarations and `match` patterns.
-  - [ ] Add tuples (and optionals) to `LookupMethod` (`internal/sema/program.go`, `internal/sema/types_pass.go`).
+  - [x] Add tuples (and optionals) to `LookupMethod` (`internal/sema/program.go`, `internal/sema/types_pass.go`).
 
 ## 4. Operators
 
