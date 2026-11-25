@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"lowlight/internal/ir"
+	"lowlight/internal/manifest"
 	"lowlight/internal/sema"
 	"lowlight/internal/token"
 	"lowlight/internal/types"
@@ -15,9 +16,9 @@ import (
 // EmitC generates a complete, standalone ISO C11 translation unit from `prog`.
 func EmitC(prog *ir.Program) string {
 	g := &cEmitter{
-		prog:    prog,
-		optSet:  make(map[string]bool),
-		vecSet:  make(map[string]bool),
+		prog:   prog,
+		optSet: make(map[string]bool),
+		vecSet: make(map[string]bool),
 	}
 	for _, o := range prog.Optionals {
 		g.optSet[o.Mangled()] = true
@@ -42,6 +43,31 @@ type cEmitter struct {
 	sb          strings.Builder
 	optSet      map[string]bool
 	vecSet      map[string]bool
+	// externAliases maps a user `extern` function's C symbol to the primary private name, while
+	// externAliasesByEF and externAliasSigs distinguish duplicate C symbols with differing signatures.
+	externAliases     map[string]string
+	externAliasesByEF map[*sema.ExternFunc]string
+	externAliasSigs   map[string]string
+	staticValSyms     map[*ir.StaticVal]string
+	constArrCounter int
+	loweredLambdas  map[*sema.LambdaInfo]bool
+}
+
+func (g *cEmitter) isLambdaLowered(li *sema.LambdaInfo) bool {
+	if li == nil {
+		return false
+	}
+	if g.loweredLambdas == nil {
+		g.loweredLambdas = make(map[*sema.LambdaInfo]bool)
+		if g.prog != nil {
+			for _, fn := range g.prog.Funcs {
+				if fn.IsLambda && fn.LambdaInfo != nil {
+					g.loweredLambdas[fn.LambdaInfo] = true
+				}
+			}
+		}
+	}
+	return g.loweredLambdas[li]
 }
 
 func (g *cEmitter) raw(s string) {
@@ -115,21 +141,8 @@ func (g *cEmitter) emitAll() {
 	g.emitLambdaAndThunkHelpers()
 	g.emitVTables()
 
-	// 8. Top-Level `bind` Global Constants Storage
-	if len(g.prog.Globals) > 0 {
-		g.line("/* Top-Level Constants */")
-		for _, gl := range g.prog.Globals {
-			switch g.unitMode {
-			case UnitPackage:
-				g.line("extern %s %s;", CType(gl.Type), gl.CName)
-			case UnitLinkMain:
-				g.line("%s %s;", CType(gl.Type), gl.CName)
-			default:
-				g.line("static %s %s;", CType(gl.Type), gl.CName)
-			}
-		}
-		g.line("")
-	}
+	// 8. Baked Compile-Time `.rodata` Arrays & Top-Level `bind`/`const` Globals
+	g.emitBakedStaticStorageAndGlobals()
 
 	// 9. Lowered MIR Function & Lambda Bodies
 	g.line("/* Lowered Lowlight Functions */")
@@ -211,8 +224,14 @@ func (g *cEmitter) emitEnumsAndForwardDecls() {
 	for _, t := range g.prog.OrderedTypes {
 		if v, ok := t.(*types.Func); ok && !v.Closure {
 			pTypes := []string{"void*"}
+			if v.Extern {
+				pTypes = nil // a C function pointer takes just its arguments
+			}
 			for _, p := range v.Params {
 				pTypes = append(pTypes, paramCType(p.Mode, p.Type))
+			}
+			if len(pTypes) == 0 {
+				pTypes = []string{"void"}
 			}
 			g.line("typedef %s (*%s)(%s);", CType(v.Ret), CType(v), strings.Join(pTypes, ", "))
 		}
@@ -333,7 +352,7 @@ func (g *cEmitter) emitLambdaEnvStructs() {
 	}
 	g.line("/* Closure Capture Environments */")
 	for _, li := range g.prog.Checked.Lambdas {
-		if len(li.Captures) == 0 {
+		if len(li.Captures) == 0 || !g.isLambdaLowered(li) {
 			continue
 		}
 		g.line("typedef struct %s {", li.EnvCName)
@@ -360,21 +379,125 @@ var stdCHeaderFuncs = map[string]bool{
 	"pow": true, "sqrt": true, "cbrt": true, "hypot": true, "ceil": true, "floor": true, "round": true, "trunc": true, "fabs": true, "fmod": true,
 }
 
-func (g *cEmitter) emitForwardPrototypes() {
-	if len(g.prog.ExternFuncs) > 0 {
-		for _, ef := range g.prog.ExternFuncs {
-			if stdCHeaderFuncs[ef.Name] || strings.HasPrefix(ef.Name, "ll_") {
-				continue
-			}
-			var ps []string
-			for _, p := range ef.Sig.Params {
-				ps = append(ps, paramCType(p.Mode, p.Type))
-			}
-			if len(ps) == 0 {
-				ps = []string{"void"}
-			}
-			g.line("extern %s %s(%s);", CType(ef.Sig.Ret), ef.Name, strings.Join(ps, ", "))
+func sanitizeCIdent(name string) string {
+	var sb strings.Builder
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' {
+			sb.WriteByte(c)
+		} else {
+			fmt.Fprintf(&sb, "_%02x_", c)
 		}
+	}
+	return sb.String()
+}
+
+func externCSigKey(sig *types.Func) string {
+	if sig == nil {
+		return ""
+	}
+	var ps []string
+	for _, p := range sig.Params {
+		ps = append(ps, paramCType(p.Mode, p.Type))
+	}
+	ret := "void"
+	if sig.Ret != nil {
+		ret = CType(sig.Ret)
+	}
+	return ret + "(" + strings.Join(ps, ",") + ")"
+}
+
+func (g *cEmitter) ensureExternAliases() {
+	if g.externAliases != nil {
+		return
+	}
+	g.externAliases = make(map[string]string)
+	g.externAliasesByEF = make(map[*sema.ExternFunc]string)
+	g.externAliasSigs = make(map[string]string)
+	if g.prog == nil {
+		return
+	}
+	counts := make(map[string]int)
+	for _, ef := range g.prog.ExternFuncs {
+		if strings.HasPrefix(ef.Name, "ll_") {
+			continue
+		}
+		sigKey := ef.Name + "|" + externCSigKey(ef.Sig)
+		if existing, ok := g.externAliasSigs[sigKey]; ok {
+			g.externAliasesByEF[ef] = existing
+			continue
+		}
+		counts[ef.Name]++
+		n := counts[ef.Name]
+		alias := "ll_cext_" + sanitizeCIdent(ef.Name)
+		if n > 1 {
+			alias = fmt.Sprintf("%s__%d", alias, n)
+		} else {
+			g.externAliases[ef.Name] = alias
+		}
+		g.externAliasSigs[sigKey] = alias
+		g.externAliasesByEF[ef] = alias
+	}
+}
+
+// externAlias returns the private C name a user `extern` function `sym` is declared under, or false
+// for names that aren't user externs.
+func (g *cEmitter) externAlias(sym string) (string, bool) {
+	g.ensureExternAliases()
+	alias, ok := g.externAliases[sym]
+	return alias, ok
+}
+
+func (g *cEmitter) externAliasForEF(ef *sema.ExternFunc) (string, bool) {
+	if ef == nil {
+		return "", false
+	}
+	g.ensureExternAliases()
+	alias, ok := g.externAliasesByEF[ef]
+	return alias, ok
+}
+
+func (g *cEmitter) externAliasBySig(sym string, sig *types.Func) (string, bool) {
+	g.ensureExternAliases()
+	if sig != nil {
+		if alias, ok := g.externAliasSigs[sym+"|"+externCSigKey(sig)]; ok {
+			return alias, true
+		}
+	}
+	alias, ok := g.externAliases[sym]
+	return alias, ok
+}
+
+// cSymbolPrefix is the prefix the target C ABI adds to symbol names (`_` on macOS/Darwin).
+func cSymbolPrefix(target manifest.TargetInfo) string {
+	if target.OS == "darwin" {
+		return "_"
+	}
+	return ""
+}
+
+func (g *cEmitter) emitForwardPrototypes() {
+	target := targetInfoForProg(g.prog)
+	symPrefix := cSymbolPrefix(target)
+	// A user `extern` is declared under a private name bound to the real symbol with an asm label,
+	// so its Lowlight signature can't conflict with a system header's prototype of the same
+	// function (`write` in <unistd.h> takes `const void*` and `size_t`). Distinct signatures for
+	// the same C symbol get distinct aliases (`__2`, ...) so multi-module decls never collide.
+	seenAliases := make(map[string]bool)
+	for _, ef := range g.prog.ExternFuncs {
+		alias, ok := g.externAliasForEF(ef)
+		if !ok || seenAliases[alias] {
+			continue
+		}
+		seenAliases[alias] = true
+		var ps []string
+		for _, p := range ef.Sig.Params {
+			ps = append(ps, paramCType(p.Mode, p.Type))
+		}
+		if len(ps) == 0 {
+			ps = []string{"void"}
+		}
+		g.line("extern %s %s(%s) __asm__(\"%s%s\");", CType(ef.Sig.Ret), alias, strings.Join(ps, ", "), symPrefix, ef.Name)
 	}
 
 	g.line("/* Function & Synthesized Helper Prototypes */")
@@ -1020,6 +1143,9 @@ func (g *cEmitter) emitInterfaceHelpers(ifc *types.Interface) {
 
 func (g *cEmitter) emitLambdaAndThunkHelpers() {
 	for _, li := range g.prog.Checked.Lambdas {
+		if !g.isLambdaLowered(li) {
+			continue
+		}
 		if len(li.Captures) > 0 {
 			// env drop
 			g.line("static inline void %s_drop(void* _raw) {", li.EnvCName)
@@ -1061,7 +1187,11 @@ func (g *cEmitter) emitLambdaAndThunkHelpers() {
 			g.line("}")
 		}
 
-		// `_entry` wrapper matching `fn(void* _env, ...)` pointer signature
+		// `_entry` wrapper matching `fn(void* _env, ...)` pointer signature. An `extern fn`
+		// literal is called directly by C and has none.
+		if li.Sig.Extern {
+			continue
+		}
 		var pDecls []string
 		var pArgs []string
 		pDecls = append(pDecls, "void* _ll_env")
@@ -1082,6 +1212,10 @@ func (g *cEmitter) emitLambdaAndThunkHelpers() {
 
 	// Static function closure thunks
 	for _, st := range g.prog.StaticThunks {
+		if st.CCallback {
+			g.emitCCallbackThunk(st)
+			continue
+		}
 		var pDecls []string
 		var pArgs []string
 		pDecls = append(pDecls, "void* _ll_env")
@@ -1090,16 +1224,51 @@ func (g *cEmitter) emitLambdaAndThunkHelpers() {
 			pDecls = append(pDecls, fmt.Sprintf("%s %s", paramCType(p.Mode, p.Type), pn))
 			pArgs = append(pArgs, pn)
 		}
+		targetSym := st.TargetCName()
+		if alias, ok := g.externAliasBySig(targetSym, st.FuncType); ok {
+			targetSym = alias
+		}
 		g.line("static inline %s %s(%s) {", CType(st.FuncType.Ret), st.ThunkCName, strings.Join(pDecls, ", "))
 		g.line("    (void)_ll_env;")
 		if st.FuncType.Ret.Equals(types.TypeVoid) {
-			g.line("    %s(%s);", st.TargetFunc.CName, strings.Join(pArgs, ", "))
+			g.line("    %s(%s);", targetSym, strings.Join(pArgs, ", "))
 		} else {
-			g.line("    return %s(%s);", st.TargetFunc.CName, strings.Join(pArgs, ", "))
+			g.line("    return %s(%s);", targetSym, strings.Join(pArgs, ", "))
 		}
 		g.line("}")
 	}
 	g.line("")
+}
+
+// emitCCallbackThunk emits a test-build wrapper for an `extern fn` that C calls: while it runs, the
+// test runner's jump target is cleared, so a panic ends the test run (as in a normal build) instead
+// of jumping back across the C frames.
+func (g *cEmitter) emitCCallbackThunk(st *ir.StaticThunk) {
+	var pDecls, pArgs []string
+	for idx, p := range st.FuncType.Params {
+		pn := fmt.Sprintf("_p%d", idx)
+		pDecls = append(pDecls, fmt.Sprintf("%s %s", paramCType(p.Mode, p.Type), pn))
+		pArgs = append(pArgs, pn)
+	}
+	if len(pDecls) == 0 {
+		pDecls = []string{"void"}
+	}
+	targetSym := st.TargetCName()
+	if alias, ok := g.externAliasBySig(targetSym, st.FuncType); ok {
+		targetSym = alias
+	}
+	g.line("static %s %s(%s) {", CType(st.FuncType.Ret), st.ThunkCName, strings.Join(pDecls, ", "))
+	g.line("    jmp_buf* _ll_saved = ll_test_current_jmp;")
+	g.line("    ll_test_current_jmp = NULL;")
+	if st.FuncType.Ret.Equals(types.TypeVoid) {
+		g.line("    %s(%s);", targetSym, strings.Join(pArgs, ", "))
+		g.line("    ll_test_current_jmp = _ll_saved;")
+	} else {
+		g.line("    %s _ll_r = %s(%s);", CType(st.FuncType.Ret), targetSym, strings.Join(pArgs, ", "))
+		g.line("    ll_test_current_jmp = _ll_saved;")
+		g.line("    return _ll_r;")
+	}
+	g.line("}")
 }
 
 func (g *cEmitter) emitVTables() {
@@ -1361,6 +1530,14 @@ func (g *cEmitter) emitExpr(e ir.Expr) string {
 		}
 		return v.Global.Name
 	case *ir.ExprFuncRef:
+		if v.ExternFunc != nil {
+			if alias, ok := g.externAliasForEF(v.ExternFunc); ok {
+				return alias
+			}
+		}
+		if alias, ok := g.externAliasBySig(v.Name, v.FuncType); ok {
+			return alias
+		}
 		return v.Name
 	case *ir.ExprLitInt:
 		return formatCIntLit(v.Val, v.Negated, v.Typ)
@@ -1373,6 +1550,8 @@ func (g *cEmitter) emitExpr(e ir.Expr) string {
 		return "false"
 	case *ir.ExprLitChar:
 		return fmt.Sprintf("%du", uint32(v.Val))
+	case *ir.ExprConst:
+		return g.emitCExprConst(v.Static, v.Typ)
 	case *ir.ExprLitString:
 		return fmt.Sprintf("ll_str_lit(%s, %dLL)", quoteCString(v.Val), len(v.Val))
 	case *ir.ExprLitCString:
@@ -1528,14 +1707,6 @@ func (g *cEmitter) emitExpr(e ir.Expr) string {
 			return fmt.Sprintf("((%s*)%s((%s) * (int64_t)sizeof(%s)))", CType(v.AllocType), fn, g.emitExpr(v.Count), CType(v.AllocType))
 		}
 		return fmt.Sprintf("((%s*)%s((int64_t)sizeof(%s)))", CType(v.AllocType), fn, CType(v.AllocType))
-	case *ir.ExprArenaAlloc:
-		dtorArg := "NULL"
-		if v.DtorFn != "" {
-			dtorArg = fmt.Sprintf("(void (*)(void*))%s", v.DtorFn)
-		}
-		cElem := CType(v.AllocType)
-		return fmt.Sprintf("((%s*)ll_arena_alloc(%s, (int64_t)sizeof(%s), (int64_t)_Alignof(%s), %s))",
-			cElem, g.emitExpr(v.Arena), cElem, cElem, dtorArg)
 	case *ir.ExprRealloc:
 		return fmt.Sprintf("((%s*)ll_realloc((void*)(%s), (%s) * (int64_t)sizeof(%s)))",
 			CType(v.AllocType), g.emitExpr(v.Ptr), g.emitExpr(v.Count), CType(v.AllocType))
@@ -1547,6 +1718,11 @@ func (g *cEmitter) emitExpr(e ir.Expr) string {
 		return fmt.Sprintf("((int64_t)sizeof(%s))", CType(v.QueryType))
 	case *ir.ExprAlignOf:
 		return fmt.Sprintf("((int64_t)_Alignof(%s))", CType(v.QueryType))
+	case *ir.ExprFloatBits:
+		if v.FloatType.Equals(types.TypeF32) {
+			return fmt.Sprintf("ll_f32_to_bits(%s)", g.emitExpr(v.Val))
+		}
+		return fmt.Sprintf("ll_f64_to_bits(%s)", g.emitExpr(v.Val))
 	case *ir.ExprToString:
 		return fmt.Sprintf("%s(%s)", g.toStrFn(v.ValType), g.emitExpr(v.Val))
 	case *ir.ExprDrop:
@@ -1750,8 +1926,6 @@ func CType(t types.Type) string {
 			return "double"
 		case types.PrimString:
 			return "ll_string"
-		case types.PrimArena:
-			return "ll_arena"
 		default:
 			return "int64_t"
 		}
@@ -1857,7 +2031,7 @@ func quoteCString(s string) string {
 		case '\t':
 			sb.WriteString(`\t`)
 		case 0:
-			sb.WriteString(`\0`)
+			sb.WriteString(`\000`)
 		default:
 			if b >= 0x20 && b <= 0x7e {
 				sb.WriteByte(b)
@@ -1892,7 +2066,13 @@ func (g *cEmitter) emitInstrList(indent int, ins []ir.Instr) {
 			if v.Expr != nil {
 				code := g.emitExpr(v.Expr)
 				if code != "" {
-					g.indentLine(indent, "%s;", code)
+					switch v.Expr.(type) {
+					case *ir.ExprLocal, *ir.ExprGlobal, *ir.ExprField:
+						// A discarded value, such as a statement chain's unused success value.
+						g.indentLine(indent, "(void)(%s);", code)
+					default:
+						g.indentLine(indent, "%s;", code)
+					}
 				}
 			}
 
@@ -1964,8 +2144,11 @@ func (g *cEmitter) emitCMain() {
 	g.line("    ll_rt_argc = argc;")
 	g.line("    ll_rt_argv = argv;")
 
-	// Initialize top-level `bind` constants
+	// Initialize top-level runtime `bind` constants (`const` globals are already statically baked)
 	for _, gl := range g.prog.Globals {
+		if gl.IsConst && gl.StaticInit != nil {
+			continue
+		}
 		if len(gl.InitInstr) > 0 || len(gl.Locals) > 0 {
 			g.line("    {")
 			for _, loc := range gl.Locals {
@@ -1994,9 +2177,12 @@ func (g *cEmitter) emitCMain() {
 		g.line("    _ll_rc = (int)%s();", g.prog.MainFunc.CName)
 	}
 
-	// Deterministically drop top-level Resource constants in reverse initialization order!
+	// Deterministically drop top-level runtime `bind` Resource constants in reverse initialization order!
 	for i := len(g.prog.Globals) - 1; i >= 0; i-- {
 		gl := g.prog.Globals[i]
+		if gl.IsConst && gl.StaticInit != nil {
+			continue
+		}
 		if !gl.Type.IsPlain() {
 			g.line("    %s(&%s);", ir.DropFnName(gl.Type), gl.CName)
 		}
@@ -2013,8 +2199,11 @@ func (g *cEmitter) emitCTestMain() {
 	g.line("    ll_rt_argv = argv;")
 	g.line("")
 
-	// Initialize top-level `bind` constants
+	// Initialize top-level runtime `bind` constants (`const` globals are already statically baked)
 	for _, gl := range g.prog.Globals {
+		if gl.IsConst && gl.StaticInit != nil {
+			continue
+		}
 		if len(gl.InitInstr) > 0 || len(gl.Locals) > 0 {
 			g.line("    {")
 			for _, loc := range gl.Locals {
@@ -2100,9 +2289,12 @@ func (g *cEmitter) emitCTestMain() {
 		g.line("    int _ll_rc = (_ll_test_failed > 0) ? 1 : 0;")
 	}
 
-	// Deterministically drop top-level Resource constants in reverse initialization order!
+	// Deterministically drop top-level runtime `bind` Resource constants in reverse initialization order!
 	for i := len(g.prog.Globals) - 1; i >= 0; i-- {
 		gl := g.prog.Globals[i]
+		if gl.IsConst && gl.StaticInit != nil {
+			continue
+		}
 		if !gl.Type.IsPlain() {
 			g.line("    %s(&%s);", ir.DropFnName(gl.Type), gl.CName)
 		}
@@ -2328,7 +2520,7 @@ func (g *cEmitter) canToStringVisited(t types.Type, seen map[types.Type]bool) bo
 	}
 	switch v := t.(type) {
 	case *types.Primitive:
-		return v.Kind != types.PrimVoid && v.Kind != types.PrimArena
+		return v.Kind != types.PrimVoid
 	case *types.Ptr, *types.Ref:
 		return true
 	case *types.Enum:
@@ -2416,4 +2608,390 @@ func stripOuterParens(s string) string {
 		}
 		s = s[1 : len(s)-1]
 	}
+}
+
+func (g *cEmitter) emitBakedStaticStorageAndGlobals() {
+	var collected []*ir.StaticVal
+	if g.unitMode != UnitPackage {
+		for _, gl := range g.prog.Globals {
+			if gl.IsConst && gl.StaticInit != nil {
+				continue
+			}
+			for _, ins := range gl.InitInstr {
+				g.collectCInstrConsts(ins, &collected)
+			}
+			g.collectCExprConsts(gl.InitExpr, &collected)
+		}
+	}
+	for _, fn := range g.prog.Funcs {
+		if g.unitMode != UnitStandalone && !fn.IsAlwaysInline && !g.defineFuncs[fn.CName] {
+			continue
+		}
+		for _, ins := range fn.Body {
+			g.collectCInstrConsts(ins, &collected)
+		}
+	}
+
+	var backingDefs []string
+	var constValDefs []string
+	globalInits := make(map[*ir.Global]string)
+	if g.unitMode != UnitPackage {
+		for _, gl := range g.prog.Globals {
+			if gl.IsConst && gl.StaticInit != nil {
+				globalInits[gl] = g.buildCStaticInit(gl.StaticInit, &backingDefs)
+			}
+		}
+	}
+	if g.staticValSyms == nil {
+		g.staticValSyms = make(map[*ir.StaticVal]string)
+	}
+	for _, sv := range collected {
+		if sv == nil || isImmediateCStatic(sv) {
+			continue
+		}
+		if _, ok := g.staticValSyms[sv]; ok {
+			continue
+		}
+		initStr := g.buildCStaticInit(sv, &backingDefs)
+		sym := fmt.Sprintf("__ll_ro_val_%d", g.constArrCounter)
+		g.constArrCounter++
+		g.staticValSyms[sv] = sym
+		constValDefs = append(constValDefs, fmt.Sprintf("static %s %s = %s;", CType(sv.Type), sym, initStr))
+	}
+
+	if len(backingDefs) > 0 || len(constValDefs) > 0 {
+		g.line("/* Baked Compile-Time .rodata Storage */")
+		for _, def := range backingDefs {
+			g.raw(def)
+		}
+		for _, def := range constValDefs {
+			g.raw(def)
+		}
+		g.line("")
+	}
+
+	if len(g.prog.Globals) > 0 {
+		g.line("/* Top-Level Constants */")
+		for _, gl := range g.prog.Globals {
+			if gl.IsConst && gl.StaticInit != nil {
+				switch g.unitMode {
+				case UnitPackage:
+					g.line("extern %s %s;", CType(gl.Type), gl.CName)
+				case UnitLinkMain:
+					g.line("%s %s = %s;", CType(gl.Type), gl.CName, globalInits[gl])
+				default:
+					g.line("static %s %s = %s;", CType(gl.Type), gl.CName, globalInits[gl])
+				}
+				continue
+			}
+			switch g.unitMode {
+			case UnitPackage:
+				g.line("extern %s %s;", CType(gl.Type), gl.CName)
+			case UnitLinkMain:
+				g.line("%s %s;", CType(gl.Type), gl.CName)
+			default:
+				g.line("static %s %s;", CType(gl.Type), gl.CName)
+			}
+		}
+		g.line("")
+	}
+}
+
+func (g *cEmitter) collectCInstrConsts(ins ir.Instr, out *[]*ir.StaticVal) {
+	if ins == nil {
+		return
+	}
+	switch v := ins.(type) {
+	case *ir.InstrAssign:
+		g.collectCExprConsts(v.Dst, out)
+		g.collectCExprConsts(v.Expr, out)
+	case *ir.InstrCompoundAssign:
+		g.collectCExprConsts(v.Dst, out)
+		g.collectCExprConsts(v.Expr, out)
+	case *ir.InstrExpr:
+		g.collectCExprConsts(v.Expr, out)
+	case *ir.InstrIf:
+		g.collectCExprConsts(v.Cond, out)
+		for _, in := range v.Then {
+			g.collectCInstrConsts(in, out)
+		}
+		for _, in := range v.Else {
+			g.collectCInstrConsts(in, out)
+		}
+	case *ir.InstrWhile:
+		g.collectCExprConsts(v.Cond, out)
+		for _, in := range v.Body {
+			g.collectCInstrConsts(in, out)
+		}
+	case *ir.InstrBlock:
+		for _, in := range v.Body {
+			g.collectCInstrConsts(in, out)
+		}
+	case *ir.InstrReturn:
+		g.collectCExprConsts(v.Expr, out)
+	}
+}
+
+func (g *cEmitter) collectCExprConsts(e ir.Expr, out *[]*ir.StaticVal) {
+	if e == nil {
+		return
+	}
+	switch v := e.(type) {
+	case *ir.ExprConst:
+		if v.Static != nil {
+			*out = append(*out, v.Static)
+		}
+	case *ir.ExprBinary:
+		g.collectCExprConsts(v.Left, out)
+		g.collectCExprConsts(v.Right, out)
+	case *ir.ExprUnary:
+		g.collectCExprConsts(v.Operand, out)
+	case *ir.ExprCast:
+		g.collectCExprConsts(v.Val, out)
+	case *ir.ExprFloatBits:
+		g.collectCExprConsts(v.Val, out)
+	case *ir.ExprField:
+		g.collectCExprConsts(v.Base, out)
+	case *ir.ExprIndex:
+		g.collectCExprConsts(v.Base, out)
+		g.collectCExprConsts(v.Index, out)
+	case *ir.ExprDeref:
+		g.collectCExprConsts(v.Ptr, out)
+	case *ir.ExprAddrOf:
+		g.collectCExprConsts(v.Place, out)
+	case *ir.ExprCall:
+		g.collectCExprConsts(v.Callee, out)
+		for _, a := range v.Args {
+			g.collectCExprConsts(a, out)
+		}
+	case *ir.ExprConstructStruct:
+		for _, f := range v.Fields {
+			g.collectCExprConsts(f.Value, out)
+		}
+	case *ir.ExprConstructEnum:
+		g.collectCExprConsts(v.Payload, out)
+	case *ir.ExprConstructArray:
+		for _, el := range v.Elems {
+			g.collectCExprConsts(el, out)
+		}
+	case *ir.ExprConstructVector:
+		for _, el := range v.Elems {
+			g.collectCExprConsts(el, out)
+		}
+	case *ir.ExprConstructTuple:
+		for _, el := range v.Elems {
+			g.collectCExprConsts(el, out)
+		}
+	case *ir.ExprConstructClosure:
+		g.collectCExprConsts(v.EnvPtr, out)
+	case *ir.ExprFnToClosure:
+		g.collectCExprConsts(v.Fn, out)
+	case *ir.ExprWrapOptional:
+		g.collectCExprConsts(v.Value, out)
+	case *ir.ExprOptionalHasValue:
+		g.collectCExprConsts(v.Opt, out)
+	case *ir.ExprOptionalValue:
+		g.collectCExprConsts(v.Opt, out)
+	case *ir.ExprOptionalValuePtr:
+		g.collectCExprConsts(v.OptPtr, out)
+	case *ir.ExprSliceView:
+		g.collectCExprConsts(v.DataPtr, out)
+		g.collectCExprConsts(v.Len, out)
+	case *ir.ExprBoxInterface:
+		g.collectCExprConsts(v.Value, out)
+	case *ir.ExprAlloc:
+		g.collectCExprConsts(v.Count, out)
+	case *ir.ExprFree:
+		g.collectCExprConsts(v.Ptr, out)
+	case *ir.ExprRealloc:
+		g.collectCExprConsts(v.Ptr, out)
+		g.collectCExprConsts(v.Count, out)
+	case *ir.ExprCopyBytes:
+		g.collectCExprConsts(v.Dst, out)
+		g.collectCExprConsts(v.Src, out)
+		g.collectCExprConsts(v.Count, out)
+	case *ir.ExprToString:
+		g.collectCExprConsts(v.Val, out)
+	case *ir.ExprDrop:
+		g.collectCExprConsts(v.Ptr, out)
+	case *ir.ExprCopy:
+		g.collectCExprConsts(v.Val, out)
+	case *ir.ExprEq:
+		g.collectCExprConsts(v.Left, out)
+		g.collectCExprConsts(v.Right, out)
+	case *ir.ExprCmp:
+		g.collectCExprConsts(v.Left, out)
+		g.collectCExprConsts(v.Right, out)
+	case *ir.ExprHash:
+		g.collectCExprConsts(v.Val, out)
+	case *ir.ExprVecPush:
+		g.collectCExprConsts(v.VecPtr, out)
+		g.collectCExprConsts(v.Item, out)
+	}
+}
+
+func isImmediateCStatic(sv *ir.StaticVal) bool {
+	if sv == nil {
+		return true
+	}
+	switch sv.Kind {
+	case sema.StaticVoid, sema.StaticInt, sema.StaticFloat, sema.StaticBool, sema.StaticChar, sema.StaticFn:
+		return true
+	case sema.StaticEnum:
+		effTy := unwrapDistinctType(sv.Type)
+		if en, ok := effTy.(*types.Enum); ok && !en.IsTagged {
+			return true
+		}
+	case sema.StaticOpt:
+		effTy := unwrapDistinctType(sv.Type)
+		if opt, ok := effTy.(*types.Optional); ok && opt.IsBoxed() {
+			return true
+		}
+	}
+	return false
+}
+
+func formatCStaticScalar(sv *ir.StaticVal, fallbackTy types.Type) string {
+	ty := sv.Type
+	if ty == nil {
+		ty = fallbackTy
+	}
+	switch sv.Kind {
+	case sema.StaticVoid:
+		return ""
+	case sema.StaticInt:
+		if sv.IsSigned && sv.SignedVal < 0 {
+			return formatCIntLit(uint64(-sv.SignedVal), true, ty)
+		}
+		return formatCIntLit(sv.Uint, false, ty)
+	case sema.StaticFloat:
+		return formatCFloatLit(sv.Float, ty)
+	case sema.StaticBool:
+		if sv.Bool {
+			return "true"
+		}
+		return "false"
+	case sema.StaticChar:
+		return fmt.Sprintf("%du", uint32(sv.Char))
+	case sema.StaticFn:
+		if sv.FnEntry == "" {
+			return fmt.Sprintf("((%s)NULL)", CType(ty))
+		}
+		return fmt.Sprintf("((%s)%s)", CType(ty), sv.FnEntry)
+	case sema.StaticEnum:
+		return fmt.Sprintf("((%s)%dLL)", CType(ty), sv.VariantVal)
+	case sema.StaticOpt:
+		return fmt.Sprintf("((%s)NULL)", CType(ty))
+	}
+	return "0"
+}
+
+func (g *cEmitter) buildCStaticInit(sv *ir.StaticVal, backingDefs *[]string) string {
+	if sv == nil {
+		return "{ 0 }"
+	}
+	if isImmediateCStatic(sv) {
+		return formatCStaticScalar(sv, sv.Type)
+	}
+	effTy := unwrapDistinctType(sv.Type)
+	switch sv.Kind {
+	case sema.StaticString:
+		if len(sv.Str) == 0 {
+			return "{ .data = (uint8_t*)\"\", .len = 0LL, .cap = 0LL }"
+		}
+		return fmt.Sprintf("{ .data = (uint8_t*)%s, .len = %dLL, .cap = 0LL }", quoteCString(sv.Str), len(sv.Str))
+	case sema.StaticList:
+		if sv.HasRawBytes {
+			if len(sv.RawBytes) == 0 {
+				return "{ .data = NULL, .len = 0LL, .cap = 0LL }"
+			}
+			arrSym := fmt.Sprintf("__ll_ro_arr_%d", g.constArrCounter)
+			g.constArrCounter++
+			var sb strings.Builder
+			for i, b := range sv.RawBytes {
+				if i > 0 {
+					sb.WriteString(", ")
+				}
+				fmt.Fprintf(&sb, "%d", b)
+			}
+			*backingDefs = append(*backingDefs, fmt.Sprintf("static const uint8_t %s[%d] = { %s };",
+				arrSym, len(sv.RawBytes), sb.String()))
+			return fmt.Sprintf("{ .data = (uint8_t*)%s, .len = %dLL, .cap = 0LL }", arrSym, len(sv.RawBytes))
+		}
+		if len(sv.Elems) == 0 {
+			return "{ .data = NULL, .len = 0LL, .cap = 0LL }"
+		}
+		var elemTy types.Type
+		if vec, ok := effTy.(*types.Vector); ok {
+			elemTy = vec.Elem
+		} else if st, ok := effTy.(*types.Struct); ok && len(st.TypeArgs) == 1 {
+			elemTy = st.TypeArgs[0]
+		}
+		cElem := CType(elemTy)
+		parts := make([]string, len(sv.Elems))
+		for i, el := range sv.Elems {
+			parts[i] = g.buildCStaticInit(el, backingDefs)
+		}
+		arrSym := fmt.Sprintf("__ll_ro_arr_%d", g.constArrCounter)
+		g.constArrCounter++
+		*backingDefs = append(*backingDefs, fmt.Sprintf("static const %s %s[%d] = { %s };",
+			cElem, arrSym, len(sv.Elems), strings.Join(parts, ", ")))
+		return fmt.Sprintf("{ .data = (%s*)%s, .len = %dLL, .cap = 0LL }", cElem, arrSym, len(sv.Elems))
+	case sema.StaticArray:
+		if len(sv.Elems) == 0 {
+			return "{ 0 }"
+		}
+		parts := make([]string, len(sv.Elems))
+		for i, el := range sv.Elems {
+			parts[i] = g.buildCStaticInit(el, backingDefs)
+		}
+		return fmt.Sprintf("{ .data = { %s } }", strings.Join(parts, ", "))
+	case sema.StaticTuple:
+		if len(sv.Elems) == 0 {
+			return "{ 0 }"
+		}
+		parts := make([]string, len(sv.Elems))
+		for i, el := range sv.Elems {
+			parts[i] = fmt.Sprintf("._%d = %s", i, g.buildCStaticInit(el, backingDefs))
+		}
+		return fmt.Sprintf("{ %s }", strings.Join(parts, ", "))
+	case sema.StaticStruct:
+		if len(sv.Fields) == 0 {
+			return "{ 0 }"
+		}
+		parts := make([]string, len(sv.Fields))
+		for i, f := range sv.Fields {
+			parts[i] = fmt.Sprintf(".%s = %s", f.Name, g.buildCStaticInit(f.Value, backingDefs))
+		}
+		return fmt.Sprintf("{ %s }", strings.Join(parts, ", "))
+	case sema.StaticEnum:
+		if sv.Payload != nil {
+			return fmt.Sprintf("{ .tag = %d, .data = { .%s = %s } }",
+				sv.VariantVal, sv.VariantCN, g.buildCStaticInit(sv.Payload, backingDefs))
+		}
+		return fmt.Sprintf("{ .tag = %d }", sv.VariantVal)
+	case sema.StaticOpt:
+		if !sv.HasOpt {
+			return "{ .has_value = false }"
+		}
+		return fmt.Sprintf("{ .has_value = true, .value = %s }", g.buildCStaticInit(sv.OptElem, backingDefs))
+	}
+	return "{ 0 }"
+}
+
+func (g *cEmitter) emitCExprConst(sv *ir.StaticVal, fallbackTy types.Type) string {
+	if sv == nil {
+		return "0"
+	}
+	if isImmediateCStatic(sv) {
+		return formatCStaticScalar(sv, fallbackTy)
+	}
+	if sym, ok := g.staticValSyms[sv]; ok {
+		return sym
+	}
+	ty := sv.Type
+	if ty == nil {
+		ty = fallbackTy
+	}
+	return fmt.Sprintf("((%s){ 0 })", CType(ty))
 }

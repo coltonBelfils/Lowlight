@@ -622,7 +622,7 @@ func (p *printer) printAttributes(attrs []ast.Attribute) {
 				if i > 0 {
 					p.write(", ")
 				}
-				if a.Name == "test" || a.Name == "deprecated" || a.Name == "lang" || (!isValidPlainIdent(arg) && !isPlainIntLit(arg)) {
+				if a.Name == "test" || a.Name == "deprecated" || a.Name == "lang" || (!isValidPlainIdent(arg) && !isPlainIntLit(arg) && !strings.Contains(arg, ": ")) {
 					p.write(strconv.Quote(arg))
 				} else {
 					p.write(arg)
@@ -682,7 +682,99 @@ func (p *printer) printDecl(d ast.Decl) {
 		p.printAttributes(v.Attributes)
 		p.writeIndent()
 		p.printVarDecl(v)
+	case *ast.TopComptimeIfDecl:
+		p.writeIndent()
+		p.printTopComptimeIfDecl(v)
 	}
+}
+
+func (p *printer) printTopComptimeIfDecl(v *ast.TopComptimeIfDecl) {
+	p.write("comptime if(")
+	p.printExpr(v.Cond)
+	p.write("):")
+	p.printTopComptimeDeclsBranch(v.ThenDecls, v.ThenBraced, v.Span.Start.Offset)
+	if v.ElseIf != nil {
+		if v.ThenBraced {
+			p.write(" else ")
+		} else {
+			p.newline()
+			p.writeIndent()
+			p.write("else ")
+		}
+		p.printTopComptimeIfDecl(v.ElseIf)
+	} else if v.HasElse {
+		if v.ThenBraced {
+			p.write(" else:")
+		} else {
+			p.newline()
+			p.writeIndent()
+			p.write("else:")
+		}
+		p.printTopComptimeDeclsBranch(v.ElseDecls, v.ElseBraced, v.Span.Start.Offset)
+	}
+}
+
+func (p *printer) printTopComptimeDeclsBranch(decls []ast.Decl, braced bool, headerStartOff int) {
+	if !braced && len(decls) == 1 {
+		d := decls[0]
+		if !p.hasCommentsBetweenOffsets(headerStartOff, declStartPos(d).Offset) {
+			if single, ok := p.trySingleLine(func(sub *printer) {
+				oldIndent := sub.indent
+				sub.indent = 0
+				sub.printDecl(d)
+				sub.indent = oldIndent
+			}); ok && p.fitsLineWidth(" "+single) {
+				p.write(" ")
+				p.write(single)
+				return
+			}
+		}
+		p.newline()
+		p.indent++
+		if p.hasCommentsBeforeOffset(declStartPos(d).Offset) {
+			_ = p.emitCommentsBefore(declStartPos(d).Offset, declStartPos(d).Line, false)
+		}
+		p.printDecl(d)
+		p.emitInlineCommentOnLine(d.GetSpan().End.Line)
+		p.indent--
+		return
+	}
+	p.write(" {")
+	if len(decls) == 0 {
+		p.write("}")
+		return
+	}
+	p.newline()
+	p.indent++
+	var prevDecl ast.Decl
+	lastEmittedLine := 0
+	for i, d := range decls {
+		startPos := declStartPos(d)
+		startLine := declStartLineWithDoc(d)
+		if i > 0 {
+			hadBlankBefore := p.hadBlankLineBetween(lastEmittedLine, startLine)
+			separateMajor := !(isCompactDecl(prevDecl) && isCompactDecl(d) && !hadBlankBefore && !p.hasCommentsBetweenOffsets(prevDecl.GetSpan().End.Offset, startPos.Offset)) &&
+				!(isOneLineBind(prevDecl, p) && isOneLineBind(d, p) && !hadBlankBefore && !p.hasCommentsBetweenOffsets(prevDecl.GetSpan().End.Offset, startPos.Offset))
+			if p.hasCommentsBeforeOffset(startPos.Offset) {
+				p.ensureTrailingBlankLine()
+				if p.emitCommentsBefore(startPos.Offset, startPos.Line, false) {
+					p.newline()
+				}
+			} else if separateMajor {
+				p.ensureTrailingBlankLine()
+			}
+		} else if p.hasCommentsBeforeOffset(startPos.Offset) {
+			_ = p.emitCommentsBefore(startPos.Offset, startPos.Line, false)
+		}
+		p.printDecl(d)
+		p.emitInlineCommentOnLine(d.GetSpan().End.Line)
+		p.newline()
+		lastEmittedLine = d.GetSpan().End.Line
+		prevDecl = d
+	}
+	p.indent--
+	p.writeIndent()
+	p.write("}")
 }
 
 func (p *printer) printImportDecl(v *ast.ImportDecl) {
@@ -701,7 +793,7 @@ func (p *printer) printExternFnDecl(v *ast.ExternFnDecl) {
 	if isValidPlainIdent(v.Name) || token.LookupKeyword(v.Name) != token.Ident {
 		p.write(v.Name)
 	} else {
-		p.write(strconv.Quote(v.Name))
+		p.write(`"` + escapeStringSegment(v.Name, '"', false) + `"`)
 	}
 	if v.Alias != "" {
 		p.write(" as ")
@@ -738,7 +830,10 @@ func (p *printer) printTypeParams(tps []ast.TypeParam) {
 			p.write(", ")
 		}
 		p.write(tp.Name)
-		if len(tp.Bounds) > 0 {
+		if tp.IsConst && tp.ConstType != nil {
+			p.write(": const ")
+			p.printTypeExpr(tp.ConstType)
+		} else if len(tp.Bounds) > 0 {
 			p.write(": ")
 			p.write(strings.Join(tp.Bounds, " + "))
 		}
@@ -902,7 +997,11 @@ func (p *printer) printMethodParamList(mode ast.ReceiverMode, explicitTy ast.Typ
 
 func (p *printer) printMethodDecl(v *ast.MethodDecl) {
 	p.writeIndent()
-	p.write("bind ")
+	if v.IsConst {
+		p.write("const ")
+	} else {
+		p.write("bind ")
+	}
 	if v.RecvModule != "" {
 		p.write(v.RecvModule)
 		p.write(".")
@@ -927,7 +1026,9 @@ func (p *printer) printMethodDecl(v *ast.MethodDecl) {
 }
 
 func (p *printer) printVarDecl(v *ast.VarDecl) {
-	if v.IsBind {
+	if v.IsConst {
+		p.write("const ")
+	} else if v.IsBind {
 		p.write("bind ")
 	} else {
 		p.write("let ")
@@ -1012,6 +1113,8 @@ func (p *printer) printTypeExpr(t ast.TypeExpr) {
 		p.write(": ")
 		p.printTypeExpr(v.Elem)
 		p.write("]")
+	case *ast.ConstArgType:
+		p.printExpr(v.Expr)
 	case *ast.SetType:
 		p.write("#[")
 		p.printTypeExpr(v.Elem)
@@ -1034,6 +1137,8 @@ func (p *printer) printTypeExpr(t ast.TypeExpr) {
 	case *ast.FuncType:
 		if v.Closure {
 			p.write("cl")
+		} else if v.Extern {
+			p.write("extern fn")
 		} else {
 			p.write("fn")
 		}
@@ -1115,6 +1220,8 @@ func endsWithDanglingElseTarget(e ast.Expr) bool {
 	case *ast.BinaryExpr:
 		return endsWithDanglingElseTarget(v.Right)
 	case *ast.UnsafeExpr:
+		return endsWithDanglingElseTarget(v.Expr)
+	case *ast.ComptimeExpr:
 		return endsWithDanglingElseTarget(v.Expr)
 	default:
 		return false
@@ -1247,6 +1354,8 @@ func isUnaryOrTighterExpr(e ast.Expr) bool {
 		return false
 	case *ast.UnaryExpr:
 		return isUnaryOrTighterExpr(v.Operand)
+	case *ast.ComptimeExpr:
+		return isUnaryOrTighterExpr(v.Expr)
 	default:
 		return true
 	}
@@ -1259,7 +1368,9 @@ func isUnaryOrTighterExpr(e ast.Expr) bool {
 func (p *printer) printStmt(s ast.Stmt) {
 	switch v := s.(type) {
 	case *ast.VarStmt:
-		if v.IsBind {
+		if v.IsConst {
+			p.write("const ")
+		} else if v.IsBind {
 			p.write("bind ")
 		} else {
 			p.write("let ")
@@ -1490,6 +1601,8 @@ func (p *printer) printExpr(e ast.Expr) {
 		p.printFuncLit(v)
 	case *ast.UnsafeExpr:
 		p.printUnsafeExpr(v)
+	case *ast.ComptimeExpr:
+		p.printComptimeExpr(v)
 	case *ast.BlockExpr:
 		p.printBlockExpr(v)
 	case *ast.StmtBodyExpr:
@@ -1533,7 +1646,7 @@ func (p *printer) printStringLit(v *ast.StringLit) {
 			return
 		}
 	}
-	p.write(strconv.Quote(v.Val))
+	p.write(`"` + escapeStringSegment(v.Val, '"', false) + `"`)
 }
 
 func (p *printer) printInterpString(v *ast.InterpStringExpr) {
@@ -1860,6 +1973,21 @@ func (p *printer) printUnsafeExpr(v *ast.UnsafeExpr) {
 	}
 }
 
+func (p *printer) printComptimeExpr(v *ast.ComptimeExpr) {
+	p.write("comptime ")
+	if blk, ok := v.Expr.(*ast.BlockExpr); ok {
+		p.printBlockExpr(blk)
+		return
+	}
+	if !isUnaryOrTighterExpr(v.Expr) {
+		p.write("(")
+		p.printExpr(v.Expr)
+		p.write(")")
+	} else {
+		p.printExpr(v.Expr)
+	}
+}
+
 func (p *printer) printRangeOperand(e ast.Expr) {
 	wrap := false
 	switch c := e.(type) {
@@ -1903,7 +2031,7 @@ func (p *printer) printPostfixBase(base ast.Expr) {
 
 func isPostfixOrPrimary(e ast.Expr) bool {
 	switch e.(type) {
-	case *ast.BinaryExpr, *ast.UnaryExpr, *ast.RangeExpr, *ast.UnsafeExpr,
+	case *ast.BinaryExpr, *ast.UnaryExpr, *ast.RangeExpr, *ast.UnsafeExpr, *ast.ComptimeExpr,
 		*ast.IfExpr, *ast.ForExpr, *ast.WhileExpr, *ast.MatchExpr, *ast.StmtBodyExpr, *ast.FuncLit:
 		return false
 	default:
@@ -2396,6 +2524,8 @@ func (p *printer) printStructLit(v *ast.StructLit) {
 func (p *printer) printFuncLit(v *ast.FuncLit) {
 	if v.Closure {
 		p.write("cl")
+	} else if v.Extern {
+		p.write("extern fn")
 	} else {
 		p.write("fn")
 	}
@@ -2413,6 +2543,9 @@ func (p *printer) printFuncLit(v *ast.FuncLit) {
 // -----------------------------------------------------------------------------
 
 func (p *printer) printIfCond(v *ast.IfExpr) {
+	if v.IsComptime {
+		p.write("comptime ")
+	}
 	p.write("if(")
 	switch v.CondKind {
 	case ast.IfCondOptVar:
@@ -2512,9 +2645,10 @@ func (p *printer) printIfBranchChain(v *ast.IfExpr) {
 		p.write("else")
 	}
 
-	// Normalize `else { if (...) ... }` or `else if (...) ...`
+	// Normalize `else { if (...) ... }` or `else if (...) ...`, preserving explicit `else:`
+	// braces/colon when runtime `if` and `comptime if` alternate (they cannot share a chain).
 	elseUnwrapped := p.unwrapBody(v.Else, true)
-	if nextIf, isChain := elseUnwrapped.(*ast.IfExpr); isChain {
+	if nextIf, isChain := elseUnwrapped.(*ast.IfExpr); isChain && nextIf.IsComptime == v.IsComptime {
 		p.write(" ")
 		p.printIfBranchChain(nextIf)
 		return
@@ -2570,7 +2704,11 @@ func (p *printer) printLoopHeader(label, kw string, kind ast.ForKind, var1 strin
 }
 
 func (p *printer) printForExpr(v *ast.ForExpr) {
-	p.printLoopHeader(v.Label, "for", v.Kind, v.Var1, v.Var1Mut, v.Var2, v.Var2Mut, v.CondOrIter, v.RangeEnd, v.Inclusive, v.EvalType)
+	kw := "for"
+	if v.IsComptime {
+		kw = "comptime for"
+	}
+	p.printLoopHeader(v.Label, kw, v.Kind, v.Var1, v.Var1Mut, v.Var2, v.Var2Mut, v.CondOrIter, v.RangeEnd, v.Inclusive, v.EvalType)
 	p.printColonBodyGuarded(v.Span.Start.Offset, v.Body, true, v.Else != nil)
 	if v.Else != nil {
 		bodyUnwrapped := p.unwrapBodyIfElseSafe(v.Body, true, true)
@@ -2663,6 +2801,9 @@ func (p *printer) printMatchExpr(v *ast.MatchExpr) {
 	if v.ResultChain {
 		p.printResultChain(v)
 		return
+	}
+	if v.IsComptime {
+		p.write("comptime ")
 	}
 	p.write("match")
 	if len(v.Scrutinees) > 0 {

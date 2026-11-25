@@ -412,3 +412,34 @@ func TestLexerStringLiteralSpanIncludesQuotes(t *testing.T) {
 	}
 	t.Fatal("no string literal token")
 }
+
+func TestLexerConstAndComptimeKeywordsAndASI(t *testing.T) {
+	src := "const X = comptime\n    1 + 2\ncomptime if (ok) a\nelse b\n"
+	rep := diag.NewReporter()
+	toks := lexer.Lex("comptime.ll", src, rep)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected lexer errors:\n%s", rep.Format())
+	}
+
+	var kinds []token.Kind
+	for _, tk := range toks {
+		if tk.Kind == token.EOF {
+			continue
+		}
+		kinds = append(kinds, tk.Kind)
+	}
+	want := []token.Kind{
+		token.KwConst, token.Ident, token.Assign, token.KwComptime,
+		token.IntLit, token.Plus, token.IntLit, token.Semi,
+		token.KwComptime, token.KwIf, token.LParen, token.Ident, token.RParen, token.Ident,
+		token.KwElse, token.Ident, token.Semi,
+	}
+	if len(kinds) != len(want) {
+		t.Fatalf("got %d tokens %v, want %d %v", len(kinds), kinds, len(want), want)
+	}
+	for i := range want {
+		if kinds[i] != want[i] {
+			t.Fatalf("token %d = %v, want %v (all: %v)", i, kinds[i], want[i], kinds)
+		}
+	}
+}

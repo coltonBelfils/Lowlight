@@ -142,7 +142,55 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) Expr {
 		if colSlot.MovedLocal != nil {
 			fl.emit(&InstrAssign{Dst: NewLocalExpr(colSlot.MovedLocal), Expr: NewLitBool(false)})
 		}
-		elemTy = fl.info(fe.Body).Type
+		if fe.Body != nil {
+			elemTy = fl.info(fe.Body).Type
+		}
+	}
+
+	if fl.bm != nil {
+		if uf, ok := fl.bm.ComptimeForUnrolls[fe]; ok && uf != nil {
+			for i, it := range uf.Iters {
+				iterContLbl := fmt.Sprintf("_ll_cf_cont_%d_%d", inf.TargetID, i)
+				forScope := fl.pushScope(inf.TargetID, exitLbl, iterContLbl, colSlot, nil, false)
+				forScope.loopElemTy = elemTy
+
+				fl.pushInstrBuf()
+				fl.pushScope(0, "", "", nil, nil, false)
+				bodyTy := fl.info(it.Body).Type
+				if !needValue || colSlot == nil || bodyTy == nil || bodyTy.Equals(types.TypeVoid) || bodyTy.Equals(types.TypeNever) {
+					fl.lowerVoidExpr(it.Body)
+					fl.flushStmtTemps()
+				} else {
+					itemTargetTy := bodyTy
+					switch cv := types.CollView(colSlot.Type).(type) {
+					case *types.Vector:
+						itemTargetTy = cv.Elem
+					case *types.Set:
+						itemTargetTy = cv.Elem
+					}
+					itemVal := fl.lowerExprOwned(it.Body, itemTargetTy)
+					fl.flushStmtTemps()
+					fl.emitPushToCol(colSlot, itemVal, itemTargetTy)
+				}
+				if !endsWithTerm(fl.curInstrs()) {
+					fl.popScopeEmitDrops()
+				} else {
+					fl.scopes = fl.scopes[:len(fl.scopes)-1]
+				}
+				iterInstrs := fl.popInstrBuf()
+				fl.emit(&InstrBlock{Body: iterInstrs})
+				fl.emit(&InstrLabel{Name: iterContLbl})
+				fl.popScopeEmitDrops()
+			}
+			if needValue && colSlot != nil {
+				fl.emit(&InstrLabel{Name: exitLbl})
+				fl.lowerForElse(fe, true, colSlot)
+				return NewLocalExpr(colSlot)
+			}
+			fl.lowerForElse(fe, false, nil)
+			fl.emit(&InstrLabel{Name: exitLbl})
+			return nil
+		}
 	}
 
 	syms := fl.bm.ForSymbols[fe]
@@ -181,46 +229,47 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) Expr {
 	}
 
 	fl.lowerLoopDriver(fe.Kind, fe.CondOrIter, fe.RangeEnd, fe.Inclusive, sym1, sym2, loc1, loc2, inf.TargetID, exitLbl, contLbl, colSlot, nil, elemTy, false, bodyRunner)
-
-	if fe.Else != nil {
-		if needValue && colSlot != nil {
-			var isEmptyCond Expr
-			switch types.CollView(colSlot.Type).(type) {
-			case *types.Vector, *types.Set, *types.Map:
-				isEmptyCond = &ExprBinary{
-					Op:    token.Eq,
-					Left:  &ExprField{Base: NewLocalExpr(colSlot), FieldName: "len", Typ: types.TypeInt},
-					Right: NewLitInt(0, false, types.TypeInt),
-					Typ:   types.TypeBool,
-				}
-			}
-			if isEmptyCond != nil {
-				fl.pushInstrBuf()
-				fl.pushScope(0, "", "", nil, nil, false)
-				eVal := fl.lowerExprOwned(fe.Else, colSlot.Type)
-				fl.assignLocal(colSlot, eVal)
-				fl.flushStmtTemps()
-				if !endsWithTerm(fl.curInstrs()) {
-					fl.popScopeEmitDrops()
-				} else {
-					fl.scopes = fl.scopes[:len(fl.scopes)-1]
-				}
-				elseBranch := fl.popInstrBuf()
-				fl.emit(NewInstrIf(isEmptyCond, elseBranch, nil))
-			} else {
-				fl.lowerVoidExpr(fe.Else)
-				fl.flushStmtTemps()
-			}
-		} else {
-			fl.lowerVoidExpr(fe.Else)
-			fl.flushStmtTemps()
-		}
-	}
+	fl.lowerForElse(fe, needValue, colSlot)
 
 	if colSlot != nil {
 		return NewLocalExpr(colSlot)
 	}
 	return nil
+}
+
+func (fl *funcLowerer) lowerForElse(fe *ast.ForExpr, needValue bool, colSlot *Local) {
+	if fe.Else == nil {
+		return
+	}
+	if needValue && colSlot != nil {
+		var isEmptyCond Expr
+		switch types.CollView(colSlot.Type).(type) {
+		case *types.Vector, *types.Set, *types.Map:
+			isEmptyCond = &ExprBinary{
+				Op:    token.Eq,
+				Left:  &ExprField{Base: NewLocalExpr(colSlot), FieldName: "len", Typ: types.TypeInt},
+				Right: NewLitInt(0, false, types.TypeInt),
+				Typ:   types.TypeBool,
+			}
+		}
+		if isEmptyCond != nil {
+			fl.pushInstrBuf()
+			fl.pushScope(0, "", "", nil, nil, false)
+			eVal := fl.lowerExprOwned(fe.Else, colSlot.Type)
+			fl.assignLocal(colSlot, eVal)
+			fl.flushStmtTemps()
+			if !endsWithTerm(fl.curInstrs()) {
+				fl.popScopeEmitDrops()
+			} else {
+				fl.scopes = fl.scopes[:len(fl.scopes)-1]
+			}
+			elseBranch := fl.popInstrBuf()
+			fl.emit(NewInstrIf(isEmptyCond, elseBranch, nil))
+			return
+		}
+	}
+	fl.lowerVoidExpr(fe.Else)
+	fl.flushStmtTemps()
 }
 
 func (fl *funcLowerer) emitPushToCol(colSlot *Local, itemVal Expr, elemTy types.Type) {
@@ -624,6 +673,56 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) Expr {
 		resSlot = fl.allocSlot("_ll_match", inf.Type)
 	}
 
+	// Temporaries of the enclosing expression (the left operand of `a == match(...)`) must
+	// outlive this match: its own statement boundaries free only what it creates. An arm that
+	// unwinds frees them on its way out.
+	outerTemps := fl.stmtTemps
+	fl.stmtTemps = nil
+	defer func() { fl.stmtTemps = append(outerTemps, fl.stmtTemps...) }()
+
+	if fl.bm != nil {
+		if armIdx, ok := fl.bm.ComptimeMatchArm[me]; ok {
+			arms := me.Arms
+			if expanded, hasExp := fl.bm.MatchArms[me]; hasExp {
+				arms = expanded
+			}
+			if armIdx >= 0 && armIdx < len(arms) {
+				chosen := arms[armIdx]
+				fl.pushScope(inf.TargetID, exitLbl, "", resSlot, nil, false)
+				fl.pushInstrBuf()
+				fl.pushScope(0, "", "", nil, nil, false)
+				aTy := fl.info(chosen.Body).Type
+				if aTy == types.TypeNever && len(outerTemps) > 0 {
+					fl.stmtTemps = append([]*Local(nil), outerTemps...)
+				}
+				if !needValue || resSlot == nil {
+					fl.lowerVoidExpr(chosen.Body)
+					fl.flushStmtTemps()
+				} else if aTy == types.TypeNever {
+					fl.lowerVoidExpr(chosen.Body)
+					fl.flushStmtTemps()
+				} else {
+					aVal := fl.lowerExprOwned(chosen.Body, resSlot.Type)
+					fl.assignLocal(resSlot, aVal)
+					fl.flushStmtTemps()
+				}
+				if !endsWithTerm(fl.curInstrs()) {
+					fl.popScopeEmitDrops()
+				} else {
+					fl.scopes = fl.scopes[:len(fl.scopes)-1]
+				}
+				armBody := fl.popInstrBuf()
+				fl.emit(&InstrBlock{Body: armBody})
+				fl.popScopeEmitDrops()
+				fl.emit(&InstrLabel{Name: exitLbl})
+				if resSlot != nil {
+					return NewLocalExpr(resSlot)
+				}
+				return nil
+			}
+		}
+	}
+
 	numScrut := len(me.Scrutinees)
 	type scrutLowerInfo struct {
 		rawTy         types.Type
@@ -707,11 +806,14 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) Expr {
 				}
 			}
 		}
+		aTy := fl.info(arm.Body).Type
+		if aTy == types.TypeNever && len(outerTemps) > 0 {
+			fl.stmtTemps = append([]*Local(nil), outerTemps...)
+		}
 		if !needValue || resSlot == nil {
 			fl.lowerVoidExpr(arm.Body)
 			fl.flushStmtTemps()
 		} else {
-			aTy := fl.info(arm.Body).Type
 			if aTy == types.TypeNever {
 				fl.lowerVoidExpr(arm.Body)
 				fl.flushStmtTemps()
@@ -1022,10 +1124,20 @@ func (fl *funcLowerer) lowerIdentExpr(v *ast.IdentExpr, inf *sema.ExprInfo) Expr
 		cName := types.SanitizeCIdent(v.Name)
 		return &ExprGlobal{Global: &Global{Name: v.Name, CName: cName, Type: inf.Type}}
 	}
+	if sym.IsConstParam && sym.ConstVal != nil {
+		if sd := sema.ExportStaticData(sym.ConstVal, sym.Type); sd != nil {
+			sv := lowerStaticData(sd, fl.tc, fl.registerThunk)
+			return &ExprConst{Static: sv, Typ: sym.Type}
+		}
+	}
 	// Static top-level function referenced as a first-class closure value (`let op = static_add`)!
 	if sym.FuncInst != nil {
 		fnTy := sym.FuncInst.Sig
-		thunk := fl.registerThunk(sym.FuncInst, fnTy)
+		if fnTy.Extern {
+			// An `extern fn` value is the C function itself.
+			return &ExprConstructClosure{EntryFn: fl.registerThunk.cCallback(sym.FuncInst.CName, fnTy), FuncType: fnTy}
+		}
+		thunk := fl.registerThunk.static(sym.FuncInst, fnTy)
 		return &ExprConstructClosure{
 			EntryFn:  thunk,
 			FuncType: fnTy,
@@ -1397,7 +1509,10 @@ func (fl *funcLowerer) lowerMemberExpr(m *ast.MemberExpr, inf *sema.ExprInfo, fo
 	if inf.Sym != nil {
 		if inf.Sym.FuncInst != nil {
 			fnTy := inf.Sym.FuncInst.Sig
-			thunk := fl.registerThunk(inf.Sym.FuncInst, fnTy)
+			if fnTy.Extern {
+				return &ExprConstructClosure{EntryFn: fl.registerThunk.cCallback(inf.Sym.FuncInst.CName, fnTy), FuncType: fnTy}
+			}
+			thunk := fl.registerThunk.static(inf.Sym.FuncInst, fnTy)
 			return &ExprConstructClosure{
 				EntryFn:  thunk,
 				FuncType: fnTy,
@@ -2184,6 +2299,9 @@ func (fl *funcLowerer) lowerStructDefaultExpr(defExpr ast.Expr, fieldTy types.Ty
 func (fl *funcLowerer) lowerFuncLitExpr(_ *ast.FuncLit, inf *sema.ExprInfo) Expr {
 	li := inf.Lambda
 	fl.tc.visit(li.Sig)
+	if li.Sig.Extern {
+		return &ExprConstructClosure{EntryFn: fl.registerThunk.cCallback(li.CName, li.Sig), FuncType: li.Sig}
+	}
 	if len(li.Captures) == 0 {
 		return &ExprConstructClosure{
 			EntryFn:  li.CName + "_entry",

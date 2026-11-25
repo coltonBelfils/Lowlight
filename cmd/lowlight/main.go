@@ -41,13 +41,31 @@ func runCLI(args []string) int {
 		return 0
 
 	case "check":
-		opts, _, err := parseCommonFlags(rest, false, false)
+		opts, _, err := parseCommonFlags(rest, false, false, true)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
+		if opts.AllTargets && opts.TargetTriple != "" {
+			fmt.Fprintln(os.Stderr, "error: cannot combine --all-targets with --target")
+			return 1
+		}
 		if opts.Workspace {
 			return runWorkspaceCheck(opts)
+		}
+		if opts.AllTargets {
+			warnings, err := driver.CheckAllTargets(opts)
+			if warnings != "" {
+				fmt.Fprint(os.Stderr, warnings)
+			}
+			if err != nil {
+				fmt.Fprint(os.Stderr, err.Error())
+				if !strings.HasSuffix(err.Error(), "\n") {
+					fmt.Fprintln(os.Stderr)
+				}
+				return 1
+			}
+			return 0
 		}
 		_, warnings, err := driver.Check(opts)
 		if err != nil {
@@ -62,8 +80,28 @@ func runCLI(args []string) int {
 		}
 		return 0
 
+	case "expand":
+		opts, _, err := parseCommonFlags(rest, false, false, false)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		expanded, warnings, err := driver.Expand(opts)
+		if warnings != "" {
+			fmt.Fprint(os.Stderr, warnings)
+		}
+		if err != nil {
+			fmt.Fprint(os.Stderr, err.Error())
+			if !strings.HasSuffix(err.Error(), "\n") {
+				fmt.Fprintln(os.Stderr)
+			}
+			return 1
+		}
+		fmt.Print(expanded)
+		return 0
+
 	case "emit-c":
-		opts, _, err := parseCommonFlags(rest, true, false)
+		opts, _, err := parseCommonFlags(rest, true, false, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
@@ -87,7 +125,7 @@ func runCLI(args []string) int {
 		return 0
 
 	case "emit-llvm":
-		opts, _, err := parseCommonFlags(rest, true, false)
+		opts, _, err := parseCommonFlags(rest, true, false, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
@@ -112,7 +150,7 @@ func runCLI(args []string) int {
 		return 0
 
 	case "build":
-		opts, _, err := parseCommonFlags(rest, true, false)
+		opts, _, err := parseCommonFlags(rest, true, false, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
@@ -127,7 +165,7 @@ func runCLI(args []string) int {
 		return 0
 
 	case "run":
-		opts, progArgs, err := parseCommonFlags(rest, false, true)
+		opts, progArgs, err := parseCommonFlags(rest, false, true, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
@@ -237,6 +275,17 @@ func runWorkspaceCheck(opts driver.Options) int {
 			WorkspaceManifest: ctx.WorkspaceManifest,
 			WorkspaceMembers:  ctx.WorkspaceMembers,
 		}
+		if opts.AllTargets {
+			warnings, checkErr := driver.CheckAllTargets(mOpts)
+			if warnings != "" {
+				fmt.Fprint(os.Stderr, warnings)
+			}
+			if checkErr != nil {
+				fmt.Fprintln(os.Stderr, checkErr.Error())
+				exitCode = 1
+			}
+			continue
+		}
 		_, warnings, checkErr := driver.Check(mOpts)
 		if warnings != "" {
 			fmt.Fprint(os.Stderr, warnings)
@@ -292,7 +341,7 @@ func runWorkspaceBuild(opts driver.Options) int {
 	return exitCode
 }
 
-func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.Options, []string, error) {
+func parseCommonFlags(args []string, allowOut, allowProgArgs, allowAllTargets bool) (driver.Options, []string, error) {
 	var opts driver.Options
 	if cflags := os.Getenv("LOWLIGHT_CFLAGS"); cflags != "" {
 		opts.ExtraCFlags = append(opts.ExtraCFlags, strings.Fields(cflags)...)
@@ -346,6 +395,11 @@ func parseCommonFlags(args []string, allowOut bool, allowProgArgs bool) (driver.
 			}
 			i++
 			opts.TargetTriple = args[i]
+		case "--all-targets":
+			if !allowAllTargets {
+				return opts, nil, fmt.Errorf("--all-targets is only supported on `lowlight check`")
+			}
+			opts.AllTargets = true
 		case "-o":
 			if !allowOut {
 				return opts, nil, fmt.Errorf("-o is not supported for this command")
@@ -563,7 +617,8 @@ Usage:
   lowlight build     [-o <bin>] [-p <pkg>|--workspace] [--locked] [--offline] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path>]
   lowlight run       [-p <pkg>] [--locked] [--offline] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path>] [-- <args...>]
   lowlight test      [-p <pkg>|--workspace] [--locked] [--offline] [-run <regex>] [--list] [--json] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path...>]
-  lowlight check     [-p <pkg>|--workspace] [--locked] [--offline] [--target <triple>] [<path>]
+  lowlight check     [-p <pkg>|--workspace] [--locked] [--offline] [--target <triple>|--all-targets] [<path>]
+  lowlight expand    [-p <pkg>] [--locked] [--offline] [--target <triple>] [<path>]
   lowlight emit-llvm [-o <file.ll>] [-p <pkg>] [--locked] [--offline] [--target <triple>] [--release] [<path>]
   lowlight emit-c    [-o <file.c>]  [-p <pkg>] [--locked] [--offline] [--target <triple>] [--release] [<path>]
 
@@ -592,6 +647,7 @@ Flags:
   --offline         Disallow network requests (use local cache and/or ./vendor/)
   --backend <kind>  Codegen backend: "llvm" (default) or "c11" (ISO C11 backend)
   --target <triple> Target triple for cross-compilation (e.g. "aarch64-unknown-linux-gnu")
+  --all-targets     Check across all canonical platform targets (lowlight check)
   --release         Optimize (-O2); bounds, division, and shift checks stay on
   --cc <compiler>   C/LLVM compiler executable (default: $LOWLIGHT_CC, $CC, or clang/cc)
   --stdio           Run Language Server Protocol (LSP 3.17) over stdin/stdout

@@ -12,43 +12,41 @@ bind main = fn(): {
     let host = "127.0.0.1"
     let port = 9000
 
-    let listener_res! = net.TcpListener.listen(host, port)
-    if (listener_res!.is_err()): {
-        println("Failed to start TCP listener: ${listener_res!.unwrap_err()}")
-        func <-
-    }
-    let listener = listener_res!.unwrap()
+    let listener = net.TcpListener.listen(host, port):
+        when in_use(_): {
+            println("Port ${port} is already in use; stop the other server or pick another port")
+            func <-
+        }
+        default err(e): {
+            println("Failed to start TCP listener: ${e.summary()}")
+            func <-
+        }
     println("TCP Echo server listening on ${host}:${listener.port()} ...")
     println("Test with: nc 127.0.0.1 ${listener.port()}")
 
     for (true): {
         // Accept incoming client connection (timeout: -1 for blocking wait)
-        let conn_res! = listener.accept(-1)
-        if (conn_res!.is_err()): {
-            println("Accept error: ${conn_res!.unwrap_err()}")
-            next <-
-        }
-        let stream = conn_res!.unwrap()
+        let stream = listener.accept(-1):
+            default: next <-
         println("Accepted incoming client connection!")
 
         // Send a welcome message
-        if (stream.send("Welcome to Lowlight TCP Server! Send text and it will echo back.\n").is_err()): {
-            next <-
-        }
+        stream.send("Welcome to Lowlight TCP Server! Send text and it will echo back.\n"):
+            default: next <-
 
         // Read and echo back
         for (true): {
-            let data_res! = stream.recv(4096, 10000)
-            if (data_res!.is_err()): {
-                // `"eof"`: client disconnected cleanly; `"timeout"`: no data within 10s
-                for <-
-            }
-            let data = data_res!.unwrap()
+            let data = stream.recv(4096, 10000):
+                when eof(_): for <-        // the client disconnected
+                when timeout(_): for <-    // no data within 10 s
+                default err(e): {
+                    println("Read error: ${e.summary()}")
+                    for <-
+                }
 
             println("Received: ${data.trim()}")
-            if (stream.send("Echo: ${data}").is_err()): {
-                for <-
-            }
+            stream.send("Echo: ${data}"):
+                default: for <-
 
             if (data.trim() == "quit" or data.trim() == "exit"): {
                 let _ = stream.send("Goodbye!\n")

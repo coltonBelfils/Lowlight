@@ -40,7 +40,7 @@ define BenchResult struct [
     valid: bool,
 ]
 
-bind sort_floats = (arr: &[float]): {
+bind sort_floats = fn(arr: &[float]): {
     let n = arr.len()
     for (i in 0..n): {
         for (j in 0..(n - 1 - i)): {
@@ -53,15 +53,15 @@ bind sort_floats = (arr: &[float]): {
     }
 }
 
-bind pad_right = (s: string, width: int) string: {
+bind pad_right = fn(s: string, width: int) string: {
     s.pad_right(width)
 }
 
-bind pad_left = (s: string, width: int) string: {
+bind pad_left = fn(s: string, width: int) string: {
     s.pad_left(width)
 }
 
-bind build_command = (tag: string, bin_path: string, bc: BenchCase) string: {
+bind build_command = fn(tag: string, bin_path: string, bc: BenchCase) string: {
     if (tag == "c_o2"): {
         "clang -O2 -std=c11 -o $bin_path ${bc.c_src} -lm"
     } else if (tag == "c_o3"): {
@@ -83,7 +83,7 @@ bind build_command = (tag: string, bin_path: string, bc: BenchCase) string: {
     }
 }
 
-bind sanitize_tag = (s: string) string: {
+bind sanitize_tag = fn(s: string) string: {
     let out = ""
     for (ch in s): {
         if (ch == ' ' or ch == '-' or ch == '(' or ch == ')'): {
@@ -97,7 +97,7 @@ bind sanitize_tag = (s: string) string: {
     out
 }
 
-bind first_line = (s: string) string: {
+bind first_line = fn(s: string) string: {
     let lines = s.trim().split("\n")
     if (lines.len() > 0): {
         lines[0].trim()
@@ -106,8 +106,8 @@ bind first_line = (s: string) string: {
     }
 }
 
-bind detect_toolchain_version = (cmd: string, fallback: string) string: {
-    let res = os.exec(cmd)
+bind detect_toolchain_version = fn(cmd: string, fallback: string) string: {
+    let res = os.exec(cmd): default: func <- fallback.copy()
     if (res.ok()): {
         let line = first_line(res.stdout)
         if (line != ""): {
@@ -120,7 +120,7 @@ bind detect_toolchain_version = (cmd: string, fallback: string) string: {
     }
 }
 
-bind main = (): {
+bind main = fn(): {
     println("================================================================================")
     println(" LOWLIGHT COMPUTATIONAL BENCHMARK SUITE (Runner in Lowlight)")
     let os_n = os.os_name()
@@ -134,7 +134,7 @@ bind main = (): {
     println("================================================================================")
 
     let bin_dir = "benchmarks/bin"
-    os.mkdir_p(bin_dir)
+    os.mkdir_p(bin_dir): default panic
 
     let cases: [BenchCase] = []
     cases.push(BenchCase[
@@ -199,7 +199,7 @@ bind main = (): {
 
             let compile_cmd = build_command(cfg.tag, bin_path, bc)
             let t_build = time.Instant.now()
-            let build_res = os.exec(compile_cmd)
+            let build_res = os.exec(compile_cmd): default panic
             let compile_ms = t_build.elapsed_millis()
 
             if (not build_res.ok()): {
@@ -207,12 +207,11 @@ bind main = (): {
                 next <-
             }
 
-            let f_res = fs.file_size(bin_path)
-            let file_b = if (f_res.is_ok()): f_res.unwrap() else: 0
+            let file_b = fs.file_size(bin_path): default: 0
             let bin_kb = if (file_b > 0): file_b / 1024 else: 0
 
             // Warmup run
-            let warm_res = os.exec(bin_path)
+            let warm_res = os.exec(bin_path): default panic
             let is_valid = warm_res.stdout.contains(bc.expected_token)
             let valid_mark = if (is_valid): "✓" else: "FAIL"
 
@@ -220,7 +219,7 @@ bind main = (): {
             let runs: [float] = []
             for (r in 0..num_runs): {
                 let t_run = time.Instant.now()
-                let r_res = os.exec(bin_path)
+                os.exec(bin_path): default panic
                 let elapsed = t_run.elapsed_millis()
                 runs.push(elapsed)
             }
@@ -350,8 +349,8 @@ bind main = (): {
     report.push("- **Observations**: Benchmarks cover both the direct LLVM IR backend (`--backend llvm`) and ISO C11 backend (`--backend c11`) in `--release` (`-O2`) and debug (`-O0`) modes. Safety bounds checks and deterministic trap guards are preserved in `--release`. Compute-bound workloads (`fib_42`, `mandelbrot_1500`) track closely to `Native C (-O2)`, while array/buffer-heavy workloads (`sieve_10m`, `matmul_400`) show the cost of bounds checks and memory indexing.\n")
 
     let report_path = "benchmarks/RESULTS_LL.md"
-    let write_ok = fs.write_file(report_path, report)
-    if (write_ok.is_ok()): {
+    let write_ok! = fs.write_file(report_path, report)
+    if (write_ok!.is_ok()): {
         println("\nDetailed markdown report written to: $report_path")
     } else: {
         println("\nWarning: Failed to write report to $report_path")

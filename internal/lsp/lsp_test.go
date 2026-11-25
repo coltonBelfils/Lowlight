@@ -2300,5 +2300,264 @@ bind use_all = fn(flag: bool) int: {
 	if !foundMathImp {
 		t.Errorf("expected auto-import 'Import \"std/math\"' action, got: %+v", impActions)
 	}
+
+	// Comptime abort traces must populate LSP Diagnostic.RelatedInformation
+	ctPath := filepath.Join(wsDir, "comptime_trace.ll")
+	ctURI := lsp.PathToURI(ctPath)
+	ctSrc := "const inner = fn(): assert(false, \"boom\")\nconst outer = fn() int: { inner(); 1 }\nconst X = outer()\nbind main = fn(): {}\n"
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: ctURI, LanguageID: "lowlight", Version: 1, Text: ctSrc},
+	})
+	ctDiags := h.waitDiagnostics(ctURI)
+	if len(ctDiags) == 0 || len(ctDiags[0].RelatedInformation) == 0 {
+		t.Errorf("expected RelatedInformation on comptime call-trace diagnostic, got: %+v", ctDiags)
+	}
+
+	// Conditional generic downgrade + `const` / `@comptime_only` hover must surface constness accurately.
+	cgPath := filepath.Join(wsDir, "cond_generic.ll")
+	cgURI := lsp.PathToURI(cgPath)
+	cgSrc := "define U struct [ n: int ]\nbind U.to_string = fn(self) string: \"U\"\nconst show[T: Printable] = fn(x: T) string: x.to_string()\n@comptime_only\nconst ct_only = fn() int: 1\nbind main = fn(): {\n\tlet _ = show(U[n: 1])\n\tlet _ = comptime ct_only()\n}\n"
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: cgURI, LanguageID: "lowlight", Version: 1, Text: cgSrc},
+	})
+	_ = h.waitDiagnostics(cgURI)
+	showCallPos := lsp.OffsetToLSP(cgSrc, strings.Index(cgSrc, "show(U"))
+	var showHover *lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: cgURI},
+		Position:     showCallPos,
+	}, &showHover)
+	if showHover == nil || !strings.Contains(showHover.Contents.Value, "Runtime-only for this instantiation") {
+		t.Errorf("expected conditional generic downgrade note in hover, got: %+v", showHover)
+	}
+	ctPos := lsp.OffsetToLSP(cgSrc, strings.Index(cgSrc, "ct_only()"))
+	var ctHover *lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: cgURI},
+		Position:     ctPos,
+	}, &ctHover)
+	if ctHover == nil || !strings.Contains(ctHover.Contents.Value, "@comptime_only") || !strings.Contains(ctHover.Contents.Value, "const ct_only") {
+		t.Errorf("expected `@comptime_only` + `const` hover header, got: %+v", ctHover)
+	}
 }
 
+
+func TestLSPComptimeEmbedOverlaysAndDynamicWatchers(t *testing.T) {
+	h := newHarness(t)
+	wsDir := t.TempDir()
+	assetsDir := filepath.Join(wsDir, "assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, "lowlight.toml"), []byte("[package]\nname = \"embed_lsp_test\"\nversion = \"0.1.0\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dataPath := filepath.Join(assetsDir, "data.txt")
+	if err := os.WriteFile(dataPath, []byte("disk-v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(wsDir, "main.ll")
+	mainURI := lsp.PathToURI(mainPath)
+	dataURI := lsp.PathToURI(dataPath)
+	unsavedPath := filepath.Join(assetsDir, "unsaved.txt")
+	unsavedURI := lsp.PathToURI(unsavedPath)
+
+	var registeredWatchers [][]string
+	var unregisteredIDs []string
+	var publishedNonLL []string
+	var pendingReplies []json.RawMessage
+
+	flushReplies := func() {
+		for _, id := range pendingReplies {
+			h.sendRaw(map[string]any{"jsonrpc": "2.0", "id": id, "result": nil})
+		}
+		pendingReplies = nil
+	}
+
+	replyAndRecord := func(raw []byte) (string, []lsp.Diagnostic, bool) {
+		var env struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.Unmarshal(raw, &env); err != nil {
+			t.Fatalf("unmarshal frame: %v (%s)", err, string(raw))
+		}
+		switch env.Method {
+		case "client/registerCapability":
+			var rp lsp.RegistrationParams
+			if err := json.Unmarshal(env.Params, &rp); err != nil {
+				t.Fatalf("unmarshal registerCapability: %v", err)
+			}
+			for _, reg := range rp.Registrations {
+				var opts lsp.DidChangeWatchedFilesRegistrationOptions
+				rawOpts, _ := json.Marshal(reg.RegisterOptions)
+				if err := json.Unmarshal(rawOpts, &opts); err == nil {
+					var globs []string
+					for _, w := range opts.Watchers {
+						globs = append(globs, w.GlobPattern)
+					}
+					registeredWatchers = append(registeredWatchers, globs)
+				}
+			}
+			if len(env.ID) > 0 && string(env.ID) != "null" {
+				pendingReplies = append(pendingReplies, append(json.RawMessage(nil), env.ID...))
+			}
+		case "client/unregisterCapability":
+			var up lsp.UnregistrationParams
+			if err := json.Unmarshal(env.Params, &up); err != nil {
+				t.Fatalf("unmarshal unregisterCapability: %v", err)
+			}
+			for _, u := range up.Unregisterations {
+				unregisteredIDs = append(unregisteredIDs, u.ID)
+			}
+			if len(env.ID) > 0 && string(env.ID) != "null" {
+				pendingReplies = append(pendingReplies, append(json.RawMessage(nil), env.ID...))
+			}
+		case "textDocument/publishDiagnostics":
+			var pd lsp.PublishDiagnosticsParams
+			if err := json.Unmarshal(env.Params, &pd); err != nil {
+				t.Fatalf("unmarshal publishDiagnostics: %v", err)
+			}
+			h.diags[pd.URI] = pd.Diagnostics
+			if !strings.HasSuffix(pd.URI, ".ll") {
+				publishedNonLL = append(publishedNonLL, pd.URI)
+			}
+			return pd.URI, pd.Diagnostics, true
+		}
+		return "", nil, false
+	}
+
+	waitDiagsFor := func(targetURI string) []lsp.Diagnostic {
+		t.Helper()
+		for {
+			uri, diags, isDiag := replyAndRecord(h.readFrame())
+			if isDiag && uri == targetURI {
+				flushReplies()
+				return diags
+			}
+		}
+	}
+
+	hasRegistered := func(substr string) bool {
+		for _, batch := range registeredWatchers {
+			for _, g := range batch {
+				if strings.Contains(g, substr) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	waitRegistration := func(substr string) {
+		t.Helper()
+		for !hasRegistered(substr) {
+			replyAndRecord(h.readFrame())
+		}
+		flushReplies()
+	}
+
+	var initRes lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{
+		RootURI: lsp.PathToURI(wsDir),
+		Capabilities: lsp.ClientCapabilities{
+			Workspace: &lsp.WorkspaceClientCapabilities{
+				DidChangeWatchedFiles: &lsp.DidChangeWatchedFilesClientCapabilities{
+					DynamicRegistration: true,
+				},
+			},
+		},
+	}, &initRes)
+	h.notify("initialized", struct{}{})
+	waitRegistration("lowlight.toml")
+
+	// Open main.ll while disk has "disk-v1", assertion expects "overlay-v2".
+	mainSrcV1 := "const TXT = comp.embed_str(\"assets/data.txt\")\nconst _CHECK = comptime { assert(TXT == \"overlay-v2\"); 1 }\nbind main = fn(): {}\n"
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: mainURI, LanguageID: "lowlight", Version: 1, Text: mainSrcV1},
+	})
+	if diags := waitDiagsFor(mainURI); len(diags) == 0 || !strings.Contains(diags[0].Message, "assert") {
+		t.Fatalf("expected initial assert failure while data.txt on disk is disk-v1, got: %+v", diags)
+	}
+	if !hasRegistered("data.txt") {
+		t.Fatalf("expected dynamic watcher registration for data.txt, got: %+v", registeredWatchers)
+	}
+
+	// Open non-.ll overlay for assets/data.txt -> main.ll should pass with 0 diags, and NO diags published for data.txt!
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: dataURI, LanguageID: "plaintext", Version: 1, Text: "overlay-v2"},
+	})
+	if diags := waitDiagsFor(mainURI); len(diags) != 0 {
+		t.Fatalf("expected 0 diagnostics on main.ll after data.txt overlay update, got: %+v", diags)
+	}
+
+	// Edit overlay -> main.ll fails; edit back -> main.ll passes.
+	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
+		TextDocument:   lsp.VersionedTextDocumentIdentifier{URI: dataURI, Version: 2},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: "overlay-bad"}},
+	})
+	if diags := waitDiagsFor(mainURI); len(diags) == 0 || !strings.Contains(diags[0].Message, "assert") {
+		t.Fatalf("expected main.ll assert error after editing data.txt overlay to overlay-bad, got: %+v", diags)
+	}
+
+	// Update main.ll to embed unsaved.txt (which does NOT exist on disk yet).
+	mainSrcV2 := "const TXT = comp.embed_str(\"assets/unsaved.txt\")\nconst _CHECK = comptime { assert(TXT == \"unsaved-ok\"); 1 }\nbind main = fn(): {}\n"
+	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
+		TextDocument:   lsp.VersionedTextDocumentIdentifier{URI: mainURI, Version: 2},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: mainSrcV2}},
+	})
+	if diags := waitDiagsFor(mainURI); len(diags) == 0 {
+		t.Fatalf("expected cannot open diagnostic before unsaved.txt overlay is opened")
+	}
+	if !hasRegistered("unsaved.txt") {
+		t.Fatalf("expected dynamic watcher registration for unsaved.txt, got: %+v", registeredWatchers)
+	}
+	if len(unregisteredIDs) == 0 {
+		t.Fatalf("expected previous embed watcher registration to be unregistered when embed set changed")
+	}
+
+	// Open unsaved.txt overlay in editor -> main.ll passes with 0 diagnostics!
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: unsavedURI, LanguageID: "plaintext", Version: 1, Text: "unsaved-ok"},
+	})
+	if diags := waitDiagsFor(mainURI); len(diags) != 0 {
+		t.Fatalf("expected 0 diagnostics after unsaved.txt overlay opened, got: %+v", diags)
+	}
+
+	// Close unsaved.txt overlay -> main.ll reverts to missing-file error.
+	h.notify("textDocument/didClose", lsp.DidCloseTextDocumentParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: unsavedURI},
+	})
+	if diags := waitDiagsFor(mainURI); len(diags) == 0 {
+		t.Fatalf("expected main.ll error after closing unsaved.txt overlay")
+	}
+
+	// Restore data.txt embed, write "overlay-v2" to disk after closing data.txt overlay, and notify didChangeWatchedFiles!
+	h.notify("textDocument/didClose", lsp.DidCloseTextDocumentParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: dataURI},
+	})
+	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
+		TextDocument:   lsp.VersionedTextDocumentIdentifier{URI: mainURI, Version: 3},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: mainSrcV1}},
+	})
+	if diags := waitDiagsFor(mainURI); len(diags) == 0 {
+		t.Fatalf("expected failure when data.txt overlay closed and disk still has disk-v1")
+	}
+	if err := os.WriteFile(dataPath, []byte("overlay-v2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.notify("workspace/didChangeWatchedFiles", map[string]any{
+		"changes": []map[string]any{{"uri": dataURI, "type": 2}},
+	})
+	if diags := waitDiagsFor(mainURI); len(diags) != 0 {
+		t.Fatalf("expected 0 diagnostics after watched file disk write, got: %+v", diags)
+	}
+
+	// Verify shutdown + exit clean AND no non-.ll file ever received publishDiagnostics!
+	h.request("shutdown", nil, nil)
+	h.notify("exit", nil)
+	if len(publishedNonLL) != 0 {
+		t.Fatalf("expected zero publishDiagnostics notifications for non-.ll overlays, got: %v", publishedNonLL)
+	}
+}

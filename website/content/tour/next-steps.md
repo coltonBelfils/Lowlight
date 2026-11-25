@@ -20,7 +20,7 @@ bind main = fn(): {
 	let n = 42
 	let p = unsafe addr_of(n)
 	println(unsafe ptr_read(p))
-	println(size_of[int]())
+	println(type.size_of[int]())
 }
 ```
 

@@ -68,8 +68,8 @@ bind main = fn(): {
     let err_res! = Result[int].err(Error.new("offline"))
     assert(ok_res!.is_ok())
     assert(err_res!.is_err())
-    assert(ok_res!.unwrap_or(0) == 42)
-    assert(err_res!.unwrap_or(-1) == -1)
+    assert((ok_res! ?? 0) == 42)
+    assert((err_res! ?? -1) == -1)
 
     println("generics_and_pool: slot reused at gen=${h_dragon.generation}, occupant=$dragon_name")
 }

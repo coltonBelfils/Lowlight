@@ -2,7 +2,6 @@ package sema
 
 import (
 	"fmt"
-	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,7 +12,10 @@ import (
 	"lowlight/internal/types"
 )
 
-const MaxMonomorphDepth = 128
+const (
+	MaxMonomorphDepth            = 128
+	MaxInstantiationsPerTemplate = 512
+)
 
 func (a *Analyzer) moduleTag(mod *Module) string {
 	if mod == nil {
@@ -28,6 +30,46 @@ func (a *Analyzer) moduleTag(mod *Module) string {
 	base := filepath.Base(mod.Path)
 	base = strings.TrimSuffix(base, filepath.Ext(base))
 	return types.SanitizeCIdent(base)
+}
+
+// typeTag is the C/LLVM symbol tag for a type named name declared in mod. Entry-package types
+// normally have no tag, like std/core's; one that shadows a std/core type name (a user's own
+// `Status` or `Error`) is tagged `main` so the two don't share symbols.
+func (a *Analyzer) typeTag(mod *Module, name string) string {
+	tag := a.moduleTag(mod)
+	if tag != "" || mod == nil || a.corePkg == nil || mod.Pkg == a.corePkg {
+		return tag
+	}
+	if a.coreTypeNames == nil {
+		a.coreTypeNames = make(map[string]bool)
+		for _, f := range a.corePkg.Files {
+			for _, d := range f.ActiveDecls() {
+				switch td := d.(type) {
+				case *ast.StructDecl:
+					if la := ast.FindAttribute(td.Attributes, "lang"); la != nil && len(la.Args) > 0 && strings.Trim(la.Args[0], "\"") == "target_info" {
+						continue
+					}
+					a.coreTypeNames[td.Name] = true
+				case *ast.EnumDecl:
+					if la := ast.FindAttribute(td.Attributes, "lang"); la != nil && len(la.Args) > 0 {
+						li := strings.Trim(la.Args[0], "\"")
+						if li == "target_os" || li == "target_arch" || li == "target_endian" {
+							continue
+						}
+					}
+					a.coreTypeNames[td.Name] = true
+				case *ast.InterfaceDecl:
+					a.coreTypeNames[td.Name] = true
+				case *ast.DistinctTypeDecl:
+					a.coreTypeNames[td.Name] = true
+				}
+			}
+		}
+	}
+	if a.coreTypeNames[name] {
+		return "main"
+	}
+	return ""
 }
 
 func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.Span, kind string) {
@@ -148,6 +190,94 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 			} else if sym, ok := target.(*Symbol); ok {
 				sym.TrackCaller = true
 			}
+		case "comptime_only":
+			switch t := target.(type) {
+			case *FuncInstance:
+				if !t.IsConst {
+					a.Rep.Errorf(attr.Span, "@comptime_only can only be applied to a `const` %s", kind)
+				}
+				t.ComptimeOnly = true
+			case *Symbol:
+				if !t.IsConst {
+					a.Rep.Errorf(attr.Span, "@comptime_only can only be applied to a `const` %s", kind)
+				}
+				t.ComptimeOnly = true
+			case *types.Struct:
+				t.IsComptimeOnly = true
+			case *types.Enum:
+				t.IsComptimeOnly = true
+			case *types.Distinct:
+				t.IsComptimeOnly = true
+			case *types.Interface:
+				t.IsComptimeOnly = true
+			default:
+				a.Rep.Errorf(attr.Span, "@comptime_only attribute cannot be applied to a %s declaration", kind)
+			}
+		case "comptime_limit":
+			if len(attr.Args) == 0 {
+				a.Rep.Errorf(attr.Span, "@comptime_limit requires at least one limit (e.g. `@comptime_limit(steps: 5_000_000, memory: 128_000_000)` or `@comptime_limit(5_000_000)`)")
+				continue
+			}
+			var stepLimit int
+			var memLimit int64
+			seenNamed := false
+			for _, arg := range attr.Args {
+				if key, valStr, hasColon := strings.Cut(arg, ":"); hasColon {
+					seenNamed = true
+					key = strings.TrimSpace(key)
+					rawVal := strings.ReplaceAll(strings.Trim(strings.TrimSpace(valStr), "\""), "_", "")
+					n, err := strconv.ParseInt(rawVal, 0, 64)
+					if err != nil || n <= 0 {
+						a.Rep.Errorf(attr.Span, "@comptime_limit %s must be a positive integer, got %q", key, strings.TrimSpace(valStr))
+						continue
+					}
+					switch key {
+					case "steps":
+						if stepLimit > 0 {
+							a.Rep.Errorf(attr.Span, "duplicate `steps` argument in @comptime_limit")
+							continue
+						}
+						stepLimit = int(n)
+					case "memory":
+						if memLimit > 0 {
+							a.Rep.Errorf(attr.Span, "duplicate `memory` argument in @comptime_limit")
+							continue
+						}
+						memLimit = n
+					default:
+						a.Rep.Errorf(attr.Span, "unknown argument %q in @comptime_limit (expected `steps` or `memory`)", key)
+					}
+				} else {
+					if len(attr.Args) > 1 || seenNamed {
+						a.Rep.Errorf(attr.Span, "@comptime_limit expects named arguments `steps:` / `memory:` when specifying multiple limits")
+						break
+					}
+					rawLimit := strings.ReplaceAll(strings.Trim(arg, "\""), "_", "")
+					n, err := strconv.ParseInt(rawLimit, 0, 64)
+					if err != nil || n <= 0 {
+						a.Rep.Errorf(attr.Span, "@comptime_limit step count must be a positive integer, got %q", arg)
+						continue
+					}
+					stepLimit = int(n)
+				}
+			}
+			if fi, ok := target.(*FuncInstance); ok {
+				if stepLimit > 0 {
+					fi.ComptimeLimit = stepLimit
+				}
+				if memLimit > 0 {
+					fi.ComptimeMemLimit = memLimit
+				}
+			} else if sym, ok := target.(*Symbol); ok {
+				if stepLimit > 0 {
+					sym.ComptimeLimit = stepLimit
+				}
+				if memLimit > 0 {
+					sym.ComptimeMemLimit = memLimit
+				}
+			} else {
+				a.Rep.Errorf(attr.Span, "@comptime_limit attribute cannot be applied to a %s declaration", kind)
+			}
 		case "lang":
 			// handled specially on interfaces and top-level func/symbols
 		case "derive":
@@ -165,7 +295,26 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 	}
 }
 
+func isCompNamespaceOnlyType(t types.Type) bool {
+	switch v := t.(type) {
+	case *types.Struct:
+		return v.CompNamespaceOnly
+	case *types.Enum:
+		return v.CompNamespaceOnly
+	}
+	return false
+}
+
 func (a *Analyzer) lookupTypeInModule(mod *Module, moduleAlias, name string) types.Type {
+	if moduleAlias == "comp" {
+		if target, hasUserMod := mod.Aliased[moduleAlias]; hasUserMod && target != nil {
+			if !a.SamePackage(mod, target) && !IsExported(name) {
+				return nil
+			}
+			return target.Types[name]
+		}
+		return a.Prog.CompTypes[name]
+	}
 	if moduleAlias != "" {
 		target, ok := mod.Aliased[moduleAlias]
 		if !ok {
@@ -187,6 +336,9 @@ func (a *Analyzer) lookupTypeInModule(mod *Module, moduleAlias, name string) typ
 			continue
 		}
 		if t, ok := imp.Types[name]; ok {
+			if !a.SamePackage(mod, imp) && isCompNamespaceOnlyType(t) {
+				continue
+			}
 			return t
 		}
 	}
@@ -318,10 +470,410 @@ func (a *Analyzer) lookupGenFunc(mod *Module, moduleAlias, name string) *Generic
 	return nil
 }
 
-func (a *Analyzer) runTypeAndSymbolRegistration() {
-	// Pass 1A: Evaluate simple top-level `bind CONST = <int_expr>` so stack array lengths and enum values work.
+func (a *Analyzer) initCompTarget() {
+	if a.corePkg == nil {
+		return
+	}
+	// Stage 1: Register @lang("target_os" | "target_arch" | "target_endian") enums first
+	// because Target struct references them in its fields.
+	for _, mod := range a.corePkg.Files {
+		for _, d := range mod.ActiveDecls() {
+			ed, ok := d.(*ast.EnumDecl)
+			if !ok {
+				continue
+			}
+			la := ast.FindAttribute(ed.Attributes, "lang")
+			if la == nil || len(la.Args) == 0 {
+				continue
+			}
+			li := strings.Trim(la.Args[0], "\"")
+			if li != "target_os" && li != "target_arch" && li != "target_endian" {
+				continue
+			}
+			if _, dup := mod.Types[ed.Name]; dup {
+				continue
+			}
+			en := &types.Enum{
+				Name:              ed.Name,
+				CName:             "ll_e_comp_" + ed.Name,
+				PkgDir:            mod.Dir,
+				Doc:               ed.Doc,
+				Underlying:        types.TypeInt,
+				CompNamespaceOnly: true,
+			}
+			a.checkAttributes(ed.Attributes, en, ed.Span, "enum")
+			for idx, v := range ed.Variants {
+				en.Variants = append(en.Variants, types.EnumVariant{
+					Name:  v.Name,
+					CName: "v_" + types.SanitizeCIdent(v.Name),
+					Value: int64(idx),
+					Kind:  types.VariantUnit,
+					Doc:   v.Doc,
+				})
+			}
+			mod.Types[ed.Name] = en
+			a.Prog.CompTypes[ed.Name] = en
+			a.Prog.EnumDecls[en] = ed
+			a.Prog.EnumMods[en] = mod
+			a.Prog.TypeSpans[en] = ed.Span
+			a.Prog.Enums = append(a.Prog.Enums, en)
+			switch li {
+			case "target_os":
+				a.Prog.EnumTargetOs = en
+			case "target_arch":
+				a.Prog.EnumTargetArch = en
+			case "target_endian":
+				a.Prog.EnumEndian = en
+			}
+		}
+	}
+	// Stage 2: Register @lang("target_info") Target struct and resolve its fields.
+	for _, mod := range a.corePkg.Files {
+		for _, d := range mod.ActiveDecls() {
+			sd, ok := d.(*ast.StructDecl)
+			if !ok {
+				continue
+			}
+			la := ast.FindAttribute(sd.Attributes, "lang")
+			if la == nil || len(la.Args) == 0 || strings.Trim(la.Args[0], "\"") != "target_info" {
+				continue
+			}
+			if _, dup := mod.Types[sd.Name]; dup {
+				continue
+			}
+			st := &types.Struct{
+				Name:              sd.Name,
+				CName:             "ll_s_comp_" + sd.Name,
+				PkgDir:            mod.Dir,
+				Doc:               sd.Doc,
+				Lang:              "target_info",
+				CompNamespaceOnly: true,
+			}
+			a.checkAttributes(sd.Attributes, st, sd.Span, "struct")
+			mod.Types[sd.Name] = st
+			a.Prog.CompTypes[sd.Name] = st
+			a.Prog.StructDecls[st] = sd
+			a.Prog.StructMods[st] = mod
+			a.Prog.TypeSpans[st] = sd.Span
+			a.Prog.Structs = append(a.Prog.Structs, st)
+			a.Prog.StructTarget = st
+			a.populateStructFields(mod, st, sd, nil)
+		}
+	}
+	if tv := a.buildTargetCtVal(); tv != nil {
+		a.Prog.CompTargetSym = &Symbol{
+			Name:         "TARGET",
+			CName:        "ll_comp_TARGET",
+			Mod:          a.coreMod,
+			Type:         a.Prog.StructTarget,
+			IsBind:       true,
+			IsConst:      true,
+			BindKind:     BindOwned,
+			IsTopLevel:   true,
+			ComptimeOnly: true,
+			ConstVal:     tv,
+		}
+	}
+}
+
+func (a *Analyzer) pruneTopComptimeIfs() {
+	hasAnyTopComptimeIf := func() bool {
+		for _, mod := range a.Prog.Modules {
+			for _, d := range mod.ActiveDecls() {
+				if _, ok := d.(*ast.TopComptimeIfDecl); ok {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	if !hasAnyTopComptimeIf() {
+		return
+	}
+
+	var speculativeSyms []*Symbol
+	preEvalPureTopConsts := func() bool {
+		changed := false
+		for _, mod := range a.Prog.Modules {
+			if a.collectTopLevelIntConsts(mod) {
+				changed = true
+			}
+			for _, d := range mod.ActiveDecls() {
+				vd, ok := d.(*ast.VarDecl)
+				if !ok || !vd.IsConst || vd.IsOptName || len(vd.TypeParams) > 0 || vd.Value == nil {
+					continue
+				}
+				if _, isFn := vd.Value.(*ast.FuncLit); isFn || mod.Symbols[vd.Name] != nil {
+					continue
+				}
+				if exprContainsCall(vd.Value) {
+					continue
+				}
+				sym, cv, okEval := a.speculativeEvalTopConst(mod, vd)
+				if okEval && sym != nil && cv != nil {
+					mod.Symbols[vd.Name] = sym
+					speculativeSyms = append(speculativeSyms, sym)
+					changed = true
+				}
+			}
+		}
+		return changed
+	}
+
+	for progress := true; progress; {
+		progress = false
+		if preEvalPureTopConsts() {
+			progress = true
+		}
+		for _, mod := range a.Prog.Modules {
+			decls := mod.ActiveDecls()
+			var next []ast.Decl
+			modChanged := false
+			for _, d := range decls {
+				tc, ok := d.(*ast.TopComptimeIfDecl)
+				if !ok {
+					next = append(next, d)
+					continue
+				}
+				chosen, evaluated := a.selectTopComptimeIfBranch(mod, tc, false)
+				if !evaluated {
+					next = append(next, d)
+					continue
+				}
+				modChanged = true
+				progress = true
+				next = append(next, chosen...)
+			}
+			if modChanged {
+				mod.Decls = next
+			}
+		}
+	}
+
+	// Final pass: any remaining TopComptimeIfDecl failed speculative evaluation — evaluate with real diagnostics
+	// and strip invalid TopComptimeIfDecl nodes before Pass 1B.
 	for _, mod := range a.Prog.Modules {
-		a.collectTopLevelIntConsts(mod)
+		decls := mod.ActiveDecls()
+		hasLeft := false
+		for _, d := range decls {
+			if _, ok := d.(*ast.TopComptimeIfDecl); ok {
+				hasLeft = true
+				break
+			}
+		}
+		if !hasLeft {
+			continue
+		}
+		var next []ast.Decl
+		for _, d := range decls {
+			tc, ok := d.(*ast.TopComptimeIfDecl)
+			if !ok {
+				next = append(next, d)
+				continue
+			}
+			chosen, evaluated := a.selectTopComptimeIfBranch(mod, tc, true)
+			if evaluated {
+				next = append(next, chosen...)
+			}
+		}
+		mod.Decls = next
+	}
+	// Reset speculative ConstVals so Pass 2 re-evaluates them once generic stdlib types
+	// (`List`, `Set`, `Map`) and TopBodyMaps are registered, keeping `IsConstInt` intact.
+	for _, sym := range speculativeSyms {
+		sym.ConstVal = nil
+	}
+}
+
+func exprContainsCall(e ast.Expr) bool {
+	if e == nil {
+		return false
+	}
+	found := false
+	switch v := e.(type) {
+	case *ast.CallExpr:
+		return true
+	case *ast.UnaryExpr:
+		return exprContainsCall(v.Operand)
+	case *ast.BinaryExpr:
+		return exprContainsCall(v.Left) || exprContainsCall(v.Right)
+	case *ast.ComptimeExpr:
+		return exprContainsCall(v.Expr)
+	case *ast.MemberExpr:
+		return exprContainsCall(v.Base)
+	case *ast.IndexExpr:
+		return exprContainsCall(v.Base) || exprContainsCall(v.Index)
+	case *ast.IfExpr:
+		if exprContainsCall(v.Cond) || exprContainsCall(v.Then) || exprContainsCall(v.Else) {
+			return true
+		}
+	case *ast.BlockExpr, *ast.MatchExpr, *ast.ForExpr, *ast.WhileExpr:
+		return true
+	}
+	return found
+}
+
+func (a *Analyzer) speculativeEvalTopConst(mod *Module, vd *ast.VarDecl) (*Symbol, *ctVal, bool) {
+	tmpRep := diag.NewReporter()
+	savedRep := a.Rep
+	a.Rep = tmpRep
+	prevBM := a.curBM
+	a.curBM = NewBodyMaps()
+	defer func() {
+		a.curBM = prevBM
+		a.Rep = savedRep
+	}()
+
+	var explicitTy types.Type
+	if vd.Type != nil {
+		explicitTy = a.resolveValueType(mod, vd.Type, nil, false)
+		if explicitTy == types.TypeInvalid || tmpRep.HasErrors() {
+			return nil, nil, false
+		}
+	}
+	fc := a.newFuncChecker(mod, nil)
+	fc.comptimeExprDepth++
+	fc.pushScope()
+	var got types.Type
+	if explicitTy != nil {
+		got = fc.checkExprExpect(vd.Value, explicitTy, true)
+		fc.verifyAssignable(got, explicitTy, vd.Value, vd.Value.GetSpan(), "top-level const")
+	} else {
+		got = fc.checkExpr(vd.Value, true)
+	}
+	fc.popScope()
+	if tmpRep.HasErrors() || got == nil || got == types.TypeInvalid || got == types.TypeVoid {
+		return nil, nil, false
+	}
+	targetTy := explicitTy
+	if targetTy == nil {
+		targetTy = got
+	}
+	cname := "ll_g_" + types.SanitizeCIdent(vd.Name)
+	if tag := a.moduleTag(mod); tag != "" {
+		cname = fmt.Sprintf("ll_g_%s_%s", tag, types.SanitizeCIdent(vd.Name))
+	}
+	sym := &Symbol{
+		Name:       vd.Name,
+		CName:      cname,
+		Type:       targetTy,
+		IsBind:     true,
+		IsConst:    true,
+		BindKind:   BindOwned,
+		IsTopLevel: true,
+		Mod:        mod,
+		Doc:        vd.Doc,
+		Span:       vd.Span,
+	}
+	a.checkAttributes(vd.Attributes, sym, vd.Span, "variable")
+	if mod.IsTestFile {
+		sym.IsTestOnly = true
+	}
+	if !sym.ComptimeOnly && types.FindComptimeOnlyType(targetTy) != nil {
+		return nil, nil, false
+	}
+
+	st := newCtState(a, mod, sym.ComptimeLimit)
+	if sym.ComptimeMemLimit > 0 {
+		st.memLimit = sym.ComptimeMemLimit
+	}
+	st.frames = []ctFrame{{
+		mod:      mod,
+		bm:       a.curBM,
+		callSpan: vd.Span,
+		locals:   make(map[*Symbol]*ctSlot),
+	}}
+	val, sig := st.evalExpr(vd.Value)
+	if sig.kind != sigNone || val == nil || tmpRep.HasErrors() {
+		return nil, nil, false
+	}
+	if !sym.ComptimeOnly {
+		if errMsg := a.validateCrossesToRuntime(val, targetTy); errMsg != "" {
+			return nil, nil, false
+		}
+	}
+	freezeCtVal(val)
+	sym.ConstVal = val
+	if p := types.UnderlyingPrimitive(targetTy); p != nil && p.IsInteger() {
+		sym.IsConstInt = true
+		sym.ConstIntVal = val.asInt64()
+	}
+	return sym, val, true
+}
+
+func (a *Analyzer) selectTopComptimeIfBranch(mod *Module, tc *ast.TopComptimeIfDecl, reportErrors bool) ([]ast.Decl, bool) {
+	var tmpRep *diag.Reporter
+	savedRep := a.Rep
+	if !reportErrors {
+		tmpRep = diag.NewReporter()
+		a.Rep = tmpRep
+	}
+	prevBM := a.curBM
+	a.curBM = a.Prog.TopBodyMaps
+	defer func() {
+		a.curBM = prevBM
+		a.Rep = savedRep
+	}()
+
+	for cur := tc; cur != nil; cur = cur.ElseIf {
+		beforeErrs := a.errorCount()
+		fc := a.newFuncChecker(mod, nil)
+		fc.comptimeExprDepth++
+		fc.pushScope()
+		condTy := fc.checkExprExpect(cur.Cond, types.TypeBool, true)
+		fc.popScope()
+		if condTy != types.TypeInvalid && !condTy.Equals(types.TypeBool) {
+			a.Rep.Errorf(cur.Cond.GetSpan(), "top-level `comptime if` condition must have type `bool`, got %s", condTy.String())
+		}
+		if a.errorCount() > beforeErrs {
+			return nil, false
+		}
+		st := newCtState(a, mod, 0)
+		st.frames = []ctFrame{{
+			mod:      mod,
+			bm:       a.curBM,
+			callSpan: cur.Cond.GetSpan(),
+			locals:   make(map[*Symbol]*ctSlot),
+		}}
+		val, sig := st.evalExpr(cur.Cond)
+		if sig.kind == sigAbort {
+			st.reportAbort(sig, cur.Cond.GetSpan())
+			return nil, false
+		}
+		if sig.kind != sigNone || val == nil || val.kind != ctBool {
+			a.Rep.Errorf(cur.Cond.GetSpan(), "top-level `comptime if` condition must evaluate to a compile-time `bool`")
+			return nil, false
+		}
+		if val.b {
+			return cur.ThenDecls, true
+		}
+		if cur.ElseIf == nil && len(cur.ElseDecls) > 0 {
+			return cur.ElseDecls, true
+		}
+	}
+	return nil, true
+}
+
+func (a *Analyzer) runTypeAndSymbolRegistration() {
+	// Pass 0: Register `comp.Target*` types and `comp.TARGET` before Pass 1A / top-level `comptime if`.
+	a.initCompTarget()
+
+	// Pass 0.5: Evaluate and prune top-level `comptime if` declarations (`H4` Option 3) before type/symbol tables.
+	a.pruneTopComptimeIfs()
+	if a.Rep.HasErrors() && !a.ideMode {
+		return
+	}
+
+	// Pass 1A: Multi-pass constant folding for simple integer constants across all modules
+	// so `[N: T]` array sizes and enum discriminants can depend on constants in any order or module.
+	for changed := true; changed; {
+		changed = false
+		for _, mod := range a.Prog.Modules {
+			if a.collectTopLevelIntConsts(mod) {
+				changed = true
+			}
+		}
 	}
 
 	// Pass 1B: Register nominal type headers across all modules (order-independent!).
@@ -363,13 +915,14 @@ func (a *Analyzer) runTypeAndSymbolRegistration() {
 	for _, mod := range a.Prog.Modules {
 		a.registerFunctionsAndMethods(mod)
 	}
+	a.validateAllConstGenericParams()
 	a.instantiatePendingDrops()
 	a.validateDerives()
 }
 
 // collectGenericDropReceivers records which generic types declare a `drop` method.
 func (a *Analyzer) collectGenericDropReceivers(mod *Module) {
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		if md, ok := d.(*ast.MethodDecl); ok && md.Name == "drop" && len(md.RecvTypeParams) > 0 {
 			a.genDropRecv[md.RecvType] = true
 		}
@@ -395,30 +948,60 @@ func (a *Analyzer) instantiatePendingDrops() {
 	}
 }
 
-func (a *Analyzer) collectTopLevelIntConsts(mod *Module) {
-	for _, d := range mod.File.Decls {
+func (a *Analyzer) collectTopLevelIntConsts(mod *Module) bool {
+	changed := false
+	for _, d := range mod.ActiveDecls() {
 		vd, ok := d.(*ast.VarDecl)
-		if !ok || !vd.IsBind || len(vd.TypeParams) > 0 || vd.IsOptName {
+		if !ok || (!vd.IsBind && !vd.IsConst) || len(vd.TypeParams) > 0 || vd.IsOptName {
 			continue
 		}
-		if val, ok2 := a.evalConstInt(mod, vd.Value); ok2 {
-			if a.checkDupDecl(mod, vd.Name, vd.Span) {
+		if _, already := mod.Symbols[vd.Name]; already {
+			continue
+		}
+		ty := types.TypeInt
+		if vd.Type != nil {
+			nt, isNt := vd.Type.(*ast.NamedType)
+			if !isNt || nt.Module != "" || len(nt.TypeArgs) > 0 {
 				continue
 			}
-			ty := types.TypeInt
-			if vd.Type != nil {
-				if nt, isNt := vd.Type.(*ast.NamedType); isNt && nt.Module == "" && len(nt.TypeArgs) == 0 {
-					if p := types.LookupPrimitive(nt.Name); p != nil && p.IsInteger() {
-						ty = p
+			p := types.LookupPrimitive(nt.Name)
+			if p == nil || !p.IsInteger() {
+				continue
+			}
+			ty = p
+			// Non-64-bit signed/unsigned arithmetic (e.g., `const B: u8 = 200 + 56`)
+			// requires typed wrapping in Pass 2 (`resolveTopVar`), unless it's a pure literal.
+			if p.Kind != types.PrimI64 {
+				switch lit := vd.Value.(type) {
+				case *ast.IntLit:
+					if !p.FitsUnsignedLiteral(lit.Val, false) {
+						continue
 					}
+				case *ast.UnaryExpr:
+					if lit.Op == token.Minus {
+						if il, isIL := lit.Operand.(*ast.IntLit); isIL {
+							if !p.FitsUnsignedLiteral(il.Val, true) {
+								continue
+							}
+						} else {
+							continue
+						}
+					} else {
+						continue
+					}
+				default:
+					continue
 				}
 			}
+		}
+		if val, ok2 := a.evalSimpleConstInt(mod, vd.Value); ok2 {
 			mod.Symbols[vd.Name] = &Symbol{
 				Name:        vd.Name,
 				CName:       types.SanitizeCIdent(vd.Name),
 				Mod:         mod,
 				Type:        ty,
 				IsBind:      true,
+				IsConst:     vd.IsConst,
 				BindKind:    BindOwned,
 				IsTopLevel:  true,
 				IsConstInt:  true,
@@ -426,101 +1009,14 @@ func (a *Analyzer) collectTopLevelIntConsts(mod *Module) {
 				Doc:         vd.Doc,
 				Span:        vd.Span,
 			}
+			changed = true
 		}
 	}
-}
-
-func (a *Analyzer) evalConstInt(mod *Module, e ast.Expr) (int64, bool) {
-	switch v := e.(type) {
-	case *ast.IntLit:
-		return int64(v.Val), true
-	case *ast.CharLit:
-		return int64(v.Val), true
-	case *ast.IdentExpr:
-		if sym := a.lookupTopSymbol(mod, "", v.Name); sym != nil && sym.IsConstInt {
-			return sym.ConstIntVal, true
-		}
-		return 0, false
-	case *ast.MemberExpr:
-		if !v.QuestDot && !v.MemberHasOpt && len(v.BaseTypeArgs) == 0 {
-			if modId, ok := v.Base.(*ast.IdentExpr); ok && !modId.IsOpt {
-				if sym := a.lookupTopSymbol(mod, modId.Name, v.Member); sym != nil && sym.IsConstInt {
-					return sym.ConstIntVal, true
-				}
-			}
-		}
-		return 0, false
-	case *ast.UnaryExpr:
-		sub, ok := a.evalConstInt(mod, v.Operand)
-		if !ok {
-			return 0, false
-		}
-		switch v.Op {
-		case token.Minus:
-			return -sub, true
-		case token.Tilde:
-			return ^sub, true
-		}
-	case *ast.UnsafeExpr:
-		return a.evalConstInt(mod, v.Expr)
-	case *ast.BinaryExpr:
-		l, ok1 := a.evalConstInt(mod, v.Left)
-		r, ok2 := a.evalConstInt(mod, v.Right)
-		if !ok1 || !ok2 {
-			return 0, false
-		}
-		switch v.Op {
-		case token.Plus:
-			return l + r, true
-		case token.Minus:
-			return l - r, true
-		case token.Star:
-			return l * r, true
-		case token.Slash:
-			if r == 0 || (l == math.MinInt64 && r == -1) {
-				return 0, false
-			}
-			return l / r, true
-		case token.Percent:
-			if r == 0 || (l == math.MinInt64 && r == -1) {
-				return 0, false
-			}
-			return l % r, true
-		case token.Shl:
-			if r < 0 || r >= 64 {
-				return 0, false
-			}
-			return l << uint(r), true
-		case token.Shr:
-			if r < 0 || r >= 64 {
-				return 0, false
-			}
-			return l >> uint(r), true
-		case token.Amp:
-			return l & r, true
-		case token.Pipe:
-			return l | r, true
-		case token.Caret:
-			return l ^ r, true
-		}
-	}
-	return 0, false
-}
-
-func (a *Analyzer) evalConstIntFromTypeExpr(mod *Module, te ast.TypeExpr) (int64, bool) {
-	if nt, ok := te.(*ast.NamedType); ok {
-		if val, err := strconv.ParseInt(nt.Name, 10, 64); err == nil {
-			return val, true
-		}
-		if sym := a.lookupTopSymbol(mod, nt.Module, nt.Name); sym != nil && sym.IsConstInt {
-			return sym.ConstIntVal, true
-		}
-	}
-	return 0, false
+	return changed
 }
 
 func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		switch td := d.(type) {
 		case *ast.StructDecl:
 			var langItem string
@@ -550,8 +1046,19 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 						if a.Prog.GenStructRange != nil {
 							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"range\")")
 						}
+					case "arena":
+						if a.Prog.StructArena != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"arena\")")
+						}
+					case "target_info":
+						if existing, ok := mod.Types[td.Name].(*types.Struct); ok && existing == a.Prog.StructTarget && existing != nil {
+							continue
+						}
+						if a.Prog.StructTarget != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"target_info\")")
+						}
 					default:
-						a.Rep.Errorf(td.Span, "unknown struct lang item @lang(%q); supported struct lang items: \"list\", \"array\", \"set\", \"map\", \"range\"", langItem)
+						a.Rep.Errorf(td.Span, "unknown struct lang item @lang(%q); supported struct lang items: \"list\", \"array\", \"set\", \"map\", \"range\", \"arena\", \"target_info\"", langItem)
 					}
 				}
 			}
@@ -581,15 +1088,18 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				}
 				continue
 			}
-			if langItem != "" {
+			if langItem != "" && langItem != "arena" && langItem != "target_info" {
 				a.Rep.Errorf(td.Span, "struct lang item @lang(%q) must be a generic struct", langItem)
 			}
 			if a.checkDupType(mod, td.Name, td.Span) {
 				continue
 			}
 			cname := "ll_s_" + td.Name
-			if tag := a.moduleTag(mod); tag != "" {
+			if tag := a.typeTag(mod, td.Name); tag != "" {
 				cname = fmt.Sprintf("ll_s_%s_%s", tag, td.Name)
+			}
+			if langItem == "target_info" {
+				cname = "ll_s_comp_" + td.Name
 			}
 			st := &types.Struct{
 				Name:   td.Name,
@@ -599,6 +1109,15 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				Doc:    td.Doc,
 			}
 			a.checkAttributes(td.Attributes, st, td.Span, "struct")
+			if langItem == "arena" {
+				st.Lang = "arena"
+				a.Prog.StructArena = st
+			} else if langItem == "target_info" {
+				st.Lang = "target_info"
+				st.CompNamespaceOnly = true
+				a.Prog.StructTarget = st
+				a.Prog.CompTypes[td.Name] = st
+			}
 			if mod.IsTestFile {
 				st.IsTestOnly = true
 			}
@@ -609,8 +1128,38 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 			a.Prog.Structs = append(a.Prog.Structs, st)
 
 		case *ast.EnumDecl:
+			var enumLangItem string
 			if langAttr := ast.FindAttribute(td.Attributes, "lang"); langAttr != nil {
-				a.Rep.Errorf(langAttr.Span, "@lang attribute cannot be applied to an enum declaration")
+				if len(langAttr.Args) == 0 {
+					a.Rep.Errorf(langAttr.Span, "@lang attribute requires a string argument")
+				} else {
+					enumLangItem = strings.Trim(langAttr.Args[0], "\"")
+					switch enumLangItem {
+					case "target_os":
+						if existing, ok := mod.Types[td.Name].(*types.Enum); ok && existing == a.Prog.EnumTargetOs && existing != nil {
+							continue
+						}
+						if a.Prog.EnumTargetOs != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"target_os\")")
+						}
+					case "target_arch":
+						if existing, ok := mod.Types[td.Name].(*types.Enum); ok && existing == a.Prog.EnumTargetArch && existing != nil {
+							continue
+						}
+						if a.Prog.EnumTargetArch != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"target_arch\")")
+						}
+					case "target_endian":
+						if existing, ok := mod.Types[td.Name].(*types.Enum); ok && existing == a.Prog.EnumEndian && existing != nil {
+							continue
+						}
+						if a.Prog.EnumEndian != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"target_endian\")")
+						}
+					default:
+						a.Rep.Errorf(langAttr.Span, "unknown enum lang item @lang(%q); supported: \"target_os\", \"target_arch\", \"target_endian\"", enumLangItem)
+					}
+				}
 			}
 			isTagged := len(td.TypeParams) > 0 || td.IsResult
 			if !isTagged {
@@ -636,8 +1185,11 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				continue
 			}
 			cname := "ll_e_" + td.Name
-			if tag := a.moduleTag(mod); tag != "" {
+			if tag := a.typeTag(mod, td.Name); tag != "" {
 				cname = fmt.Sprintf("ll_e_%s_%s", tag, td.Name)
+			}
+			if enumLangItem != "" {
+				cname = "ll_e_comp_" + td.Name
 			}
 			en := &types.Enum{
 				Name:       td.Name,
@@ -649,6 +1201,20 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				Underlying: types.TypeInt,
 			}
 			a.checkAttributes(td.Attributes, en, td.Span, "enum")
+			switch enumLangItem {
+			case "target_os":
+				en.CompNamespaceOnly = true
+				a.Prog.EnumTargetOs = en
+				a.Prog.CompTypes[td.Name] = en
+			case "target_arch":
+				en.CompNamespaceOnly = true
+				a.Prog.EnumTargetArch = en
+				a.Prog.CompTypes[td.Name] = en
+			case "target_endian":
+				en.CompNamespaceOnly = true
+				a.Prog.EnumEndian = en
+				a.Prog.CompTypes[td.Name] = en
+			}
 			if mod.IsTestFile {
 				en.IsTestOnly = true
 			}
@@ -783,7 +1349,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				continue
 			}
 			cname := "ll_iface_" + td.Name
-			if tag := a.moduleTag(mod); tag != "" {
+			if tag := a.typeTag(mod, td.Name); tag != "" {
 				cname = fmt.Sprintf("ll_iface_%s_%s", tag, td.Name)
 			}
 			ifc := &types.Interface{
@@ -822,7 +1388,7 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 				continue
 			}
 			cname := "ll_d_" + td.Name
-			if tag := a.moduleTag(mod); tag != "" {
+			if tag := a.typeTag(mod, td.Name); tag != "" {
 				cname = fmt.Sprintf("ll_d_%s_%s", tag, td.Name)
 			}
 			dt := &types.Distinct{
@@ -939,7 +1505,7 @@ func (a *Analyzer) checkDupDecl(mod *Module, name string, span diag.Span) bool {
 }
 
 func (a *Analyzer) resolveDistinctsAndEnums(mod *Module) {
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		switch td := d.(type) {
 		case *ast.DistinctTypeDecl:
 			dt, ok := mod.Types[td.Name].(*types.Distinct)
@@ -957,7 +1523,7 @@ func (a *Analyzer) resolveDistinctsAndEnums(mod *Module) {
 				continue
 			}
 			en, ok := mod.Types[td.Name].(*types.Enum)
-			if !ok || en.IsTagged {
+			if !ok || en.IsTagged || len(en.Variants) > 0 {
 				continue
 			}
 			if td.BaseType != nil {
@@ -1008,7 +1574,7 @@ func (a *Analyzer) resolveDistinctsAndEnums(mod *Module) {
 }
 
 func (a *Analyzer) resolveInterfaces(mod *Module) {
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		td, ok := d.(*ast.InterfaceDecl)
 		if !ok {
 			continue
@@ -1091,14 +1657,14 @@ func recvModeToParamMode(rm ast.ReceiverMode) types.ParamMode {
 }
 
 func (a *Analyzer) resolveStructFields(mod *Module) {
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		switch td := d.(type) {
 		case *ast.StructDecl:
 			if len(td.TypeParams) > 0 {
 				continue
 			}
 			st, ok := mod.Types[td.Name].(*types.Struct)
-			if !ok {
+			if !ok || len(st.Fields) > 0 {
 				continue
 			}
 			a.populateStructFields(mod, st, td, nil)
@@ -1153,7 +1719,7 @@ func (a *Analyzer) populateEnumVariants(mod *Module, en *types.Enum, td *ast.Enu
 }
 
 // checkResultDecl validates a `define Name result [...]` declaration: exactly one `value` member
-// carrying the success payload, and at least one failure variant.
+// (with the success payload, or none for a unit result), and at least one failure variant.
 func (a *Analyzer) checkResultDecl(en *types.Enum, td *ast.EnumDecl) {
 	var valueDecl *ast.EnumVariant
 	for i := range td.Variants {
@@ -1168,11 +1734,6 @@ func (a *Analyzer) checkResultDecl(en *types.Enum, td *ast.EnumDecl) {
 			"add the success member, e.g. `value: T,`")
 		return
 	}
-	if valueDecl.PayloadType == nil {
-		a.Rep.ErrorWithHint(valueDecl.Span,
-			fmt.Sprintf("the `value` member of result %s must declare its type", td.Name),
-			"write `value: T`")
-	}
 	if len(td.Variants) < 2 {
 		a.Rep.ErrorWithHint(td.Span,
 			fmt.Sprintf("result %s has no failure variants", td.Name),
@@ -1181,6 +1742,16 @@ func (a *Analyzer) checkResultDecl(en *types.Enum, td *ast.EnumDecl) {
 }
 
 func (a *Analyzer) populateStructFields(mod *Module, st *types.Struct, td *ast.StructDecl, subst map[string]types.Type) {
+	if a.populatedStructs == nil {
+		a.populatedStructs = make(map[*types.Struct]bool)
+	}
+	if a.resolvingStructFields == nil {
+		a.resolvingStructFields = make(map[*types.Struct]bool)
+	}
+	if a.populatedStructs[st] || a.resolvingStructFields[st] {
+		return
+	}
+	a.resolvingStructFields[st] = true
 	seen := make(map[string]bool)
 	for _, f := range td.Fields {
 		if seen[f.Name] {
@@ -1202,6 +1773,8 @@ func (a *Analyzer) populateStructFields(mod *Module, st *types.Struct, td *ast.S
 			Doc:        f.Doc,
 		})
 	}
+	delete(a.resolvingStructFields, st)
+	a.populatedStructs[st] = true
 }
 
 // checkOptionalIdentRule enforces Spec §7.1:
@@ -1216,7 +1789,7 @@ func (a *Analyzer) checkOptionalIdentRule(name string, isOptName bool, ty types.
 	}
 	a.checkResultIdentRule(name, ty, span, kind)
 	_, isOptType := ty.(*types.Optional)
-	if isOptType && !isOptName {
+	if isOptType && !isOptName && name != "_" { // `let _ = xs.pop()` discards
 		a.Rep.ErrorWithHint(
 			span,
 			fmt.Sprintf("%s %q has optional type %s and must end with `?`", kind, name, ty.String()),
@@ -1340,8 +1913,16 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 		}
 		return &types.Vector{Elem: elem}
 
+	case *ast.ConstArgType:
+		a.Rep.ErrorWithHint(
+			v.Span,
+			"expected a type argument, got constant value expression",
+			"type parameters `T` expect a type (such as `int` or `string`); only `[N: const Type]` parameters accept constant values",
+		)
+		return types.TypeInvalid
+
 	case *ast.StackArrayType:
-		sz, ok := a.evalConstInt(mod, v.Size)
+		sz, ok := a.evalConstIntWithSubst(mod, v.Size, subst)
 		if !ok || sz <= 0 {
 			a.Rep.Errorf(v.Size.GetSpan(), "stack array size in `[N: T]` must be a positive compile-time integer constant")
 			return types.TypeInvalid
@@ -1427,7 +2008,11 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 		if v.Ret != nil {
 			ret = a.resolveReturnType(mod, v.Ret, subst, allowSelf)
 		}
-		return &types.Func{Params: ps, Ret: ret, Closure: v.Closure}
+		ft := &types.Func{Params: ps, Ret: ret, Closure: v.Closure, Extern: v.Extern}
+		if v.Extern {
+			a.checkCSignature(ft, v.Span)
+		}
+		return ft
 
 	case *ast.NamedType:
 		if v.Module == "" && v.Name == "<error>" {
@@ -1468,6 +2053,14 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 		// Check generic type parameter substitution first
 		if v.Module == "" && subst != nil {
 			if subTy, ok := subst[v.Name]; ok {
+				if _, isCV := subTy.(*types.ConstValue); isCV {
+					a.Rep.ErrorWithHint(
+						v.Span,
+						fmt.Sprintf("expected a type, got constant generic parameter %q", v.Name),
+						fmt.Sprintf("%q is declared as a `const` value parameter, not a type parameter", v.Name),
+					)
+					return types.TypeInvalid
+				}
 				if len(v.TypeArgs) > 0 {
 					a.Rep.Errorf(v.Span, "type parameter %s cannot take type arguments", v.Name)
 					return types.TypeInvalid
@@ -1478,7 +2071,7 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 
 		// Array[N, T] syntactic sugar unification with [N: T]
 		if (v.Name == "Array" && (v.Module == "" || v.Module == "core" || v.Module == "array")) && len(v.TypeArgs) == 2 {
-			sz, ok := a.evalConstIntFromTypeExpr(mod, v.TypeArgs[0])
+			sz, ok := a.evalConstIntFromTypeExprWithSubst(mod, v.TypeArgs[0], subst)
 			if !ok || sz <= 0 {
 				a.Rep.Errorf(v.TypeArgs[0].GetSpan(), "array size in `Array[N, T]` must be a positive compile-time integer constant")
 				return types.TypeInvalid
@@ -1490,19 +2083,11 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 			return &types.StackArray{Size: sz, Elem: el}
 		}
 
-		// Generic struct instantiation `Pair[int, string]`
+		// Generic struct instantiation `Pair[int, string]` or `Matrix[3, 4]`
 		if genSt := a.lookupGenStructInModule(mod, v.Module, v.Name); genSt != nil {
-			if len(v.TypeArgs) != len(genSt.Decl.TypeParams) {
-				a.Rep.Errorf(v.Span, "generic struct %s expects %d type argument(s), got %d",
-					v.Name, len(genSt.Decl.TypeParams), len(v.TypeArgs))
+			targs, ok := a.resolveGenericArgs(mod, genSt.Mod, genSt.Decl.TypeParams, v.TypeArgs, subst, v.Span, "generic struct", v.Name)
+			if !ok {
 				return types.TypeInvalid
-			}
-			targs := make([]types.Type, len(v.TypeArgs))
-			for i, ta := range v.TypeArgs {
-				targs[i] = a.resolveValueType(mod, ta, subst, allowSelf)
-				if targs[i] == types.TypeInvalid {
-					return types.TypeInvalid
-				}
 			}
 			stInst := a.instantiateStruct(genSt, targs, v.Span)
 			if stInst == nil {
@@ -1513,17 +2098,9 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 
 		// Generic enum instantiation `Result[int, string]`
 		if genEn := a.lookupGenEnumInModule(mod, v.Module, v.Name); genEn != nil {
-			if len(v.TypeArgs) != len(genEn.Decl.TypeParams) {
-				a.Rep.Errorf(v.Span, "generic enum %s expects %d type argument(s), got %d",
-					v.Name, len(genEn.Decl.TypeParams), len(v.TypeArgs))
+			targs, ok := a.resolveGenericArgs(mod, genEn.Mod, genEn.Decl.TypeParams, v.TypeArgs, subst, v.Span, "generic enum", v.Name)
+			if !ok {
 				return types.TypeInvalid
-			}
-			targs := make([]types.Type, len(v.TypeArgs))
-			for i, ta := range v.TypeArgs {
-				targs[i] = a.resolveValueType(mod, ta, subst, allowSelf)
-				if targs[i] == types.TypeInvalid {
-					return types.TypeInvalid
-				}
 			}
 			enInst := a.instantiateEnum(genEn, targs, v.Span)
 			if enInst == nil {
@@ -1534,17 +2111,9 @@ func (a *Analyzer) resolveValueType(mod *Module, te ast.TypeExpr, subst map[stri
 
 		// Generic interface instantiation `Iterator[int]`
 		if genIfc := a.lookupGenInterfaceInModule(mod, v.Module, v.Name); genIfc != nil {
-			if len(v.TypeArgs) != len(genIfc.Decl.TypeParams) {
-				a.Rep.Errorf(v.Span, "generic interface %s expects %d type argument(s), got %d",
-					v.Name, len(genIfc.Decl.TypeParams), len(v.TypeArgs))
+			targs, ok := a.resolveGenericArgs(mod, genIfc.Mod, genIfc.Decl.TypeParams, v.TypeArgs, subst, v.Span, "generic interface", v.Name)
+			if !ok {
 				return types.TypeInvalid
-			}
-			targs := make([]types.Type, len(v.TypeArgs))
-			for i, ta := range v.TypeArgs {
-				targs[i] = a.resolveValueType(mod, ta, subst, allowSelf)
-				if targs[i] == types.TypeInvalid {
-					return types.TypeInvalid
-				}
 			}
 			ifcInst := a.instantiateInterface(genIfc, targs, v.Span)
 			if ifcInst == nil {
@@ -1790,6 +2359,9 @@ func (a *Analyzer) verifyNonOptionalTypeArg(tpName string, concrete types.Type, 
 	if concrete == nil || concrete == types.TypeInvalid {
 		return true
 	}
+	if _, isCV := concrete.(*types.ConstValue); isCV {
+		return true
+	}
 	if opt, isOpt := concrete.(*types.Optional); isOpt {
 		a.Rep.ErrorWithHint(
 			span,
@@ -1799,6 +2371,214 @@ func (a *Analyzer) verifyNonOptionalTypeArg(tpName string, concrete types.Type, 
 		return false
 	}
 	return true
+}
+
+func (a *Analyzer) validateAllConstGenericParams() {
+	for _, st := range a.Prog.GenStructs {
+		a.validateConstTypeParamList(st.Mod, st.Decl.TypeParams)
+	}
+	for _, mod := range a.Prog.Modules {
+		for _, en := range mod.GenericEnums {
+			a.validateConstTypeParamList(en.Mod, en.Decl.TypeParams)
+		}
+		for _, gf := range mod.GenericFuncs {
+			a.validateConstTypeParamList(gf.Mod, gf.VarDecl.TypeParams)
+		}
+	}
+	for _, gi := range a.Prog.GenInterfaces {
+		a.validateConstTypeParamList(gi.Mod, gi.Decl.TypeParams)
+	}
+	for _, mset := range a.genMethods {
+		for _, gm := range mset {
+			if gm != nil && gm.MethodDecl != nil {
+				a.validateConstTypeParamList(gm.Mod, gm.MethodDecl.TypeParams)
+			}
+		}
+	}
+}
+
+func (a *Analyzer) validateConstTypeParamList(declMod *Module, params []ast.TypeParam) {
+	if len(params) == 0 {
+		return
+	}
+	paramNames := make(map[string]bool, len(params))
+	for _, p := range params {
+		paramNames[p.Name] = true
+	}
+	for _, tp := range params {
+		if !tp.IsConst {
+			continue
+		}
+		_ = a.validateConstGenericParam(declMod, paramNames, tp)
+	}
+}
+
+func (a *Analyzer) validateConstGenericParam(declMod *Module, otherTypeParams map[string]bool, tp ast.TypeParam) types.Type {
+	if len(tp.Bounds) > 0 {
+		a.Rep.Errorf(tp.Span, "const generic parameter %q cannot have interface bounds", tp.Name)
+	}
+	if tp.ConstType == nil {
+		a.Rep.Errorf(tp.Span, "const generic parameter %q requires a type (`%s: const int`)", tp.Name, tp.Name)
+		return types.TypeInvalid
+	}
+	if nt, ok := tp.ConstType.(*ast.NamedType); ok && nt.Module == "" && len(nt.TypeArgs) == 0 && otherTypeParams[nt.Name] {
+		a.Rep.ErrorWithHint(
+			tp.ConstType.GetSpan(),
+			fmt.Sprintf("const generic parameter %q cannot use type parameter %q as its type", tp.Name, nt.Name),
+			"allowed const parameter types: integer types (`int`, `i8`..`i64`, `u8`..`u64`), `bool`, `char`, tag `enum`s, and `string`",
+		)
+		return types.TypeInvalid
+	}
+	ty := a.resolveValueType(declMod, tp.ConstType, nil, false)
+	if ty == types.TypeInvalid {
+		return types.TypeInvalid
+	}
+	if !types.IsConstGenericParamType(ty) {
+		a.Rep.ErrorWithHint(
+			tp.ConstType.GetSpan(),
+			fmt.Sprintf("const generic parameter %q cannot have type %s", tp.Name, ty.String()),
+			"allowed const parameter types: integer types (`int`, `i8`..`i64`, `u8`..`u64`), `bool`, `char`, tag `enum`s, and `string`",
+		)
+		return types.TypeInvalid
+	}
+	return ty
+}
+
+func (a *Analyzer) resolveGenericArgs(
+	callerMod *Module,
+	declMod *Module,
+	params []ast.TypeParam,
+	argNodes []ast.TypeExpr,
+	callerSubst map[string]types.Type,
+	span diag.Span,
+	kindName string,
+	ownerName string,
+) ([]types.Type, bool) {
+	if len(argNodes) != len(params) {
+		a.Rep.Errorf(span, "%s %s expects %d generic argument(s), got %d",
+			kindName, ownerName, len(params), len(argNodes))
+		return nil, false
+	}
+	otherParams := make(map[string]bool, len(params))
+	for _, p := range params {
+		if !p.IsConst {
+			otherParams[p.Name] = true
+		}
+	}
+	out := make([]types.Type, len(params))
+	for i, tp := range params {
+		if tp.IsConst {
+			cv := a.resolveConstGenericArg(callerMod, declMod, otherParams, tp, argNodes[i], callerSubst, span)
+			if cv == nil {
+				return nil, false
+			}
+			out[i] = cv
+		} else {
+			ty := a.resolveValueType(callerMod, argNodes[i], callerSubst, false)
+			if ty == types.TypeInvalid || !a.verifyNonOptionalTypeArg(tp.Name, ty, argNodes[i].GetSpan(), ownerName) {
+				return nil, false
+			}
+			out[i] = ty
+		}
+	}
+	return out, true
+}
+
+func (a *Analyzer) resolveConstGenericArg(
+	callerMod *Module,
+	declMod *Module,
+	otherTypeParams map[string]bool,
+	tp ast.TypeParam,
+	argNode ast.TypeExpr,
+	callerSubst map[string]types.Type,
+	span diag.Span,
+) *types.ConstValue {
+	expectedTy := a.validateConstGenericParam(declMod, otherTypeParams, tp)
+	if expectedTy == nil || expectedTy == types.TypeInvalid {
+		return nil
+	}
+	argExpr, ok := typeExprToConstExpr(argNode)
+	if !ok {
+		a.Rep.ErrorWithHint(
+			argNode.GetSpan(),
+			fmt.Sprintf("expected compile-time constant expression of type %s for const parameter %q, got type", expectedTy.String(), tp.Name),
+			"pass a constant value expression instead of a type",
+		)
+		return nil
+	}
+	// If NamedType names a concrete type (`int`, `Point`, etc.) rather than a constant symbol/param, report cleanly.
+	if nt, isNt := argNode.(*ast.NamedType); isNt {
+		isKnownConst := (nt.Module == "" && callerSubst != nil && callerSubst[nt.Name] != nil) ||
+			a.lookupTopSymbol(callerMod, nt.Module, nt.Name) != nil
+		if !isKnownConst && a.lookupTypeInModule(callerMod, nt.Module, nt.Name) != nil {
+			a.Rep.ErrorWithHint(
+				argNode.GetSpan(),
+				fmt.Sprintf("expected compile-time constant value of type %s for const parameter %q, got type %s", expectedTy.String(), tp.Name, nt.Name),
+				"pass a constant value rather than a type name",
+			)
+			return nil
+		}
+	}
+
+	prevBM := a.curBM
+	if prevBM == nil {
+		a.curBM = a.Prog.TopBodyMaps
+	}
+	beforeErrs := a.errorCount()
+	fc := a.newFuncChecker(callerMod, callerSubst)
+	fc.comptimeExprDepth++
+	fc.pushScope()
+	fc.pushConstSubstSymbols()
+	gotTy := fc.checkExprExpect(argExpr, expectedTy, true)
+	if gotTy != types.TypeInvalid {
+		fc.verifyAssignable(gotTy, expectedTy, argExpr, argExpr.GetSpan(), fmt.Sprintf("const generic argument %q", tp.Name))
+	}
+	fc.popScope()
+	if gotTy == types.TypeInvalid || a.errorCount() > beforeErrs {
+		a.curBM = prevBM
+		return nil
+	}
+	st := newCtState(a, callerMod, 0)
+	st.frames = []ctFrame{{
+		mod:      callerMod,
+		bm:       a.curBM,
+		callSpan: argExpr.GetSpan(),
+		locals:   make(map[*Symbol]*ctSlot),
+	}}
+	val, sig := st.evalExpr(argExpr)
+	a.curBM = prevBM
+	if sig.kind == sigAbort {
+		st.reportAbort(sig, argExpr.GetSpan())
+		return nil
+	}
+	if sig.kind != sigNone || val == nil {
+		a.Rep.Errorf(argExpr.GetSpan(), "const generic argument %q failed to evaluate at compile time", tp.Name)
+		return nil
+	}
+	cv := ctValToConstValue(val, expectedTy)
+	if cv == nil {
+		a.Rep.Errorf(argExpr.GetSpan(), "expected compile-time constant of type %s for const parameter %q", expectedTy.String(), tp.Name)
+		return nil
+	}
+	return cv
+}
+
+func typeExprToConstExpr(te ast.TypeExpr) (ast.Expr, bool) {
+	if ca, ok := te.(*ast.ConstArgType); ok && ca.Expr != nil {
+		return ca.Expr, true
+	}
+	nt, ok := te.(*ast.NamedType)
+	if !ok || len(nt.TypeArgs) > 0 {
+		return nil, false
+	}
+	if nt.Module == "" {
+		return &ast.IdentExpr{Name: nt.Name, Span: nt.Span}, true
+	}
+	return &ast.MemberExpr{
+		Base:   &ast.IdentExpr{Name: nt.Module, Span: nt.Span},
+		Member: nt.Name,
+		Span:   nt.Span,
+	}, true
 }
 
 // instantiateStruct monomorphizes `define Name[T...] struct [...]` for concrete `typeArgs`.
@@ -1840,6 +2620,10 @@ func (a *Analyzer) instantiateStruct(tmpl *GenericStructTemplate, typeArgs []typ
 		if inst, ok := tmpl.Instances[key]; ok {
 			return inst
 		}
+		if len(tmpl.Instances) >= MaxInstantiationsPerTemplate {
+			a.Rep.Errorf(span, "generic struct %s instantiation limit (%d) exceeded", tmpl.Decl.Name, MaxInstantiationsPerTemplate)
+			return nil
+		}
 	}
 
 	// Verify interface bounds when concrete!
@@ -1849,7 +2633,7 @@ func (a *Analyzer) instantiateStruct(tmpl *GenericStructTemplate, typeArgs []typ
 	}
 
 	cname := fmt.Sprintf("ll_gs_%s__%s", tmpl.Decl.Name, key)
-	if tag := a.moduleTag(tmpl.Mod); tag != "" {
+	if tag := a.typeTag(tmpl.Mod, tmpl.Decl.Name); tag != "" {
 		cname = fmt.Sprintf("ll_gs_%s_%s__%s", tag, tmpl.Decl.Name, key)
 	}
 	inst := &types.Struct{
@@ -1955,6 +2739,10 @@ func (a *Analyzer) instantiateInterface(tmpl *GenericInterfaceTemplate, typeArgs
 		if inst, ok := tmpl.Instances[key]; ok {
 			return inst
 		}
+		if len(tmpl.Instances) >= MaxInstantiationsPerTemplate {
+			a.Rep.Errorf(span, "generic interface %s instantiation limit (%d) exceeded", tmpl.Decl.Name, MaxInstantiationsPerTemplate)
+			return nil
+		}
 	}
 
 	subst := make(map[string]types.Type, len(typeArgs))
@@ -1963,7 +2751,7 @@ func (a *Analyzer) instantiateInterface(tmpl *GenericInterfaceTemplate, typeArgs
 	}
 
 	cname := fmt.Sprintf("ll_giface_%s__%s", tmpl.Decl.Name, key)
-	if tag := a.moduleTag(tmpl.Mod); tag != "" {
+	if tag := a.typeTag(tmpl.Mod, tmpl.Decl.Name); tag != "" {
 		cname = fmt.Sprintf("ll_giface_%s_%s__%s", tag, tmpl.Decl.Name, key)
 	}
 	inst := &types.Interface{
@@ -2514,6 +3302,10 @@ func (a *Analyzer) instantiateEnum(tmpl *GenericEnumTemplate, typeArgs []types.T
 		if inst, ok := tmpl.Instances[key]; ok {
 			return inst
 		}
+		if len(tmpl.Instances) >= MaxInstantiationsPerTemplate {
+			a.Rep.Errorf(span, "generic enum %s instantiation limit (%d) exceeded", tmpl.Decl.Name, MaxInstantiationsPerTemplate)
+			return nil
+		}
 	}
 
 	subst := make(map[string]types.Type, len(typeArgs))
@@ -2522,7 +3314,7 @@ func (a *Analyzer) instantiateEnum(tmpl *GenericEnumTemplate, typeArgs []types.T
 	}
 
 	cname := fmt.Sprintf("ll_ge_%s__%s", tmpl.Decl.Name, key)
-	if tag := a.moduleTag(tmpl.Mod); tag != "" {
+	if tag := a.typeTag(tmpl.Mod, tmpl.Decl.Name); tag != "" {
 		cname = fmt.Sprintf("ll_ge_%s_%s__%s", tag, tmpl.Decl.Name, key)
 	}
 	inst := &types.Enum{
@@ -2566,14 +3358,22 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 	for _, h := range a.Prog.ExternHeaders {
 		hdrSeen[h] = true
 	}
+	modHdrSeen := make(map[string]bool)
+	for _, h := range mod.ExternHeaders {
+		modHdrSeen[h] = true
+	}
 
-	decls := mod.File.Decls
+	decls := mod.ActiveDecls()
 	if len(mod.DerivedDecls) > 0 {
-		decls = append(append([]ast.Decl(nil), mod.File.Decls...), mod.DerivedDecls...)
+		decls = append(append([]ast.Decl(nil), decls...), mod.DerivedDecls...)
 	}
 	for _, d := range decls {
 		switch decl := d.(type) {
 		case *ast.ExternHeaderDecl:
+			if !modHdrSeen[decl.Header] {
+				modHdrSeen[decl.Header] = true
+				mod.ExternHeaders = append(mod.ExternHeaders, decl.Header)
+			}
 			if !hdrSeen[decl.Header] {
 				hdrSeen[decl.Header] = true
 				a.Prog.ExternHeaders = append(a.Prog.ExternHeaders, decl.Header)
@@ -2598,7 +3398,12 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				ret = a.resolveReturnType(mod, decl.Ret, nil, false)
 			}
 			sig := &types.Func{Params: ps, Ret: ret}
-			ef := &ExternFunc{Name: decl.Name, Sig: sig, Doc: decl.Doc, Span: decl.Span}
+			testOnly := ast.FindAttribute(decl.Attributes, "test_only") != nil || mod.IsTestFile
+			pkgID := ""
+			if mod != nil && mod.Pkg != nil {
+				pkgID = mod.Pkg.ID
+			}
+			ef := &ExternFunc{Name: decl.Name, Sig: sig, PkgID: pkgID, Doc: decl.Doc, Span: decl.Span, IsTestOnly: testOnly}
 			a.Prog.ExternFuncs = append(a.Prog.ExternFuncs, ef)
 			mod.Symbols[localName] = &Symbol{
 				Name:       localName,
@@ -2611,6 +3416,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				ExternFn:   ef,
 				Doc:        decl.Doc,
 				Span:       decl.Span,
+				IsTestOnly: testOnly,
 			}
 
 		case *ast.VarDecl:
@@ -2620,20 +3426,25 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				} else {
 					kind := strings.Trim(langAttr.Args[0], "\"")
 					switch kind {
-					case "panic", "assert":
+					case "panic", "assert", "format_loc":
 						// valid function lang item
 					default:
-						a.Rep.Errorf(langAttr.Span, "unknown function lang item @lang(%q); supported function lang items: \"panic\", \"assert\"", kind)
+						a.Rep.Errorf(langAttr.Span, "unknown function lang item @lang(%q); supported function lang items: \"panic\", \"assert\", \"format_loc\"", kind)
 					}
 				}
 			}
 			if len(decl.TypeParams) > 0 {
-				if !decl.IsBind {
-					a.Rep.Errorf(decl.Span, "generic functions must be declared with `bind`")
+				if !decl.IsBind && !decl.IsConst {
+					a.Rep.Errorf(decl.Span, "generic functions must be declared with `bind` or `const`")
 					continue
 				}
 				if _, ok := decl.Value.(*ast.FuncLit); !ok {
-					a.Rep.Errorf(decl.Span, "generic top-level `bind` must be a function")
+					a.Rep.Errorf(decl.Span, "generic top-level `%s` must be a function", func() string {
+						if decl.IsConst {
+							return "const"
+						}
+						return "bind"
+					}())
 					continue
 				}
 				if a.checkDupDecl(mod, decl.Name, decl.Span) {
@@ -2648,14 +3459,15 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				continue
 			}
 
-			// Top-level static function `bind name = (params)[: Ret] body`
-			if fl, isFn := decl.Value.(*ast.FuncLit); isFn && decl.IsBind {
+			// Top-level static function `bind name = fn(...)` or `const name = fn(...)`
+			if fl, isFn := decl.Value.(*ast.FuncLit); isFn && (decl.IsBind || decl.IsConst) {
 				if a.checkDupDecl(mod, decl.Name, decl.Span) {
 					continue
 				}
 				fi := a.buildFuncInstanceFromLit(mod, decl.Name, fl, nil)
 				fi.DeclSpan = decl.Span
 				fi.Doc = decl.Doc
+				fi.IsConst = decl.IsConst
 				a.checkAttributes(decl.Attributes, fi, decl.Span, "function")
 				if mod.IsTestFile && !fi.IsTest && decl.Name != "test_main" {
 					fi.IsTestOnly = true
@@ -2666,6 +3478,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					CName:         fi.CName,
 					Type:          fi.Sig,
 					IsBind:        true,
+					IsConst:       fi.IsConst,
 					BindKind:      BindOwned,
 					IsTopLevel:    true,
 					Mod:           mod,
@@ -2677,10 +3490,18 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					DeprecatedMsg: fi.DeprecatedMsg,
 					IsTest:        fi.IsTest,
 					IsTestOnly:    fi.IsTestOnly,
+					ComptimeOnly:     fi.ComptimeOnly,
+					ComptimeLimit:    fi.ComptimeLimit,
+					ComptimeMemLimit: fi.ComptimeMemLimit,
 					TrackCaller:   fi.TrackCaller,
 					TestDesc:      fi.TestDesc,
 				}
 				mod.Symbols[decl.Name] = sym
+				if mod.Pkg != nil && mod.Pkg.IsCore {
+					if langAttr := ast.FindAttribute(decl.Attributes, "lang"); langAttr != nil && len(langAttr.Args) > 0 && strings.Trim(langAttr.Args[0], "\"") == "format_loc" {
+						a.Prog.FormatLocFunc = fi
+					}
+				}
 				if a.Prog.IsEntryPackageMod(mod) && decl.Name == "main" {
 					fi.IsMain = true
 					a.validateMainSig(fi, decl.Span)
@@ -2695,11 +3516,11 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 			}
 
 			// Top-level constant / variable
-			if !decl.IsBind {
+			if !decl.IsBind && !decl.IsConst {
 				a.Rep.ErrorWithHint(
 					decl.Span,
 					"mutable global `let` variables are not allowed at top level",
-					"use `bind` for top-level constants and functions, and pass mutable state explicitly with `&`",
+					"use `const` for compile-time constants or `bind` for runtime constants, and pass mutable state explicitly with `&`",
 				)
 				continue
 			}
@@ -2722,6 +3543,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 					CName:      cname,
 					Type:       explicitTy,
 					IsBind:     true,
+					IsConst:    decl.IsConst,
 					BindKind:   BindOwned,
 					IsTopLevel: true,
 					Mod:        mod,
@@ -2734,6 +3556,7 @@ func (a *Analyzer) registerFunctionsAndMethods(mod *Module) {
 				}
 				mod.Symbols[decl.Name] = sym
 			} else {
+				sym.IsConst = decl.IsConst
 				sym.Doc = decl.Doc
 				a.checkAttributes(decl.Attributes, sym, decl.Span, "variable")
 				if mod.IsTestFile {
@@ -2855,10 +3678,14 @@ func (a *Analyzer) buildFuncInstanceFromLit(mod *Module, name string, fl *ast.Fu
 	} else if tag := a.moduleTag(mod); tag != "" {
 		cname = fmt.Sprintf("ll_fn_%s_%s", tag, sanitizeSymbolName(name))
 	}
+	sig := &types.Func{Params: ps, Ret: ret, Extern: fl.Extern}
+	if fl.Extern {
+		a.checkCSignature(sig, fl.Span)
+	}
 	return &FuncInstance{
 		Name:        name,
 		CName:       cname,
-		Sig:         &types.Func{Params: ps, Ret: ret},
+		Sig:         sig,
 		ParamNames:  pnames,
 		ParamSpans:  pspans,
 		Body:        fl.Body,
@@ -2931,6 +3758,8 @@ func (a *Analyzer) buildMethodInstance(mod *Module, recvTy types.Type, decl *ast
 		DeclSpan:      decl.Span,
 		RetInferred:   retInferred,
 		IsDrop:        decl.Name == "drop" && (isStructOrEnum(recvTy)),
+		IsConst:       decl.IsConst,
+		IsDerived:     a.derived[decl] != nil,
 		Doc:           decl.Doc,
 	}
 	a.checkAttributes(decl.Attributes, fi, decl.Span, "method")
@@ -3070,11 +3899,16 @@ func (a *Analyzer) instantiateMethod(tmpl *GenericFuncTemplate, recvTy types.Typ
 	if existing, ok := tmpl.Instances[instKey]; ok {
 		return existing
 	}
+	if len(tmpl.Instances) >= MaxInstantiationsPerTemplate {
+		a.Rep.Errorf(span, "generic method `%s.%s` instantiation limit (%d) exceeded", decl.RecvType, decl.Name, MaxInstantiationsPerTemplate)
+		return nil
+	}
 	if info := a.derived[decl]; info != nil && !a.deriveApplies(info, recvTy) {
 		return nil
 	}
 
 	fi := a.buildMethodInstance(tmpl.Mod, recvTy, decl, subst)
+	fi.IsGenericInst = true
 	tmpl.Instances[instKey] = fi
 	if len(methodTypeArgs) == 0 {
 		mkey := TypeMethodKey(recvTy)
@@ -3111,24 +3945,32 @@ func (a *Analyzer) instantiateGenericFunc(tmpl *GenericFuncTemplate, typeArgs []
 	}
 	subst := make(map[string]types.Type, len(typeArgs))
 	parts := make([]string, len(typeArgs))
+	displayParts := make([]string, len(typeArgs))
 	for i, tp := range decl.TypeParams {
 		if !a.verifyNonOptionalTypeArg(tp.Name, typeArgs[i], span, decl.Name) {
 			return nil
 		}
 		subst[tp.Name] = typeArgs[i]
 		parts[i] = typeArgs[i].Mangled()
+		displayParts[i] = typeArgs[i].String()
 		a.verifyBounds(tmpl.Mod, tp, typeArgs[i], span, decl.Name)
 	}
 	key := strings.Join(parts, "__")
 	if existing, ok := tmpl.Instances[key]; ok {
 		return existing
 	}
+	if len(tmpl.Instances) >= MaxInstantiationsPerTemplate {
+		a.Rep.Errorf(span, "generic function %q instantiation limit (%d) exceeded", decl.Name, MaxInstantiationsPerTemplate)
+		return nil
+	}
 
 	fl := decl.Value.(*ast.FuncLit)
-	instName := fmt.Sprintf("%s[%s]", decl.Name, strings.Join(parts, ","))
+	instName := fmt.Sprintf("%s[%s]", decl.Name, strings.Join(displayParts, ", "))
 	fi := a.buildFuncInstanceFromLit(tmpl.Mod, instName, fl, subst)
 	fi.DeclSpan = decl.Span
 	fi.Doc = decl.Doc
+	fi.IsConst = decl.IsConst
+	fi.IsGenericInst = true
 	cname := fmt.Sprintf("ll_gfn_%s__%s", decl.Name, key)
 	if tag := a.moduleTag(tmpl.Mod); tag != "" {
 		cname = fmt.Sprintf("ll_gfn_%s_%s__%s", tag, decl.Name, key)
@@ -3148,6 +3990,9 @@ func (a *Analyzer) instantiateGenericFunc(tmpl *GenericFuncTemplate, typeArgs []
 }
 
 func (a *Analyzer) verifyBounds(mod *Module, tp ast.TypeParam, concrete types.Type, span diag.Span, contextName string) {
+	if tp.IsConst {
+		return
+	}
 	if _, isTP := concrete.(*types.TypeParamVar); isTP {
 		return
 	}
@@ -3397,7 +4242,7 @@ func (a *Analyzer) supportsToStringVisited(t types.Type, seen map[types.Type]boo
 	}
 	switch v := t.(type) {
 	case *types.Primitive:
-		return v.Kind != types.PrimVoid && v.Kind != types.PrimArena
+		return v.Kind != types.PrimVoid
 	case *types.Enum:
 		return false // only through a `to_string` method (`@derive(Printable)`)
 	case *types.Distinct:
@@ -3498,6 +4343,12 @@ func (a *Analyzer) supportsEq(t types.Type) bool {
 	if types.SupportsEq(t) {
 		return true
 	}
+	if en, ok := t.(*types.Enum); ok && !en.IsTagged && (en == a.Prog.EnumTargetOs || en == a.Prog.EnumTargetArch || en == a.Prog.EnumEndian) {
+		return true
+	}
+	if st, ok := t.(*types.Struct); ok && st == a.Prog.StructTarget {
+		return true
+	}
 	if a.LookupMethod(t, "eq", nil, diag.Span{}) != nil {
 		return true
 	}
@@ -3543,4 +4394,59 @@ func (a *Analyzer) supportsCmp(t types.Type) bool {
 		}
 	}
 	return false
+}
+
+// cRepresentable reports whether values of `t` can cross into C unchanged: numbers, `bool`,
+// `char`, pointers, tag-only enums, `extern fn`s, and plain structs, arrays, and distinct types
+// made of those.
+func cRepresentable(t types.Type) bool {
+	return cRepresentableVisited(t, make(map[types.Type]bool))
+}
+
+func cRepresentableVisited(t types.Type, seen map[types.Type]bool) bool {
+	if seen[t] {
+		return true
+	}
+	switch v := t.(type) {
+	case *types.Primitive:
+		return v.Kind != types.PrimString
+	case *types.Ptr:
+		return true
+	case *types.Func:
+		return v.Extern
+	case *types.Enum:
+		return !v.IsTagged
+	case *types.Distinct:
+		return cRepresentableVisited(v.Base, seen)
+	case *types.StackArray:
+		return cRepresentableVisited(v.Elem, seen)
+	case *types.Struct:
+		seen[v] = true
+		if v.HasCustomDrop || v.Lang != "" {
+			return false
+		}
+		for _, f := range v.Fields {
+			if !cRepresentableVisited(f.Type, seen) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// checkCSignature reports `extern fn` parameters and results that have no C representation.
+func (a *Analyzer) checkCSignature(ft *types.Func, span diag.Span) {
+	for _, p := range ft.Params {
+		if p.Type != types.TypeInvalid && !cRepresentable(p.Type) {
+			a.Rep.ErrorWithHint(span,
+				fmt.Sprintf("an `extern fn` can't take %s: C has no equivalent type", p.Type.String()),
+				"use numbers, `bool`, `char`, `ptr[T]`, `extern fn` types, or plain structs of those")
+		}
+	}
+	if ft.Ret != nil && ft.Ret != types.TypeVoid && ft.Ret != types.TypeInvalid && !cRepresentable(ft.Ret) {
+		a.Rep.ErrorWithHint(span,
+			fmt.Sprintf("an `extern fn` can't return %s: C has no equivalent type", ft.Ret.String()),
+			"return a number, `bool`, `char`, `ptr[T]`, or a plain struct")
+	}
 }

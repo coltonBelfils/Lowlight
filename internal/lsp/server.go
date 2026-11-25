@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -76,6 +77,10 @@ type Server struct {
 	tokenCache      map[string]cachedTokensEntry                 // canonical abs path -> cached lexed tokens
 	latestDiags     map[string][]Diagnostic                      // canonical abs path -> latest published LSP diagnostics
 	publishedImport map[string]map[string]bool                   // entry abs path -> imported abs paths last published for it
+	dynamicWatchSupported bool
+	registeredEmbedPaths  []string
+	embedWatchRegID       string
+	nextServerReqID       int64
 	shutdownReq     bool
 }
 
@@ -93,7 +98,12 @@ func NewServer(r io.Reader, w io.Writer, logW io.Writer) *Server {
 		tokenCache:      make(map[string]cachedTokensEntry),
 		latestDiags:     make(map[string][]Diagnostic),
 		publishedImport: make(map[string]map[string]bool),
+		nextServerReqID: 1,
 	}
+}
+
+func isLowlightSourcePath(path string) bool {
+	return strings.EqualFold(filepath.Ext(path), ".ll")
 }
 
 // Serve runs the main JSON-RPC message loop until `exit` or EOF.
@@ -119,6 +129,10 @@ func (s *Server) Serve() int {
 }
 
 func (s *Server) handleMessage(msg *RequestMessage) {
+	if msg.Method == "" {
+		// Response to a server-initiated request (`client/registerCapability`, `window/showDocument`, etc.).
+		return
+	}
 	switch msg.Method {
 	case "initialize":
 		var params InitializeParams
@@ -136,6 +150,9 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		if len(params.InitializationOptions) > 0 {
 			s.applyConfigLocked(params.InitializationOptions)
 		}
+		s.dynamicWatchSupported = params.Capabilities.Workspace != nil &&
+			params.Capabilities.Workspace.DidChangeWatchedFiles != nil &&
+			params.Capabilities.Workspace.DidChangeWatchedFiles.DynamicRegistration
 		s.mu.Unlock()
 
 		res := InitializeResult{
@@ -183,7 +200,7 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		}
 
 	case "initialized":
-		// Notification; nothing further required
+		s.registerBaseFileWatchers()
 
 	case "workspace/didChangeConfiguration":
 		var params DidChangeConfigurationParams
@@ -236,7 +253,9 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		deps := s.invalidateDependentsLocked(path)
 		s.mu.Unlock()
 		s.reanalyzeOpenPaths(deps, path)
-		s.analyzeAndPublish(path, params.TextDocument.URI, params.TextDocument.Text)
+		if isLowlightSourcePath(path) {
+			s.analyzeAndPublish(path, params.TextDocument.URI, params.TextDocument.Text)
+		}
 
 	case "textDocument/didChange":
 		var params DidChangeTextDocumentParams
@@ -261,7 +280,9 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		deps := s.invalidateDependentsLocked(path)
 		s.mu.Unlock()
 		s.reanalyzeOpenPaths(deps, path)
-		s.analyzeAndPublish(path, params.TextDocument.URI, curText)
+		if isLowlightSourcePath(path) {
+			s.analyzeAndPublish(path, params.TextDocument.URI, curText)
+		}
 
 	case "textDocument/didSave":
 		var params DidSaveTextDocumentParams
@@ -280,7 +301,9 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 			curText = s.readSourceForPath(path)
 		}
 		s.reanalyzeOpenPaths(deps, path)
-		s.analyzeAndPublish(path, params.TextDocument.URI, curText)
+		if isLowlightSourcePath(path) {
+			s.analyzeAndPublish(path, params.TextDocument.URI, curText)
+		}
 
 	case "textDocument/didClose":
 		var params DidCloseTextDocumentParams
@@ -295,6 +318,7 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		s.mu.Lock()
 		delete(s.docs, path)
 		delete(s.docURIs, path)
+		_, hadDiags := s.latestDiags[path]
 		delete(s.latestDiags, path)
 		delete(s.tokenCache, absClose)
 		prevImports := s.publishedImport[path]
@@ -303,18 +327,21 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		s.mu.Unlock()
 		// Reanalyze open dependents and clear unopened imports BEFORE clearing closed document
 		s.reanalyzeOpenPaths(deps, path)
-		for imp := range prevImports {
-			if !s.isDocOpen(imp) {
-				_ = s.conn.SendNotification("textDocument/publishDiagnostics", PublishDiagnosticsParams{
-					URI:         PathToURI(imp),
-					Diagnostics: []Diagnostic{},
-				})
+		s.syncEmbeddedFileWatchers()
+		if isLowlightSourcePath(path) || hadDiags {
+			for imp := range prevImports {
+				if !s.isDocOpen(imp) {
+					_ = s.conn.SendNotification("textDocument/publishDiagnostics", PublishDiagnosticsParams{
+						URI:         PathToURI(imp),
+						Diagnostics: []Diagnostic{},
+					})
+				}
 			}
+			_ = s.conn.SendNotification("textDocument/publishDiagnostics", PublishDiagnosticsParams{
+				URI:         params.TextDocument.URI,
+				Diagnostics: []Diagnostic{},
+			})
 		}
-		_ = s.conn.SendNotification("textDocument/publishDiagnostics", PublishDiagnosticsParams{
-			URI:         params.TextDocument.URI,
-			Diagnostics: []Diagnostic{},
-		})
 
 	case "textDocument/completion":
 		if msg.ID == nil {
@@ -734,8 +761,11 @@ func (s *Server) analyzeAndPublish(filePath string, clientURI string, src string
 		}
 
 		sev := SeverityError
-		if d.Severity == diag.Warning {
+		switch d.Severity {
+		case diag.Warning:
 			sev = SeverityWarning
+		case diag.Note:
+			sev = SeverityInformation
 		}
 		fullMsg := d.Message
 		if d.Hint != "" {
@@ -755,12 +785,39 @@ func (s *Server) analyzeAndPublish(filePath string, clientURI string, src string
 				data["fullRange"] = SpanToLSP(dSrc, d.Full)
 			}
 		}
+		var related []DiagnosticRelatedInformation
+		for _, rel := range d.Related {
+			rFile := rel.Span.Start.File
+			if rFile == "" || rel.Span.Start.Line <= 0 {
+				continue
+			}
+			if rAbs, err2 := filepath.Abs(rFile); err2 == nil {
+				rFile = rAbs
+			}
+			rSrc, ok := fileSrcCache[rFile]
+			if !ok {
+				if ov, hasOv := overlays[rFile]; hasOv {
+					rSrc = ov
+				} else {
+					rSrc = s.readSourceForPath(rFile)
+				}
+				fileSrcCache[rFile] = rSrc
+			}
+			related = append(related, DiagnosticRelatedInformation{
+				Location: Location{
+					URI:   PathToURI(rFile),
+					Range: SpanToLSP(rSrc, rel.Span),
+				},
+				Message: rel.Message,
+			})
+		}
 		diagsByFile[dFile] = append(diagsByFile[dFile], Diagnostic{
-			Range:    rng,
-			Severity: sev,
-			Source:   "lowlight",
-			Message:  fullMsg,
-			Data:     data,
+			Range:              rng,
+			Severity:           sev,
+			Source:             "lowlight",
+			Message:            fullMsg,
+			RelatedInformation: related,
+			Data:               data,
 		})
 	}
 
@@ -832,6 +889,7 @@ func (s *Server) analyzeAndPublish(filePath string, clientURI string, src string
 			Diagnostics: []Diagnostic{},
 		})
 	}
+	s.syncEmbeddedFileWatchers()
 	_ = s.conn.SendNotification("textDocument/publishDiagnostics", PublishDiagnosticsParams{
 		URI:         clientURI,
 		Diagnostics: entryDiags,
@@ -847,6 +905,150 @@ func (s *Server) dropProgCachesLocked(prog *sema.CheckedProgram) {
 	delete(s.semTokCache, prog)
 }
 
+func canonicalWatchPath(p string) string {
+	clean := filepath.Clean(p)
+	cur := clean
+	var suffix []string
+	for {
+		if real, err := filepath.EvalSymlinks(cur); err == nil {
+			parts := make([]string, 0, 1+len(suffix))
+			parts = append(parts, filepath.Clean(real))
+			for i := len(suffix) - 1; i >= 0; i-- {
+				parts = append(parts, suffix[i])
+			}
+			return filepath.Clean(filepath.Join(parts...))
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return clean
+		}
+		suffix = append(suffix, filepath.Base(cur))
+		cur = parent
+	}
+}
+
+func sameFilePath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	ca, cb := filepath.Clean(a), filepath.Clean(b)
+	if ca == cb {
+		return true
+	}
+	return canonicalWatchPath(ca) == canonicalWatchPath(cb)
+}
+
+func (s *Server) registerBaseFileWatchers() {
+	s.mu.Lock()
+	if !s.dynamicWatchSupported {
+		s.mu.Unlock()
+		return
+	}
+	reqID := s.nextServerReqID
+	s.nextServerReqID++
+	s.mu.Unlock()
+
+	_ = s.conn.SendRequest(reqID, "client/registerCapability", RegistrationParams{
+		Registrations: []Registration{{
+			ID:     "lowlight-base-watchers",
+			Method: "workspace/didChangeWatchedFiles",
+			RegisterOptions: DidChangeWatchedFilesRegistrationOptions{
+				Watchers: []FileSystemWatcher{
+					{GlobPattern: "**/*.ll"},
+					{GlobPattern: "**/*.lowlightfmt"},
+					{GlobPattern: "**/lowlight.toml"},
+					{GlobPattern: "**/lowlight.lock"},
+				},
+			},
+		}},
+	})
+}
+
+func (s *Server) syncEmbeddedFileWatchers() {
+	s.mu.Lock()
+	if !s.dynamicWatchSupported {
+		s.mu.Unlock()
+		return
+	}
+	pathSet := make(map[string]bool)
+	for _, p := range s.cachedProgs {
+		if p == nil {
+			continue
+		}
+		for _, ef := range p.EmbeddedFiles {
+			if ef.Path != "" {
+				pathSet[filepath.Clean(ef.Path)] = true
+			}
+		}
+		for _, ep := range p.AttemptedEmbedPaths {
+			if ep != "" {
+				pathSet[filepath.Clean(ep)] = true
+			}
+		}
+	}
+	paths := make([]string, 0, len(pathSet))
+	for p := range pathSet {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+
+	same := len(paths) == len(s.registeredEmbedPaths)
+	if same {
+		for i := range paths {
+			if paths[i] != s.registeredEmbedPaths[i] {
+				same = false
+				break
+			}
+		}
+	}
+	if same {
+		s.mu.Unlock()
+		return
+	}
+
+	oldRegID := s.embedWatchRegID
+	var oldUnregReqID int64
+	if oldRegID != "" {
+		oldUnregReqID = s.nextServerReqID
+		s.nextServerReqID++
+	}
+	newRegID := ""
+	var newRegReqID int64
+	var watchers []FileSystemWatcher
+	if len(paths) > 0 {
+		newRegReqID = s.nextServerReqID
+		s.nextServerReqID++
+		newRegID = fmt.Sprintf("lowlight-embed-watchers-%d", newRegReqID)
+		watchers = make([]FileSystemWatcher, len(paths))
+		for i, p := range paths {
+			watchers[i] = FileSystemWatcher{GlobPattern: filepath.ToSlash(p)}
+		}
+	}
+	s.registeredEmbedPaths = paths
+	s.embedWatchRegID = newRegID
+	s.mu.Unlock()
+
+	if oldRegID != "" {
+		_ = s.conn.SendRequest(oldUnregReqID, "client/unregisterCapability", UnregistrationParams{
+			Unregisterations: []Unregistration{{
+				ID:     oldRegID,
+				Method: "workspace/didChangeWatchedFiles",
+			}},
+		})
+	}
+	if newRegID != "" {
+		_ = s.conn.SendRequest(newRegReqID, "client/registerCapability", RegistrationParams{
+			Registrations: []Registration{{
+				ID:     newRegID,
+				Method: "workspace/didChangeWatchedFiles",
+				RegisterOptions: DidChangeWatchedFilesRegistrationOptions{
+					Watchers: watchers,
+				},
+			}},
+		})
+	}
+}
+
 func (s *Server) invalidateDependentsLocked(changedPath string) []string {
 	absChanged, err := filepath.Abs(changedPath)
 	if err != nil {
@@ -859,7 +1061,10 @@ func (s *Server) invalidateDependentsLocked(changedPath string) []string {
 	delete(s.tokenCache, absChanged)
 
 	changedDir := filepath.Clean(filepath.Dir(absChanged))
+	changedDirCanon := canonicalWatchPath(changedDir)
 	changedDirSlash := filepath.ToSlash(changedDir)
+	changedBase := filepath.Base(absChanged)
+	isManifestChange := changedBase == "lowlight.toml" || changedBase == "lowlight.lock"
 
 	var openDependents []string
 	for k, p := range s.cachedProgs {
@@ -867,8 +1072,14 @@ func (s *Server) invalidateDependentsLocked(changedPath string) []string {
 			continue
 		}
 		depends := false
-		if filepath.Clean(filepath.Dir(k)) == changedDir {
+		if filepath.Clean(filepath.Dir(k)) == changedDir || canonicalWatchPath(filepath.Dir(k)) == changedDirCanon {
 			depends = true
+		}
+		if !depends && isManifestChange {
+			kDirCanon := canonicalWatchPath(filepath.Dir(k))
+			if kDirCanon == changedDirCanon || strings.HasPrefix(kDirCanon, changedDirCanon+string(filepath.Separator)) {
+				depends = true
+			}
 		}
 		if !depends && p != nil {
 			for _, m := range p.Modules {
@@ -879,9 +1090,33 @@ func (s *Server) invalidateDependentsLocked(changedPath string) []string {
 				if err != nil {
 					mAbs = m.Path
 				}
-				if mAbs == absChanged || filepath.Clean(filepath.Dir(mAbs)) == changedDir {
+				if sameFilePath(mAbs, absChanged) || canonicalWatchPath(filepath.Dir(mAbs)) == changedDirCanon {
 					depends = true
 					break
+				}
+			}
+			if !depends {
+				for _, ef := range p.EmbeddedFiles {
+					efAbs, err := filepath.Abs(ef.Path)
+					if err != nil {
+						efAbs = ef.Path
+					}
+					if sameFilePath(efAbs, absChanged) {
+						depends = true
+						break
+					}
+				}
+			}
+			if !depends {
+				for _, ep := range p.AttemptedEmbedPaths {
+					epAbs, err := filepath.Abs(ep)
+					if err != nil {
+						epAbs = ep
+					}
+					if sameFilePath(epAbs, absChanged) {
+						depends = true
+						break
+					}
 				}
 			}
 			// Also catch unresolved imports matching the changed package directory.
@@ -918,7 +1153,10 @@ func (s *Server) reanalyzeOpenPaths(paths []string, skipPath string) {
 		}
 	}
 	for _, p := range paths {
-		if absSkip != "" && p == absSkip {
+		if !isLowlightSourcePath(p) {
+			continue
+		}
+		if absSkip != "" && sameFilePath(p, absSkip) {
 			continue
 		}
 		s.mu.RLock()

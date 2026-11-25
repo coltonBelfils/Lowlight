@@ -752,6 +752,8 @@ func formatTypeStr(t ast.TypeExpr) string {
 		kw := "fn"
 		if v.Closure {
 			kw = "cl"
+		} else if v.Extern {
+			kw = "extern fn"
 		}
 		out := kw + "(" + strings.Join(parts, ", ") + ")"
 		if v.Ret != nil {

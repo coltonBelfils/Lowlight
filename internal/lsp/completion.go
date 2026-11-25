@@ -197,21 +197,22 @@ func (s *Server) completeImportPath(filePath string, src string, offset int) *Co
 
 	// Standard library packages (`std/<pkg>`)
 	stdDescriptions := map[string]string{
-		"std/chars":   "Character classification, ASCII case folding, radix digits, and UTF-8 lengths",
-		"std/fs":      "Lowlight standard filesystem package (`File`, `read_file`, `write_file`, `exists`, ...)",
-		"std/http":    "HTTP/1.1 client, server, router (`ServeMux`), URL parser, and test helpers",
-		"std/math":    "Lowlight standard math package (`PI`, `sin`, `cos`, `clamp_int`, `lerp`, ...)",
-		"std/net":     "Lowlight TCP networking package (`TcpStream`, `TcpListener`, `socketpair`)",
-		"std/os":      "OS environment, paths, processes (`exec`), and system info",
-		"std/pool":    "Generational handle pool (`Pool[T]`, `Handle`)",
-		"std/sort":    "In-place sorting, comparators, binary search, and collection helpers",
-		"std/strconv": "Integer, float, radix, and boolean string parsing and formatting",
-		"std/strfmt":  "Number formatting, padding, alignment, case conversions, and quoting",
-		"std/strings": "Extended string searching, splitting, trimming, and transformation helpers",
-		"std/test":    "Test assertions (`assert_eq`, `assert_is_ok`, `format_diff`) for `@test` suites",
-		"std/time":    "Monotonic `Instant`, `Duration`, wall-clock `DateTime`, and sleep helpers",
+		"std/chars":       "Character classification, ASCII case folding, radix digits, and UTF-8 lengths",
+		"std/fs":          "Lowlight standard filesystem package (`File`, `read_file`, `write_file`, `exists`, ...)",
+		"std/http":        "HTTP/1.1 client, server, router (`ServeMux`), URL parser, and test helpers",
+		"std/math":        "Lowlight standard math package (`PI`, `sin`, `cos`, `clamp_int`, `lerp`, ...)",
+		"std/net":         "Lowlight TCP networking package (`TcpStream`, `TcpListener`, `socketpair`)",
+		"std/os":          "OS environment, paths, processes (`exec`), and system info",
+		"std/pool":        "Generational handle pool (`Pool[T]`, `Handle`)",
+		"std/collections": "Deque, Queue, BitSet, PriorityQueue, StringInterner, BTreeMap",
+		"std/sort":        "In-place sorting, comparators, binary search, and collection helpers",
+		"std/strconv":     "Integer, float, radix, and boolean string parsing and formatting",
+		"std/strfmt":      "Number formatting, padding, alignment, case conversions, and quoting",
+		"std/strings":     "Extended string searching, splitting, trimming, and transformation helpers",
+		"std/test":        "Test assertions (`assert_eq`, `assert_is_ok`, `format_diff`) for `@test` suites",
+		"std/time":        "Monotonic `Instant`, `Duration`, wall-clock `DateTime`, and sleep helpers",
 	}
-	for _, stdMod := range []string{"std/math", "std/fs", "std/pool", "std/net", "std/http", "std/strings", "std/time", "std/os", "std/test", "std/chars", "std/sort", "std/strconv", "std/strfmt"} {
+	for _, stdMod := range []string{"std/math", "std/fs", "std/pool", "std/collections", "std/net", "std/http", "std/strings", "std/time", "std/os", "std/test", "std/chars", "std/sort", "std/strconv", "std/strfmt"} {
 		addCandidate(stdMod, stdDescriptions[stdMod], "0")
 	}
 	dir := filepath.Dir(filePath)
@@ -308,13 +309,6 @@ func (s *Server) completeDotMember(
 				return &CompletionList{
 					IsIncomplete: false,
 					Items:        s.completeModuleExports(prog, mod, targetMod, prefix, replaceRange),
-				}
-			}
-			// `Arena.` static constructors
-			if baseId.Name == "Arena" {
-				return &CompletionList{
-					IsIncomplete: false,
-					Items:        completeArenaStatics(prefix, replaceRange),
 				}
 			}
 			// Generic struct template `Pool.` or `Pool[int].`
@@ -830,41 +824,6 @@ func (s *Server) completeGenericEnumVariants(prog *sema.CheckedProgram, curMod, 
 			InsertTextFormat: insFmt,
 			TextEdit:         &TextEdit{Range: replaceRange, NewText: newText},
 			Documentation:    doc,
-		})
-	}
-	return items
-}
-
-func completeArenaStatics(prefix string, replaceRange Range) []CompletionItem {
-	var items []CompletionItem
-	if matchesPrefix("new", prefix) {
-		items = append(items, CompletionItem{
-			Label:            "new",
-			Kind:             KindConstructor,
-			Detail:           "() Arena",
-			SortText:         "0_new",
-			FilterText:       "new",
-			InsertTextFormat: InsertSnippet,
-			TextEdit:         &TextEdit{Range: replaceRange, NewText: "new()"},
-			Documentation: &MarkupContent{
-				Kind:  "markdown",
-				Value: "```lowlight\nArena.new() Arena\n```\nCreates a new bump-allocated `Arena` region with default chunk capacity (64 KiB).",
-			},
-		})
-	}
-	if matchesPrefix("with_capacity", prefix) {
-		items = append(items, CompletionItem{
-			Label:            "with_capacity",
-			Kind:             KindConstructor,
-			Detail:           "(bytes: int) Arena",
-			SortText:         "1_with_capacity",
-			FilterText:       "with_capacity",
-			InsertTextFormat: InsertSnippet,
-			TextEdit:         &TextEdit{Range: replaceRange, NewText: "with_capacity(${1:65536})"},
-			Documentation: &MarkupContent{
-				Kind:  "markdown",
-				Value: "```lowlight\nArena.with_capacity(bytes: int) Arena\n```\nCreates a new `Arena` pre-sized with initial chunk capacity `bytes`.",
-			},
 		})
 	}
 	return items
@@ -1865,7 +1824,7 @@ func (s *Server) completeScopedSymbols(
 		if !matchesPrefix(sn.Label, prefix) {
 			continue
 		}
-		if atTopLevel && !strings.HasPrefix(sn.Label, "bind") && !strings.HasPrefix(sn.Label, "define") && !strings.HasPrefix(sn.Label, "test") {
+		if atTopLevel && !strings.HasPrefix(sn.Label, "bind") && !strings.HasPrefix(sn.Label, "define") && !strings.HasPrefix(sn.Label, "derive") && !strings.HasPrefix(sn.Label, "extern") && !strings.HasPrefix(sn.Label, "test") {
 			continue
 		}
 		items = append(items, CompletionItem{
@@ -2831,6 +2790,8 @@ func formatTypeExprSubst(te ast.TypeExpr, subst map[string]string) string {
 		kw := "fn"
 		if v.Closure {
 			kw = "cl"
+		} else if v.Extern {
+			kw = "extern fn"
 		}
 		if v.Ret == nil {
 			return kw + "(" + strings.Join(ps, ", ") + ")"

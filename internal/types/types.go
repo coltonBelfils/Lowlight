@@ -3,8 +3,11 @@
 package types
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -59,7 +62,6 @@ const (
 	PrimF32
 	PrimF64 // `float`
 	PrimString
-	PrimArena
 )
 
 type Primitive struct {
@@ -83,7 +85,6 @@ var (
 	TypeF32     = &Primitive{Kind: PrimF32}
 	TypeFloat   = &Primitive{Kind: PrimF64}
 	TypeString  = &Primitive{Kind: PrimString}
-	TypeArena   = &Primitive{Kind: PrimArena}
 )
 
 // LookupPrimitive resolves a built-in type name (`int`, `i64`, `float`, `f64`, `u8`, etc.).
@@ -115,8 +116,6 @@ func LookupPrimitive(name string) *Primitive {
 		return TypeFloat
 	case "string":
 		return TypeString
-	case "Arena":
-		return TypeArena
 	default:
 		return nil
 	}
@@ -154,8 +153,6 @@ func (p *Primitive) String() string {
 		return "float"
 	case PrimString:
 		return "string"
-	case PrimArena:
-		return "Arena"
 	default:
 		return "<invalid>"
 	}
@@ -171,7 +168,14 @@ func (p *Primitive) Equals(other Type) bool {
 }
 
 func (p *Primitive) IsPlain() bool {
-	return p.Kind != PrimString && p.Kind != PrimArena
+	return p.Kind != PrimString
+}
+
+// IsArena reports whether `t` is std/core's `Arena` (the `@lang("arena")` struct), whose
+// `ref[T]` allocations the checker ties to the arena's scope.
+func IsArena(t Type) bool {
+	st, ok := t.(*Struct)
+	return ok && st.Lang == "arena"
 }
 
 func (p *Primitive) IsInteger() bool {
@@ -466,9 +470,11 @@ type Struct struct {
 	Packed        bool
 	MustUse       bool
 	Deprecated    bool
-	DeprecatedMsg string
-	IsTestOnly    bool
-	Doc           string
+	DeprecatedMsg  string
+	IsTestOnly        bool
+	IsComptimeOnly    bool
+	CompNamespaceOnly bool // declared in std/core for `comp.*` only, not exposed bare in prelude
+	Doc               string
 	Fields        []StructField
 	HasCustomDrop bool
 	BoxedOptional bool // true if `?ThisStruct` closes a recursive cycle and compiles to `ThisStruct*`
@@ -579,9 +585,11 @@ type Enum struct {
 	PkgDir        string
 	MustUse       bool
 	Deprecated    bool
-	DeprecatedMsg string
-	IsTestOnly    bool
-	Doc           string
+	DeprecatedMsg  string
+	IsTestOnly        bool
+	IsComptimeOnly    bool
+	CompNamespaceOnly bool // declared in std/core for `comp.*` only, not exposed bare in prelude
+	Doc               string
 	IsTagged      bool   // true when any variant carries a payload or enum has generic type parameters
 	IsResult      bool   // declared with `define Name result [...]`: one `value` member plus failure variants
 	TypeArgs      []Type // populated for monomorphized generic enums
@@ -609,6 +617,12 @@ func (e *Enum) ResultValue() (*EnumVariant, int) {
 		}
 	}
 	return nil, -1
+}
+
+// IsUnitResult reports whether `e` is a result whose `value` member carries no payload.
+func (e *Enum) IsUnitResult() bool {
+	v, _ := e.ResultValue()
+	return v != nil && v.Payload == nil
 }
 
 // ResultFailures returns the failure variants of a result declaration (every member except `value`).
@@ -688,10 +702,12 @@ func (e *Enum) VariantByName(name string) (*EnumVariant, bool) {
 type Distinct struct {
 	Name       string
 	CName      string
-	PkgDir     string
-	IsTestOnly bool
-	Doc        string
-	Base       Type
+	PkgDir         string
+	IsTestOnly        bool
+	IsComptimeOnly    bool
+	CompNamespaceOnly bool // declared in std/core for `comp.*` only, not exposed bare in prelude
+	Doc               string
+	Base           Type
 }
 
 func (d *Distinct) String() string  { return d.Name }
@@ -701,6 +717,88 @@ func (d *Distinct) Equals(other Type) bool {
 	return ok && d == o
 }
 func (d *Distinct) IsPlain() bool { return d.Base.IsPlain() }
+
+// FindComptimeOnlyType reports the first `@comptime_only` named type inside t, or nil.
+func FindComptimeOnlyType(t Type) Type {
+	return findComptimeOnlyRec(t, map[Type]bool{})
+}
+
+func findComptimeOnlyRec(t Type, seen map[Type]bool) Type {
+	if t == nil || t == TypeInvalid || seen[t] {
+		return nil
+	}
+	seen[t] = true
+	switch v := t.(type) {
+	case *Struct:
+		if v.IsComptimeOnly {
+			return v
+		}
+		for _, ta := range v.TypeArgs {
+			if hit := findComptimeOnlyRec(ta, seen); hit != nil {
+				return hit
+			}
+		}
+		for _, f := range v.Fields {
+			if hit := findComptimeOnlyRec(f.Type, seen); hit != nil {
+				return hit
+			}
+		}
+	case *Enum:
+		if v.IsComptimeOnly {
+			return v
+		}
+		for _, ta := range v.TypeArgs {
+			if hit := findComptimeOnlyRec(ta, seen); hit != nil {
+				return hit
+			}
+		}
+		for _, vr := range v.Variants {
+			if hit := findComptimeOnlyRec(vr.Payload, seen); hit != nil {
+				return hit
+			}
+		}
+	case *Distinct:
+		if v.IsComptimeOnly {
+			return v
+		}
+		return findComptimeOnlyRec(v.Base, seen)
+	case *Interface:
+		if v.IsComptimeOnly {
+			return v
+		}
+	case *Ptr:
+		return findComptimeOnlyRec(v.Elem, seen)
+	case *Ref:
+		return findComptimeOnlyRec(v.Elem, seen)
+	case *Optional:
+		return findComptimeOnlyRec(v.Elem, seen)
+	case *Vector:
+		return findComptimeOnlyRec(v.Elem, seen)
+	case *StackArray:
+		return findComptimeOnlyRec(v.Elem, seen)
+	case *Set:
+		return findComptimeOnlyRec(v.Elem, seen)
+	case *Map:
+		if hit := findComptimeOnlyRec(v.Key, seen); hit != nil {
+			return hit
+		}
+		return findComptimeOnlyRec(v.Value, seen)
+	case *Tuple:
+		for _, el := range v.Elems {
+			if hit := findComptimeOnlyRec(el, seen); hit != nil {
+				return hit
+			}
+		}
+	case *Func:
+		for _, p := range v.Params {
+			if hit := findComptimeOnlyRec(p.Type, seen); hit != nil {
+				return hit
+			}
+		}
+		return findComptimeOnlyRec(v.Ret, seen)
+	}
+	return nil
+}
 
 // UnderlyingPrimitive unwraps nested Distinct types to their root Primitive, if any.
 func UnderlyingPrimitive(t Type) *Primitive {
@@ -764,6 +862,9 @@ type Func struct {
 	Params  []FuncParam
 	Ret     Type // TypeVoid if void
 	Closure bool
+	// Extern marks an `extern fn(...)`: a C function pointer, called with the platform's C calling
+	// convention and no closure environment.
+	Extern bool
 }
 
 func (f *Func) String() string {
@@ -774,6 +875,8 @@ func (f *Func) String() string {
 	kw := "fn"
 	if f.Closure {
 		kw = "cl"
+	} else if f.Extern {
+		kw = "extern fn"
 	}
 	if f.Ret == nil || f.Ret.Equals(TypeVoid) {
 		return kw + "(" + strings.Join(ps, ", ") + ")"
@@ -803,6 +906,8 @@ func (f *Func) Mangled() string {
 	var sb strings.Builder
 	if f.Closure {
 		sb.WriteString("cl")
+	} else if f.Extern {
+		sb.WriteString("xfn")
 	} else {
 		sb.WriteString("fn")
 	}
@@ -827,7 +932,7 @@ func (f *Func) Mangled() string {
 
 func (f *Func) Equals(other Type) bool {
 	o, ok := other.(*Func)
-	return ok && f.Closure == o.Closure && f.SameSignature(o)
+	return ok && f.Closure == o.Closure && f.Extern == o.Extern && f.SameSignature(o)
 }
 
 func (f *Func) IsPlain() bool {
@@ -858,10 +963,12 @@ func (*SelfPlaceholder) IsPlain() bool      { return true }
 type Interface struct {
 	Name       string
 	CName      string
-	PkgDir     string
-	IsTestOnly bool
-	Doc        string
-	Methods    []InterfaceMethod
+	PkgDir         string
+	IsTestOnly        bool
+	IsComptimeOnly    bool
+	CompNamespaceOnly bool // declared in std/core for `comp.*` only, not exposed bare in prelude
+	Doc               string
+	Methods        []InterfaceMethod
 	UsesSelf   bool // if true (e.g. Copyable), usable as generic bound `[T: Copyable]`, not runtime fat pointer
 }
 
@@ -886,6 +993,191 @@ func (tp *TypeParamVar) Equals(other Type) bool {
 	return ok && tp.Name == o.Name
 }
 func (tp *TypeParamVar) IsPlain() bool { return false }
+
+// ConstValueKind classifies compile-time constant arguments in `[N: const Type]`.
+type ConstValueKind int
+
+const (
+	ConstInt ConstValueKind = iota
+	ConstBool
+	ConstChar
+	ConstEnum
+	ConstString
+)
+
+// ConstValue represents a resolved compile-time constant argument stored alongside types
+// in monomorphized `Struct.TypeArgs`, `Enum.TypeArgs`, `FuncInstance.TypeSubst`, etc.
+type ConstValue struct {
+	Kind       ConstValueKind
+	ConstType  Type   // concrete parameter type (`int`, `u8`, `bool`, `char`, `Endian`, `string`, ...)
+	IntVal     int64  // sign-extended value for signed integers / enum tag
+	UintVal    uint64 // width-masked bit pattern for integers / bool / char
+	BoolVal    bool
+	RuneVal    rune
+	EnumTy     *Enum
+	VariantIdx int
+	EnumName   string
+	StrVal     string
+	CtVal      any // optional cached *sema.ctVal
+}
+
+func NewConstInt(signed int64, raw uint64, prim *Primitive) *ConstValue {
+	if prim == nil {
+		prim = TypeInt
+	}
+	return &ConstValue{
+		Kind:      ConstInt,
+		ConstType: prim,
+		IntVal:    signed,
+		UintVal:   raw,
+	}
+}
+
+func NewConstBool(b bool) *ConstValue {
+	u := uint64(0)
+	if b {
+		u = 1
+	}
+	return &ConstValue{Kind: ConstBool, ConstType: TypeBool, BoolVal: b, UintVal: u}
+}
+
+func NewConstChar(r rune) *ConstValue {
+	return &ConstValue{Kind: ConstChar, ConstType: TypeChar, RuneVal: r, IntVal: int64(r), UintVal: uint64(r)}
+}
+
+func NewConstEnum(en *Enum, variantIdx int, name string) *ConstValue {
+	var tagVal int64
+	if en != nil && variantIdx >= 0 && variantIdx < len(en.Variants) {
+		tagVal = en.Variants[variantIdx].Value
+	}
+	return &ConstValue{
+		Kind:       ConstEnum,
+		ConstType:  en,
+		EnumTy:     en,
+		VariantIdx: variantIdx,
+		EnumName:   name,
+		IntVal:     tagVal,
+		UintVal:    uint64(tagVal),
+	}
+}
+
+func NewConstString(s string) *ConstValue {
+	return &ConstValue{Kind: ConstString, ConstType: TypeString, StrVal: s}
+}
+
+func (c *ConstValue) String() string {
+	switch c.Kind {
+	case ConstInt:
+		if p, ok := c.ConstType.(*Primitive); ok && p.IsUnsignedInt() {
+			return strconv.FormatUint(c.UintVal, 10)
+		}
+		return strconv.FormatInt(c.IntVal, 10)
+	case ConstBool:
+		if c.BoolVal {
+			return "true"
+		}
+		return "false"
+	case ConstChar:
+		return strconv.QuoteRune(c.RuneVal)
+	case ConstEnum:
+		if c.EnumTy != nil && c.EnumName != "" {
+			return c.EnumTy.Name + "." + c.EnumName
+		}
+		return fmt.Sprintf("<enum:%d>", c.VariantIdx)
+	case ConstString:
+		return strconv.Quote(c.StrVal)
+	default:
+		return "<const>"
+	}
+}
+
+func sanitizeConstStringPrefix(s string, maxLen int) string {
+	var sb strings.Builder
+	prevUnderscore := false
+	for i := 0; i < len(s) && sb.Len() < maxLen; i++ {
+		b := s[i]
+		isAlnum := (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+		if isAlnum {
+			sb.WriteByte(b)
+			prevUnderscore = false
+		} else if !prevUnderscore && sb.Len() > 0 {
+			sb.WriteByte('_')
+			prevUnderscore = true
+		}
+	}
+	return strings.TrimRight(sb.String(), "_")
+}
+
+func (c *ConstValue) Mangled() string {
+	switch c.Kind {
+	case ConstInt:
+		if p, ok := c.ConstType.(*Primitive); !ok || p.IsSignedInt() {
+			if c.IntVal < 0 {
+				return fmt.Sprintf("neg%d", uint64(^c.IntVal)+1)
+			}
+			return strconv.FormatInt(c.IntVal, 10)
+		}
+		return strconv.FormatUint(c.UintVal, 10)
+	case ConstBool:
+		if c.BoolVal {
+			return "true"
+		}
+		return "false"
+	case ConstChar:
+		return fmt.Sprintf("ch_%x", uint32(c.RuneVal))
+	case ConstEnum:
+		return fmt.Sprintf("ev_%d", c.VariantIdx)
+	case ConstString:
+		sum := sha256.Sum256([]byte(c.StrVal))
+		tag := hex.EncodeToString(sum[:6])
+		prefix := sanitizeConstStringPrefix(c.StrVal, 16)
+		if prefix == "" {
+			return "str_" + tag
+		}
+		return "str_" + prefix + "_" + tag
+	default:
+		return "const"
+	}
+}
+
+func (c *ConstValue) Equals(other Type) bool {
+	o, ok := other.(*ConstValue)
+	if !ok || c.Kind != o.Kind {
+		return false
+	}
+	if c.ConstType == nil || o.ConstType == nil || !c.ConstType.Equals(o.ConstType) {
+		return false
+	}
+	switch c.Kind {
+	case ConstInt:
+		return c.IntVal == o.IntVal && c.UintVal == o.UintVal
+	case ConstBool:
+		return c.BoolVal == o.BoolVal
+	case ConstChar:
+		return c.RuneVal == o.RuneVal
+	case ConstEnum:
+		return c.EnumTy != nil && c.EnumTy.Equals(o.EnumTy) && c.VariantIdx == o.VariantIdx
+	case ConstString:
+		return c.StrVal == o.StrVal
+	default:
+		return false
+	}
+}
+
+func (c *ConstValue) IsPlain() bool { return true }
+
+// IsConstGenericParamType reports whether `t` is valid as the declared type of `[N: const Type]`.
+// Allowed: integer primitives (`int`, `i8`..`i64`, `u8`..`u64`), `bool`, `char`, tag `enum`s, and `string`.
+func IsConstGenericParamType(t Type) bool {
+	switch v := t.(type) {
+	case *Primitive:
+		return v.IsInteger() || v.Kind == PrimBool || v.Kind == PrimChar || v.Kind == PrimString
+	case *Enum:
+		return !v.IsTagged && !v.IsResult
+	default:
+		return false
+	}
+}
 
 // -----------------------------------------------------------------------------
 // Capabilities: Hashability, Equality, Region Reference Containment
@@ -920,7 +1212,7 @@ func SupportsEq(t Type) bool {
 func supportsEqVisited(t Type, seen map[Type]bool) bool {
 	switch v := t.(type) {
 	case *Primitive:
-		return v.Kind != PrimVoid && v.Kind != PrimArena
+		return v.Kind != PrimVoid
 	case *Ptr, *Ref:
 		return true
 	case *Distinct:

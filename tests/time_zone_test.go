@@ -9,7 +9,7 @@ import (
 	"lowlight/internal/driver"
 )
 
-// Local DateTimes must report the host zone abbreviation (via `sys_local_tz_name`) instead of a
+// Local DateTimes must report the host zone abbreviation (via `std/time` localtime_r) instead of a
 // `"LOCAL"` placeholder, including DST transitions, on both backends.
 func TestLocalTimeZoneNamesFollowTZ(t *testing.T) {
 	t.Parallel()

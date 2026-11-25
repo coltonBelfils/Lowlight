@@ -33,6 +33,29 @@
     ],
     "description": "Method on a type (`&self` mutates, `own self` consumes)"
   },
+  "Constant Binding": {
+    "prefix": "const",
+    "body": [
+      "bind ${1:NAME}: ${2:int} = ${0:0}"
+    ],
+    "description": "Typed constant binding"
+  },
+  "Drop Destructor": {
+    "prefix": "drop",
+    "body": [
+      "bind ${1:Type}.drop = fn(&self): {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Custom `drop` destructor called when a value leaves scope"
+  },
+  "Extern C Function": {
+    "prefix": "extern",
+    "body": [
+      "extern ${1:c_func}: fn(${2:x: i32}) ${3:i32}"
+    ],
+    "description": "C11 extern function declaration (callable inside `unsafe`)"
+  },
   "Function Literal": {
     "prefix": [
       "fnl",
@@ -62,6 +85,24 @@
       "]"
     ],
     "description": "Value struct"
+  },
+  "Packed Struct Definition": {
+    "prefix": "packed",
+    "body": [
+      "@packed",
+      "define ${1:Header} struct [",
+      "\t${2:tag}: ${3:u8},",
+      "\t${4:len}: ${5:u32},",
+      "]"
+    ],
+    "description": "C-ABI packed struct without padding"
+  },
+  "Distinct Type": {
+    "prefix": "distinct",
+    "body": [
+      "define ${1:UserId} ${2:int}"
+    ],
+    "description": "Distinct newtype wrapper"
   },
   "Derive Struct": {
     "prefix": [
@@ -129,6 +170,15 @@
     ],
     "description": "Bind an optional's value or a result's success value"
   },
+  "If As Block": {
+    "prefix": "ifasb",
+    "body": [
+      "if(${1:expr} as ${2:v}): {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Bind an optional's or result's value inside an `if` block"
+  },
   "For Range Loop": {
     "prefix": "forr",
     "body": [
@@ -156,6 +206,13 @@
     ],
     "description": "Loop with each element's index (or a map's keys and values)"
   },
+  "For Collecting Expression": {
+    "prefix": "forc",
+    "body": [
+      "bind ${1:items} = for(${2:x} in ${3:xs}): ${0:x}"
+    ],
+    "description": "Collect elements from a `for` comprehension into a list"
+  },
   "While Loop": {
     "prefix": "while",
     "body": [
@@ -164,6 +221,13 @@
       "}"
     ],
     "description": "Conditional loop"
+  },
+  "While Search Loop": {
+    "prefix": "whiles",
+    "body": [
+      "bind ${1:found?} = while(${2:x} in ${3:xs}): if(${4:cond}): while <- $2"
+    ],
+    "description": "Search loop yielding `?T` via `while <-`"
   },
   "Match Expression": {
     "prefix": "match",

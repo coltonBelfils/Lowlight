@@ -2,6 +2,7 @@ package sema
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"lowlight/internal/ast"
@@ -27,6 +28,69 @@ func (fc *funcChecker) recordTargetFunc(inf *ExprInfo, fi *FuncInstance, span di
 			}
 			fc.a.Rep.Errorf(span, "cannot call test-only function %q from non-test context %q", fi.Name, callerName)
 		}
+		fc.checkFuncConstAndComptimeAccess(fi, span)
+	}
+}
+
+func (fc *funcChecker) checkFuncConstAndComptimeAccess(fi *FuncInstance, span diag.Span) {
+	if fi == nil || fc.probing > 0 {
+		return
+	}
+	if fi.ComptimeOnly && !fc.inComptimeOnlyContext() {
+		callerName := "<top-level>"
+		if fc.curFn != nil {
+			callerName = fc.curFn.Name
+		}
+		fc.a.Rep.ErrorWithHint(
+			span,
+			fmt.Sprintf("cannot call `@comptime_only` function %q from runtime context %q", fi.Name, callerName),
+			"call it inside a `comptime` block/expression, a `const` initializer, or another `@comptime_only` function",
+		)
+	}
+	if fc.inConstContext() {
+		if fi.IsConst && (fi.IsGenericInst || fi.IsDerived) && !fi.Checked && !fc.a.checkingFuncs[fi] {
+			fc.a.ensureFuncCheckedForComptime(fi, span)
+		}
+		if fi.IsConst && (fi.IsGenericInst || fi.IsDerived) && fc.a.checkingFuncs[fi] && fc.inConditionalGenericBody() && fc.curFn != nil && fc.curFn != fi {
+			fc.a.constGenericDeps = append(fc.a.constGenericDeps, constGenericDep{caller: fc.curFn, callee: fi, span: span})
+		}
+		if !fc.a.isComptimeCallable(fi) {
+			if fi.ConstFail != nil {
+				fc.recordConstViolation(
+					span,
+					fmt.Sprintf("cannot call generic instantiation %q in a `const` or `comptime` context (runtime-only)", fi.Name),
+					fmt.Sprintf("%q is declared `const`, so each instantiation is compile-time callable only when all operations on its type arguments are `const`", fi.Name),
+					fi,
+				)
+			} else {
+				fc.recordConstViolation(
+					span,
+					fmt.Sprintf("cannot call runtime-only (`bind`) function %q in a `const` or `comptime` context", fi.Name),
+					fmt.Sprintf("declare %q with `const` instead of `bind` if it uses only compile-time-safe operations", fi.Name),
+					fi,
+				)
+			}
+		}
+	}
+}
+
+func (fc *funcChecker) checkInterpConst(ty types.Type, span diag.Span) {
+	if ty == nil || ty == types.TypeInvalid {
+		return
+	}
+	if fn := fc.a.LookupMethod(ty, "to_string", nil, span); fn != nil {
+		fc.checkFuncConstAndComptimeAccess(fn, span)
+		return
+	}
+	switch t := ty.(type) {
+	case *types.Tuple:
+		for _, el := range t.Elems {
+			fc.checkInterpConst(el, span)
+		}
+	case *types.StackArray:
+		fc.checkInterpConst(t.Elem, span)
+	case *types.Optional:
+		fc.checkInterpConst(t.Elem, span)
 	}
 }
 
@@ -37,7 +101,7 @@ func (fc *funcChecker) checkCallExpr(call *ast.CallExpr, expected types.Type) ty
 		if typeMayHoldArenaRef(retTy) || inf.CallKind == CallClosureValue || inf.CallKind == CallInterfaceMethod {
 			for _, arg := range call.Args {
 				if u, ok := arg.(*ast.UnaryExpr); ok && u.Op == token.Amp {
-					if sym := fc.rootSymbolOfExpr(u.Operand); sym != nil && sym.Type != nil && sym.Type.Equals(types.TypeArena) && sym.BindKind == BindOwned {
+					if sym := fc.rootSymbolOfExpr(u.Operand); sym != nil && sym.Type != nil && types.IsArena(sym.Type) && sym.BindKind == BindOwned {
 						fc.pinArenaAt(sym, fc.curDepth())
 					}
 				}
@@ -66,6 +130,10 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 			return types.TypeInvalid
 		}
 		clTy := fnTy.AsClosure()
+		if fnTy.Extern {
+			fc.a.Rep.ErrorWithHint(call.Span, "an `extern fn` can't become a closure",
+				"it has the C calling convention; call it from a `cl` literal instead")
+		}
 		if fnTy.Closure {
 			fc.a.Rep.Warnf(call.Span, "this is already a closure; `cl(...)` does nothing")
 		} else {
@@ -85,14 +153,26 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 		astRewriteMu.Lock()
 		rewritten := false
 		if len(call.TypeArgs) == 1 {
-			if nt, isNT := call.TypeArgs[0].(*ast.NamedType); isNT && nt.Module == "" && len(nt.TypeArgs) == 0 {
+			var idxExprArg ast.Expr
+			var idxSpan diag.Span
+			switch ta := call.TypeArgs[0].(type) {
+			case *ast.NamedType:
+				if ta.Module == "" && len(ta.TypeArgs) == 0 {
+					idxExprArg = &ast.IdentExpr{Name: ta.Name, Span: ta.Span}
+					idxSpan = ta.Span
+				}
+			case *ast.ConstArgType:
+				idxExprArg = ta.Expr
+				idxSpan = ta.Span
+			}
+			if idxExprArg != nil {
 				if sym := fc.lookupVar(id.Name); sym != nil {
 					switch sym.Type.(type) {
-					case *types.Vector, *types.StackArray:
+					case *types.Vector, *types.StackArray, *types.Map:
 						idxExpr := &ast.IndexExpr{
 							Base:  id,
-							Index: &ast.IdentExpr{Name: nt.Name, Span: nt.Span},
-							Span:  nt.Span,
+							Index: idxExprArg,
+							Span:  idxSpan,
 						}
 						call.Callee = idxExpr
 						call.TypeArgs = nil
@@ -120,7 +200,9 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 			}
 			if fc.curFn != nil && fc.curFn.TypeSubst != nil {
 				if subTy, ok := fc.curFn.TypeSubst[id.Name]; ok && subTy != nil {
-					return fc.checkTypeConversionOrBox(subTy, call)
+					if _, isCV := subTy.(*types.ConstValue); !isCV {
+						return fc.checkTypeConversionOrBox(subTy, call)
+					}
 				}
 			}
 		}
@@ -140,7 +222,9 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 			fc.a.infoFor(id).Sym = sym
 			fc.a.infoFor(id).Type = sym.Type
 			if sym.ExternFn != nil {
-				if fc.unsafeDepth == 0 {
+				if fc.inConstContext() {
+					fc.recordConstViolation(call.Span, fmt.Sprintf("cannot call `extern` C function %q in a `const` or `comptime` context", sym.Name), "move FFI calls out of `const` code or remove `const` if compile-time evaluation is not intended", nil)
+				} else if fc.unsafeDepth == 0 {
 					fc.a.Rep.Errorf(call.Span, "calling `extern` C function %q requires `unsafe`", sym.Name)
 				}
 				fc.checkSignatureArgs(sym.ExternFn.Sig.Params, call.Args, nil, call.Span)
@@ -197,6 +281,10 @@ func (fc *funcChecker) checkClosureValueCall(call *ast.CallExpr) types.Type {
 		}
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
+	}
+	if fnSig.Extern && fc.unsafeDepth == 0 {
+		fc.a.Rep.ErrorWithHint(call.Span, "calling an `extern fn` value requires `unsafe`",
+			"it may point to any C function; write `unsafe f(...)`")
 	}
 	fc.checkSignatureArgs(fnSig.Params, call.Args, nil, call.Span)
 	inf.CallKind = CallClosureValue
@@ -259,7 +347,15 @@ func (fc *funcChecker) checkTypeConversionOrBox(targetTy types.Type, call *ast.C
 	}
 
 	// Primitive conversion: `float(x)`, `int(x)`, `u8(x)`, `char(x)`, `string(x)`
-	argTy := fc.checkExpr(arg, true)
+	var argTy types.Type
+	if pTgt := types.UnderlyingPrimitive(targetTy); pTgt != nil && pTgt.Kind == types.PrimU64 {
+		if il, isInt := arg.(*ast.IntLit); isInt && il.Val > math.MaxInt64 {
+			argTy = fc.checkExprExpect(arg, targetTy, true)
+		}
+	}
+	if argTy == nil {
+		argTy = fc.checkExpr(arg, true)
+	}
 	if argTy == types.TypeInvalid {
 		inf.CallKind = CallTypeConvert
 		inf.Type = targetTy
@@ -327,6 +423,18 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 		return types.TypeInvalid
 	}
 
+	// 0. Check built-in compiler namespaces (`comp.*` for `@comptime_only` APIs, `type.*` for `const` type-layout queries)
+	if baseId, isId := mem.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && len(mem.BaseTypeArgs) == 0 && fc.lookupVar(baseId.Name) == nil {
+		if _, isMod := fc.mod.Aliased[baseId.Name]; !isMod {
+			if baseId.Name == "comp" {
+				return fc.checkCompNamespaceCall(mem, call)
+			}
+			if baseId.Name == "type" {
+				return fc.checkTypeNamespaceCall(mem, call)
+			}
+		}
+	}
+
 	// 1. Check module-qualified calls (`mod.fn(...)`, `mod.GenericFn[T](...)`, `mod.Type(x)`)
 	if baseId, isId := mem.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && len(mem.BaseTypeArgs) == 0 && fc.lookupVar(baseId.Name) == nil {
 		if targetMod, isMod := fc.mod.Aliased[baseId.Name]; isMod {
@@ -353,7 +461,9 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 					return retTy
 				}
 				if sym.ExternFn != nil {
-					if fc.unsafeDepth == 0 {
+					if fc.inConstContext() {
+						fc.recordConstViolation(call.Span, fmt.Sprintf("cannot call `extern` C function %q in a `const` or `comptime` context", sym.Name), "move FFI calls out of `const` code or remove `const` if compile-time evaluation is not intended", nil)
+					} else if fc.unsafeDepth == 0 {
 						fc.a.Rep.Errorf(call.Span, "calling `extern` C function %q requires `unsafe`", sym.Name)
 					}
 					fc.checkSignatureArgs(sym.ExternFn.Sig.Params, call.Args, nil, call.Span)
@@ -366,7 +476,12 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 			if ty, ok := targetMod.Types[mem.Member]; ok && len(call.TypeArgs) == 0 {
 				return fc.checkTypeConversionOrBox(ty, call)
 			}
-			fc.a.Rep.Errorf(mem.Span, "module %q has no function or type %q", baseId.Name, mem.Member)
+			cands := closestNames(mem.Member, fc.a.moduleExportNames(fc.mod, targetMod, true))
+			hint := ""
+			if len(cands) > 0 {
+				hint = fmt.Sprintf("did you mean `%s.%s`?", baseId.Name, strings.Join(cands, "` or `"+baseId.Name+"."))
+			}
+			fc.a.errorWithRename(fc.a.focusSpan(mem), fmt.Sprintf("module %q has no function or type %q", baseId.Name, mem.Member), mem.Member, hint, cands)
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
 		}
@@ -380,9 +495,6 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 
 	// 2b. Check Type-namespaced calls (`Arena.new()`, `Point.translate(&pt, 5, 5)`, `Pool[Node].new()`)
 	if baseId, isId := mem.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && fc.lookupVar(baseId.Name) == nil {
-		if baseId.Name == "Arena" {
-			return fc.checkArenaStaticCall(mem.Member, call)
-		}
 		if genSt := fc.a.lookupGenStructInModule(fc.mod, "", baseId.Name); genSt != nil {
 			return fc.checkGenericTypeAssocCall(genSt, mem.BaseTypeArgs, mem.Member, call, expected)
 		}
@@ -547,7 +659,14 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 		isOptChain = true
 		actualRecvTy = optR.Elem
 	} else if mem.QuestDot {
-		fc.a.Rep.Errorf(mem.Span, "`?.` cannot be used on non-optional type %s", recvTy.String())
+		fc.a.Rep.Report(diag.Diagnostic{
+			Severity: diag.Error,
+			Span:     mem.Span,
+			Full:     mem.Span,
+			Message:  fmt.Sprintf("`?.` cannot be used on non-optional type %s", recvTy.String()),
+			Hint:     "remove `?` and use `.`",
+			Data:     map[string]string{"kind": "drop_quest_dot"},
+		})
 	}
 
 	// Unwrap `ref[T]` when calling methods on an arena-allocated value (`node_ref.sum()`)!
@@ -564,11 +683,23 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 
 	// 3b. User-defined or Generic Method (`bind Point.length`, `bind Pair[A, B].swap`, `bind UserID.to_string`)
 	var mTypeArgs []types.Type
-	for _, ta := range call.TypeArgs {
-		mTypeArgs = append(mTypeArgs, fc.a.resolveValueType(fc.mod, ta, fc.subst, false))
+	gtmpl := fc.a.lookupGenericMethodTemplate(actualRecvTy, mem.Member)
+	if len(call.TypeArgs) > 0 {
+		if gtmpl != nil && gtmpl.MethodDecl != nil && len(gtmpl.MethodDecl.TypeParams) > 0 {
+			resolved, ok := fc.a.resolveGenericArgs(fc.mod, gtmpl.Mod, gtmpl.MethodDecl.TypeParams, call.TypeArgs, fc.subst, call.Span, "method", mem.Member)
+			if !ok {
+				inf.Type = types.TypeInvalid
+				return types.TypeInvalid
+			}
+			mTypeArgs = resolved
+		} else {
+			for _, ta := range call.TypeArgs {
+				mTypeArgs = append(mTypeArgs, fc.a.resolveValueType(fc.mod, ta, fc.subst, false))
+			}
+		}
 	}
 	if len(mTypeArgs) == 0 {
-		if gtmpl := fc.a.lookupGenericMethodTemplate(actualRecvTy, mem.Member); gtmpl != nil && gtmpl.MethodDecl != nil && len(gtmpl.MethodDecl.TypeParams) > 0 {
+		if gtmpl != nil && gtmpl.MethodDecl != nil && len(gtmpl.MethodDecl.TypeParams) > 0 {
 			decl := gtmpl.MethodDecl
 			if decl.RecvMode != ast.ReceiverMode(-1) && len(call.Args) == len(decl.Params) {
 				tpNames := make(map[string]bool)
@@ -602,7 +733,12 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 						allFound = false
 						break
 					}
-					candArgs[i] = ta
+					validTa, ok2 := validateInferredConstArg(fc.a, gtmpl.Mod, decl.TypeParams, tp, ta, call.Span)
+					if !ok2 {
+						inf.Type = types.TypeInvalid
+						return types.TypeInvalid
+					}
+					candArgs[i] = validTa
 				}
 				if allFound {
 					mTypeArgs = candArgs
@@ -653,7 +789,11 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 		}
 
 		fc.checkSignatureArgs(fi.Sig.Params[1:], call.Args, mutRecvRoot, call.Span)
-		if !inMatchPattern && recvMode == types.ModeMut {
+		if types.IsArena(actualRecvTy) && !inMatchPattern {
+			fc.checkArenaMethodRules(mem, call, mutRecvRoot)
+		}
+		if !inMatchPattern && recvMode == types.ModeMut && !types.IsArena(actualRecvTy) {
+			// (An arena's own methods follow the arena rules above instead.)
 			fc.checkMutatingMethodRecvEscape(mem.Base, call.Args, call.Span)
 		}
 		inf.CallKind = CallDirectFunc
@@ -673,34 +813,35 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 	return fc.checkBuiltinMethodCall(actualRecvTy, isArenaRef, isOptChain, inMatchPattern, mem, call)
 }
 
-func (fc *funcChecker) checkArenaStaticCall(method string, call *ast.CallExpr) types.Type {
-	inf := fc.a.infoFor(call)
-	switch method {
-	case "new":
-		if len(call.Args) != 0 {
-			fc.a.Rep.Errorf(call.Span, "`Arena.new()` takes 0 arguments")
+// checkArenaMethodRules applies the rules that keep `ref[T]`s from outliving their `Arena` to a
+// call of the std/core `Arena` method `mem` (after its arguments are checked): an arena can't be
+// allocated into itself, an `alloc` pins the arena for the current scope, and `reset` is refused
+// on a borrowed arena or while references from this scope may be live.
+func (fc *funcChecker) checkArenaMethodRules(mem *ast.MemberExpr, call *ast.CallExpr, mutRecv *Symbol) {
+	sym := mutRecv
+	if sym == nil {
+		sym = fc.rootSymbolOfExpr(mem.Base)
+	}
+	switch mem.Member {
+	case "alloc":
+		if sym != nil && len(call.Args) == 1 {
+			if rr := fc.rootSymbolOfExpr(call.Args[0]); rr == sym {
+				fc.a.Rep.Errorf(call.Args[0].GetSpan(), "cannot pass arena %q into its own `alloc`", sym.Name)
+			}
 		}
-		inf.CallKind = CallBuiltinMethod
-		inf.BuiltinName = "Arena.new"
-		inf.Type = types.TypeArena
-		return types.TypeArena
-
-	case "with_capacity":
-		if len(call.Args) != 1 {
-			fc.a.Rep.Errorf(call.Span, "`Arena.with_capacity(bytes)` takes 1 `int` argument")
-		} else {
-			at := fc.checkExprExpect(call.Args[0], types.TypeInt, true)
-			fc.verifyAssignable(at, types.TypeInt, call.Args[0], call.Args[0].GetSpan(), "Arena capacity")
+		if sym != nil && sym.BindKind == BindOwned {
+			fc.pinArenaAt(sym, fc.curDepth())
 		}
-		inf.CallKind = CallBuiltinMethod
-		inf.BuiltinName = "Arena.with_capacity"
-		inf.Type = types.TypeArena
-		return types.TypeArena
-
-	default:
-		fc.a.Rep.Errorf(call.Span, "`Arena` has no static function %q", method)
-		inf.Type = types.TypeInvalid
-		return types.TypeInvalid
+	case "reset":
+		if sym != nil && sym.BindKind != BindOwned {
+			fc.a.Rep.Errorf(call.Span, "cannot call `.reset()` on borrowed `&Arena` parameter %q (caller may hold live `ref[T]` allocations)", sym.Name)
+		} else if sym != nil && fc.isArenaPinned(sym) {
+			fc.a.Rep.ErrorWithHint(
+				call.Span,
+				fmt.Sprintf("cannot call `.reset()` on `Arena` %q while `ref[T]` allocations from this scope may still be live", sym.Name),
+				"wrap the phase that allocates `ref[T]` in a `{ ... }` block so references go out of scope before calling `.reset()`",
+			)
+		}
 	}
 }
 
@@ -773,7 +914,13 @@ func (fc *funcChecker) checkEnumMemberCall(en *types.Enum, genEn *GenericEnumTem
 				inf.Type = types.TypeInvalid
 				return types.TypeInvalid
 			}
-			targs[i] = ta
+			validTa, ok2 := validateInferredConstArg(fc.a, genEn.Mod, genEn.Decl.TypeParams, tp, ta, call.Span)
+			if !ok2 {
+				_ = fc.checkExpr(call.Args[0], true)
+				inf.Type = types.TypeInvalid
+				return types.TypeInvalid
+			}
+			targs[i] = validTa
 		}
 		en = fc.a.instantiateEnum(genEn, targs, mem.Span)
 	}
@@ -787,6 +934,13 @@ func (fc *funcChecker) checkEnumMemberCall(en *types.Enum, genEn *GenericEnumTem
 	}
 
 	if v, isVar := en.VariantByName(mem.Member); isVar {
+		if en.IsComptimeOnly && !fc.inComptimeOnlyContext() {
+			fc.a.Rep.ErrorWithHint(
+				call.Span,
+				fmt.Sprintf("cannot use `@comptime_only` enum `%s.%s` outside a compile-time context", en.Name, mem.Member),
+				"use it inside `comptime`, a `const` initializer, or another `@comptime_only` function",
+			)
+		}
 		if !IsExported(mem.Member) && !fc.a.SamePackageDir(fc.mod, en.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(en)) {
 			fc.a.Rep.Errorf(call.Span, "cannot access unexported enum variant `%s.%s` outside its package", en.Name, mem.Member)
 			inf.Type = types.TypeInvalid
@@ -808,8 +962,14 @@ func (fc *funcChecker) checkEnumMemberCall(en *types.Enum, genEn *GenericEnumTem
 		}
 		switch v.Kind {
 		case types.VariantUnit:
-			fc.a.Rep.Errorf(call.Span, "variant `%s.%s` has no payload; write `%s.%s` without `()`",
-				en.String(), v.Name, en.Name, v.Name)
+			fc.a.Rep.Report(diag.Diagnostic{
+				Severity: diag.Error,
+				Span:     call.Span,
+				Full:     call.Span,
+				Message:  fmt.Sprintf("variant `%s.%s` has no payload; write `%s.%s` without `()`", en.String(), v.Name, en.Name, v.Name),
+				Hint:     "unit enum variants take no arguments; remove `()`",
+				Data:     map[string]string{"kind": "remove_parens"},
+			})
 			for _, a := range call.Args {
 				_ = fc.checkExpr(a, true)
 			}
@@ -848,7 +1008,12 @@ func (fc *funcChecker) checkEnumMemberCall(en *types.Enum, genEn *GenericEnumTem
 	}
 	fi := fc.a.LookupMethod(en, mem.Member, mTypeArgs, call.Span)
 	if fi == nil {
-		fc.a.Rep.Errorf(mem.Span, "enum %s has no variant or method %q", en.String(), mem.Member)
+		cands := closestNames(mem.Member, fc.a.enumMemberNames(fc.mod, en, true))
+		hint := ""
+		if len(cands) > 0 {
+			hint = fmt.Sprintf("did you mean `%s.%s`?", en.Name, strings.Join(cands, "` or `"+en.Name+"."))
+		}
+		fc.a.errorWithRename(fc.a.focusSpan(mem), fmt.Sprintf("enum %s has no variant or method %q", en.String(), mem.Member), mem.Member, hint, cands)
 		for _, a := range call.Args {
 			_ = fc.checkExpr(a, true)
 		}
@@ -878,29 +1043,53 @@ func (fc *funcChecker) checkGenericTypeAssocCall(genSt *GenericStructTemplate, r
 		expTarget = opt.Elem
 	}
 
+	resolveMethodArgs := func(args []ast.TypeExpr) ([]types.Type, bool) {
+		if len(args) == 0 {
+			return nil, true
+		}
+		if gset, ok := fc.a.genMethods[genSt.Decl.Name]; ok {
+			if gtmpl, ok2 := gset[method]; ok2 && gtmpl != nil && gtmpl.MethodDecl != nil && len(gtmpl.MethodDecl.TypeParams) > 0 {
+				return fc.a.resolveGenericArgs(fc.mod, gtmpl.Mod, gtmpl.MethodDecl.TypeParams, args, fc.subst, call.Span, "method", method)
+			}
+		}
+		out := make([]types.Type, len(args))
+		for i, ta := range args {
+			out[i] = fc.a.resolveValueType(fc.mod, ta, fc.subst, false)
+			if out[i] == types.TypeInvalid {
+				return nil, false
+			}
+		}
+		return out, true
+	}
+
 	if len(recvTypeArgs) > 0 {
-		if len(recvTypeArgs) != len(genSt.Decl.TypeParams) {
-			fc.a.Rep.Errorf(call.Span, "generic type %s expects %d type argument(s), got %d", genSt.Decl.Name, len(genSt.Decl.TypeParams), len(recvTypeArgs))
+		resolvedRecv, ok := fc.a.resolveGenericArgs(fc.mod, genSt.Mod, genSt.Decl.TypeParams, recvTypeArgs, fc.subst, call.Span, "generic type", genSt.Decl.Name)
+		if !ok {
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
 		}
-		targs = make([]types.Type, len(recvTypeArgs))
-		for i, ta := range recvTypeArgs {
-			targs[i] = fc.a.resolveValueType(fc.mod, ta, fc.subst, false)
-		}
-		for _, ta := range call.TypeArgs {
-			mTypeArgs = append(mTypeArgs, fc.a.resolveValueType(fc.mod, ta, fc.subst, false))
+		targs = resolvedRecv
+		var okM bool
+		mTypeArgs, okM = resolveMethodArgs(call.TypeArgs)
+		if !okM {
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
 		}
 	} else if expSt, ok := expTarget.(*types.Struct); ok && expSt.Name == genSt.Decl.Name && len(expSt.TypeArgs) == len(genSt.Decl.TypeParams) {
 		targs = expSt.TypeArgs
-		for _, ta := range call.TypeArgs {
-			mTypeArgs = append(mTypeArgs, fc.a.resolveValueType(fc.mod, ta, fc.subst, false))
+		var okM bool
+		mTypeArgs, okM = resolveMethodArgs(call.TypeArgs)
+		if !okM {
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
 		}
 	} else if len(call.TypeArgs) == len(genSt.Decl.TypeParams) {
-		targs = make([]types.Type, len(call.TypeArgs))
-		for i, ta := range call.TypeArgs {
-			targs[i] = fc.a.resolveValueType(fc.mod, ta, fc.subst, false)
+		resolvedRecv, ok := fc.a.resolveGenericArgs(fc.mod, genSt.Mod, genSt.Decl.TypeParams, call.TypeArgs, fc.subst, call.Span, "generic type", genSt.Decl.Name)
+		if !ok {
+			inf.Type = types.TypeInvalid
+			return types.TypeInvalid
 		}
+		targs = resolvedRecv
 	} else {
 		fc.a.Rep.Errorf(call.Span, "generic type %s expects %d type argument(s); write `%s[...].%s(...)`",
 			genSt.Decl.Name, len(genSt.Decl.TypeParams), genSt.Decl.Name, method)
@@ -942,16 +1131,12 @@ func (fc *funcChecker) checkGenericFuncCall(genFn *GenericFuncTemplate, call *as
 	var targs []types.Type
 
 	if len(call.TypeArgs) > 0 {
-		if len(call.TypeArgs) != len(decl.TypeParams) {
-			fc.a.Rep.Errorf(call.Span, "generic function %q expects %d type argument(s), got %d",
-				decl.Name, len(decl.TypeParams), len(call.TypeArgs))
+		resolvedArgs, ok := fc.a.resolveGenericArgs(fc.mod, genFn.Mod, decl.TypeParams, call.TypeArgs, fc.subst, call.Span, "generic function", decl.Name)
+		if !ok {
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
 		}
-		targs = make([]types.Type, len(call.TypeArgs))
-		for i, ta := range call.TypeArgs {
-			targs[i] = fc.a.resolveValueType(fc.mod, ta, fc.subst, false)
-		}
+		targs = resolvedArgs
 	} else {
 		// Infer type arguments from call arguments (and expected return type if needed)!
 		fl := decl.Value.(*ast.FuncLit)
@@ -994,7 +1179,12 @@ func (fc *funcChecker) checkGenericFuncCall(genFn *GenericFuncTemplate, call *as
 				inf.Type = types.TypeInvalid
 				return types.TypeInvalid
 			}
-			targs[i] = ta
+			validTa, ok2 := validateInferredConstArg(fc.a, genFn.Mod, decl.TypeParams, tp, ta, call.Span)
+			if !ok2 {
+				inf.Type = types.TypeInvalid
+				return types.TypeInvalid
+			}
+			targs[i] = validTa
 		}
 	}
 
@@ -1214,7 +1404,7 @@ func (fc *funcChecker) checkSignatureArgs(params []types.FuncParam, args []ast.E
 		hasRefBearingArg := false
 		for i, arg := range args {
 			ad := fc.arenaDepthOfExpr(arg)
-			if i < len(params) && params[i].Mode == types.ModeMut && params[i].Type.Equals(types.TypeArena) {
+			if i < len(params) && params[i].Mode == types.ModeMut && types.IsArena(params[i].Type) {
 				if asym := fc.rootSymbolOfExpr(arg); asym != nil && asym.BindKind == BindOwned && asym.ScopeDepth > ad {
 					ad = asym.ScopeDepth
 				}
@@ -1222,11 +1412,11 @@ func (fc *funcChecker) checkSignatureArgs(params []types.FuncParam, args []ast.E
 			} else if i < len(params) && typeMayHoldArenaRef(params[i].Type) {
 				hasRefBearingArg = true
 			}
-			if ad > 0 && mr.sym.ScopeDepth < ad && !mr.sym.Type.Equals(types.TypeArena) {
+			if ad > 0 && mr.sym.ScopeDepth < ad && !types.IsArena(mr.sym.Type) {
 				fc.a.Rep.Errorf(arg.GetSpan(), "arena reference `ref[T]` cannot escape into %q declared in an outer scope", mr.sym.Name)
 			}
 		}
-		if hasRefBearingArg && !mr.sym.Type.Equals(types.TypeArena) && typeMayHoldArenaRef(mr.sym.Type) {
+		if hasRefBearingArg && !types.IsArena(mr.sym.Type) && typeMayHoldArenaRef(mr.sym.Type) {
 			destDepth := mr.sym.ScopeDepth
 			if destDepth < 1 {
 				destDepth = 1
@@ -1239,14 +1429,14 @@ func (fc *funcChecker) checkSignatureArgs(params []types.FuncParam, args []ast.E
 	// and forbid passing an inner-arena `ref[T]` (or `&Arena`) alongside an outer interior-mutable `ref[Node]`!
 	otherMayHoldRef := receiverMutRoot != nil && typeMayHoldArenaRef(receiverMutRoot.Type)
 	for _, p := range params {
-		if !p.Type.Equals(types.TypeArena) && typeMayHoldArenaRef(p.Type) {
+		if !types.IsArena(p.Type) && typeMayHoldArenaRef(p.Type) {
 			otherMayHoldRef = true
 			break
 		}
 	}
 	if otherMayHoldRef {
 		for i, p := range params {
-			if p.Mode == types.ModeMut && p.Type.Equals(types.TypeArena) {
+			if p.Mode == types.ModeMut && types.IsArena(p.Type) {
 				if asym := fc.rootSymbolOfExpr(args[i]); asym != nil && asym.BindKind == BindOwned {
 					fc.pinArenaAt(asym, fc.curDepth())
 				}
@@ -1268,7 +1458,7 @@ func (fc *funcChecker) checkSignatureArgs(params []types.FuncParam, args []ast.E
 					continue
 				}
 				adJ := fc.arenaDepthOfExpr(argJ)
-				if j < len(params) && params[j].Mode == types.ModeMut && params[j].Type.Equals(types.TypeArena) {
+				if j < len(params) && params[j].Mode == types.ModeMut && types.IsArena(params[j].Type) {
 					if asym := fc.rootSymbolOfExpr(argJ); asym != nil && asym.BindKind == BindOwned && asym.ScopeDepth > adJ {
 						adJ = asym.ScopeDepth
 					}
@@ -1346,7 +1536,7 @@ func (fc *funcChecker) checkMutatingMethodRecvEscape(recv ast.Expr, args []ast.E
 	for _, arg := range args {
 		ad := fc.arenaDepthOfExpr(arg)
 		if u, ok := arg.(*ast.UnaryExpr); ok && u.Op == token.Amp {
-			if asym := fc.rootSymbolOfExpr(u.Operand); asym != nil && asym.Type != nil && asym.Type.Equals(types.TypeArena) && asym.BindKind == BindOwned && asym.ScopeDepth > ad {
+			if asym := fc.rootSymbolOfExpr(u.Operand); asym != nil && asym.Type != nil && types.IsArena(asym.Type) && asym.BindKind == BindOwned && asym.ScopeDepth > ad {
 				ad = asym.ScopeDepth
 			}
 		}
@@ -1355,7 +1545,7 @@ func (fc *funcChecker) checkMutatingMethodRecvEscape(recv ast.Expr, args []ast.E
 		}
 		if recvAd > 0 && recvAd < ad {
 			fc.a.Rep.Errorf(arg.GetSpan(), "arena reference `ref[T]` from an inner `Arena` cannot escape into an outer `Arena` allocation")
-		} else if placeRoot != nil && placeRoot.ScopeDepth < ad && !placeRoot.Type.Equals(types.TypeArena) {
+		} else if placeRoot != nil && placeRoot.ScopeDepth < ad && !types.IsArena(placeRoot.Type) {
 			fc.a.Rep.Errorf(arg.GetSpan(), "arena reference `ref[T]` cannot escape into %q declared in an outer scope", placeRoot.Name)
 		} else if placeRoot == nil && recvAd == 0 {
 			fc.a.Rep.Errorf(span, "arena reference `ref[T]` cannot escape into an outer reference target")
@@ -1511,6 +1701,18 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 		inf.BuiltinName = "any.to_string"
 		return wrapRet(types.TypeString)
 	}
+	if mem.Member == "to_bits" {
+		if recvTy.Equals(types.TypeFloat) {
+			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
+			inf.BuiltinName = "float.to_bits"
+			return wrapRet(types.TypeU64)
+		}
+		if recvTy.Equals(types.TypeF32) {
+			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
+			inf.BuiltinName = "f32.to_bits"
+			return wrapRet(types.TypeU32)
+		}
+	}
 
 	// `string` built-in primitive representation methods (higher-level string & char methods live in `std/core.ll`)
 	if recvTy.Equals(types.TypeString) {
@@ -1569,11 +1771,6 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
 			inf.BuiltinName = "vec.pop"
 			return wrapRet(types.NewOptional(vec.Elem))
-		case "remove", "swap_remove":
-			mr := requireMutRecv()
-			fc.checkSignatureArgs([]types.FuncParam{{Name: "idx", Mode: types.ModeRead, Type: types.TypeInt}}, call.Args, mr, call.Span)
-			inf.BuiltinName = "vec." + mem.Member
-			return wrapRet(vec.Elem)
 		case "clear":
 			_ = requireMutRecv()
 			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
@@ -1621,64 +1818,6 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 		}
 	}
 
-	// `Arena` instance methods (`arena.alloc(val)`, `arena.bytes_used()`, `arena.reset()`)
-	if recvTy.Equals(types.TypeArena) {
-		switch mem.Member {
-		case "alloc":
-			mr := requireMutRecv()
-			if len(call.Args) != 1 {
-				fc.a.Rep.Errorf(call.Span, "`arena.alloc(val)` expects 1 argument, got %d", len(call.Args))
-				inf.Type = types.TypeInvalid
-				return types.TypeInvalid
-			}
-			var elemTy types.Type
-			if len(call.TypeArgs) == 1 {
-				elemTy = fc.a.resolveValueType(fc.mod, call.TypeArgs[0], fc.subst, false)
-				fc.checkSignatureArgs([]types.FuncParam{{Name: "val", Mode: types.ModeOwn, Type: elemTy}}, call.Args, mr, call.Span)
-			} else {
-				elemTy = fc.checkExpr(call.Args[0], true)
-				if mr != nil {
-					if rr := fc.rootSymbolOfExpr(call.Args[0]); rr == mr {
-						fc.a.Rep.Errorf(call.Args[0].GetSpan(), "cannot pass arena %q into its own `alloc`", mr.Name)
-					}
-				}
-				fc.consumeValue(call.Args[0], elemTy, true)
-			}
-			if mr != nil && mr.BindKind == BindOwned {
-				fc.pinArenaAt(mr, fc.curDepth())
-			}
-			inf.BuiltinName = "Arena.alloc"
-			inf.IntrinsicType = elemTy
-			res := &types.Ref{Elem: elemTy}
-			inf.Type = res
-			return res
-
-		case "reset":
-			mr := requireMutRecv()
-			sym := mr
-			if sym == nil {
-				sym = fc.rootSymbolOfExpr(mem.Base)
-			}
-			if sym != nil && sym.BindKind != BindOwned {
-				fc.a.Rep.Errorf(call.Span, "cannot call `.reset()` on borrowed `&Arena` parameter %q (caller may hold live `ref[T]` allocations)", sym.Name)
-			} else if sym != nil && fc.isArenaPinned(sym) {
-				fc.a.Rep.ErrorWithHint(
-					call.Span,
-					fmt.Sprintf("cannot call `.reset()` on `Arena` %q while `ref[T]` allocations from this scope may still be live", sym.Name),
-					"wrap the phase that allocates `ref[T]` in a `{ ... }` block so references go out of scope before calling `.reset()`",
-				)
-			}
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "Arena.reset"
-			return wrapRet(types.TypeVoid)
-
-		case "bytes_used":
-			fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
-			inf.BuiltinName = "Arena.bytes_used"
-			return wrapRet(types.TypeInt)
-		}
-	}
-
 	hint, cands := fc.a.unknownMethodHint(recvTy, mem.Member)
 	fc.a.errorWithRename(fc.a.focusSpan(mem), fmt.Sprintf("type %s has no method %q", recvTy.String(), mem.Member), mem.Member, hint, cands)
 	for _, a := range call.Args {
@@ -1692,6 +1831,9 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 	inf := fc.a.infoFor(call)
 	switch name {
 	case "print", "println", "eprint", "eprintln":
+		if fc.inConstContext() {
+			fc.recordConstViolation(call.Span, fmt.Sprintf("cannot call host I/O builtin `%s` in a `const` or `comptime` context", name), "host I/O is only available in runtime `bind` functions", nil)
+		}
 		if len(call.Args) == 0 && (name == "println" || name == "eprintln") {
 			inf.CallKind = CallBuiltinFunc
 			inf.BuiltinName = name
@@ -1748,6 +1890,39 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 		inf.BuiltinName = "assert"
 		inf.Type = types.TypeVoid
 		return true, types.TypeVoid
+
+	case "compile_error":
+		fc.a.Rep.ErrorWithHint(
+			call.Span,
+			"`compile_error` has moved into the `comp` namespace (`comp.compile_error`)",
+			"write `comp.compile_error(...)` instead",
+		)
+		for _, a := range call.Args {
+			fc.checkExpr(a, true)
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "compile_error"
+		inf.Type = types.TypeNever
+		return true, types.TypeNever
+
+	case "embed_str", "embed_bytes":
+		fc.a.Rep.ErrorWithHint(
+			call.Span,
+			fmt.Sprintf("`%s` belongs in the `comp` namespace (`comp.%s`)", name, name),
+			fmt.Sprintf("write `comp.%s(...)` instead", name),
+		)
+		for _, a := range call.Args {
+			fc.checkExpr(a, true)
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "comp." + name
+		if name == "embed_bytes" {
+			retTy := &types.Vector{Elem: types.TypeU8}
+			inf.Type = retTy
+			return true, retTy
+		}
+		inf.Type = types.TypeString
+		return true, types.TypeString
 
 	case "caller_location":
 		if len(call.Args) != 0 {
@@ -1820,6 +1995,9 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 		return true, lty
 
 	case "args":
+		if fc.inConstContext() {
+			fc.recordConstViolation(call.Span, "cannot call runtime process builtin `args()` in a `const` or `comptime` context", "process CLI arguments are only available in runtime `bind` functions", nil)
+		}
 		fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
 		inf.CallKind = CallBuiltinFunc
 		inf.BuiltinName = "args"
@@ -1828,6 +2006,9 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 		return true, res
 
 	case "exit":
+		if fc.inConstContext() {
+			fc.recordConstViolation(call.Span, "cannot call runtime process builtin `exit()` in a `const` or `comptime` context", "`exit()` is only available in runtime `bind` functions", nil)
+		}
 		fc.checkSignatureArgs([]types.FuncParam{{Name: "code", Mode: types.ModeRead, Type: types.TypeInt}}, call.Args, nil, call.Span)
 		inf.CallKind = CallBuiltinFunc
 		inf.BuiltinName = "exit"
@@ -1835,6 +2016,137 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 		return true, types.TypeNever
 	}
 	return false, nil
+}
+
+func (fc *funcChecker) checkCompNamespaceCall(mem *ast.MemberExpr, call *ast.CallExpr) types.Type {
+	inf := fc.a.infoFor(call)
+	if !fc.inComptimeOnlyContext() {
+		fc.a.Rep.ErrorWithHint(
+			call.Span,
+			fmt.Sprintf("cannot call `@comptime_only` builtin `comp.%s` outside a compile-time context", mem.Member),
+			"wrap the call in `comptime { ... }`, a `const` initializer, or a `@comptime_only` function",
+		)
+	}
+	if len(call.TypeArgs) > 0 {
+		fc.a.Rep.Errorf(call.Span, "`comp.%s` does not take type arguments", mem.Member)
+	}
+	switch mem.Member {
+	case "compile_error":
+		if len(call.Args) != 1 {
+			fc.a.Rep.Errorf(call.Span, "`comp.compile_error(msg)` expects 1 `string` argument, got %d", len(call.Args))
+			for _, a := range call.Args {
+				fc.checkExpr(a, true)
+			}
+		} else {
+			fc.checkSignatureArgs([]types.FuncParam{{Name: "msg", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, nil, call.Span)
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "compile_error"
+		inf.Type = types.TypeNever
+		return types.TypeNever
+
+	case "log":
+		if len(call.Args) != 1 {
+			fc.a.Rep.Errorf(call.Span, "`comp.log(val)` expects 1 argument, got %d", len(call.Args))
+			for _, a := range call.Args {
+				fc.checkExpr(a, true)
+			}
+		} else {
+			aty := fc.checkExpr(call.Args[0], true)
+			if aty.Equals(types.TypeString) {
+				fc.markViewIfApplicable(call.Args[0], types.TypeString)
+			} else if aty != types.TypeInvalid && !fc.a.supportsToString(aty) {
+				fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`comp.log` argument of type %s does not implement `Printable`", aty.String())
+			}
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "comp.log"
+		inf.Type = types.TypeVoid
+		return types.TypeVoid
+
+	case "embed_str":
+		if len(call.Args) != 1 {
+			fc.a.Rep.Errorf(call.Span, "`comp.embed_str(path)` expects 1 `string` argument, got %d", len(call.Args))
+			for _, a := range call.Args {
+				fc.checkExpr(a, true)
+			}
+		} else {
+			fc.checkSignatureArgs([]types.FuncParam{{Name: "path", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, nil, call.Span)
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "comp.embed_str"
+		inf.Type = types.TypeString
+		return types.TypeString
+
+	case "embed_bytes":
+		if len(call.Args) != 1 {
+			fc.a.Rep.Errorf(call.Span, "`comp.embed_bytes(path)` expects 1 `string` argument, got %d", len(call.Args))
+			for _, a := range call.Args {
+				fc.checkExpr(a, true)
+			}
+		} else {
+			fc.checkSignatureArgs([]types.FuncParam{{Name: "path", Mode: types.ModeRead, Type: types.TypeString}}, call.Args, nil, call.Span)
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "comp.embed_bytes"
+		retTy := &types.Vector{Elem: types.TypeU8}
+		inf.Type = retTy
+		return retTy
+
+	default:
+		fc.a.Rep.ErrorWithHint(
+			mem.Span,
+			fmt.Sprintf("unknown `comp` builtin %q", mem.Member),
+			"available `comp` builtins: `comp.compile_error`, `comp.log`, `comp.embed_str`, `comp.embed_bytes` (and target constant `comp.TARGET`)",
+		)
+		for _, a := range call.Args {
+			fc.checkExpr(a, true)
+		}
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+}
+
+func (fc *funcChecker) checkTypeNamespaceCall(mem *ast.MemberExpr, call *ast.CallExpr) types.Type {
+	inf := fc.a.infoFor(call)
+	requireOneTypeArg := func() types.Type {
+		if len(call.TypeArgs) != 1 {
+			fc.a.Rep.Errorf(call.Span, "`type.%s[T]()` requires 1 type argument", mem.Member)
+			return types.TypeInvalid
+		}
+		return fc.a.resolveValueType(fc.mod, call.TypeArgs[0], fc.subst, false)
+	}
+	switch mem.Member {
+	case "size_of", "align_of":
+		ty := requireOneTypeArg()
+		fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
+		inf.CallKind = CallIntrinsic
+		inf.BuiltinName = mem.Member
+		inf.IntrinsicType = ty
+		inf.Type = types.TypeInt
+		return types.TypeInt
+
+	case "is_plain":
+		ty := requireOneTypeArg()
+		fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
+		inf.CallKind = CallIntrinsic
+		inf.BuiltinName = "is_plain"
+		inf.IntrinsicType = ty
+		inf.Type = types.TypeBool
+		return types.TypeBool
+
+	default:
+		fc.a.Rep.ErrorWithHint(
+			mem.Span,
+			fmt.Sprintf("unknown `type` builtin %q", mem.Member),
+			"available `type` builtins: `type.size_of`, `type.align_of`, `type.is_plain`",
+		)
+		for _, a := range call.Args {
+			fc.checkExpr(a, true)
+		}
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
 }
 
 func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (bool, types.Type) {
@@ -1856,8 +2168,12 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 
 	switch name {
 	case "size_of", "align_of":
+		fc.a.Rep.ErrorWithHint(
+			call.Span,
+			fmt.Sprintf("`%s` has moved into the `type` namespace (`type.%s`)", name, name),
+			fmt.Sprintf("write `type.%s[T]()` instead", name),
+		)
 		ty := requireOneTypeArg()
-		fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
 		inf.CallKind = CallIntrinsic
 		inf.BuiltinName = name
 		inf.IntrinsicType = ty
@@ -1865,8 +2181,12 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 		return true, types.TypeInt
 
 	case "is_plain":
+		fc.a.Rep.ErrorWithHint(
+			call.Span,
+			"`is_plain` has moved into the `type` namespace (`type.is_plain`)",
+			"write `type.is_plain[T]()` instead",
+		)
 		ty := requireOneTypeArg()
-		fc.checkSignatureArgs(nil, call.Args, nil, call.Span)
 		inf.CallKind = CallIntrinsic
 		inf.BuiltinName = "is_plain"
 		inf.IntrinsicType = ty
@@ -2055,9 +2375,12 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 		} else {
 			aty := fc.checkExpr(call.Args[0], true)
 			_, isP := aty.(*types.Ptr)
+			if ft, ok := aty.(*types.Func); ok && ft.Extern {
+				isP = true // an `extern fn` is a C function pointer
+			}
 			prim := types.UnderlyingPrimitive(aty)
 			if !isP && (prim == nil || !prim.IsInteger()) && aty != types.TypeInvalid {
-				fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`ptr_cast` source must be `ptr[From]` or an integer address, got %s", aty.String())
+				fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`ptr_cast` source must be `ptr[From]`, an `extern fn`, or an integer address, got %s", aty.String())
 			}
 		}
 		res := &types.Ptr{Elem: toTy}
@@ -2067,14 +2390,67 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 		inf.Type = res
 		return true, res
 
+	case "fn_from_ptr":
+		// `fn_from_ptr[extern fn(...) R](p)`: the C function at address `p` (from `dlsym`, or a C
+		// struct field) as a callable `extern fn`.
+		requireUnsafe()
+		toTy := requireOneTypeArg()
+		ft, ok := toTy.(*types.Func)
+		if toTy != types.TypeInvalid && (!ok || !ft.Extern) {
+			fc.a.Rep.Errorf(call.Span, "`fn_from_ptr[T](p)` needs an `extern fn(...)` type for `T`, got %s", toTy.String())
+			toTy = types.TypeInvalid
+		}
+		if len(call.Args) != 1 {
+			fc.a.Rep.Errorf(call.Span, "`fn_from_ptr[T](p)` expects 1 argument")
+		} else {
+			aty := fc.checkExpr(call.Args[0], true)
+			_, isP := aty.(*types.Ptr)
+			prim := types.UnderlyingPrimitive(aty)
+			if !isP && (prim == nil || !prim.IsInteger()) && aty != types.TypeInvalid {
+				fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`fn_from_ptr` takes a `ptr[T]` or an integer address, got %s", aty.String())
+			}
+		}
+		inf.CallKind = CallIntrinsic
+		inf.BuiltinName = "fn_from_ptr"
+		inf.Type = toTy
+		return true, toTy
+
+	case "ref_from_ptr":
+		// `ref_from_ptr(p)`: the `ref[T]` for the value at `p`. For std/core's `Arena`, which hands
+		// out references to the memory it owns.
+		requireUnsafe()
+		var elem types.Type = types.TypeInvalid
+		if len(call.Args) != 1 {
+			fc.a.Rep.Errorf(call.Span, "`ref_from_ptr(p)` expects 1 `ptr[T]` argument")
+		} else {
+			pty := fc.checkExpr(call.Args[0], true)
+			if p, ok := pty.(*types.Ptr); ok {
+				elem = p.Elem
+			} else if pty != types.TypeInvalid {
+				fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`ref_from_ptr` requires `ptr[T]`, got %s", pty.String())
+			}
+		}
+		res := types.Type(types.TypeInvalid)
+		if elem != types.TypeInvalid {
+			res = &types.Ref{Elem: elem}
+		}
+		inf.CallKind = CallIntrinsic
+		inf.BuiltinName = "ref_from_ptr"
+		inf.Type = res
+		return true, res
+
 	case "ptr_addr":
 		requireUnsafe()
 		if len(call.Args) != 1 {
 			fc.a.Rep.Errorf(call.Span, "`ptr_addr(p)` expects 1 `ptr[T]` argument")
 		} else {
 			pty := fc.checkExpr(call.Args[0], true)
-			if _, ok := pty.(*types.Ptr); !ok && pty != types.TypeInvalid {
-				fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`ptr_addr` requires `ptr[T]`, got %s", pty.String())
+			_, isP := pty.(*types.Ptr)
+			if ft, ok := pty.(*types.Func); ok && ft.Extern {
+				isP = true
+			}
+			if !isP && pty != types.TypeInvalid {
+				fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`ptr_addr` requires `ptr[T]` or an `extern fn`, got %s", pty.String())
 			}
 		}
 		inf.CallKind = CallIntrinsic
@@ -2122,7 +2498,6 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 	}
 
 	u8p := &types.Ptr{Elem: types.TypeU8}
-	intp := &types.Ptr{Elem: types.TypeInt}
 	sysIntrinsic := func(params []types.FuncParam, ret types.Type) (bool, types.Type) {
 		requireUnsafe()
 		fc.checkSignatureArgs(params, call.Args, nil, call.Span)
@@ -2133,108 +2508,27 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 	}
 
 	switch name {
-	case "sys_fopen":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "path", Mode: types.ModeRead, Type: u8p},
-			{Name: "mode", Mode: types.ModeRead, Type: u8p},
-		}, u8p)
-	case "sys_fclose", "sys_fflush", "sys_ferror", "sys_remove":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "arg", Mode: types.ModeRead, Type: u8p},
-		}, types.TypeI32)
-	case "sys_fread", "sys_fwrite":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "buf", Mode: types.ModeRead, Type: u8p},
-			{Name: "size", Mode: types.ModeRead, Type: types.TypeInt},
-			{Name: "count", Mode: types.ModeRead, Type: types.TypeInt},
-			{Name: "fp", Mode: types.ModeRead, Type: u8p},
-		}, types.TypeInt)
-	case "sys_fseek":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "fp", Mode: types.ModeRead, Type: u8p},
-			{Name: "offset", Mode: types.ModeRead, Type: types.TypeInt},
-			{Name: "whence", Mode: types.ModeRead, Type: types.TypeI32},
-		}, types.TypeI32)
-	case "sys_ftell", "sys_pclose", "sys_system", "sys_file_size", "sys_mkdir", "sys_remove_all":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "arg", Mode: types.ModeRead, Type: u8p},
-		}, types.TypeInt)
-	case "sys_rename":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "old_path", Mode: types.ModeRead, Type: u8p},
-			{Name: "new_path", Mode: types.ModeRead, Type: u8p},
-		}, types.TypeI32)
-	case "sys_popen":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "cmd", Mode: types.ModeRead, Type: u8p},
-		}, u8p)
-	case "sys_pread":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "stream", Mode: types.ModeRead, Type: u8p},
-			{Name: "buf", Mode: types.ModeRead, Type: u8p},
-			{Name: "max_len", Mode: types.ModeRead, Type: types.TypeInt},
-		}, types.TypeInt)
-	case "sys_file_exists":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "path", Mode: types.ModeRead, Type: u8p},
-		}, types.TypeBool)
-	case "sys_num_cpus", "sys_argc", "sys_monotonic_nanos", "sys_epoch_nanos_now", "sys_tls_available":
+	case "sys_argc", "sys_tls_available":
 		return sysIntrinsic(nil, types.TypeInt)
-	case "sys_os_name", "sys_os_arch":
-		return sysIntrinsic(nil, u8p)
 	case "sys_argv":
 		return sysIntrinsic([]types.FuncParam{
 			{Name: "idx", Mode: types.ModeRead, Type: types.TypeInt},
 		}, u8p)
-	case "sys_sleep_ms":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "ms", Mode: types.ModeRead, Type: types.TypeInt},
-		}, types.TypeVoid)
-	case "sys_local_tz_name":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "epoch_sec", Mode: types.ModeRead, Type: types.TypeInt},
-		}, u8p)
-	case "sys_local_tz_offset", "sys_tcp_port", "sys_tcp_peer_port", "sys_tcp_peer_ipv4", "sys_tcp_local_ipv4":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "arg", Mode: types.ModeRead, Type: types.TypeInt},
-		}, types.TypeInt)
-	case "sys_tcp_listen", "sys_tcp_connect":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "host", Mode: types.ModeRead, Type: u8p},
-			{Name: "port", Mode: types.ModeRead, Type: types.TypeInt},
-			{Name: "arg3", Mode: types.ModeRead, Type: types.TypeInt},
-		}, types.TypeInt)
-	case "sys_tcp_accept", "sys_net_set_timeout", "sys_tcp_peer_ipv6_group", "sys_tcp_local_ipv6_group":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
-			{Name: "timeout_ms", Mode: types.ModeRead, Type: types.TypeInt},
-		}, types.TypeInt)
-	case "sys_net_send_all":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
-			{Name: "data", Mode: types.ModeRead, Type: u8p},
-			{Name: "len", Mode: types.ModeRead, Type: types.TypeInt},
-		}, types.TypeInt)
-	case "sys_net_recv":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
-			{Name: "buf", Mode: types.ModeRead, Type: u8p},
-			{Name: "max_len", Mode: types.ModeRead, Type: types.TypeInt},
-			{Name: "timeout_ms", Mode: types.ModeRead, Type: types.TypeInt},
-		}, types.TypeInt)
-	case "sys_net_close":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
-		}, types.TypeVoid)
-	case "sys_net_shutdown", "sys_tcp_set_nodelay":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},
-			{Name: "arg", Mode: types.ModeRead, Type: types.TypeInt},
-		}, types.TypeInt)
-	case "sys_net_socketpair":
-		return sysIntrinsic([]types.FuncParam{
-			{Name: "out_fds", Mode: types.ModeRead, Type: intp},
-		}, types.TypeInt)
+	case "syscall":
+		// `syscall(number, a1, ..., a6)`: the target's system call instruction. Returns the result,
+		// or `-errno` on failure on every platform.
+		requireUnsafe()
+		if len(call.Args) < 1 || len(call.Args) > 7 {
+			fc.a.Rep.Errorf(call.Span, "`syscall(number, a1, ..., a6)` takes a number and up to 6 arguments, got %d", len(call.Args))
+		}
+		for _, arg := range call.Args {
+			at := fc.checkExprExpect(arg, types.TypeInt, true)
+			fc.verifyAssignable(at, types.TypeInt, arg, arg.GetSpan(), "`syscall` argument")
+		}
+		inf.CallKind = CallIntrinsic
+		inf.BuiltinName = name
+		inf.Type = types.TypeInt
+		return true, types.TypeInt
 	case "sys_tls_client_handshake":
 		return sysIntrinsic([]types.FuncParam{
 			{Name: "fd", Mode: types.ModeRead, Type: types.TypeInt},

@@ -21,6 +21,11 @@ func (fl *funcLowerer) lowerVoidExpr(e ast.Expr) {
 	switch v := e.(type) {
 	case *ast.UnsafeExpr:
 		fl.lowerVoidExpr(v.Expr)
+	case *ast.ComptimeExpr:
+		if fl.bm != nil && fl.bm.ComptimeVals[v] != nil {
+			return
+		}
+		fl.lowerVoidExpr(v.Expr)
 	case *ast.BlockExpr:
 		_ = fl.lowerBlockExpr(v, false)
 	case *ast.StmtBodyExpr:
@@ -249,6 +254,9 @@ func (fl *funcLowerer) isFreshResourceRValue(e ast.Expr, inf *sema.ExprInfo) boo
 		// String literals have `cap = 0` (static storage); `none` has `has_value = false` / `NULL`; ranges are plain scalars.
 		return false
 	case *ast.IdentExpr:
+		if inf.Sym != nil && inf.Sym.IsConstParam {
+			return false
+		}
 		// Reading a variable or static function thunk does NOT allocate! A bare unit result
 		// member (`Forbidden`) constructs a fresh value like `Lookup.Forbidden`.
 		return inf.EnumVariant != nil && inf.EnumType != nil && inf.EnumType.IsTagged
@@ -271,6 +279,11 @@ func (fl *funcLowerer) isFreshResourceRValue(e ast.Expr, inf *sema.ExprInfo) boo
 		return true
 	case *ast.UnsafeExpr:
 		return fl.isFreshResourceRValue(v.Expr, fl.info(v.Expr))
+	case *ast.ComptimeExpr:
+		if fl.bm != nil && fl.bm.ComptimeVals[v] != nil {
+			return false
+		}
+		return fl.isFreshResourceRValue(v.Expr, fl.info(v.Expr))
 	default:
 		// `InterpStringExpr`, `BinaryExpr` (`s1 + s2`, `??`), `CallExpr`, `SliceExpr` (non-view),
 		// `VecLit`, `SetLit`, `MapLit`, `StructLit`, `FuncLit`, `BlockExpr`, `IfExpr`, `ForExpr`, `MatchExpr`
@@ -282,7 +295,7 @@ func (fl *funcLowerer) isAddressable(e ast.Expr) bool {
 	switch v := e.(type) {
 	case *ast.IdentExpr:
 		inf := fl.info(v)
-		if inf.EnumVariant != nil {
+		if inf.EnumVariant != nil || (inf.Sym != nil && inf.Sym.IsConstParam) {
 			return false
 		}
 		return inf.Sym == nil || inf.Sym.FuncInst == nil
@@ -315,6 +328,8 @@ func (fl *funcLowerer) isAddressable(e ast.Expr) bool {
 		return v.Op == token.Star
 	case *ast.UnsafeExpr:
 		return fl.isAddressable(v.Expr)
+	case *ast.ComptimeExpr:
+		return fl.isAddressable(v.Expr)
 	default:
 		return false
 	}
@@ -322,10 +337,47 @@ func (fl *funcLowerer) isAddressable(e ast.Expr) bool {
 
 // lowerLValueAddr lowers an addressable place expression `e` to a typed pointer expression `T*`.
 func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) Expr {
+	return fl.lowerLValueAddrMode(e, false)
+}
+
+// lowerLValueAddrMut lowers an addressable place expression for mutation (promoting any
+// copy-on-write `.rodata`/view List/Vector containers along the lvalue chain).
+func (fl *funcLowerer) lowerLValueAddrMut(e ast.Expr) Expr {
+	return fl.lowerLValueAddrMode(e, true)
+}
+
+func (fl *funcLowerer) ensureVecCoWPtr(colTy types.Type, colPtr Expr) Expr {
+	var vecTy *types.Vector
+	if v, ok := colTy.(*types.Vector); ok {
+		vecTy = v
+	} else if st, ok := colTy.(*types.Struct); ok && (st.Lang == "list" || ((st.Name == "List" || strings.HasPrefix(st.Name, "List[")) && len(st.TypeArgs) == 1)) {
+		if len(st.TypeArgs) == 1 {
+			vecTy = &types.Vector{Elem: st.TypeArgs[0]}
+		}
+	}
+	if vecTy != nil {
+		fl.tc.visit(vecTy)
+		ptrTy := &types.Ptr{Elem: colTy}
+		vSlot := fl.allocSlot("_ll_vcow", ptrTy)
+		fl.assignLocal(vSlot, EnsureExpr(colPtr, ptrTy))
+		lenExpr := &ExprField{Base: NewLocalExpr(vSlot), FieldName: "len", Typ: types.TypeInt, IsPtr: true}
+		fl.emit(&InstrExpr{Expr: &ExprCall{
+			Callee: &ExprFuncRef{Name: "ll_vec_reserve__" + vecTy.Mangled()},
+			Args:   []Expr{&ExprCast{Val: NewLocalExpr(vSlot), From: ptrTy, To: &types.Ptr{Elem: vecTy}}, lenExpr},
+			Typ:    types.TypeVoid,
+		}})
+		return NewLocalExpr(vSlot)
+	}
+	return colPtr
+}
+
+func (fl *funcLowerer) lowerLValueAddrMode(e ast.Expr, mutable bool) Expr {
 	inf := fl.info(e)
 	switch v := e.(type) {
 	case *ast.UnsafeExpr:
-		return fl.lowerLValueAddr(v.Expr)
+		return fl.lowerLValueAddrMode(v.Expr, mutable)
+	case *ast.ComptimeExpr:
+		return fl.lowerLValueAddrMode(v.Expr, mutable)
 	case *ast.IdentExpr:
 		sym := inf.Sym
 		if sym != nil {
@@ -348,7 +400,7 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) Expr {
 			return EnsureExpr(fl.lowerExprRead(v.Operand), &types.Ptr{Elem: inf.Type})
 		}
 		if v.Op == token.Amp {
-			return fl.lowerLValueAddr(v.Operand)
+			return fl.lowerLValueAddrMode(v.Operand, mutable)
 		}
 
 	case *ast.MemberExpr:
@@ -378,14 +430,14 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) Expr {
 			}
 		}
 		if _, isVec := baseTy.(*types.Vector); isVec {
-			basePtr := fl.lowerLValueAddr(v.Base)
+			basePtr := fl.lowerLValueAddrMode(v.Base, mutable)
 			return &ExprAddrOf{
 				Place: &ExprField{Base: basePtr, FieldName: v.Member, Typ: inf.Type, IsPtr: true},
 				Typ:   &types.Ptr{Elem: inf.Type},
 			}
 		}
 		if _, isArr := baseTy.(*types.StackArray); isArr {
-			basePtr := fl.lowerLValueAddr(v.Base)
+			basePtr := fl.lowerLValueAddrMode(v.Base, mutable)
 			return &ExprAddrOf{
 				Place: &ExprField{Base: basePtr, FieldName: v.Member, Typ: inf.Type, IsPtr: true},
 				Typ:   &types.Ptr{Elem: inf.Type},
@@ -399,7 +451,7 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) Expr {
 		}
 		if tup, isTup := effectiveBase.(*types.Tuple); isTup {
 			fIdx := inf.TupleFieldIdx
-			basePtr := fl.lowerLValueAddr(v.Base)
+			basePtr := fl.lowerLValueAddrMode(v.Base, mutable)
 			fName := fmt.Sprintf("_%d", fIdx)
 			return &ExprAddrOf{
 				Place: &ExprField{Base: basePtr, FieldName: fName, FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: true},
@@ -447,7 +499,7 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) Expr {
 		}
 		st := baseTy.(*types.Struct)
 		sf, _ := st.FieldByName(v.Member)
-		basePtr := fl.lowerLValueAddr(v.Base)
+		basePtr := fl.lowerLValueAddrMode(v.Base, mutable)
 		return &ExprAddrOf{
 			Place: &ExprField{Base: basePtr, FieldName: sf.CName, Typ: sf.Type, IsPtr: true},
 			Typ:   &types.Ptr{Elem: sf.Type},
@@ -457,7 +509,7 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) Expr {
 		baseTy := fl.info(v.Base).Type
 		if tup, isTup := baseTy.(*types.Tuple); isTup {
 			fIdx := inf.TupleFieldIdx
-			basePtr := fl.lowerLValueAddr(v.Base)
+			basePtr := fl.lowerLValueAddrMode(v.Base, mutable)
 			fName := fmt.Sprintf("_%d", fIdx)
 			return &ExprAddrOf{
 				Place: &ExprField{Base: basePtr, FieldName: fName, FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: true},
@@ -468,13 +520,19 @@ func (fl *funcLowerer) lowerLValueAddr(e ast.Expr) Expr {
 		file, line := formatSpanLoc(v)
 		if rf, isRef := baseTy.(*types.Ref); isRef {
 			ptr := fl.lowerExprRead(v.Base)
+			if mutable {
+				ptr = fl.ensureVecCoWPtr(rf.Elem, ptr)
+			}
 			return fl.indexElementPtr(rf.Elem, ptr, idxExpr, file, line)
 		}
 		if _, isPtr := baseTy.(*types.Ptr); isPtr {
 			ptr := fl.lowerExprRead(v.Base)
 			return &ExprBinary{Op: token.Plus, Left: EnsureExpr(ptr, baseTy), Right: EnsureExpr(idxExpr, types.TypeInt), Typ: baseTy}
 		}
-		basePtr := fl.lowerLValueAddr(v.Base)
+		basePtr := fl.lowerLValueAddrMode(v.Base, mutable)
+		if mutable {
+			basePtr = fl.ensureVecCoWPtr(baseTy, basePtr)
+		}
 		return fl.indexElementPtr(baseTy, basePtr, idxExpr, file, line)
 	}
 	// Fallback: materialize into a temporary slot and return its address
@@ -652,6 +710,16 @@ func (fl *funcLowerer) lowerRawExpr(e ast.Expr, expected types.Type, forOwned bo
 
 	case *ast.UnsafeExpr:
 		return fl.lowerRawExpr(v.Expr, expected, forOwned)
+	case *ast.ComptimeExpr:
+		if fl.bm != nil {
+			if cv, ok := fl.bm.ComptimeVals[v]; ok && cv != nil {
+				if sd := sema.ExportStaticData(cv, inf.Type); sd != nil {
+					sv := lowerStaticData(sd, fl.tc, fl.registerThunk)
+					return &ExprConst{Static: sv, Typ: inf.Type}
+				}
+			}
+		}
+		return fl.lowerRawExpr(v.Expr, expected, forOwned)
 
 	case *ast.BlockExpr:
 		return fl.lowerBlockExpr(v, true)
@@ -736,6 +804,49 @@ func (fl *funcLowerer) lowerBlockExpr(b *ast.BlockExpr, needValue bool) Expr {
 func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) Expr {
 	inf := fl.info(ie)
 	exitLbl := fmt.Sprintf("_ll_exit_%d", inf.TargetID)
+
+	if fl.bm != nil {
+		if branch, ok := fl.bm.ComptimeIfBranch[ie]; ok {
+			if branch == 3 {
+				return nil
+			}
+			chosen := ie.Then
+			if branch == 2 {
+				chosen = ie.Else
+			}
+			var resSlot *Local
+			if needValue && inf.Type != nil && !inf.Type.Equals(types.TypeVoid) && !inf.Type.Equals(types.TypeNever) {
+				resSlot = fl.allocSlot("_ll_if", inf.Type)
+			}
+			fl.pushScope(inf.TargetID, exitLbl, "", resSlot, nil, false)
+			fl.pushInstrBuf()
+			fl.pushScope(0, "", "", nil, nil, false)
+			if !needValue || resSlot == nil {
+				fl.lowerVoidExpr(chosen)
+				fl.flushStmtTemps()
+			} else if cTy := fl.info(chosen).Type; cTy == types.TypeNever {
+				fl.lowerVoidExpr(chosen)
+				fl.flushStmtTemps()
+			} else {
+				cVal := fl.lowerExprOwned(chosen, resSlot.Type)
+				fl.assignLocal(resSlot, cVal)
+				fl.flushStmtTemps()
+			}
+			if !endsWithTerm(fl.curInstrs()) {
+				fl.popScopeEmitDrops()
+			} else {
+				fl.scopes = fl.scopes[:len(fl.scopes)-1]
+			}
+			chosenBody := fl.popInstrBuf()
+			fl.emit(&InstrBlock{Body: chosenBody})
+			fl.popScopeEmitDrops()
+			fl.emit(&InstrLabel{Name: exitLbl})
+			if resSlot != nil {
+				return NewLocalExpr(resSlot)
+			}
+			return nil
+		}
+	}
 
 	var resSlot *Local
 	if needValue && inf.Type != nil && !inf.Type.Equals(types.TypeVoid) && !inf.Type.Equals(types.TypeNever) {

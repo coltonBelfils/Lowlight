@@ -36,13 +36,24 @@ type Severity int
 const (
 	Error Severity = iota
 	Warning
+	Note
 )
 
 func (s Severity) String() string {
-	if s == Warning {
+	switch s {
+	case Warning:
 		return "warning"
+	case Note:
+		return "note"
+	default:
+		return "error"
 	}
-	return "error"
+}
+
+// RelatedInfo attaches a secondary source location and note to a Diagnostic.
+type RelatedInfo struct {
+	Span    Span
+	Message string
 }
 
 // Diagnostic represents a single compiler error or warning with source context.
@@ -52,6 +63,7 @@ type Diagnostic struct {
 	Span     Span // what is underlined
 	Message  string
 	Hint     string
+	Related  []RelatedInfo
 	// Full is the whole construct the diagnostic is about when Span underlines only part of it
 	// (a mismatched call underlines its name; Full covers the call), for quick fixes.
 	Full Span
@@ -141,6 +153,15 @@ func (r *Reporter) Warnf(span Span, format string, args ...any) {
 	})
 }
 
+// Notef records an informational compile-time note diagnostic (e.g. `comp.log`).
+func (r *Reporter) Notef(span Span, format string, args ...any) {
+	r.diags = append(r.diags, Diagnostic{
+		Severity: Note,
+		Span:     span,
+		Message:  fmt.Sprintf(format, args...),
+	})
+}
+
 // HasErrors returns true if at least one Error diagnostic has been recorded.
 func (r *Reporter) HasErrors() bool {
 	for _, d := range r.diags {
@@ -163,53 +184,67 @@ func (r *Reporter) Format() string {
 		if i > 0 {
 			sb.WriteByte('\n')
 		}
-		if d.Code != "" {
-			fmt.Fprintf(&sb, "%s: [%s] %s: %s\n", d.Span.Start.String(), d.Code, d.Severity.String(), d.Message)
-		} else {
-			fmt.Fprintf(&sb, "%s: %s: %s\n", d.Span.Start.String(), d.Severity.String(), d.Message)
-		}
-		if lines, ok := r.sources[d.Span.Start.File]; ok {
-			lineIdx := d.Span.Start.Line - 1
-			if lineIdx >= 0 && lineIdx < len(lines) {
-				srcLine := lines[lineIdx]
-				expanded := strings.ReplaceAll(srcLine, "\t", "    ")
-				fmt.Fprintf(&sb, "  %4d | %s\n", d.Span.Start.Line, expanded)
+		sb.WriteString(r.FormatOne(d))
+	}
+	return sb.String()
+}
 
-				// Compute caret alignment accounting for tabs and UTF-8 runes.
-				col := d.Span.Start.Col - 1
-				if col < 0 {
-					col = 0
-				}
-				visualCol := 0
-				caretLen := 0
-				hasEndCol := d.Span.End.Line == d.Span.Start.Line
-				endCol := -1
-				if hasEndCol {
-					endCol = d.Span.End.Col - 1
-				}
-				runeIdx := 0
-				for _, r := range srcLine {
-					w := 1
-					if r == '\t' {
-						w = 4
-					}
-					if runeIdx < col {
-						visualCol += w
-					} else if !hasEndCol || runeIdx < endCol {
-						caretLen += w
-					} else {
-						break
-					}
-					runeIdx++
-				}
-				if caretLen < 1 {
-					caretLen = 1
-				}
-				fmt.Fprintf(&sb, "       | %s^%s\n", strings.Repeat(" ", visualCol), strings.Repeat("~", caretLen-1))
+// FormatOne renders a single diagnostic into a human-readable string.
+func (r *Reporter) FormatOne(d Diagnostic) string {
+	var sb strings.Builder
+	if d.Code != "" {
+		fmt.Fprintf(&sb, "%s: [%s] %s: %s\n", d.Span.Start.String(), d.Code, d.Severity.String(), d.Message)
+	} else {
+		fmt.Fprintf(&sb, "%s: %s: %s\n", d.Span.Start.String(), d.Severity.String(), d.Message)
+	}
+	if lines, ok := r.sources[d.Span.Start.File]; ok {
+		lineIdx := d.Span.Start.Line - 1
+		if lineIdx >= 0 && lineIdx < len(lines) {
+			srcLine := lines[lineIdx]
+			expanded := strings.ReplaceAll(srcLine, "\t", "    ")
+			fmt.Fprintf(&sb, "  %4d | %s\n", d.Span.Start.Line, expanded)
+
+			// Compute caret alignment accounting for tabs and UTF-8 runes.
+			col := d.Span.Start.Col - 1
+			if col < 0 {
+				col = 0
 			}
+			visualCol := 0
+			caretLen := 0
+			hasEndCol := d.Span.End.Line == d.Span.Start.Line
+			endCol := -1
+			if hasEndCol {
+				endCol = d.Span.End.Col - 1
+			}
+			runeIdx := 0
+			for _, rn := range srcLine {
+				w := 1
+				if rn == '\t' {
+					w = 4
+				}
+				if runeIdx < col {
+					visualCol += w
+				} else if !hasEndCol || runeIdx < endCol {
+					caretLen += w
+				} else {
+					break
+				}
+				runeIdx++
+			}
+			if caretLen < 1 {
+				caretLen = 1
+			}
+			fmt.Fprintf(&sb, "       | %s^%s\n", strings.Repeat(" ", visualCol), strings.Repeat("~", caretLen-1))
 		}
-		if d.Hint != "" {
-			fmt.Fprintf(&sb, "       = hint: %s\n", d.Hint)
+	}
+	if d.Hint != "" {
+		fmt.Fprintf(&sb, "       = hint: %s\n", d.Hint)
+	}
+	for _, rel := range d.Related {
+		if rel.Span.Start.File != "" {
+			fmt.Fprintf(&sb, "       = note: %s: %s\n", rel.Span.Start.String(), rel.Message)
+		} else {
+			fmt.Fprintf(&sb, "       = note: %s\n", rel.Message)
 		}
 	}
 	return sb.String()

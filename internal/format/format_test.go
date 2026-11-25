@@ -535,3 +535,72 @@ bind describe = fn(k: string) string: {
 		t.Fatalf("unexpected output:\n%s\nwant:\n%s", got, src)
 	}
 }
+
+func TestComptimeAndConstRoundTrip(t *testing.T) {
+	src := `comptime if(LINUX): {
+	const SEP = '/'
+
+	extern "unistd.h"
+} else comptime if(MACOS): {
+	const SEP = '/'
+} else: {
+	const SEP = '\\'
+}
+
+comptime if(DEBUG): const LOG_LEVEL = 3
+else: const LOG_LEVEL = 1
+
+const LIMIT = 4
+
+define Matrix[T, R: const int, C: const int] struct [
+	data: [R: [C: T]]
+]
+
+const Matrix[T, R, C].zeros = fn() Matrix[T, R, C]: Matrix[T, R, C][
+	data: comptime make_zero()
+]
+
+const double_arr[N: const int] = fn(arr: [N: int]) [N: int]: {
+	const LOCAL = 2
+	comptime for(i in 0..N) [N: int]: arr[i] * LOCAL
+}
+
+const demo = fn(v: [int]) int: {
+	let sliced = v[0..2].len()
+	let z = zeros[8]()
+	let x = comptime (1 + 2)
+	let y = comptime {
+		const A = 10
+		A + x
+	}
+	let picked = comptime if(LIMIT > 2): 100
+	else comptime if(LIMIT == 2): 50
+	else: 0
+	outer: comptime for(i in 0..3): if(i == 1): next outer <-
+	let matched = comptime match(LIMIT):
+		when 4: 40
+		default: 0
+	let m: Matrix[int, 2 + 2, 4] = Matrix[int, 2 + 2, 4][data: z]
+	sliced + picked + matched + y + m.data.len()
+}
+
+extern "opendir\$INODE64" as os_opendir: fn(path: ptr[u8]) ptr[u8]
+
+bind mixed_if = fn(flag: bool) int: {
+	let a = if(flag): {
+		comptime if(LIMIT > 2): 1 else: 2
+	} else: {
+		comptime if(LIMIT > 2): 3 else: 4
+	}
+	let b = comptime if(LIMIT > 2): {
+		if(flag): 5 else: 6
+	} else: 7
+	a + b
+}
+`
+	out1 := mustFormat(t, src, format.DefaultOptions())
+	out2 := mustFormat(t, out1, format.DefaultOptions())
+	if out1 != out2 {
+		t.Fatalf("comptime round-trip not idempotent!\n--- out1 ---\n%s--- out2 ---\n%s", out1, out2)
+	}
+}

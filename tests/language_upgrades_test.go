@@ -410,7 +410,7 @@ bind main = fn(): {
 
     // Reassign and own-move when unpinned
     arena = Arena.new()
-    let consume = cl(a: own Arena): {}
+    let consume = fn(a: own Arena): {}
     consume(own arena)
 }
 `
@@ -997,13 +997,13 @@ bind main = fn() void: {
     assert(acc.add(3) == 3)
 
     // Function type (ParamTypes) Ret and contextual + body lambda inference
-    let apply: cl(cl(int) int, int) int = cl(f: cl(int) int, x: int): f(x)
-    assert(apply(cl(n: int): n + 100, 7) == 107)
+    let apply: cl(cl(int) int, int) int = fn(f: cl(int) int, x: int): f(x)
+    assert(apply(fn(n: int): n + 100, 7) == 107)
 
-    let mul = cl(a: int, b: int): a * b
+    let mul = fn(a: int, b: int): a * b
     assert(mul(6, 7) == 42)
 
-    let make_opt: cl(bool) ?int = cl(flag: bool): {
+    let make_opt: cl(bool) ?int = fn(flag: bool): {
         if (flag): func <- 42
         none
     }
@@ -1011,7 +1011,7 @@ bind main = fn() void: {
     assert(make_opt(false) == none)
 
     // if / else if / else and ?T optional if without else
-    let grade = cl(s: int): if (s >= 90): "A" else if (s >= 80): "B" else: "C"
+    let grade = fn(s: int): if (s >= 90): "A" else if (s >= 80): "B" else: "C"
     assert(grade(95) == "A")
     assert(grade(85) == "B")
     assert(grade(50) == "C")
@@ -1152,7 +1152,7 @@ bind main = fn(): {
 			name: "non_optional_while_without_else",
 			src: `
 bind main = fn(): {
-    let f = cl(c: bool) void: {
+    let f = fn(c: bool) void: {
         let x? = while (c) int: { while <- 1 }
     }
 }
@@ -1315,9 +1315,9 @@ bind main = fn(): {
 	let c0 = unsafe cos(0.0)
 	assert(c0 > 0.99 and c0 < 1.01)
 
-	// 4. LLVM/C11 runtime parity for @ll_os_mkdir, @ll_time_local_offset(epoch_sec), @ll_net_shutdown(fd, how)
+	// 4. LLVM/C11 runtime parity for os.mkdir, time.DateTime.offset_secs, net.TcpStream.shutdown
 	let _ = os.remove_all(%q)
-	assert(os.mkdir(%q))
+	os.mkdir(%q): default panic
 	assert(os.file_exists(%q))
 	let _ = os.remove_all(%q)
 
@@ -1327,9 +1327,13 @@ bind main = fn(): {
 
 	let sp = net.socketpair().unwrap()
 	assert(sp.first.send("abc").is_ok())
-	unsafe sys_net_shutdown(sp.first.raw_fd(), 1)
-	assert(sp.second.recv(16, 1000).unwrap() == "abc")
-	assert(sp.second.recv(16, 1000).unwrap_err().has_code("eof"))
+	sp.first.shutdown(net.Shutdown.write): default panic
+	assert((sp.second.recv(16, 1000): default panic) == "abc")
+	let at_eof = false
+	sp.second.recv(16, 1000):
+		when eof(_): at_eof = true
+		default: {}
+	assert(at_eof)
 }
 `, mkTarget, mkTarget, mkTarget, mkTarget)
 

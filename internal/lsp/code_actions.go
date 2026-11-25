@@ -488,9 +488,17 @@ func (s *Server) collectDiagnosticQuickFixes(
 	// 12. Discarded `@must_use` return value
 	if strings.Contains(msg, "marked @must_use") {
 		sOff := LSPToOffset(src, d.Range.Start)
+		eOff := LSPToOffset(src, d.Range.End)
 		if sOff >= 0 && sOff <= len(src) {
 			insRng := Range{Start: d.Range.Start, End: d.Range.Start}
 			resName := "res"
+			if exprTy := exprTypeAtSpan(prog, mod, sOff, eOff); exprTy != nil {
+				if types.AsResult(exprTy) != nil {
+					resName = "res!"
+				} else if _, isOpt := exprTy.(*types.Optional); isOpt {
+					resName = "res?"
+				}
+			}
 			addAction(CodeAction{
 				Title:       fmt.Sprintf("Bind return value ('let %s = ...')", resName),
 				Kind:        "quickfix",
@@ -551,7 +559,7 @@ func (s *Server) collectMatchQuickFixes(
 		if nl := strings.IndexByte(rawMissing, '\n'); nl >= 0 {
 			rawMissing = strings.TrimSpace(rawMissing[:nl])
 		}
-		me := findMatchExprAt(prog, LSPToOffset(src, d.Range.Start))
+		me := findMatchExprAt(prog, mod, LSPToOffset(src, d.Range.Start))
 		useBare := me == nil || me.ResultChain || !matchUsesQualifiedVariants(me)
 		var whenArms []string
 		for _, vn := range strings.Split(rawMissing, ", ") {
@@ -575,7 +583,7 @@ func (s *Server) collectMatchQuickFixes(
 	if strings.Contains(msg, "non-exhaustive `match` on `bool`") {
 		indent := getLineIndent(src, d.Range.Start.Line)
 		armIndent := indent + ind
-		insertPos, hasExistingDefault := findMatchInsertionPoint(src, fullMatchRange(prog, src, d.Range))
+		insertPos, hasExistingDefault := findMatchInsertionPoint(src, fullMatchRange(prog, mod, src, d.Range))
 		if !hasExistingDefault {
 			addAction(CodeAction{
 				Title:       "Generate missing boolean match arms",
@@ -591,10 +599,11 @@ func (s *Server) collectMatchQuickFixes(
 		}
 	}
 
-	if strings.Contains(msg, "must end with an open catch-all `default:` arm") {
+	if strings.Contains(msg, "must end with an open catch-all `default:` arm") ||
+		strings.Contains(msg, "requiring a `default:` catch-all arm") {
 		indent := getLineIndent(src, d.Range.Start.Line)
 		armIndent := indent + ind
-		insertPos, _ := findMatchInsertionPoint(src, fullMatchRange(prog, src, d.Range))
+		insertPos, _ := findMatchInsertionPoint(src, fullMatchRange(prog, mod, src, d.Range))
 		addAction(CodeAction{
 			Title:       "Add catch-all 'default:' arm",
 			Kind:        "quickfix",
@@ -610,8 +619,8 @@ func (s *Server) collectMatchQuickFixes(
 }
 
 // fullMatchRange widens a diagnostic range on a `match` header (`match(x):`) to the whole match.
-func fullMatchRange(prog *sema.CheckedProgram, src string, r Range) Range {
-	if me := findMatchExprAt(prog, LSPToOffset(src, r.Start)); me != nil {
+func fullMatchRange(prog *sema.CheckedProgram, mod *sema.Module, src string, r Range) Range {
+	if me := findMatchExprAt(prog, mod, LSPToOffset(src, r.Start)); me != nil {
 		return Range{Start: OffsetToLSP(src, me.Span.Start.Offset), End: OffsetToLSP(src, me.Span.End.Offset)}
 	}
 	return r
@@ -643,8 +652,8 @@ func matchUsesQualifiedVariants(me *ast.MatchExpr) bool {
 	return false
 }
 
-// findMatchExprAt returns the innermost checked `match` or result chain containing offset.
-func findMatchExprAt(prog *sema.CheckedProgram, offset int) *ast.MatchExpr {
+// findMatchExprAt returns the innermost checked `match` or result chain in `mod` containing offset.
+func findMatchExprAt(prog *sema.CheckedProgram, mod *sema.Module, offset int) *ast.MatchExpr {
 	if prog == nil {
 		return nil
 	}
@@ -664,9 +673,15 @@ func findMatchExprAt(prog *sema.CheckedProgram, offset int) *ast.MatchExpr {
 		}
 	}
 	for _, fi := range prog.Funcs {
+		if mod != nil && fi.Mod != mod {
+			continue
+		}
 		consider(fi.BodyMaps)
 	}
 	for _, li := range prog.Lambdas {
+		if mod != nil && li != nil && li.Lit != nil && mod.Path != "" && li.Lit.Span.Start.File != "" && absClean(li.Lit.Span.Start.File) != absClean(mod.Path) {
+			continue
+		}
 		consider(li.BodyMaps)
 	}
 	return best
@@ -1835,11 +1850,17 @@ func (s *Server) collectRefactorActions(
 	// 1. Add explicit type annotation on untyped `let x = ...` / `bind x = ...`
 	s.tryAddExplicitTypeAction(uri, src, enclosing.bm, selStart, addAction)
 
+	// 1b. Toggle `let` <-> `bind` on local variable declaration
+	s.tryToggleBindLetAction(uri, src, enclosing.bm, enclosing.body, selStart, addAction)
+
 	// 2. Toggle single-expression `{ expr }` <-> `expr`
 	s.tryToggleBlockBracesAction(uri, src, ind, enclosing.body, selStart, addAction)
 
 	// 3. Flip `if (cond): A else: B`
 	s.tryFlipIfElseAction(uri, src, enclosing.body, selStart, addAction)
+
+	// 3b. Convert `: default panic` result chain to `default err(own e): func <- err(e.wrap(...))`
+	s.tryDefaultPanicToPropagateAction(uri, src, ind, prog, mod, enclosing.decl, enclosing.bm, enclosing.body, selStart, addAction)
 
 	// 4. Extract expression into `let` / `bind` (when a valid sub-expression inside a statement in a BlockExpr is targeted)
 	if trimmedEnd > trimmedStart {
@@ -1880,6 +1901,357 @@ func (s *Server) tryAddExplicitTypeAction(uri, src string, bm *sema.BodyMaps, of
 		})
 		return
 	}
+}
+
+func exprTypeAtSpan(prog *sema.CheckedProgram, mod *sema.Module, sOff, eOff int) types.Type {
+	if prog == nil || mod == nil {
+		return nil
+	}
+	var best types.Type
+	bestSpanLen := int(^uint(0) >> 1)
+	check := func(bm *sema.BodyMaps) {
+		if bm == nil {
+			return
+		}
+		for e, inf := range bm.ExprInfos {
+			if e == nil || inf == nil || inf.Type == nil {
+				continue
+			}
+			sp := e.GetSpan()
+			if sp.Start.Offset <= sOff && sp.End.Offset >= eOff {
+				if l := sp.End.Offset - sp.Start.Offset; l < bestSpanLen {
+					bestSpanLen = l
+					best = inf.Type
+				}
+			}
+		}
+	}
+	for _, fi := range prog.Funcs {
+		if fi.Mod == mod {
+			check(fi.BodyMaps)
+		}
+	}
+	for _, li := range prog.Lambdas {
+		if li != nil && (mod.Path == "" || li.Lit == nil || li.Lit.Span.Start.File == "" || absClean(li.Lit.Span.Start.File) == absClean(mod.Path)) {
+			check(li.BodyMaps)
+		}
+	}
+	return best
+}
+
+func (s *Server) tryToggleBindLetAction(uri, src string, bm *sema.BodyMaps, body ast.Expr, off int, addAction func(CodeAction)) {
+	if bm == nil {
+		return
+	}
+	for vs, sym := range bm.VarSymbols {
+		if vs == nil || sym == nil || vs.IsUnpack || vs.Name == "_" {
+			continue
+		}
+		if off < vs.Span.Start.Offset || off > vs.Span.End.Offset {
+			continue
+		}
+		kwStart := vs.Span.Start.Offset
+		if vs.IsBind {
+			if kwStart+4 > len(src) || src[kwStart:kwStart+4] != "bind" {
+				continue
+			}
+			kwRng := Range{Start: OffsetToLSP(src, kwStart), End: OffsetToLSP(src, kwStart+4)}
+			addAction(CodeAction{
+				Title: fmt.Sprintf("Convert `bind` to `let` on `%s` (make mutable)", vs.Name),
+				Kind:  "refactor.rewrite",
+				Edit: &WorkspaceEdit{Changes: map[string][]TextEdit{
+					uri: {{Range: kwRng, NewText: "let"}},
+				}},
+			})
+			return
+		}
+		if kwStart+3 > len(src) || src[kwStart:kwStart+3] != "let" {
+			continue
+		}
+		if symIsMutatedInExpr(bm, body, sym) {
+			return
+		}
+		kwRng := Range{Start: OffsetToLSP(src, kwStart), End: OffsetToLSP(src, kwStart+3)}
+		addAction(CodeAction{
+			Title: fmt.Sprintf("Convert `let` to `bind` on `%s` (never mutated)", vs.Name),
+			Kind:  "refactor.rewrite",
+			Edit: &WorkspaceEdit{Changes: map[string][]TextEdit{
+				uri: {{Range: kwRng, NewText: "bind"}},
+			}},
+		})
+		return
+	}
+}
+
+func exprRootSym(bm *sema.BodyMaps, e ast.Expr) *sema.Symbol {
+	for e != nil {
+		switch v := e.(type) {
+		case *ast.IdentExpr:
+			if inf := bm.ExprInfos[v]; inf != nil {
+				return inf.Sym
+			}
+			return nil
+		case *ast.MemberExpr:
+			e = v.Base
+		case *ast.IndexExpr:
+			e = v.Base
+		case *ast.UnaryExpr:
+			e = v.Operand
+		default:
+			return nil
+		}
+	}
+	return nil
+}
+
+func isMutatingBuiltinMethod(name string) bool {
+	switch name {
+	case "push", "pop", "clear", "insert", "remove", "swap_remove", "set", "reserve", "push_char", "push_byte", "add_assign", "alloc", "reset":
+		return true
+	}
+	return false
+}
+
+func symIsMutatedInExpr(bm *sema.BodyMaps, root ast.Expr, target *sema.Symbol) bool {
+	if bm == nil || root == nil || target == nil {
+		return true
+	}
+	mutated := false
+	var walkExpr func(e ast.Expr)
+	walkStmt := func(st ast.Stmt) {
+		if st == nil || mutated {
+			return
+		}
+		switch s := st.(type) {
+		case *ast.VarStmt:
+			walkExpr(s.Value)
+			if s.FallbackUnwind != nil {
+				walkExpr(s.FallbackUnwind.Value)
+			}
+		case *ast.AssignStmt:
+			if s.IsUnpack {
+				for _, tgt := range s.UnpackTargets {
+					if exprRootSym(bm, tgt) == target {
+						mutated = true
+						return
+					}
+				}
+			} else if exprRootSym(bm, s.Target) == target {
+				mutated = true
+				return
+			}
+			walkExpr(s.Value)
+			if s.FallbackUnwind != nil {
+				walkExpr(s.FallbackUnwind.Value)
+			}
+		case *ast.UnwindStmt:
+			walkExpr(s.Value)
+		case *ast.ExprStmt:
+			walkExpr(s.Expr)
+		}
+	}
+	walkExpr = func(e ast.Expr) {
+		if e == nil || mutated {
+			return
+		}
+		switch v := e.(type) {
+		case *ast.BlockExpr:
+			for _, st := range v.Stmts {
+				walkStmt(st)
+			}
+			walkExpr(v.Tail)
+		case *ast.StmtBodyExpr:
+			walkStmt(v.Stmt)
+		case *ast.UnsafeExpr:
+			walkExpr(v.Expr)
+		case *ast.UnaryExpr:
+			if v.Op == token.Amp && exprRootSym(bm, v.Operand) == target {
+				mutated = true
+				return
+			}
+			walkExpr(v.Operand)
+		case *ast.BinaryExpr:
+			walkExpr(v.Left)
+			walkExpr(v.Right)
+		case *ast.IfExpr:
+			if v.MutUnwrap && bm.IfOriginSyms[v] == target {
+				mutated = true
+				return
+			}
+			walkExpr(v.Cond)
+			walkExpr(v.Then)
+			walkExpr(v.Else)
+		case *ast.ForExpr:
+			if (v.Var1Mut || v.Var2Mut) && exprRootSym(bm, v.CondOrIter) == target {
+				mutated = true
+				return
+			}
+			walkExpr(v.CondOrIter)
+			walkExpr(v.RangeEnd)
+			walkExpr(v.Body)
+			walkExpr(v.Else)
+		case *ast.WhileExpr:
+			if (v.Var1Mut || v.Var2Mut) && exprRootSym(bm, v.CondOrIter) == target {
+				mutated = true
+				return
+			}
+			walkExpr(v.CondOrIter)
+			walkExpr(v.RangeEnd)
+			walkExpr(v.Body)
+			walkExpr(v.Else)
+		case *ast.MatchExpr:
+			for _, sc := range v.Scrutinees {
+				walkExpr(sc)
+			}
+			for _, arm := range v.Arms {
+				if arm.Synthetic {
+					continue
+				}
+				walkExpr(arm.Body)
+			}
+		case *ast.CallExpr:
+			if mem, ok := v.Callee.(*ast.MemberExpr); ok {
+				if exprRootSym(bm, mem.Base) == target {
+					inf := bm.ExprInfos[v]
+					if inf == nil {
+						mutated = true
+						return
+					}
+					switch inf.CallKind {
+					case sema.CallDirectFunc:
+						if inf.TargetFunc != nil && len(inf.TargetFunc.Sig.Params) > 0 && inf.TargetFunc.Sig.Params[0].Mode == types.ModeMut {
+							mutated = true
+							return
+						}
+					case sema.CallBuiltinMethod:
+						if isMutatingBuiltinMethod(mem.Member) {
+							mutated = true
+							return
+						}
+					case sema.CallInterfaceMethod:
+						// Interface call could dispatch to a `&self` method; check conservatively.
+						mutated = true
+						return
+					}
+				}
+			}
+			walkExpr(v.Callee)
+			for _, a := range v.Args {
+				walkExpr(a)
+			}
+		case *ast.IndexExpr:
+			walkExpr(v.Base)
+			walkExpr(v.Index)
+		case *ast.SliceExpr:
+			walkExpr(v.Base)
+			walkExpr(v.Low)
+			walkExpr(v.High)
+		case *ast.MemberExpr:
+			walkExpr(v.Base)
+		case *ast.StructLit:
+			for _, f := range v.Fields {
+				walkExpr(f.Value)
+			}
+		case *ast.TupleLit:
+			for _, el := range v.Elems {
+				walkExpr(el)
+			}
+		case *ast.VecLit:
+			for _, el := range v.Elems {
+				walkExpr(el)
+			}
+		case *ast.MapLit:
+			for _, ent := range v.Entries {
+				walkExpr(ent.Key)
+				walkExpr(ent.Value)
+			}
+		}
+	}
+	walkExpr(root)
+	return mutated
+}
+
+func (s *Server) tryDefaultPanicToPropagateAction(
+	uri, src, ind string,
+	prog *sema.CheckedProgram,
+	mod *sema.Module,
+	decl ast.Decl,
+	bm *sema.BodyMaps,
+	body ast.Expr,
+	off int,
+	addAction func(CodeAction),
+) {
+	if prog == nil || mod == nil || bm == nil || body == nil {
+		return
+	}
+	fi := findFuncInstanceForDecl(prog, mod, decl.GetSpan())
+	if fi == nil || fi.Sig.Ret == nil {
+		return
+	}
+	retEn := types.AsResult(fi.Sig.Ret)
+	if retEn == nil {
+		return
+	}
+	retErr, hasRetErr := retEn.VariantByName("err")
+	if !hasRetErr {
+		return
+	}
+
+	me := findMatchExprAt(prog, mod, off)
+	if me == nil || !me.ResultChain || !me.DefaultPanic || len(me.Scrutinees) == 0 {
+		return
+	}
+	if me.DefaultPanicSpan.Start.Offset < 0 || me.DefaultPanicSpan.End.Offset > len(src) {
+		return
+	}
+	subjInf := bm.ExprInfos[me.Scrutinees[0]]
+	if subjInf == nil || subjInf.Type == nil {
+		return
+	}
+	subjEn := types.AsResult(subjInf.Type)
+	if subjEn == nil {
+		return
+	}
+	subjErr, hasSubjErr := subjEn.VariantByName("err")
+	if !hasSubjErr {
+		return
+	}
+
+	armText := ""
+	switch {
+	case subjErr.Kind == types.VariantUnit && retErr.Kind == types.VariantUnit:
+		armText = "default err: func <- err"
+	case subjErr.Kind != types.VariantUnit && retErr.Kind != types.VariantUnit &&
+		subjErr.Payload != nil && retErr.Payload != nil && subjErr.Payload.Equals(retErr.Payload):
+		if st, ok := subjErr.Payload.(*types.Struct); ok && st.Name == "Error" {
+			armText = "default err(own e): func <- err(e.wrap(\"todo\"))"
+		} else {
+			armText = "default err(own e): func <- err(own e)"
+		}
+	default:
+		return
+	}
+
+	dpOff := me.DefaultPanicSpan.Start.Offset
+	lineStart := strings.LastIndexByte(src[:dpOff], '\n') + 1
+	before := strings.TrimSpace(src[lineStart:dpOff])
+	editRng := ExactSpanToLSP(src, me.DefaultPanicSpan)
+	replacement := armText
+	if strings.HasSuffix(before, ":") {
+		// Single-line `load(): default panic` -> multiline chain arm.
+		lineIndent := getLineIndent(src, OffsetToLSP(src, lineStart).Line)
+		replacement = "\n" + lineIndent + ind + armText
+		if dpOff > 0 && src[dpOff-1] == ' ' {
+			editRng.Start = OffsetToLSP(src, dpOff-1)
+		}
+	}
+	addAction(CodeAction{
+		Title: "Propagate failure with `default err`",
+		Kind:  "refactor.rewrite",
+		Edit: &WorkspaceEdit{Changes: map[string][]TextEdit{
+			uri: {{Range: editRng, NewText: replacement}},
+		}},
+	})
 }
 
 func (s *Server) tryToggleBlockBracesAction(uri, src, ind string, body ast.Expr, off int, addAction func(CodeAction)) {

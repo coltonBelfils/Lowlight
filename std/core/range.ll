@@ -26,19 +26,19 @@ define Range[T] struct [
 ]
 
 // Reports whether `item` falls inside the range bounds.
-bind Range[T].contains = fn(self, item: T) bool: {
+const Range[T].contains = fn(self, item: T) bool: {
 	if(self.inclusive): func <- item >= self.start and item <= self.end
 	item >= self.start and item < self.end
 }
 
 // Reports whether the range contains zero elements (`start >= end` for `..`, or `start > end` for `..=`).
-bind Range[T].is_empty = fn(self) bool: {
+const Range[T].is_empty = fn(self) bool: {
 	if(self.inclusive): func <- self.start > self.end
 	self.start >= self.end
 }
 
 // Returns the number of discrete steps contained in the range, or `0` if empty.
-bind Range[T].len = fn(self) int: {
+const Range[T].len = fn(self) int: {
 	if(self.inclusive): {
 		if(self.start > self.end): func <- 0
 		func <- int(u64(self.end) - u64(self.start) + u64(1))
@@ -48,7 +48,7 @@ bind Range[T].len = fn(self) int: {
 }
 
 // Formats the range using Lowlight literal syntax (`"start..end"` or `"start..=end"`).
-bind Range[T].to_string = fn(self) string: {
+const Range[T].to_string = fn(self) string: {
 	if(self.inclusive): func <- "${self.start}..=${self.end}"
 	"${self.start}..${self.end}"
 }
@@ -66,7 +66,7 @@ define RangeIterator[T] struct [
 ]
 
 // Advances the iterator and returns the next value in the range, or `none` when finished.
-bind RangeIterator[T].next = fn(&self) ?T: {
+const RangeIterator[T].next = fn(&self) ?T: {
 	if(self.done): func <- none
 	if(not self.inclusive and self.cur >= self.end): {
 		self.done = true
@@ -82,7 +82,7 @@ bind RangeIterator[T].next = fn(&self) ?T: {
 }
 
 // Returns a forward [`RangeIterator`] yielding values from `start` toward `end`.
-bind Range[T].iter = fn(self) Iterator[T]: {
+const Range[T].iter = fn(self) Iterator[T]: {
 	let done = if(self.inclusive): self.start > self.end else: self.start >= self.end
 	RangeIterator[T][
 		cur: self.start,

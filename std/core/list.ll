@@ -28,7 +28,7 @@ define List[T] struct [
 ]
 
 // Constructs an empty [`List`] with zero allocated capacity.
-bind List[T].new = fn() List[T]:
+const List[T].new = fn() List[T]:
 	List[T][
 		data: unsafe null_ptr[T](),
 		len: 0,
@@ -38,7 +38,7 @@ bind List[T].new = fn() List[T]:
 // Constructs an empty [`List`] with space pre-allocated for at least `cap` elements.
 //
 // - `cap`: Number of element slots to allocate immediately when positive.
-bind List[T].with_capacity = fn(cap: int) List[T]: {
+const List[T].with_capacity = fn(cap: int) List[T]: {
 	if(cap <= 0): func <- List[T].new()
 	let p = unsafe alloc_raw[T](cap)
 	List[T][
@@ -52,10 +52,10 @@ bind List[T].with_capacity = fn(cap: int) List[T]: {
 //
 // Uses `alloc_uninit` + `fill_bytes` (`memset`) for 1-byte Plain types (`bool`, `u8`, `i8`)
 // and a capacity-check-free fill loop for all other types.
-bind List[T].filled = fn(len: int, val: T) List[T]: {
+const List[T].filled = fn(len: int, val: T) List[T]: {
 	if(len <= 0): func <- List[T].new()
 	let p = unsafe alloc_uninit[T](len)
-	if(is_plain[T]() and size_of[T]() == 1): {
+	if(type.is_plain[T]() and type.size_of[T]() == 1): {
 		unsafe {
 			let b = ptr_read(ptr_cast[u8](addr_of(val)))
 			fill_bytes(ptr_cast[u8](p), b, len)
@@ -75,16 +75,16 @@ bind List[T].filled = fn(len: int, val: T) List[T]: {
 }
 
 // Returns the number of elements currently in the list.
-bind List[T].len = fn(self) int: self.len
+const List[T].len = fn(self) int: self.len
 
 // Returns the number of element slots currently allocated on the heap.
-bind List[T].cap = fn(self) int: self.cap
+const List[T].cap = fn(self) int: self.cap
 
 // Reports whether the list contains zero elements.
-bind List[T].is_empty = fn(self) bool: self.len == 0
+const List[T].is_empty = fn(self) bool: self.len == 0
 
 // Ensures the list has allocated capacity for at least `min_cap` elements without changing its length.
-bind List[T].reserve = fn(&self, min_cap: int): {
+const List[T].reserve = fn(&self, min_cap: int): {
 	if(min_cap <= self.cap): func <-
 	let ncap = if(self.cap > 0): self.cap else: 4
 	for(ncap < min_cap): {
@@ -94,83 +94,114 @@ bind List[T].reserve = fn(&self, min_cap: int): {
 		if(self.cap <= 0): alloc_uninit[T](ncap) else: realloc_raw(self.data, ncap)
 	}
 	if(self.cap <= 0 and self.len > 0): {
-		unsafe copy_bytes(ptr_cast[u8](nd), ptr_cast[u8](self.data), self.len * size_of[T]())
+		unsafe copy_bytes(ptr_cast[u8](nd), ptr_cast[u8](self.data), self.len * type.size_of[T]())
 	}
 	self.data = nd
 	self.cap = ncap
+}
+
+// Ensures the backing buffer is heap-allocated and writable before mutating static/borrowed data.
+const List[T]._data_mut = fn(&self) ptr[T]: {
+	if(self.cap <= 0 and self.len > 0): self.reserve(self.len)
+	self.data
 }
 
 // Appends `item` to the end of the list, reallocating geometrically when full.
 //
 // # Ownership
 // Takes ownership of `item`.
-bind List[T].push = fn(&self, item: own T): {
+const List[T].push = fn(&self, item: own T): {
 	if(self.len + 1 > self.cap): self.reserve(self.len + 1)
 	unsafe ptr_write(ptr_add(self.data, self.len), own item)
 	self.len += 1
 }
 
 // Removes and returns the last element from the list, or `none` if the list is empty.
-bind List[T].pop = fn(&self) ?T: {
+const List[T].pop = fn(&self) ?T: {
 	if(self.len <= 0): func <- none
+	let data = self._data_mut()
 	self.len -= 1
 	unsafe {
-		let val = ptr_read(ptr_add(self.data, self.len))
+		let val = ptr_read(ptr_add(data, self.len))
 		val
 	}
 }
 
 // Returns a copy of the element at `idx`, or `none` if out of bounds.
-bind List[T].get = fn(self, idx: int) ?T: {
+const List[T].get = fn(self, idx: int) ?T: {
 	if(idx < 0 or idx >= self.len): func <- none
 	unsafe self.data[idx].copy()
 }
 
-// Replaces the element at `idx` with `val`, dropping the previous element.
+// Replaces the element at `idx` with `val`, dropping the previous element. `xs[idx] = val` is the
+// form that panics on a bad index.
 //
-// Returns `false` (dropping `val`) if `idx` is out of bounds.
-bind List[T].set = fn(&self, idx: int, val: own T) bool: {
-	if(idx < 0 or idx >= self.len): func <- false
+// # Errors
+// Fails, dropping `val`, if `idx` is out of bounds.
+const List[T].set = fn(&self, idx: int, val: own T) Status: {
+	if(idx < 0 or idx >= self.len): func <- err(
+		Error.new("List.set: index $idx out of bounds for length ${self.len}")
+	)
+	let data = self._data_mut()
 	unsafe {
-		let _ = ptr_read(ptr_add(self.data, idx))
-		ptr_write(ptr_add(self.data, idx), own val)
+		let _ = ptr_read(ptr_add(data, idx))
+		ptr_write(ptr_add(data, idx), own val)
 	}
-	true
+	value
 }
 
-// Inserts `item` at position `idx`, shifting elements at `idx..len` one slot right.
-//
-// Panics if `idx < 0` or `idx > self.len`.
-bind List[T].insert = fn(&self, idx: int, item: own T): {
-	if(idx < 0 or idx > self.len):
-		panic("List.insert: index $idx out of bounds for length ${self.len}")
+// Moves the elements at `idx..len` one slot right and puts `item` at `idx` (`idx == len`
+// appends). Assumes `0 <= idx <= len`.
+const List[T]._insert_at = fn(&self, idx: int, item: own T): {
 	if(self.len + 1 > self.cap): self.reserve(self.len + 1)
 	let tail = self.len - idx
 	if(tail > 0): {
 		unsafe copy_bytes(
 			ptr_cast[u8](ptr_add(self.data, idx + 1)),
 			ptr_cast[u8](ptr_add(self.data, idx)),
-			tail * size_of[T](),
+			tail * type.size_of[T](),
 		)
 	}
 	unsafe ptr_write(ptr_add(self.data, idx), own item)
 	self.len += 1
 }
 
-// Removes and returns the element at `idx`, shifting elements after `idx` one slot left.
+// Inserts `item` at position `idx` (`0` through `len`), shifting elements at `idx..len` one slot
+// right.
 //
-// Panics if `idx < 0` or `idx >= self.len`.
-bind List[T].remove = fn(&self, idx: int) T: {
-	if(idx < 0 or idx >= self.len):
-		panic("List.remove: index $idx out of bounds for length ${self.len}")
+// # Errors
+// Fails, dropping `item`, if `idx < 0` or `idx > len`.
+const List[T].insert = fn(&self, idx: int, item: own T) Status: {
+	if(idx < 0 or idx > self.len): func <- err(
+		Error.new("List.insert: index $idx out of bounds for length ${self.len}")
+	)
+	self._insert_at(idx, own item)
+	value
+}
+
+// Inserts `item` at position `idx`, like [`List.insert`], for an index known to be valid.
+//
+// # Panics
+// If `idx < 0` or `idx > len` (attributed to the caller).
+@track_caller
+const List[T].must_insert = fn(&self, idx: int, item: own T): {
+	if(idx < 0 or idx > self.len):
+		panic("List.must_insert: index $idx out of bounds for length ${self.len}")
+	self._insert_at(idx, own item)
+}
+
+// Takes the element at `idx` out, shifting the elements after it one slot left. Assumes
+// `0 <= idx < len`.
+const List[T]._remove_at = fn(&self, idx: int) T: {
+	let data = self._data_mut()
 	unsafe {
-		let out = ptr_read(ptr_add(self.data, idx))
+		let out = ptr_read(ptr_add(data, idx))
 		let tail = self.len - idx - 1
 		if(tail > 0): {
 			copy_bytes(
-				ptr_cast[u8](ptr_add(self.data, idx)),
-				ptr_cast[u8](ptr_add(self.data, idx + 1)),
-				tail * size_of[T](),
+				ptr_cast[u8](ptr_add(data, idx)),
+				ptr_cast[u8](ptr_add(data, idx + 1)),
+				tail * type.size_of[T](),
 			)
 		}
 		self.len -= 1
@@ -178,21 +209,52 @@ bind List[T].remove = fn(&self, idx: int) T: {
 	}
 }
 
-// Removes and returns the element at `idx` in O(1) time by moving the last element into its slot.
+// Removes and returns the element at `idx`, shifting the elements after it one slot left, or
+// returns `none` if `idx` is out of bounds.
+const List[T].remove = fn(&self, idx: int) ?T:
+	if(idx < 0 or idx >= self.len): none else: self._remove_at(idx)
+
+// Removes and returns the element at `idx`, like [`List.remove`], for an index known to be
+// valid.
 //
-// Does not preserve element ordering. Panics if `idx < 0` or `idx >= self.len`.
-bind List[T].swap_remove = fn(&self, idx: int) T: {
+// # Panics
+// If `idx < 0` or `idx >= len` (attributed to the caller).
+@track_caller
+const List[T].must_remove = fn(&self, idx: int) T: {
 	if(idx < 0 or idx >= self.len):
-		panic("List.swap_remove: index $idx out of bounds for length ${self.len}")
+		panic("List.must_remove: index $idx out of bounds for length ${self.len}")
+	self._remove_at(idx)
+}
+
+// Moves the last element into slot `idx` and returns what was there. Assumes `0 <= idx < len`.
+const List[T]._swap_remove_at = fn(&self, idx: int) T: {
+	let data = self._data_mut()
 	unsafe {
-		let out = ptr_read(ptr_add(self.data, idx))
+		let out = ptr_read(ptr_add(data, idx))
 		self.len -= 1
 		if(idx < self.len): {
-			let last = ptr_read(ptr_add(self.data, self.len))
-			ptr_write(ptr_add(self.data, idx), own last)
+			let last = ptr_read(ptr_add(data, self.len))
+			ptr_write(ptr_add(data, idx), own last)
 		}
 		out
 	}
+}
+
+// Removes and returns the element at `idx` in O(1) time by moving the last element into its
+// slot (so the order isn't kept), or returns `none` if `idx` is out of bounds.
+const List[T].swap_remove = fn(&self, idx: int) ?T:
+	if(idx < 0 or idx >= self.len): none else: self._swap_remove_at(idx)
+
+// Removes and returns the element at `idx` in O(1) time, like [`List.swap_remove`], for an index
+// known to be valid.
+//
+// # Panics
+// If `idx < 0` or `idx >= len` (attributed to the caller).
+@track_caller
+const List[T].must_swap_remove = fn(&self, idx: int) T: {
+	if(idx < 0 or idx >= self.len):
+		panic("List.must_swap_remove: index $idx out of bounds for length ${self.len}")
+	self._swap_remove_at(idx)
 }
 
 // Resizes the list in place so its length equals `new_len` (clamped to `0` if negative).
@@ -200,10 +262,10 @@ bind List[T].swap_remove = fn(&self, idx: int) T: {
 // When shrinking, trailing elements are dropped in reverse order. When growing, new slots
 // are filled using `fill_bytes` (`memset`) for 1-byte Plain types (`bool`, `u8`, `i8`) or a
 // capacity-check-free fill loop for other types.
-bind List[T].resize = fn(&self, new_len: int, val: T): {
+const List[T].resize = fn(&self, new_len: int, val: T): {
 	let target = if(new_len < 0): 0 else: new_len
 	if(target < self.len): {
-		if(self.cap > 0 and not is_plain[T]()): {
+		if(self.cap > 0 and not type.is_plain[T]()): {
 			let i = self.len - 1
 			for(i >= target): {
 				unsafe {
@@ -218,7 +280,7 @@ bind List[T].resize = fn(&self, new_len: int, val: T): {
 	if(target == self.len): func <-
 	if(target > self.cap): self.reserve(target)
 	let count = target - self.len
-	if(is_plain[T]() and size_of[T]() == 1): {
+	if(type.is_plain[T]() and type.size_of[T]() == 1): {
 		unsafe {
 			let b = ptr_read(ptr_cast[u8](addr_of(val)))
 			fill_bytes(ptr_cast[u8](ptr_add(self.data, self.len)), b, count)
@@ -234,7 +296,7 @@ bind List[T].resize = fn(&self, new_len: int, val: T): {
 }
 
 // Reports whether any element in the list equals `item`.
-bind List[T].contains = fn(self, item: T) bool: {
+const List[T].contains = fn(self, item: T) bool: {
 	let i = 0
 	for(i < self.len): {
 		unsafe {
@@ -246,13 +308,13 @@ bind List[T].contains = fn(self, item: T) bool: {
 }
 
 // Returns a copy of the first element, or `none` if the list is empty.
-bind List[T].first = fn(self) ?T: self.get(0)
+const List[T].first = fn(self) ?T: self.get(0)
 
 // Returns a copy of the last element, or `none` if the list is empty.
-bind List[T].last = fn(self) ?T: self.get(self.len - 1)
+const List[T].last = fn(self) ?T: self.get(self.len - 1)
 
 // Returns the index of the first element equal to `item`, or `none`.
-bind List[T].index_of = fn(self, item: T) ?int: {
+const List[T].index_of = fn(self, item: T) ?int: {
 	let i = 0
 	while(i < self.len): {
 		unsafe {
@@ -267,29 +329,31 @@ bind List[T].index_of = fn(self, item: T) ?int: {
 //
 // # Panics
 // If either index is out of range.
-bind List[T].swap = fn(&self, i: int, j: int): {
+const List[T].swap = fn(&self, i: int, j: int): {
 	if(i < 0 or i >= self.len): panic("List.swap: index $i out of bounds for length ${self.len}")
 	if(j < 0 or j >= self.len): panic("List.swap: index $j out of bounds for length ${self.len}")
 	if(i == j): func <-
+	let data = self._data_mut()
 	unsafe {
-		let a = ptr_read(ptr_add(self.data, i))
-		let b = ptr_read(ptr_add(self.data, j))
-		ptr_write(ptr_add(self.data, i), own b)
-		ptr_write(ptr_add(self.data, j), own a)
+		let a = ptr_read(ptr_add(data, i))
+		let b = ptr_read(ptr_add(data, j))
+		ptr_write(ptr_add(data, i), own b)
+		ptr_write(ptr_add(data, j), own a)
 	}
 }
 
 // Shortens the list to `new_len` elements, destroying the rest in reverse order. Does nothing
 // when `new_len` is at least the current length; a negative `new_len` empties the list.
 // Capacity is kept.
-bind List[T].truncate = fn(&self, new_len: int): {
+const List[T].truncate = fn(&self, new_len: int): {
 	let keep = if(new_len < 0): 0 else: new_len
 	if(keep >= self.len): func <-
+	let data = self._data_mut()
 	if(self.cap > 0): {
 		let i = self.len - 1
 		while(i >= keep): {
 			unsafe {
-				let _ = ptr_read(ptr_add(self.data, i))
+				let _ = ptr_read(ptr_add(data, i))
 			}
 			i -= 1
 		}
@@ -299,14 +363,14 @@ bind List[T].truncate = fn(&self, new_len: int): {
 
 // Moves every element of `other` onto the end of this list, in order, without copying the
 // elements: `other` is consumed.
-bind List[T].extend = fn(&self, other: own List[T]): {
+const List[T].extend = fn(&self, other: own List[T]): {
 	let src = own other
 	if(src.len == 0): func <-
 	self.reserve(self.len + src.len)
 	unsafe copy_bytes(
 		ptr_cast[u8](ptr_add(self.data, self.len)),
 		ptr_cast[u8](src.data),
-		src.len * size_of[T](),
+		src.len * type.size_of[T](),
 	)
 	self.len += src.len
 	// The elements now belong to `self`; `src` frees its buffer without destroying them.
@@ -314,7 +378,7 @@ bind List[T].extend = fn(&self, other: own List[T]): {
 }
 
 // Drops all elements in reverse order and resets length to `0` while keeping capacity allocated.
-bind List[T].clear = fn(&self): {
+const List[T].clear = fn(&self): {
 	if(self.cap > 0): {
 		let i = self.len - 1
 		for(i >= 0): {
@@ -328,11 +392,11 @@ bind List[T].clear = fn(&self): {
 }
 
 // Returns a deep copy of the list by copying every element in order.
-bind List[T].copy = fn(self) List[T]: {
+const List[T].copy = fn(self) List[T]: {
 	if(self.len <= 0): func <- List[T].new()
 	let p = unsafe alloc_uninit[T](self.len)
-	if(is_plain[T]()): {
-		unsafe copy_bytes(ptr_cast[u8](p), ptr_cast[u8](self.data), self.len * size_of[T]())
+	if(type.is_plain[T]()): {
+		unsafe copy_bytes(ptr_cast[u8](p), ptr_cast[u8](self.data), self.len * type.size_of[T]())
 	} else: {
 		let i = 0
 		for(i < self.len): {
@@ -348,7 +412,7 @@ bind List[T].copy = fn(self) List[T]: {
 }
 
 // Formats the list as a bracketed, comma-separated string (`"[a, b, ...]"`).
-bind List[T].to_string = fn(self) string: {
+const List[T].to_string = fn(self) string: {
 	let out = "["
 	let i = 0
 	for(i < self.len): {
@@ -372,7 +436,7 @@ define ListIterator[T] struct [
 ]
 
 // Advances the iterator and returns a copy of the next element, or `none` when finished.
-bind ListIterator[T].next = fn(&self) ?T: {
+const ListIterator[T].next = fn(&self) ?T: {
 	if(self.idx >= self.items.len): func <- none
 	let i = self.idx
 	self.idx += 1
@@ -380,14 +444,14 @@ bind ListIterator[T].next = fn(&self) ?T: {
 }
 
 // Returns a forward [`Iterator`] over an owned snapshot of the list's elements.
-bind List[T].iter = fn(self) Iterator[T]:
+const List[T].iter = fn(self) Iterator[T]:
 	ListIterator[T][
 		items: self.copy(),
 		idx: 0,
 	]
 
 // Drops all remaining elements in reverse order and frees the backing heap allocation.
-bind List[T].drop = fn(&self): {
+const List[T].drop = fn(&self): {
 	if(self.cap > 0): {
 		let i = self.len - 1
 		for(i >= 0): {
@@ -427,10 +491,10 @@ bind test_list_set_and_reserve = fn(): {
 	assert(xs.cap() >= 50 and xs.len() == 3, "larger reserve grows cap")
 	assert(xs.get(0) == 1 and xs.get(1) == 2 and xs.get(2) == 3, "reserve preserves elements")
 
-	assert(xs.set(0, 100), "set index 0")
-	assert(xs.set(2, 300), "set index 2")
-	assert(not xs.set(-1, 999), "set negative returns false")
-	assert(not xs.set(3, 999), "set len returns false")
+	assert(xs.set(0, 100).is_ok(), "set index 0")
+	assert(xs.set(2, 300).is_ok(), "set index 2")
+	assert(xs.set(-1, 999).is_err(), "set negative fails")
+	assert(xs.set(3, 999).is_err(), "set len fails")
 	assert(xs.get(0) == 100 and xs.get(1) == 2 and xs.get(2) == 300, "set updated values")
 
 	// Resource elements: verify replaced & rejected owned values do not leak
@@ -439,10 +503,10 @@ bind test_list_set_and_reserve = fn(): {
 	assert(ss.cap() >= 6, "List[string] reserve")
 	ss.push("alpha")
 	ss.push("beta")
-	assert(ss.set(0, "ALPHA"), "List[string] set(0)")
-	assert(ss.set(1, "BETA"), "List[string] set(1)")
-	assert(not ss.set(-1, "OOB_NEG"), "List[string] set(-1) drops val cleanly")
-	assert(not ss.set(2, "OOB_HI"), "List[string] set(2) drops val cleanly")
+	assert(ss.set(0, "ALPHA").is_ok(), "List[string] set(0)")
+	assert(ss.set(1, "BETA").is_ok(), "List[string] set(1)")
+	assert(ss.set(-1, "OOB_NEG").is_err(), "List[string] set(-1) drops val cleanly")
+	assert(ss.set(2, "OOB_HI").is_err(), "List[string] set(2) drops val cleanly")
 	assert(ss.get(0) == "ALPHA" and ss.get(1) == "BETA", "List[string] set values")
 }
 
@@ -450,12 +514,12 @@ bind test_list_set_and_reserve = fn(): {
 bind test_list_insert_remove_swap_remove = fn(): {
 	// Plain int list: insert at front, middle, end across reallocations
 	let xs = List[int].new()
-	xs.insert(0, 20)
-	xs.insert(0, 10)
-	xs.insert(2, 40)
-	xs.insert(2, 30)
-	xs.insert(0, 5)
-	xs.insert(5, 50)
+	xs.must_insert(0, 20)
+	xs.must_insert(0, 10)
+	xs.must_insert(2, 40)
+	xs.must_insert(2, 30)
+	xs.must_insert(0, 5)
+	xs.must_insert(5, 50)
 	assert(xs.len() == 6, "insert len == 6")
 	assert(xs.to_string() == "[5, 10, 20, 30, 40, 50]", "insert ordering")
 
@@ -471,11 +535,11 @@ bind test_list_insert_remove_swap_remove = fn(): {
 
 	// Resource string list: verify 0 leaks and proper element ownership
 	let words = List[string].new()
-	words.insert(0, "mid")
-	words.insert(0, "head")
-	words.insert(2, "tail")
-	words.insert(1, "two")
-	words.insert(4, "end")
+	words.must_insert(0, "mid")
+	words.must_insert(0, "head")
+	words.must_insert(2, "tail")
+	words.must_insert(1, "two")
+	words.must_insert(4, "end")
 	assert(words.to_string() == "[head, two, mid, tail, end]", "string insert order")
 
 	assert(words.remove(1) == "two", "string remove middle")
@@ -491,8 +555,8 @@ bind test_list_insert_remove_swap_remove = fn(): {
 	let sh: [int] = [1, 2, 3]
 	sh.reserve(16)
 	assert(sh.cap() >= 16, "[int] reserve")
-	assert(sh.set(1, 20), "[int] set")
-	sh.insert(1, 15)
+	assert(sh.set(1, 20).is_ok(), "[int] set")
+	sh.must_insert(1, 15)
 	assert(sh.to_string() == "[1, 15, 20, 3]", "[int] insert")
 	assert(sh.remove(1) == 15, "[int] remove")
 	assert(sh.swap_remove(0) == 1, "[int] swap_remove")
@@ -538,7 +602,7 @@ bind test_list_filled_and_resize = fn(): {
 	// Resource type: independent deep copies
 	let strs = List[string].filled(4, "hello")
 	assert(strs.len() == 4 and strs.cap() == 4, "List[string].filled len/cap")
-	assert(strs.set(1, "world"), "mutate slot 1 only")
+	strs[1] = "world"
 	assert(strs[0] == "hello" and strs[1] == "world" and strs[2] == "hello" and strs[3] == "hello", "independent copies")
 
 	// resize: 1-byte Plain (bool, u8, i8)
@@ -574,7 +638,7 @@ bind test_list_filled_and_resize = fn(): {
 	// resize: Resource type (grow, shrink drops trailing elements cleanly, re-grow)
 	let rs = List[string].new()
 	rs.resize(3, "item")
-	assert(rs.set(0, "keep"), "set slot 0 before shrink")
+	rs[0] = "keep"
 	rs.resize(6, "tail")
 	assert(rs.to_string() == "[keep, item, item, tail, tail, tail]", "resize grow string")
 	rs.resize(1, "unused")
@@ -593,8 +657,8 @@ bind test_list_iterator_guarded = fn(): {
 	let it = xs.iter()
 	assert(it.next() == 10, "first item before mutations")
 
-	assert(xs.set(1, 999), "mutate set")
-	xs.insert(0, 111)
+	xs[1] = 999
+	xs.must_insert(0, 111)
 	let _ = xs.remove(2)
 	let _ = xs.swap_remove(0)
 	for(k in 0..100): xs.push(k)
@@ -614,7 +678,7 @@ bind test_list_iterator_guarded = fn(): {
 		let i_res = src.iter()
 		assert(i_res.next() == "first", "resource iter first")
 		let _ = src.set(1, "mutated")
-		src.insert(0, "prepended")
+		src.must_insert(0, "prepended")
 		for(k in 0..20): src.push("realloc_$k")
 		src.clear()
 		i_res
@@ -661,4 +725,21 @@ bind test_list_helpers = fn(): {
 	assert(words.last() == "f6", "extend from a variable")
 	words.truncate(-1)
 	assert(words.is_empty(), "negative truncate empties")
+}
+
+@test("List fallible insert, remove, and swap_remove, and their must_ forms")
+bind test_list_fallible_and_must = fn(): {
+	let xs: [string] = ["a", "b", "c"]
+	assert(xs.insert(3, "d").is_ok(), "insert at len appends")
+	assert(xs.insert(9, "x").is_err(), "insert past len fails")
+	assert(xs.insert(-1, "x").peek_err()?.message().contains("out of bounds") ?? false, "insert says why")
+	assert(xs.remove(1) == "b", "remove returns the element")
+	assert(xs.remove(7) == none, "remove out of range is none")
+	assert(xs.swap_remove(0) == "a", "swap_remove returns the element")
+	assert(xs.swap_remove(-2) == none, "swap_remove out of range is none")
+	assert(xs.join(",") == "d,c", "swap_remove moved the last element in")
+	xs.must_insert(0, "z")
+	assert(xs.must_remove(2) == "c", "must_remove")
+	assert(xs.must_swap_remove(0) == "z", "must_swap_remove")
+	assert(xs.join(",") == "d", "must_ forms change the list")
 }

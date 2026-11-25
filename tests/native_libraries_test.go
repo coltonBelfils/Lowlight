@@ -223,26 +223,21 @@ bind main = fn(): {
     assert(fs.exists(path))
 
     // 3. Read file
-    let r_res! = fs.read_file(path)
-    assert(r_res!.is_ok())
-    assert(r_res!.unwrap() == "Hello Lowlight File System!\n")
+    let text = fs.read_file(path): default panic
+    assert(text == "Hello Lowlight File System!\n")
 
     // 4. Append to file
     let app_res! = fs.append_file(path, "Appended line.\n")
     assert(app_res!.is_ok())
-    let r_app! = fs.read_to_string(path)
-    assert(r_app!.is_ok())
-    assert(r_app!.unwrap() == "Hello Lowlight File System!\nAppended line.\n")
+    let appended = fs.read_to_string(path): default panic
+    assert(appended == "Hello Lowlight File System!\nAppended line.\n")
 
     // 5. File size
-    let sz_res! = fs.file_size(path)
-    assert(sz_res!.is_ok())
-    assert(sz_res!.unwrap() == 43)
+    let size = fs.file_size(path): default panic
+    assert(size == 43)
 
     // 6. Robust File stream object (seek, tell, read)
-    let f_res! = fs.File.open_read(path)
-    assert(f_res!.is_ok())
-    let f = f_res!.unwrap()
+    let f = fs.File.open_read(path): default panic
     assert(f.is_valid())
 
     // Tell initial position
@@ -259,7 +254,7 @@ bind main = fn(): {
     assert(rem_res!.unwrap().starts_with("Lowlight File System!"))
 
     // Close file
-    assert(f.close())
+    assert(f.close().is_ok())
     assert(not f.is_valid())
 
     // 7. Binary byte reading and writing
@@ -268,30 +263,27 @@ bind main = fn(): {
     let wb_res! = fs.write_bytes(bin_path, bytes_to_write)
     assert(wb_res!.is_ok())
 
-    let rb_res! = fs.read_bytes(bin_path)
-    assert(rb_res!.is_ok())
-    let read_back = rb_res!.unwrap()
+    let read_back = fs.read_bytes(bin_path): default panic
     assert(read_back.len() == 5)
     assert(read_back[0] == 10)
     assert(read_back[4] == 50)
-    assert(fs.remove_file(bin_path))
+    fs.remove_file(bin_path): default panic
 
     // 8. Copy file
-    let cp_res! = fs.copy_file(path, copy_p)
-    assert(cp_res!.is_ok())
-    assert(cp_res!.unwrap() == 43)
+    let copied = fs.copy_file(path, copy_p): default panic
+    assert(copied == 43)
     assert(fs.exists(copy_p))
-    assert(fs.read_file(copy_p).unwrap() == fs.read_file(path).unwrap())
+    assert((fs.read_file(copy_p): default panic) == (fs.read_file(path): default panic))
 
     // 9. Rename file
-    assert(fs.rename_file(copy_p, renamed_p))
+    fs.rename_file(copy_p, renamed_p): default panic
     assert(not fs.exists(copy_p))
     assert(fs.exists(renamed_p))
 
     // 10. Delete files
-    assert(fs.remove_file(path))
+    fs.remove_file(path): default panic
     assert(not fs.exists(path))
-    assert(fs.remove_file(renamed_p))
+    fs.remove_file(renamed_p): default panic
     assert(not fs.exists(renamed_p))
 }
 `
@@ -444,7 +436,7 @@ bind main = fn(): {
     desc_nums.push(20)
     desc_nums.push(40)
     desc_nums.push(30)
-    let desc_cmp = cl(a: int, b: int) int: {
+    let desc_cmp = fn(a: int, b: int) int: {
         if (a > b): -1
         else if (a < b): 1
         else: 0
@@ -475,7 +467,7 @@ bind main = fn(): {
     sort.stable_sort(&helper_list)
     assert(sort.is_sorted(helper_list))
     assert(sort.binary_search(helper_list, 5) != none)
-    assert(sort.binary_search_by(helper_list, cl(x: int) int: x - 9) == 3)
+    assert(sort.binary_search_by(helper_list, fn(x: int) int: x - 9) == 3)
     assert(sort.lower_bound(helper_list, 5) == 1)
     assert(sort.upper_bound(helper_list, 5) == 3)
 

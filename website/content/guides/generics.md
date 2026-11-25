@@ -83,7 +83,7 @@ bind main = fn(): {
 1
 ```
 
-Type arguments are inferred from the arguments when possible. When they aren't, write them: `size_of[int]()`, `List[string].new()`.
+Type arguments are inferred from the arguments when possible. When they aren't, write them: `type.size_of[int]()`, `List[string].new()`.
 
 ## Bounds
 

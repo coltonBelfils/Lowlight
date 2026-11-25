@@ -42,6 +42,24 @@ func (s *Server) collectFnClQuickFixes(uri, src string, d Diagnostic, addAction 
 		if act, ok := replaceKeywordAt(uri, src, d, "cl", "fn", "Make it a function (`fn`)", true); ok {
 			addAction(act)
 		}
+	case strings.Contains(msg, "this is already a closure; `cl(...)` does nothing"):
+		sOff, eOff := LSPToOffset(src, d.Range.Start), LSPToOffset(src, d.Range.End)
+		if sOff >= 0 && eOff <= len(src) && sOff < eOff {
+			raw := src[sOff:eOff]
+			if open := strings.IndexByte(raw, '('); open >= 0 && strings.HasSuffix(strings.TrimSpace(raw), ")") {
+				closeIdx := strings.LastIndexByte(raw, ')')
+				inner := strings.TrimSpace(raw[open+1 : closeIdx])
+				if inner != "" {
+					addAction(CodeAction{
+						Title:       "Remove redundant `cl(...)`",
+						Kind:        "quickfix",
+						Diagnostics: []Diagnostic{d},
+						IsPreferred: true,
+						Edit:        &WorkspaceEdit{Changes: map[string][]TextEdit{uri: {{Range: d.Range, NewText: inner}}}},
+					})
+				}
+			}
+		}
 	case strings.Contains(msg, "a top-level function is written `fn(...)`"),
 		strings.Contains(msg, "is written `fn(...)`: it can't capture variables"):
 		if act, ok := replaceKeywordAt(uri, src, d, "cl", "fn", "Change `cl` to `fn`", true); ok {

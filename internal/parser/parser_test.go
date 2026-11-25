@@ -340,16 +340,6 @@ func TestEmptyBracketTypeRejectionAndValuePreservation(t *testing.T) {
 			src:     "bind xs: [123] = []\n",
 			wantMsg: "expected type, got integer literal (\"123\")",
 		},
-		{
-			name:    "integer literal generic type argument Box[123]",
-			src:     "bind x: Box[123] = Box[val: 1]\n",
-			wantMsg: "expected type, got integer literal (\"123\")",
-		},
-		{
-			name:    "single integer literal type argument Array[123]",
-			src:     "bind x: Array[123] = [1, 2, 3]\n",
-			wantMsg: "expected type, got integer literal (\"123\")",
-		},
 	}
 
 	for _, tc := range rejected {
@@ -1114,5 +1104,178 @@ bind main = fn(): {
 	_ = parser.ParseFile("bad_multi_call.ll", badCallSrc, rep2)
 	if !rep2.HasErrors() || !strings.Contains(rep2.Format(), "missing trailing comma") {
 		t.Fatalf("expected missing trailing comma error for 2-arg multiline call, got:\n%s", rep2.Format())
+	}
+}
+
+func TestComptimeAndConstSyntax(t *testing.T) {
+	src := `
+comptime if (LINUX): {
+	const SEP = '/'
+	extern "unistd.h"
+} else comptime if (MACOS): {
+	const SEP = '/'
+} else: {
+	const SEP = '\\'
+}
+
+comptime if (DEBUG): const LOG_LEVEL = 3
+else: const LOG_LEVEL = 1
+
+const N = 4
+
+define Matrix[T, R: const int, C: const int] struct [
+	data: [R: [C: T]],
+]
+
+const Matrix[T, R: const int, C: const int].zeros = fn() Matrix[T, R, C]: {
+	let m = Matrix[T, R, C][data: comptime make_zero()]
+	m
+}
+
+const double_arr[N: const int] = fn(arr: [N: int]) [N: int]: {
+	const LOCAL_FACTOR = 2
+	comptime for (i in 0..N) [N: int]: arr[i] * LOCAL_FACTOR
+}
+
+const demo = fn(v: [int]) int: {
+	let sliced = v[0..2].len()
+	let z = zeros[8]()
+	let x = comptime 1 + 2
+	let y = comptime {
+		const A = 10
+		A + x
+	}
+	let picked = comptime if (N > 2): 100
+	else comptime if (N == 2): 50
+	else: 0
+	let labeled = outer: comptime for (i in 0..3): {
+		if (i == 1): next outer <-
+	}
+	let matched = comptime match (N):
+		when 4: 40
+		default: 0
+	let m: Matrix[int, 2 + 2, 4] = Matrix[int, 2 + 2, 4][data: z]
+	sliced + picked + matched + y + m.data.len()
+}
+`
+	rep := diag.NewReporter()
+	file := parser.ParseFile("comptime_syntax.ll", src, rep)
+	if rep.HasErrors() || file == nil {
+		t.Fatalf("unexpected parse errors:\n%s", rep.Format())
+	}
+
+	// Verify top-level comptime if decls & const decls
+	topIf, ok := file.Decls[0].(*ast.TopComptimeIfDecl)
+	if !ok || !topIf.ThenBraced || topIf.ElseIf == nil || topIf.ElseIf.ElseDecls == nil && topIf.ElseIf.ElseIf == nil && !topIf.ElseIf.HasElse {
+		t.Fatalf("expected chained TopComptimeIfDecl with else branch, got %#v", file.Decls[0])
+	}
+	if len(topIf.ThenDecls) != 2 {
+		t.Fatalf("expected 2 decls inside first comptime if branch, got %d", len(topIf.ThenDecls))
+	}
+	if vd, ok := topIf.ThenDecls[0].(*ast.VarDecl); !ok || !vd.IsConst {
+		t.Fatalf("expected const VarDecl inside TopComptimeIfDecl, got %#v", topIf.ThenDecls[0])
+	}
+
+	singleTopIf, ok := file.Decls[1].(*ast.TopComptimeIfDecl)
+	if !ok || singleTopIf.ThenBraced || !singleTopIf.HasElse || singleTopIf.ElseBraced {
+		t.Fatalf("expected unbraced TopComptimeIfDecl with else, got %#v", file.Decls[1])
+	}
+
+	matDef := file.Decls[3].(*ast.StructDecl)
+	if len(matDef.TypeParams) != 3 || matDef.TypeParams[0].IsConst || !matDef.TypeParams[1].IsConst || matDef.TypeParams[1].ConstType == nil {
+		t.Fatalf("unexpected Matrix type params: %#v", matDef.TypeParams)
+	}
+
+	matMethod := file.Decls[4].(*ast.MethodDecl)
+	if !matMethod.IsConst || len(matMethod.RecvTypeParams) != 3 {
+		t.Fatalf("expected const MethodDecl with 3 recv params, got %#v", matMethod)
+	}
+
+	demoDecl := file.Decls[6].(*ast.VarDecl)
+	if !demoDecl.IsConst {
+		t.Fatalf("expected const VarDecl for demo")
+	}
+	demoFn := demoDecl.Value.(*ast.FuncLit)
+	blk := demoFn.Body.(*ast.BlockExpr)
+
+	// Verify `v[0..2].len()` stayed a SliceExpr (not ConstArgType)
+	slicedStmt := blk.Stmts[0].(*ast.VarStmt)
+	lenCall := slicedStmt.Value.(*ast.CallExpr)
+	lenMem := lenCall.Callee.(*ast.MemberExpr)
+	if _, ok := lenMem.Base.(*ast.SliceExpr); !ok {
+		t.Fatalf("expected v[0..2] to remain SliceExpr, got %#v", lenMem.Base)
+	}
+
+	// Verify `zeros[8]()` parsed ConstArgType
+	zStmt := blk.Stmts[1].(*ast.VarStmt)
+	zCall := zStmt.Value.(*ast.CallExpr)
+	if len(zCall.TypeArgs) != 1 {
+		t.Fatalf("expected 1 generic arg on zeros[8](), got %d", len(zCall.TypeArgs))
+	}
+	if _, ok := zCall.TypeArgs[0].(*ast.ConstArgType); !ok {
+		t.Fatalf("expected ConstArgType for zeros[8](), got %#v", zCall.TypeArgs[0])
+	}
+
+	// Verify `comptime 1 + 2` wraps `1` (unary precedence, not `comptime (1 + 2)` unless parenthesized)
+	xStmt := blk.Stmts[2].(*ast.VarStmt)
+	if bin, ok := xStmt.Value.(*ast.BinaryExpr); !ok {
+		t.Fatalf("expected BinaryExpr (comptime 1) + 2, got %#v", xStmt.Value)
+	} else if _, ok := bin.Left.(*ast.ComptimeExpr); !ok {
+		t.Fatalf("expected ComptimeExpr on left of +, got %#v", bin.Left)
+	}
+
+	// Verify `comptime { ... }`
+	yStmt := blk.Stmts[3].(*ast.VarStmt)
+	if ct, ok := yStmt.Value.(*ast.ComptimeExpr); !ok {
+		t.Fatalf("expected ComptimeExpr for comptime { ... }, got %#v", yStmt.Value)
+	} else if cblk, ok := ct.Expr.(*ast.BlockExpr); !ok {
+		t.Fatalf("expected BlockExpr inside comptime { ... }, got %#v", ct.Expr)
+	} else if vs, ok := cblk.Stmts[0].(*ast.VarStmt); !ok || !vs.IsConst {
+		t.Fatalf("expected local const VarStmt inside block, got %#v", cblk.Stmts[0])
+	}
+
+	// Verify `comptime if` / `else comptime if`
+	pStmt := blk.Stmts[4].(*ast.VarStmt)
+	if ctIf, ok := pStmt.Value.(*ast.IfExpr); !ok || !ctIf.IsComptime {
+		t.Fatalf("expected comptime IfExpr, got %#v", pStmt.Value)
+	} else if elseIf, ok := ctIf.Else.(*ast.IfExpr); !ok || !elseIf.IsComptime {
+		t.Fatalf("expected comptime else-if IfExpr, got %#v", ctIf.Else)
+	}
+
+	// Verify labeled `outer: comptime for`
+	lStmt := blk.Stmts[5].(*ast.VarStmt)
+	if ctFor, ok := lStmt.Value.(*ast.ForExpr); !ok || !ctFor.IsComptime || ctFor.Label != "outer" {
+		t.Fatalf("expected labeled comptime ForExpr, got %#v", lStmt.Value)
+	}
+
+	// Verify `comptime match`
+	mStmt := blk.Stmts[6].(*ast.VarStmt)
+	if ctMatch, ok := mStmt.Value.(*ast.MatchExpr); !ok || !ctMatch.IsComptime {
+		t.Fatalf("expected comptime MatchExpr, got %#v", mStmt.Value)
+	}
+
+	// Verify `Matrix[int, 2 + 2, 4]` type + struct lit generic args
+	matStmt := blk.Stmts[7].(*ast.VarStmt)
+	matNT := matStmt.Type.(*ast.NamedType)
+	if len(matNT.TypeArgs) != 3 {
+		t.Fatalf("expected 3 args on Matrix[int, 2 + 2, 4], got %d", len(matNT.TypeArgs))
+	}
+	if _, ok := matNT.TypeArgs[1].(*ast.ConstArgType); !ok {
+		t.Fatalf("expected ConstArgType for `2 + 2`, got %#v", matNT.TypeArgs[1])
+	}
+	matLit := matStmt.Value.(*ast.StructLit)
+	if len(matLit.TypeArgs) != 3 {
+		t.Fatalf("expected 3 generic args on Matrix[...] struct lit, got %d", len(matLit.TypeArgs))
+	}
+	if _, ok := matLit.TypeArgs[1].(*ast.ConstArgType); !ok {
+		t.Fatalf("expected ConstArgType on struct lit arg 1, got %#v", matLit.TypeArgs[1])
+	}
+
+	// Negative test: `comptime if (...) ... else if (...)` must error with hint
+	badChain := "const f = fn() int: comptime if (true): 1 else if (false): 2 else: 3\n"
+	badRep := diag.NewReporter()
+	_ = parser.ParseFile("bad_comptime_if.ll", badChain, badRep)
+	if !badRep.HasErrors() || !strings.Contains(badRep.Format(), "else comptime if") {
+		t.Fatalf("expected `else comptime if` diagnostic, got:\n%s", badRep.Format())
 	}
 }

@@ -151,7 +151,7 @@ memory       2
 
 ## 5. Read the file and the arguments
 
-The real program reads a file named on the command line. `fs.read_text` returns a `Result[string]`, because opening a file can fail for reasons outside the program's control. A result chain handles the failure where it happens:
+The real program reads a file named on the command line. `fs.read_text` returns a `FileResult[string]`, because opening a file can fail for reasons outside the program's control. A missing file is its own case, `not_found`, so the program can say something friendlier about it. A result chain handles each failure where it happens:
 
 ```lowlight no-run
 import "std/fs"
@@ -198,6 +198,10 @@ bind main = fn() int: {
 	}
 	let n = if(argv.len() == 3): parse_int(argv[2]) ?? 10 else: 10
 	let text = fs.read_text(argv[1]):
+		when not_found(_): {
+			eprintln("wordfreq: there's no file named ${argv[1]}")
+			func <- 1
+		}
 		default err(own e): {
 			eprintln("wordfreq: ${e.wrap("reading ${argv[1]}").summary()}")
 			func <- 1
@@ -208,7 +212,7 @@ bind main = fn() int: {
 ```
 
 - `main` returns an `int`, which becomes the exit status: `2` for a usage error, `1` when the file can't be read.
-- `e.wrap(...)` adds context to the error; `summary()` renders the chain on one line, such as `reading notes.txt: no such file or directory`.
+- `e.wrap(...)` adds context to the error; `summary()` renders the chain on one line, such as `reading notes.txt: failed to open "notes.txt" for reading: Permission denied`.
 - `parse_int(argv[2]) ?? 10` falls back to 10 when the count isn't a number.
 
 Run it:

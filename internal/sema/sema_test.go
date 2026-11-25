@@ -178,7 +178,7 @@ bind main = fn(): {}
 			name: "unwind across lambda boundary",
 			src: `
 bind main = fn() int: {
-    let f = cl() int: {
+    let f = fn() int: {
         if (true): {
             for <- 5
         }
@@ -358,9 +358,9 @@ bind main = fn() int: {
         when 2: 20
         default: 0
     let l1: [int] = make_list[int](double(3))
-    let inc = cl(n: int): n + 1
-    let fn_arg: cl(int) int = cl(k: int): k + 5
-    let fn_void: cl(int) void = cl(k: int): { if (k > 0): println("ok") }
+    let inc = fn(n: int): n + 1
+    let fn_arg: cl(int) int = fn(k: int): k + 5
+    let fn_void: cl(int) void = fn(k: int): { if (k > 0): println("ok") }
     fn_void(1)
     greet("hi")
     with_void_semi(5)

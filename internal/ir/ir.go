@@ -53,17 +53,64 @@ type StaticThunk struct {
 	ThunkCName string
 	TargetFunc *sema.FuncInstance
 	FuncType   *types.Func
+	// CCallback marks a test-build wrapper around an `extern fn` that C calls: it takes no
+	// environment, and while the callback runs it clears the test runner's jump target, so a panic
+	// ends the test run instead of jumping back across the C frames. Target is then the C name of
+	// the wrapped function (a top-level function or an `extern fn` literal).
+	CCallback bool
+	Target    string
 }
 
-// Global represents an initialized top-level `bind` constant.
+// TargetCName is the C name of the function the thunk calls.
+func (t *StaticThunk) TargetCName() string {
+	if t.TargetFunc != nil {
+		return t.TargetFunc.CName
+	}
+	return t.Target
+}
+
+// Global represents an initialized top-level `bind` or baked `const` global.
 type Global struct {
-	Name      string
-	CName     string
-	PkgID     string
-	Type      types.Type
-	Locals    []*Local
-	InitInstr []Instr
-	InitExpr  Expr
+	Name       string
+	CName      string
+	PkgID      string
+	Type       types.Type
+	IsConst    bool
+	StaticInit *StaticVal
+	Locals     []*Local
+	InitInstr  []Instr
+	InitExpr   Expr
+}
+
+// StaticStructField holds a single statically initialized field of a baked struct constant.
+type StaticStructField struct {
+	Name  string
+	Value *StaticVal
+}
+
+// StaticVal represents an immutable, backend-ready compile-time constant tree baked into
+// static `.rodata` storage (primitives, strings, zero-cap `List[T]` views, arrays, tuples,
+// structs, enums, optionals, and non-closure static functions).
+type StaticVal struct {
+	Kind        sema.StaticKind
+	Type        types.Type
+	Uint        uint64
+	SignedVal   int64
+	IsSigned    bool
+	Float       float64
+	Bool        bool
+	Char        rune
+	Str         string
+	HasRawBytes bool
+	RawBytes    []byte
+	Elems       []*StaticVal
+	Fields     []StaticStructField
+	VariantVal int64
+	VariantCN  string
+	Payload    *StaticVal
+	HasOpt     bool
+	OptElem    *StaticVal
+	FnEntry    string // non-empty C function name for StaticFn (static thunk or non-closure lambda)
 }
 
 // Local represents a function-scoped variable or compiler-synthesized slot.
@@ -300,6 +347,9 @@ func (tc *typeCollector) visitValue(t types.Type) {
 	case *types.Ref:
 		tc.deferVisit(v.Elem)
 	case *types.Enum:
+		if v.IsComptimeOnly {
+			return
+		}
 		if !tc.enSeen[v] {
 			tc.enSeen[v] = true
 			if !v.IsTagged {
@@ -314,6 +364,9 @@ func (tc *typeCollector) visitValue(t types.Type) {
 			}
 		}
 	case *types.Distinct:
+		if v.IsComptimeOnly {
+			return
+		}
 		if !tc.distSeen[v] {
 			tc.distSeen[v] = true
 			tc.visitValue(v.Base)
@@ -321,6 +374,9 @@ func (tc *typeCollector) visitValue(t types.Type) {
 			tc.ordered = append(tc.ordered, v)
 		}
 	case *types.Struct:
+		if v.IsComptimeOnly {
+			return
+		}
 		if strings.HasPrefix(v.CName, "ll_lambda_env_") {
 			return
 		}
@@ -388,7 +444,7 @@ func (tc *typeCollector) visitValue(t types.Type) {
 			tc.ordered = append(tc.ordered, v)
 		}
 	case *types.Interface:
-		if v.UsesSelf {
+		if v.UsesSelf || v.IsComptimeOnly {
 			return
 		}
 		k := v.Mangled()

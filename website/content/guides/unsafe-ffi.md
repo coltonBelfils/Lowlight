@@ -56,7 +56,7 @@ Keeping `unsafe` tight makes it easy to find and review: search for `unsafe` and
 | `alloc_raw[T](n)` · `alloc_uninit[T](n)` | allocate `n` elements, zeroed or uninitialized |
 | `realloc_raw(p, n)` · `free_raw(p)` | resize and free |
 | `copy_bytes(dst, src, n)` · `zero_bytes(p, n)` · `fill_bytes(p, b, n)` | bulk memory operations |
-| `size_of[T]()` · `align_of[T]()` · `is_plain[T]()` | layout queries (safe) |
+| `type.size_of[T]()` · `type.align_of[T]()` · `type.is_plain[T]()` | layout queries (safe) |
 
 Memory from `alloc_raw` holds raw bytes: destroying it doesn't run any destructors. Store only plain values in raw memory, or destroy resources yourself before freeing.
 

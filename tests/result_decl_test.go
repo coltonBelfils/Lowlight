@@ -173,6 +173,169 @@ bind main = fn(): {
 	}
 }
 
+// A unit result (`value` with no payload) is constructed with bare `value`, and its chains are
+// statements: arms handle the failures, `func <-` propagates them, and `default panic` asserts.
+func TestUnitResultChains(t *testing.T) {
+	t.Parallel()
+	src := `define Saved result [
+	value,
+	full: Error,
+	err: Error,
+]
+
+bind save = fn(n: int) Saved:
+	if(n == 0): value
+	else if(n == 1): full(Error.new("disk full"))
+	else: err(Error.new("boom $n"))
+
+bind save_twice = fn(n: int) Saved: {
+	save(0): default panic
+	save(n):
+		when full(own e): func <- full(e.wrap("second save"))
+		default err(own e): func <- err(e)
+	value
+}
+
+bind status = fn(ok: bool) Status: if(ok): value else: Status.fail_msg("no")
+
+bind main = fn(): {
+	save(0): default panic
+	save(1):
+		when full(e): println("full: ${e.message()}")
+		default err(own e): println(e.summary())
+	save(2):
+		when full(_): println("full")
+		default err(own e): println(e.summary())
+	save_twice(1):
+		when full(own e): println(e.summary())
+		default panic
+	let r! = save_twice(0)
+	match(r!):
+		when value: println("saved")
+		default: println("not saved")
+	println(status(true).is_ok())
+	status(false):
+		default err(own e): println(e.message())
+	status(true).unwrap()
+	println("unwrapped")
+}
+`
+	want := "full: disk full\nboom 2\nsecond save: disk full\nsaved\ntrue\nno\nunwrapped"
+	for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
+		rc, stdout, stderr := runResultProgram(t, "unit_result", src, backend)
+		if rc != 0 {
+			t.Fatalf("[%s] exit code %d\nstdout:\n%s\nstderr:\n%s", backend, rc, stdout, stderr)
+		}
+		if got := strings.TrimSpace(stdout); got != want {
+			t.Fatalf("[%s] unexpected output:\n%s\nwant:\n%s", backend, got, want)
+		}
+	}
+}
+
+// A user type may share a name with a std/core type (`Status`, `Error`) without colliding in
+// the generated code, even when std itself uses the core type.
+func TestUserTypeShadowsCoreTypeName(t *testing.T) {
+	t.Parallel()
+	src := `import "std/fs"
+
+define Status enum [pending, done]
+define Error struct [code: int]
+
+bind main = fn(): {
+	fs.remove_file("/nonexistent_lowlight_dir/x"):
+		when not_found(_): println("not found")
+		default panic
+	let s = Status.done
+	match(s):
+		when pending: println("pending")
+		default done: println("done")
+	println(Error[code: 3].code)
+}
+`
+	for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
+		rc, stdout, stderr := runResultProgram(t, "shadow_core", src, backend)
+		if rc != 0 || strings.TrimSpace(stdout) != "not found\ndone\n3" {
+			t.Fatalf("[%s] rc=%d stdout=%q\nstderr:\n%s", backend, rc, stdout, stderr)
+		}
+	}
+}
+
+// A chain on a borrowed result (a read-only parameter) reads it in place: statement chains work
+// for any value type, and chains used as values work for plain ones. Two chains in one
+// expression keep their own values.
+func TestResultChainOnBorrowedSubject(t *testing.T) {
+	t.Parallel()
+	src := `bind describe = fn(r!: Result[string]) int: {
+	r!:
+		default err(e): println("err: ${e.message()}")
+	match(r!):
+		when value(s): s.len()
+		default: 0
+}
+
+bind doubled = fn(r!: Result[int]) int: {
+	let n = r!: default: -1
+	n * 2
+}
+
+bind both = fn(a!: Result[string], b!: Result[string]) string:
+	(a!.copy(): default panic) + "|" + (b!.copy(): default panic)
+
+bind main = fn(): {
+	let a! = Result[string].value("abc")
+	println(describe(a!))
+	println(describe(a!))
+	println(describe(Result[string].fail_msg("nope")))
+	println(doubled(Result[int].value(21)))
+	println(doubled(Result[int].fail_msg("x")))
+	println(both(a!, Result[string].value("de")))
+	println((Result[string].value("x"): default panic) == (Result[string].value("x"): default panic))
+}
+`
+	want := "3\n3\nerr: nope\n0\n42\n-2\nabc|de\ntrue"
+	for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
+		rc, stdout, stderr := runResultProgram(t, "borrowed_chain", src, backend)
+		if rc != 0 || strings.TrimSpace(stdout) != want {
+			t.Fatalf("[%s] rc=%d stdout:\n%s\nwant:\n%s\nstderr:\n%s", backend, rc, stdout, want, stderr)
+		}
+	}
+	_, _, err := driver.Check(driver.Options{
+		EntryPath:   filepath.Join(t.TempDir(), "borrowed_value.ll"),
+		SrcOverride: "bind f = fn(r!: Result[string]) string: r!: default: \"none\"\nbind main = fn(): {}\n",
+		ProjectRoot: projectRoot(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), "a chain on borrowed `r!` can't produce its string value without moving it") {
+		t.Fatalf("expected the borrowed-value error, got %v", err)
+	}
+}
+
+// `default panic` on a failure that carries an Error prints the error's message, causes, and
+// trace, attributed to the `default panic` line.
+func TestResultChainDefaultPanicShowsError(t *testing.T) {
+	t.Parallel()
+	src := `bind load = fn() Result[int]: err(Error.new("disk gone").wrap("loading config"))
+
+bind main = fn(): {
+	let n = load(): default panic
+	println(n)
+}
+`
+	for _, backend := range []driver.BackendKind{driver.BackendLLVM, driver.BackendC11} {
+		rc, _, stderr := runResultProgram(t, "panic_error", src, backend)
+		if rc != 1 {
+			t.Fatalf("[%s] rc=%d, want 1\nstderr:\n%s", backend, rc, stderr)
+		}
+		for _, want := range []string{
+			"lowlight panic at panic_error.ll:4:18: unhandled failure Result.err: loading config: disk gone",
+			"at panic_error.ll:1:",
+		} {
+			if !strings.Contains(stderr, want) {
+				t.Fatalf("[%s] stderr is missing %q:\n%s", backend, want, stderr)
+			}
+		}
+	}
+}
+
 // Static rules for result declarations, the `!` naming invariant, and result chains.
 func TestResultDeclarationDiagnostics(t *testing.T) {
 	t.Parallel()
@@ -183,7 +346,9 @@ func TestResultDeclarationDiagnostics(t *testing.T) {
 	}{
 		{"no_value", "define Bad result [Oops: string]\nbind main = fn(): {}", "result Bad has no `value` member"},
 		{"no_failures", "define Bad result [value: int]\nbind main = fn(): {}", "result Bad has no failure variants"},
-		{"untyped_value", "define Bad result [value, Oops]\nbind main = fn(): {}", "the `value` member of result Bad must declare its type"},
+		{"unit_result_no_fallback", "define Saved result [value, oops]\nbind f = fn() Saved: value\nbind main = fn(): {\n\tlet r! = f()\n\tlet x = r! ?? 1\n}", "`??` needs a value, but Saved is a unit result"},
+		{"unit_result_no_bind", "define Saved result [value, oops]\nbind f = fn() Saved: value\nbind main = fn(): {\n\tif(f() as v): println(\"x\")\n}", "Saved is a unit result: its `value` has nothing to bind"},
+		{"unit_result_chain_no_value", "define Saved result [value, oops]\nbind f = fn() Saved: value\nbind main = fn(): {\n\tlet x = f(): default panic\n}", "a chain on Saved has no value: it is a unit result"},
 		{"missing_bang", "bind main = fn(): {\n\tlet r = find(\"a\")\n}", "has result type Lookup and must end with `!`"},
 		{"stray_bang", "bind main = fn(): {\n\tlet n! = 3\n}", "ends with `!` but has non-result type int"},
 		{"bang_param", "bind show = fn(r: Lookup) int: 0\nbind main = fn(): {}", "has result type Lookup and must end with `!`"},

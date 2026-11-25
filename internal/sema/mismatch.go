@@ -49,14 +49,16 @@ func mismatchMessage(context string, expected, got types.Type) string {
 
 // mismatchHint suggests the usual fix for a mismatch between two types, or "". `fix` names the
 // fix for editor quick fixes: "convert:T", "to_string", "unwrap_optional", "handle_result",
-// "wrap_value", or "wrap_failure:Name".
-func mismatchHint(expected, got types.Type, implements func(types.Type, *types.Interface) bool) (hint, fix string) {
+// "wrap_value", "wrap_failure:Name", or "nonzero".
+func mismatchHint(expected, got types.Type, implements func(types.Type, *types.Interface) bool, printable bool) (hint, fix string) {
 	ep, eIsPrim := expected.(*types.Primitive)
 	gp, gIsPrim := got.(*types.Primitive)
 	switch {
 	case eIsPrim && gIsPrim && ep.IsNumeric() && gp.IsNumeric():
 		return fmt.Sprintf("numbers never convert implicitly; write `%s(...)` to convert", expected.String()), "convert:" + expected.String()
-	case expected.Equals(types.TypeString) && gIsPrim:
+	case expected.Equals(types.TypeBool) && gIsPrim && gp.IsNumeric():
+		return "Lowlight has no implicit truthiness; compare explicitly, e.g. `x != 0`", "nonzero"
+	case expected.Equals(types.TypeString) && (gIsPrim || printable):
 		return "convert with `.to_string()` or interpolate it: `\"$value\"`", "to_string"
 	}
 	if gotOpt, ok := got.(*types.Optional); ok && gotOpt.Elem.Equals(expected) {

@@ -215,7 +215,7 @@ func buildTwoPhase(
 	linkArgs = append(linkArgs, objFiles...)
 	linkArgs = append(linkArgs, allFlags...)
 	linkArgs = append(linkArgs, mLibs...)
-	linkArgs = append(linkArgs, "-lm", "-ldl")
+	linkArgs = append(linkArgs, targetSystemLibs(checked.Target)...)
 
 	var linkStderr bytes.Buffer
 	cmd := exec.Command(cc, linkArgs...)

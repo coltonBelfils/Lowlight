@@ -91,11 +91,52 @@ type WorkspaceEdit struct {
 // -----------------------------------------------------------------------------
 
 type InitializeParams struct {
-	ProcessID             int               `json:"processId"`
-	RootURI               string            `json:"rootUri"`
-	RootPath              string            `json:"rootPath"`
-	WorkspaceFolders      []WorkspaceFolder `json:"workspaceFolders"`
-	InitializationOptions json.RawMessage   `json:"initializationOptions,omitempty"`
+	ProcessID             int                `json:"processId"`
+	RootURI               string             `json:"rootUri"`
+	RootPath              string             `json:"rootPath"`
+	WorkspaceFolders      []WorkspaceFolder  `json:"workspaceFolders"`
+	Capabilities          ClientCapabilities `json:"capabilities,omitempty"`
+	InitializationOptions json.RawMessage    `json:"initializationOptions,omitempty"`
+}
+
+type ClientCapabilities struct {
+	Workspace *WorkspaceClientCapabilities `json:"workspace,omitempty"`
+}
+
+type WorkspaceClientCapabilities struct {
+	DidChangeWatchedFiles *DidChangeWatchedFilesClientCapabilities `json:"didChangeWatchedFiles,omitempty"`
+}
+
+type DidChangeWatchedFilesClientCapabilities struct {
+	DynamicRegistration bool `json:"dynamicRegistration,omitempty"`
+}
+
+type RegistrationParams struct {
+	Registrations []Registration `json:"registrations"`
+}
+
+type Registration struct {
+	ID              string `json:"id"`
+	Method          string `json:"method"`
+	RegisterOptions any    `json:"registerOptions,omitempty"`
+}
+
+type UnregistrationParams struct {
+	Unregisterations []Unregistration `json:"unregisterations"`
+}
+
+type Unregistration struct {
+	ID     string `json:"id"`
+	Method string `json:"method"`
+}
+
+type DidChangeWatchedFilesRegistrationOptions struct {
+	Watchers []FileSystemWatcher `json:"watchers"`
+}
+
+type FileSystemWatcher struct {
+	GlobPattern string `json:"globPattern"`
+	Kind        int    `json:"kind,omitempty"`
 }
 
 type WorkspaceFolder struct {
@@ -221,12 +262,18 @@ const (
 	SeverityHint        DiagnosticSeverity = 4
 )
 
+type DiagnosticRelatedInformation struct {
+	Location Location `json:"location"`
+	Message  string   `json:"message"`
+}
+
 type Diagnostic struct {
-	Range    Range              `json:"range"`
-	Severity DiagnosticSeverity `json:"severity,omitempty"`
-	Source   string             `json:"source,omitempty"`
-	Message  string             `json:"message"`
-	Code     string             `json:"code,omitempty"`
+	Range              Range                          `json:"range"`
+	Severity           DiagnosticSeverity             `json:"severity,omitempty"`
+	Source             string                         `json:"source,omitempty"`
+	Message            string                         `json:"message"`
+	Code               string                         `json:"code,omitempty"`
+	RelatedInformation []DiagnosticRelatedInformation `json:"relatedInformation,omitempty"`
 	// Data is echoed back by clients in code action requests. It holds the compiler's fix
 	// details (string values) and, when the underline covers only part of an expression,
 	// "fullRange": the whole expression.

@@ -181,7 +181,7 @@ func (s *Server) computeHover(filePath string, src string, pos Position) *Hover 
 }
 
 func (s *Server) hoverFromAST(prog *sema.CheckedProgram, mod *sema.Module, offset int, tok token.Token) string {
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		if !spanContainsOffset(d.GetSpan(), offset) {
 			continue
 		}
@@ -290,7 +290,7 @@ func (s *Server) hoverFromAST(prog *sema.CheckedProgram, mod *sema.Module, offse
 			if tok.Text == decl.Name && (decl.Body == nil || offset < decl.Body.GetSpan().Start.Offset) {
 				fi := findFuncInstanceForDecl(prog, mod, decl.Span)
 				if fi != nil {
-					base := fmt.Sprintf("```lowlight\nbind %s = %s\n```", fi.Name, formatFullFuncSig(fi))
+					base := formatFuncInstanceHoverHeader(fi)
 					doc := fi.Doc
 					if doc == "" {
 						doc = decl.Doc
@@ -298,7 +298,11 @@ func (s *Server) hoverFromAST(prog *sema.CheckedProgram, mod *sema.Module, offse
 					rendered := s.renderDocMarkdown(prog, mod.Path, decl.RecvType, doc, decl.Span.Start.File, decl.Span.Start.Line, true)
 					return appendRenderedDoc(base, rendered)
 				}
-				base := fmt.Sprintf("```lowlight\nbind %s.%s = %s\n```", decl.RecvType, decl.Name, formatGenericMethodDeclSig(decl, nil, false))
+				declKw := "bind"
+				if decl.IsConst {
+					declKw = "const"
+				}
+				base := fmt.Sprintf("```lowlight\n%s %s.%s = %s\n```", declKw, decl.RecvType, decl.Name, formatGenericMethodDeclSig(decl, nil, false))
 				rendered := s.renderDocMarkdown(prog, mod.Path, decl.RecvType, decl.Doc, decl.Span.Start.File, decl.Span.Start.Line, true)
 				return appendRenderedDoc(base, rendered)
 			}
@@ -406,6 +410,15 @@ func (s *Server) hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *se
 				}
 			}
 		}
+		if v.CondKind == ast.IfCondOptBind && v.BindName != "" && tok.Text == v.BindName &&
+			v.Cond != nil && offset > v.Cond.GetSpan().End.Offset &&
+			(v.Then == nil || offset < v.Then.GetSpan().Start.Offset) {
+			if bm != nil {
+				if sym := bm.IfUnwrapSyms[v]; sym != nil {
+					return s.formatSymbolHover(prog, mod, sym)
+				}
+			}
+		}
 		if md := s.hoverInExpr(prog, mod, bm, v.Cond, offset, tok); md != "" {
 			return md
 		}
@@ -417,6 +430,15 @@ func (s *Server) hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *se
 		return s.hoverInExpr(prog, mod, bm, v.Else, offset, tok)
 
 	case *ast.ForExpr:
+		if bm != nil && v.Kind != ast.ForCond && v.CondOrIter != nil && offset < v.CondOrIter.GetSpan().Start.Offset {
+			syms := bm.ForSymbols[v]
+			if tok.Text == v.Var1 && syms[0] != nil {
+				return s.formatSymbolHover(prog, mod, syms[0])
+			}
+			if v.Var2 != "" && tok.Text == v.Var2 && syms[1] != nil {
+				return s.formatSymbolHover(prog, mod, syms[1])
+			}
+		}
 		if md := s.hoverInExpr(prog, mod, bm, v.CondOrIter, offset, tok); md != "" {
 			return md
 		}
@@ -429,6 +451,15 @@ func (s *Server) hoverInExpr(prog *sema.CheckedProgram, mod *sema.Module, bm *se
 		return s.hoverInExpr(prog, mod, bm, v.Else, offset, tok)
 
 	case *ast.WhileExpr:
+		if bm != nil && v.Kind != ast.ForCond && v.CondOrIter != nil && offset < v.CondOrIter.GetSpan().Start.Offset {
+			syms := bm.WhileSymbols[v]
+			if tok.Text == v.Var1 && syms[0] != nil {
+				return s.formatSymbolHover(prog, mod, syms[0])
+			}
+			if v.Var2 != "" && tok.Text == v.Var2 && syms[1] != nil {
+				return s.formatSymbolHover(prog, mod, syms[1])
+			}
+		}
 		if md := s.hoverInExpr(prog, mod, bm, v.CondOrIter, offset, tok); md != "" {
 			return md
 		}
@@ -740,6 +771,25 @@ func (s *Server) hoverInStmt(prog *sema.CheckedProgram, mod *sema.Module, bm *se
 	return ""
 }
 
+func formatFuncInstanceHoverHeader(fi *sema.FuncInstance) string {
+	if fi == nil {
+		return ""
+	}
+	kw := "bind"
+	if fi.IsConst {
+		kw = "const"
+	}
+	prefix := ""
+	if fi.ComptimeOnly {
+		prefix = "@comptime_only\n"
+	}
+	base := fmt.Sprintf("```lowlight\n%s%s %s = %s\n```", prefix, kw, fi.Name, formatFullFuncSig(fi))
+	if !fi.IsConst && fi.ConstFail != nil {
+		base += fmt.Sprintf("\n\n*Runtime-only for this instantiation* (declared `const`, downgraded because %s)", fi.ConstFail.Message)
+	}
+	return base
+}
+
 func (s *Server) formatSymbolHover(prog *sema.CheckedProgram, mod *sema.Module, sym *sema.Symbol) string {
 	if sym == nil {
 		return ""
@@ -749,7 +799,7 @@ func (s *Server) formatSymbolHover(prog *sema.CheckedProgram, mod *sema.Module, 
 		modPath = mod.Path
 	}
 	if sym.FuncInst != nil {
-		base := fmt.Sprintf("```lowlight\nbind %s = %s\n```", sym.FuncInst.Name, formatFullFuncSig(sym.FuncInst))
+		base := formatFuncInstanceHoverHeader(sym.FuncInst)
 		doc := sym.FuncInst.Doc
 		if doc == "" {
 			doc = sym.Doc
@@ -795,7 +845,9 @@ func (s *Server) formatSymbolHover(prog *sema.CheckedProgram, mod *sema.Module, 
 		}
 	}
 	kw := "let"
-	if sym.IsBind {
+	if sym.IsConst {
+		kw = "const"
+	} else if sym.IsBind {
 		kw = "bind"
 	}
 	// A parameter hovers as `(name: T)` with its `- `name`: ...` line from the function's doc.
@@ -869,7 +921,7 @@ func (s *Server) formatCallHover(prog *sema.CheckedProgram, mod *sema.Module, bm
 	switch inf.CallKind {
 	case sema.CallDirectFunc:
 		if inf.TargetFunc != nil {
-			base := fmt.Sprintf("```lowlight\nbind %s = %s\n```", inf.TargetFunc.Name, formatFullFuncSig(inf.TargetFunc))
+			base := formatFuncInstanceHoverHeader(inf.TargetFunc)
 			fModPath := modPath
 			if inf.TargetFunc.Mod != nil && inf.TargetFunc.Mod.Path != "" {
 				fModPath = inf.TargetFunc.Mod.Path
@@ -963,6 +1015,10 @@ const resultKindNote = "Result type: `value` is the success member; the rest are
 	"Names holding one end in `!`; handle failures with a result chain (`expr: when Failure(x): ... default ...`), " +
 	"`??`, or `if (r! as v)`."
 
+// unitResultKindNote describes a result whose `value` has no payload in hovers.
+const unitResultKindNote = "Unit result: `value` (no payload) is success; the rest are failures. " +
+	"Names holding one end in `!`; a result chain on it is a statement whose arms handle the failures."
+
 // enumKindWord is the declaration keyword for `en`: `result` or `enum`.
 func enumKindWord(en *types.Enum) string {
 	if en.IsResult {
@@ -974,6 +1030,8 @@ func enumKindWord(en *types.Enum) string {
 // variantKindNote describes one member of a tagged enum or result in hovers.
 func variantKindNote(en *types.Enum, ev *types.EnumVariant) string {
 	switch {
+	case en.IsResult && ev.Name == types.ResultValueName && ev.Payload == nil:
+		return fmt.Sprintf("Success member of unit result `%s`; it carries no value.", en.String())
 	case en.IsResult && ev.Name == types.ResultValueName:
 		return fmt.Sprintf("Success member of result `%s`.", en.String())
 	case en.IsResult:
@@ -1156,7 +1214,9 @@ func (s *Server) formatNominalTypeHover(prog *sema.CheckedProgram, mod *sema.Mod
 			if !v.IsPlain() {
 				kindNote = "Resource tagged union (single owner, deterministic drop)"
 			}
-			if v.IsResult {
+			if v.IsUnitResult() {
+				kindNote = unitResultKindNote
+			} else if v.IsResult {
 				kindNote = resultKindNote
 			}
 			res = fmt.Sprintf("```lowlight\n%s\n```\n%s", strings.Join(lines, "\n"), kindNote)
@@ -1530,7 +1590,7 @@ func isPlaceholderIdent(e ast.Expr) bool {
 }
 
 func definitionSpanFromAST(prog *sema.CheckedProgram, mod *sema.Module, offset int, tok token.Token) diag.Span {
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		if !spanContainsOffset(d.GetSpan(), offset) {
 			continue
 		}
@@ -1985,7 +2045,7 @@ func findEnumVariantSpan(prog *sema.CheckedProgram, en *types.Enum, variantName 
 		if m.File == nil {
 			continue
 		}
-		for _, d := range m.File.Decls {
+		for _, d := range m.ActiveDecls() {
 			ed, ok := d.(*ast.EnumDecl)
 			if !ok || ed.Name != en.Name {
 				continue
@@ -2067,9 +2127,13 @@ func (s *Server) computeDocumentSymbols(filePath string, src string) []DocumentS
 					SelectionRange: vr,
 				})
 			}
+			enumDetail := "enum"
+			if decl.IsResult {
+				enumDetail = "result"
+			}
 			symbols = append(symbols, DocumentSymbol{
 				Name:           decl.Name,
-				Detail:         "enum",
+				Detail:         enumDetail,
 				Kind:           SymEnum,
 				Range:          rng,
 				SelectionRange: rng,
@@ -2278,9 +2342,6 @@ func (s *Server) computeSignatureHelp(filePath string, src string, pos Position)
 						return s.makeSigHelpFromGenericVar(prog, targetMod, gfn, activeParam)
 					}
 				}
-				if recvIdent == "Arena" && calleeName == "with_capacity" {
-					return makeSimpleSigHelp("Arena.with_capacity(bytes: int) Arena", []string{"bytes: int"}, activeParam, "Pre-sizes a new Arena region.")
-				}
 				if nom := lookupNominalType(mod, "", recvIdent); nom != nil {
 					if en, ok := nom.(*types.Enum); ok {
 						for _, v := range en.Variants {
@@ -2396,8 +2457,40 @@ func (s *Server) computeSignatureHelp(filePath string, src string, pos Position)
 		return nil
 	}
 
-	// Case 2: Unqualified call `fn(` / `println(` / `alloc_raw[u8](`
+	// Case 2: Unqualified call `fn(` / `println(` / `alloc_raw[u8](` / local fn/closure var
 	if mod != nil {
+		if mod.File != nil {
+			locals := collectEnclosingLocals(prog, mod, offset)
+			for i := len(locals) - 1; i >= 0; i-- {
+				sym := locals[i].sym
+				if sym == nil || sym.Name != calleeName {
+					continue
+				}
+				if ft, ok := sym.Type.(*types.Func); ok {
+					var ps []string
+					for idx, p := range ft.Params {
+						pName := p.Name
+						if pName == "" {
+							pName = fmt.Sprintf("arg%d", idx)
+						}
+						ps = append(ps, fmt.Sprintf("%s: %s%s", pName, p.Mode.Prefix(), p.Type.String()))
+					}
+					kw := "fn"
+					if ft.Closure {
+						kw = "cl"
+					} else if ft.Extern {
+						kw = "extern fn"
+					}
+					retStr := ""
+					if ft.Ret != nil && !ft.Ret.Equals(types.TypeVoid) {
+						retStr = " " + ft.Ret.String()
+					}
+					lbl := fmt.Sprintf("%s(%s)%s", calleeName, strings.Join(ps, ", "), retStr)
+					return makeSimpleSigHelp(lbl, ps, activeParam, fmt.Sprintf("Local `%s` value.", kw))
+				}
+				break
+			}
+		}
 		if sym := lookupTopSym(mod, calleeName); sym != nil {
 			if sym.FuncInst != nil {
 				return s.makeSigHelpFromFuncInst(prog, mod, sym.FuncInst, false, activeParam)

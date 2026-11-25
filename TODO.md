@@ -30,52 +30,107 @@
 
 ## 1. Compile-time execution (comptime)
 
-Chosen over Rust-style macros (2026-11-22). The design is to be worked through with the language's author before anything is built.
+Chosen over Rust-style macros (2026-11-22); full language design finalized with the author (2026-11-24) in [`COMPTIME_DESIGN.md`](./COMPTIME_DESIGN.md) and mirrored 1:1 in [`COMPTIME_IMPLEMENTATION_PLAN.md`](./COMPTIME_IMPLEMENTATION_PLAN.md). Review findings (`B1`–`B12`, `H1`–`H17`, `A1`–`A15`) are in [`COMPTIME_REVIEW.md`](./COMPTIME_REVIEW.md).
 
-- [ ] **Decision:** design comptime. Open questions: the syntax (`comptime expr`, `comptime for`, `comptime if`, comptime parameters such as `[N: comptime int]`); which subset of Lowlight can run at compile time (heap use, loops, recursion limits, no I/O, determinism, `unsafe`); the type-description API (`fields_of[T]()`, `variants_of[T]()`, `elems_of[T]()`, `kind_of[T]()`, `type_name[T]()`, field attributes and visibility); access by compile-time name (`v.field(f)`, constructing a struct from compile-time field lists); the `target` description (`target.os`, `target.arch`, pointer size, endianness); how comptime code reports errors and where they point; whether comptime results can be types or new declarations; and how comptime interacts with generics, monomorphization, incremental builds, and the LSP.
-  - [ ] Specify comptime in SPECIFICATION.md and document it on the website.
-  - [ ] Implement the compile-time evaluator in `internal/sema` (or a new package) for the agreed subset, with limits on steps and memory.
-    - [ ] Constant arithmetic, string concatenation, and fixed array lengths from comptime expressions (`[size_of[T](): u8]`).
-      - [ ] Multi-pass constant folding with overflow checking, including `mod.C` and `size_of[T]()` (`internal/sema/types_pass.go`).
-    - [ ] Compile-time tables and constants in std (CRC and Unicode tables, `math` constants) computed with `comptime` instead of written out by hand or built at startup.
-    - [ ] `@embed_file`, `embed_bytes`, and `embed_str` intrinsics.
-    - [ ] `lowlight expand` (or LSP support) that shows what comptime code unrolled to, including what `@derive` generates.
-    - [ ] Type-description built-ins and `comptime for` / `comptime if` unrolling.
-      - [ ] Rebuild `@derive` on comptime: `eq`, `cmp`, `hash`, `copy`, and `to_string` become ordinary generic functions in a `std/derive` package (`comptime for(f in fields_of[T]())` with `v.field(f)`), and `@derive(I)` only attaches them (`bind Point.eq = derive.eq[Point]`). Replaces the source-text generator in `internal/sema/derive.go`, so derived code is readable, editable Lowlight whose errors come from normal type checking.
-        - [ ] Let std and user packages provide their own derivable implementations that `@derive` attaches.
-        - [ ] Delete the struct/enum `eq`/`cmp`/`hash`/`copy`/`to_string` helpers in `cgen.go` and `llvmgen_runtime.go`. Drop glue stays compiler-generated. **Also needs:** [tuple methods in Lowlight](#3-tuples).
-      - [ ] Tuple methods in Lowlight: see [Tuples](#3-tuples).
-    - [ ] `target` and compile-time platform selection (dropped branches are not compiled for other targets).
-      - [ ] **Decision:** per-platform files versus `comptime if(target.os == ...)` within one file, for platform-specific std code.
-        - [ ] Native OS layer: replace the C `sys_*` built-ins (files, sockets, time, processes, environment, CPU count) with Lowlight in a `std/os`-level package, with the same API on every platform. Linux uses the `syscall` built-in; macOS calls `libSystem` through `extern`, since Apple doesn't keep raw system calls stable. **Also needs:** [the `syscall` built-in](#2-function-types-and-c-interop).
-          - [ ] Move the backend-agnostic helpers left in `internal/codegen/runtime_h.go` and `internal/codegen/llvmgen_runtime.go` (those that don't need C or the OS) into `std/core/*.ll`.
-          - [ ] Replace the fixed `char sub[1024]` buffers in `ll_os_remove_all` (`internal/codegen/runtime_h.go`) and the LLVM runtime's `rm -rf` shell-out, if the native layer isn't done first.
-          - [ ] Native DNS: a resolver written in Lowlight (read `/etc/resolv.conf` and `/etc/hosts`, A/AAAA queries over UDP with TCP fallback, timeouts and retries), so name lookup stops going through the C library's `getaddrinfo`. **Also needs:** [UDP sockets](#8-standard-library).
-          - [ ] Native TLS (long term): TLS 1.2/1.3 in Lowlight (handshake, record layer, X.509 verification against the system root store) with the cryptography it needs (AES-GCM, ChaCha20-Poly1305, SHA-2, HMAC/HKDF, X25519, ECDSA P-256, RSA verification), replacing the OpenSSL `dlopen` loader. Until then TLS stays on OpenSSL through C interop.
+### Phase 1 — Lexer, AST, parser, & formatter (`const` + `comptime` syntax)
+
+- [x] Add `KwConst` (`"const"`) and `KwComptime` (`"comptime"`) to `internal/token/token.go` (`Kind`, `kindNames`, `keywords`) and verify ASI (`blockLevelAfter`) in `internal/lexer/`.
+- [x] Extend `internal/ast/ast.go`: `IsConst` on `VarDecl`/`MethodDecl`, `IsConst` + `ConstType` on `TypeParam`, `ComptimeExpr`, `TopComptimeIfDecl`, `IsComptime` on `IfExpr`/`ForExpr`/`MatchExpr`, and expression generic argument slots.
+- [x] Parse `KwConst` in `parseTopVarOrMethodDecl` and local declarations, `[N: const Type]` in `parseTypeParams`, `comptime expr` / `comptime { ... }` in `parseUnaryExpr`, `comptime if`/`for`/`match` (including collecting `comptime for(...) T:`), and `TopComptimeIfDecl` (`internal/parser/parser.go`).
+- [x] Extend `looksLikeGenericTypeArgs` and bracket argument parsing for value expressions (`Matrix[2 + 2, 4]`, `zeros[8]()`) with `sema` fallback for index-vs-generic call ambiguity (`fns[i]()` vs `zeros[N]()`), plus tests in `internal/parser/parser_test.go`.
+- [x] Update `internal/format/printer.go` for `const`, `[N: const Type]`, `comptime` expressions (`printComptimeExpr`), `comptime if`/`for`/`match`, and `TopComptimeIfDecl`, with idempotency tests in `internal/format/format_test.go`.
+
+### Phase 2 — Core evaluator, `const` coloring, & budgets (`internal/sema`)
+
+- [x] Define `ctVal` value model and evaluate safe control flow (`{}`, `if`, `for`, `while`, `match`, result chains, `??`, all 8 unwinds, local `cl`, LIFO `Drop` on comptime locals, real `ctPlace`/`refPlace` references) in `internal/sema/comptime.go`.
+- [x] Implement runtime-parity wrapping arithmetic (`+`, `-`, `*`, unary `-`), IEEE-754 float ops (`SPECIFICATION.md` §5.3), `format_float_prec` parity formatting, and literal range overflow checks (`const B: u8 = 256`).
+- [x] Convert runtime traps (`/ 0`, `% 0`, bad shift `< 0` or `>= width`, OOB indexing/slicing, invalid `char(int)`, `panic`, `assert`) into compile errors with structured `Diagnostic.Related` call stacks (collapsed frames, user-code span lifting), add `@comptime_only` `comp.compile_error(msg)` and `comp.log(val)`, and enforce step (`1_000_000`) / call-depth (`1024`) / memory (`64 MB`) budgets with `@comptime_limit(N)` (supporting `_` digit separators).
+- [x] Add safe compiler-hooked `float.to_bits` / `_float_bits` intrinsic in `std/core/hash.ll` and `primitives.ll` so `float.hash` and `std/math` helpers run at compile time without user `unsafe`.
+- [x] Add `type.size_of[T]()`, `type.align_of[T]()`, `type.is_plain[T]()`, and `caller_*()` at compile time. (The first version's Go hooks for `string`, `List`, `Map`, and `Set` were replaced by the simulated heap in Phase 3.5.)
+- [x] Register `const` symbols/functions/methods (`IsConst`, `ComptimeOnly`, `ComptimeLimit`, `ConstVal`) in `internal/sema/types_pass.go`, reject `cl(...)` in `const`, enforce opt-in `const` coloring + conditional generics (`ConstFailReason` chained notes + LSP hover), and reject `@comptime_only` calls/fn-values in runtime code and baked tables.
+- [x] Replace legacy `evalConstInt` with multi-pass evaluator folding for `const` bindings, `mod.C`, `comptime` expressions, `[N: T]` sizes (`[type.size_of[T](): u8]`), and enum discriminants, with unit tests.
+
+### Phase 3 — Static `.rodata` baking & `List` CoW guards (`std/core`, `internal/ir`, `internal/codegen`)
+
+- [x] Add `_data_mut` / `if(cap <= 0)` copy-on-write heap promotion guards in `std/core/list.ll` (`pop`, `set`, `_remove_at`, `_swap_remove_at`, `swap`, `truncate`) and `std/sort/sort.ll` (`sort`, `sort_by`, `stable_sort`, `stable_sort_by`, `reverse`), with `.rodata` fault & parity tests.
+- [x] Enforce `validateCrossesToRuntime` in `internal/sema/comptime.go` (`Plain`, `string`, `List[T]`, and composites of them; reject escaping `Map`, `Set`, `Arena`, `ref[T]`, `ptr[T]`, `cl`, `@comptime_only fn`, custom `Drop`, and non-`none` boxed optionals; move-out semantics for crossing locals while non-crossing locals drop LIFO).
+- [x] Add MIR static constant representations (`ConstExpr` / `Global.StaticInit`) in `internal/ir/`, omit `@comptime_only` functions/lambdas, and keep pre-`main` `InitInstr` + exit `Drop` strictly for runtime `bind` globals.
+- [x] Emit `.rodata` static byte/element arrays + `{ data, len, cap: 0 }` descriptors for `string` and `List[T]` (and static composites) in `llvmgen.go`, `cgen.go`, and `split.go` (`UnitPackage`).
+- [x] Add differential ASan/UBSan + `LOWLIGHT_CHECK_LEAKS=1` parity & static baking tests across both backends (`tests/comptime_static_baking_test.go`, `tests/comptime_parity_test.go`).
+
+### Phase 3.5 — Evaluator simulated heap, `comp`/`type` namespaces, std/core `const` migration, & spec sync
+
+- [x] Build a simulated heap (`alloc_raw`, `alloc_uninit`, `realloc_raw`, `free_raw`, `ptr_read`, `ptr_write`, `ptr_add`, `copy_raw`, `copy_bytes`, `zero_bytes`, `fill_bytes`, `is_null`, `ptr_cast`) in `internal/sema/comptime.go` so `std/core`'s real Lowlight executes at compile time (`A2`).
+- [x] Migrate `std/core` (`primitives.ll`, `list.ll`, `map.ll`, `set.ll`, `range.ll`, `array.ll`, `result.ll`, `error.ll`) to `const`, remove `isStdHookedComptimeFunc` and `tryCallStdlibHook` (`H1`, `H3`), and fix `"$x"` vs `x.to_string()` consistency.
+- [x] Put compile-time-only builtins in the `@comptime_only` `comp` namespace (`comp.compile_error`, `comp.log`) and layout queries in the `const` `type` namespace (`type.size_of`, `type.align_of`, `type.is_plain`), with a migration error for bare `size_of`. Later phases add `comp.TARGET`, `comp.embed_*`, and reflection to `comp`.
+- [x] Reject `@comptime_only` functions used as values in runtime code and `@comptime_only` types in runtime signatures (`H11.5`, `H11.6`).
+- [x] Fold finished Phase 1–3 rules (§1 bindings, §2.1 `comptime`, §3.1 conditional generics + coloring, §4 crossing/unsafe CoW invariant) into `SPECIFICATION.md` (`A12`).
+- [x] Raise the default comptime call-depth cap to `1024` (`H8`).
+- [x] Fix compile-time `Map.remove`, `Map.push`, and `Map.insert` over an existing key when the key or value is a `string`: `addr_of` on a `string`-typed place points into the string's bytes, not at the field (`B10`). Extend `tests/comptime_parity_test.go` with `string` keys and values for `remove`, `push`, and overwrite, and with `addr_of` on `string` struct fields.
+- [x] Make the comptime memory budget count real usage: credit `free_raw` / `realloc_raw`, charge target element sizes instead of `ctValMemCost` (232 bytes), and support `@comptime_limit(steps: N, memory: M)` (preserving `@comptime_limit(N)`) to raise memory as well as step budgets (`B11`).
+- [x] Show user-facing names (`show[U]`, not `show[ll_s_U]`) in conditional-generic downgrade errors, hints, and notes (`internal/sema/check_calls.go`, `types_pass.go`) (`B12`).
+- [ ] Add `assert_comptime_parity`, top-level `comptime assert`, and `@test_compile_error` test helpers (`A1`, `A5`).
+- [ ] Add a per-package/per-build step budget (`H8`), and benchmark the evaluator and shrink `ctVal` (`A14`).
+- [ ] Revisit `[N: const Type]` const generic parameter syntax later (`COMPTIME_DESIGN.md` §3.2).
+- [ ] Consider putting `@track_caller` builtins (`caller_location`, `caller_file`, `caller_line`, `caller_col`) into their own dedicated namespace.
+
+### Phase 4 — `[N: const Type]` generics, `comp.TARGET`, & `comptime if`/`for`/`match` unrolling
+
+- [x] Extend `internal/types/types.go` (`Struct`, `Enum`, `Interface`, generic keys) with `ConstArg` entries (`int`s, `bool`, `char`, tag enums, `string`), canonical `Equals`, and deterministic `Mangled()` using sanitized ASCII prefix + SHA-256 hex tag for `string` (`H11.10`).
+- [x] Support `[N: const Type]` on structs, enums, interfaces, generic functions, and methods in `internal/sema/types_pass.go` and `check_calls.go`, including inferring `N: const int` from `[N: T]` arguments, plus instantiation limits (`H15`/`A9`).
+- [x] Define `@lang("target_os") TargetOs`, `@lang("target_arch") TargetArch`, `@lang("target_endian") Endian`, `@lang("target_info") Target`, and `@comptime_only` `comp.TARGET` (`manifest.TargetInfo` `Endian`, `PtrSize`, `PtrBits`) ahead of top-level `comptime if` (`H6`).
+- [x] Evaluate top-level `comptime if` conditions in `internal/sema/types_pass.go` before Pass 1B–1E type/signature registration and prune untaken declarations (`extern`, `define`, `const`, `bind`; ban `import` under `comptime if` per `H4` Option 3).
+- [x] Evaluate local `comptime if` (expression form must have `else` and yields common non-`?T` type; no `else` = statement-only) and exhaustive `comptime match` during body checking, skipping untaken arms (`H11.1`, `H11.2`).
+- [x] Unroll `comptime for` into `BodyMaps` (`UnrolledFor`) with per-iteration constant bindings, `next <-` / `for <-` / label unwinds, statement unroll limits (`H15`), plain-data loop lint, and collecting `comptime for(...) T:` lowering.
+- [x] Implement a basic `lowlight expand` CLI early after Phase 4 (`A11`), plus `lowlight check --all-targets` for typechecking untaken `comptime if` branches across targets (`H5`/`A6`).
+
+### Phase 5 — `comp.embed_*` & native OS layer
+
+- [x] Implement `@comptime_only` `comp.embed_str(path)` (`string`, UTF-8 validated) and `comp.embed_bytes(path)` (`[u8]`, static `cap = 0`) with declaring-file-relative resolution, strict sandbox confinement (no empty/NUL/abs paths, `..`/backslash traversal, symlinks escaping sandbox, dirs, non-regular files, or dependency escapes outside own `pkg.Dir`), SHA-256 + path tracking on `CheckedProgram` with LSP invalidation, and cross-target + parity + negative embed tests.
+- [x] Native OS layer (using single-file `comptime if(comp.TARGET...)` everywhere): replaced the C `sys_*` built-ins (`fopen`..`rename`, `popen`/`system`, `mkdir`/`remove_all`/`file_exists`, `num_cpus`/`os_name`/`os_arch`, `errno`/`strerror`/`errno_name`, `time_*`, `net_*`) with Lowlight across `std/core`, `std/os`, `std/fs`, `std/time`, `std/net`, and `std/http` (Linux `syscall`, macOS `libSystem` `extern`), leaving only `sys_argc`/`sys_argv`, `syscall`, and `sys_tls_*`.
+  - [x] Move `ll_format_loc` (`@lang("format_loc")`) out of `internal/codegen/runtime_h.go` and `internal/codegen/llvmgen_runtime.go` into `std/core/primitives.ll` and clean up migrated C/LLVM OS runtime helpers (`ll_sys_*`, `ll_os_*`, `ll_time_*`, `ll_net_*`).
+  - [x] Replace `ll_os_remove_all`'s fixed stack buffers (`internal/codegen/runtime_h.go`, `internal/codegen/llvmgen_runtime.go`) with native Lowlight `os.remove_all` dynamic strings and recursive removal (removing symlinks without following).
+  - [ ] Windows Win32 implementation branches in `std/core`, `std/os`, `std/fs`, `std/time`, and `std/net` (currently cleanly stubbed/unsupported on `comp.TargetOs.windows`).
+  - [ ] Native DNS: a resolver written in Lowlight (read `/etc/resolv.conf` and `/etc/hosts`, A/AAAA queries over UDP with TCP fallback, timeouts and retries), so name lookup stops going through the C library's `getaddrinfo`. **Also needs:** [UDP sockets](#8-standard-library).
+  - [ ] Native TLS (long term): TLS 1.2/1.3 in Lowlight (handshake, record layer, X.509 verification against the system root store) with the cryptography it needs (AES-GCM, ChaCha20-Poly1305, SHA-2, HMAC/HKDF, X25519, ECDSA P-256, RSA verification), replacing the OpenSSL `dlopen` loader (`sys_tls_*`). Until then TLS stays on OpenSSL through C interop.
+
+### Phase 6 — Reflection API (`comp.*`), `@derivable`, `std/derive`, & tuple generics
+
+- [ ] Define `@comptime_only` descriptors (`TypeKind` with uniform `tag_enum_kind` / `tagged_union_kind`, `AttrInfo`, `FieldInfo`, `VariantInfo`, `ElemInfo`) under `comp` / `std/core/comp.ll`, and support descriptor predicates (`f.implements(I)`, `f.has_attr(name)`, `f.attr(name)`, `vr.payload_implements(I)`, `e.implements(I)`).
+- [ ] Implement `comp.type_name[T]()`, `comp.kind_of[T]()`, `comp.fields_of[T]()`, `comp.variants_of[T]()`, `comp.elems_of[T]()`, `comp.attrs_of[T]()`, and `comp.implements[T, I]()` in `internal/sema/check_calls.go`.
+- [ ] Implement `v.field(f)` / `t.elem(e)` (read, `&`, assign, move; disambiguated from user methods via `FieldInfo`/`ElemInfo`) and collecting `comptime for(...) T:` struct/tuple construction (`next <-` defaults/none for optional/defaulted fields).
+- [ ] Implement `variant_index(v)`, `v.is_variant(vr)`, `v.payload(vr)` / `if(v.as_variant(vr) as p)`, `make_variant[T](vr [, own payload])`, and enforce `_` privacy outside `T`'s package unless authorized by `@derive(...)` (scoped strictly to the derived wrapper package `H16`).
+- [ ] Add `@derivable(...)` interface support (`Equatable`, `Comparable`, `Hashable`, `Copyable`, `Printable` plus custom std/user interfaces), write `std/derive/derive.ll`, benchmark release perf vs runtime helpers (`H16`), replace `internal/sema/derive.go` with `@derivable` instantiation, and delete `internal/sema/derive.go`.
+- [ ] Move tuple `eq`/`cmp`/`hash`/`copy`/`to_string` to Lowlight generics over `comp.elems_of[T]()` (and optionals to `std/core`), then delete the struct/enum/tuple helpers in `cgen.go` and `llvmgen_runtime.go` (drop glue stays compiler-generated). **Also needs:** [Tuples](#3-tuples).
+
+### Phase 7 — Diagnostics, `lowlight expand`, LSP, & editors
+
+- [x] Add `Related []RelatedInfo` frames to `diag.Diagnostic`, CLI `= note:` trace rendering, collapsed recursion stacks, and `@track_caller` / `std/` span lifting (`internal/diag/diag.go`, `internal/sema/comptime.go`, `internal/lsp/server.go`).
+- [ ] Extend `lowlight expand` CLI (`cmd/lowlight/main.go`, `internal/driver/`) with full Phase 6 `@derive` & IDE expand preview output and golden tests.
+- [ ] Add `const`, `comptime`, `@comptime_only`, `@comptime_limit`, `@derivable`, `comp.*`, and `type.*` to `internal/lsp/builtins.go` & `attributes.go`, and show constness / generic downgrade reasons in hover, docgen, & completion ordering (`A13`).
+- [ ] Enforce a tight IDE step/wall-clock timeout cap (non-fatal warning on timeout, never used in `lowlight build`), add `sema` memoization + per-package cached `const` values (`H14`/`A10`) in `CheckForIDE`, plus target switcher and evaluated-value hover.
+- [ ] Update `editors/` syntax highlighting (`vscode`, `nvim`, `jetbrains`).
+
+### Phase 8 — Remaining stdlib migration, specification, & cleanup
+
+- [ ] Migrate remaining pure `bind` helpers, constants, and tables across `std/chars`, `std/strings`, `std/math/math.ll`, and `std/unicode/tables.ll` to `const` / `@comptime_only`, computing CRC and Unicode tables at compile time.
+- [ ] Finish folding Phases 4–7 (`COMPTIME_DESIGN.md`) into `SPECIFICATION.md`, update `CONVENTIONS.md` and `IMPLEMENTATION.md`, and add Tour / Guide / By Example pages on `website/`.
+- [ ] **Decision:** whether to deprecate/retire file-suffix target filtering (`_linux.ll`, `_darwin.ll`, `_unix.ll` in `internal/manifest/target.go`) or retain it alongside single-file `comptime if(comp.TARGET...)`.
 
 ## 2. Function types and C interop
 
 `fn` (no captures, plain) and `cl` (closures) are implemented; see [Done](#done). Native TLS is long term, so C interop stays. `extern` is likely C-only (undecided; the spec currently allows other languages).
 
-- [ ] Migrate the lambdas in Go test sources (`tests/*.go`, `internal/**/*_test.go`) that capture nothing from `cl` to `fn` (the migration made every lambda there a `cl`).
 - [ ] Revisit whether `fn` should keep converting to `cl` implicitly, or only through `cl(f)`.
-- [ ] `json.ll` migration to `fn`/`cl` (its author's file): `go run ./internal/tools/fnmigrate std/json/json.ll`.
-  - [ ] Delete `internal/tools/fnmigrate` and the parser's legacy-syntax hooks (`AcceptLegacyFuncSyntax`, `RecordLegacyFuncSites`).
-- [ ] Move `Arena` into `std/core`. A prototype in Lowlight works: `alloc[T]` stores an entry that drops the value, and `reset` calls the stored entries; it runs as fast as the runtime version. With `fn` types each entry holds an 8-byte `fn(ptr[u8])` instead of a 48-byte closure entry. The checker's arena rules (pinning, `ref[T]` lifetimes) stay in the compiler.
-- [ ] `extern fn(...)` function pointer types with the C calling convention, for C callbacks (`qsort`, signal handlers) and calling C function pointers (`dlsym`).
-  - [ ] Callbacks from C into Lowlight (`extern fn` values made from Lowlight `fn`s, with panics not unwinding through C).
 - [ ] C struct layout for any struct passed to C (a `@repr(c)`-style guarantee beyond `packed`), checking that every field has a C representation.
 - [ ] Calling C variadic functions (`printf`, `fcntl`, `open` with a mode).
-- [ ] Avoid C11 prototype conflicts for user `extern` declarations of libc/POSIX functions missing from `stdCHeaderFuncs` (`internal/codegen/cgen.go`); e.g. `extern write: fn(fd: i32, buf: ptr[u8], n: int) int` fails `-Werror` against `unistd.h`.
-- [ ] Stop emitting `@test_only` externs in non-test builds (a test-only `extern write` in `std/fs` broke the C11 package build of every program importing `std/fs`).
-- [ ] A `syscall(number, a1, ..., a6) int` built-in that emits the target's system call instruction in both backends (inline assembly in the LLVM IR; `__asm__` in C).
-  - [ ] The native OS layer: see [comptime](#1-compile-time-execution-comptime).
+- [ ] The native OS layer, built on `syscall`: see [comptime](#1-compile-time-execution-comptime).
 
 ## 3. Tuples
 
 Tuples are due for an overhaul (2026-11-22); `@derive` deliberately doesn't apply to them yet.
 
-- [ ] **Decision:** the tuple overhaul: what changes about tuples, and whether they get methods (for example `bind +[A, B].hash = ...` per arity) or comptime-generic implementations.
+- [ ] **Decision:** the tuple overhaul: what changes about tuples (syntax, destructuring, etc.); `eq`/`cmp`/`hash`/`copy`/`to_string` are decided to be comptime-generic over `elems_of[T]()` (`COMPTIME_DESIGN.md`).
   - [ ] Tuple `eq`/`cmp`/`hash`/`copy`/`to_string` written in Lowlight (with `comptime for` over `elems_of[T]()`), replacing the helpers both backends synthesize. Do optionals at the same time (they may only need ordinary generic code). **Also needs:** [comptime type-description built-ins](#1-compile-time-execution-comptime).
   - [ ] Flat tuple destructuring in declarations (`let +[a, b] = ...`, including mutable, typed, and wildcard elements).
     - [ ] Nested tuple destructuring in declarations and `match` patterns.
@@ -92,21 +147,13 @@ Tuples are due for an overhaul (2026-11-22); `@derive` deliberately doesn't appl
 
 Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention from `SPECIFICATION.md` §9.1 across `std`.
 
-- [ ] A payload-less `value` member (a unit result).
-  - [ ] Replace success-only `Result[bool]` returns (`fs.write_file`, `fs.append_file`, `fs.write_bytes`) with a unit result.
-  - [ ] Return `Result` with the OS error message instead of `bool` from `File.close`, `File.flush`, `fs.remove_file`, and `fs.rename_file` (`std/fs/fs.ll`).
-  - [ ] Return `Result` with the OS error message instead of `bool` from `os.mkdir`, `os.mkdir_p`, and `os.remove_all` (`std/os/os.ll`).
-- [ ] Return `Result[ExecResult]` from `os.exec` instead of reporting a failed launch as `exit_code: -1` (`std/os/os.ll`).
-- [ ] Allow a result chain on a borrowed subject (`(r!: Result[string])` parameters) without moving a non-plain value out, e.g. binding the value as a borrow when the chain only reads it.
-- [ ] Include the error's message and trace in `default panic` output for `Result[T]` (it prints only `unhandled failure Result.err`).
-- [ ] Rewrite std's `if(r!.is_err()): func <- ...unwrap_err()...` / `r!.unwrap()` sequences in `std/fs`, `std/http`, `std/net`, and `std/test` as result chains.
-- [ ] **Decision:** whether optional lookups (`List.get`, `Array.get`, `Map.get` returning `?T`, paired with panicking `xs[i]`) are an accepted exception to the `try_` prefix; document it in `SPECIFICATION.md` §9.1.
-  - [ ] Make `List.set` panic on an out-of-range index like `insert`/`remove` (it returns `false` and silently drops `val`), and add `List.try_set`.
-  - [ ] Add `List.try_insert`, `List.try_remove`, and `List.try_swap_remove` returning `Result`/`?T` alongside the panicking forms.
-  - [ ] Rename `strconv.parse_int_safe` / `parse_float_safe` (which return `?T`) to fit the convention, or remove them as duplicates of `parse_int` / `parse_float`, deprecating the old names.
-- [ ] Mark `List.insert`, `List.remove`, and `List.swap_remove` `@track_caller` so out-of-bounds panics report the caller's location.
+- [ ] **Decision:** whether optional lookups (`List.get`, `Array.get`, `Map.get` returning `?T`) pair with panicking indexing (`xs[i]`, `xs[i] = v`) as their `must_` forms, or get `must_get` / `must_set` methods; document it in `SPECIFICATION.md` §9.1. `List.set` now returns a `Status`, and `xs[i] = v` is its panicking form for now.
+  - [ ] `[]` means two different things today: on lists, arrays, and strings it is the element itself (read in place, assignable, traps when out of range); on maps and `Indexable`/`KeyIndexable` types it is sugar for `.get()`, an optional copy. Make it mean one thing, for example "the element in place, trapping when absent" everywhere, with `.get()` as the optional copy.
 - [ ] Audit `std` (especially `std/http`, `std/strconv`, and `std/time` parsing) for panics reachable from external input, and convert them to `Result`/`?T` per §9.1.
   - [ ] Require a `# Panics` doc section on every public std function that can panic, with a `lowlight doc` lint that flags missing ones.
+- [ ] Remove the now-unused `ll_vec_remove__T` / `ll_vec_swap_remove__T` runtime helpers from both backends (`List.remove` and `swap_remove` are Lowlight in `std/core/list.ll`).
+- [ ] An early return nested inside a `match` arm (behind an `if`) that is an operand of a larger expression doesn't free the expression's earlier temporaries (`??` has the same gap); free them on every unwind path.
+- [ ] `@must_use` is a warning, but `SPECIFICATION.md` §4.8 says discarding the value is an error; make them agree.
 
 ## 6. Iteration and patterns
 
@@ -124,6 +171,7 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [ ] Fix literal patterns on an optional subject: `match(o?): when 3: ...` never matches when `o?` holds `3` (§6.5 says it should).
 - [ ] Fix `match` duplicate-arm and `"-0"` bugs, and multi-argument `match` ownership bugs (`internal/sema/check_stmt_expr.go`).
 - [ ] Support `*types.Ref` in non-enum `match` and in `checkSliceExpr`.
+- [ ] Fix `for ... else` / `while ... else` lowering (`internal/ir/lower_ops.go`): `for ... else` accesses `.len` instead of `.ll_len` on `Set`/`Map` (C11 compile error) and misses `for <-` before push, and `void` `for ... else` / `while ... else` runs `else` unconditionally even after `for <-` / `while <-`.
 
 ## 7. Compiler correctness
 
@@ -133,6 +181,14 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [ ] Enforce immutability/borrow rules when mutating through `ref[T]` in `analyzePlace` (`internal/sema/check_stmt_expr.go`).
 - [ ] Prevent `Arena` method receivers from bypassing `checkMutatingMethodRecvEscape` (`internal/sema/check_calls.go`).
 - [ ] Enforce `&Arena` captures inside nested closures.
+- [ ] Fix mutable borrow + move/alias hole in `checkSignatureArgs` (`internal/sema/check_calls.go`): `mutRoots` don't increment `activeBorrows` while later args are checked and `readRoots` skips non-trivial expressions (`rootSymbolOfExpr == nil` for calls/blocks/ifs/matches), allowing `b.show(consume(own b))`, `foo(&b, consume(own b))`, and `xs.push(xs.remove(0) ?? "")`.
+- [ ] Fix `checkBuiltinMethodCall` running `checkMutatingMethodRecvEscape` before `checkSignatureArgs` typechecks arguments and skipping `mr` when `isArenaRef` or `root == nil`, letting an inner `Arena`'s `ref[T]` escape into an outer container (`internal/sema/check_calls.go`).
+- [ ] Check that `rootSym` stays alive after checking the RHS of sub-place assignments (`xs[0] = consume(own xs)`, `p.f = consume(own p)`), and enforce borrow exclusivity on `+=` for `Addable`/`AddAssignable` types (`b += b`, `s += consume(own s)`) (`internal/sema/check_stmt_expr.go`).
+- [ ] Propagate arena depth across `+` (`Addable`) in `arenaDepthOfExpr` (`internal/sema/check_stmt_expr.go`).
+- [ ] Check `Params[1].Mode == types.ModeRead` in `operatorMethod` (`internal/sema/collections.go`) so `own`/`&` RHS parameters on `add`/`add_assign` aren't accepted without moving or borrowing.
+- [ ] Reject owned slicing (`xs[lo..hi]`) on non-copyable elements in `checkSliceExpr` / `consumeValue` (`internal/sema/check_stmt_expr.go`) instead of failing later with an undefined `ll_vec_slice_owned__...` symbol.
+- [ ] Mark `self` moved (or skip dropping moved fields) when moving a field out of `own self` in `lowerExprOwned` (`internal/ir/lower_expr.go`): zeroing `self.field` runs `Drop.drop` on `{0}` at scope exit (e.g. `TcpStream`/`TcpListener` closing fd `0`).
+- [ ] Enforce `unsafe` and visibility boundaries for `extern` functions: reject `let f = my_extern_fn` as a safe `fn` value (`ExternFnDecl` in `internal/sema/types_pass.go`), reject calls to `@test_only extern`s in non-test code (`internal/sema/check_calls.go`), and re-run `checkCSignature` after return-type inference on `extern fn` literals (`internal/sema/check_stmt_expr.go`).
 - [ ] **Decision:** rethink `unsafe` so it enforces stronger invariants (keep unrelated borrow/move/type checks active inside it, scope raw-pointer and intrinsic capabilities narrowly, and reduce convenience `unsafe` blocks in `std`).
 
 ### Parser
@@ -144,6 +200,7 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 
 ### Sema
 
+- [ ] A comprehension into a collection whose `push` is `@track_caller` calls `push` without the caller-location arguments; the C11 backend rejects the call ("too few arguments"). Found with `std/collections`' `BitSet.push`.
 - [ ] Check `TypeParamVar` in `checkOptionalIdentRule`.
 - [ ] Validate duplicate generic `@lang` items (`GenIface*`) in `internal/sema/program.go` and `types_pass.go`.
 - [ ] Fix `instantiateStruct` nil-deref and cache races.
@@ -155,13 +212,28 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [ ] Fix `consumeValue` plain-to-interface moves and whole-`self` field moves.
 - [ ] Full state rollback on probe checks (`internal/sema/check_calls.go`, `check_stmt_expr.go`).
 - [ ] Fix `checkForExpr` move-state and generic substitution merges.
-- [ ] Allow the bare `_` discard for optional values (`let _ = m.remove(k)` errors with "must end with `?`", although §2.5 exempts `_`).
 - [ ] Fix assigning a `??`-with-unwind guard to an optional variable: `p? = parse_int(s) ?? func <- -1` emits invalid LLVM IR and C (the `int` result isn't wrapped into `?int`).
 - [ ] **Decision:** how to take several fields out of an `own self` receiver (moving one field consumes `self`, so `Pair.swap = fn(own self)` can't move both fields; there is no struct destructuring).
 - [ ] **Decision:** whether `abs` is numeric like `min`/`max` (the prelude's `abs(x: int) int` shadows the numeric builtin, so `abs(-2.5)` is a type error).
 - [ ] Improve the diagnostic for a missing associated function on an imported type: `time.Duration.seconds(9)` reports `undeclared identifier "time"`.
 - [ ] Warnings for unused locals, imports, and private functions, and for unreachable code after `<-`.
 - [ ] Log recovered panics (with stack) from `CheckForIDE` instead of swallowing them (`internal/sema/program.go`), and surface them through LSP `window/logMessage`.
+- [ ] Reject cyclic `Distinct` declarations (`define A A`, `define A B` / `define B A`) in `resolveDistinctsAndEnums` and guard type queries (`IsPlain`, `UnderlyingPrimitive`, `IsHashable`, `supportsEqVisited`, `containsRefVisited`, `typeContainsStructByValue`) against `Distinct` cycles (`internal/sema/types_pass.go`, `internal/types/types.go`).
+- [ ] Wrap optional-chained `.len`, `.cap`, and `.data` results on `?[T]` / `?[N: T]` in `types.NewOptional` in `checkMemberExpr` (`internal/sema/check_stmt_expr.go`) so IR lowering doesn't panic.
+- [ ] Run `supportsEq` when comparing `?T == T` / `T == ?T` (`checkBinaryExpr` in `internal/sema/check_stmt_expr.go`).
+- [ ] Preserve non-primitive-integer type annotations in `collectTopLevelIntConsts` (`internal/sema/types_pass.go`) instead of silently typing `bind S: string = 1` or `bind P: Port = 8080` as `int`.
+- [ ] Fix result chains on `?T` value payloads (`prepareResultChain` omitting `?` on `_ll_chain_value`) and tail result chains in return-type-inferred functions (`checkMatchExpr` forcing `wantsValue = false` when `allowVoid` is true) (`internal/sema/check_stmt_expr.go`).
+- [ ] Reject bare `<-` targeting unannotated value-producing blocks/loops/matches and `<- val` targeting `void` blocks/ifs/matches in `checkUnwindStmt`, and include `match <- val` arms (`aty == TypeNever`) in `liveBranchMoves` in `checkMatchExpr` (`internal/sema/check_stmt_expr.go`).
+- [ ] Report overflow in `adaptIntLit` on negated unannotated `i64` literals (`-9223372036854775809`) (`internal/sema/check_stmt_expr.go`).
+- [ ] Handle `sym.IsTopLevel` for `MemberExpr` in `consumeValue` (`internal/sema/check_stmt_expr.go`) so `mod.my_fn` and `mod.MY_STR` aren't rejected as moving struct fields.
+- [ ] Avoid double-checking `mem.Base` in `checkInstanceMethodCall` (`checkClosureValueCall`) and unwrap `*types.Optional` receivers for `fn`/`cl` struct/tuple fields (`handler?.on_click(ev)`) (`internal/sema/check_calls.go`).
+- [ ] Reject `IsStaticAssoc` methods and check `ModeOwn`/`ModeMut` on `self` and index argument in custom `.get` `IndexExpr` fallback (`internal/sema/check_stmt_expr.go`).
+- [ ] Apply `expected` element coercion (`verifyAssignable`) to repeat array literals `[N: val]` (`[3: ?int] = [3: 1]`) in `checkArrayLit` (`internal/sema/check_stmt_expr.go`).
+- [ ] Fix interface `Self` handling (`internal/sema/types_pass.go`): detect nested `Self` (`?Self`, `[Self]`, `fn(Self) bool`) for `UsesSelf`, check `UsesSelf` on generic interfaces in `resolveValueType`, run `resolveInterfaces` before `resolveDistinctsAndEnums`, and substitute nested `Self` in `ImplementsInterface`.
+- [ ] Suppress spurious `"expects N type argument(s), got 0"` errors at `diag.Span{}` during speculative `ImplementsInterface` checks when a concrete type has a generic method with the same name (`internal/sema/types_pass.go`).
+- [ ] Compare template/declaration identity instead of bare `Name` during expected-type inference for generic structs/enums (`checkStructLit`, `tryResolveEnumMemberTarget`, `checkGenericTypeAssocCall`).
+- [ ] Enforce `IsExported` on bare result member construction and contextual failure patterns (`checkBareResultMember`, `checkContextualFailurePattern`), and run `checkOptionalIdentRule`/`checkResultIdentRule` on `if(opt? as v)` / `if(res! as v)` bindings (`internal/sema/check_stmt_expr.go`).
+- [ ] Scope block-local `define` types in `checkLocalTypeDecl` (`internal/sema/check_stmt_expr.go`) instead of mutating module-wide `mod.Types` without duplicate checks and after `StructBodyMaps` initialization.
 
 ### IR
 
@@ -170,6 +242,10 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [ ] Forward `TrackCaller`/`TargetFunc` in custom `IndexExpr` lowering.
 - [ ] Avoid copying owned `Array` values on read indexing.
 - [ ] Support `&self` receivers and mutating methods under optional chaining (`internal/ir/lower_calls.go`).
+- [ ] Populate `ExprBoxInterface.VTable` (or collect vtables from `(ConcreteType, IfcType)` in `buildPackageSubProgram`, `internal/codegen/split.go`) so `UnitPackage` split builds emit `ll_vtinst_...` extern declarations.
+- [ ] Register `BorrowAsView` temporaries (`_ll_ifcb` for interface-to-interface and `_ll_arrview` for `[N: Resource]` rvalues) with `allocStmtTemp` instead of `allocSlot` in `lowerExprRead` and `lowerStackArrayAddr` (`internal/ir/lower_expr.go`) to fix leaks.
+- [ ] Register boxed `?Struct` temporaries created by `WrapOptional` in `lowerExprRead` (`internal/ir/lower_expr.go`) and avoid shallow-bitcopying resources into the heap box (`cgen.go`, `llvmgen.go`).
+- [ ] Mark custom `Indexable`/`KeyIndexable` `.get()` calls as fresh rvalues in `isFreshResourceRValue` (`internal/ir/lower_expr.go`) so read-only indexing doesn't leak `Resource`/`?Resource` returns.
 - [ ] Retire the remaining hardcoded `vec.*` builtin method lowerings in favor of `std/core` `List` (sets, maps, strings, and the compiler's string code are done; `string.len`, `byte_at`, and `c_str` remain built-ins).
   - [ ] Replace hardcoded `"List"`/`"Array"` name checks in `internal/types/types.go` with the `Struct.Lang` tag.
   - [ ] Guard capacity doubling against `int64_t` overflow and zero vacated slots in the C11 and LLVM vector helpers, and fix their view materialization for `reserve`, `pop`, `remove`, and `swap_remove`, if the helpers survive.
@@ -181,6 +257,14 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [ ] Fix `bool`/`i1` casts.
 - [ ] Fix diverging right-hand-side handling and metadata in `InstrAssign`/`InstrCompoundAssign`.
 - [ ] Fix under-aligned `align 8` loads/stores.
+- [ ] Fix `ll_copy_p__<Interface>` (`internal/codegen/llvmgen_runtime.go`) returning an uncloned borrowed fat pointer when `owned == false` instead of calling `clone_box` (UAF / C11 mismatch).
+- [ ] Allocate `ptr` instead of `g.llvmType(loc.Type)` for `loc.IsMutPtr` locals in `emitMain` (`internal/codegen/llvmgen.go`) to prevent 8-byte stack buffer overflows on global `bind` initializers.
+- [ ] Add `isFloat` handling (`frem` / `fmod`) for `%` / `%=` in `emitBinaryOp` (`internal/codegen/llvmgen.go`) instead of emitting calls to `ll_mod_i64`/`ll_mod_i32` with float operands.
+- [ ] Emit `fcmp une` instead of `fcmp one` for float `!=` in `emitBinaryOp` (`internal/codegen/llvmgen.go`) so `NaN != x` returns `true`.
+- [ ] Check `tag == 0` before calling custom `Drop.drop` in `ll_drop__<Enum>` (`internal/codegen/llvmgen_runtime.go`), matching C11.
+- [ ] Emit `ptr` for `ModeMut` (`&T`) parameters on user `extern` declarations and avoid `declareBuiltin` silently colliding with pre-declared libc symbols (`close`, `exit`, `strlen`, etc.) in `emitRuntimeLLVM` (`internal/codegen/llvmgen_runtime.go`).
+- [x] Fix `ll_net_set_timeout` (`internal/codegen/llvmgen_runtime.go`) returning `void` and skipping `timeout_ms <= 0`, matching sema (`int`) and C11 (resolved in Phase 5 by migrating `std/net` to native Lowlight and keeping only `@ll_tls_set_timeout` internally for TLS).
+- [ ] Fix the inline `ll_vec_get__` fast path (`internal/codegen/llvmgen.go`) using the flattened `optTy.Elem` as the GEP element stride and unconditionally setting `has_value = true` on `[?T]` vectors.
 
 ### Runtime
 
@@ -193,15 +277,15 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 
 ### Collections
 
-- [ ] `Set` algebra (`union`, `intersection`, `difference`, `is_subset`) in `std/core/set.ll`.
-- [ ] `Map` update helpers (`get_or_insert`, `update(key, f)`, `entries`) in `std/core/map.ll`.
-- [ ] Borrowed read access to non-`Copyable` values in `Map`/`List` (`m.get(k)` and `m[k]` need a copyable `V`, leaving only `remove` for others), e.g. a closure-scoped `with(key, ...)`.
-- [ ] Move key and value out of the `MapEntry` in `Map.push` (and the element in `Set.push`) instead of copying.
-- [ ] `std/collections`: `Queue[T]`, `Deque[T]`, `BitSet`, `PriorityQueue[T, Cmp]`, `StringInterner`, `BTreeMap[K, V]`.
+- [ ] `std/collections` types the language's author is implementing by hand (leave these files to them): `LinkedList` (`linked_list.ll`), `RingBuffer` (`ring_buffer.ll`), `Trie`, `DisjointSet`, `LruCache`, `BloomFilter`, `SkipList`, `IntervalTree`, `FenwickTree`, `SegmentTree`, `Rope`, `Multiset`, and `Graph`. Each file's header describes the structure and links to references.
+- [ ] `for(x in c)` over the `std/collections` types (they implement `iter`), once `for` accepts any `Iterable[T]` (see [Iteration and patterns](#6-iteration-and-patterns)); until then, iterate `c.to_list()` or `c.entries()`.
 
 ### Strings, numbers, and API cleanup
 
 - [ ] Shortest round-trip float formatting (Ryu/Grisu) in `float.to_string` and interpolation instead of 6 significant digits (`0.1 + 0.2` prints `0.3`, `123456789.0` prints `1.23457e+08`).
+- [ ] Fix `_format_float_fixed`, `format_float_prec`, and `_format_exp_f64` (`std/core/primitives.ll`) rounding `0.49999999999999994` (`0.5 - 2^-54`) up to `"1"` at precision `0` via `rem * float(scale) + 0.5`.
+- [ ] Fix `float.format_commas` and `float.format_currency` (`std/strfmt/strfmt.ll`) grouping scientific-notation strings without `.` into `"1e,+06"` / `"$1e,+06"`.
+- [ ] Guard `atan2`, `asin`, and `acos` (`std/math/math.ll`) against `NaN`, `(±INF, ±INF)`, and `(±0.0, -0.0)` instead of returning finite values (`±PI/2`, `0.0`) or `NaN`.
 - [ ] Consolidate duplicated std APIs (`strings.pad_left_char` vs `strfmt.pad_left_fill`, `count` vs `count_occurrences`, `capitalize` vs `to_title`, `core_sqrt` vs `math.sqrt`, `os.file_exists` vs `fs.exists`), deprecating one of each with `@deprecated`.
 
 ### Files, paths, environment, terminal, flags
@@ -238,6 +322,10 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [ ] Nonblocking socket polling. Its design is tied to the [concurrency model](#12-concurrency).
 - [ ] Keep-alive connection reuse in the HTTP `Client`.
   - [ ] Connection pooling in the HTTP `Client`.
+- [ ] Fix signed 64-bit `int` overflow in `_scan_chunked` (`pos + size + 1`) and `_MessageReader.read_message` (`body_start + length`) in `std/http/http.ll`, which wraps negative and panics in string slicing on untrusted large chunk sizes / `Content-Length` headers.
+- [ ] Fix `resolve_reference` (`std/http/http.ll`) treating relative URLs with `://` after `?` or `#` (e.g. `"login?next=https://other.example"`) as absolute URLs, misdirecting redirects to `127.0.0.1:80`.
+- [ ] Fix `_client_round_trip` (`std/http/http.ll`) forcing TLS (`u.port == 443`) on `http://host:443/` plaintext URLs.
+- [ ] Reject non-numeric HTTP status codes in `Response.parse` and non-numeric or negative ports in `parse_url` (`std/http/http.ll`) instead of silently falling back to `200` / `scheme_port`.
 
 ## 9. Performance, backends, and targets
 
@@ -282,6 +370,34 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 ## 10. Tooling, LSP, and editors
 
 - [ ] Debounce and background `analyzeAndPublish` in the LSP and honor `$/cancelRequest`, so completion and hover aren't queued behind full re-checks.
+- [ ] Fix LSP `handleMessage` (`internal/lsp/server.go`, `transport.go`) replying with JSON-RPC `MethodNotFound` errors to client responses for server-initiated `window/showDocument` requests.
+- [ ] Fix `executeRunCommand` setting `opts.Targets` instead of `opts.EntryPath` (and dropping `err`) and `executeTestCommand` ignoring `testName` (`opts.TestFilter`) in `internal/lsp/testing.go`.
+- [ ] Fix `findWordRangeInSpan` (`internal/lsp/features.go`, `code_actions.go`, `quickfix_data.go`) matching substrings inside leading keywords (`let`, `bind`, `for`) or qualified expressions without word boundaries and corrupting code on quick-fix edits.
+- [ ] Handle `bm.WhileSymbols` in `internal/lsp/references.go` and `internal/lsp/semantic_tokens.go` for `while(x in items)` / `while(i, x in items)` bindings.
+- [ ] Traverse `StructLit`, `VecLit`, `ArrayLit`, `SetLit`, `MapLit`, `TupleLit`, `IndexExpr`, `SliceExpr`, `RangeExpr`, `MemberExpr`, and `InterpStringExpr` in `walkExprScopes` (`internal/lsp/completion.go`) so nested locals/lambdas get completions.
+- [ ] Fix `formatActionEdits` / `declRegion` (`internal/lsp/code_actions.go`) truncating newly appended declarations (`appendDeclsEdit`) when the file ends with trailing blank lines.
+- [ ] Fix `IfCondOptBind` (`if(x.val as val):`) semantic tokens (`internal/lsp/semantic_tokens.go`) highlighting `val` inside `v.Cond` instead of the `as val` binding.
+- [ ] Fix formatter bugs (`internal/format/printer.go`, `config.go`, `internal/manifest/manifest.go`):
+  - [ ] Keep `${...}` braces around `!`-suffixed identifiers in `printInterpString` (`${cfg!}` -> `$cfg!` re-lexes as `$cfg` + `!`).
+  - [ ] Prevent wrapped generic static method chains (`Pool[Node].new().build()`) from emitting `Pool\n\t[Node].new()`, which triggers ASI and fails to parse.
+  - [ ] Print attributes on leading `import` declarations in `emitImportBlock`.
+  - [ ] Print `v.Scrutinees[0]` with `printPostfixBase` in `printResultChain` so non-postfix scrutinees (`(unsafe ...):`, `(a ?? b):`) keep their parentheses.
+  - [ ] Distinguish explicit `[format].line_width = 0` from an omitted key in `lowlight.toml` (`FormatConfig` / `LoadConfigFound`) so `0` disables wrapping.
+- [ ] Fix manifest dependency resolution (`internal/manifest/resolve.go`, `semver.go`):
+  - [ ] Fall back to `existingLock` transitive edges in `Resolve` only when no manifest was loaded (`subM == nil`), not whenever `len(transDeps) == 0`.
+  - [ ] Fix caret constraint `^0` (`partsCnt == 1`) in `versionClause.matches` using `0.0.1` instead of `1.0.0` as the upper bound.
+- [ ] Fix driver and CLI bugs (`internal/driver/`, `cmd/lowlight/`):
+  - [ ] Resolve `[build].target` from `lowlight.toml` before filtering target-suffixed test files in `driver.Test`.
+  - [ ] Use `defaultPackageEntryDir` for `-p <pkg>` and `--workspace` (`cmd/<app>/` layouts), and avoid running `driver.Check` twice (printing duplicate warnings) in `runWorkspaceBuild`.
+  - [ ] Emit `"fail"` events and non-zero `"failed"` counts in `runSingleTestJSON` (`internal/driver/test_json.go`) when a `@test` binary crashes mid-test before printing `--- PASS:`/`--- FAIL:`.
+  - [ ] Forward program flags in `lowlight run <path> -flag` (`parseCommonFlags` in `cmd/lowlight/main.go`) instead of rejecting them as `unknown flag`.
+  - [ ] Don't skip the root target directory in `runFmt` (`cmd/lowlight/fmt.go`) when its basename starts with `.` (`lowlight fmt ..`, `lowlight fmt .hidden`).
+- [ ] Fix docgen, markdown, and site bugs (`internal/docgen/`, `internal/markdown/`, `internal/site/`):
+  - [ ] Handle `std/core` prelude entries in `site.BuildPackages` / `BuildAPIDocs` so project `lowlight doc` output doesn't emit broken `std_core_*.html` links.
+  - [ ] Register package-level `ModAliases` and module names for multi-file packages (`std/collections`, `std/core`) in `internal/docgen/links.go` so `` [`collections`] `` and `` [`core.List`] `` resolve.
+  - [ ] Fix `[src]` links in `renderModuleMarkdown` (`internal/docgen/markdown_out.go`) emitting `<pkg>.ll` instead of `<pkg>/<pkg>.ll`.
+  - [ ] Clamp `lv < 1` in `(*renderer).heading` (`internal/markdown/markdown.go`) when `ShiftHeadings` is negative so headings don't emit `<h0 ...>` / `<h-1 ...>`.
+  - [ ] Fix `findCloser` skipping only `j += 2` on longer delimiter runs (`*a ***b*** c*`) and `emphasis` `case n >= 3` not falling back to width `1` (`***foo** bar*`) in `internal/markdown/inline.go`.
 - [ ] Make `lowlight run` report when the program is killed by a signal (it exits `255` with no message on SIGSEGV).
 - [ ] Bound download and extraction sizes in `FetchBytes` (unbounded `io.ReadAll`) and the archive extractors (decompression bombs) in `internal/manifest/fetch.go`.
 - [ ] Make `lowlight doc` skip gitignored and build directories (it documents `editors/jetbrains/build/...` and `editors/vscode/lowlight/std`).
@@ -298,6 +414,7 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
 - [ ] Share compiled std object files between parallel test compiles (one warm `LOWLIGHT_CACHE` per `go test` run).
 - [ ] Turn `examples/playground.ll` into a buildable example (it has no `main`) or move it out of `examples/`.
 - [ ] Fix the `std/test` self-test "diff formatting helpers": the tab-indented multiline diff assertion fails on both backends (already failing at commit 2794079).
+- [ ] Make the `std/net` inline tests (`std/net/net.ll` lines 466 and 541: `TcpListener` closed-port `refused` check and loopback `127.0.0.1` `connect()` in `local_addr`/`peer_addr`/`set_nodelay`) work cleanly or detect sandboxed `EPERM` so `TestStandardLibraryInlineSuites/(llvm|c11)/net` does not need to be skipped in restricted environments.
 - [ ] A differential test that runs every e2e program under both backends and compares output.
 - [ ] Go fuzz targets (`FuzzLexer`, `FuzzParser`, `FuzzFormat` idempotency, `FuzzCheck`, `FuzzCheckForIDE`) seeded from `std/` and `examples/`.
 - [ ] A CI workflow running `go vet`, `go test ./...`, and `lowlight test` over `std/` on macOS and Linux for both backends.
@@ -342,18 +459,15 @@ Each stage depends on the one above it.
           - [ ] Port `internal/types` to `compiler/types.ll` (`TypeTable` / `Pool[Type]` indexed by `TypeId`).
             - [ ] Port `internal/sema` to `compiler/sema.ll` (move state machine, Tarjan topological sort).
               - [ ] Port `internal/ir` to `compiler/ir.ll` (basic-block CFG or linear instruction list).
-                - [ ] Port `internal/codegen` to `compiler/codegen.ll` (growable strings, `@embed_file` for the runtime header). **Also needs:** [`@embed_file`](#1-compile-time-execution-comptime).
+                - [ ] Port `internal/codegen` to `compiler/codegen.ll` (growable strings, `embed_str` for the runtime header). **Also needs:** [`embed_str`](#1-compile-time-execution-comptime).
                   - [ ] Port `internal/driver` to `compiler/driver.ll`. **Also needs:** [`std/process`](#8-standard-library).
                     - [ ] Port `internal/lsp` to `compiler/lsp.ll` (JSON-RPC framing, stdio `Reader`). **Also needs:** [`std/io`](#8-standard-library).
                       - [ ] Verify bit-for-bit Stage 2 and Stage 3 binary parity. **Also needs:** deterministic codegen (done) and [debug info](#9-performance-backends-and-targets) if parity covers it.
 
 ## 14. std/json review notes
 
-`std/json/json.ll` is hand-written work in progress. These notes are for its author; don't change the file on their behalf. The suite fails to compile until the first two items are done.
+`std/json/json.ll` is hand-written work in progress. These notes are for its author; don't change the file on their behalf. It compiles; its `to_json` test fails 25 of 63 cases.
 
-- [ ] Migrate to `fn`/`cl`: `go run ./internal/tools/fnmigrate std/json/json.ll`.
-- [ ] Add `@derive(Copyable)` to `Json` and `@derive(Equatable)` to `Number` (structs and enums no longer get these automatically).
-- [ ] Migrate to the result declaration changes: `Result.Ok` is now `Result.value`, `Result.ok`/`Result.fail` were removed, `Result.Err` is now `Result.err`, names holding a `Result` must end in `!`, and `Error.wrap` consumes the error, so `Result.Err(e)` / `Err(e)` need `err(own e)`.
 - [ ] `_parse_json_null` returns before advancing `idx`, so `null` followed by more input fails (failing case [62]: `Expected , or ]. Got: n`); it also has a stray `println`.
 - [ ] The empty `[]` / `{}` early returns don't advance past the closing bracket (failing case [58]: `Got: ]`).
 - [ ] `_parse_json_object` doesn't skip whitespace after a member value before checking for `,` / `}` (failing case [60], pretty-printed objects).
@@ -373,6 +487,8 @@ Each stage depends on the one above it.
 
 ### Language and compiler
 
+- [x] Decided (2026-11-24): complete `comptime` and single-file platform selection design ([`COMPTIME_DESIGN.md`](./COMPTIME_DESIGN.md)): values + code unrolling only (no first-class `type` values or `comptime for` declaration synthesis); three-tier `let`/`bind`/`const` bindings with opt-in `const` function coloring + `@comptime_only`; `[N: const Type]` generic params (`int`s, `bool`, `char`, tag enums, `string`); safe evaluator + `std/core` hooks (`Plain`/`string`/`List[T]` crossing via `cap == 0`, `@comptime_limit`, runtime wrapping/traps-as-errors + `compile_error`); typed `*_of[T]()` descriptors with `_` privacy + `@derive` access, `v.field(f)`/`t.elem(e)`, collecting `comptime for(...) T:`, enum variant intrinsics, and `@derivable(...)` interfaces + `std/derive` + tuple generics; prelude `target` enums + single-file `comptime if` everywhere (including top-level declarations); `embed_str`/`embed_bytes` package-confined; `Related` trace frames + `@track_caller`, `lowlight expand`, and bounded memoized LSP.
+
 - [x] `fn` and `cl` function types: `fn(T) R` captures nothing (one code pointer, plain); `cl(T) R` is a closure that owns its captures. Literals and all function declarations (including `extern` and interface method signatures) start with `fn`/`cl`. An `fn` converts implicitly to a `cl` where one is expected, `cl(f)` converts explicitly, and a `cl` never becomes an `fn`. A `cl` literal that captures nothing warns when its context doesn't require a closure.
 - [x] `@derive(Equatable, Comparable, Hashable, Copyable, Printable)` for structs and enums, replacing the methods the compiler used to synthesize for them. On a generic type a derived method exists only for instances whose fields support it.
 - [x] `Addable`/`AddAssignable`: `a + b` and `a += b` on non-numbers call `add` / `add_assign` (or `a = a.add(b)`).
@@ -387,10 +503,43 @@ Each stage depends on the one above it.
 - [x] Fix formatter idempotency on overflowing single-line `if` bodies and single composite call arguments.
 - [x] Result declarations (`define Name result [...]`), `!` names, result chains, bare member constructors, `??`, and `if(r! as v)`. Decided: `Result[T].ok(v)` is gone in favor of the member constructor `Result[T].value(v)`.
 - [x] LSP hover, go-to-definition, and completion for a result's bare members (`value(...)`, `err(...)`) and for bare failure names in chain patterns (`when missing(why):`).
+- [x] Unit results: a result's `value` member may have no payload (`define Saved result [value, full: Error, err: Error]`), constructed with bare `value`. A chain on one is a statement; `??`, `if(r! as v)`, and using the chain as a value are errors with their own messages. The prelude's `Status` (`[value, err: Error]`) is the unit counterpart of `Result[T]`. Decided: split-out failures carry an `Error`, like `err`, so no context is lost (`SPECIFICATION.md` §3.9 rule 8, `CONVENTIONS.md` §4).
+- [x] A user type named like a std/core type (`Status`, `Error`) no longer shares generated symbols with it.
+- [x] `sys_errno()` and `sys_strerror(code)` built-ins; the file and directory built-ins leave `errno` set on failure. The LLVM backend's `remove_all` no longer shells out to `rm -rf`.
+- [x] Result chains on a borrowed subject (a read-only parameter) read it in place: statement chains work for any value type, value chains for plain ones.
+- [x] `default panic` on a failure that carries an `Error` panics with that error, so its message, causes, and trace print.
+- [x] Two `match` expressions or chains in one expression no longer free each other's operands (`(a(): default panic) == (b(): default panic)` compared freed memory).
+- [x] `let _ = xs.pop()` (discarding an optional) no longer needs a `?` name.
+- [x] `sys_errno_name(code)` built-in; the network built-ins leave `errno` set on failure.
 - [x] LSP and editors (VS Code, Neovim, JetBrains) updated for `fn`/`cl`, `@derive` (completion, hover, quick fixes, "Derive I for T"), and the operator interfaces.
 
 ### Standard library
 
+- [x] `Result` and `Status` methods narrowed to what chains, `??`, and `if(r! as v)` can't do: `is_ok`, `is_err`, `peek_err`, `wrap_err`, `trace_err`, `unwrap`, `expect`, `unwrap_err`, and `fail_msg`. Removed: `unwrap_or` (`??`), `unwrap_or_else`, `into_ok`, `into_err`, `map`, `and_then`, and `map_err` (chains).
+- [x] Failures callers act on are separate result members across `std` (`SPECIFICATION.md` §3.9 rule 8): `fs.FileResult` (`not_found`) for `File.open` and the functions built on it, `fs.ReadResult` (`eof`) for `File.read_bytes`, `net.ConnectResult` (`not_found`, `refused`, `timeout`), `net.RecvResult` (`eof`, `timeout`), `net.AcceptResult` (`timeout`), `net.ListenResult` (`in_use`), `http.RequestResult` (`unreachable`, `timeout`), and `http.ListenResult` / `ServeOneResult` (`in_use`, `timeout`). Every OS failure carries the OS's description, coded with its errno name.
+- [x] `os.errno_name` and `os.error_from_errno` replace the errno helpers `std/fs` and `std/os` each had.
+- [x] `os.exec`, `system_run`, and `system_run_status` return a `Result`, failing when the shell can't start.
+- [x] std's `if(r!.is_err()): ... unwrap_err()` sequences are result chains (`std/http`, `std/test`; `std/fs` and `std/net` were rewritten).
+- [x] Decided: `List.insert`, `remove`, `swap_remove`, and `set` follow the `must_` convention. The plain names report a bad index (`insert` and `set` return `Status`; `remove` and `swap_remove` return `?T`); `must_insert`, `must_remove`, and `must_swap_remove` panic and are `@track_caller`.
+- [x] Decided: custom result types (`fs.FileResult`, `net.ConnectResult`, `http.RequestResult`, ...) get no `is_ok`/`unwrap`-style methods; they're handled with chains only.
+- [x] `strconv.parse_int_safe` and `parse_float_safe` are deprecated in favor of the prelude's `parse_int_radix(s, 10)` and `parse_float`.
+- [x] `benchmarks/runner.ll` migrated to `fn`/`cl` (it hadn't compiled since the switch).
+- [x] `std/fs` and `std/os` return unit results with the OS's description of each failure: `write_file`, `append_file`, `write_bytes`, `File.flush`, `File.close`, `os.mkdir_p`, and `os.remove_all` return `Status`; `remove_file` and `rename_file` return `RemoveResult` / `RenameResult` (`not_found` separate); `os.mkdir` returns `MkdirResult` (`exists` separate). `remove_all` refuses an empty path and `/`.
+- [x] `Set` algebra: `union`, `intersection`, `difference`, `is_subset`.
+- [x] `Map` helpers: `get_or_insert`, `update(key, f)` (runs `f: cl(&V)` on the value in place), `entries`.
+- [x] `Arena` is Lowlight in `std/core/arena.ll` (a bump allocator over doubling chunks, recording an 8-byte `fn(ptr[u8])` drop entry per non-plain value); the built-in `Arena` type, its IR node, and both runtimes' arena code are gone. It is about twice as fast as the runtime version (20M small allocations: ~45 ms vs. ~80 ms). The checker's lifetime rules apply to the `@lang("arena")` struct. New unsafe intrinsic `ref_from_ptr`.
+- [x] An `fn` type no longer counts as possibly holding a `ref[T]` (only a `cl` can capture one).
+- [x] The capture-free lambdas in the Go test sources are `fn`.
+- [x] C11: user `extern` functions are declared under private names bound to the real symbol (`__asm__` labels), so their signatures can't conflict with system headers; `@test_only` externs are left out of non-test builds.
+- [x] `extern fn(...)` C function pointer types: `extern fn(params) R: body` literals that C can call (top-level or inline, no captures), `fn_from_ptr[extern fn(...) R](p)` for pointers from C, `ptr_cast` / `ptr_addr` back; calling a value is unsafe, and the signature must have a C representation. Decided: the literal syntax and `fn_from_ptr`.
+- [x] In a test build, a panic inside an `extern fn` that C is running ends the test run instead of jumping back to the test runner across the C frames: C gets a wrapper that clears the runner's jump target while the callback runs. Direct Lowlight calls of the same function aren't wrapped.
+- [x] `internal/tools/fnmigrate` and the parser's legacy-syntax hooks are gone; the old `(params):` form still gets its "starts with `fn` or `cl`" error.
+- [x] C11: every user `extern` (header functions such as `qsort` included) is declared under its own name with an asm label, so a Lowlight signature never fights the header's.
+- [x] `syscall(number, a1, ..., a6)` built-in using the target's system call instruction in both backends (macOS and Linux, arm64 and x86-64), returning `-errno` on failure everywhere. Only macOS arm64 is run here; the other three are checked to compile.
+- [x] `std/collections`: `Deque[T]`, `Queue[T]`, `BitSet`, `PriorityQueue[T]` (ordered by a closure, with `min_first` / `max_first`, rather than a `Cmp` type parameter), `StringInterner`, and `BTreeMap[K: Comparable, V]` (a B-tree with `first`, `last`, and `range`).
+- [x] `Map.with(key, f)` lends a value read-only to `f` without copying it, so values that can't be copied can be read in place.
+- [x] `Map.push` moves the key and value out of its `MapEntry` instead of copying them, so map comprehensions work with values that can't be copied. (`Set.push` already moved its element.)
+- [x] `std/json/json.ll` migrated to `fn`/`cl`, `@derive`, and the result declaration changes (by its author).
 - [x] `std/json` moved into its own package directory (`std/json/json.ll`).
 - [x] Check `ferror`/`flush`/`close` and support non-seekable files in `std/fs`.
 - [x] Use `str_from_raw` and distinguish a clean EOF in `TcpStream.recv`.

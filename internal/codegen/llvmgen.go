@@ -3,15 +3,41 @@ package codegen
 import (
 	"fmt"
 	"math"
-	"runtime"
 	"strconv"
 	"strings"
 
 	"lowlight/internal/ir"
+	"lowlight/internal/manifest"
 	"lowlight/internal/sema"
 	"lowlight/internal/token"
 	"lowlight/internal/types"
 )
+
+func targetInfoForProg(prog *ir.Program) manifest.TargetInfo {
+	if prog != nil {
+		if prog.TargetTriple != "" {
+			return manifest.ParseTarget(prog.TargetTriple)
+		}
+		if prog.Checked != nil && prog.Checked.Target.Triple != "" {
+			return prog.Checked.Target
+		}
+	}
+	return manifest.ParseTarget("")
+}
+
+func llvmGlobalRef(name string) string {
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		isIdent := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.'
+		if !isIdent {
+			return `@"` + strings.ReplaceAll(name, `"`, `\22`) + `"`
+		}
+	}
+	if len(name) > 0 && name[0] >= '0' && name[0] <= '9' {
+		return `@"` + name + `"`
+	}
+	return "@" + name
+}
 
 // EmitLLVM generates a complete, valid, standalone LLVM IR (.ll) translation unit from `prog`.
 func EmitLLVM(prog *ir.Program) string {
@@ -48,12 +74,16 @@ type llvmEmitter struct {
 	localSlots   map[*ir.Local]string
 	movedSlots   map[string]string
 	entryAllocas []string
-	declaredFns  map[string]bool
-	declaredTyps map[string]bool
-	funcSet      map[string]bool
-	helperDecls  []helperDecl
-	structMap    map[string]*types.Struct
-	lambdaEnvMap map[string]*sema.LambdaInfo
+	declaredFns     map[string]bool
+	declaredSigs    map[string]string
+	declaredTyps    map[string]bool
+	funcSet         map[string]bool
+	helperDecls     []helperDecl
+	structMap       map[string]*types.Struct
+	lambdaEnvMap    map[string]*sema.LambdaInfo
+	collectedConsts []*ir.StaticVal
+	staticValSyms   map[*ir.StaticVal]string
+	constArrCounter int
 }
 
 func newLLVMEmitter(prog *ir.Program) *llvmEmitter {
@@ -63,9 +93,6 @@ func newLLVMEmitter(prog *ir.Program) *llvmEmitter {
 	}
 	for _, st := range prog.StaticThunks {
 		funcSet[st.ThunkCName] = true
-	}
-	for _, ef := range prog.ExternFuncs {
-		funcSet[ef.Name] = true
 	}
 	structMap := make(map[string]*types.Struct)
 	for _, st := range prog.Structs {
@@ -83,6 +110,7 @@ func newLLVMEmitter(prog *ir.Program) *llvmEmitter {
 		localSlots:   make(map[*ir.Local]string),
 		movedSlots:   make(map[string]string),
 		declaredFns:  make(map[string]bool),
+		declaredSigs: make(map[string]string),
 		declaredTyps: make(map[string]bool),
 		funcSet:      funcSet,
 		structMap:    structMap,
@@ -201,7 +229,7 @@ func (g *llvmEmitter) emitAll() {
 			if g.funcSet[cd.fn] {
 				continue
 			}
-			g.line("declare %s @%s(%s)", cd.retTy, cd.fn, cd.paramTypes)
+			g.line("declare %s %s(%s)", cd.retTy, llvmGlobalRef(cd.fn), cd.paramTypes)
 		}
 		g.line("")
 	}
@@ -259,17 +287,37 @@ func (g *llvmEmitter) emitExternHeadersMetadata() {
 
 func (g *llvmEmitter) emitHeader() {
 	g.line("; Lowlight LLVM IR Module")
-	triple := g.prog.TargetTriple
+	triple := ""
+	if g.prog != nil {
+		triple = g.prog.TargetTriple
+		if triple == "" && g.prog.Checked != nil {
+			triple = g.prog.Checked.Target.Triple
+		}
+	}
 	if triple == "" {
-		if runtime.GOARCH == "arm64" {
-			if runtime.GOOS == "darwin" {
+		tgt := targetInfoForProg(g.prog)
+		switch tgt.OS {
+		case "darwin":
+			if tgt.Arch == "arm64" {
 				triple = "arm64-apple-macosx15.0.0"
 			} else {
-				triple = "aarch64-unknown-linux-gnu"
-			}
-		} else {
-			if runtime.GOOS == "darwin" {
 				triple = "x86_64-apple-macosx15.0.0"
+			}
+		case "windows":
+			if tgt.Arch == "arm64" {
+				triple = "aarch64-pc-windows-msvc"
+			} else {
+				triple = "x86_64-pc-windows-msvc"
+			}
+		case "wasm":
+			if tgt.Arch == "wasm64" {
+				triple = "wasm64-unknown-unknown"
+			} else {
+				triple = "wasm32-unknown-unknown"
+			}
+		default:
+			if tgt.Arch == "arm64" {
+				triple = "aarch64-unknown-linux-gnu"
 			} else {
 				triple = "x86_64-unknown-linux-gnu"
 			}
@@ -277,7 +325,17 @@ func (g *llvmEmitter) emitHeader() {
 	}
 
 	datalayout := "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
-	if strings.HasPrefix(triple, "arm64-apple") || strings.HasPrefix(triple, "aarch64-apple") {
+	if strings.HasPrefix(triple, "wasm32") {
+		datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"
+	} else if strings.HasPrefix(triple, "wasm64") {
+		datalayout = "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"
+	} else if strings.Contains(triple, "windows") || strings.Contains(triple, "mingw") {
+		if strings.HasPrefix(triple, "aarch64") || strings.HasPrefix(triple, "arm64") {
+			datalayout = "e-m:w-p:64:64-i32:32-i64:64-i128:128-n32:64-S128"
+		} else {
+			datalayout = "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
+		}
+	} else if strings.HasPrefix(triple, "arm64-apple") || strings.HasPrefix(triple, "aarch64-apple") {
 		datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 	} else if strings.HasPrefix(triple, "aarch64") || strings.HasPrefix(triple, "arm64") {
 		datalayout = "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
@@ -321,8 +379,6 @@ func (g *llvmEmitter) llvmType(t types.Type) string {
 			return "i32"
 		case types.PrimString:
 			return "%struct.ll_string"
-		case types.PrimArena:
-			return "%struct.ll_arena"
 		default:
 			return "i64"
 		}
@@ -367,7 +423,6 @@ func (g *llvmEmitter) emitTypeDefs() {
 	g.line("; Core Type Definitions")
 	g.raw("%struct.ll_string = type { ptr, i64, i64 }")
 	g.raw("%struct.ll_closure = type { ptr, ptr, ptr, ptr }")
-	g.raw("%struct.ll_arena = type { ptr, ptr, i64 }")
 	g.line("")
 
 	g.line("; Monomorphized Type Definitions")
@@ -468,7 +523,7 @@ func (g *llvmEmitter) emitTypeDefs() {
 	if len(g.prog.Checked.Lambdas) > 0 {
 		g.line("; Lambda Capture Environments")
 		for _, li := range g.prog.Checked.Lambdas {
-			if len(li.Captures) == 0 {
+			if len(li.Captures) == 0 || !g.funcSet[li.CName] {
 				continue
 			}
 			var fieldTypes []string
@@ -577,7 +632,7 @@ func (g *llvmEmitter) typeSize(t types.Type) int {
 			return 4
 		case types.PrimI64, types.PrimU64, types.PrimF64:
 			return 8
-		case types.PrimString, types.PrimArena:
+		case types.PrimString:
 			return 24
 		default:
 			return 8
@@ -739,6 +794,10 @@ func (g *llvmEmitter) collectAllStrings() {
 	// Collect string literals from all expressions across functions and globals emitted in this unit
 	if g.unitMode != UnitPackage {
 		for _, gl := range g.prog.Globals {
+			if gl.IsConst && gl.StaticInit != nil {
+				g.collectStaticStrings(gl.StaticInit)
+				continue
+			}
 			g.collectExprStrings(gl.InitExpr)
 			for _, instr := range gl.InitInstr {
 				g.collectInstrStrings(instr)
@@ -798,6 +857,11 @@ func (g *llvmEmitter) collectExprStrings(e ir.Expr) {
 		return
 	}
 	switch v := e.(type) {
+	case *ir.ExprConst:
+		if v.Static != nil {
+			g.collectStaticStrings(v.Static)
+			g.collectedConsts = append(g.collectedConsts, v.Static)
+		}
 	case *ir.ExprLitString:
 		g.internString(v.Val)
 	case *ir.ExprLitCString:
@@ -892,6 +956,23 @@ func (g *llvmEmitter) collectExprStrings(e ir.Expr) {
 	}
 }
 
+func (g *llvmEmitter) collectStaticStrings(sv *ir.StaticVal) {
+	if sv == nil {
+		return
+	}
+	if sv.Kind == sema.StaticString {
+		g.internString(sv.Str)
+	}
+	for _, el := range sv.Elems {
+		g.collectStaticStrings(el)
+	}
+	for _, f := range sv.Fields {
+		g.collectStaticStrings(f.Value)
+	}
+	g.collectStaticStrings(sv.Payload)
+	g.collectStaticStrings(sv.OptElem)
+}
+
 func (g *llvmEmitter) emitStringPool() {
 	g.line("; Global String Constants")
 	for _, entry := range g.stringList {
@@ -905,20 +986,116 @@ func (g *llvmEmitter) emitStringPool() {
 // Declarations & Globals
 // -----------------------------------------------------------------------------
 
+func parseLLVMDeclareSig(decl string) string {
+	rest, ok := strings.CutPrefix(decl, "declare ")
+	if !ok {
+		return ""
+	}
+	atIdx := strings.Index(rest, " @")
+	if atIdx < 0 {
+		return ""
+	}
+	retTy := strings.TrimSpace(rest[:atIdx])
+	afterAt := rest[atIdx+2:]
+	openParen := strings.IndexByte(afterAt, '(')
+	if openParen < 0 {
+		return ""
+	}
+	// If symbol is quoted `@"..."(...)`, ensure openParen comes after closing quote.
+	if strings.HasPrefix(afterAt, `"`) {
+		if endQ := strings.IndexByte(afterAt[1:], '"'); endQ >= 0 {
+			openParen = strings.IndexByte(afterAt[endQ+2:], '(')
+			if openParen >= 0 {
+				openParen += endQ + 2
+			}
+		}
+	}
+	if openParen < 0 {
+		return ""
+	}
+	closeParen := strings.LastIndexByte(afterAt, ')')
+	if closeParen < openParen {
+		return ""
+	}
+	return retTy + "(" + strings.TrimSpace(afterAt[openParen+1:closeParen]) + ")"
+}
+
 func (g *llvmEmitter) declareBuiltin(name, decl string) {
 	if g.declaredFns[name] {
 		return
 	}
 	g.line("%s", decl)
 	g.declaredFns[name] = true
+	if sig := parseLLVMDeclareSig(decl); sig != "" {
+		g.declaredSigs[name] = sig
+	}
 }
 
 func (g *llvmEmitter) emitGlobals() {
+	if len(g.prog.Globals) == 0 && len(g.collectedConsts) == 0 {
+		return
+	}
+	var backingDefs []string
+	var constGlobalDefs []string
+	globalInits := make(map[*ir.Global][2]string)
+	if g.unitMode != UnitPackage {
+		for _, gl := range g.prog.Globals {
+			if gl.IsConst && gl.StaticInit != nil {
+				cTy, cVal := g.buildLLVMStaticVal(gl.StaticInit, &backingDefs)
+				globalInits[gl] = [2]string{cTy, cVal}
+			}
+		}
+	}
+	if g.staticValSyms == nil {
+		g.staticValSyms = make(map[*ir.StaticVal]string)
+	}
+	for _, sv := range g.collectedConsts {
+		if sv == nil || isImmediateLLVMStatic(sv) {
+			continue
+		}
+		if _, ok := g.staticValSyms[sv]; ok {
+			continue
+		}
+		cTy, cVal := g.buildLLVMStaticVal(sv, &backingDefs)
+		sym := fmt.Sprintf("@.ro.val.%d", g.constArrCounter)
+		g.constArrCounter++
+		g.staticValSyms[sv] = sym
+		al := g.typeAlign(sv.Type)
+		if al < 1 {
+			al = 8
+		}
+		constGlobalDefs = append(constGlobalDefs, fmt.Sprintf("%s = private unnamed_addr constant %s %s, align %d", sym, cTy, cVal, al))
+	}
+
+	if len(backingDefs) > 0 || len(constGlobalDefs) > 0 {
+		g.line("; Baked Compile-Time .rodata Storage")
+		for _, def := range backingDefs {
+			g.raw(def)
+		}
+		for _, def := range constGlobalDefs {
+			g.raw(def)
+		}
+		g.line("")
+	}
+
 	if len(g.prog.Globals) == 0 {
 		return
 	}
 	g.line("; Top-Level Constants")
 	for _, gl := range g.prog.Globals {
+		if gl.IsConst && gl.StaticInit != nil {
+			switch g.unitMode {
+			case UnitPackage:
+				g.line("@%s = external constant %s, align 8", gl.CName, g.llvmType(gl.Type))
+			case UnitLinkMain:
+				gi := globalInits[gl]
+				g.line("@%s = constant %s %s, align 8", gl.CName, gi[0], gi[1])
+			default:
+				gi := globalInits[gl]
+				g.line("@%s = internal constant %s %s, align 8", gl.CName, gi[0], gi[1])
+			}
+			continue
+		}
 		switch g.unitMode {
 		case UnitPackage:
 			g.line("@%s = external global %s, align 8", gl.CName, g.llvmType(gl.Type))
@@ -929,6 +1106,252 @@ func (g *llvmEmitter) emitGlobals() {
 		}
 	}
 	g.line("")
+}
+
+func isImmediateLLVMStatic(sv *ir.StaticVal) bool {
+	if sv == nil {
+		return true
+	}
+	switch sv.Kind {
+	case sema.StaticVoid, sema.StaticInt, sema.StaticFloat, sema.StaticBool, sema.StaticChar, sema.StaticFn:
+		return true
+	case sema.StaticEnum:
+		effTy := unwrapDistinctType(sv.Type)
+		if en, ok := effTy.(*types.Enum); ok && !en.IsTagged {
+			return true
+		}
+	case sema.StaticOpt:
+		effTy := unwrapDistinctType(sv.Type)
+		if opt, ok := effTy.(*types.Optional); ok && opt.IsBoxed() {
+			return true
+		}
+	}
+	return false
+}
+
+func unwrapDistinctType(ty types.Type) types.Type {
+	for {
+		if d, ok := ty.(*types.Distinct); ok {
+			ty = d.Base
+		} else {
+			return ty
+		}
+	}
+}
+
+func formatLLVMStaticFloat(val float64, ty types.Type) string {
+	prim := types.UnderlyingPrimitive(unwrapDistinctType(ty))
+	if prim != nil && prim.Kind == types.PrimF32 {
+		if math.IsNaN(val) {
+			return "0x7FF8000000000000"
+		}
+		return fmt.Sprintf("0x%016X", math.Float64bits(float64(float32(val))))
+	}
+	if math.IsNaN(val) {
+		return "0x7FF8000000000000"
+	}
+	return fmt.Sprintf("0x%016X", math.Float64bits(val))
+}
+
+func (g *llvmEmitter) buildLLVMStaticVal(sv *ir.StaticVal, backingDefs *[]string) (string, string) {
+	if sv == nil {
+		return "i8", "0"
+	}
+	effTy := unwrapDistinctType(sv.Type)
+	nomTy := g.llvmType(sv.Type)
+
+	switch sv.Kind {
+	case sema.StaticVoid:
+		return "i8", "0"
+	case sema.StaticInt:
+		if sv.IsSigned {
+			return nomTy, fmt.Sprintf("%d", sv.SignedVal)
+		}
+		return nomTy, fmt.Sprintf("%d", sv.Uint)
+	case sema.StaticFloat:
+		return nomTy, formatLLVMStaticFloat(sv.Float, sv.Type)
+	case sema.StaticBool:
+		if sv.Bool {
+			return "i1", "true"
+		}
+		return "i1", "false"
+	case sema.StaticChar:
+		return "i32", fmt.Sprintf("%d", uint32(sv.Char))
+	case sema.StaticString:
+		entry := g.internString(sv.Str)
+		return "%struct.ll_string", fmt.Sprintf("{ ptr %s, i64 %d, i64 0 }", entry.symbol, len([]byte(sv.Str)))
+	case sema.StaticFn:
+		if sv.FnEntry == "" {
+			return "ptr", "null"
+		}
+		return "ptr", llvmGlobalRef(sv.FnEntry)
+	case sema.StaticList:
+		if sv.HasRawBytes {
+			if len(sv.RawBytes) == 0 {
+				return nomTy, "zeroinitializer"
+			}
+			arrSym := fmt.Sprintf("@.ro.arr.%d", g.constArrCounter)
+			g.constArrCounter++
+			var sb strings.Builder
+			for _, b := range sv.RawBytes {
+				if b >= 32 && b < 127 && b != '\\' && b != '"' {
+					sb.WriteByte(b)
+				} else {
+					fmt.Fprintf(&sb, "\\%02X", b)
+				}
+			}
+			*backingDefs = append(*backingDefs, fmt.Sprintf("%s = private unnamed_addr constant [%d x i8] c\"%s\", align 1",
+				arrSym, len(sv.RawBytes), sb.String()))
+			return nomTy, fmt.Sprintf("{ ptr %s, i64 %d, i64 0 }", arrSym, len(sv.RawBytes))
+		}
+		if len(sv.Elems) == 0 {
+			return nomTy, "zeroinitializer"
+		}
+		var elemTy types.Type
+		if vec, ok := effTy.(*types.Vector); ok {
+			elemTy = vec.Elem
+		} else if st, ok := effTy.(*types.Struct); ok && len(st.TypeArgs) == 1 {
+			elemTy = st.TypeArgs[0]
+		}
+		nomElemTy := g.llvmType(elemTy)
+		elemAlign := g.typeAlign(elemTy)
+		if elemAlign < 1 {
+			elemAlign = 8
+		}
+		allMatch := true
+		elTys := make([]string, len(sv.Elems))
+		elVals := make([]string, len(sv.Elems))
+		typedParts := make([]string, len(sv.Elems))
+		for i, el := range sv.Elems {
+			eTy, eVal := g.buildLLVMStaticVal(el, backingDefs)
+			elTys[i] = eTy
+			elVals[i] = eVal
+			typedParts[i] = fmt.Sprintf("%s %s", eTy, eVal)
+			if eTy != nomElemTy {
+				allMatch = false
+			}
+		}
+		arrSym := fmt.Sprintf("@.ro.arr.%d", g.constArrCounter)
+		g.constArrCounter++
+		if allMatch {
+			*backingDefs = append(*backingDefs, fmt.Sprintf("%s = private unnamed_addr constant [%d x %s] [ %s ], align %d",
+				arrSym, len(sv.Elems), nomElemTy, strings.Join(typedParts, ", "), elemAlign))
+		} else {
+			*backingDefs = append(*backingDefs, fmt.Sprintf("%s = private unnamed_addr constant { %s } { %s }, align %d",
+				arrSym, strings.Join(elTys, ", "), strings.Join(typedParts, ", "), elemAlign))
+		}
+		return nomTy, fmt.Sprintf("{ ptr %s, i64 %d, i64 0 }", arrSym, len(sv.Elems))
+	case sema.StaticArray:
+		arrTy := effTy.(*types.StackArray)
+		nomElemTy := g.llvmType(arrTy.Elem)
+		allMatch := true
+		elTys := make([]string, len(sv.Elems))
+		typedParts := make([]string, len(sv.Elems))
+		for i, el := range sv.Elems {
+			eTy, eVal := g.buildLLVMStaticVal(el, backingDefs)
+			elTys[i] = eTy
+			typedParts[i] = fmt.Sprintf("%s %s", eTy, eVal)
+			if eTy != nomElemTy {
+				allMatch = false
+			}
+		}
+		if allMatch {
+			return nomTy, fmt.Sprintf("{ [%d x %s] [ %s ] }", arrTy.Size, nomElemTy, strings.Join(typedParts, ", "))
+		}
+		innerTy := "{ " + strings.Join(elTys, ", ") + " }"
+		return "{ " + innerTy + " }", fmt.Sprintf("{ %s { %s } }", innerTy, strings.Join(typedParts, ", "))
+	case sema.StaticTuple:
+		if len(sv.Elems) == 0 {
+			return nomTy, "{ i8 0 }"
+		}
+		tup := effTy.(*types.Tuple)
+		allMatch := true
+		fTys := make([]string, len(sv.Elems))
+		typedParts := make([]string, len(sv.Elems))
+		for i, el := range sv.Elems {
+			eTy, eVal := g.buildLLVMStaticVal(el, backingDefs)
+			fTys[i] = eTy
+			typedParts[i] = fmt.Sprintf("%s %s", eTy, eVal)
+			if eTy != g.llvmType(tup.Elems[i]) {
+				allMatch = false
+			}
+		}
+		if allMatch {
+			return nomTy, "{ " + strings.Join(typedParts, ", ") + " }"
+		}
+		return "{ " + strings.Join(fTys, ", ") + " }", "{ " + strings.Join(typedParts, ", ") + " }"
+	case sema.StaticStruct:
+		st := effTy.(*types.Struct)
+		if len(st.Fields) == 0 {
+			return nomTy, "{ i8 0 }"
+		}
+		allMatch := true
+		fTys := make([]string, len(sv.Fields))
+		typedParts := make([]string, len(sv.Fields))
+		for i, f := range sv.Fields {
+			fTy, fVal := g.buildLLVMStaticVal(f.Value, backingDefs)
+			fTys[i] = fTy
+			typedParts[i] = fmt.Sprintf("%s %s", fTy, fVal)
+			if fTy != g.llvmType(st.Fields[i].Type) {
+				allMatch = false
+			}
+		}
+		openBr, closeBr := "{ ", " }"
+		if st.Packed {
+			openBr, closeBr = "<{ ", " }>"
+		}
+		if allMatch {
+			return nomTy, openBr + strings.Join(typedParts, ", ") + closeBr
+		}
+		return openBr + strings.Join(fTys, ", ") + closeBr, openBr + strings.Join(typedParts, ", ") + closeBr
+	case sema.StaticEnum:
+		en := effTy.(*types.Enum)
+		if !en.IsTagged {
+			return nomTy, fmt.Sprintf("%d", sv.VariantVal)
+		}
+		maxPayloadWords := 2
+		var vrPayloadTy types.Type
+		for _, vr := range en.Variants {
+			if vr.Kind == types.VariantTuple && vr.Payload != nil {
+				w := (g.typeSize(vr.Payload) + 7) / 8
+				if w > maxPayloadWords {
+					maxPayloadWords = w
+				}
+				if vr.Value == sv.VariantVal {
+					vrPayloadTy = vr.Payload
+				}
+			}
+		}
+		if sv.Payload == nil || vrPayloadTy == nil {
+			return nomTy, fmt.Sprintf("{ i32 %d, [%d x i64] zeroinitializer }", sv.VariantVal, maxPayloadWords)
+		}
+		pTy, pVal := g.buildLLVMStaticVal(sv.Payload, backingDefs)
+		pSz := g.typeSize(vrPayloadTy)
+		maxPayloadBytes := maxPayloadWords * 8
+		rem := maxPayloadBytes - pSz
+		if rem > 0 {
+			anonTy := fmt.Sprintf("{ i32, [4 x i8], [0 x i64], %s, [%d x i8] }", pTy, rem)
+			anonVal := fmt.Sprintf("{ i32 %d, [4 x i8] zeroinitializer, [0 x i64] zeroinitializer, %s %s, [%d x i8] zeroinitializer }", sv.VariantVal, pTy, pVal, rem)
+			return anonTy, anonVal
+		}
+		anonTy := fmt.Sprintf("{ i32, [4 x i8], [0 x i64], %s }", pTy)
+		anonVal := fmt.Sprintf("{ i32 %d, [4 x i8] zeroinitializer, [0 x i64] zeroinitializer, %s %s }", sv.VariantVal, pTy, pVal)
+		return anonTy, anonVal
+	case sema.StaticOpt:
+		opt := effTy.(*types.Optional)
+		if opt.IsBoxed() {
+			return "ptr", "null"
+		}
+		if !sv.HasOpt {
+			return nomTy, "zeroinitializer"
+		}
+		eTy, eVal := g.buildLLVMStaticVal(sv.OptElem, backingDefs)
+		if eTy == g.llvmType(opt.Elem) {
+			return nomTy, fmt.Sprintf("{ i1 true, %s %s }", eTy, eVal)
+		}
+		return fmt.Sprintf("{ i1, %s }", eTy), fmt.Sprintf("{ i1 true, %s %s }", eTy, eVal)
+	}
+	return "i8", "0"
 }
 
 func (g *llvmEmitter) emitFunctionDecl(fn *ir.Function) {
@@ -1279,9 +1702,6 @@ func (g *llvmEmitter) emitTypeDrop(ptrSlot string, t types.Type) {
 	case *types.Primitive:
 		if v.Kind == types.PrimString {
 			g.indentLine(1, "call void @ll_str_free_p(ptr %s)", ptrSlot)
-		} else if v.Kind == types.PrimArena {
-			g.declareHelper("ll_drop__Arena", "void", "ptr")
-			g.indentLine(1, "call void @ll_drop__Arena(ptr %s)", ptrSlot)
 		}
 	case *types.Vector, *types.Struct, *types.Distinct, *types.Interface, *types.StackArray, *types.Optional, *types.Func, *types.Tuple:
 		if f, isFn := v.(*types.Func); isFn && !f.Closure {
@@ -1386,6 +1806,7 @@ func (g *llvmEmitter) declareHelper(fn, retTy, paramTypes string) {
 		return
 	}
 	g.declaredFns[fn] = true
+	g.declaredSigs[fn] = retTy + "(" + paramTypes + ")"
 	g.helperDecls = append(g.helperDecls, helperDecl{
 		fn:         fn,
 		retTy:      retTy,
@@ -1734,6 +2155,53 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 	case *ir.ExprLitCString:
 		entry := g.internString(v.Val)
 		return entry.symbol
+
+	case *ir.ExprConst:
+		if v.Static == nil {
+			return "0"
+		}
+		switch v.Static.Kind {
+		case sema.StaticVoid:
+			return "void"
+		case sema.StaticInt:
+			if v.Static.IsSigned {
+				return fmt.Sprintf("%d", v.Static.SignedVal)
+			}
+			return fmt.Sprintf("%d", v.Static.Uint)
+		case sema.StaticFloat:
+			return formatLLVMStaticFloat(v.Static.Float, v.Typ)
+		case sema.StaticBool:
+			if v.Static.Bool {
+				return "true"
+			}
+			return "false"
+		case sema.StaticChar:
+			return fmt.Sprintf("%d", uint32(v.Static.Char))
+		case sema.StaticFn:
+			if v.Static.FnEntry == "" {
+				return "null"
+			}
+			return "@" + v.Static.FnEntry
+		case sema.StaticEnum:
+			if isImmediateLLVMStatic(v.Static) {
+				return fmt.Sprintf("%d", v.Static.VariantVal)
+			}
+		case sema.StaticOpt:
+			if isImmediateLLVMStatic(v.Static) {
+				return "null"
+			}
+		}
+		if sym, ok := g.staticValSyms[v.Static]; ok {
+			tyStr := g.llvmType(v.Typ)
+			al := g.typeAlign(v.Typ)
+			if al < 1 {
+				al = 8
+			}
+			r := g.newReg()
+			g.indentLine(1, "%s = load %s, ptr %s, align %d", r, tyStr, sym, al)
+			return r
+		}
+		return "zeroinitializer"
 
 	case *ir.ExprLitNone:
 		if v.OptType != nil && v.OptType.IsBoxed() {
@@ -2212,19 +2680,6 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		g.indentLine(1, "%s = call ptr @%s(i64 %s)", r, fnName, totBytes)
 		return r
 
-	case *ir.ExprArenaAlloc:
-		arenaPtr := g.emitExpr(v.Arena)
-		sz := g.typeSize(v.AllocType)
-		dtorVal := "null"
-		if v.DtorFn != "" {
-			g.declareHelper(v.DtorFn, "void", "ptr")
-			dtorVal = "@" + v.DtorFn
-		}
-		g.declareHelper("ll_arena_alloc", "ptr", "ptr, i64, i64, ptr")
-		r := g.newReg()
-		g.indentLine(1, "%s = call ptr @ll_arena_alloc(ptr %s, i64 %d, i64 8, ptr %s)", r, arenaPtr, sz, dtorVal)
-		return r
-
 	case *ir.ExprFree:
 		pVal := g.emitExpr(v.Ptr)
 		g.indentLine(1, "call void @ll_free(ptr %s)", pVal)
@@ -2256,6 +2711,16 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 
 	case *ir.ExprAlignOf:
 		return fmt.Sprintf("%d", g.typeAlign(v.QueryType))
+
+	case *ir.ExprFloatBits:
+		fv := g.emitExpr(v.Val)
+		r := g.newReg()
+		if v.FloatType.Equals(types.TypeF32) {
+			g.indentLine(1, "%s = bitcast float %s to i32", r, fv)
+		} else {
+			g.indentLine(1, "%s = bitcast double %s to i64", r, fv)
+		}
+		return r
 
 	case *ir.ExprToString:
 		if _, isPtr := v.ValType.(*types.Ptr); isPtr {
@@ -2411,7 +2876,7 @@ func (g *llvmEmitter) isScalar(t types.Type) bool {
 	}
 	switch v := t.(type) {
 	case *types.Primitive:
-		return v.Kind != types.PrimVoid && v.Kind != types.PrimString && v.Kind != types.PrimArena && !g.isFloat(t)
+		return v.Kind != types.PrimVoid && v.Kind != types.PrimString && !g.isFloat(t)
 	case *types.Ptr, *types.Ref:
 		return true
 	case *types.Enum:
@@ -2962,15 +3427,6 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			g.isTerminated = true
 			return "void"
 		}
-		if fnRef.Name == "ll_arena_new" && len(call.Args) >= 1 {
-			capVal := g.emitExpr(call.Args[0])
-			arenaSlot := g.allocaEntry("%struct.ll_arena", 8)
-			g.declareHelper("ll_arena_new_p", "void", "ptr, i64")
-			g.indentLine(1, "call void @ll_arena_new_p(ptr %s, i64 %s)", arenaSlot, capVal)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %%struct.ll_arena, ptr %s, align 8", r, arenaSlot)
-			return r
-		}
 		if strings.HasPrefix(fnRef.Name, "ll_vec_slice_view__") && len(call.Args) >= 3 {
 			mangled := strings.TrimPrefix(fnRef.Name, "ll_vec_slice_view__")
 			wrapper := "ll_vec_slice_view_p__" + mangled
@@ -3232,27 +3688,31 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 	}
 
 	// Function call (static or indirect)
+	retTyStr := g.llvmType(call.Typ)
+	var argTys []string
+	var typedArgs []string
+	for _, a := range call.Args {
+		aTy := g.exprLLVMType(a)
+		aVal := g.emitExpr(a)
+		argTys = append(argTys, aTy)
+		typedArgs = append(typedArgs, fmt.Sprintf("%s %s", aTy, aVal))
+	}
+	callSig := retTyStr + "(" + strings.Join(argTys, ", ") + ")"
+
 	calleeSymbol := ""
 	if fnRef, ok := call.Callee.(*ir.ExprFuncRef); ok {
-		calleeSymbol = "@" + fnRef.Name
+		calleeSymbol = llvmGlobalRef(fnRef.Name)
 		if !g.funcSet[fnRef.Name] && !g.declaredFns[fnRef.Name] {
-			var argTys []string
-			for _, a := range call.Args {
-				argTys = append(argTys, g.exprLLVMType(a))
-			}
-			g.declareHelper(fnRef.Name, g.llvmType(call.Typ), strings.Join(argTys, ", "))
+			g.declareHelper(fnRef.Name, retTyStr, strings.Join(argTys, ", "))
+		} else if declSig, isExtDecl := g.declaredSigs[fnRef.Name]; isExtDecl && declSig != "" && declSig != callSig {
+			bc := g.newReg()
+			g.indentLine(1, "%s = bitcast ptr %s to ptr", bc, calleeSymbol)
+			calleeSymbol = bc
 		}
 	} else {
 		calleeSymbol = g.emitExpr(call.Callee)
 	}
 
-	var typedArgs []string
-	for _, a := range call.Args {
-		aVal := g.emitExpr(a)
-		typedArgs = append(typedArgs, fmt.Sprintf("%s %s", g.exprLLVMType(a), aVal))
-	}
-
-	retTyStr := g.llvmType(call.Typ)
 	if retTyStr == "void" {
 		g.indentLine(1, "call void %s(%s)", calleeSymbol, strings.Join(typedArgs, ", "))
 		return "void"
@@ -3276,8 +3736,10 @@ func (g *llvmEmitter) emitStaticThunks() {
 		var paramDecls []string
 		var paramTypes []string
 		var callArgs []string
-		paramDecls = append(paramDecls, "ptr %_ll_env.param")
-		paramTypes = append(paramTypes, "ptr")
+		if !st.CCallback {
+			paramDecls = append(paramDecls, "ptr %_ll_env.param")
+			paramTypes = append(paramTypes, "ptr")
+		}
 		for idx, p := range st.FuncType.Params {
 			pn := fmt.Sprintf("%%_p%d.param", idx)
 			pTy := g.llvmType(p.Type)
@@ -3296,11 +3758,38 @@ func (g *llvmEmitter) emitStaticThunks() {
 		}
 		g.line("define %s @%s(%s) {", retTy, st.ThunkCName, strings.Join(paramDecls, ", "))
 		g.line("entry:")
+		if st.CCallback {
+			// While C runs this callback, a panic ends the test run instead of jumping back to the
+			// test runner across the C frames.
+			g.indentLine(1, "%%saved = load ptr, ptr @ll_test_current_jmp, align 8")
+			g.indentLine(1, "store ptr null, ptr @ll_test_current_jmp, align 8")
+		}
+		restore := func() {
+			if st.CCallback {
+				g.indentLine(1, "store ptr %%saved, ptr @ll_test_current_jmp, align 8")
+			}
+		}
+		targetSym := llvmGlobalRef(st.TargetCName())
+		var callParamTypes []string
+		for _, p := range st.FuncType.Params {
+			pTy := g.llvmType(p.Type)
+			if p.Mode == types.ModeMut {
+				pTy = "ptr"
+			}
+			callParamTypes = append(callParamTypes, pTy)
+		}
+		callSig := retTy + "(" + strings.Join(callParamTypes, ", ") + ")"
+		if declSig, isExtDecl := g.declaredSigs[st.TargetCName()]; isExtDecl && declSig != "" && declSig != callSig {
+			g.indentLine(1, "%%_fn_cast = bitcast ptr %s to ptr", targetSym)
+			targetSym = "%_fn_cast"
+		}
 		if st.FuncType.Ret.Equals(types.TypeVoid) {
-			g.indentLine(1, "call void @%s(%s)", st.TargetFunc.CName, strings.Join(callArgs, ", "))
+			g.indentLine(1, "call void %s(%s)", targetSym, strings.Join(callArgs, ", "))
+			restore()
 			g.indentLine(1, "ret void")
 		} else {
-			g.indentLine(1, "%%t.0 = call %s @%s(%s)", retTy, st.TargetFunc.CName, strings.Join(callArgs, ", "))
+			g.indentLine(1, "%%t.0 = call %s %s(%s)", retTy, targetSym, strings.Join(callArgs, ", "))
+			restore()
 			g.indentLine(1, "ret %s %%t.0", retTy)
 		}
 		g.line("}")
@@ -3563,6 +4052,9 @@ func (g *llvmEmitter) emitMain() {
 	// is lowered separately, so its temporaries' names can repeat across globals; prefix them
 	// with the global's index to keep the slots in `main` distinct.
 	for gi, gl := range g.prog.Globals {
+		if gl.IsConst && gl.StaticInit != nil {
+			continue
+		}
 		for _, loc := range gl.Locals {
 			slot := fmt.Sprintf("%%g%d.%s.slot", gi, loc.CName)
 			g.localSlots[loc] = slot
@@ -3585,6 +4077,9 @@ func (g *llvmEmitter) emitMain() {
 	g.currentBlock = "entry"
 
 	for gi, gl := range g.prog.Globals {
+		if gl.IsConst && gl.StaticInit != nil {
+			continue
+		}
 		// Moved-flag slots are looked up by name; point the names at this global's slots.
 		for _, loc := range gl.Locals {
 			if loc.MovedFlag != "" {
@@ -3702,9 +4197,12 @@ func (g *llvmEmitter) emitMain() {
 }
 
 func (g *llvmEmitter) emitMainCleanup(rcVal string) {
-	// Drop top-level globals in reverse declaration order
+	// Drop top-level runtime `bind` globals in reverse declaration order (`const` globals are in `.rodata`)
 	for i := len(g.prog.Globals) - 1; i >= 0; i-- {
 		gl := g.prog.Globals[i]
+		if gl.IsConst && gl.StaticInit != nil {
+			continue
+		}
 		if !gl.Type.IsPlain() {
 			g.emitTypeDrop("@"+gl.CName, gl.Type)
 		}

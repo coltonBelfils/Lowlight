@@ -290,7 +290,7 @@ bind main = fn(): {
         default: false
     assert(arr_res, "Array[3, int] contains")
 
-    bind check_arr_view = cl(av: Array[int], target: int) bool: {
+    bind check_arr_view = fn(av: Array[int], target: int) bool: {
         match (target):
             when in av: true
             default: false
@@ -360,7 +360,7 @@ bind main = fn(): {
 
     // 7. Short-circuit side-effect verification (earlier match skips later container eval)
     let eval_hits: [int] = []
-    bind mk_list = cl(hits: &[int]) [int]: {
+    bind mk_list = fn(hits: &[int]) [int]: {
         hits.push(1)
         [100, 200]
     }

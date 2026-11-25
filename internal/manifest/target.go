@@ -6,12 +6,15 @@ import (
 	"strings"
 )
 
-// TargetInfo identifies the normalized OS, architecture, and raw triple for a compilation target.
+// TargetInfo identifies the normalized OS, architecture, endianness, pointer width, and triple for a compilation target.
 type TargetInfo struct {
-	OS     string // "linux", "darwin", "windows", "freebsd", ...
-	Arch   string // "amd64", "arm64", "riscv64", "x86", ...
-	Triple string // Raw target triple if explicitly provided
-	IsUnix bool
+	OS      string // "linux", "darwin", "windows", "freebsd", "openbsd", "netbsd", "wasm", "unknown"
+	Arch    string // "amd64", "arm64", "riscv64", "x86", "wasm32", "wasm64", "unknown"
+	Endian  string // "little" or "big"
+	Triple  string // Target triple (explicit or canonical host default)
+	IsUnix  bool
+	PtrSize int // 4 or 8
+	PtrBits int // 32 or 64
 }
 
 var knownOS = map[string]bool{
@@ -42,27 +45,112 @@ var knownArch = map[string]bool{
 func ParseTarget(triple string) TargetInfo {
 	t := strings.TrimSpace(triple)
 	osName := normalizeOS(runtime.GOOS)
+	if osName == "" {
+		osName = "unknown"
+	}
 	archName := normalizeArch(runtime.GOARCH)
+	if archName == "" {
+		archName = "unknown"
+	}
+	endian := "little"
 	if t != "" {
 		lower := strings.ToLower(t)
 		parts := strings.Split(lower, "-")
-		if len(parts) > 0 {
-			if a := normalizeArch(parts[0]); a != "" {
-				archName = a
-			}
-		}
+		foundArch := false
+		foundOS := false
 		for _, part := range parts {
-			if o := normalizeOS(part); o != "" {
-				osName = o
+			if !foundArch {
+				if a := normalizeArch(part); a != "" {
+					archName = a
+					foundArch = true
+				}
+			}
+			if !foundOS {
+				if o := normalizeOS(part); o != "" {
+					osName = o
+					foundOS = true
+				}
 			}
 		}
+		if !foundArch {
+			// Single-token OS specifiers like ParseTarget("linux") preserve host arch; full triples mark unknown.
+			if len(parts) > 1 || !foundOS {
+				archName = "unknown"
+			}
+		}
+		if !foundOS {
+			if archName == "wasm32" || archName == "wasm64" {
+				osName = "wasm"
+			} else if len(parts) > 1 || !foundArch {
+				osName = "unknown"
+			}
+		}
+		if isBigEndianTriple(parts) {
+			endian = "big"
+		}
+	}
+	if t == "" {
+		t = canonicalTriple(osName, archName)
+	}
+	ptrSize := 8
+	if archName == "x86" || archName == "wasm32" {
+		ptrSize = 4
 	}
 	return TargetInfo{
-		OS:     osName,
-		Arch:   archName,
-		Triple: t,
-		IsUnix: isUnixOS(osName),
+		OS:      osName,
+		Arch:    archName,
+		Endian:  endian,
+		Triple:  t,
+		IsUnix:  isUnixOS(osName),
+		PtrSize: ptrSize,
+		PtrBits: ptrSize * 8,
 	}
+}
+
+func canonicalTriple(osName, archName string) string {
+	arch := archName
+	switch archName {
+	case "amd64":
+		arch = "x86_64"
+	case "arm64":
+		arch = "aarch64"
+	case "x86":
+		arch = "i686"
+	}
+	switch osName {
+	case "darwin":
+		return arch + "-apple-darwin"
+	case "linux":
+		return arch + "-unknown-linux-gnu"
+	case "windows":
+		return arch + "-pc-windows-msvc"
+	case "freebsd":
+		return arch + "-unknown-freebsd"
+	case "openbsd":
+		return arch + "-unknown-openbsd"
+	case "netbsd":
+		return arch + "-unknown-netbsd"
+	case "wasm":
+		return arch + "-unknown-wasi"
+	default:
+		return arch + "-unknown-" + osName
+	}
+}
+
+func isBigEndianTriple(parts []string) bool {
+	for _, p := range parts {
+		if strings.HasSuffix(p, "le") || strings.HasSuffix(p, "el") {
+			continue
+		}
+		switch p {
+		case "s390x", "mips", "mips64", "powerpc", "ppc", "ppc64", "powerpc64", "sparc", "sparc64":
+			return true
+		}
+		if strings.HasSuffix(p, "_be") || strings.HasSuffix(p, "eb") {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeOS(s string) string {

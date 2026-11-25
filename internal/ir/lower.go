@@ -20,18 +20,26 @@ import (
 func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 	tc := newTypeCollector()
 
-	// Seed type collector with declared & instantiated types
+	// Seed type collector with declared & instantiated runtime types (omitting `@comptime_only`)
 	for _, en := range prog.Enums {
-		tc.visit(en)
+		if !en.IsComptimeOnly {
+			tc.visit(en)
+		}
 	}
 	for _, dt := range prog.Distincts {
-		tc.visit(dt)
+		if !dt.IsComptimeOnly {
+			tc.visit(dt)
+		}
 	}
 	for _, st := range prog.Structs {
-		tc.visit(st)
+		if !st.IsComptimeOnly {
+			tc.visit(st)
+		}
 	}
 	for _, ifc := range prog.Interfaces {
-		tc.visit(ifc)
+		if !ifc.IsComptimeOnly {
+			tc.visit(ifc)
+		}
 	}
 	for _, ef := range prog.ExternFuncs {
 		for _, p := range ef.Sig.Params {
@@ -40,15 +48,24 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 		tc.visit(ef.Sig.Ret)
 	}
 	for _, tv := range prog.TopVars {
+		if tv.Sym.ComptimeOnly {
+			continue
+		}
 		tc.visit(tv.Sym.Type)
 	}
 	for _, fi := range prog.Funcs {
+		if fi.ComptimeOnly {
+			continue
+		}
 		for _, p := range fi.Sig.Params {
 			tc.visit(p.Type)
 		}
 		tc.visit(fi.Sig.Ret)
 	}
 	for _, li := range prog.Lambdas {
+		if li.ComptimeOnly {
+			continue
+		}
 		tc.visit(li.Sig)
 		for _, c := range li.Captures {
 			tc.visit(c.Type)
@@ -75,56 +92,82 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 	}
 	visitBodyMaps(prog.TopBodyMaps)
 	for _, st := range prog.Structs {
-		visitBodyMaps(prog.StructBodyMaps[st])
+		if !st.IsComptimeOnly {
+			visitBodyMaps(prog.StructBodyMaps[st])
+		}
 	}
 	for _, en := range prog.Enums {
-		visitBodyMaps(prog.EnumBodyMaps[en])
+		if !en.IsComptimeOnly {
+			visitBodyMaps(prog.EnumBodyMaps[en])
+		}
 	}
 	for _, fi := range prog.Funcs {
-		visitBodyMaps(fi.BodyMaps)
+		if !fi.ComptimeOnly {
+			visitBodyMaps(fi.BodyMaps)
+		}
 	}
 	for _, li := range prog.Lambdas {
-		visitBodyMaps(li.BodyMaps)
+		if !li.ComptimeOnly {
+			visitBodyMaps(li.BodyMaps)
+		}
 	}
 
+	// `@test_only` externs are declared only in test builds.
+	var externs []*sema.ExternFunc
+	for _, ef := range prog.ExternFuncs {
+		if !ef.IsTestOnly || testMode {
+			externs = append(externs, ef)
+		}
+	}
 	irp := &Program{
 		Checked:       prog,
 		ExternHeaders: prog.ExternHeaders,
-		ExternFuncs:   prog.ExternFuncs,
+		ExternFuncs:   externs,
 		VTables:       vtables,
 		Release:       release,
 		TestMode:      testMode,
+		TargetTriple:  prog.Target.Triple,
 	}
 
-	seenThunks := make(map[string]bool)
-	registerThunk := func(fi *sema.FuncInstance, fnTy *types.Func) string {
-		tname := StaticFuncThunkName(fi.CName, fnTy)
-		if !seenThunks[tname] {
-			seenThunks[tname] = true
-			tc.visit(fnTy)
-			irp.StaticThunks = append(irp.StaticThunks, &StaticThunk{
-				ThunkCName: tname,
-				TargetFunc: fi,
-				FuncType:   fnTy,
-			})
-		}
-		return tname
+	registerThunk := &thunkRegistry{
+		irp:         irp,
+		tc:          tc,
+		seen:        make(map[string]bool),
+		testMode:    testMode,
+		usedLambdas: make(map[*sema.LambdaInfo]bool),
 	}
 
-	// 1. Lower top-level `bind` constants
+	// 1. Lower top-level `bind` & `const` bindings (omitting `@comptime_only` symbols)
 	for _, tv := range prog.TopVars {
+		if tv.Sym.ComptimeOnly {
+			continue
+		}
 		if tv.Sym.IsTestOnly && !testMode {
 			continue
+		}
+		pkgID := ""
+		if tv.Mod != nil && tv.Mod.Pkg != nil {
+			pkgID = tv.Mod.Pkg.ID
+		}
+		if tv.Sym.IsConst && tv.Sym.ConstVal != nil {
+			if sd := sema.ExportStaticData(tv.Sym.ConstVal, tv.Sym.Type); sd != nil {
+				sv := lowerStaticData(sd, tc, registerThunk)
+				irp.Globals = append(irp.Globals, &Global{
+					Name:       tv.Sym.Name,
+					CName:      tv.Sym.CName,
+					PkgID:      pkgID,
+					Type:       tv.Sym.Type,
+					IsConst:    true,
+					StaticInit: sv,
+				})
+				continue
+			}
 		}
 		fl := newFuncLowerer(prog, prog.TopBodyMaps, tc, release, registerThunk)
 		fl.pushScope(0, "", "", nil, nil, false)
 		exprStr := fl.lowerExprOwned(tv.Decl.Value, tv.Sym.Type)
 		fl.flushStmtTemps()
 		fl.popScopeEmitDrops()
-		pkgID := ""
-		if tv.Mod != nil && tv.Mod.Pkg != nil {
-			pkgID = tv.Mod.Pkg.ID
-		}
 		irp.Globals = append(irp.Globals, &Global{
 			Name:      tv.Sym.Name,
 			CName:     tv.Sym.CName,
@@ -136,8 +179,11 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 		})
 	}
 
-	// 2. Lower all concrete & monomorphized functions/methods
+	// 2. Lower all concrete & monomorphized functions/methods (omitting `@comptime_only`)
 	for _, fi := range prog.Funcs {
+		if fi.ComptimeOnly {
+			continue
+		}
 		if (fi.IsTest || fi.IsTestOnly) && !testMode {
 			continue
 		}
@@ -157,10 +203,25 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 		}
 	}
 
-	// 3. Lower all anonymous lambdas
-	for _, li := range prog.Lambdas {
-		fn := lowerLambda(prog, li, tc, release, registerThunk)
-		irp.Funcs = append(irp.Funcs, fn)
+	// 3. Lower all runtime-reachable anonymous lambdas (omitting unused lambdas inside `@comptime_only`/`comptime`)
+	loweredLambdas := make(map[*sema.LambdaInfo]bool)
+	for {
+		progressed := false
+		for _, li := range prog.Lambdas {
+			if loweredLambdas[li] {
+				continue
+			}
+			if li.ComptimeOnly && !registerThunk.usedLambdas[li] {
+				continue
+			}
+			loweredLambdas[li] = true
+			progressed = true
+			fn := lowerLambda(prog, li, tc, release, registerThunk)
+			irp.Funcs = append(irp.Funcs, fn)
+		}
+		if !progressed {
+			break
+		}
 	}
 
 	// Populate finalized topological type lists
@@ -198,7 +259,7 @@ type funcLowerer struct {
 	bm            *sema.BodyMaps
 	tc            *typeCollector
 	release       bool
-	registerThunk func(*sema.FuncInstance, *types.Func) string
+	registerThunk *thunkRegistry
 
 	locals        []*Local
 	symLocals     map[*sema.Symbol]*Local
@@ -221,7 +282,7 @@ func newFuncLowerer(
 	bm *sema.BodyMaps,
 	tc *typeCollector,
 	release bool,
-	registerThunk func(*sema.FuncInstance, *types.Func) string,
+	registerThunk *thunkRegistry,
 ) *funcLowerer {
 	if bm == nil {
 		bm = prog.TopBodyMaps
@@ -244,7 +305,7 @@ func lowerFuncInstance(
 	fi *sema.FuncInstance,
 	tc *typeCollector,
 	release bool,
-	registerThunk func(*sema.FuncInstance, *types.Func) string,
+	registerThunk *thunkRegistry,
 ) *Function {
 	fl := newFuncLowerer(prog, fi.BodyMaps, tc, release, registerThunk)
 	fl.currFunc = fi
@@ -331,7 +392,7 @@ func lowerLambda(
 	li *sema.LambdaInfo,
 	tc *typeCollector,
 	release bool,
-	registerThunk func(*sema.FuncInstance, *types.Func) string,
+	registerThunk *thunkRegistry,
 ) *Function {
 	fl := newFuncLowerer(prog, li.BodyMaps, tc, release, registerThunk)
 	envLocal := &Local{CName: "_ll_env", Type: &types.Ptr{Elem: types.TypeVoid}}
@@ -374,13 +435,14 @@ func lowerLambda(
 	fl.lowerFunctionBody(li.Lit.Body, li.Sig.Ret, fnScope)
 
 	return &Function{
-		Name:       li.CName,
-		CName:      li.CName,
-		Params:     params,
-		RetType:    li.Sig.Ret,
-		Locals:     fl.locals,
-		Body:       pruneUnusedLabels(fl.rootInstrs(), fl.usedLabels),
-		IsLambda:   true,
+		Name:    li.CName,
+		CName:   li.CName,
+		Params:  params,
+		RetType: li.Sig.Ret,
+		Locals:  fl.locals,
+		Body:    pruneUnusedLabels(fl.rootInstrs(), fl.usedLabels),
+		// An `extern fn` literal captures nothing and is called by C, so it takes no environment.
+		IsLambda:   !li.Sig.Extern,
 		LambdaInfo: li,
 	}
 }
@@ -661,6 +723,20 @@ func (fl *funcLowerer) lowerVarStmt(s *ast.VarStmt) {
 		return
 	}
 
+	if s.IsConst && s.FallbackUnwind == nil && fl.bm != nil {
+		if cv, ok := fl.bm.ConstVarVals[sym]; ok && cv != nil {
+			if sd := sema.ExportStaticData(cv, sym.Type); sd != nil {
+				sv := lowerStaticData(sd, fl.tc, fl.registerThunk)
+				fl.assignLocal(loc, &ExprConst{Static: sv, Typ: sym.Type})
+				if !sym.Type.IsPlain() {
+					cur := fl.scopes[len(fl.scopes)-1]
+					cur.ownedLocals = append(cur.ownedLocals, loc)
+				}
+				return
+			}
+		}
+	}
+
 	valExpr := fl.lowerExprOwned(s.Value, sym.Type)
 	fl.assignLocal(loc, valExpr)
 	fl.flushStmtTemps()
@@ -875,7 +951,7 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 	}
 
 	// Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`)
-	lhsPtr := fl.lowerLValueAddr(s.Target)
+	lhsPtr := fl.lowerLValueAddrMut(s.Target)
 	rhsExpr := fl.lowerExprRead(s.Value)
 	if fi := fl.info(s.Target).OpMethod; fi != nil {
 		fl.emitOperatorAssign(fi, targetTy, lhsPtr, rhsExpr)
@@ -988,7 +1064,7 @@ func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type
 			}
 		}
 	}
-	lhsPtr := fl.lowerLValueAddr(target)
+	lhsPtr := fl.lowerLValueAddrMut(target)
 	if !targetTy.IsPlain() && !isRawDeref {
 		fl.emit(&InstrExpr{Expr: &ExprDrop{Ptr: EnsureExpr(lhsPtr, targetTy), ValType: targetTy}})
 	}
@@ -1187,4 +1263,126 @@ func exprInfoTypeKey(inf *sema.ExprInfo) string {
 		sb.WriteString(inf.BoxInterface.Mangled())
 	}
 	return sb.String()
+}
+
+// thunkRegistry collects the wrappers function values need, emitting each once.
+type thunkRegistry struct {
+	irp         *Program
+	tc          *typeCollector
+	seen        map[string]bool
+	testMode    bool
+	usedLambdas map[*sema.LambdaInfo]bool
+}
+
+func lowerStaticData(sd *sema.StaticData, tc *typeCollector, reg *thunkRegistry) *StaticVal {
+	if sd == nil {
+		return nil
+	}
+	if sd.Type != nil {
+		tc.visit(sd.Type)
+	}
+	sv := &StaticVal{
+		Kind:        sd.Kind,
+		Type:        sd.Type,
+		Uint:        sd.Uint,
+		SignedVal:   sd.SignedVal,
+		IsSigned:    sd.IsSigned,
+		Float:       sd.Float,
+		Bool:        sd.Bool,
+		Char:        sd.Char,
+		Str:         sd.Str,
+		HasRawBytes: sd.HasRawBytes,
+		RawBytes:    sd.RawBytes,
+		HasOpt:      sd.HasOpt,
+	}
+	effTy := sd.Type
+	for {
+		if d, isDist := effTy.(*types.Distinct); isDist {
+			effTy = d.Base
+		} else {
+			break
+		}
+	}
+	switch sd.Kind {
+	case sema.StaticList:
+		if vecTy, ok := effTy.(*types.Vector); ok {
+			tc.visit(vecTy)
+		} else if st, ok := effTy.(*types.Struct); ok && len(st.TypeArgs) == 1 {
+			tc.visit(&types.Vector{Elem: st.TypeArgs[0]})
+		}
+		sv.Elems = make([]*StaticVal, len(sd.Elems))
+		for i, el := range sd.Elems {
+			sv.Elems[i] = lowerStaticData(el, tc, reg)
+		}
+	case sema.StaticArray, sema.StaticTuple:
+		sv.Elems = make([]*StaticVal, len(sd.Elems))
+		for i, el := range sd.Elems {
+			sv.Elems[i] = lowerStaticData(el, tc, reg)
+		}
+	case sema.StaticStruct:
+		if st, ok := effTy.(*types.Struct); ok {
+			sv.Fields = make([]StaticStructField, len(st.Fields))
+			for i, f := range st.Fields {
+				sv.Fields[i] = StaticStructField{
+					Name:  f.CName,
+					Value: lowerStaticData(sd.Fields[f.Name], tc, reg),
+				}
+			}
+		}
+	case sema.StaticEnum:
+		if en, ok := effTy.(*types.Enum); ok && sd.VariantIdx >= 0 && sd.VariantIdx < len(en.Variants) {
+			vr := en.Variants[sd.VariantIdx]
+			sv.VariantVal = vr.Value
+			sv.VariantCN = vr.CName
+			if sd.Payload != nil {
+				sv.Payload = lowerStaticData(sd.Payload, tc, reg)
+			}
+		}
+	case sema.StaticOpt:
+		if sd.HasOpt && sd.OptElem != nil {
+			sv.OptElem = lowerStaticData(sd.OptElem, tc, reg)
+		}
+	case sema.StaticFn:
+		if sd.Fn != nil {
+			fnTy := sd.Fn.Sig
+			if fnTy.Extern {
+				sv.FnEntry = reg.cCallback(sd.Fn.CName, fnTy)
+			} else {
+				sv.FnEntry = reg.static(sd.Fn, fnTy)
+			}
+		} else if sd.Lambda != nil {
+			if reg != nil && reg.usedLambdas != nil {
+				reg.usedLambdas[sd.Lambda] = true
+			}
+			sv.FnEntry = sd.Lambda.CName
+		}
+	}
+	return sv
+}
+
+// static returns the environment-taking thunk that makes top-level function `fi` an `fn` value.
+func (r *thunkRegistry) static(fi *sema.FuncInstance, fnTy *types.Func) string {
+	tname := StaticFuncThunkName(fi.CName, fnTy)
+	if !r.seen[tname] {
+		r.seen[tname] = true
+		r.tc.visit(fnTy)
+		r.irp.StaticThunks = append(r.irp.StaticThunks, &StaticThunk{ThunkCName: tname, TargetFunc: fi, FuncType: fnTy})
+	}
+	return tname
+}
+
+// cCallback returns the function C should be given for the `extern fn` named `target`: the
+// function itself, or in a test build a wrapper that keeps a panic from jumping back to the test
+// runner across C frames.
+func (r *thunkRegistry) cCallback(target string, fnTy *types.Func) string {
+	if !r.testMode {
+		return target
+	}
+	tname := target + "_ccb"
+	if !r.seen[tname] {
+		r.seen[tname] = true
+		r.tc.visit(fnTy)
+		r.irp.StaticThunks = append(r.irp.StaticThunks, &StaticThunk{ThunkCName: tname, FuncType: fnTy, CCallback: true, Target: target})
+	}
+	return tname
 }

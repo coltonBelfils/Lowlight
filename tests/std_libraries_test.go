@@ -35,6 +35,7 @@ func TestStandardLibraryInlineSuites(t *testing.T) {
 		"net",
 		"http",
 		"unicode",
+		"collections",
 		"json",
 	}
 
@@ -160,13 +161,13 @@ bind main = fn(): {
     assert(not fs.exists(""), "exists false on empty string")
     assert(not fs.exists(missing_dir), "exists false before mkdir_p")
 
-    assert(not os.mkdir_p(reg), "mkdir_p false on regular file")
-    assert(not os.mkdir_p("${reg}/"), "mkdir_p false on regular file with trailing slash")
-    assert(not os.mkdir_p("${reg}/sub/dir"), "mkdir_p false through regular file parent")
-    assert(os.mkdir_p(existing_dir), "mkdir_p true on existing directory")
-    assert(os.mkdir_p(missing_dir), "mkdir_p creates nested dirs")
+    assert(os.mkdir_p(reg).is_err(), "mkdir_p fails on regular file")
+    assert(os.mkdir_p("${reg}/").is_err(), "mkdir_p fails on regular file with trailing slash")
+    assert(os.mkdir_p("${reg}/sub/dir").is_err(), "mkdir_p fails through regular file parent")
+    assert(os.mkdir_p(existing_dir).is_ok(), "mkdir_p succeeds on existing directory")
+    assert(os.mkdir_p(missing_dir).is_ok(), "mkdir_p creates nested dirs")
     assert(fs.exists(missing_dir), "exists true on created dir")
-    assert(os.remove_all("${tmp}/nested"), "cleanup nested")
+    assert(os.remove_all("${tmp}/nested").is_ok(), "cleanup nested")
 
     println("fs_os_edge_ok")
 }
@@ -482,23 +483,23 @@ bind main = fn(): {
 	}{
 		{
 			name:      "insert_neg",
-			callStmt:  `xs.insert(-1, 99)`,
-			wantPanic: "List.insert: index -1 out of bounds for length 2",
+			callStmt:  `xs.must_insert(-1, 99)`,
+			wantPanic: "List.must_insert: index -1 out of bounds for length 2",
 		},
 		{
 			name:      "insert_oob",
-			callStmt:  `xs.insert(3, 99)`,
-			wantPanic: "List.insert: index 3 out of bounds for length 2",
+			callStmt:  `xs.must_insert(3, 99)`,
+			wantPanic: "List.must_insert: index 3 out of bounds for length 2",
 		},
 		{
 			name:      "remove_oob",
-			callStmt:  `let _ = xs.remove(2)`,
-			wantPanic: "List.remove: index 2 out of bounds for length 2",
+			callStmt:  `let _ = xs.must_remove(2)`,
+			wantPanic: "List.must_remove: index 2 out of bounds for length 2",
 		},
 		{
 			name:      "swap_remove_neg",
-			callStmt:  `let _ = xs.swap_remove(-1)`,
-			wantPanic: "List.swap_remove: index -1 out of bounds for length 2",
+			callStmt:  `let _ = xs.must_swap_remove(-1)`,
+			wantPanic: "List.must_swap_remove: index -1 out of bounds for length 2",
 		},
 	}
 

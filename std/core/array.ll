@@ -17,15 +17,15 @@ define Array[T] struct [
 ]
 
 // Returns the fixed number of elements in the array.
-bind Array[T].len = fn(self) int: self.len
+const Array[T].len = fn(self) int: self.len
 
 // Reports whether the array has zero elements.
-bind Array[T].is_empty = fn(self) bool: self.len == 0
+const Array[T].is_empty = fn(self) bool: self.len == 0
 
 // Returns a copy of the element at `idx`, or `none` if out of bounds.
 //
 // - `idx`: Zero-based element index.
-bind Array[T].get = fn(self, idx: int) ?T: {
+const Array[T].get = fn(self, idx: int) ?T: {
 	if(idx < 0 or idx >= self.len): func <- none
 	unsafe self.data[idx].copy()
 }
@@ -33,7 +33,7 @@ bind Array[T].get = fn(self, idx: int) ?T: {
 // Reports whether any element in the array equals `item`.
 //
 // - `item`: Value to search for using `==`.
-bind Array[T].contains = fn(self, item: T) bool: {
+const Array[T].contains = fn(self, item: T) bool: {
 	let i = 0
 	for(i < self.len): {
 		unsafe {
@@ -45,7 +45,7 @@ bind Array[T].contains = fn(self, item: T) bool: {
 }
 
 // Formats the array as a bracketed, comma-separated string (`"[a, b, ...]"`).
-bind Array[T].to_string = fn(self) string: {
+const Array[T].to_string = fn(self) string: {
 	let out = "["
 	let i = 0
 	for(i < self.len): {
@@ -68,7 +68,7 @@ define ArrayIterator[T] struct [
 ]
 
 // Advances the iterator and returns a copy of the next element, or `none` when exhausted.
-bind ArrayIterator[T].next = fn(&self) ?T: {
+const ArrayIterator[T].next = fn(&self) ?T: {
 	if(self.idx >= self.len): func <- none
 	let i = self.idx
 	self.idx += 1
@@ -76,7 +76,7 @@ bind ArrayIterator[T].next = fn(&self) ?T: {
 }
 
 // Returns a forward [`Iterator`] over copied elements of the array.
-bind Array[T].iter = fn(self) Iterator[T]:
+const Array[T].iter = fn(self) Iterator[T]:
 	ArrayIterator[T][
 		data: self.data,
 		len: self.len,

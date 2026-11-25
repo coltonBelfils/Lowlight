@@ -31,7 +31,7 @@ Collections own their elements. That has three consequences worth knowing:
 ```lowlight
 bind main = fn(): {
 	let queue = ["a" + "", "b" + "", "c" + ""]
-	let first = queue.remove(0)        // we own `first` now
+	let first = queue.must_remove(0)   // we own `first` now
 	let copies = for(s in queue) [string]: s.copy()
 	queue.clear()
 	println("$first $copies ${queue.len()}")

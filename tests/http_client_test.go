@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestHTTPClientPutPatchDeleteEndToEnd(t *testing.T) {
 import "std/http"
 
 bind main = fn(): {
-	let handler = cl(req: http.Request, res: &http.ResponseWriter): {
+	let handler = fn(req: http.Request, res: &http.ResponseWriter): {
 		let tag = req.query_param("tag") ?? ""
 		let ct = req.header("content-type") ?? ""
 		res.write_header(http.STATUS_OK)
@@ -40,10 +41,12 @@ bind main = fn(): {
 
 	// Also exercise Client.put / Client.patch / Client.delete and module helpers on closed port / invalid URL (0 leaks).
 	let c = http.Client.new()
-	assert(c.put("://bad", "text/plain", "x").is_err())
-	assert(c.patch("://bad", "text/plain", "x").is_err())
-	assert(c.delete("://bad").is_err())
-	assert(http.put("127.0.0.1:0", "text/plain", "x").is_err())
+	let failures = 0
+	c.put("://bad", "text/plain", "x"): default: failures += 1
+	c.patch("://bad", "text/plain", "x"): default: failures += 1
+	c.delete("://bad"): default: failures += 1
+	http.put("127.0.0.1:0", "text/plain", "x"): default: failures += 1
+	assert(failures == 4)
 	println("ok_client_strict")
 }
 `
@@ -52,39 +55,39 @@ bind main = fn(): {
 	}
 
 	// 2. Full wire verification of Client.put, Client.patch, Client.delete, http.put, http.patch, http.delete
-	// via an in-process UNIX socketpair server stubbing ll_net_tcp_connect (sandbox-safe).
+	// via an in-process UNIX socketpair server stubbing std/net's _raw_tcp_connect (sandbox-safe).
 	clientWireSrc := `
 import "std/http"
 
 bind main = fn(): {
 	let c = http.Client.new()
 
-	let r_put = c.put("http://example.test/items/1?tag=v1", "application/json", "{\"ok\":true}").unwrap()
+	let r_put = c.put("http://example.test/items/1?tag=v1", "application/json", "{\"ok\":true}"): default panic
 	assert(r_put.status_code == 200)
 	assert(r_put.body.starts_with("PUT /items/1?tag=v1 HTTP/1.1\r\n"))
 	assert(r_put.body.contains("Content-Type: application/json\r\n"))
 	assert(r_put.body.ends_with("\r\n\r\n{\"ok\":true}"))
 
-	let r_patch = c.patch("http://example.test/items/1?tag=v2", "text/plain", "delta").unwrap()
+	let r_patch = c.patch("http://example.test/items/1?tag=v2", "text/plain", "delta"): default panic
 	assert(r_patch.status_code == 200)
 	assert(r_patch.body.starts_with("PATCH /items/1?tag=v2 HTTP/1.1\r\n"))
 	assert(r_patch.body.contains("Content-Type: text/plain\r\n"))
 	assert(r_patch.body.ends_with("\r\n\r\ndelta"))
 
-	let r_del = c.delete("http://example.test/items/1?tag=v3").unwrap()
+	let r_del = c.delete("http://example.test/items/1?tag=v3"): default panic
 	assert(r_del.status_code == 200)
 	assert(r_del.body.starts_with("DELETE /items/1?tag=v3 HTTP/1.1\r\n"))
 	assert(r_del.body.ends_with("\r\n\r\n"))
 
-	let t_put = http.put("http://example.test/one?tag=top1", "text/plain", "a").unwrap()
+	let t_put = http.put("http://example.test/one?tag=top1", "text/plain", "a"): default panic
 	assert(t_put.body.starts_with("PUT /one?tag=top1 HTTP/1.1\r\n"))
 	assert(t_put.body.ends_with("\r\n\r\na"))
 
-	let t_patch = http.patch("http://example.test/one?tag=top2", "text/plain", "b").unwrap()
+	let t_patch = http.patch("http://example.test/one?tag=top2", "text/plain", "b"): default panic
 	assert(t_patch.body.starts_with("PATCH /one?tag=top2 HTTP/1.1\r\n"))
 	assert(t_patch.body.ends_with("\r\n\r\nb"))
 
-	let t_del = http.delete("http://example.test/one?tag=top3").unwrap()
+	let t_del = http.delete("http://example.test/one?tag=top3"): default panic
 	assert(t_del.body.starts_with("DELETE /one?tag=top3 HTTP/1.1\r\n"))
 
 	println("ok_client_wire")
@@ -99,11 +102,20 @@ bind main = fn(): {
 	if err != nil {
 		t.Fatalf("EmitLLVM failed: %v", err)
 	}
-	patchedLL := strings.ReplaceAll(llvmSrc, "call i64 @ll_net_tcp_connect(", "call i64 @mock_tcp_connect(")
-	if patchedLL == llvmSrc {
-		t.Fatal("expected LLVM IR to contain @ll_net_tcp_connect call")
+	rawConnectCallRe := regexp.MustCompile(`call i64 @(ll_fn_[A-Za-z0-9_]*_raw_tcp_connect)\(`)
+	match := rawConnectCallRe.FindStringSubmatch(llvmSrc)
+	if len(match) < 2 {
+		t.Fatal("expected LLVM IR to contain std/net _raw_tcp_connect call")
 	}
-	patchedLL += "\ndeclare i64 @mock_tcp_connect(ptr, i64, i64)\n"
+	patchedLL := strings.ReplaceAll(llvmSrc, "call i64 @"+match[1]+"(", "call i64 @mock_tcp_connect_ll(")
+	patchedLL += `
+declare i64 @mock_tcp_connect(ptr, i64, i64)
+define i64 @mock_tcp_connect_ll(%struct.ll_string %host, i64 %port, i64 %timeout_ms) {
+entry:
+    %r = call i64 @mock_tcp_connect(ptr null, i64 %port, i64 %timeout_ms)
+    ret i64 %r
+}
+`
 
 	cDriver := `
 #include <pthread.h>

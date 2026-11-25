@@ -56,9 +56,9 @@ func (fl *funcLowerer) lowerCallArgs(params []types.FuncParam, args []ast.Expr) 
 		switch p.Mode {
 		case types.ModeMut:
 			if u, ok := arg.(*ast.UnaryExpr); ok && u.Op == token.Amp {
-				out[i] = fl.lowerLValueAddr(u.Operand)
+				out[i] = fl.lowerLValueAddrMut(u.Operand)
 			} else {
-				out[i] = fl.lowerLValueAddr(arg)
+				out[i] = fl.lowerLValueAddrMut(arg)
 			}
 		case types.ModeOwn:
 			out[i] = fl.lowerExprOwned(arg, p.Type)
@@ -97,7 +97,7 @@ func (fl *funcLowerer) lowerMethodReceiverArg(recv ast.Expr, mode types.ParamMod
 	}
 	switch mode {
 	case types.ModeMut:
-		return fl.lowerLValueAddr(recv)
+		return fl.lowerLValueAddrMut(recv)
 	case types.ModeOwn:
 		return fl.lowerExprOwned(recv, targetRecvTy)
 	default:
@@ -218,6 +218,10 @@ func (fl *funcLowerer) lowerClosureValueCall(call *ast.CallExpr, _ *sema.ExprInf
 	calleeTy := fl.info(call.Callee).Type.(*types.Func)
 	fl.tc.visit(calleeTy)
 	calleeVal := fl.lowerExprRead(call.Callee)
+	if calleeTy.Extern {
+		// An `extern fn` value is a C function pointer: just the arguments.
+		return &ExprCall{Callee: EnsureExpr(calleeVal, calleeTy), Args: fl.lowerCallArgs(calleeTy.Params, call.Args), Typ: calleeTy.Ret}
+	}
 	if !calleeTy.Closure {
 		// An `fn` value is the entry function itself; it gets no environment.
 		cArgs := []Expr{&ExprLitZero{Typ: &types.Ptr{Elem: types.TypeVoid}}}
@@ -395,7 +399,7 @@ func (fl *funcLowerer) lowerInterfaceMethodCall(call *ast.CallExpr, inf *sema.Ex
 	} else {
 		ifc = rawRecvTy.(*types.Interface)
 		if inf.MethodRecvMode == types.ModeMut {
-			ptr := fl.lowerLValueAddr(inf.MethodRecv)
+			ptr := fl.lowerLValueAddrMut(inf.MethodRecv)
 			ifcExpr = &ExprDeref{Ptr: ptr, Typ: ifc}
 		} else {
 			ifcExpr = fl.lowerExprRead(inf.MethodRecv)
@@ -525,8 +529,12 @@ func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprIn
 
 	case "caller_location":
 		if fl.currFunc != nil && fl.currFunc.TrackCaller && fl.callerFileLoc != nil {
+			locFn := "ll_format_loc"
+			if fl.prog.FormatLocFunc != nil {
+				locFn = fl.prog.FormatLocFunc.CName
+			}
 			return &ExprCall{
-				Callee: &ExprFuncRef{Name: "ll_format_loc"},
+				Callee: &ExprFuncRef{Name: locFn},
 				Args: []Expr{
 					NewLocalExpr(fl.callerFileLoc),
 					NewLocalExpr(fl.callerLineLoc),
@@ -623,23 +631,6 @@ func (fl *funcLowerer) lowerBuiltinFuncCall(call *ast.CallExpr, inf *sema.ExprIn
 // -----------------------------------------------------------------------------
 
 func (fl *funcLowerer) lowerBuiltinMethodCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
-	// Static `Arena` constructors (`Arena.new()`, `Arena.with_capacity(n)`) have `MethodRecv == nil`!
-	if inf.BuiltinName == "Arena.new" {
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_arena_new"},
-			Args:   []Expr{NewLitInt(4096, false, types.TypeInt)},
-			Typ:    inf.Type,
-		}
-	}
-	if inf.BuiltinName == "Arena.with_capacity" {
-		capVal := fl.lowerExprRead(call.Args[0])
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_arena_new"},
-			Args:   []Expr{EnsureExpr(capVal, types.TypeInt)},
-			Typ:    inf.Type,
-		}
-	}
-
 	// Optional-chained built-in method (`opt?.len()`, `opt?.to_string()`, `opt?.copy()`, etc.)!
 	if inf.IsOptChain {
 		optRecv := fl.info(inf.MethodRecv).Type.(*types.Optional)
@@ -687,7 +678,7 @@ func (fl *funcLowerer) lowerBuiltinMethodCall(call *ast.CallExpr, inf *sema.Expr
 		if isArenaRef {
 			recvPtr = fl.lowerExprRead(inf.MethodRecv)
 		} else {
-			recvPtr = fl.lowerLValueAddr(inf.MethodRecv)
+			recvPtr = fl.lowerLValueAddrMut(inf.MethodRecv)
 		}
 		return fl.emitMutBuiltinMethodOnPtr(call, inf, recvTy, recvPtr)
 	}
@@ -722,6 +713,11 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 
 	case "any.hash":
 		return fl.hashCallExpr(recvTy, recvVal), types.TypeU64
+
+	case "float.to_bits":
+		return &ExprFloatBits{Val: EnsureExpr(recvVal, types.TypeFloat), FloatType: types.TypeFloat, Typ: types.TypeU64}, types.TypeU64
+	case "f32.to_bits":
+		return &ExprFloatBits{Val: EnsureExpr(recvVal, types.TypeF32), FloatType: types.TypeF32, Typ: types.TypeU32}, types.TypeU32
 
 	// `string` read methods
 	case "string.len":
@@ -800,15 +796,6 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 			Typ:    types.TypeBool,
 		}, types.TypeBool
 
-	// `Arena` read methods
-	case "Arena.bytes_used":
-		aTmp := fl.allocSlot("_ll_abu", types.TypeArena)
-		fl.assignLocal(aTmp, recvVal)
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_arena_bytes_used"},
-			Args:   []Expr{&ExprAddrOf{Place: NewLocalExpr(aTmp), Typ: &types.Ptr{Elem: types.TypeArena}}},
-			Typ:    types.TypeInt,
-		}, types.TypeInt
 	}
 	return nil, types.TypeVoid
 }
@@ -868,31 +855,6 @@ func (fl *funcLowerer) emitMutBuiltinMethodOnPtr(
 			Typ:    types.TypeVoid,
 		}
 
-	// `Arena` mutating methods
-	case "Arena.alloc":
-		elemTy := inf.IntrinsicType
-		fl.tc.visit(elemTy)
-		valExpr := fl.lowerExprOwned(call.Args[0], elemTy)
-		dtorFn := ""
-		if !elemTy.IsPlain() {
-			dtorFn = DropFnName(elemTy)
-		}
-		ptrSlot := fl.allocSlot("_ll_aptr", &types.Ref{Elem: elemTy})
-		fl.assignLocal(ptrSlot, &ExprArenaAlloc{
-			Arena:     EnsureExpr(recvPtr, &types.Ptr{Elem: types.TypeArena}),
-			AllocType: elemTy,
-			DtorFn:    dtorFn,
-			Typ:       &types.Ref{Elem: elemTy},
-		})
-		fl.emit(&InstrAssign{Dst: &ExprDeref{Ptr: NewLocalExpr(ptrSlot), Typ: elemTy}, Expr: EnsureExpr(valExpr, elemTy)})
-		return NewLocalExpr(ptrSlot)
-
-	case "Arena.reset":
-		return &ExprCall{
-			Callee: &ExprFuncRef{Name: "ll_arena_reset"},
-			Args:   []Expr{EnsureExpr(recvPtr, types.TypeArena)},
-			Typ:    types.TypeVoid,
-		}
 	}
 	return nil
 }
@@ -950,6 +912,14 @@ func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo
 		src := fl.lowerExprRead(call.Args[0])
 		srcTy := fl.info(call.Args[0]).Type
 		return &ExprCast{Val: EnsureExpr(src, srcTy), From: srcTy, To: inf.Type}
+	case "fn_from_ptr":
+		src := fl.lowerExprRead(call.Args[0])
+		srcTy := fl.info(call.Args[0]).Type
+		return &ExprCast{Val: EnsureExpr(src, srcTy), From: srcTy, To: inf.Type}
+	case "ref_from_ptr":
+		src := fl.lowerExprRead(call.Args[0])
+		srcTy := fl.info(call.Args[0]).Type
+		return &ExprCast{Val: EnsureExpr(src, srcTy), From: srcTy, To: inf.Type}
 	case "ptr_addr":
 		p := fl.lowerExprRead(call.Args[0])
 		pTy := fl.info(call.Args[0]).Type
@@ -978,51 +948,22 @@ func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo
 		}
 	}
 
+	if inf.BuiltinName == "syscall" {
+		// Always the six-argument form; unused argument registers get 0.
+		args := make([]Expr, 7)
+		for i := range args {
+			if i < len(call.Args) {
+				args[i] = EnsureExpr(fl.lowerExprRead(call.Args[i]), types.TypeInt)
+			} else {
+				args[i] = NewLitInt(0, false, types.TypeInt)
+			}
+		}
+		return &ExprCall{Callee: &ExprFuncRef{Name: "ll_syscall6"}, Args: args, Typ: types.TypeInt}
+	}
+
 	sysSymbolMap := map[string]string{
-		"sys_fopen":                "ll_sys_fopen",
-		"sys_fclose":               "ll_sys_fclose",
-		"sys_fread":                "ll_sys_fread",
-		"sys_fwrite":               "ll_sys_fwrite",
-		"sys_fseek":                "ll_sys_fseek",
-		"sys_ftell":                "ll_sys_ftell",
-		"sys_fflush":               "ll_sys_fflush",
-		"sys_ferror":               "ll_sys_ferror",
-		"sys_remove":               "ll_sys_remove",
-		"sys_rename":               "ll_sys_rename",
-		"sys_popen":                "ll_os_popen",
-		"sys_pclose":               "ll_os_pclose",
-		"sys_pread":                "ll_os_pread",
-		"sys_system":               "ll_os_system",
-		"sys_file_size":            "ll_os_file_size",
-		"sys_file_exists":          "ll_os_file_exists",
-		"sys_mkdir":                "ll_os_mkdir",
-		"sys_remove_all":           "ll_os_remove_all",
-		"sys_num_cpus":             "ll_os_num_cpus",
-		"sys_os_name":              "ll_os_name_cstr",
-		"sys_os_arch":              "ll_os_arch_cstr",
 		"sys_argc":                 "ll_os_argc",
 		"sys_argv":                 "ll_os_argv_cstr",
-		"sys_monotonic_nanos":      "ll_time_monotonic_nanos",
-		"sys_epoch_nanos_now":      "ll_time_epoch_nanos",
-		"sys_sleep_ms":             "ll_time_sleep_ms",
-		"sys_local_tz_offset":      "ll_time_local_offset",
-		"sys_local_tz_name":        "ll_time_local_tz_name",
-		"sys_tcp_listen":           "ll_net_tcp_listen",
-		"sys_tcp_port":             "ll_net_tcp_port",
-		"sys_tcp_peer_port":        "ll_net_tcp_peer_port",
-		"sys_tcp_peer_ipv4":        "ll_net_tcp_peer_ipv4",
-		"sys_tcp_peer_ipv6_group":  "ll_net_tcp_peer_ipv6_group",
-		"sys_tcp_local_ipv4":       "ll_net_tcp_local_ipv4",
-		"sys_tcp_local_ipv6_group": "ll_net_tcp_local_ipv6_group",
-		"sys_tcp_set_nodelay":      "ll_net_tcp_set_nodelay",
-		"sys_tcp_accept":           "ll_net_tcp_accept",
-		"sys_tcp_connect":          "ll_net_tcp_connect",
-		"sys_net_send_all":         "ll_net_send_all",
-		"sys_net_recv":             "ll_net_recv",
-		"sys_net_close":            "ll_net_close",
-		"sys_net_shutdown":         "ll_net_shutdown",
-		"sys_net_set_timeout":      "ll_net_set_timeout",
-		"sys_net_socketpair":       "ll_net_socketpair",
 		"sys_tls_available":        "ll_tls_available",
 		"sys_tls_client_handshake": "ll_tls_client_handshake",
 		"sys_tls_send_all":         "ll_tls_send_all",

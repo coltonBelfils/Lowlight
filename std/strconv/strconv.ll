@@ -8,9 +8,16 @@
 // -----------------------------------------------------------------------------
 
 // Parses a base-10 integer string into `?int`, returning `none` on invalid syntax or overflow.
+//
+// Deprecated: the prelude's `parse_int_radix(s, 10)` does the same; `parse_int(s)` also accepts
+// `0x`, `0o`, and `0b` prefixes.
+@deprecated("use parse_int_radix(s, 10), or parse_int(s) to also accept 0x/0o/0b prefixes")
 bind parse_int_safe = fn(s: string) ?int: parse_int_radix(s, 10)
 
 // Parses a floating-point number string into `?float`, returning `none` on invalid input.
+//
+// Deprecated: the prelude's `parse_float(s)` is the same function.
+@deprecated("use parse_float(s)")
 bind parse_float_safe = fn(s: string) ?float: parse_float(s)
 
 // Parses a case-sensitive boolean string (`"true"`/`"1"`/`"yes"`/`"on"` or `"false"`/`"0"`/`"no"`/`"off"`),
@@ -106,14 +113,14 @@ bind string.to_int = fn(self) ?int: parse_int_radix(self, 10)
 bind string.to_int_radix = fn(self, radix: int) ?int: parse_int_radix(self, radix)
 
 // Parses this string as a floating-point number, returning `none` on invalid syntax.
-bind string.to_float = fn(self) ?float: parse_float_safe(self)
+bind string.to_float = fn(self) ?float: parse_float(self)
 
 // Parses this string as a boolean token using [`parse_bool`].
 bind string.to_bool = fn(self) ?bool: parse_bool(self)
 
 // Reports whether this string parses cleanly as a floating-point number.
 bind string.is_numeric = fn(self) bool: {
-	let f? = parse_float_safe(self)
+	let f? = parse_float(self)
 	if(f?): true else: false
 }
 
@@ -125,7 +132,7 @@ bind string.is_int = fn(self) bool: {
 
 // Reports whether this string parses cleanly as a float (alias for [`string.is_numeric`]).
 bind string.is_float = fn(self) bool: {
-	let f? = parse_float_safe(self)
+	let f? = parse_float(self)
 	if(f?): true else: false
 }
 

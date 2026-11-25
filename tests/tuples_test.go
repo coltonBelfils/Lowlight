@@ -26,7 +26,7 @@ bind main = fn() int: {
     println(t.1)
 
     // 2. Calling function in tuple
-    let fn_tup = +[cl(x: int) int: x * 2, cl(msg: string) string: msg.copy()]
+    let fn_tup = +[fn(x: int) int: x * 2, fn(msg: string) string: msg.copy()]
     let res = fn_tup.0(21)
     println("fn_call=${res}")
     println(fn_tup.1("world"))
@@ -271,7 +271,7 @@ func TestTuplesBugsFixes(t *testing.T) {
 	src := `
 bind main = fn() int: {
     // 1. Function in tuple call
-    let fns = +[cl(x: int) int: x + 10, cl(y: int) int: y * 3]
+    let fns = +[fn(x: int) int: x + 10, fn(y: int) int: y * 3]
     println("f0: ${fns.0(5)}")
     println("f1: ${fns.1(5)}")
 
@@ -392,7 +392,7 @@ bind main = fn() int: {
     println("summary=${p2.summary()}")
 
     // 4. Calling closures in distinct tuple
-    let fp: FnPair = +[cl(n: int) int: n * 3, "tripler"]
+    let fp: FnPair = +[fn(n: int) int: n * 3, "tripler"]
     println("fn_call=${fp.0(14)}")
     println("fn_name=${fp.1}")
 

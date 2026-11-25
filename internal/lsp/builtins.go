@@ -49,6 +49,8 @@ type KeywordDoc struct {
 var BuiltinKeywords = []KeywordDoc{
 	{Word: "let", Detail: "mutable owned local variable", Summary: "Declares a mutable owned local variable (`let x = 10` or `let v: [int] = []`)."},
 	{Word: "bind", Detail: "immutable binding, function, or method", Summary: "Declares a deeply immutable value, constant, function, or method (`bind add = (a: int, b: int) int: a + b`)."},
+	{Word: "const", Detail: "compile-time constant, function, or `[N: const Type]` parameter", Summary: "Declares a binding or pure function/method whose value is known at compile time (`const PI = 3.14159`, `const fn_name = fn(...) ...`, `[N: const int]`)."},
+	{Word: "comptime", Detail: "compile-time evaluation, conditional, match, or loop unrolling", Summary: "Forces compile-time evaluation (`comptime expr` / `comptime { ... }`), compile-time branching (`comptime if`, `comptime match`), or loop unrolling (`comptime for`)."},
 	{Word: "define", Detail: "nominal type declaration", Summary: "Defines a `struct`, `enum`, `result`, `interface`, or distinct derived type (`define UserId int`)."},
 	{Word: "struct", Detail: "product value type `[field: T, ...]`", Summary: "Declares a value-type struct (`define Point struct [x: float, y: float]`). Prefix `packed` for unpadded C ABI layout."},
 	{Word: "enum", Detail: "tag or tagged-union enum `[a, b, ...]`", Summary: "Declares a strongly-typed integer tag enum (`define Status enum u8 [ok = 0, err = 1]`) or tagged union."},
@@ -115,6 +117,24 @@ var BuiltinSnippets = []CodeSnippet{
 		Summary: "Defines a method on a type. Use `&self` to mutate the receiver or `own self` to consume it.",
 	},
 	{
+		Label:   "bind const",
+		Detail:  "Define a typed constant",
+		Snippet: "bind ${1:NAME}: ${2:int} = ${0:0}",
+		Summary: "Defines a constant value (`SCREAMING_SNAKE_CASE` at top level).",
+	},
+	{
+		Label:   "bind drop",
+		Detail:  "Define a destructor (`drop`) on a type",
+		Snippet: "bind ${1:Type}.drop = fn(&self): {\n\t$0\n}",
+		Summary: "Defines custom cleanup logic called automatically when a value leaves scope.",
+	},
+	{
+		Label:   "extern fn",
+		Detail:  "Declare a C11 extern function",
+		Snippet: "extern ${1:c_func}: fn(${2:x: i32}) ${3:i32}",
+		Summary: "Declares a C11 ABI function callable inside `unsafe`.",
+	},
+	{
 		Label:   "fn lambda",
 		Detail:  "Function value that captures nothing",
 		Snippet: "fn(${1:x: int}) ${2:int}: ${0:x}",
@@ -137,6 +157,18 @@ var BuiltinSnippets = []CodeSnippet{
 		Detail:  "Define a value struct",
 		Snippet: "define ${1:Name} struct [\n\t${2:x}: ${3:int},\n\t${4:y}: ${5:int},\n]",
 		Summary: "Defines a nominal value struct with automatic deterministic cleanup. Add `@derive(...)` for `==`, printing, hashing, ordering, or `.copy()`.",
+	},
+	{
+		Label:   "define packed struct",
+		Detail:  "Define a C-ABI packed struct",
+		Snippet: "@packed\ndefine ${1:Header} struct [\n\t${2:tag}: ${3:u8},\n\t${4:len}: ${5:u32},\n]",
+		Summary: "Defines a struct laid out without padding, matching the C ABI.",
+	},
+	{
+		Label:   "define distinct",
+		Detail:  "Define a distinct newtype wrapper",
+		Snippet: "define ${1:UserId} ${2:int}",
+		Summary: "Defines a distinct nominal type wrapping an existing type with zero runtime overhead.",
 	},
 	{
 		Label:   "define enum",
@@ -181,6 +213,12 @@ var BuiltinSnippets = []CodeSnippet{
 		Summary: "Binds the value of an optional (`?T`) or the success value of a result (`r!`) when present.",
 	},
 	{
+		Label:   "if as block",
+		Detail:  "Unwrap an optional or result into a block",
+		Snippet: "if(${1:expr} as ${2:v}): {\n\t$0\n}",
+		Summary: "Binds the value of an optional (`?T`) or result (`r!`) inside an `if` block.",
+	},
+	{
 		Label:   "for in",
 		Detail:  "Iterate range or collection",
 		Snippet: "for(${1:item} in ${2:items}): {\n\t$0\n}",
@@ -193,10 +231,22 @@ var BuiltinSnippets = []CodeSnippet{
 		Summary: "Iterates a collection with each element's index (`for(i, x in list)`), or a map's keys and values (`for(k, v in map)`).",
 	},
 	{
+		Label:   "for collect",
+		Detail:  "Collect elements from a for comprehension",
+		Snippet: "bind ${1:items} = for(${2:x} in ${3:xs}): ${0:x}",
+		Summary: "Builds a `[T]` list (or `#[T]` / `#[K: V]` when annotated) from a `for` expression.",
+	},
+	{
 		Label:   "while",
 		Detail:  "Conditional while loop",
 		Snippet: "while(${1:cond}): {\n\t$0\n}",
 		Summary: "Executes a loop while a condition evaluates to true.",
+	},
+	{
+		Label:   "while search",
+		Detail:  "Search loop yielding ?T",
+		Snippet: "bind ${1:found?} = while(${2:x} in ${3:xs}): if(${4:cond}): while <- $2",
+		Summary: "Searches a range or collection, unwinding with `while <- val` on match (produces `?T`).",
 	},
 	{
 		Label:   "match when",
@@ -234,6 +284,12 @@ var BuiltinSnippets = []CodeSnippet{
 		Snippet: "@test(\"${1:description}\")\nbind test_${2:name} = fn(): {\n\t$0\n}",
 		Summary: "Defines a test function runnable via `lowlight test`.",
 	},
+	{
+		Label:   "unsafe",
+		Detail:  "Unsafe block for raw pointers and extern C calls",
+		Snippet: "unsafe {\n\t$0\n}",
+		Summary: "Permits raw pointer dereferencing, pointer arithmetic, and `extern` C calls.",
+	},
 }
 
 var BuiltinTypes = []BuiltinTypeDoc{
@@ -252,7 +308,6 @@ var BuiltinTypes = []BuiltinTypeDoc{
 	{Name: "bool", Kind: KindStruct, Detail: "boolean (`true` or `false`)", Summary: "Boolean value (`true` or `false`). Plain value type."},
 	{Name: "char", Kind: KindStruct, Detail: "Unicode scalar value (32-bit rune)", Summary: "32-bit Unicode scalar value (`'a'`, `'\\n'`, `'\\u{1F680}'`). Plain value type."},
 	{Name: "string", Kind: KindStruct, Detail: "UTF-8 string (Resource / zero-copy view)", Summary: "Owned heap UTF-8 string (or zero-allocation borrowed view when passed read-only). Automatically freed at scope exit."},
-	{Name: "Arena", Kind: KindStruct, Detail: "Bump-allocated memory region", Summary: "Region bump allocator (`Arena.new()`). Frees all `arena.alloc(val)` objects in O(1) at scope exit; statically prevents `ref[T]` escape."},
 	{Name: "ptr", Kind: KindStruct, Detail: "ptr[T] — raw pointer", Snippet: "ptr[${1:u8}]", Summary: "Raw pointer `ptr[T]` for manual memory and C FFI. Copyable Plain address; dereferencing (`*p`, `p[i]`) requires `unsafe`."},
 	{Name: "ref", Kind: KindStruct, Detail: "ref[T] — safe arena reference", Snippet: "ref[${1:Node}]", Summary: "Non-null, plain-copyable reference `ref[T]` allocated inside an `Arena`. Statically verified never to outlive its `Arena`."},
 	{Name: "Printable", Kind: KindInterface, Detail: "interface `[to_string: fn(self) string]`", Summary: "Interpolation and `println`. Primitives, strings, tuples, and collections of `Printable` implement it; structs and enums do with a `to_string` method or `@derive(Printable)`."},
@@ -263,6 +318,11 @@ var BuiltinTypes = []BuiltinTypeDoc{
 	{Name: "Comparable", Kind: KindInterface, Detail: "ordering bound `[cmp: fn(self, other: Self) int]`", Summary: "`<`, `<=`, `>`, `>=`, and sorting; `cmp` returns a negative number, zero, or a positive number. Numbers, `char`, strings, and tuples of `Comparable` implement it; structs and enums do with a `cmp` method or `@derive(Comparable)`."},
 	{Name: "Addable", Kind: KindInterface, Detail: "operator bound `[add: fn(self, other: Self) Self]`", Summary: "`a + b` on anything but a number calls `a.add(b)`. `string` implements it (concatenation), as do the numeric types, so generic code can require `T: Addable`."},
 	{Name: "AddAssignable", Kind: KindInterface, Detail: "operator bound `[add_assign: fn(&self, other: Self)]`", Summary: "`a += b` calls `a.add_assign(b)`; a type with only `add` gets `a = a.add(b)`. `string` implements it (appending in place)."},
+	{Name: "comp.TARGET", Kind: KindVariable, Detail: "comp.Target (@comptime_only)", Summary: "Compile-time target descriptor (`os`, `arch`, `endian`, `is_unix`, `ptr_size`, `ptr_bits`, `triple`) for the active `--target`."},
+	{Name: "comp.Target", Kind: KindStruct, Detail: "compile-time target info struct (@comptime_only)", Summary: "Target descriptor struct holding `os: TargetOs`, `arch: TargetArch`, `endian: Endian`, `is_unix: bool`, `ptr_size: int`, `ptr_bits: int`, and `triple: string`."},
+	{Name: "comp.TargetOs", Kind: KindEnum, Detail: "compile-time OS enum (@comptime_only)", Summary: "Target operating system variants (`darwin`, `linux`, `windows`, `freebsd`, `wasm`, `unknown`)."},
+	{Name: "comp.TargetArch", Kind: KindEnum, Detail: "compile-time CPU architecture enum (@comptime_only)", Summary: "Target CPU architecture variants (`amd64`, `arm64`, `x86`, `arm`, `riscv64`, `wasm32`, `unknown`)."},
+	{Name: "comp.Endian", Kind: KindEnum, Detail: "compile-time endianness enum (@comptime_only)", Summary: "Target byte order (`little`, `big`)."},
 }
 
 var BuiltinFunctions = []BuiltinFuncDoc{
@@ -403,33 +463,73 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 		Summary:    "Returns command-line arguments (`argv`) as an owned `[string]` vector.",
 	},
 
-	// Low-level memory intrinsics
+	// Compile-time & Type-layout namespaced intrinsics
 	{
-		Name:        "size_of",
-		Signature:   "size_of[T]() int",
+		Name:        "comp.compile_error",
+		Signature:   "comp.compile_error(msg: string) never",
+		Params:      []string{"msg: string"},
+		ReturnType:  "never",
+		Snippet:     "comp.compile_error(\"${1:error message}\")",
+		IsIntrinsic: true,
+		NeedsUnsafe: false,
+		Summary:     "Emits a compile-time error diagnostic with `msg` and aborts compile-time evaluation. `@comptime_only`.",
+	},
+	{
+		Name:        "comp.log",
+		Signature:   "comp.log(val: Printable)",
+		Params:      []string{"val: Printable"},
+		ReturnType:  "void",
+		Snippet:     "comp.log(${1:val})",
+		IsIntrinsic: true,
+		NeedsUnsafe: false,
+		Summary:     "Emits an informational compile-time note diagnostic showing `val` during evaluation. `@comptime_only`.",
+	},
+	{
+		Name:        "comp.embed_str",
+		Signature:   "comp.embed_str(path: string) string",
+		Params:      []string{"path: string"},
+		ReturnType:  "string",
+		Snippet:     "comp.embed_str(\"${1:path}\")",
+		IsIntrinsic: true,
+		NeedsUnsafe: false,
+		Summary:     "Reads a UTF-8 file relative to the declaring source file at compile time and embeds it into static `.rodata` (`cap == 0`). `@comptime_only`.",
+	},
+	{
+		Name:        "comp.embed_bytes",
+		Signature:   "comp.embed_bytes(path: string) [u8]",
+		Params:      []string{"path: string"},
+		ReturnType:  "[u8]",
+		Snippet:     "comp.embed_bytes(\"${1:path}\")",
+		IsIntrinsic: true,
+		NeedsUnsafe: false,
+		Summary:     "Reads a binary file relative to the declaring source file at compile time and embeds it into static `.rodata` (`cap == 0`). `@comptime_only`.",
+	},
+	{
+		Name:        "type.size_of",
+		Signature:   "type.size_of[T]() int",
 		Params:      nil,
 		ReturnType:  "int",
-		Snippet:     "size_of[${1:int}]()",
+		Snippet:     "type.size_of[${1:int}]()",
 		IsIntrinsic: true,
 		NeedsUnsafe: false,
 		Summary:     "Compile-time byte size (`sizeof(T)`) of type `T`. Safe to call anywhere.",
 	},
 	{
-		Name:        "align_of",
-		Signature:   "align_of[T]() int",
+		Name:        "type.align_of",
+		Signature:   "type.align_of[T]() int",
 		Params:      nil,
 		ReturnType:  "int",
-		Snippet:     "align_of[${1:int}]()",
+		Snippet:     "type.align_of[${1:int}]()",
 		IsIntrinsic: true,
 		NeedsUnsafe: false,
 		Summary:     "Compile-time byte alignment (`_Alignof(T)`) of type `T`. Safe to call anywhere.",
 	},
 	{
-		Name:        "is_plain",
-		Signature:   "is_plain[T]() bool",
+		Name:        "type.is_plain",
+		Signature:   "type.is_plain[T]() bool",
 		Params:      nil,
 		ReturnType:  "bool",
-		Snippet:     "is_plain[${1:int}]()",
+		Snippet:     "type.is_plain[${1:int}]()",
 		IsIntrinsic: true,
 		NeedsUnsafe: false,
 		Summary:     "Compile-time predicate reporting whether type `T` is Plain (implicitly bitwise-copied with no `Drop`). Safe to call anywhere.",
@@ -545,6 +645,26 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 		Summary:     "Reinterprets a raw pointer or integer address as `ptr[To]`. Requires `unsafe`.",
 	},
 	{
+		Name:        "syscall",
+		Signature:   "syscall(number: int, a1: int, ..., a6: int) int",
+		Params:      []string{"number: int", "a1: int", "a2: int", "a3: int", "a4: int", "a5: int", "a6: int"},
+		ReturnType:  "int",
+		Snippet:     "syscall($1)",
+		IsIntrinsic: true,
+		NeedsUnsafe: true,
+		Summary:     "Makes system call `number` with up to six integer arguments, using the target's system call instruction. Returns the result, or `-errno` on failure on every platform. Call numbers differ by OS and architecture, and macOS doesn't promise them stable. Requires `unsafe`.",
+	},
+	{
+		Name:        "ref_from_ptr",
+		Signature:   "ref_from_ptr(p: ptr[T]) ref[T]",
+		Params:      []string{"p: ptr[T]"},
+		ReturnType:  "ref[T]",
+		Snippet:     "ref_from_ptr($1)",
+		IsIntrinsic: true,
+		NeedsUnsafe: true,
+		Summary:     "The `ref[T]` for the value at `p`. std/core's `Arena` uses it to hand out references to memory it owns; the caller guarantees the memory outlives the reference. Requires `unsafe`.",
+	},
+	{
 		Name:        "ptr_addr",
 		Signature:   "ptr_addr(p: ptr[T]) u64",
 		Params:      []string{"p: ptr[T]"},
@@ -588,7 +708,8 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 
 func LookupBuiltinFunc(name string) *BuiltinFuncDoc {
 	for i := range BuiltinFunctions {
-		if BuiltinFunctions[i].Name == name {
+		n := BuiltinFunctions[i].Name
+		if n == name || n == "type."+name || n == "comp."+name {
 			return &BuiltinFunctions[i]
 		}
 	}
@@ -658,8 +779,6 @@ func BuiltinMethodsForType(recvTy types.Type, isOptChain bool) []BuiltinMethodDo
 		add(BuiltinMethodDoc{Name: "pop", RecvMode: "&self", Signature: fmt.Sprintf("(&self) ?%s", el), ReturnType: "?" + el, Snippet: "pop()", Summary: "Removes and returns the last element, or `none` if empty."})
 		add(BuiltinMethodDoc{Name: "get", RecvMode: "self", Signature: fmt.Sprintf("(self, idx: int) ?%s", el), Params: []string{"idx: int"}, ReturnType: "?" + el, Snippet: "get($1)", Summary: "Bounds-checked copy lookup returning `?T` (`none` if out of bounds)."})
 		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s) bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Returns `true` if any element equals `val`."})
-		add(BuiltinMethodDoc{Name: "remove", RecvMode: "&self", Signature: fmt.Sprintf("(&self, idx: int) %s", el), Params: []string{"idx: int"}, ReturnType: el, Snippet: "remove($1)", Summary: "Removes and returns element at `idx`, shifting subsequent elements left."})
-		add(BuiltinMethodDoc{Name: "swap_remove", RecvMode: "&self", Signature: fmt.Sprintf("(&self, idx: int) %s", el), Params: []string{"idx: int"}, ReturnType: el, Snippet: "swap_remove($1)", Summary: "O(1) removal at `idx` by swapping with the last element."})
 		add(BuiltinMethodDoc{Name: "reserve", RecvMode: "&self", Signature: "(&self, cap: int)", Params: []string{"cap: int"}, ReturnType: "void", Snippet: "reserve($1)", Summary: "Ensures capacity for at least `cap` elements without reallocating."})
 		add(BuiltinMethodDoc{Name: "clear", RecvMode: "&self", Signature: "(&self)", ReturnType: "void", Snippet: "clear()", Summary: "Drops all elements and resets length to 0 while keeping capacity."})
 		if vec.Elem.Equals(types.TypeString) {
@@ -676,15 +795,8 @@ func BuiltinMethodsForType(recvTy types.Type, isOptChain bool) []BuiltinMethodDo
 		add(BuiltinMethodDoc{Name: "contains", RecvMode: "self", Signature: fmt.Sprintf("(self, val: %s) bool", el), Params: []string{fmt.Sprintf("val: %s", el)}, ReturnType: "bool", Snippet: "contains($1)", Summary: "Returns `true` if any element equals `val`."})
 	}
 
-	// `Arena` instance methods
-	if recvTy.Equals(types.TypeArena) {
-		add(BuiltinMethodDoc{Name: "alloc", RecvMode: "&self", Signature: "(&self, val: own T) ref[T]", Params: []string{"val: own T"}, ReturnType: "ref[T]", Snippet: "alloc($1)", Summary: "Bump-allocates `val` inside the `Arena` and returns a region-checked `ref[T]`."})
-		add(BuiltinMethodDoc{Name: "reset", RecvMode: "&self", Signature: "(&self)", ReturnType: "void", Snippet: "reset()", Summary: "Rewinds the arena bump cursor to 0 without freeing backing chunks."})
-		add(BuiltinMethodDoc{Name: "bytes_used", RecvMode: "self", Signature: "(self) int", ReturnType: "int", Snippet: "bytes_used()", Summary: "Returns the total bytes currently bump-allocated across arena chunks."})
-	}
-
 	// Universal `.copy()` and `.to_string()` when supported
-	if !recvTy.Equals(types.TypeArena) {
+	if !types.IsArena(recvTy) {
 		if st, isSt := recvTy.(*types.Struct); !isSt || !st.HasCustomDrop {
 			add(BuiltinMethodDoc{
 				Name:       "copy",

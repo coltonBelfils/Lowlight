@@ -100,8 +100,8 @@ bind main = fn(): {
     let scommas = min_i64.format_commas()
     assert(scommas == "-9,223,372,036,854,775,808")
 
-    // parse_int_safe for INT64_MIN
-    let parsed? = strconv.parse_int_safe("-9223372036854775808")
+    // parse_int_radix(_, 10) for INT64_MIN
+    let parsed? = parse_int_radix("-9223372036854775808", 10)
     assert(parsed? != none)
     assert((parsed? ?? 0) == min_i64)
 }
@@ -117,24 +117,24 @@ import "std/strconv"
 
 bind main = fn(): {
     // Exact bounds
-    let max_ok? = strconv.parse_int_safe("9223372036854775807")
+    let max_ok? = parse_int_radix("9223372036854775807", 10)
     assert(max_ok? != none)
     assert((max_ok? ?? 0) == 9223372036854775807)
 
-    let min_ok? = strconv.parse_int_safe("-9223372036854775808")
+    let min_ok? = parse_int_radix("-9223372036854775808", 10)
     assert(min_ok? != none)
 
     // Overflows must return none
-    let over_pos? = strconv.parse_int_safe("9223372036854775808")
+    let over_pos? = parse_int_radix("9223372036854775808", 10)
     assert(over_pos? == none)
 
-    let over_pos2? = strconv.parse_int_safe("99999999999999999999")
+    let over_pos2? = parse_int_radix("99999999999999999999", 10)
     assert(over_pos2? == none)
 
-    let over_neg? = strconv.parse_int_safe("-9223372036854775809")
+    let over_neg? = parse_int_radix("-9223372036854775809", 10)
     assert(over_neg? == none)
 
-    let over_neg2? = strconv.parse_int_safe("-99999999999999999999")
+    let over_neg2? = parse_int_radix("-99999999999999999999", 10)
     assert(over_neg2? == none)
 }
 `
@@ -280,12 +280,10 @@ import "std/os"
 
 bind main = fn(): {
     let test_dir = "/tmp/ll_test_mkdir_p/nested/dir/level3"
-    let ok = os.mkdir_p(test_dir)
-    assert(ok)
+    os.mkdir_p(test_dir): default panic
     assert(os.file_exists(test_dir))
 
-    let rm_ok = os.remove_all("/tmp/ll_test_mkdir_p")
-    assert(rm_ok)
+    os.remove_all("/tmp/ll_test_mkdir_p"): default panic
     assert(not os.file_exists("/tmp/ll_test_mkdir_p"))
 }
 `
@@ -340,7 +338,7 @@ bind main = fn(): {
     assert(err_res!.is_err())
     let wrapped! = err_res!.wrap_err("computing quotient")
     assert(wrapped!.copy().unwrap_err().has_code("div_zero"))
-    assert(wrapped!.unwrap_or(42) == 42)
+    assert((wrapped! ?? 42) == 42)
 }
 `
 	runInlineStrict(t, "result_in_prelude", src, false)
@@ -488,11 +486,10 @@ import "std/fs"
 bind ERR_NOT_FOUND = Error.coded("not_found", "resource not found")
 
 bind step1 = fn(path: string) Result[string]: {
-    let r! = fs.read_file(path)
-    if (r!.is_err()): {
-        func <- err(r!.unwrap_err().with_code("not_found").wrap("step1 failed"))
-    }
-    r!
+    let text = fs.read_file(path):
+        when not_found(own e): func <- err(e.with_code("not_found").wrap("step1 failed"))
+        default err(own e): func <- err(e.wrap("step1 failed"))
+    value(own text)
 }
 
 bind step2 = fn(path: string) Result[int]: {
@@ -507,7 +504,6 @@ bind step2 = fn(path: string) Result[int]: {
 bind main = fn(): {
     let r! = step2("/tmp/definitely_missing_lowlight_error_test_file_12345.txt").wrap_err("top-level load")
     assert(r!.is_err())
-    assert(r!.copy().into_ok() == none)
     assert(r!.peek_err() != none)
 
     let err = r!.unwrap_err()
@@ -516,7 +512,7 @@ bind main = fn(): {
     assert(err.is(ERR_NOT_FOUND))
     assert(err.has_code("not_found"))
     assert(err.code() == "not_found")
-    assert(err.root().message().contains("failed to open file"))
+    assert(err.root().message().contains("failed to open"))
 
     let c1? = err.cause()
     assert(c1? != none)

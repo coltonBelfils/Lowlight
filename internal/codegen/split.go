@@ -200,6 +200,9 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 	usedThunks := make(map[string]bool)
 	usedLambdas := make(map[string]bool)
 	walkedInline := make(map[string]bool)
+	usedExternFuncs := make(map[*sema.ExternFunc]bool)
+	usedExternPkgs := make(map[string]bool)
+	usedInlinePkgs := make(map[string]bool)
 
 	var markType func(t types.Type)
 	var markFuncProto func(cname string)
@@ -234,6 +237,9 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 		// In C11 mode, `@inline` functions are emitted `static inline` in Phase 1 too, so walk their bodies!
 		if inlineAlwaysInline && fn.IsAlwaysInline && !walkedInline[cname] {
 			walkedInline[cname] = true
+			if fn.PkgID != "" {
+				usedInlinePkgs[fn.PkgID] = true
+			}
 			for _, loc := range fn.Locals {
 				markType(loc.Type)
 			}
@@ -345,12 +351,60 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 		}
 	}
 
+	var walkStatic func(sv *ir.StaticVal)
+	walkStatic = func(sv *ir.StaticVal) {
+		if sv == nil {
+			return
+		}
+		markType(sv.Type)
+		effTy := sv.Type
+		for {
+			if d, isDist := effTy.(*types.Distinct); isDist {
+				effTy = d.Base
+			} else {
+				break
+			}
+		}
+		if sv.Kind == sema.StaticList {
+			if vecTy, ok := effTy.(*types.Vector); ok {
+				markType(vecTy)
+			} else if st, ok := effTy.(*types.Struct); ok && len(st.TypeArgs) == 1 {
+				markType(&types.Vector{Elem: st.TypeArgs[0]})
+			}
+		}
+		for _, el := range sv.Elems {
+			walkStatic(el)
+		}
+		for _, f := range sv.Fields {
+			walkStatic(f.Value)
+		}
+		walkStatic(sv.Payload)
+		walkStatic(sv.OptElem)
+		if sv.Kind == sema.StaticFn && sv.FnEntry != "" {
+			markFuncProto(sv.FnEntry)
+			if st, ok := thunkByName[sv.FnEntry]; ok {
+				usedThunks[st.ThunkCName] = true
+				markFuncProto(st.TargetCName())
+				if li, ok := lambdaByCName[st.TargetCName()]; ok {
+					usedLambdas[li.CName] = true
+				}
+				markType(st.FuncType)
+			}
+			if li, ok := lambdaByCName[sv.FnEntry]; ok {
+				usedLambdas[li.CName] = true
+				markFuncProto(li.CName)
+			}
+		}
+	}
+
 	walkExpr = func(e ir.Expr) {
 		if e == nil {
 			return
 		}
 		markType(e.Type())
 		switch v := e.(type) {
+		case *ir.ExprConst:
+			walkStatic(v.Static)
 		case *ir.ExprLocal:
 			if v.Local != nil {
 				markType(v.Local.Type)
@@ -364,12 +418,29 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 			if v.TargetFunc != nil {
 				markFuncProto(v.TargetFunc.CName)
 			}
+			if v.ExternFunc != nil {
+				usedExternFuncs[v.ExternFunc] = true
+				if v.ExternFunc.PkgID != "" {
+					usedExternPkgs[v.ExternFunc.PkgID] = true
+				}
+			}
 			if v.Name != "" {
 				markFuncProto(v.Name)
+				if v.ExternFunc == nil && pkg != nil {
+					for _, ef := range prog.ExternFuncs {
+						if ef.Name == v.Name && (ef.PkgID == pkg.ID || ef.PkgID == "") {
+							usedExternFuncs[ef] = true
+							if ef.PkgID != "" {
+								usedExternPkgs[ef.PkgID] = true
+							}
+						}
+					}
+				}
 				if st, ok := thunkByName[v.Name]; ok {
 					usedThunks[st.ThunkCName] = true
-					if st.TargetFunc != nil {
-						markFuncProto(st.TargetFunc.CName)
+					markFuncProto(st.TargetCName())
+					if li, ok := lambdaByCName[st.TargetCName()]; ok {
+						usedLambdas[li.CName] = true
 					}
 					markType(st.FuncType)
 				}
@@ -428,8 +499,9 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 			walkExpr(v.EnvPtr)
 			if st, ok := thunkByName[v.EntryFn]; ok {
 				usedThunks[st.ThunkCName] = true
-				if st.TargetFunc != nil {
-					markFuncProto(st.TargetFunc.CName)
+				markFuncProto(st.TargetCName())
+				if li, ok := lambdaByCName[st.TargetCName()]; ok {
+					usedLambdas[li.CName] = true
 				}
 				markType(st.FuncType)
 			}
@@ -477,9 +549,6 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 		case *ir.ExprAlloc:
 			markType(v.AllocType)
 			walkExpr(v.Count)
-		case *ir.ExprArenaAlloc:
-			markType(v.AllocType)
-			walkExpr(v.Arena)
 		case *ir.ExprFree:
 			walkExpr(v.Ptr)
 		case *ir.ExprRealloc:
@@ -494,6 +563,8 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 			markType(v.QueryType)
 		case *ir.ExprAlignOf:
 			markType(v.QueryType)
+		case *ir.ExprFloatBits:
+			walkExpr(v.Val)
 		case *ir.ExprToString:
 			markType(v.ValType)
 			walkExpr(v.Val)
@@ -554,12 +625,28 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 	sub.TestFuncs = nil
 	sub.TestMode = false
 
-	// Filter extern headers to non-entry packages so entry-only extern headers don't invalidate library units.
+	// Filter extern functions to only those actually referenced by this unit.
+	if len(prog.ExternFuncs) > 0 {
+		var extFuncs []*sema.ExternFunc
+		for _, ef := range prog.ExternFuncs {
+			if usedExternFuncs[ef] {
+				extFuncs = append(extFuncs, ef)
+			}
+		}
+		sub.ExternFuncs = extFuncs
+	}
+
+	// Filter extern headers to `pkg` plus non-entry packages whose `@inline` or `extern` symbols
+	// were actually pulled into this Phase 1 unit so unrelated packages cannot pollute/invalidate it.
 	if prog.Checked != nil {
 		seenHdr := make(map[string]bool)
 		var hdrs []string
 		for _, p := range prog.Checked.Packages {
 			if p == nil || p.IsEntry {
+				continue
+			}
+			isOwnPkg := pkg != nil && p.ID == pkg.ID
+			if !isOwnPkg && !usedExternPkgs[p.ID] && !usedInlinePkgs[p.ID] {
 				continue
 			}
 			for _, m := range p.Files {

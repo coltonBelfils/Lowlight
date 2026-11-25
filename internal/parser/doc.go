@@ -63,13 +63,17 @@ func attachDocComments(file *ast.File, comments []lexer.Comment) {
 	}
 
 	// 2. Attach docs to top-level declarations and their sub-items.
-	for _, d := range file.Decls {
+	attachDeclsDocComments(file.Decls, standalone, trailingByLine, file.DocSpan)
+}
+
+func attachDeclsDocComments(decls []ast.Decl, standalone []lexer.Comment, trailingByLine map[int]lexer.Comment, moduleDocSpan diag.Span) {
+	for _, d := range decls {
 		// Do not attach module-header doc to an import or extern header.
 		switch decl := d.(type) {
 		case *ast.ImportDecl, *ast.ExternHeaderDecl:
 			continue
 		case *ast.StructDecl:
-			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), file.DocSpan)
+			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), moduleDocSpan)
 			for i := range decl.Fields {
 				f := &decl.Fields[i]
 				doc, sp := findLeadingDoc(standalone, f.Span.Start.Line, diag.Span{})
@@ -80,7 +84,7 @@ func attachDocComments(file *ast.File, comments []lexer.Comment) {
 				f.DocSpan = sp
 			}
 		case *ast.EnumDecl:
-			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), file.DocSpan)
+			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), moduleDocSpan)
 			for i := range decl.Variants {
 				v := &decl.Variants[i]
 				doc, sp := findLeadingDoc(standalone, v.Span.Start.Line, diag.Span{})
@@ -91,7 +95,7 @@ func attachDocComments(file *ast.File, comments []lexer.Comment) {
 				v.DocSpan = sp
 			}
 		case *ast.InterfaceDecl:
-			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), file.DocSpan)
+			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), moduleDocSpan)
 			for i := range decl.Methods {
 				m := &decl.Methods[i]
 				doc, sp := findLeadingDoc(standalone, m.Span.Start.Line, diag.Span{})
@@ -102,13 +106,18 @@ func attachDocComments(file *ast.File, comments []lexer.Comment) {
 				m.DocSpan = sp
 			}
 		case *ast.DistinctTypeDecl:
-			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), file.DocSpan)
+			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), moduleDocSpan)
 		case *ast.MethodDecl:
-			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), file.DocSpan)
+			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), moduleDocSpan)
 		case *ast.VarDecl:
-			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), file.DocSpan)
+			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), moduleDocSpan)
 		case *ast.ExternFnDecl:
-			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), file.DocSpan)
+			decl.Doc, decl.DocSpan = findLeadingDoc(standalone, declStartLineWithAttrs(decl), moduleDocSpan)
+		case *ast.TopComptimeIfDecl:
+			for cur := decl; cur != nil; cur = cur.ElseIf {
+				attachDeclsDocComments(cur.ThenDecls, standalone, trailingByLine, moduleDocSpan)
+				attachDeclsDocComments(cur.ElseDecls, standalone, trailingByLine, moduleDocSpan)
+			}
 		}
 	}
 }

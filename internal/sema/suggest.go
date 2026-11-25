@@ -14,8 +14,8 @@ import (
 var builtinFuncNames = []string{
 	"print", "println", "eprint", "eprintln", "panic", "assert", "exit", "abs", "min", "max", "args",
 	"caller_location", "caller_file", "caller_line", "caller_col", "parse_int", "parse_float",
-	"size_of", "align_of", "is_plain", "alloc_raw", "alloc_uninit", "realloc_raw", "free_raw",
-	"null_ptr", "is_null", "addr_of", "ptr_add", "ptr_read", "ptr_write", "ptr_cast", "ptr_addr",
+	"alloc_raw", "alloc_uninit", "realloc_raw", "free_raw",
+	"null_ptr", "is_null", "addr_of", "ptr_add", "ptr_read", "ptr_write", "ptr_cast", "ptr_addr", "ref_from_ptr", "fn_from_ptr", "syscall",
 	"copy_bytes", "zero_bytes", "fill_bytes",
 }
 
@@ -99,8 +99,18 @@ func (fc *funcChecker) visibleNames() []string {
 }
 
 // unknownNameHint explains an unknown identifier: a declared `name?` / `name!` spelled without
-// its suffix, or a likely typo.
+// its suffix, common cross-language keywords (`null`, `return`, `break`, `continue`), or a likely typo.
 func (fc *funcChecker) unknownNameHint(name string) (string, []string) {
+	switch name {
+	case "null", "nil":
+		return "Lowlight uses `none` for absent optional values", []string{"none"}
+	case "return":
+		return "use `func <- value` for an early return, or end the block with the value", nil
+	case "break":
+		return "use `for <-` or `while <-` (or `<label> <-`) to break out of a loop", nil
+	case "continue":
+		return "use `next <-` (or `next <label> <-`) to skip to the next iteration", nil
+	}
 	if sym := fc.lookupVar(name + "?"); sym != nil {
 		return fmt.Sprintf("the variable is named `%s?` (it is optional); unwrap it with `if (%s?)`, `%s? ?? fallback`, or use `%s?` itself", name, name, name, name), []string{name + "?"}
 	}
@@ -116,6 +126,59 @@ func (fc *funcChecker) unknownNameHint(name string) (string, []string) {
 		return fmt.Sprintf("did you mean `%s`?", strings.Join(c, "` or `")), c
 	}
 	return "", nil
+}
+
+// moduleExportNames lists the visible symbols, functions, and types of `targetMod`.
+func (a *Analyzer) moduleExportNames(curMod, targetMod *Module, funcsAndTypesOnly bool) []string {
+	if targetMod == nil {
+		return nil
+	}
+	samePkg := a.SamePackage(curMod, targetMod)
+	var out []string
+	for n, sym := range targetMod.Symbols {
+		if !samePkg && !IsExported(n) {
+			continue
+		}
+		if funcsAndTypesOnly && sym.FuncInst == nil && sym.ExternFn == nil {
+			continue
+		}
+		out = append(out, n)
+	}
+	for n := range targetMod.GenericFuncs {
+		if samePkg || IsExported(n) {
+			out = append(out, n)
+		}
+	}
+	for n := range targetMod.Types {
+		if samePkg || IsExported(n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// enumMemberNames lists the visible variants (and optionally static methods) of `en`.
+func (a *Analyzer) enumMemberNames(curMod *Module, en *types.Enum, includeMethods bool) []string {
+	if en == nil {
+		return nil
+	}
+	samePkg := a.SamePackageDir(curMod, en.PkgDir, "") || a.SamePackage(curMod, a.typeModule(en))
+	var out []string
+	for _, ev := range en.Variants {
+		if samePkg || IsExported(ev.Name) {
+			out = append(out, ev.Name)
+		}
+	}
+	if includeMethods {
+		if mset, ok := a.methods[TypeMethodKey(en)]; ok {
+			for n, fi := range mset {
+				if (samePkg || IsExported(n)) && (fi == nil || fi.IsStaticAssoc) {
+					out = append(out, n)
+				}
+			}
+		}
+	}
+	return out
 }
 
 // builtinMethodNames are methods the checker implements directly on strings and collections.

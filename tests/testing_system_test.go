@@ -821,7 +821,7 @@ func TestAssertionApproxEqAndStringMatchFailureDiagnostics(t *testing.T) {
 		{
 			name:     "assert_ok_eq_when_err",
 			callLine: `    test.assert_ok_eq(Result[int].fail_msg("bad parse"), 42)`,
-			want:     []string{"test_file.ll:5:5:", "expected Result to be Ok, but got Err", "bad parse"},
+			want:     []string{"test_file.ll:5:5:", "expected a value, but the Result holds a failure", "bad parse"},
 		},
 		{
 			name:     "assert_ok_eq_when_value_mismatch",
@@ -831,7 +831,7 @@ func TestAssertionApproxEqAndStringMatchFailureDiagnostics(t *testing.T) {
 		{
 			name:     "assert_ok_gt_when_err",
 			callLine: `    test.assert_ok_gt(Result[int].fail_msg("too small"), 10)`,
-			want:     []string{"test_file.ll:5:5:", "expected Result to be Ok, but got Err", "too small"},
+			want:     []string{"test_file.ll:5:5:", "expected a value, but the Result holds a failure", "too small"},
 		},
 		{
 			name:     "assert_ok_gt_when_value_fails",
@@ -846,7 +846,7 @@ func TestAssertionApproxEqAndStringMatchFailureDiagnostics(t *testing.T) {
 		{
 			name:     "assert_err_contains_when_ok",
 			callLine: `    test.assert_err_contains(Result[int].value(1), "boom")`,
-			want:     []string{"test_file.ll:5:5:", "expected Result to be Err, but got Ok"},
+			want:     []string{"test_file.ll:5:5:", "expected a failure, but the Result holds a value"},
 		},
 	}
 
@@ -916,7 +916,7 @@ func TestBatchAssertionsReportAllFailuresAndCallerLocation(t *testing.T) {
 				"test_file.ll:5:5:",
 				"parse batch: 2 of 3 case(s) failed (1 passed)",
 				"case [0]:",
-				"expected Result to be Ok, but got Err",
+				"expected a value, but the Result holds a failure",
 				"boom",
 				"case [2]:",
 				"expected: 30",
@@ -955,7 +955,7 @@ func TestBatchAssertionsReportAllFailuresAndCallerLocation(t *testing.T) {
 			want: []string{
 				"test_file.ll:5:5:",
 				"parse batch: 2 of 3 case(s) failed (1 passed)\n\n    ✗ case [0] (bad err):",
-				"      expected Result to be Ok, but got Err\n        error: boom\n        trace:\n          at ",
+				"      expected a value, but the Result holds a failure\n        error: boom\n        trace:\n          at ",
 				"\n\n    ✗ case [2] (wrong val):\n      values are not equal\n        expected: 30\n             got: 99",
 			},
 			notWant: []string{

@@ -6,6 +6,76 @@
 import "std/strconv"
 import "std/strfmt"
 
+comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
+	extern clock_gettime as _time_clock_gettime: fn(clk_id: i32, ts: ptr[u8]) i32
+	extern nanosleep as _time_nanosleep: fn(req: ptr[u8], rem: ptr[u8]) i32
+	extern localtime_r as _time_localtime_r: fn(t: ptr[int], tm: ptr[u8]) ptr[u8]
+} else comptime if(comp.TARGET.os == comp.TargetOs.linux): {
+	extern localtime_r as _time_localtime_r: fn(t: ptr[int], tm: ptr[u8]) ptr[u8]
+}
+
+bind _clock_nanos = fn(linux_clk: int, darwin_clk: int) int: {
+	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
+		let sys_clock_gettime = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 113 else: 228
+		unsafe {
+			let ts = alloc_raw[int](2)
+			ptr_write(ts, 0)
+			ptr_write(ptr_add(ts, 1), 0)
+			let _ = syscall(sys_clock_gettime, linux_clk, int(ptr_addr(ts)), 0, 0, 0, 0)
+			let ns = ptr_read(ts) * 1000000000 + ptr_read(ptr_add(ts, 1))
+			free_raw(ts)
+			ns
+		}
+	} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
+		unsafe {
+			let ts = alloc_raw[int](2)
+			ptr_write(ts, 0)
+			ptr_write(ptr_add(ts, 1), 0)
+			let _ = _time_clock_gettime(i32(darwin_clk), ptr_cast[u8](ts))
+			let ns = ptr_read(ts) * 1000000000 + ptr_read(ptr_add(ts, 1))
+			free_raw(ts)
+			ns
+		}
+	} else: {
+		let _ = linux_clk + darwin_clk
+		0
+	}
+}
+
+bind _monotonic_nanos = fn() int: _clock_nanos(1, 6)
+
+bind _epoch_nanos_now = fn() int: _clock_nanos(0, 0)
+
+define _LocalTzInfo struct [
+	offset: int,
+	name: string,
+]
+
+bind _query_local_tz = fn(epoch_sec: int) _LocalTzInfo: {
+	comptime if(comp.TARGET.os == comp.TargetOs.darwin or comp.TARGET.os == comp.TargetOs.linux): {
+		unsafe {
+			let sec_slot = alloc_raw[int](1)
+			ptr_write(sec_slot, epoch_sec)
+			let tm_buf = alloc_raw[u8](64)
+			fill_bytes(tm_buf, u8(0), 64)
+			let tm_p = _time_localtime_r(sec_slot, tm_buf)
+			let off = 0
+			let zone = ""
+			if(not is_null(tm_p)): {
+				off = ptr_read(ptr_cast[int](ptr_add(tm_buf, 40)))
+				let z_cstr = ptr_read(ptr_cast[ptr[u8]](ptr_add(tm_buf, 48)))
+				zone = str_from_cstr(z_cstr)
+			}
+			free_raw(tm_buf)
+			free_raw(sec_slot)
+			_LocalTzInfo[offset: off, name: own zone]
+		}
+	} else: {
+		let _ = epoch_sec
+		_LocalTzInfo[offset: 0, name: ""]
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Duration & Instant
 // -----------------------------------------------------------------------------
@@ -68,11 +138,11 @@ define Instant struct [
 ]
 
 // Captures the current monotonic timestamp via the OS clock.
-bind Instant.now = fn() Instant: Instant[nanos: unsafe sys_monotonic_nanos()]
+bind Instant.now = fn() Instant: Instant[nanos: _monotonic_nanos()]
 
 // Returns the [`Duration`] elapsed between `self` and the current monotonic instant.
 bind Instant.elapsed = fn(self) Duration: {
-	let now = unsafe sys_monotonic_nanos()
+	let now = _monotonic_nanos()
 	Duration[nanos: now - self.nanos]
 }
 
@@ -89,13 +159,46 @@ bind Instant.elapsed_nanos = fn(self) int: {
 }
 
 // Returns the raw current monotonic clock value in nanoseconds.
-bind now_nanos = fn() int: unsafe sys_monotonic_nanos()
+bind now_nanos = fn() int: _monotonic_nanos()
 
 // Returns the current monotonic clock value in floating-point milliseconds.
-bind now_millis = fn() float: float(unsafe sys_monotonic_nanos()) / 1000000.0
+bind now_millis = fn() float: float(_monotonic_nanos()) / 1000000.0
 
 // Suspends execution of the calling thread for at least `ms` milliseconds.
-bind sleep_ms = fn(ms: int): unsafe sys_sleep_ms(ms)
+bind sleep_ms = fn(ms: int): {
+	if(ms <= 0): func <-
+	let sec = ms / 1000
+	let nsec = (ms % 1000) * 1000000
+	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
+		let sys_nanosleep = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 101 else: 35
+		unsafe {
+			let req = alloc_raw[int](2)
+			let rem = alloc_raw[int](2)
+			ptr_write(req, sec)
+			ptr_write(ptr_add(req, 1), nsec)
+			for(true): {
+				ptr_write(rem, 0)
+				ptr_write(ptr_add(rem, 1), 0)
+				let rc = syscall(sys_nanosleep, int(ptr_addr(req)), int(ptr_addr(rem)), 0, 0, 0, 0)
+				if(rc != -4): for <-
+				ptr_write(req, ptr_read(rem))
+				ptr_write(ptr_add(req, 1), ptr_read(ptr_add(rem, 1)))
+			}
+			free_raw(rem)
+			free_raw(req)
+		}
+	} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
+		unsafe {
+			let req = alloc_raw[int](2)
+			ptr_write(req, sec)
+			ptr_write(ptr_add(req, 1), nsec)
+			let _ = _time_nanosleep(ptr_cast[u8](req), null_ptr[u8]())
+			free_raw(req)
+		}
+	} else: {
+		let _ = sec + nsec
+	}
+}
 
 // Returns the three-letter English month abbreviation for `1..=12` (or `""` if out of range).
 bind month_abbr = fn(m: int) string:
@@ -225,15 +328,16 @@ bind _floor_div = fn(n: int, d: int) int: {
 
 bind _build_datetime_from_epoch = fn(epoch_sec: int, nano: int, is_local: bool) DateTime: {
 	if(not is_local): func <- _build_datetime(epoch_sec, nano, 0, "UTC", false)
-	let off = unsafe sys_local_tz_offset(epoch_sec)
-	_build_datetime(epoch_sec, nano, off, _local_zone_name(epoch_sec, off), true)
+	let info = _query_local_tz(epoch_sec)
+	let zname = if(info.name.len() > 0): info.name.copy() else: format_tz_offset(info.offset, false)
+	_build_datetime(epoch_sec, nano, info.offset, own zname, true)
 }
 
 // Returns the host timezone abbreviation (e.g. `"PST"`) at `epoch_sec`, falling back to the
 // numeric offset (`"+0530"`) when the platform provides no name.
 bind _local_zone_name = fn(epoch_sec: int, off: int) string: {
-	let name = str_from_cstr(unsafe sys_local_tz_name(epoch_sec))
-	if(name.len() > 0): name else: format_tz_offset(off, false)
+	let info = _query_local_tz(epoch_sec)
+	if(info.name.len() > 0): info.name.copy() else: format_tz_offset(off, false)
 }
 
 // Builds a [`DateTime`] for `epoch_sec` (+ `nano`) viewed at a fixed UTC offset `off` with zone label `zone`.
@@ -279,7 +383,7 @@ bind _build_datetime = fn(epoch_sec: int, nano: int, off: int, zone: own string,
 
 // Returns the current UTC [`DateTime`] read from the host OS real-time clock.
 bind DateTime.now_utc = fn() DateTime: {
-	let now_nanos = unsafe sys_epoch_nanos_now()
+	let now_nanos = _epoch_nanos_now()
 	let sec = now_nanos / 1000000000
 	let nano = now_nanos % 1000000000
 	_build_datetime_from_epoch(sec, nano, false)
@@ -287,7 +391,7 @@ bind DateTime.now_utc = fn() DateTime: {
 
 // Returns the current local [`DateTime`] adjusted by the host system timezone offset.
 bind DateTime.now_local = fn() DateTime: {
-	let now_nanos = unsafe sys_epoch_nanos_now()
+	let now_nanos = _epoch_nanos_now()
 	let sec = now_nanos / 1000000000
 	let nano = now_nanos % 1000000000
 	_build_datetime_from_epoch(sec, nano, true)
@@ -359,7 +463,7 @@ bind DateTime.new = fn(
 	let err? = _civil_error(year, month, day, hour, minute, second)
 	if(err? as msg): func <- err(Error.coded("invalid_datetime", msg))
 	let utc_sec = _days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second
-	let off = if(is_local): unsafe sys_local_tz_offset(utc_sec) else: 0
+	let off = if(is_local): _query_local_tz(utc_sec).offset else: 0
 	let sec = utc_sec - off
 	value(_build_datetime_from_epoch(sec, 0, is_local))
 }

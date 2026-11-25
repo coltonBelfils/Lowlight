@@ -208,7 +208,7 @@ bind main = fn(): {
 - A result type has one success member, `value`, plus failure cases.
 - Where a result is expected you name the member directly: `value(x)`, `missing(k)`, `forbidden`.
 - `expr:` followed by `when` arms is a **result chain**. It evaluates to the success value, and each arm handles a failure by producing a value or leaving with an unwind. `default panic` ends a chain when the remaining failures should never happen.
-- The standard `Result[T]` (`value: T` or `err: Error`) is used throughout the standard library.
+- The standard `Result[T]` (`value: T` or `err: Error`) is used throughout the standard library, and `Status` (`value` or `err: Error`) for operations that produce nothing.
 
 Unrecoverable bugs, such as an index out of bounds or a failed `assert`, **panic**: the program stops with a message. Panics can't be caught.
 
@@ -311,8 +311,8 @@ Tables for looking things up. Each row links to its full definition.
 
 | Form | Example | Reference |
 |---|---|---|
-| Constant or function | `bind limit = 100` · `bind add = fn(a: int, b: int) int: a + b` | [§4.2](#42-bind-and-let), [§4.3](#43-functions) |
-| Mutable variable (inside functions only) | `let total = 0` | [§4.2](#42-bind-and-let) |
+| Constant or function | `bind limit = 100` · `bind add = fn(a: int, b: int) int: a + b` | [§4.2](#42-bind-const-and-let), [§4.3](#43-functions) |
+| Mutable variable (inside functions only) | `let total = 0` | [§4.2](#42-bind-const-and-let) |
 | Method | `bind Point.norm = fn(self) float: ...` | [§4.4](#44-methods-and-associated-functions) |
 | Associated function | `bind Point.origin = fn() Point: Point[x: 0.0, y: 0.0]` | [§4.4](#44-methods-and-associated-functions) |
 | Struct | `define Point struct [x: float, y: float]` | [§3.7](#37-structs) |
@@ -323,7 +323,7 @@ Tables for looking things up. Each row links to its full definition.
 | Generic | `define Stack[T] struct [items: [T]]` · `bind first[T] = fn(xs: [T]) ?T: xs.get(0)` | [§8](#8-generics) |
 | Import | `import "std/fs"` · `import "std/math" as m` | [§4.6](#46-packages-and-imports) |
 | Foreign function | `extern "stdio.h"` · `extern puts: (s: ptr[u8]) i32` | [§10.4](#104-foreign-functions) |
-| Tuple unpacking | `let x, y = unpack +[1, 2]` | [§4.2](#42-bind-and-let) |
+| Tuple unpacking | `let x, y = unpack +[1, 2]` | [§4.2](#42-bind-const-and-let) |
 
 ## Types
 
@@ -342,6 +342,7 @@ Tables for looking things up. Each row links to its full definition.
 | `Range[T]` | `lo..hi`, `lo..=hi` | plain | [§3.6](#36-collections) |
 | `fn(A, B) R` · `fn(A)` | Function returning `R` · returning nothing | plain | [§3.12](#312-functions-and-closures) |
 | `cl(A, B) R` · `cl(A)` | Closure returning `R` · returning nothing | resource | [§3.12](#312-functions-and-closures) |
+| `extern fn(A, B) R` | C function pointer | plain | [§10.5](#105-c-function-pointers) |
 | `Arena` · `ref[T]` | Region allocator · reference into it | resource · plain | [§3.13](#313-arenas) |
 | `ptr[T]` | Raw pointer | plain | [§3.14](#314-raw-pointers) |
 | `void` · `never` | No value (return types only) · does not return | | [§3.15](#315-void-and-never) |
@@ -444,6 +445,8 @@ Moving an existing resource variable always needs `own`: `let b = own a`, `[own 
 | `@inline` · `@noinline` | function | inlining hint |
 | `@packed` (or `define packed T struct`) | struct | no padding between fields |
 | `@derive(Equatable, ...)` | struct, enum | writes the interfaces' methods ([§12.2](#122-deriving-methods)) |
+| `@comptime_only` | `const` decl, type | available only at compile time (never emitted or callable at runtime) |
+| `@comptime_limit(steps: N, memory: M)` | `const` decl | override the default compile-time step (`1_000_000`) and memory (`64 MB`) budgets (single integer `@comptime_limit(N)` sets steps) |
 | `@lang("name")` | prelude declaration | binds a language hook (prelude only) |
 
 See [§4.8](#48-attributes).
@@ -462,13 +465,15 @@ Always in scope; no import needed. Full list in [§12.3](#123-universe-functions
 | `parse_int(s)` · `parse_float(s)` | `?int` · `?float` |
 | `abs(x)` · `min(a, b)` · `max(a, b)` | Numeric helpers |
 | `caller_location()` · `caller_file()` · `caller_line()` · `caller_col()` | Source location of the caller |
-| `size_of[T]()` · `align_of[T]()` · `is_plain[T]()` | Layout queries |
+| `type.size_of[T]()` · `type.align_of[T]()` · `type.is_plain[T]()` | `const` type layout queries (usable in both `const` and runtime code) |
+| `comp.compile_error(msg)` · `comp.log(val)` | `@comptime_only` diagnostics emitted during compile-time evaluation |
+| `comp.embed_str(path)` · `comp.embed_bytes(path)` | `@comptime_only` package-confined file embedding (`string` / `[u8]`, static `.rodata`) |
 
 ## Standard library packages
 
 | Package | Provides |
 |---|---|
-| `std/core` | The prelude: interfaces, collections, `Result`, `Error` (always imported) ([§12](#12-the-prelude)) |
+| `std/core` | The prelude: interfaces, collections, `Result`, `Status`, `Error` (always imported) ([§12](#12-the-prelude)) |
 | `std/chars` | Character classification and conversion |
 | `std/strings` | String searching, splitting, joining, padding |
 | `std/strconv` | Parsing and formatting numbers and booleans |
@@ -482,6 +487,7 @@ Always in scope; no import needed. Full list in [§12.3](#123-universe-functions
 | `std/net` | TCP sockets |
 | `std/http` | HTTP client, server, and routing |
 | `std/pool` | Handle-based object pools |
+| `std/collections` | Deques, queues, bit sets, priority queues, string interning, ordered maps |
 | `std/test` | Rich test assertions |
 
 See [§13](#13-the-standard-library).
@@ -778,7 +784,7 @@ An array can be passed where a read-only `[T]` is expected.
 
 **Maps** `#[K: V]` (`Map[K, V]`): hash maps that iterate in insertion order; `K` must be `Hashable`. Literal `#["a": 1, "b": 2]`; `#[]` needs a type from context. `m[k]` means `m.get(k)` and yields `?V`. `m[k] = v` means `m.insert(k, v)`. Iterating a map yields `MapEntry[K, V]` values (fields `key` and `value`), or two variables with `for(k, v in m)`.
 
-**Tuples** `+[A, B, ...]`: fixed groups of two or more values of any types, stored inline. Literal `+[1, "a"]`. Elements are accessed by position, `t.0` and `t.1`; `t[0]` is not allowed. Unpack with `let a, b = unpack t` ([§4.2](#42-bind-and-let)). A tuple is plain if all its elements are, and is `Printable` (as `+[1, a]`), equatable, and `Hashable` when all its elements are.
+**Tuples** `+[A, B, ...]`: fixed groups of two or more values of any types, stored inline. Literal `+[1, "a"]`. Elements are accessed by position, `t.0` and `t.1`; `t[0]` is not allowed. Unpack with `let a, b = unpack t` ([§4.2](#42-bind-const-and-let)). A tuple is plain if all its elements are, and is `Printable` (as `+[1, a]`), equatable, and `Hashable` when all its elements are.
 
 **Ranges** `Range[T]`: `lo..hi` (excludes `hi`) and `lo..=hi` (includes `hi`) over integer types, integer-based distinct types, and `char`. Float ranges are rejected. A range is a plain value: it can be stored, passed, iterated, and used in `when in` patterns. Methods: `contains`, `is_empty`, `len`, `iter`, `to_string`.
 
@@ -867,12 +873,14 @@ bind main = fn(): {
 
 **Rules.**
 
-1. A result declaration has exactly one member named `value`, which must declare its type (the success payload), and at least one other variant (the failures). Failures are unit or single-payload variants.
+1. A result declaration has exactly one member named `value` and at least one other variant (the failures). `value: T` declares the success payload; a bare `value` declares a **unit result**, for an operation that produces nothing when it succeeds. Failures are unit or single-payload variants.
 2. A result is constructed like an enum (`Lookup.value(x)`, `Lookup.missing(k)`, `Lookup.forbidden`) or, wherever a result type is expected, by its **bare member name**: `value(x)`, `missing(k)`, `forbidden`. "Expected" means the function's return value, the value of `func <-`, an annotated variable, an argument, or an `if`/`match` branch that produces the result. If a bare name also names a variable or function in scope, it is ambiguous and must be qualified.
 3. There is no implicit conversion into a result. A `T` or a failure payload is never wrapped automatically; every result value names its member.
 4. Names holding a result end in `!` ([§2.5](#25-identifiers)).
 5. Only result types support result chains ([§6.6](#66-result-chains)), `??` ([§5.8](#58-optional-chaining-and-fallback)), and `if(r! as v)` ([§6.2](#62-if)). They may also be inspected with an ordinary `match` on `Name.value(v)` and the failure variants.
-6. **`Result[T]`** is the prelude's general-purpose result, `define Result[T] result [value: T, err: Error]`, marked `@must_use`. Nothing about it is special; it is an ordinary result declaration ([§12.7](#127-result-and-error)).
+6. **Unit results.** A unit result's success is constructed with the bare name `value` (no parentheses). It has no value to produce, so a chain on it is a statement ([§6.6](#66-result-chains)), and `??` and `if(r! as v)` don't apply to it.
+7. **`Result[T]`** is the prelude's general-purpose result, `define Result[T] result [value: T, err: Error]`, and **`Status`** its unit counterpart, `define Status result [value, err: Error]`. Both are marked `@must_use`. Nothing about them is special; they are ordinary result declarations ([§12.7](#127-result-and-error)).
+8. **Separate failures callers act on.** A function whose callers may need to handle one failure differently from the rest (a missing file when removing it, the end of input versus a read error) declares a result with that failure as its own member, rather than folding it into `err`. Such a failure carries an `Error` like `err` does, so no message, cause, or trace is lost (`not_found: Error`). Failures callers handle alike stay together in `err`. See `CONVENTIONS.md`.
 
 `result` is a contextual word; `let result = 1` is fine.
 
@@ -921,7 +929,7 @@ The prelude's interfaces, which give meaning to operators and loops, are listed 
 
 ### 3.12 Functions and closures
 
-There are two kinds of function value:
+There are two kinds of function value, plus the C function pointer `extern fn` for foreign code ([§10.5](#105-c-function-pointers)):
 
 - **`fn`**: a function that captures nothing. Its type is `fn(ParamTypes) ReturnType`, or `fn(ParamTypes)` for no result. An `fn` value is a code pointer: it is plain and copies freely. Top-level functions, methods, and function literals written `fn(...)` have `fn` types.
 - **`cl`**: a closure. Its type is `cl(ParamTypes) ReturnType`. A closure owns the variables it captures, so it is a resource: it moves, and `.copy()` duplicates it with its captures.
@@ -954,7 +962,9 @@ bind main = fn(): {
 
 An `Arena` is a region allocator: `arena.alloc(value)` moves `value` into the arena and returns a `ref[T]`, a plain reference that is valid as long as the arena is. Dropping the arena (or `arena.reset()`) frees everything in it at once, running any `Drop` implementations in reverse order of allocation.
 
-The compiler guarantees that no `ref[T]` outlives its arena ([§7.6](#76-arenas-and-references)). `Arena.new()` creates one. `arena.bytes_used()` reports usage.
+The compiler guarantees that no `ref[T]` outlives its arena ([§7.6](#76-arenas-and-references)). `Arena.new()` creates one, and `Arena.with_capacity(bytes)` one whose first chunk holds `bytes`. `arena.bytes_used()` reports the bytes handed out since the last reset, including alignment padding.
+
+`Arena` is an ordinary prelude struct written in Lowlight (`std/core/arena.ll`): a bump allocator over chunks that double in size, which records a drop function for each allocated value that isn't plain. `reset` keeps the largest chunk for reuse. Only the lifetime rules of [§7.6](#76-arenas-and-references) are in the compiler; they apply to the struct marked `@lang("arena")`.
 
 ### 3.14 Raw pointers
 
@@ -999,29 +1009,36 @@ A source file contains, in any order:
 
 | Declaration | Form |
 |---|---|
-| Constant or function | `bind NAME = expr` · `bind name = fn(params) Ret: body` |
-| Method or associated function | `bind Type.name = fn(self, params) Ret: body` |
+| Constant or function | `const NAME = expr` · `bind NAME = expr` · `(const \| bind) name = fn(params) Ret: body` |
+| Method or associated function | `(const \| bind) Type.name = fn(self, params) Ret: body` |
 | Type | `define Name struct [...]`, `enum [...]`, `result [...]`, `interface [...]`, or `define Name BaseType` |
 | Import | `import "path"` · `import "path" as alias` |
 | Foreign function or header | `extern name: fn(params) Ret` · `extern "header.h"` |
 
 Any of these may be preceded by attributes ([§4.8](#48-attributes)) and documentation comments ([§2.2](#22-whitespace-and-comments)). Declarations are **order-independent**: a declaration may refer to any other declaration in its package or in an imported package, wherever it appears. Two top-level declarations of the same name in one package are an error. `let` is not allowed at top level.
 
-### 4.2 Bind and let
+### 4.2 Bind, const, and let
 
 ```ebnf
-VarDecl = ( "let" | "bind" ) Name [ ":" Type ] "=" Expr
-        | ( "let" | "bind" ) Target { "," Target } "=" "unpack" Expr ;
+VarDecl = ( "let" | "bind" | "const" ) Name [ ":" Type ] "=" Expr
+        | ( "let" | "bind" | "const" ) Target { "," Target } "=" "unpack" Expr ;
 Target  = ( Name | "_" ) [ ":" Type ] ;
 ```
 
 - `let` declares a **mutable** variable: it may be reassigned, mutated through its methods, and passed as `&`. It is allowed only inside function bodies.
-- `bind` declares an **immutable** binding: it may not be reassigned, mutated, or passed as `&`, and neither may anything reachable through it. Top-level `bind`s are constants or functions.
+- `bind` declares a **runtime immutable** binding: it may not be reassigned, mutated, or passed as `&`, and neither may anything reachable through it. Top-level `bind`s are runtime-initialized constants or functions.
+- `const` declares a **compile-time constant or compile-time-capable function**:
+  - A `const` variable/constant is evaluated at compile time during semantic checking (inside a bounded interpreter: default `1_000_000` steps, max call depth `1024`, max heap budget `64 MB`, configurable per declaration with `@comptime_limit(steps: N, memory: M)` or `@comptime_limit(N)`). A local `const` inside a function may reference outer `const`s, compile-time locals in the same `comptime` context, and `const` functions, and fails with an error if it depends on a runtime local.
+  - A `const` function or method may be called in **both** compile-time contexts (`const` initializers, `comptime` blocks/expressions, other `const` functions) and runtime `bind` code. Calling host I/O (`print`, `println`, `read_line`), `args()`, `exit()`, `extern` C functions, or user `unsafe` blocks inside a `const` function is an error. (Built-in `std/` `unsafe` pointer/memory intrinsics run on the compiler's bounds- and lifetime-checked simulated heap.)
+  - **Conditional generics & `@derive`.** Generic `const` functions/methods (`const Box[T].show = ...`) and `@derive(...)` methods are **conditionally `const`**: an instantiation `Box[Point].show` is compile-time callable when every operation it invokes on its type arguments is `const`; otherwise that specific instantiation becomes runtime-only without breaking compilation. Calling a downgraded instantiation in a `const`/`comptime` context fails with the diagnostic chain to the underlying non-`const` dependency.
+  - Inline **`comptime expr` / `comptime { ... }`**: forces evaluation of `expr` or the block at compile time and splices the validated result into runtime code. A `comptime` value that crosses into runtime must satisfy **crossing rules**: Plain values, `string`, `Range`, `[T]`, tuples/structs/enums built from crossable fields (without custom `Drop`), `none` optionals, and non-closure `const` `fn` pointers may cross; `Map`, `Set`, `Arena`, `ref[T]`, `ptr[T]`, `cl` closures, `@comptime_only` functions, and `@comptime_only` types cannot cross and must either stay in `@comptime_only` helpers or be projected into crossable values (`List`, arrays, tuples, plain structs). Static `[T]` and `string` values backed into `.rodata` are immutable read-only slices (`cap == 0`) with copy-on-write behavior on safe `List`/`string` mutation APIs.
+  - **Target introspection & top-level `comptime if` pruning.** `comp.TARGET` is an `@comptime_only` constant of type `comp.Target` (with enums `comp.TargetOs`, `comp.TargetArch`, `comp.Endian` and fields `os`, `arch`, `endian`, `is_unix`, `ptr_size`, `ptr_bits`, `triple`) describing the active `--target`. Top-level `comptime if(cond): { ... }` evaluates `cond` before type/signature resolution and keeps only declarations from the selected branch (`import` is forbidden in any top-level `comptime if` branch so package dependencies stay target-independent). Untaken target branches can be checked across all canonical targets with `lowlight check --all-targets`, and expanded source can be inspected with `lowlight expand`.
+  - **Compile-time file embedding.** `comp.embed_str(path)` (`string`, UTF-8 validated) and `comp.embed_bytes(path)` (`[u8]`) are `@comptime_only` built-ins that read static asset files at compile time and embed them in `.rodata` (`cap == 0`). Paths resolve relative to the declaring `.ll` file and are strictly confined to the declaring package/project root sandbox (rejecting empty paths, NUL bytes, absolute paths, `..`/backslash traversal escapes, symlinks escaping the sandbox, non-regular files, directories, and third-party dependency access outside that dependency's own package directory).
 - The type annotation is optional when it can be inferred. It is required when the value alone does not determine a type (`let xs: [int] = []`, `let x?: ?int = none`).
 - **Unpacking** splits a tuple, or a distinct type over a tuple, into separate bindings: `let x, y = unpack +[1, 2]`. `_` discards an element. The number of targets must equal the tuple's length. Assignment can unpack too: `a, b = unpack +[b, a]`.
 - A local binding may shadow an outer one in an inner block.
 
-**Top-level constants** are evaluated before `main` runs, in dependency order. A cycle between constants is an error. Resource-valued constants are released at program exit in reverse order of initialization.
+**Top-level constants** (`bind`) are evaluated before `main` runs, in dependency order; top-level `const` bindings are evaluated at compile time and require acyclic compile-time dependencies. Resource-valued `bind` constants are released at program exit in reverse order of initialization.
 
 ### 4.3 Functions
 
@@ -1172,6 +1189,8 @@ An attribute is `@name` or `@name(args)` written before a declaration (or a stru
 | `@inline`, `@noinline` | function, method | request or forbid inlining; no semantic effect |
 | `@packed` | struct | lay fields out without padding (same as `define packed`) |
 | `@derive(I, ...)` | struct, enum | generate the methods of `Equatable`, `Comparable`, `Hashable`, `Copyable`, or `Printable` ([§12.2](#122-deriving-methods)) |
+| `@comptime_only` | `const` decl, type | restrict a `const` function/constant or type (`struct`, `enum`, `interface`, distinct) strictly to compile time; rejected in runtime code, runtime signatures, and non-`@comptime_only` crossing values |
+| `@comptime_limit(steps: N, memory: M)` | `const` decl | set the compile-time step and/or memory byte budget for evaluating that `const` function or constant (defaults: `1_000_000` steps, `64 MB` heap; `@comptime_limit(N)` sets steps) |
 | `@lang("hook")` | prelude declaration | binds a declaration to a language feature ([§12.1](#121-core-interfaces)); reserved for `std/core` |
 
 An attribute on a kind of declaration it does not apply to is an error.
@@ -1235,6 +1254,7 @@ There is no cast operator. `as` is used only in imports, `extern` aliases, and `
 | `+[a, b]` | a tuple |
 | `lo..hi`, `lo..=hi` | a range |
 | `fn(params) Ret: body` · `cl(params) Ret: body` | a function or closure value ([§3.12](#312-functions-and-closures)) |
+| `extern fn(params) Ret: body` | a function C can call ([§10.5](#105-c-function-pointers)) |
 | `cl(f)` | a function converted to a closure ([§3.12](#312-functions-and-closures)) |
 | `Iface(value)` | an interface box ([§3.11](#311-interfaces)) |
 | `T(x)` for a primitive or distinct `T` | a conversion ([§5.10](#510-conversions)) |
@@ -1288,7 +1308,7 @@ In generic code, `==` needs the bound `T: Equatable` and `<` needs `T: Comparabl
 | `m[k]` | map `#[K: V]` | `?V` (same as `m.get(k)`); assignment `m[k] = v` inserts or replaces |
 | `c[i]` | a type implementing `Indexable[T]` | `?T`, via `c.get(i)` |
 | `c[k]` | a type implementing `KeyIndexable[K, V]` | `?V`, via `c.get(k)` |
-| `p[i]` | `ptr[T]` (in `unsafe`) | the element at `p + i * size_of[T]()`, unchecked |
+| `p[i]` | `ptr[T]` (in `unsafe`) | the element at `p + i * type.size_of[T]()`, unchecked |
 | `xs[lo..hi]`, `xs[lo..=hi]` | list, array, string | the elements from `lo` up to `hi`; **traps** unless `0 <= lo <= hi <= len` |
 | `xs[..hi]`, `xs[lo..]` | list, array, string | a missing bound is `0` or `len` |
 
@@ -1325,7 +1345,7 @@ A method called through `?.` must take `self`; `&self` and `own self` methods ca
 - `v.method(args)` calls a method ([§4.4](#44-methods-and-associated-functions)); a `&self` receiver is borrowed automatically.
 - `f(args)` calls a function or function value. Arguments are evaluated left to right.
 - An argument for a `&T` parameter must be written `&place`; one for an `own T` parameter that moves an existing variable must be written `own place` ([§7.3](#73-parameter-modes)).
-- Explicit type arguments go before the argument list: `size_of[int]()`, `parse[Config](text)`. They are usually inferred.
+- Explicit type arguments go before the argument list: `type.size_of[int]()`, `parse[Config](text)`. They are usually inferred.
 - Method calls on a separate line may continue a chain by starting with `.` ([§2.3](#23-statement-separation)).
 
 ### 5.10 Conversions
@@ -1585,9 +1605,15 @@ Method and `in` patterns never count toward exhaustiveness.
 
 **Values.** All arms must produce compatible types (unwinding arms are compatible with anything), and the `match` has that type. A `match` in statement position may have arms of any type.
 
+**Compile-time control flow (`comptime if`, `comptime match`, `comptime for`).**
+
+- **`comptime if(cond):`** evaluates `bool` conditions at compile time (inside monomorphized bodies for generic functions) and checks/lowers only the selected branch. In expression position it **must** include an `else` branch (it cannot omit `else` to yield `?T`); omitting `else` is valid only in statement (`void`) position. Optional unwrap headers (`if(x?)` / `if(expr as v)`) are not supported on `comptime if`.
+- **`comptime match(scrut):`** evaluates its scrutinee(s) and pattern predicates at compile time, checks **all** arm patterns and full exhaustiveness statically across every arm, and then checks/lowers only the single matching arm with bound pattern variables available as compile-time constants (mutable `&` destructuring is disallowed).
+- **`comptime for(var in seq):`** evaluates ranges and compile-time collections (`[N: T]`, `[T]`, `Range`, `string`, `Set`, `Map`) statically and unrolls the body (including collecting `comptime for(...) T:` comprehensions, `next <-`, `for <-`, labeled unwinds, and `else` fallbacks). Loop headers must be compile-time expressions and loop variables cannot be `&`-mutable. Unrolling enforces a per-function statement limit (default `1024`, adjustable via `@comptime_limit(...)`) and warns on large runtime loops over plain data that do not use compile-time specialization.
+
 ### 6.6 Result chains
 
-A **result chain** handles the failures of a result-typed expression ([§3.9](#39-results)) and evaluates to its success value.
+A **result chain** handles the failures of a result-typed expression ([§3.9](#39-results)) and evaluates to its success value. On a unit result it has no value and is a statement.
 
 ```ebnf
 ResultChain = PostfixExpr ":" { "when" FailureCases ":" Body } ChainEnd ;
@@ -1631,14 +1657,27 @@ bind main = fn(): {
 
 1. **Subject.** The chain is written directly after a postfix expression (a name, call, member access, or index). The subject must have a result type. Writing `subject:` followed by a `when` or `default` arm starts the chain.
 2. **Arms.** Each `when` names one or more failure variants of the subject's type, bare (`missing(k)`, `forbidden`), with the payload-binding rules of [§6.5](#65-pattern-matching). The `value` member is never named: the chain itself evaluates to it. Naming `value`, or a variant that is not a failure of the subject's type, is an error.
-3. **Arm bodies** either unwind or evaluate to the success type.
+3. **Arm bodies** either unwind or evaluate to the success type. On a unit result they are statements, and using the chain as a value is an error:
+
+   ```lowlight
+   import "std/fs"
+
+   bind save = fn(path: string, text: string) Status: {
+   	fs.write_file(path, text):
+   		default err(own e): func <- err(e.wrap("saving \"$path\""))
+   	fs.remove_file("$path.bak"):
+   		when not_found(_): {}
+   		default err(own e): func <- err(e)
+   	value
+   }
+   ```
 4. **Ending.** The chain must end with exactly one of:
    - `default failure(...):`, which handles the last failure exhaustively;
    - `default:` with a body, which handles every remaining failure without binding it;
-   - `default panic`, with no colon and no body. Each remaining failure then panics with `unhandled failure Type.variant` at that line. On its own, `expr: default panic` unwraps any result.
+   - `default panic`, with no colon and no body. Each remaining failure then panics at that line with `unhandled failure Type.variant`. When the failure carries an `Error`, the panic is that error wrapped with this message, so its causes and trace print too. On its own, `expr: default panic` unwraps any result.
 
    A chain that leaves a failure unhandled with no such ending is an error, as is `default panic` when nothing remains to handle.
-5. **Ownership.** The chain consumes its subject. A resource success value is moved out of it.
+5. **Ownership.** The chain consumes its subject, and a resource success value is moved out of it. A subject the function doesn't own (a read-only parameter or binding) is read in place instead: the chain binds the value and failures as borrows. Such a chain can produce a plain value, or be a statement; producing a resource value would move out of the borrow, which is an error (chain on `r!.copy()` instead).
 6. **Propagation.** To pass a failure to the caller, construct the caller's result type with a bare member: `default err(own e): func <- err(e.wrap("loading"))`.
 7. **Nesting.** A chain ends at its `default` arm, so a chain inside a `match` arm does not absorb the `match`'s later arms.
 
@@ -1850,12 +1889,12 @@ The closure value owns its captures and destroys them when it is destroyed. A cl
 > **At a glance**
 > - Type parameters go in brackets after the name: `define Stack[T] struct [...]`, `bind first[T] = fn(xs: [T]) ?T: ...`.
 > - Bounds restrict them: `[T: Comparable + Copyable]`.
-> - Type arguments are usually inferred; write them when they aren't: `Stack[int][items: []]`, `size_of[u8]()`.
+> - Type arguments are usually inferred; write them when they aren't: `Stack[int][items: []]`, `type.size_of[u8]()`.
 > - Generic code is compiled separately for each set of type arguments. A type parameter is never an optional.
 
 ### 8.1 Generic declarations
 
-Structs, enums, results, interfaces, functions, and methods may take type parameters:
+Structs, enums, results, interfaces, functions, and methods may take type parameters and **const generic value parameters** (`[N: const int]`, where allowed const parameter types are integer primitives `int`/`i8`–`i64`/`u8`–`u64`, `bool`, `char`, tag `enum`s, and `string`):
 
 ```lowlight
 define Stack[T] struct [
@@ -1908,9 +1947,9 @@ A type argument may not be an optional type: `Stack[?int]` is an error. A generi
 
 ### 8.4 Inference and instantiation
 
-1. Type arguments may be omitted when they can be determined from the arguments, the expected type, or a literal's contents. Otherwise they must be given: `Stack[int][items: []]`, `parse[Config](text)`, `size_of[T]()`.
-2. Each distinct set of type arguments produces a separate instantiation (monomorphization). There is no runtime type information and no boxing of generic values.
-3. Instantiation may nest at most 128 levels deep; a type that expands without bound (such as `Box[T]` containing `Box[Box[T]]`) is reported as an error.
+1. Type arguments may be omitted when they can be determined from the arguments, the expected type, or a literal's contents. Const generic `N: const int` parameters may also be inferred from `[N: T]` fixed-size array parameters (`const dot[N: const int] = fn(a: [N: int], b: [N: int]) int: ...`). Otherwise arguments must be supplied explicitly (`Matrix[2 + 2, 4][...]`, `zeros[8]()`).
+2. Each distinct set of type and canonical const arguments produces a separate instantiation (monomorphization). Equivalent constant expressions yield the exact same type identity (`Matrix[2 + 2, 4]` and `Matrix[4, 4]` are identical types); `[N: const int]` parameters may appear in array size expressions (`[R * C: float]`) and repeat literals (`[N: 0]`).
+3. Instantiation may nest at most 128 levels deep (with a per-template instantiation cap of 512); a type or const generic that expands without bound (such as `Box[T]` containing `Box[Box[T]]` or `boom[N + 1]()`) is reported as an error.
 
 ---
 
@@ -1927,13 +1966,13 @@ A type argument may not be an optional type: `Stack[?int]` is an error. A generi
 | Situation | Use |
 |---|---|
 | A value may legitimately be absent (`map[k]`, `parse_int`, an iterator's end) | `?T` |
-| A correct program can still fail because of its input or environment | `Result[T]` (with an `Error`) |
-| Callers need to react differently to distinct failure cases | a custom result type |
+| A correct program can still fail because of its input or environment | `Result[T]` (with an `Error`), or `Status` when there is no value |
+| Callers need to react differently to distinct failure cases | a custom result type, with each distinct failure carrying an `Error` ([§3.9](#39-results) rule 8) |
 | A precondition was violated or an invariant is broken: a bug | `panic`, `assert` |
 
 Library code must not panic on bad external input.
 
-**Naming.** A fallible operation has the plain name and returns a result or optional: `DateTime.new(...) Result[DateTime]`, `File.open(path) Result[File]`, `DateTime.diff(other) ?Duration`. There is no `try_` prefix. If a panicking twin is useful, typically for known-good literals in tests, it is named `must_*`: `DateTime.must_new(...)`. An alternative that avoids failure some other way gets a descriptive name, such as `diff_saturating`. See `CONVENTIONS.md`.
+**Naming.** A fallible operation has the plain name and returns a result or optional: `DateTime.new(...) Result[DateTime]`, `File.open(path) FileResult[File]`, `DateTime.diff(other) ?Duration`, `xs.remove(i) ?T`. There is no `try_` prefix. If a panicking twin is useful, for an argument the caller knows is valid, it is named `must_*`: `DateTime.must_new(...)`, `xs.must_remove(i)`. An alternative that avoids failure some other way gets a descriptive name, such as `diff_saturating`. See `CONVENTIONS.md`.
 
 ### 9.2 Results
 
@@ -1959,7 +1998,7 @@ bind main = fn(): {
 }
 ```
 
-Values of `@must_use` types, which include `Result[T]`, cannot be silently discarded ([§4.8](#48-attributes)).
+Values of `@must_use` types, which include `Result[T]` and `Status`, cannot be silently discarded ([§4.8](#48-attributes)).
 
 ### 9.3 Panics
 
@@ -2015,9 +2054,11 @@ bind main = fn(): {
 The following operations are **unsafe**: each is an error unless it appears inside an `unsafe` expression.
 
 - dereferencing a pointer, `*p`, `*p = v`, and indexing one, `p[i]`;
-- the pointer intrinsics: `null_ptr`, `is_null`, `addr_of`, `ptr_add`, `ptr_read`, `ptr_write`, `ptr_cast`, `ptr_addr`;
+- the pointer intrinsics: `null_ptr`, `is_null`, `addr_of`, `ptr_add`, `ptr_read`, `ptr_write`, `ptr_cast`, `ptr_addr`, `ref_from_ptr`;
+- `syscall` ([§10.6](#106-system-calls));
 - the raw memory intrinsics: `alloc_raw`, `alloc_uninit`, `realloc_raw`, `free_raw`, `copy_bytes`, `zero_bytes`, `fill_bytes`;
-- calling an `extern` function;
+- calling an `extern` function, or an `extern fn` value;
+- `fn_from_ptr`;
 - `s.c_str()`, which exposes a string's bytes as a `ptr[u8]`.
 
 In unsafe code the programmer, not the compiler, guarantees that pointers are valid, aligned, non-null where required, and point to live memory of the right type. All other rules (types, moves, borrows, destruction) still apply.
@@ -2036,25 +2077,27 @@ In unsafe code the programmer, not the compiler, guarantees that pointers are va
 | `ptr_write(p, v)` · `*p = v` | | writes `v` (moved) to `p` without destroying the old contents |
 | `ptr_cast[U](p)` | `ptr[U]` | reinterprets a pointer, or an integer address, as `ptr[U]` |
 | `ptr_addr(p)` | `u64` | the numeric address |
+| `fn_from_ptr[extern fn(...) R](p)` | `extern fn(...) R` | the C function at address `p` (a `ptr[T]` or an integer), callable; `ptr_cast` and `ptr_addr` also accept an `extern fn`, for the reverse |
+| `ref_from_ptr(p)` | `ref[T]` | a `ref[T]` to the value at `p`, for an allocator such as `Arena` that owns the memory; nothing checks that the memory outlives the reference |
 
-### 10.3 Memory intrinsics
+### 10.3 Memory intrinsics and `.rodata` invariant
 
 | Intrinsic | Unsafe | Meaning |
 |---|---|---|
-| `size_of[T]()` · `align_of[T]()` | no | size and alignment of `T` in bytes, as compile-time constants |
-| `is_plain[T]()` | no | whether `T` is plain |
+| `type.size_of[T]()` · `type.align_of[T]()` | no | size and alignment of `T` in bytes, as `const` compile-time values (`int`) |
+| `type.is_plain[T]()` | no | whether `T` is plain (`bool`) |
 | `alloc_raw[T](n)` · `alloc_uninit[T](n)` | yes | allocate room for `n` values of `T`, zeroed or uninitialized |
 | `realloc_raw(p, n)` | yes | resize an allocation to `n` elements |
 | `free_raw(p)` | yes | release an allocation (does not destroy its contents) |
 | `copy_bytes(dst, src, n)` · `zero_bytes(dst, n)` · `fill_bytes(dst, b, n)` | yes | byte operations on `ptr[u8]` |
 
-Memory from `alloc_raw` is not tracked by ownership: it must be released with `free_raw`, and values written into it are not destroyed automatically.
+Memory from `alloc_raw` is not tracked by ownership: it must be released with `free_raw`, and values written into it are not destroyed automatically. Compile-time constant strings and `[T]` literals backed into static `.rodata` have `cap == 0`; mutating them through `unsafe` raw pointers (`ptr_write`) without going through safe copy-on-write methods causes undefined behavior / a hardware memory fault.
 
 ### 10.4 Foreign functions
 
 ```ebnf
 ExternDecl = "extern" StringLit                                      (* a header to include *)
-           | "extern" ExternName [ "as" Name ] ":" "(" [ Params ] ")" [ Type ] ;
+           | "extern" ExternName [ "as" Name ] ":" "fn" "(" [ Params ] ")" [ Type ] ;
 ExternName = Name | StringLit | Keyword ;
 ```
 
@@ -2070,9 +2113,56 @@ bind main = fn(): {
 
 - `extern "header.h"` names a header (or another target-specific binding unit) that provides foreign declarations.
 - `extern name: fn(params) Ret` declares a function with the platform's C calling convention. `as alias` gives it a different local name, which is required when the foreign name is a Lowlight keyword (`extern "match" as c_match: ...`).
-- Parameter and return types should be plain types with a C representation: numbers, `bool`, `char`, `ptr[T]`, and plain structs.
+- Parameter and return types should be plain types with a C representation: numbers, `bool`, `char`, `ptr[T]`, `extern fn` types, and plain structs.
 - Every call is unsafe.
+- The declaration is the only signature that matters: it may differ from a C header's prototype of the same function (`extern write: fn(fd: i32, buf: ptr[u8], n: int) int` against `<unistd.h>`'s `const void*` and `size_t`), as long as the two agree at the machine level.
+- A `@test_only` extern is declared only in test builds.
 - Foreign functions are outside Lowlight's guarantees. They must not unwind through Lowlight frames, and pointers they keep must not outlive the memory they point to.
+
+### 10.5 C function pointers
+
+`extern fn(ParamTypes) ReturnType` is the type of a C function pointer: a plain, 8-byte value called with the platform's C calling convention and nothing but its arguments. Its parameter and return types must have a C representation (§10.4).
+
+- **Callbacks into Lowlight.** `extern fn(params) Ret: body` is a function C can call, such as a `qsort` comparator or a signal handler. Like an `fn`, it can't capture variables; pass what it needs through its arguments (C APIs usually take a `ptr[u8]` user-data argument for this). Written at the top level (`bind cmp = extern fn(...)`), it is an ordinary function that Lowlight code can also call directly.
+- **Pointers from C.** `fn_from_ptr[extern fn(...) R](p)` makes the C function at address `p` (from `dlsym`, or a C struct field) callable. `ptr_cast[u8](f)` and `ptr_addr(f)` go the other way.
+- Calling an `extern fn` value is unsafe: it may be any C function. Calling a top-level `extern fn` by its name is not.
+- An `extern fn` never converts to or from `fn` or `cl`.
+- A panic inside a callback C is running ends the program; it never unwinds through the C frames. That holds under `lowlight test` too: the panic ends the test run instead of failing just the current test. (Calling the same function directly from Lowlight is an ordinary call, so a panic there fails only its test.)
+
+```lowlight
+extern qsort: fn(base: ptr[u8], n: int, size: int, cmp: extern fn(ptr[u8], ptr[u8]) i32)
+
+bind ascending = extern fn(a: ptr[u8], b: ptr[u8]) i32: {
+	let x = unsafe ptr_read(ptr_cast[int](a))
+	let y = unsafe ptr_read(ptr_cast[int](b))
+	i32(x.cmp(y))
+}
+
+bind main = fn(): {
+	let data = unsafe alloc_raw[int](3)
+	for(i, v in [3, 1, 2]): unsafe ptr_write(ptr_add(data, i), v)
+	unsafe qsort(ptr_cast[u8](data), 3, type.size_of[int](), ascending)
+	println(for(i in 0..3) [int]: unsafe ptr_read(ptr_add(data, i)))
+	unsafe free_raw(data)
+}
+```
+
+### 10.6 System calls
+
+`syscall(number, a1, ..., a6) int` makes system call `number` with up to six `int` arguments, using the target's system call instruction (`svc` on arm64, `syscall` on x86-64), and returns the result. A failure returns `-errno` on every platform (macOS's convention of a carry flag and a positive errno is converted). It is unsafe.
+
+Call numbers differ by operating system and architecture. Linux keeps its numbers stable; macOS does not promise to, so portable code on macOS calls the C library through `extern` instead.
+
+```lowlight
+import "std/os"
+
+bind main = fn(): {
+	let msg = "hello\n"
+	// write(1, msg, len): call number 4 on macOS, 1 on x86-64 Linux, 64 on arm64 Linux.
+	let n = unsafe syscall(4, 1, int(ptr_addr(msg.c_str())), msg.len())
+	if(n < 0): println("write failed: ${os.errno_name(-n)}")
+}
+```
 
 ---
 
@@ -2132,7 +2222,7 @@ The `std/test` assertions are listed in [§13](#13-the-standard-library).
 > **At a glance**
 > - `std/core` is imported into every file automatically, unqualified.
 > - It defines the interfaces that give meaning to operators, loops, and interpolation: `Printable`, `Equatable`, `Comparable`, `Addable`, `AddAssignable`, `Hashable`, `Copyable`, `Drop`, `Iterable`, `Iterator`, `Collectable`, `Indexable`, `KeyIndexable`, `Containable`.
-> - It provides the collection types behind `[T]`, `#[T]`, `#[K: V]`, `[N: T]`, and `lo..hi`, plus `Result[T]`, `Error`, and the methods on primitive types.
+> - It provides the collection types behind `[T]`, `#[T]`, `#[K: V]`, `[N: T]`, and `lo..hi`, plus `Result[T]`, `Status`, `Error`, and the methods on primitive types.
 
 The prelude is ordinary Lowlight source in `std/core`. Where the language relies on a prelude declaration, the declaration is marked `@lang("hook")`. The compiler finds language features through these hooks rather than through names.
 
@@ -2201,7 +2291,9 @@ These are built into the language and need no import.
 | `abs(x)` | `fn(int) int` | absolute value (for floats, `math.abs_float` in `std/math`) |
 | `min(a, b)` · `max(a, b)` | numeric `fn(T, T) T` | the smaller or larger of two numbers of the same type |
 | `caller_location()`, `caller_file()`, `caller_line()`, `caller_col()` | | the caller's source location ([§11.2](#112-caller-locations)) |
-| `size_of[T]()`, `align_of[T]()`, `is_plain[T]()` | | layout queries ([§10.3](#103-memory-intrinsics)) |
+| `type.size_of[T]()`, `type.align_of[T]()`, `type.is_plain[T]()` | | `const` type layout queries ([§10.3](#103-memory-intrinsics-and-rodata-invariant)) |
+| `comp.compile_error(msg)`, `comp.log(val)` | | `@comptime_only` compile-time diagnostic abort and `note:` diagnostic emitter |
+| `comp.embed_str(path)`, `comp.embed_bytes(path)` | | `@comptime_only` declaring-file-relative, sandbox-confined static file embedding (`string`, `[u8]`) |
 
 The prelude adds these ordinary functions:
 
@@ -2251,8 +2343,9 @@ The parsers accept exactly a number: an optional sign, digits (and a `0x`, `0b`,
 |---|---|
 | `List[T].new()` · `List[T].with_capacity(n)` · `List[T].filled(n, v)` | construct |
 | `len()` · `cap()` · `is_empty()` | size |
-| `push(x)` · `pop() ?T` · `insert(i, x)` · `remove(i) T` · `swap_remove(i) T` | add and remove (`insert` and `remove` trap when out of range) |
-| `get(i) ?T` · `set(i, x) bool` | checked access |
+| `push(x)` · `pop() ?T` · `insert(i, x) Status` · `remove(i) ?T` · `swap_remove(i) ?T` | add and remove; an index out of range is a failure or `none` |
+| `must_insert(i, x)` · `must_remove(i) T` · `must_swap_remove(i) T` | the same for an index known to be valid; trap when out of range |
+| `get(i) ?T` · `set(i, x) Status` | checked access (`xs[i]` and `xs[i] = x` trap instead) |
 | `first() ?T` · `last() ?T` · `index_of(x) ?int` | ends of the list; position of the first element equal to `x` |
 | `swap(i, j)` · `truncate(n)` · `extend(own other)` | exchange two elements (traps when out of range); drop elements past `n`; move all of `other` onto the end |
 | `reserve(n)` · `resize(n, v)` · `clear()` | capacity and length |
@@ -2261,9 +2354,9 @@ The parsers accept exactly a number: an optional sign, digits (and a `0x`, `0b`,
 
 **Array** `[N: T]`: `len()`, `is_empty()`, `get(i) ?T`, `contains(x)`, `to_string()`, `iter()`.
 
-**Set** `#[T]`: `Set[T].new()`, `with_capacity(n)`, `len()`, `is_empty()`, `insert(x) bool` (false if already present), `has(x)` / `contains(x)`, `remove(x) bool`, `clear()`, `to_list()`, `copy()`, `to_string()`, `iter()`.
+**Set** `#[T]`: `Set[T].new()`, `with_capacity(n)`, `len()`, `is_empty()`, `insert(x) bool` (false if already present), `has(x)` / `contains(x)`, `remove(x) bool`, `clear()`, `to_list()`, `copy()`, `to_string()`, `iter()`. Set algebra returns new sets of copied elements: `union(other)`, `intersection(other)`, `difference(other)`; `is_subset(other) bool`.
 
-**Map** `#[K: V]`: `Map[K, V].new()`, `with_capacity(n)`, `len()`, `is_empty()`, `get(k) ?V`, `has(k)` / `contains(k)`, `insert(k, v)`, `remove(k) ?V`, `clear()`, `keys() [K]`, `values() [V]` (both in insertion order), `copy()`, `to_string()`, `iter()`.
+**Map** `#[K: V]`: `Map[K, V].new()`, `with_capacity(n)`, `len()`, `is_empty()`, `get(k) ?V`, `has(k)` / `contains(k)`, `insert(k, v)`, `remove(k) ?V`, `clear()`, `keys() [K]`, `values() [V]`, `entries() [MapEntry[K, V]]` (all in insertion order), `copy()`, `to_string()`, `iter()`. `get_or_insert(k, v) V` inserts `v` when `k` is absent and returns a copy of the value; `update(k, f) bool` runs `f: cl(&V)` on the value in place, and `with(k, f) ?R` lends the value read-only to `f: cl(V) R` and returns its result; neither copies the value, so they work for values that can't be copied.
 
 **Range** `Range[T]`: `contains(x)`, `is_empty()`, `len()`, `to_string()`, `iter()`.
 
@@ -2281,22 +2374,30 @@ define Result[T] result [
 
 **Constructing.** Where a `Result[T]` is expected, write `value(x)` or `err(e)`. Elsewhere, qualify: `Result[int].value(1)`, `Result[int].err(e)`. `Result[T].fail_msg(msg)` is shorthand for `err(Error.new(msg))`, recording the caller's location.
 
-**Methods.**
+**Methods.** Result chains ([§6.6](#66-result-chains)), `??`, and `if(r! as v)` are the way to handle a result. The methods cover only what those can't do: look at a result without consuming it, pass it on with added context, and assert success in the middle of a longer expression.
 
 | Method | Meaning |
 |---|---|
-| `is_ok()` · `is_err()` | which member it holds |
-| `unwrap()` | the value, or panic with the error wrapped as `"called Result.unwrap on an error"` (`@track_caller`) |
-| `expect(msg)` | the value, or panic with the error wrapped as `msg` (`@track_caller`) |
-| `unwrap_or(fallback)` | the value, or `fallback` |
-| `unwrap_err()` | the error, or panic if it holds a value |
-| `into_ok() ?T` · `into_err() ?Error` · `peek_err() ?Error` | convert to optionals (`peek_err` borrows) |
+| `is_ok()` · `is_err()` | which member it holds, without consuming it |
+| `peek_err() ?Error` | a copy of the failure's error, or `none`, without consuming it |
 | `wrap_err(msg)` · `trace_err()` | add context or a trace frame to a failure, passing a value through unchanged (`@track_caller`) |
-| `map(f)` · `and_then(f)` | transform the value with `f: cl(T) U`, or continue with `f: cl(T) Result[U]`; failures pass through |
-| `map_err(f)` | transform the failure with `f: cl(own Error) Error` (for example, to wrap it); values pass through |
-| `unwrap_or_else(f)` | the value, or `f(error)` computed only on failure |
+| `unwrap()` | the value, or panic with the error wrapped as `"called Result.unwrap on an error"`; the expression form of `r!: default panic` (`@track_caller`) |
+| `expect(msg)` | the value, or panic with the error wrapped as `msg` (`@track_caller`) |
+| `unwrap_err()` | the error, or panic if it holds a value (`@track_caller`) |
 
-Result chains ([§6.6](#66-result-chains)) are usually clearer than these methods.
+There are no combinators. Write `r! ?? fallback` for a fallback, `r!: default err(own e): f(e)` to compute one from the error, `if(r! as v)` to read the value as an optional would, and a chain with `func <- err(...)` and `value(...)` to transform or continue.
+
+**Status.** The unit counterpart of `Result[T]`, for operations that produce nothing when they succeed (`fs.write_file`, `File.close`, `os.remove_all`):
+
+```lowlight
+@must_use
+define Status result [
+	value,
+	err: Error,
+]
+```
+
+Write `value` or `err(e)` where a `Status` is expected; `Status.fail_msg(msg)` is shorthand for `err(Error.new(msg))`. It has the same methods as `Result[T]`; `unwrap` and `expect` return nothing.
 
 **Error.** An `Error` holds a message, an optional code, an optional cause (another `Error`), and a trace of source locations (`ErrorFrame`s). Its fields are private.
 
@@ -2336,12 +2437,13 @@ The standard library is a set of ordinary packages under `std/`. Import each by 
 | `std/strfmt` | number formatting (`format_int_commas`, `format_float`, `format_bytes`, `format_percent`, `format_currency`), padding (`pad_left`, `center`, `pad_int_zeros`), case styles (`to_title`, `to_snake_case`, `to_kebab_case`, `to_camel_case`), `quote`, `unquote`, `indent`, `truncate` |
 | `std/math` | `sqrt`, `cbrt`, `pow`, `exp`, `log`, `log2`, `log10`, trigonometric and hyperbolic functions, `floor`, `ceil`, `round`, `trunc`, `fmod`, `hypot`, `is_nan`, `is_inf`, `clamp_int`, `clamp_float`, `lerp`, angle conversions, `PI` and related constants |
 | `std/sort` | `sort`, `sort_by`, `stable_sort`, `is_sorted`, `binary_search`, `lower_bound`, `upper_bound`, `reverse` for lists and arrays (as methods and functions); `Set.to_sorted_list`, `Map.to_sorted_keys` |
-| `std/fs` | the `File` resource (`File.open`, `open_read`, `open_write`, `open_append`, `read_to_string`, `read_bytes`, `write_string`, `write_bytes`, `seek`, `tell`, `size`, `flush`, `close`; closes itself on drop) and functions `read_file`, `write_file`, `append_file`, `read_bytes`, `write_bytes`, `exists`, `file_size`, `remove_file`, `rename_file`, `copy_file` |
-| `std/os` | `exec`, `system_run`, and `system_run_status` (an `ExecResult` with `stdout`, `exit_code`, and the terminating `signal`), `mkdir`, `mkdir_p`, `remove_all`, `file_exists`, `num_cpus`, `os_name`, `arch` |
+| `std/fs` | the `File` resource (`File.open`, `open_read`, `open_write`, `open_append`, `read_to_string`, `read_bytes`, `write_string`, `write_bytes`, `seek`, `tell`, `size`, `flush`, `close`; closes itself on drop) and functions `read_file`, `write_file`, `append_file`, `read_bytes`, `write_bytes`, `exists`, `file_size`, `remove_file`, `rename_file`, `copy_file`. Opening and reading by path return `FileResult[T]` (separating `not_found`); `File.read_bytes` returns `ReadResult[T]` (separating `eof`); writes, `flush`, and `close` return `Status`; `remove_file` and `rename_file` return `RemoveResult` and `RenameResult` (separating `not_found`). Every failure carries the OS's description, with the errno name as its code |
+| `std/os` | `exec`, `system_run`, and `system_run_status` (a `Result` of an `ExecResult` with `stdout`, `exit_code`, and the terminating `signal`; a failure only when the shell can't start), `mkdir` (a `MkdirResult` separating `exists`), `mkdir_p` and `remove_all` (`Status`), `errno_name` and `error_from_errno` for OS errors, `file_exists`, `num_cpus`, `os_name`, `arch` |
 | `std/time` | `Duration`, `Instant` (`now`, `elapsed`), `DateTime` (`new`, `must_new`, `now_utc`, `now_local`, `from_unix_secs`, formatting and parsing with layouts such as `RFC3339`), `sleep_ms`, calendar helpers |
-| `std/net` | `TcpStream` (`connect`, `send`/`recv` for strings and `send_bytes`/`recv_bytes` for `[u8]`, `shutdown`, `peer_addr`, `local_addr`, `set_nodelay`, `close`), `TcpListener` (`listen`, `accept`, `port`), `dial_tcp`, `listen_tcp`, `socketpair`, `format_ipv6` |
-| `std/http` | URL parsing, `Request` and `Response`, a client (`get`, `post`, `put`, ...), a server with routing (`ServeMux`, `listen_and_serve`), and `STATUS_*` constants |
+| `std/net` | `TcpStream` (`connect`, `send`/`recv` for strings and `send_bytes`/`recv_bytes` for `[u8]`, `shutdown`, `peer_addr`, `local_addr`, `set_nodelay`, `close`), `TcpListener` (`listen`, `accept`, `port`), `dial_tcp`, `listen_tcp`, `socketpair`, `format_ipv6`. `connect` separates `not_found` (an unresolvable host), `refused`, and `timeout`; `recv` separates `eof` and `timeout`; `accept` separates `timeout`; `listen` separates `in_use` |
+| `std/http` | URL parsing, `Request` and `Response`, a client (`get`, `post`, `put`, ...; a `RequestResult` separating `unreachable` and `timeout`), a server with routing (`ServeMux`, `listen_and_serve`; `Server.listen` separates `in_use`, `serve_one` separates `timeout`), and `STATUS_*` constants |
 | `std/pool` | `Pool[T]` with generational `Handle[T]`s: `alloc`, `get`, `with_mut`, `set`, `take`, `free`, iteration |
+| `std/collections` | `Deque[T]` (a ring buffer: `push_front`, `push_back`, `pop_front`, `pop_back`, `front`, `back`, `get`), `Queue[T]` (first in, first out: `push`, `pop`, `peek`), `BitSet` (non-negative `int`s, one bit each, with `union`, `intersection`, `difference`, `is_subset`), `PriorityQueue[T]` (a binary heap ordered by a closure; `min_first` and `max_first` for `Comparable` elements; `push`, `pop`, `peek`, `drain`), `StringInterner` (`intern`, `id_of`, `name_of`), and `BTreeMap[K: Comparable, V]` (an ordered map: `insert`, `get`, `remove`, `update`, `with`, `first`, `last`, `range`, `entries` of `Entry[K, V]`) |
 | `std/test` | assertions for tests: `assert_eq`, `assert_ne`, `assert_true`, `assert_false`, `assert_gt`/`lt`/`ge`/`le`, `assert_approx_eq`, `assert_contains`, `assert_starts_with`, `assert_ends_with`, `assert_some`, `assert_none`, result assertions (`assert_is_ok`, `assert_is_err`, `assert_ok_eq`, `assert_err_contains`, ...), batch forms (`assert_all_*`, `assert_any_eq`), and a `_msg` variant of each |
 | `std/unicode` | full Unicode case conversion: `to_upper`, `to_lower` (with the Final_Sigma rule), `fold`, `equal_fold`, `UNICODE_VERSION`; mappings may change length (`ß` → `SS`) and are language-independent. The prelude's `string.to_upper`/`to_lower` stay ASCII-only |
 | `std/json` | JSON values and conversion (work in progress) |
@@ -2562,7 +2664,7 @@ Consequences that implementations must reproduce:
 After an expression, `[` can begin an index, a slice, generic type arguments, or a struct literal. The parser decides as follows:
 
 1. **Struct literal.** If the expression could be a type name (an identifier or qualified name that starts with an uppercase letter, possibly with type arguments) and the bracket is either `[]` or begins `name:` or `name?:`, it is a struct literal: `Point[x: 1, y: 2]`, `Config[]`.
-2. **Type arguments.** Otherwise, the parser tries to read the bracket's contents as a comma-separated list of types. If that succeeds and the `]` is followed by `(` (a generic call: `size_of[int]()`), by a struct literal (`Pair[int][a: 1, b: 2]`), or, for a type-like name, by `.` and a name (`List[int].new()`), the bracket is type arguments.
+2. **Type arguments.** Otherwise, the parser tries to read the bracket's contents as a comma-separated list of types. If that succeeds and the `]` is followed by `(` (a generic call: `type.size_of[int]()`), by a struct literal (`Pair[int][a: 1, b: 2]`), or, for a type-like name, by `.` and a name (`List[int].new()`), the bracket is type arguments.
 3. **Index or slice.** Otherwise it is an index or a slice, a slice when the contents contain a top-level `..` or `..=`.
 
 So `xs[i]`, `xs[0..2]`, and `grid[row][col]` are indexes, and `List[string].new()` is a call with type arguments. A conforming parser may implement rule 2 by speculative parsing with backtracking, as the reference parser does.
@@ -2639,7 +2741,7 @@ Interface satisfaction is structural. When a concrete type is converted to an in
 
 ## 18. Lowering and Runtime Representation
 
-This chapter describes the representation used by the reference compiler. It is informative except where marked: programs cannot observe layouts (other than through `size_of`, `unsafe` code, and `extern` calls), and another implementation may choose differently. Layouts of `packed` structs and of types passed to `extern` functions follow the C ABI of the target (**Required**).
+This chapter describes the representation used by the reference compiler. It is informative except where marked: programs cannot observe layouts (other than through `type.size_of`, `unsafe` code, and `extern` calls), and another implementation may choose differently. Layouts of `packed` structs and of types passed to `extern` functions follow the C ABI of the target (**Required**).
 
 ### 18.1 Primitive and composite values
 
@@ -2822,12 +2924,12 @@ ImportDecl  = "import" StringLit [ "as" Ident ] ;
 ExternDecl  = "extern" StringLit
             | "extern" ( Ident | StringLit | Keyword ) [ "as" Ident ] ":" "fn" "(" [ Params ] ")" [ Type ] ;
 
-VarDecl     = ( "let" | "bind" ) Name [ ":" Type ] "=" Expr
-            | ( "let" | "bind" ) Target { "," Target } "=" "unpack" Expr ;
+VarDecl     = ( "let" | "bind" | "const" ) Name [ ":" Type ] "=" Expr
+            | ( "let" | "bind" | "const" ) Target { "," Target } "=" "unpack" Expr ;
 Target      = ( Name | "_" ) [ ":" Type ] ;
 
-FuncDecl    = "bind" Ident [ TypeParams ] "=" FuncLit ;                    (* must be "fn" *)
-MethodDecl  = "bind" TypeRef "." Ident [ TypeParams ] "=" FuncLit ;         (* must be "fn" *)
+FuncDecl    = ( "bind" | "const" ) Ident [ TypeParams ] "=" FuncLit ;     (* must be "fn" *)
+MethodDecl  = ( "bind" | "const" ) TypeRef "." Ident [ TypeParams ] "=" FuncLit ; (* must be "fn" *)
 TypeRef     = ( Ident | PrimitiveType | "string" ) [ TypeParams ] ;
 
 TypeDecl    = "define" [ "packed" ] Ident [ TypeParams ] TypeBody ;
@@ -2897,7 +2999,7 @@ RangeExpr   = ShiftExpr [ ( ".." | "..=" ) ShiftExpr ] ;
 ShiftExpr   = AddExpr { ( "<<" | ">>" ) AddExpr } ;
 AddExpr     = MulExpr { ( "+" | "-" ) MulExpr } ;
 MulExpr     = UnaryExpr { ( "*" | "/" | "%" ) UnaryExpr } ;
-UnaryExpr   = ( "-" | "not" | "~" | "*" | "&" | "own" | "unsafe" ) UnaryExpr
+UnaryExpr   = ( "-" | "not" | "~" | "*" | "&" | "own" | "unsafe" | "comptime" ) UnaryExpr
             | ChainExpr ;
 ChainExpr   = PostfixExpr [ ResultChain ] ;
 
@@ -2912,7 +3014,7 @@ Primary     = Literal | Name | "self" | "Self"
             | "[" Expr ":" Expr { "," Expr } "]"                                (* array *)
             | "#[" [ Expr { "," Expr } | Expr ":" Expr { "," Expr ":" Expr } ] "]"   (* set or map *)
             | "+[" [ Expr { "," Expr } ] "]"                                    (* tuple *)
-            | FuncLit | Block | "unsafe" Block | Labeled
+            | FuncLit | Block | "unsafe" Block | "comptime" Block | Labeled
             | IfExpr | ForExpr | WhileExpr | MatchExpr
             | PrimitiveType "(" Expr ")"                                        (* conversion *)
             | "cl" "(" Expr ")"                                                 (* fn to closure *)
@@ -3006,13 +3108,13 @@ A trap is a panic raised by the language itself ([§19](#19-the-runtime-contract
 | Division by zero | `integer division by zero` · `unsigned division by zero` | `/` |
 | Remainder by zero | `integer modulo by zero` · `unsigned modulo by zero` | `%` |
 | Bad shift | `shift count out of range` | `<<`, `>>` with a count outside `0 ..< bits` |
-| Unhandled failure | `unhandled failure Type.variant` | `default panic` in a result chain |
+| Unhandled failure | `unhandled failure Type.variant`, followed by the failure's error and trace when it carries an `Error` | `default panic` in a result chain |
 | Unwrap | `called Result.unwrap on an error: <error summary>` | `Result.unwrap()` |
 | Expect | `<msg>: <error summary>` | `Result.expect(msg)` |
-| Unwrap error | `called Result.unwrap_err on an ok result` | `Result.unwrap_err()` |
+| Unwrap error | `called Result.unwrap_err on a value` | `Result.unwrap_err()` |
 | Assertion | `assertion failed`, or the given message | `assert(cond)`, `assert(cond, msg)` |
 | Invalid character | `invalid char code point N` | `char(n)` with `n` outside the Unicode scalar values |
-| List index | `List.insert: index I out of bounds for length L` (also `List.remove`, `List.swap_remove`) | `insert`, `remove`, `swap_remove` |
+| List index | `List.must_insert: index I out of bounds for length L` (also `List.must_remove`, `List.must_swap_remove`) | `must_insert`, `must_remove`, `must_swap_remove`, attributed to the caller |
 | Out of memory | `out of memory (requested N bytes)` | any allocation; aborts the process ([§19](#19-the-runtime-contract)) |
 
 Arithmetic overflow is **not** a trap: integer arithmetic wraps ([§5.3](#53-arithmetic)).
@@ -3023,7 +3125,7 @@ Arithmetic overflow is **not** a trap: integer arithmetic wraps ([§5.3](#53-ari
 |---|---|
 | **arena** | an owner of many values destroyed together, handing out `ref[T]` references ([§7.6](#76-arenas-and-references)) |
 | **associated function** | a function attached to a type without a receiver, called as `Type.name()` ([§4.4](#44-methods-and-associated-functions)) |
-| **bind** | declare an immutable name ([§4.2](#42-bind-and-let)) |
+| **bind** | declare an immutable name ([§4.2](#42-bind-const-and-let)) |
 | **body** | the block or single expression after a `:` in a function, `if`, loop, or arm ([§6.1](#61-bodies)) |
 | **borrow** | temporary access to a value without owning it; read-only by default, mutable with `&` ([§7.3](#73-parameter-modes)) |
 | **bound** | an interface a type parameter must satisfy, `T: Hashable` ([§8.2](#82-bounds)) |

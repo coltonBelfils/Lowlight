@@ -25,12 +25,12 @@ bind checksum_bytes = fn(buf: ptr[u8], count: int) u32: {
 
 bind main = fn(): {
     // 1. Packed wire layout verification: 2 + 1 + 1 + 4 == 8 bytes exact, alignment == 1!
-    assert(size_of[WireHeader]() == 8)
-    assert(align_of[WireHeader]() == 1)
+    assert(type.size_of[WireHeader]() == 8)
+    assert(type.align_of[WireHeader]() == 1)
 
     // 2. Manual raw buffer serialization & deserialization inside `unsafe`
     let payload = "LOWLIGHT_PACKET"
-    let total_len = size_of[WireHeader]() + payload.len()
+    let total_len = type.size_of[WireHeader]() + payload.len()
 
     unsafe {
         let raw_buf = alloc_raw[u8](total_len)
@@ -45,7 +45,7 @@ bind main = fn(): {
         ]
         ptr_write(hdr_ptr, hdr)
 
-        let body_ptr = ptr_add(raw_buf, size_of[WireHeader]())
+        let body_ptr = ptr_add(raw_buf, type.size_of[WireHeader]())
         copy_bytes(body_ptr, payload.c_str(), payload.len())
 
         // Read back header & verify C FFI `strlen` / `memcmp`
@@ -63,6 +63,6 @@ bind main = fn(): {
         assert(csum > u32(0))
 
         free_raw(raw_buf)
-        println("unsafe_and_ffi: WireHeader=${size_of[WireHeader]()}B, payload=${c_len}B, checksum=$csum")
+        println("unsafe_and_ffi: WireHeader=${type.size_of[WireHeader]()}B, payload=${c_len}B, checksum=$csum")
     }
 }

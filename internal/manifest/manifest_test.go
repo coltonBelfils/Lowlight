@@ -267,6 +267,27 @@ func TestTargetSuffixMatching(t *testing.T) {
 	if !manifest.IsTestFile("foo_test.ll") || manifest.IsTestFile("foo.ll") {
 		t.Fatalf("IsTestFile mismatch")
 	}
+
+	// Extended Phase 4 TargetInfo fields (Endian, PtrSize, PtrBits, Triple)
+	host := manifest.ParseTarget("")
+	if host.Triple == "" || (host.PtrSize != 4 && host.PtrSize != 8) || host.PtrBits != host.PtrSize*8 || host.Endian != "little" {
+		t.Fatalf("unexpected host TargetInfo: %+v", host)
+	}
+	if linuxAmd.Endian != "little" || linuxAmd.PtrSize != 8 || linuxAmd.PtrBits != 64 {
+		t.Fatalf("unexpected linuxAmd TargetInfo: %+v", linuxAmd)
+	}
+	winX86 := manifest.ParseTarget("i686-pc-windows-gnu")
+	if winX86.OS != "windows" || winX86.Arch != "x86" || winX86.IsUnix || winX86.PtrSize != 4 || winX86.PtrBits != 32 || winX86.Endian != "little" {
+		t.Fatalf("unexpected winX86 TargetInfo: %+v", winX86)
+	}
+	wasm := manifest.ParseTarget("wasm32-unknown-unknown")
+	if wasm.OS != "wasm" || wasm.Arch != "wasm32" || wasm.IsUnix || wasm.PtrSize != 4 || wasm.PtrBits != 32 {
+		t.Fatalf("unexpected wasm TargetInfo: %+v", wasm)
+	}
+	s390 := manifest.ParseTarget("s390x-unknown-linux-gnu")
+	if s390.OS != "linux" || s390.Endian != "big" || s390.PtrSize != 8 {
+		t.Fatalf("unexpected s390x TargetInfo: %+v", s390)
+	}
 }
 
 func TestArchiveExtractionTraversalRejected(t *testing.T) {

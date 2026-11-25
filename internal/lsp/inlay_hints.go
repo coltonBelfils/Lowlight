@@ -8,7 +8,9 @@ import (
 
 	"lowlight/internal/ast"
 	"lowlight/internal/diag"
+	"lowlight/internal/lexer"
 	"lowlight/internal/sema"
+	"lowlight/internal/token"
 	"lowlight/internal/types"
 )
 
@@ -141,6 +143,74 @@ func (s *Server) computeInlayHints(filePath string, src string, visRange Range) 
 					})
 				}
 			}
+
+			// Loop variable type hints: `for(i, item in items):` / `while(x in xs):`
+			addTypeHint := func(pos Position, ty types.Type) {
+				if ty == nil || ty == types.TypeInvalid || ty == types.TypeVoid || ty == types.TypeNever {
+					return
+				}
+				addHint(InlayHint{
+					Position:     pos,
+					Label:        ": " + ty.String(),
+					Kind:         InlayHintType,
+					PaddingLeft:  false,
+					PaddingRight: true,
+				})
+			}
+			for fe, syms := range bm.ForSymbols {
+				if fe == nil || fe.Kind == ast.ForCond || !inTargetFile(fe.Span) || fe.CondOrIter == nil {
+					continue
+				}
+				headerEnd := fe.CondOrIter.GetSpan().Start.Offset
+				for _, sym := range syms {
+					if sym == nil || sym.Name == "_" {
+						continue
+					}
+					if rng, ok := findLoopHeaderVarRange(src, fe.Span, headerEnd, sym.Name); ok {
+						addTypeHint(rng.End, sym.Type)
+					}
+				}
+			}
+			for we, syms := range bm.WhileSymbols {
+				if we == nil || we.Kind == ast.ForCond || !inTargetFile(we.Span) || we.CondOrIter == nil {
+					continue
+				}
+				headerEnd := we.CondOrIter.GetSpan().Start.Offset
+				for _, sym := range syms {
+					if sym == nil || sym.Name == "_" {
+						continue
+					}
+					if rng, ok := findLoopHeaderVarRange(src, we.Span, headerEnd, sym.Name); ok {
+						addTypeHint(rng.End, sym.Type)
+					}
+				}
+			}
+
+			// `if (expr as v)` binding type hints
+			for ie, sym := range bm.IfUnwrapSyms {
+				if ie == nil || sym == nil || ie.CondKind != ast.IfCondOptBind || ie.Cond == nil || sym.Name == "_" || !inTargetFile(ie.Span) {
+					continue
+				}
+				if rng, ok := findIfAsBindRange(src, ie.Span, ie.Cond.GetSpan().End.Offset, sym.Name); ok {
+					addTypeHint(rng.End, sym.Type)
+				}
+			}
+
+			// Pattern binding type hints: `when Missing(why):` / `default err(e):`
+			for vp, syms := range bm.PatternSyms {
+				if vp == nil || !inTargetFile(vp.Span) {
+					continue
+				}
+				for i, b := range vp.Bindings {
+					if b.IsWildcard || b.BindName == "" || b.BindName == "_" || i >= len(syms) || syms[i] == nil {
+						continue
+					}
+					if b.Span.Start.Line <= 0 {
+						continue
+					}
+					addTypeHint(SpanToLSP(src, b.Span).End, syms[i].Type)
+				}
+			}
 		}
 
 		if cfg.Parameters {
@@ -207,8 +277,8 @@ func (s *Server) computeInlayHints(filePath string, src string, visRange Range) 
 					if pName == "" || pName == "_" || pName == "self" {
 						continue
 					}
-					// Elide hint if argument is already an identifier with matching name
-					if id, isId := arg.(*ast.IdentExpr); isId && (id.Name == pName || id.Name == pName+"?") {
+					// Elide hint if argument already clearly names the parameter (`x`, `&x`, `own x`, or `obj.x`).
+					if argMatchesParamName(arg, pName) {
 						continue
 					}
 					argSpan := arg.GetSpan()
@@ -268,4 +338,74 @@ func filterInlayHintsByRange(hints []InlayHint, visRange Range) []InlayHint {
 		return []InlayHint{}
 	}
 	return filtered
+}
+
+func argMatchesParamName(arg ast.Expr, pName string) bool {
+	if u, isU := arg.(*ast.UnaryExpr); isU && (u.Op == token.Amp || u.Op == token.KwOwn) {
+		arg = u.Operand
+	}
+	switch v := arg.(type) {
+	case *ast.IdentExpr:
+		return v.Name == pName || v.Name == pName+"?"
+	case *ast.MemberExpr:
+		return v.Member == pName || v.Member == pName+"?"
+	}
+	return false
+}
+
+func findLoopHeaderVarRange(src string, loopSpan diag.Span, condStartOff int, name string) (Range, bool) {
+	sOff := loopSpan.Start.Offset
+	if sOff < 0 || condStartOff <= sOff || condStartOff > len(src) {
+		return Range{}, false
+	}
+	toks := lexer.Lex("", src[sOff:condStartOff], diag.NewReporter())
+	for _, tk := range toks {
+		if tk.Kind == token.KwIn || tk.Kind == token.EOF {
+			break
+		}
+		if (tk.Kind == token.Ident || tk.Kind == token.OptIdent) && tk.Text == name {
+			return Range{
+				Start: OffsetToLSP(src, sOff+tk.Span.Start.Offset),
+				End:   OffsetToLSP(src, sOff+tk.Span.End.Offset),
+			}, true
+		}
+	}
+	return Range{}, false
+}
+
+func findIfAsBindRange(src string, ifSpan diag.Span, condEndOff int, name string) (Range, bool) {
+	if condEndOff < 0 || condEndOff >= len(src) {
+		return Range{}, false
+	}
+	endOff := ifSpan.End.Offset
+	if endOff > len(src) {
+		endOff = len(src)
+	}
+	if maxEnd := condEndOff + 128; endOff > maxEnd {
+		endOff = maxEnd
+	}
+	if endOff <= condEndOff {
+		return Range{}, false
+	}
+	toks := lexer.Lex("", src[condEndOff:endOff], diag.NewReporter())
+	sawAs := false
+	for _, tk := range toks {
+		if tk.Kind == token.EOF || tk.Kind == token.RParen || tk.Kind == token.Colon {
+			if tk.Kind == token.RParen || tk.Kind == token.Colon {
+				break
+			}
+			continue
+		}
+		if tk.Kind == token.KwAs {
+			sawAs = true
+			continue
+		}
+		if sawAs && tk.Kind == token.Ident && tk.Text == name {
+			return Range{
+				Start: OffsetToLSP(src, condEndOff+tk.Span.Start.Offset),
+				End:   OffsetToLSP(src, condEndOff+tk.Span.End.Offset),
+			}, true
+		}
+	}
+	return Range{}, false
 }

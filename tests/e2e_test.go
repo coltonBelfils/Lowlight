@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -338,11 +339,9 @@ bind main = fn(): {
     assert(wres!.is_ok())
     assert(fs.exists(p))
 
-    let rres! = fs.read_text(p)
-    assert(rres!.is_ok())
-    let body = rres!.unwrap_or("")
+    let body = fs.read_text(p): default panic
     assert(body == "line1\nline2")
-    assert(fs.remove_file(p))
+    fs.remove_file(p): default panic
     assert(not fs.exists(p))
 
     println("optionals_fs_ok")
@@ -888,7 +887,7 @@ func resolveStrictCC() string {
 	return cc
 }
 
-func TestFormatLocClampsLongPath(t *testing.T) {
+func TestFormatLocHandlesLongPathWithoutTruncation(t *testing.T) {
 	t.Parallel()
 	root := projectRoot(t)
 	llSrc := `
@@ -927,22 +926,22 @@ static int run_format_loc_checks(void) {
     memset(b510, 'b', 510);
     b510[510] = '\0';
 
-    char buf[512];
+    char buf[700];
 
     int64_t n1 = test_format_loc_case(a600, 600, 12, 5, buf);
-    if (n1 != 511 || memcmp(buf, a600, 511) != 0) {
+    if (n1 != 605 || memcmp(buf, a600, 600) != 0 || memcmp(buf + 600, ":12:5", 5) != 0) {
         fprintf(stderr, "s1 mismatch: len=%lld\n", (long long)n1);
         return 1;
     }
 
     int64_t n2 = test_format_loc_case(a600, 600, 12, 0, buf);
-    if (n2 != 511 || memcmp(buf, a600, 511) != 0) {
+    if (n2 != 603 || memcmp(buf, a600, 600) != 0 || memcmp(buf + 600, ":12", 3) != 0) {
         fprintf(stderr, "s2 mismatch: len=%lld\n", (long long)n2);
         return 2;
     }
 
     int64_t n3 = test_format_loc_case(b510, 510, 1, 2, buf);
-    if (n3 != 511 || memcmp(buf, b510, 510) != 0 || buf[510] != ':') {
+    if (n3 != 514 || memcmp(buf, b510, 510) != 0 || memcmp(buf + 510, ":1:2", 4) != 0) {
         fprintf(stderr, "s3 mismatch: len=%lld\n", (long long)n3);
         return 3;
     }
@@ -965,9 +964,9 @@ static int run_format_loc_checks(void) {
 
 	cMainHarness := `
 static int64_t test_format_loc_case(const char* data, int64_t len, int64_t line, int64_t col, char* out_buf) {
-    ll_string s = ll_format_loc(ll_str_lit(data, len), line, col);
+    ll_string s = ll_fn__format_loc(ll_str_lit(data, len), line, col);
     int64_t rlen = s.len;
-    int64_t cp = rlen > 512 ? 512 : rlen;
+    int64_t cp = rlen > 700 ? 700 : rlen;
     if (cp > 0) memcpy(out_buf, s.data, (size_t)cp);
     ll_drop__string(&s);
     return rlen;
@@ -1022,11 +1021,11 @@ define i64 @test_format_loc_case(ptr %data, i64 %len, i64 %line, i64 %col, ptr %
 entry:
     %in_s0 = insertvalue %struct.ll_string zeroinitializer, ptr %data, 0
     %in_s1 = insertvalue %struct.ll_string %in_s0, i64 %len, 1
-    %res = call %struct.ll_string @ll_format_loc(%struct.ll_string %in_s1, i64 %line, i64 %col)
+    %res = call %struct.ll_string @ll_fn__format_loc(%struct.ll_string %in_s1, i64 %line, i64 %col)
     %r_data = extractvalue %struct.ll_string %res, 0
     %r_len = extractvalue %struct.ll_string %res, 1
-    %over = icmp sgt i64 %r_len, 512
-    %cp_len = select i1 %over, i64 512, i64 %r_len
+    %over = icmp sgt i64 %r_len, 700
+    %cp_len = select i1 %over, i64 700, i64 %r_len
     %pos = icmp sgt i64 %cp_len, 0
     br i1 %pos, label %do_cp, label %do_drop
 do_cp:
@@ -1097,7 +1096,7 @@ bind main = fn(): {
 		}
 	}
 
-	// Also verify ll_net_send_all itself prevents SIGPIPE on an unconfigured raw socketpair fd
+	// Also verify std/net raw_send_all itself prevents SIGPIPE on an unconfigured raw socketpair fd
 	// (e.g. from external C / extern calls) on both C11 and LLVM backends.
 	root := projectRoot(t)
 	opts := driver.Options{
@@ -1117,20 +1116,26 @@ bind main = fn(): {
 
 	t.Run("RawFD_C11", func(t *testing.T) {
 		tmp := t.TempDir()
+		rawSendRe := regexp.MustCompile(`\b(ll_fn_[A-Za-z0-9_]*raw_send_all)\(`)
+		m := rawSendRe.FindStringSubmatch(cSrc)
+		if len(m) < 2 {
+			t.Fatal("failed to locate C11 raw_send_all function")
+		}
+		rawSendSym := m[1]
 		patchedC := strings.Replace(cSrc, "int main(int argc, char** argv)", "int ll_unused_main(int argc, char** argv)", 1)
 		if patchedC == cSrc {
 			t.Fatal("failed to locate C11 main entrypoint")
 		}
-		patchedC += `
+		patchedC += fmt.Sprintf(`
 int main(void) {
     int fds[2];
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) return 1;
     close(fds[1]);
-    int64_t rc = ll_net_send_all((int64_t)fds[0], (const uint8_t*)"raw_sigpipe", 11);
+    int64_t rc = %s((int64_t)fds[0], (uint8_t*)"raw_sigpipe", 11);
     close(fds[0]);
     return (rc == -1LL) ? 0 : 2;
 }
-`
+`, rawSendSym)
 		cPath := filepath.Join(tmp, "raw_sigpipe.c")
 		binPath := filepath.Join(tmp, "raw_sigpipe_c11")
 		if err := os.WriteFile(cPath, []byte(patchedC), 0o644); err != nil {
@@ -1148,17 +1153,23 @@ int main(void) {
 
 	t.Run("RawFD_LLVM", func(t *testing.T) {
 		tmp := t.TempDir()
+		rawSendRe := regexp.MustCompile(`define i64 @(ll_fn_[A-Za-z0-9_]*raw_send_all)\(`)
+		m := rawSendRe.FindStringSubmatch(llvmSrc)
+		if len(m) < 2 {
+			t.Fatal("failed to locate LLVM raw_send_all definition")
+		}
+		rawSendSym := m[1]
 		patchedLL := strings.Replace(llvmSrc, "define i32 @main(i32 %argc, ptr %argv)", "define i32 @ll_unused_main(i32 %argc, ptr %argv)", 1)
 		if patchedLL == llvmSrc {
 			t.Fatal("failed to locate LLVM main entrypoint")
 		}
-		patchedLL += `
-define i64 @test_raw_send_all(i64 %fd, ptr %data, i64 %len) {
+		patchedLL += fmt.Sprintf(`
+define i64 @test_raw_send_all(i64 %%fd, ptr %%data, i64 %%len) {
 entry:
-    %rc = call i64 @ll_net_send_all(i64 %fd, ptr %data, i64 %len)
-    ret i64 %rc
+    %%rc = call i64 @%s(i64 %%fd, ptr %%data, i64 %%len)
+    ret i64 %%rc
 }
-`
+`, rawSendSym)
 		cDriver := `
 #include <stdint.h>
 #include <sys/socket.h>

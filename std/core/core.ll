@@ -91,6 +91,14 @@ bind test_core_string_buffer = fn(): {
 	let n = string.with_capacity(-1)
 	n.push("ok")
 	assert(n == "ok", "a negative capacity is treated as zero")
+
+	let nul = "ab"
+	nul.push_byte(u8(0))
+	nul.push("c")
+	assert(nul.contains_byte(u8(0)), "contains_byte detects interior NUL")
+	assert(not "abc".contains_byte(u8(0)), "contains_byte is false when absent")
+	assert(core_read_file(nul) == none, "core_read_file rejects interior NUL path")
+	assert(not core_write_file(nul, "x"), "core_write_file rejects interior NUL path")
 }
 
 @test("core str_utf8_next validation and decoding")
@@ -485,8 +493,8 @@ bind test_core_result = fn(): {
 	let r_ok! = Result[int].value(100)
 	assert(r_ok!.is_ok(), "is_ok")
 	assert(not r_ok!.is_err(), "not is_err")
-	assert(r_ok!.copy().unwrap_or(0) == 100, "unwrap_or on ok")
-	assert(r_ok!.copy().into_ok() == 100, "into_ok on ok")
+	assert((r_ok!.copy() ?? 0) == 100, "?? on a value")
+	assert(if(r_ok! as v): v == 100 else: false, "if-as binds the value")
 	assert(r_ok!.peek_err() == none, "peek_err on ok")
 	let matched_int = match(r_ok!.copy()):
 		when value(v): v
@@ -507,7 +515,7 @@ bind test_core_result = fn(): {
 	let r_wrapped! = r_err!.copy().wrap_err("outer context").trace_err()
 	assert(r_wrapped!.copy().unwrap_err().summary() == "outer context: failure", "wrap_err summary")
 	assert(r_wrapped!.copy().unwrap_err().frames().len() == 2, "wrap_err + trace_err frames")
-	assert(r_err!.unwrap_or(999) == 999, "unwrap_or on err")
+	assert((r_err! ?? 999) == 999, "?? on a failure")
 }
 
 @test("core Error creation, wrapping, sentinels, and trace")

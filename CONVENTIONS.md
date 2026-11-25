@@ -146,14 +146,37 @@ Making `bind` your default choice documents at a glance which bindings can chang
 | `?T` | Absence is the only non-success outcome (`map[k]`, `parse_int`, `next()`). |
 | Custom `result` | Callers are expected to branch on specific domain failure cases (`missing`, `forbidden`, `expired`). |
 | `Result[T]` | General recoverable I/O, parsing, validation, or OS failure with an [`Error`] context chain. |
+| `Status` | The same, for an operation that produces nothing when it succeeds (`fs.write_file`, `File.close`, `os.remove_all`). Never `Result[bool]` with a meaningless `true`. |
 | `panic(...)` | Violated precondition or impossible internal invariant (e.g., out-of-bounds index, bug). Never for bad external input. |
+
+### Separate the Failures Callers Act On
+
+When a caller could reasonably do something different for one failure than for the rest, give that failure its own member instead of folding it into `err`. Typical cases are a missing file when removing it (often fine), an existing directory when creating it, and the end of input when reading (normal) versus a read error (not):
+
+```lowlight
+define RemoveResult result [
+	value,
+	not_found: Error,
+	err: Error,
+]
+
+fs.remove_file(tmp):
+	when not_found(_): {}
+	default panic
+```
+
+- **Give each split-out failure an `Error` payload**, like `err`, so the message, cause chain, and trace aren't lost: `not_found: Error`, not a bare `not_found`. A caller that ignores the distinction handles it like any other failure.
+- **Split only what callers act on.** Permission denied, a full disk, and an I/O error usually all mean "report it and stop", so they stay in `err` with the OS's description. Add a member when real callers need it, not for every errno.
+- **Keep `err: Error` last** as the catch-all, so `default err(own e):` handles everything not split out.
+- Don't give a custom result inspection or assertion methods (`is_ok`, `unwrap`, ...): handle it with a chain, as callers of `fs.read_file` or `http.get` do. Only `Result[T]` and `Status` have those methods.
+- A result that has no value to return and needs no split is `Status`; one that needs a split declares its own unit result (`value` with no payload), named for the operation (`RemoveResult`, `MkdirResult`).
 
 ### Constructing Results (`value(...)` and `err(...)`)
 
 Wherever a result type is expected (function return body, `func <-`, typed `if`/`match` branches, annotated `bind`/`let`, typed call argument), **prefer bare `value(...)` and failure variant names** (`err(...)`, `missing(...)`, `forbidden`):
 
 ```lowlight
-bind parse_port = (raw: string) Result[int]: {
+bind parse_port = fn(raw: string) Result[int]: {
 	bind port = parse_int(raw) ?? func <- err(Error.coded("invalid_port", "expected integer port"))
 	if(port < 1 or port > 65535):
 		func <- err(Error.coded("invalid_port", "port $port out of range 1..=65535"))
@@ -162,6 +185,7 @@ bind parse_port = (raw: string) Result[int]: {
 ```
 
 - When type context is **absent** (such as an unannotated `let r! = ...`, an untyped collection literal `[Result[int].value(1)]`, or a chained call), qualify with `Result[T].value(...)` or `Result[T].err(...)`.
+- A unit result's success is the bare name `value`, with no parentheses: `if(ok): value else: err(e)`.
 - `Result[T].fail_msg("...")` is available as a convenient shorthand for `err(Error.new("..."))` when an expected `Result[T]` type is absent or when returning an uncoded site-tracked message. (`Result.ok` and `Result.fail` do not exist — `value` and `err` are the single canonical names.)
 
 ### Propagating and Asserting Results
@@ -178,7 +202,7 @@ bind parse_port = (raw: string) Result[int]: {
    	when forbidden: func <- forbidden
    	default expired(_): cache.refresh(key)
    ```
-3. **Asserting / panicking on a result:** **Prefer `expr: default panic`** uniformly for both `Result[T]` and custom `result` types when a failure indicates a violated invariant or setup error in a test/script:
+3. **Asserting / panicking on a result:** **Prefer `expr: default panic`** uniformly for both `Result[T]` and custom `result` types when a failure indicates a violated invariant or setup error in a test/script. It prints the failure's error, causes, and trace. Use `.unwrap()` only where a chain can't go, in the middle of a longer expression:
    ```lowlight
    bind cfg = load_config(path): default panic
    ```
@@ -187,7 +211,19 @@ bind parse_port = (raw: string) Result[int]: {
    bind cfg = load_config(path):
    	default err(own e): panic(e.wrap("failed to initialize server"))
    ```
-4. **Simple fallbacks and optional-style discarding:**
+4. **Read a borrowed result in place.** A chain on a parameter the function doesn't own reads it instead of consuming it, so there's no need to `.copy()` it first unless you need its non-plain value:
+   ```lowlight
+   bind report = fn(r!: Result[string]):
+   	r!:
+   		default err(e): eprintln(e.summary())
+   ```
+5. **A unit result's chain is a statement.** It has no value to bind, so write it on its own line; its arms handle the failures:
+   ```lowlight
+   fs.write_file(path, report):
+   	default err(own e): func <- err(e.wrap("saving the report"))
+   ```
+   `??` and `if(r! as v)` need a value, so they don't apply to unit results.
+6. **Simple fallbacks and optional-style discarding:**
    - Use `??` to provide a fallback or unwind on failure: `find(key) ?? "default"` or `find(key) ?? next <-`.
    - Use `if(r! as v): ...` when you only care whether it succeeded and not why it failed.
 
@@ -195,7 +231,7 @@ bind parse_port = (raw: string) Result[int]: {
 
 Do **not** prefix fallible functions or methods with `try_`. Fallibility is already unmistakable from the return type (`Result[T]`, `?T`, or custom `result`), the caller's `!`/`?` suffix rules, and `: default panic`:
 
-- **Do:** `DateTime.new(...) Result[DateTime]`, `DateTime.diff(other) ?Duration`, `File.open(...) Result[File]`
+- **Do:** `DateTime.new(...) Result[DateTime]`, `DateTime.diff(other) ?Duration`, `File.open(...) FileResult[File]`, `xs.remove(i) ?T`
 - **Avoid:** `try_new`, `try_diff`, `try_open`
 
 When an asserting/panicking convenience twin is genuinely useful (such as constructing known-valid literals in tests or constants), give the fallible operation the plain name and prefix the panicking twin with `must_*`:
@@ -203,7 +239,11 @@ When an asserting/panicking convenience twin is genuinely useful (such as constr
 ```lowlight
 bind dt! = time.DateTime.new(y, m, d, 0, 0, 0, false)   // fallible: returns Result[DateTime]
 bind epoch = time.DateTime.must_new(1970, 1, 1, 0, 0, 0, false) // panics if out of range
+let picked = xs.remove(i) ?? func <- err(Error.new("no item $i"))  // fallible: ?T
+let first = xs.must_remove(0)                            // panics if xs is empty
 ```
+
+Mark `must_*` functions `@track_caller`, so the panic points at the call with the bad argument.
 
 When an alternative behavior avoids failure without panicking (like saturating arithmetic), name the behavior explicitly with a descriptive suffix (e.g., `DateTime.diff_saturating`).
 
@@ -309,7 +349,7 @@ bind record_if_bad = (errors: &[string], ok: bool, msg: string):
   - Typed constructors: `Duration.from_millis(...)`, `DateTime.from_unix_secs(...)`.
   - Conversion prefixes:
     - `to_*` borrows `(self)` and allocates/formats a new representation (`to_string()`, `to_rfc3339()`).
-    - `into_*` consumes `(own self)` and transfers ownership (`into_ok()`, `into_err()`, `into_bytes()`).
+    - `into_*` consumes `(own self)` and transfers ownership (`into_bytes()`).
     - `as_*` returns a cheap zero-copy view or borrow.
 - **No `get_` prefix on accessors:** Name accessors after the property (`list.len()`, `req.header("host")`, `err.message()`, `resp.is_success()`).
 - **Attributes:**

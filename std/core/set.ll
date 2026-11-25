@@ -42,7 +42,7 @@ define Set[T: Hashable] struct [
 ]
 
 // Constructs an empty [`Set`] with zero heap allocation.
-bind Set[T].new = fn() Set[T]:
+const Set[T].new = fn() Set[T]:
 	Set[T][
 		buckets: unsafe null_ptr[int](),
 		buck_cap: 0,
@@ -53,7 +53,7 @@ bind Set[T].new = fn() Set[T]:
 	]
 
 // Constructs an empty [`Set`] pre-sized for at least `cap` distinct elements.
-bind Set[T].with_capacity = fn(cap: int) Set[T]: {
+const Set[T].with_capacity = fn(cap: int) Set[T]: {
 	if(cap <= 0): func <- Set[T].new()
 	let bcap = 8
 	for(bcap < cap * 2): bcap *= 2
@@ -77,13 +77,13 @@ bind Set[T].with_capacity = fn(cap: int) Set[T]: {
 }
 
 // Returns the number of live elements currently in the set.
-bind Set[T].len = fn(self) int: self.len
+const Set[T].len = fn(self) int: self.len
 
 // Reports whether the set contains zero elements.
-bind Set[T].is_empty = fn(self) bool: self.len == 0
+const Set[T].is_empty = fn(self) bool: self.len == 0
 
 // Internal probe lookup returning the entry index of `needle` with hash `h`, or `-1`.
-bind Set[T].find_entry = fn(self, needle: T, h: u64) int: {
+const Set[T].find_entry = fn(self, needle: T, h: u64) int: {
 	if(self.buck_cap == 0 or unsafe is_null(self.buckets)): func <- -1
 	let mask = self.buck_cap - 1
 	let slot = int(h & u64(mask))
@@ -101,16 +101,16 @@ bind Set[T].find_entry = fn(self, needle: T, h: u64) int: {
 }
 
 // Reports whether `val` is present in the set.
-bind Set[T].has = fn(self, val: T) bool: {
+const Set[T].has = fn(self, val: T) bool: {
 	let h = val.hash()
 	self.find_entry(val, h) >= 0
 }
 
 // Reports whether `val` is present in the set (satisfies [`Containable`]).
-bind Set[T].contains = fn(self, val: T) bool: self.has(val)
+const Set[T].contains = fn(self, val: T) bool: self.has(val)
 
 // Internal helper that compacts tombstoned entries and rebuilds the hash bucket table at `new_bcap`.
-bind Set[T].rehash = fn(&self, new_bcap: int): {
+const Set[T].rehash = fn(&self, new_bcap: int): {
 	if(self.len < self.ent_len): {
 		let w = 0
 		let r = 0
@@ -121,7 +121,7 @@ bind Set[T].rehash = fn(&self, new_bcap: int): {
 						copy_bytes(
 							ptr_cast[u8](ptr_add(self.entries, w)),
 							ptr_cast[u8](ptr_add(self.entries, r)),
-							size_of[SetEntry[T]](),
+							type.size_of[SetEntry[T]](),
 						)
 					w += 1
 				}
@@ -131,7 +131,7 @@ bind Set[T].rehash = fn(&self, new_bcap: int): {
 		if(w < self.ent_len): {
 			unsafe zero_bytes(
 				ptr_cast[u8](ptr_add(self.entries, w)),
-				(self.ent_len - w) * size_of[SetEntry[T]](),
+				(self.ent_len - w) * type.size_of[SetEntry[T]](),
 			)
 		}
 		self.ent_len = w
@@ -170,7 +170,7 @@ bind Set[T].rehash = fn(&self, new_bcap: int): {
 //
 // # Ownership
 // Consumes `val` into the set's entry storage.
-bind Set[T].insert = fn(&self, val: own T) bool: {
+const Set[T].insert = fn(&self, val: own T) bool: {
 	let h = val.hash()
 	let existing = self.find_entry(val, h)
 	if(existing >= 0): func <- false
@@ -191,7 +191,7 @@ bind Set[T].insert = fn(&self, val: own T) bool: {
 				let p = realloc_raw(self.entries, ncap)
 				zero_bytes(
 					ptr_cast[u8](ptr_add(p, old_cap)),
-					(ncap - old_cap) * size_of[SetEntry[T]](),
+					(ncap - old_cap) * type.size_of[SetEntry[T]](),
 				)
 				p
 			}
@@ -214,12 +214,12 @@ bind Set[T].insert = fn(&self, val: own T) bool: {
 }
 
 // Inserts `item` into the set (satisfies [`Collectable`] for set comprehensions).
-bind Set[T].push = fn(&self, item: own T): {
+const Set[T].push = fn(&self, item: own T): {
 	let _ = self.insert(own item)
 }
 
 // Removes and drops `val` if present, returning `true`, or returns `false` if absent.
-bind Set[T].remove = fn(&self, val: T) bool: {
+const Set[T].remove = fn(&self, val: T) bool: {
 	if(self.buck_cap == 0 or unsafe is_null(self.buckets)): func <- false
 	let h = val.hash()
 	let mask = self.buck_cap - 1
@@ -231,7 +231,7 @@ bind Set[T].remove = fn(&self, val: T) bool: {
 			unsafe {
 				if(self.entries[idx].alive and self.entries[idx].hash == h and self.entries[idx].key == val): {
 					let _ = ptr_read(ptr_add(self.entries, idx))
-					zero_bytes(ptr_cast[u8](ptr_add(self.entries, idx)), size_of[SetEntry[T]]())
+					zero_bytes(ptr_cast[u8](ptr_add(self.entries, idx)), type.size_of[SetEntry[T]]())
 					self.buckets[slot] = -2
 					self.len -= 1
 					func <- true
@@ -243,7 +243,7 @@ bind Set[T].remove = fn(&self, val: T) bool: {
 }
 
 // Drops all stored elements and resets the set to empty while retaining allocated capacity.
-bind Set[T].clear = fn(&self): {
+const Set[T].clear = fn(&self): {
 	if(not unsafe is_null(self.entries)): {
 		let i = 0
 		for(i < self.ent_len): {
@@ -251,7 +251,7 @@ bind Set[T].clear = fn(&self): {
 				if(self.entries[i].alive): {
 					let _ = ptr_read(ptr_add(self.entries, i))
 				}
-				zero_bytes(ptr_cast[u8](ptr_add(self.entries, i)), size_of[SetEntry[T]]())
+				zero_bytes(ptr_cast[u8](ptr_add(self.entries, i)), type.size_of[SetEntry[T]]())
 			}
 			i += 1
 		}
@@ -270,7 +270,7 @@ bind Set[T].clear = fn(&self): {
 }
 
 // Collects copies of all live elements into a new [`List`] in insertion order.
-bind Set[T].to_list = fn(self) List[T]: {
+const Set[T].to_list = fn(self) List[T]: {
 	let out = List[T].with_capacity(self.len)
 	let i = 0
 	for(i < self.ent_len): {
@@ -283,7 +283,7 @@ bind Set[T].to_list = fn(self) List[T]: {
 }
 
 // Returns a deep copy of the set containing copies of every live element.
-bind Set[T].copy = fn(self) Set[T]: {
+const Set[T].copy = fn(self) Set[T]: {
 	let out = Set[T].with_capacity(self.len)
 	let i = 0
 	for(i < self.ent_len): {
@@ -295,8 +295,70 @@ bind Set[T].copy = fn(self) Set[T]: {
 	out
 }
 
+// A new set holding every element that is in `self`, `other`, or both: `#[1, 2].union(#[2, 3])`
+// is `#[1, 2, 3]`. Elements are copied; `self`'s come first, then `other`'s new ones.
+const Set[T].union = fn(self, other: Set[T]) Set[T]: {
+	let out = self.copy()
+	let i = 0
+	for(i < other.ent_len): {
+		unsafe {
+			if(other.entries[i].alive): {
+				let _ = out.insert(other.entries[i].key.copy())
+			}
+		}
+		i += 1
+	}
+	out
+}
+
+// A new set holding the elements of `self` that are also in `other`:
+// `#[1, 2, 3].intersection(#[2, 3, 4])` is `#[2, 3]`. Elements are copied, in `self`'s order.
+const Set[T].intersection = fn(self, other: Set[T]) Set[T]: {
+	let out = Set[T].new()
+	let i = 0
+	for(i < self.ent_len): {
+		unsafe {
+			if(self.entries[i].alive and other.has(self.entries[i].key)): {
+				let _ = out.insert(self.entries[i].key.copy())
+			}
+		}
+		i += 1
+	}
+	out
+}
+
+// A new set holding the elements of `self` that are not in `other`:
+// `#[1, 2, 3].difference(#[2])` is `#[1, 3]`. Elements are copied, in `self`'s order.
+const Set[T].difference = fn(self, other: Set[T]) Set[T]: {
+	let out = Set[T].new()
+	let i = 0
+	for(i < self.ent_len): {
+		unsafe {
+			if(self.entries[i].alive and not other.has(self.entries[i].key)): {
+				let _ = out.insert(self.entries[i].key.copy())
+			}
+		}
+		i += 1
+	}
+	out
+}
+
+// Reports whether every element of `self` is also in `other`. The empty set is a subset of
+// every set, and every set is a subset of itself.
+const Set[T].is_subset = fn(self, other: Set[T]) bool: {
+	if(self.len > other.len): func <- false
+	let i = 0
+	for(i < self.ent_len): {
+		unsafe {
+			if(self.entries[i].alive and not other.has(self.entries[i].key)): func <- false
+		}
+		i += 1
+	}
+	true
+}
+
 // Formats the set as `"#[a, b, ...]"`.
-bind Set[T].to_string = fn(self) string: {
+const Set[T].to_string = fn(self) string: {
 	let out = "#["
 	let first = true
 	let i = 0
@@ -325,7 +387,7 @@ define SetIterator[T: Hashable] struct [
 ]
 
 // Advances the iterator and returns a copy of the next live element, or `none` when finished.
-bind SetIterator[T].next = fn(&self) ?T: {
+const SetIterator[T].next = fn(&self) ?T: {
 	for(self.idx < self.ent_len): {
 		let i = self.idx
 		self.idx += 1
@@ -337,7 +399,7 @@ bind SetIterator[T].next = fn(&self) ?T: {
 }
 
 // Returns a forward [`Iterator`] yielding copies of all live elements in the set.
-bind Set[T].iter = fn(self) Iterator[T]:
+const Set[T].iter = fn(self) Iterator[T]:
 	SetIterator[T][
 		entries: self.entries,
 		ent_len: self.ent_len,
@@ -345,7 +407,7 @@ bind Set[T].iter = fn(self) Iterator[T]:
 	]
 
 // Drops all remaining live elements and frees the entry and bucket tables.
-bind Set[T].drop = fn(&self): {
+const Set[T].drop = fn(&self): {
 	if(not unsafe is_null(self.entries)): {
 		let i = 0
 		for(i < self.ent_len): {
@@ -436,4 +498,27 @@ bind test_set_in_place_rehash_low_load = fn(): {
 	assert(s.buck_cap == 16, "buck_cap stays 16 at low load")
 	assert(compactions >= 3, "tombstones compacted in place multiple times")
 	assert(s.ent_len <= 11, "ent_len bounded by load factor")
+}
+
+@test("Set[T] union, intersection, difference, and is_subset")
+bind test_set_algebra = fn(): {
+	let a = #[1, 2, 3]
+	let b = #[2, 3, 4]
+	assert(a.union(b).to_string() == "#[1, 2, 3, 4]", "union keeps self's order, then other's")
+	assert(a.intersection(b).to_string() == "#[2, 3]", "intersection")
+	assert(a.difference(b).to_string() == "#[1]", "difference")
+	assert(b.difference(a).to_string() == "#[4]", "difference is not symmetric")
+	assert(#[2, 3].is_subset(a) and a.is_subset(a), "subsets")
+	assert(not a.is_subset(b) and not b.is_subset(#[2]), "not subsets")
+	let empty: #[int] = #[]
+	assert(
+		empty.is_subset(a) and a.union(empty).len() == 3 and a.intersection(empty).is_empty(),
+		"empty set",
+	)
+
+	let words = #["red" + "", "green" + ""]
+	let more = #["green" + "", "blue" + ""]
+	assert(words.union(more).len() == 3, "Resource elements are copied")
+	assert(words.intersection(more).contains("green"), "Resource intersection")
+	assert(words.len() == 2 and more.len() == 2, "operands are unchanged")
 }

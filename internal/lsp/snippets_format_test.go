@@ -40,7 +40,7 @@ func expandSnippet(body string) string {
 func snippetIsFormatted(t *testing.T, label, body string) {
 	t.Helper()
 	code := expandSnippet(body)
-	topLevel := strings.HasPrefix(code, "bind ") || strings.HasPrefix(code, "define ") || strings.HasPrefix(code, "@")
+	topLevel := strings.HasPrefix(code, "bind ") || strings.HasPrefix(code, "define ") || strings.HasPrefix(code, "extern ") || strings.HasPrefix(code, "@")
 	src := code + "\n"
 	if !topLevel {
 		src = "bind main = fn(): {\n\tlet x = 1\n\t" + strings.ReplaceAll(code, "\n", "\n\t") + "\n}\n"

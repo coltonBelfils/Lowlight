@@ -45,7 +45,7 @@ define Map[K: Hashable, V] struct [
 ]
 
 // Constructs an empty [`Map`] with zero heap allocation.
-bind Map[K, V].new = fn() Map[K, V]:
+const Map[K, V].new = fn() Map[K, V]:
 	Map[K, V][
 		buckets: unsafe null_ptr[int](),
 		buck_cap: 0,
@@ -56,7 +56,7 @@ bind Map[K, V].new = fn() Map[K, V]:
 	]
 
 // Constructs an empty [`Map`] pre-sized for at least `cap` key-value entries.
-bind Map[K, V].with_capacity = fn(cap: int) Map[K, V]: {
+const Map[K, V].with_capacity = fn(cap: int) Map[K, V]: {
 	if(cap <= 0): func <- Map[K, V].new()
 	let bcap = 8
 	for(bcap < cap * 2): bcap *= 2
@@ -80,13 +80,13 @@ bind Map[K, V].with_capacity = fn(cap: int) Map[K, V]: {
 }
 
 // Returns the number of live key-value entries currently in the map.
-bind Map[K, V].len = fn(self) int: self.len
+const Map[K, V].len = fn(self) int: self.len
 
 // Reports whether the map contains zero entries.
-bind Map[K, V].is_empty = fn(self) bool: self.len == 0
+const Map[K, V].is_empty = fn(self) bool: self.len == 0
 
 // Internal probe lookup returning the entry index of `needle` with hash `h`, or `-1`.
-bind Map[K, V].find_entry = fn(self, needle: K, h: u64) int: {
+const Map[K, V].find_entry = fn(self, needle: K, h: u64) int: {
 	if(self.buck_cap == 0 or unsafe is_null(self.buckets)): func <- -1
 	let mask = self.buck_cap - 1
 	let slot = int(h & u64(mask))
@@ -104,16 +104,16 @@ bind Map[K, V].find_entry = fn(self, needle: K, h: u64) int: {
 }
 
 // Reports whether `key` exists in the map.
-bind Map[K, V].has = fn(self, key: K) bool: {
+const Map[K, V].has = fn(self, key: K) bool: {
 	let h = key.hash()
 	self.find_entry(key, h) >= 0
 }
 
 // Reports whether `key` exists in the map (satisfies [`Containable`]).
-bind Map[K, V].contains = fn(self, key: K) bool: self.has(key)
+const Map[K, V].contains = fn(self, key: K) bool: self.has(key)
 
 // Returns a copy of the value mapped to `key`, or `none` if `key` is absent.
-bind Map[K, V].get = fn(self, key: K) ?V: {
+const Map[K, V].get = fn(self, key: K) ?V: {
 	let h = key.hash()
 	let idx = self.find_entry(key, h)
 	if(idx < 0): func <- none
@@ -121,7 +121,7 @@ bind Map[K, V].get = fn(self, key: K) ?V: {
 }
 
 // Internal helper that compacts tombstoned slots and rebuilds the bucket table at `new_bcap`.
-bind Map[K, V].rehash = fn(&self, new_bcap: int): {
+const Map[K, V].rehash = fn(&self, new_bcap: int): {
 	if(self.len < self.ent_len): {
 		let w = 0
 		let r = 0
@@ -132,7 +132,7 @@ bind Map[K, V].rehash = fn(&self, new_bcap: int): {
 						copy_bytes(
 							ptr_cast[u8](ptr_add(self.entries, w)),
 							ptr_cast[u8](ptr_add(self.entries, r)),
-							size_of[MapSlot[K, V]](),
+							type.size_of[MapSlot[K, V]](),
 						)
 					w += 1
 				}
@@ -142,7 +142,7 @@ bind Map[K, V].rehash = fn(&self, new_bcap: int): {
 		if(w < self.ent_len): {
 			unsafe zero_bytes(
 				ptr_cast[u8](ptr_add(self.entries, w)),
-				(self.ent_len - w) * size_of[MapSlot[K, V]](),
+				(self.ent_len - w) * type.size_of[MapSlot[K, V]](),
 			)
 		}
 		self.ent_len = w
@@ -181,7 +181,7 @@ bind Map[K, V].rehash = fn(&self, new_bcap: int): {
 //
 // # Ownership
 // Consumes ownership of both `key` and `val`.
-bind Map[K, V].insert = fn(&self, key: own K, val: own V): {
+const Map[K, V].insert = fn(&self, key: own K, val: own V): {
 	let h = key.hash()
 	let existing = self.find_entry(key, h)
 	if(existing >= 0): {
@@ -210,7 +210,7 @@ bind Map[K, V].insert = fn(&self, key: own K, val: own V): {
 				let p = realloc_raw(self.entries, ncap)
 				zero_bytes(
 					ptr_cast[u8](ptr_add(p, old_cap)),
-					(ncap - old_cap) * size_of[MapSlot[K, V]](),
+					(ncap - old_cap) * type.size_of[MapSlot[K, V]](),
 				)
 				p
 			}
@@ -232,11 +232,17 @@ bind Map[K, V].insert = fn(&self, key: own K, val: own V): {
 }
 
 // Inserts a [`MapEntry`] pair into the map (satisfies [`Collectable`] for map comprehensions).
-bind Map[K, V].push = fn(&self, entry: own MapEntry[K, V]):
-	self.insert(entry.key.copy(), entry.value.copy())
+// The key and value are moved out of `entry`, not copied.
+const Map[K, V].push = fn(&self, entry: own MapEntry[K, V]): {
+	let key = unsafe ptr_read(addr_of(entry.key))
+	let val = unsafe ptr_read(addr_of(entry.value))
+	// All-zero bytes are the moved-from state: `entry` now drops as a no-op.
+	unsafe zero_bytes(ptr_cast[u8](addr_of(entry)), type.size_of[MapEntry[K, V]]())
+	self.insert(own key, own val)
+}
 
 // Removes `key` and returns the value it mapped to, or `none` if `key` is absent.
-bind Map[K, V].remove = fn(&self, key: K) ?V: {
+const Map[K, V].remove = fn(&self, key: K) ?V: {
 	if(self.buck_cap == 0 or unsafe is_null(self.buckets)): func <- none
 	let h = key.hash()
 	let mask = self.buck_cap - 1
@@ -250,7 +256,7 @@ bind Map[K, V].remove = fn(&self, key: K) ?V: {
 					// Move the value out and drop the key, so `V` need not be copyable.
 					let out = ptr_read(addr_of(self.entries[idx].val))
 					let _ = ptr_read(addr_of(self.entries[idx].key))
-					zero_bytes(ptr_cast[u8](ptr_add(self.entries, idx)), size_of[MapSlot[K, V]]())
+					zero_bytes(ptr_cast[u8](ptr_add(self.entries, idx)), type.size_of[MapSlot[K, V]]())
 					self.buckets[slot] = -2
 					self.len -= 1
 					func <- out
@@ -262,7 +268,7 @@ bind Map[K, V].remove = fn(&self, key: K) ?V: {
 }
 
 // Drops all stored entries and resets the map to empty while retaining allocated capacity.
-bind Map[K, V].clear = fn(&self): {
+const Map[K, V].clear = fn(&self): {
 	if(not unsafe is_null(self.entries)): {
 		let i = 0
 		for(i < self.ent_len): {
@@ -270,7 +276,7 @@ bind Map[K, V].clear = fn(&self): {
 				if(self.entries[i].alive): {
 					let _ = ptr_read(ptr_add(self.entries, i))
 				}
-				zero_bytes(ptr_cast[u8](ptr_add(self.entries, i)), size_of[MapSlot[K, V]]())
+				zero_bytes(ptr_cast[u8](ptr_add(self.entries, i)), type.size_of[MapSlot[K, V]]())
 			}
 			i += 1
 		}
@@ -288,8 +294,65 @@ bind Map[K, V].clear = fn(&self): {
 	self.len = 0
 }
 
+// Returns a copy of the value mapped to `key`, first inserting `val` for it if `key` is absent.
+// `val` is dropped when `key` is already present.
+//
+// ```lowlight
+// let port = settings.get_or_insert("port", 8080)
+// ```
+const Map[K, V].get_or_insert = fn(&self, key: own K, val: own V) V: {
+	let idx = self.find_entry(key, key.hash())
+	if(idx >= 0): func <- unsafe self.entries[idx].val.copy()
+	let out = val.copy()
+	self.insert(own key, own val)
+	out
+}
+
+// Runs `f` on the value mapped to `key`, in place, and reports whether `key` was present. The
+// value isn't copied, so this works for values that can't be.
+//
+// ```lowlight
+// counts.update(word, cl(n: &int): { n += 1 })
+// groups.update(key, cl(names: &[string]): names.push(name.copy()))
+// ```
+const Map[K, V].update = fn(&self, key: K, f: cl(&V)) bool: {
+	let idx = self.find_entry(key, key.hash())
+	if(idx < 0): func <- false
+	unsafe f(&self.entries[idx].val)
+	true
+}
+
+// Lends the value mapped to `key` to `f`, read-only and without copying it, and returns what `f`
+// returns, or `none` if `key` is absent. Use it to read values that can't be copied, which `m[k]`
+// and `get` would have to copy.
+//
+// ```lowlight
+// let user = sessions.with(id, cl(s: Session) string: s.user.copy()) ?? "nobody"
+// ```
+const Map[K, V].with[R] = fn(self, key: K, f: cl(V) R) ?R: {
+	let idx = self.find_entry(key, key.hash())
+	if(idx < 0): func <- none
+	unsafe f(self.entries[idx].val)
+}
+
+// Returns a new [`List`] of [`MapEntry`] copies of every key-value pair, in insertion order.
+const Map[K, V].entries = fn(self) List[MapEntry[K, V]]: {
+	let out = List[MapEntry[K, V]].with_capacity(self.len)
+	let i = 0
+	for(i < self.ent_len): {
+		unsafe {
+			if(self.entries[i].alive): out.push(MapEntry[K, V][
+				key: self.entries[i].key.copy(),
+				value: self.entries[i].val.copy(),
+			])
+		}
+		i += 1
+	}
+	out
+}
+
 // Returns a new [`List`] containing copies of all keys in insertion order.
-bind Map[K, V].keys = fn(self) List[K]: {
+const Map[K, V].keys = fn(self) List[K]: {
 	let out = List[K].with_capacity(self.len)
 	let i = 0
 	for(i < self.ent_len): {
@@ -302,7 +365,7 @@ bind Map[K, V].keys = fn(self) List[K]: {
 }
 
 // Returns a new [`List`] containing copies of all values in insertion order.
-bind Map[K, V].values = fn(self) List[V]: {
+const Map[K, V].values = fn(self) List[V]: {
 	let out = List[V].with_capacity(self.len)
 	let i = 0
 	for(i < self.ent_len): {
@@ -315,7 +378,7 @@ bind Map[K, V].values = fn(self) List[V]: {
 }
 
 // Returns a deep copy of the map with copies of all keys and values.
-bind Map[K, V].copy = fn(self) Map[K, V]: {
+const Map[K, V].copy = fn(self) Map[K, V]: {
 	let out = Map[K, V].with_capacity(self.len)
 	let i = 0
 	for(i < self.ent_len): {
@@ -329,7 +392,7 @@ bind Map[K, V].copy = fn(self) Map[K, V]: {
 }
 
 // Formats the map as `"#[k1: v1, k2: v2, ...]"`.
-bind Map[K, V].to_string = fn(self) string: {
+const Map[K, V].to_string = fn(self) string: {
 	let out = "#["
 	let first = true
 	let i = 0
@@ -360,7 +423,7 @@ define MapIterator[K: Hashable, V] struct [
 ]
 
 // Advances the iterator and returns a copy of the next live [`MapEntry`], or `none` when finished.
-bind MapIterator[K, V].next = fn(&self) ?MapEntry[K, V]: {
+const MapIterator[K, V].next = fn(&self) ?MapEntry[K, V]: {
 	for(self.idx < self.ent_len): {
 		let i = self.idx
 		self.idx += 1
@@ -376,7 +439,7 @@ bind MapIterator[K, V].next = fn(&self) ?MapEntry[K, V]: {
 }
 
 // Returns a forward [`Iterator`] yielding [`MapEntry`] copies in insertion order.
-bind Map[K, V].iter = fn(self) Iterator[MapEntry[K, V]]:
+const Map[K, V].iter = fn(self) Iterator[MapEntry[K, V]]:
 	MapIterator[K, V][
 		entries: self.entries,
 		ent_len: self.ent_len,
@@ -384,7 +447,7 @@ bind Map[K, V].iter = fn(self) Iterator[MapEntry[K, V]]:
 	]
 
 // Drops all remaining keys/values and frees the entry and bucket tables.
-bind Map[K, V].drop = fn(&self): {
+const Map[K, V].drop = fn(&self): {
 	if(not unsafe is_null(self.entries)): {
 		let i = 0
 		for(i < self.ent_len): {
@@ -509,3 +572,65 @@ bind test_map_in_place_rehash_low_load = fn(): {
 	assert(compactions >= 3, "tombstones compacted in place multiple times")
 	assert(m.ent_len <= 11, "ent_len bounded by load factor")
 }
+
+@test("Map[K, V] get_or_insert, update, with, entries, and push moving its entry")
+bind test_map_helpers = fn(): {
+	let m: #[string: int] = #["a": 1]
+	assert(m.get_or_insert("a", 99) == 1, "get_or_insert returns the existing value")
+	assert(m.get_or_insert("b", 2) == 2 and m["b"] == 2, "get_or_insert inserts when absent")
+
+	assert(
+		m.update(
+			"a",
+			fn(n: &int): {
+				n += 10
+			},
+		),
+		"update reports a present key",
+	)
+	assert(m["a"] == 11, "update changes the value in place")
+	assert(
+		not m.update(
+			"zzz",
+			fn(n: &int): {
+				n += 1
+			},
+		),
+		"update reports an absent key",
+	)
+
+	let groups: #[string: [string]] = #[]
+	for(w in ["apple", "avocado", "banana"]): {
+		let k = w[0..1]
+		let _ = groups.get_or_insert(k.copy(), [])
+		let item = w.copy()
+		let _ = groups.update(k, cl(xs: &[string]): xs.push(item.copy()))
+	}
+	assert(groups.to_string() == "#[a: [apple, avocado], b: [banana]]", "grouping with update")
+
+	let es = m.entries()
+	assert(es.len() == 2 and es[0].key == "a" and es[1].value == 2, "entries in insertion order")
+
+	// `push` moves the entry, so values that can't be copied still collect into a map.
+	let handles = for(i in 0..3) #[int: _NoCopy]: MapEntry[key: i, value: _NoCopy[name: "h$i"]]
+	assert(handles.len() == 3 and handles.has(2), "push moves non-copyable values in")
+	assert(
+		handles.update(1, fn(h: &_NoCopy): h.name.push("!")),
+		"update reaches a non-copyable value",
+	)
+	assert(
+		handles.with(1, fn(h: _NoCopy) string: h.name.copy()) == "h1!",
+		"with reads a non-copyable value in place",
+	)
+	assert(
+		handles.with(9, fn(h: _NoCopy) int: h.name.len()) == none,
+		"with on an absent key is none",
+	)
+	assert(handles.with(0, fn(h: _NoCopy) int: h.name.len()) == 2, "with returns f's result")
+	assert(handles.remove(1)?.name == "h1!", "the change stuck")
+}
+
+@test_only
+define _NoCopy struct [
+	name: string
+]

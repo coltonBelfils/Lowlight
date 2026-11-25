@@ -328,7 +328,7 @@ bind _stable_sort_ptr[T] = fn(data: ptr[T], len: int): {
 				unsafe copy_bytes(
 					ptr_cast[u8](ptr_add(data, left)),
 					ptr_cast[u8](buf),
-					(right - left) * size_of[T](),
+					(right - left) * type.size_of[T](),
 				)
 			}
 			left += width * 2
@@ -391,7 +391,7 @@ bind _stable_sort_by_ptr[T] = fn(data: ptr[T], len: int, cmp_fn: cl(T, T) int): 
 				unsafe copy_bytes(
 					ptr_cast[u8](ptr_add(data, left)),
 					ptr_cast[u8](buf),
-					(right - left) * size_of[T](),
+					(right - left) * type.size_of[T](),
 				)
 			}
 			left += width * 2
@@ -498,10 +498,15 @@ bind _upper_bound_ptr[T] = fn(data: ptr[T], len: int, target: T) int: {
 // Methods Extending List[T] (`[T]`)
 // -----------------------------------------------------------------------------
 
+bind _list_data_mut[T] = fn(xs: &List[T]) ptr[T]: {
+	if(xs.cap <= 0 and xs.len > 0): xs.reserve(xs.len)
+	xs.data
+}
+
 // Sorts the list in place in ascending order using depth-bounded Introsort.
 bind List[T].sort = fn(&self): {
 	if(self.len <= 1): func <-
-	_sort_range(self.data, 0, self.len - 1, _max_depth(self.len))
+	_sort_range(_list_data_mut(&self), 0, self.len - 1, _max_depth(self.len))
 }
 
 // Sorts the list in place using custom comparator `cmp_fn` via depth-bounded Introsort.
@@ -509,18 +514,22 @@ bind List[T].sort = fn(&self): {
 // - `cmp_fn`: Returns `< 0` when `a < b`, `0` when equal, or `> 0` when `a > b`.
 bind List[T].sort_by = fn(&self, cmp_fn: cl(T, T) int): {
 	if(self.len <= 1): func <-
-	_sort_by_range(self.data, 0, self.len - 1, _max_depth(self.len), cmp_fn)
+	_sort_by_range(_list_data_mut(&self), 0, self.len - 1, _max_depth(self.len), cmp_fn)
 }
 
 // Sorts the list in place in ascending order while preserving the relative order of equal keys.
-bind List[T].stable_sort = fn(&self):
-	_stable_sort_ptr(self.data, self.len)
+bind List[T].stable_sort = fn(&self): {
+	if(self.len <= 1): func <-
+	_stable_sort_ptr(_list_data_mut(&self), self.len)
+}
 
 // Sorts the list in place using `cmp_fn` while preserving the relative order of equal keys.
 //
 // - `cmp_fn`: Returns `< 0` when `a < b`, `0` when equal, or `> 0` when `a > b`.
-bind List[T].stable_sort_by = fn(&self, cmp_fn: cl(T, T) int):
-	_stable_sort_by_ptr(self.data, self.len, cmp_fn)
+bind List[T].stable_sort_by = fn(&self, cmp_fn: cl(T, T) int): {
+	if(self.len <= 1): func <-
+	_stable_sort_by_ptr(_list_data_mut(&self), self.len, cmp_fn)
+}
 
 // Reports whether elements in the list are sorted in non-decreasing ascending order.
 bind List[T].is_sorted = fn(self) bool:
@@ -549,8 +558,10 @@ bind List[T].upper_bound = fn(self, target: T) int:
 	_upper_bound_ptr(self.data, self.len, target)
 
 // Reverses the order of elements in the list in place.
-bind List[T].reverse = fn(&self):
-	_reverse_ptr(self.data, self.len)
+bind List[T].reverse = fn(&self): {
+	if(self.len <= 1): func <-
+	_reverse_ptr(_list_data_mut(&self), self.len)
+}
 
 // -----------------------------------------------------------------------------
 // Methods Extending Array[T] (`[N: T]`)

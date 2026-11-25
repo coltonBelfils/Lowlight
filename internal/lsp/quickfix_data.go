@@ -134,9 +134,93 @@ func (s *Server) collectDataQuickFixes(filePath, uri, src string, d Diagnostic, 
 			}
 		case fix == "wrap_value":
 			replace("Wrap in `value(...)`", full, "value("+fullText+")", true)
+		case fix == "nonzero":
+			replace("Compare with `!= 0`", full, fullText+" != 0", true)
 		case strings.HasPrefix(fix, "wrap_failure:"):
 			name := strings.TrimPrefix(fix, "wrap_failure:")
 			replace(fmt.Sprintf("Wrap in `%s(...)`", name), full, name+"("+fullText+")", true)
+		}
+
+	case "tuple_index":
+		if !hasFull {
+			return
+		}
+		if idx := diagString(d, "index"); idx != "" {
+			replace(fmt.Sprintf("Replace `[%s]` with `.%s`", idx, idx), full, "."+idx, true)
+		}
+
+	case "drop_quest_dot":
+		if !hasFull {
+			return
+		}
+		if qIdx := strings.LastIndex(fullText, "?."); qIdx >= 0 {
+			qOff := LSPToOffset(src, full.Start) + qIdx
+			qRng := Range{Start: OffsetToLSP(src, qOff), End: OffsetToLSP(src, qOff+1)}
+			replace("Replace `?.` with `.`", qRng, "", true)
+		}
+
+	case "remove_parens":
+		if !hasFull {
+			return
+		}
+		if openIdx := strings.LastIndexByte(fullText, '('); openIdx >= 0 && strings.HasSuffix(strings.TrimSpace(fullText), ")") {
+			pOff := LSPToOffset(src, full.Start) + openIdx
+			pRng := Range{Start: OffsetToLSP(src, pOff), End: full.End}
+			replace("Remove `()`", pRng, "", true)
+		}
+
+	case "append_copy":
+		if !hasFull {
+			return
+		}
+		replace("Append `.copy()`", full, parenthesize(fullText)+".copy()", true)
+
+	case "strip_ll_import":
+		oldPath := diagString(d, "oldPath")
+		newPath := diagString(d, "newPath")
+		if oldPath == "" || newPath == "" {
+			return
+		}
+		sOff, eOff := LSPToOffset(src, d.Range.Start), LSPToOffset(src, d.Range.End)
+		if sOff >= 0 && eOff <= len(src) && sOff < eOff {
+			if idx := strings.Index(src[sOff:eOff], oldPath); idx >= 0 {
+				pOff := sOff + idx
+				pRng := Range{Start: OffsetToLSP(src, pOff), End: OffsetToLSP(src, pOff+len(oldPath))}
+				replace(fmt.Sprintf("Change import to %q", newPath), pRng, newPath, true)
+			}
+		}
+
+	case "insert_colon":
+		off := LSPToOffset(src, d.Range.Start)
+		if off < 0 || off > len(src) {
+			return
+		}
+		insOff := off
+		for insOff > 0 && (src[insOff-1] == ' ' || src[insOff-1] == '\t') {
+			insOff--
+		}
+		insText := ":"
+		if insOff == off {
+			insText = ": "
+		}
+		at := Range{Start: OffsetToLSP(src, insOff), End: OffsetToLSP(src, insOff)}
+		replace("Insert `:` before `{`", at, insText, true)
+
+	case "else_to_default":
+		sOff, eOff := LSPToOffset(src, d.Range.Start), LSPToOffset(src, d.Range.End)
+		if sOff >= 0 && eOff <= len(src) && src[sOff:eOff] == "else" {
+			replace("Replace `else` with `default`", d.Range, "default", true)
+		}
+
+	case "strip_opt_suffix":
+		name := diagString(d, "name")
+		if !strings.HasSuffix(name, "?") {
+			return
+		}
+		plain := strings.TrimSuffix(name, "?")
+		sOff, eOff := LSPToOffset(src, d.Range.Start), LSPToOffset(src, d.Range.End)
+		if sOff >= 0 && eOff <= len(src) && src[sOff:eOff] == name {
+			replace(fmt.Sprintf("Remove `?` (`%s`)", plain), d.Range, plain, true)
 		}
 
 	case "rename":

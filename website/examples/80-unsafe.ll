@@ -19,6 +19,6 @@ bind main = fn(): {
 	println(sum)
 
 	// Layout queries are safe.
-	println(size_of[i32]())
-	println(align_of[f64]())
+	println(type.size_of[i32]())
+	println(type.align_of[f64]())
 }

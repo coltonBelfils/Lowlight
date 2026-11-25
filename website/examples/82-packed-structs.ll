@@ -15,8 +15,8 @@ define packed PackedHeader struct [
 ]
 
 bind main = fn(): {
-	println(size_of[Header]())
-	println(size_of[PackedHeader]())
-	println(is_plain[Header]())
-	println(is_plain[string]())
+	println(type.size_of[Header]())
+	println(type.size_of[PackedHeader]())
+	println(type.is_plain[Header]())
+	println(type.is_plain[string]())
 }

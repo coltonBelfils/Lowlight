@@ -2,7 +2,6 @@ package codegen
 
 import (
 	"fmt"
-	"runtime"
 	"strings"
 
 	"lowlight/internal/ir"
@@ -133,7 +132,7 @@ func canToStringVisited(prog *ir.Program, t types.Type, seen map[types.Type]bool
 	}
 	switch v := t.(type) {
 	case *types.Primitive:
-		return v.Kind != types.PrimVoid && v.Kind != types.PrimArena
+		return v.Kind != types.PrimVoid
 	case *types.Ptr, *types.Ref:
 		return true
 	case *types.Enum:
@@ -242,90 +241,78 @@ func (g *llvmEmitter) canEqVisited(t types.Type, seen map[types.Type]bool) bool 
 // 1. Standalone LLVM IR Runtime & Libc Declarations
 // -----------------------------------------------------------------------------
 
+func (g *llvmEmitter) cSizeType() string {
+	if targetInfoForProg(g.prog).PtrBits == 32 {
+		return "i32"
+	}
+	return "i64"
+}
+
+func (g *llvmEmitter) cCallWithSize(callPrefix, sizeReg, callSuffix string) string {
+	if g.cSizeType() == "i32" {
+		return "    %%" + sizeReg + "_sz = trunc i64 %%" + sizeReg + " to i32\n" +
+			"    " + callPrefix + "i32 %%" + sizeReg + "_sz" + callSuffix
+	}
+	return "    " + callPrefix + "i64 %%" + sizeReg + callSuffix
+}
+
 func (g *llvmEmitter) emitRuntimeAndDeclarations() {
 	g.line("; External Libc & Intrinsics Declarations")
-	isDarwin := runtime.GOOS == "darwin"
+	tgt := targetInfoForProg(g.prog)
+	isDarwin := tgt.OS == "darwin"
+	isWindows := tgt.OS == "windows"
+	sizeTy := "i64"
+	if tgt.PtrBits == 32 {
+		sizeTy = "i32"
+	}
 
 	if isDarwin {
 		g.line("@__stdoutp = external global ptr")
 		g.line("@__stderrp = external global ptr")
-		g.declareBuiltin("__error", "declare ptr @__error()")
+	} else if isWindows {
+		g.line("declare ptr @__acrt_iob_func(i32)")
+		g.declaredFns["__acrt_iob_func"] = true
+		g.declaredSigs["__acrt_iob_func"] = "ptr(i32)"
 	} else {
 		g.line("@stdout = external global ptr")
 		g.line("@stderr = external global ptr")
-		g.declareBuiltin("__errno_location", "declare ptr @__errno_location()")
 	}
 
 	decls := []struct{ name, sig string }{
-		{"malloc", "declare ptr @malloc(i64)"},
-		{"calloc", "declare ptr @calloc(i64, i64)"},
-		{"realloc", "declare ptr @realloc(ptr, i64)"},
+		{"malloc", fmt.Sprintf("declare ptr @malloc(%s)", sizeTy)},
+		{"calloc", fmt.Sprintf("declare ptr @calloc(%s, %s)", sizeTy, sizeTy)},
+		{"realloc", fmt.Sprintf("declare ptr @realloc(ptr, %s)", sizeTy)},
 		{"free", "declare void @free(ptr)"},
 		{"abort", "declare void @abort()"},
 		{"exit", "declare void @exit(i32)"},
 		{"getenv", "declare ptr @getenv(ptr)"},
 		{"strcmp", "declare i32 @strcmp(ptr, ptr)"},
-		{"strncmp", "declare i32 @strncmp(ptr, ptr, i64)"},
-		{"strlen", "declare i64 @strlen(ptr)"},
-		{"memcmp", "declare i32 @memcmp(ptr, ptr, i64)"},
-		{"memmove", "declare ptr @memmove(ptr, ptr, i64)"},
+		{"strncmp", fmt.Sprintf("declare i32 @strncmp(ptr, ptr, %s)", sizeTy)},
+		{"strlen", fmt.Sprintf("declare %s @strlen(ptr)", sizeTy)},
+		{"memcmp", fmt.Sprintf("declare i32 @memcmp(ptr, ptr, %s)", sizeTy)},
+		{"memmove", fmt.Sprintf("declare ptr @memmove(ptr, ptr, %s)", sizeTy)},
 		{"strchr", "declare ptr @strchr(ptr, i32)"},
 		{"printf", "declare i32 @printf(ptr, ...)"},
 		{"fprintf", "declare i32 @fprintf(ptr, ptr, ...)"},
-		{"snprintf", "declare i32 @snprintf(ptr, i64, ptr, ...)"},
+		{"snprintf", fmt.Sprintf("declare i32 @snprintf(ptr, %s, ptr, ...)", sizeTy)},
 		{"puts", "declare i32 @puts(ptr)"},
 		{"fputc", "declare i32 @fputc(i32, ptr)"},
-		{"fopen", "declare ptr @fopen(ptr, ptr)"},
-		{"fclose", "declare i32 @fclose(ptr)"},
-		{"fread", "declare i64 @fread(ptr, i64, i64, ptr)"},
-		{"fwrite", "declare i64 @fwrite(ptr, i64, i64, ptr)"},
-		{"fseek", "declare i32 @fseek(ptr, i64, i32)"},
-		{"ftell", "declare i64 @ftell(ptr)"},
+		{"fwrite", fmt.Sprintf("declare %s @fwrite(ptr, %s, %s, ptr)", sizeTy, sizeTy, sizeTy)},
 		{"fflush", "declare i32 @fflush(ptr)"},
-		{"ferror", "declare i32 @ferror(ptr)"},
-		{"remove", "declare i32 @remove(ptr)"},
-		{"rename", "declare i32 @rename(ptr, ptr)"},
-		{"popen", "declare ptr @popen(ptr, ptr)"},
-		{"pclose", "declare i32 @pclose(ptr)"},
-		{"system", "declare i32 @system(ptr)"},
-		{"access", "declare i32 @access(ptr, i32)"},
-		{"mkdir", "declare i32 @mkdir(ptr, i32)"},
-		{"unlink", "declare i32 @unlink(ptr)"},
-		{"rmdir", "declare i32 @rmdir(ptr)"},
-		{"opendir", "declare ptr @opendir(ptr)"},
-		{"readdir", "declare ptr @readdir(ptr)"},
-		{"closedir", "declare i32 @closedir(ptr)"},
-		{"sysconf", "declare i64 @sysconf(i32)"},
-		{"clock_gettime", "declare i32 @clock_gettime(i32, ptr)"},
-		{"nanosleep", "declare i32 @nanosleep(ptr, ptr)"},
-		{"time", "declare i64 @time(ptr)"},
-		{"localtime_r", "declare ptr @localtime_r(ptr, ptr)"},
-		{"getaddrinfo", "declare i32 @getaddrinfo(ptr, ptr, ptr, ptr)"},
-		{"freeaddrinfo", "declare void @freeaddrinfo(ptr)"},
-		{"socket", "declare i32 @socket(i32, i32, i32)"},
-		{"setsockopt", "declare i32 @setsockopt(i32, i32, i32, ptr, i32)"},
-		{"getsockopt", "declare i32 @getsockopt(i32, i32, i32, ptr, ptr)"},
-		{"bind", "declare i32 @bind(i32, ptr, i32)"},
-		{"listen", "declare i32 @listen(i32, i32)"},
-		{"getsockname", "declare i32 @getsockname(i32, ptr, ptr)"},
-		{"getpeername", "declare i32 @getpeername(i32, ptr, ptr)"},
-		{"accept", "declare i32 @accept(i32, ptr, ptr)"},
-		{"connect", "declare i32 @connect(i32, ptr, i32)"},
-		{"poll", "declare i32 @poll(ptr, i32, i32)"},
-		{"fcntl", "declare i32 @fcntl(i32, i32, ...)"},
-		{"send", "declare i64 @send(i32, ptr, i64, i32)"},
-		{"recv", "declare i64 @recv(i32, ptr, i64, i32)"},
-		{"close", "declare i32 @close(i32)"},
-		{"shutdown", "declare i32 @shutdown(i32, i32)"},
-		{"socketpair", "declare i32 @socketpair(i32, i32, i32, ptr)"},
-		{"dlopen", "declare ptr @dlopen(ptr, i32)"},
-		{"dlsym", "declare ptr @dlsym(ptr, ptr)"},
-		{"dlclose", "declare i32 @dlclose(ptr)"},
 		{"setjmp", "declare i32 @setjmp(ptr) returns_twice"},
 		{"longjmp", "declare void @longjmp(ptr, i32) noreturn"},
 		{"llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)"},
 		{"llvm.memset.p0.i64", "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)"},
 		{"llvm.bswap.i16", "declare i16 @llvm.bswap.i16(i16)"},
+	}
+	if tgt.IsUnix {
+		decls = append(decls,
+			struct{ name, sig string }{"clock_gettime", "declare i32 @clock_gettime(i32, ptr)"},
+			struct{ name, sig string }{"setsockopt", "declare i32 @setsockopt(i32, i32, i32, ptr, i32)"},
+			struct{ name, sig string }{"dlopen", "declare ptr @dlopen(ptr, i32)"},
+			struct{ name, sig string }{"dlsym", "declare ptr @dlsym(ptr, ptr)"},
+			struct{ name, sig string }{"dlclose", "declare i32 @dlclose(ptr)"},
+		)
 	}
 	for _, d := range decls {
 		g.declareBuiltin(d.name, d.sig)
@@ -340,7 +327,7 @@ func (g *llvmEmitter) emitRuntimeAndDeclarations() {
 				paramTypes = append(paramTypes, g.llvmType(p.Type))
 			}
 			retTy := g.llvmType(ef.Sig.Ret)
-			g.declareBuiltin(ef.Name, fmt.Sprintf("declare %s @%s(%s)", retTy, ef.Name, strings.Join(paramTypes, ", ")))
+			g.declareBuiltin(ef.Name, fmt.Sprintf("declare %s %s(%s)", retTy, llvmGlobalRef(ef.Name), strings.Join(paramTypes, ", ")))
 		}
 		g.line("")
 	}
@@ -375,7 +362,7 @@ func (g *llvmEmitter) emitRuntimeAndDeclarations() {
 	}
 	g.line("")
 
-	// Platform-specific helpers: stdout, stderr, errno
+	// Platform-specific helpers: stdout, stderr
 	if isDarwin {
 		g.raw(`define internal ptr @ll_rt_stdout() {
 entry:
@@ -386,12 +373,17 @@ define internal ptr @ll_rt_stderr() {
 entry:
     %p = load ptr, ptr @__stderrp, align 8
     ret ptr %p
-}
-define internal i32 @ll_rt_errno() {
+}`)
+	} else if isWindows {
+		g.raw(`define internal ptr @ll_rt_stdout() {
 entry:
-    %p = call ptr @__error()
-    %v = load i32, ptr %p, align 4
-    ret i32 %v
+    %p = call ptr @__acrt_iob_func(i32 1)
+    ret ptr %p
+}
+define internal ptr @ll_rt_stderr() {
+entry:
+    %p = call ptr @__acrt_iob_func(i32 2)
+    ret ptr %p
 }`)
 	} else {
 		g.raw(`define internal ptr @ll_rt_stdout() {
@@ -403,12 +395,6 @@ define internal ptr @ll_rt_stderr() {
 entry:
     %p = load ptr, ptr @stderr, align 8
     ret ptr %p
-}
-define internal i32 @ll_rt_errno() {
-entry:
-    %p = call ptr @__errno_location()
-    %v = load i32, ptr %p, align 4
-    ret i32 %v
 }`)
 	}
 	g.line("")
@@ -443,7 +429,7 @@ entry:
 entry:
     %%pos = icmp sgt i64 %%size, 0
     %%n = select i1 %%pos, i64 %%size, i64 1
-    %%p = call ptr @calloc(i64 1, i64 %%n)
+` + g.cCallWithSize("%%p = call ptr @calloc("+g.cSizeType()+" 1, ", "n", ")") + `
     %%is_null = icmp eq ptr %%p, null
     br i1 %%is_null, label %%oom, label %%ok
 oom:
@@ -470,7 +456,7 @@ do_alloc:
 do_realloc:
     %%pos = icmp sgt i64 %%size, 0
     %%n = select i1 %%pos, i64 %%size, i64 1
-    %%p = call ptr @realloc(ptr %%ptr, i64 %%n)
+` + g.cCallWithSize("%%p = call ptr @realloc(ptr %%ptr, ", "n", ")") + `
     %%p_null = icmp eq ptr %%p, null
     br i1 %%p_null, label %%oom, label %%ok
 oom:
@@ -507,7 +493,7 @@ entry:
     %%ok = and i1 %%ok1, %%c3
     br i1 %%ok, label %%do_move, label %%done
 do_move:
-    call ptr @memmove(ptr %%dst, ptr %%src, i64 %%count)
+` + g.cCallWithSize("call ptr @memmove(ptr %%dst, ptr %%src, ", "count", ")") + `
     br label %%done
 done:
     ret void
@@ -567,7 +553,7 @@ entry:
     %%in_test = icmp ne ptr %%jmp, null
     br i1 %%in_test, label %%test_jmp, label %%fatal
 test_jmp:
-    call i32 (ptr, i64, ptr, ...) @snprintf(ptr @ll_test_last_panic, i64 65536, ptr %s, ptr %%f, i32 %%line, ptr %%m)
+    call i32 (ptr, `+g.cSizeType()+`, ptr, ...) @snprintf(ptr @ll_test_last_panic, `+g.cSizeType()+` 65536, ptr %s, ptr %%f, i32 %%line, ptr %%m)
     call void @longjmp(ptr %%jmp, i32 1)
     unreachable
 fatal:
@@ -592,7 +578,7 @@ fail:
     %%in_test = icmp ne ptr %%jmp, null
     br i1 %%in_test, label %%test_jmp, label %%fatal
 test_jmp:
-    call i32 (ptr, i64, ptr, ...) @snprintf(ptr @ll_test_last_panic, i64 65536, ptr %s, ptr %%f, i64 %%line, i64 %%idx, i64 %%len)
+    call i32 (ptr, `+g.cSizeType()+`, ptr, ...) @snprintf(ptr @ll_test_last_panic, `+g.cSizeType()+` 65536, ptr %s, ptr %%f, i64 %%line, i64 %%idx, i64 %%len)
     call void @longjmp(ptr %%jmp, i32 1)
     unreachable
 fatal:
@@ -646,7 +632,7 @@ entry:
     br i1 %%bad, label %%fail, label %%ok
 fail:
     %%buf = alloca [64 x i8], align 1
-    call i32 (ptr, i64, ptr, ...) @snprintf(ptr %%buf, i64 64, ptr %s, i64 %%v)
+    call i32 (ptr, `+g.cSizeType()+`, ptr, ...) @snprintf(ptr %%buf, `+g.cSizeType()+` 64, ptr %s, i64 %%v)
     %%l32 = trunc i64 %%line to i32
     call void @ll_panic_cstr(ptr %%buf, ptr %%file, i32 %%l32)
     unreachable
@@ -659,7 +645,7 @@ ok:
 entry:
     %%pos = icmp sgt i64 %%size, 0
     %%n = select i1 %%pos, i64 %%size, i64 1
-    %%p = call ptr @malloc(i64 %%n)
+` + g.cCallWithSize("%%p = call ptr @malloc(", "n", ")") + `
     %%is_null = icmp eq ptr %%p, null
     br i1 %%is_null, label %%oom, label %%ok
 oom:
@@ -692,9 +678,8 @@ done:
 
 	g.emitArithmeticAndShiftRuntime()
 	g.emitStringAndAssertRuntime()
-	g.emitArenaRuntime()
-	g.emitSyscallAndOSRuntime()
-	g.emitNetAndTLSRuntime()
+	g.emitArgsAndSyscallRuntime()
+	g.emitTLSRuntime()
 	g.emitTestHarnessRuntime()
 }
 func (g *llvmEmitter) emitArithmeticAndShiftRuntime() {
@@ -860,14 +845,12 @@ func (g *llvmEmitter) emitStringAndAssertRuntime() {
 	panicNoColJmpFmt := g.internString("%.*s:%lld: %.*s").symbol
 	panicColErrFmt := g.internString("lowlight panic at %.*s:%lld:%lld: %.*s\n").symbol
 	panicNoColErrFmt := g.internString("lowlight panic at %.*s:%lld: %.*s\n").symbol
-	locColFmt := g.internString("%.*s:%lld:%lld").symbol
-	locNoColFmt := g.internString("%.*s:%lld").symbol
 
 	fns := []string{
 		"ll_drop__string", "ll_str_free_p", "ll_copy__string", "ll_copy_p__string",
 		"ll_str_ensure_owned_cap", "ll_str_push_p", "ll_str_push_byte",
 		"ll_str_push_bytes", "ll_str_eq_p", "ll_str_cmp_p", "ll_str_hash_p",
-		"ll_print_str_p", "ll_panic_str_p", "ll_assert_p", "ll_format_loc",
+		"ll_print_str_p", "ll_panic_str_p", "ll_assert_p",
 	}
 	for _, fn := range fns {
 		g.funcSet[fn] = true
@@ -1019,7 +1002,7 @@ do_push:
     %%p_data = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 0
     %%data = load ptr, ptr %%p_data, align 8
     %%dst = getelementptr inbounds i8, ptr %%data, i64 %%len
-    call ptr @memmove(ptr %%dst, ptr %%sdata, i64 %%slen)
+` + g.cCallWithSize("call ptr @memmove(ptr %%dst, ptr %%sdata, ", "slen", ")") + `
     store i64 %%new_len, ptr %%p_len, align 8
     %%term = getelementptr inbounds i8, ptr %%data, i64 %%new_len
     store i8 0, ptr %%term, align 1
@@ -1060,7 +1043,7 @@ do_push:
     %%p_data = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 0
     %%data = load ptr, ptr %%p_data, align 8
     %%dst = getelementptr inbounds i8, ptr %%data, i64 %%len
-    call ptr @memmove(ptr %%dst, ptr %%bytes, i64 %%count)
+` + g.cCallWithSize("call ptr @memmove(ptr %%dst, ptr %%bytes, ", "count", ")") + `
     store i64 %%new_len, ptr %%p_len, align 8
     %%term = getelementptr inbounds i8, ptr %%data, i64 %%new_len
     store i8 0, ptr %%term, align 1
@@ -1175,7 +1158,7 @@ write:
     %%do_w = and i1 %%c1, %%c2
     br i1 %%do_w, label %%do_fwrite, label %%chk_nl
 do_fwrite:
-    call i64 @fwrite(ptr %%data, i64 1, i64 %%len, ptr %%out)
+` + g.cCallWithSize("call "+g.cSizeType()+" @fwrite(ptr %%data, "+g.cSizeType()+" 1, ", "len", ", ptr %%out)") + `
     br label %%chk_nl
 chk_nl:
     %%do_nl = icmp ne i32 %%newline, 0
@@ -1228,11 +1211,11 @@ dispatch:
 test_jmp:
     br i1 %%has_col, label %%tj_col, label %%tj_nocol
 tj_col:
-    call i32 (ptr, i64, ptr, ...) @snprintf(ptr @ll_test_last_panic, i64 65536, ptr %s, i32 %%fl, ptr %%fd, i64 %%line, i64 %%col, i32 %%ml, ptr %%md)
+    call i32 (ptr, `+g.cSizeType()+`, ptr, ...) @snprintf(ptr @ll_test_last_panic, `+g.cSizeType()+` 65536, ptr %s, i32 %%fl, ptr %%fd, i64 %%line, i64 %%col, i32 %%ml, ptr %%md)
     call void @longjmp(ptr %%jmp, i32 1)
     unreachable
 tj_nocol:
-    call i32 (ptr, i64, ptr, ...) @snprintf(ptr @ll_test_last_panic, i64 65536, ptr %s, i32 %%fl, ptr %%fd, i64 %%line, i32 %%ml, ptr %%md)
+    call i32 (ptr, `+g.cSizeType()+`, ptr, ...) @snprintf(ptr @ll_test_last_panic, `+g.cSizeType()+` 65536, ptr %s, i32 %%fl, ptr %%fd, i64 %%line, i32 %%ml, ptr %%md)
     call void @longjmp(ptr %%jmp, i32 1)
     unreachable
 fatal:
@@ -1259,624 +1242,24 @@ fail:
 ok:
     ret void
 }
-
-define internal %%struct.ll_string @ll_format_loc(%%struct.ll_string %%file, i64 %%line, i64 %%col) {
-entry:
-    %%buf = alloca [512 x i8], align 1
-    %%fslot = alloca %%struct.ll_string, align 8
-    store %%struct.ll_string %%file, ptr %%fslot, align 8
-    %%pf_d = getelementptr inbounds %%struct.ll_string, ptr %%fslot, i32 0, i32 0
-    %%pf_l = getelementptr inbounds %%struct.ll_string, ptr %%fslot, i32 0, i32 1
-    %%fd0 = load ptr, ptr %%pf_d, align 8
-    %%fl0 = load i64, ptr %%pf_l, align 8
-    %%fd_null = icmp eq ptr %%fd0, null
-    %%fd = select i1 %%fd_null, ptr %s, ptr %%fd0
-    %%fl = trunc i64 %%fl0 to i32
-    %%has_col = icmp sgt i64 %%col, 0
-    br i1 %%has_col, label %%fmt_col, label %%fmt_nocol
-fmt_col:
-    %%n1 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %%buf, i64 512, ptr %s, i32 %%fl, ptr %%fd, i64 %%line, i64 %%col)
-    br label %%finish
-fmt_nocol:
-    %%n2 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %%buf, i64 512, ptr %s, i32 %%fl, ptr %%fd, i64 %%line)
-    br label %%finish
-finish:
-    %%n32 = phi i32 [ %%n1, %%fmt_col ], [ %%n2, %%fmt_nocol ]
-    %%pos = icmp sgt i32 %%n32, 0
-    %%n64 = sext i32 %%n32 to i64
-    %%len0 = select i1 %%pos, i64 %%n64, i64 0
-    %%over = icmp sgt i64 %%len0, 511
-    %%len = select i1 %%over, i64 511, i64 %%len0
-    %%tmp = alloca %%struct.ll_string, align 8
-    %%p0 = getelementptr inbounds %%struct.ll_string, ptr %%tmp, i32 0, i32 0
-    %%p1 = getelementptr inbounds %%struct.ll_string, ptr %%tmp, i32 0, i32 1
-    %%p2 = getelementptr inbounds %%struct.ll_string, ptr %%tmp, i32 0, i32 2
-    store ptr %%buf, ptr %%p0, align 8
-    store i64 %%len, ptr %%p1, align 8
-    store i64 0, ptr %%p2, align 8
-    %%res = alloca %%struct.ll_string, align 8
-    call void @ll_copy_p__string(ptr %%res, ptr %%tmp)
-    %%out = load %%struct.ll_string, ptr %%res, align 8
-    ret %%struct.ll_string %%out
-}
 `, emptySym, emptySym, emptySym, unkSym, unkSym,
-		panicColJmpFmt, panicNoColJmpFmt, panicColErrFmt, panicNoColErrFmt,
-		unkSym, locColFmt, locNoColFmt)
+		panicColJmpFmt, panicNoColJmpFmt, panicColErrFmt, panicNoColErrFmt)
 }
 
-func (g *llvmEmitter) emitArenaRuntime() {
-	fns := []string{
-		"ll_arena_new_p", "ll_arena_bump_raw", "ll_arena_alloc",
-		"ll_arena_run_dtors", "ll_arena_reset", "ll_arena_bytes_used", "ll_drop__Arena",
-	}
-	for _, fn := range fns {
-		g.funcSet[fn] = true
-	}
-
-	// ll_arena_chunk: { ptr next (0), i64 cap (8), i64 used (16), [0 x i8] data (24) } -> header size 24
-	// ll_arena_dtor:  { ptr dtor (0), ptr ptr (8), ptr next (16) } -> size 24, align 8
-	// ll_arena:       { ptr head (0), ptr dtors (8), i64 default_cap (16) }
-	g.raw(`define internal void @ll_arena_new_p(ptr %res, i64 %initial_cap) {
-entry:
-    %lt = icmp slt i64 %initial_cap, 256
-    %cap = select i1 %lt, i64 256, i64 %initial_cap
-    %tot = add i64 %cap, 24
-    %ch = call ptr @ll_alloc(i64 %tot)
-    %p_next = getelementptr inbounds { ptr, i64, i64 }, ptr %ch, i32 0, i32 0
-    %p_cap = getelementptr inbounds { ptr, i64, i64 }, ptr %ch, i32 0, i32 1
-    %p_used = getelementptr inbounds { ptr, i64, i64 }, ptr %ch, i32 0, i32 2
-    store ptr null, ptr %p_next, align 8
-    store i64 %cap, ptr %p_cap, align 8
-    store i64 0, ptr %p_used, align 8
-    %a_head = getelementptr inbounds %struct.ll_arena, ptr %res, i32 0, i32 0
-    %a_dtors = getelementptr inbounds %struct.ll_arena, ptr %res, i32 0, i32 1
-    %a_def = getelementptr inbounds %struct.ll_arena, ptr %res, i32 0, i32 2
-    store ptr %ch, ptr %a_head, align 8
-    store ptr null, ptr %a_dtors, align 8
-    store i64 %cap, ptr %a_def, align 8
-    ret void
-}
-
-define internal ptr @ll_arena_bump_raw(ptr %a, i64 %size_in, i64 %align_in) {
-entry:
-    %al_lt = icmp slt i64 %align_in, 1
-    %align = select i1 %al_lt, i64 1, i64 %align_in
-    %sz_lt = icmp slt i64 %size_in, 1
-    %size = select i1 %sz_lt, i64 1, i64 %size_in
-    %a_head = getelementptr inbounds %struct.ll_arena, ptr %a, i32 0, i32 0
-    %head0 = load ptr, ptr %a_head, align 8
-    %no_head = icmp eq ptr %head0, null
-    br i1 %no_head, label %init_arena, label %have_head
-init_arena:
-    %a_def = getelementptr inbounds %struct.ll_arena, ptr %a, i32 0, i32 2
-    %def0 = load i64, ptr %a_def, align 8
-    %def_ok = icmp sge i64 %def0, 256
-    %def = select i1 %def_ok, i64 %def0, i64 4096
-    %sz2 = mul i64 %size, 2
-    %use_def = icmp sgt i64 %def, %sz2
-    %ic = select i1 %use_def, i64 %def, i64 %sz2
-    call void @ll_arena_new_p(ptr %a, i64 %ic)
-    br label %have_head
-have_head:
-    %ch = load ptr, ptr %a_head, align 8
-    %p_cap = getelementptr inbounds { ptr, i64, i64 }, ptr %ch, i32 0, i32 1
-    %p_used = getelementptr inbounds { ptr, i64, i64 }, ptr %ch, i32 0, i32 2
-    %cap = load i64, ptr %p_cap, align 8
-    %used = load i64, ptr %p_used, align 8
-    %data_base = getelementptr inbounds i8, ptr %ch, i64 24
-    %cur_ptr = getelementptr inbounds i8, ptr %data_base, i64 %used
-    %base_int = ptrtoint ptr %cur_ptr to i64
-    %mask = sub i64 %align, 1
-    %not_mask = xor i64 %mask, -1
-    %add_mask = add i64 %base_int, %mask
-    %aligned_int = and i64 %add_mask, %not_mask
-    %pad = sub i64 %aligned_int, %base_int
-    %new_used = add i64 %used, %pad
-    %end_used = add i64 %new_used, %size
-    %fits = icmp sle i64 %end_used, %cap
-    br i1 %fits, label %fast_ok, label %new_chunk
-fast_ok:
-    store i64 %end_used, ptr %p_used, align 8
-    %aligned_ptr = inttoptr i64 %aligned_int to ptr
-    ret ptr %aligned_ptr
-new_chunk:
-    %cap2 = mul i64 %cap, 2
-    %min_need = add i64 %size, %align
-    %min_cap = mul i64 %min_need, 2
-    %need_more = icmp slt i64 %cap2, %min_need
-    %next_cap = select i1 %need_more, i64 %min_cap, i64 %cap2
-    %tot = add i64 %next_cap, 24
-    %nch = call ptr @ll_alloc(i64 %tot)
-    %np_next = getelementptr inbounds { ptr, i64, i64 }, ptr %nch, i32 0, i32 0
-    %np_cap = getelementptr inbounds { ptr, i64, i64 }, ptr %nch, i32 0, i32 1
-    %np_used = getelementptr inbounds { ptr, i64, i64 }, ptr %nch, i32 0, i32 2
-    store ptr %ch, ptr %np_next, align 8
-    store i64 %next_cap, ptr %np_cap, align 8
-    %ndata = getelementptr inbounds i8, ptr %nch, i64 24
-    %nbase = ptrtoint ptr %ndata to i64
-    %nadd = add i64 %nbase, %mask
-    %naligned = and i64 %nadd, %not_mask
-    %npad = sub i64 %naligned, %nbase
-    %nused = add i64 %npad, %size
-    store i64 %nused, ptr %np_used, align 8
-    store ptr %nch, ptr %a_head, align 8
-    %nptr = inttoptr i64 %naligned to ptr
-    ret ptr %nptr
-}
-
-define internal ptr @ll_arena_alloc(ptr %a, i64 %size, i64 %align, ptr %dtor) {
-entry:
-    %slot = call ptr @ll_arena_bump_raw(ptr %a, i64 %size, i64 %align)
-    %has_dtor = icmp ne ptr %dtor, null
-    br i1 %has_dtor, label %reg_dtor, label %done
-reg_dtor:
-    %dn = call ptr @ll_arena_bump_raw(ptr %a, i64 24, i64 8)
-    %a_dtors = getelementptr inbounds %struct.ll_arena, ptr %a, i32 0, i32 1
-    %old_head = load ptr, ptr %a_dtors, align 8
-    %p_dtor = getelementptr inbounds { ptr, ptr, ptr }, ptr %dn, i32 0, i32 0
-    %p_ptr = getelementptr inbounds { ptr, ptr, ptr }, ptr %dn, i32 0, i32 1
-    %p_next = getelementptr inbounds { ptr, ptr, ptr }, ptr %dn, i32 0, i32 2
-    store ptr %dtor, ptr %p_dtor, align 8
-    store ptr %slot, ptr %p_ptr, align 8
-    store ptr %old_head, ptr %p_next, align 8
-    store ptr %dn, ptr %a_dtors, align 8
-    br label %done
-done:
-    ret ptr %slot
-}
-
-define internal void @ll_arena_run_dtors(ptr %a) {
-entry:
-    %a_dtors = getelementptr inbounds %struct.ll_arena, ptr %a, i32 0, i32 1
-    %d0 = load ptr, ptr %a_dtors, align 8
-    store ptr null, ptr %a_dtors, align 8
-    %cur = alloca ptr, align 8
-    store ptr %d0, ptr %cur, align 8
-    br label %cond
-cond:
-    %d = load ptr, ptr %cur, align 8
-    %more = icmp ne ptr %d, null
-    br i1 %more, label %body, label %done
-body:
-    %p_dtor = getelementptr inbounds { ptr, ptr, ptr }, ptr %d, i32 0, i32 0
-    %p_ptr = getelementptr inbounds { ptr, ptr, ptr }, ptr %d, i32 0, i32 1
-    %p_next = getelementptr inbounds { ptr, ptr, ptr }, ptr %d, i32 0, i32 2
-    %fn = load ptr, ptr %p_dtor, align 8
-    %arg = load ptr, ptr %p_ptr, align 8
-    %nxt = load ptr, ptr %p_next, align 8
-    store ptr %nxt, ptr %cur, align 8
-    call void %fn(ptr %arg)
-    br label %cond
-done:
-    ret void
-}
-
-define internal void @ll_arena_reset(ptr %a) {
-entry:
-    %is_null = icmp eq ptr %a, null
-    br i1 %is_null, label %done, label %chk_head
-chk_head:
-    %a_head = getelementptr inbounds %struct.ll_arena, ptr %a, i32 0, i32 0
-    %head = load ptr, ptr %a_head, align 8
-    %h_null = icmp eq ptr %head, null
-    br i1 %h_null, label %done, label %do_reset
-do_reset:
-    call void @ll_arena_run_dtors(ptr %a)
-    %p_next = getelementptr inbounds { ptr, i64, i64 }, ptr %head, i32 0, i32 0
-    %p_used = getelementptr inbounds { ptr, i64, i64 }, ptr %head, i32 0, i32 2
-    %extra0 = load ptr, ptr %p_next, align 8
-    store ptr null, ptr %p_next, align 8
-    store i64 0, ptr %p_used, align 8
-    %cur = alloca ptr, align 8
-    store ptr %extra0, ptr %cur, align 8
-    br label %cond
-cond:
-    %ch = load ptr, ptr %cur, align 8
-    %more = icmp ne ptr %ch, null
-    br i1 %more, label %body, label %done
-body:
-    %cp_next = getelementptr inbounds { ptr, i64, i64 }, ptr %ch, i32 0, i32 0
-    %nxt = load ptr, ptr %cp_next, align 8
-    store ptr %nxt, ptr %cur, align 8
-    call void @ll_free(ptr %ch)
-    br label %cond
-done:
-    ret void
-}
-
-define internal i64 @ll_arena_bytes_used(ptr %a) {
-entry:
-    %is_null = icmp eq ptr %a, null
-    br i1 %is_null, label %ret_zero, label %start
-ret_zero:
-    ret i64 0
-start:
-    %a_head = getelementptr inbounds %struct.ll_arena, ptr %a, i32 0, i32 0
-    %head = load ptr, ptr %a_head, align 8
-    %tot = alloca i64, align 8
-    %cur = alloca ptr, align 8
-    store i64 0, ptr %tot, align 8
-    store ptr %head, ptr %cur, align 8
-    br label %cond
-cond:
-    %ch = load ptr, ptr %cur, align 8
-    %more = icmp ne ptr %ch, null
-    br i1 %more, label %body, label %done
-body:
-    %p_next = getelementptr inbounds { ptr, i64, i64 }, ptr %ch, i32 0, i32 0
-    %p_used = getelementptr inbounds { ptr, i64, i64 }, ptr %ch, i32 0, i32 2
-    %u = load i64, ptr %p_used, align 8
-    %nxt = load ptr, ptr %p_next, align 8
-    %t0 = load i64, ptr %tot, align 8
-    %t1 = add i64 %t0, %u
-    store i64 %t1, ptr %tot, align 8
-    store ptr %nxt, ptr %cur, align 8
-    br label %cond
-done:
-    %res = load i64, ptr %tot, align 8
-    ret i64 %res
-}
-
-define internal void @ll_drop__Arena(ptr %a) {
-entry:
-    %is_null = icmp eq ptr %a, null
-    br i1 %is_null, label %done, label %start
-start:
-    call void @ll_arena_run_dtors(ptr %a)
-    %a_head = getelementptr inbounds %struct.ll_arena, ptr %a, i32 0, i32 0
-    %head = load ptr, ptr %a_head, align 8
-    %cur = alloca ptr, align 8
-    store ptr %head, ptr %cur, align 8
-    br label %cond
-cond:
-    %ch = load ptr, ptr %cur, align 8
-    %more = icmp ne ptr %ch, null
-    br i1 %more, label %body, label %finish
-body:
-    %p_next = getelementptr inbounds { ptr, i64, i64 }, ptr %ch, i32 0, i32 0
-    %nxt = load ptr, ptr %p_next, align 8
-    store ptr %nxt, ptr %cur, align 8
-    call void @ll_free(ptr %ch)
-    br label %cond
-finish:
-    store %struct.ll_arena zeroinitializer, ptr %a, align 8
-    br label %done
-done:
-    ret void
-}
-`)
-}
-
-func (g *llvmEmitter) emitSyscallAndOSRuntime() {
+func (g *llvmEmitter) emitArgsAndSyscallRuntime() {
 	emptySym := g.internString("").symbol
-	rSym := g.internString("r").symbol
-	rbSym := g.internString("rb").symbol
-	rmFmtSym := g.internString("rm -rf \"%s\"").symbol
-	slashSym := g.internString("/").symbol
-
-	osStr := runtime.GOOS
-	if osStr == "darwin" {
-		osStr = "macos"
-	}
-	archStr := runtime.GOARCH
-	if archStr == "amd64" {
-		archStr = "x86_64"
-	}
-	osSym := g.internString(osStr).symbol
-	archSym := g.internString(archStr).symbol
-
-	scNproc := 84 // Linux _SC_NPROCESSORS_ONLN
+	tgt := targetInfoForProg(g.prog)
 	clockMono := 1 // Linux CLOCK_MONOTONIC
-	if runtime.GOOS == "darwin" {
-		scNproc = 58 // macOS _SC_NPROCESSORS_ONLN
+	if tgt.OS == "darwin" {
 		clockMono = 6 // macOS CLOCK_MONOTONIC
 	}
 
-	fns := []string{
-		"ll_sys_fopen", "ll_sys_fclose", "ll_sys_fread", "ll_sys_fwrite",
-		"ll_sys_fseek", "ll_sys_ftell", "ll_sys_fflush", "ll_sys_ferror", "ll_sys_remove", "ll_sys_rename",
-		"ll_os_popen", "ll_os_pclose", "ll_os_pread", "ll_os_system",
-		"ll_os_file_size", "ll_os_file_exists", "ll_os_mkdir", "ll_os_remove_all",
-		"ll_os_num_cpus", "ll_os_name_cstr", "ll_os_arch_cstr", "ll_os_argc", "ll_os_argv_cstr",
-		"ll_time_monotonic_nanos", "ll_time_epoch_nanos", "ll_time_sleep_ms", "ll_time_local_offset",
-		"ll_time_local_tz_name",
-	}
+	fns := []string{"ll_os_argc", "ll_os_argv_cstr", "ll_test_monotonic_nanos"}
 	for _, fn := range fns {
 		g.funcSet[fn] = true
 	}
 
-	g.line(`define internal ptr @ll_sys_fopen(ptr %%path, ptr %%mode) {
-entry:
-    %%c1 = icmp eq ptr %%path, null
-    %%c2 = icmp eq ptr %%mode, null
-    %%bad = or i1 %%c1, %%c2
-    br i1 %%bad, label %%ret_null, label %%do_open
-ret_null:
-    ret ptr null
-do_open:
-    %%fp = call ptr @fopen(ptr %%path, ptr %%mode)
-    ret ptr %%fp
-}
-
-define internal i64 @ll_sys_fclose(ptr %%f) {
-entry:
-    %%is_null = icmp eq ptr %%f, null
-    br i1 %%is_null, label %%ret_err, label %%do_close
-ret_err:
-    ret i64 -1
-do_close:
-    %%rc = call i32 @fclose(ptr %%f)
-    %%res = sext i32 %%rc to i64
-    ret i64 %%res
-}
-
-define internal i64 @ll_sys_fread(ptr %%buf, i64 %%elem_size, i64 %%count, ptr %%f) {
-entry:
-    %%c1 = icmp eq ptr %%f, null
-    %%c2 = icmp eq ptr %%buf, null
-    %%c3 = icmp sle i64 %%elem_size, 0
-    %%c4 = icmp sle i64 %%count, 0
-    %%b1 = or i1 %%c1, %%c2
-    %%b2 = or i1 %%c3, %%c4
-    %%bad = or i1 %%b1, %%b2
-    br i1 %%bad, label %%ret_zero, label %%do_read
-ret_zero:
-    ret i64 0
-do_read:
-    %%n = call i64 @fread(ptr %%buf, i64 %%elem_size, i64 %%count, ptr %%f)
-    ret i64 %%n
-}
-
-define internal i64 @ll_sys_fwrite(ptr %%buf, i64 %%elem_size, i64 %%count, ptr %%f) {
-entry:
-    %%c1 = icmp eq ptr %%f, null
-    %%c2 = icmp eq ptr %%buf, null
-    %%c3 = icmp sle i64 %%elem_size, 0
-    %%c4 = icmp sle i64 %%count, 0
-    %%b1 = or i1 %%c1, %%c2
-    %%b2 = or i1 %%c3, %%c4
-    %%bad = or i1 %%b1, %%b2
-    br i1 %%bad, label %%ret_zero, label %%do_write
-ret_zero:
-    ret i64 0
-do_write:
-    %%n = call i64 @fwrite(ptr %%buf, i64 %%elem_size, i64 %%count, ptr %%f)
-    ret i64 %%n
-}
-
-define internal i64 @ll_sys_fseek(ptr %%f, i64 %%offset, i32 %%whence) {
-entry:
-    %%is_null = icmp eq ptr %%f, null
-    br i1 %%is_null, label %%ret_err, label %%do_seek
-ret_err:
-    ret i64 -1
-do_seek:
-    %%rc = call i32 @fseek(ptr %%f, i64 %%offset, i32 %%whence)
-    %%res = sext i32 %%rc to i64
-    ret i64 %%res
-}
-
-define internal i64 @ll_sys_ftell(ptr %%f) {
-entry:
-    %%is_null = icmp eq ptr %%f, null
-    br i1 %%is_null, label %%ret_err, label %%do_tell
-ret_err:
-    ret i64 -1
-do_tell:
-    %%pos = call i64 @ftell(ptr %%f)
-    ret i64 %%pos
-}
-
-define internal i64 @ll_sys_fflush(ptr %%f) {
-entry:
-    %%is_null = icmp eq ptr %%f, null
-    br i1 %%is_null, label %%ret_err, label %%do_flush
-ret_err:
-    ret i64 -1
-do_flush:
-    %%rc = call i32 @fflush(ptr %%f)
-    %%res = sext i32 %%rc to i64
-    ret i64 %%res
-}
-
-define internal i32 @ll_sys_ferror(ptr %%f) {
-entry:
-    %%is_null = icmp eq ptr %%f, null
-    br i1 %%is_null, label %%ret_err, label %%do_ferr
-ret_err:
-    ret i32 1
-do_ferr:
-    %%rc = call i32 @ferror(ptr %%f)
-    ret i32 %%rc
-}
-
-define internal i64 @ll_sys_remove(ptr %%path) {
-entry:
-    %%is_null = icmp eq ptr %%path, null
-    br i1 %%is_null, label %%ret_err, label %%do_rm
-ret_err:
-    ret i64 -1
-do_rm:
-    %%rc = call i32 @remove(ptr %%path)
-    %%res = sext i32 %%rc to i64
-    ret i64 %%res
-}
-
-define internal i64 @ll_sys_rename(ptr %%old_p, ptr %%new_p) {
-entry:
-    %%c1 = icmp eq ptr %%old_p, null
-    %%c2 = icmp eq ptr %%new_p, null
-    %%bad = or i1 %%c1, %%c2
-    br i1 %%bad, label %%ret_err, label %%do_ren
-ret_err:
-    ret i64 -1
-do_ren:
-    %%rc = call i32 @rename(ptr %%old_p, ptr %%new_p)
-    %%res = sext i32 %%rc to i64
-    ret i64 %%res
-}
-
-define internal ptr @ll_os_popen(ptr %%cmd) {
-entry:
-    %%is_null = icmp eq ptr %%cmd, null
-    br i1 %%is_null, label %%ret_null, label %%do_popen
-ret_null:
-    ret ptr null
-do_popen:
-    %%fp = call ptr @popen(ptr %%cmd, ptr %s)
-    ret ptr %%fp
-}
-
-define internal i64 @ll_os_pclose(ptr %%f) {
-entry:
-    %%is_null = icmp eq ptr %%f, null
-    br i1 %%is_null, label %%ret_err, label %%do_pclose
-ret_err:
-    ret i64 -1
-do_pclose:
-    %%st = call i32 @pclose(ptr %%f)
-    %%is_neg1 = icmp eq i32 %%st, -1
-    br i1 %%is_neg1, label %%ret_err, label %%decode
-decode:
-    ; Exited: the exit code. Killed by a signal: 256 + the signal number. Otherwise -1.
-    %%sig = and i32 %%st, 127
-    %%exited = icmp eq i32 %%sig, 0
-    %%stopped = icmp eq i32 %%sig, 127
-    %%code8 = lshr i32 %%st, 8
-    %%code = and i32 %%code8, 255
-    %%by_sig = add i32 %%sig, 256
-    %%sig_or_err = select i1 %%stopped, i32 -1, i32 %%by_sig
-    %%sel = select i1 %%exited, i32 %%code, i32 %%sig_or_err
-    %%res = sext i32 %%sel to i64
-    ret i64 %%res
-}
-
-define internal i64 @ll_os_pread(ptr %%f, ptr %%buf, i64 %%cap) {
-entry:
-    %%c1 = icmp eq ptr %%f, null
-    %%c2 = icmp eq ptr %%buf, null
-    %%c3 = icmp sle i64 %%cap, 0
-    %%b1 = or i1 %%c1, %%c2
-    %%bad = or i1 %%b1, %%c3
-    br i1 %%bad, label %%ret_zero, label %%do_read
-ret_zero:
-    ret i64 0
-do_read:
-    %%n = call i64 @fread(ptr %%buf, i64 1, i64 %%cap, ptr %%f)
-    ret i64 %%n
-}
-
-define internal i64 @ll_os_system(ptr %%cmd) {
-entry:
-    %%is_null = icmp eq ptr %%cmd, null
-    br i1 %%is_null, label %%ret_err, label %%do_sys
-ret_err:
-    ret i64 -1
-do_sys:
-    %%st = call i32 @system(ptr %%cmd)
-    %%is_neg1 = icmp eq i32 %%st, -1
-    br i1 %%is_neg1, label %%ret_err, label %%decode
-decode:
-    ; Exited: the exit code. Killed by a signal: 256 + the signal number. Otherwise -1.
-    %%sig = and i32 %%st, 127
-    %%exited = icmp eq i32 %%sig, 0
-    %%stopped = icmp eq i32 %%sig, 127
-    %%code8 = lshr i32 %%st, 8
-    %%code = and i32 %%code8, 255
-    %%by_sig = add i32 %%sig, 256
-    %%sig_or_err = select i1 %%stopped, i32 -1, i32 %%by_sig
-    %%sel = select i1 %%exited, i32 %%code, i32 %%sig_or_err
-    %%res = sext i32 %%sel to i64
-    ret i64 %%res
-}
-
-define internal i64 @ll_os_file_size(ptr %%path) {
-entry:
-    %%is_null = icmp eq ptr %%path, null
-    br i1 %%is_null, label %%ret_err, label %%open_f
-ret_err:
-    ret i64 -1
-open_f:
-    %%fp = call ptr @fopen(ptr %%path, ptr %s)
-    %%fnull = icmp eq ptr %%fp, null
-    br i1 %%fnull, label %%ret_err, label %%seek_end
-seek_end:
-    %%sk = call i32 @fseek(ptr %%fp, i64 0, i32 2)
-    %%sk_bad = icmp ne i32 %%sk, 0
-    br i1 %%sk_bad, label %%close_err, label %%tell_sz
-close_err:
-    call i32 @fclose(ptr %%fp)
-    ret i64 -1
-tell_sz:
-    %%sz = call i64 @ftell(ptr %%fp)
-    call i32 @fclose(ptr %%fp)
-    ret i64 %%sz
-}
-
-define internal i1 @ll_os_file_exists(ptr %%path) {
-entry:
-    %%is_null = icmp eq ptr %%path, null
-    br i1 %%is_null, label %%ret_false, label %%chk
-ret_false:
-    ret i1 false
-chk:
-    %%rc = call i32 @access(ptr %%path, i32 0)
-    %%ok = icmp eq i32 %%rc, 0
-    ret i1 %%ok
-}
-
-define internal i64 @ll_os_mkdir(ptr %%path) {
-entry:
-    %%is_null = icmp eq ptr %%path, null
-    br i1 %%is_null, label %%ret_err, label %%do_mkdir
-ret_err:
-    ret i64 -1
-do_mkdir:
-    %%rc = call i32 @mkdir(ptr %%path, i32 493)
-    %%res = sext i32 %%rc to i64
-    ret i64 %%res
-}
-
-define internal i64 @ll_os_remove_all(ptr %%path) {
-entry:
-    %%is_null = icmp eq ptr %%path, null
-    br i1 %%is_null, label %%ret_err, label %%chk_empty
-ret_err:
-    ret i64 -1
-chk_empty:
-    %%c0 = load i8, ptr %%path, align 1
-    %%is_empty = icmp eq i8 %%c0, 0
-    br i1 %%is_empty, label %%ret_err, label %%chk_root
-chk_root:
-    %%cmp_root = call i32 @strcmp(ptr %%path, ptr %s)
-    %%is_root = icmp eq i32 %%cmp_root, 0
-    br i1 %%is_root, label %%ret_err, label %%run_rm
-run_rm:
-    %%cmd = alloca [4096 x i8], align 1
-    call i32 (ptr, i64, ptr, ...) @snprintf(ptr %%cmd, i64 4096, ptr %s, ptr %%path)
-    %%res = call i64 @ll_os_system(ptr %%cmd)
-    ret i64 %%res
-}
-
-define internal i64 @ll_os_num_cpus() {
-entry:
-    %%n = call i64 @sysconf(i32 %d)
-    %%ok = icmp sge i64 %%n, 1
-    %%res = select i1 %%ok, i64 %%n, i64 1
-    ret i64 %%res
-}
-
-define internal ptr @ll_os_name_cstr() {
-entry:
-    ret ptr %s
-}
-
-define internal ptr @ll_os_arch_cstr() {
-entry:
-    ret ptr %s
-}
-
-define internal i64 @ll_os_argc() {
+	g.line(`define internal i64 @ll_os_argc() {
 entry:
     %%c = load i32, ptr @ll_rt_argc, align 4
     %%res = sext i32 %%c to i64
@@ -1904,8 +1287,11 @@ gep_arg:
     %%res = select i1 %%s_null, ptr %s, ptr %%s
     ret ptr %%res
 }
-
-define internal i64 @ll_time_monotonic_nanos() {
+`, emptySym, emptySym)
+	if !tgt.IsUnix {
+		g.raw("define internal i64 @ll_test_monotonic_nanos() {\nentry:\n    ret i64 0\n}\n")
+	} else {
+		g.line(`define internal i64 @ll_test_monotonic_nanos() {
 entry:
     %%ts = alloca { i64, i64 }, align 8
     store { i64, i64 } zeroinitializer, ptr %%ts, align 8
@@ -1918,100 +1304,44 @@ entry:
     %%tot = add i64 %%sec_ns, %%nsec
     ret i64 %%tot
 }
-
-define internal i64 @ll_time_epoch_nanos() {
-entry:
-    %%ts = alloca { i64, i64 }, align 8
-    store { i64, i64 } zeroinitializer, ptr %%ts, align 8
-    call i32 @clock_gettime(i32 0, ptr %%ts)
-    %%p_sec = getelementptr inbounds { i64, i64 }, ptr %%ts, i32 0, i32 0
-    %%p_nsec = getelementptr inbounds { i64, i64 }, ptr %%ts, i32 0, i32 1
-    %%sec = load i64, ptr %%p_sec, align 8
-    %%nsec = load i64, ptr %%p_nsec, align 8
-    %%sec_ns = mul i64 %%sec, 1000000000
-    %%tot = add i64 %%sec_ns, %%nsec
-    ret i64 %%tot
+`, clockMono)
+	}
+	g.emitSyscall()
 }
 
-define internal void @ll_time_sleep_ms(i64 %%ms) {
-entry:
-    %%pos = icmp sgt i64 %%ms, 0
-    br i1 %%pos, label %%do_sleep, label %%done
-do_sleep:
-    %%req = alloca { i64, i64 }, align 8
-    %%sec = sdiv i64 %%ms, 1000
-    %%rem = srem i64 %%ms, 1000
-    %%nsec = mul i64 %%rem, 1000000
-    %%p_sec = getelementptr inbounds { i64, i64 }, ptr %%req, i32 0, i32 0
-    %%p_nsec = getelementptr inbounds { i64, i64 }, ptr %%req, i32 0, i32 1
-    store i64 %%sec, ptr %%p_sec, align 8
-    store i64 %%nsec, ptr %%p_nsec, align 8
-    call i32 @nanosleep(ptr %%req, ptr null)
-    br label %%done
-done:
-    ret void
-}
-
-define internal i64 @ll_time_local_offset(i64 %%epoch_sec) {
-entry:
-    %%sec_slot = alloca i64, align 8
-    %%tm_buf = alloca [64 x i8], align 8
-    call void @llvm.memset.p0.i64(ptr %%tm_buf, i8 0, i64 64, i1 false)
-    store i64 %%epoch_sec, ptr %%sec_slot, align 8
-    %%tm_ptr = call ptr @localtime_r(ptr %%sec_slot, ptr %%tm_buf)
-    %%ok = icmp ne ptr %%tm_ptr, null
-    br i1 %%ok, label %%read_off, label %%ret_zero
-read_off:
-    %%p_gmtoff = getelementptr inbounds i8, ptr %%tm_buf, i64 40
-    %%off = load i64, ptr %%p_gmtoff, align 8
-    ret i64 %%off
-ret_zero:
-    ret i64 0
-}
-
-; Returns struct tm.tm_zone (offset 48 on 64-bit glibc and Darwin) for epoch_sec, or "".
-define internal ptr @ll_time_local_tz_name(i64 %%epoch_sec) {
-entry:
-    %%sec_slot = alloca i64, align 8
-    %%tm_buf = alloca [64 x i8], align 8
-    call void @llvm.memset.p0.i64(ptr %%tm_buf, i8 0, i64 64, i1 false)
-    store i64 %%epoch_sec, ptr %%sec_slot, align 8
-    %%tm_ptr = call ptr @localtime_r(ptr %%sec_slot, ptr %%tm_buf)
-    %%ok = icmp ne ptr %%tm_ptr, null
-    br i1 %%ok, label %%read_zone, label %%ret_empty
-read_zone:
-    %%p_zone = getelementptr inbounds i8, ptr %%tm_buf, i64 48
-    %%zone = load ptr, ptr %%p_zone, align 8
-    %%has_zone = icmp ne ptr %%zone, null
-    br i1 %%has_zone, label %%ret_zone, label %%ret_empty
-ret_zone:
-    ret ptr %%zone
-ret_empty:
-    ret ptr %s
-}
-`, rSym, rbSym, slashSym, rmFmtSym, scNproc, osSym, archSym, emptySym, emptySym, clockMono, emptySym)
-}
-
-func (g *llvmEmitter) emitNetAndTLSRuntime() {
-	portFmt := g.internString("%lld").symbol
-	zeroIpSym := g.internString("0.0.0.0").symbol
-	starSym := g.internString("*").symbol
+func (g *llvmEmitter) emitTLSRuntime() {
+	tgt := targetInfoForProg(g.prog)
+	fns := []string{
+		"ll_tls_set_timeout",
+		"ll_tls_init", "ll_tls_available", "ll_tls_client_handshake",
+		"ll_tls_send_all", "ll_tls_recv", "ll_tls_close",
+		"ll_tls_server_ctx_new", "ll_tls_server_ctx_free", "ll_tls_server_handshake",
+	}
+	for _, fn := range fns {
+		g.funcSet[fn] = true
+	}
+	if !tgt.IsUnix {
+		g.raw(`define internal void @ll_tls_set_timeout(i64 %fd, i64 %timeout_ms) { ret void }
+define internal void @ll_tls_init() { ret void }
+define internal i64 @ll_tls_available() { ret i64 0 }
+define internal ptr @ll_tls_client_handshake(i64 %fd, ptr %hostname) { ret ptr null }
+define internal i64 @ll_tls_send_all(ptr %raw_sess, ptr %buf, i64 %len) { ret i64 -1 }
+define internal i64 @ll_tls_recv(ptr %raw_sess, ptr %buf, i64 %max_len, i64 %timeout_ms) { ret i64 -1 }
+define internal void @ll_tls_close(ptr %raw_sess) { ret void }
+define internal ptr @ll_tls_server_ctx_new(ptr %cert_pem, ptr %key_pem) { ret ptr null }
+define internal void @ll_tls_server_ctx_free(ptr %raw_ctx) { ret void }
+define internal ptr @ll_tls_server_handshake(ptr %raw_ctx, i64 %client_fd) { ret ptr null }
+`)
+		return
+	}
 
 	solSocket := 1
-	soReuseAddr := 2
 	soSndTimeo := 21
 	soRcvTimeo := 20
-	msgNoSignal := 16384 // Linux MSG_NOSIGNAL (0x4000)
-	aiAddrOffset := 24   // Linux offsetof(struct addrinfo, ai_addr)
-	isDarwin := 0
-	if runtime.GOOS == "darwin" {
+	if tgt.OS == "darwin" {
 		solSocket = 65535 // 0xffff
-		soReuseAddr = 4
 		soSndTimeo = 4101 // 0x1005
 		soRcvTimeo = 4102 // 0x1006
-		msgNoSignal = 0
-		aiAddrOffset = 32 // macOS offsetof(struct addrinfo, ai_addr)
-		isDarwin = 1
 	}
 
 	sLib1 := g.internString("libssl.dylib").symbol
@@ -2040,20 +1370,6 @@ func (g *llvmEmitter) emitNetAndTLSRuntime() {
 	symSslRead := g.internString("SSL_read").symbol
 	symSslWrite := g.internString("SSL_write").symbol
 	symSslShutdown := g.internString("SSL_shutdown").symbol
-
-	fns := []string{
-		"ll_net_set_timeout", "ll_net_tcp_listen", "ll_net_tcp_port",
-		"ll_net_tcp_peer_port", "ll_net_tcp_peer_ipv4", "ll_net_tcp_peer_ipv6_group",
-		"ll_net_tcp_local_ipv4", "ll_net_tcp_local_ipv6_group", "ll_net_tcp_set_nodelay",
-		"ll_net_tcp_accept", "ll_net_tcp_connect", "ll_net_send_all",
-		"ll_net_recv", "ll_net_close", "ll_net_shutdown", "ll_net_socketpair",
-		"ll_tls_init", "ll_tls_available", "ll_tls_client_handshake",
-		"ll_tls_send_all", "ll_tls_recv", "ll_tls_close",
-		"ll_tls_server_ctx_new", "ll_tls_server_ctx_free", "ll_tls_server_handshake",
-	}
-	for _, fn := range fns {
-		g.funcSet[fn] = true
-	}
 
 	switch g.unitMode {
 	case UnitPackage:
@@ -2120,7 +1436,7 @@ func (g *llvmEmitter) emitNetAndTLSRuntime() {
 @ll_fn_SSL_shutdown = internal global ptr null, align 8
 `)
 	}
-	g.line(`define internal void @ll_net_set_timeout(i64 %%fd, i64 %%timeout_ms) {
+	g.line(`define internal void @ll_tls_set_timeout(i64 %%fd, i64 %%timeout_ms) {
 entry:
     %%c1 = icmp slt i64 %%fd, 0
     %%c2 = icmp sle i64 %%timeout_ms, 0
@@ -2141,721 +1457,6 @@ apply:
     br label %%done
 done:
     ret void
-}
-
-define internal i64 @ll_net_tcp_listen(ptr %%host, i64 %%port, i64 %%backlog) {
-entry:
-    %%c1 = icmp slt i64 %%port, 0
-    %%c2 = icmp sgt i64 %%port, 65535
-    %%bad_port = or i1 %%c1, %%c2
-    br i1 %%bad_port, label %%ret_err, label %%prep
-ret_err:
-    ret i64 -1
-prep:
-    %%port_str = alloca [16 x i8], align 1
-    %%hints = alloca [48 x i8], align 8
-    %%res_slot = alloca ptr, align 8
-    store ptr null, ptr %%res_slot, align 8
-    call void @llvm.memset.p0.i64(ptr %%hints, i8 0, i64 48, i1 false)
-    call i32 (ptr, i64, ptr, ...) @snprintf(ptr %%port_str, i64 16, ptr %s, i64 %%port)
-    %%p_flags = getelementptr inbounds i32, ptr %%hints, i64 0
-    %%p_fam = getelementptr inbounds i32, ptr %%hints, i64 1
-    %%p_stype = getelementptr inbounds i32, ptr %%hints, i64 2
-    store i32 1, ptr %%p_flags, align 4
-    store i32 2, ptr %%p_fam, align 4
-    store i32 1, ptr %%p_stype, align 4
-    %%h_null = icmp eq ptr %%host, null
-    br i1 %%h_null, label %%use_null_host, label %%chk_h0
-chk_h0:
-    %%h0 = load i8, ptr %%host, align 1
-    %%h_empty = icmp eq i8 %%h0, 0
-    br i1 %%h_empty, label %%use_null_host, label %%chk_any
-chk_any:
-    %%cmp0 = call i32 @strcmp(ptr %%host, ptr %s)
-    %%is_any0 = icmp eq i32 %%cmp0, 0
-    br i1 %%is_any0, label %%use_null_host, label %%chk_star
-chk_star:
-    %%cmp1 = call i32 @strcmp(ptr %%host, ptr %s)
-    %%is_star = icmp eq i32 %%cmp1, 0
-    br i1 %%is_star, label %%use_null_host, label %%use_given_host
-use_null_host:
-    br label %%do_gai
-use_given_host:
-    store i32 0, ptr %%p_fam, align 4
-    br label %%do_gai
-do_gai:
-    %%bind_host = phi ptr [ null, %%use_null_host ], [ %%host, %%use_given_host ]
-    %%gai_rc = call i32 @getaddrinfo(ptr %%bind_host, ptr %%port_str, ptr %%hints, ptr %%res_slot)
-    %%res0 = load ptr, ptr %%res_slot, align 8
-    %%g1 = icmp ne i32 %%gai_rc, 0
-    %%g2 = icmp eq ptr %%res0, null
-    %%g_bad = or i1 %%g1, %%g2
-    br i1 %%g_bad, label %%ret_err, label %%loop_init
-loop_init:
-    %%rp_slot = alloca ptr, align 8
-    %%sfd_slot = alloca i32, align 4
-    %%opt_slot = alloca i32, align 4
-    store ptr %%res0, ptr %%rp_slot, align 8
-    store i32 -1, ptr %%sfd_slot, align 4
-    store i32 1, ptr %%opt_slot, align 4
-    br label %%loop_cond
-loop_cond:
-    %%rp = load ptr, ptr %%rp_slot, align 8
-    %%has_rp = icmp ne ptr %%rp, null
-    br i1 %%has_rp, label %%loop_body, label %%loop_done
-loop_body:
-    %%rp_fam_p = getelementptr inbounds i32, ptr %%rp, i64 1
-    %%rp_st_p = getelementptr inbounds i32, ptr %%rp, i64 2
-    %%rp_pr_p = getelementptr inbounds i32, ptr %%rp, i64 3
-    %%rp_len_p = getelementptr inbounds i32, ptr %%rp, i64 4
-    %%rp_addr_p = getelementptr inbounds i8, ptr %%rp, i64 %d
-    %%rp_next_p = getelementptr inbounds i8, ptr %%rp, i64 40
-    %%af = load i32, ptr %%rp_fam_p, align 4
-    %%st = load i32, ptr %%rp_st_p, align 4
-    %%pr = load i32, ptr %%rp_pr_p, align 4
-    %%alen = load i32, ptr %%rp_len_p, align 4
-    %%addr = load ptr, ptr %%rp_addr_p, align 8
-    %%next_rp = load ptr, ptr %%rp_next_p, align 8
-    %%fd = call i32 @socket(i32 %%af, i32 %%st, i32 %%pr)
-    %%fd_bad = icmp slt i32 %%fd, 0
-    br i1 %%fd_bad, label %%next_iter, label %%cfg_sock
-cfg_sock:
-    call i32 @setsockopt(i32 %%fd, i32 %d, i32 %d, ptr %%opt_slot, i32 4)
-    %%is_mac = icmp ne i32 %d, 0
-    br i1 %%is_mac, label %%set_nosig, label %%do_bind
-set_nosig:
-    call i32 @setsockopt(i32 %%fd, i32 65535, i32 4130, ptr %%opt_slot, i32 4)
-    br label %%do_bind
-do_bind:
-    %%b_rc = call i32 @bind(i32 %%fd, ptr %%addr, i32 %%alen)
-    %%b_ok = icmp eq i32 %%b_rc, 0
-    br i1 %%b_ok, label %%do_listen, label %%close_next
-do_listen:
-    %%bl_pos = icmp sgt i64 %%backlog, 0
-    %%bl32_raw = trunc i64 %%backlog to i32
-    %%bl32 = select i1 %%bl_pos, i32 %%bl32_raw, i32 128
-    %%l_rc = call i32 @listen(i32 %%fd, i32 %%bl32)
-    %%l_ok = icmp eq i32 %%l_rc, 0
-    br i1 %%l_ok, label %%found_sock, label %%close_next
-found_sock:
-    store i32 %%fd, ptr %%sfd_slot, align 4
-    br label %%loop_done
-close_next:
-    call i32 @close(i32 %%fd)
-    br label %%next_iter
-next_iter:
-    store ptr %%next_rp, ptr %%rp_slot, align 8
-    br label %%loop_cond
-loop_done:
-    call void @freeaddrinfo(ptr %%res0)
-    %%final_fd = load i32, ptr %%sfd_slot, align 4
-    %%res64 = sext i32 %%final_fd to i64
-    ret i64 %%res64
-}
-
-define internal i64 @ll_net_tcp_port(i64 %%fd) {
-entry:
-    %%bad_fd = icmp slt i64 %%fd, 0
-    br i1 %%bad_fd, label %%ret_err, label %%query
-ret_err:
-    ret i64 -1
-query:
-    %%sa = alloca [32 x i8], align 4
-    %%len_slot = alloca i32, align 4
-    call void @llvm.memset.p0.i64(ptr %%sa, i8 0, i64 32, i1 false)
-    store i32 32, ptr %%len_slot, align 4
-    %%fd32 = trunc i64 %%fd to i32
-    %%rc = call i32 @getsockname(i32 %%fd32, ptr %%sa, ptr %%len_slot)
-    %%ok = icmp eq i32 %%rc, 0
-    br i1 %%ok, label %%extract, label %%ret_err
-extract:
-    %%p_hi = getelementptr inbounds i8, ptr %%sa, i64 2
-    %%p_lo = getelementptr inbounds i8, ptr %%sa, i64 3
-    %%hi8 = load i8, ptr %%p_hi, align 1
-    %%lo8 = load i8, ptr %%p_lo, align 1
-    %%hi64 = zext i8 %%hi8 to i64
-    %%lo64 = zext i8 %%lo8 to i64
-    %%hi_sh = shl i64 %%hi64, 8
-    %%port = or i64 %%hi_sh, %%lo64
-    ret i64 %%port
-}
-
-; Remote port of a connected socket. sockaddr_in and sockaddr_in6 both keep the
-; big-endian port at byte offset 2 on every supported platform.
-define internal i64 @ll_net_tcp_peer_port(i64 %%fd) {
-entry:
-    %%bad_fd = icmp slt i64 %%fd, 0
-    br i1 %%bad_fd, label %%ret_err, label %%query
-ret_err:
-    ret i64 -1
-query:
-    %%sa = alloca [128 x i8], align 8
-    %%len_slot = alloca i32, align 4
-    call void @llvm.memset.p0.i64(ptr %%sa, i8 0, i64 128, i1 false)
-    store i32 128, ptr %%len_slot, align 4
-    %%fd32 = trunc i64 %%fd to i32
-    %%rc = call i32 @getpeername(i32 %%fd32, ptr %%sa, ptr %%len_slot)
-    %%ok = icmp eq i32 %%rc, 0
-    br i1 %%ok, label %%chk_len, label %%ret_err
-chk_len:
-    ; Address family: BSD/macOS stores (sa_len, sa_family) bytes, Linux a 16-bit family.
-    %%fb0p = getelementptr inbounds i8, ptr %%sa, i64 0
-    %%fb1p = getelementptr inbounds i8, ptr %%sa, i64 1
-    %%fb0 = load i8, ptr %%fb0p, align 1
-    %%fb1 = load i8, ptr %%fb1p, align 1
-    %%bsd4a = icmp eq i8 %%fb0, 16
-    %%bsd4b = icmp eq i8 %%fb1, 2
-    %%bsd4 = and i1 %%bsd4a, %%bsd4b
-    %%lin4a = icmp eq i8 %%fb0, 2
-    %%lin4b = icmp eq i8 %%fb1, 0
-    %%lin4 = and i1 %%lin4a, %%lin4b
-    %%is_v4 = or i1 %%bsd4, %%lin4
-    %%bsd6a = icmp eq i8 %%fb0, 28
-    %%bsd6b = icmp eq i8 %%fb1, 30
-    %%bsd6 = and i1 %%bsd6a, %%bsd6b
-    %%lin6a = icmp eq i8 %%fb0, 10
-    %%lin6b = icmp eq i8 %%fb1, 0
-    %%lin6 = and i1 %%lin6a, %%lin6b
-    %%is_v6 = or i1 %%bsd6, %%lin6
-    %%is_inet = or i1 %%is_v4, %%is_v6
-    br i1 %%is_inet, label %%extract, label %%ret_err
-extract:
-    %%p_hi = getelementptr inbounds i8, ptr %%sa, i64 2
-    %%p_lo = getelementptr inbounds i8, ptr %%sa, i64 3
-    %%hi8 = load i8, ptr %%p_hi, align 1
-    %%lo8 = load i8, ptr %%p_lo, align 1
-    %%hi64 = zext i8 %%hi8 to i64
-    %%lo64 = zext i8 %%lo8 to i64
-    %%hi_sh = shl i64 %%hi64, 8
-    %%port = or i64 %%hi_sh, %%lo64
-    ret i64 %%port
-}
-
-; Remote IPv4 address of a connected socket as a host-order integer, or -1 when the
-; peer is not IPv4 (an IPv4 sockaddr_in is exactly 16 bytes; the address is at offset 4).
-define internal i64 @ll_net_tcp_peer_ipv4(i64 %%fd) {
-entry:
-    %%bad_fd = icmp slt i64 %%fd, 0
-    br i1 %%bad_fd, label %%ret_err, label %%query
-ret_err:
-    ret i64 -1
-query:
-    %%sa = alloca [128 x i8], align 8
-    %%len_slot = alloca i32, align 4
-    call void @llvm.memset.p0.i64(ptr %%sa, i8 0, i64 128, i1 false)
-    store i32 128, ptr %%len_slot, align 4
-    %%fd32 = trunc i64 %%fd to i32
-    %%rc = call i32 @getpeername(i32 %%fd32, ptr %%sa, ptr %%len_slot)
-    %%ok = icmp eq i32 %%rc, 0
-    br i1 %%ok, label %%chk_len, label %%ret_err
-chk_len:
-    ; Address family: BSD/macOS stores (sa_len, sa_family) bytes, Linux a 16-bit family.
-    %%fb0p = getelementptr inbounds i8, ptr %%sa, i64 0
-    %%fb1p = getelementptr inbounds i8, ptr %%sa, i64 1
-    %%fb0 = load i8, ptr %%fb0p, align 1
-    %%fb1 = load i8, ptr %%fb1p, align 1
-    %%bsd4a = icmp eq i8 %%fb0, 16
-    %%bsd4b = icmp eq i8 %%fb1, 2
-    %%bsd4 = and i1 %%bsd4a, %%bsd4b
-    %%lin4a = icmp eq i8 %%fb0, 2
-    %%lin4b = icmp eq i8 %%fb1, 0
-    %%lin4 = and i1 %%lin4a, %%lin4b
-    %%is_v4 = or i1 %%bsd4, %%lin4
-    %%bsd6a = icmp eq i8 %%fb0, 28
-    %%bsd6b = icmp eq i8 %%fb1, 30
-    %%bsd6 = and i1 %%bsd6a, %%bsd6b
-    %%lin6a = icmp eq i8 %%fb0, 10
-    %%lin6b = icmp eq i8 %%fb1, 0
-    %%lin6 = and i1 %%lin6a, %%lin6b
-    %%is_v6 = or i1 %%bsd6, %%lin6
-    br i1 %%is_v4, label %%extract, label %%ret_err
-extract:
-    %%p0 = getelementptr inbounds i8, ptr %%sa, i64 4
-    %%p1 = getelementptr inbounds i8, ptr %%sa, i64 5
-    %%p2 = getelementptr inbounds i8, ptr %%sa, i64 6
-    %%p3 = getelementptr inbounds i8, ptr %%sa, i64 7
-    %%b0 = load i8, ptr %%p0, align 1
-    %%b1 = load i8, ptr %%p1, align 1
-    %%b2 = load i8, ptr %%p2, align 1
-    %%b3 = load i8, ptr %%p3, align 1
-    %%w0 = zext i8 %%b0 to i64
-    %%w1 = zext i8 %%b1 to i64
-    %%w2 = zext i8 %%b2 to i64
-    %%w3 = zext i8 %%b3 to i64
-    %%s0 = shl i64 %%w0, 24
-    %%s1 = shl i64 %%w1, 16
-    %%s2 = shl i64 %%w2, 8
-    %%o1 = or i64 %%s0, %%s1
-    %%o2 = or i64 %%o1, %%s2
-    %%addr = or i64 %%o2, %%w3
-    ret i64 %%addr
-}
-
-define internal i64 @ll_net_tcp_local_ipv4(i64 %%fd) {
-entry:
-    %%bad_fd = icmp slt i64 %%fd, 0
-    br i1 %%bad_fd, label %%ret_err, label %%query
-ret_err:
-    ret i64 -1
-query:
-    %%sa = alloca [128 x i8], align 8
-    %%len_slot = alloca i32, align 4
-    call void @llvm.memset.p0.i64(ptr %%sa, i8 0, i64 128, i1 false)
-    store i32 128, ptr %%len_slot, align 4
-    %%fd32 = trunc i64 %%fd to i32
-    %%rc = call i32 @getsockname(i32 %%fd32, ptr %%sa, ptr %%len_slot)
-    %%ok = icmp eq i32 %%rc, 0
-    br i1 %%ok, label %%chk_len, label %%ret_err
-chk_len:
-    ; Address family: BSD/macOS stores (sa_len, sa_family) bytes, Linux a 16-bit family.
-    %%fb0p = getelementptr inbounds i8, ptr %%sa, i64 0
-    %%fb1p = getelementptr inbounds i8, ptr %%sa, i64 1
-    %%fb0 = load i8, ptr %%fb0p, align 1
-    %%fb1 = load i8, ptr %%fb1p, align 1
-    %%bsd4a = icmp eq i8 %%fb0, 16
-    %%bsd4b = icmp eq i8 %%fb1, 2
-    %%bsd4 = and i1 %%bsd4a, %%bsd4b
-    %%lin4a = icmp eq i8 %%fb0, 2
-    %%lin4b = icmp eq i8 %%fb1, 0
-    %%lin4 = and i1 %%lin4a, %%lin4b
-    %%is_v4 = or i1 %%bsd4, %%lin4
-    %%bsd6a = icmp eq i8 %%fb0, 28
-    %%bsd6b = icmp eq i8 %%fb1, 30
-    %%bsd6 = and i1 %%bsd6a, %%bsd6b
-    %%lin6a = icmp eq i8 %%fb0, 10
-    %%lin6b = icmp eq i8 %%fb1, 0
-    %%lin6 = and i1 %%lin6a, %%lin6b
-    %%is_v6 = or i1 %%bsd6, %%lin6
-    br i1 %%is_v4, label %%extract, label %%ret_err
-extract:
-    %%p0 = getelementptr inbounds i8, ptr %%sa, i64 4
-    %%p1 = getelementptr inbounds i8, ptr %%sa, i64 5
-    %%p2 = getelementptr inbounds i8, ptr %%sa, i64 6
-    %%p3 = getelementptr inbounds i8, ptr %%sa, i64 7
-    %%b0 = load i8, ptr %%p0, align 1
-    %%b1 = load i8, ptr %%p1, align 1
-    %%b2 = load i8, ptr %%p2, align 1
-    %%b3 = load i8, ptr %%p3, align 1
-    %%w0 = zext i8 %%b0 to i64
-    %%w1 = zext i8 %%b1 to i64
-    %%w2 = zext i8 %%b2 to i64
-    %%w3 = zext i8 %%b3 to i64
-    %%s0 = shl i64 %%w0, 24
-    %%s1 = shl i64 %%w1, 16
-    %%s2 = shl i64 %%w2, 8
-    %%o1 = or i64 %%s0, %%s1
-    %%o2 = or i64 %%o1, %%s2
-    %%addr = or i64 %%o2, %%w3
-    ret i64 %%addr
-}
-
-; Group idx (0..7) of a connected socket's IPv6 peer address, or -1 when the peer is
-; not IPv6 (a sockaddr_in6 is 28 bytes; sin6_addr starts at byte offset 8).
-define internal i64 @ll_net_tcp_peer_ipv6_group(i64 %%fd, i64 %%idx) {
-entry:
-    %%bad_fd = icmp slt i64 %%fd, 0
-    %%bad_lo = icmp slt i64 %%idx, 0
-    %%bad_hi = icmp sgt i64 %%idx, 7
-    %%bad0 = or i1 %%bad_fd, %%bad_lo
-    %%bad = or i1 %%bad0, %%bad_hi
-    br i1 %%bad, label %%ret_err, label %%query
-ret_err:
-    ret i64 -1
-query:
-    %%sa = alloca [128 x i8], align 8
-    %%len_slot = alloca i32, align 4
-    call void @llvm.memset.p0.i64(ptr %%sa, i8 0, i64 128, i1 false)
-    store i32 128, ptr %%len_slot, align 4
-    %%fd32 = trunc i64 %%fd to i32
-    %%rc = call i32 @getpeername(i32 %%fd32, ptr %%sa, ptr %%len_slot)
-    %%ok = icmp eq i32 %%rc, 0
-    br i1 %%ok, label %%chk_len, label %%ret_err
-chk_len:
-    ; Address family: BSD/macOS stores (sa_len, sa_family) bytes, Linux a 16-bit family.
-    %%fb0p = getelementptr inbounds i8, ptr %%sa, i64 0
-    %%fb1p = getelementptr inbounds i8, ptr %%sa, i64 1
-    %%fb0 = load i8, ptr %%fb0p, align 1
-    %%fb1 = load i8, ptr %%fb1p, align 1
-    %%bsd4a = icmp eq i8 %%fb0, 16
-    %%bsd4b = icmp eq i8 %%fb1, 2
-    %%bsd4 = and i1 %%bsd4a, %%bsd4b
-    %%lin4a = icmp eq i8 %%fb0, 2
-    %%lin4b = icmp eq i8 %%fb1, 0
-    %%lin4 = and i1 %%lin4a, %%lin4b
-    %%is_v4 = or i1 %%bsd4, %%lin4
-    %%bsd6a = icmp eq i8 %%fb0, 28
-    %%bsd6b = icmp eq i8 %%fb1, 30
-    %%bsd6 = and i1 %%bsd6a, %%bsd6b
-    %%lin6a = icmp eq i8 %%fb0, 10
-    %%lin6b = icmp eq i8 %%fb1, 0
-    %%lin6 = and i1 %%lin6a, %%lin6b
-    %%is_v6 = or i1 %%bsd6, %%lin6
-    br i1 %%is_v6, label %%extract, label %%ret_err
-extract:
-    %%twice = shl i64 %%idx, 1
-    %%off_hi = add i64 %%twice, 8
-    %%off_lo = add i64 %%twice, 9
-    %%p_hi = getelementptr inbounds i8, ptr %%sa, i64 %%off_hi
-    %%p_lo = getelementptr inbounds i8, ptr %%sa, i64 %%off_lo
-    %%hi8 = load i8, ptr %%p_hi, align 1
-    %%lo8 = load i8, ptr %%p_lo, align 1
-    %%hi64 = zext i8 %%hi8 to i64
-    %%lo64 = zext i8 %%lo8 to i64
-    %%hi_sh = shl i64 %%hi64, 8
-    %%group = or i64 %%hi_sh, %%lo64
-    ret i64 %%group
-}
-
-define internal i64 @ll_net_tcp_local_ipv6_group(i64 %%fd, i64 %%idx) {
-entry:
-    %%bad_fd = icmp slt i64 %%fd, 0
-    %%bad_lo = icmp slt i64 %%idx, 0
-    %%bad_hi = icmp sgt i64 %%idx, 7
-    %%bad0 = or i1 %%bad_fd, %%bad_lo
-    %%bad = or i1 %%bad0, %%bad_hi
-    br i1 %%bad, label %%ret_err, label %%query
-ret_err:
-    ret i64 -1
-query:
-    %%sa = alloca [128 x i8], align 8
-    %%len_slot = alloca i32, align 4
-    call void @llvm.memset.p0.i64(ptr %%sa, i8 0, i64 128, i1 false)
-    store i32 128, ptr %%len_slot, align 4
-    %%fd32 = trunc i64 %%fd to i32
-    %%rc = call i32 @getsockname(i32 %%fd32, ptr %%sa, ptr %%len_slot)
-    %%ok = icmp eq i32 %%rc, 0
-    br i1 %%ok, label %%chk_len, label %%ret_err
-chk_len:
-    ; Address family: BSD/macOS stores (sa_len, sa_family) bytes, Linux a 16-bit family.
-    %%fb0p = getelementptr inbounds i8, ptr %%sa, i64 0
-    %%fb1p = getelementptr inbounds i8, ptr %%sa, i64 1
-    %%fb0 = load i8, ptr %%fb0p, align 1
-    %%fb1 = load i8, ptr %%fb1p, align 1
-    %%bsd4a = icmp eq i8 %%fb0, 16
-    %%bsd4b = icmp eq i8 %%fb1, 2
-    %%bsd4 = and i1 %%bsd4a, %%bsd4b
-    %%lin4a = icmp eq i8 %%fb0, 2
-    %%lin4b = icmp eq i8 %%fb1, 0
-    %%lin4 = and i1 %%lin4a, %%lin4b
-    %%is_v4 = or i1 %%bsd4, %%lin4
-    %%bsd6a = icmp eq i8 %%fb0, 28
-    %%bsd6b = icmp eq i8 %%fb1, 30
-    %%bsd6 = and i1 %%bsd6a, %%bsd6b
-    %%lin6a = icmp eq i8 %%fb0, 10
-    %%lin6b = icmp eq i8 %%fb1, 0
-    %%lin6 = and i1 %%lin6a, %%lin6b
-    %%is_v6 = or i1 %%bsd6, %%lin6
-    br i1 %%is_v6, label %%extract, label %%ret_err
-extract:
-    %%twice = shl i64 %%idx, 1
-    %%off_hi = add i64 %%twice, 8
-    %%off_lo = add i64 %%twice, 9
-    %%p_hi = getelementptr inbounds i8, ptr %%sa, i64 %%off_hi
-    %%p_lo = getelementptr inbounds i8, ptr %%sa, i64 %%off_lo
-    %%hi8 = load i8, ptr %%p_hi, align 1
-    %%lo8 = load i8, ptr %%p_lo, align 1
-    %%hi64 = zext i8 %%hi8 to i64
-    %%lo64 = zext i8 %%lo8 to i64
-    %%hi_sh = shl i64 %%hi64, 8
-    %%group = or i64 %%hi_sh, %%lo64
-    ret i64 %%group
-}
-
-define internal i64 @ll_net_tcp_accept(i64 %%listener_fd, i64 %%timeout_ms) {
-entry:
-    %%bad_fd = icmp slt i64 %%listener_fd, 0
-    br i1 %%bad_fd, label %%ret_err, label %%chk_tmo
-ret_err:
-    ret i64 -1
-chk_tmo:
-    %%lfd32 = trunc i64 %%listener_fd to i32
-    %%has_tmo = icmp sge i64 %%timeout_ms, 0
-    br i1 %%has_tmo, label %%do_poll, label %%do_accept
-do_poll:
-    %%pfd = alloca { i32, i16, i16 }, align 4
-    %%p_fd = getelementptr inbounds { i32, i16, i16 }, ptr %%pfd, i32 0, i32 0
-    %%p_ev = getelementptr inbounds { i32, i16, i16 }, ptr %%pfd, i32 0, i32 1
-    %%p_rev = getelementptr inbounds { i32, i16, i16 }, ptr %%pfd, i32 0, i32 2
-    store i32 %%lfd32, ptr %%p_fd, align 4
-    store i16 1, ptr %%p_ev, align 2
-    store i16 0, ptr %%p_rev, align 2
-    %%tmo32 = trunc i64 %%timeout_ms to i32
-    %%pr = call i32 @poll(ptr %%pfd, i32 1, i32 %%tmo32)
-    %%is_tmo = icmp eq i32 %%pr, 0
-    br i1 %%is_tmo, label %%ret_tmo, label %%chk_perr
-ret_tmo:
-    ret i64 -2
-chk_perr:
-    %%p_bad = icmp slt i32 %%pr, 0
-    br i1 %%p_bad, label %%ret_err, label %%do_accept
-do_accept:
-    %%cfd = call i32 @accept(i32 %%lfd32, ptr null, ptr null)
-    %%c_bad = icmp slt i32 %%cfd, 0
-    br i1 %%c_bad, label %%ret_err, label %%cfg_client
-cfg_client:
-    %%is_mac = icmp ne i32 %d, 0
-    br i1 %%is_mac, label %%set_nosig, label %%done
-set_nosig:
-    %%opt = alloca i32, align 4
-    store i32 1, ptr %%opt, align 4
-    call i32 @setsockopt(i32 %%cfd, i32 65535, i32 4130, ptr %%opt, i32 4)
-    br label %%done
-done:
-    %%res = sext i32 %%cfd to i64
-    ret i64 %%res
-}
-
-define internal i64 @ll_net_tcp_connect(ptr %%host, i64 %%port, i64 %%timeout_ms) {
-entry:
-    %%c1 = icmp eq ptr %%host, null
-    %%c2 = icmp sle i64 %%port, 0
-    %%c3 = icmp sgt i64 %%port, 65535
-    %%b1 = or i1 %%c1, %%c2
-    %%bad = or i1 %%b1, %%c3
-    br i1 %%bad, label %%ret_resolve_err, label %%prep
-ret_resolve_err:
-    ret i64 -1
-prep:
-    %%port_str = alloca [16 x i8], align 1
-    %%hints = alloca [48 x i8], align 8
-    %%res_slot = alloca ptr, align 8
-    store ptr null, ptr %%res_slot, align 8
-    call void @llvm.memset.p0.i64(ptr %%hints, i8 0, i64 48, i1 false)
-    call i32 (ptr, i64, ptr, ...) @snprintf(ptr %%port_str, i64 16, ptr %s, i64 %%port)
-    %%p_stype = getelementptr inbounds i32, ptr %%hints, i64 2
-    store i32 1, ptr %%p_stype, align 4
-    %%gai_rc = call i32 @getaddrinfo(ptr %%host, ptr %%port_str, ptr %%hints, ptr %%res_slot)
-    %%res0 = load ptr, ptr %%res_slot, align 8
-    %%g1 = icmp ne i32 %%gai_rc, 0
-    %%g2 = icmp eq ptr %%res0, null
-    %%g_bad = or i1 %%g1, %%g2
-    br i1 %%g_bad, label %%ret_resolve_err, label %%loop_init
-loop_init:
-    %%rp_slot = alloca ptr, align 8
-    %%sfd_slot = alloca i32, align 4
-    %%opt_slot = alloca i32, align 4
-    store ptr %%res0, ptr %%rp_slot, align 8
-    store i32 -1, ptr %%sfd_slot, align 4
-    store i32 1, ptr %%opt_slot, align 4
-    br label %%loop_cond
-loop_cond:
-    %%rp = load ptr, ptr %%rp_slot, align 8
-    %%has_rp = icmp ne ptr %%rp, null
-    br i1 %%has_rp, label %%loop_body, label %%loop_done
-loop_body:
-    %%rp_fam_p = getelementptr inbounds i32, ptr %%rp, i64 1
-    %%rp_st_p = getelementptr inbounds i32, ptr %%rp, i64 2
-    %%rp_pr_p = getelementptr inbounds i32, ptr %%rp, i64 3
-    %%rp_len_p = getelementptr inbounds i32, ptr %%rp, i64 4
-    %%rp_addr_p = getelementptr inbounds i8, ptr %%rp, i64 %d
-    %%rp_next_p = getelementptr inbounds i8, ptr %%rp, i64 40
-    %%af = load i32, ptr %%rp_fam_p, align 4
-    %%st = load i32, ptr %%rp_st_p, align 4
-    %%pr = load i32, ptr %%rp_pr_p, align 4
-    %%alen = load i32, ptr %%rp_len_p, align 4
-    %%addr = load ptr, ptr %%rp_addr_p, align 8
-    %%next_rp = load ptr, ptr %%rp_next_p, align 8
-    %%fd = call i32 @socket(i32 %%af, i32 %%st, i32 %%pr)
-    %%fd_bad = icmp slt i32 %%fd, 0
-    br i1 %%fd_bad, label %%next_iter, label %%cfg_sock
-cfg_sock:
-    %%is_mac = icmp ne i32 %d, 0
-    br i1 %%is_mac, label %%set_nosig, label %%set_tmo
-set_nosig:
-    call i32 @setsockopt(i32 %%fd, i32 65535, i32 4130, ptr %%opt_slot, i32 4)
-    br label %%set_tmo
-set_tmo:
-    %%fd64 = sext i32 %%fd to i64
-    call void @ll_net_set_timeout(i64 %%fd64, i64 %%timeout_ms)
-    %%c_rc = call i32 @connect(i32 %%fd, ptr %%addr, i32 %%alen)
-    %%c_ok = icmp eq i32 %%c_rc, 0
-    br i1 %%c_ok, label %%connected, label %%close_next
-connected:
-    store i32 %%fd, ptr %%sfd_slot, align 4
-    br label %%loop_done
-close_next:
-    call i32 @close(i32 %%fd)
-    br label %%next_iter
-next_iter:
-    store ptr %%next_rp, ptr %%rp_slot, align 8
-    br label %%loop_cond
-loop_done:
-    call void @freeaddrinfo(ptr %%res0)
-    %%final_fd = load i32, ptr %%sfd_slot, align 4
-    %%ok_conn = icmp sge i32 %%final_fd, 0
-    %%fd_ext = sext i32 %%final_fd to i64
-    %%res = select i1 %%ok_conn, i64 %%fd_ext, i64 -2
-    ret i64 %%res
-}
-
-define internal i64 @ll_net_send_all(i64 %%fd, ptr %%buf, i64 %%len) {
-entry:
-    %%bad_fd = icmp slt i64 %%fd, 0
-    br i1 %%bad_fd, label %%ret_err, label %%chk_len
-ret_err:
-    ret i64 -1
-chk_len:
-    %%empty = icmp sle i64 %%len, 0
-    br i1 %%empty, label %%ret_ok, label %%chk_buf
-ret_ok:
-    ret i64 0
-chk_buf:
-    %%b_null = icmp eq ptr %%buf, null
-    br i1 %%b_null, label %%ret_err, label %%loop_init
-loop_init:
-    %%sent = alloca i64, align 8
-    %%opt = alloca i32, align 4
-    store i64 0, ptr %%sent, align 8
-    %%fd32 = trunc i64 %%fd to i32
-    %%is_mac = icmp ne i32 %d, 0
-    br i1 %%is_mac, label %%set_nosig, label %%loop_cond_prep
-set_nosig:
-    store i32 1, ptr %%opt, align 4
-    %%so_rc = call i32 @setsockopt(i32 %%fd32, i32 65535, i32 4130, ptr %%opt, i32 4)
-    %%so_failed = icmp ne i32 %%so_rc, 0
-    %%mac_flags = select i1 %%so_failed, i32 524288, i32 0
-    br label %%loop_cond_prep
-loop_cond_prep:
-    %%send_flags = phi i32 [ %d, %%loop_init ], [ %%mac_flags, %%set_nosig ]
-    br label %%loop_cond
-loop_cond:
-    %%s = load i64, ptr %%sent, align 8
-    %%more = icmp slt i64 %%s, %%len
-    br i1 %%more, label %%loop_body, label %%ret_ok
-loop_body:
-    %%ptr_cur = getelementptr inbounds i8, ptr %%buf, i64 %%s
-    %%rem = sub i64 %%len, %%s
-    %%n = call i64 @send(i32 %%fd32, ptr %%ptr_cur, i64 %%rem, i32 %%send_flags)
-    %%ok = icmp sgt i64 %%n, 0
-    br i1 %%ok, label %%advance, label %%ret_err
-advance:
-    %%ns = add i64 %%s, %%n
-    store i64 %%ns, ptr %%sent, align 8
-    br label %%loop_cond
-}
-
-define internal i64 @ll_net_recv(i64 %%fd, ptr %%buf, i64 %%max_len, i64 %%timeout_ms) {
-entry:
-    %%c1 = icmp slt i64 %%fd, 0
-    %%c2 = icmp eq ptr %%buf, null
-    %%c3 = icmp sle i64 %%max_len, 0
-    %%b1 = or i1 %%c1, %%c2
-    %%bad = or i1 %%b1, %%c3
-    br i1 %%bad, label %%ret_err, label %%chk_tmo
-ret_err:
-    ret i64 -1
-chk_tmo:
-    %%fd32 = trunc i64 %%fd to i32
-    %%has_tmo = icmp sge i64 %%timeout_ms, 0
-    br i1 %%has_tmo, label %%do_poll, label %%do_recv
-do_poll:
-    %%pfd = alloca { i32, i16, i16 }, align 4
-    %%p_fd = getelementptr inbounds { i32, i16, i16 }, ptr %%pfd, i32 0, i32 0
-    %%p_ev = getelementptr inbounds { i32, i16, i16 }, ptr %%pfd, i32 0, i32 1
-    %%p_rev = getelementptr inbounds { i32, i16, i16 }, ptr %%pfd, i32 0, i32 2
-    store i32 %%fd32, ptr %%p_fd, align 4
-    store i16 1, ptr %%p_ev, align 2
-    store i16 0, ptr %%p_rev, align 2
-    %%tmo32 = trunc i64 %%timeout_ms to i32
-    %%pr = call i32 @poll(ptr %%pfd, i32 1, i32 %%tmo32)
-    %%is_tmo = icmp eq i32 %%pr, 0
-    br i1 %%is_tmo, label %%ret_tmo, label %%chk_perr
-ret_tmo:
-    ret i64 -2
-chk_perr:
-    %%p_bad = icmp slt i32 %%pr, 0
-    br i1 %%p_bad, label %%ret_err, label %%do_recv
-do_recv:
-    %%n = call i64 @recv(i32 %%fd32, ptr %%buf, i64 %%max_len, i32 0)
-    %%n_bad = icmp slt i64 %%n, 0
-    %%res = select i1 %%n_bad, i64 -1, i64 %%n
-    ret i64 %%res
-}
-
-define internal void @ll_net_close(i64 %%fd) {
-entry:
-    %%ok = icmp sge i64 %%fd, 0
-    br i1 %%ok, label %%do_close, label %%done
-do_close:
-    %%fd32 = trunc i64 %%fd to i32
-    call i32 @close(i32 %%fd32)
-    br label %%done
-done:
-    ret void
-}
-
-define internal i64 @ll_net_shutdown(i64 %%fd, i64 %%how) {
-entry:
-    %%ok = icmp sge i64 %%fd, 0
-    br i1 %%ok, label %%do_shut, label %%bad
-do_shut:
-    %%fd32 = trunc i64 %%fd to i32
-    %%how32 = trunc i64 %%how to i32
-    %%rc = call i32 @shutdown(i32 %%fd32, i32 %%how32)
-    %%failed = icmp ne i32 %%rc, 0
-    %%res = select i1 %%failed, i64 -1, i64 0
-    ret i64 %%res
-bad:
-    ret i64 -1
-}
-
-; Enables (%%on != 0) or disables Nagle's algorithm (IPPROTO_TCP = 6, TCP_NODELAY = 1).
-define internal i64 @ll_net_tcp_set_nodelay(i64 %%fd, i64 %%on) {
-entry:
-    %%bad_fd = icmp slt i64 %%fd, 0
-    br i1 %%bad_fd, label %%bad, label %%set
-set:
-    %%v = alloca i32, align 4
-    %%nz = icmp ne i64 %%on, 0
-    %%flag = zext i1 %%nz to i32
-    store i32 %%flag, ptr %%v, align 4
-    %%fd32 = trunc i64 %%fd to i32
-    %%rc = call i32 @setsockopt(i32 %%fd32, i32 6, i32 1, ptr %%v, i32 4)
-    %%failed = icmp ne i32 %%rc, 0
-    %%res = select i1 %%failed, i64 -1, i64 0
-    ret i64 %%res
-bad:
-    ret i64 -1
-}
-
-define internal i64 @ll_net_socketpair(ptr %%out_fds) {
-entry:
-    %%is_null = icmp eq ptr %%out_fds, null
-    br i1 %%is_null, label %%ret_err, label %%do_pair
-ret_err:
-    ret i64 -1
-do_pair:
-    %%sv = alloca [2 x i32], align 4
-    %%rc = call i32 @socketpair(i32 1, i32 1, i32 0, ptr %%sv)
-    %%ok = icmp eq i32 %%rc, 0
-    br i1 %%ok, label %%ok_store, label %%err_store
-err_store:
-    %%e0 = getelementptr inbounds i64, ptr %%out_fds, i64 0
-    %%e1 = getelementptr inbounds i64, ptr %%out_fds, i64 1
-    store i64 -1, ptr %%e0, align 8
-    store i64 -1, ptr %%e1, align 8
-    ret i64 -1
-ok_store:
-    %%p0 = getelementptr inbounds i32, ptr %%sv, i64 0
-    %%p1 = getelementptr inbounds i32, ptr %%sv, i64 1
-    %%fd0_32 = load i32, ptr %%p0, align 4
-    %%fd1_32 = load i32, ptr %%p1, align 4
-    %%is_mac = icmp ne i32 %d, 0
-    br i1 %%is_mac, label %%set_nosig, label %%store_fds
-set_nosig:
-    %%opt = alloca i32, align 4
-    store i32 1, ptr %%opt, align 4
-    call i32 @setsockopt(i32 %%fd0_32, i32 65535, i32 4130, ptr %%opt, i32 4)
-    call i32 @setsockopt(i32 %%fd1_32, i32 65535, i32 4130, ptr %%opt, i32 4)
-    br label %%store_fds
-store_fds:
-    %%fd0 = sext i32 %%fd0_32 to i64
-    %%fd1 = sext i32 %%fd1_32 to i64
-    %%o0 = getelementptr inbounds i64, ptr %%out_fds, i64 0
-    %%o1 = getelementptr inbounds i64, ptr %%out_fds, i64 1
-    store i64 %%fd0, ptr %%o0, align 8
-    store i64 %%fd1, ptr %%o1, align 8
-    ret i64 0
 }
 
 define internal void @ll_tls_init() {
@@ -3125,7 +1726,7 @@ chk_tmo:
     br i1 %%has_tmo, label %%set_tmo, label %%do_read
 set_tmo:
     %%fd64 = sext i32 %%fd32 to i64
-    call void @ll_net_set_timeout(i64 %%fd64, i64 %%timeout_ms)
+    call void @ll_tls_set_timeout(i64 %%fd64, i64 %%timeout_ms)
     br label %%do_read
 do_read:
     %%gt_max = icmp sgt i64 %%max_len, 1073741824
@@ -3286,11 +1887,6 @@ alloc_sess:
     ret ptr %%sess
 }
 `, solSocket, soRcvTimeo, solSocket, soSndTimeo,
-		portFmt, zeroIpSym, starSym, aiAddrOffset, solSocket, soReuseAddr, isDarwin,
-		isDarwin,
-		portFmt, aiAddrOffset, isDarwin,
-		isDarwin, msgNoSignal,
-		isDarwin,
 		sLib1, sLib2, sLib3, sLib4, sLib5, sLib6,
 		symInitSsl, symTlsClient, symSsl23Client, symTlsServer, symSsl23Server,
 		symCtxNew, symCtxFree, symCtxDefVerify, symCtxCert, symCtxKey,
@@ -3312,6 +1908,18 @@ func (g *llvmEmitter) emitTestHarnessRuntime() {
 	g.funcSet["ll_run_test_case"] = true
 	g.funcSet["ll_report_test_summary"] = true
 
+	lenNlIR := `    %%nl_i = ptrtoint ptr %%nl to i64
+    %%p_i = ptrtoint ptr %%p to i64
+    %%len1 = sub i64 %%nl_i, %%p_i`
+	lenEndIR := `    %%len2 = call i64 @strlen(ptr %%p)`
+	if targetInfoForProg(g.prog).PtrBits == 32 {
+		lenNlIR = `    %%nl_i = ptrtoint ptr %%nl to i32
+    %%p_i = ptrtoint ptr %%p to i32
+    %%len1_32 = sub i32 %%nl_i, %%p_i
+    %%len1 = zext i32 %%len1_32 to i64`
+		lenEndIR = `    %%len2_32 = call i32 @strlen(ptr %%p)
+    %%len2 = zext i32 %%len2_32 to i64`
+	}
 	g.line(`define internal void @ll_print_indented_panic(ptr %%msg) {
 entry:
     br label %%loop
@@ -3325,12 +1933,10 @@ body:
     %%has_nl = icmp ne ptr %%nl, null
     br i1 %%has_nl, label %%len_nl, label %%len_end
 len_nl:
-    %%nl_i = ptrtoint ptr %%nl to i64
-    %%p_i = ptrtoint ptr %%p to i64
-    %%len1 = sub i64 %%nl_i, %%p_i
+` + lenNlIR + `
     br label %%check_empty
 len_end:
-    %%len2 = call i64 @strlen(ptr %%p)
+` + lenEndIR + `
     br label %%check_empty
 check_empty:
     %%len = phi i64 [ %%len1, %%len_nl ], [ %%len2, %%len_end ]
@@ -3360,7 +1966,7 @@ entry:
     %%out_f = call ptr @ll_rt_stdout()
     call i32 @fflush(ptr %%out_f)
     %%allocs_before = load i64, ptr @ll_rt_live_allocs, align 8
-    %%t0 = call i64 @ll_time_monotonic_nanos()
+    %%t0 = call i64 @ll_test_monotonic_nanos()
     store ptr %%jmp_buf, ptr @ll_test_current_jmp, align 8
     store i8 0, ptr @ll_test_last_panic, align 1
     %%jb = call i32 @setjmp(ptr %%jmp_buf) returns_twice
@@ -3369,7 +1975,7 @@ entry:
 run_test:
     call void %%test_fn()
     store ptr null, ptr @ll_test_current_jmp, align 8
-    %%t1 = call i64 @ll_time_monotonic_nanos()
+    %%t1 = call i64 @ll_test_monotonic_nanos()
     %%dt_ns = sub i64 %%t1, %%t0
     %%elapsed_us = sdiv i64 %%dt_ns, 1000
     %%allocs_after = load i64, ptr @ll_rt_live_allocs, align 8
@@ -3465,7 +2071,7 @@ func (g *llvmEmitter) emitSynthesizedHelpersLLVM() {
 
 	if g.prog.Checked != nil {
 		for _, li := range g.prog.Checked.Lambdas {
-			if len(li.Captures) > 0 {
+			if len(li.Captures) > 0 && g.funcSet[li.CName] {
 				g.emitLambdaEnvHelpersLLVM(li)
 			}
 		}
@@ -3719,21 +2325,18 @@ func (g *llvmEmitter) emitPrimitiveHelpersLLVM() {
 	g.funcSet["ll_hash__string"] = true
 	g.funcSet["ll_hash_p__string"] = true
 
+	sizeTyPtr := g.cSizeType()
 	g.line(`define internal void @ll_tostr_ptr_p(ptr %%out, ptr %%val) {
 entry:
     %%is_null = icmp eq ptr %%val, null
     br i1 %%is_null, label %%store_null, label %%fmt_ptr
 store_null:
-    %%n0 = getelementptr inbounds %%struct.ll_string, ptr %%out, i32 0, i32 0
-    %%n1 = getelementptr inbounds %%struct.ll_string, ptr %%out, i32 0, i32 1
-    %%n2 = getelementptr inbounds %%struct.ll_string, ptr %%out, i32 0, i32 2
-    store ptr %s, ptr %%n0, align 8
-    store i64 3, ptr %%n1, align 8
-    store i64 0, ptr %%n2, align 8
+    store %%struct.ll_string zeroinitializer, ptr %%out, align 8
+    call void @ll_str_push_bytes(ptr %%out, ptr %s, i64 3)
     ret void
 fmt_ptr:
     %%buf = alloca [32 x i8], align 1
-    %%n32 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %%buf, i64 32, ptr %s, ptr %%val)
+    %%n32 = call i32 (ptr, `+sizeTyPtr+`, ptr, ...) @snprintf(ptr %%buf, `+sizeTyPtr+` 32, ptr %s, ptr %%val)
     %%n64 = sext i32 %%n32 to i64
     store %%struct.ll_string zeroinitializer, ptr %%out, align 8
     call void @ll_str_push_bytes(ptr %%out, ptr %%buf, i64 %%n64)
@@ -5733,8 +4336,8 @@ shift:
     %%idx_p1 = add i64 %%idx, 1
     %%next_p = getelementptr inbounds %s, ptr %%data, i64 %%idx_p1
     %%sz_p = getelementptr %s, ptr null, i64 %%tail_dec
-    %%tail_bytes = ptrtoint ptr %%sz_p to i64
-    call ptr @memmove(ptr %%ep, ptr %%next_p, i64 %%tail_bytes)
+    %%tail_bytes = ptrtoint ptr %%sz_p to `+g.cSizeType()+`
+    call ptr @memmove(ptr %%ep, ptr %%next_p, `+g.cSizeType()+` %%tail_bytes)
     br label %%finish
 finish:
     %%nlen = sub i64 %%len, 1
@@ -6254,4 +4857,37 @@ entry:
 }`, cd.fn)
 		}
 	}
+}
+
+// emitSyscall emits ll_syscall6 for the target architecture/OS. It returns the result, or -errno
+// on failure on every platform: macOS reports failure with the carry flag and a positive errno,
+// which is negated here to match Linux.
+func (g *llvmEmitter) emitSyscall() {
+	g.funcSet["ll_syscall6"] = true
+	params := "i64 %n, i64 %a1, i64 %a2, i64 %a3, i64 %a4, i64 %a5, i64 %a6"
+	args := "i64 %n, i64 %a1, i64 %a2, i64 %a3, i64 %a4, i64 %a5, i64 %a6"
+	var asm, constraints, pre string
+	tgt := targetInfoForProg(g.prog)
+	switch tgt.OS + "/" + tgt.Arch {
+	case "darwin/arm64":
+		asm = `svc #0x80\0Ab.cc 1f\0Aneg x0, x0\0A1:`
+		constraints = "={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{memory},~{cc}"
+	case "linux/arm64":
+		asm = "svc #0"
+		constraints = "={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{memory},~{cc}"
+	case "linux/amd64":
+		asm = "syscall"
+		constraints = "={rax},{rax},{rdi},{rsi},{rdx},{r10},{r8},{r9},~{rcx},~{r11},~{memory},~{dirflag},~{fpsr},~{flags}"
+	case "darwin/amd64":
+		pre = "    %num = add i64 %n, 33554432\n"
+		args = "i64 %num, i64 %a1, i64 %a2, i64 %a3, i64 %a4, i64 %a5, i64 %a6"
+		asm = `syscall\0Ajnc 1f\0Anegq %rax\0A1:`
+		constraints = "={rax},{rax},{rdi},{rsi},{rdx},{r10},{r8},{r9},~{rcx},~{r11},~{memory},~{dirflag},~{fpsr},~{flags}"
+	default:
+		g.raw("define internal i64 @ll_syscall6(" + params + ") {\nentry:\n    ret i64 -38\n}\n")
+		return
+	}
+	g.raw("define internal i64 @ll_syscall6(" + params + ") {\nentry:\n" + pre +
+		"    %r = call i64 asm sideeffect \"" + asm + "\", \"" + constraints + "\"(" + args + ")\n" +
+		"    ret i64 %r\n}\n")
 }

@@ -15,11 +15,14 @@ type File struct {
 	Span    diag.Span
 }
 
-// TypeParam represents a generic type parameter `[T]` or `[T: Bound1 + Bound2]`.
+// TypeParam represents a generic type parameter `[T]`, `[T: Bound1 + Bound2]`,
+// or a compile-time value parameter `[N: const int]`.
 type TypeParam struct {
-	Name   string
-	Bounds []string
-	Span   diag.Span
+	Name      string
+	IsConst   bool
+	ConstType TypeExpr // non-nil when IsConst is true
+	Bounds    []string
+	Span      diag.Span
 }
 
 // -----------------------------------------------------------------------------
@@ -212,6 +215,7 @@ func (d *DistinctTypeDecl) SetAttributes(a []Attribute) { d.Attributes = a }
 // MethodDecl: `bind Point.translate = fn(&self, dx: int, dy: int): { ... }`
 // Also supports generic receivers `bind Pair[A, B].swap[C] = ...`
 type MethodDecl struct {
+	IsConst        bool   // true when declared with `const`, false when declared with `bind`
 	RecvModule     string // optional imported package qualifier in `bind pkg.Type.method = ...`
 	RecvType       string
 	RecvTypeParams []string
@@ -236,6 +240,7 @@ func (d *MethodDecl) SetAttributes(a []Attribute) { d.Attributes = a }
 // VarDecl: top-level `bind` or `let` (including `bind main = ...` and generic `bind foo[T] = ...`)
 type VarDecl struct {
 	IsBind     bool
+	IsConst    bool
 	Name       string
 	IsOptName  bool
 	TypeParams []TypeParam
@@ -251,6 +256,21 @@ func (*VarDecl) declNode()                     {}
 func (d *VarDecl) GetSpan() diag.Span          { return d.Span }
 func (d *VarDecl) GetAttributes() []Attribute  { return d.Attributes }
 func (d *VarDecl) SetAttributes(a []Attribute) { d.Attributes = a }
+
+// TopComptimeIfDecl: top-level `comptime if (<cond>): ... [else comptime if ... | else: ...]`
+type TopComptimeIfDecl struct {
+	Cond       Expr
+	ThenDecls  []Decl
+	ThenBraced bool
+	ElseIf     *TopComptimeIfDecl
+	ElseDecls  []Decl
+	ElseBraced bool
+	HasElse    bool
+	Span       diag.Span
+}
+
+func (*TopComptimeIfDecl) declNode()            {}
+func (d *TopComptimeIfDecl) GetSpan() diag.Span { return d.Span }
 
 // Param represents a function or lambda parameter.
 type Param struct {
@@ -354,11 +374,22 @@ type TupleType struct {
 func (*TupleType) typeNode()            {}
 func (t *TupleType) GetSpan() diag.Span { return t.Span }
 
+// ConstArgType represents a compile-time value argument in a generic bracket list
+// (e.g., `Matrix[2 + 2, 4]`, `zeros[8]()`).
+type ConstArgType struct {
+	Expr Expr
+	Span diag.Span
+}
+
+func (*ConstArgType) typeNode()            {}
+func (t *ConstArgType) GetSpan() diag.Span { return t.Span }
+
 // FuncType: `fn(int, int) int`, `cl(Event)`, or `fn()`
 type FuncType struct {
 	Params  []Param
 	Ret     TypeExpr // nil for void function type
 	Closure bool     // `cl(...)`: a closure; otherwise `fn(...)`: a function with no captures
+	Extern  bool     // `extern fn(...)`: a C function pointer
 	Span    diag.Span
 }
 
@@ -387,6 +418,7 @@ type UnpackVar struct {
 // If IsUnpack is true, UnpackVars holds the unpacked bindings (`let x, y = unpack expr`).
 type VarStmt struct {
 	IsBind         bool
+	IsConst        bool
 	IsUnpack       bool
 	Name           string
 	IsOptName      bool
@@ -726,6 +758,7 @@ type FuncLit struct {
 	Ret     TypeExpr // nil for void
 	Body    Expr
 	Closure bool // `cl(...)`: may capture; otherwise `fn(...)`: captures nothing
+	Extern  bool // `extern fn(...)`: a function with the C calling convention, callable from C
 	Span    diag.Span
 }
 
@@ -740,6 +773,15 @@ type UnsafeExpr struct {
 
 func (*UnsafeExpr) exprNode()            {}
 func (e *UnsafeExpr) GetSpan() diag.Span { return e.Span }
+
+// ComptimeExpr: `comptime <expr>` (e.g., `comptime { ... }`, `comptime compute()`)
+type ComptimeExpr struct {
+	Expr Expr
+	Span diag.Span
+}
+
+func (*ComptimeExpr) exprNode()            {}
+func (e *ComptimeExpr) GetSpan() diag.Span { return e.Span }
 
 // BlockExpr: `{ stmts... [Tail] }` or `unsafe { ... }` or labeled `blk: { ... }`
 type BlockExpr struct {
@@ -773,7 +815,8 @@ const (
 
 // IfExpr: `if (...) [EvalType]: thenExpr [else if (...) ... | else: elseExpr]`
 type IfExpr struct {
-	CondKind  IfCondKind
+	IsComptime bool
+	CondKind   IfCondKind
 	MutUnwrap bool     // true for `if (&user?)` or `if (&expr as name)`
 	OptVar    string   // e.g., `"user?"` for IfCondOptVar
 	BindName  string   // unwrapped non-optional name (`"user"` or `as name`)
@@ -797,6 +840,7 @@ const (
 
 // ForExpr: `[label:] for (...) [: Type] body [else elseBody]`
 type ForExpr struct {
+	IsComptime bool
 	Label      string
 	Kind       ForKind
 	Var1       string // loop var (`i`, `item`, or `k`)
@@ -940,6 +984,7 @@ func (a *MatchArm) AllPatterns() []Pattern {
 
 // MatchExpr: `match [(scrutinees)] [EvalType]: when ... default [...]: ...`
 type MatchExpr struct {
+	IsComptime bool
 	Scrutinees []Expr   // empty for 0-arg `match` or `match()`
 	EvalType   TypeExpr // optional explicit evaluation type
 	Arms       []MatchArm

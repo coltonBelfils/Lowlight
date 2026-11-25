@@ -19,7 +19,7 @@ define ErrorFrame struct [
 // - `line`: 1-based line number.
 // - `col`: 1-based column number.
 // - `note?`: Optional contextual message attached at this frame.
-bind ErrorFrame.new = fn(file: string, line: int, col: int, note?: ?string) ErrorFrame:
+const ErrorFrame.new = fn(file: string, line: int, col: int, note?: ?string) ErrorFrame:
 	ErrorFrame[
 		_file: file.copy(),
 		_line: line,
@@ -28,28 +28,28 @@ bind ErrorFrame.new = fn(file: string, line: int, col: int, note?: ?string) Erro
 	]
 
 // Returns a copy of the source file path recorded on this frame.
-bind ErrorFrame.file = fn(self) string: self._file.copy()
+const ErrorFrame.file = fn(self) string: self._file.copy()
 
 // Returns the 1-based line number recorded on this frame.
-bind ErrorFrame.line = fn(self) int: self._line
+const ErrorFrame.line = fn(self) int: self._line
 
 // Returns the 1-based column number recorded on this frame.
-bind ErrorFrame.col = fn(self) int: self._col
+const ErrorFrame.col = fn(self) int: self._col
 
 // Returns a copy of the optional note attached to this frame, or `none`.
-bind ErrorFrame.note = fn(self) ?string:
+const ErrorFrame.note = fn(self) ?string:
 	if(self._note? as n): n.copy() else: none
 
 // Formats the frame coordinates as `"file:line:col"`.
-bind ErrorFrame.location = fn(self) string: "${self._file}:${self._line}:${self._col}"
+const ErrorFrame.location = fn(self) string: "${self._file}:${self._line}:${self._col}"
 
 // Formats the frame as `"file:line:col — note"` (or `"file:line:col"` when no note is present).
-bind ErrorFrame.to_string = fn(self) string:
+const ErrorFrame.to_string = fn(self) string:
 	if(self._note? as n): "${self._file}:${self._line}:${self._col} — $n"
 	else: "${self._file}:${self._line}:${self._col}"
 
 // Reports structural equality between two [`ErrorFrame`] values.
-bind ErrorFrame.eq = fn(self, other: ErrorFrame) bool:
+const ErrorFrame.eq = fn(self, other: ErrorFrame) bool:
 	self._file == other._file and self._line == other._line and self._col == other._col and self._note? == other._note?
 
 // Heap-safe contextual error value supporting wrapped causal chains, optional error codes,
@@ -74,7 +74,7 @@ define Error struct [
 //
 // - `msg`: Primary description of the failure.
 @track_caller
-bind Error.new = fn(msg: string) Error: {
+const Error.new = fn(msg: string) Error: {
 	let f = ErrorFrame[
 		_file: caller_file(),
 		_line: caller_line(),
@@ -94,7 +94,7 @@ bind Error.new = fn(msg: string) Error: {
 // - `code`: Stable symbolic identifier checked via [`Error.is`] and [`Error.has_code`].
 // - `msg`: Primary human-readable error message.
 @track_caller
-bind Error.coded = fn(code: string, msg: string) Error: {
+const Error.coded = fn(code: string, msg: string) Error: {
 	let f = ErrorFrame[
 		_file: caller_file(),
 		_line: caller_line(),
@@ -116,7 +116,7 @@ bind Error.coded = fn(code: string, msg: string) Error: {
 //
 // - `msg`: Outer context added at the wrapping call site.
 @track_caller
-bind Error.wrap = fn(own self, msg: string) Error: {
+const Error.wrap = fn(own self, msg: string) Error: {
 	let f = ErrorFrame[
 		_file: caller_file(),
 		_line: caller_line(),
@@ -133,7 +133,7 @@ bind Error.wrap = fn(own self, msg: string) Error: {
 
 // Consumes `self` and returns it with an additional caller-attributed [`ErrorFrame`] appended.
 @track_caller
-bind Error.trace = fn(own self) Error: {
+const Error.trace = fn(own self) Error: {
 	let cp = own self
 	cp._frames.push(ErrorFrame[
 		_file: caller_file(),
@@ -145,38 +145,38 @@ bind Error.trace = fn(own self) Error: {
 }
 
 // Consumes `self` and returns it with its machine-readable code set to `code`.
-bind Error.with_code = fn(own self, code: string) Error: {
+const Error.with_code = fn(own self, code: string) Error: {
 	let cp = own self
 	cp._code? = code.copy()
 	cp
 }
 
 // Returns a copy of the message stored directly on this error node (without causes).
-bind Error.message = fn(self) string: self._message.copy()
+const Error.message = fn(self) string: self._message.copy()
 
 // Returns the first error code found walking down `self` through its cause chain, or `none`.
-bind Error.code = fn(self) ?string: {
+const Error.code = fn(self) ?string: {
 	if(self._code? as c): func <- c.copy()
 	if(self._cause? as cause): func <- cause.code()
 	none
 }
 
 // Returns a copy of the wrapped inner cause [`Error`], or `none` if `self` is a root error.
-bind Error.cause = fn(self) ?Error:
+const Error.cause = fn(self) ?Error:
 	if(self._cause? as c): c.copy() else: none
 
 // Walks the cause chain and returns a copy of the innermost root [`Error`].
-bind Error.root = fn(self) Error:
+const Error.root = fn(self) Error:
 	if(self._cause? as c): c.root() else: self.copy()
 
 // Returns a copy of the [`ErrorFrame`] list recorded directly on this error node.
-bind Error.frames = fn(self) [ErrorFrame]: self._frames.copy()
+const Error.frames = fn(self) [ErrorFrame]: self._frames.copy()
 
 // Reports whether `self` or any wrapped cause in its chain matches `target`.
 //
 // Matches by code when `target` carries a code, otherwise by exact message equality
 // on uncoded error nodes.
-bind Error.is = fn(self, target: Error) bool: {
+const Error.is = fn(self, target: Error) bool: {
 	if(target._code? as tcode): {
 		if(self._code? as ccode): if(ccode == tcode): func <- true
 	} else if(self._code? == none and self._message == target._message): func <- true
@@ -185,14 +185,14 @@ bind Error.is = fn(self, target: Error) bool: {
 }
 
 // Reports whether `self` or any wrapped cause in its chain has error code `code`.
-bind Error.has_code = fn(self, code: string) bool: {
+const Error.has_code = fn(self, code: string) bool: {
 	if(self._code? as c): if(c == code): func <- true
 	if(self._cause? as cause): func <- cause.has_code(code)
 	false
 }
 
 // Formats the full causal message chain joined by `": "` without stack trace lines.
-bind Error.summary = fn(self) string: {
+const Error.summary = fn(self) string: {
 	let out = self._message.copy()
 	if(self._cause? as c): {
 		out.push(": ")
@@ -201,7 +201,7 @@ bind Error.summary = fn(self) string: {
 	out
 }
 
-bind Error._append_trace = fn(self, out: &string) void: {
+const Error._append_trace = fn(self, out: &string) void: {
 	let i = self._frames.len() - 1
 	for(i >= 0): {
 		out.push("\n  at ")
@@ -212,7 +212,7 @@ bind Error._append_trace = fn(self, out: &string) void: {
 }
 
 // Formats the full error summary (prefixed with `[code]` when present) followed by the stack trace.
-bind Error.to_string = fn(self) string: {
+const Error.to_string = fn(self) string: {
 	let out = ""
 	if(self.code() as c): {
 		out.push("[")
@@ -226,7 +226,7 @@ bind Error.to_string = fn(self) string: {
 }
 
 // Reports structural equality across messages, codes, causes, and trace frames.
-bind Error.eq = fn(self, other: Error) bool: {
+const Error.eq = fn(self, other: Error) bool: {
 	if(self._message != other._message): func <- false
 	if(self._code? != other._code?): func <- false
 	if(self._cause? != other._cause?): func <- false

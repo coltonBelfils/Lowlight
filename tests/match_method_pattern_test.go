@@ -183,7 +183,7 @@ bind main = fn(): {
 
     // 8. Short-circuiting: later arm args are not evaluated if earlier arm matches
     let arg_calls = 0
-    bind bump = cl(cnt: &int) int: {
+    bind bump = fn(cnt: &int) int: {
         cnt += 1
         99
     }

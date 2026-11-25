@@ -24,6 +24,7 @@ import (
 type diskASTCacheEntry struct {
 	modTimeNano int64
 	size        int64
+	src         string
 	file        *ast.File
 }
 
@@ -65,11 +66,14 @@ type Symbol struct {
 	CName         string
 	Mod           *Module
 	Type          types.Type
-	IsBind        bool // true = deeply immutable (`bind`, read-only param, read-only loop var, capture)
+	IsBind        bool // true = deeply immutable (`bind`, `const`, read-only param, read-only loop var, capture)
+	IsConst       bool // true = declared with `const` (compile-time constant / compile-time-callable fn)
+	IsConstParam  bool // true = compile-time generic parameter `[N: const Type]`
 	BindKind      BindKind
 	IsTopLevel    bool
 	IsConstInt    bool
 	ConstIntVal   int64
+	ConstVal      any // *ctVal when evaluated at compile time
 	ScopeDepth    int
 	ArenaDepth    int // > 0 if this value holds `ref[T]` tied to a local Arena at ArenaDepth
 	DeclFuncDepth int // function/lambda nesting level where declared
@@ -78,7 +82,10 @@ type Symbol struct {
 	DeprecatedMsg string
 	IsTest        bool
 	IsTestOnly    bool
-	TrackCaller   bool
+	ComptimeOnly     bool
+	ComptimeLimit    int
+	ComptimeMemLimit int64
+	TrackCaller      bool
 	TestDesc      string
 	FuncInst      *FuncInstance
 	GenFunc       *GenericFuncTemplate
@@ -89,10 +96,13 @@ type Symbol struct {
 
 // ExternFunc represents a resolved `extern name: (params): Ret` C ABI function.
 type ExternFunc struct {
-	Name string
-	Sig  *types.Func
-	Doc  string
-	Span diag.Span
+	Name  string
+	Sig   *types.Func
+	PkgID string
+	Doc   string
+	Span  diag.Span
+	// IsTestOnly marks a `@test_only` extern, which only test builds declare.
+	IsTestOnly bool
 }
 
 // GenericStructTemplate stores an uninstantiated `define Name[T...] struct [...]`.
@@ -151,7 +161,14 @@ type FuncInstance struct {
 	IsTestMain     bool
 	IsAlwaysInline bool
 	IsNoInline     bool
-	MustUse        bool
+	IsConst        bool
+	IsGenericInst  bool
+	IsDerived      bool
+	ConstFail      *ConstFailReason
+	ComptimeOnly     bool
+	ComptimeLimit    int
+	ComptimeMemLimit int64
+	MustUse          bool
 	Deprecated     bool
 	DeprecatedMsg  string
 	IsTest         bool
@@ -159,6 +176,30 @@ type FuncInstance struct {
 	TrackCaller    bool
 	TestDesc       string
 	Doc            string
+}
+
+// ConstFailReason records why a generic `const` function/method instantiation
+// was downgraded to runtime-only (`bind`) so compile-time call sites and LSP hover
+// can point directly to the root cause.
+type ConstFailReason struct {
+	Span    diag.Span
+	Message string
+	Hint    string
+	CauseFn *FuncInstance
+}
+
+// UnrolledIter holds one statically unrolled iteration of a `comptime for` loop.
+type UnrolledIter struct {
+	IdxSym  *Symbol
+	ItemSym *Symbol
+	IdxVal  *ctVal
+	ItemVal *ctVal
+	Body    ast.Expr // Deep-cloned per iteration so AST side tables remain isolated.
+}
+
+// UnrolledFor holds the statically unrolled iterations for a `comptime for` expression.
+type UnrolledFor struct {
+	Iters []UnrolledIter
 }
 
 // BodyMaps holds per-monomorphized-body AST side tables so multiple generic
@@ -180,6 +221,15 @@ type BodyMaps struct {
 	ContainsPatterns    map[*ast.ContainsPattern]*ContainsInfo
 	MethodPatterns      map[*ast.MethodPattern]*MethodPatternInfo
 	BareVariantPatterns map[*ast.MethodPattern]*ast.VariantPattern
+	ComptimeVals        map[ast.Expr]*ctVal
+	ConstVarVals        map[*Symbol]*ctVal
+	// ComptimeIfBranch records the statically chosen branch for a `comptime if`:
+	// 0 = then branch, 1 = elif branch, 2 = else branch, 3 = untaken (omitted else / void).
+	ComptimeIfBranch map[*ast.IfExpr]int
+	// ComptimeMatchArm records the matching arm index in MatchArms[*ast.MatchExpr] for `comptime match`.
+	ComptimeMatchArm map[*ast.MatchExpr]int
+	// ComptimeForUnrolls holds the statically unrolled iterations for `comptime for`.
+	ComptimeForUnrolls map[*ast.ForExpr]*UnrolledFor
 }
 
 // NewBodyMaps allocates a fresh set of per-body AST side tables.
@@ -198,6 +248,11 @@ func NewBodyMaps() *BodyMaps {
 		ContainsPatterns:    make(map[*ast.ContainsPattern]*ContainsInfo),
 		MethodPatterns:      make(map[*ast.MethodPattern]*MethodPatternInfo),
 		BareVariantPatterns: make(map[*ast.MethodPattern]*ast.VariantPattern),
+		ComptimeVals:        make(map[ast.Expr]*ctVal),
+		ConstVarVals:        make(map[*Symbol]*ctVal),
+		ComptimeIfBranch:    make(map[*ast.IfExpr]int),
+		ComptimeMatchArm:    make(map[*ast.MatchExpr]int),
+		ComptimeForUnrolls:  make(map[*ast.ForExpr]*UnrolledFor),
 	}
 }
 
@@ -221,6 +276,7 @@ type LambdaInfo struct {
 	ParamSyms    []*Symbol
 	FuncTargetID int
 	BodyMaps     *BodyMaps
+	ComptimeOnly bool
 }
 
 // CallKind classifies how a `*ast.CallExpr` is lowered in MIR/Codegen.
@@ -365,6 +421,7 @@ type Module struct {
 	Pkg               *Package
 	IsTestFile        bool // true for `*_test.ll`
 	File              *ast.File
+	Decls             []ast.Decl // Active top-level declarations after `comptime if` pruning
 	Doc               string
 	Imports           []*Module          // implicit `std/core` prelude only (zero open user imports)
 	Aliased           map[string]*Module // file-scoped qualified `import "pkg" [as alias]` -> childPkg.PrimaryMod
@@ -380,11 +437,32 @@ type Module struct {
 	DerivedDecls []ast.Decl
 }
 
+// ActiveDecls returns the module's post-pruning declaration list, falling back to `File.Decls`.
+func (m *Module) ActiveDecls() []ast.Decl {
+	if m == nil {
+		return nil
+	}
+	if m.Decls != nil {
+		return m.Decls
+	}
+	if m.File != nil {
+		return m.File.Decls
+	}
+	return nil
+}
+
 // TopVarInit represents a non-function top-level `bind` constant to be emitted in C.
 type TopVarInit struct {
 	Sym  *Symbol
 	Decl *ast.VarDecl
 	Mod  *Module
+}
+
+// EmbeddedFileInfo records a file embedded at compile time via `comp.embed_str` or
+// `comp.embed_bytes` so incremental build caches and LSP watchers track asset changes.
+type EmbeddedFileInfo struct {
+	Path   string
+	SHA256 string
 }
 
 // CheckedProgram holds the completely validated, monomorphized semantic program ready for MIR lowering.
@@ -394,8 +472,10 @@ type CheckedProgram struct {
 	Modules       []*Module
 	Packages      []*Package
 	PackageByID   map[string]*Package
-	ExternHeaders []string
-	ExternFuncs   []*ExternFunc
+	ExternHeaders       []string
+	ExternFuncs         []*ExternFunc
+	EmbeddedFiles       []EmbeddedFileInfo
+	AttemptedEmbedPaths []string // In-sandbox missing/uncreated embed paths for LSP invalidation/watching
 	Structs       []*types.Struct
 	StructDecls   map[*types.Struct]*ast.StructDecl
 	StructMods    map[*types.Struct]*Module
@@ -453,8 +533,16 @@ type CheckedProgram struct {
 	GenStructSet         *GenericStructTemplate
 	GenStructMap         *GenericStructTemplate
 	GenStructRange       *GenericStructTemplate
+	StructArena          *types.Struct // std/core's `@lang("arena")` Arena
+	EnumTargetOs         *types.Enum   // std/core's `@lang("target_os")` TargetOs
+	EnumTargetArch       *types.Enum   // std/core's `@lang("target_arch")` TargetArch
+	EnumEndian           *types.Enum   // std/core's `@lang("target_endian")` Endian
+	StructTarget         *types.Struct // std/core's `@lang("target_info")` Target
+	CompTargetSym        *Symbol       // synthetic `@comptime_only const` for `comp.TARGET`
+	CompTypes            map[string]types.Type
 	GenStructs           []*GenericStructTemplate
 	GenInterfaces        []*GenericInterfaceTemplate
+	FormatLocFunc        *FuncInstance
 
 	implementsFn        func(concrete types.Type, ifc *types.Interface) bool
 	isIndexableFn       func(t types.Type) bool
@@ -504,6 +592,7 @@ type Analyzer struct {
 	usedTags        map[string]string   // sanitized C/LLVM tag -> Package.ID
 	corePkg         *Package
 	coreMod         *Module
+	coreTypeNames   map[string]bool // type names std/core declares; see typeTag
 
 	// Method tables: key is canonical type key (e.g. `"Point"`, `"int"`, `"string"`, `"vec"`, `"Pair"`).
 	methods    map[string]map[string]*FuncInstance
@@ -520,15 +609,65 @@ type Analyzer struct {
 	derivedOrder   []*ast.MethodDecl // derived methods in source order, for deterministic output
 	deriveChecking map[string]bool
 
-	inBodyPass   bool
-	nextTargetID int
-	nextLambdaID int
+	inBodyPass    bool
+	nextTargetID  int
+	nextLambdaID  int
+	nextCtAllocID int64
 
-	topVarMap           map[*Symbol]*TopVarInit
-	topVarStates        map[*TopVarInit]int // 0 = unvisited, 1 = visiting, 2 = visited
-	orderedTopVars      []*TopVarInit
-	deferredIfaceChecks []deferredIfaceCheck
-	monoDepth           int
+	topVarMap            map[*Symbol]*TopVarInit
+	topVarStates         map[*TopVarInit]int // 0 = unvisited, 1 = visiting, 2 = visited
+	topVarStack          []*TopVarInit
+	orderedTopVars       []*TopVarInit
+	deferredIfaceChecks   []deferredIfaceCheck
+	monoDepth             int
+	comptimeEvalActive    map[*Symbol]bool
+	comptimeEvalStack     []*Symbol
+	checkedComptimeFuncs  map[*FuncInstance]bool
+	checkingFuncs         map[*FuncInstance]bool
+	constGenericDeps      []constGenericDep
+	resolvingStructFields map[*types.Struct]bool
+	populatedStructs      map[*types.Struct]bool
+	embeddedFileIdx       map[string]int
+}
+
+func (a *Analyzer) recordEmbeddedFile(absPath string, data []byte) {
+	if a == nil || a.Prog == nil || absPath == "" {
+		return
+	}
+	cleanPath := filepath.Clean(absPath)
+	sum := sha256.Sum256(data)
+	digest := hex.EncodeToString(sum[:])
+	if a.embeddedFileIdx == nil {
+		a.embeddedFileIdx = make(map[string]int)
+	}
+	if idx, ok := a.embeddedFileIdx[cleanPath]; ok {
+		a.Prog.EmbeddedFiles[idx].SHA256 = digest
+		return
+	}
+	a.embeddedFileIdx[cleanPath] = len(a.Prog.EmbeddedFiles)
+	a.Prog.EmbeddedFiles = append(a.Prog.EmbeddedFiles, EmbeddedFileInfo{
+		Path:   cleanPath,
+		SHA256: digest,
+	})
+}
+
+func (a *Analyzer) recordAttemptedEmbed(absPath string) {
+	if a == nil || a.Prog == nil || absPath == "" {
+		return
+	}
+	cleanPath := filepath.Clean(absPath)
+	for _, existing := range a.Prog.AttemptedEmbedPaths {
+		if existing == cleanPath {
+			return
+		}
+	}
+	a.Prog.AttemptedEmbedPaths = append(a.Prog.AttemptedEmbedPaths, cleanPath)
+}
+
+type constGenericDep struct {
+	caller *FuncInstance
+	callee *FuncInstance
+	span   diag.Span
 }
 
 type deferredIfaceCheck struct {
@@ -692,6 +831,7 @@ func runCheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram 
 		MethodTable:    make(map[string]map[string]*FuncInstance),
 		GenMethods:     genMethods,
 		TypeSpans:      make(map[types.Type]diag.Span),
+		CompTypes:      make(map[string]types.Type),
 		StdDir:         stdDir,
 		ManifestCtx:    mCtx,
 		ResolvedDeps:   resolvedDeps,
@@ -1104,6 +1244,9 @@ func (a *Analyzer) parseSourceFile(absPath string, importSpan diag.Span) *ast.Fi
 		cached, ok := diskASTCache[absPath]
 		diskASTMu.RUnlock()
 		if ok && cached.modTimeNano == info.ModTime().UnixNano() && cached.size == info.Size() && cached.file != nil {
+			if a.Rep != nil {
+				a.Rep.AddSource(absPath, cached.src)
+			}
 			return cached.file
 		}
 	}
@@ -1122,6 +1265,7 @@ func (a *Analyzer) parseSourceFile(absPath string, importSpan diag.Span) *ast.Fi
 		diskASTCache[absPath] = diskASTCacheEntry{
 			modTimeNano: info.ModTime().UnixNano(),
 			size:        info.Size(),
+			src:         string(raw),
 			file:        astFile,
 		}
 		diskASTMu.Unlock()
@@ -1133,10 +1277,26 @@ func hasTopLevelMain(f *ast.File) bool {
 	if f == nil {
 		return false
 	}
-	for _, d := range f.Decls {
-		if vd, ok := d.(*ast.VarDecl); ok && vd.IsBind && vd.Name == "main" {
-			if _, isFn := vd.Value.(*ast.FuncLit); isFn {
-				return true
+	return declsContainMain(f.Decls)
+}
+
+func declsContainMain(decls []ast.Decl) bool {
+	for _, d := range decls {
+		switch dt := d.(type) {
+		case *ast.VarDecl:
+			if dt.IsBind && dt.Name == "main" {
+				if _, isFn := dt.Value.(*ast.FuncLit); isFn {
+					return true
+				}
+			}
+		case *ast.TopComptimeIfDecl:
+			for cur := dt; cur != nil; cur = cur.ElseIf {
+				if declsContainMain(cur.ThenDecls) {
+					return true
+				}
+				if len(cur.ElseDecls) > 0 && declsContainMain(cur.ElseDecls) {
+					return true
+				}
 			}
 		}
 	}
@@ -1172,8 +1332,10 @@ func (a *Analyzer) newPackage(pkgID, pkgName, pkgDir string, isStd, isCore, isEn
 
 func (a *Analyzer) newModuleInPkg(pkg *Package, absPath string, astFile *ast.File, isTestFile bool) *Module {
 	doc := ""
+	var decls []ast.Decl
 	if astFile != nil {
 		doc = astFile.Doc
+		decls = append([]ast.Decl(nil), astFile.Decls...)
 	}
 	return &Module{
 		Path:              absPath,
@@ -1181,6 +1343,7 @@ func (a *Analyzer) newModuleInPkg(pkg *Package, absPath string, astFile *ast.Fil
 		Pkg:               pkg,
 		IsTestFile:        isTestFile,
 		File:              astFile,
+		Decls:             decls,
 		Doc:               doc,
 		Aliased:           make(map[string]*Module),
 		DevAliased:        make(map[string]bool),
@@ -1375,11 +1538,43 @@ type resolvedPkgTarget struct {
 	isDevDep bool
 }
 
+func (a *Analyzer) validateNoTopComptimeImports(decls []ast.Decl) {
+	for _, d := range decls {
+		tc, ok := d.(*ast.TopComptimeIfDecl)
+		if !ok {
+			continue
+		}
+		for cur := tc; cur != nil; cur = cur.ElseIf {
+			a.rejectImportsInTopComptimeBranch(cur.ThenDecls)
+			a.rejectImportsInTopComptimeBranch(cur.ElseDecls)
+		}
+	}
+}
+
+func (a *Analyzer) rejectImportsInTopComptimeBranch(decls []ast.Decl) {
+	for _, d := range decls {
+		switch dt := d.(type) {
+		case *ast.ImportDecl:
+			a.Rep.ErrorWithHint(
+				dt.Span,
+				"`import` is not allowed inside top-level `comptime if`",
+				"move `import` declarations to file top level so the package graph remains static and target-independent; use `comptime if` inside functions or around declarations",
+			)
+		case *ast.TopComptimeIfDecl:
+			for cur := dt; cur != nil; cur = cur.ElseIf {
+				a.rejectImportsInTopComptimeBranch(cur.ThenDecls)
+				a.rejectImportsInTopComptimeBranch(cur.ElseDecls)
+			}
+		}
+	}
+}
+
 func (a *Analyzer) resolvePackageImports(pkg *Package) {
 	for _, mod := range pkg.Files {
 		if mod.File == nil {
 			continue
 		}
+		a.validateNoTopComptimeImports(mod.File.Decls)
 		for _, d := range mod.File.Decls {
 			imp, ok := d.(*ast.ImportDecl)
 			if !ok {
@@ -1390,17 +1585,21 @@ func (a *Analyzer) resolvePackageImports(pkg *Package) {
 				suggested := strings.TrimSuffix(imp.Path, ".ll")
 				qual := manifest.NormalizeQualifier(path.Base(suggested))
 				if suggested == "std/core/core" {
-					a.Rep.ErrorWithHint(
-						imp.Span,
-						fmt.Sprintf("import path %q must not specify a `.ll` file", imp.Path),
-						"`std/core` is automatically imported as the implicit prelude; remove this import or use `import \"std/core\"`",
-					)
+					a.Rep.Report(diag.Diagnostic{
+						Severity: diag.Error,
+						Span:     imp.Span,
+						Message:  fmt.Sprintf("import path %q must not specify a `.ll` file", imp.Path),
+						Hint:     "`std/core` is automatically imported as the implicit prelude; remove this import or use `import \"std/core\"`",
+						Data:     map[string]string{"kind": "strip_ll_import", "oldPath": imp.Path, "newPath": "std/core"},
+					})
 				} else {
-					a.Rep.ErrorWithHint(
-						imp.Span,
-						fmt.Sprintf("import path %q must target a package directory without the `.ll` extension", imp.Path),
-						fmt.Sprintf("use `import %q` and access exported declarations via `%s.<name>`", suggested, qual),
-					)
+					a.Rep.Report(diag.Diagnostic{
+						Severity: diag.Error,
+						Span:     imp.Span,
+						Message:  fmt.Sprintf("import path %q must target a package directory without the `.ll` extension", imp.Path),
+						Hint:     fmt.Sprintf("use `import %q` and access exported declarations via `%s.<name>`", suggested, qual),
+						Data:     map[string]string{"kind": "strip_ll_import", "oldPath": imp.Path, "newPath": suggested},
+					})
 				}
 				continue
 			}

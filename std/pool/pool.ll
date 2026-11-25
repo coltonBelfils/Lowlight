@@ -141,7 +141,7 @@ bind Pool[T].take = fn(&self, h: Handle[T]) ?T: {
 	let out? = unsafe {
 		let p = addr_of(self._slots[h.index].value?)
 		let v? = ptr_read(p)
-		zero_bytes(ptr_cast[u8](p), size_of[?T]())
+		zero_bytes(ptr_cast[u8](p), type.size_of[?T]())
 		v?
 	}
 	self._slots[h.index].alive = false

@@ -171,6 +171,14 @@ import "std/http"
 bind main = fn() int: {
 	let client = http.Client.new()
 	let resp = client.get("http://127.0.0.1:8080/health"):
+		when unreachable(_): {
+			eprintln("the service isn't running")
+			func <- 1
+		}
+		when timeout(_): {
+			eprintln("the service didn't answer in time")
+			func <- 1
+		}
 		default err(own e): {
 			eprintln(e.summary())
 			func <- 1
@@ -180,7 +188,7 @@ bind main = fn() int: {
 }
 ```
 
-`std/http` also supports HTTPS (through the system's OpenSSL, loaded at run time), request headers, `post`, `put`, and `patch`. See the [package reference](/std/http.html).
+A request result separates the failures a caller usually treats differently: `unreachable` (nothing answered at that address) and `timeout`, besides the general `err`. A response with an error status, such as `404`, is still a successful result. `std/http` also supports HTTPS (through the system's OpenSSL, loaded at run time), request headers, `post`, `put`, and `patch`. See the [package reference](/std/http.html).
 
 ## What you practiced
 

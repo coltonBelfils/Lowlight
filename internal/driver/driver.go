@@ -52,6 +52,7 @@ type Options struct {
 	TestJSON      bool      // Emit structured NDJSON test events (--json)
 	TestList      bool      // List discovered tests without compiling/running (--list)
 	TargetTriple  string    // Target triple for cross-compilation (e.g. "aarch64-unknown-linux-gnu")
+	AllTargets    bool      // Typecheck across all canonical targets (`lowlight check --all-targets`)
 	Package       string    // Optional workspace member selector (`-p <pkg>`)
 	Workspace     bool      // Operate across all workspace members (`--workspace`)
 	Locked        bool      // Enforce exact `lowlight.lock` match (`--locked`)
@@ -616,7 +617,7 @@ func buildC11(opts Options, ctx *manifest.ProjectContext) (string, BuildStats, e
 	args = append(args, mFlags...)
 	args = append(args, opts.ExtraCFlags...)
 	args = append(args, mLibs...)
-	args = append(args, "-lm", "-ldl")
+	args = append(args, targetSystemLibs(checked.Target)...)
 
 	var ccStderr bytes.Buffer
 	cmd := exec.Command(cc, args...)
@@ -627,6 +628,13 @@ func buildC11(opts Options, ctx *manifest.ProjectContext) (string, BuildStats, e
 			cc, strings.Join(args, " "), strings.TrimSpace(ccStderr.String()), runErr)
 	}
 	return absOut, BuildStats{}, nil
+}
+
+func targetSystemLibs(t manifest.TargetInfo) []string {
+	if t.IsUnix {
+		return []string{"-lm", "-ldl"}
+	}
+	return nil
 }
 
 func buildLLVM(opts Options, ctx *manifest.ProjectContext) (string, BuildStats, error) {
@@ -709,7 +717,7 @@ func buildLLVM(opts Options, ctx *manifest.ProjectContext) (string, BuildStats, 
 	args = append(args, mFlags...)
 	args = append(args, opts.ExtraCFlags...)
 	args = append(args, mLibs...)
-	args = append(args, "-lm", "-ldl")
+	args = append(args, targetSystemLibs(checked.Target)...)
 
 	var ccStderr bytes.Buffer
 	cmd := exec.Command(cc, args...)

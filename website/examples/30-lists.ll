@@ -13,11 +13,13 @@ bind main = fn(): {
 	println(xs[1])
 	println(xs.get(9) ?? 0)
 
-	// Insert, remove, and pop.
-	xs.insert(0, 5)
-	let removed = xs.remove(2)
+	// Insert, remove, and pop. The plain names report a bad index (`insert` returns a
+	// `Status`, `remove` an optional); the `must_` forms panic instead.
+	xs.must_insert(0, 5)
+	let removed = xs.must_remove(2)
 	let last? = xs.pop()
 	println("$removed ${last? ?? 0} $xs")
+	println(xs.remove(99) ?? -1)
 
 	// Slices are views of a range of elements.
 	println(xs[1..])

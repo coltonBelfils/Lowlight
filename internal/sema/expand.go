@@ -1,0 +1,1330 @@
+package sema
+
+import (
+	"fmt"
+	"math"
+	"sort"
+	"strconv"
+	"strings"
+
+	"lowlight/internal/ast"
+	"lowlight/internal/diag"
+	"lowlight/internal/token"
+	"lowlight/internal/types"
+)
+
+var expandSynthSpan = diag.Span{
+	Start: diag.Pos{Offset: -1},
+	End:   diag.Pos{Offset: -1},
+}
+
+type astExpander struct {
+	prog *CheckedProgram
+	mod  *Module
+}
+
+// ExpandModuleAST returns a cloned *ast.File for mod whose top-level `comptime if`s
+// are pruned, evaluated `const`s / `comptime { ... }` blocks are folded where convertible,
+// local `comptime if` / `comptime match` branches are resolved, and `comptime for` loops
+// are unrolled cleanly using their checked BodyMaps.
+func ExpandModuleAST(prog *CheckedProgram, mod *Module) *ast.File {
+	if prog == nil || mod == nil {
+		return nil
+	}
+	ex := &astExpander{prog: prog, mod: mod}
+
+	// Collect all checked FuncInstances belonging to mod keyed by their declaration span.
+	funcsBySpan := make(map[diag.Span][]*FuncInstance)
+	addFuncs := func(list []*FuncInstance) {
+		for _, fi := range list {
+			if fi == nil || fi.Mod != mod || fi.BodyMaps == nil {
+				continue
+			}
+			funcsBySpan[fi.DeclSpan] = append(funcsBySpan[fi.DeclSpan], fi)
+		}
+	}
+	addFuncs(prog.Funcs)
+	addFuncs(prog.TestFuncs)
+	for sp, list := range funcsBySpan {
+		sort.Slice(list, func(i, j int) bool {
+			return list[i].CName < list[j].CName
+		})
+		funcsBySpan[sp] = list
+	}
+
+	exp := &ast.File{
+		Path: mod.Path,
+	}
+
+	active := mod.ActiveDecls()
+	for _, d := range active {
+		if d == nil {
+			continue
+		}
+		switch decl := d.(type) {
+		case *ast.VarDecl:
+			insts := funcsBySpan[decl.Span]
+			if fl, isFn := decl.Value.(*ast.FuncLit); isFn && len(decl.TypeParams) > 0 {
+				// Emit generic template plus each instantiated specialization.
+				exp.Decls = append(exp.Decls, ast.CloneDecl(decl))
+				for _, fi := range insts {
+					if spec := ex.buildExpandedFuncSpec(decl, fl, fi); spec != nil {
+						exp.Decls = append(exp.Decls, spec)
+					}
+				}
+				continue
+			}
+			cd := ast.CloneDecl(decl).(*ast.VarDecl)
+			if fl, isFn := cd.Value.(*ast.FuncLit); isFn {
+				var bm *BodyMaps
+				if len(insts) > 0 {
+					bm = insts[0].BodyMaps
+				} else if sym := mod.Symbols[decl.Name]; sym != nil && sym.FuncInst != nil {
+					bm = sym.FuncInst.BodyMaps
+				}
+				if bm != nil {
+					if origFl, ok := decl.Value.(*ast.FuncLit); ok {
+						fl.Body = ex.expandBodyWithBM(origFl.Body, bm, declIsVoidRet(decl.Value))
+					}
+				}
+			} else if decl.IsConst {
+				sym := mod.Symbols[decl.Name]
+				if folded := ex.evalSymToASTExpr(sym, cd.Type != nil); folded != nil {
+					cd.Value = folded
+					if cd.Type == nil && sym != nil && ex.needsExplicitDeclType(sym.Type, cd.Value) {
+						cd.Type = ex.typeToASTTypeExpr(sym.Type)
+						if reFolded := ex.evalSymToASTExpr(sym, true); reFolded != nil {
+							cd.Value = reFolded
+						}
+					}
+				} else if prog.TopBodyMaps != nil {
+					val, _ := ex.expandExprWithBM(decl.Value, prog.TopBodyMaps, false, cd.Type != nil)
+					cd.Value = val
+				}
+			} else if prog.TopBodyMaps != nil && cd.Value != nil {
+				val, _ := ex.expandExprWithBM(decl.Value, prog.TopBodyMaps, false, cd.Type != nil)
+				cd.Value = val
+			}
+			exp.Decls = append(exp.Decls, cd)
+
+		case *ast.MethodDecl:
+			insts := funcsBySpan[decl.Span]
+			if len(decl.RecvTypeParams) > 0 || len(decl.TypeParams) > 0 {
+				exp.Decls = append(exp.Decls, ast.CloneDecl(decl))
+				for _, fi := range insts {
+					if spec := ex.buildExpandedMethodSpec(decl, fi); spec != nil {
+						exp.Decls = append(exp.Decls, spec)
+					}
+				}
+				continue
+			}
+			cm := ast.CloneDecl(decl).(*ast.MethodDecl)
+			if len(insts) > 0 && insts[0].BodyMaps != nil {
+				cm.Body = ex.expandBodyWithBM(decl.Body, insts[0].BodyMaps, decl.Ret == nil)
+			}
+			exp.Decls = append(exp.Decls, cm)
+
+		default:
+			exp.Decls = append(exp.Decls, ast.CloneDecl(d))
+		}
+	}
+	return exp
+}
+
+func declIsVoidRet(val ast.Expr) bool {
+	if fl, ok := val.(*ast.FuncLit); ok {
+		return fl.Ret == nil
+	}
+	return false
+}
+
+func (ex *astExpander) buildExpandedFuncSpec(orig *ast.VarDecl, fl *ast.FuncLit, fi *FuncInstance) *ast.VarDecl {
+	if orig == nil || fl == nil || fi == nil {
+		return nil
+	}
+	cloned := ast.CloneDecl(orig).(*ast.VarDecl)
+	cloned.TypeParams = nil
+	specName := orig.Name
+	if len(fi.TypeSubst) > 0 {
+		keys := make([]string, 0, len(fi.TypeSubst))
+		for k := range fi.TypeSubst {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			if t := fi.TypeSubst[k]; t != nil {
+				parts = append(parts, types.SanitizeCIdent(t.Mangled()))
+			}
+		}
+		if len(parts) > 0 {
+			specName = fmt.Sprintf("%s__%s", orig.Name, strings.Join(parts, "_"))
+		}
+	}
+	cloned.Name = specName
+	cloned.Span = expandSynthSpan
+	if cfl, ok := cloned.Value.(*ast.FuncLit); ok {
+		expandedBody := ex.expandBodyWithBM(fl.Body, fi.BodyMaps, fl.Ret == nil)
+		cfl.Body = ex.prependSpecTypeSubst(expandedBody, orig.TypeParams, fi.TypeSubst)
+	}
+	return cloned
+}
+
+func (ex *astExpander) buildExpandedMethodSpec(orig *ast.MethodDecl, fi *FuncInstance) *ast.MethodDecl {
+	if orig == nil || fi == nil {
+		return nil
+	}
+	cm := ast.CloneDecl(orig).(*ast.MethodDecl)
+	expandedBody := ex.expandBodyWithBM(orig.Body, fi.BodyMaps, orig.Ret == nil)
+	cm.Body = ex.prependSpecTypeSubst(expandedBody, orig.TypeParams, fi.TypeSubst)
+	cm.Span = expandSynthSpan
+	return cm
+}
+
+func (ex *astExpander) prependSpecTypeSubst(body ast.Expr, tparams []ast.TypeParam, subst map[string]types.Type) ast.Expr {
+	if body == nil || len(subst) == 0 || len(tparams) == 0 {
+		return body
+	}
+	var stmts []ast.Stmt
+	for _, tp := range tparams {
+		if !tp.IsConst {
+			continue
+		}
+		ty := subst[tp.Name]
+		cv, ok := ty.(*types.ConstValue)
+		if !ok {
+			continue
+		}
+		valExpr := constValueToASTExpr(cv)
+		if valExpr == nil {
+			continue
+		}
+		var typeAnn ast.TypeExpr
+		if ex.needsExplicitDeclType(cv.ConstType, valExpr) {
+			typeAnn = ex.typeToASTTypeExpr(cv.ConstType)
+		}
+		stmts = append(stmts, &ast.VarStmt{
+			IsConst: true,
+			Name:    tp.Name,
+			Type:    typeAnn,
+			Value:   valExpr,
+			Span:    expandSynthSpan,
+		})
+	}
+	if len(stmts) == 0 {
+		return body
+	}
+	if blk, ok := body.(*ast.BlockExpr); ok {
+		nb := *blk
+		nb.Stmts = append(stmts, blk.Stmts...)
+		return &nb
+	}
+	return &ast.BlockExpr{
+		Stmts: stmts,
+		Tail:  body,
+		Span:  expandSynthSpan,
+	}
+}
+
+func (ex *astExpander) evalSymToASTExpr(sym *Symbol, hasExpectedCtx bool) ast.Expr {
+	if sym == nil || sym.ConstVal == nil {
+		return nil
+	}
+	sd := ExportStaticData(sym.ConstVal, sym.Type)
+	if sd == nil {
+		return nil
+	}
+	return ex.staticDataToASTExpr(sd, hasExpectedCtx)
+}
+
+func (ex *astExpander) expandBodyWithBM(body ast.Expr, bm *BodyMaps, isVoid bool) ast.Expr {
+	out, keep := ex.expandExprWithBM(body, bm, isVoid, false)
+	if !keep || out == nil {
+		return &ast.BlockExpr{Span: expandSynthSpan}
+	}
+	return out
+}
+
+func (ex *astExpander) expandExprWithBM(e ast.Expr, bm *BodyMaps, isVoid, hasExpectedCtx bool) (ast.Expr, bool) {
+	if e == nil {
+		return nil, true
+	}
+	if bm == nil {
+		return ast.CloneExpr(e), true
+	}
+
+	switch v := e.(type) {
+	case *ast.ComptimeExpr:
+		if cv, ok := bm.ComptimeVals[v]; ok && cv != nil {
+			var expectedTy types.Type
+			if inf := bm.ExprInfos[v]; inf != nil {
+				expectedTy = inf.Type
+			}
+			if sd := ExportStaticData(cv, expectedTy); sd != nil {
+				if folded := ex.staticDataToASTExpr(sd, hasExpectedCtx); folded != nil {
+					return folded, true
+				}
+			}
+		}
+		return ex.expandExprWithBM(v.Expr, bm, isVoid, hasExpectedCtx)
+
+	case *ast.IfExpr:
+		if v.IsComptime {
+			if branch, ok := bm.ComptimeIfBranch[v]; ok {
+				switch branch {
+				case 0:
+					return ex.expandExprWithBM(v.Then, bm, isVoid, hasExpectedCtx)
+				case 2:
+					return ex.expandExprWithBM(v.Else, bm, isVoid, hasExpectedCtx)
+				case 3:
+					if isVoid {
+						return nil, false
+					}
+					return &ast.BlockExpr{Span: expandSynthSpan}, true
+				}
+			}
+		}
+		cp := *v
+		cp.Cond, _ = ex.expandExprWithBM(v.Cond, bm, false, false)
+		cp.EvalType = ast.CloneTypeExpr(v.EvalType)
+		cp.Then = ex.expandBodyWithBM(v.Then, bm, isVoid)
+		if v.Else != nil {
+			cp.Else = ex.expandBodyWithBM(v.Else, bm, isVoid)
+		}
+		return &cp, true
+
+	case *ast.MatchExpr:
+		if v.IsComptime {
+			if armIdx, ok := bm.ComptimeMatchArm[v]; ok {
+				arms := v.Arms
+				if expanded, hasExp := bm.MatchArms[v]; hasExp {
+					arms = expanded
+				}
+				if armIdx >= 0 && armIdx < len(arms) {
+					arm := arms[armIdx]
+					bodyExpr, keep := ex.expandExprWithBM(arm.Body, bm, isVoid, hasExpectedCtx)
+					if !keep {
+						return nil, false
+					}
+					bindings := ex.extractMatchArmConstStmts(arm, bm)
+					if len(bindings) == 0 {
+						return bodyExpr, true
+					}
+					return wrapPrefixStmts(bindings, bodyExpr), true
+				}
+			}
+		}
+		cp := *v
+		cp.Scrutinees = make([]ast.Expr, len(v.Scrutinees))
+		for i, sc := range v.Scrutinees {
+			cp.Scrutinees[i], _ = ex.expandExprWithBM(sc, bm, false, false)
+		}
+		cp.EvalType = ast.CloneTypeExpr(v.EvalType)
+		cp.Arms = make([]ast.MatchArm, len(v.Arms))
+		for i, arm := range v.Arms {
+			ca := arm
+			if arm.Cases != nil {
+				ca.Cases = make([]ast.MatchCase, len(arm.Cases))
+				for j, mc := range arm.Cases {
+					cmc := mc
+					if mc.Patterns != nil {
+						cmc.Patterns = make([]ast.Pattern, len(mc.Patterns))
+						for k, p := range mc.Patterns {
+							cmc.Patterns[k] = ast.ClonePattern(p)
+						}
+					}
+					ca.Cases[j] = cmc
+				}
+			}
+			ca.Body = ex.expandBodyWithBM(arm.Body, bm, isVoid)
+			cp.Arms[i] = ca
+		}
+		return &cp, true
+
+	case *ast.ForExpr:
+		if v.IsComptime {
+			if uf, ok := bm.ComptimeForUnrolls[v]; ok && uf != nil {
+				if isVoid {
+					var stmts []ast.Stmt
+					for _, it := range uf.Iters {
+						itExpr := ex.buildExpandedForIterExpr(it, bm, true)
+						stmts = append(stmts, &ast.ExprStmt{Expr: itExpr, Span: expandSynthSpan})
+					}
+					if v.Else != nil {
+						if el, keep := ex.expandExprWithBM(v.Else, bm, true, false); keep && el != nil {
+							stmts = append(stmts, &ast.ExprStmt{Expr: el, Span: expandSynthSpan})
+						}
+					}
+					if len(stmts) == 0 {
+						return nil, false
+					}
+					return &ast.BlockExpr{Stmts: stmts, Span: expandSynthSpan}, true
+				}
+				if len(uf.Iters) == 0 && v.Else != nil {
+					return ex.expandExprWithBM(v.Else, bm, false, hasExpectedCtx)
+				}
+				// Try clean vector literal representation when target is a Vec/unknown List and bodies don't unwind early.
+				var isVecTarget bool
+				if inf := bm.ExprInfos[v]; inf != nil {
+					_, isVecTarget = types.CollView(inf.Type).(*types.Vector)
+				}
+				if isVecTarget && v.Else == nil && !forUnrollHasUnwind(uf) {
+					elems := make([]ast.Expr, 0, len(uf.Iters))
+					for _, it := range uf.Iters {
+						elems = append(elems, ex.buildExpandedForIterExpr(it, bm, false))
+					}
+					return &ast.VecLit{Elems: elems, Span: expandSynthSpan}, true
+				}
+				// General value-producing comptime for: show unrolled iteration sequence inside a block.
+				stmts := make([]ast.Stmt, 0, len(uf.Iters)+1)
+				for _, it := range uf.Iters {
+					stmts = append(stmts, &ast.ExprStmt{Expr: ex.buildExpandedForIterExpr(it, bm, false), Span: expandSynthSpan})
+				}
+				var tail ast.Expr
+				if v.Else != nil {
+					tail, _ = ex.expandExprWithBM(v.Else, bm, false, false)
+				}
+				return &ast.BlockExpr{Stmts: stmts, Tail: tail, Span: expandSynthSpan}, true
+			}
+		}
+		cp := *v
+		cp.CondOrIter, _ = ex.expandExprWithBM(v.CondOrIter, bm, false, false)
+		cp.RangeEnd, _ = ex.expandExprWithBM(v.RangeEnd, bm, false, false)
+		cp.EvalType = ast.CloneTypeExpr(v.EvalType)
+		cp.Body = ex.expandBodyWithBM(v.Body, bm, isVoid)
+		if v.Else != nil {
+			cp.Else = ex.expandBodyWithBM(v.Else, bm, isVoid)
+		}
+		return &cp, true
+
+	case *ast.WhileExpr:
+		cp := *v
+		cp.CondOrIter, _ = ex.expandExprWithBM(v.CondOrIter, bm, false, false)
+		cp.RangeEnd, _ = ex.expandExprWithBM(v.RangeEnd, bm, false, false)
+		cp.EvalType = ast.CloneTypeExpr(v.EvalType)
+		cp.Body = ex.expandBodyWithBM(v.Body, bm, isVoid)
+		if v.Else != nil {
+			cp.Else = ex.expandBodyWithBM(v.Else, bm, isVoid)
+		}
+		return &cp, true
+
+	case *ast.BlockExpr:
+		cp := ast.BlockExpr{Span: v.Span}
+		for _, st := range v.Stmts {
+			if es, isExprStmt := st.(*ast.ExprStmt); isExprStmt {
+				exExpr, keep := ex.expandExprWithBM(es.Expr, bm, true, false)
+				if !keep {
+					continue
+				}
+				// Flatten unrolled statement blocks inside the parent block for readability when no locals leak.
+				cp.Stmts = append(cp.Stmts, &ast.ExprStmt{Expr: exExpr, Span: es.Span})
+				continue
+			}
+			cp.Stmts = append(cp.Stmts, ex.expandStmtWithBM(st, bm))
+		}
+		if v.Tail != nil {
+			tail, keep := ex.expandExprWithBM(v.Tail, bm, isVoid, hasExpectedCtx)
+			if keep {
+				cp.Tail = tail
+			}
+		}
+		return &cp, true
+
+	case *ast.StmtBodyExpr:
+		cp := *v
+		cp.Stmt = ex.expandStmtWithBM(v.Stmt, bm)
+		return &cp, true
+
+	case *ast.UnsafeExpr:
+		cp := *v
+		cp.Expr = ex.expandBodyWithBM(v.Expr, bm, isVoid)
+		return &cp, true
+
+	case *ast.UnaryExpr:
+		cp := *v
+		cp.Operand, _ = ex.expandExprWithBM(v.Operand, bm, false, false)
+		return &cp, true
+
+	case *ast.BinaryExpr:
+		cp := *v
+		cp.Left, _ = ex.expandExprWithBM(v.Left, bm, false, false)
+		cp.Right, _ = ex.expandExprWithBM(v.Right, bm, false, false)
+		return &cp, true
+
+	case *ast.MemberExpr:
+		cp := *v
+		cp.Base, _ = ex.expandExprWithBM(v.Base, bm, false, false)
+		cp.BaseTypeArgs = cloneASTTypeExprs(v.BaseTypeArgs)
+		return &cp, true
+
+	case *ast.CallExpr:
+		cp := *v
+		cp.Callee, _ = ex.expandExprWithBM(v.Callee, bm, false, false)
+		cp.TypeArgs = cloneASTTypeExprs(v.TypeArgs)
+		cp.Args = make([]ast.Expr, len(v.Args))
+		for i, a := range v.Args {
+			cp.Args[i], _ = ex.expandExprWithBM(a, bm, false, true)
+		}
+		return &cp, true
+
+	case *ast.IndexExpr:
+		cp := *v
+		cp.Base, _ = ex.expandExprWithBM(v.Base, bm, false, false)
+		cp.Index, _ = ex.expandExprWithBM(v.Index, bm, false, false)
+		return &cp, true
+
+	case *ast.SliceExpr:
+		cp := *v
+		cp.Base, _ = ex.expandExprWithBM(v.Base, bm, false, false)
+		cp.Low, _ = ex.expandExprWithBM(v.Low, bm, false, false)
+		cp.High, _ = ex.expandExprWithBM(v.High, bm, false, false)
+		return &cp, true
+
+	case *ast.RangeExpr:
+		cp := *v
+		cp.Low, _ = ex.expandExprWithBM(v.Low, bm, false, false)
+		cp.High, _ = ex.expandExprWithBM(v.High, bm, false, false)
+		return &cp, true
+
+	case *ast.VecLit:
+		cp := *v
+		cp.Elems = make([]ast.Expr, len(v.Elems))
+		for i, el := range v.Elems {
+			cp.Elems[i], _ = ex.expandExprWithBM(el, bm, false, hasExpectedCtx && i > 0)
+		}
+		return &cp, true
+
+	case *ast.ArrayLit:
+		cp := *v
+		cp.Count, _ = ex.expandExprWithBM(v.Count, bm, false, false)
+		cp.Elems = make([]ast.Expr, len(v.Elems))
+		for i, el := range v.Elems {
+			cp.Elems[i], _ = ex.expandExprWithBM(el, bm, false, hasExpectedCtx && i > 0)
+		}
+		return &cp, true
+
+	case *ast.SetLit:
+		cp := *v
+		cp.Elems = make([]ast.Expr, len(v.Elems))
+		for i, el := range v.Elems {
+			cp.Elems[i], _ = ex.expandExprWithBM(el, bm, false, false)
+		}
+		return &cp, true
+
+	case *ast.MapLit:
+		cp := *v
+		cp.Entries = make([]ast.MapEntry, len(v.Entries))
+		for i, ent := range v.Entries {
+			k, _ := ex.expandExprWithBM(ent.Key, bm, false, false)
+			val, _ := ex.expandExprWithBM(ent.Value, bm, false, false)
+			cp.Entries[i] = ast.MapEntry{Key: k, Value: val, Span: ent.Span}
+		}
+		return &cp, true
+
+	case *ast.TupleLit:
+		cp := *v
+		cp.Elems = make([]ast.Expr, len(v.Elems))
+		for i, el := range v.Elems {
+			cp.Elems[i], _ = ex.expandExprWithBM(el, bm, false, hasExpectedCtx)
+		}
+		return &cp, true
+
+	case *ast.StructLit:
+		cp := *v
+		cp.TypeArgs = cloneASTTypeExprs(v.TypeArgs)
+		cp.Fields = make([]ast.StructFieldInit, len(v.Fields))
+		for i, f := range v.Fields {
+			fv, _ := ex.expandExprWithBM(f.Value, bm, false, true)
+			cp.Fields[i] = ast.StructFieldInit{Name: f.Name, IsOpt: f.IsOpt, Value: fv, Span: f.Span}
+		}
+		return &cp, true
+
+	case *ast.InterpStringExpr:
+		cp := *v
+		cp.Segments = append([]string(nil), v.Segments...)
+		cp.Exprs = make([]ast.Expr, len(v.Exprs))
+		for i, exprItem := range v.Exprs {
+			cp.Exprs[i], _ = ex.expandExprWithBM(exprItem, bm, false, false)
+		}
+		return &cp, true
+
+	case *ast.FuncLit:
+		cp := *v
+		cp.Body = ex.expandBodyWithBM(v.Body, bm, v.Ret == nil)
+		return &cp, true
+
+	default:
+		return ast.CloneExpr(e), true
+	}
+}
+
+func (ex *astExpander) expandStmtWithBM(st ast.Stmt, bm *BodyMaps) ast.Stmt {
+	if st == nil {
+		return nil
+	}
+	switch s := st.(type) {
+	case *ast.VarStmt:
+		cp := *s
+		cp.Type = ast.CloneTypeExpr(s.Type)
+		if s.IsConst {
+			if sym := bm.VarSymbols[s]; sym != nil {
+				if folded := ex.evalSymToASTExpr(sym, cp.Type != nil); folded != nil {
+					cp.Value = folded
+					if cp.Type == nil && ex.needsExplicitDeclType(sym.Type, cp.Value) {
+						cp.Type = ex.typeToASTTypeExpr(sym.Type)
+						if reFolded := ex.evalSymToASTExpr(sym, true); reFolded != nil {
+							cp.Value = reFolded
+						}
+					}
+					return &cp
+				}
+			}
+		}
+		cp.Value, _ = ex.expandExprWithBM(s.Value, bm, false, cp.Type != nil)
+		if s.FallbackUnwind != nil {
+			fu := *s.FallbackUnwind
+			fu.Value, _ = ex.expandExprWithBM(s.FallbackUnwind.Value, bm, false, false)
+			cp.FallbackUnwind = &fu
+		}
+		return &cp
+
+	case *ast.AssignStmt:
+		cp := *s
+		cp.Target, _ = ex.expandExprWithBM(s.Target, bm, false, false)
+		cp.UnpackTargets = make([]ast.Expr, len(s.UnpackTargets))
+		for i, t := range s.UnpackTargets {
+			cp.UnpackTargets[i], _ = ex.expandExprWithBM(t, bm, false, false)
+		}
+		cp.Value, _ = ex.expandExprWithBM(s.Value, bm, false, true)
+		if s.FallbackUnwind != nil {
+			fu := *s.FallbackUnwind
+			fu.Value, _ = ex.expandExprWithBM(s.FallbackUnwind.Value, bm, false, false)
+			cp.FallbackUnwind = &fu
+		}
+		return &cp
+
+	case *ast.UnwindStmt:
+		cp := *s
+		cp.Value, _ = ex.expandExprWithBM(s.Value, bm, false, true)
+		return &cp
+
+	case *ast.ExprStmt:
+		exprOut, keep := ex.expandExprWithBM(s.Expr, bm, true, false)
+		if !keep {
+			return &ast.ExprStmt{Expr: &ast.BlockExpr{Span: expandSynthSpan}, Span: s.Span}
+		}
+		return &ast.ExprStmt{Expr: exprOut, Span: s.Span}
+
+	default:
+		return ast.CloneStmt(st)
+	}
+}
+
+func cloneASTTypeExprs(tes []ast.TypeExpr) []ast.TypeExpr {
+	if tes == nil {
+		return nil
+	}
+	out := make([]ast.TypeExpr, len(tes))
+	for i, te := range tes {
+		out[i] = ast.CloneTypeExpr(te)
+	}
+	return out
+}
+
+func (ex *astExpander) buildExpandedForIterExpr(it UnrolledIter, bm *BodyMaps, isVoid bool) ast.Expr {
+	var prefix []ast.Stmt
+	if it.IdxSym != nil && it.IdxVal != nil {
+		if exprVal := ex.staticDataToASTExpr(ExportStaticData(it.IdxVal, it.IdxSym.Type), false); exprVal != nil {
+			var typeAnn ast.TypeExpr
+			if ex.needsExplicitDeclType(it.IdxSym.Type, exprVal) {
+				typeAnn = ex.typeToASTTypeExpr(it.IdxSym.Type)
+				if re := ex.staticDataToASTExpr(ExportStaticData(it.IdxVal, it.IdxSym.Type), true); re != nil {
+					exprVal = re
+				}
+			}
+			prefix = append(prefix, &ast.VarStmt{
+				IsBind:  true,
+				IsConst: true,
+				Name:    it.IdxSym.Name,
+				Type:    typeAnn,
+				Value:   exprVal,
+				Span:    expandSynthSpan,
+			})
+		}
+	}
+	if it.ItemSym != nil && it.ItemVal != nil {
+		if exprVal := ex.staticDataToASTExpr(ExportStaticData(it.ItemVal, it.ItemSym.Type), false); exprVal != nil {
+			var typeAnn ast.TypeExpr
+			if ex.needsExplicitDeclType(it.ItemSym.Type, exprVal) {
+				typeAnn = ex.typeToASTTypeExpr(it.ItemSym.Type)
+				if re := ex.staticDataToASTExpr(ExportStaticData(it.ItemVal, it.ItemSym.Type), true); re != nil {
+					exprVal = re
+				}
+			}
+			prefix = append(prefix, &ast.VarStmt{
+				IsBind:  true,
+				IsConst: true,
+				Name:    it.ItemSym.Name,
+				Type:    typeAnn,
+				Value:   exprVal,
+				Span:    expandSynthSpan,
+			})
+		}
+	}
+	bodyExpr, keep := ex.expandExprWithBM(it.Body, bm, isVoid, false)
+	if !keep || bodyExpr == nil {
+		bodyExpr = &ast.BlockExpr{Span: expandSynthSpan}
+	}
+	if len(prefix) == 0 {
+		return bodyExpr
+	}
+	return wrapPrefixStmts(prefix, bodyExpr)
+}
+
+func wrapPrefixStmts(prefix []ast.Stmt, body ast.Expr) ast.Expr {
+	if blk, ok := body.(*ast.BlockExpr); ok {
+		nb := *blk
+		nb.Stmts = append(prefix, blk.Stmts...)
+		return &nb
+	}
+	return &ast.BlockExpr{
+		Stmts: prefix,
+		Tail:  body,
+		Span:  expandSynthSpan,
+	}
+}
+
+func (ex *astExpander) extractMatchArmConstStmts(arm ast.MatchArm, bm *BodyMaps) []ast.Stmt {
+	if bm == nil || len(arm.Cases) != 1 {
+		return nil
+	}
+	var stmts []ast.Stmt
+	for _, pat := range arm.Cases[0].Patterns {
+		var psyms []*Symbol
+		switch p := pat.(type) {
+		case *ast.VariantPattern:
+			psyms = bm.PatternSyms[p]
+		case *ast.MethodPattern:
+			if vp := bm.BareVariantPatterns[p]; vp != nil {
+				psyms = bm.PatternSyms[vp]
+			}
+		}
+		for _, sym := range psyms {
+			if sym == nil || sym.ConstVal == nil {
+				continue
+			}
+			if exprVal := ex.staticDataToASTExpr(ExportStaticData(sym.ConstVal, sym.Type), false); exprVal != nil {
+				var typeAnn ast.TypeExpr
+				if ex.needsExplicitDeclType(sym.Type, exprVal) {
+					typeAnn = ex.typeToASTTypeExpr(sym.Type)
+					if re := ex.staticDataToASTExpr(ExportStaticData(sym.ConstVal, sym.Type), true); re != nil {
+						exprVal = re
+					}
+				}
+				stmts = append(stmts, &ast.VarStmt{
+					IsBind:  true,
+					IsConst: true,
+					Name:    sym.Name,
+					Type:    typeAnn,
+					Value:   exprVal,
+					Span:    expandSynthSpan,
+				})
+			}
+		}
+	}
+	return stmts
+}
+
+func forUnrollHasUnwind(uf *UnrolledFor) bool {
+	for _, it := range uf.Iters {
+		if exprContainsLoopUnwind(it.Body) {
+			return true
+		}
+	}
+	return false
+}
+
+func exprContainsLoopUnwind(e ast.Expr) bool {
+	if e == nil {
+		return false
+	}
+	switch v := e.(type) {
+	case *ast.BlockExpr:
+		for _, st := range v.Stmts {
+			switch s := st.(type) {
+			case *ast.UnwindStmt:
+				if s.Target == ast.UnwindNext || s.Target == ast.UnwindNextLabel || s.Target == ast.UnwindFor || s.Target == ast.UnwindLabel {
+					return true
+				}
+			case *ast.ExprStmt:
+				if exprContainsLoopUnwind(s.Expr) {
+					return true
+				}
+			}
+		}
+		return exprContainsLoopUnwind(v.Tail)
+	case *ast.StmtBodyExpr:
+		if u, ok := v.Stmt.(*ast.UnwindStmt); ok {
+			return u.Target == ast.UnwindNext || u.Target == ast.UnwindNextLabel || u.Target == ast.UnwindFor || u.Target == ast.UnwindLabel
+		}
+	case *ast.IfExpr:
+		return exprContainsLoopUnwind(v.Then) || exprContainsLoopUnwind(v.Else)
+	case *ast.MatchExpr:
+		for _, arm := range v.Arms {
+			if exprContainsLoopUnwind(arm.Body) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func constValueToASTExpr(cv *types.ConstValue) ast.Expr {
+	if cv == nil {
+		return nil
+	}
+	switch cv.Kind {
+	case types.ConstInt:
+		if p := types.UnderlyingPrimitive(cv.ConstType); p != nil && p.IsSignedInt() && cv.IntVal < 0 {
+			mag := uint64(-cv.IntVal)
+			if cv.IntVal == math.MinInt64 {
+				mag = uint64(1) << 63
+			}
+			return &ast.UnaryExpr{
+				Op:      token.Minus,
+				Operand: &ast.IntLit{Val: mag, Raw: strconv.FormatUint(mag, 10), Span: expandSynthSpan},
+				Span:    expandSynthSpan,
+			}
+		}
+		return &ast.IntLit{Val: cv.UintVal, Raw: strconv.FormatUint(cv.UintVal, 10), Span: expandSynthSpan}
+	case types.ConstBool:
+		return &ast.BoolLit{Val: cv.BoolVal, Span: expandSynthSpan}
+	case types.ConstChar:
+		return &ast.CharLit{Val: cv.RuneVal, Span: expandSynthSpan}
+	case types.ConstString:
+		return &ast.StringLit{Val: cv.StrVal, Span: expandSynthSpan}
+	case types.ConstEnum:
+		if cv.EnumTy != nil && cv.EnumName != "" {
+			return &ast.MemberExpr{
+				Base:   &ast.IdentExpr{Name: cv.EnumTy.Name, Span: expandSynthSpan},
+				Member: cv.EnumName,
+				Span:   expandSynthSpan,
+			}
+		}
+	}
+	return nil
+}
+
+func (ex *astExpander) moduleAliasFor(targetMod *Module) string {
+	if ex == nil || ex.mod == nil || targetMod == nil || targetMod == ex.mod {
+		return ""
+	}
+	if ex.mod.Pkg != nil && targetMod.Pkg == ex.mod.Pkg {
+		return ""
+	}
+	if targetMod.Pkg != nil && targetMod.Pkg.IsCore {
+		return ""
+	}
+	aliases := make([]string, 0, len(ex.mod.Aliased))
+	for name := range ex.mod.Aliased {
+		aliases = append(aliases, name)
+	}
+	sort.Strings(aliases)
+	for _, name := range aliases {
+		m := ex.mod.Aliased[name]
+		if m == targetMod || (m != nil && m.Pkg != nil && targetMod.Pkg != nil && m.Pkg == targetMod.Pkg) {
+			return name
+		}
+	}
+	return ""
+}
+
+func (ex *astExpander) nominalModAlias(t types.Type) string {
+	if ex == nil || ex.prog == nil {
+		return ""
+	}
+	switch v := t.(type) {
+	case *types.Struct:
+		return ex.moduleAliasFor(ex.prog.StructMods[v])
+	case *types.Enum:
+		return ex.moduleAliasFor(ex.prog.EnumMods[v])
+	case *types.Distinct:
+		return ex.moduleAliasFor(ex.prog.DistinctMods[v])
+	case *types.Interface:
+		return ex.moduleAliasFor(ex.prog.InterfaceMods[v])
+	}
+	return ""
+}
+
+func stripGenericSuffix(name string) string {
+	if idx := strings.IndexByte(name, '['); idx >= 0 {
+		return name[:idx]
+	}
+	return name
+}
+
+func (ex *astExpander) typeToASTTypeExpr(t types.Type) ast.TypeExpr {
+	if t == nil || t == types.TypeInvalid {
+		return nil
+	}
+	switch v := t.(type) {
+	case *types.Primitive:
+		return &ast.NamedType{Name: v.String(), Span: expandSynthSpan}
+	case *types.Optional:
+		elem := ex.typeToASTTypeExpr(v.Elem)
+		if elem == nil {
+			return nil
+		}
+		return &ast.OptionalType{Elem: elem, Span: expandSynthSpan}
+	case *types.Vector:
+		elem := ex.typeToASTTypeExpr(v.Elem)
+		if elem == nil {
+			return nil
+		}
+		return &ast.VectorType{Elem: elem, Span: expandSynthSpan}
+	case *types.StackArray:
+		elem := ex.typeToASTTypeExpr(v.Elem)
+		if elem == nil {
+			return nil
+		}
+		return &ast.StackArrayType{
+			Size: &ast.IntLit{Val: uint64(v.Size), Raw: strconv.FormatInt(v.Size, 10), Span: expandSynthSpan},
+			Elem: elem,
+			Span: expandSynthSpan,
+		}
+	case *types.Set:
+		elem := ex.typeToASTTypeExpr(v.Elem)
+		if elem == nil {
+			return nil
+		}
+		return &ast.SetType{Elem: elem, Span: expandSynthSpan}
+	case *types.Map:
+		k := ex.typeToASTTypeExpr(v.Key)
+		val := ex.typeToASTTypeExpr(v.Value)
+		if k == nil || val == nil {
+			return nil
+		}
+		return &ast.MapType{Key: k, Value: val, Span: expandSynthSpan}
+	case *types.Tuple:
+		elems := make([]ast.TypeExpr, 0, len(v.Elems))
+		for _, el := range v.Elems {
+			te := ex.typeToASTTypeExpr(el)
+			if te == nil {
+				return nil
+			}
+			elems = append(elems, te)
+		}
+		return &ast.TupleType{Elems: elems, Span: expandSynthSpan}
+	case *types.Ptr:
+		elem := ex.typeToASTTypeExpr(v.Elem)
+		if elem == nil {
+			return nil
+		}
+		return &ast.NamedType{Name: "ptr", TypeArgs: []ast.TypeExpr{elem}, Span: expandSynthSpan}
+	case *types.Ref:
+		elem := ex.typeToASTTypeExpr(v.Elem)
+		if elem == nil {
+			return nil
+		}
+		return &ast.NamedType{Name: "ref", TypeArgs: []ast.TypeExpr{elem}, Span: expandSynthSpan}
+	case *types.ConstValue:
+		ce := constValueToASTExpr(v)
+		if ce == nil {
+			return nil
+		}
+		return &ast.ConstArgType{Expr: ce, Span: expandSynthSpan}
+	case *types.TypeParamVar:
+		return &ast.NamedType{Name: v.Name, Span: expandSynthSpan}
+	case *types.Distinct:
+		return &ast.NamedType{Module: ex.nominalModAlias(v), Name: v.Name, Span: expandSynthSpan}
+	case *types.Struct:
+		if v.Lang == "list" && len(v.TypeArgs) == 1 {
+			if elem := ex.typeToASTTypeExpr(v.TypeArgs[0]); elem != nil {
+				return &ast.VectorType{Elem: elem, Span: expandSynthSpan}
+			}
+		}
+		targs := make([]ast.TypeExpr, 0, len(v.TypeArgs))
+		for _, ta := range v.TypeArgs {
+			te := ex.typeToASTTypeExpr(ta)
+			if te == nil {
+				return nil
+			}
+			targs = append(targs, te)
+		}
+		return &ast.NamedType{Module: ex.nominalModAlias(v), Name: stripGenericSuffix(v.Name), TypeArgs: targs, Span: expandSynthSpan}
+	case *types.Enum:
+		targs := make([]ast.TypeExpr, 0, len(v.TypeArgs))
+		for _, ta := range v.TypeArgs {
+			te := ex.typeToASTTypeExpr(ta)
+			if te == nil {
+				return nil
+			}
+			targs = append(targs, te)
+		}
+		return &ast.NamedType{Module: ex.nominalModAlias(v), Name: stripGenericSuffix(v.Name), TypeArgs: targs, Span: expandSynthSpan}
+	case *types.Interface:
+		return &ast.NamedType{Module: ex.nominalModAlias(v), Name: stripGenericSuffix(v.Name), Span: expandSynthSpan}
+	case *types.Func:
+		params := make([]ast.Param, 0, len(v.Params))
+		for _, p := range v.Params {
+			pt := ex.typeToASTTypeExpr(p.Type)
+			if pt == nil {
+				return nil
+			}
+			switch p.Mode {
+			case types.ModeOwn:
+				pt = &ast.OwnType{Elem: pt, Span: expandSynthSpan}
+			case types.ModeMut:
+				pt = &ast.MutBorrowType{Elem: pt, Span: expandSynthSpan}
+			}
+			params = append(params, ast.Param{Type: pt, Span: expandSynthSpan})
+		}
+		var retAST ast.TypeExpr
+		if v.Ret != nil && v.Ret != types.TypeVoid {
+			retAST = ex.typeToASTTypeExpr(v.Ret)
+			if retAST == nil {
+				return nil
+			}
+		}
+		return &ast.FuncType{Params: params, Ret: retAST, Closure: v.Closure, Span: expandSynthSpan}
+	}
+	return nil
+}
+
+func (ex *astExpander) needsExplicitDeclType(ty types.Type, valAST ast.Expr) bool {
+	if ty == nil || ty == types.TypeInvalid || ty == types.TypeVoid {
+		return false
+	}
+	if _, isOpt := ty.(*types.Optional); isOpt {
+		return true
+	}
+	switch ty.(type) {
+	case *types.StackArray:
+		// An empty or repeated `[N: ...]` could need explicit type if element count was folded or non-default.
+		return true
+	}
+	if vec, isVec := ty.(*types.Vector); isVec {
+		if _, isEmptyVec := valAST.(*ast.VecLit); isEmptyVec && vec.Elem != types.TypeInt {
+			// Checked element-by-element via List[T].new() or element constructors; still safe if VecLit is non-empty with typed elems.
+			if vl := valAST.(*ast.VecLit); len(vl.Elems) == 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (ex *astExpander) wrapValueTypeConversion(ty types.Type, inner ast.Expr) ast.Expr {
+	if ty == nil || inner == nil {
+		return inner
+	}
+	if dist, isDist := ty.(*types.Distinct); isDist {
+		return &ast.CallExpr{
+			Callee: ex.nominalTypeToValueExpr(dist, nil),
+			Args:   []ast.Expr{inner},
+			Span:   expandSynthSpan,
+		}
+	}
+	if p := types.UnderlyingPrimitive(ty); p != nil {
+		if p == types.TypeF32 || (p.IsInteger() && p != types.TypeInt) {
+			return &ast.CallExpr{
+				Callee: &ast.IdentExpr{Name: p.String(), Span: expandSynthSpan},
+				Args:   []ast.Expr{inner},
+				Span:   expandSynthSpan,
+			}
+		}
+	}
+	return inner
+}
+
+func (ex *astExpander) nominalTypeToValueExpr(ty types.Type, typeArgs []types.Type) ast.Expr {
+	alias := ex.nominalModAlias(ty)
+	var rawName string
+	switch v := ty.(type) {
+	case *types.Distinct:
+		rawName = v.Name
+	case *types.Enum:
+		rawName = stripGenericSuffix(v.Name)
+	case *types.Struct:
+		rawName = stripGenericSuffix(v.Name)
+	}
+	var root ast.Expr = &ast.IdentExpr{Name: rawName, Span: expandSynthSpan}
+	if alias != "" {
+		root = &ast.MemberExpr{
+			Base:   &ast.IdentExpr{Name: alias, Span: expandSynthSpan},
+			Member: rawName,
+			Span:   expandSynthSpan,
+		}
+	}
+	_ = typeArgs
+	return root
+}
+
+func (ex *astExpander) staticDataToASTExpr(sd *StaticData, hasExpectedCtx bool) ast.Expr {
+	if sd == nil {
+		return nil
+	}
+	switch sd.Kind {
+	case StaticVoid:
+		return &ast.BlockExpr{Span: expandSynthSpan}
+	case StaticBool:
+		var lit ast.Expr = &ast.BoolLit{Val: sd.Bool, Span: expandSynthSpan}
+		if _, isDist := sd.Type.(*types.Distinct); isDist {
+			lit = ex.wrapValueTypeConversion(sd.Type, lit)
+		}
+		return lit
+	case StaticChar:
+		var lit ast.Expr = &ast.CharLit{Val: sd.Char, Span: expandSynthSpan}
+		if _, isDist := sd.Type.(*types.Distinct); isDist {
+			lit = ex.wrapValueTypeConversion(sd.Type, lit)
+		}
+		return lit
+	case StaticString:
+		var lit ast.Expr = &ast.StringLit{Val: sd.Str, Span: expandSynthSpan}
+		if _, isDist := sd.Type.(*types.Distinct); isDist {
+			lit = ex.wrapValueTypeConversion(sd.Type, lit)
+		}
+		return lit
+	case StaticInt:
+		var lit ast.Expr
+		if sd.IsSigned && sd.SignedVal < 0 {
+			mag := uint64(-sd.SignedVal)
+			if sd.SignedVal == math.MinInt64 {
+				mag = uint64(1) << 63
+			}
+			lit = &ast.UnaryExpr{
+				Op:      token.Minus,
+				Operand: &ast.IntLit{Val: mag, Raw: strconv.FormatUint(mag, 10), Span: expandSynthSpan},
+				Span:    expandSynthSpan,
+			}
+		} else {
+			lit = &ast.IntLit{Val: sd.Uint, Raw: strconv.FormatUint(sd.Uint, 10), Span: expandSynthSpan}
+		}
+		return ex.wrapValueTypeConversion(sd.Type, lit)
+	case StaticFloat:
+		var lit ast.Expr
+		if math.IsNaN(sd.Float) {
+			lit = &ast.BinaryExpr{
+				Op:    token.Slash,
+				Left:  &ast.FloatLit{Val: 0, Raw: "0.0", Span: expandSynthSpan},
+				Right: &ast.FloatLit{Val: 0, Raw: "0.0", Span: expandSynthSpan},
+				Span:  expandSynthSpan,
+			}
+		} else if math.IsInf(sd.Float, 1) {
+			lit = &ast.BinaryExpr{
+				Op:    token.Slash,
+				Left:  &ast.FloatLit{Val: 1, Raw: "1.0", Span: expandSynthSpan},
+				Right: &ast.FloatLit{Val: 0, Raw: "0.0", Span: expandSynthSpan},
+				Span:  expandSynthSpan,
+			}
+		} else if math.IsInf(sd.Float, -1) {
+			lit = &ast.BinaryExpr{
+				Op: token.Slash,
+				Left: &ast.UnaryExpr{
+					Op:      token.Minus,
+					Operand: &ast.FloatLit{Val: 1, Raw: "1.0", Span: expandSynthSpan},
+					Span:    expandSynthSpan,
+				},
+				Right: &ast.FloatLit{Val: 0, Raw: "0.0", Span: expandSynthSpan},
+				Span:  expandSynthSpan,
+			}
+		} else {
+			neg := math.Signbit(sd.Float)
+			mag := math.Abs(sd.Float)
+			raw := strconv.FormatFloat(mag, 'g', -1, 64)
+			if !strings.ContainsAny(raw, ".eE") {
+				raw += ".0"
+			}
+			fLit := &ast.FloatLit{Val: mag, Raw: raw, Span: expandSynthSpan}
+			if neg {
+				lit = &ast.UnaryExpr{Op: token.Minus, Operand: fLit, Span: expandSynthSpan}
+			} else {
+				lit = fLit
+			}
+		}
+		return ex.wrapValueTypeConversion(sd.Type, lit)
+	case StaticOpt:
+		var body ast.Expr
+		if !sd.HasOpt {
+			if hasExpectedCtx {
+				return &ast.NoneLit{Span: expandSynthSpan}
+			}
+			body = &ast.NoneLit{Span: expandSynthSpan}
+		} else {
+			body = ex.staticDataToASTExpr(sd.OptElem, hasExpectedCtx)
+			if hasExpectedCtx || body == nil {
+				return body
+			}
+		}
+		if optTyAST := ex.typeToASTTypeExpr(sd.Type); optTyAST != nil {
+			return &ast.CallExpr{
+				Callee: &ast.FuncLit{
+					Ret:  optTyAST,
+					Body: body,
+					Span: expandSynthSpan,
+				},
+				Span: expandSynthSpan,
+			}
+		}
+		return body
+	case StaticList:
+		var elemTy types.Type
+		effTy := sd.Type
+		for {
+			if d, isDist := effTy.(*types.Distinct); isDist {
+				effTy = d.Base
+			} else {
+				break
+			}
+		}
+		switch ct := effTy.(type) {
+		case *types.Vector:
+			elemTy = ct.Elem
+		case *types.Struct:
+			if len(ct.TypeArgs) == 1 {
+				elemTy = ct.TypeArgs[0]
+			}
+		}
+		if sd.HasRawBytes && elemTy == nil {
+			elemTy = types.TypeU8
+		}
+		isEmpty := (!sd.HasRawBytes && len(sd.Elems) == 0) || (sd.HasRawBytes && len(sd.RawBytes) == 0)
+		if isEmpty {
+			if !hasExpectedCtx {
+				if elemAST := ex.typeToASTTypeExpr(elemTy); elemAST != nil {
+					return &ast.CallExpr{
+						Callee: &ast.MemberExpr{
+							Base:         &ast.IdentExpr{Name: "List", Span: expandSynthSpan},
+							BaseTypeArgs: []ast.TypeExpr{elemAST},
+							Member:       "new",
+							Span:         expandSynthSpan,
+						},
+						Span: expandSynthSpan,
+					}
+				}
+			}
+			return &ast.VecLit{Span: expandSynthSpan}
+		}
+		if sd.HasRawBytes {
+			elems := make([]ast.Expr, len(sd.RawBytes))
+			for i, b := range sd.RawBytes {
+				lit := ast.Expr(&ast.IntLit{Val: uint64(b), Raw: fmt.Sprintf("%d", b), Span: expandSynthSpan})
+				elems[i] = &ast.CallExpr{
+					Callee: &ast.IdentExpr{Name: "u8", Span: expandSynthSpan},
+					Args:   []ast.Expr{lit},
+					Span:   expandSynthSpan,
+				}
+			}
+			return &ast.VecLit{Elems: elems, Span: expandSynthSpan}
+		}
+		elems := make([]ast.Expr, 0, len(sd.Elems))
+		for _, el := range sd.Elems {
+			exExpr := ex.staticDataToASTExpr(el, false)
+			if exExpr == nil {
+				return nil
+			}
+			elems = append(elems, exExpr)
+		}
+		return &ast.VecLit{Elems: elems, Span: expandSynthSpan}
+	case StaticArray:
+		elems := make([]ast.Expr, 0, len(sd.Elems))
+		for _, el := range sd.Elems {
+			exExpr := ex.staticDataToASTExpr(el, false)
+			if exExpr == nil {
+				return nil
+			}
+			elems = append(elems, exExpr)
+		}
+		return &ast.ArrayLit{
+			Count: &ast.IntLit{Val: uint64(len(elems)), Raw: strconv.Itoa(len(elems)), Span: expandSynthSpan},
+			Elems: elems,
+			Span:  expandSynthSpan,
+		}
+	case StaticTuple:
+		elems := make([]ast.Expr, 0, len(sd.Elems))
+		for _, el := range sd.Elems {
+			exExpr := ex.staticDataToASTExpr(el, hasExpectedCtx)
+			if exExpr == nil {
+				return nil
+			}
+			elems = append(elems, exExpr)
+		}
+		return &ast.TupleLit{Elems: elems, Span: expandSynthSpan}
+	case StaticEnum:
+		effTy := sd.Type
+		for {
+			if d, ok := effTy.(*types.Distinct); ok {
+				effTy = d.Base
+			} else {
+				break
+			}
+		}
+		en, ok := effTy.(*types.Enum)
+		if !ok || sd.VariantIdx < 0 || sd.VariantIdx >= len(en.Variants) {
+			return nil
+		}
+		vr := en.Variants[sd.VariantIdx]
+		var baseTypeArgs []ast.TypeExpr
+		for _, ta := range en.TypeArgs {
+			te := ex.typeToASTTypeExpr(ta)
+			if te == nil {
+				baseTypeArgs = nil
+				break
+			}
+			baseTypeArgs = append(baseTypeArgs, te)
+		}
+		mem := &ast.MemberExpr{
+			Base:         ex.nominalTypeToValueExpr(en, en.TypeArgs),
+			BaseTypeArgs: baseTypeArgs,
+			Member:       vr.Name,
+			Span:         expandSynthSpan,
+		}
+		if sd.Payload != nil {
+			pv := ex.staticDataToASTExpr(sd.Payload, true)
+			if pv == nil {
+				return nil
+			}
+			return &ast.CallExpr{Callee: mem, Args: []ast.Expr{pv}, Span: expandSynthSpan}
+		}
+		return mem
+	case StaticStruct:
+		effTy := sd.Type
+		for {
+			if d, ok := effTy.(*types.Distinct); ok {
+				effTy = d.Base
+			} else {
+				break
+			}
+		}
+		st, ok := effTy.(*types.Struct)
+		if !ok {
+			return nil
+		}
+		typeName := stripGenericSuffix(st.Name)
+		var typeArgs []ast.TypeExpr
+		for _, ta := range st.TypeArgs {
+			te := ex.typeToASTTypeExpr(ta)
+			if te == nil {
+				typeArgs = nil
+				break
+			}
+			typeArgs = append(typeArgs, te)
+		}
+		fields := make([]ast.StructFieldInit, 0, len(st.Fields))
+		for _, f := range st.Fields {
+			fExpr := ex.staticDataToASTExpr(sd.Fields[f.Name], true)
+			if fExpr == nil {
+				return nil
+			}
+			fields = append(fields, ast.StructFieldInit{Name: f.Name, Value: fExpr, Span: expandSynthSpan})
+		}
+		return &ast.StructLit{
+			Module:   ex.nominalModAlias(st),
+			TypeName: typeName,
+			TypeArgs: typeArgs,
+			Fields:   fields,
+			Span:     expandSynthSpan,
+		}
+	}
+	return nil
+}

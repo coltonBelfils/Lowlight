@@ -452,19 +452,6 @@ func (e *ExprAlloc) Type() types.Type {
 	return e.Typ
 }
 
-// ExprArenaAlloc allocates memory within a lexical Arena region.
-type ExprArenaAlloc struct {
-	Arena     Expr
-	AllocType types.Type
-	DtorFn    string
-	Typ       types.Type
-}
-
-func (*ExprArenaAlloc) irExpr() {}
-func (e *ExprArenaAlloc) Type() types.Type {
-	return e.Typ
-}
-
 // ExprFree frees heap memory pointed to by `Ptr`.
 type ExprFree struct {
 	Ptr Expr
@@ -518,6 +505,30 @@ type ExprAlignOf struct {
 func (*ExprAlignOf) irExpr() {}
 func (*ExprAlignOf) Type() types.Type {
 	return types.TypeInt
+}
+
+// ExprFloatBits reinterprets the IEEE-754 bit pattern of `float` (`u64`) or `f32` (`u32`).
+type ExprFloatBits struct {
+	Val       Expr
+	FloatType types.Type
+	Typ       types.Type
+}
+
+func (*ExprFloatBits) irExpr() {}
+func (e *ExprFloatBits) Type() types.Type {
+	return e.Typ
+}
+
+// ExprConst references a statically evaluated constant value (baked into `.rodata` when
+// composite such as `string` or `List[T]` with `cap = 0`).
+type ExprConst struct {
+	Static *StaticVal
+	Typ    types.Type
+}
+
+func (*ExprConst) irExpr() {}
+func (e *ExprConst) Type() types.Type {
+	return e.Typ
 }
 
 // -----------------------------------------------------------------------------

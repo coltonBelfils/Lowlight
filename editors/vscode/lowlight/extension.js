@@ -160,6 +160,10 @@ class LowlightClient {
     this.serverCapabilities = {};
     /** @type {Map<string, any>} */
     this.docCache = new Map();
+    /** @type {Map<string, Array<{ disposable: vscode.Disposable, exactPaths: Set<string>, isLowlightToml: boolean }>>} */
+    this.dynamicWatchers = new Map();
+    /** @type {boolean} */
+    this.hasDynamicFileWatchers = false;
   }
 
   /**
@@ -279,6 +283,7 @@ class LowlightClient {
     child.on('exit', (code, signal) => {
       this.log(`Lowlight LSP exited (code=${code}, signal=${signal})`);
       this._rejectAllPending(new Error(`Lowlight LSP exited (code=${code}, signal=${signal})`));
+      this._disposeDynamicWatchers();
       this.proc = null;
       this.ready = false;
       this.startPromise = null;
@@ -305,6 +310,11 @@ class LowlightClient {
         workspaceFolders,
         initializationOptions: getLspSettings(),
         capabilities: {
+          workspace: {
+            didChangeWatchedFiles: {
+              dynamicRegistration: true,
+            },
+          },
           textDocument: {
             semanticTokens: {
               dynamicRegistration: false,
@@ -380,6 +390,7 @@ class LowlightClient {
     this.stopping = true;
     this.ready = false;
     this.startPromise = null;
+    this._disposeDynamicWatchers();
     this.syncedUris.clear();
     this.diagnostics.clear();
 
@@ -511,9 +522,168 @@ class LowlightClient {
         }
       } else if (msg.method === 'window/showDocument' && msg.params) {
         this._handleShowDocument(msg.id, msg.params);
+      } else if (msg.method === 'client/registerCapability' && msg.params) {
+        this._handleRegisterCapability(msg.id, msg.params);
+      } else if (msg.method === 'client/unregisterCapability' && msg.params) {
+        this._handleUnregisterCapability(msg.id, msg.params);
       } else if (msg.id !== undefined && msg.id !== null) {
         this._writeFrame({ jsonrpc: '2.0', id: msg.id, result: null });
       }
+    }
+  }
+
+  _disposeDynamicWatchers() {
+    for (const entry of this.dynamicWatchers.values()) {
+      if (entry && Array.isArray(entry.disposables)) {
+        for (const d of entry.disposables) {
+          try {
+            d.dispose();
+          } catch (_) {}
+        }
+      }
+    }
+    this.dynamicWatchers.clear();
+    this.hasDynamicFileWatchers = false;
+  }
+
+  _disposeRegistration(regId) {
+    const existing = this.dynamicWatchers.get(regId);
+    if (!existing) {
+      return;
+    }
+    if (Array.isArray(existing.disposables)) {
+      for (const d of existing.disposables) {
+        try {
+          d.dispose();
+        } catch (_) {}
+      }
+    }
+    this.dynamicWatchers.delete(regId);
+  }
+
+  /**
+   * @param {string | { baseUri?: string, pattern?: string }} globPattern
+   */
+  _parseWatcherGlob(globPattern) {
+    if (globPattern && typeof globPattern === 'object' && typeof globPattern.baseUri === 'string' && typeof globPattern.pattern === 'string') {
+      return {
+        pattern: new vscode.RelativePattern(vscode.Uri.parse(globPattern.baseUri), globPattern.pattern),
+        exactPath: null,
+        baseName: null,
+      };
+    }
+    if (typeof globPattern !== 'string' || globPattern.length === 0) {
+      return null;
+    }
+    const hasMeta = /[*?{}\[\]!]/.test(globPattern);
+    if (!hasMeta && path.isAbsolute(globPattern)) {
+      const normalized = path.normalize(globPattern);
+      return {
+        pattern: new vscode.RelativePattern(vscode.Uri.file(path.dirname(normalized)), path.basename(normalized)),
+        exactPath: normalized,
+        baseName: null,
+      };
+    }
+    let baseName = null;
+    if (globPattern === '**/lowlight.toml' || globPattern.endsWith('/lowlight.toml') || globPattern.endsWith('\\lowlight.toml')) {
+      baseName = 'lowlight.toml';
+    } else if (globPattern === '**/lowlight.lock' || globPattern.endsWith('/lowlight.lock') || globPattern.endsWith('\\lowlight.lock')) {
+      baseName = 'lowlight.lock';
+    }
+    return { pattern: globPattern, exactPath: null, baseName };
+  }
+
+  /**
+   * @param {vscode.Uri} uri
+   * @param {number} type
+   */
+  _notifyWatchedFile(uri, type) {
+    this.clearDocCaches();
+    if (this.ready) {
+      this.sendNotification('workspace/didChangeWatchedFiles', {
+        changes: [{ uri: uri.toString(), type }],
+      });
+    }
+  }
+
+  _handleRegisterCapability(reqId, params) {
+    const regs = Array.isArray(params && params.registrations) ? params.registrations : [];
+    for (const reg of regs) {
+      if (!reg || typeof reg.id !== 'string') {
+        continue;
+      }
+      this._disposeRegistration(reg.id);
+      if (reg.method !== 'workspace/didChangeWatchedFiles') {
+        continue;
+      }
+      this.hasDynamicFileWatchers = true;
+      const watchersSpec = reg.registerOptions && Array.isArray(reg.registerOptions.watchers)
+        ? reg.registerOptions.watchers
+        : [];
+      const disposables = [];
+      const exactPaths = new Set();
+      const baseNames = new Set();
+      for (const spec of watchersSpec) {
+        if (!spec) {
+          continue;
+        }
+        const parsed = this._parseWatcherGlob(spec.globPattern);
+        if (!parsed) {
+          continue;
+        }
+        if (parsed.exactPath) {
+          exactPaths.add(parsed.exactPath);
+          try {
+            exactPaths.add(fs.realpathSync(parsed.exactPath));
+          } catch (_) {}
+        }
+        if (parsed.baseName) {
+          baseNames.add(parsed.baseName);
+        }
+        const kind = typeof spec.kind === 'number' && spec.kind > 0 ? spec.kind : 7;
+        const fsw = vscode.workspace.createFileSystemWatcher(
+          parsed.pattern,
+          (kind & 1) === 0,
+          (kind & 2) === 0,
+          (kind & 4) === 0
+        );
+        disposables.push(fsw);
+        if ((kind & 1) !== 0) {
+          disposables.push(fsw.onDidCreate((uri) => this._notifyWatchedFile(uri, 1)));
+        }
+        if ((kind & 2) !== 0) {
+          disposables.push(fsw.onDidChange((uri) => this._notifyWatchedFile(uri, 2)));
+        }
+        if ((kind & 4) !== 0) {
+          disposables.push(fsw.onDidDelete((uri) => this._notifyWatchedFile(uri, 3)));
+        }
+      }
+      this.dynamicWatchers.set(reg.id, { disposables, exactPaths, baseNames });
+    }
+    for (const doc of vscode.workspace.textDocuments) {
+      if (!this.syncedUris.has(doc.uri.toString())) {
+        this.didOpen(doc);
+      }
+    }
+    if (reqId !== undefined && reqId !== null) {
+      this._writeFrame({ jsonrpc: '2.0', id: reqId, result: null });
+    }
+  }
+
+  _handleUnregisterCapability(reqId, params) {
+    const list = Array.isArray(params && params.unregisterations)
+      ? params.unregisterations
+      : (Array.isArray(params && params.unregistrations) ? params.unregistrations : []);
+    for (const item of list) {
+      if (item && typeof item.id === 'string') {
+        this._disposeRegistration(item.id);
+      }
+    }
+    if (this.dynamicWatchers.size === 0) {
+      this.hasDynamicFileWatchers = false;
+    }
+    if (reqId !== undefined && reqId !== null) {
+      this._writeFrame({ jsonrpc: '2.0', id: reqId, result: null });
     }
   }
 
@@ -610,6 +780,48 @@ class LowlightClient {
   }
 
   /**
+   * @param {string} fsPath
+   * @returns {boolean}
+   */
+  isWatchedNonLowlightPath(fsPath) {
+    if (!fsPath) {
+      return false;
+    }
+    const base = path.basename(fsPath);
+    if (base === 'lowlight.toml' || base === 'lowlight.lock' || fsPath.endsWith('.lowlightfmt')) {
+      return true;
+    }
+    const norm = path.normalize(fsPath);
+    let real = null;
+    try {
+      real = fs.realpathSync(norm);
+    } catch (_) {}
+    for (const entry of this.dynamicWatchers.values()) {
+      if (!entry) {
+        continue;
+      }
+      if (entry.baseNames && entry.baseNames.has(base)) {
+        return true;
+      }
+      if (entry.exactPaths && (entry.exactPaths.has(norm) || (real && entry.exactPaths.has(real)))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * @param {vscode.TextDocument} doc
+   * @returns {boolean}
+   */
+  shouldSyncDoc(doc) {
+    if (this.isLowlightDoc(doc)) {
+      return true;
+    }
+    return Boolean(doc && doc.uri && doc.uri.scheme === 'file' && this.isWatchedNonLowlightPath(doc.uri.fsPath));
+  }
+
+  /**
    * Resolves a server URI string back into the canonical `vscode.Uri` (reusing open tab URIs).
    * @param {string} uriStr
    * @returns {vscode.Uri}
@@ -625,17 +837,20 @@ class LowlightClient {
    * @param {vscode.TextDocument} doc
    */
   didOpen(doc) {
-    if (!this.ready || !this.isLowlightDoc(doc)) {
+    if (!this.ready || !this.shouldSyncDoc(doc)) {
       return;
     }
     const uriStr = doc.uri.toString();
+    const isLL = this.isLowlightDoc(doc);
     this.docCache.delete(uriStr);
-    this.fsPathToUri.set(path.normalize(doc.uri.fsPath), doc.uri);
+    if (isLL) {
+      this.fsPathToUri.set(path.normalize(doc.uri.fsPath), doc.uri);
+    }
     this.syncedUris.add(uriStr);
     this.sendNotification('textDocument/didOpen', {
       textDocument: {
         uri: uriStr,
-        languageId: 'lowlight',
+        languageId: isLL ? 'lowlight' : (doc.languageId || 'plaintext'),
         version: doc.version,
         text: doc.getText(),
       },
@@ -648,7 +863,7 @@ class LowlightClient {
   didChange(docOrEvent) {
     const isEvent = docOrEvent && docOrEvent.document !== undefined;
     const doc = isEvent ? docOrEvent.document : docOrEvent;
-    if (!this.ready || !this.isLowlightDoc(doc)) {
+    if (!this.ready || !this.shouldSyncDoc(doc)) {
       return;
     }
     const uriStr = doc.uri.toString();
@@ -681,12 +896,17 @@ class LowlightClient {
    * @param {vscode.TextDocument} doc
    */
   didSave(doc) {
-    if (!this.ready || !this.isLowlightDoc(doc)) {
+    if (!this.ready || !this.shouldSyncDoc(doc)) {
+      return;
+    }
+    const uriStr = doc.uri.toString();
+    if (!this.syncedUris.has(uriStr)) {
+      this.didOpen(doc);
       return;
     }
     this.sendNotification('textDocument/didSave', {
       textDocument: {
-        uri: doc.uri.toString(),
+        uri: uriStr,
       },
       text: doc.getText(),
     });
@@ -696,14 +916,17 @@ class LowlightClient {
    * @param {vscode.TextDocument} doc
    */
   didClose(doc) {
-    if (!this.isLowlightDoc(doc)) {
+    const uriStr = doc && doc.uri ? doc.uri.toString() : '';
+    if (!this.shouldSyncDoc(doc) && !(uriStr && this.syncedUris.has(uriStr))) {
       return;
     }
-    const uriStr = doc.uri.toString();
+    const isLL = this.isLowlightDoc(doc);
     this.syncedUris.delete(uriStr);
-    this.fsPathToUri.delete(path.normalize(doc.uri.fsPath));
     this.docCache.delete(uriStr);
-    this.diagnostics.delete(doc.uri);
+    if (isLL) {
+      this.fsPathToUri.delete(path.normalize(doc.uri.fsPath));
+      this.diagnostics.delete(doc.uri);
+    }
     if (this.ready) {
       this.sendNotification('textDocument/didClose', {
         textDocument: {
@@ -919,6 +1142,18 @@ function activate(context) {
 
   const inlayHintsEmitter = new vscode.EventEmitter();
   const watcher = vscode.workspace.createFileSystemWatcher('**/*.{ll,lowlightfmt}');
+  const tomlWatcher = vscode.workspace.createFileSystemWatcher('**/lowlight.{toml,lock}');
+  const sendFallbackWatchEvent = (uri, type) => {
+    if (!client) {
+      return;
+    }
+    client.clearDocCaches();
+    if (client.ready && !client.hasDynamicFileWatchers) {
+      client.sendNotification('workspace/didChangeWatchedFiles', {
+        changes: [{ uri: uri.toString(), type }],
+      });
+    }
+  };
 
   // Document synchronization listeners
   context.subscriptions.push(
@@ -927,40 +1162,17 @@ function activate(context) {
     statusBarItem,
     inlayHintsEmitter,
     watcher,
+    tomlWatcher,
     vscode.workspace.onDidOpenTextDocument((doc) => client && client.didOpen(doc)),
     vscode.workspace.onDidChangeTextDocument((ev) => client && client.didChange(ev)),
     vscode.workspace.onDidSaveTextDocument((doc) => client && client.didSave(doc)),
     vscode.workspace.onDidCloseTextDocument((doc) => client && client.didClose(doc)),
-    watcher.onDidCreate((uri) => {
-      if (client) {
-        client.clearDocCaches();
-        if (client.ready) {
-          client.sendNotification('workspace/didChangeWatchedFiles', {
-            changes: [{ uri: uri.toString(), type: 1 }],
-          });
-        }
-      }
-    }),
-    watcher.onDidChange((uri) => {
-      if (client) {
-        client.clearDocCaches();
-        if (client.ready) {
-          client.sendNotification('workspace/didChangeWatchedFiles', {
-            changes: [{ uri: uri.toString(), type: 2 }],
-          });
-        }
-      }
-    }),
-    watcher.onDidDelete((uri) => {
-      if (client) {
-        client.clearDocCaches();
-        if (client.ready) {
-          client.sendNotification('workspace/didChangeWatchedFiles', {
-            changes: [{ uri: uri.toString(), type: 3 }],
-          });
-        }
-      }
-    }),
+    watcher.onDidCreate((uri) => sendFallbackWatchEvent(uri, 1)),
+    watcher.onDidChange((uri) => sendFallbackWatchEvent(uri, 2)),
+    watcher.onDidDelete((uri) => sendFallbackWatchEvent(uri, 3)),
+    tomlWatcher.onDidCreate((uri) => sendFallbackWatchEvent(uri, 1)),
+    tomlWatcher.onDidChange((uri) => sendFallbackWatchEvent(uri, 2)),
+    tomlWatcher.onDidDelete((uri) => sendFallbackWatchEvent(uri, 3)),
     vscode.workspace.onDidChangeConfiguration(async (ev) => {
       if (
         ev.affectsConfiguration('lowlight.serverPath') ||

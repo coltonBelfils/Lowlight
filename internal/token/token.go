@@ -76,9 +76,10 @@ const (
 	Gt  // >
 	Gte // >=
 
-	// Reserved Keywords (30)
+	// Reserved Keywords (32)
 	KwLet
 	KwBind
+	KwConst
 	KwDefine
 	KwStruct
 	KwEnum
@@ -106,6 +107,7 @@ const (
 	KwUnpack
 	KwFn // fn: a function value with no captures
 	KwCl // cl: a closure
+	KwComptime
 	KwImport
 )
 
@@ -197,6 +199,8 @@ var kindNames = map[Kind]string{
 	KwUnpack:    "unpack",
 	KwFn:        "fn",
 	KwCl:        "cl",
+	KwConst:     "const",
+	KwComptime:  "comptime",
 	KwImport:    "import",
 }
 
@@ -237,6 +241,8 @@ var keywords = map[string]Kind{
 	"unpack":    KwUnpack,
 	"fn":        KwFn,
 	"cl":        KwCl,
+	"const":     KwConst,
+	"comptime":  KwComptime,
 	"import":    KwImport,
 }
 

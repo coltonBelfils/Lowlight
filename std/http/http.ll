@@ -5,6 +5,8 @@
 // testing helpers ([`ResponseRecorder`], [`test_handler`], [`test_roundtrip`]).
 
 import "std/net"
+import "std/os"
+import "std/time"
 
 // ============================================================================
 // 1. HTTP Status Codes & Status Texts
@@ -597,9 +599,7 @@ define Request struct [
 
 // Constructs a [`Request`] for `method`, `raw_url`, and optional `body`, setting `host` and `content-length` headers.
 bind Request.new = fn(method: string, raw_url: string, body: string) Request: {
-	let url_res! = parse_url(raw_url)
-	let u = if(url_res!.is_ok()): url_res!.unwrap()
-	else: Url[
+	let u = parse_url(raw_url) ?? Url[
 		raw: raw_url.copy(),
 		scheme: "",
 		host: "",
@@ -727,9 +727,7 @@ bind Request.parse = fn(raw: string) Result[Request]: {
 	let raw_target = parts.get(1) ?? "/"
 	let proto = if(parts.len() >= 3): parts.get(2) ?? "HTTP/1.1" else: "HTTP/1.1"
 
-	let url_res! = parse_url(raw_target)
-	let parsed_url = if(url_res!.is_ok()): url_res!.unwrap()
-	else: Url[
+	let parsed_url = parse_url(raw_target) ?? Url[
 		raw: raw_target.copy(),
 		scheme: "",
 		host: "",
@@ -1067,7 +1065,7 @@ bind _MessageReader.fill = fn(&self, timeout_ms: int) Result[int]: {
 	let chunk_size = 8192
 	let n = unsafe {
 		let chunk = alloc_raw[u8](chunk_size)
-		let got = if(is_null(self.tls)): sys_net_recv(self.fd, chunk, chunk_size, timeout_ms)
+		let got = if(is_null(self.tls)): net.raw_recv(self.fd, chunk, chunk_size, timeout_ms)
 		else: sys_tls_recv(self.tls, chunk, chunk_size, timeout_ms)
 		if(got > 0): self.buf.push_bytes(chunk, got)
 		free_raw(chunk)
@@ -1297,6 +1295,27 @@ bind Client.new = fn() Client: Client[
 	max_redirects: 10,
 ]
 
+// The result of an HTTP request ([`Client.do`], [`get`], [`post`], ...). A response with an
+// error status such as `404` or `500` is still a `value`: check [`Response.status_code`].
+//
+// ```lowlight
+// let resp = http.get(url):
+// 	when unreachable(_), timeout(_): func <- retry_later()
+// 	default err(own e): func <- err(e)
+// ```
+@must_use
+define RequestResult result [
+	// The server's response.
+	value: Response,
+	// The server couldn't be reached: its host name didn't resolve, or it refused the connection.
+	unreachable: Error,
+	// The server didn't connect or answer within the client's timeout.
+	timeout: Error,
+	// Anything else: an invalid URL, a TLS failure, a failed send, a malformed response, or too
+	// many redirects (code `"too_many_redirects"`).
+	err: Error,
+]
+
 // Executes `req` over HTTP or HTTPS (`https://` or port `443`) and returns the parsed [`Response`].
 //
 // Populates `Host`, `User-Agent`, `Accept`, `Connection: close`, `Content-Length` (when the body
@@ -1307,19 +1326,24 @@ bind Client.new = fn() Client: Client[
 // method and body. `Authorization` and `Cookie` headers are not sent to a different host.
 //
 // # Errors
-// Returns [`Result.err`] if `req.url` cannot be parsed, the TCP connection fails, TLS
-// initialization or handshake fails for HTTPS requests (which dynamically requires OpenSSL `libssl`),
-// sending/receiving fails, the server response is malformed, or more than `max_redirects`
-// redirects occur (code `"too_many_redirects"`).
-bind Client.do = fn(self, req: Request) Result[Response]: self.do_with(req, _client_round_trip)
+// [`RequestResult.unreachable`] if the host doesn't resolve or refuses the connection;
+// [`RequestResult.timeout`] if connecting or reading the response takes longer than
+// [`Client.timeout_ms`]; [`RequestResult.err`] if `req.url` can't be parsed, TLS isn't available
+// or the handshake fails (HTTPS loads OpenSSL `libssl` dynamically), sending fails, the
+// response is malformed, or more than `max_redirects` redirects occur (code
+// `"too_many_redirects"`).
+bind Client.do = fn(self, req: Request) RequestResult: self.do_with(req, _client_round_trip)
 
 // Like [`Client.do`], but sends each request (the original and every redirect) through
 // `transport` instead of the network. Tests use it to exercise redirect handling.
-bind Client.do_with = fn(self, req: Request, transport: cl(Client, Request) Result[Response]) Result[Response]: {
+bind Client.do_with = fn(self, req: Request, transport: cl(Client, Request) RequestResult) RequestResult: {
 	let cur = req.copy()
 	let hops = 0
 	while(true): {
-		let resp = transport(self, cur): default err(own e): func <- err(e)
+		let resp = transport(self, cur):
+			when unreachable(own e): func <- unreachable(e)
+			when timeout(own e): func <- timeout(e)
+			default err(own e): func <- err(e)
 		if(not is_redirect(resp.status_code) or self.max_redirects <= 0): func <- value(resp)
 		let location = resp.header("location") ?? func <- value(resp)
 		if(hops >= self.max_redirects): func <- err(
@@ -1401,12 +1425,9 @@ bind _remove_dot_segments = fn(path: string) string: {
 }
 
 // Sends one request over the network without following redirects.
-bind _client_round_trip = fn(client: Client, req: Request) Result[Response]: {
-	let url_res! = parse_url(req.url)
-	if(url_res!.is_err()): func <- err(
-		url_res!.unwrap_err().wrap("invalid request URL: ${req.url}")
-	)
-	let u = url_res!.unwrap()
+bind _client_round_trip = fn(client: Client, req: Request) RequestResult: {
+	let u = parse_url(req.url):
+		default err(own e): func <- err(e.wrap("invalid request URL: ${req.url}"))
 	let is_tls = u.scheme == "https" or u.port == 443
 	let host = if(not u.hostname.is_empty()): u.hostname.copy() else: "127.0.0.1"
 	let port = if(u.port > 0): u.port
@@ -1428,9 +1449,11 @@ bind _client_round_trip = fn(client: Client, req: Request) Result[Response]: {
 	for(f in client.headers.fields()): if(not mut_req.headers.has(f.name)): mut_req.add_header(f.name, f.value)
 
 	let wire = mut_req.format()
-	let stream_res! = net.TcpStream.connect(host, port, client.timeout_ms)
-	if(stream_res!.is_err()): func <- err(stream_res!.unwrap_err().wrap("connection failed"))
-	let stream = stream_res!.unwrap()
+	let stream = net.TcpStream.connect(host, port, client.timeout_ms):
+		when not_found(own e): func <- unreachable(e.wrap("connection failed"))
+		when refused(own e): func <- unreachable(e.wrap("connection failed"))
+		when timeout(own e): func <- timeout(e.wrap("connection failed"))
+		default err(own e): func <- err(e.wrap("connection failed"))
 
 	if(is_tls): {
 		let avail = unsafe sys_tls_available()
@@ -1446,38 +1469,42 @@ bind _client_round_trip = fn(client: Client, req: Request) Result[Response]: {
 		)
 		let tls_sess = _TlsSession[_raw: raw_sess]
 
-		let send_res! = tls_sess.send(wire)
-		if(send_res!.is_err()): func <- err(
-			send_res!.unwrap_err().wrap("failed to send HTTP request over TLS")
-		)
+		tls_sess.send(wire):
+			default err(own e): func <- err(e.wrap("failed to send HTTP request over TLS"))
 
 		let reader = _MessageReader.over_tls(tls_sess._raw)
 		let raw_resp = reader.read_message(mut_req.method, client.timeout_ms):
-			default err(own e): func <- err(e.wrap("failed to read HTTP response over TLS"))
-		Response.parse(raw_resp).wrap_err("failed to parse HTTP response")
+			default err(own e): func <- _read_failure(own e, "failed to read HTTP response over TLS")
+		let resp = Response.parse(raw_resp):
+			default err(own e): func <- err(e.wrap("failed to parse HTTP response"))
+		value(own resp)
 	} else: {
-		let send_res! = stream.send(wire)
-		if(send_res!.is_err()): func <- err(
-			send_res!.unwrap_err().wrap("failed to send HTTP request")
-		)
+		stream.send(wire):
+			default err(own e): func <- err(e.wrap("failed to send HTTP request"))
 
 		let reader = _MessageReader.plain(stream.raw_fd())
 		let raw_resp = reader.read_message(mut_req.method, client.timeout_ms):
-			default err(own e): func <- err(e.wrap("failed to read HTTP response"))
-		Response.parse(raw_resp).wrap_err("failed to parse HTTP response")
+			default err(own e): func <- _read_failure(own e, "failed to read HTTP response")
+		let resp = Response.parse(raw_resp):
+			default err(own e): func <- err(e.wrap("failed to parse HTTP response"))
+		value(own resp)
 	}
 }
-bind Client._send_method = fn(self, method: string, url: string, content_type?: ?string, body: string) Result[Response]: {
+
+// A failure reading a response: `timeout` when the reader timed out, otherwise `err`.
+bind _read_failure = fn(e: own Error, context: string) RequestResult:
+	if(e.has_code("timeout")): timeout(e.wrap(context)) else: err(e.wrap(context))
+bind Client._send_method = fn(self, method: string, url: string, content_type?: ?string, body: string) RequestResult: {
 	let req = Request.new(method, url, body)
 	if(content_type? as ct): req.set_header("Content-Type", ct)
 	self.do(req)
 }
 
 // Sends an HTTP `GET` request to `url` using this client's configuration.
-bind Client.get = fn(self, url: string) Result[Response]: self._send_method("GET", url, none, "")
+bind Client.get = fn(self, url: string) RequestResult: self._send_method("GET", url, none, "")
 
 // Sends an HTTP `POST` request with `content_type` and `body` to `url`.
-bind Client.post = fn(self, url: string, content_type: string, body: string) Result[Response]: self._send_method(
+bind Client.post = fn(self, url: string, content_type: string, body: string) RequestResult: self._send_method(
 	"POST",
 	url,
 	content_type,
@@ -1485,7 +1512,7 @@ bind Client.post = fn(self, url: string, content_type: string, body: string) Res
 )
 
 // Sends an HTTP `PUT` request with `content_type` and `body` to `url`.
-bind Client.put = fn(self, url: string, content_type: string, body: string) Result[Response]: self._send_method(
+bind Client.put = fn(self, url: string, content_type: string, body: string) RequestResult: self._send_method(
 	"PUT",
 	url,
 	content_type,
@@ -1493,7 +1520,7 @@ bind Client.put = fn(self, url: string, content_type: string, body: string) Resu
 )
 
 // Sends an HTTP `PATCH` request with `content_type` and `body` to `url`.
-bind Client.patch = fn(self, url: string, content_type: string, body: string) Result[Response]: self._send_method(
+bind Client.patch = fn(self, url: string, content_type: string, body: string) RequestResult: self._send_method(
 	"PATCH",
 	url,
 	content_type,
@@ -1501,7 +1528,7 @@ bind Client.patch = fn(self, url: string, content_type: string, body: string) Re
 )
 
 // Sends an HTTP `DELETE` request to `url` using this client's configuration.
-bind Client.delete = fn(self, url: string) Result[Response]: self._send_method(
+bind Client.delete = fn(self, url: string) RequestResult: self._send_method(
 	"DELETE",
 	url,
 	none,
@@ -1509,31 +1536,31 @@ bind Client.delete = fn(self, url: string) Result[Response]: self._send_method(
 )
 
 // Sends a one-off HTTP `GET` request to `url` with default [`Client`] settings.
-bind get = fn(url: string) Result[Response]: {
+bind get = fn(url: string) RequestResult: {
 	let c = Client.new()
 	c.get(url)
 }
 
 // Sends a one-off HTTP `POST` request with `content_type` and `body` to `url`.
-bind post = fn(url: string, content_type: string, body: string) Result[Response]: {
+bind post = fn(url: string, content_type: string, body: string) RequestResult: {
 	let c = Client.new()
 	c.post(url, content_type, body)
 }
 
 // Sends a one-off HTTP `PUT` request with `content_type` and `body` to `url`.
-bind put = fn(url: string, content_type: string, body: string) Result[Response]: {
+bind put = fn(url: string, content_type: string, body: string) RequestResult: {
 	let c = Client.new()
 	c.put(url, content_type, body)
 }
 
 // Sends a one-off HTTP `PATCH` request with `content_type` and `body` to `url`.
-bind patch = fn(url: string, content_type: string, body: string) Result[Response]: {
+bind patch = fn(url: string, content_type: string, body: string) RequestResult: {
 	let c = Client.new()
 	c.patch(url, content_type, body)
 }
 
 // Sends a one-off HTTP `DELETE` request to `url` with default [`Client`] settings.
-bind delete = fn(url: string) Result[Response]: {
+bind delete = fn(url: string) RequestResult: {
 	let c = Client.new()
 	c.delete(url)
 }
@@ -1574,9 +1601,31 @@ bind Server.drop = fn(&self): self.close()
 // Closes the listener socket if currently open and resets `listener_fd` to `-1`.
 bind Server.close = fn(&self):
 	if(self.listener_fd >= 0): {
-		unsafe sys_net_close(self.listener_fd)
+		net.raw_close(self.listener_fd)
 		self.listener_fd = -1
 	}
+
+// The result of [`Server.listen`].
+@must_use
+define ListenResult result [
+	// The port the server is listening on.
+	value: int,
+	// Something else already listens on the address.
+	in_use: Error,
+	// Any other failure, with the OS's description.
+	err: Error,
+]
+
+// The result of [`Server.serve_one`].
+@must_use
+define ServeOneResult result [
+	// Whether a request was handled on the connection.
+	value: bool,
+	// No client connected within the timeout.
+	timeout: Error,
+	// Listening or accepting failed, with the OS's description.
+	err: Error,
+]
 
 // Binds the TCP listener socket according to `self.addr` and returns the bound port.
 //
@@ -1585,8 +1634,10 @@ bind Server.close = fn(&self):
 // stored in `self.port`.
 //
 // # Errors
-// Returns [`Result.err`] if binding or listening on the address fails.
-bind Server.listen = fn(&self) Result[int]: {
+// [`ListenResult.in_use`] if something else already listens on the address;
+// [`ListenResult.err`] if the address is invalid or binding fails for another reason, with the
+// OS's description.
+bind Server.listen = fn(&self) ListenResult: {
 	let host = "0.0.0.0"
 	let port = 8080
 
@@ -1610,10 +1661,14 @@ bind Server.listen = fn(&self) Result[int]: {
 		}
 	}
 
-	let sfd = unsafe sys_tcp_listen(host.c_str(), port, 128)
-	if(sfd < 0): func <- err(Error.new("failed to bind server on ${self.addr}"))
+	let sfd = net.raw_tcp_listen(host, port, 128)
+	if(sfd < 0): {
+		let code = os.last_errno()
+		let e = os.error_from_errno(code, "failed to listen on ${self.addr}")
+		func <- if(os.errno_name(code) == "EADDRINUSE"): in_use(e) else: err(e)
+	}
 	self.listener_fd = sfd
-	let actual_port = unsafe sys_tcp_port(sfd)
+	let actual_port = net.raw_tcp_port(sfd)
 	self.port = if(actual_port > 0): actual_port else: port
 	value(self.port)
 }
@@ -1638,14 +1693,14 @@ bind Server.serve_conn = fn(&self, conn_fd: int, handler: cl(Request, &ResponseW
 			default err(own e): {
 				if(e.has_code("malformed")): {
 					let bad = "HTTP/1.1 400 Bad Request\r\nContent-Length: 15\r\nConnection: close\r\n\r\n400 Bad Request"
-					let _ = unsafe sys_net_send_all(conn_fd, bad.c_str(), bad.len())
+					let _ = unsafe net.raw_send_all(conn_fd, bad.c_str(), bad.len())
 				}
 				while <-
 			}
 		let req = Request.parse(raw_req):
 			default err(own e): {
 				let bad = "HTTP/1.1 400 Bad Request\r\nContent-Length: 15\r\nConnection: close\r\n\r\n400 Bad Request"
-				let _ = unsafe sys_net_send_all(conn_fd, bad.c_str(), bad.len())
+				let _ = unsafe net.raw_send_all(conn_fd, bad.c_str(), bad.len())
 				while <-
 			}
 		req.remote_addr = remote.copy()
@@ -1658,11 +1713,11 @@ bind Server.serve_conn = fn(&self, conn_fd: int, handler: cl(Request, &ResponseW
 		let close = client_closes or reader.buf.trim().is_empty()
 		if(close): resp.set_header("Connection", "close")
 		let wire = resp.format()
-		let sent = unsafe sys_net_send_all(conn_fd, wire.c_str(), wire.len())
+		let sent = unsafe net.raw_send_all(conn_fd, wire.c_str(), wire.len())
 		served = true
 		if(close or sent != 0): while <-
 	}
-	unsafe sys_net_close(conn_fd)
+	net.raw_close(conn_fd)
 	served
 }
 
@@ -1671,17 +1726,16 @@ bind Server.serve_conn = fn(&self, conn_fd: int, handler: cl(Request, &ResponseW
 // Calls [`Server.listen`] automatically if the server is not already listening.
 //
 // # Errors
-// Returns a coded `"timeout"` [`Error`] when `timeout_ms` expires before a client connects,
-// or an error if listening or accepting fails.
-bind Server.serve_one = fn(&self, handler: cl(Request, &ResponseWriter), timeout_ms: int) Result[bool]: {
-	if(self.listener_fd < 0): {
-		let lr! = self.listen()
-		if(lr!.is_err()): func <- err(lr!.unwrap_err().wrap("listen failed"))
-	}
-	let client_fd = unsafe sys_tcp_accept(self.listener_fd, timeout_ms)
+// [`ServeOneResult.timeout`] when `timeout_ms` expires before a client connects;
+// [`ServeOneResult.err`] if listening or accepting fails.
+bind Server.serve_one = fn(&self, handler: cl(Request, &ResponseWriter), timeout_ms: int) ServeOneResult: {
+	if(self.listener_fd < 0): self.listen():
+		when in_use(own e): func <- err(e)
+		default err(own e): func <- err(e)
+	let client_fd = net.raw_tcp_accept(self.listener_fd, timeout_ms)
 	if(client_fd < 0): {
-		if(client_fd == -2): func <- err(Error.coded("timeout", "timeout waiting for connection"))
-		func <- err(Error.new("accept error"))
+		if(client_fd == -2): func <- timeout(Error.new("no connection within $timeout_ms ms"))
+		func <- err(os.error_from_errno(os.last_errno(), "failed to accept a connection"))
 	}
 	let ok = self.serve_conn(client_fd, handler)
 	value(ok)
@@ -1699,18 +1753,17 @@ bind Server.serve_one = fn(&self, handler: cl(Request, &ResponseWriter), timeout
 // # Errors
 // Returns an error if listening fails, or a `"closed"` error if the listener is closed.
 bind Server.serve = fn(&self, handler: cl(Request, &ResponseWriter), max_requests: int) Result[int]: {
-	if(self.listener_fd < 0): {
-		let lr! = self.listen()
-		if(lr!.is_err()): func <- err(lr!.unwrap_err().wrap("listen failed"))
-	}
+	if(self.listener_fd < 0): self.listen():
+		when in_use(own e): func <- err(e)
+		default err(own e): func <- err(e)
 	let served = 0
 	let backoff_ms = 0
 	while(max_requests <= 0 or served < max_requests): {
 		if(self.listener_fd < 0): func <- err(Error.coded("closed", "server listener is closed"))
-		let client_fd = unsafe sys_tcp_accept(self.listener_fd, -1)
+		let client_fd = net.raw_tcp_accept(self.listener_fd, -1)
 		if(client_fd < 0): {
 			backoff_ms = _next_accept_backoff(backoff_ms)
-			unsafe sys_sleep_ms(backoff_ms)
+			time.sleep_ms(backoff_ms)
 			next <-
 		}
 		backoff_ms = 0
@@ -1727,8 +1780,9 @@ bind _next_accept_backoff = fn(prev_ms: int) int:
 // Starts a [`Server`] bound to `addr` and serves requests indefinitely using `handler`.
 bind listen_and_serve = fn(addr: string, handler: cl(Request, &ResponseWriter)) Result[bool]: {
 	let s = Server.new(addr)
-	let res! = s.serve(handler, 0)
-	if(res!.is_ok()): value(true) else: err(res!.unwrap_err().wrap("server error"))
+	s.serve(handler, 0):
+		default err(own e): func <- err(e.wrap("server error"))
+	value(true)
 }
 
 // Starts a [`Server`] bound to `addr` and dispatches requests through `mux`.
@@ -1768,43 +1822,29 @@ bind test_handler = fn(handler: cl(Request, &ResponseWriter), req: Request) Resp
 // Serializes `req` with [`Request.format`], reads and parses it on the server end, invokes
 // `handler`, serializes the reply, and parses the client-side [`Response`].
 bind test_roundtrip = fn(handler: cl(Request, &ResponseWriter), req: Request) Result[Response]: {
-	let pair_res! = net.socketpair()
-	if(pair_res!.is_err()): func <- err(pair_res!.unwrap_err().wrap("socketpair failed"))
-	let pair = pair_res!.unwrap()
+	let pair = net.socketpair():
+		default err(own e): func <- err(e.wrap("socketpair failed"))
 
-	let req_wire = req.format()
-	let send_res! = pair.first.send(req_wire)
-	if(send_res!.is_err()): func <- err(
-		send_res!.unwrap_err().wrap("failed to send request to socketpair")
-	)
+	pair.first.send(req.format()):
+		default err(own e): func <- err(e.wrap("failed to send request to socketpair"))
 
 	let srv_reader = _MessageReader.plain(pair.second.raw_fd())
-	let srv_req_res! = srv_reader.read_message("", 2000)
-	if(srv_req_res!.is_err()): func <- err(
-		srv_req_res!.unwrap_err().wrap("server failed to read request")
-	)
-	let parsed_req_res! = Request.parse(srv_req_res!.unwrap())
-	if(parsed_req_res!.is_err()): func <- err(
-		parsed_req_res!.unwrap_err().wrap("server failed to parse request")
-	)
-	let srv_req = parsed_req_res!.unwrap()
+	let srv_wire = srv_reader.read_message("", 2000):
+		default err(own e): func <- err(e.wrap("server failed to read request"))
+	let srv_req = Request.parse(srv_wire):
+		default err(own e): func <- err(e.wrap("server failed to parse request"))
 
 	let rw = ResponseWriter.new()
 	handler(srv_req, &rw)
 	let resp = rw.finish()
 	let resp_wire = resp.format()
 
-	let srv_send_res! = pair.second.send(resp_wire)
-	if(srv_send_res!.is_err()): func <- err(
-		srv_send_res!.unwrap_err().wrap("server failed to send response")
-	)
+	pair.second.send(resp_wire):
+		default err(own e): func <- err(e.wrap("server failed to send response"))
 
 	let client_reader = _MessageReader.plain(pair.first.raw_fd())
-	let client_read_res! = client_reader.read_message(req.method, 2000)
-	if(client_read_res!.is_err()): func <- err(
-		client_read_res!.unwrap_err().wrap("client failed to read response")
-	)
-	let client_wire = client_read_res!.unwrap()
+	let client_wire = client_reader.read_message(req.method, 2000):
+		default err(own e): func <- err(e.wrap("client failed to read response"))
 	Response.parse(client_wire)
 }
 
@@ -2031,9 +2071,8 @@ bind test_http_server_remote_addr = fn(): {
 	let srv = Server.new("127.0.0.1:0")
 	let port = srv.listen() ?? -1
 	if(port <= 0): func <-     // no loopback networking available here
-	let client! = net.TcpStream.connect("127.0.0.1", port, 2000)
-	if(client!.is_err()): func <-
-	let conn = client!.unwrap()
+	let conn = net.TcpStream.connect("127.0.0.1", port, 2000):
+		default: func <-
 	let sent = conn.send("GET /who HTTP/1.1\r\nHost: localhost\r\n\r\n") ?? 0
 	assert(sent > 0, "request sent")
 	let served = srv.serve_one(fn(req: Request, rw: &ResponseWriter): rw.write(req.remote_addr), 2000) ?? false
@@ -2139,7 +2178,7 @@ bind test_http_resolve_reference = fn(): {
 	assert(resolve_reference(base, "?page=2") == "https://example.com:8443/docs/guide/intro?page=2", "query only")
 }
 
-bind _fake_transport = fn(c: Client, r: Request) Result[Response]: {
+bind _fake_transport = fn(c: Client, r: Request) RequestResult: {
 	let resp = match(r.path):
 		when "/start": Response.new(302, "")
 		when "/second": Response.new(301, "")
@@ -2162,26 +2201,29 @@ bind test_http_client_redirects = fn(): {
 	let c = Client.new()
 	let req = Request.new("GET", "http://example.com/start", "")
 	req.set_header("Authorization", "Bearer secret")
-	let final = c.do_with(req, _fake_transport).unwrap()
+	let final = c.do_with(req, _fake_transport): default panic
 	assert(final.body == "GET http://other.test/final body= auth=-", "followed two hops; auth dropped across hosts")
 
 	let same_host = Request.new("GET", "http://example.com/keep", "")
 	same_host.set_header("Authorization", "Bearer secret")
-	let kept_auth = c.do_with(same_host, _fake_transport).unwrap()
+	let kept_auth = c.do_with(same_host, _fake_transport): default panic
 	assert(kept_auth.body.ends_with("auth=Bearer secret"), "auth kept on the same host")
 
-	let post = c.do_with(Request.new("POST", "http://example.com/form", "a=1"), _fake_transport).unwrap()
+	let post = c.do_with(Request.new("POST", "http://example.com/form", "a=1"), _fake_transport): default panic
 	assert(post.body == "GET http://example.com/done body= auth=-", "303 becomes a bodiless GET")
 
-	let keep = c.do_with(Request.new("POST", "http://example.com/keep", "a=1"), _fake_transport).unwrap()
+	let keep = c.do_with(Request.new("POST", "http://example.com/keep", "a=1"), _fake_transport): default panic
 	assert(keep.body == "POST http://example.com/kept body=a=1 auth=-", "307 repeats the method and body")
 
-	let looped! = c.do_with(Request.new("GET", "http://example.com/loop", ""), _fake_transport)
-	assert(looped!.peek_err()?.has_code("too_many_redirects") ?? false, "redirect loops stop")
+	let looped = false
+	c.do_with(Request.new("GET", "http://example.com/loop", ""), _fake_transport):
+		when err(e): looped = e.has_code("too_many_redirects")
+		default panic
+	assert(looped, "redirect loops stop")
 
 	let manual = Client.new()
 	manual.max_redirects = 0
-	let first = manual.do_with(Request.new("GET", "http://example.com/start", ""), _fake_transport).unwrap()
+	let first = manual.do_with(Request.new("GET", "http://example.com/start", ""), _fake_transport): default panic
 	assert(first.status_code == 302 and first.header("location") == "/second", "max_redirects = 0 returns the redirect")
 }
 
@@ -2209,9 +2251,8 @@ bind test_http_server_pipelining = fn(): {
 	let srv = Server.new("127.0.0.1:0")
 	let port = srv.listen() ?? -1
 	if(port <= 0): func <-
-	let client! = net.TcpStream.connect("127.0.0.1", port, 2000)
-	if(client!.is_err()): func <-
-	let conn = client!.unwrap()
+	let conn = net.TcpStream.connect("127.0.0.1", port, 2000):
+		default: func <-
 	let reqs = "GET /one HTTP/1.1\r\nHost: x\r\n\r\nHEAD /two HTTP/1.1\r\nHost: x\r\n\r\nGET /three HTTP/1.1\r\nHost: x\r\n\r\n"
 	let _ = conn.send(reqs) ?? 0
 	let served = srv.serve_one(fn(req: Request, rw: &ResponseWriter): rw.write("path=${req.path}"), 2000) ?? false
@@ -2231,9 +2272,8 @@ bind test_http_server_remote_addr_ipv6 = fn(): {
 	let srv = Server.new("[::1]:0")
 	let port = srv.listen() ?? -1
 	if(port <= 0): func <-     // no IPv6 loopback available here
-	let client! = net.TcpStream.connect("::1", port, 2000)
-	if(client!.is_err()): func <-
-	let conn = client!.unwrap()
+	let conn = net.TcpStream.connect("::1", port, 2000):
+		default: func <-
 	let _ = conn.send("GET / HTTP/1.1\r\nHost: x\r\n\r\n") ?? 0
 	let _ = srv.serve_one(fn(req: Request, rw: &ResponseWriter): rw.write(req.remote_addr), 2000) ?? false
 	let reader = _MessageReader.plain(conn.raw_fd())
