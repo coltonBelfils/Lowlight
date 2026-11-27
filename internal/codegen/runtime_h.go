@@ -414,25 +414,6 @@ static inline void ll_str_push(ll_string* s, ll_string suffix) {
     s->data[s->len] = '\0';
 }
 
-static inline void ll_str_push_byte(ll_string* s, uint8_t b) {
-    ll_str_ensure_owned_cap(s, s->len + 2);
-    s->data[s->len++] = b;
-    s->data[s->len] = '\0';
-}
-
-static inline void ll_str_push_bytes(ll_string* s, const uint8_t* bytes, int64_t count) {
-    if (!bytes || count <= 0) return;
-    uintptr_t old_base = (uintptr_t)s->data;
-    int64_t span = (s->cap > 0) ? s->cap : s->len;
-    int aliased = (s->data != NULL && span > 0 && (uintptr_t)bytes >= old_base && (uintptr_t)bytes < old_base + (uintptr_t)span);
-    uintptr_t alias_off = aliased ? ((uintptr_t)bytes - old_base) : 0;
-    ll_str_ensure_owned_cap(s, s->len + count + 1);
-    const uint8_t* src = aliased ? (s->data + alias_off) : bytes;
-    memmove(s->data + s->len, src, (size_t)count);
-    s->len += count;
-    s->data[s->len] = '\0';
-}
-
 static inline uint8_t* ll_str_c_str(ll_string s) {
     if (!s.data) return (uint8_t*)(uintptr_t)"";
     return s.data;

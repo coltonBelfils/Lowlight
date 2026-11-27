@@ -17,13 +17,13 @@
 </li>
 <li>Inside <code>unsafe</code>, ownership, borrowing, and destruction rules still apply; only the listed operations are added.
 </li>
-<li><code>extern &quot;header.h&quot;</code> and <code>extern name: (params) Ret</code> declare foreign functions.
+<li><code>extern &quot;header.h&quot;</code> and <code>extern name: fn(params) Ret</code> declare foreign functions.
 </li>
 </ul>
 </blockquote>
 <h2 id="101-unsafe-expressions"><a class="anchor" href="#101-unsafe-expressions" aria-hidden="true">#</a>10.1 Unsafe expressions</h2>
 <p><code>unsafe</code> is a prefix operator that applies to one expression, often a block:</p>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> x = <span class="n">5</span>
 	<span class="k">let</span> y = <span class="k">unsafe</span> {
 		<span class="k">let</span> p = <span class="f">addr_of</span>(x)
@@ -35,11 +35,15 @@
 <ul>
 <li>dereferencing a pointer, <code>*p</code>, <code>*p = v</code>, and indexing one, <code>p[i]</code>;
 </li>
-<li>the pointer intrinsics: <code>null_ptr</code>, <code>is_null</code>, <code>addr_of</code>, <code>ptr_add</code>, <code>ptr_read</code>, <code>ptr_write</code>, <code>ptr_cast</code>, <code>ptr_addr</code>;
+<li>the pointer intrinsics: <code>null_ptr</code>, <code>is_null</code>, <code>addr_of</code>, <code>ptr_add</code>, <code>ptr_read</code>, <code>ptr_write</code>, <code>ptr_cast</code>, <code>ptr_addr</code>, <code>ref_from_ptr</code>;
+</li>
+<li><code>syscall</code> (<a href="#106-system-calls">§10.6</a>);
 </li>
 <li>the raw memory intrinsics: <code>alloc_raw</code>, <code>alloc_uninit</code>, <code>realloc_raw</code>, <code>free_raw</code>, <code>copy_bytes</code>, <code>zero_bytes</code>, <code>fill_bytes</code>;
 </li>
-<li>calling an <code>extern</code> function;
+<li>calling an <code>extern</code> function, or an <code>extern fn</code> value;
+</li>
+<li><code>fn_from_ptr</code>;
 </li>
 <li><code>s.c_str()</code>, which exposes a string's bytes as a <code>ptr[u8]</code>.
 </li>
@@ -58,46 +62,92 @@
 <tr><td><code>ptr_write(p, v)</code> · <code>*p = v</code></td><td></td><td>writes <code>v</code> (moved) to <code>p</code> without destroying the old contents</td></tr>
 <tr><td><code>ptr_cast[U](p)</code></td><td><code>ptr[U]</code></td><td>reinterprets a pointer, or an integer address, as <code>ptr[U]</code></td></tr>
 <tr><td><code>ptr_addr(p)</code></td><td><code>u64</code></td><td>the numeric address</td></tr>
+<tr><td><code>fn_from_ptr[extern fn(...) R](p)</code></td><td><code>extern fn(...) R</code></td><td>the C function at address <code>p</code> (a <code>ptr[T]</code> or an integer), callable; <code>ptr_cast</code> and <code>ptr_addr</code> also accept an <code>extern fn</code>, for the reverse</td></tr>
+<tr><td><code>ref_from_ptr(p)</code></td><td><code>ref[T]</code></td><td>a <code>ref[T]</code> to the value at <code>p</code>, for an allocator such as <code>Arena</code> that owns the memory; nothing checks that the memory outlives the reference</td></tr>
 </tbody>
 </table></div>
-<h2 id="103-memory-intrinsics"><a class="anchor" href="#103-memory-intrinsics" aria-hidden="true">#</a>10.3 Memory intrinsics</h2>
+<h2 id="103-memory-intrinsics-and-rodata-invariant"><a class="anchor" href="#103-memory-intrinsics-and-rodata-invariant" aria-hidden="true">#</a>10.3 Memory intrinsics and <code>.rodata</code> invariant</h2>
 <div class="table-wrap"><table>
 <thead><tr><th>Intrinsic</th><th>Unsafe</th><th>Meaning</th></tr></thead>
 <tbody>
-<tr><td><code>size_of[T]()</code> · <code>align_of[T]()</code></td><td>no</td><td>size and alignment of <code>T</code> in bytes, as compile-time constants</td></tr>
-<tr><td><code>is_plain[T]()</code></td><td>no</td><td>whether <code>T</code> is plain</td></tr>
+<tr><td><code>type.size_of[T]()</code> · <code>type.align_of[T]()</code></td><td>no</td><td>size and alignment of <code>T</code> in bytes, as <code>const</code> compile-time values (<code>int</code>)</td></tr>
+<tr><td><code>type.is_plain[T]()</code></td><td>no</td><td>whether <code>T</code> is plain (<code>bool</code>)</td></tr>
 <tr><td><code>alloc_raw[T](n)</code> · <code>alloc_uninit[T](n)</code></td><td>yes</td><td>allocate room for <code>n</code> values of <code>T</code>, zeroed or uninitialized</td></tr>
 <tr><td><code>realloc_raw(p, n)</code></td><td>yes</td><td>resize an allocation to <code>n</code> elements</td></tr>
 <tr><td><code>free_raw(p)</code></td><td>yes</td><td>release an allocation (does not destroy its contents)</td></tr>
 <tr><td><code>copy_bytes(dst, src, n)</code> · <code>zero_bytes(dst, n)</code> · <code>fill_bytes(dst, b, n)</code></td><td>yes</td><td>byte operations on <code>ptr[u8]</code></td></tr>
 </tbody>
 </table></div>
-<p>Memory from <code>alloc_raw</code> is not tracked by ownership: it must be released with <code>free_raw</code>, and values written into it are not destroyed automatically.</p>
+<p>Memory from <code>alloc_raw</code> is not tracked by ownership: it must be released with <code>free_raw</code>, and values written into it are not destroyed automatically. Compile-time constant strings and <code>[T]</code> literals backed into static <code>.rodata</code> have <code>cap == 0</code>; mutating them through <code>unsafe</code> raw pointers (<code>ptr_write</code>) without going through safe copy-on-write methods causes undefined behavior / a hardware memory fault.</p>
 <h2 id="104-foreign-functions"><a class="anchor" href="#104-foreign-functions" aria-hidden="true">#</a>10.4 Foreign functions</h2>
 <pre class="lang-ebnf" data-lang="ebnf"><code><span class="t">ExternDecl</span> = <span class="s">&quot;extern&quot;</span> <span class="t">StringLit</span>                                      <span class="m">(* a header to include *)</span>
-           | <span class="s">&quot;extern&quot;</span> <span class="t">ExternName</span> [ <span class="s">&quot;as&quot;</span> <span class="t">Name</span> ] <span class="s">&quot;:&quot;</span> <span class="s">&quot;(&quot;</span> [ <span class="t">Params</span> ] <span class="s">&quot;)&quot;</span> [ <span class="t">Type</span> ] ;
+           | <span class="s">&quot;extern&quot;</span> <span class="t">ExternName</span> [ <span class="s">&quot;as&quot;</span> <span class="t">Name</span> ] <span class="s">&quot;:&quot;</span> <span class="s">&quot;fn&quot;</span> <span class="s">&quot;(&quot;</span> [ <span class="t">Params</span> ] <span class="s">&quot;)&quot;</span> [ <span class="t">Type</span> ] ;
 <span class="t">ExternName</span> = <span class="t">Name</span> | <span class="t">StringLit</span> | <span class="t">Keyword</span> ;</code></pre>
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">extern</span> <span class="s">&quot;stdio.h&quot;</span>
-<span class="k">extern</span> puts: (s: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span>
+<span class="k">extern</span> puts: <span class="k">fn</span>(s: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span>
 
-<span class="k">bind</span> main = (): {
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> msg = <span class="s">&quot;hello from C&quot;</span>
 	<span class="k">let</span> _ = <span class="k">unsafe</span> <span class="f">puts</span>(msg.<span class="f">c_str</span>())
 }</code></pre>
 <ul>
 <li><code>extern &quot;header.h&quot;</code> names a header (or another target-specific binding unit) that provides foreign declarations.
 </li>
-<li><code>extern name: (params) Ret</code> declares a function with the platform's C calling convention. <code>as alias</code> gives it a different local name, which is required when the foreign name is a Lowlight keyword (<code>extern &quot;match&quot; as c_match: ...</code>).
+<li><code>extern name: fn(params) Ret</code> declares a function with the platform's C calling convention. <code>as alias</code> gives it a different local name, which is required when the foreign name is a Lowlight keyword (<code>extern &quot;match&quot; as c_match: ...</code>).
 </li>
-<li>Parameter and return types should be plain types with a C representation: numbers, <code>bool</code>, <code>char</code>, <code>ptr[T]</code>, and plain structs.
+<li>Parameter and return types should be plain types with a C representation: numbers, <code>bool</code>, <code>char</code>, <code>ptr[T]</code>, <code>extern fn</code> types, and plain structs.
 </li>
 <li>Every call is unsafe.
+</li>
+<li>The declaration is the only signature that matters: it may differ from a C header's prototype of the same function (<code>extern write: fn(fd: i32, buf: ptr[u8], n: int) int</code> against <code>&lt;unistd.h&gt;</code>'s <code>const void*</code> and <code>size_t</code>), as long as the two agree at the machine level.
+</li>
+<li>A <code>@test_only</code> extern is declared only in test builds.
 </li>
 <li>Foreign functions are outside Lowlight's guarantees. They must not unwind through Lowlight frames, and pointers they keep must not outlive the memory they point to.
 </li>
 </ul>
+<h2 id="105-c-function-pointers"><a class="anchor" href="#105-c-function-pointers" aria-hidden="true">#</a>10.5 C function pointers</h2>
+<p><code>extern fn(ParamTypes) ReturnType</code> is the type of a C function pointer: a plain, 8-byte value called with the platform's C calling convention and nothing but its arguments. Its parameter and return types must have a C representation (§10.4).</p>
+<ul>
+<li><strong>Callbacks into Lowlight.</strong> <code>extern fn(params) Ret: body</code> is a function C can call, such as a <code>qsort</code> comparator or a signal handler. Like an <code>fn</code>, it can't capture variables; pass what it needs through its arguments (C APIs usually take a <code>ptr[u8]</code> user-data argument for this). Written at the top level (<code>bind cmp = extern fn(...)</code>), it is an ordinary function that Lowlight code can also call directly.
+</li>
+<li><strong>Pointers from C.</strong> <code>fn_from_ptr[extern fn(...) R](p)</code> makes the C function at address <code>p</code> (from <code>dlsym</code>, or a C struct field) callable. <code>ptr_cast[u8](f)</code> and <code>ptr_addr(f)</code> go the other way.
+</li>
+<li>Calling an <code>extern fn</code> value is unsafe: it may be any C function. Calling a top-level <code>extern fn</code> by its name is not.
+</li>
+<li>An <code>extern fn</code> never converts to or from <code>fn</code> or <code>cl</code>.
+</li>
+<li>A panic inside a callback C is running ends the program; it never unwinds through the C frames. That holds under <code>lowlight test</code> too: the panic ends the test run instead of failing just the current test. (Calling the same function directly from Lowlight is an ordinary call, so a panic there fails only its test.)
+</li>
+</ul>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">extern</span> qsort: <span class="k">fn</span>(base: <span class="t">ptr</span>[<span class="t">u8</span>], n: <span class="t">int</span>, size: <span class="t">int</span>, cmp: <span class="k">extern</span> <span class="k">fn</span>(<span class="t">ptr</span>[<span class="t">u8</span>], <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span>)
+
+<span class="k">bind</span> ascending = <span class="k">extern</span> <span class="k">fn</span>(a: <span class="t">ptr</span>[<span class="t">u8</span>], b: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span>: {
+	<span class="k">let</span> x = <span class="k">unsafe</span> <span class="f">ptr_read</span>(ptr_cast[<span class="t">int</span>](a))
+	<span class="k">let</span> y = <span class="k">unsafe</span> <span class="f">ptr_read</span>(ptr_cast[<span class="t">int</span>](b))
+	<span class="t">i32</span>(x.<span class="f">cmp</span>(y))
+}
+
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
+	<span class="k">let</span> data = <span class="k">unsafe</span> alloc_raw[<span class="t">int</span>](<span class="n">3</span>)
+	<span class="k">for</span>(i, v <span class="k">in</span> [<span class="n">3</span>, <span class="n">1</span>, <span class="n">2</span>]): <span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(data, i), v)
+	<span class="k">unsafe</span> <span class="f">qsort</span>(ptr_cast[<span class="t">u8</span>](data), <span class="n">3</span>, type.size_of[<span class="t">int</span>](), ascending)
+	<span class="f">println</span>(<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">3</span>) [<span class="t">int</span>]: <span class="k">unsafe</span> <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(data, i)))
+	<span class="k">unsafe</span> <span class="f">free_raw</span>(data)
+}</code></pre>
+<h2 id="106-system-calls"><a class="anchor" href="#106-system-calls" aria-hidden="true">#</a>10.6 System calls</h2>
+<p><code>syscall(number, a1, ..., a6) int</code> makes system call <code>number</code> with up to six <code>int</code> arguments, using the target's system call instruction (<code>svc</code> on arm64, <code>syscall</code> on x86-64), and returns the result. A failure returns <code>-errno</code> on every platform (macOS's convention of a carry flag and a positive errno is converted). It is unsafe.</p>
+<p>Call numbers differ by operating system and architecture. Linux keeps its numbers stable; macOS does not promise to, so portable code on macOS calls the C library through <code>extern</code> instead.</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/os&quot;</span>
+
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
+	<span class="k">let</span> msg = <span class="s">&quot;hello\n&quot;</span>
+	<span class="m">// write(1, msg, len): call number 4 on macOS, 1 on x86-64 Linux, 64 on arm64 Linux.</span>
+	<span class="k">let</span> n = <span class="k">unsafe</span> <span class="f">syscall</span>(<span class="n">4</span>, <span class="n">1</span>, <span class="t">int</span>(<span class="f">ptr_addr</span>(msg.<span class="f">c_str</span>())), msg.<span class="f">len</span>())
+	<span class="k">if</span>(n &lt; <span class="n">0</span>): <span class="f">println</span>(<span class="s">&quot;write failed: </span>${os.<span class="f">errno_name</span>(-n)}<span class="s">&quot;</span>)
+}</code></pre>
 <hr />
-</article><nav class="prev-next"><a class="prev" href="failure-handling.html"><span>Previous</span>9. Failure Handling</a><a class="next" href="testing.html"><span>Next</span>11. Testing</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#101-unsafe-expressions">10.1 Unsafe expressions</a></li><li><a href="#102-raw-pointers">10.2 Raw pointers</a></li><li><a href="#103-memory-intrinsics">10.3 Memory intrinsics</a></li><li><a href="#104-foreign-functions">10.4 Foreign functions</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+</article><nav class="prev-next"><a class="prev" href="failure-handling.html"><span>Previous</span>9. Failure Handling</a><a class="next" href="testing.html"><span>Next</span>11. Testing</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#101-unsafe-expressions">10.1 Unsafe expressions</a></li><li><a href="#102-raw-pointers">10.2 Raw pointers</a></li><li><a href="#103-memory-intrinsics-and-rodata-invariant">10.3 Memory intrinsics and .rodata invariant</a></li><li><a href="#104-foreign-functions">10.4 Foreign functions</a></li><li><a href="#105-c-function-pointers">10.5 C function pointers</a></li><li><a href="#106-system-calls">10.6 System calls</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/collections.html">std/collections</a><a href="../std/core.html">std/core</a><a href="../std/derive.html">std/derive</a><a href="../std/fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../search-index.js"></script>
 <script src="../assets/site.js"></script>
 </body>

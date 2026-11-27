@@ -30,14 +30,16 @@ true
 
 `println` writes any value that can be shown as text, followed by a newline. `print` omits the newline, and `eprint`/`eprintln` write to standard error.
 
-## Variables: `bind` and `let`
+## Variables: `const`, `bind`, and `let`
 
 ```lowlight
+const LIMIT = 5 * 2          // evaluated at compile time
+
 bind main = fn(): {
-	bind greeting = "hello"   // immutable
+	bind greeting = "hello"   // immutable at runtime
 	let count = 0             // mutable
 	count += 1
-	count = count * 10
+	count = count * LIMIT
 	println("$greeting $count")
 }
 ```
@@ -46,7 +48,7 @@ bind main = fn(): {
 hello 10
 ```
 
-`bind` introduces a name that never changes. `let` introduces a variable you can assign to again. Prefer `bind`; reach for `let` when the value really changes. Types are inferred, but you can write them: `let count: int = 0`.
+`const` evaluates values (and pure functions) at compile time; `bind` introduces a runtime name that never changes; `let` introduces a variable you can assign to again. Prefer `const` for known constants, `bind` by default, and `let` when a value changes. Types are inferred, but you can write them: `let count: int = 0`.
 
 `bind` is deep: you cannot change anything reachable through a `bind`, not even an element of a list.
 

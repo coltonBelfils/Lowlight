@@ -15,7 +15,7 @@ syn match   lowlightDocHeading       contained "#\s\+\(Arguments\|Returns\|Error
 syn match   lowlightDocLink          contained "\[`[^`]\+`\]"
 
 " Keywords
-syn keyword lowlightKeyword          bind define distinct struct enum interface as import extern
+syn keyword lowlightKeyword          bind const comptime define distinct struct enum interface as import extern
 syn keyword lowlightKeyword          let if else match when for while in next own unpack
 syn keyword lowlightKeyword          unsafe packed test func
 " `fn` (a function that captures nothing) and `cl` (a closure) start function literals and types
@@ -52,9 +52,12 @@ syn keyword lowlightConstant         none
 " Built-in Functions & Intrinsics
 syn keyword lowlightBuiltin          print println eprint eprintln assert panic exit parse_int parse_float
 syn keyword lowlightBuiltin          sqrt abs min max read_file write_file args
-syn keyword lowlightBuiltin          caller_location caller_file caller_line caller_col
+syn keyword lowlightBuiltin          caller_location caller_file caller_line caller_col compile_error
 syn keyword lowlightIntrinsic        size_of align_of alloc_raw realloc_raw free_raw null_ptr is_null
-syn keyword lowlightIntrinsic        addr_of ptr_add ptr_read ptr_write ptr_cast ptr_addr copy_bytes zero_bytes
+syn keyword lowlightIntrinsic        addr_of ptr_add ptr_read ptr_write ptr_cast ptr_addr copy_bytes zero_bytes alloc_uninit fill_bytes syscall ref_from_ptr
+syn match   lowlightIntrinsic        "\<\(comp\|type\)\.\(TARGET\|embed_str\|embed_bytes\|type_name\|kind_of\|fields_of\|variants_of\|elems_of\|underlying_of\|attrs_of\|implements\|compile_error\|log\|size_of\|align_of\|is_plain\)\>"
+syn keyword lowlightNamespace        comp type
+hi def link lowlightNamespace        Type
 
 " Operators & Punctuation
 syn match   lowlightOperator         "[+#]\["

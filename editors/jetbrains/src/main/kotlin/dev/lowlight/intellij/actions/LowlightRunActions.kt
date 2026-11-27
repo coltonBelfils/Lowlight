@@ -16,12 +16,17 @@ import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.testFramework.LightVirtualFile
 import dev.lowlight.intellij.LowlightFileType
+import dev.lowlight.intellij.LowlightLanguage
 import dev.lowlight.intellij.lsp.LowlightLspBackendBridge
+import dev.lowlight.intellij.settings.LowlightSettingsListener
 import dev.lowlight.intellij.settings.LowlightSettingsState
 import dev.lowlight.intellij.testing.LowlightConsoleFilter
 import dev.lowlight.intellij.testing.LowlightTestLauncher
@@ -169,5 +174,95 @@ class LowlightRestartLspAction : AnAction("Restart Lowlight Language Server", "R
         val project = e.project ?: return
         LowlightLspBackendBridge.restartAll(project)
         LowlightProcessRunner.notifyInfo(project, "Restarted Lowlight Language Server.")
+    }
+}
+
+class LowlightExpandDocumentAction : AnAction(
+    "Expand Comptime & @derive",
+    "Run `lowlight expand` on the current file and open expanded preview",
+    AllIcons.Actions.Preview
+) {
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+
+    override fun update(e: AnActionEvent) {
+        val file = e.getData(CommonDataKeys.VIRTUAL_FILE)
+        e.presentation.isEnabledAndVisible = e.project != null && LowlightProcessRunner.isLowlightFile(file)
+    }
+
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
+        FileDocumentManager.getInstance().saveAllDocuments()
+        val target = LowlightSettingsState.getInstance().targetTriple.trim()
+
+        object : Task.Backgroundable(project, "Expanding Lowlight file", false) {
+            override fun run(indicator: ProgressIndicator) {
+                val args = mutableListOf("expand")
+                if (target.isNotEmpty()) {
+                    args.add("--target=$target")
+                }
+                args.add(file.path)
+                val cmd = LowlightPaths.createCliCommandLine(project, *args.toTypedArray())
+                val process = cmd.createProcess()
+                val expanded = process.inputStream.readBytes().toString(StandardCharsets.UTF_8)
+                val errText = process.errorStream.readBytes().toString(StandardCharsets.UTF_8)
+                val exit = process.waitFor()
+                ApplicationManager.getApplication().invokeLater {
+                    if (exit != 0) {
+                        LowlightProcessRunner.notifyError(project, "lowlight expand failed: ${errText.ifBlank { "exit code $exit" }}")
+                        return@invokeLater
+                    }
+                    val targetLabel = if (target.isNotEmpty()) target else "host"
+                    val header = "// Expanded by Lowlight (target: $targetLabel)\n"
+                    val previewFile = LightVirtualFile("${file.nameWithoutExtension}.expanded.ll", LowlightLanguage, header + expanded)
+                    previewFile.isWritable = false
+                    FileEditorManager.getInstance(project).openFile(previewFile, true)
+                }
+            }
+        }.queue()
+    }
+}
+
+class LowlightSwitchTargetAction : AnAction(
+    "Switch Lowlight Target",
+    "Select compilation & comptime target triple for LSP analysis",
+    AllIcons.General.Settings
+) {
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+
+    override fun update(e: AnActionEvent) {
+        e.presentation.isEnabledAndVisible = e.project != null
+    }
+
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val state = LowlightSettingsState.getInstance()
+        val presets = arrayOf(
+            "",
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "aarch64-apple-darwin",
+            "x86_64-apple-darwin",
+            "x86_64-pc-windows-msvc",
+            "wasm32-unknown-unknown",
+            "riscv64-unknown-linux-gnu"
+        )
+        val initial = state.targetTriple.trim()
+        val chosen = Messages.showEditableChooseDialog(
+            "Enter target triple (empty = host default):",
+            "Switch Lowlight Compilation Target",
+            null,
+            presets,
+            initial,
+            null
+        ) ?: return
+        val next = chosen.trim()
+        if (next != state.targetTriple) {
+            state.targetTriple = next
+            ApplicationManager.getApplication().messageBus
+                .syncPublisher(LowlightSettingsListener.TOPIC)
+                .settingsChanged(state, false)
+        }
+        LowlightProcessRunner.notifyInfo(project, "Lowlight target: ${next.ifBlank { "host default" }}")
     }
 }

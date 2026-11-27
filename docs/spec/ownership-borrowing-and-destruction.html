@@ -35,7 +35,7 @@
 </li>
 </ul>
 <h2 id="72-moves"><a class="anchor" href="#72-moves" aria-hidden="true">#</a>7.2 Moves</h2>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> a = <span class="s">&quot;hello&quot;</span> + <span class="s">&quot; world&quot;</span>
 	<span class="k">let</span> b = <span class="k">own</span> a            <span class="m">// moves the string from `a` to `b`</span>
 	<span class="m">// println(a)            // error: use of moved variable &quot;a&quot;</span>
@@ -69,7 +69,7 @@
 </li>
 </ul>
 <p><strong>Moves and control flow.</strong> If a variable is moved on some paths and not others, it counts as moved afterwards and cannot be used, but it is still destroyed correctly on the paths where it was not moved. A moved <code>let</code> variable may be assigned a new value, which makes it usable again. A path that ends in an unwind or a panic does not count: moving <code>s</code> and then leaving with <code>func &lt;-</code> leaves <code>s</code> usable after the <code>if</code>. Inside a loop body, a variable declared outside the loop may be moved only if every path through the body assigns it again before the next iteration.</p>
-<p><strong>Copying.</strong> <code>.copy()</code> duplicates a resource deeply. All plain types, strings, collections of <code>Copyable</code> elements, and structs and enums whose parts are <code>Copyable</code> (and that have no <code>Drop</code>) provide it; other types may define <code>copy</code> themselves (<a href="the-prelude.html#121-core-interfaces">§12.1</a>).</p>
+<p><strong>Copying.</strong> <code>.copy()</code> duplicates a resource deeply. All plain types, strings, tuples and collections of <code>Copyable</code> elements provide it. A non-plain struct or enum provides it only through a <code>copy</code> method, written by hand or by <code>@derive(Copyable)</code> (<a href="the-prelude.html#122-deriving-methods">§12.2</a>).</p>
 <h2 id="73-parameter-modes"><a class="anchor" href="#73-parameter-modes" aria-hidden="true">#</a>7.3 Parameter modes</h2>
 <div class="table-wrap"><table>
 <thead><tr><th>Parameter</th><th>The call writes</th><th>The function gets</th><th>The caller afterwards</th></tr></thead>
@@ -79,17 +79,17 @@
 <tr><td><code>x: own T</code></td><td><code>f(own v)</code>, or <code>f(temp)</code></td><td>the value itself</td><td><code>v</code> is moved</td></tr>
 </tbody>
 </table></div>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> total = (xs: [<span class="t">int</span>]) <span class="t">int</span>: {
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> total = <span class="k">fn</span>(xs: [<span class="t">int</span>]) <span class="t">int</span>: {
 	<span class="k">let</span> t = <span class="n">0</span>
 	<span class="k">for</span>(x <span class="k">in</span> xs): t += x
 	t
 }
 
-<span class="k">bind</span> add_zero = (xs: &amp;[<span class="t">int</span>]): xs.<span class="f">push</span>(<span class="n">0</span>)
+<span class="k">bind</span> add_zero = <span class="k">fn</span>(xs: &amp;[<span class="t">int</span>]): xs.<span class="f">push</span>(<span class="n">0</span>)
 
-<span class="k">bind</span> into_set = (xs: <span class="k">own</span> [<span class="t">int</span>]) #[<span class="t">int</span>]: <span class="k">for</span>(x <span class="k">in</span> xs) #[<span class="t">int</span>]: x
+<span class="k">bind</span> into_set = <span class="k">fn</span>(xs: <span class="k">own</span> [<span class="t">int</span>]) #[<span class="t">int</span>]: <span class="k">for</span>(x <span class="k">in</span> xs) #[<span class="t">int</span>]: x
 
-<span class="k">bind</span> main = (): {
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> xs = [<span class="n">3</span>, <span class="n">1</span>, <span class="n">2</span>]
 	<span class="f">println</span>(<span class="f">total</span>(xs))
 	<span class="f">add_zero</span>(&amp;xs)
@@ -106,7 +106,7 @@
 </li>
 <li>Receivers follow the same modes: <code>self</code>, <code>&amp;self</code>, <code>own self</code> (<a href="declarations-and-program-structure.html#44-methods-and-associated-functions">§4.4</a>). For <code>&amp;self</code>, the receiver is borrowed automatically without writing <code>&amp;</code>.
 </li>
-<li>A function type records its parameter modes: <code>(&amp;[int])</code> and <code>([int])</code> are different types.
+<li>A function type records its parameter modes: <code>fn(&amp;[int])</code> and <code>fn([int])</code> are different types.
 </li>
 </ol>
 <h2 id="74-borrowing-rules"><a class="anchor" href="#74-borrowing-rules" aria-hidden="true">#</a>7.4 Borrowing rules</h2>
@@ -124,7 +124,7 @@
 <h2 id="75-destruction"><a class="anchor" href="#75-destruction" aria-hidden="true">#</a>7.5 Destruction</h2>
 <p>When a scope ends, whether normally or by an unwind leaving it, every resource it still owns is destroyed, <strong>in reverse order of declaration</strong>. Destroying a value:</p>
 <ol>
-<li>runs its <code>drop</code> method, if its type implements <code>Drop</code> (<code>bind T.drop = (&amp;self): ...</code>);
+<li>runs its <code>drop</code> method, if its type implements <code>Drop</code> (<code>bind T.drop = fn(&amp;self): ...</code>);
 </li>
 <li>then destroys its fields (struct), its active payload (enum), or its elements (collection), in reverse order.
 </li>
@@ -133,9 +133,9 @@
 	name: <span class="t">string</span>,
 ]
 
-<span class="k">bind</span> <span class="t">Noisy</span>.drop = (&amp;<span class="k">self</span>): <span class="f">println</span>(<span class="s">&quot;drop </span>${<span class="k">self</span>.name}<span class="s">&quot;</span>)
+<span class="k">bind</span> <span class="t">Noisy</span>.drop = <span class="k">fn</span>(&amp;<span class="k">self</span>): <span class="f">println</span>(<span class="s">&quot;drop </span>${<span class="k">self</span>.name}<span class="s">&quot;</span>)
 
-<span class="k">bind</span> main = (): {
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> a = <span class="t">Noisy</span>[name: <span class="s">&quot;a&quot;</span>]
 	<span class="k">let</span> b = <span class="t">Noisy</span>[name: <span class="s">&quot;b&quot;</span>]
 	{
@@ -163,7 +163,7 @@
 	value: <span class="t">int</span>,
 ]
 
-<span class="k">bind</span> main = (): {
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> arena = <span class="t">Arena</span>.<span class="f">new</span>()
 	<span class="k">let</span> n = arena.<span class="f">alloc</span>(<span class="t">Node</span>[value: <span class="n">7</span>])
 	<span class="f">println</span>(n.value)
@@ -191,9 +191,9 @@
 <li>inside the closure, captured variables are read-only.
 </li>
 </ul>
-<p>The closure value owns its captures and destroys them when it is destroyed. A closure is a resource; <code>.copy()</code> duplicates it and its captures.</p>
+<p>The closure value owns its captures and destroys them when it is destroyed. A closure is a resource; <code>.copy()</code> duplicates it and its captures. Only <code>cl(...)</code> literals capture; an <code>fn(...)</code> literal that uses an outer variable is an error (<a href="types.html#312-functions-and-closures">§3.12</a>).</p>
 <hr />
-</article><nav class="prev-next"><a class="prev" href="control-flow.html"><span>Previous</span>6. Control Flow</a><a class="next" href="generics.html"><span>Next</span>8. Generics</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#71-owners">7.1 Owners</a></li><li><a href="#72-moves">7.2 Moves</a></li><li><a href="#73-parameter-modes">7.3 Parameter modes</a></li><li><a href="#74-borrowing-rules">7.4 Borrowing rules</a></li><li><a href="#75-destruction">7.5 Destruction</a></li><li><a href="#76-arenas-and-references">7.6 Arenas and references</a></li><li><a href="#77-closures-and-captures">7.7 Closures and captures</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+</article><nav class="prev-next"><a class="prev" href="control-flow.html"><span>Previous</span>6. Control Flow</a><a class="next" href="generics.html"><span>Next</span>8. Generics</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#71-owners">7.1 Owners</a></li><li><a href="#72-moves">7.2 Moves</a></li><li><a href="#73-parameter-modes">7.3 Parameter modes</a></li><li><a href="#74-borrowing-rules">7.4 Borrowing rules</a></li><li><a href="#75-destruction">7.5 Destruction</a></li><li><a href="#76-arenas-and-references">7.6 Arenas and references</a></li><li><a href="#77-closures-and-captures">7.7 Closures and captures</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/collections.html">std/collections</a><a href="../std/core.html">std/core</a><a href="../std/derive.html">std/derive</a><a href="../std/fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../search-index.js"></script>
 <script src="../assets/site.js"></script>
 </body>

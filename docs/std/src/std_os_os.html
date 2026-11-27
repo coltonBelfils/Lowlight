@@ -9,190 +9,971 @@
 <script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
 </head>
 <body class="layout-wide" data-root="../../">
-<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>os.ll</h1><p>Source of package <a href="../os.html"><code>std/os</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/os — Process execution, filesystem queries, and host platform introspection.</span></span>
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../collections.html">std/collections</a></li><li><a href="../core.html">std/core</a></li><li><a href="../derive.html">std/derive</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>os.ll</h1><p>Source of package <a href="../os.html"><code>std/os</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/os — Process execution, filesystem queries, and host platform introspection.</span></span>
 <span class="src-line" id="L2"></span>
-<span class="src-line" id="L3"><span class="m">// Captured output and exit status returned by [`exec`] and [`system_run_status`].</span></span>
-<span class="src-line" id="L4"><span class="k">define</span> <span class="t">ExecResult</span> <span class="k">struct</span> [</span>
-<span class="src-line" id="L5">	<span class="m">// Captured standard output produced by the command (empty for [`system_run_status`]).</span></span>
-<span class="src-line" id="L6">	stdout: <span class="t">string</span>,</span>
-<span class="src-line" id="L7">	<span class="m">// Exit code (`0` to `255`), or `-1` if the command could not run or was killed by a signal.</span></span>
-<span class="src-line" id="L8">	exit_code: <span class="t">int</span>,</span>
-<span class="src-line" id="L9">	<span class="m">// The signal that terminated the command (`9` for `SIGKILL`), or `0` if it exited normally.</span></span>
-<span class="src-line" id="L10">	signal: <span class="t">int</span> = <span class="n">0</span>,</span>
-<span class="src-line" id="L11">]</span>
-<span class="src-line" id="L12"></span>
-<span class="src-line" id="L13"><span class="m">// Reports whether the command exited cleanly with status `0`.</span></span>
-<span class="src-line" id="L14"><span class="k">bind</span> <span class="t">ExecResult</span>.ok = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>.exit_code == <span class="n">0</span></span>
-<span class="src-line" id="L15"></span>
-<span class="src-line" id="L16"><span class="m">// Reports whether the command was terminated by a signal rather than exiting.</span></span>
-<span class="src-line" id="L17"><span class="k">bind</span> <span class="t">ExecResult</span>.signaled = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>.signal != <span class="n">0</span></span>
-<span class="src-line" id="L18"></span>
-<span class="src-line" id="L19"><span class="m">// Builds an [`ExecResult`] from a runtime status: an exit code, `256 + signal`, or `-1`.</span></span>
-<span class="src-line" id="L20"><span class="k">bind</span> _exec_result = (out: <span class="k">own</span> <span class="t">string</span>, status: <span class="t">int</span>) <span class="t">ExecResult</span>:</span>
-<span class="src-line" id="L21">	<span class="k">if</span>(status &gt;= <span class="n">256</span>): <span class="t">ExecResult</span>[stdout: <span class="k">own</span> out, exit_code: -<span class="n">1</span>, signal: status - <span class="n">256</span>]</span>
-<span class="src-line" id="L22">	<span class="k">else</span>: <span class="t">ExecResult</span>[stdout: <span class="k">own</span> out, exit_code: status, signal: <span class="n">0</span>]</span>
-<span class="src-line" id="L23"></span>
-<span class="src-line" id="L24"><span class="m">// Executes shell command `cmd` via a pipe, capturing stdout and returning an [`ExecResult`].</span></span>
-<span class="src-line" id="L25"><span class="m">//</span></span>
-<span class="src-line" id="L26"><span class="m">// - `cmd`: Shell command line string executed via `popen`.</span></span>
-<span class="src-line" id="L27"><span class="k">bind</span> exec = (cmd: <span class="t">string</span>) <span class="t">ExecResult</span>:</span>
-<span class="src-line" id="L28">	<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L29">		<span class="k">let</span> stream = <span class="f">sys_popen</span>(cmd.<span class="f">c_str</span>())</span>
-<span class="src-line" id="L30">		<span class="k">if</span>(stream == null_ptr[<span class="t">u8</span>]()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">ExecResult</span>[stdout: <span class="s">&quot;&quot;</span>, exit_code: -<span class="n">1</span>]</span>
-<span class="src-line" id="L31">		<span class="k">let</span> chunk_size = <span class="n">4096</span></span>
-<span class="src-line" id="L32">		<span class="k">let</span> raw = alloc_raw[<span class="t">u8</span>](chunk_size)</span>
-<span class="src-line" id="L33">		<span class="k">let</span> out_str = <span class="s">&quot;&quot;</span></span>
-<span class="src-line" id="L34">		<span class="k">let</span> n = <span class="f">sys_pread</span>(stream, raw, chunk_size)</span>
-<span class="src-line" id="L35">		<span class="k">for</span>(n &gt; <span class="n">0</span>): {</span>
-<span class="src-line" id="L36">			<span class="k">let</span> chunk = <span class="f">str_from_raw</span>(raw, n)</span>
-<span class="src-line" id="L37">			out_str.<span class="f">push</span>(chunk)</span>
-<span class="src-line" id="L38">			n = <span class="f">sys_pread</span>(stream, raw, chunk_size)</span>
-<span class="src-line" id="L39">		}</span>
-<span class="src-line" id="L40">		<span class="f">free_raw</span>(raw)</span>
-<span class="src-line" id="L41">		<span class="k">let</span> status = <span class="f">sys_pclose</span>(stream)</span>
-<span class="src-line" id="L42">		<span class="f">_exec_result</span>(<span class="k">own</span> out_str, status)</span>
-<span class="src-line" id="L43">	}</span>
-<span class="src-line" id="L44"></span>
-<span class="src-line" id="L45"><span class="m">// Executes `cmd` through the host shell (`system`) and returns its exit code, or `-1` if the</span></span>
-<span class="src-line" id="L46"><span class="m">// command could not run or was killed by a signal. Use [`system_run_status`] to see the signal.</span></span>
-<span class="src-line" id="L47"><span class="k">bind</span> system_run = (cmd: <span class="t">string</span>) <span class="t">int</span>: {</span>
-<span class="src-line" id="L48">	<span class="k">let</span> status = <span class="k">unsafe</span> <span class="f">sys_system</span>(cmd.<span class="f">c_str</span>())</span>
-<span class="src-line" id="L49">	<span class="k">if</span>(status &gt;= <span class="n">256</span>): -<span class="n">1</span> <span class="k">else</span>: status</span>
-<span class="src-line" id="L50">}</span>
-<span class="src-line" id="L51"></span>
-<span class="src-line" id="L52"><span class="m">// Executes `cmd` through the host shell (`system`) and returns its full status, including the</span></span>
-<span class="src-line" id="L53"><span class="m">// terminating signal, as an [`ExecResult`] with empty `stdout`.</span></span>
-<span class="src-line" id="L54"><span class="k">bind</span> system_run_status = (cmd: <span class="t">string</span>) <span class="t">ExecResult</span>: <span class="f">_exec_result</span>(<span class="s">&quot;&quot;</span>, <span class="k">unsafe</span> <span class="f">sys_system</span>(cmd.<span class="f">c_str</span>()))</span>
-<span class="src-line" id="L55"></span>
-<span class="src-line" id="L56"><span class="m">// Reports whether a file or directory exists at `path`.</span></span>
-<span class="src-line" id="L57"><span class="k">bind</span> file_exists = (path: <span class="t">string</span>) <span class="t">bool</span>: <span class="k">unsafe</span> <span class="f">sys_file_exists</span>(path.<span class="f">c_str</span>())</span>
-<span class="src-line" id="L58"></span>
-<span class="src-line" id="L59"><span class="m">// Creates a single directory at `path`, returning `true` on success.</span></span>
-<span class="src-line" id="L60"><span class="k">bind</span> mkdir = (path: <span class="t">string</span>) <span class="t">bool</span>: <span class="k">unsafe</span> <span class="f">sys_mkdir</span>(path.<span class="f">c_str</span>()) == <span class="n">0</span></span>
-<span class="src-line" id="L61"></span>
-<span class="src-line" id="L62"><span class="k">bind</span> _is_dir = (path: <span class="t">string</span>) <span class="t">bool</span>:</span>
-<span class="src-line" id="L63">	<span class="k">if</span>(path.<span class="f">len</span>() == <span class="n">0</span>): <span class="c">false</span></span>
-<span class="src-line" id="L64">	<span class="k">else</span> <span class="k">if</span>(path == <span class="s">&quot;/&quot;</span>): <span class="f">file_exists</span>(<span class="s">&quot;/&quot;</span>)</span>
-<span class="src-line" id="L65">	<span class="k">else</span>: <span class="f">file_exists</span>(<span class="s">&quot;</span>${path}<span class="s">/.&quot;</span>)</span>
-<span class="src-line" id="L66"></span>
-<span class="src-line" id="L67"><span class="m">// Recursively creates `path` and any missing parent directories, returning `true` if `path` exists as a directory afterward.</span></span>
-<span class="src-line" id="L68"><span class="k">bind</span> mkdir_p = (path: <span class="t">string</span>) <span class="t">bool</span>: {</span>
-<span class="src-line" id="L69">	<span class="k">if</span>(path.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
-<span class="src-line" id="L70">	<span class="k">let</span> target = path.<span class="f">copy</span>()</span>
-<span class="src-line" id="L71">	<span class="k">for</span>(target.<span class="f">len</span>() &gt; <span class="n">1</span> <span class="k">and</span> target.<span class="f">byte_at</span>(target.<span class="f">len</span>() - <span class="n">1</span>) == <span class="t">u8</span>(<span class="n">47</span>)):</span>
-<span class="src-line" id="L72">		target = target[<span class="n">0</span>..target.<span class="f">len</span>() - <span class="n">1</span>]</span>
-<span class="src-line" id="L73">	<span class="k">if</span>(<span class="f">_is_dir</span>(target)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
-<span class="src-line" id="L74">	<span class="k">let</span> n = target.<span class="f">len</span>()</span>
-<span class="src-line" id="L75">	<span class="k">let</span> i = <span class="n">1</span></span>
-<span class="src-line" id="L76">	<span class="k">for</span>(i &lt; n): {</span>
-<span class="src-line" id="L77">		<span class="k">if</span>(target.<span class="f">byte_at</span>(i) == <span class="t">u8</span>(<span class="n">47</span>)): {</span>
-<span class="src-line" id="L78">			<span class="k">let</span> sub = target[<span class="n">0</span>..i]</span>
-<span class="src-line" id="L79">			<span class="k">if</span>(<span class="k">not</span> <span class="f">_is_dir</span>(sub)): {</span>
-<span class="src-line" id="L80">				<span class="k">if</span>(<span class="f">file_exists</span>(sub) <span class="k">or</span> <span class="k">not</span> <span class="f">mkdir</span>(sub)): {</span>
-<span class="src-line" id="L81">					<span class="k">if</span>(<span class="k">not</span> <span class="f">_is_dir</span>(sub)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
-<span class="src-line" id="L82">				}</span>
-<span class="src-line" id="L83">			}</span>
-<span class="src-line" id="L84">		}</span>
-<span class="src-line" id="L85">		i += <span class="n">1</span></span>
-<span class="src-line" id="L86">	}</span>
-<span class="src-line" id="L87">	<span class="k">if</span>(<span class="f">_is_dir</span>(target)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
-<span class="src-line" id="L88">	<span class="k">if</span>(<span class="f">file_exists</span>(target)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
-<span class="src-line" id="L89">	<span class="k">if</span>(<span class="f">mkdir</span>(target)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
-<span class="src-line" id="L90">	<span class="f">_is_dir</span>(target)</span>
-<span class="src-line" id="L91">}</span>
-<span class="src-line" id="L92"></span>
-<span class="src-line" id="L93"><span class="m">// Recursively removes `path` and any nested contents, returning `true` on success.</span></span>
-<span class="src-line" id="L94"><span class="k">bind</span> remove_all = (path: <span class="t">string</span>) <span class="t">bool</span>: <span class="k">unsafe</span> <span class="f">sys_remove_all</span>(path.<span class="f">c_str</span>()) == <span class="n">0</span></span>
-<span class="src-line" id="L95"></span>
-<span class="src-line" id="L96"><span class="m">// Returns the number of logical CPU cores available on the host system.</span></span>
-<span class="src-line" id="L97"><span class="k">bind</span> num_cpus = () <span class="t">int</span>: <span class="k">unsafe</span> <span class="f">sys_num_cpus</span>()</span>
-<span class="src-line" id="L98"></span>
-<span class="src-line" id="L99"><span class="m">// Returns the host operating system name string (for example `&quot;darwin&quot;` or `&quot;linux&quot;`).</span></span>
-<span class="src-line" id="L100"><span class="k">bind</span> os_name = () <span class="t">string</span>: <span class="f">str_from_cstr</span>(<span class="k">unsafe</span> <span class="f">sys_os_name</span>())</span>
-<span class="src-line" id="L101"></span>
-<span class="src-line" id="L102"><span class="m">// Returns the host CPU architecture identifier string (for example `&quot;arm64&quot;` or `&quot;x86_64&quot;`).</span></span>
-<span class="src-line" id="L103"><span class="k">bind</span> arch = () <span class="t">string</span>: <span class="f">str_from_cstr</span>(<span class="k">unsafe</span> <span class="f">sys_os_arch</span>())</span>
-<span class="src-line" id="L104"></span>
-<span class="src-line" id="L105"><span class="m">// -----------------------------------------------------------------------------</span></span>
-<span class="src-line" id="L106"><span class="m">// Inline Unit Tests</span></span>
-<span class="src-line" id="L107"><span class="m">// -----------------------------------------------------------------------------</span></span>
-<span class="src-line" id="L108"></span>
-<span class="src-line" id="L109"><span class="a">@test_only</span></span>
-<span class="src-line" id="L110"><span class="k">extern</span> getenv <span class="k">as</span> _test_getenv: (name: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">ptr</span>[<span class="t">u8</span>]</span>
-<span class="src-line" id="L111"></span>
-<span class="src-line" id="L112"><span class="a">@test_only</span></span>
-<span class="src-line" id="L113"><span class="k">bind</span> _test_tmp_path = (name: <span class="t">string</span>) <span class="t">string</span>: {</span>
-<span class="src-line" id="L114">	<span class="k">let</span> base = <span class="f">str_from_cstr</span>(<span class="k">unsafe</span> <span class="f">_test_getenv</span>(<span class="s">&quot;TMPDIR&quot;</span>.<span class="f">c_str</span>()))</span>
-<span class="src-line" id="L115">	<span class="k">if</span>(base.<span class="f">len</span>() == <span class="n">0</span>): base = <span class="s">&quot;/tmp&quot;</span></span>
-<span class="src-line" id="L116">	<span class="k">if</span>(base.<span class="f">len</span>() &gt; <span class="n">1</span> <span class="k">and</span> base.<span class="f">byte_at</span>(base.<span class="f">len</span>() - <span class="n">1</span>) == <span class="t">u8</span>(<span class="n">47</span>)):</span>
-<span class="src-line" id="L117">		base = base[<span class="n">0</span>..base.<span class="f">len</span>() - <span class="n">1</span>]</span>
-<span class="src-line" id="L118">	<span class="k">let</span> mono = <span class="k">unsafe</span> <span class="f">sys_monotonic_nanos</span>()</span>
-<span class="src-line" id="L119">	<span class="k">let</span> epoch = <span class="k">unsafe</span> <span class="f">sys_epoch_nanos_now</span>()</span>
-<span class="src-line" id="L120">	<span class="s">&quot;</span>${base}<span class="s">/lowlight_test_</span>${name}<span class="s">_</span>${mono}<span class="s">_</span>${epoch}<span class="s">&quot;</span></span>
-<span class="src-line" id="L121">}</span>
-<span class="src-line" id="L122"></span>
-<span class="src-line" id="L123"><span class="a">@test</span>(<span class="s">&quot;os system metadata: num_cpus, os_name, arch, and args&quot;</span>)</span>
-<span class="src-line" id="L124"><span class="k">bind</span> test_os_metadata = (): {</span>
-<span class="src-line" id="L125">	<span class="f">assert</span>(<span class="f">num_cpus</span>() &gt;= <span class="n">1</span>, <span class="s">&quot;num_cpus &gt;= 1&quot;</span>)</span>
-<span class="src-line" id="L126">	<span class="k">let</span> os = <span class="f">os_name</span>()</span>
-<span class="src-line" id="L127">	<span class="f">assert</span>(os.<span class="f">len</span>() &gt; <span class="n">0</span>, <span class="s">&quot;os_name non-empty&quot;</span>)</span>
-<span class="src-line" id="L128">	<span class="k">let</span> a = <span class="f">arch</span>()</span>
-<span class="src-line" id="L129">	<span class="f">assert</span>(a.<span class="f">len</span>() &gt; <span class="n">0</span>, <span class="s">&quot;arch non-empty&quot;</span>)</span>
-<span class="src-line" id="L130"></span>
-<span class="src-line" id="L131">	<span class="k">let</span> cmd_args = <span class="f">args</span>()</span>
-<span class="src-line" id="L132">	<span class="f">assert</span>(cmd_args.<span class="f">len</span>() &gt;= <span class="n">1</span>, <span class="s">&quot;args contains at least argv[0]&quot;</span>)</span>
-<span class="src-line" id="L133">}</span>
-<span class="src-line" id="L134"></span>
-<span class="src-line" id="L135"><span class="a">@test</span>(<span class="s">&quot;os process execution: exec and ExitResult&quot;</span>)</span>
-<span class="src-line" id="L136"><span class="k">bind</span> test_os_exec = (): {</span>
-<span class="src-line" id="L137">	<span class="k">let</span> res = <span class="f">exec</span>(<span class="s">&quot;echo hello_os_test&quot;</span>)</span>
-<span class="src-line" id="L138">	<span class="f">assert</span>(res.<span class="f">ok</span>(), <span class="s">&quot;exec ok&quot;</span>)</span>
-<span class="src-line" id="L139">	<span class="f">assert</span>(res.exit_code == <span class="n">0</span>, <span class="s">&quot;exit code 0&quot;</span>)</span>
-<span class="src-line" id="L140">	<span class="f">assert</span>(res.stdout.<span class="f">contains</span>(<span class="s">&quot;hello_os_test&quot;</span>), <span class="s">&quot;stdout contains expected string&quot;</span>)</span>
-<span class="src-line" id="L141">	<span class="f">assert</span>(<span class="k">not</span> res.<span class="f">signaled</span>(), <span class="s">&quot;no signal&quot;</span>)</span>
-<span class="src-line" id="L142"></span>
-<span class="src-line" id="L143">	<span class="k">let</span> exit9 = <span class="f">exec</span>(<span class="s">&quot;exit 9&quot;</span>)</span>
-<span class="src-line" id="L144">	<span class="f">assert</span>(exit9.exit_code == <span class="n">9</span> <span class="k">and</span> exit9.signal == <span class="n">0</span>, <span class="s">&quot;exit 9 is an exit code&quot;</span>)</span>
-<span class="src-line" id="L145">	<span class="k">let</span> killed = <span class="f">exec</span>(<span class="s">&quot;kill -9 \$\$&quot;</span>)</span>
-<span class="src-line" id="L146">	<span class="f">assert</span>(killed.exit_code == -<span class="n">1</span> <span class="k">and</span> killed.signal == <span class="n">9</span> <span class="k">and</span> killed.<span class="f">signaled</span>(), <span class="s">&quot;SIGKILL is a signal&quot;</span>)</span>
-<span class="src-line" id="L147">	<span class="f">assert</span>(<span class="k">not</span> killed.<span class="f">ok</span>(), <span class="s">&quot;a killed command is not ok&quot;</span>)</span>
-<span class="src-line" id="L148"></span>
-<span class="src-line" id="L149">	<span class="f">assert</span>(<span class="f">system_run</span>(<span class="s">&quot;exit 3&quot;</span>) == <span class="n">3</span>, <span class="s">&quot;system_run exit code&quot;</span>)</span>
-<span class="src-line" id="L150">	<span class="f">assert</span>(<span class="f">system_run</span>(<span class="s">&quot;kill -15 \$\$&quot;</span>) == -<span class="n">1</span>, <span class="s">&quot;system_run reports a signal as -1&quot;</span>)</span>
-<span class="src-line" id="L151">	<span class="k">let</span> st = <span class="f">system_run_status</span>(<span class="s">&quot;kill -15 \$\$&quot;</span>)</span>
-<span class="src-line" id="L152">	<span class="f">assert</span>(st.signal == <span class="n">15</span> <span class="k">and</span> st.exit_code == -<span class="n">1</span>, <span class="s">&quot;system_run_status reports SIGTERM&quot;</span>)</span>
-<span class="src-line" id="L153">}</span>
-<span class="src-line" id="L154"></span>
-<span class="src-line" id="L155"><span class="a">@test</span>(<span class="s">&quot;os directory operations: mkdir_p, file_exists, remove_all&quot;</span>)</span>
-<span class="src-line" id="L156"><span class="k">bind</span> test_os_filesystem = (): {</span>
-<span class="src-line" id="L157">	<span class="k">let</span> base = <span class="f">_test_tmp_path</span>(<span class="s">&quot;os_dir&quot;</span>)</span>
-<span class="src-line" id="L158">	<span class="k">let</span> nested = <span class="s">&quot;</span>${base}<span class="s">/sub1/sub2&quot;</span></span>
-<span class="src-line" id="L159"></span>
-<span class="src-line" id="L160">	<span class="k">let</span> _ = <span class="f">remove_all</span>(base)</span>
-<span class="src-line" id="L161">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">file_exists</span>(nested), <span class="s">&quot;nested does not exist before mkdir_p&quot;</span>)</span>
-<span class="src-line" id="L162"></span>
-<span class="src-line" id="L163">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(nested), <span class="s">&quot;mkdir_p succeeds&quot;</span>)</span>
-<span class="src-line" id="L164">	<span class="f">assert</span>(<span class="f">file_exists</span>(nested), <span class="s">&quot;nested exists after mkdir_p&quot;</span>)</span>
-<span class="src-line" id="L165">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(nested), <span class="s">&quot;mkdir_p on existing dir is idempotent&quot;</span>)</span>
-<span class="src-line" id="L166">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(<span class="s">&quot;</span>${base}<span class="s">/trailing/&quot;</span>), <span class="s">&quot;mkdir_p handles trailing slash&quot;</span>)</span>
-<span class="src-line" id="L167">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">mkdir_p</span>(<span class="s">&quot;&quot;</span>), <span class="s">&quot;mkdir_p rejects empty path&quot;</span>)</span>
-<span class="src-line" id="L168"></span>
-<span class="src-line" id="L169">	<span class="k">let</span> reg = <span class="s">&quot;</span>${base}<span class="s">/reg_file.txt&quot;</span></span>
-<span class="src-line" id="L170">	<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L171">		<span class="k">let</span> fp = <span class="f">sys_fopen</span>(reg.<span class="f">c_str</span>(), <span class="s">&quot;wb&quot;</span>.<span class="f">c_str</span>())</span>
-<span class="src-line" id="L172">		<span class="f">assert</span>(fp != null_ptr[<span class="t">u8</span>](), <span class="s">&quot;create regular file succeeds&quot;</span>)</span>
-<span class="src-line" id="L173">		<span class="k">let</span> _ = <span class="f">sys_fclose</span>(fp)</span>
-<span class="src-line" id="L174">	}</span>
-<span class="src-line" id="L175">	<span class="f">assert</span>(<span class="f">file_exists</span>(reg), <span class="s">&quot;regular file exists&quot;</span>)</span>
-<span class="src-line" id="L176">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">mkdir_p</span>(reg), <span class="s">&quot;mkdir_p fails when target is regular file&quot;</span>)</span>
-<span class="src-line" id="L177">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">mkdir_p</span>(<span class="s">&quot;</span>${reg}<span class="s">/&quot;</span>), <span class="s">&quot;mkdir_p fails when target is regular file with trailing slash&quot;</span>)</span>
-<span class="src-line" id="L178">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">mkdir_p</span>(<span class="s">&quot;</span>${reg}<span class="s">/child/dir&quot;</span>), <span class="s">&quot;mkdir_p fails when ancestor is regular file&quot;</span>)</span>
-<span class="src-line" id="L179"></span>
-<span class="src-line" id="L180">	<span class="f">assert</span>(<span class="f">remove_all</span>(base), <span class="s">&quot;remove_all succeeds&quot;</span>)</span>
-<span class="src-line" id="L181">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">file_exists</span>(base), <span class="s">&quot;base does not exist after remove_all&quot;</span>)</span>
-<span class="src-line" id="L182">}</span>
-<span class="src-line" id="L183"></span>
-</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<span class="src-line" id="L3"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L4"><span class="m">// Target POSIX / Syscall Bindings</span></span>
+<span class="src-line" id="L5"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L6"></span>
+<span class="src-line" id="L7"><span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin): {</span>
+<span class="src-line" id="L8">	<span class="k">extern</span> __error <span class="k">as</span> _os_errno_ptr: <span class="k">fn</span>() <span class="t">ptr</span>[<span class="t">i32</span>]</span>
+<span class="src-line" id="L9">	<span class="k">extern</span> strerror_r <span class="k">as</span> _os_strerror_r: <span class="k">fn</span>(code: <span class="t">i32</span>, buf: <span class="t">ptr</span>[<span class="t">u8</span>], len: <span class="t">int</span>) <span class="t">i32</span></span>
+<span class="src-line" id="L10">	<span class="k">extern</span> openat <span class="k">as</span> _os_openat: <span class="k">fn</span>(dirfd: <span class="t">i32</span>, path: <span class="t">ptr</span>[<span class="t">u8</span>], flags: <span class="t">i32</span>) <span class="t">i32</span></span>
+<span class="src-line" id="L11">	<span class="k">extern</span> unlinkat <span class="k">as</span> _os_unlinkat: <span class="k">fn</span>(dirfd: <span class="t">i32</span>, path: <span class="t">ptr</span>[<span class="t">u8</span>], flags: <span class="t">i32</span>) <span class="t">i32</span></span>
+<span class="src-line" id="L12">	<span class="k">extern</span> dirfd <span class="k">as</span> _os_dirfd: <span class="k">fn</span>(dir: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L13">	<span class="k">extern</span> ll_rt_fcntl <span class="k">as</span> _os_fcntl: <span class="k">fn</span>(fd: <span class="t">i32</span>, cmd: <span class="t">i32</span>, arg: <span class="t">i32</span>) <span class="t">i32</span></span>
+<span class="src-line" id="L14">	<span class="k">extern</span> popen <span class="k">as</span> _os_popen: <span class="k">fn</span>(cmd: <span class="t">ptr</span>[<span class="t">u8</span>], mode: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">ptr</span>[<span class="t">u8</span>]</span>
+<span class="src-line" id="L15">	<span class="k">extern</span> pclose <span class="k">as</span> _os_pclose: <span class="k">fn</span>(stream: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L16">	<span class="k">extern</span> fread <span class="k">as</span> _os_fread: <span class="k">fn</span>(buf: <span class="t">ptr</span>[<span class="t">u8</span>], size: <span class="t">int</span>, count: <span class="t">int</span>, stream: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">int</span></span>
+<span class="src-line" id="L17">	<span class="k">extern</span> ferror <span class="k">as</span> _os_ferror: <span class="k">fn</span>(stream: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L18">	<span class="k">extern</span> clearerr <span class="k">as</span> _os_clearerr: <span class="k">fn</span>(stream: <span class="t">ptr</span>[<span class="t">u8</span>])</span>
+<span class="src-line" id="L19">	<span class="k">extern</span> system <span class="k">as</span> _os_system: <span class="k">fn</span>(cmd: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L20">	<span class="k">extern</span> access <span class="k">as</span> _os_access: <span class="k">fn</span>(path: <span class="t">ptr</span>[<span class="t">u8</span>], mode: <span class="t">i32</span>) <span class="t">i32</span></span>
+<span class="src-line" id="L21">	<span class="k">extern</span> mkdir <span class="k">as</span> _os_mkdir: <span class="k">fn</span>(path: <span class="t">ptr</span>[<span class="t">u8</span>], mode: <span class="t">i32</span>) <span class="t">i32</span></span>
+<span class="src-line" id="L22">	<span class="k">extern</span> open <span class="k">as</span> _os_open: <span class="k">fn</span>(path: <span class="t">ptr</span>[<span class="t">u8</span>], flags: <span class="t">i32</span>) <span class="t">i32</span></span>
+<span class="src-line" id="L23">	<span class="k">extern</span> close <span class="k">as</span> _os_close: <span class="k">fn</span>(fd: <span class="t">i32</span>) <span class="t">i32</span></span>
+<span class="src-line" id="L24">	<span class="k">extern</span> unlink <span class="k">as</span> _os_unlink: <span class="k">fn</span>(path: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L25">	<span class="k">extern</span> rmdir <span class="k">as</span> _os_rmdir: <span class="k">fn</span>(path: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L26">	<span class="k">extern</span> closedir <span class="k">as</span> _os_closedir: <span class="k">fn</span>(dir: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L27">	<span class="k">extern</span> sysconf <span class="k">as</span> _os_sysconf: <span class="k">fn</span>(name: <span class="t">i32</span>) <span class="t">int</span></span>
+<span class="src-line" id="L28">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): {</span>
+<span class="src-line" id="L29">		<span class="k">extern</span> <span class="s">&quot;stat\$INODE64&quot;</span> <span class="k">as</span> _os_stat: <span class="k">fn</span>(path: <span class="t">ptr</span>[<span class="t">u8</span>], buf: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L30">		<span class="k">extern</span> <span class="s">&quot;fdopendir\$INODE64&quot;</span> <span class="k">as</span> _os_fdopendir: <span class="k">fn</span>(fd: <span class="t">i32</span>) <span class="t">ptr</span>[<span class="t">u8</span>]</span>
+<span class="src-line" id="L31">		<span class="k">extern</span> <span class="s">&quot;readdir\$INODE64&quot;</span> <span class="k">as</span> _os_readdir: <span class="k">fn</span>(dir: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">ptr</span>[<span class="t">u8</span>]</span>
+<span class="src-line" id="L32">	} <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): {</span>
+<span class="src-line" id="L33">		<span class="k">extern</span> stat <span class="k">as</span> _os_stat: <span class="k">fn</span>(path: <span class="t">ptr</span>[<span class="t">u8</span>], buf: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L34">		<span class="k">extern</span> fdopendir <span class="k">as</span> _os_fdopendir: <span class="k">fn</span>(fd: <span class="t">i32</span>) <span class="t">ptr</span>[<span class="t">u8</span>]</span>
+<span class="src-line" id="L35">		<span class="k">extern</span> readdir <span class="k">as</span> _os_readdir: <span class="k">fn</span>(dir: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">ptr</span>[<span class="t">u8</span>]</span>
+<span class="src-line" id="L36">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L37">		<span class="k">const</span> _os_unsupported_darwin_arch = comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Darwin architecture&quot;</span>)</span>
+<span class="src-line" id="L38">	}</span>
+<span class="src-line" id="L39">} <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L40">	<span class="k">extern</span> __errno_location <span class="k">as</span> _os_errno_ptr: <span class="k">fn</span>() <span class="t">ptr</span>[<span class="t">i32</span>]</span>
+<span class="src-line" id="L41">	<span class="k">extern</span> <span class="s">&quot;__xpg_strerror_r&quot;</span> <span class="k">as</span> _os_strerror_r: <span class="k">fn</span>(code: <span class="t">i32</span>, buf: <span class="t">ptr</span>[<span class="t">u8</span>], len: <span class="t">int</span>) <span class="t">i32</span></span>
+<span class="src-line" id="L42">	<span class="k">extern</span> dirfd <span class="k">as</span> _os_dirfd: <span class="k">fn</span>(dir: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L43">	<span class="k">extern</span> popen <span class="k">as</span> _os_popen: <span class="k">fn</span>(cmd: <span class="t">ptr</span>[<span class="t">u8</span>], mode: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">ptr</span>[<span class="t">u8</span>]</span>
+<span class="src-line" id="L44">	<span class="k">extern</span> pclose <span class="k">as</span> _os_pclose: <span class="k">fn</span>(stream: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L45">	<span class="k">extern</span> fread <span class="k">as</span> _os_fread: <span class="k">fn</span>(buf: <span class="t">ptr</span>[<span class="t">u8</span>], size: <span class="t">int</span>, count: <span class="t">int</span>, stream: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">int</span></span>
+<span class="src-line" id="L46">	<span class="k">extern</span> ferror <span class="k">as</span> _os_ferror: <span class="k">fn</span>(stream: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L47">	<span class="k">extern</span> clearerr <span class="k">as</span> _os_clearerr: <span class="k">fn</span>(stream: <span class="t">ptr</span>[<span class="t">u8</span>])</span>
+<span class="src-line" id="L48">	<span class="k">extern</span> system <span class="k">as</span> _os_system: <span class="k">fn</span>(cmd: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L49">}</span>
+<span class="src-line" id="L50"></span>
+<span class="src-line" id="L51"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L52"><span class="m">// OS errors</span></span>
+<span class="src-line" id="L53"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L54"></span>
+<span class="src-line" id="L55"><span class="m">// Returns the calling thread&#39;s current OS error number (`errno`).</span></span>
+<span class="src-line" id="L56"><span class="k">bind</span> last_errno = <span class="k">fn</span>() <span class="t">int</span>: {</span>
+<span class="src-line" id="L57">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin <span class="k">or</span> comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L58">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L59">			<span class="k">let</span> p = <span class="f">_os_errno_ptr</span>()</span>
+<span class="src-line" id="L60">			<span class="k">if</span>(<span class="f">is_null</span>(p)): <span class="n">0</span> <span class="k">else</span>: <span class="t">int</span>(<span class="f">ptr_read</span>(p))</span>
+<span class="src-line" id="L61">		}</span>
+<span class="src-line" id="L62">	} <span class="k">else</span>: <span class="n">0</span></span>
+<span class="src-line" id="L63">}</span>
+<span class="src-line" id="L64"></span>
+<span class="src-line" id="L65"><span class="m">// Updates the calling thread&#39;s OS error number (`errno`).</span></span>
+<span class="src-line" id="L66"><span class="k">bind</span> set_last_errno = <span class="k">fn</span>(code: <span class="t">int</span>): {</span>
+<span class="src-line" id="L67">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin <span class="k">or</span> comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L68">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L69">			<span class="k">let</span> p = <span class="f">_os_errno_ptr</span>()</span>
+<span class="src-line" id="L70">			<span class="k">if</span>(<span class="k">not</span> <span class="f">is_null</span>(p)): <span class="f">ptr_write</span>(p, <span class="t">i32</span>(code))</span>
+<span class="src-line" id="L71">		}</span>
+<span class="src-line" id="L72">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L73">		<span class="k">let</span> _ = code</span>
+<span class="src-line" id="L74">	}</span>
+<span class="src-line" id="L75">}</span>
+<span class="src-line" id="L76"></span>
+<span class="src-line" id="L77"><span class="k">bind</span> _decode_wait_status = <span class="k">fn</span>(st: <span class="t">int</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L78">	<span class="k">if</span>(st &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="n">1</span></span>
+<span class="src-line" id="L79">	<span class="k">let</span> sig = st &amp; <span class="n">127</span></span>
+<span class="src-line" id="L80">	<span class="k">if</span>(sig == <span class="n">0</span>): (st &gt;&gt; <span class="n">8</span>) &amp; <span class="n">255</span></span>
+<span class="src-line" id="L81">	<span class="k">else</span> <span class="k">if</span>(sig == <span class="n">127</span>): -<span class="n">1</span></span>
+<span class="src-line" id="L82">	<span class="k">else</span>: <span class="n">256</span> + sig</span>
+<span class="src-line" id="L83">}</span>
+<span class="src-line" id="L84"></span>
+<span class="src-line" id="L85"><span class="m">// The symbolic name of OS error code `code` (an `errno` value), such as `&quot;ENOENT&quot;` or</span></span>
+<span class="src-line" id="L86"><span class="m">// `&quot;ECONNREFUSED&quot;`. Names are the same on every platform even where the numbers differ, so</span></span>
+<span class="src-line" id="L87"><span class="m">// compare names, not numbers. A code the runtime doesn&#39;t list is `&quot;E&lt;code&gt;&quot;`.</span></span>
+<span class="src-line" id="L88"><span class="k">bind</span> errno_name = <span class="k">fn</span>(code: <span class="t">int</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L89">	<span class="k">let</span> name = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin): {</span>
+<span class="src-line" id="L90">		<span class="k">match</span>(code):</span>
+<span class="src-line" id="L91">			<span class="k">when</span> <span class="n">1</span>: <span class="s">&quot;EPERM&quot;</span></span>
+<span class="src-line" id="L92">			<span class="k">when</span> <span class="n">2</span>: <span class="s">&quot;ENOENT&quot;</span></span>
+<span class="src-line" id="L93">			<span class="k">when</span> <span class="n">3</span>: <span class="s">&quot;ESRCH&quot;</span></span>
+<span class="src-line" id="L94">			<span class="k">when</span> <span class="n">4</span>: <span class="s">&quot;EINTR&quot;</span></span>
+<span class="src-line" id="L95">			<span class="k">when</span> <span class="n">5</span>: <span class="s">&quot;EIO&quot;</span></span>
+<span class="src-line" id="L96">			<span class="k">when</span> <span class="n">6</span>: <span class="s">&quot;ENXIO&quot;</span></span>
+<span class="src-line" id="L97">			<span class="k">when</span> <span class="n">7</span>: <span class="s">&quot;E2BIG&quot;</span></span>
+<span class="src-line" id="L98">			<span class="k">when</span> <span class="n">8</span>: <span class="s">&quot;ENOEXEC&quot;</span></span>
+<span class="src-line" id="L99">			<span class="k">when</span> <span class="n">9</span>: <span class="s">&quot;EBADF&quot;</span></span>
+<span class="src-line" id="L100">			<span class="k">when</span> <span class="n">10</span>: <span class="s">&quot;ECHILD&quot;</span></span>
+<span class="src-line" id="L101">			<span class="k">when</span> <span class="n">12</span>: <span class="s">&quot;ENOMEM&quot;</span></span>
+<span class="src-line" id="L102">			<span class="k">when</span> <span class="n">13</span>: <span class="s">&quot;EACCES&quot;</span></span>
+<span class="src-line" id="L103">			<span class="k">when</span> <span class="n">14</span>: <span class="s">&quot;EFAULT&quot;</span></span>
+<span class="src-line" id="L104">			<span class="k">when</span> <span class="n">16</span>: <span class="s">&quot;EBUSY&quot;</span></span>
+<span class="src-line" id="L105">			<span class="k">when</span> <span class="n">17</span>: <span class="s">&quot;EEXIST&quot;</span></span>
+<span class="src-line" id="L106">			<span class="k">when</span> <span class="n">18</span>: <span class="s">&quot;EXDEV&quot;</span></span>
+<span class="src-line" id="L107">			<span class="k">when</span> <span class="n">19</span>: <span class="s">&quot;ENODEV&quot;</span></span>
+<span class="src-line" id="L108">			<span class="k">when</span> <span class="n">20</span>: <span class="s">&quot;ENOTDIR&quot;</span></span>
+<span class="src-line" id="L109">			<span class="k">when</span> <span class="n">21</span>: <span class="s">&quot;EISDIR&quot;</span></span>
+<span class="src-line" id="L110">			<span class="k">when</span> <span class="n">22</span>: <span class="s">&quot;EINVAL&quot;</span></span>
+<span class="src-line" id="L111">			<span class="k">when</span> <span class="n">23</span>: <span class="s">&quot;ENFILE&quot;</span></span>
+<span class="src-line" id="L112">			<span class="k">when</span> <span class="n">24</span>: <span class="s">&quot;EMFILE&quot;</span></span>
+<span class="src-line" id="L113">			<span class="k">when</span> <span class="n">25</span>: <span class="s">&quot;ENOTTY&quot;</span></span>
+<span class="src-line" id="L114">			<span class="k">when</span> <span class="n">26</span>: <span class="s">&quot;ETXTBSY&quot;</span></span>
+<span class="src-line" id="L115">			<span class="k">when</span> <span class="n">27</span>: <span class="s">&quot;EFBIG&quot;</span></span>
+<span class="src-line" id="L116">			<span class="k">when</span> <span class="n">28</span>: <span class="s">&quot;ENOSPC&quot;</span></span>
+<span class="src-line" id="L117">			<span class="k">when</span> <span class="n">29</span>: <span class="s">&quot;ESPIPE&quot;</span></span>
+<span class="src-line" id="L118">			<span class="k">when</span> <span class="n">30</span>: <span class="s">&quot;EROFS&quot;</span></span>
+<span class="src-line" id="L119">			<span class="k">when</span> <span class="n">31</span>: <span class="s">&quot;EMLINK&quot;</span></span>
+<span class="src-line" id="L120">			<span class="k">when</span> <span class="n">32</span>: <span class="s">&quot;EPIPE&quot;</span></span>
+<span class="src-line" id="L121">			<span class="k">when</span> <span class="n">33</span>: <span class="s">&quot;EDOM&quot;</span></span>
+<span class="src-line" id="L122">			<span class="k">when</span> <span class="n">34</span>: <span class="s">&quot;ERANGE&quot;</span></span>
+<span class="src-line" id="L123">			<span class="k">when</span> <span class="n">35</span>: <span class="s">&quot;EAGAIN&quot;</span></span>
+<span class="src-line" id="L124">			<span class="k">when</span> <span class="n">36</span>: <span class="s">&quot;EINPROGRESS&quot;</span></span>
+<span class="src-line" id="L125">			<span class="k">when</span> <span class="n">37</span>: <span class="s">&quot;EALREADY&quot;</span></span>
+<span class="src-line" id="L126">			<span class="k">when</span> <span class="n">38</span>: <span class="s">&quot;ENOTSOCK&quot;</span></span>
+<span class="src-line" id="L127">			<span class="k">when</span> <span class="n">40</span>: <span class="s">&quot;EMSGSIZE&quot;</span></span>
+<span class="src-line" id="L128">			<span class="k">when</span> <span class="n">43</span>: <span class="s">&quot;EPROTONOSUPPORT&quot;</span></span>
+<span class="src-line" id="L129">			<span class="k">when</span> <span class="n">47</span>: <span class="s">&quot;EAFNOSUPPORT&quot;</span></span>
+<span class="src-line" id="L130">			<span class="k">when</span> <span class="n">48</span>: <span class="s">&quot;EADDRINUSE&quot;</span></span>
+<span class="src-line" id="L131">			<span class="k">when</span> <span class="n">49</span>: <span class="s">&quot;EADDRNOTAVAIL&quot;</span></span>
+<span class="src-line" id="L132">			<span class="k">when</span> <span class="n">50</span>: <span class="s">&quot;ENETDOWN&quot;</span></span>
+<span class="src-line" id="L133">			<span class="k">when</span> <span class="n">51</span>: <span class="s">&quot;ENETUNREACH&quot;</span></span>
+<span class="src-line" id="L134">			<span class="k">when</span> <span class="n">53</span>: <span class="s">&quot;ECONNABORTED&quot;</span></span>
+<span class="src-line" id="L135">			<span class="k">when</span> <span class="n">54</span>: <span class="s">&quot;ECONNRESET&quot;</span></span>
+<span class="src-line" id="L136">			<span class="k">when</span> <span class="n">55</span>: <span class="s">&quot;ENOBUFS&quot;</span></span>
+<span class="src-line" id="L137">			<span class="k">when</span> <span class="n">56</span>: <span class="s">&quot;EISCONN&quot;</span></span>
+<span class="src-line" id="L138">			<span class="k">when</span> <span class="n">57</span>: <span class="s">&quot;ENOTCONN&quot;</span></span>
+<span class="src-line" id="L139">			<span class="k">when</span> <span class="n">58</span>: <span class="s">&quot;ESHUTDOWN&quot;</span></span>
+<span class="src-line" id="L140">			<span class="k">when</span> <span class="n">60</span>: <span class="s">&quot;ETIMEDOUT&quot;</span></span>
+<span class="src-line" id="L141">			<span class="k">when</span> <span class="n">61</span>: <span class="s">&quot;ECONNREFUSED&quot;</span></span>
+<span class="src-line" id="L142">			<span class="k">when</span> <span class="n">62</span>: <span class="s">&quot;ELOOP&quot;</span></span>
+<span class="src-line" id="L143">			<span class="k">when</span> <span class="n">63</span>: <span class="s">&quot;ENAMETOOLONG&quot;</span></span>
+<span class="src-line" id="L144">			<span class="k">when</span> <span class="n">65</span>: <span class="s">&quot;EHOSTUNREACH&quot;</span></span>
+<span class="src-line" id="L145">			<span class="k">when</span> <span class="n">66</span>: <span class="s">&quot;ENOTEMPTY&quot;</span></span>
+<span class="src-line" id="L146">			<span class="k">when</span> <span class="n">69</span>: <span class="s">&quot;EDQUOT&quot;</span></span>
+<span class="src-line" id="L147">			<span class="k">when</span> <span class="n">78</span>: <span class="s">&quot;ENOSYS&quot;</span></span>
+<span class="src-line" id="L148">			<span class="k">when</span> <span class="n">89</span>: <span class="s">&quot;ECANCELED&quot;</span></span>
+<span class="src-line" id="L149">			<span class="k">default</span>: <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L150">	} <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L151">		<span class="k">match</span>(code):</span>
+<span class="src-line" id="L152">			<span class="k">when</span> <span class="n">1</span>: <span class="s">&quot;EPERM&quot;</span></span>
+<span class="src-line" id="L153">			<span class="k">when</span> <span class="n">2</span>: <span class="s">&quot;ENOENT&quot;</span></span>
+<span class="src-line" id="L154">			<span class="k">when</span> <span class="n">3</span>: <span class="s">&quot;ESRCH&quot;</span></span>
+<span class="src-line" id="L155">			<span class="k">when</span> <span class="n">4</span>: <span class="s">&quot;EINTR&quot;</span></span>
+<span class="src-line" id="L156">			<span class="k">when</span> <span class="n">5</span>: <span class="s">&quot;EIO&quot;</span></span>
+<span class="src-line" id="L157">			<span class="k">when</span> <span class="n">6</span>: <span class="s">&quot;ENXIO&quot;</span></span>
+<span class="src-line" id="L158">			<span class="k">when</span> <span class="n">7</span>: <span class="s">&quot;E2BIG&quot;</span></span>
+<span class="src-line" id="L159">			<span class="k">when</span> <span class="n">8</span>: <span class="s">&quot;ENOEXEC&quot;</span></span>
+<span class="src-line" id="L160">			<span class="k">when</span> <span class="n">9</span>: <span class="s">&quot;EBADF&quot;</span></span>
+<span class="src-line" id="L161">			<span class="k">when</span> <span class="n">10</span>: <span class="s">&quot;ECHILD&quot;</span></span>
+<span class="src-line" id="L162">			<span class="k">when</span> <span class="n">11</span>: <span class="s">&quot;EAGAIN&quot;</span></span>
+<span class="src-line" id="L163">			<span class="k">when</span> <span class="n">12</span>: <span class="s">&quot;ENOMEM&quot;</span></span>
+<span class="src-line" id="L164">			<span class="k">when</span> <span class="n">13</span>: <span class="s">&quot;EACCES&quot;</span></span>
+<span class="src-line" id="L165">			<span class="k">when</span> <span class="n">14</span>: <span class="s">&quot;EFAULT&quot;</span></span>
+<span class="src-line" id="L166">			<span class="k">when</span> <span class="n">16</span>: <span class="s">&quot;EBUSY&quot;</span></span>
+<span class="src-line" id="L167">			<span class="k">when</span> <span class="n">17</span>: <span class="s">&quot;EEXIST&quot;</span></span>
+<span class="src-line" id="L168">			<span class="k">when</span> <span class="n">18</span>: <span class="s">&quot;EXDEV&quot;</span></span>
+<span class="src-line" id="L169">			<span class="k">when</span> <span class="n">19</span>: <span class="s">&quot;ENODEV&quot;</span></span>
+<span class="src-line" id="L170">			<span class="k">when</span> <span class="n">20</span>: <span class="s">&quot;ENOTDIR&quot;</span></span>
+<span class="src-line" id="L171">			<span class="k">when</span> <span class="n">21</span>: <span class="s">&quot;EISDIR&quot;</span></span>
+<span class="src-line" id="L172">			<span class="k">when</span> <span class="n">22</span>: <span class="s">&quot;EINVAL&quot;</span></span>
+<span class="src-line" id="L173">			<span class="k">when</span> <span class="n">23</span>: <span class="s">&quot;ENFILE&quot;</span></span>
+<span class="src-line" id="L174">			<span class="k">when</span> <span class="n">24</span>: <span class="s">&quot;EMFILE&quot;</span></span>
+<span class="src-line" id="L175">			<span class="k">when</span> <span class="n">25</span>: <span class="s">&quot;ENOTTY&quot;</span></span>
+<span class="src-line" id="L176">			<span class="k">when</span> <span class="n">26</span>: <span class="s">&quot;ETXTBSY&quot;</span></span>
+<span class="src-line" id="L177">			<span class="k">when</span> <span class="n">27</span>: <span class="s">&quot;EFBIG&quot;</span></span>
+<span class="src-line" id="L178">			<span class="k">when</span> <span class="n">28</span>: <span class="s">&quot;ENOSPC&quot;</span></span>
+<span class="src-line" id="L179">			<span class="k">when</span> <span class="n">29</span>: <span class="s">&quot;ESPIPE&quot;</span></span>
+<span class="src-line" id="L180">			<span class="k">when</span> <span class="n">30</span>: <span class="s">&quot;EROFS&quot;</span></span>
+<span class="src-line" id="L181">			<span class="k">when</span> <span class="n">31</span>: <span class="s">&quot;EMLINK&quot;</span></span>
+<span class="src-line" id="L182">			<span class="k">when</span> <span class="n">32</span>: <span class="s">&quot;EPIPE&quot;</span></span>
+<span class="src-line" id="L183">			<span class="k">when</span> <span class="n">33</span>: <span class="s">&quot;EDOM&quot;</span></span>
+<span class="src-line" id="L184">			<span class="k">when</span> <span class="n">34</span>: <span class="s">&quot;ERANGE&quot;</span></span>
+<span class="src-line" id="L185">			<span class="k">when</span> <span class="n">36</span>: <span class="s">&quot;ENAMETOOLONG&quot;</span></span>
+<span class="src-line" id="L186">			<span class="k">when</span> <span class="n">38</span>: <span class="s">&quot;ENOSYS&quot;</span></span>
+<span class="src-line" id="L187">			<span class="k">when</span> <span class="n">39</span>: <span class="s">&quot;ENOTEMPTY&quot;</span></span>
+<span class="src-line" id="L188">			<span class="k">when</span> <span class="n">40</span>: <span class="s">&quot;ELOOP&quot;</span></span>
+<span class="src-line" id="L189">			<span class="k">when</span> <span class="n">88</span>: <span class="s">&quot;ENOTSOCK&quot;</span></span>
+<span class="src-line" id="L190">			<span class="k">when</span> <span class="n">90</span>: <span class="s">&quot;EMSGSIZE&quot;</span></span>
+<span class="src-line" id="L191">			<span class="k">when</span> <span class="n">93</span>: <span class="s">&quot;EPROTONOSUPPORT&quot;</span></span>
+<span class="src-line" id="L192">			<span class="k">when</span> <span class="n">97</span>: <span class="s">&quot;EAFNOSUPPORT&quot;</span></span>
+<span class="src-line" id="L193">			<span class="k">when</span> <span class="n">98</span>: <span class="s">&quot;EADDRINUSE&quot;</span></span>
+<span class="src-line" id="L194">			<span class="k">when</span> <span class="n">99</span>: <span class="s">&quot;EADDRNOTAVAIL&quot;</span></span>
+<span class="src-line" id="L195">			<span class="k">when</span> <span class="n">100</span>: <span class="s">&quot;ENETDOWN&quot;</span></span>
+<span class="src-line" id="L196">			<span class="k">when</span> <span class="n">101</span>: <span class="s">&quot;ENETUNREACH&quot;</span></span>
+<span class="src-line" id="L197">			<span class="k">when</span> <span class="n">103</span>: <span class="s">&quot;ECONNABORTED&quot;</span></span>
+<span class="src-line" id="L198">			<span class="k">when</span> <span class="n">104</span>: <span class="s">&quot;ECONNRESET&quot;</span></span>
+<span class="src-line" id="L199">			<span class="k">when</span> <span class="n">105</span>: <span class="s">&quot;ENOBUFS&quot;</span></span>
+<span class="src-line" id="L200">			<span class="k">when</span> <span class="n">106</span>: <span class="s">&quot;EISCONN&quot;</span></span>
+<span class="src-line" id="L201">			<span class="k">when</span> <span class="n">107</span>: <span class="s">&quot;ENOTCONN&quot;</span></span>
+<span class="src-line" id="L202">			<span class="k">when</span> <span class="n">108</span>: <span class="s">&quot;ESHUTDOWN&quot;</span></span>
+<span class="src-line" id="L203">			<span class="k">when</span> <span class="n">110</span>: <span class="s">&quot;ETIMEDOUT&quot;</span></span>
+<span class="src-line" id="L204">			<span class="k">when</span> <span class="n">111</span>: <span class="s">&quot;ECONNREFUSED&quot;</span></span>
+<span class="src-line" id="L205">			<span class="k">when</span> <span class="n">113</span>: <span class="s">&quot;EHOSTUNREACH&quot;</span></span>
+<span class="src-line" id="L206">			<span class="k">when</span> <span class="n">114</span>: <span class="s">&quot;EALREADY&quot;</span></span>
+<span class="src-line" id="L207">			<span class="k">when</span> <span class="n">115</span>: <span class="s">&quot;EINPROGRESS&quot;</span></span>
+<span class="src-line" id="L208">			<span class="k">when</span> <span class="n">122</span>: <span class="s">&quot;EDQUOT&quot;</span></span>
+<span class="src-line" id="L209">			<span class="k">when</span> <span class="n">125</span>: <span class="s">&quot;ECANCELED&quot;</span></span>
+<span class="src-line" id="L210">			<span class="k">default</span>: <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L211">	} <span class="k">else</span>: <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L212">	<span class="k">if</span>(name.<span class="f">is_empty</span>()): <span class="s">&quot;E</span>$code<span class="s">&quot;</span> <span class="k">else</span>: name</span>
+<span class="src-line" id="L213">}</span>
+<span class="src-line" id="L214"></span>
+<span class="src-line" id="L215"><span class="m">// An [`Error`] for OS error `code` (an `errno` value): the message is `what` followed by the OS&#39;s</span></span>
+<span class="src-line" id="L216"><span class="m">// description, and the error&#39;s code is the errno name, so `e.has_code(&quot;EACCES&quot;)` works.</span></span>
+<span class="src-line" id="L217"><span class="m">//</span></span>
+<span class="src-line" id="L218"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L219"><span class="m">// let e = os.error_from_errno(2, &quot;failed to open \&quot;config.toml\&quot;&quot;)</span></span>
+<span class="src-line" id="L220"><span class="m">// // failed to open &quot;config.toml&quot;: No such file or directory</span></span>
+<span class="src-line" id="L221"><span class="m">// ```</span></span>
+<span class="src-line" id="L222"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L223"><span class="k">bind</span> error_from_errno = <span class="k">fn</span>(code: <span class="t">int</span>, what: <span class="t">string</span>) <span class="t">Error</span>: {</span>
+<span class="src-line" id="L224">	<span class="k">let</span> desc = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin <span class="k">or</span> comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L225">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L226">			<span class="k">let</span> sbuf = alloc_uninit[<span class="t">u8</span>](<span class="n">256</span>)</span>
+<span class="src-line" id="L227">			<span class="f">ptr_write</span>(sbuf, <span class="t">u8</span>(<span class="n">0</span>))</span>
+<span class="src-line" id="L228">			<span class="k">let</span> s_rc = <span class="f">_os_strerror_r</span>(<span class="t">i32</span>(code), sbuf, <span class="n">256</span>)</span>
+<span class="src-line" id="L229">			<span class="k">let</span> msg = <span class="k">if</span>(s_rc == <span class="t">i32</span>(<span class="n">0</span>)): <span class="f">str_from_cstr</span>(sbuf) <span class="k">else</span>: <span class="s">&quot;errno </span>$code<span class="s">&quot;</span></span>
+<span class="src-line" id="L230">			<span class="f">free_raw</span>(sbuf)</span>
+<span class="src-line" id="L231">			msg</span>
+<span class="src-line" id="L232">		}</span>
+<span class="src-line" id="L233">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L234">		<span class="s">&quot;errno </span>$code<span class="s">&quot;</span></span>
+<span class="src-line" id="L235">	}</span>
+<span class="src-line" id="L236">	<span class="t">Error</span>.<span class="f">coded</span>(<span class="f">errno_name</span>(code), <span class="s">&quot;</span>$what<span class="s">: </span>$desc<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L237">}</span>
+<span class="src-line" id="L238"></span>
+<span class="src-line" id="L239"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L240"><span class="m">// Processes</span></span>
+<span class="src-line" id="L241"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L242"></span>
+<span class="src-line" id="L243"><span class="m">// Captured output and exit status returned by [`exec`] and [`system_run_status`].</span></span>
+<span class="src-line" id="L244"><span class="k">define</span> <span class="t">ExecResult</span> <span class="k">struct</span> [</span>
+<span class="src-line" id="L245">	<span class="m">// Captured standard output produced by the command (empty for [`system_run_status`]).</span></span>
+<span class="src-line" id="L246">	stdout: <span class="t">string</span>,</span>
+<span class="src-line" id="L247">	<span class="m">// Exit code (`0` to `255`), or `-1` if the command was killed by a signal.</span></span>
+<span class="src-line" id="L248">	exit_code: <span class="t">int</span>,</span>
+<span class="src-line" id="L249">	<span class="m">// The signal that terminated the command (`9` for `SIGKILL`), or `0` if it exited normally.</span></span>
+<span class="src-line" id="L250">	signal: <span class="t">int</span> = <span class="n">0</span>,</span>
+<span class="src-line" id="L251">]</span>
+<span class="src-line" id="L252"></span>
+<span class="src-line" id="L253"><span class="m">// Reports whether the command exited cleanly with status `0`.</span></span>
+<span class="src-line" id="L254"><span class="k">bind</span> <span class="t">ExecResult</span>.ok = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>.exit_code == <span class="n">0</span></span>
+<span class="src-line" id="L255"></span>
+<span class="src-line" id="L256"><span class="m">// Reports whether the command was terminated by a signal rather than exiting.</span></span>
+<span class="src-line" id="L257"><span class="k">bind</span> <span class="t">ExecResult</span>.signaled = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>.signal != <span class="n">0</span></span>
+<span class="src-line" id="L258"></span>
+<span class="src-line" id="L259"><span class="m">// Builds an [`ExecResult`] from a runtime status: an exit code or `256 + signal`.</span></span>
+<span class="src-line" id="L260"><span class="k">bind</span> _exec_result = <span class="k">fn</span>(out: <span class="k">own</span> <span class="t">string</span>, status: <span class="t">int</span>) <span class="t">ExecResult</span>:</span>
+<span class="src-line" id="L261">	<span class="k">if</span>(status &gt;= <span class="n">256</span>): <span class="t">ExecResult</span>[stdout: <span class="k">own</span> out, exit_code: -<span class="n">1</span>, signal: status - <span class="n">256</span>]</span>
+<span class="src-line" id="L262">	<span class="k">else</span>: <span class="t">ExecResult</span>[stdout: <span class="k">own</span> out, exit_code: status, signal: <span class="n">0</span>]</span>
+<span class="src-line" id="L263"></span>
+<span class="src-line" id="L264"><span class="m">// Runs shell command `cmd` through `/bin/sh` (`popen`), capturing its standard output.</span></span>
+<span class="src-line" id="L265"><span class="m">//</span></span>
+<span class="src-line" id="L266"><span class="m">// A command that runs and fails is still a value: check [`ExecResult.ok`] or `exit_code` (the</span></span>
+<span class="src-line" id="L267"><span class="m">// shell reports a command it can&#39;t find as exit code `127`).</span></span>
+<span class="src-line" id="L268"><span class="m">//</span></span>
+<span class="src-line" id="L269"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L270"><span class="m">// Fails if the shell can&#39;t be started at all (for example, no processes or file descriptors</span></span>
+<span class="src-line" id="L271"><span class="m">// are left), with the OS&#39;s description.</span></span>
+<span class="src-line" id="L272"><span class="k">bind</span> exec = <span class="k">fn</span>(cmd: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">ExecResult</span>]: {</span>
+<span class="src-line" id="L273">	<span class="k">if</span>(cmd.<span class="f">contains_byte</span>(<span class="t">u8</span>(<span class="n">0</span>))): {</span>
+<span class="src-line" id="L274">		<span class="f">set_last_errno</span>(<span class="n">22</span>)</span>
+<span class="src-line" id="L275">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(<span class="n">22</span>, <span class="s">&quot;invalid command: interior NUL byte&quot;</span>))</span>
+<span class="src-line" id="L276">	}</span>
+<span class="src-line" id="L277">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin <span class="k">or</span> comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L278">		<span class="k">let</span> stream = <span class="k">unsafe</span> <span class="f">_os_popen</span>(cmd.<span class="f">c_str</span>(), <span class="s">&quot;r&quot;</span>.<span class="f">c_str</span>())</span>
+<span class="src-line" id="L279">		<span class="k">if</span>(<span class="k">unsafe</span> (stream == null_ptr[<span class="t">u8</span>]())): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L280">			<span class="f">error_from_errno</span>(<span class="f">last_errno</span>(), <span class="s">&quot;failed to run `</span>$cmd<span class="s">`&quot;</span>)</span>
+<span class="src-line" id="L281">		)</span>
+<span class="src-line" id="L282">		<span class="k">let</span> out_str = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L283">		<span class="k">let</span> read_failed = <span class="c">false</span></span>
+<span class="src-line" id="L284">		<span class="k">let</span> read_err = <span class="n">0</span></span>
+<span class="src-line" id="L285">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L286">			<span class="k">let</span> chunk_size = <span class="n">4096</span></span>
+<span class="src-line" id="L287">			<span class="k">let</span> raw = alloc_raw[<span class="t">u8</span>](chunk_size)</span>
+<span class="src-line" id="L288">			<span class="k">for</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L289">				<span class="f">set_last_errno</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L290">				<span class="k">let</span> n = <span class="f">_os_fread</span>(raw, <span class="n">1</span>, chunk_size, stream)</span>
+<span class="src-line" id="L291">				<span class="k">if</span>(n &gt; <span class="n">0</span>): out_str.<span class="f">push_bytes</span>(raw, n)</span>
+<span class="src-line" id="L292">				<span class="k">if</span>(n &lt; chunk_size): {</span>
+<span class="src-line" id="L293">					<span class="k">if</span>(<span class="f">_os_ferror</span>(stream) != <span class="t">i32</span>(<span class="n">0</span>)): {</span>
+<span class="src-line" id="L294">						<span class="k">let</span> code = <span class="f">last_errno</span>()</span>
+<span class="src-line" id="L295">						<span class="k">if</span>(code == <span class="n">4</span>): {</span>
+<span class="src-line" id="L296">							<span class="f">_os_clearerr</span>(stream)</span>
+<span class="src-line" id="L297">							<span class="k">next</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L298">						}</span>
+<span class="src-line" id="L299">						read_failed = <span class="c">true</span></span>
+<span class="src-line" id="L300">						read_err = <span class="k">if</span>(code != <span class="n">0</span>): code <span class="k">else</span>: <span class="n">5</span></span>
+<span class="src-line" id="L301">					}</span>
+<span class="src-line" id="L302">					<span class="k">for</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L303">				}</span>
+<span class="src-line" id="L304">			}</span>
+<span class="src-line" id="L305">			<span class="f">free_raw</span>(raw)</span>
+<span class="src-line" id="L306">		}</span>
+<span class="src-line" id="L307">		<span class="k">let</span> raw_close = <span class="t">int</span>(<span class="k">unsafe</span> <span class="f">_os_pclose</span>(stream))</span>
+<span class="src-line" id="L308">		<span class="k">if</span>(read_failed): {</span>
+<span class="src-line" id="L309">			<span class="f">set_last_errno</span>(read_err)</span>
+<span class="src-line" id="L310">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(read_err, <span class="s">&quot;failed reading output from `</span>$cmd<span class="s">`&quot;</span>))</span>
+<span class="src-line" id="L311">		}</span>
+<span class="src-line" id="L312">		<span class="k">let</span> status = <span class="f">_decode_wait_status</span>(raw_close)</span>
+<span class="src-line" id="L313">		<span class="k">if</span>(status &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(<span class="f">last_errno</span>(), <span class="s">&quot;failed to wait for `</span>$cmd<span class="s">`&quot;</span>))</span>
+<span class="src-line" id="L314">		<span class="f">value</span>(<span class="f">_exec_result</span>(<span class="k">own</span> out_str, status))</span>
+<span class="src-line" id="L315">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L316">		<span class="k">let</span> _ = cmd.<span class="f">len</span>()</span>
+<span class="src-line" id="L317">		<span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;process execution is unsupported on this target&quot;</span>))</span>
+<span class="src-line" id="L318">	}</span>
+<span class="src-line" id="L319">}</span>
+<span class="src-line" id="L320"></span>
+<span class="src-line" id="L321"><span class="m">// Runs `cmd` through the host shell (`system`) and returns its exit code, or `-1` if it was</span></span>
+<span class="src-line" id="L322"><span class="m">// killed by a signal. Use [`system_run_status`] to see the signal.</span></span>
+<span class="src-line" id="L323"><span class="m">//</span></span>
+<span class="src-line" id="L324"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L325"><span class="m">// Fails if the shell can&#39;t be started, with the OS&#39;s description.</span></span>
+<span class="src-line" id="L326"><span class="k">bind</span> system_run = <span class="k">fn</span>(cmd: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">int</span>]: {</span>
+<span class="src-line" id="L327">	<span class="k">if</span>(cmd.<span class="f">contains_byte</span>(<span class="t">u8</span>(<span class="n">0</span>))): {</span>
+<span class="src-line" id="L328">		<span class="f">set_last_errno</span>(<span class="n">22</span>)</span>
+<span class="src-line" id="L329">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(<span class="n">22</span>, <span class="s">&quot;invalid command: interior NUL byte&quot;</span>))</span>
+<span class="src-line" id="L330">	}</span>
+<span class="src-line" id="L331">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin <span class="k">or</span> comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L332">		<span class="k">let</span> status = <span class="f">_decode_wait_status</span>(<span class="t">int</span>(<span class="k">unsafe</span> <span class="f">_os_system</span>(cmd.<span class="f">c_str</span>())))</span>
+<span class="src-line" id="L333">		<span class="k">if</span>(status &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(<span class="f">last_errno</span>(), <span class="s">&quot;failed to run `</span>$cmd<span class="s">`&quot;</span>))</span>
+<span class="src-line" id="L334">		<span class="f">value</span>(<span class="k">if</span>(status &gt;= <span class="n">256</span>): -<span class="n">1</span> <span class="k">else</span>: status)</span>
+<span class="src-line" id="L335">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L336">		<span class="k">let</span> _ = cmd.<span class="f">len</span>()</span>
+<span class="src-line" id="L337">		<span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;process execution is unsupported on this target&quot;</span>))</span>
+<span class="src-line" id="L338">	}</span>
+<span class="src-line" id="L339">}</span>
+<span class="src-line" id="L340"></span>
+<span class="src-line" id="L341"><span class="m">// Runs `cmd` through the host shell (`system`) and returns its full status, including the</span></span>
+<span class="src-line" id="L342"><span class="m">// terminating signal, as an [`ExecResult`] with empty `stdout`.</span></span>
+<span class="src-line" id="L343"><span class="m">//</span></span>
+<span class="src-line" id="L344"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L345"><span class="m">// Fails if the shell can&#39;t be started, with the OS&#39;s description.</span></span>
+<span class="src-line" id="L346"><span class="k">bind</span> system_run_status = <span class="k">fn</span>(cmd: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">ExecResult</span>]: {</span>
+<span class="src-line" id="L347">	<span class="k">if</span>(cmd.<span class="f">contains_byte</span>(<span class="t">u8</span>(<span class="n">0</span>))): {</span>
+<span class="src-line" id="L348">		<span class="f">set_last_errno</span>(<span class="n">22</span>)</span>
+<span class="src-line" id="L349">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(<span class="n">22</span>, <span class="s">&quot;invalid command: interior NUL byte&quot;</span>))</span>
+<span class="src-line" id="L350">	}</span>
+<span class="src-line" id="L351">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin <span class="k">or</span> comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L352">		<span class="k">let</span> status = <span class="f">_decode_wait_status</span>(<span class="t">int</span>(<span class="k">unsafe</span> <span class="f">_os_system</span>(cmd.<span class="f">c_str</span>())))</span>
+<span class="src-line" id="L353">		<span class="k">if</span>(status &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(<span class="f">last_errno</span>(), <span class="s">&quot;failed to run `</span>$cmd<span class="s">`&quot;</span>))</span>
+<span class="src-line" id="L354">		<span class="f">value</span>(<span class="f">_exec_result</span>(<span class="s">&quot;&quot;</span>, status))</span>
+<span class="src-line" id="L355">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L356">		<span class="k">let</span> _ = cmd.<span class="f">len</span>()</span>
+<span class="src-line" id="L357">		<span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;process execution is unsupported on this target&quot;</span>))</span>
+<span class="src-line" id="L358">	}</span>
+<span class="src-line" id="L359">}</span>
+<span class="src-line" id="L360"></span>
+<span class="src-line" id="L361"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L362"><span class="m">// Files and directories</span></span>
+<span class="src-line" id="L363"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L364"></span>
+<span class="src-line" id="L365"><span class="m">// Reports whether a file or directory exists at `path`.</span></span>
+<span class="src-line" id="L366"><span class="k">bind</span> file_exists = <span class="k">fn</span>(path: <span class="t">string</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L367">	<span class="k">if</span>(path.<span class="f">len</span>() == <span class="n">0</span> <span class="k">or</span> path.<span class="f">contains_byte</span>(<span class="t">u8</span>(<span class="n">0</span>))): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L368">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L369">		<span class="k">let</span> sys_faccessat = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): <span class="n">48</span> <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): <span class="n">269</span> <span class="k">else</span>: comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Linux architecture for faccessat&quot;</span>)</span>
+<span class="src-line" id="L370">		<span class="k">unsafe</span> <span class="f">syscall</span>(sys_faccessat, -<span class="n">100</span>, <span class="t">int</span>(<span class="f">ptr_addr</span>(path.<span class="f">c_str</span>())), <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>) == <span class="n">0</span></span>
+<span class="src-line" id="L371">	} <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin): {</span>
+<span class="src-line" id="L372">		<span class="k">unsafe</span> <span class="f">_os_access</span>(path.<span class="f">c_str</span>(), <span class="t">i32</span>(<span class="n">0</span>)) == <span class="t">i32</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L373">	} <span class="k">else</span>: <span class="c">false</span></span>
+<span class="src-line" id="L374">}</span>
+<span class="src-line" id="L375"></span>
+<span class="src-line" id="L376"><span class="m">// The result of [`mkdir`].</span></span>
+<span class="src-line" id="L377"><span class="a">@must_use</span></span>
+<span class="src-line" id="L378"><span class="k">define</span> <span class="t">MkdirResult</span> <span class="k">result</span> [</span>
+<span class="src-line" id="L379">	<span class="m">// The directory was created.</span></span>
+<span class="src-line" id="L380">	value,</span>
+<span class="src-line" id="L381">	<span class="m">// Something (a directory or a file) already exists at the path.</span></span>
+<span class="src-line" id="L382">	exists: <span class="t">Error</span>,</span>
+<span class="src-line" id="L383">	<span class="m">// Any other failure, with the OS&#39;s description (a missing parent, permission denied, ...).</span></span>
+<span class="src-line" id="L384">	err: <span class="t">Error</span>,</span>
+<span class="src-line" id="L385">]</span>
+<span class="src-line" id="L386"></span>
+<span class="src-line" id="L387"><span class="m">// Creates a single directory at `path` (mode `0755`). Its parent must already exist; see</span></span>
+<span class="src-line" id="L388"><span class="m">// [`mkdir_p`] to create the parents too.</span></span>
+<span class="src-line" id="L389"><span class="m">//</span></span>
+<span class="src-line" id="L390"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L391"><span class="m">// [`MkdirResult.exists`] if anything already exists at `path`; [`MkdirResult.err`] for any other</span></span>
+<span class="src-line" id="L392"><span class="m">// failure, with the OS&#39;s description.</span></span>
+<span class="src-line" id="L393"><span class="k">bind</span> mkdir = <span class="k">fn</span>(path: <span class="t">string</span>) <span class="t">MkdirResult</span>: {</span>
+<span class="src-line" id="L394">	<span class="k">if</span>(path.<span class="f">len</span>() == <span class="n">0</span> <span class="k">or</span> path.<span class="f">contains_byte</span>(<span class="t">u8</span>(<span class="n">0</span>))): {</span>
+<span class="src-line" id="L395">		<span class="f">set_last_errno</span>(<span class="n">22</span>)</span>
+<span class="src-line" id="L396">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(<span class="n">22</span>, <span class="s">&quot;failed to create directory \&quot;</span>$path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L397">	}</span>
+<span class="src-line" id="L398">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux <span class="k">or</span> comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin): {</span>
+<span class="src-line" id="L399">		<span class="k">let</span> code = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L400">			<span class="k">let</span> sys_mkdirat = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): <span class="n">34</span> <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): <span class="n">258</span> <span class="k">else</span>: comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Linux architecture for mkdirat&quot;</span>)</span>
+<span class="src-line" id="L401">			<span class="k">let</span> rc = <span class="k">unsafe</span> <span class="f">syscall</span>(sys_mkdirat, -<span class="n">100</span>, <span class="t">int</span>(<span class="f">ptr_addr</span>(path.<span class="f">c_str</span>())), <span class="n">493</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L402">			<span class="k">if</span>(rc == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> value</span>
+<span class="src-line" id="L403">			<span class="k">let</span> c = -rc</span>
+<span class="src-line" id="L404">			<span class="f">set_last_errno</span>(c)</span>
+<span class="src-line" id="L405">			c</span>
+<span class="src-line" id="L406">		} <span class="k">else</span>: {</span>
+<span class="src-line" id="L407">			<span class="k">if</span>(<span class="k">unsafe</span> <span class="f">_os_mkdir</span>(path.<span class="f">c_str</span>(), <span class="t">i32</span>(<span class="n">493</span>)) == <span class="t">i32</span>(<span class="n">0</span>)): <span class="k">func</span> <span class="u">&lt;-</span> value</span>
+<span class="src-line" id="L408">			<span class="f">last_errno</span>()</span>
+<span class="src-line" id="L409">		}</span>
+<span class="src-line" id="L410">		<span class="k">let</span> e = <span class="f">error_from_errno</span>(code, <span class="s">&quot;failed to create directory \&quot;</span>$path<span class="s">\&quot;&quot;</span>)</span>
+<span class="src-line" id="L411">		<span class="k">if</span>(<span class="f">errno_name</span>(code) == <span class="s">&quot;EEXIST&quot;</span>): <span class="f">exists</span>(e) <span class="k">else</span>: <span class="f">err</span>(e)</span>
+<span class="src-line" id="L412">	} <span class="k">else</span>: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;mkdir is unsupported on this target&quot;</span>))</span>
+<span class="src-line" id="L413">}</span>
+<span class="src-line" id="L414"></span>
+<span class="src-line" id="L415"><span class="k">bind</span> _is_dir = <span class="k">fn</span>(path: <span class="t">string</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L416">	<span class="k">if</span>(path.<span class="f">len</span>() == <span class="n">0</span> <span class="k">or</span> path.<span class="f">contains_byte</span>(<span class="t">u8</span>(<span class="n">0</span>))): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L417">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L418">		<span class="k">let</span> sys_newfstatat = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): <span class="n">79</span> <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): <span class="n">262</span> <span class="k">else</span>: comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Linux architecture for newfstatat&quot;</span>)</span>
+<span class="src-line" id="L419">		<span class="k">let</span> mode_off = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): <span class="n">16</span> <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): <span class="n">24</span> <span class="k">else</span>: comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Linux architecture for stat layout&quot;</span>)</span>
+<span class="src-line" id="L420">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L421">			<span class="k">let</span> st = alloc_raw[<span class="t">u8</span>](<span class="n">160</span>)</span>
+<span class="src-line" id="L422">			<span class="k">let</span> rc = <span class="f">syscall</span>(sys_newfstatat, -<span class="n">100</span>, <span class="t">int</span>(<span class="f">ptr_addr</span>(path.<span class="f">c_str</span>())), <span class="t">int</span>(<span class="f">ptr_addr</span>(st)), <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L423">			<span class="k">let</span> ok = rc == <span class="n">0</span> <span class="k">and</span> (<span class="t">int</span>(<span class="f">ptr_read</span>(ptr_cast[<span class="t">u32</span>](<span class="f">ptr_add</span>(st, mode_off)))) &amp; <span class="n">61440</span>) == <span class="n">16384</span></span>
+<span class="src-line" id="L424">			<span class="f">free_raw</span>(st)</span>
+<span class="src-line" id="L425">			ok</span>
+<span class="src-line" id="L426">		}</span>
+<span class="src-line" id="L427">	} <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin): {</span>
+<span class="src-line" id="L428">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L429">			<span class="k">let</span> st = alloc_raw[<span class="t">u8</span>](<span class="n">144</span>)</span>
+<span class="src-line" id="L430">			<span class="k">let</span> rc = <span class="f">_os_stat</span>(path.<span class="f">c_str</span>(), st)</span>
+<span class="src-line" id="L431">			<span class="k">let</span> ok = rc == <span class="t">i32</span>(<span class="n">0</span>) <span class="k">and</span> (<span class="t">int</span>(<span class="f">ptr_read</span>(ptr_cast[<span class="t">u16</span>](<span class="f">ptr_add</span>(st, <span class="n">4</span>)))) &amp; <span class="n">61440</span>) == <span class="n">16384</span></span>
+<span class="src-line" id="L432">			<span class="f">free_raw</span>(st)</span>
+<span class="src-line" id="L433">			ok</span>
+<span class="src-line" id="L434">		}</span>
+<span class="src-line" id="L435">	} <span class="k">else</span>: <span class="c">false</span></span>
+<span class="src-line" id="L436">}</span>
+<span class="src-line" id="L437"></span>
+<span class="src-line" id="L438"><span class="m">// Creates the directory `path` and any missing parents. A directory that already exists is</span></span>
+<span class="src-line" id="L439"><span class="m">// success.</span></span>
+<span class="src-line" id="L440"><span class="m">//</span></span>
+<span class="src-line" id="L441"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L442"><span class="m">// Fails if `path` is empty, if `path` or one of its parents exists but isn&#39;t a directory, or if</span></span>
+<span class="src-line" id="L443"><span class="m">// a directory can&#39;t be created, with the OS&#39;s description.</span></span>
+<span class="src-line" id="L444"><span class="k">bind</span> mkdir_p = <span class="k">fn</span>(path: <span class="t">string</span>) <span class="t">Status</span>: {</span>
+<span class="src-line" id="L445">	<span class="k">if</span>(path.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;cannot create a directory with an empty path&quot;</span>))</span>
+<span class="src-line" id="L446">	<span class="k">if</span>(path.<span class="f">contains_byte</span>(<span class="t">u8</span>(<span class="n">0</span>))): {</span>
+<span class="src-line" id="L447">		<span class="f">set_last_errno</span>(<span class="n">22</span>)</span>
+<span class="src-line" id="L448">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(<span class="n">22</span>, <span class="s">&quot;invalid path: interior NUL byte&quot;</span>))</span>
+<span class="src-line" id="L449">	}</span>
+<span class="src-line" id="L450">	<span class="k">let</span> target = path.<span class="f">copy</span>()</span>
+<span class="src-line" id="L451">	<span class="k">for</span>(target.<span class="f">len</span>() &gt; <span class="n">1</span> <span class="k">and</span> target.<span class="f">byte_at</span>(target.<span class="f">len</span>() - <span class="n">1</span>) == <span class="t">u8</span>(<span class="n">47</span>)):</span>
+<span class="src-line" id="L452">		target = target[<span class="n">0</span>..target.<span class="f">len</span>() - <span class="n">1</span>]</span>
+<span class="src-line" id="L453">	<span class="k">let</span> n = target.<span class="f">len</span>()</span>
+<span class="src-line" id="L454">	<span class="m">// Create each prefix that ends at a `/`, then the target itself.</span></span>
+<span class="src-line" id="L455">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">1</span>..n + <span class="n">1</span>): {</span>
+<span class="src-line" id="L456">		<span class="k">if</span>(i &lt; n <span class="k">and</span> target.<span class="f">byte_at</span>(i) != <span class="t">u8</span>(<span class="n">47</span>)): <span class="k">next</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L457">		<span class="k">let</span> sub = target[<span class="n">0</span>..i]</span>
+<span class="src-line" id="L458">		<span class="k">if</span>(<span class="f">_is_dir</span>(sub)): <span class="k">next</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L459">		<span class="f">mkdir</span>(sub):</span>
+<span class="src-line" id="L460">			<span class="k">when</span> <span class="f">exists</span>(_): {</span>
+<span class="src-line" id="L461">				<span class="k">if</span>(<span class="f">_is_dir</span>(sub)): <span class="k">next</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L462">				<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L463">					<span class="t">Error</span>.<span class="f">new</span>(</span>
+<span class="src-line" id="L464">						<span class="s">&quot;failed to create directory \&quot;</span>$target<span class="s">\&quot;: \&quot;</span>$sub<span class="s">\&quot; exists and is not a directory&quot;</span></span>
+<span class="src-line" id="L465">					)</span>
+<span class="src-line" id="L466">				)</span>
+<span class="src-line" id="L467">			}</span>
+<span class="src-line" id="L468">			<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e.<span class="f">wrap</span>(<span class="s">&quot;failed to create directory \&quot;</span>$target<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L469">	}</span>
+<span class="src-line" id="L470">	value</span>
+<span class="src-line" id="L471">}</span>
+<span class="src-line" id="L472"></span>
+<span class="src-line" id="L473"><span class="k">bind</span> _is_dot_or_dotdot = <span class="k">fn</span>(clean: <span class="t">string</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L474">	clean == <span class="s">&quot;.&quot;</span> <span class="k">or</span> clean == <span class="s">&quot;..&quot;</span> <span class="k">or</span> clean.<span class="f">ends_with</span>(<span class="s">&quot;/.&quot;</span>) <span class="k">or</span> clean.<span class="f">ends_with</span>(<span class="s">&quot;/..&quot;</span>)</span>
+<span class="src-line" id="L475"></span>
+<span class="src-line" id="L476"><span class="m">// Removes `path` and everything under it. Symbolic links are removed, not followed. A path that</span></span>
+<span class="src-line" id="L477"><span class="m">// doesn&#39;t exist is success.</span></span>
+<span class="src-line" id="L478"><span class="m">//</span></span>
+<span class="src-line" id="L479"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L480"><span class="m">// Fails if `path` is empty, `/`, `.`, `..`, or if anything can&#39;t be removed, with the OS&#39;s</span></span>
+<span class="src-line" id="L481"><span class="m">// description of the first failure. Whatever could be removed is gone.</span></span>
+<span class="src-line" id="L482"><span class="m">// FD-anchored recursive removal helper so symlink replacements between directory</span></span>
+<span class="src-line" id="L483"><span class="m">// traversal and unlinking cannot redirect operations outside `parent_fd`.</span></span>
+<span class="src-line" id="L484"><span class="k">bind</span> _remove_all_at = <span class="k">fn</span>(parent_fd: <span class="t">int</span>, name_ptr: <span class="t">ptr</span>[<span class="t">u8</span>], display_path: <span class="t">string</span>) <span class="t">Status</span>: {</span>
+<span class="src-line" id="L485">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L486">		<span class="k">let</span> sys_openat = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): <span class="n">56</span> <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): <span class="n">257</span> <span class="k">else</span>: comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Linux architecture for openat&quot;</span>)</span>
+<span class="src-line" id="L487">		<span class="k">let</span> sys_close = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): <span class="n">57</span> <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): <span class="n">3</span> <span class="k">else</span>: comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Linux architecture for close&quot;</span>)</span>
+<span class="src-line" id="L488">		<span class="k">let</span> sys_unlinkat = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): <span class="n">35</span> <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): <span class="n">263</span> <span class="k">else</span>: comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Linux architecture for unlinkat&quot;</span>)</span>
+<span class="src-line" id="L489">		<span class="k">let</span> sys_getdents64 = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): <span class="n">61</span> <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): <span class="n">217</span> <span class="k">else</span>: comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Linux architecture for getdents64&quot;</span>)</span>
+<span class="src-line" id="L490">		<span class="m">// O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC</span></span>
+<span class="src-line" id="L491">		<span class="k">let</span> open_dir_flags = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): <span class="n">573440</span> <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): <span class="n">720896</span> <span class="k">else</span>: comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Linux architecture for open flags&quot;</span>)</span>
+<span class="src-line" id="L492">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L493">			<span class="k">let</span> urc = <span class="f">syscall</span>(sys_unlinkat, parent_fd, <span class="t">int</span>(<span class="f">ptr_addr</span>(name_ptr)), <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L494">			<span class="k">while</span>(urc == -<span class="n">4</span>): {</span>
+<span class="src-line" id="L495">				urc = <span class="f">syscall</span>(sys_unlinkat, parent_fd, <span class="t">int</span>(<span class="f">ptr_addr</span>(name_ptr)), <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L496">			}</span>
+<span class="src-line" id="L497">			<span class="k">if</span>(urc == <span class="n">0</span> <span class="k">or</span> urc == -<span class="n">2</span>): <span class="k">func</span> <span class="u">&lt;-</span> value</span>
+<span class="src-line" id="L498">			<span class="k">let</span> uerr = -urc</span>
+<span class="src-line" id="L499">			<span class="k">let</span> dfd = <span class="f">syscall</span>(sys_openat, parent_fd, <span class="t">int</span>(<span class="f">ptr_addr</span>(name_ptr)), open_dir_flags, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L500">			<span class="k">while</span>(dfd == -<span class="n">4</span>): {</span>
+<span class="src-line" id="L501">				dfd = <span class="f">syscall</span>(sys_openat, parent_fd, <span class="t">int</span>(<span class="f">ptr_addr</span>(name_ptr)), open_dir_flags, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L502">			}</span>
+<span class="src-line" id="L503">			<span class="k">if</span>(dfd == -<span class="n">2</span>): <span class="k">func</span> <span class="u">&lt;-</span> value</span>
+<span class="src-line" id="L504">			<span class="k">if</span>(dfd &lt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L505">				<span class="k">let</span> code = <span class="k">if</span>(dfd == -<span class="n">40</span>): <span class="n">40</span> <span class="k">else</span>: uerr</span>
+<span class="src-line" id="L506">				<span class="f">set_last_errno</span>(code)</span>
+<span class="src-line" id="L507">				<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(code, <span class="s">&quot;failed to remove \&quot;</span>$display_path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L508">			}</span>
+<span class="src-line" id="L509">			<span class="k">let</span> buf = alloc_raw[<span class="t">u8</span>](<span class="n">4096</span>)</span>
+<span class="src-line" id="L510">			<span class="k">let</span> read_err = <span class="n">0</span></span>
+<span class="src-line" id="L511">			<span class="k">let</span> children: [<span class="t">string</span>] = []</span>
+<span class="src-line" id="L512">			<span class="k">for</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L513">				<span class="k">let</span> n = <span class="f">syscall</span>(sys_getdents64, dfd, <span class="t">int</span>(<span class="f">ptr_addr</span>(buf)), <span class="n">4096</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L514">				<span class="k">if</span>(n == -<span class="n">4</span>): <span class="k">next</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L515">				<span class="k">if</span>(n == <span class="n">0</span>): <span class="k">for</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L516">				<span class="k">if</span>(n &lt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L517">					<span class="k">if</span>(read_err == <span class="n">0</span>): read_err = -n</span>
+<span class="src-line" id="L518">					<span class="k">for</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L519">				}</span>
+<span class="src-line" id="L520">				<span class="k">let</span> off = <span class="n">0</span></span>
+<span class="src-line" id="L521">				<span class="k">for</span>(off + <span class="n">19</span> &lt;= n): {</span>
+<span class="src-line" id="L522">					<span class="k">let</span> lo = <span class="t">int</span>(<span class="f">ptr_read</span>(<span class="f">ptr_add</span>(buf, off + <span class="n">16</span>)))</span>
+<span class="src-line" id="L523">					<span class="k">let</span> hi = <span class="t">int</span>(<span class="f">ptr_read</span>(<span class="f">ptr_add</span>(buf, off + <span class="n">17</span>)))</span>
+<span class="src-line" id="L524">					<span class="k">let</span> rlen = lo + (hi &lt;&lt; <span class="n">8</span>)</span>
+<span class="src-line" id="L525">					<span class="k">if</span>(rlen &lt;= <span class="n">0</span> <span class="k">or</span> off + rlen &gt; n): <span class="k">for</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L526">					<span class="k">let</span> name = <span class="f">str_from_cstr</span>(<span class="f">ptr_add</span>(buf, off + <span class="n">19</span>))</span>
+<span class="src-line" id="L527">					<span class="k">if</span>(name != <span class="s">&quot;.&quot;</span> <span class="k">and</span> name != <span class="s">&quot;..&quot;</span>): children.<span class="f">push</span>(<span class="k">own</span> name)</span>
+<span class="src-line" id="L528">					off += rlen</span>
+<span class="src-line" id="L529">				}</span>
+<span class="src-line" id="L530">			}</span>
+<span class="src-line" id="L531">			<span class="f">free_raw</span>(buf)</span>
+<span class="src-line" id="L532">			<span class="k">if</span>(read_err != <span class="n">0</span>): {</span>
+<span class="src-line" id="L533">				<span class="k">let</span> _ = <span class="f">syscall</span>(sys_close, dfd, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L534">				<span class="f">set_last_errno</span>(read_err)</span>
+<span class="src-line" id="L535">				<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(read_err, <span class="s">&quot;failed to remove \&quot;</span>$display_path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L536">			}</span>
+<span class="src-line" id="L537">			<span class="k">let</span> first_code = <span class="n">0</span></span>
+<span class="src-line" id="L538">			<span class="k">let</span> first_msg = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L539">			<span class="k">for</span>(ch <span class="k">in</span> children): {</span>
+<span class="src-line" id="L540">				<span class="f">_remove_all_at</span>(dfd, ch.<span class="f">c_str</span>(), <span class="s">&quot;</span>$display_path<span class="s">/</span>$ch<span class="s">&quot;</span>):</span>
+<span class="src-line" id="L541">					<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): {</span>
+<span class="src-line" id="L542">						<span class="k">if</span>(first_code == <span class="n">0</span>): {</span>
+<span class="src-line" id="L543">							first_code = <span class="f">last_errno</span>()</span>
+<span class="src-line" id="L544">							<span class="k">if</span>(first_code == <span class="n">0</span>): first_code = <span class="n">5</span></span>
+<span class="src-line" id="L545">							first_msg = e.<span class="f">message</span>().<span class="f">copy</span>()</span>
+<span class="src-line" id="L546">						}</span>
+<span class="src-line" id="L547">					}</span>
+<span class="src-line" id="L548">			}</span>
+<span class="src-line" id="L549">			<span class="k">let</span> _ = <span class="f">syscall</span>(sys_close, dfd, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L550">			<span class="k">if</span>(first_code != <span class="n">0</span>): {</span>
+<span class="src-line" id="L551">				<span class="f">set_last_errno</span>(first_code)</span>
+<span class="src-line" id="L552">				<span class="k">let</span> name = <span class="f">errno_name</span>(first_code)</span>
+<span class="src-line" id="L553">				<span class="k">let</span> out_err = <span class="t">Error</span>.<span class="f">coded</span>(<span class="k">own</span> name, <span class="k">own</span> first_msg)</span>
+<span class="src-line" id="L554">				<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="k">own</span> out_err)</span>
+<span class="src-line" id="L555">			}</span>
+<span class="src-line" id="L556">			<span class="k">let</span> rrc = <span class="f">syscall</span>(sys_unlinkat, parent_fd, <span class="t">int</span>(<span class="f">ptr_addr</span>(name_ptr)), <span class="n">512</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L557">			<span class="k">while</span>(rrc == -<span class="n">4</span>): {</span>
+<span class="src-line" id="L558">				rrc = <span class="f">syscall</span>(sys_unlinkat, parent_fd, <span class="t">int</span>(<span class="f">ptr_addr</span>(name_ptr)), <span class="n">512</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L559">			}</span>
+<span class="src-line" id="L560">			<span class="k">if</span>(rrc == <span class="n">0</span> <span class="k">or</span> rrc == -<span class="n">2</span>): value</span>
+<span class="src-line" id="L561">			<span class="k">else</span>: {</span>
+<span class="src-line" id="L562">				<span class="k">let</span> c = -rrc</span>
+<span class="src-line" id="L563">				<span class="f">set_last_errno</span>(c)</span>
+<span class="src-line" id="L564">				<span class="f">err</span>(<span class="f">error_from_errno</span>(c, <span class="s">&quot;failed to remove \&quot;</span>$display_path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L565">			}</span>
+<span class="src-line" id="L566">		}</span>
+<span class="src-line" id="L567">	} <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin): {</span>
+<span class="src-line" id="L568">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L569">			<span class="k">let</span> urc = <span class="f">_os_unlinkat</span>(<span class="t">i32</span>(parent_fd), name_ptr, <span class="t">i32</span>(<span class="n">0</span>))</span>
+<span class="src-line" id="L570">			<span class="k">while</span>(urc &lt; <span class="t">i32</span>(<span class="n">0</span>) <span class="k">and</span> <span class="f">last_errno</span>() == <span class="n">4</span>): {</span>
+<span class="src-line" id="L571">				urc = <span class="f">_os_unlinkat</span>(<span class="t">i32</span>(parent_fd), name_ptr, <span class="t">i32</span>(<span class="n">0</span>))</span>
+<span class="src-line" id="L572">			}</span>
+<span class="src-line" id="L573">			<span class="k">if</span>(urc == <span class="t">i32</span>(<span class="n">0</span>)): <span class="k">func</span> <span class="u">&lt;-</span> value</span>
+<span class="src-line" id="L574">			<span class="k">let</span> uerr = <span class="f">last_errno</span>()</span>
+<span class="src-line" id="L575">			<span class="k">if</span>(uerr == <span class="n">2</span>): <span class="k">func</span> <span class="u">&lt;-</span> value</span>
+<span class="src-line" id="L576">			<span class="m">// O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC</span></span>
+<span class="src-line" id="L577">			<span class="k">let</span> dfd = <span class="f">_os_openat</span>(<span class="t">i32</span>(parent_fd), name_ptr, <span class="t">i32</span>(<span class="n">17826048</span>))</span>
+<span class="src-line" id="L578">			<span class="k">while</span>(dfd &lt; <span class="t">i32</span>(<span class="n">0</span>) <span class="k">and</span> <span class="f">last_errno</span>() == <span class="n">4</span>): {</span>
+<span class="src-line" id="L579">				dfd = <span class="f">_os_openat</span>(<span class="t">i32</span>(parent_fd), name_ptr, <span class="t">i32</span>(<span class="n">17826048</span>))</span>
+<span class="src-line" id="L580">			}</span>
+<span class="src-line" id="L581">			<span class="k">if</span>(dfd &lt; <span class="t">i32</span>(<span class="n">0</span>)): {</span>
+<span class="src-line" id="L582">				<span class="k">let</span> oerr = <span class="f">last_errno</span>()</span>
+<span class="src-line" id="L583">				<span class="k">if</span>(oerr == <span class="n">2</span>): <span class="k">func</span> <span class="u">&lt;-</span> value</span>
+<span class="src-line" id="L584">				<span class="k">let</span> code = <span class="k">if</span>(oerr == <span class="n">62</span>): oerr <span class="k">else</span>: uerr</span>
+<span class="src-line" id="L585">				<span class="f">set_last_errno</span>(code)</span>
+<span class="src-line" id="L586">				<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(code, <span class="s">&quot;failed to remove \&quot;</span>$display_path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L587">			}</span>
+<span class="src-line" id="L588">			<span class="m">// Duplicate dfd before fdopendir so closedir releases DIR buffers prior</span></span>
+<span class="src-line" id="L589">			<span class="m">// to child recursion while dfd remains open as the inode anchor.</span></span>
+<span class="src-line" id="L590">			<span class="k">let</span> dup_fd = <span class="f">_os_fcntl</span>(dfd, <span class="t">i32</span>(<span class="n">67</span>), <span class="t">i32</span>(<span class="n">0</span>))</span>
+<span class="src-line" id="L591">			<span class="k">if</span>(dup_fd &lt; <span class="t">i32</span>(<span class="n">0</span>)): {</span>
+<span class="src-line" id="L592">				<span class="k">let</span> derr = <span class="f">last_errno</span>()</span>
+<span class="src-line" id="L593">				<span class="k">let</span> _ = <span class="f">_os_close</span>(dfd)</span>
+<span class="src-line" id="L594">				<span class="f">set_last_errno</span>(derr)</span>
+<span class="src-line" id="L595">				<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(derr, <span class="s">&quot;failed to remove \&quot;</span>$display_path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L596">			}</span>
+<span class="src-line" id="L597">			<span class="k">let</span> d = <span class="f">_os_fdopendir</span>(dup_fd)</span>
+<span class="src-line" id="L598">			<span class="k">if</span>(<span class="f">is_null</span>(d)): {</span>
+<span class="src-line" id="L599">				<span class="k">let</span> derr = <span class="f">last_errno</span>()</span>
+<span class="src-line" id="L600">				<span class="k">let</span> _ = <span class="f">_os_close</span>(dup_fd)</span>
+<span class="src-line" id="L601">				<span class="k">let</span> _ = <span class="f">_os_close</span>(dfd)</span>
+<span class="src-line" id="L602">				<span class="f">set_last_errno</span>(derr)</span>
+<span class="src-line" id="L603">				<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(derr, <span class="s">&quot;failed to remove \&quot;</span>$display_path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L604">			}</span>
+<span class="src-line" id="L605">			<span class="k">let</span> children: [<span class="t">string</span>] = []</span>
+<span class="src-line" id="L606">			<span class="k">let</span> read_err = <span class="n">0</span></span>
+<span class="src-line" id="L607">			<span class="k">for</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L608">				<span class="f">set_last_errno</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L609">				<span class="k">let</span> de = <span class="f">_os_readdir</span>(d)</span>
+<span class="src-line" id="L610">				<span class="k">if</span>(<span class="f">is_null</span>(de)): {</span>
+<span class="src-line" id="L611">					read_err = <span class="f">last_errno</span>()</span>
+<span class="src-line" id="L612">					<span class="k">for</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L613">				}</span>
+<span class="src-line" id="L614">				<span class="k">let</span> name = <span class="f">str_from_cstr</span>(<span class="f">ptr_add</span>(de, <span class="n">21</span>))</span>
+<span class="src-line" id="L615">				<span class="k">if</span>(name != <span class="s">&quot;.&quot;</span> <span class="k">and</span> name != <span class="s">&quot;..&quot;</span>): children.<span class="f">push</span>(<span class="k">own</span> name)</span>
+<span class="src-line" id="L616">			}</span>
+<span class="src-line" id="L617">			<span class="k">let</span> _ = <span class="f">_os_closedir</span>(d)</span>
+<span class="src-line" id="L618">			<span class="k">if</span>(read_err != <span class="n">0</span>): {</span>
+<span class="src-line" id="L619">				<span class="k">let</span> _ = <span class="f">_os_close</span>(dfd)</span>
+<span class="src-line" id="L620">				<span class="f">set_last_errno</span>(read_err)</span>
+<span class="src-line" id="L621">				<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(read_err, <span class="s">&quot;failed to remove \&quot;</span>$display_path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L622">			}</span>
+<span class="src-line" id="L623">			<span class="k">let</span> first_code = <span class="n">0</span></span>
+<span class="src-line" id="L624">			<span class="k">let</span> first_msg = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L625">			<span class="k">for</span>(ch <span class="k">in</span> children): {</span>
+<span class="src-line" id="L626">				<span class="f">_remove_all_at</span>(<span class="t">int</span>(dfd), ch.<span class="f">c_str</span>(), <span class="s">&quot;</span>$display_path<span class="s">/</span>$ch<span class="s">&quot;</span>):</span>
+<span class="src-line" id="L627">					<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): {</span>
+<span class="src-line" id="L628">						<span class="k">if</span>(first_code == <span class="n">0</span>): {</span>
+<span class="src-line" id="L629">							first_code = <span class="f">last_errno</span>()</span>
+<span class="src-line" id="L630">							<span class="k">if</span>(first_code == <span class="n">0</span>): first_code = <span class="n">5</span></span>
+<span class="src-line" id="L631">							first_msg = e.<span class="f">message</span>().<span class="f">copy</span>()</span>
+<span class="src-line" id="L632">						}</span>
+<span class="src-line" id="L633">					}</span>
+<span class="src-line" id="L634">			}</span>
+<span class="src-line" id="L635">			<span class="k">let</span> _ = <span class="f">_os_close</span>(dfd)</span>
+<span class="src-line" id="L636">			<span class="k">if</span>(first_code != <span class="n">0</span>): {</span>
+<span class="src-line" id="L637">				<span class="f">set_last_errno</span>(first_code)</span>
+<span class="src-line" id="L638">				<span class="k">let</span> name = <span class="f">errno_name</span>(first_code)</span>
+<span class="src-line" id="L639">				<span class="k">let</span> out_err = <span class="t">Error</span>.<span class="f">coded</span>(<span class="k">own</span> name, <span class="k">own</span> first_msg)</span>
+<span class="src-line" id="L640">				<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="k">own</span> out_err)</span>
+<span class="src-line" id="L641">			}</span>
+<span class="src-line" id="L642">			<span class="k">let</span> rrc = <span class="f">_os_unlinkat</span>(<span class="t">i32</span>(parent_fd), name_ptr, <span class="t">i32</span>(<span class="n">128</span>))</span>
+<span class="src-line" id="L643">			<span class="k">while</span>(rrc &lt; <span class="t">i32</span>(<span class="n">0</span>) <span class="k">and</span> <span class="f">last_errno</span>() == <span class="n">4</span>): {</span>
+<span class="src-line" id="L644">				rrc = <span class="f">_os_unlinkat</span>(<span class="t">i32</span>(parent_fd), name_ptr, <span class="t">i32</span>(<span class="n">128</span>))</span>
+<span class="src-line" id="L645">			}</span>
+<span class="src-line" id="L646">			<span class="k">if</span>(rrc == <span class="t">i32</span>(<span class="n">0</span>)): value</span>
+<span class="src-line" id="L647">			<span class="k">else</span>: {</span>
+<span class="src-line" id="L648">				<span class="k">let</span> rerr = <span class="f">last_errno</span>()</span>
+<span class="src-line" id="L649">				<span class="k">if</span>(rerr == <span class="n">2</span>): value</span>
+<span class="src-line" id="L650">				<span class="k">else</span>: {</span>
+<span class="src-line" id="L651">					<span class="f">set_last_errno</span>(rerr)</span>
+<span class="src-line" id="L652">					<span class="f">err</span>(<span class="f">error_from_errno</span>(rerr, <span class="s">&quot;failed to remove \&quot;</span>$display_path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L653">				}</span>
+<span class="src-line" id="L654">			}</span>
+<span class="src-line" id="L655">		}</span>
+<span class="src-line" id="L656">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L657">		<span class="k">let</span> _ = parent_fd</span>
+<span class="src-line" id="L658">		<span class="k">let</span> _ = name_ptr</span>
+<span class="src-line" id="L659">		<span class="k">let</span> _ = display_path.<span class="f">len</span>()</span>
+<span class="src-line" id="L660">		<span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;remove_all is unsupported on this target&quot;</span>))</span>
+<span class="src-line" id="L661">	}</span>
+<span class="src-line" id="L662">}</span>
+<span class="src-line" id="L663"></span>
+<span class="src-line" id="L664"><span class="k">bind</span> _remove_all_impl = <span class="k">fn</span>(path: <span class="t">string</span>) <span class="t">Status</span>: {</span>
+<span class="src-line" id="L665">	<span class="k">let</span> target = path.<span class="f">copy</span>()</span>
+<span class="src-line" id="L666">	<span class="k">for</span>(target.<span class="f">len</span>() &gt; <span class="n">1</span> <span class="k">and</span> target.<span class="f">byte_at</span>(target.<span class="f">len</span>() - <span class="n">1</span>) == <span class="t">u8</span>(<span class="n">47</span>)):</span>
+<span class="src-line" id="L667">		target = target[<span class="n">0</span>..target.<span class="f">len</span>() - <span class="n">1</span>]</span>
+<span class="src-line" id="L668">	<span class="k">if</span>(target == <span class="s">&quot;/&quot;</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;refusing to remove the root directory&quot;</span>))</span>
+<span class="src-line" id="L669">	<span class="k">if</span>(<span class="f">_is_dot_or_dotdot</span>(target)): {</span>
+<span class="src-line" id="L670">		<span class="f">set_last_errno</span>(<span class="n">22</span>)</span>
+<span class="src-line" id="L671">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;refusing to remove \&quot;.\&quot; or \&quot;..\&quot; directory component in \&quot;</span>$path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L672">	}</span>
+<span class="src-line" id="L673">	<span class="k">let</span> at_fdcwd = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin): -<span class="n">2</span> <span class="k">else</span>: -<span class="n">100</span></span>
+<span class="src-line" id="L674">	<span class="k">unsafe</span> <span class="f">_remove_all_at</span>(at_fdcwd, target.<span class="f">c_str</span>(), path)</span>
+<span class="src-line" id="L675">}</span>
+<span class="src-line" id="L676"></span>
+<span class="src-line" id="L677"><span class="k">bind</span> remove_all = <span class="k">fn</span>(path: <span class="t">string</span>) <span class="t">Status</span>: {</span>
+<span class="src-line" id="L678">	<span class="k">if</span>(path.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;cannot remove an empty path&quot;</span>))</span>
+<span class="src-line" id="L679">	<span class="k">if</span>(path.<span class="f">contains_byte</span>(<span class="t">u8</span>(<span class="n">0</span>))): {</span>
+<span class="src-line" id="L680">		<span class="f">set_last_errno</span>(<span class="n">22</span>)</span>
+<span class="src-line" id="L681">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="f">error_from_errno</span>(<span class="n">22</span>, <span class="s">&quot;invalid path: interior NUL byte&quot;</span>))</span>
+<span class="src-line" id="L682">	}</span>
+<span class="src-line" id="L683">	<span class="k">let</span> clean = path.<span class="f">copy</span>()</span>
+<span class="src-line" id="L684">	<span class="k">for</span>(clean.<span class="f">len</span>() &gt; <span class="n">1</span> <span class="k">and</span> clean.<span class="f">byte_at</span>(clean.<span class="f">len</span>() - <span class="n">1</span>) == <span class="t">u8</span>(<span class="n">47</span>)):</span>
+<span class="src-line" id="L685">		clean = clean[<span class="n">0</span>..clean.<span class="f">len</span>() - <span class="n">1</span>]</span>
+<span class="src-line" id="L686">	<span class="k">if</span>(clean == <span class="s">&quot;/&quot;</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;refusing to remove the root directory&quot;</span>))</span>
+<span class="src-line" id="L687">	<span class="k">if</span>(<span class="f">_is_dot_or_dotdot</span>(clean)): {</span>
+<span class="src-line" id="L688">		<span class="f">set_last_errno</span>(<span class="n">22</span>)</span>
+<span class="src-line" id="L689">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;refusing to remove \&quot;.\&quot; or \&quot;..\&quot; directory component in \&quot;</span>$path<span class="s">\&quot;&quot;</span>))</span>
+<span class="src-line" id="L690">	}</span>
+<span class="src-line" id="L691">	<span class="f">_remove_all_impl</span>(clean)</span>
+<span class="src-line" id="L692">}</span>
+<span class="src-line" id="L693"></span>
+<span class="src-line" id="L694"><span class="m">// Returns the number of logical CPU cores available on the host system.</span></span>
+<span class="src-line" id="L695"><span class="k">bind</span> num_cpus = <span class="k">fn</span>() <span class="t">int</span>: {</span>
+<span class="src-line" id="L696">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L697">		<span class="k">let</span> sys_sched_getaffinity = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): <span class="n">123</span> <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): <span class="n">204</span> <span class="k">else</span>: comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Linux architecture for sched_getaffinity&quot;</span>)</span>
+<span class="src-line" id="L698">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L699">			<span class="k">let</span> mask = alloc_raw[<span class="t">u8</span>](<span class="n">128</span>)</span>
+<span class="src-line" id="L700">			<span class="f">fill_bytes</span>(mask, <span class="t">u8</span>(<span class="n">0</span>), <span class="n">128</span>)</span>
+<span class="src-line" id="L701">			<span class="k">let</span> n = <span class="f">syscall</span>(sys_sched_getaffinity, <span class="n">0</span>, <span class="n">128</span>, <span class="t">int</span>(<span class="f">ptr_addr</span>(mask)), <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L702">			<span class="k">let</span> count = <span class="n">0</span></span>
+<span class="src-line" id="L703">			<span class="k">if</span>(n &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L704">				<span class="k">let</span> bytes_n = <span class="k">if</span>(n &gt; <span class="n">128</span>): <span class="n">128</span> <span class="k">else</span>: n</span>
+<span class="src-line" id="L705">				<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..bytes_n): {</span>
+<span class="src-line" id="L706">					<span class="k">let</span> b = <span class="t">int</span>(<span class="f">ptr_read</span>(<span class="f">ptr_add</span>(mask, i)))</span>
+<span class="src-line" id="L707">					<span class="k">for</span>(bit <span class="k">in</span> <span class="n">0</span>..<span class="n">8</span>): {</span>
+<span class="src-line" id="L708">						<span class="k">if</span>(((b &gt;&gt; bit) &amp; <span class="n">1</span>) != <span class="n">0</span>): count += <span class="n">1</span></span>
+<span class="src-line" id="L709">					}</span>
+<span class="src-line" id="L710">				}</span>
+<span class="src-line" id="L711">			}</span>
+<span class="src-line" id="L712">			<span class="f">free_raw</span>(mask)</span>
+<span class="src-line" id="L713">			<span class="k">if</span>(count &gt;= <span class="n">1</span>): count <span class="k">else</span>: <span class="n">1</span></span>
+<span class="src-line" id="L714">		}</span>
+<span class="src-line" id="L715">	} <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin): {</span>
+<span class="src-line" id="L716">		<span class="k">let</span> n = <span class="k">unsafe</span> <span class="f">_os_sysconf</span>(<span class="t">i32</span>(<span class="n">58</span>))</span>
+<span class="src-line" id="L717">		<span class="k">if</span>(n &gt;= <span class="n">1</span>): n <span class="k">else</span>: <span class="n">1</span></span>
+<span class="src-line" id="L718">	} <span class="k">else</span>: <span class="n">1</span></span>
+<span class="src-line" id="L719">}</span>
+<span class="src-line" id="L720"></span>
+<span class="src-line" id="L721"><span class="m">// Returns the target operating system name string (`&quot;macos&quot;`, `&quot;linux&quot;`, `&quot;windows&quot;`, etc.).</span></span>
+<span class="src-line" id="L722"><span class="k">const</span> os_name = <span class="k">fn</span>() <span class="t">string</span>:</span>
+<span class="src-line" id="L723">	<span class="k">comptime</span> <span class="k">match</span>(comp.<span class="t">TARGET</span>.os):</span>
+<span class="src-line" id="L724">		<span class="k">when</span> comp.<span class="t">TargetOs</span>.darwin: <span class="s">&quot;macos&quot;</span></span>
+<span class="src-line" id="L725">		<span class="k">when</span> comp.<span class="t">TargetOs</span>.linux: <span class="s">&quot;linux&quot;</span></span>
+<span class="src-line" id="L726">		<span class="k">when</span> comp.<span class="t">TargetOs</span>.windows: <span class="s">&quot;windows&quot;</span></span>
+<span class="src-line" id="L727">		<span class="k">when</span> comp.<span class="t">TargetOs</span>.freebsd: <span class="s">&quot;freebsd&quot;</span></span>
+<span class="src-line" id="L728">		<span class="k">when</span> comp.<span class="t">TargetOs</span>.openbsd: <span class="s">&quot;openbsd&quot;</span></span>
+<span class="src-line" id="L729">		<span class="k">when</span> comp.<span class="t">TargetOs</span>.netbsd: <span class="s">&quot;netbsd&quot;</span></span>
+<span class="src-line" id="L730">		<span class="k">when</span> comp.<span class="t">TargetOs</span>.wasm: <span class="s">&quot;wasm&quot;</span></span>
+<span class="src-line" id="L731">		<span class="k">default</span>: <span class="s">&quot;unknown&quot;</span></span>
+<span class="src-line" id="L732"></span>
+<span class="src-line" id="L733"><span class="m">// Returns the target CPU architecture identifier string (`&quot;arm64&quot;`, `&quot;x86_64&quot;`, `&quot;wasm32&quot;`, etc.).</span></span>
+<span class="src-line" id="L734"><span class="k">const</span> arch = <span class="k">fn</span>() <span class="t">string</span>:</span>
+<span class="src-line" id="L735">	<span class="k">comptime</span> <span class="k">match</span>(comp.<span class="t">TARGET</span>.arch):</span>
+<span class="src-line" id="L736">		<span class="k">when</span> comp.<span class="t">TargetArch</span>.amd64: <span class="s">&quot;x86_64&quot;</span></span>
+<span class="src-line" id="L737">		<span class="k">when</span> comp.<span class="t">TargetArch</span>.arm64: <span class="s">&quot;arm64&quot;</span></span>
+<span class="src-line" id="L738">		<span class="k">when</span> comp.<span class="t">TargetArch</span>.riscv64: <span class="s">&quot;riscv64&quot;</span></span>
+<span class="src-line" id="L739">		<span class="k">when</span> comp.<span class="t">TargetArch</span>.x86: <span class="s">&quot;x86&quot;</span></span>
+<span class="src-line" id="L740">		<span class="k">when</span> comp.<span class="t">TargetArch</span>.wasm32: <span class="s">&quot;wasm32&quot;</span></span>
+<span class="src-line" id="L741">		<span class="k">when</span> comp.<span class="t">TargetArch</span>.wasm64: <span class="s">&quot;wasm64&quot;</span></span>
+<span class="src-line" id="L742">		<span class="k">default</span>: <span class="s">&quot;unknown&quot;</span></span>
+<span class="src-line" id="L743"></span>
+<span class="src-line" id="L744"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L745"><span class="m">// Inline Unit Tests</span></span>
+<span class="src-line" id="L746"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L747"></span>
+<span class="src-line" id="L748"><span class="a">@test_only</span></span>
+<span class="src-line" id="L749"><span class="k">extern</span> getenv <span class="k">as</span> _test_getenv: <span class="k">fn</span>(name: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">ptr</span>[<span class="t">u8</span>]</span>
+<span class="src-line" id="L750"></span>
+<span class="src-line" id="L751"><span class="a">@test_only</span></span>
+<span class="src-line" id="L752"><span class="k">extern</span> clock_gettime <span class="k">as</span> _os_test_clock: <span class="k">fn</span>(clk_id: <span class="t">i32</span>, ts: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L753"></span>
+<span class="src-line" id="L754"><span class="a">@test_only</span></span>
+<span class="src-line" id="L755"><span class="k">bind</span> _test_tmp_path = <span class="k">fn</span>(name: <span class="t">string</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L756">	<span class="k">let</span> base = <span class="f">str_from_cstr</span>(<span class="k">unsafe</span> <span class="f">_test_getenv</span>(<span class="s">&quot;TMPDIR&quot;</span>.<span class="f">c_str</span>()))</span>
+<span class="src-line" id="L757">	<span class="k">if</span>(base.<span class="f">len</span>() == <span class="n">0</span>): base = <span class="s">&quot;/tmp&quot;</span></span>
+<span class="src-line" id="L758">	<span class="k">if</span>(base.<span class="f">len</span>() &gt; <span class="n">1</span> <span class="k">and</span> base.<span class="f">byte_at</span>(base.<span class="f">len</span>() - <span class="n">1</span>) == <span class="t">u8</span>(<span class="n">47</span>)):</span>
+<span class="src-line" id="L759">		base = base[<span class="n">0</span>..base.<span class="f">len</span>() - <span class="n">1</span>]</span>
+<span class="src-line" id="L760">	<span class="k">let</span> stamp = <span class="k">unsafe</span> {</span>
+<span class="src-line" id="L761">		<span class="k">let</span> ts = alloc_raw[<span class="t">int</span>](<span class="n">2</span>)</span>
+<span class="src-line" id="L762">		<span class="f">ptr_write</span>(ts, <span class="n">0</span>)</span>
+<span class="src-line" id="L763">		<span class="f">ptr_write</span>(<span class="f">ptr_add</span>(ts, <span class="n">1</span>), <span class="n">0</span>)</span>
+<span class="src-line" id="L764">		<span class="k">let</span> _ = <span class="f">_os_test_clock</span>(<span class="t">i32</span>(<span class="n">0</span>), ptr_cast[<span class="t">u8</span>](ts))</span>
+<span class="src-line" id="L765">		<span class="k">let</span> n = <span class="f">ptr_read</span>(ts) * <span class="n">1000000000</span> + <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(ts, <span class="n">1</span>))</span>
+<span class="src-line" id="L766">		<span class="f">free_raw</span>(ts)</span>
+<span class="src-line" id="L767">		n</span>
+<span class="src-line" id="L768">	}</span>
+<span class="src-line" id="L769">	<span class="s">&quot;</span>${base}<span class="s">/lowlight_test_</span>${name}<span class="s">_</span>${stamp}<span class="s">&quot;</span></span>
+<span class="src-line" id="L770">}</span>
+<span class="src-line" id="L771"></span>
+<span class="src-line" id="L772"><span class="a">@test</span>(<span class="s">&quot;os system metadata: num_cpus, os_name, arch, and args&quot;</span>)</span>
+<span class="src-line" id="L773"><span class="k">bind</span> test_os_metadata = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L774">	<span class="f">assert</span>(<span class="f">num_cpus</span>() &gt;= <span class="n">1</span>, <span class="s">&quot;num_cpus &gt;= 1&quot;</span>)</span>
+<span class="src-line" id="L775">	<span class="k">let</span> os = <span class="f">os_name</span>()</span>
+<span class="src-line" id="L776">	<span class="f">assert</span>(os.<span class="f">len</span>() &gt; <span class="n">0</span>, <span class="s">&quot;os_name non-empty&quot;</span>)</span>
+<span class="src-line" id="L777">	<span class="k">let</span> a = <span class="f">arch</span>()</span>
+<span class="src-line" id="L778">	<span class="f">assert</span>(a.<span class="f">len</span>() &gt; <span class="n">0</span>, <span class="s">&quot;arch non-empty&quot;</span>)</span>
+<span class="src-line" id="L779"></span>
+<span class="src-line" id="L780">	<span class="k">let</span> cmd_args = <span class="f">args</span>()</span>
+<span class="src-line" id="L781">	<span class="f">assert</span>(cmd_args.<span class="f">len</span>() &gt;= <span class="n">1</span>, <span class="s">&quot;args contains at least argv[0]&quot;</span>)</span>
+<span class="src-line" id="L782">}</span>
+<span class="src-line" id="L783"></span>
+<span class="src-line" id="L784"><span class="a">@test</span>(<span class="s">&quot;os process execution: exec and ExitResult&quot;</span>)</span>
+<span class="src-line" id="L785"><span class="k">bind</span> test_os_exec = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L786">	<span class="k">let</span> res = <span class="f">exec</span>(<span class="s">&quot;echo hello_os_test&quot;</span>): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L787">	<span class="f">assert</span>(res.<span class="f">ok</span>(), <span class="s">&quot;exec ok&quot;</span>)</span>
+<span class="src-line" id="L788">	<span class="f">assert</span>(res.exit_code == <span class="n">0</span>, <span class="s">&quot;exit code 0&quot;</span>)</span>
+<span class="src-line" id="L789">	<span class="f">assert</span>(res.stdout.<span class="f">contains</span>(<span class="s">&quot;hello_os_test&quot;</span>), <span class="s">&quot;stdout contains expected string&quot;</span>)</span>
+<span class="src-line" id="L790">	<span class="f">assert</span>(<span class="k">not</span> res.<span class="f">signaled</span>(), <span class="s">&quot;no signal&quot;</span>)</span>
+<span class="src-line" id="L791"></span>
+<span class="src-line" id="L792">	<span class="k">let</span> exit9 = <span class="f">exec</span>(<span class="s">&quot;exit 9&quot;</span>): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L793">	<span class="f">assert</span>(exit9.exit_code == <span class="n">9</span> <span class="k">and</span> exit9.signal == <span class="n">0</span>, <span class="s">&quot;exit 9 is an exit code&quot;</span>)</span>
+<span class="src-line" id="L794">	<span class="k">let</span> killed = <span class="f">exec</span>(<span class="s">&quot;kill -9 \$\$&quot;</span>): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L795">	<span class="f">assert</span>(killed.exit_code == -<span class="n">1</span> <span class="k">and</span> killed.signal == <span class="n">9</span> <span class="k">and</span> killed.<span class="f">signaled</span>(), <span class="s">&quot;SIGKILL is a signal&quot;</span>)</span>
+<span class="src-line" id="L796">	<span class="f">assert</span>(<span class="k">not</span> killed.<span class="f">ok</span>(), <span class="s">&quot;a killed command is not ok&quot;</span>)</span>
+<span class="src-line" id="L797"></span>
+<span class="src-line" id="L798">	<span class="f">assert</span>(<span class="f">system_run</span>(<span class="s">&quot;exit 3&quot;</span>).<span class="f">unwrap</span>() == <span class="n">3</span>, <span class="s">&quot;system_run exit code&quot;</span>)</span>
+<span class="src-line" id="L799">	<span class="f">assert</span>(<span class="f">system_run</span>(<span class="s">&quot;kill -15 \$\$&quot;</span>).<span class="f">unwrap</span>() == -<span class="n">1</span>, <span class="s">&quot;system_run reports a signal as -1&quot;</span>)</span>
+<span class="src-line" id="L800">	<span class="k">let</span> st = <span class="f">system_run_status</span>(<span class="s">&quot;kill -15 \$\$&quot;</span>): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L801">	<span class="f">assert</span>(st.signal == <span class="n">15</span> <span class="k">and</span> st.exit_code == -<span class="n">1</span>, <span class="s">&quot;system_run_status reports SIGTERM&quot;</span>)</span>
+<span class="src-line" id="L802">	<span class="f">assert</span>(<span class="f">exec</span>(<span class="s">&quot;exit 127&quot;</span>).<span class="f">unwrap</span>().exit_code == <span class="n">127</span>, <span class="s">&quot;a failing command is a value, not an error&quot;</span>)</span>
+<span class="src-line" id="L803">	<span class="f">assert</span>(<span class="f">errno_name</span>(<span class="n">2</span>) == <span class="s">&quot;ENOENT&quot;</span> <span class="k">and</span> <span class="f">errno_name</span>(<span class="n">99999</span>) == <span class="s">&quot;E99999&quot;</span>, <span class="s">&quot;errno_name&quot;</span>)</span>
+<span class="src-line" id="L804">	<span class="k">let</span> e = <span class="f">error_from_errno</span>(<span class="n">13</span>, <span class="s">&quot;opening x&quot;</span>)</span>
+<span class="src-line" id="L805">	<span class="f">assert</span>(e.<span class="f">has_code</span>(<span class="s">&quot;EACCES&quot;</span>) <span class="k">and</span> e.<span class="f">message</span>() == <span class="s">&quot;opening x: Permission denied&quot;</span>, <span class="s">&quot;error_from_errno&quot;</span>)</span>
+<span class="src-line" id="L806">}</span>
+<span class="src-line" id="L807"></span>
+<span class="src-line" id="L808"><span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin): {</span>
+<span class="src-line" id="L809">	<span class="a">@test_only</span></span>
+<span class="src-line" id="L810">	<span class="k">extern</span> symlink <span class="k">as</span> _os_test_symlink: <span class="k">fn</span>(target: <span class="t">ptr</span>[<span class="t">u8</span>], linkpath: <span class="t">ptr</span>[<span class="t">u8</span>]) <span class="t">i32</span></span>
+<span class="src-line" id="L811">}</span>
+<span class="src-line" id="L812"></span>
+<span class="src-line" id="L813"><span class="a">@test_only</span></span>
+<span class="src-line" id="L814"><span class="k">bind</span> _test_symlink = <span class="k">fn</span>(target: <span class="t">string</span>, linkpath: <span class="t">string</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L815">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin): {</span>
+<span class="src-line" id="L816">		<span class="k">unsafe</span> (<span class="f">_os_test_symlink</span>(target.<span class="f">c_str</span>(), linkpath.<span class="f">c_str</span>()) == <span class="t">i32</span>(<span class="n">0</span>))</span>
+<span class="src-line" id="L817">	} <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L818">		<span class="k">let</span> sys_symlinkat = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): <span class="n">36</span> <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): <span class="n">266</span> <span class="k">else</span>: comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Linux architecture for symlinkat&quot;</span>)</span>
+<span class="src-line" id="L819">		<span class="k">unsafe</span> <span class="f">syscall</span>(</span>
+<span class="src-line" id="L820">			sys_symlinkat,</span>
+<span class="src-line" id="L821">			<span class="t">int</span>(<span class="f">ptr_addr</span>(target.<span class="f">c_str</span>())),</span>
+<span class="src-line" id="L822">			-<span class="n">100</span>,</span>
+<span class="src-line" id="L823">			<span class="t">int</span>(<span class="f">ptr_addr</span>(linkpath.<span class="f">c_str</span>())),</span>
+<span class="src-line" id="L824">			<span class="n">0</span>,</span>
+<span class="src-line" id="L825">			<span class="n">0</span>,</span>
+<span class="src-line" id="L826">			<span class="n">0</span>,</span>
+<span class="src-line" id="L827">		) == <span class="n">0</span></span>
+<span class="src-line" id="L828">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L829">		<span class="k">let</span> _ = target.<span class="f">len</span>() + linkpath.<span class="f">len</span>()</span>
+<span class="src-line" id="L830">		<span class="c">false</span></span>
+<span class="src-line" id="L831">	}</span>
+<span class="src-line" id="L832">}</span>
+<span class="src-line" id="L833"></span>
+<span class="src-line" id="L834"><span class="a">@test</span>(<span class="s">&quot;os directory operations: mkdir_p, file_exists, remove_all&quot;</span>)</span>
+<span class="src-line" id="L835"><span class="k">bind</span> test_os_filesystem = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L836">	<span class="k">let</span> base = <span class="f">_test_tmp_path</span>(<span class="s">&quot;os_dir&quot;</span>)</span>
+<span class="src-line" id="L837">	<span class="k">let</span> nested = <span class="s">&quot;</span>${base}<span class="s">/sub1/sub2&quot;</span></span>
+<span class="src-line" id="L838"></span>
+<span class="src-line" id="L839">	<span class="k">let</span> _ = <span class="f">remove_all</span>(base)</span>
+<span class="src-line" id="L840">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">file_exists</span>(nested), <span class="s">&quot;nested does not exist before mkdir_p&quot;</span>)</span>
+<span class="src-line" id="L841"></span>
+<span class="src-line" id="L842">	<span class="f">mkdir_p</span>(nested): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L843">	<span class="f">assert</span>(<span class="f">file_exists</span>(nested), <span class="s">&quot;nested exists after mkdir_p&quot;</span>)</span>
+<span class="src-line" id="L844">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(nested).<span class="f">is_ok</span>(), <span class="s">&quot;mkdir_p on existing dir is idempotent&quot;</span>)</span>
+<span class="src-line" id="L845">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(<span class="s">&quot;</span>${base}<span class="s">/trailing/&quot;</span>).<span class="f">is_ok</span>(), <span class="s">&quot;mkdir_p handles trailing slash&quot;</span>)</span>
+<span class="src-line" id="L846">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(<span class="s">&quot;&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;mkdir_p rejects empty path&quot;</span>)</span>
+<span class="src-line" id="L847"></span>
+<span class="src-line" id="L848">	<span class="k">let</span> seen = <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L849">	<span class="f">mkdir</span>(nested):</span>
+<span class="src-line" id="L850">		<span class="k">when</span> <span class="f">exists</span>(_): seen = <span class="s">&quot;exists&quot;</span></span>
+<span class="src-line" id="L851">		<span class="k">default</span> <span class="f">err</span>(_): seen = <span class="s">&quot;err&quot;</span></span>
+<span class="src-line" id="L852">	<span class="f">assert</span>(seen == <span class="s">&quot;exists&quot;</span>, <span class="s">&quot;mkdir on an existing directory is `exists`&quot;</span>)</span>
+<span class="src-line" id="L853">	<span class="f">mkdir</span>(<span class="s">&quot;</span>${base}<span class="s">/missing_parent/child&quot;</span>):</span>
+<span class="src-line" id="L854">		<span class="k">when</span> <span class="f">exists</span>(_): seen = <span class="s">&quot;exists&quot;</span></span>
+<span class="src-line" id="L855">		<span class="k">default</span> <span class="f">err</span>(e): seen = e.<span class="f">message</span>()</span>
+<span class="src-line" id="L856">	<span class="f">assert</span>(</span>
+<span class="src-line" id="L857">		seen.<span class="f">contains</span>(<span class="s">&quot;No such file or directory&quot;</span>),</span>
+<span class="src-line" id="L858">		<span class="s">&quot;mkdir under a missing parent is `err` with the OS message&quot;</span>,</span>
+<span class="src-line" id="L859">	)</span>
+<span class="src-line" id="L860"></span>
+<span class="src-line" id="L861">	<span class="k">let</span> reg = <span class="s">&quot;</span>${base}<span class="s">/reg_file.txt&quot;</span></span>
+<span class="src-line" id="L862">	<span class="f">assert</span>(<span class="f">core_write_file</span>(reg, <span class="s">&quot;&quot;</span>), <span class="s">&quot;create regular file succeeds&quot;</span>)</span>
+<span class="src-line" id="L863">	<span class="f">assert</span>(<span class="f">file_exists</span>(reg), <span class="s">&quot;regular file exists&quot;</span>)</span>
+<span class="src-line" id="L864">	<span class="f">assert</span>(</span>
+<span class="src-line" id="L865">		<span class="f">mkdir_p</span>(reg).<span class="f">peek_err</span>()?.<span class="f">message</span>().<span class="f">contains</span>(<span class="s">&quot;is not a directory&quot;</span>) ?? <span class="c">false</span>,</span>
+<span class="src-line" id="L866">		<span class="s">&quot;mkdir_p fails when target is regular file&quot;</span>,</span>
+<span class="src-line" id="L867">	)</span>
+<span class="src-line" id="L868">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(<span class="s">&quot;</span>${reg}<span class="s">/&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;mkdir_p fails when target is regular file with trailing slash&quot;</span>)</span>
+<span class="src-line" id="L869">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(<span class="s">&quot;</span>${reg}<span class="s">/child/dir&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;mkdir_p fails when ancestor is regular file&quot;</span>)</span>
+<span class="src-line" id="L870"></span>
+<span class="src-line" id="L871">	<span class="m">// Deep nesting + symlinks: remove_all removes links without following them into external dirs.</span></span>
+<span class="src-line" id="L872">	<span class="k">let</span> deep = <span class="s">&quot;</span>${base}<span class="s">/deep&quot;</span></span>
+<span class="src-line" id="L873">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">25</span>): deep = <span class="s">&quot;</span>${deep}<span class="s">/d</span>${i}<span class="s">&quot;</span></span>
+<span class="src-line" id="L874">	<span class="f">mkdir_p</span>(deep): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L875">	<span class="f">assert</span>(<span class="f">core_write_file</span>(<span class="s">&quot;</span>${deep}<span class="s">/leaf.txt&quot;</span>, <span class="s">&quot;leaf&quot;</span>), <span class="s">&quot;create deep leaf file&quot;</span>)</span>
+<span class="src-line" id="L876"></span>
+<span class="src-line" id="L877">	<span class="k">let</span> keep_dir = <span class="f">_test_tmp_path</span>(<span class="s">&quot;os_keep_sym&quot;</span>)</span>
+<span class="src-line" id="L878">	<span class="k">let</span> _ = <span class="f">remove_all</span>(keep_dir)</span>
+<span class="src-line" id="L879">	<span class="f">mkdir_p</span>(keep_dir): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L880">	<span class="k">let</span> keep_file = <span class="s">&quot;</span>${keep_dir}<span class="s">/important.txt&quot;</span></span>
+<span class="src-line" id="L881">	<span class="f">assert</span>(<span class="f">core_write_file</span>(keep_file, <span class="s">&quot;safe&quot;</span>), <span class="s">&quot;create keep target file&quot;</span>)</span>
+<span class="src-line" id="L882">	<span class="f">assert</span>(<span class="f">_test_symlink</span>(keep_dir, <span class="s">&quot;</span>${base}<span class="s">/dir_link&quot;</span>), <span class="s">&quot;create symlink to external dir&quot;</span>)</span>
+<span class="src-line" id="L883">	<span class="f">assert</span>(<span class="f">_test_symlink</span>(<span class="s">&quot;missing_target_entry&quot;</span>, <span class="s">&quot;</span>${base}<span class="s">/dangling_link&quot;</span>), <span class="s">&quot;create dangling symlink&quot;</span>)</span>
+<span class="src-line" id="L884"></span>
+<span class="src-line" id="L885">	<span class="f">assert</span>(<span class="f">remove_all</span>(<span class="s">&quot;&quot;</span>).<span class="f">is_err</span>() <span class="k">and</span> <span class="f">remove_all</span>(<span class="s">&quot;/&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;remove_all refuses empty and root paths&quot;</span>)</span>
+<span class="src-line" id="L886">	<span class="f">remove_all</span>(<span class="s">&quot;</span>${base}<span class="s">/&quot;</span>): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L887">	<span class="f">assert</span>(<span class="f">remove_all</span>(base).<span class="f">is_ok</span>(), <span class="s">&quot;remove_all on a missing path succeeds&quot;</span>)</span>
+<span class="src-line" id="L888">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">file_exists</span>(base), <span class="s">&quot;base does not exist after remove_all&quot;</span>)</span>
+<span class="src-line" id="L889">	<span class="f">assert</span>(<span class="f">core_read_file</span>(keep_file) == <span class="s">&quot;safe&quot;</span>, <span class="s">&quot;remove_all did not follow symlink into keep_dir&quot;</span>)</span>
+<span class="src-line" id="L890">	<span class="f">remove_all</span>(keep_dir): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L891">}</span>
+<span class="src-line" id="L892"></span>
+<span class="src-line" id="L893"><span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin): {</span>
+<span class="src-line" id="L894">	<span class="a">@test_only</span></span>
+<span class="src-line" id="L895">	<span class="k">extern</span> chmod <span class="k">as</span> _os_test_chmod: <span class="k">fn</span>(path: <span class="t">ptr</span>[<span class="t">u8</span>], mode: <span class="t">i32</span>) <span class="t">i32</span></span>
+<span class="src-line" id="L896">}</span>
+<span class="src-line" id="L897"></span>
+<span class="src-line" id="L898"><span class="a">@test_only</span></span>
+<span class="src-line" id="L899"><span class="k">bind</span> _test_chmod = <span class="k">fn</span>(path: <span class="t">string</span>, mode: <span class="t">int</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L900">	<span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.darwin): {</span>
+<span class="src-line" id="L901">		<span class="k">unsafe</span> (<span class="f">_os_test_chmod</span>(path.<span class="f">c_str</span>(), <span class="t">i32</span>(mode)) == <span class="t">i32</span>(<span class="n">0</span>))</span>
+<span class="src-line" id="L902">	} <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.os == comp.<span class="t">TargetOs</span>.linux): {</span>
+<span class="src-line" id="L903">		<span class="k">let</span> sys_fchmodat = <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.arm64): <span class="n">53</span> <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.<span class="t">TARGET</span>.arch == comp.<span class="t">TargetArch</span>.amd64): <span class="n">268</span> <span class="k">else</span>: comp.<span class="f">compile_error</span>(<span class="s">&quot;std/os: unsupported Linux architecture for fchmodat&quot;</span>)</span>
+<span class="src-line" id="L904">		<span class="k">unsafe</span> <span class="f">syscall</span>(sys_fchmodat, -<span class="n">100</span>, <span class="t">int</span>(<span class="f">ptr_addr</span>(path.<span class="f">c_str</span>())), mode, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>) == <span class="n">0</span></span>
+<span class="src-line" id="L905">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L906">		<span class="k">let</span> _ = path.<span class="f">len</span>() + mode</span>
+<span class="src-line" id="L907">		<span class="c">false</span></span>
+<span class="src-line" id="L908">	}</span>
+<span class="src-line" id="L909">}</span>
+<span class="src-line" id="L910"></span>
+<span class="src-line" id="L911"><span class="a">@test</span>(<span class="s">&quot;os removes symlinks with trailing slash safely, rejects dot/NUL paths, and handles chmod 000&quot;</span>)</span>
+<span class="src-line" id="L912"><span class="k">bind</span> test_os_safety_and_chmod000 = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L913">	<span class="k">let</span> nul_path = <span class="s">&quot;prefix&quot;</span></span>
+<span class="src-line" id="L914">	nul_path.<span class="f">push_byte</span>(<span class="t">u8</span>(<span class="n">0</span>))</span>
+<span class="src-line" id="L915">	nul_path.<span class="f">push</span>(<span class="s">&quot;suffix&quot;</span>)</span>
+<span class="src-line" id="L916">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">file_exists</span>(nul_path), <span class="s">&quot;file_exists rejects interior NUL&quot;</span>)</span>
+<span class="src-line" id="L917">	<span class="k">let</span> mk_nul_einval = <span class="c">false</span></span>
+<span class="src-line" id="L918">	<span class="f">mkdir</span>(nul_path):</span>
+<span class="src-line" id="L919">		<span class="k">when</span> <span class="f">err</span>(e): mk_nul_einval = e.<span class="f">has_code</span>(<span class="s">&quot;EINVAL&quot;</span>)</span>
+<span class="src-line" id="L920">		<span class="k">default</span>: {}</span>
+<span class="src-line" id="L921">	<span class="f">assert</span>(mk_nul_einval, <span class="s">&quot;mkdir rejects interior NUL with EINVAL&quot;</span>)</span>
+<span class="src-line" id="L922">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(nul_path).<span class="f">is_err</span>(), <span class="s">&quot;mkdir_p rejects interior NUL&quot;</span>)</span>
+<span class="src-line" id="L923">	<span class="f">assert</span>(<span class="f">remove_all</span>(nul_path).<span class="f">is_err</span>(), <span class="s">&quot;remove_all rejects interior NUL&quot;</span>)</span>
+<span class="src-line" id="L924">	<span class="f">assert</span>(<span class="f">exec</span>(nul_path).<span class="f">is_err</span>(), <span class="s">&quot;exec rejects interior NUL&quot;</span>)</span>
+<span class="src-line" id="L925">	<span class="f">assert</span>(<span class="f">system_run</span>(nul_path).<span class="f">is_err</span>(), <span class="s">&quot;system_run rejects interior NUL&quot;</span>)</span>
+<span class="src-line" id="L926">	<span class="f">assert</span>(<span class="f">system_run_status</span>(nul_path).<span class="f">is_err</span>(), <span class="s">&quot;system_run_status rejects interior NUL&quot;</span>)</span>
+<span class="src-line" id="L927"></span>
+<span class="src-line" id="L928">	<span class="f">assert</span>(<span class="f">remove_all</span>(<span class="s">&quot;//&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;remove_all refuses //&quot;</span>)</span>
+<span class="src-line" id="L929">	<span class="f">assert</span>(<span class="f">remove_all</span>(<span class="s">&quot;.&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;remove_all refuses .&quot;</span>)</span>
+<span class="src-line" id="L930">	<span class="f">assert</span>(<span class="f">remove_all</span>(<span class="s">&quot;..&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;remove_all refuses ..&quot;</span>)</span>
+<span class="src-line" id="L931">	<span class="f">assert</span>(<span class="f">remove_all</span>(<span class="s">&quot;foo/.&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;remove_all refuses foo/.&quot;</span>)</span>
+<span class="src-line" id="L932">	<span class="f">assert</span>(<span class="f">remove_all</span>(<span class="s">&quot;foo/..&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;remove_all refuses foo/..&quot;</span>)</span>
+<span class="src-line" id="L933">	<span class="f">assert</span>(<span class="f">remove_all</span>(<span class="s">&quot;foo/./&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;remove_all refuses foo/./&quot;</span>)</span>
+<span class="src-line" id="L934"></span>
+<span class="src-line" id="L935">	<span class="k">let</span> target_dir = <span class="f">_test_tmp_path</span>(<span class="s">&quot;os_sym_target&quot;</span>)</span>
+<span class="src-line" id="L936">	<span class="k">let</span> link_dir = <span class="f">_test_tmp_path</span>(<span class="s">&quot;os_sym_link&quot;</span>)</span>
+<span class="src-line" id="L937">	<span class="k">let</span> _ = <span class="f">remove_all</span>(target_dir)</span>
+<span class="src-line" id="L938">	<span class="k">let</span> _ = <span class="f">remove_all</span>(link_dir)</span>
+<span class="src-line" id="L939">	<span class="f">mkdir_p</span>(target_dir): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L940">	<span class="k">let</span> target_file = <span class="s">&quot;</span>$target_dir<span class="s">/preserve.txt&quot;</span></span>
+<span class="src-line" id="L941">	<span class="f">assert</span>(<span class="f">core_write_file</span>(target_file, <span class="s">&quot;keepme&quot;</span>), <span class="s">&quot;create target file&quot;</span>)</span>
+<span class="src-line" id="L942">	<span class="f">assert</span>(<span class="f">_test_symlink</span>(target_dir, link_dir), <span class="s">&quot;create symlink to directory&quot;</span>)</span>
+<span class="src-line" id="L943">	<span class="m">// Removing with trailing slash must unlink the symlink itself and leave target_dir untouched.</span></span>
+<span class="src-line" id="L944">	<span class="f">remove_all</span>(<span class="s">&quot;</span>${link_dir}<span class="s">/&quot;</span>): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L945">	<span class="f">assert</span>(<span class="f">core_read_file</span>(target_file) == <span class="s">&quot;keepme&quot;</span>, <span class="s">&quot;symlink target contents preserved&quot;</span>)</span>
+<span class="src-line" id="L946">	<span class="f">remove_all</span>(target_dir): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L947"></span>
+<span class="src-line" id="L948">	<span class="k">let</span> locked = <span class="f">_test_tmp_path</span>(<span class="s">&quot;os_locked_dir&quot;</span>)</span>
+<span class="src-line" id="L949">	<span class="k">let</span> _ = <span class="f">_test_chmod</span>(locked, <span class="n">493</span>)</span>
+<span class="src-line" id="L950">	<span class="k">let</span> _ = <span class="f">remove_all</span>(locked)</span>
+<span class="src-line" id="L951">	<span class="f">mkdir_p</span>(locked): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L952">	<span class="f">assert</span>(<span class="f">_test_chmod</span>(locked, <span class="n">0</span>), <span class="s">&quot;chmod 000 succeeds&quot;</span>)</span>
+<span class="src-line" id="L953">	<span class="f">assert</span>(<span class="f">mkdir_p</span>(locked).<span class="f">is_ok</span>(), <span class="s">&quot;mkdir_p on existing chmod 000 dir succeeds&quot;</span>)</span>
+<span class="src-line" id="L954">	<span class="k">let</span> child_res! = <span class="f">mkdir_p</span>(<span class="s">&quot;</span>${locked}<span class="s">/child&quot;</span>)</span>
+<span class="src-line" id="L955">	<span class="f">assert</span>(child_res!.<span class="f">is_err</span>(), <span class="s">&quot;mkdir_p under chmod 000 dir fails&quot;</span>)</span>
+<span class="src-line" id="L956">	<span class="k">let</span> child_msg = child_res!.<span class="f">peek_err</span>()?.<span class="f">message</span>() ?? <span class="s">&quot;&quot;</span></span>
+<span class="src-line" id="L957">	<span class="f">assert</span>(</span>
+<span class="src-line" id="L958">		<span class="k">not</span> child_msg.<span class="f">contains</span>(<span class="s">&quot;is not a directory&quot;</span>),</span>
+<span class="src-line" id="L959">		<span class="s">&quot;mkdir_p under chmod 000 dir should not claim it is not a directory: </span>$child_msg<span class="s">&quot;</span>,</span>
+<span class="src-line" id="L960">	)</span>
+<span class="src-line" id="L961">	<span class="f">assert</span>(<span class="f">_test_chmod</span>(locked, <span class="n">493</span>), <span class="s">&quot;restore permissions on locked dir&quot;</span>)</span>
+<span class="src-line" id="L962">	<span class="f">remove_all</span>(locked): <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L963">}</span>
+<span class="src-line" id="L964"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../collections.html">std/collections</a><a href="../core.html">std/core</a><a href="../derive.html">std/derive</a><a href="../fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../../search-index.js"></script>
 <script src="../../assets/site.js"></script>
 </body>

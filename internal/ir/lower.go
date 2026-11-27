@@ -976,9 +976,25 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 
 	// Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`)
 	fi := fl.info(s.Target).OpMethod
-	if fi == nil {
+	if fi == nil || (len(fi.Sig.Params) > 0 && fi.Sig.Params[0].Mode != types.ModeMut) {
 		if dstPlace, ok := fl.lowerPackedDirectPlace(s.Target); ok {
 			rhsExpr := fl.lowerExprRead(s.Value)
+			if fi != nil {
+				ref := &ExprFuncRef{Name: fi.CName, TargetFunc: fi, FuncType: fi.Sig}
+				rhs := EnsureExpr(rhsExpr, targetTy)
+				val := fl.allocSlot("_ll_opval", targetTy)
+				fl.assignLocal(val, &ExprCall{Callee: ref, Args: []Expr{dstPlace, rhs}, Typ: targetTy})
+				if !targetTy.IsPlain() {
+					tmpDrop := fl.allocSlot("_ll_opdrop", targetTy)
+					fl.assignLocal(tmpDrop, dstPlace)
+					fl.emit(&InstrAssign{Dst: dstPlace, Expr: NewLocalExpr(val)})
+					fl.emit(&InstrExpr{Expr: &ExprDrop{Ptr: &ExprAddrOf{Place: NewLocalExpr(tmpDrop), Typ: &types.Ptr{Elem: targetTy}}, ValType: targetTy}})
+				} else {
+					fl.emit(&InstrAssign{Dst: dstPlace, Expr: NewLocalExpr(val)})
+				}
+				fl.flushStmtTemps()
+				return
+			}
 			file, line := formatSpanLoc(s.Target)
 			binOp := compoundAssignBinOp(s.Op)
 			fl.emit(&InstrAssign{
@@ -1115,7 +1131,8 @@ func (fl *funcLowerer) involvesPackedStruct(e ast.Expr) bool {
 			if inf == nil || inf.IsOptChain || inf.EnumVariant != nil {
 				return false
 			}
-			bInf := fl.info(v.Base)
+			mBase := fl.resolvedMemberBase(v)
+			bInf := fl.info(mBase)
 			if bInf == nil || bInf.Type == nil {
 				return false
 			}
@@ -1134,7 +1151,7 @@ func (fl *funcLowerer) involvesPackedStruct(e ast.Expr) bool {
 			if baseIsPtr {
 				return false
 			}
-			cur = v.Base
+			cur = mBase
 		case *ast.CallExpr:
 			cInf := fl.info(v)
 			if cInf == nil || cInf.IsOptChain || cInf.MethodRecv == nil ||
@@ -1184,6 +1201,36 @@ func (fl *funcLowerer) lowerPackedDirectPlace(target ast.Expr) (Expr, bool) {
 	return fl.buildPackedDirectPlace(target)
 }
 
+func (fl *funcLowerer) resolvedMemberBase(m *ast.MemberExpr) ast.Expr {
+	if m != nil {
+		if inf := fl.info(m); inf != nil && inf.ResolvedBase != nil {
+			return inf.ResolvedBase
+		}
+		return m.Base
+	}
+	return nil
+}
+
+func (fl *funcLowerer) resolvedMemberName(m *ast.MemberExpr) string {
+	if m != nil {
+		if inf := fl.info(m); inf != nil && inf.ResolvedField != "" {
+			return inf.ResolvedField
+		}
+		return m.Member
+	}
+	return ""
+}
+
+func (fl *funcLowerer) resolvedCallee(call *ast.CallExpr) ast.Expr {
+	if call != nil {
+		if inf := fl.info(call); inf != nil && inf.ResolvedCallee != nil {
+			return inf.ResolvedCallee
+		}
+		return call.Callee
+	}
+	return nil
+}
+
 func (fl *funcLowerer) buildPackedDirectPlace(expr ast.Expr) (Expr, bool) {
 	cur := fl.unwrapASTWrappers(expr)
 	switch v := cur.(type) {
@@ -1213,7 +1260,9 @@ func (fl *funcLowerer) buildPackedDirectPlace(expr ast.Expr) (Expr, bool) {
 		if inf == nil || inf.IsOptChain || inf.EnumVariant != nil {
 			return nil, false
 		}
-		bInf := fl.info(v.Base)
+		mBase := fl.resolvedMemberBase(v)
+		mName := fl.resolvedMemberName(v)
+		bInf := fl.info(mBase)
 		if bInf == nil || bInf.Type == nil {
 			return nil, false
 		}
@@ -1232,27 +1281,27 @@ func (fl *funcLowerer) buildPackedDirectPlace(expr ast.Expr) (Expr, bool) {
 		if st == nil {
 			return nil, false
 		}
-		sf, fIdx := st.FieldByName(v.Member)
+		sf, fIdx := st.FieldByName(mName)
 		if sf == nil {
 			return nil, false
 		}
 		if isPtr {
-			rawPtr := fl.lowerExprRead(v.Base)
+			rawPtr := fl.lowerExprRead(mBase)
 			ptrSlot := fl.allocSlot("_ll_pb", bInf.Type)
 			fl.assignLocal(ptrSlot, rawPtr)
 			return &ExprField{Base: NewLocalExpr(ptrSlot), FieldName: sf.CName, FieldIdx: fIdx, Typ: sf.Type, IsPtr: true}, true
 		}
 		var basePlace Expr
 		baseIsPtr := false
-		if !fl.involvesPackedStruct(v.Base) {
-			bPtr := fl.lowerLValueAddrMut(v.Base)
+		if !fl.involvesPackedStruct(mBase) {
+			bPtr := fl.lowerLValueAddrMut(mBase)
 			ptrSlot := fl.allocSlot("_ll_pb", bPtr.Type())
 			fl.assignLocal(ptrSlot, bPtr)
 			basePlace = NewLocalExpr(ptrSlot)
 			baseIsPtr = true
 		} else {
 			var ok bool
-			basePlace, ok = fl.buildPackedDirectPlace(v.Base)
+			basePlace, ok = fl.buildPackedDirectPlace(mBase)
 			if !ok {
 				return nil, false
 			}

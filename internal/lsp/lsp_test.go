@@ -2626,6 +2626,29 @@ bind test_ns = fn(): {
 	}
 
 	// Code action on undocumented `const LIMIT_VAL` offers Add doc comment; semanticTokens marks `const` readonly.
+	var constSemToks lsp.SemanticTokens
+	h.request("textDocument/semanticTokens/full", lsp.SemanticTokensParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+	}, &constSemToks)
+	// Find `LIMIT_VAL` on line 1 (`const LIMIT_VAL: int = 10` inside `srcAttr`, lines 0='@', 1='const LIMIT_VAL...').
+	foundReadonlyConst := false
+	line, char := 0, 0
+	for i := 0; i+4 < len(constSemToks.Data); i += 5 {
+		dl, ds, ln, _, mods := int(constSemToks.Data[i]), int(constSemToks.Data[i+1]), int(constSemToks.Data[i+2]), constSemToks.Data[i+3], constSemToks.Data[i+4]
+		if dl > 0 {
+			line += dl
+			char = ds
+		} else {
+			char += ds
+		}
+		if line == 1 && char == len("const ") && ln == len("LIMIT_VAL") && (mods&(1<<2)) != 0 {
+			foundReadonlyConst = true
+			break
+		}
+	}
+	if !foundReadonlyConst {
+		t.Errorf("expected semanticTokens to mark `const LIMIT_VAL` readonly, got tokens=%+v", constSemToks.Data)
+	}
 	var actions []lsp.CodeAction
 	h.request("textDocument/codeAction", lsp.CodeActionParams{
 		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
@@ -2643,4 +2666,286 @@ bind test_ns = fn(): {
 
 	h.request("shutdown", nil, nil)
 	h.notify("exit", nil)
+}
+
+func TestPhase7ComptimeHoverCompletionExpandAndTargetSwitcher(t *testing.T) {
+	h := newHarness(t)
+	wsDir := t.TempDir()
+	var initRes lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{
+		RootURI: lsp.PathToURI(wsDir),
+		InitializationOptions: mustJSONRaw(t, map[string]any{
+			"lowlight": map[string]any{
+				"target": "aarch64-apple-darwin",
+			},
+		}),
+	}, &initRes)
+	h.notify("initialized", struct{}{})
+
+	// Check new Phase 7 commands are registered.
+	hasSetTarget, hasExpandDoc := false, false
+	if initRes.Capabilities.ExecuteCommandProvider != nil {
+		for _, cmd := range initRes.Capabilities.ExecuteCommandProvider.Commands {
+			if cmd == "lowlight.setTarget" {
+				hasSetTarget = true
+			}
+			if cmd == "lowlight.expandDocument" {
+				hasExpandDoc = true
+			}
+		}
+	}
+	if !hasSetTarget || !hasExpandDoc {
+		t.Fatalf("expected lowlight.setTarget and lowlight.expandDocument commands advertised, got: %+v", initRes.Capabilities.ExecuteCommandProvider)
+	}
+
+	filePath := filepath.Join(wsDir, "phase7.ll")
+	uri := lsp.PathToURI(filePath)
+	src := `@derive(Equatable, Printable)
+define Vec2 struct [
+	x: int,
+	y: int,
+]
+
+const c_square = fn(n: int) int: n * n
+bind r_print_sum = fn(n: int) int: {
+	println(n)
+	n
+}
+@comptime_only
+const ct_double = fn(n: int) int: n * 2
+
+const TOTAL_SQ = c_square(6)
+@comptime_only
+const ARCH_NOW = comp.TARGET.arch
+
+bind main = fn(): {
+	let v = comptime ct_double(9)
+	let sz = type.size_of[Vec2]()
+	let rhs = comptime c_square(3)
+	let p = Vec2[x: 1, y: 2]
+	println(p.to_string())
+	println(v + sz + rhs)
+}
+`
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: uri, LanguageID: "lowlight", Version: 1, Text: src},
+	})
+	diags := h.waitDiagnostics(uri)
+	for _, d := range diags {
+		if d.Severity == 1 {
+			t.Fatalf("unexpected diagnostic error in phase7.ll: %+v", d)
+		}
+	}
+
+	// 1. Evaluated-value hover on top-level `const` decl, `comptime` expr, and `type.size_of` call.
+	hoverAt := func(needle string, delta int) string {
+		idx := strings.Index(src, needle)
+		if idx < 0 {
+			t.Fatalf("missing %q in src", needle)
+		}
+		var hv *lsp.Hover
+		h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+			TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+			Position:     lsp.OffsetToLSP(src, idx+delta),
+		}, &hv)
+		if hv == nil {
+			t.Fatalf("expected non-nil hover for %q", needle)
+		}
+		return hv.Contents.Value
+	}
+	if hv := hoverAt("TOTAL_SQ = ", 1); !strings.Contains(hv, "36") {
+		t.Errorf("expected evaluated value 36 in TOTAL_SQ hover, got:\n%s", hv)
+	}
+	if hv := hoverAt("ARCH_NOW = ", 1); !strings.Contains(hv, "TargetArch.arm64") {
+		t.Errorf("expected TargetArch.arm64 in ARCH_NOW hover for aarch64-apple-darwin, got:\n%s", hv)
+	}
+	if hv := hoverAt("ct_double(9)", 1); !strings.Contains(hv, "18") || !strings.Contains(hv, "@comptime_only") {
+		t.Errorf("expected evaluated value 18 + @comptime_only in comptime call hover, got:\n%s", hv)
+	}
+	if hv := hoverAt("size_of[Vec2]()", 1); !strings.Contains(hv, "16") {
+		t.Errorf("expected evaluated size_of 16 in hover, got:\n%s", hv)
+	}
+
+	// 2. `@derive` hover includes attribute docs + synthesized method preview (`const Vec2.eq`, `const Vec2.to_string`).
+	if hv := hoverAt("derive(Equatable", 1); !strings.Contains(hv, "@derive") || !strings.Contains(hv, "const Vec2.eq") || !strings.Contains(hv, "const Vec2.to_string") {
+		t.Errorf("expected `@derive` hover to include derived method preview, got:\n%s", hv)
+	}
+
+	// 3. `lowlight/expandDocument` custom request returns expanded source with @derive methods and folded comptime.
+	var expRes lsp.ExpandDocumentResult
+	h.request("lowlight/expandDocument", lsp.ExpandDocumentParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+	}, &expRes)
+	if expRes.Target != "aarch64-apple-darwin" || !strings.Contains(expRes.Text, "const Vec2.eq") || !strings.Contains(expRes.Text, "18") {
+		t.Fatalf("unexpected lowlight/expandDocument result: %+v", expRes)
+	}
+
+	// 4. Target switcher (`lowlight.setTarget`) updates analysis & hover synchronously!
+	var setRes map[string]any
+	h.request("workspace/executeCommand", lsp.ExecuteCommandParams{
+		Command:   "lowlight.setTarget",
+		Arguments: []json.RawMessage{json.RawMessage(`"x86_64-unknown-linux-gnu"`)},
+	}, &setRes)
+	if setRes["target"] != "x86_64-unknown-linux-gnu" || setRes["changed"] != true {
+		t.Fatalf("unexpected setTarget response: %+v", setRes)
+	}
+	if hv := hoverAt("ARCH_NOW = ", 1); !strings.Contains(hv, "TargetArch.amd64") {
+		t.Errorf("expected TargetArch.amd64 after switching target to x86_64-unknown-linux-gnu, got:\n%s", hv)
+	}
+
+	// 5. Top-level completion offers `const` / `comptime`; `const` context ranks `const`-callable before runtime-only!
+	srcComplete := `const c_square = fn(n: int) int: n * n
+bind r_print_sum = fn(n: int) int: {
+	println(n)
+	n
+}
+@comptime_only
+const ct_double = fn(n: int) int: n * 2
+
+const NEW_RES = 
+`
+	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
+		TextDocument:   lsp.VersionedTextDocumentIdentifier{URI: uri, Version: 2},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: srcComplete}},
+	})
+	_ = h.waitDiagnostics(uri)
+
+	var topComp lsp.CompletionList
+	h.request("textDocument/completion", lsp.CompletionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(srcComplete, 0),
+	}, &topComp)
+	foundConstKw, foundComptimeKw := false, false
+	for _, it := range topComp.Items {
+		if it.Label == "const" {
+			foundConstKw = true
+		}
+		if it.Label == "comptime" {
+			foundComptimeKw = true
+		}
+	}
+	if !foundConstKw || !foundComptimeKw {
+		t.Errorf("expected top-level completions to include `const` (%v) and `comptime` (%v)", foundConstKw, foundComptimeKw)
+	}
+
+	rhsPos := lsp.OffsetToLSP(srcComplete, strings.Index(srcComplete, "NEW_RES = ")+len("NEW_RES = "))
+	var rhsComp lsp.CompletionList
+	h.request("textDocument/completion", lsp.CompletionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     rhsPos,
+	}, &rhsComp)
+	idxC, idxCt, idxR := -1, -1, -1
+	var detailC, detailCt, detailR string
+	for i, it := range rhsComp.Items {
+		switch it.Label {
+		case "c_square":
+			idxC, detailC = i, it.Detail
+		case "ct_double":
+			idxCt, detailCt = i, it.Detail
+		case "r_print_sum":
+			idxR, detailR = i, it.Detail
+		}
+	}
+	if idxC < 0 || idxCt < 0 || idxR < 0 {
+		t.Fatalf("missing completion items in const RHS: c_square=%d ct_double=%d r_print_sum=%d", idxC, idxCt, idxR)
+	}
+	if idxC > idxR || idxCt > idxR {
+		t.Errorf("expected const/comptime_only symbols to rank BEFORE runtime-only in `const` RHS: idxC=%d idxCt=%d idxR=%d", idxC, idxCt, idxR)
+	}
+	if !strings.Contains(detailC, "[const]") || !strings.Contains(detailCt, "[@comptime_only]") || !strings.Contains(detailR, "[runtime-only]") {
+		t.Errorf("expected constness badges in const-context completion details: c=%q ct=%q r=%q", detailC, detailCt, detailR)
+	}
+
+	h.request("shutdown", nil, nil)
+	h.notify("exit", nil)
+}
+
+func TestPhase7CustomDerivableAndExactBuiltinLookupAndURIToPath(t *testing.T) {
+	if got := lsp.URIToPath("file:///tmp/my%20proj/foo%25bar.ll"); got != "/tmp/my proj/foo%bar.ll" {
+		t.Fatalf("expected single-unescaped path, got %q", got)
+	}
+	if bf := lsp.LookupBuiltinFunc("error"); bf != nil {
+		t.Fatalf("expected exact LookupBuiltinFunc(\"error\") to be nil, got %+v", bf)
+	}
+	if bf := lsp.LookupBuiltinFunc("comp.kind_of"); bf == nil {
+		t.Fatalf("expected LookupBuiltinFunc(\"comp.kind_of\") to resolve")
+	}
+
+	h := newHarness(t)
+	tmp := t.TempDir()
+	src := `bind default_tag[T] = fn(v: T) string: comp.type_name[T]()
+
+@derivable(tag: default_tag)
+define Taggable interface [
+	bind tag(self) string
+]
+
+@derive(Equatable, Taggable)
+define Box struct [
+	n: int,
+]
+
+bind error = fn(msg: string): println(msg)
+
+bind main = fn(): {
+	error("hi")
+}
+`
+	p := filepath.Join(tmp, "derivable.ll")
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	uri := lsp.PathToURI(p)
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: uri, LanguageID: "lowlight", Version: 1, Text: src},
+	})
+	_ = h.waitDiagnostics(uri)
+
+	// Custom `@derivable` interface appears in `@derive(...)` hover and completions.
+	idxTag := strings.Index(src, "Taggable)")
+	var hv *lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, idxTag+2),
+	}, &hv)
+	if hv == nil || !strings.Contains(hv.Contents.Value, "Taggable") {
+		t.Fatalf("expected custom @derivable interface Taggable hover, got %#v", hv)
+	}
+	var compRes lsp.CompletionList
+	h.request("textDocument/completion", lsp.CompletionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, idxTag),
+	}, &compRes)
+	foundTaggable := false
+	for _, it := range compRes.Items {
+		if it.Label == "Taggable" {
+			foundTaggable = true
+		}
+	}
+	if !foundTaggable {
+		t.Fatalf("expected custom @derivable Taggable in @derive completion items, got %#v", compRes.Items)
+	}
+
+	// User-defined `error(...)` must NOT hover as `compile_error`.
+	idxErr := strings.LastIndex(src, `error("hi")`)
+	var errHv *lsp.Hover
+	h.request("textDocument/hover", lsp.TextDocumentPositionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, idxErr+1),
+	}, &errHv)
+	if errHv != nil && strings.Contains(errHv.Contents.Value, "compile_error") {
+		t.Fatalf("unexpected builtin compile_error hover for user fn `error`: %s", errHv.Contents.Value)
+	}
+
+	h.request("shutdown", nil, nil)
+	h.notify("exit", nil)
+}
+
+func mustJSONRaw(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

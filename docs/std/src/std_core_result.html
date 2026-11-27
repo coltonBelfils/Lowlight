@@ -9,24 +9,24 @@
 <script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
 </head>
 <body class="layout-wide" data-root="../../">
-<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>result.ll</h1><p>Source of package <a href="../core.html"><code>std/core</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/core/result — Recoverable error handling via the [`Result`] tagged union.</span></span>
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../collections.html">std/collections</a></li><li><a href="../core.html">std/core</a></li><li><a href="../derive.html">std/derive</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>result.ll</h1><p>Source of package <a href="../core.html"><code>std/core</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/core/result — the standard result types, [`Result`] and [`Status`].</span></span>
 <span class="src-line" id="L2"><span class="m">//</span></span>
-<span class="src-line" id="L3"><span class="m">// Used throughout the standard library for operations that can fail with a rich</span></span>
-<span class="src-line" id="L4"><span class="m">// [`Error`] stack trace instead of panicking.</span></span>
-<span class="src-line" id="L5"></span>
-<span class="src-line" id="L6"><span class="m">// Represents either a successful value ([`Result.value`]) or a failure ([`Result.err`]).</span></span>
-<span class="src-line" id="L7"><span class="m">//</span></span>
-<span class="src-line" id="L8"><span class="m">// `Result` is an ordinary `result` declaration: names holding it end in `!`, and failures are</span></span>
-<span class="src-line" id="L9"><span class="m">// handled with result chains (`load(path): default err(own e): func &lt;- err(e.wrap(&quot;loading&quot;))`),</span></span>
-<span class="src-line" id="L10"><span class="m">// `??`, and `if(r! as v)`. Annotated `@must_use` so callers cannot silently discard failures.</span></span>
-<span class="src-line" id="L11"><span class="m">//</span></span>
-<span class="src-line" id="L12"><span class="m">// # Example</span></span>
-<span class="src-line" id="L13"><span class="m">// ```lowlight</span></span>
-<span class="src-line" id="L14"><span class="m">// bind divide = (a: int, b: int) Result[int]:</span></span>
-<span class="src-line" id="L15"><span class="m">// 	if(b == 0): Result[int].fail_msg(&quot;division by zero&quot;)</span></span>
-<span class="src-line" id="L16"><span class="m">// 	else: value(a / b)</span></span>
-<span class="src-line" id="L17"><span class="m">// ```</span></span>
-<span class="src-line" id="L18"><span class="a">@must_use</span></span>
+<span class="src-line" id="L3"><span class="m">// Both are ordinary `result` declarations. Handle them with result chains, `??`, and</span></span>
+<span class="src-line" id="L4"><span class="m">// `if(r! as v)`; the methods here cover what those can&#39;t: inspecting a result without consuming</span></span>
+<span class="src-line" id="L5"><span class="m">// it, adding context while passing it on, and asserting success inside a longer expression.</span></span>
+<span class="src-line" id="L6"></span>
+<span class="src-line" id="L7"><span class="m">// Either a success value ([`Result.value`]) or a failure ([`Result.err`]).</span></span>
+<span class="src-line" id="L8"><span class="m">//</span></span>
+<span class="src-line" id="L9"><span class="m">// Names holding a `Result` end in `!`. Handle it with a result chain:</span></span>
+<span class="src-line" id="L10"><span class="m">//</span></span>
+<span class="src-line" id="L11"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L12"><span class="m">// let cfg = load(path): default err(own e): func &lt;- err(e.wrap(&quot;loading settings&quot;))</span></span>
+<span class="src-line" id="L13"><span class="m">// let port = parse_port(raw) ?? 8080</span></span>
+<span class="src-line" id="L14"><span class="m">// ```</span></span>
+<span class="src-line" id="L15"><span class="m">//</span></span>
+<span class="src-line" id="L16"><span class="m">// Annotated `@must_use`, so a result can&#39;t be silently discarded.</span></span>
+<span class="src-line" id="L17"><span class="a">@must_use</span></span>
+<span class="src-line" id="L18"><span class="a">@derive</span>(<span class="t">Equatable</span>, <span class="t">Copyable</span>, <span class="t">Printable</span>)</span>
 <span class="src-line" id="L19"><span class="k">define</span> <span class="t">Result</span>[<span class="t">T</span>] <span class="k">result</span> [</span>
 <span class="src-line" id="L20">	<span class="m">// Success value of type [`T`].</span></span>
 <span class="src-line" id="L21">	value: <span class="t">T</span>,</span>
@@ -34,169 +34,213 @@
 <span class="src-line" id="L23">	err: <span class="t">Error</span>,</span>
 <span class="src-line" id="L24">]</span>
 <span class="src-line" id="L25"></span>
-<span class="src-line" id="L26"><span class="m">// Constructs a failed [`Result`] containing a new [`Error`] recorded at the call site.</span></span>
-<span class="src-line" id="L27"><span class="m">//</span></span>
-<span class="src-line" id="L28"><span class="m">// - `msg`: Human-readable description of the failure.</span></span>
-<span class="src-line" id="L29"><span class="a">@track_caller</span></span>
-<span class="src-line" id="L30"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].fail_msg = (msg: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">T</span>]: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(msg))</span>
-<span class="src-line" id="L31"></span>
-<span class="src-line" id="L32"><span class="m">// Reports whether this result is [`Result.value`].</span></span>
-<span class="src-line" id="L33"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].is_ok = (<span class="k">self</span>) <span class="t">bool</span>:</span>
-<span class="src-line" id="L34">	<span class="k">match</span>(<span class="k">self</span>):</span>
-<span class="src-line" id="L35">		<span class="k">when</span> <span class="f">value</span>(_): <span class="c">true</span></span>
-<span class="src-line" id="L36">		<span class="k">default</span>: <span class="c">false</span></span>
-<span class="src-line" id="L37"></span>
-<span class="src-line" id="L38"><span class="m">// Reports whether this result is [`Result.err`].</span></span>
-<span class="src-line" id="L39"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].is_err = (<span class="k">self</span>) <span class="t">bool</span>:</span>
-<span class="src-line" id="L40">	<span class="k">match</span>(<span class="k">self</span>):</span>
-<span class="src-line" id="L41">		<span class="k">when</span> <span class="f">err</span>(_): <span class="c">true</span></span>
-<span class="src-line" id="L42">		<span class="k">default</span>: <span class="c">false</span></span>
-<span class="src-line" id="L43"></span>
-<span class="src-line" id="L44"><span class="m">// Consumes `self` and returns the inner [`value`] value, or `fallback` if it is [`err`].</span></span>
-<span class="src-line" id="L45"><span class="m">//</span></span>
-<span class="src-line" id="L46"><span class="m">// # Ownership</span></span>
-<span class="src-line" id="L47"><span class="m">// Consumes both `self` and `fallback`.</span></span>
-<span class="src-line" id="L48"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].unwrap_or = (<span class="k">own</span> <span class="k">self</span>, fallback: <span class="k">own</span> <span class="t">T</span>) <span class="t">T</span>:</span>
-<span class="src-line" id="L49">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
-<span class="src-line" id="L50">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): val</span>
-<span class="src-line" id="L51">		<span class="k">default</span> <span class="f">err</span>(_): <span class="k">own</span> fallback</span>
-<span class="src-line" id="L52"></span>
-<span class="src-line" id="L53"><span class="m">// Consumes `self` and extracts the contained [`value`] value.</span></span>
-<span class="src-line" id="L54"><span class="m">//</span></span>
-<span class="src-line" id="L55"><span class="m">// # Panics</span></span>
-<span class="src-line" id="L56"><span class="m">// If `self` is [`Result.err`], panics with the error wrapped as</span></span>
-<span class="src-line" id="L57"><span class="m">// `&quot;called Result.unwrap on an error&quot;`, attributed to the caller, with the full [`Error`] trace.</span></span>
-<span class="src-line" id="L58"><span class="a">@track_caller</span></span>
-<span class="src-line" id="L59"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].unwrap = (<span class="k">own</span> <span class="k">self</span>) <span class="t">T</span>:</span>
-<span class="src-line" id="L60">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
-<span class="src-line" id="L61">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): val</span>
-<span class="src-line" id="L62">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">panic</span>(e.<span class="f">wrap</span>(<span class="s">&quot;called Result.unwrap on an error&quot;</span>))</span>
-<span class="src-line" id="L63"></span>
-<span class="src-line" id="L64"><span class="m">// Consumes `self` and extracts the contained [`value`] value with a caller-attributed message.</span></span>
-<span class="src-line" id="L65"><span class="m">//</span></span>
-<span class="src-line" id="L66"><span class="m">// - `msg`: Context message the error is wrapped with if this panics.</span></span>
-<span class="src-line" id="L67"><span class="m">//</span></span>
-<span class="src-line" id="L68"><span class="m">// # Panics</span></span>
-<span class="src-line" id="L69"><span class="m">// If `self` is [`Result.err`], panics with the error wrapped as `msg`, attributed to the caller,</span></span>
-<span class="src-line" id="L70"><span class="m">// with the full [`Error`] trace.</span></span>
-<span class="src-line" id="L71"><span class="a">@track_caller</span></span>
-<span class="src-line" id="L72"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].expect = (<span class="k">own</span> <span class="k">self</span>, msg: <span class="t">string</span>) <span class="t">T</span>:</span>
-<span class="src-line" id="L73">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
-<span class="src-line" id="L74">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): val</span>
-<span class="src-line" id="L75">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">panic</span>(e.<span class="f">wrap</span>(msg))</span>
-<span class="src-line" id="L76"></span>
-<span class="src-line" id="L77"><span class="m">// Consumes `self` and extracts the contained [`Error`].</span></span>
-<span class="src-line" id="L78"><span class="m">//</span></span>
-<span class="src-line" id="L79"><span class="m">// # Panics</span></span>
-<span class="src-line" id="L80"><span class="m">// Calls [`panic`] (attributed to the caller) if `self` is [`Result.value`].</span></span>
-<span class="src-line" id="L81"><span class="a">@track_caller</span></span>
-<span class="src-line" id="L82"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].unwrap_err = (<span class="k">own</span> <span class="k">self</span>) <span class="t">Error</span>:</span>
-<span class="src-line" id="L83">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
-<span class="src-line" id="L84">		<span class="k">when</span> <span class="f">err</span>(<span class="k">own</span> e): e</span>
-<span class="src-line" id="L85">		<span class="k">default</span> <span class="f">value</span>(_): <span class="f">panic</span>(<span class="s">&quot;called Result.unwrap_err on an ok result&quot;</span>)</span>
-<span class="src-line" id="L86"></span>
-<span class="src-line" id="L87"><span class="m">// Consumes `self` and returns the [`value`] value as `?T`, discarding any [`Error`].</span></span>
-<span class="src-line" id="L88"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].into_ok = (<span class="k">own</span> <span class="k">self</span>) ?<span class="t">T</span>:</span>
-<span class="src-line" id="L89">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
-<span class="src-line" id="L90">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): val</span>
-<span class="src-line" id="L91">		<span class="k">default</span> <span class="f">err</span>(_): <span class="c">none</span></span>
-<span class="src-line" id="L92"></span>
-<span class="src-line" id="L93"><span class="m">// Consumes `self` and returns the [`err`] value as `?Error`, discarding any [`value`] value.</span></span>
-<span class="src-line" id="L94"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].into_err = (<span class="k">own</span> <span class="k">self</span>) ?<span class="t">Error</span>:</span>
-<span class="src-line" id="L95">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
-<span class="src-line" id="L96">		<span class="k">when</span> <span class="f">err</span>(<span class="k">own</span> e): e</span>
-<span class="src-line" id="L97">		<span class="k">default</span> <span class="f">value</span>(_): <span class="c">none</span></span>
-<span class="src-line" id="L98"></span>
-<span class="src-line" id="L99"><span class="m">// Returns a copy of the [`Error`] if `self` is [`Result.err`], or `none` without consuming `self`.</span></span>
-<span class="src-line" id="L100"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].peek_err = (<span class="k">self</span>) ?<span class="t">Error</span>:</span>
-<span class="src-line" id="L101">	<span class="k">match</span>(<span class="k">self</span>):</span>
-<span class="src-line" id="L102">		<span class="k">when</span> <span class="f">err</span>(e): e.<span class="f">copy</span>()</span>
-<span class="src-line" id="L103">		<span class="k">default</span> <span class="f">value</span>(_): <span class="c">none</span></span>
-<span class="src-line" id="L104"></span>
-<span class="src-line" id="L105"><span class="m">// Wraps any [`Result.err`] with an additional contextual error message, passing [`Result.value`] through unchanged.</span></span>
-<span class="src-line" id="L106"><span class="m">//</span></span>
-<span class="src-line" id="L107"><span class="m">// - `msg`: Contextual failure message recorded with caller source coordinates.</span></span>
-<span class="src-line" id="L108"><span class="a">@track_caller</span></span>
-<span class="src-line" id="L109"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].wrap_err = (<span class="k">own</span> <span class="k">self</span>, msg: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">T</span>]:</span>
-<span class="src-line" id="L110">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
-<span class="src-line" id="L111">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): <span class="f">value</span>(<span class="k">own</span> val)</span>
-<span class="src-line" id="L112">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">err</span>(e.<span class="f">wrap</span>(msg))</span>
-<span class="src-line" id="L113"></span>
-<span class="src-line" id="L114"><span class="m">// Appends the caller location as a trace frame if `self` is [`Result.err`], passing [`Result.value`] through unchanged.</span></span>
-<span class="src-line" id="L115"><span class="a">@track_caller</span></span>
-<span class="src-line" id="L116"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].trace_err = (<span class="k">own</span> <span class="k">self</span>) <span class="t">Result</span>[<span class="t">T</span>]:</span>
-<span class="src-line" id="L117">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
-<span class="src-line" id="L118">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): <span class="f">value</span>(<span class="k">own</span> val)</span>
-<span class="src-line" id="L119">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">err</span>(e.<span class="f">trace</span>())</span>
-<span class="src-line" id="L120"></span>
-<span class="src-line" id="L121"><span class="m">// Applies `f` to the success value, passing any failure through unchanged.</span></span>
-<span class="src-line" id="L122"><span class="m">//</span></span>
-<span class="src-line" id="L123"><span class="m">// ```lowlight</span></span>
-<span class="src-line" id="L124"><span class="m">// let doubled! = parse_port(&quot;80&quot;).map((n: int) int: n * 2)</span></span>
-<span class="src-line" id="L125"><span class="m">// ```</span></span>
-<span class="src-line" id="L126"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].map[<span class="t">U</span>] = (<span class="k">own</span> <span class="k">self</span>, f: (<span class="t">T</span>) <span class="t">U</span>) <span class="t">Result</span>[<span class="t">U</span>]:</span>
-<span class="src-line" id="L127">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
-<span class="src-line" id="L128">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): <span class="f">value</span>(<span class="f">f</span>(val))</span>
-<span class="src-line" id="L129">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">err</span>(e)</span>
-<span class="src-line" id="L130"></span>
-<span class="src-line" id="L131"><span class="m">// Applies `f` to the failure&#39;s [`Error`], passing a success value through unchanged. Use it to</span></span>
-<span class="src-line" id="L132"><span class="m">// add context or change error codes without unpacking the result. `f` takes ownership of the</span></span>
-<span class="src-line" id="L133"><span class="m">// error, so it can use consuming methods such as [`Error.wrap`] and [`Error.with_code`]:</span></span>
-<span class="src-line" id="L134"><span class="m">//</span></span>
-<span class="src-line" id="L135"><span class="m">// ```lowlight</span></span>
-<span class="src-line" id="L136"><span class="m">// let cfg! = load(path).map_err((e: own Error) Error: e.wrap(&quot;loading settings&quot;))</span></span>
-<span class="src-line" id="L137"><span class="m">// ```</span></span>
-<span class="src-line" id="L138"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].map_err = (<span class="k">own</span> <span class="k">self</span>, f: (<span class="k">own</span> <span class="t">Error</span>) <span class="t">Error</span>) <span class="t">Result</span>[<span class="t">T</span>]:</span>
-<span class="src-line" id="L139">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
-<span class="src-line" id="L140">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): <span class="f">value</span>(<span class="k">own</span> val)</span>
-<span class="src-line" id="L141">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">err</span>(<span class="f">f</span>(<span class="k">own</span> e))</span>
-<span class="src-line" id="L142"></span>
-<span class="src-line" id="L143"><span class="m">// Calls `f` with the success value and returns its result, passing any failure through</span></span>
-<span class="src-line" id="L144"><span class="m">// unchanged. Chains steps that can each fail.</span></span>
-<span class="src-line" id="L145"><span class="m">//</span></span>
-<span class="src-line" id="L146"><span class="m">// ```lowlight</span></span>
-<span class="src-line" id="L147"><span class="m">// let port! = read_text(path).and_then((text: string) Result[int]: parse_port(text))</span></span>
-<span class="src-line" id="L148"><span class="m">// ```</span></span>
-<span class="src-line" id="L149"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].and_then[<span class="t">U</span>] = (<span class="k">own</span> <span class="k">self</span>, f: (<span class="t">T</span>) <span class="t">Result</span>[<span class="t">U</span>]) <span class="t">Result</span>[<span class="t">U</span>]:</span>
-<span class="src-line" id="L150">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
-<span class="src-line" id="L151">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): <span class="f">f</span>(val)</span>
-<span class="src-line" id="L152">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">err</span>(e)</span>
-<span class="src-line" id="L153"></span>
-<span class="src-line" id="L154"><span class="m">// Consumes `self` and returns the success value, or computes a replacement from the [`Error`]</span></span>
-<span class="src-line" id="L155"><span class="m">// with `f`. Unlike [`Result.unwrap_or`], the fallback is only computed on failure.</span></span>
-<span class="src-line" id="L156"><span class="k">bind</span> <span class="t">Result</span>[<span class="t">T</span>].unwrap_or_else = (<span class="k">own</span> <span class="k">self</span>, f: (<span class="t">Error</span>) <span class="t">T</span>) <span class="t">T</span>:</span>
-<span class="src-line" id="L157">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
-<span class="src-line" id="L158">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): val</span>
-<span class="src-line" id="L159">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">f</span>(e)</span>
-<span class="src-line" id="L160"></span>
-<span class="src-line" id="L161"><span class="a">@test</span>(<span class="s">&quot;core Result combinators: map, map_err, and_then, unwrap_or_else&quot;</span>)</span>
-<span class="src-line" id="L162"><span class="k">bind</span> test_core_result_combinators = (): {</span>
-<span class="src-line" id="L163">	<span class="k">let</span> ok!: <span class="t">Result</span>[<span class="t">int</span>] = <span class="f">value</span>(<span class="n">21</span>)</span>
-<span class="src-line" id="L164">	<span class="k">let</span> bad!: <span class="t">Result</span>[<span class="t">int</span>] = <span class="t">Result</span>[<span class="t">int</span>].<span class="f">fail_msg</span>(<span class="s">&quot;no number&quot;</span>)</span>
-<span class="src-line" id="L165">	<span class="f">assert</span>(ok!.<span class="f">map</span>((n: <span class="t">int</span>) <span class="t">int</span>: n * <span class="n">2</span>).<span class="f">unwrap</span>() == <span class="n">42</span>, <span class="s">&quot;map transforms the value&quot;</span>)</span>
-<span class="src-line" id="L166">	<span class="f">assert</span>(bad!.<span class="f">map</span>((n: <span class="t">int</span>) <span class="t">int</span>: n * <span class="n">2</span>).<span class="f">is_err</span>(), <span class="s">&quot;map passes failures through&quot;</span>)</span>
-<span class="src-line" id="L167">	<span class="k">let</span> seven!: <span class="t">Result</span>[<span class="t">int</span>] = <span class="f">value</span>(<span class="n">7</span>)</span>
-<span class="src-line" id="L168">	<span class="f">assert</span>(seven!.<span class="f">map</span>((n: <span class="t">int</span>) <span class="t">string</span>: <span class="s">&quot;n=</span>$n<span class="s">&quot;</span>).<span class="f">unwrap</span>() == <span class="s">&quot;n=7&quot;</span>, <span class="s">&quot;map can change the type&quot;</span>)</span>
-<span class="src-line" id="L169"></span>
-<span class="src-line" id="L170">	<span class="k">let</span> coded! = <span class="t">Result</span>[<span class="t">int</span>].<span class="f">fail_msg</span>(<span class="s">&quot;disk&quot;</span>).<span class="f">map_err</span>((e: <span class="k">own</span> <span class="t">Error</span>) <span class="t">Error</span>: e.<span class="f">with_code</span>(<span class="s">&quot;io&quot;</span>))</span>
-<span class="src-line" id="L171">	<span class="f">assert</span>(coded!.<span class="f">peek_err</span>()?.<span class="f">has_code</span>(<span class="s">&quot;io&quot;</span>) ?? <span class="c">false</span>, <span class="s">&quot;map_err rewrites the error&quot;</span>)</span>
-<span class="src-line" id="L172">	<span class="k">let</span> one!: <span class="t">Result</span>[<span class="t">int</span>] = <span class="f">value</span>(<span class="n">1</span>)</span>
-<span class="src-line" id="L173">	<span class="f">assert</span>(one!.<span class="f">map_err</span>((e: <span class="k">own</span> <span class="t">Error</span>) <span class="t">Error</span>: e.<span class="f">wrap</span>(<span class="s">&quot;ctx&quot;</span>)).<span class="f">unwrap</span>() == <span class="n">1</span>, <span class="s">&quot;map_err keeps values&quot;</span>)</span>
-<span class="src-line" id="L174"></span>
-<span class="src-line" id="L175">	<span class="k">let</span> half = (n: <span class="t">int</span>) <span class="t">Result</span>[<span class="t">int</span>]: <span class="k">if</span>(n % <span class="n">2</span> == <span class="n">0</span>): <span class="f">value</span>(n / <span class="n">2</span>) <span class="k">else</span>: <span class="t">Result</span>[<span class="t">int</span>].<span class="f">fail_msg</span>(<span class="s">&quot;odd&quot;</span>)</span>
-<span class="src-line" id="L176">	<span class="k">let</span> eight!: <span class="t">Result</span>[<span class="t">int</span>] = <span class="f">value</span>(<span class="n">8</span>)</span>
-<span class="src-line" id="L177">	<span class="f">assert</span>(eight!.<span class="f">and_then</span>(half).<span class="f">and_then</span>(half).<span class="f">unwrap</span>() == <span class="n">2</span>, <span class="s">&quot;and_then chains successes&quot;</span>)</span>
-<span class="src-line" id="L178">	<span class="k">let</span> six!: <span class="t">Result</span>[<span class="t">int</span>] = <span class="f">value</span>(<span class="n">6</span>)</span>
-<span class="src-line" id="L179">	<span class="k">let</span> odd! = six!.<span class="f">and_then</span>(half).<span class="f">and_then</span>(half)</span>
-<span class="src-line" id="L180">	<span class="f">assert</span>(odd!.<span class="f">peek_err</span>()?.<span class="f">message</span>() == <span class="s">&quot;odd&quot;</span>, <span class="s">&quot;and_then stops at the first failure&quot;</span>)</span>
-<span class="src-line" id="L181"></span>
-<span class="src-line" id="L182">	<span class="k">let</span> fallback = <span class="t">Result</span>[<span class="t">int</span>].<span class="f">fail_msg</span>(<span class="s">&quot;x&quot;</span>).<span class="f">unwrap_or_else</span>((e: <span class="t">Error</span>) <span class="t">int</span>: e.<span class="f">message</span>().<span class="f">len</span>())</span>
-<span class="src-line" id="L183">	<span class="f">assert</span>(fallback == <span class="n">1</span>, <span class="s">&quot;unwrap_or_else computes from the error&quot;</span>)</span>
-<span class="src-line" id="L184">	<span class="k">let</span> present!: <span class="t">Result</span>[<span class="t">string</span>] = <span class="f">value</span>(<span class="s">&quot;hi&quot;</span> + <span class="s">&quot;&quot;</span>)</span>
-<span class="src-line" id="L185">	<span class="f">assert</span>(present!.<span class="f">unwrap_or_else</span>((e: <span class="t">Error</span>) <span class="t">string</span>: <span class="s">&quot;fallback&quot;</span>) == <span class="s">&quot;hi&quot;</span>, <span class="s">&quot;unwrap_or_else keeps values&quot;</span>)</span>
-<span class="src-line" id="L186">}</span>
+<span class="src-line" id="L26"><span class="m">// A failed [`Result`] holding a new [`Error`] with message `msg`, recorded at the call site.</span></span>
+<span class="src-line" id="L27"><span class="m">// Shorthand for `err(Error.new(msg))` where no `Result` type is expected.</span></span>
+<span class="src-line" id="L28"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L29"><span class="k">const</span> <span class="t">Result</span>[<span class="t">T</span>].fail_msg = <span class="k">fn</span>(msg: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">T</span>]: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(msg))</span>
+<span class="src-line" id="L30"></span>
+<span class="src-line" id="L31"><span class="m">// Reports whether this result holds a value, without consuming it.</span></span>
+<span class="src-line" id="L32"><span class="k">const</span> <span class="t">Result</span>[<span class="t">T</span>].is_ok = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L33">	<span class="k">match</span>(<span class="k">self</span>):</span>
+<span class="src-line" id="L34">		<span class="k">when</span> <span class="f">value</span>(_): <span class="c">true</span></span>
+<span class="src-line" id="L35">		<span class="k">default</span>: <span class="c">false</span></span>
+<span class="src-line" id="L36"></span>
+<span class="src-line" id="L37"><span class="m">// Reports whether this result holds a failure, without consuming it.</span></span>
+<span class="src-line" id="L38"><span class="k">const</span> <span class="t">Result</span>[<span class="t">T</span>].is_err = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L39">	<span class="k">match</span>(<span class="k">self</span>):</span>
+<span class="src-line" id="L40">		<span class="k">when</span> <span class="f">err</span>(_): <span class="c">true</span></span>
+<span class="src-line" id="L41">		<span class="k">default</span>: <span class="c">false</span></span>
+<span class="src-line" id="L42"></span>
+<span class="src-line" id="L43"><span class="m">// A copy of the failure&#39;s [`Error`], or `none` if this result holds a value. Doesn&#39;t consume</span></span>
+<span class="src-line" id="L44"><span class="m">// `self`.</span></span>
+<span class="src-line" id="L45"><span class="k">const</span> <span class="t">Result</span>[<span class="t">T</span>].peek_err = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">Error</span>:</span>
+<span class="src-line" id="L46">	<span class="k">match</span>(<span class="k">self</span>):</span>
+<span class="src-line" id="L47">		<span class="k">when</span> <span class="f">err</span>(e): e.<span class="f">copy</span>()</span>
+<span class="src-line" id="L48">		<span class="k">default</span> <span class="f">value</span>(_): <span class="c">none</span></span>
+<span class="src-line" id="L49"></span>
+<span class="src-line" id="L50"><span class="m">// Consumes `self` and returns the value. The expression form of `r!: default panic`, for use</span></span>
+<span class="src-line" id="L51"><span class="m">// inside a longer expression: `read_file(path).unwrap().len()`.</span></span>
+<span class="src-line" id="L52"><span class="m">//</span></span>
+<span class="src-line" id="L53"><span class="m">// # Panics</span></span>
+<span class="src-line" id="L54"><span class="m">// If `self` is a failure, panics with its [`Error`] wrapped as</span></span>
+<span class="src-line" id="L55"><span class="m">// `&quot;called Result.unwrap on an error&quot;`, attributed to the caller, with the full trace.</span></span>
+<span class="src-line" id="L56"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L57"><span class="k">const</span> <span class="t">Result</span>[<span class="t">T</span>].unwrap = <span class="k">fn</span>(<span class="k">own</span> <span class="k">self</span>) <span class="t">T</span>:</span>
+<span class="src-line" id="L58">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
+<span class="src-line" id="L59">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): val</span>
+<span class="src-line" id="L60">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">panic</span>(e.<span class="f">wrap</span>(<span class="s">&quot;called Result.unwrap on an error&quot;</span>))</span>
+<span class="src-line" id="L61"></span>
+<span class="src-line" id="L62"><span class="m">// Consumes `self` and returns the value, like [`Result.unwrap`] with a message of your own.</span></span>
+<span class="src-line" id="L63"><span class="m">//</span></span>
+<span class="src-line" id="L64"><span class="m">// # Panics</span></span>
+<span class="src-line" id="L65"><span class="m">// If `self` is a failure, panics with its [`Error`] wrapped as `msg`, attributed to the caller,</span></span>
+<span class="src-line" id="L66"><span class="m">// with the full trace.</span></span>
+<span class="src-line" id="L67"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L68"><span class="k">const</span> <span class="t">Result</span>[<span class="t">T</span>].expect = <span class="k">fn</span>(<span class="k">own</span> <span class="k">self</span>, msg: <span class="t">string</span>) <span class="t">T</span>:</span>
+<span class="src-line" id="L69">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
+<span class="src-line" id="L70">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): val</span>
+<span class="src-line" id="L71">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">panic</span>(e.<span class="f">wrap</span>(msg))</span>
+<span class="src-line" id="L72"></span>
+<span class="src-line" id="L73"><span class="m">// Consumes `self` and returns the failure&#39;s [`Error`]. Mostly for tests that expect a failure.</span></span>
+<span class="src-line" id="L74"><span class="m">//</span></span>
+<span class="src-line" id="L75"><span class="m">// # Panics</span></span>
+<span class="src-line" id="L76"><span class="m">// If `self` holds a value (attributed to the caller).</span></span>
+<span class="src-line" id="L77"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L78"><span class="k">const</span> <span class="t">Result</span>[<span class="t">T</span>].unwrap_err = <span class="k">fn</span>(<span class="k">own</span> <span class="k">self</span>) <span class="t">Error</span>:</span>
+<span class="src-line" id="L79">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
+<span class="src-line" id="L80">		<span class="k">when</span> <span class="f">err</span>(<span class="k">own</span> e): e</span>
+<span class="src-line" id="L81">		<span class="k">default</span> <span class="f">value</span>(_): <span class="f">panic</span>(<span class="s">&quot;called Result.unwrap_err on a value&quot;</span>)</span>
+<span class="src-line" id="L82"></span>
+<span class="src-line" id="L83"><span class="m">// Wraps a failure&#39;s [`Error`] with the context `msg`, passing a value through unchanged:</span></span>
+<span class="src-line" id="L84"><span class="m">// `func &lt;- load(path).wrap_err(&quot;loading \&quot;$path\&quot;&quot;)`.</span></span>
+<span class="src-line" id="L85"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L86"><span class="k">const</span> <span class="t">Result</span>[<span class="t">T</span>].wrap_err = <span class="k">fn</span>(<span class="k">own</span> <span class="k">self</span>, msg: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">T</span>]:</span>
+<span class="src-line" id="L87">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
+<span class="src-line" id="L88">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): <span class="f">value</span>(<span class="k">own</span> val)</span>
+<span class="src-line" id="L89">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">err</span>(e.<span class="f">wrap</span>(msg))</span>
+<span class="src-line" id="L90"></span>
+<span class="src-line" id="L91"><span class="m">// Adds the caller&#39;s location to a failure&#39;s trace, passing a value through unchanged.</span></span>
+<span class="src-line" id="L92"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L93"><span class="k">const</span> <span class="t">Result</span>[<span class="t">T</span>].trace_err = <span class="k">fn</span>(<span class="k">own</span> <span class="k">self</span>) <span class="t">Result</span>[<span class="t">T</span>]:</span>
+<span class="src-line" id="L94">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
+<span class="src-line" id="L95">		<span class="k">when</span> <span class="f">value</span>(<span class="k">own</span> val): <span class="f">value</span>(<span class="k">own</span> val)</span>
+<span class="src-line" id="L96">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">err</span>(e.<span class="f">trace</span>())</span>
+<span class="src-line" id="L97"></span>
+<span class="src-line" id="L98"><span class="m">// The result of an operation that produces nothing when it succeeds, such as writing or</span></span>
+<span class="src-line" id="L99"><span class="m">// removing a file: [`Status.value`] (no payload) or a failure ([`Status.err`]).</span></span>
+<span class="src-line" id="L100"><span class="m">//</span></span>
+<span class="src-line" id="L101"><span class="m">// `Status` is to `void` what [`Result`] is to a value type. A chain on it is a statement; its</span></span>
+<span class="src-line" id="L102"><span class="m">// arms handle the failures:</span></span>
+<span class="src-line" id="L103"><span class="m">//</span></span>
+<span class="src-line" id="L104"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L105"><span class="m">// fs.write_file(path, text): default panic</span></span>
+<span class="src-line" id="L106"><span class="m">// fs.write_file(path, text): default err(own e): func &lt;- err(e.wrap(&quot;saving \&quot;$path\&quot;&quot;))</span></span>
+<span class="src-line" id="L107"><span class="m">// ```</span></span>
+<span class="src-line" id="L108"><span class="m">//</span></span>
+<span class="src-line" id="L109"><span class="m">// Operations whose callers need to tell failures apart declare their own unit result instead,</span></span>
+<span class="src-line" id="L110"><span class="m">// such as [`fs.RemoveResult`] with its `not_found`.</span></span>
+<span class="src-line" id="L111"><span class="a">@must_use</span></span>
+<span class="src-line" id="L112"><span class="a">@derive</span>(<span class="t">Equatable</span>, <span class="t">Copyable</span>, <span class="t">Printable</span>)</span>
+<span class="src-line" id="L113"><span class="k">define</span> <span class="t">Status</span> <span class="k">result</span> [</span>
+<span class="src-line" id="L114">	<span class="m">// Success; there is no value.</span></span>
+<span class="src-line" id="L115">	value,</span>
+<span class="src-line" id="L116">	<span class="m">// Failure carrying a contextual [`Error`].</span></span>
+<span class="src-line" id="L117">	err: <span class="t">Error</span>,</span>
+<span class="src-line" id="L118">]</span>
+<span class="src-line" id="L119"></span>
+<span class="src-line" id="L120"><span class="m">// A failed [`Status`] holding a new [`Error`] with message `msg`, recorded at the call site.</span></span>
+<span class="src-line" id="L121"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L122"><span class="k">const</span> <span class="t">Status</span>.fail_msg = <span class="k">fn</span>(msg: <span class="t">string</span>) <span class="t">Status</span>: <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(msg))</span>
+<span class="src-line" id="L123"></span>
+<span class="src-line" id="L124"><span class="m">// Reports whether this status is a success, without consuming it.</span></span>
+<span class="src-line" id="L125"><span class="k">const</span> <span class="t">Status</span>.is_ok = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L126">	<span class="k">match</span>(<span class="k">self</span>):</span>
+<span class="src-line" id="L127">		<span class="k">when</span> value: <span class="c">true</span></span>
+<span class="src-line" id="L128">		<span class="k">default</span>: <span class="c">false</span></span>
+<span class="src-line" id="L129"></span>
+<span class="src-line" id="L130"><span class="m">// Reports whether this status is a failure, without consuming it.</span></span>
+<span class="src-line" id="L131"><span class="k">const</span> <span class="t">Status</span>.is_err = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L132">	<span class="k">match</span>(<span class="k">self</span>):</span>
+<span class="src-line" id="L133">		<span class="k">when</span> <span class="f">err</span>(_): <span class="c">true</span></span>
+<span class="src-line" id="L134">		<span class="k">default</span>: <span class="c">false</span></span>
+<span class="src-line" id="L135"></span>
+<span class="src-line" id="L136"><span class="m">// A copy of the failure&#39;s [`Error`], or `none` on success. Doesn&#39;t consume `self`.</span></span>
+<span class="src-line" id="L137"><span class="k">const</span> <span class="t">Status</span>.peek_err = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">Error</span>:</span>
+<span class="src-line" id="L138">	<span class="k">match</span>(<span class="k">self</span>):</span>
+<span class="src-line" id="L139">		<span class="k">when</span> <span class="f">err</span>(e): e.<span class="f">copy</span>()</span>
+<span class="src-line" id="L140">		<span class="k">default</span> value: <span class="c">none</span></span>
+<span class="src-line" id="L141"></span>
+<span class="src-line" id="L142"><span class="m">// Consumes `self`, panicking on a failure. The expression form of `s: default panic`.</span></span>
+<span class="src-line" id="L143"><span class="m">//</span></span>
+<span class="src-line" id="L144"><span class="m">// # Panics</span></span>
+<span class="src-line" id="L145"><span class="m">// If `self` is a failure, panics with its [`Error`] wrapped as</span></span>
+<span class="src-line" id="L146"><span class="m">// `&quot;called Status.unwrap on an error&quot;`, attributed to the caller, with the full trace.</span></span>
+<span class="src-line" id="L147"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L148"><span class="k">const</span> <span class="t">Status</span>.unwrap = <span class="k">fn</span>(<span class="k">own</span> <span class="k">self</span>):</span>
+<span class="src-line" id="L149">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
+<span class="src-line" id="L150">		<span class="k">when</span> value: {}</span>
+<span class="src-line" id="L151">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">panic</span>(e.<span class="f">wrap</span>(<span class="s">&quot;called Status.unwrap on an error&quot;</span>))</span>
+<span class="src-line" id="L152"></span>
+<span class="src-line" id="L153"><span class="m">// Consumes `self`, panicking with `msg` on a failure.</span></span>
+<span class="src-line" id="L154"><span class="m">//</span></span>
+<span class="src-line" id="L155"><span class="m">// # Panics</span></span>
+<span class="src-line" id="L156"><span class="m">// If `self` is a failure, panics with its [`Error`] wrapped as `msg`, attributed to the caller,</span></span>
+<span class="src-line" id="L157"><span class="m">// with the full trace.</span></span>
+<span class="src-line" id="L158"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L159"><span class="k">const</span> <span class="t">Status</span>.expect = <span class="k">fn</span>(<span class="k">own</span> <span class="k">self</span>, msg: <span class="t">string</span>):</span>
+<span class="src-line" id="L160">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
+<span class="src-line" id="L161">		<span class="k">when</span> value: {}</span>
+<span class="src-line" id="L162">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">panic</span>(e.<span class="f">wrap</span>(msg))</span>
+<span class="src-line" id="L163"></span>
+<span class="src-line" id="L164"><span class="m">// Consumes `self` and returns the failure&#39;s [`Error`]. Mostly for tests that expect a failure.</span></span>
+<span class="src-line" id="L165"><span class="m">//</span></span>
+<span class="src-line" id="L166"><span class="m">// # Panics</span></span>
+<span class="src-line" id="L167"><span class="m">// If `self` is a success (attributed to the caller).</span></span>
+<span class="src-line" id="L168"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L169"><span class="k">const</span> <span class="t">Status</span>.unwrap_err = <span class="k">fn</span>(<span class="k">own</span> <span class="k">self</span>) <span class="t">Error</span>:</span>
+<span class="src-line" id="L170">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
+<span class="src-line" id="L171">		<span class="k">when</span> <span class="f">err</span>(<span class="k">own</span> e): e</span>
+<span class="src-line" id="L172">		<span class="k">default</span> value: <span class="f">panic</span>(<span class="s">&quot;called Status.unwrap_err on a success&quot;</span>)</span>
+<span class="src-line" id="L173"></span>
+<span class="src-line" id="L174"><span class="m">// Wraps a failure&#39;s [`Error`] with the context `msg`, passing success through unchanged.</span></span>
+<span class="src-line" id="L175"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L176"><span class="k">const</span> <span class="t">Status</span>.wrap_err = <span class="k">fn</span>(<span class="k">own</span> <span class="k">self</span>, msg: <span class="t">string</span>) <span class="t">Status</span>:</span>
+<span class="src-line" id="L177">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
+<span class="src-line" id="L178">		<span class="k">when</span> value: value</span>
+<span class="src-line" id="L179">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">err</span>(e.<span class="f">wrap</span>(msg))</span>
+<span class="src-line" id="L180"></span>
+<span class="src-line" id="L181"><span class="m">// Adds the caller&#39;s location to a failure&#39;s trace, passing success through unchanged.</span></span>
+<span class="src-line" id="L182"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L183"><span class="k">const</span> <span class="t">Status</span>.trace_err = <span class="k">fn</span>(<span class="k">own</span> <span class="k">self</span>) <span class="t">Status</span>:</span>
+<span class="src-line" id="L184">	<span class="k">match</span>(<span class="k">own</span> <span class="k">self</span>):</span>
+<span class="src-line" id="L185">		<span class="k">when</span> value: value</span>
+<span class="src-line" id="L186">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">err</span>(e.<span class="f">trace</span>())</span>
 <span class="src-line" id="L187"></span>
-</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<span class="src-line" id="L188"><span class="a">@test</span>(<span class="s">&quot;core Result: inspection, context, and assertions&quot;</span>)</span>
+<span class="src-line" id="L189"><span class="k">bind</span> test_core_result_methods = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L190">	<span class="k">let</span> ok!: <span class="t">Result</span>[<span class="t">int</span>] = <span class="f">value</span>(<span class="n">21</span>)</span>
+<span class="src-line" id="L191">	<span class="k">let</span> bad!: <span class="t">Result</span>[<span class="t">int</span>] = <span class="t">Result</span>[<span class="t">int</span>].<span class="f">fail_msg</span>(<span class="s">&quot;no number&quot;</span>)</span>
+<span class="src-line" id="L192">	<span class="f">assert</span>(ok!.<span class="f">is_ok</span>() <span class="k">and</span> <span class="k">not</span> ok!.<span class="f">is_err</span>(), <span class="s">&quot;value is ok&quot;</span>)</span>
+<span class="src-line" id="L193">	<span class="f">assert</span>(bad!.<span class="f">is_err</span>() <span class="k">and</span> <span class="k">not</span> bad!.<span class="f">is_ok</span>(), <span class="s">&quot;err is an error&quot;</span>)</span>
+<span class="src-line" id="L194">	<span class="f">assert</span>(ok!.<span class="f">peek_err</span>() == <span class="c">none</span>, <span class="s">&quot;peek_err on a value is none&quot;</span>)</span>
+<span class="src-line" id="L195">	<span class="f">assert</span>(bad!.<span class="f">peek_err</span>()?.<span class="f">message</span>() == <span class="s">&quot;no number&quot;</span>, <span class="s">&quot;peek_err copies the error&quot;</span>)</span>
+<span class="src-line" id="L196">	<span class="f">assert</span>(ok!.<span class="f">copy</span>().<span class="f">unwrap</span>() == <span class="n">21</span>, <span class="s">&quot;unwrap returns the value&quot;</span>)</span>
+<span class="src-line" id="L197">	<span class="f">assert</span>(<span class="t">Result</span>[<span class="t">string</span>].<span class="f">value</span>(<span class="s">&quot;x&quot;</span>).<span class="f">expect</span>(<span class="s">&quot;needs x&quot;</span>) == <span class="s">&quot;x&quot;</span>, <span class="s">&quot;expect returns the value&quot;</span>)</span>
+<span class="src-line" id="L198">	<span class="f">assert</span>(</span>
+<span class="src-line" id="L199">		bad!.<span class="f">wrap_err</span>(<span class="s">&quot;parsing&quot;</span>).<span class="f">unwrap_err</span>().<span class="f">summary</span>() == <span class="s">&quot;parsing: no number&quot;</span>,</span>
+<span class="src-line" id="L200">		<span class="s">&quot;wrap_err adds context&quot;</span>,</span>
+<span class="src-line" id="L201">	)</span>
+<span class="src-line" id="L202">	<span class="k">let</span> one!: <span class="t">Result</span>[<span class="t">int</span>] = <span class="f">value</span>(<span class="n">1</span>)</span>
+<span class="src-line" id="L203">	<span class="f">assert</span>(one!.<span class="f">wrap_err</span>(<span class="s">&quot;ctx&quot;</span>).<span class="f">unwrap</span>() == <span class="n">1</span>, <span class="s">&quot;wrap_err keeps values&quot;</span>)</span>
+<span class="src-line" id="L204">	<span class="k">let</span> traced! = <span class="t">Result</span>[<span class="t">int</span>].<span class="f">fail_msg</span>(<span class="s">&quot;deep&quot;</span>).<span class="f">trace_err</span>()</span>
+<span class="src-line" id="L205">	<span class="f">assert</span>(traced!.<span class="f">unwrap_err</span>().<span class="f">frames</span>().<span class="f">len</span>() == <span class="n">2</span>, <span class="s">&quot;trace_err adds a frame&quot;</span>)</span>
+<span class="src-line" id="L206">	<span class="f">assert</span>(ok! == <span class="t">Result</span>[<span class="t">int</span>].<span class="f">value</span>(<span class="n">21</span>), <span class="s">&quot;Result is Equatable&quot;</span>)</span>
+<span class="src-line" id="L207">	<span class="f">assert</span>(ok!.<span class="f">to_string</span>() == <span class="s">&quot;Result.value(21)&quot;</span>, <span class="s">&quot;Result is Printable&quot;</span>)</span>
+<span class="src-line" id="L208">}</span>
+<span class="src-line" id="L209"></span>
+<span class="src-line" id="L210"><span class="a">@test</span>(<span class="s">&quot;core Status: chains, inspection, and assertions&quot;</span>)</span>
+<span class="src-line" id="L211"><span class="k">bind</span> test_core_status = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L212">	<span class="k">let</span> ok!: <span class="t">Status</span> = value</span>
+<span class="src-line" id="L213">	<span class="k">let</span> bad!: <span class="t">Status</span> = <span class="t">Status</span>.<span class="f">fail_msg</span>(<span class="s">&quot;disk full&quot;</span>)</span>
+<span class="src-line" id="L214">	<span class="f">assert</span>(ok!.<span class="f">is_ok</span>() <span class="k">and</span> <span class="k">not</span> ok!.<span class="f">is_err</span>(), <span class="s">&quot;value is ok&quot;</span>)</span>
+<span class="src-line" id="L215">	<span class="f">assert</span>(bad!.<span class="f">is_err</span>() <span class="k">and</span> <span class="k">not</span> bad!.<span class="f">is_ok</span>(), <span class="s">&quot;err is an error&quot;</span>)</span>
+<span class="src-line" id="L216">	<span class="f">assert</span>(bad!.<span class="f">peek_err</span>()?.<span class="f">message</span>() == <span class="s">&quot;disk full&quot;</span>, <span class="s">&quot;peek_err copies the error&quot;</span>)</span>
+<span class="src-line" id="L217">	<span class="f">assert</span>(</span>
+<span class="src-line" id="L218">		bad!.<span class="f">wrap_err</span>(<span class="s">&quot;saving&quot;</span>).<span class="f">unwrap_err</span>().<span class="f">summary</span>() == <span class="s">&quot;saving: disk full&quot;</span>,</span>
+<span class="src-line" id="L219">		<span class="s">&quot;wrap_err adds context&quot;</span>,</span>
+<span class="src-line" id="L220">	)</span>
+<span class="src-line" id="L221">	<span class="t">Status</span>.value.<span class="f">unwrap</span>()</span>
+<span class="src-line" id="L222">	<span class="t">Status</span>.value.<span class="f">expect</span>(<span class="s">&quot;must succeed&quot;</span>)</span>
+<span class="src-line" id="L223">	<span class="k">let</span> hits = <span class="n">0</span></span>
+<span class="src-line" id="L224">	<span class="t">Status</span>.<span class="f">fail_msg</span>(<span class="s">&quot;boom&quot;</span>):</span>
+<span class="src-line" id="L225">		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): hits = hits + e.<span class="f">message</span>().<span class="f">len</span>()</span>
+<span class="src-line" id="L226">	<span class="t">Status</span>.value: <span class="k">default</span> <span class="k">panic</span></span>
+<span class="src-line" id="L227">	<span class="f">assert</span>(hits == <span class="n">4</span>, <span class="s">&quot;a chain handles the failure&quot;</span>)</span>
+<span class="src-line" id="L228">	<span class="f">assert</span>(ok! == <span class="t">Status</span>.value, <span class="s">&quot;Status is Equatable&quot;</span>)</span>
+<span class="src-line" id="L229">	<span class="f">assert</span>(ok!.<span class="f">to_string</span>() == <span class="s">&quot;Status.value&quot;</span>, <span class="s">&quot;Status is Printable&quot;</span>)</span>
+<span class="src-line" id="L230">}</span>
+<span class="src-line" id="L231"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../collections.html">std/collections</a><a href="../core.html">std/core</a><a href="../derive.html">std/derive</a><a href="../fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../../search-index.js"></script>
 <script src="../../assets/site.js"></script>
 </body>

@@ -254,7 +254,7 @@ func (s *Server) matchArmEnum(filePath, src string, offset, slotIdx int) (*types
 		repaired = append(repaired, lines[end:]...)
 		overlays := s.snapshotOverlays()
 		overlays[abs] = strings.Join(repaired, "\n")
-		prog = sema.CheckForIDE(abs, overlays, s.projectRootFor(abs), diag.NewReporter())
+		prog = s.checkForIDE(abs, overlays, diag.NewReporter())
 		en, numScrut = matchScrutineeEnumInProg(prog, abs, head+1, slotIdx)
 	}
 	if en == nil {
@@ -351,7 +351,7 @@ func (s *Server) chainArmResult(filePath, src string, offset int) *types.Enum {
 	overlays := s.snapshotOverlays()
 	fixed := strings.Join(repaired, "\n")
 	overlays[abs] = fixed
-	prog := sema.CheckForIDE(abs, overlays, s.projectRootFor(abs), diag.NewReporter())
+	prog := s.checkForIDE(abs, overlays, diag.NewReporter())
 	return chainSubjectInProg(prog, abs, head+1)
 }
 

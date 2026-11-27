@@ -291,7 +291,7 @@
           }
         },
         {
-          "match": "\\b(bind)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\[[^\\]]*\\])?\\.([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(bind|const)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\[[^\\]]*\\])?\\.([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
               "name": "keyword.declaration.lowlight"
@@ -305,7 +305,7 @@
           }
         },
         {
-          "match": "\\b(bind)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(\\[[^\\]]*\\])?\\s*=\\s*fn\\s*\\()",
+          "match": "\\b(bind|const)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(\\[[^\\]]*\\])?\\s*=\\s*fn\\s*\\()",
           "captures": {
             "1": {
               "name": "keyword.declaration.lowlight"
@@ -356,8 +356,12 @@
           "match": "^\\s*\\bdefault\\b(?=\\s*(:|[A-Z_a-z]))"
         },
         {
+          "name": "keyword.control.comptime.lowlight",
+          "match": "\\b(comptime)(?!\\?)\\b"
+        },
+        {
           "name": "keyword.declaration.lowlight",
-          "match": "\\b(let|bind|define|distinct|struct|enum|interface|import|extern)(?!\\?)\\b"
+          "match": "\\b(let|bind|const|define|distinct|struct|enum|interface|import|extern)(?!\\?)\\b"
         },
         {
           "name": "storage.modifier.ownership.lowlight",
@@ -402,11 +406,15 @@
       "patterns": [
         {
           "name": "support.function.builtin.lowlight",
-          "match": "\\b(print|println|eprint|eprintln|panic|assert|exit|parse_int|parse_float|sqrt|abs|min|max|read_file|write_file|args|caller_location|caller_file|caller_line|caller_col)(?=\\s*\\()"
+          "match": "\\b(print|println|eprint|eprintln|panic|assert|exit|parse_int|parse_float|sqrt|abs|min|max|read_file|write_file|args|caller_location|caller_file|caller_line|caller_col|compile_error)(?=\\s*\\()"
+        },
+        {
+          "name": "support.function.builtin.comptime.lowlight",
+          "match": "\\b(?:comp\\.(?:TARGET|embed_str|embed_bytes|type_name|kind_of|fields_of|variants_of|elems_of|underlying_of|attrs_of|implements|compile_error|log)|type\\.(?:size_of|align_of|is_plain))\\b"
         },
         {
           "name": "support.function.intrinsic.lowlight",
-          "match": "\\b(size_of|align_of|alloc_raw|realloc_raw|free_raw|null_ptr|is_null|addr_of|ptr_add|ptr_read|ptr_write|ptr_cast|ptr_addr|copy_bytes|zero_bytes)(?=\\s*(\\[|\\())"
+          "match": "\\b(size_of|align_of|alloc_raw|realloc_raw|free_raw|null_ptr|is_null|addr_of|ptr_add|ptr_read|ptr_write|ptr_cast|ptr_addr|copy_bytes|zero_bytes|alloc_uninit|fill_bytes|syscall|ref_from_ptr)(?=\\s*(\\[|\\())"
         }
       ]
     },

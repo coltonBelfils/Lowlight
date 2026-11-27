@@ -236,8 +236,7 @@ const Map[K, V].insert = fn(&self, key: own K, val: own V): {
 const Map[K, V].push = fn(&self, entry: own MapEntry[K, V]): {
 	let key = unsafe ptr_read(addr_of(entry.key))
 	let val = unsafe ptr_read(addr_of(entry.value))
-	// All-zero bytes are the moved-from state: `entry` now drops as a no-op.
-	unsafe zero_bytes(ptr_cast[u8](addr_of(entry)), type.size_of[MapEntry[K, V]]())
+	unsafe forget(own entry)
 	self.insert(own key, own val)
 }
 

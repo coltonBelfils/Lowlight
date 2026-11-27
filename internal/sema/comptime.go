@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"lowlight/internal/ast"
@@ -20,9 +21,10 @@ const (
 	defaultComptimeStepLimit    = 1_000_000
 	defaultComptimeMaxDepth     = 1024
 	defaultComptimeMaxMem       = 64 * 1024 * 1024 // 64 MB
-	defaultIDEComptimeStepLimit = 100_000
-	defaultIDEComptimeMaxMem    = 8 * 1024 * 1024 // 8 MB
-	defaultIDEComptimeMaxUnroll = 256
+	defaultIDEComptimeStepLimit   = 100_000
+	defaultIDEComptimeMaxMem      = 8 * 1024 * 1024 // 8 MB
+	defaultIDEComptimeMaxUnroll   = 256
+	defaultIDEComptimeWallTimeout = 250 * time.Millisecond
 	maxComptimeGoDepth          = 8192
 	maxComptimeValueDepth       = 256
 	ctValMemCost                = 232
@@ -243,19 +245,33 @@ type ctSignal struct {
 	label      string
 	isContinue bool
 	isDefault  bool
+	isTimeout  bool
+	isIDECap   bool
+	liftedIdx  int
 	val        *ctVal
 	errMsg     string
 	errSpan    diag.Span
 	trace      []ctFrame
 }
 
-func okSig() ctSignal { return ctSignal{} }
+func okSig() ctSignal { return ctSignal{liftedIdx: -1} }
 
 func abortSig(span diag.Span, format string, args ...any) ctSignal {
 	return ctSignal{
-		kind:    sigAbort,
-		errMsg:  fmt.Sprintf(format, args...),
-		errSpan: span,
+		kind:      sigAbort,
+		liftedIdx: -1,
+		errMsg:    fmt.Sprintf(format, args...),
+		errSpan:   span,
+	}
+}
+
+func timeoutSig(span diag.Span, limit time.Duration) ctSignal {
+	return ctSignal{
+		kind:      sigAbort,
+		isTimeout: true,
+		liftedIdx: -1,
+		errSpan:   span,
+		errMsg:    fmt.Sprintf("compile-time evaluation exceeded IDE time budget (%s); skipped in IDE mode", limit.Round(time.Millisecond)),
 	}
 }
 
@@ -277,13 +293,19 @@ type ctState struct {
 	rootMod           *Module
 	stepLimit         int
 	explicitStepLimit bool
+	ideStepCapped     bool
 	steps             int
 	depth             int
 	goDepth           int
 	memBytes          int64
 	memLimit          int64
 	explicitMemLimit  bool
+	ideMemCapped      bool
 	stackSeq          uint64
+	subSeq            uint64
+	subAddrs          map[string]uint64
+	deadline          time.Time
+	wallLimit         time.Duration
 	frames            []ctFrame
 	// scopeStack tracks local symbols whose custom Drop needs to run on block exit.
 	dropScopes [][]dropEntry
@@ -301,12 +323,25 @@ func newCtState(a *Analyzer, rootMod *Module, stepLimit int) *ctState {
 		stepLimit = defaultComptimeStepLimit
 	}
 	memLimit := int64(defaultComptimeMaxMem)
+	ideStepCapped := false
+	ideMemCapped := false
+	var deadline time.Time
+	var wallLimit time.Duration
 	if a != nil && a.ideMode {
 		if stepLimit > defaultIDEComptimeStepLimit {
 			stepLimit = defaultIDEComptimeStepLimit
+			ideStepCapped = true
 		}
 		if memLimit > defaultIDEComptimeMaxMem {
 			memLimit = defaultIDEComptimeMaxMem
+			ideMemCapped = true
+		}
+		if a.ideTimeout >= 0 {
+			wallLimit = a.ideTimeout
+			if wallLimit == 0 {
+				wallLimit = defaultIDEComptimeWallTimeout
+			}
+			deadline = time.Now().Add(wallLimit)
 		}
 	}
 	return &ctState{
@@ -314,7 +349,11 @@ func newCtState(a *Analyzer, rootMod *Module, stepLimit int) *ctState {
 		rootMod:           rootMod,
 		stepLimit:         stepLimit,
 		explicitStepLimit: explicitStep,
+		ideStepCapped:     ideStepCapped,
 		memLimit:          memLimit,
+		ideMemCapped:      ideMemCapped,
+		deadline:          deadline,
+		wallLimit:         wallLimit,
 	}
 }
 
@@ -377,6 +416,9 @@ func formatComptimeMemSize(bytes int64) string {
 }
 
 func (s *ctState) chargeBulkSteps(n int64, span diag.Span) ctSignal {
+	if !s.deadline.IsZero() && time.Now().After(s.deadline) {
+		return timeoutSig(span, s.wallLimit)
+	}
 	if n <= 0 {
 		return okSig()
 	}
@@ -387,30 +429,54 @@ func (s *ctState) chargeBulkSteps(n int64, span diag.Span) ctSignal {
 	}
 	if cost64 > rem {
 		s.steps = s.stepLimit + 1
-		return abortSig(span, "compile-time execution exceeded step limit (%d steps; increase with `@comptime_limit(steps: N)`)", s.stepLimit)
+		return ctSignal{
+			kind:      sigAbort,
+			isIDECap:  s.ideStepCapped,
+			liftedIdx: -1,
+			errSpan:   span,
+			errMsg:    fmt.Sprintf("compile-time execution exceeded step limit (%d steps; increase with `@comptime_limit(steps: N)`)", s.stepLimit),
+		}
 	}
 	s.steps += int(cost64)
 	return okSig()
 }
 
 func (s *ctState) step(span diag.Span) ctSignal {
+	if !s.deadline.IsZero() && (s.steps&63) == 0 && time.Now().After(s.deadline) {
+		return timeoutSig(span, s.wallLimit)
+	}
 	s.steps++
 	if s.steps > s.stepLimit {
-		return abortSig(span, "compile-time execution exceeded step limit (%d steps; increase with `@comptime_limit(steps: N)`)", s.stepLimit)
+		return ctSignal{
+			kind:      sigAbort,
+			isIDECap:  s.ideStepCapped,
+			liftedIdx: -1,
+			errSpan:   span,
+			errMsg:    fmt.Sprintf("compile-time execution exceeded step limit (%d steps; increase with `@comptime_limit(steps: N)`)", s.stepLimit),
+		}
 	}
 	return okSig()
 }
 
 func (s *ctState) allocMem(bytes int64, span diag.Span) ctSignal {
+	if !s.deadline.IsZero() && time.Now().After(s.deadline) {
+		return timeoutSig(span, s.wallLimit)
+	}
 	if bytes <= 0 {
 		return okSig()
 	}
 	limit := s.memLimit
-	if limit <= 0 {
+	if !s.explicitMemLimit && limit <= 0 {
 		limit = defaultComptimeMaxMem
 	}
-	if bytes > limit || bytes > limit-s.memBytes {
-		return abortSig(span, "compile-time execution exceeded memory budget (%s; increase with `@comptime_limit(memory: N)`)", formatComptimeMemSize(limit))
+	if limit <= 0 || bytes > limit || bytes > limit-s.memBytes {
+		return ctSignal{
+			kind:      sigAbort,
+			isIDECap:  s.ideMemCapped,
+			liftedIdx: -1,
+			errSpan:   span,
+			errMsg:    fmt.Sprintf("compile-time execution exceeded memory budget (%s; increase with `@comptime_limit(memory: N)`)", formatComptimeMemSize(limit)),
+		}
 	}
 	s.memBytes += bytes
 	return okSig()
@@ -458,7 +524,7 @@ func (s *ctState) estimateValBytes(v *ctVal, depth int) int64 {
 			// Buffer bytes already tracked via ctHeapAlloc.
 			return s.a.typeSize(types.TypeString)
 		}
-		return s.a.typeSize(types.TypeString) + int64(len(v.s))
+		return s.a.typeSize(types.TypeString) + int64(len(ctStringStr(v)))
 	case ctList:
 		if v.list == nil {
 			return 24
@@ -599,6 +665,13 @@ func isStdLibFile(file string) bool {
 	return strings.Contains(slashed, "/std/") || strings.HasPrefix(slashed, "std/")
 }
 
+func isStdFrame(fr ctFrame) bool {
+	if fr.mod != nil && fr.mod.Pkg != nil && fr.mod.Pkg.IsStd {
+		return true
+	}
+	return isStdLibFile(fr.callSpan.Start.File)
+}
+
 func ctFrameDisplayName(fr ctFrame) string {
 	if fr.fi != nil {
 		return fr.fi.Name
@@ -625,12 +698,14 @@ func (s *ctState) reportAbort(sig ctSignal, rootSpan diag.Span) {
 	primarySpan := origSpan
 	var related []diag.RelatedInfo
 
-	// If execution aborted inside std/, lift the primary diagnostic span to the innermost
-	// user call site when one exists so editor red squiggles land in user code.
+	// If execution aborted inside std/ (or was lifted via @track_caller), lift or trim
+	// redundant frames so editor diagnostics point cleanly at user code without duplicate notes.
 	emitTop := len(frames) - 1
-	if isStdLibFile(origSpan.Start.File) {
+	if sig.liftedIdx >= 0 && sig.liftedIdx < len(frames) {
+		emitTop = sig.liftedIdx - 1
+	} else if isStdLibFile(origSpan.Start.File) || (len(frames) > 0 && isStdFrame(frames[len(frames)-1])) {
 		for i := len(frames) - 1; i >= 0; i-- {
-			if frames[i].callSpan.Start.File != "" && !isStdLibFile(frames[i].callSpan.Start.File) {
+			if frames[i].callSpan.Start.File != "" && !isStdFrame(frames[i]) {
 				primarySpan = frames[i].callSpan
 				related = append(related, diag.RelatedInfo{
 					Span:    origSpan,
@@ -659,37 +734,51 @@ func (s *ctState) reportAbort(sig ctSignal, rootSpan diag.Span) {
 			}
 		}
 		callee := ctFrameDisplayName(fr)
-		caller := ctFrameDisplayName(frames[i-runCount])
-		var msg string
-		if fr.callSpan.Start.File != "" {
-			msg = fmt.Sprintf("called from `%s` (while executing `%s`)", caller, callee)
-		} else {
-			msg = fmt.Sprintf("in `%s`", callee)
+		outerCaller := ctFrameDisplayName(frames[i-runCount])
+		formatCallMsg := func(callerName string, span diag.Span) string {
+			if span.Start.File != "" {
+				return fmt.Sprintf("called from `%s` (while executing `%s`)", callerName, callee)
+			}
+			return fmt.Sprintf("in `%s`", callee)
 		}
-		related = append(related, diag.RelatedInfo{
-			Span:    fr.callSpan,
-			Message: msg,
-		})
-		notesEmitted++
-		if runCount > 2 {
+		if runCount == 1 {
 			related = append(related, diag.RelatedInfo{
-				Span:    frames[i-runCount+1].callSpan,
-				Message: fmt.Sprintf("... %d more calls to `%s` ...", runCount-1, callee),
+				Span:    fr.callSpan,
+				Message: formatCallMsg(outerCaller, fr.callSpan),
 			})
 			notesEmitted++
-		} else if runCount == 2 {
-			innerCaller := ctFrameDisplayName(frames[i-2])
+		} else {
+			innerCaller := ctFrameDisplayName(frames[i-1])
 			related = append(related, diag.RelatedInfo{
-				Span:    frames[i-1].callSpan,
-				Message: fmt.Sprintf("called from `%s` (while executing `%s`)", innerCaller, callee),
+				Span:    fr.callSpan,
+				Message: formatCallMsg(innerCaller, fr.callSpan),
 			})
 			notesEmitted++
+			if runCount > 2 && notesEmitted < maxTraceNotes {
+				related = append(related, diag.RelatedInfo{
+					Span:    frames[i-1].callSpan,
+					Message: fmt.Sprintf("... %d more calls to `%s` ...", runCount-2, callee),
+				})
+				notesEmitted++
+			}
+			if notesEmitted < maxTraceNotes {
+				entryFrame := frames[i-runCount+1]
+				related = append(related, diag.RelatedInfo{
+					Span:    entryFrame.callSpan,
+					Message: formatCallMsg(outerCaller, entryFrame.callSpan),
+				})
+				notesEmitted++
+			}
 		}
 		i -= runCount
 	}
 
+	sev := diag.Error
+	if (sig.isTimeout || sig.isIDECap) && s.a != nil && s.a.ideMode {
+		sev = diag.Warning
+	}
 	s.a.Rep.Report(diag.Diagnostic{
-		Severity: diag.Error,
+		Severity: sev,
 		Span:     primarySpan,
 		Message:  sig.errMsg,
 		Related:  related,
@@ -768,8 +857,42 @@ func newCtChar(ch rune) *ctVal {
 	return &ctVal{kind: ctChar, ty: types.TypeChar, ch: ch}
 }
 
+func ctStringStr(v *ctVal) string {
+	if v == nil {
+		return ""
+	}
+	if v.sAlloc != nil && !v.sAlloc.freed && len(v.sAlloc.bytes) > 0 {
+		off := int(v.sOff)
+		n := len(v.s)
+		if off >= 0 && off+n <= len(v.sAlloc.bytes) {
+			return string(v.sAlloc.bytes[off : off+n])
+		}
+	}
+	return v.s
+}
+
 func newCtString(s string) *ctVal {
 	return &ctVal{kind: ctString, ty: types.TypeString, s: s}
+}
+
+func (s *ctState) newOwnedCtString(str string, span diag.Span) (*ctVal, ctSignal) {
+	if str == "" {
+		return newCtString(""), okSig()
+	}
+	buf := make([]byte, len(str)+1)
+	copy(buf, str)
+	al, sig := s.newBytesAlloc(buf, false, span)
+	if sig.kind != sigNone {
+		return nil, sig
+	}
+	return &ctVal{
+		kind:   ctString,
+		ty:     types.TypeString,
+		s:      str,
+		sAlloc: al,
+		sOff:   0,
+		sCap:   int64(len(buf)),
+	}, okSig()
 }
 
 func newCtVoid() *ctVal {
@@ -781,9 +904,6 @@ func newCtNone(ty types.Type) *ctVal {
 }
 
 func newCtSome(ty types.Type, inner *ctVal) *ctVal {
-	if inner != nil && inner.kind == ctOpt {
-		return inner
-	}
 	return &ctVal{kind: ctOpt, ty: ty, hasOpt: true, optElem: inner}
 }
 
@@ -1123,7 +1243,7 @@ func (v *ctVal) equalsDepth(a *Analyzer, other *ctVal, depth int) bool {
 	case ctChar:
 		return v.ch == other.ch
 	case ctString:
-		return v.s == other.s
+		return ctStringStr(v) == ctStringStr(other)
 	case ctOpt:
 		if !v.hasOpt || !other.hasOpt {
 			return !v.hasOpt && !other.hasOpt
@@ -1293,7 +1413,7 @@ func (v *ctVal) cmpValOk(other *ctVal) (int, bool) {
 		}
 		return 1, true
 	case ctString:
-		return strings.Compare(v.s, other.s), true
+		return strings.Compare(ctStringStr(v), ctStringStr(other)), true
 	case ctEnum:
 		l, r := v.asInt64(), other.asInt64()
 		if l < r {
@@ -1373,10 +1493,11 @@ func (v *ctVal) hashWithDepth(depth int) uint64 {
 	case ctChar:
 		return splitMix64(uint64(v.ch))
 	case ctString:
+		sv := ctStringStr(v)
 		var h uint64 = 14695981039346656037
 		const prime uint64 = 1099511628211
-		for i := 0; i < len(v.s); i++ {
-			h = (h ^ uint64(v.s[i])) * prime
+		for i := 0; i < len(sv); i++ {
+			h = (h ^ uint64(sv[i])) * prime
 		}
 		return h
 	case ctEnum:
@@ -1437,7 +1558,7 @@ func (v *ctVal) toString() string {
 	case ctChar:
 		return string(v.ch)
 	case ctString:
-		return v.s
+		return ctStringStr(v)
 	case ctOpt:
 		if !v.hasOpt {
 			return "none"
@@ -1506,6 +1627,179 @@ func (v *ctVal) toString() string {
 	return "<value>"
 }
 
+const maxComptimePreviewDepth = 6
+const maxComptimePreviewItems = 12
+
+// FormatComptimeValPreview formats an opaque compile-time value (typically stored in
+// `Symbol.ConstVal` or `BodyMaps.ComptimeVals`) into a concise, single-line IDE hover string.
+func FormatComptimeValPreview(val any, maxLen int) string {
+	cv, ok := val.(*ctVal)
+	if !ok || cv == nil {
+		return ""
+	}
+	if maxLen <= 0 {
+		maxLen = 120
+	}
+	s := cv.previewString(0, maxComptimePreviewItems)
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	runes := []rune(s)
+	if len(runes) > maxLen {
+		if maxLen > 3 {
+			return string(runes[:maxLen-3]) + "..."
+		}
+		return string(runes[:maxLen])
+	}
+	return s
+}
+
+// FormatComptimeExprValPreview returns a concise hover preview for an evaluated
+// compile-time expression recorded in `bm.ComptimeVals`, if available.
+func FormatComptimeExprValPreview(bm *BodyMaps, e ast.Expr, maxLen int) string {
+	if bm == nil || e == nil || bm.ComptimeVals == nil {
+		return ""
+	}
+	cv, ok := bm.ComptimeVals[e]
+	if !ok || cv == nil {
+		return ""
+	}
+	return FormatComptimeValPreview(cv, maxLen)
+}
+
+// FormatIntrinsicHoverValue computes target-aware compile-time intrinsic results
+// (`size_of`, `align_of`, `is_plain`) for LSP hover previews.
+func FormatIntrinsicHoverValue(prog *CheckedProgram, name string, ty types.Type) string {
+	if prog == nil || ty == nil {
+		return ""
+	}
+	a := &Analyzer{
+		Prog:   prog,
+		target: prog.Target,
+		Rep:    diag.NewReporter(),
+	}
+	switch name {
+	case "size_of", "type.size_of":
+		return strconv.FormatInt(a.typeSize(ty), 10)
+	case "align_of", "type.align_of":
+		return strconv.FormatInt(a.typeAlign(ty), 10)
+	case "is_plain", "type.is_plain":
+		if ty.IsPlain() {
+			return "true"
+		}
+		return "false"
+	default:
+		return ""
+	}
+}
+
+func (v *ctVal) previewString(depth, maxItems int) string {
+	if v == nil {
+		return ""
+	}
+	if depth > maxComptimePreviewDepth {
+		return "..."
+	}
+	previewSeq := func(elems []*ctVal, open, close string) string {
+		limit := len(elems)
+		truncated := false
+		if limit > maxItems {
+			limit = maxItems
+			truncated = true
+		}
+		parts := make([]string, 0, limit+1)
+		for i := 0; i < limit; i++ {
+			parts = append(parts, elems[i].previewString(depth+1, maxItems))
+		}
+		if truncated {
+			parts = append(parts, fmt.Sprintf("... (%d total)", len(elems)))
+		}
+		return open + strings.Join(parts, ", ") + close
+	}
+	switch v.kind {
+	case ctVoid:
+		return "void"
+	case ctChar:
+		return strconv.QuoteRune(v.ch)
+	case ctString:
+		q := strconv.Quote(ctStringStr(v))
+		if len(q) > 64 {
+			q = q[:60] + "...\""
+		}
+		return q
+	case ctRange:
+		if v.rng != nil {
+			op := ".."
+			if v.rng.inclusive {
+				op = "..="
+			}
+			if v.rng.prim != nil && !v.rng.prim.IsSignedInt() {
+				return fmt.Sprintf("%d%s%d", v.rng.low, op, v.rng.high)
+			}
+			return fmt.Sprintf("%d%s%d", int64(v.rng.low), op, int64(v.rng.high))
+		}
+	case ctFn:
+		if v.fn != nil {
+			return "fn " + v.fn.Name
+		}
+		return "<fn>"
+	case ctOpt:
+		if !v.hasOpt {
+			return "none"
+		}
+		return v.optElem.previewString(depth+1, maxItems)
+	case ctEnum:
+		if v.en != nil && v.variantIdx >= 0 && v.variantIdx < len(v.en.Variants) {
+			vr := v.en.Variants[v.variantIdx]
+			if v.payload != nil {
+				return fmt.Sprintf("%s.%s(%s)", v.en.Name, vr.Name, v.payload.previewString(depth+1, maxItems))
+			}
+			return v.en.Name + "." + vr.Name
+		}
+	case ctList:
+		return previewSeq(v.list.elems, "[", "]")
+	case ctArray:
+		return previewSeq(v.arr.elems, "[", "]")
+	case ctTuple:
+		return previewSeq(v.tup.elems, "+[", "]")
+	case ctStruct:
+		if v.st != nil && v.st.ty != nil && v.st.ty.Lang == "list" {
+			if elems, ok := listStructElems(v); ok {
+				return previewSeq(elems, "[", "]")
+			}
+		}
+		if v.st != nil && v.st.ty != nil {
+			parts := make([]string, 0, len(v.st.fieldOrder))
+			for i, k := range v.st.fieldOrder {
+				if i >= maxItems {
+					parts = append(parts, fmt.Sprintf("... (%d fields)", len(v.st.fieldOrder)))
+					break
+				}
+				parts = append(parts, k+": "+v.st.fields[k].previewString(depth+1, maxItems))
+			}
+			return v.st.ty.Name + "[" + strings.Join(parts, ", ") + "]"
+		}
+	case ctSet:
+		return previewSeq(v.set.elems, "#[", "]")
+	case ctMap:
+		limit := len(v.m.entries)
+		truncated := false
+		if limit > maxItems {
+			limit = maxItems
+			truncated = true
+		}
+		parts := make([]string, 0, limit+1)
+		for i := 0; i < limit; i++ {
+			e := v.m.entries[i]
+			parts = append(parts, e.key.previewString(depth+1, maxItems)+": "+e.val.previewString(depth+1, maxItems))
+		}
+		if truncated {
+			parts = append(parts, fmt.Sprintf("... (%d entries)", len(v.m.entries)))
+		}
+		return "#[" + strings.Join(parts, ", ") + "]"
+	}
+	return v.toString()
+}
+
 // -----------------------------------------------------------------------------
 // Simulated Heap, Pointers & Raw Memory Helpers (`std/core` comptime execution)
 // -----------------------------------------------------------------------------
@@ -1550,13 +1844,14 @@ func listStructBytes(v *ctVal) ([]byte, *ctHeapAlloc, bool) {
 		return nil, nil, false
 	}
 	al := dataV.ptrVal.alloc
-	if !al.isBytes {
+	if !al.isBytes || al.elemTy == nil || !isByteElemType(al.elemTy) {
 		return nil, nil, false
 	}
-	base := int(dataV.ptrVal.byteOff)
-	if base < 0 || base+int(n) > len(al.bytes) {
+	base64 := dataV.ptrVal.byteOff
+	if base64 < 0 || n > int64(len(al.bytes)) || base64 > int64(len(al.bytes))-n {
 		return nil, nil, false
 	}
+	base := int(base64)
 	return al.bytes[base : base+int(n)], al, true
 }
 
@@ -1875,11 +2170,13 @@ func (s *ctState) materializeStringVal(v *ctVal, span diag.Span) (*ctVal, ctSign
 		return v, okSig()
 	}
 	if v.sAlloc == nil {
-		alloc, sig := s.newBytesAlloc(append([]byte(nil), v.s...), v.sCap == 0, span)
+		sv := ctStringStr(v)
+		alloc, sig := s.newBytesAlloc(append([]byte(nil), sv...), v.sCap == 0, span)
 		if sig.kind != sigNone {
 			return nil, sig
 		}
 		cp := *v
+		cp.s = sv
 		cp.sAlloc = alloc
 		cp.sOff = 0
 		return &cp, okSig()
@@ -1905,7 +2202,7 @@ func (s *ctState) stringToRawStruct(v *ctVal, rawTy types.Type, span diag.Span) 
 	}
 	fields := map[string]*ctVal{
 		"data": dataPtr,
-		"len":  newCtSignedInt(int64(len(mv.s)), types.TypeInt),
+		"len":  newCtSignedInt(int64(len(ctStringStr(mv))), types.TypeInt),
 		"cap":  newCtSignedInt(mv.sCap, types.TypeInt),
 	}
 	return &ctVal{
@@ -1998,19 +2295,41 @@ func (s *ctState) castReadVal(src *ctVal, dstTy types.Type, span diag.Span) (*ct
 	return src, okSig()
 }
 
-func (s *ctState) castWriteVal(nv *ctVal, cur *ctVal, castTy types.Type, span diag.Span) (*ctVal, ctSignal) {
+func (s *ctState) castWriteVal(nv *ctVal, cur *ctVal, targetElemTy types.Type, castTy types.Type, span diag.Span) (*ctVal, ctSignal) {
 	if nv == nil || castTy == nil {
 		return nv, okSig()
 	}
-	if cur != nil && cur.kind == ctString && s.isStringRawType(castTy) {
+	if ((cur != nil && cur.kind == ctString) || types.UnderlyingPrimitive(targetElemTy) == types.TypeString) && s.isStringRawType(castTy) {
 		return s.rawStructToString(nv, span)
 	}
-	if cur != nil && cur.kind == ctInt {
-		if nv.kind == ctFloat {
-			if nv.prim == types.TypeF32 {
-				return newCtInt(uint64(math.Float32bits(float32(nv.f))), cur.prim), okSig()
+	var dstPrim *types.Primitive
+	if cur != nil && cur.prim != nil {
+		dstPrim = cur.prim
+	} else {
+		dstPrim = types.UnderlyingPrimitive(targetElemTy)
+	}
+	if dstPrim != nil {
+		switch {
+		case dstPrim.IsInteger():
+			if nv.kind == ctFloat {
+				if nv.prim != nil && nv.prim.Kind == types.PrimF32 {
+					return newCtInt(uint64(math.Float32bits(float32(nv.f))), dstPrim), okSig()
+				}
+				return newCtInt(math.Float64bits(nv.f), dstPrim), okSig()
 			}
-			return newCtInt(math.Float64bits(nv.f), cur.prim), okSig()
+			if nv.kind == ctInt {
+				return newCtInt(nv.u, dstPrim), okSig()
+			}
+		case dstPrim.Kind == types.PrimF32 || dstPrim.Kind == types.PrimF64:
+			if nv.kind == ctInt {
+				if dstPrim.Kind == types.PrimF32 {
+					return newCtFloat(float64(math.Float32frombits(uint32(nv.u))), dstPrim), okSig()
+				}
+				return newCtFloat(math.Float64frombits(nv.u), dstPrim), okSig()
+			}
+			if nv.kind == ctFloat {
+				return newCtFloat(nv.f, dstPrim), okSig()
+			}
 		}
 	}
 	return nv, okSig()
@@ -2056,7 +2375,7 @@ func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
 					if sig.kind != sigNone {
 						return sig
 					}
-					conv, sig := s.castWriteVal(nv, cur, castTy, span)
+					conv, sig := s.castWriteVal(nv, cur, pv.elemTy, castTy, span)
 					if sig.kind != sigNone {
 						return sig
 					}
@@ -2091,7 +2410,7 @@ func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
 				if sig.kind != sigNone {
 					return sig
 				}
-				conv, sig := s.castWriteVal(nv, cur, castTy, span)
+				conv, sig := s.castWriteVal(nv, cur, pv.elemTy, castTy, span)
 				if sig.kind != sigNone {
 					return sig
 				}
@@ -2183,7 +2502,7 @@ func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
 			}
 			if castTy != nil {
 				cur := al.cells[idx]
-				conv, sig := s.castWriteVal(nv, cur, castTy, span)
+				conv, sig := s.castWriteVal(nv, cur, pv.elemTy, castTy, span)
 				if sig.kind != sigNone {
 					return sig
 				}
@@ -2242,6 +2561,10 @@ func (s *ctState) makeListStruct(listTy types.Type, elems []*ctVal, span diag.Sp
 }
 
 func (s *ctState) makeByteListStruct(data []byte, span diag.Span) (*ctVal, ctSignal) {
+	return s.makeByteListStructOwned(data, true, span)
+}
+
+func (s *ctState) makeByteListStructOwned(data []byte, clone bool, span diag.Span) (*ctVal, ctSignal) {
 	if s.a.Prog.GenStructList == nil {
 		elems := make([]*ctVal, len(data))
 		for i, b := range data {
@@ -2258,8 +2581,11 @@ func (s *ctState) makeByteListStruct(data []byte, span diag.Span) (*ctVal, ctSig
 	if n == 0 {
 		ptr = &ctPtr{elemTy: types.TypeU8, elemSize: 1}
 	} else {
-		buf := make([]byte, len(data))
-		copy(buf, data)
+		buf := data
+		if clone {
+			buf = make([]byte, len(data))
+			copy(buf, data)
+		}
 		al, sig := s.newBytesAlloc(buf, false, span)
 		if sig.kind != sigNone {
 			return nil, sig
@@ -2367,7 +2693,10 @@ func (s *ctState) dropValue(ty types.Type, val *ctVal, span diag.Span) ctSignal 
 				set: func(nv *ctVal) ctSignal { cur = nv; return okSig() },
 			}
 			_, sig := s.callFuncInstance(dropFn, []ctArg{{place: &pl}}, span)
-			return sig
+			if sig.kind != sigNone {
+				return sig
+			}
+			return s.dropValue(dt.Base, val, span)
 		}
 		return s.dropValue(dt.Base, val, span)
 	}
@@ -2658,13 +2987,15 @@ func (s *ctState) detachSharedStringsDepth(v *ctVal, deadAllocs map[*ctHeapAlloc
 	switch v.kind {
 	case ctString:
 		if v.sAlloc != nil && deadAllocs[v.sAlloc] && !v.sAlloc.readOnly && v.sCap > 0 {
-			buf := make([]byte, len(v.s)+1)
-			copy(buf, v.s)
+			sv := ctStringStr(v)
+			buf := make([]byte, len(sv)+1)
+			copy(buf, sv)
 			al, sig := s.newBytesAlloc(buf, false, span)
 			if sig.kind != sigNone {
 				return nil, sig
 			}
 			cp := *v
+			cp.s = sv
 			cp.sAlloc = al
 			cp.sOff = 0
 			cp.sCap = int64(len(buf))
@@ -2812,6 +3143,16 @@ func (a *Analyzer) evalComptimeTopVar(tv *TopVarInit) (*ctVal, bool) {
 			return cv, true
 		}
 	}
+	if a.ideMode {
+		if cached, ok := a.lookupCachedPkgConst(tv); ok {
+			tv.Sym.ConstVal = cached
+			if cached.kind == ctInt {
+				tv.Sym.IsConstInt = true
+				tv.Sym.ConstIntVal = cached.asInt64()
+			}
+			return cached, true
+		}
+	}
 	if a.comptimeEvalActive == nil {
 		a.comptimeEvalActive = make(map[*Symbol]bool)
 	}
@@ -2856,7 +3197,12 @@ func (a *Analyzer) evalComptimeTopVar(tv *TopVarInit) (*ctVal, bool) {
 	limit := tv.Sym.ComptimeLimit
 	st := newCtState(a, tv.Mod, limit)
 	if tv.Sym.ComptimeMemLimit > 0 {
-		st.memLimit = tv.Sym.ComptimeMemLimit
+		memLim := tv.Sym.ComptimeMemLimit
+		if a != nil && a.ideMode && memLim > defaultIDEComptimeMaxMem {
+			memLim = defaultIDEComptimeMaxMem
+			st.ideMemCapped = true
+		}
+		st.memLimit = memLim
 		st.explicitMemLimit = true
 	}
 	st.frames = []ctFrame{{
@@ -2867,7 +3213,22 @@ func (a *Analyzer) evalComptimeTopVar(tv *TopVarInit) (*ctVal, bool) {
 		locals:   make(map[*Symbol]*ctSlot),
 		alive:    newFrameAlive(),
 	}}
+	errsBefore := a.errorCount()
+	prevEmbeds := a.activeTopVarEmbeds
+	prevAttempted := a.activeTopVarAttempted
+	var localEmbeds []EmbeddedFileInfo
+	var localAttempted []string
+	a.activeTopVarEmbeds = &localEmbeds
+	a.activeTopVarAttempted = &localAttempted
 	val, sig := st.evalExpr(tv.Decl.Value)
+	a.activeTopVarEmbeds = prevEmbeds
+	a.activeTopVarAttempted = prevAttempted
+	if prevEmbeds != nil && len(localEmbeds) > 0 {
+		*prevEmbeds = append(*prevEmbeds, localEmbeds...)
+	}
+	if prevAttempted != nil && len(localAttempted) > 0 {
+		*prevAttempted = append(*prevAttempted, localAttempted...)
+	}
 	if sig.kind == sigAbort {
 		st.reportAbort(sig, tv.Decl.Value.GetSpan())
 		return nil, false
@@ -2886,6 +3247,9 @@ func (a *Analyzer) evalComptimeTopVar(tv *TopVarInit) (*ctVal, bool) {
 		}
 	}
 	freezeCtVal(val)
+	if a.ideMode && a.errorCount() == errsBefore {
+		a.storeCachedPkgConst(tv, val, localEmbeds, localAttempted)
+	}
 	tv.Sym.ConstVal = val
 	if val != nil && val.kind == ctInt {
 		tv.Sym.IsConstInt = true
@@ -2900,6 +3264,13 @@ func (a *Analyzer) evalComptimeTopVar(tv *TopVarInit) (*ctVal, bool) {
 // structs are rejected).
 func (a *Analyzer) validateCrossesToRuntime(val *ctVal, ty types.Type) string {
 	return a.validateCrossVal(val, ty, make(map[types.Type]bool), make(map[*ctVal]bool), 0)
+}
+
+func (a *Analyzer) structHasCustomDrop(t *types.Struct) bool {
+	if t == nil {
+		return false
+	}
+	return t.HasCustomDrop || (a.Prog != nil && a.Prog.LookupConcreteMethod(t, "drop") != nil)
 }
 
 func (a *Analyzer) validateCrossTypeOnly(ty types.Type, seen map[types.Type]bool) string {
@@ -2998,7 +3369,8 @@ func (a *Analyzer) validateCrossTypeOnly(ty types.Type, seen map[types.Type]bool
 		case "string", "range":
 			return ""
 		}
-		if t.HasCustomDrop {
+		a.ensureStructFieldsForLayout(t, diag.Span{})
+		if a.structHasCustomDrop(t) {
 			return fmt.Sprintf("struct %s with custom `Drop` cannot cross from compile time to runtime", ty.String())
 		}
 		seen[ty] = true
@@ -3164,7 +3536,8 @@ func (a *Analyzer) validateCrossVal(val *ctVal, ty types.Type, seen map[types.Ty
 		case "string", "range":
 			return ""
 		}
-		if t.HasCustomDrop {
+		a.ensureStructFieldsForLayout(t, diag.Span{})
+		if a.structHasCustomDrop(t) {
 			return fmt.Sprintf("struct %s with custom `Drop` cannot cross from compile time to runtime", ty.String())
 		}
 		for _, f := range t.Fields {
@@ -3186,14 +3559,24 @@ func (a *Analyzer) validateCrossVal(val *ctVal, ty types.Type, seen map[types.Ty
 const MaxComptimeUnrollIters = 1024
 
 func (a *Analyzer) newCheckerCtState(fc *funcChecker, span diag.Span, stepLimit int) *ctState {
-	if stepLimit <= 0 && fc.curFn != nil && fc.curFn.ComptimeLimit > 0 {
-		stepLimit = fc.curFn.ComptimeLimit
+	if stepLimit <= 0 {
+		if fc.curFn != nil && fc.curFn.ComptimeLimit > 0 {
+			stepLimit = fc.curFn.ComptimeLimit
+		} else if fc.curTopVar != nil && fc.curTopVar.Sym != nil && fc.curTopVar.Sym.ComptimeLimit > 0 {
+			stepLimit = fc.curTopVar.Sym.ComptimeLimit
+		}
 	}
 	st := newCtState(a, fc.mod, stepLimit)
+	memLim := int64(0)
 	if fc.curFn != nil && fc.curFn.ComptimeMemLimit > 0 {
-		memLim := fc.curFn.ComptimeMemLimit
+		memLim = fc.curFn.ComptimeMemLimit
+	} else if fc.curTopVar != nil && fc.curTopVar.Sym != nil && fc.curTopVar.Sym.ComptimeMemLimit > 0 {
+		memLim = fc.curTopVar.Sym.ComptimeMemLimit
+	}
+	if memLim > 0 {
 		if a != nil && a.ideMode && memLim > defaultIDEComptimeMaxMem {
 			memLim = defaultIDEComptimeMaxMem
+			st.ideMemCapped = true
 		}
 		st.memLimit = memLim
 		st.explicitMemLimit = true
@@ -3328,14 +3711,23 @@ func stepCharRange(lo, hi rune, inclusive bool, fn func(ch rune) (bool, ctSignal
 	return okSig()
 }
 
-func expandComptimeRangeItems(loV, hiV *ctVal, inclusive bool, maxIters int, span diag.Span) ([]comptimeForItem, ctSignal) {
+func expandComptimeRangeItems(loV, hiV *ctVal, inclusive bool, maxIters int, ideCapped bool, deadline time.Time, wallLimit time.Duration, span diag.Span) ([]comptimeForItem, ctSignal) {
 	if maxIters <= 0 {
 		maxIters = MaxComptimeUnrollIters
 	}
 	var out []comptimeForItem
 	addItem := func(v *ctVal) ctSignal {
+		if !deadline.IsZero() && (len(out)&63) == 0 && time.Now().After(deadline) {
+			return timeoutSig(span, wallLimit)
+		}
 		if len(out) >= maxIters {
-			return abortSig(span, "compile-time `for` loop exceeds unroll limit of %d iterations (reduce the range or use a runtime `for` loop)", maxIters)
+			return ctSignal{
+				kind:      sigAbort,
+				isIDECap:  ideCapped,
+				liftedIdx: -1,
+				errSpan:   span,
+				errMsg:    fmt.Sprintf("compile-time `for` loop exceeds unroll limit of %d iterations (reduce the range or use a runtime `for` loop)", maxIters),
+			}
 		}
 		out = append(out, comptimeForItem{idxVal: v})
 		return okSig()
@@ -3395,7 +3787,7 @@ func expandComptimeRangeItems(loV, hiV *ctVal, inclusive bool, maxIters int, spa
 	return out, okSig()
 }
 
-func (a *Analyzer) evalComptimeForItems(fc *funcChecker, fe *ast.ForExpr, sym1, sym2 *Symbol, maxIters int) ([]comptimeForItem, bool) {
+func (a *Analyzer) evalComptimeForItems(fc *funcChecker, fe *ast.ForExpr, sym1, sym2 *Symbol, maxIters int, ideUnrollCapped bool) ([]comptimeForItem, bool) {
 	if fe == nil || fc == nil {
 		return nil, false
 	}
@@ -3405,11 +3797,15 @@ func (a *Analyzer) evalComptimeForItems(fc *funcChecker, fe *ast.ForExpr, sym1, 
 	st := a.newCheckerCtState(fc, fe.Span, 0)
 	checkLimit := func(n int) bool {
 		if n > maxIters {
-			a.Rep.ErrorWithHint(
-				fe.Span,
-				fmt.Sprintf("compile-time `for` loop has %d iterations, exceeding unroll limit of %d", n, maxIters),
-				"reduce the compile-time collection/range size, annotate the function with `@comptime_limit(...)`, or use a runtime `for` loop",
-			)
+			if ideUnrollCapped {
+				a.Rep.Warnf(fe.Span, "IDE compile-time `for` loop has %d iterations, exceeding analysis limit of %d", n, maxIters)
+			} else {
+				a.Rep.ErrorWithHint(
+					fe.Span,
+					fmt.Sprintf("compile-time `for` loop has %d iterations, exceeding unroll limit of %d", n, maxIters),
+					"reduce the compile-time collection/range size, annotate the function with `@comptime_limit(...)`, or use a runtime `for` loop",
+				)
+			}
 			return false
 		}
 		return true
@@ -3435,7 +3831,7 @@ func (a *Analyzer) evalComptimeForItems(fc *funcChecker, fe *ast.ForExpr, sym1, 
 			}
 			return nil, false
 		}
-		items, rsig := expandComptimeRangeItems(loV, hiV, fe.Inclusive, maxIters, fe.Span)
+		items, rsig := expandComptimeRangeItems(loV, hiV, fe.Inclusive, maxIters, ideUnrollCapped, st.deadline, st.wallLimit, fe.Span)
 		if rsig.kind == sigAbort {
 			st.reportAbort(rsig, fe.Span)
 			return nil, false
@@ -3507,7 +3903,7 @@ func (a *Analyzer) evalComptimeForItems(fc *funcChecker, fe *ast.ForExpr, sym1, 
 			return buildSliceItems(colV.arr.elems)
 		case ctString:
 			var out []comptimeForItem
-			for byteOff, ch := range colV.s {
+			for byteOff, ch := range ctStringStr(colV) {
 				if !checkLimit(len(out) + 1) {
 					return nil, false
 				}
@@ -3541,7 +3937,7 @@ func (a *Analyzer) evalComptimeForItems(fc *funcChecker, fe *ast.ForExpr, sym1, 
 				loV = newCtChar(rune(colV.rng.low))
 				hiV = newCtChar(rune(colV.rng.high))
 			}
-			items, rsig := expandComptimeRangeItems(loV, hiV, colV.rng.inclusive, maxIters, fe.Span)
+			items, rsig := expandComptimeRangeItems(loV, hiV, colV.rng.inclusive, maxIters, ideUnrollCapped, st.deadline, st.wallLimit, fe.Span)
 			if rsig.kind == sigAbort {
 				st.reportAbort(rsig, fe.Span)
 				return nil, false
@@ -3605,11 +4001,38 @@ func (a *Analyzer) evalConstIntWithState(mod *Module, e ast.Expr, subst map[stri
 	}
 	stepLimit := 0
 	if caller != nil {
+		if !caller.deadline.IsZero() && time.Now().After(caller.deadline) {
+			st := newCtState(a, mod, 1)
+			st.reportAbort(timeoutSig(e.GetSpan(), caller.wallLimit), e.GetSpan())
+			a.curBM = prevBM
+			return 0, false
+		}
 		rem := caller.stepLimit - caller.steps
 		if rem <= 0 {
 			st := newCtState(a, mod, 1)
 			st.steps = 2
-			st.reportAbort(abortSig(e.GetSpan(), "compile-time execution exceeded step limit (%d steps; increase with `@comptime_limit(steps: N)`)", caller.stepLimit), e.GetSpan())
+			st.ideStepCapped = caller.ideStepCapped
+			st.reportAbort(ctSignal{
+				kind:      sigAbort,
+				isIDECap:  caller.ideStepCapped,
+				liftedIdx: -1,
+				errSpan:   e.GetSpan(),
+				errMsg:    fmt.Sprintf("compile-time execution exceeded step limit (%d steps; increase with `@comptime_limit(steps: N)`)", caller.stepLimit),
+			}, e.GetSpan())
+			a.curBM = prevBM
+			return 0, false
+		}
+		remMem := caller.memLimit - caller.memBytes
+		if remMem <= 0 {
+			st := newCtState(a, mod, 1)
+			st.ideMemCapped = caller.ideMemCapped
+			st.reportAbort(ctSignal{
+				kind:      sigAbort,
+				isIDECap:  caller.ideMemCapped,
+				liftedIdx: -1,
+				errSpan:   e.GetSpan(),
+				errMsg:    fmt.Sprintf("compile-time execution exceeded memory budget (%s; increase with `@comptime_limit(memory: N)`)", formatComptimeMemSize(caller.memLimit)),
+			}, e.GetSpan())
 			a.curBM = prevBM
 			return 0, false
 		}
@@ -3623,10 +4046,15 @@ func (a *Analyzer) evalConstIntWithState(mod *Module, e ast.Expr, subst map[stri
 		}
 		st.memLimit = remMem
 		st.explicitMemLimit = caller.explicitMemLimit
+		st.ideStepCapped = caller.ideStepCapped
+		st.ideMemCapped = caller.ideMemCapped
+		st.deadline = caller.deadline
+		st.wallLimit = caller.wallLimit
 	}
 	st.frames = []ctFrame{{
 		mod:      mod,
 		bm:       a.curBM,
+		subst:    subst,
 		callSpan: e.GetSpan(),
 		locals:   make(map[*Symbol]*ctSlot),
 		alive:    newFrameAlive(),
@@ -3644,7 +4072,7 @@ func (a *Analyzer) evalConstIntWithState(mod *Module, e ast.Expr, subst map[stri
 	if sig.kind != sigNone || val == nil {
 		return 0, false
 	}
-	if val.kind != ctInt && val.kind != ctChar {
+	if val.kind != ctInt {
 		return 0, false
 	}
 	if val.kind == ctInt && val.prim != nil && !val.prim.IsSignedInt() && val.u > math.MaxInt64 {
@@ -3693,8 +4121,6 @@ func (a *Analyzer) evalSimpleConstIntWithSubst(mod *Module, e ast.Expr, subst ma
 		if v.Val > math.MaxInt64 {
 			return 0, false
 		}
-		return int64(v.Val), true
-	case *ast.CharLit:
 		return int64(v.Val), true
 	case *ast.IdentExpr:
 		if subst != nil {
@@ -4106,10 +4532,12 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 		}, okSig()
 
 	case *ast.MemberExpr:
-		baseInf := s.infoFor(v.Base)
+		mBase := s.a.resolvedMemberBase(v)
+		mName := MemberFieldName(v, s.infoFor(v))
+		baseInf := s.infoFor(mBase)
 		if baseInf != nil {
 			if _, isPtr := baseInf.Type.(*types.Ptr); isPtr {
-				pv, sig := s.evalExpr(v.Base)
+				pv, sig := s.evalExpr(mBase)
 				if sig.kind != sigNone {
 					return ctPlace{}, sig
 				}
@@ -4135,21 +4563,21 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 							return s1
 						}
 						if bv.kind == ctStruct && bv.st != nil {
-							bv.st.fields[v.Member] = nv
+							bv.st.fields[mName] = nv
 							return dp.set(bv)
 						}
 						if bv.kind == ctTuple && bv.tup != nil && inf != nil && inf.TupleFieldIdx < len(bv.tup.elems) {
 							bv.tup.elems[inf.TupleFieldIdx] = nv
 							return dp.set(bv)
 						}
-						return abortSig(v.Span, "cannot assign field %q at compile time", v.Member)
+						return abortSig(v.Span, "cannot assign field %q at compile time", mName)
 					},
-					addr:       dp.addr + uint64(s.memberAddrOffset(baseInf.Type, v.Member, inf)),
+					addr:       s.subPlaceAddr(dp.addr, "m:"+mName, uint64(s.memberAddrOffset(baseInf.Type, mName, inf))),
 					frameAlive: dp.frameAlive,
 				}, okSig()
 			}
 		}
-		basePlace, sig := s.evalPlace(v.Base)
+		basePlace, sig := s.evalPlace(mBase)
 		if sig.kind != sigNone {
 			return ctPlace{}, sig
 		}
@@ -4172,16 +4600,16 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 					return s1
 				}
 				if bv.kind == ctStruct && bv.st != nil {
-					bv.st.fields[v.Member] = nv
+					bv.st.fields[mName] = nv
 					return basePlace.set(bv)
 				}
 				if bv.kind == ctTuple && bv.tup != nil && inf != nil && inf.TupleFieldIdx < len(bv.tup.elems) {
 					bv.tup.elems[inf.TupleFieldIdx] = nv
 					return basePlace.set(bv)
 				}
-				return abortSig(v.Span, "cannot assign field %q at compile time", v.Member)
+				return abortSig(v.Span, "cannot assign field %q at compile time", mName)
 			},
-			addr:       basePlace.addr + uint64(s.memberAddrOffset(baseTy, v.Member, inf)),
+			addr:       s.subPlaceAddr(basePlace.addr, "m:"+mName, uint64(s.memberAddrOffset(baseTy, mName, inf))),
 			frameAlive: basePlace.frameAlive,
 		}, okSig()
 
@@ -4261,8 +4689,8 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 	case *ast.CallExpr:
 		inf := s.infoFor(v)
 		if inf != nil && !inf.IsOptChain && (inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload") {
-			if mem, isMem := v.Callee.(*ast.MemberExpr); isMem {
-				basePlace, sig := s.evalDerefBasePlace(mem.Base, v.Span)
+			if mem, isMem := s.a.resolvedCallee(v).(*ast.MemberExpr); isMem {
+				basePlace, sig := s.evalDerefBasePlace(s.a.resolvedMemberBase(mem), v.Span)
 				if sig.kind != sigNone {
 					return ctPlace{}, sig
 				}
@@ -4344,7 +4772,7 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 						}
 						return abortSig(v.Span, "cannot assign element %d at compile time", elemIdx)
 					},
-					addr:       basePlace.addr + uint64(elemIdx*8+1),
+					addr:       s.subPlaceAddr(basePlace.addr, fmt.Sprintf("%s:%s:%d", builtin, fieldName, elemIdx), uint64(elemIdx*8+8)),
 					frameAlive: basePlace.frameAlive,
 				}, okSig()
 			}
@@ -4355,11 +4783,41 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 
 const maxComptimePointerHops = 256
 
-func (s *ctState) memberAddrOffset(baseTy types.Type, member string, inf *ExprInfo) int64 {
-	if inf != nil && inf.TupleFieldIdx > 0 {
-		return int64(inf.TupleFieldIdx) * 8
+func (s *ctState) subPlaceAddr(baseAddr uint64, tag string, _ uint64) uint64 {
+	if baseAddr == 0 {
+		return 0
 	}
-	if st, ok := types.UnwrapDistinct(baseTy).(*types.Struct); ok && st != nil {
+	if s.subAddrs == nil {
+		s.subAddrs = make(map[string]uint64)
+	}
+	key := fmt.Sprintf("%x:%s", baseAddr, tag)
+	if a, ok := s.subAddrs[key]; ok {
+		return a
+	}
+	s.subSeq += 8
+	a := uint64(0x600000000000) + s.subSeq
+	s.subAddrs[key] = a
+	return a
+}
+
+func (s *ctState) memberAddrOffset(baseTy types.Type, member string, inf *ExprInfo) int64 {
+	for {
+		switch v := baseTy.(type) {
+		case *types.Ptr:
+			baseTy = v.Elem
+		case *types.Ref:
+			baseTy = v.Elem
+		case *types.Distinct:
+			baseTy = v.Base
+		default:
+			goto done
+		}
+	}
+done:
+	if _, isTup := baseTy.(*types.Tuple); isTup && inf != nil {
+		return int64(inf.TupleFieldIdx+1) * 8
+	}
+	if st, ok := baseTy.(*types.Struct); ok && st != nil {
 		for i, f := range st.Fields {
 			if f.Name == member {
 				return int64(i+1) * 8
@@ -5015,14 +5473,17 @@ func (s *ctState) evalMember(m *ast.MemberExpr, inf *ExprInfo) (*ctVal, ctSignal
 			}
 		}
 	}
+	mBase := s.a.resolvedMemberBase(m)
+	hasBaseTypeArgs := len(m.BaseTypeArgs) > 0 && mBase == m.Base
+
 	// Handle `comp.TARGET` directly (including in Pass 1A / top-level `comptime if` conditions).
-	if baseId, isId := m.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !m.QuestDot && !m.MemberHasOpt && len(m.BaseTypeArgs) == 0 && baseId.Name == "comp" && m.Member == "TARGET" {
+	if baseId, isId := mBase.(*ast.IdentExpr); isId && !baseId.IsOpt && !m.QuestDot && !m.MemberHasOpt && !hasBaseTypeArgs && baseId.Name == "comp" && m.Member == "TARGET" {
 		if tv := s.a.buildTargetCtVal(); tv != nil {
 			return tv.clone(), okSig()
 		}
 	}
 	// Handle `comp.TargetOs.darwin`, `comp.TargetArch.amd64`, `comp.Endian.little` in pre-body Pass 1 evaluation.
-	if baseMem, isBM := m.Base.(*ast.MemberExpr); isBM && !baseMem.QuestDot && !baseMem.MemberHasOpt && len(baseMem.BaseTypeArgs) == 0 {
+	if baseMem, isBM := mBase.(*ast.MemberExpr); isBM && !baseMem.QuestDot && !baseMem.MemberHasOpt && len(baseMem.BaseTypeArgs) == 0 {
 		if compId, isId := baseMem.Base.(*ast.IdentExpr); isId && !compId.IsOpt && compId.Name == "comp" {
 			if t, ok := s.a.Prog.CompTypes[baseMem.Member]; ok {
 				if en, isEn := t.(*types.Enum); isEn {
@@ -5036,7 +5497,7 @@ func (s *ctState) evalMember(m *ast.MemberExpr, inf *ExprInfo) (*ctVal, ctSignal
 		}
 	}
 	// Try module.CONST lookup when infoFor didn't record Sym (pre-body Pass 1C/1A).
-	if baseId, isId := m.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !m.QuestDot && !m.MemberHasOpt && len(m.BaseTypeArgs) == 0 {
+	if baseId, isId := mBase.(*ast.IdentExpr); isId && !baseId.IsOpt && !m.QuestDot && !m.MemberHasOpt && !hasBaseTypeArgs {
 		if sym := s.a.lookupTopSymbol(s.curMod(), baseId.Name, m.Member); sym != nil {
 			if sym.FuncInst != nil {
 				return &ctVal{kind: ctFn, ty: sym.Type, fn: sym.FuncInst}, okSig()
@@ -5056,7 +5517,7 @@ func (s *ctState) evalMember(m *ast.MemberExpr, inf *ExprInfo) (*ctVal, ctSignal
 		}
 	}
 
-	bv, sig := s.evalExpr(m.Base)
+	bv, sig := s.evalExpr(mBase)
 	if sig.kind != sigNone {
 		return nil, sig
 	}
@@ -5071,9 +5532,10 @@ func (s *ctState) extractMember(bv *ctVal, m *ast.MemberExpr, inf *ExprInfo) (*c
 		if !bv.hasOpt {
 			return newCtNone(inf.Type), okSig()
 		}
-		res, sig := s.extractMember(bv.optElem, &ast.MemberExpr{Base: m.Base, Member: m.Member, Span: m.Span}, &ExprInfo{
+		res, sig := s.extractMember(bv.optElem, &ast.MemberExpr{Base: s.a.resolvedMemberBase(m), Member: m.Member, Span: m.Span}, &ExprInfo{
 			Type:          inf.Type,
 			TupleFieldIdx: inf.TupleFieldIdx,
+			ResolvedField: inf.ResolvedField,
 		})
 		if sig.kind != sigNone {
 			return nil, sig
@@ -5121,7 +5583,7 @@ func (s *ctState) extractMember(bv *ctVal, m *ast.MemberExpr, inf *ExprInfo) (*c
 		}
 	}
 	if bv.kind == ctStruct && bv.st != nil {
-		if fv, ok := bv.st.fields[m.Member]; ok {
+		if fv, ok := bv.st.fields[MemberFieldName(m, inf)]; ok {
 			return fv, okSig()
 		}
 		// Optional omitted fields default to none.
@@ -5219,7 +5681,10 @@ func (s *ctState) evalStructDefaultOrNone(st *types.Struct, idx int) (*ctVal, ct
 func (s *ctState) evalUnary(u *ast.UnaryExpr, inf *ExprInfo) (*ctVal, ctSignal) {
 	if u.Op == token.Minus {
 		if lit, isLit := u.Operand.(*ast.IntLit); isLit {
-			p := types.UnderlyingPrimitive(inf.Type)
+			var p *types.Primitive
+			if inf != nil && inf.Type != nil {
+				p = types.UnderlyingPrimitive(inf.Type)
+			}
 			if p == nil || !p.IsInteger() {
 				p = types.TypeInt
 			}
@@ -5396,11 +5861,8 @@ func (s *ctState) evalBinary(b *ast.BinaryExpr, inf *ExprInfo) (*ctVal, ctSignal
 		return s.evalIntBinary(b.Op, lv, rv, b.Span)
 	}
 	if lv.kind == ctString && b.Op == token.Plus {
-		out := lv.s + rv.s
-		if sig := s.allocMem(ctValMemCost+int64(len(out)), b.Span); sig.kind != sigNone {
-			return nil, sig
-		}
-		return newCtString(out), okSig()
+		out := ctStringStr(lv) + ctStringStr(rv)
+		return s.newOwnedCtString(out, b.Span)
 	}
 	return nil, abortSig(b.Span, "unsupported binary operator `%s` at compile time", b.Op.String())
 }
@@ -5862,6 +6324,12 @@ func (s *ctState) evalAssignStmt(as *ast.AssignStmt) (*ctVal, ctSignal) {
 		}
 		for i, tgt := range as.UnpackTargets {
 			if id, isId := tgt.(*ast.IdentExpr); isId && id.Name == "_" {
+				if i < len(val.tup.elems) && val.tup.elems[i] != nil {
+					elem := val.tup.elems[i]
+					if sig := s.dropValue(elem.ty, elem, as.Span); sig.kind != sigNone {
+						return nil, sig
+					}
+				}
 				continue
 			}
 			pl, sig := s.evalPlace(tgt)
@@ -5973,14 +6441,20 @@ func (s *ctState) evalAssignStmt(as *ast.AssignStmt) (*ctVal, ctSignal) {
 	} else if cur.kind == ctInt {
 		nextVal, sig = s.evalIntBinary(binOp, cur, rhs, as.Span)
 	} else if cur.kind == ctString && binOp == token.Plus {
-		out := cur.s + rhs.s
-		sig = s.allocMem(ctValMemCost+int64(len(out)), as.Span)
-		nextVal = newCtString(out)
+		out := ctStringStr(cur) + ctStringStr(rhs)
+		nextVal, sig = s.newOwnedCtString(out, as.Span)
 	} else {
 		return nil, abortSig(as.Span, "unsupported compound assignment on %v", cur.ty)
 	}
 	if sig.kind != sigNone {
 		return nil, sig
+	}
+	if cur.kind == ctString && binOp == token.Plus {
+		toStore, dsig := s.dropTargetBeforeOverwrite(as.Target, pl, nextVal, as.Span)
+		if dsig.kind != sigNone {
+			return nil, dsig
+		}
+		return newCtVoid(), pl.set(toStore)
 	}
 	return newCtVoid(), pl.set(nextVal)
 }
@@ -6746,7 +7220,7 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 				}
 			}
 		case ctString:
-			for byteOff, ch := range colV.s {
+			for byteOff, ch := range ctStringStr(colV) {
 				if sig := s.step(le.span); sig.kind != sigNone {
 					return nil, sig
 				}
@@ -7014,8 +7488,9 @@ func (s *ctState) evalMatch(me *ast.MatchExpr, inf *ExprInfo) (*ctVal, ctSignal)
 		if armIdx, ok := fr.bm.ComptimeMatchArm[me]; ok && armIdx >= 0 && armIdx < len(arms) {
 			arm := arms[armIdx]
 			s.pushDropScope()
-			if len(arm.Cases) == 1 {
-				for _, pat := range arm.Cases[0].Patterns {
+			boundSyms := make(map[*Symbol]bool)
+			for _, mc := range arm.Cases {
+				for _, pat := range mc.Patterns {
 					var psyms []*Symbol
 					switch p := pat.(type) {
 					case *ast.VariantPattern:
@@ -7026,11 +7501,14 @@ func (s *ctState) evalMatch(me *ast.MatchExpr, inf *ExprInfo) (*ctVal, ctSignal)
 						}
 					}
 					for _, sym := range psyms {
-						if sym == nil {
+						if sym == nil || boundSyms[sym] {
 							continue
 						}
 						if cv, hasCV := fr.bm.ConstVarVals[sym]; hasCV && cv != nil {
-							fr.locals[sym] = &ctSlot{val: cv.clone(), ty: sym.Type, frameAlive: fr.alive}
+							boundSyms[sym] = true
+							sl := &ctSlot{val: cv.clone(), ty: sym.Type, frameAlive: fr.alive}
+							fr.locals[sym] = sl
+							s.registerDropLocal(sym, sl, sym.Type)
 						}
 					}
 				}
@@ -7408,13 +7886,19 @@ func (s *ctState) evalCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, ctSignal)
 		return res, okSig()
 
 	case CallClosureValue:
-		fv, sig := s.evalExpr(call.Callee)
+		calleeExpr := s.a.resolvedCallee(call)
+		fv, sig := s.evalExpr(calleeExpr)
 		if sig.kind != sigNone {
 			return nil, sig
 		}
 		if fv == nil || fv.kind != ctFn {
 			return nil, abortSig(call.Span, "invalid function value at compile time")
 		}
+		var tempDrops []struct {
+			val  *ctVal
+			span diag.Span
+		}
+		var res *ctVal
 		if fv.fn != nil {
 			if !s.isCallable(fv.fn) {
 				return nil, abortSig(call.Span, "cannot call runtime-only function %q through pointer at compile time", fv.fn.Name)
@@ -7425,29 +7909,54 @@ func (s *ctState) evalCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, ctSignal)
 				if i < len(fv.fn.Sig.Params) {
 					mode = fv.fn.Sig.Params[i].Mode
 				}
-				av, sig := s.evalCallArg(aExpr, mode)
-				if sig.kind != sigNone {
-					return nil, sig
+				av, asig := s.evalCallArg(aExpr, mode)
+				if asig.kind != sigNone {
+					return nil, asig
 				}
 				args[i] = av
+				if mode == types.ModeRead && av.val != nil && !s.isCtLvalueExpr(aExpr) {
+					tempDrops = append(tempDrops, struct {
+						val  *ctVal
+						span diag.Span
+					}{val: av.val, span: aExpr.GetSpan()})
+				}
 			}
-			return s.callFuncInstance(fv.fn, args, call.Span)
-		}
-		if fv.lambda != nil {
+			res, sig = s.callFuncInstance(fv.fn, args, call.Span)
+		} else if fv.lambda != nil {
 			args := make([]ctArg, len(call.Args))
 			for i, aExpr := range call.Args {
 				mode := types.ModeRead
 				if fv.lambda.Sig != nil && i < len(fv.lambda.Sig.Params) {
 					mode = fv.lambda.Sig.Params[i].Mode
 				}
-				av, sig := s.evalCallArg(aExpr, mode)
-				if sig.kind != sigNone {
-					return nil, sig
+				av, asig := s.evalCallArg(aExpr, mode)
+				if asig.kind != sigNone {
+					return nil, asig
 				}
 				args[i] = av
+				if mode == types.ModeRead && av.val != nil && !s.isCtLvalueExpr(aExpr) {
+					tempDrops = append(tempDrops, struct {
+						val  *ctVal
+						span diag.Span
+					}{val: av.val, span: aExpr.GetSpan()})
+				}
 			}
-			return s.callLambda(fv.lambda, fv.captures, args, call.Span)
+			res, sig = s.callLambda(fv.lambda, fv.captures, args, call.Span)
+		} else {
+			return nil, abortSig(call.Span, "invalid function value at compile time")
 		}
+		for _, td := range tempDrops {
+			if s.sharesLiveSlotAlloc(td.val) {
+				continue
+			}
+			if dsig := s.dropValue(td.val.ty, td.val, td.span); dsig.kind != sigNone && sig.kind == sigNone {
+				return nil, dsig
+			}
+		}
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+		return res, okSig()
 	}
 
 	return nil, abortSig(call.Span, "unsupported call kind %v at compile time", inf.CallKind)
@@ -7467,14 +7976,15 @@ func (s *ctState) isCtLvalueExpr(e ast.Expr) bool {
 		case *ast.CallExpr:
 			if s != nil {
 				if inf := s.infoFor(v); inf != nil && !inf.IsOptChain && (inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload") {
-					if mem, isMem := v.Callee.(*ast.MemberExpr); isMem {
-						if bInf := s.infoFor(mem.Base); bInf != nil {
+					if mem, isMem := s.a.resolvedCallee(v).(*ast.MemberExpr); isMem {
+						mBase := s.a.resolvedMemberBase(mem)
+						if bInf := s.infoFor(mBase); bInf != nil {
 							switch bInf.Type.(type) {
 							case *types.Ptr, *types.Ref:
 								return true
 							}
 						}
-						return s.isCtLvalueExpr(mem.Base)
+						return s.isCtLvalueExpr(mBase)
 					}
 				}
 			}
@@ -7500,11 +8010,9 @@ func (s *ctState) evalCallArg(aExpr ast.Expr, mode types.ParamMode) (ctArg, ctSi
 	}
 	if mode == types.ModeOwn {
 		v = v.clone()
-		if id, isId := aExpr.(*ast.IdentExpr); isId {
-			if inf := s.infoFor(id); inf != nil && inf.MovedLocal != nil {
-				if sl, ok := s.lookupSlot(inf.MovedLocal); ok {
-					sl.moved = true
-				}
+		if inf := s.infoFor(aExpr); inf != nil && inf.MovedLocal != nil {
+			if sl, ok := s.lookupSlot(inf.MovedLocal); ok {
+				sl.moved = true
 			}
 		}
 	}
@@ -7520,17 +8028,58 @@ func (s *ctState) callFuncInstance(fi *FuncInstance, argList []ctArg, callSpan d
 		return nil, abortSig(callSpan, "cannot call runtime-only function %q at compile time", fi.Name)
 	}
 
+	prevMemLimit := s.memLimit
+	prevExplicitMem := s.explicitMemLimit
+	prevMemCapped := s.ideMemCapped
+	if fi.ComptimeMemLimit > 0 {
+		fnMemLimit := fi.ComptimeMemLimit
+		fnMemCapped := false
+		if s.a != nil && s.a.ideMode && fnMemLimit > defaultIDEComptimeMaxMem {
+			fnMemLimit = defaultIDEComptimeMaxMem
+			fnMemCapped = true
+		}
+		if !s.explicitMemLimit && fnMemLimit > s.memLimit {
+			s.memLimit = fnMemLimit
+			s.explicitMemLimit = true
+			s.ideMemCapped = fnMemCapped
+		} else if fnMemLimit < s.memLimit {
+			if fnMemLimit < s.memBytes {
+				return nil, ctSignal{
+					kind:      sigAbort,
+					isIDECap:  fnMemCapped,
+					liftedIdx: -1,
+					errSpan:   callSpan,
+					errMsg: fmt.Sprintf("compile-time call to %q exceeds function memory limit (%s in use, limit %s)",
+						fi.Name, formatComptimeMemSize(s.memBytes), formatComptimeMemSize(fnMemLimit)),
+				}
+			}
+			s.memLimit = fnMemLimit
+			s.explicitMemLimit = true
+			s.ideMemCapped = fnMemCapped
+		}
+	}
+
 	s.depth++
+	stepsAtEntry := s.steps
 	prevLimit := s.stepLimit
 	prevExplicitStep := s.explicitStepLimit
+	prevStepCapped := s.ideStepCapped
+	raisedStepLimit := false
 	if fi.ComptimeLimit > 0 {
 		fnLimit := fi.ComptimeLimit
+		fnStepCapped := false
 		if s.a != nil && s.a.ideMode && fnLimit > defaultIDEComptimeStepLimit {
 			fnLimit = defaultIDEComptimeStepLimit
+			fnStepCapped = true
 		}
 		if !s.explicitStepLimit && fnLimit > s.stepLimit {
-			s.stepLimit = fnLimit
+			s.stepLimit = stepsAtEntry + fnLimit
+			if s.stepLimit < fnLimit {
+				s.stepLimit = math.MaxInt
+			}
 			s.explicitStepLimit = true
+			s.ideStepCapped = fnStepCapped
+			raisedStepLimit = true
 		} else {
 			rem := s.stepLimit - s.steps
 			if rem < 0 {
@@ -7539,19 +8088,8 @@ func (s *ctState) callFuncInstance(fi *FuncInstance, argList []ctArg, callSpan d
 			if fnLimit < rem {
 				s.stepLimit = s.steps + fnLimit
 				s.explicitStepLimit = true
+				s.ideStepCapped = fnStepCapped
 			}
-		}
-	}
-	prevMemLimit := s.memLimit
-	prevExplicitMem := s.explicitMemLimit
-	if fi.ComptimeMemLimit > 0 {
-		fnMemLimit := fi.ComptimeMemLimit
-		if s.a != nil && s.a.ideMode && fnMemLimit > defaultIDEComptimeMaxMem {
-			fnMemLimit = defaultIDEComptimeMaxMem
-		}
-		if !s.explicitMemLimit || fnMemLimit < s.memLimit {
-			s.memLimit = fnMemLimit
-			s.explicitMemLimit = true
 		}
 	}
 	alive := newFrameAlive()
@@ -7576,10 +8114,23 @@ func (s *ctState) callFuncInstance(fi *FuncInstance, argList []ctArg, callSpan d
 	defer func() {
 		*alive = false
 		s.frames = s.frames[:len(s.frames)-1]
-		s.stepLimit = prevLimit
+		if raisedStepLimit && s.steps > prevLimit {
+			remAtEntry := prevLimit - stepsAtEntry
+			if remAtEntry < 0 {
+				remAtEntry = 0
+			}
+			s.stepLimit = s.steps + remAtEntry
+			if s.stepLimit < s.steps {
+				s.stepLimit = math.MaxInt
+			}
+		} else {
+			s.stepLimit = prevLimit
+		}
 		s.explicitStepLimit = prevExplicitStep
+		s.ideStepCapped = prevStepCapped
 		s.memLimit = prevMemLimit
 		s.explicitMemLimit = prevExplicitMem
+		s.ideMemCapped = prevMemCapped
 		s.depth--
 	}()
 
@@ -7672,6 +8223,13 @@ func (s *ctState) callLambda(lam *LambdaInfo, captures map[*Symbol]*ctSlot, argL
 	}()
 
 	s.pushDropScope()
+	if lam.Sig != nil {
+		for i, ps := range lam.ParamSyms {
+			if ps != nil && i < len(lam.Sig.Params) && lam.Sig.Params[i].Mode == types.ModeOwn {
+				s.registerDropLocal(ps, locals[ps], ps.Type)
+			}
+		}
+	}
 	val, sig := s.evalExpr(lam.Lit.Body)
 	dsig := s.popDropScope(lam.Lit.Body.GetSpan())
 	if sig.kind == sigAbort {
@@ -7892,7 +8450,7 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 		}
 		sa := pl.addr
 		if sa == 0 {
-			sa = s.nextStackAddr()
+			sa = s.subPlaceAddr(1, fmt.Sprintf("const:%s:%d:%d", call.Args[0].GetSpan().Start.File, call.Args[0].GetSpan().Start.Line, call.Args[0].GetSpan().Start.Col), 0)
 		}
 		return &ctVal{
 			kind: ctPointer,
@@ -8210,6 +8768,12 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 		}
 		return nil, abortSig(call.Span, "`fill_bytes` non-zero fill on structured buffer at compile time")
 
+	case "forget":
+		if _, sig := s.evalCallArg(call.Args[0], types.ModeOwn); sig.kind != sigNone {
+			return nil, sig
+		}
+		return newCtVoid(), okSig()
+
 	default:
 		return nil, abortSig(call.Span, "raw memory/system intrinsic `%s` is forbidden at compile time", inf.BuiltinName)
 	}
@@ -8413,7 +8977,7 @@ func (s *ctState) evalCompEmbed(call *ast.CallExpr, asBytes bool) (*ctVal, ctSig
 	}
 
 	if asBytes {
-		res, bsig := s.makeByteListStruct(data, call.Span)
+		res, bsig := s.makeByteListStructOwned(data, false, call.Span)
 		if bsig.kind != sigNone {
 			s.a.recordAttemptedEmbed(canonicalTarget)
 			return nil, bsig
@@ -8519,6 +9083,12 @@ func isWithinSandboxDir(rootDir, targetPath string) bool {
 	if err1 != nil || err2 != nil {
 		return false
 	}
+	if canonRoot, ok := evalSymlinksBestEffort(absRoot); ok {
+		absRoot = canonRoot
+	}
+	if canonTarget, ok := evalSymlinksBestEffort(absTarget); ok {
+		absTarget = canonTarget
+	}
 	absRoot = foldPathForComparison(absRoot)
 	absTarget = foldPathForComparison(absTarget)
 	rel, err := filepath.Rel(absRoot, absTarget)
@@ -8531,17 +9101,19 @@ func isWithinSandboxDir(rootDir, targetPath string) bool {
 	return true
 }
 
-func (s *ctState) resolveCallerLocationSpan(callSpan diag.Span) diag.Span {
+func (s *ctState) resolveCallerLocationSpan(callSpan diag.Span) (diag.Span, int) {
 	sp := callSpan
+	liftedIdx := -1
 	for i := len(s.frames) - 1; i >= 0; i-- {
 		fr := s.frames[i]
 		if fr.fi != nil && fr.fi.TrackCaller && fr.callSpan.Start.File != "" {
 			sp = fr.callSpan
+			liftedIdx = i
 			continue
 		}
 		break
 	}
-	return sp
+	return sp, liftedIdx
 }
 
 func (s *ctState) evalBuiltinFuncCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, ctSignal) {
@@ -8551,15 +9123,17 @@ func (s *ctState) evalBuiltinFuncCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 		if sig.kind != sigNone {
 			return nil, sig
 		}
-		sp := s.resolveCallerLocationSpan(call.Span)
-		return nil, abortSig(sp, "%s", mv.s)
+		sp, liftedIdx := s.resolveCallerLocationSpan(call.Span)
+		ab := abortSig(sp, "%s", ctStringStr(mv))
+		ab.liftedIdx = liftedIdx
+		return nil, ab
 
 	case "comp.log":
 		mv, sig := s.evalExpr(call.Args[0])
 		if sig.kind != sigNone {
 			return nil, sig
 		}
-		sp := s.resolveCallerLocationSpan(call.Span)
+		sp, _ := s.resolveCallerLocationSpan(call.Span)
 		msg, msig := s.valToString(mv, call.Args[0].GetSpan())
 		if msig.kind != sigNone {
 			return nil, msig
@@ -8610,12 +9184,14 @@ func (s *ctState) evalBuiltinFuncCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 		if sig.kind != sigNone {
 			return nil, sig
 		}
-		sp := s.resolveCallerLocationSpan(call.Span)
+		sp, liftedIdx := s.resolveCallerLocationSpan(call.Span)
 		msg, msig := s.valToString(mv, call.Args[0].GetSpan())
 		if msig.kind != sigNone {
 			return nil, msig
 		}
-		return nil, abortSig(sp, "compile-time panic: %s", msg)
+		ab := abortSig(sp, "compile-time panic: %s", msg)
+		ab.liftedIdx = liftedIdx
+		return nil, ab
 
 	case "assert":
 		cv, sig := s.evalExpr(call.Args[0])
@@ -8629,27 +9205,29 @@ func (s *ctState) evalBuiltinFuncCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 				if sig.kind != sigNone {
 					return nil, sig
 				}
-				msg = mv.s
+				msg = ctStringStr(mv)
 			}
-			sp := s.resolveCallerLocationSpan(call.Span)
-			return nil, abortSig(sp, "compile-time assertion failed: %s", msg)
+			sp, liftedIdx := s.resolveCallerLocationSpan(call.Span)
+			ab := abortSig(sp, "compile-time assertion failed: %s", msg)
+			ab.liftedIdx = liftedIdx
+			return nil, ab
 		}
 		return newCtVoid(), okSig()
 
 	case "caller_location":
-		sp := s.resolveCallerLocationSpan(call.Span)
+		sp, _ := s.resolveCallerLocationSpan(call.Span)
 		return newCtString(fmt.Sprintf("%s:%d:%d", sp.Start.File, sp.Start.Line, sp.Start.Col)), okSig()
 
 	case "caller_file":
-		sp := s.resolveCallerLocationSpan(call.Span)
+		sp, _ := s.resolveCallerLocationSpan(call.Span)
 		return newCtString(sp.Start.File), okSig()
 
 	case "caller_line":
-		sp := s.resolveCallerLocationSpan(call.Span)
+		sp, _ := s.resolveCallerLocationSpan(call.Span)
 		return newCtSignedInt(int64(sp.Start.Line), types.TypeInt), okSig()
 
 	case "caller_col":
-		sp := s.resolveCallerLocationSpan(call.Span)
+		sp, _ := s.resolveCallerLocationSpan(call.Span)
 		return newCtSignedInt(int64(sp.Start.Col), types.TypeInt), okSig()
 
 	case "abs":
@@ -8675,7 +9253,10 @@ func (s *ctState) evalBuiltinFuncCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 		if sig.kind != sigNone {
 			return nil, sig
 		}
-		cmp := lv.cmpVal(rv)
+		cmp, okCmp := lv.cmpValOk(rv)
+		if !okCmp {
+			return rv.clone(), okSig()
+		}
 		if (inf.BuiltinName == "min" && cmp <= 0) || (inf.BuiltinName == "max" && cmp >= 0) {
 			return lv.clone(), okSig()
 		}
@@ -8867,7 +9448,7 @@ func (s *ctState) formatFloat(val float64, prim *types.Primitive, span diag.Span
 				return "", sig
 			}
 			if res != nil && res.kind == ctString {
-				return res.s, okSig()
+				return ctStringStr(res), okSig()
 			}
 		}
 	}
@@ -8906,7 +9487,7 @@ func (s *ctState) valToStringDepth(v *ctVal, span diag.Span, depth int) (string,
 				return "", sig
 			}
 			if res != nil && res.kind == ctString {
-				return res.s, okSig()
+				return ctStringStr(res), okSig()
 			}
 		}
 	}
@@ -9066,17 +9647,18 @@ func (s *ctState) evalBuiltinMethodCall(call *ast.CallExpr, inf *ExprInfo) (*ctV
 	case "f32.to_bits":
 		res = newCtInt(uint64(math.Float32bits(float32(rv.f))), types.TypeU32)
 	case "string.len":
-		res = newCtSignedInt(int64(len(rv.s)), types.TypeInt)
+		res = newCtSignedInt(int64(len(ctStringStr(rv))), types.TypeInt)
 	case "string.byte_at":
 		iv, s1 := s.evalExpr(call.Args[0])
 		if s1.kind != sigNone {
 			return nil, s1
 		}
 		idx := iv.asInt64()
-		if idx < 0 || idx >= int64(len(rv.s)) {
-			return nil, abortSig(call.Span, "compile-time `string.byte_at` index %d out of bounds (len %d)", idx, len(rv.s))
+		rs := ctStringStr(rv)
+		if idx < 0 || idx >= int64(len(rs)) {
+			return nil, abortSig(call.Span, "compile-time `string.byte_at` index %d out of bounds (len %d)", idx, len(rs))
 		}
-		res = newCtInt(uint64(rv.s[idx]), types.TypeU8)
+		res = newCtInt(uint64(rs[idx]), types.TypeU8)
 	case "vec.len":
 		res = newCtSignedInt(int64(len(rv.list.elems)), types.TypeInt)
 	case "vec.cap":
@@ -9119,13 +9701,10 @@ func (s *ctState) evalBuiltinMethodCall(call *ast.CallExpr, inf *ExprInfo) (*ctV
 		}
 		parts := make([]string, len(rv.list.elems))
 		for i, el := range rv.list.elems {
-			parts[i] = el.s
+			parts[i] = ctStringStr(el)
 		}
-		joined := strings.Join(parts, sep.s)
-		if sig := s.allocMem(ctValMemCost+int64(len(joined)), call.Span); sig.kind != sigNone {
-			return nil, sig
-		}
-		res = newCtString(joined)
+		joined := strings.Join(parts, ctStringStr(sep))
+		return s.newOwnedCtString(joined, call.Span)
 	case "arr.len":
 		res = newCtSignedInt(int64(len(rv.arr.elems)), types.TypeInt)
 	case "arr.is_empty":
@@ -9161,14 +9740,14 @@ func (s *ctState) evalBuiltinMethodCall(call *ast.CallExpr, inf *ExprInfo) (*ctV
 		if s1.kind != sigNone {
 			return nil, s1
 		}
-		_, ok := findCompAttrByName(rv, nv.s)
+		_, ok := findCompAttrByName(rv, ctStringStr(nv))
 		res = newCtBool(ok)
 	case "comp_field.attr", "comp_variant.attr":
 		nv, s1 := s.evalExpr(call.Args[0])
 		if s1.kind != sigNone {
 			return nil, s1
 		}
-		if match, ok := findCompAttrByName(rv, nv.s); ok && match != nil {
+		if match, ok := findCompAttrByName(rv, ctStringStr(nv)); ok && match != nil {
 			res = newCtSome(inf.Type, match.clone())
 		} else {
 			res = newCtNone(inf.Type)
@@ -9275,7 +9854,7 @@ func findCompAttrByName(desc *ctVal, name string) (*ctVal, bool) {
 	}
 	for _, a := range attrs {
 		if a != nil && a.kind == ctStruct && a.st != nil {
-			if nv := a.st.fields["name"]; nv != nil && nv.s == name {
+			if nv := a.st.fields["name"]; nv != nil && ctStringStr(nv) == name {
 				return a, true
 			}
 		}
@@ -9408,10 +9987,11 @@ func (s *ctState) evalIndexGet(bv, iv *ctVal, span diag.Span) (*ctVal, ctSignal)
 		return bv.arr.elems[idx], okSig()
 	case ctString:
 		idx := iv.asInt64()
-		if idx < 0 || idx >= int64(len(bv.s)) {
-			return nil, abortSig(span, "compile-time string byte index %d out of bounds (len %d)", idx, len(bv.s))
+		bs := ctStringStr(bv)
+		if idx < 0 || idx >= int64(len(bs)) {
+			return nil, abortSig(span, "compile-time string byte index %d out of bounds (len %d)", idx, len(bs))
 		}
-		return newCtInt(uint64(bv.s[idx]), types.TypeU8), okSig()
+		return newCtInt(uint64(bs[idx]), types.TypeU8), okSig()
 	case ctMap:
 		for _, ent := range bv.m.entries {
 			if ent.key.equals(s.a, iv) {
@@ -9582,7 +10162,7 @@ func (s *ctState) evalSlice(bv *ctVal, loPtr, hiPtr *int64, inclusive, borrowAsV
 		if bv.sAlloc != nil && bv.sAlloc.freed {
 			return nil, abortSig(span, "use-after-free slicing compile-time string")
 		}
-		total = int64(len(bv.s))
+		total = int64(len(ctStringStr(bv)))
 	case ctList:
 		total = int64(len(bv.list.elems))
 	case ctArray:
@@ -9617,23 +10197,18 @@ func (s *ctState) evalSlice(bv *ctVal, loPtr, hiPtr *int64, inclusive, borrowAsV
 	}
 	switch bv.kind {
 	case ctString:
-		if utf8.ValidString(bv.s) && ((lo < total && !utf8.RuneStart(bv.s[lo])) || (hi < total && !utf8.RuneStart(bv.s[hi]))) {
+		bs := ctStringStr(bv)
+		if utf8.ValidString(bs) && ((lo < total && !utf8.RuneStart(bs[lo])) || (hi < total && !utf8.RuneStart(bs[hi]))) {
 			return nil, abortSig(span, "compile-time string slice [%d..%d] splits a UTF-8 code point", lo, hi)
 		}
-		sub := bv.s[lo:hi]
+		sub := bs[lo:hi]
 		if borrowAsView || hi == lo {
 			if bv.sAlloc != nil && !bv.sAlloc.freed {
 				return &ctVal{kind: ctString, ty: types.TypeString, s: sub, sAlloc: bv.sAlloc, sOff: bv.sOff + lo, sCap: 0}, okSig()
 			}
 			return newCtString(sub), okSig()
 		}
-		buf := make([]byte, len(sub)+1)
-		copy(buf, sub)
-		al, sig := s.newBytesAlloc(buf, false, span)
-		if sig.kind != sigNone {
-			return nil, sig
-		}
-		return &ctVal{kind: ctString, ty: types.TypeString, s: sub, sAlloc: al, sOff: 0, sCap: int64(len(buf))}, okSig()
+		return s.newOwnedCtString(sub, span)
 	case ctList:
 		if sig := s.allocMem((hi-lo)*ctValMemCost, span); sig.kind != sigNone {
 			return nil, sig
@@ -9922,7 +10497,7 @@ func exportCtVal(cv *ctVal, expectedTy types.Type) *StaticData {
 	case ctChar:
 		return &StaticData{Kind: StaticChar, Type: ty, Char: cv.ch}
 	case ctString:
-		return &StaticData{Kind: StaticString, Type: ty, Str: cv.s}
+		return &StaticData{Kind: StaticString, Type: ty, Str: ctStringStr(cv)}
 	case ctList:
 		var elemTy types.Type
 		switch ct := effTy.(type) {
@@ -10117,8 +10692,9 @@ func ctValToConstValue(v *ctVal, expectedTy types.Type) *types.ConstValue {
 			return cv
 		}
 		if et.Kind == types.PrimString {
-			cv := types.NewConstString(v.s)
-			cv.CtVal = newCtString(v.s)
+			sv := ctStringStr(v)
+			cv := types.NewConstString(sv)
+			cv.CtVal = newCtString(sv)
 			return cv
 		}
 	case *types.Enum:
@@ -10334,12 +10910,29 @@ func (s *ctState) evalCompElemsOf(ty types.Type, span diag.Span) (*ctVal, ctSign
 	case *types.Tuple:
 		elemTypes = v.Elems
 	case *types.StackArray:
+		if v.Size < 0 {
+			return nil, abortSig(span, "invalid negative array size %d in `comp.elems_of`", v.Size)
+		}
+		if sig := s.chargeBulkSteps(v.Size, span); sig.kind != sigNone {
+			return nil, sig
+		}
+		if sig := s.allocMem(v.Size*ctValMemCost, span); sig.kind != sigNone {
+			return nil, sig
+		}
 		elemTypes = make([]types.Type, v.Size)
 		for i := range elemTypes {
 			elemTypes[i] = v.Elem
 		}
 	default:
 		return nil, abortSig(span, "`comp.elems_of` requires a tuple or fixed array `[N: T]`")
+	}
+	if len(elemTypes) > 0 {
+		if sig := s.chargeBulkSteps(int64(len(elemTypes)), span); sig.kind != sigNone {
+			return nil, sig
+		}
+		if sig := s.allocMem(int64(len(elemTypes))*ctValMemCost, span); sig.kind != sigNone {
+			return nil, sig
+		}
 	}
 	elems := make([]*ctVal, 0, len(elemTypes))
 	for idx, et := range elemTypes {

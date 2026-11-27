@@ -759,7 +759,7 @@ func (g *llvmEmitter) emitStringAndAssertRuntime() {
 
 	fns := []string{
 		"ll_drop__string", "ll_str_free_p", "ll_copy__string", "ll_copy_p__string",
-		"ll_str_ensure_owned_cap", "ll_str_push_p", "ll_str_push_byte",
+		"ll_str_ensure_owned_cap", "ll_str_push_p",
 		"ll_str_push_bytes", "ll_str_eq_p", "ll_str_cmp_p", "ll_str_hash_p",
 		"ll_print_str_p", "ll_panic_str_p", "ll_assert_p",
 	}
@@ -941,23 +941,6 @@ do_push:
     store i8 0, ptr %%term, align 1
     br label %%done
 done:
-    ret void
-}
-
-define internal void @ll_str_push_byte(ptr %%s, i8 %%b) {
-entry:
-    %%p_len = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 1
-    %%len = load i64, ptr %%p_len, align 8
-    %%needed = add i64 %%len, 2
-    call void @ll_str_ensure_owned_cap(ptr %%s, i64 %%needed)
-    %%p_data = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 0
-    %%data = load ptr, ptr %%p_data, align 8
-    %%dst = getelementptr inbounds i8, ptr %%data, i64 %%len
-    store i8 %%b, ptr %%dst, align 1
-    %%new_len = add i64 %%len, 1
-    store i64 %%new_len, ptr %%p_len, align 8
-    %%term = getelementptr inbounds i8, ptr %%data, i64 %%new_len
-    store i8 0, ptr %%term, align 1
     ret void
 }
 
@@ -2862,6 +2845,18 @@ func (g *llvmEmitter) emitStructHelpersLLVM(st *types.Struct) {
 	g.nextRegID = 0
 	g.line("define internal void @ll_drop__%s(ptr %%p) {", mangled)
 	g.line("entry:")
+	var packedFieldTmps map[int]string
+	if st.Packed {
+		packedFieldTmps = make(map[int]string)
+		for i := len(st.Fields) - 1; i >= 0; i-- {
+			f := st.Fields[i]
+			if !f.Type.IsPlain() {
+				tmp := fmt.Sprintf("%%_ptmp_%d", i)
+				packedFieldTmps[i] = tmp
+				g.indentLine(1, "%s = alloca %s, align %d", tmp, g.llvmType(f.Type), g.typeAlign(f.Type))
+			}
+		}
+	}
 	g.indentLine(1, "%%is_null = icmp eq ptr %%p, null")
 	g.indentLine(1, "br i1 %%is_null, label %%done, label %%do_drop")
 	g.line("do_drop:")
@@ -2875,7 +2870,17 @@ func (g *llvmEmitter) emitStructHelpersLLVM(st *types.Struct) {
 		if !f.Type.IsPlain() {
 			fp := g.newReg()
 			g.indentLine(1, "%s = getelementptr inbounds %s, ptr %%p, i32 0, i32 %d", fp, tyStr, i)
-			g.emitValueDropInline(fp, f.Type)
+			if st.Packed {
+				fTyStr := g.llvmType(f.Type)
+				fAl := g.typeAlign(f.Type)
+				fv := g.newReg()
+				g.indentLine(1, "%s = load %s, ptr %s, align 1", fv, fTyStr, fp)
+				g.indentLine(1, "store %s zeroinitializer, ptr %s, align 1", fTyStr, fp)
+				g.indentLine(1, "store %s %s, ptr %s, align %d", fTyStr, fv, packedFieldTmps[i], fAl)
+				g.emitValueDropInline(packedFieldTmps[i], f.Type)
+			} else {
+				g.emitValueDropInline(fp, f.Type)
+			}
 		}
 	}
 	g.indentLine(1, "store %s zeroinitializer, ptr %%p, align %d", tyStr, al)
@@ -2981,12 +2986,11 @@ func (g *llvmEmitter) emitOptionalHelpersLLVM(opt *types.Optional) {
 
 func (g *llvmEmitter) emitClosureHelpersLLVM(fn *types.Func) {
 	mangled := fn.Mangled()
+	fnLitSym := g.internString("<fn>").symbol
 
 	if !g.funcSet["ll_closure_drop"] {
 		g.funcSet["ll_closure_drop"] = true
 		g.funcSet["ll_closure_copy_p"] = true
-		g.funcSet["ll_closure_tostr_p"] = true
-		fnLitSym := g.internString("<fn>").symbol
 		g.line(`define internal void @ll_closure_drop(ptr %%c) {
 entry:
     %%is_null = icmp eq ptr %%c, null
@@ -3030,14 +3034,7 @@ call_copy:
 done:
     ret void
 }
-
-define internal void @ll_closure_tostr_p(ptr %%out, ptr %%c) {
-entry:
-    store %%struct.ll_string zeroinitializer, ptr %%out, align 8
-    call void @ll_str_push_bytes(ptr %%out, ptr %s, i64 4)
-    ret void
-}
-`, fnLitSym)
+`)
 	}
 
 	for _, prefix := range []string{"ll_drop__", "ll_copy__", "ll_copy_p__", "ll_tostr__", "ll_tostr_p__"} {
@@ -3065,16 +3062,18 @@ entry:
 }
 define internal void @ll_tostr_p__%s(ptr %%out, ptr %%p) {
 entry:
-    call void @ll_closure_tostr_p(ptr %%out, ptr %%p)
+    store %%struct.ll_string zeroinitializer, ptr %%out, align 8
+    call void @ll_str_push_bytes(ptr %%out, ptr %s, i64 4)
     ret void
 }
 define internal %%struct.ll_string @ll_tostr__%s(%%struct.ll_closure %%v) {
 entry:
     %%out = alloca %%struct.ll_string, align 8
-    call void @ll_closure_tostr_p(ptr %%out, ptr null)
+    store %%struct.ll_string zeroinitializer, ptr %%out, align 8
+    call void @ll_str_push_bytes(ptr %%out, ptr %s, i64 4)
     %%r = load %%struct.ll_string, ptr %%out, align 8
     ret %%struct.ll_string %%r
-}`, mangled, mangled, mangled, mangled, mangled)
+}`, mangled, mangled, mangled, mangled, fnLitSym, mangled, fnLitSym)
 }
 
 func (g *llvmEmitter) emitInterfaceHelpersLLVM(ifc *types.Interface) {
@@ -3524,7 +3523,9 @@ func (g *llvmEmitter) emitVectorMethodsLLVM(vec *types.Vector) {
 		g.indentLine(1, "call void @llvm.memcpy.p0.p0.i64(ptr %%nd, ptr %%data, i64 %%cp_bytes, i1 false)")
 		g.indentLine(1, "br label %%view_done")
 	} else {
-		g.indentLine(1, "call void @ll_panic_cstr(ptr %s, ptr %s, i32 0)", sliceOobSym, sliceOobSym)
+		nonCopyViewSym := g.internString("cannot clone vector view of non-Copyable elements").symbol
+		coreSym := g.internString("<core>").symbol
+		g.indentLine(1, "call void @ll_panic_cstr(ptr %s, ptr %s, i32 0)", nonCopyViewSym, coreSym)
 		g.indentLine(1, "unreachable")
 	}
 	g.line("view_done:")

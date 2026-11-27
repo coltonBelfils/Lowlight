@@ -65,10 +65,10 @@
 <tr><td><code>s.push(t)</code>, <code>s.push_char(c)</code></td><td>append in place (needs a mutable <code>s</code>)</td></tr>
 </tbody>
 </table></div>
-<p>The full method set is in <a href="the-prelude.html#124-strings-and-characters">§12.4</a>.</p>
+<p>The full method set is in <a href="the-prelude.html#125-strings-and-characters">§12.5</a>.</p>
 <h2 id="35-optionals"><a class="anchor" href="#35-optionals" aria-hidden="true">#</a>3.5 Optionals</h2>
 <p><code>?T</code> is a value that is either a <code>T</code> or absent. <code>none</code> is the absent value.</p>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> name?: ?<span class="t">string</span> = <span class="s">&quot;Ada&quot;</span>
 	<span class="k">let</span> empty?: ?<span class="t">string</span> = <span class="c">none</span>
 	<span class="f">println</span>(name? ?? <span class="s">&quot;nobody&quot;</span>)
@@ -101,7 +101,7 @@
 <p>An array can be passed where a read-only <code>[T]</code> is expected.</p>
 <p><strong>Sets</strong> <code>#[T]</code> (<code>Set[T]</code>): unordered unique elements; <code>T</code> must be <code>Hashable</code>. Literal <code>#[1, 2, 3]</code>; <code>#[]</code> needs a type from context.</p>
 <p><strong>Maps</strong> <code>#[K: V]</code> (<code>Map[K, V]</code>): hash maps that iterate in insertion order; <code>K</code> must be <code>Hashable</code>. Literal <code>#[&quot;a&quot;: 1, &quot;b&quot;: 2]</code>; <code>#[]</code> needs a type from context. <code>m[k]</code> means <code>m.get(k)</code> and yields <code>?V</code>. <code>m[k] = v</code> means <code>m.insert(k, v)</code>. Iterating a map yields <code>MapEntry[K, V]</code> values (fields <code>key</code> and <code>value</code>), or two variables with <code>for(k, v in m)</code>.</p>
-<p><strong>Tuples</strong> <code>+[A, B, ...]</code>: fixed groups of two or more values of any types, stored inline. Literal <code>+[1, &quot;a&quot;]</code>. Elements are accessed by position, <code>t.0</code> and <code>t.1</code>; <code>t[0]</code> is not allowed. Unpack with <code>let a, b = unpack t</code> (<a href="declarations-and-program-structure.html#42-bind-and-let">§4.2</a>). A tuple is plain if all its elements are, and is <code>Printable</code> (as <code>+[1, a]</code>), equatable, and <code>Hashable</code> when all its elements are.</p>
+<p><strong>Tuples</strong> <code>+[A, B, ...]</code>: fixed groups of two or more values of any types, stored inline. Literal <code>+[1, &quot;a&quot;]</code>. Elements are accessed by position, <code>t.0</code> and <code>t.1</code>; <code>t[0]</code> is not allowed. Unpack with <code>let a, b = unpack t</code> (<a href="declarations-and-program-structure.html#42-bind-const-and-let">§4.2</a>). A tuple is plain if all its elements are, and is <code>Printable</code> (as <code>+[1, a]</code>), equatable, and <code>Hashable</code> when all its elements are.</p>
 <p><strong>Ranges</strong> <code>Range[T]</code>: <code>lo..hi</code> (excludes <code>hi</code>) and <code>lo..=hi</code> (includes <code>hi</code>) over integer types, integer-based distinct types, and <code>char</code>. Float ranges are rejected. A range is a plain value: it can be stored, passed, iterated, and used in <code>when in</code> patterns. Methods: <code>contains</code>, <code>is_empty</code>, <code>len</code>, <code>iter</code>, <code>to_string</code>.</p>
 <h2 id="37-structs"><a class="anchor" href="#37-structs" aria-hidden="true">#</a>3.7 Structs</h2>
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">User</span> <span class="k">struct</span> [
@@ -111,7 +111,7 @@
 	role: <span class="t">string</span> = <span class="s">&quot;viewer&quot;</span>,
 ]
 
-<span class="k">bind</span> main = (): {
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> u = <span class="t">User</span>[id: <span class="n">1</span>, name: <span class="s">&quot;Ada&quot;</span>]      <span class="m">// `email?` and `role` take their defaults</span>
 	<span class="f">println</span>(<span class="s">&quot;</span>${u.name}<span class="s"> is a </span>${u.role}<span class="s">&quot;</span>)
 }</code></pre>
@@ -133,6 +133,8 @@
 </li>
 <li>Visibility of fields and construction from other packages is in <a href="declarations-and-program-structure.html#47-visibility">§4.7</a>.
 </li>
+<li>A struct has no <code>==</code>, ordering, hashing, or printing, and copies only if it is plain, until it gets the methods by hand or with <code>@derive</code> (<a href="the-prelude.html#122-deriving-methods">§12.2</a>).
+</li>
 </ol>
 <h2 id="38-enums"><a class="anchor" href="#38-enums" aria-hidden="true">#</a>3.8 Enums</h2>
 <p>An enum lists alternatives. There are two kinds.</p>
@@ -142,7 +144,7 @@
 	active,
 	closed = <span class="n">10</span>,
 ]</code></pre>
-<p>Tag enums are plain, <code>Copyable</code>, and <code>Hashable</code>. <code>int(Status.active)</code> converts a variant to its value; integers never convert to enums.</p>
+<p>Tag enums are plain, so they are <code>Copyable</code>; <code>==</code>, ordering, hashing, and printing come from <code>@derive</code> or hand-written methods (<a href="the-prelude.html#122-deriving-methods">§12.2</a>). <code>int(Status.active)</code> converts a variant to its value; integers never convert to enums.</p>
 <p><strong>Tagged unions</strong> have at least one variant carrying a payload (or have type parameters). Each variant is a <strong>unit variant</strong> (<code>null</code>) or carries exactly <strong>one</strong> value (<code>number: float</code>; use a struct or tuple for several values).</p>
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Json</span> <span class="k">enum</span> [
 	null,
@@ -160,12 +162,12 @@
 	forbidden,
 ]
 
-<span class="k">bind</span> find = (key: <span class="t">string</span>) <span class="t">Lookup</span>:
+<span class="k">bind</span> find = <span class="k">fn</span>(key: <span class="t">string</span>) <span class="t">Lookup</span>:
 	<span class="k">if</span>(key == <span class="s">&quot;admin&quot;</span>): forbidden
 	<span class="k">else</span> <span class="k">if</span>(key == <span class="s">&quot;name&quot;</span>): <span class="f">value</span>(<span class="s">&quot;Ada&quot;</span>)
 	<span class="k">else</span>: <span class="f">missing</span>(key.<span class="f">copy</span>())
 
-<span class="k">bind</span> main = (): {
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> r! = <span class="f">find</span>(<span class="s">&quot;name&quot;</span>)
 	<span class="f">println</span>(r! ?? <span class="s">&quot;unknown&quot;</span>)
 	<span class="k">let</span> who = <span class="f">find</span>(<span class="s">&quot;admin&quot;</span>):
@@ -174,7 +176,7 @@
 }</code></pre>
 <p><strong>Rules.</strong></p>
 <ol>
-<li>A result declaration has exactly one member named <code>value</code>, which must declare its type (the success payload), and at least one other variant (the failures). Failures are unit or single-payload variants.
+<li>A result declaration has exactly one member named <code>value</code> and at least one other variant (the failures). <code>value: T</code> declares the success payload; a bare <code>value</code> declares a <strong>unit result</strong>, for an operation that produces nothing when it succeeds. Failures are unit or single-payload variants.
 </li>
 <li>A result is constructed like an enum (<code>Lookup.value(x)</code>, <code>Lookup.missing(k)</code>, <code>Lookup.forbidden</code>) or, wherever a result type is expected, by its <strong>bare member name</strong>: <code>value(x)</code>, <code>missing(k)</code>, <code>forbidden</code>. &quot;Expected&quot; means the function's return value, the value of <code>func &lt;-</code>, an annotated variable, an argument, or an <code>if</code>/<code>match</code> branch that produces the result. If a bare name also names a variable or function in scope, it is ambiguous and must be qualified.
 </li>
@@ -184,7 +186,11 @@
 </li>
 <li>Only result types support result chains (<a href="control-flow.html#66-result-chains">§6.6</a>), <code>??</code> (<a href="expressions.html#58-optional-chaining-and-fallback">§5.8</a>), and <code>if(r! as v)</code> (<a href="control-flow.html#62-if">§6.2</a>). They may also be inspected with an ordinary <code>match</code> on <code>Name.value(v)</code> and the failure variants.
 </li>
-<li><strong><code>Result[T]</code></strong> is the prelude's general-purpose result, <code>define Result[T] result [value: T, err: Error]</code>, marked <code>@must_use</code>. Nothing about it is special; it is an ordinary result declaration (<a href="the-prelude.html#126-result-and-error">§12.6</a>).
+<li><strong>Unit results.</strong> A unit result's success is constructed with the bare name <code>value</code> (no parentheses). It has no value to produce, so a chain on it is a statement (<a href="control-flow.html#66-result-chains">§6.6</a>), and <code>??</code> and <code>if(r! as v)</code> don't apply to it.
+</li>
+<li><strong><code>Result[T]</code></strong> is the prelude's general-purpose result, <code>define Result[T] result [value: T, err: Error]</code>, and <strong><code>Status</code></strong> its unit counterpart, <code>define Status result [value, err: Error]</code>. Both are marked <code>@must_use</code>. Nothing about them is special; they are ordinary result declarations (<a href="the-prelude.html#127-result-and-error">§12.7</a>).
+</li>
+<li><strong>Separate failures callers act on.</strong> A function whose callers may need to handle one failure differently from the rest (a missing file when removing it, the end of input versus a read error) declares a result with that failure as its own member, rather than folding it into <code>err</code>. Such a failure carries an <code>Error</code> like <code>err</code> does, so no message, cause, or trace is lost (<code>not_found: Error</code>). Failures callers handle alike stay together in <code>err</code>. See <code>CONVENTIONS.md</code>.
 </li>
 </ol>
 <p><code>result</code> is a contextual word; <code>let result = 1</code> is fine.</p>
@@ -193,9 +199,9 @@
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">UserId</span> <span class="t">int</span>
 <span class="k">define</span> <span class="t">Pair</span> +[<span class="t">int</span>, <span class="t">string</span>]
 
-<span class="k">bind</span> <span class="t">Pair</span>.first = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>.<span class="n">0</span>
+<span class="k">bind</span> <span class="t">Pair</span>.first = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>.<span class="n">0</span>
 
-<span class="k">bind</span> main = (): {
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> id = <span class="t">UserId</span>(<span class="n">42</span>)
 	<span class="f">println</span>(<span class="t">int</span>(id))
 	<span class="k">let</span> p: <span class="t">Pair</span> = +[<span class="n">7</span>, <span class="s">&quot;seven&quot;</span>]
@@ -205,8 +211,8 @@
 <h2 id="311-interfaces"><a class="anchor" href="#311-interfaces" aria-hidden="true">#</a>3.11 Interfaces</h2>
 <p>An interface is a set of method signatures:</p>
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Shape</span> <span class="k">interface</span> [
-	area: (<span class="k">self</span>) <span class="t">float</span>,
-	scale: (&amp;<span class="k">self</span>, by: <span class="t">float</span>),
+	area: <span class="k">fn</span>(<span class="k">self</span>) <span class="t">float</span>,
+	scale: <span class="k">fn</span>(&amp;<span class="k">self</span>, by: <span class="t">float</span>),
 ]</code></pre>
 <p><strong>Rules.</strong></p>
 <ol>
@@ -227,8 +233,15 @@
 </ol>
 <p>The prelude's interfaces, which give meaning to operators and loops, are listed in <a href="the-prelude.html#121-core-interfaces">§12.1</a>.</p>
 <h2 id="312-functions-and-closures"><a class="anchor" href="#312-functions-and-closures" aria-hidden="true">#</a>3.12 Functions and closures</h2>
-<p>A function type is <code>(ParamTypes) ReturnType</code>, or <code>(ParamTypes)</code> for no result. Parameter modes are part of the type: <code>(&amp;[int], own string) bool</code>.</p>
-<p>A function literal is <code>(params) ReturnType: body</code> or <code>(params): body</code>. The body is one expression or a block. Without a written return type, it is inferred from the body and context. A literal that refers to variables of the enclosing scope is a <strong>closure</strong>:</p>
+<p>There are two kinds of function value, plus the C function pointer <code>extern fn</code> for foreign code (<a href="unsafe-code-and-foreign-functions.html#105-c-function-pointers">§10.5</a>):</p>
+<ul>
+<li><strong><code>fn</code></strong>: a function that captures nothing. Its type is <code>fn(ParamTypes) ReturnType</code>, or <code>fn(ParamTypes)</code> for no result. An <code>fn</code> value is a code pointer: it is plain and copies freely. Top-level functions, methods, and function literals written <code>fn(...)</code> have <code>fn</code> types.
+</li>
+<li><strong><code>cl</code></strong>: a closure. Its type is <code>cl(ParamTypes) ReturnType</code>. A closure owns the variables it captures, so it is a resource: it moves, and <code>.copy()</code> duplicates it with its captures.
+</li>
+</ul>
+<p>Parameter modes are part of both types: <code>fn(&amp;[int], own string) bool</code>.</p>
+<p>A function literal is <code>fn(params) ReturnType: body</code> or <code>cl(params) ReturnType: body</code>, or without <code>ReturnType</code> for no result. The body is one expression or a block. Without a written return type, it is inferred from the body and context. A <code>cl</code> literal may refer to variables of the enclosing scope; an <code>fn</code> literal that does so is an error. Captures follow these rules:</p>
 <ul>
 <li>plain captured values are copied in;
 </li>
@@ -239,16 +252,25 @@
 <li>captured variables are read-only inside the closure.
 </li>
 </ul>
-<p>Every function value is a resource. A top-level <code>bind</code> function captures nothing and converts to a function type without allocation.</p>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> apply = (xs: [<span class="t">int</span>], f: (<span class="t">int</span>) <span class="t">int</span>) [<span class="t">int</span>]: <span class="k">for</span>(x <span class="k">in</span> xs): <span class="f">f</span>(x)
+<p>Conversions:</p>
+<ol>
+<li>An <code>fn</code> converts implicitly to a <code>cl</code> with the same parameter and return types wherever a closure is expected, without allocating. <code>cl(f)</code> writes the conversion explicitly.
+</li>
+<li>A <code>cl</code> never converts to an <code>fn</code>.
+</li>
+<li>A <code>cl</code> literal that captures nothing, in a place that doesn't require a closure, draws a warning: it could be an <code>fn</code>.
+</li>
+</ol>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> apply = <span class="k">fn</span>(xs: [<span class="t">int</span>], f: <span class="k">cl</span>(<span class="t">int</span>) <span class="t">int</span>) [<span class="t">int</span>]: <span class="k">for</span>(x <span class="k">in</span> xs): <span class="f">f</span>(x)
 
-<span class="k">bind</span> main = (): {
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> offset = <span class="n">10</span>
-	<span class="f">println</span>(<span class="f">apply</span>([<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>], (x: <span class="t">int</span>) <span class="t">int</span>: x + offset))
+	<span class="f">println</span>(<span class="f">apply</span>([<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>], <span class="k">cl</span>(x: <span class="t">int</span>) <span class="t">int</span>: x + offset))
 }</code></pre>
 <h2 id="313-arenas"><a class="anchor" href="#313-arenas" aria-hidden="true">#</a>3.13 Arenas</h2>
 <p>An <code>Arena</code> is a region allocator: <code>arena.alloc(value)</code> moves <code>value</code> into the arena and returns a <code>ref[T]</code>, a plain reference that is valid as long as the arena is. Dropping the arena (or <code>arena.reset()</code>) frees everything in it at once, running any <code>Drop</code> implementations in reverse order of allocation.</p>
-<p>The compiler guarantees that no <code>ref[T]</code> outlives its arena (<a href="ownership-borrowing-and-destruction.html#76-arenas-and-references">§7.6</a>). <code>Arena.new()</code> creates one. <code>arena.bytes_used()</code> reports usage.</p>
+<p>The compiler guarantees that no <code>ref[T]</code> outlives its arena (<a href="ownership-borrowing-and-destruction.html#76-arenas-and-references">§7.6</a>). <code>Arena.new()</code> creates one, and <code>Arena.with_capacity(bytes)</code> one whose first chunk holds <code>bytes</code>. <code>arena.bytes_used()</code> reports the bytes handed out since the last reset, including alignment padding.</p>
+<p><code>Arena</code> is an ordinary prelude struct written in Lowlight (<code>std/core/arena.ll</code>): a bump allocator over chunks that double in size, which records a drop function for each allocated value that isn't plain. <code>reset</code> keeps the largest chunk for reuse. Only the lifetime rules of <a href="ownership-borrowing-and-destruction.html#76-arenas-and-references">§7.6</a> are in the compiler; they apply to the struct marked <code>@lang(&quot;arena&quot;)</code>.</p>
 <h2 id="314-raw-pointers"><a class="anchor" href="#314-raw-pointers" aria-hidden="true">#</a>3.14 Raw pointers</h2>
 <p><code>ptr[T]</code> is an unmanaged address, a plain value used for foreign-function interfaces and low-level memory work. Creating, reading through, writing through, and offsetting a pointer all require <code>unsafe</code> (<a href="unsafe-code-and-foreign-functions.html#10-unsafe-code-and-foreign-functions">§10</a>).</p>
 <h2 id="315-void-and-never"><a class="anchor" href="#315-void-and-never" aria-hidden="true">#</a>3.15 Void and never</h2>
@@ -274,7 +296,7 @@
 </table></div>
 <p>Everything else, including integer widening, needs an explicit conversion.</p>
 <hr />
-</article><nav class="prev-next"><a class="prev" href="lexical-structure.html"><span>Previous</span>2. Lexical Structure</a><a class="next" href="declarations-and-program-structure.html"><span>Next</span>4. Declarations and Program Structure</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#31-plain-values-and-resources">3.1 Plain values and resources</a></li><li><a href="#32-numbers">3.2 Numbers</a></li><li><a href="#33-bool-and-char">3.3 Bool and char</a></li><li><a href="#34-strings">3.4 Strings</a></li><li><a href="#35-optionals">3.5 Optionals</a></li><li><a href="#36-collections">3.6 Collections</a></li><li><a href="#37-structs">3.7 Structs</a></li><li><a href="#38-enums">3.8 Enums</a></li><li><a href="#39-results">3.9 Results</a></li><li><a href="#310-distinct-types">3.10 Distinct types</a></li><li><a href="#311-interfaces">3.11 Interfaces</a></li><li><a href="#312-functions-and-closures">3.12 Functions and closures</a></li><li><a href="#313-arenas">3.13 Arenas</a></li><li><a href="#314-raw-pointers">3.14 Raw pointers</a></li><li><a href="#315-void-and-never">3.15 Void and never</a></li><li><a href="#316-type-equivalence-and-implicit-conversions">3.16 Type equivalence and implicit conversions</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+</article><nav class="prev-next"><a class="prev" href="lexical-structure.html"><span>Previous</span>2. Lexical Structure</a><a class="next" href="declarations-and-program-structure.html"><span>Next</span>4. Declarations and Program Structure</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#31-plain-values-and-resources">3.1 Plain values and resources</a></li><li><a href="#32-numbers">3.2 Numbers</a></li><li><a href="#33-bool-and-char">3.3 Bool and char</a></li><li><a href="#34-strings">3.4 Strings</a></li><li><a href="#35-optionals">3.5 Optionals</a></li><li><a href="#36-collections">3.6 Collections</a></li><li><a href="#37-structs">3.7 Structs</a></li><li><a href="#38-enums">3.8 Enums</a></li><li><a href="#39-results">3.9 Results</a></li><li><a href="#310-distinct-types">3.10 Distinct types</a></li><li><a href="#311-interfaces">3.11 Interfaces</a></li><li><a href="#312-functions-and-closures">3.12 Functions and closures</a></li><li><a href="#313-arenas">3.13 Arenas</a></li><li><a href="#314-raw-pointers">3.14 Raw pointers</a></li><li><a href="#315-void-and-never">3.15 Void and never</a></li><li><a href="#316-type-equivalence-and-implicit-conversions">3.16 Type equivalence and implicit conversions</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/collections.html">std/collections</a><a href="../std/core.html">std/core</a><a href="../std/derive.html">std/derive</a><a href="../std/fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../search-index.js"></script>
 <script src="../assets/site.js"></script>
 </body>

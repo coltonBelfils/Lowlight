@@ -9,7 +9,7 @@
 <script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
 </head>
 <body class="layout-wide" data-root="../../">
-<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>strfmt.ll</h1><p>Source of package <a href="../strfmt.html"><code>std/strfmt</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/strfmt — Number/currency/byte formatting, string padding, truncation, and case conversions.</span></span>
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../collections.html">std/collections</a></li><li><a href="../core.html">std/core</a></li><li><a href="../derive.html">std/derive</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>strfmt.ll</h1><p>Source of package <a href="../strfmt.html"><code>std/strfmt</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/strfmt — Number/currency/byte formatting, string padding, truncation, and case conversions.</span></span>
 <span class="src-line" id="L2"><span class="m">//</span></span>
 <span class="src-line" id="L3"><span class="m">// Implemented in pure Lowlight for human-readable numbers, aligned tables, and identifier normalization.</span></span>
 <span class="src-line" id="L4"></span>
@@ -18,17 +18,17 @@
 <span class="src-line" id="L7"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L8"></span>
 <span class="src-line" id="L9"><span class="m">// Formats this [`float`] with `precision` decimal digits (or general format when `precision &lt; 0`).</span></span>
-<span class="src-line" id="L10"><span class="k">bind</span> <span class="t">float</span>.format_float = (<span class="k">self</span>, precision: <span class="t">int</span>) <span class="t">string</span>:</span>
+<span class="src-line" id="L10"><span class="k">const</span> <span class="t">float</span>.format_float = <span class="k">fn</span>(<span class="k">self</span>, precision: <span class="t">int</span>) <span class="t">string</span>:</span>
 <span class="src-line" id="L11">	<span class="k">if</span>(precision &lt; <span class="n">0</span>): <span class="s">&quot;</span>$<span class="k">self</span><span class="s">&quot;</span> <span class="k">else</span>: <span class="f">format_float_prec</span>(<span class="k">self</span>, precision)</span>
 <span class="src-line" id="L12"></span>
 <span class="src-line" id="L13"><span class="m">// Shorthand alias for [`float.format_float`].</span></span>
-<span class="src-line" id="L14"><span class="k">bind</span> <span class="t">float</span>.format = (<span class="k">self</span>, precision: <span class="t">int</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">format_float</span>(precision)</span>
+<span class="src-line" id="L14"><span class="k">const</span> <span class="t">float</span>.format = <span class="k">fn</span>(<span class="k">self</span>, precision: <span class="t">int</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">format_float</span>(precision)</span>
 <span class="src-line" id="L15"></span>
 <span class="src-line" id="L16"><span class="m">// Formats this [`int`] as a base-10 decimal string.</span></span>
-<span class="src-line" id="L17"><span class="k">bind</span> <span class="t">int</span>.format_int = (<span class="k">self</span>) <span class="t">string</span>: <span class="s">&quot;</span>$<span class="k">self</span><span class="s">&quot;</span></span>
+<span class="src-line" id="L17"><span class="k">const</span> <span class="t">int</span>.format_int = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: <span class="s">&quot;</span>$<span class="k">self</span><span class="s">&quot;</span></span>
 <span class="src-line" id="L18"></span>
 <span class="src-line" id="L19"><span class="m">// Formats this [`int`] with ASCII comma thousands separators (e.g. `&quot;1,234,567&quot;`).</span></span>
-<span class="src-line" id="L20"><span class="k">bind</span> <span class="t">int</span>.format_commas = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L20"><span class="k">const</span> <span class="t">int</span>.format_commas = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L21">	<span class="k">if</span>(<span class="k">self</span> == -<span class="n">9223372036854775807</span> - <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;-9,223,372,036,854,775,808&quot;</span></span>
 <span class="src-line" id="L22">	<span class="k">let</span> is_neg = <span class="k">self</span> &lt; <span class="n">0</span></span>
 <span class="src-line" id="L23">	<span class="k">let</span> abs_val = <span class="k">if</span>(is_neg): -<span class="k">self</span> <span class="k">else</span>: <span class="k">self</span></span>
@@ -54,10 +54,10 @@
 <span class="src-line" id="L43">}</span>
 <span class="src-line" id="L44"></span>
 <span class="src-line" id="L45"><span class="m">// Alias for [`int.format_commas`].</span></span>
-<span class="src-line" id="L46"><span class="k">bind</span> <span class="t">int</span>.format_int_commas = (<span class="k">self</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">format_commas</span>()</span>
+<span class="src-line" id="L46"><span class="k">const</span> <span class="t">int</span>.format_int_commas = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">format_commas</span>()</span>
 <span class="src-line" id="L47"></span>
 <span class="src-line" id="L48"><span class="m">// Formats this [`float`] with `precision` fractional digits and comma thousands separators.</span></span>
-<span class="src-line" id="L49"><span class="k">bind</span> <span class="t">float</span>.format_commas = (<span class="k">self</span>, precision: <span class="t">int</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L49"><span class="k">const</span> <span class="t">float</span>.format_commas = <span class="k">fn</span>(<span class="k">self</span>, precision: <span class="t">int</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L50">	<span class="k">let</span> s = <span class="k">self</span>.<span class="f">format_float</span>(precision)</span>
 <span class="src-line" id="L51">	<span class="k">let</span> dot_pos? = s.<span class="f">index_of</span>(<span class="s">&quot;.&quot;</span>)</span>
 <span class="src-line" id="L52">	<span class="k">if</span>(dot_pos? <span class="k">as</span> dot): {</span>
@@ -101,10 +101,10 @@
 <span class="src-line" id="L90">}</span>
 <span class="src-line" id="L91"></span>
 <span class="src-line" id="L92"><span class="m">// Alias for [`float.format_commas`].</span></span>
-<span class="src-line" id="L93"><span class="k">bind</span> <span class="t">float</span>.format_float_commas = (<span class="k">self</span>, precision: <span class="t">int</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">format_commas</span>(precision)</span>
+<span class="src-line" id="L93"><span class="k">const</span> <span class="t">float</span>.format_float_commas = <span class="k">fn</span>(<span class="k">self</span>, precision: <span class="t">int</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">format_commas</span>(precision)</span>
 <span class="src-line" id="L94"></span>
 <span class="src-line" id="L95"><span class="m">// Formats this byte size in human-readable units (`B`, `KB`, `MB`, or `GB`).</span></span>
-<span class="src-line" id="L96"><span class="k">bind</span> <span class="t">int</span>.format_bytes = (<span class="k">self</span>) <span class="t">string</span>:</span>
+<span class="src-line" id="L96"><span class="k">const</span> <span class="t">int</span>.format_bytes = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>:</span>
 <span class="src-line" id="L97">	<span class="k">if</span>(<span class="k">self</span> &lt; <span class="n">1024</span>): <span class="s">&quot;</span>$<span class="k">self</span><span class="s"> B&quot;</span></span>
 <span class="src-line" id="L98">	<span class="k">else</span> <span class="k">if</span>(<span class="k">self</span> &lt; <span class="n">1048576</span>): {</span>
 <span class="src-line" id="L99">		<span class="k">let</span> kb = <span class="t">float</span>(<span class="k">self</span>) / <span class="n">1024.0</span></span>
@@ -118,37 +118,37 @@
 <span class="src-line" id="L107">	}</span>
 <span class="src-line" id="L108"></span>
 <span class="src-line" id="L109"><span class="m">// Scales this fraction (`0.25` -&gt; `&quot;25%&quot;`) and formats it as a percentage with `precision` decimals.</span></span>
-<span class="src-line" id="L110"><span class="k">bind</span> <span class="t">float</span>.format_percent = (<span class="k">self</span>, precision: <span class="t">int</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L110"><span class="k">const</span> <span class="t">float</span>.format_percent = <span class="k">fn</span>(<span class="k">self</span>, precision: <span class="t">int</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L111">	<span class="k">let</span> pct = <span class="k">self</span> * <span class="n">100.0</span></span>
 <span class="src-line" id="L112">	<span class="s">&quot;</span>${pct.<span class="f">format_float</span>(precision)}<span class="s">%&quot;</span></span>
 <span class="src-line" id="L113">}</span>
 <span class="src-line" id="L114"></span>
 <span class="src-line" id="L115"><span class="m">// Formats this numeric amount prefixed with `symbol` and comma-grouped to `precision` decimal places.</span></span>
-<span class="src-line" id="L116"><span class="k">bind</span> <span class="t">float</span>.format_currency = (<span class="k">self</span>, symbol: <span class="t">string</span>, precision: <span class="t">int</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L116"><span class="k">const</span> <span class="t">float</span>.format_currency = <span class="k">fn</span>(<span class="k">self</span>, symbol: <span class="t">string</span>, precision: <span class="t">int</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L117">	<span class="k">let</span> formatted = <span class="k">self</span>.<span class="f">format_commas</span>(precision)</span>
 <span class="src-line" id="L118">	<span class="s">&quot;</span>$symbol$formatted<span class="s">&quot;</span></span>
 <span class="src-line" id="L119">}</span>
 <span class="src-line" id="L120"></span>
 <span class="src-line" id="L121"><span class="m">// Function form of [`float.format_float`].</span></span>
-<span class="src-line" id="L122"><span class="k">bind</span> format_float = (v: <span class="t">float</span>, precision: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">format_float</span>(precision)</span>
+<span class="src-line" id="L122"><span class="k">const</span> format_float = <span class="k">fn</span>(v: <span class="t">float</span>, precision: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">format_float</span>(precision)</span>
 <span class="src-line" id="L123"></span>
 <span class="src-line" id="L124"><span class="m">// Function form of [`int.format_int`].</span></span>
-<span class="src-line" id="L125"><span class="k">bind</span> format_int = (v: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">format_int</span>()</span>
+<span class="src-line" id="L125"><span class="k">const</span> format_int = <span class="k">fn</span>(v: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">format_int</span>()</span>
 <span class="src-line" id="L126"></span>
 <span class="src-line" id="L127"><span class="m">// Function form of [`int.format_commas`].</span></span>
-<span class="src-line" id="L128"><span class="k">bind</span> format_int_commas = (v: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">format_commas</span>()</span>
+<span class="src-line" id="L128"><span class="k">const</span> format_int_commas = <span class="k">fn</span>(v: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">format_commas</span>()</span>
 <span class="src-line" id="L129"></span>
 <span class="src-line" id="L130"><span class="m">// Function form of [`float.format_commas`].</span></span>
-<span class="src-line" id="L131"><span class="k">bind</span> format_float_commas = (v: <span class="t">float</span>, precision: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">format_commas</span>(precision)</span>
+<span class="src-line" id="L131"><span class="k">const</span> format_float_commas = <span class="k">fn</span>(v: <span class="t">float</span>, precision: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">format_commas</span>(precision)</span>
 <span class="src-line" id="L132"></span>
 <span class="src-line" id="L133"><span class="m">// Function form of [`int.format_bytes`].</span></span>
-<span class="src-line" id="L134"><span class="k">bind</span> format_bytes = (bytes: <span class="t">int</span>) <span class="t">string</span>: bytes.<span class="f">format_bytes</span>()</span>
+<span class="src-line" id="L134"><span class="k">const</span> format_bytes = <span class="k">fn</span>(bytes: <span class="t">int</span>) <span class="t">string</span>: bytes.<span class="f">format_bytes</span>()</span>
 <span class="src-line" id="L135"></span>
 <span class="src-line" id="L136"><span class="m">// Function form of [`float.format_percent`].</span></span>
-<span class="src-line" id="L137"><span class="k">bind</span> format_percent = (v: <span class="t">float</span>, precision: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">format_percent</span>(precision)</span>
+<span class="src-line" id="L137"><span class="k">const</span> format_percent = <span class="k">fn</span>(v: <span class="t">float</span>, precision: <span class="t">int</span>) <span class="t">string</span>: v.<span class="f">format_percent</span>(precision)</span>
 <span class="src-line" id="L138"></span>
 <span class="src-line" id="L139"><span class="m">// Function form of [`float.format_currency`].</span></span>
-<span class="src-line" id="L140"><span class="k">bind</span> format_currency = (amount: <span class="t">float</span>, symbol: <span class="t">string</span>, precision: <span class="t">int</span>) <span class="t">string</span>:</span>
+<span class="src-line" id="L140"><span class="k">const</span> format_currency = <span class="k">fn</span>(amount: <span class="t">float</span>, symbol: <span class="t">string</span>, precision: <span class="t">int</span>) <span class="t">string</span>:</span>
 <span class="src-line" id="L141">	amount.<span class="f">format_currency</span>(symbol, precision)</span>
 <span class="src-line" id="L142"></span>
 <span class="src-line" id="L143"><span class="m">// -----------------------------------------------------------------------------</span></span>
@@ -156,7 +156,7 @@
 <span class="src-line" id="L145"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L146"></span>
 <span class="src-line" id="L147"><span class="m">// Formats signed integer `val` left-padded with `&#39;0&#39;` to at least `width` characters.</span></span>
-<span class="src-line" id="L148"><span class="k">bind</span> pad_int_zeros = (val: <span class="t">int</span>, width: <span class="t">int</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L148"><span class="k">const</span> pad_int_zeros = <span class="k">fn</span>(val: <span class="t">int</span>, width: <span class="t">int</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L149">	<span class="k">let</span> s = <span class="s">&quot;</span>$val<span class="s">&quot;</span></span>
 <span class="src-line" id="L150">	<span class="k">let</span> diff = width - s.<span class="f">len</span>()</span>
 <span class="src-line" id="L151">	<span class="k">if</span>(diff &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> s</span>
@@ -167,7 +167,7 @@
 <span class="src-line" id="L156">}</span>
 <span class="src-line" id="L157"></span>
 <span class="src-line" id="L158"><span class="m">// Formats signed integer `val` left-padded with spaces to at least `width` characters.</span></span>
-<span class="src-line" id="L159"><span class="k">bind</span> pad_int_spaces = (val: <span class="t">int</span>, width: <span class="t">int</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L159"><span class="k">const</span> pad_int_spaces = <span class="k">fn</span>(val: <span class="t">int</span>, width: <span class="t">int</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L160">	<span class="k">let</span> s = <span class="s">&quot;</span>$val<span class="s">&quot;</span></span>
 <span class="src-line" id="L161">	<span class="k">let</span> diff = width - s.<span class="f">len</span>()</span>
 <span class="src-line" id="L162">	<span class="k">if</span>(diff &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> s</span>
@@ -178,29 +178,29 @@
 <span class="src-line" id="L167">}</span>
 <span class="src-line" id="L168"></span>
 <span class="src-line" id="L169"><span class="m">// Method form of [`pad_int_zeros`].</span></span>
-<span class="src-line" id="L170"><span class="k">bind</span> <span class="t">int</span>.pad_zeros = (<span class="k">self</span>, width: <span class="t">int</span>) <span class="t">string</span>: <span class="f">pad_int_zeros</span>(<span class="k">self</span>, width)</span>
+<span class="src-line" id="L170"><span class="k">const</span> <span class="t">int</span>.pad_zeros = <span class="k">fn</span>(<span class="k">self</span>, width: <span class="t">int</span>) <span class="t">string</span>: <span class="f">pad_int_zeros</span>(<span class="k">self</span>, width)</span>
 <span class="src-line" id="L171"></span>
 <span class="src-line" id="L172"><span class="m">// Method form of [`pad_int_spaces`].</span></span>
-<span class="src-line" id="L173"><span class="k">bind</span> <span class="t">int</span>.pad_spaces = (<span class="k">self</span>, width: <span class="t">int</span>) <span class="t">string</span>: <span class="f">pad_int_spaces</span>(<span class="k">self</span>, width)</span>
+<span class="src-line" id="L173"><span class="k">const</span> <span class="t">int</span>.pad_spaces = <span class="k">fn</span>(<span class="k">self</span>, width: <span class="t">int</span>) <span class="t">string</span>: <span class="f">pad_int_spaces</span>(<span class="k">self</span>, width)</span>
 <span class="src-line" id="L174"></span>
 <span class="src-line" id="L175"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L176"><span class="m">// String Extension Methods (Uniform Method Call Syntax)</span></span>
 <span class="src-line" id="L177"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L178"></span>
-<span class="src-line" id="L179"><span class="k">bind</span> _strfmt_char_count = (s: <span class="t">string</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L179"><span class="k">const</span> _strfmt_char_count = <span class="k">fn</span>(s: <span class="t">string</span>) <span class="t">int</span>: {</span>
 <span class="src-line" id="L180">	<span class="k">let</span> n = <span class="n">0</span></span>
 <span class="src-line" id="L181">	<span class="k">for</span>(ch <span class="k">in</span> s): n += <span class="n">1</span></span>
 <span class="src-line" id="L182">	n</span>
 <span class="src-line" id="L183">}</span>
 <span class="src-line" id="L184"></span>
-<span class="src-line" id="L185"><span class="k">bind</span> _strfmt_first_char = (fill: <span class="t">string</span>) <span class="t">char</span>: {</span>
+<span class="src-line" id="L185"><span class="k">const</span> _strfmt_first_char = <span class="k">fn</span>(fill: <span class="t">string</span>) <span class="t">char</span>: {</span>
 <span class="src-line" id="L186">	<span class="k">if</span>(fill.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&#39; &#39;</span></span>
 <span class="src-line" id="L187">	<span class="k">let</span> next_i = <span class="n">0</span></span>
 <span class="src-line" id="L188">	<span class="f">str_utf8_next</span>(fill, <span class="n">0</span>, &amp;next_i)</span>
 <span class="src-line" id="L189">}</span>
 <span class="src-line" id="L190"></span>
 <span class="src-line" id="L191"><span class="m">// Left-pads the string to at least `width` Unicode codepoints using the first codepoint of `fill` (or space if empty).</span></span>
-<span class="src-line" id="L192"><span class="k">bind</span> <span class="t">string</span>.pad_left_fill = (<span class="k">self</span>, width: <span class="t">int</span>, fill: <span class="t">string</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L192"><span class="k">const</span> <span class="t">string</span>.pad_left_fill = <span class="k">fn</span>(<span class="k">self</span>, width: <span class="t">int</span>, fill: <span class="t">string</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L193">	<span class="k">let</span> diff = width - <span class="f">_strfmt_char_count</span>(<span class="k">self</span>)</span>
 <span class="src-line" id="L194">	<span class="k">if</span>(diff &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">copy</span>()</span>
 <span class="src-line" id="L195">	<span class="k">let</span> fill_ch = <span class="f">_strfmt_first_char</span>(fill)</span>
@@ -211,10 +211,10 @@
 <span class="src-line" id="L200">}</span>
 <span class="src-line" id="L201"></span>
 <span class="src-line" id="L202"><span class="m">// Left-pads the string with spaces to at least `width` Unicode codepoints.</span></span>
-<span class="src-line" id="L203"><span class="k">bind</span> <span class="t">string</span>.pad_left = (<span class="k">self</span>, width: <span class="t">int</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">pad_left_fill</span>(width, <span class="s">&quot; &quot;</span>)</span>
+<span class="src-line" id="L203"><span class="k">const</span> <span class="t">string</span>.pad_left = <span class="k">fn</span>(<span class="k">self</span>, width: <span class="t">int</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">pad_left_fill</span>(width, <span class="s">&quot; &quot;</span>)</span>
 <span class="src-line" id="L204"></span>
 <span class="src-line" id="L205"><span class="m">// Right-pads the string to at least `width` Unicode codepoints using the first codepoint of `fill` (or space if empty).</span></span>
-<span class="src-line" id="L206"><span class="k">bind</span> <span class="t">string</span>.pad_right_fill = (<span class="k">self</span>, width: <span class="t">int</span>, fill: <span class="t">string</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L206"><span class="k">const</span> <span class="t">string</span>.pad_right_fill = <span class="k">fn</span>(<span class="k">self</span>, width: <span class="t">int</span>, fill: <span class="t">string</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L207">	<span class="k">let</span> diff = width - <span class="f">_strfmt_char_count</span>(<span class="k">self</span>)</span>
 <span class="src-line" id="L208">	<span class="k">if</span>(diff &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">copy</span>()</span>
 <span class="src-line" id="L209">	<span class="k">let</span> fill_ch = <span class="f">_strfmt_first_char</span>(fill)</span>
@@ -224,10 +224,10 @@
 <span class="src-line" id="L213">}</span>
 <span class="src-line" id="L214"></span>
 <span class="src-line" id="L215"><span class="m">// Right-pads the string with spaces to at least `width` Unicode codepoints.</span></span>
-<span class="src-line" id="L216"><span class="k">bind</span> <span class="t">string</span>.pad_right = (<span class="k">self</span>, width: <span class="t">int</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">pad_right_fill</span>(width, <span class="s">&quot; &quot;</span>)</span>
+<span class="src-line" id="L216"><span class="k">const</span> <span class="t">string</span>.pad_right = <span class="k">fn</span>(<span class="k">self</span>, width: <span class="t">int</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">pad_right_fill</span>(width, <span class="s">&quot; &quot;</span>)</span>
 <span class="src-line" id="L217"></span>
 <span class="src-line" id="L218"><span class="m">// Centers the string within `width` Unicode codepoints using the first codepoint of `fill` (or space if empty).</span></span>
-<span class="src-line" id="L219"><span class="k">bind</span> <span class="t">string</span>.center_fill = (<span class="k">self</span>, width: <span class="t">int</span>, fill: <span class="t">string</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L219"><span class="k">const</span> <span class="t">string</span>.center_fill = <span class="k">fn</span>(<span class="k">self</span>, width: <span class="t">int</span>, fill: <span class="t">string</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L220">	<span class="k">let</span> diff = width - <span class="f">_strfmt_char_count</span>(<span class="k">self</span>)</span>
 <span class="src-line" id="L221">	<span class="k">if</span>(diff &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">copy</span>()</span>
 <span class="src-line" id="L222">	<span class="k">let</span> left_pad = diff / <span class="n">2</span></span>
@@ -241,10 +241,10 @@
 <span class="src-line" id="L230">}</span>
 <span class="src-line" id="L231"></span>
 <span class="src-line" id="L232"><span class="m">// Centers the string with spaces within `width` Unicode codepoints.</span></span>
-<span class="src-line" id="L233"><span class="k">bind</span> <span class="t">string</span>.center = (<span class="k">self</span>, width: <span class="t">int</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">center_fill</span>(width, <span class="s">&quot; &quot;</span>)</span>
+<span class="src-line" id="L233"><span class="k">const</span> <span class="t">string</span>.center = <span class="k">fn</span>(<span class="k">self</span>, width: <span class="t">int</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">center_fill</span>(width, <span class="s">&quot; &quot;</span>)</span>
 <span class="src-line" id="L234"></span>
 <span class="src-line" id="L235"><span class="m">// Truncates the string to `max_len` bytes, appending `ellipsis` when shortened.</span></span>
-<span class="src-line" id="L236"><span class="k">bind</span> <span class="t">string</span>.truncate_with = (<span class="k">self</span>, max_len: <span class="t">int</span>, ellipsis: <span class="t">string</span>) <span class="t">string</span>:</span>
+<span class="src-line" id="L236"><span class="k">const</span> <span class="t">string</span>.truncate_with = <span class="k">fn</span>(<span class="k">self</span>, max_len: <span class="t">int</span>, ellipsis: <span class="t">string</span>) <span class="t">string</span>:</span>
 <span class="src-line" id="L237">	<span class="k">if</span>(max_len &lt;= <span class="n">0</span>): <span class="s">&quot;&quot;</span></span>
 <span class="src-line" id="L238">	<span class="k">else</span> <span class="k">if</span>(<span class="k">self</span>.<span class="f">len</span>() &lt;= max_len): <span class="k">self</span>.<span class="f">copy</span>()</span>
 <span class="src-line" id="L239">	<span class="k">else</span> <span class="k">if</span>(max_len &lt;= ellipsis.<span class="f">len</span>()): <span class="k">self</span>[<span class="n">0</span>..max_len]</span>
@@ -256,10 +256,10 @@
 <span class="src-line" id="L245">	}</span>
 <span class="src-line" id="L246"></span>
 <span class="src-line" id="L247"><span class="m">// Truncates the string to `max_len` bytes using `&quot;...&quot;` as the ellipsis.</span></span>
-<span class="src-line" id="L248"><span class="k">bind</span> <span class="t">string</span>.truncate = (<span class="k">self</span>, max_len: <span class="t">int</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">truncate_with</span>(max_len, <span class="s">&quot;...&quot;</span>)</span>
+<span class="src-line" id="L248"><span class="k">const</span> <span class="t">string</span>.truncate = <span class="k">fn</span>(<span class="k">self</span>, max_len: <span class="t">int</span>) <span class="t">string</span>: <span class="k">self</span>.<span class="f">truncate_with</span>(max_len, <span class="s">&quot;...&quot;</span>)</span>
 <span class="src-line" id="L249"></span>
 <span class="src-line" id="L250"><span class="m">// Converts words delimited by whitespace, `&#39;_&#39;`, or `&#39;-&#39;` to Title Case.</span></span>
-<span class="src-line" id="L251"><span class="k">bind</span> <span class="t">string</span>.to_title = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L251"><span class="k">const</span> <span class="t">string</span>.to_title = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L252">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
 <span class="src-line" id="L253">	<span class="k">let</span> capitalize_next = <span class="c">true</span></span>
 <span class="src-line" id="L254">	<span class="k">for</span>(ch <span class="k">in</span> <span class="k">self</span>):</span>
@@ -278,7 +278,7 @@
 <span class="src-line" id="L267">}</span>
 <span class="src-line" id="L268"></span>
 <span class="src-line" id="L269"><span class="m">// Converts camelCase, spaces, or hyphens into `snake_case`.</span></span>
-<span class="src-line" id="L270"><span class="k">bind</span> <span class="t">string</span>.to_snake_case = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L270"><span class="k">const</span> <span class="t">string</span>.to_snake_case = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L271">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
 <span class="src-line" id="L272">	<span class="k">let</span> prev_was_sep = <span class="c">true</span></span>
 <span class="src-line" id="L273">	<span class="k">for</span>(i, ch <span class="k">in</span> <span class="k">self</span>):</span>
@@ -297,13 +297,13 @@
 <span class="src-line" id="L286">}</span>
 <span class="src-line" id="L287"></span>
 <span class="src-line" id="L288"><span class="m">// Converts camelCase, spaces, or underscores into `kebab-case`.</span></span>
-<span class="src-line" id="L289"><span class="k">bind</span> <span class="t">string</span>.to_kebab_case = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L289"><span class="k">const</span> <span class="t">string</span>.to_kebab_case = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L290">	<span class="k">let</span> s = <span class="k">self</span>.<span class="f">to_snake_case</span>()</span>
 <span class="src-line" id="L291">	s.<span class="f">replace_all</span>(<span class="s">&quot;_&quot;</span>, <span class="s">&quot;-&quot;</span>)</span>
 <span class="src-line" id="L292">}</span>
 <span class="src-line" id="L293"></span>
 <span class="src-line" id="L294"><span class="m">// Converts snake_case, kebab-case, or spaced words into `camelCase`.</span></span>
-<span class="src-line" id="L295"><span class="k">bind</span> <span class="t">string</span>.to_camel_case = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L295"><span class="k">const</span> <span class="t">string</span>.to_camel_case = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L296">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
 <span class="src-line" id="L297">	<span class="k">let</span> upper_next = <span class="c">false</span></span>
 <span class="src-line" id="L298">	<span class="k">let</span> is_first = <span class="c">true</span></span>
@@ -323,7 +323,7 @@
 <span class="src-line" id="L312">}</span>
 <span class="src-line" id="L313"></span>
 <span class="src-line" id="L314"><span class="m">// Wraps the string in double quotes and escapes `\&quot;`, `\\`, `\n`, `\t`, and `\r`.</span></span>
-<span class="src-line" id="L315"><span class="k">bind</span> <span class="t">string</span>.quote = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L315"><span class="k">const</span> <span class="t">string</span>.quote = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L316">	<span class="k">let</span> out = <span class="s">&quot;\&quot;&quot;</span></span>
 <span class="src-line" id="L317">	<span class="k">for</span>(ch <span class="k">in</span> <span class="k">self</span>):</span>
 <span class="src-line" id="L318">		<span class="k">if</span>(ch == <span class="s">&#39;&quot;&#39;</span>): out.<span class="f">push</span>(<span class="s">&quot;\\\&quot;&quot;</span>)</span>
@@ -336,7 +336,7 @@
 <span class="src-line" id="L325">	out</span>
 <span class="src-line" id="L326">}</span>
 <span class="src-line" id="L327"></span>
-<span class="src-line" id="L328"><span class="k">bind</span> _strfmt_hex_digit = (b: <span class="t">u8</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L328"><span class="k">const</span> _strfmt_hex_digit = <span class="k">fn</span>(b: <span class="t">u8</span>) <span class="t">int</span>: {</span>
 <span class="src-line" id="L329">	<span class="k">let</span> v = <span class="t">int</span>(b)</span>
 <span class="src-line" id="L330">	<span class="k">if</span>(v &gt;= <span class="n">48</span> <span class="k">and</span> v &lt;= <span class="n">57</span>): <span class="k">func</span> <span class="u">&lt;-</span> v - <span class="n">48</span></span>
 <span class="src-line" id="L331">	<span class="k">if</span>(v &gt;= <span class="n">65</span> <span class="k">and</span> v &lt;= <span class="n">70</span>): <span class="k">func</span> <span class="u">&lt;-</span> v - <span class="n">65</span> + <span class="n">10</span></span>
@@ -344,7 +344,7 @@
 <span class="src-line" id="L333">	-<span class="n">1</span></span>
 <span class="src-line" id="L334">}</span>
 <span class="src-line" id="L335"></span>
-<span class="src-line" id="L336"><span class="k">bind</span> _strfmt_parse_hex4 = (s: <span class="t">string</span>, pos: <span class="t">int</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L336"><span class="k">const</span> _strfmt_parse_hex4 = <span class="k">fn</span>(s: <span class="t">string</span>, pos: <span class="t">int</span>) <span class="t">int</span>: {</span>
 <span class="src-line" id="L337">	<span class="k">if</span>(pos + <span class="n">4</span> &gt; s.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> -<span class="n">1</span></span>
 <span class="src-line" id="L338">	<span class="k">let</span> d0 = <span class="f">_strfmt_hex_digit</span>(s.<span class="f">byte_at</span>(pos))</span>
 <span class="src-line" id="L339">	<span class="k">let</span> d1 = <span class="f">_strfmt_hex_digit</span>(s.<span class="f">byte_at</span>(pos + <span class="n">1</span>))</span>
@@ -355,7 +355,7 @@
 <span class="src-line" id="L344">}</span>
 <span class="src-line" id="L345"></span>
 <span class="src-line" id="L346"><span class="m">// Unquotes a trimmed double-quoted string and decodes escape sequences (`\n`, `\t`, `\r`, `\&quot;`, `\\`, `\/`, `\b`, `\f`, `\0`, `\&#39;`, and `\uXXXX` including UTF-16 surrogate pairs), returning `none` if unquoted or malformed.</span></span>
-<span class="src-line" id="L347"><span class="k">bind</span> <span class="t">string</span>.unquote = (<span class="k">self</span>) ?<span class="t">string</span>: {</span>
+<span class="src-line" id="L347"><span class="k">const</span> <span class="t">string</span>.unquote = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">string</span>: {</span>
 <span class="src-line" id="L348">	<span class="k">let</span> trimmed = <span class="k">self</span>.<span class="f">trim</span>()</span>
 <span class="src-line" id="L349">	<span class="k">let</span> tlen = trimmed.<span class="f">len</span>()</span>
 <span class="src-line" id="L350">	<span class="k">if</span>(tlen &lt; <span class="n">2</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
@@ -405,7 +405,7 @@
 <span class="src-line" id="L394">}</span>
 <span class="src-line" id="L395"></span>
 <span class="src-line" id="L396"><span class="m">// Prefixes every non-empty line in the string with `spaces` ASCII spaces.</span></span>
-<span class="src-line" id="L397"><span class="k">bind</span> <span class="t">string</span>.indent = (<span class="k">self</span>, spaces: <span class="t">int</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L397"><span class="k">const</span> <span class="t">string</span>.indent = <span class="k">fn</span>(<span class="k">self</span>, spaces: <span class="t">int</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L398">	<span class="k">if</span>(spaces &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">copy</span>()</span>
 <span class="src-line" id="L399">	<span class="k">let</span> prefix = <span class="s">&quot;&quot;</span></span>
 <span class="src-line" id="L400">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..spaces): prefix.<span class="f">push</span>(<span class="s">&quot; &quot;</span>)</span>
@@ -416,7 +416,7 @@
 <span class="src-line" id="L405">	out_lines.<span class="f">join</span>(<span class="s">&quot;\n&quot;</span>)</span>
 <span class="src-line" id="L406">}</span>
 <span class="src-line" id="L407"></span>
-<span class="src-line" id="L408"><span class="k">bind</span> _str_matches_at = (s: <span class="t">string</span>, pos: <span class="t">int</span>, sub: <span class="t">string</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L408"><span class="k">const</span> _str_matches_at = <span class="k">fn</span>(s: <span class="t">string</span>, pos: <span class="t">int</span>, sub: <span class="t">string</span>) <span class="t">bool</span>: {</span>
 <span class="src-line" id="L409">	<span class="k">let</span> j = <span class="n">0</span></span>
 <span class="src-line" id="L410">	<span class="k">let</span> n = sub.<span class="f">len</span>()</span>
 <span class="src-line" id="L411">	<span class="k">for</span>(j &lt; n): {</span>
@@ -427,7 +427,7 @@
 <span class="src-line" id="L416">}</span>
 <span class="src-line" id="L417"></span>
 <span class="src-line" id="L418"><span class="m">// Counts non-overlapping occurrences of `sub` in the string (`0` if `sub` is empty).</span></span>
-<span class="src-line" id="L419"><span class="k">bind</span> <span class="t">string</span>.count_occurrences = (<span class="k">self</span>, sub: <span class="t">string</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L419"><span class="k">const</span> <span class="t">string</span>.count_occurrences = <span class="k">fn</span>(<span class="k">self</span>, sub: <span class="t">string</span>) <span class="t">int</span>: {</span>
 <span class="src-line" id="L420">	<span class="k">let</span> sub_len = sub.<span class="f">len</span>()</span>
 <span class="src-line" id="L421">	<span class="k">if</span>(sub_len == <span class="n">0</span> <span class="k">or</span> <span class="k">self</span>.<span class="f">len</span>() &lt; sub_len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0</span></span>
 <span class="src-line" id="L422">	<span class="k">let</span> count = <span class="n">0</span></span>
@@ -446,7 +446,7 @@
 <span class="src-line" id="L435"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L436"></span>
 <span class="src-line" id="L437"><span class="a">@test</span>(<span class="s">&quot;strfmt numeric formatting: commas, bytes, percent, currency&quot;</span>)</span>
-<span class="src-line" id="L438"><span class="k">bind</span> test_strfmt_numeric_formatting = (): {</span>
+<span class="src-line" id="L438"><span class="k">bind</span> test_strfmt_numeric_formatting = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L439">	<span class="f">assert</span>(<span class="n">1000000</span>.<span class="f">format_commas</span>() == <span class="s">&quot;1,000,000&quot;</span>, <span class="s">&quot;1,000,000 commas&quot;</span>)</span>
 <span class="src-line" id="L440">	<span class="f">assert</span>((-<span class="n">1234567</span>).<span class="f">format_commas</span>() == <span class="s">&quot;-1,234,567&quot;</span>, <span class="s">&quot;negative commas&quot;</span>)</span>
 <span class="src-line" id="L441">	<span class="f">assert</span>(<span class="n">123</span>.<span class="f">format_commas</span>() == <span class="s">&quot;123&quot;</span>, <span class="s">&quot;short number commas&quot;</span>)</span>
@@ -459,7 +459,7 @@
 <span class="src-line" id="L448">}</span>
 <span class="src-line" id="L449"></span>
 <span class="src-line" id="L450"><span class="a">@test</span>(<span class="s">&quot;strfmt padding, alignment, and truncation&quot;</span>)</span>
-<span class="src-line" id="L451"><span class="k">bind</span> test_strfmt_padding_and_truncation = (): {</span>
+<span class="src-line" id="L451"><span class="k">bind</span> test_strfmt_padding_and_truncation = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L452">	<span class="f">assert</span>(<span class="f">pad_int_zeros</span>(<span class="n">42</span>, <span class="n">5</span>) == <span class="s">&quot;00042&quot;</span>, <span class="s">&quot;pad_int_zeros&quot;</span>)</span>
 <span class="src-line" id="L453">	<span class="f">assert</span>(<span class="f">pad_int_spaces</span>(<span class="n">42</span>, <span class="n">5</span>) == <span class="s">&quot;   42&quot;</span>, <span class="s">&quot;pad_int_spaces&quot;</span>)</span>
 <span class="src-line" id="L454"></span>
@@ -487,7 +487,7 @@
 <span class="src-line" id="L476">}</span>
 <span class="src-line" id="L477"></span>
 <span class="src-line" id="L478"><span class="a">@test</span>(<span class="s">&quot;strfmt case conversions: title, snake, kebab, camel&quot;</span>)</span>
-<span class="src-line" id="L479"><span class="k">bind</span> test_strfmt_casing_and_transforms = (): {</span>
+<span class="src-line" id="L479"><span class="k">bind</span> test_strfmt_casing_and_transforms = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L480">	<span class="f">assert</span>(<span class="s">&quot;hello world&quot;</span>.<span class="f">to_title</span>() == <span class="s">&quot;Hello World&quot;</span>, <span class="s">&quot;to_title&quot;</span>)</span>
 <span class="src-line" id="L481">	<span class="f">assert</span>(<span class="s">&quot;helloWorld&quot;</span>.<span class="f">to_snake_case</span>() == <span class="s">&quot;hello_world&quot;</span>, <span class="s">&quot;to_snake_case&quot;</span>)</span>
 <span class="src-line" id="L482">	<span class="f">assert</span>(<span class="s">&quot;helloWorld&quot;</span>.<span class="f">to_kebab_case</span>() == <span class="s">&quot;hello-world&quot;</span>, <span class="s">&quot;to_kebab_case&quot;</span>)</span>
@@ -495,7 +495,7 @@
 <span class="src-line" id="L484">}</span>
 <span class="src-line" id="L485"></span>
 <span class="src-line" id="L486"><span class="a">@test</span>(<span class="s">&quot;strfmt quote, unquote, and indentation&quot;</span>)</span>
-<span class="src-line" id="L487"><span class="k">bind</span> test_strfmt_quote_and_indent = (): {</span>
+<span class="src-line" id="L487"><span class="k">bind</span> test_strfmt_quote_and_indent = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L488">	<span class="k">let</span> quoted = <span class="s">&quot;hello\nworld&quot;</span>.<span class="f">quote</span>()</span>
 <span class="src-line" id="L489">	<span class="f">assert</span>(quoted == <span class="s">&quot;\&quot;hello\\nworld\&quot;&quot;</span>, <span class="s">&quot;quote&quot;</span>)</span>
 <span class="src-line" id="L490"></span>
@@ -507,7 +507,7 @@
 <span class="src-line" id="L496">}</span>
 <span class="src-line" id="L497"></span>
 <span class="src-line" id="L498"><span class="a">@test</span>(<span class="s">&quot;strfmt unquote escapes and validation&quot;</span>)</span>
-<span class="src-line" id="L499"><span class="k">bind</span> test_strfmt_unquote_escapes = (): {</span>
+<span class="src-line" id="L499"><span class="k">bind</span> test_strfmt_unquote_escapes = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L500">	<span class="f">assert</span>(<span class="s">&quot;\&quot;\&quot;&quot;</span>.<span class="f">unquote</span>() == <span class="s">&quot;&quot;</span>, <span class="s">&quot;unquote empty quoted&quot;</span>)</span>
 <span class="src-line" id="L501">	<span class="f">assert</span>(<span class="s">&quot;  \&quot;hi\&quot;  &quot;</span>.<span class="f">unquote</span>() == <span class="s">&quot;hi&quot;</span>, <span class="s">&quot;unquote trimmed&quot;</span>)</span>
 <span class="src-line" id="L502">	<span class="f">assert</span>(<span class="s">&quot;\&quot;héllo 🌍\&quot;&quot;</span>.<span class="f">unquote</span>() == <span class="s">&quot;héllo 🌍&quot;</span>, <span class="s">&quot;unquote utf8 passthrough&quot;</span>)</span>
@@ -573,7 +573,7 @@
 <span class="src-line" id="L562">}</span>
 <span class="src-line" id="L563"></span>
 <span class="src-line" id="L564"><span class="a">@test</span>(<span class="s">&quot;strfmt count_occurrences edge cases and large input&quot;</span>)</span>
-<span class="src-line" id="L565"><span class="k">bind</span> test_strfmt_count_occurrences = (): {</span>
+<span class="src-line" id="L565"><span class="k">bind</span> test_strfmt_count_occurrences = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L566">	<span class="f">assert</span>(<span class="s">&quot;banana&quot;</span>.<span class="f">count_occurrences</span>(<span class="s">&quot;an&quot;</span>) == <span class="n">2</span>, <span class="s">&quot;count_occurrences an&quot;</span>)</span>
 <span class="src-line" id="L567">	<span class="f">assert</span>(<span class="s">&quot;banana&quot;</span>.<span class="f">count_occurrences</span>(<span class="s">&quot;na&quot;</span>) == <span class="n">2</span>, <span class="s">&quot;count_occurrences na&quot;</span>)</span>
 <span class="src-line" id="L568">	<span class="f">assert</span>(<span class="s">&quot;aaa&quot;</span>.<span class="f">count_occurrences</span>(<span class="s">&quot;aa&quot;</span>) == <span class="n">1</span>, <span class="s">&quot;count_occurrences non-overlapping&quot;</span>)</span>
@@ -591,7 +591,7 @@
 <span class="src-line" id="L580">}</span>
 <span class="src-line" id="L581"></span>
 <span class="src-line" id="L582"><span class="a">@test</span>(<span class="s">&quot;format_float honors precision beyond 15 digits exactly&quot;</span>)</span>
-<span class="src-line" id="L583"><span class="k">bind</span> test_strfmt_high_precision = (): {</span>
+<span class="src-line" id="L583"><span class="k">bind</span> test_strfmt_high_precision = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L584">	<span class="f">assert</span>((<span class="n">0.1</span>).<span class="f">format_float</span>(<span class="n">20</span>) == <span class="s">&quot;0.10000000000000000555&quot;</span>, <span class="s">&quot;0.1 to 20 places&quot;</span>)</span>
 <span class="src-line" id="L585">	<span class="f">assert</span>((<span class="n">1.0</span> / <span class="n">3.0</span>).<span class="f">format_float</span>(<span class="n">25</span>) == <span class="s">&quot;0.3333333333333333148296163&quot;</span>, <span class="s">&quot;1/3 to 25 places&quot;</span>)</span>
 <span class="src-line" id="L586">	<span class="f">assert</span>((<span class="n">2.5</span>).<span class="f">format_float</span>(<span class="n">17</span>) == <span class="s">&quot;2.50000000000000000&quot;</span>, <span class="s">&quot;exact value padded&quot;</span>)</span>
@@ -600,7 +600,7 @@
 <span class="src-line" id="L589">	<span class="f">assert</span>((<span class="n">0.1</span>).<span class="f">format_float</span>(<span class="n">2</span>) == <span class="s">&quot;0.10&quot;</span>, <span class="s">&quot;short precisions unchanged&quot;</span>)</span>
 <span class="src-line" id="L590">}</span>
 <span class="src-line" id="L591"></span>
-</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../collections.html">std/collections</a><a href="../core.html">std/core</a><a href="../derive.html">std/derive</a><a href="../fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../../search-index.js"></script>
 <script src="../../assets/site.js"></script>
 </body>

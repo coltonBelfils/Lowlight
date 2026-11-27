@@ -81,7 +81,7 @@ func runCLI(args []string) int {
 		return 0
 
 	case "expand":
-		opts, _, err := parseCommonFlags(rest, false, false, false)
+		opts, _, err := parseCommonFlags(rest, true, false, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
@@ -97,7 +97,14 @@ func runCLI(args []string) int {
 			}
 			return 1
 		}
-		fmt.Print(expanded)
+		if opts.OutPath != "" {
+			if err := os.WriteFile(opts.OutPath, []byte(expanded), 0o644); err != nil {
+				fmt.Fprintf(os.Stderr, "error writing %s: %v\n", opts.OutPath, err)
+				return 1
+			}
+		} else {
+			fmt.Print(expanded)
+		}
 		return 0
 
 	case "emit-c":
@@ -618,7 +625,7 @@ Usage:
   lowlight run       [-p <pkg>] [--locked] [--offline] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path>] [-- <args...>]
   lowlight test      [-p <pkg>|--workspace] [--locked] [--offline] [-run <regex>] [--list] [--json] [--backend <llvm|c11>] [--target <triple>] [--release] [--cc <compiler>] [<path...>]
   lowlight check     [-p <pkg>|--workspace] [--locked] [--offline] [--target <triple>|--all-targets] [<path>]
-  lowlight expand    [-p <pkg>] [--locked] [--offline] [--target <triple>] [<path>]
+  lowlight expand    [-o <file>] [-p <pkg>|--workspace] [--locked] [--offline] [--target <triple>] [<path>]
   lowlight emit-llvm [-o <file.ll>] [-p <pkg>] [--locked] [--offline] [--target <triple>] [--release] [<path>]
   lowlight emit-c    [-o <file.c>]  [-p <pkg>] [--locked] [--offline] [--target <triple>] [--release] [<path>]
 

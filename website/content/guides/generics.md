@@ -145,7 +145,33 @@ bind main = fn(): {
 one 1
 ```
 
-Methods on a generic type repeat its parameters: `bind Pair[A, B].first_ref`. A method can add its own parameters too: `bind List[T].map[U] = fn(self, f: (T) U) [U]: ...`.
+Methods on a generic type repeat its parameters: `bind Pair[A, B].first_ref`. A method can add its own parameters too: `bind List[T].map[U] = fn(self, f: fn(T) U) [U]: ...`.
+
+## Const generic parameters
+
+Generic structs, enums, interfaces, functions, and methods can also parameterize over compile-time values (`[N: const int]`, where allowed const parameter types are integer primitives, `bool`, `char`, tag enums, and `string`). Equivalent constant expressions yield the same instantiated type (`Vec[2 + 2]` is identical to `Vec[4]`), and `N` is inferred automatically from `[N: T]` fixed-size array arguments:
+
+```lowlight
+define Vec[N: const int] struct [
+	data: [N: float],
+]
+
+const Vec[N: const int].dot = fn(self, other: Vec[N]) float: {
+	let sum = 0.0
+	for(i in 0..N): sum += self.data[i] * other.data[i]
+	sum
+}
+
+bind main = fn(): {
+	let a = Vec[3][data: [3: 1.0, 2.0, 3.0]]
+	let b = Vec[1 + 2][data: [3: 4.0, 5.0, 6.0]]
+	println(a.dot(b))
+}
+```
+
+```output
+32
+```
 
 ## Monomorphization
 

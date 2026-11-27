@@ -44,7 +44,7 @@
 <li><strong>Binding, <code>if(e as v)</code>.</strong> <code>e</code> is any optional expression or result expression. The branch runs when <code>e</code> holds a value (for a result, its success value), with <code>v</code> bound to it. <code>else</code> runs otherwise and binds nothing. <code>if(&amp;e as v)</code> binds <code>v</code> mutably and requires <code>e</code> to be a mutable place.
 </li>
 </ol>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> score = <span class="n">72</span>
 	<span class="k">let</span> grade = <span class="k">if</span>(score &gt;= <span class="n">90</span>): <span class="s">&quot;A&quot;</span> <span class="k">else</span> <span class="k">if</span>(score &gt;= <span class="n">70</span>): <span class="s">&quot;B&quot;</span> <span class="k">else</span>: <span class="s">&quot;C&quot;</span>
 	<span class="f">println</span>(grade)
@@ -74,7 +74,7 @@
 <li><code>while(true) T: ...</code> (a loop with no normal exit) has type <code>T</code> and needs no <code>else</code>.
 </li>
 </ul>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> items = [<span class="n">4</span>, <span class="n">8</span>, <span class="n">15</span>, <span class="n">16</span>]
 	<span class="k">let</span> first_odd = <span class="k">while</span>(x <span class="k">in</span> items) <span class="t">int</span>: {
 		<span class="k">if</span>(x % <span class="n">2</span> == <span class="n">1</span>): <span class="k">while</span> <span class="u">&lt;-</span> x
@@ -113,7 +113,7 @@
 </tbody>
 </table></div>
 <p>Loop variables are read-only views of the elements. Write <code>&amp;x</code> (or <code>k, &amp;v</code>) to bind mutable borrows of a list's, array's, or map's elements; the collection must be mutable. The collection cannot be modified by other means while it is being iterated.</p>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> squares = <span class="k">for</span>(n <span class="k">in</span> <span class="n">1</span>..=<span class="n">4</span>): n * n
 	<span class="f">println</span>(squares)
 
@@ -147,19 +147,19 @@
 	point,
 ]
 
-<span class="k">bind</span> label = (s: <span class="t">Status</span>) <span class="t">string</span>:
+<span class="k">bind</span> label = <span class="k">fn</span>(s: <span class="t">Status</span>) <span class="t">string</span>:
 	<span class="k">match</span>(s):
 		<span class="k">when</span> pending: <span class="s">&quot;waiting&quot;</span>
 		<span class="k">when</span> active: <span class="s">&quot;running&quot;</span>
 		<span class="k">default</span> closed: <span class="s">&quot;done&quot;</span>
 
-<span class="k">bind</span> area = (s: <span class="t">Shape</span>) <span class="t">float</span>:
+<span class="k">bind</span> area = <span class="k">fn</span>(s: <span class="t">Shape</span>) <span class="t">float</span>:
 	<span class="k">match</span>(s):
 		<span class="k">when</span> <span class="f">circle</span>(r): <span class="n">3.14159</span> * r * r
 		<span class="k">when</span> <span class="f">square</span>(side): side * side
 		<span class="k">default</span> point: <span class="n">0.0</span>
 
-<span class="k">bind</span> main = (): {
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="f">println</span>(<span class="f">label</span>(<span class="t">Status</span>.active))
 	<span class="f">println</span>(<span class="f">area</span>(<span class="t">Shape</span>.<span class="f">square</span>(<span class="n">3.0</span>)))
 	<span class="k">let</span> n = <span class="n">42</span>
@@ -215,8 +215,17 @@
 </ul>
 <p>Method and <code>in</code> patterns never count toward exhaustiveness.</p>
 <p><strong>Values.</strong> All arms must produce compatible types (unwinding arms are compatible with anything), and the <code>match</code> has that type. A <code>match</code> in statement position may have arms of any type.</p>
+<p><strong>Compile-time control flow (<code>comptime if</code>, <code>comptime match</code>, <code>comptime for</code>).</strong></p>
+<ul>
+<li><strong><code>comptime if(cond):</code></strong> evaluates <code>bool</code> conditions at compile time (inside monomorphized bodies for generic functions) and checks/lowers only the selected branch. In expression position it <strong>must</strong> include an <code>else</code> branch (it cannot omit <code>else</code> to yield <code>?T</code>); omitting <code>else</code> is valid only in statement (<code>void</code>) position. Optional unwrap headers (<code>if(x?)</code> / <code>if(expr as v)</code>) are not supported on <code>comptime if</code>.
+</li>
+<li><strong><code>comptime match(scrut):</code></strong> evaluates its scrutinee(s) and pattern predicates at compile time, checks <strong>all</strong> arm patterns and full exhaustiveness statically across every arm, and then checks/lowers only the single matching arm with bound pattern variables available as compile-time constants (mutable <code>&amp;</code> destructuring is disallowed).
+</li>
+<li><strong><code>comptime for(var in seq):</code></strong> evaluates ranges and compile-time collections (<code>[N: T]</code>, <code>[T]</code>, <code>Range</code>, <code>string</code>, <code>Set</code>, <code>Map</code>) statically and unrolls the body (including collecting <code>comptime for(...) T:</code> comprehensions, <code>next &lt;-</code>, <code>for &lt;-</code>, labeled unwinds, and <code>else</code> fallbacks). Loop headers must be compile-time expressions and loop variables cannot be <code>&amp;</code>-mutable. Unrolling enforces a per-function statement limit (default <code>1024</code>, adjustable via <code>@comptime_limit(...)</code>) and warns on large runtime loops over plain data that do not use compile-time specialization.
+</li>
+</ul>
 <h2 id="66-result-chains"><a class="anchor" href="#66-result-chains" aria-hidden="true">#</a>6.6 Result chains</h2>
-<p>A <strong>result chain</strong> handles the failures of a result-typed expression (<a href="types.html#39-results">§3.9</a>) and evaluates to its success value.</p>
+<p>A <strong>result chain</strong> handles the failures of a result-typed expression (<a href="types.html#39-results">§3.9</a>) and evaluates to its success value. On a unit result it has no value and is a statement.</p>
 <pre class="lang-ebnf" data-lang="ebnf"><code><span class="t">ResultChain</span> = <span class="t">PostfixExpr</span> <span class="s">&quot;:&quot;</span> { <span class="s">&quot;when&quot;</span> <span class="t">FailureCases</span> <span class="s">&quot;:&quot;</span> <span class="t">Body</span> } <span class="t">ChainEnd</span> ;
 <span class="t">ChainEnd</span>    = <span class="s">&quot;default&quot;</span> [ <span class="t">FailureCases</span> ] <span class="s">&quot;:&quot;</span> <span class="t">Body</span>
             | <span class="s">&quot;default&quot;</span> <span class="s">&quot;panic&quot;</span> ;</code></pre>
@@ -227,13 +236,13 @@
 	expired: <span class="t">int</span>,
 ]
 
-<span class="k">bind</span> find = (key: <span class="t">string</span>) <span class="t">Lookup</span>:
+<span class="k">bind</span> find = <span class="k">fn</span>(key: <span class="t">string</span>) <span class="t">Lookup</span>:
 	<span class="k">if</span>(key == <span class="s">&quot;a&quot;</span>): <span class="f">value</span>(<span class="s">&quot;apple&quot;</span>)
 	<span class="k">else</span> <span class="k">if</span>(key == <span class="s">&quot;x&quot;</span>): forbidden
 	<span class="k">else</span> <span class="k">if</span>(key == <span class="s">&quot;old&quot;</span>): <span class="f">expired</span>(<span class="n">3</span>)
 	<span class="k">else</span>: <span class="f">missing</span>(key.<span class="f">copy</span>())
 
-<span class="k">bind</span> describe = (key: <span class="t">string</span>) <span class="t">string</span>: {
+<span class="k">bind</span> describe = <span class="k">fn</span>(key: <span class="t">string</span>) <span class="t">string</span>: {
 	<span class="k">let</span> item = <span class="f">find</span>(key):
 		<span class="k">when</span> <span class="f">missing</span>(k): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;no </span>$k<span class="s">&quot;</span>
 		<span class="k">when</span> forbidden: <span class="s">&quot;(hidden)&quot;</span>
@@ -241,7 +250,7 @@
 	<span class="s">&quot;got </span>$item<span class="s">&quot;</span>
 }
 
-<span class="k">bind</span> main = (): {
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="f">println</span>(<span class="f">describe</span>(<span class="s">&quot;a&quot;</span>))
 	<span class="f">println</span>(<span class="f">describe</span>(<span class="s">&quot;x&quot;</span>))
 	<span class="f">println</span>(<span class="f">describe</span>(<span class="s">&quot;old&quot;</span>))
@@ -255,7 +264,17 @@
 </li>
 <li><p><strong>Arms.</strong> Each <code>when</code> names one or more failure variants of the subject's type, bare (<code>missing(k)</code>, <code>forbidden</code>), with the payload-binding rules of <a href="#65-pattern-matching">§6.5</a>. The <code>value</code> member is never named: the chain itself evaluates to it. Naming <code>value</code>, or a variant that is not a failure of the subject's type, is an error.</p>
 </li>
-<li><p><strong>Arm bodies</strong> either unwind or evaluate to the success type.</p>
+<li><p><strong>Arm bodies</strong> either unwind or evaluate to the success type. On a unit result they are statements, and using the chain as a value is an error:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/fs&quot;</span>
+
+<span class="k">bind</span> save = <span class="k">fn</span>(path: <span class="t">string</span>, text: <span class="t">string</span>) <span class="t">Status</span>: {
+	fs.<span class="f">write_file</span>(path, text):
+		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e.<span class="f">wrap</span>(<span class="s">&quot;saving \&quot;</span>$path<span class="s">\&quot;&quot;</span>))
+	fs.<span class="f">remove_file</span>(<span class="s">&quot;</span>$path<span class="s">.bak&quot;</span>):
+		<span class="k">when</span> <span class="f">not_found</span>(_): {}
+		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e)
+	value
+}</code></pre>
 </li>
 <li><p><strong>Ending.</strong> The chain must end with exactly one of:</p>
 <ul>
@@ -263,12 +282,12 @@
 </li>
 <li><code>default:</code> with a body, which handles every remaining failure without binding it;
 </li>
-<li><code>default panic</code>, with no colon and no body. Each remaining failure then panics with <code>unhandled failure Type.variant</code> at that line. On its own, <code>expr: default panic</code> unwraps any result.
+<li><code>default panic</code>, with no colon and no body. Each remaining failure then panics at that line with <code>unhandled failure Type.variant</code>. When the failure carries an <code>Error</code>, the panic is that error wrapped with this message, so its causes and trace print too. On its own, <code>expr: default panic</code> unwraps any result.
 </li>
 </ul>
 <p>A chain that leaves a failure unhandled with no such ending is an error, as is <code>default panic</code> when nothing remains to handle.</p>
 </li>
-<li><p><strong>Ownership.</strong> The chain consumes its subject. A resource success value is moved out of it.</p>
+<li><p><strong>Ownership.</strong> The chain consumes its subject, and a resource success value is moved out of it. A subject the function doesn't own (a read-only parameter or binding) is read in place instead: the chain binds the value and failures as borrows. Such a chain can produce a plain value, or be a statement; producing a resource value would move out of the borrow, which is an error (chain on <code>r!.copy()</code> instead).</p>
 </li>
 <li><p><strong>Propagation.</strong> To pass a failure to the caller, construct the caller's result type with a bare member: <code>default err(own e): func &lt;- err(e.wrap(&quot;loading&quot;))</code>.</p>
 </li>
@@ -291,7 +310,7 @@
 </tbody>
 </table></div>
 <p><strong>Labels.</strong> A block or loop may be labeled: <code>name: { ... }</code>, <code>name: for(...)</code>, <code>name: while(...)</code>. Labels are visible only inside the labeled construct.</p>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = (): {
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> grid = [[<span class="n">1</span>, <span class="n">2</span>], [<span class="n">3</span>, <span class="n">4</span>], [<span class="n">5</span>, <span class="n">6</span>]]
 	<span class="k">let</span> found = outer: <span class="k">while</span>(row <span class="k">in</span> grid) <span class="t">string</span>: {
 		<span class="k">for</span>(x <span class="k">in</span> row): <span class="k">if</span>(x == <span class="n">4</span>): outer <span class="u">&lt;-</span> <span class="s">&quot;found 4&quot;</span>
@@ -310,7 +329,7 @@
 </li>
 </ol>
 <hr />
-</article><nav class="prev-next"><a class="prev" href="expressions.html"><span>Previous</span>5. Expressions</a><a class="next" href="ownership-borrowing-and-destruction.html"><span>Next</span>7. Ownership, Borrowing, and Destruction</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#61-bodies">6.1 Bodies</a></li><li><a href="#62-if">6.2 If</a></li><li><a href="#63-while">6.3 While</a></li><li><a href="#64-for">6.4 For</a></li><li><a href="#65-pattern-matching">6.5 Pattern matching</a></li><li><a href="#66-result-chains">6.6 Result chains</a></li><li><a href="#67-unwinds-and-labels">6.7 Unwinds and labels</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+</article><nav class="prev-next"><a class="prev" href="expressions.html"><span>Previous</span>5. Expressions</a><a class="next" href="ownership-borrowing-and-destruction.html"><span>Next</span>7. Ownership, Borrowing, and Destruction</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#61-bodies">6.1 Bodies</a></li><li><a href="#62-if">6.2 If</a></li><li><a href="#63-while">6.3 While</a></li><li><a href="#64-for">6.4 For</a></li><li><a href="#65-pattern-matching">6.5 Pattern matching</a></li><li><a href="#66-result-chains">6.6 Result chains</a></li><li><a href="#67-unwinds-and-labels">6.7 Unwinds and labels</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="index.html">Overview and contents</a><a href="a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="quick-reference.html">Quick Reference</a><a href="conventions-and-conformance.html">1. Conventions and Conformance</a><a href="lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/collections.html">std/collections</a><a href="../std/core.html">std/core</a><a href="../std/derive.html">std/derive</a><a href="../std/fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../search-index.js"></script>
 <script src="../assets/site.js"></script>
 </body>

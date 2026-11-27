@@ -15,6 +15,7 @@ func (g *cEmitter) emitVectorMethods(v *types.Vector) {
 	// reserve
 	g.line("static inline void ll_vec_reserve__%s(%s* v, int64_t want) {", m, cVec)
 	g.line("    if (v->cap > 0 && want <= v->cap) return;")
+	g.line("    if (v->cap <= 0 && v->len > 0 && want < v->len) want = v->len;")
 	g.line("    if (want <= 0) want = 1;")
 	g.line("    int64_t ncap = (v->cap > 0) ? v->cap : 4;")
 	g.line("    while (ncap < want) {")

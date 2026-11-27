@@ -973,7 +973,7 @@ func (s *Server) collectAutoImportQuickFixes(
 func importInsertionPosition(src string, mod *sema.Module) Position {
 	lastImpLine := -1
 	if mod != nil && mod.File != nil {
-		for _, d := range mod.File.Decls {
+		for _, d := range mod.ActiveDecls() {
 			if imp, ok := d.(*ast.ImportDecl); ok && imp.Span.End.Line > 0 {
 				if imp.Span.End.Line > lastImpLine {
 					lastImpLine = imp.Span.End.Line
@@ -991,47 +991,57 @@ func importInsertionPosition(src string, mod *sema.Module) Position {
 }
 
 func fileExportsSymbol(af *ast.File, name string) bool {
-	if !sema.IsExported(name) {
+	if af == nil || !sema.IsExported(name) {
 		return false
 	}
-	for _, d := range af.Decls {
-		switch v := d.(type) {
-		case *ast.StructDecl:
-			if v.Name == name {
-				return true
-			}
-		case *ast.EnumDecl:
-			if v.Name == name {
-				return true
-			}
-		case *ast.InterfaceDecl:
-			if v.Name == name {
-				return true
-			}
-		case *ast.DistinctTypeDecl:
-			if v.Name == name {
-				return true
-			}
-		case *ast.ExternFnDecl:
-			n := v.Name
-			if v.Alias != "" {
-				n = v.Alias
-			}
-			if n == name {
-				return true
-			}
-		case *ast.VarDecl:
-			if v.Name == name {
-				for _, attr := range v.Attributes {
-					if attr.Name == "test" {
-						return false
+	var walk func(decls []ast.Decl) bool
+	walk = func(decls []ast.Decl) bool {
+		for _, d := range decls {
+			switch v := d.(type) {
+			case *ast.StructDecl:
+				if v.Name == name {
+					return true
+				}
+			case *ast.EnumDecl:
+				if v.Name == name {
+					return true
+				}
+			case *ast.InterfaceDecl:
+				if v.Name == name {
+					return true
+				}
+			case *ast.DistinctTypeDecl:
+				if v.Name == name {
+					return true
+				}
+			case *ast.ExternFnDecl:
+				n := v.Name
+				if v.Alias != "" {
+					n = v.Alias
+				}
+				if n == name {
+					return true
+				}
+			case *ast.VarDecl:
+				if v.Name == name {
+					for _, attr := range v.Attributes {
+						if attr.Name == "test" {
+							return false
+						}
+					}
+					return true
+				}
+			case *ast.TopComptimeIfDecl:
+				for cur := v; cur != nil; cur = cur.ElseIf {
+					if walk(cur.ThenDecls) || walk(cur.ElseDecls) {
+						return true
 					}
 				}
-				return true
 			}
 		}
+		return false
 	}
-	return false
+	return walk(af.Decls)
 }
 
 func (s *Server) collectInterfaceQuickFixFromDiag(
@@ -1103,7 +1113,7 @@ func (s *Server) collectProactiveGenerators(
 	}
 
 	// 2. Declaration-level generators (`define ... struct/enum/distinct/interface`, `bind ...`)
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		dRng := SpanToLSP(src, d.GetSpan())
 		if !rangesOverlap(dRng, cursor) && cursor.Start.Line != d.GetSpan().Start.Line-1 {
 			continue
@@ -1114,7 +1124,7 @@ func (s *Server) collectProactiveGenerators(
 			if decl.Doc == "" {
 				addAction(buildDocCommentAction(uri, src, decl.Span, decl.Attributes, decl.Name, nil, ""))
 			}
-			if !hasTypeMethodDecl(mod.File, decl.Name, "new") {
+			if !hasTypeMethodDecl(mod, decl.Name, "new") {
 				if act, ok := buildStructConstructorAction(uri, src, ind, prog, mod, decl); ok {
 					addAction(act)
 				}
@@ -1279,11 +1289,11 @@ func lookupInterfaceType(prog *sema.CheckedProgram, mod *sema.Module, name strin
 	return nil
 }
 
-func hasTypeMethodDecl(f *ast.File, typeName, methName string) bool {
-	if f == nil {
+func hasTypeMethodDecl(mod *sema.Module, typeName, methName string) bool {
+	if mod == nil || mod.File == nil {
 		return false
 	}
-	for _, d := range f.Decls {
+	for _, d := range mod.ActiveDecls() {
 		if md, ok := d.(*ast.MethodDecl); ok && md.RecvType == typeName && md.Name == methName {
 			return true
 		}
@@ -1327,7 +1337,7 @@ func typeDeclEndLine(mod *sema.Module, typeName string) int {
 		return 0
 	}
 	lastLine := 0
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		end := 0
 		switch decl := d.(type) {
 		case *ast.StructDecl:
@@ -1401,7 +1411,7 @@ func buildImplementInterfaceAction(
 
 	var stubs []string
 	for _, m := range ifc.Methods {
-		if hasTypeMethodDecl(mod.File, typeName, m.Name) {
+		if hasTypeMethodDecl(mod, typeName, m.Name) {
 			continue
 		}
 		var params []string
@@ -1601,7 +1611,7 @@ func (s *Server) buildPopulateStructLitAction(
 		walk(e)
 	}
 
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		if !spanContainsOffset(d.GetSpan(), off) {
 			continue
 		}
@@ -1810,7 +1820,7 @@ func (s *Server) collectRefactorActions(
 		declEnd  Position
 	}
 	var enclosing *funcCtx
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		sp := d.GetSpan()
 		if selStart < sp.Start.Offset || selEnd > sp.End.Offset {
 			continue

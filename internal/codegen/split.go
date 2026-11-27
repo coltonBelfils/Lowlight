@@ -251,6 +251,9 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 		if t == nil || t == types.TypeInvalid || t == types.TypeVoid || t == types.TypeNever {
 			return
 		}
+		if types.FindComptimeOnlyType(t) != nil {
+			return
+		}
 		if _, isTP := t.(*types.TypeParamVar); isTP {
 			return
 		}

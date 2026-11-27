@@ -313,13 +313,27 @@ func (v *Vector) Equals(other Type) bool {
 		return v.Elem.Equals(o.Elem)
 	}
 	if st, ok := other.(*Struct); ok {
-		if (st.Name == "List" || strings.HasPrefix(st.Name, "List[")) && len(st.TypeArgs) == 1 {
+		if st.Lang == "list" && len(st.TypeArgs) == 1 {
 			return v.Elem.Equals(st.TypeArgs[0])
 		}
 	}
 	return false
 }
 func (v *Vector) IsPlain() bool { return false }
+
+func constValueInt64(t Type) (int64, bool) {
+	cv, ok := t.(*ConstValue)
+	if !ok || cv.Kind != ConstInt {
+		return 0, false
+	}
+	if prim := UnderlyingPrimitive(cv.ConstType); prim != nil && !prim.IsSignedInt() {
+		if cv.UintVal > math.MaxInt64 {
+			return 0, false
+		}
+		return int64(cv.UintVal), true
+	}
+	return cv.IntVal, true
+}
 
 // StackArray represents `[Size: Elem]`.
 type StackArray struct {
@@ -334,15 +348,12 @@ func (a *StackArray) Equals(other Type) bool {
 		return a.Size == o.Size && a.Elem.Equals(o.Elem)
 	}
 	if st, ok := other.(*Struct); ok {
-		if (st.Name == "Array" || strings.HasPrefix(st.Name, "Array[")) && len(st.TypeArgs) >= 1 {
-			if len(st.TypeArgs) == 2 {
-				cv, okCV := st.TypeArgs[0].(*ConstValue)
-				if !okCV || cv.Kind != ConstInt || cv.IntVal != a.Size {
-					return false
-				}
-				return a.Elem.Equals(st.TypeArgs[1])
+		if st.Lang == "array" && len(st.TypeArgs) == 2 {
+			sz, okSz := constValueInt64(st.TypeArgs[0])
+			if !okSz || sz != a.Size {
+				return false
 			}
-			return a.Elem.Equals(st.TypeArgs[0])
+			return a.Elem.Equals(st.TypeArgs[1])
 		}
 	}
 	return false
@@ -524,20 +535,17 @@ func (s *Struct) Equals(other Type) bool {
 		return s == o
 	}
 	if v, ok := other.(*Vector); ok {
-		if (s.Name == "List" || strings.HasPrefix(s.Name, "List[")) && len(s.TypeArgs) == 1 {
+		if s.Lang == "list" && len(s.TypeArgs) == 1 {
 			return s.TypeArgs[0].Equals(v.Elem)
 		}
 	}
 	if arr, ok := other.(*StackArray); ok {
-		if (s.Name == "Array" || strings.HasPrefix(s.Name, "Array[")) && len(s.TypeArgs) >= 1 {
-			if len(s.TypeArgs) == 2 {
-				cv, okCV := s.TypeArgs[0].(*ConstValue)
-				if !okCV || cv.Kind != ConstInt || cv.IntVal != arr.Size {
-					return false
-				}
-				return s.TypeArgs[1].Equals(arr.Elem)
+		if s.Lang == "array" && len(s.TypeArgs) == 2 {
+			sz, okSz := constValueInt64(s.TypeArgs[0])
+			if !okSz || sz != arr.Size {
+				return false
 			}
-			return s.TypeArgs[0].Equals(arr.Elem)
+			return s.TypeArgs[1].Equals(arr.Elem)
 		}
 	}
 	return false

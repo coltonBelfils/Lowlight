@@ -123,6 +123,7 @@ function getLspSettings() {
       types: cfg.get('inlayHints.types', true),
       parameters: cfg.get('inlayHints.parameters', true),
     },
+    target: String(cfg.get('target', '') || '').trim(),
   };
 }
 
@@ -1187,7 +1188,8 @@ function activate(context) {
       }
       if (
         ev.affectsConfiguration('lowlight.format') ||
-        ev.affectsConfiguration('lowlight.inlayHints')
+        ev.affectsConfiguration('lowlight.inlayHints') ||
+        ev.affectsConfiguration('lowlight.target')
       ) {
         if (client && client.ready) {
           client.clearDocCaches();
@@ -1992,6 +1994,110 @@ function activate(context) {
       if (testController) {
         await testController.refresh();
       }
+    }),
+
+    (() => {
+      const expandedDocs = new Map();
+      const expandedEmitter = new vscode.EventEmitter();
+      context.subscriptions.push(
+        expandedEmitter,
+        vscode.workspace.registerTextDocumentContentProvider('lowlight-expanded', {
+          onDidChange: expandedEmitter.event,
+          provideTextDocumentContent(uri) {
+            return expandedDocs.get(uri.toString()) || '';
+          },
+        })
+      );
+
+      return vscode.commands.registerCommand('lowlight.expandDocument', async (arg) => {
+        const active = vscode.window.activeTextEditor;
+        const targetUri = arg && typeof arg.toString === 'function'
+          ? arg
+          : (active && active.document && active.document.languageId === 'lowlight' ? active.document.uri : null);
+        if (!targetUri) {
+          vscode.window.showInformationMessage('Open a Lowlight (.ll) file to expand.');
+          return;
+        }
+        const doc = await vscode.workspace.openTextDocument(targetUri);
+        if (!client || !(await client.ensureReadyForDoc(doc))) {
+          vscode.window.showErrorMessage('Lowlight language server is not ready.');
+          return;
+        }
+        const res = await client.sendRequest('lowlight/expandDocument', {
+          textDocument: { uri: doc.uri.toString() },
+        });
+        if (!res || typeof res.text !== 'string') {
+          vscode.window.showErrorMessage('Unable to expand Lowlight document.');
+          return;
+        }
+        const base = path.basename(doc.fileName, path.extname(doc.fileName));
+        const header = `// Expanded by Lowlight (target: ${res.target || 'host'})\n`;
+        const virtualUri = vscode.Uri.parse(`lowlight-expanded:${encodeURIComponent(base)}.expanded.ll?src=${encodeURIComponent(doc.uri.toString())}`);
+        expandedDocs.set(virtualUri.toString(), header + res.text);
+        expandedEmitter.fire(virtualUri);
+        const expandedDoc = await vscode.workspace.openTextDocument(virtualUri);
+        await vscode.languages.setTextDocumentLanguage(expandedDoc, 'lowlight');
+        await vscode.window.showTextDocument(expandedDoc, {
+          viewColumn: vscode.ViewColumn.Beside,
+          preview: true,
+          preserveFocus: true,
+        });
+      });
+    })(),
+
+    vscode.commands.registerCommand('lowlight.setTarget', async (tripleArg) => {
+      const cfg = vscode.workspace.getConfiguration('lowlight');
+      const current = String(cfg.get('target', '') || '').trim();
+      let pickedTriple = typeof tripleArg === 'string' ? tripleArg : undefined;
+      if (pickedTriple === undefined) {
+        const choices = [
+          { label: '$(home) Host Default', description: 'Use host / manifest target', value: '' },
+          { label: 'x86_64-unknown-linux-gnu', description: 'Linux x86_64 (glibc)', value: 'x86_64-unknown-linux-gnu' },
+          { label: 'aarch64-unknown-linux-gnu', description: 'Linux arm64 (glibc)', value: 'aarch64-unknown-linux-gnu' },
+          { label: 'aarch64-apple-darwin', description: 'macOS Apple Silicon', value: 'aarch64-apple-darwin' },
+          { label: 'x86_64-apple-darwin', description: 'macOS Intel', value: 'x86_64-apple-darwin' },
+          { label: 'x86_64-pc-windows-msvc', description: 'Windows x86_64 (MSVC)', value: 'x86_64-pc-windows-msvc' },
+          { label: 'wasm32-unknown-linux-gnu', description: 'WebAssembly 32-bit (wasm32)', value: 'wasm32-unknown-unknown' },
+          { label: 'riscv64-unknown-linux-gnu', description: 'Linux RISC-V 64', value: 'riscv64-unknown-linux-gnu' },
+          { label: '$(edit) Custom target triple...', description: `Current: ${current || 'host default'}`, value: '__custom__' },
+        ];
+        const pick = await vscode.window.showQuickPick(choices, {
+          placeHolder: `Select Lowlight compilation target (current: ${current || 'host default'})`,
+        });
+        if (!pick) {
+          return;
+        }
+        if (pick.value === '__custom__') {
+          const entered = await vscode.window.showInputBox({
+            prompt: 'Enter Lowlight target triple (leave blank for host default)',
+            value: current,
+            placeHolder: 'e.g. x86_64-unknown-linux-gnu or aarch64-apple-darwin',
+          });
+          if (entered === undefined) {
+            return;
+          }
+          pickedTriple = entered.trim();
+        } else {
+          pickedTriple = pick.value;
+        }
+      }
+      const nextTriple = String(pickedTriple || '').trim();
+      const targetScope = (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0)
+        ? vscode.ConfigurationTarget.Workspace
+        : vscode.ConfigurationTarget.Global;
+      await cfg.update('target', nextTriple, targetScope);
+      if (client && client.ready) {
+        try {
+          await client.sendRequest('workspace/executeCommand', {
+            command: 'lowlight.setTarget',
+            arguments: [nextTriple],
+          });
+        } catch (err) {
+          vscode.window.showErrorMessage(`Failed to switch Lowlight target: ${err && err.message ? err.message : String(err)}`);
+          return;
+        }
+      }
+      vscode.window.setStatusBarMessage(`Lowlight target: ${nextTriple || 'host default'}`, 4000);
     })
   );
 

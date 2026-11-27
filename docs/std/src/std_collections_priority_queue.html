@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>priority_queue.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../collections.html">std/collections</a></li><li><a href="../core.html">std/core</a></li><li><a href="../derive.html">std/derive</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>priority_queue.ll</h1><p>Source of package <a href="../collections.html"><code>std/collections</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// A priority queue: [`PriorityQueue.pop`] always returns the element that comes first in the</span></span>
+<span class="src-line" id="L2"><span class="m">// queue&#39;s order. A binary heap, so `push` and `pop` take O(log n).</span></span>
+<span class="src-line" id="L3"><span class="m">//</span></span>
+<span class="src-line" id="L4"><span class="m">// The order is a closure `order(a, b)` that is negative when `a` should come out before `b`,</span></span>
+<span class="src-line" id="L5"><span class="m">// positive when after, and zero when either may. [`min_first`] and [`max_first`] build the usual</span></span>
+<span class="src-line" id="L6"><span class="m">// orders for [`Comparable`] elements.</span></span>
+<span class="src-line" id="L7"><span class="m">//</span></span>
+<span class="src-line" id="L8"><span class="m">// # Example</span></span>
+<span class="src-line" id="L9"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L10"><span class="m">// let tasks = collections.PriorityQueue[Task].new(cl(a: Task, b: Task) int: b.urgency - a.urgency)</span></span>
+<span class="src-line" id="L11"><span class="m">// let small = collections.min_first[int]()</span></span>
+<span class="src-line" id="L12"><span class="m">// small.push(5)</span></span>
+<span class="src-line" id="L13"><span class="m">// small.push(1)</span></span>
+<span class="src-line" id="L14"><span class="m">// assert(small.pop() == 1)</span></span>
+<span class="src-line" id="L15"><span class="m">// ```</span></span>
+<span class="src-line" id="L16"><span class="k">define</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L17">	_heap: [<span class="t">T</span>],</span>
+<span class="src-line" id="L18">	_order: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>,</span>
+<span class="src-line" id="L19">]</span>
+<span class="src-line" id="L20"></span>
+<span class="src-line" id="L21"><span class="m">// Constructs an empty [`PriorityQueue`] that pops elements in `order`.</span></span>
+<span class="src-line" id="L22"><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].new = <span class="k">fn</span>(order: <span class="k">own</span> <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">PriorityQueue</span>[<span class="t">T</span>]: <span class="t">PriorityQueue</span>[<span class="t">T</span>][</span>
+<span class="src-line" id="L23">	_heap: [],</span>
+<span class="src-line" id="L24">	_order: <span class="k">own</span> order,</span>
+<span class="src-line" id="L25">]</span>
+<span class="src-line" id="L26"></span>
+<span class="src-line" id="L27"><span class="m">// An empty [`PriorityQueue`] that pops the smallest element first.</span></span>
+<span class="src-line" id="L28"><span class="k">bind</span> min_first[<span class="t">T</span>: <span class="t">Comparable</span>] = <span class="k">fn</span>() <span class="t">PriorityQueue</span>[<span class="t">T</span>]: <span class="t">PriorityQueue</span>[<span class="t">T</span>].<span class="f">new</span>(</span>
+<span class="src-line" id="L29">	<span class="k">fn</span>(a: <span class="t">T</span>, b: <span class="t">T</span>) <span class="t">int</span>: a.<span class="f">cmp</span>(b)</span>
+<span class="src-line" id="L30">)</span>
+<span class="src-line" id="L31"></span>
+<span class="src-line" id="L32"><span class="m">// An empty [`PriorityQueue`] that pops the largest element first.</span></span>
+<span class="src-line" id="L33"><span class="k">bind</span> max_first[<span class="t">T</span>: <span class="t">Comparable</span>] = <span class="k">fn</span>() <span class="t">PriorityQueue</span>[<span class="t">T</span>]: <span class="t">PriorityQueue</span>[<span class="t">T</span>].<span class="f">new</span>(</span>
+<span class="src-line" id="L34">	<span class="k">fn</span>(a: <span class="t">T</span>, b: <span class="t">T</span>) <span class="t">int</span>: b.<span class="f">cmp</span>(a)</span>
+<span class="src-line" id="L35">)</span>
+<span class="src-line" id="L36"></span>
+<span class="src-line" id="L37"><span class="m">// Returns the number of queued elements.</span></span>
+<span class="src-line" id="L38"><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._heap.<span class="f">len</span>()</span>
+<span class="src-line" id="L39"></span>
+<span class="src-line" id="L40"><span class="m">// Reports whether the queue is empty.</span></span>
+<span class="src-line" id="L41"><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>._heap.<span class="f">is_empty</span>()</span>
+<span class="src-line" id="L42"></span>
+<span class="src-line" id="L43"><span class="m">// Reports whether the element at heap slot `i` comes out before the one at `j`.</span></span>
+<span class="src-line" id="L44"><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>]._before = <span class="k">fn</span>(<span class="k">self</span>, i: <span class="t">int</span>, j: <span class="t">int</span>) <span class="t">bool</span>: <span class="k">self</span>.<span class="f">_order</span>(</span>
+<span class="src-line" id="L45">	<span class="k">self</span>._heap[i],</span>
+<span class="src-line" id="L46">	<span class="k">self</span>._heap[j],</span>
+<span class="src-line" id="L47">) &lt; <span class="n">0</span></span>
+<span class="src-line" id="L48"></span>
+<span class="src-line" id="L49"><span class="m">// Adds `item`.</span></span>
+<span class="src-line" id="L50"><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].push = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>): {</span>
+<span class="src-line" id="L51">	<span class="k">self</span>._heap.<span class="f">push</span>(<span class="k">own</span> item)</span>
+<span class="src-line" id="L52">	<span class="k">let</span> i = <span class="k">self</span>._heap.<span class="f">len</span>() - <span class="n">1</span></span>
+<span class="src-line" id="L53">	<span class="k">while</span>(i &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L54">		<span class="k">let</span> parent = (i - <span class="n">1</span>) / <span class="n">2</span></span>
+<span class="src-line" id="L55">		<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">_before</span>(i, parent)): <span class="k">while</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L56">		<span class="k">self</span>._heap.<span class="f">swap</span>(i, parent)</span>
+<span class="src-line" id="L57">		i = parent</span>
+<span class="src-line" id="L58">	}</span>
+<span class="src-line" id="L59">}</span>
+<span class="src-line" id="L60"></span>
+<span class="src-line" id="L61"><span class="m">// Removes and returns the element that comes first, or `none` if the queue is empty.</span></span>
+<span class="src-line" id="L62"><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].pop = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">T</span>: {</span>
+<span class="src-line" id="L63">	<span class="k">let</span> n = <span class="k">self</span>._heap.<span class="f">len</span>()</span>
+<span class="src-line" id="L64">	<span class="k">if</span>(n == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L65">	<span class="k">self</span>._heap.<span class="f">swap</span>(<span class="n">0</span>, n - <span class="n">1</span>)</span>
+<span class="src-line" id="L66">	<span class="k">let</span> out? = <span class="k">self</span>._heap.<span class="f">pop</span>()</span>
+<span class="src-line" id="L67">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L68">	<span class="k">let</span> len = n - <span class="n">1</span></span>
+<span class="src-line" id="L69">	<span class="k">while</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L70">		<span class="k">let</span> left = <span class="n">2</span> * i + <span class="n">1</span></span>
+<span class="src-line" id="L71">		<span class="k">if</span>(left &gt;= len): <span class="k">while</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L72">		<span class="k">let</span> first = <span class="k">if</span>(left + <span class="n">1</span> &lt; len <span class="k">and</span> <span class="k">self</span>.<span class="f">_before</span>(left + <span class="n">1</span>, left)): left + <span class="n">1</span> <span class="k">else</span>: left</span>
+<span class="src-line" id="L73">		<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">_before</span>(first, i)): <span class="k">while</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L74">		<span class="k">self</span>._heap.<span class="f">swap</span>(i, first)</span>
+<span class="src-line" id="L75">		i = first</span>
+<span class="src-line" id="L76">	}</span>
+<span class="src-line" id="L77">	out?</span>
+<span class="src-line" id="L78">}</span>
+<span class="src-line" id="L79"></span>
+<span class="src-line" id="L80"><span class="m">// Returns a copy of the element that comes first, without removing it, or `none` if the queue</span></span>
+<span class="src-line" id="L81"><span class="m">// is empty.</span></span>
+<span class="src-line" id="L82"><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].peek = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">T</span>: <span class="k">self</span>._heap.<span class="f">get</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L83"></span>
+<span class="src-line" id="L84"><span class="m">// Drops every queued element.</span></span>
+<span class="src-line" id="L85"><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].clear = <span class="k">fn</span>(&amp;<span class="k">self</span>): <span class="k">self</span>._heap.<span class="f">clear</span>()</span>
+<span class="src-line" id="L86"></span>
+<span class="src-line" id="L87"><span class="m">// Removes every element and returns them in the order they would come out.</span></span>
+<span class="src-line" id="L88"><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].drain = <span class="k">fn</span>(&amp;<span class="k">self</span>) [<span class="t">T</span>]: {</span>
+<span class="src-line" id="L89">	<span class="k">let</span> out = <span class="t">List</span>[<span class="t">T</span>].<span class="f">with_capacity</span>(<span class="k">self</span>._heap.<span class="f">len</span>())</span>
+<span class="src-line" id="L90">	<span class="k">while</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L91">		<span class="k">let</span> item = <span class="k">self</span>.<span class="f">pop</span>() ?? <span class="k">while</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L92">		out.<span class="f">push</span>(<span class="k">own</span> item)</span>
+<span class="src-line" id="L93">	}</span>
+<span class="src-line" id="L94">	out</span>
+<span class="src-line" id="L95">}</span>
+<span class="src-line" id="L96"></span>
+<span class="src-line" id="L97"><span class="m">// Returns a deep copy of the queue, with the same order.</span></span>
+<span class="src-line" id="L98"><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].copy = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">PriorityQueue</span>[<span class="t">T</span>]: <span class="t">PriorityQueue</span>[<span class="t">T</span>][</span>
+<span class="src-line" id="L99">	_heap: <span class="k">self</span>._heap.<span class="f">copy</span>(),</span>
+<span class="src-line" id="L100">	_order: <span class="k">self</span>._order.<span class="f">copy</span>(),</span>
+<span class="src-line" id="L101">]</span>
+<span class="src-line" id="L102"></span>
+<span class="src-line" id="L103"><span class="a">@test</span>(<span class="s">&quot;PriorityQueue pops in order&quot;</span>)</span>
+<span class="src-line" id="L104"><span class="k">bind</span> test_priority_queue = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L105">	<span class="k">let</span> small = min_first[<span class="t">int</span>]()</span>
+<span class="src-line" id="L106">	<span class="k">for</span>(x <span class="k">in</span> [<span class="n">5</span>, <span class="n">1</span>, <span class="n">8</span>, <span class="n">3</span>, <span class="n">9</span>, <span class="n">2</span>, <span class="n">7</span>]): small.<span class="f">push</span>(x)</span>
+<span class="src-line" id="L107">	<span class="f">assert</span>(small.<span class="f">peek</span>() == <span class="n">1</span> <span class="k">and</span> small.<span class="f">len</span>() == <span class="n">7</span>, <span class="s">&quot;peek is the smallest&quot;</span>)</span>
+<span class="src-line" id="L108">	<span class="k">let</span> copy = small.<span class="f">copy</span>()</span>
+<span class="src-line" id="L109">	<span class="f">assert</span>(small.<span class="f">drain</span>().<span class="f">to_string</span>() == <span class="s">&quot;[1, 2, 3, 5, 7, 8, 9]&quot;</span>, <span class="s">&quot;drain is in order&quot;</span>)</span>
+<span class="src-line" id="L110">	<span class="f">assert</span>(small.<span class="f">is_empty</span>() <span class="k">and</span> small.<span class="f">pop</span>() == <span class="c">none</span>, <span class="s">&quot;drained&quot;</span>)</span>
+<span class="src-line" id="L111">	<span class="f">assert</span>(copy.<span class="f">pop</span>() == <span class="n">1</span> <span class="k">and</span> copy.<span class="f">len</span>() == <span class="n">6</span>, <span class="s">&quot;copies are independent&quot;</span>)</span>
+<span class="src-line" id="L112"></span>
+<span class="src-line" id="L113">	<span class="k">let</span> big = max_first[<span class="t">string</span>]()</span>
+<span class="src-line" id="L114">	<span class="k">for</span>(w <span class="k">in</span> [<span class="s">&quot;pear&quot;</span>, <span class="s">&quot;apple&quot;</span>, <span class="s">&quot;zucchini&quot;</span>, <span class="s">&quot;fig&quot;</span>]): big.<span class="f">push</span>(w.<span class="f">copy</span>())</span>
+<span class="src-line" id="L115">	<span class="f">assert</span>(big.<span class="f">pop</span>() == <span class="s">&quot;zucchini&quot;</span> <span class="k">and</span> big.<span class="f">pop</span>() == <span class="s">&quot;pear&quot;</span>, <span class="s">&quot;max_first&quot;</span>)</span>
+<span class="src-line" id="L116"></span>
+<span class="src-line" id="L117">	<span class="m">// A custom order that captures state: closest to a target first.</span></span>
+<span class="src-line" id="L118">	<span class="k">let</span> target = <span class="n">10</span></span>
+<span class="src-line" id="L119">	<span class="k">let</span> near = <span class="t">PriorityQueue</span>[<span class="t">int</span>].<span class="f">new</span>(<span class="k">cl</span>(a: <span class="t">int</span>, b: <span class="t">int</span>) <span class="t">int</span>: <span class="f">abs</span>(a - target) - <span class="f">abs</span>(b - target))</span>
+<span class="src-line" id="L120">	<span class="k">for</span>(x <span class="k">in</span> [<span class="n">1</span>, <span class="n">25</span>, <span class="n">9</span>, <span class="n">14</span>, <span class="n">10</span>]): near.<span class="f">push</span>(x)</span>
+<span class="src-line" id="L121">	<span class="f">assert</span>(near.<span class="f">drain</span>().<span class="f">to_string</span>() == <span class="s">&quot;[10, 9, 14, 1, 25]&quot;</span>, <span class="s">&quot;closure order&quot;</span>)</span>
+<span class="src-line" id="L122">}</span>
+<span class="src-line" id="L123"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../collections.html">std/collections</a><a href="../core.html">std/core</a><a href="../derive.html">std/derive</a><a href="../fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

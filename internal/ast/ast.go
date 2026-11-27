@@ -264,9 +264,11 @@ type TopComptimeIfDecl struct {
 	Cond       Expr
 	ThenDecls  []Decl
 	ThenBraced bool
+	ThenSpan   diag.Span
 	ElseIf     *TopComptimeIfDecl
 	ElseDecls  []Decl
 	ElseBraced bool
+	ElseSpan   diag.Span
 	HasElse    bool
 	Span       diag.Span
 }

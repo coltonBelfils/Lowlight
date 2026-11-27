@@ -34,7 +34,7 @@ func (s *Server) findTestsInDocument(filePath string, src string) []TestCaseInfo
 	}
 
 	var tests []TestCaseInfo
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		switch decl := d.(type) {
 		case *ast.VarDecl:
 			isTest := false
@@ -101,7 +101,7 @@ func (s *Server) findMainInDocument(filePath string, src string) *TestCaseInfo {
 	if mod == nil || mod.File == nil {
 		return nil
 	}
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		if vd, ok := d.(*ast.VarDecl); ok && vd.Name == "main" {
 			line := vd.Span.Start.Line - 1
 			if line < 0 {
@@ -412,7 +412,7 @@ func (s *Server) computeCodeLenses(filePath string, src string) []CodeLens {
 	prog := s.getOrCheckProgram(filePath, src)
 	mod := findModuleForPath(prog, filePath)
 	if mod != nil && mod.File != nil {
-		for _, d := range mod.File.Decls {
+		for _, d := range mod.ActiveDecls() {
 			switch decl := d.(type) {
 			case *ast.InterfaceDecl:
 				line := decl.Span.Start.Line - 1
@@ -570,7 +570,7 @@ func (s *Server) computeTestCodeActions(filePath string, src string, cursor Rang
 	mod := findModuleForPath(prog, filePath)
 	if mod != nil && mod.File != nil {
 		ind := detectFileIndent(filePath, src)
-		for _, d := range mod.File.Decls {
+		for _, d := range mod.ActiveDecls() {
 			switch decl := d.(type) {
 			case *ast.VarDecl:
 				if decl.Name == "main" || decl.Name == "test_main" {

@@ -1,0 +1,8 @@
+open db
+open cache
+using cache
+close cache
+open queue
+end of main
+close queue
+close db

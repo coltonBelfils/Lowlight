@@ -36,9 +36,27 @@
   "Constant Binding": {
     "prefix": "const",
     "body": [
-      "bind ${1:NAME}: ${2:int} = ${0:0}"
+      "const ${1:NAME}: ${2:int} = ${0:0}"
     ],
-    "description": "Typed constant binding"
+    "description": "Top-level compile-time constant"
+  },
+  "Const Function Binding": {
+    "prefix": "constfn",
+    "body": [
+      "const ${1:name} = fn(${2:x: int}) ${3:int}: {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Compile-time-capable function declaration"
+  },
+  "Comptime Block": {
+    "prefix": "comptime",
+    "body": [
+      "comptime {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Compile-time evaluation block"
   },
   "Drop Destructor": {
     "prefix": "drop",

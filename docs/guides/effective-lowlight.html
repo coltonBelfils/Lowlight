@@ -9,7 +9,7 @@
 <script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
 </head>
 <body class="layout-doc" data-root="../">
-<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a class="active" href="index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Guides</a></div><div class="sidebar-group">Writing Lowlight</div><ul><li><a class="active" href="effective-lowlight.html">Effective Lowlight (conventions)</a></li><li><a href="coming-from.html">Coming from C, Rust, or Go</a></li></ul><div class="sidebar-group">Core ideas</div><ul><li><a href="ownership.html">Ownership and borrowing</a></li><li><a href="errors.html">Failure handling</a></li><li><a href="collections.html">Collections and iteration</a></li><li><a href="generics.html">Interfaces and generics</a></li><li><a href="memory.html">Memory, arenas, and pools</a></li></ul><div class="sidebar-group">Working with code</div><ul><li><a href="packages.html">Packages and dependencies</a></li><li><a href="testing.html">Testing</a></li><li><a href="unsafe-ffi.html">Unsafe code and C</a></li><li><a href="performance.html">Performance</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Guides</a><span class="sep">/</span><span>Writing Lowlight</span></nav><h1 id="lowlight-style-guide--idiomatic-conventions"><a class="anchor" href="#lowlight-style-guide--idiomatic-conventions" aria-hidden="true">#</a>Lowlight Style Guide &amp; Idiomatic Conventions</h1>
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a class="active" href="index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Guides</a></div><div class="sidebar-group">Writing Lowlight</div><ul><li><a class="active" href="effective-lowlight.html">Effective Lowlight (conventions)</a></li><li><a href="coming-from.html">Coming from C, Rust, or Go</a></li></ul><div class="sidebar-group">Core ideas</div><ul><li><a href="ownership.html">Ownership and borrowing</a></li><li><a href="errors.html">Failure handling</a></li><li><a href="collections.html">Collections and iteration</a></li><li><a href="generics.html">Interfaces and generics</a></li><li><a href="comptime.html">Compile-time evaluation</a></li><li><a href="memory.html">Memory, arenas, and pools</a></li></ul><div class="sidebar-group">Working with code</div><ul><li><a href="packages.html">Packages and dependencies</a></li><li><a href="testing.html">Testing</a></li><li><a href="unsafe-ffi.html">Unsafe code and C</a></li><li><a href="performance.html">Performance</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Guides</a><span class="sep">/</span><span>Writing Lowlight</span></nav><h1 id="lowlight-style-guide--idiomatic-conventions"><a class="anchor" href="#lowlight-style-guide--idiomatic-conventions" aria-hidden="true">#</a>Lowlight Style Guide &amp; Idiomatic Conventions</h1>
 <p>This document defines the canonical coding style, naming conventions, and design idioms for writing clear, idiomatic <strong>Lowlight</strong>. For formal language rules and semantics, see <a href="../spec/index.html"><code>SPECIFICATION.md</code></a>.</p>
 <p>Lowlight's design centers on <strong>call-site explicitness without syntactic clutter</strong>: mutations (<code>&amp;</code>), ownership transfers (<code>own</code>), nullability (<code>name?</code>), recoverable failure bindings (<code>name!</code>), early exits (<code>&lt;-</code>), and manual memory (<code>unsafe</code>) are always visible where you read code, while type inference, bare variant patterns, bare result constructors, and braceless single expressions keep everyday code light.</p>
 <hr />
@@ -19,7 +19,7 @@
 </li>
 <li><a href="#2-privacy--compiler-enforced-sigils">Privacy &amp; Compiler-Enforced Sigils</a>
 </li>
-<li><a href="#3-bindings--mutability-bind-vs-let">Bindings &amp; Mutability (<code>bind</code> vs <code>let</code>)</a>
+<li><a href="#3-bindings-mutability--compile-time-const-bind-and-let">Bindings, Mutability, &amp; Compile Time (<code>const</code>, <code>bind</code>, and <code>let</code>)</a>
 </li>
 <li><a href="#4-error-handling--optionals">Error Handling &amp; Optionals</a>
 </li>
@@ -47,7 +47,7 @@
 <tr><td>Generic type parameters</td><td>Concise <code>PascalCase</code></td><td><code>T</code>, <code>K</code>, <code>V</code>, <code>Item</code></td></tr>
 <tr><td>Functions, methods, locals, parameters, fields</td><td><code>snake_case</code></td><td><code>parse_url</code>, <code>is_empty</code>, <code>max_bytes</code></td></tr>
 <tr><td><strong>Enum variants &amp; <code>result</code> members</strong></td><td><strong>lowercase <code>snake_case</code></strong></td><td><code>pending</code>, <code>in_progress</code>, <code>value</code>, <code>err</code>, <code>missing</code>, <code>forbidden</code></td></tr>
-<tr><td><strong>Top-level constants</strong> (<code>bind</code> values)</td><td><strong><code>SCREAMING_SNAKE_CASE</code></strong></td><td><code>PI</code>, <code>STATUS_OK</code>, <code>MAX_RETRIES</code>, <code>RFC3339_NANO</code></td></tr>
+<tr><td><strong>Top-level constants</strong> (<code>const</code> / <code>bind</code> values)</td><td><strong><code>SCREAMING_SNAKE_CASE</code></strong></td><td><code>PI</code>, <code>STATUS_OK</code>, <code>MAX_RETRIES</code>, <code>RFC3339_NANO</code></td></tr>
 <tr><td>Optional identifiers (compiler-enforced)</td><td><code>snake_case</code> + <code>?</code> suffix</td><td><code>user?</code>, <code>port?</code>, <code>left?</code></td></tr>
 <tr><td>Result identifiers (compiler-enforced)</td><td><code>snake_case</code> + <code>!</code> suffix</td><td><code>cfg!</code>, <code>res!</code>, <code>conn!</code></td></tr>
 <tr><td>Package-private symbols &amp; sealed methods</td><td>Leading underscore <code>_</code></td><td><code>_parse_header</code>, <code>_handle</code>, <code>_internal</code>, <code>_seal</code></td></tr>
@@ -85,18 +85,18 @@
 	expired: <span class="t">int</span>,
 ]</code></pre>
 <h3 id="screaming_snake_case-constants"><a class="anchor" href="#screaming_snake_case-constants" aria-hidden="true">#</a><code>SCREAMING_SNAKE_CASE</code> Constants</h3>
-<p>Top-level constant <code>bind</code> values use <code>SCREAMING_SNAKE_CASE</code>:</p>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> <span class="t">MAX_RETRIES</span>: <span class="t">int</span> = <span class="n">3</span>
-<span class="k">bind</span> <span class="t">DEFAULT_PORT</span>: <span class="t">int</span> = <span class="n">8080</span>
-<span class="k">bind</span> <span class="t">DATE_ONLY</span> = <span class="s">&quot;2006-01-02&quot;</span>
-<span class="k">bind</span> <span class="t">RFC3339_NANO</span> = <span class="s">&quot;2006-01-02T15:04:05.999999999Z07:00&quot;</span></code></pre>
-<p>Local non-mutated values use normal <code>snake_case</code> (<code>bind timeout_ms = 500</code>), unless you want a module-level constant look at top level.</p>
+<p>Top-level constants (<code>const</code> for compile-time constants and lookup tables; <code>bind</code> when initialized from runtime state) use <code>SCREAMING_SNAKE_CASE</code>:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">const</span> <span class="t">MAX_RETRIES</span>: <span class="t">int</span> = <span class="n">3</span>
+<span class="k">const</span> <span class="t">DEFAULT_PORT</span>: <span class="t">int</span> = <span class="n">8080</span>
+<span class="k">const</span> <span class="t">DATE_ONLY</span> = <span class="s">&quot;2006-01-02&quot;</span>
+<span class="k">const</span> <span class="t">RFC3339_NANO</span> = <span class="s">&quot;2006-01-02T15:04:05.999999999Z07:00&quot;</span></code></pre>
+<p>Local non-mutated values use normal <code>snake_case</code> (<code>const timeout_ms = 500</code> or <code>bind timeout_ms = ...</code>), reserving <code>SCREAMING_SNAKE_CASE</code> for module-level constants.</p>
 <hr />
 <h2 id="2-privacy--compiler-enforced-sigils"><a class="anchor" href="#2-privacy--compiler-enforced-sigils" aria-hidden="true">#</a>2. Privacy &amp; Compiler-Enforced Sigils</h2>
 <h3 id="package-private-encapsulation-_"><a class="anchor" href="#package-private-encapsulation-_" aria-hidden="true">#</a>Package-Private Encapsulation (<code>_</code>)</h3>
 <p>Anything starting with <code>_</code> is private to its declaring package (all <code>.ll</code> files in the same directory):</p>
 <ul>
-<li>Functions and constants: <code>bind _parse_digits = ...</code>, <code>bind _BUFFER_SIZE = 4096</code>
+<li>Functions and constants: <code>const _parse_digits = ...</code>, <code>const _BUFFER_SIZE = 4096</code>, <code>bind _query_tz = ...</code>
 </li>
 <li>Types: <code>define _Route struct [...]</code>
 </li>
@@ -104,7 +104,7 @@
 </li>
 <li>Enum variants: <code>define Token enum [ ident: string, _eof ]</code>
 </li>
-<li>Sealed interfaces: include an unexported method such as <code>_seal: (self) int</code> to prevent external packages from implementing the interface.
+<li>Sealed interfaces: include an unexported method such as <code>_seal: fn(self) int</code> to prevent external packages from implementing the interface.
 </li>
 </ul>
 <p>Avoid getters/setters that merely expose a <code>_field</code> unchanged without enforcing an invariant; make plain data fields public directly, and privatize <code>_field</code> only when a type maintains internal invariants or owns raw handles.</p>
@@ -121,15 +121,35 @@
 </li>
 </ul>
 <hr />
-<h2 id="3-bindings--mutability-bind-vs-let"><a class="anchor" href="#3-bindings--mutability-bind-vs-let" aria-hidden="true">#</a>3. Bindings &amp; Mutability (<code>bind</code> vs <code>let</code>)</h2>
-<p>Lowlight distinguishes deep immutability (<code>bind</code>) from mutability (<code>let</code>):</p>
+<h2 id="3-bindings-mutability--compile-time-const-bind-and-let"><a class="anchor" href="#3-bindings-mutability--compile-time-const-bind-and-let" aria-hidden="true">#</a>3. Bindings, Mutability, &amp; Compile Time (<code>const</code>, <code>bind</code>, and <code>let</code>)</h2>
+<p>Lowlight cleanly separates <strong>compile-time evaluation (<code>const</code>)</strong>, <strong>runtime immutability (<code>bind</code>)</strong>, and <strong>local mutability (<code>let</code>)</strong>:</p>
 <ul>
-<li><strong>Top-level:</strong> Always use <code>bind</code> (functions, methods, constants). Top-level mutable globals (<code>let</code>) are discouraged outside tightly scoped tests or process singletons.
+<li><strong><code>const</code> (Compile-time values &amp; pure functions):</strong>
+<ul>
+<li>Use <code>const</code> for pure top-level constants, fixed lookup tables (<code>const CRC_TABLE = comptime ...</code> baked into static <code>.rodata</code>), and pure functions/methods that do not perform host I/O, FFI (<code>extern</code>), OS calls, or user <code>unsafe</code>. A <code>const</code> function runs cleanly in both compile-time evaluation and normal runtime calls.
 </li>
-<li><strong>Locals:</strong> <strong>Prefer <code>bind</code> by default</strong> for any local that is never reassigned or mutably borrowed. Use <code>let</code> only when the variable is actually reassigned (<code>count += 1</code>) or passed as a mutable borrow (<code>&amp;buf</code>, <code>items.push(...)</code>).
+<li>Mark build-time-only reflection helpers, <code>@derivable</code> trait generators, and intermediate builders with <code>@comptime_only</code> so they never bloat the runtime binary and can freely use compile-time <code>Map</code>/<code>Set</code> or reflection queries (<code>comp.fields_of</code>, <code>comp.variants_of</code>).
+</li>
+<li>Use <code>@comptime_limit(steps: N, memory: M)</code> explicitly when a generator legitimately needs a larger budget instead of inflating defaults.
 </li>
 </ul>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> sum_evens = (items: [<span class="t">int</span>]) <span class="t">int</span>: {
+</li>
+<li><strong><code>bind</code> (Runtime immutability):</strong>
+<ul>
+<li>Use <code>bind</code> for functions/methods that perform I/O, FFI, OS syscalls, <code>unsafe</code>, or tests (<code>@test</code>), and <strong>prefer <code>bind</code> by default for locals</strong> whose value comes from runtime expressions and is never reassigned or mutably borrowed.
+</li>
+</ul>
+</li>
+<li><strong><code>let</code> (Mutable locals):</strong>
+<ul>
+<li>Use <code>let</code> only when a variable is actually reassigned (<code>count += 1</code>) or passed as a mutable borrow (<code>&amp;buf</code>, <code>items.push(...)</code>).
+</li>
+</ul>
+</li>
+</ul>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">const</span> <span class="t">SCALE_FACTORS</span>: [<span class="t">int</span>] = [<span class="n">1</span>, <span class="n">10</span>, <span class="n">100</span>, <span class="n">1000</span>]
+
+<span class="k">const</span> sum_evens = <span class="k">fn</span>(items: [<span class="t">int</span>]) <span class="t">int</span>: {
 	<span class="k">bind</span> n = items.<span class="f">len</span>()
 	<span class="k">let</span> total = <span class="n">0</span>
 	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..n): {
@@ -138,7 +158,13 @@
 	}
 	total
 }</code></pre>
-<p>Making <code>bind</code> your default choice documents at a glance which bindings can change inside a function and pairs naturally with deep immutability checking.</p>
+<h3 id="conditional-platform-code--derivations"><a class="anchor" href="#conditional-platform-code--derivations" aria-hidden="true">#</a>Conditional Platform Code &amp; Derivations</h3>
+<ul>
+<li><strong>Prefer single-file <code>comptime if(comp.TARGET...)</code></strong> over OS/architecture filename suffixes (<code>_linux.ll</code>, <code>_unix.ll</code>, etc.) so platform branches share one cohesive file and type-check uniformly via <code>lowlight check --all-targets</code>. Suffix filtering remains supported when separate large files are warranted.
+</li>
+<li><strong>Prefer <code>@derivable(...)</code> + <code>comp.*</code> reflection</strong> on custom interfaces (<code>@derivable(encode: derive_encode)</code>) rather than asking callers to duplicate mechanical field-by-field boilerplate.
+</li>
+</ul>
 <hr />
 <h2 id="4-error-handling--optionals"><a class="anchor" href="#4-error-handling--optionals" aria-hidden="true">#</a>4. Error Handling &amp; Optionals</h2>
 <h3 id="choosing-between-t-custom-result-resultt-and-panic"><a class="anchor" href="#choosing-between-t-custom-result-resultt-and-panic" aria-hidden="true">#</a>Choosing Between <code>?T</code>, Custom <code>result</code>, <code>Result[T]</code>, and <code>panic</code></h3>
@@ -148,12 +174,36 @@
 <tr><td><code>?T</code></td><td>Absence is the only non-success outcome (<code>map[k]</code>, <code>parse_int</code>, <code>next()</code>).</td></tr>
 <tr><td>Custom <code>result</code></td><td>Callers are expected to branch on specific domain failure cases (<code>missing</code>, <code>forbidden</code>, <code>expired</code>).</td></tr>
 <tr><td><code>Result[T]</code></td><td>General recoverable I/O, parsing, validation, or OS failure with an <a class="ref" href="../std/core.html#Error" title="define Error struct"><code>Error</code></a> context chain.</td></tr>
+<tr><td><code>Status</code></td><td>The same, for an operation that produces nothing when it succeeds (<code>fs.write_file</code>, <code>File.close</code>, <code>os.remove_all</code>). Never <code>Result[bool]</code> with a meaningless <code>true</code>.</td></tr>
 <tr><td><code>panic(...)</code></td><td>Violated precondition or impossible internal invariant (e.g., out-of-bounds index, bug). Never for bad external input.</td></tr>
 </tbody>
 </table></div>
+<h3 id="separate-the-failures-callers-act-on"><a class="anchor" href="#separate-the-failures-callers-act-on" aria-hidden="true">#</a>Separate the Failures Callers Act On</h3>
+<p>When a caller could reasonably do something different for one failure than for the rest, give that failure its own member instead of folding it into <code>err</code>. Typical cases are a missing file when removing it (often fine), an existing directory when creating it, and the end of input when reading (normal) versus a read error (not):</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">RemoveResult</span> <span class="k">result</span> [
+	value,
+	not_found: <span class="t">Error</span>,
+	err: <span class="t">Error</span>,
+]
+
+fs.<span class="f">remove_file</span>(tmp):
+	<span class="k">when</span> <span class="f">not_found</span>(_): {}
+	<span class="k">default</span> <span class="k">panic</span></code></pre>
+<ul>
+<li><strong>Give each split-out failure an <code>Error</code> payload</strong>, like <code>err</code>, so the message, cause chain, and trace aren't lost: <code>not_found: Error</code>, not a bare <code>not_found</code>. A caller that ignores the distinction handles it like any other failure.
+</li>
+<li><strong>Split only what callers act on.</strong> Permission denied, a full disk, and an I/O error usually all mean &quot;report it and stop&quot;, so they stay in <code>err</code> with the OS's description. Add a member when real callers need it, not for every errno.
+</li>
+<li><strong>Keep <code>err: Error</code> last</strong> as the catch-all, so <code>default err(own e):</code> handles everything not split out.
+</li>
+<li>Don't give a custom result inspection or assertion methods (<code>is_ok</code>, <code>unwrap</code>, ...): handle it with a chain, as callers of <code>fs.read_file</code> or <code>http.get</code> do. Only <code>Result[T]</code> and <code>Status</code> have those methods.
+</li>
+<li>A result that has no value to return and needs no split is <code>Status</code>; one that needs a split declares its own unit result (<code>value</code> with no payload), named for the operation (<code>RemoveResult</code>, <code>MkdirResult</code>).
+</li>
+</ul>
 <h3 id="constructing-results-value-and-err"><a class="anchor" href="#constructing-results-value-and-err" aria-hidden="true">#</a>Constructing Results (<code>value(...)</code> and <code>err(...)</code>)</h3>
 <p>Wherever a result type is expected (function return body, <code>func &lt;-</code>, typed <code>if</code>/<code>match</code> branches, annotated <code>bind</code>/<code>let</code>, typed call argument), <strong>prefer bare <code>value(...)</code> and failure variant names</strong> (<code>err(...)</code>, <code>missing(...)</code>, <code>forbidden</code>):</p>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> parse_port = (raw: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">int</span>]: {
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> parse_port = <span class="k">fn</span>(raw: <span class="t">string</span>) <span class="t">Result</span>[<span class="t">int</span>]: {
 	<span class="k">bind</span> port = <span class="f">parse_int</span>(raw) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;invalid_port&quot;</span>, <span class="s">&quot;expected integer port&quot;</span>))
 	<span class="k">if</span>(port &lt; <span class="n">1</span> <span class="k">or</span> port &gt; <span class="n">65535</span>):
 		<span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">coded</span>(<span class="s">&quot;invalid_port&quot;</span>, <span class="s">&quot;port </span>$port<span class="s"> out of range 1..=65535&quot;</span>))
@@ -161,6 +211,8 @@
 }</code></pre>
 <ul>
 <li>When type context is <strong>absent</strong> (such as an unannotated <code>let r! = ...</code>, an untyped collection literal <code>[Result[int].value(1)]</code>, or a chained call), qualify with <code>Result[T].value(...)</code> or <code>Result[T].err(...)</code>.
+</li>
+<li>A unit result's success is the bare name <code>value</code>, with no parentheses: <code>if(ok): value else: err(e)</code>.
 </li>
 <li><code>Result[T].fail_msg(&quot;...&quot;)</code> is available as a convenient shorthand for <code>err(Error.new(&quot;...&quot;))</code> when an expected <code>Result[T]</code> type is absent or when returning an uncoded site-tracked message. (<code>Result.ok</code> and <code>Result.fail</code> do not exist — <code>value</code> and <code>err</code> are the single canonical names.)
 </li>
@@ -177,11 +229,21 @@
 	<span class="k">when</span> forbidden: <span class="k">func</span> <span class="u">&lt;-</span> forbidden
 	<span class="k">default</span> <span class="f">expired</span>(_): cache.<span class="f">refresh</span>(key)</code></pre>
 </li>
-<li><strong>Asserting / panicking on a result:</strong> <strong>Prefer <code>expr: default panic</code></strong> uniformly for both <code>Result[T]</code> and custom <code>result</code> types when a failure indicates a violated invariant or setup error in a test/script:
+<li><strong>Asserting / panicking on a result:</strong> <strong>Prefer <code>expr: default panic</code></strong> uniformly for both <code>Result[T]</code> and custom <code>result</code> types when a failure indicates a violated invariant or setup error in a test/script. It prints the failure's error, causes, and trace. Use <code>.unwrap()</code> only where a chain can't go, in the middle of a longer expression:
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> cfg = <span class="f">load_config</span>(path): <span class="k">default</span> <span class="k">panic</span></code></pre>
 When you want a custom panic message with the full <code>Error</code> trace, handle <code>default err(own e)</code> explicitly:
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> cfg = <span class="f">load_config</span>(path):
 	<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="f">panic</span>(e.<span class="f">wrap</span>(<span class="s">&quot;failed to initialize server&quot;</span>))</code></pre>
+</li>
+<li><strong>Read a borrowed result in place.</strong> A chain on a parameter the function doesn't own reads it instead of consuming it, so there's no need to <code>.copy()</code> it first unless you need its non-plain value:
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> report = <span class="k">fn</span>(r!: <span class="t">Result</span>[<span class="t">string</span>]):
+	r!:
+		<span class="k">default</span> <span class="f">err</span>(e): <span class="f">eprintln</span>(e.<span class="f">summary</span>())</code></pre>
+</li>
+<li><strong>A unit result's chain is a statement.</strong> It has no value to bind, so write it on its own line; its arms handle the failures:
+<pre class="lang-lowlight" data-lang="lowlight"><code>fs.<span class="f">write_file</span>(path, report):
+	<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(e.<span class="f">wrap</span>(<span class="s">&quot;saving the report&quot;</span>))</code></pre>
+<code>??</code> and <code>if(r! as v)</code> need a value, so they don't apply to unit results.
 </li>
 <li><strong>Simple fallbacks and optional-style discarding:</strong>
 <ul>
@@ -195,14 +257,17 @@ When you want a custom panic message with the full <code>Error</code> trace, han
 <h3 id="fallible-vs-panicking-api-naming-no-try_-prefix"><a class="anchor" href="#fallible-vs-panicking-api-naming-no-try_-prefix" aria-hidden="true">#</a>Fallible vs Panicking API Naming (No <code>try_</code> Prefix)</h3>
 <p>Do <strong>not</strong> prefix fallible functions or methods with <code>try_</code>. Fallibility is already unmistakable from the return type (<code>Result[T]</code>, <code>?T</code>, or custom <code>result</code>), the caller's <code>!</code>/<code>?</code> suffix rules, and <code>: default panic</code>:</p>
 <ul>
-<li><strong>Do:</strong> <code>DateTime.new(...) Result[DateTime]</code>, <code>DateTime.diff(other) ?Duration</code>, <code>File.open(...) Result[File]</code>
+<li><strong>Do:</strong> <code>DateTime.new(...) Result[DateTime]</code>, <code>DateTime.diff(other) ?Duration</code>, <code>File.open(...) FileResult[File]</code>, <code>xs.remove(i) ?T</code>
 </li>
 <li><strong>Avoid:</strong> <code>try_new</code>, <code>try_diff</code>, <code>try_open</code>
 </li>
 </ul>
 <p>When an asserting/panicking convenience twin is genuinely useful (such as constructing known-valid literals in tests or constants), give the fallible operation the plain name and prefix the panicking twin with <code>must_*</code>:</p>
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> dt! = time.<span class="t">DateTime</span>.<span class="f">new</span>(y, m, d, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="c">false</span>)   <span class="m">// fallible: returns Result[DateTime]</span>
-<span class="k">bind</span> epoch = time.<span class="t">DateTime</span>.<span class="f">must_new</span>(<span class="n">1970</span>, <span class="n">1</span>, <span class="n">1</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="c">false</span>) <span class="m">// panics if out of range</span></code></pre>
+<span class="k">bind</span> epoch = time.<span class="t">DateTime</span>.<span class="f">must_new</span>(<span class="n">1970</span>, <span class="n">1</span>, <span class="n">1</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="c">false</span>) <span class="m">// panics if out of range</span>
+<span class="k">let</span> picked = xs.<span class="f">remove</span>(i) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;no item </span>$i<span class="s">&quot;</span>))  <span class="m">// fallible: ?T</span>
+<span class="k">let</span> first = xs.<span class="f">must_remove</span>(<span class="n">0</span>)                            <span class="m">// panics if xs is empty</span></code></pre>
+<p>Mark <code>must_*</code> functions <code>@track_caller</code>, so the panic points at the call with the bad argument.</p>
 <p>When an alternative behavior avoids failure without panicking (like saturating arithmetic), name the behavior explicitly with a descriptive suffix (e.g., <code>DateTime.diff_saturating</code>).</p>
 <hr />
 <h2 id="5-control-flow-loops-and-pattern-matching"><a class="anchor" href="#5-control-flow-loops-and-pattern-matching" aria-hidden="true">#</a>5. Control Flow, Loops, and Pattern Matching</h2>
@@ -242,7 +307,7 @@ When you want a custom panic message with the full <code>Error</code> trace, han
 <li>Use <code>when in lo..hi:</code> for containment, method predicates like <code>when is_digit():</code> for classification, and multi-argument <code>match(a, b):</code> instead of nested matches.
 </li>
 </ul>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> eval_bin = (op: <span class="t">TokKind</span>, lhs: <span class="t">int</span>, rhs: <span class="t">int</span>) <span class="t">Result</span>[<span class="t">int</span>]:
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">const</span> eval_bin = <span class="k">fn</span>(op: <span class="t">TokKind</span>, lhs: <span class="t">int</span>, rhs: <span class="t">int</span>) <span class="t">Result</span>[<span class="t">int</span>]:
 	<span class="k">match</span>(op):
 		<span class="k">when</span> plus: <span class="f">value</span>(lhs + rhs)
 		<span class="k">when</span> minus: <span class="f">value</span>(lhs - rhs)
@@ -254,9 +319,9 @@ When you want a custom panic message with the full <code>Error</code> trace, han
 <h3 id="braceless-bodies-vs---"><a class="anchor" href="#braceless-bodies-vs---" aria-hidden="true">#</a>Braceless Bodies vs <code>{ ... }</code></h3>
 <ul>
 <li><p><strong>Prefer braceless bodies</strong> for concise single-expression functions, <code>match</code>/<code>if</code>-bodied functions, one-line <code>if</code>/<code>else</code>, <code>match</code> arms, and single-statement loops:</p>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> <span class="t">Response</span>.is_success = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>.status_code &gt;= <span class="n">200</span> <span class="k">and</span> <span class="k">self</span>.status_code &lt; <span class="n">300</span>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">const</span> <span class="t">Response</span>.is_success = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>.status_code &gt;= <span class="n">200</span> <span class="k">and</span> <span class="k">self</span>.status_code &lt; <span class="n">300</span>
 
-<span class="k">bind</span> clamp_nonneg = (n: <span class="t">int</span>) <span class="t">int</span>:
+<span class="k">const</span> clamp_nonneg = <span class="k">fn</span>(n: <span class="t">int</span>) <span class="t">int</span>:
 	<span class="k">if</span>(n &lt; <span class="n">0</span>): <span class="n">0</span> <span class="k">else</span>: n</code></pre>
 </li>
 <li><p><strong>Use <code>{ ... }</code> blocks</strong> for multi-statement bodies or deeply nested control flow where explicit delimiters make scopes and unwinding targets easier to scan.</p>
@@ -285,7 +350,7 @@ When you want a custom panic message with the full <code>Error</code> trace, han
 </li>
 </ol>
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="m">// Reads without copying `msg`; mutates `errors` visibly at call sites (`&amp;errors`).</span>
-<span class="k">bind</span> record_if_bad = (errors: &amp;[<span class="t">string</span>], ok: <span class="t">bool</span>, msg: <span class="t">string</span>):
+<span class="k">const</span> record_if_bad = <span class="k">fn</span>(errors: &amp;[<span class="t">string</span>], ok: <span class="t">bool</span>, msg: <span class="t">string</span>):
 	<span class="k">if</span>(<span class="k">not</span> ok): errors.<span class="f">push</span>(msg.<span class="f">copy</span>())</code></pre>
 <h3 id="avoiding-unnecessary-copy"><a class="anchor" href="#avoiding-unnecessary-copy" aria-hidden="true">#</a>Avoiding Unnecessary <code>.copy()</code></h3>
 <ul>
@@ -302,7 +367,7 @@ When you want a custom panic message with the full <code>Error</code> trace, han
 </li>
 <li><strong><code>unsafe { ... }</code>:</strong> Keep <code>unsafe</code> blocks as small as possible, wrap raw pointer arithmetic behind safe abstractions, and document the upheld invariants under a <code>// # Safety</code> doc section.
 </li>
-<li><strong><code>Drop</code>:</strong> Implement <code>bind Type.drop = (&amp;self): ...</code> only when a type owns non-Lowlight resources (OS handles, FFI memory, custom buffers). Plain composite Resources free their fields automatically in reverse declaration order.
+<li><strong><code>Drop</code>:</strong> Implement <code>bind Type.drop = fn(&amp;self): ...</code> only when a type owns non-Lowlight resources (OS handles, FFI memory, custom buffers). Plain composite Resources free their fields automatically in reverse declaration order.
 </li>
 </ul>
 <hr />
@@ -318,7 +383,7 @@ When you want a custom panic message with the full <code>Error</code> trace, han
 <ul>
 <li><code>to_*</code> borrows <code>(self)</code> and allocates/formats a new representation (<code>to_string()</code>, <code>to_rfc3339()</code>).
 </li>
-<li><code>into_*</code> consumes <code>(own self)</code> and transfers ownership (<code>into_ok()</code>, <code>into_err()</code>, <code>into_bytes()</code>).
+<li><code>into_*</code> consumes <code>(own self)</code> and transfers ownership (<code>into_bytes()</code>).
 </li>
 <li><code>as_*</code> returns a cheap zero-copy view or borrow.
 </li>
@@ -338,7 +403,7 @@ When you want a custom panic message with the full <code>Error</code> trace, han
 </li>
 <li><strong>Methods vs Package Functions:</strong>
 <ul>
-<li>Attach methods (<code>bind Type.method = ...</code>) when an operation clearly belongs to a type's noun-verb API (<code>url.query_param(k)</code>, <code>dt.add_duration(d)</code>).
+<li>Attach methods (<code>const Type.method = fn(...)</code> or <code>bind Type.method = fn(...)</code>) when an operation clearly belongs to a type's noun-verb API (<code>url.query_param(k)</code>, <code>dt.add_duration(d)</code>).
 </li>
 <li>Use package functions (<code>http.parse_url</code>, <code>math.clamp_int</code>, <code>time.month_abbr</code>) for general utilities or operations where adding methods to primitive types like <code>int</code> or <code>string</code> would pollute completion.
 </li>
@@ -398,7 +463,7 @@ When you want a custom panic message with the full <code>Error</code> trace, han
 <span class="m">//</span>
 <span class="m">// # Errors</span>
 <span class="m">// Returns [`Result.err`] if DNS resolution fails or the connection is refused.</span>
-<span class="k">bind</span> <span class="t">TcpStream</span>.connect = (host: <span class="t">string</span>, port: <span class="t">int</span>) <span class="t">Result</span>[<span class="t">TcpStream</span>]: {
+<span class="k">bind</span> <span class="t">TcpStream</span>.connect = <span class="k">fn</span>(host: <span class="t">string</span>, port: <span class="t">int</span>) <span class="t">Result</span>[<span class="t">TcpStream</span>]: {
 	<span class="m">// ...</span>
 }</code></pre>
 <hr />
@@ -413,7 +478,7 @@ When you want a custom panic message with the full <code>Error</code> trace, han
 </li>
 </ol>
 <p>Use <code>std/test</code> helpers (<code>test.assert_eq</code>, <code>test.assert_ne</code>, <code>test.assert_ok_eq</code>, <code>test.assert_contains</code>, etc.) for clear diff output with caller locations (<code>@track_caller</code>), and run <code>lowlight test</code> regularly (leak checking via <code>LOWLIGHT_CHECK_LEAKS=1</code> is enabled automatically so tests verify zero heap leaks as well as functional correctness).</p>
-</article><nav class="prev-next"><a class="prev" href="index.html"><span>Previous</span>Guides</a><a class="next" href="coming-from.html"><span>Next</span>Lowlight for C, Rust, and Go programmers</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#table-of-contents">Table of Contents</a></li><li><a href="#1-naming-conventions">1. Naming Conventions</a></li><li class="sub"><a href="#summary-table">Summary Table</a></li><li class="sub"><a href="#title-case-acronyms-in-pascalcase-type-names">Title-Case Acronyms in PascalCase Type Names</a></li><li class="sub"><a href="#lowercase-snake_case-enum-variants--result-members">Lowercase snake_case Enum Variants &amp; Result Members</a></li><li class="sub"><a href="#screaming_snake_case-constants">SCREAMING_SNAKE_CASE Constants</a></li><li><a href="#2-privacy--compiler-enforced-sigils">2. Privacy &amp; Compiler-Enforced Sigils</a></li><li class="sub"><a href="#package-private-encapsulation-_">Package-Private Encapsulation (_)</a></li><li class="sub"><a href="#optional--and-result--name-sigils">Optional (?) and Result (!) Name Sigils</a></li><li><a href="#3-bindings--mutability-bind-vs-let">3. Bindings &amp; Mutability (bind vs let)</a></li><li><a href="#4-error-handling--optionals">4. Error Handling &amp; Optionals</a></li><li class="sub"><a href="#choosing-between-t-custom-result-resultt-and-panic">Choosing Between ?T, Custom result, Result[T], and panic</a></li><li class="sub"><a href="#constructing-results-value-and-err">Constructing Results (value(...) and err(...))</a></li><li class="sub"><a href="#propagating-and-asserting-results">Propagating and Asserting Results</a></li><li class="sub"><a href="#fallible-vs-panicking-api-naming-no-try_-prefix">Fallible vs Panicking API Naming (No try_ Prefix)</a></li><li><a href="#5-control-flow-loops-and-pattern-matching">5. Control Flow, Loops, and Pattern Matching</a></li><li class="sub"><a href="#statement-loops-for-vs-while">Statement Loops (for vs while)</a></li><li class="sub"><a href="#pattern-matching-match">Pattern Matching (match)</a></li><li class="sub"><a href="#braceless-bodies-vs---">Braceless Bodies vs { ... }</a></li><li class="sub"><a href="#targeted-unwinding--">Targeted Unwinding (&lt;-)</a></li><li><a href="#6-ownership-memory-and-data-structures">6. Ownership, Memory, and Data Structures</a></li><li class="sub"><a href="#parameter--receiver-modes">Parameter &amp; Receiver Modes</a></li><li class="sub"><a href="#avoiding-unnecessary-copy">Avoiding Unnecessary .copy()</a></li><li class="sub"><a href="#arena--reft-vs-poolt-vs-unsafe">Arena + ref[T] vs Pool[T] vs unsafe</a></li><li><a href="#7-api--package-design">7. API &amp; Package Design</a></li><li><a href="#8-formatting--layout-lowlight-fmt">8. Formatting &amp; Layout (lowlight fmt)</a></li><li><a href="#9-documentation-comments-lowlight-doc">9. Documentation Comments (lowlight doc)</a></li><li><a href="#10-testing">10. Testing</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="index.html">Guides</a><a href="effective-lowlight.html">Effective Lowlight (conventions)</a><a href="coming-from.html">Coming from C, Rust, or Go</a><a href="ownership.html">Ownership and borrowing</a><a href="errors.html">Failure handling</a><a href="collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+</article><nav class="prev-next"><a class="prev" href="index.html"><span>Previous</span>Guides</a><a class="next" href="coming-from.html"><span>Next</span>Lowlight for C, Rust, and Go programmers</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#table-of-contents">Table of Contents</a></li><li><a href="#1-naming-conventions">1. Naming Conventions</a></li><li class="sub"><a href="#summary-table">Summary Table</a></li><li class="sub"><a href="#title-case-acronyms-in-pascalcase-type-names">Title-Case Acronyms in PascalCase Type Names</a></li><li class="sub"><a href="#lowercase-snake_case-enum-variants--result-members">Lowercase snake_case Enum Variants &amp; Result Members</a></li><li class="sub"><a href="#screaming_snake_case-constants">SCREAMING_SNAKE_CASE Constants</a></li><li><a href="#2-privacy--compiler-enforced-sigils">2. Privacy &amp; Compiler-Enforced Sigils</a></li><li class="sub"><a href="#package-private-encapsulation-_">Package-Private Encapsulation (_)</a></li><li class="sub"><a href="#optional--and-result--name-sigils">Optional (?) and Result (!) Name Sigils</a></li><li><a href="#3-bindings-mutability--compile-time-const-bind-and-let">3. Bindings, Mutability, &amp; Compile Time (const, bind, and let)</a></li><li class="sub"><a href="#conditional-platform-code--derivations">Conditional Platform Code &amp; Derivations</a></li><li><a href="#4-error-handling--optionals">4. Error Handling &amp; Optionals</a></li><li class="sub"><a href="#choosing-between-t-custom-result-resultt-and-panic">Choosing Between ?T, Custom result, Result[T], and panic</a></li><li class="sub"><a href="#separate-the-failures-callers-act-on">Separate the Failures Callers Act On</a></li><li class="sub"><a href="#constructing-results-value-and-err">Constructing Results (value(...) and err(...))</a></li><li class="sub"><a href="#propagating-and-asserting-results">Propagating and Asserting Results</a></li><li class="sub"><a href="#fallible-vs-panicking-api-naming-no-try_-prefix">Fallible vs Panicking API Naming (No try_ Prefix)</a></li><li><a href="#5-control-flow-loops-and-pattern-matching">5. Control Flow, Loops, and Pattern Matching</a></li><li class="sub"><a href="#statement-loops-for-vs-while">Statement Loops (for vs while)</a></li><li class="sub"><a href="#pattern-matching-match">Pattern Matching (match)</a></li><li class="sub"><a href="#braceless-bodies-vs---">Braceless Bodies vs { ... }</a></li><li class="sub"><a href="#targeted-unwinding--">Targeted Unwinding (&lt;-)</a></li><li><a href="#6-ownership-memory-and-data-structures">6. Ownership, Memory, and Data Structures</a></li><li class="sub"><a href="#parameter--receiver-modes">Parameter &amp; Receiver Modes</a></li><li class="sub"><a href="#avoiding-unnecessary-copy">Avoiding Unnecessary .copy()</a></li><li class="sub"><a href="#arena--reft-vs-poolt-vs-unsafe">Arena + ref[T] vs Pool[T] vs unsafe</a></li><li><a href="#7-api--package-design">7. API &amp; Package Design</a></li><li><a href="#8-formatting--layout-lowlight-fmt">8. Formatting &amp; Layout (lowlight fmt)</a></li><li><a href="#9-documentation-comments-lowlight-doc">9. Documentation Comments (lowlight doc)</a></li><li><a href="#10-testing">10. Testing</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="index.html">Guides</a><a href="effective-lowlight.html">Effective Lowlight (conventions)</a><a href="coming-from.html">Coming from C, Rust, or Go</a><a href="ownership.html">Ownership and borrowing</a><a href="errors.html">Failure handling</a><a href="collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/collections.html">std/collections</a><a href="../std/core.html">std/core</a><a href="../std/derive.html">std/derive</a><a href="../std/fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../search-index.js"></script>
 <script src="../assets/site.js"></script>
 </body>

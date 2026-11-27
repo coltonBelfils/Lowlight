@@ -9,7 +9,7 @@
 <script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
 </head>
 <body class="layout-wide" data-root="../../">
-<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>list.ll</h1><p>Source of package <a href="../core.html"><code>std/core</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/core/list — Growable heap-allocated contiguous sequence ([`List`]).</span></span>
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../collections.html">std/collections</a></li><li><a href="../core.html">std/core</a></li><li><a href="../derive.html">std/derive</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>list.ll</h1><p>Source of package <a href="../core.html"><code>std/core</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/core/list — Growable heap-allocated contiguous sequence ([`List`]).</span></span>
 <span class="src-line" id="L2"><span class="m">//</span></span>
 <span class="src-line" id="L3"><span class="m">// Provides amortized O(1) push/pop, bounds-checked lookup, deep copy, deterministic</span></span>
 <span class="src-line" id="L4"><span class="m">// [`Drop`] cleanup, and forward [`Iterator`] traversal.</span></span>
@@ -39,7 +39,7 @@
 <span class="src-line" id="L28">]</span>
 <span class="src-line" id="L29"></span>
 <span class="src-line" id="L30"><span class="m">// Constructs an empty [`List`] with zero allocated capacity.</span></span>
-<span class="src-line" id="L31"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].new = () <span class="t">List</span>[<span class="t">T</span>]:</span>
+<span class="src-line" id="L31"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].new = <span class="k">fn</span>() <span class="t">List</span>[<span class="t">T</span>]:</span>
 <span class="src-line" id="L32">	<span class="t">List</span>[<span class="t">T</span>][</span>
 <span class="src-line" id="L33">		data: <span class="k">unsafe</span> null_ptr[<span class="t">T</span>](),</span>
 <span class="src-line" id="L34">		len: <span class="n">0</span>,</span>
@@ -49,7 +49,7 @@
 <span class="src-line" id="L38"><span class="m">// Constructs an empty [`List`] with space pre-allocated for at least `cap` elements.</span></span>
 <span class="src-line" id="L39"><span class="m">//</span></span>
 <span class="src-line" id="L40"><span class="m">// - `cap`: Number of element slots to allocate immediately when positive.</span></span>
-<span class="src-line" id="L41"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].with_capacity = (cap: <span class="t">int</span>) <span class="t">List</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L41"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].with_capacity = <span class="k">fn</span>(cap: <span class="t">int</span>) <span class="t">List</span>[<span class="t">T</span>]: {</span>
 <span class="src-line" id="L42">	<span class="k">if</span>(cap &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">List</span>[<span class="t">T</span>].<span class="f">new</span>()</span>
 <span class="src-line" id="L43">	<span class="k">let</span> p = <span class="k">unsafe</span> alloc_raw[<span class="t">T</span>](cap)</span>
 <span class="src-line" id="L44">	<span class="t">List</span>[<span class="t">T</span>][</span>
@@ -63,10 +63,10 @@
 <span class="src-line" id="L52"><span class="m">//</span></span>
 <span class="src-line" id="L53"><span class="m">// Uses `alloc_uninit` + `fill_bytes` (`memset`) for 1-byte Plain types (`bool`, `u8`, `i8`)</span></span>
 <span class="src-line" id="L54"><span class="m">// and a capacity-check-free fill loop for all other types.</span></span>
-<span class="src-line" id="L55"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].filled = (len: <span class="t">int</span>, val: <span class="t">T</span>) <span class="t">List</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L55"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].filled = <span class="k">fn</span>(len: <span class="t">int</span>, val: <span class="t">T</span>) <span class="t">List</span>[<span class="t">T</span>]: {</span>
 <span class="src-line" id="L56">	<span class="k">if</span>(len &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">List</span>[<span class="t">T</span>].<span class="f">new</span>()</span>
 <span class="src-line" id="L57">	<span class="k">let</span> p = <span class="k">unsafe</span> alloc_uninit[<span class="t">T</span>](len)</span>
-<span class="src-line" id="L58">	<span class="k">if</span>(is_plain[<span class="t">T</span>]() <span class="k">and</span> size_of[<span class="t">T</span>]() == <span class="n">1</span>): {</span>
+<span class="src-line" id="L58">	<span class="k">if</span>(type.is_plain[<span class="t">T</span>]() <span class="k">and</span> type.size_of[<span class="t">T</span>]() == <span class="n">1</span>): {</span>
 <span class="src-line" id="L59">		<span class="k">unsafe</span> {</span>
 <span class="src-line" id="L60">			<span class="k">let</span> b = <span class="f">ptr_read</span>(ptr_cast[<span class="t">u8</span>](<span class="f">addr_of</span>(val)))</span>
 <span class="src-line" id="L61">			<span class="f">fill_bytes</span>(ptr_cast[<span class="t">u8</span>](p), b, len)</span>
@@ -86,595 +86,709 @@
 <span class="src-line" id="L75">}</span>
 <span class="src-line" id="L76"></span>
 <span class="src-line" id="L77"><span class="m">// Returns the number of elements currently in the list.</span></span>
-<span class="src-line" id="L78"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].len = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>.len</span>
+<span class="src-line" id="L78"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>.len</span>
 <span class="src-line" id="L79"></span>
 <span class="src-line" id="L80"><span class="m">// Returns the number of element slots currently allocated on the heap.</span></span>
-<span class="src-line" id="L81"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].cap = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>.cap</span>
+<span class="src-line" id="L81"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].cap = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>.cap</span>
 <span class="src-line" id="L82"></span>
 <span class="src-line" id="L83"><span class="m">// Reports whether the list contains zero elements.</span></span>
-<span class="src-line" id="L84"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].is_empty = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>.len == <span class="n">0</span></span>
+<span class="src-line" id="L84"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>.len == <span class="n">0</span></span>
 <span class="src-line" id="L85"></span>
 <span class="src-line" id="L86"><span class="m">// Ensures the list has allocated capacity for at least `min_cap` elements without changing its length.</span></span>
-<span class="src-line" id="L87"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].reserve = (&amp;<span class="k">self</span>, min_cap: <span class="t">int</span>): {</span>
-<span class="src-line" id="L88">	<span class="k">if</span>(min_cap &lt;= <span class="k">self</span>.cap): <span class="k">func</span> <span class="u">&lt;-</span></span>
-<span class="src-line" id="L89">	<span class="k">let</span> ncap = <span class="k">if</span>(<span class="k">self</span>.cap &gt; <span class="n">0</span>): <span class="k">self</span>.cap <span class="k">else</span>: <span class="n">4</span></span>
-<span class="src-line" id="L90">	<span class="k">for</span>(ncap &lt; min_cap): {</span>
-<span class="src-line" id="L91">		<span class="k">if</span>(ncap &gt;= <span class="n">4611686018427387904</span>): ncap = min_cap <span class="k">else</span>: ncap *= <span class="n">2</span></span>
-<span class="src-line" id="L92">	}</span>
-<span class="src-line" id="L93">	<span class="k">let</span> nd = <span class="k">unsafe</span> {</span>
-<span class="src-line" id="L94">		<span class="k">if</span>(<span class="k">self</span>.cap &lt;= <span class="n">0</span>): alloc_uninit[<span class="t">T</span>](ncap) <span class="k">else</span>: <span class="f">realloc_raw</span>(<span class="k">self</span>.data, ncap)</span>
-<span class="src-line" id="L95">	}</span>
-<span class="src-line" id="L96">	<span class="k">if</span>(<span class="k">self</span>.cap &lt;= <span class="n">0</span> <span class="k">and</span> <span class="k">self</span>.len &gt; <span class="n">0</span>): {</span>
-<span class="src-line" id="L97">		<span class="k">unsafe</span> <span class="f">copy_bytes</span>(ptr_cast[<span class="t">u8</span>](nd), ptr_cast[<span class="t">u8</span>](<span class="k">self</span>.data), <span class="k">self</span>.len * size_of[<span class="t">T</span>]())</span>
-<span class="src-line" id="L98">	}</span>
-<span class="src-line" id="L99">	<span class="k">self</span>.data = nd</span>
-<span class="src-line" id="L100">	<span class="k">self</span>.cap = ncap</span>
-<span class="src-line" id="L101">}</span>
-<span class="src-line" id="L102"></span>
-<span class="src-line" id="L103"><span class="m">// Appends `item` to the end of the list, reallocating geometrically when full.</span></span>
-<span class="src-line" id="L104"><span class="m">//</span></span>
-<span class="src-line" id="L105"><span class="m">// # Ownership</span></span>
-<span class="src-line" id="L106"><span class="m">// Takes ownership of `item`.</span></span>
-<span class="src-line" id="L107"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].push = (&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>): {</span>
-<span class="src-line" id="L108">	<span class="k">if</span>(<span class="k">self</span>.len + <span class="n">1</span> &gt; <span class="k">self</span>.cap): <span class="k">self</span>.<span class="f">reserve</span>(<span class="k">self</span>.len + <span class="n">1</span>)</span>
-<span class="src-line" id="L109">	<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, <span class="k">self</span>.len), <span class="k">own</span> item)</span>
-<span class="src-line" id="L110">	<span class="k">self</span>.len += <span class="n">1</span></span>
-<span class="src-line" id="L111">}</span>
-<span class="src-line" id="L112"></span>
-<span class="src-line" id="L113"><span class="m">// Removes and returns the last element from the list, or `none` if the list is empty.</span></span>
-<span class="src-line" id="L114"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].pop = (&amp;<span class="k">self</span>) ?<span class="t">T</span>: {</span>
-<span class="src-line" id="L115">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
-<span class="src-line" id="L116">	<span class="k">self</span>.len -= <span class="n">1</span></span>
-<span class="src-line" id="L117">	<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L118">		<span class="k">let</span> val = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, <span class="k">self</span>.len))</span>
-<span class="src-line" id="L119">		val</span>
-<span class="src-line" id="L120">	}</span>
-<span class="src-line" id="L121">}</span>
-<span class="src-line" id="L122"></span>
-<span class="src-line" id="L123"><span class="m">// Returns a copy of the element at `idx`, or `none` if out of bounds.</span></span>
-<span class="src-line" id="L124"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].get = (<span class="k">self</span>, idx: <span class="t">int</span>) ?<span class="t">T</span>: {</span>
-<span class="src-line" id="L125">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt;= <span class="k">self</span>.len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
-<span class="src-line" id="L126">	<span class="k">unsafe</span> <span class="k">self</span>.data[idx].<span class="f">copy</span>()</span>
-<span class="src-line" id="L127">}</span>
-<span class="src-line" id="L128"></span>
-<span class="src-line" id="L129"><span class="m">// Replaces the element at `idx` with `val`, dropping the previous element.</span></span>
-<span class="src-line" id="L130"><span class="m">//</span></span>
-<span class="src-line" id="L131"><span class="m">// Returns `false` (dropping `val`) if `idx` is out of bounds.</span></span>
-<span class="src-line" id="L132"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].set = (&amp;<span class="k">self</span>, idx: <span class="t">int</span>, val: <span class="k">own</span> <span class="t">T</span>) <span class="t">bool</span>: {</span>
-<span class="src-line" id="L133">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt;= <span class="k">self</span>.len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
-<span class="src-line" id="L134">	<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L135">		<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx))</span>
-<span class="src-line" id="L136">		<span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx), <span class="k">own</span> val)</span>
-<span class="src-line" id="L137">	}</span>
-<span class="src-line" id="L138">	<span class="c">true</span></span>
-<span class="src-line" id="L139">}</span>
-<span class="src-line" id="L140"></span>
-<span class="src-line" id="L141"><span class="m">// Inserts `item` at position `idx`, shifting elements at `idx..len` one slot right.</span></span>
-<span class="src-line" id="L142"><span class="m">//</span></span>
-<span class="src-line" id="L143"><span class="m">// Panics if `idx &lt; 0` or `idx &gt; self.len`.</span></span>
-<span class="src-line" id="L144"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].insert = (&amp;<span class="k">self</span>, idx: <span class="t">int</span>, item: <span class="k">own</span> <span class="t">T</span>): {</span>
-<span class="src-line" id="L145">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt; <span class="k">self</span>.len):</span>
-<span class="src-line" id="L146">		<span class="f">panic</span>(<span class="s">&quot;List.insert: index </span>$idx<span class="s"> out of bounds for length </span>${<span class="k">self</span>.len}<span class="s">&quot;</span>)</span>
-<span class="src-line" id="L147">	<span class="k">if</span>(<span class="k">self</span>.len + <span class="n">1</span> &gt; <span class="k">self</span>.cap): <span class="k">self</span>.<span class="f">reserve</span>(<span class="k">self</span>.len + <span class="n">1</span>)</span>
-<span class="src-line" id="L148">	<span class="k">let</span> tail = <span class="k">self</span>.len - idx</span>
-<span class="src-line" id="L149">	<span class="k">if</span>(tail &gt; <span class="n">0</span>): {</span>
-<span class="src-line" id="L150">		<span class="k">unsafe</span> <span class="f">copy_bytes</span>(</span>
-<span class="src-line" id="L151">			ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx + <span class="n">1</span>)),</span>
-<span class="src-line" id="L152">			ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx)),</span>
-<span class="src-line" id="L153">			tail * size_of[<span class="t">T</span>](),</span>
-<span class="src-line" id="L154">		)</span>
-<span class="src-line" id="L155">	}</span>
-<span class="src-line" id="L156">	<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx), <span class="k">own</span> item)</span>
-<span class="src-line" id="L157">	<span class="k">self</span>.len += <span class="n">1</span></span>
-<span class="src-line" id="L158">}</span>
-<span class="src-line" id="L159"></span>
-<span class="src-line" id="L160"><span class="m">// Removes and returns the element at `idx`, shifting elements after `idx` one slot left.</span></span>
-<span class="src-line" id="L161"><span class="m">//</span></span>
-<span class="src-line" id="L162"><span class="m">// Panics if `idx &lt; 0` or `idx &gt;= self.len`.</span></span>
-<span class="src-line" id="L163"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].remove = (&amp;<span class="k">self</span>, idx: <span class="t">int</span>) <span class="t">T</span>: {</span>
-<span class="src-line" id="L164">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt;= <span class="k">self</span>.len):</span>
-<span class="src-line" id="L165">		<span class="f">panic</span>(<span class="s">&quot;List.remove: index </span>$idx<span class="s"> out of bounds for length </span>${<span class="k">self</span>.len}<span class="s">&quot;</span>)</span>
-<span class="src-line" id="L166">	<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L167">		<span class="k">let</span> out = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx))</span>
-<span class="src-line" id="L168">		<span class="k">let</span> tail = <span class="k">self</span>.len - idx - <span class="n">1</span></span>
-<span class="src-line" id="L169">		<span class="k">if</span>(tail &gt; <span class="n">0</span>): {</span>
-<span class="src-line" id="L170">			<span class="f">copy_bytes</span>(</span>
-<span class="src-line" id="L171">				ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx)),</span>
-<span class="src-line" id="L172">				ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx + <span class="n">1</span>)),</span>
-<span class="src-line" id="L173">				tail * size_of[<span class="t">T</span>](),</span>
-<span class="src-line" id="L174">			)</span>
-<span class="src-line" id="L175">		}</span>
-<span class="src-line" id="L176">		<span class="k">self</span>.len -= <span class="n">1</span></span>
-<span class="src-line" id="L177">		out</span>
-<span class="src-line" id="L178">	}</span>
+<span class="src-line" id="L87"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].reserve = <span class="k">fn</span>(&amp;<span class="k">self</span>, min_cap: <span class="t">int</span>): {</span>
+<span class="src-line" id="L88">	<span class="k">if</span>(<span class="k">self</span>.cap &gt; <span class="n">0</span> <span class="k">and</span> min_cap &lt;= <span class="k">self</span>.cap): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L89">	<span class="k">if</span>(<span class="k">self</span>.cap &lt;= <span class="n">0</span> <span class="k">and</span> <span class="k">self</span>.len &lt;= <span class="n">0</span> <span class="k">and</span> min_cap &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L90">	<span class="k">let</span> need = <span class="k">if</span>(<span class="k">self</span>.cap &lt;= <span class="n">0</span> <span class="k">and</span> min_cap &lt; <span class="k">self</span>.len): <span class="k">self</span>.len <span class="k">else</span>: min_cap</span>
+<span class="src-line" id="L91">	<span class="k">let</span> ncap = <span class="k">if</span>(<span class="k">self</span>.cap &gt; <span class="n">0</span>): <span class="k">self</span>.cap <span class="k">else</span>: <span class="n">4</span></span>
+<span class="src-line" id="L92">	<span class="k">for</span>(ncap &lt; need): {</span>
+<span class="src-line" id="L93">		<span class="k">if</span>(ncap &gt;= <span class="n">4611686018427387904</span>): ncap = need <span class="k">else</span>: ncap *= <span class="n">2</span></span>
+<span class="src-line" id="L94">	}</span>
+<span class="src-line" id="L95">	<span class="k">let</span> nd = <span class="k">unsafe</span> {</span>
+<span class="src-line" id="L96">		<span class="k">if</span>(<span class="k">self</span>.cap &lt;= <span class="n">0</span>): alloc_uninit[<span class="t">T</span>](ncap) <span class="k">else</span>: <span class="f">realloc_raw</span>(<span class="k">self</span>.data, ncap)</span>
+<span class="src-line" id="L97">	}</span>
+<span class="src-line" id="L98">	<span class="k">if</span>(<span class="k">self</span>.cap &lt;= <span class="n">0</span> <span class="k">and</span> <span class="k">self</span>.len &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L99">		<span class="k">comptime</span> <span class="k">if</span>(type.is_plain[<span class="t">T</span>]()): {</span>
+<span class="src-line" id="L100">			<span class="k">unsafe</span> <span class="f">copy_bytes</span>(ptr_cast[<span class="t">u8</span>](nd), ptr_cast[<span class="t">u8</span>](<span class="k">self</span>.data), <span class="k">self</span>.len * type.size_of[<span class="t">T</span>]())</span>
+<span class="src-line" id="L101">		} <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.implements[<span class="t">T</span>, <span class="t">Copyable</span>]()): {</span>
+<span class="src-line" id="L102">			<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L103">			<span class="k">for</span>(i &lt; <span class="k">self</span>.len): {</span>
+<span class="src-line" id="L104">				<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(nd, i), <span class="k">self</span>.data[i].<span class="f">copy</span>())</span>
+<span class="src-line" id="L105">				i += <span class="n">1</span></span>
+<span class="src-line" id="L106">			}</span>
+<span class="src-line" id="L107">		} <span class="k">else</span>: {</span>
+<span class="src-line" id="L108">			<span class="f">panic</span>(<span class="s">&quot;cannot promote List view of non-Copyable elements&quot;</span>)</span>
+<span class="src-line" id="L109">		}</span>
+<span class="src-line" id="L110">	}</span>
+<span class="src-line" id="L111">	<span class="k">self</span>.data = nd</span>
+<span class="src-line" id="L112">	<span class="k">self</span>.cap = ncap</span>
+<span class="src-line" id="L113">}</span>
+<span class="src-line" id="L114"></span>
+<span class="src-line" id="L115"><span class="m">// Ensures the backing buffer is heap-allocated and writable before mutating static/borrowed data.</span></span>
+<span class="src-line" id="L116"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>]._data_mut = <span class="k">fn</span>(&amp;<span class="k">self</span>) <span class="t">ptr</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L117">	<span class="k">if</span>(<span class="k">self</span>.cap &lt;= <span class="n">0</span> <span class="k">and</span> <span class="k">self</span>.len &gt; <span class="n">0</span>): <span class="k">self</span>.<span class="f">reserve</span>(<span class="k">self</span>.len)</span>
+<span class="src-line" id="L118">	<span class="k">self</span>.data</span>
+<span class="src-line" id="L119">}</span>
+<span class="src-line" id="L120"></span>
+<span class="src-line" id="L121"><span class="m">// Appends `item` to the end of the list, reallocating geometrically when full.</span></span>
+<span class="src-line" id="L122"><span class="m">//</span></span>
+<span class="src-line" id="L123"><span class="m">// # Ownership</span></span>
+<span class="src-line" id="L124"><span class="m">// Takes ownership of `item`.</span></span>
+<span class="src-line" id="L125"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].push = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>): {</span>
+<span class="src-line" id="L126">	<span class="k">if</span>(<span class="k">self</span>.len + <span class="n">1</span> &gt; <span class="k">self</span>.cap): <span class="k">self</span>.<span class="f">reserve</span>(<span class="k">self</span>.len + <span class="n">1</span>)</span>
+<span class="src-line" id="L127">	<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, <span class="k">self</span>.len), <span class="k">own</span> item)</span>
+<span class="src-line" id="L128">	<span class="k">self</span>.len += <span class="n">1</span></span>
+<span class="src-line" id="L129">}</span>
+<span class="src-line" id="L130"></span>
+<span class="src-line" id="L131"><span class="m">// Removes and returns the last element from the list, or `none` if the list is empty.</span></span>
+<span class="src-line" id="L132"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].pop = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">T</span>: {</span>
+<span class="src-line" id="L133">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L134">	<span class="k">let</span> data = <span class="k">comptime</span> <span class="k">if</span>(type.is_plain[<span class="t">T</span>]()): <span class="k">self</span>.data <span class="k">else</span>: <span class="k">self</span>.<span class="f">_data_mut</span>()</span>
+<span class="src-line" id="L135">	<span class="k">self</span>.len -= <span class="n">1</span></span>
+<span class="src-line" id="L136">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L137">		<span class="k">let</span> val = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(data, <span class="k">self</span>.len))</span>
+<span class="src-line" id="L138">		val</span>
+<span class="src-line" id="L139">	}</span>
+<span class="src-line" id="L140">}</span>
+<span class="src-line" id="L141"></span>
+<span class="src-line" id="L142"><span class="m">// Returns a copy of the element at `idx`, or `none` if out of bounds.</span></span>
+<span class="src-line" id="L143"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].get = <span class="k">fn</span>(<span class="k">self</span>, idx: <span class="t">int</span>) ?<span class="t">T</span>: {</span>
+<span class="src-line" id="L144">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt;= <span class="k">self</span>.len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L145">	<span class="k">unsafe</span> <span class="k">self</span>.data[idx].<span class="f">copy</span>()</span>
+<span class="src-line" id="L146">}</span>
+<span class="src-line" id="L147"></span>
+<span class="src-line" id="L148"><span class="m">// Replaces the element at `idx` with `val`, dropping the previous element. `xs[idx] = val` is the</span></span>
+<span class="src-line" id="L149"><span class="m">// form that panics on a bad index.</span></span>
+<span class="src-line" id="L150"><span class="m">//</span></span>
+<span class="src-line" id="L151"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L152"><span class="m">// Fails, dropping `val`, if `idx` is out of bounds.</span></span>
+<span class="src-line" id="L153"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].set = <span class="k">fn</span>(&amp;<span class="k">self</span>, idx: <span class="t">int</span>, val: <span class="k">own</span> <span class="t">T</span>) <span class="t">Status</span>: {</span>
+<span class="src-line" id="L154">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt;= <span class="k">self</span>.len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L155">		<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;List.set: index </span>$idx<span class="s"> out of bounds for length </span>${<span class="k">self</span>.len}<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L156">	)</span>
+<span class="src-line" id="L157">	<span class="k">let</span> data = <span class="k">self</span>.<span class="f">_data_mut</span>()</span>
+<span class="src-line" id="L158">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L159">		<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(data, idx))</span>
+<span class="src-line" id="L160">		<span class="f">ptr_write</span>(<span class="f">ptr_add</span>(data, idx), <span class="k">own</span> val)</span>
+<span class="src-line" id="L161">	}</span>
+<span class="src-line" id="L162">	value</span>
+<span class="src-line" id="L163">}</span>
+<span class="src-line" id="L164"></span>
+<span class="src-line" id="L165"><span class="m">// Moves the elements at `idx..len` one slot right and puts `item` at `idx` (`idx == len`</span></span>
+<span class="src-line" id="L166"><span class="m">// appends). Assumes `0 &lt;= idx &lt;= len`.</span></span>
+<span class="src-line" id="L167"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>]._insert_at = <span class="k">fn</span>(&amp;<span class="k">self</span>, idx: <span class="t">int</span>, item: <span class="k">own</span> <span class="t">T</span>): {</span>
+<span class="src-line" id="L168">	<span class="k">if</span>(<span class="k">self</span>.len + <span class="n">1</span> &gt; <span class="k">self</span>.cap): <span class="k">self</span>.<span class="f">reserve</span>(<span class="k">self</span>.len + <span class="n">1</span>)</span>
+<span class="src-line" id="L169">	<span class="k">let</span> tail = <span class="k">self</span>.len - idx</span>
+<span class="src-line" id="L170">	<span class="k">if</span>(tail &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L171">		<span class="k">unsafe</span> <span class="f">copy_bytes</span>(</span>
+<span class="src-line" id="L172">			ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx + <span class="n">1</span>)),</span>
+<span class="src-line" id="L173">			ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx)),</span>
+<span class="src-line" id="L174">			tail * type.size_of[<span class="t">T</span>](),</span>
+<span class="src-line" id="L175">		)</span>
+<span class="src-line" id="L176">	}</span>
+<span class="src-line" id="L177">	<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx), <span class="k">own</span> item)</span>
+<span class="src-line" id="L178">	<span class="k">self</span>.len += <span class="n">1</span></span>
 <span class="src-line" id="L179">}</span>
 <span class="src-line" id="L180"></span>
-<span class="src-line" id="L181"><span class="m">// Removes and returns the element at `idx` in O(1) time by moving the last element into its slot.</span></span>
-<span class="src-line" id="L182"><span class="m">//</span></span>
-<span class="src-line" id="L183"><span class="m">// Does not preserve element ordering. Panics if `idx &lt; 0` or `idx &gt;= self.len`.</span></span>
-<span class="src-line" id="L184"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].swap_remove = (&amp;<span class="k">self</span>, idx: <span class="t">int</span>) <span class="t">T</span>: {</span>
-<span class="src-line" id="L185">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt;= <span class="k">self</span>.len):</span>
-<span class="src-line" id="L186">		<span class="f">panic</span>(<span class="s">&quot;List.swap_remove: index </span>$idx<span class="s"> out of bounds for length </span>${<span class="k">self</span>.len}<span class="s">&quot;</span>)</span>
-<span class="src-line" id="L187">	<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L188">		<span class="k">let</span> out = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx))</span>
-<span class="src-line" id="L189">		<span class="k">self</span>.len -= <span class="n">1</span></span>
-<span class="src-line" id="L190">		<span class="k">if</span>(idx &lt; <span class="k">self</span>.len): {</span>
-<span class="src-line" id="L191">			<span class="k">let</span> last = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, <span class="k">self</span>.len))</span>
-<span class="src-line" id="L192">			<span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, idx), <span class="k">own</span> last)</span>
-<span class="src-line" id="L193">		}</span>
-<span class="src-line" id="L194">		out</span>
-<span class="src-line" id="L195">	}</span>
-<span class="src-line" id="L196">}</span>
-<span class="src-line" id="L197"></span>
-<span class="src-line" id="L198"><span class="m">// Resizes the list in place so its length equals `new_len` (clamped to `0` if negative).</span></span>
-<span class="src-line" id="L199"><span class="m">//</span></span>
-<span class="src-line" id="L200"><span class="m">// When shrinking, trailing elements are dropped in reverse order. When growing, new slots</span></span>
-<span class="src-line" id="L201"><span class="m">// are filled using `fill_bytes` (`memset`) for 1-byte Plain types (`bool`, `u8`, `i8`) or a</span></span>
-<span class="src-line" id="L202"><span class="m">// capacity-check-free fill loop for other types.</span></span>
-<span class="src-line" id="L203"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].resize = (&amp;<span class="k">self</span>, new_len: <span class="t">int</span>, val: <span class="t">T</span>): {</span>
-<span class="src-line" id="L204">	<span class="k">let</span> target = <span class="k">if</span>(new_len &lt; <span class="n">0</span>): <span class="n">0</span> <span class="k">else</span>: new_len</span>
-<span class="src-line" id="L205">	<span class="k">if</span>(target &lt; <span class="k">self</span>.len): {</span>
-<span class="src-line" id="L206">		<span class="k">if</span>(<span class="k">self</span>.cap &gt; <span class="n">0</span> <span class="k">and</span> <span class="k">not</span> is_plain[<span class="t">T</span>]()): {</span>
-<span class="src-line" id="L207">			<span class="k">let</span> i = <span class="k">self</span>.len - <span class="n">1</span></span>
-<span class="src-line" id="L208">			<span class="k">for</span>(i &gt;= target): {</span>
-<span class="src-line" id="L209">				<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L210">					<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, i))</span>
-<span class="src-line" id="L211">				}</span>
-<span class="src-line" id="L212">				i -= <span class="n">1</span></span>
-<span class="src-line" id="L213">			}</span>
-<span class="src-line" id="L214">		}</span>
-<span class="src-line" id="L215">		<span class="k">self</span>.len = target</span>
-<span class="src-line" id="L216">		<span class="k">func</span> <span class="u">&lt;-</span></span>
-<span class="src-line" id="L217">	}</span>
-<span class="src-line" id="L218">	<span class="k">if</span>(target == <span class="k">self</span>.len): <span class="k">func</span> <span class="u">&lt;-</span></span>
-<span class="src-line" id="L219">	<span class="k">if</span>(target &gt; <span class="k">self</span>.cap): <span class="k">self</span>.<span class="f">reserve</span>(target)</span>
-<span class="src-line" id="L220">	<span class="k">let</span> count = target - <span class="k">self</span>.len</span>
-<span class="src-line" id="L221">	<span class="k">if</span>(is_plain[<span class="t">T</span>]() <span class="k">and</span> size_of[<span class="t">T</span>]() == <span class="n">1</span>): {</span>
-<span class="src-line" id="L222">		<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L223">			<span class="k">let</span> b = <span class="f">ptr_read</span>(ptr_cast[<span class="t">u8</span>](<span class="f">addr_of</span>(val)))</span>
-<span class="src-line" id="L224">			<span class="f">fill_bytes</span>(ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)), b, count)</span>
-<span class="src-line" id="L225">		}</span>
-<span class="src-line" id="L226">	} <span class="k">else</span>: {</span>
-<span class="src-line" id="L227">		<span class="k">let</span> i = <span class="k">self</span>.len</span>
-<span class="src-line" id="L228">		<span class="k">for</span>(i &lt; target): {</span>
-<span class="src-line" id="L229">			<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, i), val.<span class="f">copy</span>())</span>
-<span class="src-line" id="L230">			i += <span class="n">1</span></span>
-<span class="src-line" id="L231">		}</span>
-<span class="src-line" id="L232">	}</span>
-<span class="src-line" id="L233">	<span class="k">self</span>.len = target</span>
-<span class="src-line" id="L234">}</span>
-<span class="src-line" id="L235"></span>
-<span class="src-line" id="L236"><span class="m">// Reports whether any element in the list equals `item`.</span></span>
-<span class="src-line" id="L237"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].contains = (<span class="k">self</span>, item: <span class="t">T</span>) <span class="t">bool</span>: {</span>
-<span class="src-line" id="L238">	<span class="k">let</span> i = <span class="n">0</span></span>
-<span class="src-line" id="L239">	<span class="k">for</span>(i &lt; <span class="k">self</span>.len): {</span>
-<span class="src-line" id="L240">		<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L241">			<span class="k">if</span>(<span class="k">self</span>.data[i] == item): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
-<span class="src-line" id="L242">		}</span>
-<span class="src-line" id="L243">		i += <span class="n">1</span></span>
-<span class="src-line" id="L244">	}</span>
-<span class="src-line" id="L245">	<span class="c">false</span></span>
-<span class="src-line" id="L246">}</span>
-<span class="src-line" id="L247"></span>
-<span class="src-line" id="L248"><span class="m">// Returns a copy of the first element, or `none` if the list is empty.</span></span>
-<span class="src-line" id="L249"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].first = (<span class="k">self</span>) ?<span class="t">T</span>: <span class="k">self</span>.<span class="f">get</span>(<span class="n">0</span>)</span>
-<span class="src-line" id="L250"></span>
-<span class="src-line" id="L251"><span class="m">// Returns a copy of the last element, or `none` if the list is empty.</span></span>
-<span class="src-line" id="L252"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].last = (<span class="k">self</span>) ?<span class="t">T</span>: <span class="k">self</span>.<span class="f">get</span>(<span class="k">self</span>.len - <span class="n">1</span>)</span>
-<span class="src-line" id="L253"></span>
-<span class="src-line" id="L254"><span class="m">// Returns the index of the first element equal to `item`, or `none`.</span></span>
-<span class="src-line" id="L255"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].index_of = (<span class="k">self</span>, item: <span class="t">T</span>) ?<span class="t">int</span>: {</span>
-<span class="src-line" id="L256">	<span class="k">let</span> i = <span class="n">0</span></span>
-<span class="src-line" id="L257">	<span class="k">while</span>(i &lt; <span class="k">self</span>.len): {</span>
-<span class="src-line" id="L258">		<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L259">			<span class="k">if</span>(<span class="k">self</span>.data[i] == item): <span class="k">func</span> <span class="u">&lt;-</span> i</span>
-<span class="src-line" id="L260">		}</span>
-<span class="src-line" id="L261">		i += <span class="n">1</span></span>
-<span class="src-line" id="L262">	}</span>
-<span class="src-line" id="L263">	<span class="c">none</span></span>
-<span class="src-line" id="L264">}</span>
-<span class="src-line" id="L265"></span>
-<span class="src-line" id="L266"><span class="m">// Exchanges the elements at indexes `i` and `j`.</span></span>
-<span class="src-line" id="L267"><span class="m">//</span></span>
-<span class="src-line" id="L268"><span class="m">// # Panics</span></span>
-<span class="src-line" id="L269"><span class="m">// If either index is out of range.</span></span>
-<span class="src-line" id="L270"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].swap = (&amp;<span class="k">self</span>, i: <span class="t">int</span>, j: <span class="t">int</span>): {</span>
-<span class="src-line" id="L271">	<span class="k">if</span>(i &lt; <span class="n">0</span> <span class="k">or</span> i &gt;= <span class="k">self</span>.len): <span class="f">panic</span>(<span class="s">&quot;List.swap: index </span>$i<span class="s"> out of bounds for length </span>${<span class="k">self</span>.len}<span class="s">&quot;</span>)</span>
-<span class="src-line" id="L272">	<span class="k">if</span>(j &lt; <span class="n">0</span> <span class="k">or</span> j &gt;= <span class="k">self</span>.len): <span class="f">panic</span>(<span class="s">&quot;List.swap: index </span>$j<span class="s"> out of bounds for length </span>${<span class="k">self</span>.len}<span class="s">&quot;</span>)</span>
-<span class="src-line" id="L273">	<span class="k">if</span>(i == j): <span class="k">func</span> <span class="u">&lt;-</span></span>
-<span class="src-line" id="L274">	<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L275">		<span class="k">let</span> a = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, i))</span>
-<span class="src-line" id="L276">		<span class="k">let</span> b = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, j))</span>
-<span class="src-line" id="L277">		<span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, i), <span class="k">own</span> b)</span>
-<span class="src-line" id="L278">		<span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, j), <span class="k">own</span> a)</span>
-<span class="src-line" id="L279">	}</span>
-<span class="src-line" id="L280">}</span>
-<span class="src-line" id="L281"></span>
-<span class="src-line" id="L282"><span class="m">// Shortens the list to `new_len` elements, destroying the rest in reverse order. Does nothing</span></span>
-<span class="src-line" id="L283"><span class="m">// when `new_len` is at least the current length; a negative `new_len` empties the list.</span></span>
-<span class="src-line" id="L284"><span class="m">// Capacity is kept.</span></span>
-<span class="src-line" id="L285"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].truncate = (&amp;<span class="k">self</span>, new_len: <span class="t">int</span>): {</span>
-<span class="src-line" id="L286">	<span class="k">let</span> keep = <span class="k">if</span>(new_len &lt; <span class="n">0</span>): <span class="n">0</span> <span class="k">else</span>: new_len</span>
-<span class="src-line" id="L287">	<span class="k">if</span>(keep &gt;= <span class="k">self</span>.len): <span class="k">func</span> <span class="u">&lt;-</span></span>
-<span class="src-line" id="L288">	<span class="k">if</span>(<span class="k">self</span>.cap &gt; <span class="n">0</span>): {</span>
-<span class="src-line" id="L289">		<span class="k">let</span> i = <span class="k">self</span>.len - <span class="n">1</span></span>
-<span class="src-line" id="L290">		<span class="k">while</span>(i &gt;= keep): {</span>
-<span class="src-line" id="L291">			<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L292">				<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, i))</span>
-<span class="src-line" id="L293">			}</span>
-<span class="src-line" id="L294">			i -= <span class="n">1</span></span>
-<span class="src-line" id="L295">		}</span>
-<span class="src-line" id="L296">	}</span>
-<span class="src-line" id="L297">	<span class="k">self</span>.len = keep</span>
-<span class="src-line" id="L298">}</span>
-<span class="src-line" id="L299"></span>
-<span class="src-line" id="L300"><span class="m">// Moves every element of `other` onto the end of this list, in order, without copying the</span></span>
-<span class="src-line" id="L301"><span class="m">// elements: `other` is consumed.</span></span>
-<span class="src-line" id="L302"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].extend = (&amp;<span class="k">self</span>, other: <span class="k">own</span> <span class="t">List</span>[<span class="t">T</span>]): {</span>
-<span class="src-line" id="L303">	<span class="k">let</span> src = <span class="k">own</span> other</span>
-<span class="src-line" id="L304">	<span class="k">if</span>(src.len == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
-<span class="src-line" id="L305">	<span class="k">self</span>.<span class="f">reserve</span>(<span class="k">self</span>.len + src.len)</span>
-<span class="src-line" id="L306">	<span class="k">unsafe</span> <span class="f">copy_bytes</span>(</span>
-<span class="src-line" id="L307">		ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)),</span>
-<span class="src-line" id="L308">		ptr_cast[<span class="t">u8</span>](src.data),</span>
-<span class="src-line" id="L309">		src.len * size_of[<span class="t">T</span>](),</span>
-<span class="src-line" id="L310">	)</span>
-<span class="src-line" id="L311">	<span class="k">self</span>.len += src.len</span>
-<span class="src-line" id="L312">	<span class="m">// The elements now belong to `self`; `src` frees its buffer without destroying them.</span></span>
-<span class="src-line" id="L313">	src.len = <span class="n">0</span></span>
-<span class="src-line" id="L314">}</span>
-<span class="src-line" id="L315"></span>
-<span class="src-line" id="L316"><span class="m">// Drops all elements in reverse order and resets length to `0` while keeping capacity allocated.</span></span>
-<span class="src-line" id="L317"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].clear = (&amp;<span class="k">self</span>): {</span>
-<span class="src-line" id="L318">	<span class="k">if</span>(<span class="k">self</span>.cap &gt; <span class="n">0</span>): {</span>
-<span class="src-line" id="L319">		<span class="k">let</span> i = <span class="k">self</span>.len - <span class="n">1</span></span>
-<span class="src-line" id="L320">		<span class="k">for</span>(i &gt;= <span class="n">0</span>): {</span>
-<span class="src-line" id="L321">			<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L322">				<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, i))</span>
-<span class="src-line" id="L323">			}</span>
-<span class="src-line" id="L324">			i -= <span class="n">1</span></span>
-<span class="src-line" id="L325">		}</span>
-<span class="src-line" id="L326">	}</span>
-<span class="src-line" id="L327">	<span class="k">self</span>.len = <span class="n">0</span></span>
-<span class="src-line" id="L328">}</span>
-<span class="src-line" id="L329"></span>
-<span class="src-line" id="L330"><span class="m">// Returns a deep copy of the list by copying every element in order.</span></span>
-<span class="src-line" id="L331"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].copy = (<span class="k">self</span>) <span class="t">List</span>[<span class="t">T</span>]: {</span>
-<span class="src-line" id="L332">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">List</span>[<span class="t">T</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L333">	<span class="k">let</span> p = <span class="k">unsafe</span> alloc_uninit[<span class="t">T</span>](<span class="k">self</span>.len)</span>
-<span class="src-line" id="L334">	<span class="k">if</span>(is_plain[<span class="t">T</span>]()): {</span>
-<span class="src-line" id="L335">		<span class="k">unsafe</span> <span class="f">copy_bytes</span>(ptr_cast[<span class="t">u8</span>](p), ptr_cast[<span class="t">u8</span>](<span class="k">self</span>.data), <span class="k">self</span>.len * size_of[<span class="t">T</span>]())</span>
-<span class="src-line" id="L336">	} <span class="k">else</span>: {</span>
-<span class="src-line" id="L337">		<span class="k">let</span> i = <span class="n">0</span></span>
-<span class="src-line" id="L338">		<span class="k">for</span>(i &lt; <span class="k">self</span>.len): {</span>
-<span class="src-line" id="L339">			<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(p, i), <span class="k">self</span>.data[i].<span class="f">copy</span>())</span>
-<span class="src-line" id="L340">			i += <span class="n">1</span></span>
-<span class="src-line" id="L341">		}</span>
-<span class="src-line" id="L342">	}</span>
-<span class="src-line" id="L343">	<span class="t">List</span>[<span class="t">T</span>][</span>
-<span class="src-line" id="L344">		data: p,</span>
-<span class="src-line" id="L345">		len: <span class="k">self</span>.len,</span>
-<span class="src-line" id="L346">		cap: <span class="k">self</span>.len,</span>
-<span class="src-line" id="L347">	]</span>
-<span class="src-line" id="L348">}</span>
-<span class="src-line" id="L349"></span>
-<span class="src-line" id="L350"><span class="m">// Formats the list as a bracketed, comma-separated string (`&quot;[a, b, ...]&quot;`).</span></span>
-<span class="src-line" id="L351"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].to_string = (<span class="k">self</span>) <span class="t">string</span>: {</span>
-<span class="src-line" id="L352">	<span class="k">let</span> out = <span class="s">&quot;[&quot;</span></span>
-<span class="src-line" id="L353">	<span class="k">let</span> i = <span class="n">0</span></span>
-<span class="src-line" id="L354">	<span class="k">for</span>(i &lt; <span class="k">self</span>.len): {</span>
-<span class="src-line" id="L355">		<span class="k">if</span>(i &gt; <span class="n">0</span>): out.<span class="f">push</span>(<span class="s">&quot;, &quot;</span>)</span>
-<span class="src-line" id="L356">		<span class="k">unsafe</span> out.<span class="f">push</span>(<span class="k">self</span>.data[i].<span class="f">to_string</span>())</span>
-<span class="src-line" id="L357">		i += <span class="n">1</span></span>
-<span class="src-line" id="L358">	}</span>
-<span class="src-line" id="L359">	out.<span class="f">push</span>(<span class="s">&quot;]&quot;</span>)</span>
-<span class="src-line" id="L360">	out</span>
-<span class="src-line" id="L361">}</span>
-<span class="src-line" id="L362"></span>
-<span class="src-line" id="L363"><span class="m">// Stateful forward iterator yielding elements from an owned snapshot of a [`List`].</span></span>
-<span class="src-line" id="L364"><span class="m">//</span></span>
-<span class="src-line" id="L365"><span class="m">// Owning a snapshot guards iteration against mutations (`push`, `pop`, `set`, `insert`,</span></span>
-<span class="src-line" id="L366"><span class="m">// `remove`, `swap_remove`, `resize`, `clear`, reallocation, or `drop`) on the source list.</span></span>
-<span class="src-line" id="L367"><span class="k">define</span> <span class="t">ListIterator</span>[<span class="t">T</span>] <span class="k">struct</span> [</span>
-<span class="src-line" id="L368">	<span class="m">// Owned snapshot of elements captured when the iterator was created.</span></span>
-<span class="src-line" id="L369">	items: <span class="t">List</span>[<span class="t">T</span>],</span>
-<span class="src-line" id="L370">	<span class="m">// Next index to yield.</span></span>
-<span class="src-line" id="L371">	idx: <span class="t">int</span>,</span>
-<span class="src-line" id="L372">]</span>
-<span class="src-line" id="L373"></span>
-<span class="src-line" id="L374"><span class="m">// Advances the iterator and returns a copy of the next element, or `none` when finished.</span></span>
-<span class="src-line" id="L375"><span class="k">bind</span> <span class="t">ListIterator</span>[<span class="t">T</span>].next = (&amp;<span class="k">self</span>) ?<span class="t">T</span>: {</span>
-<span class="src-line" id="L376">	<span class="k">if</span>(<span class="k">self</span>.idx &gt;= <span class="k">self</span>.items.len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
-<span class="src-line" id="L377">	<span class="k">let</span> i = <span class="k">self</span>.idx</span>
-<span class="src-line" id="L378">	<span class="k">self</span>.idx += <span class="n">1</span></span>
-<span class="src-line" id="L379">	<span class="k">unsafe</span> <span class="k">self</span>.items.data[i].<span class="f">copy</span>()</span>
-<span class="src-line" id="L380">}</span>
-<span class="src-line" id="L381"></span>
-<span class="src-line" id="L382"><span class="m">// Returns a forward [`Iterator`] over an owned snapshot of the list&#39;s elements.</span></span>
-<span class="src-line" id="L383"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].iter = (<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">T</span>]:</span>
-<span class="src-line" id="L384">	<span class="t">ListIterator</span>[<span class="t">T</span>][</span>
-<span class="src-line" id="L385">		items: <span class="k">self</span>.<span class="f">copy</span>(),</span>
-<span class="src-line" id="L386">		idx: <span class="n">0</span>,</span>
-<span class="src-line" id="L387">	]</span>
-<span class="src-line" id="L388"></span>
-<span class="src-line" id="L389"><span class="m">// Drops all remaining elements in reverse order and frees the backing heap allocation.</span></span>
-<span class="src-line" id="L390"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].drop = (&amp;<span class="k">self</span>): {</span>
-<span class="src-line" id="L391">	<span class="k">if</span>(<span class="k">self</span>.cap &gt; <span class="n">0</span>): {</span>
-<span class="src-line" id="L392">		<span class="k">let</span> i = <span class="k">self</span>.len - <span class="n">1</span></span>
-<span class="src-line" id="L393">		<span class="k">for</span>(i &gt;= <span class="n">0</span>): {</span>
-<span class="src-line" id="L394">			<span class="k">unsafe</span> {</span>
-<span class="src-line" id="L395">				<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, i))</span>
-<span class="src-line" id="L396">			}</span>
-<span class="src-line" id="L397">			i -= <span class="n">1</span></span>
-<span class="src-line" id="L398">		}</span>
-<span class="src-line" id="L399">		<span class="k">unsafe</span> <span class="f">free_raw</span>(<span class="k">self</span>.data)</span>
-<span class="src-line" id="L400">	}</span>
-<span class="src-line" id="L401">	<span class="k">self</span>.data = <span class="k">unsafe</span> null_ptr[<span class="t">T</span>]()</span>
-<span class="src-line" id="L402">	<span class="k">self</span>.len = <span class="n">0</span></span>
-<span class="src-line" id="L403">	<span class="k">self</span>.cap = <span class="n">0</span></span>
-<span class="src-line" id="L404">}</span>
-<span class="src-line" id="L405"></span>
-<span class="src-line" id="L406"><span class="m">// -----------------------------------------------------------------------------</span></span>
-<span class="src-line" id="L407"><span class="m">// Inline Unit Tests</span></span>
-<span class="src-line" id="L408"><span class="m">// -----------------------------------------------------------------------------</span></span>
-<span class="src-line" id="L409"></span>
-<span class="src-line" id="L410"><span class="a">@test</span>(<span class="s">&quot;List set and reserve (Plain and Resource)&quot;</span>)</span>
-<span class="src-line" id="L411"><span class="k">bind</span> test_list_set_and_reserve = (): {</span>
-<span class="src-line" id="L412">	<span class="k">let</span> xs = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L413">	xs.<span class="f">reserve</span>(-<span class="n">5</span>)</span>
-<span class="src-line" id="L414">	<span class="f">assert</span>(xs.<span class="f">cap</span>() == <span class="n">0</span> <span class="k">and</span> xs.<span class="f">len</span>() == <span class="n">0</span>, <span class="s">&quot;reserve negative on empty&quot;</span>)</span>
-<span class="src-line" id="L415">	xs.<span class="f">reserve</span>(<span class="n">0</span>)</span>
-<span class="src-line" id="L416">	<span class="f">assert</span>(xs.<span class="f">cap</span>() == <span class="n">0</span> <span class="k">and</span> xs.<span class="f">len</span>() == <span class="n">0</span>, <span class="s">&quot;reserve 0 on empty&quot;</span>)</span>
-<span class="src-line" id="L417">	xs.<span class="f">reserve</span>(<span class="n">10</span>)</span>
-<span class="src-line" id="L418">	<span class="f">assert</span>(xs.<span class="f">cap</span>() &gt;= <span class="n">10</span> <span class="k">and</span> xs.<span class="f">len</span>() == <span class="n">0</span>, <span class="s">&quot;reserve 10 grows cap&quot;</span>)</span>
-<span class="src-line" id="L419"></span>
-<span class="src-line" id="L420">	xs.<span class="f">push</span>(<span class="n">1</span>)</span>
-<span class="src-line" id="L421">	xs.<span class="f">push</span>(<span class="n">2</span>)</span>
-<span class="src-line" id="L422">	xs.<span class="f">push</span>(<span class="n">3</span>)</span>
-<span class="src-line" id="L423">	<span class="k">let</span> old_cap = xs.<span class="f">cap</span>()</span>
-<span class="src-line" id="L424">	xs.<span class="f">reserve</span>(<span class="n">5</span>)</span>
-<span class="src-line" id="L425">	<span class="f">assert</span>(xs.<span class="f">cap</span>() == old_cap <span class="k">and</span> xs.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;smaller reserve is no-op&quot;</span>)</span>
-<span class="src-line" id="L426">	xs.<span class="f">reserve</span>(<span class="n">50</span>)</span>
-<span class="src-line" id="L427">	<span class="f">assert</span>(xs.<span class="f">cap</span>() &gt;= <span class="n">50</span> <span class="k">and</span> xs.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;larger reserve grows cap&quot;</span>)</span>
-<span class="src-line" id="L428">	<span class="f">assert</span>(xs.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">1</span> <span class="k">and</span> xs.<span class="f">get</span>(<span class="n">1</span>) == <span class="n">2</span> <span class="k">and</span> xs.<span class="f">get</span>(<span class="n">2</span>) == <span class="n">3</span>, <span class="s">&quot;reserve preserves elements&quot;</span>)</span>
-<span class="src-line" id="L429"></span>
-<span class="src-line" id="L430">	<span class="f">assert</span>(xs.<span class="f">set</span>(<span class="n">0</span>, <span class="n">100</span>), <span class="s">&quot;set index 0&quot;</span>)</span>
-<span class="src-line" id="L431">	<span class="f">assert</span>(xs.<span class="f">set</span>(<span class="n">2</span>, <span class="n">300</span>), <span class="s">&quot;set index 2&quot;</span>)</span>
-<span class="src-line" id="L432">	<span class="f">assert</span>(<span class="k">not</span> xs.<span class="f">set</span>(-<span class="n">1</span>, <span class="n">999</span>), <span class="s">&quot;set negative returns false&quot;</span>)</span>
-<span class="src-line" id="L433">	<span class="f">assert</span>(<span class="k">not</span> xs.<span class="f">set</span>(<span class="n">3</span>, <span class="n">999</span>), <span class="s">&quot;set len returns false&quot;</span>)</span>
-<span class="src-line" id="L434">	<span class="f">assert</span>(xs.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">100</span> <span class="k">and</span> xs.<span class="f">get</span>(<span class="n">1</span>) == <span class="n">2</span> <span class="k">and</span> xs.<span class="f">get</span>(<span class="n">2</span>) == <span class="n">300</span>, <span class="s">&quot;set updated values&quot;</span>)</span>
-<span class="src-line" id="L435"></span>
-<span class="src-line" id="L436">	<span class="m">// Resource elements: verify replaced &amp; rejected owned values do not leak</span></span>
-<span class="src-line" id="L437">	<span class="k">let</span> ss = <span class="t">List</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L438">	ss.<span class="f">reserve</span>(<span class="n">6</span>)</span>
-<span class="src-line" id="L439">	<span class="f">assert</span>(ss.<span class="f">cap</span>() &gt;= <span class="n">6</span>, <span class="s">&quot;List[string] reserve&quot;</span>)</span>
-<span class="src-line" id="L440">	ss.<span class="f">push</span>(<span class="s">&quot;alpha&quot;</span>)</span>
-<span class="src-line" id="L441">	ss.<span class="f">push</span>(<span class="s">&quot;beta&quot;</span>)</span>
-<span class="src-line" id="L442">	<span class="f">assert</span>(ss.<span class="f">set</span>(<span class="n">0</span>, <span class="s">&quot;ALPHA&quot;</span>), <span class="s">&quot;List[string] set(0)&quot;</span>)</span>
-<span class="src-line" id="L443">	<span class="f">assert</span>(ss.<span class="f">set</span>(<span class="n">1</span>, <span class="s">&quot;BETA&quot;</span>), <span class="s">&quot;List[string] set(1)&quot;</span>)</span>
-<span class="src-line" id="L444">	<span class="f">assert</span>(<span class="k">not</span> ss.<span class="f">set</span>(-<span class="n">1</span>, <span class="s">&quot;OOB_NEG&quot;</span>), <span class="s">&quot;List[string] set(-1) drops val cleanly&quot;</span>)</span>
-<span class="src-line" id="L445">	<span class="f">assert</span>(<span class="k">not</span> ss.<span class="f">set</span>(<span class="n">2</span>, <span class="s">&quot;OOB_HI&quot;</span>), <span class="s">&quot;List[string] set(2) drops val cleanly&quot;</span>)</span>
-<span class="src-line" id="L446">	<span class="f">assert</span>(ss.<span class="f">get</span>(<span class="n">0</span>) == <span class="s">&quot;ALPHA&quot;</span> <span class="k">and</span> ss.<span class="f">get</span>(<span class="n">1</span>) == <span class="s">&quot;BETA&quot;</span>, <span class="s">&quot;List[string] set values&quot;</span>)</span>
-<span class="src-line" id="L447">}</span>
-<span class="src-line" id="L448"></span>
-<span class="src-line" id="L449"><span class="a">@test</span>(<span class="s">&quot;List insert, remove, and swap_remove (Plain and Resource)&quot;</span>)</span>
-<span class="src-line" id="L450"><span class="k">bind</span> test_list_insert_remove_swap_remove = (): {</span>
-<span class="src-line" id="L451">	<span class="m">// Plain int list: insert at front, middle, end across reallocations</span></span>
-<span class="src-line" id="L452">	<span class="k">let</span> xs = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L453">	xs.<span class="f">insert</span>(<span class="n">0</span>, <span class="n">20</span>)</span>
-<span class="src-line" id="L454">	xs.<span class="f">insert</span>(<span class="n">0</span>, <span class="n">10</span>)</span>
-<span class="src-line" id="L455">	xs.<span class="f">insert</span>(<span class="n">2</span>, <span class="n">40</span>)</span>
-<span class="src-line" id="L456">	xs.<span class="f">insert</span>(<span class="n">2</span>, <span class="n">30</span>)</span>
-<span class="src-line" id="L457">	xs.<span class="f">insert</span>(<span class="n">0</span>, <span class="n">5</span>)</span>
-<span class="src-line" id="L458">	xs.<span class="f">insert</span>(<span class="n">5</span>, <span class="n">50</span>)</span>
-<span class="src-line" id="L459">	<span class="f">assert</span>(xs.<span class="f">len</span>() == <span class="n">6</span>, <span class="s">&quot;insert len == 6&quot;</span>)</span>
-<span class="src-line" id="L460">	<span class="f">assert</span>(xs.<span class="f">to_string</span>() == <span class="s">&quot;[5, 10, 20, 30, 40, 50]&quot;</span>, <span class="s">&quot;insert ordering&quot;</span>)</span>
-<span class="src-line" id="L461"></span>
-<span class="src-line" id="L462">	<span class="f">assert</span>(xs.<span class="f">remove</span>(<span class="n">0</span>) == <span class="n">5</span>, <span class="s">&quot;remove front&quot;</span>)</span>
-<span class="src-line" id="L463">	<span class="f">assert</span>(xs.<span class="f">remove</span>(<span class="n">2</span>) == <span class="n">30</span>, <span class="s">&quot;remove middle&quot;</span>)</span>
-<span class="src-line" id="L464">	<span class="f">assert</span>(xs.<span class="f">remove</span>(<span class="n">3</span>) == <span class="n">50</span>, <span class="s">&quot;remove end&quot;</span>)</span>
-<span class="src-line" id="L465">	<span class="f">assert</span>(xs.<span class="f">to_string</span>() == <span class="s">&quot;[10, 20, 40]&quot;</span>, <span class="s">&quot;remove remaining&quot;</span>)</span>
-<span class="src-line" id="L466">	<span class="f">assert</span>(xs.<span class="f">swap_remove</span>(<span class="n">0</span>) == <span class="n">10</span>, <span class="s">&quot;swap_remove front moves last&quot;</span>)</span>
-<span class="src-line" id="L467">	<span class="f">assert</span>(xs.<span class="f">to_string</span>() == <span class="s">&quot;[40, 20]&quot;</span>, <span class="s">&quot;swap_remove state&quot;</span>)</span>
-<span class="src-line" id="L468">	<span class="f">assert</span>(xs.<span class="f">swap_remove</span>(<span class="n">1</span>) == <span class="n">20</span>, <span class="s">&quot;swap_remove last&quot;</span>)</span>
-<span class="src-line" id="L469">	<span class="f">assert</span>(xs.<span class="f">swap_remove</span>(<span class="n">0</span>) == <span class="n">40</span>, <span class="s">&quot;swap_remove single&quot;</span>)</span>
-<span class="src-line" id="L470">	<span class="f">assert</span>(xs.<span class="f">is_empty</span>(), <span class="s">&quot;empty after removals&quot;</span>)</span>
-<span class="src-line" id="L471"></span>
-<span class="src-line" id="L472">	<span class="m">// Resource string list: verify 0 leaks and proper element ownership</span></span>
-<span class="src-line" id="L473">	<span class="k">let</span> words = <span class="t">List</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L474">	words.<span class="f">insert</span>(<span class="n">0</span>, <span class="s">&quot;mid&quot;</span>)</span>
-<span class="src-line" id="L475">	words.<span class="f">insert</span>(<span class="n">0</span>, <span class="s">&quot;head&quot;</span>)</span>
-<span class="src-line" id="L476">	words.<span class="f">insert</span>(<span class="n">2</span>, <span class="s">&quot;tail&quot;</span>)</span>
-<span class="src-line" id="L477">	words.<span class="f">insert</span>(<span class="n">1</span>, <span class="s">&quot;two&quot;</span>)</span>
-<span class="src-line" id="L478">	words.<span class="f">insert</span>(<span class="n">4</span>, <span class="s">&quot;end&quot;</span>)</span>
-<span class="src-line" id="L479">	<span class="f">assert</span>(words.<span class="f">to_string</span>() == <span class="s">&quot;[head, two, mid, tail, end]&quot;</span>, <span class="s">&quot;string insert order&quot;</span>)</span>
-<span class="src-line" id="L480"></span>
-<span class="src-line" id="L481">	<span class="f">assert</span>(words.<span class="f">remove</span>(<span class="n">1</span>) == <span class="s">&quot;two&quot;</span>, <span class="s">&quot;string remove middle&quot;</span>)</span>
-<span class="src-line" id="L482">	<span class="f">assert</span>(words.<span class="f">remove</span>(<span class="n">0</span>) == <span class="s">&quot;head&quot;</span>, <span class="s">&quot;string remove front&quot;</span>)</span>
-<span class="src-line" id="L483">	<span class="f">assert</span>(words.<span class="f">remove</span>(<span class="n">2</span>) == <span class="s">&quot;end&quot;</span>, <span class="s">&quot;string remove end&quot;</span>)</span>
-<span class="src-line" id="L484">	<span class="f">assert</span>(words.<span class="f">to_string</span>() == <span class="s">&quot;[mid, tail]&quot;</span>, <span class="s">&quot;string remove state&quot;</span>)</span>
-<span class="src-line" id="L485">	<span class="f">assert</span>(words.<span class="f">swap_remove</span>(<span class="n">0</span>) == <span class="s">&quot;mid&quot;</span>, <span class="s">&quot;string swap_remove front&quot;</span>)</span>
-<span class="src-line" id="L486">	<span class="f">assert</span>(words.<span class="f">to_string</span>() == <span class="s">&quot;[tail]&quot;</span>, <span class="s">&quot;string swap_remove leaves tail&quot;</span>)</span>
-<span class="src-line" id="L487">	<span class="f">assert</span>(words.<span class="f">swap_remove</span>(<span class="n">0</span>) == <span class="s">&quot;tail&quot;</span>, <span class="s">&quot;string swap_remove single&quot;</span>)</span>
-<span class="src-line" id="L488">	<span class="f">assert</span>(words.<span class="f">is_empty</span>(), <span class="s">&quot;string list empty&quot;</span>)</span>
-<span class="src-line" id="L489"></span>
-<span class="src-line" id="L490">	<span class="m">// Shorthand [int] parity with List[int] methods</span></span>
-<span class="src-line" id="L491">	<span class="k">let</span> sh: [<span class="t">int</span>] = [<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>]</span>
-<span class="src-line" id="L492">	sh.<span class="f">reserve</span>(<span class="n">16</span>)</span>
-<span class="src-line" id="L493">	<span class="f">assert</span>(sh.<span class="f">cap</span>() &gt;= <span class="n">16</span>, <span class="s">&quot;[int] reserve&quot;</span>)</span>
-<span class="src-line" id="L494">	<span class="f">assert</span>(sh.<span class="f">set</span>(<span class="n">1</span>, <span class="n">20</span>), <span class="s">&quot;[int] set&quot;</span>)</span>
-<span class="src-line" id="L495">	sh.<span class="f">insert</span>(<span class="n">1</span>, <span class="n">15</span>)</span>
-<span class="src-line" id="L496">	<span class="f">assert</span>(sh.<span class="f">to_string</span>() == <span class="s">&quot;[1, 15, 20, 3]&quot;</span>, <span class="s">&quot;[int] insert&quot;</span>)</span>
-<span class="src-line" id="L497">	<span class="f">assert</span>(sh.<span class="f">remove</span>(<span class="n">1</span>) == <span class="n">15</span>, <span class="s">&quot;[int] remove&quot;</span>)</span>
-<span class="src-line" id="L498">	<span class="f">assert</span>(sh.<span class="f">swap_remove</span>(<span class="n">0</span>) == <span class="n">1</span>, <span class="s">&quot;[int] swap_remove&quot;</span>)</span>
-<span class="src-line" id="L499">	<span class="f">assert</span>(sh.<span class="f">to_string</span>() == <span class="s">&quot;[3, 20]&quot;</span>, <span class="s">&quot;[int] after swap_remove&quot;</span>)</span>
-<span class="src-line" id="L500">	sh.<span class="f">resize</span>(<span class="n">4</span>, <span class="n">99</span>)</span>
-<span class="src-line" id="L501">	<span class="f">assert</span>(sh.<span class="f">to_string</span>() == <span class="s">&quot;[3, 20, 99, 99]&quot;</span>, <span class="s">&quot;[int] resize&quot;</span>)</span>
-<span class="src-line" id="L502">}</span>
-<span class="src-line" id="L503"></span>
-<span class="src-line" id="L504"><span class="a">@test</span>(<span class="s">&quot;List filled and resize (1-byte Plain, multi-byte Plain, and Resource)&quot;</span>)</span>
-<span class="src-line" id="L505"><span class="k">bind</span> test_list_filled_and_resize = (): {</span>
-<span class="src-line" id="L506">	<span class="m">// Empty/negative filled</span></span>
-<span class="src-line" id="L507">	<span class="k">let</span> b0 = <span class="t">List</span>[<span class="t">bool</span>].<span class="f">filled</span>(<span class="n">0</span>, <span class="c">true</span>)</span>
-<span class="src-line" id="L508">	<span class="f">assert</span>(b0.<span class="f">len</span>() == <span class="n">0</span> <span class="k">and</span> b0.<span class="f">cap</span>() == <span class="n">0</span> <span class="k">and</span> b0.<span class="f">is_empty</span>(), <span class="s">&quot;filled(0)&quot;</span>)</span>
-<span class="src-line" id="L509">	<span class="k">let</span> bneg = <span class="t">List</span>[<span class="t">bool</span>].<span class="f">filled</span>(-<span class="n">3</span>, <span class="c">true</span>)</span>
-<span class="src-line" id="L510">	<span class="f">assert</span>(bneg.<span class="f">len</span>() == <span class="n">0</span> <span class="k">and</span> bneg.<span class="f">cap</span>() == <span class="n">0</span> <span class="k">and</span> bneg.<span class="f">is_empty</span>(), <span class="s">&quot;filled(-3)&quot;</span>)</span>
-<span class="src-line" id="L511"></span>
-<span class="src-line" id="L512">	<span class="m">// 1-byte Plain types (bool, u8, i8) -&gt; alloc_uninit + fill_bytes</span></span>
-<span class="src-line" id="L513">	<span class="k">let</span> bt = <span class="t">List</span>[<span class="t">bool</span>].<span class="f">filled</span>(<span class="n">17</span>, <span class="c">true</span>)</span>
-<span class="src-line" id="L514">	<span class="f">assert</span>(bt.<span class="f">len</span>() == <span class="n">17</span> <span class="k">and</span> bt.<span class="f">cap</span>() == <span class="n">17</span>, <span class="s">&quot;List[bool].filled true len/cap&quot;</span>)</span>
-<span class="src-line" id="L515">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">17</span>): <span class="f">assert</span>(bt[i] == <span class="c">true</span>, <span class="s">&quot;List[bool].filled true elem&quot;</span>)</span>
+<span class="src-line" id="L181"><span class="m">// Inserts `item` at position `idx` (`0` through `len`), shifting elements at `idx..len` one slot</span></span>
+<span class="src-line" id="L182"><span class="m">// right.</span></span>
+<span class="src-line" id="L183"><span class="m">//</span></span>
+<span class="src-line" id="L184"><span class="m">// # Errors</span></span>
+<span class="src-line" id="L185"><span class="m">// Fails, dropping `item`, if `idx &lt; 0` or `idx &gt; len`.</span></span>
+<span class="src-line" id="L186"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].insert = <span class="k">fn</span>(&amp;<span class="k">self</span>, idx: <span class="t">int</span>, item: <span class="k">own</span> <span class="t">T</span>) <span class="t">Status</span>: {</span>
+<span class="src-line" id="L187">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt; <span class="k">self</span>.len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="f">err</span>(</span>
+<span class="src-line" id="L188">		<span class="t">Error</span>.<span class="f">new</span>(<span class="s">&quot;List.insert: index </span>$idx<span class="s"> out of bounds for length </span>${<span class="k">self</span>.len}<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L189">	)</span>
+<span class="src-line" id="L190">	<span class="k">self</span>.<span class="f">_insert_at</span>(idx, <span class="k">own</span> item)</span>
+<span class="src-line" id="L191">	value</span>
+<span class="src-line" id="L192">}</span>
+<span class="src-line" id="L193"></span>
+<span class="src-line" id="L194"><span class="m">// Inserts `item` at position `idx`, like [`List.insert`], for an index known to be valid.</span></span>
+<span class="src-line" id="L195"><span class="m">//</span></span>
+<span class="src-line" id="L196"><span class="m">// # Panics</span></span>
+<span class="src-line" id="L197"><span class="m">// If `idx &lt; 0` or `idx &gt; len` (attributed to the caller).</span></span>
+<span class="src-line" id="L198"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L199"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].must_insert = <span class="k">fn</span>(&amp;<span class="k">self</span>, idx: <span class="t">int</span>, item: <span class="k">own</span> <span class="t">T</span>): {</span>
+<span class="src-line" id="L200">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt; <span class="k">self</span>.len):</span>
+<span class="src-line" id="L201">		<span class="f">panic</span>(<span class="s">&quot;List.must_insert: index </span>$idx<span class="s"> out of bounds for length </span>${<span class="k">self</span>.len}<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L202">	<span class="k">self</span>.<span class="f">_insert_at</span>(idx, <span class="k">own</span> item)</span>
+<span class="src-line" id="L203">}</span>
+<span class="src-line" id="L204"></span>
+<span class="src-line" id="L205"><span class="m">// Takes the element at `idx` out, shifting the elements after it one slot left. Assumes</span></span>
+<span class="src-line" id="L206"><span class="m">// `0 &lt;= idx &lt; len`.</span></span>
+<span class="src-line" id="L207"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>]._remove_at = <span class="k">fn</span>(&amp;<span class="k">self</span>, idx: <span class="t">int</span>) <span class="t">T</span>: {</span>
+<span class="src-line" id="L208">	<span class="k">let</span> data = <span class="k">self</span>.<span class="f">_data_mut</span>()</span>
+<span class="src-line" id="L209">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L210">		<span class="k">let</span> out = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(data, idx))</span>
+<span class="src-line" id="L211">		<span class="k">let</span> tail = <span class="k">self</span>.len - idx - <span class="n">1</span></span>
+<span class="src-line" id="L212">		<span class="k">if</span>(tail &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L213">			<span class="f">copy_bytes</span>(</span>
+<span class="src-line" id="L214">				ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(data, idx)),</span>
+<span class="src-line" id="L215">				ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(data, idx + <span class="n">1</span>)),</span>
+<span class="src-line" id="L216">				tail * type.size_of[<span class="t">T</span>](),</span>
+<span class="src-line" id="L217">			)</span>
+<span class="src-line" id="L218">		}</span>
+<span class="src-line" id="L219">		<span class="k">self</span>.len -= <span class="n">1</span></span>
+<span class="src-line" id="L220">		out</span>
+<span class="src-line" id="L221">	}</span>
+<span class="src-line" id="L222">}</span>
+<span class="src-line" id="L223"></span>
+<span class="src-line" id="L224"><span class="m">// Removes and returns the element at `idx`, shifting the elements after it one slot left, or</span></span>
+<span class="src-line" id="L225"><span class="m">// returns `none` if `idx` is out of bounds.</span></span>
+<span class="src-line" id="L226"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].remove = <span class="k">fn</span>(&amp;<span class="k">self</span>, idx: <span class="t">int</span>) ?<span class="t">T</span>:</span>
+<span class="src-line" id="L227">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt;= <span class="k">self</span>.len): <span class="c">none</span> <span class="k">else</span>: <span class="k">self</span>.<span class="f">_remove_at</span>(idx)</span>
+<span class="src-line" id="L228"></span>
+<span class="src-line" id="L229"><span class="m">// Removes and returns the element at `idx`, like [`List.remove`], for an index known to be</span></span>
+<span class="src-line" id="L230"><span class="m">// valid.</span></span>
+<span class="src-line" id="L231"><span class="m">//</span></span>
+<span class="src-line" id="L232"><span class="m">// # Panics</span></span>
+<span class="src-line" id="L233"><span class="m">// If `idx &lt; 0` or `idx &gt;= len` (attributed to the caller).</span></span>
+<span class="src-line" id="L234"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L235"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].must_remove = <span class="k">fn</span>(&amp;<span class="k">self</span>, idx: <span class="t">int</span>) <span class="t">T</span>: {</span>
+<span class="src-line" id="L236">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt;= <span class="k">self</span>.len):</span>
+<span class="src-line" id="L237">		<span class="f">panic</span>(<span class="s">&quot;List.must_remove: index </span>$idx<span class="s"> out of bounds for length </span>${<span class="k">self</span>.len}<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L238">	<span class="k">self</span>.<span class="f">_remove_at</span>(idx)</span>
+<span class="src-line" id="L239">}</span>
+<span class="src-line" id="L240"></span>
+<span class="src-line" id="L241"><span class="m">// Moves the last element into slot `idx` and returns what was there. Assumes `0 &lt;= idx &lt; len`.</span></span>
+<span class="src-line" id="L242"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>]._swap_remove_at = <span class="k">fn</span>(&amp;<span class="k">self</span>, idx: <span class="t">int</span>) <span class="t">T</span>: {</span>
+<span class="src-line" id="L243">	<span class="k">let</span> data = <span class="k">self</span>.<span class="f">_data_mut</span>()</span>
+<span class="src-line" id="L244">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L245">		<span class="k">let</span> out = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(data, idx))</span>
+<span class="src-line" id="L246">		<span class="k">self</span>.len -= <span class="n">1</span></span>
+<span class="src-line" id="L247">		<span class="k">if</span>(idx &lt; <span class="k">self</span>.len): {</span>
+<span class="src-line" id="L248">			<span class="k">let</span> last = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(data, <span class="k">self</span>.len))</span>
+<span class="src-line" id="L249">			<span class="f">ptr_write</span>(<span class="f">ptr_add</span>(data, idx), <span class="k">own</span> last)</span>
+<span class="src-line" id="L250">		}</span>
+<span class="src-line" id="L251">		out</span>
+<span class="src-line" id="L252">	}</span>
+<span class="src-line" id="L253">}</span>
+<span class="src-line" id="L254"></span>
+<span class="src-line" id="L255"><span class="m">// Removes and returns the element at `idx` in O(1) time by moving the last element into its</span></span>
+<span class="src-line" id="L256"><span class="m">// slot (so the order isn&#39;t kept), or returns `none` if `idx` is out of bounds.</span></span>
+<span class="src-line" id="L257"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].swap_remove = <span class="k">fn</span>(&amp;<span class="k">self</span>, idx: <span class="t">int</span>) ?<span class="t">T</span>:</span>
+<span class="src-line" id="L258">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt;= <span class="k">self</span>.len): <span class="c">none</span> <span class="k">else</span>: <span class="k">self</span>.<span class="f">_swap_remove_at</span>(idx)</span>
+<span class="src-line" id="L259"></span>
+<span class="src-line" id="L260"><span class="m">// Removes and returns the element at `idx` in O(1) time, like [`List.swap_remove`], for an index</span></span>
+<span class="src-line" id="L261"><span class="m">// known to be valid.</span></span>
+<span class="src-line" id="L262"><span class="m">//</span></span>
+<span class="src-line" id="L263"><span class="m">// # Panics</span></span>
+<span class="src-line" id="L264"><span class="m">// If `idx &lt; 0` or `idx &gt;= len` (attributed to the caller).</span></span>
+<span class="src-line" id="L265"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L266"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].must_swap_remove = <span class="k">fn</span>(&amp;<span class="k">self</span>, idx: <span class="t">int</span>) <span class="t">T</span>: {</span>
+<span class="src-line" id="L267">	<span class="k">if</span>(idx &lt; <span class="n">0</span> <span class="k">or</span> idx &gt;= <span class="k">self</span>.len):</span>
+<span class="src-line" id="L268">		<span class="f">panic</span>(<span class="s">&quot;List.must_swap_remove: index </span>$idx<span class="s"> out of bounds for length </span>${<span class="k">self</span>.len}<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L269">	<span class="k">self</span>.<span class="f">_swap_remove_at</span>(idx)</span>
+<span class="src-line" id="L270">}</span>
+<span class="src-line" id="L271"></span>
+<span class="src-line" id="L272"><span class="m">// Resizes the list in place so its length equals `new_len` (clamped to `0` if negative).</span></span>
+<span class="src-line" id="L273"><span class="m">//</span></span>
+<span class="src-line" id="L274"><span class="m">// When shrinking, trailing elements are dropped in reverse order. When growing, new slots</span></span>
+<span class="src-line" id="L275"><span class="m">// are filled using `fill_bytes` (`memset`) for 1-byte Plain types (`bool`, `u8`, `i8`) or a</span></span>
+<span class="src-line" id="L276"><span class="m">// capacity-check-free fill loop for other types.</span></span>
+<span class="src-line" id="L277"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].resize = <span class="k">fn</span>(&amp;<span class="k">self</span>, new_len: <span class="t">int</span>, val: <span class="t">T</span>): {</span>
+<span class="src-line" id="L278">	<span class="k">let</span> target = <span class="k">if</span>(new_len &lt; <span class="n">0</span>): <span class="n">0</span> <span class="k">else</span>: new_len</span>
+<span class="src-line" id="L279">	<span class="k">if</span>(target &lt; <span class="k">self</span>.len): {</span>
+<span class="src-line" id="L280">		<span class="k">if</span>(<span class="k">self</span>.cap &gt; <span class="n">0</span> <span class="k">and</span> <span class="k">not</span> type.is_plain[<span class="t">T</span>]()): {</span>
+<span class="src-line" id="L281">			<span class="k">let</span> i = <span class="k">self</span>.len - <span class="n">1</span></span>
+<span class="src-line" id="L282">			<span class="k">for</span>(i &gt;= target): {</span>
+<span class="src-line" id="L283">				<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L284">					<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, i))</span>
+<span class="src-line" id="L285">				}</span>
+<span class="src-line" id="L286">				i -= <span class="n">1</span></span>
+<span class="src-line" id="L287">			}</span>
+<span class="src-line" id="L288">		}</span>
+<span class="src-line" id="L289">		<span class="k">self</span>.len = target</span>
+<span class="src-line" id="L290">		<span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L291">	}</span>
+<span class="src-line" id="L292">	<span class="k">if</span>(target == <span class="k">self</span>.len): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L293">	<span class="k">if</span>(target &gt; <span class="k">self</span>.cap): <span class="k">self</span>.<span class="f">reserve</span>(target)</span>
+<span class="src-line" id="L294">	<span class="k">let</span> count = target - <span class="k">self</span>.len</span>
+<span class="src-line" id="L295">	<span class="k">if</span>(type.is_plain[<span class="t">T</span>]() <span class="k">and</span> type.size_of[<span class="t">T</span>]() == <span class="n">1</span>): {</span>
+<span class="src-line" id="L296">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L297">			<span class="k">let</span> b = <span class="f">ptr_read</span>(ptr_cast[<span class="t">u8</span>](<span class="f">addr_of</span>(val)))</span>
+<span class="src-line" id="L298">			<span class="f">fill_bytes</span>(ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)), b, count)</span>
+<span class="src-line" id="L299">		}</span>
+<span class="src-line" id="L300">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L301">		<span class="k">let</span> i = <span class="k">self</span>.len</span>
+<span class="src-line" id="L302">		<span class="k">for</span>(i &lt; target): {</span>
+<span class="src-line" id="L303">			<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, i), val.<span class="f">copy</span>())</span>
+<span class="src-line" id="L304">			i += <span class="n">1</span></span>
+<span class="src-line" id="L305">		}</span>
+<span class="src-line" id="L306">	}</span>
+<span class="src-line" id="L307">	<span class="k">self</span>.len = target</span>
+<span class="src-line" id="L308">}</span>
+<span class="src-line" id="L309"></span>
+<span class="src-line" id="L310"><span class="m">// Reports whether any element in the list equals `item`.</span></span>
+<span class="src-line" id="L311"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].contains = <span class="k">fn</span>(<span class="k">self</span>, item: <span class="t">T</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L312">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L313">	<span class="k">for</span>(i &lt; <span class="k">self</span>.len): {</span>
+<span class="src-line" id="L314">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L315">			<span class="k">if</span>(<span class="k">self</span>.data[i] == item): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
+<span class="src-line" id="L316">		}</span>
+<span class="src-line" id="L317">		i += <span class="n">1</span></span>
+<span class="src-line" id="L318">	}</span>
+<span class="src-line" id="L319">	<span class="c">false</span></span>
+<span class="src-line" id="L320">}</span>
+<span class="src-line" id="L321"></span>
+<span class="src-line" id="L322"><span class="m">// Returns a copy of the first element, or `none` if the list is empty.</span></span>
+<span class="src-line" id="L323"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].first = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">T</span>: <span class="k">self</span>.<span class="f">get</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L324"></span>
+<span class="src-line" id="L325"><span class="m">// Returns a copy of the last element, or `none` if the list is empty.</span></span>
+<span class="src-line" id="L326"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].last = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">T</span>: <span class="k">self</span>.<span class="f">get</span>(<span class="k">self</span>.len - <span class="n">1</span>)</span>
+<span class="src-line" id="L327"></span>
+<span class="src-line" id="L328"><span class="m">// Returns the index of the first element equal to `item`, or `none`.</span></span>
+<span class="src-line" id="L329"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].index_of = <span class="k">fn</span>(<span class="k">self</span>, item: <span class="t">T</span>) ?<span class="t">int</span>: {</span>
+<span class="src-line" id="L330">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L331">	<span class="k">while</span>(i &lt; <span class="k">self</span>.len): {</span>
+<span class="src-line" id="L332">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L333">			<span class="k">if</span>(<span class="k">self</span>.data[i] == item): <span class="k">func</span> <span class="u">&lt;-</span> i</span>
+<span class="src-line" id="L334">		}</span>
+<span class="src-line" id="L335">		i += <span class="n">1</span></span>
+<span class="src-line" id="L336">	}</span>
+<span class="src-line" id="L337">	<span class="c">none</span></span>
+<span class="src-line" id="L338">}</span>
+<span class="src-line" id="L339"></span>
+<span class="src-line" id="L340"><span class="m">// Exchanges the elements at indexes `i` and `j`.</span></span>
+<span class="src-line" id="L341"><span class="m">//</span></span>
+<span class="src-line" id="L342"><span class="m">// # Panics</span></span>
+<span class="src-line" id="L343"><span class="m">// If either index is out of range.</span></span>
+<span class="src-line" id="L344"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].swap = <span class="k">fn</span>(&amp;<span class="k">self</span>, i: <span class="t">int</span>, j: <span class="t">int</span>): {</span>
+<span class="src-line" id="L345">	<span class="k">if</span>(i &lt; <span class="n">0</span> <span class="k">or</span> i &gt;= <span class="k">self</span>.len): <span class="f">panic</span>(<span class="s">&quot;List.swap: index </span>$i<span class="s"> out of bounds for length </span>${<span class="k">self</span>.len}<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L346">	<span class="k">if</span>(j &lt; <span class="n">0</span> <span class="k">or</span> j &gt;= <span class="k">self</span>.len): <span class="f">panic</span>(<span class="s">&quot;List.swap: index </span>$j<span class="s"> out of bounds for length </span>${<span class="k">self</span>.len}<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L347">	<span class="k">if</span>(i == j): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L348">	<span class="k">let</span> data = <span class="k">self</span>.<span class="f">_data_mut</span>()</span>
+<span class="src-line" id="L349">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L350">		<span class="k">let</span> a = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(data, i))</span>
+<span class="src-line" id="L351">		<span class="k">let</span> b = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(data, j))</span>
+<span class="src-line" id="L352">		<span class="f">ptr_write</span>(<span class="f">ptr_add</span>(data, i), <span class="k">own</span> b)</span>
+<span class="src-line" id="L353">		<span class="f">ptr_write</span>(<span class="f">ptr_add</span>(data, j), <span class="k">own</span> a)</span>
+<span class="src-line" id="L354">	}</span>
+<span class="src-line" id="L355">}</span>
+<span class="src-line" id="L356"></span>
+<span class="src-line" id="L357"><span class="m">// Shortens the list to `new_len` elements, destroying the rest in reverse order. Does nothing</span></span>
+<span class="src-line" id="L358"><span class="m">// when `new_len` is at least the current length; a negative `new_len` empties the list.</span></span>
+<span class="src-line" id="L359"><span class="m">// Capacity is kept.</span></span>
+<span class="src-line" id="L360"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].truncate = <span class="k">fn</span>(&amp;<span class="k">self</span>, new_len: <span class="t">int</span>): {</span>
+<span class="src-line" id="L361">	<span class="k">let</span> keep = <span class="k">if</span>(new_len &lt; <span class="n">0</span>): <span class="n">0</span> <span class="k">else</span>: new_len</span>
+<span class="src-line" id="L362">	<span class="k">if</span>(keep &gt;= <span class="k">self</span>.len): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L363">	<span class="k">comptime</span> <span class="k">if</span>(<span class="k">not</span> type.is_plain[<span class="t">T</span>]()): {</span>
+<span class="src-line" id="L364">		<span class="k">if</span>(<span class="k">self</span>.cap &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L365">			<span class="k">let</span> i = <span class="k">self</span>.len - <span class="n">1</span></span>
+<span class="src-line" id="L366">			<span class="k">while</span>(i &gt;= keep): {</span>
+<span class="src-line" id="L367">				<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L368">					<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, i))</span>
+<span class="src-line" id="L369">				}</span>
+<span class="src-line" id="L370">				i -= <span class="n">1</span></span>
+<span class="src-line" id="L371">			}</span>
+<span class="src-line" id="L372">		}</span>
+<span class="src-line" id="L373">	}</span>
+<span class="src-line" id="L374">	<span class="k">self</span>.len = keep</span>
+<span class="src-line" id="L375">}</span>
+<span class="src-line" id="L376"></span>
+<span class="src-line" id="L377"><span class="m">// Moves every element of `other` onto the end of this list, in order, without copying the</span></span>
+<span class="src-line" id="L378"><span class="m">// elements: `other` is consumed.</span></span>
+<span class="src-line" id="L379"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].extend = <span class="k">fn</span>(&amp;<span class="k">self</span>, other: <span class="k">own</span> <span class="t">List</span>[<span class="t">T</span>]): {</span>
+<span class="src-line" id="L380">	<span class="k">let</span> src = <span class="k">own</span> other</span>
+<span class="src-line" id="L381">	<span class="k">if</span>(src.len == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L382">	<span class="k">self</span>.<span class="f">reserve</span>(<span class="k">self</span>.len + src.len)</span>
+<span class="src-line" id="L383">	<span class="k">if</span>(src.cap &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L384">		<span class="k">unsafe</span> <span class="f">copy_bytes</span>(</span>
+<span class="src-line" id="L385">			ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)),</span>
+<span class="src-line" id="L386">			ptr_cast[<span class="t">u8</span>](src.data),</span>
+<span class="src-line" id="L387">			src.len * type.size_of[<span class="t">T</span>](),</span>
+<span class="src-line" id="L388">		)</span>
+<span class="src-line" id="L389">		<span class="k">self</span>.len += src.len</span>
+<span class="src-line" id="L390">		<span class="m">// The elements now belong to `self`; `src` frees its buffer without destroying them.</span></span>
+<span class="src-line" id="L391">		src.len = <span class="n">0</span></span>
+<span class="src-line" id="L392">		<span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L393">	}</span>
+<span class="src-line" id="L394">	<span class="k">comptime</span> <span class="k">if</span>(type.is_plain[<span class="t">T</span>]()): {</span>
+<span class="src-line" id="L395">		<span class="k">unsafe</span> <span class="f">copy_bytes</span>(</span>
+<span class="src-line" id="L396">			ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)),</span>
+<span class="src-line" id="L397">			ptr_cast[<span class="t">u8</span>](src.data),</span>
+<span class="src-line" id="L398">			src.len * type.size_of[<span class="t">T</span>](),</span>
+<span class="src-line" id="L399">		)</span>
+<span class="src-line" id="L400">		<span class="k">self</span>.len += src.len</span>
+<span class="src-line" id="L401">	} <span class="k">else</span> <span class="k">comptime</span> <span class="k">if</span>(comp.implements[<span class="t">T</span>, <span class="t">Copyable</span>]()): {</span>
+<span class="src-line" id="L402">		<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L403">		<span class="k">for</span>(i &lt; src.len): {</span>
+<span class="src-line" id="L404">			<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, <span class="k">self</span>.len + i), src.data[i].<span class="f">copy</span>())</span>
+<span class="src-line" id="L405">			i += <span class="n">1</span></span>
+<span class="src-line" id="L406">		}</span>
+<span class="src-line" id="L407">		<span class="k">self</span>.len += src.len</span>
+<span class="src-line" id="L408">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L409">		<span class="f">panic</span>(<span class="s">&quot;cannot extend List from unowned view of non-Copyable elements&quot;</span>)</span>
+<span class="src-line" id="L410">	}</span>
+<span class="src-line" id="L411">}</span>
+<span class="src-line" id="L412"></span>
+<span class="src-line" id="L413"><span class="m">// Drops all elements in reverse order and resets length to `0` while keeping capacity allocated.</span></span>
+<span class="src-line" id="L414"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].clear = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L415">	<span class="k">if</span>(<span class="k">self</span>.cap &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L416">		<span class="k">let</span> i = <span class="k">self</span>.len - <span class="n">1</span></span>
+<span class="src-line" id="L417">		<span class="k">for</span>(i &gt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L418">			<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L419">				<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, i))</span>
+<span class="src-line" id="L420">			}</span>
+<span class="src-line" id="L421">			i -= <span class="n">1</span></span>
+<span class="src-line" id="L422">		}</span>
+<span class="src-line" id="L423">	}</span>
+<span class="src-line" id="L424">	<span class="k">self</span>.len = <span class="n">0</span></span>
+<span class="src-line" id="L425">}</span>
+<span class="src-line" id="L426"></span>
+<span class="src-line" id="L427"><span class="m">// Returns a deep copy of the list by copying every element in order.</span></span>
+<span class="src-line" id="L428"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].copy = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">List</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L429">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">List</span>[<span class="t">T</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L430">	<span class="k">let</span> p = <span class="k">unsafe</span> alloc_uninit[<span class="t">T</span>](<span class="k">self</span>.len)</span>
+<span class="src-line" id="L431">	<span class="k">if</span>(type.is_plain[<span class="t">T</span>]()): {</span>
+<span class="src-line" id="L432">		<span class="k">unsafe</span> <span class="f">copy_bytes</span>(ptr_cast[<span class="t">u8</span>](p), ptr_cast[<span class="t">u8</span>](<span class="k">self</span>.data), <span class="k">self</span>.len * type.size_of[<span class="t">T</span>]())</span>
+<span class="src-line" id="L433">	} <span class="k">else</span>: {</span>
+<span class="src-line" id="L434">		<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L435">		<span class="k">for</span>(i &lt; <span class="k">self</span>.len): {</span>
+<span class="src-line" id="L436">			<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(p, i), <span class="k">self</span>.data[i].<span class="f">copy</span>())</span>
+<span class="src-line" id="L437">			i += <span class="n">1</span></span>
+<span class="src-line" id="L438">		}</span>
+<span class="src-line" id="L439">	}</span>
+<span class="src-line" id="L440">	<span class="t">List</span>[<span class="t">T</span>][</span>
+<span class="src-line" id="L441">		data: p,</span>
+<span class="src-line" id="L442">		len: <span class="k">self</span>.len,</span>
+<span class="src-line" id="L443">		cap: <span class="k">self</span>.len,</span>
+<span class="src-line" id="L444">	]</span>
+<span class="src-line" id="L445">}</span>
+<span class="src-line" id="L446"></span>
+<span class="src-line" id="L447"><span class="m">// Formats the list as a bracketed, comma-separated string (`&quot;[a, b, ...]&quot;`).</span></span>
+<span class="src-line" id="L448"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].to_string = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L449">	<span class="k">let</span> out = <span class="s">&quot;[&quot;</span></span>
+<span class="src-line" id="L450">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L451">	<span class="k">for</span>(i &lt; <span class="k">self</span>.len): {</span>
+<span class="src-line" id="L452">		<span class="k">if</span>(i &gt; <span class="n">0</span>): out.<span class="f">push</span>(<span class="s">&quot;, &quot;</span>)</span>
+<span class="src-line" id="L453">		<span class="k">unsafe</span> out.<span class="f">push</span>(<span class="k">self</span>.data[i].<span class="f">to_string</span>())</span>
+<span class="src-line" id="L454">		i += <span class="n">1</span></span>
+<span class="src-line" id="L455">	}</span>
+<span class="src-line" id="L456">	out.<span class="f">push</span>(<span class="s">&quot;]&quot;</span>)</span>
+<span class="src-line" id="L457">	out</span>
+<span class="src-line" id="L458">}</span>
+<span class="src-line" id="L459"></span>
+<span class="src-line" id="L460"><span class="m">// Stateful forward iterator yielding elements from an owned snapshot of a [`List`].</span></span>
+<span class="src-line" id="L461"><span class="m">//</span></span>
+<span class="src-line" id="L462"><span class="m">// Owning a snapshot guards iteration against mutations (`push`, `pop`, `set`, `insert`,</span></span>
+<span class="src-line" id="L463"><span class="m">// `remove`, `swap_remove`, `resize`, `clear`, reallocation, or `drop`) on the source list.</span></span>
+<span class="src-line" id="L464"><span class="k">define</span> <span class="t">ListIterator</span>[<span class="t">T</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L465">	<span class="m">// Owned snapshot of elements captured when the iterator was created.</span></span>
+<span class="src-line" id="L466">	items: <span class="t">List</span>[<span class="t">T</span>],</span>
+<span class="src-line" id="L467">	<span class="m">// Next index to yield.</span></span>
+<span class="src-line" id="L468">	idx: <span class="t">int</span>,</span>
+<span class="src-line" id="L469">]</span>
+<span class="src-line" id="L470"></span>
+<span class="src-line" id="L471"><span class="m">// Advances the iterator and returns a copy of the next element, or `none` when finished.</span></span>
+<span class="src-line" id="L472"><span class="k">const</span> <span class="t">ListIterator</span>[<span class="t">T</span>].next = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">T</span>: {</span>
+<span class="src-line" id="L473">	<span class="k">if</span>(<span class="k">self</span>.idx &gt;= <span class="k">self</span>.items.len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L474">	<span class="k">let</span> i = <span class="k">self</span>.idx</span>
+<span class="src-line" id="L475">	<span class="k">self</span>.idx += <span class="n">1</span></span>
+<span class="src-line" id="L476">	<span class="k">unsafe</span> <span class="k">self</span>.items.data[i].<span class="f">copy</span>()</span>
+<span class="src-line" id="L477">}</span>
+<span class="src-line" id="L478"></span>
+<span class="src-line" id="L479"><span class="m">// Returns a forward [`Iterator`] over an owned snapshot of the list&#39;s elements.</span></span>
+<span class="src-line" id="L480"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].iter = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">T</span>]:</span>
+<span class="src-line" id="L481">	<span class="t">ListIterator</span>[<span class="t">T</span>][</span>
+<span class="src-line" id="L482">		items: <span class="k">self</span>.<span class="f">copy</span>(),</span>
+<span class="src-line" id="L483">		idx: <span class="n">0</span>,</span>
+<span class="src-line" id="L484">	]</span>
+<span class="src-line" id="L485"></span>
+<span class="src-line" id="L486"><span class="m">// Drops all remaining elements in reverse order and frees the backing heap allocation.</span></span>
+<span class="src-line" id="L487"><span class="k">const</span> <span class="t">List</span>[<span class="t">T</span>].drop = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L488">	<span class="k">if</span>(<span class="k">self</span>.cap &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L489">		<span class="k">let</span> i = <span class="k">self</span>.len - <span class="n">1</span></span>
+<span class="src-line" id="L490">		<span class="k">for</span>(i &gt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L491">			<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L492">				<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>.data, i))</span>
+<span class="src-line" id="L493">			}</span>
+<span class="src-line" id="L494">			i -= <span class="n">1</span></span>
+<span class="src-line" id="L495">		}</span>
+<span class="src-line" id="L496">		<span class="k">unsafe</span> <span class="f">free_raw</span>(<span class="k">self</span>.data)</span>
+<span class="src-line" id="L497">	}</span>
+<span class="src-line" id="L498">	<span class="k">self</span>.data = <span class="k">unsafe</span> null_ptr[<span class="t">T</span>]()</span>
+<span class="src-line" id="L499">	<span class="k">self</span>.len = <span class="n">0</span></span>
+<span class="src-line" id="L500">	<span class="k">self</span>.cap = <span class="n">0</span></span>
+<span class="src-line" id="L501">}</span>
+<span class="src-line" id="L502"></span>
+<span class="src-line" id="L503"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L504"><span class="m">// Inline Unit Tests</span></span>
+<span class="src-line" id="L505"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L506"></span>
+<span class="src-line" id="L507"><span class="a">@test</span>(<span class="s">&quot;List set and reserve (Plain and Resource)&quot;</span>)</span>
+<span class="src-line" id="L508"><span class="k">bind</span> test_list_set_and_reserve = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L509">	<span class="k">let</span> xs = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L510">	xs.<span class="f">reserve</span>(-<span class="n">5</span>)</span>
+<span class="src-line" id="L511">	<span class="f">assert</span>(xs.<span class="f">cap</span>() == <span class="n">0</span> <span class="k">and</span> xs.<span class="f">len</span>() == <span class="n">0</span>, <span class="s">&quot;reserve negative on empty&quot;</span>)</span>
+<span class="src-line" id="L512">	xs.<span class="f">reserve</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L513">	<span class="f">assert</span>(xs.<span class="f">cap</span>() == <span class="n">0</span> <span class="k">and</span> xs.<span class="f">len</span>() == <span class="n">0</span>, <span class="s">&quot;reserve 0 on empty&quot;</span>)</span>
+<span class="src-line" id="L514">	xs.<span class="f">reserve</span>(<span class="n">10</span>)</span>
+<span class="src-line" id="L515">	<span class="f">assert</span>(xs.<span class="f">cap</span>() &gt;= <span class="n">10</span> <span class="k">and</span> xs.<span class="f">len</span>() == <span class="n">0</span>, <span class="s">&quot;reserve 10 grows cap&quot;</span>)</span>
 <span class="src-line" id="L516"></span>
-<span class="src-line" id="L517">	<span class="k">let</span> bf = <span class="t">List</span>[<span class="t">bool</span>].<span class="f">filled</span>(<span class="n">17</span>, <span class="c">false</span>)</span>
-<span class="src-line" id="L518">	<span class="f">assert</span>(bf.<span class="f">len</span>() == <span class="n">17</span> <span class="k">and</span> bf.<span class="f">cap</span>() == <span class="n">17</span>, <span class="s">&quot;List[bool].filled false len/cap&quot;</span>)</span>
-<span class="src-line" id="L519">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">17</span>): <span class="f">assert</span>(bf[i] == <span class="c">false</span>, <span class="s">&quot;List[bool].filled false elem&quot;</span>)</span>
-<span class="src-line" id="L520"></span>
-<span class="src-line" id="L521">	<span class="k">let</span> bu = <span class="t">List</span>[<span class="t">u8</span>].<span class="f">filled</span>(<span class="n">64</span>, <span class="t">u8</span>(<span class="n">171</span>))</span>
-<span class="src-line" id="L522">	<span class="f">assert</span>(bu.<span class="f">len</span>() == <span class="n">64</span> <span class="k">and</span> bu.<span class="f">cap</span>() == <span class="n">64</span>, <span class="s">&quot;List[u8].filled len/cap&quot;</span>)</span>
-<span class="src-line" id="L523">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">64</span>): <span class="f">assert</span>(bu[i] == <span class="t">u8</span>(<span class="n">171</span>), <span class="s">&quot;List[u8].filled elem&quot;</span>)</span>
-<span class="src-line" id="L524"></span>
-<span class="src-line" id="L525">	<span class="k">let</span> bi = <span class="t">List</span>[<span class="t">i8</span>].<span class="f">filled</span>(<span class="n">33</span>, <span class="t">i8</span>(-<span class="n">7</span>))</span>
-<span class="src-line" id="L526">	<span class="f">assert</span>(bi.<span class="f">len</span>() == <span class="n">33</span> <span class="k">and</span> bi.<span class="f">cap</span>() == <span class="n">33</span>, <span class="s">&quot;List[i8].filled len/cap&quot;</span>)</span>
-<span class="src-line" id="L527">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">33</span>): <span class="f">assert</span>(bi[i] == <span class="t">i8</span>(-<span class="n">7</span>), <span class="s">&quot;List[i8].filled elem&quot;</span>)</span>
-<span class="src-line" id="L528"></span>
-<span class="src-line" id="L529">	<span class="m">// Multi-byte Plain types</span></span>
-<span class="src-line" id="L530">	<span class="k">let</span> ints = <span class="t">List</span>[<span class="t">int</span>].<span class="f">filled</span>(<span class="n">12</span>, <span class="n">99</span>)</span>
-<span class="src-line" id="L531">	<span class="f">assert</span>(ints.<span class="f">len</span>() == <span class="n">12</span> <span class="k">and</span> ints.<span class="f">cap</span>() == <span class="n">12</span>, <span class="s">&quot;List[int].filled len/cap&quot;</span>)</span>
-<span class="src-line" id="L532">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">12</span>): <span class="f">assert</span>(ints[i] == <span class="n">99</span>, <span class="s">&quot;List[int].filled elem&quot;</span>)</span>
-<span class="src-line" id="L533"></span>
-<span class="src-line" id="L534">	<span class="k">let</span> floats = <span class="t">List</span>[<span class="t">float</span>].<span class="f">filled</span>(<span class="n">5</span>, <span class="n">3.25</span>)</span>
-<span class="src-line" id="L535">	<span class="f">assert</span>(floats.<span class="f">len</span>() == <span class="n">5</span> <span class="k">and</span> floats.<span class="f">cap</span>() == <span class="n">5</span>, <span class="s">&quot;List[float].filled len/cap&quot;</span>)</span>
-<span class="src-line" id="L536">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">5</span>): <span class="f">assert</span>(floats[i] == <span class="n">3.25</span>, <span class="s">&quot;List[float].filled elem&quot;</span>)</span>
-<span class="src-line" id="L537"></span>
-<span class="src-line" id="L538">	<span class="m">// Resource type: independent deep copies</span></span>
-<span class="src-line" id="L539">	<span class="k">let</span> strs = <span class="t">List</span>[<span class="t">string</span>].<span class="f">filled</span>(<span class="n">4</span>, <span class="s">&quot;hello&quot;</span>)</span>
-<span class="src-line" id="L540">	<span class="f">assert</span>(strs.<span class="f">len</span>() == <span class="n">4</span> <span class="k">and</span> strs.<span class="f">cap</span>() == <span class="n">4</span>, <span class="s">&quot;List[string].filled len/cap&quot;</span>)</span>
-<span class="src-line" id="L541">	<span class="f">assert</span>(strs.<span class="f">set</span>(<span class="n">1</span>, <span class="s">&quot;world&quot;</span>), <span class="s">&quot;mutate slot 1 only&quot;</span>)</span>
-<span class="src-line" id="L542">	<span class="f">assert</span>(strs[<span class="n">0</span>] == <span class="s">&quot;hello&quot;</span> <span class="k">and</span> strs[<span class="n">1</span>] == <span class="s">&quot;world&quot;</span> <span class="k">and</span> strs[<span class="n">2</span>] == <span class="s">&quot;hello&quot;</span> <span class="k">and</span> strs[<span class="n">3</span>] == <span class="s">&quot;hello&quot;</span>, <span class="s">&quot;independent copies&quot;</span>)</span>
-<span class="src-line" id="L543"></span>
-<span class="src-line" id="L544">	<span class="m">// resize: 1-byte Plain (bool, u8, i8)</span></span>
-<span class="src-line" id="L545">	<span class="k">let</span> rb = <span class="t">List</span>[<span class="t">bool</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L546">	rb.<span class="f">resize</span>(<span class="n">10</span>, <span class="c">true</span>)</span>
-<span class="src-line" id="L547">	rb.<span class="f">resize</span>(<span class="n">15</span>, <span class="c">false</span>)</span>
-<span class="src-line" id="L548">	<span class="f">assert</span>(rb.<span class="f">len</span>() == <span class="n">15</span>, <span class="s">&quot;resize bool len&quot;</span>)</span>
-<span class="src-line" id="L549">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">10</span>): <span class="f">assert</span>(rb[i] == <span class="c">true</span>, <span class="s">&quot;resize bool first 10 true&quot;</span>)</span>
-<span class="src-line" id="L550">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">10</span>..<span class="n">15</span>): <span class="f">assert</span>(rb[i] == <span class="c">false</span>, <span class="s">&quot;resize bool next 5 false&quot;</span>)</span>
-<span class="src-line" id="L551">	rb.<span class="f">resize</span>(<span class="n">4</span>, <span class="c">true</span>)</span>
-<span class="src-line" id="L552">	<span class="f">assert</span>(rb.<span class="f">len</span>() == <span class="n">4</span> <span class="k">and</span> rb[<span class="n">3</span>] == <span class="c">true</span>, <span class="s">&quot;resize bool shrink&quot;</span>)</span>
-<span class="src-line" id="L553"></span>
-<span class="src-line" id="L554">	<span class="k">let</span> ru = <span class="t">List</span>[<span class="t">u8</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L555">	ru.<span class="f">resize</span>(<span class="n">8</span>, <span class="t">u8</span>(<span class="n">42</span>))</span>
-<span class="src-line" id="L556">	<span class="f">assert</span>(ru.<span class="f">len</span>() == <span class="n">8</span> <span class="k">and</span> ru[<span class="n">7</span>] == <span class="t">u8</span>(<span class="n">42</span>), <span class="s">&quot;resize u8 grow&quot;</span>)</span>
-<span class="src-line" id="L557"></span>
-<span class="src-line" id="L558">	<span class="k">let</span> rii = <span class="t">List</span>[<span class="t">i8</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L559">	rii.<span class="f">resize</span>(<span class="n">8</span>, <span class="t">i8</span>(-<span class="n">12</span>))</span>
-<span class="src-line" id="L560">	<span class="f">assert</span>(rii.<span class="f">len</span>() == <span class="n">8</span> <span class="k">and</span> rii[<span class="n">7</span>] == <span class="t">i8</span>(-<span class="n">12</span>), <span class="s">&quot;resize i8 grow&quot;</span>)</span>
-<span class="src-line" id="L561"></span>
-<span class="src-line" id="L562">	<span class="m">// resize: multi-byte Plain</span></span>
-<span class="src-line" id="L563">	<span class="k">let</span> ri = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L564">	ri.<span class="f">resize</span>(<span class="n">5</span>, <span class="n">7</span>)</span>
-<span class="src-line" id="L565">	ri.<span class="f">resize</span>(<span class="n">5</span>, <span class="n">88</span>) <span class="m">// same length -&gt; no-op</span></span>
-<span class="src-line" id="L566">	<span class="f">assert</span>(ri.<span class="f">len</span>() == <span class="n">5</span> <span class="k">and</span> ri[<span class="n">4</span>] == <span class="n">7</span>, <span class="s">&quot;resize same len is no-op&quot;</span>)</span>
-<span class="src-line" id="L567">	ri.<span class="f">resize</span>(<span class="n">8</span>, <span class="n">9</span>)</span>
-<span class="src-line" id="L568">	<span class="f">assert</span>(ri.<span class="f">to_string</span>() == <span class="s">&quot;[7, 7, 7, 7, 7, 9, 9, 9]&quot;</span>, <span class="s">&quot;resize grow int&quot;</span>)</span>
-<span class="src-line" id="L569">	ri.<span class="f">resize</span>(<span class="n">3</span>, <span class="n">0</span>)</span>
-<span class="src-line" id="L570">	<span class="f">assert</span>(ri.<span class="f">to_string</span>() == <span class="s">&quot;[7, 7, 7]&quot;</span>, <span class="s">&quot;resize shrink int&quot;</span>)</span>
-<span class="src-line" id="L571">	ri.<span class="f">resize</span>(-<span class="n">10</span>, <span class="n">0</span>)</span>
-<span class="src-line" id="L572">	<span class="f">assert</span>(ri.<span class="f">is_empty</span>(), <span class="s">&quot;resize negative clamps to 0&quot;</span>)</span>
-<span class="src-line" id="L573"></span>
-<span class="src-line" id="L574">	<span class="m">// resize: Resource type (grow, shrink drops trailing elements cleanly, re-grow)</span></span>
-<span class="src-line" id="L575">	<span class="k">let</span> rs = <span class="t">List</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L576">	rs.<span class="f">resize</span>(<span class="n">3</span>, <span class="s">&quot;item&quot;</span>)</span>
-<span class="src-line" id="L577">	<span class="f">assert</span>(rs.<span class="f">set</span>(<span class="n">0</span>, <span class="s">&quot;keep&quot;</span>), <span class="s">&quot;set slot 0 before shrink&quot;</span>)</span>
-<span class="src-line" id="L578">	rs.<span class="f">resize</span>(<span class="n">6</span>, <span class="s">&quot;tail&quot;</span>)</span>
-<span class="src-line" id="L579">	<span class="f">assert</span>(rs.<span class="f">to_string</span>() == <span class="s">&quot;[keep, item, item, tail, tail, tail]&quot;</span>, <span class="s">&quot;resize grow string&quot;</span>)</span>
-<span class="src-line" id="L580">	rs.<span class="f">resize</span>(<span class="n">1</span>, <span class="s">&quot;unused&quot;</span>)</span>
-<span class="src-line" id="L581">	<span class="f">assert</span>(rs.<span class="f">to_string</span>() == <span class="s">&quot;[keep]&quot;</span>, <span class="s">&quot;resize shrink string drops tail cleanly&quot;</span>)</span>
-<span class="src-line" id="L582">	rs.<span class="f">resize</span>(<span class="n">3</span>, <span class="s">&quot;again&quot;</span>)</span>
-<span class="src-line" id="L583">	<span class="f">assert</span>(rs.<span class="f">to_string</span>() == <span class="s">&quot;[keep, again, again]&quot;</span>, <span class="s">&quot;resize re-grow string&quot;</span>)</span>
-<span class="src-line" id="L584">}</span>
-<span class="src-line" id="L585"></span>
-<span class="src-line" id="L586"><span class="a">@test</span>(<span class="s">&quot;ListIterator guarded against source mutations and drop&quot;</span>)</span>
-<span class="src-line" id="L587"><span class="k">bind</span> test_list_iterator_guarded = (): {</span>
-<span class="src-line" id="L588">	<span class="m">// Plain int iterator survives push/realloc, set, insert, remove, swap_remove, resize, clear</span></span>
-<span class="src-line" id="L589">	<span class="k">let</span> xs = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L590">	xs.<span class="f">push</span>(<span class="n">10</span>)</span>
-<span class="src-line" id="L591">	xs.<span class="f">push</span>(<span class="n">20</span>)</span>
-<span class="src-line" id="L592">	xs.<span class="f">push</span>(<span class="n">30</span>)</span>
-<span class="src-line" id="L593">	<span class="k">let</span> it = xs.<span class="f">iter</span>()</span>
-<span class="src-line" id="L594">	<span class="f">assert</span>(it.<span class="f">next</span>() == <span class="n">10</span>, <span class="s">&quot;first item before mutations&quot;</span>)</span>
-<span class="src-line" id="L595"></span>
-<span class="src-line" id="L596">	<span class="f">assert</span>(xs.<span class="f">set</span>(<span class="n">1</span>, <span class="n">999</span>), <span class="s">&quot;mutate set&quot;</span>)</span>
-<span class="src-line" id="L597">	xs.<span class="f">insert</span>(<span class="n">0</span>, <span class="n">111</span>)</span>
-<span class="src-line" id="L598">	<span class="k">let</span> _ = xs.<span class="f">remove</span>(<span class="n">2</span>)</span>
-<span class="src-line" id="L599">	<span class="k">let</span> _ = xs.<span class="f">swap_remove</span>(<span class="n">0</span>)</span>
-<span class="src-line" id="L600">	<span class="k">for</span>(k <span class="k">in</span> <span class="n">0</span>..<span class="n">100</span>): xs.<span class="f">push</span>(k)</span>
-<span class="src-line" id="L601">	xs.<span class="f">resize</span>(<span class="n">2</span>, -<span class="n">1</span>)</span>
-<span class="src-line" id="L602">	xs.<span class="f">clear</span>()</span>
-<span class="src-line" id="L603"></span>
-<span class="src-line" id="L604">	<span class="f">assert</span>(it.<span class="f">next</span>() == <span class="n">20</span>, <span class="s">&quot;snapshot yields 20&quot;</span>)</span>
-<span class="src-line" id="L605">	<span class="f">assert</span>(it.<span class="f">next</span>() == <span class="n">30</span>, <span class="s">&quot;snapshot yields 30&quot;</span>)</span>
-<span class="src-line" id="L606">	<span class="f">assert</span>(it.<span class="f">next</span>() == <span class="c">none</span>, <span class="s">&quot;snapshot ends cleanly&quot;</span>)</span>
-<span class="src-line" id="L607"></span>
-<span class="src-line" id="L608">	<span class="m">// Resource iterator survives source mutation and source drop with 0 leaks</span></span>
-<span class="src-line" id="L609">	<span class="k">let</span> it_outer = {</span>
-<span class="src-line" id="L610">		<span class="k">let</span> src = <span class="t">List</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L611">		src.<span class="f">push</span>(<span class="s">&quot;first&quot;</span>)</span>
-<span class="src-line" id="L612">		src.<span class="f">push</span>(<span class="s">&quot;second&quot;</span>)</span>
-<span class="src-line" id="L613">		src.<span class="f">push</span>(<span class="s">&quot;third&quot;</span>)</span>
-<span class="src-line" id="L614">		<span class="k">let</span> i_res = src.<span class="f">iter</span>()</span>
-<span class="src-line" id="L615">		<span class="f">assert</span>(i_res.<span class="f">next</span>() == <span class="s">&quot;first&quot;</span>, <span class="s">&quot;resource iter first&quot;</span>)</span>
-<span class="src-line" id="L616">		<span class="k">let</span> _ = src.<span class="f">set</span>(<span class="n">1</span>, <span class="s">&quot;mutated&quot;</span>)</span>
-<span class="src-line" id="L617">		src.<span class="f">insert</span>(<span class="n">0</span>, <span class="s">&quot;prepended&quot;</span>)</span>
-<span class="src-line" id="L618">		<span class="k">for</span>(k <span class="k">in</span> <span class="n">0</span>..<span class="n">20</span>): src.<span class="f">push</span>(<span class="s">&quot;realloc_</span>$k<span class="s">&quot;</span>)</span>
-<span class="src-line" id="L619">		src.<span class="f">clear</span>()</span>
-<span class="src-line" id="L620">		i_res</span>
-<span class="src-line" id="L621">	}</span>
-<span class="src-line" id="L622">	<span class="f">assert</span>(it_outer.<span class="f">next</span>() == <span class="s">&quot;second&quot;</span>, <span class="s">&quot;resource iter survives src drop: second&quot;</span>)</span>
-<span class="src-line" id="L623">	<span class="f">assert</span>(it_outer.<span class="f">next</span>() == <span class="s">&quot;third&quot;</span>, <span class="s">&quot;resource iter survives src drop: third&quot;</span>)</span>
-<span class="src-line" id="L624">	<span class="f">assert</span>(it_outer.<span class="f">next</span>() == <span class="c">none</span>, <span class="s">&quot;resource iter ends&quot;</span>)</span>
+<span class="src-line" id="L517">	xs.<span class="f">push</span>(<span class="n">1</span>)</span>
+<span class="src-line" id="L518">	xs.<span class="f">push</span>(<span class="n">2</span>)</span>
+<span class="src-line" id="L519">	xs.<span class="f">push</span>(<span class="n">3</span>)</span>
+<span class="src-line" id="L520">	<span class="k">let</span> old_cap = xs.<span class="f">cap</span>()</span>
+<span class="src-line" id="L521">	xs.<span class="f">reserve</span>(<span class="n">5</span>)</span>
+<span class="src-line" id="L522">	<span class="f">assert</span>(xs.<span class="f">cap</span>() == old_cap <span class="k">and</span> xs.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;smaller reserve is no-op&quot;</span>)</span>
+<span class="src-line" id="L523">	xs.<span class="f">reserve</span>(<span class="n">50</span>)</span>
+<span class="src-line" id="L524">	<span class="f">assert</span>(xs.<span class="f">cap</span>() &gt;= <span class="n">50</span> <span class="k">and</span> xs.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;larger reserve grows cap&quot;</span>)</span>
+<span class="src-line" id="L525">	<span class="f">assert</span>(xs.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">1</span> <span class="k">and</span> xs.<span class="f">get</span>(<span class="n">1</span>) == <span class="n">2</span> <span class="k">and</span> xs.<span class="f">get</span>(<span class="n">2</span>) == <span class="n">3</span>, <span class="s">&quot;reserve preserves elements&quot;</span>)</span>
+<span class="src-line" id="L526"></span>
+<span class="src-line" id="L527">	<span class="f">assert</span>(xs.<span class="f">set</span>(<span class="n">0</span>, <span class="n">100</span>).<span class="f">is_ok</span>(), <span class="s">&quot;set index 0&quot;</span>)</span>
+<span class="src-line" id="L528">	<span class="f">assert</span>(xs.<span class="f">set</span>(<span class="n">2</span>, <span class="n">300</span>).<span class="f">is_ok</span>(), <span class="s">&quot;set index 2&quot;</span>)</span>
+<span class="src-line" id="L529">	<span class="f">assert</span>(xs.<span class="f">set</span>(-<span class="n">1</span>, <span class="n">999</span>).<span class="f">is_err</span>(), <span class="s">&quot;set negative fails&quot;</span>)</span>
+<span class="src-line" id="L530">	<span class="f">assert</span>(xs.<span class="f">set</span>(<span class="n">3</span>, <span class="n">999</span>).<span class="f">is_err</span>(), <span class="s">&quot;set len fails&quot;</span>)</span>
+<span class="src-line" id="L531">	<span class="f">assert</span>(xs.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">100</span> <span class="k">and</span> xs.<span class="f">get</span>(<span class="n">1</span>) == <span class="n">2</span> <span class="k">and</span> xs.<span class="f">get</span>(<span class="n">2</span>) == <span class="n">300</span>, <span class="s">&quot;set updated values&quot;</span>)</span>
+<span class="src-line" id="L532"></span>
+<span class="src-line" id="L533">	<span class="m">// Resource elements: verify replaced &amp; rejected owned values do not leak</span></span>
+<span class="src-line" id="L534">	<span class="k">let</span> ss = <span class="t">List</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L535">	ss.<span class="f">reserve</span>(<span class="n">6</span>)</span>
+<span class="src-line" id="L536">	<span class="f">assert</span>(ss.<span class="f">cap</span>() &gt;= <span class="n">6</span>, <span class="s">&quot;List[string] reserve&quot;</span>)</span>
+<span class="src-line" id="L537">	ss.<span class="f">push</span>(<span class="s">&quot;alpha&quot;</span>)</span>
+<span class="src-line" id="L538">	ss.<span class="f">push</span>(<span class="s">&quot;beta&quot;</span>)</span>
+<span class="src-line" id="L539">	<span class="f">assert</span>(ss.<span class="f">set</span>(<span class="n">0</span>, <span class="s">&quot;ALPHA&quot;</span>).<span class="f">is_ok</span>(), <span class="s">&quot;List[string] set(0)&quot;</span>)</span>
+<span class="src-line" id="L540">	<span class="f">assert</span>(ss.<span class="f">set</span>(<span class="n">1</span>, <span class="s">&quot;BETA&quot;</span>).<span class="f">is_ok</span>(), <span class="s">&quot;List[string] set(1)&quot;</span>)</span>
+<span class="src-line" id="L541">	<span class="f">assert</span>(ss.<span class="f">set</span>(-<span class="n">1</span>, <span class="s">&quot;OOB_NEG&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;List[string] set(-1) drops val cleanly&quot;</span>)</span>
+<span class="src-line" id="L542">	<span class="f">assert</span>(ss.<span class="f">set</span>(<span class="n">2</span>, <span class="s">&quot;OOB_HI&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;List[string] set(2) drops val cleanly&quot;</span>)</span>
+<span class="src-line" id="L543">	<span class="f">assert</span>(ss.<span class="f">get</span>(<span class="n">0</span>) == <span class="s">&quot;ALPHA&quot;</span> <span class="k">and</span> ss.<span class="f">get</span>(<span class="n">1</span>) == <span class="s">&quot;BETA&quot;</span>, <span class="s">&quot;List[string] set values&quot;</span>)</span>
+<span class="src-line" id="L544">}</span>
+<span class="src-line" id="L545"></span>
+<span class="src-line" id="L546"><span class="a">@test</span>(<span class="s">&quot;List insert, remove, and swap_remove (Plain and Resource)&quot;</span>)</span>
+<span class="src-line" id="L547"><span class="k">bind</span> test_list_insert_remove_swap_remove = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L548">	<span class="m">// Plain int list: insert at front, middle, end across reallocations</span></span>
+<span class="src-line" id="L549">	<span class="k">let</span> xs = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L550">	xs.<span class="f">must_insert</span>(<span class="n">0</span>, <span class="n">20</span>)</span>
+<span class="src-line" id="L551">	xs.<span class="f">must_insert</span>(<span class="n">0</span>, <span class="n">10</span>)</span>
+<span class="src-line" id="L552">	xs.<span class="f">must_insert</span>(<span class="n">2</span>, <span class="n">40</span>)</span>
+<span class="src-line" id="L553">	xs.<span class="f">must_insert</span>(<span class="n">2</span>, <span class="n">30</span>)</span>
+<span class="src-line" id="L554">	xs.<span class="f">must_insert</span>(<span class="n">0</span>, <span class="n">5</span>)</span>
+<span class="src-line" id="L555">	xs.<span class="f">must_insert</span>(<span class="n">5</span>, <span class="n">50</span>)</span>
+<span class="src-line" id="L556">	<span class="f">assert</span>(xs.<span class="f">len</span>() == <span class="n">6</span>, <span class="s">&quot;insert len == 6&quot;</span>)</span>
+<span class="src-line" id="L557">	<span class="f">assert</span>(xs.<span class="f">to_string</span>() == <span class="s">&quot;[5, 10, 20, 30, 40, 50]&quot;</span>, <span class="s">&quot;insert ordering&quot;</span>)</span>
+<span class="src-line" id="L558"></span>
+<span class="src-line" id="L559">	<span class="f">assert</span>(xs.<span class="f">remove</span>(<span class="n">0</span>) == <span class="n">5</span>, <span class="s">&quot;remove front&quot;</span>)</span>
+<span class="src-line" id="L560">	<span class="f">assert</span>(xs.<span class="f">remove</span>(<span class="n">2</span>) == <span class="n">30</span>, <span class="s">&quot;remove middle&quot;</span>)</span>
+<span class="src-line" id="L561">	<span class="f">assert</span>(xs.<span class="f">remove</span>(<span class="n">3</span>) == <span class="n">50</span>, <span class="s">&quot;remove end&quot;</span>)</span>
+<span class="src-line" id="L562">	<span class="f">assert</span>(xs.<span class="f">to_string</span>() == <span class="s">&quot;[10, 20, 40]&quot;</span>, <span class="s">&quot;remove remaining&quot;</span>)</span>
+<span class="src-line" id="L563">	<span class="f">assert</span>(xs.<span class="f">swap_remove</span>(<span class="n">0</span>) == <span class="n">10</span>, <span class="s">&quot;swap_remove front moves last&quot;</span>)</span>
+<span class="src-line" id="L564">	<span class="f">assert</span>(xs.<span class="f">to_string</span>() == <span class="s">&quot;[40, 20]&quot;</span>, <span class="s">&quot;swap_remove state&quot;</span>)</span>
+<span class="src-line" id="L565">	<span class="f">assert</span>(xs.<span class="f">swap_remove</span>(<span class="n">1</span>) == <span class="n">20</span>, <span class="s">&quot;swap_remove last&quot;</span>)</span>
+<span class="src-line" id="L566">	<span class="f">assert</span>(xs.<span class="f">swap_remove</span>(<span class="n">0</span>) == <span class="n">40</span>, <span class="s">&quot;swap_remove single&quot;</span>)</span>
+<span class="src-line" id="L567">	<span class="f">assert</span>(xs.<span class="f">is_empty</span>(), <span class="s">&quot;empty after removals&quot;</span>)</span>
+<span class="src-line" id="L568"></span>
+<span class="src-line" id="L569">	<span class="m">// Resource string list: verify 0 leaks and proper element ownership</span></span>
+<span class="src-line" id="L570">	<span class="k">let</span> words = <span class="t">List</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L571">	words.<span class="f">must_insert</span>(<span class="n">0</span>, <span class="s">&quot;mid&quot;</span>)</span>
+<span class="src-line" id="L572">	words.<span class="f">must_insert</span>(<span class="n">0</span>, <span class="s">&quot;head&quot;</span>)</span>
+<span class="src-line" id="L573">	words.<span class="f">must_insert</span>(<span class="n">2</span>, <span class="s">&quot;tail&quot;</span>)</span>
+<span class="src-line" id="L574">	words.<span class="f">must_insert</span>(<span class="n">1</span>, <span class="s">&quot;two&quot;</span>)</span>
+<span class="src-line" id="L575">	words.<span class="f">must_insert</span>(<span class="n">4</span>, <span class="s">&quot;end&quot;</span>)</span>
+<span class="src-line" id="L576">	<span class="f">assert</span>(words.<span class="f">to_string</span>() == <span class="s">&quot;[head, two, mid, tail, end]&quot;</span>, <span class="s">&quot;string insert order&quot;</span>)</span>
+<span class="src-line" id="L577"></span>
+<span class="src-line" id="L578">	<span class="f">assert</span>(words.<span class="f">remove</span>(<span class="n">1</span>) == <span class="s">&quot;two&quot;</span>, <span class="s">&quot;string remove middle&quot;</span>)</span>
+<span class="src-line" id="L579">	<span class="f">assert</span>(words.<span class="f">remove</span>(<span class="n">0</span>) == <span class="s">&quot;head&quot;</span>, <span class="s">&quot;string remove front&quot;</span>)</span>
+<span class="src-line" id="L580">	<span class="f">assert</span>(words.<span class="f">remove</span>(<span class="n">2</span>) == <span class="s">&quot;end&quot;</span>, <span class="s">&quot;string remove end&quot;</span>)</span>
+<span class="src-line" id="L581">	<span class="f">assert</span>(words.<span class="f">to_string</span>() == <span class="s">&quot;[mid, tail]&quot;</span>, <span class="s">&quot;string remove state&quot;</span>)</span>
+<span class="src-line" id="L582">	<span class="f">assert</span>(words.<span class="f">swap_remove</span>(<span class="n">0</span>) == <span class="s">&quot;mid&quot;</span>, <span class="s">&quot;string swap_remove front&quot;</span>)</span>
+<span class="src-line" id="L583">	<span class="f">assert</span>(words.<span class="f">to_string</span>() == <span class="s">&quot;[tail]&quot;</span>, <span class="s">&quot;string swap_remove leaves tail&quot;</span>)</span>
+<span class="src-line" id="L584">	<span class="f">assert</span>(words.<span class="f">swap_remove</span>(<span class="n">0</span>) == <span class="s">&quot;tail&quot;</span>, <span class="s">&quot;string swap_remove single&quot;</span>)</span>
+<span class="src-line" id="L585">	<span class="f">assert</span>(words.<span class="f">is_empty</span>(), <span class="s">&quot;string list empty&quot;</span>)</span>
+<span class="src-line" id="L586"></span>
+<span class="src-line" id="L587">	<span class="m">// Shorthand [int] parity with List[int] methods</span></span>
+<span class="src-line" id="L588">	<span class="k">let</span> sh: [<span class="t">int</span>] = [<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>]</span>
+<span class="src-line" id="L589">	sh.<span class="f">reserve</span>(<span class="n">16</span>)</span>
+<span class="src-line" id="L590">	<span class="f">assert</span>(sh.<span class="f">cap</span>() &gt;= <span class="n">16</span>, <span class="s">&quot;[int] reserve&quot;</span>)</span>
+<span class="src-line" id="L591">	<span class="f">assert</span>(sh.<span class="f">set</span>(<span class="n">1</span>, <span class="n">20</span>).<span class="f">is_ok</span>(), <span class="s">&quot;[int] set&quot;</span>)</span>
+<span class="src-line" id="L592">	sh.<span class="f">must_insert</span>(<span class="n">1</span>, <span class="n">15</span>)</span>
+<span class="src-line" id="L593">	<span class="f">assert</span>(sh.<span class="f">to_string</span>() == <span class="s">&quot;[1, 15, 20, 3]&quot;</span>, <span class="s">&quot;[int] insert&quot;</span>)</span>
+<span class="src-line" id="L594">	<span class="f">assert</span>(sh.<span class="f">remove</span>(<span class="n">1</span>) == <span class="n">15</span>, <span class="s">&quot;[int] remove&quot;</span>)</span>
+<span class="src-line" id="L595">	<span class="f">assert</span>(sh.<span class="f">swap_remove</span>(<span class="n">0</span>) == <span class="n">1</span>, <span class="s">&quot;[int] swap_remove&quot;</span>)</span>
+<span class="src-line" id="L596">	<span class="f">assert</span>(sh.<span class="f">to_string</span>() == <span class="s">&quot;[3, 20]&quot;</span>, <span class="s">&quot;[int] after swap_remove&quot;</span>)</span>
+<span class="src-line" id="L597">	sh.<span class="f">resize</span>(<span class="n">4</span>, <span class="n">99</span>)</span>
+<span class="src-line" id="L598">	<span class="f">assert</span>(sh.<span class="f">to_string</span>() == <span class="s">&quot;[3, 20, 99, 99]&quot;</span>, <span class="s">&quot;[int] resize&quot;</span>)</span>
+<span class="src-line" id="L599">}</span>
+<span class="src-line" id="L600"></span>
+<span class="src-line" id="L601"><span class="a">@test</span>(<span class="s">&quot;List filled and resize (1-byte Plain, multi-byte Plain, and Resource)&quot;</span>)</span>
+<span class="src-line" id="L602"><span class="k">bind</span> test_list_filled_and_resize = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L603">	<span class="m">// Empty/negative filled</span></span>
+<span class="src-line" id="L604">	<span class="k">let</span> b0 = <span class="t">List</span>[<span class="t">bool</span>].<span class="f">filled</span>(<span class="n">0</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L605">	<span class="f">assert</span>(b0.<span class="f">len</span>() == <span class="n">0</span> <span class="k">and</span> b0.<span class="f">cap</span>() == <span class="n">0</span> <span class="k">and</span> b0.<span class="f">is_empty</span>(), <span class="s">&quot;filled(0)&quot;</span>)</span>
+<span class="src-line" id="L606">	<span class="k">let</span> bneg = <span class="t">List</span>[<span class="t">bool</span>].<span class="f">filled</span>(-<span class="n">3</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L607">	<span class="f">assert</span>(bneg.<span class="f">len</span>() == <span class="n">0</span> <span class="k">and</span> bneg.<span class="f">cap</span>() == <span class="n">0</span> <span class="k">and</span> bneg.<span class="f">is_empty</span>(), <span class="s">&quot;filled(-3)&quot;</span>)</span>
+<span class="src-line" id="L608"></span>
+<span class="src-line" id="L609">	<span class="m">// 1-byte Plain types (bool, u8, i8) -&gt; alloc_uninit + fill_bytes</span></span>
+<span class="src-line" id="L610">	<span class="k">let</span> bt = <span class="t">List</span>[<span class="t">bool</span>].<span class="f">filled</span>(<span class="n">17</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L611">	<span class="f">assert</span>(bt.<span class="f">len</span>() == <span class="n">17</span> <span class="k">and</span> bt.<span class="f">cap</span>() == <span class="n">17</span>, <span class="s">&quot;List[bool].filled true len/cap&quot;</span>)</span>
+<span class="src-line" id="L612">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">17</span>): <span class="f">assert</span>(bt[i] == <span class="c">true</span>, <span class="s">&quot;List[bool].filled true elem&quot;</span>)</span>
+<span class="src-line" id="L613"></span>
+<span class="src-line" id="L614">	<span class="k">let</span> bf = <span class="t">List</span>[<span class="t">bool</span>].<span class="f">filled</span>(<span class="n">17</span>, <span class="c">false</span>)</span>
+<span class="src-line" id="L615">	<span class="f">assert</span>(bf.<span class="f">len</span>() == <span class="n">17</span> <span class="k">and</span> bf.<span class="f">cap</span>() == <span class="n">17</span>, <span class="s">&quot;List[bool].filled false len/cap&quot;</span>)</span>
+<span class="src-line" id="L616">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">17</span>): <span class="f">assert</span>(bf[i] == <span class="c">false</span>, <span class="s">&quot;List[bool].filled false elem&quot;</span>)</span>
+<span class="src-line" id="L617"></span>
+<span class="src-line" id="L618">	<span class="k">let</span> bu = <span class="t">List</span>[<span class="t">u8</span>].<span class="f">filled</span>(<span class="n">64</span>, <span class="t">u8</span>(<span class="n">171</span>))</span>
+<span class="src-line" id="L619">	<span class="f">assert</span>(bu.<span class="f">len</span>() == <span class="n">64</span> <span class="k">and</span> bu.<span class="f">cap</span>() == <span class="n">64</span>, <span class="s">&quot;List[u8].filled len/cap&quot;</span>)</span>
+<span class="src-line" id="L620">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">64</span>): <span class="f">assert</span>(bu[i] == <span class="t">u8</span>(<span class="n">171</span>), <span class="s">&quot;List[u8].filled elem&quot;</span>)</span>
+<span class="src-line" id="L621"></span>
+<span class="src-line" id="L622">	<span class="k">let</span> bi = <span class="t">List</span>[<span class="t">i8</span>].<span class="f">filled</span>(<span class="n">33</span>, <span class="t">i8</span>(-<span class="n">7</span>))</span>
+<span class="src-line" id="L623">	<span class="f">assert</span>(bi.<span class="f">len</span>() == <span class="n">33</span> <span class="k">and</span> bi.<span class="f">cap</span>() == <span class="n">33</span>, <span class="s">&quot;List[i8].filled len/cap&quot;</span>)</span>
+<span class="src-line" id="L624">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">33</span>): <span class="f">assert</span>(bi[i] == <span class="t">i8</span>(-<span class="n">7</span>), <span class="s">&quot;List[i8].filled elem&quot;</span>)</span>
 <span class="src-line" id="L625"></span>
-<span class="src-line" id="L626">	<span class="m">// Early stop &amp; empty iterator leak checks</span></span>
-<span class="src-line" id="L627">	<span class="k">let</span> partial = <span class="t">List</span>[<span class="t">string</span>].<span class="f">filled</span>(<span class="n">5</span>, <span class="s">&quot;leak_free&quot;</span>)</span>
-<span class="src-line" id="L628">	<span class="k">let</span> pit = partial.<span class="f">iter</span>()</span>
-<span class="src-line" id="L629">	<span class="f">assert</span>(pit.<span class="f">next</span>() == <span class="s">&quot;leak_free&quot;</span>, <span class="s">&quot;partial iter step 1&quot;</span>)</span>
+<span class="src-line" id="L626">	<span class="m">// Multi-byte Plain types</span></span>
+<span class="src-line" id="L627">	<span class="k">let</span> ints = <span class="t">List</span>[<span class="t">int</span>].<span class="f">filled</span>(<span class="n">12</span>, <span class="n">99</span>)</span>
+<span class="src-line" id="L628">	<span class="f">assert</span>(ints.<span class="f">len</span>() == <span class="n">12</span> <span class="k">and</span> ints.<span class="f">cap</span>() == <span class="n">12</span>, <span class="s">&quot;List[int].filled len/cap&quot;</span>)</span>
+<span class="src-line" id="L629">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">12</span>): <span class="f">assert</span>(ints[i] == <span class="n">99</span>, <span class="s">&quot;List[int].filled elem&quot;</span>)</span>
 <span class="src-line" id="L630"></span>
-<span class="src-line" id="L631">	<span class="k">let</span> empty_s = <span class="t">List</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L632">	<span class="k">let</span> eit = empty_s.<span class="f">iter</span>()</span>
-<span class="src-line" id="L633">	<span class="f">assert</span>(eit.<span class="f">next</span>() == <span class="c">none</span>, <span class="s">&quot;empty iter none&quot;</span>)</span>
-<span class="src-line" id="L634">}</span>
-<span class="src-line" id="L635"></span>
-<span class="src-line" id="L636"><span class="a">@test</span>(<span class="s">&quot;List first, last, index_of, swap, truncate, and extend&quot;</span>)</span>
-<span class="src-line" id="L637"><span class="k">bind</span> test_list_helpers = (): {</span>
-<span class="src-line" id="L638">	<span class="k">let</span> xs = [<span class="n">10</span>, <span class="n">20</span>, <span class="n">30</span>, <span class="n">20</span>]</span>
-<span class="src-line" id="L639">	<span class="f">assert</span>(xs.<span class="f">first</span>() == <span class="n">10</span> <span class="k">and</span> xs.<span class="f">last</span>() == <span class="n">20</span>, <span class="s">&quot;first and last&quot;</span>)</span>
-<span class="src-line" id="L640">	<span class="k">let</span> empty: [<span class="t">int</span>] = []</span>
-<span class="src-line" id="L641">	<span class="f">assert</span>(empty.<span class="f">first</span>() == <span class="c">none</span> <span class="k">and</span> empty.<span class="f">last</span>() == <span class="c">none</span>, <span class="s">&quot;empty list&quot;</span>)</span>
-<span class="src-line" id="L642">	<span class="f">assert</span>(xs.<span class="f">index_of</span>(<span class="n">20</span>) == <span class="n">1</span> <span class="k">and</span> xs.<span class="f">index_of</span>(<span class="n">99</span>) == <span class="c">none</span>, <span class="s">&quot;index_of finds the first match&quot;</span>)</span>
-<span class="src-line" id="L643"></span>
-<span class="src-line" id="L644">	xs.<span class="f">swap</span>(<span class="n">0</span>, <span class="n">2</span>)</span>
-<span class="src-line" id="L645">	<span class="f">assert</span>(xs[<span class="n">0</span>] == <span class="n">30</span> <span class="k">and</span> xs[<span class="n">2</span>] == <span class="n">10</span>, <span class="s">&quot;swap&quot;</span>)</span>
-<span class="src-line" id="L646">	xs.<span class="f">swap</span>(<span class="n">1</span>, <span class="n">1</span>)</span>
-<span class="src-line" id="L647">	<span class="f">assert</span>(xs[<span class="n">1</span>] == <span class="n">20</span>, <span class="s">&quot;swap with itself&quot;</span>)</span>
-<span class="src-line" id="L648"></span>
-<span class="src-line" id="L649">	<span class="k">let</span> words = [<span class="s">&quot;a&quot;</span> + <span class="s">&quot;1&quot;</span>, <span class="s">&quot;b&quot;</span> + <span class="s">&quot;2&quot;</span>, <span class="s">&quot;c&quot;</span> + <span class="s">&quot;3&quot;</span>]</span>
-<span class="src-line" id="L650">	words.<span class="f">swap</span>(<span class="n">0</span>, <span class="n">2</span>)</span>
-<span class="src-line" id="L651">	<span class="f">assert</span>(words[<span class="n">0</span>] == <span class="s">&quot;c3&quot;</span> <span class="k">and</span> words[<span class="n">2</span>] == <span class="s">&quot;a1&quot;</span>, <span class="s">&quot;swap resources&quot;</span>)</span>
-<span class="src-line" id="L652">	words.<span class="f">truncate</span>(<span class="n">1</span>)</span>
-<span class="src-line" id="L653">	<span class="f">assert</span>(words.<span class="f">len</span>() == <span class="n">1</span> <span class="k">and</span> words[<span class="n">0</span>] == <span class="s">&quot;c3&quot;</span>, <span class="s">&quot;truncate drops the tail&quot;</span>)</span>
-<span class="src-line" id="L654">	words.<span class="f">truncate</span>(<span class="n">5</span>)</span>
-<span class="src-line" id="L655">	<span class="f">assert</span>(words.<span class="f">len</span>() == <span class="n">1</span>, <span class="s">&quot;truncate longer is a no-op&quot;</span>)</span>
-<span class="src-line" id="L656"></span>
-<span class="src-line" id="L657">	words.<span class="f">extend</span>([<span class="s">&quot;d&quot;</span> + <span class="s">&quot;4&quot;</span>, <span class="s">&quot;e&quot;</span> + <span class="s">&quot;5&quot;</span>])</span>
-<span class="src-line" id="L658">	<span class="f">assert</span>(words.<span class="f">len</span>() == <span class="n">3</span> <span class="k">and</span> words[<span class="n">1</span>] == <span class="s">&quot;d4&quot;</span> <span class="k">and</span> words[<span class="n">2</span>] == <span class="s">&quot;e5&quot;</span>, <span class="s">&quot;extend moves elements in order&quot;</span>)</span>
-<span class="src-line" id="L659">	<span class="k">let</span> more = [<span class="s">&quot;f&quot;</span> + <span class="s">&quot;6&quot;</span>]</span>
-<span class="src-line" id="L660">	words.<span class="f">extend</span>(<span class="k">own</span> more)</span>
-<span class="src-line" id="L661">	<span class="f">assert</span>(words.<span class="f">last</span>() == <span class="s">&quot;f6&quot;</span>, <span class="s">&quot;extend from a variable&quot;</span>)</span>
-<span class="src-line" id="L662">	words.<span class="f">truncate</span>(-<span class="n">1</span>)</span>
-<span class="src-line" id="L663">	<span class="f">assert</span>(words.<span class="f">is_empty</span>(), <span class="s">&quot;negative truncate empties&quot;</span>)</span>
-<span class="src-line" id="L664">}</span>
-<span class="src-line" id="L665"></span>
-</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<span class="src-line" id="L631">	<span class="k">let</span> floats = <span class="t">List</span>[<span class="t">float</span>].<span class="f">filled</span>(<span class="n">5</span>, <span class="n">3.25</span>)</span>
+<span class="src-line" id="L632">	<span class="f">assert</span>(floats.<span class="f">len</span>() == <span class="n">5</span> <span class="k">and</span> floats.<span class="f">cap</span>() == <span class="n">5</span>, <span class="s">&quot;List[float].filled len/cap&quot;</span>)</span>
+<span class="src-line" id="L633">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">5</span>): <span class="f">assert</span>(floats[i] == <span class="n">3.25</span>, <span class="s">&quot;List[float].filled elem&quot;</span>)</span>
+<span class="src-line" id="L634"></span>
+<span class="src-line" id="L635">	<span class="m">// Resource type: independent deep copies</span></span>
+<span class="src-line" id="L636">	<span class="k">let</span> strs = <span class="t">List</span>[<span class="t">string</span>].<span class="f">filled</span>(<span class="n">4</span>, <span class="s">&quot;hello&quot;</span>)</span>
+<span class="src-line" id="L637">	<span class="f">assert</span>(strs.<span class="f">len</span>() == <span class="n">4</span> <span class="k">and</span> strs.<span class="f">cap</span>() == <span class="n">4</span>, <span class="s">&quot;List[string].filled len/cap&quot;</span>)</span>
+<span class="src-line" id="L638">	strs[<span class="n">1</span>] = <span class="s">&quot;world&quot;</span></span>
+<span class="src-line" id="L639">	<span class="f">assert</span>(strs[<span class="n">0</span>] == <span class="s">&quot;hello&quot;</span> <span class="k">and</span> strs[<span class="n">1</span>] == <span class="s">&quot;world&quot;</span> <span class="k">and</span> strs[<span class="n">2</span>] == <span class="s">&quot;hello&quot;</span> <span class="k">and</span> strs[<span class="n">3</span>] == <span class="s">&quot;hello&quot;</span>, <span class="s">&quot;independent copies&quot;</span>)</span>
+<span class="src-line" id="L640"></span>
+<span class="src-line" id="L641">	<span class="m">// resize: 1-byte Plain (bool, u8, i8)</span></span>
+<span class="src-line" id="L642">	<span class="k">let</span> rb = <span class="t">List</span>[<span class="t">bool</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L643">	rb.<span class="f">resize</span>(<span class="n">10</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L644">	rb.<span class="f">resize</span>(<span class="n">15</span>, <span class="c">false</span>)</span>
+<span class="src-line" id="L645">	<span class="f">assert</span>(rb.<span class="f">len</span>() == <span class="n">15</span>, <span class="s">&quot;resize bool len&quot;</span>)</span>
+<span class="src-line" id="L646">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">10</span>): <span class="f">assert</span>(rb[i] == <span class="c">true</span>, <span class="s">&quot;resize bool first 10 true&quot;</span>)</span>
+<span class="src-line" id="L647">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">10</span>..<span class="n">15</span>): <span class="f">assert</span>(rb[i] == <span class="c">false</span>, <span class="s">&quot;resize bool next 5 false&quot;</span>)</span>
+<span class="src-line" id="L648">	rb.<span class="f">resize</span>(<span class="n">4</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L649">	<span class="f">assert</span>(rb.<span class="f">len</span>() == <span class="n">4</span> <span class="k">and</span> rb[<span class="n">3</span>] == <span class="c">true</span>, <span class="s">&quot;resize bool shrink&quot;</span>)</span>
+<span class="src-line" id="L650"></span>
+<span class="src-line" id="L651">	<span class="k">let</span> ru = <span class="t">List</span>[<span class="t">u8</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L652">	ru.<span class="f">resize</span>(<span class="n">8</span>, <span class="t">u8</span>(<span class="n">42</span>))</span>
+<span class="src-line" id="L653">	<span class="f">assert</span>(ru.<span class="f">len</span>() == <span class="n">8</span> <span class="k">and</span> ru[<span class="n">7</span>] == <span class="t">u8</span>(<span class="n">42</span>), <span class="s">&quot;resize u8 grow&quot;</span>)</span>
+<span class="src-line" id="L654"></span>
+<span class="src-line" id="L655">	<span class="k">let</span> rii = <span class="t">List</span>[<span class="t">i8</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L656">	rii.<span class="f">resize</span>(<span class="n">8</span>, <span class="t">i8</span>(-<span class="n">12</span>))</span>
+<span class="src-line" id="L657">	<span class="f">assert</span>(rii.<span class="f">len</span>() == <span class="n">8</span> <span class="k">and</span> rii[<span class="n">7</span>] == <span class="t">i8</span>(-<span class="n">12</span>), <span class="s">&quot;resize i8 grow&quot;</span>)</span>
+<span class="src-line" id="L658"></span>
+<span class="src-line" id="L659">	<span class="m">// resize: multi-byte Plain</span></span>
+<span class="src-line" id="L660">	<span class="k">let</span> ri = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L661">	ri.<span class="f">resize</span>(<span class="n">5</span>, <span class="n">7</span>)</span>
+<span class="src-line" id="L662">	ri.<span class="f">resize</span>(<span class="n">5</span>, <span class="n">88</span>) <span class="m">// same length -&gt; no-op</span></span>
+<span class="src-line" id="L663">	<span class="f">assert</span>(ri.<span class="f">len</span>() == <span class="n">5</span> <span class="k">and</span> ri[<span class="n">4</span>] == <span class="n">7</span>, <span class="s">&quot;resize same len is no-op&quot;</span>)</span>
+<span class="src-line" id="L664">	ri.<span class="f">resize</span>(<span class="n">8</span>, <span class="n">9</span>)</span>
+<span class="src-line" id="L665">	<span class="f">assert</span>(ri.<span class="f">to_string</span>() == <span class="s">&quot;[7, 7, 7, 7, 7, 9, 9, 9]&quot;</span>, <span class="s">&quot;resize grow int&quot;</span>)</span>
+<span class="src-line" id="L666">	ri.<span class="f">resize</span>(<span class="n">3</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L667">	<span class="f">assert</span>(ri.<span class="f">to_string</span>() == <span class="s">&quot;[7, 7, 7]&quot;</span>, <span class="s">&quot;resize shrink int&quot;</span>)</span>
+<span class="src-line" id="L668">	ri.<span class="f">resize</span>(-<span class="n">10</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L669">	<span class="f">assert</span>(ri.<span class="f">is_empty</span>(), <span class="s">&quot;resize negative clamps to 0&quot;</span>)</span>
+<span class="src-line" id="L670"></span>
+<span class="src-line" id="L671">	<span class="m">// resize: Resource type (grow, shrink drops trailing elements cleanly, re-grow)</span></span>
+<span class="src-line" id="L672">	<span class="k">let</span> rs = <span class="t">List</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L673">	rs.<span class="f">resize</span>(<span class="n">3</span>, <span class="s">&quot;item&quot;</span>)</span>
+<span class="src-line" id="L674">	rs[<span class="n">0</span>] = <span class="s">&quot;keep&quot;</span></span>
+<span class="src-line" id="L675">	rs.<span class="f">resize</span>(<span class="n">6</span>, <span class="s">&quot;tail&quot;</span>)</span>
+<span class="src-line" id="L676">	<span class="f">assert</span>(rs.<span class="f">to_string</span>() == <span class="s">&quot;[keep, item, item, tail, tail, tail]&quot;</span>, <span class="s">&quot;resize grow string&quot;</span>)</span>
+<span class="src-line" id="L677">	rs.<span class="f">resize</span>(<span class="n">1</span>, <span class="s">&quot;unused&quot;</span>)</span>
+<span class="src-line" id="L678">	<span class="f">assert</span>(rs.<span class="f">to_string</span>() == <span class="s">&quot;[keep]&quot;</span>, <span class="s">&quot;resize shrink string drops tail cleanly&quot;</span>)</span>
+<span class="src-line" id="L679">	rs.<span class="f">resize</span>(<span class="n">3</span>, <span class="s">&quot;again&quot;</span>)</span>
+<span class="src-line" id="L680">	<span class="f">assert</span>(rs.<span class="f">to_string</span>() == <span class="s">&quot;[keep, again, again]&quot;</span>, <span class="s">&quot;resize re-grow string&quot;</span>)</span>
+<span class="src-line" id="L681">}</span>
+<span class="src-line" id="L682"></span>
+<span class="src-line" id="L683"><span class="a">@test</span>(<span class="s">&quot;ListIterator guarded against source mutations and drop&quot;</span>)</span>
+<span class="src-line" id="L684"><span class="k">bind</span> test_list_iterator_guarded = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L685">	<span class="m">// Plain int iterator survives push/realloc, set, insert, remove, swap_remove, resize, clear</span></span>
+<span class="src-line" id="L686">	<span class="k">let</span> xs = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L687">	xs.<span class="f">push</span>(<span class="n">10</span>)</span>
+<span class="src-line" id="L688">	xs.<span class="f">push</span>(<span class="n">20</span>)</span>
+<span class="src-line" id="L689">	xs.<span class="f">push</span>(<span class="n">30</span>)</span>
+<span class="src-line" id="L690">	<span class="k">let</span> it = xs.<span class="f">iter</span>()</span>
+<span class="src-line" id="L691">	<span class="f">assert</span>(it.<span class="f">next</span>() == <span class="n">10</span>, <span class="s">&quot;first item before mutations&quot;</span>)</span>
+<span class="src-line" id="L692"></span>
+<span class="src-line" id="L693">	xs[<span class="n">1</span>] = <span class="n">999</span></span>
+<span class="src-line" id="L694">	xs.<span class="f">must_insert</span>(<span class="n">0</span>, <span class="n">111</span>)</span>
+<span class="src-line" id="L695">	<span class="k">let</span> _ = xs.<span class="f">remove</span>(<span class="n">2</span>)</span>
+<span class="src-line" id="L696">	<span class="k">let</span> _ = xs.<span class="f">swap_remove</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L697">	<span class="k">for</span>(k <span class="k">in</span> <span class="n">0</span>..<span class="n">100</span>): xs.<span class="f">push</span>(k)</span>
+<span class="src-line" id="L698">	xs.<span class="f">resize</span>(<span class="n">2</span>, -<span class="n">1</span>)</span>
+<span class="src-line" id="L699">	xs.<span class="f">clear</span>()</span>
+<span class="src-line" id="L700"></span>
+<span class="src-line" id="L701">	<span class="f">assert</span>(it.<span class="f">next</span>() == <span class="n">20</span>, <span class="s">&quot;snapshot yields 20&quot;</span>)</span>
+<span class="src-line" id="L702">	<span class="f">assert</span>(it.<span class="f">next</span>() == <span class="n">30</span>, <span class="s">&quot;snapshot yields 30&quot;</span>)</span>
+<span class="src-line" id="L703">	<span class="f">assert</span>(it.<span class="f">next</span>() == <span class="c">none</span>, <span class="s">&quot;snapshot ends cleanly&quot;</span>)</span>
+<span class="src-line" id="L704"></span>
+<span class="src-line" id="L705">	<span class="m">// Resource iterator survives source mutation and source drop with 0 leaks</span></span>
+<span class="src-line" id="L706">	<span class="k">let</span> it_outer = {</span>
+<span class="src-line" id="L707">		<span class="k">let</span> src = <span class="t">List</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L708">		src.<span class="f">push</span>(<span class="s">&quot;first&quot;</span>)</span>
+<span class="src-line" id="L709">		src.<span class="f">push</span>(<span class="s">&quot;second&quot;</span>)</span>
+<span class="src-line" id="L710">		src.<span class="f">push</span>(<span class="s">&quot;third&quot;</span>)</span>
+<span class="src-line" id="L711">		<span class="k">let</span> i_res = src.<span class="f">iter</span>()</span>
+<span class="src-line" id="L712">		<span class="f">assert</span>(i_res.<span class="f">next</span>() == <span class="s">&quot;first&quot;</span>, <span class="s">&quot;resource iter first&quot;</span>)</span>
+<span class="src-line" id="L713">		<span class="k">let</span> _ = src.<span class="f">set</span>(<span class="n">1</span>, <span class="s">&quot;mutated&quot;</span>)</span>
+<span class="src-line" id="L714">		src.<span class="f">must_insert</span>(<span class="n">0</span>, <span class="s">&quot;prepended&quot;</span>)</span>
+<span class="src-line" id="L715">		<span class="k">for</span>(k <span class="k">in</span> <span class="n">0</span>..<span class="n">20</span>): src.<span class="f">push</span>(<span class="s">&quot;realloc_</span>$k<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L716">		src.<span class="f">clear</span>()</span>
+<span class="src-line" id="L717">		i_res</span>
+<span class="src-line" id="L718">	}</span>
+<span class="src-line" id="L719">	<span class="f">assert</span>(it_outer.<span class="f">next</span>() == <span class="s">&quot;second&quot;</span>, <span class="s">&quot;resource iter survives src drop: second&quot;</span>)</span>
+<span class="src-line" id="L720">	<span class="f">assert</span>(it_outer.<span class="f">next</span>() == <span class="s">&quot;third&quot;</span>, <span class="s">&quot;resource iter survives src drop: third&quot;</span>)</span>
+<span class="src-line" id="L721">	<span class="f">assert</span>(it_outer.<span class="f">next</span>() == <span class="c">none</span>, <span class="s">&quot;resource iter ends&quot;</span>)</span>
+<span class="src-line" id="L722"></span>
+<span class="src-line" id="L723">	<span class="m">// Early stop &amp; empty iterator leak checks</span></span>
+<span class="src-line" id="L724">	<span class="k">let</span> partial = <span class="t">List</span>[<span class="t">string</span>].<span class="f">filled</span>(<span class="n">5</span>, <span class="s">&quot;leak_free&quot;</span>)</span>
+<span class="src-line" id="L725">	<span class="k">let</span> pit = partial.<span class="f">iter</span>()</span>
+<span class="src-line" id="L726">	<span class="f">assert</span>(pit.<span class="f">next</span>() == <span class="s">&quot;leak_free&quot;</span>, <span class="s">&quot;partial iter step 1&quot;</span>)</span>
+<span class="src-line" id="L727"></span>
+<span class="src-line" id="L728">	<span class="k">let</span> empty_s = <span class="t">List</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L729">	<span class="k">let</span> eit = empty_s.<span class="f">iter</span>()</span>
+<span class="src-line" id="L730">	<span class="f">assert</span>(eit.<span class="f">next</span>() == <span class="c">none</span>, <span class="s">&quot;empty iter none&quot;</span>)</span>
+<span class="src-line" id="L731">}</span>
+<span class="src-line" id="L732"></span>
+<span class="src-line" id="L733"><span class="a">@test</span>(<span class="s">&quot;List first, last, index_of, swap, truncate, and extend&quot;</span>)</span>
+<span class="src-line" id="L734"><span class="k">bind</span> test_list_helpers = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L735">	<span class="k">let</span> xs = [<span class="n">10</span>, <span class="n">20</span>, <span class="n">30</span>, <span class="n">20</span>]</span>
+<span class="src-line" id="L736">	<span class="f">assert</span>(xs.<span class="f">first</span>() == <span class="n">10</span> <span class="k">and</span> xs.<span class="f">last</span>() == <span class="n">20</span>, <span class="s">&quot;first and last&quot;</span>)</span>
+<span class="src-line" id="L737">	<span class="k">let</span> empty: [<span class="t">int</span>] = []</span>
+<span class="src-line" id="L738">	<span class="f">assert</span>(empty.<span class="f">first</span>() == <span class="c">none</span> <span class="k">and</span> empty.<span class="f">last</span>() == <span class="c">none</span>, <span class="s">&quot;empty list&quot;</span>)</span>
+<span class="src-line" id="L739">	<span class="f">assert</span>(xs.<span class="f">index_of</span>(<span class="n">20</span>) == <span class="n">1</span> <span class="k">and</span> xs.<span class="f">index_of</span>(<span class="n">99</span>) == <span class="c">none</span>, <span class="s">&quot;index_of finds the first match&quot;</span>)</span>
+<span class="src-line" id="L740"></span>
+<span class="src-line" id="L741">	xs.<span class="f">swap</span>(<span class="n">0</span>, <span class="n">2</span>)</span>
+<span class="src-line" id="L742">	<span class="f">assert</span>(xs[<span class="n">0</span>] == <span class="n">30</span> <span class="k">and</span> xs[<span class="n">2</span>] == <span class="n">10</span>, <span class="s">&quot;swap&quot;</span>)</span>
+<span class="src-line" id="L743">	xs.<span class="f">swap</span>(<span class="n">1</span>, <span class="n">1</span>)</span>
+<span class="src-line" id="L744">	<span class="f">assert</span>(xs[<span class="n">1</span>] == <span class="n">20</span>, <span class="s">&quot;swap with itself&quot;</span>)</span>
+<span class="src-line" id="L745"></span>
+<span class="src-line" id="L746">	<span class="k">let</span> words = [<span class="s">&quot;a&quot;</span> + <span class="s">&quot;1&quot;</span>, <span class="s">&quot;b&quot;</span> + <span class="s">&quot;2&quot;</span>, <span class="s">&quot;c&quot;</span> + <span class="s">&quot;3&quot;</span>]</span>
+<span class="src-line" id="L747">	words.<span class="f">swap</span>(<span class="n">0</span>, <span class="n">2</span>)</span>
+<span class="src-line" id="L748">	<span class="f">assert</span>(words[<span class="n">0</span>] == <span class="s">&quot;c3&quot;</span> <span class="k">and</span> words[<span class="n">2</span>] == <span class="s">&quot;a1&quot;</span>, <span class="s">&quot;swap resources&quot;</span>)</span>
+<span class="src-line" id="L749">	words.<span class="f">truncate</span>(<span class="n">1</span>)</span>
+<span class="src-line" id="L750">	<span class="f">assert</span>(words.<span class="f">len</span>() == <span class="n">1</span> <span class="k">and</span> words[<span class="n">0</span>] == <span class="s">&quot;c3&quot;</span>, <span class="s">&quot;truncate drops the tail&quot;</span>)</span>
+<span class="src-line" id="L751">	words.<span class="f">truncate</span>(<span class="n">5</span>)</span>
+<span class="src-line" id="L752">	<span class="f">assert</span>(words.<span class="f">len</span>() == <span class="n">1</span>, <span class="s">&quot;truncate longer is a no-op&quot;</span>)</span>
+<span class="src-line" id="L753"></span>
+<span class="src-line" id="L754">	words.<span class="f">extend</span>([<span class="s">&quot;d&quot;</span> + <span class="s">&quot;4&quot;</span>, <span class="s">&quot;e&quot;</span> + <span class="s">&quot;5&quot;</span>])</span>
+<span class="src-line" id="L755">	<span class="f">assert</span>(words.<span class="f">len</span>() == <span class="n">3</span> <span class="k">and</span> words[<span class="n">1</span>] == <span class="s">&quot;d4&quot;</span> <span class="k">and</span> words[<span class="n">2</span>] == <span class="s">&quot;e5&quot;</span>, <span class="s">&quot;extend moves elements in order&quot;</span>)</span>
+<span class="src-line" id="L756">	<span class="k">let</span> more = [<span class="s">&quot;f&quot;</span> + <span class="s">&quot;6&quot;</span>]</span>
+<span class="src-line" id="L757">	words.<span class="f">extend</span>(<span class="k">own</span> more)</span>
+<span class="src-line" id="L758">	<span class="f">assert</span>(words.<span class="f">last</span>() == <span class="s">&quot;f6&quot;</span>, <span class="s">&quot;extend from a variable&quot;</span>)</span>
+<span class="src-line" id="L759">	words.<span class="f">truncate</span>(-<span class="n">1</span>)</span>
+<span class="src-line" id="L760">	<span class="f">assert</span>(words.<span class="f">is_empty</span>(), <span class="s">&quot;negative truncate empties&quot;</span>)</span>
+<span class="src-line" id="L761">}</span>
+<span class="src-line" id="L762"></span>
+<span class="src-line" id="L763"><span class="a">@test</span>(<span class="s">&quot;List fallible insert, remove, and swap_remove, and their must_ forms&quot;</span>)</span>
+<span class="src-line" id="L764"><span class="k">bind</span> test_list_fallible_and_must = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L765">	<span class="k">let</span> xs: [<span class="t">string</span>] = [<span class="s">&quot;a&quot;</span>, <span class="s">&quot;b&quot;</span>, <span class="s">&quot;c&quot;</span>]</span>
+<span class="src-line" id="L766">	<span class="f">assert</span>(xs.<span class="f">insert</span>(<span class="n">3</span>, <span class="s">&quot;d&quot;</span>).<span class="f">is_ok</span>(), <span class="s">&quot;insert at len appends&quot;</span>)</span>
+<span class="src-line" id="L767">	<span class="f">assert</span>(xs.<span class="f">insert</span>(<span class="n">9</span>, <span class="s">&quot;x&quot;</span>).<span class="f">is_err</span>(), <span class="s">&quot;insert past len fails&quot;</span>)</span>
+<span class="src-line" id="L768">	<span class="f">assert</span>(xs.<span class="f">insert</span>(-<span class="n">1</span>, <span class="s">&quot;x&quot;</span>).<span class="f">peek_err</span>()?.<span class="f">message</span>().<span class="f">contains</span>(<span class="s">&quot;out of bounds&quot;</span>) ?? <span class="c">false</span>, <span class="s">&quot;insert says why&quot;</span>)</span>
+<span class="src-line" id="L769">	<span class="f">assert</span>(xs.<span class="f">remove</span>(<span class="n">1</span>) == <span class="s">&quot;b&quot;</span>, <span class="s">&quot;remove returns the element&quot;</span>)</span>
+<span class="src-line" id="L770">	<span class="f">assert</span>(xs.<span class="f">remove</span>(<span class="n">7</span>) == <span class="c">none</span>, <span class="s">&quot;remove out of range is none&quot;</span>)</span>
+<span class="src-line" id="L771">	<span class="f">assert</span>(xs.<span class="f">swap_remove</span>(<span class="n">0</span>) == <span class="s">&quot;a&quot;</span>, <span class="s">&quot;swap_remove returns the element&quot;</span>)</span>
+<span class="src-line" id="L772">	<span class="f">assert</span>(xs.<span class="f">swap_remove</span>(-<span class="n">2</span>) == <span class="c">none</span>, <span class="s">&quot;swap_remove out of range is none&quot;</span>)</span>
+<span class="src-line" id="L773">	<span class="f">assert</span>(xs.<span class="f">join</span>(<span class="s">&quot;,&quot;</span>) == <span class="s">&quot;d,c&quot;</span>, <span class="s">&quot;swap_remove moved the last element in&quot;</span>)</span>
+<span class="src-line" id="L774">	xs.<span class="f">must_insert</span>(<span class="n">0</span>, <span class="s">&quot;z&quot;</span>)</span>
+<span class="src-line" id="L775">	<span class="f">assert</span>(xs.<span class="f">must_remove</span>(<span class="n">2</span>) == <span class="s">&quot;c&quot;</span>, <span class="s">&quot;must_remove&quot;</span>)</span>
+<span class="src-line" id="L776">	<span class="f">assert</span>(xs.<span class="f">must_swap_remove</span>(<span class="n">0</span>) == <span class="s">&quot;z&quot;</span>, <span class="s">&quot;must_swap_remove&quot;</span>)</span>
+<span class="src-line" id="L777">	<span class="f">assert</span>(xs.<span class="f">join</span>(<span class="s">&quot;,&quot;</span>) == <span class="s">&quot;d&quot;</span>, <span class="s">&quot;must_ forms change the list&quot;</span>)</span>
+<span class="src-line" id="L778">}</span>
+<span class="src-line" id="L779"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../collections.html">std/collections</a><a href="../core.html">std/core</a><a href="../derive.html">std/derive</a><a href="../fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../../search-index.js"></script>
 <script src="../../assets/site.js"></script>
 </body>

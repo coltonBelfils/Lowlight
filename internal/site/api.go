@@ -276,13 +276,45 @@ func renderPackage(p *Package, pg *Page, idx *docgen.SymbolIndex, opts APIOption
 		toc = append(toc, markdown.Heading{Level: level, Text: text, ID: id})
 		fmt.Fprintf(&b, `<h%d id="%s"><a class="anchor" href="#%s" aria-hidden="true">#</a>%s</h%d>`+"\n", level, esc(id), esc(id), esc(text), level)
 	}
+	entryBadges := func(e *docgen.SymbolEntry, defaultBadge string) string {
+		if e == nil {
+			return fmt.Sprintf(`<span class="api-badge">%s</span>`, esc(defaultBadge))
+		}
+		var out strings.Builder
+		b := defaultBadge
+		switch e.Kind {
+		case docgen.KindConst:
+			if e.IsConst {
+				b = "const"
+			} else {
+				b = "bind"
+			}
+		case docgen.KindFunc:
+			if e.IsConst {
+				b = "const fn"
+			}
+		case docgen.KindMethod:
+			if e.IsConst {
+				b = "const method"
+			} else {
+				b = ""
+			}
+		}
+		if b != "" {
+			fmt.Fprintf(&out, `<span class="api-badge">%s</span>`, esc(b))
+		}
+		if e.ComptimeOnly {
+			out.WriteString(`<span class="api-badge">@comptime_only</span>`)
+		}
+		return out.String()
+	}
 	item := func(e *docgen.SymbolEntry, badge, typ string) {
-		fmt.Fprintf(&b, `<div class="api-item" id="%s"><pre class="api-sig"><span class="api-badge">%s</span><code>%s</code>%s</pre><div class="api-body">%s</div></div>`+"\n",
-			esc(e.Anchor), esc(badge), HighlightLowlight(e.Signature), src(e), doc(e.Doc, e.FilePath, typ))
+		fmt.Fprintf(&b, `<div class="api-item" id="%s"><pre class="api-sig">%s<code>%s</code>%s</pre><div class="api-body">%s</div></div>`+"\n",
+			esc(e.Anchor), entryBadges(e, badge), HighlightLowlight(e.Signature), src(e), doc(e.Doc, e.FilePath, typ))
 	}
 	method := func(m *docgen.SymbolEntry, recv string) {
-		fmt.Fprintf(&b, `<div class="api-method" id="%s"><pre><code>%s</code></pre><div class="api-mdoc">%s</div></div>`+"\n",
-			esc(m.Anchor), HighlightLowlight(m.Signature), doc(m.Doc, m.FilePath, recv))
+		fmt.Fprintf(&b, `<div class="api-method" id="%s"><pre>%s<code>%s</code></pre><div class="api-mdoc">%s</div></div>`+"\n",
+			esc(m.Anchor), entryBadges(m, ""), HighlightLowlight(m.Signature), doc(m.Doc, m.FilePath, recv))
 	}
 
 	toc = append(toc, markdown.Heading{Level: 1, Text: p.ImportPath, ID: "top"})
@@ -338,8 +370,8 @@ func renderPackage(p *Package, pg *Page, idx *docgen.SymbolIndex, opts APIOption
 		for _, t := range p.types {
 			e := t.entry
 			toc = append(toc, markdown.Heading{Level: 3, Text: e.Name, ID: e.Anchor})
-			fmt.Fprintf(&b, `<div class="api-item" id="%s"><pre class="api-sig"><span class="api-badge">%s</span><code>%s</code>%s</pre><div class="api-body">`,
-				esc(e.Anchor), esc(string(e.Kind)), HighlightLowlight(e.Signature), src(e))
+			fmt.Fprintf(&b, `<div class="api-item" id="%s"><pre class="api-sig">%s<code>%s</code>%s</pre><div class="api-body">`,
+				esc(e.Anchor), entryBadges(e, string(e.Kind)), HighlightLowlight(e.Signature), src(e))
 			b.WriteString(doc(e.Doc, e.FilePath, e.Name))
 			if len(t.members) > 0 {
 				label := map[docgen.ItemKind]string{docgen.KindField: "Fields", docgen.KindVariant: "Variants", docgen.KindInterfaceMethod: "Methods"}[t.members[0].Kind]

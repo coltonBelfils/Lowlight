@@ -9,7 +9,7 @@
 <script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
 </head>
 <body class="layout-wide" data-root="../../">
-<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>sort.ll</h1><p>Source of package <a href="../sort.html"><code>std/sort</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/sort — Depth-bounded Introsort, bottom-up Merge Sort (stable), custom comparator</span></span>
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../collections.html">std/collections</a></li><li><a href="../core.html">std/core</a></li><li><a href="../derive.html">std/derive</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>sort.ll</h1><p>Source of package <a href="../sort.html"><code>std/sort</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/sort — Depth-bounded Introsort, bottom-up Merge Sort (stable), custom comparator</span></span>
 <span class="src-line" id="L2"><span class="m">// sorting, binary search, lower/upper bounds, and collection ordering helpers.</span></span>
 <span class="src-line" id="L3"><span class="m">//</span></span>
 <span class="src-line" id="L4"><span class="m">// Extends [`List`] (`[T]`), [`Array`] (`[N: T]`), [`Set`], and [`Map`] with sorting and</span></span>
@@ -22,7 +22,7 @@
 <span class="src-line" id="L11"><span class="m">// Interface implemented by collections that support in-place sorting.</span></span>
 <span class="src-line" id="L12"><span class="k">define</span> <span class="t">Sortable</span> <span class="k">interface</span> [</span>
 <span class="src-line" id="L13">	<span class="m">// Sorts the elements of `self` in ascending order in place.</span></span>
-<span class="src-line" id="L14">	sort: (&amp;<span class="k">self</span>),</span>
+<span class="src-line" id="L14">	sort: <span class="k">fn</span>(&amp;<span class="k">self</span>),</span>
 <span class="src-line" id="L15">]</span>
 <span class="src-line" id="L16"></span>
 <span class="src-line" id="L17"><span class="m">// -----------------------------------------------------------------------------</span></span>
@@ -30,7 +30,7 @@
 <span class="src-line" id="L19"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L20"></span>
 <span class="src-line" id="L21"><span class="m">// In-place bitwise slot swap without invoking copy constructors or destructors.</span></span>
-<span class="src-line" id="L22"><span class="k">bind</span> _swap_ptr[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], i: <span class="t">int</span>, j: <span class="t">int</span>): {</span>
+<span class="src-line" id="L22"><span class="k">bind</span> _swap_ptr[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], i: <span class="t">int</span>, j: <span class="t">int</span>): {</span>
 <span class="src-line" id="L23">	<span class="k">if</span>(i == j): <span class="k">func</span> <span class="u">&lt;-</span></span>
 <span class="src-line" id="L24">	<span class="k">unsafe</span> {</span>
 <span class="src-line" id="L25">		<span class="k">let</span> pi = <span class="f">ptr_add</span>(data, i)</span>
@@ -42,7 +42,7 @@
 <span class="src-line" id="L31">}</span>
 <span class="src-line" id="L32"></span>
 <span class="src-line" id="L33"><span class="m">// Reverses elements in `[0..len)` bitwise without requiring `Copyable`.</span></span>
-<span class="src-line" id="L34"><span class="k">bind</span> _reverse_ptr[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>): {</span>
+<span class="src-line" id="L34"><span class="k">bind</span> _reverse_ptr[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>): {</span>
 <span class="src-line" id="L35">	<span class="k">if</span>(len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
 <span class="src-line" id="L36">	<span class="k">let</span> i = <span class="n">0</span></span>
 <span class="src-line" id="L37">	<span class="k">let</span> j = len - <span class="n">1</span></span>
@@ -54,7 +54,7 @@
 <span class="src-line" id="L43">}</span>
 <span class="src-line" id="L44"></span>
 <span class="src-line" id="L45"><span class="m">// Computes `2 * floor(log2(n))` for Introsort&#39;s Heapsort fallback depth limit.</span></span>
-<span class="src-line" id="L46"><span class="k">bind</span> _max_depth = (n: <span class="t">int</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L46"><span class="k">bind</span> _max_depth = <span class="k">fn</span>(n: <span class="t">int</span>) <span class="t">int</span>: {</span>
 <span class="src-line" id="L47">	<span class="k">let</span> depth = <span class="n">0</span></span>
 <span class="src-line" id="L48">	<span class="k">let</span> rem = n</span>
 <span class="src-line" id="L49">	<span class="k">while</span>(rem &gt; <span class="n">1</span>): {</span>
@@ -69,7 +69,7 @@
 <span class="src-line" id="L58"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L59"></span>
 <span class="src-line" id="L60"><span class="m">// In-place insertion sort for small partitions (`hi - lo &lt;= 16`). Stable on equal keys.</span></span>
-<span class="src-line" id="L61"><span class="k">bind</span> _sort_insertion[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, hi: <span class="t">int</span>): {</span>
+<span class="src-line" id="L61"><span class="k">bind</span> _sort_insertion[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, hi: <span class="t">int</span>): {</span>
 <span class="src-line" id="L62">	<span class="k">let</span> i = lo + <span class="n">1</span></span>
 <span class="src-line" id="L63">	<span class="k">while</span>(i &lt;= hi): {</span>
 <span class="src-line" id="L64">		<span class="k">let</span> j = i</span>
@@ -86,7 +86,7 @@
 <span class="src-line" id="L75">}</span>
 <span class="src-line" id="L76"></span>
 <span class="src-line" id="L77"><span class="m">// Restores max-heap invariant at `root_in` over `data[lo .. lo + count)`.</span></span>
-<span class="src-line" id="L78"><span class="k">bind</span> _sift_down[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, root_in: <span class="t">int</span>, count: <span class="t">int</span>): {</span>
+<span class="src-line" id="L78"><span class="k">bind</span> _sift_down[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, root_in: <span class="t">int</span>, count: <span class="t">int</span>): {</span>
 <span class="src-line" id="L79">	<span class="k">let</span> root = root_in</span>
 <span class="src-line" id="L80">	<span class="k">while</span>(<span class="c">true</span>): {</span>
 <span class="src-line" id="L81">		<span class="k">let</span> left = <span class="n">2</span> * root + <span class="n">1</span></span>
@@ -109,7 +109,7 @@
 <span class="src-line" id="L98">}</span>
 <span class="src-line" id="L99"></span>
 <span class="src-line" id="L100"><span class="m">// Worst-case O(n log n) in-place Heapsort fallback for `data[lo..=hi]`.</span></span>
-<span class="src-line" id="L101"><span class="k">bind</span> _heapsort_range[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, hi: <span class="t">int</span>): {</span>
+<span class="src-line" id="L101"><span class="k">bind</span> _heapsort_range[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, hi: <span class="t">int</span>): {</span>
 <span class="src-line" id="L102">	<span class="k">let</span> count = hi - lo + <span class="n">1</span></span>
 <span class="src-line" id="L103">	<span class="k">if</span>(count &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
 <span class="src-line" id="L104">	<span class="k">let</span> start = count / <span class="n">2</span> - <span class="n">1</span></span>
@@ -126,7 +126,7 @@
 <span class="src-line" id="L115">}</span>
 <span class="src-line" id="L116"></span>
 <span class="src-line" id="L117"><span class="m">// Median-of-three Hoare/Lomuto partition on `data[lo..=hi]`.</span></span>
-<span class="src-line" id="L118"><span class="k">bind</span> _partition[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, hi: <span class="t">int</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L118"><span class="k">bind</span> _partition[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, hi: <span class="t">int</span>) <span class="t">int</span>: {</span>
 <span class="src-line" id="L119">	<span class="k">let</span> mid = lo + (hi - lo) / <span class="n">2</span></span>
 <span class="src-line" id="L120">	<span class="k">unsafe</span> {</span>
 <span class="src-line" id="L121">		<span class="k">if</span>(data[mid] &lt; data[lo]): <span class="f">_swap_ptr</span>(data, lo, mid)</span>
@@ -154,7 +154,7 @@
 <span class="src-line" id="L143">}</span>
 <span class="src-line" id="L144"></span>
 <span class="src-line" id="L145"><span class="m">// Depth-bounded Introsort with tail recursion elimination onto the larger subrange.</span></span>
-<span class="src-line" id="L146"><span class="k">bind</span> _sort_range[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], lo_in: <span class="t">int</span>, hi_in: <span class="t">int</span>, depth_in: <span class="t">int</span>) <span class="t">void</span>: {</span>
+<span class="src-line" id="L146"><span class="k">bind</span> _sort_range[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], lo_in: <span class="t">int</span>, hi_in: <span class="t">int</span>, depth_in: <span class="t">int</span>) <span class="t">void</span>: {</span>
 <span class="src-line" id="L147">	<span class="k">let</span> lo = lo_in</span>
 <span class="src-line" id="L148">	<span class="k">let</span> hi = hi_in</span>
 <span class="src-line" id="L149">	<span class="k">let</span> depth_limit = depth_in</span>
@@ -180,7 +180,7 @@
 <span class="src-line" id="L169"><span class="m">// Introsort (Custom Comparator)</span></span>
 <span class="src-line" id="L170"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L171"></span>
-<span class="src-line" id="L172"><span class="k">bind</span> _sort_by_insertion[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, hi: <span class="t">int</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
+<span class="src-line" id="L172"><span class="k">bind</span> _sort_by_insertion[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, hi: <span class="t">int</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
 <span class="src-line" id="L173">	<span class="k">let</span> i = lo + <span class="n">1</span></span>
 <span class="src-line" id="L174">	<span class="k">while</span>(i &lt;= hi): {</span>
 <span class="src-line" id="L175">		<span class="k">let</span> j = i</span>
@@ -194,7 +194,7 @@
 <span class="src-line" id="L183">	}</span>
 <span class="src-line" id="L184">}</span>
 <span class="src-line" id="L185"></span>
-<span class="src-line" id="L186"><span class="k">bind</span> _sift_down_by[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, root_in: <span class="t">int</span>, count: <span class="t">int</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
+<span class="src-line" id="L186"><span class="k">bind</span> _sift_down_by[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, root_in: <span class="t">int</span>, count: <span class="t">int</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
 <span class="src-line" id="L187">	<span class="k">let</span> root = root_in</span>
 <span class="src-line" id="L188">	<span class="k">while</span>(<span class="c">true</span>): {</span>
 <span class="src-line" id="L189">		<span class="k">let</span> left = <span class="n">2</span> * root + <span class="n">1</span></span>
@@ -212,7 +212,7 @@
 <span class="src-line" id="L201">	}</span>
 <span class="src-line" id="L202">}</span>
 <span class="src-line" id="L203"></span>
-<span class="src-line" id="L204"><span class="k">bind</span> _heapsort_by_range[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, hi: <span class="t">int</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
+<span class="src-line" id="L204"><span class="k">bind</span> _heapsort_by_range[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, hi: <span class="t">int</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
 <span class="src-line" id="L205">	<span class="k">let</span> count = hi - lo + <span class="n">1</span></span>
 <span class="src-line" id="L206">	<span class="k">if</span>(count &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
 <span class="src-line" id="L207">	<span class="k">let</span> start = count / <span class="n">2</span> - <span class="n">1</span></span>
@@ -228,7 +228,7 @@
 <span class="src-line" id="L217">	}</span>
 <span class="src-line" id="L218">}</span>
 <span class="src-line" id="L219"></span>
-<span class="src-line" id="L220"><span class="k">bind</span> _partition_by[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, hi: <span class="t">int</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L220"><span class="k">bind</span> _partition_by[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], lo: <span class="t">int</span>, hi: <span class="t">int</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">int</span>: {</span>
 <span class="src-line" id="L221">	<span class="k">let</span> mid = lo + (hi - lo) / <span class="n">2</span></span>
 <span class="src-line" id="L222">	<span class="k">unsafe</span> {</span>
 <span class="src-line" id="L223">		<span class="k">if</span>(<span class="f">cmp_fn</span>(data[mid], data[lo]) &lt; <span class="n">0</span>): <span class="f">_swap_ptr</span>(data, lo, mid)</span>
@@ -255,7 +255,7 @@
 <span class="src-line" id="L244">	i</span>
 <span class="src-line" id="L245">}</span>
 <span class="src-line" id="L246"></span>
-<span class="src-line" id="L247"><span class="k">bind</span> _sort_by_range[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], lo_in: <span class="t">int</span>, hi_in: <span class="t">int</span>, depth_in: <span class="t">int</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">void</span>: {</span>
+<span class="src-line" id="L247"><span class="k">bind</span> _sort_by_range[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], lo_in: <span class="t">int</span>, hi_in: <span class="t">int</span>, depth_in: <span class="t">int</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">void</span>: {</span>
 <span class="src-line" id="L248">	<span class="k">let</span> lo = lo_in</span>
 <span class="src-line" id="L249">	<span class="k">let</span> hi = hi_in</span>
 <span class="src-line" id="L250">	<span class="k">let</span> depth_limit = depth_in</span>
@@ -281,7 +281,7 @@
 <span class="src-line" id="L270"><span class="m">// Stable Bottom-Up Merge Sort (Comparable &amp; Custom Comparator)</span></span>
 <span class="src-line" id="L271"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L272"></span>
-<span class="src-line" id="L273"><span class="k">bind</span> _stable_sort_ptr[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>): {</span>
+<span class="src-line" id="L273"><span class="k">bind</span> _stable_sort_ptr[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>): {</span>
 <span class="src-line" id="L274">	<span class="k">if</span>(len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
 <span class="src-line" id="L275">	<span class="k">if</span>(len &lt;= <span class="n">16</span>): {</span>
 <span class="src-line" id="L276">		<span class="f">_sort_insertion</span>(data, <span class="n">0</span>, len - <span class="n">1</span>)</span>
@@ -339,7 +339,7 @@
 <span class="src-line" id="L328">				<span class="k">unsafe</span> <span class="f">copy_bytes</span>(</span>
 <span class="src-line" id="L329">					ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(data, left)),</span>
 <span class="src-line" id="L330">					ptr_cast[<span class="t">u8</span>](buf),</span>
-<span class="src-line" id="L331">					(right - left) * size_of[<span class="t">T</span>](),</span>
+<span class="src-line" id="L331">					(right - left) * type.size_of[<span class="t">T</span>](),</span>
 <span class="src-line" id="L332">				)</span>
 <span class="src-line" id="L333">			}</span>
 <span class="src-line" id="L334">			left += width * <span class="n">2</span></span>
@@ -349,7 +349,7 @@
 <span class="src-line" id="L338">	<span class="k">unsafe</span> <span class="f">free_raw</span>(buf)</span>
 <span class="src-line" id="L339">}</span>
 <span class="src-line" id="L340"></span>
-<span class="src-line" id="L341"><span class="k">bind</span> _stable_sort_by_ptr[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
+<span class="src-line" id="L341"><span class="k">bind</span> _stable_sort_by_ptr[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
 <span class="src-line" id="L342">	<span class="k">if</span>(len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
 <span class="src-line" id="L343">	<span class="k">if</span>(len &lt;= <span class="n">16</span>): {</span>
 <span class="src-line" id="L344">		<span class="f">_sort_by_insertion</span>(data, <span class="n">0</span>, len - <span class="n">1</span>, cmp_fn)</span>
@@ -402,7 +402,7 @@
 <span class="src-line" id="L391">				<span class="k">unsafe</span> <span class="f">copy_bytes</span>(</span>
 <span class="src-line" id="L392">					ptr_cast[<span class="t">u8</span>](<span class="f">ptr_add</span>(data, left)),</span>
 <span class="src-line" id="L393">					ptr_cast[<span class="t">u8</span>](buf),</span>
-<span class="src-line" id="L394">					(right - left) * size_of[<span class="t">T</span>](),</span>
+<span class="src-line" id="L394">					(right - left) * type.size_of[<span class="t">T</span>](),</span>
 <span class="src-line" id="L395">				)</span>
 <span class="src-line" id="L396">			}</span>
 <span class="src-line" id="L397">			left += width * <span class="n">2</span></span>
@@ -416,7 +416,7 @@
 <span class="src-line" id="L405"><span class="m">// Search &amp; Order Verification Helpers</span></span>
 <span class="src-line" id="L406"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L407"></span>
-<span class="src-line" id="L408"><span class="k">bind</span> _is_sorted_ptr[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L408"><span class="k">bind</span> _is_sorted_ptr[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>) <span class="t">bool</span>: {</span>
 <span class="src-line" id="L409">	<span class="k">if</span>(len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
 <span class="src-line" id="L410">	<span class="k">let</span> i = <span class="n">0</span></span>
 <span class="src-line" id="L411">	<span class="k">while</span>(i &lt; len - <span class="n">1</span>): {</span>
@@ -429,7 +429,7 @@
 <span class="src-line" id="L418">	<span class="c">true</span></span>
 <span class="src-line" id="L419">}</span>
 <span class="src-line" id="L420"></span>
-<span class="src-line" id="L421"><span class="k">bind</span> _is_sorted_by_ptr[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L421"><span class="k">bind</span> _is_sorted_by_ptr[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">bool</span>: {</span>
 <span class="src-line" id="L422">	<span class="k">if</span>(len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">true</span></span>
 <span class="src-line" id="L423">	<span class="k">let</span> i = <span class="n">0</span></span>
 <span class="src-line" id="L424">	<span class="k">while</span>(i &lt; len - <span class="n">1</span>): {</span>
@@ -442,7 +442,7 @@
 <span class="src-line" id="L431">	<span class="c">true</span></span>
 <span class="src-line" id="L432">}</span>
 <span class="src-line" id="L433"></span>
-<span class="src-line" id="L434"><span class="k">bind</span> _binary_search_ptr[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>, target: <span class="t">T</span>) ?<span class="t">int</span>: {</span>
+<span class="src-line" id="L434"><span class="k">bind</span> _binary_search_ptr[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>, target: <span class="t">T</span>) ?<span class="t">int</span>: {</span>
 <span class="src-line" id="L435">	<span class="k">if</span>(len &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
 <span class="src-line" id="L436">	<span class="k">let</span> lo = <span class="n">0</span></span>
 <span class="src-line" id="L437">	<span class="k">let</span> hi = len - <span class="n">1</span></span>
@@ -463,7 +463,7 @@
 <span class="src-line" id="L452">	<span class="c">none</span></span>
 <span class="src-line" id="L453">}</span>
 <span class="src-line" id="L454"></span>
-<span class="src-line" id="L455"><span class="k">bind</span> _binary_search_by_ptr[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>, cmp_fn: (<span class="t">T</span>) <span class="t">int</span>) ?<span class="t">int</span>: {</span>
+<span class="src-line" id="L455"><span class="k">bind</span> _binary_search_by_ptr[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>) <span class="t">int</span>) ?<span class="t">int</span>: {</span>
 <span class="src-line" id="L456">	<span class="k">if</span>(len &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
 <span class="src-line" id="L457">	<span class="k">let</span> lo = <span class="n">0</span></span>
 <span class="src-line" id="L458">	<span class="k">let</span> hi = len - <span class="n">1</span></span>
@@ -477,7 +477,7 @@
 <span class="src-line" id="L466">	<span class="c">none</span></span>
 <span class="src-line" id="L467">}</span>
 <span class="src-line" id="L468"></span>
-<span class="src-line" id="L469"><span class="k">bind</span> _lower_bound_ptr[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>, target: <span class="t">T</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L469"><span class="k">bind</span> _lower_bound_ptr[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>, target: <span class="t">T</span>) <span class="t">int</span>: {</span>
 <span class="src-line" id="L470">	<span class="k">let</span> lo = <span class="n">0</span></span>
 <span class="src-line" id="L471">	<span class="k">let</span> hi = len</span>
 <span class="src-line" id="L472">	<span class="k">while</span>(lo &lt; hi): {</span>
@@ -491,7 +491,7 @@
 <span class="src-line" id="L480">	lo</span>
 <span class="src-line" id="L481">}</span>
 <span class="src-line" id="L482"></span>
-<span class="src-line" id="L483"><span class="k">bind</span> _upper_bound_ptr[<span class="t">T</span>] = (data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>, target: <span class="t">T</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L483"><span class="k">bind</span> _upper_bound_ptr[<span class="t">T</span>] = <span class="k">fn</span>(data: <span class="t">ptr</span>[<span class="t">T</span>], len: <span class="t">int</span>, target: <span class="t">T</span>) <span class="t">int</span>: {</span>
 <span class="src-line" id="L484">	<span class="k">let</span> lo = <span class="n">0</span></span>
 <span class="src-line" id="L485">	<span class="k">let</span> hi = len</span>
 <span class="src-line" id="L486">	<span class="k">while</span>(lo &lt; hi): {</span>
@@ -509,494 +509,505 @@
 <span class="src-line" id="L498"><span class="m">// Methods Extending List[T] (`[T]`)</span></span>
 <span class="src-line" id="L499"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L500"></span>
-<span class="src-line" id="L501"><span class="m">// Sorts the list in place in ascending order using depth-bounded Introsort.</span></span>
-<span class="src-line" id="L502"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].sort = (&amp;<span class="k">self</span>): {</span>
-<span class="src-line" id="L503">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
-<span class="src-line" id="L504">	<span class="f">_sort_range</span>(<span class="k">self</span>.data, <span class="n">0</span>, <span class="k">self</span>.len - <span class="n">1</span>, <span class="f">_max_depth</span>(<span class="k">self</span>.len))</span>
-<span class="src-line" id="L505">}</span>
-<span class="src-line" id="L506"></span>
-<span class="src-line" id="L507"><span class="m">// Sorts the list in place using custom comparator `cmp_fn` via depth-bounded Introsort.</span></span>
-<span class="src-line" id="L508"><span class="m">//</span></span>
-<span class="src-line" id="L509"><span class="m">// - `cmp_fn`: Returns `&lt; 0` when `a &lt; b`, `0` when equal, or `&gt; 0` when `a &gt; b`.</span></span>
-<span class="src-line" id="L510"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].sort_by = (&amp;<span class="k">self</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
-<span class="src-line" id="L511">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
-<span class="src-line" id="L512">	<span class="f">_sort_by_range</span>(<span class="k">self</span>.data, <span class="n">0</span>, <span class="k">self</span>.len - <span class="n">1</span>, <span class="f">_max_depth</span>(<span class="k">self</span>.len), cmp_fn)</span>
-<span class="src-line" id="L513">}</span>
-<span class="src-line" id="L514"></span>
-<span class="src-line" id="L515"><span class="m">// Sorts the list in place in ascending order while preserving the relative order of equal keys.</span></span>
-<span class="src-line" id="L516"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].stable_sort = (&amp;<span class="k">self</span>):</span>
-<span class="src-line" id="L517">	<span class="f">_stable_sort_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)</span>
-<span class="src-line" id="L518"></span>
-<span class="src-line" id="L519"><span class="m">// Sorts the list in place using `cmp_fn` while preserving the relative order of equal keys.</span></span>
-<span class="src-line" id="L520"><span class="m">//</span></span>
-<span class="src-line" id="L521"><span class="m">// - `cmp_fn`: Returns `&lt; 0` when `a &lt; b`, `0` when equal, or `&gt; 0` when `a &gt; b`.</span></span>
-<span class="src-line" id="L522"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].stable_sort_by = (&amp;<span class="k">self</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>):</span>
-<span class="src-line" id="L523">	<span class="f">_stable_sort_by_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, cmp_fn)</span>
-<span class="src-line" id="L524"></span>
-<span class="src-line" id="L525"><span class="m">// Reports whether elements in the list are sorted in non-decreasing ascending order.</span></span>
-<span class="src-line" id="L526"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].is_sorted = (<span class="k">self</span>) <span class="t">bool</span>:</span>
-<span class="src-line" id="L527">	<span class="f">_is_sorted_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)</span>
-<span class="src-line" id="L528"></span>
-<span class="src-line" id="L529"><span class="m">// Reports whether elements in the list are sorted according to comparator `cmp_fn`.</span></span>
-<span class="src-line" id="L530"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].is_sorted_by = (<span class="k">self</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">bool</span>:</span>
-<span class="src-line" id="L531">	<span class="f">_is_sorted_by_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, cmp_fn)</span>
-<span class="src-line" id="L532"></span>
-<span class="src-line" id="L533"><span class="m">// Searches a sorted list for `target` via binary search, returning its zero-based index or `none`.</span></span>
-<span class="src-line" id="L534"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].binary_search = (<span class="k">self</span>, target: <span class="t">T</span>) ?<span class="t">int</span>:</span>
-<span class="src-line" id="L535">	<span class="f">_binary_search_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, target)</span>
-<span class="src-line" id="L536"></span>
-<span class="src-line" id="L537"><span class="m">// Searches a sorted list using predicate comparator `cmp_fn`, returning a matching index or `none`.</span></span>
-<span class="src-line" id="L538"><span class="m">//</span></span>
-<span class="src-line" id="L539"><span class="m">// - `cmp_fn`: Receives an element and returns `&lt; 0` if too small, `0` if matching, or `&gt; 0` if too large.</span></span>
-<span class="src-line" id="L540"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].binary_search_by = (<span class="k">self</span>, cmp_fn: (<span class="t">T</span>) <span class="t">int</span>) ?<span class="t">int</span>:</span>
-<span class="src-line" id="L541">	<span class="f">_binary_search_by_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, cmp_fn)</span>
-<span class="src-line" id="L542"></span>
-<span class="src-line" id="L543"><span class="m">// Returns the first index `i` in `0..=self.len` where `self[i] &gt;= target` (first element not less than `target`).</span></span>
-<span class="src-line" id="L544"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].lower_bound = (<span class="k">self</span>, target: <span class="t">T</span>) <span class="t">int</span>:</span>
-<span class="src-line" id="L545">	<span class="f">_lower_bound_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, target)</span>
-<span class="src-line" id="L546"></span>
-<span class="src-line" id="L547"><span class="m">// Returns the first index `i` in `0..=self.len` where `self[i] &gt; target` (first element strictly greater than `target`).</span></span>
-<span class="src-line" id="L548"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].upper_bound = (<span class="k">self</span>, target: <span class="t">T</span>) <span class="t">int</span>:</span>
-<span class="src-line" id="L549">	<span class="f">_upper_bound_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, target)</span>
-<span class="src-line" id="L550"></span>
-<span class="src-line" id="L551"><span class="m">// Reverses the order of elements in the list in place.</span></span>
-<span class="src-line" id="L552"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].reverse = (&amp;<span class="k">self</span>):</span>
-<span class="src-line" id="L553">	<span class="f">_reverse_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)</span>
-<span class="src-line" id="L554"></span>
-<span class="src-line" id="L555"><span class="m">// -----------------------------------------------------------------------------</span></span>
-<span class="src-line" id="L556"><span class="m">// Methods Extending Array[T] (`[N: T]`)</span></span>
-<span class="src-line" id="L557"><span class="m">// -----------------------------------------------------------------------------</span></span>
-<span class="src-line" id="L558"></span>
-<span class="src-line" id="L559"><span class="m">// Sorts the fixed array or array view in place in ascending order using depth-bounded Introsort.</span></span>
-<span class="src-line" id="L560"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].sort = (&amp;<span class="k">self</span>): {</span>
-<span class="src-line" id="L561">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
-<span class="src-line" id="L562">	<span class="f">_sort_range</span>(<span class="k">self</span>.data, <span class="n">0</span>, <span class="k">self</span>.len - <span class="n">1</span>, <span class="f">_max_depth</span>(<span class="k">self</span>.len))</span>
-<span class="src-line" id="L563">}</span>
-<span class="src-line" id="L564"></span>
-<span class="src-line" id="L565"><span class="m">// Sorts the fixed array or array view in place using custom comparator `cmp_fn`.</span></span>
-<span class="src-line" id="L566"><span class="m">//</span></span>
-<span class="src-line" id="L567"><span class="m">// - `cmp_fn`: Returns `&lt; 0` when `a &lt; b`, `0` when equal, or `&gt; 0` when `a &gt; b`.</span></span>
-<span class="src-line" id="L568"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].sort_by = (&amp;<span class="k">self</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
-<span class="src-line" id="L569">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
-<span class="src-line" id="L570">	<span class="f">_sort_by_range</span>(<span class="k">self</span>.data, <span class="n">0</span>, <span class="k">self</span>.len - <span class="n">1</span>, <span class="f">_max_depth</span>(<span class="k">self</span>.len), cmp_fn)</span>
-<span class="src-line" id="L571">}</span>
-<span class="src-line" id="L572"></span>
-<span class="src-line" id="L573"><span class="m">// Sorts the fixed array or array view in place while preserving the relative order of equal keys.</span></span>
-<span class="src-line" id="L574"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].stable_sort = (&amp;<span class="k">self</span>):</span>
-<span class="src-line" id="L575">	<span class="f">_stable_sort_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)</span>
-<span class="src-line" id="L576"></span>
-<span class="src-line" id="L577"><span class="m">// Sorts the fixed array or array view in place using `cmp_fn` while preserving relative order of equal keys.</span></span>
-<span class="src-line" id="L578"><span class="m">//</span></span>
-<span class="src-line" id="L579"><span class="m">// - `cmp_fn`: Returns `&lt; 0` when `a &lt; b`, `0` when equal, or `&gt; 0` when `a &gt; b`.</span></span>
-<span class="src-line" id="L580"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].stable_sort_by = (&amp;<span class="k">self</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>):</span>
-<span class="src-line" id="L581">	<span class="f">_stable_sort_by_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, cmp_fn)</span>
-<span class="src-line" id="L582"></span>
-<span class="src-line" id="L583"><span class="m">// Reports whether elements in the array are sorted in non-decreasing ascending order.</span></span>
-<span class="src-line" id="L584"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].is_sorted = (<span class="k">self</span>) <span class="t">bool</span>:</span>
-<span class="src-line" id="L585">	<span class="f">_is_sorted_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)</span>
-<span class="src-line" id="L586"></span>
-<span class="src-line" id="L587"><span class="m">// Reports whether elements in the array are sorted according to comparator `cmp_fn`.</span></span>
-<span class="src-line" id="L588"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].is_sorted_by = (<span class="k">self</span>, cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">bool</span>:</span>
-<span class="src-line" id="L589">	<span class="f">_is_sorted_by_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, cmp_fn)</span>
-<span class="src-line" id="L590"></span>
-<span class="src-line" id="L591"><span class="m">// Searches a sorted array for `target` via binary search, returning its zero-based index or `none`.</span></span>
-<span class="src-line" id="L592"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].binary_search = (<span class="k">self</span>, target: <span class="t">T</span>) ?<span class="t">int</span>:</span>
-<span class="src-line" id="L593">	<span class="f">_binary_search_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, target)</span>
-<span class="src-line" id="L594"></span>
-<span class="src-line" id="L595"><span class="m">// Searches a sorted array using predicate comparator `cmp_fn`, returning a matching index or `none`.</span></span>
-<span class="src-line" id="L596"><span class="m">//</span></span>
-<span class="src-line" id="L597"><span class="m">// - `cmp_fn`: Receives an element and returns `&lt; 0` if too small, `0` if matching, or `&gt; 0` if too large.</span></span>
-<span class="src-line" id="L598"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].binary_search_by = (<span class="k">self</span>, cmp_fn: (<span class="t">T</span>) <span class="t">int</span>) ?<span class="t">int</span>:</span>
-<span class="src-line" id="L599">	<span class="f">_binary_search_by_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, cmp_fn)</span>
-<span class="src-line" id="L600"></span>
-<span class="src-line" id="L601"><span class="m">// Returns the first index `i` in `0..=self.len` where `self[i] &gt;= target`.</span></span>
-<span class="src-line" id="L602"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].lower_bound = (<span class="k">self</span>, target: <span class="t">T</span>) <span class="t">int</span>:</span>
-<span class="src-line" id="L603">	<span class="f">_lower_bound_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, target)</span>
-<span class="src-line" id="L604"></span>
-<span class="src-line" id="L605"><span class="m">// Returns the first index `i` in `0..=self.len` where `self[i] &gt; target`.</span></span>
-<span class="src-line" id="L606"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].upper_bound = (<span class="k">self</span>, target: <span class="t">T</span>) <span class="t">int</span>:</span>
-<span class="src-line" id="L607">	<span class="f">_upper_bound_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, target)</span>
-<span class="src-line" id="L608"></span>
-<span class="src-line" id="L609"><span class="m">// Reverses the order of elements in the fixed array or array view in place.</span></span>
-<span class="src-line" id="L610"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].reverse = (&amp;<span class="k">self</span>):</span>
-<span class="src-line" id="L611">	<span class="f">_reverse_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)</span>
-<span class="src-line" id="L612"></span>
-<span class="src-line" id="L613"><span class="m">// -----------------------------------------------------------------------------</span></span>
-<span class="src-line" id="L614"><span class="m">// Collection Extensions (Set &amp; Map)</span></span>
-<span class="src-line" id="L615"><span class="m">// -----------------------------------------------------------------------------</span></span>
-<span class="src-line" id="L616"></span>
-<span class="src-line" id="L617"><span class="m">// Collects all elements of this [`Set`] into a new sorted [`List`].</span></span>
-<span class="src-line" id="L618"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].to_sorted_list = (<span class="k">self</span>) <span class="t">List</span>[<span class="t">T</span>]: {</span>
-<span class="src-line" id="L619">	<span class="k">let</span> out = <span class="k">self</span>.<span class="f">to_list</span>()</span>
-<span class="src-line" id="L620">	out.<span class="f">sort</span>()</span>
-<span class="src-line" id="L621">	out</span>
-<span class="src-line" id="L622">}</span>
+<span class="src-line" id="L501"><span class="k">bind</span> _list_data_mut[<span class="t">T</span>] = <span class="k">fn</span>(xs: &amp;<span class="t">List</span>[<span class="t">T</span>]) <span class="t">ptr</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L502">	<span class="k">if</span>(xs.cap &lt;= <span class="n">0</span> <span class="k">and</span> xs.len &gt; <span class="n">0</span>): xs.<span class="f">reserve</span>(xs.len)</span>
+<span class="src-line" id="L503">	xs.data</span>
+<span class="src-line" id="L504">}</span>
+<span class="src-line" id="L505"></span>
+<span class="src-line" id="L506"><span class="m">// Sorts the list in place in ascending order using depth-bounded Introsort.</span></span>
+<span class="src-line" id="L507"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].sort = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L508">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L509">	<span class="f">_sort_range</span>(<span class="f">_list_data_mut</span>(&amp;<span class="k">self</span>), <span class="n">0</span>, <span class="k">self</span>.len - <span class="n">1</span>, <span class="f">_max_depth</span>(<span class="k">self</span>.len))</span>
+<span class="src-line" id="L510">}</span>
+<span class="src-line" id="L511"></span>
+<span class="src-line" id="L512"><span class="m">// Sorts the list in place using custom comparator `cmp_fn` via depth-bounded Introsort.</span></span>
+<span class="src-line" id="L513"><span class="m">//</span></span>
+<span class="src-line" id="L514"><span class="m">// - `cmp_fn`: Returns `&lt; 0` when `a &lt; b`, `0` when equal, or `&gt; 0` when `a &gt; b`.</span></span>
+<span class="src-line" id="L515"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].sort_by = <span class="k">fn</span>(&amp;<span class="k">self</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
+<span class="src-line" id="L516">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L517">	<span class="f">_sort_by_range</span>(<span class="f">_list_data_mut</span>(&amp;<span class="k">self</span>), <span class="n">0</span>, <span class="k">self</span>.len - <span class="n">1</span>, <span class="f">_max_depth</span>(<span class="k">self</span>.len), cmp_fn)</span>
+<span class="src-line" id="L518">}</span>
+<span class="src-line" id="L519"></span>
+<span class="src-line" id="L520"><span class="m">// Sorts the list in place in ascending order while preserving the relative order of equal keys.</span></span>
+<span class="src-line" id="L521"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].stable_sort = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L522">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L523">	<span class="f">_stable_sort_ptr</span>(<span class="f">_list_data_mut</span>(&amp;<span class="k">self</span>), <span class="k">self</span>.len)</span>
+<span class="src-line" id="L524">}</span>
+<span class="src-line" id="L525"></span>
+<span class="src-line" id="L526"><span class="m">// Sorts the list in place using `cmp_fn` while preserving the relative order of equal keys.</span></span>
+<span class="src-line" id="L527"><span class="m">//</span></span>
+<span class="src-line" id="L528"><span class="m">// - `cmp_fn`: Returns `&lt; 0` when `a &lt; b`, `0` when equal, or `&gt; 0` when `a &gt; b`.</span></span>
+<span class="src-line" id="L529"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].stable_sort_by = <span class="k">fn</span>(&amp;<span class="k">self</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
+<span class="src-line" id="L530">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L531">	<span class="f">_stable_sort_by_ptr</span>(<span class="f">_list_data_mut</span>(&amp;<span class="k">self</span>), <span class="k">self</span>.len, cmp_fn)</span>
+<span class="src-line" id="L532">}</span>
+<span class="src-line" id="L533"></span>
+<span class="src-line" id="L534"><span class="m">// Reports whether elements in the list are sorted in non-decreasing ascending order.</span></span>
+<span class="src-line" id="L535"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].is_sorted = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L536">	<span class="f">_is_sorted_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)</span>
+<span class="src-line" id="L537"></span>
+<span class="src-line" id="L538"><span class="m">// Reports whether elements in the list are sorted according to comparator `cmp_fn`.</span></span>
+<span class="src-line" id="L539"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].is_sorted_by = <span class="k">fn</span>(<span class="k">self</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L540">	<span class="f">_is_sorted_by_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, cmp_fn)</span>
+<span class="src-line" id="L541"></span>
+<span class="src-line" id="L542"><span class="m">// Searches a sorted list for `target` via binary search, returning its zero-based index or `none`.</span></span>
+<span class="src-line" id="L543"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].binary_search = <span class="k">fn</span>(<span class="k">self</span>, target: <span class="t">T</span>) ?<span class="t">int</span>:</span>
+<span class="src-line" id="L544">	<span class="f">_binary_search_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, target)</span>
+<span class="src-line" id="L545"></span>
+<span class="src-line" id="L546"><span class="m">// Searches a sorted list using predicate comparator `cmp_fn`, returning a matching index or `none`.</span></span>
+<span class="src-line" id="L547"><span class="m">//</span></span>
+<span class="src-line" id="L548"><span class="m">// - `cmp_fn`: Receives an element and returns `&lt; 0` if too small, `0` if matching, or `&gt; 0` if too large.</span></span>
+<span class="src-line" id="L549"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].binary_search_by = <span class="k">fn</span>(<span class="k">self</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>) <span class="t">int</span>) ?<span class="t">int</span>:</span>
+<span class="src-line" id="L550">	<span class="f">_binary_search_by_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, cmp_fn)</span>
+<span class="src-line" id="L551"></span>
+<span class="src-line" id="L552"><span class="m">// Returns the first index `i` in `0..=self.len` where `self[i] &gt;= target` (first element not less than `target`).</span></span>
+<span class="src-line" id="L553"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].lower_bound = <span class="k">fn</span>(<span class="k">self</span>, target: <span class="t">T</span>) <span class="t">int</span>:</span>
+<span class="src-line" id="L554">	<span class="f">_lower_bound_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, target)</span>
+<span class="src-line" id="L555"></span>
+<span class="src-line" id="L556"><span class="m">// Returns the first index `i` in `0..=self.len` where `self[i] &gt; target` (first element strictly greater than `target`).</span></span>
+<span class="src-line" id="L557"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].upper_bound = <span class="k">fn</span>(<span class="k">self</span>, target: <span class="t">T</span>) <span class="t">int</span>:</span>
+<span class="src-line" id="L558">	<span class="f">_upper_bound_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, target)</span>
+<span class="src-line" id="L559"></span>
+<span class="src-line" id="L560"><span class="m">// Reverses the order of elements in the list in place.</span></span>
+<span class="src-line" id="L561"><span class="k">bind</span> <span class="t">List</span>[<span class="t">T</span>].reverse = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L562">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L563">	<span class="f">_reverse_ptr</span>(<span class="f">_list_data_mut</span>(&amp;<span class="k">self</span>), <span class="k">self</span>.len)</span>
+<span class="src-line" id="L564">}</span>
+<span class="src-line" id="L565"></span>
+<span class="src-line" id="L566"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L567"><span class="m">// Methods Extending Array[T] (`[N: T]`)</span></span>
+<span class="src-line" id="L568"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L569"></span>
+<span class="src-line" id="L570"><span class="m">// Sorts the fixed array or array view in place in ascending order using depth-bounded Introsort.</span></span>
+<span class="src-line" id="L571"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].sort = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L572">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L573">	<span class="f">_sort_range</span>(<span class="k">self</span>.data, <span class="n">0</span>, <span class="k">self</span>.len - <span class="n">1</span>, <span class="f">_max_depth</span>(<span class="k">self</span>.len))</span>
+<span class="src-line" id="L574">}</span>
+<span class="src-line" id="L575"></span>
+<span class="src-line" id="L576"><span class="m">// Sorts the fixed array or array view in place using custom comparator `cmp_fn`.</span></span>
+<span class="src-line" id="L577"><span class="m">//</span></span>
+<span class="src-line" id="L578"><span class="m">// - `cmp_fn`: Returns `&lt; 0` when `a &lt; b`, `0` when equal, or `&gt; 0` when `a &gt; b`.</span></span>
+<span class="src-line" id="L579"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].sort_by = <span class="k">fn</span>(&amp;<span class="k">self</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): {</span>
+<span class="src-line" id="L580">	<span class="k">if</span>(<span class="k">self</span>.len &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L581">	<span class="f">_sort_by_range</span>(<span class="k">self</span>.data, <span class="n">0</span>, <span class="k">self</span>.len - <span class="n">1</span>, <span class="f">_max_depth</span>(<span class="k">self</span>.len), cmp_fn)</span>
+<span class="src-line" id="L582">}</span>
+<span class="src-line" id="L583"></span>
+<span class="src-line" id="L584"><span class="m">// Sorts the fixed array or array view in place while preserving the relative order of equal keys.</span></span>
+<span class="src-line" id="L585"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].stable_sort = <span class="k">fn</span>(&amp;<span class="k">self</span>):</span>
+<span class="src-line" id="L586">	<span class="f">_stable_sort_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)</span>
+<span class="src-line" id="L587"></span>
+<span class="src-line" id="L588"><span class="m">// Sorts the fixed array or array view in place using `cmp_fn` while preserving relative order of equal keys.</span></span>
+<span class="src-line" id="L589"><span class="m">//</span></span>
+<span class="src-line" id="L590"><span class="m">// - `cmp_fn`: Returns `&lt; 0` when `a &lt; b`, `0` when equal, or `&gt; 0` when `a &gt; b`.</span></span>
+<span class="src-line" id="L591"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].stable_sort_by = <span class="k">fn</span>(&amp;<span class="k">self</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>):</span>
+<span class="src-line" id="L592">	<span class="f">_stable_sort_by_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, cmp_fn)</span>
+<span class="src-line" id="L593"></span>
+<span class="src-line" id="L594"><span class="m">// Reports whether elements in the array are sorted in non-decreasing ascending order.</span></span>
+<span class="src-line" id="L595"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].is_sorted = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L596">	<span class="f">_is_sorted_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)</span>
+<span class="src-line" id="L597"></span>
+<span class="src-line" id="L598"><span class="m">// Reports whether elements in the array are sorted according to comparator `cmp_fn`.</span></span>
+<span class="src-line" id="L599"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].is_sorted_by = <span class="k">fn</span>(<span class="k">self</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L600">	<span class="f">_is_sorted_by_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, cmp_fn)</span>
+<span class="src-line" id="L601"></span>
+<span class="src-line" id="L602"><span class="m">// Searches a sorted array for `target` via binary search, returning its zero-based index or `none`.</span></span>
+<span class="src-line" id="L603"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].binary_search = <span class="k">fn</span>(<span class="k">self</span>, target: <span class="t">T</span>) ?<span class="t">int</span>:</span>
+<span class="src-line" id="L604">	<span class="f">_binary_search_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, target)</span>
+<span class="src-line" id="L605"></span>
+<span class="src-line" id="L606"><span class="m">// Searches a sorted array using predicate comparator `cmp_fn`, returning a matching index or `none`.</span></span>
+<span class="src-line" id="L607"><span class="m">//</span></span>
+<span class="src-line" id="L608"><span class="m">// - `cmp_fn`: Receives an element and returns `&lt; 0` if too small, `0` if matching, or `&gt; 0` if too large.</span></span>
+<span class="src-line" id="L609"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].binary_search_by = <span class="k">fn</span>(<span class="k">self</span>, cmp_fn: <span class="k">cl</span>(<span class="t">T</span>) <span class="t">int</span>) ?<span class="t">int</span>:</span>
+<span class="src-line" id="L610">	<span class="f">_binary_search_by_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, cmp_fn)</span>
+<span class="src-line" id="L611"></span>
+<span class="src-line" id="L612"><span class="m">// Returns the first index `i` in `0..=self.len` where `self[i] &gt;= target`.</span></span>
+<span class="src-line" id="L613"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].lower_bound = <span class="k">fn</span>(<span class="k">self</span>, target: <span class="t">T</span>) <span class="t">int</span>:</span>
+<span class="src-line" id="L614">	<span class="f">_lower_bound_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, target)</span>
+<span class="src-line" id="L615"></span>
+<span class="src-line" id="L616"><span class="m">// Returns the first index `i` in `0..=self.len` where `self[i] &gt; target`.</span></span>
+<span class="src-line" id="L617"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].upper_bound = <span class="k">fn</span>(<span class="k">self</span>, target: <span class="t">T</span>) <span class="t">int</span>:</span>
+<span class="src-line" id="L618">	<span class="f">_upper_bound_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len, target)</span>
+<span class="src-line" id="L619"></span>
+<span class="src-line" id="L620"><span class="m">// Reverses the order of elements in the fixed array or array view in place.</span></span>
+<span class="src-line" id="L621"><span class="k">bind</span> <span class="t">Array</span>[<span class="t">T</span>].reverse = <span class="k">fn</span>(&amp;<span class="k">self</span>):</span>
+<span class="src-line" id="L622">	<span class="f">_reverse_ptr</span>(<span class="k">self</span>.data, <span class="k">self</span>.len)</span>
 <span class="src-line" id="L623"></span>
-<span class="src-line" id="L624"><span class="m">// Collects all keys of this [`Map`] into a new sorted [`List`].</span></span>
-<span class="src-line" id="L625"><span class="k">bind</span> <span class="t">Map</span>[<span class="t">K</span>, <span class="t">V</span>].to_sorted_keys = (<span class="k">self</span>) <span class="t">List</span>[<span class="t">K</span>]: {</span>
-<span class="src-line" id="L626">	<span class="k">let</span> out = <span class="k">self</span>.<span class="f">keys</span>()</span>
-<span class="src-line" id="L627">	out.<span class="f">sort</span>()</span>
-<span class="src-line" id="L628">	out</span>
-<span class="src-line" id="L629">}</span>
-<span class="src-line" id="L630"></span>
-<span class="src-line" id="L631"><span class="m">// -----------------------------------------------------------------------------</span></span>
-<span class="src-line" id="L632"><span class="m">// Standalone Functions</span></span>
-<span class="src-line" id="L633"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L624"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L625"><span class="m">// Collection Extensions (Set &amp; Map)</span></span>
+<span class="src-line" id="L626"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L627"></span>
+<span class="src-line" id="L628"><span class="m">// Collects all elements of this [`Set`] into a new sorted [`List`].</span></span>
+<span class="src-line" id="L629"><span class="k">bind</span> <span class="t">Set</span>[<span class="t">T</span>].to_sorted_list = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">List</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L630">	<span class="k">let</span> out = <span class="k">self</span>.<span class="f">to_list</span>()</span>
+<span class="src-line" id="L631">	out.<span class="f">sort</span>()</span>
+<span class="src-line" id="L632">	out</span>
+<span class="src-line" id="L633">}</span>
 <span class="src-line" id="L634"></span>
-<span class="src-line" id="L635"><span class="m">// Function form of [`List.sort`].</span></span>
-<span class="src-line" id="L636"><span class="k">bind</span> sort[<span class="t">T</span>] = (list: &amp;<span class="t">List</span>[<span class="t">T</span>]): list.<span class="f">sort</span>()</span>
-<span class="src-line" id="L637"></span>
-<span class="src-line" id="L638"><span class="m">// Function form of [`List.sort_by`].</span></span>
-<span class="src-line" id="L639"><span class="k">bind</span> sort_by[<span class="t">T</span>] = (list: &amp;<span class="t">List</span>[<span class="t">T</span>], cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): list.<span class="f">sort_by</span>(cmp_fn)</span>
-<span class="src-line" id="L640"></span>
-<span class="src-line" id="L641"><span class="m">// Function form of [`List.stable_sort`].</span></span>
-<span class="src-line" id="L642"><span class="k">bind</span> stable_sort[<span class="t">T</span>] = (list: &amp;<span class="t">List</span>[<span class="t">T</span>]): list.<span class="f">stable_sort</span>()</span>
-<span class="src-line" id="L643"></span>
-<span class="src-line" id="L644"><span class="m">// Function form of [`List.stable_sort_by`].</span></span>
-<span class="src-line" id="L645"><span class="k">bind</span> stable_sort_by[<span class="t">T</span>] = (list: &amp;<span class="t">List</span>[<span class="t">T</span>], cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): list.<span class="f">stable_sort_by</span>(cmp_fn)</span>
-<span class="src-line" id="L646"></span>
-<span class="src-line" id="L647"><span class="m">// Function form of [`List.is_sorted`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).</span></span>
-<span class="src-line" id="L648"><span class="k">bind</span> is_sorted[<span class="t">T</span>] = (list: <span class="t">List</span>[<span class="t">T</span>]) <span class="t">bool</span>: list.<span class="f">is_sorted</span>()</span>
-<span class="src-line" id="L649"></span>
-<span class="src-line" id="L650"><span class="m">// Function form of [`List.is_sorted_by`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).</span></span>
-<span class="src-line" id="L651"><span class="k">bind</span> is_sorted_by[<span class="t">T</span>] = (list: <span class="t">List</span>[<span class="t">T</span>], cmp_fn: (<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">bool</span>: list.<span class="f">is_sorted_by</span>(cmp_fn)</span>
-<span class="src-line" id="L652"></span>
-<span class="src-line" id="L653"><span class="m">// Function form of [`List.binary_search`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).</span></span>
-<span class="src-line" id="L654"><span class="k">bind</span> binary_search[<span class="t">T</span>] = (list: <span class="t">List</span>[<span class="t">T</span>], target: <span class="t">T</span>) ?<span class="t">int</span>: list.<span class="f">binary_search</span>(target)</span>
-<span class="src-line" id="L655"></span>
-<span class="src-line" id="L656"><span class="m">// Function form of [`List.binary_search_by`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).</span></span>
-<span class="src-line" id="L657"><span class="k">bind</span> binary_search_by[<span class="t">T</span>] = (list: <span class="t">List</span>[<span class="t">T</span>], cmp_fn: (<span class="t">T</span>) <span class="t">int</span>) ?<span class="t">int</span>: list.<span class="f">binary_search_by</span>(cmp_fn)</span>
-<span class="src-line" id="L658"></span>
-<span class="src-line" id="L659"><span class="m">// Function form of [`List.lower_bound`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).</span></span>
-<span class="src-line" id="L660"><span class="k">bind</span> lower_bound[<span class="t">T</span>] = (list: <span class="t">List</span>[<span class="t">T</span>], target: <span class="t">T</span>) <span class="t">int</span>: list.<span class="f">lower_bound</span>(target)</span>
-<span class="src-line" id="L661"></span>
-<span class="src-line" id="L662"><span class="m">// Function form of [`List.upper_bound`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).</span></span>
-<span class="src-line" id="L663"><span class="k">bind</span> upper_bound[<span class="t">T</span>] = (list: <span class="t">List</span>[<span class="t">T</span>], target: <span class="t">T</span>) <span class="t">int</span>: list.<span class="f">upper_bound</span>(target)</span>
-<span class="src-line" id="L664"></span>
-<span class="src-line" id="L665"><span class="m">// Function form of [`List.reverse`].</span></span>
-<span class="src-line" id="L666"><span class="k">bind</span> reverse[<span class="t">T</span>] = (list: &amp;<span class="t">List</span>[<span class="t">T</span>]): list.<span class="f">reverse</span>()</span>
-<span class="src-line" id="L667"></span>
-<span class="src-line" id="L668"><span class="m">// -----------------------------------------------------------------------------</span></span>
-<span class="src-line" id="L669"><span class="m">// Inline Unit Tests</span></span>
-<span class="src-line" id="L670"><span class="m">// -----------------------------------------------------------------------------</span></span>
-<span class="src-line" id="L671"></span>
-<span class="src-line" id="L672"><span class="a">@test_only</span></span>
-<span class="src-line" id="L673"><span class="k">define</span> _StablePair <span class="k">struct</span> [</span>
-<span class="src-line" id="L674">	key: <span class="t">int</span>,</span>
-<span class="src-line" id="L675">	order: <span class="t">int</span>,</span>
-<span class="src-line" id="L676">]</span>
-<span class="src-line" id="L677"></span>
-<span class="src-line" id="L678"><span class="k">bind</span> _StablePair.cmp = (<span class="k">self</span>, other: _StablePair) <span class="t">int</span>:</span>
-<span class="src-line" id="L679">	<span class="k">if</span>(<span class="k">self</span>.key &lt; other.key): -<span class="n">1</span></span>
-<span class="src-line" id="L680">	<span class="k">else</span> <span class="k">if</span>(<span class="k">self</span>.key &gt; other.key): <span class="n">1</span></span>
-<span class="src-line" id="L681">	<span class="k">else</span>: <span class="n">0</span></span>
+<span class="src-line" id="L635"><span class="m">// Collects all keys of this [`Map`] into a new sorted [`List`].</span></span>
+<span class="src-line" id="L636"><span class="k">bind</span> <span class="t">Map</span>[<span class="t">K</span>, <span class="t">V</span>].to_sorted_keys = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">List</span>[<span class="t">K</span>]: {</span>
+<span class="src-line" id="L637">	<span class="k">let</span> out = <span class="k">self</span>.<span class="f">keys</span>()</span>
+<span class="src-line" id="L638">	out.<span class="f">sort</span>()</span>
+<span class="src-line" id="L639">	out</span>
+<span class="src-line" id="L640">}</span>
+<span class="src-line" id="L641"></span>
+<span class="src-line" id="L642"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L643"><span class="m">// Standalone Functions</span></span>
+<span class="src-line" id="L644"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L645"></span>
+<span class="src-line" id="L646"><span class="m">// Function form of [`List.sort`].</span></span>
+<span class="src-line" id="L647"><span class="k">bind</span> sort[<span class="t">T</span>] = <span class="k">fn</span>(list: &amp;<span class="t">List</span>[<span class="t">T</span>]): list.<span class="f">sort</span>()</span>
+<span class="src-line" id="L648"></span>
+<span class="src-line" id="L649"><span class="m">// Function form of [`List.sort_by`].</span></span>
+<span class="src-line" id="L650"><span class="k">bind</span> sort_by[<span class="t">T</span>] = <span class="k">fn</span>(list: &amp;<span class="t">List</span>[<span class="t">T</span>], cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): list.<span class="f">sort_by</span>(cmp_fn)</span>
+<span class="src-line" id="L651"></span>
+<span class="src-line" id="L652"><span class="m">// Function form of [`List.stable_sort`].</span></span>
+<span class="src-line" id="L653"><span class="k">bind</span> stable_sort[<span class="t">T</span>] = <span class="k">fn</span>(list: &amp;<span class="t">List</span>[<span class="t">T</span>]): list.<span class="f">stable_sort</span>()</span>
+<span class="src-line" id="L654"></span>
+<span class="src-line" id="L655"><span class="m">// Function form of [`List.stable_sort_by`].</span></span>
+<span class="src-line" id="L656"><span class="k">bind</span> stable_sort_by[<span class="t">T</span>] = <span class="k">fn</span>(list: &amp;<span class="t">List</span>[<span class="t">T</span>], cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>): list.<span class="f">stable_sort_by</span>(cmp_fn)</span>
+<span class="src-line" id="L657"></span>
+<span class="src-line" id="L658"><span class="m">// Function form of [`List.is_sorted`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).</span></span>
+<span class="src-line" id="L659"><span class="k">bind</span> is_sorted[<span class="t">T</span>] = <span class="k">fn</span>(list: <span class="t">List</span>[<span class="t">T</span>]) <span class="t">bool</span>: list.<span class="f">is_sorted</span>()</span>
+<span class="src-line" id="L660"></span>
+<span class="src-line" id="L661"><span class="m">// Function form of [`List.is_sorted_by`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).</span></span>
+<span class="src-line" id="L662"><span class="k">bind</span> is_sorted_by[<span class="t">T</span>] = <span class="k">fn</span>(list: <span class="t">List</span>[<span class="t">T</span>], cmp_fn: <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">bool</span>: list.<span class="f">is_sorted_by</span>(cmp_fn)</span>
+<span class="src-line" id="L663"></span>
+<span class="src-line" id="L664"><span class="m">// Function form of [`List.binary_search`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).</span></span>
+<span class="src-line" id="L665"><span class="k">bind</span> binary_search[<span class="t">T</span>] = <span class="k">fn</span>(list: <span class="t">List</span>[<span class="t">T</span>], target: <span class="t">T</span>) ?<span class="t">int</span>: list.<span class="f">binary_search</span>(target)</span>
+<span class="src-line" id="L666"></span>
+<span class="src-line" id="L667"><span class="m">// Function form of [`List.binary_search_by`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).</span></span>
+<span class="src-line" id="L668"><span class="k">bind</span> binary_search_by[<span class="t">T</span>] = <span class="k">fn</span>(list: <span class="t">List</span>[<span class="t">T</span>], cmp_fn: <span class="k">cl</span>(<span class="t">T</span>) <span class="t">int</span>) ?<span class="t">int</span>: list.<span class="f">binary_search_by</span>(cmp_fn)</span>
+<span class="src-line" id="L669"></span>
+<span class="src-line" id="L670"><span class="m">// Function form of [`List.lower_bound`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).</span></span>
+<span class="src-line" id="L671"><span class="k">bind</span> lower_bound[<span class="t">T</span>] = <span class="k">fn</span>(list: <span class="t">List</span>[<span class="t">T</span>], target: <span class="t">T</span>) <span class="t">int</span>: list.<span class="f">lower_bound</span>(target)</span>
+<span class="src-line" id="L672"></span>
+<span class="src-line" id="L673"><span class="m">// Function form of [`List.upper_bound`] (accepts [`List`], `[T]`, `[N: T]`, and [`Array`] views).</span></span>
+<span class="src-line" id="L674"><span class="k">bind</span> upper_bound[<span class="t">T</span>] = <span class="k">fn</span>(list: <span class="t">List</span>[<span class="t">T</span>], target: <span class="t">T</span>) <span class="t">int</span>: list.<span class="f">upper_bound</span>(target)</span>
+<span class="src-line" id="L675"></span>
+<span class="src-line" id="L676"><span class="m">// Function form of [`List.reverse`].</span></span>
+<span class="src-line" id="L677"><span class="k">bind</span> reverse[<span class="t">T</span>] = <span class="k">fn</span>(list: &amp;<span class="t">List</span>[<span class="t">T</span>]): list.<span class="f">reverse</span>()</span>
+<span class="src-line" id="L678"></span>
+<span class="src-line" id="L679"><span class="m">// -----------------------------------------------------------------------------</span></span>
+<span class="src-line" id="L680"><span class="m">// Inline Unit Tests</span></span>
+<span class="src-line" id="L681"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L682"></span>
 <span class="src-line" id="L683"><span class="a">@test_only</span></span>
-<span class="src-line" id="L684"><span class="k">define</span> _NonCopyRecord <span class="k">struct</span> [</span>
-<span class="src-line" id="L685">	id: <span class="t">int</span>,</span>
-<span class="src-line" id="L686">	name: <span class="t">string</span>,</span>
-<span class="src-line" id="L687">	tag: <span class="t">ptr</span>[<span class="t">int</span>],</span>
-<span class="src-line" id="L688">]</span>
-<span class="src-line" id="L689"></span>
-<span class="src-line" id="L690"><span class="k">bind</span> _NonCopyRecord.drop = (&amp;<span class="k">self</span>): {</span>
-<span class="src-line" id="L691">	<span class="k">if</span>(<span class="k">not</span> <span class="k">unsafe</span> <span class="f">is_null</span>(<span class="k">self</span>.tag)): {</span>
-<span class="src-line" id="L692">		<span class="k">unsafe</span> <span class="f">free_raw</span>(<span class="k">self</span>.tag)</span>
-<span class="src-line" id="L693">		<span class="k">self</span>.tag = <span class="k">unsafe</span> null_ptr[<span class="t">int</span>]()</span>
-<span class="src-line" id="L694">	}</span>
-<span class="src-line" id="L695">}</span>
-<span class="src-line" id="L696"></span>
-<span class="src-line" id="L697"><span class="k">bind</span> _NonCopyRecord.cmp = (<span class="k">self</span>, other: _NonCopyRecord) <span class="t">int</span>:</span>
-<span class="src-line" id="L698">	<span class="k">if</span>(<span class="k">self</span>.id &lt; other.id): -<span class="n">1</span></span>
-<span class="src-line" id="L699">	<span class="k">else</span> <span class="k">if</span>(<span class="k">self</span>.id &gt; other.id): <span class="n">1</span></span>
-<span class="src-line" id="L700">	<span class="k">else</span>: <span class="n">0</span></span>
-<span class="src-line" id="L701"></span>
-<span class="src-line" id="L702"><span class="a">@test</span>(<span class="s">&quot;sort list in-place and verify is_sorted, reverse, and large introsort&quot;</span>)</span>
-<span class="src-line" id="L703"><span class="k">bind</span> test_sort_list_comparable = (): {</span>
-<span class="src-line" id="L704">	<span class="k">let</span> empty_list = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L705">	empty_list.<span class="f">sort</span>()</span>
-<span class="src-line" id="L706">	<span class="f">assert</span>(empty_list.<span class="f">is_sorted</span>(), <span class="s">&quot;empty list is sorted&quot;</span>)</span>
+<span class="src-line" id="L684"><span class="k">define</span> _StablePair <span class="k">struct</span> [</span>
+<span class="src-line" id="L685">	key: <span class="t">int</span>,</span>
+<span class="src-line" id="L686">	order: <span class="t">int</span>,</span>
+<span class="src-line" id="L687">]</span>
+<span class="src-line" id="L688"></span>
+<span class="src-line" id="L689"><span class="k">bind</span> _StablePair.cmp = <span class="k">fn</span>(<span class="k">self</span>, other: _StablePair) <span class="t">int</span>:</span>
+<span class="src-line" id="L690">	<span class="k">if</span>(<span class="k">self</span>.key &lt; other.key): -<span class="n">1</span></span>
+<span class="src-line" id="L691">	<span class="k">else</span> <span class="k">if</span>(<span class="k">self</span>.key &gt; other.key): <span class="n">1</span></span>
+<span class="src-line" id="L692">	<span class="k">else</span>: <span class="n">0</span></span>
+<span class="src-line" id="L693"></span>
+<span class="src-line" id="L694"><span class="a">@test_only</span></span>
+<span class="src-line" id="L695"><span class="k">define</span> _NonCopyRecord <span class="k">struct</span> [</span>
+<span class="src-line" id="L696">	id: <span class="t">int</span>,</span>
+<span class="src-line" id="L697">	name: <span class="t">string</span>,</span>
+<span class="src-line" id="L698">	tag: <span class="t">ptr</span>[<span class="t">int</span>],</span>
+<span class="src-line" id="L699">]</span>
+<span class="src-line" id="L700"></span>
+<span class="src-line" id="L701"><span class="k">bind</span> _NonCopyRecord.drop = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L702">	<span class="k">if</span>(<span class="k">not</span> <span class="k">unsafe</span> <span class="f">is_null</span>(<span class="k">self</span>.tag)): {</span>
+<span class="src-line" id="L703">		<span class="k">unsafe</span> <span class="f">free_raw</span>(<span class="k">self</span>.tag)</span>
+<span class="src-line" id="L704">		<span class="k">self</span>.tag = <span class="k">unsafe</span> null_ptr[<span class="t">int</span>]()</span>
+<span class="src-line" id="L705">	}</span>
+<span class="src-line" id="L706">}</span>
 <span class="src-line" id="L707"></span>
-<span class="src-line" id="L708">	<span class="k">let</span> single = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L709">	single.<span class="f">push</span>(<span class="n">42</span>)</span>
-<span class="src-line" id="L710">	single.<span class="f">sort</span>()</span>
-<span class="src-line" id="L711">	<span class="f">assert</span>(single.<span class="f">is_sorted</span>(), <span class="s">&quot;single element is sorted&quot;</span>)</span>
+<span class="src-line" id="L708"><span class="k">bind</span> _NonCopyRecord.cmp = <span class="k">fn</span>(<span class="k">self</span>, other: _NonCopyRecord) <span class="t">int</span>:</span>
+<span class="src-line" id="L709">	<span class="k">if</span>(<span class="k">self</span>.id &lt; other.id): -<span class="n">1</span></span>
+<span class="src-line" id="L710">	<span class="k">else</span> <span class="k">if</span>(<span class="k">self</span>.id &gt; other.id): <span class="n">1</span></span>
+<span class="src-line" id="L711">	<span class="k">else</span>: <span class="n">0</span></span>
 <span class="src-line" id="L712"></span>
-<span class="src-line" id="L713">	<span class="k">let</span> nums = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L714">	nums.<span class="f">push</span>(<span class="n">50</span>)</span>
-<span class="src-line" id="L715">	nums.<span class="f">push</span>(<span class="n">20</span>)</span>
-<span class="src-line" id="L716">	nums.<span class="f">push</span>(<span class="n">40</span>)</span>
-<span class="src-line" id="L717">	nums.<span class="f">push</span>(<span class="n">10</span>)</span>
-<span class="src-line" id="L718">	nums.<span class="f">push</span>(<span class="n">30</span>)</span>
-<span class="src-line" id="L719">	<span class="f">assert</span>(<span class="k">not</span> nums.<span class="f">is_sorted</span>(), <span class="s">&quot;nums initially not sorted&quot;</span>)</span>
-<span class="src-line" id="L720"></span>
-<span class="src-line" id="L721">	nums.<span class="f">sort</span>()</span>
-<span class="src-line" id="L722">	<span class="f">assert</span>(nums.<span class="f">is_sorted</span>(), <span class="s">&quot;nums sorted&quot;</span>)</span>
-<span class="src-line" id="L723">	<span class="f">assert</span>(nums.<span class="f">len</span>() == <span class="n">5</span>, <span class="s">&quot;nums len 5&quot;</span>)</span>
-<span class="src-line" id="L724">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">10</span>, <span class="s">&quot;nums[0] == 10&quot;</span>)</span>
-<span class="src-line" id="L725">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">1</span>) == <span class="n">20</span>, <span class="s">&quot;nums[1] == 20&quot;</span>)</span>
-<span class="src-line" id="L726">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">2</span>) == <span class="n">30</span>, <span class="s">&quot;nums[2] == 30&quot;</span>)</span>
-<span class="src-line" id="L727">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">3</span>) == <span class="n">40</span>, <span class="s">&quot;nums[3] == 40&quot;</span>)</span>
-<span class="src-line" id="L728">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">4</span>) == <span class="n">50</span>, <span class="s">&quot;nums[4] == 50&quot;</span>)</span>
-<span class="src-line" id="L729"></span>
-<span class="src-line" id="L730">	nums.<span class="f">reverse</span>()</span>
-<span class="src-line" id="L731">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">50</span>, <span class="s">&quot;reversed nums[0] == 50&quot;</span>)</span>
-<span class="src-line" id="L732">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">4</span>) == <span class="n">10</span>, <span class="s">&quot;reversed nums[4] == 10&quot;</span>)</span>
-<span class="src-line" id="L733"></span>
-<span class="src-line" id="L734">	<span class="m">// Larger reversed + sawtooth input to exercise multi-level Introsort partitioning</span></span>
-<span class="src-line" id="L735">	<span class="k">let</span> large = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L736">	<span class="k">let</span> i = <span class="n">150</span></span>
-<span class="src-line" id="L737">	<span class="k">while</span>(i &gt; <span class="n">0</span>): {</span>
-<span class="src-line" id="L738">		large.<span class="f">push</span>(i % <span class="n">29</span> * <span class="n">7</span> + i)</span>
-<span class="src-line" id="L739">		i -= <span class="n">1</span></span>
-<span class="src-line" id="L740">	}</span>
-<span class="src-line" id="L741">	<span class="f">assert</span>(<span class="k">not</span> large.<span class="f">is_sorted</span>(), <span class="s">&quot;large initially unsorted&quot;</span>)</span>
-<span class="src-line" id="L742">	large.<span class="f">sort</span>()</span>
-<span class="src-line" id="L743">	<span class="f">assert</span>(large.<span class="f">is_sorted</span>(), <span class="s">&quot;large sorted&quot;</span>)</span>
+<span class="src-line" id="L713"><span class="a">@test</span>(<span class="s">&quot;sort list in-place and verify is_sorted, reverse, and large introsort&quot;</span>)</span>
+<span class="src-line" id="L714"><span class="k">bind</span> test_sort_list_comparable = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L715">	<span class="k">let</span> empty_list = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L716">	empty_list.<span class="f">sort</span>()</span>
+<span class="src-line" id="L717">	<span class="f">assert</span>(empty_list.<span class="f">is_sorted</span>(), <span class="s">&quot;empty list is sorted&quot;</span>)</span>
+<span class="src-line" id="L718"></span>
+<span class="src-line" id="L719">	<span class="k">let</span> single = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L720">	single.<span class="f">push</span>(<span class="n">42</span>)</span>
+<span class="src-line" id="L721">	single.<span class="f">sort</span>()</span>
+<span class="src-line" id="L722">	<span class="f">assert</span>(single.<span class="f">is_sorted</span>(), <span class="s">&quot;single element is sorted&quot;</span>)</span>
+<span class="src-line" id="L723"></span>
+<span class="src-line" id="L724">	<span class="k">let</span> nums = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L725">	nums.<span class="f">push</span>(<span class="n">50</span>)</span>
+<span class="src-line" id="L726">	nums.<span class="f">push</span>(<span class="n">20</span>)</span>
+<span class="src-line" id="L727">	nums.<span class="f">push</span>(<span class="n">40</span>)</span>
+<span class="src-line" id="L728">	nums.<span class="f">push</span>(<span class="n">10</span>)</span>
+<span class="src-line" id="L729">	nums.<span class="f">push</span>(<span class="n">30</span>)</span>
+<span class="src-line" id="L730">	<span class="f">assert</span>(<span class="k">not</span> nums.<span class="f">is_sorted</span>(), <span class="s">&quot;nums initially not sorted&quot;</span>)</span>
+<span class="src-line" id="L731"></span>
+<span class="src-line" id="L732">	nums.<span class="f">sort</span>()</span>
+<span class="src-line" id="L733">	<span class="f">assert</span>(nums.<span class="f">is_sorted</span>(), <span class="s">&quot;nums sorted&quot;</span>)</span>
+<span class="src-line" id="L734">	<span class="f">assert</span>(nums.<span class="f">len</span>() == <span class="n">5</span>, <span class="s">&quot;nums len 5&quot;</span>)</span>
+<span class="src-line" id="L735">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">10</span>, <span class="s">&quot;nums[0] == 10&quot;</span>)</span>
+<span class="src-line" id="L736">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">1</span>) == <span class="n">20</span>, <span class="s">&quot;nums[1] == 20&quot;</span>)</span>
+<span class="src-line" id="L737">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">2</span>) == <span class="n">30</span>, <span class="s">&quot;nums[2] == 30&quot;</span>)</span>
+<span class="src-line" id="L738">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">3</span>) == <span class="n">40</span>, <span class="s">&quot;nums[3] == 40&quot;</span>)</span>
+<span class="src-line" id="L739">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">4</span>) == <span class="n">50</span>, <span class="s">&quot;nums[4] == 50&quot;</span>)</span>
+<span class="src-line" id="L740"></span>
+<span class="src-line" id="L741">	nums.<span class="f">reverse</span>()</span>
+<span class="src-line" id="L742">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">50</span>, <span class="s">&quot;reversed nums[0] == 50&quot;</span>)</span>
+<span class="src-line" id="L743">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">4</span>) == <span class="n">10</span>, <span class="s">&quot;reversed nums[4] == 10&quot;</span>)</span>
 <span class="src-line" id="L744"></span>
-<span class="src-line" id="L745">	<span class="m">// Exercise explicit Heapsort fallback path (depth_limit == 0)</span></span>
-<span class="src-line" id="L746">	<span class="k">let</span> heap_nums = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L747">	<span class="k">let</span> h = <span class="n">40</span></span>
-<span class="src-line" id="L748">	<span class="k">while</span>(h &gt; <span class="n">0</span>): {</span>
-<span class="src-line" id="L749">		heap_nums.<span class="f">push</span>(h * <span class="n">13</span> % <span class="n">37</span>)</span>
-<span class="src-line" id="L750">		h -= <span class="n">1</span></span>
+<span class="src-line" id="L745">	<span class="m">// Larger reversed + sawtooth input to exercise multi-level Introsort partitioning</span></span>
+<span class="src-line" id="L746">	<span class="k">let</span> large = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L747">	<span class="k">let</span> i = <span class="n">150</span></span>
+<span class="src-line" id="L748">	<span class="k">while</span>(i &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L749">		large.<span class="f">push</span>(i % <span class="n">29</span> * <span class="n">7</span> + i)</span>
+<span class="src-line" id="L750">		i -= <span class="n">1</span></span>
 <span class="src-line" id="L751">	}</span>
-<span class="src-line" id="L752">	<span class="f">_sort_range</span>(heap_nums.data, <span class="n">0</span>, heap_nums.<span class="f">len</span>() - <span class="n">1</span>, <span class="n">0</span>)</span>
-<span class="src-line" id="L753">	<span class="f">assert</span>(heap_nums.<span class="f">is_sorted</span>(), <span class="s">&quot;introsort heapsort fallback sorts completely&quot;</span>)</span>
-<span class="src-line" id="L754"></span>
-<span class="src-line" id="L755">	<span class="m">// Exercise comparator Heapsort fallback path (depth_limit == 0)</span></span>
-<span class="src-line" id="L756">	<span class="k">let</span> cmp_desc = (a: <span class="t">int</span>, b: <span class="t">int</span>) <span class="t">int</span>:</span>
-<span class="src-line" id="L757">		<span class="k">if</span>(a &gt; b): -<span class="n">1</span></span>
-<span class="src-line" id="L758">		<span class="k">else</span> <span class="k">if</span>(a &lt; b): <span class="n">1</span></span>
-<span class="src-line" id="L759">		<span class="k">else</span>: <span class="n">0</span></span>
-<span class="src-line" id="L760">	<span class="f">_sort_by_range</span>(heap_nums.data, <span class="n">0</span>, heap_nums.<span class="f">len</span>() - <span class="n">1</span>, <span class="n">0</span>, cmp_desc)</span>
-<span class="src-line" id="L761">	<span class="f">assert</span>(heap_nums.<span class="f">is_sorted_by</span>(cmp_desc), <span class="s">&quot;introsort comparator heapsort fallback sorts completely&quot;</span>)</span>
-<span class="src-line" id="L762">}</span>
-<span class="src-line" id="L763"></span>
-<span class="src-line" id="L764"><span class="a">@test</span>(<span class="s">&quot;sort list with custom comparator (descending)&quot;</span>)</span>
-<span class="src-line" id="L765"><span class="k">bind</span> test_sort_custom_comparator = (): {</span>
-<span class="src-line" id="L766">	<span class="k">let</span> nums = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L767">	nums.<span class="f">push</span>(<span class="n">15</span>)</span>
-<span class="src-line" id="L768">	nums.<span class="f">push</span>(<span class="n">3</span>)</span>
-<span class="src-line" id="L769">	nums.<span class="f">push</span>(<span class="n">99</span>)</span>
-<span class="src-line" id="L770">	nums.<span class="f">push</span>(<span class="n">42</span>)</span>
-<span class="src-line" id="L771"></span>
-<span class="src-line" id="L772">	<span class="k">let</span> cmp_desc = (a: <span class="t">int</span>, b: <span class="t">int</span>) <span class="t">int</span>:</span>
-<span class="src-line" id="L773">		<span class="k">if</span>(a &gt; b): -<span class="n">1</span></span>
-<span class="src-line" id="L774">		<span class="k">else</span> <span class="k">if</span>(a &lt; b): <span class="n">1</span></span>
-<span class="src-line" id="L775">		<span class="k">else</span>: <span class="n">0</span></span>
-<span class="src-line" id="L776"></span>
-<span class="src-line" id="L777">	<span class="f">assert</span>(<span class="k">not</span> nums.<span class="f">is_sorted_by</span>(cmp_desc), <span class="s">&quot;unsorted before sort_by&quot;</span>)</span>
-<span class="src-line" id="L778">	nums.<span class="f">sort_by</span>(cmp_desc)</span>
-<span class="src-line" id="L779">	<span class="f">assert</span>(nums.<span class="f">is_sorted_by</span>(cmp_desc), <span class="s">&quot;sorted after sort_by&quot;</span>)</span>
-<span class="src-line" id="L780">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">99</span>, <span class="s">&quot;desc[0] == 99&quot;</span>)</span>
-<span class="src-line" id="L781">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">1</span>) == <span class="n">42</span>, <span class="s">&quot;desc[1] == 42&quot;</span>)</span>
-<span class="src-line" id="L782">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">2</span>) == <span class="n">15</span>, <span class="s">&quot;desc[2] == 15&quot;</span>)</span>
-<span class="src-line" id="L783">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">3</span>) == <span class="n">3</span>, <span class="s">&quot;desc[3] == 3&quot;</span>)</span>
-<span class="src-line" id="L784">}</span>
-<span class="src-line" id="L785"></span>
-<span class="src-line" id="L786"><span class="a">@test</span>(<span class="s">&quot;stable_sort and stable_sort_by preserve equal-key ordering&quot;</span>)</span>
-<span class="src-line" id="L787"><span class="k">bind</span> test_sort_stable = (): {</span>
-<span class="src-line" id="L788">	<span class="k">let</span> small = [</span>
-<span class="src-line" id="L789">		_StablePair[key: <span class="n">3</span>, order: <span class="n">0</span>],</span>
-<span class="src-line" id="L790">		_StablePair[key: <span class="n">1</span>, order: <span class="n">1</span>],</span>
-<span class="src-line" id="L791">		_StablePair[key: <span class="n">3</span>, order: <span class="n">2</span>],</span>
-<span class="src-line" id="L792">		_StablePair[key: <span class="n">2</span>, order: <span class="n">3</span>],</span>
-<span class="src-line" id="L793">		_StablePair[key: <span class="n">1</span>, order: <span class="n">4</span>],</span>
-<span class="src-line" id="L794">		_StablePair[key: <span class="n">3</span>, order: <span class="n">5</span>],</span>
-<span class="src-line" id="L795">	]</span>
-<span class="src-line" id="L796">	small.<span class="f">stable_sort</span>()</span>
-<span class="src-line" id="L797">	<span class="f">assert</span>(small.<span class="f">is_sorted</span>(), <span class="s">&quot;small stable_sort sorted&quot;</span>)</span>
-<span class="src-line" id="L798">	<span class="f">assert</span>(small[<span class="n">0</span>].key == <span class="n">1</span> <span class="k">and</span> small[<span class="n">0</span>].order == <span class="n">1</span>, <span class="s">&quot;small equal key 1 first&quot;</span>)</span>
-<span class="src-line" id="L799">	<span class="f">assert</span>(small[<span class="n">1</span>].key == <span class="n">1</span> <span class="k">and</span> small[<span class="n">1</span>].order == <span class="n">4</span>, <span class="s">&quot;small equal key 1 second&quot;</span>)</span>
-<span class="src-line" id="L800">	<span class="f">assert</span>(small[<span class="n">2</span>].key == <span class="n">2</span> <span class="k">and</span> small[<span class="n">2</span>].order == <span class="n">3</span>, <span class="s">&quot;small key 2&quot;</span>)</span>
-<span class="src-line" id="L801">	<span class="f">assert</span>(small[<span class="n">3</span>].key == <span class="n">3</span> <span class="k">and</span> small[<span class="n">3</span>].order == <span class="n">0</span>, <span class="s">&quot;small equal key 3 first&quot;</span>)</span>
-<span class="src-line" id="L802">	<span class="f">assert</span>(small[<span class="n">4</span>].key == <span class="n">3</span> <span class="k">and</span> small[<span class="n">4</span>].order == <span class="n">2</span>, <span class="s">&quot;small equal key 3 second&quot;</span>)</span>
-<span class="src-line" id="L803">	<span class="f">assert</span>(small[<span class="n">5</span>].key == <span class="n">3</span> <span class="k">and</span> small[<span class="n">5</span>].order == <span class="n">5</span>, <span class="s">&quot;small equal key 3 third&quot;</span>)</span>
-<span class="src-line" id="L804"></span>
-<span class="src-line" id="L805">	<span class="m">// Multi-run merge (&gt; 16 elements) testing both ascending and custom descending stability</span></span>
-<span class="src-line" id="L806">	<span class="k">let</span> pairs = <span class="t">List</span>[_StablePair].<span class="f">new</span>()</span>
-<span class="src-line" id="L807">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">75</span>): {</span>
-<span class="src-line" id="L808">		pairs.<span class="f">push</span>(_StablePair[key: (<span class="n">74</span> - i) % <span class="n">7</span>, order: i])</span>
-<span class="src-line" id="L809">	}</span>
-<span class="src-line" id="L810">	pairs.<span class="f">stable_sort</span>()</span>
-<span class="src-line" id="L811">	<span class="f">assert</span>(pairs.<span class="f">is_sorted</span>(), <span class="s">&quot;75-element stable_sort sorted&quot;</span>)</span>
-<span class="src-line" id="L812">	<span class="k">let</span> idx = <span class="n">0</span></span>
-<span class="src-line" id="L813">	<span class="k">for</span>(idx + <span class="n">1</span> &lt; pairs.<span class="f">len</span>()): {</span>
-<span class="src-line" id="L814">		<span class="f">assert</span>(pairs[idx].key &lt;= pairs[idx + <span class="n">1</span>].key, <span class="s">&quot;keys non-decreasing&quot;</span>)</span>
-<span class="src-line" id="L815">		<span class="k">if</span>(pairs[idx].key == pairs[idx + <span class="n">1</span>].key): {</span>
-<span class="src-line" id="L816">			<span class="f">assert</span>(pairs[idx].order &lt; pairs[idx + <span class="n">1</span>].order, <span class="s">&quot;equal-key order preserved across merges&quot;</span>)</span>
-<span class="src-line" id="L817">		}</span>
-<span class="src-line" id="L818">		idx += <span class="n">1</span></span>
-<span class="src-line" id="L819">	}</span>
-<span class="src-line" id="L820"></span>
-<span class="src-line" id="L821">	<span class="k">let</span> rev_cmp = (a: _StablePair, b: _StablePair) <span class="t">int</span>:</span>
-<span class="src-line" id="L822">		<span class="k">if</span>(a.key &gt; b.key): -<span class="n">1</span></span>
-<span class="src-line" id="L823">		<span class="k">else</span> <span class="k">if</span>(a.key &lt; b.key): <span class="n">1</span></span>
-<span class="src-line" id="L824">		<span class="k">else</span>: <span class="n">0</span></span>
-<span class="src-line" id="L825">	<span class="m">// Reset original order sequence sorted by order field before descending stable_sort_by</span></span>
-<span class="src-line" id="L826">	<span class="k">let</span> ordered = <span class="t">List</span>[_StablePair].<span class="f">new</span>()</span>
-<span class="src-line" id="L827">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">50</span>): {</span>
-<span class="src-line" id="L828">		ordered.<span class="f">push</span>(_StablePair[key: i * <span class="n">3</span> % <span class="n">5</span>, order: i])</span>
-<span class="src-line" id="L829">	}</span>
-<span class="src-line" id="L830">	<span class="f">stable_sort_by</span>(&amp;ordered, rev_cmp)</span>
-<span class="src-line" id="L831">	<span class="f">assert</span>(<span class="f">is_sorted_by</span>(ordered, rev_cmp), <span class="s">&quot;stable_sort_by sorted&quot;</span>)</span>
-<span class="src-line" id="L832">	<span class="k">let</span> k = <span class="n">0</span></span>
-<span class="src-line" id="L833">	<span class="k">for</span>(k + <span class="n">1</span> &lt; ordered.<span class="f">len</span>()): {</span>
-<span class="src-line" id="L834">		<span class="k">if</span>(ordered[k].key == ordered[k + <span class="n">1</span>].key): {</span>
-<span class="src-line" id="L835">			<span class="f">assert</span>(ordered[k].order &lt; ordered[k + <span class="n">1</span>].order, <span class="s">&quot;stable_sort_by preserves order on ties&quot;</span>)</span>
-<span class="src-line" id="L836">		}</span>
-<span class="src-line" id="L837">		k += <span class="n">1</span></span>
-<span class="src-line" id="L838">	}</span>
-<span class="src-line" id="L839"></span>
-<span class="src-line" id="L840">	<span class="k">let</span> fixed_pairs = [</span>
-<span class="src-line" id="L841">		<span class="n">4</span>: _StablePair[key: <span class="n">2</span>, order: <span class="n">0</span>],</span>
-<span class="src-line" id="L842">		_StablePair[key: <span class="n">1</span>, order: <span class="n">1</span>],</span>
-<span class="src-line" id="L843">		_StablePair[key: <span class="n">2</span>, order: <span class="n">2</span>],</span>
-<span class="src-line" id="L844">		_StablePair[key: <span class="n">1</span>, order: <span class="n">3</span>],</span>
-<span class="src-line" id="L845">	]</span>
-<span class="src-line" id="L846">	fixed_pairs.<span class="f">stable_sort</span>()</span>
-<span class="src-line" id="L847">	<span class="f">assert</span>(fixed_pairs[<span class="n">0</span>].order == <span class="n">1</span> <span class="k">and</span> fixed_pairs[<span class="n">1</span>].order == <span class="n">3</span>, <span class="s">&quot;Array stable_sort key 1 order&quot;</span>)</span>
-<span class="src-line" id="L848">	<span class="f">assert</span>(fixed_pairs[<span class="n">2</span>].order == <span class="n">0</span> <span class="k">and</span> fixed_pairs[<span class="n">3</span>].order == <span class="n">2</span>, <span class="s">&quot;Array stable_sort key 2 order&quot;</span>)</span>
-<span class="src-line" id="L849">	fixed_pairs.<span class="f">stable_sort_by</span>(rev_cmp)</span>
-<span class="src-line" id="L850">	<span class="f">assert</span>(fixed_pairs[<span class="n">0</span>].order == <span class="n">0</span> <span class="k">and</span> fixed_pairs[<span class="n">1</span>].order == <span class="n">2</span>, <span class="s">&quot;Array stable_sort_by key 2 order&quot;</span>)</span>
-<span class="src-line" id="L851">	<span class="f">assert</span>(fixed_pairs[<span class="n">2</span>].order == <span class="n">1</span> <span class="k">and</span> fixed_pairs[<span class="n">3</span>].order == <span class="n">3</span>, <span class="s">&quot;Array stable_sort_by key 1 order&quot;</span>)</span>
-<span class="src-line" id="L852">}</span>
-<span class="src-line" id="L853"></span>
-<span class="src-line" id="L854"><span class="a">@test</span>(<span class="s">&quot;binary_search, binary_search_by, lower_bound, and upper_bound on List, [T], [N: T], and Array[T]&quot;</span>)</span>
-<span class="src-line" id="L855"><span class="k">bind</span> test_sort_binary_search_and_bounds = (): {</span>
-<span class="src-line" id="L856">	<span class="k">let</span> list = [<span class="n">10</span>, <span class="n">20</span>, <span class="n">20</span>, <span class="n">20</span>, <span class="n">30</span>, <span class="n">50</span>]</span>
-<span class="src-line" id="L857"></span>
-<span class="src-line" id="L858">	<span class="k">let</span> idx1? = list.<span class="f">binary_search</span>(<span class="n">30</span>)</span>
-<span class="src-line" id="L859">	<span class="f">assert</span>(idx1? == <span class="n">4</span>, <span class="s">&quot;binary_search 30 is index 4&quot;</span>)</span>
-<span class="src-line" id="L860">	<span class="k">let</span> idx2? = list.<span class="f">binary_search</span>(<span class="n">10</span>)</span>
-<span class="src-line" id="L861">	<span class="f">assert</span>(idx2? == <span class="n">0</span>, <span class="s">&quot;binary_search 10 is index 0&quot;</span>)</span>
-<span class="src-line" id="L862">	<span class="k">let</span> idx3? = list.<span class="f">binary_search</span>(<span class="n">25</span>)</span>
-<span class="src-line" id="L863">	<span class="f">assert</span>(idx3? == <span class="c">none</span>, <span class="s">&quot;binary_search 25 is none&quot;</span>)</span>
+<span class="src-line" id="L752">	<span class="f">assert</span>(<span class="k">not</span> large.<span class="f">is_sorted</span>(), <span class="s">&quot;large initially unsorted&quot;</span>)</span>
+<span class="src-line" id="L753">	large.<span class="f">sort</span>()</span>
+<span class="src-line" id="L754">	<span class="f">assert</span>(large.<span class="f">is_sorted</span>(), <span class="s">&quot;large sorted&quot;</span>)</span>
+<span class="src-line" id="L755"></span>
+<span class="src-line" id="L756">	<span class="m">// Exercise explicit Heapsort fallback path (depth_limit == 0)</span></span>
+<span class="src-line" id="L757">	<span class="k">let</span> heap_nums = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L758">	<span class="k">let</span> h = <span class="n">40</span></span>
+<span class="src-line" id="L759">	<span class="k">while</span>(h &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L760">		heap_nums.<span class="f">push</span>(h * <span class="n">13</span> % <span class="n">37</span>)</span>
+<span class="src-line" id="L761">		h -= <span class="n">1</span></span>
+<span class="src-line" id="L762">	}</span>
+<span class="src-line" id="L763">	<span class="f">_sort_range</span>(heap_nums.data, <span class="n">0</span>, heap_nums.<span class="f">len</span>() - <span class="n">1</span>, <span class="n">0</span>)</span>
+<span class="src-line" id="L764">	<span class="f">assert</span>(heap_nums.<span class="f">is_sorted</span>(), <span class="s">&quot;introsort heapsort fallback sorts completely&quot;</span>)</span>
+<span class="src-line" id="L765"></span>
+<span class="src-line" id="L766">	<span class="m">// Exercise comparator Heapsort fallback path (depth_limit == 0)</span></span>
+<span class="src-line" id="L767">	<span class="k">let</span> cmp_desc = <span class="k">fn</span>(a: <span class="t">int</span>, b: <span class="t">int</span>) <span class="t">int</span>:</span>
+<span class="src-line" id="L768">		<span class="k">if</span>(a &gt; b): -<span class="n">1</span></span>
+<span class="src-line" id="L769">		<span class="k">else</span> <span class="k">if</span>(a &lt; b): <span class="n">1</span></span>
+<span class="src-line" id="L770">		<span class="k">else</span>: <span class="n">0</span></span>
+<span class="src-line" id="L771">	<span class="f">_sort_by_range</span>(heap_nums.data, <span class="n">0</span>, heap_nums.<span class="f">len</span>() - <span class="n">1</span>, <span class="n">0</span>, cmp_desc)</span>
+<span class="src-line" id="L772">	<span class="f">assert</span>(heap_nums.<span class="f">is_sorted_by</span>(cmp_desc), <span class="s">&quot;introsort comparator heapsort fallback sorts completely&quot;</span>)</span>
+<span class="src-line" id="L773">}</span>
+<span class="src-line" id="L774"></span>
+<span class="src-line" id="L775"><span class="a">@test</span>(<span class="s">&quot;sort list with custom comparator (descending)&quot;</span>)</span>
+<span class="src-line" id="L776"><span class="k">bind</span> test_sort_custom_comparator = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L777">	<span class="k">let</span> nums = <span class="t">List</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L778">	nums.<span class="f">push</span>(<span class="n">15</span>)</span>
+<span class="src-line" id="L779">	nums.<span class="f">push</span>(<span class="n">3</span>)</span>
+<span class="src-line" id="L780">	nums.<span class="f">push</span>(<span class="n">99</span>)</span>
+<span class="src-line" id="L781">	nums.<span class="f">push</span>(<span class="n">42</span>)</span>
+<span class="src-line" id="L782"></span>
+<span class="src-line" id="L783">	<span class="k">let</span> cmp_desc = <span class="k">fn</span>(a: <span class="t">int</span>, b: <span class="t">int</span>) <span class="t">int</span>:</span>
+<span class="src-line" id="L784">		<span class="k">if</span>(a &gt; b): -<span class="n">1</span></span>
+<span class="src-line" id="L785">		<span class="k">else</span> <span class="k">if</span>(a &lt; b): <span class="n">1</span></span>
+<span class="src-line" id="L786">		<span class="k">else</span>: <span class="n">0</span></span>
+<span class="src-line" id="L787"></span>
+<span class="src-line" id="L788">	<span class="f">assert</span>(<span class="k">not</span> nums.<span class="f">is_sorted_by</span>(cmp_desc), <span class="s">&quot;unsorted before sort_by&quot;</span>)</span>
+<span class="src-line" id="L789">	nums.<span class="f">sort_by</span>(cmp_desc)</span>
+<span class="src-line" id="L790">	<span class="f">assert</span>(nums.<span class="f">is_sorted_by</span>(cmp_desc), <span class="s">&quot;sorted after sort_by&quot;</span>)</span>
+<span class="src-line" id="L791">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">99</span>, <span class="s">&quot;desc[0] == 99&quot;</span>)</span>
+<span class="src-line" id="L792">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">1</span>) == <span class="n">42</span>, <span class="s">&quot;desc[1] == 42&quot;</span>)</span>
+<span class="src-line" id="L793">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">2</span>) == <span class="n">15</span>, <span class="s">&quot;desc[2] == 15&quot;</span>)</span>
+<span class="src-line" id="L794">	<span class="f">assert</span>(nums.<span class="f">get</span>(<span class="n">3</span>) == <span class="n">3</span>, <span class="s">&quot;desc[3] == 3&quot;</span>)</span>
+<span class="src-line" id="L795">}</span>
+<span class="src-line" id="L796"></span>
+<span class="src-line" id="L797"><span class="a">@test</span>(<span class="s">&quot;stable_sort and stable_sort_by preserve equal-key ordering&quot;</span>)</span>
+<span class="src-line" id="L798"><span class="k">bind</span> test_sort_stable = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L799">	<span class="k">let</span> small = [</span>
+<span class="src-line" id="L800">		_StablePair[key: <span class="n">3</span>, order: <span class="n">0</span>],</span>
+<span class="src-line" id="L801">		_StablePair[key: <span class="n">1</span>, order: <span class="n">1</span>],</span>
+<span class="src-line" id="L802">		_StablePair[key: <span class="n">3</span>, order: <span class="n">2</span>],</span>
+<span class="src-line" id="L803">		_StablePair[key: <span class="n">2</span>, order: <span class="n">3</span>],</span>
+<span class="src-line" id="L804">		_StablePair[key: <span class="n">1</span>, order: <span class="n">4</span>],</span>
+<span class="src-line" id="L805">		_StablePair[key: <span class="n">3</span>, order: <span class="n">5</span>],</span>
+<span class="src-line" id="L806">	]</span>
+<span class="src-line" id="L807">	small.<span class="f">stable_sort</span>()</span>
+<span class="src-line" id="L808">	<span class="f">assert</span>(small.<span class="f">is_sorted</span>(), <span class="s">&quot;small stable_sort sorted&quot;</span>)</span>
+<span class="src-line" id="L809">	<span class="f">assert</span>(small[<span class="n">0</span>].key == <span class="n">1</span> <span class="k">and</span> small[<span class="n">0</span>].order == <span class="n">1</span>, <span class="s">&quot;small equal key 1 first&quot;</span>)</span>
+<span class="src-line" id="L810">	<span class="f">assert</span>(small[<span class="n">1</span>].key == <span class="n">1</span> <span class="k">and</span> small[<span class="n">1</span>].order == <span class="n">4</span>, <span class="s">&quot;small equal key 1 second&quot;</span>)</span>
+<span class="src-line" id="L811">	<span class="f">assert</span>(small[<span class="n">2</span>].key == <span class="n">2</span> <span class="k">and</span> small[<span class="n">2</span>].order == <span class="n">3</span>, <span class="s">&quot;small key 2&quot;</span>)</span>
+<span class="src-line" id="L812">	<span class="f">assert</span>(small[<span class="n">3</span>].key == <span class="n">3</span> <span class="k">and</span> small[<span class="n">3</span>].order == <span class="n">0</span>, <span class="s">&quot;small equal key 3 first&quot;</span>)</span>
+<span class="src-line" id="L813">	<span class="f">assert</span>(small[<span class="n">4</span>].key == <span class="n">3</span> <span class="k">and</span> small[<span class="n">4</span>].order == <span class="n">2</span>, <span class="s">&quot;small equal key 3 second&quot;</span>)</span>
+<span class="src-line" id="L814">	<span class="f">assert</span>(small[<span class="n">5</span>].key == <span class="n">3</span> <span class="k">and</span> small[<span class="n">5</span>].order == <span class="n">5</span>, <span class="s">&quot;small equal key 3 third&quot;</span>)</span>
+<span class="src-line" id="L815"></span>
+<span class="src-line" id="L816">	<span class="m">// Multi-run merge (&gt; 16 elements) testing both ascending and custom descending stability</span></span>
+<span class="src-line" id="L817">	<span class="k">let</span> pairs = <span class="t">List</span>[_StablePair].<span class="f">new</span>()</span>
+<span class="src-line" id="L818">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">75</span>): {</span>
+<span class="src-line" id="L819">		pairs.<span class="f">push</span>(_StablePair[key: (<span class="n">74</span> - i) % <span class="n">7</span>, order: i])</span>
+<span class="src-line" id="L820">	}</span>
+<span class="src-line" id="L821">	pairs.<span class="f">stable_sort</span>()</span>
+<span class="src-line" id="L822">	<span class="f">assert</span>(pairs.<span class="f">is_sorted</span>(), <span class="s">&quot;75-element stable_sort sorted&quot;</span>)</span>
+<span class="src-line" id="L823">	<span class="k">let</span> idx = <span class="n">0</span></span>
+<span class="src-line" id="L824">	<span class="k">for</span>(idx + <span class="n">1</span> &lt; pairs.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L825">		<span class="f">assert</span>(pairs[idx].key &lt;= pairs[idx + <span class="n">1</span>].key, <span class="s">&quot;keys non-decreasing&quot;</span>)</span>
+<span class="src-line" id="L826">		<span class="k">if</span>(pairs[idx].key == pairs[idx + <span class="n">1</span>].key): {</span>
+<span class="src-line" id="L827">			<span class="f">assert</span>(pairs[idx].order &lt; pairs[idx + <span class="n">1</span>].order, <span class="s">&quot;equal-key order preserved across merges&quot;</span>)</span>
+<span class="src-line" id="L828">		}</span>
+<span class="src-line" id="L829">		idx += <span class="n">1</span></span>
+<span class="src-line" id="L830">	}</span>
+<span class="src-line" id="L831"></span>
+<span class="src-line" id="L832">	<span class="k">let</span> rev_cmp = <span class="k">fn</span>(a: _StablePair, b: _StablePair) <span class="t">int</span>:</span>
+<span class="src-line" id="L833">		<span class="k">if</span>(a.key &gt; b.key): -<span class="n">1</span></span>
+<span class="src-line" id="L834">		<span class="k">else</span> <span class="k">if</span>(a.key &lt; b.key): <span class="n">1</span></span>
+<span class="src-line" id="L835">		<span class="k">else</span>: <span class="n">0</span></span>
+<span class="src-line" id="L836">	<span class="m">// Reset original order sequence sorted by order field before descending stable_sort_by</span></span>
+<span class="src-line" id="L837">	<span class="k">let</span> ordered = <span class="t">List</span>[_StablePair].<span class="f">new</span>()</span>
+<span class="src-line" id="L838">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">50</span>): {</span>
+<span class="src-line" id="L839">		ordered.<span class="f">push</span>(_StablePair[key: i * <span class="n">3</span> % <span class="n">5</span>, order: i])</span>
+<span class="src-line" id="L840">	}</span>
+<span class="src-line" id="L841">	<span class="f">stable_sort_by</span>(&amp;ordered, rev_cmp)</span>
+<span class="src-line" id="L842">	<span class="f">assert</span>(<span class="f">is_sorted_by</span>(ordered, rev_cmp), <span class="s">&quot;stable_sort_by sorted&quot;</span>)</span>
+<span class="src-line" id="L843">	<span class="k">let</span> k = <span class="n">0</span></span>
+<span class="src-line" id="L844">	<span class="k">for</span>(k + <span class="n">1</span> &lt; ordered.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L845">		<span class="k">if</span>(ordered[k].key == ordered[k + <span class="n">1</span>].key): {</span>
+<span class="src-line" id="L846">			<span class="f">assert</span>(ordered[k].order &lt; ordered[k + <span class="n">1</span>].order, <span class="s">&quot;stable_sort_by preserves order on ties&quot;</span>)</span>
+<span class="src-line" id="L847">		}</span>
+<span class="src-line" id="L848">		k += <span class="n">1</span></span>
+<span class="src-line" id="L849">	}</span>
+<span class="src-line" id="L850"></span>
+<span class="src-line" id="L851">	<span class="k">let</span> fixed_pairs = [</span>
+<span class="src-line" id="L852">		<span class="n">4</span>: _StablePair[key: <span class="n">2</span>, order: <span class="n">0</span>],</span>
+<span class="src-line" id="L853">		_StablePair[key: <span class="n">1</span>, order: <span class="n">1</span>],</span>
+<span class="src-line" id="L854">		_StablePair[key: <span class="n">2</span>, order: <span class="n">2</span>],</span>
+<span class="src-line" id="L855">		_StablePair[key: <span class="n">1</span>, order: <span class="n">3</span>],</span>
+<span class="src-line" id="L856">	]</span>
+<span class="src-line" id="L857">	fixed_pairs.<span class="f">stable_sort</span>()</span>
+<span class="src-line" id="L858">	<span class="f">assert</span>(fixed_pairs[<span class="n">0</span>].order == <span class="n">1</span> <span class="k">and</span> fixed_pairs[<span class="n">1</span>].order == <span class="n">3</span>, <span class="s">&quot;Array stable_sort key 1 order&quot;</span>)</span>
+<span class="src-line" id="L859">	<span class="f">assert</span>(fixed_pairs[<span class="n">2</span>].order == <span class="n">0</span> <span class="k">and</span> fixed_pairs[<span class="n">3</span>].order == <span class="n">2</span>, <span class="s">&quot;Array stable_sort key 2 order&quot;</span>)</span>
+<span class="src-line" id="L860">	fixed_pairs.<span class="f">stable_sort_by</span>(rev_cmp)</span>
+<span class="src-line" id="L861">	<span class="f">assert</span>(fixed_pairs[<span class="n">0</span>].order == <span class="n">0</span> <span class="k">and</span> fixed_pairs[<span class="n">1</span>].order == <span class="n">2</span>, <span class="s">&quot;Array stable_sort_by key 2 order&quot;</span>)</span>
+<span class="src-line" id="L862">	<span class="f">assert</span>(fixed_pairs[<span class="n">2</span>].order == <span class="n">1</span> <span class="k">and</span> fixed_pairs[<span class="n">3</span>].order == <span class="n">3</span>, <span class="s">&quot;Array stable_sort_by key 1 order&quot;</span>)</span>
+<span class="src-line" id="L863">}</span>
 <span class="src-line" id="L864"></span>
-<span class="src-line" id="L865">	<span class="f">assert</span>(list.<span class="f">lower_bound</span>(<span class="n">5</span>) == <span class="n">0</span>, <span class="s">&quot;lower_bound below min&quot;</span>)</span>
-<span class="src-line" id="L866">	<span class="f">assert</span>(list.<span class="f">lower_bound</span>(<span class="n">20</span>) == <span class="n">1</span>, <span class="s">&quot;lower_bound duplicate hit&quot;</span>)</span>
-<span class="src-line" id="L867">	<span class="f">assert</span>(list.<span class="f">lower_bound</span>(<span class="n">25</span>) == <span class="n">4</span>, <span class="s">&quot;lower_bound between elements&quot;</span>)</span>
-<span class="src-line" id="L868">	<span class="f">assert</span>(list.<span class="f">lower_bound</span>(<span class="n">99</span>) == <span class="n">6</span>, <span class="s">&quot;lower_bound above max&quot;</span>)</span>
-<span class="src-line" id="L869"></span>
-<span class="src-line" id="L870">	<span class="f">assert</span>(list.<span class="f">upper_bound</span>(<span class="n">5</span>) == <span class="n">0</span>, <span class="s">&quot;upper_bound below min&quot;</span>)</span>
-<span class="src-line" id="L871">	<span class="f">assert</span>(list.<span class="f">upper_bound</span>(<span class="n">20</span>) == <span class="n">4</span>, <span class="s">&quot;upper_bound past duplicates&quot;</span>)</span>
-<span class="src-line" id="L872">	<span class="f">assert</span>(list.<span class="f">upper_bound</span>(<span class="n">25</span>) == <span class="n">4</span>, <span class="s">&quot;upper_bound between elements&quot;</span>)</span>
-<span class="src-line" id="L873">	<span class="f">assert</span>(list.<span class="f">upper_bound</span>(<span class="n">50</span>) == <span class="n">6</span>, <span class="s">&quot;upper_bound at max&quot;</span>)</span>
-<span class="src-line" id="L874"></span>
-<span class="src-line" id="L875">	<span class="k">let</span> hit_by? = list.<span class="f">binary_search_by</span>((x: <span class="t">int</span>) <span class="t">int</span>: x - <span class="n">30</span>)</span>
-<span class="src-line" id="L876">	<span class="f">assert</span>(hit_by? == <span class="n">4</span>, <span class="s">&quot;binary_search_by finds 30&quot;</span>)</span>
-<span class="src-line" id="L877">	<span class="k">let</span> miss_by? = <span class="f">binary_search_by</span>(list, (x: <span class="t">int</span>) <span class="t">int</span>: x - <span class="n">35</span>)</span>
-<span class="src-line" id="L878">	<span class="f">assert</span>(miss_by? == <span class="c">none</span>, <span class="s">&quot;binary_search_by misses 35&quot;</span>)</span>
-<span class="src-line" id="L879"></span>
-<span class="src-line" id="L880">	<span class="m">// Fixed stack array [N: T] methods and standalone views</span></span>
-<span class="src-line" id="L881">	<span class="k">let</span> fixed = [<span class="n">6</span>: <span class="n">50</span>, <span class="n">20</span>, <span class="n">10</span>, <span class="n">20</span>, <span class="n">40</span>, <span class="n">20</span>]</span>
-<span class="src-line" id="L882">	<span class="f">assert</span>(<span class="k">not</span> fixed.<span class="f">is_sorted</span>(), <span class="s">&quot;fixed array initially unsorted&quot;</span>)</span>
-<span class="src-line" id="L883">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">is_sorted</span>(fixed), <span class="s">&quot;standalone is_sorted accepts [N: T]&quot;</span>)</span>
-<span class="src-line" id="L884">	fixed.<span class="f">sort</span>()</span>
-<span class="src-line" id="L885">	<span class="f">assert</span>(fixed.<span class="f">is_sorted</span>(), <span class="s">&quot;fixed array sorted in place&quot;</span>)</span>
-<span class="src-line" id="L886">	<span class="f">assert</span>(<span class="f">is_sorted</span>(fixed), <span class="s">&quot;standalone is_sorted confirms [N: T]&quot;</span>)</span>
-<span class="src-line" id="L887">	<span class="f">assert</span>(fixed[<span class="n">0</span>] == <span class="n">10</span> <span class="k">and</span> fixed[<span class="n">5</span>] == <span class="n">50</span>, <span class="s">&quot;fixed sorted bounds&quot;</span>)</span>
-<span class="src-line" id="L888">	<span class="f">assert</span>(fixed.<span class="f">lower_bound</span>(<span class="n">20</span>) == <span class="n">1</span>, <span class="s">&quot;fixed array lower_bound(20)&quot;</span>)</span>
-<span class="src-line" id="L889">	<span class="f">assert</span>(fixed.<span class="f">upper_bound</span>(<span class="n">20</span>) == <span class="n">4</span>, <span class="s">&quot;fixed array upper_bound(20)&quot;</span>)</span>
-<span class="src-line" id="L890">	<span class="f">assert</span>(<span class="f">lower_bound</span>(fixed, <span class="n">20</span>) == <span class="n">1</span>, <span class="s">&quot;standalone lower_bound accepts [N: T]&quot;</span>)</span>
-<span class="src-line" id="L891">	<span class="f">assert</span>(<span class="f">upper_bound</span>(fixed, <span class="n">20</span>) == <span class="n">4</span>, <span class="s">&quot;standalone upper_bound accepts [N: T]&quot;</span>)</span>
-<span class="src-line" id="L892">	<span class="f">assert</span>(fixed.<span class="f">binary_search</span>(<span class="n">40</span>) == <span class="n">4</span>, <span class="s">&quot;fixed array binary_search(40)&quot;</span>)</span>
-<span class="src-line" id="L893">	<span class="f">assert</span>(<span class="f">binary_search</span>(fixed, <span class="n">40</span>) == <span class="n">4</span>, <span class="s">&quot;standalone binary_search accepts [N: T]&quot;</span>)</span>
-<span class="src-line" id="L894">	<span class="f">assert</span>(fixed.<span class="f">binary_search_by</span>((x: <span class="t">int</span>) <span class="t">int</span>: x - <span class="n">40</span>) == <span class="n">4</span>, <span class="s">&quot;fixed array binary_search_by(40)&quot;</span>)</span>
-<span class="src-line" id="L895">	<span class="f">assert</span>(<span class="f">binary_search_by</span>(fixed, (x: <span class="t">int</span>) <span class="t">int</span>: x - <span class="n">40</span>) == <span class="n">4</span>, <span class="s">&quot;standalone binary_search_by accepts [N: T]&quot;</span>)</span>
-<span class="src-line" id="L896"></span>
-<span class="src-line" id="L897">	fixed.<span class="f">reverse</span>()</span>
-<span class="src-line" id="L898">	<span class="f">assert</span>(fixed[<span class="n">0</span>] == <span class="n">50</span> <span class="k">and</span> fixed[<span class="n">5</span>] == <span class="n">10</span>, <span class="s">&quot;fixed array reversed&quot;</span>)</span>
-<span class="src-line" id="L899">	<span class="k">let</span> desc = (a: <span class="t">int</span>, b: <span class="t">int</span>) <span class="t">int</span>: <span class="k">if</span>(a &gt; b): -<span class="n">1</span> <span class="k">else</span> <span class="k">if</span>(a &lt; b): <span class="n">1</span> <span class="k">else</span>: <span class="n">0</span></span>
-<span class="src-line" id="L900">	<span class="f">assert</span>(fixed.<span class="f">is_sorted_by</span>(desc), <span class="s">&quot;fixed array is_sorted_by desc&quot;</span>)</span>
-<span class="src-line" id="L901">	fixed.<span class="f">sort_by</span>((a: <span class="t">int</span>, b: <span class="t">int</span>) <span class="t">int</span>: <span class="k">if</span>(a &lt; b): -<span class="n">1</span> <span class="k">else</span> <span class="k">if</span>(a &gt; b): <span class="n">1</span> <span class="k">else</span>: <span class="n">0</span>)</span>
-<span class="src-line" id="L902">	<span class="f">assert</span>(fixed.<span class="f">is_sorted</span>(), <span class="s">&quot;fixed array sort_by ascending&quot;</span>)</span>
-<span class="src-line" id="L903"></span>
-<span class="src-line" id="L904">	<span class="m">// Array[T] slice-view struct methods and standalone views</span></span>
-<span class="src-line" id="L905">	<span class="k">let</span> view = <span class="t">Array</span>[<span class="t">int</span>][data: <span class="k">unsafe</span> <span class="f">ptr_add</span>(list.data, <span class="n">1</span>), len: <span class="n">4</span>]</span>
-<span class="src-line" id="L906">	<span class="f">assert</span>(view.<span class="f">is_sorted</span>(), <span class="s">&quot;Array[int] view is_sorted&quot;</span>)</span>
-<span class="src-line" id="L907">	<span class="f">assert</span>(<span class="f">is_sorted</span>(view), <span class="s">&quot;standalone is_sorted accepts Array[int]&quot;</span>)</span>
-<span class="src-line" id="L908">	<span class="f">assert</span>(view.<span class="f">lower_bound</span>(<span class="n">20</span>) == <span class="n">0</span>, <span class="s">&quot;Array[int] lower_bound&quot;</span>)</span>
-<span class="src-line" id="L909">	<span class="f">assert</span>(view.<span class="f">upper_bound</span>(<span class="n">20</span>) == <span class="n">3</span>, <span class="s">&quot;Array[int] upper_bound&quot;</span>)</span>
-<span class="src-line" id="L910">	<span class="f">assert</span>(<span class="f">lower_bound</span>(view, <span class="n">30</span>) == <span class="n">3</span>, <span class="s">&quot;standalone lower_bound accepts Array[int]&quot;</span>)</span>
-<span class="src-line" id="L911">	<span class="f">assert</span>(<span class="f">upper_bound</span>(view, <span class="n">20</span>) == <span class="n">3</span>, <span class="s">&quot;standalone upper_bound accepts Array[int]&quot;</span>)</span>
-<span class="src-line" id="L912">	<span class="f">assert</span>(view.<span class="f">binary_search</span>(<span class="n">30</span>) == <span class="n">3</span>, <span class="s">&quot;Array[int] binary_search&quot;</span>)</span>
-<span class="src-line" id="L913">	<span class="f">assert</span>(<span class="f">binary_search_by</span>(view, (x: <span class="t">int</span>) <span class="t">int</span>: x - <span class="n">30</span>) == <span class="n">3</span>, <span class="s">&quot;standalone binary_search_by accepts Array[int]&quot;</span>)</span>
-<span class="src-line" id="L914">}</span>
-<span class="src-line" id="L915"></span>
-<span class="src-line" id="L916"><span class="a">@test</span>(<span class="s">&quot;non-Copyable Resource structs sort, stable_sort, sort_by, and binary search with zero leaks&quot;</span>)</span>
-<span class="src-line" id="L917"><span class="k">bind</span> test_sort_non_copyable_resources = (): {</span>
-<span class="src-line" id="L918">	<span class="k">let</span> items = <span class="t">List</span>[_NonCopyRecord].<span class="f">new</span>()</span>
-<span class="src-line" id="L919">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">24</span>): {</span>
-<span class="src-line" id="L920">		<span class="k">let</span> p = <span class="k">unsafe</span> alloc_raw[<span class="t">int</span>](<span class="n">1</span>)</span>
-<span class="src-line" id="L921">		<span class="k">unsafe</span> <span class="f">ptr_write</span>(p, i)</span>
-<span class="src-line" id="L922">		<span class="k">let</span> key = (<span class="n">23</span> - i) / <span class="n">3</span></span>
-<span class="src-line" id="L923">		items.<span class="f">push</span>(_NonCopyRecord[id: key, name: <span class="s">&quot;item_</span>$i<span class="s">&quot;</span>, tag: p])</span>
-<span class="src-line" id="L924">	}</span>
-<span class="src-line" id="L925"></span>
-<span class="src-line" id="L926">	<span class="f">assert</span>(<span class="k">not</span> items.<span class="f">is_sorted</span>(), <span class="s">&quot;non-copyable resources initially unsorted&quot;</span>)</span>
-<span class="src-line" id="L927">	items.<span class="f">stable_sort</span>()</span>
-<span class="src-line" id="L928">	<span class="f">assert</span>(items.<span class="f">is_sorted</span>(), <span class="s">&quot;non-copyable resources sorted after stable_sort&quot;</span>)</span>
-<span class="src-line" id="L929"></span>
-<span class="src-line" id="L930">	<span class="k">let</span> k = <span class="n">0</span></span>
-<span class="src-line" id="L931">	<span class="k">for</span>(k + <span class="n">1</span> &lt; items.<span class="f">len</span>()): {</span>
-<span class="src-line" id="L932">		<span class="k">if</span>(items[k].id == items[k + <span class="n">1</span>].id): {</span>
-<span class="src-line" id="L933">			<span class="k">let</span> cur_seq = <span class="k">unsafe</span> <span class="f">ptr_read</span>(items[k].tag)</span>
-<span class="src-line" id="L934">			<span class="k">let</span> next_seq = <span class="k">unsafe</span> <span class="f">ptr_read</span>(items[k + <span class="n">1</span>].tag)</span>
-<span class="src-line" id="L935">			<span class="f">assert</span>(cur_seq &lt; next_seq, <span class="s">&quot;stable_sort preserved equal-key order on non-Copyable resources&quot;</span>)</span>
-<span class="src-line" id="L936">		}</span>
-<span class="src-line" id="L937">		k += <span class="n">1</span></span>
-<span class="src-line" id="L938">	}</span>
-<span class="src-line" id="L939"></span>
-<span class="src-line" id="L940">	<span class="k">let</span> empty_tag = <span class="k">unsafe</span> null_ptr[<span class="t">int</span>]()</span>
-<span class="src-line" id="L941">	<span class="k">let</span> probe = _NonCopyRecord[id: <span class="n">5</span>, name: <span class="s">&quot;probe&quot;</span>, tag: empty_tag]</span>
-<span class="src-line" id="L942">	<span class="k">let</span> found? = items.<span class="f">binary_search</span>(probe)</span>
-<span class="src-line" id="L943">	<span class="f">assert</span>(found? != <span class="c">none</span>, <span class="s">&quot;binary_search without Copyable found matching id&quot;</span>)</span>
-<span class="src-line" id="L944">	<span class="k">let</span> lb = items.<span class="f">lower_bound</span>(probe)</span>
-<span class="src-line" id="L945">	<span class="k">let</span> ub = items.<span class="f">upper_bound</span>(probe)</span>
-<span class="src-line" id="L946">	<span class="f">assert</span>(ub - lb == <span class="n">3</span>, <span class="s">&quot;lower_bound..upper_bound covers all 3 records with id 5&quot;</span>)</span>
-<span class="src-line" id="L947"></span>
-<span class="src-line" id="L948">	<span class="k">let</span> by_id? = items.<span class="f">binary_search_by</span>((r: _NonCopyRecord) <span class="t">int</span>: r.id - <span class="n">6</span>)</span>
-<span class="src-line" id="L949">	<span class="f">assert</span>(by_id? != <span class="c">none</span> <span class="k">and</span> items[by_id? ?? <span class="n">0</span>].id == <span class="n">6</span>, <span class="s">&quot;binary_search_by without Copyable works&quot;</span>)</span>
+<span class="src-line" id="L865"><span class="a">@test</span>(<span class="s">&quot;binary_search, binary_search_by, lower_bound, and upper_bound on List, [T], [N: T], and Array[T]&quot;</span>)</span>
+<span class="src-line" id="L866"><span class="k">bind</span> test_sort_binary_search_and_bounds = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L867">	<span class="k">let</span> list = [<span class="n">10</span>, <span class="n">20</span>, <span class="n">20</span>, <span class="n">20</span>, <span class="n">30</span>, <span class="n">50</span>]</span>
+<span class="src-line" id="L868"></span>
+<span class="src-line" id="L869">	<span class="k">let</span> idx1? = list.<span class="f">binary_search</span>(<span class="n">30</span>)</span>
+<span class="src-line" id="L870">	<span class="f">assert</span>(idx1? == <span class="n">4</span>, <span class="s">&quot;binary_search 30 is index 4&quot;</span>)</span>
+<span class="src-line" id="L871">	<span class="k">let</span> idx2? = list.<span class="f">binary_search</span>(<span class="n">10</span>)</span>
+<span class="src-line" id="L872">	<span class="f">assert</span>(idx2? == <span class="n">0</span>, <span class="s">&quot;binary_search 10 is index 0&quot;</span>)</span>
+<span class="src-line" id="L873">	<span class="k">let</span> idx3? = list.<span class="f">binary_search</span>(<span class="n">25</span>)</span>
+<span class="src-line" id="L874">	<span class="f">assert</span>(idx3? == <span class="c">none</span>, <span class="s">&quot;binary_search 25 is none&quot;</span>)</span>
+<span class="src-line" id="L875"></span>
+<span class="src-line" id="L876">	<span class="f">assert</span>(list.<span class="f">lower_bound</span>(<span class="n">5</span>) == <span class="n">0</span>, <span class="s">&quot;lower_bound below min&quot;</span>)</span>
+<span class="src-line" id="L877">	<span class="f">assert</span>(list.<span class="f">lower_bound</span>(<span class="n">20</span>) == <span class="n">1</span>, <span class="s">&quot;lower_bound duplicate hit&quot;</span>)</span>
+<span class="src-line" id="L878">	<span class="f">assert</span>(list.<span class="f">lower_bound</span>(<span class="n">25</span>) == <span class="n">4</span>, <span class="s">&quot;lower_bound between elements&quot;</span>)</span>
+<span class="src-line" id="L879">	<span class="f">assert</span>(list.<span class="f">lower_bound</span>(<span class="n">99</span>) == <span class="n">6</span>, <span class="s">&quot;lower_bound above max&quot;</span>)</span>
+<span class="src-line" id="L880"></span>
+<span class="src-line" id="L881">	<span class="f">assert</span>(list.<span class="f">upper_bound</span>(<span class="n">5</span>) == <span class="n">0</span>, <span class="s">&quot;upper_bound below min&quot;</span>)</span>
+<span class="src-line" id="L882">	<span class="f">assert</span>(list.<span class="f">upper_bound</span>(<span class="n">20</span>) == <span class="n">4</span>, <span class="s">&quot;upper_bound past duplicates&quot;</span>)</span>
+<span class="src-line" id="L883">	<span class="f">assert</span>(list.<span class="f">upper_bound</span>(<span class="n">25</span>) == <span class="n">4</span>, <span class="s">&quot;upper_bound between elements&quot;</span>)</span>
+<span class="src-line" id="L884">	<span class="f">assert</span>(list.<span class="f">upper_bound</span>(<span class="n">50</span>) == <span class="n">6</span>, <span class="s">&quot;upper_bound at max&quot;</span>)</span>
+<span class="src-line" id="L885"></span>
+<span class="src-line" id="L886">	<span class="k">let</span> hit_by? = list.<span class="f">binary_search_by</span>(<span class="k">fn</span>(x: <span class="t">int</span>) <span class="t">int</span>: x - <span class="n">30</span>)</span>
+<span class="src-line" id="L887">	<span class="f">assert</span>(hit_by? == <span class="n">4</span>, <span class="s">&quot;binary_search_by finds 30&quot;</span>)</span>
+<span class="src-line" id="L888">	<span class="k">let</span> miss_by? = <span class="f">binary_search_by</span>(list, <span class="k">fn</span>(x: <span class="t">int</span>) <span class="t">int</span>: x - <span class="n">35</span>)</span>
+<span class="src-line" id="L889">	<span class="f">assert</span>(miss_by? == <span class="c">none</span>, <span class="s">&quot;binary_search_by misses 35&quot;</span>)</span>
+<span class="src-line" id="L890"></span>
+<span class="src-line" id="L891">	<span class="m">// Fixed stack array [N: T] methods and standalone views</span></span>
+<span class="src-line" id="L892">	<span class="k">let</span> fixed = [<span class="n">6</span>: <span class="n">50</span>, <span class="n">20</span>, <span class="n">10</span>, <span class="n">20</span>, <span class="n">40</span>, <span class="n">20</span>]</span>
+<span class="src-line" id="L893">	<span class="f">assert</span>(<span class="k">not</span> fixed.<span class="f">is_sorted</span>(), <span class="s">&quot;fixed array initially unsorted&quot;</span>)</span>
+<span class="src-line" id="L894">	<span class="f">assert</span>(<span class="k">not</span> <span class="f">is_sorted</span>(fixed), <span class="s">&quot;standalone is_sorted accepts [N: T]&quot;</span>)</span>
+<span class="src-line" id="L895">	fixed.<span class="f">sort</span>()</span>
+<span class="src-line" id="L896">	<span class="f">assert</span>(fixed.<span class="f">is_sorted</span>(), <span class="s">&quot;fixed array sorted in place&quot;</span>)</span>
+<span class="src-line" id="L897">	<span class="f">assert</span>(<span class="f">is_sorted</span>(fixed), <span class="s">&quot;standalone is_sorted confirms [N: T]&quot;</span>)</span>
+<span class="src-line" id="L898">	<span class="f">assert</span>(fixed[<span class="n">0</span>] == <span class="n">10</span> <span class="k">and</span> fixed[<span class="n">5</span>] == <span class="n">50</span>, <span class="s">&quot;fixed sorted bounds&quot;</span>)</span>
+<span class="src-line" id="L899">	<span class="f">assert</span>(fixed.<span class="f">lower_bound</span>(<span class="n">20</span>) == <span class="n">1</span>, <span class="s">&quot;fixed array lower_bound(20)&quot;</span>)</span>
+<span class="src-line" id="L900">	<span class="f">assert</span>(fixed.<span class="f">upper_bound</span>(<span class="n">20</span>) == <span class="n">4</span>, <span class="s">&quot;fixed array upper_bound(20)&quot;</span>)</span>
+<span class="src-line" id="L901">	<span class="f">assert</span>(<span class="f">lower_bound</span>(fixed, <span class="n">20</span>) == <span class="n">1</span>, <span class="s">&quot;standalone lower_bound accepts [N: T]&quot;</span>)</span>
+<span class="src-line" id="L902">	<span class="f">assert</span>(<span class="f">upper_bound</span>(fixed, <span class="n">20</span>) == <span class="n">4</span>, <span class="s">&quot;standalone upper_bound accepts [N: T]&quot;</span>)</span>
+<span class="src-line" id="L903">	<span class="f">assert</span>(fixed.<span class="f">binary_search</span>(<span class="n">40</span>) == <span class="n">4</span>, <span class="s">&quot;fixed array binary_search(40)&quot;</span>)</span>
+<span class="src-line" id="L904">	<span class="f">assert</span>(<span class="f">binary_search</span>(fixed, <span class="n">40</span>) == <span class="n">4</span>, <span class="s">&quot;standalone binary_search accepts [N: T]&quot;</span>)</span>
+<span class="src-line" id="L905">	<span class="f">assert</span>(fixed.<span class="f">binary_search_by</span>(<span class="k">fn</span>(x: <span class="t">int</span>) <span class="t">int</span>: x - <span class="n">40</span>) == <span class="n">4</span>, <span class="s">&quot;fixed array binary_search_by(40)&quot;</span>)</span>
+<span class="src-line" id="L906">	<span class="f">assert</span>(<span class="f">binary_search_by</span>(fixed, <span class="k">fn</span>(x: <span class="t">int</span>) <span class="t">int</span>: x - <span class="n">40</span>) == <span class="n">4</span>, <span class="s">&quot;standalone binary_search_by accepts [N: T]&quot;</span>)</span>
+<span class="src-line" id="L907"></span>
+<span class="src-line" id="L908">	fixed.<span class="f">reverse</span>()</span>
+<span class="src-line" id="L909">	<span class="f">assert</span>(fixed[<span class="n">0</span>] == <span class="n">50</span> <span class="k">and</span> fixed[<span class="n">5</span>] == <span class="n">10</span>, <span class="s">&quot;fixed array reversed&quot;</span>)</span>
+<span class="src-line" id="L910">	<span class="k">let</span> desc = <span class="k">fn</span>(a: <span class="t">int</span>, b: <span class="t">int</span>) <span class="t">int</span>: <span class="k">if</span>(a &gt; b): -<span class="n">1</span> <span class="k">else</span> <span class="k">if</span>(a &lt; b): <span class="n">1</span> <span class="k">else</span>: <span class="n">0</span></span>
+<span class="src-line" id="L911">	<span class="f">assert</span>(fixed.<span class="f">is_sorted_by</span>(desc), <span class="s">&quot;fixed array is_sorted_by desc&quot;</span>)</span>
+<span class="src-line" id="L912">	fixed.<span class="f">sort_by</span>(<span class="k">fn</span>(a: <span class="t">int</span>, b: <span class="t">int</span>) <span class="t">int</span>: <span class="k">if</span>(a &lt; b): -<span class="n">1</span> <span class="k">else</span> <span class="k">if</span>(a &gt; b): <span class="n">1</span> <span class="k">else</span>: <span class="n">0</span>)</span>
+<span class="src-line" id="L913">	<span class="f">assert</span>(fixed.<span class="f">is_sorted</span>(), <span class="s">&quot;fixed array sort_by ascending&quot;</span>)</span>
+<span class="src-line" id="L914"></span>
+<span class="src-line" id="L915">	<span class="m">// Array[T] slice-view struct methods and standalone views</span></span>
+<span class="src-line" id="L916">	<span class="k">let</span> view = <span class="t">Array</span>[<span class="t">int</span>][data: <span class="k">unsafe</span> <span class="f">ptr_add</span>(list.data, <span class="n">1</span>), len: <span class="n">4</span>]</span>
+<span class="src-line" id="L917">	<span class="f">assert</span>(view.<span class="f">is_sorted</span>(), <span class="s">&quot;Array[int] view is_sorted&quot;</span>)</span>
+<span class="src-line" id="L918">	<span class="f">assert</span>(<span class="f">is_sorted</span>(view), <span class="s">&quot;standalone is_sorted accepts Array[int]&quot;</span>)</span>
+<span class="src-line" id="L919">	<span class="f">assert</span>(view.<span class="f">lower_bound</span>(<span class="n">20</span>) == <span class="n">0</span>, <span class="s">&quot;Array[int] lower_bound&quot;</span>)</span>
+<span class="src-line" id="L920">	<span class="f">assert</span>(view.<span class="f">upper_bound</span>(<span class="n">20</span>) == <span class="n">3</span>, <span class="s">&quot;Array[int] upper_bound&quot;</span>)</span>
+<span class="src-line" id="L921">	<span class="f">assert</span>(<span class="f">lower_bound</span>(view, <span class="n">30</span>) == <span class="n">3</span>, <span class="s">&quot;standalone lower_bound accepts Array[int]&quot;</span>)</span>
+<span class="src-line" id="L922">	<span class="f">assert</span>(<span class="f">upper_bound</span>(view, <span class="n">20</span>) == <span class="n">3</span>, <span class="s">&quot;standalone upper_bound accepts Array[int]&quot;</span>)</span>
+<span class="src-line" id="L923">	<span class="f">assert</span>(view.<span class="f">binary_search</span>(<span class="n">30</span>) == <span class="n">3</span>, <span class="s">&quot;Array[int] binary_search&quot;</span>)</span>
+<span class="src-line" id="L924">	<span class="f">assert</span>(<span class="f">binary_search_by</span>(view, <span class="k">fn</span>(x: <span class="t">int</span>) <span class="t">int</span>: x - <span class="n">30</span>) == <span class="n">3</span>, <span class="s">&quot;standalone binary_search_by accepts Array[int]&quot;</span>)</span>
+<span class="src-line" id="L925">}</span>
+<span class="src-line" id="L926"></span>
+<span class="src-line" id="L927"><span class="a">@test</span>(<span class="s">&quot;non-Copyable Resource structs sort, stable_sort, sort_by, and binary search with zero leaks&quot;</span>)</span>
+<span class="src-line" id="L928"><span class="k">bind</span> test_sort_non_copyable_resources = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L929">	<span class="k">let</span> items = <span class="t">List</span>[_NonCopyRecord].<span class="f">new</span>()</span>
+<span class="src-line" id="L930">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">24</span>): {</span>
+<span class="src-line" id="L931">		<span class="k">let</span> p = <span class="k">unsafe</span> alloc_raw[<span class="t">int</span>](<span class="n">1</span>)</span>
+<span class="src-line" id="L932">		<span class="k">unsafe</span> <span class="f">ptr_write</span>(p, i)</span>
+<span class="src-line" id="L933">		<span class="k">let</span> key = (<span class="n">23</span> - i) / <span class="n">3</span></span>
+<span class="src-line" id="L934">		items.<span class="f">push</span>(_NonCopyRecord[id: key, name: <span class="s">&quot;item_</span>$i<span class="s">&quot;</span>, tag: p])</span>
+<span class="src-line" id="L935">	}</span>
+<span class="src-line" id="L936"></span>
+<span class="src-line" id="L937">	<span class="f">assert</span>(<span class="k">not</span> items.<span class="f">is_sorted</span>(), <span class="s">&quot;non-copyable resources initially unsorted&quot;</span>)</span>
+<span class="src-line" id="L938">	items.<span class="f">stable_sort</span>()</span>
+<span class="src-line" id="L939">	<span class="f">assert</span>(items.<span class="f">is_sorted</span>(), <span class="s">&quot;non-copyable resources sorted after stable_sort&quot;</span>)</span>
+<span class="src-line" id="L940"></span>
+<span class="src-line" id="L941">	<span class="k">let</span> k = <span class="n">0</span></span>
+<span class="src-line" id="L942">	<span class="k">for</span>(k + <span class="n">1</span> &lt; items.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L943">		<span class="k">if</span>(items[k].id == items[k + <span class="n">1</span>].id): {</span>
+<span class="src-line" id="L944">			<span class="k">let</span> cur_seq = <span class="k">unsafe</span> <span class="f">ptr_read</span>(items[k].tag)</span>
+<span class="src-line" id="L945">			<span class="k">let</span> next_seq = <span class="k">unsafe</span> <span class="f">ptr_read</span>(items[k + <span class="n">1</span>].tag)</span>
+<span class="src-line" id="L946">			<span class="f">assert</span>(cur_seq &lt; next_seq, <span class="s">&quot;stable_sort preserved equal-key order on non-Copyable resources&quot;</span>)</span>
+<span class="src-line" id="L947">		}</span>
+<span class="src-line" id="L948">		k += <span class="n">1</span></span>
+<span class="src-line" id="L949">	}</span>
 <span class="src-line" id="L950"></span>
-<span class="src-line" id="L951">	<span class="k">let</span> cmp_desc = (a: _NonCopyRecord, b: _NonCopyRecord) <span class="t">int</span>:</span>
-<span class="src-line" id="L952">		<span class="k">if</span>(a.id &gt; b.id): -<span class="n">1</span></span>
-<span class="src-line" id="L953">		<span class="k">else</span> <span class="k">if</span>(a.id &lt; b.id): <span class="n">1</span></span>
-<span class="src-line" id="L954">		<span class="k">else</span>: <span class="n">0</span></span>
-<span class="src-line" id="L955">	items.<span class="f">sort_by</span>(cmp_desc)</span>
-<span class="src-line" id="L956">	<span class="f">assert</span>(items.<span class="f">is_sorted_by</span>(cmp_desc), <span class="s">&quot;sort_by without Copyable sorts descending&quot;</span>)</span>
-<span class="src-line" id="L957">	items.<span class="f">sort</span>()</span>
-<span class="src-line" id="L958">	<span class="f">assert</span>(items.<span class="f">is_sorted</span>(), <span class="s">&quot;introsort without Copyable sorts ascending&quot;</span>)</span>
-<span class="src-line" id="L959">}</span>
-<span class="src-line" id="L960"></span>
-<span class="src-line" id="L961"><span class="a">@test</span>(<span class="s">&quot;collection sorting extensions: Set.to_sorted_list and Map.to_sorted_keys&quot;</span>)</span>
-<span class="src-line" id="L962"><span class="k">bind</span> test_sort_collections = (): {</span>
-<span class="src-line" id="L963">	<span class="k">let</span> s = <span class="t">Set</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L964">	s.<span class="f">insert</span>(<span class="n">50</span>)</span>
-<span class="src-line" id="L965">	s.<span class="f">insert</span>(<span class="n">10</span>)</span>
-<span class="src-line" id="L966">	s.<span class="f">insert</span>(<span class="n">40</span>)</span>
-<span class="src-line" id="L967">	s.<span class="f">insert</span>(<span class="n">20</span>)</span>
-<span class="src-line" id="L968"></span>
-<span class="src-line" id="L969">	<span class="k">let</span> sorted_s = s.<span class="f">to_sorted_list</span>()</span>
-<span class="src-line" id="L970">	<span class="f">assert</span>(sorted_s.<span class="f">is_sorted</span>(), <span class="s">&quot;sorted_s is sorted&quot;</span>)</span>
-<span class="src-line" id="L971">	<span class="f">assert</span>(sorted_s.<span class="f">len</span>() == <span class="n">4</span>, <span class="s">&quot;sorted_s len is 4&quot;</span>)</span>
-<span class="src-line" id="L972">	<span class="f">assert</span>(sorted_s.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">10</span>, <span class="s">&quot;sorted_s[0] == 10&quot;</span>)</span>
-<span class="src-line" id="L973">	<span class="f">assert</span>(sorted_s.<span class="f">get</span>(<span class="n">3</span>) == <span class="n">50</span>, <span class="s">&quot;sorted_s[3] == 50&quot;</span>)</span>
-<span class="src-line" id="L974"></span>
-<span class="src-line" id="L975">	<span class="k">let</span> m = <span class="t">Map</span>[<span class="t">string</span>, <span class="t">int</span>].<span class="f">new</span>()</span>
-<span class="src-line" id="L976">	m.<span class="f">insert</span>(<span class="s">&quot;zebra&quot;</span>, <span class="n">1</span>)</span>
-<span class="src-line" id="L977">	m.<span class="f">insert</span>(<span class="s">&quot;apple&quot;</span>, <span class="n">2</span>)</span>
-<span class="src-line" id="L978">	m.<span class="f">insert</span>(<span class="s">&quot;mango&quot;</span>, <span class="n">3</span>)</span>
+<span class="src-line" id="L951">	<span class="k">let</span> empty_tag = <span class="k">unsafe</span> null_ptr[<span class="t">int</span>]()</span>
+<span class="src-line" id="L952">	<span class="k">let</span> probe = _NonCopyRecord[id: <span class="n">5</span>, name: <span class="s">&quot;probe&quot;</span>, tag: empty_tag]</span>
+<span class="src-line" id="L953">	<span class="k">let</span> found? = items.<span class="f">binary_search</span>(probe)</span>
+<span class="src-line" id="L954">	<span class="f">assert</span>(found? != <span class="c">none</span>, <span class="s">&quot;binary_search without Copyable found matching id&quot;</span>)</span>
+<span class="src-line" id="L955">	<span class="k">let</span> lb = items.<span class="f">lower_bound</span>(probe)</span>
+<span class="src-line" id="L956">	<span class="k">let</span> ub = items.<span class="f">upper_bound</span>(probe)</span>
+<span class="src-line" id="L957">	<span class="f">assert</span>(ub - lb == <span class="n">3</span>, <span class="s">&quot;lower_bound..upper_bound covers all 3 records with id 5&quot;</span>)</span>
+<span class="src-line" id="L958"></span>
+<span class="src-line" id="L959">	<span class="k">let</span> by_id? = items.<span class="f">binary_search_by</span>(<span class="k">fn</span>(r: _NonCopyRecord) <span class="t">int</span>: r.id - <span class="n">6</span>)</span>
+<span class="src-line" id="L960">	<span class="f">assert</span>(by_id? != <span class="c">none</span> <span class="k">and</span> items[by_id? ?? <span class="n">0</span>].id == <span class="n">6</span>, <span class="s">&quot;binary_search_by without Copyable works&quot;</span>)</span>
+<span class="src-line" id="L961"></span>
+<span class="src-line" id="L962">	<span class="k">let</span> cmp_desc = <span class="k">fn</span>(a: _NonCopyRecord, b: _NonCopyRecord) <span class="t">int</span>:</span>
+<span class="src-line" id="L963">		<span class="k">if</span>(a.id &gt; b.id): -<span class="n">1</span></span>
+<span class="src-line" id="L964">		<span class="k">else</span> <span class="k">if</span>(a.id &lt; b.id): <span class="n">1</span></span>
+<span class="src-line" id="L965">		<span class="k">else</span>: <span class="n">0</span></span>
+<span class="src-line" id="L966">	items.<span class="f">sort_by</span>(cmp_desc)</span>
+<span class="src-line" id="L967">	<span class="f">assert</span>(items.<span class="f">is_sorted_by</span>(cmp_desc), <span class="s">&quot;sort_by without Copyable sorts descending&quot;</span>)</span>
+<span class="src-line" id="L968">	items.<span class="f">sort</span>()</span>
+<span class="src-line" id="L969">	<span class="f">assert</span>(items.<span class="f">is_sorted</span>(), <span class="s">&quot;introsort without Copyable sorts ascending&quot;</span>)</span>
+<span class="src-line" id="L970">}</span>
+<span class="src-line" id="L971"></span>
+<span class="src-line" id="L972"><span class="a">@test</span>(<span class="s">&quot;collection sorting extensions: Set.to_sorted_list and Map.to_sorted_keys&quot;</span>)</span>
+<span class="src-line" id="L973"><span class="k">bind</span> test_sort_collections = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L974">	<span class="k">let</span> s = <span class="t">Set</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L975">	s.<span class="f">insert</span>(<span class="n">50</span>)</span>
+<span class="src-line" id="L976">	s.<span class="f">insert</span>(<span class="n">10</span>)</span>
+<span class="src-line" id="L977">	s.<span class="f">insert</span>(<span class="n">40</span>)</span>
+<span class="src-line" id="L978">	s.<span class="f">insert</span>(<span class="n">20</span>)</span>
 <span class="src-line" id="L979"></span>
-<span class="src-line" id="L980">	<span class="k">let</span> sorted_k = m.<span class="f">to_sorted_keys</span>()</span>
-<span class="src-line" id="L981">	<span class="f">assert</span>(sorted_k.<span class="f">is_sorted</span>(), <span class="s">&quot;sorted_k is sorted&quot;</span>)</span>
-<span class="src-line" id="L982">	<span class="f">assert</span>(sorted_k.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;sorted_k len is 3&quot;</span>)</span>
-<span class="src-line" id="L983">	<span class="f">assert</span>(sorted_k.<span class="f">get</span>(<span class="n">0</span>) == <span class="s">&quot;apple&quot;</span>, <span class="s">&quot;sorted_k[0] == apple&quot;</span>)</span>
-<span class="src-line" id="L984">	<span class="f">assert</span>(sorted_k.<span class="f">get</span>(<span class="n">1</span>) == <span class="s">&quot;mango&quot;</span>, <span class="s">&quot;sorted_k[1] == mango&quot;</span>)</span>
-<span class="src-line" id="L985">	<span class="f">assert</span>(sorted_k.<span class="f">get</span>(<span class="n">2</span>) == <span class="s">&quot;zebra&quot;</span>, <span class="s">&quot;sorted_k[2] == zebra&quot;</span>)</span>
-<span class="src-line" id="L986">}</span>
-<span class="src-line" id="L987"></span>
-</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<span class="src-line" id="L980">	<span class="k">let</span> sorted_s = s.<span class="f">to_sorted_list</span>()</span>
+<span class="src-line" id="L981">	<span class="f">assert</span>(sorted_s.<span class="f">is_sorted</span>(), <span class="s">&quot;sorted_s is sorted&quot;</span>)</span>
+<span class="src-line" id="L982">	<span class="f">assert</span>(sorted_s.<span class="f">len</span>() == <span class="n">4</span>, <span class="s">&quot;sorted_s len is 4&quot;</span>)</span>
+<span class="src-line" id="L983">	<span class="f">assert</span>(sorted_s.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">10</span>, <span class="s">&quot;sorted_s[0] == 10&quot;</span>)</span>
+<span class="src-line" id="L984">	<span class="f">assert</span>(sorted_s.<span class="f">get</span>(<span class="n">3</span>) == <span class="n">50</span>, <span class="s">&quot;sorted_s[3] == 50&quot;</span>)</span>
+<span class="src-line" id="L985"></span>
+<span class="src-line" id="L986">	<span class="k">let</span> m = <span class="t">Map</span>[<span class="t">string</span>, <span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L987">	m.<span class="f">insert</span>(<span class="s">&quot;zebra&quot;</span>, <span class="n">1</span>)</span>
+<span class="src-line" id="L988">	m.<span class="f">insert</span>(<span class="s">&quot;apple&quot;</span>, <span class="n">2</span>)</span>
+<span class="src-line" id="L989">	m.<span class="f">insert</span>(<span class="s">&quot;mango&quot;</span>, <span class="n">3</span>)</span>
+<span class="src-line" id="L990"></span>
+<span class="src-line" id="L991">	<span class="k">let</span> sorted_k = m.<span class="f">to_sorted_keys</span>()</span>
+<span class="src-line" id="L992">	<span class="f">assert</span>(sorted_k.<span class="f">is_sorted</span>(), <span class="s">&quot;sorted_k is sorted&quot;</span>)</span>
+<span class="src-line" id="L993">	<span class="f">assert</span>(sorted_k.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;sorted_k len is 3&quot;</span>)</span>
+<span class="src-line" id="L994">	<span class="f">assert</span>(sorted_k.<span class="f">get</span>(<span class="n">0</span>) == <span class="s">&quot;apple&quot;</span>, <span class="s">&quot;sorted_k[0] == apple&quot;</span>)</span>
+<span class="src-line" id="L995">	<span class="f">assert</span>(sorted_k.<span class="f">get</span>(<span class="n">1</span>) == <span class="s">&quot;mango&quot;</span>, <span class="s">&quot;sorted_k[1] == mango&quot;</span>)</span>
+<span class="src-line" id="L996">	<span class="f">assert</span>(sorted_k.<span class="f">get</span>(<span class="n">2</span>) == <span class="s">&quot;zebra&quot;</span>, <span class="s">&quot;sorted_k[2] == zebra&quot;</span>)</span>
+<span class="src-line" id="L997">}</span>
+<span class="src-line" id="L998"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../collections.html">std/collections</a><a href="../core.html">std/core</a><a href="../derive.html">std/derive</a><a href="../fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../../search-index.js"></script>
 <script src="../../assets/site.js"></script>
 </body>

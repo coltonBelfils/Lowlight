@@ -222,10 +222,11 @@ func (fl *funcLowerer) lowerDirectFuncCall(call *ast.CallExpr, inf *sema.ExprInf
 	}
 }
 
-func (fl *funcLowerer) lowerClosureValueCall(call *ast.CallExpr, _ *sema.ExprInfo) Expr {
-	calleeTy := fl.info(call.Callee).Type.(*types.Func)
+func (fl *funcLowerer) lowerClosureValueCall(call *ast.CallExpr, inf *sema.ExprInfo) Expr {
+	calleeExpr := fl.resolvedCallee(call)
+	calleeTy := fl.info(calleeExpr).Type.(*types.Func)
 	fl.tc.visit(calleeTy)
-	calleeVal := fl.lowerExprRead(call.Callee)
+	calleeVal := fl.lowerExprRead(calleeExpr)
 	if calleeTy.Extern {
 		// An `extern fn` value is a C function pointer: just the arguments.
 		return &ExprCall{Callee: EnsureExpr(calleeVal, calleeTy), Args: fl.lowerCallArgs(calleeTy.Params, call.Args), Typ: calleeTy.Ret}
@@ -691,7 +692,7 @@ func (fl *funcLowerer) emitEnumTagAssert(enumExpr Expr, en *types.Enum, vr *type
 	cond := &ExprBinary{
 		Op:    token.Neq,
 		Left:  tagExpr,
-		Right: NewLitInt(uint64(vr.Value), vr.Value < 0, types.TypeInt),
+		Right: NewLitInt64(vr.Value),
 		Typ:   types.TypeBool,
 	}
 	var fileExpr, lineExpr, colExpr Expr
@@ -925,7 +926,11 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 		if !vr.Payload.IsPlain() {
 			payVal = fl.copyCallExpr(vr.Payload, payVal)
 		}
-		fl.assignLocal(resSlot, fl.wrapInOptionalExpr(payVal, resOpt))
+		if _, isPayOpt := vr.Payload.(*types.Optional); isPayOpt {
+			fl.assignLocal(resSlot, payVal)
+		} else {
+			fl.assignLocal(resSlot, fl.wrapInOptionalExpr(payVal, resOpt))
+		}
 		thenBuf := fl.popInstrBuf()
 		fl.emit(&InstrIf{Cond: enumVariantTagEqExpr(NewLocalExpr(eTmp), en, vr), Then: thenBuf})
 		return NewLocalExpr(resSlot), resOpt
@@ -1162,6 +1167,16 @@ func (fl *funcLowerer) lowerIntrinsicCall(call *ast.CallExpr, inf *sema.ExprInfo
 			Args:   []Expr{EnsureExpr(dst, &types.Ptr{Elem: types.TypeU8}), EnsureExpr(val, types.TypeU8), EnsureExpr(cnt, types.TypeInt)},
 			Typ:    types.TypeVoid,
 		}
+	case "forget":
+		arg := call.Args[0]
+		res := fl.lowerExprOwned(arg, fl.info(arg).Type)
+		fl.flushStmtTemps()
+		if res != nil {
+			if _, isLoc := res.(*ExprLocal); !isLoc {
+				fl.emit(&InstrExpr{Expr: res})
+			}
+		}
+		return nil
 	}
 
 	if inf.BuiltinName == "syscall" {

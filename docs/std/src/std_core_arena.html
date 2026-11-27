@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>arena.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../collections.html">std/collections</a></li><li><a href="../core.html">std/core</a></li><li><a href="../derive.html">std/derive</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>arena.ll</h1><p>Source of package <a href="../core.html"><code>std/core</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/core/arena — [`Arena`], the region allocator behind `ref[T]`.</span></span>
+<span class="src-line" id="L2"><span class="m">//</span></span>
+<span class="src-line" id="L3"><span class="m">// The checker&#39;s rules that keep a `ref[T]` from outliving its arena stay in the compiler; this</span></span>
+<span class="src-line" id="L4"><span class="m">// file is only the allocator.</span></span>
+<span class="src-line" id="L5"></span>
+<span class="src-line" id="L6"><span class="m">// One block of an arena&#39;s memory.</span></span>
+<span class="src-line" id="L7"><span class="k">define</span> _ArenaChunk <span class="k">struct</span> [</span>
+<span class="src-line" id="L8">	data: <span class="t">ptr</span>[<span class="t">u8</span>],</span>
+<span class="src-line" id="L9">	cap: <span class="t">int</span>,</span>
+<span class="src-line" id="L10">]</span>
+<span class="src-line" id="L11"></span>
+<span class="src-line" id="L12"><span class="m">// A value in an arena that has a destructor: where it is, and the function that drops it.</span></span>
+<span class="src-line" id="L13"><span class="k">define</span> _ArenaDrop <span class="k">struct</span> [</span>
+<span class="src-line" id="L14">	at: <span class="t">ptr</span>[<span class="t">u8</span>],</span>
+<span class="src-line" id="L15">	run: <span class="k">fn</span>(<span class="t">ptr</span>[<span class="t">u8</span>]),</span>
+<span class="src-line" id="L16">]</span>
+<span class="src-line" id="L17"></span>
+<span class="src-line" id="L18"><span class="m">// A region allocator: [`Arena.alloc`] moves a value into the arena and returns a `ref[T]` to it,</span></span>
+<span class="src-line" id="L19"><span class="m">// and the arena frees everything at once when it is dropped or [`Arena.reset`]. The checker</span></span>
+<span class="src-line" id="L20"><span class="m">// guarantees no `ref[T]` outlives its arena.</span></span>
+<span class="src-line" id="L21"><span class="m">//</span></span>
+<span class="src-line" id="L22"><span class="m">// Values with a destructor are dropped newest first. Memory comes in chunks, each twice the size</span></span>
+<span class="src-line" id="L23"><span class="m">// of the last; the first isn&#39;t allocated until the first `alloc`.</span></span>
+<span class="src-line" id="L24"><span class="m">//</span></span>
+<span class="src-line" id="L25"><span class="m">// # Example</span></span>
+<span class="src-line" id="L26"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L27"><span class="m">// let arena = Arena.new()</span></span>
+<span class="src-line" id="L28"><span class="m">// let node = arena.alloc(Node[value: 1, next: none])</span></span>
+<span class="src-line" id="L29"><span class="m">// println(node.value)</span></span>
+<span class="src-line" id="L30"><span class="m">// ```</span></span>
+<span class="src-line" id="L31"><span class="a">@lang</span>(<span class="s">&quot;arena&quot;</span>)</span>
+<span class="src-line" id="L32"><span class="k">define</span> <span class="t">Arena</span> <span class="k">struct</span> [</span>
+<span class="src-line" id="L33">	<span class="m">// Chunks, oldest first. Allocations come from the last one.</span></span>
+<span class="src-line" id="L34">	_chunks: [_ArenaChunk],</span>
+<span class="src-line" id="L35">	<span class="m">// Addresses in the last chunk: its start, the next free byte, and its end (all `0` before the</span></span>
+<span class="src-line" id="L36">	<span class="m">// first chunk).</span></span>
+<span class="src-line" id="L37">	_start: <span class="t">int</span>,</span>
+<span class="src-line" id="L38">	_next: <span class="t">int</span>,</span>
+<span class="src-line" id="L39">	_end: <span class="t">int</span>,</span>
+<span class="src-line" id="L40">	<span class="m">// Bytes handed out from the chunks before the last one.</span></span>
+<span class="src-line" id="L41">	_done: <span class="t">int</span>,</span>
+<span class="src-line" id="L42">	<span class="m">// Values to drop, in allocation order.</span></span>
+<span class="src-line" id="L43">	_drops: [_ArenaDrop],</span>
+<span class="src-line" id="L44">	<span class="m">// The size of the first chunk.</span></span>
+<span class="src-line" id="L45">	_first_cap: <span class="t">int</span>,</span>
+<span class="src-line" id="L46">]</span>
+<span class="src-line" id="L47"></span>
+<span class="src-line" id="L48"><span class="m">// Constructs an empty [`Arena`]; its first chunk will hold 4096 bytes.</span></span>
+<span class="src-line" id="L49"><span class="k">bind</span> <span class="t">Arena</span>.new = <span class="k">fn</span>() <span class="t">Arena</span>: <span class="t">Arena</span>.<span class="f">with_capacity</span>(<span class="n">4096</span>)</span>
+<span class="src-line" id="L50"></span>
+<span class="src-line" id="L51"><span class="m">// Constructs an empty [`Arena`] whose first chunk will hold `bytes` bytes (at least 256).</span></span>
+<span class="src-line" id="L52"><span class="k">bind</span> <span class="t">Arena</span>.with_capacity = <span class="k">fn</span>(bytes: <span class="t">int</span>) <span class="t">Arena</span>: <span class="t">Arena</span>[</span>
+<span class="src-line" id="L53">	_chunks: [],</span>
+<span class="src-line" id="L54">	_start: <span class="n">0</span>,</span>
+<span class="src-line" id="L55">	_next: <span class="n">0</span>,</span>
+<span class="src-line" id="L56">	_end: <span class="n">0</span>,</span>
+<span class="src-line" id="L57">	_done: <span class="n">0</span>,</span>
+<span class="src-line" id="L58">	_drops: [],</span>
+<span class="src-line" id="L59">	_first_cap: <span class="f">max</span>(bytes, <span class="n">256</span>),</span>
+<span class="src-line" id="L60">]</span>
+<span class="src-line" id="L61"></span>
+<span class="src-line" id="L62"><span class="m">// Returns `size` bytes aligned to `align` (a power of two), starting a new chunk if they don&#39;t</span></span>
+<span class="src-line" id="L63"><span class="m">// fit in the current one.</span></span>
+<span class="src-line" id="L64"><span class="a">@inline</span></span>
+<span class="src-line" id="L65"><span class="k">bind</span> <span class="t">Arena</span>._bump = <span class="k">fn</span>(&amp;<span class="k">self</span>, size: <span class="t">int</span>, align: <span class="t">int</span>) <span class="t">ptr</span>[<span class="t">u8</span>]: {</span>
+<span class="src-line" id="L66">	<span class="k">let</span> at = <span class="k">self</span>._next + align - <span class="n">1</span> &amp; ~(align - <span class="n">1</span>)</span>
+<span class="src-line" id="L67">	<span class="k">if</span>(at + size &gt; <span class="k">self</span>._end): {</span>
+<span class="src-line" id="L68">		<span class="k">self</span>.<span class="f">_new_chunk</span>(size + align)</span>
+<span class="src-line" id="L69">		at = <span class="k">self</span>._next + align - <span class="n">1</span> &amp; ~(align - <span class="n">1</span>)</span>
+<span class="src-line" id="L70">	}</span>
+<span class="src-line" id="L71">	<span class="k">self</span>._next = at + size</span>
+<span class="src-line" id="L72">	<span class="k">unsafe</span> ptr_cast[<span class="t">u8</span>](at)</span>
+<span class="src-line" id="L73">}</span>
+<span class="src-line" id="L74"></span>
+<span class="src-line" id="L75"><span class="m">// Starts a chunk with room for at least `need` bytes: twice the last chunk&#39;s size, or the first</span></span>
+<span class="src-line" id="L76"><span class="m">// chunk&#39;s size.</span></span>
+<span class="src-line" id="L77"><span class="a">@noinline</span></span>
+<span class="src-line" id="L78"><span class="k">bind</span> <span class="t">Arena</span>._new_chunk = <span class="k">fn</span>(&amp;<span class="k">self</span>, need: <span class="t">int</span>): {</span>
+<span class="src-line" id="L79">	<span class="k">let</span> n = <span class="k">self</span>._chunks.<span class="f">len</span>()</span>
+<span class="src-line" id="L80">	<span class="k">let</span> cap = <span class="f">max</span>(<span class="k">if</span>(n &gt; <span class="n">0</span>): <span class="k">self</span>._chunks[n - <span class="n">1</span>].cap * <span class="n">2</span> <span class="k">else</span>: <span class="k">self</span>._first_cap, need * <span class="n">2</span>)</span>
+<span class="src-line" id="L81">	<span class="k">let</span> data = <span class="k">unsafe</span> alloc_raw[<span class="t">u8</span>](cap)</span>
+<span class="src-line" id="L82">	<span class="k">self</span>._chunks.<span class="f">push</span>(_ArenaChunk[data: data, cap: cap])</span>
+<span class="src-line" id="L83">	<span class="k">self</span>._done += <span class="k">self</span>._next - <span class="k">self</span>._start</span>
+<span class="src-line" id="L84">	<span class="k">self</span>._start = <span class="t">int</span>(<span class="k">unsafe</span> <span class="f">ptr_addr</span>(data))</span>
+<span class="src-line" id="L85">	<span class="k">self</span>._next = <span class="k">self</span>._start</span>
+<span class="src-line" id="L86">	<span class="k">self</span>._end = <span class="k">self</span>._start + cap</span>
+<span class="src-line" id="L87">}</span>
+<span class="src-line" id="L88"></span>
+<span class="src-line" id="L89"><span class="m">// Moves `value` into the arena and returns a reference to it, valid as long as the arena (and</span></span>
+<span class="src-line" id="L90"><span class="m">// until [`Arena.reset`]).</span></span>
+<span class="src-line" id="L91"><span class="k">bind</span> <span class="t">Arena</span>.alloc[<span class="t">T</span>] = <span class="k">fn</span>(&amp;<span class="k">self</span>, value: <span class="k">own</span> <span class="t">T</span>) <span class="t">ref</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L92">	<span class="k">let</span> at = <span class="k">self</span>.<span class="f">_bump</span>(<span class="f">max</span>(type.size_of[<span class="t">T</span>](), <span class="n">1</span>), <span class="f">max</span>(type.align_of[<span class="t">T</span>](), <span class="n">1</span>))</span>
+<span class="src-line" id="L93">	<span class="k">unsafe</span> <span class="f">ptr_write</span>(ptr_cast[<span class="t">T</span>](at), <span class="k">own</span> value)</span>
+<span class="src-line" id="L94">	<span class="k">if</span>(<span class="k">not</span> type.is_plain[<span class="t">T</span>]()):</span>
+<span class="src-line" id="L95">		<span class="k">self</span>._drops.<span class="f">push</span>(_ArenaDrop[</span>
+<span class="src-line" id="L96">			at: at,</span>
+<span class="src-line" id="L97">			run: <span class="k">fn</span>(p: <span class="t">ptr</span>[<span class="t">u8</span>]): {</span>
+<span class="src-line" id="L98">				<span class="k">let</span> _ = <span class="k">unsafe</span> <span class="f">ptr_read</span>(ptr_cast[<span class="t">T</span>](p))</span>
+<span class="src-line" id="L99">			},</span>
+<span class="src-line" id="L100">		])</span>
+<span class="src-line" id="L101">	<span class="k">unsafe</span> <span class="f">ref_from_ptr</span>(ptr_cast[<span class="t">T</span>](at))</span>
+<span class="src-line" id="L102">}</span>
+<span class="src-line" id="L103"></span>
+<span class="src-line" id="L104"><span class="m">// Drops the values that have destructors, newest first.</span></span>
+<span class="src-line" id="L105"><span class="k">bind</span> <span class="t">Arena</span>._run_drops = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L106">	<span class="k">let</span> i = <span class="k">self</span>._drops.<span class="f">len</span>() - <span class="n">1</span></span>
+<span class="src-line" id="L107">	<span class="k">while</span>(i &gt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L108">		<span class="k">let</span> d = <span class="k">self</span>._drops[i]</span>
+<span class="src-line" id="L109">		<span class="k">let</span> run = d.run</span>
+<span class="src-line" id="L110">		<span class="f">run</span>(d.at)</span>
+<span class="src-line" id="L111">		i -= <span class="n">1</span></span>
+<span class="src-line" id="L112">	}</span>
+<span class="src-line" id="L113">	<span class="k">self</span>._drops.<span class="f">clear</span>()</span>
+<span class="src-line" id="L114">}</span>
+<span class="src-line" id="L115"></span>
+<span class="src-line" id="L116"><span class="m">// Drops everything in the arena and makes its memory available again, keeping the largest chunk</span></span>
+<span class="src-line" id="L117"><span class="m">// for reuse.</span></span>
+<span class="src-line" id="L118"><span class="k">bind</span> <span class="t">Arena</span>.reset = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L119">	<span class="k">self</span>.<span class="f">_run_drops</span>()</span>
+<span class="src-line" id="L120">	<span class="k">let</span> n = <span class="k">self</span>._chunks.<span class="f">len</span>()</span>
+<span class="src-line" id="L121">	<span class="k">if</span>(n == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L122">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..n - <span class="n">1</span>): <span class="k">unsafe</span> <span class="f">free_raw</span>(<span class="k">self</span>._chunks[i].data)</span>
+<span class="src-line" id="L123">	<span class="k">let</span> last = <span class="k">self</span>._chunks[n - <span class="n">1</span>]</span>
+<span class="src-line" id="L124">	<span class="k">self</span>._chunks.<span class="f">clear</span>()</span>
+<span class="src-line" id="L125">	<span class="k">self</span>._chunks.<span class="f">push</span>(last)</span>
+<span class="src-line" id="L126">	<span class="k">self</span>._start = <span class="t">int</span>(<span class="k">unsafe</span> <span class="f">ptr_addr</span>(last.data))</span>
+<span class="src-line" id="L127">	<span class="k">self</span>._next = <span class="k">self</span>._start</span>
+<span class="src-line" id="L128">	<span class="k">self</span>._end = <span class="k">self</span>._start + last.cap</span>
+<span class="src-line" id="L129">	<span class="k">self</span>._done = <span class="n">0</span></span>
+<span class="src-line" id="L130">}</span>
+<span class="src-line" id="L131"></span>
+<span class="src-line" id="L132"><span class="m">// Returns the number of bytes handed out since the arena was created or last reset, including</span></span>
+<span class="src-line" id="L133"><span class="m">// alignment padding.</span></span>
+<span class="src-line" id="L134"><span class="k">bind</span> <span class="t">Arena</span>.bytes_used = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._done + <span class="k">self</span>._next - <span class="k">self</span>._start</span>
+<span class="src-line" id="L135"></span>
+<span class="src-line" id="L136"><span class="m">// Drops everything in the arena and frees its memory.</span></span>
+<span class="src-line" id="L137"><span class="k">bind</span> <span class="t">Arena</span>.drop = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L138">	<span class="k">self</span>.<span class="f">_run_drops</span>()</span>
+<span class="src-line" id="L139">	<span class="k">for</span>(ch <span class="k">in</span> <span class="k">self</span>._chunks): <span class="k">unsafe</span> <span class="f">free_raw</span>(ch.data)</span>
+<span class="src-line" id="L140">	<span class="k">self</span>._chunks.<span class="f">clear</span>()</span>
+<span class="src-line" id="L141">}</span>
+<span class="src-line" id="L142"></span>
+<span class="src-line" id="L143"><span class="a">@test</span>(<span class="s">&quot;Arena allocates, drops values newest first, and resets&quot;</span>)</span>
+<span class="src-line" id="L144"><span class="k">bind</span> test_arena = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L145">	<span class="k">let</span> a = <span class="t">Arena</span>.<span class="f">new</span>()</span>
+<span class="src-line" id="L146">	<span class="f">assert</span>(a.<span class="f">bytes_used</span>() == <span class="n">0</span>, <span class="s">&quot;a new arena has used nothing&quot;</span>)</span>
+<span class="src-line" id="L147">	{</span>
+<span class="src-line" id="L148">		<span class="k">let</span> x = a.<span class="f">alloc</span>(_ArenaTestBox[n: <span class="n">41</span>])</span>
+<span class="src-line" id="L149">		<span class="k">let</span> s = a.<span class="f">alloc</span>(<span class="s">&quot;hello&quot;</span> + <span class="s">&quot; arena&quot;</span>)</span>
+<span class="src-line" id="L150">		<span class="f">assert</span>(x.n + <span class="n">1</span> == <span class="n">42</span> <span class="k">and</span> s.<span class="f">len</span>() == <span class="n">11</span>, <span class="s">&quot;refs read their values&quot;</span>)</span>
+<span class="src-line" id="L151">		<span class="f">assert</span>(a.<span class="f">bytes_used</span>() &gt;= <span class="n">24</span>, <span class="s">&quot;bytes_used counts allocations&quot;</span>)</span>
+<span class="src-line" id="L152">	}</span>
+<span class="src-line" id="L153">	a.<span class="f">reset</span>()</span>
+<span class="src-line" id="L154">	<span class="f">assert</span>(a.<span class="f">bytes_used</span>() == <span class="n">0</span>, <span class="s">&quot;reset frees everything&quot;</span>)</span>
+<span class="src-line" id="L155">	{</span>
+<span class="src-line" id="L156">		<span class="m">// Many allocations span several chunks.</span></span>
+<span class="src-line" id="L157">		<span class="k">let</span> total = <span class="n">0</span></span>
+<span class="src-line" id="L158">		<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">5000</span>): {</span>
+<span class="src-line" id="L159">			<span class="k">let</span> r = a.<span class="f">alloc</span>(_ArenaTestBox[n: i])</span>
+<span class="src-line" id="L160">			total += r.n</span>
+<span class="src-line" id="L161">		}</span>
+<span class="src-line" id="L162">		<span class="f">assert</span>(total == <span class="n">12497500</span>, <span class="s">&quot;values survive chunk growth&quot;</span>)</span>
+<span class="src-line" id="L163">	}</span>
+<span class="src-line" id="L164">	<span class="k">let</span> small = <span class="t">Arena</span>.<span class="f">with_capacity</span>(<span class="n">16</span>)</span>
+<span class="src-line" id="L165">	{</span>
+<span class="src-line" id="L166">		<span class="k">let</span> words: [<span class="t">string</span>] = []</span>
+<span class="src-line" id="L167">		<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">100</span>): {</span>
+<span class="src-line" id="L168">			<span class="k">let</span> w = small.<span class="f">alloc</span>(<span class="s">&quot;w</span>$i<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L169">			words.<span class="f">push</span>(w.<span class="f">copy</span>())</span>
+<span class="src-line" id="L170">		}</span>
+<span class="src-line" id="L171">		<span class="f">assert</span>(words.<span class="f">len</span>() == <span class="n">100</span> <span class="k">and</span> words[<span class="n">99</span>] == <span class="s">&quot;w99&quot;</span>, <span class="s">&quot;resource values in many chunks&quot;</span>)</span>
+<span class="src-line" id="L172">	}</span>
+<span class="src-line" id="L173">}</span>
+<span class="src-line" id="L174"></span>
+<span class="src-line" id="L175"><span class="a">@test_only</span></span>
+<span class="src-line" id="L176"><span class="k">define</span> _ArenaTestBox <span class="k">struct</span> [</span>
+<span class="src-line" id="L177">	n: <span class="t">int</span></span>
+<span class="src-line" id="L178">]</span>
+<span class="src-line" id="L179"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../collections.html">std/collections</a><a href="../core.html">std/core</a><a href="../derive.html">std/derive</a><a href="../fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

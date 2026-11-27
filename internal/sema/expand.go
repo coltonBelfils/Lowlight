@@ -19,21 +19,12 @@ var expandSynthSpan = diag.Span{
 }
 
 type astExpander struct {
-	prog *CheckedProgram
-	mod  *Module
+	prog            *CheckedProgram
+	mod             *Module
+	inDerivedExpand bool
 }
 
-// ExpandModuleAST returns a cloned *ast.File for mod whose top-level `comptime if`s
-// are pruned, evaluated `const`s / `comptime { ... }` blocks are folded where convertible,
-// local `comptime if` / `comptime match` branches are resolved, and `comptime for` loops
-// are unrolled cleanly using their checked BodyMaps.
-func ExpandModuleAST(prog *CheckedProgram, mod *Module) *ast.File {
-	if prog == nil || mod == nil {
-		return nil
-	}
-	ex := &astExpander{prog: prog, mod: mod}
-
-	// Collect all checked FuncInstances belonging to mod keyed by their declaration span.
+func collectModuleFuncsBySpan(prog *CheckedProgram, mod *Module) map[diag.Span][]*FuncInstance {
 	funcsBySpan := make(map[diag.Span][]*FuncInstance)
 	addFuncs := func(list []*FuncInstance) {
 		for _, fi := range list {
@@ -51,84 +42,438 @@ func ExpandModuleAST(prog *CheckedProgram, mod *Module) *ast.File {
 		})
 		funcsBySpan[sp] = list
 	}
+	return funcsBySpan
+}
+
+func collectDerivedDeclsByRecv(mod *Module) map[string][]*ast.MethodDecl {
+	out := make(map[string][]*ast.MethodDecl)
+	if mod == nil {
+		return out
+	}
+	for _, d := range mod.DerivedDecls {
+		if md, ok := d.(*ast.MethodDecl); ok && md != nil {
+			out[md.RecvType] = append(out[md.RecvType], md)
+		}
+	}
+	return out
+}
+
+// ExpandModuleAST returns a cloned *ast.File for mod whose top-level `comptime if`s
+// are pruned, evaluated `const`s / `comptime { ... }` blocks are folded where convertible,
+// local `comptime if` / `comptime match` branches are resolved, `comptime for` loops
+// are unrolled, and `@derive(...)` methods are materialized using their checked BodyMaps.
+func ExpandModuleAST(prog *CheckedProgram, mod *Module) *ast.File {
+	if prog == nil || mod == nil {
+		return nil
+	}
+	ex := &astExpander{prog: prog, mod: mod}
+	funcsBySpan := collectModuleFuncsBySpan(prog, mod)
+	derivedByRecv := collectDerivedDeclsByRecv(mod)
 
 	exp := &ast.File{
 		Path: mod.Path,
 	}
-
-	active := mod.ActiveDecls()
-	for _, d := range active {
+	for _, d := range mod.ActiveDecls() {
 		if d == nil {
 			continue
 		}
-		switch decl := d.(type) {
-		case *ast.VarDecl:
-			insts := funcsBySpan[decl.Span]
-			if fl, isFn := decl.Value.(*ast.FuncLit); isFn && len(decl.TypeParams) > 0 {
-				// Emit generic template plus each instantiated specialization.
-				exp.Decls = append(exp.Decls, ast.CloneDecl(decl))
-				for _, fi := range insts {
-					if spec := ex.buildExpandedFuncSpec(decl, fl, fi); spec != nil {
-						exp.Decls = append(exp.Decls, spec)
-					}
-				}
-				continue
-			}
-			cd := ast.CloneDecl(decl).(*ast.VarDecl)
-			if fl, isFn := cd.Value.(*ast.FuncLit); isFn {
-				var bm *BodyMaps
-				if len(insts) > 0 {
-					bm = insts[0].BodyMaps
-				} else if sym := mod.Symbols[decl.Name]; sym != nil && sym.FuncInst != nil {
-					bm = sym.FuncInst.BodyMaps
-				}
-				if bm != nil {
-					if origFl, ok := decl.Value.(*ast.FuncLit); ok {
-						fl.Body = ex.expandBodyWithBM(origFl.Body, bm, declIsVoidRet(decl.Value))
-					}
-				}
-			} else if decl.IsConst {
-				sym := mod.Symbols[decl.Name]
-				if folded := ex.evalSymToASTExpr(sym, cd.Type != nil); folded != nil {
-					cd.Value = folded
-					if cd.Type == nil && sym != nil && ex.needsExplicitDeclType(sym.Type, cd.Value) {
-						cd.Type = ex.typeToASTTypeExpr(sym.Type)
-						if reFolded := ex.evalSymToASTExpr(sym, true); reFolded != nil {
-							cd.Value = reFolded
-						}
-					}
-				} else if prog.TopBodyMaps != nil {
-					val, _ := ex.expandExprWithBM(decl.Value, prog.TopBodyMaps, false, cd.Type != nil)
-					cd.Value = val
-				}
-			} else if prog.TopBodyMaps != nil && cd.Value != nil {
-				val, _ := ex.expandExprWithBM(decl.Value, prog.TopBodyMaps, false, cd.Type != nil)
-				cd.Value = val
-			}
-			exp.Decls = append(exp.Decls, cd)
-
-		case *ast.MethodDecl:
-			insts := funcsBySpan[decl.Span]
-			if len(decl.RecvTypeParams) > 0 || len(decl.TypeParams) > 0 {
-				exp.Decls = append(exp.Decls, ast.CloneDecl(decl))
-				for _, fi := range insts {
-					if spec := ex.buildExpandedMethodSpec(decl, fi); spec != nil {
-						exp.Decls = append(exp.Decls, spec)
-					}
-				}
-				continue
-			}
-			cm := ast.CloneDecl(decl).(*ast.MethodDecl)
-			if len(insts) > 0 && insts[0].BodyMaps != nil {
-				cm.Body = ex.expandBodyWithBM(decl.Body, insts[0].BodyMaps, decl.Ret == nil)
-			}
-			exp.Decls = append(exp.Decls, cm)
-
-		default:
-			exp.Decls = append(exp.Decls, ast.CloneDecl(d))
-		}
+		exp.Decls = append(exp.Decls, ex.expandSingleDecl(d, funcsBySpan, derivedByRecv)...)
 	}
 	return exp
+}
+
+// ExpandDeclPreview returns a focused *ast.File expanding only `targetDecl` (plus any
+// synthesized `@derive` methods or monomorphized specializations) for IDE hover/preview.
+func ExpandDeclPreview(prog *CheckedProgram, mod *Module, targetDecl ast.Decl) *ast.File {
+	if prog == nil || mod == nil || targetDecl == nil {
+		return nil
+	}
+	ex := &astExpander{prog: prog, mod: mod}
+	funcsBySpan := collectModuleFuncsBySpan(prog, mod)
+	derivedByRecv := collectDerivedDeclsByRecv(mod)
+	return &ast.File{
+		Path:  mod.Path,
+		Decls: ex.expandSingleDecl(targetDecl, funcsBySpan, derivedByRecv),
+	}
+}
+
+// ExpandExprPreview returns an expanded AST expression inside `fi` (or top-level if `fi == nil`)
+// for IDE hover preview on `comptime` expressions, `comptime if`, `comptime for`, or `comptime match`.
+func ExpandExprPreview(prog *CheckedProgram, mod *Module, fi *FuncInstance, expr ast.Expr) ast.Expr {
+	if prog == nil || mod == nil || expr == nil {
+		return nil
+	}
+	bm := prog.TopBodyMaps
+	if fi != nil && fi.BodyMaps != nil {
+		bm = fi.BodyMaps
+	}
+	ex := &astExpander{prog: prog, mod: mod}
+	out, keep := ex.expandExprWithBM(expr, bm, false, false)
+	if !keep {
+		return nil
+	}
+	return out
+}
+
+func (ex *astExpander) expandSingleDecl(d ast.Decl, funcsBySpan map[diag.Span][]*FuncInstance, derivedByRecv map[string][]*ast.MethodDecl) []ast.Decl {
+	switch decl := d.(type) {
+	case *ast.VarDecl:
+		insts := funcsBySpan[decl.Span]
+		if fl, isFn := decl.Value.(*ast.FuncLit); isFn && len(decl.TypeParams) > 0 {
+			// Emit generic template plus each instantiated specialization.
+			out := []ast.Decl{ast.CloneDecl(decl)}
+			for _, fi := range insts {
+				if spec := ex.buildExpandedFuncSpec(decl, fl, fi); spec != nil {
+					out = append(out, spec)
+				}
+			}
+			return out
+		}
+		cd := ast.CloneDecl(decl).(*ast.VarDecl)
+		if fl, isFn := cd.Value.(*ast.FuncLit); isFn {
+			var bm *BodyMaps
+			if len(insts) > 0 {
+				bm = insts[0].BodyMaps
+			} else if sym := ex.mod.Symbols[decl.Name]; sym != nil && sym.FuncInst != nil {
+				bm = sym.FuncInst.BodyMaps
+			}
+			if bm != nil {
+				if origFl, ok := decl.Value.(*ast.FuncLit); ok {
+					fl.Body = ex.expandBodyWithBM(origFl.Body, bm, declIsVoidRet(decl.Value))
+				}
+			}
+		} else if decl.IsConst {
+			sym := ex.mod.Symbols[decl.Name]
+			if folded := ex.evalSymToASTExpr(sym, cd.Type != nil); folded != nil {
+				cd.Value = folded
+				if cd.Type == nil && sym != nil && ex.needsExplicitDeclType(sym.Type, cd.Value) {
+					cd.Type = ex.typeToASTTypeExpr(sym.Type)
+					if reFolded := ex.evalSymToASTExpr(sym, true); reFolded != nil {
+						cd.Value = reFolded
+					}
+				}
+			} else if ex.prog.TopBodyMaps != nil {
+				val, _ := ex.expandExprWithBM(decl.Value, ex.prog.TopBodyMaps, false, cd.Type != nil)
+				cd.Value = val
+			}
+		} else if ex.prog.TopBodyMaps != nil && cd.Value != nil {
+			val, _ := ex.expandExprWithBM(decl.Value, ex.prog.TopBodyMaps, false, cd.Type != nil)
+			cd.Value = val
+		}
+		return []ast.Decl{cd}
+
+	case *ast.MethodDecl:
+		insts := funcsBySpan[decl.Span]
+		if len(decl.RecvTypeParams) > 0 || len(decl.TypeParams) > 0 {
+			out := []ast.Decl{ast.CloneDecl(decl)}
+			for _, fi := range insts {
+				if spec := ex.buildExpandedMethodSpec(decl, fi); spec != nil {
+					out = append(out, spec)
+				}
+			}
+			return out
+		}
+		cm := ast.CloneDecl(decl).(*ast.MethodDecl)
+		if len(insts) > 0 {
+			cm.IsConst = insts[0].IsConst
+			if insts[0].BodyMaps != nil {
+				cm.Body = ex.expandBodyWithBM(decl.Body, insts[0].BodyMaps, decl.Ret == nil)
+			}
+		}
+		return []ast.Decl{cm}
+
+	case *ast.StructDecl:
+		return ex.expandNominalWithDerives(decl, decl.Name, len(decl.TypeParams) > 0, funcsBySpan, derivedByRecv[decl.Name])
+	case *ast.EnumDecl:
+		return ex.expandNominalWithDerives(decl, decl.Name, len(decl.TypeParams) > 0, funcsBySpan, derivedByRecv[decl.Name])
+	case *ast.DistinctTypeDecl:
+		return ex.expandNominalWithDerives(decl, decl.Name, false, funcsBySpan, derivedByRecv[decl.Name])
+
+	default:
+		return []ast.Decl{ast.CloneDecl(d)}
+	}
+}
+
+func stripDeriveAttributes(attrs []ast.Attribute) []ast.Attribute {
+	if len(attrs) == 0 {
+		return nil
+	}
+	var out []ast.Attribute
+	for _, attr := range attrs {
+		if attr.Name == "derive" {
+			continue
+		}
+		out = append(out, attr)
+	}
+	return out
+}
+
+func (ex *astExpander) expandNominalWithDerives(decl ast.Decl, typeName string, isGeneric bool, funcsBySpan map[diag.Span][]*FuncInstance, derived []*ast.MethodDecl) []ast.Decl {
+	cloned := ast.CloneDecl(decl)
+	if len(derived) == 0 {
+		return []ast.Decl{cloned}
+	}
+
+	var emitted []ast.Decl
+	if !isGeneric {
+		// Concrete @derive: strip `@derive(...)` so emitted derived methods don't collide on re-check.
+		switch d := cloned.(type) {
+		case *ast.StructDecl:
+			d.Attributes = stripDeriveAttributes(d.Attributes)
+		case *ast.EnumDecl:
+			d.Attributes = stripDeriveAttributes(d.Attributes)
+		case *ast.DistinctTypeDecl:
+			d.Attributes = stripDeriveAttributes(d.Attributes)
+		}
+		emitted = append(emitted, cloned)
+		for _, md := range derived {
+			fi := findMatchingDerivedFuncInstance(funcsBySpan[md.Span], typeName, md.Name, false)
+			emitted = append(emitted, ex.expandDerivedMethodDecl(md, fi))
+		}
+		return emitted
+	}
+
+	// Generic @derive: keep `@derive(...)` on the generic declaration and emit concrete checked instantiations.
+	emitted = append(emitted, cloned)
+	for _, md := range derived {
+		for _, fi := range funcsBySpan[md.Span] {
+			if fi == nil || !fi.IsMethod || fi.DeclSpan != md.Span {
+				continue
+			}
+			if !strings.HasSuffix(fi.Name, "."+md.Name) {
+				continue
+			}
+			if spec := ex.buildExpandedDerivedGenericSpec(md, fi); spec != nil {
+				emitted = append(emitted, spec)
+			}
+		}
+	}
+	return emitted
+}
+
+func findMatchingDerivedFuncInstance(insts []*FuncInstance, typeName, methodName string, isGeneric bool) *FuncInstance {
+	exact := typeName + "." + methodName
+	genPrefix := typeName + "["
+	suffix := "." + methodName
+	for _, fi := range insts {
+		if fi == nil || !fi.IsMethod {
+			continue
+		}
+		if !isGeneric && fi.Name == exact {
+			return fi
+		}
+		if isGeneric && strings.HasPrefix(fi.Name, genPrefix) && strings.HasSuffix(fi.Name, suffix) {
+			return fi
+		}
+	}
+	return nil
+}
+
+func findDeriveImplTargetFI(fi *FuncInstance) *FuncInstance {
+	if fi == nil || fi.BodyMaps == nil || fi.Body == nil {
+		return nil
+	}
+	if call, ok := fi.Body.(*ast.CallExpr); ok {
+		if inf := fi.BodyMaps.ExprInfos[call]; inf != nil && inf.TargetFunc != nil {
+			return inf.TargetFunc
+		}
+	}
+	for exNode, inf := range fi.BodyMaps.ExprInfos {
+		if _, ok := exNode.(*ast.CallExpr); ok && inf != nil && inf.TargetFunc != nil && inf.TargetFunc != fi {
+			return inf.TargetFunc
+		}
+	}
+	return nil
+}
+
+func (ex *astExpander) expandDerivedMethodBody(fi *FuncInstance, md *ast.MethodDecl, isStatic bool, paramRenames map[string]string, voidRet bool) (ast.Expr, bool) {
+	targetFI := findDeriveImplTargetFI(fi)
+	if targetFI == nil || targetFI.Body == nil || targetFI.BodyMaps == nil {
+		return nil, false
+	}
+
+	prevDerived := ex.inDerivedExpand
+	ex.inDerivedExpand = true
+	body := ex.expandBodyWithBM(targetFI.Body, targetFI.BodyMaps, voidRet)
+	ex.inDerivedExpand = prevDerived
+
+	rename := make(map[string]string)
+	argOffset := 0
+	if !isStatic && len(targetFI.ParamNames) > 0 {
+		rename[targetFI.ParamNames[0]] = "self"
+		if rnm, ok := paramRenames[targetFI.ParamNames[0]]; ok {
+			rename[targetFI.ParamNames[0]] = rnm
+		}
+		argOffset = 1
+	}
+	for i := range md.Params {
+		idx := argOffset + i
+		if idx >= len(targetFI.ParamNames) {
+			continue
+		}
+		srcName := targetFI.ParamNames[idx]
+		if dstName, ok := paramRenames[srcName]; ok {
+			rename[srcName] = dstName
+		}
+	}
+	if len(rename) > 0 {
+		body = cloneAndRenameASTIdents(body, rename)
+	}
+	return body, true
+}
+
+func sanitizeDerivedParamName(rawName, fallback string, used map[string]bool) string {
+	name := rawName
+	if name == "" || name == "self" {
+		name = fallback
+	}
+	// Ensure optional/result suffix sigil matches fallback if present.
+	if strings.HasSuffix(fallback, "?") && !strings.HasSuffix(name, "?") {
+		name = strings.TrimSuffix(name, "!") + "?"
+	} else if strings.HasSuffix(fallback, "!") && !strings.HasSuffix(name, "!") {
+		name = strings.TrimSuffix(name, "?") + "!"
+	}
+	base := name
+	for i := 2; used[name]; i++ {
+		switch {
+		case strings.HasSuffix(base, "?"):
+			name = fmt.Sprintf("%s_%d?", strings.TrimSuffix(base, "?"), i)
+		case strings.HasSuffix(base, "!"):
+			name = fmt.Sprintf("%s_%d!", strings.TrimSuffix(base, "!"), i)
+		default:
+			name = fmt.Sprintf("%s_%d", base, i)
+		}
+	}
+	used[name] = true
+	return name
+}
+
+func (ex *astExpander) expandDerivedMethodDecl(md *ast.MethodDecl, fi *FuncInstance) *ast.MethodDecl {
+	cm := ast.CloneDecl(md).(*ast.MethodDecl)
+	cm.Span = expandSynthSpan
+	if fi == nil {
+		return cm
+	}
+	cm.IsConst = fi.IsConst
+
+	targetFI := findDeriveImplTargetFI(fi)
+	used := map[string]bool{"self": true}
+	paramRenames := make(map[string]string)
+	argOffset := 0
+	if cm.RecvMode != ast.ReceiverMode(-1) {
+		argOffset = 1
+	}
+	if targetFI != nil {
+		for i := range cm.Params {
+			idx := argOffset + i
+			if idx < len(targetFI.ParamNames) {
+				clean := sanitizeDerivedParamName(targetFI.ParamNames[idx], cm.Params[i].Name, used)
+				paramRenames[targetFI.ParamNames[idx]] = clean
+				cm.Params[i].Name = clean
+			}
+		}
+	}
+	if fi.Sig != nil {
+		if fi.Sig.Ret != nil && fi.Sig.Ret != types.TypeVoid {
+			if retTE := ex.typeToASTTypeExpr(fi.Sig.Ret); retTE != nil {
+				cm.Ret = retTE
+			}
+		}
+		for i := range cm.Params {
+			idx := argOffset + i
+			if idx < len(fi.Sig.Params) {
+				if pte := ex.paramTypeToASTTypeExpr(fi.Sig.Params[idx]); pte != nil {
+					cm.Params[i].Type = pte
+				}
+			}
+		}
+	}
+
+	if expanded, ok := ex.expandDerivedMethodBody(fi, cm, cm.RecvMode == ast.ReceiverMode(-1), paramRenames, cm.Ret == nil); ok {
+		cm.Body = expanded
+	} else if fi.BodyMaps != nil {
+		cm.Body = ex.expandBodyWithBM(md.Body, fi.BodyMaps, cm.Ret == nil)
+	}
+	return cm
+}
+
+func (ex *astExpander) buildExpandedDerivedGenericSpec(md *ast.MethodDecl, fi *FuncInstance) *ast.VarDecl {
+	if md == nil || fi == nil || fi.RecvType == nil || fi.Sig == nil {
+		return nil
+	}
+	targetFI := findDeriveImplTargetFI(fi)
+	if targetFI == nil || targetFI.Body == nil || targetFI.BodyMaps == nil {
+		return nil
+	}
+	used := make(map[string]bool)
+	paramRenames := make(map[string]string)
+	params := make([]ast.Param, 0, len(fi.Sig.Params))
+	for i, sp := range fi.Sig.Params {
+		rawName := ""
+		if i < len(targetFI.ParamNames) {
+			rawName = targetFI.ParamNames[i]
+		}
+		fallback := fmt.Sprintf("_p%d", i)
+		if _, isOpt := sp.Type.(*types.Optional); isOpt {
+			fallback += "?"
+		} else if types.AsResult(sp.Type) != nil {
+			fallback += "!"
+		}
+		if rawName == "self" {
+			rawName = "this"
+		}
+		clean := sanitizeDerivedParamName(rawName, fallback, used)
+		if i < len(targetFI.ParamNames) && targetFI.ParamNames[i] != "" {
+			paramRenames[targetFI.ParamNames[i]] = clean
+		}
+		params = append(params, ast.Param{
+			Name: clean,
+			Type: ex.paramTypeToASTTypeExpr(sp),
+			Span: expandSynthSpan,
+		})
+	}
+	var retAST ast.TypeExpr
+	if fi.Sig.Ret != nil && fi.Sig.Ret != types.TypeVoid {
+		retAST = ex.typeToASTTypeExpr(fi.Sig.Ret)
+	}
+	body, ok := ex.expandDerivedMethodBody(fi, md, true, paramRenames, retAST == nil)
+	if !ok {
+		return nil
+	}
+	var attrs []ast.Attribute
+	for _, a := range md.Attributes {
+		attrs = append(attrs, a)
+	}
+	specName := fmt.Sprintf("%s_%s", types.SanitizeCIdent(fi.RecvType.Mangled()), md.Name)
+	return &ast.VarDecl{
+		IsBind:     !fi.IsConst,
+		IsConst:    fi.IsConst,
+		Name:       specName,
+		Attributes: attrs,
+		Doc:        fmt.Sprintf("Specialization of `@derive` `%s.%s`.", fi.RecvType.String(), md.Name),
+		Value: &ast.FuncLit{
+			Params: params,
+			Ret:    retAST,
+			Body:   body,
+			Span:   expandSynthSpan,
+		},
+		Span: expandSynthSpan,
+	}
+}
+
+func (ex *astExpander) paramTypeToASTTypeExpr(p types.FuncParam) ast.TypeExpr {
+	pt := ex.typeToASTTypeExpr(p.Type)
+	if pt == nil {
+		return nil
+	}
+	switch p.Mode {
+	case types.ModeMut:
+		return &ast.MutBorrowType{Elem: pt, Span: expandSynthSpan}
+	case types.ModeOwn:
+		return &ast.OwnType{Elem: pt, Span: expandSynthSpan}
+	default:
+		return pt
+	}
 }
 
 func declIsVoidRet(val ast.Expr) bool {
@@ -138,32 +483,54 @@ func declIsVoidRet(val ast.Expr) bool {
 	return false
 }
 
+func (ex *astExpander) specializedName(baseName string, typeSubst map[string]types.Type) string {
+	if len(typeSubst) == 0 {
+		return baseName
+	}
+	keys := make([]string, 0, len(typeSubst))
+	for k := range typeSubst {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if t := typeSubst[k]; t != nil {
+			parts = append(parts, types.SanitizeCIdent(t.Mangled()))
+		}
+	}
+	if len(parts) == 0 {
+		return baseName
+	}
+	return fmt.Sprintf("%s__%s", baseName, strings.Join(parts, "_"))
+}
+
 func (ex *astExpander) buildExpandedFuncSpec(orig *ast.VarDecl, fl *ast.FuncLit, fi *FuncInstance) *ast.VarDecl {
 	if orig == nil || fl == nil || fi == nil {
 		return nil
 	}
 	cloned := ast.CloneDecl(orig).(*ast.VarDecl)
 	cloned.TypeParams = nil
-	specName := orig.Name
-	if len(fi.TypeSubst) > 0 {
-		keys := make([]string, 0, len(fi.TypeSubst))
-		for k := range fi.TypeSubst {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		parts := make([]string, 0, len(keys))
-		for _, k := range keys {
-			if t := fi.TypeSubst[k]; t != nil {
-				parts = append(parts, types.SanitizeCIdent(t.Mangled()))
-			}
-		}
-		if len(parts) > 0 {
-			specName = fmt.Sprintf("%s__%s", orig.Name, strings.Join(parts, "_"))
-		}
-	}
-	cloned.Name = specName
+	cloned.Name = ex.specializedName(orig.Name, fi.TypeSubst)
+	cloned.IsConst = fi.IsConst
+	cloned.IsBind = !fi.IsConst
 	cloned.Span = expandSynthSpan
 	if cfl, ok := cloned.Value.(*ast.FuncLit); ok {
+		if fi.Sig != nil {
+			for i := range cfl.Params {
+				if i < len(fi.Sig.Params) {
+					if pte := ex.paramTypeToASTTypeExpr(fi.Sig.Params[i]); pte != nil {
+						cfl.Params[i].Type = pte
+					}
+				}
+			}
+			if fi.Sig.Ret != nil && fi.Sig.Ret != types.TypeVoid {
+				if retTE := ex.typeToASTTypeExpr(fi.Sig.Ret); retTE != nil {
+					cfl.Ret = retTE
+				}
+			} else {
+				cfl.Ret = nil
+			}
+		}
 		expandedBody := ex.expandBodyWithBM(fl.Body, fi.BodyMaps, fl.Ret == nil)
 		cfl.Body = ex.prependSpecTypeSubst(expandedBody, nil, orig.TypeParams, fi.TypeSubst)
 	}
@@ -175,7 +542,37 @@ func (ex *astExpander) buildExpandedMethodSpec(orig *ast.MethodDecl, fi *FuncIns
 		return nil
 	}
 	cm := ast.CloneDecl(orig).(*ast.MethodDecl)
-	expandedBody := ex.expandBodyWithBM(orig.Body, fi.BodyMaps, orig.Ret == nil)
+	cm.IsConst = fi.IsConst
+	cm.Name = ex.specializedName(orig.Name, fi.TypeSubst)
+	cm.TypeParams = nil
+	cm.RecvTypeParams = nil
+	argOffset := 0
+	if cm.RecvMode != ast.ReceiverMode(-1) {
+		argOffset = 1
+		if cm.RecvExplicitTy != nil && fi.RecvType != nil {
+			if rte := ex.typeToASTTypeExpr(fi.RecvType); rte != nil {
+				cm.RecvExplicitTy = rte
+			}
+		}
+	}
+	if fi.Sig != nil {
+		for i := range cm.Params {
+			idx := argOffset + i
+			if idx < len(fi.Sig.Params) {
+				if pte := ex.paramTypeToASTTypeExpr(fi.Sig.Params[idx]); pte != nil {
+					cm.Params[i].Type = pte
+				}
+			}
+		}
+		if fi.Sig.Ret != nil && fi.Sig.Ret != types.TypeVoid {
+			if retTE := ex.typeToASTTypeExpr(fi.Sig.Ret); retTE != nil {
+				cm.Ret = retTE
+			}
+		} else {
+			cm.Ret = nil
+		}
+	}
+	expandedBody := ex.expandBodyWithBM(orig.Body, fi.BodyMaps, cm.Ret == nil)
 	cm.Body = ex.prependSpecTypeSubst(expandedBody, orig.RecvTypeParams, orig.TypeParams, fi.TypeSubst)
 	cm.Span = expandSynthSpan
 	return cm
@@ -187,7 +584,7 @@ func (ex *astExpander) prependSpecTypeSubst(body ast.Expr, recvTParams []string,
 	}
 	var stmts []ast.Stmt
 	seenNames := make(map[string]bool)
-	appendConst := func(name string, isConst bool) {
+	appendConst := func(name string) {
 		if seenNames[name] {
 			return
 		}
@@ -195,9 +592,6 @@ func (ex *astExpander) prependSpecTypeSubst(body ast.Expr, recvTParams []string,
 		cv, ok := ty.(*types.ConstValue)
 		if !ok {
 			return
-		}
-		if !isConst {
-			// Receiver type parameter names only carry whether a ConstValue was bound.
 		}
 		valExpr := constValueToASTExpr(cv)
 		if valExpr == nil {
@@ -217,13 +611,13 @@ func (ex *astExpander) prependSpecTypeSubst(body ast.Expr, recvTParams []string,
 		})
 	}
 	for _, rtp := range recvTParams {
-		appendConst(rtp, true)
+		appendConst(rtp)
 	}
 	for _, tp := range tparams {
 		if !tp.IsConst {
 			continue
 		}
-		appendConst(tp.Name, true)
+		appendConst(tp.Name)
 	}
 	if len(stmts) == 0 {
 		return body
@@ -297,9 +691,6 @@ func (ex *astExpander) expandExprWithBM(e ast.Expr, bm *BodyMaps, isVoid, hasExp
 	}
 
 	switch v := e.(type) {
-	case *ast.ComptimeExpr:
-		return ex.expandExprWithBM(v.Expr, bm, isVoid, hasExpectedCtx)
-
 	case *ast.IfExpr:
 		if v.IsComptime {
 			if branch, ok := bm.ComptimeIfBranch[v]; ok {
@@ -382,7 +773,7 @@ func (ex *astExpander) expandExprWithBM(e ast.Expr, bm *BodyMaps, isVoid, hasExp
 						itExpr := ex.buildExpandedForIterExpr(it, bm, true)
 						stmts = append(stmts, &ast.ExprStmt{Expr: itExpr, Span: expandSynthSpan})
 					}
-					if v.Else != nil {
+					if v.Else != nil && (len(uf.Iters) == 0 || !forUnrollHasUnwind(uf)) {
 						if el, keep := ex.expandExprWithBM(v.Else, bm, true, false); keep && el != nil {
 							stmts = append(stmts, &ast.ExprStmt{Expr: el, Span: expandSynthSpan})
 						}
@@ -418,7 +809,8 @@ func (ex *astExpander) expandExprWithBM(e ast.Expr, bm *BodyMaps, isVoid, hasExp
 						}
 					}
 					return &ast.StructLit{
-						TypeName: uf.CollectStruct.Name,
+						Module:   ex.nominalModAlias(uf.CollectStruct),
+						TypeName: stripGenericSuffix(uf.CollectStruct.Name),
 						TypeArgs: typeArgs,
 						Fields:   flds,
 						Span:     expandSynthSpan,
@@ -532,8 +924,16 @@ func (ex *astExpander) expandExprWithBM(e ast.Expr, bm *BodyMaps, isVoid, hasExp
 
 	case *ast.MemberExpr:
 		cp := *v
-		cp.Base, _ = ex.expandExprWithBM(v.Base, bm, false, false)
-		cp.BaseTypeArgs = cloneASTTypeExprs(v.BaseTypeArgs)
+		if inf := bm.ExprInfos[v]; inf != nil && inf.ResolvedBase != nil {
+			cp.Base, _ = ex.expandExprWithBM(inf.ResolvedBase, bm, false, false)
+			cp.BaseTypeArgs = nil
+		} else {
+			cp.Base, _ = ex.expandExprWithBM(v.Base, bm, false, false)
+			cp.BaseTypeArgs = cloneASTTypeExprs(v.BaseTypeArgs)
+		}
+		if inf := bm.ExprInfos[v]; inf != nil && inf.ResolvedField != "" {
+			cp.Member = inf.ResolvedField
+		}
 		return &cp, true
 
 	case *ast.CallExpr:
@@ -587,11 +987,23 @@ func (ex *astExpander) expandExprWithBM(e ast.Expr, bm *BodyMaps, isVoid, hasExp
 			}
 		}
 		cp := *v
-		cp.Callee, _ = ex.expandExprWithBM(v.Callee, bm, false, false)
-		cp.TypeArgs = cloneASTTypeExprs(v.TypeArgs)
+		if inf := bm.ExprInfos[v]; inf != nil && inf.ResolvedCallee != nil {
+			cp.Callee, _ = ex.expandExprWithBM(inf.ResolvedCallee, bm, false, false)
+			cp.TypeArgs = nil
+		} else {
+			cp.Callee, _ = ex.expandExprWithBM(v.Callee, bm, false, false)
+			cp.TypeArgs = cloneASTTypeExprs(v.TypeArgs)
+		}
 		cp.Args = make([]ast.Expr, len(v.Args))
 		for i, a := range v.Args {
 			cp.Args[i], _ = ex.expandExprWithBM(a, bm, false, true)
+		}
+		if ex.inDerivedExpand && len(v.TypeArgs) == 0 {
+			if inf := bm.ExprInfos[v]; inf != nil && inf.TargetFunc != nil {
+				if inlined, ok := ex.tryInlineCrossPkgHelper(inf.TargetFunc, cp.Args); ok {
+					return inlined, true
+				}
+			}
 		}
 		return &cp, true
 
@@ -878,6 +1290,43 @@ func forUnrollHasUnwind(uf *UnrolledFor) bool {
 	return false
 }
 
+func stmtContainsLoopUnwind(st ast.Stmt) bool {
+	if st == nil {
+		return false
+	}
+	switch s := st.(type) {
+	case *ast.UnwindStmt:
+		if s.Target == ast.UnwindNext || s.Target == ast.UnwindNextLabel || s.Target == ast.UnwindFor || s.Target == ast.UnwindLabel {
+			return true
+		}
+		return exprContainsLoopUnwind(s.Value)
+	case *ast.VarStmt:
+		if s.FallbackUnwind != nil && (s.FallbackUnwind.Target == ast.UnwindNext || s.FallbackUnwind.Target == ast.UnwindNextLabel || s.FallbackUnwind.Target == ast.UnwindFor || s.FallbackUnwind.Target == ast.UnwindLabel) {
+			return true
+		}
+		if s.FallbackUnwind != nil && exprContainsLoopUnwind(s.FallbackUnwind.Value) {
+			return true
+		}
+		return exprContainsLoopUnwind(s.Value)
+	case *ast.AssignStmt:
+		if s.FallbackUnwind != nil && (s.FallbackUnwind.Target == ast.UnwindNext || s.FallbackUnwind.Target == ast.UnwindNextLabel || s.FallbackUnwind.Target == ast.UnwindFor || s.FallbackUnwind.Target == ast.UnwindLabel) {
+			return true
+		}
+		if s.FallbackUnwind != nil && exprContainsLoopUnwind(s.FallbackUnwind.Value) {
+			return true
+		}
+		for _, t := range s.UnpackTargets {
+			if exprContainsLoopUnwind(t) {
+				return true
+			}
+		}
+		return exprContainsLoopUnwind(s.Target) || exprContainsLoopUnwind(s.Value)
+	case *ast.ExprStmt:
+		return exprContainsLoopUnwind(s.Expr)
+	}
+	return false
+}
+
 func exprContainsLoopUnwind(e ast.Expr) bool {
 	if e == nil {
 		return false
@@ -885,30 +1334,85 @@ func exprContainsLoopUnwind(e ast.Expr) bool {
 	switch v := e.(type) {
 	case *ast.BlockExpr:
 		for _, st := range v.Stmts {
-			switch s := st.(type) {
-			case *ast.UnwindStmt:
-				if s.Target == ast.UnwindNext || s.Target == ast.UnwindNextLabel || s.Target == ast.UnwindFor || s.Target == ast.UnwindLabel {
-					return true
-				}
-			case *ast.ExprStmt:
-				if exprContainsLoopUnwind(s.Expr) {
-					return true
-				}
+			if stmtContainsLoopUnwind(st) {
+				return true
 			}
 		}
 		return exprContainsLoopUnwind(v.Tail)
 	case *ast.StmtBodyExpr:
-		if u, ok := v.Stmt.(*ast.UnwindStmt); ok {
-			return u.Target == ast.UnwindNext || u.Target == ast.UnwindNextLabel || u.Target == ast.UnwindFor || u.Target == ast.UnwindLabel
-		}
+		return stmtContainsLoopUnwind(v.Stmt)
 	case *ast.IfExpr:
-		return exprContainsLoopUnwind(v.Then) || exprContainsLoopUnwind(v.Else)
+		return exprContainsLoopUnwind(v.Cond) || exprContainsLoopUnwind(v.Then) || exprContainsLoopUnwind(v.Else)
+	case *ast.ForExpr:
+		return exprContainsLoopUnwind(v.CondOrIter) || exprContainsLoopUnwind(v.RangeEnd) || exprContainsLoopUnwind(v.Else)
+	case *ast.WhileExpr:
+		return exprContainsLoopUnwind(v.CondOrIter) || exprContainsLoopUnwind(v.RangeEnd) || exprContainsLoopUnwind(v.Else)
 	case *ast.MatchExpr:
+		for _, sc := range v.Scrutinees {
+			if exprContainsLoopUnwind(sc) {
+				return true
+			}
+		}
 		for _, arm := range v.Arms {
 			if exprContainsLoopUnwind(arm.Body) {
 				return true
 			}
 		}
+	case *ast.UnaryExpr:
+		return exprContainsLoopUnwind(v.Operand)
+	case *ast.BinaryExpr:
+		return exprContainsLoopUnwind(v.Left) || exprContainsLoopUnwind(v.Right)
+	case *ast.CallExpr:
+		if exprContainsLoopUnwind(v.Callee) {
+			return true
+		}
+		for _, a := range v.Args {
+			if exprContainsLoopUnwind(a) {
+				return true
+			}
+		}
+	case *ast.MemberExpr:
+		return exprContainsLoopUnwind(v.Base)
+	case *ast.IndexExpr:
+		return exprContainsLoopUnwind(v.Base) || exprContainsLoopUnwind(v.Index)
+	case *ast.SliceExpr:
+		return exprContainsLoopUnwind(v.Base) || exprContainsLoopUnwind(v.Low) || exprContainsLoopUnwind(v.High)
+	case *ast.RangeExpr:
+		return exprContainsLoopUnwind(v.Low) || exprContainsLoopUnwind(v.High)
+	case *ast.TupleLit:
+		for _, el := range v.Elems {
+			if exprContainsLoopUnwind(el) {
+				return true
+			}
+		}
+	case *ast.ArrayLit:
+		for _, el := range v.Elems {
+			if exprContainsLoopUnwind(el) {
+				return true
+			}
+		}
+	case *ast.VecLit:
+		for _, el := range v.Elems {
+			if exprContainsLoopUnwind(el) {
+				return true
+			}
+		}
+	case *ast.MapLit:
+		for _, ent := range v.Entries {
+			if exprContainsLoopUnwind(ent.Key) || exprContainsLoopUnwind(ent.Value) {
+				return true
+			}
+		}
+	case *ast.StructLit:
+		for _, f := range v.Fields {
+			if exprContainsLoopUnwind(f.Value) {
+				return true
+			}
+		}
+	case *ast.UnsafeExpr:
+		return exprContainsLoopUnwind(v.Expr)
+	case *ast.ComptimeExpr:
+		return exprContainsLoopUnwind(v.Expr)
 	}
 	return false
 }
@@ -1137,12 +1641,12 @@ func (ex *astExpander) needsExplicitDeclType(ty types.Type, valAST ast.Expr) boo
 		// An empty or repeated `[N: ...]` could need explicit type if element count was folded or non-default.
 		return true
 	}
-	if vec, isVec := ty.(*types.Vector); isVec {
-		if _, isEmptyVec := valAST.(*ast.VecLit); isEmptyVec && vec.Elem != types.TypeInt {
-			// Checked element-by-element via List[T].new() or element constructors; still safe if VecLit is non-empty with typed elems.
-			if vl := valAST.(*ast.VecLit); len(vl.Elems) == 0 {
-				return true
-			}
+	if vl, isEmptyVec := valAST.(*ast.VecLit); isEmptyVec && len(vl.Elems) == 0 {
+		if _, isVec := ty.(*types.Vector); isVec {
+			return true
+		}
+		if st, isSt := ty.(*types.Struct); isSt && st.Lang == "list" {
+			return true
 		}
 	}
 	return false
@@ -1324,9 +1828,10 @@ func (ex *astExpander) staticDataToASTExpr(sd *StaticData, hasExpectedCtx bool) 
 		}
 		isEmpty := (!sd.HasRawBytes && len(sd.Elems) == 0) || (sd.HasRawBytes && len(sd.RawBytes) == 0)
 		if isEmpty {
-			if !hasExpectedCtx {
+			var listAST ast.Expr = &ast.VecLit{Span: expandSynthSpan}
+			if _, isDistinct := sd.Type.(*types.Distinct); !hasExpectedCtx || isDistinct {
 				if elemAST := ex.typeToASTTypeExpr(elemTy); elemAST != nil {
-					return &ast.CallExpr{
+					listAST = &ast.CallExpr{
 						Callee: &ast.MemberExpr{
 							Base:         &ast.IdentExpr{Name: "List", Span: expandSynthSpan},
 							BaseTypeArgs: []ast.TypeExpr{elemAST},
@@ -1337,7 +1842,7 @@ func (ex *astExpander) staticDataToASTExpr(sd *StaticData, hasExpectedCtx bool) 
 					}
 				}
 			}
-			return &ast.VecLit{Span: expandSynthSpan}
+			return ex.wrapValueTypeConversion(sd.Type, listAST)
 		}
 		if sd.HasRawBytes {
 			elems := make([]ast.Expr, len(sd.RawBytes))
@@ -1349,7 +1854,7 @@ func (ex *astExpander) staticDataToASTExpr(sd *StaticData, hasExpectedCtx bool) 
 					Span:   expandSynthSpan,
 				}
 			}
-			return &ast.VecLit{Elems: elems, Span: expandSynthSpan}
+			return ex.wrapValueTypeConversion(sd.Type, &ast.VecLit{Elems: elems, Span: expandSynthSpan})
 		}
 		elems := make([]ast.Expr, 0, len(sd.Elems))
 		for _, el := range sd.Elems {
@@ -1359,7 +1864,7 @@ func (ex *astExpander) staticDataToASTExpr(sd *StaticData, hasExpectedCtx bool) 
 			}
 			elems = append(elems, exExpr)
 		}
-		return &ast.VecLit{Elems: elems, Span: expandSynthSpan}
+		return ex.wrapValueTypeConversion(sd.Type, &ast.VecLit{Elems: elems, Span: expandSynthSpan})
 	case StaticArray:
 		elems := make([]ast.Expr, 0, len(sd.Elems))
 		for _, el := range sd.Elems {
@@ -1369,11 +1874,11 @@ func (ex *astExpander) staticDataToASTExpr(sd *StaticData, hasExpectedCtx bool) 
 			}
 			elems = append(elems, exExpr)
 		}
-		return &ast.ArrayLit{
+		return ex.wrapValueTypeConversion(sd.Type, &ast.ArrayLit{
 			Count: &ast.IntLit{Val: uint64(len(elems)), Raw: strconv.Itoa(len(elems)), Span: expandSynthSpan},
 			Elems: elems,
 			Span:  expandSynthSpan,
-		}
+		})
 	case StaticTuple:
 		elems := make([]ast.Expr, 0, len(sd.Elems))
 		for _, el := range sd.Elems {
@@ -1383,7 +1888,7 @@ func (ex *astExpander) staticDataToASTExpr(sd *StaticData, hasExpectedCtx bool) 
 			}
 			elems = append(elems, exExpr)
 		}
-		return &ast.TupleLit{Elems: elems, Span: expandSynthSpan}
+		return ex.wrapValueTypeConversion(sd.Type, &ast.TupleLit{Elems: elems, Span: expandSynthSpan})
 	case StaticEnum:
 		effTy := sd.Type
 		for {
@@ -1418,9 +1923,9 @@ func (ex *astExpander) staticDataToASTExpr(sd *StaticData, hasExpectedCtx bool) 
 			if pv == nil {
 				return nil
 			}
-			return &ast.CallExpr{Callee: mem, Args: []ast.Expr{pv}, Span: expandSynthSpan}
+			return ex.wrapValueTypeConversion(sd.Type, &ast.CallExpr{Callee: mem, Args: []ast.Expr{pv}, Span: expandSynthSpan})
 		}
-		return mem
+		return ex.wrapValueTypeConversion(sd.Type, mem)
 	case StaticStruct:
 		effTy := sd.Type
 		for {
@@ -1452,13 +1957,165 @@ func (ex *astExpander) staticDataToASTExpr(sd *StaticData, hasExpectedCtx bool) 
 			}
 			fields = append(fields, ast.StructFieldInit{Name: f.Name, Value: fExpr, Span: expandSynthSpan})
 		}
-		return &ast.StructLit{
+		return ex.wrapValueTypeConversion(sd.Type, &ast.StructLit{
 			Module:   ex.nominalModAlias(st),
 			TypeName: typeName,
 			TypeArgs: typeArgs,
 			Fields:   fields,
 			Span:     expandSynthSpan,
-		}
+		})
 	}
 	return nil
+}
+
+func cloneAndRenameASTIdents(e ast.Expr, rename map[string]string) ast.Expr {
+	if e == nil || len(rename) == 0 {
+		return e
+	}
+	subst := make(map[string]ast.Expr, len(rename))
+	for from, to := range rename {
+		if from == "" || to == "" || from == to {
+			continue
+		}
+		subst[from] = &ast.IdentExpr{Name: to, Span: expandSynthSpan}
+	}
+	return ast.CloneExprWithSubst(e, subst)
+}
+
+func (ex *astExpander) tryInlineCrossPkgHelper(callee *FuncInstance, args []ast.Expr) (ast.Expr, bool) {
+	if callee == nil || IsExported(callee.Name) || callee.IsMethod || callee.IsStaticAssoc {
+		return nil, false
+	}
+	if callee.Mod == nil || ex.mod == nil || callee.Mod.Pkg == ex.mod.Pkg {
+		return nil, false
+	}
+	if callee.Body == nil || callee.BodyMaps == nil || len(args) != len(callee.ParamNames) {
+		return nil, false
+	}
+	expandedBody := ex.expandBodyWithBM(callee.Body, callee.BodyMaps, callee.Sig == nil || callee.Sig.Ret == types.TypeVoid)
+	if exprContainsFuncUnwind(expandedBody) {
+		return nil, false
+	}
+	subst := make(map[string]ast.Expr, len(callee.ParamNames))
+	for i, pName := range callee.ParamNames {
+		if pName == "" {
+			continue
+		}
+		switch args[i].(type) {
+		case *ast.IdentExpr, *ast.IntLit, *ast.FloatLit, *ast.BoolLit, *ast.CharLit, *ast.StringLit, *ast.NoneLit:
+			subst[pName] = args[i]
+		default:
+			if countFreeIdentRefs(expandedBody, pName) <= 1 {
+				subst[pName] = args[i]
+			} else {
+				return nil, false
+			}
+		}
+	}
+	return ast.CloneExprWithSubst(expandedBody, subst), true
+}
+
+func exprContainsFuncUnwind(e ast.Expr) bool {
+	if e == nil {
+		return false
+	}
+	switch v := e.(type) {
+	case *ast.BlockExpr:
+		for _, st := range v.Stmts {
+			if stmtContainsFuncUnwind(st) {
+				return true
+			}
+		}
+		return exprContainsFuncUnwind(v.Tail)
+	case *ast.StmtBodyExpr:
+		return stmtContainsFuncUnwind(v.Stmt)
+	case *ast.IfExpr:
+		return exprContainsFuncUnwind(v.Cond) || exprContainsFuncUnwind(v.Then) || exprContainsFuncUnwind(v.Else)
+	case *ast.ForExpr:
+		return exprContainsFuncUnwind(v.Body) || exprContainsFuncUnwind(v.Else)
+	case *ast.WhileExpr:
+		return exprContainsFuncUnwind(v.Body) || exprContainsFuncUnwind(v.Else)
+	case *ast.MatchExpr:
+		for _, arm := range v.Arms {
+			if exprContainsFuncUnwind(arm.Body) {
+				return true
+			}
+		}
+	case *ast.UnsafeExpr:
+		return exprContainsFuncUnwind(v.Expr)
+	case *ast.ComptimeExpr:
+		return exprContainsFuncUnwind(v.Expr)
+	}
+	return false
+}
+
+func stmtContainsFuncUnwind(st ast.Stmt) bool {
+	if st == nil {
+		return false
+	}
+	switch s := st.(type) {
+	case *ast.UnwindStmt:
+		return s.Target == ast.UnwindFunc
+	case *ast.VarStmt:
+		return (s.FallbackUnwind != nil && s.FallbackUnwind.Target == ast.UnwindFunc) || exprContainsFuncUnwind(s.Value)
+	case *ast.AssignStmt:
+		return (s.FallbackUnwind != nil && s.FallbackUnwind.Target == ast.UnwindFunc) || exprContainsFuncUnwind(s.Value)
+	case *ast.ExprStmt:
+		return exprContainsFuncUnwind(s.Expr)
+	}
+	return false
+}
+
+func countFreeIdentRefs(e ast.Expr, name string) int {
+	if e == nil || name == "" {
+		return 0
+	}
+	switch v := e.(type) {
+	case *ast.IdentExpr:
+		if v.Name == name {
+			return 1
+		}
+	case *ast.UnaryExpr:
+		return countFreeIdentRefs(v.Operand, name)
+	case *ast.BinaryExpr:
+		return countFreeIdentRefs(v.Left, name) + countFreeIdentRefs(v.Right, name)
+	case *ast.MemberExpr:
+		return countFreeIdentRefs(v.Base, name)
+	case *ast.CallExpr:
+		n := countFreeIdentRefs(v.Callee, name)
+		for _, a := range v.Args {
+			n += countFreeIdentRefs(a, name)
+		}
+		return n
+	case *ast.IndexExpr:
+		return countFreeIdentRefs(v.Base, name) + countFreeIdentRefs(v.Index, name)
+	case *ast.BlockExpr:
+		n := 0
+		shadowed := false
+		for _, st := range v.Stmts {
+			switch s := st.(type) {
+			case *ast.ExprStmt:
+				n += countFreeIdentRefs(s.Expr, name)
+			case *ast.VarStmt:
+				n += countFreeIdentRefs(s.Value, name)
+				if s.Name == name {
+					shadowed = true
+				}
+			}
+			if shadowed {
+				return n
+			}
+		}
+		if !shadowed {
+			n += countFreeIdentRefs(v.Tail, name)
+		}
+		return n
+	case *ast.IfExpr:
+		n := countFreeIdentRefs(v.Cond, name) + countFreeIdentRefs(v.Else, name)
+		if v.BindName != name {
+			n += countFreeIdentRefs(v.Then, name)
+		}
+		return n
+	}
+	return 2
 }

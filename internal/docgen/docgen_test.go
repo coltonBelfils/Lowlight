@@ -159,3 +159,160 @@ comptime if(true): {
 		}
 	}
 }
+
+func TestPhase7DocgenConstnessMethodsAndComptimeOnly(t *testing.T) {
+	tmp := t.TempDir()
+	modPath := filepath.Join(tmp, "constness.ll")
+	src := `// Tests docgen const/bind/@comptime_only clarity.
+
+// Compile-time constant.
+const CT_VAL: int = 10
+
+// Runtime immutable binding.
+bind RT_VAL: int = 20
+
+// Sample struct.
+define Box struct [
+	n: int,
+]
+
+// Const method.
+const Box.get_const = fn(self) int: self.n
+
+// Runtime method.
+bind Box.get_bind = fn(self) int: self.n
+
+// Comptime-only helper.
+@comptime_only
+const ct_only_helper = fn() int: 99
+`
+	if err := os.WriteFile(modPath, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ld, err := docgen.Load([]string{modPath}, tmp)
+	if err != nil {
+		t.Fatalf("docgen.Load failed: %v", err)
+	}
+	if e, _ := ld.Index.ResolveLink("Box.get_const", modPath, ""); e == nil || !e.IsConst || !strings.Contains(e.Signature, "const Box.get_const") {
+		t.Fatalf("expected Box.get_const to preserve const in signature and metadata, got: %+v", e)
+	}
+	if e, _ := ld.Index.ResolveLink("Box.get_bind", modPath, ""); e == nil || e.IsConst || !strings.Contains(e.Signature, "bind Box.get_bind") {
+		t.Fatalf("expected Box.get_bind to preserve bind, got: %+v", e)
+	}
+	if e, _ := ld.Index.ResolveLink("ct_only_helper", modPath, ""); e == nil || !e.ComptimeOnly || !e.IsConst || !strings.Contains(e.Signature, "@comptime_only const ct_only_helper") {
+		t.Fatalf("expected ct_only_helper metadata + signature, got: %+v", e)
+	}
+	mdOut := filepath.Join(tmp, "md")
+	_, err = docgen.Generate(docgen.Options{
+		Paths:       []string{modPath},
+		OutputDir:   mdOut,
+		Format:      "md",
+		CheckLinks:  true,
+		ProjectRoot: tmp,
+	})
+	if err != nil {
+		t.Fatalf("docgen failed: %v", err)
+	}
+
+	mdBytes, err := os.ReadFile(filepath.Join(mdOut, "constness.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	md := string(mdBytes)
+	for _, want := range []string{
+		"const CT_VAL: int = 10",
+		"bind RT_VAL: int = 20",
+		"const Box.get_const = fn(self) int",
+		"bind Box.get_bind = fn(self) int",
+		"`@comptime_only`",
+		"`const fn`",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("expected markdown doc to contain %q:\n%s", want, md)
+		}
+	}
+}
+
+func TestDocgenPhase7ConstGenericsTopComptimeAndRelSrc(t *testing.T) {
+	tmp := t.TempDir()
+	subDir := filepath.Join(tmp, "pkg")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	modA := filepath.Join(subDir, "vec_n.ll")
+	srcA := `// Fixed-size numeric buffer referencing [` + "`never`" + `].
+define Buf[T, N: const int] struct [
+	data: [N: T],
+]
+
+// Constructs zeroed buffer.
+const Buf[T, N].zero = fn() Buf[T, N + 0]:
+	Buf[T, N][data: [N: 0]]
+
+comptime if(true): {
+	// Active platform constant.
+	const PLATFORM_CAP: int = 8
+} else: {
+	// Inactive fallback constant with same name.
+	const PLATFORM_CAP: int = 99
+}
+`
+	modB := filepath.Join(subDir, "other.ll")
+	srcB := `// Independent module not imported by vec_n.
+bind solo = fn() int: 7
+`
+	if err := os.WriteFile(modA, []byte(srcA), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(modB, []byte(srcB), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ld, err := docgen.Load([]string{modA, modB}, tmp)
+	if err != nil {
+		t.Fatalf("docgen.Load: %v", err)
+	}
+	e, _ := ld.Index.ResolveLink("PLATFORM_CAP", modA, "")
+	if e == nil || !strings.Contains(e.Signature, "8") {
+		t.Fatalf("expected active PLATFORM_CAP = 8 to win active-first dedup, got %+v", e)
+	}
+	count := 0
+	for _, entry := range ld.Index.ByName["PLATFORM_CAP"] {
+		if entry.FilePath == modA {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 deduplicated PLATFORM_CAP entry for %s, got %d", modA, count)
+	}
+	if soloEntry, _ := ld.Index.ResolveLink("solo", modB, ""); soloEntry == nil {
+		t.Fatalf("expected disconnected module symbol `solo` to be indexed")
+	}
+
+	mdOut := filepath.Join(tmp, "out_md")
+	_, err = docgen.Generate(docgen.Options{
+		Paths:       []string{modA, modB},
+		OutputDir:   mdOut,
+		Format:      "md",
+		CheckLinks:  true,
+		ProjectRoot: tmp,
+	})
+	if err != nil {
+		t.Fatalf("docgen.Generate: %v", err)
+	}
+	slugA := ld.Index.Modules[modA].ModuleSlug
+	mdBytes, err := os.ReadFile(filepath.Join(mdOut, slugA+".md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	md := string(mdBytes)
+	for _, want := range []string{
+		"define Buf[T, N: const int] struct",
+		"[N: T]",
+		"pkg/vec_n.ll",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("expected markdown doc to contain %q:\n%s", want, md)
+		}
+	}
+}

@@ -117,10 +117,22 @@ var BuiltinSnippets = []CodeSnippet{
 		Summary: "Defines a method on a type. Use `&self` to mutate the receiver or `own self` to consume it.",
 	},
 	{
-		Label:   "bind const",
-		Detail:  "Define a typed constant",
-		Snippet: "bind ${1:NAME}: ${2:int} = ${0:0}",
-		Summary: "Defines a constant value (`SCREAMING_SNAKE_CASE` at top level).",
+		Label:   "const",
+		Detail:  "Define a top-level compile-time constant",
+		Snippet: "const ${1:NAME}: ${2:int} = ${0:0}",
+		Summary: "Defines a top-level compile-time constant evaluated cleanly at compile time (`SCREAMING_SNAKE_CASE`).",
+	},
+	{
+		Label:   "const fn",
+		Detail:  "Define a compile-time-capable function",
+		Snippet: "const ${1:name} = fn(${2:x: int}) ${3:int}: {\n\t$0\n}",
+		Summary: "Defines a pure function usable both at compile time (`const` / `comptime`) and at runtime.",
+	},
+	{
+		Label:   "comptime block",
+		Detail:  "Evaluate a block at compile time",
+		Snippet: "comptime {\n\t$0\n}",
+		Summary: "Forces compile-time evaluation of a block expression inside function or constant code.",
 	},
 	{
 		Label:   "bind drop",
@@ -794,8 +806,7 @@ var BuiltinFunctions = []BuiltinFuncDoc{
 
 func LookupBuiltinFunc(name string) *BuiltinFuncDoc {
 	for i := range BuiltinFunctions {
-		n := BuiltinFunctions[i].Name
-		if n == name || n == "type."+name || n == "comp."+name {
+		if BuiltinFunctions[i].Name == name {
 			return &BuiltinFunctions[i]
 		}
 	}

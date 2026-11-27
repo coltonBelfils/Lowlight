@@ -20,7 +20,8 @@ Run `lowlight help` for a summary. Inside a project, commands act on the current
 |---|---|
 | `lowlight run [path] [-- args...]` | compile and run a program; arguments after `--` go to the program |
 | `lowlight build [-o out] [path]` | compile an executable (named after the file or package by default) |
-| `lowlight check [path]` | report errors without generating code |
+| `lowlight check [path]` | report errors without generating code (`--all-targets` checks every canonical OS/arch target) |
+| `lowlight expand [-o file.ll] [path]` | print readable Lowlight after `const` evaluation, `comptime` unrolling, and `@derive` expansion |
 | `lowlight test [paths...]` | compile and run tests ([Testing](/guides/testing.html)) |
 | `lowlight emit-llvm [-o file.ll] [path]` | write the generated LLVM IR |
 | `lowlight emit-c [-o file.c] [path]` | write the generated C11 source |
@@ -32,6 +33,7 @@ Flags shared by these commands:
 | `--release` | optimize (`-O2`); safety checks stay on |
 | `--backend llvm\|c11` | choose the code generator (default `llvm`) |
 | `--target <triple>` | cross-compile, for example `aarch64-unknown-linux-gnu` |
+| `--all-targets` | check every canonical platform target (`lowlight check`) |
 | `--cc <compiler>` | the C or LLVM compiler to invoke (default `$LOWLIGHT_CC`, `$CC`, `clang`, then `cc`) |
 | `-p, --package <name>` | select a workspace member |
 | `--workspace` | act on every workspace member (`build`, `test`, `check`) |

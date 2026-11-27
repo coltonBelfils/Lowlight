@@ -974,3 +974,72 @@ const make_priv = fn() VaultE: VaultE._Priv(99)
 	}
 }
 
+func TestComptimeStdlibParity(t *testing.T) {
+	t.Parallel()
+	src := `
+import "std/unicode"
+import "std/chars"
+import "std/strings"
+import "std/math"
+import "std/strconv"
+import "std/strfmt"
+import "std/time"
+import "std/http"
+
+const run_stdlib_checks = fn() string: {
+	// std/unicode (with const .rodata tables)
+	let u_up = unicode.to_upper("Straße")
+	let u_lo = unicode.to_lower("ΌΣΟΣ")
+	let u_eq = unicode.equal_fold("STRASSE", "straße")
+
+	// std/chars
+	let ch_ok = 'a'.is_alpha() and chars.is_punctuation('!')
+	let ch_up = 'z'.to_ascii_upper()
+
+	// std/strings + ByteBuffer
+	let s_rev = "hello".reverse()
+	let s_lines = "a\nb\nc".lines().len()
+	let bb = strings.ByteBuffer.new()
+	bb.write_u32_be(u32(0x12345678))
+	let bb_val = bb.read_u32_be() ?? u32(0)
+
+	// std/math
+	let m_sin = math.sin(math.PI / 6.0)
+	let m_pow = math.pow(2.0, 10.0)
+	let m_inf = math.is_inf(math.INF) and math.is_nan(math.NAN)
+
+	// std/strconv + std/strfmt
+	let hx = strconv.int_to_hex(255, false)
+	let pb = strconv.parse_bool("true") ?? false
+	let fmt_c = strfmt.format_int_commas(1234567)
+	let fmt_s = "HelloWorld".to_snake_case()
+
+	// std/time (ISO parsing + formatting + calendar math)
+	let leap = time.is_leap_year(2024)
+	let feb = time.days_in_month(2024, 2)
+	let dt_rfc = "2026-11-26T12:34:56Z".to_datetime()?.to_rfc1123() ?? "err"
+
+	// std/http
+	let status = "${http.STATUS_OK}:${http.status_text(http.STATUS_NOT_FOUND)}"
+
+	"$u_up|$u_lo|$u_eq|$ch_ok:$ch_up|$s_rev:$s_lines:${bb_val}|$m_sin:$m_pow:$m_inf|$hx:$pb:$fmt_c:$fmt_s|$leap:$feb:$dt_rfc|$status"
+}
+
+const CT_STDLIB = run_stdlib_checks()
+
+bind main = fn(): {
+	let rt_stdlib = run_stdlib_checks()
+	assert(CT_STDLIB == rt_stdlib, "comptime/runtime stdlib mismatch: ct=${CT_STDLIB} rt=${rt_stdlib}")
+	println(CT_STDLIB)
+}
+`
+	want := "STRASSE|όσος|true|true:Z|olleh:3:305419896|0.5:1024:true|ff:true:1,234,567:hello_world|true:29:Thu, 26 Nov 2026 12:34:56 UTC|200:Not Found\n"
+	for _, release := range []bool{false, true} {
+		got := runInlineStrict(t, "comptime_stdlib_parity", src, release)
+		if got != want {
+			t.Fatalf("release=%v mismatch:\ngot:\n%s\nwant:\n%s", release, got, want)
+		}
+	}
+}
+
+

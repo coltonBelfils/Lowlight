@@ -354,11 +354,12 @@ func (p *Parser) parseTopComptimeIfBody(startPos diag.Pos) *ast.TopComptimeIfDec
 	p.expect(token.RParen, "closing `comptime if (...)` condition")
 	p.expect(token.Colon, "before `comptime if` declaration body")
 
-	thenDecls, thenBraced, endPos := p.parseTopComptimeDeclsBranch()
+	thenDecls, thenBraced, thenSpan, endPos := p.parseTopComptimeDeclsBranch()
 	node := &ast.TopComptimeIfDecl{
 		Cond:       cond,
 		ThenDecls:  thenDecls,
 		ThenBraced: thenBraced,
+		ThenSpan:   thenSpan,
 		Span:       diag.Span{Start: startPos, End: endPos},
 	}
 
@@ -378,9 +379,10 @@ func (p *Parser) parseTopComptimeIfBody(startPos diag.Pos) *ast.TopComptimeIfDec
 			node.Span.End = node.ElseIf.Span.End
 		} else {
 			p.expect(token.Colon, "after `else`")
-			elseDecls, elseBraced, elseEnd := p.parseTopComptimeDeclsBranch()
+			elseDecls, elseBraced, elseSpan, elseEnd := p.parseTopComptimeDeclsBranch()
 			node.ElseDecls = elseDecls
 			node.ElseBraced = elseBraced
+			node.ElseSpan = elseSpan
 			node.HasElse = true
 			node.Span.End = elseEnd
 		}
@@ -388,9 +390,9 @@ func (p *Parser) parseTopComptimeIfBody(startPos diag.Pos) *ast.TopComptimeIfDec
 	return node
 }
 
-func (p *Parser) parseTopComptimeDeclsBranch() ([]ast.Decl, bool, diag.Pos) {
+func (p *Parser) parseTopComptimeDeclsBranch() ([]ast.Decl, bool, diag.Span, diag.Pos) {
 	if p.cur().Kind == token.LBrace {
-		p.advance() // `{`
+		openBrace := p.advance() // `{`
 		p.skipSemis()
 		var decls []ast.Decl
 		for p.cur().Kind != token.RBrace && p.cur().Kind != token.EOF {
@@ -404,13 +406,16 @@ func (p *Parser) parseTopComptimeDeclsBranch() ([]ast.Decl, bool, diag.Pos) {
 			p.skipSemis()
 		}
 		closeBrace := p.expect(token.RBrace, "closing `comptime if` block `}`")
-		return decls, true, closeBrace.Span.End
+		sp := diag.Span{Start: openBrace.Span.Start, End: closeBrace.Span.End}
+		return decls, true, sp, closeBrace.Span.End
 	}
 	d := p.parseTopDecl()
 	if d == nil {
-		return nil, false, p.cur().Span.Start
+		pos := p.cur().Span.Start
+		return nil, false, diag.Span{Start: pos, End: pos}, pos
 	}
-	return []ast.Decl{d}, false, d.GetSpan().End
+	sp := d.GetSpan()
+	return []ast.Decl{d}, false, sp, sp.End
 }
 
 func (p *Parser) syncToStmtBoundary() {
@@ -2163,10 +2168,11 @@ func (p *Parser) looksLikeGenericTypeArgs(left ast.Expr) bool {
 	if p.cur().Kind != token.LBracket {
 		return false
 	}
-	return p.scanGenericBracketLookahead(p.pos, canTakeTypeArgsBeforeDot(left))
+	_, _, allowStructLit := extractStructLitTarget(left)
+	return p.scanGenericBracketLookahead(p.pos, canTakeTypeArgsBeforeDot(left), allowStructLit)
 }
 
-func (p *Parser) scanGenericBracketLookahead(startIdx int, allowDot bool) bool {
+func (p *Parser) scanGenericBracketLookahead(startIdx int, allowDot, allowStructLit bool) bool {
 	savePos := p.pos
 	realRep := p.rep
 	tempRep := diag.NewReporter()
@@ -2202,7 +2208,7 @@ func (p *Parser) scanGenericBracketLookahead(startIdx int, allowDot bool) bool {
 	if next == token.LParen {
 		return true
 	}
-	if next == token.LBracket && p.looksLikeStructLitFields() {
+	if allowStructLit && next == token.LBracket && p.looksLikeStructLitFields() {
 		return true
 	}
 	if allowDot && next == token.Dot && (p.peekAt(1).Kind == token.Ident || p.peekAt(1).Kind == token.OptIdent) {
@@ -2497,8 +2503,9 @@ func (p *Parser) looksLikeFuncLitAt(off int) bool {
 	}
 	if (k1 == token.Ident || k1 == token.OptIdent) && k2 == token.Colon {
 		k3 := p.peekAt(off + 3).Kind
-		if k3 == token.LBrace || k3 == token.KwFor || k3 == token.KwWhile {
-			return false // `(blk: { ... })`, `(outer: for ...)`, `(outer: while ...)`
+		if k3 == token.LBrace || k3 == token.KwFor || k3 == token.KwWhile ||
+			(k3 == token.KwComptime && p.peekAt(off+4).Kind == token.KwFor) {
+			return false // `(blk: { ... })`, `(outer: for ...)`, `(outer: comptime for ...)`, `(outer: while ...)`
 		}
 		return true // `(a: int, ...)`
 	}
@@ -2851,7 +2858,7 @@ func (p *Parser) isMatchDefaultAt(idx int, scrutCount int) bool {
 
 func (p *Parser) parseForExpr(label string, startPos diag.Pos) *ast.ForExpr {
 	kw := p.expect(token.KwFor, "in `for`")
-	if label == "" {
+	if startPos.Line == 0 {
 		startPos = kw.Span.Start
 	}
 	p.expect(token.LParen, "after `for`")
@@ -3463,7 +3470,7 @@ func (p *Parser) parsePatternAtom() ast.Expr {
 	}
 	base := p.parsePrimaryExpr()
 	for {
-		if p.cur().Kind == token.LBracket && p.scanGenericBracketLookahead(p.pos, canTakeTypeArgsBeforeDot(base)) && p.peekAfterBracketIs(token.Dot) {
+		if p.cur().Kind == token.LBracket && p.scanGenericBracketLookahead(p.pos, canTakeTypeArgsBeforeDot(base), false) && p.peekAfterBracketIs(token.Dot) {
 			targs := p.parseTypeArgBracket()
 			p.expect(token.Dot, "after generic enum type arguments in pattern")
 			mem := p.expect(token.Ident, "enum variant in pattern")

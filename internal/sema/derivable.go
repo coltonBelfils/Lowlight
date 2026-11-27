@@ -278,7 +278,7 @@ func (a *Analyzer) validateDerivableHandlerSig(ifc *types.Interface, im types.In
 
 	for j, ip := range im.Params {
 		pmode, pty := a.resolveParamType(tmpl.Mod, fl.Params[1+j].Type, subst, false)
-		expTy := substSelfInType(ip.Type, tpVar)
+		expTy := a.substSelfInType(ip.Type, tpVar, span)
 		if pmode != ip.Mode || !pty.Equals(expTy) {
 			a.Rep.Errorf(span, "@derivable handler %q parameter %d does not match `%s.%s` parameter type %s",
 				fnRef, j+2, ifc.Name, im.Name, expTy.String())
@@ -290,7 +290,7 @@ func (a *Analyzer) validateDerivableHandlerSig(ifc *types.Interface, im types.In
 	if fl.Ret != nil {
 		retTy = a.resolveReturnType(tmpl.Mod, fl.Ret, subst, false)
 	}
-	expRet := substSelfInType(im.Ret, tpVar)
+	expRet := a.substSelfInType(im.Ret, tpVar, span)
 	if expRet == nil {
 		expRet = types.TypeVoid
 	}
@@ -302,7 +302,7 @@ func (a *Analyzer) validateDerivableHandlerSig(ifc *types.Interface, im types.In
 	return true
 }
 
-func substSelfInType(t types.Type, repl types.Type) types.Type {
+func (a *Analyzer) substSelfInType(t types.Type, repl types.Type, span diag.Span) types.Type {
 	if t == nil {
 		return nil
 	}
@@ -310,31 +310,31 @@ func substSelfInType(t types.Type, repl types.Type) types.Type {
 	case *types.SelfPlaceholder:
 		return repl
 	case *types.Optional:
-		el := substSelfInType(v.Elem, repl)
+		el := a.substSelfInType(v.Elem, repl, span)
 		if el == v.Elem {
 			return t
 		}
 		return &types.Optional{Elem: el}
 	case *types.Vector:
-		el := substSelfInType(v.Elem, repl)
+		el := a.substSelfInType(v.Elem, repl, span)
 		if el == v.Elem {
 			return t
 		}
 		return &types.Vector{Elem: el}
 	case *types.StackArray:
-		el := substSelfInType(v.Elem, repl)
+		el := a.substSelfInType(v.Elem, repl, span)
 		if el == v.Elem {
 			return t
 		}
 		return &types.StackArray{Size: v.Size, Elem: el}
 	case *types.Ptr:
-		el := substSelfInType(v.Elem, repl)
+		el := a.substSelfInType(v.Elem, repl, span)
 		if el == v.Elem {
 			return t
 		}
 		return &types.Ptr{Elem: el}
 	case *types.Ref:
-		el := substSelfInType(v.Elem, repl)
+		el := a.substSelfInType(v.Elem, repl, span)
 		if el == v.Elem {
 			return t
 		}
@@ -343,7 +343,7 @@ func substSelfInType(t types.Type, repl types.Type) types.Type {
 		elems := make([]types.Type, len(v.Elems))
 		changed := false
 		for i, e := range v.Elems {
-			elems[i] = substSelfInType(e, repl)
+			elems[i] = a.substSelfInType(e, repl, span)
 			if elems[i] != e {
 				changed = true
 			}
@@ -353,18 +353,81 @@ func substSelfInType(t types.Type, repl types.Type) types.Type {
 		}
 		return &types.Tuple{Elems: elems}
 	case *types.Set:
-		el := substSelfInType(v.Elem, repl)
+		el := a.substSelfInType(v.Elem, repl, span)
 		if el == v.Elem {
 			return t
 		}
 		return &types.Set{Elem: el}
 	case *types.Map:
-		k := substSelfInType(v.Key, repl)
-		val := substSelfInType(v.Value, repl)
+		k := a.substSelfInType(v.Key, repl, span)
+		val := a.substSelfInType(v.Value, repl, span)
 		if k == v.Key && val == v.Value {
 			return t
 		}
 		return &types.Map{Key: k, Value: val}
+	case *types.Func:
+		params := make([]types.FuncParam, len(v.Params))
+		changed := false
+		for i, p := range v.Params {
+			nt := a.substSelfInType(p.Type, repl, span)
+			if nt != p.Type {
+				changed = true
+			}
+			p.Type = nt
+			params[i] = p
+		}
+		ret := a.substSelfInType(v.Ret, repl, span)
+		if ret != v.Ret {
+			changed = true
+		}
+		if !changed {
+			return t
+		}
+		return &types.Func{Params: params, Ret: ret, Closure: v.Closure, Extern: v.Extern}
+	case *types.Struct:
+		if len(v.TypeArgs) > 0 && a != nil && a.Prog != nil {
+			args := make([]types.Type, len(v.TypeArgs))
+			changed := false
+			for i, ta := range v.TypeArgs {
+				nt := a.substSelfInType(ta, repl, span)
+				if nt != ta {
+					changed = true
+				}
+				args[i] = nt
+			}
+			if changed {
+				if mod := a.Prog.StructMods[v]; mod != nil {
+					if genSt := mod.GenericStructs[v.Name]; genSt != nil {
+						if inst := a.instantiateStruct(genSt, args, span); inst != nil {
+							return inst
+						}
+					}
+				}
+			}
+		}
+		return t
+	case *types.Enum:
+		if len(v.TypeArgs) > 0 && a != nil && a.Prog != nil {
+			args := make([]types.Type, len(v.TypeArgs))
+			changed := false
+			for i, ta := range v.TypeArgs {
+				nt := a.substSelfInType(ta, repl, span)
+				if nt != ta {
+					changed = true
+				}
+				args[i] = nt
+			}
+			if changed {
+				if mod := a.Prog.EnumMods[v]; mod != nil {
+					if genEn := mod.GenericEnums[v.Name]; genEn != nil {
+						if inst := a.instantiateEnum(genEn, args, span); inst != nil {
+							return inst
+						}
+					}
+				}
+			}
+		}
+		return t
 	default:
 		return t
 	}
@@ -679,6 +742,45 @@ func (a *Analyzer) typeExprFromInterfaceType(ty types.Type, selfTE ast.TypeExpr,
 			Value: a.typeExprFromInterfaceType(v.Value, selfTE, span),
 			Span:  span,
 		}
+	case *types.Func:
+		params := make([]ast.Param, len(v.Params))
+		for i, p := range v.Params {
+			pt := a.typeExprFromInterfaceType(p.Type, selfTE, span)
+			switch p.Mode {
+			case types.ModeMut:
+				pt = &ast.MutBorrowType{Elem: pt, Span: span}
+			case types.ModeOwn:
+				pt = &ast.OwnType{Elem: pt, Span: span}
+			}
+			params[i] = ast.Param{Name: p.Name, Type: pt, Span: span}
+		}
+		var ret ast.TypeExpr
+		if v.Ret != nil && v.Ret != types.TypeVoid {
+			ret = a.typeExprFromInterfaceType(v.Ret, selfTE, span)
+		}
+		return &ast.FuncType{Params: params, Ret: ret, Closure: v.Closure, Extern: v.Extern, Span: span}
+	case *types.Struct:
+		if len(v.TypeArgs) > 0 && typeContainsSelf(v) {
+			args := make([]ast.TypeExpr, len(v.TypeArgs))
+			for i, ta := range v.TypeArgs {
+				args[i] = a.typeExprFromInterfaceType(ta, selfTE, span)
+			}
+			return &ast.NamedType{Name: v.Name, TypeArgs: args, Span: span}
+		}
+		ph := &ast.NamedType{Name: ty.String(), Span: span}
+		a.synthTypeExprs[ph] = ty
+		return ph
+	case *types.Enum:
+		if len(v.TypeArgs) > 0 && typeContainsSelf(v) {
+			args := make([]ast.TypeExpr, len(v.TypeArgs))
+			for i, ta := range v.TypeArgs {
+				args[i] = a.typeExprFromInterfaceType(ta, selfTE, span)
+			}
+			return &ast.NamedType{Name: v.Name, TypeArgs: args, Span: span}
+		}
+		ph := &ast.NamedType{Name: ty.String(), Span: span}
+		a.synthTypeExprs[ph] = ty
+		return ph
 	default:
 		// Map closed non-Self types directly so cross-package interface parameter/return types
 		// never depend on imports in the deriving struct/enum's module.
@@ -686,6 +788,53 @@ func (a *Analyzer) typeExprFromInterfaceType(ty types.Type, selfTE ast.TypeExpr,
 		a.synthTypeExprs[ph] = ty
 		return ph
 	}
+}
+
+func typeContainsSelf(ty types.Type) bool {
+	switch v := ty.(type) {
+	case *types.SelfPlaceholder:
+		return true
+	case *types.Optional:
+		return typeContainsSelf(v.Elem)
+	case *types.Vector:
+		return typeContainsSelf(v.Elem)
+	case *types.StackArray:
+		return typeContainsSelf(v.Elem)
+	case *types.Ptr:
+		return typeContainsSelf(v.Elem)
+	case *types.Ref:
+		return typeContainsSelf(v.Elem)
+	case *types.Set:
+		return typeContainsSelf(v.Elem)
+	case *types.Map:
+		return typeContainsSelf(v.Key) || typeContainsSelf(v.Value)
+	case *types.Tuple:
+		for _, el := range v.Elems {
+			if typeContainsSelf(el) {
+				return true
+			}
+		}
+	case *types.Func:
+		for _, p := range v.Params {
+			if typeContainsSelf(p.Type) {
+				return true
+			}
+		}
+		return typeContainsSelf(v.Ret)
+	case *types.Struct:
+		for _, ta := range v.TypeArgs {
+			if typeContainsSelf(ta) {
+				return true
+			}
+		}
+	case *types.Enum:
+		for _, ta := range v.TypeArgs {
+			if typeContainsSelf(ta) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // verifyGenericDerivedMethod runs a silent trial check on a newly synthesized
@@ -770,6 +919,9 @@ func (a *Analyzer) verifyGenericDerivedMethod(
 			delete(a.derivePassed, trialKey)
 		}
 	})
+	if a.inDeriveTrial == 0 {
+		a.trialUndos = nil
+	}
 	return true
 }
 

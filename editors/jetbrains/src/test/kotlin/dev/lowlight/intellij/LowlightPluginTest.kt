@@ -273,4 +273,17 @@ class LowlightPluginTest : BasePlatformTestCase() {
         assertEquals(14, parsed.line)
         assertEquals(5, parsed.col)
     }
+
+    fun testComptimeKeywordsAndTargetConfig() {
+        val src = "@comptime_only\nconst X = comptime { compile_error(\"hi\"); 1 }\n"
+        val tokens = lexAll(src)
+        assertEquals(LowlightTokenTypes.KEYWORD, tokenForWord(src, tokens, "const"))
+        assertEquals(LowlightTokenTypes.KEYWORD, tokenForWord(src, tokens, "comptime"))
+        assertEquals(LowlightTokenTypes.BUILTIN_FUNC, tokenForWord(src, tokens, "compile_error"))
+
+        val state = dev.lowlight.intellij.settings.LowlightSettingsState()
+        state.targetTriple = "x86_64-unknown-linux-gnu"
+        val cfg = state.toLspConfigMap()
+        assertEquals("x86_64-unknown-linux-gnu", cfg["target"])
+    }
 }

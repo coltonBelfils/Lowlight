@@ -22,6 +22,7 @@ Guides go deeper than the [tour](/tour/index.html). Each one explains a part of 
 <a class="card" href="errors.html"><h3>Failure handling</h3><p>Choosing between optionals, results, and panics; designing result types; adding context.</p></a>
 <a class="card" href="collections.html"><h3>Collections and iteration</h3><p>Lists, maps, sets, and arrays; collecting loops; writing your own iterators.</p></a>
 <a class="card" href="generics.html"><h3>Interfaces and generics</h3><p>Structural interfaces, bounds, monomorphization, and the built-in interfaces.</p></a>
+<a class="card" href="comptime.html"><h3>Compile-time evaluation</h3><p><code>const</code> tables, <code>comptime</code> control flow, const generics, reflection, <code>comp.TARGET</code>, and asset embedding.</p></a>
 <a class="card" href="memory.html"><h3>Memory: arenas and pools</h3><p>Graphs, trees, and other shared structures without a garbage collector.</p></a>
 </div>
 

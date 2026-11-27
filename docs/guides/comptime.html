@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compile-time evaluation · Lowlight</title>
+<meta name="description" content="const functions and lookup tables, comptime control flow, const generics, reflection, @derivable, comp.TARGET, and asset embedding.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a class="active" href="index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Guides</a></div><div class="sidebar-group">Writing Lowlight</div><ul><li><a href="effective-lowlight.html">Effective Lowlight (conventions)</a></li><li><a href="coming-from.html">Coming from C, Rust, or Go</a></li></ul><div class="sidebar-group">Core ideas</div><ul><li><a href="ownership.html">Ownership and borrowing</a></li><li><a href="errors.html">Failure handling</a></li><li><a href="collections.html">Collections and iteration</a></li><li><a href="generics.html">Interfaces and generics</a></li><li><a class="active" href="comptime.html">Compile-time evaluation</a></li><li><a href="memory.html">Memory, arenas, and pools</a></li></ul><div class="sidebar-group">Working with code</div><ul><li><a href="packages.html">Packages and dependencies</a></li><li><a href="testing.html">Testing</a></li><li><a href="unsafe-ffi.html">Unsafe code and C</a></li><li><a href="performance.html">Performance</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Guides</a><span class="sep">/</span><span>Core ideas</span></nav><h1 id="compile-time-evaluation"><a class="anchor" href="#compile-time-evaluation" aria-hidden="true">#</a>Compile-time evaluation</h1>
+<p>Lowlight evaluates pure computations at compile time inside the same language you already use at runtime—without a separate preprocessor, macro sub-language, or external build scripts. Every <code>const</code>, <code>comptime</code>, reflection query, and custom <code>@derive</code> implementation is type-checked once and executed deterministically within resource limits.</p>
+<h2 id="const-bind-and-comptime_only"><a class="anchor" href="#const-bind-and-comptime_only" aria-hidden="true">#</a><code>const</code>, <code>bind</code>, and <code>@comptime_only</code></h2>
+<p>Lowlight distinguishes compile-time code from runtime bindings:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Keyword / attribute</th><th>Evaluated</th><th>May call at runtime?</th><th>Typical use</th></tr></thead>
+<tbody>
+<tr><td><code>const x = expr</code></td><td>compile time</td><td>yes</td><td>lookup tables, constants, derived configuration</td></tr>
+<tr><td><code>const f = fn(...)</code></td><td>both</td><td>yes</td><td>math, string/bytes formatting, pure algorithms</td></tr>
+<tr><td><code>@comptime_only const</code></td><td>compile time only</td><td><strong>no</strong></td><td>table builders, reflection, <code>@derivable</code> helpers</td></tr>
+<tr><td><code>bind x = expr</code></td><td>before <code>main</code> / locally</td><td>yes</td><td>runtime immutables, FFI, I/O, tests</td></tr>
+</tbody>
+</table></div>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="m">// Pure functions marked `const` work in both `const` initializers and runtime calls.</span>
+<span class="k">const</span> fib = <span class="k">fn</span>(n: <span class="t">int</span>) <span class="t">int</span>:
+	<span class="k">if</span>(n &lt;= <span class="n">1</span>): n <span class="k">else</span>: <span class="f">fib</span>(n - <span class="n">1</span>) + <span class="f">fib</span>(n - <span class="n">2</span>)
+
+<span class="m">// Evaluated while compiling: no work happens when the binary starts.</span>
+<span class="k">const</span> <span class="t">FIB_12</span> = <span class="f">fib</span>(<span class="n">12</span>)
+
+<span class="m">// Default compile-time limits are 1_000_000 steps and 64 MB of simulated heap.</span>
+<span class="m">// Override per declaration when building large generated data:</span>
+<span class="a">@comptime_limit</span>(steps: <span class="n">5_000_000</span>, memory: <span class="n">128_000_000</span>)
+<span class="a">@comptime_only</span>
+<span class="k">const</span> _heavy_builder = <span class="k">fn</span>() [<span class="t">int</span>]: { ... }</code></pre>
+<p>Calling host I/O (<code>println</code>, <code>std/fs</code>), <code>args()</code>, <code>exit()</code>, <code>extern</code> C functions, or user <code>unsafe</code> blocks inside a <code>const</code> function is rejected at compile time.</p>
+<h2 id="static-rodata-tables-and-copy-on-write"><a class="anchor" href="#static-rodata-tables-and-copy-on-write" aria-hidden="true">#</a>Static <code>.rodata</code> tables and copy-on-write</h2>
+<p>Top-level <code>const</code> strings, lists, and fixed arrays (as well as <code>comptime expr</code> results) cross into the executable as read-only static slices (<code>.rodata</code>, <code>cap == 0</code>) with zero startup allocation. Calling mutating <code>List</code> or <code>string</code> methods on one promotes it lazily via copy-on-write, leaving the shared read-only table untouched.</p>
+<p>For example, generating an IEEE CRC32 lookup table at compile time puts the 256-entry table in <code>.rodata</code> while keeping the <code>crc32</code> function usable both at compile time and at runtime:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/strconv&quot;</span>
+
+<span class="a">@comptime_only</span>
+<span class="k">const</span> _build_crc32_table = <span class="k">fn</span>() [<span class="n">256</span>: <span class="t">u32</span>]: {
+	<span class="k">let</span> table = [<span class="n">256</span>: <span class="t">u32</span>(<span class="n">0</span>)]
+	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">256</span>): {
+		<span class="k">let</span> c = <span class="t">u32</span>(i)
+		<span class="k">for</span>(_ <span class="k">in</span> <span class="n">0</span>..<span class="n">8</span>): {
+			<span class="k">if</span>((c &amp; <span class="t">u32</span>(<span class="n">1</span>)) != <span class="t">u32</span>(<span class="n">0</span>)): c = <span class="t">u32</span>(<span class="n">0xedb88320</span>) ^ (c &gt;&gt; <span class="n">1</span>)
+			<span class="k">else</span>: c = c &gt;&gt; <span class="n">1</span>
+		}
+		table[i] = c
+	}
+	table
+}
+
+<span class="k">const</span> <span class="t">CRC32_TABLE</span> = <span class="f">_build_crc32_table</span>()
+
+<span class="k">const</span> crc32 = <span class="k">fn</span>(data: <span class="t">string</span>) <span class="t">u32</span>: {
+	<span class="k">let</span> crc = <span class="t">u32</span>(<span class="n">0xffffffff</span>)
+	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..data.<span class="f">len</span>()): {
+		<span class="k">let</span> idx = <span class="t">int</span>((crc ^ <span class="t">u32</span>(data.<span class="f">byte_at</span>(i))) &amp; <span class="t">u32</span>(<span class="n">0xff</span>))
+		crc = <span class="t">CRC32_TABLE</span>[idx] ^ (crc &gt;&gt; <span class="n">8</span>)
+	}
+	crc ^ <span class="t">u32</span>(<span class="n">0xffffffff</span>)
+}
+
+<span class="k">const</span> <span class="t">CHECK_VECTOR</span> = <span class="f">crc32</span>(<span class="s">&quot;123456789&quot;</span>)
+
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
+	<span class="k">let</span> runtime = <span class="f">crc32</span>(<span class="s">&quot;123456789&quot;</span>)
+	<span class="f">assert</span>(<span class="t">CHECK_VECTOR</span> == runtime)
+	<span class="f">println</span>(strconv.<span class="f">int_to_hex</span>(<span class="t">int</span>(<span class="t">CHECK_VECTOR</span>), <span class="c">false</span>))
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>cbf43926</code></pre>
+<h2 id="inline-comptime-and-compile-time-control-flow"><a class="anchor" href="#inline-comptime-and-compile-time-control-flow" aria-hidden="true">#</a>Inline <code>comptime</code> and compile-time control flow</h2>
+<ul>
+<li><strong><code>comptime expr</code> / <code>comptime { ... }</code>:</strong> evaluates inside runtime code and splices the result directly into the binary.
+</li>
+<li><strong><code>comptime if(cond):</code></strong> evaluates <code>cond</code> during checking and keeps only the selected branch. In expression position it must have an <code>else</code> arm.
+</li>
+<li><strong><code>comptime match(scrut):</code></strong> checks every arm for exhaustiveness statically, then lowers only the single matching arm with bound pattern variables available as constants.
+</li>
+<li><strong><code>comptime for(v in seq):</code></strong> unrolls over compile-time ranges, arrays, lists, strings, sets, and maps—including collecting <code>comptime for(...) T:</code> expressions to construct arrays, tuples, collections, or structs.
+</li>
+</ul>
+<h3 id="what-can-cross-to-runtime"><a class="anchor" href="#what-can-cross-to-runtime" aria-hidden="true">#</a>What can cross to runtime</h3>
+<p>Plain values (<code>int</code>, <code>float</code>, <code>bool</code>, <code>char</code>, <code>Range</code>, tag enums, arrays, structs/tuples/enums without <code>Drop</code>), <code>string</code>, <code>[T]</code>, <code>none</code> optionals, and non-closure <code>const</code> <code>fn</code> references cross cleanly from <code>comptime</code> to runtime. <code>Map</code>, <code>Set</code>, <code>Arena</code>, <code>ref[T]</code>, <code>ptr[T]</code>, closures, and <code>@comptime_only</code> types cannot cross directly: use them freely inside <code>@comptime_only</code> builders and project the result into a <code>const</code> list, array, or struct.</p>
+<h2 id="const-generic-parameters"><a class="anchor" href="#const-generic-parameters" aria-hidden="true">#</a>Const generic parameters</h2>
+<p>Structs, enums, results, interfaces, functions, and methods can mix type parameters and const generic value parameters (<code>[N: const int]</code>, where allowed constant types are integer primitives, <code>bool</code>, <code>char</code>, tag enums, and <code>string</code>). Canonical constant equality applies: <code>Buffer[4 + 4]</code> and <code>Buffer[8]</code> are the exact same type, and <code>N</code> can size fixed arrays (<code>[N * 2: u8]</code>) and repeat literals (<code>[N: 0]</code>). See <a href="generics.html#const-generic-parameters">Interfaces and generics</a> for an example.</p>
+<h2 id="reflection-and-custom-derivable-traits"><a class="anchor" href="#reflection-and-custom-derivable-traits" aria-hidden="true">#</a>Reflection and custom <code>@derivable</code> traits</h2>
+<p>Without emitting runtime metadata (RTTI), <code>@comptime_only</code> reflection lets generic code inspect types and manipulate fields or variants safely:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Query / construct</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>comp.type_name[T]()</code> · <code>comp.kind_of[T]()</code></td><td>Human-readable type name and <code>comp.TypeKind</code> classification</td></tr>
+<tr><td><code>comp.fields_of[T]()</code></td><td><code>[comp.FieldInfo]</code> for structs (<code>name</code>, <code>type_name</code>, <code>is_opt</code>, <code>is_public</code>, <code>has_default</code>, <code>attrs</code>)</td></tr>
+<tr><td><code>comp.variants_of[T]()</code></td><td><code>[comp.VariantInfo]</code> for enums and <code>result</code> types</td></tr>
+<tr><td><code>comp.elems_of[T]()</code></td><td><code>[comp.ElemInfo]</code> for tuples and <code>[N: T]</code> fixed arrays</td></tr>
+<tr><td><code>comp.attrs_of[T]()</code> · <code>comp.implements[T, I]()</code></td><td>Declaration attributes (<code>AttrInfo</code>) and structural interface satisfaction</td></tr>
+<tr><td><code>v.field(f)</code> · <code>t.elem(e)</code></td><td>Access, borrow (<code>&amp;</code>), assign, or move a reflected struct field or tuple/array element</td></tr>
+<tr><td><code>variant_index(v)</code> · <code>v.is_variant(vr)</code> · <code>v.payload(vr)</code> · <code>v.as_variant(vr)</code> · <code>make_variant[T](vr [, own p])</code></td><td>Inspect, narrow, extract, or construct enum/result variants generically</td></tr>
+</tbody>
+</table></div>
+<p>Descriptors report <code>_</code>-prefixed private members (<code>is_public == false</code>), and reading or writing a private member via reflection outside its package is a compile error—except inside a generic helper instantiated by <code>@derive(...)</code> on the type's own declaration.</p>
+<p>Any interface (in <code>std/core</code> or your own package) can declare <code>@derivable(method: generic_impl, ...)</code> so structs, enums, and results derive it automatically. Derived methods become <code>const</code> whenever every field/variant operation they call is <code>const</code>, falling back to <code>bind</code> otherwise:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="a">@derivable</span>(tag_summary: _derive_summary)
+<span class="k">define</span> <span class="t">TagSummary</span> <span class="k">interface</span> [
+	tag_summary: <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>,
+]
+
+<span class="k">const</span> _derive_summary[<span class="t">T</span>] = <span class="k">fn</span>(v: <span class="t">T</span>) <span class="t">string</span>: {
+	<span class="k">let</span> parts: [<span class="t">string</span>] = []
+	<span class="k">comptime</span> <span class="k">for</span>(f <span class="k">in</span> comp.fields_of[<span class="t">T</span>]()):
+		parts.<span class="f">push</span>(<span class="s">&quot;</span>${f.name}<span class="s">=</span>${v.<span class="f">field</span>(f)}<span class="s">&quot;</span>)
+	<span class="s">&quot;</span>${<span class="k">comptime</span> comp.type_name[<span class="t">T</span>]()}<span class="s">(</span>${parts.<span class="f">join</span>(<span class="s">&quot;, &quot;</span>)}<span class="s">)&quot;</span>
+}
+
+<span class="a">@derive</span>(<span class="t">TagSummary</span>)
+<span class="k">define</span> <span class="t">ServerCfg</span> <span class="k">struct</span> [
+	host: <span class="t">string</span>,
+	port: <span class="t">int</span>,
+]
+
+<span class="k">bind</span> main = <span class="k">fn</span>(): <span class="f">println</span>(<span class="t">ServerCfg</span>[host: <span class="s">&quot;localhost&quot;</span>, port: <span class="n">8080</span>].<span class="f">tag_summary</span>())</code></pre>
+<pre class="lang-output" data-lang="output"><code>ServerCfg(host=localhost, port=8080)</code></pre>
+<h2 id="target-selection-and-cross-compilation"><a class="anchor" href="#target-selection-and-cross-compilation" aria-hidden="true">#</a>Target selection and cross-compilation</h2>
+<p><code>comp.TARGET</code> is an <code>@comptime_only</code> <code>comp.Target</code> descriptor populated from <code>--target</code>, <code>[build].target</code>, or the host (<code>os: comp.TargetOs</code>, <code>arch: comp.TargetArch</code>, <code>endian: comp.Endian</code>, <code>is_unix: bool</code>, <code>ptr_size: int</code>, <code>ptr_bits: int</code>, <code>triple: string</code>).</p>
+<ul>
+<li><strong>Single-file <code>comptime if(comp.TARGET...)</code> is preferred</strong> for conditional OS/architecture code—both at top level (wrapping declarations, <code>extern</code>s, and <code>const</code>s) and inside functions. <code>import</code> is disallowed inside top-level <code>comptime if</code> branches so package graphs remain target-independent.
+</li>
+<li><strong>Target filename suffixes</strong> (<code>foo_linux.ll</code>, <code>foo_darwin.ll</code>, <code>foo_unix.ll</code>, <code>foo_arm64.ll</code>) remain supported when splitting large platform modules.
+</li>
+<li>Run <strong><code>lowlight check --all-targets</code></strong> to type-check untaken <code>comptime if(comp.TARGET...)</code> branches across all canonical OS/arch targets without waiting for CI, and <strong><code>lowlight expand</code></strong> to inspect expanded post-comptime Lowlight source.
+</li>
+</ul>
+<h2 id="static-file-embedding"><a class="anchor" href="#static-file-embedding" aria-hidden="true">#</a>Static file embedding</h2>
+<p>Use <code>comp.embed_str(path)</code> (<code>string</code>, validated UTF-8) and <code>comp.embed_bytes(path)</code> (<code>[u8]</code>) inside <code>const</code> or <code>comptime</code> contexts to bake static assets into <code>.rodata</code> (<code>cap == 0</code>). Paths resolve relative to the <code>.ll</code> file containing the call and are confined strictly inside the declaring package/project sandbox (rejecting absolute paths, <code>..</code> traversal escapes, and escaping symlinks). Edits to embedded assets automatically invalidate cached package objects and IDE analysis.</p>
+</article><nav class="prev-next"><a class="prev" href="generics.html"><span>Previous</span>Interfaces and generics</a><a class="next" href="memory.html"><span>Next</span>Memory: arenas and pools</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#const-bind-and-comptime_only">const, bind, and @comptime_only</a></li><li><a href="#static-rodata-tables-and-copy-on-write">Static .rodata tables and copy-on-write</a></li><li><a href="#inline-comptime-and-compile-time-control-flow">Inline comptime and compile-time control flow</a></li><li class="sub"><a href="#what-can-cross-to-runtime">What can cross to runtime</a></li><li><a href="#const-generic-parameters">Const generic parameters</a></li><li><a href="#reflection-and-custom-derivable-traits">Reflection and custom @derivable traits</a></li><li><a href="#target-selection-and-cross-compilation">Target selection and cross-compilation</a></li><li><a href="#static-file-embedding">Static file embedding</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="index.html">Guides</a><a href="effective-lowlight.html">Effective Lowlight (conventions)</a><a href="coming-from.html">Coming from C, Rust, or Go</a><a href="ownership.html">Ownership and borrowing</a><a href="errors.html">Failure handling</a><a href="collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/collections.html">std/collections</a><a href="../std/core.html">std/core</a><a href="../std/derive.html">std/derive</a><a href="../std/fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

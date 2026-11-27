@@ -105,41 +105,50 @@ func (s *Server) computeWorkspaceSymbols(query string) []SymbolInformation {
 			})
 		}
 
-		for _, d := range af.Decls {
-			switch decl := d.(type) {
-			case *ast.StructDecl:
-				add(decl.Name, SymStruct, decl.Span, modContainer)
-				for _, f := range decl.Fields {
-					add(decl.Name+"."+f.Name, SymField, f.Span, decl.Name)
+		var visitWSDecls func(decls []ast.Decl)
+		visitWSDecls = func(decls []ast.Decl) {
+			for _, d := range decls {
+				switch decl := d.(type) {
+				case *ast.StructDecl:
+					add(decl.Name, SymStruct, decl.Span, modContainer)
+					for _, f := range decl.Fields {
+						add(decl.Name+"."+f.Name, SymField, f.Span, decl.Name)
+					}
+				case *ast.EnumDecl:
+					add(decl.Name, SymEnum, decl.Span, modContainer)
+					for _, v := range decl.Variants {
+						add(decl.Name+"."+v.Name, SymEnumMember, v.Span, decl.Name)
+					}
+				case *ast.InterfaceDecl:
+					add(decl.Name, SymInterface, decl.Span, modContainer)
+					for _, m := range decl.Methods {
+						add(decl.Name+"."+m.Name, SymMethod, m.Span, decl.Name)
+					}
+				case *ast.DistinctTypeDecl:
+					add(decl.Name, SymStruct, decl.Span, modContainer)
+				case *ast.MethodDecl:
+					add(decl.RecvType+"."+decl.Name, SymMethod, decl.Span, decl.RecvType)
+				case *ast.ExternFnDecl:
+					n := decl.Name
+					if decl.Alias != "" {
+						n = decl.Alias
+					}
+					add(n, SymFunction, decl.Span, modContainer)
+				case *ast.VarDecl:
+					kind := SymConstant
+					if _, isFn := decl.Value.(*ast.FuncLit); isFn {
+						kind = SymFunction
+					}
+					add(decl.Name, kind, decl.Span, modContainer)
+				case *ast.TopComptimeIfDecl:
+					for cur := decl; cur != nil; cur = cur.ElseIf {
+						visitWSDecls(cur.ThenDecls)
+						visitWSDecls(cur.ElseDecls)
+					}
 				}
-			case *ast.EnumDecl:
-				add(decl.Name, SymEnum, decl.Span, modContainer)
-				for _, v := range decl.Variants {
-					add(decl.Name+"."+v.Name, SymEnumMember, v.Span, decl.Name)
-				}
-			case *ast.InterfaceDecl:
-				add(decl.Name, SymInterface, decl.Span, modContainer)
-				for _, m := range decl.Methods {
-					add(decl.Name+"."+m.Name, SymMethod, m.Span, decl.Name)
-				}
-			case *ast.DistinctTypeDecl:
-				add(decl.Name, SymStruct, decl.Span, modContainer)
-			case *ast.MethodDecl:
-				add(decl.RecvType+"."+decl.Name, SymMethod, decl.Span, decl.RecvType)
-			case *ast.ExternFnDecl:
-				n := decl.Name
-				if decl.Alias != "" {
-					n = decl.Alias
-				}
-				add(n, SymFunction, decl.Span, modContainer)
-			case *ast.VarDecl:
-				kind := SymConstant
-				if _, isFn := decl.Value.(*ast.FuncLit); isFn {
-					kind = SymFunction
-				}
-				add(decl.Name, kind, decl.Span, modContainer)
 			}
 		}
+		visitWSDecls(af.Decls)
 		if len(out) >= 500 {
 			break
 		}
@@ -233,6 +242,13 @@ func (s *Server) computeFoldingRanges(filePath, src string) []FoldingRange {
 			walkExpr(v.Value)
 		case *ast.UnwindStmt:
 			walkExpr(v.Value)
+		case *ast.DeclStmt:
+			if v.Decl != nil {
+				dsp := v.Decl.GetSpan()
+				if dsp.Start.Line > 0 && dsp.End.Line > dsp.Start.Line {
+					addFold(dsp.Start.Line-1, dsp.End.Line-1, "region")
+				}
+			}
 		case *ast.ExprStmt:
 			walkExpr(v.Expr)
 		}
@@ -337,30 +353,40 @@ func (s *Server) computeFoldingRanges(filePath, src string) []FoldingRange {
 		}
 	}
 
-	for _, d := range af.Decls {
-		sp := d.GetSpan()
-		if imp, isImp := d.(*ast.ImportDecl); isImp {
-			_ = imp
-			line0 := sp.Start.Line - 1
-			if impStart < 0 {
-				impStart = line0
-				impEnd = line0
-			} else {
-				impEnd = line0
+	var walkFoldDecls func(decls []ast.Decl)
+	walkFoldDecls = func(decls []ast.Decl) {
+		for _, d := range decls {
+			sp := d.GetSpan()
+			if imp, isImp := d.(*ast.ImportDecl); isImp {
+				_ = imp
+				line0 := sp.Start.Line - 1
+				if impStart < 0 {
+					impStart = line0
+					impEnd = line0
+				} else {
+					impEnd = line0
+				}
+				continue
 			}
-			continue
-		}
-		flushImports()
-		if sp.Start.Line > 0 && sp.End.Line > sp.Start.Line {
-			addFold(sp.Start.Line-1, sp.End.Line-1, "region")
-		}
-		switch decl := d.(type) {
-		case *ast.MethodDecl:
-			walkExpr(decl.Body)
-		case *ast.VarDecl:
-			walkExpr(decl.Value)
+			flushImports()
+			if sp.Start.Line > 0 && sp.End.Line > sp.Start.Line {
+				addFold(sp.Start.Line-1, sp.End.Line-1, "region")
+			}
+			switch decl := d.(type) {
+			case *ast.MethodDecl:
+				walkExpr(decl.Body)
+			case *ast.VarDecl:
+				walkExpr(decl.Value)
+			case *ast.TopComptimeIfDecl:
+				for cur := decl; cur != nil; cur = cur.ElseIf {
+					walkExpr(cur.Cond)
+					walkFoldDecls(cur.ThenDecls)
+					walkFoldDecls(cur.ElseDecls)
+				}
+			}
 		}
 	}
+	walkFoldDecls(af.Decls)
 	flushImports()
 
 	sort.Slice(ranges, func(i, j int) bool {
@@ -482,7 +508,10 @@ func collectEnclosingASTSpans(af *ast.File, offset int) []diag.Span {
 		case *ast.VectorType:
 			walkType(v.Elem)
 		case *ast.StackArrayType:
+			walkExpr(v.Size)
 			walkType(v.Elem)
+		case *ast.ConstArgType:
+			walkExpr(v.Expr)
 		case *ast.SetType:
 			walkType(v.Elem)
 		case *ast.MapType:
@@ -526,6 +555,14 @@ func collectEnclosingASTSpans(af *ast.File, offset int) []diag.Span {
 			walkExpr(v.Value)
 		case *ast.UnwindStmt:
 			walkExpr(v.Value)
+		case *ast.DeclStmt:
+			if v.Decl != nil && spanContainsOffset(v.Decl.GetSpan(), offset) {
+				maybeAdd(v.Decl.GetSpan())
+				if vd, ok := v.Decl.(*ast.VarDecl); ok {
+					walkType(vd.Type)
+					walkExpr(vd.Value)
+				}
+			}
 		case *ast.ExprStmt:
 			walkExpr(v.Expr)
 		}
@@ -716,6 +753,20 @@ func collectEnclosingASTSpans(af *ast.File, offset int) []diag.Span {
 		case *ast.VarDecl:
 			walkType(decl.Type)
 			walkExpr(decl.Value)
+		case *ast.TopComptimeIfDecl:
+			for cur := decl; cur != nil; cur = cur.ElseIf {
+				walkExpr(cur.Cond)
+				for _, td := range cur.ThenDecls {
+					if spanContainsOffset(td.GetSpan(), offset) {
+						maybeAdd(td.GetSpan())
+					}
+				}
+				for _, ed := range cur.ElseDecls {
+					if spanContainsOffset(ed.GetSpan(), offset) {
+						maybeAdd(ed.GetSpan())
+					}
+				}
+			}
 		}
 	}
 	return spans

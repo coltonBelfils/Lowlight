@@ -19,6 +19,7 @@ import (
 	"lowlight/internal/diag"
 	"lowlight/internal/manifest"
 	"lowlight/internal/parser"
+	"lowlight/internal/token"
 )
 
 // DiscoveredTest describes a single `@test` or `test_main` discovered by AST inspection.
@@ -122,7 +123,7 @@ func compileTestFilterRegex(opts Options) (*regexp.Regexp, error) {
 	return re, nil
 }
 
-func discoverTestsInFile(filePath string, srcOverride string, baseDir string, filterRe *regexp.Regexp) []DiscoveredTest {
+func discoverTestsInFile(filePath string, srcOverride string, target manifest.TargetInfo, baseDir string, filterRe *regexp.Regexp) []DiscoveredTest {
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
 		absPath = filepath.Clean(filePath)
@@ -156,14 +157,79 @@ func discoverTestsInFile(filePath string, srcOverride string, baseDir string, fi
 	}
 
 	var out []DiscoveredTest
-	for _, d := range af.Decls {
-		vd, ok := d.(*ast.VarDecl)
-		if !ok {
-			continue
-		}
-		if vd.Name == "test_main" {
-			line := vd.Span.Start.Line
-			col := vd.Span.Start.Col
+	var visitDecl func(d ast.Decl)
+	visitDecl = func(d ast.Decl) {
+		switch node := d.(type) {
+		case *ast.TopComptimeIfDecl:
+			for cur := node; cur != nil; cur = cur.ElseIf {
+				if val, known := evalStaticTargetBool(cur.Cond, target); known {
+					if val {
+						for _, td := range cur.ThenDecls {
+							visitDecl(td)
+						}
+						return
+					}
+					if cur.ElseIf == nil && cur.HasElse {
+						for _, ed := range cur.ElseDecls {
+							visitDecl(ed)
+						}
+					}
+					continue
+				}
+				for _, td := range cur.ThenDecls {
+					visitDecl(td)
+				}
+				for _, ed := range cur.ElseDecls {
+					visitDecl(ed)
+				}
+			}
+			return
+		case *ast.VarDecl:
+			vd := node
+			if vd.Name == "test_main" {
+				line := vd.Span.Start.Line
+				col := vd.Span.Start.Col
+				if line <= 0 {
+					line = 1
+				}
+				if col <= 0 {
+					col = 1
+				}
+				out = append(out, DiscoveredTest{
+					Event:      "test",
+					Package:    pkgLabel,
+					File:       slashAbs,
+					RelFile:    relFile,
+					Line:       line,
+					Col:        col,
+					Name:       vd.Name,
+					Desc:       vd.Name,
+					IsTestMain: true,
+				})
+				return
+			}
+
+			testAttr := ast.FindAttribute(vd.Attributes, "test")
+			if testAttr == nil {
+				return
+			}
+			desc := vd.Name
+			if len(testAttr.Args) > 0 {
+				if trimmed := strings.Trim(testAttr.Args[0], "\""); trimmed != "" {
+					desc = trimmed
+				}
+			}
+			if filterRe != nil && !filterRe.MatchString(vd.Name) && !filterRe.MatchString(desc) {
+				return
+			}
+
+			// Point test markers at the declaration binding line when valid, matching runtime line numbers cleanly.
+			span := vd.Span
+			if span.Start.Line <= 0 {
+				span = testAttr.Span
+			}
+			line := span.Start.Line
+			col := span.Start.Col
 			if line <= 0 {
 				line = 1
 			}
@@ -171,58 +237,156 @@ func discoverTestsInFile(filePath string, srcOverride string, baseDir string, fi
 				col = 1
 			}
 			out = append(out, DiscoveredTest{
-				Event:      "test",
-				Package:    pkgLabel,
-				File:       slashAbs,
-				RelFile:    relFile,
-				Line:       line,
-				Col:        col,
-				Name:       vd.Name,
-				Desc:       vd.Name,
-				IsTestMain: true,
+				Event:   "test",
+				Package: pkgLabel,
+				File:    slashAbs,
+				RelFile: relFile,
+				Line:    line,
+				Col:     col,
+				Name:    vd.Name,
+				Desc:    desc,
 			})
-			continue
 		}
-
-		testAttr := ast.FindAttribute(vd.Attributes, "test")
-		if testAttr == nil {
-			continue
-		}
-		desc := vd.Name
-		if len(testAttr.Args) > 0 {
-			if trimmed := strings.Trim(testAttr.Args[0], "\""); trimmed != "" {
-				desc = trimmed
-			}
-		}
-		if filterRe != nil && !filterRe.MatchString(vd.Name) && !filterRe.MatchString(desc) {
-			continue
-		}
-
-		// Point test markers at the declaration binding line when valid, matching runtime line numbers cleanly.
-		span := vd.Span
-		if span.Start.Line <= 0 {
-			span = testAttr.Span
-		}
-		line := span.Start.Line
-		col := span.Start.Col
-		if line <= 0 {
-			line = 1
-		}
-		if col <= 0 {
-			col = 1
-		}
-		out = append(out, DiscoveredTest{
-			Event:   "test",
-			Package: pkgLabel,
-			File:    slashAbs,
-			RelFile: relFile,
-			Line:    line,
-			Col:     col,
-			Name:    vd.Name,
-			Desc:    desc,
-		})
+	}
+	for _, d := range af.Decls {
+		visitDecl(d)
 	}
 	return out
+}
+
+func evalStaticTargetBool(e ast.Expr, target manifest.TargetInfo) (bool, bool) {
+	switch v := e.(type) {
+	case *ast.BoolLit:
+		return v.Val, true
+	case *ast.UnaryExpr:
+		if v.Op == token.KwNot {
+			b, ok := evalStaticTargetBool(v.Operand, target)
+			return !b, ok
+		}
+	case *ast.MemberExpr:
+		if isCompTargetField(v, "is_unix") {
+			return target.IsUnix, true
+		}
+	case *ast.BinaryExpr:
+		switch v.Op {
+		case token.KwAnd:
+			lb, lok := evalStaticTargetBool(v.Left, target)
+			if lok && !lb {
+				return false, true
+			}
+			rb, rok := evalStaticTargetBool(v.Right, target)
+			if rok && !rb {
+				return false, true
+			}
+			if lok && rok {
+				return lb && rb, true
+			}
+		case token.KwOr:
+			lb, lok := evalStaticTargetBool(v.Left, target)
+			if lok && lb {
+				return true, true
+			}
+			rb, rok := evalStaticTargetBool(v.Right, target)
+			if rok && rb {
+				return true, true
+			}
+			if lok && rok {
+				return lb || rb, true
+			}
+		case token.Eq, token.Neq:
+			if ls, lok := evalStaticTargetScalar(v.Left, target); lok {
+				if rs, rok := evalStaticTargetScalar(v.Right, target); rok {
+					eq := ls == rs
+					if v.Op == token.Neq {
+						return !eq, true
+					}
+					return eq, true
+				}
+			}
+			if li, lok := evalStaticTargetInt(v.Left, target); lok {
+				if ri, rok := evalStaticTargetInt(v.Right, target); rok {
+					eq := li == ri
+					if v.Op == token.Neq {
+						return !eq, true
+					}
+					return eq, true
+				}
+			}
+			if lb, lok := evalStaticTargetBool(v.Left, target); lok {
+				if rb, rok := evalStaticTargetBool(v.Right, target); rok {
+					eq := lb == rb
+					if v.Op == token.Neq {
+						return !eq, true
+					}
+					return eq, true
+				}
+			}
+		}
+	}
+	return false, false
+}
+
+func isCompTargetField(m *ast.MemberExpr, field string) bool {
+	if m == nil || m.Member != field {
+		return false
+	}
+	base, ok := m.Base.(*ast.MemberExpr)
+	if !ok || base.Member != "TARGET" {
+		return false
+	}
+	root, ok := base.Base.(*ast.IdentExpr)
+	return ok && root.Name == "comp"
+}
+
+func evalStaticTargetScalar(e ast.Expr, target manifest.TargetInfo) (string, bool) {
+	switch v := e.(type) {
+	case *ast.StringLit:
+		return "str:" + v.Val, true
+	case *ast.MemberExpr:
+		base, ok := v.Base.(*ast.MemberExpr)
+		if !ok {
+			return "", false
+		}
+		root, ok := base.Base.(*ast.IdentExpr)
+		if !ok || root.Name != "comp" {
+			return "", false
+		}
+		switch base.Member {
+		case "TARGET":
+			switch v.Member {
+			case "os":
+				return "os:" + target.OS, true
+			case "arch":
+				return "arch:" + target.Arch, true
+			case "endian":
+				return "endian:" + target.Endian, true
+			case "triple":
+				return "str:" + target.Triple, true
+			}
+		case "TargetOs":
+			return "os:" + v.Member, true
+		case "TargetArch":
+			return "arch:" + v.Member, true
+		case "TargetEndian":
+			return "endian:" + v.Member, true
+		}
+	}
+	return "", false
+}
+
+func evalStaticTargetInt(e ast.Expr, target manifest.TargetInfo) (uint64, bool) {
+	switch v := e.(type) {
+	case *ast.IntLit:
+		return v.Val, true
+	case *ast.MemberExpr:
+		if isCompTargetField(v, "ptr_size") && target.PtrSize >= 0 {
+			return uint64(target.PtrSize), true
+		}
+		if isCompTargetField(v, "ptr_bits") && target.PtrBits >= 0 {
+			return uint64(target.PtrBits), true
+		}
+	}
+	return 0, false
 }
 
 func discoverTestsInCandidate(opts Options, cand testListTarget, target manifest.TargetInfo, baseDir string, filterRe *regexp.Regexp) []DiscoveredTest {
@@ -231,7 +395,7 @@ func discoverTestsInCandidate(opts Options, cand testListTarget, target manifest
 		if opts.SrcOverride != "" && len(opts.Targets) <= 1 {
 			override = opts.SrcOverride
 		}
-		return discoverTestsInFile(cand.path, override, baseDir, filterRe)
+		return discoverTestsInFile(cand.path, override, target, baseDir, filterRe)
 	}
 
 	entries, err := os.ReadDir(cand.path)
@@ -251,7 +415,7 @@ func discoverTestsInCandidate(opts Options, cand testListTarget, target manifest
 		if !manifest.MatchesTargetSuffix(e.Name(), target) {
 			continue
 		}
-		out = append(out, discoverTestsInFile(filepath.Join(cand.path, e.Name()), "", baseDir, filterRe)...)
+		out = append(out, discoverTestsInFile(filepath.Join(cand.path, e.Name()), "", target, baseDir, filterRe)...)
 	}
 	return out
 }

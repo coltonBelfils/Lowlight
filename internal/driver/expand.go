@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"lowlight/internal/ast"
 	"lowlight/internal/diag"
 	"lowlight/internal/format"
 	"lowlight/internal/manifest"
@@ -25,11 +26,40 @@ var CanonicalTargets = []string{
 }
 
 // Expand runs semantic checking and comptime evaluation on opts, expands the entry
-// module's compile-time constants/control flow, and returns formatted Lowlight source.
+// module's (or multi-file package's) compile-time constants/control flow/`@derive`
+// methods, and returns formatted Lowlight source.
 func Expand(opts Options) (string, string, error) {
-	opts, _, err := ResolveOptions(opts)
+	opts, ctx, err := ResolveOptions(opts)
 	if err != nil {
 		return "", "", err
+	}
+	if opts.Workspace && opts.SrcOverride == "" && ctx != nil && len(ctx.WorkspaceMembers) > 0 {
+		members := sortedWorkspaceMembers(ctx)
+		var allOut strings.Builder
+		var allWarns strings.Builder
+		for i, member := range members {
+			mOpts := opts
+			mOpts.Workspace = false
+			mOpts.Package = ""
+			mOpts.EntryPath = member.Dir
+			expanded, warns, err := Expand(mOpts)
+			allWarns.WriteString(warns)
+			if err != nil {
+				return "", allWarns.String(), err
+			}
+			if i > 0 {
+				allOut.WriteByte('\n')
+			}
+			if len(members) > 1 {
+				pkgLabel := member.Dir
+				if member.Package.Name != "" {
+					pkgLabel = member.Package.Name
+				}
+				fmt.Fprintf(&allOut, "// === package %s ===\n", pkgLabel)
+			}
+			allOut.WriteString(expanded)
+		}
+		return allOut.String(), allWarns.String(), nil
 	}
 	checked, warnings, err := Check(opts)
 	if err != nil {
@@ -38,23 +68,64 @@ func Expand(opts Options) (string, string, error) {
 	if checked == nil || checked.EntryMod == nil {
 		return "", warnings, errors.New("cannot expand: missing entry module")
 	}
-	expandedFile := sema.ExpandModuleAST(checked, checked.EntryMod)
-	if expandedFile == nil {
-		return "", warnings, errors.New("cannot expand entry module")
-	}
-	origSrc := opts.SrcOverride
-	if origSrc == "" && checked.EntryMod.Path != "" {
-		if raw, readErr := os.ReadFile(checked.EntryMod.Path); readErr == nil {
-			origSrc = string(raw)
+
+	// Collect target modules: if expanding a package directory (`-p` or dir) with multiple
+	// non-test modules, emit all non-test modules; otherwise expand just EntryMod.
+	entryIsDir := opts.Package != ""
+	if !entryIsDir && opts.SrcOverride == "" && opts.EntryPath != "" {
+		if st, statErr := os.Stat(opts.EntryPath); statErr == nil && st.IsDir() {
+			entryIsDir = true
 		}
 	}
-	fmtOpts := format.DefaultOptions()
-	if checked.EntryMod.Dir != "" {
-		fmtOpts = format.LoadConfig(checked.EntryMod.Dir)
-	} else if checked.EntryMod.Path != "" {
-		fmtOpts = format.LoadConfig(filepath.Dir(checked.EntryMod.Path))
+	var mods []*sema.Module
+	if entryIsDir && opts.SrcOverride == "" && checked.EntryPkg != nil {
+		for _, m := range checked.EntryPkg.Files {
+			if m != nil && !m.IsTestFile {
+				mods = append(mods, m)
+			}
+		}
 	}
-	return format.FormatAST(origSrc, expandedFile, nil, fmtOpts), warnings, nil
+	if len(mods) == 0 {
+		mods = []*sema.Module{checked.EntryMod}
+	}
+
+	var out strings.Builder
+	for i, m := range mods {
+		expandedFile := sema.ExpandModuleAST(checked, m)
+		if expandedFile == nil {
+			return "", warnings, errors.New("cannot expand module")
+		}
+		origSrc := ""
+		if m == checked.EntryMod && opts.SrcOverride != "" {
+			origSrc = opts.SrcOverride
+		} else if m.Path != "" {
+			if raw, readErr := os.ReadFile(m.Path); readErr == nil {
+				origSrc = string(raw)
+			}
+		}
+		formatted := FormatExpandedAST(m, origSrc, expandedFile)
+		if len(mods) > 1 {
+			if i > 0 {
+				out.WriteByte('\n')
+			}
+			fmt.Fprintf(&out, "// === %s ===\n", filepath.Base(m.Path))
+		}
+		out.WriteString(formatted)
+	}
+	return out.String(), warnings, nil
+}
+
+// FormatExpandedAST formats an expanded AST file using the module's `.lowlightfmt` config.
+func FormatExpandedAST(mod *sema.Module, origSrc string, expandedFile *ast.File) string {
+	fmtOpts := format.DefaultOptions()
+	if mod != nil {
+		if mod.Dir != "" {
+			fmtOpts = format.LoadConfig(mod.Dir)
+		} else if mod.Path != "" {
+			fmtOpts = format.LoadConfig(filepath.Dir(mod.Path))
+		}
+	}
+	return format.FormatAST(origSrc, expandedFile, nil, fmtOpts)
 }
 
 // CheckAllTargets runs semantic checking across CanonicalTargets, merging and deduplicating
@@ -74,6 +145,7 @@ func CheckAllTargets(opts Options) (string, error) {
 		rendered string
 		severity diag.Severity
 		targets  []string
+		seen     map[string]bool
 	}
 	var order []string
 	buckets := make(map[string]*diagBucket)
@@ -99,11 +171,14 @@ func CheckAllTargets(opts Options) (string, error) {
 			text := rep.FormatOne(d)
 			b, exists := buckets[text]
 			if !exists {
-				b = &diagBucket{rendered: text, severity: d.Severity}
+				b = &diagBucket{rendered: text, severity: d.Severity, seen: make(map[string]bool)}
 				buckets[text] = b
 				order = append(order, text)
 			}
-			b.targets = append(b.targets, triple)
+			if !b.seen[triple] {
+				b.seen[triple] = true
+				b.targets = append(b.targets, triple)
+			}
 		}
 	}
 

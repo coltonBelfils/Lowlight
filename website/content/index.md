@@ -121,7 +121,7 @@ bind main = fn(): {
 <p class="sub">Documentation for every stage, from your first program to writing your own compiler.</p>
 <div class="cards">
 <a class="card" href="start/index.html"><span class="tag">Start</span><h3>Get started</h3><p>Install the toolchain, run your first program, and set up your editor.</p></a>
-<a class="card" href="tour/index.html"><span class="tag">Learn</span><h3>A tour of Lowlight</h3><p>The whole language in twelve short, runnable lessons.</p></a>
+<a class="card" href="tour/index.html"><span class="tag">Learn</span><h3>A tour of Lowlight</h3><p>The whole language in thirteen short, runnable lessons.</p></a>
 <a class="card" href="learn/index.html"><span class="tag">Learn</span><h3>Tutorials</h3><p>Build real programs step by step: a word counter, a calculator, a config loader, a web service.</p></a>
 <a class="card" href="examples/index.html"><span class="tag">Learn</span><h3>Lowlight by Example</h3><p>Annotated, runnable programs, one idea at a time.</p></a>
 <a class="card" href="guides/index.html"><span class="tag">Guides</span><h3>Guides</h3><p>In-depth explanations: ownership, failure handling, generics, packages, testing, performance.</p></a>

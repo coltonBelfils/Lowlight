@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compile-time evaluation · Lowlight</title>
+<meta name="description" content="const functions and lookup tables, comptime blocks and loops, const generics, reflection, and comp.TARGET.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-doc" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a class="active" href="index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a href="../std/index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Tour</a></div><ul><li><a href="basics.html">Basics</a></li><li><a href="functions.html">Functions</a></li><li><a href="types.html">Your own types</a></li><li><a href="optionals.html">Optionals</a></li><li><a href="control-flow.html">Control flow</a></li><li><a href="matching.html">Pattern matching</a></li><li><a href="collections.html">Collections</a></li><li><a href="results.html">Results and errors</a></li><li><a href="ownership.html">Ownership</a></li><li><a href="interfaces-generics.html">Interfaces and generics</a></li><li><a class="active" href="comptime.html">Compile-time evaluation</a></li><li><a href="packages-tests.html">Packages and tests</a></li><li><a href="next-steps.html">Next steps</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="../std/index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Tour</a></nav><h1 id="compile-time-evaluation"><a class="anchor" href="#compile-time-evaluation" aria-hidden="true">#</a>Compile-time evaluation</h1>
+<p>Lowlight runs pure <code>const</code> code inside the compiler itself. Instead of macros or separate code-generation scripts, you write ordinary Lowlight using <code>const</code>, <code>comptime</code>, const generics, and type reflection.</p>
+<h2 id="const-values-and-functions"><a class="anchor" href="#const-values-and-functions" aria-hidden="true">#</a><code>const</code> values and functions</h2>
+<p>A <code>const</code> binding is evaluated at compile time, and a <code>const</code> function can be called both at compile time and at runtime:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">const</span> square = <span class="k">fn</span>(x: <span class="t">int</span>) <span class="t">int</span>: x * x
+
+<span class="a">@comptime_only</span>
+<span class="k">const</span> _build_squares = <span class="k">fn</span>() [<span class="n">6</span>: <span class="t">int</span>]: {
+	<span class="k">let</span> out = [<span class="n">6</span>: <span class="n">0</span>]
+	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">6</span>): out[i] = <span class="f">square</span>(i)
+	out
+}
+
+<span class="m">// Computed once while compiling and stored directly in read-only data.</span>
+<span class="k">const</span> <span class="t">SQUARES</span> = <span class="f">_build_squares</span>()
+
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
+	<span class="k">let</span> runtime_n = <span class="n">4</span>
+	<span class="f">println</span>(<span class="t">SQUARES</span>[<span class="n">3</span>])
+	<span class="f">println</span>(<span class="f">square</span>(runtime_n))
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>9
+16</code></pre>
+<p><code>@comptime_only</code> marks helpers that exist strictly during compilation—they are never emitted into the final binary and may freely use compile-time <code>Map</code>s, <code>Set</code>s, and reflection queries.</p>
+<h2 id="inline-comptime-and-unrolled-loops"><a class="anchor" href="#inline-comptime-and-unrolled-loops" aria-hidden="true">#</a>Inline <code>comptime</code> and unrolled loops</h2>
+<p>Write <code>comptime expr</code> (or <code>comptime { ... }</code>) to evaluate a pure computation at compile time inside runtime code. Use <code>comptime if</code>, <code>comptime match</code>, and <code>comptime for</code> to select branches and unroll loops statically:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">const</span> describe_size[<span class="t">T</span>] = <span class="k">fn</span>() <span class="t">string</span>:
+	<span class="k">comptime</span> <span class="k">if</span>(type.size_of[<span class="t">T</span>]() &lt;= <span class="n">4</span>): <span class="s">&quot;small (</span>${type.size_of[<span class="t">T</span>]()}<span class="s"> bytes)&quot;</span>
+	<span class="k">else</span>: <span class="s">&quot;word (</span>${type.size_of[<span class="t">T</span>]()}<span class="s"> bytes)&quot;</span>
+
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
+	<span class="k">let</span> greeting = <span class="k">comptime</span> <span class="s">&quot;hello, &quot;</span> + <span class="s">&quot;world&quot;</span>.<span class="f">to_upper</span>()
+	<span class="f">println</span>(greeting)
+	<span class="f">println</span>(describe_size[<span class="t">i32</span>]())
+	<span class="f">println</span>(describe_size[<span class="t">int</span>]())
+	<span class="k">comptime</span> <span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">3</span>): <span class="f">println</span>(<span class="s">&quot;unrolled </span>$i<span class="s">&quot;</span>)
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>hello, WORLD
+small (4 bytes)
+word (8 bytes)
+unrolled 0
+unrolled 1
+unrolled 2</code></pre>
+<h2 id="const-generic-parameters"><a class="anchor" href="#const-generic-parameters" aria-hidden="true">#</a>Const generic parameters</h2>
+<p>Types and functions can parameterize over compile-time values (<code>[N: const int]</code>, booleans, chars, tag enums, or strings). <code>N</code> is inferred automatically from fixed-size array arguments:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">const</span> dot[<span class="t">N</span>: <span class="k">const</span> <span class="t">int</span>] = <span class="k">fn</span>(a: [<span class="t">N</span>: <span class="t">int</span>], b: [<span class="t">N</span>: <span class="t">int</span>]) <span class="t">int</span>: {
+	<span class="k">let</span> acc = <span class="n">0</span>
+	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="t">N</span>): acc += a[i] * b[i]
+	acc
+}
+
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
+	<span class="k">let</span> v1 = [<span class="n">3</span>: <span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>]
+	<span class="k">let</span> v2 = [<span class="n">1</span> + <span class="n">2</span>: <span class="n">4</span>, <span class="n">5</span>, <span class="n">6</span>]
+	<span class="f">println</span>(<span class="f">dot</span>(v1, v2))
+}</code></pre>
+<pre class="lang-output" data-lang="output"><code>32</code></pre>
+<h2 id="static-reflection"><a class="anchor" href="#static-reflection" aria-hidden="true">#</a>Static reflection</h2>
+<p>Inside a generic or <code>const</code> function, <code>comp.fields_of[T]()</code>, <code>comp.variants_of[T]()</code>, <code>comp.elems_of[T]()</code>, <code>comp.kind_of[T]()</code>, <code>comp.type_name[T]()</code>, and <code>comp.attrs_of[T]()</code> inspect types statically without runtime type information:</p>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">define</span> <span class="t">Point</span> <span class="k">struct</span> [
+	x: <span class="t">int</span>,
+	y: <span class="t">int</span>,
+]
+
+<span class="k">const</span> show_fields[<span class="t">T</span>] = <span class="k">fn</span>(v: <span class="t">T</span>) <span class="t">string</span>: {
+	<span class="k">const</span> name = comp.type_name[<span class="t">T</span>]()
+	<span class="k">let</span> out = <span class="s">&quot;</span>$name<span class="s">:&quot;</span>
+	<span class="k">comptime</span> <span class="k">for</span>(f <span class="k">in</span> comp.fields_of[<span class="t">T</span>]()):
+		out.<span class="f">push</span>(<span class="s">&quot; </span>${f.name}<span class="s">=</span>${v.<span class="f">field</span>(f)}<span class="s">&quot;</span>)
+	out
+}
+
+<span class="k">bind</span> main = <span class="k">fn</span>(): <span class="f">println</span>(<span class="f">show_fields</span>(<span class="t">Point</span>[x: <span class="n">3</span>, y: <span class="n">7</span>]))</code></pre>
+<pre class="lang-output" data-lang="output"><code>Point: x=3 y=7</code></pre>
+<p>You can also inspect the active compilation target via <code>comp.TARGET</code> inside <code>comptime if(comp.TARGET.ptr_bits == 64): ...</code> or embed package-local assets with <code>comp.embed_str(&quot;path&quot;)</code>.</p>
+<h2 id="next"><a class="anchor" href="#next" aria-hidden="true">#</a>Next</h2>
+<p><span class="repo-link" title="In the Lowlight repository: website/content/tour/packages-tests.html">Packages and tests →</span></p>
+</article><nav class="prev-next"><a class="prev" href="interfaces-generics.html"><span>Previous</span>Interfaces and generics</a><a class="next" href="packages-tests.html"><span>Next</span>Packages and tests</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#const-values-and-functions">const values and functions</a></li><li><a href="#inline-comptime-and-unrolled-loops">Inline comptime and unrolled loops</a></li><li><a href="#const-generic-parameters">Const generic parameters</a></li><li><a href="#static-reflection">Static reflection</a></li><li><a href="#next">Next</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tour</a><a href="basics.html">Basics</a><a href="functions.html">Functions</a><a href="types.html">Your own types</a><a href="optionals.html">Optionals</a><a href="control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/collections.html">std/collections</a><a href="../std/core.html">std/core</a><a href="../std/derive.html">std/derive</a><a href="../std/fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

@@ -501,7 +501,7 @@ const core_sqrt = fn(x: float) float: {
 
 // Formats a `@track_caller` source location (`file:line:col` or `file:line`) without fixed-size truncation.
 @lang("format_loc")
-bind _format_loc = fn(file: string, line: int, col: int) string: {
+const _format_loc = fn(file: string, line: int, col: int) string: {
 	if(file.len() == 0): {
 		if(col > 0): func <- "<unknown>:$line:$col"
 		func <- "<unknown>:$line"

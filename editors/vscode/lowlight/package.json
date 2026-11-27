@@ -60,6 +60,14 @@
         "title": "Lowlight: Restart Language Server"
       },
       {
+        "command": "lowlight.setTarget",
+        "title": "Lowlight: Switch Compilation Target"
+      },
+      {
+        "command": "lowlight.expandDocument",
+        "title": "Lowlight: Expand Document (Comptime & Derives)"
+      },
+      {
         "command": "lowlight.runFile",
         "title": "Lowlight: Run Current File",
         "icon": "$(play)"
@@ -145,6 +153,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show parameter name inlay hints at function and method call sites."
+        },
+        "lowlight.target": {
+          "type": "string",
+          "default": "",
+          "description": "Target triple for IDE checking and comptime evaluation (e.g. x86_64-unknown-linux-gnu, aarch64-apple-darwin, wasm32-unknown-unknown; empty = host default)."
         },
         "lowlight.test.useTerminal": {
           "type": "boolean",

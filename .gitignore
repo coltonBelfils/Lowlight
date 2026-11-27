@@ -17,5 +17,6 @@ __pycache__/
 *.vsix
 *.o
 *.out
+!website/examples/*.out
 *.exe
 *.dSYM/

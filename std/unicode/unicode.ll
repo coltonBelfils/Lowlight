@@ -24,24 +24,24 @@
 // Returns `text` with every character converted to uppercase.
 //
 // Uses full mappings, so the result may be longer than `text` (`"ß"` becomes `"SS"`).
-bind to_upper = fn(text: string) string: _convert(text, 0)
+const to_upper = fn(text: string) string: _convert(text, 0)
 
 // Returns `text` with every character converted to lowercase.
 //
 // Uses full mappings and applies the Final_Sigma rule: a capital sigma `Σ` at the end of a
 // word lowercases to `ς`, and elsewhere to `σ`.
-bind to_lower = fn(text: string) string: _convert(text, 1)
+const to_lower = fn(text: string) string: _convert(text, 1)
 
 // Returns the full case folding of `text`: a caseless form for comparing text
 // case-insensitively (`"Straße"`, `"STRASSE"`, and `"strasse"` all fold to `"strasse"`).
 // Folded text is meant for comparison and lookup, not for display.
-bind fold = fn(text: string) string: _convert(text, 2)
+const fold = fn(text: string) string: _convert(text, 2)
 
 // Reports whether `a` and `b` are equal ignoring case, by comparing their full case foldings.
-bind equal_fold = fn(a: string, b: string) bool: fold(a) == fold(b)
+const equal_fold = fn(a: string, b: string) bool: fold(a) == fold(b)
 
 // Converts `text` with mode 0 (upper), 1 (lower), or 2 (fold).
-bind _convert = fn(text: string, mode: int) string: {
+const _convert = fn(text: string, mode: int) string: {
 	let out = string.with_capacity(text.len())
 	let cs = text.chars()
 	for(i, c in cs): {
@@ -78,7 +78,7 @@ bind _convert = fn(text: string, mode: int) string: {
 }
 
 // Maps `cp` through a table of (start, end, delta, stride) runs, or returns it unchanged.
-bind _map_simple = fn(table: [int], cp: int) int: {
+const _map_simple = fn(table: [int], cp: int) int: {
 	let lo = 0
 	let hi = table.len() / 4 - 1
 	while(lo <= hi): {
@@ -95,7 +95,7 @@ bind _map_simple = fn(table: [int], cp: int) int: {
 }
 
 // Returns the index of `cp` in a sorted key table, or `-1`.
-bind _special_index = fn(keys: [int], cp: int) int: {
+const _special_index = fn(keys: [int], cp: int) int: {
 	let lo = 0
 	let hi = keys.len() - 1
 	while(lo <= hi): {
@@ -107,7 +107,7 @@ bind _special_index = fn(keys: [int], cp: int) int: {
 }
 
 // Reports whether `cp` falls in a table of inclusive (start, end) pairs.
-bind _in_ranges = fn(table: [int], cp: int) bool: {
+const _in_ranges = fn(table: [int], cp: int) bool: {
 	let lo = 0
 	let hi = table.len() / 2 - 1
 	while(lo <= hi): {
@@ -119,14 +119,14 @@ bind _in_ranges = fn(table: [int], cp: int) bool: {
 	false
 }
 
-bind _is_cased = fn(c: char) bool: _in_ranges(_CASED_RANGES, int(c))
+const _is_cased = fn(c: char) bool: _in_ranges(_CASED_RANGES, int(c))
 
-bind _is_case_ignorable = fn(c: char) bool: _in_ranges(_CASE_IGNORABLE_RANGES, int(c))
+const _is_case_ignorable = fn(c: char) bool: _in_ranges(_CASE_IGNORABLE_RANGES, int(c))
 
 // The Final_Sigma condition (Unicode §3.13): the sigma at `i` follows a cased letter and is
 // not followed by one, skipping case-ignorable characters (such as apostrophes and combining
 // marks) in both directions.
-bind _is_final_sigma = fn(cs: [char], i: int) bool: {
+const _is_final_sigma = fn(cs: [char], i: int) bool: {
 	let j = i - 1
 	while(j >= 0 and _is_case_ignorable(cs[j])): j -= 1
 	if(j < 0 or not _is_cased(cs[j])): func <- false

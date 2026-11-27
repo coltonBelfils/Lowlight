@@ -41,6 +41,7 @@ vim.api.nvim_create_autocmd('FileType', {
           types = true,
           parameters = true,
         },
+        target = '',
       },
     }
 
@@ -258,6 +259,67 @@ vim.api.nvim_create_autocmd('FileType', {
       if vim.lsp.inlay_hint then
         vim.lsp.inlay_hint.enable(true, { bufnr = bufnr })
       end
+
+      -- Buffer commands for comptime / @derive expansion & target switching
+      vim.api.nvim_buf_create_user_command(bufnr, 'LowlightExpand', function()
+        local uri = vim.uri_from_bufnr(bufnr)
+        vim.lsp.buf_request(bufnr, 'lowlight/expandDocument', { textDocument = { uri = uri } }, function(err, result)
+          if err or not result or not result.text then
+            vim.notify('LowlightExpand failed: ' .. tostring((err and err.message) or 'no result'), vim.log.levels.ERROR)
+            return
+          end
+          local lines = vim.split('// Expanded by Lowlight (target: ' .. tostring(result.target or 'host') .. ')\n' .. result.text, '\n', { plain = true })
+          vim.cmd('vnew')
+          local scratch = vim.api.nvim_get_current_buf()
+          vim.bo[scratch].buftype = 'nofile'
+          vim.bo[scratch].bufhidden = 'wipe'
+          vim.bo[scratch].swapfile = false
+          vim.bo[scratch].filetype = 'lowlight'
+          vim.api.nvim_buf_set_lines(scratch, 0, -1, false, lines)
+          vim.bo[scratch].modifiable = false
+        end)
+      end, { desc = 'Preview expanded comptime and @derive code' })
+
+      vim.api.nvim_buf_create_user_command(bufnr, 'LowlightTarget', function(opts)
+        local apply_target = function(triple)
+          triple = vim.trim(triple or '')
+          local client = vim.lsp.get_client_by_id(client_id)
+          if client then
+            client.config.settings = client.config.settings or { lowlight = {} }
+            client.config.settings.lowlight = client.config.settings.lowlight or {}
+            client.config.settings.lowlight.target = triple
+            client:notify('workspace/didChangeConfiguration', { settings = client.config.settings })
+          end
+          vim.notify('Lowlight target: ' .. (triple ~= '' and triple or 'host default'), vim.log.levels.INFO)
+        end
+        local arg = vim.trim(opts.args or '')
+        if opts.bang then
+          apply_target('')
+          return
+        end
+        if arg ~= '' then
+          apply_target(arg)
+          return
+        end
+        local targets = {
+          '',
+          'x86_64-unknown-linux-gnu',
+          'aarch64-unknown-linux-gnu',
+          'aarch64-apple-darwin',
+          'x86_64-apple-darwin',
+          'x86_64-pc-windows-msvc',
+          'wasm32-unknown-unknown',
+          'riscv64-unknown-linux-gnu',
+        }
+        vim.ui.select(targets, {
+          prompt = 'Select Lowlight target triple:',
+          format_item = function(t) return t == '' and '(host default)' or t end,
+        }, function(choice)
+          if choice ~= nil then
+            apply_target(choice)
+          end
+        end)
+      end, { nargs = '?', bang = true, desc = 'Switch Lowlight compilation target triple (:LowlightTarget! resets to host)' })
 
       -- Enable Code Lens (displays '▶ Run Test' above @test functions)
       if vim.lsp.codelens then

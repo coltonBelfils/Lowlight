@@ -128,4 +128,4 @@ One restriction: a type argument is never an optional. Write `?T` in the signatu
 
 ## Next
 
-[Packages and tests →](packages-tests.html)
+[Compile-time evaluation →](comptime.html)

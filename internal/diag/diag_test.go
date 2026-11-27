@@ -43,3 +43,36 @@ func TestFormatMultilineSpanClampedToLineEnd(t *testing.T) {
 		t.Fatalf("expected multi-line underline clamped to end of line 1:\ngot:\n%s\nwant line containing:\n%q", out, wantCaret)
 	}
 }
+
+func TestFormatZeroPosAndRelatedSnippets(t *testing.T) {
+	if got := (diag.Pos{}).String(); got != "" {
+		t.Fatalf("expected empty Pos.String(), got %q", got)
+	}
+	rep := diag.NewReporter()
+	rep.AddSource("a.ll", "const X = 1\nconst Y = 2\n")
+	rep.Report(diag.Diagnostic{
+		Severity: diag.Error,
+		Message:  "global target error",
+	})
+	rep.Report(diag.Diagnostic{
+		Severity: diag.Error,
+		Span:     diag.Span{Start: diag.Pos{File: "a.ll", Line: 2, Col: 7}, End: diag.Pos{File: "a.ll", Line: 2, Col: 8}},
+		Message:  "redefined symbol",
+		Related: []diag.RelatedInfo{
+			{
+				Span:    diag.Span{Start: diag.Pos{File: "a.ll", Line: 1, Col: 7}, End: diag.Pos{File: "a.ll", Line: 1, Col: 8}},
+				Message: "previous definition here",
+			},
+		},
+	})
+	out := rep.Format()
+	if strings.Contains(out, "0:0:") {
+		t.Fatalf("did not expect 0:0: prefix for zero span:\n%s", out)
+	}
+	if !strings.Contains(out, "error: global target error") {
+		t.Fatalf("expected global target error line:\n%s", out)
+	}
+	if !strings.Contains(out, "1 | const X = 1") {
+		t.Fatalf("expected related note source snippet in output:\n%s", out)
+	}
+}

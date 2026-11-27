@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 
 	"lowlight/internal/codegen"
 	"lowlight/internal/ir"
@@ -56,13 +58,117 @@ func filterCompileFlags(flags []string) []string {
 	return out
 }
 
-func computeObjCacheKey(backend BackendKind, cc, targetTriple string, release, testMode bool, compileFlags []string, pu codegen.PackageUnit) string {
+var (
+	ccVersionMu    sync.Mutex
+	ccVersionCache = map[string]string{}
+)
+
+func ccVersionFingerprint(cc string) string {
+	ccVersionMu.Lock()
+	if fp, ok := ccVersionCache[cc]; ok {
+		ccVersionMu.Unlock()
+		return fp
+	}
+	ccVersionMu.Unlock()
+
+	out, err := exec.Command(cc, "--version").CombinedOutput()
+	fp := "unknown"
+	if err == nil {
+		fp = strings.TrimSpace(string(out))
+	}
+	ccVersionMu.Lock()
+	ccVersionCache[cc] = fp
+	ccVersionMu.Unlock()
+	return fp
+}
+
+func collectObjCacheInputs(checked *sema.CheckedProgram, compileFlags []string) []string {
+	if checked == nil {
+		return nil
+	}
+	var inputs []string
+
+	// Include hashes of all comptime-embedded files.
+	embeds := append([]sema.EmbeddedFileInfo(nil), checked.EmbeddedFiles...)
+	sort.Slice(embeds, func(i, j int) bool {
+		return embeds[i].Path < embeds[j].Path
+	})
+	for _, ef := range embeds {
+		inputs = append(inputs, fmt.Sprintf("embed:%s=%s", ef.Path, ef.SHA256))
+	}
+
+	// Include resolved external header hashes for local headers (and names for system headers).
+	searchDirs := make([]string, 0, len(checked.Modules)+4)
+	seenDir := map[string]bool{}
+	addDir := func(d string) {
+		if d == "" {
+			return
+		}
+		clean := filepath.Clean(d)
+		if !seenDir[clean] {
+			seenDir[clean] = true
+			searchDirs = append(searchDirs, clean)
+		}
+	}
+	for _, m := range checked.Modules {
+		if m != nil && m.Path != "" {
+			addDir(filepath.Dir(m.Path))
+		}
+	}
+	for i := 0; i < len(compileFlags); i++ {
+		f := compileFlags[i]
+		if f == "-I" && i+1 < len(compileFlags) {
+			addDir(compileFlags[i+1])
+			i++
+		} else if strings.HasPrefix(f, "-I") && len(f) > 2 {
+			addDir(f[2:])
+		}
+	}
+	hdrs := append([]string(nil), checked.ExternHeaders...)
+	sort.Strings(hdrs)
+	seenHdr := map[string]bool{}
+	for _, hdr := range hdrs {
+		if hdr == "" || seenHdr[hdr] {
+			continue
+		}
+		seenHdr[hdr] = true
+		var digest string
+		if filepath.IsAbs(hdr) {
+			if b, err := os.ReadFile(hdr); err == nil {
+				sum := sha256.Sum256(b)
+				digest = hex.EncodeToString(sum[:])
+			}
+		} else {
+			for _, d := range searchDirs {
+				cand := filepath.Join(d, hdr)
+				if b, err := os.ReadFile(cand); err == nil {
+					sum := sha256.Sum256(b)
+					digest = hex.EncodeToString(sum[:])
+					break
+				}
+			}
+		}
+		if digest != "" {
+			inputs = append(inputs, fmt.Sprintf("hdr:%s=%s", hdr, digest))
+		} else {
+			inputs = append(inputs, "hdr:"+hdr)
+		}
+	}
+	return inputs
+}
+
+func computeObjCacheKey(backend BackendKind, cc, ccVer, targetTriple string, release, testMode bool, compileFlags, extraInputs []string, pu codegen.PackageUnit) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "lowlight-obj-v1\nbackend=%s\ncc=%s\ntarget=%s\nrelease=%v\ntest=%v\npkg=%s\n",
-		backend, cc, targetTriple, release, testMode, pu.PkgID)
+	fmt.Fprintf(h, "lowlight-obj-v2\ncompiler=%s\nbackend=%s\ncc=%s\nccver=%s\ntarget=%s\nrelease=%v\ntest=%v\npkg=%s\n",
+		Version, backend, cc, ccVer, targetTriple, release, testMode, pu.PkgID)
 	for _, f := range compileFlags {
 		h.Write([]byte("flag="))
 		h.Write([]byte(f))
+		h.Write([]byte{'\n'})
+	}
+	for _, in := range extraInputs {
+		h.Write([]byte("input="))
+		h.Write([]byte(in))
 		h.Write([]byte{'\n'})
 	}
 	h.Write([]byte("---\n"))
@@ -149,10 +255,12 @@ func buildTwoPhase(
 	if checked != nil && checked.Target.Triple != "" {
 		targetKey = checked.Target.Triple
 	}
+	ccVer := ccVersionFingerprint(cc)
+	extraInputs := collectObjCacheInputs(checked, compileFlags)
 	var objFiles []string
 	for idx, pu := range split.PackageUnits {
-		key := computeObjCacheKey(backend, cc, targetKey, opts.Release, opts.TestMode, compileFlags, pu)
-		cacheObj := filepath.Join(cacheDir, fmt.Sprintf("%s-%s.o", pu.PkgTag, key[:20]))
+		key := computeObjCacheKey(backend, cc, ccVer, targetKey, opts.Release, opts.TestMode, compileFlags, extraInputs, pu)
+		cacheObj := filepath.Join(cacheDir, fmt.Sprintf("%s-%s.o", pu.PkgTag, key[:32]))
 		if cacheWritable {
 			if st, statErr := os.Stat(cacheObj); statErr == nil && !st.IsDir() && st.Size() > 0 {
 				stats.CacheHits++

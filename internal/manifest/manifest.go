@@ -479,7 +479,7 @@ func (m *Manifest) EffectiveDeps(target TargetInfo, includeDev bool) (deps map[s
 	for sel := range m.Targets {
 		selectors = append(selectors, sel)
 	}
-	sort.Strings(selectors)
+	SortTargetSelectors(selectors)
 	for _, sel := range selectors {
 		if !target.MatchesSelector(sel) {
 			continue
@@ -505,7 +505,7 @@ func (m *Manifest) EffectiveTargetFlags(target TargetInfo) (cFlags []string, cLi
 	for sel := range m.Targets {
 		selectors = append(selectors, sel)
 	}
-	sort.Strings(selectors)
+	SortTargetSelectors(selectors)
 	for _, sel := range selectors {
 		if !target.MatchesSelector(sel) {
 			continue

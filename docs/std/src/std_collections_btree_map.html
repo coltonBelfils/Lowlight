@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>btree_map.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../collections.html">std/collections</a></li><li><a href="../core.html">std/core</a></li><li><a href="../derive.html">std/derive</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>btree_map.ll</h1><p>Source of package <a href="../collections.html"><code>std/collections</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// A key and its value, as [`BTreeMap`] returns them.</span></span>
+<span class="src-line" id="L2"><span class="a">@derive</span>(<span class="t">Equatable</span>, <span class="t">Copyable</span>, <span class="t">Printable</span>)</span>
+<span class="src-line" id="L3"><span class="k">define</span> <span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L4">	key: <span class="t">K</span>,</span>
+<span class="src-line" id="L5">	value: <span class="t">V</span>,</span>
+<span class="src-line" id="L6">]</span>
+<span class="src-line" id="L7"></span>
+<span class="src-line" id="L8"><span class="m">// A B-tree node. `keys` and `vals` are sorted pairs; `kids` holds the indexes of the child nodes</span></span>
+<span class="src-line" id="L9"><span class="m">// (one more than the keys), or nothing for a leaf.</span></span>
+<span class="src-line" id="L10"><span class="a">@derive</span>(<span class="t">Copyable</span>)</span>
+<span class="src-line" id="L11"><span class="k">define</span> _BNode[<span class="t">K</span>, <span class="t">V</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L12">	keys: [<span class="t">K</span>],</span>
+<span class="src-line" id="L13">	vals: [<span class="t">V</span>],</span>
+<span class="src-line" id="L14">	kids: [<span class="t">int</span>],</span>
+<span class="src-line" id="L15">]</span>
+<span class="src-line" id="L16"></span>
+<span class="src-line" id="L17"><span class="m">// The B-tree&#39;s minimum degree: every node but the root holds `_T - 1` to `2 * _T - 1` keys.</span></span>
+<span class="src-line" id="L18"><span class="k">bind</span> _T = <span class="n">6</span></span>
+<span class="src-line" id="L19"></span>
+<span class="src-line" id="L20"><span class="m">// A map that keeps its keys in sorted order, for ordered iteration, the smallest and largest</span></span>
+<span class="src-line" id="L21"><span class="m">// keys, and range queries. A B-tree, so lookups, inserts, and removals take O(log n).</span></span>
+<span class="src-line" id="L22"><span class="m">//</span></span>
+<span class="src-line" id="L23"><span class="m">// Use the prelude&#39;s `#[K: V]` when order doesn&#39;t matter: it is faster and needs `Hashable` keys</span></span>
+<span class="src-line" id="L24"><span class="m">// rather than [`Comparable`] ones.</span></span>
+<span class="src-line" id="L25"><span class="m">//</span></span>
+<span class="src-line" id="L26"><span class="m">// # Example</span></span>
+<span class="src-line" id="L27"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L28"><span class="m">// let scores = collections.BTreeMap[string, int].new()</span></span>
+<span class="src-line" id="L29"><span class="m">// scores.insert(&quot;bea&quot;, 7)</span></span>
+<span class="src-line" id="L30"><span class="m">// scores.insert(&quot;ada&quot;, 9)</span></span>
+<span class="src-line" id="L31"><span class="m">// assert(scores.first()?.key == &quot;ada&quot;)</span></span>
+<span class="src-line" id="L32"><span class="m">// assert(scores.get(&quot;bea&quot;) == 7)</span></span>
+<span class="src-line" id="L33"><span class="m">// ```</span></span>
+<span class="src-line" id="L34"><span class="k">define</span> <span class="t">BTreeMap</span>[<span class="t">K</span>: <span class="t">Comparable</span>, <span class="t">V</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L35">	<span class="m">// Every node; children refer to each other by index. Empty until the first insert, so an</span></span>
+<span class="src-line" id="L36">	<span class="m">// all-zero map (as a comprehension starts with) is a valid empty map.</span></span>
+<span class="src-line" id="L37">	_nodes: [_BNode[<span class="t">K</span>, <span class="t">V</span>]],</span>
+<span class="src-line" id="L38">	<span class="m">// Indexes of released nodes, reused before the list grows.</span></span>
+<span class="src-line" id="L39">	_free: [<span class="t">int</span>],</span>
+<span class="src-line" id="L40">	_root: <span class="t">int</span>,</span>
+<span class="src-line" id="L41">	_len: <span class="t">int</span>,</span>
+<span class="src-line" id="L42">]</span>
+<span class="src-line" id="L43"></span>
+<span class="src-line" id="L44"><span class="m">// Constructs an empty [`BTreeMap`].</span></span>
+<span class="src-line" id="L45"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].new = <span class="k">fn</span>() <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]: <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>][</span>
+<span class="src-line" id="L46">	_nodes: [],</span>
+<span class="src-line" id="L47">	_free: [],</span>
+<span class="src-line" id="L48">	_root: <span class="n">0</span>,</span>
+<span class="src-line" id="L49">	_len: <span class="n">0</span>,</span>
+<span class="src-line" id="L50">]</span>
+<span class="src-line" id="L51"></span>
+<span class="src-line" id="L52"><span class="m">// Returns the number of keys.</span></span>
+<span class="src-line" id="L53"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._len</span>
+<span class="src-line" id="L54"></span>
+<span class="src-line" id="L55"><span class="m">// Reports whether the map has no keys.</span></span>
+<span class="src-line" id="L56"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>._len == <span class="n">0</span></span>
+<span class="src-line" id="L57"></span>
+<span class="src-line" id="L58"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._is_leaf = <span class="k">fn</span>(<span class="k">self</span>, n: <span class="t">int</span>) <span class="t">bool</span>: <span class="k">self</span>._nodes[n].kids.<span class="f">is_empty</span>()</span>
+<span class="src-line" id="L59"></span>
+<span class="src-line" id="L60"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._nkeys = <span class="k">fn</span>(<span class="k">self</span>, n: <span class="t">int</span>) <span class="t">int</span>: <span class="k">self</span>._nodes[n].keys.<span class="f">len</span>()</span>
+<span class="src-line" id="L61"></span>
+<span class="src-line" id="L62"><span class="m">// The position of the first key in node `n` that isn&#39;t less than `key`.</span></span>
+<span class="src-line" id="L63"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._lower = <span class="k">fn</span>(<span class="k">self</span>, n: <span class="t">int</span>, key: <span class="t">K</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L64">	<span class="k">let</span> i = <span class="n">0</span></span>
+<span class="src-line" id="L65">	<span class="k">while</span>(i &lt; <span class="k">self</span>._nodes[n].keys.<span class="f">len</span>() <span class="k">and</span> <span class="k">self</span>._nodes[n].keys[i].<span class="f">cmp</span>(key) &lt; <span class="n">0</span>): i += <span class="n">1</span></span>
+<span class="src-line" id="L66">	i</span>
+<span class="src-line" id="L67">}</span>
+<span class="src-line" id="L68"></span>
+<span class="src-line" id="L69"><span class="m">// Reports whether node `n` holds `key` at position `i`.</span></span>
+<span class="src-line" id="L70"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._holds = <span class="k">fn</span>(<span class="k">self</span>, n: <span class="t">int</span>, i: <span class="t">int</span>, key: <span class="t">K</span>) <span class="t">bool</span>: i &lt; <span class="k">self</span>._nodes[n].keys.<span class="f">len</span>() <span class="k">and</span> <span class="k">self</span>._nodes[n].keys[i].<span class="f">cmp</span>(</span>
+<span class="src-line" id="L71">	key</span>
+<span class="src-line" id="L72">) == <span class="n">0</span></span>
+<span class="src-line" id="L73"></span>
+<span class="src-line" id="L74"><span class="m">// The node and position holding `key`, or `-1` for both.</span></span>
+<span class="src-line" id="L75"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._locate = <span class="k">fn</span>(<span class="k">self</span>, key: <span class="t">K</span>) +[<span class="t">int</span>, <span class="t">int</span>]: {</span>
+<span class="src-line" id="L76">	<span class="k">if</span>(<span class="k">self</span>._nodes.<span class="f">is_empty</span>()): <span class="k">func</span> <span class="u">&lt;-</span> +[-<span class="n">1</span>, -<span class="n">1</span>]</span>
+<span class="src-line" id="L77">	<span class="k">let</span> n = <span class="k">self</span>._root</span>
+<span class="src-line" id="L78">	<span class="k">while</span>(<span class="c">true</span>): {</span>
+<span class="src-line" id="L79">		<span class="k">let</span> i = <span class="k">self</span>.<span class="f">_lower</span>(n, key)</span>
+<span class="src-line" id="L80">		<span class="k">if</span>(<span class="k">self</span>.<span class="f">_holds</span>(n, i, key)): <span class="k">func</span> <span class="u">&lt;-</span> +[n, i]</span>
+<span class="src-line" id="L81">		<span class="k">if</span>(<span class="k">self</span>.<span class="f">_is_leaf</span>(n)): <span class="k">func</span> <span class="u">&lt;-</span> +[-<span class="n">1</span>, -<span class="n">1</span>]</span>
+<span class="src-line" id="L82">		n = <span class="k">self</span>._nodes[n].kids[i]</span>
+<span class="src-line" id="L83">	}</span>
+<span class="src-line" id="L84">	+[-<span class="n">1</span>, -<span class="n">1</span>]</span>
+<span class="src-line" id="L85">}</span>
+<span class="src-line" id="L86"></span>
+<span class="src-line" id="L87"><span class="m">// Stores `node`, reusing a released index if there is one, and returns its index.</span></span>
+<span class="src-line" id="L88"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._alloc = <span class="k">fn</span>(&amp;<span class="k">self</span>, node: <span class="k">own</span> _BNode[<span class="t">K</span>, <span class="t">V</span>]) <span class="t">int</span>: {</span>
+<span class="src-line" id="L89">	<span class="k">if</span>(<span class="k">self</span>._free.<span class="f">pop</span>() <span class="k">as</span> i): {</span>
+<span class="src-line" id="L90">		<span class="k">self</span>._nodes[i] = <span class="k">own</span> node</span>
+<span class="src-line" id="L91">		<span class="k">func</span> <span class="u">&lt;-</span> i</span>
+<span class="src-line" id="L92">	}</span>
+<span class="src-line" id="L93">	<span class="k">self</span>._nodes.<span class="f">push</span>(<span class="k">own</span> node)</span>
+<span class="src-line" id="L94">	<span class="k">self</span>._nodes.<span class="f">len</span>() - <span class="n">1</span></span>
+<span class="src-line" id="L95">}</span>
+<span class="src-line" id="L96"></span>
+<span class="src-line" id="L97"><span class="m">// Empties node `n` and marks its index for reuse.</span></span>
+<span class="src-line" id="L98"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._release = <span class="k">fn</span>(&amp;<span class="k">self</span>, n: <span class="t">int</span>): {</span>
+<span class="src-line" id="L99">	<span class="k">self</span>._nodes[n].keys.<span class="f">clear</span>()</span>
+<span class="src-line" id="L100">	<span class="k">self</span>._nodes[n].vals.<span class="f">clear</span>()</span>
+<span class="src-line" id="L101">	<span class="k">self</span>._nodes[n].kids.<span class="f">clear</span>()</span>
+<span class="src-line" id="L102">	<span class="k">self</span>._free.<span class="f">push</span>(n)</span>
+<span class="src-line" id="L103">}</span>
+<span class="src-line" id="L104"></span>
+<span class="src-line" id="L105"><span class="m">// Reports whether `key` is in the map.</span></span>
+<span class="src-line" id="L106"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].has = <span class="k">fn</span>(<span class="k">self</span>, key: <span class="t">K</span>) <span class="t">bool</span>: <span class="k">self</span>.<span class="f">_locate</span>(key).<span class="n">0</span> &gt;= <span class="n">0</span></span>
+<span class="src-line" id="L107"></span>
+<span class="src-line" id="L108"><span class="m">// Returns a copy of the value mapped to `key`, or `none` if `key` is absent.</span></span>
+<span class="src-line" id="L109"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].get = <span class="k">fn</span>(<span class="k">self</span>, key: <span class="t">K</span>) ?<span class="t">V</span>: {</span>
+<span class="src-line" id="L110">	<span class="k">let</span> at = <span class="k">self</span>.<span class="f">_locate</span>(key)</span>
+<span class="src-line" id="L111">	<span class="k">if</span>(at.<span class="n">0</span> &lt; <span class="n">0</span>): <span class="c">none</span> <span class="k">else</span>: <span class="k">self</span>._nodes[at.<span class="n">0</span>].vals[at.<span class="n">1</span>].<span class="f">copy</span>()</span>
+<span class="src-line" id="L112">}</span>
+<span class="src-line" id="L113"></span>
+<span class="src-line" id="L114"><span class="m">// Lends the value mapped to `key` to `f`, read-only and without copying it, and returns what `f`</span></span>
+<span class="src-line" id="L115"><span class="m">// returns, or `none` if `key` is absent.</span></span>
+<span class="src-line" id="L116"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].with[<span class="t">R</span>] = <span class="k">fn</span>(<span class="k">self</span>, key: <span class="t">K</span>, f: <span class="k">cl</span>(<span class="t">V</span>) <span class="t">R</span>) ?<span class="t">R</span>: {</span>
+<span class="src-line" id="L117">	<span class="k">let</span> at = <span class="k">self</span>.<span class="f">_locate</span>(key)</span>
+<span class="src-line" id="L118">	<span class="k">if</span>(at.<span class="n">0</span> &lt; <span class="n">0</span>): <span class="c">none</span> <span class="k">else</span>: <span class="f">f</span>(<span class="k">self</span>._nodes[at.<span class="n">0</span>].vals[at.<span class="n">1</span>])</span>
+<span class="src-line" id="L119">}</span>
+<span class="src-line" id="L120"></span>
+<span class="src-line" id="L121"><span class="m">// Runs `f` on the value mapped to `key`, in place, and reports whether `key` was present.</span></span>
+<span class="src-line" id="L122"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].update = <span class="k">fn</span>(&amp;<span class="k">self</span>, key: <span class="t">K</span>, f: <span class="k">cl</span>(&amp;<span class="t">V</span>)) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L123">	<span class="k">let</span> at = <span class="k">self</span>.<span class="f">_locate</span>(key)</span>
+<span class="src-line" id="L124">	<span class="k">if</span>(at.<span class="n">0</span> &lt; <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L125">	<span class="f">f</span>(&amp;<span class="k">self</span>._nodes[at.<span class="n">0</span>].vals[at.<span class="n">1</span>])</span>
+<span class="src-line" id="L126">	<span class="c">true</span></span>
+<span class="src-line" id="L127">}</span>
+<span class="src-line" id="L128"></span>
+<span class="src-line" id="L129"><span class="m">// Inserts `key: val`, or replaces the value if `key` is already present.</span></span>
+<span class="src-line" id="L130"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].insert = <span class="k">fn</span>(&amp;<span class="k">self</span>, key: <span class="k">own</span> <span class="t">K</span>, val: <span class="k">own</span> <span class="t">V</span>): {</span>
+<span class="src-line" id="L131">	<span class="k">let</span> at = <span class="k">self</span>.<span class="f">_locate</span>(key)</span>
+<span class="src-line" id="L132">	<span class="k">if</span>(at.<span class="n">0</span> &gt;= <span class="n">0</span>): {</span>
+<span class="src-line" id="L133">		<span class="k">self</span>._nodes[at.<span class="n">0</span>].vals[at.<span class="n">1</span>] = <span class="k">own</span> val</span>
+<span class="src-line" id="L134">		<span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L135">	}</span>
+<span class="src-line" id="L136">	<span class="k">if</span>(<span class="k">self</span>._nodes.<span class="f">is_empty</span>()): <span class="k">self</span>._root = <span class="k">self</span>.<span class="f">_alloc</span>(_BNode[<span class="t">K</span>, <span class="t">V</span>][keys: [], vals: [], kids: []])</span>
+<span class="src-line" id="L137">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">_nkeys</span>(<span class="k">self</span>._root) == <span class="n">2</span> * _T - <span class="n">1</span>): {</span>
+<span class="src-line" id="L138">		<span class="k">let</span> kids = [<span class="k">self</span>._root]</span>
+<span class="src-line" id="L139">		<span class="k">self</span>._root = <span class="k">self</span>.<span class="f">_alloc</span>(_BNode[<span class="t">K</span>, <span class="t">V</span>][keys: [], vals: [], kids: <span class="k">own</span> kids])</span>
+<span class="src-line" id="L140">		<span class="k">self</span>.<span class="f">_split_child</span>(<span class="k">self</span>._root, <span class="n">0</span>)</span>
+<span class="src-line" id="L141">	}</span>
+<span class="src-line" id="L142">	<span class="k">self</span>.<span class="f">_insert_nonfull</span>(<span class="k">self</span>._root, <span class="k">own</span> key, <span class="k">own</span> val)</span>
+<span class="src-line" id="L143">	<span class="k">self</span>._len += <span class="n">1</span></span>
+<span class="src-line" id="L144">}</span>
+<span class="src-line" id="L145"></span>
+<span class="src-line" id="L146"><span class="m">// Inserts into the subtree of node `n`, which isn&#39;t full, splitting full children on the way down.</span></span>
+<span class="src-line" id="L147"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._insert_nonfull = <span class="k">fn</span>(&amp;<span class="k">self</span>, n: <span class="t">int</span>, key: <span class="k">own</span> <span class="t">K</span>, val: <span class="k">own</span> <span class="t">V</span>) <span class="t">void</span>: {</span>
+<span class="src-line" id="L148">	<span class="k">let</span> i = <span class="k">self</span>.<span class="f">_lower</span>(n, key)</span>
+<span class="src-line" id="L149">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">_is_leaf</span>(n)): {</span>
+<span class="src-line" id="L150">		<span class="k">self</span>._nodes[n].keys.<span class="f">must_insert</span>(i, <span class="k">own</span> key)</span>
+<span class="src-line" id="L151">		<span class="k">self</span>._nodes[n].vals.<span class="f">must_insert</span>(i, <span class="k">own</span> val)</span>
+<span class="src-line" id="L152">		<span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L153">	}</span>
+<span class="src-line" id="L154">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">_nkeys</span>(<span class="k">self</span>._nodes[n].kids[i]) == <span class="n">2</span> * _T - <span class="n">1</span>): {</span>
+<span class="src-line" id="L155">		<span class="k">self</span>.<span class="f">_split_child</span>(n, i)</span>
+<span class="src-line" id="L156"></span>
+<span class="src-line" id="L157">		<span class="m">// The child&#39;s median moved up to position `i`.</span></span>
+<span class="src-line" id="L158">		<span class="k">if</span>(<span class="k">self</span>._nodes[n].keys[i].<span class="f">cmp</span>(key) &lt; <span class="n">0</span>): i += <span class="n">1</span></span>
+<span class="src-line" id="L159">	}</span>
+<span class="src-line" id="L160">	<span class="k">let</span> child = <span class="k">self</span>._nodes[n].kids[i]</span>
+<span class="src-line" id="L161">	<span class="k">self</span>.<span class="f">_insert_nonfull</span>(child, <span class="k">own</span> key, <span class="k">own</span> val)</span>
+<span class="src-line" id="L162">}</span>
+<span class="src-line" id="L163"></span>
+<span class="src-line" id="L164"><span class="m">// Splits the full child `i` of node `x` around its median, which moves up into `x`.</span></span>
+<span class="src-line" id="L165"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._split_child = <span class="k">fn</span>(&amp;<span class="k">self</span>, x: <span class="t">int</span>, i: <span class="t">int</span>): {</span>
+<span class="src-line" id="L166">	<span class="k">let</span> y = <span class="k">self</span>._nodes[x].kids[i]</span>
+<span class="src-line" id="L167">	<span class="k">let</span> leaf = <span class="k">self</span>.<span class="f">_is_leaf</span>(y)</span>
+<span class="src-line" id="L168">	<span class="k">let</span> z = <span class="k">self</span>.<span class="f">_alloc</span>(_BNode[<span class="t">K</span>, <span class="t">V</span>][keys: [], vals: [], kids: []])</span>
+<span class="src-line" id="L169">	<span class="k">for</span>(j <span class="k">in</span> <span class="n">0</span>.._T - <span class="n">1</span>): {</span>
+<span class="src-line" id="L170">		<span class="k">let</span> k = <span class="k">self</span>._nodes[y].keys.<span class="f">must_remove</span>(_T)</span>
+<span class="src-line" id="L171">		<span class="k">let</span> v = <span class="k">self</span>._nodes[y].vals.<span class="f">must_remove</span>(_T)</span>
+<span class="src-line" id="L172">		<span class="k">self</span>._nodes[z].keys.<span class="f">push</span>(<span class="k">own</span> k)</span>
+<span class="src-line" id="L173">		<span class="k">self</span>._nodes[z].vals.<span class="f">push</span>(<span class="k">own</span> v)</span>
+<span class="src-line" id="L174">	}</span>
+<span class="src-line" id="L175">	<span class="k">if</span>(<span class="k">not</span> leaf):</span>
+<span class="src-line" id="L176">		<span class="k">for</span>(j <span class="k">in</span> <span class="n">0</span>.._T): {</span>
+<span class="src-line" id="L177">			<span class="k">let</span> c = <span class="k">self</span>._nodes[y].kids.<span class="f">must_remove</span>(_T)</span>
+<span class="src-line" id="L178">			<span class="k">self</span>._nodes[z].kids.<span class="f">push</span>(c)</span>
+<span class="src-line" id="L179">		}</span>
+<span class="src-line" id="L180">	<span class="k">let</span> mk = <span class="k">self</span>._nodes[y].keys.<span class="f">must_remove</span>(_T - <span class="n">1</span>)</span>
+<span class="src-line" id="L181">	<span class="k">let</span> mv = <span class="k">self</span>._nodes[y].vals.<span class="f">must_remove</span>(_T - <span class="n">1</span>)</span>
+<span class="src-line" id="L182">	<span class="k">self</span>._nodes[x].keys.<span class="f">must_insert</span>(i, <span class="k">own</span> mk)</span>
+<span class="src-line" id="L183">	<span class="k">self</span>._nodes[x].vals.<span class="f">must_insert</span>(i, <span class="k">own</span> mv)</span>
+<span class="src-line" id="L184">	<span class="k">self</span>._nodes[x].kids.<span class="f">must_insert</span>(i + <span class="n">1</span>, z)</span>
+<span class="src-line" id="L185">}</span>
+<span class="src-line" id="L186"></span>
+<span class="src-line" id="L187"><span class="m">// Removes `key` and returns the value it mapped to, or `none` if `key` is absent.</span></span>
+<span class="src-line" id="L188"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].remove = <span class="k">fn</span>(&amp;<span class="k">self</span>, key: <span class="t">K</span>) ?<span class="t">V</span>: {</span>
+<span class="src-line" id="L189">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">has</span>(key)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L190">	<span class="k">let</span> out = <span class="k">self</span>.<span class="f">_remove_from</span>(<span class="k">self</span>._root, key)</span>
+<span class="src-line" id="L191">	<span class="k">let</span> r = <span class="k">self</span>._root</span>
+<span class="src-line" id="L192">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">_nkeys</span>(r) == <span class="n">0</span> <span class="k">and</span> <span class="k">not</span> <span class="k">self</span>.<span class="f">_is_leaf</span>(r)): {</span>
+<span class="src-line" id="L193">		<span class="k">self</span>._root = <span class="k">self</span>._nodes[r].kids[<span class="n">0</span>]</span>
+<span class="src-line" id="L194">		<span class="k">self</span>.<span class="f">_release</span>(r)</span>
+<span class="src-line" id="L195">	}</span>
+<span class="src-line" id="L196">	<span class="k">self</span>._len -= <span class="n">1</span></span>
+<span class="src-line" id="L197">	out</span>
+<span class="src-line" id="L198">}</span>
+<span class="src-line" id="L199"></span>
+<span class="src-line" id="L200"><span class="m">// Removes `key`, which is in the subtree of node `x`, and returns its value. `x` is the root or</span></span>
+<span class="src-line" id="L201"><span class="m">// has at least `_T` keys, so a key can be taken from it without underflow.</span></span>
+<span class="src-line" id="L202"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._remove_from = <span class="k">fn</span>(&amp;<span class="k">self</span>, x: <span class="t">int</span>, key: <span class="t">K</span>) <span class="t">V</span>: {</span>
+<span class="src-line" id="L203">	<span class="k">let</span> i = <span class="k">self</span>.<span class="f">_lower</span>(x, key)</span>
+<span class="src-line" id="L204">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">_holds</span>(x, i, key)): {</span>
+<span class="src-line" id="L205">		<span class="k">if</span>(<span class="k">self</span>.<span class="f">_is_leaf</span>(x)): {</span>
+<span class="src-line" id="L206">			<span class="k">let</span> _ = <span class="k">self</span>._nodes[x].keys.<span class="f">must_remove</span>(i)</span>
+<span class="src-line" id="L207">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>._nodes[x].vals.<span class="f">must_remove</span>(i)</span>
+<span class="src-line" id="L208">		}</span>
+<span class="src-line" id="L209">		<span class="k">let</span> y = <span class="k">self</span>._nodes[x].kids[i]</span>
+<span class="src-line" id="L210">		<span class="k">let</span> z = <span class="k">self</span>._nodes[x].kids[i + <span class="n">1</span>]</span>
+<span class="src-line" id="L211">		<span class="k">if</span>(<span class="k">self</span>.<span class="f">_nkeys</span>(y) &gt;= _T): {</span>
+<span class="src-line" id="L212">			<span class="m">// Replace the key with its predecessor, taken from the left subtree.</span></span>
+<span class="src-line" id="L213">			<span class="k">let</span> pk = <span class="k">self</span>.<span class="f">_max_key</span>(y)</span>
+<span class="src-line" id="L214">			<span class="k">let</span> pv = <span class="k">self</span>.<span class="f">_remove_from</span>(y, pk)</span>
+<span class="src-line" id="L215">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">_replace_at</span>(x, i, <span class="k">own</span> pk, <span class="k">own</span> pv)</span>
+<span class="src-line" id="L216">		}</span>
+<span class="src-line" id="L217">		<span class="k">if</span>(<span class="k">self</span>.<span class="f">_nkeys</span>(z) &gt;= _T): {</span>
+<span class="src-line" id="L218">			<span class="m">// Replace the key with its successor, taken from the right subtree.</span></span>
+<span class="src-line" id="L219">			<span class="k">let</span> sk = <span class="k">self</span>.<span class="f">_min_key</span>(z)</span>
+<span class="src-line" id="L220">			<span class="k">let</span> sv = <span class="k">self</span>.<span class="f">_remove_from</span>(z, sk)</span>
+<span class="src-line" id="L221">			<span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">_replace_at</span>(x, i, <span class="k">own</span> sk, <span class="k">own</span> sv)</span>
+<span class="src-line" id="L222">		}</span>
+<span class="src-line" id="L223">		<span class="k">self</span>.<span class="f">_merge</span>(x, i)</span>
+<span class="src-line" id="L224">		<span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">_remove_from</span>(y, key)</span>
+<span class="src-line" id="L225">	}</span>
+<span class="src-line" id="L226"></span>
+<span class="src-line" id="L227">	<span class="m">// The key is in child `i`&#39;s subtree; make sure that child can spare a key first.</span></span>
+<span class="src-line" id="L228">	<span class="k">let</span> c = <span class="k">self</span>._nodes[x].kids[i]</span>
+<span class="src-line" id="L229">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">_nkeys</span>(c) &lt; _T): {</span>
+<span class="src-line" id="L230">		<span class="k">let</span> n = <span class="k">self</span>.<span class="f">_nkeys</span>(x)</span>
+<span class="src-line" id="L231">		<span class="k">if</span>(i &gt; <span class="n">0</span> <span class="k">and</span> <span class="k">self</span>.<span class="f">_nkeys</span>(<span class="k">self</span>._nodes[x].kids[i - <span class="n">1</span>]) &gt;= _T): <span class="k">self</span>.<span class="f">_rotate_right</span>(x, i)</span>
+<span class="src-line" id="L232">		<span class="k">else</span> <span class="k">if</span>(i &lt; n <span class="k">and</span> <span class="k">self</span>.<span class="f">_nkeys</span>(<span class="k">self</span>._nodes[x].kids[i + <span class="n">1</span>]) &gt;= _T): <span class="k">self</span>.<span class="f">_rotate_left</span>(x, i)</span>
+<span class="src-line" id="L233">		<span class="k">else</span> <span class="k">if</span>(i &lt; n): <span class="k">self</span>.<span class="f">_merge</span>(x, i)</span>
+<span class="src-line" id="L234">		<span class="k">else</span>: {</span>
+<span class="src-line" id="L235">			<span class="k">self</span>.<span class="f">_merge</span>(x, i - <span class="n">1</span>)</span>
+<span class="src-line" id="L236">			i -= <span class="n">1</span></span>
+<span class="src-line" id="L237">		}</span>
+<span class="src-line" id="L238">	}</span>
+<span class="src-line" id="L239">	<span class="k">let</span> child = <span class="k">self</span>._nodes[x].kids[i]</span>
+<span class="src-line" id="L240">	<span class="k">self</span>.<span class="f">_remove_from</span>(child, key)</span>
+<span class="src-line" id="L241">}</span>
+<span class="src-line" id="L242"></span>
+<span class="src-line" id="L243"><span class="m">// Puts `key: val` at position `i` of node `x` and returns the value that was there.</span></span>
+<span class="src-line" id="L244"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._replace_at = <span class="k">fn</span>(&amp;<span class="k">self</span>, x: <span class="t">int</span>, i: <span class="t">int</span>, key: <span class="k">own</span> <span class="t">K</span>, val: <span class="k">own</span> <span class="t">V</span>) <span class="t">V</span>: {</span>
+<span class="src-line" id="L245">	<span class="k">self</span>._nodes[x].keys[i] = <span class="k">own</span> key</span>
+<span class="src-line" id="L246">	<span class="k">let</span> old = <span class="k">self</span>._nodes[x].vals.<span class="f">must_remove</span>(i)</span>
+<span class="src-line" id="L247">	<span class="k">self</span>._nodes[x].vals.<span class="f">must_insert</span>(i, <span class="k">own</span> val)</span>
+<span class="src-line" id="L248">	old</span>
+<span class="src-line" id="L249">}</span>
+<span class="src-line" id="L250"></span>
+<span class="src-line" id="L251"><span class="m">// Copies the largest key in the subtree of node `n`.</span></span>
+<span class="src-line" id="L252"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._max_key = <span class="k">fn</span>(<span class="k">self</span>, n: <span class="t">int</span>) <span class="t">K</span>: {</span>
+<span class="src-line" id="L253">	<span class="k">let</span> at = n</span>
+<span class="src-line" id="L254">	<span class="k">while</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">_is_leaf</span>(at)): at = <span class="k">self</span>._nodes[at].kids[<span class="k">self</span>._nodes[at].kids.<span class="f">len</span>() - <span class="n">1</span>]</span>
+<span class="src-line" id="L255">	<span class="k">self</span>._nodes[at].keys[<span class="k">self</span>.<span class="f">_nkeys</span>(at) - <span class="n">1</span>].<span class="f">copy</span>()</span>
+<span class="src-line" id="L256">}</span>
+<span class="src-line" id="L257"></span>
+<span class="src-line" id="L258"><span class="m">// Copies the smallest key in the subtree of node `n`.</span></span>
+<span class="src-line" id="L259"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._min_key = <span class="k">fn</span>(<span class="k">self</span>, n: <span class="t">int</span>) <span class="t">K</span>: {</span>
+<span class="src-line" id="L260">	<span class="k">let</span> at = n</span>
+<span class="src-line" id="L261">	<span class="k">while</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">_is_leaf</span>(at)): at = <span class="k">self</span>._nodes[at].kids[<span class="n">0</span>]</span>
+<span class="src-line" id="L262">	<span class="k">self</span>._nodes[at].keys[<span class="n">0</span>].<span class="f">copy</span>()</span>
+<span class="src-line" id="L263">}</span>
+<span class="src-line" id="L264"></span>
+<span class="src-line" id="L265"><span class="m">// Moves the separator `i - 1` of node `x` down to the front of child `i`, and the last key of</span></span>
+<span class="src-line" id="L266"><span class="m">// child `i - 1` up to take its place.</span></span>
+<span class="src-line" id="L267"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._rotate_right = <span class="k">fn</span>(&amp;<span class="k">self</span>, x: <span class="t">int</span>, i: <span class="t">int</span>): {</span>
+<span class="src-line" id="L268">	<span class="k">let</span> c = <span class="k">self</span>._nodes[x].kids[i]</span>
+<span class="src-line" id="L269">	<span class="k">let</span> l = <span class="k">self</span>._nodes[x].kids[i - <span class="n">1</span>]</span>
+<span class="src-line" id="L270">	<span class="k">let</span> sk = <span class="k">self</span>._nodes[x].keys.<span class="f">must_remove</span>(i - <span class="n">1</span>)</span>
+<span class="src-line" id="L271">	<span class="k">let</span> sv = <span class="k">self</span>._nodes[x].vals.<span class="f">must_remove</span>(i - <span class="n">1</span>)</span>
+<span class="src-line" id="L272">	<span class="k">self</span>._nodes[c].keys.<span class="f">must_insert</span>(<span class="n">0</span>, <span class="k">own</span> sk)</span>
+<span class="src-line" id="L273">	<span class="k">self</span>._nodes[c].vals.<span class="f">must_insert</span>(<span class="n">0</span>, <span class="k">own</span> sv)</span>
+<span class="src-line" id="L274">	<span class="k">let</span> last = <span class="k">self</span>.<span class="f">_nkeys</span>(l) - <span class="n">1</span></span>
+<span class="src-line" id="L275">	<span class="k">let</span> lk = <span class="k">self</span>._nodes[l].keys.<span class="f">must_remove</span>(last)</span>
+<span class="src-line" id="L276">	<span class="k">let</span> lv = <span class="k">self</span>._nodes[l].vals.<span class="f">must_remove</span>(last)</span>
+<span class="src-line" id="L277">	<span class="k">self</span>._nodes[x].keys.<span class="f">must_insert</span>(i - <span class="n">1</span>, <span class="k">own</span> lk)</span>
+<span class="src-line" id="L278">	<span class="k">self</span>._nodes[x].vals.<span class="f">must_insert</span>(i - <span class="n">1</span>, <span class="k">own</span> lv)</span>
+<span class="src-line" id="L279">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">_is_leaf</span>(l)): {</span>
+<span class="src-line" id="L280">		<span class="k">let</span> lc = <span class="k">self</span>._nodes[l].kids.<span class="f">must_remove</span>(<span class="k">self</span>._nodes[l].kids.<span class="f">len</span>() - <span class="n">1</span>)</span>
+<span class="src-line" id="L281">		<span class="k">self</span>._nodes[c].kids.<span class="f">must_insert</span>(<span class="n">0</span>, lc)</span>
+<span class="src-line" id="L282">	}</span>
+<span class="src-line" id="L283">}</span>
+<span class="src-line" id="L284"></span>
+<span class="src-line" id="L285"><span class="m">// Moves the separator `i` of node `x` down to the end of child `i`, and the first key of child</span></span>
+<span class="src-line" id="L286"><span class="m">// `i + 1` up to take its place.</span></span>
+<span class="src-line" id="L287"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._rotate_left = <span class="k">fn</span>(&amp;<span class="k">self</span>, x: <span class="t">int</span>, i: <span class="t">int</span>): {</span>
+<span class="src-line" id="L288">	<span class="k">let</span> c = <span class="k">self</span>._nodes[x].kids[i]</span>
+<span class="src-line" id="L289">	<span class="k">let</span> r = <span class="k">self</span>._nodes[x].kids[i + <span class="n">1</span>]</span>
+<span class="src-line" id="L290">	<span class="k">let</span> sk = <span class="k">self</span>._nodes[x].keys.<span class="f">must_remove</span>(i)</span>
+<span class="src-line" id="L291">	<span class="k">let</span> sv = <span class="k">self</span>._nodes[x].vals.<span class="f">must_remove</span>(i)</span>
+<span class="src-line" id="L292">	<span class="k">self</span>._nodes[c].keys.<span class="f">push</span>(<span class="k">own</span> sk)</span>
+<span class="src-line" id="L293">	<span class="k">self</span>._nodes[c].vals.<span class="f">push</span>(<span class="k">own</span> sv)</span>
+<span class="src-line" id="L294">	<span class="k">let</span> rk = <span class="k">self</span>._nodes[r].keys.<span class="f">must_remove</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L295">	<span class="k">let</span> rv = <span class="k">self</span>._nodes[r].vals.<span class="f">must_remove</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L296">	<span class="k">self</span>._nodes[x].keys.<span class="f">must_insert</span>(i, <span class="k">own</span> rk)</span>
+<span class="src-line" id="L297">	<span class="k">self</span>._nodes[x].vals.<span class="f">must_insert</span>(i, <span class="k">own</span> rv)</span>
+<span class="src-line" id="L298">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">_is_leaf</span>(r)): {</span>
+<span class="src-line" id="L299">		<span class="k">let</span> rc = <span class="k">self</span>._nodes[r].kids.<span class="f">must_remove</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L300">		<span class="k">self</span>._nodes[c].kids.<span class="f">push</span>(rc)</span>
+<span class="src-line" id="L301">	}</span>
+<span class="src-line" id="L302">}</span>
+<span class="src-line" id="L303"></span>
+<span class="src-line" id="L304"><span class="m">// Merges child `i + 1` of node `x` and the separator `i` into child `i`.</span></span>
+<span class="src-line" id="L305"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._merge = <span class="k">fn</span>(&amp;<span class="k">self</span>, x: <span class="t">int</span>, i: <span class="t">int</span>): {</span>
+<span class="src-line" id="L306">	<span class="k">let</span> y = <span class="k">self</span>._nodes[x].kids[i]</span>
+<span class="src-line" id="L307">	<span class="k">let</span> z = <span class="k">self</span>._nodes[x].kids[i + <span class="n">1</span>]</span>
+<span class="src-line" id="L308">	<span class="k">let</span> sk = <span class="k">self</span>._nodes[x].keys.<span class="f">must_remove</span>(i)</span>
+<span class="src-line" id="L309">	<span class="k">let</span> sv = <span class="k">self</span>._nodes[x].vals.<span class="f">must_remove</span>(i)</span>
+<span class="src-line" id="L310">	<span class="k">self</span>._nodes[y].keys.<span class="f">push</span>(<span class="k">own</span> sk)</span>
+<span class="src-line" id="L311">	<span class="k">self</span>._nodes[y].vals.<span class="f">push</span>(<span class="k">own</span> sv)</span>
+<span class="src-line" id="L312">	<span class="k">while</span>(<span class="k">self</span>.<span class="f">_nkeys</span>(z) &gt; <span class="n">0</span>): {</span>
+<span class="src-line" id="L313">		<span class="k">let</span> k = <span class="k">self</span>._nodes[z].keys.<span class="f">must_remove</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L314">		<span class="k">let</span> v = <span class="k">self</span>._nodes[z].vals.<span class="f">must_remove</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L315">		<span class="k">self</span>._nodes[y].keys.<span class="f">push</span>(<span class="k">own</span> k)</span>
+<span class="src-line" id="L316">		<span class="k">self</span>._nodes[y].vals.<span class="f">push</span>(<span class="k">own</span> v)</span>
+<span class="src-line" id="L317">	}</span>
+<span class="src-line" id="L318">	<span class="k">while</span>(<span class="k">not</span> <span class="k">self</span>._nodes[z].kids.<span class="f">is_empty</span>()): {</span>
+<span class="src-line" id="L319">		<span class="k">let</span> c = <span class="k">self</span>._nodes[z].kids.<span class="f">must_remove</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L320">		<span class="k">self</span>._nodes[y].kids.<span class="f">push</span>(c)</span>
+<span class="src-line" id="L321">	}</span>
+<span class="src-line" id="L322">	<span class="k">let</span> _ = <span class="k">self</span>._nodes[x].kids.<span class="f">must_remove</span>(i + <span class="n">1</span>)</span>
+<span class="src-line" id="L323">	<span class="k">self</span>.<span class="f">_release</span>(z)</span>
+<span class="src-line" id="L324">}</span>
+<span class="src-line" id="L325"></span>
+<span class="src-line" id="L326"><span class="m">// Appends copies of the entries of node `n`&#39;s subtree with `lo &lt;= key &lt; hi`, in order. A missing</span></span>
+<span class="src-line" id="L327"><span class="m">// bound doesn&#39;t limit that side.</span></span>
+<span class="src-line" id="L328"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._collect = <span class="k">fn</span>(<span class="k">self</span>, n: <span class="t">int</span>, lo?: ?<span class="t">K</span>, hi?: ?<span class="t">K</span>, out: &amp;[<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]]) <span class="t">void</span>: {</span>
+<span class="src-line" id="L329">	<span class="k">let</span> leaf = <span class="k">self</span>.<span class="f">_is_leaf</span>(n)</span>
+<span class="src-line" id="L330">	<span class="k">let</span> count = <span class="k">self</span>.<span class="f">_nkeys</span>(n)</span>
+<span class="src-line" id="L331">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..count): {</span>
+<span class="src-line" id="L332">		<span class="m">// Child `i` holds the keys below key `i`, so it can reach `lo` only if key `i` is above it.</span></span>
+<span class="src-line" id="L333">		<span class="k">let</span> left_reaches = <span class="k">if</span>(lo? <span class="k">as</span> l): <span class="k">self</span>._nodes[n].keys[i].<span class="f">cmp</span>(l) &gt; <span class="n">0</span> <span class="k">else</span>: <span class="c">true</span></span>
+<span class="src-line" id="L334">		<span class="k">if</span>(<span class="k">not</span> leaf <span class="k">and</span> left_reaches): <span class="k">self</span>.<span class="f">_collect</span>(<span class="k">self</span>._nodes[n].kids[i], lo?, hi?, &amp;out)</span>
+<span class="src-line" id="L335">		<span class="k">let</span> below_hi = <span class="k">if</span>(hi? <span class="k">as</span> h): <span class="k">self</span>._nodes[n].keys[i].<span class="f">cmp</span>(h) &lt; <span class="n">0</span> <span class="k">else</span>: <span class="c">true</span></span>
+<span class="src-line" id="L336">		<span class="k">if</span>(<span class="k">not</span> below_hi): <span class="k">func</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L337">		<span class="k">let</span> from_lo = <span class="k">if</span>(lo? <span class="k">as</span> l): <span class="k">self</span>._nodes[n].keys[i].<span class="f">cmp</span>(l) &gt;= <span class="n">0</span> <span class="k">else</span>: <span class="c">true</span></span>
+<span class="src-line" id="L338">		<span class="k">if</span>(from_lo): out.<span class="f">push</span>(<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>][</span>
+<span class="src-line" id="L339">			key: <span class="k">self</span>._nodes[n].keys[i].<span class="f">copy</span>(),</span>
+<span class="src-line" id="L340">			value: <span class="k">self</span>._nodes[n].vals[i].<span class="f">copy</span>(),</span>
+<span class="src-line" id="L341">		])</span>
+<span class="src-line" id="L342">	}</span>
+<span class="src-line" id="L343">	<span class="k">if</span>(<span class="k">not</span> leaf): <span class="k">self</span>.<span class="f">_collect</span>(<span class="k">self</span>._nodes[n].kids[count], lo?, hi?, &amp;out)</span>
+<span class="src-line" id="L344">}</span>
+<span class="src-line" id="L345"></span>
+<span class="src-line" id="L346"><span class="m">// Returns copies of every entry, in key order.</span></span>
+<span class="src-line" id="L347"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].entries = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]]: {</span>
+<span class="src-line" id="L348">	<span class="k">let</span> out: [<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]] = []</span>
+<span class="src-line" id="L349">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>._nodes.<span class="f">is_empty</span>()): <span class="k">self</span>.<span class="f">_collect</span>(<span class="k">self</span>._root, <span class="c">none</span>, <span class="c">none</span>, &amp;out)</span>
+<span class="src-line" id="L350">	out</span>
+<span class="src-line" id="L351">}</span>
+<span class="src-line" id="L352"></span>
+<span class="src-line" id="L353"><span class="m">// Returns copies of the entries with `lo &lt;= key &lt; hi`, in key order.</span></span>
+<span class="src-line" id="L354"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].range = <span class="k">fn</span>(<span class="k">self</span>, lo: <span class="t">K</span>, hi: <span class="t">K</span>) [<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]]: {</span>
+<span class="src-line" id="L355">	<span class="k">let</span> out: [<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]] = []</span>
+<span class="src-line" id="L356">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>._nodes.<span class="f">is_empty</span>()): <span class="k">self</span>.<span class="f">_collect</span>(<span class="k">self</span>._root, lo.<span class="f">copy</span>(), hi.<span class="f">copy</span>(), &amp;out)</span>
+<span class="src-line" id="L357">	out</span>
+<span class="src-line" id="L358">}</span>
+<span class="src-line" id="L359"></span>
+<span class="src-line" id="L360"><span class="m">// Returns copies of the keys, in order.</span></span>
+<span class="src-line" id="L361"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].keys = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">K</span>]: <span class="k">for</span>(e <span class="k">in</span> <span class="k">self</span>.<span class="f">entries</span>()) [<span class="t">K</span>]: e.key.<span class="f">copy</span>()</span>
+<span class="src-line" id="L362"></span>
+<span class="src-line" id="L363"><span class="m">// Returns copies of the values, in key order.</span></span>
+<span class="src-line" id="L364"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].values = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">V</span>]: <span class="k">for</span>(e <span class="k">in</span> <span class="k">self</span>.<span class="f">entries</span>()) [<span class="t">V</span>]: e.value.<span class="f">copy</span>()</span>
+<span class="src-line" id="L365"></span>
+<span class="src-line" id="L366"><span class="m">// Returns a copy of the entry with the smallest key, or `none` if the map is empty.</span></span>
+<span class="src-line" id="L367"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].first = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]: {</span>
+<span class="src-line" id="L368">	<span class="k">if</span>(<span class="k">self</span>._len == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L369">	<span class="k">let</span> n = <span class="k">self</span>._root</span>
+<span class="src-line" id="L370">	<span class="k">while</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">_is_leaf</span>(n)): n = <span class="k">self</span>._nodes[n].kids[<span class="n">0</span>]</span>
+<span class="src-line" id="L371">	<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>][key: <span class="k">self</span>._nodes[n].keys[<span class="n">0</span>].<span class="f">copy</span>(), value: <span class="k">self</span>._nodes[n].vals[<span class="n">0</span>].<span class="f">copy</span>()]</span>
+<span class="src-line" id="L372">}</span>
+<span class="src-line" id="L373"></span>
+<span class="src-line" id="L374"><span class="m">// Returns a copy of the entry with the largest key, or `none` if the map is empty.</span></span>
+<span class="src-line" id="L375"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].last = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]: {</span>
+<span class="src-line" id="L376">	<span class="k">if</span>(<span class="k">self</span>._len == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L377">	<span class="k">let</span> n = <span class="k">self</span>._root</span>
+<span class="src-line" id="L378">	<span class="k">while</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">_is_leaf</span>(n)): n = <span class="k">self</span>._nodes[n].kids[<span class="k">self</span>._nodes[n].kids.<span class="f">len</span>() - <span class="n">1</span>]</span>
+<span class="src-line" id="L379">	<span class="k">let</span> i = <span class="k">self</span>.<span class="f">_nkeys</span>(n) - <span class="n">1</span></span>
+<span class="src-line" id="L380">	<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>][key: <span class="k">self</span>._nodes[n].keys[i].<span class="f">copy</span>(), value: <span class="k">self</span>._nodes[n].vals[i].<span class="f">copy</span>()]</span>
+<span class="src-line" id="L381">}</span>
+<span class="src-line" id="L382"></span>
+<span class="src-line" id="L383"><span class="m">// Returns an iterator over copies of the entries, in key order.</span></span>
+<span class="src-line" id="L384"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].iter = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]]: <span class="k">self</span>.<span class="f">entries</span>().<span class="f">iter</span>()</span>
+<span class="src-line" id="L385"></span>
+<span class="src-line" id="L386"><span class="m">// Removes every entry.</span></span>
+<span class="src-line" id="L387"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].clear = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L388">	<span class="k">self</span>._nodes.<span class="f">clear</span>()</span>
+<span class="src-line" id="L389">	<span class="k">self</span>._free.<span class="f">clear</span>()</span>
+<span class="src-line" id="L390">	<span class="k">self</span>._root = <span class="n">0</span></span>
+<span class="src-line" id="L391">	<span class="k">self</span>._len = <span class="n">0</span></span>
+<span class="src-line" id="L392">}</span>
+<span class="src-line" id="L393"></span>
+<span class="src-line" id="L394"><span class="m">// Returns a deep copy of the map.</span></span>
+<span class="src-line" id="L395"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].copy = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]: <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>][</span>
+<span class="src-line" id="L396">	_nodes: <span class="k">self</span>._nodes.<span class="f">copy</span>(),</span>
+<span class="src-line" id="L397">	_free: <span class="k">self</span>._free.<span class="f">copy</span>(),</span>
+<span class="src-line" id="L398">	_root: <span class="k">self</span>._root,</span>
+<span class="src-line" id="L399">	_len: <span class="k">self</span>._len,</span>
+<span class="src-line" id="L400">]</span>
+<span class="src-line" id="L401"></span>
+<span class="src-line" id="L402"><span class="m">// Formats the map as `BTreeMap[a: 1, b: 2]`, in key order.</span></span>
+<span class="src-line" id="L403"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].to_string = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L404">	<span class="k">let</span> out = <span class="s">&quot;BTreeMap[&quot;</span></span>
+<span class="src-line" id="L405">	<span class="k">for</span>(i, e <span class="k">in</span> <span class="k">self</span>.<span class="f">entries</span>()): {</span>
+<span class="src-line" id="L406">		<span class="k">if</span>(i &gt; <span class="n">0</span>): out.<span class="f">push</span>(<span class="s">&quot;, &quot;</span>)</span>
+<span class="src-line" id="L407">		out.<span class="f">push</span>(<span class="s">&quot;</span>${e.key}<span class="s">: </span>${e.value}<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L408">	}</span>
+<span class="src-line" id="L409">	out + <span class="s">&quot;]&quot;</span></span>
+<span class="src-line" id="L410">}</span>
+<span class="src-line" id="L411"></span>
+<span class="src-line" id="L412"><span class="m">// Inserts the key and value of `entry`, moving them out of it (satisfies [`Collectable`], for</span></span>
+<span class="src-line" id="L413"><span class="m">// comprehensions).</span></span>
+<span class="src-line" id="L414"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].push = <span class="k">fn</span>(&amp;<span class="k">self</span>, entry: <span class="k">own</span> <span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]): {</span>
+<span class="src-line" id="L415">	<span class="k">let</span> key = <span class="k">unsafe</span> <span class="f">ptr_read</span>(<span class="f">addr_of</span>(entry.key))</span>
+<span class="src-line" id="L416">	<span class="k">let</span> val = <span class="k">unsafe</span> <span class="f">ptr_read</span>(<span class="f">addr_of</span>(entry.value))</span>
+<span class="src-line" id="L417">	<span class="k">unsafe</span> <span class="f">forget</span>(<span class="k">own</span> entry)</span>
+<span class="src-line" id="L418">	<span class="k">self</span>.<span class="f">insert</span>(<span class="k">own</span> key, <span class="k">own</span> val)</span>
+<span class="src-line" id="L419">}</span>
+<span class="src-line" id="L420"></span>
+<span class="src-line" id="L421"><span class="m">// Checks the B-tree invariants below node `n` at `depth`, returning the leaf depth.</span></span>
+<span class="src-line" id="L422"><span class="a">@test_only</span></span>
+<span class="src-line" id="L423"><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]._check = <span class="k">fn</span>(<span class="k">self</span>, n: <span class="t">int</span>, depth: <span class="t">int</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L424">	<span class="k">let</span> count = <span class="k">self</span>.<span class="f">_nkeys</span>(n)</span>
+<span class="src-line" id="L425">	<span class="f">assert</span>(count &lt;= <span class="n">2</span> * _T - <span class="n">1</span>, <span class="s">&quot;a node holds at most 2t - 1 keys&quot;</span>)</span>
+<span class="src-line" id="L426">	<span class="f">assert</span>(n == <span class="k">self</span>._root <span class="k">or</span> count &gt;= _T - <span class="n">1</span>, <span class="s">&quot;a non-root node holds at least t - 1 keys&quot;</span>)</span>
+<span class="src-line" id="L427">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">1</span>..count): <span class="f">assert</span>(</span>
+<span class="src-line" id="L428">		<span class="k">self</span>._nodes[n].keys[i - <span class="n">1</span>].<span class="f">cmp</span>(<span class="k">self</span>._nodes[n].keys[i]) &lt; <span class="n">0</span>,</span>
+<span class="src-line" id="L429">		<span class="s">&quot;keys are sorted&quot;</span>,</span>
+<span class="src-line" id="L430">	)</span>
+<span class="src-line" id="L431">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">_is_leaf</span>(n)): <span class="k">func</span> <span class="u">&lt;-</span> depth</span>
+<span class="src-line" id="L432">	<span class="f">assert</span>(<span class="k">self</span>._nodes[n].kids.<span class="f">len</span>() == count + <span class="n">1</span>, <span class="s">&quot;an internal node has one more child than keys&quot;</span>)</span>
+<span class="src-line" id="L433">	<span class="k">let</span> leaf_depth = <span class="k">self</span>.<span class="f">_check</span>(<span class="k">self</span>._nodes[n].kids[<span class="n">0</span>], depth + <span class="n">1</span>)</span>
+<span class="src-line" id="L434">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">1</span>..count + <span class="n">1</span>): <span class="f">assert</span>(</span>
+<span class="src-line" id="L435">		<span class="k">self</span>.<span class="f">_check</span>(<span class="k">self</span>._nodes[n].kids[i], depth + <span class="n">1</span>) == leaf_depth,</span>
+<span class="src-line" id="L436">		<span class="s">&quot;every leaf is at the same depth&quot;</span>,</span>
+<span class="src-line" id="L437">	)</span>
+<span class="src-line" id="L438">	leaf_depth</span>
+<span class="src-line" id="L439">}</span>
+<span class="src-line" id="L440"></span>
+<span class="src-line" id="L441"><span class="a">@test</span>(<span class="s">&quot;BTreeMap keeps keys in order through inserts and removals&quot;</span>)</span>
+<span class="src-line" id="L442"><span class="k">bind</span> test_btree_map = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L443">	<span class="k">let</span> m = <span class="t">BTreeMap</span>[<span class="t">int</span>, <span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L444">	<span class="k">let</span> reference: #[<span class="t">int</span>: <span class="t">int</span>] = #[]</span>
+<span class="src-line" id="L445"></span>
+<span class="src-line" id="L446">	<span class="m">// A fixed pseudo-random order of the numbers 0..1000.</span></span>
+<span class="src-line" id="L447">	<span class="k">let</span> seed = <span class="n">12345</span></span>
+<span class="src-line" id="L448">	<span class="k">let</span> order: [<span class="t">int</span>] = []</span>
+<span class="src-line" id="L449">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">1000</span>): order.<span class="f">push</span>(i)</span>
+<span class="src-line" id="L450">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">1000</span>): {</span>
+<span class="src-line" id="L451">		seed = (seed * <span class="n">1103515245</span> + <span class="n">12345</span>) % <span class="n">2147483648</span></span>
+<span class="src-line" id="L452">		order.<span class="f">swap</span>(i, seed % <span class="n">1000</span>)</span>
+<span class="src-line" id="L453">	}</span>
+<span class="src-line" id="L454">	<span class="k">for</span>(k <span class="k">in</span> order): {</span>
+<span class="src-line" id="L455">		m.<span class="f">insert</span>(k, k * <span class="n">10</span>)</span>
+<span class="src-line" id="L456">		reference[k] = k * <span class="n">10</span></span>
+<span class="src-line" id="L457">	}</span>
+<span class="src-line" id="L458">	<span class="f">assert</span>(m.<span class="f">len</span>() == <span class="n">1000</span>, <span class="s">&quot;len after inserts&quot;</span>)</span>
+<span class="src-line" id="L459">	<span class="k">let</span> _ = m.<span class="f">_check</span>(m._root, <span class="n">0</span>)</span>
+<span class="src-line" id="L460">	<span class="k">let</span> keys = m.<span class="f">keys</span>()</span>
+<span class="src-line" id="L461">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">1000</span>): <span class="f">assert</span>(keys[i] == i, <span class="s">&quot;keys come out sorted&quot;</span>)</span>
+<span class="src-line" id="L462">	<span class="f">assert</span>(m.<span class="f">get</span>(<span class="n">437</span>) == <span class="n">4370</span> <span class="k">and</span> m.<span class="f">get</span>(<span class="n">1000</span>) == <span class="c">none</span>, <span class="s">&quot;get&quot;</span>)</span>
+<span class="src-line" id="L463">	m.<span class="f">insert</span>(<span class="n">437</span>, -<span class="n">1</span>)</span>
+<span class="src-line" id="L464">	reference[<span class="n">437</span>] = -<span class="n">1</span></span>
+<span class="src-line" id="L465">	<span class="f">assert</span>(m.<span class="f">get</span>(<span class="n">437</span>) == -<span class="n">1</span> <span class="k">and</span> m.<span class="f">len</span>() == <span class="n">1000</span>, <span class="s">&quot;insert replaces&quot;</span>)</span>
+<span class="src-line" id="L466"></span>
+<span class="src-line" id="L467">	<span class="k">for</span>(j <span class="k">in</span> <span class="n">0</span>..<span class="n">700</span>): {</span>
+<span class="src-line" id="L468">		<span class="k">let</span> k = order[j]</span>
+<span class="src-line" id="L469">		<span class="f">assert</span>(m.<span class="f">remove</span>(k) == reference.<span class="f">remove</span>(k), <span class="s">&quot;remove returns the value&quot;</span>)</span>
+<span class="src-line" id="L470">		<span class="k">if</span>(j % <span class="n">97</span> == <span class="n">0</span>): {</span>
+<span class="src-line" id="L471">			<span class="k">let</span> _ = m.<span class="f">_check</span>(m._root, <span class="n">0</span>)</span>
+<span class="src-line" id="L472">		}</span>
+<span class="src-line" id="L473">	}</span>
+<span class="src-line" id="L474">	<span class="f">assert</span>(m.<span class="f">len</span>() == <span class="n">300</span> <span class="k">and</span> m.<span class="f">remove</span>(order[<span class="n">0</span>]) == <span class="c">none</span>, <span class="s">&quot;removed keys are gone&quot;</span>)</span>
+<span class="src-line" id="L475">	<span class="k">let</span> _ = m.<span class="f">_check</span>(m._root, <span class="n">0</span>)</span>
+<span class="src-line" id="L476">	<span class="k">let</span> rest = <span class="k">for</span>(k <span class="k">in</span> order[<span class="n">700</span>..]) [<span class="t">int</span>]: k</span>
+<span class="src-line" id="L477">	<span class="k">let</span> sorted_rest = <span class="k">for</span>(e <span class="k">in</span> m.<span class="f">entries</span>()) [<span class="t">int</span>]: e.key</span>
+<span class="src-line" id="L478">	<span class="f">assert</span>(sorted_rest.<span class="f">len</span>() == <span class="n">300</span>, <span class="s">&quot;entries after removals&quot;</span>)</span>
+<span class="src-line" id="L479">	<span class="k">for</span>(k <span class="k">in</span> rest): <span class="f">assert</span>(m.<span class="f">has</span>(k), <span class="s">&quot;survivors remain&quot;</span>)</span>
+<span class="src-line" id="L480">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">1</span>..sorted_rest.<span class="f">len</span>()): <span class="f">assert</span>(sorted_rest[i - <span class="n">1</span>] &lt; sorted_rest[i], <span class="s">&quot;still sorted&quot;</span>)</span>
+<span class="src-line" id="L481"></span>
+<span class="src-line" id="L482">	<span class="k">for</span>(k <span class="k">in</span> rest): {</span>
+<span class="src-line" id="L483">		<span class="k">let</span> _ = m.<span class="f">remove</span>(k)</span>
+<span class="src-line" id="L484">	}</span>
+<span class="src-line" id="L485">	<span class="f">assert</span>(m.<span class="f">is_empty</span>() <span class="k">and</span> m.<span class="f">first</span>() == <span class="c">none</span>, <span class="s">&quot;removing everything empties the map&quot;</span>)</span>
+<span class="src-line" id="L486">	m.<span class="f">insert</span>(<span class="n">5</span>, <span class="n">50</span>)</span>
+<span class="src-line" id="L487">	<span class="f">assert</span>(m.<span class="f">len</span>() == <span class="n">1</span> <span class="k">and</span> m.<span class="f">get</span>(<span class="n">5</span>) == <span class="n">50</span>, <span class="s">&quot;the emptied tree is reusable&quot;</span>)</span>
+<span class="src-line" id="L488">}</span>
+<span class="src-line" id="L489"></span>
+<span class="src-line" id="L490"><span class="a">@test</span>(<span class="s">&quot;BTreeMap first, last, range, with, update, and strings&quot;</span>)</span>
+<span class="src-line" id="L491"><span class="k">bind</span> test_btree_map_api = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L492">	<span class="k">let</span> m = <span class="t">BTreeMap</span>[<span class="t">string</span>, <span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L493">	<span class="k">for</span>(w <span class="k">in</span> [<span class="s">&quot;pear&quot;</span>, <span class="s">&quot;apple&quot;</span>, <span class="s">&quot;fig&quot;</span>, <span class="s">&quot;kiwi&quot;</span>, <span class="s">&quot;banana&quot;</span>, <span class="s">&quot;cherry&quot;</span>]): m.<span class="f">insert</span>(w.<span class="f">copy</span>(), w.<span class="f">len</span>())</span>
+<span class="src-line" id="L494">	<span class="f">assert</span>(m.<span class="f">first</span>()?.key == <span class="s">&quot;apple&quot;</span> <span class="k">and</span> m.<span class="f">last</span>()?.key == <span class="s">&quot;pear&quot;</span>, <span class="s">&quot;first and last&quot;</span>)</span>
+<span class="src-line" id="L495">	<span class="k">let</span> mid = <span class="k">for</span>(e <span class="k">in</span> m.<span class="f">range</span>(<span class="s">&quot;b&quot;</span>, <span class="s">&quot;g&quot;</span>)) [<span class="t">string</span>]: e.key.<span class="f">copy</span>()</span>
+<span class="src-line" id="L496">	<span class="f">assert</span>(mid.<span class="f">join</span>(<span class="s">&quot;,&quot;</span>) == <span class="s">&quot;banana,cherry,fig&quot;</span>, <span class="s">&quot;range is lo &lt;= key &lt; hi&quot;</span>)</span>
+<span class="src-line" id="L497">	<span class="f">assert</span>(m.<span class="f">range</span>(<span class="s">&quot;x&quot;</span>, <span class="s">&quot;z&quot;</span>).<span class="f">is_empty</span>(), <span class="s">&quot;an empty range&quot;</span>)</span>
+<span class="src-line" id="L498">	<span class="f">assert</span>(</span>
+<span class="src-line" id="L499">		m.<span class="f">with</span>(<span class="s">&quot;kiwi&quot;</span>, <span class="k">fn</span>(n: <span class="t">int</span>) <span class="t">int</span>: n * <span class="n">2</span>) == <span class="n">8</span> <span class="k">and</span> m.<span class="f">with</span>(<span class="s">&quot;nope&quot;</span>, <span class="k">fn</span>(n: <span class="t">int</span>) <span class="t">int</span>: n) == <span class="c">none</span>,</span>
+<span class="src-line" id="L500">		<span class="s">&quot;with&quot;</span>,</span>
+<span class="src-line" id="L501">	)</span>
+<span class="src-line" id="L502">	<span class="f">assert</span>(</span>
+<span class="src-line" id="L503">		m.<span class="f">update</span>(</span>
+<span class="src-line" id="L504">			<span class="s">&quot;fig&quot;</span>,</span>
+<span class="src-line" id="L505">			<span class="k">fn</span>(n: &amp;<span class="t">int</span>): {</span>
+<span class="src-line" id="L506">				n += <span class="n">100</span></span>
+<span class="src-line" id="L507">			},</span>
+<span class="src-line" id="L508">		) <span class="k">and</span> m.<span class="f">get</span>(<span class="s">&quot;fig&quot;</span>) == <span class="n">103</span>,</span>
+<span class="src-line" id="L509">		<span class="s">&quot;update&quot;</span>,</span>
+<span class="src-line" id="L510">	)</span>
+<span class="src-line" id="L511">	<span class="k">let</span> copy = m.<span class="f">copy</span>()</span>
+<span class="src-line" id="L512">	<span class="k">let</span> _ = m.<span class="f">remove</span>(<span class="s">&quot;fig&quot;</span>)</span>
+<span class="src-line" id="L513">	<span class="f">assert</span>(copy.<span class="f">has</span>(<span class="s">&quot;fig&quot;</span>) <span class="k">and</span> <span class="k">not</span> m.<span class="f">has</span>(<span class="s">&quot;fig&quot;</span>), <span class="s">&quot;copies are independent&quot;</span>)</span>
+<span class="src-line" id="L514">	<span class="f">assert</span>(</span>
+<span class="src-line" id="L515">		m.<span class="f">to_string</span>() == <span class="s">&quot;BTreeMap[apple: 5, banana: 6, cherry: 6, kiwi: 4, pear: 4]&quot;</span>,</span>
+<span class="src-line" id="L516">		<span class="s">&quot;to_string in key order&quot;</span>,</span>
+<span class="src-line" id="L517">	)</span>
+<span class="src-line" id="L518">	<span class="k">let</span> built = <span class="k">for</span>(w <span class="k">in</span> [<span class="s">&quot;b&quot;</span>, <span class="s">&quot;a&quot;</span>]) <span class="t">BTreeMap</span>[<span class="t">string</span>, <span class="t">int</span>]: <span class="t">Entry</span>[key: w.<span class="f">copy</span>(), value: <span class="n">1</span>]</span>
+<span class="src-line" id="L519">	<span class="f">assert</span>(built.<span class="f">keys</span>().<span class="f">join</span>(<span class="s">&quot;,&quot;</span>) == <span class="s">&quot;a,b&quot;</span>, <span class="s">&quot;comprehension into a BTreeMap&quot;</span>)</span>
+<span class="src-line" id="L520">	m.<span class="f">clear</span>()</span>
+<span class="src-line" id="L521">	<span class="f">assert</span>(m.<span class="f">is_empty</span>() <span class="k">and</span> m.<span class="f">get</span>(<span class="s">&quot;apple&quot;</span>) == <span class="c">none</span>, <span class="s">&quot;clear&quot;</span>)</span>
+<span class="src-line" id="L522"></span>
+<span class="src-line" id="L523">	<span class="m">// String keys and values move through splits, rotations, and merges without leaking.</span></span>
+<span class="src-line" id="L524">	<span class="k">let</span> words = <span class="t">BTreeMap</span>[<span class="t">string</span>, <span class="t">string</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L525">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">300</span>): words.<span class="f">insert</span>(<span class="s">&quot;k</span>${i * <span class="n">37</span> % <span class="n">300</span>}<span class="s">&quot;</span>, <span class="s">&quot;v</span>$i<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L526">	<span class="k">let</span> _ = words.<span class="f">_check</span>(words._root, <span class="n">0</span>)</span>
+<span class="src-line" id="L527">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">290</span>): {</span>
+<span class="src-line" id="L528">		<span class="k">let</span> _ = words.<span class="f">remove</span>(<span class="s">&quot;k</span>${i * <span class="n">53</span> % <span class="n">300</span>}<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L529">	}</span>
+<span class="src-line" id="L530">	<span class="k">let</span> _ = words.<span class="f">_check</span>(words._root, <span class="n">0</span>)</span>
+<span class="src-line" id="L531">	<span class="f">assert</span>(words.<span class="f">len</span>() == <span class="n">10</span>, <span class="s">&quot;ten keys survive&quot;</span>)</span>
+<span class="src-line" id="L532">	<span class="k">let</span> ks = words.<span class="f">keys</span>()</span>
+<span class="src-line" id="L533">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">1</span>..ks.<span class="f">len</span>()): <span class="f">assert</span>(ks[i - <span class="n">1</span>] &lt; ks[i], <span class="s">&quot;string keys stay sorted&quot;</span>)</span>
+<span class="src-line" id="L534">}</span>
+<span class="src-line" id="L535"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../collections.html">std/collections</a><a href="../core.html">std/core</a><a href="../derive.html">std/derive</a><a href="../fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

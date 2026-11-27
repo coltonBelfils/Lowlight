@@ -3,59 +3,59 @@
 // Implemented in pure Lowlight over 64-bit IEEE-754 floats (`float`) and integers (`int`).
 
 // Ratio of a circle's circumference to its diameter (`pi`).
-bind PI: float = 3.14159265358979323846
+const PI: float = 3.14159265358979323846
 
 // Full turn circle constant (`2 * pi`).
-bind TAU: float = 6.28318530717958647692
+const TAU: float = 6.28318530717958647692
 
 // Euler's number (`e`), base of natural logarithms.
-bind E: float = 2.71828182845904523536
+const E: float = 2.71828182845904523536
 
 // Natural logarithm of `2`.
-bind LN2: float = 0.69314718055994530942
+const LN2: float = 0.69314718055994530942
 
 // Natural logarithm of `10`.
-bind LN10: float = 2.30258509299404568402
+const LN10: float = 2.30258509299404568402
 
 // Square root of `2`.
-bind SQRT2: float = 1.41421356237309504880
+const SQRT2: float = 1.41421356237309504880
 
 // Square root of `3`.
-bind SQRT3: float = 1.73205080756887729353
+const SQRT3: float = 1.73205080756887729353
 
 // Positive IEEE-754 infinity (`+Inf`).
-bind INF: float = 1.0e308 * 10.0
+const INF: float = 1.0e308 * 10.0
 
 // Quiet IEEE-754 Not-a-Number (`NaN`).
-bind NAN: float = INF - INF
+const NAN: float = INF - INF
 
 // Reports whether `x` is IEEE-754 Not-a-Number (`NaN`).
-bind is_nan = fn(x: float) bool: not (x == x)
+const is_nan = fn(x: float) bool: not (x == x)
 
 // Reports whether `x` is positive or negative IEEE-754 infinity (`+Inf` or `-Inf`).
-bind is_inf = fn(x: float) bool: x == INF or x == -INF
+const is_inf = fn(x: float) bool: x == INF or x == -INF
 
 // Returns the absolute value (`|x|`) of floating-point number `x`.
-bind abs_float = fn(x: float) float:
+const abs_float = fn(x: float) float:
 	if(x < 0.0): -x else: x
 
 // Returns the absolute value of `x` (alias for [`abs_float`]).
-bind fabs = fn(x: float) float: abs_float(x)
+const fabs = fn(x: float) float: abs_float(x)
 
 // Truncates `x` toward zero, discarding any fractional digits.
-bind trunc = fn(x: float) float: {
+const trunc = fn(x: float) float: {
 	if(is_nan(x) or abs_float(x) >= 4503599627370496.0): func <- x
 	float(int(x))
 }
 
 // Returns the largest integer value (as [`float`]) less than or equal to `x`.
-bind floor = fn(x: float) float: {
+const floor = fn(x: float) float: {
 	let t = trunc(x)
 	if(x < t): t - 1.0 else: t
 }
 
 // Returns the smallest integer value (as [`float`]) greater than or equal to `x`.
-bind ceil = fn(x: float) float: {
+const ceil = fn(x: float) float: {
 	let t = trunc(x)
 	if(x > t): t + 1.0 else: t
 }
@@ -65,7 +65,7 @@ bind ceil = fn(x: float) float: {
 // Exact for every input: the fractional part is computed as `x - trunc(x)` (exact in IEEE-754)
 // rather than by adding `0.5`, which misrounds `0.49999999999999994` and large odd integers.
 // Values of magnitude `2^52` or more are already integers and are returned unchanged.
-bind round = fn(x: float) float: {
+const round = fn(x: float) float: {
 	if(is_nan(x) or is_inf(x) or abs_float(x) >= 4503599627370496.0): func <- x
 	let t = trunc(x)
 	let d = x - t
@@ -74,7 +74,7 @@ bind round = fn(x: float) float: {
 }
 
 // Returns the IEEE-754 floating-point remainder of `x / y` (`NaN` if `x` is `±Inf`, `y == 0.0`, or either is `NaN`; `x` if `y` is `±Inf` and `x` is finite).
-bind fmod = fn(x: float, y: float) float: {
+const fmod = fn(x: float, y: float) float: {
 	if(is_nan(x) or is_nan(y) or is_inf(x) or y == 0.0): func <- NAN
 	if(is_inf(y) or x == 0.0): func <- x
 	let ax = abs_float(x)
@@ -113,7 +113,7 @@ bind fmod = fn(x: float, y: float) float: {
 }
 
 // Computes the non-negative square root of `x` (`NaN` for `x < 0.0` or `NaN`, `+Inf` for `+Inf`, `±0.0` preserved).
-bind sqrt = fn(x: float) float: {
+const sqrt = fn(x: float) float: {
 	if(is_nan(x) or x < 0.0): func <- NAN
 	if(x == 0.0 or x == INF): func <- x
 	let scale = 1.0
@@ -152,7 +152,7 @@ bind sqrt = fn(x: float) float: {
 // `cbrt(±0)`, `cbrt(±inf)`, and `cbrt(nan)` return their argument. The argument is first scaled
 // by powers of 8 into `[1, 8)` (exactly, since `cbrt(8^k · m) = 2^k · cbrt(m)`), so the Newton
 // iteration converges for every magnitude, including subnormals.
-bind cbrt = fn(x: float) float: {
+const cbrt = fn(x: float) float: {
 	if(is_nan(x) or is_inf(x) or x == 0.0): func <- x
 	let is_neg = x < 0.0
 	let m = if(is_neg): -x else: x
@@ -181,7 +181,7 @@ bind cbrt = fn(x: float) float: {
 // Returns the Euclidean length `sqrt(x * x + y * y)` without overflow or underflow in the
 // intermediate squares: `hypot(1e200, 1e200)` is `1.414e200`. Infinite arguments give `inf`
 // (even if the other is `nan`); otherwise a `nan` argument gives `nan`.
-bind hypot = fn(x: float, y: float) float: {
+const hypot = fn(x: float, y: float) float: {
 	if(is_inf(x) or is_inf(y)): func <- INF
 	if(is_nan(x) or is_nan(y)): func <- NAN
 	let ax = abs_float(x)
@@ -193,7 +193,7 @@ bind hypot = fn(x: float, y: float) float: {
 	big * sqrt(1.0 + q * q)
 }
 
-bind _scale_pow2 = fn(v: float, k: int) float: {
+const _scale_pow2 = fn(v: float, k: int) float: {
 	let res = v
 	let rem = k
 	if(rem > 0): {
@@ -225,7 +225,7 @@ bind _scale_pow2 = fn(v: float, k: int) float: {
 	res
 }
 
-bind _exp_scaled = fn(x: float, extra_k: int) float: {
+const _exp_scaled = fn(x: float, extra_k: int) float: {
 	let ln2_hi = 0.693147180369123816490
 	let ln2_lo = 1.90821492927058770002e-10
 	let k = int(round(x / LN2))
@@ -242,7 +242,7 @@ bind _exp_scaled = fn(x: float, extra_k: int) float: {
 }
 
 // Computes the base-[`E`] exponential function (`e^x`), handling `NaN`, `±Inf`, overflow (`> 710.0`), and subnormal/underflow (`< -745.2`).
-bind exp = fn(x: float) float: {
+const exp = fn(x: float) float: {
 	if(is_nan(x)): func <- NAN
 	if(x == 0.0): func <- 1.0
 	if(x > 710.0): func <- INF
@@ -251,7 +251,7 @@ bind exp = fn(x: float) float: {
 }
 
 // Computes the base-2 exponential function (`2^x`), handling `NaN`, `±Inf`, overflow (`>= 1024.0`), and subnormal/underflow (`<= -1075.0`).
-bind exp2 = fn(x: float) float: {
+const exp2 = fn(x: float) float: {
 	if(is_nan(x)): func <- NAN
 	if(x == 0.0): func <- 1.0
 	if(x >= 1024.0): func <- INF
@@ -273,7 +273,7 @@ bind exp2 = fn(x: float) float: {
 }
 
 // Computes the natural logarithm `ln(x)` (`NaN` for `x < 0.0` or `NaN`, `-Inf` for `±0.0`, `+Inf` for `+Inf`).
-bind log = fn(x: float) float: {
+const log = fn(x: float) float: {
 	if(is_nan(x) or x < 0.0): func <- NAN
 	if(x == 0.0): func <- -INF
 	if(x == INF): func <- INF
@@ -312,10 +312,10 @@ bind log = fn(x: float) float: {
 }
 
 // Computes the base-10 logarithm of `x`.
-bind log10 = fn(x: float) float: log(x) / LN10
+const log10 = fn(x: float) float: log(x) / LN10
 
 // Computes the base-2 logarithm of `x` (`NaN` for `x < 0.0` or `NaN`, `-Inf` for `±0.0`, `+Inf` for `+Inf`).
-bind log2 = fn(x: float) float: {
+const log2 = fn(x: float) float: {
 	if(is_nan(x) or x < 0.0): func <- NAN
 	if(x == 0.0): func <- -INF
 	if(x == INF): func <- INF
@@ -353,7 +353,7 @@ bind log2 = fn(x: float) float: {
 	(2.0 * sum) / LN2 + float(k)
 }
 
-bind _is_odd_int = fn(y: float) bool: {
+const _is_odd_int = fn(y: float) bool: {
 	if(is_nan(y) or is_inf(y)): func <- false
 	if(y != trunc(y)): func <- false
 	let ay = abs_float(y)
@@ -362,7 +362,7 @@ bind _is_odd_int = fn(y: float) bool: {
 }
 
 // Computes `base` raised to `exponent` (`base^exponent`), following IEEE-754 special-case rules.
-bind pow = fn(base: float, exponent: float) float: {
+const pow = fn(base: float, exponent: float) float: {
 	if(exponent == 0.0): func <- 1.0
 	if(base == 1.0): func <- 1.0
 	if(is_nan(base) or is_nan(exponent)): func <- NAN
@@ -430,7 +430,7 @@ bind pow = fn(base: float, exponent: float) float: {
 
 // Bits of 2/π after the binary point, 32 per word (1280 bits): enough to reduce any finite
 // double exactly (the largest needs bits up to about position 1160).
-bind _TWO_OVER_PI: [u64] = [
+const _TWO_OVER_PI: [u64] = [
 	0xa2f9836e,
 	0x4e441529,
 	0xfc2757d1,
@@ -473,17 +473,13 @@ bind _TWO_OVER_PI: [u64] = [
 	0x9af4361d,
 ]
 
-bind _PIO2_HI = 1.5707963267948966
-bind _PIO2_LO = 6.123233995736766e-17
+const _PIO2_HI = 1.5707963267948966
+const _PIO2_LO = 6.123233995736766e-17
 
-bind _float_bits_of = fn(v: float) u64:
-	unsafe {
-		let vp = addr_of(v)
-		*ptr_cast[u64](vp)
-	}
+const _float_bits_of = fn(v: float) u64: v.to_bits()
 
 // Returns the 32 bits of 2/π starting at bit `pos` (bit 0 is the first after the point).
-bind _two_over_pi_bits = fn(pos: int) u64: {
+const _two_over_pi_bits = fn(pos: int) u64: {
 	let w = pos / 32
 	let b = pos % 32
 	let hi = _TWO_OVER_PI.get(w) ?? u64(0)
@@ -493,7 +489,7 @@ bind _two_over_pi_bits = fn(pos: int) u64: {
 }
 
 // Returns `n <= 32` bits of a little-endian 32-bit-limb integer, starting at bit `pos`.
-bind _limb_bits = fn(limbs: [u64], pos: int, n: int) u64: {
+const _limb_bits = fn(limbs: [u64], pos: int, n: int) u64: {
 	let w = pos / 32
 	let b = pos % 32
 	let lo = limbs.get(w) ?? u64(0)
@@ -507,7 +503,7 @@ bind _limb_bits = fn(limbs: [u64], pos: int, n: int) u64: {
 // and `r` in `[-π/4, π/4]`, computed exactly from the binary expansion of 2/π. Unlike
 // `fmod(x, TAU)`, whose error grows with `x` because `TAU` is rounded, this is accurate for every
 // finite double (`sin(1e15)`, `cos(1e300)`).
-bind _rem_pio2 = fn(x: float) +[int, float]: {
+const _rem_pio2 = fn(x: float) +[int, float]: {
 	let bits = _float_bits_of(abs_float(x))
 	let exp_field = int((bits >> u64(52)) & u64(0x7ff))
 	let frac = bits & u64(0xfffffffffffff)
@@ -559,7 +555,7 @@ bind _rem_pio2 = fn(x: float) +[int, float]: {
 	if(x < 0.0): +[(4 - q % 4) % 4, -r] else: +[q % 4, r]
 }
 
-bind _reduce_angle = fn(x: float) float: {
+const _reduce_angle = fn(x: float) float: {
 	if(is_nan(x) or is_inf(x)): func <- NAN
 	let r = fmod(x, TAU)
 	if(r > PI): r -= TAU
@@ -567,7 +563,7 @@ bind _reduce_angle = fn(x: float) float: {
 	r
 }
 
-bind _sin_poly = fn(r: float) float: {
+const _sin_poly = fn(r: float) float: {
 	let r2 = r * r
 	let term = r
 	let sum = r
@@ -580,7 +576,7 @@ bind _sin_poly = fn(r: float) float: {
 	sum
 }
 
-bind _cos_poly = fn(r: float) float: {
+const _cos_poly = fn(r: float) float: {
 	let r2 = r * r
 	let term = 1.0
 	let sum = 1.0
@@ -594,7 +590,7 @@ bind _cos_poly = fn(r: float) float: {
 }
 
 // Computes the sine of angle `x` (in radians), returning `NaN` for `NaN` and `±Inf`.
-bind sin = fn(x: float) float: {
+const sin = fn(x: float) float: {
 	if(is_nan(x) or is_inf(x)): func <- NAN
 	if(abs_float(x) <= 0.7853981633974483): func <- _sin_poly(x)
 	let q, r = unpack _rem_pio2(x)
@@ -606,7 +602,7 @@ bind sin = fn(x: float) float: {
 }
 
 // Computes the cosine of angle `x` (in radians), returning `NaN` for `NaN` and `±Inf`.
-bind cos = fn(x: float) float: {
+const cos = fn(x: float) float: {
 	if(is_nan(x) or is_inf(x)): func <- NAN
 	if(abs_float(x) <= 0.7853981633974483): func <- _cos_poly(x)
 	let q, r = unpack _rem_pio2(x)
@@ -618,14 +614,14 @@ bind cos = fn(x: float) float: {
 }
 
 // Computes the tangent (`sin(x) / cos(x)`) of angle `x` (in radians).
-bind tan = fn(x: float) float: {
+const tan = fn(x: float) float: {
 	if(is_nan(x) or is_inf(x)): func <- NAN
 	if(abs_float(x) <= 0.7853981633974483): func <- _sin_poly(x) / _cos_poly(x)
 	let q, r = unpack _rem_pio2(x)
 	if(q % 2 == 0): _sin_poly(r) / _cos_poly(r) else: -_cos_poly(r) / _sin_poly(r)
 }
 
-bind _atan_unit = fn(x: float) float: {
+const _atan_unit = fn(x: float) float: {
 	let offset = 0.0
 	let t = x
 	if(t > 2.0 - SQRT3): {
@@ -645,7 +641,7 @@ bind _atan_unit = fn(x: float) float: {
 }
 
 // Computes the principal value arctangent of `x` in radians (`-PI/2..=PI/2`).
-bind atan = fn(x: float) float: {
+const atan = fn(x: float) float: {
 	if(x == 0.0): func <- 0.0
 	let is_neg = x < 0.0
 	let ax = if(is_neg): -x else: x
@@ -654,7 +650,7 @@ bind atan = fn(x: float) float: {
 }
 
 // Computes the four-quadrant inverse tangent of `y / x` in radians (`-PI..=PI`), returning `0.0` at `(0, 0)`.
-bind atan2 = fn(y: float, x: float) float: {
+const atan2 = fn(y: float, x: float) float: {
 	if(x > 0.0): func <- atan(y / x)
 	if(x < 0.0): {
 		if(y >= 0.0): func <- atan(y / x) + PI
@@ -666,21 +662,21 @@ bind atan2 = fn(y: float, x: float) float: {
 }
 
 // Computes the inverse sine (`arcsin(x)`) in radians, clamping inputs outside `-1.0..=1.0`.
-bind asin = fn(x: float) float: {
+const asin = fn(x: float) float: {
 	if(x >= 1.0): func <- PI * 0.5
 	if(x <= -1.0): func <- -PI * 0.5
 	atan2(x, sqrt(1.0 - x * x))
 }
 
 // Computes the inverse cosine (`arccos(x)`) in radians, clamping inputs outside `-1.0..=1.0`.
-bind acos = fn(x: float) float: {
+const acos = fn(x: float) float: {
 	if(x >= 1.0): func <- 0.0
 	if(x <= -1.0): func <- PI
 	atan2(sqrt(1.0 - x * x), x)
 }
 
 // Computes the hyperbolic sine of `x`, handling `NaN`, `±Inf`, small-angle precision, and large values up to `~710.475`.
-bind sinh = fn(x: float) float: {
+const sinh = fn(x: float) float: {
 	if(is_nan(x)): func <- NAN
 	if(is_inf(x) or x == 0.0): func <- x
 	let ax = abs_float(x)
@@ -711,7 +707,7 @@ bind sinh = fn(x: float) float: {
 }
 
 // Computes the hyperbolic cosine of `x`, handling `NaN`, `±Inf`, and large values up to `~710.475`.
-bind cosh = fn(x: float) float: {
+const cosh = fn(x: float) float: {
 	if(is_nan(x)): func <- NAN
 	if(is_inf(x)): func <- INF
 	if(x == 0.0): func <- 1.0
@@ -725,7 +721,7 @@ bind cosh = fn(x: float) float: {
 }
 
 // Computes the hyperbolic tangent of `x` (`±1.0` for `±Inf` and `|x| >= 20.0`, `NaN` for `NaN`).
-bind tanh = fn(x: float) float: {
+const tanh = fn(x: float) float: {
 	if(is_nan(x)): func <- NAN
 	if(x == 0.0): func <- x
 	let ax = abs_float(x)
@@ -740,25 +736,25 @@ bind tanh = fn(x: float) float: {
 }
 
 // Converts degrees to radians.
-bind deg_to_rad = fn(deg: float) float: deg * (PI / 180.0)
+const deg_to_rad = fn(deg: float) float: deg * (PI / 180.0)
 
 // Converts radians to degrees.
-bind rad_to_deg = fn(rad: float) float: rad * (180.0 / PI)
+const rad_to_deg = fn(rad: float) float: rad * (180.0 / PI)
 
 // Clamps integer `val` inclusively within `[lo, hi]`.
-bind clamp_int = fn(val: int, lo: int, hi: int) int:
+const clamp_int = fn(val: int, lo: int, hi: int) int:
 	if(val < lo): lo
 	else if(val > hi): hi
 	else: val
 
 // Clamps floating-point `val` inclusively within `[lo, hi]`.
-bind clamp_float = fn(val: float, lo: float, hi: float) float:
+const clamp_float = fn(val: float, lo: float, hi: float) float:
 	if(val < lo): lo
 	else if(val > hi): hi
 	else: val
 
 // Linearly interpolates between `a` (`t == 0.0`) and `b` (`t == 1.0`).
-bind lerp = fn(a: float, b: float, t: float) float: a + (b - a) * t
+const lerp = fn(a: float, b: float, t: float) float: a + (b - a) * t
 
 // -----------------------------------------------------------------------------
 // Inline Unit Tests

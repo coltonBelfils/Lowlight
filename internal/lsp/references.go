@@ -195,7 +195,7 @@ func findInterfaceDeclForMethodAt(prog *sema.CheckedProgram, mod *sema.Module, o
 				if m == nil || m.File == nil {
 					continue
 				}
-				for _, d := range m.File.Decls {
+				for _, d := range m.ActiveDecls() {
 					if ifc, ok := d.(*ast.InterfaceDecl); ok && ifc.Name == target.Name {
 						for _, im := range ifc.Methods {
 							if im.Name == methName {
@@ -209,7 +209,7 @@ func findInterfaceDeclForMethodAt(prog *sema.CheckedProgram, mod *sema.Module, o
 		return diag.Span{}
 	}
 
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		if md, ok := d.(*ast.MethodDecl); ok && spanContainsOffset(md.Span, offset) && tok.Text == md.Name {
 			if md.Body == nil || offset < md.Body.GetSpan().Start.Offset {
 				if sp := findInIface(md.RecvType, md.Name); sp.Start.File != "" {
@@ -225,7 +225,7 @@ func findTypeAtOffset(prog *sema.CheckedProgram, mod *sema.Module, offset int, t
 	if mod == nil || mod.File == nil {
 		return nil
 	}
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		if !spanContainsOffset(d.GetSpan(), offset) {
 			continue
 		}
@@ -591,7 +591,20 @@ func resolveRefTargetAt(prog *sema.CheckedProgram, mod *sema.Module, filePath, s
 		case *ast.VectorType:
 			return inTypeExpr(v.Elem)
 		case *ast.StackArrayType:
+			var topBM *sema.BodyMaps
+			if prog != nil {
+				topBM = prog.TopBodyMaps
+			}
+			if r := inExpr(topBM, v.Size, diag.Span{}); r != nil {
+				return r
+			}
 			return inTypeExpr(v.Elem)
+		case *ast.ConstArgType:
+			var topBM *sema.BodyMaps
+			if prog != nil {
+				topBM = prog.TopBodyMaps
+			}
+			return inExpr(topBM, v.Expr, diag.Span{})
 		case *ast.SetType:
 			return inTypeExpr(v.Elem)
 		case *ast.MapType:
@@ -671,6 +684,29 @@ func resolveRefTargetAt(prog *sema.CheckedProgram, mod *sema.Module, filePath, s
 			return inExpr(bm, vs.Value, bodySpan)
 		case *ast.UnwindStmt:
 			return inExpr(bm, vs.Value, bodySpan)
+		case *ast.DeclStmt:
+			switch ld := vs.Decl.(type) {
+			case *ast.VarDecl:
+				if ld.Type != nil && spanContainsOffset(ld.Type.GetSpan(), offset) {
+					return inTypeExpr(ld.Type)
+				}
+				if ld.Value != nil {
+					return inExpr(bm, ld.Value, bodySpan)
+				}
+			case *ast.StructDecl:
+				for _, f := range ld.Fields {
+					if f.Type != nil && spanContainsOffset(f.Type.GetSpan(), offset) {
+						return inTypeExpr(f.Type)
+					}
+					if f.Default != nil && spanContainsOffset(f.Default.GetSpan(), offset) {
+						return inExpr(bm, f.Default, bodySpan)
+					}
+				}
+			case *ast.DistinctTypeDecl:
+				if ld.Base != nil && spanContainsOffset(ld.Base.GetSpan(), offset) {
+					return inTypeExpr(ld.Base)
+				}
+			}
 		case *ast.ExprStmt:
 			return inExpr(bm, vs.Expr, bodySpan)
 		}
@@ -691,6 +727,8 @@ func resolveRefTargetAt(prog *sema.CheckedProgram, mod *sema.Module, filePath, s
 			return inExpr(bm, v.Tail, bodySpan)
 		case *ast.StmtBodyExpr:
 			return inStmt(bm, v.Stmt, bodySpan)
+		case *ast.ComptimeExpr:
+			return inExpr(bm, v.Expr, bodySpan)
 		case *ast.IfExpr:
 			if v.CondKind == ast.IfCondOptVar && tok.Text == v.OptVar && (v.Then == nil || offset < v.Then.GetSpan().Start.Offset) {
 				if bm != nil {
@@ -918,6 +956,22 @@ func resolveRefTargetAt(prog *sema.CheckedProgram, mod *sema.Module, filePath, s
 			}
 			return inExpr(bm, v.Callee, bodySpan)
 		case *ast.MemberExpr:
+			for _, ta := range v.BaseTypeArgs {
+				if spanContainsOffset(ta.GetSpan(), offset) {
+					if r := inTypeExpr(ta); r != nil {
+						return r
+					}
+				}
+			}
+			if id, ok := v.Base.(*ast.IdentExpr); ok && (id.Name == "comp" || id.Name == "type") {
+				memberName := sema.MemberFieldName(v, exprInfoFromBM(prog, bm, v))
+				if tok.Text == memberName {
+					full := id.Name + "." + memberName
+					if LookupBuiltinFunc(full) != nil || LookupBuiltinTypeDoc(full) != nil {
+						return &refTarget{kind: refNone, isBuiltin: true}
+					}
+				}
+			}
 			if spanContainsOffset(v.Base.GetSpan(), offset) && !isPlaceholderIdent(v.Base) {
 				if id, ok := v.Base.(*ast.IdentExpr); ok {
 					if targetMod, isMod := mod.Aliased[id.Name]; isMod && targetMod != nil {
@@ -1080,8 +1134,19 @@ func resolveRefTargetAt(prog *sema.CheckedProgram, mod *sema.Module, filePath, s
 		return nil
 	}
 
-	// Check top-level AST declarations first
+	// Check top-level AST declarations first (active declarations + `comptime if` conditions)
 	for _, d := range mod.File.Decls {
+		if tc, ok := d.(*ast.TopComptimeIfDecl); ok && spanContainsOffset(tc.Span, offset) {
+			for cur := tc; cur != nil; cur = cur.ElseIf {
+				if cur.Cond != nil && spanContainsOffset(cur.Cond.GetSpan(), offset) {
+					if r := inExpr(prog.TopBodyMaps, cur.Cond, cur.Span); r != nil {
+						return r
+					}
+				}
+			}
+		}
+	}
+	for _, d := range mod.ActiveDecls() {
 		if !spanContainsOffset(d.GetSpan(), offset) {
 			continue
 		}
@@ -1512,6 +1577,9 @@ func collectOccsInModule(
 	}
 
 	var scanTypeExpr func(te ast.TypeExpr)
+	var scanStmt func(bm *sema.BodyMaps, st ast.Stmt)
+	var scanExpr func(bm *sema.BodyMaps, e ast.Expr)
+
 	scanTypeExpr = func(te ast.TypeExpr) {
 		if te == nil {
 			return
@@ -1552,7 +1620,18 @@ func collectOccsInModule(
 		case *ast.VectorType:
 			scanTypeExpr(v.Elem)
 		case *ast.StackArrayType:
+			var topBM *sema.BodyMaps
+			if prog != nil {
+				topBM = prog.TopBodyMaps
+			}
+			scanExpr(topBM, v.Size)
 			scanTypeExpr(v.Elem)
+		case *ast.ConstArgType:
+			var topBM *sema.BodyMaps
+			if prog != nil {
+				topBM = prog.TopBodyMaps
+			}
+			scanExpr(topBM, v.Expr)
 		case *ast.SetType:
 			scanTypeExpr(v.Elem)
 		case *ast.MapType:
@@ -1569,9 +1648,6 @@ func collectOccsInModule(
 			scanTypeExpr(v.Ret)
 		}
 	}
-
-	var scanStmt func(bm *sema.BodyMaps, st ast.Stmt)
-	var scanExpr func(bm *sema.BodyMaps, e ast.Expr)
 
 	scanStmt = func(bm *sema.BodyMaps, st ast.Stmt) {
 		if st == nil {
@@ -1621,6 +1697,25 @@ func collectOccsInModule(
 			scanExpr(bm, vs.Value)
 		case *ast.UnwindStmt:
 			scanExpr(bm, vs.Value)
+		case *ast.DeclStmt:
+			switch ld := vs.Decl.(type) {
+			case *ast.VarDecl:
+				scanTypeExpr(ld.Type)
+				scanExpr(bm, ld.Value)
+			case *ast.StructDecl:
+				for _, f := range ld.Fields {
+					scanTypeExpr(f.Type)
+					if f.Default != nil {
+						scanExpr(bm, f.Default)
+					}
+				}
+			case *ast.EnumDecl:
+				for _, ev := range ld.Variants {
+					scanTypeExpr(ev.PayloadType)
+				}
+			case *ast.DistinctTypeDecl:
+				scanTypeExpr(ld.Base)
+			}
 		case *ast.ExprStmt:
 			scanExpr(bm, vs.Expr)
 		}
@@ -1638,6 +1733,8 @@ func collectOccsInModule(
 			scanExpr(bm, v.Tail)
 		case *ast.StmtBodyExpr:
 			scanStmt(bm, v.Stmt)
+		case *ast.ComptimeExpr:
+			scanExpr(bm, v.Expr)
 		case *ast.IfExpr:
 			if v.CondKind == ast.IfCondOptVar && bm != nil {
 				if orig := bm.IfOriginSyms[v]; orig != nil {
@@ -1831,6 +1928,9 @@ func collectOccsInModule(
 			}
 			scanExpr(bm, v.Callee)
 		case *ast.MemberExpr:
+			for _, ta := range v.BaseTypeArgs {
+				scanTypeExpr(ta)
+			}
 			scanExpr(bm, v.Base)
 			// Check qualifier Base if it's a type or module alias (when Base isn't a local value)
 			if tgt.kind == refType {
@@ -1968,6 +2068,13 @@ func collectOccsInModule(
 	}
 
 	for _, d := range mod.File.Decls {
+		if tc, ok := d.(*ast.TopComptimeIfDecl); ok {
+			for cur := tc; cur != nil; cur = cur.ElseIf {
+				scanExpr(prog.TopBodyMaps, cur.Cond)
+			}
+		}
+	}
+	for _, d := range mod.ActiveDecls() {
 		switch decl := d.(type) {
 		case *ast.ImportDecl:
 			if tgt.kind == refModuleAlias && decl.Alias == tgt.name {

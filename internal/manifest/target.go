@@ -3,6 +3,7 @@ package manifest
 import (
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -202,6 +203,45 @@ func isUnixOS(osName string) bool {
 	default:
 		return false
 	}
+}
+
+// TargetSelectorSpecificity ranks target selectors from broadest (0/1) to most
+// specific (5) so more specific `[target.<selector>]` entries override broader ones.
+func TargetSelectorSpecificity(selector string) int {
+	sel := strings.ToLower(strings.TrimSpace(selector))
+	if sel == "" {
+		return 0
+	}
+	if sel == "unix" {
+		return 1
+	}
+	if !strings.Contains(sel, "-") {
+		if normalizeArch(sel) != "" {
+			return 2
+		}
+		if normalizeOS(sel) != "" {
+			return 3
+		}
+		return 0
+	}
+	parts := strings.Split(sel, "-")
+	if len(parts) >= 3 {
+		return 5
+	}
+	return 4
+}
+
+// SortTargetSelectors orders selectors from least specific to most specific
+// (breaking ties lexicographically) so later entries override earlier ones cleanly.
+func SortTargetSelectors(selectors []string) {
+	sort.Slice(selectors, func(i, j int) bool {
+		si := TargetSelectorSpecificity(selectors[i])
+		sj := TargetSelectorSpecificity(selectors[j])
+		if si != sj {
+			return si < sj
+		}
+		return selectors[i] < selectors[j]
+	})
 }
 
 // MatchesSelector checks whether a `[target.<selector>]` selector matches target.

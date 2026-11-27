@@ -7,12 +7,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"lowlight/internal/ast"
 	"lowlight/internal/diag"
@@ -22,18 +24,14 @@ import (
 )
 
 type diskASTCacheEntry struct {
-	modTimeNano int64
-	size        int64
-	src         string
-	file        *ast.File
+	hash [32]byte
+	src  string
+	file *ast.File
 }
 
 var (
 	diskASTMu    sync.RWMutex
 	diskASTCache = make(map[string]diskASTCacheEntry)
-	// astRewriteMu serializes the few idempotent in-place disambiguation rewrites sema makes to
-	// cached ASTs (`xs[i].m` / `fns[i](...)` first parsed as type arguments).
-	astRewriteMu sync.Mutex
 )
 
 // BindKind classifies how a local variable holds its value.
@@ -323,6 +321,8 @@ type ExprInfo struct {
 	MethodRecv     ast.Expr // receiver expression for UFCS dot-method calls
 	MethodRecvMode types.ParamMode
 	IntrinsicType  types.Type // concrete type argument `T` for `size_of[T]`, `alloc_raw[T]`, `ptr_cast[To]`, etc.
+	ResolvedCallee ast.Expr   // index-call rewritten callee when `fns[idx](...)` was parsed with TypeArgs
+	ResolvedBase   ast.Expr   // index-base rewritten base when `xs[idx].m` was parsed with BaseTypeArgs
 
 	// OpMethod is the method an overloadable operator calls: `add` for `a + b` (on the binary
 	// expression), and `add_assign` or `add` for `a += b` (on the assignment target).
@@ -586,8 +586,9 @@ type CheckOptions struct {
 	StdDir       string
 	TargetTriple string
 	TestMode     bool
-	IDEMode      bool
-	ManifestCtx  *manifest.ProjectContext
+	IDEMode            bool
+	IDEComptimeTimeout time.Duration // 0 => defaultIDEComptimeWallTimeout in IDEMode; < 0 => disabled
+	ManifestCtx        *manifest.ProjectContext
 	ResolvedDeps *manifest.ResolvedGraph
 	CacheRoot    string
 	Locked       bool
@@ -603,7 +604,16 @@ type Analyzer struct {
 	curBM           *BodyMaps
 	target          manifest.TargetInfo
 	testMode        bool
-	ideMode         bool
+	ideMode               bool
+	ideTimeout            time.Duration
+	projectRoot           string
+	loadedFileSources     map[string]string
+	loadedPkgDirs         []loadedPkgDirInfo
+	pkgFingerprints       map[*Package]string
+	missedImportDirs      []string
+	hasUnresolvedImport   bool
+	activeTopVarEmbeds    *[]EmbeddedFileInfo
+	activeTopVarAttempted *[]string
 	manifestCtx     *manifest.ProjectContext
 	resolvedDeps    *manifest.ResolvedGraph
 	overlays        map[string]string
@@ -660,13 +670,34 @@ type Analyzer struct {
 	embeddedFileIdx       map[string]int
 }
 
+type loadedPkgDirInfo struct {
+	dir          string
+	includeTests bool
+}
+
 func (a *Analyzer) recordEmbeddedFile(absPath string, data []byte) {
-	if a == nil || a.Prog == nil || absPath == "" {
+	if a == nil || absPath == "" {
+		return
+	}
+	sum := sha256.Sum256(data)
+	digest := hex.EncodeToString(sum[:])
+	a.recordEmbeddedFileHash(absPath, digest)
+}
+
+func (a *Analyzer) recordEmbeddedFileHash(absPath, digest string) {
+	if a == nil || absPath == "" {
 		return
 	}
 	cleanPath := filepath.Clean(absPath)
-	sum := sha256.Sum256(data)
-	digest := hex.EncodeToString(sum[:])
+	if a.activeTopVarEmbeds != nil {
+		*a.activeTopVarEmbeds = append(*a.activeTopVarEmbeds, EmbeddedFileInfo{
+			Path:   cleanPath,
+			SHA256: digest,
+		})
+	}
+	if a.Prog == nil {
+		return
+	}
 	if a.embeddedFileIdx == nil {
 		a.embeddedFileIdx = make(map[string]int)
 	}
@@ -682,10 +713,16 @@ func (a *Analyzer) recordEmbeddedFile(absPath string, data []byte) {
 }
 
 func (a *Analyzer) recordAttemptedEmbed(absPath string) {
-	if a == nil || a.Prog == nil || absPath == "" {
+	if a == nil || absPath == "" {
 		return
 	}
 	cleanPath := filepath.Clean(absPath)
+	if a.activeTopVarAttempted != nil {
+		*a.activeTopVarAttempted = append(*a.activeTopVarAttempted, cleanPath)
+	}
+	if a.Prog == nil {
+		return
+	}
 	for _, existing := range a.Prog.AttemptedEmbedPaths {
 		if existing == cleanPath {
 			return
@@ -716,16 +753,21 @@ func Check(entryPath, srcOverride, projectRoot string, rep *diag.Reporter) *Chec
 	}, rep)
 }
 
-// CheckWithOptions runs package-aware semantic analysis configured by `opts`.
-func CheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram {
-	overlays := make(map[string]string, len(opts.Overlays)+1)
-	for k, v := range opts.Overlays {
+func normalizeOverlays(in map[string]string) map[string]string {
+	overlays := make(map[string]string, len(in)+1)
+	for k, v := range in {
 		if abs, err := filepath.Abs(k); err == nil {
 			overlays[abs] = v
 		} else {
 			overlays[k] = v
 		}
 	}
+	return overlays
+}
+
+// CheckWithOptions runs package-aware semantic analysis configured by `opts`.
+func CheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram {
+	overlays := normalizeOverlays(opts.Overlays)
 	if opts.SrcOverride != "" && opts.EntryPath != "" {
 		absEntry, err := filepath.Abs(opts.EntryPath)
 		if err != nil {
@@ -741,38 +783,21 @@ func CheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram {
 //   - Uses live in-memory `overlays` (including empty buffers and unsaved imported files).
 //   - Continues through type registration and body checking even when syntax or header errors exist,
 //     so autocomplete, hover, go-to-definition, and real-time type/ownership diagnostics stay live while typing.
-func CheckForIDE(entryPath string, overlays map[string]string, projectRoot string, rep *diag.Reporter) (prog *CheckedProgram) {
-	defer func() {
-		if r := recover(); r != nil && prog == nil {
-			prog = &CheckedProgram{
-				PackageByID:    make(map[string]*Package),
-				StructDecls:    make(map[*types.Struct]*ast.StructDecl),
-				StructMods:     make(map[*types.Struct]*Module),
-				EnumDecls:      make(map[*types.Enum]*ast.EnumDecl),
-				EnumMods:       make(map[*types.Enum]*Module),
-				InterfaceMods:  make(map[*types.Interface]*Module),
-				DistinctMods:   make(map[*types.Distinct]*Module),
-				VTables:        make(map[string]*VTableImpl),
-				TopBodyMaps:    NewBodyMaps(),
-				StructBodyMaps: make(map[*types.Struct]*BodyMaps),
-				EnumBodyMaps:   make(map[*types.Enum]*BodyMaps),
-				MethodTable:    make(map[string]map[string]*FuncInstance),
-				GenMethods:     make(map[string]map[string]*GenericFuncTemplate),
-				TypeSpans:      make(map[types.Type]diag.Span),
-			}
-		}
-	}()
-	prog = CheckWithOptions(CheckOptions{
+func CheckForIDE(entryPath string, overlays map[string]string, projectRoot string, rep *diag.Reporter) *CheckedProgram {
+	return CheckForIDEWithOptions(CheckIDEOptions{
 		EntryPath:   entryPath,
 		Overlays:    overlays,
 		ProjectRoot: projectRoot,
 		TestMode:    manifest.IsTestFile(entryPath),
-		IDEMode:     true,
 	}, rep)
-	return prog
 }
 
 func runCheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram {
+	prog, _ := runCheckWithOptionsAndAnalyzer(opts, rep)
+	return prog
+}
+
+func runCheckWithOptionsAndAnalyzer(opts CheckOptions, rep *diag.Reporter) (*CheckedProgram, *Analyzer) {
 	absEntry, err := filepath.Abs(opts.EntryPath)
 	if err != nil {
 		absEntry = opts.EntryPath
@@ -877,6 +902,9 @@ func runCheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram 
 		target:         target,
 		testMode:       opts.TestMode,
 		ideMode:        opts.IDEMode,
+		ideTimeout:     opts.IDEComptimeTimeout,
+		projectRoot:    projectRoot,
+		loadedFileSources: make(map[string]string),
 		manifestCtx:    mCtx,
 		resolvedDeps:   resolvedDeps,
 		overlays:       opts.Overlays,
@@ -989,17 +1017,17 @@ func runCheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram 
 	}
 
 	if entryPkg == nil || entryMod == nil {
-		return prog
+		return prog, a
 	}
 	prog.EntryPkg = entryPkg
 	prog.EntryMod = entryMod
 	if rep.HasErrors() && !opts.IDEMode {
-		return prog
+		return prog, a
 	}
 
 	a.runTypeAndSymbolRegistration()
 	if rep.HasErrors() && !opts.IDEMode {
-		return prog
+		return prog, a
 	}
 
 	a.runBodyChecking()
@@ -1012,7 +1040,7 @@ func runCheckWithOptions(opts CheckOptions, rep *diag.Reporter) *CheckedProgram 
 		}
 		prog.TestFuncs = entryTests
 	}
-	return prog
+	return prog, a
 }
 
 func findProjectRoot(startDir string) string {
@@ -1291,38 +1319,60 @@ func (a *Analyzer) assignPackageTag(pkg *Package) string {
 }
 
 func (a *Analyzer) parseSourceFile(absPath string, importSpan diag.Span) *ast.File {
-	if ov, hasOverlay := a.overlays[absPath]; hasOverlay {
+	normPath := normCleanAbs(absPath)
+	if ov, hasOverlay := lookupOverlayByPath(a.overlays, absPath); hasOverlay {
+		if a.loadedFileSources != nil {
+			a.loadedFileSources[normPath] = ov
+		}
 		return parser.ParseFile(absPath, ov, a.Rep)
 	}
-	info, statErr := os.Stat(absPath)
-	if statErr == nil {
-		diskASTMu.RLock()
-		cached, ok := diskASTCache[absPath]
-		diskASTMu.RUnlock()
-		if ok && cached.modTimeNano == info.ModTime().UnixNano() && cached.size == info.Size() && cached.file != nil {
-			if a.Rep != nil {
-				a.Rep.AddSource(absPath, cached.src)
-			}
-			return cached.file
-		}
+	f, openErr := os.Open(absPath)
+	if openErr != nil {
+		a.Rep.Errorf(importSpan, "cannot read source file %q: %v", absPath, openErr)
+		return nil
 	}
-	raw, err := os.ReadFile(absPath)
+	info, statErr := f.Stat()
+	if statErr == nil && info.IsDir() {
+		_ = f.Close()
+		a.Rep.Errorf(importSpan, "cannot read source file %q: is a directory", absPath)
+		return nil
+	}
+	raw, err := io.ReadAll(f)
+	_ = f.Close()
 	if err != nil {
 		a.Rep.Errorf(importSpan, "cannot read source file %q: %v", absPath, err)
 		return nil
 	}
+	hash := sha256.Sum256(raw)
+	if statErr == nil {
+		diskASTMu.RLock()
+		cached, ok := diskASTCache[absPath]
+		diskASTMu.RUnlock()
+		if ok && cached.hash == hash && cached.file != nil {
+			if a.Rep != nil {
+				a.Rep.AddSource(absPath, cached.src)
+			}
+			if a.loadedFileSources != nil {
+				a.loadedFileSources[normPath] = cached.src
+			}
+			return cached.file
+		}
+	}
+	srcStr := string(raw)
+	if a.loadedFileSources != nil {
+		a.loadedFileSources[normPath] = srcStr
+	}
 	diagsBefore := len(a.Rep.Diagnostics())
-	astFile := parser.ParseFile(absPath, string(raw), a.Rep)
+	astFile := parser.ParseFile(absPath, srcStr, a.Rep)
 	if statErr == nil && astFile != nil && len(a.Rep.Diagnostics()) == diagsBefore {
 		diskASTMu.Lock()
 		if len(diskASTCache) > 512 {
 			diskASTCache = make(map[string]diskASTCacheEntry)
 		}
 		diskASTCache[absPath] = diskASTCacheEntry{
-			modTimeNano: info.ModTime().UnixNano(),
-			size:        info.Size(),
-			src:         string(raw),
-			file:        astFile,
+			hash: hash,
+			src:  srcStr,
+			file: astFile,
 		}
 		diskASTMu.Unlock()
 	}
@@ -1412,45 +1462,61 @@ func (a *Analyzer) newModuleInPkg(pkg *Package, absPath string, astFile *ast.Fil
 	}
 }
 
-func (a *Analyzer) collectPackageFiles(pkgDir string, includeTests bool) []string {
+func isPackageSourceFileName(base string, target manifest.TargetInfo, includeTests bool) bool {
+	if !strings.HasSuffix(base, ".ll") {
+		return false
+	}
+	if manifest.IsTestFile(base) && !includeTests {
+		return false
+	}
+	return manifest.MatchesTargetSuffix(base, target)
+}
+
+func scanPackageDirFiles(pkgDir string, target manifest.TargetInfo, includeTests bool) []string {
 	cleanDir := filepath.Clean(pkgDir)
 	seen := make(map[string]bool)
 	var files []string
-
-	consider := func(fullPath string) {
-		abs, err := filepath.Abs(fullPath)
-		if err != nil {
-			abs = fullPath
-		}
-		if seen[abs] {
-			return
-		}
-		base := filepath.Base(abs)
-		if !strings.HasSuffix(base, ".ll") {
-			return
-		}
-		if manifest.IsTestFile(base) && !includeTests {
-			return
-		}
-		if !manifest.MatchesTargetSuffix(base, a.target) {
-			return
-		}
-		seen[abs] = true
-		files = append(files, abs)
-	}
-
 	if entries, err := os.ReadDir(cleanDir); err == nil {
 		for _, e := range entries {
 			if e.IsDir() {
 				continue
 			}
-			consider(filepath.Join(cleanDir, e.Name()))
+			fullPath := filepath.Join(cleanDir, e.Name())
+			abs, err := filepath.Abs(fullPath)
+			if err != nil {
+				abs = fullPath
+			}
+			if seen[abs] || !isPackageSourceFileName(filepath.Base(abs), target, includeTests) {
+				continue
+			}
+			seen[abs] = true
+			files = append(files, abs)
 		}
 	}
+	sort.Strings(files)
+	return files
+}
+
+func (a *Analyzer) collectPackageFiles(pkgDir string, includeTests bool) []string {
+	cleanDir := filepath.Clean(pkgDir)
+	files := scanPackageDirFiles(cleanDir, a.target, includeTests)
+	seen := make(map[string]bool, len(files))
+	for _, f := range files {
+		seen[f] = true
+	}
 	for ovPath := range a.overlays {
-		if filepath.Clean(filepath.Dir(ovPath)) == cleanDir {
-			consider(ovPath)
+		if filepath.Clean(filepath.Dir(ovPath)) != cleanDir {
+			continue
 		}
+		abs, err := filepath.Abs(ovPath)
+		if err != nil {
+			abs = ovPath
+		}
+		if seen[abs] || !isPackageSourceFileName(filepath.Base(abs), a.target, includeTests) {
+			continue
+		}
+		seen[abs] = true
+		files = append(files, abs)
 	}
 	sort.Strings(files)
 	return files
@@ -1503,6 +1569,10 @@ func (a *Analyzer) loadPackageDir(pkgDir, pkgID, pkgName string, isStd, isCore, 
 	}
 
 	includeTests := isEntry && a.testMode
+	a.loadedPkgDirs = append(a.loadedPkgDirs, loadedPkgDirInfo{
+		dir:          normCleanAbs(cleanDir),
+		includeTests: includeTests,
+	})
 	files := a.collectPackageFiles(cleanDir, includeTests)
 	if len(files) == 0 {
 		if importSpan.Start.Line > 0 {
@@ -1677,6 +1747,7 @@ func (a *Analyzer) resolvePackageImports(pkg *Package) {
 
 			target, errMsg, hintMsg := a.resolveImportTarget(pkg, mod, imp.Path)
 			if errMsg != "" {
+				a.hasUnresolvedImport = true
 				if hintMsg != "" {
 					a.Rep.ErrorWithHint(imp.Span, errMsg, hintMsg)
 				} else {

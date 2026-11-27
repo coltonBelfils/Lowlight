@@ -2,10 +2,10 @@
 // Unicode 16.0.0.
 
 // The Unicode version of the case tables in this package.
-bind UNICODE_VERSION = "16.0.0"
+const UNICODE_VERSION = "16.0.0"
 
 // Uppercase mapping: one-to-one mappings as (start, end, delta, stride) runs, sorted by start.
-bind _UPPER_RANGES: [int] = [
+const _UPPER_RANGES: [int] = [
 	97, 122, -32, 1, 181, 181, 743, 1,
 	224, 246, -32, 1, 248, 254, -32, 1,
 	255, 255, 121, 1, 257, 303, -1, 2,
@@ -109,7 +109,7 @@ bind _UPPER_RANGES: [int] = [
 ]
 
 // Uppercase mapping: code points whose mapping is several characters.
-bind _UPPER_SPECIAL_KEYS: [int] = [
+const _UPPER_SPECIAL_KEYS: [int] = [
 	223, 329, 496, 912, 944, 1415, 7830, 7831,
 	7832, 7833, 7834, 8016, 8018, 8020, 8022, 8064,
 	8065, 8066, 8067, 8068, 8069, 8070, 8071, 8072,
@@ -126,7 +126,7 @@ bind _UPPER_SPECIAL_KEYS: [int] = [
 ]
 
 // Uppercase mapping: the mapping of each key above, in the same order.
-bind _UPPER_SPECIAL_VALUES: [string] = [
+const _UPPER_SPECIAL_VALUES: [string] = [
 	"\u{53}\u{53}",
 	"\u{2BC}\u{4E}",
 	"\u{4A}\u{30C}",
@@ -232,7 +232,7 @@ bind _UPPER_SPECIAL_VALUES: [string] = [
 ]
 
 // Lowercase mapping: one-to-one mappings as (start, end, delta, stride) runs, sorted by start.
-bind _LOWER_RANGES: [int] = [
+const _LOWER_RANGES: [int] = [
 	65, 90, 32, 1, 192, 214, 32, 1,
 	216, 222, 32, 1, 256, 302, 1, 2,
 	306, 310, 1, 2, 313, 327, 1, 2,
@@ -329,17 +329,17 @@ bind _LOWER_RANGES: [int] = [
 ]
 
 // Lowercase mapping: code points whose mapping is several characters.
-bind _LOWER_SPECIAL_KEYS: [int] = [
+const _LOWER_SPECIAL_KEYS: [int] = [
 	304,
 ]
 
 // Lowercase mapping: the mapping of each key above, in the same order.
-bind _LOWER_SPECIAL_VALUES: [string] = [
+const _LOWER_SPECIAL_VALUES: [string] = [
 	"\u{69}\u{307}",
 ]
 
 // Case folding: one-to-one mappings as (start, end, delta, stride) runs, sorted by start.
-bind _FOLD_RANGES: [int] = [
+const _FOLD_RANGES: [int] = [
 	65, 90, 32, 1, 181, 181, 775, 1,
 	192, 214, 32, 1, 216, 222, 32, 1,
 	256, 302, 1, 2, 306, 310, 1, 2,
@@ -443,7 +443,7 @@ bind _FOLD_RANGES: [int] = [
 ]
 
 // Case folding: code points whose mapping is several characters.
-bind _FOLD_SPECIAL_KEYS: [int] = [
+const _FOLD_SPECIAL_KEYS: [int] = [
 	223, 304, 329, 496, 912, 944, 1415, 7830,
 	7831, 7832, 7833, 7834, 7838, 8016, 8018, 8020,
 	8022, 8064, 8065, 8066, 8067, 8068, 8069, 8070,
@@ -460,7 +460,7 @@ bind _FOLD_SPECIAL_KEYS: [int] = [
 ]
 
 // Case folding: the mapping of each key above, in the same order.
-bind _FOLD_SPECIAL_VALUES: [string] = [
+const _FOLD_SPECIAL_VALUES: [string] = [
 	"\u{73}\u{73}",
 	"\u{69}\u{307}",
 	"\u{2BC}\u{6E}",
@@ -568,7 +568,7 @@ bind _FOLD_SPECIAL_VALUES: [string] = [
 ]
 
 // Cased characters (for Final_Sigma), as inclusive (start, end) pairs.
-bind _CASED_RANGES: [int] = [
+const _CASED_RANGES: [int] = [
 	65, 90, 97, 122, 170, 170, 181, 181,
 	186, 186, 192, 214, 216, 246, 248, 442,
 	444, 447, 452, 659, 661, 687, 880, 883,
@@ -610,7 +610,7 @@ bind _CASED_RANGES: [int] = [
 ]
 
 // Case-ignorable characters (for Final_Sigma), as inclusive (start, end) pairs.
-bind _CASE_IGNORABLE_RANGES: [int] = [
+const _CASE_IGNORABLE_RANGES: [int] = [
 	39, 39, 46, 46, 58, 58, 94, 94,
 	96, 96, 168, 168, 173, 173, 175, 175,
 	180, 180, 183, 184, 688, 879, 884, 885,

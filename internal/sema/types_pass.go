@@ -1095,9 +1095,13 @@ func (a *Analyzer) collectTopLevelIntConsts(mod *Module) bool {
 			}
 		}
 		if val, ok2 := a.evalSimpleConstInt(mod, vd.Value); ok2 {
+			cname := "ll_g_" + types.SanitizeCIdent(vd.Name)
+			if tag := a.moduleTag(mod); tag != "" {
+				cname = fmt.Sprintf("ll_g_%s_%s", tag, types.SanitizeCIdent(vd.Name))
+			}
 			mod.Symbols[vd.Name] = &Symbol{
 				Name:        vd.Name,
-				CName:       types.SanitizeCIdent(vd.Name),
+				CName:       cname,
 				Mod:         mod,
 				Type:        ty,
 				IsBind:      true,

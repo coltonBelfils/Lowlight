@@ -13,121 +13,121 @@ import "std/time"
 // ============================================================================
 
 // HTTP 100 Continue.
-bind STATUS_CONTINUE = 100
+const STATUS_CONTINUE = 100
 
 // HTTP 101 Switching Protocols.
-bind STATUS_SWITCHING_PROTOCOLS = 101
+const STATUS_SWITCHING_PROTOCOLS = 101
 
 // HTTP 200 OK.
-bind STATUS_OK = 200
+const STATUS_OK = 200
 
 // HTTP 201 Created.
-bind STATUS_CREATED = 201
+const STATUS_CREATED = 201
 
 // HTTP 202 Accepted.
-bind STATUS_ACCEPTED = 202
+const STATUS_ACCEPTED = 202
 
 // HTTP 203 Non-Authoritative Information.
-bind STATUS_NON_AUTHORITATIVE_INFO = 203
+const STATUS_NON_AUTHORITATIVE_INFO = 203
 
 // HTTP 204 No Content.
-bind STATUS_NO_CONTENT = 204
+const STATUS_NO_CONTENT = 204
 
 // HTTP 205 Reset Content.
-bind STATUS_RESET_CONTENT = 205
+const STATUS_RESET_CONTENT = 205
 
 // HTTP 206 Partial Content.
-bind STATUS_PARTIAL_CONTENT = 206
+const STATUS_PARTIAL_CONTENT = 206
 
 // HTTP 300 Multiple Choices.
-bind STATUS_MULTIPLE_CHOICES = 300
+const STATUS_MULTIPLE_CHOICES = 300
 
 // HTTP 301 Moved Permanently.
-bind STATUS_MOVED_PERMANENTLY = 301
+const STATUS_MOVED_PERMANENTLY = 301
 
 // HTTP 302 Found.
-bind STATUS_FOUND = 302
+const STATUS_FOUND = 302
 
 // HTTP 303 See Other.
-bind STATUS_SEE_OTHER = 303
+const STATUS_SEE_OTHER = 303
 
 // HTTP 304 Not Modified.
-bind STATUS_NOT_MODIFIED = 304
+const STATUS_NOT_MODIFIED = 304
 
 // HTTP 307 Temporary Redirect.
-bind STATUS_TEMPORARY_REDIRECT = 307
+const STATUS_TEMPORARY_REDIRECT = 307
 
 // HTTP 308 Permanent Redirect.
-bind STATUS_PERMANENT_REDIRECT = 308
+const STATUS_PERMANENT_REDIRECT = 308
 
 // HTTP 400 Bad Request.
-bind STATUS_BAD_REQUEST = 400
+const STATUS_BAD_REQUEST = 400
 
 // HTTP 401 Unauthorized.
-bind STATUS_UNAUTHORIZED = 401
+const STATUS_UNAUTHORIZED = 401
 
 // HTTP 402 Payment Required.
-bind STATUS_PAYMENT_REQUIRED = 402
+const STATUS_PAYMENT_REQUIRED = 402
 
 // HTTP 403 Forbidden.
-bind STATUS_FORBIDDEN = 403
+const STATUS_FORBIDDEN = 403
 
 // HTTP 404 Not Found.
-bind STATUS_NOT_FOUND = 404
+const STATUS_NOT_FOUND = 404
 
 // HTTP 405 Method Not Allowed.
-bind STATUS_METHOD_NOT_ALLOWED = 405
+const STATUS_METHOD_NOT_ALLOWED = 405
 
 // HTTP 406 Not Acceptable.
-bind STATUS_NOT_ACCEPTABLE = 406
+const STATUS_NOT_ACCEPTABLE = 406
 
 // HTTP 407 Proxy Authentication Required.
-bind STATUS_PROXY_AUTH_REQUIRED = 407
+const STATUS_PROXY_AUTH_REQUIRED = 407
 
 // HTTP 408 Request Timeout.
-bind STATUS_REQUEST_TIMEOUT = 408
+const STATUS_REQUEST_TIMEOUT = 408
 
 // HTTP 409 Conflict.
-bind STATUS_CONFLICT = 409
+const STATUS_CONFLICT = 409
 
 // HTTP 410 Gone.
-bind STATUS_GONE = 410
+const STATUS_GONE = 410
 
 // HTTP 411 Length Required.
-bind STATUS_LENGTH_REQUIRED = 411
+const STATUS_LENGTH_REQUIRED = 411
 
 // HTTP 413 Payload Too Large.
-bind STATUS_PAYLOAD_TOO_LARGE = 413
+const STATUS_PAYLOAD_TOO_LARGE = 413
 
 // HTTP 414 URI Too Long.
-bind STATUS_URI_TOO_LONG = 414
+const STATUS_URI_TOO_LONG = 414
 
 // HTTP 415 Unsupported Media Type.
-bind STATUS_UNSUPPORTED_MEDIA_TYPE = 415
+const STATUS_UNSUPPORTED_MEDIA_TYPE = 415
 
 // HTTP 429 Too Many Requests.
-bind STATUS_TOO_MANY_REQUESTS = 429
+const STATUS_TOO_MANY_REQUESTS = 429
 
 // HTTP 500 Internal Server Error.
-bind STATUS_INTERNAL_SERVER_ERROR = 500
+const STATUS_INTERNAL_SERVER_ERROR = 500
 
 // HTTP 501 Not Implemented.
-bind STATUS_NOT_IMPLEMENTED = 501
+const STATUS_NOT_IMPLEMENTED = 501
 
 // HTTP 502 Bad Gateway.
-bind STATUS_BAD_GATEWAY = 502
+const STATUS_BAD_GATEWAY = 502
 
 // HTTP 503 Service Unavailable.
-bind STATUS_SERVICE_UNAVAILABLE = 503
+const STATUS_SERVICE_UNAVAILABLE = 503
 
 // HTTP 504 Gateway Timeout.
-bind STATUS_GATEWAY_TIMEOUT = 504
+const STATUS_GATEWAY_TIMEOUT = 504
 
 // HTTP 505 HTTP Version Not Supported.
-bind STATUS_HTTP_VERSION_NOT_SUPPORTED = 505
+const STATUS_HTTP_VERSION_NOT_SUPPORTED = 505
 
 // Returns the standard RFC reason phrase for HTTP status `code`, or `"Unknown"` if unrecognized.
-bind status_text = fn(code: int) string:
+const status_text = fn(code: int) string:
 	match(code):
 		when 100: "Continue"
 		when 101: "Switching Protocols"

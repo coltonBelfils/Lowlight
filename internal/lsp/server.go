@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"lowlight/internal/ast"
 	"lowlight/internal/diag"
@@ -40,6 +39,7 @@ type InlayHintConfig struct {
 type ServerConfig struct {
 	Format     FormatConfig
 	InlayHints InlayHintConfig
+	Target     string
 }
 
 func defaultServerConfig() ServerConfig {
@@ -71,6 +71,8 @@ type Server struct {
 	docs            map[string]string                            // canonical abs path -> open buffer content
 	docURIs         map[string]string                            // canonical abs path -> exact client URI
 	cachedProgs     map[string]*sema.CheckedProgram              // canonical abs path -> latest CheckedProgram
+	cachedProgSrc   map[string]string                            // canonical abs path -> source content for cachedProgs[path]
+	cachedProgOrder []string                                     // FIFO insertion order for bounded cache eviction
 	docIndices      map[*sema.CheckedProgram]*docgen.SymbolIndex // CheckedProgram -> doc link index
 	inlayCache      map[*sema.CheckedProgram]cachedInlayEntry    // CheckedProgram -> cached full-file inlay hints
 	semTokCache     map[*sema.CheckedProgram]*SemanticTokens     // CheckedProgram -> cached semantic tokens
@@ -92,6 +94,7 @@ func NewServer(r io.Reader, w io.Writer, logW io.Writer) *Server {
 		docs:            make(map[string]string),
 		docURIs:         make(map[string]string),
 		cachedProgs:     make(map[string]*sema.CheckedProgram),
+		cachedProgSrc:   make(map[string]string),
 		docIndices:      make(map[*sema.CheckedProgram]*docgen.SymbolIndex),
 		inlayCache:      make(map[*sema.CheckedProgram]cachedInlayEntry),
 		semTokCache:     make(map[*sema.CheckedProgram]*SemanticTokens),
@@ -128,11 +131,30 @@ func (s *Server) Serve() int {
 	}
 }
 
+func (s *Server) nextReqID() int64 {
+	s.mu.Lock()
+	id := s.nextServerReqID
+	s.nextServerReqID++
+	s.mu.Unlock()
+	return id
+}
+
 func (s *Server) handleMessage(msg *RequestMessage) {
 	if msg.Method == "" {
 		// Response to a server-initiated request (`client/registerCapability`, `window/showDocument`, etc.).
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			s.conn.logf("panic handling LSP method %s: %v", msg.Method, r)
+			if msg.ID != nil {
+				_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{
+					Code:    ErrCodeInternalError,
+					Message: fmt.Sprintf("internal error handling %s: %v", msg.Method, r),
+				})
+			}
+		}
+	}()
 	switch msg.Method {
 	case "initialize":
 		var params InitializeParams
@@ -179,7 +201,7 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 				},
 				CodeActionProvider:         true,
 				CodeLensProvider:           &CodeLensOptions{ResolveProvider: false},
-				ExecuteCommandProvider:     &ExecuteCommandOptions{Commands: []string{"lowlight.runTest", "lowlight.runAllTests", "lowlight.runFile", "lowlight.runMain", "lowlight.goToLocation", "lowlight.showLocations", "lowlight.showImplementationsQuickPick"}},
+				ExecuteCommandProvider:     &ExecuteCommandOptions{Commands: []string{"lowlight.runTest", "lowlight.runAllTests", "lowlight.runFile", "lowlight.runMain", "lowlight.goToLocation", "lowlight.showLocations", "lowlight.showImplementationsQuickPick", "lowlight.setTarget", "lowlight.expandDocument"}},
 				DocumentFormattingProvider: true,
 				InlayHintProvider:          true,
 				FoldingRangeProvider:       true,
@@ -206,8 +228,20 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 		var params DidChangeConfigurationParams
 		if err := json.Unmarshal(msg.Params, &params); err == nil && len(params.Settings) > 0 {
 			s.mu.Lock()
+			prevCfg := s.config
 			s.applyConfigLocked(params.Settings)
+			targetChanged := s.config.Target != prevCfg.Target
+			inlayChanged := s.config.InlayHints != prevCfg.InlayHints
+			var openPaths []string
+			if targetChanged {
+				openPaths = s.clearAllCachedProgsLocked()
+			} else if inlayChanged {
+				s.inlayCache = make(map[*sema.CheckedProgram]cachedInlayEntry)
+			}
 			s.mu.Unlock()
+			if targetChanged && len(openPaths) > 0 {
+				s.reanalyzeOpenPaths(openPaths, "")
+			}
 		}
 
 	case "workspace/didChangeWatchedFiles":
@@ -220,8 +254,22 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 			var openDeps []string
 			seen := make(map[string]bool)
 			s.mu.Lock()
+			clearedAll := false
 			for _, ch := range payload.Changes {
 				p := URIToPath(ch.URI)
+				base := filepath.Base(p)
+				if base == "lowlight.toml" || base == ".lowlightfmt" {
+					if !clearedAll {
+						clearedAll = true
+						for _, dp := range s.clearAllCachedProgsLocked() {
+							if !seen[dp] {
+								seen[dp] = true
+								openDeps = append(openDeps, dp)
+							}
+						}
+					}
+					continue
+				}
 				for _, dep := range s.invalidateDependentsLocked(p) {
 					if !seen[dep] {
 						seen[dep] = true
@@ -682,7 +730,7 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 			if len(params.Arguments) > 1 {
 				var items []QuickPickLocationItem
 				if err := json.Unmarshal(params.Arguments[1], &items); err == nil && len(items) == 1 && items[0].URI != "" {
-					_ = s.conn.SendRequest(time.Now().UnixNano(), "window/showDocument", ShowDocumentParams{
+					_ = s.conn.SendRequest(s.nextReqID(), "window/showDocument", ShowDocumentParams{
 						URI:       items[0].URI,
 						TakeFocus: true,
 						Selection: &Range{
@@ -707,12 +755,42 @@ func (s *Server) handleMessage(msg *RequestMessage) {
 				return
 			}
 			_ = s.conn.SendResponse(*msg.ID, res, nil)
+		case "lowlight.setTarget":
+			res, err := s.executeSetTarget(params.Arguments)
+			if err != nil {
+				_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeRequestFailed, Message: err.Error()})
+				return
+			}
+			_ = s.conn.SendResponse(*msg.ID, res, nil)
+		case "lowlight.expandDocument":
+			res, err := s.executeExpandDocument(params.Arguments)
+			if err != nil {
+				_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeRequestFailed, Message: err.Error()})
+				return
+			}
+			_ = s.conn.SendResponse(*msg.ID, res, nil)
 		default:
 			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{
 				Code:    ErrCodeMethodNotFound,
 				Message: fmt.Sprintf("unsupported command %q", params.Command),
 			})
 		}
+
+	case "lowlight/expandDocument":
+		if msg.ID == nil {
+			return
+		}
+		var params ExpandDocumentParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, &ResponseError{Code: ErrCodeInvalidParams, Message: err.Error()})
+			return
+		}
+		res, rpcErr := s.handleExpandDocument(params)
+		if rpcErr != nil {
+			_ = s.conn.SendResponse(*msg.ID, nil, rpcErr)
+			return
+		}
+		_ = s.conn.SendResponse(*msg.ID, res, nil)
 
 	default:
 		// Ignore unknown notifications (`$/cancelRequest`, `$/setTrace`, etc.); respond to unknown requests cleanly
@@ -735,7 +813,7 @@ func (s *Server) analyzeAndPublish(filePath string, clientURI string, src string
 	overlays[absFile] = src
 
 	rep := diag.NewReporter()
-	prog := sema.CheckForIDE(absFile, overlays, s.projectRootFor(absFile), rep)
+	prog := s.checkForIDE(absFile, overlays, rep)
 
 	diagsByFile := make(map[string][]Diagnostic)
 	fileSrcCache := map[string]string{absFile: src}
@@ -840,10 +918,7 @@ func (s *Server) analyzeAndPublish(filePath string, clientURI string, src string
 	}
 
 	s.mu.Lock()
-	if old, ok := s.cachedProgs[absFile]; ok && old != prog {
-		s.dropProgCachesLocked(old)
-	}
-	s.cachedProgs[absFile] = prog
+	s.storeCachedProgLocked(absFile, src, prog)
 	s.latestDiags[absFile] = entryDiags
 	if clientURI == "" {
 		clientURI = s.docURIs[absFile]
@@ -1021,7 +1096,7 @@ func (s *Server) syncEmbeddedFileWatchers() {
 		newRegID = fmt.Sprintf("lowlight-embed-watchers-%d", newRegReqID)
 		watchers = make([]FileSystemWatcher, len(paths))
 		for i, p := range paths {
-			watchers[i] = FileSystemWatcher{GlobPattern: filepath.ToSlash(p)}
+			watchers[i] = FileSystemWatcher{GlobPattern: escapeLSPGlob(filepath.ToSlash(p))}
 		}
 	}
 	s.registeredEmbedPaths = paths
@@ -1058,6 +1133,7 @@ func (s *Server) invalidateDependentsLocked(changedPath string) []string {
 		s.dropProgCachesLocked(old)
 	}
 	delete(s.cachedProgs, absChanged)
+	delete(s.cachedProgSrc, absChanged)
 	delete(s.tokenCache, absChanged)
 
 	changedDir := filepath.Clean(filepath.Dir(absChanged))
@@ -1137,6 +1213,7 @@ func (s *Server) invalidateDependentsLocked(changedPath string) []string {
 		if depends {
 			s.dropProgCachesLocked(p)
 			delete(s.cachedProgs, k)
+			delete(s.cachedProgSrc, k)
 			if _, isOpen := s.docs[k]; isOpen {
 				openDependents = append(openDependents, k)
 			}
@@ -1177,6 +1254,59 @@ func (s *Server) isDocOpen(absPath string) bool {
 	return ok
 }
 
+const maxCachedProgs = 32
+
+func (s *Server) storeCachedProgLocked(abs, src string, prog *sema.CheckedProgram) {
+	if prog == nil {
+		return
+	}
+	if old, ok := s.cachedProgs[abs]; ok && old != prog {
+		s.dropProgCachesLocked(old)
+	}
+	if s.cachedProgSrc == nil {
+		s.cachedProgSrc = make(map[string]string)
+	}
+	s.cachedProgs[abs] = prog
+	s.cachedProgSrc[abs] = src
+
+	// Maintain bounded FIFO cache of analyzed programs.
+	found := false
+	for _, k := range s.cachedProgOrder {
+		if k == abs {
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.cachedProgOrder = append(s.cachedProgOrder, abs)
+	}
+	for len(s.cachedProgs) > maxCachedProgs && len(s.cachedProgOrder) > 0 {
+		oldest := s.cachedProgOrder[0]
+		s.cachedProgOrder = s.cachedProgOrder[1:]
+		if oldest == abs {
+			continue
+		}
+		if oldProg, ok := s.cachedProgs[oldest]; ok {
+			s.dropProgCachesLocked(oldProg)
+			delete(s.cachedProgs, oldest)
+			delete(s.cachedProgSrc, oldest)
+		}
+	}
+}
+
+func escapeLSPGlob(p string) string {
+	var b strings.Builder
+	b.Grow(len(p))
+	for i := 0; i < len(p); i++ {
+		switch p[i] {
+		case '\\', '*', '?', '[', ']', '{', '}':
+			b.WriteByte('\\')
+		}
+		b.WriteByte(p[i])
+	}
+	return b.String()
+}
+
 func (s *Server) getOrCheckProgram(filePath string, src string) *sema.CheckedProgram {
 	abs, err := filepath.Abs(filePath)
 	if err != nil {
@@ -1184,20 +1314,18 @@ func (s *Server) getOrCheckProgram(filePath string, src string) *sema.CheckedPro
 	}
 	s.mu.RLock()
 	cached := s.cachedProgs[abs]
+	cachedSrc, hasSrc := s.cachedProgSrc[abs]
 	s.mu.RUnlock()
-	if cached != nil {
+	if cached != nil && hasSrc && cachedSrc == src {
 		return cached
 	}
 
 	overlays := s.snapshotOverlays()
 	overlays[abs] = src
 	rep := diag.NewReporter()
-	prog := sema.CheckForIDE(abs, overlays, s.projectRootFor(abs), rep)
+	prog := s.checkForIDE(abs, overlays, rep)
 	s.mu.Lock()
-	if old, ok := s.cachedProgs[abs]; ok && old != prog {
-		s.dropProgCachesLocked(old)
-	}
-	s.cachedProgs[abs] = prog
+	s.storeCachedProgLocked(abs, src, prog)
 	s.mu.Unlock()
 	return prog
 }
@@ -1361,6 +1489,144 @@ func (s *Server) applyConfigLocked(raw json.RawMessage) {
 			}
 		}
 	}
+	if tRaw, ok := top["target"]; ok {
+		var t string
+		if json.Unmarshal(tRaw, &t) == nil {
+			s.config.Target = strings.TrimSpace(t)
+		}
+	}
+}
+
+func (s *Server) getTargetConfig() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config.Target
+}
+
+func (s *Server) openDocPathsLocked() []string {
+	paths := make([]string, 0, len(s.docs))
+	for p := range s.docs {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func (s *Server) clearAllCachedProgsLocked() []string {
+	for _, p := range s.cachedProgs {
+		s.dropProgCachesLocked(p)
+	}
+	s.cachedProgs = make(map[string]*sema.CheckedProgram)
+	s.cachedProgSrc = make(map[string]string)
+	s.cachedProgOrder = nil
+	return s.openDocPathsLocked()
+}
+
+func (s *Server) setTargetConfig(triple string) (string, string, bool) {
+	next := strings.TrimSpace(triple)
+	s.mu.Lock()
+	prev := s.config.Target
+	changed := prev != next
+	var openPaths []string
+	if changed {
+		s.config.Target = next
+		openPaths = s.clearAllCachedProgsLocked()
+	}
+	s.mu.Unlock()
+	if changed && len(openPaths) > 0 {
+		s.reanalyzeOpenPaths(openPaths, "")
+	}
+	return prev, next, changed
+}
+
+func (s *Server) checkForIDE(filePath string, overlays map[string]string, rep *diag.Reporter) *sema.CheckedProgram {
+	return sema.CheckForIDEWithOptions(sema.CheckIDEOptions{
+		EntryPath:    filePath,
+		Overlays:     overlays,
+		ProjectRoot:  s.projectRootFor(filePath),
+		TargetTriple: s.getTargetConfig(),
+		TestMode:     manifest.IsTestFile(filePath),
+	}, rep)
+}
+
+func (s *Server) executeSetTarget(rawArgs []json.RawMessage) (any, error) {
+	var triple string
+	if len(rawArgs) > 0 {
+		var sArg string
+		if err := json.Unmarshal(rawArgs[0], &sArg); err == nil {
+			triple = sArg
+		} else {
+			var obj struct {
+				Target string `json:"target"`
+			}
+			if err := json.Unmarshal(rawArgs[0], &obj); err != nil {
+				return nil, fmt.Errorf("invalid target argument: %w", err)
+			}
+			triple = obj.Target
+		}
+	}
+	triple = strings.TrimSpace(triple)
+	info := manifest.ParseTarget(triple)
+	if triple != "" && (info.OS == "unknown" || info.Arch == "unknown") {
+		return nil, fmt.Errorf("unknown target %q (expected triple like x86_64-unknown-linux-gnu or aarch64-apple-darwin)", triple)
+	}
+	prev, next, changed := s.setTargetConfig(triple)
+	resolved := manifest.ParseTarget(next)
+	return map[string]any{
+		"previous": prev,
+		"target":   next,
+		"triple":   resolved.Triple,
+		"os":       resolved.OS,
+		"arch":     resolved.Arch,
+		"changed":  changed,
+	}, nil
+}
+
+func (s *Server) executeExpandDocument(rawArgs []json.RawMessage) (any, error) {
+	if len(rawArgs) == 0 {
+		return nil, fmt.Errorf("missing document URI argument")
+	}
+	var params ExpandDocumentParams
+	var sArg string
+	if err := json.Unmarshal(rawArgs[0], &sArg); err == nil {
+		params.TextDocument.URI = sArg
+	} else if err := json.Unmarshal(rawArgs[0], &params); err != nil || params.TextDocument.URI == "" {
+		var alt struct {
+			URI      string    `json:"uri"`
+			Position *Position `json:"position,omitempty"`
+		}
+		if err2 := json.Unmarshal(rawArgs[0], &alt); err2 == nil && alt.URI != "" {
+			params.TextDocument.URI = alt.URI
+			params.Position = alt.Position
+		} else {
+			return nil, fmt.Errorf("expected document URI or {textDocument: {uri}} argument")
+		}
+	}
+	res, rpcErr := s.handleExpandDocument(params)
+	if rpcErr != nil {
+		return nil, fmt.Errorf("%s", rpcErr.Message)
+	}
+	return res, nil
+}
+
+func (s *Server) handleExpandDocument(params ExpandDocumentParams) (*ExpandDocumentResult, *ResponseError) {
+	if params.TextDocument.URI == "" {
+		return nil, &ResponseError{Code: ErrCodeInvalidParams, Message: "missing textDocument.uri"}
+	}
+	filePath := URIToPath(params.TextDocument.URI)
+	src := s.readSourceForPath(filePath)
+	prog := s.getOrCheckProgram(filePath, src)
+	mod := findModuleForPath(prog, filePath)
+	if prog == nil || mod == nil {
+		return nil, &ResponseError{Code: ErrCodeRequestFailed, Message: fmt.Sprintf("unable to typecheck %q for expansion", filePath)}
+	}
+	expFile := sema.ExpandModuleAST(prog, mod)
+	text := driver.FormatExpandedAST(mod, src, expFile)
+	return &ExpandDocumentResult{
+		URI:    params.TextDocument.URI,
+		Target: prog.Target.Triple,
+		Text:   text,
+	}, nil
 }
 
 func (s *Server) getFormatConfig() FormatConfig {
@@ -1384,7 +1650,7 @@ func (s *Server) executeShowLocations(rawArgs []json.RawMessage) (any, error) {
 		_ = json.Unmarshal(rawArgs[0], &locs)
 	}
 	if len(locs) > 0 && locs[0].URI != "" {
-		_ = s.conn.SendRequest(time.Now().UnixNano(), "window/showDocument", ShowDocumentParams{
+		_ = s.conn.SendRequest(s.nextReqID(), "window/showDocument", ShowDocumentParams{
 			URI:       locs[0].URI,
 			TakeFocus: true,
 			Selection: &locs[0].Range,

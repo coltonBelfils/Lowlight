@@ -110,11 +110,44 @@ func Load(paths []string, projectRoot string) (*Loaded, error) {
 		}
 		overlays[f] = string(raw)
 	}
-	// Run tolerant semantic analysis starting from the first file, passing all files as overlays
-	// and also indexing every requested file directly so disconnected modules are all documented.
-	rep := diag.NewReporter()
-	prog := sema.CheckForIDE(files[0], overlays, rootDir, rep)
-	idx := BuildSymbolIndex(rootDir, prog, files, overlays)
+	// Run tolerant semantic analysis across all requested files so disconnected modules
+	// receive full semantic analysis and active `comptime if` declarations are resolved.
+	var primary *sema.CheckedProgram
+	seenMod := make(map[string]bool)
+	var allMods []*sema.Module
+	for _, f := range files {
+		abs, absErr := filepath.Abs(f)
+		if absErr != nil {
+			abs = f
+		}
+		if seenMod[abs] {
+			continue
+		}
+		rep := diag.NewReporter()
+		p := sema.CheckForIDE(f, overlays, rootDir, rep)
+		if primary == nil {
+			primary = p
+		}
+		if p != nil {
+			for _, m := range p.Modules {
+				if m == nil {
+					continue
+				}
+				mAbs, mErr := filepath.Abs(m.Path)
+				if mErr != nil {
+					mAbs = m.Path
+				}
+				if !seenMod[mAbs] {
+					seenMod[mAbs] = true
+					allMods = append(allMods, m)
+				}
+			}
+		}
+	}
+	if primary != nil && len(allMods) > 0 {
+		primary.Modules = allMods
+	}
+	idx := BuildSymbolIndex(rootDir, primary, files, overlays)
 	return &Loaded{Files: files, RootDir: rootDir, Overlays: overlays, Index: idx}, nil
 }
 

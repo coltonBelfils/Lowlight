@@ -25,7 +25,7 @@ myapp/
 └── tests/             # black-box test packages
 ```
 
-Files can be restricted to a platform by their name: `net_linux.ll`, `net_darwin.ll`, `net_windows.ll`, `net_unix.ll`, or an architecture such as `simd_arm64.ll`.
+Prefer single-file `comptime if(comp.TARGET...)` ([Compile-time evaluation](/guides/comptime.html#target-selection-and-cross-compilation)) for conditional platform code so every platform's implementation lives together and can be verified with `lowlight check --all-targets`. Filename suffixes (`net_linux.ll`, `net_darwin.ll`, `net_windows.ll`, `net_unix.ll`, or `simd_arm64.ll`) remain supported for splitting larger platform-specific files.
 
 ## Imports and names
 

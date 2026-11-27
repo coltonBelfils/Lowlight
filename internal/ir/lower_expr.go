@@ -117,12 +117,14 @@ func (fl *funcLowerer) lowerExprOwned(e ast.Expr, targetTy types.Type) Expr {
 	if mem, isMem := unwrapped.(*ast.MemberExpr); isMem {
 		memInf := fl.info(mem)
 		if memInf != nil && !memInf.IsOptChain && memInf.EnumVariant == nil && memInf.Type != nil && !memInf.Type.IsPlain() {
-			baseExpr := fl.unwrapASTWrappers(mem.Base)
+			mBase := fl.resolvedMemberBase(mem)
+			mName := fl.resolvedMemberName(mem)
+			baseExpr := fl.unwrapASTWrappers(mBase)
 			if id, isId := baseExpr.(*ast.IdentExpr); isId && id.Name == "self" {
 				if selfSym := fl.info(id).Sym; selfSym != nil && selfSym.BindKind == sema.BindOwned {
 					if selfLoc, ok := fl.symLocals[selfSym]; ok {
 						if st, isSt := types.UnwrapDistinct(selfLoc.Type).(*types.Struct); isSt {
-							if sf, fIdx := st.FieldByName(mem.Member); sf != nil {
+							if sf, fIdx := st.FieldByName(mName); sf != nil {
 								fieldLval := &ExprField{Base: NewLocalExpr(selfLoc), FieldName: sf.CName, FieldIdx: fIdx, Typ: sf.Type, IsPtr: selfLoc.IsMutPtr}
 								mvTmp := fl.allocSlot("_ll_fmove", sf.Type)
 								fl.assignLocal(mvTmp, fieldLval)
@@ -141,76 +143,103 @@ func (fl *funcLowerer) lowerExprOwned(e ast.Expr, targetTy types.Type) Expr {
 		callInf := fl.info(call)
 		if callInf != nil && !callInf.IsOptChain && callInf.Type != nil && !callInf.Type.IsPlain() &&
 			(callInf.BuiltinName == "struct.field" || callInf.BuiltinName == "seq.elem" || callInf.BuiltinName == "enum.payload" || callInf.BuiltinName == "distinct.underlying") {
-			if mem, isMem := call.Callee.(*ast.MemberExpr); isMem {
-				baseExpr := fl.unwrapASTWrappers(mem.Base)
+			if mem, isMem := fl.resolvedCallee(call).(*ast.MemberExpr); isMem {
+				mBase := fl.resolvedMemberBase(mem)
+				baseExpr := fl.unwrapASTWrappers(mBase)
 				var baseLoc *Local
+				var baseAddrExpr Expr
+				var rawBaseType types.Type
+				isPackedPlace := false
 				if id, isId := baseExpr.(*ast.IdentExpr); isId {
 					if baseSym := fl.info(id).Sym; baseSym != nil && baseSym.BindKind == sema.BindOwned {
 						baseLoc = fl.symLocals[baseSym]
+						if baseLoc != nil {
+							rawBaseType = baseLoc.Type
+						}
 					}
 				} else {
-					bInf := fl.info(mem.Base)
+					bInf := fl.info(mBase)
 					if bInf == nil {
 						bInf = fl.info(baseExpr)
 					}
 					if bInf != nil && bInf.Type != nil && bInf.Type != types.TypeInvalid {
+						rawBaseType = bInf.Type
 						uBase := types.UnwrapDistinct(bInf.Type)
-						if _, isPtr := uBase.(*types.Ptr); !isPtr {
-							if _, isRef := uBase.(*types.Ref); !isRef {
-								rawBase := fl.lowerExprOwned(mem.Base, bInf.Type)
+						_, isPtr := uBase.(*types.Ptr)
+						_, isRef := uBase.(*types.Ref)
+						if !isPtr && !isRef {
+							if fl.involvesPackedStruct(mBase) {
+								if packedPlace, ok := fl.buildPackedDirectPlace(mBase); ok {
+									baseAddrExpr = packedPlace
+									isPackedPlace = true
+								}
+							} else if fl.isAddressable(mBase) {
+								addr := fl.lowerLValueAddrMut(mBase)
+								ptrSlot := fl.allocSlot("_ll_mbase", &types.Ptr{Elem: bInf.Type})
+								fl.assignLocal(ptrSlot, EnsureExpr(addr, &types.Ptr{Elem: bInf.Type}))
+								baseAddrExpr = NewLocalExpr(ptrSlot)
+							} else {
+								rawBase := fl.lowerExprOwned(mBase, bInf.Type)
 								baseLoc = fl.allocStmtTemp(bInf.Type, rawBase)
 							}
 						}
 					}
 				}
-				if baseLoc != nil {
-					baseTy := types.UnwrapDistinct(baseLoc.Type)
+				if baseLoc != nil || baseAddrExpr != nil {
+					baseTy := types.UnwrapDistinct(rawBaseType)
 					_, isPtr := baseTy.(*types.Ptr)
 					_, isRef := baseTy.(*types.Ref)
 					if !isPtr && !isRef {
+						var basePlaceExpr Expr
+						isPtrPlace := false
+						if baseLoc != nil {
+							basePlaceExpr = NewLocalExpr(baseLoc)
+							isPtrPlace = baseLoc.IsMutPtr
+						} else {
+							basePlaceExpr = baseAddrExpr
+							isPtrPlace = !isPackedPlace
+						}
 						if callInf.BuiltinName == "enum.payload" {
 							if en, isEn := baseTy.(*types.Enum); isEn && callInf.EnumVariant != nil {
-								baseExprIR := Expr(NewLocalExpr(baseLoc))
-								if baseLoc.IsMutPtr {
-									baseExprIR = &ExprDeref{Ptr: baseExprIR, Typ: baseLoc.Type}
+								baseValExpr := basePlaceExpr
+								if isPtrPlace {
+									baseValExpr = &ExprDeref{Ptr: basePlaceExpr, Typ: rawBaseType}
 								}
-								fl.emitEnumTagAssert(baseExprIR, en, callInf.EnumVariant, false, call)
+								fl.emitEnumTagAssert(basePlaceExpr, en, callInf.EnumVariant, isPtrPlace, call)
 								elemTy := callInf.EnumVariant.Payload
 								elemLval := &ExprField{
-									Base:      &ExprField{Base: baseExprIR, FieldName: "data"},
+									Base:      &ExprField{Base: basePlaceExpr, FieldName: "data", IsPtr: isPtrPlace},
 									FieldName: callInf.EnumVariant.CName,
 									Typ:       elemTy,
 								}
 								mvTmp := fl.allocSlot("_ll_pmove", elemTy)
 								fl.assignLocal(mvTmp, elemLval)
-								if baseLoc.IsMutPtr {
-									fl.emit(&InstrAssign{Dst: baseExprIR, Expr: NewLitZero(baseLoc.Type)})
-								} else {
+								if baseLoc != nil && !baseLoc.IsMutPtr {
 									fl.emit(&InstrZero{Var: baseLoc, VarName: baseLoc.CName, Type: baseLoc.Type, MovedFlag: baseLoc.MovedFlag})
+								} else {
+									fl.emit(&InstrAssign{Dst: baseValExpr, Expr: NewLitZero(rawBaseType)})
 								}
 								return fl.applyOwnedCoercions(e, inf, NewLocalExpr(mvTmp), targetTy)
 							}
 						}
 						if callInf.BuiltinName == "distinct.underlying" {
-							if dt, isDt := baseLoc.Type.(*types.Distinct); isDt {
-								baseExprIR := Expr(NewLocalExpr(baseLoc))
-								if baseLoc.IsMutPtr {
-									baseExprIR = &ExprDeref{Ptr: baseExprIR, Typ: baseLoc.Type}
+							if dt, isDt := rawBaseType.(*types.Distinct); isDt {
+								baseValExpr := basePlaceExpr
+								if isPtrPlace {
+									baseValExpr = &ExprDeref{Ptr: basePlaceExpr, Typ: rawBaseType}
 								}
 								mvTmp := fl.allocSlot("_ll_dmove", dt.Base)
-								fl.assignLocal(mvTmp, &ExprCast{Val: baseExprIR, From: dt, To: dt.Base})
-								if baseLoc.IsMutPtr {
-									fl.emit(&InstrAssign{Dst: baseExprIR, Expr: NewLitZero(baseLoc.Type)})
-								} else {
+								fl.assignLocal(mvTmp, &ExprCast{Val: baseValExpr, From: dt, To: dt.Base})
+								if baseLoc != nil && !baseLoc.IsMutPtr {
 									fl.emit(&InstrZero{Var: baseLoc, VarName: baseLoc.CName, Type: baseLoc.Type, MovedFlag: baseLoc.MovedFlag})
+								} else {
+									fl.emit(&InstrAssign{Dst: baseValExpr, Expr: NewLitZero(rawBaseType)})
 								}
 								return fl.applyOwnedCoercions(e, inf, NewLocalExpr(mvTmp), targetTy)
 							}
 						}
 						var elemLval Expr
 						var elemTy types.Type
-						basePlaceExpr := Expr(NewLocalExpr(baseLoc))
-						isPtrPlace := baseLoc.IsMutPtr
 						switch callInf.BuiltinName {
 						case "struct.field":
 							if st, isSt := baseTy.(*types.Struct); isSt {
@@ -462,14 +491,15 @@ func (fl *funcLowerer) isAddressable(e ast.Expr) bool {
 		if v.QuestDot || inf.IsOptChain || inf.EnumVariant != nil || inf.Sym != nil {
 			return false
 		}
-		baseTy := fl.info(v.Base).Type
+		mBase := fl.resolvedMemberBase(v)
+		baseTy := fl.info(mBase).Type
 		if _, ok := baseTy.(*types.Ref); ok {
 			return true
 		}
 		if _, ok := baseTy.(*types.Ptr); ok {
 			return true
 		}
-		return fl.isAddressable(v.Base)
+		return fl.isAddressable(mBase)
 	case *ast.IndexExpr:
 		baseTy := fl.info(v.Base).Type
 		if rf, ok := baseTy.(*types.Ref); ok {
@@ -489,12 +519,13 @@ func (fl *funcLowerer) isAddressable(e ast.Expr) bool {
 	case *ast.CallExpr:
 		inf := fl.info(v)
 		if !inf.IsOptChain && (inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload") {
-			if mem, isMem := v.Callee.(*ast.MemberExpr); isMem {
-				baseTy := fl.info(mem.Base).Type
+			if mem, isMem := fl.resolvedCallee(v).(*ast.MemberExpr); isMem {
+				mBase := fl.resolvedMemberBase(mem)
+				baseTy := fl.info(mBase).Type
 				if _, isRef := baseTy.(*types.Ref); isRef {
 					return true
 				}
-				return fl.isAddressable(mem.Base)
+				return fl.isAddressable(mBase)
 			}
 		}
 		return false
@@ -574,7 +605,9 @@ func (fl *funcLowerer) lowerLValueAddrMode(e ast.Expr, mutable bool) Expr {
 		}
 
 	case *ast.MemberExpr:
-		baseTy := fl.info(v.Base).Type
+		mBase := fl.resolvedMemberBase(v)
+		mName := fl.resolvedMemberName(v)
+		baseTy := fl.info(mBase).Type
 		if rf, isRef := baseTy.(*types.Ref); isRef {
 			rfElem := rf.Elem
 			if d, isDist := rfElem.(*types.Distinct); isDist {
@@ -585,31 +618,31 @@ func (fl *funcLowerer) lowerLValueAddrMode(e ast.Expr, mutable bool) Expr {
 			if tup, isTup := rfElem.(*types.Tuple); isTup {
 				fIdx := inf.TupleFieldIdx
 				fName := fmt.Sprintf("_%d", fIdx)
-				ptr := fl.lowerExprRead(v.Base)
+				ptr := fl.lowerExprRead(mBase)
 				return &ExprAddrOf{
 					Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: fName, FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: true},
 					Typ:   &types.Ptr{Elem: tup.Elems[fIdx]},
 				}
 			}
 			st := rf.Elem.(*types.Struct)
-			sf, _ := st.FieldByName(v.Member)
-			ptr := fl.lowerExprRead(v.Base)
+			sf, _ := st.FieldByName(mName)
+			ptr := fl.lowerExprRead(mBase)
 			return &ExprAddrOf{
 				Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: sf.CName, Typ: sf.Type, IsPtr: true},
 				Typ:   &types.Ptr{Elem: sf.Type},
 			}
 		}
 		if _, isVec := baseTy.(*types.Vector); isVec {
-			basePtr := fl.lowerLValueAddrMode(v.Base, mutable)
+			basePtr := fl.lowerLValueAddrMode(mBase, mutable)
 			return &ExprAddrOf{
-				Place: &ExprField{Base: basePtr, FieldName: v.Member, Typ: inf.Type, IsPtr: true},
+				Place: &ExprField{Base: basePtr, FieldName: mName, Typ: inf.Type, IsPtr: true},
 				Typ:   &types.Ptr{Elem: inf.Type},
 			}
 		}
 		if _, isArr := baseTy.(*types.StackArray); isArr {
-			basePtr := fl.lowerLValueAddrMode(v.Base, mutable)
+			basePtr := fl.lowerLValueAddrMode(mBase, mutable)
 			return &ExprAddrOf{
-				Place: &ExprField{Base: basePtr, FieldName: v.Member, Typ: inf.Type, IsPtr: true},
+				Place: &ExprField{Base: basePtr, FieldName: mName, Typ: inf.Type, IsPtr: true},
 				Typ:   &types.Ptr{Elem: inf.Type},
 			}
 		}
@@ -621,7 +654,7 @@ func (fl *funcLowerer) lowerLValueAddrMode(e ast.Expr, mutable bool) Expr {
 		}
 		if tup, isTup := effectiveBase.(*types.Tuple); isTup {
 			fIdx := inf.TupleFieldIdx
-			basePtr := fl.lowerLValueAddrMode(v.Base, mutable)
+			basePtr := fl.lowerLValueAddrMode(mBase, mutable)
 			fName := fmt.Sprintf("_%d", fIdx)
 			return &ExprAddrOf{
 				Place: &ExprField{Base: basePtr, FieldName: fName, FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: true},
@@ -638,29 +671,29 @@ func (fl *funcLowerer) lowerLValueAddrMode(e ast.Expr, mutable bool) Expr {
 			if tup, isTup := pElem.(*types.Tuple); isTup {
 				fIdx := inf.TupleFieldIdx
 				fName := fmt.Sprintf("_%d", fIdx)
-				ptr := fl.lowerExprRead(v.Base)
+				ptr := fl.lowerExprRead(mBase)
 				return &ExprAddrOf{
 					Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: fName, FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: true},
 					Typ:   &types.Ptr{Elem: tup.Elems[fIdx]},
 				}
 			}
 			if _, isVec := p.Elem.(*types.Vector); isVec {
-				ptr := fl.lowerExprRead(v.Base)
+				ptr := fl.lowerExprRead(mBase)
 				return &ExprAddrOf{
-					Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: v.Member, Typ: inf.Type, IsPtr: true},
+					Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: mName, Typ: inf.Type, IsPtr: true},
 					Typ:   &types.Ptr{Elem: inf.Type},
 				}
 			}
 			if _, isArr := p.Elem.(*types.StackArray); isArr {
-				ptr := fl.lowerExprRead(v.Base)
+				ptr := fl.lowerExprRead(mBase)
 				return &ExprAddrOf{
-					Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: v.Member, Typ: inf.Type, IsPtr: true},
+					Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: mName, Typ: inf.Type, IsPtr: true},
 					Typ:   &types.Ptr{Elem: inf.Type},
 				}
 			}
 			if st, ok := p.Elem.(*types.Struct); ok {
-				sf, _ := st.FieldByName(v.Member)
-				ptr := fl.lowerExprRead(v.Base)
+				sf, _ := st.FieldByName(mName)
+				ptr := fl.lowerExprRead(mBase)
 				return &ExprAddrOf{
 					Place: &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: sf.CName, Typ: sf.Type, IsPtr: true},
 					Typ:   &types.Ptr{Elem: sf.Type},
@@ -668,8 +701,8 @@ func (fl *funcLowerer) lowerLValueAddrMode(e ast.Expr, mutable bool) Expr {
 			}
 		}
 		st := baseTy.(*types.Struct)
-		sf, _ := st.FieldByName(v.Member)
-		basePtr := fl.lowerLValueAddrMode(v.Base, mutable)
+		sf, _ := st.FieldByName(mName)
+		basePtr := fl.lowerLValueAddrMode(mBase, mutable)
 		return &ExprAddrOf{
 			Place: &ExprField{Base: basePtr, FieldName: sf.CName, Typ: sf.Type, IsPtr: true},
 			Typ:   &types.Ptr{Elem: sf.Type},
@@ -707,8 +740,9 @@ func (fl *funcLowerer) lowerLValueAddrMode(e ast.Expr, mutable bool) Expr {
 
 	case *ast.CallExpr:
 		if !inf.IsOptChain && (inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload") {
-			if mem, isMem := v.Callee.(*ast.MemberExpr); isMem {
-				rawBaseTy := fl.info(mem.Base).Type
+			if mem, isMem := fl.resolvedCallee(v).(*ast.MemberExpr); isMem {
+				mBase := fl.resolvedMemberBase(mem)
+				rawBaseTy := fl.info(mBase).Type
 				baseTy := rawBaseTy
 				isRef := false
 				if rf, ok := rawBaseTy.(*types.Ref); ok {
@@ -717,9 +751,9 @@ func (fl *funcLowerer) lowerLValueAddrMode(e ast.Expr, mutable bool) Expr {
 				}
 				var basePtr Expr
 				if isRef {
-					basePtr = fl.lowerExprRead(mem.Base)
+					basePtr = fl.lowerExprRead(mBase)
 				} else {
-					basePtr = fl.lowerLValueAddrMode(mem.Base, mutable)
+					basePtr = fl.lowerLValueAddrMode(mBase, mutable)
 				}
 				switch {
 				case inf.BuiltinName == "struct.field":
@@ -1306,7 +1340,7 @@ func (fl *funcLowerer) lowerEnumVariantCondBind(ie *ast.IfExpr, en *types.Enum, 
 		return uLoc
 	}
 	_, isArenaRef := fl.info(recvExpr).Type.(*types.Ref)
-	if ie.MutUnwrap || isArenaRef || fl.isAddressable(recvExpr) {
+	if ie.MutUnwrap || isArenaRef || (fl.isAddressable(recvExpr) && !fl.involvesPackedStruct(recvExpr)) {
 		ptrTmp := fl.allocSlot("_ll_ifvarp", &types.Ptr{Elem: en})
 		var addrExpr Expr
 		if isArenaRef {

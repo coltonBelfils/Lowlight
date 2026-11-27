@@ -111,7 +111,7 @@ bind main = fn(): {
 }
 ```
 
-A function is written `(parameters) ReturnType: body`. The body is a single expression or a `{ ... }` block. Leave the return type out when the function returns nothing. `if (...): a else: b` is an expression, so it can initialize a variable.
+A function is written `fn(parameters) ReturnType: body`. The body is a single expression or a `{ ... }` block. Leave the return type out when the function returns nothing. `if(...): a else: b` is an expression, so it can initialize a variable.
 
 See [§4.3 Functions](#43-functions) and [§5 Expressions](#5-expressions).
 
@@ -311,10 +311,11 @@ Tables for looking things up. Each row links to its full definition.
 
 | Form | Example | Reference |
 |---|---|---|
-| Constant or function | `bind limit = 100` · `bind add = fn(a: int, b: int) int: a + b` | [§4.2](#42-bind-const-and-let), [§4.3](#43-functions) |
+| Immutable or function | `bind limit = 100` · `bind add = fn(a: int, b: int) int: a + b` | [§4.2](#42-bind-const-and-let), [§4.3](#43-functions) |
+| Compile-time constant or function | `const N = 16` · `const sq = fn(x: int) int: x * x` | [§4.2](#42-bind-const-and-let), [§4.3](#43-functions) |
 | Mutable variable (inside functions only) | `let total = 0` | [§4.2](#42-bind-const-and-let) |
-| Method | `bind Point.norm = fn(self) float: ...` | [§4.4](#44-methods-and-associated-functions) |
-| Associated function | `bind Point.origin = fn() Point: Point[x: 0.0, y: 0.0]` | [§4.4](#44-methods-and-associated-functions) |
+| Method | `(bind \| const) Point.norm = fn(self) float: ...` | [§4.4](#44-methods-and-associated-functions) |
+| Associated function | `(bind \| const) Point.origin = fn() Point: Point[x: 0.0, y: 0.0]` | [§4.4](#44-methods-and-associated-functions) |
 | Struct | `define Point struct [x: float, y: float]` | [§3.7](#37-structs) |
 | Enum | `define Color enum [red, green]` · `define Shape enum [circle: float, empty]` | [§3.8](#38-enums) |
 | Result type | `define Lookup result [value: Item, missing: string]` | [§3.9](#39-results) |
@@ -363,7 +364,7 @@ From tightest to loosest binding. Full details are in [§5.1](#51-evaluation-ord
 | Operators | Meaning |
 |---|---|
 | `.` `?.` `()` `[]` | Member, optional member, call, index or slice |
-| `-x` `not` `~` `*p` `&x` `own x` `unsafe e` | Prefix operators |
+| `-x` `not` `~` `*p` `&x` `own x` `unsafe e` `comptime e` | Prefix operators |
 | `*` `/` `%` | Multiply, divide, remainder |
 | `+` `-` | Add, subtract (`+` also concatenates strings, and calls `add` on types that implement `Addable`) |
 | `<<` `>>` | Shift (traps unless `0 <= n < bit width`) |
@@ -392,6 +393,7 @@ Assignment is a statement: `=` `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>
 | `match: when cond: ... default: ...` | Condition chain | [§6.5](#65-pattern-matching) |
 | `expr: when Failure(x): ... default ...` | Result chain; evaluates to the success value | [§6.6](#66-result-chains) |
 | `name: { ... }` · `name: for(...)` | Labeled block or loop | [§6.7](#67-unwinds-and-labels) |
+| `comptime if(c): ...` · `comptime for(...)` · `comptime match(...)` | Compile-time branch selection, loop unrolling, and pattern matching | [§4.2](#42-bind-const-and-let), [§6.5](#65-pattern-matching) |
 
 ## Unwinds
 
@@ -444,7 +446,8 @@ Moving an existing resource variable always needs `own`: `let b = own a`, `[own 
 | `@deprecated` · `@deprecated("msg")` | declaration | warns at each use |
 | `@inline` · `@noinline` | function | inlining hint |
 | `@packed` (or `define packed T struct`) | struct | no padding between fields |
-| `@derive(Equatable, ...)` | struct, enum | writes the interfaces' methods ([§12.2](#122-deriving-methods)) |
+| `@derive(Equatable, ...)` | struct, enum | derives the listed interfaces ([§12.2](#122-deriving-methods)) |
+| `@derivable(m: fn_path, ...)` | interface | names generic derivation functions for `@derive` ([§12.2](#122-deriving-methods)) |
 | `@comptime_only` | `const` decl, type | available only at compile time (never emitted or callable at runtime) |
 | `@comptime_limit(steps: N, memory: M)` | `const` decl | override the default compile-time step (`1_000_000`) and memory (`64 MB`) budgets (single integer `@comptime_limit(N)` sets steps) |
 | `@lang("name")` | prelude declaration | binds a language hook (prelude only) |
@@ -466,8 +469,11 @@ Always in scope; no import needed. Full list in [§12.3](#123-universe-functions
 | `abs(x)` · `min(a, b)` · `max(a, b)` | Numeric helpers |
 | `caller_location()` · `caller_file()` · `caller_line()` · `caller_col()` | Source location of the caller |
 | `type.size_of[T]()` · `type.align_of[T]()` · `type.is_plain[T]()` | `const` type layout queries (usable in both `const` and runtime code) |
+| `comp.TARGET` | `@comptime_only` target descriptor (`os`, `arch`, `endian`, `is_unix`, `ptr_size`, `ptr_bits`, `triple`) |
 | `comp.compile_error(msg)` · `comp.log(val)` | `@comptime_only` diagnostics emitted during compile-time evaluation |
 | `comp.embed_str(path)` · `comp.embed_bytes(path)` | `@comptime_only` package-confined file embedding (`string` / `[u8]`, static `.rodata`) |
+| `comp.type_name[T]()` · `comp.kind_of[T]()` · `comp.fields_of[T]()` · `comp.variants_of[T]()` · `comp.elems_of[T]()` · `comp.attrs_of[T]()` · `comp.implements[T, I]()` | `@comptime_only` compile-time type reflection queries ([§4.2](#42-bind-const-and-let)) |
+| `variant_index(v)` · `make_variant[T](vr [, own p])` | generic enum/`result` discriminant inspection and variant construction |
 
 ## Standard library packages
 
@@ -622,13 +628,13 @@ The wildcard `_` is not a name: it discards a value in unpacking and patterns, a
 
 ### 2.6 Keywords
 
-These 30 words are reserved and cannot be used as identifiers:
+These 32 words are reserved and cannot be used as identifiers:
 
 ```
-and      as       bind     cl       define   else     enum     extern
-false    fn       for      func     if       import   in       interface
-let      match    none     not      or       own      self     Self
-struct   true     unpack   unsafe   when     while
+and      as       bind     cl       comptime const    define   else
+enum     extern   false    fn       for      func     if       import
+in       interface let     match    none     not      or       own
+self     Self     struct   true     unpack   unsafe   when     while
 ```
 
 These words are **contextual**: they have special meaning only in the positions listed, and are ordinary identifiers everywhere else.
@@ -1032,8 +1038,9 @@ Target  = ( Name | "_" ) [ ":" Type ] ;
   - A `const` function or method may be called in **both** compile-time contexts (`const` initializers, `comptime` blocks/expressions, other `const` functions) and runtime `bind` code. Calling host I/O (`print`, `println`, `read_line`), `args()`, `exit()`, `extern` C functions, or user `unsafe` blocks inside a `const` function is an error. (Built-in `std/` `unsafe` pointer/memory intrinsics run on the compiler's bounds- and lifetime-checked simulated heap.)
   - **Conditional generics & `@derive`.** Generic `const` functions/methods (`const Box[T].show = ...`) and `@derive(...)` methods are **conditionally `const`**: an instantiation `Box[Point].show` is compile-time callable when every operation it invokes on its type arguments is `const`; otherwise that specific instantiation becomes runtime-only without breaking compilation. Calling a downgraded instantiation in a `const`/`comptime` context fails with the diagnostic chain to the underlying non-`const` dependency.
   - Inline **`comptime expr` / `comptime { ... }`**: forces evaluation of `expr` or the block at compile time and splices the validated result into runtime code. A `comptime` value that crosses into runtime must satisfy **crossing rules**: Plain values, `string`, `Range`, `[T]`, tuples/structs/enums built from crossable fields (without custom `Drop`), `none` optionals, and non-closure `const` `fn` pointers may cross; `Map`, `Set`, `Arena`, `ref[T]`, `ptr[T]`, `cl` closures, `@comptime_only` functions, and `@comptime_only` types cannot cross and must either stay in `@comptime_only` helpers or be projected into crossable values (`List`, arrays, tuples, plain structs). Static `[T]` and `string` values backed into `.rodata` are immutable read-only slices (`cap == 0`) with copy-on-write behavior on safe `List`/`string` mutation APIs.
-  - **Target introspection & top-level `comptime if` pruning.** `comp.TARGET` is an `@comptime_only` constant of type `comp.Target` (with enums `comp.TargetOs`, `comp.TargetArch`, `comp.Endian` and fields `os`, `arch`, `endian`, `is_unix`, `ptr_size`, `ptr_bits`, `triple`) describing the active `--target`. Top-level `comptime if(cond): { ... }` evaluates `cond` before type/signature resolution and keeps only declarations from the selected branch (`import` is forbidden in any top-level `comptime if` branch so package dependencies stay target-independent). Untaken target branches can be checked across all canonical targets with `lowlight check --all-targets`, and expanded source can be inspected with `lowlight expand`.
+  - **Target introspection & top-level `comptime if` pruning.** `comp.TARGET` is an `@comptime_only` constant of type `comp.Target` (with enums `comp.TargetOs`, `comp.TargetArch`, `comp.Endian` and fields `os`, `arch`, `endian`, `is_unix`, `ptr_size`, `ptr_bits`, `triple`) describing the active `--target`. Top-level `comptime if(cond): { ... }` evaluates `cond` before type/signature resolution and keeps only declarations from the selected branch (`import` is forbidden in any top-level `comptime if` branch so package dependencies stay target-independent). Single-file `comptime if(comp.TARGET...)` is preferred over file-suffix target filtering ([§4.6](#46-packages-and-imports)). Untaken target branches can be checked across all canonical targets with `lowlight check --all-targets`, and expanded source can be inspected with `lowlight expand`.
   - **Compile-time file embedding.** `comp.embed_str(path)` (`string`, UTF-8 validated) and `comp.embed_bytes(path)` (`[u8]`) are `@comptime_only` built-ins that read static asset files at compile time and embed them in `.rodata` (`cap == 0`). Paths resolve relative to the declaring `.ll` file and are strictly confined to the declaring package/project root sandbox (rejecting empty paths, NUL bytes, absolute paths, `..`/backslash traversal escapes, symlinks escaping the sandbox, non-regular files, directories, and third-party dependency access outside that dependency's own package directory).
+  - **Compile-time reflection and generic field/variant access.** `@comptime_only` queries `comp.type_name[T]()`, `comp.kind_of[T]()` (`comp.TypeKind`), `comp.fields_of[T]()` (`[comp.FieldInfo]`), `comp.variants_of[T]()` (`[comp.VariantInfo]`), `comp.elems_of[T]()` (`[comp.ElemInfo]`), `comp.attrs_of[T]()` (`[comp.AttrInfo]`), and `comp.implements[T, I]()` inspect types statically without RTTI. Inside generic or unrolled code, `v.field(f)` (accepting a `FieldInfo` or `const string`), `t.elem(e)` (`ElemInfo` or `const int`), `variant_index(v)`, `v.is_variant(vr)`, `v.payload(vr)`, `v.as_variant(vr)`, `make_variant[T](vr [, own p])`, and collecting `comptime for(f in comp.fields_of[T]()) T:` / `comptime for(e in ...) T:` manipulate structs, tuples, arrays, enums, and results directly. Descriptors list private `_` members (`is_public == false`), and accessing a private member via reflection outside `T`'s package is an error except inside a generic helper instantiated by `@derive(...)` on `T`'s own declaration ([§12.2](#122-deriving-methods)).
 - The type annotation is optional when it can be inferred. It is required when the value alone does not determine a type (`let xs: [int] = []`, `let x?: ?int = none`).
 - **Unpacking** splits a tuple, or a distinct type over a tuple, into separate bindings: `let x, y = unpack +[1, 2]`. `_` discards an element. The number of targets must equal the tuple's length. Assignment can unpack too: `a, b = unpack +[b, a]`.
 - A local binding may shadow an outer one in an inner block.
@@ -1043,7 +1050,8 @@ Target  = ( Name | "_" ) [ ":" Type ] ;
 ### 4.3 Functions
 
 ```ebnf
-FuncDecl = "bind" Name [ TypeParams ] "=" "(" [ Params ] ")" [ Type ] ":" Body ;
+FuncDecl = ( "bind" | "const" ) Ident [ TypeParams ] "=" FuncLit ;
+FuncLit  = ( "fn" | "cl" ) "(" [ Params ] ")" [ Type ] ":" Body ;
 Param    = Name ":" [ "&" | "own" ] Type ;
 Body     = Expr | Block ;
 ```
@@ -1070,10 +1078,11 @@ bind main = fn(): {
 5. A function declared with type parameters is generic ([§8](#8-generics)).
 6. Functions may be recursive and mutually recursive. A function whose return type is omitted and inferred cannot take part in a recursive cycle; give it an explicit return type.
 7. Functions are values: `bind f = add` has type `fn(int, int) int`, and converts to `cl(int, int) int` where a closure is expected ([§3.12](#312-functions-and-closures)).
+8. Declaring a top-level function with `const` instead of `bind` allows it to run both at compile time and at runtime, subject to [§4.2](#42-bind-const-and-let).
 
 ### 4.4 Methods and associated functions
 
-A method is a function attached to a type, declared at top level with the type's name:
+A method is a function attached to a type, declared at top level with `bind` or `const` and the type's name:
 
 ```lowlight
 define Counter struct [
@@ -1128,7 +1137,7 @@ When a single `.ll` file outside any project is compiled directly (`lowlight run
 **File selection.** Within a package directory:
 
 - files named `*_test.ll` belong to the package only when running tests ([§11](#11-testing));
-- files named `name_<os>.ll`, `name_<arch>.ll`, `name_<os>_<arch>.ll`, or `name_unix.ll` are included only when compiling for a matching target (for example `fs_linux.ll`, `fs_windows.ll`, `net_unix.ll`, `atomic_arm64.ll`);
+- files named `name_<os>.ll`, `name_<arch>.ll`, `name_<os>_<arch>.ll`, or `name_unix.ll` are included only when compiling for a matching target (for example `fs_linux.ll`, `fs_windows.ll`, `net_unix.ll`, `atomic_arm64.ll`); single-file `comptime if(comp.TARGET...)` ([§4.2](#42-bind-const-and-let)) is preferred for conditional platform code, while suffix filtering remains supported;
 - every other `.ll` file is always included.
 
 **Imports.**
@@ -1188,7 +1197,8 @@ An attribute is `@name` or `@name(args)` written before a declaration (or a stru
 | `@deprecated`, `@deprecated("message")` | declaration | each use produces a warning (with the message, if given) |
 | `@inline`, `@noinline` | function, method | request or forbid inlining; no semantic effect |
 | `@packed` | struct | lay fields out without padding (same as `define packed`) |
-| `@derive(I, ...)` | struct, enum | generate the methods of `Equatable`, `Comparable`, `Hashable`, `Copyable`, or `Printable` ([§12.2](#122-deriving-methods)) |
+| `@derive(I, ...)` | struct, enum, result | generate the listed interfaces' methods via their `@derivable` generic implementations ([§12.2](#122-deriving-methods)) |
+| `@derivable(m: fn_path, ...)` | interface | attach generic compile-time derivation function(s) to an interface so structs/enums/results can `@derive` it ([§12.2](#122-deriving-methods)) |
 | `@comptime_only` | `const` decl, type | restrict a `const` function/constant or type (`struct`, `enum`, `interface`, distinct) strictly to compile time; rejected in runtime code, runtime signatures, and non-`@comptime_only` crossing values |
 | `@comptime_limit(steps: N, memory: M)` | `const` decl | set the compile-time step and/or memory byte budget for evaluating that `const` function or constant (defaults: `1_000_000` steps, `64 MB` heap; `@comptime_limit(N)` sets steps) |
 | `@lang("hook")` | prelude declaration | binds a declaration to a language feature ([§12.1](#121-core-interfaces)); reserved for `std/core` |
@@ -1221,7 +1231,7 @@ Every expression's operands, a call's arguments, and a literal's elements are ev
 | Precedence | Operators | Associativity |
 |---|---|---|
 | 1 (tightest) | `.` `?.` call `()` index/slice `[]` | left |
-| 2 | prefix `-` `not` `~` `*` `&` `own` `unsafe` | right |
+| 2 | prefix `-` `not` `~` `*` `&` `own` `unsafe` `comptime` | right |
 | 3 | `*` `/` `%` | left |
 | 4 | `+` `-` | left |
 | 5 | `<<` `>>` | left |
@@ -2251,7 +2261,7 @@ The prelude also binds `list`, `array`, `set`, `map`, and `range` hooks to the t
 
 ### 12.2 Deriving methods
 
-`@derive(I, ...)` on a struct or enum writes the methods of the listed interfaces as ordinary Lowlight methods, checked like hand-written ones. It is the only way, besides writing the method, for a struct or enum to get them.
+`@derive(I, ...)` on a struct, enum, or result instantiates the generic implementations declared by each interface's `@derivable(...)` attribute ([§4.8](#48-attributes)), producing ordinary Lowlight methods checked like hand-written ones. In `std/core`, the five core interfaces below point via `@derivable` to generic implementations in `std/derive`; user packages can likewise annotate custom interfaces with `@derivable(method: generic_impl, ...)`.
 
 | Interface | Generated method |
 |---|---|
@@ -2273,8 +2283,10 @@ Rules:
 
 1. Every field or payload must support the interface; otherwise `@derive` is an error naming the field.
 2. On a generic type, a derived method exists only for the instances whose fields support it: with `@derive(Equatable)` on `Box[T]`, `Box[int]` has `eq` and `Box[File]` does not.
-3. A type may not both derive an interface and define its method by hand.
-4. Tuples are not declared, so they cannot use `@derive`; they support `==`, hashing, copying, and printing whenever their elements do ([§3.6](#36-collections)).
+3. A derived method is bound as `const` whenever every field or variant operation it invokes is `const`, and falls back to `bind` otherwise.
+4. Generic derivations instantiated through `@derive(...)` are authorized to inspect private (`_`) fields and variants of the deriving type via `v.field(f)`, `v.payload(vr)`, and `make_variant`.
+5. A type may not both derive an interface and define its method by hand.
+6. Tuples are not declared, so they cannot use `@derive`; generic methods over `comp.elems_of[T]()` in `std/core` provide `==`, ordering, hashing, copying, and printing whenever their elements do ([§3.6](#36-collections)).
 
 ### 12.3 Universe functions
 
@@ -2292,8 +2304,11 @@ These are built into the language and need no import.
 | `min(a, b)` · `max(a, b)` | numeric `fn(T, T) T` | the smaller or larger of two numbers of the same type |
 | `caller_location()`, `caller_file()`, `caller_line()`, `caller_col()` | | the caller's source location ([§11.2](#112-caller-locations)) |
 | `type.size_of[T]()`, `type.align_of[T]()`, `type.is_plain[T]()` | | `const` type layout queries ([§10.3](#103-memory-intrinsics-and-rodata-invariant)) |
+| `comp.TARGET` | `comp.Target` | `@comptime_only` active compilation target descriptor ([§4.2](#42-bind-const-and-let)) |
 | `comp.compile_error(msg)`, `comp.log(val)` | | `@comptime_only` compile-time diagnostic abort and `note:` diagnostic emitter |
 | `comp.embed_str(path)`, `comp.embed_bytes(path)` | | `@comptime_only` declaring-file-relative, sandbox-confined static file embedding (`string`, `[u8]`) |
+| `comp.type_name[T]()`, `comp.kind_of[T]()`, `comp.fields_of[T]()`, `comp.variants_of[T]()`, `comp.elems_of[T]()`, `comp.attrs_of[T]()`, `comp.implements[T, I]()` | | `@comptime_only` compile-time type reflection queries ([§4.2](#42-bind-const-and-let)) |
+| `variant_index(v)`, `make_variant[T](vr [, own p])` | `int`, `T` | generic enum/`result` active-variant index and compile-time variant constructor |
 
 The prelude adds these ordinary functions:
 
@@ -2606,7 +2621,7 @@ yanked = true
 | `lowlight update [<dep>...]` | re-resolve to newer allowed versions and rewrite the lockfile |
 | `lowlight vendor` | copy all dependencies into `vendor/` |
 | `lowlight tree` | print the dependency graph |
-| `lowlight build`, `run`, `check`, `test`, `doc`, `fmt`, `emit-llvm`, `emit-c` | inside a project, default to the current package; `-p <pkg>` and `--workspace` select others |
+| `lowlight build`, `run`, `check`, `expand`, `test`, `doc`, `fmt`, `emit-llvm`, `emit-c` | inside a project, default to the current package; `-p <pkg>` and `--workspace` select others; `check --all-targets` checks every canonical platform target and `expand` prints post-comptime Lowlight |
 
 ---
 
@@ -2703,14 +2718,14 @@ A body after `:` is either a block `{ ... }` or a single expression. In `if`, lo
 
 Name resolution is **order-independent** within a package. The reference analyzer runs these passes over all packages of the program:
 
-1. **Integer constants.** Evaluate top-level `bind NAME = <integer constant expression>` so that array sizes and explicit enum values can use them.
+1. **Top-level pruning & integer constants.** Prune top-level `comptime if` declarations against `comp.TARGET` before type resolution, and evaluate integer constant expressions needed for array sizes and explicit enum tag values.
 2. **Type headers.** Register every `define` name, so types may refer to each other in any order.
-3. **Type bodies.** Resolve distinct types' bases, enum variants, result members, interface signatures, and struct fields.
+3. **Type bodies.** Resolve distinct types' bases, enum variants, result members, interface signatures, `@derivable` hooks, and struct fields.
 4. **Recursion check.** Reject types that contain themselves by value (infinite size). Mark structs reached from themselves through an optional (`next?: ?Node`) so that such optionals are boxed (§18.2).
-5. **Signatures.** Register functions, methods, constants, and `extern` declarations, and check for duplicates and conflicting method names on a type.
-6. **Bodies.** Check every function body: types, name rules (`?`, `!`, `_`), ownership, borrowing, exhaustiveness, unwind targets. Generic declarations are checked once in generic form against their bounds, and then each instantiation is created on demand (§17.4).
+5. **Signatures & `@derive` attachment.** Register functions, `const` functions, methods, constants, `@derive`-generated methods, and `extern` declarations, and check for duplicates and conflicting method names on a type.
+6. **Bodies & compile-time evaluation.** Check every function body (`types`, `?`/`!`/`_`, ownership, borrowing, exhaustiveness, unwind targets, `@comptime_only` boundaries), evaluate `const` initializers and inline `comptime` blocks/control flow in the simulated interpreter, unroll `comptime for` and prune local `comptime if`/`comptime match`, and validate runtime crossings. Generic declarations are checked once in generic form against their bounds, and then each instantiation (including const generics) is created on demand (§17.4).
 
-Top-level constants whose initializers depend on each other are initialized in dependency order; a cycle is an error.
+Top-level constants whose initializers depend on each other are initialized in dependency order (or evaluated at compile time for `const`); a cycle is an error.
 
 ### 17.2 Ownership checking
 
@@ -2755,7 +2770,7 @@ This chapter describes the representation used by the reference compiler. It is 
 | struct | a C struct with fields in declaration order (an empty struct has one padding byte) |
 | tuple `+[A, B]` | a struct with fields `_0`, `_1`, ... |
 | array `[N: T]` | a struct wrapping `T data[N]` |
-| list `[T]` | `{ data: *T, len: i64, cap: i64 }` |
+| list `[T]` | `{ data: *T, len: i64, cap: i64 }`. `cap == 0` with `len > 0` denotes a static `.rodata` slice promoted copy-on-write on mutation. |
 | set, map | open-addressing hash tables: a bucket index array plus an insertion-ordered entry array (so iteration follows insertion order) |
 | distinct type | the base type's representation |
 | `ref[T]` | a non-null pointer into an arena |
@@ -2872,8 +2887,9 @@ An implementation is conforming when it does all of the following. Each item lin
 - [ ] Destroys values deterministically in reverse declaration order, running `drop` first ([§7.5](#75-destruction)).
 - [ ] Prevents `ref[T]` from outliving its arena ([§7.6](#76-arenas-and-references)).
 
-**Generics, failure, unsafe, testing**
-- [ ] Monomorphizes generics, checks bounds, and rejects optional type arguments ([§8](#8-generics)).
+**Generics, comptime, failure, unsafe, testing**
+- [ ] Monomorphizes type and const generic parameters (`[N: const Type]`), checks bounds, and rejects optional type arguments ([§8](#8-generics)).
+- [ ] Evaluates `const`, `comptime` blocks/control flow, reflection queries, `@derivable` derivations, `comp.TARGET`, and `comp.embed_*` within resource budgets and crossing rules ([§4.2](#42-bind-const-and-let), [§12.2](#122-deriving-methods)).
 - [ ] Implements `Result`, `Error`, and panics with the exact output format ([§9](#9-failure-handling), [§19](#19-the-runtime-contract)).
 - [ ] Requires `unsafe` for the operations of [§10](#10-unsafe-code-and-foreign-functions) and follows the C ABI for `extern`.
 - [ ] Discovers and runs tests as in [§11](#11-testing).
@@ -3059,7 +3075,7 @@ ChainEnd    = "default" [ FailureCases ] ":" Body
 
 ## Appendix B: Keywords and Contextual Words
 
-**Reserved keywords** (30): `and`, `as`, `bind`, `cl`, `define`, `else`, `enum`, `extern`, `false`, `fn`, `for`, `func`, `if`, `import`, `in`, `interface`, `let`, `match`, `none`, `not`, `or`, `own`, `self`, `Self`, `struct`, `true`, `unpack`, `unsafe`, `when`, `while`.
+**Reserved keywords** (32): `and`, `as`, `bind`, `cl`, `comptime`, `const`, `define`, `else`, `enum`, `extern`, `false`, `fn`, `for`, `func`, `if`, `import`, `in`, `interface`, `let`, `match`, `none`, `not`, `or`, `own`, `self`, `Self`, `struct`, `true`, `unpack`, `unsafe`, `when`, `while`.
 
 **Contextual words**, identifiers everywhere except as shown:
 
@@ -3080,7 +3096,7 @@ From tightest to loosest:
 | Level | Operators | Associativity |
 |---|---|---|
 | 1 | `.` `?.` `()` `[]` | left |
-| 2 | prefix `-` `not` `~` `*` `&` `own` `unsafe` | right |
+| 2 | prefix `-` `not` `~` `*` `&` `own` `unsafe` `comptime` | right |
 | 3 | `*` `/` `%` | left |
 | 4 | `+` `-` | left |
 | 5 | `<<` `>>` | left |
@@ -3129,6 +3145,8 @@ Arithmetic overflow is **not** a trap: integer arithmetic wraps ([§5.3](#53-ari
 | **body** | the block or single expression after a `:` in a function, `if`, loop, or arm ([§6.1](#61-bodies)) |
 | **borrow** | temporary access to a value without owning it; read-only by default, mutable with `&` ([§7.3](#73-parameter-modes)) |
 | **bound** | an interface a type parameter must satisfy, `T: Hashable` ([§8.2](#82-bounds)) |
+| **comptime** | compile-time evaluation context (`comptime expr`, `comptime if`/`for`/`match`) and `comp.*` introspection ([§4.2](#42-bind-const-and-let)) |
+| **const** | declare a compile-time constant or compile-time-capable function ([§4.2](#42-bind-const-and-let)) |
 | **destruction** | releasing a resource at the end of its owner's scope, running `drop` first if defined ([§7.5](#75-destruction)) |
 | **distinct type** | a new nominal type with the representation of an existing one ([§3.10](#310-distinct-types)) |
 | **exhaustive** | covering every possible value of a `match` subject ([§6.5](#65-pattern-matching)) |

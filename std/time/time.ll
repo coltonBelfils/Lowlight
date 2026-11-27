@@ -10,6 +10,7 @@ comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 	extern clock_gettime as _time_clock_gettime: fn(clk_id: i32, ts: ptr[u8]) i32
 	extern nanosleep as _time_nanosleep: fn(req: ptr[u8], rem: ptr[u8]) i32
 	extern localtime_r as _time_localtime_r: fn(t: ptr[int], tm: ptr[u8]) ptr[u8]
+	extern __error as _time_errno_ptr: fn() ptr[i32]
 } else comptime if(comp.TARGET.os == comp.TargetOs.linux): {
 	extern localtime_r as _time_localtime_r: fn(t: ptr[int], tm: ptr[u8]) ptr[u8]
 }
@@ -89,31 +90,31 @@ define Duration struct [
 ]
 
 // Constructs a [`Duration`] from an exact nanosecond count.
-bind Duration.from_nanos = fn(nanos: int) Duration: Duration[nanos: nanos]
+const Duration.from_nanos = fn(nanos: int) Duration: Duration[nanos: nanos]
 
 // Constructs a [`Duration`] from `micros` microseconds.
-bind Duration.from_micros = fn(micros: int) Duration: Duration[nanos: micros * 1000]
+const Duration.from_micros = fn(micros: int) Duration: Duration[nanos: micros * 1000]
 
 // Constructs a [`Duration`] from fractional milliseconds `millis`.
-bind Duration.from_millis = fn(millis: float) Duration: Duration[nanos: int(millis * 1000000.0)]
+const Duration.from_millis = fn(millis: float) Duration: Duration[nanos: int(millis * 1000000.0)]
 
 // Constructs a [`Duration`] from fractional seconds `secs`.
-bind Duration.from_secs = fn(secs: float) Duration: Duration[nanos: int(secs * 1000000000.0)]
+const Duration.from_secs = fn(secs: float) Duration: Duration[nanos: int(secs * 1000000000.0)]
 
 // Returns the duration truncated/stored in whole nanoseconds.
-bind Duration.to_nanos = fn(self) int: self.nanos
+const Duration.to_nanos = fn(self) int: self.nanos
 
 // Returns the whole microsecond count contained in this duration.
-bind Duration.to_micros = fn(self) int: self.nanos / 1000
+const Duration.to_micros = fn(self) int: self.nanos / 1000
 
 // Converts the duration to floating-point milliseconds.
-bind Duration.to_millis = fn(self) float: float(self.nanos) / 1000000.0
+const Duration.to_millis = fn(self) float: float(self.nanos) / 1000000.0
 
 // Converts the duration to floating-point seconds.
-bind Duration.to_secs = fn(self) float: float(self.nanos) / 1000000000.0
+const Duration.to_secs = fn(self) float: float(self.nanos) / 1000000000.0
 
 // Formats the duration automatically using `ns`, `µs`, `ms`, or `s` units.
-bind Duration.to_string = fn(self) string: {
+const Duration.to_string = fn(self) string: {
 	let sign = if(self.nanos < 0): "-" else: ""
 
 	// Use a float magnitude so negating the minimum `int` cannot overflow.
@@ -190,9 +191,20 @@ bind sleep_ms = fn(ms: int): {
 	} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 		unsafe {
 			let req = alloc_raw[int](2)
+			let rem = alloc_raw[int](2)
 			ptr_write(req, sec)
 			ptr_write(ptr_add(req, 1), nsec)
-			let _ = _time_nanosleep(ptr_cast[u8](req), null_ptr[u8]())
+			for(true): {
+				ptr_write(rem, 0)
+				ptr_write(ptr_add(rem, 1), 0)
+				let rc = _time_nanosleep(ptr_cast[u8](req), ptr_cast[u8](rem))
+				if(rc == i32(0)): for <-
+				let err_ptr = _time_errno_ptr()
+				if(is_null(err_ptr) or int(ptr_read(err_ptr)) != 4): for <-
+				ptr_write(req, ptr_read(rem))
+				ptr_write(ptr_add(req, 1), ptr_read(ptr_add(rem, 1)))
+			}
+			free_raw(rem)
 			free_raw(req)
 		}
 	} else: {
@@ -201,7 +213,7 @@ bind sleep_ms = fn(ms: int): {
 }
 
 // Returns the three-letter English month abbreviation for `1..=12` (or `""` if out of range).
-bind month_abbr = fn(m: int) string:
+const month_abbr = fn(m: int) string:
 	if(m == 1): "Jan"
 	else if(m == 2): "Feb"
 	else if(m == 3): "Mar"
@@ -217,7 +229,7 @@ bind month_abbr = fn(m: int) string:
 	else: ""
 
 // Returns the full English month name for `1..=12` (or `""` if out of range).
-bind month_full = fn(m: int) string:
+const month_full = fn(m: int) string:
 	if(m == 1): "January"
 	else if(m == 2): "February"
 	else if(m == 3): "March"
@@ -233,7 +245,7 @@ bind month_full = fn(m: int) string:
 	else: ""
 
 // Returns the three-letter English weekday abbreviation for `0..=6` (`0` = Sunday, or `""` if out of range).
-bind weekday_abbr = fn(w: int) string:
+const weekday_abbr = fn(w: int) string:
 	if(w == 0): "Sun"
 	else if(w == 1): "Mon"
 	else if(w == 2): "Tue"
@@ -244,7 +256,7 @@ bind weekday_abbr = fn(w: int) string:
 	else: ""
 
 // Returns the full English weekday name for `0..=6` (`0` = Sunday, or `""` if out of range).
-bind weekday_full = fn(w: int) string:
+const weekday_full = fn(w: int) string:
 	if(w == 0): "Sunday"
 	else if(w == 1): "Monday"
 	else if(w == 2): "Tuesday"
@@ -255,7 +267,7 @@ bind weekday_full = fn(w: int) string:
 	else: ""
 
 // Formats a UTC timezone offset in seconds as `+HH:MM` (when `with_colon` is `true`) or `+HHMM`.
-bind format_tz_offset = fn(offset_secs: int, with_colon: bool) string: {
+const format_tz_offset = fn(offset_secs: int, with_colon: bool) string: {
 	let is_neg = offset_secs < 0
 	let total_mins = (if(is_neg): -offset_secs else: offset_secs) / 60
 	let hours = total_mins / 60
@@ -310,7 +322,7 @@ define DateTime struct [
 	is_local: bool,
 ]
 
-bind _days_from_civil = fn(y: int, m: int, d: int) int: {
+const _days_from_civil = fn(y: int, m: int, d: int) int: {
 	let yr = if(m <= 2): y - 1 else: y
 	let era = if(yr >= 0): yr / 400 else: (yr - 399) / 400
 	let yoe = yr - era * 400
@@ -321,7 +333,7 @@ bind _days_from_civil = fn(y: int, m: int, d: int) int: {
 }
 
 // Floor division for positive `d`: rounds toward negative infinity so `n - q * d` is in `0..d`.
-bind _floor_div = fn(n: int, d: int) int: {
+const _floor_div = fn(n: int, d: int) int: {
 	let q = n / d
 	if(n % d < 0): q - 1 else: q
 }
@@ -341,7 +353,7 @@ bind _local_zone_name = fn(epoch_sec: int, off: int) string: {
 }
 
 // Builds a [`DateTime`] for `epoch_sec` (+ `nano`) viewed at a fixed UTC offset `off` with zone label `zone`.
-bind _build_datetime = fn(epoch_sec: int, nano: int, off: int, zone: own string, is_local: bool) DateTime: {
+const _build_datetime = fn(epoch_sec: int, nano: int, off: int, zone: own string, is_local: bool) DateTime: {
 	let adj_sec = epoch_sec + off
 	let days = if(adj_sec >= 0): adj_sec / 86400 else: (adj_sec - 86399) / 86400
 	let rem_sec = adj_sec - days * 86400
@@ -419,14 +431,14 @@ bind DateTime.from_unix_nanos = fn(nanos: int, is_local: bool) DateTime: {
 }
 
 // Smallest and largest years accepted by [`DateTime.new`] / [`DateTime.must_new`].
-bind MIN_YEAR: int = -999999
-bind MAX_YEAR: int = 999999
+const MIN_YEAR: int = -999999
+const MAX_YEAR: int = 999999
 
 // Reports whether `year` is a Gregorian leap year.
-bind is_leap_year = fn(year: int) bool: (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
+const is_leap_year = fn(year: int) bool: (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
 
 // Returns the number of days in `month` (`1..=12`) of `year`, or `0` for an invalid month.
-bind days_in_month = fn(year: int, month: int) int:
+const days_in_month = fn(year: int, month: int) int:
 	if(month == 2):
 		if(is_leap_year(year)): 29 else: 28
 	else if(month == 4 or month == 6 or month == 9 or month == 11): 30
@@ -434,7 +446,7 @@ bind days_in_month = fn(year: int, month: int) int:
 	else: 0
 
 // Returns a description of the first out-of-range civil component, or `none` if all are valid.
-bind _civil_error = fn(year: int, month: int, day: int, hour: int, minute: int, second: int) ?string:
+const _civil_error = fn(year: int, month: int, day: int, hour: int, minute: int, second: int) ?string:
 	if(year < MIN_YEAR or year > MAX_YEAR): "year $year out of range $MIN_YEAR..=$MAX_YEAR"
 	else if(month < 1 or month > 12): "month $month out of range 1..=12"
 	else if(day < 1 or day > days_in_month(year, month)): "day $day out of range 1..=${days_in_month(
@@ -486,105 +498,105 @@ bind DateTime.must_new = fn(
 }
 
 // Reports whether `self.year` is a Gregorian leap year.
-bind DateTime.is_leap_year = fn(self) bool: is_leap_year(self.year)
+const DateTime.is_leap_year = fn(self) bool: is_leap_year(self.year)
 
 // -----------------------------------------------------------------------------
 // Time Format Constants (Mirroring Go Reference Formats & Standard Conventions)
 // -----------------------------------------------------------------------------
 
 // Go reference layout constant (`"01/02 03:04:05PM '06 -0700"`).
-bind LAYOUT = "01/02 03:04:05PM '06 -0700"
+const LAYOUT = "01/02 03:04:05PM '06 -0700"
 
 // ANSI C date-time layout for [`DateTime.format_go`].
-bind ANSIC = "Mon Jan _2 15:04:05 2006"
+const ANSIC = "Mon Jan _2 15:04:05 2006"
 
 // Unix `date(1)` layout for [`DateTime.format_go`].
-bind UNIX_DATE = "Mon Jan _2 15:04:05 MST 2006"
+const UNIX_DATE = "Mon Jan _2 15:04:05 MST 2006"
 
 // Ruby date-time layout for [`DateTime.format_go`].
-bind RUBY_DATE = "Mon Jan 02 15:04:05 -0700 2006"
+const RUBY_DATE = "Mon Jan 02 15:04:05 -0700 2006"
 
 // RFC 822 date-time layout with named timezone.
-bind RFC822 = "02 Jan 06 15:04 MST"
+const RFC822 = "02 Jan 06 15:04 MST"
 
 // RFC 822 date-time layout with numeric timezone offset.
-bind RFC822Z = "02 Jan 06 15:04 -0700"
+const RFC822Z = "02 Jan 06 15:04 -0700"
 
 // RFC 850 verbose date-time layout.
-bind RFC850 = "Monday, 02-Jan-06 15:04:05 MST"
+const RFC850 = "Monday, 02-Jan-06 15:04:05 MST"
 
 // RFC 1123 HTTP date layout with named timezone.
-bind RFC1123 = "Mon, 02 Jan 2006 15:04:05 MST"
+const RFC1123 = "Mon, 02 Jan 2006 15:04:05 MST"
 
 // RFC 1123 HTTP date layout with numeric offset.
-bind RFC1123Z = "Mon, 02 Jan 2006 15:04:05 -0700"
+const RFC1123Z = "Mon, 02 Jan 2006 15:04:05 -0700"
 
 // RFC 3339 / ISO-8601 date-time layout (`Z07:00`).
-bind RFC3339 = "2006-01-02T15:04:05Z07:00"
+const RFC3339 = "2006-01-02T15:04:05Z07:00"
 
 // RFC 3339 date-time layout including nanoseconds.
-bind RFC3339_NANO = "2006-01-02T15:04:05.999999999Z07:00"
+const RFC3339_NANO = "2006-01-02T15:04:05.999999999Z07:00"
 
 // Short 12-hour clock layout (`"3:04PM"`).
-bind KITCHEN = "3:04PM"
+const KITCHEN = "3:04PM"
 
 // Syslog-style short timestamp layout (`"Jan _2 15:04:05"`).
-bind STAMP = "Jan _2 15:04:05"
+const STAMP = "Jan _2 15:04:05"
 
 // Syslog timestamp layout with milliseconds.
-bind STAMP_MILLI = "Jan _2 15:04:05.000"
+const STAMP_MILLI = "Jan _2 15:04:05.000"
 
 // Syslog timestamp layout with microseconds.
-bind STAMP_MICRO = "Jan _2 15:04:05.000000"
+const STAMP_MICRO = "Jan _2 15:04:05.000000"
 
 // Syslog timestamp layout with nanoseconds.
-bind STAMP_NANO = "Jan _2 15:04:05.000000000"
+const STAMP_NANO = "Jan _2 15:04:05.000000000"
 
 // Common SQL / log timestamp layout (`"2006-01-02 15:04:05"`).
-bind DATETIME_FORMAT = "2006-01-02 15:04:05"
+const DATETIME_FORMAT = "2006-01-02 15:04:05"
 
 // Calendar date layout (`"2006-01-02"`).
-bind DATE_ONLY = "2006-01-02"
+const DATE_ONLY = "2006-01-02"
 
 // Wall clock time-of-day layout (`"15:04:05"`).
-bind TIME_ONLY = "15:04:05"
+const TIME_ONLY = "15:04:05"
 
 // ISO-8601 date-time layout (`"2006-01-02T15:04:05Z07:00"`).
-bind ISO8601 = "2006-01-02T15:04:05Z07:00"
+const ISO8601 = "2006-01-02T15:04:05Z07:00"
 
 // RFC 2822 email timestamp layout (`"Mon, 02 Jan 2006 15:04:05 -0700"`).
-bind RFC2822 = "Mon, 02 Jan 2006 15:04:05 -0700"
+const RFC2822 = "Mon, 02 Jan 2006 15:04:05 -0700"
 
 // C `strftime`-style ISO-8601 UTC format constant (`"%Y-%m-%dT%H:%M:%SZ"`).
-bind C_FMT_ISO8601 = "%Y-%m-%dT%H:%M:%SZ"
+const C_FMT_ISO8601 = "%Y-%m-%dT%H:%M:%SZ"
 
 // C `strftime`-style date-time format constant (`"%Y-%m-%d %H:%M:%S"`).
-bind C_FMT_DATETIME = "%Y-%m-%d %H:%M:%S"
+const C_FMT_DATETIME = "%Y-%m-%d %H:%M:%S"
 
 // C `strftime`-style date-only format constant (`"%Y-%m-%d"`).
-bind C_FMT_DATE_ONLY = "%Y-%m-%d"
+const C_FMT_DATE_ONLY = "%Y-%m-%d"
 
 // C `strftime`-style time-only format constant (`"%H:%M:%S"`).
-bind C_FMT_TIME_ONLY = "%H:%M:%S"
+const C_FMT_TIME_ONLY = "%H:%M:%S"
 
 // C `strftime`-style RFC 2822 format constant.
-bind C_FMT_RFC2822 = "%a, %d %b %Y %H:%M:%S %z"
+const C_FMT_RFC2822 = "%a, %d %b %Y %H:%M:%S %z"
 
 // C `strftime`-style ANSI C format constant.
-bind C_FMT_ANSIC = "%a %b %e %H:%M:%S %Y"
+const C_FMT_ANSIC = "%a %b %e %H:%M:%S %Y"
 
 // C `strftime`-style 12-hour kitchen clock format constant.
-bind C_FMT_KITCHEN = "%I:%M %p"
+const C_FMT_KITCHEN = "%I:%M %p"
 
 // C `strftime`-style 12-hour clock with seconds format constant.
-bind C_FMT_12HOUR = "%I:%M:%S %p"
+const C_FMT_12HOUR = "%I:%M:%S %p"
 
 // -----------------------------------------------------------------------------
 // Standard 1: C / POSIX / strftime Format Standard (`%` specifiers)
 // -----------------------------------------------------------------------------
 
 // Formats this [`DateTime`] using C/POSIX `strftime` `%` format specifiers (`%Y`, `%m`, `%d`, `%H`, `%M`, `%S`, `%L`, `%f`, `%p`, `%P`, `%z`, `%Z`, `%a`, `%A`, `%b`, `%B`, `%F`, `%T`, `%R`).
-bind DateTime.format = fn(self, pattern: string) string: {
+const DateTime.format = fn(self, pattern: string) string: {
 	let out = ""
 	let n = pattern.len()
 	let i = 0
@@ -696,7 +708,7 @@ bind DateTime.format = fn(self, pattern: string) string: {
 // Returns the length of a Go fractional-second token (`.000`, `.999`, `,000`, ...) starting at
 // `layout[i]`, counting the repeated `0`/`9` digits, or `0` if none starts there. Like Go, the
 // run must not be followed by another digit.
-bind _frac_run_len = fn(layout: string, i: int) int: {
+const _frac_run_len = fn(layout: string, i: int) int: {
 	let n = layout.len()
 	if(i + 1 >= n): func <- 0
 	let sep = layout.byte_at(i)
@@ -712,7 +724,7 @@ bind _frac_run_len = fn(layout: string, i: int) int: {
 // Formats `nanos` as a fractional-second suffix with `digits` digits (capped at 9) after `sep`.
 // When `trim` is `true` (Go `.999`), trailing zeros are removed and an all-zero fraction is omitted
 // entirely, including `sep`.
-bind _format_frac = fn(nanos: int, digits: int, trim: bool, sep: string) string: {
+const _format_frac = fn(nanos: int, digits: int, trim: bool, sep: string) string: {
 	let width = if(digits > 9): 9 else: digits
 	let frac = strfmt.pad_int_zeros(nanos, 9)[0..width].to_string()
 	if(trim): {
@@ -728,7 +740,7 @@ bind _format_frac = fn(nanos: int, digits: int, trim: bool, sep: string) string:
 //
 // Fractional seconds use Go semantics: `.000`/`,000` print exactly that many digits, while
 // `.999`/`,999` drop trailing zeros and omit the fraction (and separator) when it is zero.
-bind DateTime.format_go = fn(self, layout: string) string: {
+const DateTime.format_go = fn(self, layout: string) string: {
 	let out = ""
 	let n = layout.len()
 	let i = 0
@@ -844,7 +856,7 @@ bind DateTime.format_go = fn(self, layout: string) string: {
 // -----------------------------------------------------------------------------
 
 // Formats this [`DateTime`] using the Go reference [`LAYOUT`] convention (`"MM/DD hh:mm:ssAM 'YY ±HHMM"`).
-bind DateTime.to_layout = fn(self) string: {
+const DateTime.to_layout = fn(self) string: {
 	let mo = strfmt.pad_int_zeros(self.month, 2)
 	let dy = strfmt.pad_int_zeros(self.day, 2)
 	let h12 = if(self.hour == 0): 12
@@ -860,7 +872,7 @@ bind DateTime.to_layout = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`ANSIC`] layout (`"Mon Jan _2 15:04:05 2006"`).
-bind DateTime.to_ansic = fn(self) string: {
+const DateTime.to_ansic = fn(self) string: {
 	let w = weekday_abbr(self.weekday)
 	let m = month_abbr(self.month)
 	let d = strfmt.pad_int_spaces(self.day, 2)
@@ -872,7 +884,7 @@ bind DateTime.to_ansic = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`UNIX_DATE`] layout with timezone label.
-bind DateTime.to_unix_date = fn(self) string: {
+const DateTime.to_unix_date = fn(self) string: {
 	let w = weekday_abbr(self.weekday)
 	let m = month_abbr(self.month)
 	let d = strfmt.pad_int_spaces(self.day, 2)
@@ -884,7 +896,7 @@ bind DateTime.to_unix_date = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`RUBY_DATE`] layout with numeric timezone offset.
-bind DateTime.to_ruby_date = fn(self) string: {
+const DateTime.to_ruby_date = fn(self) string: {
 	let w = weekday_abbr(self.weekday)
 	let m = month_abbr(self.month)
 	let d = strfmt.pad_int_zeros(self.day, 2)
@@ -897,7 +909,7 @@ bind DateTime.to_ruby_date = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`RFC822`] layout with timezone label.
-bind DateTime.to_rfc822 = fn(self) string: {
+const DateTime.to_rfc822 = fn(self) string: {
 	let d = strfmt.pad_int_zeros(self.day, 2)
 	let m = month_abbr(self.month)
 	let y = strfmt.pad_int_zeros(self.year % 100, 2)
@@ -907,7 +919,7 @@ bind DateTime.to_rfc822 = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`RFC822Z`] layout with numeric timezone offset.
-bind DateTime.to_rfc822z = fn(self) string: {
+const DateTime.to_rfc822z = fn(self) string: {
 	let d = strfmt.pad_int_zeros(self.day, 2)
 	let m = month_abbr(self.month)
 	let y = strfmt.pad_int_zeros(self.year % 100, 2)
@@ -918,7 +930,7 @@ bind DateTime.to_rfc822z = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`RFC850`] layout with full weekday name.
-bind DateTime.to_rfc850 = fn(self) string: {
+const DateTime.to_rfc850 = fn(self) string: {
 	let w = weekday_full(self.weekday)
 	let d = strfmt.pad_int_zeros(self.day, 2)
 	let m = month_abbr(self.month)
@@ -930,7 +942,7 @@ bind DateTime.to_rfc850 = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`RFC1123`] HTTP header layout with timezone label.
-bind DateTime.to_rfc1123 = fn(self) string: {
+const DateTime.to_rfc1123 = fn(self) string: {
 	let w = weekday_abbr(self.weekday)
 	let d = strfmt.pad_int_zeros(self.day, 2)
 	let m = month_abbr(self.month)
@@ -942,7 +954,7 @@ bind DateTime.to_rfc1123 = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`RFC1123Z`] layout with numeric timezone offset.
-bind DateTime.to_rfc1123z = fn(self) string: {
+const DateTime.to_rfc1123z = fn(self) string: {
 	let w = weekday_abbr(self.weekday)
 	let d = strfmt.pad_int_zeros(self.day, 2)
 	let m = month_abbr(self.month)
@@ -955,7 +967,7 @@ bind DateTime.to_rfc1123z = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`RFC3339`] / [`ISO8601`] layout (`"2006-01-02T15:04:05Z07:00"`).
-bind DateTime.to_rfc3339 = fn(self) string: {
+const DateTime.to_rfc3339 = fn(self) string: {
 	let d = "${strfmt.pad_int_zeros(self.year, 4)}-${strfmt.pad_int_zeros(self.month, 2)}-${strfmt.pad_int_zeros(
 		self.day,
 		2,
@@ -969,11 +981,11 @@ bind DateTime.to_rfc3339 = fn(self) string: {
 }
 
 // Alias for [`DateTime.to_rfc3339`].
-bind DateTime.to_iso = fn(self) string: self.to_rfc3339()
+const DateTime.to_iso = fn(self) string: self.to_rfc3339()
 
 // Formats this [`DateTime`] in [`RFC3339_NANO`] layout, with up to 9 fractional digits and
 // trailing zeros removed (the fraction is omitted when it is zero), matching Go.
-bind DateTime.to_rfc3339_nano = fn(self) string: {
+const DateTime.to_rfc3339_nano = fn(self) string: {
 	let d = "${strfmt.pad_int_zeros(self.year, 4)}-${strfmt.pad_int_zeros(self.month, 2)}-${strfmt.pad_int_zeros(
 		self.day,
 		2,
@@ -988,7 +1000,7 @@ bind DateTime.to_rfc3339_nano = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in 12-hour [`KITCHEN`] clock format (`"3:04PM"`).
-bind DateTime.to_kitchen = fn(self) string: {
+const DateTime.to_kitchen = fn(self) string: {
 	let h12 = if(self.hour == 0): 12
 	else if(self.hour > 12): self.hour - 12
 	else: self.hour
@@ -998,7 +1010,7 @@ bind DateTime.to_kitchen = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`STAMP`] layout (`"Jan _2 15:04:05"`).
-bind DateTime.to_stamp = fn(self) string: {
+const DateTime.to_stamp = fn(self) string: {
 	let m = month_abbr(self.month)
 	let d = strfmt.pad_int_spaces(self.day, 2)
 	let tm = "${strfmt.pad_int_zeros(self.hour, 2)}:${strfmt.pad_int_zeros(self.minute, 2)}:${strfmt.pad_int_zeros(
@@ -1009,7 +1021,7 @@ bind DateTime.to_stamp = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`STAMP_MILLI`] layout with millisecond precision.
-bind DateTime.to_stamp_milli = fn(self) string: {
+const DateTime.to_stamp_milli = fn(self) string: {
 	let m = month_abbr(self.month)
 	let d = strfmt.pad_int_spaces(self.day, 2)
 	let ms = strfmt.pad_int_zeros(self.nanosecond / 1000000, 3)
@@ -1021,7 +1033,7 @@ bind DateTime.to_stamp_milli = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`STAMP_MICRO`] layout with microsecond precision.
-bind DateTime.to_stamp_micro = fn(self) string: {
+const DateTime.to_stamp_micro = fn(self) string: {
 	let m = month_abbr(self.month)
 	let d = strfmt.pad_int_spaces(self.day, 2)
 	let us = strfmt.pad_int_zeros(self.nanosecond / 1000, 6)
@@ -1033,7 +1045,7 @@ bind DateTime.to_stamp_micro = fn(self) string: {
 }
 
 // Formats this [`DateTime`] in [`STAMP_NANO`] layout with nanosecond precision.
-bind DateTime.to_stamp_nano = fn(self) string: {
+const DateTime.to_stamp_nano = fn(self) string: {
 	let m = month_abbr(self.month)
 	let d = strfmt.pad_int_spaces(self.day, 2)
 	let ns = strfmt.pad_int_zeros(self.nanosecond, 9)
@@ -1045,7 +1057,7 @@ bind DateTime.to_stamp_nano = fn(self) string: {
 }
 
 // Formats this [`DateTime`] as `"YYYY-MM-DD HH:MM:SS"`.
-bind DateTime.to_datetime_string = fn(self) string: {
+const DateTime.to_datetime_string = fn(self) string: {
 	let d = "${strfmt.pad_int_zeros(self.year, 4)}-${strfmt.pad_int_zeros(self.month, 2)}-${strfmt.pad_int_zeros(
 		self.day,
 		2,
@@ -1058,28 +1070,28 @@ bind DateTime.to_datetime_string = fn(self) string: {
 }
 
 // Returns the default string representation ([`DateTime.to_datetime_string`]).
-bind DateTime.to_string = fn(self) string: self.to_datetime_string()
+const DateTime.to_string = fn(self) string: self.to_datetime_string()
 
 // Formats only the calendar date portion as `"YYYY-MM-DD"`.
-bind DateTime.to_date_only = fn(self) string: "${strfmt.pad_int_zeros(self.year, 4)}-${strfmt.pad_int_zeros(
+const DateTime.to_date_only = fn(self) string: "${strfmt.pad_int_zeros(self.year, 4)}-${strfmt.pad_int_zeros(
 	self.month,
 	2,
 )}-${strfmt.pad_int_zeros(self.day, 2)}"
 
 // Alias for [`DateTime.to_date_only`].
-bind DateTime.to_date_string = fn(self) string: self.to_date_only()
+const DateTime.to_date_string = fn(self) string: self.to_date_only()
 
 // Formats only the wall-clock time portion as `"HH:MM:SS"`.
-bind DateTime.to_time_only = fn(self) string: "${strfmt.pad_int_zeros(self.hour, 2)}:${strfmt.pad_int_zeros(
+const DateTime.to_time_only = fn(self) string: "${strfmt.pad_int_zeros(self.hour, 2)}:${strfmt.pad_int_zeros(
 	self.minute,
 	2,
 )}:${strfmt.pad_int_zeros(self.second, 2)}"
 
 // Alias for [`DateTime.to_time_only`].
-bind DateTime.to_time_string = fn(self) string: self.to_time_only()
+const DateTime.to_time_string = fn(self) string: self.to_time_only()
 
 // Formats this [`DateTime`] in [`RFC2822`] email layout (`"Mon, 02 Jan 2006 15:04:05 -0700"`).
-bind DateTime.to_rfc2822 = fn(self) string: self.to_rfc1123z()
+const DateTime.to_rfc2822 = fn(self) string: self.to_rfc1123z()
 
 // Returns `self` shifted by `dsec` seconds plus `dnano` nanoseconds (`|dnano| < 1e9`), keeping
 // the same zone semantics (host local time, UTC, or the parsed fixed offset).
@@ -1113,7 +1125,7 @@ bind DateTime.sub_duration = fn(self, d: Duration) DateTime: {
 
 // Computes the signed elapsed [`Duration`] `self - other`, or `none` if it does not fit in a
 // [`Duration`] (about ±292 years).
-bind DateTime.diff = fn(self, other: DateTime) ?Duration: {
+const DateTime.diff = fn(self, other: DateTime) ?Duration: {
 	let secs = self.unix_secs - other.unix_secs
 	let ns = self.nanosecond - other.nanosecond
 	let max_secs = 9223372036
@@ -1129,7 +1141,7 @@ bind DateTime.diff = fn(self, other: DateTime) ?Duration: {
 //
 // Saturates to the minimum/maximum [`Duration`] when the span exceeds about ±292 years; use
 // [`DateTime.diff`] to detect that case.
-bind DateTime.diff_saturating = fn(self, other: DateTime) Duration: {
+const DateTime.diff_saturating = fn(self, other: DateTime) Duration: {
 	let d? = self.diff(other)
 	if(d? as d): func <- d
 	if(self.unix_secs > other.unix_secs): Duration[nanos: 9223372036854775807]
@@ -1141,7 +1153,7 @@ bind DateTime.diff_saturating = fn(self, other: DateTime) Duration: {
 // -----------------------------------------------------------------------------
 
 // Parses exactly `count` ASCII digits at `s[start..start + count]`, or returns `none`.
-bind _parse_digits = fn(s: string, start: int, count: int) ?int: {
+const _parse_digits = fn(s: string, start: int, count: int) ?int: {
 	if(start < 0 or start + count > s.len()): func <- none
 	let v = 0
 	for(i in start..start + count): {
@@ -1159,7 +1171,7 @@ bind _parse_digits = fn(s: string, start: int, count: int) ?int: {
 // optional zone designator: `Z`/`z`, `±HH:MM`, `±HHMM`, or `±HH`. Times without a zone are UTC.
 // Times with a non-zero offset keep that fixed offset (`offset_secs`, zone label `"+0530"`).
 // Out-of-range components (e.g. month 13, `25:00`, offset `+24:00`) are rejected.
-bind string.to_datetime = fn(self) ?DateTime: {
+const string.to_datetime = fn(self) ?DateTime: {
 	let s = self.trim()
 	let n = s.len()
 	if(n < 10 or s.byte_at(4) != u8(45) or s.byte_at(7) != u8(45)): func <- none

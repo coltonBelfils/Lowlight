@@ -16,6 +16,9 @@ type Pos struct {
 
 func (p Pos) String() string {
 	if p.File == "" {
+		if p.Line <= 0 && p.Col <= 0 {
+			return ""
+		}
 		return fmt.Sprintf("%d:%d", p.Line, p.Col)
 	}
 	return fmt.Sprintf("%s:%d:%d", p.File, p.Line, p.Col)
@@ -219,60 +222,75 @@ func (r *Reporter) Format() string {
 	return sb.String()
 }
 
+func (r *Reporter) formatSourceSnippet(sb *strings.Builder, sp Span, prefix string) {
+	lines, ok := r.sources[sp.Start.File]
+	if !ok {
+		return
+	}
+	lineIdx := sp.Start.Line - 1
+	if lineIdx < 0 || lineIdx >= len(lines) {
+		return
+	}
+	srcLine := lines[lineIdx]
+	expanded := strings.ReplaceAll(srcLine, "\t", "    ")
+	fmt.Fprintf(sb, "%s  %4d | %s\n", prefix, sp.Start.Line, expanded)
+
+	// Compute caret alignment accounting for tabs and UTF-8 runes.
+	col := sp.Start.Col - 1
+	if col < 0 {
+		col = 0
+	}
+	visualCol := 0
+	caretLen := 0
+	hasEndCol := sp.End.Line == sp.Start.Line
+	endCol := -1
+	if hasEndCol {
+		endCol = sp.End.Col - 1
+	}
+	runeIdx := 0
+	for _, rn := range srcLine {
+		w := 1
+		if rn == '\t' {
+			w = 4
+		}
+		if runeIdx < col {
+			visualCol += w
+		} else if !hasEndCol || runeIdx < endCol {
+			caretLen += w
+		} else {
+			break
+		}
+		runeIdx++
+	}
+	if caretLen < 1 {
+		caretLen = 1
+	}
+	fmt.Fprintf(sb, "%s       | %s^%s\n", prefix, strings.Repeat(" ", visualCol), strings.Repeat("~", caretLen-1))
+}
+
 // FormatOne renders a single diagnostic into a human-readable string.
 func (r *Reporter) FormatOne(d Diagnostic) string {
 	var sb strings.Builder
+	posStr := d.Span.Start.String()
+	prefix := ""
+	if posStr != "" {
+		prefix = posStr + ": "
+	}
 	if d.Code != "" {
-		fmt.Fprintf(&sb, "%s: [%s] %s: %s\n", d.Span.Start.String(), d.Code, d.Severity.String(), d.Message)
+		fmt.Fprintf(&sb, "%s[%s] %s: %s\n", prefix, d.Code, d.Severity.String(), d.Message)
 	} else {
-		fmt.Fprintf(&sb, "%s: %s: %s\n", d.Span.Start.String(), d.Severity.String(), d.Message)
+		fmt.Fprintf(&sb, "%s%s: %s\n", prefix, d.Severity.String(), d.Message)
 	}
-	if lines, ok := r.sources[d.Span.Start.File]; ok {
-		lineIdx := d.Span.Start.Line - 1
-		if lineIdx >= 0 && lineIdx < len(lines) {
-			srcLine := lines[lineIdx]
-			expanded := strings.ReplaceAll(srcLine, "\t", "    ")
-			fmt.Fprintf(&sb, "  %4d | %s\n", d.Span.Start.Line, expanded)
-
-			// Compute caret alignment accounting for tabs and UTF-8 runes.
-			col := d.Span.Start.Col - 1
-			if col < 0 {
-				col = 0
-			}
-			visualCol := 0
-			caretLen := 0
-			hasEndCol := d.Span.End.Line == d.Span.Start.Line
-			endCol := -1
-			if hasEndCol {
-				endCol = d.Span.End.Col - 1
-			}
-			runeIdx := 0
-			for _, rn := range srcLine {
-				w := 1
-				if rn == '\t' {
-					w = 4
-				}
-				if runeIdx < col {
-					visualCol += w
-				} else if !hasEndCol || runeIdx < endCol {
-					caretLen += w
-				} else {
-					break
-				}
-				runeIdx++
-			}
-			if caretLen < 1 {
-				caretLen = 1
-			}
-			fmt.Fprintf(&sb, "       | %s^%s\n", strings.Repeat(" ", visualCol), strings.Repeat("~", caretLen-1))
-		}
-	}
+	r.formatSourceSnippet(&sb, d.Span, "")
 	if d.Hint != "" {
 		fmt.Fprintf(&sb, "       = hint: %s\n", d.Hint)
 	}
 	for _, rel := range d.Related {
-		if rel.Span.Start.File != "" {
-			fmt.Fprintf(&sb, "       = note: %s: %s\n", rel.Span.Start.String(), rel.Message)
+		if relPos := rel.Span.Start.String(); relPos != "" {
+			fmt.Fprintf(&sb, "       = note: %s: %s\n", relPos, rel.Message)
+			if rel.Span.Start.File != "" {
+				r.formatSourceSnippet(&sb, rel.Span, "       ")
+			}
 		} else {
 			fmt.Fprintf(&sb, "       = note: %s\n", rel.Message)
 		}

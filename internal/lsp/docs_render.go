@@ -265,31 +265,44 @@ func enclosingTypeAtOffset(f *ast.File, offset int) string {
 		end := declSp.End.Offset
 		return offset >= start && offset <= end
 	}
-	for _, d := range f.Decls {
-		switch decl := d.(type) {
-		case *ast.StructDecl:
-			if within(decl.DocSpan, decl.Span) {
-				return decl.Name
-			}
-		case *ast.EnumDecl:
-			if within(decl.DocSpan, decl.Span) {
-				return decl.Name
-			}
-		case *ast.InterfaceDecl:
-			if within(decl.DocSpan, decl.Span) {
-				return decl.Name
-			}
-		case *ast.DistinctTypeDecl:
-			if within(decl.DocSpan, decl.Span) {
-				return decl.Name
-			}
-		case *ast.MethodDecl:
-			if within(decl.DocSpan, decl.Span) {
-				return decl.RecvType
+	var visit func(decls []ast.Decl) string
+	visit = func(decls []ast.Decl) string {
+		for _, d := range decls {
+			switch decl := d.(type) {
+			case *ast.StructDecl:
+				if within(decl.DocSpan, decl.Span) {
+					return decl.Name
+				}
+			case *ast.EnumDecl:
+				if within(decl.DocSpan, decl.Span) {
+					return decl.Name
+				}
+			case *ast.InterfaceDecl:
+				if within(decl.DocSpan, decl.Span) {
+					return decl.Name
+				}
+			case *ast.DistinctTypeDecl:
+				if within(decl.DocSpan, decl.Span) {
+					return decl.Name
+				}
+			case *ast.MethodDecl:
+				if within(decl.DocSpan, decl.Span) {
+					return decl.RecvType
+				}
+			case *ast.TopComptimeIfDecl:
+				for cur := decl; cur != nil; cur = cur.ElseIf {
+					if name := visit(cur.ThenDecls); name != "" {
+						return name
+					}
+					if name := visit(cur.ElseDecls); name != "" {
+						return name
+					}
+				}
 			}
 		}
+		return ""
 	}
-	return ""
+	return visit(f.Decls)
 }
 
 func (s *Server) hoverForDocEntry(prog *sema.CheckedProgram, entry *docgen.SymbolEntry, isBuiltin bool, target string, currentModPath string) string {

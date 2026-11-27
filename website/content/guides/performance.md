@@ -41,6 +41,10 @@ Strings, lists, maps, sets, closures, and interface values allocate on the heap.
 - Use arrays (`[N: T]`) for small fixed-size data.
 - Use an [arena](/guides/memory.html) for many small, short-lived objects; allocation becomes a pointer bump and freeing is one operation.
 
+### Static data and copy-on-write
+
+Top-level `const` tables, `comptime` lists, strings, and embedded assets (`comp.embed_str` / `comp.embed_bytes`) are baked directly into static read-only memory (`.rodata`, `cap == 0`). They initialize in zero time with zero heap allocations, and promote copy-on-write if mutated safely at runtime.
+
 ### Copies
 
 Plain values copy freely and cheaply. Resources only copy when you write `.copy()`, so every expensive copy is visible in the source. Read-only parameters of resource type are passed by reference, never copied.

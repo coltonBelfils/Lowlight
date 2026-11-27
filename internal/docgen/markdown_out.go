@@ -160,6 +160,32 @@ func renderMarkdownWithLinks(doc, currentModPath, currentType string, idx *Symbo
 	return sb.String()
 }
 
+func docEntryBadges(e *SymbolEntry) string {
+	if e == nil {
+		return ""
+	}
+	var badges []string
+	if e.ComptimeOnly {
+		badges = append(badges, "`@comptime_only`")
+	}
+	switch e.Kind {
+	case KindFunc, KindMethod:
+		if e.IsConst {
+			badges = append(badges, "`const fn`")
+		}
+	case KindConst:
+		if e.IsConst {
+			badges = append(badges, "`const`")
+		} else {
+			badges = append(badges, "`bind`")
+		}
+	}
+	if len(badges) == 0 {
+		return ""
+	}
+	return " · " + strings.Join(badges, " ")
+}
+
 func renderModuleMarkdown(pg modulePageData, idx *SymbolIndex) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("# Module `%s`\n\n", pg.ModName))
@@ -169,7 +195,13 @@ func renderModuleMarkdown(pg modulePageData, idx *SymbolIndex) string {
 	}
 
 	writeEntry := func(level string, e *SymbolEntry, enclosingType string) {
-		sb.WriteString(fmt.Sprintf("%s `%s` ([src](%s#L%d))\n\n", level, e.FullName, pg.ModName+".ll", e.Line))
+		srcLink := pg.ModName + ".ll"
+		if rel, err := filepath.Rel(idx.RootDir, e.FilePath); err == nil && !strings.HasPrefix(rel, "..") {
+			srcLink = filepath.ToSlash(rel)
+		} else if e.FilePath != "" {
+			srcLink = filepath.Base(e.FilePath)
+		}
+		sb.WriteString(fmt.Sprintf("%s `%s`%s ([src](%s#L%d))\n\n", level, e.FullName, docEntryBadges(e), srcLink, e.Line))
 		sb.WriteString("```lowlight\n" + e.Signature + "\n```\n\n")
 		if e.Doc != "" {
 			sb.WriteString(renderMarkdownWithLinks(e.Doc, pg.AbsPath, enclosingType, idx))

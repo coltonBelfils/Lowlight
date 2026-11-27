@@ -107,7 +107,7 @@ func findTypeDecl(prog *sema.CheckedProgram, name string) (*sema.Module, ast.Dec
 		if m.File == nil || (m.Pkg != nil && m.Pkg.IsStd) {
 			continue
 		}
-		for _, d := range m.File.Decls {
+		for _, d := range m.ActiveDecls() {
 			switch td := d.(type) {
 			case *ast.StructDecl:
 				if td.Name == name {
@@ -241,7 +241,7 @@ func (s *Server) addDeriveFix(filePath, src string, prog *sema.CheckedProgram, d
 func deriveActions(uri, src string, mod *sema.Module, decl ast.Decl, name string, attrs []ast.Attribute) []CodeAction {
 	var out []CodeAction
 	for _, di := range DerivableInterfaces {
-		if derivesInterface(attrs, di.Name) || hasTypeMethodDecl(mod.File, name, di.Method) {
+		if derivesInterface(attrs, di.Name) || hasTypeMethodDecl(mod, name, di.Method) {
 			continue
 		}
 		edit, ok := deriveInsertEdit(src, decl, attrs, di.Name)

@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>std/collections · Lowlight</title>
+<meta name="description" content="BloomFilter[T]: a probabilistic set.">
+<link rel="stylesheet" href="../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-api" data-root="../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../start/index.html">Get Started</a><a href="../tour/index.html">Tour</a><a href="../learn/index.html">Tutorials</a><a href="../guides/index.html">Guides</a><a href="../examples/index.html">By Example</a><a href="../ref/index.html">Reference</a><a class="active" href="index.html">Packages</a><a href="../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="chars.html">std/chars</a></li><li><a class="active" href="collections.html">std/collections</a></li><li><a href="core.html">std/core</a></li><li><a href="derive.html">std/derive</a></li><li><a href="fs.html">std/fs</a></li><li><a href="http.html">std/http</a></li><li><a href="json.html">std/json</a></li><li><a href="math.html">std/math</a></li><li><a href="net.html">std/net</a></li><li><a href="os.html">std/os</a></li><li><a href="pool.html">std/pool</a></li><li><a href="sort.html">std/sort</a></li><li><a href="strconv.html">std/strconv</a></li><li><a href="strfmt.html">std/strfmt</a></li><li><a href="strings.html">std/strings</a></li><li><a href="test.html">std/test</a></li><li><a href="time.html">std/time</a></li><li><a href="unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../start/index.html">Get Started</a></li><li><a href="../tour/index.html">Tour</a></li><li><a href="../learn/index.html">Tutorials</a></li><li><a href="../guides/index.html">Guides</a></li><li><a href="../examples/index.html">By Example</a></li><li><a href="../ref/index.html">Reference</a></li><li><a href="index.html">Packages</a></li><li><a href="../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="index.html">Packages</a><span class="sep">/</span><span>Standard library</span></nav><h1 id="top">Package <code>collections</code></h1>
+<div class="api-import"><span class="k">import</span> <span class="s">"std/collections"</span></div>
+<h2 id="overview"><a class="anchor" href="#overview" aria-hidden="true">#</a>Overview</h2>
+<p>BloomFilter[T]: a probabilistic set.</p>
+<p>Answers &quot;is this element in the set?&quot; with &quot;definitely not&quot; or &quot;probably yes&quot;, using a bit array
+and several hash functions, in far less memory than storing the elements. Elements can't be
+removed or listed. Useful to skip expensive lookups (disk, network) for things that aren't there.</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Bloom_filter
+</li>
+</ul>
+<p>std/collections — Collections beyond the prelude's <code>[T]</code>, <code>#[T]</code>, and <code>#[K: V]</code>: <a class="ref" href="collections.html#Deque" title="define Deque[T] struct"><code>Deque</code></a>,
+<a class="ref" href="collections.html#Queue" title="define Queue[T] struct"><code>Queue</code></a>, <a class="ref" href="collections.html#BitSet" title="define BitSet struct"><code>BitSet</code></a>, <a class="ref" href="collections.html#PriorityQueue" title="define PriorityQueue[T] struct"><code>PriorityQueue</code></a>, <a class="ref" href="collections.html#StringInterner" title="define StringInterner struct"><code>StringInterner</code></a>, and <a class="ref" href="collections.html#BTreeMap" title="define BTreeMap[K: Comparable, V] struct"><code>BTreeMap</code></a>.</p>
+<p>DisjointSet: union-find over the integers 0..n.</p>
+<p>Tracks a partition of elements into groups, with two near-constant-time operations: merge the
+groups of two elements (<code>union</code>), and find which group an element is in (<code>find</code>). Useful for
+connected components, Kruskal's minimum spanning tree, and grouping equivalent things.</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Disjoint-set_data_structure
+</li>
+<li>https://cp-algorithms.com/data_structures/disjoint_set_union.html
+</li>
+</ul>
+<p>FenwickTree: a binary indexed tree for prefix sums.</p>
+<p>An array of numbers where both &quot;add x to element i&quot; and &quot;sum of elements 0..i&quot; take O(log n),
+in a single flat array. Useful for running totals, frequency counts and ranks, and range-sum
+queries over data that keeps changing.</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Fenwick_tree
+</li>
+<li>https://cp-algorithms.com/data_structures/fenwick.html
+</li>
+</ul>
+<p>Graph[N, E]: nodes connected by edges, as adjacency lists.</p>
+<p>Nodes with data of type <code>N</code> and edges with data of type <code>E</code> (weights, labels), each node keeping a
+list of its neighbors. The base for breadth- and depth-first search, shortest paths, topological
+sort, and dependency resolution (build systems, package managers).</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Adjacency_list
+</li>
+</ul>
+<p>IntervalTree[T]: a set of intervals searchable by overlap.</p>
+<p>Stores intervals (<code>lo..hi</code>) so that &quot;which intervals contain this point?&quot; or &quot;which overlap this
+range?&quot; takes O(log n + matches). Useful for calendars and scheduling, genome ranges, text
+editor decorations, and collision broad phases.</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Interval_tree
+</li>
+</ul>
+<p>LinkedList[T]: a doubly linked list.</p>
+<p>Each element lives in its own node that points to the next and previous nodes, so inserting or
+removing at a known position takes O(1) time without shifting anything. Useful for queues and
+LRU caches that splice elements around, and as a classic exercise in ownership: in Lowlight the
+nodes have to be owned somewhere (a list of nodes addressed by index, a <code>Pool</code>, or an <code>Arena</code>).</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Doubly_linked_list
+</li>
+<li>https://opendatastructures.org/ods-python/3_2_DLList_Doubly_Linked_Li.html
+</li>
+</ul>
+<p>LruCache[K, V]: a bounded cache that evicts the least recently used entry.</p>
+<p>A map with a fixed capacity: when it is full, inserting evicts the entry that was used longest ago.
+Usually a hash map plus a linked list ordered by use, so both lookup and eviction are O(1).
+Useful for memoizing expensive results, caching files or responses, and bounding memory.</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Cache_replacement_policies
+</li>
+</ul>
+<p>Multiset[T]: a set that counts repeated elements (a bag).</p>
+<p>Like <code>#[T]</code>, but each element has a count: adding an element twice keeps two of it. Usually a map
+from element to count. Useful for word and letter counts, histograms, inventories, and checking
+whether two lists hold the same elements regardless of order.</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Multiset
+</li>
+</ul>
+<p>RingBuffer[T]: a fixed-capacity circular buffer.</p>
+<p>A buffer of fixed size whose end wraps around to its start. Once full, pushing a new element
+overwrites the oldest one (or is refused). Unlike <code>Deque</code>, it never grows, so memory use is
+bounded: good for the last N log lines, audio and network streams, and producer/consumer queues.</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Circular_buffer
+</li>
+</ul>
+<p>Rope: a string stored as a tree of pieces.</p>
+<p>A large string held as a binary tree of smaller strings, so inserting or deleting text in the
+middle, concatenating, and splitting take O(log n) instead of copying the whole string. Useful
+for text editors and anything that edits very large strings.</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Rope_(data_structure)
+</li>
+</ul>
+<p>SegmentTree[T]: range queries over an array.</p>
+<p>A tree over an array where each node summarizes a range (its sum, minimum, maximum, ...), so a
+query over any range and an update to any element both take O(log n). More general than a
+Fenwick tree. Useful for range minimum/maximum queries and interval statistics.</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Segment_tree
+</li>
+<li>https://cp-algorithms.com/data_structures/segment_tree.html
+</li>
+</ul>
+<p>SkipList[K, V]: an ordered map built from linked lists.</p>
+<p>A sorted linked list with extra &quot;express lane&quot; lists above it that skip over elements, chosen at
+random. Search, insert, and remove take O(log n) on average, like a balanced tree, with simpler
+code. Useful as an ordered map and in concurrent settings; an alternative to <code>BTreeMap</code>.</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Skip_list
+</li>
+<li>https://opendatastructures.org/ods-python/4_Skiplists.html
+</li>
+</ul>
+<p>Trie: a prefix tree of strings.</p>
+<p>Stores strings by their characters, one tree level per character, so all strings sharing a prefix
+share a path. Finding every stored string that starts with a prefix takes time proportional to
+the prefix. Useful for autocomplete, spell checking, routing tables, and keyword matching.</p>
+<p>I'm implementing this one myself. Please leave this file as is.</p>
+<p>Further reading:</p>
+<ul>
+<li>https://en.wikipedia.org/wiki/Trie
+</li>
+<li>https://cp-algorithms.com/string/aho_corasick.html
+</li>
+</ul>
+<h2 id="index"><a class="anchor" href="#index" aria-hidden="true">#</a>Index</h2>
+<ul class="api-index"><li><a href="#max_first"><code>max_first(…)</code></a></li><li><a href="#min_first"><code>min_first(…)</code></a></li><li><a href="#BTreeMap"><code>struct BTreeMap</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.clear"><code>BTreeMap.clear</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.copy"><code>BTreeMap.copy</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.entries"><code>BTreeMap.entries</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.first"><code>BTreeMap.first</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.get"><code>BTreeMap.get</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.has"><code>BTreeMap.has</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.insert"><code>BTreeMap.insert</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.is_empty"><code>BTreeMap.is_empty</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.iter"><code>BTreeMap.iter</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.keys"><code>BTreeMap.keys</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.last"><code>BTreeMap.last</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.len"><code>BTreeMap.len</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.new"><code>BTreeMap.new</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.push"><code>BTreeMap.push</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.range"><code>BTreeMap.range</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.remove"><code>BTreeMap.remove</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.to_string"><code>BTreeMap.to_string</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.update"><code>BTreeMap.update</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.values"><code>BTreeMap.values</code></a></li><li style="margin-left:1.2em"><a href="#BTreeMap.with"><code>BTreeMap.with</code></a></li><li><a href="#BitSet"><code>struct BitSet</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.clear"><code>BitSet.clear</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.contains"><code>BitSet.contains</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.copy"><code>BitSet.copy</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.difference"><code>BitSet.difference</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.eq"><code>BitSet.eq</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.insert"><code>BitSet.insert</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.intersection"><code>BitSet.intersection</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.is_empty"><code>BitSet.is_empty</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.is_subset"><code>BitSet.is_subset</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.iter"><code>BitSet.iter</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.len"><code>BitSet.len</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.new"><code>BitSet.new</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.push"><code>BitSet.push</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.remove"><code>BitSet.remove</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.to_list"><code>BitSet.to_list</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.to_string"><code>BitSet.to_string</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.union"><code>BitSet.union</code></a></li><li style="margin-left:1.2em"><a href="#BitSet.with_capacity"><code>BitSet.with_capacity</code></a></li><li><a href="#Deque"><code>struct Deque</code></a></li><li style="margin-left:1.2em"><a href="#Deque.back"><code>Deque.back</code></a></li><li style="margin-left:1.2em"><a href="#Deque.clear"><code>Deque.clear</code></a></li><li style="margin-left:1.2em"><a href="#Deque.copy"><code>Deque.copy</code></a></li><li style="margin-left:1.2em"><a href="#Deque.drop"><code>Deque.drop</code></a></li><li style="margin-left:1.2em"><a href="#Deque.front"><code>Deque.front</code></a></li><li style="margin-left:1.2em"><a href="#Deque.get"><code>Deque.get</code></a></li><li style="margin-left:1.2em"><a href="#Deque.is_empty"><code>Deque.is_empty</code></a></li><li style="margin-left:1.2em"><a href="#Deque.iter"><code>Deque.iter</code></a></li><li style="margin-left:1.2em"><a href="#Deque.len"><code>Deque.len</code></a></li><li style="margin-left:1.2em"><a href="#Deque.new"><code>Deque.new</code></a></li><li style="margin-left:1.2em"><a href="#Deque.pop_back"><code>Deque.pop_back</code></a></li><li style="margin-left:1.2em"><a href="#Deque.pop_front"><code>Deque.pop_front</code></a></li><li style="margin-left:1.2em"><a href="#Deque.push"><code>Deque.push</code></a></li><li style="margin-left:1.2em"><a href="#Deque.push_back"><code>Deque.push_back</code></a></li><li style="margin-left:1.2em"><a href="#Deque.push_front"><code>Deque.push_front</code></a></li><li style="margin-left:1.2em"><a href="#Deque.to_list"><code>Deque.to_list</code></a></li><li style="margin-left:1.2em"><a href="#Deque.to_string"><code>Deque.to_string</code></a></li><li style="margin-left:1.2em"><a href="#Deque.with_capacity"><code>Deque.with_capacity</code></a></li><li><a href="#Entry"><code>struct Entry</code></a></li><li><a href="#PriorityQueue"><code>struct PriorityQueue</code></a></li><li style="margin-left:1.2em"><a href="#PriorityQueue.clear"><code>PriorityQueue.clear</code></a></li><li style="margin-left:1.2em"><a href="#PriorityQueue.copy"><code>PriorityQueue.copy</code></a></li><li style="margin-left:1.2em"><a href="#PriorityQueue.drain"><code>PriorityQueue.drain</code></a></li><li style="margin-left:1.2em"><a href="#PriorityQueue.is_empty"><code>PriorityQueue.is_empty</code></a></li><li style="margin-left:1.2em"><a href="#PriorityQueue.len"><code>PriorityQueue.len</code></a></li><li style="margin-left:1.2em"><a href="#PriorityQueue.new"><code>PriorityQueue.new</code></a></li><li style="margin-left:1.2em"><a href="#PriorityQueue.peek"><code>PriorityQueue.peek</code></a></li><li style="margin-left:1.2em"><a href="#PriorityQueue.pop"><code>PriorityQueue.pop</code></a></li><li style="margin-left:1.2em"><a href="#PriorityQueue.push"><code>PriorityQueue.push</code></a></li><li><a href="#Queue"><code>struct Queue</code></a></li><li style="margin-left:1.2em"><a href="#Queue.clear"><code>Queue.clear</code></a></li><li style="margin-left:1.2em"><a href="#Queue.copy"><code>Queue.copy</code></a></li><li style="margin-left:1.2em"><a href="#Queue.is_empty"><code>Queue.is_empty</code></a></li><li style="margin-left:1.2em"><a href="#Queue.iter"><code>Queue.iter</code></a></li><li style="margin-left:1.2em"><a href="#Queue.len"><code>Queue.len</code></a></li><li style="margin-left:1.2em"><a href="#Queue.new"><code>Queue.new</code></a></li><li style="margin-left:1.2em"><a href="#Queue.peek"><code>Queue.peek</code></a></li><li style="margin-left:1.2em"><a href="#Queue.pop"><code>Queue.pop</code></a></li><li style="margin-left:1.2em"><a href="#Queue.push"><code>Queue.push</code></a></li><li style="margin-left:1.2em"><a href="#Queue.to_list"><code>Queue.to_list</code></a></li><li style="margin-left:1.2em"><a href="#Queue.to_string"><code>Queue.to_string</code></a></li><li><a href="#StringInterner"><code>struct StringInterner</code></a></li><li style="margin-left:1.2em"><a href="#StringInterner.contains"><code>StringInterner.contains</code></a></li><li style="margin-left:1.2em"><a href="#StringInterner.copy"><code>StringInterner.copy</code></a></li><li style="margin-left:1.2em"><a href="#StringInterner.id_of"><code>StringInterner.id_of</code></a></li><li style="margin-left:1.2em"><a href="#StringInterner.intern"><code>StringInterner.intern</code></a></li><li style="margin-left:1.2em"><a href="#StringInterner.is_empty"><code>StringInterner.is_empty</code></a></li><li style="margin-left:1.2em"><a href="#StringInterner.len"><code>StringInterner.len</code></a></li><li style="margin-left:1.2em"><a href="#StringInterner.name_of"><code>StringInterner.name_of</code></a></li><li style="margin-left:1.2em"><a href="#StringInterner.names"><code>StringInterner.names</code></a></li><li style="margin-left:1.2em"><a href="#StringInterner.new"><code>StringInterner.new</code></a></li></ul><h2 id="functions"><a class="anchor" href="#functions" aria-hidden="true">#</a>Functions</h2>
+<div class="api-item" id="max_first"><pre class="api-sig"><span class="api-badge">func</span><code><span class="k">bind</span> max_first[<span class="t">T</span>: <span class="t">Comparable</span>] = <span class="k">fn</span>() <span class="t">PriorityQueue</span>[<span class="t">T</span>]</code><a class="src" href="src/std_collections_priority_queue.html#L33">source</a></pre><div class="api-body"><p>An empty <a class="ref" href="collections.html#PriorityQueue" title="define PriorityQueue[T] struct"><code>PriorityQueue</code></a> that pops the largest element first.</p>
+</div></div>
+<div class="api-item" id="min_first"><pre class="api-sig"><span class="api-badge">func</span><code><span class="k">bind</span> min_first[<span class="t">T</span>: <span class="t">Comparable</span>] = <span class="k">fn</span>() <span class="t">PriorityQueue</span>[<span class="t">T</span>]</code><a class="src" href="src/std_collections_priority_queue.html#L28">source</a></pre><div class="api-body"><p>An empty <a class="ref" href="collections.html#PriorityQueue" title="define PriorityQueue[T] struct"><code>PriorityQueue</code></a> that pops the smallest element first.</p>
+</div></div>
+<h2 id="types"><a class="anchor" href="#types" aria-hidden="true">#</a>Types</h2>
+<div class="api-item" id="BTreeMap"><pre class="api-sig"><span class="api-badge">struct</span><code><span class="k">define</span> <span class="t">BTreeMap</span>[<span class="t">K</span>: <span class="t">Comparable</span>, <span class="t">V</span>] <span class="k">struct</span></code><a class="src" href="src/std_collections_btree_map.html#L34">source</a></pre><div class="api-body"><p>A map that keeps its keys in sorted order, for ordered iteration, the smallest and largest
+keys, and range queries. A B-tree, so lookups, inserts, and removals take O(log n).</p>
+<p>Use the prelude's <code>#[K: V]</code> when order doesn't matter: it is faster and needs <code>Hashable</code> keys
+rather than <a class="ref" href="core.html#Comparable" title="define Comparable interface"><code>Comparable</code></a> ones.</p>
+<h3 id="example"><a class="anchor" href="#example" aria-hidden="true">#</a>Example</h3>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">let</span> scores = collections.<span class="t">BTreeMap</span>[<span class="t">string</span>, <span class="t">int</span>].<span class="f">new</span>()
+scores.<span class="f">insert</span>(<span class="s">&quot;bea&quot;</span>, <span class="n">7</span>)
+scores.<span class="f">insert</span>(<span class="s">&quot;ada&quot;</span>, <span class="n">9</span>)
+<span class="f">assert</span>(scores.<span class="f">first</span>()?.key == <span class="s">&quot;ada&quot;</span>)
+<span class="f">assert</span>(scores.<span class="f">get</span>(<span class="s">&quot;bea&quot;</span>) == <span class="n">7</span>)</code></pre>
+<div class="api-sub">Methods</div><div class="api-method" id="BTreeMap.clear"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].clear = <span class="k">fn</span>(&amp;<span class="k">self</span>)</code></pre><div class="api-mdoc"><p>Removes every entry.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.copy"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].copy = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]</code></pre><div class="api-mdoc"><p>Returns a deep copy of the map.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.entries"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].entries = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]]</code></pre><div class="api-mdoc"><p>Returns copies of every entry, in key order.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.first"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].first = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]</code></pre><div class="api-mdoc"><p>Returns a copy of the entry with the smallest key, or <code>none</code> if the map is empty.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.get"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].get = <span class="k">fn</span>(<span class="k">self</span>, key: <span class="t">K</span>) ?<span class="t">V</span></code></pre><div class="api-mdoc"><p>Returns a copy of the value mapped to <code>key</code>, or <code>none</code> if <code>key</code> is absent.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.has"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].has = <span class="k">fn</span>(<span class="k">self</span>, key: <span class="t">K</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Reports whether <code>key</code> is in the map.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.insert"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].insert = <span class="k">fn</span>(&amp;<span class="k">self</span>, key: <span class="k">own</span> <span class="t">K</span>, val: <span class="k">own</span> <span class="t">V</span>)</code></pre><div class="api-mdoc"><p>Inserts <code>key: val</code>, or replaces the value if <code>key</code> is already present.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.is_empty"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Reports whether the map has no keys.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.iter"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].iter = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]]</code></pre><div class="api-mdoc"><p>Returns an iterator over copies of the entries, in key order.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.keys"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].keys = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">K</span>]</code></pre><div class="api-mdoc"><p>Returns copies of the keys, in order.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.last"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].last = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]</code></pre><div class="api-mdoc"><p>Returns a copy of the entry with the largest key, or <code>none</code> if the map is empty.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.len"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span></code></pre><div class="api-mdoc"><p>Returns the number of keys.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.new"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].new = <span class="k">fn</span>() <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>]</code></pre><div class="api-mdoc"><p>Constructs an empty <a class="ref" href="collections.html#BTreeMap" title="define BTreeMap[K: Comparable, V] struct"><code>BTreeMap</code></a>.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.push"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].push = <span class="k">fn</span>(&amp;<span class="k">self</span>, entry: <span class="k">own</span> <span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>])</code></pre><div class="api-mdoc"><p>Inserts the key and value of <code>entry</code>, moving them out of it (satisfies <a class="ref" href="core.html#Collectable" title="define Collectable[T] interface"><code>Collectable</code></a>, for
+comprehensions).</p>
+</div></div>
+<div class="api-method" id="BTreeMap.range"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].range = <span class="k">fn</span>(<span class="k">self</span>, lo: <span class="t">K</span>, hi: <span class="t">K</span>) [<span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>]]</code></pre><div class="api-mdoc"><p>Returns copies of the entries with <code>lo &lt;= key &lt; hi</code>, in key order.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.remove"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].remove = <span class="k">fn</span>(&amp;<span class="k">self</span>, key: <span class="t">K</span>) ?<span class="t">V</span></code></pre><div class="api-mdoc"><p>Removes <code>key</code> and returns the value it mapped to, or <code>none</code> if <code>key</code> is absent.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.to_string"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].to_string = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span></code></pre><div class="api-mdoc"><p>Formats the map as <code>BTreeMap[a: 1, b: 2]</code>, in key order.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.update"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].update = <span class="k">fn</span>(&amp;<span class="k">self</span>, key: <span class="t">K</span>, f: <span class="k">cl</span>(&amp;<span class="t">V</span>)) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Runs <code>f</code> on the value mapped to <code>key</code>, in place, and reports whether <code>key</code> was present.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.values"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].values = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">V</span>]</code></pre><div class="api-mdoc"><p>Returns copies of the values, in key order.</p>
+</div></div>
+<div class="api-method" id="BTreeMap.with"><pre><code><span class="k">bind</span> <span class="t">BTreeMap</span>[<span class="t">K</span>, <span class="t">V</span>].with[<span class="t">R</span>] = <span class="k">fn</span>(<span class="k">self</span>, key: <span class="t">K</span>, f: <span class="k">cl</span>(<span class="t">V</span>) <span class="t">R</span>) ?<span class="t">R</span></code></pre><div class="api-mdoc"><p>Lends the value mapped to <code>key</code> to <code>f</code>, read-only and without copying it, and returns what <code>f</code>
+returns, or <code>none</code> if <code>key</code> is absent.</p>
+</div></div>
+</div></div>
+<div class="api-item" id="BitSet"><pre class="api-sig"><span class="api-badge">struct</span><code><span class="k">define</span> <span class="t">BitSet</span> <span class="k">struct</span></code><a class="src" href="src/std_collections_bitset.html#L11">source</a></pre><div class="api-body"><p>A set of non-negative integers stored as one bit each, for dense sets of small numbers (ids,
+indexes, flags). It grows to fit the largest member.</p>
+<h3 id="example"><a class="anchor" href="#example" aria-hidden="true">#</a>Example</h3>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">let</span> seen = collections.<span class="t">BitSet</span>.<span class="f">new</span>()
+<span class="f">assert</span>(seen.<span class="f">insert</span>(<span class="n">3</span>))
+<span class="f">assert</span>(<span class="k">not</span> seen.<span class="f">insert</span>(<span class="n">3</span>))
+<span class="f">assert</span>(seen.<span class="f">contains</span>(<span class="n">3</span>) <span class="k">and</span> <span class="k">not</span> seen.<span class="f">contains</span>(<span class="n">4</span>))</code></pre>
+<div class="api-sub">Methods</div><div class="api-method" id="BitSet.clear"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.clear = <span class="k">fn</span>(&amp;<span class="k">self</span>)</code></pre><div class="api-mdoc"><p>Removes every member, keeping the allocated words.</p>
+</div></div>
+<div class="api-method" id="BitSet.contains"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.contains = <span class="k">fn</span>(<span class="k">self</span>, i: <span class="t">int</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Reports whether <code>i</code> is a member. Negative numbers never are.</p>
+</div></div>
+<div class="api-method" id="BitSet.copy"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.copy = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">BitSet</span></code></pre><div class="api-mdoc"><p>Returns a copy of the set.</p>
+</div></div>
+<div class="api-method" id="BitSet.difference"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.difference = <span class="k">fn</span>(<span class="k">self</span>, other: <span class="t">BitSet</span>) <span class="t">BitSet</span></code></pre><div class="api-mdoc"><p>A new set holding the numbers in <code>self</code> that aren't in <code>other</code>.</p>
+</div></div>
+<div class="api-method" id="BitSet.eq"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.eq = <span class="k">fn</span>(<span class="k">self</span>, other: <span class="t">BitSet</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Reports whether <code>self</code> and <code>other</code> have the same members.</p>
+</div></div>
+<div class="api-method" id="BitSet.insert"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.insert = <span class="k">fn</span>(&amp;<span class="k">self</span>, i: <span class="t">int</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Adds <code>i</code>, returning <code>true</code> if it wasn't already a member.</p>
+<h3 id="panics"><a class="anchor" href="#panics" aria-hidden="true">#</a>Panics</h3>
+<p>If <code>i</code> is negative (attributed to the caller).</p>
+</div></div>
+<div class="api-method" id="BitSet.intersection"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.intersection = <span class="k">fn</span>(<span class="k">self</span>, other: <span class="t">BitSet</span>) <span class="t">BitSet</span></code></pre><div class="api-mdoc"><p>A new set holding the numbers in both <code>self</code> and <code>other</code>.</p>
+</div></div>
+<div class="api-method" id="BitSet.is_empty"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Reports whether the set has no members.</p>
+</div></div>
+<div class="api-method" id="BitSet.is_subset"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.is_subset = <span class="k">fn</span>(<span class="k">self</span>, other: <span class="t">BitSet</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Reports whether every member of <code>self</code> is also in <code>other</code>.</p>
+</div></div>
+<div class="api-method" id="BitSet.iter"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.iter = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">int</span>]</code></pre><div class="api-mdoc"><p>Returns an iterator over the members in ascending order.</p>
+</div></div>
+<div class="api-method" id="BitSet.len"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span></code></pre><div class="api-mdoc"><p>Returns the number of members.</p>
+</div></div>
+<div class="api-method" id="BitSet.new"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.new = <span class="k">fn</span>() <span class="t">BitSet</span></code></pre><div class="api-mdoc"><p>Constructs an empty <a class="ref" href="collections.html#BitSet" title="define BitSet struct"><code>BitSet</code></a>.</p>
+</div></div>
+<div class="api-method" id="BitSet.push"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.push = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">int</span>)</code></pre><div class="api-mdoc"><p>Adds <code>i</code> (satisfies <a class="ref" href="core.html#Collectable" title="define Collectable[T] interface"><code>Collectable</code></a>, for comprehensions).</p>
+</div></div>
+<div class="api-method" id="BitSet.remove"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.remove = <span class="k">fn</span>(&amp;<span class="k">self</span>, i: <span class="t">int</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Removes <code>i</code>, returning <code>true</code> if it was a member.</p>
+</div></div>
+<div class="api-method" id="BitSet.to_list"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.to_list = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">int</span>]</code></pre><div class="api-mdoc"><p>Returns the members in ascending order.</p>
+</div></div>
+<div class="api-method" id="BitSet.to_string"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.to_string = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span></code></pre><div class="api-mdoc"><p>Formats the set as <code>BitSet[1, 5, 64]</code>, in ascending order.</p>
+</div></div>
+<div class="api-method" id="BitSet.union"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.union = <span class="k">fn</span>(<span class="k">self</span>, other: <span class="t">BitSet</span>) <span class="t">BitSet</span></code></pre><div class="api-mdoc"><p>A new set holding every number in <code>self</code>, <code>other</code>, or both.</p>
+</div></div>
+<div class="api-method" id="BitSet.with_capacity"><pre><code><span class="k">bind</span> <span class="t">BitSet</span>.with_capacity = <span class="k">fn</span>(bits: <span class="t">int</span>) <span class="t">BitSet</span></code></pre><div class="api-mdoc"><p>Constructs an empty <a class="ref" href="collections.html#BitSet" title="define BitSet struct"><code>BitSet</code></a> with room for members below <code>bits</code> before it grows.</p>
+</div></div>
+</div></div>
+<div class="api-item" id="Deque"><pre class="api-sig"><span class="api-badge">struct</span><code><span class="k">define</span> <span class="t">Deque</span>[<span class="t">T</span>] <span class="k">struct</span></code><a class="src" href="src/std_collections_deque.html#L13">source</a></pre><div class="api-body"><p>A double-ended queue: a growable ring buffer with O(1) pushes and pops at both ends.</p>
+<h3 id="example"><a class="anchor" href="#example" aria-hidden="true">#</a>Example</h3>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">let</span> d = collections.<span class="t">Deque</span>[<span class="t">int</span>].<span class="f">new</span>()
+d.<span class="f">push_back</span>(<span class="n">2</span>)
+d.<span class="f">push_front</span>(<span class="n">1</span>)
+<span class="f">assert</span>(d.<span class="f">pop_back</span>() == <span class="n">2</span> <span class="k">and</span> d.<span class="f">pop_front</span>() == <span class="n">1</span>)</code></pre>
+<div class="api-sub">Methods</div><div class="api-method" id="Deque.back"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].back = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">T</span></code></pre><div class="api-mdoc"><p>Returns a copy of the back element, or <code>none</code> if the deque is empty.</p>
+</div></div>
+<div class="api-method" id="Deque.clear"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].clear = <span class="k">fn</span>(&amp;<span class="k">self</span>)</code></pre><div class="api-mdoc"><p>Drops every element, keeping the allocated capacity.</p>
+</div></div>
+<div class="api-method" id="Deque.copy"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].copy = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Deque</span>[<span class="t">T</span>]</code></pre><div class="api-mdoc"><p>Returns a deep copy of the deque.</p>
+</div></div>
+<div class="api-method" id="Deque.drop"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].drop = <span class="k">fn</span>(&amp;<span class="k">self</span>)</code></pre><div class="api-mdoc"><p>Drops every element and frees the buffer.</p>
+</div></div>
+<div class="api-method" id="Deque.front"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].front = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">T</span></code></pre><div class="api-mdoc"><p>Returns a copy of the front element, or <code>none</code> if the deque is empty.</p>
+</div></div>
+<div class="api-method" id="Deque.get"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].get = <span class="k">fn</span>(<span class="k">self</span>, i: <span class="t">int</span>) ?<span class="t">T</span></code></pre><div class="api-mdoc"><p>Returns a copy of the element at position <code>i</code> (the front is <code>0</code>), or <code>none</code> if <code>i</code> is out of
+range.</p>
+</div></div>
+<div class="api-method" id="Deque.is_empty"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Reports whether the deque has no elements.</p>
+</div></div>
+<div class="api-method" id="Deque.iter"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].iter = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">T</span>]</code></pre><div class="api-mdoc"><p>Returns an iterator over copies of the elements, front to back.</p>
+</div></div>
+<div class="api-method" id="Deque.len"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span></code></pre><div class="api-mdoc"><p>Returns the number of elements.</p>
+</div></div>
+<div class="api-method" id="Deque.new"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].new = <span class="k">fn</span>() <span class="t">Deque</span>[<span class="t">T</span>]</code></pre><div class="api-mdoc"><p>Constructs an empty <a class="ref" href="collections.html#Deque" title="define Deque[T] struct"><code>Deque</code></a> without allocating.</p>
+</div></div>
+<div class="api-method" id="Deque.pop_back"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].pop_back = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">T</span></code></pre><div class="api-mdoc"><p>Removes and returns the back element, or <code>none</code> if the deque is empty.</p>
+</div></div>
+<div class="api-method" id="Deque.pop_front"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].pop_front = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">T</span></code></pre><div class="api-mdoc"><p>Removes and returns the front element, or <code>none</code> if the deque is empty.</p>
+</div></div>
+<div class="api-method" id="Deque.push"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].push = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>)</code></pre><div class="api-mdoc"><p>Adds <code>item</code> at the back (satisfies <a class="ref" href="core.html#Collectable" title="define Collectable[T] interface"><code>Collectable</code></a>, for comprehensions).</p>
+</div></div>
+<div class="api-method" id="Deque.push_back"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].push_back = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>)</code></pre><div class="api-mdoc"><p>Adds <code>item</code> at the back.</p>
+</div></div>
+<div class="api-method" id="Deque.push_front"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].push_front = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>)</code></pre><div class="api-mdoc"><p>Adds <code>item</code> at the front.</p>
+</div></div>
+<div class="api-method" id="Deque.to_list"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].to_list = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">T</span>]</code></pre><div class="api-mdoc"><p>Returns copies of the elements, front to back.</p>
+</div></div>
+<div class="api-method" id="Deque.to_string"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].to_string = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span></code></pre><div class="api-mdoc"><p>Formats the deque as <code>Deque[a, b, ...]</code>, front to back.</p>
+</div></div>
+<div class="api-method" id="Deque.with_capacity"><pre><code><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].with_capacity = <span class="k">fn</span>(cap: <span class="t">int</span>) <span class="t">Deque</span>[<span class="t">T</span>]</code></pre><div class="api-mdoc"><p>Constructs an empty <a class="ref" href="collections.html#Deque" title="define Deque[T] struct"><code>Deque</code></a> with room for <code>cap</code> elements before it grows.</p>
+</div></div>
+</div></div>
+<div class="api-item" id="Entry"><pre class="api-sig"><span class="api-badge">struct</span><code><span class="k">define</span> <span class="t">Entry</span>[<span class="t">K</span>, <span class="t">V</span>] <span class="k">struct</span></code><a class="src" href="src/std_collections_btree_map.html#L3">source</a></pre><div class="api-body"><p>A key and its value, as <a class="ref" href="collections.html#BTreeMap" title="define BTreeMap[K: Comparable, V] struct"><code>BTreeMap</code></a> returns them.</p>
+<div class="api-sub">Fields</div><ul class="api-members"><li id="Entry.key"><code>key: <span class="t">K</span></code></li><li id="Entry.value"><code>value: <span class="t">V</span></code></li></ul></div></div>
+<div class="api-item" id="PriorityQueue"><pre class="api-sig"><span class="api-badge">struct</span><code><span class="k">define</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>] <span class="k">struct</span></code><a class="src" href="src/std_collections_priority_queue.html#L16">source</a></pre><div class="api-body"><p>A priority queue: <a class="ref" href="collections.html#PriorityQueue.pop" title="bind PriorityQueue[T].pop = fn(&amp;self) ?T"><code>PriorityQueue.pop</code></a> always returns the element that comes first in the
+queue's order. A binary heap, so <code>push</code> and <code>pop</code> take O(log n).</p>
+<p>The order is a closure <code>order(a, b)</code> that is negative when <code>a</code> should come out before <code>b</code>,
+positive when after, and zero when either may. <a class="ref" href="collections.html#min_first" title="bind min_first[T: Comparable] = fn() PriorityQueue[T]"><code>min_first</code></a> and <a class="ref" href="collections.html#max_first" title="bind max_first[T: Comparable] = fn() PriorityQueue[T]"><code>max_first</code></a> build the usual
+orders for <a class="ref" href="core.html#Comparable" title="define Comparable interface"><code>Comparable</code></a> elements.</p>
+<h3 id="example"><a class="anchor" href="#example" aria-hidden="true">#</a>Example</h3>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">let</span> tasks = collections.<span class="t">PriorityQueue</span>[<span class="t">Task</span>].<span class="f">new</span>(<span class="k">cl</span>(a: <span class="t">Task</span>, b: <span class="t">Task</span>) <span class="t">int</span>: b.urgency - a.urgency)
+<span class="k">let</span> small = collections.min_first[<span class="t">int</span>]()
+small.<span class="f">push</span>(<span class="n">5</span>)
+small.<span class="f">push</span>(<span class="n">1</span>)
+<span class="f">assert</span>(small.<span class="f">pop</span>() == <span class="n">1</span>)</code></pre>
+<div class="api-sub">Methods</div><div class="api-method" id="PriorityQueue.clear"><pre><code><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].clear = <span class="k">fn</span>(&amp;<span class="k">self</span>)</code></pre><div class="api-mdoc"><p>Drops every queued element.</p>
+</div></div>
+<div class="api-method" id="PriorityQueue.copy"><pre><code><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].copy = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">PriorityQueue</span>[<span class="t">T</span>]</code></pre><div class="api-mdoc"><p>Returns a deep copy of the queue, with the same order.</p>
+</div></div>
+<div class="api-method" id="PriorityQueue.drain"><pre><code><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].drain = <span class="k">fn</span>(&amp;<span class="k">self</span>) [<span class="t">T</span>]</code></pre><div class="api-mdoc"><p>Removes every element and returns them in the order they would come out.</p>
+</div></div>
+<div class="api-method" id="PriorityQueue.is_empty"><pre><code><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Reports whether the queue is empty.</p>
+</div></div>
+<div class="api-method" id="PriorityQueue.len"><pre><code><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span></code></pre><div class="api-mdoc"><p>Returns the number of queued elements.</p>
+</div></div>
+<div class="api-method" id="PriorityQueue.new"><pre><code><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].new = <span class="k">fn</span>(order: <span class="k">own</span> <span class="k">cl</span>(<span class="t">T</span>, <span class="t">T</span>) <span class="t">int</span>) <span class="t">PriorityQueue</span>[<span class="t">T</span>]</code></pre><div class="api-mdoc"><p>Constructs an empty <a class="ref" href="collections.html#PriorityQueue" title="define PriorityQueue[T] struct"><code>PriorityQueue</code></a> that pops elements in <code>order</code>.</p>
+</div></div>
+<div class="api-method" id="PriorityQueue.peek"><pre><code><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].peek = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">T</span></code></pre><div class="api-mdoc"><p>Returns a copy of the element that comes first, without removing it, or <code>none</code> if the queue
+is empty.</p>
+</div></div>
+<div class="api-method" id="PriorityQueue.pop"><pre><code><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].pop = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">T</span></code></pre><div class="api-mdoc"><p>Removes and returns the element that comes first, or <code>none</code> if the queue is empty.</p>
+</div></div>
+<div class="api-method" id="PriorityQueue.push"><pre><code><span class="k">bind</span> <span class="t">PriorityQueue</span>[<span class="t">T</span>].push = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>)</code></pre><div class="api-mdoc"><p>Adds <code>item</code>.</p>
+</div></div>
+</div></div>
+<div class="api-item" id="Queue"><pre class="api-sig"><span class="api-badge">struct</span><code><span class="k">define</span> <span class="t">Queue</span>[<span class="t">T</span>] <span class="k">struct</span></code><a class="src" href="src/std_collections_deque.html#L154">source</a></pre><div class="api-body"><p>A first-in, first-out queue: <a class="ref" href="collections.html#Queue.push" title="bind Queue[T].push = fn(&amp;self, item: own T)"><code>Queue.push</code></a> adds at the back, <a class="ref" href="collections.html#Queue.pop" title="bind Queue[T].pop = fn(&amp;self) ?T"><code>Queue.pop</code></a> takes from the front.
+A <a class="ref" href="collections.html#Deque" title="define Deque[T] struct"><code>Deque</code></a> that only allows those operations.</p>
+<h3 id="example"><a class="anchor" href="#example" aria-hidden="true">#</a>Example</h3>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">let</span> jobs = collections.<span class="t">Queue</span>[<span class="t">string</span>].<span class="f">new</span>()
+jobs.<span class="f">push</span>(<span class="s">&quot;build&quot;</span>)
+jobs.<span class="f">push</span>(<span class="s">&quot;test&quot;</span>)
+<span class="f">assert</span>(jobs.<span class="f">pop</span>() == <span class="s">&quot;build&quot;</span>)</code></pre>
+<div class="api-sub">Methods</div><div class="api-method" id="Queue.clear"><pre><code><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].clear = <span class="k">fn</span>(&amp;<span class="k">self</span>)</code></pre><div class="api-mdoc"><p>Drops every queued element.</p>
+</div></div>
+<div class="api-method" id="Queue.copy"><pre><code><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].copy = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Queue</span>[<span class="t">T</span>]</code></pre><div class="api-mdoc"><p>Returns a deep copy of the queue.</p>
+</div></div>
+<div class="api-method" id="Queue.is_empty"><pre><code><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Reports whether the queue is empty.</p>
+</div></div>
+<div class="api-method" id="Queue.iter"><pre><code><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].iter = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">T</span>]</code></pre><div class="api-mdoc"><p>Returns an iterator over copies of the elements, front to back.</p>
+</div></div>
+<div class="api-method" id="Queue.len"><pre><code><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span></code></pre><div class="api-mdoc"><p>Returns the number of queued elements.</p>
+</div></div>
+<div class="api-method" id="Queue.new"><pre><code><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].new = <span class="k">fn</span>() <span class="t">Queue</span>[<span class="t">T</span>]</code></pre><div class="api-mdoc"><p>Constructs an empty <a class="ref" href="collections.html#Queue" title="define Queue[T] struct"><code>Queue</code></a>.</p>
+</div></div>
+<div class="api-method" id="Queue.peek"><pre><code><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].peek = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">T</span></code></pre><div class="api-mdoc"><p>Returns a copy of the element at the front without removing it, or <code>none</code> if the queue is empty.</p>
+</div></div>
+<div class="api-method" id="Queue.pop"><pre><code><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].pop = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">T</span></code></pre><div class="api-mdoc"><p>Removes and returns the element at the front, or <code>none</code> if the queue is empty.</p>
+</div></div>
+<div class="api-method" id="Queue.push"><pre><code><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].push = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>)</code></pre><div class="api-mdoc"><p>Adds <code>item</code> at the back of the queue (also satisfies <a class="ref" href="core.html#Collectable" title="define Collectable[T] interface"><code>Collectable</code></a>).</p>
+</div></div>
+<div class="api-method" id="Queue.to_list"><pre><code><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].to_list = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">T</span>]</code></pre><div class="api-mdoc"><p>Returns copies of the elements, front to back.</p>
+</div></div>
+<div class="api-method" id="Queue.to_string"><pre><code><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].to_string = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span></code></pre><div class="api-mdoc"><p>Formats the queue as <code>Queue[a, b, ...]</code>, front to back.</p>
+</div></div>
+</div></div>
+<div class="api-item" id="StringInterner"><pre class="api-sig"><span class="api-badge">struct</span><code><span class="k">define</span> <span class="t">StringInterner</span> <span class="k">struct</span></code><a class="src" href="src/std_collections_interner.html#L12">source</a></pre><div class="api-body"><p>Gives each distinct string a small integer id, so repeated strings (identifiers in a compiler,
+tags, words) can be stored and compared as <code>int</code>s. Ids count up from <code>0</code> in the order strings
+are first interned, and never change.</p>
+<h3 id="example"><a class="anchor" href="#example" aria-hidden="true">#</a>Example</h3>
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">let</span> names = collections.<span class="t">StringInterner</span>.<span class="f">new</span>()
+<span class="k">let</span> a = names.<span class="f">intern</span>(<span class="s">&quot;alpha&quot;</span>)
+<span class="f">assert</span>(names.<span class="f">intern</span>(<span class="s">&quot;alpha&quot;</span>) == a)
+<span class="f">assert</span>(names.<span class="f">name_of</span>(a) == <span class="s">&quot;alpha&quot;</span>)</code></pre>
+<div class="api-sub">Methods</div><div class="api-method" id="StringInterner.contains"><pre><code><span class="k">bind</span> <span class="t">StringInterner</span>.contains = <span class="k">fn</span>(<span class="k">self</span>, s: <span class="t">string</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Reports whether <code>s</code> has been interned.</p>
+</div></div>
+<div class="api-method" id="StringInterner.copy"><pre><code><span class="k">bind</span> <span class="t">StringInterner</span>.copy = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">StringInterner</span></code></pre><div class="api-mdoc"><p>Returns a copy of the interner, with the same ids.</p>
+</div></div>
+<div class="api-method" id="StringInterner.id_of"><pre><code><span class="k">bind</span> <span class="t">StringInterner</span>.id_of = <span class="k">fn</span>(<span class="k">self</span>, s: <span class="t">string</span>) ?<span class="t">int</span></code></pre><div class="api-mdoc"><p>Returns the id of <code>s</code> without interning it, or <code>none</code> if it hasn't been interned.</p>
+</div></div>
+<div class="api-method" id="StringInterner.intern"><pre><code><span class="k">bind</span> <span class="t">StringInterner</span>.intern = <span class="k">fn</span>(&amp;<span class="k">self</span>, s: <span class="t">string</span>) <span class="t">int</span></code></pre><div class="api-mdoc"><p>Returns the id of <code>s</code>, giving it the next id if it's new.</p>
+</div></div>
+<div class="api-method" id="StringInterner.is_empty"><pre><code><span class="k">bind</span> <span class="t">StringInterner</span>.is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span></code></pre><div class="api-mdoc"><p>Reports whether nothing has been interned.</p>
+</div></div>
+<div class="api-method" id="StringInterner.len"><pre><code><span class="k">bind</span> <span class="t">StringInterner</span>.len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span></code></pre><div class="api-mdoc"><p>Returns the number of distinct strings interned.</p>
+</div></div>
+<div class="api-method" id="StringInterner.name_of"><pre><code><span class="k">bind</span> <span class="t">StringInterner</span>.name_of = <span class="k">fn</span>(<span class="k">self</span>, id: <span class="t">int</span>) ?<span class="t">string</span></code></pre><div class="api-mdoc"><p>Returns a copy of the string with id <code>id</code>, or <code>none</code> if no string has that id.</p>
+</div></div>
+<div class="api-method" id="StringInterner.names"><pre><code><span class="k">bind</span> <span class="t">StringInterner</span>.names = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">string</span>]</code></pre><div class="api-mdoc"><p>Returns copies of the interned strings, indexed by id.</p>
+</div></div>
+<div class="api-method" id="StringInterner.new"><pre><code><span class="k">bind</span> <span class="t">StringInterner</span>.new = <span class="k">fn</span>() <span class="t">StringInterner</span></code></pre><div class="api-mdoc"><p>Constructs an empty <a class="ref" href="collections.html#StringInterner" title="define StringInterner struct"><code>StringInterner</code></a>.</p>
+</div></div>
+</div></div>
+<h2 id="source-files"><a class="anchor" href="#source-files" aria-hidden="true">#</a>Source files</h2>
+<ul><li><a href="src/std_collections_bitset.html">bitset.ll</a></li><li><a href="src/std_collections_bloom_filter.html">bloom_filter.ll</a></li><li><a href="src/std_collections_btree_map.html">btree_map.ll</a></li><li><a href="src/std_collections_deque.html">deque.ll</a></li><li><a href="src/std_collections_disjoint_set.html">disjoint_set.ll</a></li><li><a href="src/std_collections_fenwick_tree.html">fenwick_tree.ll</a></li><li><a href="src/std_collections_graph.html">graph.ll</a></li><li><a href="src/std_collections_interner.html">interner.ll</a></li><li><a href="src/std_collections_interval_tree.html">interval_tree.ll</a></li><li><a href="src/std_collections_linked_list.html">linked_list.ll</a></li><li><a href="src/std_collections_lru_cache.html">lru_cache.ll</a></li><li><a href="src/std_collections_multiset.html">multiset.ll</a></li><li><a href="src/std_collections_priority_queue.html">priority_queue.ll</a></li><li><a href="src/std_collections_ring_buffer.html">ring_buffer.ll</a></li><li><a href="src/std_collections_rope.html">rope.ll</a></li><li><a href="src/std_collections_segment_tree.html">segment_tree.ll</a></li><li><a href="src/std_collections_skip_list.html">skip_list.ll</a></li><li><a href="src/std_collections_trie.html">trie.ll</a></li></ul></article><nav class="prev-next"><a class="prev" href="chars.html"><span>Previous</span>std/chars</a><a class="next" href="core.html"><span>Next</span>std/core</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#overview">Overview</a></li><li><a href="#index">Index</a></li><li><a href="#functions">Functions</a></li><li><a href="#types">Types</a></li><li class="sub"><a href="#BTreeMap">BTreeMap</a></li><li class="sub"><a href="#BitSet">BitSet</a></li><li class="sub"><a href="#Deque">Deque</a></li><li class="sub"><a href="#Entry">Entry</a></li><li class="sub"><a href="#PriorityQueue">PriorityQueue</a></li><li class="sub"><a href="#Queue">Queue</a></li><li class="sub"><a href="#StringInterner">StringInterner</a></li><li><a href="#source-files">Source files</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../learn/index.html">Tutorials</a><a href="../learn/word-count.html">A command-line tool</a><a href="../learn/calculator.html">A calculator</a><a href="../learn/config-loader.html">Handling errors</a><a href="../learn/web-service.html">A web service</a><a href="../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="index.html">Packages</a><a href="chars.html">std/chars</a><a href="collections.html">std/collections</a><a href="core.html">std/core</a><a href="derive.html">std/derive</a><a href="fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../search-index.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

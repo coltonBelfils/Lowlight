@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bitset.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../collections.html">std/collections</a></li><li><a href="../core.html">std/core</a></li><li><a href="../derive.html">std/derive</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>bitset.ll</h1><p>Source of package <a href="../collections.html"><code>std/collections</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// A set of non-negative integers stored as one bit each, for dense sets of small numbers (ids,</span></span>
+<span class="src-line" id="L2"><span class="m">// indexes, flags). It grows to fit the largest member.</span></span>
+<span class="src-line" id="L3"><span class="m">//</span></span>
+<span class="src-line" id="L4"><span class="m">// # Example</span></span>
+<span class="src-line" id="L5"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L6"><span class="m">// let seen = collections.BitSet.new()</span></span>
+<span class="src-line" id="L7"><span class="m">// assert(seen.insert(3))</span></span>
+<span class="src-line" id="L8"><span class="m">// assert(not seen.insert(3))</span></span>
+<span class="src-line" id="L9"><span class="m">// assert(seen.contains(3) and not seen.contains(4))</span></span>
+<span class="src-line" id="L10"><span class="m">// ```</span></span>
+<span class="src-line" id="L11"><span class="k">define</span> <span class="t">BitSet</span> <span class="k">struct</span> [</span>
+<span class="src-line" id="L12">	_words: [<span class="t">u64</span>],</span>
+<span class="src-line" id="L13">	_count: <span class="t">int</span>,</span>
+<span class="src-line" id="L14">]</span>
+<span class="src-line" id="L15"></span>
+<span class="src-line" id="L16"><span class="m">// Constructs an empty [`BitSet`].</span></span>
+<span class="src-line" id="L17"><span class="k">bind</span> <span class="t">BitSet</span>.new = <span class="k">fn</span>() <span class="t">BitSet</span>: <span class="t">BitSet</span>[_words: [], _count: <span class="n">0</span>]</span>
+<span class="src-line" id="L18"></span>
+<span class="src-line" id="L19"><span class="m">// Constructs an empty [`BitSet`] with room for members below `bits` before it grows.</span></span>
+<span class="src-line" id="L20"><span class="k">bind</span> <span class="t">BitSet</span>.with_capacity = <span class="k">fn</span>(bits: <span class="t">int</span>) <span class="t">BitSet</span>: {</span>
+<span class="src-line" id="L21">	<span class="k">let</span> words: [<span class="t">u64</span>] = []</span>
+<span class="src-line" id="L22">	words.<span class="f">resize</span>((<span class="f">max</span>(bits, <span class="n">0</span>) + <span class="n">63</span>) / <span class="n">64</span>, <span class="t">u64</span>(<span class="n">0</span>))</span>
+<span class="src-line" id="L23">	<span class="t">BitSet</span>[_words: <span class="k">own</span> words, _count: <span class="n">0</span>]</span>
+<span class="src-line" id="L24">}</span>
+<span class="src-line" id="L25"></span>
+<span class="src-line" id="L26"><span class="m">// Returns the number of members.</span></span>
+<span class="src-line" id="L27"><span class="k">bind</span> <span class="t">BitSet</span>.len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._count</span>
+<span class="src-line" id="L28"></span>
+<span class="src-line" id="L29"><span class="m">// Reports whether the set has no members.</span></span>
+<span class="src-line" id="L30"><span class="k">bind</span> <span class="t">BitSet</span>.is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>._count == <span class="n">0</span></span>
+<span class="src-line" id="L31"></span>
+<span class="src-line" id="L32"><span class="m">// The mask selecting bit `i` within its word.</span></span>
+<span class="src-line" id="L33"><span class="k">bind</span> _bit = <span class="k">fn</span>(i: <span class="t">int</span>) <span class="t">u64</span>: <span class="t">u64</span>(<span class="n">1</span>) &lt;&lt; <span class="t">u64</span>(i % <span class="n">64</span>)</span>
+<span class="src-line" id="L34"></span>
+<span class="src-line" id="L35"><span class="m">// Reports whether `i` is a member. Negative numbers never are.</span></span>
+<span class="src-line" id="L36"><span class="k">bind</span> <span class="t">BitSet</span>.contains = <span class="k">fn</span>(<span class="k">self</span>, i: <span class="t">int</span>) <span class="t">bool</span>:</span>
+<span class="src-line" id="L37">	<span class="k">if</span>(i &lt; <span class="n">0</span> <span class="k">or</span> i / <span class="n">64</span> &gt;= <span class="k">self</span>._words.<span class="f">len</span>()): <span class="c">false</span> <span class="k">else</span>: (<span class="k">self</span>._words[i / <span class="n">64</span>] &amp; <span class="f">_bit</span>(i)) != <span class="t">u64</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L38"></span>
+<span class="src-line" id="L39"><span class="m">// Adds `i`, returning `true` if it wasn&#39;t already a member.</span></span>
+<span class="src-line" id="L40"><span class="m">//</span></span>
+<span class="src-line" id="L41"><span class="m">// # Panics</span></span>
+<span class="src-line" id="L42"><span class="m">// If `i` is negative (attributed to the caller).</span></span>
+<span class="src-line" id="L43"><span class="a">@track_caller</span></span>
+<span class="src-line" id="L44"><span class="k">bind</span> <span class="t">BitSet</span>.insert = <span class="k">fn</span>(&amp;<span class="k">self</span>, i: <span class="t">int</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L45">	<span class="k">if</span>(i &lt; <span class="n">0</span>): <span class="f">panic</span>(<span class="s">&quot;BitSet.insert: negative member </span>$i<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L46">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">contains</span>(i)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L47">	<span class="k">if</span>(i / <span class="n">64</span> &gt;= <span class="k">self</span>._words.<span class="f">len</span>()): <span class="k">self</span>._words.<span class="f">resize</span>(i / <span class="n">64</span> + <span class="n">1</span>, <span class="t">u64</span>(<span class="n">0</span>))</span>
+<span class="src-line" id="L48">	<span class="k">self</span>._words[i / <span class="n">64</span>] = <span class="k">self</span>._words[i / <span class="n">64</span>] | <span class="f">_bit</span>(i)</span>
+<span class="src-line" id="L49">	<span class="k">self</span>._count += <span class="n">1</span></span>
+<span class="src-line" id="L50">	<span class="c">true</span></span>
+<span class="src-line" id="L51">}</span>
+<span class="src-line" id="L52"></span>
+<span class="src-line" id="L53"><span class="m">// Removes `i`, returning `true` if it was a member.</span></span>
+<span class="src-line" id="L54"><span class="k">bind</span> <span class="t">BitSet</span>.remove = <span class="k">fn</span>(&amp;<span class="k">self</span>, i: <span class="t">int</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L55">	<span class="k">if</span>(<span class="k">not</span> <span class="k">self</span>.<span class="f">contains</span>(i)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L56">	<span class="k">self</span>._words[i / <span class="n">64</span>] = <span class="k">self</span>._words[i / <span class="n">64</span>] &amp; ~<span class="f">_bit</span>(i)</span>
+<span class="src-line" id="L57">	<span class="k">self</span>._count -= <span class="n">1</span></span>
+<span class="src-line" id="L58">	<span class="c">true</span></span>
+<span class="src-line" id="L59">}</span>
+<span class="src-line" id="L60"></span>
+<span class="src-line" id="L61"><span class="m">// Removes every member, keeping the allocated words.</span></span>
+<span class="src-line" id="L62"><span class="k">bind</span> <span class="t">BitSet</span>.clear = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L63">	<span class="k">for</span>(w <span class="k">in</span> <span class="n">0</span>..<span class="k">self</span>._words.<span class="f">len</span>()): <span class="k">self</span>._words[w] = <span class="t">u64</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L64">	<span class="k">self</span>._count = <span class="n">0</span></span>
+<span class="src-line" id="L65">}</span>
+<span class="src-line" id="L66"></span>
+<span class="src-line" id="L67"><span class="m">// The number of set bits in `w`.</span></span>
+<span class="src-line" id="L68"><span class="k">bind</span> _popcount = <span class="k">fn</span>(w: <span class="t">u64</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L69">	<span class="k">let</span> n = <span class="n">0</span></span>
+<span class="src-line" id="L70">	<span class="k">let</span> rest = w</span>
+<span class="src-line" id="L71">	<span class="k">while</span>(rest != <span class="t">u64</span>(<span class="n">0</span>)): {</span>
+<span class="src-line" id="L72">		rest = rest &amp; rest - <span class="t">u64</span>(<span class="n">1</span>)</span>
+<span class="src-line" id="L73">		n += <span class="n">1</span></span>
+<span class="src-line" id="L74">	}</span>
+<span class="src-line" id="L75">	n</span>
+<span class="src-line" id="L76">}</span>
+<span class="src-line" id="L77"></span>
+<span class="src-line" id="L78"><span class="m">// Builds a [`BitSet`] from `words`, counting its members and dropping trailing empty words.</span></span>
+<span class="src-line" id="L79"><span class="k">bind</span> _from_words = <span class="k">fn</span>(words: <span class="k">own</span> [<span class="t">u64</span>]) <span class="t">BitSet</span>: {</span>
+<span class="src-line" id="L80">	<span class="k">while</span>(words.<span class="f">len</span>() &gt; <span class="n">0</span> <span class="k">and</span> words[words.<span class="f">len</span>() - <span class="n">1</span>] == <span class="t">u64</span>(<span class="n">0</span>)): {</span>
+<span class="src-line" id="L81">		<span class="k">let</span> _ = words.<span class="f">pop</span>()</span>
+<span class="src-line" id="L82">	}</span>
+<span class="src-line" id="L83">	<span class="k">let</span> count = <span class="n">0</span></span>
+<span class="src-line" id="L84">	<span class="k">for</span>(w <span class="k">in</span> words): count += <span class="f">_popcount</span>(w)</span>
+<span class="src-line" id="L85">	<span class="t">BitSet</span>[_words: <span class="k">own</span> words, _count: count]</span>
+<span class="src-line" id="L86">}</span>
+<span class="src-line" id="L87"></span>
+<span class="src-line" id="L88"><span class="m">// The word at index `w`, or `0` past the end.</span></span>
+<span class="src-line" id="L89"><span class="k">bind</span> <span class="t">BitSet</span>._word = <span class="k">fn</span>(<span class="k">self</span>, w: <span class="t">int</span>) <span class="t">u64</span>:</span>
+<span class="src-line" id="L90">	<span class="k">if</span>(w &lt; <span class="k">self</span>._words.<span class="f">len</span>()): <span class="k">self</span>._words[w] <span class="k">else</span>: <span class="t">u64</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L91"></span>
+<span class="src-line" id="L92"><span class="m">// A new set holding every number in `self`, `other`, or both.</span></span>
+<span class="src-line" id="L93"><span class="k">bind</span> <span class="t">BitSet</span>.union = <span class="k">fn</span>(<span class="k">self</span>, other: <span class="t">BitSet</span>) <span class="t">BitSet</span>: <span class="f">_from_words</span>(</span>
+<span class="src-line" id="L94">	<span class="k">for</span>(w <span class="k">in</span> <span class="n">0</span>..<span class="f">max</span>(<span class="k">self</span>._words.<span class="f">len</span>(), other._words.<span class="f">len</span>())) [<span class="t">u64</span>]: <span class="k">self</span>.<span class="f">_word</span>(w) | other.<span class="f">_word</span>(w)</span>
+<span class="src-line" id="L95">)</span>
+<span class="src-line" id="L96"></span>
+<span class="src-line" id="L97"><span class="m">// A new set holding the numbers in both `self` and `other`.</span></span>
+<span class="src-line" id="L98"><span class="k">bind</span> <span class="t">BitSet</span>.intersection = <span class="k">fn</span>(<span class="k">self</span>, other: <span class="t">BitSet</span>) <span class="t">BitSet</span>: <span class="f">_from_words</span>(</span>
+<span class="src-line" id="L99">	<span class="k">for</span>(w <span class="k">in</span> <span class="n">0</span>..<span class="f">min</span>(<span class="k">self</span>._words.<span class="f">len</span>(), other._words.<span class="f">len</span>())) [<span class="t">u64</span>]: <span class="k">self</span>.<span class="f">_word</span>(w) &amp; other.<span class="f">_word</span>(w)</span>
+<span class="src-line" id="L100">)</span>
+<span class="src-line" id="L101"></span>
+<span class="src-line" id="L102"><span class="m">// A new set holding the numbers in `self` that aren&#39;t in `other`.</span></span>
+<span class="src-line" id="L103"><span class="k">bind</span> <span class="t">BitSet</span>.difference = <span class="k">fn</span>(<span class="k">self</span>, other: <span class="t">BitSet</span>) <span class="t">BitSet</span>: <span class="f">_from_words</span>(</span>
+<span class="src-line" id="L104">	<span class="k">for</span>(w <span class="k">in</span> <span class="n">0</span>..<span class="k">self</span>._words.<span class="f">len</span>()) [<span class="t">u64</span>]: <span class="k">self</span>.<span class="f">_word</span>(w) &amp; ~other.<span class="f">_word</span>(w)</span>
+<span class="src-line" id="L105">)</span>
+<span class="src-line" id="L106"></span>
+<span class="src-line" id="L107"><span class="m">// Reports whether every member of `self` is also in `other`.</span></span>
+<span class="src-line" id="L108"><span class="k">bind</span> <span class="t">BitSet</span>.is_subset = <span class="k">fn</span>(<span class="k">self</span>, other: <span class="t">BitSet</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L109">	<span class="k">for</span>(w <span class="k">in</span> <span class="n">0</span>..<span class="k">self</span>._words.<span class="f">len</span>()): <span class="k">if</span>((<span class="k">self</span>._words[w] &amp; ~other.<span class="f">_word</span>(w)) != <span class="t">u64</span>(<span class="n">0</span>)): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
+<span class="src-line" id="L110">	<span class="c">true</span></span>
+<span class="src-line" id="L111">}</span>
+<span class="src-line" id="L112"></span>
+<span class="src-line" id="L113"><span class="m">// Returns the members in ascending order.</span></span>
+<span class="src-line" id="L114"><span class="k">bind</span> <span class="t">BitSet</span>.to_list = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">int</span>]: {</span>
+<span class="src-line" id="L115">	<span class="k">let</span> out: [<span class="t">int</span>] = []</span>
+<span class="src-line" id="L116">	<span class="k">for</span>(w <span class="k">in</span> <span class="n">0</span>..<span class="k">self</span>._words.<span class="f">len</span>()): {</span>
+<span class="src-line" id="L117">		<span class="k">let</span> word = <span class="k">self</span>._words[w]</span>
+<span class="src-line" id="L118">		<span class="k">if</span>(word == <span class="t">u64</span>(<span class="n">0</span>)): <span class="k">next</span> <span class="u">&lt;-</span></span>
+<span class="src-line" id="L119">		<span class="k">for</span>(b <span class="k">in</span> <span class="n">0</span>..<span class="n">64</span>): <span class="k">if</span>((word &amp; <span class="t">u64</span>(<span class="n">1</span>) &lt;&lt; <span class="t">u64</span>(b)) != <span class="t">u64</span>(<span class="n">0</span>)): out.<span class="f">push</span>(w * <span class="n">64</span> + b)</span>
+<span class="src-line" id="L120">	}</span>
+<span class="src-line" id="L121">	out</span>
+<span class="src-line" id="L122">}</span>
+<span class="src-line" id="L123"></span>
+<span class="src-line" id="L124"><span class="m">// Returns an iterator over the members in ascending order.</span></span>
+<span class="src-line" id="L125"><span class="k">bind</span> <span class="t">BitSet</span>.iter = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">int</span>]: <span class="k">self</span>.<span class="f">to_list</span>().<span class="f">iter</span>()</span>
+<span class="src-line" id="L126"></span>
+<span class="src-line" id="L127"><span class="m">// Returns a copy of the set.</span></span>
+<span class="src-line" id="L128"><span class="k">bind</span> <span class="t">BitSet</span>.copy = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">BitSet</span>: <span class="t">BitSet</span>[_words: <span class="k">self</span>._words.<span class="f">copy</span>(), _count: <span class="k">self</span>._count]</span>
+<span class="src-line" id="L129"></span>
+<span class="src-line" id="L130"><span class="m">// Reports whether `self` and `other` have the same members.</span></span>
+<span class="src-line" id="L131"><span class="k">bind</span> <span class="t">BitSet</span>.eq = <span class="k">fn</span>(<span class="k">self</span>, other: <span class="t">BitSet</span>) <span class="t">bool</span>: <span class="k">self</span>._count == other._count <span class="k">and</span> <span class="k">self</span>.<span class="f">is_subset</span>(other)</span>
+<span class="src-line" id="L132"></span>
+<span class="src-line" id="L133"><span class="m">// Formats the set as `BitSet[1, 5, 64]`, in ascending order.</span></span>
+<span class="src-line" id="L134"><span class="k">bind</span> <span class="t">BitSet</span>.to_string = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: <span class="s">&quot;BitSet&quot;</span> + <span class="k">self</span>.<span class="f">to_list</span>().<span class="f">to_string</span>()</span>
+<span class="src-line" id="L135"></span>
+<span class="src-line" id="L136"><span class="m">// Adds `i` (satisfies [`Collectable`], for comprehensions).</span></span>
+<span class="src-line" id="L137"><span class="k">bind</span> <span class="t">BitSet</span>.push = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">int</span>): {</span>
+<span class="src-line" id="L138">	<span class="k">let</span> _ = <span class="k">self</span>.<span class="f">insert</span>(item)</span>
+<span class="src-line" id="L139">}</span>
+<span class="src-line" id="L140"></span>
+<span class="src-line" id="L141"><span class="a">@test</span>(<span class="s">&quot;BitSet membership, algebra, and growth&quot;</span>)</span>
+<span class="src-line" id="L142"><span class="k">bind</span> test_bitset = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L143">	<span class="k">let</span> s = <span class="t">BitSet</span>.<span class="f">new</span>()</span>
+<span class="src-line" id="L144">	<span class="f">assert</span>(s.<span class="f">insert</span>(<span class="n">3</span>) <span class="k">and</span> s.<span class="f">insert</span>(<span class="n">64</span>) <span class="k">and</span> s.<span class="f">insert</span>(<span class="n">200</span>), <span class="s">&quot;inserts&quot;</span>)</span>
+<span class="src-line" id="L145">	<span class="f">assert</span>(<span class="k">not</span> s.<span class="f">insert</span>(<span class="n">64</span>), <span class="s">&quot;inserting twice reports false&quot;</span>)</span>
+<span class="src-line" id="L146">	<span class="f">assert</span>(s.<span class="f">len</span>() == <span class="n">3</span> <span class="k">and</span> s.<span class="f">contains</span>(<span class="n">200</span>) <span class="k">and</span> <span class="k">not</span> s.<span class="f">contains</span>(<span class="n">199</span>), <span class="s">&quot;membership&quot;</span>)</span>
+<span class="src-line" id="L147">	<span class="f">assert</span>(<span class="k">not</span> s.<span class="f">contains</span>(-<span class="n">1</span>) <span class="k">and</span> <span class="k">not</span> s.<span class="f">contains</span>(<span class="n">100000</span>), <span class="s">&quot;out-of-range numbers aren&#39;t members&quot;</span>)</span>
+<span class="src-line" id="L148">	<span class="f">assert</span>(s.<span class="f">to_string</span>() == <span class="s">&quot;BitSet[3, 64, 200]&quot;</span>, <span class="s">&quot;ascending order&quot;</span>)</span>
+<span class="src-line" id="L149">	<span class="f">assert</span>(s.<span class="f">remove</span>(<span class="n">64</span>) <span class="k">and</span> <span class="k">not</span> s.<span class="f">remove</span>(<span class="n">64</span>) <span class="k">and</span> s.<span class="f">len</span>() == <span class="n">2</span>, <span class="s">&quot;remove&quot;</span>)</span>
+<span class="src-line" id="L150"></span>
+<span class="src-line" id="L151">	<span class="k">let</span> a = <span class="k">for</span>(i <span class="k">in</span> [<span class="n">1</span>, <span class="n">2</span>, <span class="n">3</span>, <span class="n">70</span>]) <span class="t">BitSet</span>: i</span>
+<span class="src-line" id="L152">	<span class="k">let</span> b = <span class="k">for</span>(i <span class="k">in</span> [<span class="n">2</span>, <span class="n">3</span>, <span class="n">4</span>]) <span class="t">BitSet</span>: i</span>
+<span class="src-line" id="L153">	<span class="f">assert</span>(a.<span class="f">union</span>(b).<span class="f">to_string</span>() == <span class="s">&quot;BitSet[1, 2, 3, 4, 70]&quot;</span>, <span class="s">&quot;union&quot;</span>)</span>
+<span class="src-line" id="L154">	<span class="f">assert</span>(a.<span class="f">intersection</span>(b).<span class="f">to_string</span>() == <span class="s">&quot;BitSet[2, 3]&quot;</span>, <span class="s">&quot;intersection&quot;</span>)</span>
+<span class="src-line" id="L155">	<span class="f">assert</span>(a.<span class="f">difference</span>(b).<span class="f">to_string</span>() == <span class="s">&quot;BitSet[1, 70]&quot;</span>, <span class="s">&quot;difference&quot;</span>)</span>
+<span class="src-line" id="L156">	<span class="f">assert</span>(a.<span class="f">intersection</span>(b).<span class="f">is_subset</span>(a) <span class="k">and</span> <span class="k">not</span> a.<span class="f">is_subset</span>(b), <span class="s">&quot;is_subset&quot;</span>)</span>
+<span class="src-line" id="L157">	<span class="f">assert</span>(a.<span class="f">difference</span>(b).<span class="f">len</span>() == <span class="n">2</span> <span class="k">and</span> a.<span class="f">union</span>(b).<span class="f">len</span>() == <span class="n">5</span>, <span class="s">&quot;results count their members&quot;</span>)</span>
+<span class="src-line" id="L158">	<span class="f">assert</span>(a == a.<span class="f">copy</span>() <span class="k">and</span> a != b, <span class="s">&quot;equality&quot;</span>)</span>
+<span class="src-line" id="L159">	a.<span class="f">clear</span>()</span>
+<span class="src-line" id="L160">	<span class="f">assert</span>(a.<span class="f">is_empty</span>() <span class="k">and</span> <span class="k">not</span> a.<span class="f">contains</span>(<span class="n">70</span>), <span class="s">&quot;clear&quot;</span>)</span>
+<span class="src-line" id="L161">}</span>
+<span class="src-line" id="L162"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../collections.html">std/collections</a><a href="../core.html">std/core</a><a href="../derive.html">std/derive</a><a href="../fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

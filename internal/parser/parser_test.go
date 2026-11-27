@@ -1350,3 +1350,37 @@ define State enum [
 		t.Fatalf("unexpected variant[1] attrs: %+v", ed.Variants[1].Attributes)
 	}
 }
+
+func TestParseLabeledComptimeForAndSpanStart(t *testing.T) {
+	src := `bind f = fn() int: {
+	let a = (outer: comptime for(i in 0..3) int: {
+		if(i == 2): outer <- i
+		0
+	})
+	let b = comptime for(j in 0..2) int: {
+		if(j == 1): for <- 5
+		0
+	}
+	a + b
+}
+`
+	rep := diag.NewReporter()
+	f := parser.ParseFile("cf.ll", src, rep)
+	if rep.HasErrors() {
+		t.Fatalf("unexpected parse errors:\n%s", rep.Format())
+	}
+	fn := f.Decls[0].(*ast.VarDecl).Value.(*ast.FuncLit)
+	blk := fn.Body.(*ast.BlockExpr)
+	feA := blk.Stmts[0].(*ast.VarStmt).Value.(*ast.ForExpr)
+	if !feA.IsComptime || feA.Label != "outer" {
+		t.Fatalf("expected labeled comptime ForExpr `outer`, got IsComptime=%v Label=%q", feA.IsComptime, feA.Label)
+	}
+	feB := blk.Stmts[1].(*ast.VarStmt).Value.(*ast.ForExpr)
+	if !feB.IsComptime || feB.Label != "" {
+		t.Fatalf("expected unlabeled comptime ForExpr, got %+v", feB)
+	}
+	wantCol := strings.Index(strings.Split(src, "\n")[5], "comptime") + 1
+	if feB.Span.Start.Col != wantCol {
+		t.Fatalf("expected unlabeled `comptime for` Span.Start.Col=%d (start of `comptime`), got %d", wantCol, feB.Span.Start.Col)
+	}
+}

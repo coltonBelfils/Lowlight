@@ -259,7 +259,7 @@ func (iv IndexVersion) EffectiveDeps(target TargetInfo) map[string]DepSpec {
 	for sel := range iv.Targets {
 		selectors = append(selectors, sel)
 	}
-	sort.Strings(selectors)
+	SortTargetSelectors(selectors)
 	for _, sel := range selectors {
 		if !target.MatchesSelector(sel) {
 			continue

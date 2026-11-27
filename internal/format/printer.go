@@ -725,9 +725,9 @@ func (p *printer) printTopComptimeIfDecl(v *ast.TopComptimeIfDecl) {
 	p.write("comptime if(")
 	p.printExpr(v.Cond)
 	p.write("):")
-	p.printTopComptimeDeclsBranch(v.ThenDecls, v.ThenBraced, v.Span.Start.Offset)
+	thenBraced := p.printTopComptimeDeclsBranch(v.ThenDecls, v.ThenBraced, v.ThenSpan, v.Span.Start.Offset)
 	if v.ElseIf != nil {
-		if v.ThenBraced {
+		if thenBraced {
 			p.write(" else ")
 		} else {
 			p.newline()
@@ -736,18 +736,22 @@ func (p *printer) printTopComptimeIfDecl(v *ast.TopComptimeIfDecl) {
 		}
 		p.printTopComptimeIfDecl(v.ElseIf)
 	} else if v.HasElse {
-		if v.ThenBraced {
+		if thenBraced {
 			p.write(" else:")
 		} else {
 			p.newline()
 			p.writeIndent()
 			p.write("else:")
 		}
-		p.printTopComptimeDeclsBranch(v.ElseDecls, v.ElseBraced, v.Span.Start.Offset)
+		elseHeaderOff := v.Span.Start.Offset
+		if v.ElseSpan.Start.Offset > 0 {
+			elseHeaderOff = v.ElseSpan.Start.Offset
+		}
+		_ = p.printTopComptimeDeclsBranch(v.ElseDecls, v.ElseBraced, v.ElseSpan, elseHeaderOff)
 	}
 }
 
-func (p *printer) printTopComptimeDeclsBranch(decls []ast.Decl, braced bool, headerStartOff int) {
+func (p *printer) printTopComptimeDeclsBranch(decls []ast.Decl, braced bool, branchSpan diag.Span, headerStartOff int) bool {
 	if !braced && len(decls) == 1 {
 		d := decls[0]
 		if !p.hasCommentsBetweenOffsets(headerStartOff, declStartPos(d).Offset) {
@@ -759,7 +763,7 @@ func (p *printer) printTopComptimeDeclsBranch(decls []ast.Decl, braced bool, hea
 			}); ok && p.fitsLineWidth(" "+single) {
 				p.write(" ")
 				p.write(single)
-				return
+				return false
 			}
 		}
 		p.newline()
@@ -770,12 +774,19 @@ func (p *printer) printTopComptimeDeclsBranch(decls []ast.Decl, braced bool, hea
 		p.printDecl(d)
 		p.emitInlineCommentOnLine(d.GetSpan().End.Line)
 		p.indent--
-		return
+		return false
 	}
 	p.write(" {")
 	if len(decls) == 0 {
+		if branchSpan.End.Offset > 0 && p.hasCommentsBetweenOffsets(branchSpan.Start.Offset, branchSpan.End.Offset) {
+			p.newline()
+			p.indent++
+			_ = p.emitCommentsBefore(branchSpan.End.Offset, branchSpan.End.Line, false)
+			p.indent--
+			p.writeIndent()
+		}
 		p.write("}")
-		return
+		return true
 	}
 	p.newline()
 	p.indent++
@@ -805,9 +816,13 @@ func (p *printer) printTopComptimeDeclsBranch(decls []ast.Decl, braced bool, hea
 		lastEmittedLine = d.GetSpan().End.Line
 		prevDecl = d
 	}
+	if branchSpan.End.Offset > 0 && p.hasCommentsBetweenOffsets(decls[len(decls)-1].GetSpan().End.Offset, branchSpan.End.Offset) {
+		_ = p.emitCommentsBefore(branchSpan.End.Offset, branchSpan.End.Line, true)
+	}
 	p.indent--
 	p.writeIndent()
 	p.write("}")
+	return true
 }
 
 func (p *printer) printImportDecl(v *ast.ImportDecl) {
@@ -2769,33 +2784,28 @@ func (p *printer) printForExpr(v *ast.ForExpr) {
 	}
 	p.printLoopHeader(v.Label, kw, v.Kind, v.Var1, v.Var1Mut, v.Var2, v.Var2Mut, v.CondOrIter, v.RangeEnd, v.Inclusive, v.EvalType)
 	p.printColonBodyGuarded(v.Span.Start.Offset, v.Body, true, v.Else != nil)
-	if v.Else != nil {
-		bodyUnwrapped := p.unwrapBodyIfElseSafe(v.Body, true, true)
-		if _, isBlk := bodyUnwrapped.(*ast.BlockExpr); isBlk {
-			p.write(" else:")
-		} else {
-			p.newline()
-			p.writeIndent()
-			p.write("else:")
-		}
-		p.printColonBody(v.Body.GetSpan().End.Offset, v.Else, true)
-	}
+	p.printLoopElse(v.Body, v.Else)
 }
 
 func (p *printer) printWhileExpr(v *ast.WhileExpr) {
 	p.printLoopHeader(v.Label, "while", v.Kind, v.Var1, v.Var1Mut, v.Var2, v.Var2Mut, v.CondOrIter, v.RangeEnd, v.Inclusive, v.EvalType)
 	p.printColonBodyGuarded(v.Span.Start.Offset, v.Body, true, v.Else != nil)
-	if v.Else != nil {
-		bodyUnwrapped := p.unwrapBodyIfElseSafe(v.Body, true, true)
-		if _, isBlk := bodyUnwrapped.(*ast.BlockExpr); isBlk {
-			p.write(" else:")
-		} else {
-			p.newline()
-			p.writeIndent()
-			p.write("else:")
-		}
-		p.printColonBody(v.Body.GetSpan().End.Offset, v.Else, true)
+	p.printLoopElse(v.Body, v.Else)
+}
+
+func (p *printer) printLoopElse(body, elseExpr ast.Expr) {
+	if elseExpr == nil {
+		return
 	}
+	bodyUnwrapped := p.unwrapBodyIfElseSafe(body, true, true)
+	if _, isBlk := bodyUnwrapped.(*ast.BlockExpr); isBlk {
+		p.write(" else:")
+	} else {
+		p.newline()
+		p.writeIndent()
+		p.write("else:")
+	}
+	p.printColonBody(body.GetSpan().End.Offset, elseExpr, true)
 }
 
 // sourceArms returns the arms written in the source, dropping arms the checker synthesized for a
@@ -2865,7 +2875,7 @@ func (p *printer) printMatchExpr(v *ast.MatchExpr) {
 		p.write("comptime ")
 	}
 	p.write("match")
-	if len(v.Scrutinees) > 0 {
+	if len(v.Scrutinees) > 0 || v.EvalType != nil {
 		p.write("(")
 		for i, sc := range v.Scrutinees {
 			if i > 0 {

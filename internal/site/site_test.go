@@ -93,3 +93,57 @@ func TestBuildAPIDocs(t *testing.T) {
 		}
 	}
 }
+
+func TestPhase7SiteConstBadges(t *testing.T) {
+	tmp := t.TempDir()
+	pkgDir := filepath.Join(tmp, "badges")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := `// Const global.
+const PI: float = 3.14
+
+// Runtime global.
+bind LIMIT: int = 5
+
+// Comptime-only helper.
+@comptime_only
+const ct_meta = fn() int: 1
+
+// Pure const fn.
+const pure_add = fn(a: int, b: int) int: a + b
+
+// Runtime fn.
+bind runtime_id = fn(a: int) int: a
+`
+	if err := os.WriteFile(filepath.Join(pkgDir, "badges.ll"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "lowlight.toml"), []byte("[package]\nname = \"demo\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ld, err := docgen.Load([]string{tmp}, tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(tmp, "out")
+	if _, probs, err := BuildAPIDocs(APIDocsConfig{Loaded: ld, OutDir: out}); err != nil || len(probs) != 0 {
+		t.Fatalf("BuildAPIDocs failed: err=%v probs=%v", err, probs)
+	}
+	page, err := os.ReadFile(filepath.Join(out, "pkg", "badges.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(page)
+	for _, want := range []string{
+		`<span class="api-badge">const</span>`,
+		`<span class="api-badge">bind</span>`,
+		`<span class="api-badge">const fn</span>`,
+		`<span class="api-badge">func</span>`,
+		`<span class="api-badge">@comptime_only</span>`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("expected API HTML to render badge %q:\n%s", want, html)
+		}
+	}
+}

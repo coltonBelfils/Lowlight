@@ -2397,8 +2397,12 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 				return fReg
 			}
 			if _, isEn := baseTy.(*types.Enum); isEn && v.FieldName == "tag" {
+				tagAlign := 4
+				if g.isPackedLValue(v) {
+					tagAlign = 1
+				}
 				f32 := g.newReg()
-				g.indentLine(1, "%s = load i32, ptr %s, align 4", f32, fReg)
+				g.indentLine(1, "%s = load i32, ptr %s, align %d", f32, fReg, tagAlign)
 				r := g.newReg()
 				g.indentLine(1, "%s = sext i32 %s to i64", r, f32)
 				return r
@@ -2569,16 +2573,21 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		return r
 
 	case *ir.ExprConstructArray:
-		arrSlot := g.allocaEntry(g.llvmType(v.ArrayType), 8)
-		for i, el := range v.Elems {
-			elVal := g.emitExpr(el)
-			ep := g.newReg()
-			g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 0, i64 %d",
-				ep, g.llvmType(v.ArrayType), arrSlot, i)
-			g.indentLine(1, "store %s %s, ptr %s, align 8", g.llvmType(el.Type()), elVal, ep)
+		arrAl := g.typeAlign(v.ArrayType)
+		arrSlot := g.allocaEntry(g.llvmType(v.ArrayType), arrAl)
+		if len(v.Elems) == 0 {
+			g.indentLine(1, "store %s zeroinitializer, ptr %s, align %d", g.llvmType(v.ArrayType), arrSlot, arrAl)
+		} else {
+			for i, el := range v.Elems {
+				elVal := g.emitExpr(el)
+				ep := g.newReg()
+				g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 0, i64 %d",
+					ep, g.llvmType(v.ArrayType), arrSlot, i)
+				g.indentLine(1, "store %s %s, ptr %s, align %d", g.llvmType(el.Type()), elVal, ep, g.typeAlign(el.Type()))
+			}
 		}
 		r := g.newReg()
-		g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(v.ArrayType), arrSlot)
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(v.ArrayType), arrSlot, arrAl)
 		return r
 
 	case *ir.ExprConstructTuple:
@@ -2672,22 +2681,25 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		if v.OptType.IsBoxed() {
 			st := v.OptType.Elem.(*types.Struct)
 			sz := g.typeSize(st)
+			stAl := g.typeAlign(st)
 			allocReg := g.newReg()
 			g.indentLine(1, "%s = call ptr @ll_alloc(i64 %d)", allocReg, sz)
 			val := g.emitExpr(v.Value)
-			g.indentLine(1, "store %s %s, ptr %s, align 8", g.llvmType(st), val, allocReg)
+			g.indentLine(1, "store %s %s, ptr %s, align %d", g.llvmType(st), val, allocReg, stAl)
 			return allocReg
 		}
-		optSlot := g.allocaEntry(g.llvmType(v.OptType), 8)
+		optAl := g.typeAlign(v.OptType)
+		valAl := g.typeAlign(v.Value.Type())
+		optSlot := g.allocaEntry(g.llvmType(v.OptType), optAl)
 		pHas := g.newReg()
 		pVal := g.newReg()
 		g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 0", pHas, g.llvmType(v.OptType), optSlot)
 		g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 1", pVal, g.llvmType(v.OptType), optSlot)
 		g.indentLine(1, "store i1 true, ptr %s, align 1", pHas)
 		val := g.emitExpr(v.Value)
-		g.indentLine(1, "store %s %s, ptr %s, align 8", g.llvmType(v.Value.Type()), val, pVal)
+		g.indentLine(1, "store %s %s, ptr %s, align %d", g.llvmType(v.Value.Type()), val, pVal, valAl)
 		r := g.newReg()
-		g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(v.OptType), optSlot)
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(v.OptType), optSlot, optAl)
 		return r
 
 	case *ir.ExprOptionalHasValue:
@@ -2708,14 +2720,18 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		if v.IsBoxed {
 			ptrVal := g.emitExpr(v.Opt)
 			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(v.ElemType), ptrVal)
+			g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(v.ElemType), ptrVal, g.typeAlign(v.ElemType))
 			return r
 		}
 		optAddr := g.emitLValueAddr(v.Opt)
 		pVal := g.newReg()
 		g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 1", pVal, g.llvmType(v.Opt.Type()), optAddr)
+		valAl := g.typeAlign(v.ElemType)
+		if g.isPackedLValue(v.Opt) {
+			valAl = 1
+		}
 		r := g.newReg()
-		g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(v.ElemType), pVal)
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(v.ElemType), pVal, valAl)
 		return r
 
 	case *ir.ExprOptionalValuePtr:
@@ -3713,16 +3729,6 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, wrapper, setAddr, keyAddr)
 			return r
 		}
-		if strings.HasPrefix(fnRef.Name, "ll_set_has__") && len(call.Args) == 2 {
-			setAddr := g.emitAsPtr(call.Args[0])
-			keyAddr := g.emitLValueAddr(call.Args[1])
-			mangled := strings.TrimPrefix(fnRef.Name, "ll_set_has__")
-			wrapper := "ll_set_has_p__" + mangled
-			g.declareHelper(wrapper, "i1", "ptr, ptr")
-			r := g.newReg()
-			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, wrapper, setAddr, keyAddr)
-			return r
-		}
 		if strings.HasPrefix(fnRef.Name, "ll_set_remove__") && len(call.Args) == 2 {
 			setAddr := g.emitAsPtr(call.Args[0])
 			keyAddr := g.emitLValueAddr(call.Args[1])
@@ -3742,28 +3748,6 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 			g.declareHelper(wrapper, "void", "ptr, ptr, ptr")
 			g.indentLine(1, "call void @%s(ptr %s, ptr %s, ptr %s)", wrapper, mapAddr, keyAddr, valAddr)
 			return "void"
-		}
-		if strings.HasPrefix(fnRef.Name, "ll_map_get__") && len(call.Args) == 2 {
-			mapAddr := g.emitAsPtr(call.Args[0])
-			keyAddr := g.emitLValueAddr(call.Args[1])
-			mangled := strings.TrimPrefix(fnRef.Name, "ll_map_get__")
-			wrapper := "ll_map_get_p__" + mangled
-			resSlot := g.allocaEntry(g.llvmType(call.Typ), 8)
-			g.declareHelper(wrapper, "void", "ptr, ptr, ptr")
-			g.indentLine(1, "call void @%s(ptr %s, ptr %s, ptr %s)", wrapper, resSlot, mapAddr, keyAddr)
-			r := g.newReg()
-			g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(call.Typ), resSlot)
-			return r
-		}
-		if strings.HasPrefix(fnRef.Name, "ll_map_has__") && len(call.Args) == 2 {
-			mapAddr := g.emitAsPtr(call.Args[0])
-			keyAddr := g.emitLValueAddr(call.Args[1])
-			mangled := strings.TrimPrefix(fnRef.Name, "ll_map_has__")
-			wrapper := "ll_map_has_p__" + mangled
-			g.declareHelper(wrapper, "i1", "ptr, ptr")
-			r := g.newReg()
-			g.indentLine(1, "%s = call i1 @%s(ptr %s, ptr %s)", r, wrapper, mapAddr, keyAddr)
-			return r
 		}
 		if strings.HasPrefix(fnRef.Name, "ll_map_remove__") && len(call.Args) == 2 {
 			mapAddr := g.emitAsPtr(call.Args[0])
@@ -3995,12 +3979,6 @@ func (g *llvmEmitter) emitVTables() {
 					continue
 				}
 			}
-			if setTy, isSet := vt.Concrete.(*types.Set); isSet {
-				if im.Name == "contains" {
-					emitPtrContains("ll_set_has_p__"+setTy.Mangled(), setTy.Elem)
-					continue
-				}
-			}
 			if p, isP := vt.Concrete.(*types.Primitive); isP && p.Kind == types.PrimString {
 				if im.Name == "len" {
 					g.indentRaw(1, "%lenPtr = getelementptr inbounds %struct.ll_string, ptr %_self.param, i32 0, i32 1")
@@ -4029,29 +4007,6 @@ func (g *llvmEmitter) emitVTables() {
 					g.indentLine(1, "ret %s %%res2", retTy)
 					g.line("}")
 					g.line("")
-					continue
-				}
-			}
-			if mp, isMp := vt.Concrete.(*types.Map); isMp {
-				if im.Name == "len" {
-					g.indentLine(1, "%%lenPtr = getelementptr inbounds %s, ptr %%_self.param, i32 0, i32 5", cTy)
-					g.indentRaw(1, "%lenVal = load i64, ptr %lenPtr, align 8")
-					g.indentRaw(1, "ret i64 %lenVal")
-					g.line("}")
-					g.line("")
-					continue
-				}
-				if im.Name == "get" {
-					g.indentLine(1, "%%selfVal = load %s, ptr %%_self.param, align 8", cTy)
-					keyTy := g.llvmType(mp.Key)
-					g.indentLine(1, "%%res = call %s @ll_map_get__%s(%s %%selfVal, %s %%_p0.param)", retTy, mp.Mangled(), cTy, keyTy)
-					g.indentLine(1, "ret %s %%res", retTy)
-					g.line("}")
-					g.line("")
-					continue
-				}
-				if im.Name == "has" || im.Name == "contains" {
-					emitPtrContains("ll_map_has_p__"+mp.Mangled(), mp.Key)
 					continue
 				}
 			}

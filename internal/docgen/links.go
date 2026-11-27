@@ -43,19 +43,21 @@ const (
 
 // SymbolEntry describes one indexed module, declaration, method, field, or variant.
 type SymbolEntry struct {
-	Name       string
-	FullName   string // e.g., "List.push", "Error", or module slug name "std/fs"
-	Kind       ItemKind
-	ModuleSlug string
-	ModuleName string // e.g., "std/fs" or "fs"
-	Signature  string
-	Doc        string
-	FilePath   string
-	Line       int
-	Col        int
-	HTMLHref   string // relative HTML href inside output root, e.g., "std_core_list.html#List.push"
-	Anchor     string // anchor ID on module page, e.g., "List.push"
-	SearchDesc string // short 1-line summary
+	Name         string
+	FullName     string // e.g., "List.push", "Error", or module slug name "std/fs"
+	Kind         ItemKind
+	ModuleSlug   string
+	ModuleName   string // e.g., "std/fs" or "fs"
+	Signature    string
+	Doc          string
+	FilePath     string
+	Line         int
+	Col          int
+	HTMLHref     string // relative HTML href inside output root, e.g., "std_core_list.html#List.push"
+	Anchor       string // anchor ID on module page, e.g., "List.push"
+	SearchDesc   string // short 1-line summary
+	IsConst      bool
+	ComptimeOnly bool
 }
 
 // BrokenLink records an unresolved `[`Symbol`]` reference when running `--check-links`.
@@ -174,7 +176,8 @@ var builtinUniverseTargets = map[string]string{
 	"u32": "Unsigned 32-bit integer", "u64": "Unsigned 64-bit integer",
 	"float": "Double-precision float (f64)", "f32": "Single-precision float", "f64": "Double-precision float",
 	"bool": "Boolean type", "char": "Unicode scalar value", "string": "UTF-8 owned string",
-	"void": "Unit void type", "none": "Empty optional value",
+	"void": "Unit void type", "never": "Bottom uninhabited type", "none": "Empty optional value",
+	"compile_error": "Compile-time fatal error intrinsic",
 	"ptr": "Raw unsafe pointer ptr[T]", "ref": "Borrowed reference ref[T]",
 	"println": "Built-in print with newline", "print": "Built-in print",
 	"eprintln": "Built-in stderr print with newline", "eprint": "Built-in stderr print",
@@ -218,18 +221,18 @@ func BuildSymbolIndex(rootDir string, prog *sema.CheckedProgram, modPaths []stri
 	}
 
 	seenPaths := make(map[string]bool)
-	addMod := func(absPath string, astFile *ast.File, src string) {
+	addMod := func(absPath string, astFile *ast.File, activeDecls []ast.Decl, src string) {
 		if absPath == "" || seenPaths[absPath] || astFile == nil {
 			return
 		}
 		seenPaths[absPath] = true
-		idx.indexASTFile(absPath, astFile, src)
+		idx.indexASTFile(absPath, astFile, activeDecls, src)
 	}
 
 	if prog != nil {
 		for _, m := range prog.Modules {
 			if m != nil {
-				addMod(m.Path, m.File, overlays[m.Path])
+				addMod(m.Path, m.File, m.ActiveDecls(), overlays[m.Path])
 			}
 		}
 	}
@@ -248,7 +251,11 @@ func BuildSymbolIndex(rootDir string, prog *sema.CheckedProgram, modPaths []stri
 			continue
 		}
 		af, _ := parser.ParseFileWithComments(abs, src, rep)
-		addMod(abs, af, src)
+		var decls []ast.Decl
+		if af != nil {
+			decls = af.Decls
+		}
+		addMod(abs, af, decls, src)
 	}
 	return idx
 }
@@ -285,7 +292,7 @@ func (idx *SymbolIndex) addEntry(e *SymbolEntry) {
 	}
 }
 
-func (idx *SymbolIndex) indexASTFile(absPath string, f *ast.File, src string) {
+func (idx *SymbolIndex) indexASTFile(absPath string, f *ast.File, activeDecls []ast.Decl, src string) {
 	modName := ModuleDisplayName(idx.RootDir, absPath)
 	slug := ModuleSlug(idx.RootDir, absPath)
 	htmlPage := slug + ".html"
@@ -312,10 +319,23 @@ func (idx *SymbolIndex) indexASTFile(absPath string, f *ast.File, src string) {
 		idx.ModAliases[base] = modEntry
 	}
 
-	idx.indexDecls(f.Decls, absPath, src, modName, slug, htmlPage)
+	seenSyms := make(map[string]bool)
+	if len(activeDecls) > 0 {
+		idx.indexDecls(activeDecls, absPath, src, modName, slug, htmlPage, seenSyms)
+	}
+	idx.indexDecls(f.Decls, absPath, src, modName, slug, htmlPage, seenSyms)
 }
 
-func (idx *SymbolIndex) indexDecls(decls []ast.Decl, absPath, src, modName, slug, htmlPage string) {
+func (idx *SymbolIndex) indexDecls(decls []ast.Decl, absPath, src, modName, slug, htmlPage string, seenSyms map[string]bool) {
+	addUnique := func(e *SymbolEntry) bool {
+		key := string(e.Kind) + ":" + e.FullName
+		if seenSyms[key] {
+			return false
+		}
+		seenSyms[key] = true
+		idx.addEntry(e)
+		return true
+	}
 	for _, d := range decls {
 		switch v := d.(type) {
 		case *ast.StructDecl:
@@ -324,27 +344,28 @@ func (idx *SymbolIndex) indexDecls(decls []ast.Decl, absPath, src, modName, slug
 			}
 			sig := formatStructHeader(v)
 			anchor := v.Name
-			idx.addEntry(&SymbolEntry{
-				Name:       v.Name,
-				FullName:   v.Name,
-				Kind:       KindStruct,
-				ModuleSlug: slug,
-				ModuleName: modName,
-				Signature:  sig,
-				Doc:        v.Doc,
-				FilePath:   absPath,
-				Line:       v.Span.Start.Line,
-				Col:        v.Span.Start.Col,
-				HTMLHref:   htmlPage + "#" + anchor,
-				Anchor:     anchor,
-				SearchDesc: firstSentence(v.Doc),
+			addUnique(&SymbolEntry{
+				Name:         v.Name,
+				FullName:     v.Name,
+				Kind:         KindStruct,
+				ModuleSlug:   slug,
+				ModuleName:   modName,
+				Signature:    sig,
+				Doc:          v.Doc,
+				FilePath:     absPath,
+				Line:         v.Span.Start.Line,
+				Col:          v.Span.Start.Col,
+				HTMLHref:     htmlPage + "#" + anchor,
+				Anchor:       anchor,
+				SearchDesc:   firstSentence(v.Doc),
+				ComptimeOnly: ast.FindAttribute(v.Attributes, "comptime_only") != nil,
 			})
 			for _, fld := range v.Fields {
 				if strings.HasPrefix(fld.Name, "_") {
 					continue
 				}
 				fAnchor := v.Name + "." + fld.Name
-				idx.addEntry(&SymbolEntry{
+				addUnique(&SymbolEntry{
 					Name:       fld.Name,
 					FullName:   v.Name + "." + fld.Name,
 					Kind:       KindField,
@@ -367,20 +388,21 @@ func (idx *SymbolIndex) indexDecls(decls []ast.Decl, absPath, src, modName, slug
 			}
 			sig := formatEnumHeader(v)
 			anchor := v.Name
-			idx.addEntry(&SymbolEntry{
-				Name:       v.Name,
-				FullName:   v.Name,
-				Kind:       KindEnum,
-				ModuleSlug: slug,
-				ModuleName: modName,
-				Signature:  sig,
-				Doc:        v.Doc,
-				FilePath:   absPath,
-				Line:       v.Span.Start.Line,
-				Col:        v.Span.Start.Col,
-				HTMLHref:   htmlPage + "#" + anchor,
-				Anchor:     anchor,
-				SearchDesc: firstSentence(v.Doc),
+			addUnique(&SymbolEntry{
+				Name:         v.Name,
+				FullName:     v.Name,
+				Kind:         KindEnum,
+				ModuleSlug:   slug,
+				ModuleName:   modName,
+				Signature:    sig,
+				Doc:          v.Doc,
+				FilePath:     absPath,
+				Line:         v.Span.Start.Line,
+				Col:          v.Span.Start.Col,
+				HTMLHref:     htmlPage + "#" + anchor,
+				Anchor:       anchor,
+				SearchDesc:   firstSentence(v.Doc),
+				ComptimeOnly: ast.FindAttribute(v.Attributes, "comptime_only") != nil,
 			})
 			for _, ev := range v.Variants {
 				vAnchor := v.Name + "." + ev.Name
@@ -388,7 +410,7 @@ func (idx *SymbolIndex) indexDecls(decls []ast.Decl, absPath, src, modName, slug
 				if ev.PayloadType != nil {
 					vSig = fmt.Sprintf("%s: %s", ev.Name, formatTypeStr(ev.PayloadType))
 				}
-				idx.addEntry(&SymbolEntry{
+				addUnique(&SymbolEntry{
 					Name:       ev.Name,
 					FullName:   v.Name + "." + ev.Name,
 					Kind:       KindVariant,
@@ -411,24 +433,25 @@ func (idx *SymbolIndex) indexDecls(decls []ast.Decl, absPath, src, modName, slug
 			}
 			sig := formatInterfaceHeader(v)
 			anchor := v.Name
-			idx.addEntry(&SymbolEntry{
-				Name:       v.Name,
-				FullName:   v.Name,
-				Kind:       KindInterface,
-				ModuleSlug: slug,
-				ModuleName: modName,
-				Signature:  sig,
-				Doc:        v.Doc,
-				FilePath:   absPath,
-				Line:       v.Span.Start.Line,
-				Col:        v.Span.Start.Col,
-				HTMLHref:   htmlPage + "#" + anchor,
-				Anchor:     anchor,
-				SearchDesc: firstSentence(v.Doc),
+			addUnique(&SymbolEntry{
+				Name:         v.Name,
+				FullName:     v.Name,
+				Kind:         KindInterface,
+				ModuleSlug:   slug,
+				ModuleName:   modName,
+				Signature:    sig,
+				Doc:          v.Doc,
+				FilePath:     absPath,
+				Line:         v.Span.Start.Line,
+				Col:          v.Span.Start.Col,
+				HTMLHref:     htmlPage + "#" + anchor,
+				Anchor:       anchor,
+				SearchDesc:   firstSentence(v.Doc),
+				ComptimeOnly: ast.FindAttribute(v.Attributes, "comptime_only") != nil,
 			})
 			for _, m := range v.Methods {
 				mAnchor := v.Name + "." + m.Name
-				idx.addEntry(&SymbolEntry{
+				addUnique(&SymbolEntry{
 					Name:       m.Name,
 					FullName:   v.Name + "." + m.Name,
 					Kind:       KindInterfaceMethod,
@@ -450,20 +473,21 @@ func (idx *SymbolIndex) indexDecls(decls []ast.Decl, absPath, src, modName, slug
 				continue
 			}
 			anchor := v.Name
-			idx.addEntry(&SymbolEntry{
-				Name:       v.Name,
-				FullName:   v.Name,
-				Kind:       KindDistinct,
-				ModuleSlug: slug,
-				ModuleName: modName,
-				Signature:  fmt.Sprintf("define %s %s", v.Name, formatTypeStr(v.Base)),
-				Doc:        v.Doc,
-				FilePath:   absPath,
-				Line:       v.Span.Start.Line,
-				Col:        v.Span.Start.Col,
-				HTMLHref:   htmlPage + "#" + anchor,
-				Anchor:     anchor,
-				SearchDesc: firstSentence(v.Doc),
+			addUnique(&SymbolEntry{
+				Name:         v.Name,
+				FullName:     v.Name,
+				Kind:         KindDistinct,
+				ModuleSlug:   slug,
+				ModuleName:   modName,
+				Signature:    fmt.Sprintf("define %s %s", v.Name, formatTypeStr(v.Base)),
+				Doc:          v.Doc,
+				FilePath:     absPath,
+				Line:         v.Span.Start.Line,
+				Col:          v.Span.Start.Col,
+				HTMLHref:     htmlPage + "#" + anchor,
+				Anchor:       anchor,
+				SearchDesc:   firstSentence(v.Doc),
+				ComptimeOnly: ast.FindAttribute(v.Attributes, "comptime_only") != nil,
 			})
 
 		case *ast.ExternFnDecl:
@@ -475,7 +499,7 @@ func (idx *SymbolIndex) indexDecls(decls []ast.Decl, absPath, src, modName, slug
 				continue
 			}
 			anchor := localName
-			idx.addEntry(&SymbolEntry{
+			addUnique(&SymbolEntry{
 				Name:       localName,
 				FullName:   localName,
 				Kind:       KindExtern,
@@ -496,20 +520,22 @@ func (idx *SymbolIndex) indexDecls(decls []ast.Decl, absPath, src, modName, slug
 				continue
 			}
 			fullName := v.RecvType + "." + v.Name
-			idx.addEntry(&SymbolEntry{
-				Name:       v.Name,
-				FullName:   fullName,
-				Kind:       KindMethod,
-				ModuleSlug: slug,
-				ModuleName: modName,
-				Signature:  formatMethodSig(v),
-				Doc:        v.Doc,
-				FilePath:   absPath,
-				Line:       v.Span.Start.Line,
-				Col:        v.Span.Start.Col,
-				HTMLHref:   htmlPage + "#" + fullName,
-				Anchor:     fullName,
-				SearchDesc: firstSentence(v.Doc),
+			addUnique(&SymbolEntry{
+				Name:         v.Name,
+				FullName:     fullName,
+				Kind:         KindMethod,
+				ModuleSlug:   slug,
+				ModuleName:   modName,
+				Signature:    formatMethodSig(v),
+				Doc:          v.Doc,
+				FilePath:     absPath,
+				Line:         v.Span.Start.Line,
+				Col:          v.Span.Start.Col,
+				HTMLHref:     htmlPage + "#" + fullName,
+				Anchor:       fullName,
+				SearchDesc:   firstSentence(v.Doc),
+				IsConst:      v.IsConst,
+				ComptimeOnly: ast.FindAttribute(v.Attributes, "comptime_only") != nil,
 			})
 
 		case *ast.VarDecl:
@@ -521,28 +547,30 @@ func (idx *SymbolIndex) indexDecls(decls []ast.Decl, absPath, src, modName, slug
 			if _, isFn := v.Value.(*ast.FuncLit); isFn {
 				kind = KindFunc
 			}
-			idx.addEntry(&SymbolEntry{
-				Name:       v.Name,
-				FullName:   v.Name,
-				Kind:       kind,
-				ModuleSlug: slug,
-				ModuleName: modName,
-				Signature:  sig,
-				Doc:        v.Doc,
-				FilePath:   absPath,
-				Line:       v.Span.Start.Line,
-				Col:        v.Span.Start.Col,
-				HTMLHref:   htmlPage + "#" + v.Name,
-				Anchor:     v.Name,
-				SearchDesc: firstSentence(v.Doc),
+			addUnique(&SymbolEntry{
+				Name:         v.Name,
+				FullName:     v.Name,
+				Kind:         kind,
+				ModuleSlug:   slug,
+				ModuleName:   modName,
+				Signature:    sig,
+				Doc:          v.Doc,
+				FilePath:     absPath,
+				Line:         v.Span.Start.Line,
+				Col:          v.Span.Start.Col,
+				HTMLHref:     htmlPage + "#" + v.Name,
+				Anchor:       v.Name,
+				SearchDesc:   firstSentence(v.Doc),
+				IsConst:      v.IsConst,
+				ComptimeOnly: ast.FindAttribute(v.Attributes, "comptime_only") != nil,
 			})
 
 		case *ast.TopComptimeIfDecl:
-			idx.indexDecls(v.ThenDecls, absPath, src, modName, slug, htmlPage)
+			idx.indexDecls(v.ThenDecls, absPath, src, modName, slug, htmlPage, seenSyms)
 			if v.ElseIf != nil {
-				idx.indexDecls([]ast.Decl{v.ElseIf}, absPath, src, modName, slug, htmlPage)
+				idx.indexDecls([]ast.Decl{v.ElseIf}, absPath, src, modName, slug, htmlPage, seenSyms)
 			}
-			idx.indexDecls(v.ElseDecls, absPath, src, modName, slug, htmlPage)
+			idx.indexDecls(v.ElseDecls, absPath, src, modName, slug, htmlPage, seenSyms)
 		}
 	}
 }
@@ -725,7 +753,9 @@ func formatTypeParams(tps []ast.TypeParam) string {
 	}
 	parts := make([]string, len(tps))
 	for i, tp := range tps {
-		if len(tp.Bounds) > 0 {
+		if tp.IsConst && tp.ConstType != nil {
+			parts[i] = tp.Name + ": const " + formatTypeStr(tp.ConstType)
+		} else if len(tp.Bounds) > 0 {
 			parts[i] = tp.Name + ": " + strings.Join(tp.Bounds, " + ")
 		} else {
 			parts[i] = tp.Name
@@ -761,7 +791,9 @@ func formatTypeStr(t ast.TypeExpr) string {
 	case *ast.VectorType:
 		return "[" + formatTypeStr(v.Elem) + "]"
 	case *ast.StackArrayType:
-		return "[N: " + formatTypeStr(v.Elem) + "]"
+		return "[" + formatConstExprStr(v.Size) + ": " + formatTypeStr(v.Elem) + "]"
+	case *ast.ConstArgType:
+		return formatConstExprStr(v.Expr)
 	case *ast.SetType:
 		return "#[" + formatTypeStr(v.Elem) + "]"
 	case *ast.MapType:
@@ -794,6 +826,44 @@ func formatTypeStr(t ast.TypeExpr) string {
 		return out
 	}
 	return ""
+}
+
+func formatConstExprStr(e ast.Expr) string {
+	if e == nil {
+		return "_"
+	}
+	switch v := e.(type) {
+	case *ast.IntLit:
+		return v.Raw
+	case *ast.FloatLit:
+		return v.Raw
+	case *ast.BoolLit:
+		if v.Val {
+			return "true"
+		}
+		return "false"
+	case *ast.CharLit:
+		return fmt.Sprintf("%q", v.Val)
+	case *ast.StringLit:
+		return fmt.Sprintf("%q", v.Val)
+	case *ast.IdentExpr:
+		return v.Name
+	case *ast.MemberExpr:
+		if v.Base != nil {
+			return formatConstExprStr(v.Base) + "." + v.Member
+		}
+		return "." + v.Member
+	case *ast.UnaryExpr:
+		return v.Op.String() + formatConstExprStr(v.Operand)
+	case *ast.BinaryExpr:
+		return formatConstExprStr(v.Left) + " " + v.Op.String() + " " + formatConstExprStr(v.Right)
+	case *ast.ComptimeExpr:
+		return "comptime " + formatConstExprStr(v.Expr)
+	case *ast.CallExpr:
+		return formatConstExprStr(v.Callee) + "(...)"
+	default:
+		return "..."
+	}
 }
 
 func formatParamsStr(params []ast.Param) string {
@@ -870,6 +940,24 @@ func formatInterfaceMethodSig(m ast.InterfaceMethod) string {
 	return fmt.Sprintf("%s: fn(%s)%s", m.Name, strings.Join(parts, ", "), ret)
 }
 
+func comptimeAttrPrefix(attrs []ast.Attribute) string {
+	var parts []string
+	if ast.FindAttribute(attrs, "comptime_only") != nil {
+		parts = append(parts, "@comptime_only")
+	}
+	if a := ast.FindAttribute(attrs, "comptime_limit"); a != nil {
+		if len(a.Args) > 0 {
+			parts = append(parts, fmt.Sprintf("@comptime_limit(%s)", strings.Join(a.Args, ", ")))
+		} else {
+			parts = append(parts, "@comptime_limit")
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ") + " "
+}
+
 func formatMethodSig(v *ast.MethodDecl) string {
 	var parts []string
 	if r := formatMethodReceiver(v.RecvMode, v.RecvExplicitTy); r != "" {
@@ -886,7 +974,11 @@ func formatMethodSig(v *ast.MethodDecl) string {
 	if v.Ret != nil {
 		ret = " " + formatTypeStr(v.Ret)
 	}
-	return fmt.Sprintf("bind %s%s.%s%s = fn(%s)%s", v.RecvType, recvTParams, v.Name, formatTypeParams(v.TypeParams), strings.Join(parts, ", "), ret)
+	kw := "bind"
+	if v.IsConst {
+		kw = "const"
+	}
+	return fmt.Sprintf("%s%s %s%s.%s%s = fn(%s)%s", comptimeAttrPrefix(v.Attributes), kw, v.RecvType, recvTParams, v.Name, formatTypeParams(v.TypeParams), strings.Join(parts, ", "), ret)
 }
 
 func formatExternSig(v *ast.ExternFnDecl) string {
@@ -906,24 +998,27 @@ func formatVarDeclSig(v *ast.VarDecl, src string) string {
 	if v.IsConst {
 		kw = "const"
 	}
+	attrPrefix := comptimeAttrPrefix(v.Attributes)
 	if fl, isFn := v.Value.(*ast.FuncLit); isFn {
 		ret := ""
 		if fl.Ret != nil {
 			ret = " " + formatTypeStr(fl.Ret)
 		}
-		return fmt.Sprintf("%s %s%s = fn%s%s", kw, v.Name, formatTypeParams(v.TypeParams), formatParamsStr(fl.Params), ret)
+		return fmt.Sprintf("%s%s %s%s = fn%s%s", attrPrefix, kw, v.Name, formatTypeParams(v.TypeParams), formatParamsStr(fl.Params), ret)
 	}
 	ty := ""
 	if v.Type != nil {
 		ty = ": " + formatTypeStr(v.Type)
 	}
 	valSnippet := ""
-	sp := v.Value.GetSpan()
-	if src != "" && sp.Start.Offset >= 0 && sp.End.Offset <= len(src) && sp.Start.Offset < sp.End.Offset {
-		raw := strings.TrimSpace(src[sp.Start.Offset:sp.End.Offset])
-		if !strings.ContainsRune(raw, '\n') && len(raw) <= 60 {
-			valSnippet = " = " + raw
+	if v.Value != nil {
+		sp := v.Value.GetSpan()
+		if src != "" && sp.Start.Offset >= 0 && sp.End.Offset <= len(src) && sp.Start.Offset < sp.End.Offset {
+			raw := strings.TrimSpace(src[sp.Start.Offset:sp.End.Offset])
+			if !strings.ContainsRune(raw, '\n') && len(raw) <= 60 {
+				valSnippet = " = " + raw
+			}
 		}
 	}
-	return fmt.Sprintf("%s %s%s%s", kw, v.Name, ty, valSnippet)
+	return fmt.Sprintf("%s%s %s%s%s", attrPrefix, kw, v.Name, ty, valSnippet)
 }

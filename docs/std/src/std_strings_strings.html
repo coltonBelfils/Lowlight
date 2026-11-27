@@ -9,7 +9,7 @@
 <script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
 </head>
 <body class="layout-wide" data-root="../../">
-<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../core.html">std/core</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>strings.ll</h1><p>Source of package <a href="../strings.html"><code>std/strings</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/strings — Extended string search, padding, splitting, and manipulation helpers.</span></span>
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../collections.html">std/collections</a></li><li><a href="../core.html">std/core</a></li><li><a href="../derive.html">std/derive</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>strings.ll</h1><p>Source of package <a href="../strings.html"><code>std/strings</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/strings — Extended string search, padding, splitting, and manipulation helpers.</span></span>
 <span class="src-line" id="L2"><span class="m">//</span></span>
 <span class="src-line" id="L3"><span class="m">// Builds on the core prelude methods (`is_empty`, `starts_with`, `ends_with`, `index_of`,</span></span>
 <span class="src-line" id="L4"><span class="m">// `contains`, `trim`, `to_upper`, `to_lower`, `replace`, `split`, `chars`, `bytes`,</span></span>
@@ -22,14 +22,14 @@
 <span class="src-line" id="L11"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L12"></span>
 <span class="src-line" id="L13"><span class="m">// Reports whether the string is non-empty and consists solely of whitespace characters.</span></span>
-<span class="src-line" id="L14"><span class="k">bind</span> <span class="t">string</span>.is_whitespace = (<span class="k">self</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L14"><span class="k">const</span> <span class="t">string</span>.is_whitespace = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>: {</span>
 <span class="src-line" id="L15">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
 <span class="src-line" id="L16">	<span class="k">for</span>(ch <span class="k">in</span> <span class="k">self</span>.<span class="f">chars</span>()): <span class="k">if</span>(<span class="k">not</span> ch.<span class="f">is_whitespace</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
 <span class="src-line" id="L17">	<span class="c">true</span></span>
 <span class="src-line" id="L18">}</span>
 <span class="src-line" id="L19"></span>
 <span class="src-line" id="L20"><span class="m">// Reports whether every byte in the string is valid 7-bit ASCII (`&lt;= 127`).</span></span>
-<span class="src-line" id="L21"><span class="k">bind</span> <span class="t">string</span>.is_ascii = (<span class="k">self</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L21"><span class="k">const</span> <span class="t">string</span>.is_ascii = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>: {</span>
 <span class="src-line" id="L22">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="k">self</span>.<span class="f">len</span>()): <span class="k">if</span>(<span class="k">self</span>[i] &gt; <span class="n">127</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
 <span class="src-line" id="L23">	<span class="c">true</span></span>
 <span class="src-line" id="L24">}</span>
@@ -38,7 +38,7 @@
 <span class="src-line" id="L27"><span class="m">// Extended Substring Search</span></span>
 <span class="src-line" id="L28"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L29"></span>
-<span class="src-line" id="L30"><span class="k">bind</span> _matches_at = (s: <span class="t">string</span>, pos: <span class="t">int</span>, sub: <span class="t">string</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L30"><span class="k">const</span> _matches_at = <span class="k">fn</span>(s: <span class="t">string</span>, pos: <span class="t">int</span>, sub: <span class="t">string</span>) <span class="t">bool</span>: {</span>
 <span class="src-line" id="L31">	<span class="k">let</span> sub_len = sub.<span class="f">len</span>()</span>
 <span class="src-line" id="L32">	<span class="k">let</span> j = <span class="n">0</span></span>
 <span class="src-line" id="L33">	<span class="k">for</span>(j &lt; sub_len): {</span>
@@ -49,7 +49,7 @@
 <span class="src-line" id="L38">}</span>
 <span class="src-line" id="L39"></span>
 <span class="src-line" id="L40"><span class="m">// Returns the byte offset of the last occurrence of `sub`, or `none` if absent (returns `self.len()` when `sub` is `&quot;&quot;`).</span></span>
-<span class="src-line" id="L41"><span class="k">bind</span> <span class="t">string</span>.last_index_of = (<span class="k">self</span>, sub: <span class="t">string</span>) ?<span class="t">int</span>: {</span>
+<span class="src-line" id="L41"><span class="k">const</span> <span class="t">string</span>.last_index_of = <span class="k">fn</span>(<span class="k">self</span>, sub: <span class="t">string</span>) ?<span class="t">int</span>: {</span>
 <span class="src-line" id="L42">	<span class="k">if</span>(sub.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">len</span>()</span>
 <span class="src-line" id="L43">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">len</span>() &lt; sub.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
 <span class="src-line" id="L44">	<span class="k">let</span> limit = <span class="k">self</span>.<span class="f">len</span>() - sub.<span class="f">len</span>()</span>
@@ -62,7 +62,7 @@
 <span class="src-line" id="L51">}</span>
 <span class="src-line" id="L52"></span>
 <span class="src-line" id="L53"><span class="m">// Counts non-overlapping occurrences of `sub` within the string (`0` if `sub` is empty).</span></span>
-<span class="src-line" id="L54"><span class="k">bind</span> <span class="t">string</span>.count = (<span class="k">self</span>, sub: <span class="t">string</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L54"><span class="k">const</span> <span class="t">string</span>.count = <span class="k">fn</span>(<span class="k">self</span>, sub: <span class="t">string</span>) <span class="t">int</span>: {</span>
 <span class="src-line" id="L55">	<span class="k">let</span> sub_len = sub.<span class="f">len</span>()</span>
 <span class="src-line" id="L56">	<span class="k">if</span>(sub_len == <span class="n">0</span> <span class="k">or</span> <span class="k">self</span>.<span class="f">len</span>() &lt; sub_len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="n">0</span></span>
 <span class="src-line" id="L57">	<span class="k">let</span> count = <span class="n">0</span></span>
@@ -81,7 +81,7 @@
 <span class="src-line" id="L70"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L71"></span>
 <span class="src-line" id="L72"><span class="m">// Returns a copy with the first ASCII byte uppercased and all subsequent ASCII letters lowercased.</span></span>
-<span class="src-line" id="L73"><span class="k">bind</span> <span class="t">string</span>.capitalize = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L73"><span class="k">const</span> <span class="t">string</span>.capitalize = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L74">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;&quot;</span></span>
 <span class="src-line" id="L75">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
 <span class="src-line" id="L76">	<span class="k">let</span> first = <span class="k">self</span>[<span class="n">0</span>]</span>
@@ -98,7 +98,7 @@
 <span class="src-line" id="L87"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L88"></span>
 <span class="src-line" id="L89"><span class="m">// Returns the string concatenated `count` times (empty when `count &lt;= 0`).</span></span>
-<span class="src-line" id="L90"><span class="k">bind</span> <span class="t">string</span>.repeat = (<span class="k">self</span>, count: <span class="t">int</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L90"><span class="k">const</span> <span class="t">string</span>.repeat = <span class="k">fn</span>(<span class="k">self</span>, count: <span class="t">int</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L91">	<span class="k">if</span>(count &lt;= <span class="n">0</span> <span class="k">or</span> <span class="k">self</span>.<span class="f">len</span>() == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="s">&quot;&quot;</span></span>
 <span class="src-line" id="L92">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
 <span class="src-line" id="L93">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..count): out.<span class="f">push</span>(<span class="k">self</span>)</span>
@@ -106,7 +106,7 @@
 <span class="src-line" id="L95">}</span>
 <span class="src-line" id="L96"></span>
 <span class="src-line" id="L97"><span class="m">// Returns a new string with Unicode codepoints reversed in order.</span></span>
-<span class="src-line" id="L98"><span class="k">bind</span> <span class="t">string</span>.reverse = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L98"><span class="k">const</span> <span class="t">string</span>.reverse = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L99">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">len</span>() &lt;= <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">copy</span>()</span>
 <span class="src-line" id="L100">	<span class="k">let</span> cps = <span class="k">self</span>.<span class="f">chars</span>()</span>
 <span class="src-line" id="L101">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
@@ -122,14 +122,14 @@
 <span class="src-line" id="L111"><span class="m">// Padding &amp; Alignment</span></span>
 <span class="src-line" id="L112"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L113"></span>
-<span class="src-line" id="L114"><span class="k">bind</span> _char_count = (s: <span class="t">string</span>) <span class="t">int</span>: {</span>
+<span class="src-line" id="L114"><span class="k">const</span> _char_count = <span class="k">fn</span>(s: <span class="t">string</span>) <span class="t">int</span>: {</span>
 <span class="src-line" id="L115">	<span class="k">let</span> n = <span class="n">0</span></span>
 <span class="src-line" id="L116">	<span class="k">for</span>(ch <span class="k">in</span> s): n += <span class="n">1</span></span>
 <span class="src-line" id="L117">	n</span>
 <span class="src-line" id="L118">}</span>
 <span class="src-line" id="L119"></span>
 <span class="src-line" id="L120"><span class="m">// Left-pads the string with repeated `pad_char` until its Unicode codepoint count reaches at least `total_len`.</span></span>
-<span class="src-line" id="L121"><span class="k">bind</span> <span class="t">string</span>.pad_left_char = (<span class="k">self</span>, total_len: <span class="t">int</span>, pad_char: <span class="t">char</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L121"><span class="k">const</span> <span class="t">string</span>.pad_left_char = <span class="k">fn</span>(<span class="k">self</span>, total_len: <span class="t">int</span>, pad_char: <span class="t">char</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L122">	<span class="k">let</span> char_len = <span class="f">_char_count</span>(<span class="k">self</span>)</span>
 <span class="src-line" id="L123">	<span class="k">if</span>(char_len &gt;= total_len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">copy</span>()</span>
 <span class="src-line" id="L124">	<span class="k">let</span> pad_count = total_len - char_len</span>
@@ -141,7 +141,7 @@
 <span class="src-line" id="L130">}</span>
 <span class="src-line" id="L131"></span>
 <span class="src-line" id="L132"><span class="m">// Right-pads the string with repeated `pad_char` until its Unicode codepoint count reaches at least `total_len`.</span></span>
-<span class="src-line" id="L133"><span class="k">bind</span> <span class="t">string</span>.pad_right_char = (<span class="k">self</span>, total_len: <span class="t">int</span>, pad_char: <span class="t">char</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L133"><span class="k">const</span> <span class="t">string</span>.pad_right_char = <span class="k">fn</span>(<span class="k">self</span>, total_len: <span class="t">int</span>, pad_char: <span class="t">char</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L134">	<span class="k">let</span> char_len = <span class="f">_char_count</span>(<span class="k">self</span>)</span>
 <span class="src-line" id="L135">	<span class="k">if</span>(char_len &gt;= total_len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">copy</span>()</span>
 <span class="src-line" id="L136">	<span class="k">let</span> pad_count = total_len - char_len</span>
@@ -153,7 +153,7 @@
 <span class="src-line" id="L142">}</span>
 <span class="src-line" id="L143"></span>
 <span class="src-line" id="L144"><span class="m">// Centers the string within `total_len` Unicode codepoints by padding evenly on both sides with `pad_char`.</span></span>
-<span class="src-line" id="L145"><span class="k">bind</span> <span class="t">string</span>.center_char = (<span class="k">self</span>, total_len: <span class="t">int</span>, pad_char: <span class="t">char</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L145"><span class="k">const</span> <span class="t">string</span>.center_char = <span class="k">fn</span>(<span class="k">self</span>, total_len: <span class="t">int</span>, pad_char: <span class="t">char</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L146">	<span class="k">let</span> char_len = <span class="f">_char_count</span>(<span class="k">self</span>)</span>
 <span class="src-line" id="L147">	<span class="k">if</span>(char_len &gt;= total_len): <span class="k">func</span> <span class="u">&lt;-</span> <span class="k">self</span>.<span class="f">copy</span>()</span>
 <span class="src-line" id="L148">	<span class="k">let</span> total_pad = total_len - char_len</span>
@@ -172,7 +172,7 @@
 <span class="src-line" id="L161"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L162"></span>
 <span class="src-line" id="L163"><span class="m">// Splits the string on runs of ASCII whitespace into non-empty token substrings.</span></span>
-<span class="src-line" id="L164"><span class="k">bind</span> <span class="t">string</span>.split_whitespace = (<span class="k">self</span>) [<span class="t">string</span>]: {</span>
+<span class="src-line" id="L164"><span class="k">const</span> <span class="t">string</span>.split_whitespace = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">string</span>]: {</span>
 <span class="src-line" id="L165">	<span class="k">let</span> out: [<span class="t">string</span>] = []</span>
 <span class="src-line" id="L166">	<span class="k">let</span> in_token = <span class="c">false</span></span>
 <span class="src-line" id="L167">	<span class="k">let</span> start = <span class="n">0</span></span>
@@ -198,7 +198,7 @@
 <span class="src-line" id="L187"><span class="m">// A final line terminator ends the last line rather than starting an empty one, so</span></span>
 <span class="src-line" id="L188"><span class="m">// `&quot;a\nb\n&quot;.lines()` is `[&quot;a&quot;, &quot;b&quot;]`, while `&quot;a\nb\n\n&quot;.lines()` keeps the empty line</span></span>
 <span class="src-line" id="L189"><span class="m">// (`[&quot;a&quot;, &quot;b&quot;, &quot;&quot;]`). An empty string has no lines.</span></span>
-<span class="src-line" id="L190"><span class="k">bind</span> <span class="t">string</span>.lines = (<span class="k">self</span>) [<span class="t">string</span>]: {</span>
+<span class="src-line" id="L190"><span class="k">const</span> <span class="t">string</span>.lines = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">string</span>]: {</span>
 <span class="src-line" id="L191">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">is_empty</span>()): <span class="k">func</span> <span class="u">&lt;-</span> []</span>
 <span class="src-line" id="L192">	<span class="k">let</span> raw_lines = <span class="k">self</span>.<span class="f">split</span>(<span class="s">&quot;\n&quot;</span>)</span>
 <span class="src-line" id="L193">	<span class="k">let</span> count = <span class="k">if</span>(<span class="k">self</span>.<span class="f">ends_with</span>(<span class="s">&quot;\n&quot;</span>)): raw_lines.<span class="f">len</span>() - <span class="n">1</span> <span class="k">else</span>: raw_lines.<span class="f">len</span>()</span>
@@ -209,13 +209,13 @@
 <span class="src-line" id="L198">}</span>
 <span class="src-line" id="L199"></span>
 <span class="src-line" id="L200"><span class="m">// Concatenates `list` elements separated by `sep` (convenience wrapper around [`join_strings`]).</span></span>
-<span class="src-line" id="L201"><span class="k">bind</span> join = (list: [<span class="t">string</span>], sep: <span class="t">string</span>) <span class="t">string</span>: <span class="f">join_strings</span>(list, sep)</span>
+<span class="src-line" id="L201"><span class="k">const</span> join = <span class="k">fn</span>(list: [<span class="t">string</span>], sep: <span class="t">string</span>) <span class="t">string</span>: <span class="f">join_strings</span>(list, sep)</span>
 <span class="src-line" id="L202"></span>
 <span class="src-line" id="L203"><span class="m">// Returns all decoded Unicode [`char`] codepoints in this string (alias for [`string.chars`]).</span></span>
-<span class="src-line" id="L204"><span class="k">bind</span> <span class="t">string</span>.chars_list = (<span class="k">self</span>) [<span class="t">char</span>]: <span class="k">self</span>.<span class="f">chars</span>()</span>
+<span class="src-line" id="L204"><span class="k">const</span> <span class="t">string</span>.chars_list = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">char</span>]: <span class="k">self</span>.<span class="f">chars</span>()</span>
 <span class="src-line" id="L205"></span>
 <span class="src-line" id="L206"><span class="m">// Returns all raw UTF-8 bytes in this string (alias for [`string.bytes`]).</span></span>
-<span class="src-line" id="L207"><span class="k">bind</span> <span class="t">string</span>.bytes_list = (<span class="k">self</span>) [<span class="t">u8</span>]: <span class="k">self</span>.<span class="f">bytes</span>()</span>
+<span class="src-line" id="L207"><span class="k">const</span> <span class="t">string</span>.bytes_list = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">u8</span>]: <span class="k">self</span>.<span class="f">bytes</span>()</span>
 <span class="src-line" id="L208"></span>
 <span class="src-line" id="L209"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L210"><span class="m">// ByteBuffer</span></span>
@@ -240,58 +240,58 @@
 <span class="src-line" id="L229">]</span>
 <span class="src-line" id="L230"></span>
 <span class="src-line" id="L231"><span class="m">// Creates an empty [`ByteBuffer`].</span></span>
-<span class="src-line" id="L232"><span class="k">bind</span> <span class="t">ByteBuffer</span>.new = () <span class="t">ByteBuffer</span>: <span class="t">ByteBuffer</span>[_data: [], _pos: <span class="n">0</span>]</span>
+<span class="src-line" id="L232"><span class="k">const</span> <span class="t">ByteBuffer</span>.new = <span class="k">fn</span>() <span class="t">ByteBuffer</span>: <span class="t">ByteBuffer</span>[_data: [], _pos: <span class="n">0</span>]</span>
 <span class="src-line" id="L233"></span>
 <span class="src-line" id="L234"><span class="m">// Creates a [`ByteBuffer`] holding `bytes`, with the cursor at the start.</span></span>
-<span class="src-line" id="L235"><span class="k">bind</span> <span class="t">ByteBuffer</span>.from_bytes = (bytes: <span class="k">own</span> [<span class="t">u8</span>]) <span class="t">ByteBuffer</span>: <span class="t">ByteBuffer</span>[_data: <span class="k">own</span> bytes, _pos: <span class="n">0</span>]</span>
+<span class="src-line" id="L235"><span class="k">const</span> <span class="t">ByteBuffer</span>.from_bytes = <span class="k">fn</span>(bytes: <span class="k">own</span> [<span class="t">u8</span>]) <span class="t">ByteBuffer</span>: <span class="t">ByteBuffer</span>[_data: <span class="k">own</span> bytes, _pos: <span class="n">0</span>]</span>
 <span class="src-line" id="L236"></span>
 <span class="src-line" id="L237"><span class="m">// Creates a [`ByteBuffer`] holding the UTF-8 bytes of `text`, with the cursor at the start.</span></span>
-<span class="src-line" id="L238"><span class="k">bind</span> <span class="t">ByteBuffer</span>.from_string = (text: <span class="t">string</span>) <span class="t">ByteBuffer</span>: <span class="t">ByteBuffer</span>[_data: text.<span class="f">bytes</span>(), _pos: <span class="n">0</span>]</span>
+<span class="src-line" id="L238"><span class="k">const</span> <span class="t">ByteBuffer</span>.from_string = <span class="k">fn</span>(text: <span class="t">string</span>) <span class="t">ByteBuffer</span>: <span class="t">ByteBuffer</span>[_data: text.<span class="f">bytes</span>(), _pos: <span class="n">0</span>]</span>
 <span class="src-line" id="L239"></span>
 <span class="src-line" id="L240"><span class="m">// Returns the total number of bytes, read or not.</span></span>
-<span class="src-line" id="L241"><span class="k">bind</span> <span class="t">ByteBuffer</span>.len = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._data.<span class="f">len</span>()</span>
+<span class="src-line" id="L241"><span class="k">const</span> <span class="t">ByteBuffer</span>.len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._data.<span class="f">len</span>()</span>
 <span class="src-line" id="L242"></span>
 <span class="src-line" id="L243"><span class="m">// Reports whether the buffer holds no bytes.</span></span>
-<span class="src-line" id="L244"><span class="k">bind</span> <span class="t">ByteBuffer</span>.is_empty = (<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>._data.<span class="f">is_empty</span>()</span>
+<span class="src-line" id="L244"><span class="k">const</span> <span class="t">ByteBuffer</span>.is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>._data.<span class="f">is_empty</span>()</span>
 <span class="src-line" id="L245"></span>
 <span class="src-line" id="L246"><span class="m">// Returns the cursor position: the index of the next byte to read.</span></span>
-<span class="src-line" id="L247"><span class="k">bind</span> <span class="t">ByteBuffer</span>.position = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._pos</span>
+<span class="src-line" id="L247"><span class="k">const</span> <span class="t">ByteBuffer</span>.position = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._pos</span>
 <span class="src-line" id="L248"></span>
 <span class="src-line" id="L249"><span class="m">// Returns how many bytes remain after the cursor.</span></span>
-<span class="src-line" id="L250"><span class="k">bind</span> <span class="t">ByteBuffer</span>.remaining = (<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._data.<span class="f">len</span>() - <span class="k">self</span>._pos</span>
+<span class="src-line" id="L250"><span class="k">const</span> <span class="t">ByteBuffer</span>.remaining = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._data.<span class="f">len</span>() - <span class="k">self</span>._pos</span>
 <span class="src-line" id="L251"></span>
 <span class="src-line" id="L252"><span class="m">// Moves the cursor to `pos`, returning `false` (and leaving it unchanged) if out of range.</span></span>
-<span class="src-line" id="L253"><span class="k">bind</span> <span class="t">ByteBuffer</span>.seek = (&amp;<span class="k">self</span>, pos: <span class="t">int</span>) <span class="t">bool</span>: {</span>
+<span class="src-line" id="L253"><span class="k">const</span> <span class="t">ByteBuffer</span>.seek = <span class="k">fn</span>(&amp;<span class="k">self</span>, pos: <span class="t">int</span>) <span class="t">bool</span>: {</span>
 <span class="src-line" id="L254">	<span class="k">if</span>(pos &lt; <span class="n">0</span> <span class="k">or</span> pos &gt; <span class="k">self</span>._data.<span class="f">len</span>()): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">false</span></span>
 <span class="src-line" id="L255">	<span class="k">self</span>._pos = pos</span>
 <span class="src-line" id="L256">	<span class="c">true</span></span>
 <span class="src-line" id="L257">}</span>
 <span class="src-line" id="L258"></span>
 <span class="src-line" id="L259"><span class="m">// Removes all bytes and resets the cursor.</span></span>
-<span class="src-line" id="L260"><span class="k">bind</span> <span class="t">ByteBuffer</span>.clear = (&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L260"><span class="k">const</span> <span class="t">ByteBuffer</span>.clear = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
 <span class="src-line" id="L261">	<span class="k">self</span>._data.<span class="f">clear</span>()</span>
 <span class="src-line" id="L262">	<span class="k">self</span>._pos = <span class="n">0</span></span>
 <span class="src-line" id="L263">}</span>
 <span class="src-line" id="L264"></span>
 <span class="src-line" id="L265"><span class="m">// Returns a copy of every byte in the buffer.</span></span>
-<span class="src-line" id="L266"><span class="k">bind</span> <span class="t">ByteBuffer</span>.bytes = (<span class="k">self</span>) [<span class="t">u8</span>]: <span class="k">self</span>._data.<span class="f">copy</span>()</span>
+<span class="src-line" id="L266"><span class="k">const</span> <span class="t">ByteBuffer</span>.bytes = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">u8</span>]: <span class="k">self</span>._data.<span class="f">copy</span>()</span>
 <span class="src-line" id="L267"></span>
 <span class="src-line" id="L268"><span class="m">// Returns the bytes as a string (they are copied as-is, not validated as UTF-8).</span></span>
-<span class="src-line" id="L269"><span class="k">bind</span> <span class="t">ByteBuffer</span>.to_string = (<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L269"><span class="k">const</span> <span class="t">ByteBuffer</span>.to_string = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {</span>
 <span class="src-line" id="L270">	<span class="k">let</span> out = <span class="s">&quot;&quot;</span></span>
 <span class="src-line" id="L271">	<span class="k">for</span>(b <span class="k">in</span> <span class="k">self</span>._data): out.<span class="f">push_byte</span>(b)</span>
 <span class="src-line" id="L272">	out</span>
 <span class="src-line" id="L273">}</span>
 <span class="src-line" id="L274"></span>
 <span class="src-line" id="L275"><span class="m">// Appends the low `count` bytes of `v`, least significant first (or most significant first when `big_endian`).</span></span>
-<span class="src-line" id="L276"><span class="k">bind</span> <span class="t">ByteBuffer</span>._write_uint = (&amp;<span class="k">self</span>, v: <span class="t">u64</span>, count: <span class="t">int</span>, big_endian: <span class="t">bool</span>):</span>
+<span class="src-line" id="L276"><span class="k">const</span> <span class="t">ByteBuffer</span>._write_uint = <span class="k">fn</span>(&amp;<span class="k">self</span>, v: <span class="t">u64</span>, count: <span class="t">int</span>, big_endian: <span class="t">bool</span>):</span>
 <span class="src-line" id="L277">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..count): {</span>
 <span class="src-line" id="L278">		<span class="k">let</span> shift = <span class="k">if</span>(big_endian): <span class="n">8</span> * (count - <span class="n">1</span> - i) <span class="k">else</span>: <span class="n">8</span> * i</span>
 <span class="src-line" id="L279">		<span class="k">self</span>._data.<span class="f">push</span>(<span class="t">u8</span>((v &gt;&gt; <span class="t">u64</span>(shift)) &amp; <span class="t">u64</span>(<span class="n">0xff</span>)))</span>
 <span class="src-line" id="L280">	}</span>
 <span class="src-line" id="L281"></span>
 <span class="src-line" id="L282"><span class="m">// Reads `count` bytes as an unsigned integer, or `none` if fewer remain.</span></span>
-<span class="src-line" id="L283"><span class="k">bind</span> <span class="t">ByteBuffer</span>._read_uint = (&amp;<span class="k">self</span>, count: <span class="t">int</span>, big_endian: <span class="t">bool</span>) ?<span class="t">u64</span>: {</span>
+<span class="src-line" id="L283"><span class="k">const</span> <span class="t">ByteBuffer</span>._read_uint = <span class="k">fn</span>(&amp;<span class="k">self</span>, count: <span class="t">int</span>, big_endian: <span class="t">bool</span>) ?<span class="t">u64</span>: {</span>
 <span class="src-line" id="L284">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">remaining</span>() &lt; count): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
 <span class="src-line" id="L285">	<span class="k">let</span> v = <span class="t">u64</span>(<span class="n">0</span>)</span>
 <span class="src-line" id="L286">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..count): {</span>
@@ -304,34 +304,34 @@
 <span class="src-line" id="L293">}</span>
 <span class="src-line" id="L294"></span>
 <span class="src-line" id="L295"><span class="m">// Appends one byte.</span></span>
-<span class="src-line" id="L296"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u8 = (&amp;<span class="k">self</span>, v: <span class="t">u8</span>): <span class="k">self</span>._data.<span class="f">push</span>(v)</span>
+<span class="src-line" id="L296"><span class="k">const</span> <span class="t">ByteBuffer</span>.write_u8 = <span class="k">fn</span>(&amp;<span class="k">self</span>, v: <span class="t">u8</span>): <span class="k">self</span>._data.<span class="f">push</span>(v)</span>
 <span class="src-line" id="L297"></span>
 <span class="src-line" id="L298"><span class="m">// Appends a 16-bit value, little-endian.</span></span>
-<span class="src-line" id="L299"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u16 = (&amp;<span class="k">self</span>, v: <span class="t">u16</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(<span class="t">u64</span>(v), <span class="n">2</span>, <span class="c">false</span>)</span>
+<span class="src-line" id="L299"><span class="k">const</span> <span class="t">ByteBuffer</span>.write_u16 = <span class="k">fn</span>(&amp;<span class="k">self</span>, v: <span class="t">u16</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(<span class="t">u64</span>(v), <span class="n">2</span>, <span class="c">false</span>)</span>
 <span class="src-line" id="L300"></span>
 <span class="src-line" id="L301"><span class="m">// Appends a 32-bit value, little-endian.</span></span>
-<span class="src-line" id="L302"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u32 = (&amp;<span class="k">self</span>, v: <span class="t">u32</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(<span class="t">u64</span>(v), <span class="n">4</span>, <span class="c">false</span>)</span>
+<span class="src-line" id="L302"><span class="k">const</span> <span class="t">ByteBuffer</span>.write_u32 = <span class="k">fn</span>(&amp;<span class="k">self</span>, v: <span class="t">u32</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(<span class="t">u64</span>(v), <span class="n">4</span>, <span class="c">false</span>)</span>
 <span class="src-line" id="L303"></span>
 <span class="src-line" id="L304"><span class="m">// Appends a 64-bit value, little-endian.</span></span>
-<span class="src-line" id="L305"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u64 = (&amp;<span class="k">self</span>, v: <span class="t">u64</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(v, <span class="n">8</span>, <span class="c">false</span>)</span>
+<span class="src-line" id="L305"><span class="k">const</span> <span class="t">ByteBuffer</span>.write_u64 = <span class="k">fn</span>(&amp;<span class="k">self</span>, v: <span class="t">u64</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(v, <span class="n">8</span>, <span class="c">false</span>)</span>
 <span class="src-line" id="L306"></span>
 <span class="src-line" id="L307"><span class="m">// Appends a 16-bit value, big-endian.</span></span>
-<span class="src-line" id="L308"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u16_be = (&amp;<span class="k">self</span>, v: <span class="t">u16</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(<span class="t">u64</span>(v), <span class="n">2</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L308"><span class="k">const</span> <span class="t">ByteBuffer</span>.write_u16_be = <span class="k">fn</span>(&amp;<span class="k">self</span>, v: <span class="t">u16</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(<span class="t">u64</span>(v), <span class="n">2</span>, <span class="c">true</span>)</span>
 <span class="src-line" id="L309"></span>
 <span class="src-line" id="L310"><span class="m">// Appends a 32-bit value, big-endian.</span></span>
-<span class="src-line" id="L311"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u32_be = (&amp;<span class="k">self</span>, v: <span class="t">u32</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(<span class="t">u64</span>(v), <span class="n">4</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L311"><span class="k">const</span> <span class="t">ByteBuffer</span>.write_u32_be = <span class="k">fn</span>(&amp;<span class="k">self</span>, v: <span class="t">u32</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(<span class="t">u64</span>(v), <span class="n">4</span>, <span class="c">true</span>)</span>
 <span class="src-line" id="L312"></span>
 <span class="src-line" id="L313"><span class="m">// Appends a 64-bit value, big-endian.</span></span>
-<span class="src-line" id="L314"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_u64_be = (&amp;<span class="k">self</span>, v: <span class="t">u64</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(v, <span class="n">8</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L314"><span class="k">const</span> <span class="t">ByteBuffer</span>.write_u64_be = <span class="k">fn</span>(&amp;<span class="k">self</span>, v: <span class="t">u64</span>): <span class="k">self</span>.<span class="f">_write_uint</span>(v, <span class="n">8</span>, <span class="c">true</span>)</span>
 <span class="src-line" id="L315"></span>
 <span class="src-line" id="L316"><span class="m">// Appends every byte of `bytes`.</span></span>
-<span class="src-line" id="L317"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_bytes = (&amp;<span class="k">self</span>, bytes: [<span class="t">u8</span>]): <span class="k">for</span>(b <span class="k">in</span> bytes): <span class="k">self</span>._data.<span class="f">push</span>(b)</span>
+<span class="src-line" id="L317"><span class="k">const</span> <span class="t">ByteBuffer</span>.write_bytes = <span class="k">fn</span>(&amp;<span class="k">self</span>, bytes: [<span class="t">u8</span>]): <span class="k">for</span>(b <span class="k">in</span> bytes): <span class="k">self</span>._data.<span class="f">push</span>(b)</span>
 <span class="src-line" id="L318"></span>
 <span class="src-line" id="L319"><span class="m">// Appends the UTF-8 bytes of `text`.</span></span>
-<span class="src-line" id="L320"><span class="k">bind</span> <span class="t">ByteBuffer</span>.write_string = (&amp;<span class="k">self</span>, text: <span class="t">string</span>): <span class="k">for</span>(b <span class="k">in</span> text.<span class="f">bytes</span>()): <span class="k">self</span>._data.<span class="f">push</span>(b)</span>
+<span class="src-line" id="L320"><span class="k">const</span> <span class="t">ByteBuffer</span>.write_string = <span class="k">fn</span>(&amp;<span class="k">self</span>, text: <span class="t">string</span>): <span class="k">for</span>(b <span class="k">in</span> text.<span class="f">bytes</span>()): <span class="k">self</span>._data.<span class="f">push</span>(b)</span>
 <span class="src-line" id="L321"></span>
 <span class="src-line" id="L322"><span class="m">// Reads one byte, or `none` at the end.</span></span>
-<span class="src-line" id="L323"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u8 = (&amp;<span class="k">self</span>) ?<span class="t">u8</span>: {</span>
+<span class="src-line" id="L323"><span class="k">const</span> <span class="t">ByteBuffer</span>.read_u8 = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">u8</span>: {</span>
 <span class="src-line" id="L324">	<span class="k">if</span>(<span class="k">self</span>.<span class="f">remaining</span>() &lt; <span class="n">1</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
 <span class="src-line" id="L325">	<span class="k">let</span> b = <span class="k">self</span>._data[<span class="k">self</span>._pos]</span>
 <span class="src-line" id="L326">	<span class="k">self</span>._pos += <span class="n">1</span></span>
@@ -339,37 +339,37 @@
 <span class="src-line" id="L328">}</span>
 <span class="src-line" id="L329"></span>
 <span class="src-line" id="L330"><span class="m">// Reads a little-endian 16-bit value, or `none` if fewer than 2 bytes remain.</span></span>
-<span class="src-line" id="L331"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u16 = (&amp;<span class="k">self</span>) ?<span class="t">u16</span>: {</span>
+<span class="src-line" id="L331"><span class="k">const</span> <span class="t">ByteBuffer</span>.read_u16 = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">u16</span>: {</span>
 <span class="src-line" id="L332">	<span class="k">let</span> v = <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">2</span>, <span class="c">false</span>) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
 <span class="src-line" id="L333">	<span class="t">u16</span>(v)</span>
 <span class="src-line" id="L334">}</span>
 <span class="src-line" id="L335"></span>
 <span class="src-line" id="L336"><span class="m">// Reads a little-endian 32-bit value, or `none` if fewer than 4 bytes remain.</span></span>
-<span class="src-line" id="L337"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u32 = (&amp;<span class="k">self</span>) ?<span class="t">u32</span>: {</span>
+<span class="src-line" id="L337"><span class="k">const</span> <span class="t">ByteBuffer</span>.read_u32 = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">u32</span>: {</span>
 <span class="src-line" id="L338">	<span class="k">let</span> v = <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">4</span>, <span class="c">false</span>) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
 <span class="src-line" id="L339">	<span class="t">u32</span>(v)</span>
 <span class="src-line" id="L340">}</span>
 <span class="src-line" id="L341"></span>
 <span class="src-line" id="L342"><span class="m">// Reads a little-endian 64-bit value, or `none` if fewer than 8 bytes remain.</span></span>
-<span class="src-line" id="L343"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u64 = (&amp;<span class="k">self</span>) ?<span class="t">u64</span>: <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">8</span>, <span class="c">false</span>)</span>
+<span class="src-line" id="L343"><span class="k">const</span> <span class="t">ByteBuffer</span>.read_u64 = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">u64</span>: <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">8</span>, <span class="c">false</span>)</span>
 <span class="src-line" id="L344"></span>
 <span class="src-line" id="L345"><span class="m">// Reads a big-endian 16-bit value, or `none` if fewer than 2 bytes remain.</span></span>
-<span class="src-line" id="L346"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u16_be = (&amp;<span class="k">self</span>) ?<span class="t">u16</span>: {</span>
+<span class="src-line" id="L346"><span class="k">const</span> <span class="t">ByteBuffer</span>.read_u16_be = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">u16</span>: {</span>
 <span class="src-line" id="L347">	<span class="k">let</span> v = <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">2</span>, <span class="c">true</span>) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
 <span class="src-line" id="L348">	<span class="t">u16</span>(v)</span>
 <span class="src-line" id="L349">}</span>
 <span class="src-line" id="L350"></span>
 <span class="src-line" id="L351"><span class="m">// Reads a big-endian 32-bit value, or `none` if fewer than 4 bytes remain.</span></span>
-<span class="src-line" id="L352"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u32_be = (&amp;<span class="k">self</span>) ?<span class="t">u32</span>: {</span>
+<span class="src-line" id="L352"><span class="k">const</span> <span class="t">ByteBuffer</span>.read_u32_be = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">u32</span>: {</span>
 <span class="src-line" id="L353">	<span class="k">let</span> v = <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">4</span>, <span class="c">true</span>) ?? <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
 <span class="src-line" id="L354">	<span class="t">u32</span>(v)</span>
 <span class="src-line" id="L355">}</span>
 <span class="src-line" id="L356"></span>
 <span class="src-line" id="L357"><span class="m">// Reads a big-endian 64-bit value, or `none` if fewer than 8 bytes remain.</span></span>
-<span class="src-line" id="L358"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_u64_be = (&amp;<span class="k">self</span>) ?<span class="t">u64</span>: <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">8</span>, <span class="c">true</span>)</span>
+<span class="src-line" id="L358"><span class="k">const</span> <span class="t">ByteBuffer</span>.read_u64_be = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">u64</span>: <span class="k">self</span>.<span class="f">_read_uint</span>(<span class="n">8</span>, <span class="c">true</span>)</span>
 <span class="src-line" id="L359"></span>
 <span class="src-line" id="L360"><span class="m">// Reads the next `count` bytes, or `none` if fewer remain.</span></span>
-<span class="src-line" id="L361"><span class="k">bind</span> <span class="t">ByteBuffer</span>.read_bytes = (&amp;<span class="k">self</span>, count: <span class="t">int</span>) ?[<span class="t">u8</span>]: {</span>
+<span class="src-line" id="L361"><span class="k">const</span> <span class="t">ByteBuffer</span>.read_bytes = <span class="k">fn</span>(&amp;<span class="k">self</span>, count: <span class="t">int</span>) ?[<span class="t">u8</span>]: {</span>
 <span class="src-line" id="L362">	<span class="k">if</span>(count &lt; <span class="n">0</span> <span class="k">or</span> <span class="k">self</span>.<span class="f">remaining</span>() &lt; count): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
 <span class="src-line" id="L363">	<span class="k">let</span> out = <span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..count) [<span class="t">u8</span>]: <span class="k">self</span>._data[<span class="k">self</span>._pos + i]</span>
 <span class="src-line" id="L364">	<span class="k">self</span>._pos += count</span>
@@ -381,7 +381,7 @@
 <span class="src-line" id="L370"><span class="m">// -----------------------------------------------------------------------------</span></span>
 <span class="src-line" id="L371"></span>
 <span class="src-line" id="L372"><span class="a">@test</span>(<span class="s">&quot;string predicates: is_empty, is_whitespace, is_ascii&quot;</span>)</span>
-<span class="src-line" id="L373"><span class="k">bind</span> test_strings_predicates = (): {</span>
+<span class="src-line" id="L373"><span class="k">bind</span> test_strings_predicates = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L374">	<span class="f">assert</span>(<span class="s">&quot;&quot;</span>.<span class="f">is_empty</span>(), <span class="s">&quot;empty string is_empty&quot;</span>)</span>
 <span class="src-line" id="L375">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;hello&quot;</span>.<span class="f">is_empty</span>(), <span class="s">&quot;non-empty string is not is_empty&quot;</span>)</span>
 <span class="src-line" id="L376"></span>
@@ -394,7 +394,7 @@
 <span class="src-line" id="L383">}</span>
 <span class="src-line" id="L384"></span>
 <span class="src-line" id="L385"><span class="a">@test</span>(<span class="s">&quot;string search: starts_with, ends_with, index_of, last_index_of, contains, count&quot;</span>)</span>
-<span class="src-line" id="L386"><span class="k">bind</span> test_strings_search = (): {</span>
+<span class="src-line" id="L386"><span class="k">bind</span> test_strings_search = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L387">	<span class="f">assert</span>(<span class="s">&quot;hello world&quot;</span>.<span class="f">starts_with</span>(<span class="s">&quot;hello&quot;</span>), <span class="s">&quot;starts_with prefix&quot;</span>)</span>
 <span class="src-line" id="L388">	<span class="f">assert</span>(<span class="k">not</span> <span class="s">&quot;hello world&quot;</span>.<span class="f">starts_with</span>(<span class="s">&quot;world&quot;</span>), <span class="s">&quot;starts_with non-prefix&quot;</span>)</span>
 <span class="src-line" id="L389">	<span class="f">assert</span>(<span class="s">&quot;hello&quot;</span>.<span class="f">starts_with</span>(<span class="s">&quot;&quot;</span>), <span class="s">&quot;starts_with empty&quot;</span>)</span>
@@ -435,7 +435,7 @@
 <span class="src-line" id="L424">}</span>
 <span class="src-line" id="L425"></span>
 <span class="src-line" id="L426"><span class="a">@test</span>(<span class="s">&quot;string trimming and padding&quot;</span>)</span>
-<span class="src-line" id="L427"><span class="k">bind</span> test_strings_trim_pad = (): {</span>
+<span class="src-line" id="L427"><span class="k">bind</span> test_strings_trim_pad = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L428">	<span class="f">assert</span>(<span class="s">&quot;  \t hello \n &quot;</span>.<span class="f">trim_start</span>() == <span class="s">&quot;hello \n &quot;</span>, <span class="s">&quot;trim_start&quot;</span>)</span>
 <span class="src-line" id="L429">	<span class="f">assert</span>(<span class="s">&quot;  \t hello \n &quot;</span>.<span class="f">trim_end</span>() == <span class="s">&quot;  \t hello&quot;</span>, <span class="s">&quot;trim_end&quot;</span>)</span>
 <span class="src-line" id="L430">	<span class="f">assert</span>(<span class="s">&quot;  \t hello \n &quot;</span>.<span class="f">trim</span>() == <span class="s">&quot;hello&quot;</span>, <span class="s">&quot;trim&quot;</span>)</span>
@@ -458,7 +458,7 @@
 <span class="src-line" id="L447">}</span>
 <span class="src-line" id="L448"></span>
 <span class="src-line" id="L449"><span class="a">@test</span>(<span class="s">&quot;string transformations: case, repeat, reverse, replace&quot;</span>)</span>
-<span class="src-line" id="L450"><span class="k">bind</span> test_strings_transform = (): {</span>
+<span class="src-line" id="L450"><span class="k">bind</span> test_strings_transform = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L451">	<span class="f">assert</span>(<span class="s">&quot;Hello, World!&quot;</span>.<span class="f">to_upper</span>() == <span class="s">&quot;HELLO, WORLD!&quot;</span>, <span class="s">&quot;to_upper&quot;</span>)</span>
 <span class="src-line" id="L452">	<span class="f">assert</span>(<span class="s">&quot;Hello, World!&quot;</span>.<span class="f">to_lower</span>() == <span class="s">&quot;hello, world!&quot;</span>, <span class="s">&quot;to_lower&quot;</span>)</span>
 <span class="src-line" id="L453">	<span class="f">assert</span>(<span class="s">&quot;hello world&quot;</span>.<span class="f">capitalize</span>() == <span class="s">&quot;Hello world&quot;</span>, <span class="s">&quot;capitalize lower&quot;</span>)</span>
@@ -483,7 +483,7 @@
 <span class="src-line" id="L472">}</span>
 <span class="src-line" id="L473"></span>
 <span class="src-line" id="L474"><span class="a">@test</span>(<span class="s">&quot;string tokenization and joining: split, lines, join, chars/bytes&quot;</span>)</span>
-<span class="src-line" id="L475"><span class="k">bind</span> test_strings_split_join = (): {</span>
+<span class="src-line" id="L475"><span class="k">bind</span> test_strings_split_join = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L476">	<span class="k">let</span> parts = <span class="s">&quot;apple,banana,cherry&quot;</span>.<span class="f">split</span>(<span class="s">&quot;,&quot;</span>)</span>
 <span class="src-line" id="L477">	<span class="f">assert</span>(parts.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;split count&quot;</span>)</span>
 <span class="src-line" id="L478">	<span class="f">assert</span>(parts[<span class="n">0</span>] == <span class="s">&quot;apple&quot;</span>, <span class="s">&quot;split 0&quot;</span>)</span>
@@ -518,9 +518,9 @@
 <span class="src-line" id="L507">	<span class="k">let</span> joined = <span class="f">join</span>([<span class="s">&quot;a&quot;</span>, <span class="s">&quot;b&quot;</span>, <span class="s">&quot;c&quot;</span>], <span class="s">&quot;::&quot;</span>)</span>
 <span class="src-line" id="L508">	<span class="f">assert</span>(joined == <span class="s">&quot;a::b::c&quot;</span>, <span class="s">&quot;join strings&quot;</span>)</span>
 <span class="src-line" id="L509"></span>
-<span class="src-line" id="L510">	<span class="k">let</span> cl = <span class="s">&quot;cat&quot;</span>.<span class="f">chars_list</span>()</span>
-<span class="src-line" id="L511">	<span class="f">assert</span>(cl.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;chars_list len&quot;</span>)</span>
-<span class="src-line" id="L512">	<span class="f">assert</span>(cl[<span class="n">0</span>] == <span class="s">&#39;c&#39;</span> <span class="k">and</span> cl[<span class="n">1</span>] == <span class="s">&#39;a&#39;</span> <span class="k">and</span> cl[<span class="n">2</span>] == <span class="s">&#39;t&#39;</span>, <span class="s">&quot;chars_list values&quot;</span>)</span>
+<span class="src-line" id="L510">	<span class="k">let</span> chars = <span class="s">&quot;cat&quot;</span>.<span class="f">chars_list</span>()</span>
+<span class="src-line" id="L511">	<span class="f">assert</span>(chars.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;chars_list len&quot;</span>)</span>
+<span class="src-line" id="L512">	<span class="f">assert</span>(chars[<span class="n">0</span>] == <span class="s">&#39;c&#39;</span> <span class="k">and</span> chars[<span class="n">1</span>] == <span class="s">&#39;a&#39;</span> <span class="k">and</span> chars[<span class="n">2</span>] == <span class="s">&#39;t&#39;</span>, <span class="s">&quot;chars_list values&quot;</span>)</span>
 <span class="src-line" id="L513"></span>
 <span class="src-line" id="L514">	<span class="k">let</span> bl = <span class="s">&quot;ABC&quot;</span>.<span class="f">bytes_list</span>()</span>
 <span class="src-line" id="L515">	<span class="f">assert</span>(bl.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;bytes_list len&quot;</span>)</span>
@@ -528,7 +528,7 @@
 <span class="src-line" id="L517">}</span>
 <span class="src-line" id="L518"></span>
 <span class="src-line" id="L519"><span class="a">@test</span>(<span class="s">&quot;ByteBuffer reads and writes little- and big-endian integers&quot;</span>)</span>
-<span class="src-line" id="L520"><span class="k">bind</span> test_byte_buffer = (): {</span>
+<span class="src-line" id="L520"><span class="k">bind</span> test_byte_buffer = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L521">	<span class="k">let</span> b = <span class="t">ByteBuffer</span>.<span class="f">new</span>()</span>
 <span class="src-line" id="L522">	b.<span class="f">write_u8</span>(<span class="t">u8</span>(<span class="n">0xAB</span>))</span>
 <span class="src-line" id="L523">	b.<span class="f">write_u16</span>(<span class="t">u16</span>(<span class="n">0x1234</span>))</span>
@@ -562,7 +562,7 @@
 <span class="src-line" id="L551">}</span>
 <span class="src-line" id="L552"></span>
 <span class="src-line" id="L553"><span class="a">@test</span>(<span class="s">&quot;string.with_capacity and reserve preallocate without changing the text&quot;</span>)</span>
-<span class="src-line" id="L554"><span class="k">bind</span> test_string_capacity = (): {</span>
+<span class="src-line" id="L554"><span class="k">bind</span> test_string_capacity = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L555">	<span class="k">let</span> s = <span class="t">string</span>.<span class="f">with_capacity</span>(<span class="n">100</span>)</span>
 <span class="src-line" id="L556">	<span class="f">assert</span>(s.<span class="f">is_empty</span>() <span class="k">and</span> s.<span class="f">cap</span>() &gt;= <span class="n">100</span>, <span class="s">&quot;with_capacity reserves room&quot;</span>)</span>
 <span class="src-line" id="L557">	<span class="k">let</span> before = s.<span class="f">cap</span>()</span>
@@ -577,7 +577,7 @@
 <span class="src-line" id="L566">}</span>
 <span class="src-line" id="L567"></span>
 <span class="src-line" id="L568"><span class="a">@test</span>(<span class="s">&quot;string.lines drops the final line terminator, not blank lines&quot;</span>)</span>
-<span class="src-line" id="L569"><span class="k">bind</span> test_string_lines_trailing_newline = (): {</span>
+<span class="src-line" id="L569"><span class="k">bind</span> test_string_lines_trailing_newline = <span class="k">fn</span>(): {</span>
 <span class="src-line" id="L570">	<span class="f">assert</span>(<span class="f">join_strings</span>(<span class="s">&quot;a\nb\n&quot;</span>.<span class="f">lines</span>(), <span class="s">&quot;|&quot;</span>) == <span class="s">&quot;a|b&quot;</span>, <span class="s">&quot;trailing newline ends the last line&quot;</span>)</span>
 <span class="src-line" id="L571">	<span class="f">assert</span>(<span class="f">join_strings</span>(<span class="s">&quot;a\r\nb\r\n&quot;</span>.<span class="f">lines</span>(), <span class="s">&quot;|&quot;</span>) == <span class="s">&quot;a|b&quot;</span>, <span class="s">&quot;trailing CRLF too&quot;</span>)</span>
 <span class="src-line" id="L572">	<span class="f">assert</span>(<span class="f">join_strings</span>(<span class="s">&quot;a\nb&quot;</span>.<span class="f">lines</span>(), <span class="s">&quot;|&quot;</span>) == <span class="s">&quot;a|b&quot;</span>, <span class="s">&quot;no trailing newline&quot;</span>)</span>
@@ -587,7 +587,7 @@
 <span class="src-line" id="L576">	<span class="f">assert</span>(<span class="s">&quot;\n&quot;</span>.<span class="f">lines</span>().<span class="f">len</span>() == <span class="n">1</span>, <span class="s">&quot;a lone newline is one empty line&quot;</span>)</span>
 <span class="src-line" id="L577">}</span>
 <span class="src-line" id="L578"></span>
-</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../core.html">std/core</a><a href="../fs.html">std/fs</a><a href="../http.html">std/http</a><a href="../json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../collections.html">std/collections</a><a href="../core.html">std/core</a><a href="../derive.html">std/derive</a><a href="../fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../../search-index.js"></script>
 <script src="../../assets/site.js"></script>
 </body>

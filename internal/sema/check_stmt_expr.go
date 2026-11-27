@@ -1185,12 +1185,13 @@ func (fc *funcChecker) consumeValue(expr ast.Expr, ty types.Type, requireExplici
 		callInf := fc.a.infoFor(v)
 		if callInf != nil && !callInf.IsOptChain && (callInf.BuiltinName == "struct.field" || callInf.BuiltinName == "seq.elem" || callInf.BuiltinName == "enum.payload" || callInf.BuiltinName == "distinct.underlying") {
 			isEnumPayload := callInf.BuiltinName == "enum.payload"
-			if mem, isMem := v.Callee.(*ast.MemberExpr); isMem {
-				baseExpr := unwrapExprWrappers(mem.Base)
+			if mem, isMem := fc.a.resolvedCallee(v).(*ast.MemberExpr); isMem {
+				mBase := fc.a.resolvedMemberBase(mem)
+				baseExpr := unwrapExprWrappers(mBase)
 				var baseTy types.Type
 				if bInf := fc.a.infoFor(baseExpr); bInf != nil && bInf.Type != nil {
 					baseTy = bInf.Type
-				} else if bInf := fc.a.infoFor(mem.Base); bInf != nil {
+				} else if bInf := fc.a.infoFor(mBase); bInf != nil {
 					baseTy = bInf.Type
 				}
 				uBase := types.UnwrapDistinct(baseTy)
@@ -1374,12 +1375,13 @@ func (fc *funcChecker) analyzePlace(e ast.Expr) (root *Symbol, isLval bool, isMu
 			if callInf.IsOptChain {
 				return nil, false, false, "optional chain"
 			}
-			if mem, isMem := v.Callee.(*ast.MemberExpr); isMem {
-				baseTy := fc.a.infoFor(mem.Base).Type
+			if mem, isMem := fc.a.resolvedCallee(v).(*ast.MemberExpr); isMem {
+				mBase := fc.a.resolvedMemberBase(mem)
+				baseTy := fc.a.infoFor(mBase).Type
 				if _, isRef := baseTy.(*types.Ref); isRef {
 					return nil, true, true, ""
 				}
-				return fc.analyzePlace(mem.Base)
+				return fc.analyzePlace(mBase)
 			}
 		}
 	}
@@ -1395,7 +1397,7 @@ func (fc *funcChecker) rootSymbolOfExpr(e ast.Expr) *Symbol {
 	case *ast.UnsafeExpr:
 		return fc.rootSymbolOfExpr(v.Expr)
 	case *ast.MemberExpr:
-		return fc.rootSymbolOfExpr(v.Base)
+		return fc.rootSymbolOfExpr(fc.a.resolvedMemberBase(v))
 	case *ast.IndexExpr:
 		return fc.rootSymbolOfExpr(v.Base)
 	case *ast.SliceExpr:
@@ -1425,7 +1427,7 @@ func (fc *funcChecker) arenaDepthOfExpr(e ast.Expr) int {
 	case *ast.UnaryExpr:
 		return fc.arenaDepthOfExpr(v.Operand)
 	case *ast.MemberExpr:
-		return fc.arenaDepthOfExpr(v.Base)
+		return fc.arenaDepthOfExpr(fc.a.resolvedMemberBase(v))
 	case *ast.IndexExpr:
 		return fc.arenaDepthOfExpr(v.Base)
 	case *ast.SliceExpr:
@@ -1476,14 +1478,15 @@ func (fc *funcChecker) arenaDepthOfExpr(e ast.Expr) int {
 		if inf != nil && (inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload" || inf.BuiltinName == "enum.as_variant" || inf.BuiltinName == "distinct.underlying") && inf.MethodRecv != nil {
 			return fc.arenaDepthOfExpr(inf.MethodRecv)
 		}
+		calleeExpr := fc.a.resolvedCallee(v)
 		if inf.CallKind == CallClosureValue {
-			if cd := fc.arenaDepthOfExpr(v.Callee); cd > 0 && typeMayHoldArenaRef(inf.Type) {
+			if cd := fc.arenaDepthOfExpr(calleeExpr); cd > 0 && typeMayHoldArenaRef(inf.Type) {
 				return cd
 			}
 		}
 		// Propagate max arena depth of arguments if return type may hold `ref[T]`
 		if typeMayHoldArenaRef(inf.Type) {
-			maxD := fc.arenaDepthOfExpr(v.Callee)
+			maxD := fc.arenaDepthOfExpr(calleeExpr)
 			if inf.MethodRecv != nil {
 				if root := fc.rootSymbolOfExpr(inf.MethodRecv); root != nil && types.IsArena(root.Type) && root.BindKind == BindOwned {
 					if root.ScopeDepth > maxD {
@@ -3680,26 +3683,77 @@ func typeExprToIndexExpr(ta ast.TypeExpr) (ast.Expr, bool) {
 		return ca.Expr, true
 	}
 	nt, ok := ta.(*ast.NamedType)
-	if !ok || len(nt.TypeArgs) > 0 {
+	if !ok {
 		return nil, false
 	}
+	var base ast.Expr
 	if nt.Module == "" {
-		return &ast.IdentExpr{Name: nt.Name, Span: nt.Span}, true
+		base = &ast.IdentExpr{Name: nt.Name, Span: nt.Span}
+	} else {
+		base = &ast.MemberExpr{
+			Base:   &ast.IdentExpr{Name: nt.Module, Span: nt.Span},
+			Member: nt.Name,
+			Span:   nt.Span,
+		}
 	}
-	return &ast.MemberExpr{
-		Base:   &ast.IdentExpr{Name: nt.Module, Span: nt.Span},
-		Member: nt.Name,
-		Span:   nt.Span,
-	}, true
+	if len(nt.TypeArgs) == 0 {
+		return base, true
+	}
+	if len(nt.TypeArgs) == 1 {
+		if idxExpr, ok := typeExprToIndexExpr(nt.TypeArgs[0]); ok {
+			return &ast.IndexExpr{
+				Base:  base,
+				Index: idxExpr,
+				Span:  nt.Span,
+			}, true
+		}
+	}
+	return nil, false
 }
 
-func (fc *funcChecker) maybeRewriteIndexedMemberBase(m *ast.MemberExpr) {
-	// Parsed files are cached and may be checked concurrently; this rewrite is idempotent and
-	// serialized so concurrent checks of the same file never race on the node.
-	astRewriteMu.Lock()
-	defer astRewriteMu.Unlock()
+// MemberFieldName returns the effective field name of m, honoring any non-mutating
+// resolution recorded on inf (e.g. stripping a `?` suffix during optional chaining).
+func MemberFieldName(m *ast.MemberExpr, inf *ExprInfo) string {
+	if inf != nil && inf.ResolvedField != "" {
+		return inf.ResolvedField
+	}
+	if m == nil {
+		return ""
+	}
+	return m.Member
+}
+
+func (a *Analyzer) resolvedMemberBase(m *ast.MemberExpr) ast.Expr {
+	if m == nil {
+		return nil
+	}
+	if a != nil {
+		if inf := a.infoFor(m); inf != nil && inf.ResolvedBase != nil {
+			return inf.ResolvedBase
+		}
+	}
+	return m.Base
+}
+
+func (a *Analyzer) resolvedCallee(call *ast.CallExpr) ast.Expr {
+	if call == nil {
+		return nil
+	}
+	if a != nil {
+		if inf := a.infoFor(call); inf != nil && inf.ResolvedCallee != nil {
+			return inf.ResolvedCallee
+		}
+	}
+	return call.Callee
+}
+
+func (fc *funcChecker) maybeResolveIndexedMemberBase(m *ast.MemberExpr) ast.Expr {
+	inf := fc.a.infoFor(m)
+	if inf != nil && inf.ResolvedBase != nil {
+		return inf.ResolvedBase
+	}
 	if len(m.BaseTypeArgs) != 1 {
-		return
+		return m.Base
 	}
 	isValueBase := false
 	switch bv := m.Base.(type) {
@@ -3725,16 +3779,20 @@ func (fc *funcChecker) maybeRewriteIndexedMemberBase(m *ast.MemberExpr) {
 		isValueBase = true
 	}
 	if !isValueBase {
-		return
+		return m.Base
 	}
 	if idxExpr, ok := typeExprToIndexExpr(m.BaseTypeArgs[0]); ok {
-		m.Base = &ast.IndexExpr{
+		resolved := &ast.IndexExpr{
 			Base:  m.Base,
 			Index: idxExpr,
 			Span:  diag.Span{Start: m.Base.GetSpan().Start, End: m.BaseTypeArgs[0].GetSpan().End},
 		}
-		m.BaseTypeArgs = nil
+		if inf != nil {
+			inf.ResolvedBase = resolved
+		}
+		return resolved
 	}
+	return m.Base
 }
 
 func (fc *funcChecker) tryResolveEnumMemberTarget(m *ast.MemberExpr, expected types.Type) (*types.Enum, *GenericEnumTemplate, bool) {
@@ -3771,12 +3829,13 @@ func (fc *funcChecker) tryResolveEnumMemberTarget(m *ast.MemberExpr, expected ty
 		return nil, nil, false
 	}
 
-	if baseId, isId := m.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && fc.lookupVar(baseId.Name) == nil {
+	mBase := fc.a.resolvedMemberBase(m)
+	if baseId, isId := mBase.(*ast.IdentExpr); isId && !baseId.IsOpt && fc.lookupVar(baseId.Name) == nil {
 		if _, isMod := fc.mod.Aliased[baseId.Name]; !isMod {
 			return resolveFromMod("", baseId.Name)
 		}
 	}
-	if baseMem, isMem := m.Base.(*ast.MemberExpr); isMem && !baseMem.QuestDot && !baseMem.MemberHasOpt && len(baseMem.BaseTypeArgs) == 0 {
+	if baseMem, isMem := mBase.(*ast.MemberExpr); isMem && !baseMem.QuestDot && !baseMem.MemberHasOpt && len(baseMem.BaseTypeArgs) == 0 {
 		if modId, isId := baseMem.Base.(*ast.IdentExpr); isId && !modId.IsOpt && fc.lookupVar(modId.Name) == nil {
 			if modId.Name == "comp" && fc.mod.Aliased["comp"] == nil {
 				if t := fc.a.Prog.CompTypes[baseMem.Member]; t != nil {
@@ -3891,22 +3950,23 @@ func (fc *funcChecker) checkMemberExpr(m *ast.MemberExpr, expected types.Type) t
 	res := fc.checkMemberExprInner(m, expected)
 	inf := fc.a.infoFor(m)
 	if inf.EnumVariant == nil && inf.Sym == nil {
-		fc.tryFoldComptimeProjection(m, m.Base, res, nil)
+		fc.tryFoldComptimeProjection(m, fc.a.resolvedMemberBase(m), res, nil)
 	}
 	return res
 }
 
 func (fc *funcChecker) checkMemberExprInner(m *ast.MemberExpr, expected types.Type) types.Type {
 	inf := fc.a.infoFor(m)
-	fc.maybeRewriteIndexedMemberBase(m)
+	mBase := fc.maybeResolveIndexedMemberBase(m)
+	hasBaseTypeArgs := len(m.BaseTypeArgs) > 0 && mBase == m.Base
 
-	if fc.checkModuleOptChain(m.Base, m.Member, m.QuestDot, m.Span) {
+	if fc.checkModuleOptChain(mBase, m.Member, m.QuestDot, m.Span) {
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
 	}
 
 	// 0. Check built-in compiler namespace values (`comp.TARGET`)!
-	if baseId, isId := m.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !m.QuestDot && len(m.BaseTypeArgs) == 0 && fc.lookupVar(baseId.Name) == nil {
+	if baseId, isId := mBase.(*ast.IdentExpr); isId && !baseId.IsOpt && !m.QuestDot && !hasBaseTypeArgs && fc.lookupVar(baseId.Name) == nil {
 		if _, isMod := fc.mod.Aliased[baseId.Name]; !isMod && baseId.Name == "comp" {
 			if m.Member == "TARGET" && fc.a.Prog.CompTargetSym != nil {
 				if !fc.inComptimeOnlyContext() && fc.allowComptimeChain == 0 {
@@ -3936,7 +3996,7 @@ func (fc *funcChecker) checkMemberExprInner(m *ast.MemberExpr, expected types.Ty
 	}
 
 	// 1. Check imported module symbol (`mod.val`)!
-	if baseId, isId := m.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && len(m.BaseTypeArgs) == 0 {
+	if baseId, isId := mBase.(*ast.IdentExpr); isId && !baseId.IsOpt && !hasBaseTypeArgs {
 		if fc.lookupVar(baseId.Name) == nil {
 			if targetMod, isMod := fc.mod.Aliased[baseId.Name]; isMod {
 				if fc.mod.DevAliased[baseId.Name] && !fc.isTestContext() {
@@ -4056,9 +4116,9 @@ func (fc *funcChecker) checkMemberExprInner(m *ast.MemberExpr, expected types.Ty
 
 	// 2. Evaluate base expression and handle optional chaining (Spec §7.2.3 & Decision B1 / 3A)!
 	fc.allowComptimeChain++
-	baseTy := fc.checkExpr(m.Base, true)
+	baseTy := fc.checkExpr(mBase, true)
 	fc.allowComptimeChain--
-	fc.clearPendingOptChainErr(m.Base)
+	fc.clearPendingOptChainErr(mBase)
 	if baseTy == types.TypeInvalid {
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
@@ -4071,8 +4131,8 @@ func (fc *funcChecker) checkMemberExprInner(m *ast.MemberExpr, expected types.Ty
 		innerTy = optB.Elem
 		// Allow normal `.` optional chaining once an optional identifier, optional field (`self.profile?.score`),
 		// `?.` operator, or earlier optional chain (`acc?.nick.len()`) has visually marked optionality!
-		hasVisualQuestion := m.QuestDot || fc.a.infoFor(m.Base).IsOptChain
-		switch bv := m.Base.(type) {
+		hasVisualQuestion := m.QuestDot || fc.a.infoFor(mBase).IsOptChain
+		switch bv := mBase.(type) {
 		case *ast.IdentExpr:
 			if bv.IsOpt {
 				hasVisualQuestion = true
@@ -4186,8 +4246,8 @@ func (fc *funcChecker) checkMemberExprInner(m *ast.MemberExpr, expected types.Ty
 		if f2, _ := st.FieldByName(plainName); f2 != nil {
 			f = f2
 			// Keep `m.MemberHasOpt = true` so the NEXT `.city` in `u?.address?.city` sees the `?` marker,
-			// while recording the resolved non-optional struct field name!
-			m.Member = plainName
+			// while recording the resolved non-optional struct field name on ExprInfo without mutating the AST!
+			inf.ResolvedField = plainName
 		}
 	}
 	if f == nil {
@@ -6459,9 +6519,13 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 	maxUnroll := MaxComptimeUnrollIters
 	if fc.curFn != nil && fc.curFn.ComptimeUnrollLimit > 0 {
 		maxUnroll = fc.curFn.ComptimeUnrollLimit
+	} else if fc.curTopVar != nil && fc.curTopVar.Sym != nil && fc.curTopVar.Sym.ComptimeUnrollLimit > 0 {
+		maxUnroll = fc.curTopVar.Sym.ComptimeUnrollLimit
 	}
+	ideUnrollCapped := false
 	if fc.a != nil && fc.a.ideMode && maxUnroll > defaultIDEComptimeMaxUnroll {
 		maxUnroll = defaultIDEComptimeMaxUnroll
+		ideUnrollCapped = true
 	}
 	prevDepth := fc.comptimeExprDepth
 	prevMin := fc.comptimeMinScope
@@ -6470,7 +6534,7 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 		fc.comptimeMinScope = fc.curDepth() + 1
 	}
 	sym1, sym2, _, _ := fc.checkLoopHeader(h, id)
-	items, ok := fc.a.evalComptimeForItems(fc, fe, sym1, sym2, maxUnroll)
+	items, ok := fc.a.evalComptimeForItems(fc, fe, sym1, sym2, maxUnroll, ideUnrollCapped)
 	fc.comptimeExprDepth = prevDepth
 	fc.comptimeMinScope = prevMin
 
@@ -6481,11 +6545,15 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 
 	perIterStmts := countASTStmts(fe.Body)
 	if fc.unrolledStmts+len(items)*perIterStmts > maxUnroll {
-		fc.a.Rep.ErrorWithHint(
-			fe.Span,
-			fmt.Sprintf("compile-time `for` unrolling exceeds function statement limit of %d", maxUnroll),
-			"reduce the loop count, annotate the function with `@comptime_limit(...)`, or use a runtime `for` loop",
-		)
+		if ideUnrollCapped {
+			fc.a.Rep.Warnf(fe.Span, "IDE compile-time `for` unrolling stopped at analysis limit of %d statements", maxUnroll)
+		} else {
+			fc.a.Rep.ErrorWithHint(
+				fe.Span,
+				fmt.Sprintf("compile-time `for` unrolling exceeds function statement limit of %d", maxUnroll),
+				"reduce the loop count, annotate the function with `@comptime_limit(...)`, or use a runtime `for` loop",
+			)
+		}
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
 	}
@@ -6515,23 +6583,30 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 	var collectIndices []int
 	isVectorInferred := false
 	if wantValue {
-		if evalTy != nil {
-			if evalTy != types.TypeInvalid {
-				switch ev := evalTy.(type) {
-				case *types.Struct:
-					if isRealStructType(ev) {
-						collectFixedTy = ev
-						collectStruct = ev
-					}
-				case *types.Tuple:
-					collectFixedTy = ev
-					collectTuple = ev
-				case *types.StackArray:
-					collectFixedTy = ev
-					collectArr = ev
-				}
+		checkFixedTarget := func(ty types.Type) bool {
+			if ty == nil || ty == types.TypeInvalid {
+				return false
 			}
-			if collectFixedTy != nil {
+			switch ev := ty.(type) {
+			case *types.Struct:
+				if isRealStructType(ev) {
+					collectFixedTy = ev
+					collectStruct = ev
+					return true
+				}
+			case *types.Tuple:
+				collectFixedTy = ev
+				collectTuple = ev
+				return true
+			case *types.StackArray:
+				collectFixedTy = ev
+				collectArr = ev
+				return true
+			}
+			return false
+		}
+		if evalTy != nil {
+			if checkFixedTarget(evalTy) {
 				targetColTy = collectFixedTy
 			} else if evalTy != types.TypeInvalid && !fc.a.isCollectableType(evalTy) {
 				fc.a.Rep.Errorf(fe.EvalType.GetSpan(), "type %s does not implement Collectable", evalTy.String())
@@ -6543,9 +6618,21 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 					expectedItemTy = fc.a.collectableItemType(evalTy)
 				}
 			}
-		} else if expected != nil && expected != types.TypeVoid && expected != types.TypeInvalid && fc.a.isCollectableType(expected) {
-			targetColTy = expected
-			expectedItemTy = fc.a.collectableItemType(expected)
+		} else if expected != nil && expected != types.TypeVoid && expected != types.TypeInvalid {
+			if fc.a.isCollectableType(expected) {
+				targetColTy = expected
+				expectedItemTy = fc.a.collectableItemType(expected)
+			} else {
+				expUnwrapped := expected
+				if opt, isOpt := expUnwrapped.(*types.Optional); isOpt {
+					expUnwrapped = opt.Elem
+				}
+				if checkFixedTarget(expUnwrapped) {
+					targetColTy = collectFixedTy
+				} else {
+					isVectorInferred = true
+				}
+			}
 		} else {
 			isVectorInferred = true
 		}
@@ -6563,6 +6650,20 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 		var kindDesc string
 		switch {
 		case collectStruct != nil:
+			if !fc.a.ensureStructFieldsForLayout(collectStruct, fe.Span) {
+				inf.Type = types.TypeInvalid
+				return types.TypeInvalid
+			}
+			samePkg := fc.a.SamePackageDir(fc.mod, collectStruct.PkgDir, "") || fc.a.SamePackage(fc.mod, fc.a.typeModule(collectStruct))
+			if !samePkg && !fc.hasDeriveAccess(collectStruct) {
+				for _, sf := range collectStruct.Fields {
+					if !IsExported(sf.Name) {
+						fc.a.Rep.Errorf(fe.Span, "cannot construct struct %s via `comptime for`: field %q is private to another package", collectStruct.String(), sf.Name)
+						inf.Type = types.TypeInvalid
+						return types.TypeInvalid
+					}
+				}
+			}
 			needed = len(collectStruct.Fields)
 			kindDesc = "struct"
 		case collectTuple != nil:

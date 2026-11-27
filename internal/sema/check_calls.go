@@ -226,44 +226,16 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 
 	// 1. Check `Ident(...)` or `Ident[T...](...)` forms first (intrinsics, conversions, builtins, direct/generic fns)
 	if id, isId := call.Callee.(*ast.IdentExpr); isId && !id.IsOpt {
-		// Check disambiguation of `vec_of_fns[idx](args)` when parser tentatively parsed `[idx]` as TypeArgs.
-		// The rewrite is idempotent and serialized: cached ASTs may be checked concurrently.
-		astRewriteMu.Lock()
-		var idxExprArg ast.Expr
-		var idxSpan diag.Span
-		if len(call.TypeArgs) == 1 {
-			switch ta := call.TypeArgs[0].(type) {
-			case *ast.NamedType:
-				if ta.Module == "" && len(ta.TypeArgs) == 0 {
-					idxExprArg = &ast.IdentExpr{Name: ta.Name, Span: ta.Span}
-					idxSpan = ta.Span
-				}
-			case *ast.ConstArgType:
-				idxExprArg = ta.Expr
-				idxSpan = ta.Span
-			}
-		}
-		astRewriteMu.Unlock()
-
-		rewritten := false
-		if idxExprArg != nil {
+		// Disambiguate `vec_of_fns[idx](args)` when parser tentatively parsed `[idx]` as TypeArgs.
+		if idxExprArg, idxSpan, okIdx := fc.typeArgsToIndexExpr(call.TypeArgs); okIdx {
 			if sym := fc.lookupVar(id.Name); sym != nil && fc.isBracketIndexableType(sym.Type, call.Span) {
-				astRewriteMu.Lock()
-				if len(call.TypeArgs) == 1 {
-					idxExpr := &ast.IndexExpr{
-						Base:  id,
-						Index: idxExprArg,
-						Span:  idxSpan,
-					}
-					call.Callee = idxExpr
-					call.TypeArgs = nil
+				inf.ResolvedCallee = &ast.IndexExpr{
+					Base:  id,
+					Index: idxExprArg,
+					Span:  diag.Span{Start: id.Span.Start, End: idxSpan.End},
 				}
-				astRewriteMu.Unlock()
-				rewritten = true
+				return fc.checkClosureValueCall(call)
 			}
-		}
-		if rewritten {
-			return fc.checkClosureValueCall(call)
 		}
 
 		// 1a. Check Intrinsics (`size_of`, `alloc_raw`, `ptr_read`, etc.) if not shadowed
@@ -344,17 +316,42 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 		return fc.checkMemberCallExpr(mem, call, expected, savedChain > 0)
 	}
 
-	// 3. Arbitrary expression callee (`get_adder()(1, 2)`)
+	// 3. Arbitrary expression callee (`get_adder()(1, 2)`, `grid[0][1](x)`)
+	if idxExprArg, idxSpan, okIdx := fc.typeArgsToIndexExpr(call.TypeArgs); okIdx {
+		savedMoves := fc.cloneMoves()
+		fc.probing++
+		baseTy := fc.checkExpr(call.Callee, true)
+		fc.probing--
+		fc.moves = savedMoves
+		if fc.isBracketIndexableType(baseTy, call.Span) {
+			inf.ResolvedCallee = &ast.IndexExpr{
+				Base:  call.Callee,
+				Index: idxExprArg,
+				Span:  diag.Span{Start: call.Callee.GetSpan().Start, End: idxSpan.End},
+			}
+		}
+	}
 	return fc.checkClosureValueCall(call)
+}
+
+func (fc *funcChecker) typeArgsToIndexExpr(typeArgs []ast.TypeExpr) (ast.Expr, diag.Span, bool) {
+	if len(typeArgs) != 1 {
+		return nil, diag.Span{}, false
+	}
+	if idxExpr, ok := typeExprToIndexExpr(typeArgs[0]); ok {
+		return idxExpr, typeArgs[0].GetSpan(), true
+	}
+	return nil, diag.Span{}, false
 }
 
 func (fc *funcChecker) checkClosureValueCall(call *ast.CallExpr) types.Type {
 	inf := fc.a.infoFor(call)
-	calleeTy := fc.checkExpr(call.Callee, true)
+	calleeExpr := fc.a.resolvedCallee(call)
+	calleeTy := fc.checkExpr(calleeExpr, true)
 	fnSig, ok := calleeTy.(*types.Func)
 	if !ok {
 		if calleeTy != types.TypeInvalid {
-			fc.a.Rep.Errorf(call.Callee.GetSpan(), "cannot call non-function value of type %s", calleeTy.String())
+			fc.a.Rep.Errorf(calleeExpr.GetSpan(), "cannot call non-function value of type %s", calleeTy.String())
 		}
 		for _, a := range call.Args {
 			_ = fc.checkExpr(a, true)
@@ -496,15 +493,16 @@ func (fc *funcChecker) checkTypeConversionOrBox(targetTy types.Type, call *ast.C
 
 func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallExpr, expected types.Type, inChain bool) types.Type {
 	inf := fc.a.infoFor(call)
-	fc.maybeRewriteIndexedMemberBase(mem)
+	mBase := fc.maybeResolveIndexedMemberBase(mem)
+	hasBaseTypeArgs := len(mem.BaseTypeArgs) > 0 && mBase == mem.Base
 
-	if fc.checkModuleOptChain(mem.Base, mem.Member, mem.QuestDot, mem.Span) {
+	if fc.checkModuleOptChain(mBase, mem.Member, mem.QuestDot, mem.Span) {
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
 	}
 
 	// 0. Check built-in compiler namespaces (`comp.*` for `@comptime_only` APIs, `type.*` for `const` type-layout queries)
-	if baseId, isId := mem.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && len(mem.BaseTypeArgs) == 0 && fc.lookupVar(baseId.Name) == nil {
+	if baseId, isId := mBase.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && !hasBaseTypeArgs && fc.lookupVar(baseId.Name) == nil {
 		if _, isMod := fc.mod.Aliased[baseId.Name]; !isMod {
 			if baseId.Name == "comp" {
 				return fc.checkCompNamespaceCall(mem, call, inChain)
@@ -516,7 +514,7 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 	}
 
 	// 1. Check module-qualified calls (`mod.fn(...)`, `mod.GenericFn[T](...)`, `mod.Type(x)`)
-	if baseId, isId := mem.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && len(mem.BaseTypeArgs) == 0 && fc.lookupVar(baseId.Name) == nil {
+	if baseId, isId := mBase.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && !hasBaseTypeArgs && fc.lookupVar(baseId.Name) == nil {
 		if targetMod, isMod := fc.mod.Aliased[baseId.Name]; isMod {
 			if fc.mod.DevAliased[baseId.Name] && !fc.isTestContext() {
 				fc.a.Rep.Errorf(mem.Span, "cannot reference [dev-dependencies] package %q from non-test code", baseId.Name)
@@ -552,6 +550,17 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 					inf.Type = sym.ExternFn.Sig.Ret
 					return inf.Type
 				}
+				if idxExprArg, idxSpan, okIdx := fc.typeArgsToIndexExpr(call.TypeArgs); okIdx && fc.isBracketIndexableType(sym.Type, call.Span) {
+					inf.ResolvedCallee = &ast.IndexExpr{
+						Base:  mem,
+						Index: idxExprArg,
+						Span:  diag.Span{Start: mem.Span.Start, End: idxSpan.End},
+					}
+					return fc.checkClosureValueCall(call)
+				}
+				if _, isFn := sym.Type.(*types.Func); isFn && len(call.TypeArgs) == 0 {
+					return fc.checkClosureValueCall(call)
+				}
 			}
 			if ty, ok := targetMod.Types[mem.Member]; ok && len(call.TypeArgs) == 0 {
 				return fc.checkTypeConversionOrBox(ty, call)
@@ -574,12 +583,12 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 	}
 
 	// 2b. Check Type-namespaced calls (`Arena.new()`, `Point.translate(&pt, 5, 5)`, `Pool[Node].new()`)
-	if baseId, isId := mem.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && fc.lookupVar(baseId.Name) == nil {
+	if baseId, isId := mBase.(*ast.IdentExpr); isId && !baseId.IsOpt && !mem.QuestDot && fc.lookupVar(baseId.Name) == nil {
 		if genSt := fc.a.lookupGenStructInModule(fc.mod, "", baseId.Name); genSt != nil {
 			return fc.checkGenericTypeAssocCall(genSt, mem.BaseTypeArgs, mem.Member, call, expected)
 		}
 		if recvTy := fc.a.lookupTypeInModule(fc.mod, "", baseId.Name); recvTy != nil {
-			if len(mem.BaseTypeArgs) > 0 {
+			if hasBaseTypeArgs {
 				fc.a.Rep.Errorf(mem.Span, "type %s is not generic", recvTy.String())
 			}
 			var mTypeArgs []types.Type
@@ -608,8 +617,8 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 		}
 	}
 
-	// Check `mod.GenericStruct[T].method(...)` or `mod.Type.method(...)` when `mem.Base` is `mod.Type`!
-	if baseMem, isBM := mem.Base.(*ast.MemberExpr); isBM && len(baseMem.BaseTypeArgs) == 0 {
+	// Check `mod.GenericStruct[T].method(...)` or `mod.Type.method(...)` when `mBase` is `mod.Type`!
+	if baseMem, isBM := mBase.(*ast.MemberExpr); isBM && len(baseMem.BaseTypeArgs) == 0 {
 		if fc.checkModuleOptChain(baseMem.Base, baseMem.Member, baseMem.QuestDot, baseMem.Span) {
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
@@ -664,8 +673,8 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 		}
 	}
 
-	// 3. Instance method or function-valued struct field on `mem.Base`!
-	recvTy := fc.checkExpr(mem.Base, true)
+	// 3. Instance method or function-valued struct field on `mBase`!
+	recvTy := fc.checkExpr(mBase, true)
 	if recvTy == types.TypeInvalid {
 		for _, a := range call.Args {
 			_ = fc.checkExpr(a, true)
@@ -678,9 +687,10 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 
 func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.MemberExpr, call *ast.CallExpr, expected types.Type, inMatchPattern bool) types.Type {
 	inf := fc.a.infoFor(call)
+	mBase := fc.a.resolvedMemberBase(mem)
 
 	if !inMatchPattern {
-		// Check if `mem.Base` is a struct (or `ref[Struct]`) that has a function-typed field named `mem.Member`!
+		// Check if `mBase` is a struct (or `ref[Struct]`) that has a function-typed or indexable field named `mem.Member`!
 		innerStructTy := recvTy
 		if rf, isRf := innerStructTy.(*types.Ref); isRf {
 			innerStructTy = rf.Elem
@@ -693,6 +703,14 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 					return types.TypeInvalid
 				}
 				if _, isFn := sf.Type.(*types.Func); isFn {
+					return fc.checkClosureValueCall(call)
+				}
+				if idxExprArg, idxSpan, okIdx := fc.typeArgsToIndexExpr(call.TypeArgs); okIdx && fc.isBracketIndexableType(sf.Type, call.Span) {
+					inf.ResolvedCallee = &ast.IndexExpr{
+						Base:  mem,
+						Index: idxExprArg,
+						Span:  diag.Span{Start: mem.Span.Start, End: idxSpan.End},
+					}
 					return fc.checkClosureValueCall(call)
 				}
 			}
@@ -710,6 +728,14 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 				if _, isFn := tup.Elems[idx].(*types.Func); isFn {
 					return fc.checkClosureValueCall(call)
 				}
+				if idxExprArg, idxSpan, okIdx := fc.typeArgsToIndexExpr(call.TypeArgs); okIdx && fc.isBracketIndexableType(tup.Elems[idx], call.Span) {
+					inf.ResolvedCallee = &ast.IndexExpr{
+						Base:  mem,
+						Index: idxExprArg,
+						Span:  diag.Span{Start: mem.Span.Start, End: idxSpan.End},
+					}
+					return fc.checkClosureValueCall(call)
+				}
 			}
 		}
 	}
@@ -718,8 +744,8 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 	isOptChain := false
 	actualRecvTy := recvTy
 	if optR, isOpt := recvTy.(*types.Optional); isOpt {
-		hasVisualQ := mem.QuestDot || fc.a.infoFor(mem.Base).IsOptChain
-		switch bv := mem.Base.(type) {
+		hasVisualQ := mem.QuestDot || fc.a.infoFor(mBase).IsOptChain
+		switch bv := mBase.(type) {
 		case *ast.IdentExpr:
 			if bv.IsOpt {
 				hasVisualQ = true
@@ -778,7 +804,7 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 			case "has_attr", "attr", "implements", "payload_implements":
 				ret := fc.checkBuiltinMethodCall(actualRecvTy, isArenaRef, isOptChain, inMatchPattern, mem, call)
 				if isOptChain && inf.MethodRecvMode != types.ModeMut && ret != types.TypeInvalid {
-					fc.clearPendingOptChainErr(mem.Base)
+					fc.clearPendingOptChainErr(mBase)
 				}
 				return ret
 			}
@@ -811,7 +837,7 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 			if dispatchRefl {
 				ret := fc.checkBuiltinMethodCall(actualRecvTy, isArenaRef, isOptChain, inMatchPattern, mem, call)
 				if isOptChain && inf.MethodRecvMode != types.ModeMut && ret != types.TypeInvalid {
-					fc.clearPendingOptChainErr(mem.Base)
+					fc.clearPendingOptChainErr(mBase)
 				}
 				return ret
 			}
@@ -819,7 +845,7 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 			if _, isDt := actualRecvTy.(*types.Distinct); isDt && fc.curFn != nil && fc.funcDepth == 0 && (fc.curFn.DeriveTarget != nil || fc.curFn.IsDerived) {
 				ret := fc.checkBuiltinMethodCall(actualRecvTy, isArenaRef, isOptChain, inMatchPattern, mem, call)
 				if isOptChain && inf.MethodRecvMode != types.ModeMut && ret != types.TypeInvalid {
-					fc.clearPendingOptChainErr(mem.Base)
+					fc.clearPendingOptChainErr(mBase)
 				}
 				return ret
 			}
@@ -914,22 +940,22 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 				}
 				fc.a.Rep.Errorf(call.Span, "method `%s.%s` in `match` pattern must take read-only `self` (got `%s`)", actualRecvTy.String(), mem.Member, modeStr)
 			} else {
-				fc.markViewIfApplicable(mem.Base, actualRecvTy)
+				fc.markViewIfApplicable(mBase, actualRecvTy)
 			}
 		} else {
 			switch recvMode {
 			case types.ModeMut:
 				if !isArenaRef {
-					mutRecvRoot = fc.checkMutablePlace(mem.Base, fmt.Sprintf("call `&self` method `%s` on", mem.Member))
+					mutRecvRoot = fc.checkMutablePlace(mBase, fmt.Sprintf("call `&self` method `%s` on", mem.Member))
 				}
 			case types.ModeOwn:
 				if isArenaRef {
 					fc.a.Rep.Errorf(call.Span, "cannot call consuming `own self` method %q through arena `ref[%s]`", mem.Member, actualRecvTy.String())
 				} else {
-					fc.consumeValue(mem.Base, actualRecvTy, false)
+					fc.consumeValue(mBase, actualRecvTy, false)
 				}
 			case types.ModeRead:
-				fc.markViewIfApplicable(mem.Base, actualRecvTy)
+				fc.markViewIfApplicable(mBase, actualRecvTy)
 			}
 		}
 
@@ -939,15 +965,15 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 		}
 		if !inMatchPattern && recvMode == types.ModeMut && !types.IsArena(actualRecvTy) {
 			// (An arena's own methods follow the arena rules above instead.)
-			fc.checkMutatingMethodRecvEscape(mem.Base, call.Args, call.Span)
+			fc.checkMutatingMethodRecvEscape(mBase, call.Args, call.Span)
 		}
 		inf.CallKind = CallDirectFunc
 		fc.recordTargetFunc(inf, fi, call.Span)
-		inf.MethodRecv = mem.Base
+		inf.MethodRecv = mBase
 		inf.MethodRecvMode = recvMode
 		inf.IsOptChain = isOptChain
 		if isOptChain && recvMode == types.ModeRead {
-			fc.clearPendingOptChainErr(mem.Base)
+			fc.clearPendingOptChainErr(mBase)
 		}
 		retTy := fc.a.ensureFuncRetResolved(fi, call.Span)
 		if isOptChain && retTy != types.TypeInvalid && !retTy.Equals(types.TypeVoid) {
@@ -960,7 +986,7 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 	// 3c. Built-in Methods (`.copy()`, `.to_string()`, `string.*`, `char.*`, `vec.*`, `set.*`, `map.*`, `Arena.*`)
 	ret := fc.checkBuiltinMethodCall(actualRecvTy, isArenaRef, isOptChain, inMatchPattern, mem, call)
 	if isOptChain && inf.MethodRecvMode != types.ModeMut && (ret != types.TypeInvalid || mem.Member == "copy") {
-		fc.clearPendingOptChainErr(mem.Base)
+		fc.clearPendingOptChainErr(mBase)
 	}
 	return ret
 }
@@ -972,7 +998,7 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 func (fc *funcChecker) checkArenaMethodRules(mem *ast.MemberExpr, call *ast.CallExpr, mutRecv *Symbol) {
 	sym := mutRecv
 	if sym == nil {
-		sym = fc.rootSymbolOfExpr(mem.Base)
+		sym = fc.rootSymbolOfExpr(fc.a.resolvedMemberBase(mem))
 	}
 	switch mem.Member {
 	case "alloc":
@@ -1369,14 +1395,15 @@ func (fc *funcChecker) checkInterfaceMethodCall(ifc *types.Interface, mem *ast.M
 		}
 	}
 	if found == nil {
+		mBase := fc.a.resolvedMemberBase(mem)
 		// Built-in `.copy()` on any owned interface!
 		if mem.Member == "copy" && len(call.Args) == 0 {
 			inf.CallKind = CallBuiltinMethod
 			inf.BuiltinName = "Interface.copy"
-			inf.MethodRecv = mem.Base
+			inf.MethodRecv = mBase
 			inf.IsOptChain = isOptChain
 			if isOptChain {
-				fc.clearPendingOptChainErr(mem.Base)
+				fc.clearPendingOptChainErr(mBase)
 			}
 			ret := types.Type(ifc)
 			if isOptChain {
@@ -1405,6 +1432,7 @@ func (fc *funcChecker) checkInterfaceMethodCall(ifc *types.Interface, mem *ast.M
 		}
 	}
 
+	mBase := fc.a.resolvedMemberBase(mem)
 	var mutRoot *Symbol
 	if found.RecvMode == types.ModeMut {
 		if inMatchPattern {
@@ -1413,17 +1441,17 @@ func (fc *funcChecker) checkInterfaceMethodCall(ifc *types.Interface, mem *ast.M
 			if isOptChain {
 				fc.a.Rep.Errorf(call.Span, "cannot call `&self` method %q via optional `?.` chain", mem.Member)
 			}
-			mutRoot = fc.checkMutablePlace(mem.Base, fmt.Sprintf("call `&self` method `%s` on", mem.Member))
+			mutRoot = fc.checkMutablePlace(mBase, fmt.Sprintf("call `&self` method `%s` on", mem.Member))
 		}
 	}
 	fc.checkSignatureArgs(found.Params, call.Args, mutRoot, call.Span)
 	inf.CallKind = CallInterfaceMethod
 	inf.InterfaceMeth = found
-	inf.MethodRecv = mem.Base
+	inf.MethodRecv = mBase
 	inf.MethodRecvMode = found.RecvMode
 	inf.IsOptChain = isOptChain
 	if isOptChain && found.RecvMode == types.ModeRead {
-		fc.clearPendingOptChainErr(mem.Base)
+		fc.clearPendingOptChainErr(mBase)
 	}
 	ret := found.Ret
 	if isOptChain && !ret.Equals(types.TypeVoid) {
@@ -1963,7 +1991,7 @@ func (fc *funcChecker) checkGenericFieldAccess(st *types.Struct, isArenaRef, isO
 
 	if isArenaRef {
 		inf.DerefStructPtr = true
-	} else if baseTy := fc.a.infoFor(mem.Base).Type; baseTy != nil {
+	} else if baseTy := fc.a.infoFor(fc.a.resolvedMemberBase(mem)).Type; baseTy != nil {
 		if optB, isOpt := baseTy.(*types.Optional); isOpt && optB.IsBoxed() {
 			inf.DerefStructPtr = true
 		}
@@ -2310,8 +2338,9 @@ func (fc *funcChecker) checkDistinctUnderlyingAccess(dt *types.Distinct, isArena
 
 func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isOptChain, inMatchPattern bool, mem *ast.MemberExpr, call *ast.CallExpr) types.Type {
 	inf := fc.a.infoFor(call)
+	mBase := fc.a.resolvedMemberBase(mem)
 	inf.CallKind = CallBuiltinMethod
-	inf.MethodRecv = mem.Base
+	inf.MethodRecv = mBase
 	inf.IsOptChain = isOptChain
 
 	wrapRet := func(t types.Type) types.Type {
@@ -2332,11 +2361,11 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 			return nil
 		}
 		inf.MethodRecvMode = types.ModeMut
-		fc.checkMutatingMethodRecvEscape(mem.Base, call.Args, call.Span)
+		fc.checkMutatingMethodRecvEscape(mBase, call.Args, call.Span)
 		if isArenaRef {
 			return nil
 		}
-		return fc.checkMutablePlace(mem.Base, fmt.Sprintf("call mutating method `.%s` on", mem.Member))
+		return fc.checkMutablePlace(mBase, fmt.Sprintf("call mutating method `.%s` on", mem.Member))
 	}
 
 	// Universal `.copy()` and `.to_string()`
@@ -3471,6 +3500,19 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 		}, call.Args, nil, call.Span)
 		inf.CallKind = CallIntrinsic
 		inf.BuiltinName = "fill_bytes"
+		inf.Type = types.TypeVoid
+		return true, types.TypeVoid
+
+	case "forget":
+		requireUnsafe()
+		if len(call.Args) != 1 {
+			fc.a.Rep.Errorf(call.Span, "`forget(val)` expects 1 owned argument")
+		} else {
+			ty := fc.checkExpr(call.Args[0], true)
+			fc.consumeValue(call.Args[0], ty, false)
+		}
+		inf.CallKind = CallIntrinsic
+		inf.BuiltinName = "forget"
 		inf.Type = types.TypeVoid
 		return true, types.TypeVoid
 	}

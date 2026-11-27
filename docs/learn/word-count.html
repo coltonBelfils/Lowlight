@@ -22,7 +22,7 @@ memory       2</code></pre>
 <p>Replace <code>main.ll</code> with the pieces below as you go.</p>
 <h2 id="2-split-text-into-words"><a class="anchor" href="#2-split-text-into-words" aria-hidden="true">#</a>2. Split text into words</h2>
 <p>Words are runs of letters and digits; everything else separates them. Build each word one character at a time:</p>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> words = (text: <span class="t">string</span>) [<span class="t">string</span>]: {
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> words = <span class="k">fn</span>(text: <span class="t">string</span>) [<span class="t">string</span>]: {
 	<span class="k">let</span> out: [<span class="t">string</span>] = []
 	<span class="k">let</span> cur = <span class="s">&quot;&quot;</span>
 	<span class="k">for</span>(c <span class="k">in</span> text.<span class="f">chars</span>()): {
@@ -36,12 +36,12 @@ memory       2</code></pre>
 	out
 }
 
-<span class="k">bind</span> main = (): <span class="f">println</span>(<span class="f">words</span>(<span class="s">&quot;The cat, the hat; THE end.&quot;</span>))</code></pre>
+<span class="k">bind</span> main = <span class="k">fn</span>(): <span class="f">println</span>(<span class="f">words</span>(<span class="s">&quot;The cat, the hat; THE end.&quot;</span>))</code></pre>
 <pre class="lang-output" data-lang="output"><code>[the, cat, the, hat, the, end]</code></pre>
 <p><code>text.chars()</code> decodes the UTF-8 string into characters. <code>cur</code> is a <code>let</code> string that grows with <code>push_char</code>; <code>to_lower()</code> returns a new string, which <code>push</code> moves into the list.</p>
 <h2 id="3-count-them"><a class="anchor" href="#3-count-them" aria-hidden="true">#</a>3. Count them</h2>
 <p>A map from word to count does the counting:</p>
-<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> count = (ws: [<span class="t">string</span>]) #[<span class="t">string</span>: <span class="t">int</span>]: {
+<pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">bind</span> count = <span class="k">fn</span>(ws: [<span class="t">string</span>]) #[<span class="t">string</span>: <span class="t">int</span>]: {
 	<span class="k">let</span> counts: #[<span class="t">string</span>: <span class="t">int</span>] = #[]
 	<span class="k">for</span>(w <span class="k">in</span> ws): {
 		<span class="k">let</span> n = counts[w] ?? <span class="n">0</span>
@@ -59,9 +59,9 @@ memory       2</code></pre>
 <p>To sort, turn the map into a list of entries and sort that. A <code>for</code> loop with a result type builds the list:</p>
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/sort&quot;</span>
 
-<span class="k">bind</span> top = (counts: #[<span class="t">string</span>: <span class="t">int</span>], n: <span class="t">int</span>) [<span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]]: {
+<span class="k">bind</span> top = <span class="k">fn</span>(counts: #[<span class="t">string</span>: <span class="t">int</span>], n: <span class="t">int</span>) [<span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]]: {
 	<span class="k">let</span> entries = <span class="k">for</span>(word, c <span class="k">in</span> counts) [<span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]]: <span class="t">MapEntry</span>[key: word.<span class="f">copy</span>(), value: c]
-	entries.<span class="f">sort_by</span>((a: <span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>], b: <span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]) <span class="t">int</span>:
+	entries.<span class="f">sort_by</span>(<span class="k">fn</span>(a: <span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>], b: <span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]) <span class="t">int</span>:
 		<span class="k">if</span>(a.value != b.value): b.value - a.value
 		<span class="k">else</span>: a.key.<span class="f">cmp</span>(b.key))
 	<span class="k">let</span> k = <span class="f">min</span>(n, entries.<span class="f">len</span>())
@@ -79,7 +79,7 @@ memory       2</code></pre>
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/sort&quot;</span>
 <span class="k">import</span> <span class="s">&quot;std/strfmt&quot;</span>
 
-<span class="k">bind</span> words = (text: <span class="t">string</span>) [<span class="t">string</span>]: {
+<span class="k">bind</span> words = <span class="k">fn</span>(text: <span class="t">string</span>) [<span class="t">string</span>]: {
 	<span class="k">let</span> out: [<span class="t">string</span>] = []
 	<span class="k">let</span> cur = <span class="s">&quot;&quot;</span>
 	<span class="k">for</span>(c <span class="k">in</span> text.<span class="f">chars</span>()): {
@@ -93,7 +93,7 @@ memory       2</code></pre>
 	out
 }
 
-<span class="k">bind</span> count = (ws: [<span class="t">string</span>]) #[<span class="t">string</span>: <span class="t">int</span>]: {
+<span class="k">bind</span> count = <span class="k">fn</span>(ws: [<span class="t">string</span>]) #[<span class="t">string</span>: <span class="t">int</span>]: {
 	<span class="k">let</span> counts: #[<span class="t">string</span>: <span class="t">int</span>] = #[]
 	<span class="k">for</span>(w <span class="k">in</span> ws): {
 		<span class="k">let</span> n = counts[w] ?? <span class="n">0</span>
@@ -102,32 +102,32 @@ memory       2</code></pre>
 	counts
 }
 
-<span class="k">bind</span> top = (counts: #[<span class="t">string</span>: <span class="t">int</span>], n: <span class="t">int</span>) [<span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]]: {
+<span class="k">bind</span> top = <span class="k">fn</span>(counts: #[<span class="t">string</span>: <span class="t">int</span>], n: <span class="t">int</span>) [<span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]]: {
 	<span class="k">let</span> entries = <span class="k">for</span>(word, c <span class="k">in</span> counts) [<span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]]: <span class="t">MapEntry</span>[key: word.<span class="f">copy</span>(), value: c]
-	entries.<span class="f">sort_by</span>((a: <span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>], b: <span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]) <span class="t">int</span>:
+	entries.<span class="f">sort_by</span>(<span class="k">fn</span>(a: <span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>], b: <span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]) <span class="t">int</span>:
 		<span class="k">if</span>(a.value != b.value): b.value - a.value
 		<span class="k">else</span>: a.key.<span class="f">cmp</span>(b.key))
 	<span class="k">let</span> k = <span class="f">min</span>(n, entries.<span class="f">len</span>())
 	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..k) [<span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]]: entries[i].<span class="f">copy</span>()
 }
 
-<span class="k">bind</span> report = (text: <span class="t">string</span>, n: <span class="t">int</span>): {
+<span class="k">bind</span> report = <span class="k">fn</span>(text: <span class="t">string</span>, n: <span class="t">int</span>): {
 	<span class="k">for</span>(e <span class="k">in</span> <span class="f">top</span>(<span class="f">count</span>(<span class="f">words</span>(text)), n)): <span class="f">println</span>(<span class="s">&quot;</span>${e.key.<span class="f">pad_right</span>(<span class="n">12</span>)}<span class="s"> </span>${e.value}<span class="s">&quot;</span>)
 }
 
-<span class="k">bind</span> main = (): <span class="f">report</span>(<span class="s">&quot;Lowlight frees memory deterministically. The memory is freed when the owner&#39;s scope ends; the owner is the variable. Lowlight has no collector, so the program is predictable.&quot;</span>, <span class="n">4</span>)</code></pre>
+<span class="k">bind</span> main = <span class="k">fn</span>(): <span class="f">report</span>(<span class="s">&quot;Lowlight frees memory deterministically. The memory is freed when the owner&#39;s scope ends; the owner is the variable. Lowlight has no collector, so the program is predictable.&quot;</span>, <span class="n">4</span>)</code></pre>
 <pre class="lang-output" data-lang="output"><code>the          5
 is           3
 lowlight     2
 memory       2</code></pre>
 <p><code>pad_right</code> comes from <code>std/strfmt</code>, which adds formatting methods to <code>string</code>.</p>
 <h2 id="5-read-the-file-and-the-arguments"><a class="anchor" href="#5-read-the-file-and-the-arguments" aria-hidden="true">#</a>5. Read the file and the arguments</h2>
-<p>The real program reads a file named on the command line. <code>fs.read_text</code> returns a <code>Result[string]</code>, because opening a file can fail for reasons outside the program's control. A result chain handles the failure where it happens:</p>
+<p>The real program reads a file named on the command line. <code>fs.read_text</code> returns a <code>FileResult[string]</code>, because opening a file can fail for reasons outside the program's control. A missing file is its own case, <code>not_found</code>, so the program can say something friendlier about it. A result chain handles each failure where it happens:</p>
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/fs&quot;</span>
 <span class="k">import</span> <span class="s">&quot;std/sort&quot;</span>
 <span class="k">import</span> <span class="s">&quot;std/strfmt&quot;</span>
 
-<span class="k">bind</span> words = (text: <span class="t">string</span>) [<span class="t">string</span>]: {
+<span class="k">bind</span> words = <span class="k">fn</span>(text: <span class="t">string</span>) [<span class="t">string</span>]: {
 	<span class="k">let</span> out: [<span class="t">string</span>] = []
 	<span class="k">let</span> cur = <span class="s">&quot;&quot;</span>
 	<span class="k">for</span>(c <span class="k">in</span> text.<span class="f">chars</span>()): {
@@ -141,7 +141,7 @@ memory       2</code></pre>
 	out
 }
 
-<span class="k">bind</span> count = (ws: [<span class="t">string</span>]) #[<span class="t">string</span>: <span class="t">int</span>]: {
+<span class="k">bind</span> count = <span class="k">fn</span>(ws: [<span class="t">string</span>]) #[<span class="t">string</span>: <span class="t">int</span>]: {
 	<span class="k">let</span> counts: #[<span class="t">string</span>: <span class="t">int</span>] = #[]
 	<span class="k">for</span>(w <span class="k">in</span> ws): {
 		<span class="k">let</span> n = counts[w] ?? <span class="n">0</span>
@@ -150,16 +150,16 @@ memory       2</code></pre>
 	counts
 }
 
-<span class="k">bind</span> top = (counts: #[<span class="t">string</span>: <span class="t">int</span>], n: <span class="t">int</span>) [<span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]]: {
+<span class="k">bind</span> top = <span class="k">fn</span>(counts: #[<span class="t">string</span>: <span class="t">int</span>], n: <span class="t">int</span>) [<span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]]: {
 	<span class="k">let</span> entries = <span class="k">for</span>(word, c <span class="k">in</span> counts) [<span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]]: <span class="t">MapEntry</span>[key: word.<span class="f">copy</span>(), value: c]
-	entries.<span class="f">sort_by</span>((a: <span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>], b: <span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]) <span class="t">int</span>:
+	entries.<span class="f">sort_by</span>(<span class="k">fn</span>(a: <span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>], b: <span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]) <span class="t">int</span>:
 		<span class="k">if</span>(a.value != b.value): b.value - a.value
 		<span class="k">else</span>: a.key.<span class="f">cmp</span>(b.key))
 	<span class="k">let</span> k = <span class="f">min</span>(n, entries.<span class="f">len</span>())
 	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..k) [<span class="t">MapEntry</span>[<span class="t">string</span>, <span class="t">int</span>]]: entries[i].<span class="f">copy</span>()
 }
 
-<span class="k">bind</span> main = () <span class="t">int</span>: {
+<span class="k">bind</span> main = <span class="k">fn</span>() <span class="t">int</span>: {
 	<span class="k">let</span> argv = <span class="f">args</span>()
 	<span class="k">if</span>(argv.<span class="f">len</span>() &lt; <span class="n">2</span> <span class="k">or</span> argv.<span class="f">len</span>() &gt; <span class="n">3</span>): {
 		<span class="f">eprintln</span>(<span class="s">&quot;usage: wordfreq &lt;file&gt; [count]&quot;</span>)
@@ -167,6 +167,10 @@ memory       2</code></pre>
 	}
 	<span class="k">let</span> n = <span class="k">if</span>(argv.<span class="f">len</span>() == <span class="n">3</span>): <span class="f">parse_int</span>(argv[<span class="n">2</span>]) ?? <span class="n">10</span> <span class="k">else</span>: <span class="n">10</span>
 	<span class="k">let</span> text = fs.<span class="f">read_text</span>(argv[<span class="n">1</span>]):
+		<span class="k">when</span> <span class="f">not_found</span>(_): {
+			<span class="f">eprintln</span>(<span class="s">&quot;wordfreq: there&#39;s no file named </span>${argv[<span class="n">1</span>]}<span class="s">&quot;</span>)
+			<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1</span>
+		}
 		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): {
 			<span class="f">eprintln</span>(<span class="s">&quot;wordfreq: </span>${e.<span class="f">wrap</span>(<span class="s">&quot;reading </span>${argv[<span class="n">1</span>]}<span class="s">&quot;</span>).<span class="f">summary</span>()}<span class="s">&quot;</span>)
 			<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1</span>
@@ -177,7 +181,7 @@ memory       2</code></pre>
 <ul>
 <li><code>main</code> returns an <code>int</code>, which becomes the exit status: <code>2</code> for a usage error, <code>1</code> when the file can't be read.
 </li>
-<li><code>e.wrap(...)</code> adds context to the error; <code>summary()</code> renders the chain on one line, such as <code>reading notes.txt: no such file or directory</code>.
+<li><code>e.wrap(...)</code> adds context to the error; <code>summary()</code> renders the chain on one line, such as <code>reading notes.txt: failed to open &quot;notes.txt&quot; for reading: Permission denied</code>.
 </li>
 <li><code>parse_int(argv[2]) ?? 10</code> falls back to 10 when the count isn't a number.
 </li>
@@ -190,10 +194,10 @@ memory       2</code></pre>
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/test&quot;</span>
 
 <span class="a">@test</span>(<span class="s">&quot;splits on punctuation and lowercases&quot;</span>)
-<span class="k">bind</span> test_words = (): test.<span class="f">assert_eq</span>(<span class="f">words</span>(<span class="s">&quot;Hi, hi!&quot;</span>), [<span class="s">&quot;hi&quot;</span>, <span class="s">&quot;hi&quot;</span>])
+<span class="k">bind</span> test_words = <span class="k">fn</span>(): test.<span class="f">assert_eq</span>(<span class="f">words</span>(<span class="s">&quot;Hi, hi!&quot;</span>), [<span class="s">&quot;hi&quot;</span>, <span class="s">&quot;hi&quot;</span>])
 
 <span class="a">@test</span>(<span class="s">&quot;orders by count, then alphabetically&quot;</span>)
-<span class="k">bind</span> test_top = (): {
+<span class="k">bind</span> test_top = <span class="k">fn</span>(): {
 	<span class="k">let</span> t = <span class="f">top</span>(<span class="f">count</span>([<span class="s">&quot;b&quot;</span>, <span class="s">&quot;a&quot;</span>, <span class="s">&quot;b&quot;</span>, <span class="s">&quot;c&quot;</span>, <span class="s">&quot;a&quot;</span>]), <span class="n">2</span>)
 	test.<span class="f">assert_eq</span>(t.<span class="f">len</span>(), <span class="n">2</span>)
 	test.<span class="f">assert_eq</span>(t[<span class="n">0</span>].key, <span class="s">&quot;a&quot;</span>)
@@ -220,7 +224,7 @@ memory       2</code></pre>
 <li>Read from standard input when no file is given. (Look at <code>std/os</code> and <code>std/fs</code>.)
 </li>
 </ol>
-</article><nav class="prev-next"><a class="prev" href="index.html"><span>Previous</span>Tutorials</a><a class="next" href="calculator.html"><span>Next</span>Tutorial: a calculator</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#1-set-up-a-project">1. Set up a project</a></li><li><a href="#2-split-text-into-words">2. Split text into words</a></li><li><a href="#3-count-them">3. Count them</a></li><li><a href="#4-sort-by-count">4. Sort by count</a></li><li><a href="#5-read-the-file-and-the-arguments">5. Read the file and the arguments</a></li><li><a href="#6-test-it">6. Test it</a></li><li><a href="#what-you-practiced">What you practiced</a></li><li><a href="#exercises">Exercises</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tutorials</a><a href="word-count.html">A command-line tool</a><a href="calculator.html">A calculator</a><a href="config-loader.html">Handling errors</a><a href="web-service.html">A web service</a><a href="calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+</article><nav class="prev-next"><a class="prev" href="index.html"><span>Previous</span>Tutorials</a><a class="next" href="calculator.html"><span>Next</span>Tutorial: a calculator</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#1-set-up-a-project">1. Set up a project</a></li><li><a href="#2-split-text-into-words">2. Split text into words</a></li><li><a href="#3-count-them">3. Count them</a></li><li><a href="#4-sort-by-count">4. Sort by count</a></li><li><a href="#5-read-the-file-and-the-arguments">5. Read the file and the arguments</a></li><li><a href="#6-test-it">6. Test it</a></li><li><a href="#what-you-practiced">What you practiced</a></li><li><a href="#exercises">Exercises</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tutorials</a><a href="word-count.html">A command-line tool</a><a href="calculator.html">A calculator</a><a href="config-loader.html">Handling errors</a><a href="web-service.html">A web service</a><a href="calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/collections.html">std/collections</a><a href="../std/core.html">std/core</a><a href="../std/derive.html">std/derive</a><a href="../std/fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../search-index.js"></script>
 <script src="../assets/site.js"></script>
 </body>

@@ -106,16 +106,16 @@ Chosen over Rust-style macros (2026-11-22); full language design finalized with 
 ### Phase 7 — Diagnostics, `lowlight expand`, LSP, & editors
 
 - [x] Add `Related []RelatedInfo` frames to `diag.Diagnostic`, CLI `= note:` trace rendering, collapsed recursion stacks, and `@track_caller` / `std/` span lifting (`internal/diag/diag.go`, `internal/sema/comptime.go`, `internal/lsp/server.go`).
-- [ ] Extend `lowlight expand` CLI (`cmd/lowlight/main.go`, `internal/driver/`) with full Phase 6 `@derive` & IDE expand preview output and golden tests.
-- [ ] Add `const`, `comptime`, `@comptime_only`, `@comptime_limit`, `@derivable`, `comp.*`, and `type.*` to `internal/lsp/builtins.go` & `attributes.go`, and show constness / generic downgrade reasons in hover, docgen, & completion ordering (`A13`).
-- [ ] Enforce a tight IDE step/wall-clock timeout cap (non-fatal warning on timeout, never used in `lowlight build`), add `sema` memoization + per-package cached `const` values (`H14`/`A10`) in `CheckForIDE`, plus target switcher and evaluated-value hover.
-- [ ] Update `editors/` syntax highlighting (`vscode`, `nvim`, `jetbrains`).
+- [x] Extend `lowlight expand` CLI (`cmd/lowlight/main.go`, `internal/driver/`) with full Phase 6 `@derive` & IDE expand preview output and golden tests.
+- [x] Add `const`, `comptime`, `@comptime_only`, `@comptime_limit`, `@derivable`, `comp.*`, and `type.*` to `internal/lsp/builtins.go` & `attributes.go`, and show constness / generic downgrade reasons in hover, docgen, & completion ordering (`A13`).
+- [x] Enforce a tight IDE step/wall-clock timeout cap (non-fatal warning on timeout, never used in `lowlight build`), add `sema` memoization + per-package cached `const` values (`H14`/`A10`) in `CheckForIDE`, plus target switcher, evaluated-value hover, and expand preview (`internal/sema/ide_cache.go`, `internal/lsp/`).
+- [x] Update `editors/` syntax highlighting (`vscode`, `nvim`, `jetbrains`) and target/expand IDE integrations.
 
 ### Phase 8 — Remaining stdlib migration, specification, & cleanup
 
-- [ ] Migrate remaining pure `bind` helpers, constants, and tables across `std/chars`, `std/strings`, `std/math/math.ll`, and `std/unicode/tables.ll` to `const` / `@comptime_only`, computing CRC and Unicode tables at compile time.
-- [ ] Finish folding Phases 4–7 (`COMPTIME_DESIGN.md`) into `SPECIFICATION.md`, update `CONVENTIONS.md` and `IMPLEMENTATION.md`, and add Tour / Guide / By Example pages on `website/`.
-- [ ] **Decision:** whether to deprecate/retire file-suffix target filtering (`_linux.ll`, `_darwin.ll`, `_unix.ll` in `internal/manifest/target.go`) or retain it alongside single-file `comptime if(comp.TARGET...)`.
+- [x] Migrate remaining pure `bind` helpers, constants, and tables across `std/core`, `std/chars`, `std/strings`, `std/math/math.ll`, `std/strconv`, `std/strfmt`, `std/time`, `std/http`, and `std/unicode/` (`tables.ll` in `.rodata` + `unicode.ll`) to `const` / `@comptime_only` (CRC32 compile-time table generation showcased in `website/` docs & examples without adding a CRC package to `std/`).
+- [x] Finish folding Phases 4–7 (`COMPTIME_DESIGN.md`) into `SPECIFICATION.md`, update `CONVENTIONS.md` and `IMPLEMENTATION.md`, and add Tour / Guide / By Example pages on `website/`.
+- [x] **Decision:** Retain file-suffix target filtering (`_linux.ll`, `_darwin.ll`, `_unix.ll`, etc. in `internal/manifest/target.go`) alongside single-file `comptime if(comp.TARGET...)`, and document single-file `comptime if(comp.TARGET...)` as the preferred pattern.
 
 ## 2. Function types and C interop
 
@@ -387,7 +387,7 @@ Apply the `Result` vs. `panic` rules and the `x` / `must_x` naming convention fr
   - [ ] Fall back to `existingLock` transitive edges in `Resolve` only when no manifest was loaded (`subM == nil`), not whenever `len(transDeps) == 0`.
   - [ ] Fix caret constraint `^0` (`partsCnt == 1`) in `versionClause.matches` using `0.0.1` instead of `1.0.0` as the upper bound.
 - [ ] Fix driver and CLI bugs (`internal/driver/`, `cmd/lowlight/`):
-  - [ ] Resolve `[build].target` from `lowlight.toml` before filtering target-suffixed test files in `driver.Test`.
+  - [x] Resolve `[build].target` from `lowlight.toml` before filtering target-suffixed test files in `driver.Test`.
   - [ ] Use `defaultPackageEntryDir` for `-p <pkg>` and `--workspace` (`cmd/<app>/` layouts), and avoid running `driver.Check` twice (printing duplicate warnings) in `runWorkspaceBuild`.
   - [ ] Emit `"fail"` events and non-zero `"failed"` counts in `runSingleTestJSON` (`internal/driver/test_json.go`) when a `@test` binary crashes mid-test before printing `--- PASS:`/`--- FAIL:`.
   - [ ] Forward program flags in `lowlight run <path> -flag` (`parseCommonFlags` in `cmd/lowlight/main.go`) instead of rejecting them as `unknown flag`.

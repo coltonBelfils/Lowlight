@@ -190,16 +190,16 @@ Source (.ll)
 
 ---
 
-## Phase 8: Stdlib Migration, Specification, & Cleanup
+## Phase 8: Stdlib Migration, Specification, & Cleanup [Done]
 
 **Goal:** Put `comptime` to work across `std/` and bring all official documentation in sync.
 
-1. **Stdlib `const` & Table Migration ([`std/`](./std)):**
-   * Migrate pure `bind` helpers and constants across `std/core`, `std/chars`, `std/strings`, [`std/math/math.ll`](./std/math/math.ll), and [`std/unicode/tables.ll`](./std/unicode/tables.ll) to `const` / `@comptime_only`, computing CRC and Unicode tables at compile time.
-2. **Specification & Docs ([`SPECIFICATION.md`](./SPECIFICATION.md), [`CONVENTIONS.md`](./CONVENTIONS.md), [`IMPLEMENTATION.md`](./IMPLEMENTATION.md), [`website/`](./website)):**
-   * Fold [`COMPTIME_DESIGN.md`](./COMPTIME_DESIGN.md) into `SPECIFICATION.md`, update `CONVENTIONS.md` (`const` vs `bind` vs `let`) and `IMPLEMENTATION.md` (evaluator, static `.rodata`, `lowlight expand`), and add Tour / Guide / By Example pages under `website/`.
-3. **File-Suffix Target Filtering Decision ([`internal/manifest/target.go`](./internal/manifest/target.go)):**
-   * Decide whether to deprecate/retire `_linux.ll` / `_darwin.ll` / `_unix.ll` file-suffix target filtering or retain it alongside single-file `comptime if(comp.TARGET...)`.
+1. **Stdlib `const` & Table Migration ([`std/`](./std)):** *(done)*
+   * Migrated pure `bind` helpers, constants, and lookup tables across `std/core`, `std/unicode/` (`tables.ll` generated with `const` `.rodata` tables + `unicode.ll`), `std/chars`, `std/strings`, [`std/math/math.ll`](./std/math/math.ll), `std/strconv`, `std/strfmt`, `std/time`, and `std/http` to `const`. (CRC32 compile-time table generation is showcased in docs and website examples rather than adding a CRC module to `std/`.)
+2. **Specification & Docs ([`SPECIFICATION.md`](./SPECIFICATION.md), [`CONVENTIONS.md`](./CONVENTIONS.md), [`IMPLEMENTATION.md`](./IMPLEMENTATION.md), [`website/`](./website)):** *(done)*
+   * Folded [`COMPTIME_DESIGN.md`](./COMPTIME_DESIGN.md) into `SPECIFICATION.md`, updated `CONVENTIONS.md` (`const` vs `bind` vs `let`) and `IMPLEMENTATION.md` (`derivable.go`, `comptime.go`, static `.rodata`, `lowlight expand`, `check --all-targets`, LSP memoization), and added Tour (`comptime.md`), Guide (`comptime.md`), `generics.md` / `packages.md` / `performance.md` / `cli.md`, and By Example (`04`, `25`, `64`–`66`) pages under `website/`.
+3. **File-Suffix Target Filtering Decision ([`internal/manifest/target.go`](./internal/manifest/target.go)):** *(done)*
+   * **Retained** `_linux.ll` / `_darwin.ll` / `_unix.ll` file-suffix target filtering alongside single-file `comptime if(comp.TARGET...)`, and documented `comptime if(comp.TARGET...)` as the preferred pattern in `SPECIFICATION.md`, `CONVENTIONS.md`, `IMPLEMENTATION.md`, and `website/`.
 
 ---
 

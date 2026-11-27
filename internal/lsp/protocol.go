@@ -585,6 +585,19 @@ type PrepareRenameParams struct {
 	Position     Position               `json:"position"`
 }
 
+// ExpandDocumentParams requests expanded Lowlight source for a buffer (and optional cursor position).
+type ExpandDocumentParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     *Position              `json:"position,omitempty"`
+}
+
+// ExpandDocumentResult carries expanded Lowlight source from `lowlight/expandDocument`.
+type ExpandDocumentResult struct {
+	URI    string `json:"uri"`
+	Target string `json:"target"`
+	Text   string `json:"text"`
+}
+
 // -----------------------------------------------------------------------------
 // URI <-> Filesystem Path & UTF-8 <-> UTF-16 Coordinate Conversion
 // -----------------------------------------------------------------------------
@@ -603,8 +616,12 @@ func URIToPath(uri string) string {
 		return filepath.Clean(raw)
 	}
 	p := u.Path
-	if unescaped, err2 := url.PathUnescape(p); err2 == nil {
-		p = unescaped
+	if u.Host != "" && !strings.EqualFold(u.Host, "localhost") {
+		if runtime.GOOS == "windows" {
+			p = `\\` + u.Host + filepath.FromSlash(p)
+			return filepath.Clean(p)
+		}
+		p = "//" + u.Host + p
 	}
 	// Handle Windows `/c:/foo` -> `c:\foo`
 	if runtime.GOOS == "windows" && len(p) >= 3 && p[0] == '/' && p[2] == ':' {

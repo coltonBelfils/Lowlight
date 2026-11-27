@@ -242,33 +242,42 @@ func collectDocSpans(f *ast.File) []diag.Span {
 		}
 	}
 	add(f.DocSpan)
-	for _, d := range f.Decls {
-		switch v := d.(type) {
-		case *ast.StructDecl:
-			add(v.DocSpan)
-			for _, f := range v.Fields {
-				add(f.DocSpan)
+	var addDecls func(decls []ast.Decl)
+	addDecls = func(decls []ast.Decl) {
+		for _, d := range decls {
+			switch v := d.(type) {
+			case *ast.StructDecl:
+				add(v.DocSpan)
+				for _, f := range v.Fields {
+					add(f.DocSpan)
+				}
+			case *ast.EnumDecl:
+				add(v.DocSpan)
+				for _, ev := range v.Variants {
+					add(ev.DocSpan)
+				}
+			case *ast.InterfaceDecl:
+				add(v.DocSpan)
+				for _, m := range v.Methods {
+					add(m.DocSpan)
+				}
+			case *ast.DistinctTypeDecl:
+				add(v.DocSpan)
+			case *ast.MethodDecl:
+				add(v.DocSpan)
+			case *ast.VarDecl:
+				add(v.DocSpan)
+			case *ast.ExternFnDecl:
+				add(v.DocSpan)
+			case *ast.TopComptimeIfDecl:
+				for cur := v; cur != nil; cur = cur.ElseIf {
+					addDecls(cur.ThenDecls)
+					addDecls(cur.ElseDecls)
+				}
 			}
-		case *ast.EnumDecl:
-			add(v.DocSpan)
-			for _, ev := range v.Variants {
-				add(ev.DocSpan)
-			}
-		case *ast.InterfaceDecl:
-			add(v.DocSpan)
-			for _, m := range v.Methods {
-				add(m.DocSpan)
-			}
-		case *ast.DistinctTypeDecl:
-			add(v.DocSpan)
-		case *ast.MethodDecl:
-			add(v.DocSpan)
-		case *ast.VarDecl:
-			add(v.DocSpan)
-		case *ast.ExternFnDecl:
-			add(v.DocSpan)
 		}
 	}
+	addDecls(f.Decls)
 	return spans
 }
 
@@ -302,6 +311,15 @@ func (c *semTokCollector) collectDeclParamMeta(d ast.Decl) {
 				if ps != nil {
 					c.paramSyms[ps] = true
 				}
+			}
+		}
+	case *ast.TopComptimeIfDecl:
+		for cur := decl; cur != nil; cur = cur.ElseIf {
+			for _, td := range cur.ThenDecls {
+				c.collectDeclParamMeta(td)
+			}
+			for _, ed := range cur.ElseDecls {
+				c.collectDeclParamMeta(ed)
 			}
 		}
 	}
@@ -578,7 +596,18 @@ func (c *semTokCollector) visitTypeExpr(te ast.TypeExpr) {
 	case *ast.VectorType:
 		c.visitTypeExpr(v.Elem)
 	case *ast.StackArrayType:
+		var topBM *sema.BodyMaps
+		if c.prog != nil {
+			topBM = c.prog.TopBodyMaps
+		}
+		c.visitExpr(topBM, v.Size, false)
 		c.visitTypeExpr(v.Elem)
+	case *ast.ConstArgType:
+		var topBM *sema.BodyMaps
+		if c.prog != nil {
+			topBM = c.prog.TopBodyMaps
+		}
+		c.visitExpr(topBM, v.Expr, false)
 	case *ast.TupleType:
 		for _, el := range v.Elems {
 			c.visitTypeExpr(el)
@@ -740,6 +769,20 @@ func (c *semTokCollector) visitDecl(d ast.Decl) {
 			}
 			c.visitExpr(bm, decl.Value, false)
 		}
+	case *ast.TopComptimeIfDecl:
+		var topBM *sema.BodyMaps
+		if c.prog != nil {
+			topBM = c.prog.TopBodyMaps
+		}
+		for cur := decl; cur != nil; cur = cur.ElseIf {
+			c.visitExpr(topBM, cur.Cond, false)
+			for _, td := range cur.ThenDecls {
+				c.visitDecl(td)
+			}
+			for _, ed := range cur.ElseDecls {
+				c.visitDecl(ed)
+			}
+		}
 	}
 }
 
@@ -767,7 +810,7 @@ func (c *semTokCollector) visitStmt(bm *sema.BodyMaps, st ast.Stmt) {
 	switch s := st.(type) {
 	case *ast.VarStmt:
 		mods := uint32(semModDeclaration)
-		if s.IsBind {
+		if s.IsBind || s.IsConst {
 			mods |= semModReadonly
 		}
 		if s.IsUnpack {
@@ -794,6 +837,8 @@ func (c *semTokCollector) visitStmt(bm *sema.BodyMaps, st ast.Stmt) {
 		c.visitExpr(bm, s.Value, false)
 	case *ast.UnwindStmt:
 		c.visitExpr(bm, s.Value, false)
+	case *ast.DeclStmt:
+		c.visitDecl(s.Decl)
 	case *ast.ExprStmt:
 		c.visitExpr(bm, s.Expr, false)
 	}
@@ -812,6 +857,9 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 
 	case *ast.StmtBodyExpr:
 		c.visitStmt(bm, v.Stmt)
+
+	case *ast.ComptimeExpr:
+		c.visitExpr(bm, v.Expr, false)
 
 	case *ast.IfExpr:
 		if v.CondKind == ast.IfCondOptVar {
@@ -919,6 +967,16 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 		if inf := exprInfoFromBM(c.prog, bm, v); inf != nil {
 			switch inf.CallKind {
 			case sema.CallBuiltinFunc, sema.CallIntrinsic:
+				if mem, ok := v.Callee.(*ast.MemberExpr); ok {
+					for _, ta := range mem.BaseTypeArgs {
+						c.visitTypeExpr(ta)
+					}
+					if ns := c.modAliasName(mem.Base); ns != "" {
+						c.emitFirstIdentInSpan(mem.Base.GetSpan(), ns, semTokNamespace, 0)
+					}
+					c.emitLastIdentInSpan(mem.Span, sema.MemberFieldName(mem, exprInfoFromBM(c.prog, bm, mem)), semTokFunction, semModDefaultLibrary)
+					return
+				}
 				c.emitFirstIdentInSpan(v.Callee.GetSpan(), inf.BuiltinName, semTokFunction, semModDefaultLibrary)
 			case sema.CallBuiltinMethod:
 				if mem, ok := v.Callee.(*ast.MemberExpr); ok {
@@ -974,12 +1032,29 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 		c.visitExpr(bm, v.Callee, false)
 
 	case *ast.MemberExpr:
+		for _, ta := range v.BaseTypeArgs {
+			c.visitTypeExpr(ta)
+		}
 		inf := exprInfoFromBM(c.prog, bm, v)
+		fieldName := sema.MemberFieldName(v, inf)
+		if id, ok := v.Base.(*ast.IdentExpr); ok && (id.Name == "comp" || id.Name == "type") {
+			fullName := id.Name + "." + fieldName
+			if LookupBuiltinFunc(fullName) != nil {
+				c.emitFirstIdentInSpan(id.Span, id.Name, semTokNamespace, 0)
+				c.emitLastIdentInSpan(v.Span, fieldName, semTokFunction, semModDefaultLibrary)
+				return
+			}
+			if LookupBuiltinTypeDoc(fullName) != nil {
+				c.emitFirstIdentInSpan(id.Span, id.Name, semTokNamespace, 0)
+				c.emitLastIdentInSpan(v.Span, fieldName, semTokVariable, semModReadonly|semModDefaultLibrary)
+				return
+			}
+		}
 		if inf != nil && inf.EnumVariant != nil {
 			if !isPlaceholderIdent(v.Base) {
 				c.emitMemberBaseAsTypeOrNs(bm, v.Base)
 			}
-			c.emitLastIdentInSpan(v.Span, v.Member, semTokEnumMember, semModReadonly)
+			c.emitLastIdentInSpan(v.Span, fieldName, semTokEnumMember, semModReadonly)
 			return
 		}
 		if _, isAlias := c.modAliasOfBase(v.Base); isAlias {
@@ -994,7 +1069,7 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 					mods |= semModDefaultLibrary
 				}
 			}
-			c.emitLastIdentInSpan(v.Span, v.Member, uint32(tokType), mods)
+			c.emitLastIdentInSpan(v.Span, fieldName, uint32(tokType), mods)
 			return
 		}
 		c.visitExpr(bm, v.Base, false)
@@ -1002,7 +1077,7 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 		if isWrite {
 			mods |= semModModification
 		}
-		c.emitLastIdentInSpan(v.Span, v.Member, semTokProperty, mods)
+		c.emitLastIdentInSpan(v.Span, fieldName, semTokProperty, mods)
 
 	case *ast.StructLit:
 		if v.Module != "" {
@@ -1048,7 +1123,7 @@ func (c *semTokCollector) visitExpr(bm *sema.BodyMaps, e ast.Expr, isWrite bool)
 				c.emitFirstIdentInSpan(v.Span, v.Name, semTokFunction, mods)
 				return
 			}
-			if inf.Sym.IsBind || inf.Sym.BindKind == sema.BindReadBorrow {
+			if inf.Sym.IsBind || inf.Sym.IsConst || inf.Sym.BindKind == sema.BindReadBorrow {
 				mods |= semModReadonly
 			}
 			c.emitFirstIdentInSpan(v.Span, v.Name, semTokVariable, mods)

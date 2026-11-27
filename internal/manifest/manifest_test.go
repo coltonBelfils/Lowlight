@@ -503,3 +503,54 @@ line_width = 80
 		t.Fatalf("expected local .lowlightfmt override, got found=%v opts=%+v", found2, fmtOpts2)
 	}
 }
+
+func TestTargetSelectorSpecificityOrdering(t *testing.T) {
+	// Alphabetically, "aarch64-unknown-linux-gnu" < "arm64" < "linux" < "unix".
+	// Specificity order must win so full triple overrides OS, arch, and unix.
+	tomlSrc := `[package]
+name = "spec_pkg"
+version = "0.1.0"
+
+[target.unix.dependencies]
+a = { path = "./unix_a" }
+b = { path = "./unix_b" }
+
+[target.arm64.dependencies]
+b = { path = "./arm64_b" }
+
+[target.linux.dependencies]
+b = { path = "./linux_b" }
+c = { path = "./linux_c" }
+
+[target."aarch64-unknown-linux-gnu".dependencies]
+c = { path = "./triple_c" }
+
+[target.unix]
+c_flags = ["-DUNIX"]
+
+[target.linux]
+c_flags = ["-DLINUX"]
+
+[target."aarch64-unknown-linux-gnu"]
+c_flags = ["-DTRIPLE"]
+`
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, manifest.ManifestFilename)
+	if err := os.WriteFile(path, []byte(tomlSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := manifest.LoadManifest(path)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+	target := manifest.ParseTarget("aarch64-unknown-linux-gnu")
+	deps, _ := m.EffectiveDeps(target, false)
+	if deps["a"].Path != "./unix_a" || deps["b"].Path != "./linux_b" || deps["c"].Path != "./triple_c" {
+		t.Fatalf("unexpected selector override order in EffectiveDeps: %#v", deps)
+	}
+	flags, _ := m.EffectiveTargetFlags(target)
+	gotFlags := strings.Join(flags, ",")
+	if gotFlags != "-DUNIX,-DLINUX,-DTRIPLE" {
+		t.Fatalf("expected specificity order [-DUNIX,-DLINUX,-DTRIPLE], got %q", gotFlags)
+	}
+}

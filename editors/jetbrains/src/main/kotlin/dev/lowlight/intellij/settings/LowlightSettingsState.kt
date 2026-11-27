@@ -39,6 +39,7 @@ class LowlightSettingsState : PersistentStateComponent<LowlightSettingsState> {
     var inlayHintsTypes: Boolean = true
     var inlayHintsParameters: Boolean = true
     var preferLspBackend: String = "auto"
+    var targetTriple: String = ""
 
     override fun getState(): LowlightSettingsState = this
 
@@ -59,7 +60,8 @@ class LowlightSettingsState : PersistentStateComponent<LowlightSettingsState> {
         "inlayHints" to mapOf(
             "types" to inlayHintsTypes,
             "parameters" to inlayHintsParameters
-        )
+        ),
+        "target" to targetTriple.trim()
     )
 
     companion object {

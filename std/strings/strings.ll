@@ -11,14 +11,14 @@ import "std/chars"
 // -----------------------------------------------------------------------------
 
 // Reports whether the string is non-empty and consists solely of whitespace characters.
-bind string.is_whitespace = fn(self) bool: {
+const string.is_whitespace = fn(self) bool: {
 	if(self.len() == 0): func <- false
 	for(ch in self.chars()): if(not ch.is_whitespace()): func <- false
 	true
 }
 
 // Reports whether every byte in the string is valid 7-bit ASCII (`<= 127`).
-bind string.is_ascii = fn(self) bool: {
+const string.is_ascii = fn(self) bool: {
 	for(i in 0..self.len()): if(self[i] > 127): func <- false
 	true
 }
@@ -27,7 +27,7 @@ bind string.is_ascii = fn(self) bool: {
 // Extended Substring Search
 // -----------------------------------------------------------------------------
 
-bind _matches_at = fn(s: string, pos: int, sub: string) bool: {
+const _matches_at = fn(s: string, pos: int, sub: string) bool: {
 	let sub_len = sub.len()
 	let j = 0
 	for(j < sub_len): {
@@ -38,7 +38,7 @@ bind _matches_at = fn(s: string, pos: int, sub: string) bool: {
 }
 
 // Returns the byte offset of the last occurrence of `sub`, or `none` if absent (returns `self.len()` when `sub` is `""`).
-bind string.last_index_of = fn(self, sub: string) ?int: {
+const string.last_index_of = fn(self, sub: string) ?int: {
 	if(sub.len() == 0): func <- self.len()
 	if(self.len() < sub.len()): func <- none
 	let limit = self.len() - sub.len()
@@ -51,7 +51,7 @@ bind string.last_index_of = fn(self, sub: string) ?int: {
 }
 
 // Counts non-overlapping occurrences of `sub` within the string (`0` if `sub` is empty).
-bind string.count = fn(self, sub: string) int: {
+const string.count = fn(self, sub: string) int: {
 	let sub_len = sub.len()
 	if(sub_len == 0 or self.len() < sub_len): func <- 0
 	let count = 0
@@ -70,7 +70,7 @@ bind string.count = fn(self, sub: string) int: {
 // -----------------------------------------------------------------------------
 
 // Returns a copy with the first ASCII byte uppercased and all subsequent ASCII letters lowercased.
-bind string.capitalize = fn(self) string: {
+const string.capitalize = fn(self) string: {
 	if(self.len() == 0): func <- ""
 	let out = ""
 	let first = self[0]
@@ -87,7 +87,7 @@ bind string.capitalize = fn(self) string: {
 // -----------------------------------------------------------------------------
 
 // Returns the string concatenated `count` times (empty when `count <= 0`).
-bind string.repeat = fn(self, count: int) string: {
+const string.repeat = fn(self, count: int) string: {
 	if(count <= 0 or self.len() == 0): func <- ""
 	let out = ""
 	for(i in 0..count): out.push(self)
@@ -95,7 +95,7 @@ bind string.repeat = fn(self, count: int) string: {
 }
 
 // Returns a new string with Unicode codepoints reversed in order.
-bind string.reverse = fn(self) string: {
+const string.reverse = fn(self) string: {
 	if(self.len() <= 1): func <- self.copy()
 	let cps = self.chars()
 	let out = ""
@@ -111,14 +111,14 @@ bind string.reverse = fn(self) string: {
 // Padding & Alignment
 // -----------------------------------------------------------------------------
 
-bind _char_count = fn(s: string) int: {
+const _char_count = fn(s: string) int: {
 	let n = 0
 	for(ch in s): n += 1
 	n
 }
 
 // Left-pads the string with repeated `pad_char` until its Unicode codepoint count reaches at least `total_len`.
-bind string.pad_left_char = fn(self, total_len: int, pad_char: char) string: {
+const string.pad_left_char = fn(self, total_len: int, pad_char: char) string: {
 	let char_len = _char_count(self)
 	if(char_len >= total_len): func <- self.copy()
 	let pad_count = total_len - char_len
@@ -130,7 +130,7 @@ bind string.pad_left_char = fn(self, total_len: int, pad_char: char) string: {
 }
 
 // Right-pads the string with repeated `pad_char` until its Unicode codepoint count reaches at least `total_len`.
-bind string.pad_right_char = fn(self, total_len: int, pad_char: char) string: {
+const string.pad_right_char = fn(self, total_len: int, pad_char: char) string: {
 	let char_len = _char_count(self)
 	if(char_len >= total_len): func <- self.copy()
 	let pad_count = total_len - char_len
@@ -142,7 +142,7 @@ bind string.pad_right_char = fn(self, total_len: int, pad_char: char) string: {
 }
 
 // Centers the string within `total_len` Unicode codepoints by padding evenly on both sides with `pad_char`.
-bind string.center_char = fn(self, total_len: int, pad_char: char) string: {
+const string.center_char = fn(self, total_len: int, pad_char: char) string: {
 	let char_len = _char_count(self)
 	if(char_len >= total_len): func <- self.copy()
 	let total_pad = total_len - char_len
@@ -161,7 +161,7 @@ bind string.center_char = fn(self, total_len: int, pad_char: char) string: {
 // -----------------------------------------------------------------------------
 
 // Splits the string on runs of ASCII whitespace into non-empty token substrings.
-bind string.split_whitespace = fn(self) [string]: {
+const string.split_whitespace = fn(self) [string]: {
 	let out: [string] = []
 	let in_token = false
 	let start = 0
@@ -187,7 +187,7 @@ bind string.split_whitespace = fn(self) [string]: {
 // A final line terminator ends the last line rather than starting an empty one, so
 // `"a\nb\n".lines()` is `["a", "b"]`, while `"a\nb\n\n".lines()` keeps the empty line
 // (`["a", "b", ""]`). An empty string has no lines.
-bind string.lines = fn(self) [string]: {
+const string.lines = fn(self) [string]: {
 	if(self.is_empty()): func <- []
 	let raw_lines = self.split("\n")
 	let count = if(self.ends_with("\n")): raw_lines.len() - 1 else: raw_lines.len()
@@ -198,13 +198,13 @@ bind string.lines = fn(self) [string]: {
 }
 
 // Concatenates `list` elements separated by `sep` (convenience wrapper around [`join_strings`]).
-bind join = fn(list: [string], sep: string) string: join_strings(list, sep)
+const join = fn(list: [string], sep: string) string: join_strings(list, sep)
 
 // Returns all decoded Unicode [`char`] codepoints in this string (alias for [`string.chars`]).
-bind string.chars_list = fn(self) [char]: self.chars()
+const string.chars_list = fn(self) [char]: self.chars()
 
 // Returns all raw UTF-8 bytes in this string (alias for [`string.bytes`]).
-bind string.bytes_list = fn(self) [u8]: self.bytes()
+const string.bytes_list = fn(self) [u8]: self.bytes()
 
 // -----------------------------------------------------------------------------
 // ByteBuffer
@@ -229,58 +229,58 @@ define ByteBuffer struct [
 ]
 
 // Creates an empty [`ByteBuffer`].
-bind ByteBuffer.new = fn() ByteBuffer: ByteBuffer[_data: [], _pos: 0]
+const ByteBuffer.new = fn() ByteBuffer: ByteBuffer[_data: [], _pos: 0]
 
 // Creates a [`ByteBuffer`] holding `bytes`, with the cursor at the start.
-bind ByteBuffer.from_bytes = fn(bytes: own [u8]) ByteBuffer: ByteBuffer[_data: own bytes, _pos: 0]
+const ByteBuffer.from_bytes = fn(bytes: own [u8]) ByteBuffer: ByteBuffer[_data: own bytes, _pos: 0]
 
 // Creates a [`ByteBuffer`] holding the UTF-8 bytes of `text`, with the cursor at the start.
-bind ByteBuffer.from_string = fn(text: string) ByteBuffer: ByteBuffer[_data: text.bytes(), _pos: 0]
+const ByteBuffer.from_string = fn(text: string) ByteBuffer: ByteBuffer[_data: text.bytes(), _pos: 0]
 
 // Returns the total number of bytes, read or not.
-bind ByteBuffer.len = fn(self) int: self._data.len()
+const ByteBuffer.len = fn(self) int: self._data.len()
 
 // Reports whether the buffer holds no bytes.
-bind ByteBuffer.is_empty = fn(self) bool: self._data.is_empty()
+const ByteBuffer.is_empty = fn(self) bool: self._data.is_empty()
 
 // Returns the cursor position: the index of the next byte to read.
-bind ByteBuffer.position = fn(self) int: self._pos
+const ByteBuffer.position = fn(self) int: self._pos
 
 // Returns how many bytes remain after the cursor.
-bind ByteBuffer.remaining = fn(self) int: self._data.len() - self._pos
+const ByteBuffer.remaining = fn(self) int: self._data.len() - self._pos
 
 // Moves the cursor to `pos`, returning `false` (and leaving it unchanged) if out of range.
-bind ByteBuffer.seek = fn(&self, pos: int) bool: {
+const ByteBuffer.seek = fn(&self, pos: int) bool: {
 	if(pos < 0 or pos > self._data.len()): func <- false
 	self._pos = pos
 	true
 }
 
 // Removes all bytes and resets the cursor.
-bind ByteBuffer.clear = fn(&self): {
+const ByteBuffer.clear = fn(&self): {
 	self._data.clear()
 	self._pos = 0
 }
 
 // Returns a copy of every byte in the buffer.
-bind ByteBuffer.bytes = fn(self) [u8]: self._data.copy()
+const ByteBuffer.bytes = fn(self) [u8]: self._data.copy()
 
 // Returns the bytes as a string (they are copied as-is, not validated as UTF-8).
-bind ByteBuffer.to_string = fn(self) string: {
+const ByteBuffer.to_string = fn(self) string: {
 	let out = ""
 	for(b in self._data): out.push_byte(b)
 	out
 }
 
 // Appends the low `count` bytes of `v`, least significant first (or most significant first when `big_endian`).
-bind ByteBuffer._write_uint = fn(&self, v: u64, count: int, big_endian: bool):
+const ByteBuffer._write_uint = fn(&self, v: u64, count: int, big_endian: bool):
 	for(i in 0..count): {
 		let shift = if(big_endian): 8 * (count - 1 - i) else: 8 * i
 		self._data.push(u8((v >> u64(shift)) & u64(0xff)))
 	}
 
 // Reads `count` bytes as an unsigned integer, or `none` if fewer remain.
-bind ByteBuffer._read_uint = fn(&self, count: int, big_endian: bool) ?u64: {
+const ByteBuffer._read_uint = fn(&self, count: int, big_endian: bool) ?u64: {
 	if(self.remaining() < count): func <- none
 	let v = u64(0)
 	for(i in 0..count): {
@@ -293,34 +293,34 @@ bind ByteBuffer._read_uint = fn(&self, count: int, big_endian: bool) ?u64: {
 }
 
 // Appends one byte.
-bind ByteBuffer.write_u8 = fn(&self, v: u8): self._data.push(v)
+const ByteBuffer.write_u8 = fn(&self, v: u8): self._data.push(v)
 
 // Appends a 16-bit value, little-endian.
-bind ByteBuffer.write_u16 = fn(&self, v: u16): self._write_uint(u64(v), 2, false)
+const ByteBuffer.write_u16 = fn(&self, v: u16): self._write_uint(u64(v), 2, false)
 
 // Appends a 32-bit value, little-endian.
-bind ByteBuffer.write_u32 = fn(&self, v: u32): self._write_uint(u64(v), 4, false)
+const ByteBuffer.write_u32 = fn(&self, v: u32): self._write_uint(u64(v), 4, false)
 
 // Appends a 64-bit value, little-endian.
-bind ByteBuffer.write_u64 = fn(&self, v: u64): self._write_uint(v, 8, false)
+const ByteBuffer.write_u64 = fn(&self, v: u64): self._write_uint(v, 8, false)
 
 // Appends a 16-bit value, big-endian.
-bind ByteBuffer.write_u16_be = fn(&self, v: u16): self._write_uint(u64(v), 2, true)
+const ByteBuffer.write_u16_be = fn(&self, v: u16): self._write_uint(u64(v), 2, true)
 
 // Appends a 32-bit value, big-endian.
-bind ByteBuffer.write_u32_be = fn(&self, v: u32): self._write_uint(u64(v), 4, true)
+const ByteBuffer.write_u32_be = fn(&self, v: u32): self._write_uint(u64(v), 4, true)
 
 // Appends a 64-bit value, big-endian.
-bind ByteBuffer.write_u64_be = fn(&self, v: u64): self._write_uint(v, 8, true)
+const ByteBuffer.write_u64_be = fn(&self, v: u64): self._write_uint(v, 8, true)
 
 // Appends every byte of `bytes`.
-bind ByteBuffer.write_bytes = fn(&self, bytes: [u8]): for(b in bytes): self._data.push(b)
+const ByteBuffer.write_bytes = fn(&self, bytes: [u8]): for(b in bytes): self._data.push(b)
 
 // Appends the UTF-8 bytes of `text`.
-bind ByteBuffer.write_string = fn(&self, text: string): for(b in text.bytes()): self._data.push(b)
+const ByteBuffer.write_string = fn(&self, text: string): for(b in text.bytes()): self._data.push(b)
 
 // Reads one byte, or `none` at the end.
-bind ByteBuffer.read_u8 = fn(&self) ?u8: {
+const ByteBuffer.read_u8 = fn(&self) ?u8: {
 	if(self.remaining() < 1): func <- none
 	let b = self._data[self._pos]
 	self._pos += 1
@@ -328,37 +328,37 @@ bind ByteBuffer.read_u8 = fn(&self) ?u8: {
 }
 
 // Reads a little-endian 16-bit value, or `none` if fewer than 2 bytes remain.
-bind ByteBuffer.read_u16 = fn(&self) ?u16: {
+const ByteBuffer.read_u16 = fn(&self) ?u16: {
 	let v = self._read_uint(2, false) ?? func <- none
 	u16(v)
 }
 
 // Reads a little-endian 32-bit value, or `none` if fewer than 4 bytes remain.
-bind ByteBuffer.read_u32 = fn(&self) ?u32: {
+const ByteBuffer.read_u32 = fn(&self) ?u32: {
 	let v = self._read_uint(4, false) ?? func <- none
 	u32(v)
 }
 
 // Reads a little-endian 64-bit value, or `none` if fewer than 8 bytes remain.
-bind ByteBuffer.read_u64 = fn(&self) ?u64: self._read_uint(8, false)
+const ByteBuffer.read_u64 = fn(&self) ?u64: self._read_uint(8, false)
 
 // Reads a big-endian 16-bit value, or `none` if fewer than 2 bytes remain.
-bind ByteBuffer.read_u16_be = fn(&self) ?u16: {
+const ByteBuffer.read_u16_be = fn(&self) ?u16: {
 	let v = self._read_uint(2, true) ?? func <- none
 	u16(v)
 }
 
 // Reads a big-endian 32-bit value, or `none` if fewer than 4 bytes remain.
-bind ByteBuffer.read_u32_be = fn(&self) ?u32: {
+const ByteBuffer.read_u32_be = fn(&self) ?u32: {
 	let v = self._read_uint(4, true) ?? func <- none
 	u32(v)
 }
 
 // Reads a big-endian 64-bit value, or `none` if fewer than 8 bytes remain.
-bind ByteBuffer.read_u64_be = fn(&self) ?u64: self._read_uint(8, true)
+const ByteBuffer.read_u64_be = fn(&self) ?u64: self._read_uint(8, true)
 
 // Reads the next `count` bytes, or `none` if fewer remain.
-bind ByteBuffer.read_bytes = fn(&self, count: int) ?[u8]: {
+const ByteBuffer.read_bytes = fn(&self, count: int) ?[u8]: {
 	if(count < 0 or self.remaining() < count): func <- none
 	let out = for(i in 0..count) [u8]: self._data[self._pos + i]
 	self._pos += count

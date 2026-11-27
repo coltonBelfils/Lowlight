@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>deque.ll source · Lowlight</title>
+<meta name="description" content="Lowlight is a systems language with C-level control, deterministic memory, and no null, garbage collector, or lifetime annotations.">
+<link rel="stylesheet" href="../../assets/style.css">
+<script>(function(){var t=localStorage.getItem("ll-theme");if(t)document.documentElement.dataset.theme=t;})();</script>
+</head>
+<body class="layout-wide" data-root="../../">
+<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-label="Open navigation" data-toggle="sidebar">☰</button><a class="brand" href="../../index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b44b"/><stop offset="1" stop-color="#e2763a"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="#1b1f3b"/><path d="M10 8v16h12" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="11" r="3" fill="url(#lg)"/></svg><span>Lowlight</span></a><nav class="top-nav"><a href="../../start/index.html">Get Started</a><a href="../../tour/index.html">Tour</a><a href="../../learn/index.html">Tutorials</a><a href="../../guides/index.html">Guides</a><a href="../../examples/index.html">By Example</a><a href="../../ref/index.html">Reference</a><a class="active" href="../index.html">Packages</a><a href="../../internals/index.html">Internals</a></nav><div class="header-tools"><button class="search-button" data-open-search aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search</span><kbd>/</kbd></button><button class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode"><span class="sun">☀</span><span class="moon">☾</span></button></div></div></header><div class="page"><aside class="sidebar"><nav><div class="sidebar-title"><a href="../index.html">Packages</a></div><div class="sidebar-group">Standard library</div><ul><li><a href="../chars.html">std/chars</a></li><li><a href="../collections.html">std/collections</a></li><li><a href="../core.html">std/core</a></li><li><a href="../derive.html">std/derive</a></li><li><a href="../fs.html">std/fs</a></li><li><a href="../http.html">std/http</a></li><li><a href="../json.html">std/json</a></li><li><a href="../math.html">std/math</a></li><li><a href="../net.html">std/net</a></li><li><a href="../os.html">std/os</a></li><li><a href="../pool.html">std/pool</a></li><li><a href="../sort.html">std/sort</a></li><li><a href="../strconv.html">std/strconv</a></li><li><a href="../strfmt.html">std/strfmt</a></li><li><a href="../strings.html">std/strings</a></li><li><a href="../test.html">std/test</a></li><li><a href="../time.html">std/time</a></li><li><a href="../unicode.html">std/unicode</a></li></ul><div class="sidebar-sections"><div class="sidebar-group">Sections</div><ul><li><a href="../../start/index.html">Get Started</a></li><li><a href="../../tour/index.html">Tour</a></li><li><a href="../../learn/index.html">Tutorials</a></li><li><a href="../../guides/index.html">Guides</a></li><li><a href="../../examples/index.html">By Example</a></li><li><a href="../../ref/index.html">Reference</a></li><li><a href="../index.html">Packages</a></li><li><a href="../../internals/index.html">Internals</a></li></ul></div></nav></aside><main class="content"><article class="doc"><nav class="crumbs"><a href="../index.html">Packages</a></nav><div class="src-view"><h1>deque.ll</h1><p>Source of package <a href="../collections.html"><code>std/collections</code></a>.</p><pre><code><span class="src-line" id="L1"><span class="m">// std/collections — Collections beyond the prelude&#39;s `[T]`, `#[T]`, and `#[K: V]`: [`Deque`],</span></span>
+<span class="src-line" id="L2"><span class="m">// [`Queue`], [`BitSet`], [`PriorityQueue`], [`StringInterner`], and [`BTreeMap`].</span></span>
+<span class="src-line" id="L3"></span>
+<span class="src-line" id="L4"><span class="m">// A double-ended queue: a growable ring buffer with O(1) pushes and pops at both ends.</span></span>
+<span class="src-line" id="L5"><span class="m">//</span></span>
+<span class="src-line" id="L6"><span class="m">// # Example</span></span>
+<span class="src-line" id="L7"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L8"><span class="m">// let d = collections.Deque[int].new()</span></span>
+<span class="src-line" id="L9"><span class="m">// d.push_back(2)</span></span>
+<span class="src-line" id="L10"><span class="m">// d.push_front(1)</span></span>
+<span class="src-line" id="L11"><span class="m">// assert(d.pop_back() == 2 and d.pop_front() == 1)</span></span>
+<span class="src-line" id="L12"><span class="m">// ```</span></span>
+<span class="src-line" id="L13"><span class="k">define</span> <span class="t">Deque</span>[<span class="t">T</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L14">	_data: <span class="t">ptr</span>[<span class="t">T</span>],</span>
+<span class="src-line" id="L15">	_cap: <span class="t">int</span>,</span>
+<span class="src-line" id="L16">	<span class="m">// Slot of the front element.</span></span>
+<span class="src-line" id="L17">	_head: <span class="t">int</span>,</span>
+<span class="src-line" id="L18">	_len: <span class="t">int</span>,</span>
+<span class="src-line" id="L19">]</span>
+<span class="src-line" id="L20"></span>
+<span class="src-line" id="L21"><span class="m">// Constructs an empty [`Deque`] without allocating.</span></span>
+<span class="src-line" id="L22"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].new = <span class="k">fn</span>() <span class="t">Deque</span>[<span class="t">T</span>]: <span class="t">Deque</span>[<span class="t">T</span>][_data: <span class="k">unsafe</span> null_ptr[<span class="t">T</span>](), _cap: <span class="n">0</span>, _head: <span class="n">0</span>, _len: <span class="n">0</span>]</span>
+<span class="src-line" id="L23"></span>
+<span class="src-line" id="L24"><span class="m">// Constructs an empty [`Deque`] with room for `cap` elements before it grows.</span></span>
+<span class="src-line" id="L25"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].with_capacity = <span class="k">fn</span>(cap: <span class="t">int</span>) <span class="t">Deque</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L26">	<span class="k">if</span>(cap &lt;= <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="t">Deque</span>[<span class="t">T</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L27">	<span class="t">Deque</span>[<span class="t">T</span>][_data: <span class="k">unsafe</span> alloc_raw[<span class="t">T</span>](cap), _cap: cap, _head: <span class="n">0</span>, _len: <span class="n">0</span>]</span>
+<span class="src-line" id="L28">}</span>
+<span class="src-line" id="L29"></span>
+<span class="src-line" id="L30"><span class="m">// Returns the number of elements.</span></span>
+<span class="src-line" id="L31"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._len</span>
+<span class="src-line" id="L32"></span>
+<span class="src-line" id="L33"><span class="m">// Reports whether the deque has no elements.</span></span>
+<span class="src-line" id="L34"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>._len == <span class="n">0</span></span>
+<span class="src-line" id="L35"></span>
+<span class="src-line" id="L36"><span class="m">// The slot holding the element at position `i` (front is `0`).</span></span>
+<span class="src-line" id="L37"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>]._slot = <span class="k">fn</span>(<span class="k">self</span>, i: <span class="t">int</span>) <span class="t">int</span>: (<span class="k">self</span>._head + i) % <span class="k">self</span>._cap</span>
+<span class="src-line" id="L38"></span>
+<span class="src-line" id="L39"><span class="m">// Doubles the capacity (at least 8), moving the elements to the start of the new buffer.</span></span>
+<span class="src-line" id="L40"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>]._grow = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L41">	<span class="k">let</span> ncap = <span class="k">if</span>(<span class="k">self</span>._cap &lt; <span class="n">4</span>): <span class="n">8</span> <span class="k">else</span>: <span class="k">self</span>._cap * <span class="n">2</span></span>
+<span class="src-line" id="L42">	<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L43">		<span class="k">let</span> nd = alloc_raw[<span class="t">T</span>](ncap)</span>
+<span class="src-line" id="L44">		<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="k">self</span>._len): <span class="f">ptr_write</span>(</span>
+<span class="src-line" id="L45">			<span class="f">ptr_add</span>(nd, i),</span>
+<span class="src-line" id="L46">			<span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>._data, <span class="k">self</span>.<span class="f">_slot</span>(i))),</span>
+<span class="src-line" id="L47">		)</span>
+<span class="src-line" id="L48">		<span class="k">if</span>(<span class="k">self</span>._cap &gt; <span class="n">0</span>): <span class="f">free_raw</span>(<span class="k">self</span>._data)</span>
+<span class="src-line" id="L49">		<span class="k">self</span>._data = nd</span>
+<span class="src-line" id="L50">	}</span>
+<span class="src-line" id="L51">	<span class="k">self</span>._cap = ncap</span>
+<span class="src-line" id="L52">	<span class="k">self</span>._head = <span class="n">0</span></span>
+<span class="src-line" id="L53">}</span>
+<span class="src-line" id="L54"></span>
+<span class="src-line" id="L55"><span class="m">// Adds `item` at the back.</span></span>
+<span class="src-line" id="L56"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].push_back = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>): {</span>
+<span class="src-line" id="L57">	<span class="k">if</span>(<span class="k">self</span>._len == <span class="k">self</span>._cap): <span class="k">self</span>.<span class="f">_grow</span>()</span>
+<span class="src-line" id="L58">	<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>._data, <span class="k">self</span>.<span class="f">_slot</span>(<span class="k">self</span>._len)), <span class="k">own</span> item)</span>
+<span class="src-line" id="L59">	<span class="k">self</span>._len += <span class="n">1</span></span>
+<span class="src-line" id="L60">}</span>
+<span class="src-line" id="L61"></span>
+<span class="src-line" id="L62"><span class="m">// Adds `item` at the front.</span></span>
+<span class="src-line" id="L63"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].push_front = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>): {</span>
+<span class="src-line" id="L64">	<span class="k">if</span>(<span class="k">self</span>._len == <span class="k">self</span>._cap): <span class="k">self</span>.<span class="f">_grow</span>()</span>
+<span class="src-line" id="L65">	<span class="k">self</span>._head = <span class="k">if</span>(<span class="k">self</span>._head == <span class="n">0</span>): <span class="k">self</span>._cap - <span class="n">1</span> <span class="k">else</span>: <span class="k">self</span>._head - <span class="n">1</span></span>
+<span class="src-line" id="L66">	<span class="k">unsafe</span> <span class="f">ptr_write</span>(<span class="f">ptr_add</span>(<span class="k">self</span>._data, <span class="k">self</span>._head), <span class="k">own</span> item)</span>
+<span class="src-line" id="L67">	<span class="k">self</span>._len += <span class="n">1</span></span>
+<span class="src-line" id="L68">}</span>
+<span class="src-line" id="L69"></span>
+<span class="src-line" id="L70"><span class="m">// Removes and returns the front element, or `none` if the deque is empty.</span></span>
+<span class="src-line" id="L71"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].pop_front = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">T</span>: {</span>
+<span class="src-line" id="L72">	<span class="k">if</span>(<span class="k">self</span>._len == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L73">	<span class="k">let</span> out = <span class="k">unsafe</span> <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>._data, <span class="k">self</span>._head))</span>
+<span class="src-line" id="L74">	<span class="k">self</span>._head = (<span class="k">self</span>._head + <span class="n">1</span>) % <span class="k">self</span>._cap</span>
+<span class="src-line" id="L75">	<span class="k">self</span>._len -= <span class="n">1</span></span>
+<span class="src-line" id="L76">	out</span>
+<span class="src-line" id="L77">}</span>
+<span class="src-line" id="L78"></span>
+<span class="src-line" id="L79"><span class="m">// Removes and returns the back element, or `none` if the deque is empty.</span></span>
+<span class="src-line" id="L80"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].pop_back = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">T</span>: {</span>
+<span class="src-line" id="L81">	<span class="k">if</span>(<span class="k">self</span>._len == <span class="n">0</span>): <span class="k">func</span> <span class="u">&lt;-</span> <span class="c">none</span></span>
+<span class="src-line" id="L82">	<span class="k">self</span>._len -= <span class="n">1</span></span>
+<span class="src-line" id="L83">	<span class="k">unsafe</span> <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>._data, <span class="k">self</span>.<span class="f">_slot</span>(<span class="k">self</span>._len)))</span>
+<span class="src-line" id="L84">}</span>
+<span class="src-line" id="L85"></span>
+<span class="src-line" id="L86"><span class="m">// Returns a copy of the element at position `i` (the front is `0`), or `none` if `i` is out of</span></span>
+<span class="src-line" id="L87"><span class="m">// range.</span></span>
+<span class="src-line" id="L88"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].get = <span class="k">fn</span>(<span class="k">self</span>, i: <span class="t">int</span>) ?<span class="t">T</span>:</span>
+<span class="src-line" id="L89">	<span class="k">if</span>(i &lt; <span class="n">0</span> <span class="k">or</span> i &gt;= <span class="k">self</span>._len): <span class="c">none</span> <span class="k">else</span>: <span class="k">unsafe</span> <span class="k">self</span>._data[<span class="k">self</span>.<span class="f">_slot</span>(i)].<span class="f">copy</span>()</span>
+<span class="src-line" id="L90"></span>
+<span class="src-line" id="L91"><span class="m">// Returns a copy of the front element, or `none` if the deque is empty.</span></span>
+<span class="src-line" id="L92"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].front = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">T</span>: <span class="k">self</span>.<span class="f">get</span>(<span class="n">0</span>)</span>
+<span class="src-line" id="L93"></span>
+<span class="src-line" id="L94"><span class="m">// Returns a copy of the back element, or `none` if the deque is empty.</span></span>
+<span class="src-line" id="L95"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].back = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">T</span>: <span class="k">self</span>.<span class="f">get</span>(<span class="k">self</span>._len - <span class="n">1</span>)</span>
+<span class="src-line" id="L96"></span>
+<span class="src-line" id="L97"><span class="m">// Drops every element, keeping the allocated capacity.</span></span>
+<span class="src-line" id="L98"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].clear = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L99">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="k">self</span>._len):</span>
+<span class="src-line" id="L100">		<span class="k">unsafe</span> {</span>
+<span class="src-line" id="L101">			<span class="k">let</span> _ = <span class="f">ptr_read</span>(<span class="f">ptr_add</span>(<span class="k">self</span>._data, <span class="k">self</span>.<span class="f">_slot</span>(i)))</span>
+<span class="src-line" id="L102">		}</span>
+<span class="src-line" id="L103">	<span class="k">self</span>._head = <span class="n">0</span></span>
+<span class="src-line" id="L104">	<span class="k">self</span>._len = <span class="n">0</span></span>
+<span class="src-line" id="L105">}</span>
+<span class="src-line" id="L106"></span>
+<span class="src-line" id="L107"><span class="m">// Returns copies of the elements, front to back.</span></span>
+<span class="src-line" id="L108"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].to_list = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">T</span>]: {</span>
+<span class="src-line" id="L109">	<span class="k">let</span> out = <span class="t">List</span>[<span class="t">T</span>].<span class="f">with_capacity</span>(<span class="k">self</span>._len)</span>
+<span class="src-line" id="L110">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="k">self</span>._len): out.<span class="f">push</span>(<span class="k">unsafe</span> <span class="k">self</span>._data[<span class="k">self</span>.<span class="f">_slot</span>(i)].<span class="f">copy</span>())</span>
+<span class="src-line" id="L111">	out</span>
+<span class="src-line" id="L112">}</span>
+<span class="src-line" id="L113"></span>
+<span class="src-line" id="L114"><span class="m">// Returns an iterator over copies of the elements, front to back.</span></span>
+<span class="src-line" id="L115"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].iter = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">T</span>]: <span class="k">self</span>.<span class="f">to_list</span>().<span class="f">iter</span>()</span>
+<span class="src-line" id="L116"></span>
+<span class="src-line" id="L117"><span class="m">// Returns a deep copy of the deque.</span></span>
+<span class="src-line" id="L118"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].copy = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Deque</span>[<span class="t">T</span>]: {</span>
+<span class="src-line" id="L119">	<span class="k">let</span> out = <span class="t">Deque</span>[<span class="t">T</span>].<span class="f">with_capacity</span>(<span class="k">self</span>._len)</span>
+<span class="src-line" id="L120">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="k">self</span>._len): out.<span class="f">push_back</span>(<span class="k">unsafe</span> <span class="k">self</span>._data[<span class="k">self</span>.<span class="f">_slot</span>(i)].<span class="f">copy</span>())</span>
+<span class="src-line" id="L121">	out</span>
+<span class="src-line" id="L122">}</span>
+<span class="src-line" id="L123"></span>
+<span class="src-line" id="L124"><span class="m">// Formats the deque as `Deque[a, b, ...]`, front to back.</span></span>
+<span class="src-line" id="L125"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].to_string = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {</span>
+<span class="src-line" id="L126">	<span class="k">let</span> out = <span class="s">&quot;Deque[&quot;</span></span>
+<span class="src-line" id="L127">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="k">self</span>._len): {</span>
+<span class="src-line" id="L128">		<span class="k">if</span>(i &gt; <span class="n">0</span>): out.<span class="f">push</span>(<span class="s">&quot;, &quot;</span>)</span>
+<span class="src-line" id="L129">		out.<span class="f">push</span>(<span class="k">unsafe</span> <span class="k">self</span>._data[<span class="k">self</span>.<span class="f">_slot</span>(i)].<span class="f">to_string</span>())</span>
+<span class="src-line" id="L130">	}</span>
+<span class="src-line" id="L131">	out + <span class="s">&quot;]&quot;</span></span>
+<span class="src-line" id="L132">}</span>
+<span class="src-line" id="L133"></span>
+<span class="src-line" id="L134"><span class="m">// Adds `item` at the back (satisfies [`Collectable`], for comprehensions).</span></span>
+<span class="src-line" id="L135"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].push = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>): <span class="k">self</span>.<span class="f">push_back</span>(<span class="k">own</span> item)</span>
+<span class="src-line" id="L136"></span>
+<span class="src-line" id="L137"><span class="m">// Drops every element and frees the buffer.</span></span>
+<span class="src-line" id="L138"><span class="k">bind</span> <span class="t">Deque</span>[<span class="t">T</span>].drop = <span class="k">fn</span>(&amp;<span class="k">self</span>): {</span>
+<span class="src-line" id="L139">	<span class="k">self</span>.<span class="f">clear</span>()</span>
+<span class="src-line" id="L140">	<span class="k">if</span>(<span class="k">self</span>._cap &gt; <span class="n">0</span>): <span class="k">unsafe</span> <span class="f">free_raw</span>(<span class="k">self</span>._data)</span>
+<span class="src-line" id="L141">	<span class="k">self</span>._cap = <span class="n">0</span></span>
+<span class="src-line" id="L142">}</span>
+<span class="src-line" id="L143"></span>
+<span class="src-line" id="L144"><span class="m">// A first-in, first-out queue: [`Queue.push`] adds at the back, [`Queue.pop`] takes from the front.</span></span>
+<span class="src-line" id="L145"><span class="m">// A [`Deque`] that only allows those operations.</span></span>
+<span class="src-line" id="L146"><span class="m">//</span></span>
+<span class="src-line" id="L147"><span class="m">// # Example</span></span>
+<span class="src-line" id="L148"><span class="m">// ```lowlight</span></span>
+<span class="src-line" id="L149"><span class="m">// let jobs = collections.Queue[string].new()</span></span>
+<span class="src-line" id="L150"><span class="m">// jobs.push(&quot;build&quot;)</span></span>
+<span class="src-line" id="L151"><span class="m">// jobs.push(&quot;test&quot;)</span></span>
+<span class="src-line" id="L152"><span class="m">// assert(jobs.pop() == &quot;build&quot;)</span></span>
+<span class="src-line" id="L153"><span class="m">// ```</span></span>
+<span class="src-line" id="L154"><span class="k">define</span> <span class="t">Queue</span>[<span class="t">T</span>] <span class="k">struct</span> [</span>
+<span class="src-line" id="L155">	_items: <span class="t">Deque</span>[<span class="t">T</span>]</span>
+<span class="src-line" id="L156">]</span>
+<span class="src-line" id="L157"></span>
+<span class="src-line" id="L158"><span class="m">// Constructs an empty [`Queue`].</span></span>
+<span class="src-line" id="L159"><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].new = <span class="k">fn</span>() <span class="t">Queue</span>[<span class="t">T</span>]: <span class="t">Queue</span>[<span class="t">T</span>][_items: <span class="t">Deque</span>[<span class="t">T</span>].<span class="f">new</span>()]</span>
+<span class="src-line" id="L160"></span>
+<span class="src-line" id="L161"><span class="m">// Returns the number of queued elements.</span></span>
+<span class="src-line" id="L162"><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].len = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">int</span>: <span class="k">self</span>._items.<span class="f">len</span>()</span>
+<span class="src-line" id="L163"></span>
+<span class="src-line" id="L164"><span class="m">// Reports whether the queue is empty.</span></span>
+<span class="src-line" id="L165"><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].is_empty = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">bool</span>: <span class="k">self</span>._items.<span class="f">is_empty</span>()</span>
+<span class="src-line" id="L166"></span>
+<span class="src-line" id="L167"><span class="m">// Adds `item` at the back of the queue (also satisfies [`Collectable`]).</span></span>
+<span class="src-line" id="L168"><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].push = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="k">own</span> <span class="t">T</span>): <span class="k">self</span>._items.<span class="f">push_back</span>(<span class="k">own</span> item)</span>
+<span class="src-line" id="L169"></span>
+<span class="src-line" id="L170"><span class="m">// Removes and returns the element at the front, or `none` if the queue is empty.</span></span>
+<span class="src-line" id="L171"><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].pop = <span class="k">fn</span>(&amp;<span class="k">self</span>) ?<span class="t">T</span>: <span class="k">self</span>._items.<span class="f">pop_front</span>()</span>
+<span class="src-line" id="L172"></span>
+<span class="src-line" id="L173"><span class="m">// Returns a copy of the element at the front without removing it, or `none` if the queue is empty.</span></span>
+<span class="src-line" id="L174"><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].peek = <span class="k">fn</span>(<span class="k">self</span>) ?<span class="t">T</span>: <span class="k">self</span>._items.<span class="f">front</span>()</span>
+<span class="src-line" id="L175"></span>
+<span class="src-line" id="L176"><span class="m">// Drops every queued element.</span></span>
+<span class="src-line" id="L177"><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].clear = <span class="k">fn</span>(&amp;<span class="k">self</span>): <span class="k">self</span>._items.<span class="f">clear</span>()</span>
+<span class="src-line" id="L178"></span>
+<span class="src-line" id="L179"><span class="m">// Returns copies of the elements, front to back.</span></span>
+<span class="src-line" id="L180"><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].to_list = <span class="k">fn</span>(<span class="k">self</span>) [<span class="t">T</span>]: <span class="k">self</span>._items.<span class="f">to_list</span>()</span>
+<span class="src-line" id="L181"></span>
+<span class="src-line" id="L182"><span class="m">// Returns an iterator over copies of the elements, front to back.</span></span>
+<span class="src-line" id="L183"><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].iter = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Iterator</span>[<span class="t">T</span>]: <span class="k">self</span>._items.<span class="f">iter</span>()</span>
+<span class="src-line" id="L184"></span>
+<span class="src-line" id="L185"><span class="m">// Returns a deep copy of the queue.</span></span>
+<span class="src-line" id="L186"><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].copy = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">Queue</span>[<span class="t">T</span>]: <span class="t">Queue</span>[<span class="t">T</span>][_items: <span class="k">self</span>._items.<span class="f">copy</span>()]</span>
+<span class="src-line" id="L187"></span>
+<span class="src-line" id="L188"><span class="m">// Formats the queue as `Queue[a, b, ...]`, front to back.</span></span>
+<span class="src-line" id="L189"><span class="k">bind</span> <span class="t">Queue</span>[<span class="t">T</span>].to_string = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: <span class="s">&quot;Queue&quot;</span> + <span class="k">self</span>._items.<span class="f">to_string</span>()[<span class="n">5</span>..]</span>
+<span class="src-line" id="L190"></span>
+<span class="src-line" id="L191"><span class="a">@test</span>(<span class="s">&quot;Deque pushes and pops at both ends across growth&quot;</span>)</span>
+<span class="src-line" id="L192"><span class="k">bind</span> test_deque = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L193">	<span class="k">let</span> d = <span class="t">Deque</span>[<span class="t">int</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L194">	<span class="f">assert</span>(d.<span class="f">pop_front</span>() == <span class="c">none</span> <span class="k">and</span> d.<span class="f">pop_back</span>() == <span class="c">none</span>, <span class="s">&quot;empty pops are none&quot;</span>)</span>
+<span class="src-line" id="L195">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">20</span>):</span>
+<span class="src-line" id="L196">		<span class="k">if</span>(i % <span class="n">2</span> == <span class="n">0</span>): d.<span class="f">push_back</span>(i) <span class="k">else</span>: d.<span class="f">push_front</span>(i)</span>
+<span class="src-line" id="L197">	<span class="f">assert</span>(d.<span class="f">len</span>() == <span class="n">20</span>, <span class="s">&quot;len after mixed pushes&quot;</span>)</span>
+<span class="src-line" id="L198">	<span class="f">assert</span>(d.<span class="f">front</span>() == <span class="n">19</span> <span class="k">and</span> d.<span class="f">back</span>() == <span class="n">18</span>, <span class="s">&quot;front and back&quot;</span>)</span>
+<span class="src-line" id="L199">	<span class="f">assert</span>(d.<span class="f">get</span>(<span class="n">0</span>) == <span class="n">19</span> <span class="k">and</span> d.<span class="f">get</span>(<span class="n">19</span>) == <span class="n">18</span> <span class="k">and</span> d.<span class="f">get</span>(<span class="n">20</span>) == <span class="c">none</span>, <span class="s">&quot;get by position&quot;</span>)</span>
+<span class="src-line" id="L200">	<span class="k">let</span> order = <span class="k">for</span>(x <span class="k">in</span> d.<span class="f">to_list</span>()) [<span class="t">int</span>]: x</span>
+<span class="src-line" id="L201">	<span class="f">assert</span>(order.<span class="f">len</span>() == <span class="n">20</span> <span class="k">and</span> order[<span class="n">9</span>] == <span class="n">1</span> <span class="k">and</span> order[<span class="n">10</span>] == <span class="n">0</span>, <span class="s">&quot;iteration goes front to back&quot;</span>)</span>
+<span class="src-line" id="L202">	<span class="f">assert</span>(d.<span class="f">pop_front</span>() == <span class="n">19</span> <span class="k">and</span> d.<span class="f">pop_back</span>() == <span class="n">18</span>, <span class="s">&quot;pops&quot;</span>)</span>
+<span class="src-line" id="L203">	d.<span class="f">clear</span>()</span>
+<span class="src-line" id="L204">	<span class="f">assert</span>(d.<span class="f">is_empty</span>() <span class="k">and</span> d.<span class="f">pop_front</span>() == <span class="c">none</span>, <span class="s">&quot;clear&quot;</span>)</span>
+<span class="src-line" id="L205"></span>
+<span class="src-line" id="L206">	<span class="k">let</span> words = <span class="t">Deque</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L207">	words.<span class="f">push_back</span>(<span class="s">&quot;b&quot;</span> + <span class="s">&quot;&quot;</span>)</span>
+<span class="src-line" id="L208">	words.<span class="f">push_front</span>(<span class="s">&quot;a&quot;</span> + <span class="s">&quot;&quot;</span>)</span>
+<span class="src-line" id="L209">	words.<span class="f">push_back</span>(<span class="s">&quot;c&quot;</span> + <span class="s">&quot;&quot;</span>)</span>
+<span class="src-line" id="L210">	<span class="k">let</span> copy = words.<span class="f">copy</span>()</span>
+<span class="src-line" id="L211">	<span class="f">assert</span>(words.<span class="f">pop_front</span>() == <span class="s">&quot;a&quot;</span>, <span class="s">&quot;string pop_front&quot;</span>)</span>
+<span class="src-line" id="L212">	<span class="f">assert</span>(</span>
+<span class="src-line" id="L213">		words.<span class="f">to_string</span>() == <span class="s">&quot;Deque[b, c]&quot;</span> <span class="k">and</span> copy.<span class="f">to_string</span>() == <span class="s">&quot;Deque[a, b, c]&quot;</span>,</span>
+<span class="src-line" id="L214">		<span class="s">&quot;copies are independent&quot;</span>,</span>
+<span class="src-line" id="L215">	)</span>
+<span class="src-line" id="L216">	<span class="k">let</span> wrapped = <span class="t">Deque</span>[<span class="t">string</span>].<span class="f">with_capacity</span>(<span class="n">2</span>)</span>
+<span class="src-line" id="L217">	<span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">5</span>): {</span>
+<span class="src-line" id="L218">		wrapped.<span class="f">push_back</span>(<span class="s">&quot;x</span>$i<span class="s">&quot;</span>)</span>
+<span class="src-line" id="L219">		<span class="k">if</span>(i % <span class="n">2</span> == <span class="n">1</span>): {</span>
+<span class="src-line" id="L220">			<span class="k">let</span> _ = wrapped.<span class="f">pop_front</span>()</span>
+<span class="src-line" id="L221">		}</span>
+<span class="src-line" id="L222">	}</span>
+<span class="src-line" id="L223">	<span class="f">assert</span>(wrapped.<span class="f">to_list</span>().<span class="f">join</span>(<span class="s">&quot;,&quot;</span>) == <span class="s">&quot;x2,x3,x4&quot;</span>, <span class="s">&quot;growth while wrapped keeps order&quot;</span>)</span>
+<span class="src-line" id="L224">	<span class="k">let</span> built = <span class="k">for</span>(i <span class="k">in</span> <span class="n">0</span>..<span class="n">3</span>) <span class="t">Deque</span>[<span class="t">int</span>]: i * i</span>
+<span class="src-line" id="L225">	<span class="f">assert</span>(built.<span class="f">to_string</span>() == <span class="s">&quot;Deque[0, 1, 4]&quot;</span>, <span class="s">&quot;comprehension into a Deque&quot;</span>)</span>
+<span class="src-line" id="L226">}</span>
+<span class="src-line" id="L227"></span>
+<span class="src-line" id="L228"><span class="a">@test</span>(<span class="s">&quot;Queue is first in, first out&quot;</span>)</span>
+<span class="src-line" id="L229"><span class="k">bind</span> test_queue = <span class="k">fn</span>(): {</span>
+<span class="src-line" id="L230">	<span class="k">let</span> q = <span class="t">Queue</span>[<span class="t">string</span>].<span class="f">new</span>()</span>
+<span class="src-line" id="L231">	q.<span class="f">push</span>(<span class="s">&quot;build&quot;</span>)</span>
+<span class="src-line" id="L232">	q.<span class="f">push</span>(<span class="s">&quot;test&quot;</span>)</span>
+<span class="src-line" id="L233">	q.<span class="f">push</span>(<span class="s">&quot;ship&quot;</span>)</span>
+<span class="src-line" id="L234">	<span class="f">assert</span>(q.<span class="f">peek</span>() == <span class="s">&quot;build&quot;</span> <span class="k">and</span> q.<span class="f">len</span>() == <span class="n">3</span>, <span class="s">&quot;peek leaves the front in place&quot;</span>)</span>
+<span class="src-line" id="L235">	<span class="f">assert</span>(q.<span class="f">pop</span>() == <span class="s">&quot;build&quot;</span> <span class="k">and</span> q.<span class="f">pop</span>() == <span class="s">&quot;test&quot;</span>, <span class="s">&quot;pops in order&quot;</span>)</span>
+<span class="src-line" id="L236">	<span class="f">assert</span>(q.<span class="f">to_string</span>() == <span class="s">&quot;Queue[ship]&quot;</span>, <span class="s">&quot;to_string&quot;</span>)</span>
+<span class="src-line" id="L237">	<span class="f">assert</span>(q.<span class="f">pop</span>() == <span class="s">&quot;ship&quot;</span> <span class="k">and</span> q.<span class="f">pop</span>() == <span class="c">none</span> <span class="k">and</span> q.<span class="f">is_empty</span>(), <span class="s">&quot;drains&quot;</span>)</span>
+<span class="src-line" id="L238">}</span>
+<span class="src-line" id="L239"></span>
+</code></pre></div></article></main><aside class="toc"></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../../start/index.html">Get Started</a><a href="../../start/install.html">Install</a><a href="../../start/hello-world.html">First program</a><a href="../../start/projects.html">First project</a><a href="../../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../../tour/index.html">Tour</a><a href="../../tour/basics.html">Basics</a><a href="../../tour/functions.html">Functions</a><a href="../../tour/types.html">Your own types</a><a href="../../tour/optionals.html">Optionals</a><a href="../../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="../../learn/index.html">Tutorials</a><a href="../../learn/word-count.html">A command-line tool</a><a href="../../learn/calculator.html">A calculator</a><a href="../../learn/config-loader.html">Handling errors</a><a href="../../learn/web-service.html">A web service</a><a href="../../learn/calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../../guides/index.html">Guides</a><a href="../../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../../guides/ownership.html">Ownership and borrowing</a><a href="../../guides/errors.html">Failure handling</a><a href="../../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../../examples/index.html">By Example</a><a href="../../examples/hello-world.html">Hello, world</a><a href="../../examples/values.html">Values</a><a href="../../examples/variables.html">Variables</a><a href="../../examples/constants.html">Constants</a><a href="../../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../../ref/index.html">Reference</a><a href="../../spec/index.html">Overview and contents</a><a href="../../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../../spec/quick-reference.html">Quick Reference</a><a href="../../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../index.html">Packages</a><a href="../chars.html">std/chars</a><a href="../collections.html">std/collections</a><a href="../core.html">std/core</a><a href="../derive.html">std/derive</a><a href="../fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../../internals/index.html">Internals</a><a href="../../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../../about/index.html">About</a><a href="../../about/contributing.html">Contributing</a><a href="../../about/faq.html">FAQ</a><a href="../../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+<script src="../../search-index.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

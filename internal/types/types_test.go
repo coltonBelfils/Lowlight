@@ -30,10 +30,38 @@ func TestStackArrayEqualsStrictSize(t *testing.T) {
 
 	viewArr := &types.Struct{
 		Name:     "Array",
+		Lang:     "array",
 		TypeArgs: []types.Type{types.TypeInt},
 	}
-	if !arr3.Equals(viewArr) {
-		t.Fatal("expected [3: int] to stay compatible with Array[int] view")
+	if arr3.Equals(viewArr) || viewArr.Equals(arr3) {
+		t.Fatal("expected [3: int] not to equal 1-arg Array[int] view type")
+	}
+
+	userArr := &types.Struct{
+		Name:     "Array",
+		TypeArgs: []types.Type{types.NewConstInt(3, 3, types.TypeInt), types.TypeInt},
+	}
+	if arr3.Equals(userArr) || userArr.Equals(arr3) {
+		t.Fatal("expected user struct Array[3, int] without Lang==\"array\" not to equal [3: int]")
+	}
+
+	coreUnsignedArr := &types.Struct{
+		Name:     "Array",
+		Lang:     "array",
+		TypeArgs: []types.Type{types.NewConstInt(0, 3, types.TypeU64), types.TypeInt},
+	}
+	if !arr3.Equals(coreUnsignedArr) || !coreUnsignedArr.Equals(arr3) {
+		t.Fatal("expected [3: int] to equal core Array[u64(3), int]")
+	}
+
+	vecInt := &types.Vector{Elem: types.TypeInt}
+	userList := &types.Struct{Name: "List", TypeArgs: []types.Type{types.TypeInt}}
+	if vecInt.Equals(userList) || userList.Equals(vecInt) {
+		t.Fatal("expected user struct List[int] without Lang==\"list\" not to equal [int]")
+	}
+	coreList := &types.Struct{Name: "List", Lang: "list", TypeArgs: []types.Type{types.TypeInt}}
+	if !vecInt.Equals(coreList) || !coreList.Equals(vecInt) {
+		t.Fatal("expected core List[int] to equal [int]")
 	}
 }
 

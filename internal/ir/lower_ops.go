@@ -171,6 +171,13 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) Expr {
 					}
 				}
 			}
+			var collectScope *mirScope
+			if needValue && colSlot != nil {
+				collectScope = fl.pushScope(0, "", "", nil, nil, false)
+				if !colSlot.Type.IsPlain() {
+					collectScope.ownedLocals = append(collectScope.ownedLocals, colSlot)
+				}
+			}
 			for i, it := range uf.Iters {
 				iterContLbl := fmt.Sprintf("_ll_cf_cont_%d_%d", inf.TargetID, i)
 				var iterItemSlot *Local
@@ -226,7 +233,14 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) Expr {
 			if needValue && colSlot != nil {
 				fl.lowerForElse(fe, true, colSlot)
 				fl.emit(&InstrLabel{Name: exitLbl})
-				return NewLocalExpr(colSlot)
+				retSlot := fl.allocSlot("_ll_cf_out", colSlot.Type)
+				fl.assignLocal(retSlot, NewLocalExpr(colSlot))
+				if !colSlot.Type.IsPlain() {
+					fl.emit(&InstrZero{Var: colSlot, VarName: colSlot.CName, Type: colSlot.Type, MovedFlag: colSlot.MovedFlag})
+				}
+				_ = collectScope
+				fl.popScopeEmitDrops()
+				return NewLocalExpr(retSlot)
 			}
 			fl.lowerForElse(fe, false, nil)
 			fl.emit(&InstrLabel{Name: exitLbl})
@@ -342,23 +356,43 @@ func (fl *funcLowerer) lowerFixedCollectComptimeFor(inf *sema.ExprInfo, uf *sema
 	}
 
 	var usedDefVar *Local
+	structFieldCanDefault := func(idx int) bool {
+		if uf.CollectStruct == nil || idx < 0 || idx >= len(uf.CollectStruct.Fields) {
+			return false
+		}
+		sf := uf.CollectStruct.Fields[idx]
+		decl := fl.prog.StructDecls[uf.CollectStruct]
+		if sf.HasDefault || (decl != nil && idx < len(decl.Fields) && decl.Fields[idx].Default != nil) {
+			return true
+		}
+		_, isOpt := sf.Type.(*types.Optional)
+		return isOpt
+	}
 	if uf.CollectStruct != nil {
-		usedDefVar = fl.allocSlot("_ll_cf_def", types.TypeBool)
+		for _, it := range uf.Iters {
+			if structFieldCanDefault(it.TargetIdx) {
+				usedDefVar = fl.allocSlot("_ll_cf_def", types.TypeBool)
+				break
+			}
+		}
 	}
 
 	for i, it := range uf.Iters {
 		elemSlot := elemSlots[i]
 		slotTy := elemSlot.Type
 		iterContLbl := fmt.Sprintf("_ll_cf_cont_%d_%d", inf.TargetID, i)
-		if usedDefVar != nil {
-			fl.emit(&InstrAssign{Dst: NewLocalExpr(usedDefVar), Expr: NewLitBool(false)})
+		fieldCanDef := structFieldCanDefault(it.TargetIdx)
+		var iterDefVar *Local
+		if fieldCanDef {
+			iterDefVar = usedDefVar
+			fl.emit(&InstrAssign{Dst: NewLocalExpr(iterDefVar), Expr: NewLitBool(false)})
 		}
 		forScope := fl.pushScope(inf.TargetID, breakDropLbl, iterContLbl, colSlot, nil, false)
 		forScope.isCollecting = needValue && colSlot != nil
 		forScope.isFixedCollect = true
 		forScope.loopElemTy = slotTy
 		forScope.collectIterSlot = elemSlot
-		forScope.collectUsedDefault = usedDefVar
+		forScope.collectUsedDefault = iterDefVar
 
 		fl.pushInstrBuf()
 		fl.pushScope(0, "", "", nil, nil, false)
@@ -380,7 +414,7 @@ func (fl *funcLowerer) lowerFixedCollectComptimeFor(inf *sema.ExprInfo, uf *sema
 		fl.emit(&InstrBlock{Body: iterInstrs})
 		fl.emit(&InstrLabel{Name: iterContLbl})
 
-		if usedDefVar != nil && uf.CollectStruct != nil {
+		if iterDefVar != nil && uf.CollectStruct != nil {
 			st := uf.CollectStruct
 			idx := it.TargetIdx
 			decl := fl.prog.StructDecls[st]
@@ -398,14 +432,12 @@ func (fl *funcLowerer) lowerFixedCollectComptimeFor(inf *sema.ExprInfo, uf *sema
 			} else if optF, isOpt := sf.Type.(*types.Optional); isOpt {
 				fl.tc.visit(optF)
 				fExpr = optNoneExpr(optF)
-			} else {
-				fExpr = &ExprLitZero{Typ: sf.Type}
 			}
 			fl.assignLocal(elemSlot, fExpr)
 			fl.flushStmtTemps()
 			fl.popScopeEmitDrops()
 			defThen := fl.popInstrBuf()
-			fl.emit(&InstrIf{Cond: NewLocalExpr(usedDefVar), Then: defThen})
+			fl.emit(&InstrIf{Cond: NewLocalExpr(iterDefVar), Then: defThen})
 		}
 
 		fl.popScopeEmitDrops()
@@ -1710,7 +1742,9 @@ func (fl *funcLowerer) lowerMemberExpr(m *ast.MemberExpr, inf *sema.ExprInfo, fo
 	}
 
 	// 4. Direct struct / `ref[Struct]` field access
-	baseTy := fl.info(m.Base).Type
+	mBase := fl.resolvedMemberBase(m)
+	mName := fl.resolvedMemberName(m)
+	baseTy := fl.info(mBase).Type
 	if rf, isRef := baseTy.(*types.Ref); isRef {
 		rfElem := rf.Elem
 		if d, isDist := rfElem.(*types.Distinct); isDist {
@@ -1721,12 +1755,12 @@ func (fl *funcLowerer) lowerMemberExpr(m *ast.MemberExpr, inf *sema.ExprInfo, fo
 		if tup, isTup := rfElem.(*types.Tuple); isTup {
 			fIdx := inf.TupleFieldIdx
 			fName := fmt.Sprintf("_%d", fIdx)
-			ptr := fl.lowerExprRead(m.Base)
+			ptr := fl.lowerExprRead(mBase)
 			return &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: fName, FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: true}
 		}
 		st := rf.Elem.(*types.Struct)
-		sf, _ := st.FieldByName(m.Member)
-		ptr := fl.lowerExprRead(m.Base)
+		sf, _ := st.FieldByName(mName)
+		ptr := fl.lowerExprRead(mBase)
 		return &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: sf.CName, Typ: sf.Type, IsPtr: true}
 	}
 	if p, isPtr := baseTy.(*types.Ptr); isPtr {
@@ -1739,25 +1773,25 @@ func (fl *funcLowerer) lowerMemberExpr(m *ast.MemberExpr, inf *sema.ExprInfo, fo
 		if tup, isTup := pElem.(*types.Tuple); isTup {
 			fIdx := inf.TupleFieldIdx
 			fName := fmt.Sprintf("_%d", fIdx)
-			ptr := fl.lowerExprRead(m.Base)
+			ptr := fl.lowerExprRead(mBase)
 			return &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: fName, FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: true}
 		}
 		if st, ok := p.Elem.(*types.Struct); ok {
-			sf, _ := st.FieldByName(m.Member)
-			ptr := fl.lowerExprRead(m.Base)
+			sf, _ := st.FieldByName(mName)
+			ptr := fl.lowerExprRead(mBase)
 			return &ExprField{Base: EnsureExpr(ptr, baseTy), FieldName: sf.CName, Typ: sf.Type, IsPtr: true}
 		}
 	}
 	if _, isVec := baseTy.(*types.Vector); isVec {
-		baseExpr := fl.lowerExprRead(m.Base)
-		return &ExprField{Base: EnsureExpr(baseExpr, baseTy), FieldName: m.Member, Typ: inf.Type, IsPtr: false}
+		baseExpr := fl.lowerExprRead(mBase)
+		return &ExprField{Base: EnsureExpr(baseExpr, baseTy), FieldName: mName, Typ: inf.Type, IsPtr: false}
 	}
 	if arr, isArr := baseTy.(*types.StackArray); isArr {
-		if m.Member == "len" {
+		if mName == "len" {
 			return NewLitInt(uint64(arr.Size), false, types.TypeInt)
 		}
-		baseExpr := fl.lowerExprRead(m.Base)
-		return &ExprField{Base: EnsureExpr(baseExpr, baseTy), FieldName: m.Member, Typ: inf.Type, IsPtr: false}
+		baseExpr := fl.lowerExprRead(mBase)
+		return &ExprField{Base: EnsureExpr(baseExpr, baseTy), FieldName: mName, Typ: inf.Type, IsPtr: false}
 	}
 	rawBaseTy := baseTy
 	effectiveBaseTy := baseTy
@@ -1769,13 +1803,13 @@ func (fl *funcLowerer) lowerMemberExpr(m *ast.MemberExpr, inf *sema.ExprInfo, fo
 	if tup, isTup := effectiveBaseTy.(*types.Tuple); isTup {
 		fIdx := inf.TupleFieldIdx
 		fName := fmt.Sprintf("_%d", fIdx)
-		baseExpr := fl.lowerExprRead(m.Base)
+		baseExpr := fl.lowerExprRead(mBase)
 		return &ExprField{Base: EnsureExpr(baseExpr, rawBaseTy), FieldName: fName, FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: false}
 	}
 
 	st := baseTy.(*types.Struct)
-	sf, _ := st.FieldByName(m.Member)
-	baseExpr := fl.lowerExprRead(m.Base)
+	sf, _ := st.FieldByName(mName)
+	baseExpr := fl.lowerExprRead(mBase)
 	_ = forOwned
 	return &ExprField{Base: EnsureExpr(baseExpr, baseTy), FieldName: sf.CName, Typ: sf.Type, IsPtr: false}
 }
@@ -1796,7 +1830,7 @@ func (fl *funcLowerer) collectMemberChain(e ast.Expr) (ast.Expr, []*ast.MemberEx
 			break
 		}
 		rev = append(rev, mem)
-		cur = mem.Base
+		cur = fl.resolvedMemberBase(mem)
 	}
 	steps := make([]*ast.MemberExpr, len(rev))
 	for i := range rev {
@@ -1844,14 +1878,15 @@ func (fl *funcLowerer) derefIfArenaRef(ptr Expr, ty types.Type) (Expr, types.Typ
 
 func (fl *funcLowerer) memberFieldExpr(basePtr Expr, baseTy types.Type, step *ast.MemberExpr) (Expr, types.Type, bool) {
 	sInf := fl.info(step)
+	mName := fl.resolvedMemberName(step)
 	if _, isVec := baseTy.(*types.Vector); isVec {
-		return &ExprField{Base: basePtr, FieldName: step.Member, Typ: sInf.Type, IsPtr: true}, sInf.Type, false
+		return &ExprField{Base: basePtr, FieldName: mName, Typ: sInf.Type, IsPtr: true}, sInf.Type, false
 	}
 	if arr, isArr := baseTy.(*types.StackArray); isArr {
-		if step.Member == "len" {
+		if mName == "len" {
 			return NewLitInt(uint64(arr.Size), false, types.TypeInt), types.TypeInt, true
 		}
-		return &ExprField{Base: basePtr, FieldName: step.Member, Typ: sInf.Type, IsPtr: true}, sInf.Type, false
+		return &ExprField{Base: basePtr, FieldName: mName, Typ: sInf.Type, IsPtr: true}, sInf.Type, false
 	}
 	effTy := baseTy
 	if d, isDist := baseTy.(*types.Distinct); isDist {
@@ -1866,7 +1901,7 @@ func (fl *funcLowerer) memberFieldExpr(basePtr Expr, baseTy types.Type, step *as
 		return &ExprField{Base: basePtr, FieldName: fName, FieldIdx: fIdx, Typ: elemTy, IsPtr: true}, elemTy, false
 	}
 	st := baseTy.(*types.Struct)
-	sf, _ := st.FieldByName(step.Member)
+	sf, _ := st.FieldByName(mName)
 	return &ExprField{Base: basePtr, FieldName: sf.CName, Typ: sf.Type, IsPtr: true}, sf.Type, false
 }
 

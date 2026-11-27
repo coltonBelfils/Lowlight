@@ -3,6 +3,9 @@ package lsp
 import (
 	"fmt"
 	"strings"
+
+	"lowlight/internal/ast"
+	"lowlight/internal/sema"
 )
 
 // AttributeDoc documents an `@attribute` for completion and hover.
@@ -62,13 +65,60 @@ func lookupAttribute(name string) *AttributeDoc {
 	return nil
 }
 
-func attributeHoverMarkdown(a *AttributeDoc) string {
+func collectDerivableInterfaces(prog *sema.CheckedProgram, mod *sema.Module) []struct{ Name, Method, Summary string } {
+	out := append([]struct{ Name, Method, Summary string }(nil), DerivableInterfaces...)
+	seen := make(map[string]bool, len(out))
+	for _, d := range out {
+		seen[d.Name] = true
+	}
+	if prog == nil {
+		return out
+	}
+	for _, m := range prog.Modules {
+		if m == nil || m.File == nil {
+			continue
+		}
+		samePkg := mod == nil || prog.SamePackage(mod, m)
+		for _, d := range m.ActiveDecls() {
+			ifc, ok := d.(*ast.InterfaceDecl)
+			if !ok || seen[ifc.Name] || ast.FindAttribute(ifc.Attributes, "derivable") == nil {
+				continue
+			}
+			if !samePkg && !sema.IsExported(ifc.Name) {
+				continue
+			}
+			seen[ifc.Name] = true
+			meth := "derived methods"
+			if len(ifc.Methods) > 0 {
+				var names []string
+				for _, im := range ifc.Methods {
+					names = append(names, "`"+im.Name+"`")
+				}
+				meth = strings.Join(names, ", ")
+			}
+			summary := strings.TrimSpace(ifc.Doc)
+			if summary == "" {
+				summary = "Custom `@derivable` interface generating " + meth + "."
+			} else if nl := strings.IndexByte(summary, '\n'); nl >= 0 {
+				summary = strings.TrimSpace(summary[:nl])
+			}
+			out = append(out, struct{ Name, Method, Summary string }{
+				Name:    ifc.Name,
+				Method:  meth,
+				Summary: summary,
+			})
+		}
+	}
+	return out
+}
+
+func attributeHoverMarkdown(prog *sema.CheckedProgram, mod *sema.Module, a *AttributeDoc) string {
 	md := fmt.Sprintf("### `@%s`\n*Applies to: %s*\n\n%s", a.Name, a.AppliesTo, a.Summary)
 	if a.Name == "derive" {
 		var b strings.Builder
 		b.WriteString(md)
 		b.WriteString("\n\n| Interface | Generates |\n|---|---|\n")
-		for _, d := range DerivableInterfaces {
+		for _, d := range collectDerivableInterfaces(prog, mod) {
 			fmt.Fprintf(&b, "| `%s` | %s |\n", d.Name, d.Summary)
 		}
 		return b.String()
@@ -96,14 +146,14 @@ func inDeriveArgs(src string, offset int) (bool, []string) {
 
 // attributeCompletions offers attribute names right after `@`, and interface names inside
 // `@derive(...)`. It returns nil when neither applies.
-func attributeCompletions(src string, prefixStart, offset int, prefix string, replaceRange Range) *CompletionList {
+func attributeCompletions(prog *sema.CheckedProgram, mod *sema.Module, src string, prefixStart, offset int, prefix string, replaceRange Range) *CompletionList {
 	if ok, listed := inDeriveArgs(src, prefixStart); ok {
 		have := make(map[string]bool)
 		for _, l := range listed {
 			have[l] = true
 		}
 		var items []CompletionItem
-		for i, d := range DerivableInterfaces {
+		for i, d := range collectDerivableInterfaces(prog, mod) {
 			if have[d.Name] || !matchesPrefix(d.Name, prefix) {
 				continue
 			}
@@ -133,7 +183,7 @@ func attributeCompletions(src string, prefixStart, offset int, prefix string, re
 			SortText:         fmt.Sprintf("0_%02d", i),
 			InsertTextFormat: InsertSnippet,
 			TextEdit:         &TextEdit{Range: replaceRange, NewText: a.Snippet},
-			Documentation:    &MarkupContent{Kind: "markdown", Value: attributeHoverMarkdown(&a)},
+			Documentation:    &MarkupContent{Kind: "markdown", Value: attributeHoverMarkdown(prog, mod, &a)},
 		})
 	}
 	return &CompletionList{Items: items}
@@ -141,15 +191,15 @@ func attributeCompletions(src string, prefixStart, offset int, prefix string, re
 
 // attributeHover returns hover markdown for an attribute name (the word right after `@`) or for
 // an interface name inside `@derive(...)`.
-func attributeHover(src string, start int, word string) string {
+func attributeHover(prog *sema.CheckedProgram, mod *sema.Module, src string, start int, word string) string {
 	if start > 0 && src[start-1] == '@' {
 		if a := lookupAttribute(word); a != nil {
-			return attributeHoverMarkdown(a)
+			return attributeHoverMarkdown(prog, mod, a)
 		}
 		return ""
 	}
 	if ok, _ := inDeriveArgs(src, start); ok {
-		for _, d := range DerivableInterfaces {
+		for _, d := range collectDerivableInterfaces(prog, mod) {
 			if d.Name == word {
 				return fmt.Sprintf("### `@derive(%s)`\nGenerates %s", d.Name, d.Summary)
 			}

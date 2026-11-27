@@ -25,10 +25,10 @@
 <p>A handler is a function that receives the request and a <code>ResponseWriter</code> to fill in. A <code>ServeMux</code> routes paths to handlers:</p>
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/http&quot;</span>
 
-<span class="k">bind</span> main = (): {
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> mux = http.<span class="t">ServeMux</span>.<span class="f">new</span>()
-	mux.<span class="f">handle_func</span>(<span class="s">&quot;/health&quot;</span>, (req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): res.<span class="f">write</span>(<span class="s">&quot;ok\n&quot;</span>))
-	mux.<span class="f">handle_func</span>(<span class="s">&quot;/greet&quot;</span>, (req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): {
+	mux.<span class="f">handle_func</span>(<span class="s">&quot;/health&quot;</span>, <span class="k">fn</span>(req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): res.<span class="f">write</span>(<span class="s">&quot;ok\n&quot;</span>))
+	mux.<span class="f">handle_func</span>(<span class="s">&quot;/greet&quot;</span>, <span class="k">fn</span>(req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): {
 		<span class="k">let</span> name = req.<span class="f">query_param</span>(<span class="s">&quot;name&quot;</span>) ?? <span class="s">&quot;world&quot;</span>
 		res.<span class="f">set_header</span>(<span class="s">&quot;Content-Type&quot;</span>, <span class="s">&quot;text/plain; charset=utf-8&quot;</span>)
 		res.<span class="f">write</span>(<span class="s">&quot;hello, </span>$name<span class="s">\n&quot;</span>)
@@ -58,15 +58,15 @@
 	items: [<span class="t">string</span>],
 ]
 
-<span class="k">bind</span> <span class="t">Store</span>.add = (&amp;<span class="k">self</span>, item: <span class="t">string</span>): <span class="k">self</span>.items.<span class="f">push</span>(item.<span class="f">copy</span>())
+<span class="k">bind</span> <span class="t">Store</span>.add = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="t">string</span>): <span class="k">self</span>.items.<span class="f">push</span>(item.<span class="f">copy</span>())
 
-<span class="k">bind</span> <span class="t">Store</span>.render = (<span class="k">self</span>) <span class="t">string</span>: {
+<span class="k">bind</span> <span class="t">Store</span>.render = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {
 	<span class="k">let</span> out = <span class="s">&quot;&quot;</span>
 	<span class="k">for</span>(i, item <span class="k">in</span> <span class="k">self</span>.items): out.<span class="f">push</span>(<span class="s">&quot;</span>${i + <span class="n">1</span>}<span class="s">. </span>$item<span class="s">\n&quot;</span>)
 	out
 }
 
-<span class="k">bind</span> route_items = (store: &amp;<span class="t">Store</span>, req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): {
+<span class="k">bind</span> route_items = <span class="k">fn</span>(store: &amp;<span class="t">Store</span>, req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): {
 	<span class="k">match</span>(req.method):
 		<span class="k">when</span> <span class="s">&quot;GET&quot;</span>: res.<span class="f">write</span>(store.<span class="f">render</span>())
 		<span class="k">when</span> <span class="s">&quot;POST&quot;</span>: {
@@ -82,7 +82,7 @@
 		<span class="k">default</span>: res.<span class="f">write_header</span>(http.<span class="t">STATUS_METHOD_NOT_ALLOWED</span>)
 }
 
-<span class="k">bind</span> call = (store: &amp;<span class="t">Store</span>, method: <span class="t">string</span>, path: <span class="t">string</span>, body: <span class="t">string</span>): {
+<span class="k">bind</span> call = <span class="k">fn</span>(store: &amp;<span class="t">Store</span>, method: <span class="t">string</span>, path: <span class="t">string</span>, body: <span class="t">string</span>): {
 	<span class="k">let</span> w = http.<span class="t">ResponseWriter</span>.<span class="f">new</span>()
 	<span class="f">route_items</span>(&amp;store, http.<span class="t">Request</span>.<span class="f">new</span>(method, path, body), &amp;w)
 	<span class="k">let</span> r = w.<span class="f">finish</span>()
@@ -90,7 +90,7 @@
 	<span class="k">if</span>(r.body.<span class="f">is_empty</span>()): <span class="f">println</span>()
 }
 
-<span class="k">bind</span> main = (): {
+<span class="k">bind</span> main = <span class="k">fn</span>(): {
 	<span class="k">let</span> store = <span class="t">Store</span>[items: []]
 	<span class="f">call</span>(&amp;store, <span class="s">&quot;POST&quot;</span>, <span class="s">&quot;/items&quot;</span>, <span class="s">&quot;milk&quot;</span>)
 	<span class="f">call</span>(&amp;store, <span class="s">&quot;POST&quot;</span>, <span class="s">&quot;/items&quot;</span>, <span class="s">&quot;bread&quot;</span>)
@@ -113,18 +113,18 @@ DELETE /items -&gt; 405 </code></pre>
 	items: [<span class="t">string</span>],
 ]
 
-<span class="k">bind</span> <span class="t">Store</span>.add = (&amp;<span class="k">self</span>, item: <span class="t">string</span>): <span class="k">self</span>.items.<span class="f">push</span>(item.<span class="f">copy</span>())
+<span class="k">bind</span> <span class="t">Store</span>.add = <span class="k">fn</span>(&amp;<span class="k">self</span>, item: <span class="t">string</span>): <span class="k">self</span>.items.<span class="f">push</span>(item.<span class="f">copy</span>())
 
-<span class="k">bind</span> <span class="t">Store</span>.render = (<span class="k">self</span>) <span class="t">string</span>: {
+<span class="k">bind</span> <span class="t">Store</span>.render = <span class="k">fn</span>(<span class="k">self</span>) <span class="t">string</span>: {
 	<span class="k">let</span> out = <span class="s">&quot;&quot;</span>
 	<span class="k">for</span>(i, item <span class="k">in</span> <span class="k">self</span>.items): out.<span class="f">push</span>(<span class="s">&quot;</span>${i + <span class="n">1</span>}<span class="s">. </span>$item<span class="s">\n&quot;</span>)
 	out
 }
 
-<span class="k">bind</span> main = () <span class="t">int</span>: {
+<span class="k">bind</span> main = <span class="k">fn</span>() <span class="t">int</span>: {
 	<span class="k">let</span> mux = http.<span class="t">ServeMux</span>.<span class="f">new</span>()
-	mux.<span class="f">handle_func</span>(<span class="s">&quot;/health&quot;</span>, (req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): res.<span class="f">write</span>(<span class="s">&quot;ok\n&quot;</span>))
-	mux.<span class="f">handle_func</span>(<span class="s">&quot;/greet&quot;</span>, (req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): {
+	mux.<span class="f">handle_func</span>(<span class="s">&quot;/health&quot;</span>, <span class="k">fn</span>(req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): res.<span class="f">write</span>(<span class="s">&quot;ok\n&quot;</span>))
+	mux.<span class="f">handle_func</span>(<span class="s">&quot;/greet&quot;</span>, <span class="k">fn</span>(req: http.<span class="t">Request</span>, res: &amp;http.<span class="t">ResponseWriter</span>): {
 		<span class="k">let</span> name = req.<span class="f">query_param</span>(<span class="s">&quot;name&quot;</span>) ?? <span class="s">&quot;world&quot;</span>
 		res.<span class="f">write</span>(<span class="s">&quot;hello, </span>$name<span class="s">\n&quot;</span>)
 	})
@@ -144,9 +144,17 @@ curl <span class="s">&#39;localhost:8080/greet?name=Ada&#39;</span></code></pre>
 <p>The client side mirrors the server:</p>
 <pre class="lang-lowlight" data-lang="lowlight"><code><span class="k">import</span> <span class="s">&quot;std/http&quot;</span>
 
-<span class="k">bind</span> main = () <span class="t">int</span>: {
+<span class="k">bind</span> main = <span class="k">fn</span>() <span class="t">int</span>: {
 	<span class="k">let</span> client = http.<span class="t">Client</span>.<span class="f">new</span>()
 	<span class="k">let</span> resp = client.<span class="f">get</span>(<span class="s">&quot;http://127.0.0.1:8080/health&quot;</span>):
+		<span class="k">when</span> <span class="f">unreachable</span>(_): {
+			<span class="f">eprintln</span>(<span class="s">&quot;the service isn&#39;t running&quot;</span>)
+			<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1</span>
+		}
+		<span class="k">when</span> <span class="f">timeout</span>(_): {
+			<span class="f">eprintln</span>(<span class="s">&quot;the service didn&#39;t answer in time&quot;</span>)
+			<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1</span>
+		}
 		<span class="k">default</span> <span class="f">err</span>(<span class="k">own</span> e): {
 			<span class="f">eprintln</span>(e.<span class="f">summary</span>())
 			<span class="k">func</span> <span class="u">&lt;-</span> <span class="n">1</span>
@@ -154,7 +162,7 @@ curl <span class="s">&#39;localhost:8080/greet?name=Ada&#39;</span></code></pre>
 	<span class="f">println</span>(<span class="s">&quot;</span>${resp.status_code}<span class="s">: </span>${resp.<span class="f">text</span>()}<span class="s">&quot;</span>)
 	<span class="n">0</span>
 }</code></pre>
-<p><code>std/http</code> also supports HTTPS (through the system's OpenSSL, loaded at run time), request headers, <code>post</code>, <code>put</code>, and <code>patch</code>. See the <a href="../std/http.html">package reference</a>.</p>
+<p>A request result separates the failures a caller usually treats differently: <code>unreachable</code> (nothing answered at that address) and <code>timeout</code>, besides the general <code>err</code>. A response with an error status, such as <code>404</code>, is still a successful result. <code>std/http</code> also supports HTTPS (through the system's OpenSSL, loaded at run time), request headers, <code>post</code>, <code>put</code>, and <code>patch</code>. See the <a href="../std/http.html">package reference</a>.</p>
 <h2 id="what-you-practiced"><a class="anchor" href="#what-you-practiced" aria-hidden="true">#</a>What you practiced</h2>
 <ul>
 <li>Closures as handlers, and what capturing means for ownership.
@@ -175,7 +183,7 @@ curl <span class="s">&#39;localhost:8080/greet?name=Ada&#39;</span></code></pre>
 <li>Write <code>@test</code> functions for <code>route_items</code> that check status codes and bodies.
 </li>
 </ol>
-</article><nav class="prev-next"><a class="prev" href="config-loader.html"><span>Previous</span>Tutorial: a config loader</a><a class="next" href="calling-c.html"><span>Next</span>Tutorial: calling C</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#1-handlers-and-a-router">1. Handlers and a router</a></li><li><a href="#2-state-shared-between-requests">2. State shared between requests</a></li><li><a href="#3-serve-it">3. Serve it</a></li><li><a href="#4-calling-other-services">4. Calling other services</a></li><li><a href="#what-you-practiced">What you practiced</a></li><li><a href="#exercises">Exercises</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tutorials</a><a href="word-count.html">A command-line tool</a><a href="calculator.html">A calculator</a><a href="config-loader.html">Handling errors</a><a href="web-service.html">A web service</a><a href="calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/core.html">std/core</a><a href="../std/fs.html">std/fs</a><a href="../std/http.html">std/http</a><a href="../std/json.html">std/json</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
+</article><nav class="prev-next"><a class="prev" href="config-loader.html"><span>Previous</span>Tutorial: a config loader</a><a class="next" href="calling-c.html"><span>Next</span>Tutorial: calling C</a></nav></main><aside class="toc"><div class="toc-title">On this page</div><ul><li><a href="#1-handlers-and-a-router">1. Handlers and a router</a></li><li><a href="#2-state-shared-between-requests">2. State shared between requests</a></li><li><a href="#3-serve-it">3. Serve it</a></li><li><a href="#4-calling-other-services">4. Calling other services</a></li><li><a href="#what-you-practiced">What you practiced</a></li><li><a href="#exercises">Exercises</a></li></ul></aside></div><footer class="site-footer"><div class="footer-inner"><div class="footer-cols"><div class="footer-col"><a class="footer-head" href="../start/index.html">Get Started</a><a href="../start/install.html">Install</a><a href="../start/hello-world.html">First program</a><a href="../start/projects.html">First project</a><a href="../start/editors.html">Editors</a></div><div class="footer-col"><a class="footer-head" href="../tour/index.html">Tour</a><a href="../tour/basics.html">Basics</a><a href="../tour/functions.html">Functions</a><a href="../tour/types.html">Your own types</a><a href="../tour/optionals.html">Optionals</a><a href="../tour/control-flow.html">Control flow</a></div><div class="footer-col"><a class="footer-head" href="index.html">Tutorials</a><a href="word-count.html">A command-line tool</a><a href="calculator.html">A calculator</a><a href="config-loader.html">Handling errors</a><a href="web-service.html">A web service</a><a href="calling-c.html">Calling C</a></div><div class="footer-col"><a class="footer-head" href="../guides/index.html">Guides</a><a href="../guides/effective-lowlight.html">Effective Lowlight (conventions)</a><a href="../guides/coming-from.html">Coming from C, Rust, or Go</a><a href="../guides/ownership.html">Ownership and borrowing</a><a href="../guides/errors.html">Failure handling</a><a href="../guides/collections.html">Collections and iteration</a></div><div class="footer-col"><a class="footer-head" href="../examples/index.html">By Example</a><a href="../examples/hello-world.html">Hello, world</a><a href="../examples/values.html">Values</a><a href="../examples/variables.html">Variables</a><a href="../examples/constants.html">Constants</a><a href="../examples/strings.html">Strings</a></div><div class="footer-col"><a class="footer-head" href="../ref/index.html">Reference</a><a href="../spec/index.html">Overview and contents</a><a href="../spec/a-tour-of-lowlight.html">A Tour of Lowlight</a><a href="../spec/quick-reference.html">Quick Reference</a><a href="../spec/conventions-and-conformance.html">1. Conventions and Conformance</a><a href="../spec/lexical-structure.html">2. Lexical Structure</a></div><div class="footer-col"><a class="footer-head" href="../std/index.html">Packages</a><a href="../std/chars.html">std/chars</a><a href="../std/collections.html">std/collections</a><a href="../std/core.html">std/core</a><a href="../std/derive.html">std/derive</a><a href="../std/fs.html">std/fs</a></div><div class="footer-col"><a class="footer-head" href="../internals/index.html">Internals</a><a href="../internals/overview--architectural-philosophy.html">Overview &amp; Architectural Philosophy</a><a href="../internals/repository-layout--package-architecture.html">Repository Layout &amp; Package Architecture</a></div><div class="footer-col"><a class="footer-head" href="../about/index.html">About</a><a href="../about/contributing.html">Contributing</a><a href="../about/faq.html">FAQ</a><a href="../about/history.html">Version history</a></div></div><div class="footer-note">Lowlight is open source. These pages are generated by <code>go run ./cmd/lowlight-site</code> from the repository: the specification, conventions, implementation guide, package documentation, and examples are always current with the compiler.</div></div></footer><div class="search-overlay" hidden><div class="search-dialog" role="dialog" aria-label="Search the documentation"><div class="search-field"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search guides, the spec, and packages…" autocomplete="off" spellcheck="false"><kbd>esc</kbd></div><ul class="search-results"></ul><div class="search-hint">↑↓ to move · ↵ to open</div></div></div>
 <script src="../search-index.js"></script>
 <script src="../assets/site.js"></script>
 </body>

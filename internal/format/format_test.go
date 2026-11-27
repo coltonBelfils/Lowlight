@@ -643,3 +643,37 @@ define Kind enum [
 		}
 	}
 }
+
+func TestFormatPhase7ZeroArgMatchAndTopComptimeComments(t *testing.T) {
+	src := `const choose = fn(flag: bool) int: match() int:
+	when flag: 1
+	default: 0
+
+comptime if(true): {
+	// kept inside empty block
+} else: {
+	const B = 2
+	// kept trailing comment
+}
+`
+	out, err := format.Format("p7.ll", src, format.DefaultOptions())
+	if err != nil {
+		t.Fatalf("Format failed: %v", err)
+	}
+	for _, want := range []string{
+		"match() int:",
+		"// kept inside empty block",
+		"// kept trailing comment",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in formatted output:\n%s", want, out)
+		}
+	}
+	out2, err := format.Format("p7.ll", out, format.DefaultOptions())
+	if err != nil {
+		t.Fatalf("re-parse/re-format failed: %v\nformatted was:\n%s", err, out)
+	}
+	if out2 != out {
+		t.Fatalf("format not idempotent:\nfirst:\n%s\nsecond:\n%s", out, out2)
+	}
+}

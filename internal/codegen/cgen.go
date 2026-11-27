@@ -747,7 +747,12 @@ func (g *cEmitter) emitStructHelpers(st *types.Struct) {
 		for i := len(st.Fields) - 1; i >= 0; i-- {
 			f := st.Fields[i]
 			if !f.Type.IsPlain() {
-				g.line("    %s(&p->%s);", ir.DropFnName(f.Type), f.CName)
+				if st.Packed {
+					cFT := CType(f.Type)
+					g.line("    { %s _ll_ptmp = p->%s; p->%s = (%s){0}; %s(&_ll_ptmp); }", cFT, f.CName, f.CName, cFT, ir.DropFnName(f.Type))
+				} else {
+					g.line("    %s(&p->%s);", ir.DropFnName(f.Type), f.CName)
+				}
 			}
 		}
 		g.line("    *p = (%s){0};", cSt)
@@ -801,8 +806,7 @@ func (g *cEmitter) emitStackArrayHelpers(a *types.StackArray) {
 	}
 	if g.canToString(a) {
 		g.line("static inline ll_string %s(%s v) {", ir.ToStrFnName(a), cArr)
-		prefix := fmt.Sprintf("[%d: ", a.Size)
-		g.line("    ll_string s = ll_str_lit(%q, %dLL);", prefix, len(prefix))
+		g.line("    ll_string s = ll_str_lit(\"[\", 1LL);")
 		g.line("    for (int64_t i = 0; i < %dLL; i++) {", a.Size)
 		g.line("        if (i > 0) ll_str_push(&s, ll_str_lit(\", \", 2LL));")
 		g.line("        ll_string el = %s(v.data[i]);", g.toStrFn(a.Elem))
@@ -1125,13 +1129,6 @@ func (g *cEmitter) emitVTables() {
 					continue
 				}
 			}
-			if setTy, isSet := vt.Concrete.(*types.Set); isSet {
-				if im.Name == "contains" {
-					g.line("    return ll_set_has__%s((const %s*)_self, _p0);", setTy.Mangled(), cCon)
-					g.line("}")
-					continue
-				}
-			}
 			if p, isP := vt.Concrete.(*types.Primitive); isP && p.Kind == types.PrimString {
 				if im.Name == "len" {
 					g.line("    return ((const ll_string*)_self)->len;")
@@ -1144,23 +1141,6 @@ func (g *cEmitter) emitVTables() {
 					g.line("    const ll_string* s = (const ll_string*)_self;")
 					g.line("    if (idx < 0 || idx >= s->len) return %s;", optNoneC(optVal))
 					g.line("    return %s;", optSomeC(optVal, "(uint8_t)s->data[idx]"))
-					g.line("}")
-					continue
-				}
-			}
-			if mp, isMp := vt.Concrete.(*types.Map); isMp {
-				if im.Name == "len" {
-					g.line("    return ((const %s*)_self)->len;", cCon)
-					g.line("}")
-					continue
-				}
-				if im.Name == "get" {
-					g.line("    return ll_map_get__%s((const %s*)_self, _p0);", mp.Mangled(), cCon)
-					g.line("}")
-					continue
-				}
-				if im.Name == "has" || im.Name == "contains" {
-					g.line("    return ll_map_has__%s((const %s*)_self, _p0);", mp.Mangled(), cCon)
 					g.line("}")
 					continue
 				}
@@ -2667,7 +2647,7 @@ func (g *cEmitter) buildCStaticInit(sv *ir.StaticVal, backingDefs *[]string) str
 			if sv.FnEntry != "" {
 				fnExpr = sv.FnEntry
 			}
-			return fmt.Sprintf("((%s){ .fn = %s, .env = NULL, .copy_env = NULL, .drop_env = NULL })", CType(sv.Type), fnExpr)
+			return fmt.Sprintf("{ .fn = %s, .env = NULL, .copy_env = NULL, .drop_env = NULL }", fnExpr)
 		}
 		return formatCStaticScalar(sv, sv.Type)
 	case sema.StaticOpt:

@@ -515,3 +515,154 @@ func TestTargetSystemLibsDuplicateExternAndSplitIsolation(t *testing.T) {
 		checkClang("ir", []string{"-Wno-override-module"}, llvmSplit.LinkUnit, "split LLVM link")
 	}
 }
+
+func TestPhase7ExpandDerivesAndMultiFilePackage(t *testing.T) {
+	tmpDir := t.TempDir()
+	pkgDir := filepath.Join(tmpDir, "demo_pkg")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "lowlight.toml"), []byte("[package]\nname = \"demo_pkg\"\nversion = \"0.1.0\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	typesSrc := `@derive(Equatable, Printable)
+define Pt struct [
+	x: int,
+	y: int,
+]
+
+@derive(Equatable)
+define Wrap[T: Equatable] struct [
+	val: T,
+]
+`
+	mainSrc := `bind main = fn(): {
+	let a = Pt[x: 1, y: 2]
+	let b = Pt[x: 1, y: 2]
+	assert(a == b)
+	println(a.to_string())
+	let w1 = Wrap[val: a]
+	let w2 = Wrap[val: b]
+	assert(w1 == w2)
+}
+`
+	if err := os.WriteFile(filepath.Join(pkgDir, "types.ll"), []byte(typesSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "main.ll"), []byte(mainSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	expanded, _, err := Expand(Options{
+		EntryPath:    pkgDir,
+		TargetTriple: "x86_64-unknown-linux-gnu",
+	})
+	if err != nil {
+		t.Fatalf("Expand on multi-file derive package failed: %v", err)
+	}
+	for _, want := range []string{
+		"// === main.ll ===",
+		"// === types.ll ===",
+		"const Pt.eq",
+		"const Pt.to_string",
+		"ll_ll_gs_Wrap__ll_s_Pt_eq",
+	} {
+		if !strings.Contains(expanded, want) {
+			t.Fatalf("expected %q in expanded multi-file output:\n%s", want, expanded)
+		}
+	}
+	// Derived @derive should have been materialized & stripped from concrete `Pt`.
+	typesSectionIdx := strings.Index(expanded, "// === types.ll ===")
+	if typesSectionIdx < 0 {
+		t.Fatalf("missing types.ll section header")
+	}
+	ptIdx := strings.Index(expanded[typesSectionIdx:], "define Pt struct")
+	if ptIdx < 0 {
+		t.Fatalf("missing `define Pt struct` in expanded types.ll:\n%s", expanded)
+	}
+	beforePt := expanded[typesSectionIdx : typesSectionIdx+ptIdx]
+	if strings.Contains(beforePt, "@derive") {
+		t.Fatalf("expected concrete `Pt` @derive attribute to be stripped after expansion:\n%s", expanded)
+	}
+}
+
+func TestPhase7ManifestTargetForExplicitTestTargetsAndComptimeIfDiscovery(t *testing.T) {
+	tmpDir := t.TempDir()
+	manifestSrc := `[package]
+name = "tgt_test_pkg"
+version = "0.1.0"
+
+[build]
+target = "x86_64-unknown-linux-gnu"
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "lowlight.toml"), []byte(manifestSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "a_linux_test.ll"), []byte("@test(\"lin\")\nbind test_lin = fn(): {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "b_darwin_test.ll"), []byte("@test(\"dar\")\nbind test_dar = fn(): {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shared := `comptime if(comp.TARGET.os == comp.TargetOs.linux): {
+	@test("ct linux")
+	bind test_ct_lin = fn(): {}
+} else: {
+	@test("ct other")
+	bind test_ct_other = fn(): {}
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "shared_test.ll"), []byte(shared), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code, err := Test(Options{Targets: []string{tmpDir}, TestList: true}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Test(--list) returned error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d (stderr=%q)", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "test_lin") || !strings.Contains(out, "test_ct_lin") {
+		t.Fatalf("expected Linux target tests in --list output:\n%s", out)
+	}
+	if strings.Contains(out, "test_dar") || strings.Contains(out, "test_ct_other") {
+		t.Fatalf("did not expect Darwin/else tests when [build].target is Linux:\n%s", out)
+	}
+}
+
+func TestPhase7ObjCacheKeyAndCheckAllTargets(t *testing.T) {
+	tmpDir := t.TempDir()
+	pu := codegen.PackageUnit{PkgID: "pkg", Source: "src"}
+	k1 := computeObjCacheKey(BackendLLVM, "cc", "clang-16", "aarch64-apple-darwin", false, false, nil, []string{"embed:data.txt=111"}, pu)
+	k2 := computeObjCacheKey(BackendLLVM, "cc", "clang-16", "aarch64-apple-darwin", false, false, nil, []string{"embed:data.txt=222"}, pu)
+	k3 := computeObjCacheKey(BackendLLVM, "cc", "clang-17", "aarch64-apple-darwin", false, false, nil, []string{"embed:data.txt=111"}, pu)
+	if k1 == k2 {
+		t.Fatalf("expected computeObjCacheKey to change when extraInputs (embed hash) changes")
+	}
+	if k1 == k3 {
+		t.Fatalf("expected computeObjCacheKey to change when cc version fingerprint changes")
+	}
+
+	// Verify CheckAllTargets tags target-specific errors without dropping `[targets: ...]`.
+	tgtSrc := `comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
+	bind bad = fn(): {
+		let x: int = "bad"
+	}
+}
+bind main = fn(): {}
+`
+	srcFile := filepath.Join(tmpDir, "all_targets.ll")
+	if err := os.WriteFile(srcFile, []byte(tgtSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := CheckAllTargets(Options{EntryPath: srcFile})
+	if err == nil {
+		t.Fatalf("expected CheckAllTargets to fail for Darwin-only error")
+	}
+	if !strings.Contains(err.Error(), "[targets:") || !strings.Contains(err.Error(), "apple-darwin") {
+		t.Fatalf("expected [targets: ...apple-darwin...] header in CheckAllTargets output:\n%v", err)
+	}
+}

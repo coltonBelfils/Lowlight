@@ -80,6 +80,8 @@
             <action id="Lowlight.RunAllTests" class="dev.lowlight.intellij.actions.LowlightRunAllTestsAction"/>
             <separator/>
             <action id="Lowlight.FormatFile" class="dev.lowlight.intellij.actions.LowlightFormatFileAction"/>
+            <action id="Lowlight.ExpandDocument" class="dev.lowlight.intellij.actions.LowlightExpandDocumentAction"/>
+            <action id="Lowlight.SwitchTarget" class="dev.lowlight.intellij.actions.LowlightSwitchTargetAction"/>
             <action id="Lowlight.RestartLsp" class="dev.lowlight.intellij.actions.LowlightRestartLspAction"/>
         </group>
     </actions>

@@ -19,7 +19,7 @@ This section gets you from nothing to a working setup in a few minutes.
 
 ## Where to go next
 
-- New to the language? Take the **[Tour](/tour/index.html)**: twelve short lessons that cover all of Lowlight.
+- New to the language? Take the **[Tour](/tour/index.html)**: thirteen short lessons that cover all of Lowlight.
 - Prefer to build something? Follow a **[tutorial](/learn/index.html)**.
 - Learn by reading code? Browse **[Lowlight by Example](/examples/index.html)**.
 - Coming from C, Rust, or Go? Read **[Lowlight for C, Rust, and Go programmers](/guides/coming-from.html)**.

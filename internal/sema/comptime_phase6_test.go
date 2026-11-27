@@ -208,7 +208,10 @@ const X = spin()
 `
 	ideRep := diag.NewReporter()
 	_ = CheckForIDE(mainPath, map[string]string{mainPath: infiniteSrc}, dir, ideRep)
-	if !ideRep.HasErrors() || !strings.Contains(ideRep.Format(), "step limit (100000") {
-		t.Fatalf("expected IDEMode to cap steps at 100000, got:\n%s", ideRep.Format())
+	if ideRep.HasErrors() {
+		t.Fatalf("expected IDEMode step cap to emit a warning, not an error, got:\n%s", ideRep.Format())
+	}
+	if !strings.Contains(ideRep.Format(), "step limit (100000") {
+		t.Fatalf("expected IDEMode to warn about capping steps at 100000, got:\n%s", ideRep.Format())
 	}
 }

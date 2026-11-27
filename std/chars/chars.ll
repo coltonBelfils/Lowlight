@@ -4,27 +4,27 @@
 // `char.is_whitespace`, and `char.to_int`) live in the [`std/core/primitives`] prelude.
 
 // Reports whether this character lies within the 7-bit ASCII range (`0..=127`).
-bind char.is_ascii = fn(self) bool: int(self) >= 0 and int(self) <= 127
+const char.is_ascii = fn(self) bool: int(self) >= 0 and int(self) <= 127
 
 // Reports whether this character is an uppercase ASCII letter (`'A'..='Z'`).
-bind char.is_ascii_upper = fn(self) bool: self >= 'A' and self <= 'Z'
+const char.is_ascii_upper = fn(self) bool: self >= 'A' and self <= 'Z'
 
 // Reports whether this character is a lowercase ASCII letter (`'a'..='z'`).
-bind char.is_ascii_lower = fn(self) bool: self >= 'a' and self <= 'z'
+const char.is_ascii_lower = fn(self) bool: self >= 'a' and self <= 'z'
 
 // Converts an ASCII lowercase letter (`'a'..='z'`) to uppercase (`'A'..='Z'`), leaving other characters unchanged.
-bind char.to_ascii_upper = fn(self) char:
+const char.to_ascii_upper = fn(self) char:
 	if(self.is_ascii_lower()): char(int(self) - 32) else: self
 
 // Converts an ASCII uppercase letter (`'A'..='Z'`) to lowercase (`'a'..='z'`), leaving other characters unchanged.
-bind char.to_ascii_lower = fn(self) char:
+const char.to_ascii_lower = fn(self) char:
 	if(self.is_ascii_upper()): char(int(self) + 32) else: self
 
 // Reports whether this character is an ASCII control codepoint (`0..=31` or `127` DEL).
-bind char.is_control = fn(self) bool: int(self) >= 0 and (int(self) < 32 or int(self) == 127)
+const char.is_control = fn(self) bool: int(self) >= 0 and (int(self) < 32 or int(self) == 127)
 
 // Reports whether this character is an ASCII punctuation mark or symbol.
-bind char.is_punctuation = fn(self) bool: {
+const char.is_punctuation = fn(self) bool: {
 	let cp = int(self)
 	(cp >= 33 and cp <= 47) or (cp >= 58 and cp <= 64) or (cp >= 91 and cp <= 96) or (cp >= 123 and cp <= 126)
 }
@@ -33,7 +33,7 @@ bind char.is_punctuation = fn(self) bool: {
 //
 // Accepts `'0'..'9'`, `'a'..'z'`, and `'A'..'Z'`. Returns `none` if `radix` is out of `2..=36`
 // or the character does not represent a digit smaller than `radix`.
-bind char.to_digit = fn(self, radix: int) ?int: {
+const char.to_digit = fn(self, radix: int) ?int: {
 	if(radix < 2 or radix > 36): func <- none
 	let val = if(self >= '0' and self <= '9'): int(self) - 48
 	else if(self >= 'a' and self <= 'z'): int(self) - 97 + 10
@@ -45,13 +45,13 @@ bind char.to_digit = fn(self, radix: int) ?int: {
 // Converts a numeric digit value (`0..radix`) into its lowercase ASCII [`char`] representation.
 //
 // Returns `none` if `radix` is outside `2..=36` or `digit` is negative / `>= radix`.
-bind from_digit = fn(digit: int, radix: int) ?char: {
+const from_digit = fn(digit: int, radix: int) ?char: {
 	if(radix < 2 or radix > 36 or digit < 0 or digit >= radix): func <- none
 	if(digit < 10): char(48 + digit) else: char(97 + digit - 10)
 }
 
 // Returns the UTF-8 encoded byte length (`1..=4`) of this codepoint, or `0` for surrogates/out-of-range values.
-bind char.len_utf8 = fn(self) int: {
+const char.len_utf8 = fn(self) int: {
 	let cp = int(self)
 	if(cp < 0 or (cp >= 55296 and cp <= 57343) or cp > 1114111): 0
 	else if(cp <= 127): 1
@@ -65,37 +65,37 @@ bind char.len_utf8 = fn(self) int: {
 // -----------------------------------------------------------------------------
 
 // Function form of [`char.is_digit`].
-bind is_digit = fn(c: char) bool: c.is_digit()
+const is_digit = fn(c: char) bool: c.is_digit()
 
 // Function form of [`char.is_alpha`].
-bind is_alpha = fn(c: char) bool: c.is_alpha()
+const is_alpha = fn(c: char) bool: c.is_alpha()
 
 // Function form of [`char.is_alnum`].
-bind is_alnum = fn(c: char) bool: c.is_alnum()
+const is_alnum = fn(c: char) bool: c.is_alnum()
 
 // Function form of [`char.is_whitespace`].
-bind is_whitespace = fn(c: char) bool: c.is_whitespace()
+const is_whitespace = fn(c: char) bool: c.is_whitespace()
 
 // Function form of [`char.is_ascii`].
-bind is_ascii = fn(c: char) bool: c.is_ascii()
+const is_ascii = fn(c: char) bool: c.is_ascii()
 
 // Function form of [`char.is_ascii_upper`].
-bind is_ascii_upper = fn(c: char) bool: c.is_ascii_upper()
+const is_ascii_upper = fn(c: char) bool: c.is_ascii_upper()
 
 // Function form of [`char.is_ascii_lower`].
-bind is_ascii_lower = fn(c: char) bool: c.is_ascii_lower()
+const is_ascii_lower = fn(c: char) bool: c.is_ascii_lower()
 
 // Function form of [`char.to_ascii_upper`].
-bind to_ascii_upper = fn(c: char) char: c.to_ascii_upper()
+const to_ascii_upper = fn(c: char) char: c.to_ascii_upper()
 
 // Function form of [`char.to_ascii_lower`].
-bind to_ascii_lower = fn(c: char) char: c.to_ascii_lower()
+const to_ascii_lower = fn(c: char) char: c.to_ascii_lower()
 
 // Function form of [`char.is_control`].
-bind is_control = fn(c: char) bool: c.is_control()
+const is_control = fn(c: char) bool: c.is_control()
 
 // Function form of [`char.is_punctuation`].
-bind is_punctuation = fn(c: char) bool: c.is_punctuation()
+const is_punctuation = fn(c: char) bool: c.is_punctuation()
 
 // -----------------------------------------------------------------------------
 // Inline Tests for std/chars.ll

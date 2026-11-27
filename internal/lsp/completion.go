@@ -49,7 +49,13 @@ func (s *Server) computeCompletions(filePath string, src string, pos Position) *
 	}
 
 	// 1b. Attribute names after `@`, and interface names inside `@derive(...)`
-	if attrList := attributeCompletions(src, prefixStart, offset, prefix, replaceRange); attrList != nil {
+	if inDerive, _ := inDeriveArgs(src, prefixStart); inDerive {
+		prog := s.getOrCheckProgram(filePath, src)
+		mod := findModuleForPath(prog, filePath)
+		if attrList := attributeCompletions(prog, mod, src, prefixStart, offset, prefix, replaceRange); attrList != nil {
+			return attrList
+		}
+	} else if attrList := attributeCompletions(nil, nil, src, prefixStart, offset, prefix, replaceRange); attrList != nil {
 		return attrList
 	}
 
@@ -125,7 +131,7 @@ func (s *Server) computeCompletions(filePath string, src string, pos Position) *
 	}
 
 	// 5. General expression / statement / top-level completion
-	atTop := (len(toks) == 0 || isTopLevelContext(toks)) && !isInsideFuncBody(mod, offset)
+	atTop := (len(toks) == 0 || isTopLevelDeclPosition(rawToks)) && !isInsideFuncBody(mod, offset)
 	items := s.completeScopedSymbols(prog, mod, src, offset, prefix, replaceRange, atTop)
 	// Inside a function returning a result, offer its bare members (`value(...)`, `err(...)`).
 	if !atTop {
@@ -286,7 +292,7 @@ func (s *Server) completeDotMember(
 	overlays[filePath] = shadowSrc
 
 	rep := diag.NewReporter()
-	prog := sema.CheckForIDE(filePath, overlays, s.projectRootFor(filePath), rep)
+	prog := s.checkForIDE(filePath, overlays, rep)
 	mod := findModuleForPath(prog, filePath)
 	if mod == nil || mod.File == nil {
 		return &CompletionList{Items: nil}
@@ -298,6 +304,7 @@ func (s *Server) completeDotMember(
 	}
 
 	hasVisualQuestionBeforeDot := dotOffset >= 1 && src[dotOffset-1] == '?'
+	inConstDotCtx := s.isConstEvalAtOffset(prog, mod, src, dotOffset)
 
 	// Case 2A: Check if `targetMem.Base` is a module alias (`fs.`), `Arena.`, `Enum.`, `Struct.`, or `GenStruct.`!
 	if baseId, isId := targetMem.Base.(*ast.IdentExpr); isId && !baseId.IsOpt && !targetMem.QuestDot {
@@ -315,20 +322,20 @@ func (s *Server) completeDotMember(
 			if targetMod, isMod := mod.Aliased[baseId.Name]; isMod {
 				return &CompletionList{
 					IsIncomplete: false,
-					Items:        s.completeModuleExports(prog, mod, targetMod, prefix, replaceRange),
+					Items:        s.completeModuleExports(prog, mod, targetMod, prefix, replaceRange, inConstDotCtx),
 				}
 			}
 			// Generic struct template `Pool.` or `Pool[int].`
 			if genSt := lookupGenStruct(mod, "", baseId.Name); genSt != nil {
 				return &CompletionList{
 					IsIncomplete: false,
-					Items:        s.completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, nil, prefix, replaceRange),
+					Items:        s.completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, nil, prefix, replaceRange, inConstDotCtx),
 				}
 			}
 			// Generic enum template `Result.` or `Result[int, string].`
 			if genEn := lookupGenEnum(mod, "", baseId.Name); genEn != nil {
 				items := s.completeGenericEnumVariants(prog, mod, genEn.Mod, genEn.Decl, prefix, replaceRange)
-				items = append(items, s.completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, nil, prefix, replaceRange)...)
+				items = append(items, s.completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, nil, prefix, replaceRange, inConstDotCtx)...)
 				return &CompletionList{
 					IsIncomplete: false,
 					Items:        items,
@@ -338,7 +345,7 @@ func (s *Server) completeDotMember(
 			if nomTy := lookupNominalType(mod, "", baseId.Name); nomTy != nil {
 				if en, isEn := nomTy.(*types.Enum); isEn {
 					items := s.completeEnumVariants(prog, mod, en, prefix, replaceRange)
-					items = append(items, s.completeTypeNamespace(prog, mod, en, baseId.Name, nil, prefix, replaceRange)...)
+					items = append(items, s.completeTypeNamespace(prog, mod, en, baseId.Name, nil, prefix, replaceRange, inConstDotCtx)...)
 					return &CompletionList{
 						IsIncomplete: false,
 						Items:        items,
@@ -346,7 +353,7 @@ func (s *Server) completeDotMember(
 				}
 				return &CompletionList{
 					IsIncomplete: false,
-					Items:        s.completeTypeNamespace(prog, mod, nomTy, baseId.Name, nil, prefix, replaceRange),
+					Items:        s.completeTypeNamespace(prog, mod, nomTy, baseId.Name, nil, prefix, replaceRange, inConstDotCtx),
 				}
 			}
 		}
@@ -359,13 +366,13 @@ func (s *Server) completeDotMember(
 				targs := tryResolveIndexAsTypeArgs(mod, idxBase)
 				return &CompletionList{
 					IsIncomplete: false,
-					Items:        s.completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, targs, prefix, replaceRange),
+					Items:        s.completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, targs, prefix, replaceRange, inConstDotCtx),
 				}
 			}
 			if genEn := lookupGenEnum(mod, "", id.Name); genEn != nil {
 				targs := tryResolveIndexAsTypeArgs(mod, idxBase)
 				items := s.completeGenericEnumVariants(prog, mod, genEn.Mod, genEn.Decl, prefix, replaceRange)
-				items = append(items, s.completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, targs, prefix, replaceRange)...)
+				items = append(items, s.completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, targs, prefix, replaceRange, inConstDotCtx)...)
 				return &CompletionList{
 					IsIncomplete: false,
 					Items:        items,
@@ -379,13 +386,13 @@ func (s *Server) completeDotMember(
 						targs := tryResolveIndexAsTypeArgs(mod, idxBase)
 						return &CompletionList{
 							IsIncomplete: false,
-							Items:        s.completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, targs, prefix, replaceRange),
+							Items:        s.completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, targs, prefix, replaceRange, inConstDotCtx),
 						}
 					}
 					if genEn, ok := targetMod.GenericEnums[bm.Member]; ok {
 						targs := tryResolveIndexAsTypeArgs(mod, idxBase)
 						items := s.completeGenericEnumVariants(prog, mod, targetMod, genEn.Decl, prefix, replaceRange)
-						items = append(items, s.completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, targs, prefix, replaceRange)...)
+						items = append(items, s.completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, targs, prefix, replaceRange, inConstDotCtx)...)
 						return &CompletionList{
 							IsIncomplete: false,
 							Items:        items,
@@ -402,7 +409,7 @@ func (s *Server) completeDotMember(
 			if targetMod, isMod := mod.Aliased[modId.Name]; isMod {
 				if en, isEn := targetMod.Types[bm.Member].(*types.Enum); isEn {
 					items := s.completeEnumVariants(prog, mod, en, prefix, replaceRange)
-					items = append(items, s.completeTypeNamespace(prog, mod, en, bm.Member, nil, prefix, replaceRange)...)
+					items = append(items, s.completeTypeNamespace(prog, mod, en, bm.Member, nil, prefix, replaceRange, inConstDotCtx)...)
 					return &CompletionList{
 						IsIncomplete: false,
 						Items:        items,
@@ -411,12 +418,12 @@ func (s *Server) completeDotMember(
 				if genSt, ok := targetMod.GenericStructs[bm.Member]; ok {
 					return &CompletionList{
 						IsIncomplete: false,
-						Items:        s.completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, nil, prefix, replaceRange),
+						Items:        s.completeTypeNamespace(prog, mod, nil, genSt.Decl.Name, nil, prefix, replaceRange, inConstDotCtx),
 					}
 				}
 				if genEn, ok := targetMod.GenericEnums[bm.Member]; ok {
 					items := s.completeGenericEnumVariants(prog, mod, targetMod, genEn.Decl, prefix, replaceRange)
-					items = append(items, s.completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, nil, prefix, replaceRange)...)
+					items = append(items, s.completeTypeNamespace(prog, mod, nil, genEn.Decl.Name, nil, prefix, replaceRange, inConstDotCtx)...)
 					return &CompletionList{
 						IsIncomplete: false,
 						Items:        items,
@@ -456,7 +463,7 @@ func (s *Server) completeDotMember(
 		recvTy = refTy.Elem
 	}
 
-	items := s.completeValueMembers(prog, mod, recvTy, isOptChain, isArenaRef, prefix, replaceRange, autoInsertQuestEdit)
+	items := s.completeValueMembers(prog, mod, recvTy, isOptChain, isArenaRef, prefix, replaceRange, autoInsertQuestEdit, inConstDotCtx)
 	return &CompletionList{IsIncomplete: false, Items: items}
 }
 
@@ -469,6 +476,7 @@ func (s *Server) completeValueMembers(
 	prefix string,
 	replaceRange Range,
 	extraEdits []TextEdit,
+	inConstDotCtx bool,
 ) []CompletionItem {
 	var items []CompletionItem
 	seen := make(map[string]bool)
@@ -629,7 +637,7 @@ func (s *Server) completeValueMembers(
 				if len(fi.Sig.Params) > 1 {
 					snip = mName + "($1)"
 				}
-				docVal := fmt.Sprintf("```lowlight\nbind %s = %s\n```", fi.Name, sigStr)
+				docVal := fmt.Sprintf("```lowlight\n%s %s = %s\n```", declConstPrefix(fi.IsConst, fi.ComptimeOnly), fi.Name, sigStr)
 				fModPath := curModPath
 				if fi.Mod != nil && fi.Mod.Path != "" {
 					fModPath = fi.Mod.Path
@@ -644,8 +652,8 @@ func (s *Server) completeValueMembers(
 				items = append(items, CompletionItem{
 					Label:               mName,
 					Kind:                KindMethod,
-					Detail:              sigStr,
-					SortText:            "1_" + mName,
+					Detail:              constBadgesDetail(sigStr, fi.IsConst, fi.ComptimeOnly, inConstDotCtx),
+					SortText:            constCallableSortKey(inConstDotCtx, fi.IsConst, !fi.IsConst, "1_"+mName),
 					FilterText:          mName,
 					InsertTextFormat:    InsertSnippet,
 					TextEdit:            &TextEdit{Range: replaceRange, NewText: snip},
@@ -682,7 +690,8 @@ func (s *Server) completeValueMembers(
 					if len(decl.Params) > 0 {
 						snip = mName + "($1)"
 					}
-					docVal := fmt.Sprintf("```lowlight\nbind %s.%s = %s\n```", recvTy.String(), mName, sigStr)
+					isComptimeOnly := ast.FindAttribute(decl.Attributes, "comptime_only") != nil
+					docVal := fmt.Sprintf("```lowlight\n%s %s.%s = %s\n```", declConstPrefix(decl.IsConst, isComptimeOnly), recvTy.String(), mName, sigStr)
 					gModPath := curModPath
 					if gtmpl.Mod != nil && gtmpl.Mod.Path != "" {
 						gModPath = gtmpl.Mod.Path
@@ -693,8 +702,8 @@ func (s *Server) completeValueMembers(
 					items = append(items, CompletionItem{
 						Label:               mName,
 						Kind:                KindMethod,
-						Detail:              sigStr,
-						SortText:            "1_" + mName,
+						Detail:              constBadgesDetail(sigStr, decl.IsConst, isComptimeOnly, inConstDotCtx),
+						SortText:            constCallableSortKey(inConstDotCtx, decl.IsConst, !decl.IsConst, "1_"+mName),
 						FilterText:          mName,
 						InsertTextFormat:    InsertSnippet,
 						TextEdit:            &TextEdit{Range: replaceRange, NewText: snip},
@@ -844,6 +853,7 @@ func (s *Server) completeTypeNamespace(
 	typeArgs []types.Type,
 	prefix string,
 	replaceRange Range,
+	inConstCtx bool,
 ) []CompletionItem {
 	var items []CompletionItem
 	seen := make(map[string]bool)
@@ -873,7 +883,7 @@ func (s *Server) completeTypeNamespace(
 					snip = mName + "($1)"
 				}
 				sig := formatFullFuncSig(fi)
-				docVal := fmt.Sprintf("```lowlight\nbind %s = %s\n```", fi.Name, sig)
+				docVal := fmt.Sprintf("```lowlight\n%s %s = %s\n```", declConstPrefix(fi.IsConst, fi.ComptimeOnly), fi.Name, sig)
 				fModPath := curModPath
 				if fi.Mod != nil && fi.Mod.Path != "" {
 					fModPath = fi.Mod.Path
@@ -884,8 +894,8 @@ func (s *Server) completeTypeNamespace(
 				items = append(items, CompletionItem{
 					Label:            mName,
 					Kind:             kind,
-					Detail:           sig,
-					SortText:         "0_" + mName,
+					Detail:           constBadgesDetail(sig, fi.IsConst, fi.ComptimeOnly, inConstCtx),
+					SortText:         constCallableSortKey(inConstCtx, fi.IsConst, !fi.IsConst, "0_"+mName),
 					FilterText:       mName,
 					InsertTextFormat: InsertSnippet,
 					TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
@@ -918,7 +928,8 @@ func (s *Server) completeTypeNamespace(
 				snip = mName + "($1)"
 			}
 			sig := formatGenericMethodDeclSig(decl, typeArgs, false)
-			docVal := fmt.Sprintf("```lowlight\nbind %s.%s = %s\n```", decl.RecvType, mName, sig)
+			isComptimeOnly := ast.FindAttribute(decl.Attributes, "comptime_only") != nil
+			docVal := fmt.Sprintf("```lowlight\n%s %s.%s = %s\n```", declConstPrefix(decl.IsConst, isComptimeOnly), decl.RecvType, mName, sig)
 			gModPath := curModPath
 			if gtmpl.Mod != nil && gtmpl.Mod.Path != "" {
 				gModPath = gtmpl.Mod.Path
@@ -929,8 +940,8 @@ func (s *Server) completeTypeNamespace(
 			items = append(items, CompletionItem{
 				Label:            mName,
 				Kind:             kind,
-				Detail:           sig,
-				SortText:         "0_" + mName,
+				Detail:           constBadgesDetail(sig, decl.IsConst, isComptimeOnly, inConstCtx),
+				SortText:         constCallableSortKey(inConstCtx, decl.IsConst, !decl.IsConst, "0_"+mName),
 				FilterText:       mName,
 				InsertTextFormat: InsertSnippet,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
@@ -942,7 +953,7 @@ func (s *Server) completeTypeNamespace(
 	return items
 }
 
-func (s *Server) completeModuleExports(prog *sema.CheckedProgram, curMod, targetMod *sema.Module, prefix string, replaceRange Range) []CompletionItem {
+func (s *Server) completeModuleExports(prog *sema.CheckedProgram, curMod, targetMod *sema.Module, prefix string, replaceRange Range, inConstCtx bool) []CompletionItem {
 	var items []CompletionItem
 	seen := make(map[string]bool)
 	samePkg := curMod != nil && targetMod != nil && prog != nil && prog.SamePackage(curMod, targetMod)
@@ -969,15 +980,15 @@ func (s *Server) completeModuleExports(prog *sema.CheckedProgram, curMod, target
 			if doc == "" {
 				doc = sym.Doc
 			}
-			docVal := fmt.Sprintf("```lowlight\nbind %s = %s\n```", name, sig)
+			docVal := fmt.Sprintf("```lowlight\n%s %s = %s\n```", declConstPrefix(sym.FuncInst.IsConst, sym.FuncInst.ComptimeOnly), name, sig)
 			if rendered := s.renderDocMarkdown(prog, tModPath, "", doc, "", 0, false); rendered != "" {
 				docVal = appendRenderedDoc(docVal, rendered)
 			}
 			items = append(items, CompletionItem{
 				Label:            name,
 				Kind:             KindFunction,
-				Detail:           sig,
-				SortText:         "0_" + name,
+				Detail:           constBadgesDetail(sig, sym.FuncInst.IsConst, sym.FuncInst.ComptimeOnly, inConstCtx),
+				SortText:         constCallableSortKey(inConstCtx, sym.FuncInst.IsConst, !sym.FuncInst.IsConst, "0_"+name),
 				FilterText:       name,
 				InsertTextFormat: InsertSnippet,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
@@ -996,11 +1007,12 @@ func (s *Server) completeModuleExports(prog *sema.CheckedProgram, curMod, target
 			if rendered := s.renderDocMarkdown(prog, tModPath, "", doc, "", 0, false); rendered != "" {
 				docVal = appendRenderedDoc(docVal, rendered)
 			}
+			sigStr := "extern " + sym.ExternFn.Sig.String()
 			items = append(items, CompletionItem{
 				Label:            name,
 				Kind:             KindFunction,
-				Detail:           "extern " + sym.ExternFn.Sig.String(),
-				SortText:         "0_" + name,
+				Detail:           constBadgesDetail(sigStr, false, false, inConstCtx),
+				SortText:         constCallableSortKey(inConstCtx, false, true, "0_"+name),
 				FilterText:       name,
 				InsertTextFormat: InsertSnippet,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
@@ -1011,16 +1023,24 @@ func (s *Server) completeModuleExports(prog *sema.CheckedProgram, curMod, target
 			if sym.Type != nil {
 				tyStr = sym.Type.String()
 			}
+			kw := "bind"
+			if sym.IsConst {
+				kw = "const"
+			}
+			declLine := fmt.Sprintf("%s %s: %s", kw, name, tyStr)
+			if sym.ComptimeOnly {
+				declLine = "@comptime_only\n" + declLine
+			}
 			var doc *MarkupContent
 			if rendered := s.renderDocMarkdown(prog, tModPath, "", sym.Doc, "", 0, false); rendered != "" {
-				docVal := fmt.Sprintf("```lowlight\nbind %s: %s\n```", name, tyStr)
+				docVal := fmt.Sprintf("```lowlight\n%s\n```", declLine)
 				doc = &MarkupContent{Kind: "markdown", Value: appendRenderedDoc(docVal, rendered)}
 			}
 			items = append(items, CompletionItem{
 				Label:            name,
 				Kind:             KindConstant,
-				Detail:           "bind " + name + ": " + tyStr,
-				SortText:         "1_" + name,
+				Detail:           constBadgesDetail(kw+" "+name+": "+tyStr, sym.IsConst, sym.ComptimeOnly, inConstCtx),
+				SortText:         constCallableSortKey(inConstCtx, sym.IsConst, !sym.IsConst, "1_"+name),
 				FilterText:       name,
 				InsertTextFormat: InsertPlainText,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: name},
@@ -1039,7 +1059,9 @@ func (s *Server) completeModuleExports(prog *sema.CheckedProgram, curMod, target
 		seen[name] = true
 		snip := name + "($1)"
 		sig := formatGenericVarDeclSig(gfn.VarDecl)
-		docVal := fmt.Sprintf("```lowlight\nbind %s%s\n```", name, sig)
+		isConst := gfn.VarDecl != nil && gfn.VarDecl.IsConst
+		isComptimeOnly := gfn.VarDecl != nil && ast.FindAttribute(gfn.VarDecl.Attributes, "comptime_only") != nil
+		docVal := fmt.Sprintf("```lowlight\n%s %s%s\n```", declConstPrefix(isConst, isComptimeOnly), name, sig)
 		if gfn.VarDecl != nil {
 			if rendered := s.renderDocMarkdown(prog, tModPath, "", gfn.VarDecl.Doc, "", 0, false); rendered != "" {
 				docVal = appendRenderedDoc(docVal, rendered)
@@ -1048,8 +1070,8 @@ func (s *Server) completeModuleExports(prog *sema.CheckedProgram, curMod, target
 		items = append(items, CompletionItem{
 			Label:            name,
 			Kind:             KindFunction,
-			Detail:           sig,
-			SortText:         "0_" + name,
+			Detail:           constBadgesDetail(sig, isConst, isComptimeOnly, inConstCtx),
+			SortText:         constCallableSortKey(inConstCtx, isConst, !isConst, "0_"+name),
 			FilterText:       name,
 			InsertTextFormat: InsertSnippet,
 			TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
@@ -1310,9 +1332,9 @@ func isTypeAnnotationContext(toks []token.Token) bool {
 		return false
 	}
 	prev := toks[n-2]
-	// `let x: |` or `bind x: |`
+	// `let x: |`, `bind x: |`, or `const x: |`
 	if n >= 3 && (prev.Kind == token.Ident || prev.Kind == token.OptIdent) &&
-		(toks[n-3].Kind == token.KwLet || toks[n-3].Kind == token.KwBind) {
+		(toks[n-3].Kind == token.KwLet || toks[n-3].Kind == token.KwBind || toks[n-3].Kind == token.KwConst) {
 		return true
 	}
 	// Check enclosing delimiter for `:` -> parameter list `(x: |` or `define S struct [x: |` or `[T: |`!
@@ -1344,8 +1366,8 @@ func isTypeAnnotationContext(toks []token.Token) bool {
 			return true // `define Foo struct [ field: |`
 		}
 		if beforeBr.Kind == token.Ident && top.idx >= 2 &&
-			(toks[top.idx-2].Kind == token.KwDefine || toks[top.idx-2].Kind == token.KwBind) {
-			return true // `define Box[T: |` or `bind fn[T: |`
+			(toks[top.idx-2].Kind == token.KwDefine || toks[top.idx-2].Kind == token.KwBind || toks[top.idx-2].Kind == token.KwConst) {
+			return true // `define Box[T: |`, `bind fn[T: |`, or `const fn[T: |`
 		}
 	}
 	return false
@@ -1537,23 +1559,65 @@ func (s *Server) completeTypeNames(
 // 5. Scope-Aware Identifier, Function, Type, Built-in & Keyword Completion
 // -----------------------------------------------------------------------------
 
-func isTopLevelContext(toks []token.Token) bool {
+func isTopLevelDeclPosition(rawToks []token.Token) bool {
 	braceDepth := 0
-	for _, tk := range toks {
-		if tk.Kind == token.LBrace {
+	parenDepth := 0
+	bracketDepth := 0
+	stmtStart := 0
+	for i, tk := range rawToks {
+		switch tk.Kind {
+		case token.EOF:
+			continue
+		case token.LBrace:
 			braceDepth++
-		} else if tk.Kind == token.RBrace && braceDepth > 0 {
-			braceDepth--
+		case token.RBrace:
+			if braceDepth > 0 {
+				braceDepth--
+			}
+			if braceDepth == 0 && parenDepth == 0 && bracketDepth == 0 {
+				stmtStart = i + 1
+			}
+		case token.LParen:
+			parenDepth++
+		case token.RParen:
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case token.LBracket, token.HashBrack, token.PlusBrack:
+			bracketDepth++
+		case token.RBracket:
+			if bracketDepth > 0 {
+				bracketDepth--
+			}
+		case token.Semi:
+			if braceDepth == 0 && parenDepth == 0 && bracketDepth == 0 {
+				stmtStart = i + 1
+			}
+		}
+		if tk.AutoSemi && braceDepth == 0 && parenDepth == 0 && bracketDepth == 0 {
+			stmtStart = i + 1
 		}
 	}
-	return braceDepth == 0
+	if braceDepth > 0 || parenDepth > 0 || bracketDepth > 0 {
+		return false
+	}
+	for i := stmtStart; i < len(rawToks); i++ {
+		tk := rawToks[i]
+		if tk.Kind == token.EOF || tk.AutoSemi {
+			continue
+		}
+		if tk.Kind == token.Assign || tk.Kind == token.Colon || tk.Kind == token.KwIf {
+			return false
+		}
+	}
+	return true
 }
 
 func isInsideFuncBody(mod *sema.Module, offset int) bool {
 	if mod == nil || mod.File == nil {
 		return false
 	}
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		switch decl := d.(type) {
 		case *ast.VarDecl:
 			if fl, ok := decl.Value.(*ast.FuncLit); ok && fl.Body != nil && spanContainsOffset(fl.Body.GetSpan(), offset) {
@@ -1571,12 +1635,13 @@ func isInsideFuncBody(mod *sema.Module, offset int) bool {
 func (s *Server) completeScopedSymbols(
 	prog *sema.CheckedProgram,
 	mod *sema.Module,
-	_ string,
+	src string,
 	offset int,
 	prefix string,
 	replaceRange Range,
 	atTopLevel bool,
 ) []CompletionItem {
+	inConstCtx := s.isConstEvalAtOffset(prog, mod, src, offset)
 	var items []CompletionItem
 	seen := make(map[string]bool)
 
@@ -1603,15 +1668,15 @@ func (s *Server) completeScopedSymbols(
 			if doc == "" {
 				doc = sym.Doc
 			}
-			docVal := fmt.Sprintf("```lowlight\nbind %s = %s\n```", sym.Name, sig)
+			docVal := fmt.Sprintf("```lowlight\n%s %s = %s\n```", declConstPrefix(sym.FuncInst.IsConst, sym.FuncInst.ComptimeOnly), sym.Name, sig)
 			if rendered := s.renderDocMarkdown(prog, ownerModPath, "", doc, "", 0, false); rendered != "" {
 				docVal = appendRenderedDoc(docVal, rendered)
 			}
 			items = append(items, CompletionItem{
 				Label:            sym.Name,
 				Kind:             KindFunction,
-				Detail:           sig,
-				SortText:         sortPrefix + "_" + sym.Name,
+				Detail:           constBadgesDetail(sig, sym.FuncInst.IsConst, sym.FuncInst.ComptimeOnly, inConstCtx),
+				SortText:         constCallableSortKey(inConstCtx, sym.FuncInst.IsConst, !sym.FuncInst.IsConst, sortPrefix+"_"+sym.Name),
 				FilterText:       sym.Name,
 				InsertTextFormat: InsertSnippet,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
@@ -1635,8 +1700,8 @@ func (s *Server) completeScopedSymbols(
 			items = append(items, CompletionItem{
 				Label:            sym.Name,
 				Kind:             KindFunction,
-				Detail:           "extern " + sym.ExternFn.Sig.String(),
-				SortText:         sortPrefix + "_" + sym.Name,
+				Detail:           constBadgesDetail("extern "+sym.ExternFn.Sig.String(), false, false, inConstCtx),
+				SortText:         constCallableSortKey(inConstCtx, false, true, sortPrefix+"_"+sym.Name),
 				FilterText:       sym.Name,
 				InsertTextFormat: InsertSnippet,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
@@ -1663,14 +1728,24 @@ func (s *Server) completeScopedSymbols(
 		}
 		var doc *MarkupContent
 		if rendered := s.renderDocMarkdown(prog, ownerModPath, "", sym.Doc, "", 0, false); rendered != "" {
-			docVal := fmt.Sprintf("```lowlight\n%s%s: %s\n```", mutPrefix, sym.Name, tyStr)
+			attrLine := ""
+			if sym.ComptimeOnly {
+				attrLine = "@comptime_only\n"
+			}
+			docVal := fmt.Sprintf("```lowlight\n%s%s%s: %s\n```", attrLine, mutPrefix, sym.Name, tyStr)
 			doc = &MarkupContent{Kind: "markdown", Value: appendRenderedDoc(docVal, rendered)}
+		}
+		isConstVal := sym.IsConst || sym.IsConstParam
+		isRuntimeGlobal := sym.IsTopLevel && !sym.IsConst && badge == ""
+		detail := mutPrefix + sym.Name + ": " + tyStr
+		if badge == "" && (sym.IsTopLevel || sym.IsConst || sym.ComptimeOnly) {
+			detail = constBadgesDetail(detail, sym.IsConst, sym.ComptimeOnly, inConstCtx)
 		}
 		items = append(items, CompletionItem{
 			Label:            sym.Name,
 			Kind:             kind,
-			Detail:           mutPrefix + sym.Name + ": " + tyStr,
-			SortText:         sortPrefix + "_" + sym.Name,
+			Detail:           detail,
+			SortText:         constCallableSortKey(inConstCtx, isConstVal, isRuntimeGlobal, sortPrefix+"_"+sym.Name),
 			FilterText:       sym.Name,
 			InsertTextFormat: InsertPlainText,
 			TextEdit:         &TextEdit{Range: replaceRange, NewText: sym.Name},
@@ -1706,7 +1781,9 @@ func (s *Server) completeScopedSymbols(
 				}
 				seen[name] = true
 				sig := formatGenericVarDeclSig(gfn.VarDecl)
-				docVal := fmt.Sprintf("```lowlight\nbind %s%s\n```", name, sig)
+				isConst := gfn.VarDecl != nil && gfn.VarDecl.IsConst
+				isComptimeOnly := gfn.VarDecl != nil && ast.FindAttribute(gfn.VarDecl.Attributes, "comptime_only") != nil
+				docVal := fmt.Sprintf("```lowlight\n%s %s%s\n```", declConstPrefix(isConst, isComptimeOnly), name, sig)
 				if gfn.VarDecl != nil {
 					if rendered := s.renderDocMarkdown(prog, m.Path, "", gfn.VarDecl.Doc, "", 0, false); rendered != "" {
 						docVal = appendRenderedDoc(docVal, rendered)
@@ -1715,8 +1792,8 @@ func (s *Server) completeScopedSymbols(
 				items = append(items, CompletionItem{
 					Label:            name,
 					Kind:             KindFunction,
-					Detail:           sig,
-					SortText:         sortGroup + "_" + name,
+					Detail:           constBadgesDetail(sig, isConst, isComptimeOnly, inConstCtx),
+					SortText:         constCallableSortKey(inConstCtx, isConst, !isConst, sortGroup+"_"+name),
 					FilterText:       name,
 					InsertTextFormat: InsertSnippet,
 					TextEdit:         &TextEdit{Range: replaceRange, NewText: name + "($1)"},
@@ -1790,7 +1867,9 @@ func (s *Server) completeScopedSymbols(
 				continue
 			}
 			seen[bf.Name] = true
-			detail := bf.Signature
+			isComptimeOnly := strings.Contains(bf.Summary, "@comptime_only") || strings.HasPrefix(bf.Name, "comp.") || strings.HasPrefix(bf.Name, "type.")
+			isConstBuiltin := isComptimeOnly || bf.Name == "assert" || strings.HasPrefix(bf.Name, "caller_")
+			detail := constBadgesDetail(bf.Signature, isConstBuiltin && !isComptimeOnly, isComptimeOnly, inConstCtx)
 			if bf.NeedsUnsafe {
 				detail += " [unsafe]"
 			}
@@ -1798,7 +1877,7 @@ func (s *Server) completeScopedSymbols(
 				Label:            bf.Name,
 				Kind:             KindFunction,
 				Detail:           detail,
-				SortText:         fmt.Sprintf("3_builtin_%02d_%s", idx, bf.Name),
+				SortText:         constCallableSortKey(inConstCtx, isConstBuiltin, !isConstBuiltin, fmt.Sprintf("3_builtin_%02d_%s", idx, bf.Name)),
 				FilterText:       bf.Name,
 				InsertTextFormat: InsertSnippet,
 				TextEdit:         &TextEdit{Range: replaceRange, NewText: bf.Snippet},
@@ -1833,7 +1912,7 @@ func (s *Server) completeScopedSymbols(
 		if !matchesPrefix(sn.Label, prefix) {
 			continue
 		}
-		if atTopLevel && !strings.HasPrefix(sn.Label, "bind") && !strings.HasPrefix(sn.Label, "define") && !strings.HasPrefix(sn.Label, "derive") && !strings.HasPrefix(sn.Label, "extern") && !strings.HasPrefix(sn.Label, "test") {
+		if atTopLevel && !strings.HasPrefix(sn.Label, "bind") && !strings.HasPrefix(sn.Label, "const") && !strings.HasPrefix(sn.Label, "comptime") && !strings.HasPrefix(sn.Label, "define") && !strings.HasPrefix(sn.Label, "derive") && !strings.HasPrefix(sn.Label, "extern") && !strings.HasPrefix(sn.Label, "test") {
 			continue
 		}
 		items = append(items, CompletionItem{
@@ -1854,7 +1933,7 @@ func (s *Server) completeScopedSymbols(
 		}
 		if atTopLevel {
 			switch kw.Word {
-			case "import", "extern", "define", "bind", "struct", "enum", "interface":
+			case "import", "extern", "define", "bind", "const", "comptime", "distinct", "test", "struct", "enum", "interface":
 			default:
 				continue
 			}
@@ -1888,7 +1967,7 @@ type scopedSymEntry struct {
 func collectEnclosingLocals(prog *sema.CheckedProgram, mod *sema.Module, offset int) []scopedSymEntry {
 	var out []scopedSymEntry
 
-	for _, d := range mod.File.Decls {
+	for _, d := range mod.ActiveDecls() {
 		if !spanContainsOffset(d.GetSpan(), offset) {
 			continue
 		}
@@ -1975,6 +2054,10 @@ func walkExprScopes(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMa
 					walkExprScopes(prog, mod, bm, s.Value, offset, out)
 				case *ast.UnwindStmt:
 					walkExprScopes(prog, mod, bm, s.Value, offset, out)
+				case *ast.DeclStmt:
+					if vs, ok := s.Decl.(*ast.VarDecl); ok {
+						walkExprScopes(prog, mod, bm, vs.Value, offset, out)
+					}
 				case *ast.ExprStmt:
 					walkExprScopes(prog, mod, bm, s.Expr, offset, out)
 				}
@@ -1999,9 +2082,10 @@ func walkExprScopes(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMa
 						}
 						*out = append(*out, scopedSymEntry{
 							sym: &sema.Symbol{
-								Name:   uv.Name,
-								Type:   resolveFallbackTypeExpr(mod, uv.Type),
-								IsBind: vs.IsBind,
+								Name:    uv.Name,
+								Type:    resolveFallbackTypeExpr(mod, uv.Type),
+								IsBind:  vs.IsBind,
+								IsConst: vs.IsConst,
 							},
 						})
 					}
@@ -2015,9 +2099,10 @@ func walkExprScopes(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMa
 				}
 				*out = append(*out, scopedSymEntry{
 					sym: &sema.Symbol{
-						Name:   vs.Name,
-						Type:   resolveFallbackTypeExpr(mod, vs.Type),
-						IsBind: vs.IsBind,
+						Name:    vs.Name,
+						Type:    resolveFallbackTypeExpr(mod, vs.Type),
+						IsBind:  vs.IsBind,
+						IsConst: vs.IsConst,
 					},
 				})
 			}
@@ -2143,6 +2228,9 @@ func walkExprScopes(prog *sema.CheckedProgram, mod *sema.Module, bm *sema.BodyMa
 	case *ast.UnsafeExpr:
 		walkExprScopes(prog, mod, bm, e.Expr, offset, out)
 
+	case *ast.ComptimeExpr:
+		walkExprScopes(prog, mod, bm, e.Expr, offset, out)
+
 	case *ast.StmtBodyExpr:
 		if s, ok := e.Stmt.(*ast.ExprStmt); ok {
 			walkExprScopes(prog, mod, bm, s.Expr, offset, out)
@@ -2229,25 +2317,44 @@ func lookupExprInfo(prog *sema.CheckedProgram, target ast.Expr) *sema.ExprInfo {
 }
 
 func findSentinelMemberExpr(file *ast.File) *ast.MemberExpr {
-	for _, d := range file.Decls {
-		switch decl := d.(type) {
-		case *ast.VarDecl:
-			if m := findSentinelInExpr(decl.Value); m != nil {
-				return m
-			}
-		case *ast.MethodDecl:
-			if m := findSentinelInExpr(decl.Body); m != nil {
-				return m
-			}
-		case *ast.StructDecl:
-			for _, f := range decl.Fields {
-				if m := findSentinelInExpr(f.Default); m != nil {
+	if file == nil {
+		return nil
+	}
+	var walk func(decls []ast.Decl) *ast.MemberExpr
+	walk = func(decls []ast.Decl) *ast.MemberExpr {
+		for _, d := range decls {
+			switch decl := d.(type) {
+			case *ast.VarDecl:
+				if m := findSentinelInExpr(decl.Value); m != nil {
 					return m
+				}
+			case *ast.MethodDecl:
+				if m := findSentinelInExpr(decl.Body); m != nil {
+					return m
+				}
+			case *ast.StructDecl:
+				for _, f := range decl.Fields {
+					if m := findSentinelInExpr(f.Default); m != nil {
+						return m
+					}
+				}
+			case *ast.TopComptimeIfDecl:
+				for cur := decl; cur != nil; cur = cur.ElseIf {
+					if m := findSentinelInExpr(cur.Cond); m != nil {
+						return m
+					}
+					if m := walk(cur.ThenDecls); m != nil {
+						return m
+					}
+					if m := walk(cur.ElseDecls); m != nil {
+						return m
+					}
 				}
 			}
 		}
+		return nil
 	}
-	return nil
+	return walk(file.Decls)
 }
 
 func findSentinelInExpr(e ast.Expr) *ast.MemberExpr {
@@ -2780,7 +2887,9 @@ func formatTypeExprSubst(te ast.TypeExpr, subst map[string]string) string {
 	case *ast.VectorType:
 		return "[" + formatTypeExprSubst(v.Elem, subst) + "]"
 	case *ast.StackArrayType:
-		return "[N: " + formatTypeExprSubst(v.Elem, subst) + "]"
+		return "[" + formatTypeConstExpr(v.Size) + ": " + formatTypeExprSubst(v.Elem, subst) + "]"
+	case *ast.ConstArgType:
+		return formatTypeConstExpr(v.Expr)
 	case *ast.TupleType:
 		var elems []string
 		for _, el := range v.Elems {
@@ -2901,6 +3010,276 @@ func matchesPrefix(candidate, prefix string) bool {
 		return true
 	}
 	return strings.HasPrefix(strings.ToLower(candidate), strings.ToLower(prefix))
+}
+
+func (s *Server) isConstEvalAtOffset(prog *sema.CheckedProgram, mod *sema.Module, src string, offset int) bool {
+	if offset > len(src) {
+		offset = len(src)
+	}
+	if mod != nil && mod.File != nil {
+		if declsConstEvalAtOffset(mod.ActiveDecls(), offset) {
+			return true
+		}
+	}
+	return tokensSuggestConstContext(src[:offset])
+}
+
+func declsConstEvalAtOffset(decls []ast.Decl, offset int) bool {
+	for _, d := range decls {
+		if d == nil || !spanContainsOffset(d.GetSpan(), offset) {
+			continue
+		}
+		switch decl := d.(type) {
+		case *ast.VarDecl:
+			if decl.IsConst && decl.Value != nil && spanContainsOffset(decl.Value.GetSpan(), offset) {
+				return true
+			}
+			if decl.Value != nil && exprContainsComptimeAt(decl.Value, offset) {
+				return true
+			}
+		case *ast.MethodDecl:
+			if decl.IsConst && decl.Body != nil && spanContainsOffset(decl.Body.GetSpan(), offset) {
+				return true
+			}
+			if decl.Body != nil && exprContainsComptimeAt(decl.Body, offset) {
+				return true
+			}
+		case *ast.TopComptimeIfDecl:
+			for cur := decl; cur != nil; cur = cur.ElseIf {
+				if cur.Cond != nil && spanContainsOffset(cur.Cond.GetSpan(), offset) {
+					return true
+				}
+				if declsConstEvalAtOffset(cur.ThenDecls, offset) || declsConstEvalAtOffset(cur.ElseDecls, offset) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func exprContainsComptimeAt(e ast.Expr, offset int) bool {
+	if e == nil || !spanContainsOffset(e.GetSpan(), offset) {
+		return false
+	}
+	switch v := e.(type) {
+	case *ast.ComptimeExpr:
+		return true
+	case *ast.FuncLit:
+		return exprContainsComptimeAt(v.Body, offset)
+	case *ast.BlockExpr:
+		for _, st := range v.Stmts {
+			if stmtContainsComptimeAt(st, offset) {
+				return true
+			}
+		}
+		return exprContainsComptimeAt(v.Tail, offset)
+	case *ast.IfExpr:
+		if v.IsComptime && v.Cond != nil && spanContainsOffset(v.Cond.GetSpan(), offset) {
+			return true
+		}
+		if exprContainsComptimeAt(v.Cond, offset) || exprContainsComptimeAt(v.Then, offset) {
+			return true
+		}
+		return exprContainsComptimeAt(v.Else, offset)
+	case *ast.ForExpr:
+		if v.IsComptime {
+			return true
+		}
+		return exprContainsComptimeAt(v.CondOrIter, offset) ||
+			exprContainsComptimeAt(v.RangeEnd, offset) ||
+			exprContainsComptimeAt(v.Body, offset) ||
+			exprContainsComptimeAt(v.Else, offset)
+	case *ast.WhileExpr:
+		return exprContainsComptimeAt(v.CondOrIter, offset) ||
+			exprContainsComptimeAt(v.RangeEnd, offset) ||
+			exprContainsComptimeAt(v.Body, offset) ||
+			exprContainsComptimeAt(v.Else, offset)
+	case *ast.CallExpr:
+		for _, ta := range v.TypeArgs {
+			if cat, ok := ta.(*ast.ConstArgType); ok && cat != nil && spanContainsOffset(cat.Span, offset) {
+				return true
+			}
+		}
+		if exprContainsComptimeAt(v.Callee, offset) {
+			return true
+		}
+		for _, a := range v.Args {
+			if exprContainsComptimeAt(a, offset) {
+				return true
+			}
+		}
+	case *ast.MemberExpr:
+		return exprContainsComptimeAt(v.Base, offset)
+	case *ast.IndexExpr:
+		return exprContainsComptimeAt(v.Base, offset) || exprContainsComptimeAt(v.Index, offset)
+	case *ast.BinaryExpr:
+		return exprContainsComptimeAt(v.Left, offset) || exprContainsComptimeAt(v.Right, offset)
+	case *ast.UnaryExpr:
+		return exprContainsComptimeAt(v.Operand, offset)
+	}
+	return false
+}
+
+func stmtContainsComptimeAt(st ast.Stmt, offset int) bool {
+	if st == nil || !spanContainsOffset(st.GetSpan(), offset) {
+		return false
+	}
+	switch s := st.(type) {
+	case *ast.VarStmt:
+		if s.IsConst && s.Value != nil && spanContainsOffset(s.Value.GetSpan(), offset) {
+			return true
+		}
+		return exprContainsComptimeAt(s.Value, offset)
+	case *ast.AssignStmt:
+		return exprContainsComptimeAt(s.Target, offset) || exprContainsComptimeAt(s.Value, offset)
+	case *ast.UnwindStmt:
+		return exprContainsComptimeAt(s.Value, offset)
+	case *ast.DeclStmt:
+		if vd, ok := s.Decl.(*ast.VarDecl); ok && vd.Value != nil {
+			if vd.IsConst && spanContainsOffset(vd.Value.GetSpan(), offset) {
+				return true
+			}
+			return exprContainsComptimeAt(vd.Value, offset)
+		}
+	case *ast.ExprStmt:
+		return exprContainsComptimeAt(s.Expr, offset)
+	}
+	return false
+}
+
+func formatTypeConstExpr(e ast.Expr) string {
+	if e == nil {
+		return "_"
+	}
+	switch v := e.(type) {
+	case *ast.IntLit:
+		return v.Raw
+	case *ast.FloatLit:
+		return v.Raw
+	case *ast.BoolLit:
+		if v.Val {
+			return "true"
+		}
+		return "false"
+	case *ast.CharLit:
+		return fmt.Sprintf("%q", v.Val)
+	case *ast.StringLit:
+		return fmt.Sprintf("%q", v.Val)
+	case *ast.IdentExpr:
+		return v.Name
+	case *ast.MemberExpr:
+		if v.Base != nil {
+			return formatTypeConstExpr(v.Base) + "." + v.Member
+		}
+		return "." + v.Member
+	case *ast.UnaryExpr:
+		return v.Op.String() + formatTypeConstExpr(v.Operand)
+	case *ast.BinaryExpr:
+		return formatTypeConstExpr(v.Left) + " " + v.Op.String() + " " + formatTypeConstExpr(v.Right)
+	case *ast.ComptimeExpr:
+		return "comptime " + formatTypeConstExpr(v.Expr)
+	default:
+		return "..."
+	}
+}
+
+func tokensSuggestConstContext(prefixSrc string) bool {
+	rep := diag.NewReporter()
+	raw := lexer.Lex("", prefixSrc, rep)
+	var toks []token.Token
+	for _, tk := range raw {
+		if tk.Kind != token.EOF {
+			toks = append(toks, tk)
+		}
+	}
+	if len(toks) == 0 {
+		return false
+	}
+	// Check enclosing `{ ... }` preceded directly by `comptime`.
+	var braceOpenIdx []int
+	for i, tk := range toks {
+		switch tk.Kind {
+		case token.LBrace:
+			braceOpenIdx = append(braceOpenIdx, i)
+		case token.RBrace:
+			if len(braceOpenIdx) > 0 {
+				braceOpenIdx = braceOpenIdx[:len(braceOpenIdx)-1]
+			}
+		}
+	}
+	for _, bi := range braceOpenIdx {
+		if bi > 0 && toks[bi-1].Kind == token.KwComptime {
+			return true
+		}
+	}
+	// Scan back within current statement at current brace level.
+	start := 0
+	if len(braceOpenIdx) > 0 {
+		start = braceOpenIdx[len(braceOpenIdx)-1] + 1
+	}
+	for i := len(toks) - 1; i >= start; i-- {
+		if toks[i].Kind == token.Semi {
+			start = i + 1
+			break
+		}
+	}
+	seenConst := false
+	seenAssign := false
+	for i := start; i < len(toks); i++ {
+		switch toks[i].Kind {
+		case token.KwComptime:
+			return true
+		case token.KwConst:
+			if len(braceOpenIdx) == 0 {
+				seenConst = true
+			}
+		case token.Assign:
+			if seenConst {
+				seenAssign = true
+			}
+		}
+	}
+	return seenConst && seenAssign
+}
+
+func declConstPrefix(isConst, comptimeOnly bool) string {
+	kw := "bind"
+	if isConst {
+		kw = "const"
+	}
+	if comptimeOnly {
+		return "@comptime_only\n" + kw
+	}
+	return kw
+}
+
+func constBadgesDetail(sig string, isConst, comptimeOnly, inConstCtx bool) string {
+	var badges []string
+	if comptimeOnly {
+		badges = append(badges, "@comptime_only")
+	} else if isConst {
+		badges = append(badges, "const")
+	} else if inConstCtx {
+		badges = append(badges, "runtime-only")
+	}
+	if len(badges) == 0 {
+		return sig
+	}
+	return fmt.Sprintf("%s [%s]", sig, strings.Join(badges, ", "))
+}
+
+func constCallableSortKey(inConstCtx, isConstCallable, isRuntimeOnlyFn bool, normalSort string) string {
+	if !inConstCtx {
+		return normalSort
+	}
+	if isConstCallable {
+		return "0_const_" + strings.TrimPrefix(normalSort, "0_")
+	}
+	if isRuntimeOnlyFn {
+		return "3_runtime_" + strings.TrimPrefix(normalSort, "0_")
+	}
+	return "1_" + strings.TrimPrefix(normalSort, "0_")
 }
 
 func sortCompletionItems(items []CompletionItem) {

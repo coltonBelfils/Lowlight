@@ -323,7 +323,7 @@ func collectManifestLinkFlags(ctx *manifest.ProjectContext, resolved *manifest.R
 		for sel := range m.Targets {
 			selectors = append(selectors, sel)
 		}
-		sort.Strings(selectors)
+		manifest.SortTargetSelectors(selectors)
 		for _, sel := range selectors {
 			if !target.MatchesSelector(sel) {
 				continue
@@ -779,13 +779,15 @@ func Run(opts Options, progArgs []string, stdout, stderr io.Writer) (int, error)
 func Test(opts Options, stdout, stderr io.Writer) (int, error) {
 	opts.TestMode = true
 
-	// Resolve workspace/manifest options when `-p` or `--workspace` or zero-arg is used.
+	// Resolve enclosing manifest/workspace options (including `[build]` defaults like
+	// target triple), preserving explicit targets when neither `-p` nor `--workspace` is set.
 	rawTargets := opts.Targets
-	if opts.Package != "" || opts.Workspace || (len(rawTargets) == 0 && opts.EntryPath == "") {
+	if opts.Package != "" || opts.Workspace || (len(rawTargets) == 0 && opts.EntryPath == "") || (opts.ManifestCtx == nil && opts.SrcOverride == "") {
 		resolvedOpts, ctx, err := ResolveOptions(opts)
 		if err != nil {
 			return 1, err
 		}
+		explicitTargets := len(rawTargets) > 0
 		opts = resolvedOpts
 		if opts.Workspace && ctx != nil && len(ctx.WorkspaceMembers) > 0 {
 			rawTargets = nil
@@ -794,7 +796,7 @@ func Test(opts Options, stdout, stderr io.Writer) (int, error) {
 			}
 		} else if opts.Package != "" && ctx != nil && ctx.ActiveManifest != nil {
 			rawTargets = []string{ctx.ActiveManifest.Dir}
-		} else if len(rawTargets) == 0 && opts.EntryPath != "" {
+		} else if !explicitTargets && len(rawTargets) == 0 && opts.EntryPath != "" {
 			rawTargets = []string{opts.EntryPath}
 		}
 	}

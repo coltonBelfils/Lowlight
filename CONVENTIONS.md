@@ -10,7 +10,7 @@ Lowlight's design centers on **call-site explicitness without syntactic clutter*
 
 1. [Naming Conventions](#1-naming-conventions)
 2. [Privacy & Compiler-Enforced Sigils](#2-privacy--compiler-enforced-sigils)
-3. [Bindings & Mutability (`bind` vs `let`)](#3-bindings--mutability-bind-vs-let)
+3. [Bindings, Mutability, & Compile Time (`const`, `bind`, and `let`)](#3-bindings-mutability--compile-time-const-bind-and-let)
 4. [Error Handling & Optionals](#4-error-handling--optionals)
 5. [Control Flow, Loops, and Pattern Matching](#5-control-flow-loops-and-pattern-matching)
 6. [Ownership, Memory, and Data Structures](#6-ownership-memory-and-data-structures)
@@ -32,7 +32,7 @@ Lowlight's design centers on **call-site explicitness without syntactic clutter*
 | Generic type parameters | Concise `PascalCase` | `T`, `K`, `V`, `Item` |
 | Functions, methods, locals, parameters, fields | `snake_case` | `parse_url`, `is_empty`, `max_bytes` |
 | **Enum variants & `result` members** | **lowercase `snake_case`** | `pending`, `in_progress`, `value`, `err`, `missing`, `forbidden` |
-| **Top-level constants** (`bind` values) | **`SCREAMING_SNAKE_CASE`** | `PI`, `STATUS_OK`, `MAX_RETRIES`, `RFC3339_NANO` |
+| **Top-level constants** (`const` / `bind` values) | **`SCREAMING_SNAKE_CASE`** | `PI`, `STATUS_OK`, `MAX_RETRIES`, `RFC3339_NANO` |
 | Optional identifiers (compiler-enforced) | `snake_case` + `?` suffix | `user?`, `port?`, `left?` |
 | Result identifiers (compiler-enforced) | `snake_case` + `!` suffix | `cfg!`, `res!`, `conn!` |
 | Package-private symbols & sealed methods | Leading underscore `_` | `_parse_header`, `_handle`, `_internal`, `_seal` |
@@ -77,16 +77,16 @@ define Lookup result [
 
 ### `SCREAMING_SNAKE_CASE` Constants
 
-Top-level constant `bind` values use `SCREAMING_SNAKE_CASE`:
+Top-level constants (`const` for compile-time constants and lookup tables; `bind` when initialized from runtime state) use `SCREAMING_SNAKE_CASE`:
 
 ```lowlight
-bind MAX_RETRIES: int = 3
-bind DEFAULT_PORT: int = 8080
-bind DATE_ONLY = "2006-01-02"
-bind RFC3339_NANO = "2006-01-02T15:04:05.999999999Z07:00"
+const MAX_RETRIES: int = 3
+const DEFAULT_PORT: int = 8080
+const DATE_ONLY = "2006-01-02"
+const RFC3339_NANO = "2006-01-02T15:04:05.999999999Z07:00"
 ```
 
-Local non-mutated values use normal `snake_case` (`bind timeout_ms = 500`), unless you want a module-level constant look at top level.
+Local non-mutated values use normal `snake_case` (`const timeout_ms = 500` or `bind timeout_ms = ...`), reserving `SCREAMING_SNAKE_CASE` for module-level constants.
 
 ---
 
@@ -96,11 +96,11 @@ Local non-mutated values use normal `snake_case` (`bind timeout_ms = 500`), unle
 
 Anything starting with `_` is private to its declaring package (all `.ll` files in the same directory):
 
-- Functions and constants: `bind _parse_digits = ...`, `bind _BUFFER_SIZE = 4096`
+- Functions and constants: `const _parse_digits = ...`, `const _BUFFER_SIZE = 4096`, `bind _query_tz = ...`
 - Types: `define _Route struct [...]`
 - Struct fields and methods: `_handle: ptr[u8]`, `bind File._close_checked = ...`
 - Enum variants: `define Token enum [ ident: string, _eof ]`
-- Sealed interfaces: include an unexported method such as `_seal: (self) int` to prevent external packages from implementing the interface.
+- Sealed interfaces: include an unexported method such as `_seal: fn(self) int` to prevent external packages from implementing the interface.
 
 Avoid getters/setters that merely expose a `_field` unchanged without enforcing an invariant; make plain data fields public directly, and privatize `_field` only when a type maintains internal invariants or owns raw handles.
 
@@ -114,15 +114,23 @@ Lowlight enforces `?` on every binding, parameter, or struct field of type `?T`,
 
 ---
 
-## 3. Bindings & Mutability (`bind` vs `let`)
+## 3. Bindings, Mutability, & Compile Time (`const`, `bind`, and `let`)
 
-Lowlight distinguishes deep immutability (`bind`) from mutability (`let`):
+Lowlight cleanly separates **compile-time evaluation (`const`)**, **runtime immutability (`bind`)**, and **local mutability (`let`)**:
 
-- **Top-level:** Always use `bind` (functions, methods, constants). Top-level mutable globals (`let`) are discouraged outside tightly scoped tests or process singletons.
-- **Locals:** **Prefer `bind` by default** for any local that is never reassigned or mutably borrowed. Use `let` only when the variable is actually reassigned (`count += 1`) or passed as a mutable borrow (`&buf`, `items.push(...)`).
+- **`const` (Compile-time values & pure functions):**
+  - Use `const` for pure top-level constants, fixed lookup tables (`const CRC_TABLE = comptime ...` baked into static `.rodata`), and pure functions/methods that do not perform host I/O, FFI (`extern`), OS calls, or user `unsafe`. A `const` function runs cleanly in both compile-time evaluation and normal runtime calls.
+  - Mark build-time-only reflection helpers, `@derivable` trait generators, and intermediate builders with `@comptime_only` so they never bloat the runtime binary and can freely use compile-time `Map`/`Set` or reflection queries (`comp.fields_of`, `comp.variants_of`).
+  - Use `@comptime_limit(steps: N, memory: M)` explicitly when a generator legitimately needs a larger budget instead of inflating defaults.
+- **`bind` (Runtime immutability):**
+  - Use `bind` for functions/methods that perform I/O, FFI, OS syscalls, `unsafe`, or tests (`@test`), and **prefer `bind` by default for locals** whose value comes from runtime expressions and is never reassigned or mutably borrowed.
+- **`let` (Mutable locals):**
+  - Use `let` only when a variable is actually reassigned (`count += 1`) or passed as a mutable borrow (`&buf`, `items.push(...)`).
 
 ```lowlight
-bind sum_evens = (items: [int]) int: {
+const SCALE_FACTORS: [int] = [1, 10, 100, 1000]
+
+const sum_evens = fn(items: [int]) int: {
 	bind n = items.len()
 	let total = 0
 	for(i in 0..n): {
@@ -133,7 +141,10 @@ bind sum_evens = (items: [int]) int: {
 }
 ```
 
-Making `bind` your default choice documents at a glance which bindings can change inside a function and pairs naturally with deep immutability checking.
+### Conditional Platform Code & Derivations
+
+- **Prefer single-file `comptime if(comp.TARGET...)`** over OS/architecture filename suffixes (`_linux.ll`, `_unix.ll`, etc.) so platform branches share one cohesive file and type-check uniformly via `lowlight check --all-targets`. Suffix filtering remains supported when separate large files are warranted.
+- **Prefer `@derivable(...)` + `comp.*` reflection** on custom interfaces (`@derivable(encode: derive_encode)`) rather than asking callers to duplicate mechanical field-by-field boilerplate.
 
 ---
 
@@ -280,7 +291,7 @@ Lowlight distinguishes loops cleanly by both **purpose** and **value semantics**
 - Use `when in lo..hi:` for containment, method predicates like `when is_digit():` for classification, and multi-argument `match(a, b):` instead of nested matches.
 
 ```lowlight
-bind eval_bin = (op: TokKind, lhs: int, rhs: int) Result[int]:
+const eval_bin = fn(op: TokKind, lhs: int, rhs: int) Result[int]:
 	match(op):
 		when plus: value(lhs + rhs)
 		when minus: value(lhs - rhs)
@@ -295,9 +306,9 @@ bind eval_bin = (op: TokKind, lhs: int, rhs: int) Result[int]:
 
 - **Prefer braceless bodies** for concise single-expression functions, `match`/`if`-bodied functions, one-line `if`/`else`, `match` arms, and single-statement loops:
   ```lowlight
-  bind Response.is_success = (self) bool: self.status_code >= 200 and self.status_code < 300
+  const Response.is_success = fn(self) bool: self.status_code >= 200 and self.status_code < 300
 
-  bind clamp_nonneg = (n: int) int:
+  const clamp_nonneg = fn(n: int) int:
   	if(n < 0): 0 else: n
   ```
 - **Use `{ ... }` blocks** for multi-statement bodies or deeply nested control flow where explicit delimiters make scopes and unwinding targets easier to scan.
@@ -324,7 +335,7 @@ Choose the weakest mode that does the job:
 
 ```lowlight
 // Reads without copying `msg`; mutates `errors` visibly at call sites (`&errors`).
-bind record_if_bad = (errors: &[string], ok: bool, msg: string):
+const record_if_bad = fn(errors: &[string], ok: bool, msg: string):
 	if(not ok): errors.push(msg.copy())
 ```
 
@@ -338,7 +349,7 @@ bind record_if_bad = (errors: &[string], ok: bool, msg: string):
 - **`Arena` + `ref[T]`:** Ideal for ASTs, IR graphs, compilers, and per-request scratch allocation. Nodes allocate at bump-pointer speed, cycles are allowed, destructors of fields run on reset/exit, and the compiler statically prevents `ref[T]` from escaping the arena's scope.
 - **`std/pool` (`Pool[T]` + `Handle[T]`):** Ideal for long-lived game entities, caches, or graphs needing arbitrary individual deletion and O(1) slot reuse with stale-handle detection.
 - **`unsafe { ... }`:** Keep `unsafe` blocks as small as possible, wrap raw pointer arithmetic behind safe abstractions, and document the upheld invariants under a `// # Safety` doc section.
-- **`Drop`:** Implement `bind Type.drop = (&self): ...` only when a type owns non-Lowlight resources (OS handles, FFI memory, custom buffers). Plain composite Resources free their fields automatically in reverse declaration order.
+- **`Drop`:** Implement `bind Type.drop = fn(&self): ...` only when a type owns non-Lowlight resources (OS handles, FFI memory, custom buffers). Plain composite Resources free their fields automatically in reverse declaration order.
 
 ---
 
@@ -356,7 +367,7 @@ bind record_if_bad = (errors: &[string], ok: bool, msg: string):
   - Mark any function whose ignored return value is almost always a bug (results, error values, important handles) with `@must_use`.
   - Mark assertion helpers, error constructors (`Error.new`), and unwrapping helpers with `@track_caller` so panics and error traces report the caller's line.
 - **Methods vs Package Functions:**
-  - Attach methods (`bind Type.method = ...`) when an operation clearly belongs to a type's noun-verb API (`url.query_param(k)`, `dt.add_duration(d)`).
+  - Attach methods (`const Type.method = fn(...)` or `bind Type.method = fn(...)`) when an operation clearly belongs to a type's noun-verb API (`url.query_param(k)`, `dt.add_duration(d)`).
   - Use package functions (`http.parse_url`, `math.clamp_int`, `time.month_abbr`) for general utilities or operations where adding methods to primitive types like `int` or `string` would pollute completion.
 - **Package Structure:** Keep `main` exclusively in binary entrypoint packages (`./` or `cmd/<app>/`). Library packages must omit `main` so they remain importable.
 
@@ -400,7 +411,7 @@ Write doc comments with `//` directly above exported declarations and as a modul
 //
 // # Errors
 // Returns [`Result.err`] if DNS resolution fails or the connection is refused.
-bind TcpStream.connect = (host: string, port: int) Result[TcpStream]: {
+bind TcpStream.connect = fn(host: string, port: int) Result[TcpStream]: {
 	// ...
 }
 ```

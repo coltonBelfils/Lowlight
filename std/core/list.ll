@@ -85,10 +85,12 @@ const List[T].is_empty = fn(self) bool: self.len == 0
 
 // Ensures the list has allocated capacity for at least `min_cap` elements without changing its length.
 const List[T].reserve = fn(&self, min_cap: int): {
-	if(min_cap <= self.cap): func <-
+	if(self.cap > 0 and min_cap <= self.cap): func <-
+	if(self.cap <= 0 and self.len <= 0 and min_cap <= 0): func <-
+	let need = if(self.cap <= 0 and min_cap < self.len): self.len else: min_cap
 	let ncap = if(self.cap > 0): self.cap else: 4
-	for(ncap < min_cap): {
-		if(ncap >= 4611686018427387904): ncap = min_cap else: ncap *= 2
+	for(ncap < need): {
+		if(ncap >= 4611686018427387904): ncap = need else: ncap *= 2
 	}
 	let nd = unsafe {
 		if(self.cap <= 0): alloc_uninit[T](ncap) else: realloc_raw(self.data, ncap)
