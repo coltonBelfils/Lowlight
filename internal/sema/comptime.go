@@ -2,9 +2,10 @@ package sema
 
 import (
 	"fmt"
+	"io"
 	"math"
-	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -16,12 +17,15 @@ import (
 )
 
 const (
-	defaultComptimeStepLimit = 1_000_000
-	defaultComptimeMaxDepth  = 1024
-	defaultComptimeMaxMem    = 64 * 1024 * 1024 // 64 MB
-	maxComptimeGoDepth       = 8192
-	maxComptimeValueDepth    = 256
-	ctValMemCost             = 232
+	defaultComptimeStepLimit    = 1_000_000
+	defaultComptimeMaxDepth     = 1024
+	defaultComptimeMaxMem       = 64 * 1024 * 1024 // 64 MB
+	defaultIDEComptimeStepLimit = 100_000
+	defaultIDEComptimeMaxMem    = 8 * 1024 * 1024 // 8 MB
+	defaultIDEComptimeMaxUnroll = 256
+	maxComptimeGoDepth          = 8192
+	maxComptimeValueDepth       = 256
+	ctValMemCost                = 232
 )
 
 type ctKind int
@@ -89,12 +93,14 @@ type ctHeapAlloc struct {
 }
 
 type ctPtr struct {
-	alloc    *ctHeapAlloc
-	byteOff  int64
-	elemSize int64
-	elemTy   types.Type
-	place    *ctPlace
-	castTy   types.Type
+	alloc      *ctHeapAlloc
+	byteOff    int64
+	elemSize   int64
+	elemTy     types.Type
+	place      *ctPlace
+	castTy     types.Type
+	stackAddr  uint64
+	frameAlive *bool
 }
 
 type ctTupleBox struct {
@@ -151,10 +157,12 @@ type ctVal struct {
 }
 
 type ctSlot struct {
-	val      *ctVal
-	ty       types.Type
-	moved    bool
-	refPlace *ctPlace // non-nil when bound to a `&T` / `&self` reference parameter
+	val        *ctVal
+	ty         types.Type
+	moved      bool
+	refPlace   *ctPlace // non-nil when bound to a `&T` / `&self` reference parameter
+	addr       uint64
+	frameAlive *bool
 }
 
 func (sl *ctSlot) getVal(span diag.Span, name string) (*ctVal, ctSignal) {
@@ -186,8 +194,10 @@ func (sl *ctSlot) setVal(nv *ctVal) ctSignal {
 }
 
 type ctPlace struct {
-	get func() (*ctVal, ctSignal)
-	set func(*ctVal) ctSignal
+	get        func() (*ctVal, ctSignal)
+	set        func(*ctVal) ctSignal
+	addr       uint64
+	frameAlive *bool
 }
 
 type ctArg struct {
@@ -259,18 +269,22 @@ type ctFrame struct {
 	callSpan diag.Span
 	locals   map[*Symbol]*ctSlot
 	captures map[*Symbol]*ctSlot
+	alive    *bool
 }
 
 type ctState struct {
-	a            *Analyzer
-	rootMod      *Module
-	stepLimit    int
-	steps        int
-	depth        int
-	goDepth      int
-	memBytes     int64
-	memLimit     int64
-	frames       []ctFrame
+	a                 *Analyzer
+	rootMod           *Module
+	stepLimit         int
+	explicitStepLimit bool
+	steps             int
+	depth             int
+	goDepth           int
+	memBytes          int64
+	memLimit          int64
+	explicitMemLimit  bool
+	stackSeq          uint64
+	frames            []ctFrame
 	// scopeStack tracks local symbols whose custom Drop needs to run on block exit.
 	dropScopes [][]dropEntry
 }
@@ -282,15 +296,101 @@ type dropEntry struct {
 }
 
 func newCtState(a *Analyzer, rootMod *Module, stepLimit int) *ctState {
+	explicitStep := stepLimit > 0
 	if stepLimit <= 0 {
 		stepLimit = defaultComptimeStepLimit
 	}
-	return &ctState{
-		a:         a,
-		rootMod:   rootMod,
-		stepLimit: stepLimit,
-		memLimit:  defaultComptimeMaxMem,
+	memLimit := int64(defaultComptimeMaxMem)
+	if a != nil && a.ideMode {
+		if stepLimit > defaultIDEComptimeStepLimit {
+			stepLimit = defaultIDEComptimeStepLimit
+		}
+		if memLimit > defaultIDEComptimeMaxMem {
+			memLimit = defaultIDEComptimeMaxMem
+		}
 	}
+	return &ctState{
+		a:                 a,
+		rootMod:           rootMod,
+		stepLimit:         stepLimit,
+		explicitStepLimit: explicitStep,
+		memLimit:          memLimit,
+	}
+}
+
+func newFrameAlive() *bool {
+	b := true
+	return &b
+}
+
+func frameAlivePtr(fr *ctFrame) *bool {
+	if fr == nil {
+		return nil
+	}
+	return fr.alive
+}
+
+func (s *ctState) nextStackAddr() uint64 {
+	s.stackSeq++
+	return uint64(0x700000000000) + s.stackSeq*uint64(0x1000)
+}
+
+func (s *ctState) slotAddr(sl *ctSlot) uint64 {
+	if sl == nil {
+		return 0
+	}
+	if sl.addr == 0 {
+		sl.addr = s.nextStackAddr()
+	}
+	return sl.addr
+}
+
+func addInt64Checked(a, b int64) (int64, bool) {
+	if (b > 0 && a > math.MaxInt64-b) || (b < 0 && a < math.MinInt64-b) {
+		return 0, false
+	}
+	return a + b, true
+}
+
+func mulInt64Checked(a, b int64) (int64, bool) {
+	if a == 0 || b == 0 {
+		return 0, true
+	}
+	if (a == math.MinInt64 && b == -1) || (b == math.MinInt64 && a == -1) {
+		return 0, false
+	}
+	res := a * b
+	if res/b != a {
+		return 0, false
+	}
+	return res, true
+}
+
+func formatComptimeMemSize(bytes int64) string {
+	if bytes >= 1024*1024 && bytes%(1024*1024) == 0 {
+		return fmt.Sprintf("%d MB", bytes/(1024*1024))
+	}
+	if bytes >= 1024 && bytes%1024 == 0 {
+		return fmt.Sprintf("%d KB", bytes/1024)
+	}
+	return fmt.Sprintf("%d B", bytes)
+}
+
+func (s *ctState) chargeBulkSteps(n int64, span diag.Span) ctSignal {
+	if n <= 0 {
+		return okSig()
+	}
+	cost64 := (n-1)/64 + 1
+	rem := int64(s.stepLimit - s.steps)
+	if rem < 0 {
+		rem = 0
+	}
+	if cost64 > rem {
+		s.steps = s.stepLimit + 1
+		return abortSig(span, "compile-time execution exceeded step limit (%d steps; increase with `@comptime_limit(steps: N)`)", s.stepLimit)
+	}
+	s.steps += int(cost64)
+	return okSig()
 }
 
 func (s *ctState) step(span diag.Span) ctSignal {
@@ -309,10 +409,10 @@ func (s *ctState) allocMem(bytes int64, span diag.Span) ctSignal {
 	if limit <= 0 {
 		limit = defaultComptimeMaxMem
 	}
-	s.memBytes += bytes
-	if s.memBytes > limit {
-		return abortSig(span, "compile-time execution exceeded memory budget (%d MB; increase with `@comptime_limit(memory: N)`)", limit/(1024*1024))
+	if bytes > limit || bytes > limit-s.memBytes {
+		return abortSig(span, "compile-time execution exceeded memory budget (%s; increase with `@comptime_limit(memory: N)`)", formatComptimeMemSize(limit))
 	}
+	s.memBytes += bytes
 	return okSig()
 }
 
@@ -875,12 +975,131 @@ func (v *ctVal) equals(a *Analyzer, other *ctVal) bool {
 	return v.equalsDepth(a, other, 0)
 }
 
+func asCtList(v *ctVal) (elems []*ctVal, rawBytes []byte, ok bool) {
+	if v == nil {
+		return nil, nil, false
+	}
+	if v.kind == ctList && v.list != nil {
+		return v.list.elems, nil, true
+	}
+	if v.kind == ctStruct && v.st != nil && v.st.ty != nil && v.st.ty.Lang == "list" {
+		if bs, _, okB := listStructBytes(v); okB {
+			return nil, bs, true
+		}
+		if el, okE := listStructElems(v); okE {
+			return el, nil, true
+		}
+	}
+	return nil, nil, false
+}
+
+func asCtSet(v *ctVal) ([]*ctVal, bool) {
+	if v == nil {
+		return nil, false
+	}
+	if v.kind == ctSet && v.set != nil {
+		return v.set.elems, true
+	}
+	if v.kind == ctStruct && v.st != nil && v.st.ty != nil && v.st.ty.Lang == "set" {
+		return setStructElems(v)
+	}
+	return nil, false
+}
+
+func asCtMap(v *ctVal) ([]ctMapEntry, bool) {
+	if v == nil {
+		return nil, false
+	}
+	if v.kind == ctMap && v.m != nil {
+		return v.m.entries, true
+	}
+	if v.kind == ctStruct && v.st != nil && v.st.ty != nil && v.st.ty.Lang == "map" {
+		return mapStructEntries(v)
+	}
+	return nil, false
+}
+
 func (v *ctVal) equalsDepth(a *Analyzer, other *ctVal, depth int) bool {
 	if depth >= maxComptimeValueDepth {
 		return v == other
 	}
 	if v == nil || other == nil {
 		return v == other
+	}
+	if le1, lb1, ok1 := asCtList(v); ok1 {
+		if le2, lb2, ok2 := asCtList(other); ok2 {
+			if lb1 != nil && lb2 != nil {
+				return string(lb1) == string(lb2)
+			}
+			n1 := len(le1)
+			if lb1 != nil {
+				n1 = len(lb1)
+			}
+			n2 := len(le2)
+			if lb2 != nil {
+				n2 = len(lb2)
+			}
+			if n1 != n2 {
+				return false
+			}
+			for i := 0; i < n1; i++ {
+				var e1, e2 *ctVal
+				if lb1 != nil {
+					e1 = newCtInt(uint64(lb1[i]), types.TypeU8)
+				} else {
+					e1 = le1[i]
+				}
+				if lb2 != nil {
+					e2 = newCtInt(uint64(lb2[i]), types.TypeU8)
+				} else {
+					e2 = le2[i]
+				}
+				if !e1.equalsDepth(a, e2, depth+1) {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	if se1, ok1 := asCtSet(v); ok1 {
+		if se2, ok2 := asCtSet(other); ok2 {
+			if len(se1) != len(se2) {
+				return false
+			}
+			for _, el := range se1 {
+				found := false
+				for _, oel := range se2 {
+					if el.equalsDepth(a, oel, depth+1) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	if me1, ok1 := asCtMap(v); ok1 {
+		if me2, ok2 := asCtMap(other); ok2 {
+			if len(me1) != len(me2) {
+				return false
+			}
+			for _, e := range me1 {
+				found := false
+				for _, oe := range me2 {
+					if e.key.equalsDepth(a, oe.key, depth+1) && e.val.equalsDepth(a, oe.val, depth+1) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return false
+				}
+			}
+			return true
+		}
 	}
 	if v.kind != other.kind {
 		// Support `T == ?T` when `WrapOptional` wrapped one side before compare.
@@ -963,6 +1182,7 @@ func (v *ctVal) equalsDepth(a *Analyzer, other *ctVal, depth int) bool {
 				(other.ptrVal == nil || (other.ptrVal.alloc == nil && other.ptrVal.place == nil))
 		}
 		return v.ptrVal.alloc == other.ptrVal.alloc &&
+			v.ptrVal.stackAddr == other.ptrVal.stackAddr &&
 			v.ptrVal.byteOff == other.ptrVal.byteOff &&
 			v.ptrVal.place == other.ptrVal.place
 	case ctSet:
@@ -1003,73 +1223,107 @@ func (v *ctVal) equalsDepth(a *Analyzer, other *ctVal, depth int) bool {
 	return false
 }
 
-func (v *ctVal) cmpVal(other *ctVal) int {
+func containsNaNDepth(v *ctVal, depth int) bool {
+	if v == nil || depth >= maxComptimeValueDepth {
+		return false
+	}
+	switch v.kind {
+	case ctFloat:
+		return math.IsNaN(v.f)
+	case ctTuple:
+		if v.tup != nil {
+			for _, el := range v.tup.elems {
+				if containsNaNDepth(el, depth+1) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (v *ctVal) cmpValOk(other *ctVal) (int, bool) {
 	if v == nil || other == nil {
-		return 0
+		return 0, true
 	}
 	switch v.kind {
 	case ctInt:
 		if v.prim != nil && !v.prim.IsSignedInt() {
 			if v.u < other.u {
-				return -1
+				return -1, true
 			}
 			if v.u > other.u {
-				return 1
+				return 1, true
 			}
-			return 0
+			return 0, true
 		}
 		l, r := v.asInt64(), other.asInt64()
 		if l < r {
-			return -1
+			return -1, true
 		}
 		if l > r {
-			return 1
+			return 1, true
 		}
-		return 0
+		return 0, true
 	case ctFloat:
+		if math.IsNaN(v.f) || math.IsNaN(other.f) {
+			return 0, false
+		}
 		if v.f < other.f {
-			return -1
+			return -1, true
 		}
 		if v.f > other.f {
-			return 1
+			return 1, true
 		}
-		return 0
+		return 0, true
 	case ctChar:
 		if v.ch < other.ch {
-			return -1
+			return -1, true
 		}
 		if v.ch > other.ch {
-			return 1
+			return 1, true
 		}
-		return 0
+		return 0, true
 	case ctBool:
 		if v.b == other.b {
-			return 0
+			return 0, true
 		}
 		if !v.b {
-			return -1
+			return -1, true
 		}
-		return 1
+		return 1, true
 	case ctString:
-		return strings.Compare(v.s, other.s)
+		return strings.Compare(v.s, other.s), true
 	case ctEnum:
 		l, r := v.asInt64(), other.asInt64()
 		if l < r {
-			return -1
+			return -1, true
 		}
 		if l > r {
-			return 1
+			return 1, true
 		}
-		return 0
+		return 0, true
 	case ctTuple:
+		if containsNaNDepth(v, 0) || containsNaNDepth(other, 0) {
+			return 0, false
+		}
 		for i := 0; i < len(v.tup.elems) && i < len(other.tup.elems); i++ {
-			if c := v.tup.elems[i].cmpVal(other.tup.elems[i]); c != 0 {
-				return c
+			c, ok := v.tup.elems[i].cmpValOk(other.tup.elems[i])
+			if !ok {
+				return 0, false
+			}
+			if c != 0 {
+				return c, true
 			}
 		}
-		return 0
+		return 0, true
 	}
-	return 0
+	return 0, true
+}
+
+func (v *ctVal) cmpVal(other *ctVal) int {
+	c, _ := v.cmpValOk(other)
+	return c
 }
 
 func splitMix64(x uint64) uint64 {
@@ -1085,6 +1339,19 @@ func (v *ctVal) hash() uint64 {
 func (v *ctVal) hashWithDepth(depth int) uint64 {
 	if v == nil || depth >= maxComptimeValueDepth {
 		return 0
+	}
+	if elems, rawBytes, ok := asCtList(v); ok {
+		var h uint64
+		if rawBytes != nil {
+			for _, b := range rawBytes {
+				h ^= splitMix64(uint64(b)) + 0x9e3779b97f4a7c15 + (h << 6) + (h >> 2)
+			}
+			return h
+		}
+		for _, el := range elems {
+			h ^= el.hashWithDepth(depth+1) + 0x9e3779b97f4a7c15 + (h << 6) + (h >> 2)
+		}
+		return h
 	}
 	switch v.kind {
 	case ctInt:
@@ -1158,6 +1425,9 @@ func (v *ctVal) toString() string {
 		}
 		return strconv.FormatInt(v.asInt64(), 10)
 	case ctFloat:
+		if v.prim != nil && v.prim.Kind == types.PrimF32 {
+			return strconv.FormatFloat(float64(float32(v.f)), 'g', -1, 32)
+		}
 		return strconv.FormatFloat(v.f, 'g', -1, 64)
 	case ctBool:
 		if v.b {
@@ -1249,7 +1519,10 @@ func (v *ctVal) ptrAddr() uint64 {
 		return p.alloc.baseAddr + uint64(p.byteOff)
 	}
 	if p.place != nil {
-		return uint64(0x70000000) + uint64(p.byteOff)
+		if p.stackAddr != 0 {
+			return p.stackAddr + uint64(p.byteOff)
+		}
+		return uint64(0x700000000000) + uint64(p.byteOff)
 	}
 	return 0
 }
@@ -1469,10 +1742,25 @@ func (s *ctState) newHeapAlloc(elemTy types.Type, count int64, zeroInit bool, sp
 		return nil, abortSig(span, "negative allocation count (%d) at compile time", count)
 	}
 	if isByteElemType(elemTy) {
-		return s.newBytesAlloc(make([]byte, count), false, span)
+		if sig := s.allocMem(count, span); sig.kind != sigNone {
+			return nil, sig
+		}
+		id, addr := s.nextAllocIDAddr()
+		return &ctHeapAlloc{
+			id:           id,
+			baseAddr:     addr,
+			elemTy:       types.TypeU8,
+			elemSize:     1,
+			isBytes:      true,
+			bytes:        make([]byte, count),
+			chargedBytes: count,
+		}, okSig()
 	}
 	elemSize := s.simElemSize(elemTy)
-	charge := count * elemSize
+	charge, okMul := mulInt64Checked(count, elemSize)
+	if !okMul {
+		return nil, abortSig(span, "compile-time allocation size overflow (%d * %d)", count, elemSize)
+	}
 	if sig := s.allocMem(charge, span); sig.kind != sigNone {
 		return nil, sig
 	}
@@ -1729,9 +2017,16 @@ func (s *ctState) castWriteVal(nv *ctVal, cur *ctVal, castTy types.Type, span di
 }
 
 func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
+	if sig := s.step(span); sig.kind != sigNone {
+		return ctPlace{}, sig
+	}
 	if pv == nil || (pv.alloc == nil && pv.place == nil) {
 		return ctPlace{}, abortSig(span, "null pointer dereference at compile time")
 	}
+	if pv.frameAlive != nil && !*pv.frameAlive {
+		return ctPlace{}, abortSig(span, "use-after-return dereferencing stack pointer at compile time")
+	}
+	frameAlive := pv.frameAlive
 	if pv.place != nil && pv.alloc == nil {
 		if pv.byteOff != 0 {
 			return ctPlace{}, abortSig(span, "out-of-bounds offset (%d) on stack pointer at compile time", pv.byteOff)
@@ -1740,6 +2035,9 @@ func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
 		castTy := pv.castTy
 		return ctPlace{
 			get: func() (*ctVal, ctSignal) {
+				if frameAlive != nil && !*frameAlive {
+					return nil, abortSig(span, "use-after-return reading stack pointer at compile time")
+				}
 				v, sig := targetPlace.get()
 				if sig.kind != sigNone {
 					return nil, sig
@@ -1750,6 +2048,9 @@ func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
 				return v, okSig()
 			},
 			set: func(nv *ctVal) ctSignal {
+				if frameAlive != nil && !*frameAlive {
+					return abortSig(span, "use-after-return writing stack pointer at compile time")
+				}
 				if castTy != nil {
 					cur, sig := targetPlace.get()
 					if sig.kind != sigNone {
@@ -1763,6 +2064,8 @@ func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
 				}
 				return targetPlace.set(nv)
 			},
+			addr:       pv.stackAddr,
+			frameAlive: frameAlive,
 		}, okSig()
 	}
 	// If place points to a ctString AND castTy is _StringRaw, prefer the string place so `_StringRaw` mutations write back to the string!
@@ -1771,6 +2074,9 @@ func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
 		castTy := pv.castTy
 		return ctPlace{
 			get: func() (*ctVal, ctSignal) {
+				if frameAlive != nil && !*frameAlive {
+					return nil, abortSig(span, "use-after-return reading stack pointer at compile time")
+				}
 				v, sig := targetPlace.get()
 				if sig.kind != sigNone {
 					return nil, sig
@@ -1778,6 +2084,9 @@ func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
 				return s.castReadVal(v, castTy, span)
 			},
 			set: func(nv *ctVal) ctSignal {
+				if frameAlive != nil && !*frameAlive {
+					return abortSig(span, "use-after-return writing stack pointer at compile time")
+				}
 				cur, sig := targetPlace.get()
 				if sig.kind != sigNone {
 					return sig
@@ -1788,6 +2097,8 @@ func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
 				}
 				return targetPlace.set(conv)
 			},
+			addr:       pv.stackAddr,
+			frameAlive: frameAlive,
 		}, okSig()
 	}
 	al := pv.alloc
@@ -1799,7 +2110,7 @@ func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
 		return ctPlace{}, abortSig(span, "use-after-free: dereferencing freed compile-time heap pointer")
 	}
 	if al.isBytes {
-		if off < 0 || off+elemSize > int64(len(al.bytes)) {
+		if off < 0 || elemSize < 0 || off > int64(len(al.bytes)) || elemSize > int64(len(al.bytes))-off {
 			return ctPlace{}, abortSig(span, "compile-time pointer byte offset %d out of bounds (len %d)", off, len(al.bytes))
 		}
 		p := types.UnderlyingPrimitive(elemTy)
@@ -1837,6 +2148,7 @@ func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
 					al.bytes[off] = b
 					return okSig()
 				},
+				addr: al.baseAddr + uint64(off),
 			}, okSig()
 		}
 		return ctPlace{}, abortSig(span, "unsupported multi-byte pointer dereference `%v` on byte buffer at compile time", elemTy)
@@ -1869,9 +2181,19 @@ func (s *ctState) ptrDerefPlace(pv *ctPtr, span diag.Span) (ctPlace, ctSignal) {
 			if al.readOnly {
 				return abortSig(span, "cannot mutate read-only compile-time heap memory")
 			}
+			if castTy != nil {
+				cur := al.cells[idx]
+				conv, sig := s.castWriteVal(nv, cur, castTy, span)
+				if sig.kind != sigNone {
+					return sig
+				}
+				al.cells[idx] = conv
+				return okSig()
+			}
 			al.cells[idx] = nv
 			return okSig()
 		},
+		addr: al.baseAddr + uint64(off),
 	}, okSig()
 }
 
@@ -2108,6 +2430,14 @@ func (s *ctState) dropValue(ty types.Type, val *ctVal, span diag.Span) ctSignal 
 				}
 			}
 		}
+	case *types.Vector:
+		if val.kind == ctList && val.list != nil && !t.Elem.IsPlain() {
+			for i := len(val.list.elems) - 1; i >= 0; i-- {
+				if sig := s.dropValue(t.Elem, val.list.elems[i], span); sig.kind != sigNone {
+					return sig
+				}
+			}
+		}
 	case *types.Enum:
 		if dropFn := s.a.LookupMethod(t, "drop", nil, span); dropFn != nil {
 			if !s.isCallable(dropFn) {
@@ -2262,6 +2592,192 @@ func ctValSharesRefsDepth(v *ctVal, liveVals map[*ctVal]bool, liveAllocs map[*ct
 	return false
 }
 
+func collectCtAllocRefsDepth(v *ctVal, allocs map[*ctHeapAlloc]bool, depth int) {
+	if v == nil || depth >= maxComptimeValueDepth {
+		return
+	}
+	switch v.kind {
+	case ctString:
+		if v.sAlloc != nil && !v.sAlloc.freed && !v.sAlloc.readOnly && v.sCap > 0 {
+			allocs[v.sAlloc] = true
+		}
+	case ctPointer:
+		if v.ptrVal != nil && v.ptrVal.alloc != nil && !v.ptrVal.alloc.freed {
+			allocs[v.ptrVal.alloc] = true
+		}
+	case ctOpt:
+		if v.hasOpt {
+			collectCtAllocRefsDepth(v.optElem, allocs, depth+1)
+		}
+	case ctEnum:
+		collectCtAllocRefsDepth(v.payload, allocs, depth+1)
+	case ctTuple:
+		if v.tup != nil {
+			for _, el := range v.tup.elems {
+				collectCtAllocRefsDepth(el, allocs, depth+1)
+			}
+		}
+	case ctArray:
+		if v.arr != nil {
+			for _, el := range v.arr.elems {
+				collectCtAllocRefsDepth(el, allocs, depth+1)
+			}
+		}
+	case ctList:
+		if v.list != nil {
+			for _, el := range v.list.elems {
+				collectCtAllocRefsDepth(el, allocs, depth+1)
+			}
+		}
+	case ctSet:
+		if v.set != nil {
+			for _, el := range v.set.elems {
+				collectCtAllocRefsDepth(el, allocs, depth+1)
+			}
+		}
+	case ctMap:
+		if v.m != nil {
+			for _, ent := range v.m.entries {
+				collectCtAllocRefsDepth(ent.key, allocs, depth+1)
+				collectCtAllocRefsDepth(ent.val, allocs, depth+1)
+			}
+		}
+	case ctStruct:
+		if v.st != nil {
+			for _, fv := range v.st.fields {
+				collectCtAllocRefsDepth(fv, allocs, depth+1)
+			}
+		}
+	}
+}
+
+func (s *ctState) detachSharedStringsDepth(v *ctVal, deadAllocs map[*ctHeapAlloc]bool, span diag.Span, depth int) (*ctVal, ctSignal) {
+	if v == nil || len(deadAllocs) == 0 || depth >= maxComptimeValueDepth {
+		return v, okSig()
+	}
+	switch v.kind {
+	case ctString:
+		if v.sAlloc != nil && deadAllocs[v.sAlloc] && !v.sAlloc.readOnly && v.sCap > 0 {
+			buf := make([]byte, len(v.s)+1)
+			copy(buf, v.s)
+			al, sig := s.newBytesAlloc(buf, false, span)
+			if sig.kind != sigNone {
+				return nil, sig
+			}
+			cp := *v
+			cp.sAlloc = al
+			cp.sOff = 0
+			cp.sCap = int64(len(buf))
+			return &cp, okSig()
+		}
+	case ctOpt:
+		if v.hasOpt {
+			el, sig := s.detachSharedStringsDepth(v.optElem, deadAllocs, span, depth+1)
+			if sig.kind != sigNone {
+				return nil, sig
+			}
+			v.optElem = el
+		}
+	case ctEnum:
+		p, sig := s.detachSharedStringsDepth(v.payload, deadAllocs, span, depth+1)
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+		v.payload = p
+	case ctTuple:
+		if v.tup != nil {
+			for i, el := range v.tup.elems {
+				d, sig := s.detachSharedStringsDepth(el, deadAllocs, span, depth+1)
+				if sig.kind != sigNone {
+					return nil, sig
+				}
+				v.tup.elems[i] = d
+			}
+		}
+	case ctArray:
+		if v.arr != nil {
+			for i, el := range v.arr.elems {
+				d, sig := s.detachSharedStringsDepth(el, deadAllocs, span, depth+1)
+				if sig.kind != sigNone {
+					return nil, sig
+				}
+				v.arr.elems[i] = d
+			}
+		}
+	case ctList:
+		if v.list != nil {
+			for i, el := range v.list.elems {
+				d, sig := s.detachSharedStringsDepth(el, deadAllocs, span, depth+1)
+				if sig.kind != sigNone {
+					return nil, sig
+				}
+				v.list.elems[i] = d
+			}
+		}
+	case ctStruct:
+		if v.st != nil {
+			for k, fv := range v.st.fields {
+				d, sig := s.detachSharedStringsDepth(fv, deadAllocs, span, depth+1)
+				if sig.kind != sigNone {
+					return nil, sig
+				}
+				v.st.fields[k] = d
+			}
+		}
+	}
+	return v, okSig()
+}
+
+func (s *ctState) prepareOverwriteAndDropOld(oldTy types.Type, oldVal, incoming *ctVal, span diag.Span) (*ctVal, ctSignal) {
+	cloned := incoming.clone()
+	if oldVal == nil || oldTy == nil || oldTy.IsPlain() {
+		return cloned, okSig()
+	}
+	oldAllocs := make(map[*ctHeapAlloc]bool)
+	collectCtAllocRefsDepth(oldVal, oldAllocs, 0)
+	if len(oldAllocs) > 0 {
+		detached, sig := s.detachSharedStringsDepth(cloned, oldAllocs, span, 0)
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+		cloned = detached
+	}
+	if dsig := s.dropValue(oldTy, oldVal, span); dsig.kind != sigNone {
+		return nil, dsig
+	}
+	return cloned, okSig()
+}
+
+func (s *ctState) dropTargetBeforeOverwrite(tgt ast.Expr, pl ctPlace, incoming *ctVal, span diag.Span) (*ctVal, ctSignal) {
+	if id, isId := tgt.(*ast.IdentExpr); isId {
+		if inf := s.infoFor(id); inf != nil && inf.Sym != nil {
+			if sl, ok := s.lookupSlot(inf.Sym); ok && sl.refPlace == nil {
+				oldVal := sl.val
+				if sl.moved {
+					oldVal = nil
+				}
+				sl.moved = false
+				return s.prepareOverwriteAndDropOld(sl.ty, oldVal, incoming, span)
+			}
+		}
+	}
+	var tgtTy types.Type
+	if inf := s.infoFor(tgt); inf != nil {
+		tgtTy = inf.Type
+	}
+	if tgtTy == nil || tgtTy.IsPlain() {
+		return incoming.clone(), okSig()
+	}
+	oldV, gsig := pl.get()
+	if gsig.kind != sigNone {
+		if gsig.kind == sigAbort && strings.Contains(gsig.errMsg, "uninitialized") {
+			return incoming.clone(), okSig()
+		}
+		return nil, gsig
+	}
+	return s.prepareOverwriteAndDropOld(tgtTy, oldV, incoming, span)
+}
+
 func (s *ctState) sharesLiveSlotAlloc(val *ctVal) bool {
 	if val == nil {
 		return false
@@ -2341,6 +2857,7 @@ func (a *Analyzer) evalComptimeTopVar(tv *TopVarInit) (*ctVal, bool) {
 	st := newCtState(a, tv.Mod, limit)
 	if tv.Sym.ComptimeMemLimit > 0 {
 		st.memLimit = tv.Sym.ComptimeMemLimit
+		st.explicitMemLimit = true
 	}
 	st.frames = []ctFrame{{
 		rootName: "const " + tv.Sym.Name,
@@ -2348,6 +2865,7 @@ func (a *Analyzer) evalComptimeTopVar(tv *TopVarInit) (*ctVal, bool) {
 		bm:       a.Prog.TopBodyMaps,
 		callSpan: tv.Decl.Span,
 		locals:   make(map[*Symbol]*ctSlot),
+		alive:    newFrameAlive(),
 	}}
 	val, sig := st.evalExpr(tv.Decl.Value)
 	if sig.kind == sigAbort {
@@ -2381,7 +2899,7 @@ func (a *Analyzer) evalComptimeTopVar(tv *TopVarInit) (*ctVal, bool) {
 // (boxed ?T is allowed only when `none`; Map, Set, Arena, ref[T], ptr[T], cl, and custom Drop
 // structs are rejected).
 func (a *Analyzer) validateCrossesToRuntime(val *ctVal, ty types.Type) string {
-	return a.validateCrossVal(val, ty, make(map[types.Type]bool))
+	return a.validateCrossVal(val, ty, make(map[types.Type]bool), make(map[*ctVal]bool), 0)
 }
 
 func (a *Analyzer) validateCrossTypeOnly(ty types.Type, seen map[types.Type]bool) string {
@@ -2395,13 +2913,18 @@ func (a *Analyzer) validateCrossTypeOnly(ty types.Type, seen map[types.Type]bool
 		return ""
 	}
 	switch t := ty.(type) {
-	case *types.Primitive, *types.Interface:
+	case *types.Primitive:
 		return ""
+	case *types.Interface:
+		return fmt.Sprintf("interface type %s cannot cross from compile time to runtime", ty.String())
 	case *types.Distinct:
 		if a.Prog != nil && a.Prog.LookupConcreteMethod(t, "drop") != nil {
 			return fmt.Sprintf("value of type %s with custom `Drop` cannot cross from compile time to runtime", ty.String())
 		}
-		return a.validateCrossTypeOnly(t.Base, seen)
+		seen[ty] = true
+		msg := a.validateCrossTypeOnly(t.Base, seen)
+		delete(seen, ty)
+		return msg
 	case *types.Ptr:
 		return fmt.Sprintf("pointer type %s cannot cross from compile time to runtime", ty.String())
 	case *types.Ref:
@@ -2416,28 +2939,44 @@ func (a *Analyzer) validateCrossTypeOnly(ty types.Type, seen map[types.Type]bool
 		}
 		return ""
 	case *types.Optional:
-		if !t.IsBoxed() {
-			return a.validateCrossTypeOnly(t.Elem, seen)
-		}
-		return ""
+		seen[ty] = true
+		msg := a.validateCrossTypeOnly(t.Elem, seen)
+		delete(seen, ty)
+		return msg
 	case *types.Vector:
 		seen[ty] = true
 		msg := a.validateCrossTypeOnly(t.Elem, seen)
 		delete(seen, ty)
 		return msg
 	case *types.StackArray:
-		return a.validateCrossTypeOnly(t.Elem, seen)
+		seen[ty] = true
+		msg := a.validateCrossTypeOnly(t.Elem, seen)
+		delete(seen, ty)
+		return msg
 	case *types.Tuple:
+		seen[ty] = true
 		for _, el := range t.Elems {
 			if msg := a.validateCrossTypeOnly(el, seen); msg != "" {
+				delete(seen, ty)
 				return msg
 			}
 		}
+		delete(seen, ty)
 		return ""
 	case *types.Enum:
 		if a.Prog != nil && a.Prog.LookupConcreteMethod(t, "drop") != nil {
 			return fmt.Sprintf("type %s with custom `Drop` cannot cross from compile time to runtime", ty.String())
 		}
+		seen[ty] = true
+		for _, vr := range t.Variants {
+			if vr.Kind == types.VariantTuple && vr.Payload != nil {
+				if msg := a.validateCrossTypeOnly(vr.Payload, seen); msg != "" {
+					delete(seen, ty)
+					return msg
+				}
+			}
+		}
+		delete(seen, ty)
 		return ""
 	case *types.Struct:
 		if types.IsArena(t) || t.Lang == "arena" {
@@ -2475,19 +3014,33 @@ func (a *Analyzer) validateCrossTypeOnly(ty types.Type, seen map[types.Type]bool
 	return ""
 }
 
-func (a *Analyzer) validateCrossVal(val *ctVal, ty types.Type, seen map[types.Type]bool) string {
+func (a *Analyzer) validateCrossVal(val *ctVal, ty types.Type, seen map[types.Type]bool, activeVals map[*ctVal]bool, depth int) string {
 	if ty == nil || ty == types.TypeInvalid {
 		return ""
+	}
+	if depth > maxComptimeValueDepth {
+		return fmt.Sprintf("compile-time value nesting depth exceeded (%d) while crossing type %s to runtime", maxComptimeValueDepth, ty.String())
 	}
 	if ctTy := types.FindComptimeOnlyType(ty); ctTy != nil {
 		return fmt.Sprintf("`@comptime_only` type %s cannot cross from compile time to runtime", ctTy.String())
 	}
+	if val == nil {
+		return a.validateCrossTypeOnly(ty, seen)
+	}
+	if activeVals[val] {
+		return ""
+	}
+	activeVals[val] = true
+	defer delete(activeVals, val)
+
 	switch t := ty.(type) {
+	case *types.Interface:
+		return fmt.Sprintf("interface value of type %s cannot cross from compile time to runtime", ty.String())
 	case *types.Distinct:
 		if a.Prog != nil && a.Prog.LookupConcreteMethod(t, "drop") != nil {
 			return fmt.Sprintf("value of type %s with custom `Drop` cannot cross from compile time to runtime", ty.String())
 		}
-		return a.validateCrossVal(val, t.Base, seen)
+		return a.validateCrossVal(val, t.Base, seen, activeVals, depth+1)
 	case *types.Ptr:
 		return fmt.Sprintf("pointer type %s cannot cross from compile time to runtime", ty.String())
 	case *types.Ref:
@@ -2497,38 +3050,42 @@ func (a *Analyzer) validateCrossVal(val *ctVal, ty types.Type, seen map[types.Ty
 	case *types.Set:
 		return fmt.Sprintf("set type %s cannot cross from compile time to runtime (mark `@comptime_only` or convert to a list/plain table)", ty.String())
 	case *types.Func:
-		if t.Closure || (val != nil && val.lambda != nil && val.lambda.Sig != nil && val.lambda.Sig.Closure) {
+		if t.Closure || len(val.captures) > 0 ||
+			(val.lambda != nil && (val.lambda.ComptimeOnly || len(val.lambda.Captures) > 0 || (val.lambda.Sig != nil && val.lambda.Sig.Closure) || (val.lambda.Lit != nil && val.lambda.Lit.Closure))) {
 			return fmt.Sprintf("closure value of type %s cannot cross from compile time to runtime", ty.String())
 		}
-		if val != nil && val.fn != nil && val.fn.ComptimeOnly {
+		if val.fn != nil && val.fn.ComptimeOnly {
 			return fmt.Sprintf("`@comptime_only` function %q cannot cross from compile time to runtime", val.fn.Name)
 		}
 		return ""
 	case *types.Optional:
-		if val == nil || !val.hasOpt {
-			// `none` is allowed for both value optionals and boxed optionals (except non-boxed still safe).
-			return ""
+		if val.kind == ctOpt && !val.hasOpt {
+			return a.validateCrossTypeOnly(t.Elem, seen)
 		}
 		if t.IsBoxed() {
 			return fmt.Sprintf("non-none boxed optional value of type %s cannot cross from compile time to runtime", ty.String())
 		}
-		return a.validateCrossVal(val.optElem, t.Elem, seen)
+		elemVal := val
+		if val.kind == ctOpt {
+			elemVal = val.optElem
+		}
+		return a.validateCrossVal(elemVal, t.Elem, seen, activeVals, depth+1)
 	case *types.Vector:
-		if val != nil && val.kind == ctList && val.list != nil && len(val.list.elems) > 0 {
+		if val.kind == ctList && val.list != nil && len(val.list.elems) > 0 {
 			for _, el := range val.list.elems {
-				if msg := a.validateCrossVal(el, t.Elem, seen); msg != "" {
+				if msg := a.validateCrossVal(el, t.Elem, seen, activeVals, depth+1); msg != "" {
 					return msg
 				}
 			}
 			return ""
 		}
-		if val != nil && val.kind == ctStruct {
+		if val.kind == ctStruct {
 			if _, _, ok := listStructBytes(val); ok {
 				return ""
 			}
 			if elems, ok := listStructElems(val); ok && len(elems) > 0 {
 				for _, el := range elems {
-					if msg := a.validateCrossVal(el, t.Elem, seen); msg != "" {
+					if msg := a.validateCrossVal(el, t.Elem, seen, activeVals, depth+1); msg != "" {
 						return msg
 					}
 				}
@@ -2537,9 +3094,9 @@ func (a *Analyzer) validateCrossVal(val *ctVal, ty types.Type, seen map[types.Ty
 		}
 		return a.validateCrossTypeOnly(t.Elem, seen)
 	case *types.StackArray:
-		if val != nil && val.kind == ctArray && val.arr != nil && len(val.arr.elems) > 0 {
+		if val.kind == ctArray && val.arr != nil && len(val.arr.elems) > 0 {
 			for _, el := range val.arr.elems {
-				if msg := a.validateCrossVal(el, t.Elem, seen); msg != "" {
+				if msg := a.validateCrossVal(el, t.Elem, seen, activeVals, depth+1); msg != "" {
 					return msg
 				}
 			}
@@ -2549,22 +3106,22 @@ func (a *Analyzer) validateCrossVal(val *ctVal, ty types.Type, seen map[types.Ty
 	case *types.Tuple:
 		for i, elTy := range t.Elems {
 			var elVal *ctVal
-			if val != nil && val.kind == ctTuple && val.tup != nil && i < len(val.tup.elems) {
+			if val.kind == ctTuple && val.tup != nil && i < len(val.tup.elems) {
 				elVal = val.tup.elems[i]
 			}
-			if msg := a.validateCrossVal(elVal, elTy, seen); msg != "" {
+			if msg := a.validateCrossVal(elVal, elTy, seen, activeVals, depth+1); msg != "" {
 				return msg
 			}
 		}
 		return ""
 	case *types.Enum:
-		if a.Prog != nil && a.Prog.LookupConcreteMethod(t, "drop") != nil {
-			return fmt.Sprintf("type %s with custom `Drop` cannot cross from compile time to runtime", ty.String())
+		if msg := a.validateCrossTypeOnly(t, seen); msg != "" {
+			return msg
 		}
-		if t.IsTagged && val != nil && val.kind == ctEnum && val.variantIdx >= 0 && val.variantIdx < len(t.Variants) {
+		if t.IsTagged && val.kind == ctEnum && val.variantIdx >= 0 && val.variantIdx < len(t.Variants) {
 			vr := t.Variants[val.variantIdx]
 			if vr.Kind == types.VariantTuple && vr.Payload != nil {
-				return a.validateCrossVal(val.payload, vr.Payload, seen)
+				return a.validateCrossVal(val.payload, vr.Payload, seen, activeVals, depth+1)
 			}
 		}
 		return ""
@@ -2582,21 +3139,21 @@ func (a *Analyzer) validateCrossVal(val *ctVal, ty types.Type, seen map[types.Ty
 			if len(t.TypeArgs) == 1 {
 				elemTy = t.TypeArgs[0]
 			}
-			if val != nil && val.kind == ctList && val.list != nil && len(val.list.elems) > 0 {
+			if val.kind == ctList && val.list != nil && len(val.list.elems) > 0 {
 				for _, el := range val.list.elems {
-					if msg := a.validateCrossVal(el, elemTy, seen); msg != "" {
+					if msg := a.validateCrossVal(el, elemTy, seen, activeVals, depth+1); msg != "" {
 						return msg
 					}
 				}
 				return ""
 			}
-			if val != nil && val.kind == ctStruct {
+			if val.kind == ctStruct {
 				if _, _, ok := listStructBytes(val); ok {
 					return ""
 				}
 				if elems, ok := listStructElems(val); ok && len(elems) > 0 {
 					for _, el := range elems {
-						if msg := a.validateCrossVal(el, elemTy, seen); msg != "" {
+						if msg := a.validateCrossVal(el, elemTy, seen, activeVals, depth+1); msg != "" {
 							return msg
 						}
 					}
@@ -2612,10 +3169,10 @@ func (a *Analyzer) validateCrossVal(val *ctVal, ty types.Type, seen map[types.Ty
 		}
 		for _, f := range t.Fields {
 			var fVal *ctVal
-			if val != nil && val.kind == ctStruct && val.st != nil {
+			if val.kind == ctStruct && val.st != nil {
 				fVal = val.st.fields[f.Name]
 			}
-			if msg := a.validateCrossVal(fVal, f.Type, seen); msg != "" {
+			if msg := a.validateCrossVal(fVal, f.Type, seen, activeVals, depth+1); msg != "" {
 				return msg
 			}
 		}
@@ -2634,13 +3191,19 @@ func (a *Analyzer) newCheckerCtState(fc *funcChecker, span diag.Span, stepLimit 
 	}
 	st := newCtState(a, fc.mod, stepLimit)
 	if fc.curFn != nil && fc.curFn.ComptimeMemLimit > 0 {
-		st.memLimit = fc.curFn.ComptimeMemLimit
+		memLim := fc.curFn.ComptimeMemLimit
+		if a != nil && a.ideMode && memLim > defaultIDEComptimeMaxMem {
+			memLim = defaultIDEComptimeMaxMem
+		}
+		st.memLimit = memLim
+		st.explicitMemLimit = true
 	}
+	alive := newFrameAlive()
 	locals := make(map[*Symbol]*ctSlot)
 	// Seed any already-evaluated local `const` / unrolled bindings in scope.
 	if a.curBM != nil {
 		for sym, cv := range a.curBM.ConstVarVals {
-			locals[sym] = &ctSlot{val: cv, ty: sym.Type}
+			locals[sym] = &ctSlot{val: cv, ty: sym.Type, frameAlive: alive}
 		}
 	}
 	rootName := "<comptime>"
@@ -2654,6 +3217,7 @@ func (a *Analyzer) newCheckerCtState(fc *funcChecker, span diag.Span, stepLimit 
 		subst:    fc.subst,
 		callSpan: span,
 		locals:   locals,
+		alive:    alive,
 	}}
 	return st
 }
@@ -2733,6 +3297,37 @@ type comptimeForItem struct {
 	itemVal *ctVal
 }
 
+func stepCharRange(lo, hi rune, inclusive bool, fn func(ch rune) (bool, ctSignal)) ctSignal {
+	cur := lo
+	if cur < 0 {
+		cur = 0
+	}
+	for {
+		if cur >= 0xD800 && cur <= 0xDFFF {
+			cur = 0xE000
+		}
+		if cur > utf8.MaxRune {
+			break
+		}
+		if inclusive {
+			if cur > hi {
+				break
+			}
+		} else if cur >= hi {
+			break
+		}
+		cont, sig := fn(cur)
+		if sig.kind != sigNone {
+			return sig
+		}
+		if !cont || cur == hi || cur >= utf8.MaxRune {
+			break
+		}
+		cur++
+	}
+	return okSig()
+}
+
 func expandComptimeRangeItems(loV, hiV *ctVal, inclusive bool, maxIters int, span diag.Span) ([]comptimeForItem, ctSignal) {
 	if maxIters <= 0 {
 		maxIters = MaxComptimeUnrollIters
@@ -2746,22 +3341,13 @@ func expandComptimeRangeItems(loV, hiV *ctVal, inclusive bool, maxIters int, spa
 		return okSig()
 	}
 	if loV.kind == ctChar {
-		lo, hi := loV.ch, hiV.ch
-		for cur := lo; ; {
-			if inclusive {
-				if cur > hi {
-					break
-				}
-			} else if cur >= hi {
-				break
+		if sig := stepCharRange(loV.ch, hiV.ch, inclusive, func(ch rune) (bool, ctSignal) {
+			if sig := addItem(newCtChar(ch)); sig.kind != sigNone {
+				return false, sig
 			}
-			if sig := addItem(newCtChar(cur)); sig.kind != sigNone {
-				return nil, sig
-			}
-			if cur == hi {
-				break
-			}
-			cur++
+			return true, okSig()
+		}); sig.kind != sigNone {
+			return nil, sig
 		}
 		return out, okSig()
 	}
@@ -2988,6 +3574,10 @@ func (a *Analyzer) evalConstInt(mod *Module, e ast.Expr) (int64, bool) {
 }
 
 func (a *Analyzer) evalConstIntWithSubst(mod *Module, e ast.Expr, subst map[string]types.Type) (int64, bool) {
+	return a.evalConstIntWithState(mod, e, subst, nil)
+}
+
+func (a *Analyzer) evalConstIntWithState(mod *Module, e ast.Expr, subst map[string]types.Type, caller *ctState) (int64, bool) {
 	if e == nil {
 		return 0, false
 	}
@@ -3013,14 +3603,39 @@ func (a *Analyzer) evalConstIntWithSubst(mod *Module, e ast.Expr, subst map[stri
 		a.curBM = prevBM
 		return 0, false
 	}
-	st := newCtState(a, mod, 0)
+	stepLimit := 0
+	if caller != nil {
+		rem := caller.stepLimit - caller.steps
+		if rem <= 0 {
+			st := newCtState(a, mod, 1)
+			st.steps = 2
+			st.reportAbort(abortSig(e.GetSpan(), "compile-time execution exceeded step limit (%d steps; increase with `@comptime_limit(steps: N)`)", caller.stepLimit), e.GetSpan())
+			a.curBM = prevBM
+			return 0, false
+		}
+		stepLimit = rem
+	}
+	st := newCtState(a, mod, stepLimit)
+	if caller != nil {
+		remMem := caller.memLimit - caller.memBytes
+		if remMem < 0 {
+			remMem = 0
+		}
+		st.memLimit = remMem
+		st.explicitMemLimit = caller.explicitMemLimit
+	}
 	st.frames = []ctFrame{{
 		mod:      mod,
 		bm:       a.curBM,
 		callSpan: e.GetSpan(),
 		locals:   make(map[*Symbol]*ctSlot),
+		alive:    newFrameAlive(),
 	}}
 	val, sig := st.evalExpr(e)
+	if caller != nil {
+		caller.steps += st.steps
+		caller.memBytes += st.memBytes
+	}
 	a.curBM = prevBM
 	if sig.kind == sigAbort {
 		st.reportAbort(sig, e.GetSpan())
@@ -3030,6 +3645,10 @@ func (a *Analyzer) evalConstIntWithSubst(mod *Module, e ast.Expr, subst map[stri
 		return 0, false
 	}
 	if val.kind != ctInt && val.kind != ctChar {
+		return 0, false
+	}
+	if val.kind == ctInt && val.prim != nil && !val.prim.IsSignedInt() && val.u > math.MaxInt64 {
+		a.Rep.Errorf(e.GetSpan(), "unsigned integer constant %d overflows signed `int` constant expression", val.u)
 		return 0, false
 	}
 	return val.asInt64(), true
@@ -3071,6 +3690,9 @@ func (a *Analyzer) evalSimpleConstInt(mod *Module, e ast.Expr) (int64, bool) {
 func (a *Analyzer) evalSimpleConstIntWithSubst(mod *Module, e ast.Expr, subst map[string]types.Type) (int64, bool) {
 	switch v := e.(type) {
 	case *ast.IntLit:
+		if v.Val > math.MaxInt64 {
+			return 0, false
+		}
 		return int64(v.Val), true
 	case *ast.CharLit:
 		return int64(v.Val), true
@@ -3078,12 +3700,18 @@ func (a *Analyzer) evalSimpleConstIntWithSubst(mod *Module, e ast.Expr, subst ma
 		if subst != nil {
 			if sub, ok := subst[v.Name]; ok {
 				if cv, isCV := sub.(*types.ConstValue); isCV && cv.Kind == types.ConstInt {
+					if cv.ConstType != nil && !cv.ConstType.Equals(types.TypeInt) {
+						return 0, false
+					}
 					return cv.IntVal, true
 				}
 				return 0, false
 			}
 		}
 		if sym := a.lookupTopSymbol(mod, "", v.Name); sym != nil && sym.IsConstInt {
+			if sym.Type != nil && !sym.Type.Equals(types.TypeInt) {
+				return 0, false
+			}
 			return sym.ConstIntVal, true
 		}
 		return 0, false
@@ -3091,6 +3719,9 @@ func (a *Analyzer) evalSimpleConstIntWithSubst(mod *Module, e ast.Expr, subst ma
 		if !v.QuestDot && !v.MemberHasOpt && len(v.BaseTypeArgs) == 0 {
 			if modId, ok := v.Base.(*ast.IdentExpr); ok && !modId.IsOpt {
 				if sym := a.lookupTopSymbol(mod, modId.Name, v.Member); sym != nil && sym.IsConstInt {
+					if sym.Type != nil && !sym.Type.Equals(types.TypeInt) {
+						return 0, false
+					}
 					return sym.ConstIntVal, true
 				}
 			}
@@ -3104,6 +3735,8 @@ func (a *Analyzer) evalSimpleConstIntWithSubst(mod *Module, e ast.Expr, subst ma
 			return 0, false
 		}
 		switch v.Op {
+		case token.Plus:
+			return sub, true
 		case token.Minus:
 			return -sub, true
 		case token.Tilde:
@@ -3205,6 +3838,7 @@ func (a *Analyzer) ensureFuncCheckedForComptime(fi *FuncInstance, callSpan diag.
 		}
 		a.inBodyPass = prevInBody
 		a.curBM = prevBM
+		a.propagateConstGenericDowngrades()
 	}
 }
 
@@ -3467,6 +4101,8 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 			set: func(nv *ctVal) ctSignal {
 				return sl.setVal(nv)
 			},
+			addr:       s.slotAddr(sl),
+			frameAlive: sl.frameAlive,
 		}, okSig()
 
 	case *ast.MemberExpr:
@@ -3508,6 +4144,8 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 						}
 						return abortSig(v.Span, "cannot assign field %q at compile time", v.Member)
 					},
+					addr:       dp.addr + uint64(s.memberAddrOffset(baseInf.Type, v.Member, inf)),
+					frameAlive: dp.frameAlive,
 				}, okSig()
 			}
 		}
@@ -3516,6 +4154,10 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 			return ctPlace{}, sig
 		}
 		inf := s.infoFor(v)
+		var baseTy types.Type
+		if baseInf != nil {
+			baseTy = baseInf.Type
+		}
 		return ctPlace{
 			get: func() (*ctVal, ctSignal) {
 				bv, s1 := basePlace.get()
@@ -3539,6 +4181,8 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 				}
 				return abortSig(v.Span, "cannot assign field %q at compile time", v.Member)
 			},
+			addr:       basePlace.addr + uint64(s.memberAddrOffset(baseTy, v.Member, inf)),
+			frameAlive: basePlace.frameAlive,
 		}, okSig()
 
 	case *ast.IndexExpr:
@@ -3557,12 +4201,25 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 					return ctPlace{}, abortSig(v.Span, "cannot index null pointer at compile time")
 				}
 				idx := idxVal.asInt64()
+				if pv.ptrVal.alloc == nil && idx != 0 {
+					return ctPlace{}, abortSig(v.Span, "pointer indexing on non-heap address at compile time")
+				}
+				delta, okMul := mulInt64Checked(idx, pv.ptrVal.elemSize)
+				if !okMul {
+					return ctPlace{}, abortSig(v.Span, "pointer index offset overflow at compile time")
+				}
+				newOff, okAdd := addInt64Checked(pv.ptrVal.byteOff, delta)
+				if !okAdd {
+					return ctPlace{}, abortSig(v.Span, "pointer byte offset overflow at compile time")
+				}
 				elemPtr := &ctPtr{
-					alloc:    pv.ptrVal.alloc,
-					byteOff:  pv.ptrVal.byteOff + idx*pv.ptrVal.elemSize,
-					elemSize: pv.ptrVal.elemSize,
-					elemTy:   pv.ptrVal.elemTy,
-					castTy:   pv.ptrVal.castTy,
+					alloc:      pv.ptrVal.alloc,
+					byteOff:    newOff,
+					elemSize:   pv.ptrVal.elemSize,
+					elemTy:     pv.ptrVal.elemTy,
+					castTy:     pv.ptrVal.castTy,
+					stackAddr:  pv.ptrVal.stackAddr,
+					frameAlive: pv.ptrVal.frameAlive,
 				}
 				if idx == 0 {
 					elemPtr.place = pv.ptrVal.place
@@ -3577,6 +4234,10 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 		idxVal, sig := s.evalExpr(v.Index)
 		if sig.kind != sigNone {
 			return ctPlace{}, sig
+		}
+		elemOff := uint64(0)
+		if idxVal != nil {
+			elemOff = uint64(idxVal.asInt64() * 8)
 		}
 		return ctPlace{
 			get: func() (*ctVal, ctSignal) {
@@ -3593,6 +4254,8 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 				}
 				return s.evalIndexSet(bv, idxVal, nv, v.Span)
 			},
+			addr:       basePlace.addr + elemOff,
+			frameAlive: basePlace.frameAlive,
 		}, okSig()
 
 	case *ast.CallExpr:
@@ -3632,7 +4295,12 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 							return s1
 						}
 						targetPlace := basePlace
+						hops := 0
 						for bv != nil && bv.kind == ctPointer {
+							hops++
+							if hops > maxComptimePointerHops {
+								return abortSig(v.Span, "compile-time pointer dereference chain exceeded %d hops", maxComptimePointerHops)
+							}
 							if bv.ptrVal == nil {
 								return abortSig(v.Span, "cannot dereference nil pointer/reference at compile time")
 							}
@@ -3676,11 +4344,29 @@ func (s *ctState) evalPlace(e ast.Expr) (ctPlace, ctSignal) {
 						}
 						return abortSig(v.Span, "cannot assign element %d at compile time", elemIdx)
 					},
+					addr:       basePlace.addr + uint64(elemIdx*8+1),
+					frameAlive: basePlace.frameAlive,
 				}, okSig()
 			}
 		}
 	}
 	return ctPlace{}, abortSig(e.GetSpan(), "expression is not an addressable place at compile time")
+}
+
+const maxComptimePointerHops = 256
+
+func (s *ctState) memberAddrOffset(baseTy types.Type, member string, inf *ExprInfo) int64 {
+	if inf != nil && inf.TupleFieldIdx > 0 {
+		return int64(inf.TupleFieldIdx) * 8
+	}
+	if st, ok := types.UnwrapDistinct(baseTy).(*types.Struct); ok && st != nil {
+		for i, f := range st.Fields {
+			if f.Name == member {
+				return int64(i+1) * 8
+			}
+		}
+	}
+	return 8
 }
 
 func (s *ctState) evalDerefBasePlace(base ast.Expr, span diag.Span) (ctPlace, ctSignal) {
@@ -3706,7 +4392,12 @@ func (s *ctState) evalDerefBasePlace(base ast.Expr, span diag.Span) (ctPlace, ct
 }
 
 func (s *ctState) derefCtVal(bv *ctVal, span diag.Span) (*ctVal, ctSignal) {
+	hops := 0
 	for bv != nil && bv.kind == ctPointer {
+		hops++
+		if hops > maxComptimePointerHops {
+			return nil, abortSig(span, "compile-time pointer dereference chain exceeded %d hops", maxComptimePointerHops)
+		}
 		if bv.ptrVal == nil {
 			return nil, abortSig(span, "cannot dereference nil pointer/reference at compile time")
 		}
@@ -3958,12 +4649,16 @@ func (s *ctState) evalExpr(e ast.Expr) (*ctVal, ctSignal) {
 			size = arr.Size
 		} else {
 			var okSz bool
-			size, okSz = s.a.evalConstIntWithSubst(s.curMod(), v.Count, s.curSubst())
+			size, okSz = s.a.evalConstIntWithState(s.curMod(), v.Count, s.curSubst(), s)
 			if !okSz || size <= 0 {
 				return nil, abortSig(v.Count.GetSpan(), "stack array size in `[N: ...]` must be positive")
 			}
 		}
-		if sig := s.allocMem(size*s.simElemSize(elemTy), v.Span); sig.kind != sigNone {
+		arrMem, okMul := mulInt64Checked(size, s.simElemSize(elemTy))
+		if !okMul {
+			return nil, abortSig(v.Span, "stack array size overflow in compile-time allocation")
+		}
+		if sig := s.allocMem(arrMem, v.Span); sig.kind != sigNone {
 			return nil, sig
 		}
 		elems := make([]*ctVal, size)
@@ -4659,7 +5354,7 @@ func (s *ctState) evalBinary(b *ast.BinaryExpr, inf *ExprInfo) (*ctVal, ctSignal
 		}
 		return newCtBool(eq), okSig()
 	case token.Lt, token.Lte, token.Gt, token.Gte:
-		if lv.kind == ctFloat && (math.IsNaN(lv.f) || math.IsNaN(rv.f)) {
+		if containsNaNDepth(lv, 0) || containsNaNDepth(rv, 0) {
 			return newCtBool(false), okSig()
 		}
 		lty := s.binaryLeftType(b, lv)
@@ -4678,7 +5373,10 @@ func (s *ctState) evalBinary(b *ast.BinaryExpr, inf *ExprInfo) (*ctVal, ctSignal
 				return newCtBool(c >= 0), okSig()
 			}
 		}
-		c := lv.cmpVal(rv)
+		c, okCmp := lv.cmpValOk(rv)
+		if !okCmp {
+			return newCtBool(false), okSig()
+		}
 		switch b.Op {
 		case token.Lt:
 			return newCtBool(c < 0), okSig()
@@ -5089,7 +5787,7 @@ func (s *ctState) evalVarStmt(vs *ast.VarStmt) (*ctVal, ctSignal) {
 			if vs.IsConst {
 				freezeCtVal(el)
 			}
-			sl := &ctSlot{val: el, ty: sym.Type}
+			sl := &ctSlot{val: el, ty: sym.Type, frameAlive: frameAlivePtr(fr)}
 			if fr != nil {
 				fr.locals[sym] = sl
 			}
@@ -5115,7 +5813,7 @@ func (s *ctState) evalVarStmt(vs *ast.VarStmt) (*ctVal, ctSignal) {
 	if vs.IsConst {
 		freezeCtVal(stored)
 	}
-	sl := &ctSlot{val: stored, ty: sym.Type}
+	sl := &ctSlot{val: stored, ty: sym.Type, frameAlive: frameAlivePtr(fr)}
 	if fr != nil {
 		fr.locals[sym] = sl
 	}
@@ -5175,7 +5873,11 @@ func (s *ctState) evalAssignStmt(as *ast.AssignStmt) (*ctVal, ctSignal) {
 				if sig := s.allocCloneMem(elem, as.Span); sig.kind != sigNone {
 					return nil, sig
 				}
-				if sig := pl.set(elem.clone()); sig.kind != sigNone {
+				toStore, sig := s.dropTargetBeforeOverwrite(tgt, pl, elem, as.Span)
+				if sig.kind != sigNone {
+					return nil, sig
+				}
+				if sig := pl.set(toStore); sig.kind != sigNone {
 					return nil, sig
 				}
 			}
@@ -5204,32 +5906,11 @@ func (s *ctState) evalAssignStmt(as *ast.AssignStmt) (*ctVal, ctSignal) {
 		if sig := s.allocCloneMem(val, as.Span); sig.kind != sigNone {
 			return nil, sig
 		}
-		if id, isId := as.Target.(*ast.IdentExpr); isId {
-			if inf := s.infoFor(id); inf != nil && inf.Sym != nil {
-				if sl, ok := s.lookupSlot(inf.Sym); ok && sl.refPlace == nil {
-					if !sl.moved && sl.val != nil && sl.ty != nil && !sl.ty.IsPlain() {
-						if dsig := s.dropValue(sl.ty, sl.val, as.Span); dsig.kind != sigNone {
-							return nil, dsig
-						}
-					}
-					sl.moved = false
-				}
-			}
-		} else if tgtInf := s.infoFor(as.Target); tgtInf != nil && tgtInf.Type != nil && !tgtInf.Type.IsPlain() {
-			// Safe non-pointer field overwrite drops old value first.
-			if me, isMem := as.Target.(*ast.MemberExpr); isMem {
-				baseInf := s.infoFor(me.Base)
-				_, isPtr := baseInf.Type.(*types.Ptr)
-				if baseInf == nil || !isPtr {
-					if oldV, gsig := pl.get(); gsig.kind == sigNone && oldV != nil {
-						if dsig := s.dropValue(tgtInf.Type, oldV, as.Span); dsig.kind != sigNone {
-							return nil, dsig
-						}
-					}
-				}
-			}
+		toStore, sig := s.dropTargetBeforeOverwrite(as.Target, pl, val, as.Span)
+		if sig.kind != sigNone {
+			return nil, sig
 		}
-		return newCtVoid(), pl.set(val.clone())
+		return newCtVoid(), pl.set(toStore)
 	}
 
 	// Compound assignment
@@ -5253,7 +5934,11 @@ func (s *ctState) evalAssignStmt(as *ast.AssignStmt) (*ctVal, ctSignal) {
 		if sig.kind != sigNone {
 			return nil, sig
 		}
-		return newCtVoid(), pl.set(res.clone())
+		toStore, sig := s.dropTargetBeforeOverwrite(as.Target, pl, res, as.Span)
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+		return newCtVoid(), pl.set(toStore)
 	}
 
 	var binOp token.Kind
@@ -5314,14 +5999,22 @@ func (s *ctState) evalIf(ie *ast.IfExpr, inf *ExprInfo) (*ctVal, ctSignal) {
 			case 0:
 				s.pushDropScope()
 				res, sig = s.evalExpr(ie.Then)
-				if dsig := s.popDropScope(ie.Then.GetSpan()); dsig.kind == sigAbort {
+				dsig := s.popDropScope(ie.Then.GetSpan())
+				if sig.kind == sigAbort {
+					return nil, sig
+				}
+				if dsig.kind == sigAbort {
 					return nil, dsig
 				}
 			case 2:
 				if ie.Else != nil {
 					s.pushDropScope()
 					res, sig = s.evalExpr(ie.Else)
-					if dsig := s.popDropScope(ie.Else.GetSpan()); dsig.kind == sigAbort {
+					dsig := s.popDropScope(ie.Else.GetSpan())
+					if sig.kind == sigAbort {
+						return nil, sig
+					}
+					if dsig.kind == sigAbort {
 						return nil, dsig
 					}
 				}
@@ -5348,6 +6041,51 @@ func (s *ctState) evalIf(ie *ast.IfExpr, inf *ExprInfo) (*ctVal, ctSignal) {
 		unwrapSym = fr.bm.IfUnwrapSyms[ie]
 	}
 
+	bindMutUnwrapPlace := func(targetPlace ctPlace, name string, span diag.Span) (bool, *ctPlace, ctSignal) {
+		condVal, gsig := targetPlace.get()
+		if gsig.kind != sigNone {
+			return false, nil, gsig
+		}
+		isOpt := condVal != nil && condVal.kind == ctOpt && condVal.hasOpt
+		isRes := condVal != nil && condVal.kind == ctEnum && types.AsResult(condVal.ty) != nil && condVal.variantIdx == 0
+		if !isOpt && !isRes {
+			return false, nil, okSig()
+		}
+		rp := ctPlace{
+			get: func() (*ctVal, ctSignal) {
+				cur, s1 := targetPlace.get()
+				if s1.kind != sigNone {
+					return nil, s1
+				}
+				if cur != nil && cur.kind == ctOpt && cur.hasOpt {
+					return cur.optElem, okSig()
+				}
+				if cur != nil && cur.kind == ctEnum && types.AsResult(cur.ty) != nil && cur.variantIdx == 0 {
+					return cur.payload, okSig()
+				}
+				return nil, abortSig(span, "missing unwrapped value in mutable `if as &%s`", name)
+			},
+			set: func(nv *ctVal) ctSignal {
+				cur, s1 := targetPlace.get()
+				if s1.kind != sigNone {
+					return s1
+				}
+				if cur != nil && cur.kind == ctOpt && cur.hasOpt {
+					cur.optElem = nv
+					return targetPlace.set(cur)
+				}
+				if cur != nil && cur.kind == ctEnum && types.AsResult(cur.ty) != nil && cur.variantIdx == 0 {
+					cur.payload = nv
+					return targetPlace.set(cur)
+				}
+				return abortSig(span, "cannot write unwrapped value in mutable `if as &%s`", name)
+			},
+			addr:       targetPlace.addr,
+			frameAlive: targetPlace.frameAlive,
+		}
+		return true, &rp, okSig()
+	}
+
 	switch ie.CondKind {
 	case ast.IfCondOptVar:
 		if fr != nil && fr.bm != nil {
@@ -5356,18 +6094,43 @@ func (s *ctState) evalIf(ie *ast.IfExpr, inf *ExprInfo) (*ctVal, ctSignal) {
 				originSlot, _ = s.lookupSlot(origSym)
 			}
 		}
-		var condVal *ctVal
-		if originSlot != nil {
-			condVal = originSlot.val
-		} else {
-			sym := s.a.lookupTopSymbol(s.curMod(), "", ie.OptVar)
-			if sym != nil && sym.ConstVal != nil {
-				condVal, _ = sym.ConstVal.(*ctVal)
+		if ie.MutUnwrap && originSlot != nil {
+			var tp ctPlace
+			if originSlot.refPlace != nil {
+				tp = *originSlot.refPlace
+			} else {
+				tp = ctPlace{
+					get:        func() (*ctVal, ctSignal) { return originSlot.getVal(ie.Cond.GetSpan(), ie.OptVar) },
+					set:        func(nv *ctVal) ctSignal { return originSlot.setVal(nv) },
+					addr:       s.slotAddr(originSlot),
+					frameAlive: originSlot.frameAlive,
+				}
 			}
-		}
-		if condVal != nil && condVal.kind == ctOpt && condVal.hasOpt {
-			takeThen = true
-			boundVal = condVal.optElem
+			ok, rp, rsig := bindMutUnwrapPlace(tp, ie.OptVar, ie.Cond.GetSpan())
+			if rsig.kind != sigNone {
+				return nil, rsig
+			}
+			if ok {
+				takeThen = true
+				variantRefPlace = rp
+			}
+		} else {
+			var condVal *ctVal
+			if originSlot != nil {
+				condVal = originSlot.val
+			} else {
+				sym := s.a.lookupTopSymbol(s.curMod(), "", ie.OptVar)
+				if sym != nil && sym.ConstVal != nil {
+					condVal, _ = sym.ConstVal.(*ctVal)
+				}
+			}
+			if condVal != nil && condVal.kind == ctOpt && condVal.hasOpt {
+				takeThen = true
+				boundVal = condVal.optElem
+			} else if condVal != nil && condVal.kind == ctEnum && types.AsResult(condVal.ty) != nil && condVal.variantIdx == 0 {
+				takeThen = true
+				boundVal = condVal.payload
+			}
 		}
 
 	case ast.IfCondOptBind:
@@ -5399,7 +6162,12 @@ func (s *ctState) evalIf(ie *ast.IfExpr, inf *ExprInfo) (*ctVal, ctSignal) {
 						return nil, sig
 					}
 					targetPlace := enumPlace
+					hops := 0
 					for bv != nil && bv.kind == ctPointer {
+						hops++
+						if hops > maxComptimePointerHops {
+							return nil, abortSig(ie.Cond.GetSpan(), "compile-time pointer dereference chain exceeded %d hops", maxComptimePointerHops)
+						}
 						if bv.ptrVal == nil {
 							return nil, abortSig(ie.Cond.GetSpan(), "cannot dereference nil reference in `as_variant`")
 						}
@@ -5437,6 +6205,8 @@ func (s *ctState) evalIf(ie *ast.IfExpr, inf *ExprInfo) (*ctVal, ctSignal) {
 								cur.payload = nv
 								return targetPlace.set(cur)
 							},
+							addr:       targetPlace.addr,
+							frameAlive: targetPlace.frameAlive,
 						}
 						variantRefPlace = &rp
 					}
@@ -5462,16 +6232,13 @@ func (s *ctState) evalIf(ie *ast.IfExpr, inf *ExprInfo) (*ctVal, ctSignal) {
 			if sig.kind != sigNone {
 				return nil, sig
 			}
-			condVal, sig := pl.get()
-			if sig.kind != sigNone {
-				return nil, sig
+			ok, rp, rsig := bindMutUnwrapPlace(pl, ie.OptVar, ie.Cond.GetSpan())
+			if rsig.kind != sigNone {
+				return nil, rsig
 			}
-			if condVal != nil && condVal.kind == ctOpt && condVal.hasOpt {
+			if ok {
 				takeThen = true
-				boundVal = condVal.optElem
-			} else if condVal != nil && condVal.kind == ctEnum && types.AsResult(condVal.ty) != nil && condVal.variantIdx == 0 {
-				takeThen = true
-				boundVal = condVal.payload
+				variantRefPlace = rp
 			}
 		} else {
 			condVal, sig := s.evalExpr(ie.Cond)
@@ -5502,27 +6269,29 @@ func (s *ctState) evalIf(ie *ast.IfExpr, inf *ExprInfo) (*ctVal, ctSignal) {
 		s.pushDropScope()
 		if unwrapSym != nil && fr != nil {
 			if variantRefPlace != nil {
-				fr.locals[unwrapSym] = &ctSlot{ty: unwrapSym.Type, refPlace: variantRefPlace}
-			} else if ie.MutUnwrap && originSlot != nil {
-				// Share element value directly for `&x` mut unwrap, sync back on pop if scalar.
-				fr.locals[unwrapSym] = &ctSlot{val: boundVal, ty: unwrapSym.Type}
+				fr.locals[unwrapSym] = &ctSlot{ty: unwrapSym.Type, refPlace: variantRefPlace, frameAlive: fr.alive}
 			} else {
-				fr.locals[unwrapSym] = &ctSlot{val: boundVal, ty: unwrapSym.Type}
+				fr.locals[unwrapSym] = &ctSlot{val: boundVal, ty: unwrapSym.Type, frameAlive: fr.alive}
 			}
 		}
 		res, sig = s.evalExpr(ie.Then)
-		if unwrapSym != nil && ie.MutUnwrap && variantRefPlace == nil && fr != nil {
-			if sl := fr.locals[unwrapSym]; sl != nil && sl.val != nil && originSlot != nil && originSlot.val != nil {
-				if originSlot.val.kind == ctOpt {
-					originSlot.val.optElem = sl.val
-				}
-			}
+		dsig := s.popDropScope(ie.Then.GetSpan())
+		if sig.kind == sigAbort {
+			return nil, sig
 		}
-		if dsig := s.popDropScope(ie.Then.GetSpan()); dsig.kind == sigAbort {
+		if dsig.kind == sigAbort {
 			return nil, dsig
 		}
 	} else if ie.Else != nil {
+		s.pushDropScope()
 		res, sig = s.evalExpr(ie.Else)
+		dsig := s.popDropScope(ie.Else.GetSpan())
+		if sig.kind == sigAbort {
+			return nil, sig
+		}
+		if dsig.kind == sigAbort {
+			return nil, dsig
+		}
 	}
 
 	if sig.kind == sigUnwind && inf != nil && sig.targetID == inf.TargetID {
@@ -5592,10 +6361,10 @@ func (s *ctState) evalFixedCollectUnrolledFor(le loopEval, uf *UnrolledFor, targ
 			return nil, sig
 		}
 		if it.IdxSym != nil && it.IdxVal != nil {
-			fr.locals[it.IdxSym] = &ctSlot{val: it.IdxVal.clone(), ty: it.IdxSym.Type}
+			fr.locals[it.IdxSym] = &ctSlot{val: it.IdxVal.clone(), ty: it.IdxSym.Type, frameAlive: fr.alive}
 		}
 		if it.ItemSym != nil && it.ItemVal != nil {
-			fr.locals[it.ItemSym] = &ctSlot{val: it.ItemVal.clone(), ty: it.ItemSym.Type}
+			fr.locals[it.ItemSym] = &ctSlot{val: it.ItemVal.clone(), ty: it.ItemSym.Type, frameAlive: fr.alive}
 		}
 		s.pushDropScope()
 		val, bsig := s.evalExpr(it.Body)
@@ -5794,6 +6563,9 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 		if bsig.kind == sigUnwind {
 			if bsig.targetID == targetID {
 				if bsig.isContinue {
+					if bsig.val != nil {
+						appendCollected(bsig.val)
+					}
 					return false, nil, okSig()
 				}
 				return true, bsig.val, okSig()
@@ -5810,6 +6582,37 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 	broken := false
 	var breakVal *ctVal
 
+	finishLoop := func() (*ctVal, ctSignal) {
+		if collecting {
+			if broken && breakVal != nil {
+				return breakVal, okSig()
+			}
+			isEmpty := len(collected) == 0 && (collectMap == nil || len(collectMap.entries) == 0) && (collectSet == nil || len(collectSet.elems) == 0)
+			if !broken && isEmpty && le.elseExpr != nil {
+				switch types.CollView(le.evalType).(type) {
+				case *types.Vector, *types.Set, *types.Map:
+					return s.evalExpr(le.elseExpr)
+				}
+			}
+			if !broken && le.elseExpr != nil {
+				if _, esig := s.evalExpr(le.elseExpr); esig.kind != sigNone {
+					return nil, esig
+				}
+			}
+			return finishCollected()
+		}
+		if broken {
+			if breakVal != nil {
+				return breakVal, okSig()
+			}
+			return newCtVoid(), okSig()
+		}
+		if le.elseExpr != nil {
+			return s.evalExpr(le.elseExpr)
+		}
+		return newCtVoid(), okSig()
+	}
+
 	if fe, ok := le.expr.(*ast.ForExpr); ok && fr != nil && fr.bm != nil {
 		if uf, hasUF := fr.bm.ComptimeForUnrolls[fe]; hasUF && uf != nil {
 			if uf.CollectStruct != nil || uf.CollectTuple != nil || uf.CollectArray != nil {
@@ -5820,10 +6623,10 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 					return nil, sig
 				}
 				if it.IdxSym != nil && it.IdxVal != nil {
-					fr.locals[it.IdxSym] = &ctSlot{val: it.IdxVal.clone(), ty: it.IdxSym.Type}
+					fr.locals[it.IdxSym] = &ctSlot{val: it.IdxVal.clone(), ty: it.IdxSym.Type, frameAlive: fr.alive}
 				}
 				if it.ItemSym != nil && it.ItemVal != nil {
-					fr.locals[it.ItemSym] = &ctSlot{val: it.ItemVal.clone(), ty: it.ItemSym.Type}
+					fr.locals[it.ItemSym] = &ctSlot{val: it.ItemVal.clone(), ty: it.ItemSym.Type, frameAlive: fr.alive}
 				}
 				s.pushDropScope()
 				val, bsig := s.evalExpr(it.Body)
@@ -5837,6 +6640,9 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 				if bsig.kind == sigUnwind {
 					if bsig.targetID == targetID {
 						if bsig.isContinue {
+							if bsig.val != nil {
+								appendCollected(bsig.val)
+							}
 							continue
 						}
 						broken = true
@@ -5850,29 +6656,7 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 				}
 				appendCollected(val)
 			}
-			if collecting {
-				if broken && breakVal != nil {
-					return breakVal, okSig()
-				}
-				isEmpty := len(collected) == 0 && (collectMap == nil || len(collectMap.entries) == 0) && (collectSet == nil || len(collectSet.elems) == 0)
-				if isEmpty && le.elseExpr != nil {
-					switch types.CollView(le.evalType).(type) {
-					case *types.Vector, *types.Set, *types.Map:
-						return s.evalExpr(le.elseExpr)
-					}
-				}
-				return finishCollected()
-			}
-			if broken {
-				if breakVal != nil {
-					return breakVal, okSig()
-				}
-				return newCtVoid(), okSig()
-			}
-			if le.elseExpr != nil {
-				return s.evalExpr(le.elseExpr)
-			}
-			return newCtVoid(), okSig()
+			return finishLoop()
 		}
 	}
 
@@ -5925,10 +6709,10 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 					return nil, sig
 				}
 				if syms[1] != nil && fr != nil {
-					fr.locals[syms[0]] = &ctSlot{val: newCtSignedInt(int64(i), types.TypeInt), ty: types.TypeInt}
-					fr.locals[syms[1]] = &ctSlot{val: colV.list.elems[i], ty: syms[1].Type}
+					fr.locals[syms[0]] = &ctSlot{val: newCtSignedInt(int64(i), types.TypeInt), ty: types.TypeInt, frameAlive: fr.alive}
+					fr.locals[syms[1]] = &ctSlot{val: colV.list.elems[i], ty: syms[1].Type, frameAlive: fr.alive}
 				} else if syms[0] != nil && fr != nil {
-					fr.locals[syms[0]] = &ctSlot{val: colV.list.elems[i], ty: syms[0].Type}
+					fr.locals[syms[0]] = &ctSlot{val: colV.list.elems[i], ty: syms[0].Type, frameAlive: fr.alive}
 				}
 				br, bv, bsig := runBody()
 				if bsig.kind != sigNone {
@@ -5946,10 +6730,10 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 					return nil, sig
 				}
 				if syms[1] != nil && fr != nil {
-					fr.locals[syms[0]] = &ctSlot{val: newCtSignedInt(int64(i), types.TypeInt), ty: types.TypeInt}
-					fr.locals[syms[1]] = &ctSlot{val: colV.arr.elems[i], ty: syms[1].Type}
+					fr.locals[syms[0]] = &ctSlot{val: newCtSignedInt(int64(i), types.TypeInt), ty: types.TypeInt, frameAlive: fr.alive}
+					fr.locals[syms[1]] = &ctSlot{val: colV.arr.elems[i], ty: syms[1].Type, frameAlive: fr.alive}
 				} else if syms[0] != nil && fr != nil {
-					fr.locals[syms[0]] = &ctSlot{val: colV.arr.elems[i], ty: syms[0].Type}
+					fr.locals[syms[0]] = &ctSlot{val: colV.arr.elems[i], ty: syms[0].Type, frameAlive: fr.alive}
 				}
 				br, bv, bsig := runBody()
 				if bsig.kind != sigNone {
@@ -5967,10 +6751,10 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 					return nil, sig
 				}
 				if syms[1] != nil && fr != nil {
-					fr.locals[syms[0]] = &ctSlot{val: newCtSignedInt(int64(byteOff), types.TypeInt), ty: types.TypeInt}
-					fr.locals[syms[1]] = &ctSlot{val: newCtChar(ch), ty: types.TypeChar}
+					fr.locals[syms[0]] = &ctSlot{val: newCtSignedInt(int64(byteOff), types.TypeInt), ty: types.TypeInt, frameAlive: fr.alive}
+					fr.locals[syms[1]] = &ctSlot{val: newCtChar(ch), ty: types.TypeChar, frameAlive: fr.alive}
 				} else if syms[0] != nil && fr != nil {
-					fr.locals[syms[0]] = &ctSlot{val: newCtChar(ch), ty: types.TypeChar}
+					fr.locals[syms[0]] = &ctSlot{val: newCtChar(ch), ty: types.TypeChar, frameAlive: fr.alive}
 				}
 				br, bv, bsig := runBody()
 				if bsig.kind != sigNone {
@@ -5988,7 +6772,7 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 					return nil, sig
 				}
 				if syms[0] != nil && fr != nil {
-					fr.locals[syms[0]] = &ctSlot{val: el, ty: syms[0].Type}
+					fr.locals[syms[0]] = &ctSlot{val: el, ty: syms[0].Type, frameAlive: fr.alive}
 				}
 				br, bv, bsig := runBody()
 				if bsig.kind != sigNone {
@@ -6006,16 +6790,17 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 					return nil, sig
 				}
 				if syms[1] != nil && fr != nil {
-					fr.locals[syms[0]] = &ctSlot{val: ent.key, ty: syms[0].Type}
-					fr.locals[syms[1]] = &ctSlot{val: ent.val, ty: syms[1].Type}
+					fr.locals[syms[0]] = &ctSlot{val: ent.key, ty: syms[0].Type, frameAlive: fr.alive}
+					fr.locals[syms[1]] = &ctSlot{val: ent.val, ty: syms[1].Type, frameAlive: fr.alive}
 				} else if syms[0] != nil && fr != nil {
 					// Entry struct (`MapEntry[K, V][key: k, value: v]`)
 					if entrySt, ok := syms[0].Type.(*types.Struct); ok {
 						fields := map[string]*ctVal{"key": ent.key, "value": ent.val}
 						order := []string{"key", "value"}
 						fr.locals[syms[0]] = &ctSlot{
-							val: &ctVal{kind: ctStruct, ty: entrySt, st: &ctStructBox{ty: entrySt, fields: fields, fieldOrder: order}},
-							ty:  entrySt,
+							val:        &ctVal{kind: ctStruct, ty: entrySt, st: &ctStructBox{ty: entrySt, fields: fields, fieldOrder: order}},
+							ty:         entrySt,
+							frameAlive: fr.alive,
 						}
 					}
 				}
@@ -6046,10 +6831,10 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 						return nil, sig
 					}
 					if syms[1] != nil && fr != nil {
-						fr.locals[syms[0]] = &ctSlot{val: newCtSignedInt(int64(i), types.TypeInt), ty: types.TypeInt}
-						fr.locals[syms[1]] = &ctSlot{val: elems[i], ty: syms[1].Type}
+						fr.locals[syms[0]] = &ctSlot{val: newCtSignedInt(int64(i), types.TypeInt), ty: types.TypeInt, frameAlive: fr.alive}
+						fr.locals[syms[1]] = &ctSlot{val: elems[i], ty: syms[1].Type, frameAlive: fr.alive}
 					} else if syms[0] != nil && fr != nil {
-						fr.locals[syms[0]] = &ctSlot{val: elems[i], ty: syms[0].Type}
+						fr.locals[syms[0]] = &ctSlot{val: elems[i], ty: syms[0].Type, frameAlive: fr.alive}
 					}
 					br, bv, bsig := runBody()
 					if bsig.kind != sigNone {
@@ -6067,7 +6852,7 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 						return nil, sig
 					}
 					if syms[0] != nil && fr != nil {
-						fr.locals[syms[0]] = &ctSlot{val: el, ty: syms[0].Type}
+						fr.locals[syms[0]] = &ctSlot{val: el, ty: syms[0].Type, frameAlive: fr.alive}
 					}
 					br, bv, bsig := runBody()
 					if bsig.kind != sigNone {
@@ -6085,15 +6870,16 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 						return nil, sig
 					}
 					if syms[1] != nil && fr != nil {
-						fr.locals[syms[0]] = &ctSlot{val: ent.key, ty: syms[0].Type}
-						fr.locals[syms[1]] = &ctSlot{val: ent.val, ty: syms[1].Type}
+						fr.locals[syms[0]] = &ctSlot{val: ent.key, ty: syms[0].Type, frameAlive: fr.alive}
+						fr.locals[syms[1]] = &ctSlot{val: ent.val, ty: syms[1].Type, frameAlive: fr.alive}
 					} else if syms[0] != nil && fr != nil {
 						if entrySt, ok := syms[0].Type.(*types.Struct); ok {
 							fields := map[string]*ctVal{"key": ent.key, "value": ent.val}
 							order := []string{"key", "value"}
 							fr.locals[syms[0]] = &ctSlot{
-								val: &ctVal{kind: ctStruct, ty: entrySt, st: &ctStructBox{ty: entrySt, fields: fields, fieldOrder: order}},
-								ty:  entrySt,
+								val:        &ctVal{kind: ctStruct, ty: entrySt, st: &ctStructBox{ty: entrySt, fields: fields, fieldOrder: order}},
+								ty:         entrySt,
+								frameAlive: fr.alive,
 							}
 						}
 					}
@@ -6115,16 +6901,7 @@ func (s *ctState) evalFor(le loopEval, inf *ExprInfo) (*ctVal, ctSignal) {
 		}
 	}
 
-	if broken {
-		if breakVal != nil {
-			return breakVal, okSig()
-		}
-		return newCtVoid(), okSig()
-	}
-	if le.elseExpr != nil {
-		return s.evalExpr(le.elseExpr)
-	}
-	return finishCollected()
+	return finishLoop()
 }
 
 func (s *ctState) runIntRangeLoop(
@@ -6138,32 +6915,24 @@ func (s *ctState) runIntRangeLoop(
 	breakVal **ctVal,
 ) ctSignal {
 	if loV.kind == ctChar {
-		lo, hi := loV.ch, hiV.ch
-		for cur := lo; ; cur++ {
-			if inclusive {
-				if cur > hi {
-					break
-				}
-			} else if cur >= hi {
-				break
-			}
+		return stepCharRange(loV.ch, hiV.ch, inclusive, func(cur rune) (bool, ctSignal) {
 			if sig := s.step(span); sig.kind != sigNone {
-				return sig
+				return false, sig
 			}
 			if sym != nil && fr != nil {
-				fr.locals[sym] = &ctSlot{val: newCtChar(cur), ty: types.TypeChar}
+				fr.locals[sym] = &ctSlot{val: newCtChar(cur), ty: types.TypeChar, frameAlive: fr.alive}
 			}
 			br, bv, bsig := runBody()
 			if bsig.kind != sigNone {
-				return bsig
+				return false, bsig
 			}
 			if br {
 				*broken = true
 				*breakVal = bv
-				return okSig()
+				return false, okSig()
 			}
-		}
-		return okSig()
+			return true, okSig()
+		})
 	}
 
 	p := loV.prim
@@ -6184,7 +6953,7 @@ func (s *ctState) runIntRangeLoop(
 				return sig
 			}
 			if sym != nil && fr != nil {
-				fr.locals[sym] = &ctSlot{val: newCtInt(cur, p), ty: p}
+				fr.locals[sym] = &ctSlot{val: newCtInt(cur, p), ty: p, frameAlive: fr.alive}
 			}
 			br, bv, bsig := runBody()
 			if bsig.kind != sigNone {
@@ -6216,7 +6985,7 @@ func (s *ctState) runIntRangeLoop(
 			return sig
 		}
 		if sym != nil && fr != nil {
-			fr.locals[sym] = &ctSlot{val: newCtSignedInt(cur, p), ty: p}
+			fr.locals[sym] = &ctSlot{val: newCtSignedInt(cur, p), ty: p, frameAlive: fr.alive}
 		}
 		br, bv, bsig := runBody()
 		if bsig.kind != sigNone {
@@ -6245,6 +7014,27 @@ func (s *ctState) evalMatch(me *ast.MatchExpr, inf *ExprInfo) (*ctVal, ctSignal)
 		if armIdx, ok := fr.bm.ComptimeMatchArm[me]; ok && armIdx >= 0 && armIdx < len(arms) {
 			arm := arms[armIdx]
 			s.pushDropScope()
+			if len(arm.Cases) == 1 {
+				for _, pat := range arm.Cases[0].Patterns {
+					var psyms []*Symbol
+					switch p := pat.(type) {
+					case *ast.VariantPattern:
+						psyms = fr.bm.PatternSyms[p]
+					case *ast.MethodPattern:
+						if vp := fr.bm.BareVariantPatterns[p]; vp != nil {
+							psyms = fr.bm.PatternSyms[vp]
+						}
+					}
+					for _, sym := range psyms {
+						if sym == nil {
+							continue
+						}
+						if cv, hasCV := fr.bm.ConstVarVals[sym]; hasCV && cv != nil {
+							fr.locals[sym] = &ctSlot{val: cv.clone(), ty: sym.Type, frameAlive: fr.alive}
+						}
+					}
+				}
+			}
 			res, bsig := s.evalExpr(arm.Body)
 			dsig := s.popDropScope(arm.Body.GetSpan())
 			if bsig.kind == sigAbort {
@@ -6274,7 +7064,11 @@ func (s *ctState) evalMatch(me *ast.MatchExpr, inf *ExprInfo) (*ctVal, ctSignal)
 			// Bare `default:`
 			s.pushDropScope()
 			res, sig := s.evalExpr(arm.Body)
-			if dsig := s.popDropScope(arm.Body.GetSpan()); dsig.kind == sigAbort {
+			dsig := s.popDropScope(arm.Body.GetSpan())
+			if sig.kind == sigAbort {
+				return nil, sig
+			}
+			if dsig.kind == sigAbort {
 				return nil, dsig
 			}
 			if sig.kind == sigUnwind && inf != nil && sig.targetID == inf.TargetID {
@@ -6291,6 +7085,9 @@ func (s *ctState) evalMatch(me *ast.MatchExpr, inf *ExprInfo) (*ctVal, ctSignal)
 				s.pushDropScope()
 				if fr != nil {
 					for sym, sl := range bindings {
+						if sl != nil && sl.frameAlive == nil {
+							sl.frameAlive = fr.alive
+						}
 						fr.locals[sym] = sl
 						s.registerDropLocal(sym, sl, sym.Type)
 					}
@@ -6361,8 +7158,11 @@ func (s *ctState) matchPattern(scrut *ctVal, pat ast.Pattern, bindings map[*Symb
 			if sig.kind != sigNone {
 				return false, sig
 			}
-			cLo := scrut.cmpVal(loV)
-			cHi := scrut.cmpVal(hiV)
+			cLo, okLo := scrut.cmpValOk(loV)
+			cHi, okHi := scrut.cmpValOk(hiV)
+			if !okLo || !okHi {
+				return false, okSig()
+			}
 			if re.Inclusive {
 				return cLo >= 0 && cHi <= 0, okSig()
 			}
@@ -6722,24 +7522,46 @@ func (s *ctState) callFuncInstance(fi *FuncInstance, argList []ctArg, callSpan d
 
 	s.depth++
 	prevLimit := s.stepLimit
-	prevSteps := s.steps
-	hasOverrideLimit := fi.ComptimeLimit > 0
-	if hasOverrideLimit {
-		s.steps = 0
-		s.stepLimit = fi.ComptimeLimit
+	prevExplicitStep := s.explicitStepLimit
+	if fi.ComptimeLimit > 0 {
+		fnLimit := fi.ComptimeLimit
+		if s.a != nil && s.a.ideMode && fnLimit > defaultIDEComptimeStepLimit {
+			fnLimit = defaultIDEComptimeStepLimit
+		}
+		if !s.explicitStepLimit && fnLimit > s.stepLimit {
+			s.stepLimit = fnLimit
+			s.explicitStepLimit = true
+		} else {
+			rem := s.stepLimit - s.steps
+			if rem < 0 {
+				rem = 0
+			}
+			if fnLimit < rem {
+				s.stepLimit = s.steps + fnLimit
+				s.explicitStepLimit = true
+			}
+		}
 	}
 	prevMemLimit := s.memLimit
-	hasMemOverride := fi.ComptimeMemLimit > 0 && fi.ComptimeMemLimit > s.memLimit
-	if hasMemOverride {
-		s.memLimit = fi.ComptimeMemLimit
+	prevExplicitMem := s.explicitMemLimit
+	if fi.ComptimeMemLimit > 0 {
+		fnMemLimit := fi.ComptimeMemLimit
+		if s.a != nil && s.a.ideMode && fnMemLimit > defaultIDEComptimeMaxMem {
+			fnMemLimit = defaultIDEComptimeMaxMem
+		}
+		if !s.explicitMemLimit || fnMemLimit < s.memLimit {
+			s.memLimit = fnMemLimit
+			s.explicitMemLimit = true
+		}
 	}
+	alive := newFrameAlive()
 	locals := make(map[*Symbol]*ctSlot, len(fi.ParamSyms))
 	for i, ps := range fi.ParamSyms {
 		if ps != nil && i < len(argList) {
 			if argList[i].place != nil {
-				locals[ps] = &ctSlot{ty: ps.Type, refPlace: argList[i].place}
+				locals[ps] = &ctSlot{ty: ps.Type, refPlace: argList[i].place, frameAlive: alive}
 			} else {
-				locals[ps] = &ctSlot{val: argList[i].val, ty: ps.Type}
+				locals[ps] = &ctSlot{val: argList[i].val, ty: ps.Type, frameAlive: alive}
 			}
 		}
 	}
@@ -6749,16 +7571,15 @@ func (s *ctState) callFuncInstance(fi *FuncInstance, argList []ctArg, callSpan d
 		bm:       fi.BodyMaps,
 		callSpan: callSpan,
 		locals:   locals,
+		alive:    alive,
 	})
 	defer func() {
+		*alive = false
 		s.frames = s.frames[:len(s.frames)-1]
-		if hasOverrideLimit {
-			s.stepLimit = prevLimit
-			s.steps = prevSteps + 1
-		}
-		if hasMemOverride {
-			s.memLimit = prevMemLimit
-		}
+		s.stepLimit = prevLimit
+		s.explicitStepLimit = prevExplicitStep
+		s.memLimit = prevMemLimit
+		s.explicitMemLimit = prevExplicitMem
 		s.depth--
 	}()
 
@@ -6809,7 +7630,8 @@ func (s *ctState) preserveDescriptorMeta(fi *FuncInstance, argList []ctArg, res 
 	}
 	isDescCopy := fi.RecvType == s.a.Prog.StructFieldInfo ||
 		fi.RecvType == s.a.Prog.StructVariantInfo ||
-		fi.RecvType == s.a.Prog.StructElemInfo
+		fi.RecvType == s.a.Prog.StructElemInfo ||
+		fi.RecvType == s.a.Prog.StructDistinctInfo
 	if !isDescCopy || !strings.HasSuffix(fi.Name, ".copy") {
 		return
 	}
@@ -6823,13 +7645,14 @@ func (s *ctState) callLambda(lam *LambdaInfo, captures map[*Symbol]*ctSlot, argL
 		return nil, abortSig(callSpan, "compile-time call stack depth exceeded (%d) in closure", defaultComptimeMaxDepth)
 	}
 	s.depth++
+	alive := newFrameAlive()
 	locals := make(map[*Symbol]*ctSlot, len(lam.ParamSyms))
 	for i, ps := range lam.ParamSyms {
 		if ps != nil && i < len(argList) {
 			if argList[i].place != nil {
-				locals[ps] = &ctSlot{ty: ps.Type, refPlace: argList[i].place}
+				locals[ps] = &ctSlot{ty: ps.Type, refPlace: argList[i].place, frameAlive: alive}
 			} else {
-				locals[ps] = &ctSlot{val: argList[i].val, ty: ps.Type}
+				locals[ps] = &ctSlot{val: argList[i].val, ty: ps.Type, frameAlive: alive}
 			}
 		}
 	}
@@ -6840,8 +7663,10 @@ func (s *ctState) callLambda(lam *LambdaInfo, captures map[*Symbol]*ctSlot, argL
 		callSpan: callSpan,
 		locals:   locals,
 		captures: captures,
+		alive:    alive,
 	})
 	defer func() {
+		*alive = false
 		s.frames = s.frames[:len(s.frames)-1]
 		s.depth--
 	}()
@@ -7052,21 +7877,32 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 		if sig.kind != sigNone {
 			return nil, sig
 		}
+		if pl.frameAlive != nil && !*pl.frameAlive {
+			return nil, abortSig(call.Span, "use-after-return taking address of stack variable at compile time")
+		}
 		cur, gsig := pl.get()
 		if gsig.kind == sigNone && cur != nil && cur.kind == ctString {
 			mv, msig := s.materializeStringVal(cur, call.Span)
 			if msig.kind != sigNone {
 				return nil, msig
 			}
-			_ = pl.set(mv)
+			if ssig := pl.set(mv); ssig.kind != sigNone {
+				return nil, ssig
+			}
+		}
+		sa := pl.addr
+		if sa == 0 {
+			sa = s.nextStackAddr()
 		}
 		return &ctVal{
 			kind: ctPointer,
 			ty:   inf.Type,
 			ptrVal: &ctPtr{
-				elemTy:   inf.IntrinsicType,
-				elemSize: s.simElemSize(inf.IntrinsicType),
-				place:    &pl,
+				elemTy:     inf.IntrinsicType,
+				elemSize:   s.simElemSize(inf.IntrinsicType),
+				place:      &pl,
+				stackAddr:  sa,
+				frameAlive: pl.frameAlive,
 			},
 		}, okSig()
 
@@ -7087,6 +7923,9 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 			return nil, abortSig(call.Span, "null pointer arithmetic in `ptr_add` at compile time")
 		}
 		p := pv.ptrVal
+		if p.frameAlive != nil && !*p.frameAlive {
+			return nil, abortSig(call.Span, "`ptr_add` use-after-return on stack pointer at compile time")
+		}
 		if p.alloc == nil {
 			if off == 0 {
 				return pv, okSig()
@@ -7096,8 +7935,16 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 		if p.alloc.freed {
 			return nil, abortSig(call.Span, "`ptr_add` on freed pointer at compile time")
 		}
+		delta, okMul := mulInt64Checked(off, p.elemSize)
+		if !okMul {
+			return nil, abortSig(call.Span, "`ptr_add` byte offset overflow (%d * %d)", off, p.elemSize)
+		}
+		newOff, okAdd := addInt64Checked(p.byteOff, delta)
+		if !okAdd {
+			return nil, abortSig(call.Span, "`ptr_add` byte offset overflow")
+		}
 		cp := *p
-		cp.byteOff += off * p.elemSize
+		cp.byteOff = newOff
 		if off != 0 {
 			cp.place = nil
 		}
@@ -7188,10 +8035,16 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 		if cnt == 0 {
 			return newCtVoid(), okSig()
 		}
+		if sig := s.chargeBulkSteps(cnt, call.Span); sig.kind != sigNone {
+			return nil, sig
+		}
 		if dstV == nil || dstV.ptrVal == nil || srcV == nil || srcV.ptrVal == nil {
 			return nil, abortSig(call.Span, "`copy_bytes` null pointer at compile time")
 		}
 		dp, sp := dstV.ptrVal, srcV.ptrVal
+		if (dp.frameAlive != nil && !*dp.frameAlive) || (sp.frameAlive != nil && !*sp.frameAlive) {
+			return nil, abortSig(call.Span, "`copy_bytes` use-after-return at compile time")
+		}
 		if dp.alloc == nil || sp.alloc == nil {
 			return nil, abortSig(call.Span, "`copy_bytes` requires allocated buffer pointers at compile time")
 		}
@@ -7202,8 +8055,8 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 			return nil, abortSig(call.Span, "`copy_bytes` into read-only buffer at compile time")
 		}
 		if dp.alloc.isBytes && sp.alloc.isBytes {
-			if dp.byteOff < 0 || dp.byteOff+cnt > int64(len(dp.alloc.bytes)) ||
-				sp.byteOff < 0 || sp.byteOff+cnt > int64(len(sp.alloc.bytes)) {
+			if dp.byteOff < 0 || dp.byteOff > int64(len(dp.alloc.bytes)) || cnt > int64(len(dp.alloc.bytes))-dp.byteOff ||
+				sp.byteOff < 0 || sp.byteOff > int64(len(sp.alloc.bytes)) || cnt > int64(len(sp.alloc.bytes))-sp.byteOff {
 				return nil, abortSig(call.Span, "`copy_bytes` out of bounds (%d bytes)", cnt)
 			}
 			copy(dp.alloc.bytes[dp.byteOff:dp.byteOff+cnt], sp.alloc.bytes[sp.byteOff:sp.byteOff+cnt])
@@ -7211,13 +8064,14 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 		}
 		if !dp.alloc.isBytes && !sp.alloc.isBytes && dp.alloc.elemSize == sp.alloc.elemSize && dp.alloc.elemSize > 0 {
 			es := dp.alloc.elemSize
-			if dp.byteOff%es != 0 || sp.byteOff%es != 0 || cnt%es != 0 {
+			if dp.byteOff < 0 || sp.byteOff < 0 || dp.byteOff%es != 0 || sp.byteOff%es != 0 || cnt%es != 0 {
 				return nil, abortSig(call.Span, "`copy_bytes` unaligned structured copy at compile time")
 			}
 			dIdx := dp.byteOff / es
 			sIdx := sp.byteOff / es
 			nEl := cnt / es
-			if dIdx < 0 || dIdx+nEl > int64(len(dp.alloc.cells)) || sIdx < 0 || sIdx+nEl > int64(len(sp.alloc.cells)) {
+			if dIdx < 0 || dIdx > int64(len(dp.alloc.cells)) || nEl > int64(len(dp.alloc.cells))-dIdx ||
+				sIdx < 0 || sIdx > int64(len(sp.alloc.cells)) || nEl > int64(len(sp.alloc.cells))-sIdx {
 				return nil, abortSig(call.Span, "`copy_bytes` structured copy out of bounds")
 			}
 			tmp := make([]*ctVal, nEl)
@@ -7249,10 +8103,16 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 		if cnt == 0 {
 			return newCtVoid(), okSig()
 		}
+		if sig := s.chargeBulkSteps(cnt, call.Span); sig.kind != sigNone {
+			return nil, sig
+		}
 		if dstV == nil || dstV.ptrVal == nil {
 			return nil, abortSig(call.Span, "`zero_bytes` null pointer at compile time")
 		}
 		dp := dstV.ptrVal
+		if dp.frameAlive != nil && !*dp.frameAlive {
+			return nil, abortSig(call.Span, "`zero_bytes` use-after-return at compile time")
+		}
 		if dp.alloc != nil {
 			if dp.alloc.freed {
 				return nil, abortSig(call.Span, "`zero_bytes` use-after-free at compile time")
@@ -7261,17 +8121,17 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 				return nil, abortSig(call.Span, "`zero_bytes` on read-only buffer at compile time")
 			}
 			if dp.alloc.isBytes {
-				if dp.byteOff < 0 || dp.byteOff+cnt > int64(len(dp.alloc.bytes)) {
+				if dp.byteOff < 0 || dp.byteOff > int64(len(dp.alloc.bytes)) || cnt > int64(len(dp.alloc.bytes))-dp.byteOff {
 					return nil, abortSig(call.Span, "`zero_bytes` out of bounds (%d bytes)", cnt)
 				}
 				clear(dp.alloc.bytes[dp.byteOff : dp.byteOff+cnt])
 				return newCtVoid(), okSig()
 			}
 			es := dp.alloc.elemSize
-			if es > 0 && dp.byteOff%es == 0 && cnt%es == 0 {
+			if es > 0 && dp.byteOff >= 0 && dp.byteOff%es == 0 && cnt%es == 0 {
 				dIdx := dp.byteOff / es
 				nEl := cnt / es
-				if dIdx < 0 || dIdx+nEl > int64(len(dp.alloc.cells)) {
+				if dIdx < 0 || dIdx > int64(len(dp.alloc.cells)) || nEl > int64(len(dp.alloc.cells))-dIdx {
 					return nil, abortSig(call.Span, "`zero_bytes` structured zero out of bounds")
 				}
 				for i := int64(0); i < nEl; i++ {
@@ -7312,10 +8172,16 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 		if cnt == 0 {
 			return newCtVoid(), okSig()
 		}
+		if sig := s.chargeBulkSteps(cnt, call.Span); sig.kind != sigNone {
+			return nil, sig
+		}
 		if dstV == nil || dstV.ptrVal == nil || dstV.ptrVal.alloc == nil {
 			return nil, abortSig(call.Span, "`fill_bytes` requires allocated buffer pointer at compile time")
 		}
 		dp := dstV.ptrVal
+		if dp.frameAlive != nil && !*dp.frameAlive {
+			return nil, abortSig(call.Span, "`fill_bytes` use-after-return at compile time")
+		}
 		if dp.alloc.freed {
 			return nil, abortSig(call.Span, "`fill_bytes` use-after-free at compile time")
 		}
@@ -7324,7 +8190,7 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 		}
 		bv := byte(valV.asUint64())
 		if dp.alloc.isBytes {
-			if dp.byteOff < 0 || dp.byteOff+cnt > int64(len(dp.alloc.bytes)) {
+			if dp.byteOff < 0 || dp.byteOff > int64(len(dp.alloc.bytes)) || cnt > int64(len(dp.alloc.bytes))-dp.byteOff {
 				return nil, abortSig(call.Span, "`fill_bytes` out of bounds (%d bytes)", cnt)
 			}
 			for i := dp.byteOff; i < dp.byteOff+cnt; i++ {
@@ -7332,10 +8198,10 @@ func (s *ctState) evalIntrinsicCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, 
 			}
 			return newCtVoid(), okSig()
 		}
-		if bv == 0 && dp.alloc.elemSize > 0 && dp.byteOff%dp.alloc.elemSize == 0 && cnt%dp.alloc.elemSize == 0 {
+		if bv == 0 && dp.alloc.elemSize > 0 && dp.byteOff >= 0 && dp.byteOff%dp.alloc.elemSize == 0 && cnt%dp.alloc.elemSize == 0 {
 			dIdx := dp.byteOff / dp.alloc.elemSize
 			nEl := cnt / dp.alloc.elemSize
-			if dIdx >= 0 && dIdx+nEl <= int64(len(dp.alloc.cells)) {
+			if dIdx >= 0 && dIdx <= int64(len(dp.alloc.cells)) && nEl <= int64(len(dp.alloc.cells))-dIdx {
 				for i := int64(0); i < nEl; i++ {
 					dp.alloc.cells[dIdx+i] = s.zeroCtVal(dp.alloc.elemTy)
 				}
@@ -7370,25 +8236,49 @@ func evalSymlinksBestEffort(p string) (string, bool) {
 	}
 }
 
+func equalPathOS(a, b string) bool {
+	ca := filepath.Clean(a)
+	cb := filepath.Clean(b)
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return strings.EqualFold(ca, cb)
+	}
+	return ca == cb
+}
+
+func foldPathForComparison(p string) string {
+	c := filepath.Clean(p)
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return strings.ToLower(c)
+	}
+	return c
+}
+
 func (a *Analyzer) lookupEmbedOverlay(joined, canonicalTarget string) (string, bool) {
 	if a == nil || len(a.overlays) == 0 {
 		return "", false
 	}
 	cleanJoined := filepath.Clean(joined)
 	cleanCanon := filepath.Clean(canonicalTarget)
-	if v, ok := a.overlays[cleanCanon]; ok {
-		return v, true
+	if canonicalTarget != "" {
+		if v, ok := a.overlays[cleanCanon]; ok {
+			return v, true
+		}
 	}
 	if v, ok := a.overlays[cleanJoined]; ok {
 		return v, true
 	}
 	for k, v := range a.overlays {
 		cleanK := filepath.Clean(k)
-		if cleanK == cleanJoined || cleanK == cleanCanon {
+		if equalPathOS(cleanK, cleanJoined) {
 			return v, true
 		}
-		if canonK, ok := evalSymlinksBestEffort(cleanK); ok && canonK == cleanCanon {
-			return v, true
+		if canonicalTarget != "" {
+			if equalPathOS(cleanK, cleanCanon) {
+				return v, true
+			}
+			if canonK, ok := evalSymlinksBestEffort(cleanK); ok && equalPathOS(canonK, cleanCanon) {
+				return v, true
+			}
 		}
 	}
 	return "", false
@@ -7454,28 +8344,13 @@ func (s *ctState) evalCompEmbed(call *ast.CallExpr, asBytes bool) (*ctVal, ctSig
 	remaining := limit - s.memBytes
 
 	var canonicalTarget string
-	var diskInfo os.FileInfo
 	realTarget, symErr := filepath.EvalSymlinks(joined)
 	if symErr == nil {
 		canonicalTarget = filepath.Clean(realTarget)
 		if !isWithinSandboxDir(realRoot, canonicalTarget) {
 			return nil, abortSig(call.Span, "`comp.%s`: symlink %q escapes package sandbox %q", builtinName, rawPath, absRoot)
 		}
-		info, statErr := os.Stat(canonicalTarget)
-		if statErr != nil {
-			return nil, abortSig(call.Span, "`comp.%s`: cannot stat %q: %v", builtinName, rawPath, statErr)
-		}
-		if info.IsDir() {
-			return nil, abortSig(call.Span, "`comp.%s`: %q is a directory, expected a file", builtinName, rawPath)
-		}
-		if !info.Mode().IsRegular() {
-			return nil, abortSig(call.Span, "`comp.%s`: %q is not a regular file", builtinName, rawPath)
-		}
-		diskInfo = info
 	} else {
-		if !os.IsNotExist(symErr) {
-			return nil, abortSig(call.Span, "`comp.%s`: cannot open %q: %v", builtinName, rawPath, symErr)
-		}
 		canon, ok := evalSymlinksBestEffort(joined)
 		if !ok {
 			return nil, abortSig(call.Span, "`comp.%s`: cannot open %q: %v", builtinName, rawPath, symErr)
@@ -7488,8 +8363,9 @@ func (s *ctState) evalCompEmbed(call *ast.CallExpr, asBytes bool) (*ctVal, ctSig
 
 	var data []byte
 	if ov, hasOv := s.a.lookupEmbedOverlay(joined, canonicalTarget); hasOv {
-		if int64(len(ov)) > remaining {
-			return nil, abortSig(call.Span, "`comp.%s`: file %q (%d bytes) exceeds remaining compile-time memory budget (%d bytes remaining of %d MB; increase with `@comptime_limit(memory: N)`)", builtinName, rawPath, len(ov), remaining, limit/(1024*1024))
+		if remaining < 0 || int64(len(ov)) > remaining {
+			s.a.recordAttemptedEmbed(canonicalTarget)
+			return nil, abortSig(call.Span, "`comp.%s`: file %q (%d bytes) exceeds remaining compile-time memory budget (%d bytes remaining of %s; increase with `@comptime_limit(memory: N)`)", builtinName, rawPath, len(ov), remaining, formatComptimeMemSize(limit))
 		}
 		data = []byte(ov)
 	} else {
@@ -7497,26 +8373,63 @@ func (s *ctState) evalCompEmbed(call *ast.CallExpr, asBytes bool) (*ctVal, ctSig
 			s.a.recordAttemptedEmbed(canonicalTarget)
 			return nil, abortSig(call.Span, "`comp.%s`: cannot open %q: %v", builtinName, rawPath, symErr)
 		}
-		if diskInfo.Size() > remaining {
-			return nil, abortSig(call.Span, "`comp.%s`: file %q (%d bytes) exceeds remaining compile-time memory budget (%d bytes remaining of %d MB; increase with `@comptime_limit(memory: N)`)", builtinName, rawPath, diskInfo.Size(), remaining, limit/(1024*1024))
+		f, openErr := openReadNoFollow(canonicalTarget)
+		if openErr != nil {
+			s.a.recordAttemptedEmbed(canonicalTarget)
+			return nil, abortSig(call.Span, "`comp.%s`: cannot open %q: %v", builtinName, rawPath, openErr)
 		}
-		var readErr error
-		data, readErr = os.ReadFile(canonicalTarget)
+		info, statErr := f.Stat()
+		if statErr != nil {
+			_ = f.Close()
+			s.a.recordAttemptedEmbed(canonicalTarget)
+			return nil, abortSig(call.Span, "`comp.%s`: cannot stat %q: %v", builtinName, rawPath, statErr)
+		}
+		if info.IsDir() {
+			_ = f.Close()
+			s.a.recordAttemptedEmbed(canonicalTarget)
+			return nil, abortSig(call.Span, "`comp.%s`: %q is a directory, expected a file", builtinName, rawPath)
+		}
+		if !info.Mode().IsRegular() {
+			_ = f.Close()
+			s.a.recordAttemptedEmbed(canonicalTarget)
+			return nil, abortSig(call.Span, "`comp.%s`: %q is not a regular file", builtinName, rawPath)
+		}
+		if remaining < 0 || info.Size() > remaining {
+			_ = f.Close()
+			s.a.recordAttemptedEmbed(canonicalTarget)
+			return nil, abortSig(call.Span, "`comp.%s`: file %q (%d bytes) exceeds remaining compile-time memory budget (%d bytes remaining of %s; increase with `@comptime_limit(memory: N)`)", builtinName, rawPath, info.Size(), remaining, formatComptimeMemSize(limit))
+		}
+		readData, readErr := io.ReadAll(io.LimitReader(f, remaining+1))
+		_ = f.Close()
 		if readErr != nil {
+			s.a.recordAttemptedEmbed(canonicalTarget)
 			return nil, abortSig(call.Span, "`comp.%s`: failed reading %q: %v", builtinName, rawPath, readErr)
 		}
+		if int64(len(readData)) > remaining {
+			s.a.recordAttemptedEmbed(canonicalTarget)
+			return nil, abortSig(call.Span, "`comp.%s`: file %q (%d bytes) exceeds remaining compile-time memory budget (%d bytes remaining of %s; increase with `@comptime_limit(memory: N)`)", builtinName, rawPath, len(readData), remaining, formatComptimeMemSize(limit))
+		}
+		data = readData
 	}
-	s.a.recordEmbeddedFile(canonicalTarget, data)
 
 	if asBytes {
-		return s.makeByteListStruct(data, call.Span)
+		res, bsig := s.makeByteListStruct(data, call.Span)
+		if bsig.kind != sigNone {
+			s.a.recordAttemptedEmbed(canonicalTarget)
+			return nil, bsig
+		}
+		s.a.recordEmbeddedFile(canonicalTarget, data)
+		return res, okSig()
 	}
 	if !utf8.Valid(data) {
+		s.a.recordAttemptedEmbed(canonicalTarget)
 		return nil, abortSig(call.Span, "`comp.embed_str`: %q is not valid UTF-8 (use `comp.embed_bytes` for binary data)", rawPath)
 	}
 	if sig := s.allocMem(int64(len(data)), call.Span); sig.kind != sigNone {
+		s.a.recordAttemptedEmbed(canonicalTarget)
 		return nil, sig
 	}
+	s.a.recordEmbeddedFile(canonicalTarget, data)
 	return newCtString(string(data)), okSig()
 }
 
@@ -7529,6 +8442,7 @@ func (s *ctState) resolveEmbedModuleAndRoot(callFile string) (baseDir, allowedRo
 			absCall = cleanCall
 		}
 		absCall = filepath.Clean(absCall)
+		canonCall, canonCallOk := evalSymlinksBestEffort(absCall)
 		if s.a != nil && s.a.Prog != nil {
 			for _, m := range s.a.Prog.Modules {
 				if m == nil || m.Path == "" {
@@ -7539,15 +8453,25 @@ func (s *ctState) resolveEmbedModuleAndRoot(callFile string) (baseDir, allowedRo
 				if mErr != nil {
 					mAbs = mClean
 				}
-				if mClean == cleanCall || filepath.Clean(mAbs) == absCall {
+				if equalPathOS(mClean, cleanCall) || equalPathOS(mAbs, absCall) {
 					mod = m
 					break
 				}
+				if canonCallOk {
+					if mCanon, ok := evalSymlinksBestEffort(mAbs); ok && equalPathOS(mCanon, canonCall) {
+						mod = m
+						break
+					}
+				}
 			}
 		}
+		if mod == nil {
+			// Fail closed when a non-empty caller path does not match any module
+			// in the checked program rather than inheriting s.rootMod's sandbox.
+			return "", ""
+		}
 		baseDir = filepath.Dir(absCall)
-	}
-	if mod == nil {
+	} else {
 		mod = s.rootMod
 	}
 	if mod != nil {
@@ -7595,8 +8519,8 @@ func isWithinSandboxDir(rootDir, targetPath string) bool {
 	if err1 != nil || err2 != nil {
 		return false
 	}
-	absRoot = filepath.Clean(absRoot)
-	absTarget = filepath.Clean(absTarget)
+	absRoot = foldPathForComparison(absRoot)
+	absTarget = foldPathForComparison(absTarget)
 	rel, err := filepath.Rel(absRoot, absTarget)
 	if err != nil {
 		return false
@@ -7668,6 +8592,9 @@ func (s *ctState) evalBuiltinFuncCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 
 	case "comp.elems_of":
 		return s.evalCompElemsOf(inf.IntrinsicType, call.Span)
+
+	case "comp.underlying_of":
+		return s.evalCompUnderlyingOf(inf.IntrinsicType, call.Span)
 
 	case "comp.attrs_of":
 		return s.evalCompAttrsOf(inf.IntrinsicType, call.Span)
@@ -7794,35 +8721,40 @@ func (s *ctState) evalBuiltinFuncCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 	}
 }
 
-func (s *ctState) evalTypeConvertCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, ctSignal) {
-	av, sig := s.evalExpr(call.Args[0])
-	if sig.kind != sigNone {
-		return nil, sig
+func floatToIntChecked(f float64, p *types.Primitive, span diag.Span) (*ctVal, ctSignal) {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return nil, abortSig(span, "compile-time cannot convert non-finite float %v to `%s`", f, p.String())
 	}
-	target := inf.Type
-	if dist, ok := target.(*types.Distinct); ok {
-		if underlying := av.ty; underlying != nil && underlying.Equals(dist.Base) {
-			cp := av.clone()
-			cp.ty = dist
-			return cp, okSig()
+	tf := math.Trunc(f)
+	bits := primBitWidth(p)
+	if p.IsSignedInt() {
+		if bits == 64 {
+			if tf < -9223372036854775808.0 || tf >= 9223372036854775808.0 {
+				return nil, abortSig(span, "compile-time float %v out of range for `%s`", f, p.String())
+			}
+			return newCtSignedInt(int64(tf), p), okSig()
 		}
-		// Distinct unwrap or underlying cast
-		cp := av.clone()
-		cp.ty = target
-		return cp, okSig()
-	}
-	if _, isPrim := target.(*types.Primitive); isPrim && av.ty != nil {
-		if d, isDist := av.ty.(*types.Distinct); isDist && d.Base.Equals(target) {
-			cp := av.clone()
-			cp.ty = target
-			return cp, okSig()
+		minVal := -(int64(1) << uint(bits-1))
+		maxVal := (int64(1) << uint(bits-1)) - 1
+		if tf < float64(minVal) || tf > float64(maxVal) {
+			return nil, abortSig(span, "compile-time float %v out of range for `%s`", f, p.String())
 		}
+		return newCtSignedInt(int64(tf), p), okSig()
 	}
+	if bits == 64 {
+		if tf < 0 || tf >= 18446744073709551616.0 {
+			return nil, abortSig(span, "compile-time float %v out of range for `%s`", f, p.String())
+		}
+		return newCtInt(uint64(tf), p), okSig()
+	}
+	maxU := (uint64(1) << uint(bits)) - 1
+	if tf < 0 || tf > float64(maxU) {
+		return nil, abortSig(span, "compile-time float %v out of range for `%s`", f, p.String())
+	}
+	return newCtInt(uint64(tf), p), okSig()
+}
 
-	p := types.UnderlyingPrimitive(target)
-	if p == nil {
-		return av.clone(), okSig()
-	}
+func (s *ctState) convertCtValToPrim(av *ctVal, p *types.Primitive, span diag.Span) (*ctVal, ctSignal) {
 	if p.Kind == types.PrimChar {
 		var code int64
 		switch av.kind {
@@ -7830,7 +8762,7 @@ func (s *ctState) evalTypeConvertCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 			if av.prim != nil && !av.prim.IsSignedInt() {
 				u := av.asUint64()
 				if u > utf8.MaxRune {
-					return nil, abortSig(call.Span, "invalid char code point %d at compile time", u)
+					return nil, abortSig(span, "invalid char code point %d at compile time", u)
 				}
 				code = int64(u)
 			} else {
@@ -7839,10 +8771,10 @@ func (s *ctState) evalTypeConvertCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 		case ctChar:
 			return av.clone(), okSig()
 		default:
-			return nil, abortSig(call.Span, "cannot convert %v to `char`", av.ty)
+			return nil, abortSig(span, "cannot convert %v to `char`", av.ty)
 		}
 		if code < 0 || code > utf8.MaxRune || (code >= 0xD800 && code <= 0xDFFF) {
-			return nil, abortSig(call.Span, "invalid char code point %d at compile time", code)
+			return nil, abortSig(span, "invalid char code point %d at compile time", code)
 		}
 		return newCtChar(rune(code)), okSig()
 	}
@@ -7859,7 +8791,10 @@ func (s *ctState) evalTypeConvertCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 				f = float64(av.asInt64())
 			}
 		default:
-			return nil, abortSig(call.Span, "cannot convert %v to float", av.ty)
+			return nil, abortSig(span, "cannot convert %v to float", av.ty)
+		}
+		if p.Kind == types.PrimF32 {
+			f = float64(float32(f))
 		}
 		return newCtFloat(f, p), okSig()
 	}
@@ -7872,10 +8807,7 @@ func (s *ctState) evalTypeConvertCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 			}
 			return newCtInt(av.asUint64(), p), okSig()
 		case ctFloat:
-			if p.IsSignedInt() {
-				return newCtSignedInt(int64(av.f), p), okSig()
-			}
-			return newCtInt(uint64(av.f), p), okSig()
+			return floatToIntChecked(av.f, p, span)
 		case ctChar:
 			return newCtSignedInt(int64(av.ch), p), okSig()
 		case ctEnum:
@@ -7888,6 +8820,36 @@ func (s *ctState) evalTypeConvertCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal
 		}
 	}
 	return av.clone(), okSig()
+}
+
+func (s *ctState) evalTypeConvertCall(call *ast.CallExpr, inf *ExprInfo) (*ctVal, ctSignal) {
+	av, sig := s.evalExpr(call.Args[0])
+	if sig.kind != sigNone {
+		return nil, sig
+	}
+	target := inf.Type
+	if dist, ok := target.(*types.Distinct); ok {
+		baseTarget := types.UnwrapDistinct(dist)
+		var out *ctVal
+		if p, isPrim := baseTarget.(*types.Primitive); isPrim {
+			var csig ctSignal
+			out, csig = s.convertCtValToPrim(av, p, call.Span)
+			if csig.kind != sigNone {
+				return nil, csig
+			}
+		} else {
+			out = av.clone()
+		}
+		out.ty = dist
+		return out, okSig()
+	}
+	p := types.UnderlyingPrimitive(target)
+	if p == nil {
+		cp := av.clone()
+		cp.ty = target
+		return cp, okSig()
+	}
+	return s.convertCtValToPrim(av, p, call.Span)
 }
 
 func (s *ctState) formatFloat(val float64, prim *types.Primitive, span diag.Span) (string, ctSignal) {
@@ -8136,6 +9098,9 @@ func (s *ctState) evalBuiltinMethodCall(call *ast.CallExpr, inf *ExprInfo) (*ctV
 		if s1.kind != sigNone {
 			return nil, s1
 		}
+		if sig := s.chargeBulkSteps(int64(len(rv.list.elems)), call.Span); sig.kind != sigNone {
+			return nil, sig
+		}
 		found := false
 		for _, el := range rv.list.elems {
 			if el.equals(s.a, needle) {
@@ -8149,11 +9114,18 @@ func (s *ctState) evalBuiltinMethodCall(call *ast.CallExpr, inf *ExprInfo) (*ctV
 		if s1.kind != sigNone {
 			return nil, s1
 		}
+		if sig := s.chargeBulkSteps(int64(len(rv.list.elems)), call.Span); sig.kind != sigNone {
+			return nil, sig
+		}
 		parts := make([]string, len(rv.list.elems))
 		for i, el := range rv.list.elems {
 			parts[i] = el.s
 		}
-		res = newCtString(strings.Join(parts, sep.s))
+		joined := strings.Join(parts, sep.s)
+		if sig := s.allocMem(ctValMemCost+int64(len(joined)), call.Span); sig.kind != sigNone {
+			return nil, sig
+		}
+		res = newCtString(joined)
 	case "arr.len":
 		res = newCtSignedInt(int64(len(rv.arr.elems)), types.TypeInt)
 	case "arr.is_empty":
@@ -8172,6 +9144,9 @@ func (s *ctState) evalBuiltinMethodCall(call *ast.CallExpr, inf *ExprInfo) (*ctV
 		needle, s1 := s.evalExpr(call.Args[0])
 		if s1.kind != sigNone {
 			return nil, s1
+		}
+		if sig := s.chargeBulkSteps(int64(len(rv.arr.elems)), call.Span); sig.kind != sigNone {
+			return nil, sig
 		}
 		found := false
 		for _, el := range rv.arr.elems {
@@ -8212,6 +9187,25 @@ func (s *ctState) evalBuiltinMethodCall(call *ast.CallExpr, inf *ExprInfo) (*ctV
 		res, sig = s.evalDescriptorImplements(rv, inf.ResolvedIface, "elem", call.Span)
 		if sig.kind != sigNone {
 			return nil, sig
+		}
+	case "comp_distinct.implements":
+		res, sig = s.evalDescriptorImplements(rv, inf.ResolvedIface, "distinct", call.Span)
+		if sig.kind != sigNone {
+			return nil, sig
+		}
+	case "distinct.underlying":
+		dv, s1 := s.derefCtVal(rv, call.Span)
+		if s1.kind != sigNone {
+			return nil, s1
+		}
+		if dv == nil {
+			return nil, abortSig(call.Span, "nil value in `distinct.underlying()`")
+		}
+		res = dv.clone()
+		if inf.IntrinsicType != nil {
+			res.ty = inf.IntrinsicType
+		} else if dt, isDt := dv.ty.(*types.Distinct); isDt {
+			res.ty = dt.Base
 		}
 	case "struct.field":
 		dv, s1 := s.derefCtVal(rv, call.Span)
@@ -8303,6 +9297,12 @@ func (s *ctState) evalDescriptorImplements(rv *ctVal, ifc *types.Interface, expe
 	idx := rv.st.refl.Index
 	var memberTy types.Type
 	switch expectKind {
+	case "distinct":
+		dt, ok := targetTy.(*types.Distinct)
+		if !ok {
+			return nil, abortSig(span, "invalid `DistinctInfo` target type %s", targetTy.String())
+		}
+		memberTy = dt.Base
 	case "field":
 		st, ok := targetTy.(*types.Struct)
 		if !ok || idx < 0 || idx >= len(st.Fields) {
@@ -8373,8 +9373,19 @@ func (s *ctState) evalIndexGet(bv, iv *ctVal, span diag.Span) (*ctVal, ctSignal)
 		if bv.ptrVal == nil {
 			return nil, abortSig(span, "null pointer index at compile time")
 		}
+		if bv.ptrVal.alloc == nil && idx != 0 {
+			return nil, abortSig(span, "pointer indexing on non-heap address at compile time")
+		}
+		delta, okMul := mulInt64Checked(idx, bv.ptrVal.elemSize)
+		if !okMul {
+			return nil, abortSig(span, "pointer index offset overflow at compile time")
+		}
+		newOff, okAdd := addInt64Checked(bv.ptrVal.byteOff, delta)
+		if !okAdd {
+			return nil, abortSig(span, "pointer byte offset overflow at compile time")
+		}
 		ep := *bv.ptrVal
-		ep.byteOff += idx * ep.elemSize
+		ep.byteOff = newOff
 		if idx != 0 {
 			ep.place = nil
 		}
@@ -8500,7 +9511,15 @@ func (s *ctState) evalIndexSet(bv, iv, nv *ctVal, span diag.Span) ctSignal {
 				return okSig()
 			}
 			if elems, ok := listStructElems(bv); ok {
-				elems[idx] = nv
+				var elemTy types.Type
+				if len(bv.st.ty.TypeArgs) == 1 {
+					elemTy = bv.st.ty.TypeArgs[0]
+				}
+				toStore, sig := s.prepareOverwriteAndDropOld(elemTy, elems[idx], nv, span)
+				if sig.kind != sigNone {
+					return sig
+				}
+				elems[idx] = toStore
 				return okSig()
 			}
 		}
@@ -8509,8 +9528,19 @@ func (s *ctState) evalIndexSet(bv, iv, nv *ctVal, span diag.Span) ctSignal {
 		if bv.ptrVal == nil {
 			return abortSig(span, "null pointer index assignment at compile time")
 		}
+		if bv.ptrVal.alloc == nil && idx != 0 {
+			return abortSig(span, "pointer indexing on non-heap address at compile time")
+		}
+		delta, okMul := mulInt64Checked(idx, bv.ptrVal.elemSize)
+		if !okMul {
+			return abortSig(span, "pointer index offset overflow at compile time")
+		}
+		newOff, okAdd := addInt64Checked(bv.ptrVal.byteOff, delta)
+		if !okAdd {
+			return abortSig(span, "pointer byte offset overflow at compile time")
+		}
 		ep := *bv.ptrVal
-		ep.byteOff += idx * ep.elemSize
+		ep.byteOff = newOff
 		if idx != 0 {
 			ep.place = nil
 		}
@@ -8524,14 +9554,22 @@ func (s *ctState) evalIndexSet(bv, iv, nv *ctVal, span diag.Span) ctSignal {
 		if idx < 0 || idx >= int64(len(bv.list.elems)) {
 			return abortSig(span, "compile-time list index %d out of bounds (len %d)", idx, len(bv.list.elems))
 		}
-		bv.list.elems[idx] = nv
+		toStore, sig := s.prepareOverwriteAndDropOld(bv.list.elemTy, bv.list.elems[idx], nv, span)
+		if sig.kind != sigNone {
+			return sig
+		}
+		bv.list.elems[idx] = toStore
 		return okSig()
 	case ctArray:
 		idx := iv.asInt64()
 		if idx < 0 || idx >= int64(len(bv.arr.elems)) {
 			return abortSig(span, "compile-time array index %d out of bounds (len %d)", idx, len(bv.arr.elems))
 		}
-		bv.arr.elems[idx] = nv
+		toStore, sig := s.prepareOverwriteAndDropOld(bv.arr.elemTy, bv.arr.elems[idx], nv, span)
+		if sig.kind != sigNone {
+			return sig
+		}
+		bv.arr.elems[idx] = toStore
 		return okSig()
 	}
 	return abortSig(span, "cannot assign index on type %v at compile time", bv.ty)
@@ -8541,6 +9579,9 @@ func (s *ctState) evalSlice(bv *ctVal, loPtr, hiPtr *int64, inclusive, borrowAsV
 	var total int64
 	switch bv.kind {
 	case ctString:
+		if bv.sAlloc != nil && bv.sAlloc.freed {
+			return nil, abortSig(span, "use-after-free slicing compile-time string")
+		}
 		total = int64(len(bv.s))
 	case ctList:
 		total = int64(len(bv.list.elems))
@@ -8565,6 +9606,9 @@ func (s *ctState) evalSlice(bv *ctVal, loPtr, hiPtr *int64, inclusive, borrowAsV
 	if hiPtr != nil {
 		hi = *hiPtr
 		if inclusive {
+			if hi == math.MaxInt64 {
+				return nil, abortSig(span, "compile-time inclusive slice range [%d..=%d] out of bounds (len %d)", lo, hi, total)
+			}
 			hi++
 		}
 	}
@@ -8573,6 +9617,9 @@ func (s *ctState) evalSlice(bv *ctVal, loPtr, hiPtr *int64, inclusive, borrowAsV
 	}
 	switch bv.kind {
 	case ctString:
+		if utf8.ValidString(bv.s) && ((lo < total && !utf8.RuneStart(bv.s[lo])) || (hi < total && !utf8.RuneStart(bv.s[hi]))) {
+			return nil, abortSig(span, "compile-time string slice [%d..%d] splits a UTF-8 code point", lo, hi)
+		}
 		sub := bv.s[lo:hi]
 		if borrowAsView || hi == lo {
 			if bv.sAlloc != nil && !bv.sAlloc.freed {
@@ -8615,7 +9662,15 @@ func (s *ctState) evalSlice(bv *ctVal, loPtr, hiPtr *int64, inclusive, borrowAsV
 			var slicePtr *ctPtr
 			if dv := bv.st.fields["data"]; dv != nil && dv.kind == ctPointer && dv.ptrVal != nil {
 				p := *dv.ptrVal
-				p.byteOff += lo * p.elemSize
+				delta, okMul := mulInt64Checked(lo, p.elemSize)
+				if !okMul {
+					return nil, abortSig(span, "slice byte offset overflow at compile time")
+				}
+				newOff, okAdd := addInt64Checked(p.byteOff, delta)
+				if !okAdd {
+					return nil, abortSig(span, "slice byte offset overflow at compile time")
+				}
+				p.byteOff = newOff
 				p.place = nil
 				slicePtr = &p
 			} else {
@@ -8632,10 +9687,16 @@ func (s *ctState) evalSlice(bv *ctVal, loPtr, hiPtr *int64, inclusive, borrowAsV
 				st:   &ctStructBox{ty: bv.st.ty, fields: fields, fieldOrder: []string{"data", "len", "cap"}},
 			}, okSig()
 		}
+		if sig := s.chargeBulkSteps(hi-lo, span); sig.kind != sigNone {
+			return nil, sig
+		}
 		if bs, _, ok := listStructBytes(bv); ok {
 			return s.makeByteListStruct(bs[lo:hi], span)
 		}
 		elems, _ := listStructElems(bv)
+		if sig := s.allocMem((hi-lo)*ctValMemCost, span); sig.kind != sigNone {
+			return nil, sig
+		}
 		out := make([]*ctVal, hi-lo)
 		for i := lo; i < hi; i++ {
 			out[i-lo] = elems[i].clone()
@@ -8763,7 +9824,39 @@ func ExportStaticData(raw any, expectedTy types.Type) *StaticData {
 	if !ok || cv == nil {
 		return nil
 	}
-	return exportCtVal(cv, expectedTy)
+	sd := exportCtVal(cv, expectedTy)
+	if sd == nil || staticDataHasNonNoneBoxedOpt(sd) {
+		return nil
+	}
+	return sd
+}
+
+func staticDataHasNonNoneBoxedOpt(sd *StaticData) bool {
+	if sd == nil {
+		return false
+	}
+	if sd.Kind == StaticOpt {
+		if opt, ok := types.UnwrapDistinct(sd.Type).(*types.Optional); ok && opt.IsBoxed() && sd.HasOpt {
+			return true
+		}
+		if staticDataHasNonNoneBoxedOpt(sd.OptElem) {
+			return true
+		}
+	}
+	if staticDataHasNonNoneBoxedOpt(sd.Payload) {
+		return true
+	}
+	for _, el := range sd.Elems {
+		if staticDataHasNonNoneBoxedOpt(el) {
+			return true
+		}
+	}
+	for _, f := range sd.Fields {
+		if staticDataHasNonNoneBoxedOpt(f) {
+			return true
+		}
+	}
+	return false
 }
 
 func exportCtVal(cv *ctVal, expectedTy types.Type) *StaticData {
@@ -8985,6 +10078,22 @@ func ctValToConstValue(v *ctVal, expectedTy types.Type) *types.ConstValue {
 	if v == nil || expectedTy == nil {
 		return nil
 	}
+	if dt, isDist := expectedTy.(*types.Distinct); isDist {
+		baseCV := ctValToConstValue(v, dt.Base)
+		if baseCV == nil {
+			return nil
+		}
+		cp := *baseCV
+		cp.ConstType = dt
+		if cp.CtVal != nil {
+			if ctv, ok := cp.CtVal.(*ctVal); ok && ctv != nil {
+				ctCopy := ctv.clone()
+				ctCopy.ty = dt
+				cp.CtVal = ctCopy
+			}
+		}
+		return &cp
+	}
 	switch et := expectedTy.(type) {
 	case *types.Primitive:
 		if et.IsInteger() {
@@ -9141,6 +10250,9 @@ func (s *ctState) evalCompFieldsOf(ty types.Type, span diag.Span) (*ctVal, ctSig
 	if fieldSt == nil || !ok || !isFieldInspectableStruct(st) {
 		return nil, abortSig(span, "`comp.fields_of` requires a struct type")
 	}
+	if !s.a.ensureStructFieldsForLayout(st, span) {
+		return nil, abortSig(span, "cyclic dependency resolving fields of %s", st.String())
+	}
 	elems := make([]*ctVal, 0, len(st.Fields))
 	for idx, f := range st.Fields {
 		attrsVal, sig := s.evalCompAttrList(f.Attributes, span)
@@ -9246,6 +10358,26 @@ func (s *ctState) evalCompElemsOf(ty types.Type, span diag.Span) (*ctVal, ctSign
 		})
 	}
 	return s.makeListStruct(&types.Vector{Elem: elemSt}, elems, span)
+}
+
+func (s *ctState) evalCompUnderlyingOf(ty types.Type, span diag.Span) (*ctVal, ctSignal) {
+	distSt := s.a.Prog.StructDistinctInfo
+	dt, ok := ty.(*types.Distinct)
+	if distSt == nil || !ok {
+		return nil, abortSig(span, "`comp.underlying_of` requires a distinct type")
+	}
+	return &ctVal{
+		kind: ctStruct,
+		ty:   distSt,
+		st: &ctStructBox{
+			ty: distSt,
+			fields: map[string]*ctVal{
+				"type_name": newCtString(dt.Base.String()),
+			},
+			fieldOrder: []string{"type_name"},
+			refl:       &ctReflectMeta{TargetType: dt, Kind: "distinct"},
+		},
+	}, okSig()
 }
 
 func (s *ctState) evalCompAttrsOf(ty types.Type, span diag.Span) (*ctVal, ctSignal) {

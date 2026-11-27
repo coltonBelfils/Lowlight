@@ -669,7 +669,7 @@ func enumVariantTagEqExpr(valExpr Expr, en *types.Enum, vr *types.EnumVariant) E
 		return &ExprBinary{
 			Op:    token.Eq,
 			Left:  &ExprField{Base: EnsureExpr(valExpr, en), FieldName: "tag", Typ: types.TypeInt},
-			Right: NewLitInt(uint64(vr.Value), vr.Value < 0, types.TypeInt),
+			Right: NewLitInt64(vr.Value),
 			Typ:   types.TypeBool,
 		}
 	}
@@ -775,7 +775,7 @@ func (fl *funcLowerer) lowerBuiltinMethodCall(call *ast.CallExpr, inf *sema.Expr
 			uTmp := fl.allocSlot("_ll_buw", innerTy)
 			fl.assignLocal(uTmp, unwrapped)
 			innerCall, innerRetTy := fl.emitReadBuiltinMethodOnVal(call, inf, innerTy, NewLocalExpr(uTmp))
-			if !innerRetTy.IsPlain() && (inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload") {
+			if !innerRetTy.IsPlain() && (inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload" || inf.BuiltinName == "distinct.underlying") {
 				innerCall = fl.copyCallExpr(innerRetTy, innerCall)
 			}
 			if _, retAlreadyOpt := innerRetTy.(*types.Optional); retAlreadyOpt {
@@ -890,6 +890,10 @@ func (fl *funcLowerer) emitReadBuiltinMethodOnVal(
 	case "enum.is_variant":
 		en := inf.EnumType
 		return enumVariantTagEqExpr(recvVal, en, inf.EnumVariant), types.TypeBool
+
+	case "distinct.underlying":
+		dt := recvTy.(*types.Distinct)
+		return &ExprCast{Val: EnsureExpr(recvVal, recvTy), From: recvTy, To: dt.Base}, dt.Base
 
 	case "enum.payload":
 		en := inf.EnumType

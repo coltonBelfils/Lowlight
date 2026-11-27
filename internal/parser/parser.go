@@ -849,6 +849,9 @@ func (p *Parser) parseTopVarOrMethodDecl() ast.Decl {
 		if p.cur().Kind == token.LBracket {
 			tp := p.parseTypeParams()
 			for _, t := range tp {
+				if len(t.Bounds) > 0 {
+					p.rep.Errorf(t.Span, "interface bounds are not allowed on receiver type parameter `%s` (declare bounds on the type definition or the method's type parameters)", t.Name)
+				}
 				recvTParams = append(recvTParams, t.Name)
 			}
 		}

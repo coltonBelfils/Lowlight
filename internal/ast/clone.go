@@ -387,23 +387,144 @@ func cloneParams(ps []Param) []Param {
 	return out
 }
 
+func cloneAttributes(attrs []Attribute) []Attribute {
+	if attrs == nil {
+		return nil
+	}
+	out := make([]Attribute, len(attrs))
+	for i, a := range attrs {
+		cp := a
+		cp.Args = append([]string(nil), a.Args...)
+		out[i] = cp
+	}
+	return out
+}
+
+func cloneTypeParams(tps []TypeParam) []TypeParam {
+	if tps == nil {
+		return nil
+	}
+	out := make([]TypeParam, len(tps))
+	for i, tp := range tps {
+		cp := tp
+		cp.ConstType = CloneTypeExpr(tp.ConstType)
+		cp.Bounds = append([]string(nil), tp.Bounds...)
+		out[i] = cp
+	}
+	return out
+}
+
+func cloneDecls(ds []Decl) []Decl {
+	if ds == nil {
+		return nil
+	}
+	out := make([]Decl, len(ds))
+	for i, d := range ds {
+		out[i] = CloneDecl(d)
+	}
+	return out
+}
+
+func cloneTopComptimeIfDecl(v *TopComptimeIfDecl) *TopComptimeIfDecl {
+	if v == nil {
+		return nil
+	}
+	cp := *v
+	cp.Cond = CloneExpr(v.Cond)
+	cp.ThenDecls = cloneDecls(v.ThenDecls)
+	cp.ElseIf = cloneTopComptimeIfDecl(v.ElseIf)
+	cp.ElseDecls = cloneDecls(v.ElseDecls)
+	return &cp
+}
+
 func CloneDecl(d Decl) Decl {
 	if d == nil {
 		return nil
 	}
 	switch v := d.(type) {
+	case *ImportDecl:
+		cp := *v
+		cp.Attributes = cloneAttributes(v.Attributes)
+		return &cp
+	case *ExternHeaderDecl:
+		cp := *v
+		cp.Attributes = cloneAttributes(v.Attributes)
+		return &cp
+	case *ExternFnDecl:
+		cp := *v
+		cp.Params = cloneParams(v.Params)
+		cp.Ret = CloneTypeExpr(v.Ret)
+		cp.Attributes = cloneAttributes(v.Attributes)
+		return &cp
+	case *StructDecl:
+		cp := *v
+		cp.TypeParams = cloneTypeParams(v.TypeParams)
+		if v.Fields != nil {
+			cp.Fields = make([]StructField, len(v.Fields))
+			for i, f := range v.Fields {
+				cf := f
+				cf.Type = CloneTypeExpr(f.Type)
+				cf.Default = CloneExpr(f.Default)
+				cf.Attributes = cloneAttributes(f.Attributes)
+				cp.Fields[i] = cf
+			}
+		}
+		cp.Attributes = cloneAttributes(v.Attributes)
+		return &cp
+	case *EnumDecl:
+		cp := *v
+		cp.TypeParams = cloneTypeParams(v.TypeParams)
+		cp.BaseType = CloneTypeExpr(v.BaseType)
+		if v.Variants != nil {
+			cp.Variants = make([]EnumVariant, len(v.Variants))
+			for i, vr := range v.Variants {
+				cv := vr
+				cv.Value = CloneExpr(vr.Value)
+				cv.PayloadType = CloneTypeExpr(vr.PayloadType)
+				cv.Attributes = cloneAttributes(vr.Attributes)
+				cp.Variants[i] = cv
+			}
+		}
+		cp.Attributes = cloneAttributes(v.Attributes)
+		return &cp
+	case *InterfaceDecl:
+		cp := *v
+		cp.TypeParams = cloneTypeParams(v.TypeParams)
+		if v.Methods != nil {
+			cp.Methods = make([]InterfaceMethod, len(v.Methods))
+			for i, m := range v.Methods {
+				cm := m
+				cm.Params = cloneParams(m.Params)
+				cm.Ret = CloneTypeExpr(m.Ret)
+				cp.Methods[i] = cm
+			}
+		}
+		cp.Attributes = cloneAttributes(v.Attributes)
+		return &cp
+	case *DistinctTypeDecl:
+		cp := *v
+		cp.Base = CloneTypeExpr(v.Base)
+		cp.Attributes = cloneAttributes(v.Attributes)
+		return &cp
 	case *VarDecl:
 		cp := *v
+		cp.TypeParams = cloneTypeParams(v.TypeParams)
 		cp.Type = CloneTypeExpr(v.Type)
 		cp.Value = CloneExpr(v.Value)
+		cp.Attributes = cloneAttributes(v.Attributes)
 		return &cp
 	case *MethodDecl:
 		cp := *v
+		cp.RecvTypeParams = append([]string(nil), v.RecvTypeParams...)
+		cp.TypeParams = cloneTypeParams(v.TypeParams)
 		cp.RecvExplicitTy = CloneTypeExpr(v.RecvExplicitTy)
 		cp.Params = cloneParams(v.Params)
 		cp.Ret = CloneTypeExpr(v.Ret)
 		cp.Body = CloneExpr(v.Body)
+		cp.Attributes = cloneAttributes(v.Attributes)
 		return &cp
+	case *TopComptimeIfDecl:
+		return cloneTopComptimeIfDecl(v)
 	default:
 		return d
 	}

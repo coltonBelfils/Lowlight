@@ -183,7 +183,28 @@ var builtinUniverseTargets = map[string]string{
 	"alloc": "Unsafe raw allocation", "free": "Unsafe deallocation",
 	"sizeof": "Type size in bytes", "alignof": "Type alignment in bytes",
 	"caller_file": "Track-caller file path", "caller_line": "Track-caller line number",
-	"caller_col": "Track-caller column number", "exit": "Process exit",
+	"caller_col": "Track-caller column number", "caller_location": "Track-caller file:line:col location",
+	"exit":     "Process exit",
+	"Printable": "Built-in string formatting interface", "Copyable": "Built-in deep copy interface",
+	"Drop": "Built-in destructor interface", "Equatable": "Built-in equality interface",
+	"Hashable": "Built-in hashing interface", "Comparable": "Built-in ordering interface",
+	"Addable": "Built-in addition interface", "AddAssignable": "Built-in add-assign interface",
+	"Indexable": "Built-in indexing interface",
+	"type.size_of": "Compile-time byte size intrinsic", "type.align_of": "Compile-time byte alignment intrinsic",
+	"type.is_plain": "Compile-time plain-type predicate intrinsic",
+	"comp.TARGET": "Compile-time target descriptor", "comp.Target": "Compile-time target struct",
+	"comp.TargetOs": "Compile-time OS enum", "comp.TargetArch": "Compile-time CPU architecture enum",
+	"comp.Endian": "Compile-time endianness enum", "comp.TypeKind": "Compile-time type kind enum",
+	"comp.AttrInfo": "Compile-time attribute descriptor", "comp.FieldInfo": "Compile-time struct field descriptor",
+	"comp.VariantInfo": "Compile-time enum variant descriptor", "comp.ElemInfo": "Compile-time element descriptor",
+	"comp.DistinctInfo": "Compile-time distinct type descriptor",
+	"comp.type_name": "Compile-time type name intrinsic", "comp.kind_of": "Compile-time type kind intrinsic",
+	"comp.fields_of": "Compile-time struct fields intrinsic", "comp.variants_of": "Compile-time enum variants intrinsic",
+	"comp.elems_of": "Compile-time sequence element descriptors intrinsic",
+	"comp.underlying_of": "Compile-time distinct underlying descriptor intrinsic",
+	"comp.attrs_of": "Compile-time attribute reflection intrinsic", "comp.implements": "Compile-time interface satisfaction predicate",
+	"comp.compile_error": "Compile-time fatal error intrinsic", "comp.log": "Compile-time diagnostic note intrinsic",
+	"comp.embed_str": "Compile-time UTF-8 file embedding intrinsic", "comp.embed_bytes": "Compile-time binary file embedding intrinsic",
 }
 
 // BuildSymbolIndex collects all declarations and doc comments from parsed/analyzed modules.
@@ -291,7 +312,11 @@ func (idx *SymbolIndex) indexASTFile(absPath string, f *ast.File, src string) {
 		idx.ModAliases[base] = modEntry
 	}
 
-	for _, d := range f.Decls {
+	idx.indexDecls(f.Decls, absPath, src, modName, slug, htmlPage)
+}
+
+func (idx *SymbolIndex) indexDecls(decls []ast.Decl, absPath, src, modName, slug, htmlPage string) {
+	for _, d := range decls {
 		switch v := d.(type) {
 		case *ast.StructDecl:
 			if isPrivateOrTestOnly(v.Name, v.Attributes) {
@@ -488,7 +513,7 @@ func (idx *SymbolIndex) indexASTFile(absPath string, f *ast.File, src string) {
 			})
 
 		case *ast.VarDecl:
-			if !v.IsBind || isPrivateOrTestOnly(v.Name, v.Attributes) {
+			if (!v.IsBind && !v.IsConst) || isPrivateOrTestOnly(v.Name, v.Attributes) {
 				continue
 			}
 			kind := KindConst
@@ -511,6 +536,13 @@ func (idx *SymbolIndex) indexASTFile(absPath string, f *ast.File, src string) {
 				Anchor:     v.Name,
 				SearchDesc: firstSentence(v.Doc),
 			})
+
+		case *ast.TopComptimeIfDecl:
+			idx.indexDecls(v.ThenDecls, absPath, src, modName, slug, htmlPage)
+			if v.ElseIf != nil {
+				idx.indexDecls([]ast.Decl{v.ElseIf}, absPath, src, modName, slug, htmlPage)
+			}
+			idx.indexDecls(v.ElseDecls, absPath, src, modName, slug, htmlPage)
 		}
 	}
 }
@@ -870,12 +902,16 @@ func formatExternSig(v *ast.ExternFnDecl) string {
 }
 
 func formatVarDeclSig(v *ast.VarDecl, src string) string {
+	kw := "bind"
+	if v.IsConst {
+		kw = "const"
+	}
 	if fl, isFn := v.Value.(*ast.FuncLit); isFn {
 		ret := ""
 		if fl.Ret != nil {
 			ret = " " + formatTypeStr(fl.Ret)
 		}
-		return fmt.Sprintf("bind %s%s = fn%s%s", v.Name, formatTypeParams(v.TypeParams), formatParamsStr(fl.Params), ret)
+		return fmt.Sprintf("%s %s%s = fn%s%s", kw, v.Name, formatTypeParams(v.TypeParams), formatParamsStr(fl.Params), ret)
 	}
 	ty := ""
 	if v.Type != nil {
@@ -889,5 +925,5 @@ func formatVarDeclSig(v *ast.VarDecl, src string) string {
 			valSnippet = " = " + raw
 		}
 	}
-	return fmt.Sprintf("bind %s%s%s", v.Name, ty, valSnippet)
+	return fmt.Sprintf("%s %s%s%s", kw, v.Name, ty, valSnippet)
 }

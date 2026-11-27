@@ -18,15 +18,19 @@ comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 	extern ftell as _fs_ftell: fn(fp: ptr[u8]) int
 	extern fflush as _fs_fflush: fn(fp: ptr[u8]) i32
 	extern ferror as _fs_ferror: fn(fp: ptr[u8]) i32
+	extern clearerr as _fs_clearerr: fn(fp: ptr[u8])
 	extern fileno as _fs_fileno: fn(fp: ptr[u8]) i32
+	extern ll_rt_fcntl as _fs_fcntl: fn(fd: i32, cmd: i32, arg: i32) i32
 	extern remove as _fs_remove: fn(path: ptr[u8]) i32
 	extern rename as _fs_rename: fn(old_path: ptr[u8], new_path: ptr[u8]) i32
 	comptime if(comp.TARGET.arch == comp.TargetArch.amd64): {
 		extern "stat\$INODE64" as _fs_stat: fn(path: ptr[u8], buf: ptr[u8]) i32
 		extern "fstat\$INODE64" as _fs_fstat: fn(fd: i32, buf: ptr[u8]) i32
-	} else: {
+	} else comptime if(comp.TARGET.arch == comp.TargetArch.arm64): {
 		extern stat as _fs_stat: fn(path: ptr[u8], buf: ptr[u8]) i32
 		extern fstat as _fs_fstat: fn(fd: i32, buf: ptr[u8]) i32
+	} else: {
+		const _fs_unsupported_darwin_arch = comp.compile_error("std/fs: unsupported Darwin architecture")
 	}
 }
 
@@ -126,7 +130,7 @@ bind File._write_all_fd = fn(&self, buf: ptr[u8], count: int) int: {
 	if(count <= 0): func <- 0
 	self._has_err = false
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_write = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 64 else: 1
+		let sys_write = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 64 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 1 else: comp.compile_error("std/fs: unsupported Linux architecture for write")
 		let off = 0
 		for(off < count): {
 			let n = unsafe syscall(
@@ -185,7 +189,7 @@ bind File.drop = fn(&self): {
 		comptime if(comp.TARGET.os == comp.TargetOs.linux): {
 			let _ = self._flush_write_buf()
 			self._free_write_buf()
-			let sys_close = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 57 else: 3
+			let sys_close = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 57 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 3 else: comp.compile_error("std/fs: unsupported Linux architecture for close")
 			let _ = unsafe syscall(sys_close, self._fd, 0, 0, 0, 0, 0)
 		} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 			let _ = unsafe _fs_fclose(self._handle)
@@ -208,13 +212,14 @@ bind _mode_purpose = fn(mode: string) string:
 		default: "with mode \"$mode\""
 
 bind _linux_open_flags = fn(mode: string) int:
+	// Every mode includes O_CLOEXEC (524288) to prevent descriptor leaks across exec.
 	match(mode):
-		when "r", "rb": 0
-		when "w", "wb": 577
-		when "a", "ab": 1089
-		when "r+", "r+b", "rb+": 2
-		when "w+", "w+b", "wb+": 578
-		when "a+", "a+b", "ab+": 1090
+		when "r", "rb": 524288
+		when "w", "wb": 524865
+		when "a", "ab": 525377
+		when "r+", "r+b", "rb+": 524290
+		when "w+", "w+b", "wb+": 524866
+		when "a+", "a+b", "ab+": 525378
 		default: -1
 
 // Opens a [`File`] at `path` using C stdio mode string `mode` (such as `"rb"` or `"wb"`).
@@ -239,7 +244,7 @@ bind File.open = fn(path: string, mode: string) FileResult[File]: {
 				os.set_last_errno(22)
 				code = 22
 			} else: {
-				let sys_openat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 56 else: 257
+				let sys_openat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 56 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 257 else: comp.compile_error("std/fs: unsupported Linux architecture for openat")
 				let fd = unsafe syscall(
 					sys_openat,
 					-100,
@@ -249,6 +254,17 @@ bind File.open = fn(path: string, mode: string) FileResult[File]: {
 					0,
 					0,
 				)
+				while(fd == -4): {
+					fd = unsafe syscall(
+						sys_openat,
+						-100,
+						int(ptr_addr(path.c_str())),
+						flags,
+						420,
+						0,
+						0,
+					)
+				}
 				if(fd >= 0): func <- value(
 					File[
 						_handle: unsafe null_ptr[u8](),
@@ -265,17 +281,23 @@ bind File.open = fn(path: string, mode: string) FileResult[File]: {
 			}
 		} else: {
 			let fp = unsafe _fs_fopen(path.c_str(), mode.c_str())
-			if(unsafe (fp != null_ptr[u8]())): func <- value(
-				File[
-					_handle: fp,
-					_fd: -1,
-					_is_open: true,
-					_has_err: false,
-					_wbuf: unsafe null_ptr[u8](),
-					_wlen: 0,
-					_wcap: 0,
-				]
-			)
+			if(unsafe (fp != null_ptr[u8]())): {
+				let cfd = unsafe _fs_fileno(fp)
+				if(cfd >= i32(0)): {
+					let _ = unsafe _fs_fcntl(cfd, i32(2), i32(1))
+				}
+				func <- value(
+					File[
+						_handle: fp,
+						_fd: -1,
+						_is_open: true,
+						_has_err: false,
+						_wbuf: unsafe null_ptr[u8](),
+						_wlen: 0,
+						_wcap: 0,
+					]
+				)
+			}
 			code = os.last_errno()
 		}
 		let e = os.error_from_errno(code, "failed to open \"$path\" ${_mode_purpose(mode)}")
@@ -323,7 +345,7 @@ bind File.close = fn(&self) Status: {
 		flush_ok = self._flush_write_buf()
 		if(not flush_ok): flush_code = os.last_errno()
 		self._free_write_buf()
-		let sys_close = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 57 else: 3
+		let sys_close = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 57 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 3 else: comp.compile_error("std/fs: unsupported Linux architecture for close")
 		let r = unsafe syscall(sys_close, self._fd, 0, 0, 0, 0, 0)
 		if(r < 0): {
 			rc = -1
@@ -371,7 +393,7 @@ bind File.seek = fn(&self, offset: int, whence: i32) Result[int]: {
 		if(not self._flush_write_buf()): func <- err(
 			os.error_from_errno(os.last_errno(), "failed to flush before seek")
 		)
-		let sys_lseek = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 62 else: 8
+		let sys_lseek = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 62 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 8 else: comp.compile_error("std/fs: unsupported Linux architecture for lseek")
 		let pos = unsafe syscall(sys_lseek, self._fd, offset, int(whence), 0, 0, 0)
 		if(pos < 0): {
 			let c = -pos
@@ -401,7 +423,7 @@ bind File.tell = fn(&self) Result[int]: {
 		if(not self._flush_write_buf()): func <- err(
 			os.error_from_errno(os.last_errno(), "failed to flush before tell")
 		)
-		let sys_lseek = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 62 else: 8
+		let sys_lseek = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 62 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 8 else: comp.compile_error("std/fs: unsupported Linux architecture for lseek")
 		let pos = unsafe syscall(sys_lseek, self._fd, 0, 1, 0, 0, 0)
 		if(pos < 0): {
 			let c = -pos
@@ -461,7 +483,7 @@ bind File._read_raw = fn(&self, buf: ptr[u8], count: int) int: {
 	self._has_err = false
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
 		if(self._wlen > 0 and not self._flush_write_buf()): func <- -1
-		let sys_read = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 63 else: 0
+		let sys_read = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 63 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 0 else: comp.compile_error("std/fs: unsupported Linux architecture for read")
 		for(true): {
 			let n = unsafe syscall(sys_read, self._fd, int(ptr_addr(buf)), count, 0, 0, 0)
 			if(n == -4): next <-
@@ -474,12 +496,21 @@ bind File._read_raw = fn(&self, buf: ptr[u8], count: int) int: {
 		}
 		0
 	} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
-		let n = unsafe _fs_fread(buf, 1, count, self._handle)
-		if(n == 0 and unsafe (_fs_ferror(self._handle) != i32(0))): {
-			self._has_err = true
-			func <- -1
+		for(true): {
+			let n = unsafe _fs_fread(buf, 1, count, self._handle)
+			if(n < count and unsafe (_fs_ferror(self._handle) != i32(0))): {
+				let e = os.last_errno()
+				if(e == 4): {
+					unsafe _fs_clearerr(self._handle)
+					if(n > 0): func <- n
+					next <-
+				}
+				self._has_err = true
+				func <- -1
+			}
+			func <- n
 		}
-		n
+		0
 	} else: {
 		let _ = buf
 		0
@@ -728,7 +759,7 @@ bind remove_file = fn(path: string) RemoveResult: {
 	}
 	comptime if(comp.TARGET.os == comp.TargetOs.linux or comp.TARGET.os == comp.TargetOs.darwin): {
 		let code = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-			let sys_unlinkat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 35 else: 263
+			let sys_unlinkat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 35 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 263 else: comp.compile_error("std/fs: unsupported Linux architecture for unlinkat")
 			let rc = unsafe syscall(sys_unlinkat, -100, int(ptr_addr(path.c_str())), 0, 0, 0, 0)
 			if(rc == 0): func <- value
 			if(rc == -21): {
@@ -762,7 +793,7 @@ bind rename_file = fn(old_path: string, new_path: string) RenameResult: {
 	}
 	comptime if(comp.TARGET.os == comp.TargetOs.linux or comp.TARGET.os == comp.TargetOs.darwin): {
 		let code = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-			let sys_renameat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 38 else: 264
+			let sys_renameat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 38 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 264 else: comp.compile_error("std/fs: unsupported Linux architecture for renameat")
 			let rc = unsafe syscall(
 				sys_renameat,
 				-100,
@@ -794,8 +825,8 @@ bind rename_file = fn(old_path: string, new_path: string) RenameResult: {
 bind File._is_same_target = fn(self, dst_path: string) bool: {
 	if(not self.is_valid()): func <- false
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_fstat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 80 else: 5
-		let sys_newfstatat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 79 else: 262
+		let sys_fstat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 80 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 5 else: comp.compile_error("std/fs: unsupported Linux architecture for fstat")
+		let sys_newfstatat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 79 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 262 else: comp.compile_error("std/fs: unsupported Linux architecture for newfstatat")
 		unsafe {
 			let sb = alloc_raw[u8](160)
 			let db = alloc_raw[u8](160)
@@ -905,7 +936,7 @@ bind _test_tmp_path = fn(name: string) string: {
 	if(base.len() == 0): base = "/tmp"
 	if(base.len() > 1 and base.byte_at(base.len() - 1) == u8(47)): base = base[0..base.len() - 1]
 	let stamp = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_clock = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 113 else: 228
+		let sys_clock = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 113 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 228 else: comp.compile_error("std/fs: unsupported Linux architecture for clock_gettime")
 		unsafe {
 			let ts = alloc_raw[int](2)
 			ptr_write(ts, 0)
@@ -1180,10 +1211,10 @@ bind _test_link_pair = fn(existing: string, linkpath: string, sym: bool) bool: {
 		else: unsafe (_fs_test_link(existing.c_str(), linkpath.c_str()) == i32(0))
 	} else comptime if(comp.TARGET.os == comp.TargetOs.linux): {
 		if(sym): {
-			let sys_sym = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 36 else: 266
+			let sys_sym = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 36 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 266 else: comp.compile_error("std/fs: unsupported Linux architecture for symlinkat")
 			unsafe syscall(sys_sym, int(ptr_addr(existing.c_str())), -100, int(ptr_addr(linkpath.c_str())), 0, 0, 0) == 0
 		} else: {
-			let sys_lnk = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 37 else: 265
+			let sys_lnk = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 37 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 265 else: comp.compile_error("std/fs: unsupported Linux architecture for linkat")
 			unsafe syscall(sys_lnk, -100, int(ptr_addr(existing.c_str())), -100, int(ptr_addr(linkpath.c_str())), 0, 0) == 0
 		}
 	} else: {

@@ -2561,3 +2561,86 @@ func TestLSPComptimeEmbedOverlaysAndDynamicWatchers(t *testing.T) {
 		t.Fatalf("expected zero publishDiagnostics notifications for non-.ll overlays, got: %v", publishedNonLL)
 	}
 }
+
+func TestLSPComptimeDotCompletionAttributesAndConst(t *testing.T) {
+	h := newHarness(t)
+	wsDir := t.TempDir()
+	var initRes lsp.InitializeResult
+	h.request("initialize", lsp.InitializeParams{RootURI: lsp.PathToURI(wsDir)}, &initRes)
+	h.notify("initialized", struct{}{})
+
+	filePath := filepath.Join(wsDir, "phase6_lsp.ll")
+	uri := lsp.PathToURI(filePath)
+	src := `// Top constant.
+const LIMIT_VAL: int = 10
+
+@derive(Equatable)
+define Tag int
+
+bind test_ns = fn(): {
+	let _ = comp.
+}
+`
+	h.notify("textDocument/didOpen", lsp.DidOpenTextDocumentParams{
+		TextDocument: lsp.TextDocumentItem{URI: uri, LanguageID: "lowlight", Version: 1, Text: src},
+	})
+	_ = h.waitDiagnostics(uri)
+
+	compOff := strings.Index(src, "comp.") + len("comp.")
+	var compList lsp.CompletionList
+	h.request("textDocument/completion", lsp.CompletionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.OffsetToLSP(src, compOff),
+	}, &compList)
+
+	labels := map[string]bool{}
+	for _, it := range compList.Items {
+		labels[it.Label] = true
+	}
+	for _, want := range []string{"type_name", "kind_of", "fields_of", "variants_of", "elems_of", "underlying_of", "attrs_of", "implements", "DistinctInfo", "TARGET"} {
+		if !labels[want] {
+			t.Fatalf("expected `comp.` completion to include %q, got: %+v", want, labels)
+		}
+	}
+
+	// Attribute completion on `@` includes @derive (with distinct) and @comptime_only / @comptime_limit / @derivable.
+	srcAttr := "@\nconst LIMIT_VAL: int = 10\n"
+	h.notify("textDocument/didChange", lsp.DidChangeTextDocumentParams{
+		TextDocument:   lsp.VersionedTextDocumentIdentifier{URI: uri, Version: 2},
+		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: srcAttr}},
+	})
+	_ = h.waitDiagnostics(uri)
+	var attrList lsp.CompletionList
+	h.request("textDocument/completion", lsp.CompletionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Position:     lsp.Position{Line: 0, Character: 1},
+	}, &attrList)
+	attrLabels := map[string]bool{}
+	for _, it := range attrList.Items {
+		attrLabels[it.Label] = true
+	}
+	for _, wantAttr := range []string{"derive", "derivable", "comptime_only", "comptime_limit"} {
+		if !attrLabels[wantAttr] {
+			t.Fatalf("expected `@` attribute completion to include %q, got: %+v", wantAttr, attrLabels)
+		}
+	}
+
+	// Code action on undocumented `const LIMIT_VAL` offers Add doc comment; semanticTokens marks `const` readonly.
+	var actions []lsp.CodeAction
+	h.request("textDocument/codeAction", lsp.CodeActionParams{
+		TextDocument: lsp.TextDocumentIdentifier{URI: uri},
+		Range:        lsp.Range{Start: lsp.Position{Line: 1, Character: 0}, End: lsp.Position{Line: 1, Character: 10}},
+	}, &actions)
+	foundDocAction := false
+	for _, a := range actions {
+		if strings.Contains(a.Title, "doc comment") {
+			foundDocAction = true
+		}
+	}
+	if !foundDocAction {
+		t.Errorf("expected doc comment code action on `const LIMIT_VAL`, got: %+v", actions)
+	}
+
+	h.request("shutdown", nil, nil)
+	h.notify("exit", nil)
+}

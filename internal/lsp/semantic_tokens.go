@@ -729,7 +729,7 @@ func (c *semTokCollector) visitDecl(d ast.Decl) {
 			c.popTP(len(decl.TypeParams) > 0)
 		} else {
 			mods := uint32(semModDeclaration)
-			if decl.IsBind {
+			if decl.IsBind || decl.IsConst {
 				mods |= semModReadonly
 			}
 			c.emitHeaderIdentInSpan(decl.Span, decl.Name, semTokVariable, mods)

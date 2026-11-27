@@ -1193,7 +1193,7 @@ func (s *Server) collectProactiveGenerators(
 			}
 
 		case *ast.VarDecl:
-			if decl.Doc == "" && decl.IsBind {
+			if decl.Doc == "" && (decl.IsBind || decl.IsConst) {
 				if fl, ok := decl.Value.(*ast.FuncLit); ok {
 					isTest := false
 					for _, a := range decl.Attributes {

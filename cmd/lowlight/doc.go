@@ -62,20 +62,22 @@ func runDoc(args []string) int {
 		htmlOut = opts.OutputDir
 		opts.OutputDir = ""
 	}
-	res, err := docgen.Generate(opts)
-	if res != nil {
-		for _, bl := range res.BrokenLinks {
-			fmt.Fprintln(os.Stderr, bl.String())
-		}
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
 	if htmlOut != "" {
 		ld, lerr := docgen.Load(opts.Paths, opts.ProjectRoot)
 		if lerr != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", lerr)
+			return 1
+		}
+		requestedSet := make(map[string]bool, len(ld.Files))
+		for _, f := range ld.Files {
+			requestedSet[f] = true
+		}
+		broken := ld.Index.ValidateLinks(requestedSet)
+		for _, bl := range broken {
+			fmt.Fprintln(os.Stderr, bl.String())
+		}
+		if opts.CheckLinks && len(broken) > 0 {
+			fmt.Fprintf(os.Stderr, "error: found %d unresolved intra-doc link(s)\n", len(broken))
 			return 1
 		}
 		s, probs, berr := site.BuildAPIDocs(site.APIDocsConfig{Loaded: ld, OutDir: htmlOut})
@@ -92,8 +94,18 @@ func runDoc(args []string) int {
 				pkgs++
 			}
 		}
-		fmt.Fprintf(os.Stdout, "Generated documentation for %d package(s) (%d symbols) in %s\n", pkgs, res.SymbolsCount, htmlOut)
+		fmt.Fprintf(os.Stdout, "Generated documentation for %d package(s) (%d symbols) in %s\n", pkgs, len(ld.Index.SortedEntries()), htmlOut)
 		return 0
+	}
+	res, err := docgen.Generate(opts)
+	if res != nil {
+		for _, bl := range res.BrokenLinks {
+			fmt.Fprintln(os.Stderr, bl.String())
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
 	}
 	if opts.OutputDir != "" {
 		fmt.Fprintf(os.Stdout, "Generated %s documentation for %d module(s) (%d symbols) in %s\n",

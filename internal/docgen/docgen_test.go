@@ -114,3 +114,48 @@ bind broken_fn = fn() int: 0
 		t.Fatalf("unexpected broken link target: %+v", brokenRes.BrokenLinks[0])
 	}
 }
+
+func TestDocgenConstTopComptimeDistinctAndUniverseLinks(t *testing.T) {
+	tmp := t.TempDir()
+	docPath := filepath.Join(tmp, "mod_const.ll")
+	src := `// Module demonstrating const, distinct, top-level comptime if, and universe doc links.
+
+// Constant integer value linking [` + "`Equatable`" + `].
+const MAX_ITEMS: int = 42
+
+// Distinct measurement wrapping float, referencing [` + "`MAX_ITEMS`" + `].
+define Meters float
+
+// Constant function referencing [` + "`comp.embed_str`" + `] and [` + "`type.size_of`" + `].
+const measure = fn(x: int) int: x + 1
+
+comptime if(true): {
+	// Conditionally compiled public helper referencing [` + "`Meters`" + `].
+	bind cond_helper = fn(m: Meters) Meters: m
+}
+`
+	if err := os.WriteFile(docPath, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mdOut := filepath.Join(tmp, "md")
+	res, err := docgen.Generate(docgen.Options{
+		Paths:       []string{docPath},
+		OutputDir:   mdOut,
+		Format:      "md",
+		CheckLinks:  true,
+		ProjectRoot: tmp,
+	})
+	if err != nil {
+		t.Fatalf("expected docgen to resolve const/distinct/universe links, got err=%v broken=%+v", err, res.BrokenLinks)
+	}
+	mdBytes, err := os.ReadFile(filepath.Join(mdOut, "mod_const.md"))
+	if err != nil {
+		t.Fatalf("failed reading generated markdown: %v", err)
+	}
+	md := string(mdBytes)
+	for _, want := range []string{"const MAX_ITEMS: int = 42", "define Meters float", "const measure = fn(x: int) int"} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("expected generated markdown to contain %q:\n%s", want, md)
+		}
+	}
+}

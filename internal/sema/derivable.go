@@ -389,6 +389,8 @@ func (a *Analyzer) expandDerives(mod *Module) {
 			name, tparams, attrs = decl.Name, decl.TypeParams, decl.Attributes
 		case *ast.EnumDecl:
 			name, tparams, attrs, isResult = decl.Name, decl.TypeParams, decl.Attributes, decl.IsResult
+		case *ast.DistinctTypeDecl:
+			name, attrs = decl.Name, decl.Attributes
 		default:
 			continue
 		}
@@ -747,11 +749,27 @@ func (a *Analyzer) verifyGenericDerivedMethod(
 		if len(a.deferredIfaceChecks) > defersBase {
 			a.deferredIfaceChecks = a.deferredIfaceChecks[:defersBase]
 		}
+		prevFailed, hadFailed := a.deriveFailed[trialKey]
 		a.deriveFailed[trialKey] = true
+		a.recordTrialUndo(func() {
+			if hadFailed {
+				a.deriveFailed[trialKey] = prevFailed
+			} else {
+				delete(a.deriveFailed, trialKey)
+			}
+		})
 		return false
 	}
 
+	prevPassed, hadPassed := a.derivePassed[trialKey]
 	a.derivePassed[trialKey] = true
+	a.recordTrialUndo(func() {
+		if hadPassed {
+			a.derivePassed[trialKey] = prevPassed
+		} else {
+			delete(a.derivePassed, trialKey)
+		}
+	})
 	return true
 }
 

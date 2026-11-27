@@ -6,7 +6,11 @@
 
 comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 	extern __error as _os_errno_ptr: fn() ptr[i32]
-	extern strerror as _os_strerror: fn(code: i32) ptr[u8]
+	extern strerror_r as _os_strerror_r: fn(code: i32, buf: ptr[u8], len: int) i32
+	extern openat as _os_openat: fn(dirfd: i32, path: ptr[u8], flags: i32) i32
+	extern unlinkat as _os_unlinkat: fn(dirfd: i32, path: ptr[u8], flags: i32) i32
+	extern dirfd as _os_dirfd: fn(dir: ptr[u8]) i32
+	extern ll_rt_fcntl as _os_fcntl: fn(fd: i32, cmd: i32, arg: i32) i32
 	extern popen as _os_popen: fn(cmd: ptr[u8], mode: ptr[u8]) ptr[u8]
 	extern pclose as _os_pclose: fn(stream: ptr[u8]) i32
 	extern fread as _os_fread: fn(buf: ptr[u8], size: int, count: int, stream: ptr[u8]) int
@@ -25,14 +29,17 @@ comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 		extern "stat\$INODE64" as _os_stat: fn(path: ptr[u8], buf: ptr[u8]) i32
 		extern "fdopendir\$INODE64" as _os_fdopendir: fn(fd: i32) ptr[u8]
 		extern "readdir\$INODE64" as _os_readdir: fn(dir: ptr[u8]) ptr[u8]
-	} else: {
+	} else comptime if(comp.TARGET.arch == comp.TargetArch.arm64): {
 		extern stat as _os_stat: fn(path: ptr[u8], buf: ptr[u8]) i32
 		extern fdopendir as _os_fdopendir: fn(fd: i32) ptr[u8]
 		extern readdir as _os_readdir: fn(dir: ptr[u8]) ptr[u8]
+	} else: {
+		const _os_unsupported_darwin_arch = comp.compile_error("std/os: unsupported Darwin architecture")
 	}
 } else comptime if(comp.TARGET.os == comp.TargetOs.linux): {
 	extern __errno_location as _os_errno_ptr: fn() ptr[i32]
-	extern strerror as _os_strerror: fn(code: i32) ptr[u8]
+	extern "__xpg_strerror_r" as _os_strerror_r: fn(code: i32, buf: ptr[u8], len: int) i32
+	extern dirfd as _os_dirfd: fn(dir: ptr[u8]) i32
 	extern popen as _os_popen: fn(cmd: ptr[u8], mode: ptr[u8]) ptr[u8]
 	extern pclose as _os_pclose: fn(stream: ptr[u8]) i32
 	extern fread as _os_fread: fn(buf: ptr[u8], size: int, count: int, stream: ptr[u8]) int
@@ -215,7 +222,14 @@ bind errno_name = fn(code: int) string: {
 @track_caller
 bind error_from_errno = fn(code: int, what: string) Error: {
 	let desc = comptime if(comp.TARGET.os == comp.TargetOs.darwin or comp.TARGET.os == comp.TargetOs.linux): {
-		str_from_cstr(unsafe _os_strerror(i32(code)))
+		unsafe {
+			let sbuf = alloc_uninit[u8](256)
+			ptr_write(sbuf, u8(0))
+			let s_rc = _os_strerror_r(i32(code), sbuf, 256)
+			let msg = if(s_rc == i32(0)): str_from_cstr(sbuf) else: "errno $code"
+			free_raw(sbuf)
+			msg
+		}
 	} else: {
 		"errno $code"
 	}
@@ -352,7 +366,7 @@ bind system_run_status = fn(cmd: string) Result[ExecResult]: {
 bind file_exists = fn(path: string) bool: {
 	if(path.len() == 0 or path.contains_byte(u8(0))): func <- false
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_faccessat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 48 else: 269
+		let sys_faccessat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 48 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 269 else: comp.compile_error("std/os: unsupported Linux architecture for faccessat")
 		unsafe syscall(sys_faccessat, -100, int(ptr_addr(path.c_str())), 0, 0, 0, 0) == 0
 	} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 		unsafe _os_access(path.c_str(), i32(0)) == i32(0)
@@ -383,7 +397,7 @@ bind mkdir = fn(path: string) MkdirResult: {
 	}
 	comptime if(comp.TARGET.os == comp.TargetOs.linux or comp.TARGET.os == comp.TargetOs.darwin): {
 		let code = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-			let sys_mkdirat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 34 else: 258
+			let sys_mkdirat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 34 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 258 else: comp.compile_error("std/os: unsupported Linux architecture for mkdirat")
 			let rc = unsafe syscall(sys_mkdirat, -100, int(ptr_addr(path.c_str())), 493, 0, 0, 0)
 			if(rc == 0): func <- value
 			let c = -rc
@@ -401,8 +415,8 @@ bind mkdir = fn(path: string) MkdirResult: {
 bind _is_dir = fn(path: string) bool: {
 	if(path.len() == 0 or path.contains_byte(u8(0))): func <- false
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_newfstatat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 79 else: 262
-		let mode_off = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 16 else: 24
+		let sys_newfstatat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 79 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 262 else: comp.compile_error("std/os: unsupported Linux architecture for newfstatat")
+		let mode_off = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 16 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 24 else: comp.compile_error("std/os: unsupported Linux architecture for stat layout")
 		unsafe {
 			let st = alloc_raw[u8](160)
 			let rc = syscall(sys_newfstatat, -100, int(ptr_addr(path.c_str())), int(ptr_addr(st)), 0, 0, 0)
@@ -465,31 +479,32 @@ bind _is_dot_or_dotdot = fn(clean: string) bool:
 // # Errors
 // Fails if `path` is empty, `/`, `.`, `..`, or if anything can't be removed, with the OS's
 // description of the first failure. Whatever could be removed is gone.
-bind _remove_all_impl = fn(path: string) Status: {
-	let target = path.copy()
-	for(target.len() > 1 and target.byte_at(target.len() - 1) == u8(47)):
-		target = target[0..target.len() - 1]
-	if(target == "/"): func <- err(Error.new("refusing to remove the root directory"))
-	if(_is_dot_or_dotdot(target)): {
-		set_last_errno(22)
-		func <- err(Error.new("refusing to remove \".\" or \"..\" directory component in \"$path\""))
-	}
+// FD-anchored recursive removal helper so symlink replacements between directory
+// traversal and unlinking cannot redirect operations outside `parent_fd`.
+bind _remove_all_at = fn(parent_fd: int, name_ptr: ptr[u8], display_path: string) Status: {
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_openat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 56 else: 257
-		let sys_close = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 57 else: 3
-		let sys_unlinkat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 35 else: 263
-		let sys_getdents64 = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 61 else: 217
+		let sys_openat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 56 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 257 else: comp.compile_error("std/os: unsupported Linux architecture for openat")
+		let sys_close = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 57 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 3 else: comp.compile_error("std/os: unsupported Linux architecture for close")
+		let sys_unlinkat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 35 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 263 else: comp.compile_error("std/os: unsupported Linux architecture for unlinkat")
+		let sys_getdents64 = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 61 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 217 else: comp.compile_error("std/os: unsupported Linux architecture for getdents64")
 		// O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
-		let open_dir_flags = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 573440 else: 720896
+		let open_dir_flags = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 573440 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 720896 else: comp.compile_error("std/os: unsupported Linux architecture for open flags")
 		unsafe {
-			let urc = syscall(sys_unlinkat, -100, int(ptr_addr(target.c_str())), 0, 0, 0, 0)
+			let urc = syscall(sys_unlinkat, parent_fd, int(ptr_addr(name_ptr)), 0, 0, 0, 0)
+			while(urc == -4): {
+				urc = syscall(sys_unlinkat, parent_fd, int(ptr_addr(name_ptr)), 0, 0, 0, 0)
+			}
 			if(urc == 0 or urc == -2): func <- value
 			let uerr = -urc
-			let dfd = syscall(sys_openat, -100, int(ptr_addr(target.c_str())), open_dir_flags, 0, 0, 0)
+			let dfd = syscall(sys_openat, parent_fd, int(ptr_addr(name_ptr)), open_dir_flags, 0, 0, 0)
+			while(dfd == -4): {
+				dfd = syscall(sys_openat, parent_fd, int(ptr_addr(name_ptr)), open_dir_flags, 0, 0, 0)
+			}
+			if(dfd == -2): func <- value
 			if(dfd < 0): {
 				let code = if(dfd == -40): 40 else: uerr
 				set_last_errno(code)
-				func <- err(error_from_errno(code, "failed to remove \"$path\""))
+				func <- err(error_from_errno(code, "failed to remove \"$display_path\""))
 			}
 			let buf = alloc_raw[u8](4096)
 			let read_err = 0
@@ -514,16 +529,15 @@ bind _remove_all_impl = fn(path: string) Status: {
 				}
 			}
 			free_raw(buf)
-			let _ = syscall(sys_close, dfd, 0, 0, 0, 0, 0)
 			if(read_err != 0): {
+				let _ = syscall(sys_close, dfd, 0, 0, 0, 0, 0)
 				set_last_errno(read_err)
-				func <- err(error_from_errno(read_err, "failed to remove \"$path\""))
+				func <- err(error_from_errno(read_err, "failed to remove \"$display_path\""))
 			}
 			let first_code = 0
 			let first_msg = ""
 			for(ch in children): {
-				let child_path = "$target/$ch"
-				_remove_all_impl(child_path):
+				_remove_all_at(dfd, ch.c_str(), "$display_path/$ch"):
 					default err(own e): {
 						if(first_code == 0): {
 							first_code = last_errno()
@@ -532,53 +546,84 @@ bind _remove_all_impl = fn(path: string) Status: {
 						}
 					}
 			}
+			let _ = syscall(sys_close, dfd, 0, 0, 0, 0, 0)
 			if(first_code != 0): {
 				set_last_errno(first_code)
 				let name = errno_name(first_code)
 				let out_err = Error.coded(own name, own first_msg)
 				func <- err(own out_err)
 			}
-			let rrc = syscall(sys_unlinkat, -100, int(ptr_addr(target.c_str())), 512, 0, 0, 0)
-			if(rrc == 0): value
+			let rrc = syscall(sys_unlinkat, parent_fd, int(ptr_addr(name_ptr)), 512, 0, 0, 0)
+			while(rrc == -4): {
+				rrc = syscall(sys_unlinkat, parent_fd, int(ptr_addr(name_ptr)), 512, 0, 0, 0)
+			}
+			if(rrc == 0 or rrc == -2): value
 			else: {
 				let c = -rrc
 				set_last_errno(c)
-				err(error_from_errno(c, "failed to remove \"$path\""))
+				err(error_from_errno(c, "failed to remove \"$display_path\""))
 			}
 		}
 	} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 		unsafe {
-			if(_os_unlink(target.c_str()) == i32(0)): func <- value
+			let urc = _os_unlinkat(i32(parent_fd), name_ptr, i32(0))
+			while(urc < i32(0) and last_errno() == 4): {
+				urc = _os_unlinkat(i32(parent_fd), name_ptr, i32(0))
+			}
+			if(urc == i32(0)): func <- value
 			let uerr = last_errno()
 			if(uerr == 2): func <- value
 			// O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
-			let dfd = _os_open(target.c_str(), i32(17826048))
+			let dfd = _os_openat(i32(parent_fd), name_ptr, i32(17826048))
+			while(dfd < i32(0) and last_errno() == 4): {
+				dfd = _os_openat(i32(parent_fd), name_ptr, i32(17826048))
+			}
 			if(dfd < i32(0)): {
 				let oerr = last_errno()
+				if(oerr == 2): func <- value
 				let code = if(oerr == 62): oerr else: uerr
 				set_last_errno(code)
-				func <- err(error_from_errno(code, "failed to remove \"$path\""))
+				func <- err(error_from_errno(code, "failed to remove \"$display_path\""))
 			}
-			let d = _os_fdopendir(dfd)
-			if(is_null(d)): {
+			// Duplicate dfd before fdopendir so closedir releases DIR buffers prior
+			// to child recursion while dfd remains open as the inode anchor.
+			let dup_fd = _os_fcntl(dfd, i32(67), i32(0))
+			if(dup_fd < i32(0)): {
 				let derr = last_errno()
 				let _ = _os_close(dfd)
 				set_last_errno(derr)
-				func <- err(error_from_errno(derr, "failed to remove \"$path\""))
+				func <- err(error_from_errno(derr, "failed to remove \"$display_path\""))
+			}
+			let d = _os_fdopendir(dup_fd)
+			if(is_null(d)): {
+				let derr = last_errno()
+				let _ = _os_close(dup_fd)
+				let _ = _os_close(dfd)
+				set_last_errno(derr)
+				func <- err(error_from_errno(derr, "failed to remove \"$display_path\""))
 			}
 			let children: [string] = []
-			let de = _os_readdir(d)
-			for(not is_null(de)): {
+			let read_err = 0
+			for(true): {
+				set_last_errno(0)
+				let de = _os_readdir(d)
+				if(is_null(de)): {
+					read_err = last_errno()
+					for <-
+				}
 				let name = str_from_cstr(ptr_add(de, 21))
 				if(name != "." and name != ".."): children.push(own name)
-				de = _os_readdir(d)
 			}
 			let _ = _os_closedir(d)
+			if(read_err != 0): {
+				let _ = _os_close(dfd)
+				set_last_errno(read_err)
+				func <- err(error_from_errno(read_err, "failed to remove \"$display_path\""))
+			}
 			let first_code = 0
 			let first_msg = ""
 			for(ch in children): {
-				let child_path = "$target/$ch"
-				_remove_all_impl(child_path):
+				_remove_all_at(int(dfd), ch.c_str(), "$display_path/$ch"):
 					default err(own e): {
 						if(first_code == 0): {
 							first_code = last_errno()
@@ -587,19 +632,46 @@ bind _remove_all_impl = fn(path: string) Status: {
 						}
 					}
 			}
+			let _ = _os_close(dfd)
 			if(first_code != 0): {
 				set_last_errno(first_code)
 				let name = errno_name(first_code)
 				let out_err = Error.coded(own name, own first_msg)
 				func <- err(own out_err)
 			}
-			if(_os_rmdir(target.c_str()) == i32(0)): value
-			else: err(error_from_errno(last_errno(), "failed to remove \"$path\""))
+			let rrc = _os_unlinkat(i32(parent_fd), name_ptr, i32(128))
+			while(rrc < i32(0) and last_errno() == 4): {
+				rrc = _os_unlinkat(i32(parent_fd), name_ptr, i32(128))
+			}
+			if(rrc == i32(0)): value
+			else: {
+				let rerr = last_errno()
+				if(rerr == 2): value
+				else: {
+					set_last_errno(rerr)
+					err(error_from_errno(rerr, "failed to remove \"$display_path\""))
+				}
+			}
 		}
 	} else: {
-		let _ = path.len()
+		let _ = parent_fd
+		let _ = name_ptr
+		let _ = display_path.len()
 		err(Error.new("remove_all is unsupported on this target"))
 	}
+}
+
+bind _remove_all_impl = fn(path: string) Status: {
+	let target = path.copy()
+	for(target.len() > 1 and target.byte_at(target.len() - 1) == u8(47)):
+		target = target[0..target.len() - 1]
+	if(target == "/"): func <- err(Error.new("refusing to remove the root directory"))
+	if(_is_dot_or_dotdot(target)): {
+		set_last_errno(22)
+		func <- err(Error.new("refusing to remove \".\" or \"..\" directory component in \"$path\""))
+	}
+	let at_fdcwd = comptime if(comp.TARGET.os == comp.TargetOs.darwin): -2 else: -100
+	unsafe _remove_all_at(at_fdcwd, target.c_str(), path)
 }
 
 bind remove_all = fn(path: string) Status: {
@@ -622,7 +694,7 @@ bind remove_all = fn(path: string) Status: {
 // Returns the number of logical CPU cores available on the host system.
 bind num_cpus = fn() int: {
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_sched_getaffinity = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 123 else: 204
+		let sys_sched_getaffinity = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 123 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 204 else: comp.compile_error("std/os: unsupported Linux architecture for sched_getaffinity")
 		unsafe {
 			let mask = alloc_raw[u8](128)
 			fill_bytes(mask, u8(0), 128)
@@ -653,6 +725,8 @@ const os_name = fn() string:
 		when comp.TargetOs.linux: "linux"
 		when comp.TargetOs.windows: "windows"
 		when comp.TargetOs.freebsd: "freebsd"
+		when comp.TargetOs.openbsd: "openbsd"
+		when comp.TargetOs.netbsd: "netbsd"
 		when comp.TargetOs.wasm: "wasm"
 		default: "unknown"
 
@@ -664,6 +738,7 @@ const arch = fn() string:
 		when comp.TargetArch.riscv64: "riscv64"
 		when comp.TargetArch.x86: "x86"
 		when comp.TargetArch.wasm32: "wasm32"
+		when comp.TargetArch.wasm64: "wasm64"
 		default: "unknown"
 
 // -----------------------------------------------------------------------------
@@ -740,7 +815,7 @@ bind _test_symlink = fn(target: string, linkpath: string) bool: {
 	comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 		unsafe (_os_test_symlink(target.c_str(), linkpath.c_str()) == i32(0))
 	} else comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_symlinkat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 36 else: 266
+		let sys_symlinkat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 36 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 266 else: comp.compile_error("std/os: unsupported Linux architecture for symlinkat")
 		unsafe syscall(
 			sys_symlinkat,
 			int(ptr_addr(target.c_str())),
@@ -825,7 +900,7 @@ bind _test_chmod = fn(path: string, mode: int) bool: {
 	comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 		unsafe (_os_test_chmod(path.c_str(), i32(mode)) == i32(0))
 	} else comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_fchmodat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 53 else: 268
+		let sys_fchmodat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 53 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 268 else: comp.compile_error("std/os: unsupported Linux architecture for fchmodat")
 		unsafe syscall(sys_fchmodat, -100, int(ptr_addr(path.c_str())), mode, 0, 0, 0) == 0
 	} else: {
 		let _ = path.len() + mode

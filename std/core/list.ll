@@ -94,7 +94,17 @@ const List[T].reserve = fn(&self, min_cap: int): {
 		if(self.cap <= 0): alloc_uninit[T](ncap) else: realloc_raw(self.data, ncap)
 	}
 	if(self.cap <= 0 and self.len > 0): {
-		unsafe copy_bytes(ptr_cast[u8](nd), ptr_cast[u8](self.data), self.len * type.size_of[T]())
+		comptime if(type.is_plain[T]()): {
+			unsafe copy_bytes(ptr_cast[u8](nd), ptr_cast[u8](self.data), self.len * type.size_of[T]())
+		} else comptime if(comp.implements[T, Copyable]()): {
+			let i = 0
+			for(i < self.len): {
+				unsafe ptr_write(ptr_add(nd, i), self.data[i].copy())
+				i += 1
+			}
+		} else: {
+			panic("cannot promote List view of non-Copyable elements")
+		}
 	}
 	self.data = nd
 	self.cap = ncap
@@ -119,7 +129,7 @@ const List[T].push = fn(&self, item: own T): {
 // Removes and returns the last element from the list, or `none` if the list is empty.
 const List[T].pop = fn(&self) ?T: {
 	if(self.len <= 0): func <- none
-	let data = self._data_mut()
+	let data = comptime if(type.is_plain[T]()): self.data else: self._data_mut()
 	self.len -= 1
 	unsafe {
 		let val = ptr_read(ptr_add(data, self.len))
@@ -348,14 +358,15 @@ const List[T].swap = fn(&self, i: int, j: int): {
 const List[T].truncate = fn(&self, new_len: int): {
 	let keep = if(new_len < 0): 0 else: new_len
 	if(keep >= self.len): func <-
-	let data = self._data_mut()
-	if(self.cap > 0): {
-		let i = self.len - 1
-		while(i >= keep): {
-			unsafe {
-				let _ = ptr_read(ptr_add(data, i))
+	comptime if(not type.is_plain[T]()): {
+		if(self.cap > 0): {
+			let i = self.len - 1
+			while(i >= keep): {
+				unsafe {
+					let _ = ptr_read(ptr_add(self.data, i))
+				}
+				i -= 1
 			}
-			i -= 1
 		}
 	}
 	self.len = keep
@@ -367,14 +378,34 @@ const List[T].extend = fn(&self, other: own List[T]): {
 	let src = own other
 	if(src.len == 0): func <-
 	self.reserve(self.len + src.len)
-	unsafe copy_bytes(
-		ptr_cast[u8](ptr_add(self.data, self.len)),
-		ptr_cast[u8](src.data),
-		src.len * type.size_of[T](),
-	)
-	self.len += src.len
-	// The elements now belong to `self`; `src` frees its buffer without destroying them.
-	src.len = 0
+	if(src.cap > 0): {
+		unsafe copy_bytes(
+			ptr_cast[u8](ptr_add(self.data, self.len)),
+			ptr_cast[u8](src.data),
+			src.len * type.size_of[T](),
+		)
+		self.len += src.len
+		// The elements now belong to `self`; `src` frees its buffer without destroying them.
+		src.len = 0
+		func <-
+	}
+	comptime if(type.is_plain[T]()): {
+		unsafe copy_bytes(
+			ptr_cast[u8](ptr_add(self.data, self.len)),
+			ptr_cast[u8](src.data),
+			src.len * type.size_of[T](),
+		)
+		self.len += src.len
+	} else comptime if(comp.implements[T, Copyable]()): {
+		let i = 0
+		for(i < src.len): {
+			unsafe ptr_write(ptr_add(self.data, self.len + i), src.data[i].copy())
+			i += 1
+		}
+		self.len += src.len
+	} else: {
+		panic("cannot extend List from unowned view of non-Copyable elements")
+	}
 }
 
 // Drops all elements in reverse order and resets length to `0` while keeping capacity allocated.

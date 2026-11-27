@@ -22,22 +22,22 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 
 	// Seed type collector with declared & instantiated runtime types (omitting `@comptime_only`)
 	for _, en := range prog.Enums {
-		if !en.IsComptimeOnly {
+		if types.FindComptimeOnlyType(en) == nil {
 			tc.visit(en)
 		}
 	}
 	for _, dt := range prog.Distincts {
-		if !dt.IsComptimeOnly {
+		if types.FindComptimeOnlyType(dt) == nil {
 			tc.visit(dt)
 		}
 	}
 	for _, st := range prog.Structs {
-		if !st.IsComptimeOnly {
+		if types.FindComptimeOnlyType(st) == nil {
 			tc.visit(st)
 		}
 	}
 	for _, ifc := range prog.Interfaces {
-		if !ifc.IsComptimeOnly {
+		if types.FindComptimeOnlyType(ifc) == nil {
 			tc.visit(ifc)
 		}
 	}
@@ -63,7 +63,7 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 		tc.visit(fi.Sig.Ret)
 	}
 	for _, li := range prog.Lambdas {
-		if li.ComptimeOnly {
+		if lambdaHasComptimeOnly(li) {
 			continue
 		}
 		tc.visit(li.Sig)
@@ -71,8 +71,12 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 			tc.visit(c.Type)
 		}
 	}
-	vtables := sortVTablesDeterministically(prog.VTables)
-	for _, vt := range vtables {
+	var vtables []*sema.VTableImpl
+	for _, vt := range sortVTablesDeterministically(prog.VTables) {
+		if vt == nil || types.FindComptimeOnlyType(vt.Concrete) != nil || types.FindComptimeOnlyType(vt.Iface) != nil {
+			continue
+		}
+		vtables = append(vtables, vt)
 		tc.visit(vt.Concrete)
 		tc.visit(vt.Iface)
 	}
@@ -92,22 +96,22 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 	}
 	visitBodyMaps(prog.TopBodyMaps)
 	for _, st := range prog.Structs {
-		if !st.IsComptimeOnly {
+		if types.FindComptimeOnlyType(st) == nil {
 			visitBodyMaps(prog.StructBodyMaps[st])
 		}
 	}
 	for _, en := range prog.Enums {
-		if !en.IsComptimeOnly {
+		if types.FindComptimeOnlyType(en) == nil {
 			visitBodyMaps(prog.EnumBodyMaps[en])
 		}
 	}
 	for _, fi := range prog.Funcs {
-		if !fi.ComptimeOnly {
+		if !fi.ComptimeOnly && types.FindComptimeOnlyType(fi.Sig) == nil {
 			visitBodyMaps(fi.BodyMaps)
 		}
 	}
 	for _, li := range prog.Lambdas {
-		if !li.ComptimeOnly {
+		if !lambdaHasComptimeOnly(li) {
 			visitBodyMaps(li.BodyMaps)
 		}
 	}
@@ -211,7 +215,7 @@ func Lower(prog *sema.CheckedProgram, release bool, testMode bool) *Program {
 			if loweredLambdas[li] {
 				continue
 			}
-			if li.ComptimeOnly && !registerThunk.usedLambdas[li] {
+			if lambdaHasComptimeOnly(li) && !registerThunk.usedLambdas[li] {
 				continue
 			}
 			loweredLambdas[li] = true
@@ -248,12 +252,30 @@ type mirScope struct {
 	continueLabel      string
 	resultVar          *Local
 	hasValVar          *Local // non-nil in value-producing `for` loops to drop overwritten iteration values
-	collectIterSlot    *Local // non-nil inside fixed-composite-collecting `comptime for`: current iteration's field/elem slot
+	isCollecting       bool
+	isFixedCollect     bool
+	collectIterSlot    *Local // non-nil inside collecting `comptime for`: current iteration's item/field/elem slot
+	collectPushFlag    *Local // non-nil inside non-fixed collecting `comptime for`: true when iter yielded an element to push
 	collectUsedDefault *Local // non-nil inside struct-collecting `comptime for`: set true when bare `next <-` skips iteration
 	loopElemTy         types.Type
 	isForNoElse        bool
 	isFunc             bool
 	ownedLocals        []*Local
+}
+
+func lambdaHasComptimeOnly(li *sema.LambdaInfo) bool {
+	if li == nil {
+		return true
+	}
+	if li.ComptimeOnly || types.FindComptimeOnlyType(li.Sig) != nil {
+		return true
+	}
+	for _, c := range li.Captures {
+		if types.FindComptimeOnlyType(c.Type) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 type funcLowerer struct {
@@ -953,9 +975,30 @@ func (fl *funcLowerer) lowerAssignStmt(s *ast.AssignStmt) {
 	}
 
 	// Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`)
+	fi := fl.info(s.Target).OpMethod
+	if fi == nil {
+		if dstPlace, ok := fl.lowerPackedDirectPlace(s.Target); ok {
+			rhsExpr := fl.lowerExprRead(s.Value)
+			file, line := formatSpanLoc(s.Target)
+			binOp := compoundAssignBinOp(s.Op)
+			fl.emit(&InstrAssign{
+				Dst: dstPlace,
+				Expr: &ExprBinary{
+					Op:    binOp,
+					Left:  dstPlace,
+					Right: EnsureExpr(rhsExpr, targetTy),
+					Typ:   targetTy,
+					File:  file,
+					Line:  line,
+				},
+			})
+			fl.flushStmtTemps()
+			return
+		}
+	}
 	lhsPtr := fl.lowerLValueAddrMut(s.Target)
 	rhsExpr := fl.lowerExprRead(s.Value)
-	if fi := fl.info(s.Target).OpMethod; fi != nil {
+	if fi != nil {
 		fl.emitOperatorAssign(fi, targetTy, lhsPtr, rhsExpr)
 		fl.flushStmtTemps()
 		return
@@ -1047,6 +1090,290 @@ func (fl *funcLowerer) lowerUnpackAssignStmt(s *ast.AssignStmt) {
 	}
 }
 
+func (fl *funcLowerer) unwrapASTWrappers(e ast.Expr) ast.Expr {
+	for e != nil {
+		if ue, isUE := e.(*ast.UnsafeExpr); isUE {
+			e = ue.Expr
+			continue
+		}
+		if cx, isCX := e.(*ast.ComptimeExpr); isCX && (fl.bm == nil || fl.bm.ComptimeVals[cx] == nil) {
+			e = cx.Expr
+			continue
+		}
+		break
+	}
+	return e
+}
+
+func (fl *funcLowerer) involvesPackedStruct(e ast.Expr) bool {
+	cur := fl.unwrapASTWrappers(e)
+	for cur != nil {
+		cur = fl.unwrapASTWrappers(cur)
+		switch v := cur.(type) {
+		case *ast.MemberExpr:
+			inf := fl.info(v)
+			if inf == nil || inf.IsOptChain || inf.EnumVariant != nil {
+				return false
+			}
+			bInf := fl.info(v.Base)
+			if bInf == nil || bInf.Type == nil {
+				return false
+			}
+			uBase := types.UnwrapDistinct(bInf.Type)
+			baseIsPtr := false
+			if p, ok := uBase.(*types.Ptr); ok {
+				uBase = types.UnwrapDistinct(p.Elem)
+				baseIsPtr = true
+			} else if r, ok := uBase.(*types.Ref); ok {
+				uBase = types.UnwrapDistinct(r.Elem)
+				baseIsPtr = true
+			}
+			if st, ok := uBase.(*types.Struct); ok && st.Packed {
+				return true
+			}
+			if baseIsPtr {
+				return false
+			}
+			cur = v.Base
+		case *ast.CallExpr:
+			cInf := fl.info(v)
+			if cInf == nil || cInf.IsOptChain || cInf.MethodRecv == nil ||
+				(cInf.BuiltinName != "struct.field" && cInf.BuiltinName != "seq.elem" && cInf.BuiltinName != "enum.payload") {
+				return false
+			}
+			rInf := fl.info(cInf.MethodRecv)
+			if rInf == nil || rInf.Type == nil {
+				return false
+			}
+			uBase := types.UnwrapDistinct(rInf.Type)
+			baseIsPtr := false
+			if p, ok := uBase.(*types.Ptr); ok {
+				uBase = types.UnwrapDistinct(p.Elem)
+				baseIsPtr = true
+			} else if r, ok := uBase.(*types.Ref); ok {
+				uBase = types.UnwrapDistinct(r.Elem)
+				baseIsPtr = true
+			}
+			if st, ok := uBase.(*types.Struct); ok && st.Packed {
+				return true
+			}
+			if baseIsPtr {
+				return false
+			}
+			cur = cInf.MethodRecv
+		case *ast.IndexExpr:
+			bInf := fl.info(v.Base)
+			if bInf == nil || bInf.Type == nil {
+				return false
+			}
+			if _, isArr := types.UnwrapDistinct(bInf.Type).(*types.StackArray); !isArr {
+				return false
+			}
+			cur = v.Base
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func (fl *funcLowerer) lowerPackedDirectPlace(target ast.Expr) (Expr, bool) {
+	if !fl.involvesPackedStruct(target) {
+		return nil, false
+	}
+	return fl.buildPackedDirectPlace(target)
+}
+
+func (fl *funcLowerer) buildPackedDirectPlace(expr ast.Expr) (Expr, bool) {
+	cur := fl.unwrapASTWrappers(expr)
+	switch v := cur.(type) {
+	case *ast.IdentExpr:
+		if sym := fl.info(v).Sym; sym != nil {
+			if loc, ok := fl.symLocals[sym]; ok {
+				if loc.IsMutPtr {
+					return &ExprDeref{Ptr: NewLocalExpr(loc), Typ: loc.Type}, true
+				}
+				return NewLocalExpr(loc), true
+			}
+		}
+		return nil, false
+
+	case *ast.UnaryExpr:
+		if v.Op == token.Star {
+			rawPtr := fl.lowerExprRead(v.Operand)
+			ptrTy := rawPtr.Type()
+			ptrSlot := fl.allocSlot("_ll_pptr", ptrTy)
+			fl.assignLocal(ptrSlot, rawPtr)
+			return &ExprDeref{Ptr: NewLocalExpr(ptrSlot), Typ: fl.info(v).Type}, true
+		}
+		return nil, false
+
+	case *ast.MemberExpr:
+		inf := fl.info(v)
+		if inf == nil || inf.IsOptChain || inf.EnumVariant != nil {
+			return nil, false
+		}
+		bInf := fl.info(v.Base)
+		if bInf == nil || bInf.Type == nil {
+			return nil, false
+		}
+		uBase := types.UnwrapDistinct(bInf.Type)
+		isPtr := false
+		var st *types.Struct
+		if p, ok := uBase.(*types.Ptr); ok {
+			isPtr = true
+			st, _ = types.UnwrapDistinct(p.Elem).(*types.Struct)
+		} else if r, ok := uBase.(*types.Ref); ok {
+			isPtr = true
+			st, _ = types.UnwrapDistinct(r.Elem).(*types.Struct)
+		} else {
+			st, _ = uBase.(*types.Struct)
+		}
+		if st == nil {
+			return nil, false
+		}
+		sf, fIdx := st.FieldByName(v.Member)
+		if sf == nil {
+			return nil, false
+		}
+		if isPtr {
+			rawPtr := fl.lowerExprRead(v.Base)
+			ptrSlot := fl.allocSlot("_ll_pb", bInf.Type)
+			fl.assignLocal(ptrSlot, rawPtr)
+			return &ExprField{Base: NewLocalExpr(ptrSlot), FieldName: sf.CName, FieldIdx: fIdx, Typ: sf.Type, IsPtr: true}, true
+		}
+		var basePlace Expr
+		baseIsPtr := false
+		if !fl.involvesPackedStruct(v.Base) {
+			bPtr := fl.lowerLValueAddrMut(v.Base)
+			ptrSlot := fl.allocSlot("_ll_pb", bPtr.Type())
+			fl.assignLocal(ptrSlot, bPtr)
+			basePlace = NewLocalExpr(ptrSlot)
+			baseIsPtr = true
+		} else {
+			var ok bool
+			basePlace, ok = fl.buildPackedDirectPlace(v.Base)
+			if !ok {
+				return nil, false
+			}
+		}
+		return &ExprField{Base: basePlace, FieldName: sf.CName, FieldIdx: fIdx, Typ: sf.Type, IsPtr: baseIsPtr}, true
+
+	case *ast.IndexExpr:
+		bInf := fl.info(v.Base)
+		if bInf == nil || bInf.Type == nil {
+			return nil, false
+		}
+		arr, isArr := types.UnwrapDistinct(bInf.Type).(*types.StackArray)
+		if !isArr {
+			return nil, false
+		}
+		var basePlace Expr
+		baseIsPtr := false
+		if !fl.involvesPackedStruct(v.Base) {
+			bPtr := fl.lowerLValueAddrMut(v.Base)
+			ptrSlot := fl.allocSlot("_ll_pb", bPtr.Type())
+			fl.assignLocal(ptrSlot, bPtr)
+			basePlace = NewLocalExpr(ptrSlot)
+			baseIsPtr = true
+		} else {
+			var ok bool
+			basePlace, ok = fl.buildPackedDirectPlace(v.Base)
+			if !ok {
+				return nil, false
+			}
+		}
+		idxVal := fl.lowerExprRead(v.Index)
+		file, line := formatSpanLoc(v)
+		lenExpr := NewLitInt(uint64(arr.Size), false, types.TypeInt)
+		idxSlot := fl.allocSlot("_ll_pai", types.TypeInt)
+		fl.assignLocal(idxSlot, fl.checkedIndexExpr(idxVal, lenExpr, file, line))
+		dataPtr := &ExprField{Base: basePlace, FieldName: "data", Typ: &types.Ptr{Elem: arr.Elem}, IsPtr: baseIsPtr}
+		return &ExprIndex{Base: dataPtr, Index: NewLocalExpr(idxSlot), Typ: arr.Elem}, true
+
+	case *ast.CallExpr:
+		cInf := fl.info(v)
+		if cInf == nil || cInf.IsOptChain || cInf.MethodRecv == nil {
+			return nil, false
+		}
+		rInf := fl.info(cInf.MethodRecv)
+		if rInf == nil || rInf.Type == nil {
+			return nil, false
+		}
+		uRecv := types.UnwrapDistinct(rInf.Type)
+		isPtr := false
+		if p, ok := uRecv.(*types.Ptr); ok {
+			isPtr = true
+			uRecv = types.UnwrapDistinct(p.Elem)
+		} else if r, ok := uRecv.(*types.Ref); ok {
+			isPtr = true
+			uRecv = types.UnwrapDistinct(r.Elem)
+		}
+		var basePlace Expr
+		baseIsPtr := false
+		if isPtr {
+			rawPtr := fl.lowerExprRead(cInf.MethodRecv)
+			ptrSlot := fl.allocSlot("_ll_pb", rInf.Type)
+			fl.assignLocal(ptrSlot, rawPtr)
+			basePlace = NewLocalExpr(ptrSlot)
+			baseIsPtr = true
+		} else if !fl.involvesPackedStruct(cInf.MethodRecv) {
+			bPtr := fl.lowerLValueAddrMut(cInf.MethodRecv)
+			ptrSlot := fl.allocSlot("_ll_pb", bPtr.Type())
+			fl.assignLocal(ptrSlot, bPtr)
+			basePlace = NewLocalExpr(ptrSlot)
+			baseIsPtr = true
+		} else {
+			var ok bool
+			basePlace, ok = fl.buildPackedDirectPlace(cInf.MethodRecv)
+			if !ok {
+				return nil, false
+			}
+		}
+		switch cInf.BuiltinName {
+		case "struct.field":
+			st, isSt := uRecv.(*types.Struct)
+			if !isSt {
+				return nil, false
+			}
+			sf, fIdx := st.FieldByName(cInf.ResolvedField)
+			if sf == nil && cInf.TupleFieldIdx >= 0 && cInf.TupleFieldIdx < len(st.Fields) {
+				sf = &st.Fields[cInf.TupleFieldIdx]
+				fIdx = cInf.TupleFieldIdx
+			}
+			if sf == nil {
+				return nil, false
+			}
+			return &ExprField{Base: basePlace, FieldName: sf.CName, FieldIdx: fIdx, Typ: sf.Type, IsPtr: baseIsPtr}, true
+		case "seq.elem":
+			fIdx := cInf.TupleFieldIdx
+			if tup, isTup := uRecv.(*types.Tuple); isTup && fIdx >= 0 && fIdx < len(tup.Elems) {
+				return &ExprField{Base: basePlace, FieldName: fmt.Sprintf("_%d", fIdx), FieldIdx: fIdx, Typ: tup.Elems[fIdx], IsPtr: baseIsPtr}, true
+			}
+			if arr, isArr := uRecv.(*types.StackArray); isArr && fIdx >= 0 && int64(fIdx) < arr.Size {
+				dataPtr := &ExprField{Base: basePlace, FieldName: "data", Typ: &types.Ptr{Elem: arr.Elem}, IsPtr: baseIsPtr}
+				return &ExprIndex{Base: dataPtr, Index: NewLitInt(uint64(fIdx), false, types.TypeInt), Typ: arr.Elem}, true
+			}
+		case "enum.payload":
+			if en, isEn := uRecv.(*types.Enum); isEn && cInf.EnumVariant != nil {
+				valPlace := basePlace
+				if baseIsPtr {
+					valPlace = &ExprDeref{Ptr: basePlace, Typ: uRecv}
+				}
+				fl.emitEnumTagAssert(valPlace, en, cInf.EnumVariant, false, v)
+				return &ExprField{
+					Base:      &ExprField{Base: basePlace, FieldName: "data", IsPtr: baseIsPtr},
+					FieldName: cInf.EnumVariant.CName,
+					Typ:       cInf.EnumVariant.Payload,
+				}, true
+			}
+		}
+		return nil, false
+	default:
+		return nil, false
+	}
+}
+
 func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type, newValExpr Expr) {
 	if ue, isUnsafe := target.(*ast.UnsafeExpr); isUnsafe {
 		target = ue.Expr
@@ -1066,6 +1393,15 @@ func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type
 			}
 		}
 	}
+	if dstPlace, ok := fl.lowerPackedDirectPlace(target); ok {
+		if !targetTy.IsPlain() && !isRawDeref {
+			oldSlot := fl.allocSlot("_ll_old", targetTy)
+			fl.assignLocal(oldSlot, dstPlace)
+			fl.emit(&InstrExpr{Expr: &ExprDrop{Ptr: &ExprAddrOf{Place: NewLocalExpr(oldSlot), Typ: &types.Ptr{Elem: targetTy}}, ValType: targetTy}})
+		}
+		fl.emit(&InstrAssign{Dst: dstPlace, Expr: EnsureExpr(newValExpr, targetTy)})
+		return
+	}
 	lhsPtr := fl.lowerLValueAddrMut(target)
 	if !targetTy.IsPlain() && !isRawDeref {
 		fl.emit(&InstrExpr{Expr: &ExprDrop{Ptr: EnsureExpr(lhsPtr, targetTy), ValType: targetTy}})
@@ -1073,32 +1409,35 @@ func (fl *funcLowerer) assignToTargetLValue(target ast.Expr, targetTy types.Type
 	fl.emit(&InstrAssign{Dst: &ExprDeref{Ptr: EnsureExpr(lhsPtr, targetTy), Typ: targetTy}, Expr: EnsureExpr(newValExpr, targetTy)})
 }
 
-func (fl *funcLowerer) emitCompoundAssign(op token.Kind, ty types.Type, lhsPtr Expr, rhsExpr Expr, file string, line int) {
-	var binOp token.Kind
+func compoundAssignBinOp(op token.Kind) token.Kind {
 	switch op {
 	case token.PlusEq:
-		binOp = token.Plus
+		return token.Plus
 	case token.MinusEq:
-		binOp = token.Minus
+		return token.Minus
 	case token.StarEq:
-		binOp = token.Star
+		return token.Star
 	case token.SlashEq:
-		binOp = token.Slash
+		return token.Slash
 	case token.PercentEq:
-		binOp = token.Percent
+		return token.Percent
 	case token.AmpEq:
-		binOp = token.Amp
+		return token.Amp
 	case token.PipeEq:
-		binOp = token.Pipe
+		return token.Pipe
 	case token.CaretEq:
-		binOp = token.Caret
+		return token.Caret
 	case token.ShlEq:
-		binOp = token.Shl
+		return token.Shl
 	case token.ShrEq:
-		binOp = token.Shr
+		return token.Shr
 	default:
 		panic(fmt.Sprintf("unsupported compound assign op %v", op))
 	}
+}
+
+func (fl *funcLowerer) emitCompoundAssign(op token.Kind, ty types.Type, lhsPtr Expr, rhsExpr Expr, file string, line int) {
+	binOp := compoundAssignBinOp(op)
 	lhsDeref := &ExprDeref{Ptr: EnsureExpr(lhsPtr, ty), Typ: ty}
 	fl.emit(&InstrAssign{
 		Dst: lhsDeref,
@@ -1138,6 +1477,9 @@ func (fl *funcLowerer) lowerUnwindStmt(u *ast.UnwindStmt) {
 			destTy := tgt.collectIterSlot.Type
 			valExpr := fl.lowerExprOwned(u.Value, destTy)
 			fl.assignLocal(tgt.collectIterSlot, valExpr)
+			if tgt.collectPushFlag != nil {
+				fl.emit(&InstrAssign{Dst: NewLocalExpr(tgt.collectPushFlag), Expr: NewLitBool(true)})
+			}
 			fl.flushStmtTemps()
 		} else if tgt.resultVar != nil {
 			if tgt.hasValVar != nil {
@@ -1156,6 +1498,24 @@ func (fl *funcLowerer) lowerUnwindStmt(u *ast.UnwindStmt) {
 
 				// Drop any prior iteration value held in `tgt.resultVar` before overwriting!
 				fl.storeLoopRunningResult(tgt, NewLocalExpr(valTmp), needsWrap)
+			} else if !uinf.IsContinue && tgt.isCollecting && !tgt.isFixedCollect {
+				destTy := tgt.resultVar.Type
+				valExpr := fl.lowerExprOwned(u.Value, destTy)
+				colTmp := fl.allocSlot("_ll_brkcol", destTy)
+				fl.assignLocal(colTmp, valExpr)
+				fl.flushStmtTemps()
+				if !destTy.IsPlain() {
+					fl.emit(&InstrDrop{
+						Var:       tgt.resultVar,
+						VarName:   tgt.resultVar.CName,
+						Type:      destTy,
+						MovedFlag: tgt.resultVar.MovedFlag,
+					})
+				}
+				fl.assignLocal(tgt.resultVar, NewLocalExpr(colTmp))
+				if tgt.resultVar.MovedLocal != nil {
+					fl.emit(&InstrAssign{Dst: NewLocalExpr(tgt.resultVar.MovedLocal), Expr: NewLitBool(false)})
+				}
 			} else {
 				destTy := tgt.resultVar.Type
 				valExpr := fl.lowerExprOwned(u.Value, destTy)
@@ -1369,7 +1729,19 @@ func lowerStaticData(sd *sema.StaticData, tc *typeCollector, reg *thunkRegistry)
 			if reg != nil && reg.usedLambdas != nil {
 				reg.usedLambdas[sd.Lambda] = true
 			}
-			sv.FnEntry = sd.Lambda.CName
+			fnTy, hasFnTy := types.UnwrapDistinct(sd.Type).(*types.Func)
+			isExtern := (sd.Lambda.Sig != nil && sd.Lambda.Sig.Extern) || (hasFnTy && fnTy.Extern)
+			if isExtern && reg != nil {
+				cbTy := sd.Lambda.Sig
+				if hasFnTy {
+					cbTy = fnTy
+				}
+				sv.FnEntry = reg.cCallback(sd.Lambda.CName, cbTy)
+			} else if isExtern {
+				sv.FnEntry = sd.Lambda.CName
+			} else {
+				sv.FnEntry = sd.Lambda.CName + "_entry"
+			}
 		}
 	}
 	return sv

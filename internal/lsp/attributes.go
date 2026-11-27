@@ -16,8 +16,14 @@ type AttributeDoc struct {
 // BuiltinAttributes lists the attributes the compiler understands. `@lang` is left out: it is
 // reserved for std/core.
 var BuiltinAttributes = []AttributeDoc{
-	{Name: "derive", Snippet: "derive(${1:Equatable})", AppliesTo: "struct, enum",
-		Summary: "Writes the listed interfaces' methods as ordinary Lowlight code: `Equatable` (`eq`), `Comparable` (`cmp`), `Hashable` (`hash`), `Copyable` (`copy`), `Printable` (`to_string`). Every field must support the interface; on a generic type the method exists only for instances whose fields do. Structs and enums get these methods no other way, besides writing them."},
+	{Name: "derive", Snippet: "derive(${1:Equatable})", AppliesTo: "struct, enum, distinct",
+		Summary: "Writes the listed interfaces' methods as ordinary Lowlight code: `Equatable` (`eq`), `Comparable` (`cmp`), `Hashable` (`hash`), `Copyable` (`copy`), `Printable` (`to_string`), plus custom `@derivable` interfaces. Every field must support the interface; on a generic type the method exists only for instances whose fields do."},
+	{Name: "derivable", Snippet: "derivable", AppliesTo: "interface",
+		Summary: "Marks an interface as derivable via `@derive(...)` using a compile-time `bind @derive(Iface)` generator in the same package."},
+	{Name: "comptime_only", Snippet: "comptime_only", AppliesTo: "const declaration, type",
+		Summary: "Restricts the declaration to compile-time contexts (`const`, `comptime`, or other `@comptime_only` functions) and omits it from runtime codegen."},
+	{Name: "comptime_limit", Snippet: "comptime_limit(steps: ${1:5_000_000})", AppliesTo: "const declaration",
+		Summary: "Raises or overrides compile-time execution budgets (`steps:`, `unroll:`, `memory:`) for the annotated compile-time function or constant."},
 	{Name: "test", Snippet: "test(\"${1:description}\")", AppliesTo: "function",
 		Summary: "Marks a top-level `fn()` as a test case run by `lowlight test`, with leak checking, panic recovery, and timing."},
 	{Name: "test_only", Snippet: "test_only", AppliesTo: "any declaration",

@@ -2,6 +2,7 @@ package sema
 
 import (
 	"fmt"
+	"hash/fnv"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -37,7 +38,7 @@ func isCompEnumLangItem(li string) bool {
 }
 
 func isCompStructLangItem(li string) bool {
-	return li == "target_info" || li == "comp_attr_info" || li == "comp_field_info" || li == "comp_variant_info" || li == "comp_elem_info"
+	return li == "target_info" || li == "comp_attr_info" || li == "comp_field_info" || li == "comp_variant_info" || li == "comp_elem_info" || li == "comp_distinct_info"
 }
 
 func astAttrsToTypeAttrs(attrs []ast.Attribute) []types.Attribute {
@@ -253,6 +254,7 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 				continue
 			}
 			var stepLimit int
+			var unrollLimit int
 			var memLimit int64
 			seenNamed := false
 			for _, arg := range attr.Args {
@@ -272,6 +274,12 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 							continue
 						}
 						stepLimit = int(n)
+					case "unroll":
+						if unrollLimit > 0 {
+							a.Rep.Errorf(attr.Span, "duplicate `unroll` argument in @comptime_limit")
+							continue
+						}
+						unrollLimit = int(n)
 					case "memory":
 						if memLimit > 0 {
 							a.Rep.Errorf(attr.Span, "duplicate `memory` argument in @comptime_limit")
@@ -279,11 +287,11 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 						}
 						memLimit = n
 					default:
-						a.Rep.Errorf(attr.Span, "unknown argument %q in @comptime_limit (expected `steps` or `memory`)", key)
+						a.Rep.Errorf(attr.Span, "unknown argument %q in @comptime_limit (expected `steps`, `unroll`, or `memory`)", key)
 					}
 				} else {
 					if len(attr.Args) > 1 || seenNamed {
-						a.Rep.Errorf(attr.Span, "@comptime_limit expects named arguments `steps:` / `memory:` when specifying multiple limits")
+						a.Rep.Errorf(attr.Span, "@comptime_limit expects named arguments `steps:` / `unroll:` / `memory:` when specifying multiple limits")
 						break
 					}
 					rawLimit := strings.ReplaceAll(strings.Trim(arg, "\""), "_", "")
@@ -293,11 +301,15 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 						continue
 					}
 					stepLimit = int(n)
+					unrollLimit = int(n)
 				}
 			}
 			if fi, ok := target.(*FuncInstance); ok {
 				if stepLimit > 0 {
 					fi.ComptimeLimit = stepLimit
+				}
+				if unrollLimit > 0 {
+					fi.ComptimeUnrollLimit = unrollLimit
 				}
 				if memLimit > 0 {
 					fi.ComptimeMemLimit = memLimit
@@ -305,6 +317,9 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 			} else if sym, ok := target.(*Symbol); ok {
 				if stepLimit > 0 {
 					sym.ComptimeLimit = stepLimit
+				}
+				if unrollLimit > 0 {
+					sym.ComptimeUnrollLimit = unrollLimit
 				}
 				if memLimit > 0 {
 					sym.ComptimeMemLimit = memLimit
@@ -318,8 +333,8 @@ func (a *Analyzer) checkAttributes(attrs []ast.Attribute, target any, span diag.
 			}
 			// handled specially on interfaces and top-level func/symbols
 		case "derive":
-			if kind != "struct" && kind != "enum" {
-				a.Rep.Errorf(attr.Span, "@derive can only be applied to a struct or enum, not a %s", kind)
+			if kind != "struct" && kind != "enum" && kind != "distinct type" {
+				a.Rep.Errorf(attr.Span, "@derive can only be applied to a struct, enum, or distinct type, not a %s", kind)
 			}
 			// expanded into methods by expandDerives
 		case "derivable":
@@ -633,6 +648,8 @@ func (a *Analyzer) initCompTarget() {
 				a.Prog.StructVariantInfo = st
 			case "comp_elem_info":
 				a.Prog.StructElemInfo = st
+			case "comp_distinct_info":
+				a.Prog.StructDistinctInfo = st
 			}
 			stage2 = append(stage2, compStructEntry{mod: mod, sd: sd, st: st})
 		}
@@ -857,12 +874,14 @@ func (a *Analyzer) speculativeEvalTopConst(mod *Module, vd *ast.VarDecl) (*Symbo
 	st := newCtState(a, mod, sym.ComptimeLimit)
 	if sym.ComptimeMemLimit > 0 {
 		st.memLimit = sym.ComptimeMemLimit
+		st.explicitMemLimit = true
 	}
 	st.frames = []ctFrame{{
 		mod:      mod,
 		bm:       a.curBM,
 		callSpan: vd.Span,
 		locals:   make(map[*Symbol]*ctSlot),
+		alive:    newFrameAlive(),
 	}}
 	val, sig := st.evalExpr(vd.Value)
 	if sig.kind != sigNone || val == nil || tmpRep.HasErrors() {
@@ -1166,6 +1185,13 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 						if a.Prog.StructElemInfo != nil {
 							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"comp_elem_info\")")
 						}
+					case "comp_distinct_info":
+						if existing, ok := mod.Types[td.Name].(*types.Struct); ok && existing == a.Prog.StructDistinctInfo && existing != nil {
+							continue
+						}
+						if a.Prog.StructDistinctInfo != nil {
+							a.Rep.Errorf(td.Span, "duplicate lang item @lang(\"comp_distinct_info\")")
+						}
 					default:
 						a.Rep.Errorf(td.Span, "unknown struct lang item @lang(%q); supported struct lang items: \"list\", \"array\", \"set\", \"map\", \"range\", \"arena\", \"target_info\", \"comp_*\"", langItem)
 					}
@@ -1236,6 +1262,8 @@ func (a *Analyzer) registerModuleTypeHeaders(mod *Module) {
 					a.Prog.StructVariantInfo = st
 				case "comp_elem_info":
 					a.Prog.StructElemInfo = st
+				case "comp_distinct_info":
+					a.Prog.StructDistinctInfo = st
 				}
 			}
 			if mod.IsTestFile {
@@ -1754,7 +1782,7 @@ func (a *Analyzer) resolveInterfaces(mod *Module) {
 			var fparams []types.FuncParam
 			for _, p := range m.Params {
 				pmode, pty := a.resolveParamType(mod, p.Type, nil, true)
-				if _, isSelf := pty.(*types.SelfPlaceholder); isSelf {
+				if typeUsesSelf(pty) {
 					ifc.UsesSelf = true
 				}
 				a.checkOptionalIdentRule(p.Name, p.IsOptName, pty, p.Span, "interface parameter")
@@ -1767,7 +1795,7 @@ func (a *Analyzer) resolveInterfaces(mod *Module) {
 			ret := types.Type(types.TypeVoid)
 			if m.Ret != nil {
 				ret = a.resolveReturnType(mod, m.Ret, nil, true)
-				if _, isSelf := ret.(*types.SelfPlaceholder); isSelf {
+				if typeUsesSelf(ret) {
 					ifc.UsesSelf = true
 				}
 			}
@@ -2768,6 +2796,7 @@ func (a *Analyzer) resolveConstGenericArg(
 		bm:       a.curBM,
 		callSpan: argExpr.GetSpan(),
 		locals:   make(map[*Symbol]*ctSlot),
+		alive:    newFrameAlive(),
 	}}
 	val, sig := st.evalExpr(argExpr)
 	a.curBM = prevBM
@@ -2980,9 +3009,11 @@ func (a *Analyzer) instantiateInterface(tmpl *GenericInterfaceTemplate, typeArgs
 		subst[tp.Name] = typeArgs[i]
 	}
 
-	cname := fmt.Sprintf("ll_giface_%s__%s", tmpl.Decl.Name, key)
+	humanKey := types.SanitizeCIdent(key)
+	ifaceHash := fnv64aHex(strings.Join(parts, "\x00"))
+	cname := fmt.Sprintf("ll_giface_%s_%s_%s", types.SanitizeCIdent(tmpl.Decl.Name), humanKey, ifaceHash)
 	if tag := a.typeTag(tmpl.Mod, tmpl.Decl.Name); tag != "" {
-		cname = fmt.Sprintf("ll_giface_%s_%s__%s", tag, tmpl.Decl.Name, key)
+		cname = fmt.Sprintf("ll_giface_%s_%s_%s_%s", tag, types.SanitizeCIdent(tmpl.Decl.Name), humanKey, ifaceHash)
 	}
 	inst := &types.Interface{
 		Name:   fmt.Sprintf("%s[%s]", tmpl.Decl.Name, typeListString(typeArgs)),
@@ -3002,7 +3033,7 @@ func (a *Analyzer) instantiateInterface(tmpl *GenericInterfaceTemplate, typeArgs
 		var fparams []types.FuncParam
 		for _, p := range m.Params {
 			pmode, pty := a.resolveParamType(tmpl.Mod, p.Type, subst, true)
-			if _, isSelf := pty.(*types.SelfPlaceholder); isSelf {
+			if typeUsesSelf(pty) {
 				inst.UsesSelf = true
 			}
 			fparams = append(fparams, types.FuncParam{
@@ -3014,7 +3045,7 @@ func (a *Analyzer) instantiateInterface(tmpl *GenericInterfaceTemplate, typeArgs
 		ret := types.Type(types.TypeVoid)
 		if m.Ret != nil {
 			ret = a.resolveReturnType(tmpl.Mod, m.Ret, subst, true)
-			if _, isSelf := ret.(*types.SelfPlaceholder); isSelf {
+			if typeUsesSelf(ret) {
 				inst.UsesSelf = true
 			}
 		}
@@ -4057,6 +4088,69 @@ func sanitizeDeriveScopeSuffix(s string) string {
 	return b.String()
 }
 
+func fnv64aHex(s string) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(s))
+	return fmt.Sprintf("%016x", h.Sum64())
+}
+
+func typeUsesSelf(t types.Type) bool {
+	return typeUsesSelfVisited(t, map[types.Type]bool{})
+}
+
+func typeUsesSelfVisited(t types.Type, seen map[types.Type]bool) bool {
+	if t == nil || t == types.TypeInvalid || seen[t] {
+		return false
+	}
+	seen[t] = true
+	switch v := t.(type) {
+	case *types.SelfPlaceholder:
+		return true
+	case *types.Optional:
+		return typeUsesSelfVisited(v.Elem, seen)
+	case *types.Vector:
+		return typeUsesSelfVisited(v.Elem, seen)
+	case *types.StackArray:
+		return typeUsesSelfVisited(v.Elem, seen)
+	case *types.Set:
+		return typeUsesSelfVisited(v.Elem, seen)
+	case *types.Map:
+		return typeUsesSelfVisited(v.Key, seen) || typeUsesSelfVisited(v.Value, seen)
+	case *types.Ptr:
+		return typeUsesSelfVisited(v.Elem, seen)
+	case *types.Ref:
+		return typeUsesSelfVisited(v.Elem, seen)
+	case *types.Tuple:
+		for _, el := range v.Elems {
+			if typeUsesSelfVisited(el, seen) {
+				return true
+			}
+		}
+	case *types.Func:
+		for _, p := range v.Params {
+			if typeUsesSelfVisited(p.Type, seen) {
+				return true
+			}
+		}
+		return typeUsesSelfVisited(v.Ret, seen)
+	case *types.Struct:
+		for _, ta := range v.TypeArgs {
+			if typeUsesSelfVisited(ta, seen) {
+				return true
+			}
+		}
+	case *types.Enum:
+		for _, ta := range v.TypeArgs {
+			if typeUsesSelfVisited(ta, seen) {
+				return true
+			}
+		}
+	case *types.Distinct:
+		return typeUsesSelfVisited(v.Base, seen)
+	}
+	return false
+}
+
 func (a *Analyzer) lookupGenericMethodTemplate(recvTy types.Type, methodName string) *GenericFuncTemplate {
 	baseTypeName := ""
 	switch r := recvTy.(type) {
@@ -4083,6 +4177,21 @@ func (a *Analyzer) lookupGenericMethodTemplate(recvTy types.Type, methodName str
 
 // LookupMethod finds a user-defined (or monomorphized) method on `recvTy`.
 func (a *Analyzer) LookupMethod(recvTy types.Type, methodName string, methodTypeArgs []types.Type, span diag.Span) *FuncInstance {
+	return a.LookupMethodWithDerive(recvTy, methodName, methodTypeArgs, span, nil, "", nil)
+}
+
+// LookupMethodWithDerive resolves a method on `recvTy`, propagating scoped `@derive`
+// authorization to generic helper method templates declared in the same `@derivable` package.
+func (a *Analyzer) LookupMethodWithDerive(recvTy types.Type, methodName string, methodTypeArgs []types.Type, span diag.Span, deriveTarget types.Type, derivePkg string, callerMod *Module) *FuncInstance {
+	gtmpl := a.lookupGenericMethodTemplate(recvTy, methodName)
+	useDerive := deriveTarget != nil && callerMod != nil && gtmpl != nil &&
+		a.SamePackage(callerMod, gtmpl.Mod) &&
+		(derivePkg == "" || derivePkgScopeID(gtmpl.Mod) == derivePkg) &&
+		(a.derived == nil || a.derived[gtmpl.MethodDecl] == nil)
+	if useDerive {
+		return a.instantiateMethodWithDerive(gtmpl, recvTy, methodTypeArgs, span, deriveTarget, derivePkg)
+	}
+
 	key := TypeMethodKey(recvTy)
 	if mset, ok := a.methods[key]; ok {
 		if fi, ok2 := mset[methodName]; ok2 {
@@ -4090,32 +4199,8 @@ func (a *Analyzer) LookupMethod(recvTy types.Type, methodName string, methodType
 		}
 	}
 
-	// Check generic method templates (`bind Pair[A, B].swap = ...` or `bind Foo.bar[T] = ...`)
-	baseTypeName := ""
-	var recvArgs []types.Type
-	if st, isSt := recvTy.(*types.Struct); isSt {
-		baseTypeName = st.Name
-		recvArgs = st.TypeArgs
-	} else if vec, isVec := recvTy.(*types.Vector); isVec {
-		baseTypeName = "List"
-		recvArgs = []types.Type{vec.Elem}
-	} else if arr, isArr := recvTy.(*types.StackArray); isArr {
-		baseTypeName = "Array"
-		recvArgs = []types.Type{types.TypeInt, arr.Elem}
-	} else if p, isP := recvTy.(*types.Primitive); isP {
-		baseTypeName = p.String()
-	} else if d, isD := recvTy.(*types.Distinct); isD {
-		baseTypeName = d.Name
-	} else if e, isE := recvTy.(*types.Enum); isE {
-		baseTypeName = e.Name
-	}
-	if baseTypeName != "" {
-		if gset, ok := a.genMethods[baseTypeName]; ok {
-			if gtmpl, ok2 := gset[methodName]; ok2 {
-				return a.instantiateMethod(gtmpl, recvTy, methodTypeArgs, span)
-			}
-		}
-		_ = recvArgs
+	if gtmpl != nil {
+		return a.instantiateMethod(gtmpl, recvTy, methodTypeArgs, span)
 	}
 	if len(methodTypeArgs) == 0 {
 		switch tv := recvTy.(type) {
@@ -4195,6 +4280,16 @@ func (a *Analyzer) lookupOptionalMethod(opt *types.Optional, methodName string, 
 			return nil
 		}
 		coreFnName = "_opt_eq"
+	case "cmp":
+		if !a.supportsCmp(opt.Elem) {
+			return nil
+		}
+		coreFnName = "_opt_cmp"
+	case "hash":
+		if !a.supportsHash(opt.Elem) {
+			return nil
+		}
+		coreFnName = "_opt_hash"
 	case "copy":
 		if !a.supportsCopy(opt.Elem) {
 			return nil
@@ -4290,12 +4385,10 @@ func (a *Analyzer) instantiateMethodWithDerive(tmpl *GenericFuncTemplate, recvTy
 			a.verifyBounds(tmpl.Mod, tp, methodTypeArgs[i], span, decl.Name)
 		}
 	}
-	deriveSuffix := ""
 	if deriveTarget != nil {
-		deriveSuffix = fmt.Sprintf("derive_%s_%s", deriveTarget.Mangled(), sanitizeDeriveScopeSuffix(derivePkg))
-		keyParts = append(keyParts, deriveSuffix)
+		keyParts = append(keyParts, "derive", deriveTarget.Mangled(), derivePkg)
 	}
-	instKey := strings.Join(keyParts, "__")
+	instKey := strings.Join(keyParts, "\x00")
 	if existing, ok := tmpl.Instances[instKey]; ok {
 		return existing
 	}
@@ -4306,7 +4399,7 @@ func (a *Analyzer) instantiateMethodWithDerive(tmpl *GenericFuncTemplate, recvTy
 	deriveInfoEntry := a.derived[decl]
 	trialKey := ""
 	if deriveInfoEntry != nil {
-		trialKey = fmt.Sprintf("%s::%s::%s", recvTy.Mangled(), deriveInfoEntry.Iface, deriveInfoEntry.Method)
+		trialKey = fmt.Sprintf("%s\x00%s\x00%s", recvTy.Mangled(), deriveInfoEntry.Iface, deriveInfoEntry.Method)
 		if a.deriveFailed[trialKey] {
 			return nil
 		}
@@ -4317,9 +4410,14 @@ func (a *Analyzer) instantiateMethodWithDerive(tmpl *GenericFuncTemplate, recvTy
 	fi.IsGenericInst = true
 	fi.DeriveTarget = deriveTarget
 	fi.DerivePkg = derivePkg
-	if deriveSuffix != "" {
-		fi.CName += "__" + deriveSuffix
+	if len(methodTypeArgs) > 0 {
+		displayParts := make([]string, len(methodTypeArgs))
+		for i, ta := range methodTypeArgs {
+			displayParts[i] = ta.String()
+		}
+		fi.Name = fmt.Sprintf("%s.%s[%s]", recvTy.String(), decl.Name, strings.Join(displayParts, ", "))
 	}
+	fi.CName = fmt.Sprintf("%s_%s", fi.CName, fnv64aHex(instKey))
 	if fi.IsConst && fi.Sig != nil && types.FindComptimeOnlyType(fi.Sig) != nil {
 		fi.ComptimeOnly = true
 	}
@@ -4392,11 +4490,9 @@ func (a *Analyzer) instantiateGenericFuncWithDerive(tmpl *GenericFuncTemplate, t
 		displayParts[i] = typeArgs[i].String()
 		a.verifyBounds(tmpl.Mod, tp, typeArgs[i], span, decl.Name)
 	}
-	key := strings.Join(parts, "__")
-	deriveSuffix := ""
+	key := strings.Join(parts, "\x00")
 	if deriveTarget != nil {
-		deriveSuffix = fmt.Sprintf("derive_%s_%s", deriveTarget.Mangled(), sanitizeDeriveScopeSuffix(derivePkg))
-		key += "__" + deriveSuffix
+		key += "\x00derive\x00" + deriveTarget.Mangled() + "\x00" + derivePkg
 	}
 	if existing, ok := tmpl.Instances[key]; ok {
 		return existing
@@ -4415,9 +4511,20 @@ func (a *Analyzer) instantiateGenericFuncWithDerive(tmpl *GenericFuncTemplate, t
 	fi.IsGenericInst = true
 	fi.DeriveTarget = deriveTarget
 	fi.DerivePkg = derivePkg
-	cname := fmt.Sprintf("ll_gfn_%s__%s", decl.Name, key)
+	humanParts := types.SanitizeCIdent(strings.Join(parts, "_"))
+	hashHex := fnv64aHex(key)
+	declCName := types.SanitizeCIdent(decl.Name)
+	var cname string
 	if tag := a.moduleTag(tmpl.Mod); tag != "" {
-		cname = fmt.Sprintf("ll_gfn_%s_%s__%s", tag, decl.Name, key)
+		if humanParts != "" {
+			cname = fmt.Sprintf("ll_gfn_%s_%s_%s_%s", tag, declCName, humanParts, hashHex)
+		} else {
+			cname = fmt.Sprintf("ll_gfn_%s_%s_%s", tag, declCName, hashHex)
+		}
+	} else if humanParts != "" {
+		cname = fmt.Sprintf("ll_gfn_%s_%s_%s", declCName, humanParts, hashHex)
+	} else {
+		cname = fmt.Sprintf("ll_gfn_%s_%s", declCName, hashHex)
 	}
 	fi.CName = cname
 	a.checkAttributes(decl.Attributes, fi, decl.Span, "function")
@@ -4782,7 +4889,7 @@ func (a *Analyzer) isCompBuiltinEnum(en *types.Enum) bool {
 }
 
 func (a *Analyzer) isCompBuiltinStruct(st *types.Struct) bool {
-	return st != nil && (st == a.Prog.StructTarget || st == a.Prog.StructAttrInfo || st == a.Prog.StructFieldInfo || st == a.Prog.StructVariantInfo || st == a.Prog.StructElemInfo)
+	return st != nil && (st == a.Prog.StructTarget || st == a.Prog.StructAttrInfo || st == a.Prog.StructFieldInfo || st == a.Prog.StructVariantInfo || st == a.Prog.StructElemInfo || st == a.Prog.StructDistinctInfo)
 }
 
 func (a *Analyzer) supportsEq(t types.Type) bool {

@@ -23,6 +23,7 @@ comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 	extern getpeername as _net_getpeername: fn(fd: i32, addr: ptr[u8], addrlen: ptr[u32]) i32
 	extern poll as _net_poll: fn(fds: ptr[u8], nfds: u32, timeout_ms: i32) i32
 	extern socketpair as _net_socketpair: fn(domain: i32, stype: i32, proto: i32, sv: ptr[i32]) i32
+	extern ll_rt_fcntl as _net_fcntl: fn(fd: i32, cmd: i32, arg: i32) i32
 	extern getaddrinfo as _net_getaddrinfo: fn(node: ptr[u8], service: ptr[u8], hints: ptr[u8], res: ptr[ptr[u8]]) i32
 	extern freeaddrinfo as _net_freeaddrinfo: fn(res: ptr[u8])
 } else comptime if(comp.TARGET.os == comp.TargetOs.linux): {
@@ -55,10 +56,10 @@ bind _darwin_set_nosigpipe = fn(fd: int) bool: {
 
 bind _net_get_flags = fn(fd: int) int: {
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_fcntl = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 25 else: 72
+		let sys_fcntl = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 25 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 72 else: comp.compile_error("std/net: unsupported Linux architecture for fcntl")
 		_net_syscall_res(unsafe syscall(sys_fcntl, fd, 3, 0, 0, 0, 0))
 	} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
-		_net_syscall_res(unsafe syscall(92, fd, 3, 0, 0, 0, 0))
+		_net_syscall_res(int(unsafe _net_fcntl(i32(fd), i32(3), i32(0))))
 	} else: {
 		let _ = fd
 		-1
@@ -67,10 +68,10 @@ bind _net_get_flags = fn(fd: int) int: {
 
 bind _net_set_flags = fn(fd: int, flags: int) int: {
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_fcntl = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 25 else: 72
+		let sys_fcntl = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 25 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 72 else: comp.compile_error("std/net: unsupported Linux architecture for fcntl")
 		_net_syscall_res(unsafe syscall(sys_fcntl, fd, 4, flags, 0, 0, 0))
 	} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
-		_net_syscall_res(unsafe syscall(92, fd, 4, flags, 0, 0, 0))
+		_net_syscall_res(int(unsafe _net_fcntl(i32(fd), i32(4), i32(flags))))
 	} else: {
 		let _ = fd + flags
 		-1
@@ -85,7 +86,7 @@ bind _net_get_so_error = fn(fd: int) int: {
 			let len_slot = alloc_raw[u32](1)
 			ptr_write(len_slot, u32(4))
 			let rc = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-				let sys_getsockopt = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 209 else: 55
+				let sys_getsockopt = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 209 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 55 else: comp.compile_error("std/net: unsupported Linux architecture for getsockopt")
 				_net_syscall_res(
 					syscall(sys_getsockopt, fd, 1, 4, int(ptr_addr(opt)), int(ptr_addr(len_slot)), 0),
 				)
@@ -107,12 +108,12 @@ bind _net_get_so_error = fn(fd: int) int: {
 
 bind _net_poll_event = fn(fd: int, events: int, timeout_ms: int) int: {
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_ppoll = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 73 else: 271
+		let sys_ppoll = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 73 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 271 else: comp.compile_error("std/net: unsupported Linux architecture for ppoll")
 		unsafe {
 			let pfd = alloc_raw[u8](8)
 			fill_bytes(pfd, u8(0), 8)
 			ptr_write(ptr_cast[i32](pfd), i32(fd))
-			ptr_write(ptr_add(pfd, 4), u8(events))
+			ptr_write(ptr_cast[i16](ptr_add(pfd, 4)), i16(events))
 			let ts = alloc_raw[int](2)
 			let ts_ptr = if(timeout_ms < 0): 0 else: {
 				ptr_write(ts, timeout_ms / 1000)
@@ -120,6 +121,9 @@ bind _net_poll_event = fn(fd: int, events: int, timeout_ms: int) int: {
 				int(ptr_addr(ts))
 			}
 			let rc = syscall(sys_ppoll, int(ptr_addr(pfd)), 1, ts_ptr, 0, 0, 0)
+			while(rc == -4): {
+				rc = syscall(sys_ppoll, int(ptr_addr(pfd)), 1, ts_ptr, 0, 0, 0)
+			}
 			free_raw(ts)
 			free_raw(pfd)
 			if(rc < 0): {
@@ -133,9 +137,12 @@ bind _net_poll_event = fn(fd: int, events: int, timeout_ms: int) int: {
 			let pfd = alloc_raw[u8](8)
 			fill_bytes(pfd, u8(0), 8)
 			ptr_write(ptr_cast[i32](pfd), i32(fd))
-			ptr_write(ptr_add(pfd, 4), u8(events))
-			let t = if(timeout_ms < 0): i32(-1) else: i32(timeout_ms)
+			ptr_write(ptr_cast[i16](ptr_add(pfd, 4)), i16(events))
+			let t = if(timeout_ms < 0): i32(-1) else: if(timeout_ms > 2147483647): i32(2147483647) else: i32(timeout_ms)
 			let rc = int(_net_poll(pfd, u32(1), t))
+			while(rc < 0 and os.last_errno() == 4): {
+				rc = int(_net_poll(pfd, u32(1), t))
+			}
 			free_raw(pfd)
 			rc
 		}
@@ -154,8 +161,7 @@ bind _sockaddr_is_inet = fn(sa: ptr[u8]) bool: {
 	unsafe {
 		let b0 = int(ptr_read(sa))
 		let b1 = int(ptr_read(ptr_add(sa, 1)))
-		comptime if(comp.TARGET.os == comp.TargetOs.darwin): (b1 == 2 or b1 == 30)
-		else: (b0 == 2 and b1 == 0) or (b0 == 10 and b1 == 0)
+		comptime if(comp.TARGET.os == comp.TargetOs.darwin): (b1 == 2 or b1 == 30) else: (ptr_read(ptr_cast[u16](sa)) == u16(2) or ptr_read(ptr_cast[u16](sa)) == u16(10))
 	}
 }
 
@@ -163,7 +169,7 @@ bind _sockaddr_is_inet = fn(sa: ptr[u8]) bool: {
 bind raw_close = fn(fd: int): {
 	if(fd < 0): func <-
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_close = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 57 else: 3
+		let sys_close = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 57 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 3 else: comp.compile_error("std/net: unsupported Linux architecture for close")
 		let _ = unsafe syscall(sys_close, fd, 0, 0, 0, 0, 0)
 	} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 		let _ = unsafe _net_close(i32(fd))
@@ -176,7 +182,7 @@ bind raw_send_all = fn(fd: int, buf: ptr[u8], length: int) int: {
 	if(length <= 0): func <- 0
 	if(unsafe is_null(buf)): func <- -1
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_sendto = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 206 else: 44
+		let sys_sendto = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 206 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 44 else: comp.compile_error("std/net: unsupported Linux architecture for sendto")
 		let sent = 0
 		for(sent < length): {
 			let n = unsafe syscall(
@@ -219,7 +225,7 @@ bind raw_recv = fn(fd: int, buf: ptr[u8], max_len: int, timeout_ms: int) int: {
 		if(pr < 0): func <- -1
 	}
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_recvfrom = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 207 else: 45
+		let sys_recvfrom = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 207 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 45 else: comp.compile_error("std/net: unsupported Linux architecture for recvfrom")
 		for(true): {
 			let n = unsafe syscall(sys_recvfrom, fd, int(ptr_addr(buf)), max_len, 0, 0, 0)
 			if(n == -4): next <-
@@ -251,7 +257,7 @@ bind raw_tcp_port = fn(fd: int) int: {
 			let len_slot = alloc_raw[u32](1)
 			ptr_write(len_slot, u32(128))
 			let rc = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-				let sys_getsockname = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 204 else: 51
+				let sys_getsockname = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 204 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 51 else: comp.compile_error("std/net: unsupported Linux architecture for getsockname")
 				_net_syscall_res(
 					syscall(sys_getsockname, fd, int(ptr_addr(sa)), int(ptr_addr(len_slot)), 0, 0, 0),
 				)
@@ -310,17 +316,23 @@ bind raw_tcp_listen = fn(host: string, port: int, backlog: int) int: {
 				let addr = ptr_read(ptr_cast[ptr[u8]](ptr_add(rp, addr_off)))
 				let next_rp = ptr_read(ptr_cast[ptr[u8]](ptr_add(rp, 40)))
 				let fd = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-					let sys_sock = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 198 else: 41
-					_net_syscall_res(syscall(sys_sock, af, stype, proto, 0, 0, 0))
-				} else: int(_net_socket(i32(af), i32(stype), i32(proto)))
+					let sys_sock = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 198 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 41 else: comp.compile_error("std/net: unsupported Linux architecture for socket")
+					_net_syscall_res(syscall(sys_sock, af, stype | 524288, proto, 0, 0, 0))
+				} else: {
+					let s = int(_net_socket(i32(af), i32(stype), i32(proto)))
+					if(s >= 0): {
+						let _ = _net_fcntl(i32(s), i32(2), i32(1))
+					}
+					s
+				}
 				if(fd < 0): {
 					let e = os.last_errno()
 					if(e != 0): last_err = e
 				} else: {
 					comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-						let sys_so = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 208 else: 54
-						let sys_bind = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 200 else: 49
-						let sys_listen = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 201 else: 50
+						let sys_so = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 208 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 54 else: comp.compile_error("std/net: unsupported Linux architecture for setsockopt")
+						let sys_bind = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 200 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 49 else: comp.compile_error("std/net: unsupported Linux architecture for bind")
+						let sys_listen = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 201 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 50 else: comp.compile_error("std/net: unsupported Linux architecture for listen")
 						let _ = syscall(sys_so, fd, 1, 2, int(ptr_addr(opt_slot)), 4, 0)
 						let brc = _net_syscall_res(
 							syscall(sys_bind, fd, int(ptr_addr(addr)), alen, 0, 0, 0),
@@ -369,9 +381,9 @@ bind raw_tcp_accept = fn(listener_fd: int, timeout_ms: int) int: {
 		if(pr < 0): func <- -1
 	}
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_accept = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 202 else: 43
+		let sys_accept4 = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 242 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 288 else: comp.compile_error("std/net: unsupported Linux architecture for accept4")
 		for(true): {
-			let cfd = unsafe syscall(sys_accept, listener_fd, 0, 0, 0, 0, 0)
+			let cfd = unsafe syscall(sys_accept4, listener_fd, 0, 0, 524288, 0, 0)
 			if(cfd == -4): next <-
 			if(cfd < 0): {
 				os.set_last_errno(-cfd)
@@ -387,6 +399,7 @@ bind raw_tcp_accept = fn(listener_fd: int, timeout_ms: int) int: {
 				if(os.last_errno() == 4): next <-
 				func <- -1
 			}
+			let _ = unsafe _net_fcntl(i32(cfd), i32(2), i32(1))
 			let _ = _darwin_set_nosigpipe(cfd)
 			func <- cfd
 		}
@@ -432,9 +445,15 @@ bind _raw_tcp_connect = fn(host: string, port: int, timeout_ms: int) int: {
 				let addr = ptr_read(ptr_cast[ptr[u8]](ptr_add(rp, addr_off)))
 				let next_rp = ptr_read(ptr_cast[ptr[u8]](ptr_add(rp, 40)))
 				let fd = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-					let sys_sock = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 198 else: 41
-					_net_syscall_res(syscall(sys_sock, af, stype, proto, 0, 0, 0))
-				} else: int(_net_socket(i32(af), i32(stype), i32(proto)))
+					let sys_sock = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 198 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 41 else: comp.compile_error("std/net: unsupported Linux architecture for socket")
+					_net_syscall_res(syscall(sys_sock, af, stype | 524288, proto, 0, 0, 0))
+				} else: {
+					let s = int(_net_socket(i32(af), i32(stype), i32(proto)))
+					if(s >= 0): {
+						let _ = _net_fcntl(i32(s), i32(2), i32(1))
+					}
+					s
+				}
 				if(fd < 0): {
 					let e = os.last_errno()
 					if(e != 0): last_err = e
@@ -442,7 +461,7 @@ bind _raw_tcp_connect = fn(host: string, port: int, timeout_ms: int) int: {
 					let _ = _darwin_set_nosigpipe(fd)
 					if(timeout_ms < 0): {
 						let rc = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-							let sys_connect = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 203 else: 42
+							let sys_connect = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 203 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 42 else: comp.compile_error("std/net: unsupported Linux architecture for connect")
 							_net_syscall_res(
 								syscall(sys_connect, fd, int(ptr_addr(addr)), alen, 0, 0, 0),
 							)
@@ -477,7 +496,7 @@ bind _raw_tcp_connect = fn(host: string, port: int, timeout_ms: int) int: {
 							raw_close(fd)
 						} else: {
 							let rc = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-								let sys_connect = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 203 else: 42
+								let sys_connect = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 203 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 42 else: comp.compile_error("std/net: unsupported Linux architecture for connect")
 								_net_syscall_res(
 									syscall(sys_connect, fd, int(ptr_addr(addr)), alen, 0, 0, 0),
 								)
@@ -722,7 +741,7 @@ bind TcpStream.shutdown = fn(&self, how: Shutdown) Result[bool]: {
 		when write: 1
 		default both: 2
 	let rc = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_shutdown = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 210 else: 48
+		let sys_shutdown = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 210 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 48 else: comp.compile_error("std/net: unsupported Linux architecture for shutdown")
 		_net_syscall_res(unsafe syscall(sys_shutdown, self._fd, code, 0, 0, 0, 0))
 	} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 		int(unsafe _net_shutdown(i32(self._fd), i32(code)))
@@ -748,7 +767,7 @@ bind TcpStream.set_nodelay = fn(&self, on: bool) Result[bool]: {
 			let opt = alloc_raw[i32](1)
 			ptr_write(opt, if(on): i32(1) else: i32(0))
 			let r = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-				let sys_so = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 208 else: 54
+				let sys_so = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 208 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 54 else: comp.compile_error("std/net: unsupported Linux architecture for setsockopt")
 				_net_syscall_res(syscall(sys_so, self._fd, 6, 1, int(ptr_addr(opt)), 4, 0))
 			} else: int(_net_setsockopt(i32(self._fd), i32(6), i32(1), ptr_cast[u8](opt), u32(4)))
 			free_raw(opt)
@@ -767,8 +786,8 @@ bind _format_sock_addr = fn(fd: int, peer: bool) ?string: {
 			let len_slot = alloc_raw[u32](1)
 			ptr_write(len_slot, u32(128))
 			let rc = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-				let sys_num = if(peer): comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 205 else: 52
-				else: comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 204 else: 51
+				let sys_num = if(peer): comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 205 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 52 else: comp.compile_error("std/net: unsupported Linux architecture for getpeername")
+				else: comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 204 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 51 else: comp.compile_error("std/net: unsupported Linux architecture for getsockname")
 				_net_syscall_res(syscall(sys_num, fd, int(ptr_addr(sa)), int(ptr_addr(len_slot)), 0, 0, 0))
 			} else: {
 				if(peer): int(_net_getpeername(i32(fd), sa, len_slot))
@@ -781,8 +800,9 @@ bind _format_sock_addr = fn(fd: int, peer: bool) ?string: {
 			}
 			let b0 = int(ptr_read(sa))
 			let b1 = int(ptr_read(ptr_add(sa, 1)))
-			let is_v4 = (b0 == 16 and b1 == 2) or (b0 == 2 and b1 == 0)
-			let is_v6 = (b0 == 28 and b1 == 30) or (b0 == 10 and b1 == 0)
+			let fam16 = int(ptr_read(ptr_cast[u16](sa)))
+			let is_v4 = comptime if(comp.TARGET.os == comp.TargetOs.darwin): (b0 == 16 and b1 == 2) else: (fam16 == 2)
+			let is_v6 = comptime if(comp.TARGET.os == comp.TargetOs.darwin): (b0 == 28 and b1 == 30) else: (fam16 == 10)
 			let port = (int(ptr_read(ptr_add(sa, 2))) << 8) | int(ptr_read(ptr_add(sa, 3)))
 			if(is_v4): {
 				let ip = (int(ptr_read(ptr_add(sa, 4))) << 24) |
@@ -983,9 +1003,16 @@ bind socketpair = fn() Result[SocketPair]: {
 		let pair = unsafe {
 			let sv = alloc_raw[i32](2)
 			let rc = comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-				let sys_sp = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 199 else: 53
-				_net_syscall_res(syscall(sys_sp, 1, 1, 0, int(ptr_addr(sv)), 0, 0))
-			} else: int(_net_socketpair(i32(1), i32(1), i32(0), sv))
+				let sys_sp = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 199 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 53 else: comp.compile_error("std/net: unsupported Linux architecture for socketpair")
+				_net_syscall_res(syscall(sys_sp, 1, 524289, 0, int(ptr_addr(sv)), 0, 0))
+			} else: {
+				let r = int(_net_socketpair(i32(1), i32(1), i32(0), sv))
+				if(r == 0): {
+					let _ = _net_fcntl(ptr_read(sv), i32(2), i32(1))
+					let _ = _net_fcntl(ptr_read(ptr_add(sv, 1)), i32(2), i32(1))
+				}
+				r
+			}
 			if(rc != 0): {
 				let code = os.last_errno()
 				free_raw(sv)

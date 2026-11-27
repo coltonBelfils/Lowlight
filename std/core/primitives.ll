@@ -515,17 +515,25 @@ comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 	extern "fread" as _core_fread: fn(buf: ptr[u8], size: int, count: int, fp: ptr[u8]) int
 	extern "fwrite" as _core_fwrite: fn(buf: ptr[u8], size: int, count: int, fp: ptr[u8]) int
 	extern "ferror" as _core_ferror: fn(fp: ptr[u8]) i32
+	extern "clearerr" as _core_clearerr: fn(fp: ptr[u8])
+	extern "fileno" as _core_fileno: fn(fp: ptr[u8]) i32
+	extern "__error" as _core_errno_ptr: fn() ptr[i32]
+	extern ll_rt_fcntl as _core_fcntl: fn(fd: i32, cmd: i32, arg: i32) i32
 }
 
 // Reads the entire contents of file or stream `path` as a [`string`], or returns `none` on I/O failure.
 bind core_read_file = fn(path: string) ?string: {
 	if(path.len() == 0 or path.contains_byte(u8(0))): func <- none
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_openat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 56 else: 257
-		let sys_read = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 63 else: 0
-		let sys_close = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 57 else: 3
+		let sys_openat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 56 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 257 else: comp.compile_error("std/core: unsupported Linux architecture for openat")
+		let sys_read = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 63 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 0 else: comp.compile_error("std/core: unsupported Linux architecture for read")
+		let sys_close = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 57 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 3 else: comp.compile_error("std/core: unsupported Linux architecture for close")
 		unsafe {
-			let fd = syscall(sys_openat, -100, int(ptr_addr(path.c_str())), 0, 0, 0, 0)
+			// O_RDONLY | O_CLOEXEC (524288)
+			let fd = syscall(sys_openat, -100, int(ptr_addr(path.c_str())), 524288, 0, 0, 0)
+			while(fd == -4): {
+				fd = syscall(sys_openat, -100, int(ptr_addr(path.c_str())), 524288, 0, 0, 0)
+			}
 			if(fd < 0): func <- none
 			let chunk_size = 8192
 			let buf = alloc_raw[u8](chunk_size)
@@ -533,6 +541,9 @@ bind core_read_file = fn(path: string) ?string: {
 			let failed = false
 			for(true): {
 				let n = syscall(sys_read, fd, int(ptr_addr(buf)), chunk_size, 0, 0, 0)
+			while(n == -4): {
+				n = syscall(sys_read, fd, int(ptr_addr(buf)), chunk_size, 0, 0, 0)
+			}
 				if(n == -4): next <-
 				if(n == 0): for <-
 				if(n < 0): {
@@ -549,6 +560,12 @@ bind core_read_file = fn(path: string) ?string: {
 	} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 		unsafe {
 			let fp = _core_fopen(path.c_str(), "rb".c_str())
+			if(fp != null_ptr[u8]()): {
+				let cfd = _core_fileno(fp)
+				if(cfd >= i32(0)): {
+					let _ = _core_fcntl(cfd, i32(2), i32(1))
+				}
+			}
 			if(is_null(fp)): func <- none
 			let chunk_size = 8192
 			let buf = alloc_raw[u8](chunk_size)
@@ -574,11 +591,15 @@ bind core_read_file = fn(path: string) ?string: {
 bind core_write_file = fn(path: string, content: string) bool: {
 	if(path.len() == 0 or path.contains_byte(u8(0))): func <- false
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_openat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 56 else: 257
-		let sys_write = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 64 else: 1
-		let sys_close = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 57 else: 3
+		let sys_openat = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 56 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 257 else: comp.compile_error("std/core: unsupported Linux architecture for openat")
+		let sys_write = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 64 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 1 else: comp.compile_error("std/core: unsupported Linux architecture for write")
+		let sys_close = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 57 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 3 else: comp.compile_error("std/core: unsupported Linux architecture for close")
 		unsafe {
-			let fd = syscall(sys_openat, -100, int(ptr_addr(path.c_str())), 577, 420, 0, 0)
+			// O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC (577 | 524288 = 524865)
+			let fd = syscall(sys_openat, -100, int(ptr_addr(path.c_str())), 524865, 420, 0, 0)
+			while(fd == -4): {
+				fd = syscall(sys_openat, -100, int(ptr_addr(path.c_str())), 524865, 420, 0, 0)
+			}
 			if(fd < 0): func <- false
 			let total = content.len()
 			let p = content.c_str()
@@ -586,6 +607,9 @@ bind core_write_file = fn(path: string, content: string) bool: {
 			let ok = true
 			for(off < total): {
 				let n = syscall(sys_write, fd, int(ptr_addr(ptr_add(p, off))), total - off, 0, 0, 0)
+				while(n == -4): {
+					n = syscall(sys_write, fd, int(ptr_addr(ptr_add(p, off))), total - off, 0, 0, 0)
+				}
 				if(n == -4): next <-
 				if(n <= 0): {
 					ok = false
@@ -599,6 +623,12 @@ bind core_write_file = fn(path: string, content: string) bool: {
 	} else comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 		unsafe {
 			let fp = _core_fopen(path.c_str(), "wb".c_str())
+			if(fp != null_ptr[u8]()): {
+				let cfd = _core_fileno(fp)
+				if(cfd >= i32(0)): {
+					let _ = _core_fcntl(cfd, i32(2), i32(1))
+				}
+			}
 			if(is_null(fp)): func <- false
 			let n = content.len()
 			let wr = if(n > 0): _core_fwrite(content.c_str(), 1, n, fp) else: 0
@@ -983,7 +1013,9 @@ define _StringRaw struct [
 // keep a local string's fields in registers.
 const _string_grow = fn(s: _StringRaw, needed: int) _StringRaw: unsafe {
 	let ncap = if(s.cap > 0): s.cap else: 16
-	while(ncap < needed): ncap *= 2
+	while(ncap < needed): {
+		if(ncap >= 4611686018427387904): ncap = needed else: ncap *= 2
+	}
 	if(s.cap > 0): func <- _StringRaw[data: realloc_raw(s.data, ncap), len: s.len, cap: ncap]
 	let buf = alloc_uninit[u8](ncap)
 	if(s.len > 0): copy_bytes(buf, s.data, s.len)
@@ -1042,8 +1074,8 @@ const string.push_bytes = fn(&self, bytes: ptr[u8], count: int): unsafe {
 	if(count <= 0): func <-
 	let r = ptr_cast[_StringRaw](addr_of(self))
 	let len = (*r).len
-	if((*r).cap < len + count + 1): *r = _string_grow(*r, len + count + 1)
-	copy_bytes(ptr_add((*r).data, len), bytes, count)
+	if((*r).cap < len + count + 1): *r = _string_push_grow(*r, bytes, count)
+	else: copy_bytes(ptr_add((*r).data, len), bytes, count)
 	(*r).len = len + count
 	ptr_write(ptr_add((*r).data, len + count), u8(0))
 }

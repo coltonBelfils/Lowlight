@@ -66,3 +66,10 @@ define ElemInfo struct [
 	index: int,
 	type_name: string,
 ]
+
+@comptime_only
+@lang("comp_distinct_info")
+@derive(Equatable, Copyable, Printable)
+define DistinctInfo struct [
+	type_name: string,
+]

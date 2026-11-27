@@ -86,87 +86,168 @@ func (fl *funcLowerer) lowerExprOwned(e ast.Expr, targetTy types.Type) Expr {
 		}
 	}
 
+	unwrapped := e
+	for unwrapped != nil {
+		if ue, isUE := unwrapped.(*ast.UnsafeExpr); isUE {
+			unwrapped = ue.Expr
+			continue
+		}
+		if cx, isCX := unwrapped.(*ast.ComptimeExpr); isCX && (fl.bm == nil || fl.bm.ComptimeVals[cx] == nil) {
+			unwrapped = cx.Expr
+			continue
+		}
+		break
+	}
+	if unwrapped != e {
+		if uInf := fl.info(unwrapped); uInf != nil && uInf.MovedLocal != nil {
+			if loc, ok := fl.symLocals[uInf.MovedLocal]; ok {
+				mvTmp := fl.allocSlot("_ll_mv", loc.Type)
+				fl.assignLocal(mvTmp, NewLocalExpr(loc))
+				fl.emit(&InstrZero{Var: loc, VarName: loc.CName, Type: loc.Type, MovedFlag: loc.MovedFlag})
+				return fl.applyOwnedCoercions(e, inf, NewLocalExpr(mvTmp), targetTy)
+			}
+		}
+		if u, isU := unwrapped.(*ast.UnaryExpr); isU && u.Op == token.KwOwn {
+			innerVal := fl.lowerExprOwned(u.Operand, fl.info(u.Operand).Type)
+			return fl.applyOwnedCoercions(e, inf, innerVal, targetTy)
+		}
+	}
+
 	// Check `own self` field move (`self.field`)
-	if mem, isMem := e.(*ast.MemberExpr); isMem && !inf.IsOptChain && inf.EnumVariant == nil && !inf.Type.IsPlain() {
-		if id, isId := mem.Base.(*ast.IdentExpr); isId && id.Name == "self" {
-			if selfSym := fl.info(id).Sym; selfSym != nil && selfSym.BindKind == sema.BindOwned {
-				if selfLoc, ok := fl.symLocals[selfSym]; ok {
-					st := selfLoc.Type.(*types.Struct)
-					sf, _ := st.FieldByName(mem.Member)
-					if sf != nil {
-						fieldLval := &ExprField{Base: NewLocalExpr(selfLoc), FieldName: sf.CName, Typ: sf.Type, IsPtr: false}
-						mvTmp := fl.allocSlot("_ll_fmove", sf.Type)
-						fl.assignLocal(mvTmp, fieldLval)
-						fl.emit(&InstrAssign{Dst: fieldLval, Expr: &ExprLitZero{Typ: sf.Type}})
-						return fl.applyOwnedCoercions(e, inf, NewLocalExpr(mvTmp), targetTy)
+	if mem, isMem := unwrapped.(*ast.MemberExpr); isMem {
+		memInf := fl.info(mem)
+		if memInf != nil && !memInf.IsOptChain && memInf.EnumVariant == nil && memInf.Type != nil && !memInf.Type.IsPlain() {
+			baseExpr := fl.unwrapASTWrappers(mem.Base)
+			if id, isId := baseExpr.(*ast.IdentExpr); isId && id.Name == "self" {
+				if selfSym := fl.info(id).Sym; selfSym != nil && selfSym.BindKind == sema.BindOwned {
+					if selfLoc, ok := fl.symLocals[selfSym]; ok {
+						if st, isSt := types.UnwrapDistinct(selfLoc.Type).(*types.Struct); isSt {
+							if sf, fIdx := st.FieldByName(mem.Member); sf != nil {
+								fieldLval := &ExprField{Base: NewLocalExpr(selfLoc), FieldName: sf.CName, FieldIdx: fIdx, Typ: sf.Type, IsPtr: selfLoc.IsMutPtr}
+								mvTmp := fl.allocSlot("_ll_fmove", sf.Type)
+								fl.assignLocal(mvTmp, fieldLval)
+								fl.emit(&InstrAssign{Dst: fieldLval, Expr: &ExprLitZero{Typ: sf.Type}})
+								return fl.applyOwnedCoercions(e, inf, NewLocalExpr(mvTmp), targetTy)
+							}
+						}
 					}
 				}
 			}
 		}
 	}
 
-	// Check `own self` / `own v` generic field/element/payload move (`v.field(f)`, `t.elem(e)`, `v.payload(vr)`)
-	if call, isCall := e.(*ast.CallExpr); isCall && !inf.IsOptChain && !inf.Type.IsPlain() {
-		if inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload" {
+	// Check `own self` / `own v` / rvalue generic field/element/payload move (`v.field(f)`, `t.elem(e)`, `v.payload(vr)`)
+	if call, isCall := unwrapped.(*ast.CallExpr); isCall {
+		callInf := fl.info(call)
+		if callInf != nil && !callInf.IsOptChain && callInf.Type != nil && !callInf.Type.IsPlain() &&
+			(callInf.BuiltinName == "struct.field" || callInf.BuiltinName == "seq.elem" || callInf.BuiltinName == "enum.payload" || callInf.BuiltinName == "distinct.underlying") {
 			if mem, isMem := call.Callee.(*ast.MemberExpr); isMem {
-				if id, isId := mem.Base.(*ast.IdentExpr); isId {
+				baseExpr := fl.unwrapASTWrappers(mem.Base)
+				var baseLoc *Local
+				if id, isId := baseExpr.(*ast.IdentExpr); isId {
 					if baseSym := fl.info(id).Sym; baseSym != nil && baseSym.BindKind == sema.BindOwned {
-						if baseLoc, ok := fl.symLocals[baseSym]; ok {
-							if inf.BuiltinName == "enum.payload" {
-								if en, isEn := baseLoc.Type.(*types.Enum); isEn && inf.EnumVariant != nil {
-									baseExpr := Expr(NewLocalExpr(baseLoc))
-									if baseLoc.IsMutPtr {
-										baseExpr = &ExprDeref{Ptr: baseExpr, Typ: en}
-									}
-									fl.emitEnumTagAssert(baseExpr, en, inf.EnumVariant, false, call)
-									elemTy := inf.EnumVariant.Payload
-									elemLval := &ExprField{
-										Base:      &ExprField{Base: baseExpr, FieldName: "data"},
-										FieldName: inf.EnumVariant.CName,
-										Typ:       elemTy,
-									}
-									mvTmp := fl.allocSlot("_ll_pmove", elemTy)
-									fl.assignLocal(mvTmp, elemLval)
-									if baseLoc.IsMutPtr {
-										fl.emit(&InstrAssign{Dst: baseExpr, Expr: NewLitZero(en)})
-									} else {
-										fl.emit(&InstrZero{Var: baseLoc, VarName: baseLoc.CName, Type: en, MovedFlag: baseLoc.MovedFlag})
-									}
-									return fl.applyOwnedCoercions(e, inf, NewLocalExpr(mvTmp), targetTy)
-								}
+						baseLoc = fl.symLocals[baseSym]
+					}
+				} else {
+					bInf := fl.info(mem.Base)
+					if bInf == nil {
+						bInf = fl.info(baseExpr)
+					}
+					if bInf != nil && bInf.Type != nil && bInf.Type != types.TypeInvalid {
+						uBase := types.UnwrapDistinct(bInf.Type)
+						if _, isPtr := uBase.(*types.Ptr); !isPtr {
+							if _, isRef := uBase.(*types.Ref); !isRef {
+								rawBase := fl.lowerExprOwned(mem.Base, bInf.Type)
+								baseLoc = fl.allocStmtTemp(bInf.Type, rawBase)
 							}
-							var elemLval Expr
-							var elemTy types.Type
-							basePlaceExpr := Expr(NewLocalExpr(baseLoc))
-							isPtr := baseLoc.IsMutPtr
-							switch {
-							case inf.BuiltinName == "struct.field":
-								st := baseLoc.Type.(*types.Struct)
-								sf, _ := st.FieldByName(inf.ResolvedField)
+						}
+					}
+				}
+				if baseLoc != nil {
+					baseTy := types.UnwrapDistinct(baseLoc.Type)
+					_, isPtr := baseTy.(*types.Ptr)
+					_, isRef := baseTy.(*types.Ref)
+					if !isPtr && !isRef {
+						if callInf.BuiltinName == "enum.payload" {
+							if en, isEn := baseTy.(*types.Enum); isEn && callInf.EnumVariant != nil {
+								baseExprIR := Expr(NewLocalExpr(baseLoc))
+								if baseLoc.IsMutPtr {
+									baseExprIR = &ExprDeref{Ptr: baseExprIR, Typ: baseLoc.Type}
+								}
+								fl.emitEnumTagAssert(baseExprIR, en, callInf.EnumVariant, false, call)
+								elemTy := callInf.EnumVariant.Payload
+								elemLval := &ExprField{
+									Base:      &ExprField{Base: baseExprIR, FieldName: "data"},
+									FieldName: callInf.EnumVariant.CName,
+									Typ:       elemTy,
+								}
+								mvTmp := fl.allocSlot("_ll_pmove", elemTy)
+								fl.assignLocal(mvTmp, elemLval)
+								if baseLoc.IsMutPtr {
+									fl.emit(&InstrAssign{Dst: baseExprIR, Expr: NewLitZero(baseLoc.Type)})
+								} else {
+									fl.emit(&InstrZero{Var: baseLoc, VarName: baseLoc.CName, Type: baseLoc.Type, MovedFlag: baseLoc.MovedFlag})
+								}
+								return fl.applyOwnedCoercions(e, inf, NewLocalExpr(mvTmp), targetTy)
+							}
+						}
+						if callInf.BuiltinName == "distinct.underlying" {
+							if dt, isDt := baseLoc.Type.(*types.Distinct); isDt {
+								baseExprIR := Expr(NewLocalExpr(baseLoc))
+								if baseLoc.IsMutPtr {
+									baseExprIR = &ExprDeref{Ptr: baseExprIR, Typ: baseLoc.Type}
+								}
+								mvTmp := fl.allocSlot("_ll_dmove", dt.Base)
+								fl.assignLocal(mvTmp, &ExprCast{Val: baseExprIR, From: dt, To: dt.Base})
+								if baseLoc.IsMutPtr {
+									fl.emit(&InstrAssign{Dst: baseExprIR, Expr: NewLitZero(baseLoc.Type)})
+								} else {
+									fl.emit(&InstrZero{Var: baseLoc, VarName: baseLoc.CName, Type: baseLoc.Type, MovedFlag: baseLoc.MovedFlag})
+								}
+								return fl.applyOwnedCoercions(e, inf, NewLocalExpr(mvTmp), targetTy)
+							}
+						}
+						var elemLval Expr
+						var elemTy types.Type
+						basePlaceExpr := Expr(NewLocalExpr(baseLoc))
+						isPtrPlace := baseLoc.IsMutPtr
+						switch callInf.BuiltinName {
+						case "struct.field":
+							if st, isSt := baseTy.(*types.Struct); isSt {
+								sf, fIdx := st.FieldByName(callInf.ResolvedField)
+								if sf == nil && callInf.TupleFieldIdx >= 0 && callInf.TupleFieldIdx < len(st.Fields) {
+									sf = &st.Fields[callInf.TupleFieldIdx]
+									fIdx = callInf.TupleFieldIdx
+								}
 								if sf != nil {
 									elemTy = sf.Type
-									elemLval = &ExprField{Base: basePlaceExpr, FieldName: sf.CName, Typ: elemTy, IsPtr: isPtr}
+									elemLval = &ExprField{Base: basePlaceExpr, FieldName: sf.CName, FieldIdx: fIdx, Typ: elemTy, IsPtr: isPtrPlace}
 								}
-							case inf.BuiltinName == "seq.elem":
-								if tup, isTup := baseLoc.Type.(*types.Tuple); isTup {
-									fIdx := inf.TupleFieldIdx
+							}
+						case "seq.elem":
+							if tup, isTup := baseTy.(*types.Tuple); isTup {
+								fIdx := callInf.TupleFieldIdx
+								if fIdx >= 0 && fIdx < len(tup.Elems) {
 									elemTy = tup.Elems[fIdx]
-									elemLval = &ExprField{Base: basePlaceExpr, FieldName: fmt.Sprintf("_%d", fIdx), FieldIdx: fIdx, Typ: elemTy, IsPtr: isPtr}
-								} else if arr, isArr := baseLoc.Type.(*types.StackArray); isArr {
+									elemLval = &ExprField{Base: basePlaceExpr, FieldName: fmt.Sprintf("_%d", fIdx), FieldIdx: fIdx, Typ: elemTy, IsPtr: isPtrPlace}
+								}
+							} else if arr, isArr := baseTy.(*types.StackArray); isArr {
+								fIdx := callInf.TupleFieldIdx
+								if fIdx >= 0 && int64(fIdx) < arr.Size {
 									elemTy = arr.Elem
 									elemLval = &ExprIndex{
-										Base:  &ExprField{Base: basePlaceExpr, FieldName: "data", Typ: &types.Ptr{Elem: elemTy}, IsPtr: isPtr},
-										Index: NewLitInt(uint64(inf.TupleFieldIdx), false, types.TypeInt),
+										Base:  &ExprField{Base: basePlaceExpr, FieldName: "data", Typ: &types.Ptr{Elem: elemTy}, IsPtr: isPtrPlace},
+										Index: NewLitInt(uint64(fIdx), false, types.TypeInt),
 										Typ:   elemTy,
 									}
 								}
 							}
-							if elemLval != nil && elemTy != nil {
-								mvTmp := fl.allocSlot("_ll_fmove", elemTy)
-								fl.assignLocal(mvTmp, elemLval)
-								fl.emit(&InstrAssign{Dst: elemLval, Expr: &ExprLitZero{Typ: elemTy}})
-								return fl.applyOwnedCoercions(e, inf, NewLocalExpr(mvTmp), targetTy)
-							}
+						}
+						if elemLval != nil && elemTy != nil {
+							mvTmp := fl.allocSlot("_ll_fmove", elemTy)
+							fl.assignLocal(mvTmp, elemLval)
+							fl.emit(&InstrAssign{Dst: elemLval, Expr: &ExprLitZero{Typ: elemTy}})
+							return fl.applyOwnedCoercions(e, inf, NewLocalExpr(mvTmp), targetTy)
 						}
 					}
 				}
@@ -1060,7 +1141,19 @@ func (fl *funcLowerer) lowerIfExpr(ie *ast.IfExpr, needValue bool) Expr {
 		}
 
 	case ast.IfCondOptBind:
-		if condCall, isCall := ie.Cond.(*ast.CallExpr); isCall {
+		unwrappedCond := ie.Cond
+		for unwrappedCond != nil {
+			if ue, isUE := unwrappedCond.(*ast.UnsafeExpr); isUE {
+				unwrappedCond = ue.Expr
+				continue
+			}
+			if cx, isCX := unwrappedCond.(*ast.ComptimeExpr); isCX {
+				unwrappedCond = cx.Expr
+				continue
+			}
+			break
+		}
+		if condCall, isCall := unwrappedCond.(*ast.CallExpr); isCall {
 			if cInf := fl.info(condCall); cInf != nil && !cInf.IsOptChain && cInf.BuiltinName == "enum.as_variant" {
 				condExpr, bindHoldSlot, unwrapInitInstr = fl.lowerEnumVariantCondBind(ie, cInf.EnumType, cInf.EnumVariant, cInf.MethodRecv, unwrapSym)
 				break

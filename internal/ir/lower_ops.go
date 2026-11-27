@@ -145,6 +145,12 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) Expr {
 		if fe.Body != nil {
 			elemTy = fl.info(fe.Body).Type
 		}
+		switch cv := types.CollView(colSlot.Type).(type) {
+		case *types.Vector:
+			elemTy = cv.Elem
+		case *types.Set:
+			elemTy = cv.Elem
+		}
 	}
 
 	if fl.bm != nil {
@@ -156,10 +162,35 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) Expr {
 				}
 				return nil
 			}
+			itemTargetTy := elemTy
+			if needValue && colSlot != nil && (itemTargetTy == nil || itemTargetTy == types.TypeVoid || itemTargetTy == types.TypeNever || itemTargetTy == types.TypeInvalid) {
+				for _, it := range uf.Iters {
+					if bInf := fl.info(it.Body); bInf != nil && bInf.Type != nil && bInf.Type != types.TypeVoid && bInf.Type != types.TypeNever && bInf.Type != types.TypeInvalid {
+						itemTargetTy = bInf.Type
+						break
+					}
+				}
+			}
 			for i, it := range uf.Iters {
 				iterContLbl := fmt.Sprintf("_ll_cf_cont_%d_%d", inf.TargetID, i)
+				var iterItemSlot *Local
+				var iterPushFlag *Local
 				forScope := fl.pushScope(inf.TargetID, exitLbl, iterContLbl, colSlot, nil, false)
-				forScope.loopElemTy = elemTy
+				forScope.loopElemTy = itemTargetTy
+				if needValue && colSlot != nil {
+					forScope.isCollecting = true
+					if itemTargetTy != nil && itemTargetTy != types.TypeVoid && itemTargetTy != types.TypeNever {
+						iterItemSlot = fl.allocSlot("_ll_cf_item", itemTargetTy)
+						if !itemTargetTy.IsPlain() {
+							fl.emit(&InstrZero{Var: iterItemSlot, VarName: iterItemSlot.CName, Type: itemTargetTy, MovedFlag: iterItemSlot.MovedFlag})
+							forScope.ownedLocals = append(forScope.ownedLocals, iterItemSlot)
+						}
+						iterPushFlag = fl.allocSlot("_ll_cf_push", types.TypeBool)
+						fl.emit(&InstrAssign{Dst: NewLocalExpr(iterPushFlag), Expr: NewLitBool(false)})
+						forScope.collectIterSlot = iterItemSlot
+						forScope.collectPushFlag = iterPushFlag
+					}
+				}
 
 				fl.pushInstrBuf()
 				fl.pushScope(0, "", "", nil, nil, false)
@@ -168,16 +199,10 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) Expr {
 					fl.lowerVoidExpr(it.Body)
 					fl.flushStmtTemps()
 				} else {
-					itemTargetTy := bodyTy
-					switch cv := types.CollView(colSlot.Type).(type) {
-					case *types.Vector:
-						itemTargetTy = cv.Elem
-					case *types.Set:
-						itemTargetTy = cv.Elem
-					}
 					itemVal := fl.lowerExprOwned(it.Body, itemTargetTy)
 					fl.flushStmtTemps()
-					fl.emitPushToCol(colSlot, itemVal, itemTargetTy)
+					fl.assignLocal(iterItemSlot, itemVal)
+					fl.emit(&InstrAssign{Dst: NewLocalExpr(iterPushFlag), Expr: NewLitBool(true)})
 				}
 				if !endsWithTerm(fl.curInstrs()) {
 					fl.popScopeEmitDrops()
@@ -187,11 +212,20 @@ func (fl *funcLowerer) lowerForExpr(fe *ast.ForExpr, needValue bool) Expr {
 				iterInstrs := fl.popInstrBuf()
 				fl.emit(&InstrBlock{Body: iterInstrs})
 				fl.emit(&InstrLabel{Name: iterContLbl})
+				if iterItemSlot != nil && iterPushFlag != nil {
+					fl.pushInstrBuf()
+					fl.emitPushToCol(colSlot, NewLocalExpr(iterItemSlot), itemTargetTy)
+					if !itemTargetTy.IsPlain() {
+						fl.emit(&InstrZero{Var: iterItemSlot, VarName: iterItemSlot.CName, Type: itemTargetTy, MovedFlag: iterItemSlot.MovedFlag})
+					}
+					pushThen := fl.popInstrBuf()
+					fl.emit(&InstrIf{Cond: NewLocalExpr(iterPushFlag), Then: pushThen})
+				}
 				fl.popScopeEmitDrops()
 			}
 			if needValue && colSlot != nil {
-				fl.emit(&InstrLabel{Name: exitLbl})
 				fl.lowerForElse(fe, true, colSlot)
+				fl.emit(&InstrLabel{Name: exitLbl})
 				return NewLocalExpr(colSlot)
 			}
 			fl.lowerForElse(fe, false, nil)
@@ -320,6 +354,8 @@ func (fl *funcLowerer) lowerFixedCollectComptimeFor(inf *sema.ExprInfo, uf *sema
 			fl.emit(&InstrAssign{Dst: NewLocalExpr(usedDefVar), Expr: NewLitBool(false)})
 		}
 		forScope := fl.pushScope(inf.TargetID, breakDropLbl, iterContLbl, colSlot, nil, false)
+		forScope.isCollecting = needValue && colSlot != nil
+		forScope.isFixedCollect = true
 		forScope.loopElemTy = slotTy
 		forScope.collectIterSlot = elemSlot
 		forScope.collectUsedDefault = usedDefVar
@@ -468,6 +504,7 @@ func (fl *funcLowerer) lowerLoopDriver(
 
 	emitBodyIteration := func(stepInit []Instr, stepAdv []Instr, whileCond any) {
 		forScope := fl.pushScope(targetID, exitLbl, contLbl, resSlot, hasValSlot, false)
+		forScope.isCollecting = resSlot != nil && hasValSlot == nil
 		forScope.loopElemTy = loopElemTy
 		forScope.isForNoElse = isForNoElse
 		if colHoldSlot != nil && !colHoldSlot.Type.IsPlain() {
@@ -546,6 +583,7 @@ func (fl *funcLowerer) lowerLoopDriver(
 	switch kind {
 	case ast.ForCond:
 		forScope := fl.pushScope(targetID, exitLbl, contLbl, resSlot, hasValSlot, false)
+		forScope.isCollecting = resSlot != nil && hasValSlot == nil
 		forScope.loopElemTy = loopElemTy
 		forScope.isForNoElse = isForNoElse
 
@@ -1028,7 +1066,7 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) Expr {
 							return &ExprBinary{
 								Op:    token.Eq,
 								Left:  &ExprField{Base: EnsureExpr(si.scrutPtrExpr, &types.Ptr{Elem: si.scrutTy}), FieldName: "tag", Typ: types.TypeInt, IsPtr: true},
-								Right: &ExprLitInt{Val: uint64(vr.Value), Typ: types.TypeInt},
+								Right: NewLitInt64(vr.Value),
 								Typ:   types.TypeBool,
 							}
 						}
@@ -1048,7 +1086,7 @@ func (fl *funcLowerer) lowerMatchExpr(me *ast.MatchExpr, needValue bool) Expr {
 							slotCond = &ExprBinary{
 								Op:    token.Eq,
 								Left:  &ExprField{Base: EnsureExpr(si.scrutPtrExpr, &types.Ptr{Elem: si.scrutTy}), FieldName: "tag", Typ: types.TypeInt, IsPtr: true},
-								Right: &ExprLitInt{Val: uint64(vr.Value), Typ: types.TypeInt},
+								Right: NewLitInt64(vr.Value),
 								Typ:   types.TypeBool,
 							}
 						} else {
@@ -1542,6 +1580,15 @@ func (fl *funcLowerer) buildOrderingExpr(op token.Kind, lty types.Type, lhs, rhs
 		castR := &ExprCast{Val: rhsExpr, From: lty, To: d.Base}
 		return fl.buildOrderingExpr(op, d.Base, castL, castR)
 	}
+	switch v := lty.(type) {
+	case *types.Primitive:
+	case *types.Enum:
+		if v.IsTagged {
+			panic(fmt.Sprintf("ICE: tagged enum %s has no cmp implementation in buildOrderingExpr", lty.String()))
+		}
+	default:
+		panic(fmt.Sprintf("ICE: composite type %s has no cmp implementation in buildOrderingExpr", lty.String()))
+	}
 	cmpExpr := &ExprCmp{Left: lhsExpr, Right: rhsExpr, ValType: lty}
 	return &ExprBinary{
 		Op:    op,
@@ -1608,11 +1655,7 @@ func (fl *funcLowerer) buildEqualityExpr(ty types.Type, lhs, rhs any, isNeq bool
 		}
 	case *types.Enum:
 		if v.IsTagged {
-			eqExpr := &ExprEq{Left: lhsExpr, Right: rhsExpr, ValType: ty}
-			if isNeq {
-				return &ExprUnary{Op: token.KwNot, Operand: eqExpr, Typ: types.TypeBool}
-			}
-			return eqExpr
+			panic(fmt.Sprintf("ICE: tagged enum %s has no eq/cmp implementation in buildEqualityExpr", ty.String()))
 		}
 		return &ExprBinary{
 			Op:    op,
@@ -1631,19 +1674,8 @@ func (fl *funcLowerer) buildEqualityExpr(ty types.Type, lhs, rhs any, isNeq bool
 		castL := &ExprCast{Val: lhsExpr, From: ty, To: v.Base}
 		castR := &ExprCast{Val: rhsExpr, From: ty, To: v.Base}
 		return fl.buildEqualityExpr(v.Base, castL, castR, isNeq)
-	case *types.Struct, *types.Optional, *types.Tuple:
-		eqExpr := &ExprEq{Left: lhsExpr, Right: rhsExpr, ValType: ty}
-		if isNeq {
-			return &ExprUnary{Op: token.KwNot, Operand: eqExpr, Typ: types.TypeBool}
-		}
-		return eqExpr
 	default:
-		return &ExprBinary{
-			Op:    op,
-			Left:  lhsExpr,
-			Right: rhsExpr,
-			Typ:   types.TypeBool,
-		}
+		panic(fmt.Sprintf("ICE: type %s has no eq/cmp implementation in buildEqualityExpr", ty.String()))
 	}
 }
 
@@ -2285,6 +2317,23 @@ func (fl *funcLowerer) toStringCallExpr(ty types.Type, valExpr Expr) Expr {
 	if d, isDist := ty.(*types.Distinct); isDist {
 		return fl.toStringCallExpr(d.Base, &ExprCast{Val: EnsureExpr(valExpr, ty), From: ty, To: d.Base})
 	}
+	switch v := ty.(type) {
+	case *types.Primitive:
+		if v.Kind == types.PrimVoid || v.Kind == types.PrimNever {
+			panic(fmt.Sprintf("ICE: void/never type %s cannot convert to string", ty.String()))
+		}
+	case *types.Ptr, *types.Ref, *types.Vector, *types.StackArray:
+	case *types.Enum:
+		if v.IsTagged {
+			panic(fmt.Sprintf("ICE: tagged enum %s has no to_string method", ty.String()))
+		}
+	case *types.Interface:
+		if fl.prog == nil || v != fl.prog.IfacePrintable {
+			panic(fmt.Sprintf("ICE: interface %s is not Printable in toStringCallExpr", ty.String()))
+		}
+	default:
+		panic(fmt.Sprintf("ICE: type %s has no to_string implementation in toStringCallExpr", ty.String()))
+	}
 	return &ExprToString{Val: EnsureExpr(valExpr, ty), ValType: ty}
 }
 
@@ -2303,6 +2352,23 @@ func (fl *funcLowerer) copyCallExpr(ty types.Type, valExpr Expr) Expr {
 	}
 	if ty.IsPlain() {
 		return EnsureExpr(valExpr, ty)
+	}
+	switch v := ty.(type) {
+	case *types.Primitive:
+		if v.Kind != types.PrimString {
+			panic(fmt.Sprintf("ICE: non-string primitive %s is not Copyable", ty.String()))
+		}
+	case *types.Vector, *types.StackArray:
+	case *types.Interface:
+		if v.UsesSelf {
+			panic(fmt.Sprintf("ICE: Self-using interface %s cannot copy dynamically", ty.String()))
+		}
+	case *types.Func:
+		if !v.Closure {
+			return EnsureExpr(valExpr, ty)
+		}
+	default:
+		panic(fmt.Sprintf("ICE: type %s has no copy implementation in copyCallExpr", ty.String()))
 	}
 	return &ExprCopy{Val: EnsureExpr(valExpr, ty), ValType: ty}
 }

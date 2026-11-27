@@ -74,6 +74,32 @@ func (fc *funcChecker) checkFuncConstAndComptimeAccess(fi *FuncInstance, span di
 	}
 }
 
+func (fc *funcChecker) isBracketIndexableType(base types.Type, span diag.Span) bool {
+	if r, ok := base.(*types.Ref); ok {
+		base = r.Elem
+	}
+	switch v := types.CollView(base).(type) {
+	case *types.Vector, *types.StackArray, *types.Map, *types.Ptr:
+		return true
+	case *types.Struct:
+		if v.Name == "List" || strings.HasPrefix(v.Name, "List[") || v.Name == "Array" || strings.HasPrefix(v.Name, "Array[") {
+			return true
+		}
+	case *types.Interface:
+		return fc.a.isIndexableType(v) || fc.a.isKeyIndexableType(v)
+	case *types.TypeParamVar:
+		for _, b := range v.Bounds {
+			if fc.a.isIndexableType(b) || fc.a.isKeyIndexableType(b) {
+				return true
+			}
+		}
+	}
+	if fi := fc.a.LookupMethod(base, "get", nil, span); fi != nil && len(fi.Sig.Params) == 2 {
+		return true
+	}
+	return false
+}
+
 func (fc *funcChecker) checkInterpConst(ty types.Type, span diag.Span) {
 	if ty == nil || ty == types.TypeInvalid {
 		return
@@ -203,10 +229,9 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 		// Check disambiguation of `vec_of_fns[idx](args)` when parser tentatively parsed `[idx]` as TypeArgs.
 		// The rewrite is idempotent and serialized: cached ASTs may be checked concurrently.
 		astRewriteMu.Lock()
-		rewritten := false
+		var idxExprArg ast.Expr
+		var idxSpan diag.Span
 		if len(call.TypeArgs) == 1 {
-			var idxExprArg ast.Expr
-			var idxSpan diag.Span
 			switch ta := call.TypeArgs[0].(type) {
 			case *ast.NamedType:
 				if ta.Module == "" && len(ta.TypeArgs) == 0 {
@@ -217,23 +242,26 @@ func (fc *funcChecker) checkCallExprInner(call *ast.CallExpr, expected types.Typ
 				idxExprArg = ta.Expr
 				idxSpan = ta.Span
 			}
-			if idxExprArg != nil {
-				if sym := fc.lookupVar(id.Name); sym != nil {
-					switch sym.Type.(type) {
-					case *types.Vector, *types.StackArray, *types.Map:
-						idxExpr := &ast.IndexExpr{
-							Base:  id,
-							Index: idxExprArg,
-							Span:  idxSpan,
-						}
-						call.Callee = idxExpr
-						call.TypeArgs = nil
-						rewritten = true
-					}
-				}
-			}
 		}
 		astRewriteMu.Unlock()
+
+		rewritten := false
+		if idxExprArg != nil {
+			if sym := fc.lookupVar(id.Name); sym != nil && fc.isBracketIndexableType(sym.Type, call.Span) {
+				astRewriteMu.Lock()
+				if len(call.TypeArgs) == 1 {
+					idxExpr := &ast.IndexExpr{
+						Base:  id,
+						Index: idxExprArg,
+						Span:  idxSpan,
+					}
+					call.Callee = idxExpr
+					call.TypeArgs = nil
+				}
+				astRewriteMu.Unlock()
+				rewritten = true
+			}
+		}
 		if rewritten {
 			return fc.checkClosureValueCall(call)
 		}
@@ -558,7 +586,7 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 			for _, ta := range call.TypeArgs {
 				mTypeArgs = append(mTypeArgs, fc.a.resolveValueType(fc.mod, ta, fc.subst, false))
 			}
-			fi := fc.a.LookupMethod(recvTy, mem.Member, mTypeArgs, call.Span)
+			fi := fc.lookupMethod(recvTy, mem.Member, mTypeArgs, call.Span)
 			if fi == nil {
 				hint, cands := fc.a.unknownMethodHint(recvTy, mem.Member)
 				fc.a.errorWithRename(fc.a.focusSpan(mem), fmt.Sprintf("type %s has no method %q", recvTy.String(), mem.Member), mem.Member, hint, cands)
@@ -617,7 +645,7 @@ func (fc *funcChecker) checkMemberCallExpr(mem *ast.MemberExpr, call *ast.CallEx
 					for _, ta := range call.TypeArgs {
 						mTypeArgs = append(mTypeArgs, fc.a.resolveValueType(fc.mod, ta, fc.subst, false))
 					}
-					fi := fc.a.LookupMethod(recvTy, mem.Member, mTypeArgs, call.Span)
+					fi := fc.lookupMethod(recvTy, mem.Member, mTypeArgs, call.Span)
 					if fi != nil {
 						if !IsExported(mem.Member) && !fc.a.SamePackage(fc.mod, fi.Mod) && !fc.a.SamePackageDir(fc.mod, types.TypePkgDir(recvTy), "") {
 							fc.a.Rep.Errorf(call.Span, "cannot call unexported method %q on type %s outside its package", mem.Member, recvTy.String())
@@ -701,8 +729,8 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 				hasVisualQ = true
 			}
 		}
-		if !hasVisualQ && len(call.TypeArgs) == 0 && (mem.Member == "eq" || mem.Member == "copy" || mem.Member == "to_string") && fc.a.LookupMethod(optR, mem.Member, nil, call.Span) != nil {
-			// Direct Optional method call (`List[?T].copy()`, generic `T = ?int`, etc.).
+		if !hasVisualQ && len(call.TypeArgs) == 0 && (mem.Member == "eq" || mem.Member == "cmp" || mem.Member == "hash" || mem.Member == "copy" || mem.Member == "to_string") && fc.a.LookupMethod(optR, mem.Member, nil, call.Span) != nil {
+			// Direct Optional method call (`List[?T].copy()`, `@derive(Hashable)` `v.field(f).hash()`, generic `T = ?int`, etc.).
 		} else {
 			if !hasVisualQ {
 				fc.a.Rep.ErrorWithHint(
@@ -735,6 +763,67 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 	// 3a. Interface dynamic dispatch (`shape.area()`, `shape.scale(2.0)`)
 	if ifc, isIfc := actualRecvTy.(*types.Interface); isIfc {
 		return fc.checkInterfaceMethodCall(ifc, mem, call, isOptChain, inMatchPattern)
+	}
+
+	// 3b-pre. Compiler reflection methods (`FieldInfo`/`VariantInfo`/`ElemInfo`/`DistinctInfo`,
+	// `v.field(FieldInfo)`, `t.elem(ElemInfo)`, `v.is_variant/payload/as_variant(VariantInfo)`,
+	// and `@derive` `.underlying()`) must resolve BEFORE user-defined methods with the same name.
+	if stRecv, isSt := actualRecvTy.(*types.Struct); isSt {
+		switch {
+		case fc.a.Prog.StructFieldInfo != nil && stRecv == fc.a.Prog.StructFieldInfo,
+			fc.a.Prog.StructVariantInfo != nil && stRecv == fc.a.Prog.StructVariantInfo,
+			fc.a.Prog.StructElemInfo != nil && stRecv == fc.a.Prog.StructElemInfo,
+			fc.a.Prog.StructDistinctInfo != nil && stRecv == fc.a.Prog.StructDistinctInfo:
+			switch mem.Member {
+			case "has_attr", "attr", "implements", "payload_implements":
+				ret := fc.checkBuiltinMethodCall(actualRecvTy, isArenaRef, isOptChain, inMatchPattern, mem, call)
+				if isOptChain && inf.MethodRecvMode != types.ModeMut && ret != types.TypeInvalid {
+					fc.clearPendingOptChainErr(mem.Base)
+				}
+				return ret
+			}
+		}
+	}
+	if !inMatchPattern && len(call.TypeArgs) == 0 {
+		if len(call.Args) == 1 {
+			dispatchRefl := false
+			switch mem.Member {
+			case "field":
+				if stRecv, isSt := actualRecvTy.(*types.Struct); isSt && isFieldInspectableStruct(stRecv) && fc.a.Prog.StructFieldInfo != nil {
+					if fc.probeArgType(call.Args[0]).Equals(fc.a.Prog.StructFieldInfo) {
+						dispatchRefl = true
+					}
+				}
+			case "elem":
+				switch actualRecvTy.(type) {
+				case *types.Tuple, *types.StackArray:
+					if fc.a.Prog.StructElemInfo != nil && fc.probeArgType(call.Args[0]).Equals(fc.a.Prog.StructElemInfo) {
+						dispatchRefl = true
+					}
+				}
+			case "is_variant", "payload", "as_variant":
+				if _, isEn := actualRecvTy.(*types.Enum); isEn && fc.a.Prog.StructVariantInfo != nil {
+					if fc.probeArgType(call.Args[0]).Equals(fc.a.Prog.StructVariantInfo) {
+						dispatchRefl = true
+					}
+				}
+			}
+			if dispatchRefl {
+				ret := fc.checkBuiltinMethodCall(actualRecvTy, isArenaRef, isOptChain, inMatchPattern, mem, call)
+				if isOptChain && inf.MethodRecvMode != types.ModeMut && ret != types.TypeInvalid {
+					fc.clearPendingOptChainErr(mem.Base)
+				}
+				return ret
+			}
+		} else if len(call.Args) == 0 && mem.Member == "underlying" {
+			if _, isDt := actualRecvTy.(*types.Distinct); isDt && fc.curFn != nil && fc.funcDepth == 0 && (fc.curFn.DeriveTarget != nil || fc.curFn.IsDerived) {
+				ret := fc.checkBuiltinMethodCall(actualRecvTy, isArenaRef, isOptChain, inMatchPattern, mem, call)
+				if isOptChain && inf.MethodRecvMode != types.ModeMut && ret != types.TypeInvalid {
+					fc.clearPendingOptChainErr(mem.Base)
+				}
+				return ret
+			}
+		}
 	}
 
 	// 3b. User-defined or Generic Method (`bind Point.length`, `bind Pair[A, B].swap`, `bind UserID.to_string`)
@@ -806,7 +895,7 @@ func (fc *funcChecker) checkInstanceMethodCall(recvTy types.Type, mem *ast.Membe
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
 	}
-	if fi := fc.a.LookupMethod(actualRecvTy, mem.Member, mTypeArgs, call.Span); fi != nil && !fi.IsStaticAssoc {
+	if fi := fc.lookupMethod(actualRecvTy, mem.Member, mTypeArgs, call.Span); fi != nil && !fi.IsStaticAssoc {
 		if !IsExported(mem.Member) && !fc.a.SamePackage(fc.mod, fi.Mod) && !fc.a.SamePackageDir(fc.mod, types.TypePkgDir(actualRecvTy), "") {
 			fc.a.Rep.Errorf(call.Span, "cannot call unexported method %q on type %s outside its package", mem.Member, actualRecvTy.String())
 			inf.Type = types.TypeInvalid
@@ -1069,7 +1158,7 @@ func (fc *funcChecker) checkEnumMemberCall(en *types.Enum, genEn *GenericEnumTem
 	for _, ta := range call.TypeArgs {
 		mTypeArgs = append(mTypeArgs, fc.a.resolveValueType(fc.mod, ta, fc.subst, false))
 	}
-	fi := fc.a.LookupMethod(en, mem.Member, mTypeArgs, call.Span)
+	fi := fc.lookupMethod(en, mem.Member, mTypeArgs, call.Span)
 	if fi == nil {
 		cands := closestNames(mem.Member, fc.a.enumMemberNames(fc.mod, en, true))
 		hint := ""
@@ -1164,7 +1253,7 @@ func (fc *funcChecker) checkGenericTypeAssocCall(genSt *GenericStructTemplate, r
 	}
 
 	instSt := fc.a.instantiateStruct(genSt, targs, call.Span)
-	fi := fc.a.LookupMethod(instSt, method, mTypeArgs, call.Span)
+	fi := fc.lookupMethod(instSt, method, mTypeArgs, call.Span)
 	if fi == nil {
 		fc.a.Rep.Errorf(call.Span, "type %s has no associated function %q", instSt.String(), method)
 		inf.Type = types.TypeInvalid
@@ -1252,9 +1341,9 @@ func (fc *funcChecker) checkGenericFuncCall(genFn *GenericFuncTemplate, call *as
 	}
 
 	var fi *FuncInstance
-	if fc.curFn != nil && fc.curFn.DeriveTarget != nil && fc.a.SamePackage(fc.curFn.Mod, genFn.Mod) &&
-		(fc.curFn.DerivePkg == "" || derivePkgScopeID(genFn.Mod) == fc.curFn.DerivePkg) {
-		fi = fc.a.instantiateGenericFuncWithDerive(genFn, targs, call.Span, fc.curFn.DeriveTarget, fc.curFn.DerivePkg)
+	if deriveTarget, derivePkg := fc.deriveAuthScope(); deriveTarget != nil && fc.a.SamePackage(fc.curFn.Mod, genFn.Mod) &&
+		(derivePkg == "" || derivePkgScopeID(genFn.Mod) == derivePkg) {
+		fi = fc.a.instantiateGenericFuncWithDerive(genFn, targs, call.Span, deriveTarget, derivePkg)
 	} else {
 		fi = fc.a.instantiateGenericFunc(genFn, targs, call.Span)
 	}
@@ -1862,7 +1951,7 @@ func (fc *funcChecker) checkGenericFieldAccess(st *types.Struct, isArenaRef, isO
 		return types.TypeInvalid
 	}
 
-	if !IsExported(sf.Name) && !fc.a.SamePackageDir(fc.mod, st.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(st)) && !fc.a.hasDeriveAccess(fc.curFn, st) {
+	if !IsExported(sf.Name) && !fc.a.SamePackageDir(fc.mod, st.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(st)) && !fc.hasDeriveAccess(st) {
 		fc.a.Rep.Errorf(call.Span, "cannot access unexported field %q of struct %s outside its package", sf.Name, st.String())
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
@@ -2031,7 +2120,7 @@ func (fc *funcChecker) resolveVariantInfoArg(en *types.Enum, arg ast.Expr, ctx s
 		return nil, -1, false
 	}
 
-	if !IsExported(vr.Name) && !fc.a.SamePackageDir(fc.mod, en.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(en)) && !fc.a.hasDeriveAccess(fc.curFn, en) {
+	if !IsExported(vr.Name) && !fc.a.SamePackageDir(fc.mod, en.PkgDir, "") && !fc.a.SamePackage(fc.mod, fc.a.typeModule(en)) && !fc.hasDeriveAccess(en) {
 		fc.a.Rep.Errorf(arg.GetSpan(), "cannot access unexported variant `%s.%s` outside its package", en.Name, vr.Name)
 		return nil, -1, false
 	}
@@ -2143,12 +2232,21 @@ func (fc *funcChecker) checkEnumAsVariant(en *types.Enum, isOptChain bool, mem *
 		return types.TypeInvalid
 	}
 	inIfUnwrap := fc.ifUnwrapCondExpr == call && !isOptChain
-	if !inIfUnwrap && !vr.Payload.IsPlain() && !fc.a.supportsCopy(vr.Payload) {
-		fc.a.Rep.ErrorWithHint(
-			call.Span,
-			fmt.Sprintf("cannot extract non-Copyable Resource payload of variant %q (%s) outside `if (v.as_variant(vr) as p)`", vr.Name, vr.Payload.String()),
-			"use `if (v.as_variant(vr) as p): ...` to borrow the payload without copying",
-		)
+	if !inIfUnwrap {
+		if _, isOptPayload := vr.Payload.(*types.Optional); isOptPayload {
+			fc.a.Rep.ErrorWithHint(
+				call.Span,
+				fmt.Sprintf("cannot use standalone `.as_variant(%s)` on variant with optional payload (%s)", vr.Name, vr.Payload.String()),
+				"optional flattening would make an absent variant indistinguishable from `none`; use `if (v.as_variant(vr) as p): ...` or check `v.is_variant(vr)` first",
+			)
+		}
+		if !vr.Payload.IsPlain() && !fc.a.supportsCopy(vr.Payload) {
+			fc.a.Rep.ErrorWithHint(
+				call.Span,
+				fmt.Sprintf("cannot extract non-Copyable Resource payload of variant %q (%s) outside `if (v.as_variant(vr) as p)`", vr.Name, vr.Payload.String()),
+				"use `if (v.as_variant(vr) as p): ...` to borrow the payload without copying",
+			)
+		}
 	}
 	inf.BuiltinName = "enum.as_variant"
 	inf.EnumType = en
@@ -2177,6 +2275,37 @@ func (fc *funcChecker) checkDescriptorImplementsMethod(descType, prefix string, 
 	inf.BuiltinName = prefix + "." + mem.Member
 	inf.ResolvedIface = ifc
 	return wrapRet(types.TypeBool)
+}
+
+func (fc *funcChecker) checkDistinctUnderlyingAccess(dt *types.Distinct, isArenaRef, isOptChain bool, mem *ast.MemberExpr, call *ast.CallExpr, inf *ExprInfo, wrapRet func(types.Type) types.Type) types.Type {
+	_ = mem
+	if len(call.TypeArgs) > 0 {
+		fc.a.Rep.Errorf(call.Span, "`%s.underlying` does not take type arguments", dt.String())
+	}
+	if dt.IsComptimeOnly && !fc.inComptimeOnlyContext() {
+		fc.a.Rep.ErrorWithHint(
+			call.Span,
+			fmt.Sprintf("cannot inspect `@comptime_only` distinct type %s outside a compile-time context", dt.Name),
+			"use it inside `comptime`, a `const` initializer, or another `@comptime_only` function",
+		)
+	}
+	if len(call.Args) != 0 {
+		fc.a.Rep.Errorf(call.Span, "`v.underlying()` takes 0 arguments, got %d", len(call.Args))
+		for _, a := range call.Args {
+			fc.checkExpr(a, true)
+		}
+		inf.Type = types.TypeInvalid
+		return types.TypeInvalid
+	}
+	if isOptChain && !dt.Base.IsPlain() && !fc.a.supportsCopy(dt.Base) {
+		fc.a.Rep.Errorf(call.Span, "cannot clone Resource underlying value of %s (%s) through optional `?.underlying()`: type does not implement `Copyable`", dt.Name, dt.Base.String())
+	}
+	if isArenaRef {
+		inf.DerefStructPtr = true
+	}
+	inf.BuiltinName = "distinct.underlying"
+	inf.IntrinsicType = dt.Base
+	return wrapRet(dt.Base)
 }
 
 func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isOptChain, inMatchPattern bool, mem *ast.MemberExpr, call *ast.CallExpr) types.Type {
@@ -2269,6 +2398,10 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 			if mem.Member == "implements" {
 				return fc.checkDescriptorImplementsMethod("comp.ElemInfo", "comp_elem", mem, call, isOptChain, inf, wrapRet)
 			}
+		case fc.a.Prog.StructDistinctInfo != nil && stRecv == fc.a.Prog.StructDistinctInfo:
+			if mem.Member == "implements" {
+				return fc.checkDescriptorImplementsMethod("comp.DistinctInfo", "comp_distinct", mem, call, isOptChain, inf, wrapRet)
+			}
 		}
 		if mem.Member == "field" && isFieldInspectableStruct(stRecv) {
 			return fc.checkGenericFieldAccess(stRecv, isArenaRef, isOptChain, mem, call, inf, wrapRet)
@@ -2289,6 +2422,9 @@ func (fc *funcChecker) checkBuiltinMethodCall(recvTy types.Type, isArenaRef, isO
 		case "as_variant":
 			return fc.checkEnumAsVariant(enRecv, isOptChain, mem, call, inf, wrapRet)
 		}
+	}
+	if dtRecv, isDt := recvTy.(*types.Distinct); isDt && mem.Member == "underlying" {
+		return fc.checkDistinctUnderlyingAccess(dtRecv, isArenaRef, isOptChain, mem, call, inf, wrapRet)
 	}
 
 	// `string` built-in primitive representation methods (higher-level string & char methods live in `std/core.ll`)
@@ -2482,7 +2618,7 @@ func (fc *funcChecker) tryCheckBuiltinFunc(name string, call *ast.CallExpr) (boo
 		inf.Type = types.TypeNever
 		return true, types.TypeNever
 
-	case "embed_str", "embed_bytes", "type_name", "kind_of", "fields_of", "variants_of", "elems_of", "attrs_of":
+	case "embed_str", "embed_bytes", "type_name", "kind_of", "fields_of", "variants_of", "elems_of", "underlying_of", "attrs_of":
 		fc.a.Rep.ErrorWithHint(
 			call.Span,
 			fmt.Sprintf("`%s` belongs in the `comp` namespace (`comp.%s`)", name, name),
@@ -2876,6 +3012,26 @@ func (fc *funcChecker) checkCompNamespaceCall(mem *ast.MemberExpr, call *ast.Cal
 		inf.Type = retTy
 		return retTy
 
+	case "underlying_of":
+		ty := requireOneQueryTypeArg()
+		requireZeroValueArgs("comp.underlying_of[D]()")
+		if ty != types.TypeInvalid {
+			if _, isTP := ty.(*types.TypeParamVar); !isTP {
+				if _, isDt := ty.(*types.Distinct); !isDt {
+					fc.a.Rep.Errorf(call.Span, "`comp.underlying_of[D]()` requires a distinct type, got %s", ty.String())
+				}
+			}
+		}
+		inf.CallKind = CallBuiltinFunc
+		inf.BuiltinName = "comp.underlying_of"
+		inf.IntrinsicType = ty
+		var retTy types.Type = types.TypeInvalid
+		if fc.a.Prog.StructDistinctInfo != nil {
+			retTy = fc.a.Prog.StructDistinctInfo
+		}
+		inf.Type = retTy
+		return retTy
+
 	case "attrs_of":
 		ty := requireOneQueryTypeArg()
 		requireZeroValueArgs("comp.attrs_of[T]()")
@@ -2917,7 +3073,7 @@ func (fc *funcChecker) checkCompNamespaceCall(mem *ast.MemberExpr, call *ast.Cal
 		fc.a.Rep.ErrorWithHint(
 			mem.Span,
 			fmt.Sprintf("unknown `comp` builtin %q", mem.Member),
-			"available `comp` builtins: `comp.type_name`, `comp.kind_of`, `comp.fields_of`, `comp.variants_of`, `comp.elems_of`, `comp.attrs_of`, `comp.implements`, `comp.compile_error`, `comp.log`, `comp.embed_str`, `comp.embed_bytes` (and `comp.TARGET`)",
+			"available `comp` builtins: `comp.type_name`, `comp.kind_of`, `comp.fields_of`, `comp.variants_of`, `comp.elems_of`, `comp.underlying_of`, `comp.attrs_of`, `comp.implements`, `comp.compile_error`, `comp.log`, `comp.embed_str`, `comp.embed_bytes` (and `comp.TARGET`)",
 		)
 		for _, a := range call.Args {
 			fc.checkExpr(a, true)
@@ -3113,6 +3269,8 @@ func (fc *funcChecker) tryCheckIntrinsicCall(name string, call *ast.CallExpr) (b
 		_, isLval, _, _ := fc.analyzePlace(call.Args[0])
 		if !isLval {
 			fc.a.Rep.Errorf(call.Args[0].GetSpan(), "`addr_of` requires an addressable variable, field, or element")
+		} else {
+			fc.checkUnalignedPackedFieldAddr(call.Args[0], "take `addr_of` of")
 		}
 		res := &types.Ptr{Elem: aty}
 		inf.CallKind = CallIntrinsic

@@ -165,7 +165,7 @@ func (ex *astExpander) buildExpandedFuncSpec(orig *ast.VarDecl, fl *ast.FuncLit,
 	cloned.Span = expandSynthSpan
 	if cfl, ok := cloned.Value.(*ast.FuncLit); ok {
 		expandedBody := ex.expandBodyWithBM(fl.Body, fi.BodyMaps, fl.Ret == nil)
-		cfl.Body = ex.prependSpecTypeSubst(expandedBody, orig.TypeParams, fi.TypeSubst)
+		cfl.Body = ex.prependSpecTypeSubst(expandedBody, nil, orig.TypeParams, fi.TypeSubst)
 	}
 	return cloned
 }
@@ -176,40 +176,54 @@ func (ex *astExpander) buildExpandedMethodSpec(orig *ast.MethodDecl, fi *FuncIns
 	}
 	cm := ast.CloneDecl(orig).(*ast.MethodDecl)
 	expandedBody := ex.expandBodyWithBM(orig.Body, fi.BodyMaps, orig.Ret == nil)
-	cm.Body = ex.prependSpecTypeSubst(expandedBody, orig.TypeParams, fi.TypeSubst)
+	cm.Body = ex.prependSpecTypeSubst(expandedBody, orig.RecvTypeParams, orig.TypeParams, fi.TypeSubst)
 	cm.Span = expandSynthSpan
 	return cm
 }
 
-func (ex *astExpander) prependSpecTypeSubst(body ast.Expr, tparams []ast.TypeParam, subst map[string]types.Type) ast.Expr {
-	if body == nil || len(subst) == 0 || len(tparams) == 0 {
+func (ex *astExpander) prependSpecTypeSubst(body ast.Expr, recvTParams []string, tparams []ast.TypeParam, subst map[string]types.Type) ast.Expr {
+	if body == nil || len(subst) == 0 || (len(recvTParams) == 0 && len(tparams) == 0) {
 		return body
 	}
 	var stmts []ast.Stmt
-	for _, tp := range tparams {
-		if !tp.IsConst {
-			continue
+	seenNames := make(map[string]bool)
+	appendConst := func(name string, isConst bool) {
+		if seenNames[name] {
+			return
 		}
-		ty := subst[tp.Name]
+		ty := subst[name]
 		cv, ok := ty.(*types.ConstValue)
 		if !ok {
-			continue
+			return
+		}
+		if !isConst {
+			// Receiver type parameter names only carry whether a ConstValue was bound.
 		}
 		valExpr := constValueToASTExpr(cv)
 		if valExpr == nil {
-			continue
+			return
 		}
+		seenNames[name] = true
 		var typeAnn ast.TypeExpr
 		if ex.needsExplicitDeclType(cv.ConstType, valExpr) {
 			typeAnn = ex.typeToASTTypeExpr(cv.ConstType)
 		}
 		stmts = append(stmts, &ast.VarStmt{
 			IsConst: true,
-			Name:    tp.Name,
+			Name:    name,
 			Type:    typeAnn,
 			Value:   valExpr,
 			Span:    expandSynthSpan,
 		})
+	}
+	for _, rtp := range recvTParams {
+		appendConst(rtp, true)
+	}
+	for _, tp := range tparams {
+		if !tp.IsConst {
+			continue
+		}
+		appendConst(tp.Name, true)
 	}
 	if len(stmts) == 0 {
 		return body
@@ -564,6 +578,13 @@ func (ex *astExpander) expandExprWithBM(e ast.Expr, bm *BodyMaps, isVoid, hasExp
 					Span:     v.Span,
 				}, true
 			}
+			if inf.BuiltinName == "distinct.underlying" && inf.MethodRecv != nil {
+				base, _ := ex.expandExprWithBM(inf.MethodRecv, bm, false, false)
+				return &ast.CallExpr{
+					Callee: &ast.MemberExpr{Base: base, Member: "underlying", QuestDot: inf.IsOptChain, Span: v.Span},
+					Span:   v.Span,
+				}, true
+			}
 		}
 		cp := *v
 		cp.Callee, _ = ex.expandExprWithBM(v.Callee, bm, false, false)
@@ -657,6 +678,12 @@ func (ex *astExpander) expandExprWithBM(e ast.Expr, bm *BodyMaps, isVoid, hasExp
 
 	case *ast.FuncLit:
 		cp := *v
+		cp.Params = make([]ast.Param, len(v.Params))
+		for i, p := range v.Params {
+			p.Type = ast.CloneTypeExpr(p.Type)
+			cp.Params[i] = p
+		}
+		cp.Ret = ast.CloneTypeExpr(v.Ret)
 		cp.Body = ex.expandBodyWithBM(v.Body, bm, v.Ret == nil)
 		return &cp, true
 

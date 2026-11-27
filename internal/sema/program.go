@@ -82,9 +82,10 @@ type Symbol struct {
 	DeprecatedMsg string
 	IsTest        bool
 	IsTestOnly    bool
-	ComptimeOnly     bool
-	ComptimeLimit    int
-	ComptimeMemLimit int64
+	ComptimeOnly        bool
+	ComptimeLimit       int
+	ComptimeUnrollLimit int
+	ComptimeMemLimit    int64
 	TrackCaller      bool
 	TestDesc      string
 	FuncInst      *FuncInstance
@@ -169,9 +170,10 @@ type FuncInstance struct {
 	DeriveIfaceName string     // interface name requested at DeriveAttrSpan
 	IsDerived       bool
 	ConstFail      *ConstFailReason
-	ComptimeOnly     bool
-	ComptimeLimit    int
-	ComptimeMemLimit int64
+	ComptimeOnly        bool
+	ComptimeLimit       int
+	ComptimeUnrollLimit int
+	ComptimeMemLimit    int64
 	MustUse          bool
 	Deprecated     bool
 	DeprecatedMsg  string
@@ -556,6 +558,7 @@ type CheckedProgram struct {
 	StructFieldInfo      *types.Struct // std/core's `@lang("comp_field_info")` FieldInfo
 	StructVariantInfo    *types.Struct // std/core's `@lang("comp_variant_info")` VariantInfo
 	StructElemInfo       *types.Struct // std/core's `@lang("comp_elem_info")` ElemInfo
+	StructDistinctInfo   *types.Struct // std/core's `@lang("comp_distinct_info")` DistinctInfo
 	CompTargetSym        *Symbol       // synthetic `@comptime_only const` for `comp.TARGET`
 	CompTypes            map[string]types.Type
 	GenStructs           []*GenericStructTemplate

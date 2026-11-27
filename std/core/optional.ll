@@ -32,3 +32,25 @@ const _opt_to_string[T] = fn(v?: ?T) string: {
 	}
 	"none"
 }
+
+
+// Compares two optional values lexicographically (`none < some`, otherwise element `<` / `>`).
+const _opt_cmp[T] = fn(a?: ?T, b?: ?T) int: {
+	if(a? as av): {
+		if(b? as bv): {
+			if(av < bv): func <- -1
+			if(av > bv): func <- 1
+			0
+		} else: 1
+	} else: {
+		if(b? != none): -1 else: 0
+	}
+}
+
+// Computes a deterministic 64-bit hash for an optional value.
+const _opt_hash[T] = fn(v?: ?T) u64: {
+	if(v? as inner): {
+		func <- inner.hash() ^ u64(0x517cc1b727220a95)
+	}
+	u64(0)
+}

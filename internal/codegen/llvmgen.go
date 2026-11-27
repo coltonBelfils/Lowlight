@@ -615,6 +615,71 @@ func (g *llvmEmitter) typeAlign(t types.Type) int {
 	}
 }
 
+// lvalueAlign returns 1 if `e` addresses a field or element embedded inside a `@packed`
+// struct without an intervening pointer/ref dereference, otherwise `g.typeAlign(e.Type())`.
+func (g *llvmEmitter) lvalueAlign(e ir.Expr) int {
+	if e == nil {
+		return 8
+	}
+	if g.isPackedLValue(e) {
+		return 1
+	}
+	return g.typeAlign(e.Type())
+}
+
+func (g *llvmEmitter) isPackedLValue(e ir.Expr) bool {
+	for e != nil {
+		switch v := e.(type) {
+		case *ir.ExprField:
+			if v.Base != nil && v.Base.Type() != nil {
+				baseTy := v.Base.Type()
+				if p, ok := baseTy.(*types.Ptr); ok {
+					baseTy = p.Elem
+				} else if r, ok := baseTy.(*types.Ref); ok {
+					baseTy = r.Elem
+				}
+				if st, ok := unwrapDistinctType(baseTy).(*types.Struct); ok && st.Packed {
+					return true
+				}
+			}
+			if !v.IsPtr {
+				e = v.Base
+				continue
+			}
+			if addr, ok := v.Base.(*ir.ExprAddrOf); ok {
+				e = addr.Place
+				continue
+			}
+			return false
+		case *ir.ExprIndex:
+			if f, ok := v.Base.(*ir.ExprField); ok && f.FieldName == "data" {
+				if f.Base != nil && f.Base.Type() != nil {
+					baseTy := f.Base.Type()
+					if p, ok := baseTy.(*types.Ptr); ok {
+						baseTy = p.Elem
+					} else if r, ok := baseTy.(*types.Ref); ok {
+						baseTy = r.Elem
+					}
+					if _, isArr := unwrapDistinctType(baseTy).(*types.StackArray); isArr {
+						e = f
+						continue
+					}
+				}
+			}
+			return false
+		case *ir.ExprDeref:
+			if addr, ok := v.Ptr.(*ir.ExprAddrOf); ok {
+				e = addr.Place
+				continue
+			}
+			return false
+		default:
+			return false
+		}
+	}
+	return false
+}
+
 func (g *llvmEmitter) typeSize(t types.Type) int {
 	if t == nil {
 		return 0
@@ -1108,12 +1173,27 @@ func (g *llvmEmitter) emitGlobals() {
 	g.line("")
 }
 
+func (g *llvmEmitter) resolveLLVMFnEntry(entryFn string) string {
+	if strings.HasSuffix(entryFn, "_entry") {
+		base := strings.TrimSuffix(entryFn, "_entry")
+		if g.funcSet[base] || g.declaredFns[base] {
+			return base
+		}
+	}
+	return entryFn
+}
+
 func isImmediateLLVMStatic(sv *ir.StaticVal) bool {
 	if sv == nil {
 		return true
 	}
 	switch sv.Kind {
-	case sema.StaticVoid, sema.StaticInt, sema.StaticFloat, sema.StaticBool, sema.StaticChar, sema.StaticFn:
+	case sema.StaticVoid, sema.StaticInt, sema.StaticFloat, sema.StaticBool, sema.StaticChar:
+		return true
+	case sema.StaticFn:
+		if fnTy, ok := unwrapDistinctType(sv.Type).(*types.Func); ok && fnTy.Closure {
+			return false
+		}
 		return true
 	case sema.StaticEnum:
 		effTy := unwrapDistinctType(sv.Type)
@@ -1123,7 +1203,7 @@ func isImmediateLLVMStatic(sv *ir.StaticVal) bool {
 	case sema.StaticOpt:
 		effTy := unwrapDistinctType(sv.Type)
 		if opt, ok := effTy.(*types.Optional); ok && opt.IsBoxed() {
-			return true
+			return !sv.HasOpt
 		}
 	}
 	return false
@@ -1181,10 +1261,17 @@ func (g *llvmEmitter) buildLLVMStaticVal(sv *ir.StaticVal, backingDefs *[]string
 		entry := g.internString(sv.Str)
 		return "%struct.ll_string", fmt.Sprintf("{ ptr %s, i64 %d, i64 0 }", entry.symbol, len([]byte(sv.Str)))
 	case sema.StaticFn:
+		if fnTy, ok := effTy.(*types.Func); ok && fnTy.Closure {
+			fnRef := "null"
+			if sv.FnEntry != "" {
+				fnRef = llvmGlobalRef(g.resolveLLVMFnEntry(sv.FnEntry))
+			}
+			return "%struct.ll_closure", fmt.Sprintf("{ ptr %s, ptr null, ptr null, ptr null }", fnRef)
+		}
 		if sv.FnEntry == "" {
 			return "ptr", "null"
 		}
-		return "ptr", llvmGlobalRef(sv.FnEntry)
+		return "ptr", llvmGlobalRef(g.resolveLLVMFnEntry(sv.FnEntry))
 	case sema.StaticList:
 		if sv.HasRawBytes {
 			if len(sv.RawBytes) == 0 {
@@ -1340,6 +1427,9 @@ func (g *llvmEmitter) buildLLVMStaticVal(sv *ir.StaticVal, backingDefs *[]string
 	case sema.StaticOpt:
 		opt := effTy.(*types.Optional)
 		if opt.IsBoxed() {
+			if sv.HasOpt {
+				panic(fmt.Sprintf("ICE: cannot emit non-none boxed StaticOpt %s in LLVM static val", sv.Type.String()))
+			}
 			return "ptr", "null"
 		}
 		if !sv.HasOpt {
@@ -1443,12 +1533,15 @@ func (g *llvmEmitter) emitFunction(fn *ir.Function) {
 		slot := fmt.Sprintf("%%%s.slot", loc.CName)
 		g.localSlots[loc] = slot
 		locTy := g.llvmType(loc.Type)
+		locAlign := 8
 		if loc.IsMutPtr {
 			locTy = "ptr"
+		} else if a := g.typeAlign(loc.Type); a > 0 {
+			locAlign = a
 		}
-		headerSB.WriteString(fmt.Sprintf("    %s = alloca %s, align 8\n", slot, locTy))
+		headerSB.WriteString(fmt.Sprintf("    %s = alloca %s, align %d\n", slot, locTy, locAlign))
 		if !loc.NoZeroInit {
-			paramInitSB.WriteString(fmt.Sprintf("    store %s zeroinitializer, ptr %s, align 8\n", locTy, slot))
+			paramInitSB.WriteString(fmt.Sprintf("    store %s zeroinitializer, ptr %s, align %d\n", locTy, slot, locAlign))
 		}
 
 		if loc.MovedFlag != "" {
@@ -1550,16 +1643,16 @@ func (g *llvmEmitter) emitInstr(instr ir.Instr) {
 			g.indentLine(1, "%s = zext i1 %s to i8", zReg, val)
 			g.indentLine(1, "store i8 %s, ptr %s, align 1", zReg, addr)
 		} else {
-			align := g.typeAlign(dstTy)
+			align := g.lvalueAlign(v.Dst)
 			g.indentLine(1, "store %s %s, ptr %s, align %d", g.llvmType(dstTy), val, addr, align)
 		}
 
 	case *ir.InstrCompoundAssign:
 		addr := g.emitLValueAddr(v.Dst)
-		currVal := g.emitLoad(addr, v.Dst.Type())
+		align := g.lvalueAlign(v.Dst)
+		currVal := g.emitLoadAligned(addr, v.Dst.Type(), align)
 		rhsVal := g.emitExpr(v.Expr)
 		resVal := g.emitBinaryOp(v.Op, currVal, rhsVal, v.Dst.Type(), "", 0, v.Expr.Type())
-		align := g.typeAlign(v.Dst.Type())
 		g.indentLine(1, "store %s %s, ptr %s, align %d", g.llvmType(v.Dst.Type()), resVal, addr, align)
 
 	case *ir.InstrExpr:
@@ -1573,7 +1666,11 @@ func (g *llvmEmitter) emitInstr(instr ir.Instr) {
 		if slot != "" {
 			sz := g.typeSize(v.Type)
 			if sz <= 8 {
-				g.indentLine(1, "store %s zeroinitializer, ptr %s, align 8", g.llvmType(v.Type), slot)
+				al := g.typeAlign(v.Type)
+				if al <= 0 {
+					al = 1
+				}
+				g.indentLine(1, "store %s zeroinitializer, ptr %s, align %d", g.llvmType(v.Type), slot, al)
 			} else {
 				g.indentLine(1, "call void @llvm.memset.p0.i64(ptr %s, i8 0, i64 %d, i1 false)", slot, sz)
 			}
@@ -2110,9 +2207,12 @@ func (g *llvmEmitter) emitLValueAddr(e ir.Expr) string {
 	}
 }
 
-func (g *llvmEmitter) emitLoad(addr string, t types.Type) string {
+func (g *llvmEmitter) emitLoadAligned(addr string, t types.Type, align int) string {
+	if align <= 0 {
+		align = 1
+	}
 	r := g.newReg()
-	g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(t), addr, g.typeAlign(t))
+	g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(t), addr, align)
 	return r
 }
 
@@ -2196,10 +2296,12 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		case sema.StaticChar:
 			return fmt.Sprintf("%d", uint32(v.Static.Char))
 		case sema.StaticFn:
-			if v.Static.FnEntry == "" {
-				return "null"
+			if isImmediateLLVMStatic(v.Static) {
+				if v.Static.FnEntry == "" {
+					return "null"
+				}
+				return llvmGlobalRef(g.resolveLLVMFnEntry(v.Static.FnEntry))
 			}
-			return "@" + v.Static.FnEntry
 		case sema.StaticEnum:
 			if isImmediateLLVMStatic(v.Static) {
 				return fmt.Sprintf("%d", v.Static.VariantVal)
@@ -2207,6 +2309,10 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		case sema.StaticOpt:
 			if isImmediateLLVMStatic(v.Static) {
 				return "null"
+			}
+			effOpt := unwrapDistinctType(v.Static.Type)
+			if opt, ok := effOpt.(*types.Optional); ok && opt.IsBoxed() && v.Static.HasOpt {
+				panic(fmt.Sprintf("ICE: cannot emit non-none boxed StaticOpt %s as LLVM ExprConst", v.Static.Type.String()))
 			}
 		}
 		if sym, ok := g.staticValSyms[v.Static]; ok {
@@ -2294,7 +2400,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 				f32 := g.newReg()
 				g.indentLine(1, "%s = load i32, ptr %s, align 4", f32, fReg)
 				r := g.newReg()
-				g.indentLine(1, "%s = zext i32 %s to i64", r, f32)
+				g.indentLine(1, "%s = sext i32 %s to i64", r, f32)
 				return r
 			}
 			if _, isFunc := v.Base.Type().(*types.Func); isFunc {
@@ -2306,7 +2412,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 				}
 			}
 		}
-		return g.emitLoad(fReg, fTy)
+		return g.emitLoadAligned(fReg, fTy, g.lvalueAlign(v))
 
 	case *ir.ExprIndex:
 		baseTy := v.Base.Type()
@@ -2318,7 +2424,8 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 			elReg := g.newReg()
 			g.indentLine(1, "%s = getelementptr inbounds %%struct.ll_string, ptr %s, i32 0, i32 0",
 				dataPtrReg, baseAddr)
-			g.indentLine(1, "%s = load ptr, ptr %s, align 8", dataReg, dataPtrReg)
+			strAl := g.lvalueAlign(v.Base)
+			g.indentLine(1, "%s = load ptr, ptr %s, align %d", dataReg, dataPtrReg, strAl)
 			g.indentLine(1, "%s = getelementptr inbounds i8, ptr %s, i64 %s",
 				elReg, dataReg, idxVal)
 			r := g.newReg()
@@ -2326,12 +2433,12 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 			return r
 		}
 		elAddr := g.emitLValueAddr(v)
-		return g.emitLoad(elAddr, v.Typ)
+		return g.emitLoadAligned(elAddr, v.Typ, g.lvalueAlign(v))
 
 	case *ir.ExprDeref:
 		ptrVal := g.emitExpr(v.Ptr)
 		r := g.newReg()
-		g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(v.Typ), ptrVal, g.typeAlign(v.Typ))
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(v.Typ), ptrVal, g.lvalueAlign(v))
 		return r
 
 	case *ir.ExprAddrOf:
@@ -2412,7 +2519,15 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		return g.emitCall(v)
 
 	case *ir.ExprConstructStruct:
-		sSlot := g.allocaEntry(g.llvmType(v.StructType), 8)
+		isPacked := false
+		if st, ok := unwrapDistinctType(v.StructType).(*types.Struct); ok && st.Packed {
+			isPacked = true
+		}
+		sAlign := g.typeAlign(v.StructType)
+		if sAlign <= 0 {
+			sAlign = 1
+		}
+		sSlot := g.allocaEntry(g.llvmType(v.StructType), sAlign)
 		for _, f := range v.Fields {
 			fVal := g.emitExpr(f.Value)
 			fIdx := f.Index
@@ -2422,10 +2537,14 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 			fp := g.newReg()
 			g.indentLine(1, "%s = getelementptr inbounds %s, ptr %s, i32 0, i32 %d",
 				fp, g.llvmType(v.StructType), sSlot, fIdx)
-			g.indentLine(1, "store %s %s, ptr %s, align 8", g.llvmType(f.Value.Type()), fVal, fp)
+			fAlign := g.typeAlign(f.Value.Type())
+			if isPacked || fAlign <= 0 {
+				fAlign = 1
+			}
+			g.indentLine(1, "store %s %s, ptr %s, align %d", g.llvmType(f.Value.Type()), fVal, fp, fAlign)
 		}
 		r := g.newReg()
-		g.indentLine(1, "%s = load %s, ptr %s, align 8", r, g.llvmType(v.StructType), sSlot)
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", r, g.llvmType(v.StructType), sSlot, sAlign)
 		return r
 
 	case *ir.ExprConstructEnum:
@@ -2498,13 +2617,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 		return r
 
 	case *ir.ExprConstructClosure:
-		entryFn := v.EntryFn
-		if strings.HasSuffix(entryFn, "_entry") {
-			base := strings.TrimSuffix(entryFn, "_entry")
-			if g.funcSet[base] {
-				entryFn = base
-			}
-		}
+		entryFn := g.resolveLLVMFnEntry(v.EntryFn)
 		if entryFn != "" && !g.funcSet[entryFn] {
 			g.declareHelper(entryFn, "void", "...")
 		}
@@ -2515,7 +2628,7 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 			g.declareHelper(v.DropFn, "void", "ptr")
 		}
 		if !v.FuncType.Closure {
-			return "@" + entryFn
+			return llvmGlobalRef(entryFn)
 		}
 
 		closSlot := g.allocaEntry("%struct.ll_closure", 8)
@@ -2848,13 +2961,6 @@ func (g *llvmEmitter) emitExpr(e ir.Expr) string {
 // Operation Emitters (Binary, Unary, Cast, Call)
 // -----------------------------------------------------------------------------
 
-func (g *llvmEmitter) isIntegerType(t types.Type) bool {
-	if prim := types.UnderlyingPrimitive(t); prim != nil {
-		return prim.IsInteger()
-	}
-	return false
-}
-
 func (g *llvmEmitter) isFloat(t types.Type) bool {
 	if prim := types.UnderlyingPrimitive(t); prim != nil {
 		return prim.Kind == types.PrimF32 || prim.Kind == types.PrimF64
@@ -3161,7 +3267,7 @@ func (g *llvmEmitter) emitBinaryOp(op token.Kind, lVal, rVal string, t types.Typ
 
 	case token.Neq:
 		if isFloat {
-			g.indentLine(1, "%s = fcmp one %s %s, %s", r, tyStr, lVal, rVal)
+			g.indentLine(1, "%s = fcmp une %s %s, %s", r, tyStr, lVal, rVal)
 		} else if g.isScalar(t) {
 			g.indentLine(1, "%s = icmp ne %s %s, %s", r, tyStr, lVal, rVal)
 		} else {
@@ -3706,11 +3812,6 @@ func (g *llvmEmitter) emitCall(call *ir.ExprCall) string {
 	r := g.newReg()
 	g.indentLine(1, "%s = call %s %s(%s)", r, retTyStr, calleeSymbol, strings.Join(typedArgs, ", "))
 	return r
-}
-
-func isFuncRef(e ir.Expr) bool {
-	_, ok := e.(*ir.ExprFuncRef)
-	return ok
 }
 
 func (g *llvmEmitter) emitStaticThunks() {

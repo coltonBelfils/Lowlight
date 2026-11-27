@@ -645,34 +645,64 @@ func (g *cEmitter) emitSynthesizedTypeHelpers() {
 	}
 }
 
+func isCScalarType(t types.Type) bool {
+	eff := unwrapDistinctType(t)
+	switch v := eff.(type) {
+	case *types.Primitive:
+		return v.Kind != types.PrimString
+	case *types.Enum:
+		return !v.IsTagged
+	case *types.Ptr, *types.Ref:
+		return true
+	case *types.Func:
+		return !v.Closure
+	case *types.Optional:
+		return v.IsBoxed()
+	}
+	return false
+}
+
 func (g *cEmitter) emitDistinctHelpers(d *types.Distinct) {
 	cD := CType(d)
 	cBase := CType(d.Base)
+	scalarBase := isCScalarType(d.Base)
+	asBase := func(expr string) string {
+		if scalarBase {
+			return fmt.Sprintf("((%s)(%s))", cBase, expr)
+		}
+		return expr
+	}
 	if !d.IsPlain() {
 		g.line("static inline void %s(%s* p) { %s((%s*)p); }", ir.DropFnName(d), cD, ir.DropFnName(d.Base), cBase)
 	}
 	if g.canCopy(d) && !d.IsPlain() {
 		if custom := g.prog.Checked.LookupConcreteMethod(d, "copy"); custom != nil {
 			g.line("static inline %s %s(%s v) { return %s(v); }", cD, ir.CopyFnName(d), cD, custom.CName)
+		} else if scalarBase {
+			g.line("static inline %s %s(%s v) { return (%s)%s(%s); }", cD, ir.CopyFnName(d), cD, cD, g.copyExpr(d.Base), asBase("v"))
 		} else {
-			g.line("static inline %s %s(%s v) { return (%s)%s((%s)v); }", cD, ir.CopyFnName(d), cD, cD, g.copyExpr(d.Base), cBase)
+			g.line("static inline %s %s(%s v) { return %s(v); }", cD, ir.CopyFnName(d), cD, g.copyExpr(d.Base))
 		}
 	}
 	if CanHashType(g.prog, d) {
-		g.line("static inline uint64_t %s(%s v) { return %s; }", ir.HashFnName(d), cD, g.hashInlineExpr(d.Base, fmt.Sprintf("((%s)v)", cBase)))
+		if customH := g.prog.Checked.LookupConcreteMethod(d, "hash"); customH != nil {
+			g.line("static inline uint64_t %s(%s v) { return %s(v); }", ir.HashFnName(d), cD, customH.CName)
+		} else {
+			g.line("static inline uint64_t %s(%s v) { return %s; }", ir.HashFnName(d), cD, g.hashInlineExpr(d.Base, asBase("v")))
+		}
 	}
 	if CanCmpType(g.prog, d) {
 		if customCmp := g.prog.Checked.LookupConcreteMethod(d, "cmp"); customCmp != nil {
 			g.line("static inline int64_t %s(%s a, %s b) { return %s(a, b); }", ir.CmpFnName(d), cD, cD, customCmp.CName)
 		} else {
-			g.line("static inline int64_t %s(%s a, %s b) { return %s; }", ir.CmpFnName(d), cD, cD, g.cmpInlineExpr(d.Base, fmt.Sprintf("((%s)a)", cBase), fmt.Sprintf("((%s)b)", cBase)))
+			g.line("static inline int64_t %s(%s a, %s b) { return %s; }", ir.CmpFnName(d), cD, cD, g.cmpInlineExpr(d.Base, asBase("a"), asBase("b")))
 		}
 	}
 	if g.canToString(d) {
 		if custom := g.prog.Checked.LookupConcreteMethod(d, "to_string"); custom != nil {
 			g.line("static inline ll_string %s(%s v) { return %s(v); }", ir.ToStrFnName(d), cD, g.toStrFn(d))
 		} else {
-			g.line("static inline ll_string %s(%s v) { return %s((%s)v); }", ir.ToStrFnName(d), cD, g.toStrFn(d.Base), cBase)
+			g.line("static inline ll_string %s(%s v) { return %s(%s); }", ir.ToStrFnName(d), cD, g.toStrFn(d.Base), asBase("v"))
 		}
 	}
 }
@@ -1174,10 +1204,6 @@ func (g *cEmitter) funcSignature(fn *ir.Function) string {
 	return funcSignatureCWithMode(fn, g.unitMode)
 }
 
-func funcSignatureC(fn *ir.Function) string {
-	return funcSignatureCWithMode(fn, UnitStandalone)
-}
-
 func funcSignatureCWithMode(fn *ir.Function, mode UnitMode) string {
 	var ps []string
 	if fn.IsLambda {
@@ -1341,6 +1367,9 @@ func (g *cEmitter) emitExpr(e ir.Expr) string {
 		}
 		if !fromIsPtr && toIsPtr {
 			return fmt.Sprintf("((%s)(uintptr_t)(%s))", CType(v.To), valCode)
+		}
+		if !isCScalarType(v.To) && unwrapDistinctType(v.From).Equals(unwrapDistinctType(v.To)) {
+			return valCode
 		}
 		return fmt.Sprintf("((%s)(%s))", CType(v.To), valCode)
 	case *ir.ExprCall:
@@ -2065,13 +2094,16 @@ func (g *cEmitter) cmpInlineExpr(t types.Type, a, b string) string {
 	}
 	switch v := t.(type) {
 	case *types.Distinct:
-		return g.cmpInlineExpr(v.Base, fmt.Sprintf("(%s)(%s)", CType(v.Base), a), fmt.Sprintf("(%s)(%s)", CType(v.Base), b))
+		if isCScalarType(v.Base) {
+			return g.cmpInlineExpr(v.Base, fmt.Sprintf("(%s)(%s)", CType(v.Base), a), fmt.Sprintf("(%s)(%s)", CType(v.Base), b))
+		}
+		return g.cmpInlineExpr(v.Base, a, b)
 	case *types.Enum:
 		if !v.IsTagged {
 			return fmt.Sprintf("(((%s) < (%s)) ? -1LL : (((%s) > (%s)) ? 1LL : 0LL))", a, b, a, b)
 		}
 	}
-	return "0LL"
+	panic(fmt.Sprintf("ICE: no C cmp implementation for %s", t.String()))
 }
 
 func (g *cEmitter) copyExpr(t types.Type) string {
@@ -2081,7 +2113,21 @@ func (g *cEmitter) copyExpr(t types.Type) string {
 	if t.IsPlain() {
 		return ""
 	}
-	return ir.CopyFnName(t)
+	switch v := t.(type) {
+	case *types.Primitive:
+		if v.Kind == types.PrimString {
+			return "ll_copy__string"
+		}
+	case *types.Vector, *types.StackArray, *types.Distinct, *types.Interface, *types.Func:
+		if fn, isFn := v.(*types.Func); isFn && !fn.Closure {
+			return ""
+		}
+		if ifc, isIfc := v.(*types.Interface); isIfc && ifc.UsesSelf {
+			panic(fmt.Sprintf("ICE: cannot copy Self-using interface %s", t.String()))
+		}
+		return ir.CopyFnName(t)
+	}
+	panic(fmt.Sprintf("ICE: no C copy implementation for %s", t.String()))
 }
 
 func (g *cEmitter) eqInlineExpr(t types.Type, a, b string) string {
@@ -2106,15 +2152,16 @@ func (g *cEmitter) eqInlineExpr(t types.Type, a, b string) string {
 		if !v.IsTagged {
 			return fmt.Sprintf("((%s) == (%s))", a, b)
 		}
-		return "false"
 	case *types.Ptr, *types.Ref:
 		return fmt.Sprintf("((%s) == (%s))", a, b)
 	case *types.Distinct:
-		cBase := CType(v.Base)
-		return g.eqInlineExpr(v.Base, fmt.Sprintf("((%s)(%s))", cBase, a), fmt.Sprintf("((%s)(%s))", cBase, b))
-	default:
-		return fmt.Sprintf("((%s) == (%s))", a, b)
+		if isCScalarType(v.Base) {
+			cBase := CType(v.Base)
+			return g.eqInlineExpr(v.Base, fmt.Sprintf("((%s)(%s))", cBase, a), fmt.Sprintf("((%s)(%s))", cBase, b))
+		}
+		return g.eqInlineExpr(v.Base, a, b)
 	}
+	panic(fmt.Sprintf("ICE: no C eq implementation for %s", t.String()))
 }
 
 func (g *cEmitter) hashInlineExpr(t types.Type, expr string) string {
@@ -2128,12 +2175,14 @@ func (g *cEmitter) hashInlineExpr(t types.Type, expr string) string {
 		if !v.IsTagged {
 			return fmt.Sprintf("%s((uint64_t)(%s))", g.hashMixFnName(), expr)
 		}
-		return "0ULL"
 	case *types.Ptr:
 		return fmt.Sprintf("%s((uint64_t)(uintptr_t)(%s))", g.hashMixFnName(), expr)
-	default:
-		return fmt.Sprintf("%s((uint64_t)(%s))", g.hashMixFnName(), expr)
+	case *types.Primitive:
+		if v.IsInteger() || v.Kind == types.PrimBool || v.Kind == types.PrimChar {
+			return fmt.Sprintf("%s((uint64_t)(%s))", g.hashMixFnName(), expr)
+		}
 	}
+	panic(fmt.Sprintf("ICE: no C hash implementation for %s", t.String()))
 }
 
 func CanCopyType(prog *ir.Program, t types.Type) bool {
@@ -2180,7 +2229,10 @@ func (g *cEmitter) toStrFn(t types.Type) string {
 	case *types.Ptr, *types.Ref:
 		return "ll_tostr_ptr"
 	}
-	return ir.ToStrFnName(t)
+	if CanToStringType(g.prog, t) {
+		return ir.ToStrFnName(t)
+	}
+	panic(fmt.Sprintf("ICE: no C to_string implementation for %s", t.String()))
 }
 
 func (g *cEmitter) canToString(t types.Type) bool {
@@ -2466,7 +2518,12 @@ func isImmediateCStatic(sv *ir.StaticVal) bool {
 		return true
 	}
 	switch sv.Kind {
-	case sema.StaticVoid, sema.StaticInt, sema.StaticFloat, sema.StaticBool, sema.StaticChar, sema.StaticFn:
+	case sema.StaticVoid, sema.StaticInt, sema.StaticFloat, sema.StaticBool, sema.StaticChar:
+		return true
+	case sema.StaticFn:
+		if fnTy, ok := unwrapDistinctType(sv.Type).(*types.Func); ok && fnTy.Closure {
+			return false
+		}
 		return true
 	case sema.StaticEnum:
 		effTy := unwrapDistinctType(sv.Type)
@@ -2476,7 +2533,7 @@ func isImmediateCStatic(sv *ir.StaticVal) bool {
 	case sema.StaticOpt:
 		effTy := unwrapDistinctType(sv.Type)
 		if opt, ok := effTy.(*types.Optional); ok && opt.IsBoxed() {
-			return true
+			return !sv.HasOpt
 		}
 	}
 	return false
@@ -2512,6 +2569,9 @@ func formatCStaticScalar(sv *ir.StaticVal, fallbackTy types.Type) string {
 	case sema.StaticEnum:
 		return fmt.Sprintf("((%s)%dLL)", CType(ty), sv.VariantVal)
 	case sema.StaticOpt:
+		if sv.HasOpt {
+			panic(fmt.Sprintf("ICE: cannot emit non-none boxed StaticOpt %s as immediate C static", ty.String()))
+		}
 		return fmt.Sprintf("((%s)NULL)", CType(ty))
 	}
 	return "0"
@@ -2601,7 +2661,22 @@ func (g *cEmitter) buildCStaticInit(sv *ir.StaticVal, backingDefs *[]string) str
 				sv.VariantVal, sv.VariantCN, g.buildCStaticInit(sv.Payload, backingDefs))
 		}
 		return fmt.Sprintf("{ .tag = %d }", sv.VariantVal)
+	case sema.StaticFn:
+		if fnTy, ok := unwrapDistinctType(sv.Type).(*types.Func); ok && fnTy.Closure {
+			fnExpr := "NULL"
+			if sv.FnEntry != "" {
+				fnExpr = sv.FnEntry
+			}
+			return fmt.Sprintf("((%s){ .fn = %s, .env = NULL, .copy_env = NULL, .drop_env = NULL })", CType(sv.Type), fnExpr)
+		}
+		return formatCStaticScalar(sv, sv.Type)
 	case sema.StaticOpt:
+		if opt, ok := unwrapDistinctType(sv.Type).(*types.Optional); ok && opt.IsBoxed() {
+			if sv.HasOpt {
+				panic(fmt.Sprintf("ICE: cannot emit non-none boxed StaticOpt %s in C static init", sv.Type.String()))
+			}
+			return fmt.Sprintf("((%s)NULL)", CType(sv.Type))
+		}
 		if !sv.HasOpt {
 			return "{ .has_value = false }"
 		}

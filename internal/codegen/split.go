@@ -390,9 +390,11 @@ func buildPackageSubProgram(prog *ir.Program, pkg *sema.Package, pkgFuncSet map[
 				}
 				markType(st.FuncType)
 			}
-			if li, ok := lambdaByCName[sv.FnEntry]; ok {
+			baseName := strings.TrimSuffix(sv.FnEntry, "_entry")
+			if li, ok := lambdaByCName[baseName]; ok {
 				usedLambdas[li.CName] = true
 				markFuncProto(li.CName)
+				markType(li.Sig)
 			}
 		}
 	}

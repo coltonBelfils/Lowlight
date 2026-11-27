@@ -537,6 +537,9 @@ bind string_from_byte = fn(b: u8) string: {
 	s
 }
 
+const _MAX_HEADER_BYTES = 65536
+const _MAX_BODY_BYTES = 67108864
+
 // Parses header lines (each `Name: value`, without line terminators) into [`Headers`].
 //
 // Rejects field names that are not tokens, including names with whitespace before the colon,
@@ -708,10 +711,19 @@ bind Request.parse = fn(raw: string) Result[Request]: {
 		if(lf_end? != none): {
 			header_end = lf_end? ?? 0
 			sep_len = 2
-		} else: func <- err(
-			Error.new("malformed HTTP request: missing header terminator")
-		)
+		} else: {
+			if(raw.len() > _MAX_HEADER_BYTES): func <- err(
+				Error.coded("malformed", "HTTP request headers exceed maximum size")
+			)
+			func <- err(Error.new("malformed HTTP request: missing header terminator"))
+		}
 	}
+	if(header_end > _MAX_HEADER_BYTES): func <- err(
+		Error.coded("malformed", "HTTP request headers exceed maximum size")
+	)
+	if(raw.len() - (header_end + sep_len) > _MAX_BODY_BYTES): func <- err(
+		Error.coded("malformed", "HTTP request body exceeds maximum size")
+	)
 
 	let header_part = raw[0..header_end]
 	let body_part = raw[header_end + sep_len..raw.len()]
@@ -832,10 +844,19 @@ bind Response.parse = fn(raw: string) Result[Response]: {
 		if(lf_end? != none): {
 			header_end = lf_end? ?? 0
 			sep_len = 2
-		} else: func <- err(
-			Error.new("malformed HTTP response: missing header terminator")
-		)
+		} else: {
+			if(raw.len() > _MAX_HEADER_BYTES): func <- err(
+				Error.coded("malformed", "HTTP response headers exceed maximum size")
+			)
+			func <- err(Error.new("malformed HTTP response: missing header terminator"))
+		}
 	}
+	if(header_end > _MAX_HEADER_BYTES): func <- err(
+		Error.coded("malformed", "HTTP response headers exceed maximum size")
+	)
+	if(raw.len() - (header_end + sep_len) > _MAX_BODY_BYTES): func <- err(
+		Error.coded("malformed", "HTTP response body exceeds maximum size")
+	)
 
 	let header_part = raw[0..header_end]
 	let body_part = raw[header_end + sep_len..raw.len()]
@@ -860,7 +881,8 @@ bind Response.parse = fn(raw: string) Result[Response]: {
 
 	let headers = _parse_header_lines(lines, 1): default err(own e): func <- err(e)
 	let body = body_part.copy()
-	if(_is_chunked(headers.get("transfer-encoding") ?? "")): {
+	let te_vals = headers.values("transfer-encoding")
+	if(not te_vals.is_empty() and _is_chunked(te_vals.join(","))): {
 		let decoded = _scan_chunked(body_part):
 			when incomplete: func <- err(Error.coded("malformed", "chunked body is incomplete"))
 			default malformed(why): func <- err(Error.coded("malformed", "malformed chunked body: $why"))
@@ -1103,16 +1125,27 @@ bind _scan_chunked = fn(data: string) _ChunkScan: {
 	let body = ""
 	let pos = 0
 	while(true): {
-		let eol = _line_end(data, pos) ?? func <- incomplete
+		let eol = _line_end(data, pos) ?? {
+			if(data.len() - pos > _MAX_HEADER_BYTES): func <- malformed("chunk header exceeds maximum size")
+			func <- incomplete
+		}
+		if(eol - pos > _MAX_HEADER_BYTES): func <- malformed("chunk header exceeds maximum size")
 		let size_line = data[pos..eol].trim()
 		let hex = if(size_line.index_of(";") as semi): size_line[..semi].trim() else: size_line.copy()
 		let size = parse_int_radix(hex, 16) ?? func <- malformed("invalid chunk size '$hex'")
 		if(size < 0): func <- malformed("negative chunk size")
+		if(size > _MAX_BODY_BYTES - body.len()): func <- malformed("chunked body exceeds maximum size")
 		pos = eol + 1
 		if(size == 0): {
 			let trailers: [HeaderField] = []
+			let trailer_bytes = 0
 			while(true): {
-				let tl_end = _line_end(data, pos) ?? func <- incomplete
+				let tl_end = _line_end(data, pos) ?? {
+					if(trailer_bytes + (data.len() - pos) > _MAX_HEADER_BYTES): func <- malformed("chunked trailers exceed maximum size")
+					func <- incomplete
+				}
+				trailer_bytes += (tl_end - pos) + 1
+				if(trailer_bytes > _MAX_HEADER_BYTES): func <- malformed("chunked trailers exceed maximum size")
 				let line = data[pos..tl_end].trim()
 				pos = tl_end + 1
 				if(line.is_empty()): while <-
@@ -1120,11 +1153,11 @@ bind _scan_chunked = fn(data: string) _ChunkScan: {
 			}
 			func <- value(+[own body, pos, own trailers])
 		}
-		if(data.len() < pos + size + 1): func <- incomplete
+		if(data.len() - pos < size + 1): func <- incomplete
 		body.push(data[pos..pos + size])
 		pos += size
 		if(data.byte_at(pos) == 13): {
-			if(data.len() < pos + 2): func <- incomplete
+			if(data.len() - pos < 2): func <- incomplete
 			if(data.byte_at(pos + 1) != 10): func <- malformed("missing line break after chunk data")
 			pos += 2
 		} else if(data.byte_at(pos) == 10): pos += 1
@@ -1151,8 +1184,14 @@ bind _status_of = fn(status_line: string) int: {
 // arrives in time, and `"malformed"` for invalid framing.
 bind _MessageReader.read_message = fn(&self, request_method: string, timeout_ms: int) Result[string]: {
 	// Skip blank lines that may precede a request line.
-	while(self.buf.starts_with("\r\n") or self.buf.starts_with("\n")):
-		self.buf = if(self.buf.starts_with("\r\n")): self.buf[2..].copy() else: self.buf[1..].copy()
+	let skip = 0
+	while(skip < self.buf.len()): {
+		if(self.buf[skip..].starts_with("\r\n")): skip += 2
+		else if(self.buf[skip..].starts_with("\n")): skip += 1
+		else: while <-
+	}
+	if(skip > _MAX_HEADER_BYTES): func <- err(Error.coded("malformed", "HTTP headers exceed maximum size"))
+	if(skip > 0): self.buf = self.buf[skip..].copy()
 
 	// 1. The header block.
 	let head_end = -1
@@ -1170,12 +1209,14 @@ bind _MessageReader.read_message = fn(&self, request_method: string, timeout_ms:
 			sep_len = 2
 			while <-
 		}
+		if(self.buf.len() >= _MAX_HEADER_BYTES): func <- err(Error.coded("malformed", "HTTP headers exceed maximum size"))
 		let n = self.fill(timeout_ms): default err(own e): func <- err(e)
 		if(n == 0): {
 			if(self.buf.trim().is_empty()): func <- err(Error.coded("eof", "connection closed before an HTTP message"))
 			func <- err(Error.coded("malformed", "connection closed in the middle of HTTP headers"))
 		}
 	}
+	if(head_end > _MAX_HEADER_BYTES): func <- err(Error.coded("malformed", "HTTP headers exceed maximum size"))
 	let lines = self.buf[..head_end].split("\n")
 	let start_line = lines[0].trim()
 	let fields = _parse_header_lines(lines, 1): default err(own e): func <- err(e)
@@ -1185,38 +1226,108 @@ bind _MessageReader.read_message = fn(&self, request_method: string, timeout_ms:
 	let is_response = not request_method.is_empty()
 	let status = if(is_response): _status_of(start_line) else: 0
 	let no_body = is_response and (request_method.to_upper() == "HEAD" or (status >= 100 and status < 200) or status == 204 or status == 304)
-	let chunked = _is_chunked(fields.get("transfer-encoding") ?? "")
+	let te_vals = fields.values("transfer-encoding")
+	let chunked = not te_vals.is_empty() and _is_chunked(te_vals.join(","))
 	let body = ""
 	let consumed = body_start
 	if(no_body): {}
 	else if(chunked): {
+		let pos = body_start
 		while(true): {
-			let decoded = _scan_chunked(self.buf[body_start..]):
-				when incomplete: {
+			if(pos >= 65536): {
+				self.buf = self.buf[pos..].copy()
+				pos = 0
+			}
+			let eol = -1
+			while(eol < 0): {
+				if(_line_end(self.buf, pos) as found): {
+					if(found - pos > _MAX_HEADER_BYTES): func <- err(Error.coded("malformed", "chunk header exceeds maximum size"))
+					eol = found
+					while <-
+				}
+				if(self.buf.len() - pos > _MAX_HEADER_BYTES): func <- err(Error.coded("malformed", "chunk header exceeds maximum size"))
+				let n = self.fill(timeout_ms): default err(own e): func <- err(e)
+				if(n == 0): func <- err(Error.coded("malformed", "connection closed in the middle of a chunked body"))
+			}
+			let size_line = self.buf[pos..eol].trim()
+			let hex = if(size_line.index_of(";") as semi): size_line[..semi].trim() else: size_line.copy()
+			let size = parse_int_radix(hex, 16) ?? func <- err(Error.coded("malformed", "malformed chunked body: invalid chunk size '$hex'"))
+			if(size < 0): func <- err(Error.coded("malformed", "malformed chunked body: negative chunk size"))
+			if(size > _MAX_BODY_BYTES - body.len()): func <- err(Error.coded("malformed", "chunked body exceeds maximum size"))
+			pos = eol + 1
+			if(size == 0): {
+				let trailers: [HeaderField] = []
+				let trailer_bytes = 0
+				while(true): {
+					let tl_end = -1
+					while(tl_end < 0): {
+						if(_line_end(self.buf, pos) as found): {
+							if(trailer_bytes + (found - pos) > _MAX_HEADER_BYTES): func <- err(Error.coded("malformed", "chunked trailers exceed maximum size"))
+							tl_end = found
+							while <-
+						}
+						if(trailer_bytes + (self.buf.len() - pos) > _MAX_HEADER_BYTES): func <- err(Error.coded("malformed", "chunked trailers exceed maximum size"))
+						let n = self.fill(timeout_ms): default err(own e): func <- err(e)
+						if(n == 0): func <- err(Error.coded("malformed", "connection closed in the middle of chunked trailers"))
+					}
+					trailer_bytes += (tl_end - pos) + 1
+					let line = self.buf[pos..tl_end].trim()
+					pos = tl_end + 1
+					if(line.is_empty()): while <-
+					if(line.index_of(":") as c): trailers.push(HeaderField[name: line[..c].trim(), value: line[c + 1..].trim()])
+				}
+				consumed = pos
+				fields.remove("transfer-encoding")
+				for(f in trailers): fields.add(f.name, f.value)
+				fields.set("Content-Length", "${body.len()}")
+				while <-
+			}
+			let rem = size
+			while(rem > 0): {
+				let avail = self.buf.len() - pos
+				if(avail > 0): {
+					let take = if(avail < rem): avail else: rem
+					body.push(self.buf[pos..pos + take])
+					pos += take
+					rem -= take
+				}
+				if(rem > 0): {
+					self.buf = ""
+					pos = 0
 					let n = self.fill(timeout_ms): default err(own e): func <- err(e)
 					if(n == 0): func <- err(Error.coded("malformed", "connection closed in the middle of a chunked body"))
-					next <-
 				}
-				default malformed(why): func <- err(Error.coded("malformed", "malformed chunked body: $why"))
-			let text, used, trailers = unpack decoded
-			body = own text
-			consumed = body_start + used
-			fields.remove("transfer-encoding")
-			for(f in trailers): fields.add(f.name, f.value)
-			fields.set("Content-Length", "${body.len()}")
-			while <-
+			}
+			while(self.buf.len() - pos < 1): {
+				let n = self.fill(timeout_ms): default err(own e): func <- err(e)
+				if(n == 0): func <- err(Error.coded("malformed", "connection closed before chunk line break"))
+			}
+			if(self.buf.byte_at(pos) == 13): {
+				while(self.buf.len() - pos < 2): {
+					let n = self.fill(timeout_ms): default err(own e): func <- err(e)
+					if(n == 0): func <- err(Error.coded("malformed", "connection closed before chunk line break"))
+				}
+				if(self.buf.byte_at(pos + 1) != 10): func <- err(Error.coded("malformed", "malformed chunked body: missing line break after chunk data"))
+				pos += 2
+			} else if(self.buf.byte_at(pos) == 10): {
+				pos += 1
+			} else: {
+				func <- err(Error.coded("malformed", "malformed chunked body: missing line break after chunk data"))
+			}
 		}
-	} else if(fields.get("content-length") as cl_text): {
-		// Repeated or comma-separated lengths must agree.
+	} else if(fields.get("content-length") as _): {
+		// Repeated or comma-separated Content-Length fields must all agree cleanly.
 		let length = -1
-		for(part in cl_text.split(",")): {
-			let v = parse_int(part.trim()) ?? func <- err(Error.coded("malformed", "invalid Content-Length '$cl_text'"))
-			if(v < 0 or (length >= 0 and v != length)): func <- err(Error.coded("malformed", "invalid Content-Length '$cl_text'"))
-			length = v
+		for(cl_hdr in fields.values("content-length")): {
+			for(part in cl_hdr.split(",")): {
+				let v = parse_int(part.trim()) ?? func <- err(Error.coded("malformed", "invalid Content-Length '$cl_hdr'"))
+				if(v < 0 or (length >= 0 and v != length)): func <- err(Error.coded("malformed", "conflicting or invalid Content-Length '$cl_hdr'"))
+				if(v > _MAX_BODY_BYTES): func <- err(Error.coded("malformed", "HTTP body exceeds maximum size"))
+				length = v
+			}
 		}
-		for(other in fields.values("content-length")):
-			if(parse_int(other.trim()) != length): func <- err(Error.coded("malformed", "conflicting Content-Length fields"))
-		while(self.buf.len() < body_start + length): {
+		if(length < 0): func <- err(Error.coded("malformed", "missing Content-Length value"))
+		while(self.buf.len() - body_start < length): {
 			let n = self.fill(timeout_ms): default err(own e): func <- err(e)
 			if(n == 0): func <- err(Error.coded("malformed", "connection closed before the body was complete"))
 		}
@@ -1224,8 +1335,10 @@ bind _MessageReader.read_message = fn(&self, request_method: string, timeout_ms:
 		consumed = body_start + length
 	} else if(is_response): {
 		while(not self.eof): {
+			if(self.buf.len() - body_start > _MAX_BODY_BYTES): func <- err(Error.coded("malformed", "HTTP response body exceeds maximum size"))
 			let _ = self.fill(timeout_ms): default err(own e): func <- err(e)
 		}
+		if(self.buf.len() - body_start > _MAX_BODY_BYTES): func <- err(Error.coded("malformed", "HTTP response body exceeds maximum size"))
 		body = self.buf[body_start..].copy()
 		consumed = self.buf.len()
 		fields.set("Content-Length", "${body.len()}")
@@ -2279,4 +2392,43 @@ bind test_http_server_remote_addr_ipv6 = fn(): {
 	let reader = _MessageReader.plain(conn.raw_fd())
 	let resp = Response.parse(reader.read_message("GET", 2000).unwrap()).unwrap()
 	assert(resp.body.starts_with("[::1]:"), "remote_addr is the bracketed IPv6 loopback")
+}
+
+@test("http incremental chunked streaming, repeated comma-split Content-Length, and size/overflow caps")
+bind test_http_phase6_hardening = fn(): {
+	// 1. Conflicting Content-Length vs agreeing comma-split repeated Content-Length.
+	let pair = net.socketpair().unwrap()
+	let reader = _MessageReader.plain(pair.second.raw_fd())
+	let ok_msg = "POST /ok HTTP/1.1\r\nContent-Length: 5, 5\r\nContent-Length: 5\r\n\r\nhello"
+	let _ = pair.first.send(ok_msg) ?? 0
+	let parsed_ok = Request.parse(reader.read_message("", 2000).unwrap()).unwrap()
+	assert(parsed_ok.body == "hello", "repeated comma-split agreeing Content-Length parses cleanly")
+
+	let pair_bad = net.socketpair().unwrap()
+	let reader_bad = _MessageReader.plain(pair_bad.second.raw_fd())
+	let _ = pair_bad.first.send("POST /bad HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 5, 6\r\n\r\nhello") ?? 0
+	assert(reader_bad.read_message("", 2000).is_err(), "conflicting comma-split Content-Length rejected")
+
+	// 2. Integer overflow Content-Length rejected immediately instead of wrapping around.
+	let pair_ovf = net.socketpair().unwrap()
+	let reader_ovf = _MessageReader.plain(pair_ovf.second.raw_fd())
+	let _ = pair_ovf.first.send("POST /ovf HTTP/1.1\r\nContent-Length: 9223372036854775807\r\n\r\nhi") ?? 0
+	assert(reader_ovf.read_message("", 2000).is_err(), "INT64_MAX Content-Length rejected cleanly")
+
+	// 3. Incremental multi-chunk streaming across separate socket sends with trailers.
+	let pair_stream = net.socketpair().unwrap()
+	let reader_stream = _MessageReader.plain(pair_stream.second.raw_fd())
+	let _ = pair_stream.first.send("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello") ?? 0
+	let _ = pair_stream.first.send("\r\n6\r\n world\r\n0\r\nX-Stream: ok\r\n\r\n") ?? 0
+	let streamed = Response.parse(reader_stream.read_message("GET", 2000).unwrap()).unwrap()
+	assert(streamed.body == "hello world", "incremental chunked body decoded cleanly")
+	assert(streamed.header("x-stream") == "ok", "chunked trailer preserved")
+
+	// 4. Oversized chunk size in Response.parse rejected cleanly (overflow / _MAX_BODY_BYTES).
+	assert(Response.parse("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n7fffffffffffffff\r\nabc\r\n0\r\n\r\n").is_err(), "overflow chunk size rejected")
+
+	// 5. Oversized header terminator missing (> 65536 bytes) rejected cleanly.
+	let big = ""
+	for(_ in 0..700): big.push("0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789")
+	assert(Request.parse("GET / HTTP/1.1\r\nX-Big: $big\r\n\r\n").is_err(), "oversized request headers rejected")
 }

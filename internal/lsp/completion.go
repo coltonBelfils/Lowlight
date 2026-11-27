@@ -304,6 +304,13 @@ func (s *Server) completeDotMember(
 		baseInfo := lookupExprInfo(prog, targetMem.Base)
 		isLocalOrGlobalVar := baseInfo != nil && baseInfo.Sym != nil
 		if !isLocalOrGlobalVar {
+			// Compiler `comp.` / `type.` namespaces
+			if baseId.Name == "comp" || baseId.Name == "type" {
+				return &CompletionList{
+					IsIncomplete: false,
+					Items:        completeNamespaceBuiltins(baseId.Name+".", prefix, replaceRange),
+				}
+			}
 			// Module alias `mod.`
 			if targetMod, isMod := mod.Aliased[baseId.Name]; isMod {
 				return &CompletionList{
@@ -1642,14 +1649,16 @@ func (s *Server) completeScopedSymbols(
 			tyStr = sym.Type.String()
 		}
 		mutPrefix := "let "
-		if sym.IsBind {
+		if sym.IsConst {
+			mutPrefix = "const "
+		} else if sym.IsBind {
 			mutPrefix = "bind "
 		}
 		if badge != "" {
 			mutPrefix = badge + " "
 		}
 		kind := KindVariable
-		if sym.IsTopLevel && sym.IsBind {
+		if sym.IsTopLevel && (sym.IsBind || sym.IsConst) {
 			kind = KindConstant
 		}
 		var doc *MarkupContent
@@ -2920,4 +2929,51 @@ func countDefaultPanic(items []CompletionItem) int {
 		return 1
 	}
 	return 0
+}
+
+func completeNamespaceBuiltins(nsPrefix, memberPrefix string, replaceRange Range) []CompletionItem {
+	var items []CompletionItem
+	for idx, bf := range BuiltinFunctions {
+		if !strings.HasPrefix(bf.Name, nsPrefix) {
+			continue
+		}
+		short := strings.TrimPrefix(bf.Name, nsPrefix)
+		if !matchesPrefix(short, memberPrefix) {
+			continue
+		}
+		snip := strings.TrimPrefix(bf.Snippet, nsPrefix)
+		items = append(items, CompletionItem{
+			Label:            short,
+			Kind:             KindFunction,
+			Detail:           bf.Signature,
+			SortText:         fmt.Sprintf("0_%02d_%s", idx, short),
+			FilterText:       short,
+			InsertTextFormat: InsertSnippet,
+			TextEdit:         &TextEdit{Range: replaceRange, NewText: snip},
+			Documentation: &MarkupContent{
+				Kind:  "markdown",
+				Value: fmt.Sprintf("```lowlight\n%s\n```\n%s", bf.Signature, bf.Summary),
+			},
+		})
+	}
+	for _, bt := range BuiltinTypes {
+		if !strings.HasPrefix(bt.Name, nsPrefix) {
+			continue
+		}
+		short := strings.TrimPrefix(bt.Name, nsPrefix)
+		if !matchesPrefix(short, memberPrefix) {
+			continue
+		}
+		items = append(items, CompletionItem{
+			Label:            short,
+			Kind:             bt.Kind,
+			Detail:           bt.Detail,
+			SortText:         "1_type_" + short,
+			FilterText:       short,
+			InsertTextFormat: InsertPlainText,
+			TextEdit:         &TextEdit{Range: replaceRange, NewText: short},
+			Documentation:    &MarkupContent{Kind: "markdown", Value: bt.Summary},
+		})
+	}
+	return items
 }

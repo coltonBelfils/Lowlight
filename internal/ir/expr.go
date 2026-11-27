@@ -631,6 +631,13 @@ func NewLitInt(val uint64, negated bool, typ types.Type) *ExprLitInt {
 	return &ExprLitInt{Val: val, Negated: negated, Typ: typ}
 }
 
+func NewLitInt64(v int64) *ExprLitInt {
+	if v < 0 {
+		return NewLitInt(uint64(-v), true, types.TypeInt)
+	}
+	return NewLitInt(uint64(v), false, types.TypeInt)
+}
+
 func NewLitFloat(val float64, typ types.Type) *ExprLitFloat {
 	return &ExprLitFloat{Val: val, Typ: typ}
 }

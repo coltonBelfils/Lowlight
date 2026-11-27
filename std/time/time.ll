@@ -16,7 +16,7 @@ comptime if(comp.TARGET.os == comp.TargetOs.darwin): {
 
 bind _clock_nanos = fn(linux_clk: int, darwin_clk: int) int: {
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_clock_gettime = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 113 else: 228
+		let sys_clock_gettime = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 113 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 228 else: comp.compile_error("std/time: unsupported Linux architecture for clock_gettime")
 		unsafe {
 			let ts = alloc_raw[int](2)
 			ptr_write(ts, 0)
@@ -170,7 +170,7 @@ bind sleep_ms = fn(ms: int): {
 	let sec = ms / 1000
 	let nsec = (ms % 1000) * 1000000
 	comptime if(comp.TARGET.os == comp.TargetOs.linux): {
-		let sys_nanosleep = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 101 else: 35
+		let sys_nanosleep = comptime if(comp.TARGET.arch == comp.TargetArch.arm64): 101 else comptime if(comp.TARGET.arch == comp.TargetArch.amd64): 35 else: comp.compile_error("std/time: unsupported Linux architecture for nanosleep")
 		unsafe {
 			let req = alloc_raw[int](2)
 			let rem = alloc_raw[int](2)

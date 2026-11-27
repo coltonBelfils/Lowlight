@@ -36,12 +36,15 @@ type cfTarget struct {
 	outerScopeDepth    int
 	maxYieldArenaDepth int
 	expectedType       types.Type         // nil if inferred bottom-up
+	isCollecting       bool               // true for value-producing collection/aggregate `for` / `comptime for`
+	collectColType     types.Type         // target collection type in collecting `for` / `comptime for`
 	collectFixedTarget types.Type         // non-nil when collecting into Struct, Tuple, or StackArray via `comptime for(...) T:`
 	collectStructField *types.StructField // active target field for current iteration when `collectFixedTarget` is a `*types.Struct`
 	isForNoElse        bool               // true when `for` has no `else`, so loop yields `?Elem` while `for <- v` supplies `Elem`
 	isInferredFunc     bool               // true when checking a function/lambda whose return type is inferred
 	hasVoidUnwind      bool               // true if bare `func <-` targeted this inferred function
 	yieldTypes         []types.Type       // collected types from unwinds to unify/infer
+	breakColTypes      []types.Type       // collected collection types from `for <- col_val` when `collectColType` was initially inferred
 	yieldExprs         []inferredYield
 	hitValueExit       bool
 }
@@ -308,6 +311,12 @@ func (a *Analyzer) runBodyChecking() {
 		}
 	}
 	// Propagate conditional generic downgrades across mutually recursive cycles.
+	a.propagateConstGenericDowngrades()
+}
+
+// propagateConstGenericDowngrades propagates `const` -> runtime downgrades across
+// recorded `constGenericDeps` edges until reaching a fixed point.
+func (a *Analyzer) propagateConstGenericDowngrades() {
 	for {
 		changed := false
 		for _, dep := range a.constGenericDeps {
@@ -327,6 +336,58 @@ func (a *Analyzer) runBodyChecking() {
 			break
 		}
 	}
+}
+
+func (fc *funcChecker) hasDeriveAccess(t types.Type) bool {
+	if fc == nil || fc.funcDepth > 0 || fc.a == nil {
+		return false
+	}
+	return fc.a.hasDeriveAccess(fc.curFn, t)
+}
+
+func (fc *funcChecker) deriveAuthScope() (types.Type, string) {
+	if fc == nil || fc.funcDepth > 0 || fc.curFn == nil || fc.curFn.DeriveTarget == nil {
+		return nil, ""
+	}
+	return fc.curFn.DeriveTarget, fc.curFn.DerivePkg
+}
+
+func (fc *funcChecker) lookupMethod(recvTy types.Type, methodName string, methodTypeArgs []types.Type, span diag.Span) *FuncInstance {
+	deriveTarget, derivePkg := fc.deriveAuthScope()
+	var callerMod *Module
+	if fc != nil && fc.curFn != nil {
+		callerMod = fc.curFn.Mod
+	}
+	return fc.a.LookupMethodWithDerive(recvTy, methodName, methodTypeArgs, span, deriveTarget, derivePkg, callerMod)
+}
+
+func (fc *funcChecker) probeArgType(arg ast.Expr) types.Type {
+	if fc == nil || arg == nil {
+		return types.TypeInvalid
+	}
+	savedRep := fc.a.Rep
+	trialRep := diag.NewReporter()
+	fc.a.Rep = trialRep
+	savedMoves := fc.cloneMoves()
+	savedBorrows := make(map[*Symbol]int, len(fc.activeBorrows))
+	for k, v := range fc.activeBorrows {
+		savedBorrows[k] = v
+	}
+	savedPinned := make(map[*Symbol]int, len(fc.arenaPinnedDepth))
+	for k, v := range fc.arenaPinnedDepth {
+		savedPinned[k] = v
+	}
+	fc.probing++
+	ty := fc.checkExpr(arg, true)
+	fc.probing--
+	fc.moves = savedMoves
+	fc.activeBorrows = savedBorrows
+	fc.arenaPinnedDepth = savedPinned
+	fc.a.Rep = savedRep
+	if trialRep.HasErrors() {
+		return types.TypeInvalid
+	}
+	return ty
 }
 
 func (a *Analyzer) resolveTopVar(sym *Symbol) {
@@ -1088,16 +1149,22 @@ func (fc *funcChecker) consumeValue(expr ast.Expr, ty types.Type, requireExplici
 		fc.a.Rep.Report(d)
 
 	case *ast.MemberExpr:
-		// Allow `self.field` move ONLY when `self` is an `own self` receiver!
-		if id, ok := v.Base.(*ast.IdentExpr); ok && id.Name == "self" {
+		if inf := fc.a.infoFor(v); inf != nil && inf.EnumVariant != nil {
+			return
+		}
+		// Allow `self.field` move ONLY when `self` is an `own self` receiver without Ptr/Ref or custom Drop!
+		baseExpr := unwrapExprWrappers(v.Base)
+		if id, ok := baseExpr.(*ast.IdentExpr); ok && id.Name == "self" {
 			selfSym := fc.lookupVar("self")
 			if selfSym != nil && selfSym.BindKind == BindOwned && !fc.a.infoFor(v).IsOptChain {
-				fc.moves[selfSym] = MoveMoved
-				return
+				uBase := types.UnwrapDistinct(selfSym.Type)
+				_, isPtr := uBase.(*types.Ptr)
+				_, isRef := uBase.(*types.Ref)
+				if !isPtr && !isRef && !typeHasCustomDrop(selfSym.Type) && !typeHasCustomDrop(ty) {
+					fc.moves[selfSym] = MoveMoved
+					return
+				}
 			}
-		}
-		if fc.a.infoFor(v).EnumVariant != nil {
-			return
 		}
 		// Moving a Resource field out of a struct leaves a partially-moved struct; require `.copy()`!
 		if !fc.a.infoFor(v).IsOptChain {
@@ -1116,14 +1183,35 @@ func (fc *funcChecker) consumeValue(expr ast.Expr, ty types.Type, requireExplici
 
 	case *ast.CallExpr:
 		callInf := fc.a.infoFor(v)
-		if callInf != nil && !callInf.IsOptChain && (callInf.BuiltinName == "struct.field" || callInf.BuiltinName == "seq.elem" || callInf.BuiltinName == "enum.payload") {
+		if callInf != nil && !callInf.IsOptChain && (callInf.BuiltinName == "struct.field" || callInf.BuiltinName == "seq.elem" || callInf.BuiltinName == "enum.payload" || callInf.BuiltinName == "distinct.underlying") {
+			isEnumPayload := callInf.BuiltinName == "enum.payload"
 			if mem, isMem := v.Callee.(*ast.MemberExpr); isMem {
-				if id, isId := mem.Base.(*ast.IdentExpr); isId {
-					baseSym := fc.lookupVar(id.Name)
-					allowMove := baseSym != nil && baseSym.BindKind == BindOwned && (id.Name == "self" || (hasOwnMarker && !typeHasCustomDrop(baseSym.Type)))
-					if allowMove {
-						fc.moves[baseSym] = MoveMoved
-						return
+				baseExpr := unwrapExprWrappers(mem.Base)
+				var baseTy types.Type
+				if bInf := fc.a.infoFor(baseExpr); bInf != nil && bInf.Type != nil {
+					baseTy = bInf.Type
+				} else if bInf := fc.a.infoFor(mem.Base); bInf != nil {
+					baseTy = bInf.Type
+				}
+				uBase := types.UnwrapDistinct(baseTy)
+				_, isPtr := uBase.(*types.Ptr)
+				_, isRef := uBase.(*types.Ref)
+				if !isPtr && !isRef && baseTy != nil && !typeHasCustomDrop(baseTy) && (isEnumPayload || !typeHasCustomDrop(ty)) {
+					if id, isId := baseExpr.(*ast.IdentExpr); isId {
+						baseSym := fc.lookupVar(id.Name)
+						allowMove := baseSym != nil && baseSym.BindKind == BindOwned && (id.Name == "self" || hasOwnMarker)
+						if allowMove {
+							fc.moves[baseSym] = MoveMoved
+							return
+						}
+					} else {
+						_, isLval, _, _ := fc.analyzePlace(baseExpr)
+						if !isLval {
+							if !baseTy.IsPlain() {
+								fc.consumeValue(baseExpr, baseTy, false)
+							}
+							return
+						}
 					}
 				}
 			}
@@ -1132,6 +1220,8 @@ func (fc *funcChecker) consumeValue(expr ast.Expr, ty types.Type, requireExplici
 				what = fmt.Sprintf("field %q", callInf.ResolvedField)
 			} else if callInf.BuiltinName == "enum.payload" && callInf.EnumVariant != nil {
 				what = fmt.Sprintf("payload of variant %q", callInf.EnumVariant.Name)
+			} else if callInf.BuiltinName == "distinct.underlying" {
+				what = "underlying value"
 			}
 			d := diag.Diagnostic{
 				Severity: diag.Error,
@@ -1145,7 +1235,39 @@ func (fc *funcChecker) consumeValue(expr ast.Expr, ty types.Type, requireExplici
 			}
 			fc.a.Rep.Report(d)
 		}
+
+	case *ast.UnsafeExpr:
+		if hasOwnMarker {
+			fc.consumeValue(&ast.UnaryExpr{Op: token.KwOwn, Operand: v.Expr, Span: v.Span}, ty, requireExplicitOwnOnVar)
+		} else {
+			fc.consumeValue(v.Expr, ty, requireExplicitOwnOnVar)
+		}
+
+	case *ast.ComptimeExpr:
+		if fc.a != nil && fc.a.curBM != nil && fc.a.curBM.ComptimeVals[v] != nil {
+			return
+		}
+		if hasOwnMarker {
+			fc.consumeValue(&ast.UnaryExpr{Op: token.KwOwn, Operand: v.Expr, Span: v.Span}, ty, requireExplicitOwnOnVar)
+		} else {
+			fc.consumeValue(v.Expr, ty, requireExplicitOwnOnVar)
+		}
 	}
+}
+
+func unwrapExprWrappers(e ast.Expr) ast.Expr {
+	for e != nil {
+		if ue, ok := e.(*ast.UnsafeExpr); ok {
+			e = ue.Expr
+			continue
+		}
+		if cx, ok := e.(*ast.ComptimeExpr); ok {
+			e = cx.Expr
+			continue
+		}
+		break
+	}
+	return e
 }
 
 // rootSymbolAndMutability checks whether `place` is a valid mutable lvalue (`let` or `&` borrow)
@@ -1172,8 +1294,19 @@ func typeHasCustomDrop(t types.Type) bool {
 	return false
 }
 
+func (fc *funcChecker) checkMutablePlaceForAssign(place ast.Expr, action string) *Symbol {
+	return fc.checkMutablePlaceImpl(place, action, false)
+}
+
 func (fc *funcChecker) checkMutablePlace(place ast.Expr, action string) *Symbol {
+	return fc.checkMutablePlaceImpl(place, action, true)
+}
+
+func (fc *funcChecker) checkMutablePlaceImpl(place ast.Expr, action string, checkPacked bool) *Symbol {
 	root, isLval, isMut, reason := fc.analyzePlace(place)
+	if checkPacked && isLval && isMut {
+		fc.checkUnalignedPackedFieldAddr(place, action)
+	}
 	if !isLval {
 		fc.a.Rep.Errorf(place.GetSpan(), "cannot %s temporary rvalue expression", action)
 		return nil
@@ -1237,7 +1370,7 @@ func (fc *funcChecker) analyzePlace(e ast.Expr) (root *Symbol, isLval bool, isMu
 
 	case *ast.CallExpr:
 		callInf := fc.a.infoFor(v)
-		if callInf != nil && (callInf.BuiltinName == "struct.field" || callInf.BuiltinName == "seq.elem" || callInf.BuiltinName == "enum.payload" || callInf.BuiltinName == "enum.as_variant") {
+		if callInf != nil && (callInf.BuiltinName == "struct.field" || callInf.BuiltinName == "seq.elem" || callInf.BuiltinName == "enum.payload") {
 			if callInf.IsOptChain {
 				return nil, false, false, "optional chain"
 			}
@@ -1269,7 +1402,7 @@ func (fc *funcChecker) rootSymbolOfExpr(e ast.Expr) *Symbol {
 		return fc.rootSymbolOfExpr(v.Base)
 	case *ast.CallExpr:
 		callInf := fc.a.infoFor(v)
-		if callInf != nil && (callInf.BuiltinName == "struct.field" || callInf.BuiltinName == "seq.elem" || callInf.BuiltinName == "enum.payload" || callInf.BuiltinName == "enum.as_variant") && callInf.MethodRecv != nil {
+		if callInf != nil && (callInf.BuiltinName == "struct.field" || callInf.BuiltinName == "seq.elem" || callInf.BuiltinName == "enum.payload" || callInf.BuiltinName == "enum.as_variant" || callInf.BuiltinName == "distinct.underlying") && callInf.MethodRecv != nil {
 			return fc.rootSymbolOfExpr(callInf.MethodRecv)
 		}
 		return nil
@@ -1340,7 +1473,7 @@ func (fc *funcChecker) arenaDepthOfExpr(e ast.Expr) int {
 		}
 	case *ast.CallExpr:
 		inf := fc.a.infoFor(v)
-		if inf != nil && (inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload" || inf.BuiltinName == "enum.as_variant") && inf.MethodRecv != nil {
+		if inf != nil && (inf.BuiltinName == "struct.field" || inf.BuiltinName == "seq.elem" || inf.BuiltinName == "enum.payload" || inf.BuiltinName == "enum.as_variant" || inf.BuiltinName == "distinct.underlying") && inf.MethodRecv != nil {
 			return fc.arenaDepthOfExpr(inf.MethodRecv)
 		}
 		if inf.CallKind == CallClosureValue {
@@ -1564,6 +1697,10 @@ func (fc *funcChecker) checkComptimeExpr(ce *ast.ComptimeExpr, expected types.Ty
 				}
 			}
 			fc.a.curBM.ComptimeVals[ce] = cv
+		} else if wasOuterRuntime {
+			if msg := fc.a.validateCrossTypeOnly(ty, make(map[types.Type]bool)); msg != "" {
+				fc.a.Rep.Errorf(ce.Span, "%s", msg)
+			}
 		}
 	}
 	fc.comptimeExprDepth--
@@ -1948,6 +2085,28 @@ func (fc *funcChecker) checkVarStmt(s *ast.VarStmt) types.Type {
 		sym.IsConst = s.IsConst
 		sym.ArenaDepth = fc.arenaDepthOfExpr(s.Value)
 		fc.a.curBM.VarSymbols[s] = sym
+		if s.IsConst && fc.probing == 0 {
+			fc.flushPendingOptChainErrs()
+			if finalTy != types.TypeInvalid && fc.a.errorCount() == beforeErrs {
+				if cv, ok := fc.a.evalComptimeExprInChecker(fc, s.Value, 0); ok && cv != nil {
+					if uw, okUW := unwrapFallbackOrUnwind(cv, s.FallbackUnwind, nil); okUW && uw != nil {
+						resV := uw.clone().wrapResult(finalTy)
+						if wasOuterRuntime {
+							if msg := fc.a.validateCrossesToRuntime(resV, finalTy); msg != "" {
+								fc.a.Rep.Errorf(s.Value.GetSpan(), "%s", msg)
+							}
+						}
+						freezeCtVal(resV)
+						sym.ConstVal = resV
+						fc.a.curBM.ConstVarVals[sym] = resV
+					}
+				} else if wasOuterRuntime {
+					if msg := fc.a.validateCrossTypeOnly(finalTy, make(map[types.Type]bool)); msg != "" {
+						fc.a.Rep.Errorf(s.Value.GetSpan(), "%s", msg)
+					}
+				}
+			}
+		}
 		return types.TypeVoid
 	}
 
@@ -2002,6 +2161,10 @@ func (fc *funcChecker) checkVarStmt(s *ast.VarStmt) types.Type {
 			freezeCtVal(cv)
 			sym.ConstVal = cv
 			fc.a.curBM.ConstVarVals[sym] = cv
+		} else if wasOuterRuntime {
+			if msg := fc.a.validateCrossTypeOnly(declTy, make(map[types.Type]bool)); msg != "" {
+				fc.a.Rep.Errorf(s.Value.GetSpan(), "%s", msg)
+			}
 		}
 	}
 	if valTy == types.TypeNever {
@@ -2121,7 +2284,15 @@ func (fc *funcChecker) checkUnpackVarStmt(s *ast.VarStmt) types.Type {
 	}
 	fc.a.curBM.UnpackVarSymbols[s] = syms
 	if s.IsConst && fc.probing == 0 && fc.a.errorCount() == beforeErrs {
-		if cv, ok := fc.a.evalComptimeExprInChecker(fc, s.Value, 0); ok && cv != nil && cv.kind == ctTuple && cv.tup != nil {
+		cv, ok := fc.a.evalComptimeExprInChecker(fc, s.Value, 0)
+		if ok && cv != nil && s.FallbackUnwind != nil {
+			if uw, okUW := unwrapFallbackOrUnwind(cv, s.FallbackUnwind, nil); okUW {
+				cv = uw
+			} else {
+				cv = nil
+			}
+		}
+		if ok && cv != nil && cv.kind == ctTuple && cv.tup != nil {
 			for i, sym := range syms {
 				if sym != nil && i < len(cv.tup.elems) {
 					el := cv.tup.elems[i].clone().wrapResult(sym.Type)
@@ -2133,6 +2304,14 @@ func (fc *funcChecker) checkUnpackVarStmt(s *ast.VarStmt) types.Type {
 					freezeCtVal(el)
 					sym.ConstVal = el
 					fc.a.curBM.ConstVarVals[sym] = el
+				}
+			}
+		} else if wasOuterRuntime {
+			for _, sym := range syms {
+				if sym != nil {
+					if msg := fc.a.validateCrossTypeOnly(sym.Type, make(map[types.Type]bool)); msg != "" {
+						fc.a.Rep.Errorf(s.Value.GetSpan(), "%s", msg)
+					}
 				}
 			}
 		}
@@ -2229,7 +2408,7 @@ func (fc *funcChecker) checkAssignStmt(s *ast.AssignStmt) types.Type {
 		rootSym = sym
 	} else {
 		targetTy = fc.checkExpr(s.Target, true)
-		rootSym = fc.checkMutablePlace(s.Target, "mutate")
+		rootSym = fc.checkMutablePlaceForAssign(s.Target, "mutate")
 	}
 
 	checkTargetArenaEscape := func(valExpr ast.Expr) {
@@ -2304,9 +2483,11 @@ func (fc *funcChecker) checkAssignStmt(s *ast.AssignStmt) types.Type {
 		if lp := types.UnderlyingPrimitive(targetTy); lp == nil || !lp.IsNumeric() {
 			// `a += b` calls `add_assign` (`AddAssignable`), or else assigns `a.add(b)` (`Addable`).
 			if fi := fc.a.operatorMethod(targetTy, "add_assign", s.Span); fi != nil {
+				fc.checkUnalignedPackedFieldAddr(s.Target, "call `+=` operator on")
 				fc.a.infoFor(s.Target).OpMethod = fi
 				fc.checkFuncConstAndComptimeAccess(fi, s.Span)
 			} else if fi := fc.a.operatorMethod(targetTy, "add", s.Span); fi != nil {
+				fc.checkUnalignedPackedFieldAddr(s.Target, "call `+=` operator on")
 				fc.a.infoFor(s.Target).OpMethod = fi
 				fc.checkFuncConstAndComptimeAccess(fi, s.Span)
 			} else if !fc.a.typeParamHasBound(targetTy, fc.a.Prog.IfaceAddAssignable) && !fc.a.typeParamHasBound(targetTy, fc.a.Prog.IfaceAddable) {
@@ -2317,6 +2498,125 @@ func (fc *funcChecker) checkAssignStmt(s *ast.AssignStmt) types.Type {
 	}
 	fc.checkCompoundAssignTypes(s.Op, targetTy, valTy, s.Span)
 	return types.TypeVoid
+}
+
+func (fc *funcChecker) checkUnalignedPackedFieldAddr(place ast.Expr, action string) {
+	fieldName, fieldTy, insidePacked := fc.packedMemberInfo(place)
+	if !insidePacked || fieldTy == nil || fieldTy == types.TypeInvalid {
+		return
+	}
+	if al := fc.a.typeAlign(fieldTy); al > 1 {
+		fc.a.Rep.ErrorWithHint(
+			place.GetSpan(),
+			fmt.Sprintf("cannot %s unaligned field %q inside `@packed` struct (alignment %d > 1)", action, fieldName, al),
+			"copy the field into a local variable first, or mutate it with direct `=` or built-in compound assignment",
+		)
+	}
+}
+
+func (fc *funcChecker) packedMemberInfo(e ast.Expr) (string, types.Type, bool) {
+	cur := unwrapExprWrappers(e)
+	if cur == nil {
+		return "", nil, false
+	}
+	leafInf := fc.a.infoFor(cur)
+	if leafInf == nil || leafInf.Type == nil {
+		return "", nil, false
+	}
+	leafTy := leafInf.Type
+	fieldName := ""
+	insidePacked := false
+	for cur != nil {
+		cur = unwrapExprWrappers(cur)
+		switch v := cur.(type) {
+		case *ast.MemberExpr:
+			if v.Base == nil {
+				return fieldName, leafTy, insidePacked
+			}
+			bExpr := unwrapExprWrappers(v.Base)
+			var bTy types.Type
+			if bInf := fc.a.infoFor(bExpr); bInf != nil && bInf.Type != nil {
+				bTy = bInf.Type
+			} else if bInf := fc.a.infoFor(v.Base); bInf != nil {
+				bTy = bInf.Type
+			}
+			uBase := types.UnwrapDistinct(bTy)
+			baseIsPtrOrRef := false
+			if p, ok := uBase.(*types.Ptr); ok {
+				uBase = types.UnwrapDistinct(p.Elem)
+				baseIsPtrOrRef = true
+			} else if r, ok := uBase.(*types.Ref); ok {
+				uBase = types.UnwrapDistinct(r.Elem)
+				baseIsPtrOrRef = true
+			}
+			if st, ok := uBase.(*types.Struct); ok && st.Packed {
+				insidePacked = true
+			}
+			if fieldName == "" {
+				fieldName = v.Member
+			}
+			if baseIsPtrOrRef {
+				return fieldName, leafTy, insidePacked
+			}
+			cur = bExpr
+		case *ast.CallExpr:
+			cInf := fc.a.infoFor(v)
+			if cInf == nil || (cInf.BuiltinName != "struct.field" && cInf.BuiltinName != "seq.elem" && cInf.BuiltinName != "enum.payload") || cInf.MethodRecv == nil {
+				return fieldName, leafTy, insidePacked
+			}
+			rExpr := unwrapExprWrappers(cInf.MethodRecv)
+			var rTy types.Type
+			if rInf := fc.a.infoFor(rExpr); rInf != nil && rInf.Type != nil {
+				rTy = rInf.Type
+			} else if rInf := fc.a.infoFor(cInf.MethodRecv); rInf != nil {
+				rTy = rInf.Type
+			}
+			uBase := types.UnwrapDistinct(rTy)
+			baseIsPtrOrRef := false
+			if p, ok := uBase.(*types.Ptr); ok {
+				uBase = types.UnwrapDistinct(p.Elem)
+				baseIsPtrOrRef = true
+			} else if r, ok := uBase.(*types.Ref); ok {
+				uBase = types.UnwrapDistinct(r.Elem)
+				baseIsPtrOrRef = true
+			}
+			if st, ok := uBase.(*types.Struct); ok && st.Packed {
+				insidePacked = true
+			}
+			if fieldName == "" {
+				if cInf.ResolvedField != "" {
+					fieldName = cInf.ResolvedField
+				} else {
+					fieldName = "field"
+				}
+			}
+			if baseIsPtrOrRef {
+				return fieldName, leafTy, insidePacked
+			}
+			cur = rExpr
+		case *ast.IndexExpr:
+			if v.Base == nil {
+				return fieldName, leafTy, insidePacked
+			}
+			bExpr := unwrapExprWrappers(v.Base)
+			var bTy types.Type
+			if bInf := fc.a.infoFor(bExpr); bInf != nil && bInf.Type != nil {
+				bTy = bInf.Type
+			} else if bInf := fc.a.infoFor(v.Base); bInf != nil {
+				bTy = bInf.Type
+			}
+			if _, isArr := types.UnwrapDistinct(bTy).(*types.StackArray); !isArr {
+				return fieldName, leafTy, insidePacked
+			}
+			if fieldName == "" {
+				fieldName = "element"
+			}
+			cur = bExpr
+		default:
+			return fieldName, leafTy, insidePacked
+		}
+	}
+	return fieldName, leafTy, insidePacked
 }
 
 func (fc *funcChecker) checkUnpackAssignStmt(s *ast.AssignStmt) types.Type {
@@ -2373,7 +2673,7 @@ func (fc *funcChecker) checkUnpackAssignStmt(s *ast.AssignStmt) types.Type {
 			}
 		} else {
 			tTy := fc.checkExpr(tgt, true)
-			rSym := fc.checkMutablePlace(tgt, "mutate")
+			rSym := fc.checkMutablePlaceForAssign(tgt, "mutate")
 			targetTypes[i] = tTy
 			rootSyms[i] = rSym
 			if tTy == nil || tTy == types.TypeInvalid {
@@ -2518,9 +2818,15 @@ func (fc *funcChecker) checkUnwindStmt(u *ast.UnwindStmt) types.Type {
 	isCont := u.Target == ast.UnwindNext || u.Target == ast.UnwindNextLabel
 	// Expected value type for this unwind:
 	exp := tgt.expectedType
-	if !isCont && tgt.kind == cfFor && tgt.collectFixedTarget != nil {
-		// `for <- val` breaking out of a struct/tuple/array-collecting `comptime for` yields the whole aggregate type.
-		exp = tgt.collectFixedTarget
+	isBreakCollect := !isCont && tgt.kind == cfFor && tgt.isCollecting
+	if isBreakCollect {
+		if tgt.collectFixedTarget != nil {
+			// `for <- val` breaking out of a struct/tuple/array-collecting `comptime for` yields the whole aggregate type.
+			exp = tgt.collectFixedTarget
+		} else {
+			// `for <- val` breaking out of a collection-producing `for` / `comptime for` yields the whole collection type.
+			exp = tgt.collectColType
+		}
 	}
 	wrapOpt := false
 	if (tgt.kind == cfFor || tgt.kind == cfWhile) && tgt.isForNoElse && exp != nil {
@@ -2551,6 +2857,8 @@ func (fc *funcChecker) checkUnwindStmt(u *ast.UnwindStmt) types.Type {
 			} else {
 				fc.a.Rep.Errorf(u.Span, "cannot omit value in `next <-` inside %s-collecting `comptime for` (write `next <- value`)", tgt.collectFixedTarget.String())
 			}
+		} else if !isCont && tgt.kind == cfFor && tgt.collectFixedTarget != nil {
+			fc.a.Rep.Errorf(u.Span, "cannot use bare `for <-` inside %s-collecting `comptime for` (provide a full %s value)", tgt.collectFixedTarget.String(), tgt.collectFixedTarget.String())
 		} else if tgt.kind == cfFunc && tgt.isInferredFunc {
 			tgt.hasVoidUnwind = true
 		} else if !isCont && exp != nil && !exp.Equals(types.TypeVoid) {
@@ -2593,7 +2901,11 @@ func (fc *funcChecker) checkUnwindStmt(u *ast.UnwindStmt) types.Type {
 				fc.a.Rep.Errorf(u.Span, "cannot yield `void` value from `func <-`; use bare `func <-` instead")
 				valTy = types.TypeInvalid
 			}
-			tgt.yieldTypes = append(tgt.yieldTypes, valTy)
+			if isBreakCollect {
+				tgt.breakColTypes = append(tgt.breakColTypes, valTy)
+			} else {
+				tgt.yieldTypes = append(tgt.yieldTypes, valTy)
+			}
 			tgt.yieldExprs = append(tgt.yieldExprs, inferredYield{expr: u.Value, ty: valTy, span: u.Span})
 			tgt.hitValueExit = true
 			fc.consumeValue(u.Value, valTy, false)
@@ -2611,7 +2923,7 @@ func (fc *funcChecker) checkUnwindStmt(u *ast.UnwindStmt) types.Type {
 					"allocate into a caller-provided `&Arena` parameter instead of a local `Arena`",
 				)
 			}
-		} else if !isCont {
+		} else if !isCont || tgt.isCollecting {
 			if ad > tgt.outerScopeDepth {
 				fc.a.Rep.Errorf(u.Span, "arena reference `ref[T]` cannot escape the scope of its `Arena` via `%s`", u.TargetName())
 			} else if ad > tgt.maxYieldArenaDepth {
@@ -2855,7 +3167,7 @@ func (fc *funcChecker) checkExprExpect(e ast.Expr, expected types.Type, needValu
 			)
 		}
 		fc.checkSymReadable(sym, v.Span)
-		if sym.IsConstParam && sym.ConstVal != nil && !fc.inComptimeOnlyContext() && fc.allowComptimeChain == 0 {
+		if (sym.IsConstParam || sym.IsConst) && sym.ConstVal != nil && !fc.inComptimeOnlyContext() && fc.allowComptimeChain == 0 {
 			if cv, ok := sym.ConstVal.(*ctVal); ok {
 				if msg := fc.a.validateCrossesToRuntime(cv, sym.Type); msg != "" {
 					fc.a.Rep.ErrorWithHint(
@@ -3566,6 +3878,12 @@ func (fc *funcChecker) tryFoldComptimeProjection(expr, base ast.Expr, resTy type
 			fc.a.curBM.ComptimeVals[expr] = cv
 			fc.a.infoFor(expr).ComptimeProjection = true
 		}
+	} else if baseRawCt {
+		fc.a.Rep.ErrorWithHint(
+			expr.GetSpan(),
+			fmt.Sprintf("cannot project `%s` out of `@comptime_only` expression in runtime code (expression is not constant)", resTy.String()),
+			"move this expression inside a `comptime` block or `const` initializer with compile-time inputs",
+		)
 	}
 }
 
@@ -3610,7 +3928,7 @@ func (fc *funcChecker) checkMemberExprInner(m *ast.MemberExpr, expected types.Ty
 			fc.a.Rep.ErrorWithHint(
 				m.Span,
 				fmt.Sprintf("unknown `comp` member %q", m.Member),
-				"available `comp` members: `comp.TARGET`, `comp.Target`, `comp.TargetOs`, `comp.TargetArch`, `comp.Endian`, `comp.TypeKind`, `comp.AttrInfo`, `comp.FieldInfo`, `comp.VariantInfo`, `comp.ElemInfo`, `comp.type_name`, `comp.kind_of`, `comp.fields_of`, `comp.variants_of`, `comp.elems_of`, `comp.attrs_of`, `comp.implements`, `comp.compile_error`, `comp.log`, `comp.embed_str`, `comp.embed_bytes`",
+				"available `comp` members: `comp.TARGET`, `comp.Target`, `comp.TargetOs`, `comp.TargetArch`, `comp.Endian`, `comp.TypeKind`, `comp.AttrInfo`, `comp.FieldInfo`, `comp.VariantInfo`, `comp.ElemInfo`, `comp.DistinctInfo`, `comp.type_name`, `comp.kind_of`, `comp.fields_of`, `comp.variants_of`, `comp.elems_of`, `comp.underlying_of`, `comp.attrs_of`, `comp.implements`, `comp.compile_error`, `comp.log`, `comp.embed_str`, `comp.embed_bytes`",
 			)
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
@@ -5022,11 +5340,32 @@ func (fc *funcChecker) checkIfExpr(ie *ast.IfExpr, expected types.Type, needValu
 		}
 
 	case ast.IfCondOptBind:
+		var asVariantRecv ast.Expr
+		unwrappedCond := ie.Cond
+		for unwrappedCond != nil {
+			if ue, isUE := unwrappedCond.(*ast.UnsafeExpr); isUE {
+				unwrappedCond = ue.Expr
+				continue
+			}
+			if cx, isCX := unwrappedCond.(*ast.ComptimeExpr); isCX {
+				unwrappedCond = cx.Expr
+				continue
+			}
+			break
+		}
 		prevUnwrapCond := fc.ifUnwrapCondExpr
-		fc.ifUnwrapCondExpr = ie.Cond
+		fc.ifUnwrapCondExpr = unwrappedCond
 		cty := fc.checkExpr(ie.Cond, true)
 		fc.ifUnwrapCondExpr = prevUnwrapCond
 		optTy, ok := cty.(*types.Optional)
+		if condCall, isCall := unwrappedCond.(*ast.CallExpr); isCall {
+			if cInf := fc.a.infoFor(condCall); cInf != nil && !cInf.IsOptChain && cInf.BuiltinName == "enum.as_variant" && cInf.EnumVariant != nil {
+				if cty != types.TypeInvalid && cInf.EnumVariant.Payload != nil {
+					optTy, ok = &types.Optional{Elem: cInf.EnumVariant.Payload}, true
+				}
+				asVariantRecv = cInf.MethodRecv
+			}
+		}
 		if resEn := types.AsResult(cty); resEn != nil {
 			// `if (r! as v)`: binds the result's success value; `else` runs on any failure.
 			if vv, _ := resEn.ResultValue(); vv != nil && vv.Payload != nil {
@@ -5043,7 +5382,17 @@ func (fc *funcChecker) checkIfExpr(ie *ast.IfExpr, expected types.Type, needValu
 			}
 		} else {
 			if ie.MutUnwrap {
-				lockedOrigin = fc.checkMutablePlace(ie.Cond, "mutably unwrap")
+				if asVariantRecv != nil {
+					if recvInf := fc.a.infoFor(asVariantRecv); recvInf != nil {
+						if _, isRef := recvInf.Type.(*types.Ref); isRef {
+							lockedOrigin = fc.rootSymbolOfExpr(asVariantRecv)
+						} else {
+							lockedOrigin = fc.checkMutablePlace(asVariantRecv, "mutably unwrap")
+						}
+					}
+				} else {
+					lockedOrigin = fc.checkMutablePlace(ie.Cond, "mutably unwrap")
+				}
 			} else {
 				lockedOrigin = fc.rootSymbolOfExpr(ie.Cond)
 			}
@@ -5802,6 +6151,8 @@ func (fc *funcChecker) checkForExpr(fe *ast.ForExpr, expected types.Type, needVa
 		funcDepth:       fc.funcDepth,
 		outerScopeDepth: outerDepth,
 		expectedType:    expectedItemTy,
+		isCollecting:    true,
+		collectColType:  targetColTy,
 	}
 	fc.cfStack = append(fc.cfStack, tgt)
 	defer func() { fc.cfStack = fc.cfStack[:len(fc.cfStack)-1] }()
@@ -5855,7 +6206,7 @@ func (fc *funcChecker) checkForExpr(fe *ast.ForExpr, expected types.Type, needVa
 	fc.moves = mergeMoveMaps(preLoopMoves, postBodyMoves)
 
 	if isVectorInferred {
-		if bodyTy == types.TypeVoid || bodyTy == types.TypeNever {
+		if bodyTy == types.TypeVoid {
 			if allowVoid {
 				if fe.Else != nil {
 					fc.pushScope()
@@ -5867,8 +6218,8 @@ func (fc *funcChecker) checkForExpr(fe *ast.ForExpr, expected types.Type, needVa
 						return types.TypeInvalid
 					}
 				}
-				if len(tgt.yieldTypes) > 0 {
-					fc.a.Rep.Errorf(fe.Span, "`for` loop yields a value via `for <-` on some paths, but body evaluates to `void`")
+				if len(tgt.yieldTypes) > 0 || len(tgt.breakColTypes) > 0 {
+					fc.a.Rep.Errorf(fe.Span, "`for` loop yields a value via unwind on some paths, but body evaluates to `void`")
 					inf.Type = types.TypeInvalid
 					return types.TypeInvalid
 				}
@@ -5879,25 +6230,75 @@ func (fc *funcChecker) checkForExpr(fe *ast.ForExpr, expected types.Type, needVa
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
 		}
-		if bodyTy == types.TypeInvalid {
+		if bodyTy == types.TypeNever {
+			if len(tgt.yieldTypes) > 0 {
+				yt := unifyYieldTypes(tgt.yieldTypes)
+				if yt != types.TypeVoid && yt != types.TypeNever && yt != types.TypeInvalid {
+					targetColTy = &types.Vector{Elem: yt}
+					expectedItemTy = yt
+				}
+			} else if len(tgt.breakColTypes) > 0 {
+				bt := unifyYieldTypes(tgt.breakColTypes)
+				if bt != types.TypeVoid && bt != types.TypeNever && bt != types.TypeInvalid && fc.a.isCollectableType(bt) {
+					targetColTy = bt
+					expectedItemTy = fc.a.collectableItemType(bt)
+				}
+			}
+			if targetColTy == nil {
+				if allowVoid {
+					if fe.Else != nil {
+						fc.pushScope()
+						elseTy := fc.checkInferOrValue(fe.Else, nil)
+						fc.popScope()
+						if elseTy != types.TypeVoid && elseTy != types.TypeNever && elseTy != types.TypeInvalid {
+							fc.a.Rep.Errorf(fe.Else.GetSpan(), "`for ... else` branch must be `void` when `for` body diverges")
+							inf.Type = types.TypeInvalid
+							return types.TypeInvalid
+						}
+					}
+					inf.Type = types.TypeVoid
+					return types.TypeVoid
+				}
+				fc.a.Rep.Errorf(fe.Body.GetSpan(), "`for` loop expression producing a list must evaluate to a non-void value")
+				inf.Type = types.TypeInvalid
+				return types.TypeInvalid
+			}
+		} else if bodyTy == types.TypeInvalid {
 			inf.Type = types.TypeInvalid
 			return types.TypeInvalid
+		} else {
+			targetColTy = &types.Vector{Elem: bodyTy}
+			expectedItemTy = bodyTy
 		}
-		targetColTy = &types.Vector{Elem: bodyTy}
-		expectedItemTy = bodyTy
 	}
 
 	if bodyTy != types.TypeVoid && bodyTy != types.TypeNever && bodyTy != types.TypeInvalid && expectedItemTy != nil {
 		fc.verifyAssignable(bodyTy, expectedItemTy, fe.Body, fe.Body.GetSpan(), "`for` iteration item")
 		fc.consumeValue(fe.Body, expectedItemTy, false)
 	}
+	if targetColTy != nil {
+		for _, bt := range tgt.breakColTypes {
+			fc.verifyAssignable(bt, targetColTy, fe, fe.Span, "`for` break value")
+		}
+	}
+	if expectedItemTy != nil {
+		for _, yt := range tgt.yieldTypes {
+			fc.verifyAssignable(yt, expectedItemTy, fe, fe.Span, "`for` continue item")
+		}
+	}
 
 	if fe.Else != nil {
 		fc.pushScope()
 		elseTy := fc.checkExprExpect(fe.Else, targetColTy, true)
+		elseAd := fc.arenaDepthOfExpr(fe.Else)
 		fc.popScope()
 		fc.verifyAssignable(elseTy, targetColTy, fe.Else, fe.Else.GetSpan(), "`for ... else` fallback")
 		fc.consumeValue(fe.Else, targetColTy, false)
+		if elseAd > outerDepth {
+			fc.a.Rep.Errorf(fe.Else.GetSpan(), "arena reference `ref[T]` cannot escape `for ... else` scope")
+		} else if elseAd > tgt.maxYieldArenaDepth {
+			tgt.maxYieldArenaDepth = elseAd
+		}
 	}
 
 	if !needValue {
@@ -6056,8 +6457,11 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 	}
 
 	maxUnroll := MaxComptimeUnrollIters
-	if fc.curFn != nil && fc.curFn.ComptimeLimit > 0 {
-		maxUnroll = fc.curFn.ComptimeLimit
+	if fc.curFn != nil && fc.curFn.ComptimeUnrollLimit > 0 {
+		maxUnroll = fc.curFn.ComptimeUnrollLimit
+	}
+	if fc.a != nil && fc.a.ideMode && maxUnroll > defaultIDEComptimeMaxUnroll {
+		maxUnroll = defaultIDEComptimeMaxUnroll
 	}
 	prevDepth := fc.comptimeExprDepth
 	prevMin := fc.comptimeMinScope
@@ -6212,6 +6616,8 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 		funcDepth:          fc.funcDepth,
 		outerScopeDepth:    outerDepth,
 		expectedType:       expectedItemTy,
+		isCollecting:       wantValue,
+		collectColType:     targetColTy,
 		collectFixedTarget: collectFixedTy,
 	}
 	if !wantValue {
@@ -6293,12 +6699,22 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 				}
 			case bty == types.TypeInvalid:
 				hasBodyInvalid = true
-			case bty != types.TypeNever:
+			case bty == types.TypeNever:
+				if isVectorInferred && expectedItemTy == nil && len(tgt.yieldTypes) > 0 {
+					if yt := unifyYieldTypes(tgt.yieldTypes); yt != types.TypeVoid && yt != types.TypeNever && yt != types.TypeInvalid {
+						expectedItemTy = yt
+						targetColTy = &types.Vector{Elem: yt}
+						tgt.expectedType = expectedItemTy
+						tgt.collectColType = targetColTy
+					}
+				}
+			default:
 				hasBodyVal = true
 				if isVectorInferred && expectedItemTy == nil {
 					expectedItemTy = bty
 					targetColTy = &types.Vector{Elem: bty}
 					tgt.expectedType = expectedItemTy
+					tgt.collectColType = targetColTy
 				}
 				fc.verifyAssignable(bty, expectedItemTy, iterBody, iterBody.GetSpan(), "`comptime for` iteration item")
 				fc.consumeValue(iterBody, expectedItemTy, false)
@@ -6334,7 +6750,7 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 		return types.TypeVoid
 	}
 
-	if hasBodyVoid && (hasBodyVal || len(tgt.yieldTypes) > 0) {
+	if hasBodyVoid && (hasBodyVal || len(tgt.yieldTypes) > 0 || len(tgt.breakColTypes) > 0) {
 		fc.a.Rep.Errorf(fe.Span, "`comptime for` mixes `void` and value-producing iterations")
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
@@ -6343,6 +6759,28 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 	if hasBodyInvalid {
 		inf.Type = types.TypeInvalid
 		return types.TypeInvalid
+	}
+
+	if isVectorInferred && targetColTy == nil {
+		if len(tgt.yieldTypes) > 0 {
+			if yt := unifyYieldTypes(tgt.yieldTypes); yt != types.TypeVoid && yt != types.TypeNever && yt != types.TypeInvalid {
+				expectedItemTy = yt
+				targetColTy = &types.Vector{Elem: yt}
+				tgt.expectedType = yt
+				tgt.collectColType = targetColTy
+			}
+		} else if !hasBodyVoid && len(tgt.breakColTypes) > 0 {
+			if bt := unifyYieldTypes(tgt.breakColTypes); bt != types.TypeVoid && bt != types.TypeNever && bt != types.TypeInvalid {
+				if !fc.a.isCollectableType(bt) {
+					fc.a.Rep.Errorf(fe.Span, "type %s does not implement Collectable", bt.String())
+					inf.Type = types.TypeInvalid
+					return types.TypeInvalid
+				}
+				targetColTy = bt
+				expectedItemTy = fc.a.collectableItemType(bt)
+				tgt.collectColType = targetColTy
+			}
+		}
 	}
 
 	if isVectorInferred && targetColTy == nil {
@@ -6362,10 +6800,25 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 		}
 		if fe.Else != nil {
 			fc.pushScope()
-			elseTy := fc.checkExprExpect(fe.Else, expected, true)
+			var elseTy types.Type
+			if allowVoid && len(items) == 0 && len(tgt.yieldTypes) == 0 && len(tgt.breakColTypes) == 0 {
+				elseTy = fc.checkInferOrValue(fe.Else, expected)
+			} else {
+				elseTy = fc.checkExprExpect(fe.Else, expected, true)
+			}
+			elseAd := fc.arenaDepthOfExpr(fe.Else)
 			fc.popScope()
+			if allowVoid && len(items) == 0 && (elseTy == types.TypeVoid || elseTy == types.TypeNever) {
+				inf.Type = types.TypeVoid
+				return types.TypeVoid
+			}
 			if elseTy != types.TypeInvalid && elseTy != types.TypeNever && fc.a.isCollectableType(elseTy) {
 				targetColTy = elseTy
+				if elseAd > outerDepth {
+					fc.a.Rep.Errorf(fe.Else.GetSpan(), "arena reference `ref[T]` cannot escape `comptime for ... else` scope")
+				} else if elseAd > tgt.maxYieldArenaDepth {
+					tgt.maxYieldArenaDepth = elseAd
+				}
 			} else if elseTy != types.TypeInvalid {
 				fc.a.Rep.Errorf(fe.Else.GetSpan(), "type %s does not implement Collectable", elseTy.String())
 				inf.Type = types.TypeInvalid
@@ -6388,9 +6841,26 @@ func (fc *funcChecker) checkComptimeForExpr(fe *ast.ForExpr, expected types.Type
 	} else if fe.Else != nil && collectFixedTy == nil {
 		fc.pushScope()
 		elseTy := fc.checkExprExpect(fe.Else, targetColTy, true)
+		elseAd := fc.arenaDepthOfExpr(fe.Else)
 		fc.popScope()
 		fc.verifyAssignable(elseTy, targetColTy, fe.Else, fe.Else.GetSpan(), "`comptime for ... else` fallback")
 		fc.consumeValue(fe.Else, targetColTy, false)
+		if elseAd > outerDepth {
+			fc.a.Rep.Errorf(fe.Else.GetSpan(), "arena reference `ref[T]` cannot escape `comptime for ... else` scope")
+		} else if elseAd > tgt.maxYieldArenaDepth {
+			tgt.maxYieldArenaDepth = elseAd
+		}
+	}
+
+	if targetColTy != nil && collectFixedTy == nil {
+		for _, bt := range tgt.breakColTypes {
+			fc.verifyAssignable(bt, targetColTy, fe, fe.Span, "`comptime for` break value")
+		}
+	}
+	if expectedItemTy != nil {
+		for _, yt := range tgt.yieldTypes {
+			fc.verifyAssignable(yt, expectedItemTy, fe, fe.Span, "`comptime for` continue item")
+		}
 	}
 
 	if !needValue {
@@ -7263,7 +7733,11 @@ func (fc *funcChecker) checkComptimeMatchExpr(me *ast.MatchExpr, expected types.
 		sym.IsConstParam = true
 		sym.IsBind = true
 		sym.BindKind = BindReadBorrow
+		if types.FindComptimeOnlyType(sym.Type) != nil {
+			sym.ComptimeOnly = true
+		}
 		if bv, hasBV := boundVals[sym]; hasBV && bv != nil {
+			freezeCtVal(bv)
 			sym.ConstVal = bv
 			if fc.a.curBM != nil {
 				fc.a.curBM.ConstVarVals[sym] = bv

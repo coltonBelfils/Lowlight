@@ -13,6 +13,8 @@ import "std/strconv"
 import "std/strings"
 import "std/test"
 
+const debug = true
+
 @derive(Copyable)
 define Json enum [
 	empty,
@@ -310,18 +312,25 @@ bind test_json_to_string = fn(): {
 //    copied to a `let` binding), and on line 137 `str[1..str.len()-2]` drops the last 2
 //    characters instead of 1 (`str[1..str.len()-1]` strips only the closing quote).
 bind string.to_json = fn(self) Result[Json]: {
+	if(debug): println("to json in: $self")
 	let in_str = self.trim()
 
 	if(in_str.len() == 0): func <- value(Json.empty)
 
 	let idx = 0
-	value(_to_json_helper(self, &idx): default err(own e): <- err(e.wrap("something went wrong when parsing the json string.")))
+	value(
+		_to_json_helper(self, &idx):
+			default err(own e): <- err(e.wrap("something went wrong when parsing the json string."))
+	)
 }
 
 bind _to_json_helper = fn(str: string, idx: &int) Result[Json]: {
-	if(str.len() <= idx): <- Result.fail_msg("idx is greater than the json string length")
+	if(debug): println("to json helper in: $str $idx")
+	if(str.len() <= idx): <- err(Error.new("idx is greater than the json string length"))
 
 	while(char(str[idx]).is_whitespace()): idx += 1
+
+	if(debug): println("to json helper post white space: $str $idx")
 
 	match(char(str[idx])):
 		when '{': _parse_json_object(str, &idx)
@@ -334,6 +343,8 @@ bind _to_json_helper = fn(str: string, idx: &int) Result[Json]: {
 }
 
 bind _parse_json_string = fn(str: string, idx: &int) Result[Json]: {
+	if(debug): println("parse json string: $str $idx")
+
 		define quote enum [
 		single,
 		double,
@@ -609,7 +620,13 @@ bind string_to_json_test = fn():
 			],
 			+[
 				"full array",
-				Json.array([Json.string("abc"), Json.number(Number.int(123)), Json.bool(false)]),
+				{
+					let f = `["abc", 123, false]`.to_json():
+						default: Json.string("invalid json")
+					println(f)
+
+					Json.array([Json.string("abc"), Json.number(Number.int(123)), Json.bool(false)])
+				},
 				`["abc", 123, false]`.to_json(),
 			],
 			+[

@@ -14,13 +14,23 @@ func (g *cEmitter) emitVectorMethods(v *types.Vector) {
 
 	// reserve
 	g.line("static inline void ll_vec_reserve__%s(%s* v, int64_t want) {", m, cVec)
-	g.line("    if (want <= v->cap) return;")
+	g.line("    if (v->cap > 0 && want <= v->cap) return;")
+	g.line("    if (want <= 0) want = 1;")
 	g.line("    int64_t ncap = (v->cap > 0) ? v->cap : 4;")
-	g.line("    while (ncap < want) ncap *= 2;")
-	g.line("    if (v->cap == 0) {")
+	g.line("    while (ncap < want) {")
+	g.line("        if (ncap >= 4611686018427387904LL) { ncap = want; break; }")
+	g.line("        ncap *= 2;")
+	g.line("    }")
+	g.line("    if (v->cap <= 0) {")
 	g.line("        %s* nd = (%s*)ll_alloc(ncap * (int64_t)sizeof(%s));", cElem, cElem, cElem)
 	g.line("        if (v->len > 0 && v->data) {")
-	g.line("            memcpy(nd, v->data, (size_t)v->len * sizeof(%s));", cElem)
+	if v.Elem.IsPlain() {
+		g.line("            memcpy(nd, v->data, (size_t)v->len * sizeof(%s));", cElem)
+	} else if g.canCopy(v.Elem) {
+		g.line("            for (int64_t i = 0; i < v->len; i++) nd[i] = %s(v->data[i]);", g.copyExpr(v.Elem))
+	} else {
+		g.line("            ll_panic_cstr(\"cannot clone vector view of non-Copyable elements\", \"<core>\", 0);")
+	}
 	g.line("        }")
 	g.line("        v->data = nd;")
 	g.line("        v->cap = ncap;")

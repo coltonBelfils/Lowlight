@@ -56,10 +56,10 @@ func filterCompileFlags(flags []string) []string {
 	return out
 }
 
-func computeObjCacheKey(backend BackendKind, cc, targetTriple string, release bool, compileFlags []string, pu codegen.PackageUnit) string {
+func computeObjCacheKey(backend BackendKind, cc, targetTriple string, release, testMode bool, compileFlags []string, pu codegen.PackageUnit) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "lowlight-obj-v1\nbackend=%s\ncc=%s\ntarget=%s\nrelease=%v\npkg=%s\n",
-		backend, cc, targetTriple, release, pu.PkgID)
+	fmt.Fprintf(h, "lowlight-obj-v1\nbackend=%s\ncc=%s\ntarget=%s\nrelease=%v\ntest=%v\npkg=%s\n",
+		backend, cc, targetTriple, release, testMode, pu.PkgID)
 	for _, f := range compileFlags {
 		h.Write([]byte("flag="))
 		h.Write([]byte(f))
@@ -145,9 +145,13 @@ func buildTwoPhase(
 		srcExt = ".c"
 	}
 
+	targetKey := opts.TargetTriple
+	if checked != nil && checked.Target.Triple != "" {
+		targetKey = checked.Target.Triple
+	}
 	var objFiles []string
 	for idx, pu := range split.PackageUnits {
-		key := computeObjCacheKey(backend, cc, opts.TargetTriple, opts.Release, compileFlags, pu)
+		key := computeObjCacheKey(backend, cc, targetKey, opts.Release, opts.TestMode, compileFlags, pu)
 		cacheObj := filepath.Join(cacheDir, fmt.Sprintf("%s-%s.o", pu.PkgTag, key[:20]))
 		if cacheWritable {
 			if st, statErr := os.Stat(cacheObj); statErr == nil && !st.IsDir() && st.Size() > 0 {

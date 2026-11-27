@@ -495,8 +495,13 @@ bind CustomBox.drop = fn(&self): {
 	}
 }
 
-bind CustomBox.take_label = fn(own self) string:
-	own self.field(comp.fields_of[CustomBox]()[0])
+define MoveBox struct [
+	label: string,
+	count: int,
+]
+
+bind MoveBox.take_label = fn(own self) string:
+	own self.field(comp.fields_of[MoveBox]()[0])
 
 define DropPair struct [
 	a: CustomBox,
@@ -549,10 +554,14 @@ bind main = fn(): {
 	re.field(comp.fields_of[Entry]()[0]) += 23
 	assert(re.id == 123)
 
-	let cbox = CustomBox[label: "box_lbl", drops: unsafe addr_of(drop_cnt)]
-	let taken = cbox.take_label()
-	assert(taken == "box_lbl")
+	{
+		let cbox = CustomBox[label: "box_lbl", drops: unsafe addr_of(drop_cnt)]
+		assert(cbox.label == "box_lbl")
+	}
 	assert(drop_cnt == 1)
+	let mbox = MoveBox[label: "box_lbl", count: 1]
+	let taken = mbox.take_label()
+	assert(taken == "box_lbl")
 
 	// Verify early break mid-collecting comptime for drops ALREADY populated fields (0 & 1) and NOT unpopulated field 2!
 	// Check both enclosing block unwind ('dp_brk <-') and loop break ('for <-').

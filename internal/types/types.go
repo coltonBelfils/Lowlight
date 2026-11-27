@@ -336,6 +336,10 @@ func (a *StackArray) Equals(other Type) bool {
 	if st, ok := other.(*Struct); ok {
 		if (st.Name == "Array" || strings.HasPrefix(st.Name, "Array[")) && len(st.TypeArgs) >= 1 {
 			if len(st.TypeArgs) == 2 {
+				cv, okCV := st.TypeArgs[0].(*ConstValue)
+				if !okCV || cv.Kind != ConstInt || cv.IntVal != a.Size {
+					return false
+				}
 				return a.Elem.Equals(st.TypeArgs[1])
 			}
 			return a.Elem.Equals(st.TypeArgs[0])
@@ -527,6 +531,10 @@ func (s *Struct) Equals(other Type) bool {
 	if arr, ok := other.(*StackArray); ok {
 		if (s.Name == "Array" || strings.HasPrefix(s.Name, "Array[")) && len(s.TypeArgs) >= 1 {
 			if len(s.TypeArgs) == 2 {
+				cv, okCV := s.TypeArgs[0].(*ConstValue)
+				if !okCV || cv.Kind != ConstInt || cv.IntVal != arr.Size {
+					return false
+				}
 				return s.TypeArgs[1].Equals(arr.Elem)
 			}
 			return s.TypeArgs[0].Equals(arr.Elem)
@@ -777,6 +785,16 @@ func findComptimeOnlyRec(t Type, seen map[Type]bool) Type {
 		if v.IsComptimeOnly {
 			return v
 		}
+		for _, m := range v.Methods {
+			for _, p := range m.Params {
+				if hit := findComptimeOnlyRec(p.Type, seen); hit != nil {
+					return hit
+				}
+			}
+			if hit := findComptimeOnlyRec(m.Ret, seen); hit != nil {
+				return hit
+			}
+		}
 	case *Ptr:
 		return findComptimeOnlyRec(v.Elem, seen)
 	case *Ref:
@@ -822,6 +840,17 @@ func UnderlyingPrimitive(t Type) *Primitive {
 		default:
 			return nil
 		}
+	}
+}
+
+// UnwrapDistinct unwraps nested Distinct types to the underlying type.
+func UnwrapDistinct(t Type) Type {
+	for {
+		if d, ok := t.(*Distinct); ok {
+			t = d.Base
+			continue
+		}
+		return t
 	}
 }
 

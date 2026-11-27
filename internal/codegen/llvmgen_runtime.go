@@ -68,6 +68,8 @@ func CanHashType(prog *ir.Program, t types.Type) bool {
 		return v.IsInteger() || v.Kind == types.PrimBool || v.Kind == types.PrimChar || v.Kind == types.PrimString
 	case *types.Ptr:
 		return true
+	case *types.Enum:
+		return !v.IsTagged
 	case *types.Distinct:
 		return CanHashType(prog, v.Base)
 	}
@@ -198,6 +200,7 @@ func (g *llvmEmitter) emitRuntimeAndDeclarations() {
 	if tgt.IsUnix {
 		decls = append(decls,
 			struct{ name, sig string }{"clock_gettime", "declare i32 @clock_gettime(i32, ptr)"},
+			struct{ name, sig string }{"fcntl", "declare i32 @fcntl(i32, i32, ...)"},
 			struct{ name, sig string }{"setsockopt", "declare i32 @setsockopt(i32, i32, i32, ptr, i32)"},
 			struct{ name, sig string }{"dlopen", "declare ptr @dlopen(ptr, i32)"},
 			struct{ name, sig string }{"dlsym", "declare ptr @dlsym(ptr, ptr)"},
@@ -212,6 +215,9 @@ func (g *llvmEmitter) emitRuntimeAndDeclarations() {
 	if len(g.prog.ExternFuncs) > 0 {
 		g.line("; User Declared Extern Functions")
 		for _, ef := range g.prog.ExternFuncs {
+			if strings.HasPrefix(ef.Name, "ll_rt_") {
+				continue
+			}
 			var paramTypes []string
 			for _, p := range ef.Sig.Params {
 				paramTypes = append(paramTypes, g.llvmType(p.Type))
@@ -287,6 +293,21 @@ entry:
     ret ptr %p
 }`)
 	}
+	g.line("")
+	if tgt.IsUnix {
+		g.raw(`define internal i32 @ll_rt_fcntl(i32 %fd, i32 %cmd, i32 %arg) {
+entry:
+    %r = call i32 (i32, i32, ...) @fcntl(i32 %fd, i32 %cmd, i32 %arg)
+    ret i32 %r
+}`)
+	} else {
+		g.raw(`define internal i32 @ll_rt_fcntl(i32 %fd, i32 %cmd, i32 %arg) {
+entry:
+    ret i32 -1
+}`)
+	}
+	g.funcSet["ll_rt_fcntl"] = true
+	g.declaredFns["ll_rt_fcntl"] = true
 	g.line("")
 
 	emptySym := g.internString("").symbol
@@ -842,9 +863,15 @@ loop_cond:
     %%more = icmp slt i64 %%cur_cap, %%needed
     br i1 %%more, label %%loop_body, label %%loop_end
 loop_body:
+    %%cap_big = icmp sge i64 %%cur_cap, 4611686018427387904
+    br i1 %%cap_big, label %%cap_clamp, label %%cap_double
+cap_double:
     %%dbl = mul i64 %%cur_cap, 2
     store i64 %%dbl, ptr %%ncap_slot, align 8
     br label %%loop_cond
+cap_clamp:
+    store i64 %%needed, ptr %%ncap_slot, align 8
+    br label %%loop_end
 loop_end:
     %%new_cap = load i64, ptr %%ncap_slot, align 8
     %%data = load ptr, ptr %%p_data, align 8
@@ -884,15 +911,31 @@ entry:
     %%empty = icmp sle i64 %%slen, 0
     br i1 %%empty, label %%done, label %%do_push
 do_push:
+    %%p_data0 = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 0
     %%p_len = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 1
+    %%p_cap0 = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 2
+    %%old_data = load ptr, ptr %%p_data0, align 8
     %%len = load i64, ptr %%p_len, align 8
+    %%old_cap = load i64, ptr %%p_cap0, align 8
+    %%has_old_cap = icmp sgt i64 %%old_cap, 0
+    %%span_len = select i1 %%has_old_cap, i64 %%old_cap, i64 %%len
+    %%old_int = ptrtoint ptr %%old_data to i64
+    %%s_int = ptrtoint ptr %%sdata to i64
+    %%old_end = add i64 %%old_int, %%span_len
+    %%old_nn = icmp ne ptr %%old_data, null
+    %%in_lo = icmp uge i64 %%s_int, %%old_int
+    %%in_hi = icmp ult i64 %%s_int, %%old_end
+    %%in_range = and i1 %%in_lo, %%in_hi
+    %%aliased = and i1 %%old_nn, %%in_range
+    %%alias_off = sub i64 %%s_int, %%old_int
     %%new_len = add i64 %%len, %%slen
     %%needed = add i64 %%new_len, 1
     call void @ll_str_ensure_owned_cap(ptr %%s, i64 %%needed)
-    %%p_data = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 0
-    %%data = load ptr, ptr %%p_data, align 8
+    %%data = load ptr, ptr %%p_data0, align 8
+    %%rebased_src = getelementptr inbounds i8, ptr %%data, i64 %%alias_off
+    %%src_ptr = select i1 %%aliased, ptr %%rebased_src, ptr %%sdata
     %%dst = getelementptr inbounds i8, ptr %%data, i64 %%len
-` + g.cCallWithSize("call ptr @memmove(ptr %%dst, ptr %%sdata, ", "slen", ")") + `
+` + g.cCallWithSize("call ptr @memmove(ptr %%dst, ptr %%src_ptr, ", "slen", ")") + `
     store i64 %%new_len, ptr %%p_len, align 8
     %%term = getelementptr inbounds i8, ptr %%data, i64 %%new_len
     store i8 0, ptr %%term, align 1
@@ -925,15 +968,31 @@ entry:
     %%skip = or i1 %%c1, %%c2
     br i1 %%skip, label %%done, label %%do_push
 do_push:
+    %%p_data0 = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 0
     %%p_len = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 1
+    %%p_cap0 = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 2
+    %%old_data = load ptr, ptr %%p_data0, align 8
     %%len = load i64, ptr %%p_len, align 8
+    %%old_cap = load i64, ptr %%p_cap0, align 8
+    %%has_old_cap = icmp sgt i64 %%old_cap, 0
+    %%span_len = select i1 %%has_old_cap, i64 %%old_cap, i64 %%len
+    %%old_int = ptrtoint ptr %%old_data to i64
+    %%b_int = ptrtoint ptr %%bytes to i64
+    %%old_end = add i64 %%old_int, %%span_len
+    %%old_nn = icmp ne ptr %%old_data, null
+    %%in_lo = icmp uge i64 %%b_int, %%old_int
+    %%in_hi = icmp ult i64 %%b_int, %%old_end
+    %%in_range = and i1 %%in_lo, %%in_hi
+    %%aliased = and i1 %%old_nn, %%in_range
+    %%alias_off = sub i64 %%b_int, %%old_int
     %%new_len = add i64 %%len, %%count
     %%needed = add i64 %%new_len, 1
     call void @ll_str_ensure_owned_cap(ptr %%s, i64 %%needed)
-    %%p_data = getelementptr inbounds %%struct.ll_string, ptr %%s, i32 0, i32 0
-    %%data = load ptr, ptr %%p_data, align 8
+    %%data = load ptr, ptr %%p_data0, align 8
+    %%rebased_src = getelementptr inbounds i8, ptr %%data, i64 %%alias_off
+    %%src_ptr = select i1 %%aliased, ptr %%rebased_src, ptr %%bytes
     %%dst = getelementptr inbounds i8, ptr %%data, i64 %%len
-` + g.cCallWithSize("call ptr @memmove(ptr %%dst, ptr %%bytes, ", "count", ")") + `
+` + g.cCallWithSize("call ptr @memmove(ptr %%dst, ptr %%src_ptr, ", "count", ")") + `
     store i64 %%new_len, ptr %%p_len, align 8
     %%term = getelementptr inbounds i8, ptr %%data, i64 %%new_len
     store i8 0, ptr %%term, align 1
@@ -2016,6 +2075,27 @@ func (g *llvmEmitter) emitValueCopyInline(dstPtr, srcPtr string, t types.Type) {
 		g.indentLine(1, "store %s %s, ptr %s, align %d", tyStr, r, dstPtr, al)
 		return
 	}
+	if d, isDist := t.(*types.Distinct); isDist {
+		g.emitValueCopyInline(dstPtr, srcPtr, d.Base)
+		return
+	}
+	switch v := t.(type) {
+	case *types.Primitive:
+		if v.Kind != types.PrimString {
+			panic(fmt.Sprintf("ICE: no LLVM copy implementation for %s", t.String()))
+		}
+	case *types.Vector, *types.StackArray:
+	case *types.Interface:
+		if v.UsesSelf {
+			panic(fmt.Sprintf("ICE: cannot copy Self-using interface %s", t.String()))
+		}
+	case *types.Func:
+		if !v.Closure {
+			panic(fmt.Sprintf("ICE: non-closure func %s is plain", t.String()))
+		}
+	default:
+		panic(fmt.Sprintf("ICE: no LLVM copy implementation for %s", t.String()))
+	}
 	fn := "ll_copy_p__" + t.Mangled()
 	g.declareHelper(fn, "void", "ptr, ptr")
 	g.indentLine(1, "call void @%s(ptr %s, ptr %s)", fn, dstPtr, srcPtr)
@@ -2069,11 +2149,26 @@ func (g *llvmEmitter) emitValueCmpInline(ptrA, ptrB string, t types.Type) string
 	if d, isDist := t.(*types.Distinct); isDist {
 		return g.emitValueCmpInline(ptrA, ptrB, d.Base)
 	}
-	fn := "ll_cmp_p__" + t.Mangled()
-	g.declareHelper(fn, "i64", "ptr, ptr")
-	r := g.newReg()
-	g.indentLine(1, "%s = call i64 @%s(ptr %s, ptr %s)", r, fn, ptrA, ptrB)
-	return r
+	if en, isEn := t.(*types.Enum); isEn && !en.IsTagged {
+		tyStr := g.llvmType(en)
+		al := g.typeAlign(en)
+		a := g.newReg()
+		b := g.newReg()
+		lt := g.newReg()
+		gt := g.newReg()
+		extLt := g.newReg()
+		extGt := g.newReg()
+		diff := g.newReg()
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", a, tyStr, ptrA, al)
+		g.indentLine(1, "%s = load %s, ptr %s, align %d", b, tyStr, ptrB, al)
+		g.indentLine(1, "%s = icmp slt %s %s, %s", lt, tyStr, a, b)
+		g.indentLine(1, "%s = icmp sgt %s %s, %s", gt, tyStr, a, b)
+		g.indentLine(1, "%s = zext i1 %s to i64", extLt, lt)
+		g.indentLine(1, "%s = zext i1 %s to i64", extGt, gt)
+		g.indentLine(1, "%s = sub i64 %s, %s", diff, extGt, extLt)
+		return diff
+	}
+	panic(fmt.Sprintf("ICE: no LLVM cmp implementation for %s", t.String()))
 }
 
 func (g *llvmEmitter) emitValueEqInline(ptrA, ptrB string, t types.Type) string {
@@ -2118,6 +2213,21 @@ func (g *llvmEmitter) emitValueEqInline(ptrA, ptrB string, t types.Type) string 
 		g.indentLine(1, "%s = call i64 @%s(%s %s, %s %s)", c, customCmp.CName, tyStr, a, tyStr, b)
 		g.indentLine(1, "%s = icmp eq i64 %s, 0", r, c)
 		return r
+	}
+	if d, isDist := t.(*types.Distinct); isDist {
+		return g.emitValueEqInline(ptrA, ptrB, d.Base)
+	}
+	switch v := t.(type) {
+	case *types.Primitive:
+		if v.Kind == types.PrimVoid || v.Kind == types.PrimNever {
+			panic(fmt.Sprintf("ICE: no LLVM eq implementation for %s", t.String()))
+		}
+	case *types.Enum:
+		if v.IsTagged {
+			panic(fmt.Sprintf("ICE: no LLVM eq implementation for tagged enum %s", t.String()))
+		}
+	default:
+		panic(fmt.Sprintf("ICE: no LLVM eq implementation for %s", t.String()))
 	}
 	fn := "ll_eq_p__" + t.Mangled()
 	g.declareHelper(fn, "i1", "ptr, ptr")
@@ -2164,6 +2274,21 @@ func (g *llvmEmitter) emitValueHashInline(ptrVal string, t types.Type) string {
 		g.indentLine(1, "%s = call i64 @%s(%s %s)", r, custom.CName, tyStr, v)
 		return r
 	}
+	if d, isDist := t.(*types.Distinct); isDist {
+		return g.emitValueHashInline(ptrVal, d.Base)
+	}
+	switch v := t.(type) {
+	case *types.Primitive:
+		if !v.IsInteger() && v.Kind != types.PrimBool && v.Kind != types.PrimChar && v.Kind != types.PrimString {
+			panic(fmt.Sprintf("ICE: no LLVM hash implementation for %s", t.String()))
+		}
+	case *types.Enum:
+		if v.IsTagged {
+			panic(fmt.Sprintf("ICE: no LLVM hash implementation for tagged enum %s", t.String()))
+		}
+	default:
+		panic(fmt.Sprintf("ICE: no LLVM hash implementation for %s", t.String()))
+	}
 	fn := "ll_hash_p__" + t.Mangled()
 	g.declareHelper(fn, "i64", "ptr")
 	r := g.newReg()
@@ -2193,6 +2318,27 @@ func (g *llvmEmitter) emitValueToStrInline(outStrPtr, valPtr string, t types.Typ
 		g.indentLine(1, "%s = call %%struct.ll_string @%s(%s %s)", s, custom.CName, tyStr, v)
 		g.indentLine(1, "store %%struct.ll_string %s, ptr %s, align 8", s, outStrPtr)
 		return
+	}
+	if d, isDist := t.(*types.Distinct); isDist {
+		g.emitValueToStrInline(outStrPtr, valPtr, d.Base)
+		return
+	}
+	switch v := t.(type) {
+	case *types.Primitive:
+		if v.Kind == types.PrimVoid || v.Kind == types.PrimNever {
+			panic(fmt.Sprintf("ICE: no LLVM to_string implementation for %s", t.String()))
+		}
+	case *types.Vector, *types.StackArray:
+	case *types.Enum:
+		if v.IsTagged {
+			panic(fmt.Sprintf("ICE: no LLVM to_string implementation for tagged enum %s", t.String()))
+		}
+	case *types.Interface:
+		if g.prog.Checked == nil || v != g.prog.Checked.IfacePrintable {
+			panic(fmt.Sprintf("ICE: no LLVM to_string implementation for %s", t.String()))
+		}
+	default:
+		panic(fmt.Sprintf("ICE: no LLVM to_string implementation for %s", t.String()))
 	}
 	fn := "ll_tostr_p__" + t.Mangled()
 	g.declareHelper(fn, "void", "ptr, ptr")
@@ -2752,12 +2898,15 @@ func (g *llvmEmitter) emitTaggedEnumHelpersLLVM(en *types.Enum) {
 	g.indentLine(1, "%%is_null = icmp eq ptr %%p, null")
 	g.indentLine(1, "br i1 %%is_null, label %%done, label %%do_drop")
 	g.line("do_drop:")
+	g.indentLine(1, "%%p_tag = getelementptr inbounds %s, ptr %%p, i32 0, i32 0", tyStr)
+	g.indentLine(1, "%%tag = load i32, ptr %%p_tag, align 4")
+	g.indentLine(1, "%%tag_zero = icmp eq i32 %%tag, 0")
+	g.indentLine(1, "br i1 %%tag_zero, label %%done, label %%drop_live")
+	g.line("drop_live:")
 	if customDrop := g.prog.Checked.LookupConcreteMethod(en, "drop"); customDrop != nil {
 		g.indentLine(1, "call void @%s(ptr %%p)", customDrop.CName)
 	}
-	g.indentLine(1, "%%p_tag = getelementptr inbounds %s, ptr %%p, i32 0, i32 0", tyStr)
 	g.indentLine(1, "%%p_data = getelementptr inbounds %s, ptr %%p, i32 0, i32 1", tyStr)
-	g.indentLine(1, "%%tag = load i32, ptr %%p_tag, align 4")
 	for i, vr := range en.Variants {
 		chkLbl := fmt.Sprintf("drop.chk.%d", i)
 		hitLbl := fmt.Sprintf("drop.hit.%d", i)
@@ -3369,11 +3518,14 @@ func (g *llvmEmitter) emitVectorMethodsLLVM(vec *types.Vector) {
 		g.indentLine(1, "%%ni = add i64 %%i, 1")
 		g.indentLine(1, "store i64 %%ni, ptr %%idx, align 8")
 		g.indentLine(1, "br label %%vc_cond")
-	} else {
+	} else if elem.IsPlain() {
 		g.indentLine(1, "%%cp_p = getelementptr %s, ptr null, i64 %%len", elemTyStr)
 		g.indentLine(1, "%%cp_bytes = ptrtoint ptr %%cp_p to i64")
 		g.indentLine(1, "call void @llvm.memcpy.p0.p0.i64(ptr %%nd, ptr %%data, i64 %%cp_bytes, i1 false)")
 		g.indentLine(1, "br label %%view_done")
+	} else {
+		g.indentLine(1, "call void @ll_panic_cstr(ptr %s, ptr %s, i32 0)", sliceOobSym, sliceOobSym)
+		g.indentLine(1, "unreachable")
 	}
 	g.line("view_done:")
 	g.indentLine(1, "store ptr %%nd, ptr %%p_data, align 8")
@@ -3383,9 +3535,17 @@ func (g *llvmEmitter) emitVectorMethodsLLVM(vec *types.Vector) {
 	g.indentLine(1, "%%need_grow = icmp slt i64 %%cap, %%min_cap")
 	g.indentLine(1, "br i1 %%need_grow, label %%do_grow, label %%done")
 	g.line("do_grow:")
+	g.indentLine(1, "%%cap_big = icmp sge i64 %%cap, 4611686018427387904")
+	g.indentLine(1, "br i1 %%cap_big, label %%grow_clamp, label %%grow_dbl")
+	g.line("grow_dbl:")
 	g.indentLine(1, "%%c2 = mul i64 %%cap, 2")
 	g.indentLine(1, "%%lt_min = icmp slt i64 %%c2, %%min_cap")
-	g.indentLine(1, "%%gcap = select i1 %%lt_min, i64 %%min_cap, i64 %%c2")
+	g.indentLine(1, "%%gcap_dbl = select i1 %%lt_min, i64 %%min_cap, i64 %%c2")
+	g.indentLine(1, "br label %%grow_alloc")
+	g.line("grow_clamp:")
+	g.indentLine(1, "br label %%grow_alloc")
+	g.line("grow_alloc:")
+	g.indentLine(1, "%%gcap = phi i64 [ %%gcap_dbl, %%grow_dbl ], [ %%min_cap, %%grow_clamp ]")
 	g.indentLine(1, "%%gsz_p = getelementptr %s, ptr null, i64 %%gcap", elemTyStr)
 	g.indentLine(1, "%%gtot = ptrtoint ptr %%gsz_p to i64")
 	g.indentLine(1, "%%gnd = call ptr @ll_realloc(ptr %%data, i64 %%gtot)")

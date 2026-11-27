@@ -73,11 +73,18 @@ func (fl *funcLowerer) hashCallExpr(t types.Type, v Expr) Expr {
 	case *types.Distinct:
 		return fl.hashCallExpr(tv.Base, &ExprCast{Val: EnsureExpr(v, t), From: t, To: tv.Base})
 	case *types.Enum:
+		if tv.IsTagged {
+			panic(fmt.Sprintf("ICE: tagged enum %s has no hash implementation in hashCallExpr", t.String()))
+		}
 		return fl.hashCallExpr(types.TypeInt, &ExprCast{Val: EnsureExpr(v, t), From: t, To: types.TypeInt})
 	case *types.Ptr:
 		return fl.hashCallExpr(types.TypeU64, &ExprCast{Val: EnsureExpr(v, t), From: t, To: types.TypeU64})
+	case *types.Primitive:
+		if tv.IsInteger() || tv.Kind == types.PrimBool || tv.Kind == types.PrimChar || tv.Kind == types.PrimString {
+			return &ExprHash{Val: EnsureExpr(v, t), ValType: t}
+		}
 	}
-	return &ExprHash{Val: EnsureExpr(v, t), ValType: t}
+	panic(fmt.Sprintf("ICE: type %s has no hash implementation in hashCallExpr", t.String()))
 }
 
 // strPush appends a string to the string at strPtr with the native `string.push`.

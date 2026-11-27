@@ -280,74 +280,88 @@ func (idx *SymbolIndex) ValidateLinks(targetMods map[string]bool) []BrokenLink {
 		}
 		checkText(p, modLine, ModuleDisplayName(idx.RootDir, p), "", nil, f.Doc)
 
-		for _, d := range f.Decls {
-			switch v := d.(type) {
-			case *ast.StructDecl:
-				if isPrivateOrTestOnly(v.Name, v.Attributes) {
-					continue
-				}
-				tps := tpSet(v.TypeParams, "Self")
-				line := v.Span.Start.Line
-				if v.DocSpan.Start.Line > 0 {
-					line = v.DocSpan.Start.Line
-				}
-				checkText(p, line, v.Name, v.Name, tps, v.Doc)
-				for _, fld := range v.Fields {
-					if !strings.HasPrefix(fld.Name, "_") {
-						checkText(p, fld.Span.Start.Line, v.Name+"."+fld.Name, v.Name, tps, fld.Doc)
+		var walkDecls func(decls []ast.Decl)
+		walkDecls = func(decls []ast.Decl) {
+			for _, d := range decls {
+				switch v := d.(type) {
+				case *ast.StructDecl:
+					if isPrivateOrTestOnly(v.Name, v.Attributes) {
+						continue
 					}
+					tps := tpSet(v.TypeParams, "Self")
+					line := v.Span.Start.Line
+					if v.DocSpan.Start.Line > 0 {
+						line = v.DocSpan.Start.Line
+					}
+					checkText(p, line, v.Name, v.Name, tps, v.Doc)
+					for _, fld := range v.Fields {
+						if !strings.HasPrefix(fld.Name, "_") {
+							checkText(p, fld.Span.Start.Line, v.Name+"."+fld.Name, v.Name, tps, fld.Doc)
+						}
+					}
+				case *ast.EnumDecl:
+					if isPrivateOrTestOnly(v.Name, v.Attributes) {
+						continue
+					}
+					tps := tpSet(v.TypeParams, "Self")
+					line := v.Span.Start.Line
+					if v.DocSpan.Start.Line > 0 {
+						line = v.DocSpan.Start.Line
+					}
+					checkText(p, line, v.Name, v.Name, tps, v.Doc)
+					for _, ev := range v.Variants {
+						checkText(p, ev.Span.Start.Line, v.Name+"."+ev.Name, v.Name, tps, ev.Doc)
+					}
+				case *ast.InterfaceDecl:
+					if isPrivateOrTestOnly(v.Name, v.Attributes) {
+						continue
+					}
+					tps := tpSet(v.TypeParams, "Self")
+					line := v.Span.Start.Line
+					if v.DocSpan.Start.Line > 0 {
+						line = v.DocSpan.Start.Line
+					}
+					checkText(p, line, v.Name, v.Name, tps, v.Doc)
+					for _, m := range v.Methods {
+						checkText(p, m.Span.Start.Line, v.Name+"."+m.Name, v.Name, tps, m.Doc)
+					}
+				case *ast.DistinctTypeDecl:
+					if isPrivateOrTestOnly(v.Name, v.Attributes) {
+						continue
+					}
+					line := v.Span.Start.Line
+					if v.DocSpan.Start.Line > 0 {
+						line = v.DocSpan.Start.Line
+					}
+					checkText(p, line, v.Name, v.Name, map[string]bool{"Self": true}, v.Doc)
+				case *ast.ExternFnDecl:
+					if isPrivateOrTestOnly(v.Name, v.Attributes) {
+						continue
+					}
+					checkText(p, v.Span.Start.Line, v.Name, "", nil, v.Doc)
+				case *ast.MethodDecl:
+					if isPrivateOrTestOnly(v.Name, v.Attributes) || strings.HasPrefix(v.RecvType, "_") {
+						continue
+					}
+					tps := tpSet(v.TypeParams, v.RecvTypeParams...)
+					tps["Self"] = true
+					checkText(p, v.Span.Start.Line, v.RecvType+"."+v.Name, v.RecvType, tps, v.Doc)
+				case *ast.VarDecl:
+					if (!v.IsBind && !v.IsConst) || isPrivateOrTestOnly(v.Name, v.Attributes) {
+						continue
+					}
+					tps := tpSet(v.TypeParams)
+					checkText(p, v.Span.Start.Line, v.Name, "", tps, v.Doc)
+				case *ast.TopComptimeIfDecl:
+					walkDecls(v.ThenDecls)
+					if v.ElseIf != nil {
+						walkDecls([]ast.Decl{v.ElseIf})
+					}
+					walkDecls(v.ElseDecls)
 				}
-			case *ast.EnumDecl:
-				if isPrivateOrTestOnly(v.Name, v.Attributes) {
-					continue
-				}
-				tps := tpSet(v.TypeParams, "Self")
-				line := v.Span.Start.Line
-				if v.DocSpan.Start.Line > 0 {
-					line = v.DocSpan.Start.Line
-				}
-				checkText(p, line, v.Name, v.Name, tps, v.Doc)
-				for _, ev := range v.Variants {
-					checkText(p, ev.Span.Start.Line, v.Name+"."+ev.Name, v.Name, tps, ev.Doc)
-				}
-			case *ast.InterfaceDecl:
-				if isPrivateOrTestOnly(v.Name, v.Attributes) {
-					continue
-				}
-				tps := tpSet(v.TypeParams, "Self")
-				line := v.Span.Start.Line
-				if v.DocSpan.Start.Line > 0 {
-					line = v.DocSpan.Start.Line
-				}
-				checkText(p, line, v.Name, v.Name, tps, v.Doc)
-				for _, m := range v.Methods {
-					checkText(p, m.Span.Start.Line, v.Name+"."+m.Name, v.Name, tps, m.Doc)
-				}
-			case *ast.DistinctTypeDecl:
-				if isPrivateOrTestOnly(v.Name, v.Attributes) {
-					continue
-				}
-				checkText(p, v.Span.Start.Line, v.Name, v.Name, map[string]bool{"Self": true}, v.Doc)
-			case *ast.ExternFnDecl:
-				if isPrivateOrTestOnly(v.Name, v.Attributes) {
-					continue
-				}
-				checkText(p, v.Span.Start.Line, v.Name, "", nil, v.Doc)
-			case *ast.MethodDecl:
-				if isPrivateOrTestOnly(v.Name, v.Attributes) || strings.HasPrefix(v.RecvType, "_") {
-					continue
-				}
-				tps := tpSet(v.TypeParams, v.RecvTypeParams...)
-				tps["Self"] = true
-				checkText(p, v.Span.Start.Line, v.RecvType+"."+v.Name, v.RecvType, tps, v.Doc)
-			case *ast.VarDecl:
-				if !v.IsBind || isPrivateOrTestOnly(v.Name, v.Attributes) {
-					continue
-				}
-				tps := tpSet(v.TypeParams)
-				checkText(p, v.Span.Start.Line, v.Name, "", tps, v.Doc)
 			}
 		}
+		walkDecls(f.Decls)
 	}
 	return broken
 }

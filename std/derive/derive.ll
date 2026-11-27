@@ -41,8 +41,10 @@ const eq[T] = fn(a: T, b: T) bool: {
 			}
 		}
 		false
+	} else comptime if(comp.kind_of[T]() == comp.TypeKind.distinct_kind): {
+		a.underlying() == b.underlying()
 	} else: {
-		comp.compile_error("`@derive(Equatable)` is only supported on structs and enums")
+		comp.compile_error("`@derive(Equatable)` is only supported on structs, enums, and distinct types")
 	}
 }
 
@@ -77,8 +79,12 @@ const cmp[T] = fn(a: T, b: T) int: {
 			}
 		}
 		0
+	} else comptime if(comp.kind_of[T]() == comp.TypeKind.distinct_kind): {
+		if(a.underlying() < b.underlying()): func <- -1
+		if(a.underlying() > b.underlying()): func <- 1
+		0
 	} else: {
-		comp.compile_error("`@derive(Comparable)` is only supported on structs and enums")
+		comp.compile_error("`@derive(Comparable)` is only supported on structs, enums, and distinct types")
 	}
 }
 
@@ -102,8 +108,10 @@ const hash[T] = fn(v: T) u64: {
 			}
 		}
 		h
+	} else comptime if(comp.kind_of[T]() == comp.TypeKind.distinct_kind): {
+		v.underlying().hash()
 	} else: {
-		comp.compile_error("`@derive(Hashable)` is only supported on structs and enums")
+		comp.compile_error("`@derive(Hashable)` is only supported on structs, enums, and distinct types")
 	}
 }
 
@@ -138,8 +146,10 @@ const copy[T] = fn(v: T) T: {
 				make_variant[T](comp.variants_of[T]()[comp.variants_of[T]().len() - 1])
 			}
 		}
+	} else comptime if(comp.kind_of[T]() == comp.TypeKind.distinct_kind): {
+		T(v.underlying().copy())
 	} else: {
-		comp.compile_error("`@derive(Copyable)` is only supported on structs and enums")
+		comp.compile_error("`@derive(Copyable)` is only supported on structs, enums, and distinct types")
 	}
 }
 
@@ -183,7 +193,9 @@ const to_string[T] = fn(v: T) string: {
 			}
 		}
 		base
+	} else comptime if(comp.kind_of[T]() == comp.TypeKind.distinct_kind): {
+		"${base}(${v.underlying().to_string()})"
 	} else: {
-		comp.compile_error("`@derive(Printable)` is only supported on structs and enums")
+		comp.compile_error("`@derive(Printable)` is only supported on structs, enums, and distinct types")
 	}
 }
